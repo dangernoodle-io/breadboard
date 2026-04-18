@@ -1,5 +1,5 @@
 #include "wifi_prov.h"
-#include "bsp_nv_config.h"
+#include "nv_config.h"
 #include "wifi_reconn.h"
 #include <string.h>
 #include "esp_wifi.h"
