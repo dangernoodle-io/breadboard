@@ -1,6 +1,12 @@
 # Target configuration
 CONFIG_IDF_TARGET="esp32p4"
 
+# ESP32-P4 silicon revision — this board has v1.3 (ECO2), NOT production rev-3.0.1+
+# pioarduino's espidf.py would inject these for chip_variant=esp32p4_es but its
+# write_sdkconfig_file early-returns on pure espidf framework. Set explicitly.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_1=y
+
 # Flash configuration
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
