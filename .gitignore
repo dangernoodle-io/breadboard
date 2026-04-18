@@ -1,0 +1,18 @@
+# Build artifacts
+build/
+.pio/
+managed_components/
+dependencies.lock
+sdkconfig
+sdkconfig.old
+*.o
+*.d
+*.bin
+*.elf
+*.map
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
