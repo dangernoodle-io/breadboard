@@ -1,0 +1,245 @@
+#include "nv_config.h"
+#include <string.h>
+
+#ifndef BSP_NV_CONFIG_NAMESPACE
+#define BSP_NV_CONFIG_NAMESPACE "bsp_cfg"
+#endif
+
+static struct {
+    char wifi_ssid[32];
+    char wifi_pass[64];
+    uint8_t display_en;
+} s_config;
+
+// Helper to load a string from NVS with fallback (ESP only)
+#ifdef ESP_PLATFORM
+#include "nvs_flash.h"
+#include "nvs.h"
+#include "esp_log.h"
+static const char *TAG = "nv_config";
+
+static void load_str(nvs_handle_t handle, const char *key, char *buf, size_t buf_size, const char *fallback)
+{
+    size_t len = buf_size;
+    if (nvs_get_str(handle, key, buf, &len) != ESP_OK) {
+        strlcpy(buf, fallback, buf_size);
+    }
+}
+#endif
+
+bsp_err_t bsp_nv_config_init(void)
+{
+#ifdef ESP_PLATFORM
+    nvs_handle_t handle;
+    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle);
+
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(TAG, "no config in NVS");
+        memset(&s_config, 0, sizeof(s_config));
+        s_config.display_en = 1;  // default: display on
+        return ESP_OK;
+    }
+
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    load_str(handle, "wifi_ssid", s_config.wifi_ssid, sizeof(s_config.wifi_ssid), "");
+    load_str(handle, "wifi_pass", s_config.wifi_pass, sizeof(s_config.wifi_pass), "");
+
+    if (nvs_get_u8(handle, "display_en", &s_config.display_en) != ESP_OK) {
+        s_config.display_en = 1;  // default: display on
+    }
+
+    nvs_close(handle);
+
+    ESP_LOGI(TAG, "config loaded");
+#else
+    // Native build: no NVS, all fields empty/zero
+    memset(&s_config, 0, sizeof(s_config));
+    s_config.display_en = 1;
+#endif
+    return ESP_OK;
+}
+
+#ifdef ESP_PLATFORM
+bool bsp_nv_config_is_provisioned(void)
+{
+    nvs_handle_t handle;
+    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle);
+
+    if (err != ESP_OK) {
+        return false;
+    }
+
+    uint8_t value = 0;
+    err = nvs_get_u8(handle, "provisioned", &value);
+    nvs_close(handle);
+
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return false;
+    }
+
+    return value == 1;
+}
+
+bsp_err_t bsp_nv_config_set_provisioned(void)
+{
+    nvs_handle_t handle;
+    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_set_u8(handle, "provisioned", 1);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    return err;
+}
+
+bsp_err_t bsp_nv_config_set_wifi(const char *ssid, const char *pass)
+{
+    nvs_handle_t handle;
+    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_set_str(handle, "wifi_ssid", ssid);
+    if (err == ESP_OK) {
+        err = nvs_set_str(handle, "wifi_pass", pass);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    if (err == ESP_OK) {
+        strncpy(s_config.wifi_ssid, ssid, sizeof(s_config.wifi_ssid) - 1);
+        s_config.wifi_ssid[sizeof(s_config.wifi_ssid) - 1] = '\0';
+        strncpy(s_config.wifi_pass, pass, sizeof(s_config.wifi_pass) - 1);
+        s_config.wifi_pass[sizeof(s_config.wifi_pass) - 1] = '\0';
+    }
+
+    return err;
+}
+
+bsp_err_t bsp_nv_config_set_display_enabled(bool en)
+{
+    nvs_handle_t handle;
+    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_set_u8(handle, "display_en", en ? 1 : 0);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    if (err == ESP_OK) {
+        s_config.display_en = en ? 1 : 0;
+    }
+
+    return err;
+}
+
+bsp_err_t bsp_nv_config_clear_provisioned(void)
+{
+    nvs_handle_t handle;
+    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    err = nvs_erase_key(handle, "provisioned");
+    if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+    if (err == ESP_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
+
+bsp_err_t bsp_nv_config_clear_wifi(void)
+{
+    nvs_handle_t handle;
+    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    err = nvs_erase_key(handle, "wifi_ssid");
+    if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+    if (err == ESP_OK) {
+        err = nvs_erase_key(handle, "wifi_pass");
+        if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+    }
+    if (err == ESP_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    if (err == ESP_OK) {
+        s_config.wifi_ssid[0] = '\0';
+        s_config.wifi_pass[0] = '\0';
+    }
+    return err;
+}
+
+uint8_t bsp_nv_config_boot_count(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) return 0;
+    uint8_t val = 0;
+    nvs_get_u8(handle, "boot_cnt", &val);
+    nvs_close(handle);
+    return val;
+}
+
+bsp_err_t bsp_nv_config_increment_boot_count(void)
+{
+    nvs_handle_t handle;
+    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    uint8_t val = 0;
+    nvs_get_u8(handle, "boot_cnt", &val);
+    if (val < UINT8_MAX) val++;
+    err = nvs_set_u8(handle, "boot_cnt", val);
+    if (err == ESP_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
+
+bsp_err_t bsp_nv_config_reset_boot_count(void)
+{
+    nvs_handle_t handle;
+    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(handle, "boot_cnt", 0);
+    if (err == ESP_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
+
+bool bsp_nv_config_ota_skip_check(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) return false;
+    uint8_t val = 0;
+    nvs_get_u8(handle, "ota_skip", &val);
+    nvs_close(handle);
+    return val != 0;
+}
+
+bsp_err_t bsp_nv_config_set_ota_skip_check(bool skip)
+{
+    nvs_handle_t handle;
+    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(handle, "ota_skip", skip ? 1 : 0);
+    if (err == ESP_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
+#endif
+
+const char *bsp_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }
+const char *bsp_nv_config_wifi_pass(void) { return s_config.wifi_pass; }
+bool bsp_nv_config_display_enabled(void) { return s_config.display_en != 0; }
