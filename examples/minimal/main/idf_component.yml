@@ -1,0 +1,4 @@
+dependencies:
+  espressif/esp_wifi_remote: "*"
+  espressif/esp-hosted: "*"
+  espressif/esp_lcd_ek79007: "~1.0.4"
