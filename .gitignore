@@ -5,6 +5,11 @@ managed_components/
 dependencies.lock
 sdkconfig
 sdkconfig.old
+sdkconfig.*
+!sdkconfig.defaults
+
+# Tooling caches
+.code-graph/
 *.o
 *.d
 *.bin
