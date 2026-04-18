@@ -1,4 +1,5 @@
 dependencies:
-  espressif/esp_wifi_remote: "*"
-  espressif/esp-hosted: "*"
+  espressif/esp_wifi_remote: "~1.5.1"
+  espressif/esp_hosted: "~2.12.3"
   espressif/esp_lcd_ek79007: "~1.0.4"
+  espressif/mdns: "~1.11.0"
