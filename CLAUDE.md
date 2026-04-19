@@ -15,6 +15,10 @@ Public headers must not include `esp_*.h` or `freertos/*.h` outside `#ifdef ESP_
 - Components under `components/<name>/`.
 - Platform-specific impl under `platform/espidf/` (currently the only backend).
 
+## Provisioning UI
+
+The `http_server` component does NOT ship a provisioning UI. Consumers must register `GET /` (and any static assets) via the `prov_ui_routes_fn` callback to `bsp_http_server_start_prov`. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
+
 ## Workspace conventions
 
 Workspace-level conventions (git, testing, docs) live in `/Users/jae/Projects/dangernoodle/CLAUDE.md`.

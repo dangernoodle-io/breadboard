@@ -27,8 +27,10 @@ bsp_prov_parse_result_t bsp_prov_parse_body(
 // Callback to register app-specific routes after provisioning/on normal boot
 typedef esp_err_t (*bsp_http_app_routes_fn)(httpd_handle_t server);
 
-// Start HTTP server with provisioning form handlers (GET / and POST /save)
-esp_err_t bsp_http_server_start_prov(void);
+// Start HTTP server in provisioning mode.
+// breadboard registers: POST /save, OPTIONS /* (CORS preflight), GET /* (captive-portal redirect).
+// Caller's prov_ui_routes_fn registers GET / and any static assets (favicon, css, logo) they want to serve.
+esp_err_t bsp_http_server_start_prov(bsp_http_app_routes_fn prov_ui_routes_fn);
 
 // Start HTTP server and register app routes
 esp_err_t bsp_http_server_start(bsp_http_app_routes_fn app_routes_fn);
