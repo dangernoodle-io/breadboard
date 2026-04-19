@@ -10,6 +10,8 @@ sdkconfig.*
 
 # Tooling caches
 .code-graph/
+compile_commands.json
+gcovr-coveralls.json
 *.o
 *.d
 *.bin
