@@ -5,6 +5,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// Default releases URL
+#define DEFAULT_RELEASES_URL "https://api.github.com/repos/dangernoodle-io/snugfeather/releases/latest"
+
+// Pluggable pause/resume callbacks
+static bsp_ota_pause_cb_t s_pause_cb = NULL;
+static bsp_ota_resume_cb_t s_resume_cb = NULL;
+
+// Releases URL (default or configured)
+static char s_releases_url[512] = DEFAULT_RELEASES_URL;
+
+// Firmware board name
+static char s_firmware_board[64] = "";
+
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
 #include "esp_https_ota.h"
@@ -25,20 +38,7 @@ static const char *TAG = "bsp_ota_pull";
 #define OTA_CHECK_PRIO 3
 #define API_BUF_MAX    16384
 
-// Default releases URL
-#define DEFAULT_RELEASES_URL "https://api.github.com/repos/dangernoodle-io/snugfeather/releases/latest"
-
 static volatile bool s_ota_in_progress = false;
-
-// Pluggable pause/resume callbacks
-static bsp_ota_pause_cb_t s_pause_cb = NULL;
-static bsp_ota_resume_cb_t s_resume_cb = NULL;
-
-// Releases URL (default or configured)
-static char s_releases_url[512] = DEFAULT_RELEASES_URL;
-
-// Firmware board name
-static char s_firmware_board[64] = "";
 
 typedef enum {
     OTA_STATE_IDLE,
