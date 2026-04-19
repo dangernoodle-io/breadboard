@@ -238,6 +238,247 @@ bb_err_t bb_nv_config_set_ota_skip_check(bool skip)
     nvs_close(handle);
     return err;
 }
+
+bb_err_t bb_nv_set_u8(const char *ns, const char *key, uint8_t value)
+{
+    if (ns == NULL || key == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+
+    err = nvs_set_u8(handle, key, value);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    return err;
+}
+
+bb_err_t bb_nv_set_u32(const char *ns, const char *key, uint32_t value)
+{
+    if (ns == NULL || key == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+
+    err = nvs_set_u32(handle, key, value);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    return err;
+}
+
+bb_err_t bb_nv_set_str(const char *ns, const char *key, const char *value)
+{
+    if (ns == NULL || key == NULL || value == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+
+    err = nvs_set_str(handle, key, value);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    return err;
+}
+
+bb_err_t bb_nv_get_u8(const char *ns, const char *key, uint8_t *out, uint8_t fallback)
+{
+    if (ns == NULL || key == NULL || out == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
+
+    if (err == ESP_ERR_NVS_NOT_FOUND || err == ESP_ERR_NVS_NOT_INITIALIZED) {
+        *out = fallback;
+        return ESP_OK;
+    }
+
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_get_u8(handle, key, out);
+    nvs_close(handle);
+
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        *out = fallback;
+        return ESP_OK;
+    }
+
+    return err;
+}
+
+bb_err_t bb_nv_get_u32(const char *ns, const char *key, uint32_t *out, uint32_t fallback)
+{
+    if (ns == NULL || key == NULL || out == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
+
+    if (err == ESP_ERR_NVS_NOT_FOUND || err == ESP_ERR_NVS_NOT_INITIALIZED) {
+        *out = fallback;
+        return ESP_OK;
+    }
+
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_get_u32(handle, key, out);
+    nvs_close(handle);
+
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        *out = fallback;
+        return ESP_OK;
+    }
+
+    return err;
+}
+
+bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, const char *fallback)
+{
+    if (ns == NULL || key == NULL || buf == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
+
+    if (err == ESP_ERR_NVS_NOT_FOUND || err == ESP_ERR_NVS_NOT_INITIALIZED) {
+        if (fallback == NULL) {
+            buf[0] = '\0';
+        } else {
+            strlcpy(buf, fallback, len);
+        }
+        return ESP_OK;
+    }
+
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    size_t buf_len = len;
+    err = nvs_get_str(handle, key, buf, &buf_len);
+    nvs_close(handle);
+
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        if (fallback == NULL) {
+            buf[0] = '\0';
+        } else {
+            strlcpy(buf, fallback, len);
+        }
+        return ESP_OK;
+    }
+
+    return err;
+}
+
+bb_err_t bb_nv_erase(const char *ns, const char *key)
+{
+    if (ns == NULL || key == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+
+    err = nvs_erase_key(handle, key);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        err = ESP_OK;
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    return err;
+}
+
+#else
+
+bb_err_t bb_nv_set_u8(const char *ns, const char *key, uint8_t value)
+{
+    if (ns == NULL || key == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
+}
+
+bb_err_t bb_nv_set_u32(const char *ns, const char *key, uint32_t value)
+{
+    if (ns == NULL || key == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
+}
+
+bb_err_t bb_nv_set_str(const char *ns, const char *key, const char *value)
+{
+    if (ns == NULL || key == NULL || value == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
+}
+
+bb_err_t bb_nv_get_u8(const char *ns, const char *key, uint8_t *out, uint8_t fallback)
+{
+    if (ns == NULL || key == NULL || out == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out = fallback;
+    return ESP_OK;
+}
+
+bb_err_t bb_nv_get_u32(const char *ns, const char *key, uint32_t *out, uint32_t fallback)
+{
+    if (ns == NULL || key == NULL || out == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out = fallback;
+    return ESP_OK;
+}
+
+bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, const char *fallback)
+{
+    if (ns == NULL || key == NULL || buf == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (fallback == NULL) {
+        buf[0] = '\0';
+    } else {
+        strlcpy(buf, fallback, len);
+    }
+    return ESP_OK;
+}
+
+bb_err_t bb_nv_erase(const char *ns, const char *key)
+{
+    if (ns == NULL || key == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
+}
+
 #endif
 
 const char *bb_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }
