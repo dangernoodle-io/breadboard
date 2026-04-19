@@ -453,23 +453,26 @@ esp_err_t bb_wifi_init_ap(void)
         return ESP_FAIL;
     }
 
-    // Initialize WiFi
+    // Initialize WiFi and set mode before reading AP MAC
+    // (hosted/wifi_remote populates per-interface MACs after mode is set; reading
+    // ESP_MAC_WIFI_SOFTAP before set_mode returns ESP_ERR_NOT_SUPPORTED on P4+C6)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
     // Build AP SSID from MAC address
     uint8_t mac[6];
-    ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP));
+    ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_IF_AP, mac));
 
     char ssid[32];
-    snprintf(ssid, sizeof(ssid), "BSP-%02X%02X", mac[4], mac[5]);
+    snprintf(ssid, sizeof(ssid), "BB-%02X%02X", mac[4], mac[5]);
     strncpy(s_ap_ssid, ssid, sizeof(s_ap_ssid) - 1);
     s_ap_ssid[sizeof(s_ap_ssid) - 1] = '\0';
 
     // Configure AP
     wifi_config_t ap_config = {
         .ap = {
-            .password = "bsp-prov",
+            .password = "breadboard",
             .max_connection = 4,
             .authmode = WIFI_AUTH_WPA2_PSK,
         },
@@ -477,8 +480,6 @@ esp_err_t bb_wifi_init_ap(void)
     strncpy((char *)ap_config.ap.ssid, ssid, sizeof(ap_config.ap.ssid));
     ap_config.ap.ssid_len = strlen(ssid);
 
-    // Set WiFi mode and config (APSTA allows scanning while AP is running)
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
