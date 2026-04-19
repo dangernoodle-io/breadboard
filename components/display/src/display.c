@@ -8,24 +8,22 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_ek79007.h"
 #include "driver/gpio.h"
-#include "esp_cache.h"
-#include "string.h"
+#include "esp_lvgl_port.h"
+#include "lvgl.h"
 
 static const char *TAG = "display";
 
-// File-scope state
 static esp_ldo_channel_handle_t s_ldo = NULL;
 static esp_lcd_dsi_bus_handle_t s_dsi_bus = NULL;
 static esp_lcd_panel_io_handle_t s_panel_io = NULL;
 static esp_lcd_panel_handle_t s_panel = NULL;
-static uint16_t *s_fb = NULL;
-static size_t s_fb_size = 0;
+static lv_display_t *s_lv_disp = NULL;
+static lv_obj_t *s_screen = NULL;
 
 bb_display_err_t bb_display_init(void)
 {
     esp_err_t err = ESP_OK;
 
-    // Acquire MIPI PHY LDO
     esp_ldo_channel_config_t ldo_cfg = {
         .chan_id = LDO_CHANNEL,
         .voltage_mv = LDO_VOLTAGE_MV,
@@ -36,7 +34,6 @@ bb_display_err_t bb_display_init(void)
         return err;
     }
 
-    // Build DSI bus config
     esp_lcd_dsi_bus_config_t dsi_cfg = {
         .bus_id = 0,
         .num_data_lanes = 2,
@@ -51,7 +48,6 @@ bb_display_err_t bb_display_init(void)
         return err;
     }
 
-    // Build panel IO config
     esp_lcd_dbi_io_config_t panel_io_cfg = {
         .virtual_channel = 0,
         .lcd_cmd_bits = 8,
@@ -79,7 +75,6 @@ bb_display_err_t bb_display_init(void)
         .init_cmds_size = 0,
     };
 
-    // Build panel config
     esp_lcd_panel_dev_config_t panel_cfg = {
         .reset_gpio_num = -1,
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
@@ -87,7 +82,6 @@ bb_display_err_t bb_display_init(void)
         .vendor_config = &vendor_cfg,
     };
 
-    // Create panel
     err = esp_lcd_new_panel_ek79007(s_panel_io, &panel_cfg, &s_panel);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "failed to create panel: %s", esp_err_to_name(err));
@@ -100,7 +94,6 @@ bb_display_err_t bb_display_init(void)
         return err;
     }
 
-    // Initialize panel
     err = esp_lcd_panel_reset(s_panel);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "failed to reset panel: %s", esp_err_to_name(err));
@@ -141,10 +134,11 @@ bb_display_err_t bb_display_init(void)
     gpio_set_level(PIN_BL_PWR, 1);
     gpio_set_level(PIN_BL_PWM, 1);
 
-    // Get framebuffer
-    err = esp_lcd_dpi_panel_get_frame_buffer(s_panel, 1, (void **)&s_fb);
+    // Initialize LVGL port.
+    lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    err = lvgl_port_init(&lvgl_cfg);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to get frame buffer: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "failed to init lvgl port: %s", esp_err_to_name(err));
         esp_lcd_panel_del(s_panel);
         s_panel = NULL;
         esp_lcd_panel_io_del(s_panel_io);
@@ -156,47 +150,182 @@ bb_display_err_t bb_display_init(void)
         return err;
     }
 
-    s_fb_size = PANEL_WIDTH * PANEL_HEIGHT * 2;
+    // Register DSI display with LVGL.
+    // avoid_tearing uses internal DSI double-buffer as LVGL draw buffers (full-screen, PSRAM).
+    lvgl_port_display_cfg_t disp_cfg = {
+        .io_handle = s_panel_io,
+        .panel_handle = s_panel,
+        .control_handle = NULL,
+        .buffer_size = PANEL_WIDTH * PANEL_HEIGHT,
+        .double_buffer = true,
+        .hres = PANEL_WIDTH,
+        .vres = PANEL_HEIGHT,
+        .monochrome = false,
+        .color_format = LV_COLOR_FORMAT_RGB565,
+        .rotation = {
+            .swap_xy = false,
+            .mirror_x = false,
+            .mirror_y = false,
+        },
+        .flags = {
+            .buff_dma = false,
+            .buff_spiram = true,
+            .full_refresh = false,
+            .direct_mode = false,
+        },
+    };
+    lvgl_port_display_dsi_cfg_t dsi_disp_cfg = {
+        .flags = {
+            .avoid_tearing = true,
+        },
+    };
+    s_lv_disp = lvgl_port_add_disp_dsi(&disp_cfg, &dsi_disp_cfg);
+    if (s_lv_disp == NULL) {
+        ESP_LOGE(TAG, "failed to add DSI display to LVGL");
+        lvgl_port_deinit();
+        esp_lcd_panel_del(s_panel);
+        s_panel = NULL;
+        esp_lcd_panel_io_del(s_panel_io);
+        s_panel_io = NULL;
+        esp_lcd_del_dsi_bus(s_dsi_bus);
+        s_dsi_bus = NULL;
+        esp_ldo_release_channel(s_ldo);
+        s_ldo = NULL;
+        return ESP_FAIL;
+    }
 
-    ESP_LOGI(TAG, "init: %dx%d %s (fb:%p size:%zu)", PANEL_WIDTH, PANEL_HEIGHT, PANEL_NAME, s_fb, s_fb_size);
+    s_screen = lv_display_get_screen_active(s_lv_disp);
+
+    ESP_LOGI(TAG, "init: %dx%d %s (LVGL)", PANEL_WIDTH, PANEL_HEIGHT, PANEL_NAME);
 
     return ESP_OK;
 }
 
+lv_obj_t *bb_display_screen(void)
+{
+    return s_screen;
+}
+
+bool bb_display_lock(uint32_t timeout_ms)
+{
+    return lvgl_port_lock(timeout_ms);
+}
+
+void bb_display_unlock(void)
+{
+    lvgl_port_unlock();
+}
+
 void bb_display_clear(uint16_t rgb565)
 {
-    if (s_fb == NULL) {
+    if (s_screen == NULL) {
         return;
     }
 
-    for (size_t i = 0; i < (PANEL_WIDTH * PANEL_HEIGHT); i++) {
-        s_fb[i] = rgb565;
-    }
-    esp_cache_msync(s_fb, s_fb_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
-}
+    // Expand RGB565 to RGB888.
+    uint8_t r = ((rgb565 >> 11) & 0x1F) << 3;
+    uint8_t g = ((rgb565 >> 5)  & 0x3F) << 2;
+    uint8_t b = ( rgb565        & 0x1F) << 3;
+    uint32_t rgb888 = ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
 
-void bb_display_draw_text(int x, int y, const char *text)
-{
-    // Stub: logging only
-    (void)x;
-    (void)y;
-    ESP_LOGD(TAG, "draw_text at (%d,%d): %s", x, y, text ? text : "");
+    bb_display_lock(0);
+    static lv_style_t s_clear_style;
+    lv_style_init(&s_clear_style);
+    lv_style_set_bg_color(&s_clear_style, lv_color_hex(rgb888));
+    lv_style_set_bg_opa(&s_clear_style, LV_OPA_COVER);
+    lv_obj_add_style(s_screen, &s_clear_style, 0);
+    lv_obj_invalidate(s_screen);
+    bb_display_unlock();
 }
 
 void bb_display_show_splash(const char *product, const char *version)
 {
-    ESP_LOGI(TAG, "splash: %s %s", product ? product : "", version ? version : "");
-    bb_display_clear(0x001F);  // Blue
+    if (s_screen == NULL) {
+        return;
+    }
+
+    bb_display_lock(0);
+
+    lv_obj_clean(s_screen);
+
+    static lv_style_t s_splash_bg;
+    lv_style_init(&s_splash_bg);
+    lv_style_set_bg_color(&s_splash_bg, lv_color_hex(0x000020));
+    lv_style_set_bg_opa(&s_splash_bg, LV_OPA_COVER);
+    lv_obj_add_style(s_screen, &s_splash_bg, 0);
+
+    lv_obj_t *lbl_product = lv_label_create(s_screen);
+    lv_label_set_text(lbl_product, product ? product : "");
+#if LV_FONT_MONTSERRAT_32
+    lv_obj_set_style_text_font(lbl_product, &lv_font_montserrat_32, 0);
+#endif
+    lv_obj_set_style_text_color(lbl_product, lv_color_white(), 0);
+    lv_obj_align(lbl_product, LV_ALIGN_CENTER, 0, -20);
+
+    lv_obj_t *lbl_version = lv_label_create(s_screen);
+    lv_label_set_text(lbl_version, version ? version : "");
+#if LV_FONT_MONTSERRAT_16
+    lv_obj_set_style_text_font(lbl_version, &lv_font_montserrat_16, 0);
+#endif
+    lv_obj_set_style_text_color(lbl_version, lv_color_hex(0x888888), 0);
+    lv_obj_align(lbl_version, LV_ALIGN_CENTER, 0, 20);
+
+    bb_display_unlock();
 }
 
 void bb_display_show_prov(const char *ap_ssid, const char *ap_pass)
 {
-    ESP_LOGI(TAG, "prov: ssid=%s pass=%s", ap_ssid ? ap_ssid : "", ap_pass ? ap_pass : "");
-    bb_display_clear(0xF800);  // Red
+    if (s_screen == NULL) {
+        return;
+    }
+
+    bb_display_lock(0);
+
+    lv_obj_clean(s_screen);
+
+    static lv_style_t s_prov_bg;
+    lv_style_init(&s_prov_bg);
+    lv_style_set_bg_color(&s_prov_bg, lv_color_hex(0x001A00));
+    lv_style_set_bg_opa(&s_prov_bg, LV_OPA_COVER);
+    lv_obj_add_style(s_screen, &s_prov_bg, 0);
+
+    lv_obj_t *lbl_title = lv_label_create(s_screen);
+    lv_label_set_text(lbl_title, "Provisioning");
+#if LV_FONT_MONTSERRAT_32
+    lv_obj_set_style_text_font(lbl_title, &lv_font_montserrat_32, 0);
+#endif
+    lv_obj_set_style_text_color(lbl_title, lv_color_white(), 0);
+    lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, -40);
+
+    lv_obj_t *lbl_ssid = lv_label_create(s_screen);
+    lv_label_set_text(lbl_ssid, ap_ssid ? ap_ssid : "");
+#if LV_FONT_MONTSERRAT_16
+    lv_obj_set_style_text_font(lbl_ssid, &lv_font_montserrat_16, 0);
+#endif
+    lv_obj_set_style_text_color(lbl_ssid, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_align(lbl_ssid, LV_ALIGN_CENTER, 0, 10);
+
+    lv_obj_t *lbl_pass = lv_label_create(s_screen);
+    lv_label_set_text(lbl_pass, ap_pass ? ap_pass : "");
+#if LV_FONT_MONTSERRAT_16
+    lv_obj_set_style_text_font(lbl_pass, &lv_font_montserrat_16, 0);
+#endif
+    lv_obj_set_style_text_color(lbl_pass, lv_color_hex(0x888888), 0);
+    lv_obj_align(lbl_pass, LV_ALIGN_CENTER, 0, 40);
+
+    bb_display_unlock();
 }
 
 void bb_display_off(void)
 {
+    if (s_lv_disp != NULL) {
+        lvgl_port_remove_disp(s_lv_disp);
+        s_lv_disp = NULL;
+        s_screen = NULL;
+    }
+
+    lvgl_port_deinit();
+
     if (s_panel != NULL) {
         esp_lcd_panel_disp_on_off(s_panel, false);
         esp_lcd_panel_del(s_panel);
@@ -217,7 +346,4 @@ void bb_display_off(void)
         esp_ldo_release_channel(s_ldo);
         s_ldo = NULL;
     }
-
-    s_fb = NULL;
-    s_fb_size = 0;
 }

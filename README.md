@@ -16,7 +16,7 @@ Reusable ESP-IDF components for wifi provisioning, NVS config, HTTP server, OTA,
 | Component | Purpose |
 |-----------|---------|
 | `board` | GPIO / power / boot-mode helpers for the host board |
-| `display` | MIPI-DSI panel init (EK79007 / JD9365) and LVGL glue |
+| `display` | MIPI-DSI panel init (EK79007) with LVGL via `esp_lvgl_port`; consumer holds `bb_display_lock` for all LVGL calls. Exposes `bb_display_screen` / `bb_display_lock` / `bb_display_unlock` for direct LVGL access. |
 | `http_server` | esp_http_server wrapper with provisioning state machine (see note below) |
 | `log_stream` | Ring-buffered log capture for remote retrieval |
 | `nv_config` | Typed NVS accessors (wifi SSID/pass, display enable, boot count, OTA flags) plus generic `bb_nv_*` key/value helpers with caller-supplied namespace |
