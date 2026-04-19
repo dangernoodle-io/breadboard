@@ -1,0 +1,33 @@
+name: build
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Cache PlatformIO
+        uses: actions/cache@v5
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-
+      - name: Install tools
+        run: pip install platformio gcovr
+      - name: Static analysis
+        run: make check
+      - name: Test and coverage
+        run: make coverage
+      - name: Upload to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          file: gcovr-coveralls.json
+          format: coveralls
+      - name: Examples smoke build
+        run: make smoke
