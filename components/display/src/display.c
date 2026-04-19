@@ -64,6 +64,7 @@ bb_display_err_t bb_display_init(void)
     }
 
     esp_lcd_dpi_panel_config_t dpi_cfg = EK79007_1024_600_PANEL_60HZ_CONFIG(LCD_COLOR_PIXEL_FORMAT_RGB565);
+    dpi_cfg.num_fbs = 2;
 
     ek79007_vendor_config_t vendor_cfg = {
         .mipi_config = {
@@ -171,7 +172,7 @@ bb_display_err_t bb_display_init(void)
             .buff_dma = false,
             .buff_spiram = true,
             .full_refresh = false,
-            .direct_mode = false,
+            .direct_mode = true,
         },
     };
     lvgl_port_display_dsi_cfg_t dsi_disp_cfg = {
