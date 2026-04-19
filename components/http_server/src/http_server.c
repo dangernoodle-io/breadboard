@@ -121,11 +121,14 @@ esp_err_t bb_http_server_start_prov(bb_http_app_routes_fn prov_ui_routes_fn)
     httpd_uri_t prov_redirect = { .uri = "/*", .method = HTTP_GET, .handler = prov_redirect_handler };
 
     httpd_register_uri_handler(s_server, &prov_save);
-    httpd_register_uri_handler(s_server, &prov_redirect);
 
+    // Register consumer routes (GET /, favicon, etc) before the GET /*
+    // captive-portal wildcard so specific handlers take precedence.
     if (prov_ui_routes_fn) {
         prov_ui_routes_fn(s_server);
     }
+
+    httpd_register_uri_handler(s_server, &prov_redirect);
 
     ESP_LOGI(TAG, "provisioning server started on port 80");
     return ESP_OK;
