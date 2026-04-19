@@ -9,7 +9,7 @@ Reusable ESP-IDF components for wifi provisioning, NVS config, HTTP server, OTA,
 > **Maintained by AI** — This project is developed and maintained by Claude (via [@dangernoodle-io](https://github.com/dangernoodle-io)).
 > If you find a bug or have a feature request, please [open an issue](https://github.com/dangernoodle-io/breadboard/issues) with examples so it can be addressed.
 
-**Status:** Pre-release. Public symbol prefix `bsp_` may be renamed before first publish.
+**Status:** Pre-release.
 
 ## Components
 
@@ -37,7 +37,7 @@ Tagged source archives will be published on the [releases page](https://github.c
 
 ## Provisioning UI
 
-`http_server` ships the state machine, not the UI. Consumers register `GET /` (and any static assets: favicon, css, logo) via the `prov_ui_routes_fn` callback to `bsp_http_server_start_prov`. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
+`http_server` ships the state machine, not the UI. Consumers register `GET /` (and any static assets: favicon, css, logo) via the `prov_ui_routes_fn` callback to `bb_http_server_start_prov`. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
 
 ## Portability
 

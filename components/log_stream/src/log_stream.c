@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
-int bsp_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_list args)
+int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_list args)
 {
     if (!out_buf || out_buf_len == 0) return -1;
     if (!fmt) {
@@ -22,7 +22,7 @@ int bsp_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va
 #include "esp_log.h"
 #include "freertos/ringbuf.h"
 
-static const char *TAG = "bsp_log_stream";
+static const char *TAG = "bb_log_stream";
 
 #define LOG_STREAM_BUF_BYTES 6144
 #define LOG_STREAM_LINE_MAX  192
@@ -71,7 +71,7 @@ static int s_log_vprintf(const char *fmt, va_list args)
     return result;
 }
 
-esp_err_t bsp_log_stream_init(void)
+esp_err_t bb_log_stream_init(void)
 {
     s_rb = xRingbufferCreateStatic(LOG_STREAM_BUF_BYTES, RINGBUF_TYPE_NOSPLIT,
                                     s_rb_storage, &s_rb_static);
@@ -86,7 +86,7 @@ esp_err_t bsp_log_stream_init(void)
     return ESP_OK;
 }
 
-size_t bsp_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t ticks_to_wait)
+size_t bb_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t ticks_to_wait)
 {
     if (!s_rb || !out_buf || out_buf_len == 0) return 0;
 
@@ -101,12 +101,12 @@ size_t bsp_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t ticks_to
     return strlen(out_buf);
 }
 
-bool bsp_log_stream_ready(void)
+bool bb_log_stream_ready(void)
 {
     return s_ready;
 }
 
-uint32_t bsp_log_stream_dropped_lines(void)
+uint32_t bb_log_stream_dropped_lines(void)
 {
     return s_dropped_lines;
 }

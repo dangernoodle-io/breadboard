@@ -4,9 +4,9 @@
 
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
-typedef esp_err_t bsp_display_err_t;
+typedef esp_err_t bb_display_err_t;
 #else
-typedef int bsp_display_err_t;
+typedef int bb_display_err_t;
 #endif
 
 /**
@@ -16,14 +16,14 @@ typedef int bsp_display_err_t;
  *
  * @return ESP_OK on success, ESP_ERR_* on failure
  */
-bsp_display_err_t bsp_display_init(void);
+bb_display_err_t bb_display_init(void);
 
 /**
  * Clear display to a solid RGB565 color.
  *
  * @param rgb565 Color in RGB565 format (5R:6G:5B bits)
  */
-void bsp_display_clear(uint16_t rgb565);
+void bb_display_clear(uint16_t rgb565);
 
 /**
  * Draw text at specified coordinates using 8x8 bitmap font.
@@ -33,7 +33,7 @@ void bsp_display_clear(uint16_t rgb565);
  * @param y      Starting y coordinate
  * @param text   Null-terminated string
  */
-void bsp_display_draw_text(int x, int y, const char *text);
+void bb_display_draw_text(int x, int y, const char *text);
 
 /**
  * Show splash screen with product name and version.
@@ -42,7 +42,7 @@ void bsp_display_draw_text(int x, int y, const char *text);
  * @param product  Product name (e.g. "MyProduct")
  * @param version  Version string (e.g. "v1.2.3")
  */
-void bsp_display_show_splash(const char *product, const char *version);
+void bb_display_show_splash(const char *product, const char *version);
 
 /**
  * Show provisioning screen with AP SSID and password.
@@ -51,9 +51,9 @@ void bsp_display_show_splash(const char *product, const char *version);
  * @param ap_ssid   AP SSID name
  * @param ap_pass   AP password
  */
-void bsp_display_show_prov(const char *ap_ssid, const char *ap_pass);
+void bb_display_show_prov(const char *ap_ssid, const char *ap_pass);
 
 /**
  * Turn display off: disable backlight PWM and send panel sleep command.
  */
-void bsp_display_off(void);
+void bb_display_off(void);

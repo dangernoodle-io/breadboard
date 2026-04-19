@@ -6,10 +6,10 @@
 #include <stdlib.h>
 
 // Pluggable pause/resume callbacks
-static bsp_ota_pause_cb_t s_pause_cb = NULL;
-static bsp_ota_resume_cb_t s_resume_cb = NULL;
+static bb_ota_pause_cb_t s_pause_cb = NULL;
+static bb_ota_resume_cb_t s_resume_cb = NULL;
 
-// Releases URL — caller must set before bsp_ota_pull_check_now()
+// Releases URL — caller must set before bb_ota_pull_check_now()
 static char s_releases_url[512] = "";
 
 // Firmware board name
@@ -27,7 +27,7 @@ static char s_firmware_board[64] = "";
 #include "freertos/task.h"
 #include "freertos/portmacro.h"
 
-static const char *TAG = "bsp_ota_pull";
+static const char *TAG = "bb_ota_pull";
 
 #define OTA_TASK_STACK 16384
 #define OTA_TASK_PRIO  3
@@ -95,14 +95,14 @@ static ota_pull_check_result_t s_cached_check = {0};
 #endif // ESP_PLATFORM
 
 // Public API: Set pause/resume callbacks
-void bsp_ota_pull_set_hooks(bsp_ota_pause_cb_t pause, bsp_ota_resume_cb_t resume)
+void bb_ota_pull_set_hooks(bb_ota_pause_cb_t pause, bb_ota_resume_cb_t resume)
 {
     s_pause_cb = pause;
     s_resume_cb = resume;
 }
 
 // Public API: Set releases URL
-void bsp_ota_pull_set_releases_url(const char *url)
+void bb_ota_pull_set_releases_url(const char *url)
 {
     if (url) {
         strncpy(s_releases_url, url, sizeof(s_releases_url) - 1);
@@ -113,7 +113,7 @@ void bsp_ota_pull_set_releases_url(const char *url)
 }
 
 // Public API: Set firmware board
-void bsp_ota_pull_set_firmware_board(const char *board)
+void bb_ota_pull_set_firmware_board(const char *board)
 {
     if (board) {
         strncpy(s_firmware_board, board, sizeof(s_firmware_board) - 1);
@@ -129,7 +129,7 @@ void bsp_ota_pull_set_firmware_board(const char *board)
  *
  * Platform-independent implementation, testable on host.
  */
-int bsp_ota_pull_parse_release_json(const char *json, const char *board_name,
+int bb_ota_pull_parse_release_json(const char *json, const char *board_name,
                                      char *out_tag, size_t tag_size,
                                      char *out_url, size_t url_size)
 {
@@ -244,7 +244,7 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
     // Determine board name to use for asset lookup
     const char *board = s_firmware_board[0] != '\0' ? s_firmware_board : "unknown";
 
-    int parse_ret = bsp_ota_pull_parse_release_json(
+    int parse_ret = bb_ota_pull_parse_release_json(
         buf, board,
         result->latest_tag, sizeof(result->latest_tag),
         result->asset_url, sizeof(result->asset_url));
@@ -674,7 +674,7 @@ static esp_err_t ota_status_handler(httpd_req_t *req)
 /**
  * Register OTA pull HTTP handlers with an existing httpd instance.
  */
-esp_err_t bsp_ota_pull_register_handler(httpd_handle_t server)
+esp_err_t bb_ota_pull_register_handler(httpd_handle_t server)
 {
     if (!server) {
         return ESP_ERR_INVALID_ARG;
@@ -729,10 +729,10 @@ esp_err_t bsp_ota_pull_register_handler(httpd_handle_t server)
 /**
  * Trigger an immediate OTA check (non-blocking).
  */
-esp_err_t bsp_ota_pull_check_now(void)
+esp_err_t bb_ota_pull_check_now(void)
 {
     if (s_releases_url[0] == '\0') {
-        ESP_LOGE(TAG, "releases URL not set; call bsp_ota_pull_set_releases_url() first");
+        ESP_LOGE(TAG, "releases URL not set; call bb_ota_pull_set_releases_url() first");
         return ESP_ERR_INVALID_STATE;
     }
 

@@ -11,7 +11,7 @@
 
 static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
-static bsp_http_app_routes_fn s_app_routes_fn = NULL;
+static bb_http_app_routes_fn s_app_routes_fn = NULL;
 
 
 static esp_err_t preflight_handler(httpd_req_t *req);
@@ -73,18 +73,18 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
 
     // Parse URL-encoded fields
     char ssid[32] = "", pass[64] = "";
-    switch (bsp_prov_parse_body(body, len, ssid, sizeof(ssid), pass, sizeof(pass))) {
-        case BSP_PROV_PARSE_EMPTY_BODY:
+    switch (bb_prov_parse_body(body, len, ssid, sizeof(ssid), pass, sizeof(pass))) {
+        case BB_PROV_PARSE_EMPTY_BODY:
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
             return ESP_FAIL;
-        case BSP_PROV_PARSE_SSID_REQUIRED:
+        case BB_PROV_PARSE_SSID_REQUIRED:
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID required");
             return ESP_FAIL;
-        case BSP_PROV_PARSE_OK:
+        case BB_PROV_PARSE_OK:
             break;
     }
 
-    esp_err_t err = bsp_nv_config_set_wifi(ssid, pass);
+    esp_err_t err = bb_nv_config_set_wifi(ssid, pass);
     if (err != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save config");
         return ESP_FAIL;
@@ -110,7 +110,7 @@ static esp_err_t prov_redirect_handler(httpd_req_t *req)
 }
 
 
-esp_err_t bsp_http_server_start_prov(bsp_http_app_routes_fn prov_ui_routes_fn)
+esp_err_t bb_http_server_start_prov(bb_http_app_routes_fn prov_ui_routes_fn)
 {
     esp_err_t err = ensure_server_started();
     if (err != ESP_OK) return err;
@@ -131,7 +131,7 @@ esp_err_t bsp_http_server_start_prov(bsp_http_app_routes_fn prov_ui_routes_fn)
     return ESP_OK;
 }
 
-void bsp_http_server_switch_to_normal(bsp_http_app_routes_fn app_routes_fn)
+void bb_http_server_switch_to_normal(bb_http_app_routes_fn app_routes_fn)
 {
     if (!s_server) return;
 
@@ -147,7 +147,7 @@ void bsp_http_server_switch_to_normal(bsp_http_app_routes_fn app_routes_fn)
     }
 }
 
-esp_err_t bsp_http_server_start(bsp_http_app_routes_fn app_routes_fn)
+esp_err_t bb_http_server_start(bb_http_app_routes_fn app_routes_fn)
 {
     esp_err_t err = ensure_server_started();
     if (err != ESP_OK) {
@@ -166,7 +166,7 @@ esp_err_t bsp_http_server_start(bsp_http_app_routes_fn app_routes_fn)
     return ESP_OK;
 }
 
-esp_err_t bsp_http_server_stop(void)
+esp_err_t bb_http_server_stop(void)
 {
     if (s_server) {
         httpd_stop(s_server);
@@ -175,7 +175,7 @@ esp_err_t bsp_http_server_stop(void)
     return ESP_OK;
 }
 
-httpd_handle_t bsp_http_server_get_handle(void)
+httpd_handle_t bb_http_server_get_handle(void)
 {
     return s_server;
 }

@@ -47,7 +47,7 @@ static bool s_mdns_hostname_set = false;
 EventGroupHandle_t g_prov_event_group = NULL;
 
 // WiFi scan cache
-static bsp_wifi_ap_t s_cached_scan[WIFI_SCAN_MAX];
+static bb_wifi_ap_t s_cached_scan[WIFI_SCAN_MAX];
 static int s_cached_scan_count = 0;
 static volatile bool s_scan_in_progress = false;
 
@@ -124,7 +124,7 @@ static void mdns_start(void)
 #endif /* ESP_PLATFORM */
 
 // Getters for diagnostics
-void bsp_wifi_prov_get_disconnect(uint8_t *reason, int64_t *age_us)
+void bb_wifi_prov_get_disconnect(uint8_t *reason, int64_t *age_us)
 {
     if (wifi_reconn_is_active()) {
         wifi_reconn_get_disconnect(reason, age_us);
@@ -134,17 +134,17 @@ void bsp_wifi_prov_get_disconnect(uint8_t *reason, int64_t *age_us)
     }
 }
 
-int bsp_wifi_prov_get_retry_count(void)
+int bb_wifi_prov_get_retry_count(void)
 {
     return wifi_reconn_is_active() ? wifi_reconn_get_retry_count() : s_retry_count;
 }
 
-bool bsp_wifi_prov_mdns_started(void)
+bool bb_wifi_prov_mdns_started(void)
 {
     return s_mdns_started;
 }
 
-esp_err_t bsp_wifi_prov_get_ip_str(char *out, size_t out_len)
+esp_err_t bb_wifi_prov_get_ip_str(char *out, size_t out_len)
 {
     if (!s_sta_netif || out_len < 16) {
         if (out && out_len > 0) {
@@ -164,7 +164,7 @@ esp_err_t bsp_wifi_prov_get_ip_str(char *out, size_t out_len)
     return ESP_OK;
 }
 
-esp_err_t bsp_wifi_prov_get_rssi(int8_t *out)
+esp_err_t bb_wifi_prov_get_rssi(int8_t *out)
 {
     if (!out) {
         return ESP_FAIL;
@@ -180,12 +180,12 @@ esp_err_t bsp_wifi_prov_get_rssi(int8_t *out)
     return ESP_OK;
 }
 
-bool bsp_wifi_prov_has_ip(void)
+bool bb_wifi_prov_has_ip(void)
 {
     return s_has_ip;
 }
 
-void bsp_wifi_set_mdns_hostname(const char *hostname)
+void bb_wifi_set_mdns_hostname(const char *hostname)
 {
     if (!hostname) {
         s_mdns_hostname[0] = '\0';
@@ -238,7 +238,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         if (wifi_reconn_is_active()) {
             wifi_reconn_on_got_ip();
         }
-        bsp_nv_config_reset_boot_count();
+        bb_nv_config_reset_boot_count();
         if (s_wifi_event_group) {
             xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         }
@@ -259,7 +259,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     }
 }
 
-void bsp_wifi_force_reassociate(void)
+void bb_wifi_force_reassociate(void)
 {
     ESP_LOGW(TAG, "forcing WiFi reassociation (zombie state recovery)");
     esp_wifi_disconnect();
@@ -293,14 +293,14 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     }
 
     wifi_config_t wifi_config = {0};
-    strncpy((char *)wifi_config.sta.ssid, bsp_nv_config_wifi_ssid(), sizeof(wifi_config.sta.ssid));
-    strncpy((char *)wifi_config.sta.password, bsp_nv_config_wifi_pass(), sizeof(wifi_config.sta.password));
+    strncpy((char *)wifi_config.sta.ssid, bb_nv_config_wifi_ssid(), sizeof(wifi_config.sta.ssid));
+    strncpy((char *)wifi_config.sta.password, bb_nv_config_wifi_pass(), sizeof(wifi_config.sta.password));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
-    ESP_LOGI(TAG, "connecting to %s", bsp_nv_config_wifi_ssid());
+    ESP_LOGI(TAG, "connecting to %s", bb_nv_config_wifi_ssid());
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
                                            pdFALSE, pdFALSE, pdMS_TO_TICKS(60000));
 
@@ -325,7 +325,7 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
 
         if (restart_on_timeout) {
             ESP_LOGE(TAG, "WiFi connection timeout after 60s, restarting");
-            bsp_nv_config_increment_boot_count();
+            bb_nv_config_increment_boot_count();
             esp_restart();
         } else {
             ESP_LOGE(TAG, "WiFi connection timeout after 60s");
@@ -344,12 +344,12 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     return ESP_OK;
 }
 
-esp_err_t bsp_wifi_init(void)
+esp_err_t bb_wifi_init(void)
 {
     return wifi_connect_sta(true);
 }
 
-esp_err_t bsp_wifi_init_sta(void)
+esp_err_t bb_wifi_init_sta(void)
 {
     return wifi_connect_sta(false);
 }
@@ -432,7 +432,7 @@ static void dns_task(void *arg)
     vTaskDelete(NULL);
 }
 
-esp_err_t bsp_wifi_init_ap(void)
+esp_err_t bb_wifi_init_ap(void)
 {
     // Create provisioning event group if not already created
     if (g_prov_event_group == NULL) {
@@ -509,7 +509,7 @@ esp_err_t bsp_wifi_init_ap(void)
     return ESP_OK;
 }
 
-void bsp_wifi_stop_ap(void)
+void bb_wifi_stop_ap(void)
 {
     if (s_ap_netif == NULL) {
         ESP_LOGW(TAG, "AP not initialized");
@@ -539,7 +539,7 @@ void bsp_wifi_stop_ap(void)
     ESP_LOGI(TAG, "AP stopped");
 }
 
-int bsp_wifi_scan_networks(bsp_wifi_ap_t *results, int max_results)
+int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results)
 {
     if (!results || max_results <= 0) {
         return 0;
@@ -599,9 +599,9 @@ int bsp_wifi_scan_networks(bsp_wifi_ap_t *results, int max_results)
 
 static void scan_worker_task(void *arg)
 {
-    bsp_wifi_ap_t results[WIFI_SCAN_MAX];
+    bb_wifi_ap_t results[WIFI_SCAN_MAX];
     memset(results, 0, sizeof(results));
-    int count = bsp_wifi_scan_networks(results, WIFI_SCAN_MAX);
+    int count = bb_wifi_scan_networks(results, WIFI_SCAN_MAX);
 
     // Update cache
     memcpy(s_cached_scan, results, sizeof(results));
@@ -612,7 +612,7 @@ static void scan_worker_task(void *arg)
     vTaskDelete(NULL);
 }
 
-void bsp_wifi_scan_start_async(void)
+void bb_wifi_scan_start_async(void)
 {
     if (s_scan_in_progress) {
         return;
@@ -634,7 +634,7 @@ void bsp_wifi_scan_start_async(void)
     }
 }
 
-int bsp_wifi_scan_get_cached(bsp_wifi_ap_t *results, int max_results)
+int bb_wifi_scan_get_cached(bb_wifi_ap_t *results, int max_results)
 {
     if (!results || max_results <= 0) {
         return 0;
@@ -645,12 +645,12 @@ int bsp_wifi_scan_get_cached(bsp_wifi_ap_t *results, int max_results)
         count = max_results;
     }
     if (count > 0) {
-        memcpy(results, s_cached_scan, count * sizeof(bsp_wifi_ap_t));
+        memcpy(results, s_cached_scan, count * sizeof(bb_wifi_ap_t));
     }
     return count;
 }
 
-void bsp_wifi_prov_get_ap_ssid(char *buf, size_t len)
+void bb_wifi_prov_get_ap_ssid(char *buf, size_t len)
 {
     strncpy(buf, s_ap_ssid, len - 1);
     buf[len - 1] = '\0';

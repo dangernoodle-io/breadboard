@@ -7,7 +7,7 @@ static int call_format(char *buf, size_t len, const char *fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    int result = bsp_log_stream_format(buf, len, fmt, args);
+    int result = bb_log_stream_format(buf, len, fmt, args);
     va_end(args);
     return result;
 }
@@ -45,7 +45,7 @@ void test_log_stream_format_null_buf(void)
 void test_log_stream_format_null_fmt(void)
 {
     char buf[16];
-    int n = bsp_log_stream_format(buf, sizeof(buf), NULL, (va_list){0});
+    int n = bb_log_stream_format(buf, sizeof(buf), NULL, (va_list){0});
     TEST_ASSERT_EQUAL_INT(0, n);
     TEST_ASSERT_EQUAL_STRING("", buf);
 }
