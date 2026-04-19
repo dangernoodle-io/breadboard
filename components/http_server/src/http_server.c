@@ -13,16 +13,6 @@ static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
 static bsp_http_app_routes_fn s_app_routes_fn = NULL;
 
-extern const unsigned char prov_form_html_gz[];
-extern const unsigned int prov_form_html_gz_len;
-extern const unsigned char theme_css_gz[];
-extern const unsigned int theme_css_gz_len;
-extern const unsigned char logo_svg_gz[];
-extern const unsigned int logo_svg_gz_len;
-extern const unsigned char prov_save_html_gz[];
-extern const unsigned int prov_save_html_gz_len;
-extern const uint8_t favicon_svg_gz[];
-extern const unsigned int favicon_svg_gz_len;
 
 static esp_err_t preflight_handler(httpd_req_t *req);
 
@@ -62,14 +52,6 @@ static esp_err_t preflight_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t prov_form_handler(httpd_req_t *req)
-{
-    set_common_headers(req);
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, (const char *)prov_form_html_gz, prov_form_html_gz_len);
-    return ESP_OK;
-}
 
 // Handle provisioning form submission
 static esp_err_t prov_save_handler(httpd_req_t *req)
@@ -108,9 +90,8 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, (const char *)prov_save_html_gz, prov_save_html_gz_len);
+    httpd_resp_set_status(req, "204 No Content");
+    httpd_resp_send(req, NULL, 0);
 
     // Signal provisioning complete
     extern EventGroupHandle_t g_prov_event_group;
@@ -128,51 +109,23 @@ static esp_err_t prov_redirect_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t theme_handler(httpd_req_t *req)
-{
-    set_common_headers(req);
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_type(req, "text/css");
-    httpd_resp_send(req, (const char *)theme_css_gz, theme_css_gz_len);
-    return ESP_OK;
-}
 
-static esp_err_t logo_handler(httpd_req_t *req)
-{
-    set_common_headers(req);
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_type(req, "image/svg+xml");
-    httpd_resp_send(req, (const char *)logo_svg_gz, logo_svg_gz_len);
-    return ESP_OK;
-}
-
-static esp_err_t favicon_handler(httpd_req_t *req)
-{
-    httpd_resp_set_type(req, "image/svg+xml");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    set_common_headers(req);
-    httpd_resp_send(req, (const char *)favicon_svg_gz, favicon_svg_gz_len);
-    return ESP_OK;
-}
-
-esp_err_t bsp_http_server_start_prov(void)
+esp_err_t bsp_http_server_start_prov(bsp_http_app_routes_fn prov_ui_routes_fn)
 {
     esp_err_t err = ensure_server_started();
     if (err != ESP_OK) return err;
 
-    httpd_uri_t prov_form = { .uri = "/", .method = HTTP_GET, .handler = prov_form_handler };
+    s_app_routes_fn = prov_ui_routes_fn;
+
     httpd_uri_t prov_save = { .uri = "/save", .method = HTTP_POST, .handler = prov_save_handler };
-    httpd_uri_t theme_uri = { .uri = "/theme.css", .method = HTTP_GET, .handler = theme_handler };
-    httpd_uri_t logo_uri = { .uri = "/logo.svg", .method = HTTP_GET, .handler = logo_handler };
-    httpd_uri_t favicon_uri = { .uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_handler };
     httpd_uri_t prov_redirect = { .uri = "/*", .method = HTTP_GET, .handler = prov_redirect_handler };
 
-    httpd_register_uri_handler(s_server, &prov_form);
     httpd_register_uri_handler(s_server, &prov_save);
-    httpd_register_uri_handler(s_server, &theme_uri);
-    httpd_register_uri_handler(s_server, &logo_uri);
-    httpd_register_uri_handler(s_server, &favicon_uri);
     httpd_register_uri_handler(s_server, &prov_redirect);
+
+    if (prov_ui_routes_fn) {
+        prov_ui_routes_fn(s_server);
+    }
 
     ESP_LOGI(TAG, "provisioning server started on port 80");
     return ESP_OK;
@@ -181,12 +134,12 @@ esp_err_t bsp_http_server_start_prov(void)
 void bsp_http_server_switch_to_normal(bsp_http_app_routes_fn app_routes_fn)
 {
     if (!s_server) return;
-    s_app_routes_fn = app_routes_fn;
 
-    // Unregister prov handlers
-    httpd_unregister_uri_handler(s_server, "/", HTTP_GET);
+    // Unregister only breadboard's prov handlers: /save (POST) and /* (GET catch-all)
     httpd_unregister_uri_handler(s_server, "/save", HTTP_POST);
     httpd_unregister_uri_handler(s_server, "/*", HTTP_GET);
+
+    s_app_routes_fn = app_routes_fn;
 
     // Register app routes if callback provided
     if (app_routes_fn) {
@@ -203,15 +156,6 @@ esp_err_t bsp_http_server_start(bsp_http_app_routes_fn app_routes_fn)
     }
 
     s_app_routes_fn = app_routes_fn;
-
-    // Register static asset handlers
-    httpd_uri_t theme_uri = { .uri = "/theme.css", .method = HTTP_GET, .handler = theme_handler };
-    httpd_uri_t logo_uri = { .uri = "/logo.svg", .method = HTTP_GET, .handler = logo_handler };
-    httpd_uri_t favicon_uri = { .uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_handler };
-
-    httpd_register_uri_handler(s_server, &theme_uri);
-    httpd_register_uri_handler(s_server, &logo_uri);
-    httpd_register_uri_handler(s_server, &favicon_uri);
 
     // Register app routes if callback provided
     if (app_routes_fn) {
