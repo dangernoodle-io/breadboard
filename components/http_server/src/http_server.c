@@ -91,13 +91,15 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
 
     // Parse URL-encoded fields
     char ssid[32] = "", pass[64] = "";
-
-    bsp_url_decode_field(body, "ssid", ssid, sizeof(ssid));
-    bsp_url_decode_field(body, "pass", pass, sizeof(pass));
-
-    if (ssid[0] == '\0') {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID required");
-        return ESP_FAIL;
+    switch (bsp_prov_parse_body(body, len, ssid, sizeof(ssid), pass, sizeof(pass))) {
+        case BSP_PROV_PARSE_EMPTY_BODY:
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
+            return ESP_FAIL;
+        case BSP_PROV_PARSE_SSID_REQUIRED:
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID required");
+            return ESP_FAIL;
+        case BSP_PROV_PARSE_OK:
+            break;
     }
 
     esp_err_t err = bsp_nv_config_set_wifi(ssid, pass);

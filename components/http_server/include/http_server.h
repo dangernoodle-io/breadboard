@@ -5,6 +5,21 @@
 // URL-decode a named field from a URL-encoded body (e.g., "field=value&...")
 void bsp_url_decode_field(const char *body, const char *field, char *out, size_t out_size);
 
+typedef enum {
+    BSP_PROV_PARSE_OK = 0,
+    BSP_PROV_PARSE_EMPTY_BODY,
+    BSP_PROV_PARSE_SSID_REQUIRED,
+} bsp_prov_parse_result_t;
+
+// Parse a URL-encoded provisioning POST body into ssid/pass.
+// body_len <= 0 → BSP_PROV_PARSE_EMPTY_BODY.
+// Missing/empty ssid → BSP_PROV_PARSE_SSID_REQUIRED.
+// body need not be null-terminated; function treats body_len as authoritative.
+bsp_prov_parse_result_t bsp_prov_parse_body(
+    const char *body, int body_len,
+    char *ssid_out, size_t ssid_size,
+    char *pass_out, size_t pass_size);
+
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
 #include "esp_http_server.h"
