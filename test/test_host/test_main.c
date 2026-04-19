@@ -34,6 +34,13 @@ void test_url_decode_field_not_first(void);
 void test_url_decode_empty_value(void);
 void test_url_decode_field_at_end(void);
 
+// Forward declarations from test_nv_config.c
+void test_nv_config_init_success(void);
+void test_nv_config_wifi_ssid_empty_after_init(void);
+void test_nv_config_wifi_pass_empty_after_init(void);
+void test_nv_config_display_enabled_default_true(void);
+void test_nv_config_is_provisioned_stub_returns_false(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -73,6 +80,13 @@ int main(void) {
     RUN_TEST(test_url_decode_field_not_first);
     RUN_TEST(test_url_decode_empty_value);
     RUN_TEST(test_url_decode_field_at_end);
+
+    // NV config tests
+    RUN_TEST(test_nv_config_init_success);
+    RUN_TEST(test_nv_config_wifi_ssid_empty_after_init);
+    RUN_TEST(test_nv_config_wifi_pass_empty_after_init);
+    RUN_TEST(test_nv_config_display_enabled_default_true);
+    RUN_TEST(test_nv_config_is_provisioned_stub_returns_false);
 
     return UNITY_END();
 }
