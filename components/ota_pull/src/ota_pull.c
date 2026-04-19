@@ -5,15 +5,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// Default releases URL
-#define DEFAULT_RELEASES_URL "https://api.github.com/repos/dangernoodle-io/snugfeather/releases/latest"
-
 // Pluggable pause/resume callbacks
 static bsp_ota_pause_cb_t s_pause_cb = NULL;
 static bsp_ota_resume_cb_t s_resume_cb = NULL;
 
-// Releases URL (default or configured)
-static char s_releases_url[512] = DEFAULT_RELEASES_URL;
+// Releases URL — caller must set before bsp_ota_pull_check_now()
+static char s_releases_url[512] = "";
 
 // Firmware board name
 static char s_firmware_board[64] = "";
@@ -111,8 +108,7 @@ void bsp_ota_pull_set_releases_url(const char *url)
         strncpy(s_releases_url, url, sizeof(s_releases_url) - 1);
         s_releases_url[sizeof(s_releases_url) - 1] = '\0';
     } else {
-        strncpy(s_releases_url, DEFAULT_RELEASES_URL, sizeof(s_releases_url) - 1);
-        s_releases_url[sizeof(s_releases_url) - 1] = '\0';
+        s_releases_url[0] = '\0';
     }
 }
 
@@ -735,6 +731,11 @@ esp_err_t bsp_ota_pull_register_handler(httpd_handle_t server)
  */
 esp_err_t bsp_ota_pull_check_now(void)
 {
+    if (s_releases_url[0] == '\0') {
+        ESP_LOGE(TAG, "releases URL not set; call bsp_ota_pull_set_releases_url() first");
+        return ESP_ERR_INVALID_STATE;
+    }
+
     bool check_in_progress;
     taskENTER_CRITICAL(&s_ota_status_mux);
     check_in_progress = s_check_in_progress;
