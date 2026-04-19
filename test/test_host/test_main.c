@@ -46,6 +46,36 @@ void test_nv_config_wifi_pass_empty_after_init(void);
 void test_nv_config_display_enabled_default_true(void);
 void test_nv_config_is_provisioned_stub_returns_false(void);
 
+// Forward declarations from test_nv_generic.c
+void test_nv_set_u8_null_ns(void);
+void test_nv_set_u8_null_key(void);
+void test_nv_set_u8_valid(void);
+void test_nv_set_u32_null_ns(void);
+void test_nv_set_u32_null_key(void);
+void test_nv_set_u32_valid(void);
+void test_nv_set_str_null_ns(void);
+void test_nv_set_str_null_key(void);
+void test_nv_set_str_null_value(void);
+void test_nv_set_str_valid(void);
+void test_nv_get_u8_null_ns(void);
+void test_nv_get_u8_null_key(void);
+void test_nv_get_u8_null_out(void);
+void test_nv_get_u8_returns_fallback(void);
+void test_nv_get_u32_null_ns(void);
+void test_nv_get_u32_null_key(void);
+void test_nv_get_u32_null_out(void);
+void test_nv_get_u32_returns_fallback(void);
+void test_nv_get_str_null_ns(void);
+void test_nv_get_str_null_key(void);
+void test_nv_get_str_null_buf(void);
+void test_nv_get_str_zero_len(void);
+void test_nv_get_str_returns_fallback(void);
+void test_nv_get_str_returns_fallback_null(void);
+void test_nv_get_str_truncates_fallback(void);
+void test_nv_erase_null_ns(void);
+void test_nv_erase_null_key(void);
+void test_nv_erase_valid(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -97,6 +127,36 @@ int main(void) {
     RUN_TEST(test_nv_config_wifi_pass_empty_after_init);
     RUN_TEST(test_nv_config_display_enabled_default_true);
     RUN_TEST(test_nv_config_is_provisioned_stub_returns_false);
+
+    // Generic NV API tests
+    RUN_TEST(test_nv_set_u8_null_ns);
+    RUN_TEST(test_nv_set_u8_null_key);
+    RUN_TEST(test_nv_set_u8_valid);
+    RUN_TEST(test_nv_set_u32_null_ns);
+    RUN_TEST(test_nv_set_u32_null_key);
+    RUN_TEST(test_nv_set_u32_valid);
+    RUN_TEST(test_nv_set_str_null_ns);
+    RUN_TEST(test_nv_set_str_null_key);
+    RUN_TEST(test_nv_set_str_null_value);
+    RUN_TEST(test_nv_set_str_valid);
+    RUN_TEST(test_nv_get_u8_null_ns);
+    RUN_TEST(test_nv_get_u8_null_key);
+    RUN_TEST(test_nv_get_u8_null_out);
+    RUN_TEST(test_nv_get_u8_returns_fallback);
+    RUN_TEST(test_nv_get_u32_null_ns);
+    RUN_TEST(test_nv_get_u32_null_key);
+    RUN_TEST(test_nv_get_u32_null_out);
+    RUN_TEST(test_nv_get_u32_returns_fallback);
+    RUN_TEST(test_nv_get_str_null_ns);
+    RUN_TEST(test_nv_get_str_null_key);
+    RUN_TEST(test_nv_get_str_null_buf);
+    RUN_TEST(test_nv_get_str_zero_len);
+    RUN_TEST(test_nv_get_str_returns_fallback);
+    RUN_TEST(test_nv_get_str_returns_fallback_null);
+    RUN_TEST(test_nv_get_str_truncates_fallback);
+    RUN_TEST(test_nv_erase_null_ns);
+    RUN_TEST(test_nv_erase_null_key);
+    RUN_TEST(test_nv_erase_valid);
 
     return UNITY_END();
 }

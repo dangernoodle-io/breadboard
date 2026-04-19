@@ -19,7 +19,7 @@ Reusable ESP-IDF components for wifi provisioning, NVS config, HTTP server, OTA,
 | `display` | MIPI-DSI panel init (EK79007 / JD9365) and LVGL glue |
 | `http_server` | esp_http_server wrapper with provisioning state machine (see note below) |
 | `log_stream` | Ring-buffered log capture for remote retrieval |
-| `nv_config` | Typed NVS accessors (wifi SSID/pass, display enable, boot count, OTA flags) |
+| `nv_config` | Typed NVS accessors (wifi SSID/pass, display enable, boot count, OTA flags) plus generic `bb_nv_*` key/value helpers with caller-supplied namespace |
 | `ota_pull` | HTTP releases-feed poller with cJSON parse and A/B rollback |
 | `wifi_prov` | SoftAP + captive-portal wifi provisioning flow |
 
@@ -51,7 +51,7 @@ make coverage  # host unit tests + gcovr → Coveralls-format JSON
 make smoke     # pio run -d examples/minimal
 ```
 
-38 host tests under `test/test_host/` cover `log_stream`, `nv_config`, `http_utils`, and `ota_pull`. The `board`, `display`, and `wifi_prov` components are hardware- or BT-coupled and have no host coverage.
+66 host tests under `test/test_host/` cover `log_stream`, `nv_config` (typed and generic), `http_utils`, and `ota_pull`. The `board`, `display`, and `wifi_prov` components are hardware- or BT-coupled and have no host coverage.
 
 ## License
 
