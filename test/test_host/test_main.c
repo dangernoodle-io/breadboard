@@ -33,6 +33,11 @@ void test_url_decode_percent_at_end(void);
 void test_url_decode_field_not_first(void);
 void test_url_decode_empty_value(void);
 void test_url_decode_field_at_end(void);
+void test_prov_parse_empty_body(void);
+void test_prov_parse_missing_ssid(void);
+void test_prov_parse_ssid_only(void);
+void test_prov_parse_ssid_and_pass(void);
+void test_prov_parse_urlencoded_special(void);
 
 // Forward declarations from test_nv_config.c
 void test_nv_config_init_success(void);
@@ -80,6 +85,11 @@ int main(void) {
     RUN_TEST(test_url_decode_field_not_first);
     RUN_TEST(test_url_decode_empty_value);
     RUN_TEST(test_url_decode_field_at_end);
+    RUN_TEST(test_prov_parse_empty_body);
+    RUN_TEST(test_prov_parse_missing_ssid);
+    RUN_TEST(test_prov_parse_ssid_only);
+    RUN_TEST(test_prov_parse_ssid_and_pass);
+    RUN_TEST(test_prov_parse_urlencoded_special);
 
     // NV config tests
     RUN_TEST(test_nv_config_init_success);

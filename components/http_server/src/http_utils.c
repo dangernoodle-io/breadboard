@@ -32,3 +32,23 @@ void bsp_url_decode_field(const char *body, const char *field, char *out, size_t
     }
     out[i] = '\0';
 }
+
+bsp_prov_parse_result_t bsp_prov_parse_body(
+    const char *body, int body_len,
+    char *ssid_out, size_t ssid_size,
+    char *pass_out, size_t pass_size)
+{
+    if (body_len <= 0) {
+        return BSP_PROV_PARSE_EMPTY_BODY;
+    }
+    // Caller guarantees body buffer has body_len+1 slots with a NUL already written,
+    // matching how prov_save_handler uses it. bsp_url_decode_field expects C-string input.
+    ssid_out[0] = '\0';
+    pass_out[0] = '\0';
+    bsp_url_decode_field(body, "ssid", ssid_out, ssid_size);
+    bsp_url_decode_field(body, "pass", pass_out, pass_size);
+    if (ssid_out[0] == '\0') {
+        return BSP_PROV_PARSE_SSID_REQUIRED;
+    }
+    return BSP_PROV_PARSE_OK;
+}
