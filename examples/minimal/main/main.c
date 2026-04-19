@@ -8,9 +8,9 @@ static const char *TAG = "minimal";
 
 void app_main(void) {
     nvs_flash_init();
-    bsp_nv_config_init();
-    bsp_log_stream_init();
-    bsp_display_init();
-    bsp_display_show_splash("minimal", "v0.0.0");
+    bb_nv_config_init();
+    bb_log_stream_init();
+    bb_display_init();
+    bb_display_show_splash("minimal", "v0.0.0");
     ESP_LOGI(TAG, "smoke boot ok");
 }

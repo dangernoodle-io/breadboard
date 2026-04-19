@@ -11,7 +11,7 @@ void test_ota_pull_parse_version_found(void)
         "]}";
 
     char tag[32], url[256];
-    int ret = bsp_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
+    int ret = bb_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
     TEST_ASSERT_EQUAL_INT(0, ret);
     TEST_ASSERT_EQUAL_STRING("v1.2.3", tag);
     TEST_ASSERT_EQUAL_STRING(
@@ -28,7 +28,7 @@ void test_ota_pull_parse_no_matching_asset(void)
         "]}";
 
     char tag[32], url[256];
-    int ret = bsp_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
+    int ret = bb_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
     TEST_ASSERT_EQUAL_INT(-2, ret);
     TEST_ASSERT_EQUAL_STRING("v1.2.3", tag);
 }
@@ -38,7 +38,7 @@ void test_ota_pull_parse_empty_assets(void)
     const char *json = "{\"tag_name\":\"v1.0.0\",\"assets\":[]}";
 
     char tag[32], url[256];
-    int ret = bsp_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
+    int ret = bb_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
     TEST_ASSERT_EQUAL_INT(-2, ret);
 }
 
@@ -47,14 +47,14 @@ void test_ota_pull_parse_no_tag(void)
     const char *json = "{\"assets\":[]}";
 
     char tag[32], url[256];
-    int ret = bsp_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
+    int ret = bb_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
     TEST_ASSERT_EQUAL_INT(-1, ret);
 }
 
 void test_ota_pull_parse_invalid_json(void)
 {
     char tag[32], url[256];
-    int ret = bsp_ota_pull_parse_release_json("not json", "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
+    int ret = bb_ota_pull_parse_release_json("not json", "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
     TEST_ASSERT_EQUAL_INT(-1, ret);
 }
 
@@ -71,12 +71,12 @@ void test_ota_pull_parse_multiple_assets(void)
     char tag[32], url[256];
 
     // Should find elecrow-p4-hmi7
-    int ret = bsp_ota_pull_parse_release_json(json, "elecrow-p4-hmi7", tag, sizeof(tag), url, sizeof(url));
+    int ret = bb_ota_pull_parse_release_json(json, "elecrow-p4-hmi7", tag, sizeof(tag), url, sizeof(url));
     TEST_ASSERT_EQUAL_INT(0, ret);
     TEST_ASSERT_EQUAL_STRING("https://example.com/elecrow-p4.bin", url);
 
     // Should find elecrow-c6
-    ret = bsp_ota_pull_parse_release_json(json, "elecrow-c6", tag, sizeof(tag), url, sizeof(url));
+    ret = bb_ota_pull_parse_release_json(json, "elecrow-c6", tag, sizeof(tag), url, sizeof(url));
     TEST_ASSERT_EQUAL_INT(0, ret);
     TEST_ASSERT_EQUAL_STRING("https://example.com/elecrow-c6.bin", url);
 }
@@ -90,7 +90,7 @@ void test_ota_pull_parse_tag_truncation(void)
         "]}";
 
     char tag[8], url[256];
-    int ret = bsp_ota_pull_parse_release_json(json, "elecrow-p4-hmi7", tag, sizeof(tag), url, sizeof(url));
+    int ret = bb_ota_pull_parse_release_json(json, "elecrow-p4-hmi7", tag, sizeof(tag), url, sizeof(url));
     TEST_ASSERT_EQUAL_INT(0, ret);
     // Tag should be truncated to 7 chars + null terminator
     TEST_ASSERT_EQUAL_INT(7, (int)strlen(tag));
@@ -108,7 +108,7 @@ void test_ota_pull_parse_url_truncation(void)
         "]}";
 
     char tag[32], url[32];
-    int ret = bsp_ota_pull_parse_release_json(json, "elecrow-p4-hmi7", tag, sizeof(tag), url, sizeof(url));
+    int ret = bb_ota_pull_parse_release_json(json, "elecrow-p4-hmi7", tag, sizeof(tag), url, sizeof(url));
     TEST_ASSERT_EQUAL_INT(0, ret);
     // URL should be truncated to 31 chars + null terminator
     TEST_ASSERT_EQUAL_INT(31, (int)strlen(url));
@@ -127,7 +127,7 @@ void test_ota_pull_parse_asset_missing_url(void)
         "]}";
 
     char tag[32], url[256];
-    int ret = bsp_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
+    int ret = bb_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
     // Should return -2 (no matching asset with valid URL)
     TEST_ASSERT_EQUAL_INT(-2, ret);
     // Tag should still be populated from tag_name
@@ -141,7 +141,7 @@ void test_ota_pull_parse_assets_not_array(void)
         "\"assets\":\"not-an-array\"}";
 
     char tag[32], url[256];
-    int ret = bsp_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
+    int ret = bb_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
     // Should return -2 because assets is not an array
     TEST_ASSERT_EQUAL_INT(-2, ret);
 }
@@ -157,19 +157,19 @@ void test_ota_pull_parse_null_inputs(void)
     char tag[32], url[256];
 
     // NULL json
-    int ret = bsp_ota_pull_parse_release_json(NULL, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
+    int ret = bb_ota_pull_parse_release_json(NULL, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
     TEST_ASSERT_EQUAL_INT(-1, ret);
 
     // NULL board_name
-    ret = bsp_ota_pull_parse_release_json(json, NULL, tag, sizeof(tag), url, sizeof(url));
+    ret = bb_ota_pull_parse_release_json(json, NULL, tag, sizeof(tag), url, sizeof(url));
     TEST_ASSERT_EQUAL_INT(-1, ret);
 
     // NULL out_tag
-    ret = bsp_ota_pull_parse_release_json(json, "tdongle-s3", NULL, sizeof(tag), url, sizeof(url));
+    ret = bb_ota_pull_parse_release_json(json, "tdongle-s3", NULL, sizeof(tag), url, sizeof(url));
     TEST_ASSERT_EQUAL_INT(-1, ret);
 
     // NULL out_url
-    ret = bsp_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), NULL, sizeof(url));
+    ret = bb_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), NULL, sizeof(url));
     TEST_ASSERT_EQUAL_INT(-1, ret);
 }
 
@@ -182,7 +182,7 @@ void test_ota_pull_parse_asset_url_null_value(void)
         "]}";
 
     char tag[32], url[256];
-    int ret = bsp_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
+    int ret = bb_ota_pull_parse_release_json(json, "tdongle-s3", tag, sizeof(tag), url, sizeof(url));
     // Should return -2 because url_item->valuestring is NULL
     TEST_ASSERT_EQUAL_INT(-2, ret);
 }

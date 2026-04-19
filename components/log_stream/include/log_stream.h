@@ -10,7 +10,7 @@
  * Platform-independent — exposed for host tests.
  * Returns number of bytes written (excluding NUL), or negative on error.
  */
-int bsp_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_list args);
+int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_list args);
 
 #ifdef ESP_PLATFORM
 
@@ -21,23 +21,23 @@ int bsp_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va
  * Initialise the ring buffer and install the custom vprintf hook.
  * Must be called once from app_main before any tasks are started.
  */
-esp_err_t bsp_log_stream_init(void);
+esp_err_t bb_log_stream_init(void);
 
 /**
  * Drain one log line from the ring buffer into out_buf.
  * Blocks for up to ticks_to_wait FreeRTOS ticks.
  * Returns the number of bytes written (excluding NUL), or 0 on timeout.
  */
-size_t bsp_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t ticks_to_wait);
+size_t bb_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t ticks_to_wait);
 
 /**
- * Returns true if bsp_log_stream_init() has been called successfully.
+ * Returns true if bb_log_stream_init() has been called successfully.
  */
-bool bsp_log_stream_ready(void);
+bool bb_log_stream_ready(void);
 
 /**
  * Returns the count of lines that could not be sent despite the drop-oldest loop.
  */
-uint32_t bsp_log_stream_dropped_lines(void);
+uint32_t bb_log_stream_dropped_lines(void);
 
 #endif /* ESP_PLATFORM */

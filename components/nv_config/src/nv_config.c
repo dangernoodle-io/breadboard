@@ -1,8 +1,8 @@
 #include "nv_config.h"
 #include <string.h>
 
-#ifndef BSP_NV_CONFIG_NAMESPACE
-#define BSP_NV_CONFIG_NAMESPACE "bsp_cfg"
+#ifndef BB_NV_CONFIG_NAMESPACE
+#define BB_NV_CONFIG_NAMESPACE "bb_cfg"
 #endif
 
 static struct {
@@ -27,11 +27,11 @@ static void load_str(nvs_handle_t handle, const char *key, char *buf, size_t buf
 }
 #endif
 
-bsp_err_t bsp_nv_config_init(void)
+bb_err_t bb_nv_config_init(void)
 {
 #ifdef ESP_PLATFORM
     nvs_handle_t handle;
-    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle);
 
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(TAG, "no config in NVS");
@@ -63,10 +63,10 @@ bsp_err_t bsp_nv_config_init(void)
 }
 
 #ifdef ESP_PLATFORM
-bool bsp_nv_config_is_provisioned(void)
+bool bb_nv_config_is_provisioned(void)
 {
     nvs_handle_t handle;
-    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle);
 
     if (err != ESP_OK) {
         return false;
@@ -83,10 +83,10 @@ bool bsp_nv_config_is_provisioned(void)
     return value == 1;
 }
 
-bsp_err_t bsp_nv_config_set_provisioned(void)
+bb_err_t bb_nv_config_set_provisioned(void)
 {
     nvs_handle_t handle;
-    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
 
     if (err != ESP_OK) {
         return err;
@@ -101,10 +101,10 @@ bsp_err_t bsp_nv_config_set_provisioned(void)
     return err;
 }
 
-bsp_err_t bsp_nv_config_set_wifi(const char *ssid, const char *pass)
+bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass)
 {
     nvs_handle_t handle;
-    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
 
     if (err != ESP_OK) {
         return err;
@@ -129,10 +129,10 @@ bsp_err_t bsp_nv_config_set_wifi(const char *ssid, const char *pass)
     return err;
 }
 
-bsp_err_t bsp_nv_config_set_display_enabled(bool en)
+bb_err_t bb_nv_config_set_display_enabled(bool en)
 {
     nvs_handle_t handle;
-    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
 
     if (err != ESP_OK) {
         return err;
@@ -151,10 +151,10 @@ bsp_err_t bsp_nv_config_set_display_enabled(bool en)
     return err;
 }
 
-bsp_err_t bsp_nv_config_clear_provisioned(void)
+bb_err_t bb_nv_config_clear_provisioned(void)
 {
     nvs_handle_t handle;
-    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK) return err;
     err = nvs_erase_key(handle, "provisioned");
     if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
@@ -163,10 +163,10 @@ bsp_err_t bsp_nv_config_clear_provisioned(void)
     return err;
 }
 
-bsp_err_t bsp_nv_config_clear_wifi(void)
+bb_err_t bb_nv_config_clear_wifi(void)
 {
     nvs_handle_t handle;
-    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK) return err;
     err = nvs_erase_key(handle, "wifi_ssid");
     if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
@@ -183,20 +183,20 @@ bsp_err_t bsp_nv_config_clear_wifi(void)
     return err;
 }
 
-uint8_t bsp_nv_config_boot_count(void)
+uint8_t bb_nv_config_boot_count(void)
 {
     nvs_handle_t handle;
-    if (nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) return 0;
+    if (nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) return 0;
     uint8_t val = 0;
     nvs_get_u8(handle, "boot_cnt", &val);
     nvs_close(handle);
     return val;
 }
 
-bsp_err_t bsp_nv_config_increment_boot_count(void)
+bb_err_t bb_nv_config_increment_boot_count(void)
 {
     nvs_handle_t handle;
-    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK) return err;
     uint8_t val = 0;
     nvs_get_u8(handle, "boot_cnt", &val);
@@ -207,10 +207,10 @@ bsp_err_t bsp_nv_config_increment_boot_count(void)
     return err;
 }
 
-bsp_err_t bsp_nv_config_reset_boot_count(void)
+bb_err_t bb_nv_config_reset_boot_count(void)
 {
     nvs_handle_t handle;
-    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK) return err;
     err = nvs_set_u8(handle, "boot_cnt", 0);
     if (err == ESP_OK) err = nvs_commit(handle);
@@ -218,20 +218,20 @@ bsp_err_t bsp_nv_config_reset_boot_count(void)
     return err;
 }
 
-bool bsp_nv_config_ota_skip_check(void)
+bool bb_nv_config_ota_skip_check(void)
 {
     nvs_handle_t handle;
-    if (nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) return false;
+    if (nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) return false;
     uint8_t val = 0;
     nvs_get_u8(handle, "ota_skip", &val);
     nvs_close(handle);
     return val != 0;
 }
 
-bsp_err_t bsp_nv_config_set_ota_skip_check(bool skip)
+bb_err_t bb_nv_config_set_ota_skip_check(bool skip)
 {
     nvs_handle_t handle;
-    bsp_err_t err = nvs_open(BSP_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK) return err;
     err = nvs_set_u8(handle, "ota_skip", skip ? 1 : 0);
     if (err == ESP_OK) err = nvs_commit(handle);
@@ -240,6 +240,6 @@ bsp_err_t bsp_nv_config_set_ota_skip_check(bool skip)
 }
 #endif
 
-const char *bsp_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }
-const char *bsp_nv_config_wifi_pass(void) { return s_config.wifi_pass; }
-bool bsp_nv_config_display_enabled(void) { return s_config.display_en != 0; }
+const char *bb_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }
+const char *bb_nv_config_wifi_pass(void) { return s_config.wifi_pass; }
+bool bb_nv_config_display_enabled(void) { return s_config.display_en != 0; }
