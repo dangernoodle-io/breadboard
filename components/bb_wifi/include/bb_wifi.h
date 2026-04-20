@@ -7,13 +7,6 @@
 // Host-safe types (usable outside #ifdef ESP_PLATFORM)
 #define WIFI_SCAN_MAX 20
 
-typedef enum {
-    BB_WIFI_STATE_DISCONNECTED,
-    BB_WIFI_STATE_CONNECTING,
-    BB_WIFI_STATE_CONNECTED,
-    BB_WIFI_STATE_AP_MODE
-} bb_wifi_state_t;
-
 typedef struct {
     char ssid[33];
     int8_t rssi;
@@ -42,31 +35,15 @@ esp_err_t bb_wifi_init_sta(void);       // returns ESP_ERR_TIMEOUT on failure (p
 // Force WiFi reassociation — recover from zombie-connected state
 void bb_wifi_force_reassociate(void);
 
-// AP mode — for provisioning
-esp_err_t bb_wifi_init_ap(void);        // starts AP + captive DNS
-void bb_wifi_stop_ap(void);             // stops AP + DNS, deinits wifi
-void bb_wifi_prov_get_ap_ssid(char *buf, size_t len);  // get AP SSID
-
-// Provisioning synchronization
-/**
- * Block until provisioning completes.
- * @param timeout_ms  How long to wait in ms; UINT32_MAX = wait forever.
- * @return true if provisioning completed, false on timeout.
- */
-bool bb_wifi_prov_wait_done(uint32_t timeout_ms);
-
-/** Signal provisioning complete. Called by http_server's /save handler. */
-void bb_wifi_prov_signal_done(void);
+// Got-IP callback registration
+typedef void (*bb_wifi_on_got_ip_cb_t)(void);
+void bb_wifi_register_on_got_ip(bb_wifi_on_got_ip_cb_t cb);
 
 // Diagnostic getters — lock-free reads from interrupt-safe statics
-void bb_wifi_prov_get_disconnect(uint8_t *reason, int64_t *age_us);
-int bb_wifi_prov_get_retry_count(void);
-bool bb_wifi_prov_mdns_started(void);
-esp_err_t bb_wifi_prov_get_ip_str(char *out, size_t out_len);
-esp_err_t bb_wifi_prov_get_rssi(int8_t *out);
-bool bb_wifi_prov_has_ip(void);
-
-// App-injected mDNS hostname setter
-void bb_wifi_set_mdns_hostname(const char *hostname);
+void bb_wifi_get_disconnect(uint8_t *reason, int64_t *age_us);
+int bb_wifi_get_retry_count(void);
+esp_err_t bb_wifi_get_ip_str(char *out, size_t out_len);
+esp_err_t bb_wifi_get_rssi(int8_t *out);
+bool bb_wifi_has_ip(void);
 
 #endif /* ESP_PLATFORM */

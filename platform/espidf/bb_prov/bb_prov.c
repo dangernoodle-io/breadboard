@@ -3,9 +3,26 @@
 #include "esp_http_server.h"
 #include "log_stream.h"
 #include "nv_config.h"
-#include "wifi_prov.h"
+#include "bb_wifi.h"
+#include "esp_wifi.h"
+#include "esp_netif.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
+#include "freertos/task.h"
+#include "lwip/sockets.h"
+#include <string.h>
 
 static const char *TAG = "bb_prov";
+
+// AP and provisioning state
+static esp_netif_t *s_ap_netif = NULL;
+static bool s_netif_initialized = false;
+static volatile bool s_dns_running = false;
+static TaskHandle_t s_dns_task_handle = NULL;
+static char s_ap_ssid[32];
+static EventGroupHandle_t s_prov_event_group = NULL;
+
+#define PROV_DONE_BIT BIT0
 
 static void set_common_headers(httpd_req_t *req)
 {
@@ -55,7 +72,7 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
     httpd_resp_send(req, NULL, 0);
 
     // Signal provisioning complete
-    bb_wifi_prov_signal_done();
+    bb_prov_signal_done();
 
     return ESP_OK;
 }
@@ -67,6 +84,215 @@ static esp_err_t prov_redirect_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
     httpd_resp_send(req, NULL, 0);
     return ESP_OK;
+}
+
+// Captive DNS task - responds to all DNS queries with 192.168.4.1
+static void dns_task(void *arg)
+{
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock < 0) {
+        bb_log_e(TAG, "failed to create DNS socket");
+        s_dns_task_handle = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(53),
+        .sin_addr.s_addr = INADDR_ANY,
+    };
+
+    if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        bb_log_e(TAG, "failed to bind DNS socket");
+        close(sock);
+        s_dns_task_handle = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    // Set receive timeout so we can check s_dns_running
+    struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    bb_log_i(TAG, "captive DNS listening on 0.0.0.0:53");
+
+    uint8_t buf[256];
+    while (s_dns_running) {
+        struct sockaddr_in client;
+        socklen_t client_len = sizeof(client);
+        int len = recvfrom(sock, buf, sizeof(buf), 0, (struct sockaddr *)&client, &client_len);
+
+        if (len < 12) {
+            // Too short for DNS header or timeout
+            continue;
+        }
+
+        // Build response: copy query, set response flags, add A record pointing to 192.168.4.1
+        uint8_t resp[256];
+        memcpy(resp, buf, len);
+        resp[2] = 0x81;  // QR=1 (response)
+        resp[3] = 0x80;  // AA=1 (authoritative), no error
+
+        resp[6] = 0;     // ANCOUNT high byte
+        resp[7] = 1;     // ANCOUNT = 1 answer
+
+        // Append answer: name pointer + type A + class IN + TTL + rdlength + IP
+        int pos = len;
+        resp[pos++] = 0xC0;  // pointer to question name
+        resp[pos++] = 0x0C;
+        resp[pos++] = 0x00;  // type A
+        resp[pos++] = 0x01;
+        resp[pos++] = 0x00;  // class IN
+        resp[pos++] = 0x01;
+        resp[pos++] = 0x00;  // TTL 60 seconds
+        resp[pos++] = 0x00;
+        resp[pos++] = 0x00;
+        resp[pos++] = 0x3C;
+        resp[pos++] = 0x00;  // rdlength 4
+        resp[pos++] = 0x04;
+        resp[pos++] = 192;   // 192.168.4.1
+        resp[pos++] = 168;
+        resp[pos++] = 4;
+        resp[pos++] = 1;
+
+        sendto(sock, resp, pos, 0, (struct sockaddr *)&client, client_len);
+    }
+
+    close(sock);
+    s_dns_task_handle = NULL;
+    vTaskDelete(NULL);
+}
+
+esp_err_t bb_prov_start_ap(void)
+{
+    // Create provisioning event group if not already created
+    if (s_prov_event_group == NULL) {
+        s_prov_event_group = xEventGroupCreate();
+    }
+
+    // Initialize netif and event loop (idempotent, guarded by flag)
+    if (!s_netif_initialized) {
+        ESP_ERROR_CHECK(esp_netif_init());
+        ESP_ERROR_CHECK(esp_event_loop_create_default());
+        s_netif_initialized = true;
+    }
+
+    // Create AP netif with default config (auto-starts DHCPS)
+    s_ap_netif = esp_netif_create_default_wifi_ap();
+    if (s_ap_netif == NULL) {
+        bb_log_e(TAG, "failed to create AP netif");
+        return ESP_FAIL;
+    }
+
+    // Initialize WiFi and set mode before reading AP MAC
+    // (hosted/wifi_remote populates per-interface MACs after mode is set; reading
+    // ESP_MAC_WIFI_SOFTAP before set_mode returns ESP_ERR_NOT_SUPPORTED on P4+C6)
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+
+    // Build AP SSID from MAC address
+    uint8_t mac[6];
+    ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_IF_AP, mac));
+
+    char ssid[32];
+    snprintf(ssid, sizeof(ssid), "BB-%02X%02X", mac[4], mac[5]);
+    strncpy(s_ap_ssid, ssid, sizeof(s_ap_ssid) - 1);
+    s_ap_ssid[sizeof(s_ap_ssid) - 1] = '\0';
+
+    // Configure AP
+    wifi_config_t ap_config = {
+        .ap = {
+            .password = "breadboard",
+            .max_connection = 4,
+            .authmode = WIFI_AUTH_WPA2_PSK,
+        },
+    };
+    strncpy((char *)ap_config.ap.ssid, ssid, sizeof(ap_config.ap.ssid));
+    ap_config.ap.ssid_len = strlen(ssid);
+
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    // Start DNS task
+    s_dns_running = true;
+    BaseType_t xReturned = xTaskCreatePinnedToCore(
+        dns_task,
+        "dns",
+        4096,
+        NULL,
+        tskIDLE_PRIORITY + 1,
+        &s_dns_task_handle,
+        0
+    );
+
+    if (xReturned != pdPASS) {
+        bb_log_e(TAG, "failed to create DNS task");
+        s_dns_running = false;
+        esp_wifi_stop();
+        esp_wifi_deinit();
+        esp_netif_destroy(s_ap_netif);
+        s_ap_netif = NULL;
+        return ESP_FAIL;
+    }
+
+    bb_log_i(TAG, "AP started: SSID=%s, password=breadboard", ssid);
+
+    return ESP_OK;
+}
+
+void bb_prov_stop_ap(void)
+{
+    if (s_ap_netif == NULL) {
+        bb_log_w(TAG, "AP not initialized");
+        return;
+    }
+
+    // Stop DNS task
+    s_dns_running = false;
+    if (s_dns_task_handle != NULL) {
+        // Wait for task to exit with a timeout
+        for (int i = 0; i < 50; i++) {  // 5 second timeout (50 * 100ms)
+            if (s_dns_task_handle == NULL) {
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    }
+
+    // Stop WiFi
+    ESP_ERROR_CHECK(esp_wifi_stop());
+    ESP_ERROR_CHECK(esp_wifi_deinit());
+
+    // Destroy AP netif
+    esp_netif_destroy(s_ap_netif);
+    s_ap_netif = NULL;
+
+    bb_log_i(TAG, "AP stopped");
+}
+
+void bb_prov_get_ap_ssid(char *buf, size_t len)
+{
+    strncpy(buf, s_ap_ssid, len - 1);
+    buf[len - 1] = '\0';
+}
+
+bool bb_prov_wait_done(uint32_t timeout_ms)
+{
+    if (s_prov_event_group == NULL) {
+        return false;
+    }
+    TickType_t ticks = (timeout_ms == UINT32_MAX) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
+    EventBits_t bits = xEventGroupWaitBits(s_prov_event_group, PROV_DONE_BIT, pdFALSE, pdTRUE, ticks);
+    return (bits & PROV_DONE_BIT) != 0;
+}
+
+void bb_prov_signal_done(void)
+{
+    if (s_prov_event_group != NULL) {
+        xEventGroupSetBits(s_prov_event_group, PROV_DONE_BIT);
+    }
 }
 
 esp_err_t bb_prov_start(bb_http_app_routes_fn prov_ui_routes_fn)
