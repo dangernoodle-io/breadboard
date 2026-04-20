@@ -46,11 +46,11 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 esp_err_t bb_log_stream_init(void);
 
 /**
- * Drain one log line from the ring buffer into out_buf.
- * Blocks for up to ticks_to_wait FreeRTOS ticks.
+ * Drain queued log bytes into out_buf (up to out_buf_len).
+ * Waits up to timeout_ms for data if the ring is empty; UINT32_MAX means block forever.
  * Returns the number of bytes written (excluding NUL), or 0 on timeout.
  */
-size_t bb_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t ticks_to_wait);
+size_t bb_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t timeout_ms);
 
 /**
  * Returns true if bb_log_stream_init() has been called successfully.

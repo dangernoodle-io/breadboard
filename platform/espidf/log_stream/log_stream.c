@@ -85,12 +85,15 @@ esp_err_t bb_log_stream_init(void)
     return ESP_OK;
 }
 
-size_t bb_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t ticks_to_wait)
+size_t bb_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t timeout_ms)
 {
     if (!s_rb || !out_buf || out_buf_len == 0) return 0;
 
+    // Convert timeout_ms to FreeRTOS ticks (UINT32_MAX means wait forever)
+    TickType_t ticks = (timeout_ms == UINT32_MAX) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
+
     size_t item_size = 0;
-    char *item = xRingbufferReceive(s_rb, &item_size, (TickType_t)ticks_to_wait);
+    char *item = xRingbufferReceive(s_rb, &item_size, ticks);
     if (!item) return 0;
 
     size_t copy_len = (item_size < out_buf_len) ? item_size : out_buf_len - 1;
