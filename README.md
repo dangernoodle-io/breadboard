@@ -17,7 +17,8 @@ Reusable components for embedded systems: wifi provisioning, NVS config, HTTP se
 |-----------|---------|-----------|
 | `board` | GPIO / power / boot-mode helpers for the host board | ESP-IDF |
 | `display` | MIPI-DSI panel init (EK79007) with LVGL via `esp_lvgl_port`; consumer holds `bb_display_lock` for all LVGL calls. Exposes `bb_display_screen` / `bb_display_lock` / `bb_display_unlock` for direct LVGL access. | ESP-IDF |
-| `http_server` | esp_http_server wrapper with provisioning state machine (see note below); Arduino backend routes/handlers with fixed-buffer response batching | ESP-IDF, Arduino |
+| `http_server` | esp_http_server wrapper with portable route registration API; Arduino backend routes/handlers with fixed-buffer response batching | ESP-IDF, Arduino |
+| `bb_prov` | Provisioning state machine (SoftAP + captive-portal + HTTP `/save` handler) | ESP-IDF |
 | `log_stream` | Ring-buffered log capture for remote retrieval; `bb_log_{e,w,i,d,v}` macros for platform-abstract logging | ESP-IDF, Arduino |
 | `nv_config` | Typed NVS accessors (wifi SSID/pass, display enable, boot count, OTA flags) plus generic `bb_nv_*` key/value helpers with caller-supplied namespace | ESP-IDF, Arduino |
 | `ota_pull` | HTTP releases-feed poller with cJSON parse and A/B rollback | ESP-IDF |
@@ -37,7 +38,7 @@ Tagged source archives will be published on the [releases page](https://github.c
 
 ## Provisioning UI
 
-`http_server` ships the state machine, not the UI. Consumers register `GET /` (and any static assets: favicon, css, logo) via the `prov_ui_routes_fn` callback to `bb_http_server_start_prov`. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
+The `bb_prov` component manages the provisioning state machine and HTTP `/save` handler. Consumers provide a `prov_ui_routes_fn` callback to `bb_prov_start` to register `GET /` and any static assets (favicon, css, logo). `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
 
 ## Portability
 

@@ -26,7 +26,7 @@ Use `bb_log_{e,w,i,d,v}(tag, fmt, ...)` macros for all breadboard component code
 
 ## Provisioning UI
 
-The `http_server` component does NOT ship a provisioning UI. Consumers must register `GET /` (and any static assets) via the `prov_ui_routes_fn` callback to `bb_http_server_start_prov`. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
+The `bb_prov` component manages the provisioning state machine and HTTP `/save` handler. Consumers must register `GET /` (and any static assets) via the `prov_ui_routes_fn` callback to `bb_prov_start`. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
 
 ## Display
 

@@ -57,7 +57,7 @@ int bb_ota_pull_parse_release_json(const char *json, const char *board_name,
 #include "http_server.h"
 
 /**
- * Register OTA pull HTTP handlers with an existing httpd instance.
+ * Register OTA pull HTTP handlers with an existing HTTP server.
  * Adds GET /api/ota/check, POST /api/ota/update, and GET /api/ota/status.
  */
 esp_err_t bb_ota_pull_register_handler(bb_http_handle_t server);
