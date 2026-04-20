@@ -30,10 +30,11 @@ jobs:
           file: gcovr-coveralls.json
           format: coveralls
   smoke:
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        example: [minimal, arduino-uno-cc3000]
+        example: [elecrow-p4-hmi7, arduino-uno-cc3000]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -49,3 +50,14 @@ jobs:
         run: pip install platformio
       - name: Examples smoke build
         run: make smoke-${{ matrix.example }}
+  summary:
+    if: always()
+    needs: [test, smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.smoke.result }}" != "success" ]; then
+            echo "test=${{ needs.test.result }} smoke=${{ needs.smoke.result }}"
+            exit 1
+          fi

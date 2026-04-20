@@ -48,7 +48,7 @@ Public headers guard `esp_*.h` and `freertos/*.h` behind `#ifdef ESP_PLATFORM` s
 ```bash
 make check              # cppcheck static analysis
 make coverage           # host unit tests + gcovr → Coveralls-format JSON
-make smoke-minimal      # build ESP-IDF example
+make smoke-elecrow-p4-hmi7     # build ESP-IDF example
 make smoke-arduino-uno-cc3000  # build Arduino Uno + CC3000 example
 make smoke              # build all examples
 ```
