@@ -35,6 +35,11 @@ static esp_err_t ensure_server_started(void)
     return ESP_OK;
 }
 
+// Internal helper: cast opaque handle back to httpd_handle_t for internal use
+static inline httpd_handle_t _bb_handle_to_internal(bb_http_handle_t h) {
+    return (httpd_handle_t)h;
+}
+
 static void set_common_headers(httpd_req_t *req)
 {
     httpd_resp_set_hdr(req, "Connection", "close");
@@ -124,7 +129,7 @@ esp_err_t bb_http_server_start_prov(bb_http_app_routes_fn prov_ui_routes_fn)
     // Register consumer routes (GET /, favicon, etc) before the GET /*
     // captive-portal wildcard so specific handlers take precedence.
     if (prov_ui_routes_fn) {
-        prov_ui_routes_fn(s_server);
+        prov_ui_routes_fn((bb_http_handle_t)s_server);
     }
 
     httpd_register_uri_handler(s_server, &prov_redirect);
@@ -145,7 +150,7 @@ void bb_http_server_switch_to_normal(bb_http_app_routes_fn app_routes_fn)
 
     // Register app routes if callback provided
     if (app_routes_fn) {
-        app_routes_fn(s_server);
+        app_routes_fn((bb_http_handle_t)s_server);
     }
 }
 
@@ -161,7 +166,7 @@ esp_err_t bb_http_server_start(bb_http_app_routes_fn app_routes_fn)
 
     // Register app routes if callback provided
     if (app_routes_fn) {
-        app_routes_fn(s_server);
+        app_routes_fn((bb_http_handle_t)s_server);
     }
 
     bb_log_i(TAG, "HTTP server started on port 80");
@@ -177,7 +182,7 @@ esp_err_t bb_http_server_stop(void)
     return ESP_OK;
 }
 
-httpd_handle_t bb_http_server_get_handle(void)
+bb_http_handle_t bb_http_server_get_handle(void)
 {
-    return s_server;
+    return (bb_http_handle_t)s_server;
 }

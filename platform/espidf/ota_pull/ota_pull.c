@@ -19,6 +19,7 @@ static char s_firmware_board[64] = "";
 #include "log_stream.h"
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
+#include "esp_http_server.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
@@ -674,11 +675,13 @@ static esp_err_t ota_status_handler(httpd_req_t *req)
 /**
  * Register OTA pull HTTP handlers with an existing httpd instance.
  */
-esp_err_t bb_ota_pull_register_handler(httpd_handle_t server)
+esp_err_t bb_ota_pull_register_handler(bb_http_handle_t server)
 {
     if (!server) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    httpd_handle_t s = (httpd_handle_t)server;
 
     httpd_uri_t check_uri = {
         .uri = "/api/ota/check",
@@ -701,21 +704,21 @@ esp_err_t bb_ota_pull_register_handler(httpd_handle_t server)
         .user_ctx = NULL,
     };
 
-    esp_err_t err = httpd_register_uri_handler(server, &check_uri);
+    esp_err_t err = httpd_register_uri_handler(s, &check_uri);
     if (err != ESP_OK) {
         bb_log_e(TAG, "failed to register /api/ota/check handler: %s",
                  esp_err_to_name(err));
         return err;
     }
 
-    err = httpd_register_uri_handler(server, &update_uri);
+    err = httpd_register_uri_handler(s, &update_uri);
     if (err != ESP_OK) {
         bb_log_e(TAG, "failed to register /api/ota/update handler: %s",
                  esp_err_to_name(err));
         return err;
     }
 
-    err = httpd_register_uri_handler(server, &status_uri);
+    err = httpd_register_uri_handler(s, &status_uri);
     if (err != ESP_OK) {
         bb_log_e(TAG, "failed to register /api/ota/status handler: %s",
                  esp_err_to_name(err));

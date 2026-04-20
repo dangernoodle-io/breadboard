@@ -22,10 +22,14 @@ bb_prov_parse_result_t bb_prov_parse_body(
 
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
-#include "esp_http_server.h"
+
+// Opaque handle to the HTTP server. Aliases httpd_handle_t internally on ESP-IDF
+// (both are void *). Consumers treat it as opaque and pass it back into
+// bb_http_server_* / esp_http_server.h APIs as needed.
+typedef void *bb_http_handle_t;
 
 // Callback to register app-specific routes after provisioning/on normal boot
-typedef esp_err_t (*bb_http_app_routes_fn)(httpd_handle_t server);
+typedef esp_err_t (*bb_http_app_routes_fn)(bb_http_handle_t server);
 
 // Start HTTP server in provisioning mode.
 // breadboard registers: POST /save, OPTIONS /* (CORS preflight), GET /* (captive-portal redirect).
@@ -42,6 +46,6 @@ void bb_http_server_switch_to_normal(bb_http_app_routes_fn app_routes_fn);
 esp_err_t bb_http_server_stop(void);
 
 // Get current server handle (for internal use by app routes)
-httpd_handle_t bb_http_server_get_handle(void);
+bb_http_handle_t bb_http_server_get_handle(void);
 
 #endif
