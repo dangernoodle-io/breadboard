@@ -10,6 +10,14 @@ void bb_mdns_init(void);
 // Set mDNS hostname. Must be called after bb_mdns_init().
 void bb_mdns_set_hostname(const char *hostname);
 
+// Set mDNS service type (e.g. "_taipanminer"). Must be called before bb_mdns_init().
+// Defaults to "_bsp" if not set.
+void bb_mdns_set_service_type(const char *service_type);
+
+// Set mDNS instance name (e.g. "TaipanMiner"). Must be called before bb_mdns_init().
+// Defaults to "BSP Device" if not set.
+void bb_mdns_set_instance_name(const char *instance_name);
+
 // Check if mDNS has been started.
 bool bb_mdns_started(void);
 
