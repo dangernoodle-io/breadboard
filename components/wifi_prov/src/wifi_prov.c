@@ -4,7 +4,7 @@
 #include <string.h>
 #include "esp_wifi.h"
 #include "esp_event.h"
-#include "esp_log.h"
+#include "log_stream.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
 #ifdef ESP_PLATFORM
@@ -83,18 +83,18 @@ static void mdns_start(void)
 
     esp_err_t err = mdns_init();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "mdns_init failed: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "mdns_init failed: %s", esp_err_to_name(err));
         return;
     }
 
     err = mdns_hostname_set(hostname);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "mdns_hostname_set failed: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "mdns_hostname_set failed: %s", esp_err_to_name(err));
         return;
     }
     err = mdns_instance_name_set("BSP Device");
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "mdns_instance_name_set failed: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "mdns_instance_name_set failed: %s", esp_err_to_name(err));
         return;
     }
 
@@ -114,12 +114,12 @@ static void mdns_start(void)
 
     err = mdns_service_add(NULL, "_bsp", "_tcp", 80, txt, 3);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "mdns_service_add failed: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "mdns_service_add failed: %s", esp_err_to_name(err));
         return;
     }
     s_mdns_started = true;
 
-    ESP_LOGI(TAG, "mDNS started: %s.local (_bsp._tcp)", hostname);
+    bb_log_i(TAG, "mDNS started: %s.local (_bsp._tcp)", hostname);
 }
 #endif /* ESP_PLATFORM */
 
@@ -214,7 +214,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 
         // Boot-time connect: legacy inline retry until wifi_connect_sta() hands off
         if (s_retry_count >= WIFI_MAX_RETRY) {
-            ESP_LOGW(TAG, "max retries reached, delaying 5s before retry");
+            bb_log_w(TAG, "max retries reached, delaying 5s before retry");
             s_retry_count = 0;
             if (!s_reconnect_timer) {
                 const esp_timer_create_args_t args = {
@@ -229,10 +229,10 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         }
         esp_wifi_connect();
         s_retry_count++;
-        ESP_LOGW(TAG, "retry %d/%d", s_retry_count, WIFI_MAX_RETRY);
+        bb_log_w(TAG, "retry %d/%d", s_retry_count, WIFI_MAX_RETRY);
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
-        ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
+        bb_log_i(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_count = 0;
         s_has_ip = true;
         if (wifi_reconn_is_active()) {
@@ -251,17 +251,17 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         esp_netif_ip_info_t ip_info;
         if (s_sta_netif && esp_netif_get_ip_info(s_sta_netif, &ip_info) == ESP_OK
             && ip_info.ip.addr != 0) {
-            ESP_LOGD(TAG, "IP_LOST_IP but netif still has IP, ignoring");
+            bb_log_d(TAG, "IP_LOST_IP but netif still has IP, ignoring");
             return;
         }
         s_has_ip = false;
-        ESP_LOGW(TAG, "IP lost");
+        bb_log_w(TAG, "IP lost");
     }
 }
 
 void bb_wifi_force_reassociate(void)
 {
-    ESP_LOGW(TAG, "forcing WiFi reassociation (zombie state recovery)");
+    bb_log_w(TAG, "forcing WiFi reassociation (zombie state recovery)");
     esp_wifi_disconnect();
 }
 
@@ -300,7 +300,7 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
-    ESP_LOGI(TAG, "connecting to %s", bb_nv_config_wifi_ssid());
+    bb_log_i(TAG, "connecting to %s", bb_nv_config_wifi_ssid());
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
                                            pdFALSE, pdFALSE, pdMS_TO_TICKS(60000));
 
@@ -324,11 +324,11 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
         s_ip_handler = NULL;
 
         if (restart_on_timeout) {
-            ESP_LOGE(TAG, "WiFi connection timeout after 60s, restarting");
+            bb_log_e(TAG, "WiFi connection timeout after 60s, restarting");
             bb_nv_config_increment_boot_count();
             esp_restart();
         } else {
-            ESP_LOGE(TAG, "WiFi connection timeout after 60s");
+            bb_log_e(TAG, "WiFi connection timeout after 60s");
             return ESP_ERR_TIMEOUT;
         }
     }
@@ -359,7 +359,7 @@ static void dns_task(void *arg)
 {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock < 0) {
-        ESP_LOGE(TAG, "failed to create DNS socket");
+        bb_log_e(TAG, "failed to create DNS socket");
         s_dns_task_handle = NULL;
         vTaskDelete(NULL);
         return;
@@ -372,7 +372,7 @@ static void dns_task(void *arg)
     };
 
     if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        ESP_LOGE(TAG, "failed to bind DNS socket");
+        bb_log_e(TAG, "failed to bind DNS socket");
         close(sock);
         s_dns_task_handle = NULL;
         vTaskDelete(NULL);
@@ -383,7 +383,7 @@ static void dns_task(void *arg)
     struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-    ESP_LOGI(TAG, "captive DNS listening on 0.0.0.0:53");
+    bb_log_i(TAG, "captive DNS listening on 0.0.0.0:53");
 
     uint8_t buf[256];
     while (s_dns_running) {
@@ -449,7 +449,7 @@ esp_err_t bb_wifi_init_ap(void)
     // Create AP netif with default config (auto-starts DHCPS)
     s_ap_netif = esp_netif_create_default_wifi_ap();
     if (s_ap_netif == NULL) {
-        ESP_LOGE(TAG, "failed to create AP netif");
+        bb_log_e(TAG, "failed to create AP netif");
         return ESP_FAIL;
     }
 
@@ -496,7 +496,7 @@ esp_err_t bb_wifi_init_ap(void)
     );
 
     if (xReturned != pdPASS) {
-        ESP_LOGE(TAG, "failed to create DNS task");
+        bb_log_e(TAG, "failed to create DNS task");
         s_dns_running = false;
         esp_wifi_stop();
         esp_wifi_deinit();
@@ -505,7 +505,7 @@ esp_err_t bb_wifi_init_ap(void)
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "AP started: SSID=%s, password=bsp-prov", ssid);
+    bb_log_i(TAG, "AP started: SSID=%s, password=bsp-prov", ssid);
 
     return ESP_OK;
 }
@@ -513,7 +513,7 @@ esp_err_t bb_wifi_init_ap(void)
 void bb_wifi_stop_ap(void)
 {
     if (s_ap_netif == NULL) {
-        ESP_LOGW(TAG, "AP not initialized");
+        bb_log_w(TAG, "AP not initialized");
         return;
     }
 
@@ -537,7 +537,7 @@ void bb_wifi_stop_ap(void)
     esp_netif_destroy(s_ap_netif);
     s_ap_netif = NULL;
 
-    ESP_LOGI(TAG, "AP stopped");
+    bb_log_i(TAG, "AP stopped");
 }
 
 int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results)
@@ -549,7 +549,7 @@ int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results)
     wifi_scan_config_t scan_config = { .show_hidden = false };
     esp_err_t err = esp_wifi_scan_start(&scan_config, true); // blocking
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "scan failed: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "scan failed: %s", esp_err_to_name(err));
         return 0;
     }
 
@@ -609,7 +609,7 @@ static void scan_worker_task(void *arg)
     s_cached_scan_count = count;
     s_scan_in_progress = false;
 
-    ESP_LOGD(TAG, "async scan complete: %d networks found", count);
+    bb_log_d(TAG, "async scan complete: %d networks found", count);
     vTaskDelete(NULL);
 }
 
@@ -630,7 +630,7 @@ void bb_wifi_scan_start_async(void)
     );
 
     if (xReturned != pdPASS) {
-        ESP_LOGW(TAG, "failed to create wifi_scan task");
+        bb_log_w(TAG, "failed to create wifi_scan task");
         s_scan_in_progress = false;
     }
 }

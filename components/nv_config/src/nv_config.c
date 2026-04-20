@@ -15,7 +15,7 @@ static struct {
 #ifdef ESP_PLATFORM
 #include "nvs_flash.h"
 #include "nvs.h"
-#include "esp_log.h"
+#include "log_stream.h"
 static const char *TAG = "nv_config";
 
 static void load_str(nvs_handle_t handle, const char *key, char *buf, size_t buf_size, const char *fallback)
@@ -34,7 +34,7 @@ bb_err_t bb_nv_config_init(void)
     bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle);
 
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGI(TAG, "no config in NVS");
+        bb_log_i(TAG, "no config in NVS");
         memset(&s_config, 0, sizeof(s_config));
         s_config.display_en = 1;  // default: display on
         return ESP_OK;
@@ -53,7 +53,7 @@ bb_err_t bb_nv_config_init(void)
 
     nvs_close(handle);
 
-    ESP_LOGI(TAG, "config loaded");
+    bb_log_i(TAG, "config loaded");
 #else
     // Native build: no NVS, all fields empty/zero
     memset(&s_config, 0, sizeof(s_config));

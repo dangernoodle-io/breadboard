@@ -16,7 +16,7 @@ static char s_releases_url[512] = "";
 static char s_firmware_board[64] = "";
 
 #ifdef ESP_PLATFORM
-#include "esp_log.h"
+#include "log_stream.h"
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
 #include "esp_ota_ops.h"
@@ -189,7 +189,7 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
 {
     char *buf = malloc(API_BUF_MAX);
     if (!buf) {
-        ESP_LOGE(TAG, "failed to allocate response buffer");
+        bb_log_e(TAG, "failed to allocate response buffer");
         return ESP_ERR_NO_MEM;
     }
 
@@ -213,14 +213,14 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
 
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "http open failed: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "http open failed: %s", esp_err_to_name(err));
         goto cleanup;
     }
 
     int content_length = esp_http_client_fetch_headers(client);
     int status = esp_http_client_get_status_code(client);
     if (status != 200) {
-        ESP_LOGE(TAG, "GitHub API returned %d", status);
+        bb_log_e(TAG, "GitHub API returned %d", status);
         err = ESP_FAIL;
         goto cleanup;
     }
@@ -236,7 +236,7 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
     (void)content_length;
 
     if (total == 0) {
-        ESP_LOGE(TAG, "empty response from GitHub API");
+        bb_log_e(TAG, "empty response from GitHub API");
         err = ESP_FAIL;
         goto cleanup;
     }
@@ -250,7 +250,7 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
         result->asset_url, sizeof(result->asset_url));
 
     if (parse_ret != 0) {
-        ESP_LOGE(TAG, "failed to parse release json: %d", parse_ret);
+        bb_log_e(TAG, "failed to parse release json: %d", parse_ret);
         err = ESP_FAIL;
         goto cleanup;
     }
@@ -260,10 +260,10 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
                                strcmp(result->latest_tag, running->version) != 0;
 
     if (result->update_available) {
-        ESP_LOGI(TAG, "update available: %s -> %s",
+        bb_log_i(TAG, "update available: %s -> %s",
                  running->version, result->latest_tag);
     } else {
-        ESP_LOGI(TAG, "already up to date: %s", result->latest_tag);
+        bb_log_i(TAG, "already up to date: %s", result->latest_tag);
     }
 
 cleanup:
@@ -293,7 +293,7 @@ static void ota_worker_task(void *arg)
         paused = s_pause_cb();
     }
 
-    ESP_LOGI(TAG, "starting OTA update from %s", result.asset_url);
+    bb_log_i(TAG, "starting OTA update from %s", result.asset_url);
     taskENTER_CRITICAL(&s_ota_status_mux);
     s_ota_status.state = OTA_STATE_DOWNLOADING;
     s_ota_status.progress_pct = 0;
@@ -316,16 +316,16 @@ static void ota_worker_task(void *arg)
     // Verify OTA partition exists before attempting
     const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
     if (!update_partition) {
-        ESP_LOGE(TAG, "no OTA update partition found");
+        bb_log_e(TAG, "no OTA update partition found");
         ota_set_error("no OTA update partition (check partition table)");
         goto resume_and_exit;
     }
-    ESP_LOGI(TAG, "OTA target partition: %s", update_partition->label);
+    bb_log_i(TAG, "OTA target partition: %s", update_partition->label);
 
     esp_https_ota_handle_t ota_handle = NULL;
     esp_err_t err = esp_https_ota_begin(&ota_config, &ota_handle);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_https_ota_begin failed: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "esp_https_ota_begin failed: %s", esp_err_to_name(err));
         ota_set_error("ota_begin: %s", esp_err_to_name(err));
         goto resume_and_exit;
     }
@@ -333,7 +333,7 @@ static void ota_worker_task(void *arg)
     esp_app_desc_t img_desc;
     err = esp_https_ota_get_img_desc(ota_handle, &img_desc);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_https_ota_get_img_desc failed: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "esp_https_ota_get_img_desc failed: %s", esp_err_to_name(err));
         ota_set_error("get_img_desc: %s", esp_err_to_name(err));
         esp_https_ota_abort(ota_handle);
         goto resume_and_exit;
@@ -344,7 +344,7 @@ static void ota_worker_task(void *arg)
                 sizeof(img_desc.project_name)) != 0) {
         // Note: nv_config_ota_skip_check is no longer available in library context.
         // Applications must handle this check themselves if needed.
-        ESP_LOGE(TAG, "board mismatch: got '%s', expected '%s'",
+        bb_log_e(TAG, "board mismatch: got '%s', expected '%s'",
                  img_desc.project_name, running->project_name);
         ota_set_error("board mismatch: got '%s', expected '%s'",
                       img_desc.project_name, running->project_name);
@@ -368,7 +368,7 @@ static void ota_worker_task(void *arg)
     }
 
     if (!esp_https_ota_is_complete_data_received(ota_handle)) {
-        ESP_LOGE(TAG, "incomplete OTA data received");
+        bb_log_e(TAG, "incomplete OTA data received");
         ota_set_error("incomplete OTA data received");
         esp_https_ota_abort(ota_handle);
         goto resume_and_exit;
@@ -384,12 +384,12 @@ static void ota_worker_task(void *arg)
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_status.state = OTA_STATE_COMPLETE;
         taskEXIT_CRITICAL(&s_ota_status_mux);
-        ESP_LOGI(TAG, "OTA complete, rebooting to %s", result.latest_tag);
+        bb_log_i(TAG, "OTA complete, rebooting to %s", result.latest_tag);
         vTaskDelay(pdMS_TO_TICKS(500));
         esp_restart();
     }
 
-    ESP_LOGE(TAG, "esp_https_ota_finish failed: %s", esp_err_to_name(err));
+    bb_log_e(TAG, "esp_https_ota_finish failed: %s", esp_err_to_name(err));
     ota_set_error("esp_https_ota_finish: %s", esp_err_to_name(err));
 
 resume_and_exit:
@@ -433,9 +433,9 @@ static void ota_check_worker_task(void *arg)
     taskEXIT_CRITICAL(&s_ota_status_mux);
 
     if (ok) {
-        ESP_LOGI(TAG, "background check completed");
+        bb_log_i(TAG, "background check completed");
     } else {
-        ESP_LOGE(TAG, "background check failed");
+        bb_log_e(TAG, "background check failed");
     }
 
     vTaskDelete(NULL);
@@ -703,26 +703,26 @@ esp_err_t bb_ota_pull_register_handler(httpd_handle_t server)
 
     esp_err_t err = httpd_register_uri_handler(server, &check_uri);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to register /api/ota/check handler: %s",
+        bb_log_e(TAG, "failed to register /api/ota/check handler: %s",
                  esp_err_to_name(err));
         return err;
     }
 
     err = httpd_register_uri_handler(server, &update_uri);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to register /api/ota/update handler: %s",
+        bb_log_e(TAG, "failed to register /api/ota/update handler: %s",
                  esp_err_to_name(err));
         return err;
     }
 
     err = httpd_register_uri_handler(server, &status_uri);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to register /api/ota/status handler: %s",
+        bb_log_e(TAG, "failed to register /api/ota/status handler: %s",
                  esp_err_to_name(err));
         return err;
     }
 
-    ESP_LOGI(TAG, "OTA pull handlers registered");
+    bb_log_i(TAG, "OTA pull handlers registered");
     return ESP_OK;
 }
 
@@ -732,7 +732,7 @@ esp_err_t bb_ota_pull_register_handler(httpd_handle_t server)
 esp_err_t bb_ota_pull_check_now(void)
 {
     if (s_releases_url[0] == '\0') {
-        ESP_LOGE(TAG, "releases URL not set; call bb_ota_pull_set_releases_url() first");
+        bb_log_e(TAG, "releases URL not set; call bb_ota_pull_set_releases_url() first");
         return ESP_ERR_INVALID_STATE;
     }
 

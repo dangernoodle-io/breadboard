@@ -19,7 +19,6 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 
 #ifdef ESP_PLATFORM
 
-#include "esp_log.h"
 #include "freertos/ringbuf.h"
 
 static const char *TAG = "bb_log_stream";
@@ -76,13 +75,13 @@ esp_err_t bb_log_stream_init(void)
     s_rb = xRingbufferCreateStatic(LOG_STREAM_BUF_BYTES, RINGBUF_TYPE_NOSPLIT,
                                     s_rb_storage, &s_rb_static);
     if (!s_rb) {
-        ESP_LOGE(TAG, "ring buffer creation failed");
+        bb_log_e(TAG, "ring buffer creation failed");
         return ESP_ERR_NO_MEM;
     }
 
     s_orig_vprintf = esp_log_set_vprintf(s_log_vprintf);
     s_ready = true;
-    ESP_LOGI(TAG, "log stream initialised (%" PRIu32 " bytes)", (uint32_t)LOG_STREAM_BUF_BYTES);
+    bb_log_i(TAG, "log stream initialised (%" PRIu32 " bytes)", (uint32_t)LOG_STREAM_BUF_BYTES);
     return ESP_OK;
 }
 

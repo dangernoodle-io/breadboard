@@ -12,6 +12,28 @@
  */
 int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_list args);
 
+/*
+ * bb_log_{e,w,i,d,v}(tag, fmt, ...) — platform-abstract logging macros.
+ * On ESP-IDF, expand to ESP_LOG{E,W,I,D,V}. On host, expand to
+ * fprintf(stderr|stdout, ...). Debug and verbose are compiled out on host
+ * to keep test output clean.
+ */
+#ifdef ESP_PLATFORM
+  #include "esp_log.h"
+  #define bb_log_e(tag, fmt, ...) ESP_LOGE(tag, fmt, ##__VA_ARGS__)
+  #define bb_log_w(tag, fmt, ...) ESP_LOGW(tag, fmt, ##__VA_ARGS__)
+  #define bb_log_i(tag, fmt, ...) ESP_LOGI(tag, fmt, ##__VA_ARGS__)
+  #define bb_log_d(tag, fmt, ...) ESP_LOGD(tag, fmt, ##__VA_ARGS__)
+  #define bb_log_v(tag, fmt, ...) ESP_LOGV(tag, fmt, ##__VA_ARGS__)
+#else
+  #include <stdio.h>
+  #define bb_log_e(tag, fmt, ...) fprintf(stderr, "E (%s) " fmt "\n", (tag), ##__VA_ARGS__)
+  #define bb_log_w(tag, fmt, ...) fprintf(stderr, "W (%s) " fmt "\n", (tag), ##__VA_ARGS__)
+  #define bb_log_i(tag, fmt, ...) fprintf(stdout, "I (%s) " fmt "\n", (tag), ##__VA_ARGS__)
+  #define bb_log_d(tag, fmt, ...) ((void)0)
+  #define bb_log_v(tag, fmt, ...) ((void)0)
+#endif
+
 #ifdef ESP_PLATFORM
 
 #include "esp_err.h"

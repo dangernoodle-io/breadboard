@@ -1,6 +1,6 @@
 #include "display.h"
 
-#include "esp_log.h"
+#include "log_stream.h"
 #include "board.h"
 #include "esp_ldo_regulator.h"
 #include "esp_lcd_mipi_dsi.h"
@@ -30,7 +30,7 @@ bb_display_err_t bb_display_init(void)
     };
     err = esp_ldo_acquire_channel(&ldo_cfg, &s_ldo);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to acquire LDO channel: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "failed to acquire LDO channel: %s", esp_err_to_name(err));
         return err;
     }
 
@@ -42,7 +42,7 @@ bb_display_err_t bb_display_init(void)
     };
     err = esp_lcd_new_dsi_bus(&dsi_cfg, &s_dsi_bus);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to create DSI bus: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "failed to create DSI bus: %s", esp_err_to_name(err));
         esp_ldo_release_channel(s_ldo);
         s_ldo = NULL;
         return err;
@@ -55,7 +55,7 @@ bb_display_err_t bb_display_init(void)
     };
     err = esp_lcd_new_panel_io_dbi(s_dsi_bus, &panel_io_cfg, &s_panel_io);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to create panel IO: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "failed to create panel IO: %s", esp_err_to_name(err));
         esp_lcd_del_dsi_bus(s_dsi_bus);
         s_dsi_bus = NULL;
         esp_ldo_release_channel(s_ldo);
@@ -85,7 +85,7 @@ bb_display_err_t bb_display_init(void)
 
     err = esp_lcd_new_panel_ek79007(s_panel_io, &panel_cfg, &s_panel);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to create panel: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "failed to create panel: %s", esp_err_to_name(err));
         esp_lcd_panel_io_del(s_panel_io);
         s_panel_io = NULL;
         esp_lcd_del_dsi_bus(s_dsi_bus);
@@ -97,7 +97,7 @@ bb_display_err_t bb_display_init(void)
 
     err = esp_lcd_panel_reset(s_panel);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to reset panel: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "failed to reset panel: %s", esp_err_to_name(err));
         esp_lcd_panel_del(s_panel);
         s_panel = NULL;
         esp_lcd_panel_io_del(s_panel_io);
@@ -111,7 +111,7 @@ bb_display_err_t bb_display_init(void)
 
     err = esp_lcd_panel_init(s_panel);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to init panel: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "failed to init panel: %s", esp_err_to_name(err));
         esp_lcd_panel_del(s_panel);
         s_panel = NULL;
         esp_lcd_panel_io_del(s_panel_io);
@@ -139,7 +139,7 @@ bb_display_err_t bb_display_init(void)
     lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     err = lvgl_port_init(&lvgl_cfg);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to init lvgl port: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "failed to init lvgl port: %s", esp_err_to_name(err));
         esp_lcd_panel_del(s_panel);
         s_panel = NULL;
         esp_lcd_panel_io_del(s_panel_io);
@@ -182,7 +182,7 @@ bb_display_err_t bb_display_init(void)
     };
     s_lv_disp = lvgl_port_add_disp_dsi(&disp_cfg, &dsi_disp_cfg);
     if (s_lv_disp == NULL) {
-        ESP_LOGE(TAG, "failed to add DSI display to LVGL");
+        bb_log_e(TAG, "failed to add DSI display to LVGL");
         lvgl_port_deinit();
         esp_lcd_panel_del(s_panel);
         s_panel = NULL;
@@ -197,7 +197,7 @@ bb_display_err_t bb_display_init(void)
 
     s_screen = lv_display_get_screen_active(s_lv_disp);
 
-    ESP_LOGI(TAG, "init: %dx%d %s (LVGL)", PANEL_WIDTH, PANEL_HEIGHT, PANEL_NAME);
+    bb_log_i(TAG, "init: %dx%d %s (LVGL)", PANEL_WIDTH, PANEL_HEIGHT, PANEL_NAME);
 
     return ESP_OK;
 }
