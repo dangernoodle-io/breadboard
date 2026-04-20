@@ -43,8 +43,9 @@ static bool s_mdns_started = false;
 static char s_mdns_hostname[64] = "bsp-device";
 static bool s_mdns_hostname_set = false;
 
-// Public event group for provisioning
-EventGroupHandle_t g_prov_event_group = NULL;
+// File-scope event group for provisioning
+#define PROV_DONE_BIT BIT0
+static EventGroupHandle_t s_prov_event_group = NULL;
 
 // WiFi scan cache
 static bb_wifi_ap_t s_cached_scan[WIFI_SCAN_MAX];
@@ -435,8 +436,8 @@ static void dns_task(void *arg)
 esp_err_t bb_wifi_init_ap(void)
 {
     // Create provisioning event group if not already created
-    if (g_prov_event_group == NULL) {
-        g_prov_event_group = xEventGroupCreate();
+    if (s_prov_event_group == NULL) {
+        s_prov_event_group = xEventGroupCreate();
     }
 
     // Initialize netif and event loop (idempotent, guarded by flag)
@@ -655,4 +656,21 @@ void bb_wifi_prov_get_ap_ssid(char *buf, size_t len)
 {
     strncpy(buf, s_ap_ssid, len - 1);
     buf[len - 1] = '\0';
+}
+
+bool bb_wifi_prov_wait_done(uint32_t timeout_ms)
+{
+    if (s_prov_event_group == NULL) {
+        return false;
+    }
+    TickType_t ticks = (timeout_ms == UINT32_MAX) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
+    EventBits_t bits = xEventGroupWaitBits(s_prov_event_group, PROV_DONE_BIT, pdFALSE, pdTRUE, ticks);
+    return (bits & PROV_DONE_BIT) != 0;
+}
+
+void bb_wifi_prov_signal_done(void)
+{
+    if (s_prov_event_group != NULL) {
+        xEventGroupSetBits(s_prov_event_group, PROV_DONE_BIT);
+    }
 }
