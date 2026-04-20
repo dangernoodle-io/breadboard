@@ -1,7 +1,19 @@
 # ESP-IDF Backend
 
-This directory holds ESP-IDF-specific implementations for components whose public API is platform-agnostic.
+ESP-IDF-specific implementations for breadboard components. Public API and platform-agnostic code live in `components/<name>/include/` and `components/<name>/src/`; this tree holds the ESP-IDF backend that satisfies those APIs.
 
-Currently ESP-IDF is the only supported backend. A future Arduino backend would live at `platform/arduino/` alongside.
+## Layout
 
-Most current components keep their ESP-IDF impl directly in `components/<name>/src/` for simplicity. This directory exists to reserve the seam.
+Each populated component has a directory here with its `.c` sources:
+
+- `log_stream/` — ring buffer + streaming task
+- `nv_config/` — NVS-backed config store
+- `http_server/` — esp_http_server integration (body-parsing helpers live in `components/http_server/src/http_utils.c`)
+- `ota_pull/` — esp_https_ota integration
+- `wifi_prov/` — Wi-Fi STA/AP + provisioning state machine
+- `display/` — LVGL + MIPI-DSI panel init
+- `board/` — pin maps and board-specific init
+
+## Adding a new backend
+
+`platform/<backend>/<component>/` would hold the equivalent sources. Each component's `CMakeLists.txt` points `SRCS` at the active backend.
