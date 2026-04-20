@@ -23,8 +23,6 @@ typedef struct {
 #ifdef ESP_PLATFORM
 
 #include "esp_err.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/event_groups.h"
 
 // ESP32-specific functions and types
 
@@ -49,9 +47,16 @@ esp_err_t bb_wifi_init_ap(void);        // starts AP + captive DNS
 void bb_wifi_stop_ap(void);             // stops AP + DNS, deinits wifi
 void bb_wifi_prov_get_ap_ssid(char *buf, size_t len);  // get AP SSID
 
-// Provisioning event
-#define PROV_DONE_BIT BIT0
-extern EventGroupHandle_t g_prov_event_group;
+// Provisioning synchronization
+/**
+ * Block until provisioning completes.
+ * @param timeout_ms  How long to wait in ms; UINT32_MAX = wait forever.
+ * @return true if provisioning completed, false on timeout.
+ */
+bool bb_wifi_prov_wait_done(uint32_t timeout_ms);
+
+/** Signal provisioning complete. Called by http_server's /save handler. */
+void bb_wifi_prov_signal_done(void);
 
 // Diagnostic getters — lock-free reads from interrupt-safe statics
 void bb_wifi_prov_get_disconnect(uint8_t *reason, int64_t *age_us);

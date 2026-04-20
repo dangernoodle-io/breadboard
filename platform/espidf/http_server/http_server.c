@@ -3,8 +3,8 @@
 #include "log_stream.h"
 #include "esp_wifi.h"
 #include "nv_config.h"
+#include "wifi_prov.h"
 #include "freertos/task.h"
-#include "freertos/event_groups.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -94,8 +94,7 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
     httpd_resp_send(req, NULL, 0);
 
     // Signal provisioning complete
-    extern EventGroupHandle_t g_prov_event_group;
-    xEventGroupSetBits(g_prov_event_group, BIT0);
+    bb_wifi_prov_signal_done();
 
     return ESP_OK;
 }
