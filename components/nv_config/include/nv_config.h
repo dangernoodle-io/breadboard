@@ -7,12 +7,16 @@
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
 typedef esp_err_t bb_err_t;
+#define BB_OK                   ESP_OK
+#define BB_ERR_INVALID_ARG      ESP_ERR_INVALID_ARG
+#define BB_ERR_NOT_FOUND        ESP_ERR_NVS_NOT_FOUND
+#define BB_ERR_NOT_INITIALIZED  ESP_ERR_NVS_NOT_INITIALIZED
 #else
-#define ESP_OK 0
-#define ESP_ERR_INVALID_ARG 1
-#define ESP_ERR_NVS_NOT_FOUND 2
-#define ESP_ERR_NVS_NOT_INITIALIZED 3
 typedef int bb_err_t;
+#define BB_OK                   0
+#define BB_ERR_INVALID_ARG      1
+#define BB_ERR_NOT_FOUND        2
+#define BB_ERR_NOT_INITIALIZED  3
 #endif
 
 bb_err_t bb_nv_config_init(void);
