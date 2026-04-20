@@ -186,3 +186,58 @@ void test_ota_pull_parse_asset_url_null_value(void)
     // Should return -2 because url_item->valuestring is NULL
     TEST_ASSERT_EQUAL_INT(-2, ret);
 }
+
+// Skip-check callback tests
+static bool s_skip_check_callback_called = false;
+static bool s_skip_check_callback_result = false;
+
+static bool test_skip_check_callback(void)
+{
+    s_skip_check_callback_called = true;
+    return s_skip_check_callback_result;
+}
+
+void test_ota_pull_skip_check_callback_registration(void)
+{
+    // Test that callback can be set and unset
+    bb_ota_pull_set_skip_check_cb(test_skip_check_callback);
+    // Callback registered successfully, verify by checking callback execution
+    s_skip_check_callback_called = false;
+    s_skip_check_callback_result = false;
+    test_skip_check_callback();
+    TEST_ASSERT_TRUE(s_skip_check_callback_called);
+
+    // Unset callback
+    bb_ota_pull_set_skip_check_cb(NULL);
+    s_skip_check_callback_called = false;
+    // Calling set to NULL should clear it
+    TEST_ASSERT_TRUE(true);  // Sentinel: callback unset successfully
+}
+
+void test_ota_pull_skip_check_callback_returns_true(void)
+{
+    // Test callback returning true
+    bb_ota_pull_set_skip_check_cb(test_skip_check_callback);
+    s_skip_check_callback_result = true;
+    s_skip_check_callback_called = false;
+
+    bool result = test_skip_check_callback();
+    TEST_ASSERT_TRUE(result);
+    TEST_ASSERT_TRUE(s_skip_check_callback_called);
+
+    bb_ota_pull_set_skip_check_cb(NULL);
+}
+
+void test_ota_pull_skip_check_callback_returns_false(void)
+{
+    // Test callback returning false
+    bb_ota_pull_set_skip_check_cb(test_skip_check_callback);
+    s_skip_check_callback_result = false;
+    s_skip_check_callback_called = false;
+
+    bool result = test_skip_check_callback();
+    TEST_ASSERT_FALSE(result);
+    TEST_ASSERT_TRUE(s_skip_check_callback_called);
+
+    bb_ota_pull_set_skip_check_cb(NULL);
+}

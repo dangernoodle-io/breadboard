@@ -30,6 +30,9 @@ void test_ota_pull_parse_asset_missing_url(void);
 void test_ota_pull_parse_assets_not_array(void);
 void test_ota_pull_parse_null_inputs(void);
 void test_ota_pull_parse_asset_url_null_value(void);
+void test_ota_pull_skip_check_callback_registration(void);
+void test_ota_pull_skip_check_callback_returns_true(void);
+void test_ota_pull_skip_check_callback_returns_false(void);
 
 // Forward declarations from test_http_utils.c
 void test_url_decode_basic(void);
@@ -120,6 +123,9 @@ int main(void) {
     RUN_TEST(test_ota_pull_parse_assets_not_array);
     RUN_TEST(test_ota_pull_parse_null_inputs);
     RUN_TEST(test_ota_pull_parse_asset_url_null_value);
+    RUN_TEST(test_ota_pull_skip_check_callback_registration);
+    RUN_TEST(test_ota_pull_skip_check_callback_returns_true);
+    RUN_TEST(test_ota_pull_skip_check_callback_returns_false);
 
     // HTTP utils tests
     RUN_TEST(test_url_decode_basic);
