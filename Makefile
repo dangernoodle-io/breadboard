@@ -19,8 +19,14 @@ test: ## Run host unit tests
 coverage: test ## Coverage report (gcovr)
 	gcovr --root . --filter 'components/' --print-summary --coveralls gcovr-coveralls.json
 
-smoke: ## Build examples/minimal
+smoke: smoke-minimal smoke-arduino-uno-cc3000
+
+smoke-minimal: ## Build examples/minimal
 	$(PIO) run -d examples/minimal
+
+smoke-arduino-uno-cc3000: ## Build Arduino Uno + CC3000 example
+	cp examples/arduino-uno-cc3000/include/secrets.h.example examples/arduino-uno-cc3000/include/secrets.h
+	$(PIO) run -d examples/arduino-uno-cc3000 -e uno
 
 clean: ## Clean build artifacts
 	$(PIO) run -t clean
