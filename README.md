@@ -17,7 +17,7 @@ Reusable components for embedded systems: wifi provisioning, NVS config, HTTP se
 |-----------|---------|-----------|
 | `board` | GPIO / power / boot-mode helpers for the host board | ESP-IDF |
 | `display` | MIPI-DSI panel init (EK79007) with LVGL via `esp_lvgl_port`; consumer holds `bb_display_lock` for all LVGL calls. Exposes `bb_display_screen` / `bb_display_lock` / `bb_display_unlock` for direct LVGL access. | ESP-IDF |
-| `http_server` | esp_http_server wrapper with provisioning state machine (see note below) | ESP-IDF |
+| `http_server` | esp_http_server wrapper with provisioning state machine (see note below); Arduino backend routes/handlers with fixed-buffer response batching | ESP-IDF, Arduino |
 | `log_stream` | Ring-buffered log capture for remote retrieval; `bb_log_{e,w,i,d,v}` macros for platform-abstract logging | ESP-IDF, Arduino |
 | `nv_config` | Typed NVS accessors (wifi SSID/pass, display enable, boot count, OTA flags) plus generic `bb_nv_*` key/value helpers with caller-supplied namespace | ESP-IDF, Arduino |
 | `ota_pull` | HTTP releases-feed poller with cJSON parse and A/B rollback | ESP-IDF |
@@ -41,7 +41,7 @@ Tagged source archives will be published on the [releases page](https://github.c
 
 ## Portability
 
-Public headers guard `esp_*.h` and `freertos/*.h` behind `#ifdef ESP_PLATFORM` so non-ESP backends (e.g. Arduino) can coexist without breaking consumers. The Arduino backend (`platform/arduino/`) is in beta; `log_stream` and `nv_config` are validated on hardware, while `wifi_prov` and `http_server` are deferred pending API stabilization.
+Public headers guard `esp_*.h` and `freertos/*.h` behind `#ifdef ESP_PLATFORM` so non-ESP backends (e.g. Arduino) can coexist without breaking consumers. The Arduino backend (`platform/arduino/`) is in beta; `log_stream`, `nv_config`, and `http_server` are validated on hardware, while `wifi_prov` is deferred pending API stabilization.
 
 ## Development
 

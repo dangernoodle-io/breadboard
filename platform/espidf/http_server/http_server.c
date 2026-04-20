@@ -186,3 +186,99 @@ bb_http_handle_t bb_http_server_get_handle(void)
 {
     return (bb_http_handle_t)s_server;
 }
+
+// ============================================================================
+// PORTABLE API IMPLEMENTATIONS
+// ============================================================================
+
+// Shim handler adapter: translates bb_http_handler_fn ↔ httpd_req_t*
+static esp_err_t bb_shim_handler(httpd_req_t *req)
+{
+    bb_http_handler_fn fn = (bb_http_handler_fn)req->user_ctx;
+    if (!fn) return ESP_FAIL;
+    return fn((bb_http_request_t*)req) == BB_OK ? ESP_OK : ESP_FAIL;
+}
+
+bb_err_t bb_http_register_route(bb_http_handle_t server,
+                                bb_http_method_t method,
+                                const char *path,
+                                bb_http_handler_fn handler)
+{
+    httpd_handle_t h = (httpd_handle_t)server;
+    if (!h || !handler) return BB_ERR_INVALID_ARG;
+
+    // Map method (HTTP_GET, HTTP_POST are enum constants)
+    int http_method_mapped;
+    switch (method) {
+        case BB_HTTP_GET:
+            http_method_mapped = HTTP_GET;
+            break;
+        case BB_HTTP_POST:
+            http_method_mapped = HTTP_POST;
+            break;
+        default:
+            return BB_ERR_INVALID_ARG;
+    }
+
+    // Build httpd_uri_t with handler stored in user_ctx
+    httpd_uri_t uri = {
+        .uri = path,
+        .method = http_method_mapped,
+        .handler = bb_shim_handler,
+        .user_ctx = (void*)handler,
+    };
+
+    esp_err_t err = httpd_register_uri_handler(h, &uri);
+    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
+}
+
+bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
+{
+    httpd_req_t *http_req = (httpd_req_t*)req;
+    if (!http_req) return BB_ERR_INVALID_ARG;
+
+    // Convert status code to string
+    char status_str[32];
+    snprintf(status_str, sizeof(status_str), "%d", status_code);
+    esp_err_t err = httpd_resp_set_status(http_req, status_str);
+    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
+}
+
+bb_err_t bb_http_resp_set_header(bb_http_request_t *req, const char *key, const char *value)
+{
+    httpd_req_t *http_req = (httpd_req_t*)req;
+    if (!http_req || !key || !value) return BB_ERR_INVALID_ARG;
+
+    esp_err_t err = httpd_resp_set_hdr(http_req, key, value);
+    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
+}
+
+bb_err_t bb_http_resp_send(bb_http_request_t *req, const char *body, size_t len)
+{
+    httpd_req_t *http_req = (httpd_req_t*)req;
+    if (!http_req) return BB_ERR_INVALID_ARG;
+
+    esp_err_t err = httpd_resp_send(http_req, body, len);
+    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
+}
+
+int bb_http_req_body_len(bb_http_request_t *req)
+{
+    httpd_req_t *http_req = (httpd_req_t*)req;
+    if (!http_req) return -1;
+    return http_req->content_len;
+}
+
+int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size)
+{
+    httpd_req_t *http_req = (httpd_req_t*)req;
+    if (!http_req || !buf) return -1;
+
+    return httpd_req_recv(http_req, buf, buf_size);
+}
+
+// No-op on ESP-IDF; service loop runs in httpd task
+void bb_http_server_poll(void)
+{
+    // ESP-IDF httpd runs on its own FreeRTOS task; nothing to do here
+}

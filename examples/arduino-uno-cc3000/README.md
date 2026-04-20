@@ -63,27 +63,35 @@ curl http://<dhcp-ip>/ping
 
 CC3000 firmware 1.24 may exhibit flaky TCP accept behavior due to a known `SOCKOPT_ACCEPT_NONBLOCK` issue. If `/ping` requests hang or drop frequently, consider updating the CC3000 firmware using Adafruit's [firmware patcher](https://github.com/adafruit/Adafruit_CC3000_Library/blob/master/FIRMWARE.md).
 
-### macOS ARM64 (M1/M2)
+### Local toolchain override (Apple Silicon)
 
-If the PlatformIO Homebrew toolchain (x86_64) doesn't run under Rosetta on your Mac, set up a local symlink-farm toolchain:
+PlatformIO bundles an x86_64 `avr-gcc` which fails on arm64 Macs with "Bad CPU type in executable". To use a native Homebrew toolchain:
 
-1. Install the cross-compiler:
+1. Install avr-gcc and avrdude:
    ```bash
    brew tap osx-cross/avr
-   brew install avr-gcc avrdude
+   brew install avr-gcc@9 avrdude
    ```
 
-2. Create symlinks in `~/.local/pio-avr` and `~/.local/pio-avrdude` pointing to the Homebrew-installed toolchain paths.
-
-3. Create `platformio_local.ini` in this directory:
-   ```ini
-   [env:uno]
-   platform_packages =
-       toolchain-atmelavr@symlink:///Users/yourname/.local/pio-avr
-       tool-avrdude@symlink:///Users/yourname/.local/pio-avrdude
+2. Create `~/.local/pio-avr` and `~/.local/pio-avrdude` symlink farms. For reference, the structures are:
+   ```
+   ~/.local/pio-avr/
+   ├── avr -> /opt/homebrew/opt/avr-gcc@9/avr
+   ├── bin -> /opt/homebrew/opt/avr-gcc@9/bin
+   └── package.json (minimal metadata)
+   
+   ~/.local/pio-avrdude/
+   ├── bin -> /opt/homebrew/opt/avrdude/bin
+   └── package.json (minimal metadata)
    ```
 
-(This file is gitignored to avoid committing personal paths.)
+3. Copy the example override file and edit with your paths:
+   ```bash
+   cp platformio_local.ini.example platformio_local.ini
+   # Edit platformio_local.ini: replace YOUR_USERNAME with your macOS login
+   ```
+
+The `platformio_local.ini` file is gitignored, so your personal paths never commit to the repo. On CI (Ubuntu x86_64), the bundled toolchain works natively.
 
 ## Flash / SRAM Budget
 

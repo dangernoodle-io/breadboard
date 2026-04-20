@@ -1,0 +1,7 @@
+; Copy to platformio_local.ini and adjust paths for your host.
+; Required on Apple Silicon (bundled avr-gcc is x86_64).
+
+[env:uno]
+platform_packages =
+    toolchain-atmelavr@symlink:///Users/YOUR_USERNAME/.local/pio-avr
+    tool-avrdude@symlink:///Users/YOUR_USERNAME/.local/pio-avrdude
