@@ -10,6 +10,10 @@ All public C symbols use prefix `bb_`.
 
 Public headers must not include `esp_*.h` or `freertos/*.h` outside `#ifdef ESP_PLATFORM`. This is enforced so a future non-ESP-IDF platform backend (e.g. Arduino) can be added without breaking consumers.
 
+## Logging
+
+Use `bb_log_{e,w,i,d,v}(tag, fmt, ...)` macros for all breadboard component code. On ESP-IDF these expand to `ESP_LOG{E,W,I,D,V}`; on host they map to `fprintf` (debug/verbose compile out to keep test output clean). Consumers (snugfeather, TaipanMiner) may continue using `ESP_LOG*` directly — the abstraction is for breadboard internal portability only.
+
 ## Layout
 
 - Components under `components/<name>/`.

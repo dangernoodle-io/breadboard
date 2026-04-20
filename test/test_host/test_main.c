@@ -1,5 +1,13 @@
 #include "unity.h"
 
+// Forward declarations from test_bb_log.c
+void test_bb_log_error(void);
+void test_bb_log_warning(void);
+void test_bb_log_info(void);
+void test_bb_log_debug(void);
+void test_bb_log_verbose(void);
+void test_bb_log_zero_args(void);
+
 // Forward declarations from test_log_stream.c
 void test_log_stream_format_basic(void);
 void test_log_stream_format_truncation(void);
@@ -81,6 +89,14 @@ void tearDown(void) {}
 
 int main(void) {
     UNITY_BEGIN();
+
+    // bb_log macro tests
+    RUN_TEST(test_bb_log_error);
+    RUN_TEST(test_bb_log_warning);
+    RUN_TEST(test_bb_log_info);
+    RUN_TEST(test_bb_log_debug);
+    RUN_TEST(test_bb_log_verbose);
+    RUN_TEST(test_bb_log_zero_args);
 
     // Log stream tests
     RUN_TEST(test_log_stream_format_basic);

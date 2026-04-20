@@ -1,6 +1,6 @@
 #include "http_server.h"
 #include "esp_http_server.h"
-#include "esp_log.h"
+#include "log_stream.h"
 #include "esp_wifi.h"
 #include "nv_config.h"
 #include "freertos/task.h"
@@ -130,7 +130,7 @@ esp_err_t bb_http_server_start_prov(bb_http_app_routes_fn prov_ui_routes_fn)
 
     httpd_register_uri_handler(s_server, &prov_redirect);
 
-    ESP_LOGI(TAG, "provisioning server started on port 80");
+    bb_log_i(TAG, "provisioning server started on port 80");
     return ESP_OK;
 }
 
@@ -154,7 +154,7 @@ esp_err_t bb_http_server_start(bb_http_app_routes_fn app_routes_fn)
 {
     esp_err_t err = ensure_server_started();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to start HTTP server: %s", esp_err_to_name(err));
+        bb_log_e(TAG, "failed to start HTTP server: %s", esp_err_to_name(err));
         return err;
     }
 
@@ -165,7 +165,7 @@ esp_err_t bb_http_server_start(bb_http_app_routes_fn app_routes_fn)
         app_routes_fn(s_server);
     }
 
-    ESP_LOGI(TAG, "HTTP server started on port 80");
+    bb_log_i(TAG, "HTTP server started on port 80");
     return ESP_OK;
 }
 

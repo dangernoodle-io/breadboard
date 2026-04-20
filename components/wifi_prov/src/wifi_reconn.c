@@ -3,7 +3,7 @@
 
 #include "esp_wifi.h"
 #include "esp_wifi_types.h"
-#include "esp_log.h"
+#include "log_stream.h"
 #include "esp_timer.h"
 #include "esp_system.h"
 
@@ -105,7 +105,7 @@ static void handle_disconnect(uint8_t reason, reconn_state_t *state, uint32_t *b
     }
 
     if (should_reboot()) {
-        ESP_LOGE(TAG, "persistent disconnect for >5min (reason=%u, handshake=%d, generic=%d), rebooting",
+        bb_log_e(TAG, "persistent disconnect for >5min (reason=%u, handshake=%d, generic=%d), rebooting",
                  reason, s_handshake_fail_count, s_generic_fail_count);
         bb_nv_config_increment_boot_count();
         esp_restart();
@@ -113,13 +113,13 @@ static void handle_disconnect(uint8_t reason, reconn_state_t *state, uint32_t *b
 
     *backoff_ms = compute_backoff_ms(reason);
     *state = ST_BACKOFF;
-    ESP_LOGW(TAG, "disconnect reason=%u, backoff=%ums (handshake=%d, generic=%d)",
+    bb_log_w(TAG, "disconnect reason=%u, backoff=%ums (handshake=%d, generic=%d)",
              reason, (unsigned)(*backoff_ms), s_handshake_fail_count, s_generic_fail_count);
 }
 
 static void handle_got_ip(reconn_state_t *state, uint32_t *backoff_ms)
 {
-    ESP_LOGI(TAG, "got ip, reconnect manager idle");
+    bb_log_i(TAG, "got ip, reconnect manager idle");
     reset_counters_on_success();
     *backoff_ms = 0;
     *state = ST_IDLE;
@@ -131,7 +131,7 @@ static void reconn_task(void *arg)
     reconn_state_t state = ST_IDLE;
     uint32_t backoff_ms = 0;
 
-    ESP_LOGI(TAG, "reconnect manager started");
+    bb_log_i(TAG, "reconnect manager started");
 
     for (;;) {
         TickType_t wait;
@@ -150,7 +150,7 @@ static void reconn_task(void *arg)
                     handle_disconnect(evt.reason, &state, &backoff_ms);
                     if (backoff_ms == 0) {
                         // Immediate retry
-                        ESP_LOGI(TAG, "immediate reconnect attempt");
+                        bb_log_i(TAG, "immediate reconnect attempt");
                         esp_wifi_connect();
                         state = ST_CONNECTING;
                     }
@@ -161,7 +161,7 @@ static void reconn_task(void *arg)
             }
         } else {
             // Backoff elapsed
-            ESP_LOGI(TAG, "backoff elapsed, reconnecting");
+            bb_log_i(TAG, "backoff elapsed, reconnecting");
             esp_wifi_connect();
             state = ST_CONNECTING;
         }
@@ -173,7 +173,7 @@ void wifi_reconn_start(void)
     if (s_active) return;
     s_queue = xQueueCreate(RECONN_QUEUE_LEN, sizeof(reconn_evt_t));
     if (!s_queue) {
-        ESP_LOGE(TAG, "failed to create reconn queue");
+        bb_log_e(TAG, "failed to create reconn queue");
         return;
     }
     BaseType_t ok = xTaskCreatePinnedToCore(
@@ -182,7 +182,7 @@ void wifi_reconn_start(void)
         RECONN_TASK_PRIO, &s_task,
         RECONN_TASK_CORE);
     if (ok != pdPASS) {
-        ESP_LOGE(TAG, "failed to create reconn task");
+        bb_log_e(TAG, "failed to create reconn task");
         vQueueDelete(s_queue);
         s_queue = NULL;
         return;
@@ -200,7 +200,7 @@ void wifi_reconn_on_disconnect(uint8_t reason)
     if (!s_queue) return;
     reconn_evt_t evt = { .type = EVT_DISCONNECT, .reason = reason };
     if (xQueueSend(s_queue, &evt, 0) != pdTRUE) {
-        ESP_LOGW(TAG, "queue full, dropping disconnect event");
+        bb_log_w(TAG, "queue full, dropping disconnect event");
     }
 }
 
@@ -209,7 +209,7 @@ void wifi_reconn_on_got_ip(void)
     if (!s_queue) return;
     reconn_evt_t evt = { .type = EVT_GOT_IP, .reason = 0 };
     if (xQueueSend(s_queue, &evt, 0) != pdTRUE) {
-        ESP_LOGW(TAG, "queue full, dropping got-ip event");
+        bb_log_w(TAG, "queue full, dropping got-ip event");
     }
 }
 
