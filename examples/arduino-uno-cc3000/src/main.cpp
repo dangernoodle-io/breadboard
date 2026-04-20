@@ -2,6 +2,7 @@
 #include <Adafruit_CC3000.h>
 #include "log_stream.h"
 #include "nv_config.h"
+#include "http_server.h"
 #include "secrets.h"
 
 static const char *TAG = "bb-uno";
@@ -9,6 +10,19 @@ static const char *TAG = "bb-uno";
 // Adafruit CC3000 shield pin mapping (both v1.0 and v1.1 shields)
 static Adafruit_CC3000 cc3000(10 /*CS*/, 3 /*IRQ*/, 5 /*VBAT*/,
                               SPI_CLOCK_DIVIDER);
+
+// Handler for GET /ping
+static bb_err_t ping_handler(bb_http_request_t *req) {
+    bb_http_resp_set_header(req, "Content-Type", "text/plain");
+    bb_http_resp_send(req, "pong\n", 5);
+    bb_log_i(TAG, "GET /ping -> pong");
+    return BB_OK;
+}
+
+// Register routes
+static bb_err_t register_routes(bb_http_handle_t server) {
+    return bb_http_register_route(server, BB_HTTP_GET, "/ping", ping_handler);
+}
 
 void setup() {
     Serial.begin(115200);
@@ -47,89 +61,29 @@ void setup() {
         delay(100);
     }
 
-    uint32_t ip, nm, gw, dhcp, dns;
-    if (cc3000.getIPAddress(&ip, &nm, &gw, &dhcp, &dns)) {
-        bb_log_i(TAG, "ip %lu.%lu.%lu.%lu",
-                 (unsigned long)((ip >> 24) & 0xff),
-                 (unsigned long)((ip >> 16) & 0xff),
-                 (unsigned long)((ip >> 8) & 0xff),
-                 (unsigned long)(ip & 0xff));
+    // checkDHCP() can return true before the lease is actually populated.
+    // Poll getIPAddress() until it returns a non-zero IP.
+    uint32_t ip = 0, nm, gw, dhcp, dns;
+    while (true) {
+        if (cc3000.getIPAddress(&ip, &nm, &gw, &dhcp, &dns) && ip != 0) {
+            break;
+        }
+        delay(250);
     }
+    bb_log_i(TAG, "ip %lu.%lu.%lu.%lu",
+             (unsigned long)((ip >> 24) & 0xff),
+             (unsigned long)((ip >> 16) & 0xff),
+             (unsigned long)((ip >> 8) & 0xff),
+             (unsigned long)(ip & 0xff));
 
     bb_log_i(TAG, "online");
+
+    // Start HTTP server with routes
+    bb_http_server_start(register_routes);
 }
 
 void loop() {
-    // Create server socket on port 80
-    static Adafruit_CC3000_Server server(80);
-    static bool server_started = false;
-
-    if (!server_started) {
-        server.begin();
-        server_started = true;
-        bb_log_i(TAG, "listening on :80");
-    }
-
-    // Check for incoming client
-    Adafruit_CC3000_ClientRef client = server.available();
-    if (client) {
-        // Read HTTP request line
-        char method[16] = {0};
-        char path[64] = {0};
-        int bytes_read = 0;
-        bool got_request = false;
-
-        // Read until we see CRLFCRLF
-        String request = "";
-        unsigned long timeout = millis() + 5000;  // 5 second timeout
-        while (millis() < timeout && client.connected()) {
-            if (client.available()) {
-                char c = client.read();
-                request += c;
-
-                // Check for end of headers (CRLFCRLF)
-                if (request.endsWith("\r\n\r\n")) {
-                    got_request = true;
-                    break;
-                }
-            }
-        }
-
-        if (got_request) {
-            // Parse the first line: METHOD PATH HTTP/1.x
-            int space1 = request.indexOf(' ');
-            int space2 = request.indexOf(' ', space1 + 1);
-            int crlf = request.indexOf('\r');
-
-            if (space1 > 0 && space2 > space1 && crlf > space2) {
-                request.substring(0, space1).toCharArray(method, sizeof(method));
-                request.substring(space1 + 1, space2).toCharArray(path, sizeof(path));
-
-                // Check for GET /ping
-                if (strcmp(method, "GET") == 0 && strcmp(path, "/ping") == 0) {
-                    // Send HTTP response
-                    client.fastrprint("HTTP/1.1 200 OK\r\n");
-                    client.fastrprint("Content-Type: text/plain\r\n");
-                    client.fastrprint("Content-Length: 5\r\n");
-                    client.fastrprint("Connection: close\r\n");
-                    client.fastrprint("\r\n");
-                    client.fastrprint("pong\n");
-
-                    bb_log_i(TAG, "GET /ping -> pong");
-                } else {
-                    // 404 for anything else
-                    client.fastrprint("HTTP/1.1 404 Not Found\r\n");
-                    client.fastrprint("Content-Length: 0\r\n");
-                    client.fastrprint("Connection: close\r\n");
-                    client.fastrprint("\r\n");
-
-                    bb_log_i(TAG, "GET %s -> 404", path);
-                }
-            }
-        }
-
-        client.close();
-    }
-
+    // Service HTTP requests
+    bb_http_server_poll();
     delay(10);
 }
