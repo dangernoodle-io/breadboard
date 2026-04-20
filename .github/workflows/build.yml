@@ -30,4 +30,7 @@ jobs:
           file: gcovr-coveralls.json
           format: coveralls
       - name: Examples smoke build
-        run: make smoke
+        run: make smoke-${{ matrix.example }}
+        strategy:
+          matrix:
+            example: [minimal, arduino-uno-cc3000]

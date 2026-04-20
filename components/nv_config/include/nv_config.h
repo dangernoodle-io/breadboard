@@ -4,6 +4,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
 typedef esp_err_t bb_err_t;
@@ -52,3 +56,7 @@ bb_err_t bb_nv_get_u8 (const char *ns, const char *key, uint8_t  *out, uint8_t  
 bb_err_t bb_nv_get_u32(const char *ns, const char *key, uint32_t *out, uint32_t fallback);
 bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, const char *fallback);
 bb_err_t bb_nv_erase  (const char *ns, const char *key);
+
+#ifdef __cplusplus
+}
+#endif

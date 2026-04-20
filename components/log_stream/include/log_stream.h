@@ -25,6 +25,20 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
   #define bb_log_i(tag, fmt, ...) ESP_LOGI(tag, fmt, ##__VA_ARGS__)
   #define bb_log_d(tag, fmt, ...) ESP_LOGD(tag, fmt, ##__VA_ARGS__)
   #define bb_log_v(tag, fmt, ...) ESP_LOGV(tag, fmt, ##__VA_ARGS__)
+#elif defined(ARDUINO)
+  #include <Arduino.h>
+  #ifdef __cplusplus
+  extern "C" {
+  #endif
+  void bb_log_arduino_emit(char level, const char *tag, const char *fmt, ...);
+  #ifdef __cplusplus
+  }
+  #endif
+  #define bb_log_e(tag, fmt, ...) bb_log_arduino_emit('E', (tag), (fmt), ##__VA_ARGS__)
+  #define bb_log_w(tag, fmt, ...) bb_log_arduino_emit('W', (tag), (fmt), ##__VA_ARGS__)
+  #define bb_log_i(tag, fmt, ...) bb_log_arduino_emit('I', (tag), (fmt), ##__VA_ARGS__)
+  #define bb_log_d(tag, fmt, ...) ((void)0)
+  #define bb_log_v(tag, fmt, ...) ((void)0)
 #else
   #include <stdio.h>
   #define bb_log_e(tag, fmt, ...) fprintf(stderr, "E (%s) " fmt "\n", (tag), ##__VA_ARGS__)
