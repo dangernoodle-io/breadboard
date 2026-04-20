@@ -1,4 +1,4 @@
-#include "wifi_prov.h"
+#include "bb_wifi.h"
 #include "nv_config.h"
 #include "wifi_reconn.h"
 #include <string.h>
@@ -7,125 +7,41 @@
 #include "log_stream.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
-#ifdef ESP_PLATFORM
-#include "mdns.h"
-#include "esp_app_desc.h"
-#include "board.h"
-#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
-#include "lwip/sockets.h"
 #include "esp_timer.h"
 
-static const char *TAG = "wifi_prov";
+static const char *TAG = "bb_wifi";
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_MAX_RETRY 10
 
 // State tracking
 static bool s_netif_initialized = false;
 static esp_netif_t *s_sta_netif = NULL;
-static esp_netif_t *s_ap_netif = NULL;
-static volatile bool s_dns_running = false;
-static TaskHandle_t s_dns_task_handle = NULL;
 static EventGroupHandle_t s_wifi_event_group = NULL;
 static int s_retry_count = 0;
-static char s_ap_ssid[32];
 static esp_event_handler_instance_t s_wifi_handler = NULL;
 static esp_event_handler_instance_t s_ip_handler = NULL;
 static esp_timer_handle_t s_reconnect_timer = NULL;
 static volatile bool s_has_ip = false;
-#ifdef ESP_PLATFORM
-static bool s_mdns_started = false;
-#endif
 
-// App-injected mDNS hostname
-static char s_mdns_hostname[64] = "bsp-device";
-static bool s_mdns_hostname_set = false;
-
-// File-scope event group for provisioning
-#define PROV_DONE_BIT BIT0
-static EventGroupHandle_t s_prov_event_group = NULL;
+// Got-IP callback
+static bb_wifi_on_got_ip_cb_t s_on_got_ip_cb = NULL;
 
 // WiFi scan cache
 static bb_wifi_ap_t s_cached_scan[WIFI_SCAN_MAX];
 static int s_cached_scan_count = 0;
 static volatile bool s_scan_in_progress = false;
 
-#ifdef ESP_PLATFORM
 static void reconnect_timer_cb(void *arg)
 {
     (void)arg;
     esp_wifi_connect();
 }
 
-static void mdns_build_hostname(char *out, size_t out_size)
-{
-    if (s_mdns_hostname_set && s_mdns_hostname[0] != '\0') {
-        snprintf(out, out_size, "%s", s_mdns_hostname);
-    } else {
-        uint8_t mac[6];
-        esp_read_mac(mac, ESP_MAC_WIFI_STA);
-        snprintf(out, out_size, "bsp-device-%02x%02x", mac[4], mac[5]);
-    }
-
-    /* mDNS label max 63 chars */
-    out[63] = '\0';
-}
-
-static void mdns_start(void)
-{
-    if (s_mdns_started) {
-        return;
-    }
-
-    char hostname[64];
-    mdns_build_hostname(hostname, sizeof(hostname));
-
-    esp_err_t err = mdns_init();
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "mdns_init failed: %s", esp_err_to_name(err));
-        return;
-    }
-
-    err = mdns_hostname_set(hostname);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "mdns_hostname_set failed: %s", esp_err_to_name(err));
-        return;
-    }
-    err = mdns_instance_name_set("BSP Device");
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "mdns_instance_name_set failed: %s", esp_err_to_name(err));
-        return;
-    }
-
-    const esp_app_desc_t *app = esp_app_get_description();
-    uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-
-    char mac_str[13];
-    snprintf(mac_str, sizeof(mac_str), "%02x%02x%02x%02x%02x%02x",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
-    mdns_txt_item_t txt[] = {
-        {"board",   BOARD_NAME},
-        {"version", app->version},
-        {"mac",     mac_str},
-    };
-
-    err = mdns_service_add(NULL, "_bsp", "_tcp", 80, txt, 3);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "mdns_service_add failed: %s", esp_err_to_name(err));
-        return;
-    }
-    s_mdns_started = true;
-
-    bb_log_i(TAG, "mDNS started: %s.local (_bsp._tcp)", hostname);
-}
-#endif /* ESP_PLATFORM */
-
 // Getters for diagnostics
-void bb_wifi_prov_get_disconnect(uint8_t *reason, int64_t *age_us)
+void bb_wifi_get_disconnect(uint8_t *reason, int64_t *age_us)
 {
     if (wifi_reconn_is_active()) {
         wifi_reconn_get_disconnect(reason, age_us);
@@ -135,17 +51,12 @@ void bb_wifi_prov_get_disconnect(uint8_t *reason, int64_t *age_us)
     }
 }
 
-int bb_wifi_prov_get_retry_count(void)
+int bb_wifi_get_retry_count(void)
 {
     return wifi_reconn_is_active() ? wifi_reconn_get_retry_count() : s_retry_count;
 }
 
-bool bb_wifi_prov_mdns_started(void)
-{
-    return s_mdns_started;
-}
-
-esp_err_t bb_wifi_prov_get_ip_str(char *out, size_t out_len)
+esp_err_t bb_wifi_get_ip_str(char *out, size_t out_len)
 {
     if (!s_sta_netif || out_len < 16) {
         if (out && out_len > 0) {
@@ -165,7 +76,7 @@ esp_err_t bb_wifi_prov_get_ip_str(char *out, size_t out_len)
     return ESP_OK;
 }
 
-esp_err_t bb_wifi_prov_get_rssi(int8_t *out)
+esp_err_t bb_wifi_get_rssi(int8_t *out)
 {
     if (!out) {
         return ESP_FAIL;
@@ -181,21 +92,14 @@ esp_err_t bb_wifi_prov_get_rssi(int8_t *out)
     return ESP_OK;
 }
 
-bool bb_wifi_prov_has_ip(void)
+bool bb_wifi_has_ip(void)
 {
     return s_has_ip;
 }
 
-void bb_wifi_set_mdns_hostname(const char *hostname)
+void bb_wifi_register_on_got_ip(bb_wifi_on_got_ip_cb_t cb)
 {
-    if (!hostname) {
-        s_mdns_hostname[0] = '\0';
-        s_mdns_hostname_set = false;
-        return;
-    }
-    strncpy(s_mdns_hostname, hostname, sizeof(s_mdns_hostname) - 1);
-    s_mdns_hostname[sizeof(s_mdns_hostname) - 1] = '\0';
-    s_mdns_hostname_set = true;
+    s_on_got_ip_cb = cb;
 }
 
 static void event_handler(void *arg, esp_event_base_t event_base,
@@ -243,11 +147,10 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         if (s_wifi_event_group) {
             xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         }
-#ifdef ESP_PLATFORM
-        if (s_mdns_started) {
-            mdns_instance_name_set("BSP Device");
+        // Invoke registered callback
+        if (s_on_got_ip_cb) {
+            s_on_got_ip_cb();
         }
-#endif
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP) {
         esp_netif_ip_info_t ip_info;
         if (s_sta_netif && esp_netif_get_ip_info(s_sta_netif, &ip_info) == ESP_OK
@@ -337,10 +240,7 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     vEventGroupDelete(s_wifi_event_group);
     s_wifi_event_group = NULL;
 
-#ifdef ESP_PLATFORM
-    mdns_start();
     wifi_reconn_start();
-#endif
 
     return ESP_OK;
 }
@@ -353,192 +253,6 @@ esp_err_t bb_wifi_init(void)
 esp_err_t bb_wifi_init_sta(void)
 {
     return wifi_connect_sta(false);
-}
-
-// Captive DNS task - responds to all DNS queries with 192.168.4.1
-static void dns_task(void *arg)
-{
-    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock < 0) {
-        bb_log_e(TAG, "failed to create DNS socket");
-        s_dns_task_handle = NULL;
-        vTaskDelete(NULL);
-        return;
-    }
-
-    struct sockaddr_in addr = {
-        .sin_family = AF_INET,
-        .sin_port = htons(53),
-        .sin_addr.s_addr = INADDR_ANY,
-    };
-
-    if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        bb_log_e(TAG, "failed to bind DNS socket");
-        close(sock);
-        s_dns_task_handle = NULL;
-        vTaskDelete(NULL);
-        return;
-    }
-
-    // Set receive timeout so we can check s_dns_running
-    struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-    bb_log_i(TAG, "captive DNS listening on 0.0.0.0:53");
-
-    uint8_t buf[256];
-    while (s_dns_running) {
-        struct sockaddr_in client;
-        socklen_t client_len = sizeof(client);
-        int len = recvfrom(sock, buf, sizeof(buf), 0, (struct sockaddr *)&client, &client_len);
-
-        if (len < 12) {
-            // Too short for DNS header or timeout
-            continue;
-        }
-
-        // Build response: copy query, set response flags, add A record pointing to 192.168.4.1
-        uint8_t resp[256];
-        memcpy(resp, buf, len);
-        resp[2] = 0x81;  // QR=1 (response)
-        resp[3] = 0x80;  // AA=1 (authoritative), no error
-
-        resp[6] = 0;     // ANCOUNT high byte
-        resp[7] = 1;     // ANCOUNT = 1 answer
-
-        // Append answer: name pointer + type A + class IN + TTL + rdlength + IP
-        int pos = len;
-        resp[pos++] = 0xC0;  // pointer to question name
-        resp[pos++] = 0x0C;
-        resp[pos++] = 0x00;  // type A
-        resp[pos++] = 0x01;
-        resp[pos++] = 0x00;  // class IN
-        resp[pos++] = 0x01;
-        resp[pos++] = 0x00;  // TTL 60 seconds
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x3C;
-        resp[pos++] = 0x00;  // rdlength 4
-        resp[pos++] = 0x04;
-        resp[pos++] = 192;   // 192.168.4.1
-        resp[pos++] = 168;
-        resp[pos++] = 4;
-        resp[pos++] = 1;
-
-        sendto(sock, resp, pos, 0, (struct sockaddr *)&client, client_len);
-    }
-
-    close(sock);
-    s_dns_task_handle = NULL;
-    vTaskDelete(NULL);
-}
-
-esp_err_t bb_wifi_init_ap(void)
-{
-    // Create provisioning event group if not already created
-    if (s_prov_event_group == NULL) {
-        s_prov_event_group = xEventGroupCreate();
-    }
-
-    // Initialize netif and event loop (idempotent, guarded by flag)
-    if (!s_netif_initialized) {
-        ESP_ERROR_CHECK(esp_netif_init());
-        ESP_ERROR_CHECK(esp_event_loop_create_default());
-        s_netif_initialized = true;
-    }
-
-    // Create AP netif with default config (auto-starts DHCPS)
-    s_ap_netif = esp_netif_create_default_wifi_ap();
-    if (s_ap_netif == NULL) {
-        bb_log_e(TAG, "failed to create AP netif");
-        return ESP_FAIL;
-    }
-
-    // Initialize WiFi and set mode before reading AP MAC
-    // (hosted/wifi_remote populates per-interface MACs after mode is set; reading
-    // ESP_MAC_WIFI_SOFTAP before set_mode returns ESP_ERR_NOT_SUPPORTED on P4+C6)
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-
-    // Build AP SSID from MAC address
-    uint8_t mac[6];
-    ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_IF_AP, mac));
-
-    char ssid[32];
-    snprintf(ssid, sizeof(ssid), "BB-%02X%02X", mac[4], mac[5]);
-    strncpy(s_ap_ssid, ssid, sizeof(s_ap_ssid) - 1);
-    s_ap_ssid[sizeof(s_ap_ssid) - 1] = '\0';
-
-    // Configure AP
-    wifi_config_t ap_config = {
-        .ap = {
-            .password = "breadboard",
-            .max_connection = 4,
-            .authmode = WIFI_AUTH_WPA2_PSK,
-        },
-    };
-    strncpy((char *)ap_config.ap.ssid, ssid, sizeof(ap_config.ap.ssid));
-    ap_config.ap.ssid_len = strlen(ssid);
-
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-
-    // Start DNS task
-    s_dns_running = true;
-    BaseType_t xReturned = xTaskCreatePinnedToCore(
-        dns_task,
-        "dns",
-        4096,
-        NULL,
-        tskIDLE_PRIORITY + 1,
-        &s_dns_task_handle,
-        0
-    );
-
-    if (xReturned != pdPASS) {
-        bb_log_e(TAG, "failed to create DNS task");
-        s_dns_running = false;
-        esp_wifi_stop();
-        esp_wifi_deinit();
-        esp_netif_destroy(s_ap_netif);
-        s_ap_netif = NULL;
-        return ESP_FAIL;
-    }
-
-    bb_log_i(TAG, "AP started: SSID=%s, password=bsp-prov", ssid);
-
-    return ESP_OK;
-}
-
-void bb_wifi_stop_ap(void)
-{
-    if (s_ap_netif == NULL) {
-        bb_log_w(TAG, "AP not initialized");
-        return;
-    }
-
-    // Stop DNS task
-    s_dns_running = false;
-    if (s_dns_task_handle != NULL) {
-        // Wait for task to exit with a timeout
-        for (int i = 0; i < 50; i++) {  // 5 second timeout (50 * 100ms)
-            if (s_dns_task_handle == NULL) {
-                break;
-            }
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
-    }
-
-    // Stop WiFi
-    ESP_ERROR_CHECK(esp_wifi_stop());
-    ESP_ERROR_CHECK(esp_wifi_deinit());
-
-    // Destroy AP netif
-    esp_netif_destroy(s_ap_netif);
-    s_ap_netif = NULL;
-
-    bb_log_i(TAG, "AP stopped");
 }
 
 int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results)
@@ -650,27 +364,4 @@ int bb_wifi_scan_get_cached(bb_wifi_ap_t *results, int max_results)
         memcpy(results, s_cached_scan, count * sizeof(bb_wifi_ap_t));
     }
     return count;
-}
-
-void bb_wifi_prov_get_ap_ssid(char *buf, size_t len)
-{
-    strncpy(buf, s_ap_ssid, len - 1);
-    buf[len - 1] = '\0';
-}
-
-bool bb_wifi_prov_wait_done(uint32_t timeout_ms)
-{
-    if (s_prov_event_group == NULL) {
-        return false;
-    }
-    TickType_t ticks = (timeout_ms == UINT32_MAX) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
-    EventBits_t bits = xEventGroupWaitBits(s_prov_event_group, PROV_DONE_BIT, pdFALSE, pdTRUE, ticks);
-    return (bits & PROV_DONE_BIT) != 0;
-}
-
-void bb_wifi_prov_signal_done(void)
-{
-    if (s_prov_event_group != NULL) {
-        xEventGroupSetBits(s_prov_event_group, PROV_DONE_BIT);
-    }
 }

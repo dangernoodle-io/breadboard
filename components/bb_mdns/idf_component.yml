@@ -1,0 +1,4 @@
+version: "0.1.0"
+description: "Bootstrap mDNS component"
+dependencies:
+  espressif/mdns: "~1.11.0"

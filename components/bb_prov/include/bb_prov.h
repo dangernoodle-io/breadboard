@@ -29,6 +29,23 @@ bb_prov_parse_result_t bb_prov_parse_body(
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
 #include "http_server.h"
+#include <stdint.h>
+
+// AP mode — for provisioning
+esp_err_t bb_prov_start_ap(void);        // starts AP + captive DNS
+void bb_prov_stop_ap(void);              // stops AP + DNS, deinits wifi
+void bb_prov_get_ap_ssid(char *buf, size_t len);  // get AP SSID
+
+// Provisioning synchronization
+/**
+ * Block until provisioning completes.
+ * @param timeout_ms  How long to wait in ms; UINT32_MAX = wait forever.
+ * @return true if provisioning completed, false on timeout.
+ */
+bool bb_prov_wait_done(uint32_t timeout_ms);
+
+/** Signal provisioning complete. Called by http_server's /save handler. */
+void bb_prov_signal_done(void);
 
 // Start HTTP server in provisioning mode.
 // Registers: POST /save, OPTIONS /* (CORS preflight), GET /* (captive-portal redirect).
