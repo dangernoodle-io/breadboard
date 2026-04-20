@@ -29,8 +29,23 @@ jobs:
         with:
           file: gcovr-coveralls.json
           format: coveralls
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        example: [minimal, arduino-uno-cc3000]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Cache PlatformIO
+        uses: actions/cache@v5
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-
+      - name: Install tools
+        run: pip install platformio
       - name: Examples smoke build
         run: make smoke-${{ matrix.example }}
-        strategy:
-          matrix:
-            example: [minimal, arduino-uno-cc3000]
