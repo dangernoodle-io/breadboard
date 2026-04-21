@@ -34,6 +34,13 @@ void test_ota_pull_skip_check_callback_registration(void);
 void test_ota_pull_skip_check_callback_returns_true(void);
 void test_ota_pull_skip_check_callback_returns_false(void);
 
+// Forward declarations from test_ota_push.c
+void test_ota_push_skip_check_callback_registration(void);
+void test_ota_push_skip_check_callback_returns_true(void);
+void test_ota_push_skip_check_callback_returns_false(void);
+void test_ota_push_hooks_registration(void);
+void test_ota_push_pause_hook_returns_true(void);
+
 // Forward declarations from test_http_utils.c
 void test_url_decode_basic(void);
 void test_url_decode_plus_as_space(void);
@@ -126,6 +133,13 @@ int main(void) {
     RUN_TEST(test_ota_pull_skip_check_callback_registration);
     RUN_TEST(test_ota_pull_skip_check_callback_returns_true);
     RUN_TEST(test_ota_pull_skip_check_callback_returns_false);
+
+    // OTA push tests
+    RUN_TEST(test_ota_push_skip_check_callback_registration);
+    RUN_TEST(test_ota_push_skip_check_callback_returns_true);
+    RUN_TEST(test_ota_push_skip_check_callback_returns_false);
+    RUN_TEST(test_ota_push_hooks_registration);
+    RUN_TEST(test_ota_push_pause_hook_returns_true);
 
     // HTTP utils tests
     RUN_TEST(test_url_decode_basic);
