@@ -7,13 +7,14 @@ extern "C" {
 #endif
 
 /**
- * Pre-built asset for the default WiFi provisioning form.
- * path="/", mime="text/html", encoding=NULL.
+ * Return a pointer to the pre-built asset for the default WiFi provisioning form.
+ * path="/", mime="text/html", encoding="gzip".
  *
  * Pass to bb_prov_start() for bare-minimum bringup:
- *   bb_prov_start(&bb_prov_default_form_asset, 1);
+ *   const bb_http_asset_t *a = bb_prov_default_form_get();
+ *   bb_prov_start(a, 1);
  */
-extern bb_http_asset_t bb_prov_default_form_asset;
+const bb_http_asset_t *bb_prov_default_form_get(void);
 
 #ifdef __cplusplus
 }

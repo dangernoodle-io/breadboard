@@ -76,7 +76,8 @@ void bb_prov_set_save_callback(bb_prov_save_cb_t cb);
  * Caller MUST supply at least one asset with path="/" — no default form is
  * provided. For bare-minimum bringup, add REQUIRES bb_prov_default_form to
  * your component and pass:
- *   bb_prov_start(&bb_prov_default_form_asset, 1);
+ *   const bb_http_asset_t *a = bb_prov_default_form_get();
+ *   bb_prov_start(a, 1);
  *
  * @param assets  Array of static HTTP assets; must contain a path="/" entry.
  * @param n       Number of entries in @p assets.

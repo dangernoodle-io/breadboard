@@ -1,23 +1,21 @@
 #include "bb_prov_default_form.h"
+#include <stddef.h>
 #include <stdint.h>
 
-extern const uint8_t prov_default_form_html_start[] asm("_binary_prov_default_form_html_start");
-extern const uint8_t prov_default_form_html_end[]   asm("_binary_prov_default_form_html_end");
+extern const uint8_t bb_prov_default_form_gz[];
+extern const size_t  bb_prov_default_form_gz_len;
 
-/* Defined without const so len can be set by the constructor.
-   The public header declares it extern const — callers get read-only access. */
-bb_http_asset_t bb_prov_default_form_asset = {
-    .path     = "/",
-    .mime     = "text/html",
-    .encoding = NULL,
-    .data     = NULL,
-    .len      = 0,
-};
-
-__attribute__((constructor))
-static void bb_prov_default_form_init(void)
+const bb_http_asset_t *bb_prov_default_form_get(void)
 {
-    bb_prov_default_form_asset.data = prov_default_form_html_start;
-    bb_prov_default_form_asset.len  =
-        (size_t)(prov_default_form_html_end - prov_default_form_html_start);
+    static bb_http_asset_t s_asset;
+    static int s_init = 0;
+    if (!s_init) {
+        s_asset.path     = "/";
+        s_asset.mime     = "text/html";
+        s_asset.encoding = "gzip";
+        s_asset.data     = bb_prov_default_form_gz;
+        s_asset.len      = bb_prov_default_form_gz_len;
+        s_init = 1;
+    }
+    return &s_asset;
 }

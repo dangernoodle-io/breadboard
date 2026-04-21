@@ -1,6 +1,19 @@
+set(_GZ_C "${CMAKE_CURRENT_BINARY_DIR}/prov_default_form_gz.c")
+
 idf_component_register(
-    SRCS "${CMAKE_CURRENT_LIST_DIR}/src/bb_prov_default_form.c"
+    SRCS "src/bb_prov_default_form.c" "${_GZ_C}"
     INCLUDE_DIRS "include"
     REQUIRES bb_http
-    EMBED_FILES "${CMAKE_CURRENT_LIST_DIR}/prov_default_form.html"
+)
+
+add_custom_command(
+    OUTPUT  "${_GZ_C}"
+    COMMAND python3
+            "${CMAKE_CURRENT_LIST_DIR}/../../scripts/embed_html.py"
+            "${CMAKE_CURRENT_LIST_DIR}/prov_default_form.html"
+            "${_GZ_C}"
+            bb_prov_default_form_gz
+    DEPENDS "${CMAKE_CURRENT_LIST_DIR}/prov_default_form.html"
+            "${CMAKE_CURRENT_LIST_DIR}/../../scripts/embed_html.py"
+    VERBATIM
 )
