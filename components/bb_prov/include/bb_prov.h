@@ -68,9 +68,10 @@ typedef esp_err_t (*bb_prov_save_cb_t)(httpd_req_t *req, const char *body, int l
 void bb_prov_set_save_callback(bb_prov_save_cb_t cb);
 
 // Start HTTP server in provisioning mode.
-// Registers: POST /save, OPTIONS /* (CORS preflight), GET /* (captive-portal redirect).
-// Caller's prov_ui_routes_fn registers GET / and any static assets (favicon, css, logo).
-esp_err_t bb_prov_start(bb_http_app_routes_fn prov_ui_routes_fn);
+// Registers POST /save and GET /* captive-portal wildcard. Registers each entry in `assets`
+// as a static GET route (via bb_http_register_assets). If `assets` contains no entry with
+// path=="/", registers a built-in default WiFi setup form at `/`.
+esp_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n);
 
 // Switch from provisioning mode to normal mode (unregister prov handlers, call app routes).
 void bb_prov_switch_to_normal(bb_http_app_routes_fn app_routes_fn);
