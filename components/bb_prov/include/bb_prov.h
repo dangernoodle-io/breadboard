@@ -70,7 +70,7 @@ void bb_prov_set_save_callback(bb_prov_save_cb_t cb);
 /**
  * Start HTTP server in provisioning mode.
  *
- * Registers POST /save and GET /* captive-portal wildcard. Registers each
+ * Registers POST /save and a captive-portal wildcard GET. Registers each
  * entry in @p assets as a static GET route via bb_http_register_assets.
  *
  * Caller MUST supply at least one asset with path="/" — no default form is
