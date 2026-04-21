@@ -1,9 +1,9 @@
 #include "wifi_reconn.h"
-#include "nv_config.h"
+#include "bb_nv.h"
 
 #include "esp_wifi.h"
 #include "esp_wifi_types.h"
-#include "log_stream.h"
+#include "bb_log.h"
 #include "esp_timer.h"
 #include "esp_system.h"
 

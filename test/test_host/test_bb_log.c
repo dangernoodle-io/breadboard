@@ -1,5 +1,5 @@
 #include "unity.h"
-#include "log_stream.h"
+#include "bb_log.h"
 
 void test_bb_log_error(void) {
     bb_log_e("TAG", "msg %d", 1);

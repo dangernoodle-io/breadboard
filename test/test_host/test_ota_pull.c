@@ -1,5 +1,5 @@
 #include "unity.h"
-#include "ota_pull.h"
+#include "bb_ota_pull.h"
 #include <string.h>
 
 void test_ota_pull_parse_version_found(void)
