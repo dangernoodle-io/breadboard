@@ -41,6 +41,11 @@ void bb_prov_get_ap_ssid(char *buf, size_t len);  // get AP SSID
 // Defaults to "BB-" if not set.
 void bb_prov_set_ap_ssid_prefix(const char *prefix);
 
+// Set AP WPA2 password. Must be called before bb_prov_start_ap().
+// Defaults to "breadboard" if not set. Passing NULL restores the default.
+// WPA2 requires 8–63 chars; the caller is responsible for validity.
+void bb_prov_set_ap_password(const char *password);
+
 // Provisioning synchronization
 /**
  * Block until provisioning completes.

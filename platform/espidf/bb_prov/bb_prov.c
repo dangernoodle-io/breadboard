@@ -24,6 +24,8 @@ static EventGroupHandle_t s_prov_event_group = NULL;
 // AP SSID prefix (default "BB-")
 static char s_ap_ssid_prefix[16] = "BB-";
 static bool s_ap_ssid_prefix_set = false;
+// AP password (default "breadboard")
+static char s_ap_password[64] = "breadboard";
 static bb_prov_save_cb_t s_save_cb = NULL;
 
 void bb_prov_set_save_callback(bb_prov_save_cb_t cb) { s_save_cb = cb; }
@@ -209,11 +211,11 @@ esp_err_t bb_prov_start_ap(void)
     // Configure AP
     wifi_config_t ap_config = {
         .ap = {
-            .password = "breadboard",
             .max_connection = 4,
             .authmode = WIFI_AUTH_WPA2_PSK,
         },
     };
+    strncpy((char *)ap_config.ap.password, s_ap_password, sizeof(ap_config.ap.password));
     strncpy((char *)ap_config.ap.ssid, ssid, sizeof(ap_config.ap.ssid));
     ap_config.ap.ssid_len = strlen(ssid);
 
@@ -242,7 +244,7 @@ esp_err_t bb_prov_start_ap(void)
         return ESP_FAIL;
     }
 
-    bb_log_i(TAG, "AP started: SSID=%s, password=breadboard", ssid);
+    bb_log_i(TAG, "AP started: SSID=%s, password=%s", ssid, s_ap_password);
 
     return ESP_OK;
 }
@@ -353,4 +355,11 @@ void bb_prov_set_ap_ssid_prefix(const char *prefix)
     strncpy(s_ap_ssid_prefix, prefix, sizeof(s_ap_ssid_prefix) - 1);
     s_ap_ssid_prefix[sizeof(s_ap_ssid_prefix) - 1] = '\0';
     s_ap_ssid_prefix_set = true;
+}
+
+void bb_prov_set_ap_password(const char *password)
+{
+    if (!password) password = "breadboard";
+    strncpy(s_ap_password, password, sizeof(s_ap_password) - 1);
+    s_ap_password[sizeof(s_ap_password) - 1] = '\0';
 }
