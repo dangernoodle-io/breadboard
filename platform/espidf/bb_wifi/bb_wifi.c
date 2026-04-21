@@ -97,6 +97,31 @@ bool bb_wifi_has_ip(void)
     return s_has_ip;
 }
 
+esp_err_t bb_wifi_get_info(bb_wifi_info_t *out)
+{
+    if (!out) return ESP_FAIL;
+    memset(out, 0, sizeof(*out));
+
+    wifi_ap_record_t ap;
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        strncpy(out->ssid, (const char *)ap.ssid, sizeof(out->ssid) - 1);
+        out->ssid[sizeof(out->ssid) - 1] = '\0';
+        memcpy(out->bssid, ap.bssid, sizeof(out->bssid));
+        out->rssi = ap.rssi;
+    }
+
+    snprintf(out->ip, sizeof(out->ip), "0.0.0.0");
+    bb_wifi_get_ip_str(out->ip, sizeof(out->ip));
+    out->connected = s_has_ip;
+
+    int64_t disc_age_us = 0;
+    bb_wifi_get_disconnect(&out->disc_reason, &disc_age_us);
+    out->disc_age_s = (uint32_t)(disc_age_us / 1000000);
+
+    out->retry_count = bb_wifi_get_retry_count();
+    return ESP_OK;
+}
+
 void bb_wifi_register_on_got_ip(bb_wifi_on_got_ip_cb_t cb)
 {
     s_on_got_ip_cb = cb;

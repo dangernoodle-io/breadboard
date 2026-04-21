@@ -13,6 +13,19 @@ typedef struct {
     bool secure;   // true if not WIFI_AUTH_OPEN
 } bb_wifi_ap_t;
 
+// Snapshot of the current STA connection. Populated by bb_wifi_get_info.
+// On non-ESP backends, unavailable fields are zeroed.
+typedef struct {
+    char ssid[33];       // SSID of associated AP, empty if not connected
+    uint8_t bssid[6];    // BSSID of associated AP
+    int8_t rssi;         // signal strength, 0 if not connected
+    char ip[16];         // dotted-quad IPv4, "0.0.0.0" if no IP
+    bool connected;      // true iff has_ip
+    uint8_t disc_reason; // last disconnect reason code
+    uint32_t disc_age_s; // seconds since last disconnect, 0 if never
+    int retry_count;     // STA retry attempts since last connect
+} bb_wifi_info_t;
+
 #ifdef ESP_PLATFORM
 
 #include "esp_err.h"
@@ -49,5 +62,15 @@ int bb_wifi_get_retry_count(void);
 esp_err_t bb_wifi_get_ip_str(char *out, size_t out_len);
 esp_err_t bb_wifi_get_rssi(int8_t *out);
 bool bb_wifi_has_ip(void);
+
+// Populate out with a snapshot of the current STA state. Safe to call any
+// time; unset fields are zeroed. Returns ESP_OK on success, ESP_FAIL on
+// null arg.
+esp_err_t bb_wifi_get_info(bb_wifi_info_t *out);
+
+// Register GET /api/wifi on server. Returns bb_wifi_get_info() snapshot
+// as JSON. `server` is bb_http_handle_t; declared as void* to avoid
+// pulling http_server.h into bb_wifi consumers.
+esp_err_t bb_wifi_register_routes(void *server);
 
 #endif /* ESP_PLATFORM */
