@@ -3,8 +3,8 @@
 #include "mdns.h"
 #include "esp_app_desc.h"
 #include "esp_mac.h"
-#include "board.h"
-#include "log_stream.h"
+#include "bb_hw.h"
+#include "bb_log.h"
 #include <string.h>
 
 static const char *TAG = "bb_mdns";

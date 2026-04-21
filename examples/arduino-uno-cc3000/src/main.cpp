@@ -1,8 +1,8 @@
 #include <Arduino.h>
 #include <Adafruit_CC3000.h>
-#include "log_stream.h"
-#include "nv_config.h"
-#include "http_server.h"
+#include "bb_log.h"
+#include "bb_nv.h"
+#include "bb_http.h"
 #include "secrets.h"
 
 static const char *TAG = "bb-uno";

@@ -1,8 +1,8 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "nv_config.h"
-#include "log_stream.h"
-#include "display.h"
+#include "bb_nv.h"
+#include "bb_log.h"
+#include "bb_display.h"
 
 static const char *TAG = "minimal";
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "nv_config.h"
+#include "bb_nv.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "nv_config.h"
+#include "bb_nv.h"
 
 #ifdef __cplusplus
 extern "C" {

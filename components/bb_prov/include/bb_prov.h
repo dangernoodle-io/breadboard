@@ -28,7 +28,7 @@ bb_prov_parse_result_t bb_prov_parse_body(
 
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
-#include "http_server.h"
+#include "bb_http.h"
 #include <stdint.h>
 
 // Forward declaration so consumers don't need esp_http_server.h transitively.

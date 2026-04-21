@@ -1,5 +1,5 @@
 #include "unity.h"
-#include "log_stream.h"
+#include "bb_log.h"
 #include <string.h>
 #include <stdarg.h>
 

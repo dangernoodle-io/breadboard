@@ -1,5 +1,5 @@
 #include "unity.h"
-#include "nv_config.h"
+#include "bb_nv.h"
 #include <string.h>
 
 void test_nv_config_init_success(void)

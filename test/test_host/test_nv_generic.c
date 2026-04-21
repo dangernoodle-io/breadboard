@@ -1,5 +1,5 @@
 #include "unity.h"
-#include "nv_config.h"
+#include "bb_nv.h"
 #include <string.h>
 
 // bb_nv_set_u8 tests

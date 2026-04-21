@@ -1,10 +1,10 @@
 #include "bb_wifi.h"
-#include "nv_config.h"
+#include "bb_nv.h"
 #include "wifi_reconn.h"
 #include <string.h>
 #include "esp_wifi.h"
 #include "esp_event.h"
-#include "log_stream.h"
+#include "bb_log.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
