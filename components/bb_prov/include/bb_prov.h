@@ -36,6 +36,10 @@ esp_err_t bb_prov_start_ap(void);        // starts AP + captive DNS
 void bb_prov_stop_ap(void);              // stops AP + DNS, deinits wifi
 void bb_prov_get_ap_ssid(char *buf, size_t len);  // get AP SSID
 
+// Set AP SSID prefix (e.g. "TaipanMiner-"). Must be called before bb_prov_start_ap().
+// Defaults to "BB-" if not set.
+void bb_prov_set_ap_ssid_prefix(const char *prefix);
+
 // Provisioning synchronization
 /**
  * Block until provisioning completes.

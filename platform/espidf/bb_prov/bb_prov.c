@@ -22,6 +22,10 @@ static TaskHandle_t s_dns_task_handle = NULL;
 static char s_ap_ssid[32];
 static EventGroupHandle_t s_prov_event_group = NULL;
 
+// AP SSID prefix (default "BB-")
+static char s_ap_ssid_prefix[16] = "BB-";
+static bool s_ap_ssid_prefix_set = false;
+
 #define PROV_DONE_BIT BIT0
 
 static void set_common_headers(httpd_req_t *req)
@@ -196,8 +200,9 @@ esp_err_t bb_prov_start_ap(void)
     uint8_t mac[6];
     ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_IF_AP, mac));
 
+    const char *prefix = s_ap_ssid_prefix_set ? s_ap_ssid_prefix : "BB-";
     char ssid[32];
-    snprintf(ssid, sizeof(ssid), "BB-%02X%02X", mac[4], mac[5]);
+    snprintf(ssid, sizeof(ssid), "%s%02X%02X", prefix, mac[4], mac[5]);
     strncpy(s_ap_ssid, ssid, sizeof(s_ap_ssid) - 1);
     s_ap_ssid[sizeof(s_ap_ssid) - 1] = '\0';
 
@@ -336,4 +341,16 @@ void bb_prov_switch_to_normal(bb_http_app_routes_fn app_routes_fn)
     if (app_routes_fn) {
         app_routes_fn(server);
     }
+}
+
+void bb_prov_set_ap_ssid_prefix(const char *prefix)
+{
+    if (!prefix) {
+        s_ap_ssid_prefix[0] = '\0';
+        s_ap_ssid_prefix_set = false;
+        return;
+    }
+    strncpy(s_ap_ssid_prefix, prefix, sizeof(s_ap_ssid_prefix) - 1);
+    s_ap_ssid_prefix[sizeof(s_ap_ssid_prefix) - 1] = '\0';
+    s_ap_ssid_prefix_set = true;
 }
