@@ -19,6 +19,10 @@ typedef struct {
 
 // ESP32-specific functions and types
 
+// Idempotent one-shot: esp_netif_init + esp_event_loop_create_default.
+// Safe to call from multiple components; only initializes once.
+esp_err_t bb_wifi_ensure_netif(void);
+
 // Performs a blocking WiFi scan. Returns number of APs found (up to max_results).
 int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results);
 
