@@ -19,10 +19,6 @@ static bb_err_t ping_handler(bb_http_request_t *req) {
     return BB_OK;
 }
 
-// Register routes
-static bb_err_t register_routes(bb_http_handle_t server) {
-    return bb_http_register_route(server, BB_HTTP_GET, "/ping", ping_handler);
-}
 
 void setup() {
     Serial.begin(115200);
@@ -78,8 +74,9 @@ void setup() {
 
     bb_log_i(TAG, "online");
 
-    // Start HTTP server with routes
-    bb_http_server_start(register_routes);
+    // Start HTTP server
+    bb_http_server_start();
+    bb_http_register_route(bb_http_server_get_handle(), BB_HTTP_GET, "/ping", ping_handler);
 }
 
 void loop() {

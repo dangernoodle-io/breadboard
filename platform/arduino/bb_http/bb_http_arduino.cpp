@@ -73,7 +73,7 @@ static void resp_append_str(bb_http_request_impl_t *r, const char *s)
 // extern "C" for C callers (the header uses extern "C" guard)
 extern "C" {
 
-bb_err_t bb_http_server_start(bb_http_app_routes_fn routes_fn)
+bb_err_t bb_http_server_start(void)
 {
     if (g_server.started) {
         return BB_OK;
@@ -82,15 +82,6 @@ bb_err_t bb_http_server_start(bb_http_app_routes_fn routes_fn)
     // server.begin() is deferred to first poll (see note on g_server)
     g_server.started = true;
     g_route_count = 0;
-
-    // Call the routes registration callback
-    if (routes_fn) {
-        bb_err_t err = routes_fn((bb_http_handle_t)&g_server);
-        if (err != BB_OK) {
-            g_server.started = false;
-            return err;
-        }
-    }
 
     return BB_OK;
 }
