@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,6 +65,24 @@ void bb_http_server_poll(void);
 //   after a short backend-specific delay.
 // /api/scan returns cached bb_wifi scan results as JSON and kicks a background refresh.
 bb_err_t bb_http_register_common_routes(bb_http_handle_t server);
+
+// Static asset entry. Lifetime: all pointer fields must remain valid for
+// the life of the server registration (typically static/rodata).
+typedef struct {
+    const char    *path;       // e.g. "/theme.css"
+    const char    *mime;       // e.g. "text/css"
+    const char    *encoding;   // optional; NULL or "gzip"
+    const uint8_t *data;
+    size_t         len;
+} bb_http_asset_t;
+
+// Register a table of static GET assets on an already-started server.
+// Each entry becomes a GET handler emitting `data` with Content-Type=mime
+// and (if encoding!=NULL) Content-Encoding=encoding, plus a sensible
+// Cache-Control. Returns BB_OK on success; first registration failure aborts.
+bb_err_t bb_http_register_assets(bb_http_handle_t server,
+                                 const bb_http_asset_t *assets,
+                                 size_t n);
 
 // Portable platform helpers. Implemented per-backend under
 // platform/espidf/system/ and platform/arduino/system/.

@@ -366,6 +366,14 @@ int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size)
     return 0;
 }
 
+bb_err_t bb_http_register_assets(bb_http_handle_t server,
+                                 const bb_http_asset_t *assets,
+                                 size_t n)
+{
+    // Not implemented on Arduino MVP (aggressive RAM optimization).
+    return BB_ERR_INVALID_STATE;
+}
+
 }  // extern "C"
 
 #endif  // ARDUINO

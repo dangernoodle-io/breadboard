@@ -105,6 +105,28 @@ static esp_err_t bb_shim_handler(httpd_req_t *req)
     return fn((bb_http_request_t*)req) == BB_OK ? ESP_OK : ESP_FAIL;
 }
 
+// Static asset handler: reads the asset from user_ctx and emits it with headers
+static esp_err_t asset_handler(httpd_req_t *req)
+{
+    const bb_http_asset_t *asset = (const bb_http_asset_t*)req->user_ctx;
+    if (!asset) return ESP_FAIL;
+
+    // Set Content-Type
+    httpd_resp_set_type(req, asset->mime);
+
+    // Set Content-Encoding if present
+    if (asset->encoding) {
+        httpd_resp_set_hdr(req, "Content-Encoding", asset->encoding);
+    }
+
+    // Set Cache-Control
+    httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=300");
+
+    // Send body
+    esp_err_t err = httpd_resp_send(req, (const char*)asset->data, asset->len);
+    return err;
+}
+
 bb_err_t bb_http_register_route(bb_http_handle_t server,
                                 bb_http_method_t method,
                                 const char *path,
@@ -181,6 +203,36 @@ int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size)
     if (!http_req || !buf) return -1;
 
     return httpd_req_recv(http_req, buf, buf_size);
+}
+
+bb_err_t bb_http_register_assets(bb_http_handle_t server,
+                                 const bb_http_asset_t *assets,
+                                 size_t n)
+{
+    httpd_handle_t h = (httpd_handle_t)server;
+    if (!h || !assets) return BB_ERR_INVALID_ARG;
+
+    for (size_t i = 0; i < n; i++) {
+        const bb_http_asset_t *asset = &assets[i];
+        if (!asset->path || !asset->mime || !asset->data) {
+            return BB_ERR_INVALID_ARG;
+        }
+
+        httpd_uri_t uri = {
+            .uri = asset->path,
+            .method = HTTP_GET,
+            .handler = asset_handler,
+            .user_ctx = (void*)asset,
+        };
+
+        esp_err_t err = httpd_register_uri_handler(h, &uri);
+        if (err != ESP_OK) {
+            bb_log_e(TAG, "failed to register asset %s: %s", asset->path, esp_err_to_name(err));
+            return BB_ERR_INVALID_ARG;
+        }
+    }
+
+    return BB_OK;
 }
 
 // No-op on ESP-IDF; service loop runs in httpd task
