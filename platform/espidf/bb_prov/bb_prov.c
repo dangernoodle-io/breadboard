@@ -180,13 +180,7 @@ esp_err_t bb_prov_start_ap(void)
         s_prov_event_group = xEventGroupCreate();
     }
 
-    // Initialize netif and event loop (idempotent, guarded by flag)
-    static bool s_netif_initialized = false;
-    if (!s_netif_initialized) {
-        ESP_ERROR_CHECK(esp_netif_init());
-        ESP_ERROR_CHECK(esp_event_loop_create_default());
-        s_netif_initialized = true;
-    }
+    ESP_ERROR_CHECK(bb_wifi_ensure_netif());
 
     // Create AP netif with default config (auto-starts DHCPS)
     s_ap_netif = esp_netif_create_default_wifi_ap();

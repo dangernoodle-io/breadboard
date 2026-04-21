@@ -169,16 +169,22 @@ void bb_wifi_force_reassociate(void)
     esp_wifi_disconnect();
 }
 
+esp_err_t bb_wifi_ensure_netif(void)
+{
+    if (s_netif_initialized) return ESP_OK;
+    esp_err_t err = esp_netif_init();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
+    s_netif_initialized = true;
+    return ESP_OK;
+}
+
 static esp_err_t wifi_connect_sta(bool restart_on_timeout)
 {
     s_wifi_event_group = xEventGroupCreate();
 
-    // Initialize netif and event loop (idempotent, guarded by flag)
-    if (!s_netif_initialized) {
-        ESP_ERROR_CHECK(esp_netif_init());
-        ESP_ERROR_CHECK(esp_event_loop_create_default());
-        s_netif_initialized = true;
-    }
+    ESP_ERROR_CHECK(bb_wifi_ensure_netif());
 
     if (!s_sta_netif) {
         s_sta_netif = esp_netif_create_default_wifi_sta();
