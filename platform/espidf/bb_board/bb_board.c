@@ -1,0 +1,100 @@
+#include "bb_board.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#include "esp_app_desc.h"
+#include "esp_chip_info.h"
+#include "esp_flash.h"
+#include "esp_heap_caps.h"
+#include "esp_mac.h"
+#include "esp_ota_ops.h"
+#include "esp_system.h"
+
+#ifndef FIRMWARE_BOARD
+#define FIRMWARE_BOARD ""
+#endif
+
+#define XSTR(x) #x
+#define STR(x) XSTR(x)
+
+static const char *chip_model_str(esp_chip_model_t m)
+{
+    switch (m) {
+        case CHIP_ESP32:    return "ESP32";
+        case CHIP_ESP32S2:  return "ESP32-S2";
+        case CHIP_ESP32S3:  return "ESP32-S3";
+        case CHIP_ESP32C3:  return "ESP32-C3";
+        case CHIP_ESP32C6:  return "ESP32-C6";
+        case CHIP_ESP32H2:  return "ESP32-H2";
+        case CHIP_ESP32P4:  return "ESP32-P4";
+        default:            return "unknown";
+    }
+}
+
+static const char *reset_reason_str(esp_reset_reason_t r)
+{
+    switch (r) {
+        case ESP_RST_POWERON:   return "power-on";
+        case ESP_RST_SW:        return "software";
+        case ESP_RST_PANIC:     return "panic";
+        case ESP_RST_TASK_WDT:  return "task_wdt";
+        case ESP_RST_WDT:       return "wdt";
+        case ESP_RST_DEEPSLEEP: return "deep_sleep";
+        case ESP_RST_BROWNOUT:  return "brownout";
+        default:                return "unknown";
+    }
+}
+
+bb_err_t bb_board_get_info(bb_board_info_t *out)
+{
+    if (!out) return BB_ERR_INVALID_ARG;
+    memset(out, 0, sizeof(*out));
+
+    strncpy(out->board, STR(FIRMWARE_BOARD), sizeof(out->board) - 1);
+
+    const esp_app_desc_t *app = esp_app_get_description();
+    if (app) {
+        strncpy(out->project_name, app->project_name, sizeof(out->project_name) - 1);
+        strncpy(out->version,      app->version,      sizeof(out->version) - 1);
+        strncpy(out->idf_version,  app->idf_ver,      sizeof(out->idf_version) - 1);
+        strncpy(out->build_date,   app->date,         sizeof(out->build_date) - 1);
+        strncpy(out->build_time,   app->time,         sizeof(out->build_time) - 1);
+    }
+
+    esp_chip_info_t chip;
+    esp_chip_info(&chip);
+    strncpy(out->chip_model, chip_model_str(chip.model), sizeof(out->chip_model) - 1);
+    out->cores = chip.cores;
+
+    uint8_t mac[6] = {0};
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK) {
+        snprintf(out->mac, sizeof(out->mac), "%02x:%02x:%02x:%02x:%02x:%02x",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+
+    uint32_t flash_size = 0;
+    esp_flash_get_size(NULL, &flash_size);
+    out->flash_size = flash_size;
+
+    out->total_heap = (uint32_t)heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+    out->free_heap  = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (running) {
+        out->app_size = running->size;
+        esp_ota_img_states_t state;
+        if (esp_ota_get_state_partition(running, &state) == ESP_OK) {
+            out->ota_validated = (state != ESP_OTA_IMG_PENDING_VERIFY);
+        } else {
+            out->ota_validated = true;
+        }
+    } else {
+        out->ota_validated = true;
+    }
+
+    strncpy(out->reset_reason, reset_reason_str(esp_reset_reason()),
+            sizeof(out->reset_reason) - 1);
+
+    return BB_OK;
+}
