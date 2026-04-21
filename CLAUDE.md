@@ -10,10 +10,12 @@ All public C symbols use prefix `bb_`.
 
 Public headers must not include `esp_*.h` or `freertos/*.h` outside `#ifdef ESP_PLATFORM`. This is enforced so non-ESP-IDF platform backends (e.g. Arduino) can coexist without breaking consumers.
 
+The `bb_ota_validator` component demonstrates the portable-header + backend-specific-default pattern: the strategy-struct API is declared in a platform-neutral header, with portable stubs on non-ESP platforms and a working default implementation under `platform/espidf/`.
+
 For the Arduino backend specifically:
 - Log format strings (`bb_log_*` calls) should be wrapped in `F()` to force them into PROGMEM to preserve SRAM on tiny platforms (2 KB on Uno). For now, breadboard's own logging is sparse enough that this is deferred — only enforce it when a real project hits SRAM pressure.
 - Backend implementations are in `platform/arduino/<component>/` as `.cpp` files (not `.c`), since the Arduino framework and ecosystem (EEPROM, Serial, libraries) are C++ native.
-- `http_server` on Arduino batches the entire response (status + headers + body) into a single `client.write()` call due to unreliable `fastrprint()` flush behavior across many tiny writes. Request bodies are not supported to save SRAM on resource-constrained targets.
+- `bb_http` on Arduino batches the entire response (status + headers + body) into a single `client.write()` call due to unreliable `fastrprint()` flush behavior across many tiny writes. Request bodies are not supported to save SRAM on resource-constrained targets.
 
 ## Logging
 
@@ -21,8 +23,9 @@ Use `bb_log_{e,w,i,d,v}(tag, fmt, ...)` macros for all breadboard component code
 
 ## Layout
 
-- Components under `components/<name>/`.
-- Platform-specific impl under `platform/espidf/` (currently the only backend).
+- Components under `components/<name>/` with public headers.
+- Platform-specific implementations under `platform/espidf/` and `platform/arduino/`.
+- Component names are prefixed `bb_`.
 
 ## Provisioning UI
 
@@ -30,7 +33,7 @@ The `bb_prov` component manages the provisioning state machine and HTTP `/save` 
 
 ## Display
 
-LVGL is initialized inside `bb_display_init` via `esp_lvgl_port`. The consumer's `sdkconfig` governs LVGL font availability (`CONFIG_LV_FONT_MONTSERRAT_*`) and color depth (must be 16-bit / RGB565); breadboard does not ship pre-defined dashboard layouts. Every call into LVGL from application code (including `lv_timer` callbacks not running on the LVGL task) must be wrapped in `bb_display_lock` / `bb_display_unlock`.
+LVGL is initialized inside `bb_display_init` via `esp_lvgl_port`. The consumer's `sdkconfig` governs LVGL font availability (`CONFIG_LV_FONT_MONTSERRAT_*`) and color depth (must be 16-bit / RGB565); breadboard does not ship pre-defined dashboard layouts. Every call into LVGL from application code (including `lv_timer` callbacks not running on the LVGL task) must be wrapped in `bb_display_lock` / `bb_display_unlock`. The `bb_display` component is currently ESP-IDF-only.
 
 ## Workspace conventions
 

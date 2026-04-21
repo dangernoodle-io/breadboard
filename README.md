@@ -4,7 +4,7 @@
 [![Coverage Status](https://coveralls.io/repos/github/dangernoodle-io/breadboard/badge.svg?branch=main)](https://coveralls.io/github/dangernoodle-io/breadboard?branch=main)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Reusable components for embedded systems: wifi provisioning, NVS config, HTTP server, OTA, log streaming, and display/board abstraction. Supports ESP-IDF (production) and Arduino (experimental).
+Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP server, OTA, log streaming, and hardware abstraction. Supports ESP-IDF (production) and Arduino (experimental).
 
 > **Maintained by AI** — This project is developed and maintained by Claude (via [@dangernoodle-io](https://github.com/dangernoodle-io)).
 > If you find a bug or have a feature request, please [open an issue](https://github.com/dangernoodle-io/breadboard/issues) with examples so it can be addressed.
@@ -15,14 +15,19 @@ Reusable components for embedded systems: wifi provisioning, NVS config, HTTP se
 
 | Component | Purpose | Platforms |
 |-----------|---------|-----------|
-| `board` | GPIO / power / boot-mode helpers for the host board | ESP-IDF |
-| `display` | MIPI-DSI panel init (EK79007) with LVGL via `esp_lvgl_port`; consumer holds `bb_display_lock` for all LVGL calls. Exposes `bb_display_screen` / `bb_display_lock` / `bb_display_unlock` for direct LVGL access. | ESP-IDF |
-| `http_server` | esp_http_server wrapper with portable route registration API; Arduino backend routes/handlers with fixed-buffer response batching | ESP-IDF, Arduino |
+| `bb_hw` | Compile-time pin/peripheral map header selection via `FIRMWARE_BOARD_*` define | ESP-IDF |
+| `bb_display` | MIPI-DSI panel init (EK79007) with LVGL via `esp_lvgl_port`; consumer holds `bb_display_lock` for all LVGL calls. Exposes `bb_display_screen` / `bb_display_lock` / `bb_display_unlock` for direct LVGL access. | ESP-IDF |
+| `bb_http` | HTTP server wrapper with portable route registration API; Arduino backend routes/handlers with fixed-buffer response batching | ESP-IDF, Arduino |
+| `bb_log` | Ring-buffered log capture with SSE `/api/logs` endpoint; `bb_log_{e,w,i,d,v}` macros for platform-abstract logging | ESP-IDF, Arduino |
+| `bb_nv` | Typed NVS accessors plus generic `bb_nv_*` key/value helpers with caller-supplied namespace | ESP-IDF, Arduino |
+| `bb_ota_pull` | HTTP releases-feed poller with cJSON parse and A/B rollback | ESP-IDF |
+| `bb_ota_push` | HTTP firmware upload handler | ESP-IDF |
+| `bb_ota_validator` | POST `/api/ota/mark-valid` with pluggable strategy; portable strategy-struct API (stubs on non-ESP) | ESP-IDF (default); portable strategy API (stubs on non-ESP) |
+| `bb_board` | Runtime sysinfo (chip model, cores, flash, heap, OTA state) and GET `/api/board` | ESP-IDF |
+| `bb_info` | Composite GET `/api/info` merging sysinfo + wifi + consumer-registered extender callbacks | ESP-IDF |
+| `bb_mdns` | mDNS service registration with hostname, instance, service-type setters | ESP-IDF |
 | `bb_prov` | Provisioning state machine (SoftAP + captive-portal + HTTP `/save` handler) | ESP-IDF |
-| `log_stream` | Ring-buffered log capture for remote retrieval; `bb_log_{e,w,i,d,v}` macros for platform-abstract logging | ESP-IDF, Arduino |
-| `nv_config` | Typed NVS accessors (wifi SSID/pass, display enable, boot count, OTA flags) plus generic `bb_nv_*` key/value helpers with caller-supplied namespace | ESP-IDF, Arduino |
-| `ota_pull` | HTTP releases-feed poller with cJSON parse and A/B rollback | ESP-IDF |
-| `wifi_prov` | SoftAP + captive-portal wifi provisioning flow | ESP-IDF |
+| `bb_wifi` | STA init, async scan, auto-reconnect, diagnostics and GET `/api/wifi` | ESP-IDF |
 
 ## Use in an ESP-IDF project
 
@@ -42,7 +47,7 @@ The `bb_prov` component manages the provisioning state machine and HTTP `/save` 
 
 ## Portability
 
-Public headers guard `esp_*.h` and `freertos/*.h` behind `#ifdef ESP_PLATFORM` so non-ESP backends (e.g. Arduino) can coexist without breaking consumers. The Arduino backend (`platform/arduino/`) is in beta; `log_stream`, `nv_config`, and `http_server` are validated on hardware, while `wifi_prov` is deferred pending API stabilization.
+Public headers guard `esp_*.h` and `freertos/*.h` behind `#ifdef ESP_PLATFORM` so non-ESP backends (e.g. Arduino) can coexist without breaking consumers. Components are designed portably even when only one backend is fully implemented. Arduino has validated backends for `bb_log`, `bb_nv`, `bb_http`, and the `bb_system_*` helpers driving `/api/version` and `/api/reboot`. `bb_ota_validator` exposes a portable strategy-struct API, with stubs on non-ESP platforms. Other components are currently ESP-IDF-only; progressive un-fencing is planned.
 
 ## Development
 
@@ -54,7 +59,7 @@ make smoke-arduino-uno-cc3000  # build Arduino Uno + CC3000 example
 make smoke              # build all examples
 ```
 
-72 host tests under `test/test_host/` cover `log_stream` (with macro expansion tests), `nv_config` (typed and generic), `http_utils`, and `ota_pull`. The `board`, `display`, and `wifi_prov` components are hardware- or BT-coupled and have no host coverage.
+86 host tests under `test/test_host/` cover `bb_log` (macro expansion and ring buffer drain), `bb_nv` (typed and generic), `bb_prov`, `http_utils`, `bb_ota_pull`, `bb_ota_push`, and `bb_ota_validator`. The `bb_hw`, `bb_display`, and hardware-coupled components have no host coverage.
 
 See `examples/arduino-uno-cc3000/README.md` for Arduino development setup (Homebrew toolchain on macOS, stock PIO toolchain on Linux).
 
