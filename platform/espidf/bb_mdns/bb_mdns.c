@@ -12,6 +12,13 @@ static const char *TAG = "bb_mdns";
 // App-injected mDNS hostname
 static char s_mdns_hostname[64] = "bsp-device";
 static bool s_mdns_hostname_set = false;
+
+// App-injected mDNS service type and instance name
+static char s_mdns_service_type[32] = "_bsp";
+static bool s_mdns_service_type_set = false;
+static char s_mdns_instance_name[64] = "BSP Device";
+static bool s_mdns_instance_name_set = false;
+
 static bool s_mdns_started = false;
 
 static void mdns_build_hostname(char *out, size_t out_size)
@@ -48,7 +55,8 @@ static void bb_mdns_start_internal(void)
         bb_log_e(TAG, "mdns_hostname_set failed: %s", esp_err_to_name(err));
         return;
     }
-    err = mdns_instance_name_set("BSP Device");
+    const char *instance_name = s_mdns_instance_name_set ? s_mdns_instance_name : "BSP Device";
+    err = mdns_instance_name_set(instance_name);
     if (err != ESP_OK) {
         bb_log_e(TAG, "mdns_instance_name_set failed: %s", esp_err_to_name(err));
         return;
@@ -68,14 +76,15 @@ static void bb_mdns_start_internal(void)
         {"mac",     mac_str},
     };
 
-    err = mdns_service_add(NULL, "_bsp", "_tcp", 80, txt, 3);
+    const char *service_type = s_mdns_service_type_set ? s_mdns_service_type : "_bsp";
+    err = mdns_service_add(NULL, service_type, "_tcp", 80, txt, 3);
     if (err != ESP_OK) {
         bb_log_e(TAG, "mdns_service_add failed: %s", esp_err_to_name(err));
         return;
     }
     s_mdns_started = true;
 
-    bb_log_i(TAG, "mDNS started: %s.local (_bsp._tcp)", hostname);
+    bb_log_i(TAG, "mDNS started: %s.local (%s._tcp)", hostname, service_type);
 }
 
 // Callback invoked by bb_wifi when IP is obtained
@@ -83,7 +92,8 @@ static void bb_mdns_on_got_ip(void)
 {
     bb_mdns_start_internal();
     if (s_mdns_started) {
-        mdns_instance_name_set("BSP Device");
+        const char *instance_name = s_mdns_instance_name_set ? s_mdns_instance_name : "BSP Device";
+        mdns_instance_name_set(instance_name);
     }
 }
 
@@ -103,6 +113,30 @@ void bb_mdns_set_hostname(const char *hostname)
     strncpy(s_mdns_hostname, hostname, sizeof(s_mdns_hostname) - 1);
     s_mdns_hostname[sizeof(s_mdns_hostname) - 1] = '\0';
     s_mdns_hostname_set = true;
+}
+
+void bb_mdns_set_service_type(const char *service_type)
+{
+    if (!service_type) {
+        s_mdns_service_type[0] = '\0';
+        s_mdns_service_type_set = false;
+        return;
+    }
+    strncpy(s_mdns_service_type, service_type, sizeof(s_mdns_service_type) - 1);
+    s_mdns_service_type[sizeof(s_mdns_service_type) - 1] = '\0';
+    s_mdns_service_type_set = true;
+}
+
+void bb_mdns_set_instance_name(const char *instance_name)
+{
+    if (!instance_name) {
+        s_mdns_instance_name[0] = '\0';
+        s_mdns_instance_name_set = false;
+        return;
+    }
+    strncpy(s_mdns_instance_name, instance_name, sizeof(s_mdns_instance_name) - 1);
+    s_mdns_instance_name[sizeof(s_mdns_instance_name) - 1] = '\0';
+    s_mdns_instance_name_set = true;
 }
 
 bool bb_mdns_started(void)
