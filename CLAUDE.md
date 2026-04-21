@@ -29,7 +29,7 @@ Use `bb_log_{e,w,i,d,v}(tag, fmt, ...)` macros for all breadboard component code
 
 ## Provisioning UI
 
-The `bb_prov` component manages the provisioning state machine and HTTP `/save` handler. Consumers must register `GET /` (and any static assets) via the `prov_ui_routes_fn` callback to `bb_prov_start`. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
+The `bb_prov` component manages the provisioning state machine and HTTP `/save` handler. Callers MUST supply at least one asset with `path="/"` to `bb_prov_start`. For bare-minimum bringup, add `REQUIRES bb_prov_default_form` and pass `&bb_prov_default_form_asset`. Custom UIs pass their own asset array instead. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
 
 ## Display
 
