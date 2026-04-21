@@ -28,7 +28,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 | `bb_info` | Composite GET `/api/info` merging sysinfo + wifi + consumer-registered extender callbacks | ESP-IDF |
 | `bb_mdns` | mDNS service registration with hostname, instance, service-type setters | ESP-IDF |
 | `bb_prov` | Provisioning state machine (SoftAP + captive-portal + HTTP `/save` handler) | ESP-IDF |
-| `bb_prov_default_form` | Opt-in default WiFi setup form asset (`bb_prov_default_form_asset`) for bare-minimum `bb_prov` bringup | ESP-IDF |
+| `bb_prov_default_form` | Opt-in default WiFi setup form asset (`bb_prov_default_form_get()`) for bare-minimum `bb_prov` bringup | ESP-IDF |
 | `bb_wifi` | STA init, async scan, auto-reconnect, diagnostics and GET `/api/wifi` | ESP-IDF |
 
 ## Use in an ESP-IDF project
