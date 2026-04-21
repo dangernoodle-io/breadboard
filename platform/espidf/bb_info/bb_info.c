@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "bb_board.h"
+#include "bb_json.h"
 #include "bb_wifi.h"
 #include "esp_http_server.h"
 
@@ -21,42 +22,42 @@ bb_err_t bb_info_register_extender(bb_info_extender_fn fn)
     return BB_OK;
 }
 
-static void add_board_fields(cJSON *root, const bb_board_info_t *b)
+static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
 {
-    cJSON_AddStringToObject(root, "board", b->board);
-    cJSON_AddStringToObject(root, "project_name", b->project_name);
-    cJSON_AddStringToObject(root, "version", b->version);
-    cJSON_AddStringToObject(root, "idf_version", b->idf_version);
-    cJSON_AddStringToObject(root, "build_date", b->build_date);
-    cJSON_AddStringToObject(root, "build_time", b->build_time);
-    cJSON_AddStringToObject(root, "chip_model", b->chip_model);
-    cJSON_AddNumberToObject(root, "cores", (double)b->cores);
-    cJSON_AddStringToObject(root, "mac", b->mac);
-    cJSON_AddNumberToObject(root, "flash_size", (double)b->flash_size);
-    cJSON_AddNumberToObject(root, "total_heap", (double)b->total_heap);
-    cJSON_AddNumberToObject(root, "free_heap", (double)b->free_heap);
-    cJSON_AddNumberToObject(root, "app_size", (double)b->app_size);
-    cJSON_AddStringToObject(root, "reset_reason", b->reset_reason);
-    cJSON_AddBoolToObject(root, "ota_validated", b->ota_validated);
+    bb_json_obj_set_string(root, "board", b->board);
+    bb_json_obj_set_string(root, "project_name", b->project_name);
+    bb_json_obj_set_string(root, "version", b->version);
+    bb_json_obj_set_string(root, "idf_version", b->idf_version);
+    bb_json_obj_set_string(root, "build_date", b->build_date);
+    bb_json_obj_set_string(root, "build_time", b->build_time);
+    bb_json_obj_set_string(root, "chip_model", b->chip_model);
+    bb_json_obj_set_number(root, "cores", (double)b->cores);
+    bb_json_obj_set_string(root, "mac", b->mac);
+    bb_json_obj_set_number(root, "flash_size", (double)b->flash_size);
+    bb_json_obj_set_number(root, "total_heap", (double)b->total_heap);
+    bb_json_obj_set_number(root, "free_heap", (double)b->free_heap);
+    bb_json_obj_set_number(root, "app_size", (double)b->app_size);
+    bb_json_obj_set_string(root, "reset_reason", b->reset_reason);
+    bb_json_obj_set_bool(root, "ota_validated", b->ota_validated);
 }
 
-static void add_network_object(cJSON *root, const bb_wifi_info_t *w)
+static void add_network_object(bb_json_t root, const bb_wifi_info_t *w)
 {
     char bssid[18];
     snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
              w->bssid[0], w->bssid[1], w->bssid[2],
              w->bssid[3], w->bssid[4], w->bssid[5]);
 
-    cJSON *net = cJSON_CreateObject();
-    cJSON_AddStringToObject(net, "ssid", w->ssid);
-    cJSON_AddStringToObject(net, "bssid", bssid);
-    cJSON_AddNumberToObject(net, "rssi", (double)w->rssi);
-    cJSON_AddStringToObject(net, "ip", w->ip);
-    cJSON_AddBoolToObject(net, "connected", w->connected);
-    cJSON_AddNumberToObject(net, "disc_reason", (double)w->disc_reason);
-    cJSON_AddNumberToObject(net, "disc_age_s", (double)w->disc_age_s);
-    cJSON_AddNumberToObject(net, "retry_count", (double)w->retry_count);
-    cJSON_AddItemToObject(root, "network", net);
+    bb_json_t net = bb_json_obj_new();
+    bb_json_obj_set_string(net, "ssid", w->ssid);
+    bb_json_obj_set_string(net, "bssid", bssid);
+    bb_json_obj_set_number(net, "rssi", (double)w->rssi);
+    bb_json_obj_set_string(net, "ip", w->ip);
+    bb_json_obj_set_bool(net, "connected", w->connected);
+    bb_json_obj_set_number(net, "disc_reason", (double)w->disc_reason);
+    bb_json_obj_set_number(net, "disc_age_s", (double)w->disc_age_s);
+    bb_json_obj_set_number(net, "retry_count", (double)w->retry_count);
+    bb_json_obj_set_obj(root, "network", net);
 }
 
 static esp_err_t info_handler(httpd_req_t *req)
@@ -66,7 +67,7 @@ static esp_err_t info_handler(httpd_req_t *req)
     bb_board_get_info(&b);
     bb_wifi_get_info(&w);
 
-    cJSON *root = cJSON_CreateObject();
+    bb_json_t root = bb_json_obj_new();
     add_board_fields(root, &b);
     add_network_object(root, &w);
 
@@ -74,11 +75,11 @@ static esp_err_t info_handler(httpd_req_t *req)
         s_extenders[i](root);
     }
 
-    char *json = cJSON_PrintUnformatted(root);
+    char *json = bb_json_serialize(root);
     httpd_resp_set_type(req, "application/json");
     esp_err_t err = httpd_resp_sendstr(req, json ? json : "{}");
-    if (json) cJSON_free(json);
-    cJSON_Delete(root);
+    if (json) bb_json_free_str(json);
+    bb_json_free(root);
     return err;
 }
 

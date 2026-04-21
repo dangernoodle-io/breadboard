@@ -8,13 +8,13 @@ extern "C" {
 
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
-#include "cJSON.h"
+#include "bb_json.h"
 
-// Extender callback. Invoked with the root cJSON object of the /api/info
+// Extender callback. Invoked with the root bb_json_t object of the /api/info
 // response. Implementations MAY add keys; they MUST NOT delete root or
 // replace existing keys. Invoked inline on the httpd task — extenders are
 // responsible for their own synchronization.
-typedef void (*bb_info_extender_fn)(cJSON *root);
+typedef void (*bb_info_extender_fn)(bb_json_t root);
 
 // Register an extender. Fixed capacity (4 slots). Must be called before
 // bb_http_server_start; registering after start returns BB_ERR_INVALID_ARG.
