@@ -73,8 +73,10 @@ void bb_prov_set_save_callback(bb_prov_save_cb_t cb);
 // path=="/", registers a built-in default WiFi setup form at `/`.
 esp_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n);
 
-// Switch from provisioning mode to normal mode (unregister prov handlers, call app routes).
-void bb_prov_switch_to_normal(bb_http_app_routes_fn app_routes_fn);
+// Stop provisioning mode: unregister POST /save, OPTIONS /*, GET /* captive-portal wildcard,
+// and any assets registered via bb_prov_start. Caller is responsible for registering app
+// routes afterward.
+void bb_prov_stop(void);
 
 #endif
 
