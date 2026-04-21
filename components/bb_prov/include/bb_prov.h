@@ -28,6 +28,7 @@ bb_prov_parse_result_t bb_prov_parse_body(
 
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
+#include "esp_http_server.h"
 #include "http_server.h"
 #include <stdint.h>
 
@@ -50,6 +51,12 @@ bool bb_prov_wait_done(uint32_t timeout_ms);
 
 /** Signal provisioning complete. Called by http_server's /save handler. */
 void bb_prov_signal_done(void);
+
+// Optional /save callback. Invoked after bb_prov parses+saves wifi creds.
+// Consumer parses any additional form fields from body and writes the HTTP response.
+// If not set, bb_prov sends 204 No Content. bb_prov_signal_done() is called after.
+typedef esp_err_t (*bb_prov_save_cb_t)(httpd_req_t *req, const char *body, int len);
+void bb_prov_set_save_callback(bb_prov_save_cb_t cb);
 
 // Start HTTP server in provisioning mode.
 // Registers: POST /save, OPTIONS /* (CORS preflight), GET /* (captive-portal redirect).
