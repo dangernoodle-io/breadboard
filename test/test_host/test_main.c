@@ -102,6 +102,17 @@ void test_nv_erase_null_ns(void);
 void test_nv_erase_null_key(void);
 void test_nv_erase_valid(void);
 
+// Forward declarations from test_bb_http_assets.c
+void test_asset_type_definition(void);
+void test_asset_with_encoding(void);
+void test_asset_table_definition(void);
+void test_asset_path_mime_type_matching(void);
+void test_asset_data_integrity(void);
+void test_asset_null_encoding_absent(void);
+void test_multiple_assets_different_types(void);
+void test_asset_encoding_variations(void);
+void test_zero_length_asset(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -209,6 +220,17 @@ int main(void) {
     RUN_TEST(test_nv_erase_null_ns);
     RUN_TEST(test_nv_erase_null_key);
     RUN_TEST(test_nv_erase_valid);
+
+    // HTTP asset tests
+    RUN_TEST(test_asset_type_definition);
+    RUN_TEST(test_asset_with_encoding);
+    RUN_TEST(test_asset_table_definition);
+    RUN_TEST(test_asset_path_mime_type_matching);
+    RUN_TEST(test_asset_data_integrity);
+    RUN_TEST(test_asset_null_encoding_absent);
+    RUN_TEST(test_multiple_assets_different_types);
+    RUN_TEST(test_asset_encoding_variations);
+    RUN_TEST(test_zero_length_asset);
 
     return UNITY_END();
 }
