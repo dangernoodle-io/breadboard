@@ -9,6 +9,9 @@
 static bb_ota_pause_cb_t s_pause_cb = NULL;
 static bb_ota_resume_cb_t s_resume_cb = NULL;
 
+// Pluggable skip-check callback
+static bb_ota_skip_check_cb_t s_skip_check_cb = NULL;
+
 // Releases URL — caller must set before bb_ota_pull_check_now()
 static char s_releases_url[512] = "";
 
@@ -100,6 +103,12 @@ void bb_ota_pull_set_hooks(bb_ota_pause_cb_t pause, bb_ota_resume_cb_t resume)
 {
     s_pause_cb = pause;
     s_resume_cb = resume;
+}
+
+// Public API: Set skip-check callback
+void bb_ota_pull_set_skip_check_cb(bb_ota_skip_check_cb_t cb)
+{
+    s_skip_check_cb = cb;
 }
 
 // Public API: Set releases URL
@@ -343,14 +352,19 @@ static void ota_worker_task(void *arg)
     const esp_app_desc_t *running = esp_app_get_description();
     if (strncmp(img_desc.project_name, running->project_name,
                 sizeof(img_desc.project_name)) != 0) {
-        // Note: nv_config_ota_skip_check is no longer available in library context.
-        // Applications must handle this check themselves if needed.
-        bb_log_e(TAG, "board mismatch: got '%s', expected '%s'",
-                 img_desc.project_name, running->project_name);
-        ota_set_error("board mismatch: got '%s', expected '%s'",
-                      img_desc.project_name, running->project_name);
-        esp_https_ota_abort(ota_handle);
-        goto resume_and_exit;
+        // Check if consumer provided a skip-check callback
+        bool skip_check = (s_skip_check_cb != NULL && s_skip_check_cb());
+        if (skip_check) {
+            bb_log_w(TAG, "OTA project-name mismatch, skipping check per consumer request: got '%s', expected '%s'",
+                     img_desc.project_name, running->project_name);
+        } else {
+            bb_log_e(TAG, "board mismatch: got '%s', expected '%s'",
+                     img_desc.project_name, running->project_name);
+            ota_set_error("board mismatch: got '%s', expected '%s'",
+                          img_desc.project_name, running->project_name);
+            esp_https_ota_abort(ota_handle);
+            goto resume_and_exit;
+        }
     }
 
     int image_size = esp_https_ota_get_image_size(ota_handle);
