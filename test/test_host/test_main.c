@@ -102,6 +102,30 @@ void test_nv_erase_null_ns(void);
 void test_nv_erase_null_key(void);
 void test_nv_erase_valid(void);
 
+// Forward declarations from test_bb_json.c
+void test_bb_json_obj_string_roundtrip(void);
+void test_bb_json_obj_number_roundtrip(void);
+void test_bb_json_obj_bool_true_roundtrip(void);
+void test_bb_json_obj_bool_false_roundtrip(void);
+void test_bb_json_obj_null_roundtrip(void);
+void test_bb_json_obj_multiple_fields(void);
+void test_bb_json_nested_obj_in_obj(void);
+void test_bb_json_arr_in_obj(void);
+void test_bb_json_arr_of_strings(void);
+void test_bb_json_arr_of_numbers(void);
+void test_bb_json_arr_of_objects(void);
+void test_bb_json_number_zero(void);
+void test_bb_json_number_negative(void);
+void test_bb_json_number_large(void);
+void test_bb_json_number_decimal(void);
+void test_bb_json_get_missing_string_returns_false(void);
+void test_bb_json_get_missing_number_returns_false(void);
+void test_bb_json_get_missing_bool_returns_false(void);
+void test_bb_json_parse_invalid_returns_null(void);
+void test_bb_json_parse_with_length(void);
+void test_bb_json_serialize_null_returns_null(void);
+void test_bb_json_type_mismatch_string_vs_number(void);
+
 // Forward declarations from test_bb_http_assets.c
 void test_asset_type_definition(void);
 void test_asset_with_encoding(void);
@@ -231,6 +255,30 @@ int main(void) {
     RUN_TEST(test_multiple_assets_different_types);
     RUN_TEST(test_asset_encoding_variations);
     RUN_TEST(test_zero_length_asset);
+
+    // bb_json tests
+    RUN_TEST(test_bb_json_obj_string_roundtrip);
+    RUN_TEST(test_bb_json_obj_number_roundtrip);
+    RUN_TEST(test_bb_json_obj_bool_true_roundtrip);
+    RUN_TEST(test_bb_json_obj_bool_false_roundtrip);
+    RUN_TEST(test_bb_json_obj_null_roundtrip);
+    RUN_TEST(test_bb_json_obj_multiple_fields);
+    RUN_TEST(test_bb_json_nested_obj_in_obj);
+    RUN_TEST(test_bb_json_arr_in_obj);
+    RUN_TEST(test_bb_json_arr_of_strings);
+    RUN_TEST(test_bb_json_arr_of_numbers);
+    RUN_TEST(test_bb_json_arr_of_objects);
+    RUN_TEST(test_bb_json_number_zero);
+    RUN_TEST(test_bb_json_number_negative);
+    RUN_TEST(test_bb_json_number_large);
+    RUN_TEST(test_bb_json_number_decimal);
+    RUN_TEST(test_bb_json_get_missing_string_returns_false);
+    RUN_TEST(test_bb_json_get_missing_number_returns_false);
+    RUN_TEST(test_bb_json_get_missing_bool_returns_false);
+    RUN_TEST(test_bb_json_parse_invalid_returns_null);
+    RUN_TEST(test_bb_json_parse_with_length);
+    RUN_TEST(test_bb_json_serialize_null_returns_null);
+    RUN_TEST(test_bb_json_type_mismatch_string_vs_number);
 
     return UNITY_END();
 }

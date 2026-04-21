@@ -17,6 +17,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 |-----------|---------|-----------|
 | `bb_hw` | Compile-time pin/peripheral map header selection via `FIRMWARE_BOARD_*` define | ESP-IDF |
 | `bb_display` | MIPI-DSI panel init (EK79007) with LVGL via `esp_lvgl_port`; consumer holds `bb_display_lock` for all LVGL calls. Exposes `bb_display_screen` / `bb_display_lock` / `bb_display_unlock` for direct LVGL access. | ESP-IDF |
+| `bb_json` | Portable JSON builder + minimal parser; cJSON backend on ESP-IDF/host, ArduinoJson backend on Arduino. Opaque `bb_json_t` handle — no backend headers leak into public API. | ESP-IDF, Arduino |
 | `bb_http` | HTTP server wrapper with portable route registration API; Arduino backend routes/handlers with fixed-buffer response batching | ESP-IDF, Arduino |
 | `bb_log` | Ring-buffered log capture with SSE `/api/logs` endpoint; `bb_log_{e,w,i,d,v}` macros for platform-abstract logging | ESP-IDF, Arduino |
 | `bb_nv` | Typed NVS accessors plus generic `bb_nv_*` key/value helpers with caller-supplied namespace | ESP-IDF, Arduino |
@@ -59,7 +60,7 @@ make smoke-arduino-uno-cc3000  # build Arduino Uno + CC3000 example
 make smoke              # build all examples
 ```
 
-86 host tests under `test/test_host/` cover `bb_log` (macro expansion and ring buffer drain), `bb_nv` (typed and generic), `bb_prov`, `http_utils`, `bb_ota_pull`, `bb_ota_push`, and `bb_ota_validator`. The `bb_hw`, `bb_display`, and hardware-coupled components have no host coverage.
+117 host tests under `test/test_host/` cover `bb_log` (macro expansion and ring buffer drain), `bb_nv` (typed and generic), `bb_prov`, `http_utils`, `bb_ota_pull`, `bb_ota_push`, `bb_ota_validator`, and `bb_json` (round-trip build/serialize/parse for all value types, nested trees, arrays, edge cases). The `bb_hw`, `bb_display`, and hardware-coupled components have no host coverage.
 
 See `examples/arduino-uno-cc3000/README.md` for Arduino development setup (Homebrew toolchain on macOS, stock PIO toolchain on Linux).
 
