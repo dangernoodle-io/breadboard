@@ -10,7 +10,7 @@ All public C symbols use prefix `bb_`.
 
 Public headers must not include `esp_*.h` or `freertos/*.h` outside `#ifdef ESP_PLATFORM`. This is enforced so non-ESP-IDF platform backends (e.g. Arduino) can coexist without breaking consumers.
 
-The `bb_ota_validator` component demonstrates the portable-header + backend-specific-default pattern: the strategy-struct API is declared in a platform-neutral header, with portable stubs on non-ESP platforms and a working default implementation under `platform/espidf/`.
+The `bb_info` component demonstrates the portable-header pattern: its public extender callback takes a `bb_json_t` handle (from `bb_json`) rather than a backend-specific pointer, so consumer headers stay free of cJSON/ArduinoJson includes. Platform-specific logic lives under `platform/espidf/` and `platform/host/`.
 
 For the Arduino backend specifically:
 - Log format strings (`bb_log_*` calls) should be wrapped in `F()` to force them into PROGMEM to preserve SRAM on tiny platforms (2 KB on Uno). For now, breadboard's own logging is sparse enough that this is deferred — only enforce it when a real project hits SRAM pressure.

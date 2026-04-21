@@ -23,7 +23,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 | `bb_nv` | Typed NVS accessors plus generic `bb_nv_*` key/value helpers with caller-supplied namespace | ESP-IDF, Arduino |
 | `bb_ota_pull` | HTTP releases-feed poller with cJSON parse and A/B rollback | ESP-IDF |
 | `bb_ota_push` | HTTP firmware upload handler | ESP-IDF |
-| `bb_ota_validator` | POST `/api/ota/mark-valid` with pluggable strategy; portable strategy-struct API (stubs on non-ESP) | ESP-IDF (default); portable strategy API (stubs on non-ESP) |
+| `bb_ota_validator` | Owns the full OTA rollback state machine: boot-time pending detection, rollback-safety preflight, `bb_ota_mark_valid(reason)` signal API, POST `/api/ota/mark-valid` | ESP-IDF (portable stubs on non-ESP) |
 | `bb_board` | Runtime sysinfo (chip model, cores, flash, heap, OTA state) and GET `/api/board` | ESP-IDF |
 | `bb_info` | Composite GET `/api/info` merging sysinfo + wifi + consumer-registered extender callbacks | ESP-IDF |
 | `bb_mdns` | mDNS service registration with hostname, instance, service-type setters | ESP-IDF |
