@@ -31,11 +31,7 @@ typedef enum {
 // Route handler — portable signature. Return BB_OK on success.
 typedef bb_err_t (*bb_http_handler_fn)(bb_http_request_t *req);
 
-// Registration callback (called inside bb_http_server_start).
-// Invoked with the server handle so routes can be registered.
-typedef bb_err_t (*bb_http_app_routes_fn)(bb_http_handle_t server);
-
-// Register a route from inside bb_http_app_routes_fn.
+// Register a route on an already-started server.
 bb_err_t bb_http_register_route(bb_http_handle_t server,
                                 bb_http_method_t method,
                                 const char *path,
@@ -51,7 +47,9 @@ int bb_http_req_body_len(bb_http_request_t *req);
 int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size);
 
 // Lifecycle — portable on all platforms
-bb_err_t bb_http_server_start(bb_http_app_routes_fn routes_fn);
+// Start the HTTP server. After return, use bb_http_server_get_handle() and call
+// bb_http_register_route / bb_http_register_assets as needed.
+bb_err_t bb_http_server_start(void);
 bb_err_t bb_http_server_stop(void);
 bb_http_handle_t bb_http_server_get_handle(void);
 
@@ -59,7 +57,6 @@ bb_http_handle_t bb_http_server_get_handle(void);
 void bb_http_server_poll(void);
 
 // Register common built-in routes: GET /api/version, POST /api/reboot, GET /api/scan.
-// Portable across backends; call from inside a bb_http_app_routes_fn callback.
 // /api/version returns bb_system_get_version() as text/plain.
 // /api/reboot returns {"status":"rebooting"} then calls bb_system_reboot()
 //   after a short backend-specific delay.

@@ -10,7 +10,6 @@
 
 static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
-static bb_http_app_routes_fn s_app_routes_fn = NULL;
 
 
 static esp_err_t preflight_handler(httpd_req_t *req);
@@ -60,19 +59,12 @@ static esp_err_t preflight_handler(httpd_req_t *req)
 
 
 
-esp_err_t bb_http_server_start(bb_http_app_routes_fn app_routes_fn)
+esp_err_t bb_http_server_start(void)
 {
     esp_err_t err = bb_http_server_ensure_started();
     if (err != ESP_OK) {
         bb_log_e(TAG, "failed to start HTTP server: %s", esp_err_to_name(err));
         return err;
-    }
-
-    s_app_routes_fn = app_routes_fn;
-
-    // Register app routes if callback provided
-    if (app_routes_fn) {
-        app_routes_fn((bb_http_handle_t)s_server);
     }
 
     bb_log_i(TAG, "HTTP server started on port 80");
