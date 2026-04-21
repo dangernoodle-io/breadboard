@@ -302,10 +302,6 @@ void bb_prov_signal_done(void)
     }
 }
 
-// Embedded default form blob symbols (defined by EMBED_FILES in CMakeLists.txt)
-extern const uint8_t prov_default_form_html_start[] asm("_binary_prov_default_form_html_start");
-extern const uint8_t prov_default_form_html_end[] asm("_binary_prov_default_form_html_end");
-
 esp_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n)
 {
     // Ensure the shared HTTP server is started (internal helper)
@@ -320,30 +316,7 @@ esp_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n)
 
     httpd_register_uri_handler((httpd_handle_t)server, &prov_save);
 
-    // Scan assets for "/" entry
-    bool has_root = false;
-    if (assets && n > 0) {
-        for (size_t i = 0; i < n; i++) {
-            if (assets[i].path && strcmp(assets[i].path, "/") == 0) {
-                has_root = true;
-                break;
-            }
-        }
-    }
-
-    // If no "/" entry found, register built-in default form
-    if (!has_root) {
-        static bb_http_asset_t default_asset;
-        default_asset.path = "/";
-        default_asset.mime = "text/html";
-        default_asset.encoding = NULL;
-        default_asset.data = prov_default_form_html_start;
-        default_asset.len = (size_t)(prov_default_form_html_end - prov_default_form_html_start);
-
-        bb_http_register_assets(server, &default_asset, 1);
-    }
-
-    // Register consumer assets if provided
+    // Register consumer assets (caller MUST supply at least one asset with path="/")
     if (assets && n > 0) {
         bb_http_register_assets(server, assets, n);
     }

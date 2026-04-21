@@ -67,10 +67,20 @@ void bb_prov_signal_done(void);
 typedef esp_err_t (*bb_prov_save_cb_t)(httpd_req_t *req, const char *body, int len);
 void bb_prov_set_save_callback(bb_prov_save_cb_t cb);
 
-// Start HTTP server in provisioning mode.
-// Registers POST /save and GET /* captive-portal wildcard. Registers each entry in `assets`
-// as a static GET route (via bb_http_register_assets). If `assets` contains no entry with
-// path=="/", registers a built-in default WiFi setup form at `/`.
+/**
+ * Start HTTP server in provisioning mode.
+ *
+ * Registers POST /save and GET /* captive-portal wildcard. Registers each
+ * entry in @p assets as a static GET route via bb_http_register_assets.
+ *
+ * Caller MUST supply at least one asset with path="/" — no default form is
+ * provided. For bare-minimum bringup, add REQUIRES bb_prov_default_form to
+ * your component and pass:
+ *   bb_prov_start(&bb_prov_default_form_asset, 1);
+ *
+ * @param assets  Array of static HTTP assets; must contain a path="/" entry.
+ * @param n       Number of entries in @p assets.
+ */
 esp_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n);
 
 // Stop provisioning mode: unregister POST /save, OPTIONS /*, GET /* captive-portal wildcard,
