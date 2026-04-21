@@ -54,6 +54,15 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 #include "freertos/FreeRTOS.h"
 
 /**
+ * Register GET /api/logs (SSE stream) and GET /api/logs/status (JSON) on server.
+ * Single-subscriber stream; external client (source=external) can preempt a
+ * browser client, any other overlap returns 503.
+ * `server` is a bb_http_handle_t (forward-declared as void* to keep
+ * log_stream consumers free of the http_server dependency).
+ */
+esp_err_t bb_log_stream_register_routes(void *server);
+
+/**
  * Initialise the ring buffer and install the custom vprintf hook.
  * Must be called once from app_main before any tasks are started.
  */
