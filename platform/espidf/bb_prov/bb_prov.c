@@ -16,7 +16,6 @@ static const char *TAG = "bb_prov";
 
 // AP and provisioning state
 static esp_netif_t *s_ap_netif = NULL;
-static bool s_netif_initialized = false;
 static volatile bool s_dns_running = false;
 static TaskHandle_t s_dns_task_handle = NULL;
 static char s_ap_ssid[32];
@@ -25,6 +24,9 @@ static EventGroupHandle_t s_prov_event_group = NULL;
 // AP SSID prefix (default "BB-")
 static char s_ap_ssid_prefix[16] = "BB-";
 static bool s_ap_ssid_prefix_set = false;
+static bb_prov_save_cb_t s_save_cb = NULL;
+
+void bb_prov_set_save_callback(bb_prov_save_cb_t cb) { s_save_cb = cb; }
 
 #define PROV_DONE_BIT BIT0
 
@@ -72,12 +74,15 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    httpd_resp_set_status(req, "204 No Content");
-    httpd_resp_send(req, NULL, 0);
+    if (s_save_cb) {
+        esp_err_t cb_err = s_save_cb(req, body, len);
+        if (cb_err != ESP_OK) return cb_err;
+    } else {
+        httpd_resp_set_status(req, "204 No Content");
+        httpd_resp_send(req, NULL, 0);
+    }
 
-    // Signal provisioning complete
     bb_prov_signal_done();
-
     return ESP_OK;
 }
 
@@ -176,6 +181,7 @@ esp_err_t bb_prov_start_ap(void)
     }
 
     // Initialize netif and event loop (idempotent, guarded by flag)
+    static bool s_netif_initialized = false;
     if (!s_netif_initialized) {
         ESP_ERROR_CHECK(esp_netif_init());
         ESP_ERROR_CHECK(esp_event_loop_create_default());
