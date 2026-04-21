@@ -28,9 +28,13 @@ bb_prov_parse_result_t bb_prov_parse_body(
 
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
-#include "esp_http_server.h"
 #include "http_server.h"
 #include <stdint.h>
+
+// Forward declaration so consumers don't need esp_http_server.h transitively.
+// ESP-IDF defines this as `typedef struct httpd_req httpd_req_t` in esp_http_server.h;
+// consumers implementing bb_prov_save_cb_t will include that header themselves.
+typedef struct httpd_req httpd_req_t;
 
 // AP mode — for provisioning
 esp_err_t bb_prov_start_ap(void);        // starts AP + captive DNS
