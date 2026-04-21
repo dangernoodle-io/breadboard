@@ -1,0 +1,72 @@
+#pragma once
+
+#include <stdbool.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Opaque JSON handle. Backend-specific underneath (cJSON* on ESP-IDF/host,
+// heap struct wrapping DynamicJsonDocument on Arduino).
+typedef void *bb_json_t;
+
+// ---------------------------------------------------------------------------
+// Builders
+// ---------------------------------------------------------------------------
+
+bb_json_t bb_json_obj_new(void);
+bb_json_t bb_json_arr_new(void);
+
+// ---------------------------------------------------------------------------
+// Object setters — copy key + value into the tree
+// ---------------------------------------------------------------------------
+
+void bb_json_obj_set_string(bb_json_t obj, const char *key, const char *value);
+void bb_json_obj_set_number(bb_json_t obj, const char *key, double value);
+void bb_json_obj_set_bool  (bb_json_t obj, const char *key, bool value);
+void bb_json_obj_set_null  (bb_json_t obj, const char *key);
+
+// Transfer ownership of child to parent — caller must NOT bb_json_free the child.
+void bb_json_obj_set_obj(bb_json_t obj, const char *key, bb_json_t child);
+void bb_json_obj_set_arr(bb_json_t obj, const char *key, bb_json_t child);
+
+// ---------------------------------------------------------------------------
+// Array append
+// ---------------------------------------------------------------------------
+
+void bb_json_arr_append_string(bb_json_t arr, const char *value);
+void bb_json_arr_append_number(bb_json_t arr, double value);
+
+// Transfer ownership of child to parent — caller must NOT bb_json_free the child.
+void bb_json_arr_append_obj(bb_json_t arr, bb_json_t child);
+
+// ---------------------------------------------------------------------------
+// Serialization
+// ---------------------------------------------------------------------------
+
+// Returns a malloc'd, NUL-terminated JSON string. Free with bb_json_free_str.
+char *bb_json_serialize(bb_json_t root);
+
+// Free a string returned by bb_json_serialize.
+void bb_json_free_str(char *s);
+
+// Free the entire JSON tree rooted at root.
+void bb_json_free(bb_json_t root);
+
+// ---------------------------------------------------------------------------
+// Minimal read-side
+// ---------------------------------------------------------------------------
+
+// Parse a JSON text of length len (len==0 treats text as NUL-terminated).
+// Returns NULL on parse error. Free with bb_json_free.
+bb_json_t bb_json_parse(const char *text, size_t len);
+
+// Named getters. Return true on success, false if key absent or wrong type.
+bool bb_json_obj_get_string(bb_json_t obj, const char *key, char *out, size_t out_size);
+bool bb_json_obj_get_number(bb_json_t obj, const char *key, double *out);
+bool bb_json_obj_get_bool  (bb_json_t obj, const char *key, bool *out);
+
+#ifdef __cplusplus
+}
+#endif
