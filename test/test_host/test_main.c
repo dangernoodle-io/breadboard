@@ -65,12 +65,10 @@ void test_nv_config_display_enabled_default_true(void);
 void test_nv_config_is_provisioned_stub_returns_false(void);
 
 // Forward declarations from test_ota_validator.c
-void test_ota_validator_is_pending_proxies(void);
-void test_ota_validator_mark_valid_proxies(void);
-void test_ota_validator_mark_valid_error(void);
-void test_ota_validator_default_stub_is_pending(void);
-void test_ota_validator_default_stub_mark_valid(void);
-void test_ota_validator_mark_valid_null_reason(void);
+void test_ota_validator_is_pending_false_on_host(void);
+void test_ota_validator_mark_valid_returns_invalid_state_on_host(void);
+void test_ota_validator_mark_valid_null_reason_on_host(void);
+void test_ota_validator_mark_valid_idempotent_on_host(void);
 
 // Forward declarations from test_nv_generic.c
 void test_nv_set_u8_null_ns(void);
@@ -185,12 +183,10 @@ int main(void) {
     RUN_TEST(test_ota_push_pause_hook_returns_true);
 
     // OTA validator tests
-    RUN_TEST(test_ota_validator_is_pending_proxies);
-    RUN_TEST(test_ota_validator_mark_valid_proxies);
-    RUN_TEST(test_ota_validator_mark_valid_error);
-    RUN_TEST(test_ota_validator_default_stub_is_pending);
-    RUN_TEST(test_ota_validator_default_stub_mark_valid);
-    RUN_TEST(test_ota_validator_mark_valid_null_reason);
+    RUN_TEST(test_ota_validator_is_pending_false_on_host);
+    RUN_TEST(test_ota_validator_mark_valid_returns_invalid_state_on_host);
+    RUN_TEST(test_ota_validator_mark_valid_null_reason_on_host);
+    RUN_TEST(test_ota_validator_mark_valid_idempotent_on_host);
 
     // HTTP utils tests
     RUN_TEST(test_url_decode_basic);
