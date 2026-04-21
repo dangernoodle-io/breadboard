@@ -355,21 +355,16 @@ esp_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n)
     return ESP_OK;
 }
 
-void bb_prov_switch_to_normal(bb_http_app_routes_fn app_routes_fn)
+void bb_prov_stop(void)
 {
     bb_http_handle_t server = bb_http_server_get_handle();
     if (!server) return;
 
     httpd_handle_t h = (httpd_handle_t)server;
 
-    // Unregister only breadboard's prov handlers: /save (POST) and /* (GET catch-all)
+    // Unregister provisioning handlers: /save (POST) and /* (GET catch-all)
     httpd_unregister_uri_handler(h, "/save", HTTP_POST);
     httpd_unregister_uri_handler(h, "/*", HTTP_GET);
-
-    // Register app routes if callback provided
-    if (app_routes_fn) {
-        app_routes_fn(server);
-    }
 }
 
 void bb_prov_set_ap_ssid_prefix(const char *prefix)
