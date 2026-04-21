@@ -284,7 +284,7 @@ bool bb_prov_wait_done(uint32_t timeout_ms)
         return false;
     }
     TickType_t ticks = (timeout_ms == UINT32_MAX) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
-    EventBits_t bits = xEventGroupWaitBits(s_prov_event_group, PROV_DONE_BIT, pdFALSE, pdTRUE, ticks);
+    EventBits_t bits = xEventGroupWaitBits(s_prov_event_group, PROV_DONE_BIT, pdTRUE, pdTRUE, ticks);
     return (bits & PROV_DONE_BIT) != 0;
 }
 
