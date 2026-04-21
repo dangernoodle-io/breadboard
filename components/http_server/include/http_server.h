@@ -57,6 +57,21 @@ bb_http_handle_t bb_http_server_get_handle(void);
 // Poll the server for new connections (Arduino backend only; no-op on ESP-IDF).
 void bb_http_server_poll(void);
 
+// Register common built-in routes: GET /api/version, POST /api/reboot, GET /api/scan.
+// Portable across backends; call from inside a bb_http_app_routes_fn callback.
+// /api/version returns bb_system_get_version() as text/plain.
+// /api/reboot returns {"status":"rebooting"} then calls bb_system_reboot()
+//   after a short backend-specific delay.
+// /api/scan returns cached bb_wifi scan results as JSON and kicks a background refresh.
+bb_err_t bb_http_register_common_routes(bb_http_handle_t server);
+
+// Portable platform helpers. Implemented per-backend under
+// platform/espidf/system/ and platform/arduino/system/.
+//   bb_system_get_version: null-terminates out with the running firmware version.
+//   bb_system_reboot: reboots the device; does not return on success.
+void bb_system_get_version(char *out, size_t out_size);
+void bb_system_reboot(void);
+
 // ============================================================================
 // ESP-IDF-SPECIFIC API — low-level helpers
 // ============================================================================
