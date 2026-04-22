@@ -83,7 +83,7 @@ static esp_err_t info_handler(httpd_req_t *req)
     return err;
 }
 
-esp_err_t bb_info_register_routes(void *server)
+bb_err_t bb_info_register_routes(void *server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
     s_frozen = true;

@@ -6,7 +6,6 @@ extern "C" {
 #endif
 
 #ifdef ESP_PLATFORM
-#include "esp_err.h"
 #include "bb_http.h"
 
 // Initialize the validator state machine. Performs boot-time checks:
@@ -15,7 +14,7 @@ extern "C" {
 //     (rollback target unsafe), marks valid immediately.
 //   - Otherwise sets internal pending flag.
 // Registers POST /api/ota/mark-valid on the server.
-esp_err_t bb_ota_validator_init(bb_http_handle_t server);
+bb_err_t bb_ota_validator_init(bb_http_handle_t server);
 
 #endif
 

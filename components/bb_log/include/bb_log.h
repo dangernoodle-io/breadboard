@@ -50,7 +50,7 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 
 #ifdef ESP_PLATFORM
 
-#include "esp_err.h"
+#include "bb_nv.h"
 #include "freertos/FreeRTOS.h"
 
 /**
@@ -60,13 +60,13 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
  * `server` is a bb_http_handle_t (forward-declared as void* to keep
  * log_stream consumers free of the http_server dependency).
  */
-esp_err_t bb_log_stream_register_routes(void *server);
+bb_err_t bb_log_stream_register_routes(void *server);
 
 /**
  * Initialise the ring buffer and install the custom vprintf hook.
  * Must be called once from app_main before any tasks are started.
  */
-esp_err_t bb_log_stream_init(void);
+bb_err_t bb_log_stream_init(void);
 
 /**
  * Drain queued log bytes into out_buf (up to out_buf_len).

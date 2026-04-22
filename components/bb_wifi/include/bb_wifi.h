@@ -28,13 +28,13 @@ typedef struct {
 
 #ifdef ESP_PLATFORM
 
-#include "esp_err.h"
+#include "bb_nv.h"
 
 // ESP32-specific functions and types
 
 // Idempotent one-shot: esp_netif_init + esp_event_loop_create_default.
 // Safe to call from multiple components; only initializes once.
-esp_err_t bb_wifi_ensure_netif(void);
+bb_err_t bb_wifi_ensure_netif(void);
 
 // Performs a blocking WiFi scan. Returns number of APs found (up to max_results).
 int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results);
@@ -46,8 +46,8 @@ void bb_wifi_scan_start_async(void);
 int bb_wifi_scan_get_cached(bb_wifi_ap_t *results, int max_results);
 
 // STA mode — blocks until connected or timeout
-esp_err_t bb_wifi_init(void);           // restarts on timeout (normal boot)
-esp_err_t bb_wifi_init_sta(void);       // returns ESP_ERR_TIMEOUT on failure (provisioning retry)
+bb_err_t bb_wifi_init(void);           // restarts on timeout (normal boot)
+bb_err_t bb_wifi_init_sta(void);       // returns BB_ERR_TIMEOUT on failure (provisioning retry)
 
 // Force WiFi reassociation — recover from zombie-connected state
 void bb_wifi_force_reassociate(void);
@@ -59,18 +59,18 @@ void bb_wifi_register_on_got_ip(bb_wifi_on_got_ip_cb_t cb);
 // Diagnostic getters — lock-free reads from interrupt-safe statics
 void bb_wifi_get_disconnect(uint8_t *reason, int64_t *age_us);
 int bb_wifi_get_retry_count(void);
-esp_err_t bb_wifi_get_ip_str(char *out, size_t out_len);
-esp_err_t bb_wifi_get_rssi(int8_t *out);
+bb_err_t bb_wifi_get_ip_str(char *out, size_t out_len);
+bb_err_t bb_wifi_get_rssi(int8_t *out);
 bool bb_wifi_has_ip(void);
 
 // Populate out with a snapshot of the current STA state. Safe to call any
-// time; unset fields are zeroed. Returns ESP_OK on success, ESP_FAIL on
+// time; unset fields are zeroed. Returns BB_OK on success, BB_ERR_* on
 // null arg.
-esp_err_t bb_wifi_get_info(bb_wifi_info_t *out);
+bb_err_t bb_wifi_get_info(bb_wifi_info_t *out);
 
 // Register GET /api/wifi on server. Returns bb_wifi_get_info() snapshot
 // as JSON. `server` is bb_http_handle_t; declared as void* to avoid
 // pulling http_server.h into bb_wifi consumers.
-esp_err_t bb_wifi_register_routes(void *server);
+bb_err_t bb_wifi_register_routes(void *server);
 
 #endif /* ESP_PLATFORM */

@@ -36,7 +36,7 @@ static esp_err_t board_info_handler(httpd_req_t *req)
     return err;
 }
 
-esp_err_t bb_board_register_routes(void *server)
+bb_err_t bb_board_register_routes(void *server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
     httpd_handle_t h = (httpd_handle_t)server;

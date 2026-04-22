@@ -689,7 +689,7 @@ static esp_err_t ota_status_handler(httpd_req_t *req)
 /**
  * Register OTA pull HTTP handlers with an existing httpd instance.
  */
-esp_err_t bb_ota_pull_register_handler(bb_http_handle_t server)
+bb_err_t bb_ota_pull_register_handler(bb_http_handle_t server)
 {
     if (!server) {
         return ESP_ERR_INVALID_ARG;
@@ -746,7 +746,7 @@ esp_err_t bb_ota_pull_register_handler(bb_http_handle_t server)
 /**
  * Trigger an immediate OTA check (non-blocking).
  */
-esp_err_t bb_ota_pull_check_now(void)
+bb_err_t bb_ota_pull_check_now(void)
 {
     if (s_releases_url[0] == '\0') {
         bb_log_e(TAG, "releases URL not set; call bb_ota_pull_set_releases_url() first");

@@ -111,7 +111,7 @@ static esp_err_t logs_status_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-esp_err_t bb_log_stream_register_routes(void *server)
+bb_err_t bb_log_stream_register_routes(void *server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
     httpd_handle_t h = (httpd_handle_t)server;

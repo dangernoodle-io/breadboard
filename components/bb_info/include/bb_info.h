@@ -7,7 +7,6 @@ extern "C" {
 #endif
 
 #ifdef ESP_PLATFORM
-#include "esp_err.h"
 #include "bb_json.h"
 
 // Extender callback. Invoked with the root bb_json_t object of the /api/info
@@ -23,7 +22,7 @@ bb_err_t bb_info_register_extender(bb_info_extender_fn fn);
 
 // Register GET /api/info on server. Base response merges bb_board_get_info
 // and bb_wifi_get_info output; all registered extenders run after.
-esp_err_t bb_info_register_routes(void *server);
+bb_err_t bb_info_register_routes(void *server);
 
 #endif
 

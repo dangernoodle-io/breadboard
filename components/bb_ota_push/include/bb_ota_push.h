@@ -33,13 +33,13 @@ void bb_ota_push_set_hooks(bb_ota_pause_cb_t pause, bb_ota_resume_cb_t resume);
 void bb_ota_push_set_skip_check_cb(bb_ota_push_skip_check_cb_t cb);
 
 #ifdef ESP_PLATFORM
-#include "esp_err.h"
+#include "bb_nv.h"
 #include "bb_http.h"
 
 /**
  * Register OTA push HTTP handler with an existing HTTP server.
  * Adds POST /api/ota/push for firmware upload.
  */
-esp_err_t bb_ota_push_register_handler(bb_http_handle_t server);
+bb_err_t bb_ota_push_register_handler(bb_http_handle_t server);
 
 #endif // ESP_PLATFORM

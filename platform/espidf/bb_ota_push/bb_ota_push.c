@@ -164,7 +164,7 @@ resume_and_exit:
 /**
  * Register OTA push HTTP handler with an existing httpd instance.
  */
-esp_err_t bb_ota_push_register_handler(bb_http_handle_t server)
+bb_err_t bb_ota_push_register_handler(bb_http_handle_t server)
 {
     if (!server) {
         return ESP_ERR_INVALID_ARG;
