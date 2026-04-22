@@ -193,3 +193,51 @@ void test_nv_erase_valid(void)
     bb_err_t err = bb_nv_erase("ns", "key");
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 }
+
+// bb_nv_set_u16 tests
+void test_nv_set_u16_null_ns(void)
+{
+    bb_err_t err = bb_nv_set_u16(NULL, "key", 42);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_nv_set_u16_null_key(void)
+{
+    bb_err_t err = bb_nv_set_u16("ns", NULL, 42);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_nv_set_u16_valid(void)
+{
+    bb_err_t err = bb_nv_set_u16("ns", "key", 0xBEEF);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+}
+
+// bb_nv_get_u16 tests
+void test_nv_get_u16_null_ns(void)
+{
+    uint16_t val = 0;
+    bb_err_t err = bb_nv_get_u16(NULL, "key", &val, 0xBEEF);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_nv_get_u16_null_key(void)
+{
+    uint16_t val = 0;
+    bb_err_t err = bb_nv_get_u16("ns", NULL, &val, 0xBEEF);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_nv_get_u16_null_out(void)
+{
+    bb_err_t err = bb_nv_get_u16("ns", "key", NULL, 0xBEEF);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_nv_get_u16_returns_fallback(void)
+{
+    uint16_t val = 0;
+    bb_err_t err = bb_nv_get_u16("ns", "key", &val, 0xBEEF);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_UINT16(0xBEEF, val);
+}
