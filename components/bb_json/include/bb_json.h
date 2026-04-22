@@ -67,6 +67,31 @@ bool bb_json_obj_get_string(bb_json_t obj, const char *key, char *out, size_t ou
 bool bb_json_obj_get_number(bb_json_t obj, const char *key, double *out);
 bool bb_json_obj_get_bool  (bb_json_t obj, const char *key, bool *out);
 
+// Raw item access — returns the item handle (NULL if absent).
+// The returned handle is owned by the parent; do NOT bb_json_free it.
+bb_json_t bb_json_obj_get_item(bb_json_t obj, const char *key);
+
+// Array helpers.
+int       bb_json_arr_size    (bb_json_t arr);
+bb_json_t bb_json_arr_get_item(bb_json_t arr, int idx);
+
+// Item type predicates.
+bool bb_json_item_is_true  (bb_json_t item);
+bool bb_json_item_is_null  (bb_json_t item);
+bool bb_json_item_is_number(bb_json_t item);
+bool bb_json_item_is_string(bb_json_t item);
+bool bb_json_item_is_array (bb_json_t item);
+bool bb_json_item_is_object(bb_json_t item);
+
+// Item value accessors (no type check — caller guards with bb_json_item_is_*).
+const char *bb_json_item_get_string(bb_json_t item);  // pointer into tree; valid until bb_json_free
+double      bb_json_item_get_double(bb_json_t item);
+int         bb_json_item_get_int   (bb_json_t item);
+
+// Serialize a single item (object, array, or scalar) to a malloc'd string.
+// Free with bb_json_free_str.
+char *bb_json_item_serialize(bb_json_t item);
+
 #ifdef __cplusplus
 }
 #endif

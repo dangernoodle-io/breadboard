@@ -144,3 +144,87 @@ bool bb_json_obj_get_bool(bb_json_t obj, const char *key, bool *out)
     *out = cJSON_IsTrue(item);
     return true;
 }
+
+// ---------------------------------------------------------------------------
+// Raw item access
+// ---------------------------------------------------------------------------
+
+bb_json_t bb_json_obj_get_item(bb_json_t obj, const char *key)
+{
+    if (!obj || !key) return NULL;
+    return (bb_json_t)cJSON_GetObjectItem((cJSON *)obj, key);
+}
+
+int bb_json_arr_size(bb_json_t arr)
+{
+    if (!arr) return 0;
+    return cJSON_GetArraySize((cJSON *)arr);
+}
+
+bb_json_t bb_json_arr_get_item(bb_json_t arr, int idx)
+{
+    if (!arr) return NULL;
+    return (bb_json_t)cJSON_GetArrayItem((cJSON *)arr, idx);
+}
+
+// ---------------------------------------------------------------------------
+// Item type predicates
+// ---------------------------------------------------------------------------
+
+bool bb_json_item_is_true(bb_json_t item)
+{
+    return item && cJSON_IsTrue((cJSON *)item);
+}
+
+bool bb_json_item_is_null(bb_json_t item)
+{
+    return !item || cJSON_IsNull((cJSON *)item);
+}
+
+bool bb_json_item_is_number(bb_json_t item)
+{
+    return item && cJSON_IsNumber((cJSON *)item);
+}
+
+bool bb_json_item_is_string(bb_json_t item)
+{
+    return item && cJSON_IsString((cJSON *)item);
+}
+
+bool bb_json_item_is_array(bb_json_t item)
+{
+    return item && cJSON_IsArray((cJSON *)item);
+}
+
+bool bb_json_item_is_object(bb_json_t item)
+{
+    return item && cJSON_IsObject((cJSON *)item);
+}
+
+// ---------------------------------------------------------------------------
+// Item value accessors
+// ---------------------------------------------------------------------------
+
+const char *bb_json_item_get_string(bb_json_t item)
+{
+    if (!item) return NULL;
+    return ((cJSON *)item)->valuestring;
+}
+
+double bb_json_item_get_double(bb_json_t item)
+{
+    if (!item) return 0.0;
+    return ((cJSON *)item)->valuedouble;
+}
+
+int bb_json_item_get_int(bb_json_t item)
+{
+    if (!item) return 0;
+    return ((cJSON *)item)->valueint;
+}
+
+char *bb_json_item_serialize(bb_json_t item)
+{
+    if (!item) return NULL;
+    return cJSON_PrintUnformatted((cJSON *)item);
+}

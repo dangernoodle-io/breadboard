@@ -420,3 +420,81 @@ void test_bb_json_type_mismatch_string_vs_number(void)
     bb_json_free(p);
     bb_json_free(obj);
 }
+
+// ---------------------------------------------------------------------------
+// Raw item access (B1-61)
+// ---------------------------------------------------------------------------
+
+void test_bb_json_obj_get_item_returns_handle(void)
+{
+    bb_json_t p = bb_json_parse("{\"k\":\"v\"}", 0);
+    bb_json_t item = bb_json_obj_get_item(p, "k");
+    TEST_ASSERT_NOT_NULL(item);
+    TEST_ASSERT_TRUE(bb_json_item_is_string(item));
+    TEST_ASSERT_EQUAL_STRING("v", bb_json_item_get_string(item));
+    TEST_ASSERT_NULL(bb_json_obj_get_item(p, "missing"));
+    bb_json_free(p);
+}
+
+void test_bb_json_arr_size_and_get_item(void)
+{
+    bb_json_t p = bb_json_parse("[\"a\",42,true,null]", 0);
+    TEST_ASSERT_EQUAL_INT(4, bb_json_arr_size(p));
+
+    TEST_ASSERT_TRUE(bb_json_item_is_string(bb_json_arr_get_item(p, 0)));
+    TEST_ASSERT_EQUAL_STRING("a", bb_json_item_get_string(bb_json_arr_get_item(p, 0)));
+
+    TEST_ASSERT_TRUE(bb_json_item_is_number(bb_json_arr_get_item(p, 1)));
+    TEST_ASSERT_EQUAL_INT(42, bb_json_item_get_int(bb_json_arr_get_item(p, 1)));
+    TEST_ASSERT_EQUAL_DOUBLE(42.0, bb_json_item_get_double(bb_json_arr_get_item(p, 1)));
+
+    TEST_ASSERT_TRUE(bb_json_item_is_true(bb_json_arr_get_item(p, 2)));
+    TEST_ASSERT_TRUE(bb_json_item_is_null(bb_json_arr_get_item(p, 3)));
+
+    TEST_ASSERT_NULL(bb_json_arr_get_item(p, 99));
+    bb_json_free(p);
+}
+
+void test_bb_json_item_is_array_and_object(void)
+{
+    bb_json_t p = bb_json_parse("{\"arr\":[1,2],\"nested\":{\"x\":1}}", 0);
+    bb_json_t arr = bb_json_obj_get_item(p, "arr");
+    bb_json_t nested = bb_json_obj_get_item(p, "nested");
+
+    TEST_ASSERT_TRUE(bb_json_item_is_array(arr));
+    TEST_ASSERT_FALSE(bb_json_item_is_object(arr));
+    TEST_ASSERT_TRUE(bb_json_item_is_object(nested));
+    TEST_ASSERT_FALSE(bb_json_item_is_array(nested));
+
+    TEST_ASSERT_EQUAL_INT(2, bb_json_arr_size(arr));
+    bb_json_free(p);
+}
+
+void test_bb_json_item_serialize_subtree(void)
+{
+    bb_json_t p = bb_json_parse("{\"nested\":{\"x\":1}}", 0);
+    bb_json_t nested = bb_json_obj_get_item(p, "nested");
+    char *s = bb_json_item_serialize(nested);
+    TEST_ASSERT_NOT_NULL(s);
+    TEST_ASSERT_NOT_NULL(strstr(s, "\"x\""));
+    TEST_ASSERT_NOT_NULL(strstr(s, "1"));
+    bb_json_free_str(s);
+    bb_json_free(p);
+}
+
+void test_bb_json_item_null_handle_is_safe(void)
+{
+    TEST_ASSERT_FALSE(bb_json_item_is_string(NULL));
+    TEST_ASSERT_FALSE(bb_json_item_is_number(NULL));
+    TEST_ASSERT_FALSE(bb_json_item_is_array(NULL));
+    TEST_ASSERT_FALSE(bb_json_item_is_object(NULL));
+    TEST_ASSERT_FALSE(bb_json_item_is_true(NULL));
+    TEST_ASSERT_TRUE(bb_json_item_is_null(NULL));
+    TEST_ASSERT_NULL(bb_json_item_get_string(NULL));
+    TEST_ASSERT_EQUAL_DOUBLE(0.0, bb_json_item_get_double(NULL));
+    TEST_ASSERT_EQUAL_INT(0, bb_json_item_get_int(NULL));
+    TEST_ASSERT_NULL(bb_json_item_serialize(NULL));
+    TEST_ASSERT_EQUAL_INT(0, bb_json_arr_size(NULL));
+    TEST_ASSERT_NULL(bb_json_arr_get_item(NULL, 0));
+    TEST_ASSERT_NULL(bb_json_obj_get_item(NULL, "k"));
+}
