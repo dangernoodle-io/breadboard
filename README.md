@@ -51,6 +51,8 @@ The `bb_prov` component manages the provisioning state machine and HTTP `/save` 
 
 Public headers guard `esp_*.h` and `freertos/*.h` behind `#ifdef ESP_PLATFORM` so non-ESP backends (e.g. Arduino) can coexist without breaking consumers. Components are designed portably even when only one backend is fully implemented. Arduino has validated backends for `bb_log`, `bb_nv`, `bb_http`, and the `bb_system_*` helpers driving `/api/version` and `/api/reboot`. `bb_ota_validator` exposes a portable strategy-struct API, with stubs on non-ESP platforms. Other components are currently ESP-IDF-only; progressive un-fencing is planned.
 
+**Component authors:** See the API conventions section in [CLAUDE.md](CLAUDE.md) for portability rules.
+
 ## Development
 
 ```bash
