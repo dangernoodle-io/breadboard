@@ -98,3 +98,72 @@ bb_err_t bb_board_get_info(bb_board_info_t *out)
 
     return BB_OK;
 }
+
+uint32_t bb_board_get_free_heap(void)
+{
+    return (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+}
+
+uint32_t bb_board_get_total_heap(void)
+{
+    return (uint32_t)heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+}
+
+uint32_t bb_board_get_flash_size(void)
+{
+    uint32_t size = 0;
+    esp_flash_get_size(NULL, &size);
+    return size;
+}
+
+uint32_t bb_board_get_app_size(void)
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    return running ? running->size : 0;
+}
+
+uint8_t bb_board_get_cores(void)
+{
+    esp_chip_info_t chip;
+    esp_chip_info(&chip);
+    return chip.cores;
+}
+
+static bb_err_t copy_str(char *out, size_t out_size, const char *src)
+{
+    if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
+    strncpy(out, src ? src : "", out_size - 1);
+    out[out_size - 1] = '\0';
+    return BB_OK;
+}
+
+bb_err_t bb_board_get_chip_model(char *out, size_t out_size)
+{
+    esp_chip_info_t chip;
+    esp_chip_info(&chip);
+    return copy_str(out, out_size, chip_model_str(chip.model));
+}
+
+bb_err_t bb_board_get_mac(char *out, size_t out_size)
+{
+    if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
+    uint8_t mac[6] = {0};
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK) {
+        out[0] = '\0';
+        return BB_OK;
+    }
+    snprintf(out, out_size, "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return BB_OK;
+}
+
+bb_err_t bb_board_get_idf_version(char *out, size_t out_size)
+{
+    const esp_app_desc_t *app = esp_app_get_description();
+    return copy_str(out, out_size, app ? app->idf_ver : "");
+}
+
+bb_err_t bb_board_get_reset_reason(char *out, size_t out_size)
+{
+    return copy_str(out, out_size, reset_reason_str(esp_reset_reason()));
+}
