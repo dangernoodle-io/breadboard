@@ -332,20 +332,37 @@ static void ota_worker_task(void *arg)
     }
     bb_log_i(TAG, "OTA target partition: %s", update_partition->label);
 
+    // Retry handshake/header-read errors up to 3 times. TLS handshake flakes
+    // (mbedtls fatal alert, ECONNRESET during open) and GitHub CDN redirect
+    // hiccups are transient — a short backoff usually clears them. Don't retry
+    // past get_img_desc: once we start writing flash we're committed.
     esp_https_ota_handle_t ota_handle = NULL;
-    esp_err_t err = esp_https_ota_begin(&ota_config, &ota_handle);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "esp_https_ota_begin failed: %s", esp_err_to_name(err));
-        ota_set_error("ota_begin: %s", esp_err_to_name(err));
-        goto resume_and_exit;
-    }
-
+    esp_err_t err = ESP_FAIL;
     esp_app_desc_t img_desc;
-    err = esp_https_ota_get_img_desc(ota_handle, &img_desc);
+    const int max_attempts = 3;
+    const int backoff_ms[] = {2000, 4000};
+    for (int attempt = 0; attempt < max_attempts; attempt++) {
+        err = esp_https_ota_begin(&ota_config, &ota_handle);
+        if (err == ESP_OK) {
+            err = esp_https_ota_get_img_desc(ota_handle, &img_desc);
+            if (err == ESP_OK) break;
+            bb_log_w(TAG, "ota_get_img_desc attempt %d/%d failed: %s",
+                     attempt + 1, max_attempts, esp_err_to_name(err));
+            esp_https_ota_abort(ota_handle);
+            ota_handle = NULL;
+        } else {
+            bb_log_w(TAG, "ota_begin attempt %d/%d failed: %s",
+                     attempt + 1, max_attempts, esp_err_to_name(err));
+        }
+        if (attempt + 1 < max_attempts) {
+            vTaskDelay(pdMS_TO_TICKS(backoff_ms[attempt]));
+        }
+    }
     if (err != ESP_OK) {
-        bb_log_e(TAG, "esp_https_ota_get_img_desc failed: %s", esp_err_to_name(err));
-        ota_set_error("get_img_desc: %s", esp_err_to_name(err));
-        esp_https_ota_abort(ota_handle);
+        bb_log_e(TAG, "OTA handshake failed after %d attempts: %s",
+                 max_attempts, esp_err_to_name(err));
+        ota_set_error("ota handshake failed after %d attempts: %s",
+                      max_attempts, esp_err_to_name(err));
         goto resume_and_exit;
     }
 
