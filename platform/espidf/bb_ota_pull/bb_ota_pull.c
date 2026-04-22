@@ -501,27 +501,23 @@ static void ota_check_worker_task(void *arg)
  */
 static esp_err_t ota_check_handler(httpd_req_t *req)
 {
-    // Snapshot state under critical section
-    bool check_done, check_failed, check_in_progress;
+    // Snapshot state under critical section. When the previous background
+    // check failed, clear the sticky failure flag and fall through to the
+    // retrigger path so the CLI can recover without the device needing a
+    // reboot.
+    bool check_done, check_in_progress;
     ota_pull_check_result_t cached;
     taskENTER_CRITICAL(&s_ota_status_mux);
     check_done = s_check_done;
-    check_failed = s_check_failed;
     check_in_progress = s_check_in_progress;
+    if (s_check_failed) {
+        s_check_failed = false;
+    }
     if (check_done) {
         memcpy(&cached, &s_cached_check, sizeof(cached));
         s_check_done = false;  // invalidate cache
     }
     taskEXIT_CRITICAL(&s_ota_status_mux);
-
-    // If the background check failed, return error
-    if (check_failed) {
-        const char *response = "{\"error\":\"check_failed\"}";
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, response, strlen(response));
-        return ESP_OK;
-    }
 
     // If we have a cached result, return it
     if (check_done) {
