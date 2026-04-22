@@ -1,5 +1,4 @@
 #include "esp_log.h"
-#include "nvs_flash.h"
 #include "bb_nv.h"
 #include "bb_log.h"
 #include "bb_display.h"
@@ -8,7 +7,7 @@
 static const char *TAG = "minimal";
 
 void app_main(void) {
-    nvs_flash_init();
+    bb_nv_flash_init();
     bb_nv_config_init();
     bb_log_stream_init();
     bb_display_init();

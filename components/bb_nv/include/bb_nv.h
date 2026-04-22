@@ -29,6 +29,11 @@ typedef int bb_err_t;
 
 bb_err_t bb_nv_config_init(void);
 
+/// Initialize the NV flash partition. Handles the
+/// ESP_ERR_NVS_NO_FREE_PAGES / NEW_VERSION_FOUND erase-and-retry case.
+/// Idempotent — safe to call multiple times.
+bb_err_t bb_nv_flash_init(void);
+
 const char *bb_nv_config_wifi_ssid(void);
 const char *bb_nv_config_wifi_pass(void);
 bool bb_nv_config_display_enabled(void);

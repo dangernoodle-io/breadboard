@@ -37,6 +37,11 @@ extern "C" bb_err_t bb_nv_config_init(void) {
     return BB_OK;
 }
 
+extern "C" bb_err_t bb_nv_flash_init(void) {
+    // Arduino has no NVS partition concept; init is a no-op
+    return BB_OK;
+}
+
 // Helper: scan EEPROM records to find (ns, key, type)
 // Returns offset of value if found, -1 if not found, -2 if error
 static int find_record(const char *ns, const char *key, uint8_t expected_type) {
