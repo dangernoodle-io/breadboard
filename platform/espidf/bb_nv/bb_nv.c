@@ -1,6 +1,10 @@
 #include "bb_nv.h"
 #include <string.h>
 
+#ifdef ESP_PLATFORM
+#include "nvs_flash.h"
+#endif
+
 #ifndef BB_NV_CONFIG_NAMESPACE
 #define BB_NV_CONFIG_NAMESPACE "bb_cfg"
 #endif
@@ -13,7 +17,6 @@ static struct {
 
 // Helper to load a string from NVS with fallback (ESP only)
 #ifdef ESP_PLATFORM
-#include "nvs_flash.h"
 #include "nvs.h"
 #include "bb_log.h"
 static const char *TAG = "nv_config";
@@ -63,6 +66,17 @@ bb_err_t bb_nv_config_init(void)
 }
 
 #ifdef ESP_PLATFORM
+bb_err_t bb_nv_flash_init(void)
+{
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        bb_log_w(TAG, "nvs_flash_init erase-and-retry");
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    return err;
+}
+
 bool bb_nv_config_is_provisioned(void)
 {
     nvs_handle_t handle;
