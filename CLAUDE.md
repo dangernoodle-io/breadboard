@@ -50,6 +50,16 @@ The `bb_prov` component manages the provisioning state machine and HTTP `/save` 
 
 LVGL is initialized inside `bb_display_init` via `esp_lvgl_port`. The consumer's `sdkconfig` governs LVGL font availability (`CONFIG_LV_FONT_MONTSERRAT_*`) and color depth (must be 16-bit / RGB565); breadboard does not ship pre-defined dashboard layouts. Every call into LVGL from application code (including `lv_timer` callbacks not running on the LVGL task) must be wrapped in `bb_display_lock` / `bb_display_unlock`. The `bb_display` component is currently ESP-IDF-only.
 
+## bb_hw
+
+Board pin/peripheral headers are consumer-supplied. In your firmware's own component (or top-level build), pass `-DBB_HW_BOARD_HEADER="boards/<name>.h"` and provide that header on your include path. `bb_hw.h` resolves it at build time. Bundled headers under `components/bb_hw/include/boards/` remain available for examples; consumers without an override must define `FIRMWARE_BOARD_<name>` to select one.
+
+Example (PlatformIO):
+```
+build_flags =
+    -DBB_HW_BOARD_HEADER=\"boards/bitaxe_601.h\"
+```
+
 ## Workspace conventions
 
 Workspace-level conventions (git, testing, docs) live in `/Users/jae/Projects/dangernoodle/CLAUDE.md`.
