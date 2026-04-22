@@ -211,27 +211,50 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
         .buffer_size = 4096,
     };
 
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (!client) {
-        free(buf);
-        return ESP_FAIL;
+    // Retry the open+headers handshake up to 3 times on transport errors.
+    // TLS handshake flakes + GitHub CDN hiccups are common; the whole client
+    // state is dirty after a failed open, so we reinit per attempt.
+    esp_http_client_handle_t client = NULL;
+    esp_err_t err = ESP_FAIL;
+    int status = 0;
+    int content_length = 0;
+    const int max_attempts = 3;
+    const int backoff_ms[] = {2000, 4000};
+    for (int attempt = 0; attempt < max_attempts; attempt++) {
+        client = esp_http_client_init(&config);
+        if (!client) {
+            err = ESP_FAIL;
+            bb_log_w(TAG, "http init attempt %d/%d failed",
+                     attempt + 1, max_attempts);
+        } else {
+            esp_http_client_set_header(client, "Accept", "application/vnd.github+json");
+            esp_http_client_set_header(client, "X-GitHub-Api-Version", "2022-11-28");
+            esp_http_client_set_method(client, HTTP_METHOD_GET);
+
+            err = esp_http_client_open(client, 0);
+            if (err == ESP_OK) {
+                content_length = esp_http_client_fetch_headers(client);
+                status = esp_http_client_get_status_code(client);
+                if (status == 200) {
+                    break;
+                }
+                bb_log_w(TAG, "http open attempt %d/%d: GitHub API returned %d",
+                         attempt + 1, max_attempts, status);
+                err = ESP_FAIL;
+            } else {
+                bb_log_w(TAG, "http open attempt %d/%d failed: %s",
+                         attempt + 1, max_attempts, esp_err_to_name(err));
+            }
+            esp_http_client_close(client);
+            esp_http_client_cleanup(client);
+            client = NULL;
+        }
+        if (attempt + 1 < max_attempts) {
+            vTaskDelay(pdMS_TO_TICKS(backoff_ms[attempt]));
+        }
     }
-
-    esp_http_client_set_header(client, "Accept", "application/vnd.github+json");
-    esp_http_client_set_header(client, "X-GitHub-Api-Version", "2022-11-28");
-    esp_http_client_set_method(client, HTTP_METHOD_GET);
-
-    esp_err_t err = esp_http_client_open(client, 0);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "http open failed: %s", esp_err_to_name(err));
-        goto cleanup;
-    }
-
-    int content_length = esp_http_client_fetch_headers(client);
-    int status = esp_http_client_get_status_code(client);
-    if (status != 200) {
-        bb_log_e(TAG, "GitHub API returned %d", status);
-        err = ESP_FAIL;
+    if (err != ESP_OK || !client) {
+        bb_log_e(TAG, "http open failed after %d attempts", max_attempts);
         goto cleanup;
     }
 
