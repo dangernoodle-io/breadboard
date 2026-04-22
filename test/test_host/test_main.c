@@ -153,6 +153,11 @@ void test_bb_json_parse_invalid_returns_null(void);
 void test_bb_json_parse_with_length(void);
 void test_bb_json_serialize_null_returns_null(void);
 void test_bb_json_type_mismatch_string_vs_number(void);
+void test_bb_json_obj_get_item_returns_handle(void);
+void test_bb_json_arr_size_and_get_item(void);
+void test_bb_json_item_is_array_and_object(void);
+void test_bb_json_item_serialize_subtree(void);
+void test_bb_json_item_null_handle_is_safe(void);
 
 // Forward declarations from test_bb_http_assets.c
 void test_asset_type_definition(void);
@@ -340,6 +345,11 @@ int main(void) {
     RUN_TEST(test_bb_json_parse_with_length);
     RUN_TEST(test_bb_json_serialize_null_returns_null);
     RUN_TEST(test_bb_json_type_mismatch_string_vs_number);
+    RUN_TEST(test_bb_json_obj_get_item_returns_handle);
+    RUN_TEST(test_bb_json_arr_size_and_get_item);
+    RUN_TEST(test_bb_json_item_is_array_and_object);
+    RUN_TEST(test_bb_json_item_serialize_subtree);
+    RUN_TEST(test_bb_json_item_null_handle_is_safe);
 
     return UNITY_END();
 }
