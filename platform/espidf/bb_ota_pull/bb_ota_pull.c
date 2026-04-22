@@ -27,6 +27,7 @@ static char s_firmware_board[64] = "";
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/portmacro.h"
@@ -408,18 +409,41 @@ static void ota_worker_task(void *arg)
     }
 
     int image_size = esp_https_ota_get_image_size(ota_handle);
+    bb_log_i(TAG, "OTA download starting (image size: %d bytes)", image_size);
 
+    int last_logged_pct = -1;
+    int64_t last_progress_us = esp_timer_get_time();
+    int last_read = 0;
     while (true) {
         err = esp_https_ota_perform(ota_handle);
         if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
             break;
         }
+        int read_so_far = esp_https_ota_get_image_len_read(ota_handle);
         if (image_size > 0) {
-            int read_so_far = esp_https_ota_get_image_len_read(ota_handle);
+            int pct = (read_so_far * 100) / image_size;
             taskENTER_CRITICAL(&s_ota_status_mux);
-            s_ota_status.progress_pct = (read_so_far * 100) / image_size;
+            s_ota_status.progress_pct = pct;
             taskEXIT_CRITICAL(&s_ota_status_mux);
+            if (pct / 10 != last_logged_pct / 10) {
+                bb_log_i(TAG, "OTA progress: %d%% (%d/%d bytes)",
+                         pct, read_so_far, image_size);
+                last_logged_pct = pct;
+            }
         }
+        // Warn if no bytes moved in the last 10s — surfaces a stalled
+        // socket that would otherwise look like silence in the logs.
+        int64_t now_us = esp_timer_get_time();
+        if (read_so_far != last_read) {
+            last_read = read_so_far;
+            last_progress_us = now_us;
+        } else if (now_us - last_progress_us > 10LL * 1000 * 1000) {
+            bb_log_w(TAG, "OTA stalled: no bytes for >10s at %d bytes", read_so_far);
+            last_progress_us = now_us;
+        }
+    }
+    if (err != ESP_OK) {
+        bb_log_e(TAG, "esp_https_ota_perform exited with: %s", esp_err_to_name(err));
     }
 
     if (!esp_https_ota_is_complete_data_received(ota_handle)) {
