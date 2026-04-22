@@ -1,9 +1,12 @@
 #include "bb_nv.h"
+#include "bb_log.h"
 #include <string.h>
 
 #ifdef ESP_PLATFORM
 #include "nvs_flash.h"
 #endif
+
+static const char *TAG_NV = "bb_nv";
 
 #ifndef BB_NV_CONFIG_NAMESPACE
 #define BB_NV_CONFIG_NAMESPACE "bb_cfg"
@@ -264,6 +267,35 @@ bb_err_t bb_nv_set_u8(const char *ns, const char *key, uint8_t value)
     if (err != BB_OK) return err;
 
     err = nvs_set_u8(handle, key, value);
+    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
+        bb_log_w(TAG_NV, "type mismatch on set '%s/%s', rewriting", ns, key);
+        (void)nvs_erase_key(handle, key);
+        err = nvs_set_u8(handle, key, value);
+    }
+    if (err == BB_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    return err;
+}
+
+bb_err_t bb_nv_set_u16(const char *ns, const char *key, uint16_t value)
+{
+    if (ns == NULL || key == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
+    if (err != BB_OK) return err;
+
+    err = nvs_set_u16(handle, key, value);
+    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
+        bb_log_w(TAG_NV, "type mismatch on set '%s/%s', rewriting", ns, key);
+        (void)nvs_erase_key(handle, key);
+        err = nvs_set_u16(handle, key, value);
+    }
     if (err == BB_OK) {
         err = nvs_commit(handle);
     }
@@ -283,6 +315,11 @@ bb_err_t bb_nv_set_u32(const char *ns, const char *key, uint32_t value)
     if (err != BB_OK) return err;
 
     err = nvs_set_u32(handle, key, value);
+    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
+        bb_log_w(TAG_NV, "type mismatch on set '%s/%s', rewriting", ns, key);
+        (void)nvs_erase_key(handle, key);
+        err = nvs_set_u32(handle, key, value);
+    }
     if (err == BB_OK) {
         err = nvs_commit(handle);
     }
@@ -335,6 +372,45 @@ bb_err_t bb_nv_get_u8(const char *ns, const char *key, uint8_t *out, uint8_t fal
         *out = fallback;
         return BB_OK;
     }
+    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
+        bb_log_w(TAG_NV, "type mismatch on get '%s/%s', using fallback", ns, key);
+        *out = fallback;
+        return BB_OK;
+    }
+
+    return err;
+}
+
+bb_err_t bb_nv_get_u16(const char *ns, const char *key, uint16_t *out, uint16_t fallback)
+{
+    if (ns == NULL || key == NULL || out == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
+
+    if (err == BB_ERR_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
+        *out = fallback;
+        return BB_OK;
+    }
+
+    if (err != BB_OK) {
+        return err;
+    }
+
+    err = nvs_get_u16(handle, key, out);
+    nvs_close(handle);
+
+    if (err == BB_ERR_NOT_FOUND) {
+        *out = fallback;
+        return BB_OK;
+    }
+    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
+        bb_log_w(TAG_NV, "type mismatch on get '%s/%s', using fallback", ns, key);
+        *out = fallback;
+        return BB_OK;
+    }
 
     return err;
 }
@@ -361,6 +437,11 @@ bb_err_t bb_nv_get_u32(const char *ns, const char *key, uint32_t *out, uint32_t 
     nvs_close(handle);
 
     if (err == BB_ERR_NOT_FOUND) {
+        *out = fallback;
+        return BB_OK;
+    }
+    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
+        bb_log_w(TAG_NV, "type mismatch on get '%s/%s', using fallback", ns, key);
         *out = fallback;
         return BB_OK;
     }
@@ -438,6 +519,14 @@ bb_err_t bb_nv_set_u8(const char *ns, const char *key, uint8_t value)
     return BB_OK;
 }
 
+bb_err_t bb_nv_set_u16(const char *ns, const char *key, uint16_t value)
+{
+    if (ns == NULL || key == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+    return BB_OK;
+}
+
 bb_err_t bb_nv_set_u32(const char *ns, const char *key, uint32_t value)
 {
     if (ns == NULL || key == NULL) {
@@ -455,6 +544,15 @@ bb_err_t bb_nv_set_str(const char *ns, const char *key, const char *value)
 }
 
 bb_err_t bb_nv_get_u8(const char *ns, const char *key, uint8_t *out, uint8_t fallback)
+{
+    if (ns == NULL || key == NULL || out == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+    *out = fallback;
+    return BB_OK;
+}
+
+bb_err_t bb_nv_get_u16(const char *ns, const char *key, uint16_t *out, uint16_t fallback)
 {
     if (ns == NULL || key == NULL || out == NULL) {
         return BB_ERR_INVALID_ARG;
