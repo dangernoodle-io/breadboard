@@ -78,7 +78,7 @@ typedef bb_err_t (*bb_prov_extra_routes_fn_t)(bb_http_handle_t server);
  *
  * Registers (in order): POST /save, consumer assets, common routes
  * (/api/version, /api/scan, /api/reboot), @p extra consumer routes if
- * non-NULL, and finally the captive-portal "/*" GET wildcard.
+ * non-NULL, and finally the captive-portal wildcard GET (matches all URIs).
  *
  * Caller MUST supply at least one asset with path="/" — no default form is
  * provided. For bare-minimum bringup, add REQUIRES bb_prov_default_form to
