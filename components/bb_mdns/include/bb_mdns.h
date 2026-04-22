@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 #ifdef ESP_PLATFORM
 
 #include <stdbool.h>
@@ -22,3 +24,6 @@ void bb_mdns_set_instance_name(const char *instance_name);
 bool bb_mdns_started(void);
 
 #endif /* ESP_PLATFORM */
+
+// Sanitize and build RFC 1035-compliant hostname label: lowercase [a-z0-9], collapse/trim dashes, cap at 63 chars.
+void bb_mdns_build_hostname(const char *prefix, const char *suffix, char *out, size_t out_size);
