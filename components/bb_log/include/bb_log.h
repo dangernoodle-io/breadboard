@@ -12,6 +12,40 @@
  */
 int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_list args);
 
+typedef enum {
+    BB_LOG_LEVEL_NONE,
+    BB_LOG_LEVEL_ERROR,
+    BB_LOG_LEVEL_WARN,
+    BB_LOG_LEVEL_INFO,
+    BB_LOG_LEVEL_DEBUG,
+    BB_LOG_LEVEL_VERBOSE,
+} bb_log_level_t;
+
+// Set log level for a tag. Use tag="*" to set the global default.
+// Registers the tag in the internal registry; on first registration applies default_level.
+// ESP-IDF: also calls esp_log_level_set. Arduino/host: no-op for backend, registry still works.
+void bb_log_level_set(const char *tag, bb_log_level_t level);
+
+// Parse "error"/"warn"/"info"/"debug"/"verbose"/"none" (case-insensitive).
+// Returns false on unknown string. Portable — used by the HTTP handler.
+bool bb_log_level_from_str(const char *s, bb_log_level_t *out);
+
+// Return string representation of a log level: "none", "error", ..., "verbose".
+const char *bb_log_level_to_str(bb_log_level_t level);
+
+// Register a tag as configurable at runtime. Copies `tag` into internal storage.
+// On first registration, also applies `level` via bb_log_level_set.
+// Idempotent: calling twice with the same tag is a no-op (does not re-apply level).
+// Silently dropped if internal registry is full.
+void bb_log_tag_register(const char *tag, bb_log_level_t level);
+
+// Read currently-tracked level for a tag. Returns true if tag is in the registry.
+bool bb_log_tag_level(const char *tag, bb_log_level_t *out);
+
+// Iterate registry entries. Pass index starting at 0; returns false when exhausted.
+// Output pointers remain valid until next bb_log_tag_register / bb_log_level_set.
+bool bb_log_tag_at(size_t index, const char **tag_out, bb_log_level_t *level_out);
+
 /*
  * bb_log_{e,w,i,d,v}(tag, fmt, ...) — platform-abstract logging macros.
  * On ESP-IDF, expand to ESP_LOG{E,W,I,D,V}. On host, expand to
@@ -61,6 +95,13 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
  * log_stream consumers free of the http_server dependency).
  */
 bb_err_t bb_log_stream_register_routes(void *server);
+
+/**
+ * Register POST /api/log/level on server (bb_http_handle_t).
+ * Body (URL-encoded): tag=<tag>&level=<error|warn|info|debug|verbose|none>
+ * 204 on success, 400 on bad request.
+ */
+bb_err_t bb_log_register_routes(void *server);
 
 /**
  * Initialise the ring buffer and install the custom vprintf hook.
