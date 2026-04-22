@@ -63,21 +63,35 @@ typedef bb_err_t (*bb_prov_save_cb_t)(bb_http_request_t *req, const char *body, 
 void bb_prov_set_save_callback(bb_prov_save_cb_t cb);
 
 /**
+ * Optional callback invoked during bb_prov_start to let the consumer register
+ * extra dynamic GET routes (e.g. /api/hardware, /api/pool-test) that the
+ * provisioning UI needs. Called after common routes and before the captive-
+ * portal wildcard, so these routes win first-match.
+ *
+ * Pass NULL when the prov UI only needs the built-in common routes
+ * (/api/version, /api/scan, /api/reboot).
+ */
+typedef bb_err_t (*bb_prov_extra_routes_fn_t)(bb_http_handle_t server);
+
+/**
  * Start HTTP server in provisioning mode.
  *
- * Registers POST /save and a captive-portal wildcard GET. Registers each
- * entry in @p assets as a static GET route via bb_http_register_assets.
+ * Registers (in order): POST /save, consumer assets, common routes
+ * (/api/version, /api/scan, /api/reboot), @p extra consumer routes if
+ * non-NULL, and finally the captive-portal "/*" GET wildcard.
  *
  * Caller MUST supply at least one asset with path="/" — no default form is
  * provided. For bare-minimum bringup, add REQUIRES bb_prov_default_form to
  * your component and pass:
  *   const bb_http_asset_t *a = bb_prov_default_form_get();
- *   bb_prov_start(a, 1);
+ *   bb_prov_start(a, 1, NULL);
  *
  * @param assets  Array of static HTTP assets; must contain a path="/" entry.
  * @param n       Number of entries in @p assets.
+ * @param extra   Optional callback for consumer-specific dynamic routes.
  */
-bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n);
+bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
+                       bb_prov_extra_routes_fn_t extra);
 
 // Stop provisioning mode: unregister POST /save, OPTIONS /*, GET /* captive-portal wildcard,
 // and any assets registered via bb_prov_start. Caller is responsible for registering app

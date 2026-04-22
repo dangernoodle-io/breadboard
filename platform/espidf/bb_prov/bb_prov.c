@@ -302,7 +302,8 @@ void bb_prov_signal_done(void)
     }
 }
 
-bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n)
+bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
+                       bb_prov_extra_routes_fn_t extra)
 {
     // Ensure the shared HTTP server is started (internal helper)
     esp_err_t err = bb_http_server_ensure_started();
@@ -312,8 +313,6 @@ bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n)
     if (!server) return ESP_FAIL;
 
     httpd_uri_t prov_save = { .uri = "/save", .method = HTTP_POST, .handler = prov_save_handler };
-    httpd_uri_t prov_redirect = { .uri = "/*", .method = HTTP_GET, .handler = prov_redirect_handler };
-
     httpd_register_uri_handler((httpd_handle_t)server, &prov_save);
 
     // Register consumer assets (caller MUST supply at least one asset with path="/")
@@ -321,10 +320,27 @@ bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n)
         bb_http_register_assets(server, assets, n);
     }
 
-    // Register captive-portal redirect LAST so specific asset paths win
+    // Register built-in common routes so the prov UI gets /api/version,
+    // /api/scan, /api/reboot without the consumer wiring anything.
+    bb_err_t rc = bb_http_register_common_routes(server);
+    if (rc != BB_OK) return rc;
+
+    // Consumer's dynamic endpoints (e.g. advanced-UI backing routes).
+    if (extra) {
+        rc = extra(server);
+        if (rc != BB_OK) return rc;
+    }
+
+    // Captive-portal wildcard LAST so all specific GETs win first-match.
+    httpd_uri_t prov_redirect = { .uri = "/*", .method = HTTP_GET, .handler = prov_redirect_handler };
     httpd_register_uri_handler((httpd_handle_t)server, &prov_redirect);
 
     bb_log_i(TAG, "provisioning server started on port 80");
+
+    // Prefetch the SSID list so the portal's auto-scan on first page-load
+    // returns a populated array instead of an empty cache.
+    bb_wifi_scan_start_async();
+
     return ESP_OK;
 }
 
