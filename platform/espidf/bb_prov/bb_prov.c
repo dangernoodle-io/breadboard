@@ -175,7 +175,7 @@ static void dns_task(void *arg)
     vTaskDelete(NULL);
 }
 
-esp_err_t bb_prov_start_ap(void)
+bb_err_t bb_prov_start_ap(void)
 {
     // Create provisioning event group if not already created
     if (s_prov_event_group == NULL) {
@@ -302,7 +302,7 @@ void bb_prov_signal_done(void)
     }
 }
 
-esp_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n)
+bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n)
 {
     // Ensure the shared HTTP server is started (internal helper)
     esp_err_t err = bb_http_server_ensure_started();

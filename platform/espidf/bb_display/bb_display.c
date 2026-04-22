@@ -20,7 +20,7 @@ static esp_lcd_panel_handle_t s_panel = NULL;
 static lv_display_t *s_lv_disp = NULL;
 static lv_obj_t *s_screen = NULL;
 
-bb_display_err_t bb_display_init(void)
+bb_err_t bb_display_init(void)
 {
     esp_err_t err = ESP_OK;
 

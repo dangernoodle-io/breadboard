@@ -65,19 +65,19 @@ int bb_ota_pull_parse_release_json(const char *json, const char *board_name,
                                      char *out_url, size_t url_size);
 
 #ifdef ESP_PLATFORM
-#include "esp_err.h"
+#include "bb_nv.h"
 #include "bb_http.h"
 
 /**
  * Register OTA pull HTTP handlers with an existing HTTP server.
  * Adds GET /api/ota/check, POST /api/ota/update, and GET /api/ota/status.
  */
-esp_err_t bb_ota_pull_register_handler(bb_http_handle_t server);
+bb_err_t bb_ota_pull_register_handler(bb_http_handle_t server);
 
 /**
  * Trigger an immediate OTA check (non-blocking).
  * Results can be queried via GET /api/ota/check.
  */
-esp_err_t bb_ota_pull_check_now(void);
+bb_err_t bb_ota_pull_check_now(void);
 
 #endif // ESP_PLATFORM

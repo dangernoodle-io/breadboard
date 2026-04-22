@@ -56,7 +56,7 @@ int bb_wifi_get_retry_count(void)
     return wifi_reconn_is_active() ? wifi_reconn_get_retry_count() : s_retry_count;
 }
 
-esp_err_t bb_wifi_get_ip_str(char *out, size_t out_len)
+bb_err_t bb_wifi_get_ip_str(char *out, size_t out_len)
 {
     if (!s_sta_netif || out_len < 16) {
         if (out && out_len > 0) {
@@ -76,7 +76,7 @@ esp_err_t bb_wifi_get_ip_str(char *out, size_t out_len)
     return ESP_OK;
 }
 
-esp_err_t bb_wifi_get_rssi(int8_t *out)
+bb_err_t bb_wifi_get_rssi(int8_t *out)
 {
     if (!out) {
         return ESP_FAIL;
@@ -97,7 +97,7 @@ bool bb_wifi_has_ip(void)
     return s_has_ip;
 }
 
-esp_err_t bb_wifi_get_info(bb_wifi_info_t *out)
+bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)
 {
     if (!out) return ESP_FAIL;
     memset(out, 0, sizeof(*out));
@@ -194,7 +194,7 @@ void bb_wifi_force_reassociate(void)
     esp_wifi_disconnect();
 }
 
-esp_err_t bb_wifi_ensure_netif(void)
+bb_err_t bb_wifi_ensure_netif(void)
 {
     if (s_netif_initialized) return ESP_OK;
     esp_err_t err = esp_netif_init();
@@ -276,12 +276,12 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     return ESP_OK;
 }
 
-esp_err_t bb_wifi_init(void)
+bb_err_t bb_wifi_init(void)
 {
     return wifi_connect_sta(true);
 }
 
-esp_err_t bb_wifi_init_sta(void)
+bb_err_t bb_wifi_init_sta(void)
 {
     return wifi_connect_sta(false);
 }

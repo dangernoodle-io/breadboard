@@ -77,7 +77,7 @@ static bb_err_t mark_valid_handler(bb_http_request_t *req)
     return bb_http_resp_send(req, ok_body, sizeof(ok_body) - 1);
 }
 
-esp_err_t bb_ota_validator_init(bb_http_handle_t server)
+bb_err_t bb_ota_validator_init(bb_http_handle_t server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
 

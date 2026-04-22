@@ -1,13 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
-
-#ifdef ESP_PLATFORM
-#include "esp_err.h"
-typedef esp_err_t bb_display_err_t;
-#else
-typedef int bb_display_err_t;
-#endif
+#include "bb_nv.h"
 
 /**
  * Initialize the display (EK79007 MIPI-DSI RGB565 panel).
@@ -15,9 +9,9 @@ typedef int bb_display_err_t;
  * initializes panel with built-in vendor commands, sets up backlight GPIO, then
  * initializes LVGL via esp_lvgl_port.
  *
- * @return ESP_OK on success, ESP_ERR_* on failure
+ * @return BB_OK on success, BB_ERR_* on failure
  */
-bb_display_err_t bb_display_init(void);
+bb_err_t bb_display_init(void);
 
 /**
  * Clear display to a solid color derived from an RGB565 value.

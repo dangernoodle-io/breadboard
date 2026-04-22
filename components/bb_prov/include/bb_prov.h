@@ -27,12 +27,12 @@ bb_prov_parse_result_t bb_prov_parse_body(
 // ============================================================================
 
 #ifdef ESP_PLATFORM
-#include "esp_err.h"
+#include "bb_nv.h"
 #include "bb_http.h"
 #include <stdint.h>
 
 // AP mode — for provisioning
-esp_err_t bb_prov_start_ap(void);        // starts AP + captive DNS
+bb_err_t bb_prov_start_ap(void);        // starts AP + captive DNS
 void bb_prov_stop_ap(void);              // stops AP + DNS, deinits wifi
 void bb_prov_get_ap_ssid(char *buf, size_t len);  // get AP SSID
 
@@ -77,7 +77,7 @@ void bb_prov_set_save_callback(bb_prov_save_cb_t cb);
  * @param assets  Array of static HTTP assets; must contain a path="/" entry.
  * @param n       Number of entries in @p assets.
  */
-esp_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n);
+bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n);
 
 // Stop provisioning mode: unregister POST /save, OPTIONS /*, GET /* captive-portal wildcard,
 // and any assets registered via bb_prov_start. Caller is responsible for registering app

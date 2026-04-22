@@ -70,7 +70,7 @@ static int s_log_vprintf(const char *fmt, va_list args)
     return result;
 }
 
-esp_err_t bb_log_stream_init(void)
+bb_err_t bb_log_stream_init(void)
 {
     s_rb = xRingbufferCreateStatic(LOG_STREAM_BUF_BYTES, RINGBUF_TYPE_NOSPLIT,
                                     s_rb_storage, &s_rb_static);

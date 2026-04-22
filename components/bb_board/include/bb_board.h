@@ -34,12 +34,11 @@ typedef struct {
 bb_err_t bb_board_get_info(bb_board_info_t *out);
 
 #ifdef ESP_PLATFORM
-#include "esp_err.h"
 
 // Register GET /api/board returning bb_board_get_info() as JSON.
 // server is bb_http_handle_t (declared as void* to avoid pulling
 // http_server.h into bb_board consumers).
-esp_err_t bb_board_register_routes(void *server);
+bb_err_t bb_board_register_routes(void *server);
 
 #endif
 
