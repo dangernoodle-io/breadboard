@@ -237,6 +237,10 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
                 content_length = esp_http_client_fetch_headers(client);
                 status = esp_http_client_get_status_code(client);
                 if (status == 200) {
+                    if (attempt > 0) {
+                        bb_log_i(TAG, "http open succeeded on attempt %d/%d",
+                                 attempt + 1, max_attempts);
+                    }
                     break;
                 }
                 bb_log_w(TAG, "http open attempt %d/%d: GitHub API returned %d",
@@ -369,7 +373,13 @@ static void ota_worker_task(void *arg)
         err = esp_https_ota_begin(&ota_config, &ota_handle);
         if (err == ESP_OK) {
             err = esp_https_ota_get_img_desc(ota_handle, &img_desc);
-            if (err == ESP_OK) break;
+            if (err == ESP_OK) {
+                if (attempt > 0) {
+                    bb_log_i(TAG, "OTA handshake succeeded on attempt %d/%d",
+                             attempt + 1, max_attempts);
+                }
+                break;
+            }
             bb_log_w(TAG, "ota_get_img_desc attempt %d/%d failed: %s",
                      attempt + 1, max_attempts, esp_err_to_name(err));
             esp_https_ota_abort(ota_handle);
