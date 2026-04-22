@@ -162,6 +162,7 @@ static bb_err_t dispatch_request(bb_http_request_impl_t *req_impl)
             strcmp(g_routes[i].path, req_impl->path) == 0) {
             return g_routes[i].handler((bb_http_request_t *)req_impl);
         }
+        // PATCH, PUT, DELETE, OPTIONS not supported on Arduino MVP
     }
 
     // No route found → 404
@@ -342,6 +343,16 @@ bb_err_t bb_http_resp_send(bb_http_request_t *req, const char *body, size_t len)
         resp_append(r, body, len);
     }
 
+    return BB_OK;
+}
+
+bb_err_t bb_http_resp_send_err(bb_http_request_t *req, int status_code, const char *message)
+{
+    bb_http_request_impl_t *r = (bb_http_request_impl_t *)req;
+    if (!r) return BB_ERR_INVALID_ARG;
+
+    bb_http_resp_set_status(req, status_code);
+    bb_http_resp_send(req, message, message ? strlen(message) : 0);
     return BB_OK;
 }
 

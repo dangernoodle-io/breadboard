@@ -31,11 +31,6 @@ bb_prov_parse_result_t bb_prov_parse_body(
 #include "bb_http.h"
 #include <stdint.h>
 
-// Forward declaration so consumers don't need esp_http_server.h transitively.
-// ESP-IDF defines this as `typedef struct httpd_req httpd_req_t` in esp_http_server.h;
-// consumers implementing bb_prov_save_cb_t will include that header themselves.
-typedef struct httpd_req httpd_req_t;
-
 // AP mode — for provisioning
 esp_err_t bb_prov_start_ap(void);        // starts AP + captive DNS
 void bb_prov_stop_ap(void);              // stops AP + DNS, deinits wifi
@@ -64,7 +59,7 @@ void bb_prov_signal_done(void);
 // Optional /save callback. Invoked after bb_prov parses+saves wifi creds.
 // Consumer parses any additional form fields from body and writes the HTTP response.
 // If not set, bb_prov sends 204 No Content. bb_prov_signal_done() is called after.
-typedef esp_err_t (*bb_prov_save_cb_t)(httpd_req_t *req, const char *body, int len);
+typedef bb_err_t (*bb_prov_save_cb_t)(bb_http_request_t *req, const char *body, int len);
 void bb_prov_set_save_callback(bb_prov_save_cb_t cb);
 
 /**

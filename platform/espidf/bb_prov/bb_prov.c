@@ -77,8 +77,8 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
     }
 
     if (s_save_cb) {
-        esp_err_t cb_err = s_save_cb(req, body, len);
-        if (cb_err != ESP_OK) return cb_err;
+        bb_err_t cb_err = s_save_cb((bb_http_request_t *)req, body, len);
+        if (cb_err != BB_OK) return ESP_FAIL;
     } else {
         httpd_resp_set_status(req, "204 No Content");
         httpd_resp_send(req, NULL, 0);

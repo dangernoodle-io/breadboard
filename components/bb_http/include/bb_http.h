@@ -26,6 +26,10 @@ typedef void *bb_http_request_t;
 typedef enum {
     BB_HTTP_GET,
     BB_HTTP_POST,
+    BB_HTTP_PATCH,
+    BB_HTTP_PUT,
+    BB_HTTP_DELETE,
+    BB_HTTP_OPTIONS,
 } bb_http_method_t;
 
 // Route handler — portable signature. Return BB_OK on success.
@@ -42,9 +46,18 @@ bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code);
 bb_err_t bb_http_resp_set_header(bb_http_request_t *req, const char *key, const char *value);
 bb_err_t bb_http_resp_send(bb_http_request_t *req, const char *body, size_t len);
 
+// Send an HTTP error response (status + plain-text message). Convenience for handlers.
+bb_err_t bb_http_resp_send_err(bb_http_request_t *req, int status_code, const char *message);
+
 // Request accessors — MVP: read the body as a single buffer.
 int bb_http_req_body_len(bb_http_request_t *req);
 int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size);
+
+// CORS preflight configuration. Must be called before bb_http_server_start().
+// Defaults: methods = "GET, POST, OPTIONS", headers = "Content-Type".
+// Passing NULL restores the default. Strings must remain valid for server lifetime.
+void bb_http_set_cors_methods(const char *methods);
+void bb_http_set_cors_headers(const char *headers);
 
 // Lifecycle — portable on all platforms
 // Start the HTTP server. After return, use bb_http_server_get_handle() and call
@@ -88,18 +101,9 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
 void bb_system_get_version(char *out, size_t out_size);
 void bb_system_reboot(void);
 
-// ============================================================================
-// ESP-IDF-SPECIFIC API — low-level helpers
-// ============================================================================
-
-#ifdef ESP_PLATFORM
-#include "esp_err.h"
-
 // Ensure the HTTP server is started (low-level helper; prefer bb_http_server_start).
-// Used by provisioning and other advanced features.
-esp_err_t bb_http_server_ensure_started(void);
-
-#endif
+// Used by provisioning and other advanced features. Idempotent.
+bb_err_t bb_http_server_ensure_started(void);
 
 #ifdef __cplusplus
 }
