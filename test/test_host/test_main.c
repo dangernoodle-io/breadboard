@@ -1,4 +1,5 @@
 #include "unity.h"
+#include "../../components/bb_log/src/bb_log_internal.h"
 
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
@@ -7,6 +8,35 @@ void test_bb_log_info(void);
 void test_bb_log_debug(void);
 void test_bb_log_verbose(void);
 void test_bb_log_zero_args(void);
+void test_bb_log_level_from_str_error(void);
+void test_bb_log_level_from_str_warn(void);
+void test_bb_log_level_from_str_info(void);
+void test_bb_log_level_from_str_debug(void);
+void test_bb_log_level_from_str_verbose(void);
+void test_bb_log_level_from_str_none(void);
+void test_bb_log_level_from_str_case_insensitive(void);
+void test_bb_log_level_from_str_invalid(void);
+void test_bb_log_level_from_str_null(void);
+void test_bb_log_level_set_noop(void);
+void test_bb_log_tag_register_and_level(void);
+void test_bb_log_tag_register_idempotent(void);
+void test_bb_log_level_set_registers_tag(void);
+void test_bb_log_level_set_updates_existing_tag(void);
+void test_bb_log_tag_level_not_found(void);
+void test_bb_log_tag_at_iteration(void);
+void test_bb_log_level_to_str_none(void);
+void test_bb_log_level_to_str_error(void);
+void test_bb_log_level_to_str_warn(void);
+void test_bb_log_level_to_str_info(void);
+void test_bb_log_level_to_str_debug(void);
+void test_bb_log_level_to_str_verbose(void);
+void test_bb_log_level_to_str_unknown(void);
+void test_bb_log_level_from_str_long_input(void);
+void test_bb_log_level_set_null_tag(void);
+void test_bb_log_tag_register_null_tag(void);
+void test_bb_log_tag_level_null_args(void);
+void test_bb_log_tag_at_null_args(void);
+void test_bb_log_registry_full(void);
 
 // Forward declarations from test_log_stream.c
 void test_log_stream_format_basic(void);
@@ -135,7 +165,9 @@ void test_multiple_assets_different_types(void);
 void test_asset_encoding_variations(void);
 void test_zero_length_asset(void);
 
-void setUp(void) {}
+void setUp(void) {
+    _bb_log_registry_reset();
+}
 void tearDown(void) {}
 
 int main(void) {
@@ -148,6 +180,39 @@ int main(void) {
     RUN_TEST(test_bb_log_debug);
     RUN_TEST(test_bb_log_verbose);
     RUN_TEST(test_bb_log_zero_args);
+
+    // bb_log level conversion tests
+    RUN_TEST(test_bb_log_level_from_str_error);
+    RUN_TEST(test_bb_log_level_from_str_warn);
+    RUN_TEST(test_bb_log_level_from_str_info);
+    RUN_TEST(test_bb_log_level_from_str_debug);
+    RUN_TEST(test_bb_log_level_from_str_verbose);
+    RUN_TEST(test_bb_log_level_from_str_none);
+    RUN_TEST(test_bb_log_level_from_str_case_insensitive);
+    RUN_TEST(test_bb_log_level_from_str_invalid);
+    RUN_TEST(test_bb_log_level_from_str_null);
+    RUN_TEST(test_bb_log_level_set_noop);
+    RUN_TEST(test_bb_log_level_to_str_none);
+    RUN_TEST(test_bb_log_level_to_str_error);
+    RUN_TEST(test_bb_log_level_to_str_warn);
+    RUN_TEST(test_bb_log_level_to_str_info);
+    RUN_TEST(test_bb_log_level_to_str_debug);
+    RUN_TEST(test_bb_log_level_to_str_verbose);
+    RUN_TEST(test_bb_log_level_to_str_unknown);
+    RUN_TEST(test_bb_log_level_from_str_long_input);
+    RUN_TEST(test_bb_log_level_set_null_tag);
+    RUN_TEST(test_bb_log_tag_register_null_tag);
+    RUN_TEST(test_bb_log_tag_level_null_args);
+    RUN_TEST(test_bb_log_tag_at_null_args);
+
+    // bb_log registry tests
+    RUN_TEST(test_bb_log_tag_register_and_level);
+    RUN_TEST(test_bb_log_tag_register_idempotent);
+    RUN_TEST(test_bb_log_level_set_registers_tag);
+    RUN_TEST(test_bb_log_level_set_updates_existing_tag);
+    RUN_TEST(test_bb_log_tag_level_not_found);
+    RUN_TEST(test_bb_log_tag_at_iteration);
+    RUN_TEST(test_bb_log_registry_full);
 
     // Log stream tests
     RUN_TEST(test_log_stream_format_basic);
