@@ -11,12 +11,12 @@
 #include "esp_ota_ops.h"
 #include "esp_system.h"
 
+// FIRMWARE_BOARD must be supplied by the consumer as a C string literal,
+// e.g. add_compile_definitions(FIRMWARE_BOARD="bitaxe-601"). Don't re-stringify
+// it — downstream CMake typically injects the quotes already.
 #ifndef FIRMWARE_BOARD
 #define FIRMWARE_BOARD ""
 #endif
-
-#define XSTR(x) #x
-#define STR(x) XSTR(x)
 
 static const char *chip_model_str(esp_chip_model_t m)
 {
@@ -51,7 +51,7 @@ bb_err_t bb_board_get_info(bb_board_info_t *out)
     if (!out) return BB_ERR_INVALID_ARG;
     memset(out, 0, sizeof(*out));
 
-    strncpy(out->board, STR(FIRMWARE_BOARD), sizeof(out->board) - 1);
+    strncpy(out->board, FIRMWARE_BOARD, sizeof(out->board) - 1);
 
     const esp_app_desc_t *app = esp_app_get_description();
     if (app) {
