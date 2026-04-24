@@ -1,11 +1,13 @@
 #include "bb_http.h"
 #include "bb_wifi.h"
 
+#include <inttypes.h>
 #include <string.h>
 #include <stdio.h>
 
 #ifdef ESP_PLATFORM
 #include "cJSON.h"
+#include "esp_timer.h"
 #endif
 
 static bb_err_t version_handler(bb_http_request_t *req)
@@ -24,6 +26,20 @@ static bb_err_t reboot_handler(bb_http_request_t *req)
     bb_err_t rc = bb_http_resp_send(req, body, sizeof(body) - 1);
     bb_system_reboot();
     return rc;
+}
+
+static bb_err_t ping_handler(bb_http_request_t *req)
+{
+    char body[32];
+#ifdef ESP_PLATFORM
+    uint32_t uptime_s = (uint32_t)(esp_timer_get_time() / 1000000ULL);
+#else
+    uint32_t uptime_s = 0;  /* host/arduino: stub — no uptime source */
+#endif
+    int n = snprintf(body, sizeof(body), "ok %" PRIu32, uptime_s);
+    if (n < 0 || (size_t)n >= sizeof(body)) n = 2;  /* safe fallback to "ok" */
+    bb_http_resp_set_header(req, "Content-Type", "text/plain");
+    return bb_http_resp_send(req, body, (size_t)n);
 }
 
 #ifdef ESP_PLATFORM
@@ -58,6 +74,8 @@ bb_err_t bb_http_register_common_routes(bb_http_handle_t server)
 
     bb_err_t rc;
     rc = bb_http_register_route(server, BB_HTTP_GET, "/api/version", version_handler);
+    if (rc != BB_OK) return rc;
+    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/ping", ping_handler);
     if (rc != BB_OK) return rc;
     rc = bb_http_register_route(server, BB_HTTP_POST, "/api/reboot", reboot_handler);
     if (rc != BB_OK) return rc;
