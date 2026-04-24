@@ -33,6 +33,10 @@ static char s_firmware_board[64] = "";
 #include "freertos/task.h"
 #include "freertos/portmacro.h"
 
+#ifdef CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#endif
+
 static const char *TAG = "bb_ota_pull";
 
 #define OTA_TASK_STACK 16384
@@ -42,6 +46,11 @@ static const char *TAG = "bb_ota_pull";
 #define API_BUF_MAX    16384
 
 static volatile bool s_ota_in_progress = false;
+static int s_ota_task_core = 1;  // default: Core 1 (bitaxe-friendly, frees Core 0 for httpd/stratum)
+
+#ifdef CONFIG_PM_ENABLE
+static esp_pm_lock_handle_t s_ota_pm_lock = NULL;
+#endif
 
 typedef enum {
     OTA_STATE_IDLE,
@@ -75,6 +84,27 @@ static ota_status_t s_ota_status = {
 
 // Spinlock protecting s_ota_status from concurrent access on dual-core ESP32-S3
 static portMUX_TYPE s_ota_status_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static void ota_pm_lock_acquire(void)
+{
+#ifdef CONFIG_PM_ENABLE
+    if (!s_ota_pm_lock) {
+        esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "bb_ota_pull", &s_ota_pm_lock);
+    }
+    if (s_ota_pm_lock) {
+        esp_pm_lock_acquire(s_ota_pm_lock);
+    }
+#endif
+}
+
+static void ota_pm_lock_release(void)
+{
+#ifdef CONFIG_PM_ENABLE
+    if (s_ota_pm_lock) {
+        esp_pm_lock_release(s_ota_pm_lock);
+    }
+#endif
+}
 
 static void ota_set_error(const char *fmt, ...)
 {
@@ -350,6 +380,11 @@ static void ota_worker_task(void *arg)
         }
     }
 
+    // Acquire PM lock to prevent DVFS during flash operations.
+    // This avoids the race between esp_cpu_unstall and get_rtc_dbias_by_efuse
+    // observed on boards with live idle tasks on the other core.
+    ota_pm_lock_acquire();
+
     bb_log_i(TAG, "ota worker on core %d", xPortGetCoreID());
     bb_log_i(TAG, "starting OTA update from %s", result.asset_url);
     taskENTER_CRITICAL(&s_ota_status_mux);
@@ -502,6 +537,7 @@ static void ota_worker_task(void *arg)
     ota_set_error("esp_https_ota_finish: %s", esp_err_to_name(err));
 
 resume_and_exit:
+    ota_pm_lock_release();
     s_ota_in_progress = false;
     if (paused && s_resume_cb) {
         s_resume_cb();
@@ -523,8 +559,14 @@ static void ota_check_worker_task(void *arg)
         paused = s_pause_cb();
     }
 
+    // Acquire PM lock to prevent DVFS during HTTP/TLS operations
+    ota_pm_lock_acquire();
+
     ota_pull_check_result_t result = {0};
     esp_err_t err = ota_pull_check(&result);
+
+    // Release PM lock after the check is complete
+    ota_pm_lock_release();
 
     bool ok = (err == ESP_OK);
     taskENTER_CRITICAL(&s_ota_status_mux);
@@ -629,7 +671,7 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
             NULL,
             OTA_CHECK_PRIO,
             NULL,
-            1
+            s_ota_task_core
         );
 
         if (task_result != pdPASS) {
@@ -714,7 +756,7 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
         task_arg,
         OTA_TASK_PRIO,
         &task_handle,
-        1
+        s_ota_task_core
     );
 
     if (task_result != pdPASS) {
@@ -866,7 +908,7 @@ bb_err_t bb_ota_pull_check_now(void)
         NULL,
         OTA_CHECK_PRIO,
         NULL,
-        1
+        s_ota_task_core
     );
 
     if (task_result != pdPASS) {
@@ -877,6 +919,11 @@ bb_err_t bb_ota_pull_check_now(void)
     }
 
     return ESP_OK;
+}
+
+void bb_ota_pull_set_task_core(int core)
+{
+    s_ota_task_core = core;
 }
 
 #endif // ESP_PLATFORM
