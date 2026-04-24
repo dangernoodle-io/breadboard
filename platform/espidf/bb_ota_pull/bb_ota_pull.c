@@ -20,6 +20,7 @@ static char s_firmware_board[64] = "";
 
 #ifdef ESP_PLATFORM
 #include "bb_log.h"
+#include "bb_wifi.h"
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
 #include "esp_http_server.h"
@@ -329,8 +330,27 @@ static void ota_worker_task(void *arg)
     bool paused = false;
     if (s_pause_cb) {
         paused = s_pause_cb();
+        if (!paused) {
+            bb_log_e(TAG, "mining pause failed — aborting OTA to avoid tls contention");
+            ota_set_error("mining pause failed");
+            s_ota_in_progress = false;
+            vTaskDelete(NULL);
+            return;
+        }
     }
 
+    // WiFi IP pre-flight — catches OTA attempts fired during reconnect
+    // (stale DNS cache, no bound IP). One short retry then bail.
+    if (!bb_wifi_has_ip()) {
+        bb_log_w(TAG, "wifi has no IP — deferring OTA 2s and retrying");
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        if (!bb_wifi_has_ip()) {
+            ota_set_error("wifi not ready");
+            goto resume_and_exit;
+        }
+    }
+
+    bb_log_i(TAG, "ota worker on core %d", xPortGetCoreID());
     bb_log_i(TAG, "starting OTA update from %s", result.asset_url);
     taskENTER_CRITICAL(&s_ota_status_mux);
     s_ota_status.state = OTA_STATE_DOWNLOADING;
@@ -368,7 +388,7 @@ static void ota_worker_task(void *arg)
     esp_err_t err = ESP_FAIL;
     esp_app_desc_t img_desc;
     const int max_attempts = 3;
-    const int backoff_ms[] = {2000, 4000};
+    const int backoff_ms[] = {5000, 15000, 30000};
     for (int attempt = 0; attempt < max_attempts; attempt++) {
         err = esp_https_ota_begin(&ota_config, &ota_handle);
         if (err == ESP_OK) {
@@ -495,6 +515,8 @@ resume_and_exit:
  */
 static void ota_check_worker_task(void *arg)
 {
+    bb_log_i(TAG, "ota check worker on core %d", xPortGetCoreID());
+
     // Cooperatively pause work to free memory for TLS handshake
     bool paused = false;
     if (s_pause_cb) {
@@ -600,13 +622,14 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
         s_check_in_progress = true;
         taskEXIT_CRITICAL(&s_ota_status_mux);
 
-        BaseType_t task_result = xTaskCreate(
+        BaseType_t task_result = xTaskCreatePinnedToCore(
             ota_check_worker_task,
             "ota_chk",
             OTA_CHECK_STACK,
             NULL,
             OTA_CHECK_PRIO,
-            NULL
+            NULL,
+            1
         );
 
         if (task_result != pdPASS) {
@@ -684,13 +707,14 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
     taskEXIT_CRITICAL(&s_ota_status_mux);
 
     TaskHandle_t task_handle = NULL;
-    BaseType_t task_result = xTaskCreate(
+    BaseType_t task_result = xTaskCreatePinnedToCore(
         ota_worker_task,
         "ota_pull",
         OTA_TASK_STACK,
         task_arg,
         OTA_TASK_PRIO,
-        &task_handle
+        &task_handle,
+        1
     );
 
     if (task_result != pdPASS) {
@@ -835,13 +859,14 @@ bb_err_t bb_ota_pull_check_now(void)
         return ESP_ERR_INVALID_STATE;  // Already checking
     }
 
-    BaseType_t task_result = xTaskCreate(
+    BaseType_t task_result = xTaskCreatePinnedToCore(
         ota_check_worker_task,
         "ota_chk",
         OTA_CHECK_STACK,
         NULL,
         OTA_CHECK_PRIO,
-        NULL
+        NULL,
+        1
     );
 
     if (task_result != pdPASS) {
