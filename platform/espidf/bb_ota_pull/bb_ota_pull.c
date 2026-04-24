@@ -504,10 +504,6 @@ static void ota_check_worker_task(void *arg)
     ota_pull_check_result_t result = {0};
     esp_err_t err = ota_pull_check(&result);
 
-    if (paused && s_resume_cb) {
-        s_resume_cb();
-    }
-
     bool ok = (err == ESP_OK);
     taskENTER_CRITICAL(&s_ota_status_mux);
     if (ok) {
@@ -525,6 +521,12 @@ static void ota_check_worker_task(void *arg)
         bb_log_i(TAG, "background check completed");
     } else {
         bb_log_e(TAG, "background check failed");
+    }
+
+    // Resume mining after the "completed" log so the serial output reads in
+    // the order operators expect (paused → result → completed → resumed).
+    if (paused && s_resume_cb) {
+        s_resume_cb();
     }
 
     vTaskDelete(NULL);
