@@ -23,6 +23,11 @@ void bb_mdns_set_instance_name(const char *instance_name);
 // Check if mDNS has been started.
 bool bb_mdns_started(void);
 
+// Update a single TXT record on the registered service. Safe to call after
+// init; no-op if mdns isn't started. Use for fields that change post-init
+// (version after OTA, worker name after settings change, etc.).
+void bb_mdns_set_txt(const char *key, const char *value);
+
 #endif /* ESP_PLATFORM */
 
 // Sanitize and build RFC 1035-compliant hostname label: lowercase [a-z0-9], collapse/trim dashes, cap at 63 chars.
