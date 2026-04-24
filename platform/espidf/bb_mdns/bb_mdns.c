@@ -43,8 +43,12 @@ static void mdns_build_instance_name(char *out, size_t out_size)
     const char *base = s_mdns_instance_name_set ? s_mdns_instance_name : "BSP Device";
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    snprintf(out, out_size, "%s-%02x%02x", base, mac[4], mac[5]);
-    out[out_size - 1] = '\0';
+
+    /* Cap base at (out_size - 6) to leave room for "-xxxx\0".
+       Without this, gcc's -Wformat-truncation proves the 64-byte
+       s_mdns_instance_name could overflow a 64-byte out buffer. */
+    const int base_max = (out_size > 6) ? (int)(out_size - 6) : 0;
+    snprintf(out, out_size, "%.*s-%02x%02x", base_max, base, mac[4], mac[5]);
 }
 
 static void bb_mdns_start_internal(void)
