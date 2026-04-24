@@ -29,6 +29,9 @@ static volatile bool s_has_ip = false;
 // Got-IP callback
 static bb_wifi_on_got_ip_cb_t s_on_got_ip_cb = NULL;
 
+// Disconnect callback
+static bb_wifi_on_disconnect_cb_t s_on_disconnect_cb = NULL;
+
 // WiFi scan cache
 static bb_wifi_ap_t s_cached_scan[WIFI_SCAN_MAX];
 static int s_cached_scan_count = 0;
@@ -127,6 +130,11 @@ void bb_wifi_register_on_got_ip(bb_wifi_on_got_ip_cb_t cb)
     s_on_got_ip_cb = cb;
 }
 
+void bb_wifi_register_on_disconnect(bb_wifi_on_disconnect_cb_t cb)
+{
+    s_on_disconnect_cb = cb;
+}
+
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data)
 {
@@ -135,6 +143,10 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *disc = (wifi_event_sta_disconnected_t *)event_data;
         s_has_ip = false;
+
+        if (s_on_disconnect_cb) {
+            s_on_disconnect_cb();
+        }
 
         if (wifi_reconn_is_active()) {
             // Post-boot: manager task owns retry policy

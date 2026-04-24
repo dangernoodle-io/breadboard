@@ -56,6 +56,10 @@ void bb_wifi_force_reassociate(void);
 typedef void (*bb_wifi_on_got_ip_cb_t)(void);
 void bb_wifi_register_on_got_ip(bb_wifi_on_got_ip_cb_t cb);
 
+// Disconnect callback registration
+typedef void (*bb_wifi_on_disconnect_cb_t)(void);
+void bb_wifi_register_on_disconnect(bb_wifi_on_disconnect_cb_t cb);
+
 // Diagnostic getters — lock-free reads from interrupt-safe statics
 void bb_wifi_get_disconnect(uint8_t *reason, int64_t *age_us);
 int bb_wifi_get_retry_count(void);

@@ -3,6 +3,9 @@
 #include "mdns.h"
 #include "esp_app_desc.h"
 #include "esp_mac.h"
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "bb_hw.h"
 #include "bb_log.h"
 #include <string.h>
@@ -35,6 +38,15 @@ static void mdns_build_hostname(char *out, size_t out_size)
     out[63] = '\0';
 }
 
+static void mdns_build_instance_name(char *out, size_t out_size)
+{
+    const char *base = s_mdns_instance_name_set ? s_mdns_instance_name : "BSP Device";
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    snprintf(out, out_size, "%s-%02x%02x", base, mac[4], mac[5]);
+    out[out_size - 1] = '\0';
+}
+
 static void bb_mdns_start_internal(void)
 {
     if (s_mdns_started) {
@@ -55,7 +67,8 @@ static void bb_mdns_start_internal(void)
         bb_log_e(TAG, "mdns_hostname_set failed: %s", esp_err_to_name(err));
         return;
     }
-    const char *instance_name = s_mdns_instance_name_set ? s_mdns_instance_name : "BSP Device";
+    char instance_name[64];
+    mdns_build_instance_name(instance_name, sizeof(instance_name));
     err = mdns_instance_name_set(instance_name);
     if (err != ESP_OK) {
         bb_log_e(TAG, "mdns_instance_name_set failed: %s", esp_err_to_name(err));
@@ -92,15 +105,36 @@ static void bb_mdns_on_got_ip(void)
 {
     bb_mdns_start_internal();
     if (s_mdns_started) {
-        const char *instance_name = s_mdns_instance_name_set ? s_mdns_instance_name : "BSP Device";
+        char instance_name[64];
+        mdns_build_instance_name(instance_name, sizeof(instance_name));
         mdns_instance_name_set(instance_name);
     }
+}
+
+static void bb_mdns_on_disconnect(void)
+{
+    if (!s_mdns_started) return;
+    bb_log_i(TAG, "wifi disconnected — tearing down mdns");
+    mdns_service_remove_all();
+    mdns_free();
+    s_mdns_started = false;
+}
+
+static void bb_mdns_shutdown(void)
+{
+    if (!s_mdns_started) return;
+    mdns_service_remove_all();
+    // Give the mdns task time to emit bye packets before reboot
+    vTaskDelay(pdMS_TO_TICKS(100));
+    mdns_free();
 }
 
 void bb_mdns_init(void)
 {
     // Register callback with bb_wifi
     bb_wifi_register_on_got_ip(bb_mdns_on_got_ip);
+    bb_wifi_register_on_disconnect(bb_mdns_on_disconnect);
+    esp_register_shutdown_handler(bb_mdns_shutdown);
 }
 
 void bb_mdns_set_hostname(const char *hostname)
@@ -142,4 +176,15 @@ void bb_mdns_set_instance_name(const char *instance_name)
 bool bb_mdns_started(void)
 {
     return s_mdns_started;
+}
+
+void bb_mdns_set_txt(const char *key, const char *value)
+{
+    if (!s_mdns_started || !key || !value) return;
+    const char *service_type = s_mdns_service_type_set ? s_mdns_service_type : "_bsp";
+    esp_err_t err = mdns_service_txt_item_set(service_type, "_tcp", key, value);
+    if (err != ESP_OK) {
+        bb_log_w(TAG, "mdns_service_txt_item_set(%s=%s) failed: %s",
+                 key, value, esp_err_to_name(err));
+    }
 }
