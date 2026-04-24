@@ -80,4 +80,13 @@ bb_err_t bb_ota_pull_register_handler(bb_http_handle_t server);
  */
 bb_err_t bb_ota_pull_check_now(void);
 
+/**
+ * Configure which FreeRTOS core the OTA worker tasks run on.
+ * Default: 1. Pass tskNO_AFFINITY (-1) to let FreeRTOS schedule.
+ * Some boards (e.g. tdongle-s3 without ASIC offload) hit an esp-idf DVFS race
+ * when the OTA flash-write stalls the other core; set to 0 or tskNO_AFFINITY
+ * on those boards.
+ */
+void bb_ota_pull_set_task_core(int core);
+
 #endif // ESP_PLATFORM
