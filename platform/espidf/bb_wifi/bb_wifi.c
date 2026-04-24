@@ -37,6 +37,24 @@ static bb_wifi_ap_t s_cached_scan[WIFI_SCAN_MAX];
 static int s_cached_scan_count = 0;
 static volatile bool s_scan_in_progress = false;
 
+// Cached AP info — updated on STA_CONNECTED event and by periodic refresh timer.
+// bb_wifi_get_info reads this instead of calling esp_wifi_sta_get_ap_info (which
+// takes the WiFi driver mutex and blocks when the driver is busy).
+static char s_cached_ssid[33] = {0};
+static uint8_t s_cached_bssid[6] = {0};
+static int8_t s_cached_rssi = 0;
+static esp_timer_handle_t s_rssi_refresh_timer = NULL;
+
+static void rssi_refresh_cb(void *arg)
+{
+    (void)arg;
+    if (!s_has_ip) return;
+    wifi_ap_record_t info;
+    if (esp_wifi_sta_get_ap_info(&info) == ESP_OK) {
+        s_cached_rssi = info.rssi;
+    }
+}
+
 static void reconnect_timer_cb(void *arg)
 {
     (void)arg;
@@ -81,17 +99,8 @@ bb_err_t bb_wifi_get_ip_str(char *out, size_t out_len)
 
 bb_err_t bb_wifi_get_rssi(int8_t *out)
 {
-    if (!out) {
-        return ESP_FAIL;
-    }
-
-    wifi_ap_record_t info;
-    esp_err_t err = esp_wifi_sta_get_ap_info(&info);
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    *out = info.rssi;
+    if (!out) return ESP_FAIL;
+    *out = s_cached_rssi;
     return ESP_OK;
 }
 
@@ -105,13 +114,10 @@ bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)
     if (!out) return ESP_FAIL;
     memset(out, 0, sizeof(*out));
 
-    wifi_ap_record_t ap;
-    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
-        strncpy(out->ssid, (const char *)ap.ssid, sizeof(out->ssid) - 1);
-        out->ssid[sizeof(out->ssid) - 1] = '\0';
-        memcpy(out->bssid, ap.bssid, sizeof(out->bssid));
-        out->rssi = ap.rssi;
-    }
+    strncpy(out->ssid, s_cached_ssid, sizeof(out->ssid) - 1);
+    out->ssid[sizeof(out->ssid) - 1] = '\0';
+    memcpy(out->bssid, s_cached_bssid, sizeof(out->bssid));
+    out->rssi = s_cached_rssi;
 
     snprintf(out->ip, sizeof(out->ip), "0.0.0.0");
     bb_wifi_get_ip_str(out->ip, sizeof(out->ip));
@@ -140,6 +146,14 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_CONNECTED) {
+        const wifi_event_sta_connected_t *e = (const wifi_event_sta_connected_t *)event_data;
+        if (e) {
+            size_t n = e->ssid_len < sizeof(s_cached_ssid) - 1 ? e->ssid_len : sizeof(s_cached_ssid) - 1;
+            memcpy(s_cached_ssid, e->ssid, n);
+            s_cached_ssid[n] = '\0';
+            memcpy(s_cached_bssid, e->bssid, sizeof(s_cached_bssid));
+        }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *disc = (wifi_event_sta_disconnected_t *)event_data;
         s_has_ip = false;
@@ -246,6 +260,19 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+
+    // Initialize RSSI refresh timer
+    if (!s_rssi_refresh_timer) {
+        const esp_timer_create_args_t args = {
+            .callback = rssi_refresh_cb,
+            .name = "bb_wifi_rssi",
+        };
+        esp_timer_create(&args, &s_rssi_refresh_timer);
+    }
+    if (s_rssi_refresh_timer) {
+        esp_timer_stop(s_rssi_refresh_timer);
+        esp_timer_start_periodic(s_rssi_refresh_timer, 5 * 1000 * 1000);  // 5s
+    }
 
     bb_log_i(TAG, "connecting to %s", bb_nv_config_wifi_ssid());
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
