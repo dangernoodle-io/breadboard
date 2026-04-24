@@ -9,6 +9,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 #include "freertos/task.h"
 
 static const char *TAG = "bb_log_routes";
@@ -16,6 +17,9 @@ static const char *TAG = "bb_log_routes";
 static volatile TaskHandle_t s_sse_task_handle = NULL;
 static volatile int s_sse_client_type = 0;  // 0=none, 1=browser, 2=external
 static volatile bool s_sse_stop = false;
+
+#define SSE_EXITED_BIT  (1 << 0)
+static EventGroupHandle_t s_sse_exit_eg = NULL;
 
 static void sse_task(void *arg)
 {
@@ -49,6 +53,7 @@ static void sse_task(void *arg)
     httpd_req_async_handler_complete(req);
     s_sse_task_handle = NULL;
     s_sse_client_type = 0;
+    if (s_sse_exit_eg) xEventGroupSetBits(s_sse_exit_eg, SSE_EXITED_BIT);
     vTaskDelete(NULL);
 }
 
@@ -71,9 +76,22 @@ static esp_err_t logs_handler(httpd_req_t *req)
     }
 
     if (s_sse_task_handle) {
+        if (!s_sse_exit_eg) {
+            s_sse_exit_eg = xEventGroupCreate();
+            if (!s_sse_exit_eg) {
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "event group alloc failed");
+                return ESP_FAIL;
+            }
+        }
+        xEventGroupClearBits(s_sse_exit_eg, SSE_EXITED_BIT);
         s_sse_stop = true;
-        for (int i = 0; i < 10 && s_sse_task_handle; i++)
-            vTaskDelay(pdMS_TO_TICKS(100));
+        EventBits_t bits = xEventGroupWaitBits(s_sse_exit_eg, SSE_EXITED_BIT,
+                                               pdTRUE, pdFALSE, pdMS_TO_TICKS(200));
+        if ((bits & SSE_EXITED_BIT) == 0) {
+            httpd_resp_set_status(req, "503 Service Unavailable");
+            httpd_resp_sendstr(req, "Log stream busy — retry in a moment");
+            return ESP_OK;
+        }
     }
     s_sse_stop = false;
 
