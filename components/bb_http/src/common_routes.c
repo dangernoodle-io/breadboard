@@ -6,7 +6,7 @@
 #include <stdio.h>
 
 #ifdef ESP_PLATFORM
-#include "cJSON.h"
+#include "bb_json.h"
 #include "esp_timer.h"
 #endif
 
@@ -51,19 +51,19 @@ static bb_err_t scan_handler(bb_http_request_t *req)
     memset(aps, 0, sizeof(aps));
     int count = bb_wifi_scan_get_cached(aps, WIFI_SCAN_MAX);
 
-    cJSON *arr = cJSON_CreateArray();
+    bb_json_t arr = bb_json_arr_new();
     for (int i = 0; i < count; i++) {
-        cJSON *ap = cJSON_CreateObject();
-        cJSON_AddStringToObject(ap, "ssid", aps[i].ssid);
-        cJSON_AddNumberToObject(ap, "rssi", aps[i].rssi);
-        cJSON_AddBoolToObject(ap, "secure", aps[i].secure);
-        cJSON_AddItemToArray(arr, ap);
+        bb_json_t ap = bb_json_obj_new();
+        bb_json_obj_set_string(ap, "ssid", aps[i].ssid);
+        bb_json_obj_set_number(ap, "rssi", aps[i].rssi);
+        bb_json_obj_set_bool(ap, "secure", aps[i].secure);
+        bb_json_arr_append_obj(arr, ap);
     }
-    char *json = cJSON_PrintUnformatted(arr);
+    char *json = bb_json_serialize(arr);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json ? json : "[]", json ? strlen(json) : 2);
-    if (json) cJSON_free(json);
-    cJSON_Delete(arr);
+    if (json) bb_json_free_str(json);
+    bb_json_free(arr);
     return rc;
 }
 #endif
