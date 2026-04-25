@@ -344,7 +344,7 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
         .url = s_releases_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 10000,
-        .user_agent = "snugfeather",
+        .user_agent = esp_app_get_description()->project_name,
         .buffer_size = 4096,
     };
 
@@ -506,7 +506,7 @@ static void ota_worker_task(void *arg)
          * the task WDT we get a panic instead of a clean error return into
          * our perform loop. 20s is well under the recommended >=60s WDT. */
         .timeout_ms = 20000,
-        .user_agent = "snugfeather",
+        .user_agent = esp_app_get_description()->project_name,
         .buffer_size = 4096,
         .buffer_size_tx = 2048,
     };
