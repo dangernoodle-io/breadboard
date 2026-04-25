@@ -197,6 +197,65 @@ static bool test_skip_check_callback(void)
     return s_skip_check_callback_result;
 }
 
+/* Body field contains a string with embedded "tag_name":"vBOGUS" that must
+ * not be matched. Proves the scanner skips over string contents, not just
+ * structural keys.
+ *
+ * cJSON would have parsed the whole document to figure this out; the scanner
+ * gets it right because copy_string_value / find_key both walk past strings
+ * as opaque spans (escape-aware). */
+void test_ota_pull_parse_body_contains_tag_name_lookalike(void)
+{
+    const char *json =
+        "{\"body\":\"see \\\"tag_name\\\":\\\"vBOGUS\\\" in changelog\","
+        "\"tag_name\":\"v2.0.0\","
+        "\"assets\":[{\"name\":\"acme-corp.bin\","
+        "\"browser_download_url\":\"https://example.com/acme-corp.bin\"}]}";
+
+    char tag[32], url[256];
+    int ret = bb_ota_pull_parse_release_json(json, "acme-corp", tag, sizeof(tag), url, sizeof(url));
+    TEST_ASSERT_EQUAL_INT(0, ret);
+    TEST_ASSERT_EQUAL_STRING("v2.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("https://example.com/acme-corp.bin", url);
+}
+
+/* The body field appears AFTER assets and contains escaped backslashes,
+ * unicode escapes, and structural-looking characters. Scanner must not
+ * mis-parse the trailing junk. */
+void test_ota_pull_parse_body_with_escapes_after_assets(void)
+{
+    const char *json =
+        "{\"tag_name\":\"v3.0.0\","
+        "\"assets\":[{\"name\":\"acme-corp.bin\","
+        "\"browser_download_url\":\"https://example.com/acme-corp.bin\"}],"
+        "\"body\":\"backslash\\\\then quote\\\" then \\u0041 then ]}\"}";
+
+    char tag[32], url[256];
+    int ret = bb_ota_pull_parse_release_json(json, "acme-corp", tag, sizeof(tag), url, sizeof(url));
+    TEST_ASSERT_EQUAL_INT(0, ret);
+    TEST_ASSERT_EQUAL_STRING("v3.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("https://example.com/acme-corp.bin", url);
+}
+
+/* Matching asset is preceded by other assets whose "name" fields don't match.
+ * Walk-and-skip behavior must work for >1 object before the match. */
+void test_ota_pull_parse_match_after_skipped_assets(void)
+{
+    const char *json =
+        "{\"tag_name\":\"v4.0.0\",\"assets\":["
+        "{\"name\":\"first.bin\",\"browser_download_url\":\"https://example.com/first.bin\"},"
+        "{\"name\":\"second.bin\",\"browser_download_url\":\"https://example.com/second.bin\"},"
+        "{\"name\":\"target.bin\",\"browser_download_url\":\"https://example.com/target.bin\"},"
+        "{\"name\":\"after.bin\",\"browser_download_url\":\"https://example.com/after.bin\"}"
+        "]}";
+
+    char tag[32], url[256];
+    int ret = bb_ota_pull_parse_release_json(json, "target", tag, sizeof(tag), url, sizeof(url));
+    TEST_ASSERT_EQUAL_INT(0, ret);
+    TEST_ASSERT_EQUAL_STRING("v4.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("https://example.com/target.bin", url);
+}
+
 void test_ota_pull_skip_check_callback_registration(void)
 {
     // Test that callback can be set and unset

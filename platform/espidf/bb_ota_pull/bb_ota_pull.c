@@ -43,7 +43,7 @@ static const char *TAG = "bb_ota_pull";
 #define OTA_TASK_PRIO  3
 #define OTA_CHECK_STACK 32768
 #define OTA_CHECK_PRIO 3
-#define API_BUF_MAX    16384
+#define API_BUF_MAX    32768
 
 static volatile bool s_ota_in_progress = false;
 static int s_ota_task_core = 1;  // default: Core 1 (bitaxe-friendly, frees Core 0 for httpd/stratum)
@@ -166,62 +166,167 @@ void bb_ota_pull_set_firmware_board(const char *board)
 }
 
 /**
- * Parse a GitHub releases/latest JSON response and extract the latest tag
- * and asset download URL for the given board.
+ * Targeted scanner for GitHub releases/latest JSON. Extracts only the two
+ * fields we use (tag_name + matching asset's browser_download_url) without
+ * loading the document into a parse tree. Removes the dependency on response
+ * size: avoids the 16 KB cJSON_Parse cliff that has bricked OTA on devices
+ * once auto-generated changelogs grew past the read buffer.
  *
- * Platform-independent implementation, testable on host.
+ * Platform-independent, testable on host. Helpers are escape-aware (\" \\).
  */
+
+/* Find the next `"<key>"<ws>:` pair in [p, end). Returns pointer to the
+ * first non-whitespace byte of the value, or NULL if not found. Skips over
+ * the contents of any string it encounters so it never matches a key
+ * pattern that lives inside a string value. */
+static const char *find_key(const char *p, const char *end, const char *key)
+{
+    size_t key_len = strlen(key);
+    while (p < end) {
+        if (*p == '"') {
+            const char *str_start = ++p;
+            while (p < end && *p != '"') {
+                if (*p == '\\' && p + 1 < end) p += 2;
+                else p++;
+            }
+            if (p >= end) return NULL;
+            const char *str_end = p;  /* points at closing " */
+            p++;
+            const char *q = p;
+            while (q < end && (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r')) q++;
+            if (q < end && *q == ':') {
+                if ((size_t)(str_end - str_start) == key_len &&
+                    memcmp(str_start, key, key_len) == 0) {
+                    q++;
+                    while (q < end && (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r')) q++;
+                    return q;
+                }
+            }
+        } else {
+            p++;
+        }
+    }
+    return NULL;
+}
+
+/* Copy a JSON string value into out (truncated to out_size-1, always null-
+ * terminated). p must point at the opening `"`. Returns pointer past the
+ * closing `"`, or NULL if not a string / unterminated. */
+static const char *copy_string_value(const char *p, const char *end,
+                                     char *out, size_t out_size)
+{
+    if (p >= end || *p != '"' || out_size == 0) return NULL;
+    p++;
+    size_t i = 0;
+    while (p < end && *p != '"') {
+        char c = *p;
+        if (c == '\\' && p + 1 < end) {
+            p++;
+            switch (*p) {
+                case 'n':  c = '\n'; p++; break;
+                case 't':  c = '\t'; p++; break;
+                case 'r':  c = '\r'; p++; break;
+                case 'b':  c = '\b'; p++; break;
+                case 'f':  c = '\f'; p++; break;
+                case '"':  c = '"';  p++; break;
+                case '\\': c = '\\'; p++; break;
+                case '/':  c = '/';  p++; break;
+                case 'u':
+                    /* \uXXXX — not present in tag_name or download URL; skip. */
+                    if (p + 4 < end) p += 5;
+                    else p = end;
+                    continue;
+                default:   c = *p;  p++; break;
+            }
+        } else {
+            p++;
+        }
+        if (i + 1 < out_size) out[i++] = c;
+    }
+    if (p >= end) return NULL;  /* unterminated */
+    out[i] = '\0';
+    return p + 1;
+}
+
+/* p must point at '{'. Returns pointer to the matching '}', or NULL on
+ * unbalanced / EOF. Tracks string boundaries so braces inside strings
+ * don't confuse the depth count. */
+static const char *match_brace(const char *p, const char *end)
+{
+    if (p >= end || *p != '{') return NULL;
+    int depth = 1;
+    p++;
+    while (p < end && depth > 0) {
+        if (*p == '"') {
+            p++;
+            while (p < end && *p != '"') {
+                if (*p == '\\' && p + 1 < end) p += 2;
+                else p++;
+            }
+            if (p >= end) return NULL;
+            p++;
+        } else if (*p == '{') {
+            depth++;
+            p++;
+        } else if (*p == '}') {
+            depth--;
+            if (depth == 0) return p;
+            p++;
+        } else {
+            p++;
+        }
+    }
+    return NULL;
+}
+
 int bb_ota_pull_parse_release_json(const char *json, const char *board_name,
                                      char *out_tag, size_t tag_size,
                                      char *out_url, size_t url_size)
 {
-    if (!json || !board_name || !out_tag || !out_url) {
-        return -1;
-    }
+    if (!json || !board_name || !out_tag || !out_url) return -1;
+    if (tag_size == 0 || url_size == 0) return -1;
 
-    cJSON *root = cJSON_Parse(json);
-    if (!root) {
-        return -1;
-    }
+    const char *end = json + strlen(json);
 
-    // Extract tag_name
-    cJSON *tag_item = cJSON_GetObjectItem(root, "tag_name");
-    if (!tag_item || !tag_item->valuestring) {
-        cJSON_Delete(root);
-        return -1;
-    }
+    /* tag_name is required; missing -> -1 (malformed). */
+    const char *tag_p = find_key(json, end, "tag_name");
+    if (!tag_p || *tag_p != '"') return -1;
+    if (!copy_string_value(tag_p, end, out_tag, tag_size)) return -1;
 
-    strncpy(out_tag, tag_item->valuestring, tag_size - 1);
-    out_tag[tag_size - 1] = '\0';
+    /* assets array: must be present AND an array. */
+    const char *assets_p = find_key(json, end, "assets");
+    if (!assets_p || *assets_p != '[') return -2;
+    assets_p++;
 
-    // Build expected asset name: "<board_name>.bin"
     char asset_name[128];
     snprintf(asset_name, sizeof(asset_name), "%s.bin", board_name);
 
-    // Iterate assets array
-    cJSON *assets = cJSON_GetObjectItem(root, "assets");
-    if (!assets || !cJSON_IsArray(assets)) {
-        cJSON_Delete(root);
-        return -2;
-    }
+    const char *p = assets_p;
+    while (p < end) {
+        while (p < end && (*p == ',' || *p == ' ' || *p == '\t' ||
+                           *p == '\n' || *p == '\r')) p++;
+        if (p >= end || *p == ']') break;
+        if (*p != '{') break;
 
-    cJSON *asset_item = NULL;
-    cJSON_ArrayForEach(asset_item, assets) {
-        cJSON *name_item = cJSON_GetObjectItem(asset_item, "name");
-        if (name_item && name_item->valuestring &&
-            strcmp(name_item->valuestring, asset_name) == 0) {
-            // Found matching asset
-            cJSON *url_item = cJSON_GetObjectItem(asset_item, "browser_download_url");
-            if (url_item && url_item->valuestring) {
-                strncpy(out_url, url_item->valuestring, url_size - 1);
-                out_url[url_size - 1] = '\0';
-                cJSON_Delete(root);
-                return 0;
-            }
+        const char *obj_end = match_brace(p, end);
+        if (!obj_end) return -1;
+
+        char this_name[128] = {0};
+        const char *name_p = find_key(p, obj_end, "name");
+        if (name_p && *name_p == '"') {
+            copy_string_value(name_p, obj_end, this_name, sizeof(this_name));
         }
+
+        if (strcmp(this_name, asset_name) == 0) {
+            const char *url_p = find_key(p, obj_end, "browser_download_url");
+            if (!url_p || *url_p != '"') return -2;
+            if (!copy_string_value(url_p, obj_end, out_url, url_size)) return -2;
+            return 0;
+        }
+
+        p = obj_end + 1;
     }
 
-    cJSON_Delete(root);
     return -2;
 }
 
@@ -396,7 +501,11 @@ static void ota_worker_task(void *arg)
     esp_http_client_config_t http_config = {
         .url = result.asset_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 60000,
+        /* Stay below CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000 — mbedtls recv
+         * blocks for the full timeout on a stalled socket; if that exceeds
+         * the task WDT we get a panic instead of a clean error return into
+         * our perform loop. 20s is well under the recommended >=60s WDT. */
+        .timeout_ms = 20000,
         .user_agent = "snugfeather",
         .buffer_size = 4096,
         .buffer_size_tx = 2048,
