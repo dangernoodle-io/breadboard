@@ -4,5 +4,5 @@ idf_component_register(
          "src/http_utils.c"
          "src/common_routes.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_nv bb_log bb_wifi bb_system esp_http_server esp_wifi esp_netif esp_app_format json
+    REQUIRES bb_nv bb_log bb_wifi bb_system esp_http_server esp_wifi esp_netif esp_app_format bb_json
 )

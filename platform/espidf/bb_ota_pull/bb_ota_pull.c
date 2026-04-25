@@ -1,5 +1,5 @@
 #include "bb_ota_pull.h"
-#include "cJSON.h"
+#include "bb_json.h"
 #include <stdarg.h>
 #include <string.h>
 #include <stdio.h>
@@ -730,7 +730,7 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
 
     // If we have a cached result, return it
     if (check_done) {
-        cJSON *root = cJSON_CreateObject();
+        bb_json_t root = bb_json_obj_new();
         if (!root) {
             const char *error_response = "{\"error\":\"json_error\"}";
             httpd_resp_set_status(req, "500 Internal Server Error");
@@ -741,23 +741,23 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
 
         const esp_app_desc_t *running_desc = esp_app_get_description();
         if (running_desc) {
-            cJSON_AddStringToObject(root, "current_version", running_desc->version);
+            bb_json_obj_set_string(root, "current_version", running_desc->version);
         }
-        cJSON_AddStringToObject(root, "latest_version", cached.latest_tag);
-        cJSON_AddBoolToObject(root, "update_available", cached.update_available);
+        bb_json_obj_set_string(root, "latest_version", cached.latest_tag);
+        bb_json_obj_set_bool(root, "update_available", cached.update_available);
 
         char asset_name[128];
         const char *board = s_firmware_board[0] != '\0' ? s_firmware_board : "unknown";
         snprintf(asset_name, sizeof(asset_name), "%s.bin", board);
-        cJSON_AddStringToObject(root, "asset", asset_name);
+        bb_json_obj_set_string(root, "asset", asset_name);
 
-        char *response_str = cJSON_PrintUnformatted(root);
-        cJSON_Delete(root);
+        char *response_str = bb_json_serialize(root);
+        bb_json_free(root);
 
         if (response_str) {
             httpd_resp_set_type(req, "application/json");
             httpd_resp_send(req, response_str, strlen(response_str));
-            free(response_str);
+            bb_json_free_str(response_str);
         } else {
             const char *error_response = "{\"error\":\"json_error\"}";
             httpd_resp_set_status(req, "500 Internal Server Error");
@@ -901,7 +901,7 @@ static esp_err_t ota_status_handler(httpd_req_t *req)
     in_progress = s_ota_in_progress;
     taskEXIT_CRITICAL(&s_ota_status_mux);
 
-    cJSON *root = cJSON_CreateObject();
+    bb_json_t root = bb_json_obj_new();
     if (!root) {
         const char *response = "{\"error\":\"json_error\"}";
         httpd_resp_set_status(req, "500 Internal Server Error");
@@ -910,20 +910,20 @@ static esp_err_t ota_status_handler(httpd_req_t *req)
         return ESP_OK;
     }
 
-    cJSON_AddStringToObject(root, "state", s_ota_state_names[status_copy.state]);
-    cJSON_AddBoolToObject(root, "in_progress", in_progress);
-    cJSON_AddNumberToObject(root, "progress_pct", status_copy.progress_pct);
+    bb_json_obj_set_string(root, "state", s_ota_state_names[status_copy.state]);
+    bb_json_obj_set_bool(root, "in_progress", in_progress);
+    bb_json_obj_set_number(root, "progress_pct", status_copy.progress_pct);
     if (status_copy.last_error[0] != '\0') {
-        cJSON_AddStringToObject(root, "last_error", status_copy.last_error);
+        bb_json_obj_set_string(root, "last_error", status_copy.last_error);
     }
 
-    char *response_str = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
+    char *response_str = bb_json_serialize(root);
+    bb_json_free(root);
 
     if (response_str) {
         httpd_resp_set_type(req, "application/json");
         httpd_resp_send(req, response_str, strlen(response_str));
-        free(response_str);
+        bb_json_free_str(response_str);
     } else {
         const char *response = "{\"error\":\"json_error\"}";
         httpd_resp_set_status(req, "500 Internal Server Error");
