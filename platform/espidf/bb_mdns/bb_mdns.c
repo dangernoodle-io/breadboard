@@ -3,7 +3,9 @@
 #include "mdns.h"
 #include "esp_app_desc.h"
 #include "esp_mac.h"
+#include "esp_netif.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "bb_hw.h"
@@ -35,6 +37,64 @@ static char s_mdns_instance_name[64] = "BSP Device";
 static bool s_mdns_instance_name_set = false;
 
 static bool s_mdns_started = false;
+
+/* Coalescing re-announce timer: armed by bb_mdns_set_txt (post-start) and
+ * bb_mdns_announce. Fires after BB_MDNS_ANNOUNCE_DELAY_US to emit a fresh
+ * unsolicited mDNS announce — observers' IDF caches can miss TXT-only updates
+ * without it. Restarting the timer on each set_txt call is intentional: the
+ * last-write-wins coalesce delays the announce until the burst settles. */
+#define BB_MDNS_ANNOUNCE_DELAY_US (100 * 1000)  /* 100 ms */
+static esp_timer_handle_t s_announce_timer = NULL;
+static volatile bool s_announce_dirty = false;
+
+static void announce_timer_cb(void *arg)
+{
+    (void)arg;
+    if (!s_announce_dirty || !s_mdns_started) return;
+    s_announce_dirty = false;
+    /* Use WIFI_STA_DEF netif — same key used by bb_wifi_init_sta. */
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (!sta) {
+        bb_log_w(TAG, "announce: no STA netif");
+        return;
+    }
+    esp_err_t err = mdns_netif_action(sta,
+                                      MDNS_EVENT_ANNOUNCE_IP4 |
+                                      MDNS_EVENT_ANNOUNCE_IP6);
+    if (err != ESP_OK) {
+        bb_log_w(TAG, "mdns_netif_action(ANNOUNCE) failed: %s", esp_err_to_name(err));
+    } else {
+        bb_log_d(TAG, "unsolicited re-announce sent");
+    }
+}
+
+static void announce_timer_ensure_created(void)
+{
+    if (s_announce_timer) return;
+    esp_timer_create_args_t args = {
+        .callback = announce_timer_cb,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "bb_mdns_announce",
+    };
+    esp_err_t err = esp_timer_create(&args, &s_announce_timer);
+    if (err != ESP_OK) {
+        bb_log_w(TAG, "esp_timer_create(announce) failed: %s", esp_err_to_name(err));
+    }
+}
+
+static void announce_arm(uint64_t delay_us)
+{
+    if (!s_announce_timer) return;
+    s_announce_dirty = true;
+    /* esp_timer_start_once returns ESP_ERR_INVALID_STATE if already running;
+     * restart to implement last-write-wins coalescing. */
+    esp_timer_stop(s_announce_timer);  /* ignore error if not running */
+    esp_err_t err = esp_timer_start_once(s_announce_timer, delay_us);
+    if (err != ESP_OK) {
+        bb_log_w(TAG, "announce timer arm failed: %s", esp_err_to_name(err));
+    }
+}
 
 /* Pending TXT items: bb_mdns_set_txt() may be called before the service has
  * actually started (start happens on wifi got-ip, async). Buffer the kv pairs
@@ -259,6 +319,7 @@ static void bb_mdns_start_internal(void)
     }
     s_mdns_started = true;
     txt_pending_flush(service_type);
+    announce_timer_ensure_created();
 
     bb_log_i(TAG, "mDNS started: %s.local (%s._tcp)", hostname, service_type);
 }
@@ -278,6 +339,12 @@ static void bb_mdns_on_disconnect(void)
 {
     if (!s_mdns_started) return;
     bb_log_i(TAG, "wifi disconnected — tearing down mdns");
+    if (s_announce_timer) {
+        esp_timer_stop(s_announce_timer);
+        esp_timer_delete(s_announce_timer);
+        s_announce_timer = NULL;
+    }
+    s_announce_dirty = false;
     mdns_service_remove_all();
     mdns_free();
     s_mdns_started = false;
@@ -286,6 +353,12 @@ static void bb_mdns_on_disconnect(void)
 static void bb_mdns_shutdown(void)
 {
     if (!s_mdns_started) return;
+    if (s_announce_timer) {
+        esp_timer_stop(s_announce_timer);
+        esp_timer_delete(s_announce_timer);
+        s_announce_timer = NULL;
+    }
+    s_announce_dirty = false;
     mdns_service_remove_all();
     // Give the mdns task time to emit bye packets before reboot
     vTaskDelay(pdMS_TO_TICKS(100));
@@ -355,6 +428,20 @@ void bb_mdns_set_txt(const char *key, const char *value)
         bb_log_w(TAG, "mdns_service_txt_item_set(%s=%s) failed: %s",
                  key, value, esp_err_to_name(err));
     }
+    /* Arm coalescing re-announce: observers may miss TXT-only updates without
+     * an unsolicited announce. Restart timer on every set_txt so the announce
+     * fires after the burst settles (last-write-wins, 100 ms window). */
+    announce_arm(BB_MDNS_ANNOUNCE_DELAY_US);
+}
+
+void bb_mdns_announce(void)
+{
+    if (!s_mdns_started) {
+        bb_log_d(TAG, "bb_mdns_announce: service not started, no-op");
+        return;
+    }
+    /* Bypass coalescing delay for explicit calls — fire immediately. */
+    announce_arm(0);
 }
 
 bb_err_t bb_mdns_browse_start(const char *service, const char *proto,
