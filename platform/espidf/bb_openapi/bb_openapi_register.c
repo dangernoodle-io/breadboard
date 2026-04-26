@@ -1,4 +1,5 @@
 #include "bb_openapi.h"
+#include "bb_http.h"
 #include "bb_log.h"
 
 #include "esp_http_server.h"
@@ -33,6 +34,24 @@ static esp_err_t openapi_handler(httpd_req_t *req)
     return err;
 }
 
+// ---------------------------------------------------------------------------
+// Route descriptor (self-describing; handler registered via raw httpd API)
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_openapi_responses[] = {
+    { 200, "application/json", NULL, "OpenAPI 3.1 spec for all described routes" },
+    { 0 },
+};
+
+static const bb_route_t s_openapi_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/openapi.json",
+    .tag      = "system",
+    .summary  = "Get OpenAPI spec",
+    .responses = s_openapi_responses,
+    .handler  = NULL,
+};
+
 bb_err_t bb_openapi_register(bb_http_handle_t server, const bb_openapi_meta_t *meta)
 {
     if (!server || !meta) return BB_ERR_INVALID_ARG;
@@ -51,6 +70,9 @@ bb_err_t bb_openapi_register(bb_http_handle_t server, const bb_openapi_meta_t *m
         bb_log_e(TAG, "failed to register /api/openapi.json: %d", err);
         return (bb_err_t)err;
     }
+
+    // Add descriptor for OpenAPI spec emission (self-describing).
+    bb_http_register_route_descriptor_only(&s_openapi_route);
 
     bb_log_i(TAG, "registered GET /api/openapi.json");
     return BB_OK;

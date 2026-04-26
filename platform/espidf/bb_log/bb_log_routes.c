@@ -142,6 +142,50 @@ static esp_err_t logs_status_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+// ---------------------------------------------------------------------------
+// Route descriptors (descriptor-only; handlers registered via raw httpd API)
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_logs_responses[] = {
+    { 200, "text/event-stream", NULL,
+      "Server-Sent Events stream of log lines; each event carries one log "
+      "line as `data: <line>`. Stream is long-lived; only one client at a "
+      "time is supported." },
+    { 503, "text/plain", NULL, "stream already in use" },
+    { 0 },
+};
+
+static const bb_route_t s_logs_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/logs",
+    .tag      = "logs",
+    .summary  = "Stream log output via SSE",
+    .responses = s_logs_responses,
+    .handler  = NULL,  // SSE handler registered via raw httpd API
+};
+
+static const bb_route_response_t s_logs_status_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"active\":{\"type\":\"boolean\"},"
+      "\"client\":{\"type\":[\"string\",\"null\"],"
+      "\"enum\":[\"browser\",\"external\",null]},"
+      "\"dropped\":{\"type\":\"integer\"}},"
+      "\"required\":[\"active\",\"client\",\"dropped\"]}",
+      "current SSE stream status" },
+    { 0 },
+};
+
+static const bb_route_t s_logs_status_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/logs/status",
+    .tag      = "logs",
+    .summary  = "Get log stream status",
+    .responses = s_logs_status_responses,
+    .handler  = NULL,  // handler registered via raw httpd API
+};
+
 bb_err_t bb_log_stream_register_routes(void *server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
@@ -156,5 +200,11 @@ bb_err_t bb_log_stream_register_routes(void *server)
 
     esp_err_t err = httpd_register_uri_handler(h, &logs_uri);
     if (err != ESP_OK) return err;
-    return httpd_register_uri_handler(h, &logs_status_uri);
+    err = httpd_register_uri_handler(h, &logs_status_uri);
+    if (err != ESP_OK) return err;
+
+    // Register descriptors for OpenAPI spec; handlers are already registered above.
+    bb_http_register_route_descriptor_only(&s_logs_route);
+    bb_http_register_route_descriptor_only(&s_logs_status_route);
+    return ESP_OK;
 }

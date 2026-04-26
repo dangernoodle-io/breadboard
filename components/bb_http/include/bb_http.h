@@ -85,6 +85,13 @@ void   bb_http_route_registry_foreach(bb_route_walker_fn cb, void *ctx);
 // Remove all descriptors from the registry (intended for tests).
 void   bb_http_route_registry_clear(void);
 
+// Add a descriptor to the registry without registering a live handler.
+// Use for routes whose handler is registered separately (e.g. SSE endpoints
+// that call httpd_register_uri_handler directly).  The descriptor will appear
+// in bb_openapi spec output exactly like a fully-described route.
+// Returns BB_OK on success; BB_ERR_INVALID_ARG if route is NULL.
+bb_err_t bb_http_register_route_descriptor_only(const bb_route_t *route);
+
 // Return the number of descriptors currently in the registry.
 size_t bb_http_route_registry_count(void);
 

@@ -4,11 +4,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "bb_http.h"
 #include "bb_json.h"
-#include "esp_err.h"
-#include "esp_http_server.h"
 
-static esp_err_t wifi_info_handler(httpd_req_t *req)
+static bb_err_t wifi_info_handler(bb_http_request_t *req)
 {
     bb_wifi_info_t info;
     bb_wifi_get_info(&info);
@@ -29,19 +28,45 @@ static esp_err_t wifi_info_handler(httpd_req_t *req)
     bb_json_obj_set_number(root, "retry_count", (double)info.retry_count);
 
     char *json = bb_json_serialize(root);
-    httpd_resp_set_type(req, "application/json");
-    esp_err_t err = httpd_resp_sendstr(req, json ? json : "{}");
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_err_t err = bb_http_resp_send(req, json ? json : "{}", json ? strlen(json) : 2);
     if (json) bb_json_free_str(json);
     bb_json_free(root);
     return err;
 }
 
+// ---------------------------------------------------------------------------
+// Route descriptor
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_wifi_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"ssid\":{\"type\":\"string\"},"
+      "\"bssid\":{\"type\":\"string\"},"
+      "\"rssi\":{\"type\":\"integer\"},"
+      "\"ip\":{\"type\":\"string\"},"
+      "\"connected\":{\"type\":\"boolean\"},"
+      "\"disc_reason\":{\"type\":\"integer\"},"
+      "\"disc_age_s\":{\"type\":\"integer\"},"
+      "\"retry_count\":{\"type\":\"integer\"}},"
+      "\"required\":[\"ssid\",\"connected\"]}",
+      "current Wi-Fi connection info" },
+    { 0 },
+};
+
+static const bb_route_t s_wifi_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/wifi",
+    .tag      = "wifi",
+    .summary  = "Get Wi-Fi connection info",
+    .responses = s_wifi_responses,
+    .handler  = wifi_info_handler,
+};
+
 bb_err_t bb_wifi_register_routes(void *server)
 {
-    if (!server) return ESP_ERR_INVALID_ARG;
-    httpd_handle_t h = (httpd_handle_t)server;
-    httpd_uri_t uri = {
-        .uri = "/api/wifi", .method = HTTP_GET, .handler = wifi_info_handler, .user_ctx = NULL,
-    };
-    return httpd_register_uri_handler(h, &uri);
+    if (!server) return BB_ERR_INVALID_ARG;
+    return bb_http_register_described_route(server, &s_wifi_route);
 }

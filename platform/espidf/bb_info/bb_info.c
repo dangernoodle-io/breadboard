@@ -3,9 +3,9 @@
 #include <string.h>
 
 #include "bb_board.h"
+#include "bb_http.h"
 #include "bb_json.h"
 #include "bb_wifi.h"
-#include "esp_http_server.h"
 
 #define BB_INFO_MAX_EXTENDERS 4
 
@@ -60,7 +60,7 @@ static void add_network_object(bb_json_t root, const bb_wifi_info_t *w)
     bb_json_obj_set_obj(root, "network", net);
 }
 
-static esp_err_t info_handler(httpd_req_t *req)
+static bb_err_t info_handler(bb_http_request_t *req)
 {
     bb_board_info_t b;
     bb_wifi_info_t w;
@@ -76,20 +76,63 @@ static esp_err_t info_handler(httpd_req_t *req)
     }
 
     char *json = bb_json_serialize(root);
-    httpd_resp_set_type(req, "application/json");
-    esp_err_t err = httpd_resp_sendstr(req, json ? json : "{}");
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_err_t err = bb_http_resp_send(req, json ? json : "{}", json ? strlen(json) : 2);
     if (json) bb_json_free_str(json);
     bb_json_free(root);
     return err;
 }
 
+// ---------------------------------------------------------------------------
+// Route descriptor
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_info_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"board\":{\"type\":\"string\"},"
+      "\"project_name\":{\"type\":\"string\"},"
+      "\"version\":{\"type\":\"string\"},"
+      "\"idf_version\":{\"type\":\"string\"},"
+      "\"build_date\":{\"type\":\"string\"},"
+      "\"build_time\":{\"type\":\"string\"},"
+      "\"chip_model\":{\"type\":\"string\"},"
+      "\"cores\":{\"type\":\"integer\"},"
+      "\"mac\":{\"type\":\"string\"},"
+      "\"flash_size\":{\"type\":\"integer\"},"
+      "\"total_heap\":{\"type\":\"integer\"},"
+      "\"free_heap\":{\"type\":\"integer\"},"
+      "\"app_size\":{\"type\":\"integer\"},"
+      "\"reset_reason\":{\"type\":\"string\"},"
+      "\"ota_validated\":{\"type\":\"boolean\"},"
+      "\"network\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"ssid\":{\"type\":\"string\"},"
+      "\"bssid\":{\"type\":\"string\"},"
+      "\"rssi\":{\"type\":\"integer\"},"
+      "\"ip\":{\"type\":\"string\"},"
+      "\"connected\":{\"type\":\"boolean\"},"
+      "\"disc_reason\":{\"type\":\"integer\"},"
+      "\"disc_age_s\":{\"type\":\"integer\"},"
+      "\"retry_count\":{\"type\":\"integer\"}}}},"
+      "\"required\":[\"board\",\"version\",\"network\"]}",
+      "full device info including board and network" },
+    { 0 },
+};
+
+static const bb_route_t s_info_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/info",
+    .tag      = "info",
+    .summary  = "Get full device info",
+    .responses = s_info_responses,
+    .handler  = info_handler,
+};
+
 bb_err_t bb_info_register_routes(void *server)
 {
-    if (!server) return ESP_ERR_INVALID_ARG;
+    if (!server) return BB_ERR_INVALID_ARG;
     s_frozen = true;
-    httpd_handle_t h = (httpd_handle_t)server;
-    httpd_uri_t uri = {
-        .uri = "/api/info", .method = HTTP_GET, .handler = info_handler, .user_ctx = NULL,
-    };
-    return httpd_register_uri_handler(h, &uri);
+    return bb_http_register_described_route(server, &s_info_route);
 }

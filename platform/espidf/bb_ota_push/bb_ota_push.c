@@ -22,6 +22,7 @@ void bb_ota_push_set_skip_check_cb(bb_ota_push_skip_check_cb_t cb)
 }
 
 #ifdef ESP_PLATFORM
+#include "bb_http.h"
 #include "bb_log.h"
 #include "esp_http_server.h"
 #include "esp_ota_ops.h"
@@ -161,6 +162,29 @@ resume_and_exit:
     return ESP_FAIL;
 }
 
+// ---------------------------------------------------------------------------
+// Route descriptor (handler registered via raw httpd API)
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_ota_push_responses[] = {
+    { 200, "text/plain", NULL, "OTA complete; device rebooting" },
+    { 400, "text/plain", NULL, "firmware board mismatch or invalid binary" },
+    { 408, "text/plain", NULL, "upload timeout" },
+    { 500, "text/plain", NULL, "OTA write or validation failed" },
+    { 0 },
+};
+
+static const bb_route_t s_ota_push_route = {
+    .method               = BB_HTTP_POST,
+    .path                 = "/api/ota/push",
+    .tag                  = "ota",
+    .summary              = "Upload and flash firmware binary",
+    .request_content_type = "application/octet-stream",
+    .request_schema       = NULL,  // raw binary .bin file
+    .responses            = s_ota_push_responses,
+    .handler              = NULL,
+};
+
 /**
  * Register OTA push HTTP handler with an existing httpd instance.
  */
@@ -185,6 +209,9 @@ bb_err_t bb_ota_push_register_handler(bb_http_handle_t server)
                  esp_err_to_name(err));
         return err;
     }
+
+    // Add descriptor for OpenAPI spec emission.
+    bb_http_register_route_descriptor_only(&s_ota_push_route);
 
     bb_log_i(TAG, "OTA push handler registered");
     return ESP_OK;
