@@ -240,3 +240,56 @@ void test_register_described_route_overflow_returns_ok(void)
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
 }
+
+void test_register_described_route_overflow_logs_null_path(void)
+{
+    bb_http_route_registry_clear();
+
+    // Build 64 route descriptors with non-NULL paths to fill the registry
+    static const bb_route_response_t s_overflow_responses[] = {
+        { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+        { .status = 0 },
+    };
+
+    static bb_route_t s_overflow_routes[64];
+    for (int i = 0; i < 64; i++) {
+        // Build path string: "/api/r0", "/api/r1", ..., "/api/r63"
+        static char paths[64][16];
+        snprintf(paths[i], sizeof(paths[i]), "/api/r%d", i);
+        s_overflow_routes[i] = (bb_route_t){
+            .method               = BB_HTTP_GET,
+            .path                 = paths[i],
+            .tag                  = "overflow",
+            .summary              = "overflow test",
+            .operation_id         = NULL,
+            .request_content_type = NULL,
+            .request_schema       = NULL,
+            .responses            = s_overflow_responses,
+            .handler              = stub_handler,
+        };
+    }
+
+    // Register 64 routes to fill the registry
+    for (int i = 0; i < 64; i++) {
+        bb_err_t err = bb_http_register_described_route(NULL, &s_overflow_routes[i]);
+        TEST_ASSERT_EQUAL(BB_OK, err);
+    }
+    TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
+
+    // Register one more with NULL path; should succeed and exercise the ternary
+    static const bb_route_t s_null_path_route = {
+        .method               = BB_HTTP_GET,
+        .path                 = NULL,
+        .tag                  = "null-test",
+        .summary              = "null path test",
+        .operation_id         = NULL,
+        .request_content_type = NULL,
+        .request_schema       = NULL,
+        .responses            = s_overflow_responses,
+        .handler              = stub_handler,
+    };
+
+    bb_err_t err = bb_http_register_described_route(NULL, &s_null_path_route);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
+}
