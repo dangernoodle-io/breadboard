@@ -41,6 +41,53 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
                                 const char *path,
                                 bb_http_handler_fn handler);
 
+// ============================================================================
+// ROUTE DESCRIPTORS — OpenAPI metadata carrier for bb_openapi spec emission
+// ============================================================================
+
+// One response variant for a route. Terminated by {.status = 0} sentinel.
+// All pointer fields must remain valid for the life of the server (static/rodata).
+typedef struct {
+    int         status;        // HTTP status code (200, 202, 400, ...); 0 = sentinel terminator
+    const char *content_type;  // e.g. "application/json", "text/event-stream", "text/plain"
+    const char *schema;        // JSON Schema fragment as string literal; NULL for status-only entries
+    const char *description;   // human-readable one-liner
+} bb_route_response_t;
+
+// Full descriptor for a single route carrying OpenAPI metadata.
+// All pointer fields must remain valid for the life of the server (static/rodata).
+// The registry stores const bb_route_t * pointers — descriptor lifetime is the
+// caller's responsibility (same convention as bb_http_asset_t).
+typedef struct {
+    bb_http_method_t          method;
+    const char               *path;                  // e.g. "/api/stats"
+    const char               *tag;                   // OpenAPI grouping tag, e.g. "mining"
+    const char               *summary;               // one-line operation summary
+    const char               *operation_id;          // optional; spec emitter derives name if NULL
+    const char               *request_content_type;  // NULL if the route takes no body
+    const char               *request_schema;        // JSON Schema fragment; NULL if no body
+    const bb_route_response_t *responses;            // null-terminated by {.status = 0}
+    bb_http_handler_fn        handler;
+} bb_route_t;
+
+// Register a described route. Equivalent to bb_http_register_route() plus
+// adding the descriptor to a process-wide registry that bb_openapi walks.
+// On registration failure the descriptor is NOT added to the registry.
+bb_err_t bb_http_register_described_route(bb_http_handle_t server,
+                                          const bb_route_t *route);
+
+// Walker callback type for the route registry.
+typedef void (*bb_route_walker_fn)(const bb_route_t *route, void *ctx);
+
+// Iterate every registered descriptor in insertion order.
+void   bb_http_route_registry_foreach(bb_route_walker_fn cb, void *ctx);
+
+// Remove all descriptors from the registry (intended for tests).
+void   bb_http_route_registry_clear(void);
+
+// Return the number of descriptors currently in the registry.
+size_t bb_http_route_registry_count(void);
+
 // Response helpers — usable inside a handler. MVP: fixed-size body, no streaming.
 bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code);
 bb_err_t bb_http_resp_set_header(bb_http_request_t *req, const char *key, const char *value);

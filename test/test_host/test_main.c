@@ -169,6 +169,18 @@ void test_bb_json_item_is_array_and_object(void);
 void test_bb_json_item_serialize_subtree(void);
 void test_bb_json_item_null_handle_is_safe(void);
 
+// Forward declarations from test_route_registry.c
+void test_route_registry_count_starts_at_zero(void);
+void test_route_registry_add_increments_count(void);
+void test_route_registry_add_two_increments_count(void);
+void test_route_registry_foreach_visits_all(void);
+void test_route_registry_foreach_preserves_insertion_order(void);
+void test_route_registry_clear_empties_registry(void);
+void test_route_registry_foreach_empty_is_noop(void);
+void test_route_registry_foreach_null_cb_is_safe(void);
+void test_route_registry_descriptor_fields_preserved(void);
+void test_route_registry_count_after_clear_and_readd(void);
+
 // Forward declarations from test_bb_http_assets.c
 void test_asset_type_definition(void);
 void test_asset_with_encoding(void);
@@ -344,6 +356,18 @@ int main(void) {
     RUN_TEST(test_nv_erase_null_ns);
     RUN_TEST(test_nv_erase_null_key);
     RUN_TEST(test_nv_erase_valid);
+
+    // Route registry tests
+    RUN_TEST(test_route_registry_count_starts_at_zero);
+    RUN_TEST(test_route_registry_add_increments_count);
+    RUN_TEST(test_route_registry_add_two_increments_count);
+    RUN_TEST(test_route_registry_foreach_visits_all);
+    RUN_TEST(test_route_registry_foreach_preserves_insertion_order);
+    RUN_TEST(test_route_registry_clear_empties_registry);
+    RUN_TEST(test_route_registry_foreach_empty_is_noop);
+    RUN_TEST(test_route_registry_foreach_null_cb_is_safe);
+    RUN_TEST(test_route_registry_descriptor_fields_preserved);
+    RUN_TEST(test_route_registry_count_after_clear_and_readd);
 
     // HTTP asset tests
     RUN_TEST(test_asset_type_definition);
