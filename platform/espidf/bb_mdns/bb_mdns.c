@@ -37,12 +37,25 @@ static bool s_mdns_instance_name_set = false;
 static bool s_mdns_started = false;
 
 // Find subscription by service and proto; return NULL if not found
+/* Compare service/proto strings tolerantly: IDF passes the strings back to
+ * the notifier with inconsistent leading-underscore handling depending on
+ * the result path. Strip a leading '_' on both sides before comparing so
+ * "_taipanminer" registered matches a result reporting "taipanminer" or
+ * "_taipanminer". */
+static int eq_token(const char *a, const char *b)
+{
+    if (!a || !b) return 0;
+    if (a[0] == '_') a++;
+    if (b[0] == '_') b++;
+    return strcmp(a, b) == 0;
+}
+
 static bb_mdns_browse_sub_t *browse_sub_find(const char *service, const char *proto)
 {
     for (int i = 0; i < BB_MDNS_BROWSE_MAX; i++) {
         if (s_subs[i].in_use &&
-            strcmp(s_subs[i].service, service) == 0 &&
-            strcmp(s_subs[i].proto, proto) == 0) {
+            eq_token(s_subs[i].service, service) &&
+            eq_token(s_subs[i].proto, proto)) {
             return &s_subs[i];
         }
     }
@@ -64,10 +77,16 @@ static bb_mdns_browse_sub_t *browse_sub_alloc(void)
 static void internal_notifier(mdns_result_t *results)
 {
     for (mdns_result_t *r = results; r; r = r->next) {
-        // Find matching subscription
+        // Find matching subscription. IDF's mdns_browse delivers results
+        // already filtered to the requested service, but the result's
+        // service_type/proto strings may or may not include leading '_';
+        // eq_token normalizes that.
         bb_mdns_browse_sub_t *sub = browse_sub_find(r->service_type, r->proto);
         if (!sub) {
-            continue;  // Shouldn't happen but defensive
+            bb_log_d(TAG, "no sub for result %s.%s",
+                     r->service_type ? r->service_type : "(null)",
+                     r->proto ? r->proto : "(null)");
+            continue;
         }
 
         // Check if removal (ttl == 0)
