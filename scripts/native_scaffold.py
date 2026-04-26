@@ -22,33 +22,23 @@ script/../..), ensuring absolute path safety whether the consumer symlinked
 breadboard, cloned it, or installed a tagged release.
 """
 
+import inspect
 import os
 
 Import("env")
 
-# Anchor breadboard root: script lives at breadboard/scripts/native_scaffold.py
-# PlatformIO runs extra_scripts relative to the project root (where platformio.ini is).
-# When IN breadboard: project root is breadboard/
-# When in consumer: project root is consumer root, script path would be .breadboard/scripts/native_scaffold.py
+# Anchor breadboard root from the script's own location.
+# Script lives at <breadboard_root>/scripts/native_scaffold.py — going up two
+# levels gets us to <breadboard_root>, regardless of where PIO is running from.
+# Works identically whether breadboard is the project itself or a consumer's
+# .breadboard symlink/clone, and isn't fooled by a consumer that happens to
+# have its own components/ directory at the same level.
 #
-# Look for the components/ directory relative to where the script actually is.
-# Use SCons Dir() to find absolute location of the current source directory,
-# then check for .breadboard or assume we're IN breadboard.
-
-def find_breadboard_root():
-    """Find breadboard root by checking for components/ subdir."""
-    # Try current directory first (running IN breadboard)
-    if os.path.isdir("components"):
-        return os.path.abspath(".")
-
-    # Try .breadboard symlink (running from consumer)
-    if os.path.isdir(".breadboard/components"):
-        return os.path.abspath(".breadboard")
-
-    # Fallback: assume project dir is breadboard
-    return os.path.abspath(".")
-
-BREADBOARD_ROOT = find_breadboard_root()
+# `__file__` isn't set when SCons exec()'s the script — inspect the current
+# frame's code-object filename (which SCons sets via compile(..., scriptname))
+# to recover the absolute path.
+_SCRIPT_PATH = os.path.abspath(inspect.currentframe().f_code.co_filename)
+BREADBOARD_ROOT = os.path.dirname(os.path.dirname(_SCRIPT_PATH))
 
 # Component mapping: name -> (includes, sources)
 # includes: list of relative paths under BREADBOARD_ROOT
