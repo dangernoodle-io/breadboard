@@ -39,9 +39,22 @@ static void sse_task(void *arg)
 
     char line[192];
     char frame[220];
+    /* Send a comment-frame keepalive every ~10s of silence. EventSource
+     * ignores `:` lines, but the chunk write surfaces a dead peer immediately
+     * so the task can clean up — and the client can use the gap between
+     * keepalives to detect a stalled stream. */
+    const int idle_ticks_per_ping = 20; /* 20 * 500ms drain timeout = 10s */
+    int idle_ticks = 0;
     while (err == ESP_OK && !s_sse_stop) {
         size_t n = bb_log_stream_drain(line, sizeof(line), 500);
-        if (n == 0) continue;
+        if (n == 0) {
+            if (++idle_ticks >= idle_ticks_per_ping) {
+                err = httpd_resp_send_chunk(req, ": ping\n\n", HTTPD_RESP_USE_STRLEN);
+                idle_ticks = 0;
+            }
+            continue;
+        }
+        idle_ticks = 0;
         while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
             line[--n] = '\0';
         int flen = snprintf(frame, sizeof(frame), "data: %s\n\n", line);
