@@ -105,6 +105,26 @@ void bb_json_arr_append_string(bb_json_t arr, const char *value)
     cJSON_AddItemToArray((cJSON *)arr, cJSON_CreateString(value ? value : ""));
 }
 
+void bb_json_arr_append_string_n(bb_json_t arr, const char *str, size_t len)
+{
+    if (!arr || !str) return;
+    // cJSON_CreateStringReference / cJSON_CreateStringWithLength aren't in all
+    // versions; go through a stack buffer for small strings and heap for large.
+    char stack_buf[128];
+    char *buf;
+    bool heap = (len >= sizeof(stack_buf));
+    if (heap) {
+        buf = (char *)malloc(len + 1);
+        if (!buf) return;
+    } else {
+        buf = stack_buf;
+    }
+    memcpy(buf, str, len);
+    buf[len] = '\0';
+    cJSON_AddItemToArray((cJSON *)arr, cJSON_CreateString(buf));
+    if (heap) free(buf);
+}
+
 void bb_json_arr_append_number(bb_json_t arr, double value)
 {
     if (!arr) return;

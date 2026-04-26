@@ -35,8 +35,9 @@ void bb_json_obj_set_arr(bb_json_t obj, const char *key, bb_json_t child);
 // Array append
 // ---------------------------------------------------------------------------
 
-void bb_json_arr_append_string(bb_json_t arr, const char *value);
-void bb_json_arr_append_number(bb_json_t arr, double value);
+void bb_json_arr_append_string  (bb_json_t arr, const char *value);
+void bb_json_arr_append_string_n(bb_json_t arr, const char *str, size_t len);
+void bb_json_arr_append_number  (bb_json_t arr, double value);
 
 // Transfer ownership of child to parent — caller must NOT bb_json_free the child.
 void bb_json_arr_append_obj(bb_json_t arr, bb_json_t child);
