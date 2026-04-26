@@ -2,6 +2,16 @@
 #include "bb_log.h"
 #include <string.h>
 
+/* strlcpy isn't standard C — newlib exposes it under feature flags, but
+ * the warning we hit under TaipanMiner's build profile is real. Roll a
+ * tiny helper so the file is self-contained. */
+static inline void copy_str(char *dst, const char *src, size_t size)
+{
+    if (size == 0) return;
+    strncpy(dst, src, size - 1);
+    dst[size - 1] = '\0';
+}
+
 #ifdef ESP_PLATFORM
 #include "nvs_flash.h"
 #endif
@@ -28,7 +38,7 @@ static void load_str(nvs_handle_t handle, const char *key, char *buf, size_t buf
 {
     size_t len = buf_size;
     if (nvs_get_str(handle, key, buf, &len) != ESP_OK) {
-        strlcpy(buf, fallback, buf_size);
+        copy_str(buf, fallback, buf_size);
     }
 }
 #endif
@@ -462,7 +472,7 @@ bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, c
         if (fallback == NULL) {
             buf[0] = '\0';
         } else {
-            strlcpy(buf, fallback, len);
+            copy_str(buf, fallback, len);
         }
         return BB_OK;
     }
@@ -479,7 +489,7 @@ bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, c
         if (fallback == NULL) {
             buf[0] = '\0';
         } else {
-            strlcpy(buf, fallback, len);
+            copy_str(buf, fallback, len);
         }
         return BB_OK;
     }
@@ -578,7 +588,7 @@ bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, c
     if (fallback == NULL) {
         buf[0] = '\0';
     } else {
-        strlcpy(buf, fallback, len);
+        copy_str(buf, fallback, len);
     }
     return BB_OK;
 }
