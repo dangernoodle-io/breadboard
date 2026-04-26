@@ -435,3 +435,12 @@ int bb_wifi_scan_get_cached(bb_wifi_ap_t *results, int max_results)
     }
     return count;
 }
+
+bb_err_t bb_wifi_set_hostname(const char *hostname)
+{
+    if (!hostname || !*hostname) return BB_ERR_INVALID_ARG;
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (!sta) return BB_ERR_INVALID_STATE;
+    esp_err_t err = esp_netif_set_hostname(sta, hostname);
+    return (err == ESP_OK) ? BB_OK : BB_ERR_INVALID_STATE;
+}

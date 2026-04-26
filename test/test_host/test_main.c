@@ -180,6 +180,11 @@ void test_multiple_assets_different_types(void);
 void test_asset_encoding_variations(void);
 void test_zero_length_asset(void);
 
+// Forward declarations from test_bb_wifi.c
+void test_bb_wifi_set_hostname_null(void);
+void test_bb_wifi_set_hostname_empty(void);
+void test_bb_wifi_set_hostname_valid(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
 }
@@ -370,6 +375,11 @@ int main(void) {
     RUN_TEST(test_bb_json_item_is_array_and_object);
     RUN_TEST(test_bb_json_item_serialize_subtree);
     RUN_TEST(test_bb_json_item_null_handle_is_safe);
+
+    // bb_wifi tests
+    RUN_TEST(test_bb_wifi_set_hostname_null);
+    RUN_TEST(test_bb_wifi_set_hostname_empty);
+    RUN_TEST(test_bb_wifi_set_hostname_valid);
 
     return UNITY_END();
 }
