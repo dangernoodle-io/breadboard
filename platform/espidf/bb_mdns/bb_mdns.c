@@ -36,6 +36,52 @@ static bool s_mdns_instance_name_set = false;
 
 static bool s_mdns_started = false;
 
+/* Pending TXT items: bb_mdns_set_txt() may be called before the service has
+ * actually started (start happens on wifi got-ip, async). Buffer the kv pairs
+ * and replay them in bb_mdns_start_internal so apps can configure TXT eagerly
+ * without racing the wifi callback. */
+#define BB_MDNS_TXT_PENDING_MAX 8
+typedef struct { char key[16]; char value[64]; bool in_use; } bb_mdns_txt_pending_t;
+static bb_mdns_txt_pending_t s_txt_pending[BB_MDNS_TXT_PENDING_MAX];
+
+static void txt_pending_store(const char *key, const char *value)
+{
+    /* Update existing slot if key already pending; otherwise take first free. */
+    int free_slot = -1;
+    for (int i = 0; i < BB_MDNS_TXT_PENDING_MAX; i++) {
+        if (s_txt_pending[i].in_use && strcmp(s_txt_pending[i].key, key) == 0) {
+            strncpy(s_txt_pending[i].value, value, sizeof(s_txt_pending[i].value) - 1);
+            s_txt_pending[i].value[sizeof(s_txt_pending[i].value) - 1] = '\0';
+            return;
+        }
+        if (!s_txt_pending[i].in_use && free_slot < 0) free_slot = i;
+    }
+    if (free_slot < 0) {
+        bb_log_w(TAG, "txt pending buffer full, dropping %s=%s", key, value);
+        return;
+    }
+    strncpy(s_txt_pending[free_slot].key, key, sizeof(s_txt_pending[free_slot].key) - 1);
+    s_txt_pending[free_slot].key[sizeof(s_txt_pending[free_slot].key) - 1] = '\0';
+    strncpy(s_txt_pending[free_slot].value, value, sizeof(s_txt_pending[free_slot].value) - 1);
+    s_txt_pending[free_slot].value[sizeof(s_txt_pending[free_slot].value) - 1] = '\0';
+    s_txt_pending[free_slot].in_use = true;
+}
+
+static void txt_pending_flush(const char *service_type)
+{
+    for (int i = 0; i < BB_MDNS_TXT_PENDING_MAX; i++) {
+        if (!s_txt_pending[i].in_use) continue;
+        esp_err_t err = mdns_service_txt_item_set(service_type, "_tcp",
+                                                  s_txt_pending[i].key,
+                                                  s_txt_pending[i].value);
+        if (err != ESP_OK) {
+            bb_log_w(TAG, "deferred txt %s=%s failed: %s",
+                     s_txt_pending[i].key, s_txt_pending[i].value, esp_err_to_name(err));
+        }
+        s_txt_pending[i].in_use = false;
+    }
+}
+
 // Find subscription by service and proto; return NULL if not found
 /* Compare service/proto strings tolerantly: IDF passes the strings back to
  * the notifier with inconsistent leading-underscore handling depending on
@@ -212,6 +258,7 @@ static void bb_mdns_start_internal(void)
         return;
     }
     s_mdns_started = true;
+    txt_pending_flush(service_type);
 
     bb_log_i(TAG, "mDNS started: %s.local (%s._tcp)", hostname, service_type);
 }
@@ -296,7 +343,12 @@ bool bb_mdns_started(void)
 
 void bb_mdns_set_txt(const char *key, const char *value)
 {
-    if (!s_mdns_started || !key || !value) return;
+    if (!key || !value) return;
+    if (!s_mdns_started) {
+        /* Buffer until service starts (typically when wifi gets an IP). */
+        txt_pending_store(key, value);
+        return;
+    }
     const char *service_type = s_mdns_service_type_set ? s_mdns_service_type : "_bsp";
     esp_err_t err = mdns_service_txt_item_set(service_type, "_tcp", key, value);
     if (err != ESP_OK) {
