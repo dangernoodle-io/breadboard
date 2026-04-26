@@ -17,7 +17,10 @@ test: ## Run host unit tests
 	$(PIO) test -e native
 
 coverage: test ## Coverage report (gcovr)
-	gcovr --root . --filter 'components/' --print-summary --coveralls gcovr-coveralls.json
+	gcovr --root . --filter 'components/' \
+	    --exclude-throw-branches \
+	    --exclude-unreachable-branches \
+	    --print-summary --coveralls gcovr-coveralls.json
 
 smoke: smoke-elecrow-p4-hmi7 smoke-arduino-uno-cc3000
 

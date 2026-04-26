@@ -1,0 +1,57 @@
+#include "bb_openapi.h"
+#include "bb_log.h"
+
+#include "esp_http_server.h"
+
+#include <string.h>
+
+static const char *TAG = "bb_openapi";
+
+// user_ctx holds a pointer to the caller-supplied bb_openapi_meta_t
+static esp_err_t openapi_handler(httpd_req_t *req)
+{
+    const bb_openapi_meta_t *meta = (const bb_openapi_meta_t *)req->user_ctx;
+
+    bb_json_t doc = bb_openapi_emit(meta);
+    if (!doc) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "openapi emit failed");
+        return ESP_FAIL;
+    }
+
+    char *json = bb_json_serialize(doc);
+    bb_json_free(doc);
+
+    if (!json) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "openapi serialize failed");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t err = httpd_resp_sendstr(req, json);
+    bb_json_free_str(json);
+
+    return err;
+}
+
+bb_err_t bb_openapi_register(bb_http_handle_t server, const bb_openapi_meta_t *meta)
+{
+    if (!server || !meta) return BB_ERR_INVALID_ARG;
+
+    httpd_handle_t h = (httpd_handle_t)server;
+
+    httpd_uri_t uri = {
+        .uri      = "/api/openapi.json",
+        .method   = HTTP_GET,
+        .handler  = openapi_handler,
+        .user_ctx = (void *)meta,
+    };
+
+    esp_err_t err = httpd_register_uri_handler(h, &uri);
+    if (err != ESP_OK) {
+        bb_log_e(TAG, "failed to register /api/openapi.json: %d", err);
+        return (bb_err_t)err;
+    }
+
+    bb_log_i(TAG, "registered GET /api/openapi.json");
+    return BB_OK;
+}

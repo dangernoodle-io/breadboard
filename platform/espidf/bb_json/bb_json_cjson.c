@@ -1,8 +1,39 @@
 #include "bb_json.h"
 
+#ifndef ESP_PLATFORM
+#include "bb_json_test_hooks.h"
+#endif
+
 #include <stdlib.h>
 #include <string.h>
 #include "cJSON.h"
+
+// ---------------------------------------------------------------------------
+// Fault injection (host-only test hook)
+// ---------------------------------------------------------------------------
+
+#ifndef ESP_PLATFORM
+
+static int s_alloc_fail_after = -1;  // -1 = disabled
+
+void bb_json_host_force_alloc_fail_after(int n)
+{
+    s_alloc_fail_after = n;
+}
+
+// Returns true if this alloc should be forced to fail.
+static bool should_fail_alloc(void)
+{
+    if (s_alloc_fail_after < 0) return false;
+    if (s_alloc_fail_after == 0) {
+        s_alloc_fail_after = -1;  // auto-reset after one failure
+        return true;
+    }
+    s_alloc_fail_after--;
+    return false;
+}
+
+#endif  // !ESP_PLATFORM
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -10,11 +41,17 @@
 
 bb_json_t bb_json_obj_new(void)
 {
+#ifndef ESP_PLATFORM
+    if (should_fail_alloc()) return NULL;
+#endif
     return (bb_json_t)cJSON_CreateObject();
 }
 
 bb_json_t bb_json_arr_new(void)
 {
+#ifndef ESP_PLATFORM
+    if (should_fail_alloc()) return NULL;
+#endif
     return (bb_json_t)cJSON_CreateArray();
 }
 
@@ -227,4 +264,19 @@ char *bb_json_item_serialize(bb_json_t item)
 {
     if (!item) return NULL;
     return cJSON_PrintUnformatted((cJSON *)item);
+}
+
+// ---------------------------------------------------------------------------
+// Raw JSON injection
+// ---------------------------------------------------------------------------
+
+void bb_json_obj_set_raw(bb_json_t obj, const char *key, const char *json_literal)
+{
+    if (!obj || !key) return;
+    cJSON *parsed = json_literal ? cJSON_Parse(json_literal) : NULL;
+    if (!parsed) {
+        cJSON_AddNullToObject((cJSON *)obj, key);
+        return;
+    }
+    cJSON_AddItemToObject((cJSON *)obj, key, parsed);
 }

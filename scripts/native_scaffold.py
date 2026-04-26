@@ -57,7 +57,7 @@ COMPONENT_MAP = {
         ["platform/espidf/bb_nv/bb_nv.c"],
     ),
     "bb_json": (
-        ["components/bb_json/include"],
+        ["components/bb_json/include", "platform/host/bb_json"],
         ["platform/espidf/bb_json/bb_json_cjson.c"],
     ),
     "bb_http": (
@@ -99,6 +99,10 @@ COMPONENT_MAP = {
     "bb_mdns": (
         ["components/bb_mdns/include"],
         ["platform/host/bb_mdns/bb_mdns_host.c"],
+    ),
+    "bb_openapi": (
+        ["components/bb_openapi/include"],
+        ["components/bb_openapi/src/bb_openapi_emit.c"],
     ),
 }
 
