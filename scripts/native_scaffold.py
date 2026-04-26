@@ -97,7 +97,7 @@ COMPONENT_MAP = {
         ["platform/host/bb_ota_validator/bb_ota_validator_host.c"],
     ),
     "bb_mdns": (
-        ["components/bb_mdns/include"],
+        ["components/bb_mdns/include", "platform/host/bb_mdns"],
         ["platform/host/bb_mdns/bb_mdns_host.c"],
     ),
     "bb_openapi": (

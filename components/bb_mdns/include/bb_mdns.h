@@ -25,15 +25,21 @@ void bb_mdns_set_instance_name(const char *instance_name);
 // Check if mDNS has been started.
 bool bb_mdns_started(void);
 
-// Update a single TXT record on the registered service. Safe to call after
-// init; no-op if mdns isn't started. Use for fields that change post-init
-// (version after OTA, worker name after settings change, etc.).
-void bb_mdns_set_txt(const char *key, const char *value);
-
 #endif /* ESP_PLATFORM */
 
 // Sanitize and build RFC 1035-compliant hostname label: lowercase [a-z0-9], collapse/trim dashes, cap at 63 chars.
 void bb_mdns_build_hostname(const char *prefix, const char *suffix, char *out, size_t out_size);
+
+// Update a single TXT record on the registered service. Safe to call after
+// init; no-op if mdns isn't started or before service start.
+// Use for fields that change post-init (version after OTA, state transitions, etc.).
+void bb_mdns_set_txt(const char *key, const char *value);
+
+/// Force an unsolicited re-announce of the local mDNS service.
+/// Useful after a burst of bb_mdns_set_txt calls — observers' IDF
+/// caches sometimes miss TXT-only updates without a full re-announce.
+/// Safe before service start (becomes a no-op until start).
+void bb_mdns_announce(void);
 
 typedef struct {
     char *key;
@@ -69,6 +75,3 @@ bb_err_t bb_mdns_browse_start(const char *service, const char *proto,
 /* Stop a previously-started browse. Returns BB_OK if stopped or already
  * unstarted (idempotent). */
 bb_err_t bb_mdns_browse_stop(const char *service, const char *proto);
-
-#ifdef ESP_PLATFORM
-#endif /* ESP_PLATFORM */

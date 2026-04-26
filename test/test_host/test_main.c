@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "../../components/bb_log/src/bb_log_internal.h"
+#include "bb_mdns_host_test_hooks.h"
 
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
@@ -302,9 +303,15 @@ void test_bb_mdns_browse_start_valid(void);
 void test_bb_mdns_browse_stop_valid(void);
 void test_bb_mdns_browse_stop_null_service(void);
 void test_bb_mdns_browse_stop_null_proto(void);
+void test_mdns_announce_explicit_increments_counter(void);
+void test_mdns_set_txt_does_not_announce_immediately(void);
+void test_mdns_set_txt_null_key_is_safe(void);
+void test_mdns_set_txt_null_value_is_safe(void);
+void test_mdns_host_reset_clears_counters(void);
 
 void setUp(void) {
     _bb_log_registry_reset();
+    bb_mdns_host_reset();
 }
 void tearDown(void) {}
 
@@ -616,6 +623,11 @@ int main(void) {
     RUN_TEST(test_bb_mdns_browse_stop_valid);
     RUN_TEST(test_bb_mdns_browse_stop_null_service);
     RUN_TEST(test_bb_mdns_browse_stop_null_proto);
+    RUN_TEST(test_mdns_announce_explicit_increments_counter);
+    RUN_TEST(test_mdns_set_txt_does_not_announce_immediately);
+    RUN_TEST(test_mdns_set_txt_null_key_is_safe);
+    RUN_TEST(test_mdns_set_txt_null_value_is_safe);
+    RUN_TEST(test_mdns_host_reset_clears_counters);
 
     return UNITY_END();
 }
