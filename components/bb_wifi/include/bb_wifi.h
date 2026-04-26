@@ -4,6 +4,16 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#ifdef ESP_PLATFORM
+#include "bb_nv.h"
+#else
+// Host-compatible error type definition
+typedef int bb_err_t;
+#define BB_OK 0
+#define BB_ERR_INVALID_ARG 1
+#define BB_ERR_INVALID_STATE 5
+#endif
+
 // Host-safe types (usable outside #ifdef ESP_PLATFORM)
 #define WIFI_SCAN_MAX 20
 
@@ -26,9 +36,15 @@ typedef struct {
     int retry_count;     // STA retry attempts since last connect
 } bb_wifi_info_t;
 
-#ifdef ESP_PLATFORM
+/* Set the DHCP host name (Option 12) advertised by the STA netif.
+ * Independent of mDNS — call bb_mdns_set_hostname() separately if you
+ * want the same value on both surfaces. Safe to call before STA connects;
+ * the value is sent on the next DHCP DISCOVER/REQUEST. Returns
+ * BB_ERR_INVALID_ARG on NULL/empty hostname; BB_ERR_INVALID_STATE if
+ * the STA netif isn't initialized yet. */
+bb_err_t bb_wifi_set_hostname(const char *hostname);
 
-#include "bb_nv.h"
+#ifdef ESP_PLATFORM
 
 // ESP32-specific functions and types
 
