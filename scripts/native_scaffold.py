@@ -92,6 +92,10 @@ COMPONENT_MAP = {
         ["components/bb_ota_validator/include"],
         ["platform/host/bb_ota_validator/bb_ota_validator_host.c"],
     ),
+    "bb_mdns": (
+        ["components/bb_mdns/include"],
+        ["platform/host/bb_mdns/bb_mdns_host.c"],
+    ),
 }
 
 cJSON_LIB_DEP = "https://github.com/DaveGamble/cJSON.git#v1.7.18"
