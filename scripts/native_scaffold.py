@@ -62,7 +62,11 @@ COMPONENT_MAP = {
     ),
     "bb_http": (
         ["components/bb_http/include"],
-        ["components/bb_http/src/http_utils.c"],
+        [
+            "components/bb_http/src/http_utils.c",
+            "components/bb_http/src/route_registry.c",
+            "platform/host/bb_http/bb_http_host.c",
+        ],
     ),
     "bb_prov": (
         ["components/bb_prov/include"],
