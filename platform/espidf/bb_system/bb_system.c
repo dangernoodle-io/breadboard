@@ -2,6 +2,7 @@
 
 #include "bb_log.h"
 
+#include "esp_app_desc.h"
 #include "esp_system.h"
 
 static const char *TAG = "bb_system";
@@ -79,13 +80,14 @@ bool bb_system_is_abnormal_reset(void)
     return reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT || reason == ESP_RST_PANIC;
 }
 
-// Forward-declare bb_system_get_version from bb_http.h (defined in platform/espidf/system/system.c)
-extern void bb_system_get_version(char *out, size_t out_size);
+const char *bb_system_get_version(void)
+{
+    const esp_app_desc_t *app = esp_app_get_description();
+    return (app && app->version[0]) ? app->version : "0.0.0";
+}
 
 void bb_system_log_boot_info(void)
 {
     const char *reason_str = bb_system_reset_reason_str(bb_system_get_reset_reason());
-    char version[64];
-    bb_system_get_version(version, sizeof(version));
-    bb_log_i(TAG, "boot: reset=%s version=%s", reason_str, version);
+    bb_log_i(TAG, "boot: reset=%s version=%s", reason_str, bb_system_get_version());
 }

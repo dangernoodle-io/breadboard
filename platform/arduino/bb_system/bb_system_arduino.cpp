@@ -49,3 +49,14 @@ void bb_system_log_boot_info(void)
 {
     bb_log_i(TAG, "boot: reset=power-on");
 }
+
+const char *bb_system_get_version(void)
+{
+#ifdef BB_SYSTEM_VERSION_OVERRIDE
+    return BB_SYSTEM_VERSION_OVERRIDE;
+#elif defined(BB_FIRMWARE_VERSION)
+    return BB_FIRMWARE_VERSION;
+#else
+    return "0.0.0";
+#endif
+}

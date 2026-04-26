@@ -1,4 +1,5 @@
 #include "bb_http.h"
+#include "bb_system.h"
 #include "bb_wifi.h"
 
 #include <inttypes.h>
@@ -12,9 +13,7 @@
 
 static bb_err_t version_handler(bb_http_request_t *req)
 {
-    char version[32];
-    version[0] = '\0';
-    bb_system_get_version(version, sizeof(version));
+    const char *version = bb_system_get_version();
     bb_http_resp_set_header(req, "Content-Type", "text/plain");
     return bb_http_resp_send(req, version, strlen(version));
 }

@@ -36,6 +36,12 @@ bool bb_system_is_abnormal_reset(void);
 /// Call once early in app_main. Safe before NV init.
 void bb_system_log_boot_info(void);
 
+/// Returns the running firmware version string.
+/// On ESP-IDF: thin wrapper over esp_app_get_description()->version.
+/// On host/Arduino: compile-time BB_SYSTEM_VERSION_OVERRIDE or BB_FIRMWARE_VERSION, else "0.0.0".
+/// Pointer is valid for the lifetime of the program; do not free.
+const char *bb_system_get_version(void);
+
 #ifdef __cplusplus
 }
 #endif

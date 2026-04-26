@@ -1,6 +1,7 @@
 #include "bb_openapi.h"
 #include "bb_http.h"
 #include "bb_log.h"
+#include "bb_system.h"
 
 #include "esp_http_server.h"
 
@@ -13,7 +14,10 @@ static esp_err_t openapi_handler(httpd_req_t *req)
 {
     const bb_openapi_meta_t *meta = (const bb_openapi_meta_t *)req->user_ctx;
 
-    bb_json_t doc = bb_openapi_emit(meta);
+    bb_openapi_meta_t effective = *meta;
+    if (!effective.version) effective.version = bb_system_get_version();
+
+    bb_json_t doc = bb_openapi_emit(&effective);
     if (!doc) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "openapi emit failed");
         return ESP_FAIL;
