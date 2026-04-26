@@ -53,6 +53,18 @@ Public headers guard `esp_*.h` and `freertos/*.h` behind `#ifdef ESP_PLATFORM` s
 
 **Component authors:** See the API conventions section in [CLAUDE.md](CLAUDE.md) for portability rules.
 
+## Host tests in downstream projects
+
+Downstream projects that host-test code linking against `bb_*` components can opt into a Python scaffold script that automates the wiring of includes, source files, and dependencies. Rather than manually managing include paths and build filters for each component, declare your dependencies once:
+
+```ini
+[env:native]
+extra_scripts = pre:.breadboard/scripts/native_scaffold.py
+custom_bb_components = bb_log bb_nv bb_json
+```
+
+The scaffold resolves absolute paths to breadboard sources, handles cJSON lib_dep automatically if `bb_json` is listed, and skips de-duplication if a path is already present. Unknown component names cause the build to fail with a clear error. See `COMPONENT_MAP` in the script for the full list of supported components.
+
 ## Development
 
 ```bash
