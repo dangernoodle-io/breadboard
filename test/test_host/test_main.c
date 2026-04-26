@@ -295,6 +295,10 @@ void test_openapi_emit_response_null_description(void);
 void test_openapi_emit_response_null_content_type_defaults_to_json(void);
 void test_openapi_emit_long_path_truncates_operation_id(void);
 
+// Forward declarations from test_bb_system.c
+void test_bb_system_get_version_returns_nonnull(void);
+void test_bb_system_get_version_default_is_host_string(void);
+
 // Forward declarations from test_bb_mdns.c
 void test_bb_mdns_browse_start_null_service(void);
 void test_bb_mdns_browse_start_null_proto(void);
@@ -614,6 +618,10 @@ int main(void) {
     RUN_TEST(test_openapi_emit_response_null_description);
     RUN_TEST(test_openapi_emit_response_null_content_type_defaults_to_json);
     RUN_TEST(test_openapi_emit_long_path_truncates_operation_id);
+
+    // bb_system tests
+    RUN_TEST(test_bb_system_get_version_returns_nonnull);
+    RUN_TEST(test_bb_system_get_version_default_is_host_string);
 
     // bb_mdns tests
     RUN_TEST(test_bb_mdns_browse_start_null_service);

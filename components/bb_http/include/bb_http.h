@@ -150,9 +150,7 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
 
 // Portable platform helpers. Implemented per-backend under
 // platform/espidf/system/ and platform/arduino/system/.
-//   bb_system_get_version: null-terminates out with the running firmware version.
 //   bb_system_reboot: reboots the device; does not return on success.
-void bb_system_get_version(char *out, size_t out_size);
 void bb_system_reboot(void);
 
 // Ensure the HTTP server is started (low-level helper; prefer bb_http_server_start).

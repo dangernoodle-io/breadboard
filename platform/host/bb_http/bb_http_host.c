@@ -91,11 +91,6 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
     return BB_OK;
 }
 
-void bb_system_get_version(char *out, size_t out_size)
-{
-    if (out && out_size > 0) out[0] = '\0';
-}
-
 void bb_system_reboot(void) {}
 
 bb_err_t bb_http_server_ensure_started(void) { return BB_OK; }
