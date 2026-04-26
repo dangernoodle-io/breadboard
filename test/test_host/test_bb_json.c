@@ -498,3 +498,46 @@ void test_bb_json_item_null_handle_is_safe(void)
     TEST_ASSERT_NULL(bb_json_arr_get_item(NULL, 0));
     TEST_ASSERT_NULL(bb_json_obj_get_item(NULL, "k"));
 }
+
+// ---------------------------------------------------------------------------
+// bb_json_arr_append_string_n
+// ---------------------------------------------------------------------------
+
+void test_bb_json_arr_append_string_n_basic(void)
+{
+    bb_json_t arr = bb_json_arr_new();
+    TEST_ASSERT_NOT_NULL(arr);
+
+    // Append a substring: "hello" from "hello world"
+    bb_json_arr_append_string_n(arr, "hello world", 5);
+    // Append a single-char string
+    bb_json_arr_append_string_n(arr, "xy", 1);
+
+    TEST_ASSERT_EQUAL_INT(2, bb_json_arr_size(arr));
+
+    bb_json_t item0 = bb_json_arr_get_item(arr, 0);
+    TEST_ASSERT_TRUE(bb_json_item_is_string(item0));
+    TEST_ASSERT_EQUAL_STRING("hello", bb_json_item_get_string(item0));
+
+    bb_json_t item1 = bb_json_arr_get_item(arr, 1);
+    TEST_ASSERT_TRUE(bb_json_item_is_string(item1));
+    TEST_ASSERT_EQUAL_STRING("x", bb_json_item_get_string(item1));
+
+    bb_json_free(arr);
+}
+
+void test_bb_json_arr_append_string_n_null_arr_is_safe(void)
+{
+    // Must not crash
+    bb_json_arr_append_string_n(NULL, "abc", 3);
+}
+
+void test_bb_json_arr_append_string_n_null_str_is_safe(void)
+{
+    bb_json_t arr = bb_json_arr_new();
+    TEST_ASSERT_NOT_NULL(arr);
+    // Must not crash; nothing appended
+    bb_json_arr_append_string_n(arr, NULL, 3);
+    TEST_ASSERT_EQUAL_INT(0, bb_json_arr_size(arr));
+    bb_json_free(arr);
+}
