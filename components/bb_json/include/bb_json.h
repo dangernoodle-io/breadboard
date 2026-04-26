@@ -92,6 +92,16 @@ int         bb_json_item_get_int   (bb_json_t item);
 // Free with bb_json_free_str.
 char *bb_json_item_serialize(bb_json_t item);
 
+// ---------------------------------------------------------------------------
+// Raw JSON injection
+// ---------------------------------------------------------------------------
+
+// Parse json_literal as JSON and attach the resulting value under key in obj.
+// json_literal must be a valid JSON text (object, array, or scalar).
+// If json_literal is NULL or fails to parse, a JSON null is inserted instead.
+// Ownership of the parsed value transfers to obj.
+void bb_json_obj_set_raw(bb_json_t obj, const char *key, const char *json_literal);
+
 #ifdef __cplusplus
 }
 #endif
