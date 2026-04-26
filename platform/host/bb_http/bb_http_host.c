@@ -3,6 +3,14 @@
 // The route registry (route_registry.c) is portable and compiled directly.
 #include "bb_http.h"
 
+// Test hook: force bb_http_register_route to fail
+static bool s_force_register_fail = false;
+
+void bb_http_host_force_register_fail(bool fail)
+{
+    s_force_register_fail = fail;
+}
+
 bb_err_t bb_http_register_route(bb_http_handle_t server,
                                 bb_http_method_t method,
                                 const char *path,
@@ -12,6 +20,9 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
     (void)method;
     (void)path;
     (void)handler;
+    if (s_force_register_fail) {
+        return BB_ERR_INVALID_STATE;
+    }
     return BB_OK;
 }
 

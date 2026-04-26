@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "bb_http.h"
 #include <stddef.h>
+#include <stdio.h>
 
 // ---------------------------------------------------------------------------
 // Minimal handler stub — not invoked by registry tests
@@ -176,4 +177,66 @@ void test_route_registry_count_after_clear_and_readd(void)
     bb_http_route_registry_clear();
     bb_http_register_described_route(NULL, &s_route_health);
     TEST_ASSERT_EQUAL(1, bb_http_route_registry_count());
+}
+
+// Forward declaration for test infra
+extern void bb_http_host_force_register_fail(bool fail);
+
+void test_register_described_route_rejects_null(void)
+{
+    bb_http_route_registry_clear();
+    bb_err_t err = bb_http_register_described_route(NULL, NULL);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+    TEST_ASSERT_EQUAL(0, bb_http_route_registry_count());
+}
+
+void test_register_described_route_propagates_underlying_failure(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_host_force_register_fail(true);
+    bb_err_t err = bb_http_register_described_route(NULL, &s_route_stats);
+    bb_http_host_force_register_fail(false);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    TEST_ASSERT_EQUAL(0, bb_http_route_registry_count());
+}
+
+void test_register_described_route_overflow_returns_ok(void)
+{
+    bb_http_route_registry_clear();
+
+    // Build 65 route descriptors (cap is 64)
+    static const bb_route_response_t s_overflow_responses[] = {
+        { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+        { .status = 0 },
+    };
+
+    static bb_route_t s_overflow_routes[65];
+    for (int i = 0; i < 65; i++) {
+        // Build path string: "/api/r0", "/api/r1", ..., "/api/r64"
+        static char paths[65][16];
+        snprintf(paths[i], sizeof(paths[i]), "/api/r%d", i);
+        s_overflow_routes[i] = (bb_route_t){
+            .method               = BB_HTTP_GET,
+            .path                 = paths[i],
+            .tag                  = "overflow",
+            .summary              = "overflow test",
+            .operation_id         = NULL,
+            .request_content_type = NULL,
+            .request_schema       = NULL,
+            .responses            = s_overflow_responses,
+            .handler              = stub_handler,
+        };
+    }
+
+    // Register 64 routes — should succeed
+    for (int i = 0; i < 64; i++) {
+        bb_err_t err = bb_http_register_described_route(NULL, &s_overflow_routes[i]);
+        TEST_ASSERT_EQUAL(BB_OK, err);
+    }
+    TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
+
+    // 65th should succeed but not add to registry (overflow logged)
+    bb_err_t err = bb_http_register_described_route(NULL, &s_overflow_routes[64]);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
 }
