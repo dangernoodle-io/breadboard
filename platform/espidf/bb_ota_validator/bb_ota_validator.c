@@ -94,7 +94,30 @@ bb_err_t bb_ota_validator_init(bb_http_handle_t server)
         }
     }
 
-    bb_err_t rc = bb_http_register_route(server, BB_HTTP_POST, "/api/ota/mark-valid", mark_valid_handler);
+    static const bb_route_response_t s_mark_valid_responses[] = {
+        { 200, "application/json",
+          "{\"type\":\"object\","
+          "\"properties\":{\"status\":{\"type\":\"string\"}},"
+          "\"required\":[\"status\"]}",
+          "firmware marked valid; rollback cancelled" },
+        { 409, "application/json",
+          "{\"type\":\"object\","
+          "\"properties\":{\"error\":{\"type\":\"string\"}},"
+          "\"required\":[\"error\"]}",
+          "no OTA pending verification" },
+        { 0 },
+    };
+
+    static const bb_route_t s_mark_valid_route = {
+        .method   = BB_HTTP_POST,
+        .path     = "/api/ota/mark-valid",
+        .tag      = "ota",
+        .summary  = "Mark running firmware as valid",
+        .responses = s_mark_valid_responses,
+        .handler  = mark_valid_handler,
+    };
+
+    bb_err_t rc = bb_http_register_described_route(server, &s_mark_valid_route);
     return rc == BB_OK ? ESP_OK : ESP_FAIL;
 }
 

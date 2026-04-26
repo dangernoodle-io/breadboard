@@ -40,8 +40,29 @@ void bb_http_route_registry_foreach(bb_route_walker_fn cb, void *ctx)
 }
 
 // ---------------------------------------------------------------------------
+// Internal helper: add a descriptor pointer to the registry
+// ---------------------------------------------------------------------------
+
+static bb_err_t registry_add(const bb_route_t *route)
+{
+    if (s_count >= BB_ROUTE_REGISTRY_CAP) {
+        bb_log_e(TAG, "route registry full (cap=%d); dropping descriptor for %s",
+                 BB_ROUTE_REGISTRY_CAP, route->path ? route->path : "(null)");
+        return BB_OK;  // overflow is non-fatal
+    }
+    s_registry[s_count++] = route;
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
 // Described route registration
 // ---------------------------------------------------------------------------
+
+bb_err_t bb_http_register_route_descriptor_only(const bb_route_t *route)
+{
+    if (!route) return BB_ERR_INVALID_ARG;
+    return registry_add(route);
+}
 
 bb_err_t bb_http_register_described_route(bb_http_handle_t server,
                                           const bb_route_t *route)
@@ -55,12 +76,5 @@ bb_err_t bb_http_register_described_route(bb_http_handle_t server,
     }
 
     // Only add to the registry on success.
-    if (s_count >= BB_ROUTE_REGISTRY_CAP) {
-        bb_log_e(TAG, "route registry full (cap=%d); dropping descriptor for %s",
-                 BB_ROUTE_REGISTRY_CAP, route->path ? route->path : "(null)");
-        return BB_OK;  // underlying route is registered; overflow is non-fatal
-    }
-
-    s_registry[s_count++] = route;
-    return BB_OK;
+    return registry_add(route);
 }

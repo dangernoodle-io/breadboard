@@ -101,12 +101,66 @@ static bb_err_t log_level_get_handler(bb_http_request_t *req)
     return err;
 }
 
+// ---------------------------------------------------------------------------
+// Route descriptors
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_log_level_get_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"levels\":{\"type\":\"array\","
+      "\"items\":{\"type\":\"string\","
+      "\"enum\":[\"none\",\"error\",\"warn\",\"info\",\"debug\",\"verbose\"]}},"
+      "\"tags\":{\"type\":\"array\","
+      "\"items\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"tag\":{\"type\":\"string\"},"
+      "\"level\":{\"type\":\"string\"}},"
+      "\"required\":[\"tag\",\"level\"]}}},"
+      "\"required\":[\"levels\",\"tags\"]}",
+      "current per-tag log levels and available level names" },
+    { 0 },
+};
+
+static const bb_route_t s_log_level_get_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/log/level",
+    .tag      = "logs",
+    .summary  = "Get log levels",
+    .responses = s_log_level_get_responses,
+    .handler  = log_level_get_handler,
+};
+
+static const bb_route_response_t s_log_level_post_responses[] = {
+    { 204, NULL, NULL, "log level updated" },
+    { 400, "text/plain", NULL, "invalid tag or level" },
+    { 0 },
+};
+
+static const bb_route_t s_log_level_post_route = {
+    .method               = BB_HTTP_POST,
+    .path                 = "/api/log/level",
+    .tag                  = "logs",
+    .summary              = "Set log level for a tag",
+    .request_content_type = "application/x-www-form-urlencoded",
+    .request_schema       =
+        "{\"type\":\"object\","
+        "\"properties\":{"
+        "\"tag\":{\"type\":\"string\"},"
+        "\"level\":{\"type\":\"string\","
+        "\"enum\":[\"none\",\"error\",\"warn\",\"info\",\"debug\",\"verbose\"]}},"
+        "\"required\":[\"tag\",\"level\"]}",
+    .responses = s_log_level_post_responses,
+    .handler  = log_level_handler,
+};
+
 bb_err_t bb_log_register_routes(void *server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
-    bb_err_t err = bb_http_register_route(server, BB_HTTP_POST, "/api/log/level", log_level_handler);
+    bb_err_t err = bb_http_register_described_route(server, &s_log_level_post_route);
     if (err != BB_OK) return err;
 
-    return bb_http_register_route(server, BB_HTTP_GET, "/api/log/level", log_level_get_handler);
+    return bb_http_register_described_route(server, &s_log_level_get_route);
 }

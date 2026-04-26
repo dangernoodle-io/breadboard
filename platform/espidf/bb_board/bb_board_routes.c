@@ -2,11 +2,10 @@
 
 #include <string.h>
 
+#include "bb_http.h"
 #include "bb_json.h"
-#include "esp_err.h"
-#include "esp_http_server.h"
 
-static esp_err_t board_info_handler(httpd_req_t *req)
+static bb_err_t board_info_handler(bb_http_request_t *req)
 {
     bb_board_info_t info;
     bb_board_get_info(&info);
@@ -29,19 +28,52 @@ static esp_err_t board_info_handler(httpd_req_t *req)
     bb_json_obj_set_bool(root, "ota_validated", info.ota_validated);
 
     char *json = bb_json_serialize(root);
-    httpd_resp_set_type(req, "application/json");
-    esp_err_t err = httpd_resp_sendstr(req, json ? json : "{}");
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_err_t err = bb_http_resp_send(req, json ? json : "{}", json ? strlen(json) : 2);
     if (json) bb_json_free_str(json);
     bb_json_free(root);
     return err;
 }
 
+// ---------------------------------------------------------------------------
+// Route descriptor
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_board_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"board\":{\"type\":\"string\"},"
+      "\"project_name\":{\"type\":\"string\"},"
+      "\"version\":{\"type\":\"string\"},"
+      "\"idf_version\":{\"type\":\"string\"},"
+      "\"build_date\":{\"type\":\"string\"},"
+      "\"build_time\":{\"type\":\"string\"},"
+      "\"chip_model\":{\"type\":\"string\"},"
+      "\"cores\":{\"type\":\"integer\"},"
+      "\"mac\":{\"type\":\"string\"},"
+      "\"flash_size\":{\"type\":\"integer\"},"
+      "\"total_heap\":{\"type\":\"integer\"},"
+      "\"free_heap\":{\"type\":\"integer\"},"
+      "\"app_size\":{\"type\":\"integer\"},"
+      "\"reset_reason\":{\"type\":\"string\"},"
+      "\"ota_validated\":{\"type\":\"boolean\"}},"
+      "\"required\":[\"board\",\"version\"]}",
+      "board hardware and firmware info" },
+    { 0 },
+};
+
+static const bb_route_t s_board_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/board",
+    .tag      = "board",
+    .summary  = "Get board info",
+    .responses = s_board_responses,
+    .handler  = board_info_handler,
+};
+
 bb_err_t bb_board_register_routes(void *server)
 {
-    if (!server) return ESP_ERR_INVALID_ARG;
-    httpd_handle_t h = (httpd_handle_t)server;
-    httpd_uri_t uri = {
-        .uri = "/api/board", .method = HTTP_GET, .handler = board_info_handler, .user_ctx = NULL,
-    };
-    return httpd_register_uri_handler(h, &uri);
+    if (!server) return BB_ERR_INVALID_ARG;
+    return bb_http_register_described_route(server, &s_board_route);
 }

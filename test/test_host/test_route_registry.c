@@ -241,7 +241,68 @@ void test_register_described_route_overflow_returns_ok(void)
     TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
 }
 
-void test_register_described_route_overflow_logs_null_path(void)
+// ---------------------------------------------------------------------------
+// bb_http_register_route_descriptor_only tests
+// ---------------------------------------------------------------------------
+
+void test_register_route_descriptor_only_rejects_null(void)
+{
+    bb_http_route_registry_clear();
+    bb_err_t err = bb_http_register_route_descriptor_only(NULL);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+    TEST_ASSERT_EQUAL(0, bb_http_route_registry_count());
+}
+
+void test_register_route_descriptor_only_adds_to_registry(void)
+{
+    bb_http_route_registry_clear();
+    bb_err_t err = bb_http_register_route_descriptor_only(&s_route_stats);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(1, bb_http_route_registry_count());
+
+    // Verify the descriptor is preserved in the registry
+    walk_ctx_t ctx = { .count = 0 };
+    bb_http_route_registry_foreach(collect_walker, &ctx);
+    TEST_ASSERT_EQUAL(1, ctx.count);
+    TEST_ASSERT_EQUAL_PTR(&s_route_stats, ctx.visited[0]);
+}
+
+void test_register_route_descriptor_only_overflow_returns_ok(void)
+{
+    bb_http_route_registry_clear();
+
+    static const bb_route_response_t s_overflow_responses[] = {
+        { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+        { .status = 0 },
+    };
+
+    static bb_route_t s_overflow_routes[65];
+    for (int i = 0; i < 65; i++) {
+        static char paths[65][16];
+        snprintf(paths[i], sizeof(paths[i]), "/api/do%d", i);
+        s_overflow_routes[i] = (bb_route_t){
+            .method    = BB_HTTP_GET,
+            .path      = paths[i],
+            .tag       = "overflow",
+            .summary   = "descriptor-only overflow test",
+            .responses = s_overflow_responses,
+            .handler   = stub_handler,
+        };
+    }
+
+    for (int i = 0; i < 64; i++) {
+        bb_err_t err = bb_http_register_route_descriptor_only(&s_overflow_routes[i]);
+        TEST_ASSERT_EQUAL(BB_OK, err);
+    }
+    TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
+
+    // 65th should succeed (overflow non-fatal) but not add to registry
+    bb_err_t err = bb_http_register_route_descriptor_only(&s_overflow_routes[64]);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
+}
+
+void test_register_route_descriptor_only_overflow_logs_null_path(void)
 {
     bb_http_route_registry_clear();
 

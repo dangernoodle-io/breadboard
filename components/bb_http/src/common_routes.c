@@ -68,19 +68,94 @@ static bb_err_t scan_handler(bb_http_request_t *req)
 }
 #endif
 
+// ---------------------------------------------------------------------------
+// Route descriptors
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_version_responses[] = {
+    { 200, "text/plain", NULL, "firmware version string" },
+    { 0 },
+};
+
+static const bb_route_t s_version_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/version",
+    .tag      = "system",
+    .summary  = "Get firmware version",
+    .responses = s_version_responses,
+    .handler  = version_handler,
+};
+
+static const bb_route_response_t s_ping_responses[] = {
+    { 200, "text/plain", NULL, "ok <uptime_seconds>" },
+    { 0 },
+};
+
+static const bb_route_t s_ping_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/ping",
+    .tag      = "system",
+    .summary  = "Liveness check",
+    .responses = s_ping_responses,
+    .handler  = ping_handler,
+};
+
+static const bb_route_response_t s_reboot_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"status\":{\"type\":\"string\"}},"
+      "\"required\":[\"status\"]}",
+      "reboot acknowledged" },
+    { 0 },
+};
+
+static const bb_route_t s_reboot_route = {
+    .method   = BB_HTTP_POST,
+    .path     = "/api/reboot",
+    .tag      = "system",
+    .summary  = "Reboot the device",
+    .responses = s_reboot_responses,
+    .handler  = reboot_handler,
+};
+
+#ifdef ESP_PLATFORM
+static const bb_route_response_t s_scan_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"array\","
+      "\"items\":{"
+      "\"type\":\"object\","
+      "\"properties\":{"
+      "\"ssid\":{\"type\":\"string\"},"
+      "\"rssi\":{\"type\":\"integer\"},"
+      "\"secure\":{\"type\":\"boolean\"}},"
+      "\"required\":[\"ssid\",\"rssi\",\"secure\"]}}",
+      "list of visible access points" },
+    { 0 },
+};
+
+static const bb_route_t s_scan_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/scan",
+    .tag      = "wifi",
+    .summary  = "Scan for Wi-Fi networks",
+    .responses = s_scan_responses,
+    .handler  = scan_handler,
+};
+#endif
+
 bb_err_t bb_http_register_common_routes(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
     bb_err_t rc;
-    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/version", version_handler);
+    rc = bb_http_register_described_route(server, &s_version_route);
     if (rc != BB_OK) return rc;
-    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/ping", ping_handler);
+    rc = bb_http_register_described_route(server, &s_ping_route);
     if (rc != BB_OK) return rc;
-    rc = bb_http_register_route(server, BB_HTTP_POST, "/api/reboot", reboot_handler);
+    rc = bb_http_register_described_route(server, &s_reboot_route);
     if (rc != BB_OK) return rc;
 #ifdef ESP_PLATFORM
-    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/scan", scan_handler);
+    rc = bb_http_register_described_route(server, &s_scan_route);
     if (rc != BB_OK) return rc;
 #endif
     return BB_OK;

@@ -19,6 +19,7 @@ static char s_releases_url[512] = "";
 static char s_firmware_board[64] = "";
 
 #ifdef ESP_PLATFORM
+#include "bb_http.h"
 #include "bb_log.h"
 #include "bb_wifi.h"
 #include "esp_https_ota.h"
@@ -933,6 +934,89 @@ static esp_err_t ota_status_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+// ---------------------------------------------------------------------------
+// Route descriptors (handler registered via raw httpd API; descriptors are
+// descriptor-only entries added to the registry for OpenAPI spec emission)
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_ota_check_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"current_version\":{\"type\":\"string\"},"
+      "\"latest_version\":{\"type\":\"string\"},"
+      "\"update_available\":{\"type\":\"boolean\"},"
+      "\"asset\":{\"type\":\"string\"}},"
+      "\"required\":[\"latest_version\",\"update_available\"]}",
+      "cached check result with version comparison" },
+    { 202, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"status\":{\"type\":\"string\"}},"
+      "\"required\":[\"status\"]}",
+      "check triggered in background" },
+    { 0 },
+};
+
+static const bb_route_t s_ota_check_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/ota/check",
+    .tag      = "ota",
+    .summary  = "Check for firmware update",
+    .responses = s_ota_check_responses,
+    .handler  = NULL,
+};
+
+static const bb_route_response_t s_ota_update_responses[] = {
+    { 202, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"status\":{\"type\":\"string\"}},"
+      "\"required\":[\"status\"]}",
+      "update download started" },
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"status\":{\"type\":\"string\"}},"
+      "\"required\":[\"status\"]}",
+      "already up to date" },
+    { 409, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "update already in progress" },
+    { 0 },
+};
+
+static const bb_route_t s_ota_update_route = {
+    .method   = BB_HTTP_POST,
+    .path     = "/api/ota/update",
+    .tag      = "ota",
+    .summary  = "Trigger firmware update",
+    .responses = s_ota_update_responses,
+    .handler  = NULL,
+};
+
+static const bb_route_response_t s_ota_status_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"state\":{\"type\":\"string\","
+      "\"enum\":[\"idle\",\"checking\",\"downloading\",\"verifying\",\"complete\",\"error\"]},"
+      "\"in_progress\":{\"type\":\"boolean\"},"
+      "\"progress_pct\":{\"type\":\"integer\"},"
+      "\"last_error\":{\"type\":\"string\"}},"
+      "\"required\":[\"state\",\"in_progress\",\"progress_pct\"]}",
+      "OTA state machine status" },
+    { 0 },
+};
+
+static const bb_route_t s_ota_status_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/ota/status",
+    .tag      = "ota",
+    .summary  = "Get OTA status",
+    .responses = s_ota_status_responses,
+    .handler  = NULL,
+};
+
 /**
  * Register OTA pull HTTP handlers with an existing httpd instance.
  */
@@ -985,6 +1069,11 @@ bb_err_t bb_ota_pull_register_handler(bb_http_handle_t server)
                  esp_err_to_name(err));
         return err;
     }
+
+    // Add descriptors to registry for OpenAPI spec emission.
+    bb_http_register_route_descriptor_only(&s_ota_check_route);
+    bb_http_register_route_descriptor_only(&s_ota_update_route);
+    bb_http_register_route_descriptor_only(&s_ota_status_route);
 
     bb_log_i(TAG, "OTA pull handlers registered");
     return ESP_OK;
