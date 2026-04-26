@@ -185,6 +185,15 @@ void test_bb_wifi_set_hostname_null(void);
 void test_bb_wifi_set_hostname_empty(void);
 void test_bb_wifi_set_hostname_valid(void);
 
+// Forward declarations from test_bb_mdns.c
+void test_bb_mdns_browse_start_null_service(void);
+void test_bb_mdns_browse_start_null_proto(void);
+void test_bb_mdns_browse_stop_unstarted(void);
+void test_bb_mdns_browse_start_valid(void);
+void test_bb_mdns_browse_stop_valid(void);
+void test_bb_mdns_browse_stop_null_service(void);
+void test_bb_mdns_browse_stop_null_proto(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
 }
@@ -380,6 +389,15 @@ int main(void) {
     RUN_TEST(test_bb_wifi_set_hostname_null);
     RUN_TEST(test_bb_wifi_set_hostname_empty);
     RUN_TEST(test_bb_wifi_set_hostname_valid);
+
+    // bb_mdns tests
+    RUN_TEST(test_bb_mdns_browse_start_null_service);
+    RUN_TEST(test_bb_mdns_browse_start_null_proto);
+    RUN_TEST(test_bb_mdns_browse_stop_unstarted);
+    RUN_TEST(test_bb_mdns_browse_start_valid);
+    RUN_TEST(test_bb_mdns_browse_stop_valid);
+    RUN_TEST(test_bb_mdns_browse_stop_null_service);
+    RUN_TEST(test_bb_mdns_browse_stop_null_proto);
 
     return UNITY_END();
 }

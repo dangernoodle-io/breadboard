@@ -12,6 +12,18 @@
 
 static const char *TAG = "bb_mdns";
 
+// Browse subscription table
+#define BB_MDNS_BROWSE_MAX 4
+typedef struct {
+    char service[32];
+    char proto[8];
+    bb_mdns_peer_cb on_peer;
+    bb_mdns_peer_removed_cb on_removed;
+    void *ctx;
+    bool in_use;
+} bb_mdns_browse_sub_t;
+static bb_mdns_browse_sub_t s_subs[BB_MDNS_BROWSE_MAX];
+
 // App-injected mDNS hostname
 static char s_mdns_hostname[64] = "bsp-device";
 static bool s_mdns_hostname_set = false;
@@ -23,6 +35,87 @@ static char s_mdns_instance_name[64] = "BSP Device";
 static bool s_mdns_instance_name_set = false;
 
 static bool s_mdns_started = false;
+
+// Find subscription by service and proto; return NULL if not found
+static bb_mdns_browse_sub_t *browse_sub_find(const char *service, const char *proto)
+{
+    for (int i = 0; i < BB_MDNS_BROWSE_MAX; i++) {
+        if (s_subs[i].in_use &&
+            strcmp(s_subs[i].service, service) == 0 &&
+            strcmp(s_subs[i].proto, proto) == 0) {
+            return &s_subs[i];
+        }
+    }
+    return NULL;
+}
+
+// Find unused slot; return NULL if table full
+static bb_mdns_browse_sub_t *browse_sub_alloc(void)
+{
+    for (int i = 0; i < BB_MDNS_BROWSE_MAX; i++) {
+        if (!s_subs[i].in_use) {
+            return &s_subs[i];
+        }
+    }
+    return NULL;
+}
+
+// Internal notifier called by mdns_browse for all results
+static void internal_notifier(mdns_result_t *results)
+{
+    for (mdns_result_t *r = results; r; r = r->next) {
+        // Find matching subscription
+        bb_mdns_browse_sub_t *sub = browse_sub_find(r->service_type, r->proto);
+        if (!sub) {
+            continue;  // Shouldn't happen but defensive
+        }
+
+        // Check if removal (ttl == 0)
+        if (r->ttl == 0) {
+            if (sub->on_removed) {
+                sub->on_removed(r->instance_name, sub->ctx);
+            }
+            continue;
+        }
+
+        // Build peer structure with stack-local allocations
+        char ip4_buf[16] = "";
+        const char *ip4 = NULL;
+
+        // Find first IPv4 address
+        if (r->addr) {
+            mdns_ip_addr_t *addr = r->addr;
+            for (; addr; addr = addr->next) {
+                if (addr->addr.type == ESP_IPADDR_TYPE_V4) {
+                    snprintf(ip4_buf, sizeof(ip4_buf), IPSTR, IP2STR(&addr->addr.u_addr.ip4));
+                    ip4 = ip4_buf;
+                    break;
+                }
+            }
+        }
+
+        // Build TXT array (point to IDF's arrays; they're valid for the call)
+        bb_mdns_txt_t txt_view[r->txt_count];
+        for (size_t i = 0; i < r->txt_count; i++) {
+            txt_view[i].key = (char *)r->txt[i].key;
+            txt_view[i].value = (char *)r->txt[i].value;
+        }
+
+        // Build peer and invoke callback
+        bb_mdns_peer_t peer = {
+            .instance_name = r->instance_name,
+            .hostname = r->hostname,
+            .ip4 = ip4,
+            .port = r->port,
+            .txt = txt_view,
+            .txt_count = r->txt_count,
+        };
+
+        if (sub->on_peer) {
+            sub->on_peer(&peer, sub->ctx);
+        }
+    }
+}
 
 static void mdns_build_hostname(char *out, size_t out_size)
 {
@@ -191,4 +284,75 @@ void bb_mdns_set_txt(const char *key, const char *value)
         bb_log_w(TAG, "mdns_service_txt_item_set(%s=%s) failed: %s",
                  key, value, esp_err_to_name(err));
     }
+}
+
+bb_err_t bb_mdns_browse_start(const char *service, const char *proto,
+                              bb_mdns_peer_cb on_peer,
+                              bb_mdns_peer_removed_cb on_removed,
+                              void *ctx)
+{
+    if (!service || !proto) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    // Check if already subscribed; if so, update callbacks (idempotent)
+    bb_mdns_browse_sub_t *existing = browse_sub_find(service, proto);
+    if (existing) {
+        existing->on_peer = on_peer;
+        existing->on_removed = on_removed;
+        existing->ctx = ctx;
+        return BB_OK;
+    }
+
+    // Not yet subscribed; find free slot
+    bb_mdns_browse_sub_t *slot = browse_sub_alloc();
+    if (!slot) {
+        return BB_ERR_NO_SPACE;
+    }
+
+    // Populate slot
+    strncpy(slot->service, service, sizeof(slot->service) - 1);
+    slot->service[sizeof(slot->service) - 1] = '\0';
+    strncpy(slot->proto, proto, sizeof(slot->proto) - 1);
+    slot->proto[sizeof(slot->proto) - 1] = '\0';
+    slot->on_peer = on_peer;
+    slot->on_removed = on_removed;
+    slot->ctx = ctx;
+
+    // Start browse (mdns_browse_new returns a handle, NULL on failure)
+    mdns_browse_t *handle = mdns_browse_new(service, proto, internal_notifier);
+    if (!handle) {
+        // Clear slot on failure
+        memset(slot, 0, sizeof(*slot));
+        bb_log_e(TAG, "mdns_browse_new(%s.%s) failed", service, proto);
+        return BB_ERR_INVALID_STATE;
+    }
+
+    slot->in_use = true;
+    bb_log_d(TAG, "browse started: %s.%s", service, proto);
+    return BB_OK;
+}
+
+bb_err_t bb_mdns_browse_stop(const char *service, const char *proto)
+{
+    if (!service || !proto) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    bb_mdns_browse_sub_t *sub = browse_sub_find(service, proto);
+    if (!sub) {
+        return BB_OK;  // Already unstarted (idempotent)
+    }
+
+    // Stop browse
+    esp_err_t err = mdns_browse_delete(service, proto);
+    if (err != ESP_OK) {
+        bb_log_w(TAG, "mdns_browse_delete(%s.%s) failed: %s",
+                 service, proto, esp_err_to_name(err));
+    }
+
+    // Clear slot regardless of error
+    memset(sub, 0, sizeof(*sub));
+    bb_log_d(TAG, "browse stopped: %s.%s", service, proto);
+    return BB_OK;
 }
