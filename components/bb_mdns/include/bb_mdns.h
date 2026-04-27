@@ -63,6 +63,43 @@ typedef struct {
 typedef void (*bb_mdns_peer_cb)(const bb_mdns_peer_t *peer, void *ctx);
 typedef void (*bb_mdns_peer_removed_cb)(const char *instance_name, void *ctx);
 
+/* Result of an async TXT query. instance_name, hostname, ip4, txt[] are
+ * owned by bb_mdns and valid only for the duration of the callback —
+ * same lifetime contract as bb_mdns_peer_t add events. err is BB_OK on
+ * success; on failure (timeout, no response, IDF error) other fields
+ * are unspecified except err. */
+typedef struct {
+    bb_err_t           err;
+    const char         *instance_name;
+    const char         *hostname;
+    const char         *ip4;
+    uint16_t            port;
+    const bb_mdns_txt_t *txt;
+    size_t              txt_count;
+} bb_mdns_query_result_t;
+
+typedef void (*bb_mdns_query_cb)(const bb_mdns_query_result_t *result, void *ctx);
+
+/* Async TXT query. Posts the query to bb_mdns's worker; the caller's
+ * task does NOT block. Callback fires from the bb_mdns dispatch task
+ * with result.err = BB_OK on success or an error code on failure
+ * (timeout, no response). timeout_ms is per-query (caps how long the
+ * worker waits in mdns_query_txt). instance_name/service/proto strings
+ * must remain valid until the callback fires.
+ *
+ * Returns BB_OK if the query was queued, BB_ERR_NO_SPACE if the query
+ * queue is full (caller should back off), BB_ERR_INVALID_ARG on NULL
+ * required args, BB_ERR_INVALID_STATE if mdns isn't initialized.
+ *
+ * SAFE TO CALL from any task including ISR-deferred contexts and
+ * esp_timer service task (the original buggy path). */
+bb_err_t bb_mdns_query_txt(const char *instance_name,
+                           const char *service,
+                           const char *proto,
+                           uint32_t timeout_ms,
+                           bb_mdns_query_cb cb,
+                           void *ctx);
+
 /* Start a continuous async browse for `_<service>._<proto>` on the LAN.
  * Either callback may be NULL. ctx is opaque user data passed through.
  * Returns BB_OK on success; BB_ERR_INVALID_ARG on NULL service/proto;

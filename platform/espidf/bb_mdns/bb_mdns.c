@@ -36,6 +36,21 @@ static TaskHandle_t     s_dispatch_task = NULL;
 static SemaphoreHandle_t s_subs_mutex   = NULL;
 static uint32_t         s_evt_drop_count = 0;
 
+// Async TXT query infrastructure
+#define BB_MDNS_QUERY_QUEUE_DEPTH 8
+
+typedef struct {
+    char instance_name[64];
+    char service[32];
+    char proto[8];
+    uint32_t timeout_ms;
+    bb_mdns_query_cb cb;
+    void *ctx;
+} bb_mdns_query_req_t;
+
+static QueueHandle_t s_query_queue = NULL;
+static TaskHandle_t  s_query_task  = NULL;
+
 // Event struct: single contiguous alloc; key/value in txt[] point into payload[]
 #define BB_MDNS_EVT_TXT_MAX 8
 typedef struct {
@@ -202,6 +217,52 @@ static bb_mdns_browse_sub_t *browse_sub_alloc(void)
         }
     }
     return NULL;
+}
+
+// Query worker: dequeues async TXT query requests, performs blocking
+// mdns_query_txt on this task (not the caller's), fires callback.
+static void bb_mdns_query_task(void *arg)
+{
+    (void)arg;
+    bb_mdns_query_req_t req;
+    for (;;) {
+        if (xQueueReceive(s_query_queue, &req, portMAX_DELAY) != pdTRUE) continue;
+
+        mdns_result_t *results = NULL;
+        esp_err_t err = mdns_query_txt(req.instance_name, req.service, req.proto,
+                                       req.timeout_ms, &results);
+
+        bb_mdns_query_result_t out = { .err = (err == ESP_OK) ? BB_OK : (bb_err_t)err };
+        char ip4_buf[16] = "";
+        bb_mdns_txt_t txt_view[8] = {0};
+
+        if (err == ESP_OK && results) {
+            if (results->addr) {
+                for (mdns_ip_addr_t *a = results->addr; a; a = a->next) {
+                    if (a->addr.type == ESP_IPADDR_TYPE_V4) {
+                        snprintf(ip4_buf, sizeof(ip4_buf), IPSTR,
+                                 IP2STR(&a->addr.u_addr.ip4));
+                        break;
+                    }
+                }
+            }
+            size_t n = results->txt_count > 8 ? 8 : results->txt_count;
+            for (size_t i = 0; i < n; i++) {
+                txt_view[i].key   = (char *)results->txt[i].key;
+                txt_view[i].value = (char *)results->txt[i].value;
+            }
+            out.instance_name = results->instance_name;
+            out.hostname      = results->hostname;
+            out.ip4           = ip4_buf[0] ? ip4_buf : NULL;
+            out.port          = results->port;
+            out.txt           = n ? txt_view : NULL;
+            out.txt_count     = n;
+        }
+
+        if (req.cb) req.cb(&out, req.ctx);
+
+        if (results) mdns_query_results_free(results);
+    }
 }
 
 // Dispatch task: dequeues events and fires consumer callbacks
@@ -481,6 +542,12 @@ void bb_mdns_init(void)
     if (!s_dispatch_task) {
         xTaskCreate(bb_mdns_dispatch_task, "bb_mdns_disp", 4096, NULL, 3, &s_dispatch_task);
     }
+    if (!s_query_queue) {
+        s_query_queue = xQueueCreate(BB_MDNS_QUERY_QUEUE_DEPTH, sizeof(bb_mdns_query_req_t));
+    }
+    if (!s_query_task) {
+        xTaskCreate(bb_mdns_query_task, "bb_mdns_query", 4096, NULL, 3, &s_query_task);
+    }
 
     // Register callback with bb_wifi
     bb_wifi_register_on_got_ip(bb_mdns_on_got_ip);
@@ -639,5 +706,18 @@ bb_err_t bb_mdns_browse_stop(const char *service, const char *proto)
     }
 
     bb_log_d(TAG, "browse stopped: %s.%s", service, proto);
+    return BB_OK;
+}
+
+bb_err_t bb_mdns_query_txt(const char *instance_name, const char *service, const char *proto,
+                           uint32_t timeout_ms, bb_mdns_query_cb cb, void *ctx)
+{
+    if (!instance_name || !service || !proto) return BB_ERR_INVALID_ARG;
+    if (!s_query_queue) return BB_ERR_INVALID_STATE;
+    bb_mdns_query_req_t req = { .timeout_ms = timeout_ms, .cb = cb, .ctx = ctx };
+    strncpy(req.instance_name, instance_name, sizeof(req.instance_name) - 1);
+    strncpy(req.service,       service,       sizeof(req.service)       - 1);
+    strncpy(req.proto,         proto,         sizeof(req.proto)         - 1);
+    if (xQueueSend(s_query_queue, &req, 0) != pdTRUE) return BB_ERR_NO_SPACE;
     return BB_OK;
 }

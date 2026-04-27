@@ -108,6 +108,16 @@ bb_err_t bb_mdns_browse_stop(const char *service, const char *proto)
     return BB_OK;
 }
 
+bb_err_t bb_mdns_query_txt(const char *instance_name, const char *service, const char *proto,
+                           uint32_t timeout_ms, bb_mdns_query_cb cb, void *ctx)
+{
+    (void)timeout_ms;
+    if (!instance_name || !service || !proto) return BB_ERR_INVALID_ARG;
+    (void)cb;
+    (void)ctx;
+    return BB_OK;  /* host: never delivers a callback; tests use dispatch hook */
+}
+
 /* Test hooks: directly invoke the registered callbacks without a queue/task.
  * This lets host tests exercise the dispatch path synchronously. */
 
@@ -128,5 +138,13 @@ bb_err_t bb_mdns_host_dispatch_removed(const char *service, const char *proto,
     bb_mdns_host_sub_t *sub = host_sub_find(service, proto);
     if (!sub) return BB_OK;
     if (sub->on_removed) sub->on_removed(instance_name, sub->ctx);
+    return BB_OK;
+}
+
+bb_err_t bb_mdns_host_dispatch_query_result(const bb_mdns_query_result_t *result,
+                                            bb_mdns_query_cb cb, void *ctx)
+{
+    if (!result) return BB_ERR_INVALID_ARG;
+    if (cb) cb(result, ctx);
     return BB_OK;
 }

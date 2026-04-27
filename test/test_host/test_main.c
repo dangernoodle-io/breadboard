@@ -325,6 +325,9 @@ void test_bb_mdns_dispatch_peer_null_cb_no_crash(void);
 void test_bb_mdns_dispatch_removed_null_cb_no_crash(void);
 void test_bb_mdns_dispatch_no_subscription_returns_ok(void);
 void test_bb_mdns_dispatch_peer_with_empty_ip4_dispatches_anyway(void);
+void test_bb_mdns_query_txt_null_args_returns_invalid_arg(void);
+void test_bb_mdns_query_dispatch_invokes_cb_with_result(void);
+void test_bb_mdns_query_dispatch_propagates_err_field(void);
 
 void setUp(void) {
     _bb_log_registry_reset();
@@ -662,6 +665,9 @@ int main(void) {
     RUN_TEST(test_bb_mdns_dispatch_removed_null_cb_no_crash);
     RUN_TEST(test_bb_mdns_dispatch_no_subscription_returns_ok);
     RUN_TEST(test_bb_mdns_dispatch_peer_with_empty_ip4_dispatches_anyway);
+    RUN_TEST(test_bb_mdns_query_txt_null_args_returns_invalid_arg);
+    RUN_TEST(test_bb_mdns_query_dispatch_invokes_cb_with_result);
+    RUN_TEST(test_bb_mdns_query_dispatch_propagates_err_field);
 
     return UNITY_END();
 }

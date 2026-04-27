@@ -22,3 +22,6 @@ bb_err_t bb_mdns_host_dispatch_peer(const char *service, const char *proto,
                                     const bb_mdns_peer_t *peer);
 bb_err_t bb_mdns_host_dispatch_removed(const char *service, const char *proto,
                                        const char *instance_name);
+
+bb_err_t bb_mdns_host_dispatch_query_result(const bb_mdns_query_result_t *result,
+                                            bb_mdns_query_cb cb, void *ctx);
