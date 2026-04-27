@@ -222,6 +222,19 @@ static void bb_mdns_dispatch_task(void *arg)
             ctx        = sub->ctx;
         }
         xSemaphoreGive(s_subs_mutex);
+        // If add event has no ip4, attempt a short A-record lookup before dispatch.
+        // Blocks only the worker task (not the IDF mDNS task) — acceptable on LAN.
+        if (!evt->is_removal && evt->ip4[0] == '\0' && evt->hostname[0] != '\0') {
+            esp_ip4_addr_t out_ip;
+            esp_err_t qerr = mdns_query_a(evt->hostname, 200, &out_ip);
+            if (qerr == ESP_OK) {
+                snprintf(evt->ip4, sizeof(evt->ip4), IPSTR, IP2STR(&out_ip));
+            } else {
+                bb_log_d(TAG, "A lookup for %s failed (%s), dispatching without ip4",
+                         evt->hostname, esp_err_to_name(qerr));
+            }
+        }
+
         if (evt->is_removal) {
             if (on_removed) on_removed(evt->instance_name, ctx);
         } else if (on_peer) {
