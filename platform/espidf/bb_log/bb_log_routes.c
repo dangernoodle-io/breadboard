@@ -9,17 +9,12 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/event_groups.h"
 #include "freertos/task.h"
 
 static const char *TAG = "bb_log_routes";
 
 static volatile TaskHandle_t s_sse_task_handle = NULL;
 static volatile int s_sse_client_type = 0;  // 0=none, 1=browser, 2=external
-static volatile bool s_sse_stop = false;
-
-#define SSE_EXITED_BIT  (1 << 0)
-static EventGroupHandle_t s_sse_exit_eg = NULL;
 
 static void sse_task(void *arg)
 {
@@ -45,7 +40,7 @@ static void sse_task(void *arg)
      * keepalives to detect a stalled stream. */
     const int idle_ticks_per_ping = 20; /* 20 * 500ms drain timeout = 10s */
     int idle_ticks = 0;
-    while (err == ESP_OK && !s_sse_stop) {
+    while (err == ESP_OK) {
         size_t n = bb_log_stream_drain(line, sizeof(line), 500);
         if (n == 0) {
             if (++idle_ticks >= idle_ticks_per_ping) {
@@ -66,7 +61,6 @@ static void sse_task(void *arg)
     httpd_req_async_handler_complete(req);
     s_sse_task_handle = NULL;
     s_sse_client_type = 0;
-    if (s_sse_exit_eg) xEventGroupSetBits(s_sse_exit_eg, SSE_EXITED_BIT);
     vTaskDelete(NULL);
 }
 
@@ -82,31 +76,16 @@ static esp_err_t logs_handler(httpd_req_t *req)
         }
     }
 
-    if (s_sse_task_handle && !(client_type == 2 && s_sse_client_type == 1)) {
+    if (s_sse_task_handle) {
         httpd_resp_set_status(req, "503 Service Unavailable");
-        httpd_resp_sendstr(req, "Log stream in use");
+        httpd_resp_set_type(req, "application/json");
+        char body[96];
+        int n = snprintf(body, sizeof(body),
+            "{\"error\":\"busy\",\"active_client\":\"%s\"}",
+            s_sse_client_type == 1 ? "browser" : "external");
+        httpd_resp_send(req, body, n);
         return ESP_OK;
     }
-
-    if (s_sse_task_handle) {
-        if (!s_sse_exit_eg) {
-            s_sse_exit_eg = xEventGroupCreate();
-            if (!s_sse_exit_eg) {
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "event group alloc failed");
-                return ESP_FAIL;
-            }
-        }
-        xEventGroupClearBits(s_sse_exit_eg, SSE_EXITED_BIT);
-        s_sse_stop = true;
-        EventBits_t bits = xEventGroupWaitBits(s_sse_exit_eg, SSE_EXITED_BIT,
-                                               pdTRUE, pdFALSE, pdMS_TO_TICKS(200));
-        if ((bits & SSE_EXITED_BIT) == 0) {
-            httpd_resp_set_status(req, "503 Service Unavailable");
-            httpd_resp_sendstr(req, "Log stream busy — retry in a moment");
-            return ESP_OK;
-        }
-    }
-    s_sse_stop = false;
 
     if (client_type == 2) {
         ESP_LOGI(TAG, "external log client connected");
@@ -151,7 +130,13 @@ static const bb_route_response_t s_logs_responses[] = {
       "Server-Sent Events stream of log lines; each event carries one log "
       "line as `data: <line>`. Stream is long-lived; only one client at a "
       "time is supported." },
-    { 503, "text/plain", NULL, "stream already in use" },
+    { 503, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"error\":{\"type\":\"string\",\"enum\":[\"busy\"]},"
+      "\"active_client\":{\"type\":\"string\",\"enum\":[\"browser\",\"external\"]}},"
+      "\"required\":[\"error\",\"active_client\"]}",
+      "another client already has the log stream open" },
     { 0 },
 };
 
