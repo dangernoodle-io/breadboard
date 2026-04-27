@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 /**
  * Callback invoked before OTA apply to pause work.
@@ -45,6 +46,14 @@ void bb_ota_pull_set_releases_url(const char *url);
  * @param board Board name (e.g. "tdongle-s3")
  */
 void bb_ota_pull_set_firmware_board(const char *board);
+
+/**
+ * Set the per-recv HTTP timeout used for the OTA download.
+ * Default 20000 ms. Pass 0 to restore the default. Must be called
+ * before the OTA task is started; later calls take effect on the
+ * next OTA invocation.
+ */
+void bb_ota_pull_set_http_timeout_ms(uint32_t ms);
 
 /**
  * Parse a GitHub releases/latest JSON response and extract the latest tag

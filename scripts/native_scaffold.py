@@ -85,7 +85,7 @@ COMPONENT_MAP = {
         ["platform/host/bb_system/bb_system_host.c"],
     ),
     "bb_ota_pull": (
-        ["components/bb_ota_pull/include"],
+        ["components/bb_ota_pull/include", "platform/host/bb_ota_pull"],
         ["platform/espidf/bb_ota_pull/bb_ota_pull.c"],
     ),
     "bb_ota_push": (

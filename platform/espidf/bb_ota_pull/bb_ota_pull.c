@@ -18,6 +18,25 @@ static char s_releases_url[512] = "";
 // Firmware board name
 static char s_firmware_board[64] = "";
 
+// Per-recv HTTP timeout for OTA download (ms). Consumer-tunable via
+// bb_ota_pull_set_http_timeout_ms(). Default 20 s matches the original
+// hard-coded value; pass 0 to restore the default.
+#define BB_OTA_HTTP_TIMEOUT_MS_DEFAULT 20000
+static uint32_t s_http_timeout_ms = BB_OTA_HTTP_TIMEOUT_MS_DEFAULT;
+
+void bb_ota_pull_set_http_timeout_ms(uint32_t ms)
+{
+    s_http_timeout_ms = (ms == 0) ? BB_OTA_HTTP_TIMEOUT_MS_DEFAULT : ms;
+}
+
+#ifndef ESP_PLATFORM
+#include "bb_ota_pull_test_hooks.h"
+uint32_t bb_ota_pull_host_get_http_timeout_ms(void)
+{
+    return s_http_timeout_ms;
+}
+#endif
+
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
 #include "bb_log.h"
@@ -30,6 +49,7 @@ static char s_firmware_board[64] = "";
 #include "esp_crt_bundle.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/portmacro.h"
@@ -449,16 +469,35 @@ cleanup:
 }
 
 /**
+ * Re-subscribe to the task WDT and delete the calling task.
+ * Called at every exit path of worker tasks that removed themselves from
+ * the WDT at entry. Best-effort: error is ignored — the task is dying.
+ */
+static void ota_task_exit(void)
+{
+    esp_task_wdt_add(NULL);
+    vTaskDelete(NULL);
+}
+
+/**
  * OTA worker task - performs the actual firmware update.
  */
 static void ota_worker_task(void *arg)
 {
+    // Remove this task from the task WDT. OTA is single-shot and long-running;
+    // a stalled mbedtls recv should surface as a clean HTTP timeout, not a
+    // WDT panic. ota_task_exit() re-adds before dying.
+    esp_err_t wdt_err = esp_task_wdt_delete(NULL);
+    if (wdt_err != ESP_OK && wdt_err != ESP_ERR_NOT_FOUND) {
+        bb_log_w(TAG, "esp_task_wdt_delete: %s", esp_err_to_name(wdt_err));
+    }
+
     ota_pull_check_result_t result;
     if (arg) {
         memcpy(&result, arg, sizeof(ota_pull_check_result_t));
         free(arg);
     } else {
-        vTaskDelete(NULL);
+        ota_task_exit();
         return;
     }
 
@@ -470,7 +509,7 @@ static void ota_worker_task(void *arg)
             bb_log_e(TAG, "mining pause failed — aborting OTA to avoid tls contention");
             ota_set_error("mining pause failed");
             s_ota_in_progress = false;
-            vTaskDelete(NULL);
+            ota_task_exit();
             return;
         }
     }
@@ -502,11 +541,11 @@ static void ota_worker_task(void *arg)
     esp_http_client_config_t http_config = {
         .url = result.asset_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        /* Stay below CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000 — mbedtls recv
-         * blocks for the full timeout on a stalled socket; if that exceeds
-         * the task WDT we get a panic instead of a clean error return into
-         * our perform loop. 20s is well under the recommended >=60s WDT. */
-        .timeout_ms = 20000,
+        /* WDT exclusion (see ota_worker_task entry) lifts the coupling between
+         * this timeout and CONFIG_ESP_TASK_WDT_TIMEOUT_S. A stalled socket now
+         * produces a clean HTTP error rather than a panic. Timeout is consumer-
+         * tunable via bb_ota_pull_set_http_timeout_ms(); default 20 s. */
+        .timeout_ms = (int)s_http_timeout_ms,
         .user_agent = esp_app_get_description()->project_name,
         .buffer_size = 4096,
         .buffer_size_tx = 2048,
@@ -653,7 +692,7 @@ resume_and_exit:
         s_resume_cb();
     }
 
-    vTaskDelete(NULL);
+    ota_task_exit();
 }
 
 /**
@@ -661,6 +700,13 @@ resume_and_exit:
  */
 static void ota_check_worker_task(void *arg)
 {
+    // Remove this task from the task WDT for the same reason as ota_worker_task:
+    // the TLS check involves blocking mbedtls recv that must not trip the WDT.
+    esp_err_t wdt_err = esp_task_wdt_delete(NULL);
+    if (wdt_err != ESP_OK && wdt_err != ESP_ERR_NOT_FOUND) {
+        bb_log_w(TAG, "esp_task_wdt_delete: %s", esp_err_to_name(wdt_err));
+    }
+
     bb_log_i(TAG, "ota check worker on core %d", xPortGetCoreID());
 
     // Cooperatively pause work to free memory for TLS handshake
@@ -703,7 +749,7 @@ static void ota_check_worker_task(void *arg)
         s_resume_cb();
     }
 
-    vTaskDelete(NULL);
+    ota_task_exit();
 }
 
 /**
