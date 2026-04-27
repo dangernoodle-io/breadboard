@@ -193,3 +193,41 @@ void test_bb_mdns_dispatch_no_subscription_returns_ok(void)
     err = bb_mdns_host_dispatch_removed("_nosub", "_tcp", "orphan-device");
     TEST_ASSERT_EQUAL(BB_OK, err);
 }
+
+/* B1-84: empty ip4 must not drop the event — consumers decide what to do.
+ * On host the dispatch hook calls the callback directly (no A-record lookup),
+ * so this test locks in the contract: NULL ip4 is plumbed through unchanged. */
+static const bb_mdns_peer_t *s_last_peer_ptr = NULL;
+static bb_mdns_peer_t s_last_peer_copy;
+
+static void capture_peer_cb(const bb_mdns_peer_t *peer, void *ctx)
+{
+    (void)ctx;
+    s_last_peer_ptr = peer;
+    s_last_peer_copy.instance_name = peer->instance_name;
+    s_last_peer_copy.hostname      = peer->hostname;
+    s_last_peer_copy.ip4           = peer->ip4;
+    s_last_peer_copy.port          = peer->port;
+}
+
+void test_bb_mdns_dispatch_peer_with_empty_ip4_dispatches_anyway(void)
+{
+    s_last_peer_ptr = NULL;
+    memset(&s_last_peer_copy, 0, sizeof(s_last_peer_copy));
+
+    bb_mdns_browse_start("_acme", "_tcp", capture_peer_cb, NULL, NULL);
+    bb_mdns_peer_t peer = {
+        .instance_name = "test-device-01",
+        .hostname      = "test-device.local",
+        .ip4           = NULL,
+        .port          = 80,
+        .txt           = NULL,
+        .txt_count     = 0,
+    };
+    bb_err_t err = bb_mdns_host_dispatch_peer("_acme", "_tcp", &peer);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_NOT_NULL(s_last_peer_ptr);
+    TEST_ASSERT_NULL(s_last_peer_copy.ip4);
+    TEST_ASSERT_EQUAL_STRING("test-device-01", s_last_peer_copy.instance_name);
+    bb_mdns_browse_stop("_acme", "_tcp");
+}
