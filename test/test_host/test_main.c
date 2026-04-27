@@ -67,6 +67,8 @@ void test_ota_pull_parse_match_after_skipped_assets(void);
 void test_ota_pull_skip_check_callback_registration(void);
 void test_ota_pull_skip_check_callback_returns_true(void);
 void test_ota_pull_skip_check_callback_returns_false(void);
+void test_bb_ota_pull_set_http_timeout_ms_default_is_20000(void);
+void test_bb_ota_pull_set_http_timeout_ms_zero_restores_default(void);
 
 // Forward declarations from test_ota_push.c
 void test_ota_push_skip_check_callback_registration(void);
@@ -396,6 +398,8 @@ int main(void) {
     RUN_TEST(test_ota_pull_skip_check_callback_registration);
     RUN_TEST(test_ota_pull_skip_check_callback_returns_true);
     RUN_TEST(test_ota_pull_skip_check_callback_returns_false);
+    RUN_TEST(test_bb_ota_pull_set_http_timeout_ms_default_is_20000);
+    RUN_TEST(test_bb_ota_pull_set_http_timeout_ms_zero_restores_default);
 
     // OTA push tests
     RUN_TEST(test_ota_push_skip_check_callback_registration);
