@@ -321,6 +321,17 @@ static void bb_mdns_start_internal(void)
     txt_pending_flush(service_type);
     announce_timer_ensure_created();
 
+    // Re-arm any existing browse subscriptions after reconnect
+    for (int i = 0; i < BB_MDNS_BROWSE_MAX; i++) {
+        if (!s_subs[i].in_use) continue;
+        mdns_browse_t *handle = mdns_browse_new(s_subs[i].service, s_subs[i].proto, internal_notifier);
+        if (!handle) {
+            bb_log_w(TAG, "browse re-arm failed: %s.%s", s_subs[i].service, s_subs[i].proto);
+        } else {
+            bb_log_d(TAG, "browse re-armed: %s.%s", s_subs[i].service, s_subs[i].proto);
+        }
+    }
+
     bb_log_i(TAG, "mDNS started: %s.local (%s._tcp)", hostname, service_type);
 }
 
