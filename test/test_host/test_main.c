@@ -298,6 +298,11 @@ void test_openapi_emit_long_path_truncates_operation_id(void);
 // Forward declarations from test_bb_system.c
 void test_bb_system_get_version_returns_nonnull(void);
 void test_bb_system_get_version_default_is_host_string(void);
+void test_bb_system_get_project_name_returns_nonnull_nonempty(void);
+void test_bb_system_get_build_date_returns_nonnull_nonempty(void);
+void test_bb_system_get_build_time_returns_nonnull_nonempty(void);
+void test_bb_system_get_idf_version_returns_nonnull_nonempty(void);
+void test_bb_error_check_happy_path(void);
 
 // Forward declarations from test_bb_mdns.c
 void test_bb_mdns_browse_start_null_service(void);
@@ -622,6 +627,11 @@ int main(void) {
     // bb_system tests
     RUN_TEST(test_bb_system_get_version_returns_nonnull);
     RUN_TEST(test_bb_system_get_version_default_is_host_string);
+    RUN_TEST(test_bb_system_get_project_name_returns_nonnull_nonempty);
+    RUN_TEST(test_bb_system_get_build_date_returns_nonnull_nonempty);
+    RUN_TEST(test_bb_system_get_build_time_returns_nonnull_nonempty);
+    RUN_TEST(test_bb_system_get_idf_version_returns_nonnull_nonempty);
+    RUN_TEST(test_bb_error_check_happy_path);
 
     // bb_mdns tests
     RUN_TEST(test_bb_mdns_browse_start_null_service);
