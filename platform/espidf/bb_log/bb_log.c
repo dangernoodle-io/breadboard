@@ -23,8 +23,16 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 
 static const char *TAG = "bb_log_stream";
 
-#define LOG_STREAM_BUF_BYTES 6144
-#define LOG_STREAM_LINE_MAX  192
+#define LOG_STREAM_BUF_BYTES     6144
+#define LOG_STREAM_LINE_MAX      192
+#define LOG_WRITER_QUEUE_LEN     32
+#define LOG_WRITER_TASK_STACK    2048
+#define LOG_WRITER_TASK_PRIO     1   /* very low; never preempts mining */
+
+typedef struct {
+    char   line[LOG_STREAM_LINE_MAX];
+    size_t len;
+} log_writer_msg_t;
 
 static uint8_t s_rb_storage[LOG_STREAM_BUF_BYTES];
 static StaticRingbuffer_t s_rb_static;
@@ -32,6 +40,10 @@ static RingbufHandle_t s_rb = NULL;
 static vprintf_like_t s_orig_vprintf = NULL;
 static bool s_ready = false;
 static uint32_t s_dropped_lines = 0;
+
+static QueueHandle_t s_writer_q = NULL;
+static TaskHandle_t  s_writer_task = NULL;
+static volatile uint32_t s_writer_dropped = 0;
 
 static void s_drop_oldest(void)
 {
@@ -42,32 +54,45 @@ static void s_drop_oldest(void)
     }
 }
 
+/* Writer task: drains the queue and writes to stdout.
+ * If USB-CDC TX blocks, only this task stalls — the log hook returns
+ * immediately after enqueue, so the IDF log mutex is never held long. */
+static void s_writer_task_fn(void *arg)
+{
+    log_writer_msg_t msg;
+    for (;;) {
+        if (xQueueReceive(s_writer_q, &msg, portMAX_DELAY) == pdTRUE) {
+            fwrite(msg.line, 1, msg.len, stdout);
+            fflush(stdout);
+        }
+    }
+}
+
 static int s_log_vprintf(const char *fmt, va_list args)
 {
-    // Always forward to original (serial) output
-    va_list args_copy;
-    va_copy(args_copy, args);
-    int result = s_orig_vprintf(fmt, args_copy);
-    va_end(args_copy);
+    /* Format once into a stack-allocated message */
+    log_writer_msg_t msg;
+    int n = vsnprintf(msg.line, sizeof(msg.line), fmt, args);
+    if (n <= 0) return 0;
+    msg.len = (n < (int)sizeof(msg.line)) ? (size_t)n : sizeof(msg.line) - 1;
 
-    if (!s_rb) return result;
+    /* 1. Enqueue for console writer — non-blocking, drop on full */
+    if (s_writer_q && xQueueSend(s_writer_q, &msg, 0) != pdTRUE) {
+        s_writer_dropped++;
+    }
 
-    char line[LOG_STREAM_LINE_MAX];
-    int n = vsnprintf(line, sizeof(line), fmt, args);
-    if (n <= 0) return result;
-
-    size_t len = (n < (int)sizeof(line)) ? (size_t)n : sizeof(line) - 1;
-
-    // Non-blocking send; drop oldest on overflow (bounded loop)
-    if (xRingbufferSend(s_rb, line, len + 1, 0) != pdTRUE) {
-        for (int i = 0; i < 8; i++) {
-            s_drop_oldest();
-            if (xRingbufferSend(s_rb, line, len + 1, 0) == pdTRUE) break;
-            if (i == 7) s_dropped_lines++;
+    /* 2. Push to ringbuf for SSE consumers */
+    if (s_rb) {
+        if (xRingbufferSend(s_rb, msg.line, msg.len + 1, 0) != pdTRUE) {
+            for (int i = 0; i < 8; i++) {
+                s_drop_oldest();
+                if (xRingbufferSend(s_rb, msg.line, msg.len + 1, 0) == pdTRUE) break;
+                if (i == 7) s_dropped_lines++;
+            }
         }
     }
 
-    return result;
+    return n;
 }
 
 bb_err_t bb_log_stream_init(void)
@@ -76,6 +101,20 @@ bb_err_t bb_log_stream_init(void)
                                     s_rb_storage, &s_rb_static);
     if (!s_rb) {
         bb_log_e(TAG, "ring buffer creation failed");
+        return ESP_ERR_NO_MEM;
+    }
+
+    s_writer_q = xQueueCreate(LOG_WRITER_QUEUE_LEN, sizeof(log_writer_msg_t));
+    if (!s_writer_q) {
+        bb_log_e(TAG, "writer queue creation failed");
+        return ESP_ERR_NO_MEM;
+    }
+
+    if (xTaskCreate(s_writer_task_fn, "bb_log_writer", LOG_WRITER_TASK_STACK,
+                    NULL, LOG_WRITER_TASK_PRIO, &s_writer_task) != pdPASS) {
+        bb_log_e(TAG, "writer task creation failed");
+        vQueueDelete(s_writer_q);
+        s_writer_q = NULL;
         return ESP_ERR_NO_MEM;
     }
 
