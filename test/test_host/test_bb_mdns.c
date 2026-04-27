@@ -231,3 +231,81 @@ void test_bb_mdns_dispatch_peer_with_empty_ip4_dispatches_anyway(void)
     TEST_ASSERT_EQUAL_STRING("test-device-01", s_last_peer_copy.instance_name);
     bb_mdns_browse_stop("_acme", "_tcp");
 }
+
+/* bb_mdns_query_txt tests */
+
+void test_bb_mdns_query_txt_null_args_returns_invalid_arg(void)
+{
+    bb_err_t err;
+
+    err = bb_mdns_query_txt(NULL, "_taipanminer", "_tcp", 500, NULL, NULL);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+
+    err = bb_mdns_query_txt("test-device-01", NULL, "_tcp", 500, NULL, NULL);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+
+    err = bb_mdns_query_txt("test-device-01", "_taipanminer", NULL, 500, NULL, NULL);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+static int s_query_cb_fired = 0;
+static bb_err_t s_query_cb_err = BB_OK;
+static char s_query_cb_instance[64];
+
+static void test_query_cb(const bb_mdns_query_result_t *result, void *ctx)
+{
+    (void)ctx;
+    s_query_cb_fired++;
+    s_query_cb_err = result->err;
+    strncpy(s_query_cb_instance,
+            result->instance_name ? result->instance_name : "",
+            sizeof(s_query_cb_instance) - 1);
+    s_query_cb_instance[sizeof(s_query_cb_instance) - 1] = '\0';
+}
+
+void test_bb_mdns_query_dispatch_invokes_cb_with_result(void)
+{
+    s_query_cb_fired = 0;
+    s_query_cb_err = BB_ERR_NOT_FOUND;
+    s_query_cb_instance[0] = '\0';
+
+    bb_mdns_txt_t txt[] = {
+        { .key = "version", .value = "v1.2.3" },
+    };
+    bb_mdns_query_result_t result = {
+        .err           = BB_OK,
+        .instance_name = "acme-miner-01",
+        .hostname      = "acme-miner.local",
+        .ip4           = "192.168.1.42",
+        .port          = 4444,
+        .txt           = txt,
+        .txt_count     = 1,
+    };
+
+    bb_err_t err = bb_mdns_host_dispatch_query_result(&result, test_query_cb, NULL);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(1, s_query_cb_fired);
+    TEST_ASSERT_EQUAL(BB_OK, s_query_cb_err);
+    TEST_ASSERT_EQUAL_STRING("acme-miner-01", s_query_cb_instance);
+}
+
+void test_bb_mdns_query_dispatch_propagates_err_field(void)
+{
+    s_query_cb_fired = 0;
+    s_query_cb_err = BB_OK;
+
+    bb_mdns_query_result_t result = {
+        .err           = BB_ERR_NOT_FOUND,
+        .instance_name = NULL,
+        .hostname      = NULL,
+        .ip4           = NULL,
+        .port          = 0,
+        .txt           = NULL,
+        .txt_count     = 0,
+    };
+
+    bb_err_t err = bb_mdns_host_dispatch_query_result(&result, test_query_cb, NULL);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(1, s_query_cb_fired);
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, s_query_cb_err);
+}
