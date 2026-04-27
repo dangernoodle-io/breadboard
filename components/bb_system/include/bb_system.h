@@ -4,6 +4,22 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifdef ESP_PLATFORM
+#include "esp_err.h"
+#define BB_ERROR_CHECK(x) ESP_ERROR_CHECK(x)
+#else
+#include <stdio.h>
+#include <stdlib.h>
+/// Checks bb_err_t; aborts with a diagnostic message on failure.
+#define BB_ERROR_CHECK(x) do { \
+    bb_err_t _err = (x); \
+    if (_err != BB_OK) { \
+        fprintf(stderr, "BB_ERROR_CHECK failed: %d at %s:%d\n", _err, __FILE__, __LINE__); \
+        abort(); \
+    } \
+} while (0)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -41,6 +57,31 @@ void bb_system_log_boot_info(void);
 /// On host/Arduino: compile-time BB_SYSTEM_VERSION_OVERRIDE or BB_FIRMWARE_VERSION, else "0.0.0".
 /// Pointer is valid for the lifetime of the program; do not free.
 const char *bb_system_get_version(void);
+
+/// Returns the project name string.
+/// On ESP-IDF: from esp_app_get_description()->project_name.
+/// On host/Arduino: "host". Pointer is valid for program lifetime; do not free.
+const char *bb_system_get_project_name(void);
+
+/// Returns the firmware build date string (e.g. "Jan  1 2025").
+/// On ESP-IDF: from esp_app_get_description()->date.
+/// On host/Arduino: compiler __DATE__. Pointer is valid for program lifetime; do not free.
+const char *bb_system_get_build_date(void);
+
+/// Returns the firmware build time string (e.g. "12:34:56").
+/// On ESP-IDF: from esp_app_get_description()->time.
+/// On host/Arduino: compiler __TIME__. Pointer is valid for program lifetime; do not free.
+const char *bb_system_get_build_time(void);
+
+/// Returns the ESP-IDF version string used to build the firmware.
+/// On ESP-IDF: from esp_app_get_description()->idf_ver.
+/// On host/Arduino: "0.0.0-host". Pointer is valid for program lifetime; do not free.
+const char *bb_system_get_idf_version(void);
+
+/// Restarts the system.
+/// On ESP-IDF: calls esp_restart() (does not return).
+/// On host: prints a diagnostic to stderr and exits with code 0.
+void bb_system_restart(void);
 
 #ifdef __cplusplus
 }

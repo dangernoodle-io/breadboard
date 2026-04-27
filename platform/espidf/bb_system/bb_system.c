@@ -91,3 +91,32 @@ void bb_system_log_boot_info(void)
     const char *reason_str = bb_system_reset_reason_str(bb_system_get_reset_reason());
     bb_log_i(TAG, "boot: reset=%s version=%s", reason_str, bb_system_get_version());
 }
+
+const char *bb_system_get_project_name(void)
+{
+    const esp_app_desc_t *app = esp_app_get_description();
+    return (app && app->project_name[0]) ? app->project_name : "unknown";
+}
+
+const char *bb_system_get_build_date(void)
+{
+    const esp_app_desc_t *app = esp_app_get_description();
+    return (app && app->date[0]) ? app->date : "unknown";
+}
+
+const char *bb_system_get_build_time(void)
+{
+    const esp_app_desc_t *app = esp_app_get_description();
+    return (app && app->time[0]) ? app->time : "unknown";
+}
+
+const char *bb_system_get_idf_version(void)
+{
+    const esp_app_desc_t *app = esp_app_get_description();
+    return (app && app->idf_ver[0]) ? app->idf_ver : "0.0.0";
+}
+
+void bb_system_restart(void)
+{
+    esp_restart();
+}

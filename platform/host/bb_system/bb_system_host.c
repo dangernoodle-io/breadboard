@@ -2,6 +2,9 @@
 
 #include "bb_log.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+
 static const char *TAG = "bb_system";
 
 bb_reset_reason_t bb_system_get_reset_reason(void)
@@ -55,4 +58,30 @@ const char *bb_system_get_version(void)
 #else
     return "0.0.0-host";
 #endif
+}
+
+const char *bb_system_get_project_name(void)
+{
+    return "host";
+}
+
+const char *bb_system_get_build_date(void)
+{
+    return __DATE__;
+}
+
+const char *bb_system_get_build_time(void)
+{
+    return __TIME__;
+}
+
+const char *bb_system_get_idf_version(void)
+{
+    return "0.0.0-host";
+}
+
+void bb_system_restart(void)
+{
+    fprintf(stderr, "bb_system_restart: host stub — exiting\n");
+    exit(0);
 }
