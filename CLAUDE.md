@@ -62,6 +62,10 @@ build_flags =
     -DBB_HW_BOARD_HEADER=\"boards/bitaxe_601.h\"
 ```
 
+## Releases
+
+Tagging is manual: `git tag -a vX.Y.Z -m 'chore: vX.Y.Z tag' && git push origin vX.Y.Z`. The `release.yml` workflow waits for CI then publishes a GitHub release with auto-generated notes categorized by PR label (`.github/release.yml`). PR labels are auto-applied from conventional-commit prefixes; `new-component` PRs need that label set manually.
+
 ## Workspace conventions
 
 Workspace-level conventions (git, testing, docs) live in `/Users/jae/Projects/dangernoodle/CLAUDE.md`.
