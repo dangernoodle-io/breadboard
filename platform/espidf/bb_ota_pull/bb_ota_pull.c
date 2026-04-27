@@ -62,11 +62,32 @@ static const char *TAG = "bb_ota_pull";
 
 #define OTA_TASK_STACK 16384
 #define OTA_TASK_PRIO  3
-#define OTA_CHECK_STACK 32768
+/* 12 KB headroom for the TLS handshake + JSON parse worker. Original 32 KB was
+ * conservative; the smaller stack lets task creation succeed on heap-pressed
+ * boards (bitaxe) where no 32 KB contiguous free block remains after ASIC +
+ * mDNS + log writer allocations. */
+#define OTA_CHECK_STACK 12288
 #define OTA_CHECK_PRIO 3
 #define API_BUF_MAX    32768
 
 static volatile bool s_ota_in_progress = false;
+
+// Pre-allocated API response buffer. Allocated once at register-handler time
+// while heap is still mostly contiguous; reused on every check. Avoids the
+// failure mode where the largest free contiguous block has fragmented below
+// API_BUF_MAX after long uptime, causing on-demand malloc to fail and the
+// background check to abort with "failed to allocate response buffer".
+static char *s_api_buf = NULL;
+
+static char *ota_pull_get_api_buf(void)
+{
+    if (s_api_buf) return s_api_buf;
+    s_api_buf = malloc(API_BUF_MAX);
+    if (!s_api_buf) {
+        bb_log_e(TAG, "failed to allocate API buffer (%d bytes)", API_BUF_MAX);
+    }
+    return s_api_buf;
+}
 static int s_ota_task_core = 1;  // default: Core 1 (bitaxe-friendly, frees Core 0 for httpd/stratum)
 
 #ifdef CONFIG_PM_ENABLE
@@ -355,9 +376,8 @@ int bb_ota_pull_parse_release_json(const char *json, const char *board_name,
 
 static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
 {
-    char *buf = malloc(API_BUF_MAX);
+    char *buf = ota_pull_get_api_buf();
     if (!buf) {
-        bb_log_e(TAG, "failed to allocate response buffer");
         return ESP_ERR_NO_MEM;
     }
 
@@ -464,7 +484,7 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
 cleanup:
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
-    free(buf);
+    /* buf is the persistent s_api_buf — do not free */
     return err;
 }
 
@@ -1071,6 +1091,12 @@ bb_err_t bb_ota_pull_register_handler(bb_http_handle_t server)
     if (!server) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    /* Pre-allocate the API response buffer now, while heap is mostly contiguous.
+     * Lazy allocation in ota_pull_check() fails on long-uptime boards (esp.
+     * bitaxe with ASIC + mDNS + log writer task stacks fragmenting heap below
+     * the 16 KB threshold). Failure here is non-fatal — check path will retry. */
+    (void)ota_pull_get_api_buf();
 
     httpd_handle_t s = (httpd_handle_t)server;
 
