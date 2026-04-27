@@ -8,9 +8,12 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "bb_hw.h"
 #include "bb_log.h"
 #include <string.h>
+#include <stdlib.h>
 
 static const char *TAG = "bb_mdns";
 
@@ -25,6 +28,28 @@ typedef struct {
     bool in_use;
 } bb_mdns_browse_sub_t;
 static bb_mdns_browse_sub_t s_subs[BB_MDNS_BROWSE_MAX];
+
+// Dispatch worker infrastructure
+#define BB_MDNS_EVT_QUEUE_DEPTH 16
+static QueueHandle_t    s_evt_queue     = NULL;
+static TaskHandle_t     s_dispatch_task = NULL;
+static SemaphoreHandle_t s_subs_mutex   = NULL;
+static uint32_t         s_evt_drop_count = 0;
+
+// Event struct: single contiguous alloc; key/value in txt[] point into payload[]
+#define BB_MDNS_EVT_TXT_MAX 8
+typedef struct {
+    bool     is_removal;
+    char     service[32];
+    char     proto[8];
+    char     instance_name[64];
+    char     hostname[64];
+    char     ip4[16];
+    uint16_t port;
+    size_t   txt_count;
+    bb_mdns_txt_t txt[BB_MDNS_EVT_TXT_MAX];
+    char     payload[256];   /* packed key\0value\0… */
+} bb_mdns_evt_t;
 
 // App-injected mDNS hostname
 static char s_mdns_hostname[64] = "bsp-device";
@@ -179,65 +204,113 @@ static bb_mdns_browse_sub_t *browse_sub_alloc(void)
     return NULL;
 }
 
-// Internal notifier called by mdns_browse for all results
+// Dispatch task: dequeues events and fires consumer callbacks
+static void bb_mdns_dispatch_task(void *arg)
+{
+    (void)arg;
+    bb_mdns_evt_t *evt;
+    for (;;) {
+        if (xQueueReceive(s_evt_queue, &evt, portMAX_DELAY) != pdTRUE) continue;
+        bb_mdns_peer_cb on_peer = NULL;
+        bb_mdns_peer_removed_cb on_removed = NULL;
+        void *ctx = NULL;
+        xSemaphoreTake(s_subs_mutex, portMAX_DELAY);
+        bb_mdns_browse_sub_t *sub = browse_sub_find(evt->service, evt->proto);
+        if (sub) {
+            on_peer    = sub->on_peer;
+            on_removed = sub->on_removed;
+            ctx        = sub->ctx;
+        }
+        xSemaphoreGive(s_subs_mutex);
+        if (evt->is_removal) {
+            if (on_removed) on_removed(evt->instance_name, ctx);
+        } else if (on_peer) {
+            bb_mdns_peer_t peer = {
+                .instance_name = evt->instance_name,
+                .hostname      = evt->hostname[0]   ? evt->hostname : NULL,
+                .ip4           = evt->ip4[0]        ? evt->ip4      : NULL,
+                .port          = evt->port,
+                .txt           = evt->txt_count     ? evt->txt      : NULL,
+                .txt_count     = evt->txt_count,
+            };
+            on_peer(&peer, ctx);
+        }
+        free(evt);
+    }
+}
+
+// Internal notifier called by mdns_browse for all results — runs on IDF mDNS task.
+// Enqueues deep-copied events; does NOT touch s_subs[] directly.
 static void internal_notifier(mdns_result_t *results)
 {
     for (mdns_result_t *r = results; r; r = r->next) {
-        // Find matching subscription. IDF's mdns_browse delivers results
-        // already filtered to the requested service, but the result's
-        // service_type/proto strings may or may not include leading '_';
-        // eq_token normalizes that.
-        bb_mdns_browse_sub_t *sub = browse_sub_find(r->service_type, r->proto);
-        if (!sub) {
-            bb_log_d(TAG, "no sub for result %s.%s",
-                     r->service_type ? r->service_type : "(null)",
-                     r->proto ? r->proto : "(null)");
+        bb_mdns_evt_t *evt = calloc(1, sizeof(bb_mdns_evt_t));
+        if (!evt) {
+            bb_log_w(TAG, "notifier: calloc failed, dropping event");
             continue;
         }
 
-        // Check if removal (ttl == 0)
+        // Copy service/proto for dispatch-task lookup
+        strncpy(evt->service, r->service_type ? r->service_type : "", sizeof(evt->service) - 1);
+        strncpy(evt->proto,   r->proto        ? r->proto        : "", sizeof(evt->proto)   - 1);
+        strncpy(evt->instance_name,
+                r->instance_name ? r->instance_name : "",
+                sizeof(evt->instance_name) - 1);
+
         if (r->ttl == 0) {
-            if (sub->on_removed) {
-                sub->on_removed(r->instance_name, sub->ctx);
-            }
-            continue;
-        }
+            evt->is_removal = true;
+        } else {
+            evt->is_removal = false;
+            strncpy(evt->hostname, r->hostname ? r->hostname : "", sizeof(evt->hostname) - 1);
+            evt->port = r->port;
 
-        // Build peer structure with stack-local allocations
-        char ip4_buf[16] = "";
-        const char *ip4 = NULL;
-
-        // Find first IPv4 address
-        if (r->addr) {
-            mdns_ip_addr_t *addr = r->addr;
-            for (; addr; addr = addr->next) {
-                if (addr->addr.type == ESP_IPADDR_TYPE_V4) {
-                    snprintf(ip4_buf, sizeof(ip4_buf), IPSTR, IP2STR(&addr->addr.u_addr.ip4));
-                    ip4 = ip4_buf;
-                    break;
+            // First IPv4 address
+            if (r->addr) {
+                for (mdns_ip_addr_t *addr = r->addr; addr; addr = addr->next) {
+                    if (addr->addr.type == ESP_IPADDR_TYPE_V4) {
+                        snprintf(evt->ip4, sizeof(evt->ip4), IPSTR,
+                                 IP2STR(&addr->addr.u_addr.ip4));
+                        break;
+                    }
                 }
             }
+
+            // TXT records: pack key\0value\0 into payload[], point txt[].key/value in
+            size_t n = r->txt_count;
+            if (n > BB_MDNS_EVT_TXT_MAX) {
+                bb_log_w(TAG, "notifier: %zu txt records exceed cap %d, truncating",
+                         n, BB_MDNS_EVT_TXT_MAX);
+                n = BB_MDNS_EVT_TXT_MAX;
+            }
+            char *p = evt->payload;
+            char *end = evt->payload + sizeof(evt->payload);
+            for (size_t i = 0; i < n && p < end; i++) {
+                const char *k = r->txt[i].key   ? r->txt[i].key   : "";
+                const char *v = r->txt[i].value ? r->txt[i].value : "";
+                size_t klen = strlen(k);
+                size_t vlen = strlen(v);
+                // Need k\0v\0 to fit
+                if (p + klen + 1 + vlen + 1 > end) {
+                    bb_log_w(TAG, "notifier: payload full, truncating txt at %zu", i);
+                    break;
+                }
+                memcpy(p, k, klen + 1);
+                evt->txt[i].key = p;
+                p += klen + 1;
+                memcpy(p, v, vlen + 1);
+                evt->txt[i].value = p;
+                p += vlen + 1;
+                evt->txt_count++;
+            }
         }
 
-        // Build TXT array (point to IDF's arrays; they're valid for the call)
-        bb_mdns_txt_t txt_view[r->txt_count];
-        for (size_t i = 0; i < r->txt_count; i++) {
-            txt_view[i].key = (char *)r->txt[i].key;
-            txt_view[i].value = (char *)r->txt[i].value;
-        }
-
-        // Build peer and invoke callback
-        bb_mdns_peer_t peer = {
-            .instance_name = r->instance_name,
-            .hostname = r->hostname,
-            .ip4 = ip4,
-            .port = r->port,
-            .txt = txt_view,
-            .txt_count = r->txt_count,
-        };
-
-        if (sub->on_peer) {
-            sub->on_peer(&peer, sub->ctx);
+        if (xQueueSend(s_evt_queue, &evt, 0) != pdTRUE) {
+            free(evt);
+            s_evt_drop_count++;
+            // Log once per 16 drops (suppress flood; bit 0 of (count-1) == 0 when count is 1, 17, 33…)
+            if ((s_evt_drop_count & 0x0F) == 1) {
+                bb_log_w(TAG, "evt queue full, %lu events dropped", (unsigned long)s_evt_drop_count);
+            }
         }
     }
 }
@@ -321,16 +394,23 @@ static void bb_mdns_start_internal(void)
     txt_pending_flush(service_type);
     announce_timer_ensure_created();
 
-    // Re-arm any existing browse subscriptions after reconnect
+    // Re-arm any existing browse subscriptions after reconnect (mutex held)
+    xSemaphoreTake(s_subs_mutex, portMAX_DELAY);
     for (int i = 0; i < BB_MDNS_BROWSE_MAX; i++) {
         if (!s_subs[i].in_use) continue;
-        mdns_browse_t *handle = mdns_browse_new(s_subs[i].service, s_subs[i].proto, internal_notifier);
+        char svc[32], proto[8];
+        strncpy(svc,   s_subs[i].service, sizeof(svc)   - 1); svc[sizeof(svc)-1]     = '\0';
+        strncpy(proto, s_subs[i].proto,   sizeof(proto) - 1); proto[sizeof(proto)-1] = '\0';
+        xSemaphoreGive(s_subs_mutex);
+        mdns_browse_t *handle = mdns_browse_new(svc, proto, internal_notifier);
         if (!handle) {
-            bb_log_w(TAG, "browse re-arm failed: %s.%s", s_subs[i].service, s_subs[i].proto);
+            bb_log_w(TAG, "browse re-arm failed: %s.%s", svc, proto);
         } else {
-            bb_log_d(TAG, "browse re-armed: %s.%s", s_subs[i].service, s_subs[i].proto);
+            bb_log_d(TAG, "browse re-armed: %s.%s", svc, proto);
         }
+        xSemaphoreTake(s_subs_mutex, portMAX_DELAY);
     }
+    xSemaphoreGive(s_subs_mutex);
 
     bb_log_i(TAG, "mDNS started: %s.local (%s._tcp)", hostname, service_type);
 }
@@ -378,6 +458,17 @@ static void bb_mdns_shutdown(void)
 
 void bb_mdns_init(void)
 {
+    // Create mutex and dispatch infrastructure once (outlives WiFi cycles)
+    if (!s_subs_mutex) {
+        s_subs_mutex = xSemaphoreCreateMutex();
+    }
+    if (!s_evt_queue) {
+        s_evt_queue = xQueueCreate(BB_MDNS_EVT_QUEUE_DEPTH, sizeof(bb_mdns_evt_t *));
+    }
+    if (!s_dispatch_task) {
+        xTaskCreate(bb_mdns_dispatch_task, "bb_mdns_disp", 4096, NULL, 3, &s_dispatch_task);
+    }
+
     // Register callback with bb_wifi
     bb_wifi_register_on_got_ip(bb_mdns_on_got_ip);
     bb_wifi_register_on_disconnect(bb_mdns_on_disconnect);
@@ -464,18 +555,22 @@ bb_err_t bb_mdns_browse_start(const char *service, const char *proto,
         return BB_ERR_INVALID_ARG;
     }
 
+    xSemaphoreTake(s_subs_mutex, portMAX_DELAY);
+
     // Check if already subscribed; if so, update callbacks (idempotent)
     bb_mdns_browse_sub_t *existing = browse_sub_find(service, proto);
     if (existing) {
-        existing->on_peer = on_peer;
+        existing->on_peer    = on_peer;
         existing->on_removed = on_removed;
-        existing->ctx = ctx;
+        existing->ctx        = ctx;
+        xSemaphoreGive(s_subs_mutex);
         return BB_OK;
     }
 
     // Not yet subscribed; find free slot
     bb_mdns_browse_sub_t *slot = browse_sub_alloc();
     if (!slot) {
+        xSemaphoreGive(s_subs_mutex);
         return BB_ERR_NO_SPACE;
     }
 
@@ -484,20 +579,24 @@ bb_err_t bb_mdns_browse_start(const char *service, const char *proto,
     slot->service[sizeof(slot->service) - 1] = '\0';
     strncpy(slot->proto, proto, sizeof(slot->proto) - 1);
     slot->proto[sizeof(slot->proto) - 1] = '\0';
-    slot->on_peer = on_peer;
+    slot->on_peer    = on_peer;
     slot->on_removed = on_removed;
-    slot->ctx = ctx;
+    slot->ctx        = ctx;
+    slot->in_use     = true;
 
-    // Start browse (mdns_browse_new returns a handle, NULL on failure)
+    xSemaphoreGive(s_subs_mutex);
+
+    // Start browse outside lock (can be slow)
     mdns_browse_t *handle = mdns_browse_new(service, proto, internal_notifier);
     if (!handle) {
         // Clear slot on failure
+        xSemaphoreTake(s_subs_mutex, portMAX_DELAY);
         memset(slot, 0, sizeof(*slot));
+        xSemaphoreGive(s_subs_mutex);
         bb_log_e(TAG, "mdns_browse_new(%s.%s) failed", service, proto);
         return BB_ERR_INVALID_STATE;
     }
 
-    slot->in_use = true;
     bb_log_d(TAG, "browse started: %s.%s", service, proto);
     return BB_OK;
 }
@@ -508,20 +607,24 @@ bb_err_t bb_mdns_browse_stop(const char *service, const char *proto)
         return BB_ERR_INVALID_ARG;
     }
 
+    xSemaphoreTake(s_subs_mutex, portMAX_DELAY);
     bb_mdns_browse_sub_t *sub = browse_sub_find(service, proto);
     if (!sub) {
+        xSemaphoreGive(s_subs_mutex);
         return BB_OK;  // Already unstarted (idempotent)
     }
 
-    // Stop browse
+    // Clear slot under lock
+    memset(sub, 0, sizeof(*sub));
+    xSemaphoreGive(s_subs_mutex);
+
+    // Stop browse outside lock
     esp_err_t err = mdns_browse_delete(service, proto);
     if (err != ESP_OK) {
         bb_log_w(TAG, "mdns_browse_delete(%s.%s) failed: %s",
                  service, proto, esp_err_to_name(err));
     }
 
-    // Clear slot regardless of error
-    memset(sub, 0, sizeof(*sub));
     bb_log_d(TAG, "browse stopped: %s.%s", service, proto);
     return BB_OK;
 }

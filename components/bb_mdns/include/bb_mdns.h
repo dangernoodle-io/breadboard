@@ -2,11 +2,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "bb_nv.h"
 
 #ifdef ESP_PLATFORM
 
 #include <stdbool.h>
-#include "bb_nv.h"
 
 // Initialize mDNS. Registers got-IP callback on bb_wifi. Idempotent.
 void bb_mdns_init(void);
@@ -55,9 +55,11 @@ typedef struct {
     size_t              txt_count;
 } bb_mdns_peer_t;
 
-/* Callbacks fire from the mdns task; the bb_mdns_peer_t and its strings are
- * valid only for the duration of the call. Consumers must copy what they
- * need before returning. on_removed fires with just the instance_name. */
+/* Callbacks fire from the bb_mdns dispatch task (NOT the IDF mDNS task,
+ * NOT the caller's task). The bb_mdns_peer_t and its referenced strings
+ * are owned by bb_mdns and remain valid only for the duration of the
+ * callback; consumers must copy any data they need to retain. on_removed
+ * fires with just the instance_name (also valid only for the call). */
 typedef void (*bb_mdns_peer_cb)(const bb_mdns_peer_t *peer, void *ctx);
 typedef void (*bb_mdns_peer_removed_cb)(const char *instance_name, void *ctx);
 

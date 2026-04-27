@@ -319,6 +319,11 @@ void test_mdns_set_txt_does_not_announce_immediately(void);
 void test_mdns_set_txt_null_key_is_safe(void);
 void test_mdns_set_txt_null_value_is_safe(void);
 void test_mdns_host_reset_clears_counters(void);
+void test_bb_mdns_dispatch_peer_fires_callback(void);
+void test_bb_mdns_dispatch_removed_fires_callback(void);
+void test_bb_mdns_dispatch_peer_null_cb_no_crash(void);
+void test_bb_mdns_dispatch_removed_null_cb_no_crash(void);
+void test_bb_mdns_dispatch_no_subscription_returns_ok(void);
 
 void setUp(void) {
     _bb_log_registry_reset();
@@ -650,6 +655,11 @@ int main(void) {
     RUN_TEST(test_mdns_set_txt_null_key_is_safe);
     RUN_TEST(test_mdns_set_txt_null_value_is_safe);
     RUN_TEST(test_mdns_host_reset_clears_counters);
+    RUN_TEST(test_bb_mdns_dispatch_peer_fires_callback);
+    RUN_TEST(test_bb_mdns_dispatch_removed_fires_callback);
+    RUN_TEST(test_bb_mdns_dispatch_peer_null_cb_no_crash);
+    RUN_TEST(test_bb_mdns_dispatch_removed_null_cb_no_crash);
+    RUN_TEST(test_bb_mdns_dispatch_no_subscription_returns_ok);
 
     return UNITY_END();
 }
