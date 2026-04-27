@@ -57,7 +57,14 @@ static void sse_task(void *arg)
                     (flen > 0 && flen < (int)sizeof(frame)) ? flen : HTTPD_RESP_USE_STRLEN);
     }
 
-    httpd_resp_send_chunk(req, NULL, 0);
+    /* If err != ESP_OK the peer is already disconnected; sending another
+     * chunk on the dead fd races with httpd's select-loop cleanup of the
+     * same fd in call_end_selects, which has crashed in the field
+     * (LoadProhibited). Only send the closing chunk while the connection
+     * is believed alive. */
+    if (err == ESP_OK) {
+        httpd_resp_send_chunk(req, NULL, 0);
+    }
     httpd_req_async_handler_complete(req);
     s_sse_task_handle = NULL;
     s_sse_client_type = 0;
