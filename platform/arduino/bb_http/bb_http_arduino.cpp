@@ -368,6 +368,52 @@ int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size)
     return 0;
 }
 
+bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)
+{
+    if (!str) return bb_http_resp_send(req, NULL, 0);
+    return bb_http_resp_send(req, str, strlen(str));
+}
+
+bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int len)
+{
+    // Chunked send not supported on Arduino MVP.
+    return BB_ERR_INVALID_STATE;
+}
+
+int bb_http_req_sockfd(bb_http_request_t *req)
+{
+    // Socket fd not supported on Arduino MVP.
+    return -1;
+}
+
+bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
+                                     char *out, size_t out_len)
+{
+    // Query string parsing not supported on Arduino MVP.
+    return BB_ERR_INVALID_STATE;
+}
+
+bb_err_t bb_http_req_async_handler_begin(bb_http_request_t *req,
+                                         bb_http_request_t **out_async_req)
+{
+    // Async handlers not supported on Arduino MVP.
+    return BB_ERR_INVALID_STATE;
+}
+
+bb_err_t bb_http_req_async_handler_complete(bb_http_request_t *async_req)
+{
+    // Async handlers not supported on Arduino MVP.
+    return BB_ERR_INVALID_STATE;
+}
+
+bb_err_t bb_http_unregister_route(bb_http_handle_t server,
+                                  bb_http_method_t method,
+                                  const char *path)
+{
+    // Route unregistration not supported on Arduino MVP.
+    return BB_ERR_INVALID_STATE;
+}
+
 bb_err_t bb_http_register_assets(bb_http_handle_t server,
                                  const bb_http_asset_t *assets,
                                  size_t n)

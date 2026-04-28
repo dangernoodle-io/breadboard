@@ -24,8 +24,10 @@ void bb_ota_push_set_skip_check_cb(bb_ota_push_skip_check_cb_t cb)
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
 #include "bb_log.h"
-#include "esp_http_server.h"
 #include "esp_ota_ops.h"
+
+// bb_http_req_recv returns this value on socket timeout (mirrors httpd internal)
+#define BB_OTA_RECV_TIMEOUT (-3)
 #include "esp_image_format.h"
 #include "esp_app_desc.h"
 #include "esp_system.h"
@@ -42,20 +44,20 @@ static const char *TAG = "bb_ota_push";
  * POST /api/ota/push - Receive and flash firmware via HTTP upload.
  * Expects raw binary .bin file in request body.
  */
-static esp_err_t ota_push_handler(httpd_req_t *req)
+static bb_err_t ota_push_handler(bb_http_request_t *req)
 {
     const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
     if (!partition) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No OTA partition");
-        return ESP_FAIL;
+        bb_http_resp_send_err(req, 500, "No OTA partition");
+        return BB_ERR_INVALID_STATE;
     }
 
     esp_ota_handle_t ota_handle;
     esp_err_t err = esp_ota_begin(partition, OTA_SIZE_UNKNOWN, &ota_handle);
     if (err != ESP_OK) {
         bb_log_e(TAG, "esp_ota_begin failed: %s", esp_err_to_name(err));
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA begin failed");
-        return ESP_FAIL;
+        bb_http_resp_send_err(req, 500, "OTA begin failed");
+        return BB_ERR_INVALID_STATE;
     }
 
     bb_log_i(TAG, "OTA started, receiving to partition '%s' at 0x%"PRIx32,
@@ -70,17 +72,17 @@ static esp_err_t ota_push_handler(httpd_req_t *req)
     char buf[OTA_RECV_BUF_SIZE];
     int received = 0;
     int timeout_count = 0;
-    int content_len = req->content_len;
+    int content_len = bb_http_req_body_len(req);
 
     while (received < content_len) {
-        int ret = httpd_req_recv(req, buf,
+        int ret = bb_http_req_recv(req, buf,
             sizeof(buf) < (content_len - received) ? sizeof(buf) : (content_len - received));
 
-        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+        if (ret == BB_OTA_RECV_TIMEOUT) {
             if (++timeout_count > OTA_TIMEOUT_RETRIES) {
                 bb_log_e(TAG, "OTA upload timeout after %d retries", timeout_count);
                 esp_ota_abort(ota_handle);
-                httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "Upload timeout");
+                bb_http_resp_send_err(req, 408, "Upload timeout");
                 goto resume_and_exit;
             }
             continue;
@@ -90,7 +92,7 @@ static esp_err_t ota_push_handler(httpd_req_t *req)
         if (ret <= 0) {
             bb_log_e(TAG, "OTA receive error at %d/%d", received, content_len);
             esp_ota_abort(ota_handle);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Receive failed");
+            bb_http_resp_send_err(req, 500, "Receive failed");
             goto resume_and_exit;
         }
 
@@ -112,7 +114,7 @@ static esp_err_t ota_push_handler(httpd_req_t *req)
                     bb_log_e(TAG, "OTA rejected: firmware is for '%s', this device is '%s'",
                              incoming->project_name, running->project_name);
                     esp_ota_abort(ota_handle);
-                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Firmware board mismatch");
+                    bb_http_resp_send_err(req, 400, "Firmware board mismatch");
                     goto resume_and_exit;
                 }
             }
@@ -123,7 +125,7 @@ static esp_err_t ota_push_handler(httpd_req_t *req)
         if (err != ESP_OK) {
             bb_log_e(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
             esp_ota_abort(ota_handle);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA write failed");
+            bb_http_resp_send_err(req, 500, "OTA write failed");
             goto resume_and_exit;
         }
 
@@ -145,7 +147,7 @@ static esp_err_t ota_push_handler(httpd_req_t *req)
     }
 
     bb_log_i(TAG, "OTA complete, rebooting");
-    httpd_resp_sendstr(req, "OTA complete. Rebooting...");
+    bb_http_resp_sendstr(req, "OTA complete. Rebooting...");
 
     if (paused && s_resume_cb) {
         s_resume_cb();
@@ -153,13 +155,13 @@ static esp_err_t ota_push_handler(httpd_req_t *req)
 
     vTaskDelay(pdMS_TO_TICKS(500));
     esp_restart();
-    return ESP_OK;  // unreachable
+    return BB_OK;  // unreachable
 
 resume_and_exit:
     if (paused && s_resume_cb) {
         s_resume_cb();
     }
-    return ESP_FAIL;
+    return BB_ERR_INVALID_STATE;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,22 +193,13 @@ static const bb_route_t s_ota_push_route = {
 bb_err_t bb_ota_push_register_handler(bb_http_handle_t server)
 {
     if (!server) {
-        return ESP_ERR_INVALID_ARG;
+        return BB_ERR_INVALID_ARG;
     }
 
-    httpd_handle_t s = (httpd_handle_t)server;
-
-    httpd_uri_t push_uri = {
-        .uri = "/api/ota/push",
-        .method = HTTP_POST,
-        .handler = ota_push_handler,
-        .user_ctx = NULL,
-    };
-
-    esp_err_t err = httpd_register_uri_handler(s, &push_uri);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "failed to register /api/ota/push handler: %s",
-                 esp_err_to_name(err));
+    bb_err_t err = bb_http_register_route(server, BB_HTTP_POST,
+                                          "/api/ota/push", ota_push_handler);
+    if (err != BB_OK) {
+        bb_log_e(TAG, "failed to register /api/ota/push handler");
         return err;
     }
 
@@ -214,7 +207,7 @@ bb_err_t bb_ota_push_register_handler(bb_http_handle_t server)
     bb_http_register_route_descriptor_only(&s_ota_push_route);
 
     bb_log_i(TAG, "OTA push handler registered");
-    return ESP_OK;
+    return BB_OK;
 }
 
 #endif // ESP_PLATFORM

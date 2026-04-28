@@ -298,6 +298,94 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
     return BB_OK;
 }
 
+bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)
+{
+    if (!str) return bb_http_resp_send(req, NULL, 0);
+    return bb_http_resp_send(req, str, strlen(str));
+}
+
+bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int len)
+{
+    httpd_req_t *http_req = (httpd_req_t *)req;
+    if (!http_req) return BB_ERR_INVALID_ARG;
+    int send_len = (len < 0) ? HTTPD_RESP_USE_STRLEN : len;
+    esp_err_t err = httpd_resp_send_chunk(http_req, buf, send_len);
+    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
+}
+
+int bb_http_req_sockfd(bb_http_request_t *req)
+{
+    httpd_req_t *http_req = (httpd_req_t *)req;
+    if (!http_req) return -1;
+    return httpd_req_to_sockfd(http_req);
+}
+
+bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
+                                     char *out, size_t out_len)
+{
+    httpd_req_t *http_req = (httpd_req_t *)req;
+    if (!http_req || !key || !out || out_len == 0) return BB_ERR_INVALID_ARG;
+
+    // httpd_req_get_url_query_len returns the length without null terminator
+    size_t qlen = httpd_req_get_url_query_len(http_req);
+    if (qlen == 0) return BB_ERR_INVALID_ARG;
+
+    char *query = malloc(qlen + 1);
+    if (!query) return BB_ERR_NO_SPACE;
+
+    esp_err_t err = httpd_req_get_url_query_str(http_req, query, qlen + 1);
+    if (err != ESP_OK) {
+        free(query);
+        return BB_ERR_INVALID_ARG;
+    }
+
+    err = httpd_query_key_value(query, key, out, out_len);
+    free(query);
+    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
+}
+
+bb_err_t bb_http_req_async_handler_begin(bb_http_request_t *req,
+                                         bb_http_request_t **out_async_req)
+{
+    httpd_req_t *http_req = (httpd_req_t *)req;
+    if (!http_req || !out_async_req) return BB_ERR_INVALID_ARG;
+    httpd_req_t *async_req = NULL;
+    esp_err_t err = httpd_req_async_handler_begin(http_req, &async_req);
+    if (err != ESP_OK) return BB_ERR_INVALID_ARG;
+    *out_async_req = (bb_http_request_t *)async_req;
+    return BB_OK;
+}
+
+bb_err_t bb_http_req_async_handler_complete(bb_http_request_t *async_req)
+{
+    httpd_req_t *http_req = (httpd_req_t *)async_req;
+    if (!http_req) return BB_ERR_INVALID_ARG;
+    esp_err_t err = httpd_req_async_handler_complete(http_req);
+    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
+}
+
+bb_err_t bb_http_unregister_route(bb_http_handle_t server,
+                                  bb_http_method_t method,
+                                  const char *path)
+{
+    httpd_handle_t h = (httpd_handle_t)server;
+    if (!h || !path) return BB_ERR_INVALID_ARG;
+
+    int http_method;
+    switch (method) {
+        case BB_HTTP_GET:     http_method = HTTP_GET;     break;
+        case BB_HTTP_POST:    http_method = HTTP_POST;    break;
+        case BB_HTTP_PATCH:   http_method = HTTP_PATCH;   break;
+        case BB_HTTP_PUT:     http_method = HTTP_PUT;     break;
+        case BB_HTTP_DELETE:  http_method = HTTP_DELETE;  break;
+        case BB_HTTP_OPTIONS: http_method = HTTP_OPTIONS; break;
+        default: return BB_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = httpd_unregister_uri_handler(h, path, http_method);
+    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
+}
+
 // No-op on ESP-IDF; service loop runs in httpd task
 void bb_http_server_poll(void)
 {
