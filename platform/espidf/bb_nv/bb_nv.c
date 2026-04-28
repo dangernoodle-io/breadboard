@@ -46,6 +46,8 @@ static void load_str(nvs_handle_t handle, const char *key, char *buf, size_t buf
 bb_err_t bb_nv_config_init(void)
 {
 #ifdef ESP_PLATFORM
+    bb_err_t flash_err = bb_nv_flash_init();
+    if (flash_err != BB_OK) return flash_err;
     nvs_handle_t handle;
     bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle);
 
@@ -601,6 +603,16 @@ bb_err_t bb_nv_erase(const char *ns, const char *key)
     return BB_OK;
 }
 
+#endif
+
+#include "bb_registry.h"
+
+#if CONFIG_BB_NV_FLASH_AUTOREGISTER
+BB_REGISTRY_REGISTER_EARLY(bb_nv_flash, bb_nv_flash_init);
+#endif
+
+#if CONFIG_BB_NV_CONFIG_AUTOREGISTER
+BB_REGISTRY_REGISTER_EARLY(bb_nv_config, bb_nv_config_init);
 #endif
 
 const char *bb_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }

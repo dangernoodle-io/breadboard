@@ -58,6 +58,8 @@ Auto-registration is opt-out. Each registry-using component exposes a Kconfig fl
 | `CONFIG_BB_INFO_AUTOREGISTER` | `/api/info` not registered; `bb_info_register_extender` still works |
 | `CONFIG_BB_LOG_ROUTES` | `bb_log` routes module dropped entirely — `bb_http`/`bb_json`/`bb_registry` no longer in `bb_log`'s PRIV_REQUIRES, useful for headless-logging consumers |
 | `CONFIG_BB_LOG_STREAM_AUTOREGISTER` | `bb_log_stream_init` not auto-called via `bb_registry_init_early()`; caller must invoke manually. Independent of `CONFIG_BB_LOG_ROUTES` (stream capture vs. HTTP routes) |
+| `CONFIG_BB_NV_FLASH_AUTOREGISTER` | `bb_nv_flash_init` not auto-called via `bb_registry_init_early()`; caller must invoke manually |
+| `CONFIG_BB_NV_CONFIG_AUTOREGISTER` | `bb_nv_config_init` not auto-called via `bb_registry_init_early()`; caller must invoke manually. Useful for consumers with custom NVS namespaces who want partition init but not typed config preload |
 | `CONFIG_BB_BOARD_AUTOREGISTER` | `/api/board` not registered; `bb_board` accessor C API still callable |
 | `CONFIG_BB_MANIFEST_AUTOREGISTER` | `/api/manifest` not registered; `bb_manifest_register_nv` and `bb_manifest_register_mdns` still work |
 | `CONFIG_BB_OTA_VALIDATOR_AUTOREGISTER` | `POST /api/ota/mark-valid` not registered; `bb_ota_mark_valid` and `bb_ota_is_pending` still work |
