@@ -17,6 +17,15 @@ function(bb_embed_assets)
     set(_script "${_bb_cmake_dir}/../scripts/embed_html.py")
     set(_gen "")
 
+    # PlatformIO's ESP-IDF integration runs an inspection configure pass before
+    # the real component build. In that pass, this component's binary dir is
+    # not yet resolved and equals the project source dir — generating there
+    # leaks .c artifacts into the example/firmware source tree. Skip it; the
+    # real configure pass that follows uses a proper per-component binary dir.
+    if(CMAKE_CURRENT_BINARY_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+        return()
+    endif()
+
     foreach(_pair ${ARG_ASSETS})
         string(REPLACE ":" ";" _parts "${_pair}")
         list(GET _parts 0 _file)
