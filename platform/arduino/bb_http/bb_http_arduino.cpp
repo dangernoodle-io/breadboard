@@ -307,6 +307,11 @@ bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
     return BB_OK;
 }
 
+bb_err_t bb_http_resp_set_type(bb_http_request_t *req, const char *mime)
+{
+    return bb_http_resp_set_header(req, "Content-Type", mime);
+}
+
 bb_err_t bb_http_resp_set_header(bb_http_request_t *req, const char *key, const char *value)
 {
     bb_http_request_impl_t *r = (bb_http_request_impl_t *)req;

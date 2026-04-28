@@ -181,10 +181,34 @@ bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
     httpd_req_t *http_req = (httpd_req_t*)req;
     if (!http_req) return BB_ERR_INVALID_ARG;
 
-    // Convert status code to string
-    char status_str[32];
-    snprintf(status_str, sizeof(status_str), "%d", status_code);
+    // httpd_resp_set_status stores the pointer (no copy), so the string must
+    // outlive the request. Map known codes to static literals.
+    const char *status_str = NULL;
+    switch (status_code) {
+        case 200: status_str = "200 OK"; break;
+        case 202: status_str = "202 Accepted"; break;
+        case 204: status_str = "204 No Content"; break;
+        case 302: status_str = "302 Found"; break;
+        case 400: status_str = "400 Bad Request"; break;
+        case 401: status_str = "401 Unauthorized"; break;
+        case 403: status_str = "403 Forbidden"; break;
+        case 404: status_str = "404 Not Found"; break;
+        case 408: status_str = "408 Request Timeout"; break;
+        case 409: status_str = "409 Conflict"; break;
+        case 500: status_str = "500 Internal Server Error"; break;
+        case 503: status_str = "503 Service Unavailable"; break;
+        default:  return BB_ERR_INVALID_ARG;
+    }
     esp_err_t err = httpd_resp_set_status(http_req, status_str);
+    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
+}
+
+bb_err_t bb_http_resp_set_type(bb_http_request_t *req, const char *mime)
+{
+    httpd_req_t *http_req = (httpd_req_t*)req;
+    if (!http_req || !mime) return BB_ERR_INVALID_ARG;
+
+    esp_err_t err = httpd_resp_set_type(http_req, mime);
     return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
 }
 

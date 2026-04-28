@@ -28,7 +28,7 @@ static bb_err_t wifi_info_handler(bb_http_request_t *req)
     bb_json_obj_set_number(root, "retry_count", (double)info.retry_count);
 
     char *json = bb_json_serialize(root);
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_http_resp_set_type(req, "application/json");
     bb_err_t err = bb_http_resp_send(req, json ? json : "{}", json ? strlen(json) : 2);
     if (json) bb_json_free_str(json);
     bb_json_free(root);

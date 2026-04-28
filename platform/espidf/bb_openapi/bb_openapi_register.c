@@ -29,7 +29,7 @@ static bb_err_t openapi_handler(bb_http_request_t *req)
         return BB_ERR_INVALID_STATE;
     }
 
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_http_resp_set_type(req, "application/json");
     bb_err_t err = bb_http_resp_sendstr(req, json);
     bb_json_free_str(json);
 
