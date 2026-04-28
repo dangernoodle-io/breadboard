@@ -1,17 +1,8 @@
 #pragma once
 
-// Consumer-supplied board header:
-//   Set -DBB_HW_BOARD_HEADER="boards/<name>.h" and provide <name>.h on the
-//   include path via your own component's INCLUDE_DIRS. Falls back to bundled
-//   headers under components/bb_hw/include/boards/ when no override is given.
-#ifdef BB_HW_BOARD_HEADER
-#  include BB_HW_BOARD_HEADER
-#else
-#  if defined(FIRMWARE_BOARD_elecrow_p4_hmi7)
-#    include "boards/elecrow_p4_hmi7.h"
-#  elif defined(FIRMWARE_BOARD_esp32_wroom_32)
-#    include "boards/esp32_wroom_32.h"
-#  else
-#    error "bb_hw: define BB_HW_BOARD_HEADER or FIRMWARE_BOARD_*"
-#  endif
+// Consumer-supplied board header. Set -DBB_HW_BOARD_HEADER="<path>.h"
+// and provide the header on the include path.
+#ifndef BB_HW_BOARD_HEADER
+#  error "bb_hw: define BB_HW_BOARD_HEADER (-DBB_HW_BOARD_HEADER=\"<header>.h\")"
 #endif
+#include BB_HW_BOARD_HEADER

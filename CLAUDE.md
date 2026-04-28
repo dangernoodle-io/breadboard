@@ -54,13 +54,16 @@ LVGL is initialized inside `bb_display_init` via `esp_lvgl_port`. The consumer's
 
 ## bb_hw
 
-Board pin/peripheral headers are consumer-supplied. In your firmware's own component (or top-level build), pass `-DBB_HW_BOARD_HEADER="boards/<name>.h"` and provide that header on your include path. `bb_hw.h` resolves it at build time. Bundled headers under `components/bb_hw/include/boards/` remain available for examples; consumers without an override must define `FIRMWARE_BOARD_<name>` to select one.
+Board pin/peripheral headers are consumer-supplied. Each firmware must provide its own board header file. In your build, set `-DBB_HW_BOARD_HEADER="<name>.h"` and ensure that header is on the include path (via CMake include dirs or PlatformIO `build_flags`). `bb_hw.h` requires this define and will error if not provided.
 
 Example (PlatformIO):
 ```
 build_flags =
-    -DBB_HW_BOARD_HEADER=\"boards/bitaxe_601.h\"
+    -I${PROJECT_DIR}/board
+    -DBB_HW_BOARD_HEADER=\"my_board.h\"
 ```
+
+Examples in this repo (elecrow-p4-hmi7, esp32-wroom-32) own their own board headers under `examples/<name>/board/`. bb_hw component provides no bundled board definitions.
 
 ## Releases
 
