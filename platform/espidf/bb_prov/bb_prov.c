@@ -1,6 +1,5 @@
 #include "bb_prov.h"
 #include "bb_http.h"
-#include "esp_http_server.h"
 #include "bb_log.h"
 #include "bb_nv.h"
 #include "bb_wifi.h"
@@ -32,28 +31,29 @@ void bb_prov_set_save_callback(bb_prov_save_cb_t cb) { s_save_cb = cb; }
 
 #define PROV_DONE_BIT BIT0
 
-static void set_common_headers(httpd_req_t *req)
+static void set_common_headers(bb_http_request_t *req)
 {
-    httpd_resp_set_hdr(req, "Connection", "close");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
+    bb_http_resp_set_header(req, "Connection", "close");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
 }
 
 // Handle provisioning form submission
-static esp_err_t prov_save_handler(httpd_req_t *req)
+static bb_err_t prov_save_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
     char body[512];
 
     // Validate content length to prevent silent body truncation
-    if (req->content_len > sizeof(body) - 1) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Body too large");
-        return ESP_FAIL;
+    int content_len = bb_http_req_body_len(req);
+    if (content_len > (int)(sizeof(body) - 1)) {
+        bb_http_resp_send_err(req, 400, "Body too large");
+        return BB_ERR_INVALID_ARG;
     }
-    int len = httpd_req_recv(req, body, sizeof(body) - 1);
+    int len = bb_http_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
-        return ESP_FAIL;
+        bb_http_resp_send_err(req, 400, "Empty body");
+        return BB_ERR_INVALID_ARG;
     }
     body[len] = '\0';
 
@@ -61,40 +61,40 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
     char ssid[32] = "", pass[64] = "";
     switch (bb_prov_parse_body(body, len, ssid, sizeof(ssid), pass, sizeof(pass))) {
         case BB_PROV_PARSE_EMPTY_BODY:
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
-            return ESP_FAIL;
+            bb_http_resp_send_err(req, 400, "Empty body");
+            return BB_ERR_INVALID_ARG;
         case BB_PROV_PARSE_SSID_REQUIRED:
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID required");
-            return ESP_FAIL;
+            bb_http_resp_send_err(req, 400, "SSID required");
+            return BB_ERR_INVALID_ARG;
         case BB_PROV_PARSE_OK:
             break;
     }
 
-    esp_err_t err = bb_nv_config_set_wifi(ssid, pass);
-    if (err != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save config");
-        return ESP_FAIL;
+    bb_err_t err = bb_nv_config_set_wifi(ssid, pass);
+    if (err != BB_OK) {
+        bb_http_resp_send_err(req, 500, "Failed to save config");
+        return BB_ERR_INVALID_STATE;
     }
 
     if (s_save_cb) {
-        bb_err_t cb_err = s_save_cb((bb_http_request_t *)req, body, len);
-        if (cb_err != BB_OK) return ESP_FAIL;
+        bb_err_t cb_err = s_save_cb(req, body, len);
+        if (cb_err != BB_OK) return BB_ERR_INVALID_STATE;
     } else {
-        httpd_resp_set_status(req, "204 No Content");
-        httpd_resp_send(req, NULL, 0);
+        bb_http_resp_set_status(req, 204);
+        bb_http_resp_send(req, NULL, 0);
     }
 
     bb_prov_signal_done();
-    return ESP_OK;
+    return BB_OK;
 }
 
-static esp_err_t prov_redirect_handler(httpd_req_t *req)
+static bb_err_t prov_redirect_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
-    httpd_resp_set_status(req, "302 Found");
-    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
-    httpd_resp_send(req, NULL, 0);
-    return ESP_OK;
+    bb_http_resp_set_status(req, 302);
+    bb_http_resp_set_header(req, "Location", "http://192.168.4.1/");
+    bb_http_resp_send(req, NULL, 0);
+    return BB_OK;
 }
 
 // Captive DNS task - responds to all DNS queries with 192.168.4.1
@@ -306,14 +306,13 @@ bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
                        bb_prov_extra_routes_fn_t extra)
 {
     // Ensure the shared HTTP server is started (internal helper)
-    esp_err_t err = bb_http_server_ensure_started();
-    if (err != ESP_OK) return err;
+    bb_err_t err = bb_http_server_ensure_started();
+    if (err != BB_OK) return err;
 
     bb_http_handle_t server = bb_http_server_get_handle();
-    if (!server) return ESP_FAIL;
+    if (!server) return BB_ERR_INVALID_STATE;
 
-    httpd_uri_t prov_save = { .uri = "/save", .method = HTTP_POST, .handler = prov_save_handler };
-    httpd_register_uri_handler((httpd_handle_t)server, &prov_save);
+    bb_http_register_route(server, BB_HTTP_POST, "/save", prov_save_handler);
 
     // Register consumer assets (caller MUST supply at least one asset with path="/")
     if (assets && n > 0) {
@@ -332,8 +331,7 @@ bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
     }
 
     // Captive-portal wildcard LAST so all specific GETs win first-match.
-    httpd_uri_t prov_redirect = { .uri = "/*", .method = HTTP_GET, .handler = prov_redirect_handler };
-    httpd_register_uri_handler((httpd_handle_t)server, &prov_redirect);
+    bb_http_register_route(server, BB_HTTP_GET, "/*", prov_redirect_handler);
 
     bb_log_i(TAG, "provisioning server started on port 80");
 
@@ -341,7 +339,7 @@ bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
     // returns a populated array instead of an empty cache.
     bb_wifi_scan_start_async();
 
-    return ESP_OK;
+    return BB_OK;
 }
 
 void bb_prov_stop(void)
@@ -349,11 +347,9 @@ void bb_prov_stop(void)
     bb_http_handle_t server = bb_http_server_get_handle();
     if (!server) return;
 
-    httpd_handle_t h = (httpd_handle_t)server;
-
     // Unregister provisioning handlers: /save (POST) and /* (GET catch-all)
-    httpd_unregister_uri_handler(h, "/save", HTTP_POST);
-    httpd_unregister_uri_handler(h, "/*", HTTP_GET);
+    bb_http_unregister_route(server, BB_HTTP_POST, "/save");
+    bb_http_unregister_route(server, BB_HTTP_GET, "/*");
 }
 
 void bb_prov_set_ap_ssid_prefix(const char *prefix)

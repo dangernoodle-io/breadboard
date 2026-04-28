@@ -7,7 +7,6 @@
 #include <string.h>
 #include <sys/socket.h>
 
-#include "esp_http_server.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -19,19 +18,19 @@ static volatile int s_sse_client_type = 0;  // 0=none, 1=browser, 2=external
 
 static void sse_task(void *arg)
 {
-    httpd_req_t *req = (httpd_req_t *)arg;
+    bb_http_request_t *req = (bb_http_request_t *)arg;
 
-    int fd = httpd_req_to_sockfd(req);
+    int fd = bb_http_req_sockfd(req);
     struct timeval tv = { .tv_sec = 30, .tv_usec = 0 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-    httpd_resp_set_type(req, "text/event-stream");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    httpd_resp_set_hdr(req, "Connection", "keep-alive");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
+    bb_http_resp_set_header(req, "Content-Type", "text/event-stream");
+    bb_http_resp_set_header(req, "Cache-Control", "no-cache");
+    bb_http_resp_set_header(req, "Connection", "keep-alive");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
 
-    esp_err_t err = httpd_resp_send_chunk(req, ": connected\n\n", HTTPD_RESP_USE_STRLEN);
+    bb_err_t err = bb_http_resp_send_chunk(req, ": connected\n\n", -1);
 
     char line[192];
     char frame[220];
@@ -41,11 +40,11 @@ static void sse_task(void *arg)
      * keepalives to detect a stalled stream. */
     const int idle_ticks_per_ping = 20; /* 20 * 500ms drain timeout = 10s */
     int idle_ticks = 0;
-    while (err == ESP_OK) {
+    while (err == BB_OK) {
         size_t n = bb_log_stream_drain(line, sizeof(line), 500);
         if (n == 0) {
             if (++idle_ticks >= idle_ticks_per_ping) {
-                err = httpd_resp_send_chunk(req, ": ping\n\n", HTTPD_RESP_USE_STRLEN);
+                err = bb_http_resp_send_chunk(req, ": ping\n\n", -1);
                 idle_ticks = 0;
             }
             continue;
@@ -54,69 +53,66 @@ static void sse_task(void *arg)
         while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
             line[--n] = '\0';
         int flen = snprintf(frame, sizeof(frame), "data: %s\n\n", line);
-        err = httpd_resp_send_chunk(req, frame,
-                    (flen > 0 && flen < (int)sizeof(frame)) ? flen : HTTPD_RESP_USE_STRLEN);
+        err = bb_http_resp_send_chunk(req, frame,
+                    (flen > 0 && flen < (int)sizeof(frame)) ? flen : -1);
     }
 
-    /* If err != ESP_OK the peer is already disconnected; sending another
+    /* If err != BB_OK the peer is already disconnected; sending another
      * chunk on the dead fd races with httpd's select-loop cleanup of the
      * same fd in call_end_selects, which has crashed in the field
      * (LoadProhibited). Only send the closing chunk while the connection
      * is believed alive. */
-    if (err == ESP_OK) {
-        httpd_resp_send_chunk(req, NULL, 0);
+    if (err == BB_OK) {
+        bb_http_resp_send_chunk(req, NULL, 0);
     }
-    httpd_req_async_handler_complete(req);
+    bb_http_req_async_handler_complete(req);
     s_sse_task_handle = NULL;
     s_sse_client_type = 0;
     vTaskDelete(NULL);
 }
 
-static esp_err_t logs_handler(httpd_req_t *req)
+static bb_err_t logs_handler(bb_http_request_t *req)
 {
     int client_type = 2;
-    char query[32];
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
-        char val[16];
-        if (httpd_query_key_value(query, "source", val, sizeof(val)) == ESP_OK
-            && strcmp(val, "browser") == 0) {
-            client_type = 1;
-        }
+    char val[16];
+    if (bb_http_req_query_key_value(req, "source", val, sizeof(val)) == BB_OK
+        && strcmp(val, "browser") == 0) {
+        client_type = 1;
     }
 
     if (s_sse_task_handle) {
-        httpd_resp_set_status(req, "503 Service Unavailable");
-        httpd_resp_set_type(req, "application/json");
+        bb_http_resp_set_status(req, 503);
+        bb_http_resp_set_header(req, "Content-Type", "application/json");
         char body[96];
         int n = snprintf(body, sizeof(body),
             "{\"error\":\"busy\",\"active_client\":\"%s\"}",
             s_sse_client_type == 1 ? "browser" : "external");
-        httpd_resp_send(req, body, n);
-        return ESP_OK;
+        bb_http_resp_send(req, body, n);
+        return BB_OK;
     }
 
     if (client_type == 2) {
         ESP_LOGI(TAG, "external log client connected");
     }
 
-    httpd_req_t *async_req = NULL;
-    if (httpd_req_async_handler_begin(req, &async_req) != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Async init failed");
-        return ESP_FAIL;
+    bb_http_request_t *async_req = NULL;
+    if (bb_http_req_async_handler_begin(req, &async_req) != BB_OK) {
+        bb_http_resp_send_err(req, 500, "Async init failed");
+        return BB_ERR_INVALID_STATE;
     }
 
     s_sse_client_type = client_type;
     if (xTaskCreate(sse_task, "sse_log", 4096, async_req, 1, (TaskHandle_t *)&s_sse_task_handle) != pdPASS) {
-        httpd_req_async_handler_complete(async_req);
+        bb_http_req_async_handler_complete(async_req);
         s_sse_client_type = 0;
-        return ESP_FAIL;
+        return BB_ERR_INVALID_STATE;
     }
-    return ESP_OK;
+    return BB_OK;
 }
 
-static esp_err_t logs_status_handler(httpd_req_t *req)
+static bb_err_t logs_status_handler(bb_http_request_t *req)
 {
-    httpd_resp_set_type(req, "application/json");
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
     char buf[96];
     uint32_t dropped = bb_log_stream_dropped_lines();
     if (s_sse_client_type == 0) {
@@ -125,12 +121,12 @@ static esp_err_t logs_status_handler(httpd_req_t *req)
         snprintf(buf, sizeof(buf), "{\"active\":true,\"client\":\"%s\",\"dropped\":%" PRIu32 "}",
                  s_sse_client_type == 1 ? "browser" : "external", dropped);
     }
-    httpd_resp_sendstr(req, buf);
-    return ESP_OK;
+    bb_http_resp_sendstr(req, buf);
+    return BB_OK;
 }
 
 // ---------------------------------------------------------------------------
-// Route descriptors (descriptor-only; handlers registered via raw httpd API)
+// Route descriptors (descriptor-only; handlers registered via bb_http_register_route)
 // ---------------------------------------------------------------------------
 
 static const bb_route_response_t s_logs_responses[] = {
@@ -154,7 +150,7 @@ static const bb_route_t s_logs_route = {
     .tag      = "logs",
     .summary  = "Stream log output via SSE",
     .responses = s_logs_responses,
-    .handler  = NULL,  // SSE handler registered via raw httpd API
+    .handler  = NULL,  // SSE handler; uses async API
 };
 
 static const bb_route_response_t s_logs_status_responses[] = {
@@ -176,28 +172,22 @@ static const bb_route_t s_logs_status_route = {
     .tag      = "logs",
     .summary  = "Get log stream status",
     .responses = s_logs_status_responses,
-    .handler  = NULL,  // handler registered via raw httpd API
+    .handler  = NULL,
 };
 
 bb_err_t bb_log_stream_register_routes(void *server)
 {
-    if (!server) return ESP_ERR_INVALID_ARG;
-    httpd_handle_t h = (httpd_handle_t)server;
+    if (!server) return BB_ERR_INVALID_ARG;
 
-    httpd_uri_t logs_uri = {
-        .uri = "/api/logs", .method = HTTP_GET, .handler = logs_handler, .user_ctx = NULL,
-    };
-    httpd_uri_t logs_status_uri = {
-        .uri = "/api/logs/status", .method = HTTP_GET, .handler = logs_status_handler, .user_ctx = NULL,
-    };
-
-    esp_err_t err = httpd_register_uri_handler(h, &logs_uri);
-    if (err != ESP_OK) return err;
-    err = httpd_register_uri_handler(h, &logs_status_uri);
-    if (err != ESP_OK) return err;
+    bb_err_t err = bb_http_register_route(server, BB_HTTP_GET,
+                                          "/api/logs", logs_handler);
+    if (err != BB_OK) return err;
+    err = bb_http_register_route(server, BB_HTTP_GET,
+                                 "/api/logs/status", logs_status_handler);
+    if (err != BB_OK) return err;
 
     // Register descriptors for OpenAPI spec; handlers are already registered above.
     bb_http_register_route_descriptor_only(&s_logs_route);
     bb_http_register_route_descriptor_only(&s_logs_status_route);
-    return ESP_OK;
+    return BB_OK;
 }

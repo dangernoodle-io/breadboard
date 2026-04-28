@@ -91,6 +91,61 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
     return BB_OK;
 }
 
+bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)
+{
+    (void)req;
+    (void)str;
+    return BB_OK;
+}
+
+bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int len)
+{
+    (void)req;
+    (void)buf;
+    (void)len;
+    return BB_OK;
+}
+
+int bb_http_req_sockfd(bb_http_request_t *req)
+{
+    (void)req;
+    return -1;
+}
+
+bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
+                                     char *out, size_t out_len)
+{
+    (void)req;
+    (void)key;
+    (void)out;
+    (void)out_len;
+    return BB_ERR_INVALID_ARG;
+}
+
+bb_err_t bb_http_req_async_handler_begin(bb_http_request_t *req,
+                                         bb_http_request_t **out_async_req)
+{
+    (void)req;
+    (void)out_async_req;
+    return BB_ERR_INVALID_STATE;
+}
+
+bb_err_t bb_http_req_async_handler_complete(bb_http_request_t *async_req)
+{
+    (void)async_req;
+    return BB_ERR_INVALID_STATE;
+}
+
+bb_err_t bb_http_unregister_route(bb_http_handle_t server,
+                                  bb_http_method_t method,
+                                  const char *path)
+{
+    (void)server;
+    (void)method;
+    (void)path;
+    return BB_OK;
+}
+
 void bb_system_reboot(void) {}
 
 bb_err_t bb_http_server_ensure_started(void) { return BB_OK; }

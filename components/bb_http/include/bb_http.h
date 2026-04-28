@@ -103,9 +103,35 @@ bb_err_t bb_http_resp_send(bb_http_request_t *req, const char *body, size_t len)
 // Send an HTTP error response (status + plain-text message). Convenience for handlers.
 bb_err_t bb_http_resp_send_err(bb_http_request_t *req, int status_code, const char *message);
 
+// Convenience send: equivalent to bb_http_resp_send(req, str, strlen(str)).
+bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str);
+
+// Chunked send for streaming responses (e.g. SSE).
+// len < 0 means compute length via strlen(buf).
+// buf == NULL and len == 0 ends the chunked response.
+bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int len);
+
 // Request accessors — MVP: read the body as a single buffer.
 int bb_http_req_body_len(bb_http_request_t *req);
 int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size);
+
+// Return the underlying socket fd for the request (ESP-IDF only; used for SSE eviction).
+int bb_http_req_sockfd(bb_http_request_t *req);
+
+// Read a query-string value from the request URL.
+// Returns BB_OK if found; BB_ERR_NOT_FOUND if key is absent.
+bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
+                                     char *out, size_t out_len);
+
+// Async handler support (ESP-IDF only; used for SSE long-lived connections).
+bb_err_t bb_http_req_async_handler_begin(bb_http_request_t *req,
+                                         bb_http_request_t **out_async_req);
+bb_err_t bb_http_req_async_handler_complete(bb_http_request_t *async_req);
+
+// Unregister a previously-registered route handler.
+bb_err_t bb_http_unregister_route(bb_http_handle_t server,
+                                  bb_http_method_t method,
+                                  const char *path);
 
 // CORS preflight configuration. Must be called before bb_http_server_start().
 // Defaults: methods = "GET, POST, OPTIONS", headers = "Content-Type".

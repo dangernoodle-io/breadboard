@@ -43,7 +43,6 @@ uint32_t bb_ota_pull_host_get_http_timeout_ms(void)
 #include "bb_wifi.h"
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
-#include "esp_http_server.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
@@ -775,7 +774,7 @@ static void ota_check_worker_task(void *arg)
 /**
  * GET /api/ota/check - Check for available updates (non-blocking)
  */
-static esp_err_t ota_check_handler(httpd_req_t *req)
+static bb_err_t ota_check_handler(bb_http_request_t *req)
 {
     // Snapshot state under critical section. When the previous background
     // check failed, clear the sticky failure flag and fall through to the
@@ -800,10 +799,10 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
         bb_json_t root = bb_json_obj_new();
         if (!root) {
             const char *error_response = "{\"error\":\"json_error\"}";
-            httpd_resp_set_status(req, "500 Internal Server Error");
-            httpd_resp_set_type(req, "application/json");
-            httpd_resp_send(req, error_response, strlen(error_response));
-            return ESP_OK;
+            bb_http_resp_set_status(req, 500);
+            bb_http_resp_set_header(req, "Content-Type", "application/json");
+            bb_http_resp_send(req, error_response, strlen(error_response));
+            return BB_OK;
         }
 
         const esp_app_desc_t *running_desc = esp_app_get_description();
@@ -822,16 +821,16 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
         bb_json_free(root);
 
         if (response_str) {
-            httpd_resp_set_type(req, "application/json");
-            httpd_resp_send(req, response_str, strlen(response_str));
+            bb_http_resp_set_header(req, "Content-Type", "application/json");
+            bb_http_resp_send(req, response_str, strlen(response_str));
             bb_json_free_str(response_str);
         } else {
             const char *error_response = "{\"error\":\"json_error\"}";
-            httpd_resp_set_status(req, "500 Internal Server Error");
-            httpd_resp_send(req, error_response, strlen(error_response));
+            bb_http_resp_set_status(req, 500);
+            bb_http_resp_send(req, error_response, strlen(error_response));
         }
 
-        return ESP_OK;
+        return BB_OK;
     }
 
     // Trigger background check if not already running
@@ -855,34 +854,34 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
             s_check_in_progress = false;
             taskEXIT_CRITICAL(&s_ota_status_mux);
             const char *response = "{\"error\":\"task_create_failed\"}";
-            httpd_resp_set_status(req, "500 Internal Server Error");
-            httpd_resp_set_type(req, "application/json");
-            httpd_resp_send(req, response, strlen(response));
-            return ESP_OK;
+            bb_http_resp_set_status(req, 500);
+            bb_http_resp_set_header(req, "Content-Type", "application/json");
+            bb_http_resp_send(req, response, strlen(response));
+            return BB_OK;
         }
     }
 
     const char *response = "{\"status\":\"checking\"}";
-    httpd_resp_set_status(req, "202 Accepted");
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, response, strlen(response));
-    return ESP_OK;
+    bb_http_resp_set_status(req, 202);
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_http_resp_send(req, response, strlen(response));
+    return BB_OK;
 }
 
 /**
  * POST /api/ota/update - Trigger firmware update
  */
-static esp_err_t ota_update_handler(httpd_req_t *req)
+static bb_err_t ota_update_handler(bb_http_request_t *req)
 {
     // Atomically check and set s_ota_in_progress
     taskENTER_CRITICAL(&s_ota_status_mux);
     if (s_ota_in_progress) {
         taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"error\":\"update_in_progress\"}";
-        httpd_resp_set_status(req, "409 Conflict");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, response, strlen(response));
-        return ESP_OK;
+        bb_http_resp_set_status(req, 409);
+        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_send(req, response, strlen(response));
+        return BB_OK;
     }
     s_ota_in_progress = true;
     taskEXIT_CRITICAL(&s_ota_status_mux);
@@ -899,9 +898,9 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"status\":\"already_up_to_date\"}";
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, response, strlen(response));
-        return ESP_OK;
+        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_send(req, response, strlen(response));
+        return BB_OK;
     }
 
     // Allocate task argument
@@ -911,10 +910,10 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"error\":\"allocation_failed\"}";
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, response, strlen(response));
-        return ESP_OK;
+        bb_http_resp_set_status(req, 500);
+        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_send(req, response, strlen(response));
+        return BB_OK;
     }
 
     memcpy(task_arg, &result, sizeof(ota_pull_check_result_t));
@@ -941,24 +940,24 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"error\":\"task_create_failed\"}";
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, response, strlen(response));
-        return ESP_OK;
+        bb_http_resp_set_status(req, 500);
+        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_send(req, response, strlen(response));
+        return BB_OK;
     }
 
     const char *response = "{\"status\":\"update_started\"}";
-    httpd_resp_set_status(req, "202 Accepted");
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, response, strlen(response));
+    bb_http_resp_set_status(req, 202);
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_http_resp_send(req, response, strlen(response));
 
-    return ESP_OK;
+    return BB_OK;
 }
 
 /**
  * GET /api/ota/status - Return OTA debug status
  */
-static esp_err_t ota_status_handler(httpd_req_t *req)
+static bb_err_t ota_status_handler(bb_http_request_t *req)
 {
     // Snapshot status under lock
     ota_status_t status_copy;
@@ -971,10 +970,10 @@ static esp_err_t ota_status_handler(httpd_req_t *req)
     bb_json_t root = bb_json_obj_new();
     if (!root) {
         const char *response = "{\"error\":\"json_error\"}";
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, response, strlen(response));
-        return ESP_OK;
+        bb_http_resp_set_status(req, 500);
+        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_send(req, response, strlen(response));
+        return BB_OK;
     }
 
     bb_json_obj_set_string(root, "state", s_ota_state_names[status_copy.state]);
@@ -988,16 +987,16 @@ static esp_err_t ota_status_handler(httpd_req_t *req)
     bb_json_free(root);
 
     if (response_str) {
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, response_str, strlen(response_str));
+        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_send(req, response_str, strlen(response_str));
         bb_json_free_str(response_str);
     } else {
         const char *response = "{\"error\":\"json_error\"}";
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_send(req, response, strlen(response));
+        bb_http_resp_set_status(req, 500);
+        bb_http_resp_send(req, response, strlen(response));
     }
 
-    return ESP_OK;
+    return BB_OK;
 }
 
 // ---------------------------------------------------------------------------
@@ -1089,7 +1088,7 @@ static const bb_route_t s_ota_status_route = {
 bb_err_t bb_ota_pull_register_handler(bb_http_handle_t server)
 {
     if (!server) {
-        return ESP_ERR_INVALID_ARG;
+        return BB_ERR_INVALID_ARG;
     }
 
     /* Pre-allocate the API response buffer now, while heap is mostly contiguous.
@@ -1098,47 +1097,24 @@ bb_err_t bb_ota_pull_register_handler(bb_http_handle_t server)
      * the 16 KB threshold). Failure here is non-fatal — check path will retry. */
     (void)ota_pull_get_api_buf();
 
-    httpd_handle_t s = (httpd_handle_t)server;
-
-    httpd_uri_t check_uri = {
-        .uri = "/api/ota/check",
-        .method = HTTP_GET,
-        .handler = ota_check_handler,
-        .user_ctx = NULL,
-    };
-
-    httpd_uri_t update_uri = {
-        .uri = "/api/ota/update",
-        .method = HTTP_POST,
-        .handler = ota_update_handler,
-        .user_ctx = NULL,
-    };
-
-    httpd_uri_t status_uri = {
-        .uri = "/api/ota/status",
-        .method = HTTP_GET,
-        .handler = ota_status_handler,
-        .user_ctx = NULL,
-    };
-
-    esp_err_t err = httpd_register_uri_handler(s, &check_uri);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "failed to register /api/ota/check handler: %s",
-                 esp_err_to_name(err));
+    bb_err_t err = bb_http_register_route(server, BB_HTTP_GET,
+                                          "/api/ota/check", ota_check_handler);
+    if (err != BB_OK) {
+        bb_log_e(TAG, "failed to register /api/ota/check handler");
         return err;
     }
 
-    err = httpd_register_uri_handler(s, &update_uri);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "failed to register /api/ota/update handler: %s",
-                 esp_err_to_name(err));
+    err = bb_http_register_route(server, BB_HTTP_POST,
+                                 "/api/ota/update", ota_update_handler);
+    if (err != BB_OK) {
+        bb_log_e(TAG, "failed to register /api/ota/update handler");
         return err;
     }
 
-    err = httpd_register_uri_handler(s, &status_uri);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "failed to register /api/ota/status handler: %s",
-                 esp_err_to_name(err));
+    err = bb_http_register_route(server, BB_HTTP_GET,
+                                 "/api/ota/status", ota_status_handler);
+    if (err != BB_OK) {
+        bb_log_e(TAG, "failed to register /api/ota/status handler");
         return err;
     }
 
@@ -1148,7 +1124,7 @@ bb_err_t bb_ota_pull_register_handler(bb_http_handle_t server)
     bb_http_register_route_descriptor_only(&s_ota_status_route);
 
     bb_log_i(TAG, "OTA pull handlers registered");
-    return ESP_OK;
+    return BB_OK;
 }
 
 /**
