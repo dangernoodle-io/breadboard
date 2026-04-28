@@ -150,12 +150,6 @@ bb_http_handle_t bb_http_server_get_handle(void);
 // Poll the server for new connections (Arduino backend only; no-op on ESP-IDF).
 void bb_http_server_poll(void);
 
-// Register common built-in routes: GET /api/version, POST /api/reboot, GET /api/scan.
-// /api/version returns bb_system_get_version() as text/plain.
-// /api/reboot returns {"status":"rebooting"} then calls bb_system_reboot()
-//   after a short backend-specific delay.
-// /api/scan returns cached bb_wifi scan results as JSON and kicks a background refresh.
-bb_err_t bb_http_register_common_routes(bb_http_handle_t server);
 
 // Static asset entry. Lifetime: all pointer fields must remain valid for
 // the life of the server registration (typically static/rodata).

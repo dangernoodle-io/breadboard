@@ -1,0 +1,11 @@
+menu "breadboard: bb_board"
+
+config BB_BOARD_AUTOREGISTER
+    bool "Auto-register /api/board HTTP route via bb_registry"
+    default y
+    help
+        When enabled, bb_board self-registers GET /api/board (chip model,
+        cores, flash size, heap, OTA state) through bb_registry. Disable
+        to skip the route while keeping any other bb_board API exposed.
+
+endmenu

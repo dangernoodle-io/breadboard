@@ -1,6 +1,7 @@
 #include "bb_manifest.h"
 #include "bb_http.h"
 #include "bb_log.h"
+#include "bb_registry.h"
 
 #include <string.h>
 
@@ -74,7 +75,7 @@ static const bb_route_t s_manifest_route = {
     .handler  = NULL,
 };
 
-bb_err_t bb_manifest_register_route(bb_http_handle_t server)
+static bb_err_t bb_manifest_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
@@ -91,3 +92,7 @@ bb_err_t bb_manifest_register_route(bb_http_handle_t server)
     bb_log_i(TAG, "registered GET /api/manifest");
     return BB_OK;
 }
+
+#if CONFIG_BB_MANIFEST_AUTOREGISTER
+BB_REGISTRY_REGISTER(bb_manifest, bb_manifest_init);
+#endif

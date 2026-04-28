@@ -3,4 +3,10 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_board/bb_board_routes.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_nv bb_http esp_app_format esp_system app_update esp_http_server bb_json esp_hw_support spi_flash
+    PRIV_REQUIRES bb_registry
 )
+
+if(CONFIG_BB_BOARD_AUTOREGISTER)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+    bb_registry_force_register(${COMPONENT_LIB} bb_board)
+endif()

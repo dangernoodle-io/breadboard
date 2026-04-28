@@ -48,10 +48,6 @@ bb_err_t bb_manifest_register_mdns(const char *service,
 // Build the manifest JSON document. Caller must free with bb_json_free().
 bb_json_t bb_manifest_emit(void);
 
-// ESP-IDF: register GET /api/manifest. Handler invokes bb_manifest_emit(),
-// serializes to JSON, returns Content-Type: application/json.
-bb_err_t bb_manifest_register_route(bb_http_handle_t server);
-
 // Test helpers — clear all registrations.
 void bb_manifest_clear(void);
 

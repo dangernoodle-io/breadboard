@@ -3,6 +3,7 @@
 #include "bb_log.h"
 #include "bb_nv.h"
 #include "bb_wifi.h"
+#include "bb_registry.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "freertos/FreeRTOS.h"
@@ -319,9 +320,9 @@ bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
         bb_http_register_assets(server, assets, n);
     }
 
-    // Register built-in common routes so the prov UI gets /api/version,
-    // /api/scan, /api/reboot without the consumer wiring anything.
-    bb_err_t rc = bb_http_register_common_routes(server);
+    // Register all registry routes (system, wifi routes, info, etc.).
+    // This includes /api/version, /api/scan, /api/reboot and others.
+    bb_err_t rc = bb_registry_init(server);
     if (rc != BB_OK) return rc;
 
     // Consumer's dynamic endpoints (e.g. advanced-UI backing routes).

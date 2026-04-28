@@ -1,7 +1,6 @@
 #include "bb_http.h"
 #include "esp_http_server.h"
 #include "bb_log.h"
-#include "esp_wifi.h"
 #include "bb_nv.h"
 #include "freertos/task.h"
 #include <stdio.h>

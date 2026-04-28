@@ -86,8 +86,6 @@ bb_err_t bb_http_server_stop(void)    { return BB_OK; }
 bb_http_handle_t bb_http_server_get_handle(void) { return NULL; }
 void bb_http_server_poll(void) {}
 
-bb_err_t bb_http_register_common_routes(bb_http_handle_t server) { (void)server; return BB_OK; }
-
 bb_err_t bb_http_register_assets(bb_http_handle_t server,
                                  const bb_http_asset_t *assets,
                                  size_t n)

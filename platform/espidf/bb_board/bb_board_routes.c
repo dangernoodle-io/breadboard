@@ -4,6 +4,7 @@
 
 #include "bb_http.h"
 #include "bb_json.h"
+#include "bb_registry.h"
 
 static bb_err_t board_info_handler(bb_http_request_t *req)
 {
@@ -72,8 +73,14 @@ static const bb_route_t s_board_route = {
     .handler  = board_info_handler,
 };
 
-bb_err_t bb_board_register_routes(void *server)
+static bb_err_t bb_board_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
-    return bb_http_register_described_route(server, &s_board_route);
+    bb_err_t err = bb_http_register_described_route(server, &s_board_route);
+    if (err != BB_OK) return err;
+    return BB_OK;
 }
+
+#if CONFIG_BB_BOARD_AUTOREGISTER
+BB_REGISTRY_REGISTER(bb_board, bb_board_init);
+#endif

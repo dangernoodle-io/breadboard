@@ -88,9 +88,4 @@ bool bb_wifi_has_ip(void);
 // null arg.
 bb_err_t bb_wifi_get_info(bb_wifi_info_t *out);
 
-// Register GET /api/wifi on server. Returns bb_wifi_get_info() snapshot
-// as JSON. `server` is bb_http_handle_t; declared as void* to avoid
-// pulling http_server.h into bb_wifi consumers.
-bb_err_t bb_wifi_register_routes(void *server);
-
 #endif /* ESP_PLATFORM */
