@@ -26,7 +26,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 | `bb_ota_validator` | Owns the full OTA rollback state machine: boot-time pending detection, rollback-safety preflight, `bb_ota_mark_valid(reason)` signal API, POST `/api/ota/mark-valid` | ESP-IDF (portable stubs on non-ESP) |
 | `bb_board` | Runtime sysinfo (chip model, cores, flash, heap, OTA state) and GET `/api/board` | ESP-IDF |
 | `bb_info` | Composite GET `/api/info` merging sysinfo + wifi + consumer-registered extender callbacks | ESP-IDF |
-| `bb_mdns` | mDNS service registration with hostname, instance, service-type setters | ESP-IDF |
+| `bb_mdns` | mDNS service registration (registry auto-init via `CONFIG_BB_MDNS_AUTOREGISTER`); setters for hostname, instance, service-type are caller-driven | ESP-IDF |
 | `bb_openapi` | Opt-in OpenAPI 3.1 spec emitter; walks the `bb_http` route descriptor registry to publish `GET /api/openapi.json` via registry auto-registration; same emitter drives build-time codegen via `host_tools/emit_openapi` | ESP-IDF, host |
 | `bb_manifest` | Opt-in device manifest endpoint; consumer registers NVS keyspaces and mDNS TXT keys to expose `GET /api/manifest` with keyspace/enum descriptors for external tools (custom flashers, fleet provisioners) | ESP-IDF |
 | `bb_prov` | Provisioning state machine (SoftAP + captive-portal + HTTP `/save` handler) | ESP-IDF |
@@ -63,6 +63,7 @@ Auto-registration is opt-out. Each registry-using component exposes a Kconfig fl
 | `CONFIG_BB_WIFI_ROUTES_AUTOREGISTER` | `/api/wifi` and `/api/scan` not registered; wifi driver init APIs still work |
 | `CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER` | System routes module dropped entirely; `bb_http`/`bb_json`/`bb_registry`/`esp_timer` no longer in `bb_system`'s PRIV_REQUIRES |
 | `CONFIG_BB_OPENAPI_AUTOREGISTER` | `/api/openapi.json` not registered; `bb_openapi_emit` and `bb_openapi_set_meta` still work |
+| `CONFIG_BB_MDNS_AUTOREGISTER` | `bb_mdns_init` not auto-called via registry; caller must invoke it manually (setters still available) |
 
 Tagged source archives will be published on the [releases page](https://github.com/dangernoodle-io/breadboard/releases) once the API stabilizes.
 

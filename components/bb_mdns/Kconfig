@@ -1,0 +1,11 @@
+menu "breadboard: bb_mdns"
+
+config BB_MDNS_AUTOREGISTER
+    bool "Auto-init bb_mdns via bb_registry"
+    default y
+    help
+        When enabled, bb_mdns self-initializes through bb_registry at
+        bb_registry_init(server). Disable to skip the automatic init while
+        keeping the component's public C API (caller must invoke bb_mdns_init manually).
+
+endmenu
