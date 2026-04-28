@@ -2,7 +2,6 @@
 #include "bb_log.h"
 #include "bb_wifi.h"
 #include "bb_http.h"
-#include "bb_mdns.h"
 #include "bb_registry.h"
 
 static const char *TAG = "smoke";
@@ -22,8 +21,6 @@ void app_main(void) {
 
     bb_http_server_start();
     bb_http_handle_t server = bb_http_server_get_handle();
-
-    bb_mdns_init();
 
     bb_registry_init(server);
 

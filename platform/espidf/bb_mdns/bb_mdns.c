@@ -721,3 +721,21 @@ bb_err_t bb_mdns_query_txt(const char *instance_name, const char *service, const
     if (xQueueSend(s_query_queue, &req, 0) != pdTRUE) return BB_ERR_NO_SPACE;
     return BB_OK;
 }
+
+// ---------------------------------------------------------------------------
+// Registry auto-registration
+// ---------------------------------------------------------------------------
+
+#include "bb_registry.h"
+#include "bb_http.h"
+
+static bb_err_t bb_mdns_registry_init(bb_http_handle_t server)
+{
+    (void)server;
+    bb_mdns_init();
+    return BB_OK;
+}
+
+#if CONFIG_BB_MDNS_AUTOREGISTER
+BB_REGISTRY_REGISTER(bb_mdns, bb_mdns_registry_init);
+#endif
