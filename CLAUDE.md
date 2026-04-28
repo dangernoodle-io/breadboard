@@ -83,7 +83,7 @@ bb_registry_force_register_early(${COMPONENT_LIB} bb_<name>)  # early tier
 
 Auto-registration is opt-out via Kconfig. Each registry entry has a `CONFIG_BB_<NAME>_AUTOREGISTER` flag (default-on) that gates the `BB_REGISTRY_REGISTER[_EARLY]` invocation and the corresponding CMake helper call. Disabling preserves the component's public C API but removes the registration.
 
-Today this pattern owns (regular tier): `bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_log` (routes), `bb_board`, `bb_manifest`, `bb_ota_validator`, `bb_wifi` (routes), `bb_system` (routes), `bb_openapi`, `bb_mdns`. Early tier: `bb_log_stream` (via `CONFIG_BB_LOG_STREAM_AUTOREGISTER`). When routes are disabled, routes source files and HTTP/JSON/registry deps are dropped from PRIV_REQUIRES — see bb_log for reference.
+Today this pattern owns (regular tier): `bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_log` (routes), `bb_board`, `bb_manifest`, `bb_ota_validator`, `bb_wifi` (routes), `bb_system` (routes), `bb_openapi`, `bb_mdns`. Early tier: `bb_log_stream` (via `CONFIG_BB_LOG_STREAM_AUTOREGISTER`), `bb_nv_flash`, `bb_nv_config` (via `CONFIG_BB_NV_FLASH_AUTOREGISTER`, `CONFIG_BB_NV_CONFIG_AUTOREGISTER`). When routes are disabled, routes source files and HTTP/JSON/registry deps are dropped from PRIV_REQUIRES — see bb_log for reference.
 
 ## Provisioning UI
 

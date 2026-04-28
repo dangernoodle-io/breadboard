@@ -1,4 +1,3 @@
-#include "bb_nv.h"
 #include "bb_log.h"
 #include "bb_wifi.h"
 #include "bb_http.h"
@@ -10,8 +9,6 @@ static const char *TAG = "smoke";
 // single boot, so bb_prov is intentionally not exercised here — file a separate
 // prov-mode smoke if coverage of that path is needed on classic ESP32.
 void app_main(void) {
-    bb_nv_flash_init();
-    bb_nv_config_init();
     bb_registry_init_early();
 
     bb_wifi_ensure_netif();

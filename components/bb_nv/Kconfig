@@ -1,0 +1,11 @@
+menu "breadboard: bb_nv"
+
+config BB_NV_FLASH_AUTOREGISTER
+    bool "Auto-init NVS partition (nvs_flash_init) via bb_registry early tier"
+    default y
+
+config BB_NV_CONFIG_AUTOREGISTER
+    bool "Auto-load breadboard typed config (wifi creds, display flag) via bb_registry early tier"
+    default y
+
+endmenu
