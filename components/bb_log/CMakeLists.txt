@@ -22,3 +22,8 @@ if(CONFIG_BB_LOG_ROUTES)
     bb_registry_force_register(${COMPONENT_LIB} bb_log_register_routes)
     bb_registry_force_register(${COMPONENT_LIB} bb_log_stream_register_routes)
 endif()
+
+if(CONFIG_BB_LOG_STREAM_AUTOREGISTER)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+    bb_registry_force_register_early(${COMPONENT_LIB} bb_log_stream)
+endif()

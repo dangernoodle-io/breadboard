@@ -33,6 +33,32 @@ void    bb_registry_clear(void);
         bb_registry_add(&bb_registry_entry__##name_);                          \
     }
 
+typedef bb_err_t (*bb_registry_init_early_fn)(void);
+
+typedef struct {
+    const char                  *name;
+    bb_registry_init_early_fn    init;
+} bb_registry_entry_early_t;
+
+void     bb_registry_add_early(const bb_registry_entry_early_t *entry);
+bb_err_t bb_registry_init_early(void);
+size_t   bb_registry_count_early(void);
+void     bb_registry_foreach_early(void (*cb)(const bb_registry_entry_early_t *, void *), void *ctx);
+void     bb_registry_clear_early(void);
+
+// The constructor is global (not static) so each component's CMakeLists can
+// add `-u bb_registry_register_early__<name>` to force-keep the .o under PlatformIO,
+// whose espidf builder strips IDF's WHOLE_ARCHIVE flag. See
+// cmake/bb_registry.cmake for the bb_registry_force_register_early() helper.
+#define BB_REGISTRY_REGISTER_EARLY(name_, fn_)                                       \
+    static const bb_registry_entry_early_t bb_registry_entry_early__##name_ = {      \
+        .name = #name_, .init = (fn_)                                                 \
+    };                                                                                 \
+    void bb_registry_register_early__##name_(void) __attribute__((constructor));     \
+    void bb_registry_register_early__##name_(void) {                                 \
+        bb_registry_add_early(&bb_registry_entry_early__##name_);                    \
+    }
+
 #ifdef __cplusplus
 }
 #endif

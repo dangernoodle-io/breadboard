@@ -3,13 +3,14 @@
 #include "bb_log.h"
 #include "bb_display.h"
 #include "bb_prov_default_form.h"
+#include "bb_registry.h"
 
 static const char *TAG = "minimal";
 
 void app_main(void) {
     bb_nv_flash_init();
     bb_nv_config_init();
-    bb_log_stream_init();
+    bb_registry_init_early();
     bb_display_init();
     bb_display_show_splash("minimal", "v0.0.0");
 

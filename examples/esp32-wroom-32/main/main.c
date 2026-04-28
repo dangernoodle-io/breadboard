@@ -12,7 +12,7 @@ static const char *TAG = "smoke";
 void app_main(void) {
     bb_nv_flash_init();
     bb_nv_config_init();
-    bb_log_stream_init();
+    bb_registry_init_early();
 
     bb_wifi_ensure_netif();
     // Try to bring up STA if creds are provisioned in NVS. Returns BB_ERR_TIMEOUT
