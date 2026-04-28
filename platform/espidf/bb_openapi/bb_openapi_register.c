@@ -2,6 +2,7 @@
 #include "bb_http.h"
 #include "bb_log.h"
 #include "bb_system.h"
+#include "bb_registry.h"
 
 #include <string.h>
 
@@ -12,7 +13,12 @@ static const bb_openapi_meta_t *s_meta = NULL;
 
 static bb_err_t openapi_handler(bb_http_request_t *req)
 {
-    bb_openapi_meta_t effective = *s_meta;
+    // Build effective metadata with fallbacks for missing fields.
+    bb_openapi_meta_t effective = {};
+    if (s_meta) {
+        effective = *s_meta;
+    }
+    if (!effective.title) effective.title = "breadboard device";
     if (!effective.version) effective.version = bb_system_get_version();
 
     bb_json_t doc = bb_openapi_emit(&effective);
@@ -54,11 +60,14 @@ static const bb_route_t s_openapi_route = {
     .handler  = NULL,
 };
 
-bb_err_t bb_openapi_register(bb_http_handle_t server, const bb_openapi_meta_t *meta)
+void bb_openapi_set_meta(const bb_openapi_meta_t *meta)
 {
-    if (!server || !meta) return BB_ERR_INVALID_ARG;
-
     s_meta = meta;
+}
+
+static bb_err_t bb_openapi_init(bb_http_handle_t server)
+{
+    if (!server) return BB_ERR_INVALID_ARG;
 
     bb_err_t err = bb_http_register_route(server, BB_HTTP_GET,
                                           "/api/openapi.json", openapi_handler);
@@ -73,3 +82,7 @@ bb_err_t bb_openapi_register(bb_http_handle_t server, const bb_openapi_meta_t *m
     bb_log_i(TAG, "registered GET /api/openapi.json");
     return BB_OK;
 }
+
+#if CONFIG_BB_OPENAPI_AUTOREGISTER
+BB_REGISTRY_REGISTER(bb_openapi, bb_openapi_init);
+#endif

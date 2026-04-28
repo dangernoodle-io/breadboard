@@ -27,7 +27,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 | `bb_board` | Runtime sysinfo (chip model, cores, flash, heap, OTA state) and GET `/api/board` | ESP-IDF |
 | `bb_info` | Composite GET `/api/info` merging sysinfo + wifi + consumer-registered extender callbacks | ESP-IDF |
 | `bb_mdns` | mDNS service registration with hostname, instance, service-type setters | ESP-IDF |
-| `bb_openapi` | Opt-in OpenAPI 3.1 spec emitter; walks the `bb_http` route descriptor registry to publish `GET /api/openapi.json`; same emitter drives build-time codegen via `host_tools/emit_openapi` | ESP-IDF, host |
+| `bb_openapi` | Opt-in OpenAPI 3.1 spec emitter; walks the `bb_http` route descriptor registry to publish `GET /api/openapi.json` via registry auto-registration; same emitter drives build-time codegen via `host_tools/emit_openapi` | ESP-IDF, host |
 | `bb_manifest` | Opt-in device manifest endpoint; consumer registers NVS keyspaces and mDNS TXT keys to expose `GET /api/manifest` with keyspace/enum descriptors for external tools (custom flashers, fleet provisioners) | ESP-IDF |
 | `bb_prov` | Provisioning state machine (SoftAP + captive-portal + HTTP `/save` handler) | ESP-IDF |
 | `bb_prov_default_form` | Opt-in default WiFi setup form asset (`bb_prov_default_form_get()`) for bare-minimum `bb_prov` bringup | ESP-IDF |
@@ -45,7 +45,7 @@ list(APPEND EXTRA_COMPONENT_DIRS "<path-to>/breadboard/components")
 
 Pick individual components in your app's `idf_component_register(... REQUIRES ...)` — you only pay build cost for what you use.
 
-Components that register HTTP handlers (`bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_board`, `bb_manifest`, `bb_ota_validator`, plus optional routes modules in `bb_log`, `bb_wifi`, and `bb_system`) self-register through `bb_registry`. After `bb_http_server_start`, call `bb_registry_init(server)` once and every linked component's routes get wired up — no per-component `register_handler` calls in your `app_main`. Components still have to be listed in your CMake `REQUIRES` so the linker pulls their archives and the constructors fire.
+Components that register HTTP handlers (`bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_board`, `bb_manifest`, `bb_ota_validator`, `bb_openapi`, plus optional routes modules in `bb_log`, `bb_wifi`, and `bb_system`) self-register through `bb_registry`. After `bb_http_server_start`, call `bb_registry_init(server)` once and every linked component's routes get wired up — no per-component `register_handler` calls in your `app_main`. Components still have to be listed in your CMake `REQUIRES` so the linker pulls their archives and the constructors fire.
 
 ## Kconfig flags
 
@@ -62,6 +62,7 @@ Auto-registration is opt-out. Each registry-using component exposes a Kconfig fl
 | `CONFIG_BB_OTA_VALIDATOR_AUTOREGISTER` | `POST /api/ota/mark-valid` not registered; `bb_ota_mark_valid` and `bb_ota_is_pending` still work |
 | `CONFIG_BB_WIFI_ROUTES_AUTOREGISTER` | `/api/wifi` and `/api/scan` not registered; wifi driver init APIs still work |
 | `CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER` | System routes module dropped entirely; `bb_http`/`bb_json`/`bb_registry`/`esp_timer` no longer in `bb_system`'s PRIV_REQUIRES |
+| `CONFIG_BB_OPENAPI_AUTOREGISTER` | `/api/openapi.json` not registered; `bb_openapi_emit` and `bb_openapi_set_meta` still work |
 
 Tagged source archives will be published on the [releases page](https://github.com/dangernoodle-io/breadboard/releases) once the API stabilizes.
 
