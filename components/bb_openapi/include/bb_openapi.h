@@ -1,6 +1,6 @@
 #pragma once
 
-// Opt-in OpenAPI 3.1 spec emitter.
+// Opt-in OpenAPI 3.1 spec emitter with auto-registration.
 //
 // Consumer firmware links this component only by adding `bb_openapi` to a
 // REQUIRES/PRIV_REQUIRES line in one of its own components' idf_component_register
@@ -8,10 +8,14 @@
 // EXTRA_COMPONENT_DIRS) but not built or flashed.
 //
 // Typical use:
-//   1. Add `bb_openapi` to REQUIRES in your routes/server component.
-//   2. After bb_http_server_start(), call bb_openapi_register(server, &meta).
-//   3. The runtime endpoint GET /api/openapi.json walks the route descriptor
-//      registry populated by bb_http_register_described_route().
+//   1. Add `bb_openapi` to REQUIRES in your app's main component.
+//   2. Optionally call bb_openapi_set_meta(&meta) before bb_http_server_start();
+//      if not called, defaults are used (title "breadboard device", version from
+//      bb_system_get_version(), description and server_url NULL).
+//   3. After bb_http_server_start(), call bb_registry_init(server) once to
+//      auto-register the GET /api/openapi.json route.
+//   4. The runtime endpoint walks the route descriptor registry populated by
+//      bb_http_register_described_route().
 
 #include "bb_http.h"
 #include "bb_json.h"
@@ -54,13 +58,11 @@ typedef struct {
 // key. Up to 64 unique paths are supported (matches registry cap).
 bb_json_t bb_openapi_emit(const bb_openapi_meta_t *meta);
 
-// ESP-IDF: register GET /api/openapi.json on server. The handler builds the
-// spec on demand (per-request build is fine — under 8 KB for ~30 routes).
-// meta must outlive the server.
-//
-// Calling bb_openapi_register is idempotent if the underlying
-// bb_http_register_route is idempotent on the given server.
-bb_err_t bb_openapi_register(bb_http_handle_t server, const bb_openapi_meta_t *meta);
+// Set metadata for OpenAPI spec emission. Must be called before
+// bb_registry_init(server) if custom metadata is desired.
+// meta pointer must remain valid for the lifetime of the server.
+// Calling bb_openapi_set_meta is optional; defaults are used otherwise.
+void bb_openapi_set_meta(const bb_openapi_meta_t *meta);
 
 #ifdef __cplusplus
 }

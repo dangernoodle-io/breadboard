@@ -1,0 +1,11 @@
+menu "breadboard: bb_openapi"
+
+config BB_OPENAPI_AUTOREGISTER
+    bool "Auto-register GET /api/openapi.json via bb_registry"
+    default y
+    help
+        When enabled, bb_openapi self-registers the OpenAPI 3.1 spec endpoint
+        through bb_registry. Disable to skip the route while keeping the
+        bb_openapi_emit and bb_openapi_set_meta APIs available.
+
+endmenu
