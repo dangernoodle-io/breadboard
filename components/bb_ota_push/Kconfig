@@ -1,0 +1,12 @@
+menu "breadboard: bb_ota_push"
+
+config BB_OTA_PUSH_AUTOREGISTER
+    bool "Auto-register OTA push HTTP route via bb_registry"
+    default y
+    help
+        When enabled, bb_ota_push self-registers its HTTP route handler
+        through bb_registry. Disable this if you want to keep bb_ota_push's
+        public C API but drive route registration manually or skip the route
+        entirely (e.g. headless OTA-driver use).
+
+endmenu

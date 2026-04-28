@@ -1,7 +1,24 @@
+set(_log_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log.c"
+              "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log_level_backend.c"
+              "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_level.c")
+set(_log_priv_reqs)
+
+if(CONFIG_BB_LOG_ROUTES)
+    list(APPEND _log_srcs
+        "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log_routes.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log_http.c")
+    set(_log_priv_reqs bb_registry)
+endif()
+
 idf_component_register(
-    SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log.c"
-         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log_level_backend.c"
-         "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_level.c"
+    SRCS ${_log_srcs}
     INCLUDE_DIRS "include"
-    REQUIRES esp_ringbuf freertos log bb_nv
+    REQUIRES esp_ringbuf freertos log bb_nv bb_http bb_json bb_registry
+    PRIV_REQUIRES ${_log_priv_reqs}
 )
+
+if(CONFIG_BB_LOG_ROUTES)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+    bb_registry_force_register(${COMPONENT_LIB} bb_log_register_routes)
+    bb_registry_force_register(${COMPONENT_LIB} bb_log_stream_register_routes)
+endif()

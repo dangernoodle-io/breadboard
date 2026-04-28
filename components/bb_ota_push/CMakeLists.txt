@@ -5,5 +5,7 @@ idf_component_register(
     PRIV_REQUIRES bb_registry
 )
 
-include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
-bb_registry_force_register(${COMPONENT_LIB} bb_ota_push)
+if(CONFIG_BB_OTA_PUSH_AUTOREGISTER)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+    bb_registry_force_register(${COMPONENT_LIB} bb_ota_push)
+endif()

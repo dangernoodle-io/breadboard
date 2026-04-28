@@ -1,0 +1,11 @@
+menu "breadboard: bb_info"
+
+config BB_INFO_AUTOREGISTER
+    bool "Auto-register /api/info HTTP route via bb_registry"
+    default y
+    help
+        When enabled, bb_info self-registers GET /api/info through bb_registry.
+        Disable to keep the bb_info_register_extender API but skip the route
+        entirely.
+
+endmenu

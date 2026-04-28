@@ -19,8 +19,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 | `bb_display` | MIPI-DSI panel init (EK79007) with LVGL via `esp_lvgl_port`; consumer holds `bb_display_lock` for all LVGL calls. Exposes `bb_display_screen` / `bb_display_lock` / `bb_display_unlock` for direct LVGL access. | ESP-IDF |
 | `bb_json` | Portable JSON builder + minimal parser; cJSON backend on ESP-IDF/host, ArduinoJson backend on Arduino. Opaque `bb_json_t` handle — no backend headers leak into public API. | ESP-IDF, Arduino |
 | `bb_http` | HTTP server wrapper with portable route registration API; optional `bb_route_t` descriptors carry OpenAPI metadata for `bb_openapi` consumption; Arduino backend routes/handlers with fixed-buffer response batching | ESP-IDF, Arduino |
-| `bb_log` | Ring-buffered log capture, runtime tag-level control, and `bb_log_{e,w,i,d,v}` macros for platform-abstract logging | ESP-IDF, Arduino |
-| `bb_log_routes` | Opt-in HTTP routes for `bb_log`: SSE `/api/logs` stream, `GET /api/logs/status`, `POST /api/log/level` | ESP-IDF |
+| `bb_log` | Ring-buffered log capture, runtime tag-level control, and `bb_log_{e,w,i,d,v}` macros for platform-abstract logging. Optional routes module (`CONFIG_BB_LOG_ROUTES`, default-on) adds SSE `/api/logs` stream, `GET /api/logs/status`, and log-level GET/POST | ESP-IDF, Arduino |
 | `bb_nv` | Typed NVS accessors plus generic `bb_nv_*` key/value helpers with caller-supplied namespace | ESP-IDF, Arduino |
 | `bb_ota_pull` | HTTP releases-feed poller with cJSON parse and A/B rollback | ESP-IDF |
 | `bb_ota_push` | HTTP firmware upload handler | ESP-IDF |
@@ -45,7 +44,18 @@ list(APPEND EXTRA_COMPONENT_DIRS "<path-to>/breadboard/components")
 
 Pick individual components in your app's `idf_component_register(... REQUIRES ...)` — you only pay build cost for what you use.
 
-Components that register HTTP handlers (`bb_ota_pull`, `bb_ota_push`, `bb_log_routes`, `bb_info`) self-register through `bb_registry`. After `bb_http_server_start`, call `bb_registry_init(server)` once and every linked component's routes get wired up — no per-component `register_handler` calls in your `app_main`. Components still have to be listed in your CMake `REQUIRES` so the linker pulls their archives and the constructors fire.
+Components that register HTTP handlers (`bb_ota_pull`, `bb_ota_push`, `bb_info`, plus `bb_log`'s optional routes module) self-register through `bb_registry`. After `bb_http_server_start`, call `bb_registry_init(server)` once and every linked component's routes get wired up — no per-component `register_handler` calls in your `app_main`. Components still have to be listed in your CMake `REQUIRES` so the linker pulls their archives and the constructors fire.
+
+## Kconfig flags
+
+Auto-registration is opt-out. Each registry-using component exposes a Kconfig flag (default-on); flip to `n` in your `sdkconfig.defaults` to drop the route handler without losing the component's public C API.
+
+| Flag | Effect when `=n` |
+|------|------------------|
+| `CONFIG_BB_OTA_PULL_AUTOREGISTER` | OTA pull HTTP routes not registered; `bb_ota_pull` C API still callable |
+| `CONFIG_BB_OTA_PUSH_AUTOREGISTER` | OTA push HTTP route not registered |
+| `CONFIG_BB_INFO_AUTOREGISTER` | `/api/info` not registered; `bb_info_register_extender` still works |
+| `CONFIG_BB_LOG_ROUTES` | `bb_log` routes module dropped entirely — `bb_http`/`bb_json`/`bb_registry` no longer in `bb_log`'s PRIV_REQUIRES, useful for headless-logging consumers |
 
 Tagged source archives will be published on the [releases page](https://github.com/dangernoodle-io/breadboard/releases) once the API stabilizes.
 
