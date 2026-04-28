@@ -3,9 +3,7 @@
 #include "bb_wifi.h"
 #include "bb_http.h"
 #include "bb_mdns.h"
-#include "bb_ota_pull.h"
-#include "bb_ota_push.h"
-#include "bb_log_routes.h"
+#include "bb_registry.h"
 
 static const char *TAG = "smoke";
 
@@ -27,10 +25,7 @@ void app_main(void) {
 
     bb_mdns_init();
 
-    bb_ota_pull_register_handler(server);
-    bb_ota_push_register_handler(server);
-    bb_log_stream_register_routes(server);
-    bb_log_register_routes(server);
+    bb_registry_init(server);
 
     bb_log_i(TAG, "smoke boot ok");
 }

@@ -1,6 +1,7 @@
 #include "bb_log.h"
 #include "bb_log_routes.h"
 #include "bb_http.h"
+#include "bb_registry.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -175,7 +176,7 @@ static const bb_route_t s_logs_status_route = {
     .handler  = NULL,
 };
 
-bb_err_t bb_log_stream_register_routes(void *server)
+static bb_err_t bb_log_stream_register_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
@@ -189,5 +190,9 @@ bb_err_t bb_log_stream_register_routes(void *server)
     // Register descriptors for OpenAPI spec; handlers are already registered above.
     bb_http_register_route_descriptor_only(&s_logs_route);
     bb_http_register_route_descriptor_only(&s_logs_status_route);
+
+    bb_log_i(TAG, "log stream routes registered");
     return BB_OK;
 }
+
+BB_REGISTRY_REGISTER(bb_log_stream_register_routes, bb_log_stream_register_routes_init);

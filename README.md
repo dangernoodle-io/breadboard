@@ -32,6 +32,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 | `bb_manifest` | Opt-in device manifest endpoint; consumer registers NVS keyspaces and mDNS TXT keys to expose `GET /api/manifest` with keyspace/enum descriptors for external tools (custom flashers, fleet provisioners) | ESP-IDF |
 | `bb_prov` | Provisioning state machine (SoftAP + captive-portal + HTTP `/save` handler) | ESP-IDF |
 | `bb_prov_default_form` | Opt-in default WiFi setup form asset (`bb_prov_default_form_get()`) for bare-minimum `bb_prov` bringup | ESP-IDF |
+| `bb_registry` | Handler-lifecycle registry: opt-in components self-register an init fn via `BB_REGISTRY_REGISTER`; the app calls `bb_registry_init(server)` once after `bb_http_server_start` to invoke them all | ESP-IDF, host |
 | `bb_wifi` | STA init, async scan, auto-reconnect, diagnostics and GET `/api/wifi` | ESP-IDF |
 
 ## Use in an ESP-IDF project
@@ -43,6 +44,8 @@ list(APPEND EXTRA_COMPONENT_DIRS "<path-to>/breadboard/components")
 ```
 
 Pick individual components in your app's `idf_component_register(... REQUIRES ...)` — you only pay build cost for what you use.
+
+Components that register HTTP handlers (`bb_ota_pull`, `bb_ota_push`, `bb_log_routes`, `bb_info`) self-register through `bb_registry`. After `bb_http_server_start`, call `bb_registry_init(server)` once and every linked component's routes get wired up — no per-component `register_handler` calls in your `app_main`. Components still have to be listed in your CMake `REQUIRES` so the linker pulls their archives and the constructors fire.
 
 Tagged source archives will be published on the [releases page](https://github.com/dangernoodle-io/breadboard/releases) once the API stabilizes.
 

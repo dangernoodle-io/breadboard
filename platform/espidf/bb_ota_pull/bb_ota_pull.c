@@ -40,6 +40,7 @@ uint32_t bb_ota_pull_host_get_http_timeout_ms(void)
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
 #include "bb_log.h"
+#include "bb_registry.h"
 #include "bb_wifi.h"
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
@@ -1085,7 +1086,7 @@ static const bb_route_t s_ota_status_route = {
 /**
  * Register OTA pull HTTP handlers with an existing httpd instance.
  */
-bb_err_t bb_ota_pull_register_handler(bb_http_handle_t server)
+static bb_err_t bb_ota_pull_init(bb_http_handle_t server)
 {
     if (!server) {
         return BB_ERR_INVALID_ARG;
@@ -1126,6 +1127,8 @@ bb_err_t bb_ota_pull_register_handler(bb_http_handle_t server)
     bb_log_i(TAG, "OTA pull handlers registered");
     return BB_OK;
 }
+
+BB_REGISTRY_REGISTER(bb_ota_pull, bb_ota_pull_init);
 
 /**
  * Trigger an immediate OTA check (non-blocking).

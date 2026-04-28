@@ -24,6 +24,7 @@ void bb_ota_push_set_skip_check_cb(bb_ota_push_skip_check_cb_t cb)
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
 #include "bb_log.h"
+#include "bb_registry.h"
 #include "esp_ota_ops.h"
 
 // bb_http_req_recv returns this value on socket timeout (mirrors httpd internal)
@@ -190,7 +191,7 @@ static const bb_route_t s_ota_push_route = {
 /**
  * Register OTA push HTTP handler with an existing httpd instance.
  */
-bb_err_t bb_ota_push_register_handler(bb_http_handle_t server)
+static bb_err_t bb_ota_push_init(bb_http_handle_t server)
 {
     if (!server) {
         return BB_ERR_INVALID_ARG;
@@ -209,5 +210,7 @@ bb_err_t bb_ota_push_register_handler(bb_http_handle_t server)
     bb_log_i(TAG, "OTA push handler registered");
     return BB_OK;
 }
+
+BB_REGISTRY_REGISTER(bb_ota_push, bb_ota_push_init);
 
 #endif // ESP_PLATFORM

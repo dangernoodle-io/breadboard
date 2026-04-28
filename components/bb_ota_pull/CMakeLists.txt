@@ -3,4 +3,8 @@ idf_component_register(
     INCLUDE_DIRS "include"
     REQUIRES bb_http bb_wifi esp_https_ota esp_http_client app_update
              esp_app_format esp-tls mbedtls bb_log bb_json
+    PRIV_REQUIRES bb_registry
 )
+
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+bb_registry_force_register(${COMPONENT_LIB} bb_ota_pull)

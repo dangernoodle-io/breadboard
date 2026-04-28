@@ -36,10 +36,4 @@ void bb_ota_push_set_skip_check_cb(bb_ota_push_skip_check_cb_t cb);
 #include "bb_nv.h"
 #include "bb_http.h"
 
-/**
- * Register OTA push HTTP handler with an existing HTTP server.
- * Adds POST /api/ota/push for firmware upload.
- */
-bb_err_t bb_ota_push_register_handler(bb_http_handle_t server);
-
 #endif // ESP_PLATFORM
