@@ -1,0 +1,12 @@
+menu "breadboard: bb_log"
+
+config BB_LOG_ROUTES
+    bool "Build bb_log HTTP routes (SSE stream + log-level GET/POST)"
+    default y
+    help
+        When enabled, bb_log compiles the routes module that exposes
+        GET /api/logs (SSE stream), GET /api/logs/status, GET /api/log/level,
+        POST /api/log/level. Adds bb_http, bb_json, and bb_registry to
+        bb_log's PRIV_REQUIRES. Disable for headless logging-only consumers.
+
+endmenu

@@ -1128,7 +1128,9 @@ static bb_err_t bb_ota_pull_init(bb_http_handle_t server)
     return BB_OK;
 }
 
+#if CONFIG_BB_OTA_PULL_AUTOREGISTER
 BB_REGISTRY_REGISTER(bb_ota_pull, bb_ota_pull_init);
+#endif
 
 /**
  * Trigger an immediate OTA check (non-blocking).

@@ -114,6 +114,7 @@ COMPONENT_MAP = {
     ),
 }
 
+
 cJSON_LIB_DEP = "https://github.com/DaveGamble/cJSON.git#v1.7.18"
 
 # Read the custom_bb_components option (space-separated component names)

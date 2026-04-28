@@ -144,4 +144,6 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
     return BB_OK;
 }
 
+#if CONFIG_BB_INFO_AUTOREGISTER
 BB_REGISTRY_REGISTER(bb_info, bb_info_init);
+#endif

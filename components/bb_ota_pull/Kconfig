@@ -1,0 +1,12 @@
+menu "breadboard: bb_ota_pull"
+
+config BB_OTA_PULL_AUTOREGISTER
+    bool "Auto-register OTA pull HTTP routes via bb_registry"
+    default y
+    help
+        When enabled, bb_ota_pull self-registers its HTTP route handlers
+        through bb_registry. Disable this if you want to keep bb_ota_pull's
+        public C API but drive route registration manually or skip routes
+        entirely (e.g. headless OTA-driver use).
+
+endmenu

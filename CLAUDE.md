@@ -67,7 +67,9 @@ bb_registry_force_register(${COMPONENT_LIB} bb_<name>)
 
 The `<name>` argument must match the first arg of the component's `BB_REGISTRY_REGISTER(<name>, ...)` macro call. Components with multiple registry entries call the helper once per entry.
 
-Today this pattern owns: `bb_ota_pull`, `bb_ota_push`, `bb_log_routes` (two entries), `bb_info`. Use it for any component that does pure, no-state route registration. Components that need caller-supplied state (`bb_prov` assets, `bb_wifi` creds, `bb_mdns` service init) stay caller-driven.
+Auto-registration is opt-out via Kconfig. Each registry-using component defines a `CONFIG_BB_<NAME>_AUTOREGISTER` flag (default-on) that gates both the `BB_REGISTRY_REGISTER` invocation in source (`#if CONFIG_BB_..._AUTOREGISTER`) and the `bb_registry_force_register` call in CMake (`if(CONFIG_BB_..._AUTOREGISTER)`). The CMake gate is required: without it, the linker would inject `-u bb_registry_register__<name>` for a symbol the source side just disabled. Disabling the flag preserves the component's public C API but removes the route registration from `bb_registry_init(server)`.
+
+Today this pattern owns: `bb_ota_pull` (`CONFIG_BB_OTA_PULL_AUTOREGISTER`), `bb_ota_push` (`CONFIG_BB_OTA_PUSH_AUTOREGISTER`), `bb_info` (`CONFIG_BB_INFO_AUTOREGISTER`). The `bb_log` component owns its own routes module (two entries) gated by `CONFIG_BB_LOG_ROUTES`, which additionally drops the routes source files and `bb_http`/`bb_json`/`bb_registry` from `bb_log`'s PRIV_REQUIRES when off — for headless logging-only consumers. Use the registry pattern for any component that does pure, no-state route registration. Components that need caller-supplied state (`bb_prov` assets, `bb_wifi` creds, `bb_mdns` service init) stay caller-driven.
 
 ## Provisioning UI
 
