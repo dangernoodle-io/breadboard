@@ -44,32 +44,46 @@ Use the CMake helper `bb_embed_assets()` in `cmake/bb_embed.cmake` to embed bina
 
 ## Registry (handler-lifecycle)
 
-The `bb_registry` component holds a list of `(name, init_fn)` entries that opt-in components self-register at link time via the `BB_REGISTRY_REGISTER(name, init_fn)` macro. The app calls `bb_registry_init(server)` once after `bb_http_server_start`; the registry walks every entry and invokes its init.
+The `bb_registry` component holds two parallel ordered lists of entries: a regular tier (post-server-start) and an early tier (pre-server-start). Components self-register at link time via `BB_REGISTRY_REGISTER(name, init_fn)` (regular tier) or `BB_REGISTRY_REGISTER_EARLY(name, init_fn)` (early tier). The app calls `bb_registry_init_early()` before `bb_http_server_start` and `bb_registry_init(server)` after.
+
+**Regular tier (post-server-start)** — for HTTP route registration:
 
 Pattern in a component source file:
 ```c
 #include "bb_registry.h"
 static bb_err_t bb_<comp>_init(bb_http_handle_t server) {
-    // existing route registration body
+    // route registration body
     return BB_OK;
 }
 BB_REGISTRY_REGISTER(bb_<comp>, bb_<comp>_init);
 ```
 
-The macro emits a `__attribute__((constructor))` that runs before `app_main`. The component still has to appear in the app's CMake `REQUIRES` — without it, the linker drops the archive and the constructor never fires. What goes away is the public `bb_<comp>_register_handler(server)` function the app used to call.
+The macro emits a `__attribute__((constructor))` that runs before `app_main`. The component must appear in the app's CMake `REQUIRES` — without it, the linker drops the archive and the constructor never fires. The public `bb_<comp>_register_handler(server)` function is replaced by this pattern.
 
-The component's `CMakeLists.txt` must also call the `bb_registry_force_register()` helper (in `cmake/bb_registry.cmake`) once per registry entry. Why: PlatformIO's espidf builder strips ESP-IDF's `WHOLE_ARCHIVE` flag, so without an external symbol reference (`-u <symbol>`), the linker's `--gc-sections` discards the entire constructor-only translation unit and the registry sees zero entries at runtime. The helper passes `-u bb_registry_register__<name>` to the linker.
+**Early tier (pre-server-start)** — for log capture, board init, or other early bootstrapping:
+
+```c
+#include "bb_registry.h"
+static bb_err_t bb_<comp>_init(void) {
+    // early init body (no server argument)
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_EARLY(bb_<comp>, bb_<comp>_init);
+```
+
+The init_fn takes no arguments (server not yet running). Runs in insertion order before HTTP server start.
+
+Both tiers require the CMake helper `bb_registry_force_register()` or `bb_registry_force_register_early()` (in `cmake/bb_registry.cmake`) to keep constructor-only translation units from being garbage-collected under PlatformIO (which strips `WHOLE_ARCHIVE`). The helper passes `-u bb_registry_register__<name>` or `-u bb_registry_register_early__<name>` respectively.
 
 ```cmake
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
-bb_registry_force_register(${COMPONENT_LIB} bb_<name>)
+bb_registry_force_register(${COMPONENT_LIB} bb_<name>)        # regular tier
+bb_registry_force_register_early(${COMPONENT_LIB} bb_<name>)  # early tier
 ```
 
-The `<name>` argument must match the first arg of the component's `BB_REGISTRY_REGISTER(<name>, ...)` macro call. Components with multiple registry entries call the helper once per entry.
+Auto-registration is opt-out via Kconfig. Each registry entry has a `CONFIG_BB_<NAME>_AUTOREGISTER` flag (default-on) that gates the `BB_REGISTRY_REGISTER[_EARLY]` invocation and the corresponding CMake helper call. Disabling preserves the component's public C API but removes the registration.
 
-Auto-registration is opt-out via Kconfig. Each registry-using component defines a `CONFIG_BB_<NAME>_AUTOREGISTER` flag (default-on) that gates both the `BB_REGISTRY_REGISTER` invocation in source (`#if CONFIG_BB_..._AUTOREGISTER`) and the `bb_registry_force_register` call in CMake (`if(CONFIG_BB_..._AUTOREGISTER)`). The CMake gate is required: without it, the linker would inject `-u bb_registry_register__<name>` for a symbol the source side just disabled. Disabling the flag preserves the component's public C API but removes the route registration from `bb_registry_init(server)`.
-
-Today this pattern owns: `bb_ota_pull` (`CONFIG_BB_OTA_PULL_AUTOREGISTER`), `bb_ota_push` (`CONFIG_BB_OTA_PUSH_AUTOREGISTER`), `bb_info` (`CONFIG_BB_INFO_AUTOREGISTER`), `bb_log` (routes module gated by `CONFIG_BB_LOG_ROUTES`), `bb_board` (`CONFIG_BB_BOARD_AUTOREGISTER`), `bb_manifest` (`CONFIG_BB_MANIFEST_AUTOREGISTER`), `bb_ota_validator` (`CONFIG_BB_OTA_VALIDATOR_AUTOREGISTER`), `bb_wifi` (routes module gated by `CONFIG_BB_WIFI_ROUTES_AUTOREGISTER`), `bb_system` (routes module gated by `CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER`), `bb_openapi` (`CONFIG_BB_OPENAPI_AUTOREGISTER`), and `bb_mdns` (`CONFIG_BB_MDNS_AUTOREGISTER`). When a component's routes are disabled, the routes source files and HTTP/JSON/registry dependencies are dropped from PRIV_REQUIRES — see bb_log's pattern for reference. Use the registry pattern for any component that does pure, no-state route registration. Components that need caller-supplied state (`bb_prov` assets, `bb_wifi` creds) stay caller-driven; `bb_mdns` setters (hostname, service type, instance name) are still caller-driven but init is now registry-controlled.
+Today this pattern owns (regular tier): `bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_log` (routes), `bb_board`, `bb_manifest`, `bb_ota_validator`, `bb_wifi` (routes), `bb_system` (routes), `bb_openapi`, `bb_mdns`. Early tier: `bb_log_stream` (via `CONFIG_BB_LOG_STREAM_AUTOREGISTER`). When routes are disabled, routes source files and HTTP/JSON/registry deps are dropped from PRIV_REQUIRES — see bb_log for reference.
 
 ## Provisioning UI
 
