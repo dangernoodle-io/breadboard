@@ -33,6 +33,13 @@ bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
     return BB_OK;
 }
 
+bb_err_t bb_http_resp_set_type(bb_http_request_t *req, const char *mime)
+{
+    (void)req;
+    (void)mime;
+    return BB_OK;
+}
+
 bb_err_t bb_http_resp_set_header(bb_http_request_t *req, const char *key, const char *value)
 {
     (void)req;

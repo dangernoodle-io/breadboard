@@ -24,7 +24,7 @@ static void sse_task(void *arg)
     struct timeval tv = { .tv_sec = 30, .tv_usec = 0 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-    bb_http_resp_set_header(req, "Content-Type", "text/event-stream");
+    bb_http_resp_set_type(req, "text/event-stream");
     bb_http_resp_set_header(req, "Cache-Control", "no-cache");
     bb_http_resp_set_header(req, "Connection", "keep-alive");
     bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
@@ -82,7 +82,7 @@ static bb_err_t logs_handler(bb_http_request_t *req)
 
     if (s_sse_task_handle) {
         bb_http_resp_set_status(req, 503);
-        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_set_type(req, "application/json");
         char body[96];
         int n = snprintf(body, sizeof(body),
             "{\"error\":\"busy\",\"active_client\":\"%s\"}",
@@ -112,7 +112,7 @@ static bb_err_t logs_handler(bb_http_request_t *req)
 
 static bb_err_t logs_status_handler(bb_http_request_t *req)
 {
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_http_resp_set_type(req, "application/json");
     char buf[96];
     uint32_t dropped = bb_log_stream_dropped_lines();
     if (s_sse_client_type == 0) {

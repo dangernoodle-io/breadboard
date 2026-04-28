@@ -96,7 +96,7 @@ static bb_err_t log_level_get_handler(bb_http_request_t *req)
     }
 
     bb_http_resp_set_status(req, 200);
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_http_resp_set_type(req, "application/json");
     bb_err_t err = bb_http_resp_send(req, json_str, strlen(json_str));
     bb_json_free_str(json_str);
     return err;

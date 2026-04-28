@@ -58,7 +58,7 @@ bool bb_ota_is_pending(void)
 
 static bb_err_t mark_valid_handler(bb_http_request_t *req)
 {
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_http_resp_set_type(req, "application/json");
 
     if (!bb_ota_is_pending()) {
         bb_http_resp_set_status(req, 409);

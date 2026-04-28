@@ -800,7 +800,7 @@ static bb_err_t ota_check_handler(bb_http_request_t *req)
         if (!root) {
             const char *error_response = "{\"error\":\"json_error\"}";
             bb_http_resp_set_status(req, 500);
-            bb_http_resp_set_header(req, "Content-Type", "application/json");
+            bb_http_resp_set_type(req, "application/json");
             bb_http_resp_send(req, error_response, strlen(error_response));
             return BB_OK;
         }
@@ -821,7 +821,7 @@ static bb_err_t ota_check_handler(bb_http_request_t *req)
         bb_json_free(root);
 
         if (response_str) {
-            bb_http_resp_set_header(req, "Content-Type", "application/json");
+            bb_http_resp_set_type(req, "application/json");
             bb_http_resp_send(req, response_str, strlen(response_str));
             bb_json_free_str(response_str);
         } else {
@@ -855,7 +855,7 @@ static bb_err_t ota_check_handler(bb_http_request_t *req)
             taskEXIT_CRITICAL(&s_ota_status_mux);
             const char *response = "{\"error\":\"task_create_failed\"}";
             bb_http_resp_set_status(req, 500);
-            bb_http_resp_set_header(req, "Content-Type", "application/json");
+            bb_http_resp_set_type(req, "application/json");
             bb_http_resp_send(req, response, strlen(response));
             return BB_OK;
         }
@@ -863,7 +863,7 @@ static bb_err_t ota_check_handler(bb_http_request_t *req)
 
     const char *response = "{\"status\":\"checking\"}";
     bb_http_resp_set_status(req, 202);
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_http_resp_set_type(req, "application/json");
     bb_http_resp_send(req, response, strlen(response));
     return BB_OK;
 }
@@ -879,7 +879,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"error\":\"update_in_progress\"}";
         bb_http_resp_set_status(req, 409);
-        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_set_type(req, "application/json");
         bb_http_resp_send(req, response, strlen(response));
         return BB_OK;
     }
@@ -898,7 +898,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"status\":\"already_up_to_date\"}";
-        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_set_type(req, "application/json");
         bb_http_resp_send(req, response, strlen(response));
         return BB_OK;
     }
@@ -911,7 +911,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"error\":\"allocation_failed\"}";
         bb_http_resp_set_status(req, 500);
-        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_set_type(req, "application/json");
         bb_http_resp_send(req, response, strlen(response));
         return BB_OK;
     }
@@ -941,14 +941,14 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"error\":\"task_create_failed\"}";
         bb_http_resp_set_status(req, 500);
-        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_set_type(req, "application/json");
         bb_http_resp_send(req, response, strlen(response));
         return BB_OK;
     }
 
     const char *response = "{\"status\":\"update_started\"}";
     bb_http_resp_set_status(req, 202);
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_http_resp_set_type(req, "application/json");
     bb_http_resp_send(req, response, strlen(response));
 
     return BB_OK;
@@ -971,7 +971,7 @@ static bb_err_t ota_status_handler(bb_http_request_t *req)
     if (!root) {
         const char *response = "{\"error\":\"json_error\"}";
         bb_http_resp_set_status(req, 500);
-        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_set_type(req, "application/json");
         bb_http_resp_send(req, response, strlen(response));
         return BB_OK;
     }
@@ -987,7 +987,7 @@ static bb_err_t ota_status_handler(bb_http_request_t *req)
     bb_json_free(root);
 
     if (response_str) {
-        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_http_resp_set_type(req, "application/json");
         bb_http_resp_send(req, response_str, strlen(response_str));
         bb_json_free_str(response_str);
     } else {

@@ -97,6 +97,7 @@ size_t bb_http_route_registry_count(void);
 
 // Response helpers — usable inside a handler. MVP: fixed-size body, no streaming.
 bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code);
+bb_err_t bb_http_resp_set_type(bb_http_request_t *req, const char *mime);
 bb_err_t bb_http_resp_set_header(bb_http_request_t *req, const char *key, const char *value);
 bb_err_t bb_http_resp_send(bb_http_request_t *req, const char *body, size_t len);
 
