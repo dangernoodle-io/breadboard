@@ -134,6 +134,11 @@ bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)
 void bb_wifi_register_on_got_ip(bb_wifi_on_got_ip_cb_t cb)
 {
     s_on_got_ip_cb = cb;
+    // Late registration: fire immediately if STA already has an IP so the
+    // caller doesn't miss the edge that fired before they wired up.
+    if (cb && s_has_ip) {
+        cb();
+    }
 }
 
 void bb_wifi_register_on_disconnect(bb_wifi_on_disconnect_cb_t cb)
