@@ -2,6 +2,7 @@
 #include "bb_log_routes.h"
 #include "bb_http.h"
 #include "bb_json.h"
+#include "bb_registry.h"
 
 #include <string.h>
 
@@ -156,12 +157,18 @@ static const bb_route_t s_log_level_post_route = {
     .handler  = log_level_handler,
 };
 
-bb_err_t bb_log_register_routes(void *server)
+static bb_err_t bb_log_register_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
     bb_err_t err = bb_http_register_described_route(server, &s_log_level_post_route);
     if (err != BB_OK) return err;
 
-    return bb_http_register_described_route(server, &s_log_level_get_route);
+    err = bb_http_register_described_route(server, &s_log_level_get_route);
+    if (err != BB_OK) return err;
+
+    bb_log_i(TAG, "log level routes registered");
+    return BB_OK;
 }
+
+BB_REGISTRY_REGISTER(bb_log_register_routes, bb_log_register_routes_init);

@@ -42,6 +42,33 @@ Use `bb_log_{e,w,i,d,v}(tag, fmt, ...)` macros for all breadboard component code
 
 Use the CMake helper `bb_embed_assets()` in `cmake/bb_embed.cmake` to embed binary assets (HTML, fonts, images, etc.) into firmware. The helper wraps the raw `scripts/embed_html.py` CLI tool, which converts a file to a gzipped C byte-array source file: `python3 scripts/embed_html.py <input> <output.c> <symbol>`. Components include the helper with `include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_embed.cmake")` and call it before `idf_component_register` to populate `SRCS`. The helper avoids duplicating `add_custom_command` boilerplate across breadboard components and downstream consumers (TaipanMiner, snugfeather).
 
+## Registry (handler-lifecycle)
+
+The `bb_registry` component holds a list of `(name, init_fn)` entries that opt-in components self-register at link time via the `BB_REGISTRY_REGISTER(name, init_fn)` macro. The app calls `bb_registry_init(server)` once after `bb_http_server_start`; the registry walks every entry and invokes its init.
+
+Pattern in a component source file:
+```c
+#include "bb_registry.h"
+static bb_err_t bb_<comp>_init(bb_http_handle_t server) {
+    // existing route registration body
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER(bb_<comp>, bb_<comp>_init);
+```
+
+The macro emits a `__attribute__((constructor))` that runs before `app_main`. The component still has to appear in the app's CMake `REQUIRES` — without it, the linker drops the archive and the constructor never fires. What goes away is the public `bb_<comp>_register_handler(server)` function the app used to call.
+
+The component's `CMakeLists.txt` must also call the `bb_registry_force_register()` helper (in `cmake/bb_registry.cmake`) once per registry entry. Why: PlatformIO's espidf builder strips ESP-IDF's `WHOLE_ARCHIVE` flag, so without an external symbol reference (`-u <symbol>`), the linker's `--gc-sections` discards the entire constructor-only translation unit and the registry sees zero entries at runtime. The helper passes `-u bb_registry_register__<name>` to the linker.
+
+```cmake
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+bb_registry_force_register(${COMPONENT_LIB} bb_<name>)
+```
+
+The `<name>` argument must match the first arg of the component's `BB_REGISTRY_REGISTER(<name>, ...)` macro call. Components with multiple registry entries call the helper once per entry.
+
+Today this pattern owns: `bb_ota_pull`, `bb_ota_push`, `bb_log_routes` (two entries), `bb_info`. Use it for any component that does pure, no-state route registration. Components that need caller-supplied state (`bb_prov` assets, `bb_wifi` creds, `bb_mdns` service init) stay caller-driven.
+
 ## Provisioning UI
 
 The `bb_prov` component manages the provisioning state machine and HTTP `/save` handler. Callers MUST supply at least one asset with `path="/"` to `bb_prov_start`. For bare-minimum bringup, add `REQUIRES bb_prov_default_form` and pass `&bb_prov_default_form_asset`. Custom UIs pass their own asset array instead. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.

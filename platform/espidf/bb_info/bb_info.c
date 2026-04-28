@@ -5,9 +5,13 @@
 #include "bb_board.h"
 #include "bb_http.h"
 #include "bb_json.h"
+#include "bb_log.h"
+#include "bb_registry.h"
 #include "bb_wifi.h"
 
 #define BB_INFO_MAX_EXTENDERS 4
+
+static const char *TAG = "bb_info";
 
 static bb_info_extender_fn s_extenders[BB_INFO_MAX_EXTENDERS];
 static int s_extender_count = 0;
@@ -130,9 +134,14 @@ static const bb_route_t s_info_route = {
     .handler  = info_handler,
 };
 
-bb_err_t bb_info_register_routes(void *server)
+static bb_err_t bb_info_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     s_frozen = true;
-    return bb_http_register_described_route(server, &s_info_route);
+    bb_err_t err = bb_http_register_described_route(server, &s_info_route);
+    if (err != BB_OK) return err;
+    bb_log_i(TAG, "info route registered");
+    return BB_OK;
 }
+
+BB_REGISTRY_REGISTER(bb_info, bb_info_init);

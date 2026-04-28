@@ -329,6 +329,14 @@ void test_bb_mdns_query_txt_null_args_returns_invalid_arg(void);
 void test_bb_mdns_query_dispatch_invokes_cb_with_result(void);
 void test_bb_mdns_query_dispatch_propagates_err_field(void);
 
+// Forward declarations from test_bb_registry.c
+void test_bb_registry_starts_empty(void);
+void test_bb_registry_add_increments_count(void);
+void test_bb_registry_foreach_visits_all_in_order(void);
+void test_bb_registry_init_calls_each_init_fn(void);
+void test_bb_registry_init_reports_first_error_but_continues(void);
+void test_bb_registry_clear_resets_count(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_mdns_host_reset();
@@ -668,6 +676,14 @@ int main(void) {
     RUN_TEST(test_bb_mdns_query_txt_null_args_returns_invalid_arg);
     RUN_TEST(test_bb_mdns_query_dispatch_invokes_cb_with_result);
     RUN_TEST(test_bb_mdns_query_dispatch_propagates_err_field);
+
+    // bb_registry tests
+    RUN_TEST(test_bb_registry_starts_empty);
+    RUN_TEST(test_bb_registry_add_increments_count);
+    RUN_TEST(test_bb_registry_foreach_visits_all_in_order);
+    RUN_TEST(test_bb_registry_init_calls_each_init_fn);
+    RUN_TEST(test_bb_registry_init_reports_first_error_but_continues);
+    RUN_TEST(test_bb_registry_clear_resets_count);
 
     return UNITY_END();
 }

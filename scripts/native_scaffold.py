@@ -108,6 +108,10 @@ COMPONENT_MAP = {
         ["components/bb_manifest/include"],
         ["components/bb_manifest/src/bb_manifest_emit.c"],
     ),
+    "bb_registry": (
+        ["components/bb_registry/include"],
+        ["platform/host/bb_registry/bb_registry.c"],
+    ),
 }
 
 cJSON_LIB_DEP = "https://github.com/DaveGamble/cJSON.git#v1.7.18"
