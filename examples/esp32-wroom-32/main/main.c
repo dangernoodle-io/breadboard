@@ -5,6 +5,7 @@
 #include "bb_mdns.h"
 #include "bb_ota_pull.h"
 #include "bb_ota_push.h"
+#include "bb_log_routes.h"
 
 static const char *TAG = "smoke";
 
@@ -17,6 +18,9 @@ void app_main(void) {
     bb_log_stream_init();
 
     bb_wifi_ensure_netif();
+    // Try to bring up STA if creds are provisioned in NVS. Returns BB_ERR_TIMEOUT
+    // on failure; smoke is OK either way — HTTP server still starts.
+    (void)bb_wifi_init_sta();
 
     bb_http_server_start();
     bb_http_handle_t server = bb_http_server_get_handle();
@@ -25,6 +29,8 @@ void app_main(void) {
 
     bb_ota_pull_register_handler(server);
     bb_ota_push_register_handler(server);
+    bb_log_stream_register_routes(server);
+    bb_log_register_routes(server);
 
     bb_log_i(TAG, "smoke boot ok");
 }
