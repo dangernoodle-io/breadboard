@@ -15,11 +15,12 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 
 | Component | Purpose | Platforms |
 |-----------|---------|-----------|
-| `bb_hw` | Compile-time pin/peripheral map header selection via `FIRMWARE_BOARD_*` define | ESP-IDF |
+| `bb_hw` | Consumer-supplied board pin/peripheral header resolved at compile time via `-DBB_HW_BOARD_HEADER="<name>.h"` | ESP-IDF |
 | `bb_display` | MIPI-DSI panel init (EK79007) with LVGL via `esp_lvgl_port`; consumer holds `bb_display_lock` for all LVGL calls. Exposes `bb_display_screen` / `bb_display_lock` / `bb_display_unlock` for direct LVGL access. | ESP-IDF |
 | `bb_json` | Portable JSON builder + minimal parser; cJSON backend on ESP-IDF/host, ArduinoJson backend on Arduino. Opaque `bb_json_t` handle — no backend headers leak into public API. | ESP-IDF, Arduino |
 | `bb_http` | HTTP server wrapper with portable route registration API; optional `bb_route_t` descriptors carry OpenAPI metadata for `bb_openapi` consumption; Arduino backend routes/handlers with fixed-buffer response batching | ESP-IDF, Arduino |
-| `bb_log` | Ring-buffered log capture with SSE `/api/logs` endpoint; `bb_log_{e,w,i,d,v}` macros for platform-abstract logging | ESP-IDF, Arduino |
+| `bb_log` | Ring-buffered log capture, runtime tag-level control, and `bb_log_{e,w,i,d,v}` macros for platform-abstract logging | ESP-IDF, Arduino |
+| `bb_log_routes` | Opt-in HTTP routes for `bb_log`: SSE `/api/logs` stream, `GET /api/logs/status`, `POST /api/log/level` | ESP-IDF |
 | `bb_nv` | Typed NVS accessors plus generic `bb_nv_*` key/value helpers with caller-supplied namespace | ESP-IDF, Arduino |
 | `bb_ota_pull` | HTTP releases-feed poller with cJSON parse and A/B rollback | ESP-IDF |
 | `bb_ota_push` | HTTP firmware upload handler | ESP-IDF |
@@ -72,9 +73,10 @@ The scaffold resolves absolute paths to breadboard sources, handles cJSON lib_de
 ```bash
 make check              # cppcheck static analysis
 make coverage           # host unit tests + gcovr → Coveralls-format JSON
-make smoke-elecrow-p4-hmi7     # build ESP-IDF example
+make smoke-elecrow-p4-hmi7     # build ESP-IDF P4 example (LVGL + EK79007 panel)
+make smoke-esp32-wroom-32      # build classic ESP32-D0 example (headless)
 make smoke-arduino-uno-cc3000  # build Arduino Uno + CC3000 example
-make smoke              # build all examples
+make smoke                     # build all examples
 ```
 
 Host tests under `test/test_host/` cover `bb_log` (macro expansion and ring buffer drain), `bb_nv` (typed and generic), `bb_prov`, `http_utils`, `bb_ota_pull`, `bb_ota_push`, `bb_ota_validator`, `bb_http` (route registry), `bb_openapi` (emitter, including OOM cleanup paths via `bb_json_host_force_alloc_fail_after`), and `bb_json` (round-trip build/serialize/parse for all value types, nested trees, arrays, edge cases). The `bb_hw`, `bb_display`, and hardware-coupled components have no host coverage.

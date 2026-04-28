@@ -1,4 +1,5 @@
 #include "bb_log.h"
+#include "bb_log_routes.h"
 #include "bb_http.h"
 #include "bb_json.h"
 
