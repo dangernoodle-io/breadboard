@@ -10,6 +10,7 @@
 #include "bb_http.h"
 #include "bb_log.h"
 #include "bb_nv.h"
+#include "bb_registry.h"
 
 static const char *TAG = "bb_ota_val";
 
@@ -118,7 +119,11 @@ bb_err_t bb_ota_validator_init(bb_http_handle_t server)
     };
 
     bb_err_t rc = bb_http_register_described_route(server, &s_mark_valid_route);
-    return rc == BB_OK ? ESP_OK : ESP_FAIL;
+    return rc == BB_OK ? BB_OK : BB_ERR_INVALID_STATE;
 }
+
+#if CONFIG_BB_OTA_VALIDATOR_AUTOREGISTER
+BB_REGISTRY_REGISTER(bb_ota_validator, bb_ota_validator_init);
+#endif
 
 #endif /* ESP_PLATFORM */

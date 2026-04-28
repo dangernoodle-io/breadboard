@@ -1,0 +1,12 @@
+menu "breadboard: bb_manifest"
+
+config BB_MANIFEST_AUTOREGISTER
+    bool "Auto-register /api/manifest HTTP route via bb_registry"
+    default y
+    help
+        When enabled, bb_manifest self-registers GET /api/manifest through
+        bb_registry. The bb_manifest_register_nv and bb_manifest_register_mdns
+        extender APIs stay caller-driven regardless of this flag — disabling
+        this only suppresses the route, not the manifest data registration.
+
+endmenu

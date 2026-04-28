@@ -48,12 +48,6 @@ bb_err_t bb_board_get_idf_version  (char *out, size_t out_size);
 bb_err_t bb_board_get_reset_reason (char *out, size_t out_size);
 
 #ifdef ESP_PLATFORM
-
-// Register GET /api/board returning bb_board_get_info() as JSON.
-// server is bb_http_handle_t (declared as void* to avoid pulling
-// http_server.h into bb_board consumers).
-bb_err_t bb_board_register_routes(void *server);
-
 #endif
 
 #ifdef __cplusplus

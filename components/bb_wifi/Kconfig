@@ -1,0 +1,12 @@
+menu "breadboard: bb_wifi (routes)"
+
+config BB_WIFI_ROUTES_AUTOREGISTER
+    bool "Auto-register /api/wifi and /api/scan HTTP routes via bb_registry"
+    default y
+    help
+        When enabled, bb_wifi self-registers GET /api/wifi (driver state +
+        connection diagnostics) and GET /api/scan (async scan results) through
+        bb_registry. The wifi driver init APIs (bb_wifi_init, _init_sta,
+        _ensure_netif, etc.) stay caller-driven regardless of this flag.
+
+endmenu

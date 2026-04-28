@@ -1,0 +1,12 @@
+menu "breadboard: bb_ota_validator"
+
+config BB_OTA_VALIDATOR_AUTOREGISTER
+    bool "Auto-register POST /api/ota/mark-valid HTTP route via bb_registry"
+    default y
+    help
+        When enabled, bb_ota_validator self-registers the mark-valid HTTP
+        handler through bb_registry. The bb_ota_mark_valid() and
+        bb_ota_is_pending() helper APIs stay public regardless — disabling
+        only suppresses the HTTP route.
+
+endmenu
