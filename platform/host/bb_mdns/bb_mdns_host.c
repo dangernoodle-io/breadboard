@@ -148,3 +148,8 @@ bb_err_t bb_mdns_host_dispatch_query_result(const bb_mdns_query_result_t *result
     if (cb) cb(result, ctx);
     return BB_OK;
 }
+
+const char *bb_mdns_get_hostname(void)
+{
+    return NULL;  /* host: no cached hostname */
+}

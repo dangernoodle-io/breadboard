@@ -363,6 +363,11 @@ void test_bb_board_heap_largest_free_block_callable(void);
 void test_bb_board_chip_revision_callable(void);
 void test_bb_board_cpu_freq_mhz_callable(void);
 
+// Forward declarations from test_bb_info.c
+void test_bb_health_register_extender_null_returns_err(void);
+void test_bb_health_register_extender_capacity(void);
+void test_bb_info_register_extender_null_returns_err(void);
+
 // Forward declarations from test_wifi_reconn_policy.c
 void wifi_reconn_policy_test_reset(void);
 void test_wifi_reconn_tier1_handshake_fast_retry(void);
@@ -764,6 +769,11 @@ int main(void) {
     RUN_TEST(test_bb_board_heap_largest_free_block_callable);
     RUN_TEST(test_bb_board_chip_revision_callable);
     RUN_TEST(test_bb_board_cpu_freq_mhz_callable);
+
+    // bb_info tests
+    RUN_TEST(test_bb_health_register_extender_null_returns_err);
+    RUN_TEST(test_bb_health_register_extender_capacity);
+    RUN_TEST(test_bb_info_register_extender_null_returns_err);
 
     // wifi_reconn_policy tests
     RUN_TEST(test_wifi_reconn_tier1_handshake_fast_retry);

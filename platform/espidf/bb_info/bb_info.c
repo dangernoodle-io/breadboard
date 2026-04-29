@@ -6,10 +6,12 @@
 #include "bb_http.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_mdns.h"
 #include "bb_registry.h"
 #include "bb_wifi.h"
 
 #define BB_INFO_MAX_EXTENDERS 4
+#define BB_HEALTH_MAX_EXTENDERS 4
 
 static const char *TAG = "bb_info";
 
@@ -17,12 +19,24 @@ static bb_info_extender_fn s_extenders[BB_INFO_MAX_EXTENDERS];
 static int s_extender_count = 0;
 static bool s_frozen = false;
 
+static bb_info_extender_fn s_health_extenders[BB_HEALTH_MAX_EXTENDERS];
+static int s_health_extender_count = 0;
+
 bb_err_t bb_info_register_extender(bb_info_extender_fn fn)
 {
     if (!fn) return BB_ERR_INVALID_ARG;
     if (s_frozen) return BB_ERR_INVALID_STATE;
     if (s_extender_count >= BB_INFO_MAX_EXTENDERS) return BB_ERR_NO_SPACE;
     s_extenders[s_extender_count++] = fn;
+    return BB_OK;
+}
+
+bb_err_t bb_health_register_extender(bb_info_extender_fn fn)
+{
+    if (!fn) return BB_ERR_INVALID_ARG;
+    if (s_frozen) return BB_ERR_INVALID_STATE;
+    if (s_health_extender_count >= BB_HEALTH_MAX_EXTENDERS) return BB_ERR_NO_SPACE;
+    s_health_extenders[s_health_extender_count++] = fn;
     return BB_OK;
 }
 
@@ -96,6 +110,44 @@ static bb_err_t info_handler(bb_http_request_t *req)
     return err;
 }
 
+static bb_err_t health_handler(bb_http_request_t *req)
+{
+    bb_board_info_t b;
+    bb_wifi_info_t w;
+    bb_board_get_info(&b);
+    bb_wifi_get_info(&w);
+
+    bool mdns_up = bb_mdns_started();
+    const char *hostname = bb_mdns_get_hostname();
+
+    bool ok = w.connected && b.ota_validated && mdns_up;
+
+    bb_json_t root = bb_json_obj_new();
+    bb_json_obj_set_bool(root, "ok", ok);
+    bb_json_obj_set_number(root, "free_heap", (double)b.free_heap);
+    bb_json_obj_set_bool(root, "validated", b.ota_validated);
+
+    bb_json_t net = bb_json_obj_new();
+    bb_json_obj_set_bool(net, "connected", w.connected);
+    bb_json_obj_set_number(net, "rssi", (double)w.rssi);
+    bb_json_obj_set_number(net, "disc_age_s", (double)w.disc_age_s);
+    bb_json_obj_set_number(net, "retry_count", (double)w.retry_count);
+    if (hostname) {
+        bb_json_obj_set_string(net, "mdns", hostname);
+    } else {
+        bb_json_obj_set_null(net, "mdns");
+    }
+    bb_json_obj_set_obj(root, "network", net);
+
+    for (int i = 0; i < s_health_extender_count; i++) {
+        s_health_extenders[i](root);
+    }
+
+    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return err;
+}
+
 // ---------------------------------------------------------------------------
 // Route descriptor
 // ---------------------------------------------------------------------------
@@ -149,6 +201,34 @@ static const bb_route_t s_info_route = {
     .handler  = info_handler,
 };
 
+static const bb_route_response_t s_health_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"ok\":{\"type\":\"boolean\"},"
+      "\"free_heap\":{\"type\":\"integer\"},"
+      "\"validated\":{\"type\":\"boolean\"},"
+      "\"network\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"connected\":{\"type\":\"boolean\"},"
+      "\"rssi\":{\"type\":\"integer\"},"
+      "\"disc_age_s\":{\"type\":\"integer\"},"
+      "\"retry_count\":{\"type\":\"integer\"},"
+      "\"mdns\":{\"type\":[\"string\",\"null\"]}}}},"
+      "\"required\":[\"ok\",\"network\"]}",
+      "liveness check" },
+    { 0 },
+};
+
+static const bb_route_t s_health_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/health",
+    .tag      = "health",
+    .summary  = "Get liveness status",
+    .responses = s_health_responses,
+    .handler  = health_handler,
+};
+
 static bb_err_t bb_info_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
@@ -156,9 +236,12 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
     bb_err_t err = bb_http_register_described_route(server, &s_info_route);
     if (err != BB_OK) return err;
     bb_log_i(TAG, "info route registered");
+    err = bb_http_register_described_route(server, &s_health_route);
+    if (err != BB_OK) return err;
+    bb_log_i(TAG, "health route registered");
     return BB_OK;
 }
 
 #if CONFIG_BB_INFO_AUTOREGISTER
-BB_REGISTRY_REGISTER_N(bb_info, bb_info_init, 1);
+BB_REGISTRY_REGISTER_N(bb_info, bb_info_init, 2);
 #endif

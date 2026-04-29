@@ -25,6 +25,10 @@ void bb_mdns_set_instance_name(const char *instance_name);
 // Check if mDNS has been started.
 bool bb_mdns_started(void);
 
+// Get the running mDNS hostname (cached on init). Returns the string when
+// started (e.g. "bsp-device-c718"), NULL when not started or before init.
+const char *bb_mdns_get_hostname(void);
+
 #endif /* ESP_PLATFORM */
 
 // Sanitize and build RFC 1035-compliant hostname label: lowercase [a-z0-9], collapse/trim dashes, cap at 63 chars.
