@@ -46,6 +46,7 @@ static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
     bb_json_obj_set_number(root, "heap_free_total", (double)bb_board_heap_free_total());
     bb_json_obj_set_number(root, "heap_free_internal", (double)bb_board_heap_free_internal());
     bb_json_obj_set_number(root, "heap_minimum_ever", (double)bb_board_heap_minimum_ever());
+    bb_json_obj_set_number(root, "heap_largest_free_block", (double)bb_board_heap_largest_free_block());
     bb_json_obj_set_number(root, "chip_revision", (double)bb_board_chip_revision());
     bb_json_obj_set_number(root, "cpu_freq_mhz", (double)bb_board_cpu_freq_mhz());
 }
@@ -124,6 +125,7 @@ static const bb_route_response_t s_info_responses[] = {
       "\"heap_free_total\":{\"type\":\"integer\"},"
       "\"heap_free_internal\":{\"type\":\"integer\"},"
       "\"heap_minimum_ever\":{\"type\":\"integer\"},"
+      "\"heap_largest_free_block\":{\"type\":\"integer\"},"
       "\"chip_revision\":{\"type\":\"integer\"},"
       "\"cpu_freq_mhz\":{\"type\":\"integer\"},"
       "\"network\":{\"type\":\"object\","

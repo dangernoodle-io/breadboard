@@ -21,6 +21,12 @@ void test_bb_board_heap_minimum_ever_callable(void)
     TEST_ASSERT_EQUAL_INT(sz, sz);  // Sanity: no crash, returns size_t
 }
 
+void test_bb_board_heap_largest_free_block_callable(void)
+{
+    size_t sz = bb_board_heap_largest_free_block();
+    TEST_ASSERT_EQUAL_INT(sz, sz);  // Sanity: no crash, returns size_t
+}
+
 void test_bb_board_chip_revision_callable(void)
 {
     uint32_t rev = bb_board_chip_revision();
