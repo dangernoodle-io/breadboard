@@ -60,6 +60,19 @@ bb_err_t bb_http_server_ensure_started(void)
 #else
         9;
 #endif
+    // Clamp to LWIP socket pool: httpd reserves 3 sockets internally, so
+    // max_open_sockets > CONFIG_LWIP_MAX_SOCKETS - 3 makes httpd_start abort
+    // (the assert message is "Config option max_open_sockets is too large").
+    // Surface a warning so consumers can tune intentionally instead of getting
+    // a runtime panic during prov-mode startup.
+    {
+        const int lwip_cap = CONFIG_LWIP_MAX_SOCKETS - 3;
+        if (config.max_open_sockets > lwip_cap) {
+            bb_log_w(TAG, "capping max_open_sockets %d -> %d (CONFIG_LWIP_MAX_SOCKETS=%d)",
+                     config.max_open_sockets, lwip_cap, CONFIG_LWIP_MAX_SOCKETS);
+            config.max_open_sockets = lwip_cap;
+        }
+    }
     config.lru_purge_enable = true;
     config.stack_size = 6144;
     config.recv_wait_timeout =
