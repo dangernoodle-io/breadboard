@@ -1,5 +1,5 @@
 set(_sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system.c")
-set(_sys_priv_reqs "")
+set(_sys_priv_reqs bb_log esp_app_format esp_timer)
 
 if(CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER)
     list(APPEND _sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system_routes.c")
@@ -9,7 +9,7 @@ endif()
 idf_component_register(
     SRCS ${_sys_srcs}
     INCLUDE_DIRS "include"
-    REQUIRES bb_log bb_nv esp_app_format esp_timer
+    REQUIRES bb_nv
     PRIV_REQUIRES ${_sys_priv_reqs}
 )
 
