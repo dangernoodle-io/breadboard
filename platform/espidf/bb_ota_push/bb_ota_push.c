@@ -86,7 +86,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
 
     while (received < content_len) {
         int ret = bb_http_req_recv(req, buf,
-            sizeof(buf) < (content_len - received) ? sizeof(buf) : (content_len - received));
+            OTA_RECV_BUF_SIZE < (content_len - received) ? OTA_RECV_BUF_SIZE : (content_len - received));
 
         if (ret == BB_OTA_RECV_TIMEOUT) {
             if (++timeout_count > OTA_TIMEOUT_RETRIES) {
