@@ -78,3 +78,15 @@ bb_err_t bb_http_register_described_route(bb_http_handle_t server,
     // Only add to the registry on success.
     return registry_add(route);
 }
+
+bb_err_t bb_http_register_route_table(bb_http_handle_t server,
+                                      const bb_route_t * const *table,
+                                      size_t n)
+{
+    if (!table) return BB_ERR_INVALID_ARG;
+    for (size_t i = 0; i < n; i++) {
+        bb_err_t err = bb_http_register_described_route(server, table[i]);
+        if (err != BB_OK) return err;
+    }
+    return BB_OK;
+}
