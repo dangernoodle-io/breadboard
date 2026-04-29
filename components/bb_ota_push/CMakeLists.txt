@@ -1,8 +1,8 @@
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_ota_push/bb_ota_push.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_http app_update esp_app_format bb_log
-    PRIV_REQUIRES bb_registry
+    REQUIRES bb_core bb_http
+    PRIV_REQUIRES bb_registry bb_log app_update esp_app_format
 )
 
 if(CONFIG_BB_OTA_PUSH_AUTOREGISTER)
