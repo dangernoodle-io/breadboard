@@ -11,7 +11,6 @@ static const char *TAG = "smoke";
 void app_main(void) {
     bb_registry_init_early();
 
-    bb_wifi_ensure_netif();
     // Try to bring up STA if creds are provisioned in NVS. Returns BB_ERR_TIMEOUT
     // on failure; smoke is OK either way — HTTP server still starts.
     (void)bb_wifi_init_sta();
