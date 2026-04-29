@@ -445,3 +445,44 @@ bb_err_t bb_wifi_set_hostname(const char *hostname)
     esp_err_t err = esp_netif_set_hostname(sta, hostname);
     return (err == ESP_OK) ? BB_OK : BB_ERR_INVALID_STATE;
 }
+
+// Transport stubs — ESP-IDF bb_http uses esp_http_server directly.
+
+bb_err_t bb_wifi_listen(uint16_t port)
+{
+    (void)port;
+    return BB_ERR_INVALID_STATE;
+}
+
+bb_err_t bb_wifi_accept(bb_conn_t **out)
+{
+    if (out) *out = NULL;
+    return BB_ERR_INVALID_STATE;
+}
+
+int bb_conn_available(bb_conn_t *c)
+{
+    (void)c;
+    return 0;
+}
+
+int bb_conn_read(bb_conn_t *c, uint8_t *buf, size_t n)
+{
+    (void)c;
+    (void)buf;
+    (void)n;
+    return -1;
+}
+
+int bb_conn_write(bb_conn_t *c, const uint8_t *buf, size_t n)
+{
+    (void)c;
+    (void)buf;
+    (void)n;
+    return -1;
+}
+
+void bb_conn_close(bb_conn_t *c)
+{
+    (void)c;
+}
