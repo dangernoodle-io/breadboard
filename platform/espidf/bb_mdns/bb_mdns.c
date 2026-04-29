@@ -81,6 +81,10 @@ static void evt_pool_free(bb_mdns_evt_t *evt);
 static char s_mdns_hostname[64] = "bsp-device";
 static bool s_mdns_hostname_set = false;
 
+// Cached running hostname (set during init)
+static char s_running_hostname[64] = {0};
+static bool s_running_hostname_valid = false;
+
 // App-injected mDNS service type and instance name
 static char s_mdns_service_type[32] = "_bsp";
 static bool s_mdns_service_type_set = false;
@@ -477,6 +481,11 @@ static int mdns_init_impl(void)
     char hostname[64];
     mdns_build_hostname(hostname, sizeof(hostname));
 
+    // Cache the running hostname for bb_mdns_get_hostname()
+    strncpy(s_running_hostname, hostname, sizeof(s_running_hostname) - 1);
+    s_running_hostname[sizeof(s_running_hostname) - 1] = '\0';
+    s_running_hostname_valid = true;
+
     esp_err_t err = mdns_init();
     if (err != ESP_OK) {
         bb_log_e(TAG, "mdns_init failed: %s", esp_err_to_name(err));
@@ -691,6 +700,14 @@ void bb_mdns_set_instance_name(const char *instance_name)
 bool bb_mdns_started(void)
 {
     return bb_mdns_lifecycle_is_started(&s_lc);
+}
+
+const char *bb_mdns_get_hostname(void)
+{
+    if (!s_running_hostname_valid || !bb_mdns_lifecycle_is_started(&s_lc)) {
+        return NULL;
+    }
+    return s_running_hostname;
 }
 
 void bb_mdns_set_txt(const char *key, const char *value)

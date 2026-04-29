@@ -130,6 +130,10 @@ COMPONENT_MAP = {
         ["components/bb_board/include"],
         ["platform/host/bb_board/bb_board_host.c"],
     ),
+    "bb_info": (
+        ["components/bb_info/include"],
+        ["platform/host/bb_info/bb_info_host.c"],
+    ),
 }
 
 
