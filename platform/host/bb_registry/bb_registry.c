@@ -1,4 +1,5 @@
 #include "bb_registry.h"
+#include "bb_http.h"
 #include "bb_log.h"
 #include <stdlib.h>
 
@@ -23,8 +24,9 @@ void bb_registry_add(const bb_registry_entry_t *entry)
     s_head   = n;
 }
 
-bb_err_t bb_registry_init(bb_http_handle_t server)
+bb_err_t bb_registry_init(void)
 {
+    bb_http_handle_t server = bb_http_server_get_handle();
     size_t count = bb_registry_count();
     bb_log_i(TAG, "registry init: %u entries", count);
 

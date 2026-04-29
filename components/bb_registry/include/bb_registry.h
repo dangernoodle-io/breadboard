@@ -14,7 +14,7 @@ typedef struct {
 } bb_registry_entry_t;
 
 void    bb_registry_add(const bb_registry_entry_t *entry);
-bb_err_t bb_registry_init(bb_http_handle_t server);
+bb_err_t bb_registry_init(void);
 size_t  bb_registry_count(void);
 void    bb_registry_foreach(void (*cb)(const bb_registry_entry_t *, void *), void *ctx);
 void    bb_registry_clear(void);
