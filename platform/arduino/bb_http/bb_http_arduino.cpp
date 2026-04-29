@@ -33,8 +33,8 @@ static struct {
 static int g_route_count = 0;
 
 // Response buffer: full status line + headers + body accumulate here before
-// a single client.write(). CC3000's fastrprint() flush behavior is unreliable
-// across many tiny writes, so we batch into one send.
+// a single bb_conn_write(). Some Arduino radio stacks (notably CC3000) have
+// unreliable flush behavior across many tiny writes, so we batch into one send.
 #define RESP_BUFLEN 96
 
 // Request object (allocated on stack in poll loop)
