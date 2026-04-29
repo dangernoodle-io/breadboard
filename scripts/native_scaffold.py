@@ -116,6 +116,10 @@ COMPONENT_MAP = {
         ["components/bb_registry/include"],
         ["platform/host/bb_registry/bb_registry.c"],
     ),
+    "bb_timer": (
+        ["components/bb_timer/include"],
+        ["platform/host/bb_timer/bb_timer_host.c"],
+    ),
 }
 
 

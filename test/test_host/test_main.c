@@ -337,6 +337,14 @@ void test_bb_registry_init_calls_each_init_fn(void);
 void test_bb_registry_init_reports_first_error_but_continues(void);
 void test_bb_registry_clear_resets_count(void);
 
+// Forward declarations from test_bb_timer.c
+void test_bb_timer_create_null_out_returns_err(void);
+void test_bb_timer_create_null_cb_returns_err(void);
+void test_bb_timer_one_shot_fires_once(void);
+void test_bb_timer_periodic_fires_repeatedly_then_stops(void);
+void test_bb_timer_delete_after_stop(void);
+void test_bb_timer_delete_without_start(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_mdns_host_reset();
@@ -684,6 +692,14 @@ int main(void) {
     RUN_TEST(test_bb_registry_init_calls_each_init_fn);
     RUN_TEST(test_bb_registry_init_reports_first_error_but_continues);
     RUN_TEST(test_bb_registry_clear_resets_count);
+
+    // bb_timer tests
+    RUN_TEST(test_bb_timer_create_null_out_returns_err);
+    RUN_TEST(test_bb_timer_create_null_cb_returns_err);
+    RUN_TEST(test_bb_timer_one_shot_fires_once);
+    RUN_TEST(test_bb_timer_periodic_fires_repeatedly_then_stops);
+    RUN_TEST(test_bb_timer_delete_after_stop);
+    RUN_TEST(test_bb_timer_delete_without_start);
 
     return UNITY_END();
 }
