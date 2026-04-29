@@ -5,6 +5,10 @@
 
 #include <string.h>
 
+#ifdef CONFIG_BB_LOG_PANIC_CAPTURE
+#include "esp_system.h"
+#endif
+
 static const char *TAG = "bb_log_http";
 
 static bb_err_t log_level_handler(bb_http_request_t *req)
@@ -147,6 +151,101 @@ static const bb_route_t s_log_level_post_route = {
     .handler  = log_level_handler,
 };
 
+// ---------------------------------------------------------------------------
+// Panic log handlers
+// ---------------------------------------------------------------------------
+
+#ifdef CONFIG_BB_LOG_PANIC_CAPTURE
+extern bool bb_log_panic_available(void);
+extern bb_err_t bb_log_panic_get(char *out, size_t *len_inout);
+extern void bb_log_panic_clear(void);
+
+static bb_err_t panic_get_handler(bb_http_request_t *req)
+{
+    bb_json_t root = bb_json_obj_new();
+    if (!root) {
+        return bb_http_resp_send_err(req, 500, "JSON alloc failed");
+    }
+
+#ifdef CONFIG_BB_LOG_PANIC_CAPTURE
+    bool available = bb_log_panic_available();
+    bb_json_obj_set_bool(root, "available", available);
+
+    if (available) {
+        // Get reset reason string
+        const char *reason_str = "unknown";
+        esp_reset_reason_t reason = esp_reset_reason();
+        switch (reason) {
+            case ESP_RST_PANIC:      reason_str = "panic"; break;
+            case ESP_RST_TASK_WDT:   reason_str = "task_wdt"; break;
+            case ESP_RST_INT_WDT:    reason_str = "int_wdt"; break;
+            case ESP_RST_WDT:        reason_str = "wdt"; break;
+            case ESP_RST_BROWNOUT:   reason_str = "brownout"; break;
+            default: break;
+        }
+        bb_json_obj_set_string(root, "reset_reason", reason_str);
+
+        // Retrieve panic log
+        char panic_buf[512];
+        size_t panic_len = sizeof(panic_buf) - 1;
+        if (bb_log_panic_get(panic_buf, &panic_len) == BB_OK) {
+            bb_json_obj_set_string(root, "log_tail", panic_buf);
+        }
+    }
+#else
+    bb_json_obj_set_bool(root, "available", false);
+#endif
+
+    bb_http_resp_set_status(req, 200);
+    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return err;
+}
+
+static bb_err_t panic_delete_handler(bb_http_request_t *req)
+{
+    bb_log_panic_clear();
+    bb_http_resp_set_status(req, 204);
+    return bb_http_resp_send(req, NULL, 0);
+}
+
+static const bb_route_response_t s_panic_get_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"available\":{\"type\":\"boolean\"},"
+      "\"reset_reason\":{\"type\":\"string\"},"
+      "\"log_tail\":{\"type\":\"string\"}},"
+      "\"required\":[\"available\"]}",
+      "panic log status and contents" },
+    { 0 },
+};
+
+static const bb_route_t s_panic_get_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/diag/panic",
+    .tag      = "logs",
+    .summary  = "Get panic log from previous abnormal boot",
+    .responses = s_panic_get_responses,
+    .handler  = panic_get_handler,
+};
+
+static const bb_route_response_t s_panic_delete_responses[] = {
+    { 204, NULL, NULL, "panic log cleared" },
+    { 0 },
+};
+
+static const bb_route_t s_panic_delete_route = {
+    .method   = BB_HTTP_DELETE,
+    .path     = "/api/diag/panic",
+    .tag      = "logs",
+    .summary  = "Clear panic log",
+    .responses = s_panic_delete_responses,
+    .handler  = panic_delete_handler,
+};
+
+#endif /* CONFIG_BB_LOG_PANIC_CAPTURE */
+
 static bb_err_t bb_log_register_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
@@ -157,8 +256,16 @@ static bb_err_t bb_log_register_routes_init(bb_http_handle_t server)
     err = bb_http_register_described_route(server, &s_log_level_get_route);
     if (err != BB_OK) return err;
 
-    bb_log_i(TAG, "log level routes registered");
+#ifdef CONFIG_BB_LOG_PANIC_CAPTURE
+    err = bb_http_register_described_route(server, &s_panic_get_route);
+    if (err != BB_OK) return err;
+
+    err = bb_http_register_described_route(server, &s_panic_delete_route);
+    if (err != BB_OK) return err;
+#endif
+
+    bb_log_i(TAG, "log level and panic routes registered");
     return BB_OK;
 }
 
-BB_REGISTRY_REGISTER_N(bb_log_register_routes, bb_log_register_routes_init, 2);
+BB_REGISTRY_REGISTER_N(bb_log_register_routes, bb_log_register_routes_init, 4);

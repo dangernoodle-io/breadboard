@@ -48,6 +48,13 @@ void test_log_stream_format_null_fmt(void);
 void test_log_stream_format_int(void);
 void test_log_stream_format_size_one(void);
 
+// Forward declarations from test_bb_log_panic.c
+void test_bb_log_panic_available_returns_false_on_host(void);
+void test_bb_log_panic_get_returns_not_found_on_host(void);
+void test_bb_log_panic_get_invalid_args(void);
+void test_bb_log_panic_clear_is_safe_on_host(void);
+void test_bb_log_panic_clear_after_unavailable(void);
+
 // Forward declarations from test_ota_pull.c
 void test_ota_pull_parse_version_found(void);
 void test_ota_pull_parse_no_matching_asset(void);
@@ -457,6 +464,13 @@ int main(void) {
     RUN_TEST(test_log_stream_format_null_fmt);
     RUN_TEST(test_log_stream_format_int);
     RUN_TEST(test_log_stream_format_size_one);
+
+    // Panic log tests
+    RUN_TEST(test_bb_log_panic_available_returns_false_on_host);
+    RUN_TEST(test_bb_log_panic_get_returns_not_found_on_host);
+    RUN_TEST(test_bb_log_panic_get_invalid_args);
+    RUN_TEST(test_bb_log_panic_clear_is_safe_on_host);
+    RUN_TEST(test_bb_log_panic_clear_after_unavailable);
 
     // OTA pull tests
     RUN_TEST(test_ota_pull_parse_version_found);
