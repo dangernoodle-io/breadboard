@@ -818,20 +818,9 @@ static bb_err_t ota_check_handler(bb_http_request_t *req)
         snprintf(asset_name, sizeof(asset_name), "%s.bin", board);
         bb_json_obj_set_string(root, "asset", asset_name);
 
-        char *response_str = bb_json_serialize(root);
+        bb_err_t err = bb_http_resp_send_json(req, root);
         bb_json_free(root);
-
-        if (response_str) {
-            bb_http_resp_set_type(req, "application/json");
-            bb_http_resp_send(req, response_str, strlen(response_str));
-            bb_json_free_str(response_str);
-        } else {
-            const char *error_response = "{\"error\":\"json_error\"}";
-            bb_http_resp_set_status(req, 500);
-            bb_http_resp_send(req, error_response, strlen(error_response));
-        }
-
-        return BB_OK;
+        return err;
     }
 
     // Trigger background check if not already running
@@ -984,20 +973,9 @@ static bb_err_t ota_status_handler(bb_http_request_t *req)
         bb_json_obj_set_string(root, "last_error", status_copy.last_error);
     }
 
-    char *response_str = bb_json_serialize(root);
+    bb_err_t err = bb_http_resp_send_json(req, root);
     bb_json_free(root);
-
-    if (response_str) {
-        bb_http_resp_set_type(req, "application/json");
-        bb_http_resp_send(req, response_str, strlen(response_str));
-        bb_json_free_str(response_str);
-    } else {
-        const char *response = "{\"error\":\"json_error\"}";
-        bb_http_resp_set_status(req, 500);
-        bb_http_resp_send(req, response, strlen(response));
-    }
-
-    return BB_OK;
+    return err;
 }
 
 // ---------------------------------------------------------------------------

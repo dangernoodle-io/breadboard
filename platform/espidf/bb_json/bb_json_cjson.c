@@ -300,3 +300,33 @@ void bb_json_obj_set_raw(bb_json_t obj, const char *key, const char *json_litera
     }
     cJSON_AddItemToObject((cJSON *)obj, key, parsed);
 }
+
+// ---------------------------------------------------------------------------
+// Walking
+// ---------------------------------------------------------------------------
+
+bb_json_kind_t bb_json_get_kind(bb_json_t doc)
+{
+    if (!doc) return BB_JSON_KIND_OTHER;
+    cJSON *item = (cJSON *)doc;
+    if (cJSON_IsObject(item)) return BB_JSON_KIND_OBJECT;
+    if (cJSON_IsArray(item)) return BB_JSON_KIND_ARRAY;
+    return BB_JSON_KIND_OTHER;
+}
+
+void bb_json_walk_children(bb_json_t parent, void (*cb)(const char *key, bb_json_t child, void *ctx), void *ctx)
+{
+    if (!parent || !cb) return;
+    cJSON *item = (cJSON *)parent;
+    if (cJSON_IsObject(item)) {
+        cJSON *child = NULL;
+        cJSON_ArrayForEach(child, item) {
+            cb(child->string, (bb_json_t)child, ctx);
+        }
+    } else if (cJSON_IsArray(item)) {
+        cJSON *child = NULL;
+        cJSON_ArrayForEach(child, item) {
+            cb(NULL, (bb_json_t)child, ctx);
+        }
+    }
+}

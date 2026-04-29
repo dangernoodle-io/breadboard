@@ -87,18 +87,9 @@ static bb_err_t log_level_get_handler(bb_http_request_t *req)
 
     bb_json_obj_set_arr(root, "tags", tags_arr);
 
-    // Serialize
-    char *json_str = bb_json_serialize(root);
-    bb_json_free(root);
-
-    if (!json_str) {
-        return bb_http_resp_send_err(req, 500, "JSON serialize failed");
-    }
-
     bb_http_resp_set_status(req, 200);
-    bb_http_resp_set_type(req, "application/json");
-    bb_err_t err = bb_http_resp_send(req, json_str, strlen(json_str));
-    bb_json_free_str(json_str);
+    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
     return err;
 }
 

@@ -106,6 +106,14 @@ bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str);
 // buf == NULL and len == 0 ends the chunked response.
 bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int len);
 
+// Forward declaration for JSON streaming (avoids circular dependency).
+typedef void *bb_json_t;
+
+// Send a JSON document as the response body. Sets Content-Type: application/json,
+// streams the doc via chunked transfer-encoding (no contiguous buffer needed),
+// and ends the response. Caller still owns/frees the doc.
+bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc);
+
 // Request accessors — MVP: read the body as a single buffer.
 int bb_http_req_body_len(bb_http_request_t *req);
 int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size);

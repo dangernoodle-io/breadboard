@@ -15,18 +15,8 @@ static bb_err_t manifest_handler(bb_http_request_t *req)
         return BB_ERR_INVALID_STATE;
     }
 
-    char *json = bb_json_serialize(doc);
+    bb_err_t err = bb_http_resp_send_json(req, doc);
     bb_json_free(doc);
-
-    if (!json) {
-        bb_http_resp_send_err(req, 500, "manifest serialize failed");
-        return BB_ERR_INVALID_STATE;
-    }
-
-    bb_http_resp_set_type(req, "application/json");
-    bb_err_t err = bb_http_resp_sendstr(req, json);
-    bb_json_free_str(json);
-
     return err;
 }
 

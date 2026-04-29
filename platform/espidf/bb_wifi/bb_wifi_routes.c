@@ -30,10 +30,7 @@ static bb_err_t wifi_info_handler(bb_http_request_t *req)
     bb_json_obj_set_number(root, "disc_age_s", (double)info.disc_age_s);
     bb_json_obj_set_number(root, "retry_count", (double)info.retry_count);
 
-    char *json = bb_json_serialize(root);
-    bb_http_resp_set_type(req, "application/json");
-    bb_err_t err = bb_http_resp_send(req, json ? json : "{}", json ? strlen(json) : 2);
-    if (json) bb_json_free_str(json);
+    bb_err_t err = bb_http_resp_send_json(req, root);
     bb_json_free(root);
     return err;
 }
@@ -54,10 +51,7 @@ static bb_err_t scan_handler(bb_http_request_t *req)
         bb_json_obj_set_bool(ap, "secure", aps[i].secure);
         bb_json_arr_append_obj(arr, ap);
     }
-    char *json = bb_json_serialize(arr);
-    bb_http_resp_set_type(req, "application/json");
-    bb_err_t rc = bb_http_resp_send(req, json ? json : "[]", json ? strlen(json) : 2);
-    if (json) bb_json_free_str(json);
+    bb_err_t rc = bb_http_resp_send_json(req, arr);
     bb_json_free(arr);
     return rc;
 }
