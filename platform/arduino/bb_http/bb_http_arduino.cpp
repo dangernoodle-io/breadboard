@@ -1,9 +1,8 @@
 #ifdef ARDUINO
 
 #include "bb_http.h"
+#include "bb_wifi.h"
 #include <Arduino.h>
-#include <Adafruit_CC3000.h>
-#include <Adafruit_CC3000_Server.h>
 #include <string.h>
 
 // Maximum number of registered routes (tune per-target; AVR Uno has 2KB SRAM)
@@ -20,11 +19,7 @@
 #define BODY_BUFLEN 0
 #define LINE_BUFLEN 40
 
-// Global state. NOTE: Adafruit_CC3000_Server is intentionally NOT declared at
-// file scope — its constructor would run during C runtime init, before
-// cc3000.begin(), and corrupts CC3000 SPI state. Instead it lives as a
-// function-static inside bb_http_server_poll() so it is constructed from
-// loop() context (matches Phase A6 pattern that works reliably).
+// Global state. Server lifecycle managed via bb_wifi_listen / bb_wifi_accept.
 static struct {
     bool started;
 } g_server = {false};
@@ -44,7 +39,7 @@ static int g_route_count = 0;
 
 // Request object (allocated on stack in poll loop)
 typedef struct {
-    Adafruit_CC3000_ClientRef *client;
+    bb_conn_t *conn;
     char method[METHOD_BUFLEN];
     char path[PATH_BUFLEN];
     int resp_status;
@@ -79,9 +74,14 @@ bb_err_t bb_http_server_start(void)
         return BB_OK;
     }
 
-    // server.begin() is deferred to first poll (see note on g_server)
     g_server.started = true;
     g_route_count = 0;
+
+    bb_err_t err = bb_wifi_listen(HTTP_PORT);
+    if (err != BB_OK) {
+        g_server.started = false;
+        return err;
+    }
 
     return BB_OK;
 }
@@ -176,27 +176,22 @@ void bb_http_server_poll(void)
         return;
     }
 
-    // Function-static server: constructor runs on first loop() entry, AFTER
-    // cc3000.begin() has completed. This is critical — a file-scope instance
-    // corrupts CC3000 SPI state.
-    static Adafruit_CC3000_Server server(HTTP_PORT);
-    static bool begun = false;
-    if (!begun) {
-        server.begin();
-        begun = true;
+    static bool announced = false;
+    if (!announced) {
         Serial.println(F("listening on :80"));
+        announced = true;
     }
 
     // Try to accept a connection (non-blocking)
-    Adafruit_CC3000_ClientRef client = server.available();
-    if (!client) {
+    bb_conn_t *conn = NULL;
+    if (bb_wifi_accept(&conn) != BB_OK || conn == NULL) {
         return;
     }
 
     // Parse request
     bb_http_request_impl_t req_impl;
     memset(&req_impl, 0, sizeof(req_impl));
-    req_impl.client = &client;
+    req_impl.conn = conn;
     req_impl.resp_status = 200;
 
     // Read request line with 5s timeout
@@ -206,12 +201,17 @@ void bb_http_server_poll(void)
     bool got_request_line = false;
 
     while (millis() < timeout) {
-        if (!client.available()) {
+        if (bb_conn_available(conn) <= 0) {
             delay(10);
             continue;
         }
 
-        char c = client.read();
+        uint8_t b;
+        if (bb_conn_read(conn, &b, 1) <= 0) {
+            delay(10);
+            continue;
+        }
+        char c = (char)b;
         if (c == '\n') {
             if (line_len > 0 && line_buf[line_len - 1] == '\r') {
                 line_len--;  // Strip \r
@@ -228,19 +228,20 @@ void bb_http_server_poll(void)
     }
 
     if (!got_request_line) {
-        client.close();
+        bb_conn_close(conn);
         return;
     }
     if (!parse_request_line(line_buf, req_impl.method, req_impl.path)) {
-        client.close();
+        bb_conn_close(conn);
         return;
     }
 
     // Validate method and path length
     if (strlen(req_impl.method) >= METHOD_BUFLEN || strlen(req_impl.path) >= PATH_BUFLEN) {
         // 414 URI Too Long
-        client.fastrprint("HTTP/1.0 414 URI Too Long\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-        client.close();
+        static const char uri_too_long[] = "HTTP/1.0 414 URI Too Long\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        bb_conn_write(conn, (const uint8_t *)uri_too_long, strlen(uri_too_long));
+        bb_conn_close(conn);
         return;
     }
 
@@ -251,12 +252,17 @@ void bb_http_server_poll(void)
         bool got_line = false;
 
         while (millis() < timeout) {
-            if (!client.available()) {
+            if (bb_conn_available(conn) <= 0) {
                 delay(10);
                 continue;
             }
 
-            char c = client.read();
+            uint8_t b;
+            if (bb_conn_read(conn, &b, 1) <= 0) {
+                delay(10);
+                continue;
+            }
+            char c = (char)b;
             if (c == '\n') {
                 if (line_len > 0 && line_buf[line_len - 1] == '\r') {
                     line_len--;
@@ -289,13 +295,13 @@ void bb_http_server_poll(void)
     // headers but not called resp_send).
     flush_headers(&req_impl);
 
-    // Single write for the entire response — CC3000 is unreliable across
-    // many tiny fastrprint calls.
+    // Single write for the entire response — batching is critical for
+    // transport layer reliability.
     if (req_impl.resp_len > 0) {
-        client.write((const uint8_t *)req_impl.resp, req_impl.resp_len);
+        bb_conn_write(conn, (const uint8_t *)req_impl.resp, req_impl.resp_len);
     }
 
-    client.close();
+    bb_conn_close(conn);
 }
 
 // Response helpers
