@@ -70,7 +70,16 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         paused = s_pause_cb();
     }
 
-    char buf[OTA_RECV_BUF_SIZE];
+    char *buf = malloc(OTA_RECV_BUF_SIZE);
+    if (!buf) {
+        bb_log_e(TAG, "malloc failed for OTA receive buffer");
+        bb_http_resp_send_err(req, 500, "malloc failed");
+        if (paused && s_resume_cb) {
+            s_resume_cb();
+        }
+        return BB_ERR_NO_SPACE;
+    }
+
     int received = 0;
     int timeout_count = 0;
     int content_len = bb_http_req_body_len(req);
@@ -84,6 +93,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
                 bb_log_e(TAG, "OTA upload timeout after %d retries", timeout_count);
                 esp_ota_abort(ota_handle);
                 bb_http_resp_send_err(req, 408, "Upload timeout");
+                free(buf);
                 goto resume_and_exit;
             }
             continue;
@@ -94,6 +104,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
             bb_log_e(TAG, "OTA receive error at %d/%d", received, content_len);
             esp_ota_abort(ota_handle);
             bb_http_resp_send_err(req, 500, "Receive failed");
+            free(buf);
             goto resume_and_exit;
         }
 
@@ -116,6 +127,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
                              incoming->project_name, running->project_name);
                     esp_ota_abort(ota_handle);
                     bb_http_resp_send_err(req, 400, "Firmware board mismatch");
+                    free(buf);
                     goto resume_and_exit;
                 }
             }
@@ -127,6 +139,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
             bb_log_e(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
             esp_ota_abort(ota_handle);
             bb_http_resp_send_err(req, 500, "OTA write failed");
+            free(buf);
             goto resume_and_exit;
         }
 
@@ -134,6 +147,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     }
 
     bb_log_i(TAG, "OTA receive complete (%d bytes), validating", received);
+    free(buf);
 
     err = esp_ota_end(ota_handle);
     if (err != ESP_OK) {

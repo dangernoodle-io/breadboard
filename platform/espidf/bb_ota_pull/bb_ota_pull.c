@@ -60,13 +60,11 @@ uint32_t bb_ota_pull_host_get_http_timeout_ms(void)
 
 static const char *TAG = "bb_ota_pull";
 
-#define OTA_TASK_STACK 16384
+#define OTA_TASK_STACK 12288
 #define OTA_TASK_PRIO  3
-/* 12 KB headroom for the TLS handshake + JSON parse worker. Original 32 KB was
- * conservative; the smaller stack lets task creation succeed on heap-pressed
- * boards (bitaxe) where no 32 KB contiguous free block remains after ASIC +
- * mDNS + log writer allocations. */
-#define OTA_CHECK_STACK 12288
+/* 8 KB headroom for the TLS handshake + JSON parse worker. Reduced from 12 KB
+ * to further conserve transient stack on heap-pressed boards. */
+#define OTA_CHECK_STACK 8192
 #define OTA_CHECK_PRIO 3
 #define API_BUF_MAX    32768
 
@@ -87,6 +85,14 @@ static char *ota_pull_get_api_buf(void)
         bb_log_e(TAG, "failed to allocate API buffer (%d bytes)", API_BUF_MAX);
     }
     return s_api_buf;
+}
+
+static void ota_pull_release_api_buf(void)
+{
+    if (s_api_buf) {
+        free(s_api_buf);
+        s_api_buf = NULL;
+    }
 }
 static int s_ota_task_core = 1;  // default: Core 1 (bitaxe-friendly, frees Core 0 for httpd/stratum)
 
@@ -484,7 +490,7 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
 cleanup:
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
-    /* buf is the persistent s_api_buf — do not free */
+    ota_pull_release_api_buf();
     return err;
 }
 
