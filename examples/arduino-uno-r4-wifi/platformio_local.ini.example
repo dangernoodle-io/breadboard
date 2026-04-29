@@ -1,0 +1,6 @@
+; Copy to platformio_local.ini and adjust paths for your host.
+; Required on Apple Silicon (bundled arm-none-eabi-gcc is x86_64).
+
+[env:uno_r4_wifi]
+platform_packages =
+    toolchain-gccarmnoneeabi@symlink:///Users/YOUR_USERNAME/.local/pio-arm-none-eabi

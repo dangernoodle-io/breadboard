@@ -47,6 +47,23 @@ curl http://<dhcp-ip>/ping
 # Expected: pong
 ```
 
+## Local toolchain override (Apple Silicon)
+
+PlatformIO bundles an x86_64 `arm-none-eabi-gcc` for the Renesas RA platform which fails on arm64 Macs with "Bad CPU type in executable". To use a native Homebrew toolchain:
+
+1. Install gcc-arm-embedded:
+   ```bash
+   brew install --cask gcc-arm-embedded
+   ```
+2. Create `~/.local/pio-arm-none-eabi` symlink farm pointing at `/Applications/ArmGNUToolchain/<version>/arm-none-eabi/` (or the equivalent install location), with `bin/`, `arm-none-eabi/`, and a minimal `package.json`.
+3. Copy and edit the override:
+   ```bash
+   cp platformio_local.ini.example platformio_local.ini
+   # Replace YOUR_USERNAME with your macOS login
+   ```
+
+`platformio_local.ini` is gitignored. CI (Ubuntu x86_64) uses the bundled toolchain.
+
 ## Backend swap
 
 To run the same `src/main.cpp` against a CC3000 shield on a classic Uno, see the [`arduino-uno-cc3000`](../arduino-uno-cc3000/) example. The app code is identical; the build flag and `lib_deps` are the only differences.
