@@ -351,6 +351,7 @@ void test_bb_timer_delete_without_start(void);
 void test_bb_board_heap_free_total_callable(void);
 void test_bb_board_heap_free_internal_callable(void);
 void test_bb_board_heap_minimum_ever_callable(void);
+void test_bb_board_heap_largest_free_block_callable(void);
 void test_bb_board_chip_revision_callable(void);
 void test_bb_board_cpu_freq_mhz_callable(void);
 
@@ -744,6 +745,7 @@ int main(void) {
     RUN_TEST(test_bb_board_heap_free_total_callable);
     RUN_TEST(test_bb_board_heap_free_internal_callable);
     RUN_TEST(test_bb_board_heap_minimum_ever_callable);
+    RUN_TEST(test_bb_board_heap_largest_free_block_callable);
     RUN_TEST(test_bb_board_chip_revision_callable);
     RUN_TEST(test_bb_board_cpu_freq_mhz_callable);
 

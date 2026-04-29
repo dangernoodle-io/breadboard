@@ -52,6 +52,7 @@ bb_err_t bb_board_get_reset_reason (char *out, size_t out_size);
 size_t   bb_board_heap_free_total(void);
 size_t   bb_board_heap_free_internal(void);
 size_t   bb_board_heap_minimum_ever(void);
+size_t   bb_board_heap_largest_free_block(void);
 uint32_t bb_board_chip_revision(void);
 uint32_t bb_board_cpu_freq_mhz(void);
 
