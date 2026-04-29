@@ -390,12 +390,8 @@ int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results)
 
 static void scan_worker_task(void *arg)
 {
-    bb_wifi_ap_t results[WIFI_SCAN_MAX];
-    memset(results, 0, sizeof(results));
-    int count = bb_wifi_scan_networks(results, WIFI_SCAN_MAX);
-
-    // Update cache
-    memcpy(s_cached_scan, results, sizeof(results));
+    (void)arg;
+    int count = bb_wifi_scan_networks(s_cached_scan, WIFI_SCAN_MAX);
     s_cached_scan_count = count;
     s_scan_in_progress = false;
 

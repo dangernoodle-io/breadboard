@@ -67,6 +67,16 @@ typedef struct {
     char     payload[256];   /* packed key\0value\0… */
 } bb_mdns_evt_t;
 
+// Event pool: static 4-slot pool to avoid per-event malloc
+#define BB_MDNS_EVT_POOL_SIZE 4
+static bb_mdns_evt_t s_evt_pool[BB_MDNS_EVT_POOL_SIZE];
+static bool s_evt_in_use[BB_MDNS_EVT_POOL_SIZE];
+static SemaphoreHandle_t s_evt_pool_lock = NULL;
+
+// Forward declarations for pool functions (used by dispatch_task)
+static bb_mdns_evt_t *evt_pool_alloc(void);
+static void evt_pool_free(bb_mdns_evt_t *evt);
+
 // App-injected mDNS hostname
 static char s_mdns_hostname[64] = "bsp-device";
 static bool s_mdns_hostname_set = false;
@@ -317,8 +327,46 @@ static void bb_mdns_dispatch_task(void *arg)
             };
             on_peer(&peer, ctx);
         }
-        free(evt);
+        evt_pool_free(evt);
     }
+}
+
+// Allocate an event from the pool or return NULL if all slots busy
+static bb_mdns_evt_t *evt_pool_alloc(void)
+{
+    if (!s_evt_pool_lock) return NULL;
+
+    if (xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY) != pdTRUE) return NULL;
+
+    bb_mdns_evt_t *evt = NULL;
+    for (int i = 0; i < BB_MDNS_EVT_POOL_SIZE; i++) {
+        if (!s_evt_in_use[i]) {
+            s_evt_in_use[i] = true;
+            evt = &s_evt_pool[i];
+            memset(evt, 0, sizeof(bb_mdns_evt_t));
+            break;
+        }
+    }
+
+    xSemaphoreGive(s_evt_pool_lock);
+    return evt;
+}
+
+// Release an event back to the pool
+static void evt_pool_free(bb_mdns_evt_t *evt)
+{
+    if (!evt || !s_evt_pool_lock) return;
+
+    if (xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY) != pdTRUE) return;
+
+    for (int i = 0; i < BB_MDNS_EVT_POOL_SIZE; i++) {
+        if (&s_evt_pool[i] == evt) {
+            s_evt_in_use[i] = false;
+            break;
+        }
+    }
+
+    xSemaphoreGive(s_evt_pool_lock);
 }
 
 // Internal notifier called by mdns_browse for all results — runs on IDF mDNS task.
@@ -326,9 +374,9 @@ static void bb_mdns_dispatch_task(void *arg)
 static void internal_notifier(mdns_result_t *results)
 {
     for (mdns_result_t *r = results; r; r = r->next) {
-        bb_mdns_evt_t *evt = calloc(1, sizeof(bb_mdns_evt_t));
+        bb_mdns_evt_t *evt = evt_pool_alloc();
         if (!evt) {
-            bb_log_w(TAG, "notifier: calloc failed, dropping event");
+            bb_log_w(TAG, "notifier: event pool exhausted, dropping event");
             continue;
         }
 
@@ -387,7 +435,7 @@ static void internal_notifier(mdns_result_t *results)
         }
 
         if (xQueueSend(s_evt_queue, &evt, 0) != pdTRUE) {
-            free(evt);
+            evt_pool_free(evt);
             s_evt_drop_count++;
             // Log once per 16 drops (suppress flood; bit 0 of (count-1) == 0 when count is 1, 17, 33…)
             if ((s_evt_drop_count & 0x0F) == 1) {
@@ -581,6 +629,9 @@ void bb_mdns_init(void)
     // Create mutex and dispatch infrastructure once (outlives WiFi cycles)
     if (!s_subs_mutex) {
         s_subs_mutex = xSemaphoreCreateMutex();
+    }
+    if (!s_evt_pool_lock) {
+        s_evt_pool_lock = xSemaphoreCreateMutex();
     }
     if (!s_evt_queue) {
         s_evt_queue = xQueueCreate(BB_MDNS_EVT_QUEUE_DEPTH, sizeof(bb_mdns_evt_t *));

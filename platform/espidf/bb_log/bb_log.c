@@ -25,7 +25,7 @@ static const char *TAG = "bb_log_stream";
 
 #define LOG_STREAM_BUF_BYTES     6144
 #define LOG_STREAM_LINE_MAX      192
-#define LOG_WRITER_QUEUE_LEN     32
+#define LOG_WRITER_QUEUE_LEN     16
 #define LOG_WRITER_TASK_STACK    2048
 #define LOG_WRITER_TASK_PRIO     1   /* very low; never preempts mining */
 
