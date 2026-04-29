@@ -170,4 +170,4 @@ static bb_err_t bb_log_register_routes_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-BB_REGISTRY_REGISTER(bb_log_register_routes, bb_log_register_routes_init);
+BB_REGISTRY_REGISTER_N(bb_log_register_routes, bb_log_register_routes_init, 2);

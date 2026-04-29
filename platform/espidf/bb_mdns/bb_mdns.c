@@ -783,5 +783,5 @@ static bb_err_t bb_mdns_registry_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_MDNS_AUTOREGISTER
-BB_REGISTRY_REGISTER(bb_mdns, bb_mdns_registry_init);
+BB_REGISTRY_REGISTER_N(bb_mdns, bb_mdns_registry_init, 0);
 #endif

@@ -1129,7 +1129,7 @@ static bb_err_t bb_ota_pull_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_OTA_PULL_AUTOREGISTER
-BB_REGISTRY_REGISTER(bb_ota_pull, bb_ota_pull_init);
+BB_REGISTRY_REGISTER_N(bb_ota_pull, bb_ota_pull_init, 3);
 #endif
 
 /**

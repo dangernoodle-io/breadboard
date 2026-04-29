@@ -82,5 +82,5 @@ static bb_err_t bb_board_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_BOARD_AUTOREGISTER
-BB_REGISTRY_REGISTER(bb_board, bb_board_init);
+BB_REGISTRY_REGISTER_N(bb_board, bb_board_init, 1);
 #endif

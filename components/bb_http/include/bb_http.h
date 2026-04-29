@@ -167,6 +167,18 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
 // Used by provisioning and other advanced features. Idempotent.
 bb_err_t bb_http_server_ensure_started(void);
 
+// Handler count telemetry: observe the current number of registered handlers
+// and the configured maximum (cap). Returns 0 on non-ESP-IDF platforms.
+size_t bb_http_route_handler_count(void);
+size_t bb_http_route_handler_cap(void);
+
+// Reserve N additional handler slots beyond the auto-sized sum from the
+// registry. Used by imperative-route consumers (e.g. bb_prov) that register
+// routes outside the BB_REGISTRY_REGISTER_N path. Cumulative across calls.
+// MUST be called before bb_http_server_ensure_started — once httpd_start
+// has run, the cap is fixed.
+void bb_http_reserve_routes(int n);
+
 #ifdef __cplusplus
 }
 #endif

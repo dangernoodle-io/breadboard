@@ -145,3 +145,23 @@ void test_bb_registry_clear_resets_count(void)
     bb_registry_clear();
     TEST_ASSERT_EQUAL(0, bb_registry_count());
 }
+
+void test_bb_registry_route_count_total_empty(void)
+{
+    bb_registry_clear();
+    TEST_ASSERT_EQUAL(0, bb_registry_route_count_total());
+}
+
+void test_bb_registry_route_count_total_sums_correctly(void)
+{
+    bb_registry_clear();
+    bb_registry_entry_t e1 = { .name = "e1", .init = fake_init_1, .route_count = 3 };
+    bb_registry_entry_t e2 = { .name = "e2", .init = fake_init_2, .route_count = 5 };
+    bb_registry_entry_t e3 = { .name = "e3", .init = fake_init_4, .route_count = 0 };
+
+    bb_registry_add(&e1);
+    bb_registry_add(&e2);
+    bb_registry_add(&e3);
+
+    TEST_ASSERT_EQUAL(8, bb_registry_route_count_total());
+}

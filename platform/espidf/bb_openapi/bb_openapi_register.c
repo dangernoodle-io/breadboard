@@ -84,5 +84,5 @@ static bb_err_t bb_openapi_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_OPENAPI_AUTOREGISTER
-BB_REGISTRY_REGISTER(bb_openapi, bb_openapi_init);
+BB_REGISTRY_REGISTER_N(bb_openapi, bb_openapi_init, 1);
 #endif

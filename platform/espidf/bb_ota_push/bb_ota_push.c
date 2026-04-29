@@ -212,7 +212,7 @@ static bb_err_t bb_ota_push_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_OTA_PUSH_AUTOREGISTER
-BB_REGISTRY_REGISTER(bb_ota_push, bb_ota_push_init);
+BB_REGISTRY_REGISTER_N(bb_ota_push, bb_ota_push_init, 1);
 #endif
 
 #endif // ESP_PLATFORM

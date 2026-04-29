@@ -152,3 +152,11 @@ bb_err_t bb_http_unregister_route(bb_http_handle_t server,
 }
 
 bb_err_t bb_http_server_ensure_started(void) { return BB_OK; }
+
+size_t bb_http_route_handler_count(void) { return 0; }
+size_t bb_http_route_handler_cap(void)   { return 0; }
+
+static int s_host_reserved_routes = 0;
+void bb_http_reserve_routes(int n) { if (n > 0) s_host_reserved_routes += n; }
+int  bb_http_host_reserved_routes(void) { return s_host_reserved_routes; }
+void bb_http_host_reset_reserved(void)  { s_host_reserved_routes = 0; }

@@ -94,5 +94,5 @@ static bb_err_t bb_manifest_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_MANIFEST_AUTOREGISTER
-BB_REGISTRY_REGISTER(bb_manifest, bb_manifest_init);
+BB_REGISTRY_REGISTER_N(bb_manifest, bb_manifest_init, 1);
 #endif
