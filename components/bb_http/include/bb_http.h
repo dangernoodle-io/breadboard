@@ -14,13 +14,7 @@ void bb_url_decode_field(const char *body, const char *field, char *out, size_t 
 // PORTABLE HTTP SERVER API — available on all platforms (ESP-IDF, Arduino, host)
 // ============================================================================
 
-#include "bb_nv.h"  // Provides bb_err_t and error code definitions
-
-// Opaque handle to the HTTP server.
-typedef void *bb_http_handle_t;
-
-// Opaque request object; impl-specific underneath.
-typedef void *bb_http_request_t;
+#include "bb_core.h"
 
 // HTTP methods
 typedef enum {

@@ -9,7 +9,7 @@ endif()
 idf_component_register(
     SRCS ${_sys_srcs}
     INCLUDE_DIRS "include"
-    REQUIRES bb_nv
+    REQUIRES bb_core bb_nv
     PRIV_REQUIRES ${_sys_priv_reqs}
 )
 

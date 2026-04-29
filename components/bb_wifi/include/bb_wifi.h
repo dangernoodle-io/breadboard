@@ -4,15 +4,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#ifdef ESP_PLATFORM
-#include "bb_nv.h"
-#else
-// Host-compatible error type definition
-typedef int bb_err_t;
-#define BB_OK 0
-#define BB_ERR_INVALID_ARG 1
-#define BB_ERR_INVALID_STATE 5
-#endif
+#include "bb_core.h"
 
 // Host-safe types (usable outside #ifdef ESP_PLATFORM)
 #define WIFI_SCAN_MAX 20

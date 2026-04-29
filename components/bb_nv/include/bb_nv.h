@@ -4,27 +4,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "bb_core.h"
+
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-#ifdef ESP_PLATFORM
-#include "esp_err.h"
-typedef esp_err_t bb_err_t;
-#define BB_OK                   ESP_OK
-#define BB_ERR_INVALID_ARG      ESP_ERR_INVALID_ARG
-#define BB_ERR_NOT_FOUND        ESP_ERR_NVS_NOT_FOUND
-#define BB_ERR_NOT_INITIALIZED  ESP_ERR_NVS_NOT_INITIALIZED
-#define BB_ERR_NO_SPACE         ESP_ERR_NO_MEM
-#define BB_ERR_INVALID_STATE    ESP_ERR_INVALID_STATE
-#else
-typedef int bb_err_t;
-#define BB_OK                   0
-#define BB_ERR_INVALID_ARG      1
-#define BB_ERR_NOT_FOUND        2
-#define BB_ERR_NOT_INITIALIZED  3
-#define BB_ERR_NO_SPACE         4
-#define BB_ERR_INVALID_STATE    5
 #endif
 
 bb_err_t bb_nv_config_init(void);
