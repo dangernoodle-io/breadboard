@@ -1,4 +1,5 @@
 #include "bb_mdns.h"
+#include "bb_mdns_lifecycle.h"
 #include "bb_wifi.h"
 #include "mdns.h"
 #include "esp_app_desc.h"
@@ -76,7 +77,8 @@ static bool s_mdns_service_type_set = false;
 static char s_mdns_instance_name[64] = "BSP Device";
 static bool s_mdns_instance_name_set = false;
 
-static bool s_mdns_started = false;
+// Lifecycle state machine
+static bb_mdns_lifecycle_state_t s_lc = {0};
 
 /* Coalescing re-announce timer: armed by bb_mdns_set_txt (post-start) and
  * bb_mdns_announce. Fires after BB_MDNS_ANNOUNCE_DELAY_US to emit a fresh
@@ -85,27 +87,33 @@ static bool s_mdns_started = false;
  * last-write-wins coalesce delays the announce until the burst settles. */
 #define BB_MDNS_ANNOUNCE_DELAY_US (100 * 1000)  /* 100 ms */
 static esp_timer_handle_t s_announce_timer = NULL;
-static volatile bool s_announce_dirty = false;
 
-static void announce_timer_cb(void *arg)
+static int apply_announce_locked(void)
 {
-    (void)arg;
-    if (!s_announce_dirty || !s_mdns_started) return;
-    s_announce_dirty = false;
     /* Use WIFI_STA_DEF netif — same key used by bb_wifi_init_sta. */
     esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (!sta) {
         bb_log_w(TAG, "announce: no STA netif");
-        return;
+        return -1;
     }
     esp_err_t err = mdns_netif_action(sta,
                                       MDNS_EVENT_ANNOUNCE_IP4 |
                                       MDNS_EVENT_ANNOUNCE_IP6);
     if (err != ESP_OK) {
         bb_log_w(TAG, "mdns_netif_action(ANNOUNCE) failed: %s", esp_err_to_name(err));
-    } else {
-        bb_log_d(TAG, "unsolicited re-announce sent");
+        return -1;
     }
+    bb_log_d(TAG, "unsolicited re-announce sent");
+    return 0;
+}
+
+static void announce_timer_cb(void *arg)
+{
+    (void)arg;
+    if (!bb_mdns_lifecycle_is_started(&s_lc)) return;
+    if (!s_lc.announce_dirty) return;
+    s_lc.announce_dirty = false;
+    apply_announce_locked();
 }
 
 static void announce_timer_ensure_created(void)
@@ -126,7 +134,7 @@ static void announce_timer_ensure_created(void)
 static void announce_arm(uint64_t delay_us)
 {
     if (!s_announce_timer) return;
-    s_announce_dirty = true;
+    bb_mdns_lifecycle_mark_dirty(&s_lc);
     /* esp_timer_start_once returns ESP_ERR_INVALID_STATE if already running;
      * restart to implement last-write-wins coalescing. */
     esp_timer_stop(s_announce_timer);  /* ignore error if not running */
@@ -416,32 +424,28 @@ static void mdns_build_instance_name(char *out, size_t out_size)
     snprintf(out, out_size, "%.*s-%02x%02x", base_max, base, mac[4], mac[5]);
 }
 
-static void bb_mdns_start_internal(void)
+static int mdns_init_impl(void)
 {
-    if (s_mdns_started) {
-        return;
-    }
-
     char hostname[64];
     mdns_build_hostname(hostname, sizeof(hostname));
 
     esp_err_t err = mdns_init();
     if (err != ESP_OK) {
         bb_log_e(TAG, "mdns_init failed: %s", esp_err_to_name(err));
-        return;
+        return -1;
     }
 
     err = mdns_hostname_set(hostname);
     if (err != ESP_OK) {
         bb_log_e(TAG, "mdns_hostname_set failed: %s", esp_err_to_name(err));
-        return;
+        return -1;
     }
     char instance_name[64];
     mdns_build_instance_name(instance_name, sizeof(instance_name));
     err = mdns_instance_name_set(instance_name);
     if (err != ESP_OK) {
         bb_log_e(TAG, "mdns_instance_name_set failed: %s", esp_err_to_name(err));
-        return;
+        return -1;
     }
 
     const esp_app_desc_t *app = esp_app_get_description();
@@ -462,9 +466,9 @@ static void bb_mdns_start_internal(void)
     err = mdns_service_add(NULL, service_type, "_tcp", 80, txt, 3);
     if (err != ESP_OK) {
         bb_log_e(TAG, "mdns_service_add failed: %s", esp_err_to_name(err));
-        return;
+        return -1;
     }
-    s_mdns_started = true;
+
     txt_pending_flush(service_type);
     announce_timer_ensure_created();
 
@@ -487,13 +491,54 @@ static void bb_mdns_start_internal(void)
     xSemaphoreGive(s_subs_mutex);
 
     bb_log_i(TAG, "mDNS started: %s.local (%s._tcp)", hostname, service_type);
+    return 0;
+}
+
+static void mdns_free_impl(void)
+{
+    mdns_service_remove_all();
+    mdns_free();
+}
+
+static void mdns_send_bye_impl(void)
+{
+    /* Give the mdns task time to emit bye packets before proceeding. */
+    vTaskDelay(pdMS_TO_TICKS(100));
+}
+
+static const bb_mdns_lifecycle_adapter_t s_lc_adapter = {
+    .mdns_init = mdns_init_impl,
+    .mdns_free = mdns_free_impl,
+    .mdns_apply_announce = apply_announce_locked,
+    .mdns_send_bye = mdns_send_bye_impl,
+};
+
+static void bb_mdns_start_internal(void)
+{
+    bb_mdns_lifecycle_result_t res = bb_mdns_lifecycle_start(&s_lc, &s_lc_adapter);
+    switch (res) {
+    case BB_MDNS_LC_OK:
+        break;
+    case BB_MDNS_LC_ALREADY_STARTED:
+        bb_log_d(TAG, "bb_mdns_start_internal: already started");
+        break;
+    case BB_MDNS_LC_INIT_FAILED:
+        bb_log_e(TAG, "bb_mdns_start_internal: init failed");
+        break;
+    case BB_MDNS_LC_NOT_STARTED:
+        bb_log_e(TAG, "bb_mdns_start_internal: invalid state");
+        break;
+    case BB_MDNS_LC_INVALID_ARG:
+        bb_log_e(TAG, "bb_mdns_start_internal: invalid arg");
+        break;
+    }
 }
 
 // Callback invoked by bb_wifi when IP is obtained
 static void bb_mdns_on_got_ip(void)
 {
     bb_mdns_start_internal();
-    if (s_mdns_started) {
+    if (bb_mdns_lifecycle_is_started(&s_lc)) {
         char instance_name[64];
         mdns_build_instance_name(instance_name, sizeof(instance_name));
         mdns_instance_name_set(instance_name);
@@ -502,32 +547,33 @@ static void bb_mdns_on_got_ip(void)
 
 static void bb_mdns_on_disconnect(void)
 {
-    if (!s_mdns_started) return;
+    if (!bb_mdns_lifecycle_is_started(&s_lc)) return;
     bb_log_i(TAG, "wifi disconnected — tearing down mdns");
     if (s_announce_timer) {
         esp_timer_stop(s_announce_timer);
         esp_timer_delete(s_announce_timer);
         s_announce_timer = NULL;
     }
-    s_announce_dirty = false;
-    mdns_service_remove_all();
-    mdns_free();
-    s_mdns_started = false;
+
+    bb_mdns_lifecycle_result_t res = bb_mdns_lifecycle_stop(&s_lc, &s_lc_adapter);
+    if (res != BB_MDNS_LC_OK && res != BB_MDNS_LC_NOT_STARTED) {
+        bb_log_w(TAG, "bb_mdns_on_disconnect: lifecycle stop returned %d", res);
+    }
 }
 
 static void bb_mdns_shutdown(void)
 {
-    if (!s_mdns_started) return;
+    if (!bb_mdns_lifecycle_is_started(&s_lc)) return;
     if (s_announce_timer) {
         esp_timer_stop(s_announce_timer);
         esp_timer_delete(s_announce_timer);
         s_announce_timer = NULL;
     }
-    s_announce_dirty = false;
-    mdns_service_remove_all();
-    // Give the mdns task time to emit bye packets before reboot
-    vTaskDelay(pdMS_TO_TICKS(100));
-    mdns_free();
+
+    bb_mdns_lifecycle_result_t res = bb_mdns_lifecycle_stop(&s_lc, &s_lc_adapter);
+    if (res != BB_MDNS_LC_OK && res != BB_MDNS_LC_NOT_STARTED) {
+        bb_log_w(TAG, "bb_mdns_shutdown: lifecycle stop returned %d", res);
+    }
 }
 
 void bb_mdns_init(void)
@@ -593,13 +639,13 @@ void bb_mdns_set_instance_name(const char *instance_name)
 
 bool bb_mdns_started(void)
 {
-    return s_mdns_started;
+    return bb_mdns_lifecycle_is_started(&s_lc);
 }
 
 void bb_mdns_set_txt(const char *key, const char *value)
 {
     if (!key || !value) return;
-    if (!s_mdns_started) {
+    if (!bb_mdns_lifecycle_is_started(&s_lc)) {
         /* Buffer until service starts (typically when wifi gets an IP). */
         txt_pending_store(key, value);
         return;
@@ -618,7 +664,7 @@ void bb_mdns_set_txt(const char *key, const char *value)
 
 void bb_mdns_announce(void)
 {
-    if (!s_mdns_started) {
+    if (!bb_mdns_lifecycle_is_started(&s_lc)) {
         bb_log_d(TAG, "bb_mdns_announce: service not started, no-op");
         return;
     }

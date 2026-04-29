@@ -366,10 +366,23 @@ void test_wifi_reconn_state_reset(void);
 void test_wifi_reconn_null_args_return_none(void);
 void test_wifi_reconn_histogram_saturates_at_uint16_max(void);
 
+// Forward declarations from test_bb_mdns_lifecycle.c
+void bb_mdns_lifecycle_test_reset(void);
+void test_bb_mdns_lifecycle_start_when_not_started(void);
+void test_bb_mdns_lifecycle_start_when_already_started_is_noop(void);
+void test_bb_mdns_lifecycle_start_init_failure_keeps_state_unstarted(void);
+void test_bb_mdns_lifecycle_stop_when_started_sends_bye_then_free(void);
+void test_bb_mdns_lifecycle_stop_when_not_started_is_noop(void);
+void test_bb_mdns_lifecycle_announce_when_started_calls_apply(void);
+void test_bb_mdns_lifecycle_announce_when_stopped_marks_dirty(void);
+void test_bb_mdns_lifecycle_restart_cycle(void);
+void test_bb_mdns_lifecycle_invalid_args(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_mdns_host_reset();
     wifi_reconn_policy_test_reset();
+    bb_mdns_lifecycle_test_reset();
 }
 void tearDown(void) {}
 
@@ -742,6 +755,17 @@ int main(void) {
     RUN_TEST(test_wifi_reconn_state_reset);
     RUN_TEST(test_wifi_reconn_null_args_return_none);
     RUN_TEST(test_wifi_reconn_histogram_saturates_at_uint16_max);
+
+    // bb_mdns_lifecycle tests
+    RUN_TEST(test_bb_mdns_lifecycle_start_when_not_started);
+    RUN_TEST(test_bb_mdns_lifecycle_start_when_already_started_is_noop);
+    RUN_TEST(test_bb_mdns_lifecycle_start_init_failure_keeps_state_unstarted);
+    RUN_TEST(test_bb_mdns_lifecycle_stop_when_started_sends_bye_then_free);
+    RUN_TEST(test_bb_mdns_lifecycle_stop_when_not_started_is_noop);
+    RUN_TEST(test_bb_mdns_lifecycle_announce_when_started_calls_apply);
+    RUN_TEST(test_bb_mdns_lifecycle_announce_when_stopped_marks_dirty);
+    RUN_TEST(test_bb_mdns_lifecycle_restart_cycle);
+    RUN_TEST(test_bb_mdns_lifecycle_invalid_args);
 
     return UNITY_END();
 }
