@@ -9,9 +9,31 @@
 
 static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
+static int s_max_uri_handlers = 0;        // set by ensure_started
+static int s_registered_handlers = 0;     // incremented on every successful register
+static int s_reserved_routes = 0;         // imperative-consumer reservations (bb_prov etc.)
+
+void bb_http_reserve_routes(int n)
+{
+    if (n > 0) s_reserved_routes += n;
+}
 
 static const char *s_cors_methods = "GET, POST, OPTIONS";
 static const char *s_cors_headers = "Content-Type";
+
+// Helper to convert bb_http_method_t to string
+static const char *bb_http_method_str(bb_http_method_t method)
+{
+    switch (method) {
+        case BB_HTTP_GET:     return "GET";
+        case BB_HTTP_POST:    return "POST";
+        case BB_HTTP_PATCH:   return "PATCH";
+        case BB_HTTP_PUT:     return "PUT";
+        case BB_HTTP_DELETE:  return "DELETE";
+        case BB_HTTP_OPTIONS: return "OPTIONS";
+        default:              return "UNKNOWN";
+    }
+}
 
 void bb_http_set_cors_methods(const char *methods)
 {
@@ -33,16 +55,47 @@ bb_err_t bb_http_server_ensure_started(void)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_open_sockets = 7;
     config.lru_purge_enable = true;
-    config.max_uri_handlers = 32;
     config.stack_size = 6144;
     config.recv_wait_timeout = 30;
     config.send_wait_timeout = 30;
     config.uri_match_fn = httpd_uri_match_wildcard;
+
+    // Auto-size max_uri_handlers from registry contributions
+    extern size_t bb_registry_route_count_total(void);
+    #define BB_HTTP_OVERHEAD_SLACK 13  // preflight=1 + assets≈8 + safety=4
+
+    int cap;
+    #ifdef CONFIG_BB_HTTP_MAX_URI_HANDLERS_OVERRIDE
+    if (CONFIG_BB_HTTP_MAX_URI_HANDLERS_OVERRIDE > 0) {
+        cap = CONFIG_BB_HTTP_MAX_URI_HANDLERS_OVERRIDE;
+    } else {
+        int sum = (int)bb_registry_route_count_total() + s_reserved_routes;
+        int auto_size = sum + BB_HTTP_OVERHEAD_SLACK;
+        int min_cap = CONFIG_BB_HTTP_MAX_URI_HANDLERS_MIN;
+        cap = auto_size > min_cap ? auto_size : min_cap;
+    }
+    #else
+    int sum = (int)bb_registry_route_count_total();
+    int auto_size = sum + BB_HTTP_OVERHEAD_SLACK;
+    int min_cap = 32;  // default floor when no Kconfig
+    cap = auto_size > min_cap ? auto_size : min_cap;
+    #endif
+
+    config.max_uri_handlers = cap;
+    s_max_uri_handlers = cap;
+
     esp_err_t err = httpd_start(&s_server, &config);
     if (err != ESP_OK) return err;
 
     httpd_uri_t preflight = { .uri = "/*", .method = HTTP_OPTIONS, .handler = preflight_handler };
-    httpd_register_uri_handler(s_server, &preflight);
+    err = httpd_register_uri_handler(s_server, &preflight);
+    if (err == ESP_OK) {
+        s_registered_handlers++;
+    } else {
+        bb_log_e(TAG, "register route failed (OPTIONS /*): %s", esp_err_to_name(err));
+    }
+
+    bb_log_i(TAG, "HTTP server started, max_uri_handlers=%d", cap);
     return BB_OK;
 }
 
@@ -172,7 +225,13 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
     };
 
     esp_err_t err = httpd_register_uri_handler(h, &uri);
-    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
+    if (err != ESP_OK) {
+        bb_log_e(TAG, "register route failed (%s %s): %s",
+                 bb_http_method_str(method), path, esp_err_to_name(err));
+        return BB_ERR_INVALID_ARG;
+    }
+    s_registered_handlers++;
+    return BB_OK;
 }
 
 bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
@@ -313,9 +372,10 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
 
         esp_err_t err = httpd_register_uri_handler(h, &uri);
         if (err != ESP_OK) {
-            bb_log_e(TAG, "failed to register asset %s: %s", asset->path, esp_err_to_name(err));
+            bb_log_e(TAG, "register route failed (GET %s): %s", asset->path, esp_err_to_name(err));
             return BB_ERR_INVALID_ARG;
         }
+        s_registered_handlers++;
     }
 
     return BB_OK;
@@ -413,4 +473,14 @@ bb_err_t bb_http_unregister_route(bb_http_handle_t server,
 void bb_http_server_poll(void)
 {
     // ESP-IDF httpd runs on its own FreeRTOS task; nothing to do here
+}
+
+size_t bb_http_route_handler_count(void)
+{
+    return (size_t)s_registered_handlers;
+}
+
+size_t bb_http_route_handler_cap(void)
+{
+    return (size_t)s_max_uri_handlers;
 }

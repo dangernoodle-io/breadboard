@@ -193,6 +193,8 @@ void test_register_route_descriptor_only_overflow_logs_null_path(void);
 void test_register_route_descriptor_only_rejects_null(void);
 void test_register_route_descriptor_only_adds_to_registry(void);
 void test_register_route_descriptor_only_overflow_returns_ok(void);
+void test_http_route_handler_count_returns_zero_on_host(void);
+void test_http_reserve_routes_accumulates(void);
 
 // Forward declarations from test_bb_http_assets.c
 void test_asset_type_definition(void);
@@ -552,6 +554,8 @@ int main(void) {
     RUN_TEST(test_register_route_descriptor_only_rejects_null);
     RUN_TEST(test_register_route_descriptor_only_adds_to_registry);
     RUN_TEST(test_register_route_descriptor_only_overflow_returns_ok);
+    RUN_TEST(test_http_route_handler_count_returns_zero_on_host);
+    RUN_TEST(test_http_reserve_routes_accumulates);
 
     // HTTP asset tests
     RUN_TEST(test_asset_type_definition);

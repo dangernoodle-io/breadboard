@@ -127,5 +127,5 @@ static bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_WIFI_ROUTES_AUTOREGISTER
-BB_REGISTRY_REGISTER(bb_wifi_routes, bb_wifi_routes_init);
+BB_REGISTRY_REGISTER_N(bb_wifi_routes, bb_wifi_routes_init, 2);
 #endif

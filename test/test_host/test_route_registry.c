@@ -354,3 +354,35 @@ void test_register_route_descriptor_only_overflow_logs_null_path(void)
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
 }
+
+// ---------------------------------------------------------------------------
+// bb_http_route_handler_count/cap tests
+// ---------------------------------------------------------------------------
+
+void test_http_route_handler_count_returns_zero_on_host(void)
+{
+    // On host, these always return 0 (no real httpd running)
+    TEST_ASSERT_EQUAL(0, bb_http_route_handler_count());
+    TEST_ASSERT_EQUAL(0, bb_http_route_handler_cap());
+}
+
+extern int  bb_http_host_reserved_routes(void);
+extern void bb_http_host_reset_reserved(void);
+
+void test_http_reserve_routes_accumulates(void)
+{
+    bb_http_host_reset_reserved();
+    TEST_ASSERT_EQUAL(0, bb_http_host_reserved_routes());
+
+    bb_http_reserve_routes(3);
+    TEST_ASSERT_EQUAL(3, bb_http_host_reserved_routes());
+
+    bb_http_reserve_routes(5);
+    TEST_ASSERT_EQUAL(8, bb_http_host_reserved_routes());
+
+    bb_http_reserve_routes(0);
+    bb_http_reserve_routes(-7);
+    TEST_ASSERT_EQUAL(8, bb_http_host_reserved_routes());
+
+    bb_http_host_reset_reserved();
+}

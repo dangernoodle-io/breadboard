@@ -84,3 +84,12 @@ void bb_registry_clear(void)
         free(tmp);
     }
 }
+
+size_t bb_registry_route_count_total(void)
+{
+    size_t total = 0;
+    for (node_t *p = s_head; p; p = p->next) {
+        total += p->entry->route_count;
+    }
+    return total;
+}

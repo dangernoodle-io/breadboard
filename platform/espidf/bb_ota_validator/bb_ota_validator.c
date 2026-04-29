@@ -123,7 +123,7 @@ bb_err_t bb_ota_validator_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_OTA_VALIDATOR_AUTOREGISTER
-BB_REGISTRY_REGISTER(bb_ota_validator, bb_ota_validator_init);
+BB_REGISTRY_REGISTER_N(bb_ota_validator, bb_ota_validator_init, 1);
 #endif
 
 #endif /* ESP_PLATFORM */

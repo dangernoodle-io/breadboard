@@ -1,0 +1,17 @@
+menu "BB HTTP Server"
+
+config BB_HTTP_MAX_URI_HANDLERS_MIN
+    int "Minimum max_uri_handlers floor"
+    default 32
+    help
+      Floor for auto-sized max_uri_handlers. Auto-size = sum(registry route_count)
+      + fixed overhead (preflight + asset slack + safety). Final cap is
+      max(auto-size, this floor).
+
+config BB_HTTP_MAX_URI_HANDLERS_OVERRIDE
+    int "Force max_uri_handlers to a specific value (0 = auto)"
+    default 0
+    help
+      Non-zero forces this exact value, bypassing auto-sizing.
+
+endmenu

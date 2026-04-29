@@ -306,6 +306,12 @@ void bb_prov_signal_done(void)
 bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
                        bb_prov_extra_routes_fn_t extra)
 {
+    // Reserve handler slots for routes registered imperatively below
+    // (must happen before ensure_started — once httpd_start runs, the cap
+    // is fixed). 2 = POST /save + GET /* wildcard. 8 = slack for `extra()`
+    // callback routes; consumers needing more must reserve themselves.
+    bb_http_reserve_routes(2 + (int)n + (extra ? 8 : 0));
+
     // Ensure the shared HTTP server is started (internal helper)
     bb_err_t err = bb_http_server_ensure_started();
     if (err != BB_OK) return err;

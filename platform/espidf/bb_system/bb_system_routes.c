@@ -99,5 +99,5 @@ static bb_err_t bb_system_routes_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER
-BB_REGISTRY_REGISTER(bb_system_routes, bb_system_routes_init);
+BB_REGISTRY_REGISTER_N(bb_system_routes, bb_system_routes_init, 3);
 #endif

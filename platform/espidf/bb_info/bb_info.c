@@ -80,6 +80,12 @@ static bb_err_t info_handler(bb_http_request_t *req)
     add_board_fields(root, &b);
     add_network_object(root, &w);
 
+    // Add HTTP handler telemetry
+    extern size_t bb_http_route_handler_count(void);
+    extern size_t bb_http_route_handler_cap(void);
+    bb_json_obj_set_number(root, "http_handler_count", (double)bb_http_route_handler_count());
+    bb_json_obj_set_number(root, "http_handler_cap", (double)bb_http_route_handler_cap());
+
     for (int i = 0; i < s_extender_count; i++) {
         s_extenders[i](root);
     }
@@ -155,5 +161,5 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_INFO_AUTOREGISTER
-BB_REGISTRY_REGISTER(bb_info, bb_info_init);
+BB_REGISTRY_REGISTER_N(bb_info, bb_info_init, 1);
 #endif
