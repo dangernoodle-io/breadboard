@@ -44,6 +44,10 @@ BREADBOARD_ROOT = os.path.dirname(os.path.dirname(_SCRIPT_PATH))
 # includes: list of relative paths under BREADBOARD_ROOT
 # sources: list of relative paths under BREADBOARD_ROOT
 COMPONENT_MAP = {
+    "bb_core": (
+        ["components/bb_core/include"],
+        [],
+    ),
     "bb_log": (
         ["components/bb_log/include", "components/bb_log/src"],
         [

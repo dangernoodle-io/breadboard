@@ -9,5 +9,5 @@ bb_embed_assets(
 idf_component_register(
     SRCS "src/bb_prov_default_form.c" ${_embed_srcs}
     INCLUDE_DIRS "include"
-    REQUIRES bb_http
+    REQUIRES bb_core bb_http
 )

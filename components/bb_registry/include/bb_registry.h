@@ -1,7 +1,6 @@
 #pragma once
 #include <stddef.h>
-#include "bb_nv.h"
-#include "bb_http.h"
+#include "bb_core.h"
 
 #ifdef __cplusplus
 extern "C" {
