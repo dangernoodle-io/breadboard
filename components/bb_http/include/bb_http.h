@@ -70,6 +70,15 @@ typedef struct {
 bb_err_t bb_http_register_described_route(bb_http_handle_t server,
                                           const bb_route_t *route);
 
+// Register a table of described routes in one call. Calls
+// bb_http_register_described_route for each entry. Stops at the first
+// failure and returns its error. Convenience wrapper for consumers that
+// keep their imperative route descriptors in a static array (and pair
+// with bb_http_reserve_routes(n) before server start to size the cap).
+bb_err_t bb_http_register_route_table(bb_http_handle_t server,
+                                      const bb_route_t * const *table,
+                                      size_t n);
+
 // Walker callback type for the route registry.
 typedef void (*bb_route_walker_fn)(const bb_route_t *route, void *ctx);
 

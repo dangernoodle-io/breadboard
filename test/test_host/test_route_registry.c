@@ -386,3 +386,30 @@ void test_http_reserve_routes_accumulates(void)
 
     bb_http_host_reset_reserved();
 }
+
+void test_register_route_table_registers_all(void)
+{
+    bb_http_route_registry_clear();
+    const bb_route_t * const table[] = { &s_route_stats, &s_route_health };
+    bb_err_t err = bb_http_register_route_table(NULL, table, 2);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(2, bb_http_route_registry_count());
+}
+
+void test_register_route_table_null_table_returns_err(void)
+{
+    bb_err_t err = bb_http_register_route_table(NULL, NULL, 0);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_register_route_table_propagates_failure(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_host_force_register_fail(true);
+    const bb_route_t * const table[] = { &s_route_stats, &s_route_health };
+    bb_err_t err = bb_http_register_route_table(NULL, table, 2);
+    bb_http_host_force_register_fail(false);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    // First entry's described-route call failed; nothing was added.
+    TEST_ASSERT_EQUAL(0, bb_http_route_registry_count());
+}
