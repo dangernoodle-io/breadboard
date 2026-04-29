@@ -1,4 +1,5 @@
 #include "wifi_reconn.h"
+#include "wifi_reconn_policy.h"
 #include "bb_nv.h"
 
 #include "esp_wifi.h"
@@ -17,14 +18,6 @@ static const char *TAG = "wifi_reconn";
 #define RECONN_TASK_STACK 4096
 #define RECONN_TASK_PRIO 6
 #define RECONN_TASK_CORE 0
-
-#define HANDSHAKE_BACKOFF_TIER2_MS 10000
-#define HANDSHAKE_BACKOFF_TIER3_MS 30000
-#define GENERIC_BACKOFF_PAUSE_MS   5000
-#define GENERIC_FAST_RETRY_LIMIT   10
-#define HANDSHAKE_FAST_RETRY_LIMIT 3
-#define HANDSHAKE_TIER2_LIMIT      6
-#define PERSISTENT_FAIL_WINDOW_US  (5LL * 60LL * 1000000LL)
 
 typedef enum {
     EVT_DISCONNECT = 1,
@@ -47,80 +40,55 @@ static TaskHandle_t  s_task  = NULL;
 static QueueHandle_t s_queue = NULL;
 static volatile bool s_active = false;
 
-// Manager-owned diagnostic state. Manager task is single writer.
-static volatile uint8_t  s_last_reason = 0;
-static volatile int64_t  s_last_disconnect_us = 0;
-static volatile int      s_retry_count = 0;
-static uint16_t          s_reason_histogram[256];  // single-writer, readers use volatile cast
+// Policy state. Manager task is single writer.
+static wifi_reconn_state_t s_state = {0};
 
-// Failure window tracking (for reboot trigger)
-static int     s_handshake_fail_count = 0;
-static int     s_generic_fail_count   = 0;
-static int64_t s_first_fail_us        = 0;
-
-static void reset_counters_on_success(void)
+// Adapter to provide current time to policy module.
+static int64_t reconn_now_us(void)
 {
-    s_handshake_fail_count = 0;
-    s_generic_fail_count   = 0;
-    s_first_fail_us        = 0;
-    s_retry_count          = 0;
+    return esp_timer_get_time();
 }
 
-static uint32_t compute_backoff_ms(uint8_t reason)
-{
-    if (reason == WIFI_REASON_HANDSHAKE_TIMEOUT) {
-        int n = s_handshake_fail_count;
-        if (n <= HANDSHAKE_FAST_RETRY_LIMIT)     return 0;
-        if (n <= HANDSHAKE_TIER2_LIMIT)          return HANDSHAKE_BACKOFF_TIER2_MS;
-        return HANDSHAKE_BACKOFF_TIER3_MS;
-    }
-    int n = s_generic_fail_count;
-    if (n <= GENERIC_FAST_RETRY_LIMIT) return 0;
-    return GENERIC_BACKOFF_PAUSE_MS;
-}
-
-static bool should_reboot(void)
-{
-    if (s_first_fail_us == 0) return false;
-    int64_t window = esp_timer_get_time() - s_first_fail_us;
-    return window > PERSISTENT_FAIL_WINDOW_US;
-}
+static const wifi_reconn_adapter_t s_adapter = {
+    .now_us = reconn_now_us,
+};
 
 static void handle_disconnect(uint8_t reason, reconn_state_t *state, uint32_t *backoff_ms)
 {
-    s_last_reason = reason;
-    s_last_disconnect_us = esp_timer_get_time();
-    if (s_reason_histogram[reason] < UINT16_MAX) {
-        s_reason_histogram[reason]++;
-    }
-    s_retry_count++;
+    wifi_reconn_action_t action = wifi_reconn_policy_on_disconnect(
+        &s_state, &s_adapter, reason, WIFI_REASON_HANDSHAKE_TIMEOUT, backoff_ms);
 
-    if (s_first_fail_us == 0) {
-        s_first_fail_us = esp_timer_get_time();
-    }
-    if (reason == WIFI_REASON_HANDSHAKE_TIMEOUT) {
-        s_handshake_fail_count++;
-    } else {
-        s_generic_fail_count++;
-    }
+    switch (action) {
+        case WIFI_RECONN_ACTION_REBOOT:
+            bb_log_e(TAG, "persistent disconnect for >5min (reason=%u, handshake=%d, generic=%d), rebooting",
+                     reason, s_state.handshake_fail_count, s_state.generic_fail_count);
+            bb_nv_config_increment_boot_count();
+            esp_restart();
+            break;
 
-    if (should_reboot()) {
-        bb_log_e(TAG, "persistent disconnect for >5min (reason=%u, handshake=%d, generic=%d), rebooting",
-                 reason, s_handshake_fail_count, s_generic_fail_count);
-        bb_nv_config_increment_boot_count();
-        esp_restart();
-    }
+        case WIFI_RECONN_ACTION_SCHEDULE_BACKOFF:
+            *state = ST_BACKOFF;
+            bb_log_w(TAG, "disconnect reason=%u, backoff=%ums (handshake=%d, generic=%d)",
+                     reason, (unsigned)(*backoff_ms), s_state.handshake_fail_count,
+                     s_state.generic_fail_count);
+            break;
 
-    *backoff_ms = compute_backoff_ms(reason);
-    *state = ST_BACKOFF;
-    bb_log_w(TAG, "disconnect reason=%u, backoff=%ums (handshake=%d, generic=%d)",
-             reason, (unsigned)(*backoff_ms), s_handshake_fail_count, s_generic_fail_count);
+        case WIFI_RECONN_ACTION_RECONNECT_NOW:
+            *state = ST_BACKOFF;
+            bb_log_w(TAG, "disconnect reason=%u, immediate retry (handshake=%d, generic=%d)",
+                     reason, s_state.handshake_fail_count, s_state.generic_fail_count);
+            break;
+
+        case WIFI_RECONN_ACTION_NONE:
+        default:
+            break;
+    }
 }
 
 static void handle_got_ip(reconn_state_t *state, uint32_t *backoff_ms)
 {
     bb_log_i(TAG, "got ip, reconnect manager idle");
-    reset_counters_on_success();
+    wifi_reconn_policy_on_got_ip(&s_state);
     *backoff_ms = 0;
     *state = ST_IDLE;
 }
@@ -215,16 +183,16 @@ void wifi_reconn_on_got_ip(void)
 
 void wifi_reconn_get_disconnect(uint8_t *reason, int64_t *age_us)
 {
-    if (reason) *reason = s_last_reason;
+    if (reason) *reason = s_state.last_reason;
     if (age_us) {
-        int64_t t = s_last_disconnect_us;
+        int64_t t = s_state.last_disconnect_us;
         *age_us = (t == 0) ? 0 : (esp_timer_get_time() - t);
     }
 }
 
 int wifi_reconn_get_retry_count(void)
 {
-    return s_retry_count;
+    return s_state.retry_count;
 }
 
 void wifi_reconn_get_histogram(uint16_t *out, size_t len)
@@ -232,6 +200,6 @@ void wifi_reconn_get_histogram(uint16_t *out, size_t len)
     if (!out) return;
     if (len > 256) len = 256;
     for (size_t i = 0; i < len; i++) {
-        out[i] = s_reason_histogram[i];
+        out[i] = s_state.reason_histogram[i];
     }
 }

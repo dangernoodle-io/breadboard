@@ -352,9 +352,24 @@ void test_bb_board_heap_minimum_ever_callable(void);
 void test_bb_board_chip_revision_callable(void);
 void test_bb_board_cpu_freq_mhz_callable(void);
 
+// Forward declarations from test_wifi_reconn_policy.c
+void wifi_reconn_policy_test_reset(void);
+void test_wifi_reconn_tier1_handshake_fast_retry(void);
+void test_wifi_reconn_tier2_handshake_backoff(void);
+void test_wifi_reconn_tier3_handshake_backoff(void);
+void test_wifi_reconn_generic_fast_retry(void);
+void test_wifi_reconn_generic_backoff(void);
+void test_wifi_reconn_5min_escape_hatch(void);
+void test_wifi_reconn_got_ip_resets_counters(void);
+void test_wifi_reconn_histogram_increments(void);
+void test_wifi_reconn_state_reset(void);
+void test_wifi_reconn_null_args_return_none(void);
+void test_wifi_reconn_histogram_saturates_at_uint16_max(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_mdns_host_reset();
+    wifi_reconn_policy_test_reset();
 }
 void tearDown(void) {}
 
@@ -714,6 +729,19 @@ int main(void) {
     RUN_TEST(test_bb_board_heap_minimum_ever_callable);
     RUN_TEST(test_bb_board_chip_revision_callable);
     RUN_TEST(test_bb_board_cpu_freq_mhz_callable);
+
+    // wifi_reconn_policy tests
+    RUN_TEST(test_wifi_reconn_tier1_handshake_fast_retry);
+    RUN_TEST(test_wifi_reconn_tier2_handshake_backoff);
+    RUN_TEST(test_wifi_reconn_tier3_handshake_backoff);
+    RUN_TEST(test_wifi_reconn_generic_fast_retry);
+    RUN_TEST(test_wifi_reconn_generic_backoff);
+    RUN_TEST(test_wifi_reconn_5min_escape_hatch);
+    RUN_TEST(test_wifi_reconn_got_ip_resets_counters);
+    RUN_TEST(test_wifi_reconn_histogram_increments);
+    RUN_TEST(test_wifi_reconn_state_reset);
+    RUN_TEST(test_wifi_reconn_null_args_return_none);
+    RUN_TEST(test_wifi_reconn_histogram_saturates_at_uint16_max);
 
     return UNITY_END();
 }

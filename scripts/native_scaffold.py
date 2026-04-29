@@ -77,8 +77,11 @@ COMPONENT_MAP = {
         ["components/bb_prov/src/bb_prov_parse.c"],
     ),
     "bb_wifi": (
-        ["components/bb_wifi/include"],
-        ["platform/host/bb_wifi/bb_wifi_host.c"],
+        ["components/bb_wifi/include", "components/bb_wifi"],
+        [
+            "platform/host/bb_wifi/bb_wifi_host.c",
+            "components/bb_wifi/wifi_reconn_policy.c",
+        ],
     ),
     "bb_ntp": (
         ["components/bb_ntp/include"],
