@@ -14,4 +14,35 @@ config BB_HTTP_MAX_URI_HANDLERS_OVERRIDE
     help
       Non-zero forces this exact value, bypassing auto-sizing.
 
+config BB_HTTP_MAX_OPEN_SOCKETS
+    int "Maximum concurrent HTTP sockets"
+    default 9
+    range 4 16
+    help
+      ESP-IDF httpd reserves 3 of these for internal control sockets, so
+      the effective client capacity is N-3. The IDF default is 7 (= 4
+      client slots), which is too low when SSE log streaming + web UI
+      page loads + occasional OTA upload run concurrently — lru_purge
+      silently drops the oldest socket (often the SSE stream). Default
+      9 (= 6 client slots) handles the common case; raise for fleets
+      with many simultaneous clients.
+
+config BB_HTTP_RECV_WAIT_TIMEOUT_S
+    int "Per-recv socket timeout (seconds)"
+    default 10
+    help
+      Maximum time httpd waits on a single recv() before returning
+      timeout. OTA push compensates with a 30-retry loop (so 10s gives
+      300s total stall budget). SSE streams bypass this via setsockopt
+      after async handoff. Lower values reduce the window in which a
+      stalled client holds a socket against the BB_HTTP_MAX_OPEN_SOCKETS
+      cap.
+
+config BB_HTTP_SEND_WAIT_TIMEOUT_S
+    int "Per-send socket timeout (seconds)"
+    default 10
+    help
+      Maximum time httpd waits on a single send() before returning
+      timeout. See BB_HTTP_RECV_WAIT_TIMEOUT_S.
+
 endmenu
