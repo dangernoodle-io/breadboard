@@ -1,9 +1,7 @@
 #include "bb_registry.h"
 #include "bb_http.h"
-#include "bb_log.h"
+#include <stdio.h>
 #include <stdlib.h>
-
-static const char *TAG = "bb_registry";
 
 typedef struct node {
     const bb_registry_entry_t *entry;
@@ -34,7 +32,7 @@ bb_err_t bb_registry_init(void)
 {
     bb_http_handle_t server = bb_http_server_get_handle();
     size_t count = bb_registry_count();
-    bb_log_i(TAG, "registry init: %zu entries", count);
+    printf("[bb_registry] registry init: %zu entries\n", count);
 
     bb_err_t first_error = BB_OK;
 
@@ -108,7 +106,7 @@ void bb_registry_add_early(const bb_registry_entry_early_t *entry)
 bb_err_t bb_registry_init_early(void)
 {
     size_t count = bb_registry_count_early();
-    bb_log_i(TAG, "early init: %zu entries", count);
+    printf("[bb_registry] early init: %zu entries\n", count);
 
     bb_err_t first_error = BB_OK;
 

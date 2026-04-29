@@ -1,7 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
-#include "bb_nv.h"
+#include "bb_core.h"
 
 /**
  * Initialize the display (EK79007 MIPI-DSI RGB565 panel).

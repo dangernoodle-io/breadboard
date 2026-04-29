@@ -1,6 +1,6 @@
 #pragma once
 
-#include "bb_nv.h"
+#include "bb_core.h"
 
 #ifdef __cplusplus
 extern "C" {

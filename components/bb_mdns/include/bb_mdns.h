@@ -2,7 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include "bb_nv.h"
+#include "bb_core.h"
 
 #ifdef ESP_PLATFORM
 
