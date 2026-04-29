@@ -16,7 +16,7 @@ config BB_HTTP_MAX_URI_HANDLERS_OVERRIDE
 
 config BB_HTTP_MAX_OPEN_SOCKETS
     int "Maximum concurrent HTTP sockets"
-    default 9
+    default 5
     range 4 16
     help
       ESP-IDF httpd reserves 3 of these for internal control sockets, so
@@ -24,8 +24,9 @@ config BB_HTTP_MAX_OPEN_SOCKETS
       client slots), which is too low when SSE log streaming + web UI
       page loads + occasional OTA upload run concurrently — lru_purge
       silently drops the oldest socket (often the SSE stream). Default
-      9 (= 6 client slots) handles the common case; raise for fleets
-      with many simultaneous clients.
+      5 (= 2 client slots) is a safe lower bound aligning with the most-
+      restrictive realistic LWIP socket pool (LWIP=8 → cap=5); raise for
+      fleets with many simultaneous clients.
 
 config BB_HTTP_RECV_WAIT_TIMEOUT_S
     int "Per-recv socket timeout (seconds)"
