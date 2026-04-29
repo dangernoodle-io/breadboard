@@ -111,6 +111,13 @@ bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int le
     return BB_OK;
 }
 
+bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc)
+{
+    (void)req;
+    (void)doc;
+    return BB_OK;
+}
+
 int bb_http_req_sockfd(bb_http_request_t *req)
 {
     (void)req;

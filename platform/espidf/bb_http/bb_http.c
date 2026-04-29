@@ -1,4 +1,5 @@
 #include "bb_http.h"
+#include "bb_json.h"
 #include "esp_http_server.h"
 #include "bb_log.h"
 #include "bb_nv.h"
@@ -483,4 +484,107 @@ size_t bb_http_route_handler_count(void)
 size_t bb_http_route_handler_cap(void)
 {
     return (size_t)s_max_uri_handlers;
+}
+
+// ---------------------------------------------------------------------------
+// JSON streaming
+// ---------------------------------------------------------------------------
+
+// Context for walking JSON children
+struct json_walk_ctx {
+    bb_http_request_t *req;
+    bb_json_kind_t kind;
+    bool is_first;
+    bb_err_t err;
+};
+
+static void json_child_emit(const char *key, bb_json_t child, void *ctx)
+{
+    struct json_walk_ctx *walk_ctx = (struct json_walk_ctx *)ctx;
+    if (walk_ctx->err != BB_OK) return;
+
+    // Emit comma before all but the first child
+    if (!walk_ctx->is_first) {
+        bb_err_t err = bb_http_resp_send_chunk(walk_ctx->req, ",", -1);
+        if (err != BB_OK) {
+            walk_ctx->err = err;
+            return;
+        }
+    }
+    walk_ctx->is_first = false;
+
+    // For objects, emit "key":
+    if (walk_ctx->kind == BB_JSON_KIND_OBJECT && key) {
+        bb_err_t err = bb_http_resp_send_chunk(walk_ctx->req, "\"", -1);
+        if (err != BB_OK) {
+            walk_ctx->err = err;
+            return;
+        }
+        err = bb_http_resp_send_chunk(walk_ctx->req, key, -1);
+        if (err != BB_OK) {
+            walk_ctx->err = err;
+            return;
+        }
+        err = bb_http_resp_send_chunk(walk_ctx->req, "\":", -1);
+        if (err != BB_OK) {
+            walk_ctx->err = err;
+            return;
+        }
+    }
+
+    // Emit the child's serialized value
+    char *child_str = bb_json_item_serialize(child);
+    if (child_str) {
+        bb_err_t err = bb_http_resp_send_chunk(walk_ctx->req, child_str, -1);
+        bb_json_free_str(child_str);
+        if (err != BB_OK) {
+            walk_ctx->err = err;
+            return;
+        }
+    }
+}
+
+bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc)
+{
+    if (!req) return BB_ERR_INVALID_ARG;
+
+    bb_err_t err = bb_http_resp_set_type(req, "application/json");
+    if (err != BB_OK) return err;
+
+    bb_json_kind_t kind = bb_json_get_kind(doc);
+
+    // Handle non-container types (scalars, null)
+    if (kind == BB_JSON_KIND_OTHER) {
+        char *json_str = bb_json_item_serialize(doc);
+        if (json_str) {
+            err = bb_http_resp_send(req, json_str, strlen(json_str));
+            bb_json_free_str(json_str);
+            return err;
+        }
+        return bb_http_resp_send(req, "null", 4);
+    }
+
+    // For objects and arrays, emit opening bracket
+    const char *open_bracket = (kind == BB_JSON_KIND_OBJECT) ? "{" : "[";
+    const char *close_bracket = (kind == BB_JSON_KIND_OBJECT) ? "}" : "]";
+
+    err = bb_http_resp_send_chunk(req, open_bracket, -1);
+    if (err != BB_OK) return err;
+
+    // Walk and emit children
+    struct json_walk_ctx walk_ctx = {
+        .req = req,
+        .kind = kind,
+        .is_first = true,
+        .err = BB_OK,
+    };
+    bb_json_walk_children(doc, json_child_emit, &walk_ctx);
+    if (walk_ctx.err != BB_OK) return walk_ctx.err;
+
+    // Emit closing bracket
+    err = bb_http_resp_send_chunk(req, close_bracket, -1);
+    if (err != BB_OK) return err;
+
+    // End chunked response
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }

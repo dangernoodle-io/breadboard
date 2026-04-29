@@ -103,6 +103,20 @@ char *bb_json_item_serialize(bb_json_t item);
 // Ownership of the parsed value transfers to obj.
 void bb_json_obj_set_raw(bb_json_t obj, const char *key, const char *json_literal);
 
+// ---------------------------------------------------------------------------
+// Walking
+// ---------------------------------------------------------------------------
+
+typedef enum { BB_JSON_KIND_OBJECT, BB_JSON_KIND_ARRAY, BB_JSON_KIND_OTHER } bb_json_kind_t;
+
+// Determine if a document is an object, array, or something else.
+bb_json_kind_t bb_json_get_kind(bb_json_t doc);
+
+// Walk immediate children of a document (object or array).
+// For objects, key is the key name (string); for arrays, key is NULL.
+// Caller must not modify the doc during the walk.
+void bb_json_walk_children(bb_json_t parent, void (*cb)(const char *key, bb_json_t child, void *ctx), void *ctx);
+
 #ifdef __cplusplus
 }
 #endif

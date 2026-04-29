@@ -91,10 +91,7 @@ static bb_err_t info_handler(bb_http_request_t *req)
         s_extenders[i](root);
     }
 
-    char *json = bb_json_serialize(root);
-    bb_http_resp_set_type(req, "application/json");
-    bb_err_t err = bb_http_resp_send(req, json ? json : "{}", json ? strlen(json) : 2);
-    if (json) bb_json_free_str(json);
+    bb_err_t err = bb_http_resp_send_json(req, root);
     bb_json_free(root);
     return err;
 }
