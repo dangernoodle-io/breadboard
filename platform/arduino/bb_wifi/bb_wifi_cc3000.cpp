@@ -145,7 +145,7 @@ bb_err_t bb_wifi_init(void)
     bb_err_t ret = wifi_connect_internal();
     if (ret != BB_OK) {
         bb_log_e(TAG, "init timeout, rebooting");
-        bb_system_reboot();
+        bb_system_restart();
     }
     return ret;
 }

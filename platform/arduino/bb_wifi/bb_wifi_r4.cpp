@@ -86,27 +86,33 @@ bb_err_t bb_wifi_ensure_netif(void)
 
 bb_err_t bb_wifi_init_sta(void)
 {
+    if (WiFi.status() == WL_NO_MODULE) {
+        bb_log_e(TAG, "WiFi module not present");
+        return BB_ERR_INVALID_STATE;
+    }
+    bb_log_i(TAG, "fw %s", WiFi.firmwareVersion());
     bb_log_i(TAG, "connecting to %s", WIFI_SSID);
 
-    // Begin association
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    int rc = WiFi.begin(WIFI_SSID, WIFI_PASS);
+    bb_log_i(TAG, "begin returned %d (status=%d)", rc, WiFi.status());
 
-    // Poll for 30 seconds
     unsigned long start_ms = millis();
     const unsigned long timeout_ms = 30000;
-    const unsigned long poll_interval_ms = 500;
+    const unsigned long poll_interval_ms = 1000;
 
     while (millis() - start_ms < timeout_ms) {
         delay(poll_interval_ms);
+        uint8_t s = WiFi.status();
+        bb_log_i(TAG, "status=%d t=%lus", s, (millis() - start_ms) / 1000);
         poll_status();
-
         if (g_last_status) {
-            bb_log_i(TAG, "connected (IP: %s)", WiFi.localIP().toString().c_str());
+            bb_log_i(TAG, "connected ip=%s rssi=%d",
+                     WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
             return BB_OK;
         }
     }
 
-    bb_log_e(TAG, "timeout connecting to WiFi after 30s");
+    bb_log_e(TAG, "timeout connecting to WiFi after 30s (last status=%d)", WiFi.status());
     return BB_ERR_INVALID_STATE;
 }
 
@@ -123,7 +129,7 @@ bb_err_t bb_wifi_init(void)
 void bb_wifi_force_reassociate(void)
 {
     bb_log_w(TAG, "forcing WiFi reassociation");
-    WiFi.disconnect(true);  // turn off radio
+    WiFi.disconnect();
     delay(100);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
 }
@@ -168,7 +174,6 @@ int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results)
         results[i].secure = (WiFi.encryptionType(i) != ENC_TYPE_NONE);
     }
 
-    WiFi.scanDelete();
     return count;
 }
 
