@@ -103,7 +103,7 @@ void test_bb_registry_init_calls_each_init_fn(void)
     bb_registry_add(&e2);
     bb_registry_add(&e3);
 
-    bb_err_t err = bb_registry_init(NULL);
+    bb_err_t err = bb_registry_init();
 
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL(3, s_init_call_count);
@@ -126,7 +126,7 @@ void test_bb_registry_init_reports_first_error_but_continues(void)
     bb_registry_add(&e2);
     bb_registry_add(&e3);
 
-    bb_err_t err = bb_registry_init(NULL);
+    bb_err_t err = bb_registry_init();
 
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
     TEST_ASSERT_EQUAL(3, s_init_call_count);

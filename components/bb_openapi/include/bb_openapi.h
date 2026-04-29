@@ -12,7 +12,7 @@
 //   2. Optionally call bb_openapi_set_meta(&meta) before bb_http_server_start();
 //      if not called, defaults are used (title "breadboard device", version from
 //      bb_system_get_version(), description and server_url NULL).
-//   3. After bb_http_server_start(), call bb_registry_init(server) once to
+//   3. After bb_http_server_start(), call bb_registry_init() once to
 //      auto-register the GET /api/openapi.json route.
 //   4. The runtime endpoint walks the route descriptor registry populated by
 //      bb_http_register_described_route().
@@ -59,7 +59,7 @@ typedef struct {
 bb_json_t bb_openapi_emit(const bb_openapi_meta_t *meta);
 
 // Set metadata for OpenAPI spec emission. Must be called before
-// bb_registry_init(server) if custom metadata is desired.
+// bb_registry_init() if custom metadata is desired.
 // meta pointer must remain valid for the lifetime of the server.
 // Calling bb_openapi_set_meta is optional; defaults are used otherwise.
 void bb_openapi_set_meta(const bb_openapi_meta_t *meta);

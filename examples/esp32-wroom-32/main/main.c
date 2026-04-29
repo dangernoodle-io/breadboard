@@ -17,9 +17,8 @@ void app_main(void) {
     (void)bb_wifi_init_sta();
 
     bb_http_server_start();
-    bb_http_handle_t server = bb_http_server_get_handle();
 
-    bb_registry_init(server);
+    bb_registry_init();
 
     bb_log_i(TAG, "smoke boot ok");
 }
