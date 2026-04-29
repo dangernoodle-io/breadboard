@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "bb_core.h"
 
 /**
  * Format fmt+args into out_buf (like vsnprintf).
@@ -111,3 +112,25 @@ bool bb_log_stream_ready(void);
 uint32_t bb_log_stream_dropped_lines(void);
 
 #endif /* ESP_PLATFORM */
+
+/**
+ * Returns true if a panic log is available from the previous boot's abnormal shutdown.
+ * ESP-IDF: true if previous reset was abnormal (panic, watchdog, etc.) and log was captured.
+ * Host: always returns false.
+ */
+bool bb_log_panic_available(void);
+
+/**
+ * Retrieves the captured panic log tail into the caller-supplied buffer.
+ * *len_inout: in=buffer capacity, out=bytes written (excluding NUL).
+ * ESP-IDF: Returns BB_OK and populates out if panic log is available and fits.
+ * ESP-IDF: Returns BB_ERR_NOT_FOUND if no panic log or previous boot was clean.
+ * Host: always returns BB_ERR_NOT_FOUND.
+ */
+bb_err_t bb_log_panic_get(char *out, size_t *len_inout);
+
+/**
+ * Clear the panic record after it has been read or acknowledged.
+ * Safe to call even if no panic log is available.
+ */
+void bb_log_panic_clear(void);

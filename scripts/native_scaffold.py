@@ -53,6 +53,7 @@ COMPONENT_MAP = {
         [
             "platform/espidf/bb_log/bb_log.c",
             "platform/host/bb_log/bb_log_level.c",
+            "platform/host/bb_log/bb_log_panic.c",
             "components/bb_log/src/bb_log_level.c",
         ],
     ),

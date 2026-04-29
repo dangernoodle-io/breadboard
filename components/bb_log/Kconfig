@@ -18,4 +18,24 @@ config BB_LOG_STREAM_AUTOREGISTER
         Disable to manually call bb_log_stream_init(). Independent of
         CONFIG_BB_LOG_ROUTES (stream capture vs. HTTP routes).
 
+config BB_LOG_PANIC_CAPTURE
+    bool "Capture log tail to RTC RAM for panic diagnosis"
+    default y
+    help
+        Mirrors bb_log_stream output to RTC slow memory so the last
+        few KB of log lines survive a software reboot. Exposed via
+        GET /api/panic on the next boot if the previous boot was
+        abnormal (panic, watchdog, brownout). Costs CONFIG_BB_LOG_PANIC_BUF_SIZE
+        bytes of RTC slow memory.
+
+config BB_LOG_PANIC_BUF_SIZE
+    int "Panic log RTC buffer size (bytes)"
+    default 2048
+    range 512 8192
+    depends on BB_LOG_PANIC_CAPTURE
+    help
+        Size of the circular buffer in RTC slow memory. Must fit in
+        the chip's RTC slow memory budget (~8KB on ESP32-S3, less on
+        smaller chips). 2 KB captures roughly the last 30-50 log lines.
+
 endmenu

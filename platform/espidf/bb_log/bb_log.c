@@ -68,6 +68,11 @@ static void s_writer_task_fn(void *arg)
     }
 }
 
+// Forward decl for panic capture mirror write
+#ifdef CONFIG_BB_LOG_PANIC_CAPTURE
+extern void bb_log_panic_mirror_write(const char *data, size_t len);
+#endif
+
 static int s_log_vprintf(const char *fmt, va_list args)
 {
     /* Format once into a stack-allocated message */
@@ -91,6 +96,11 @@ static int s_log_vprintf(const char *fmt, va_list args)
             }
         }
     }
+
+    /* 3. Mirror to RTC panic buffer if enabled */
+#ifdef CONFIG_BB_LOG_PANIC_CAPTURE
+    bb_log_panic_mirror_write(msg.line, msg.len);
+#endif
 
     return n;
 }

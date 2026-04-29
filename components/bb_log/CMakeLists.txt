@@ -1,5 +1,6 @@
 set(_log_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log.c"
               "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log_level_backend.c"
+              "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log_panic.c"
               "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_level.c")
 set(_log_reqs bb_core esp_ringbuf freertos log bb_nv)
 set(_log_priv_reqs bb_http bb_json bb_registry)
