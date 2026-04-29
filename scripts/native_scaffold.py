@@ -120,6 +120,10 @@ COMPONENT_MAP = {
         ["components/bb_timer/include"],
         ["platform/host/bb_timer/bb_timer_host.c"],
     ),
+    "bb_board": (
+        ["components/bb_board/include"],
+        ["platform/host/bb_board/bb_board_host.c"],
+    ),
 }
 
 

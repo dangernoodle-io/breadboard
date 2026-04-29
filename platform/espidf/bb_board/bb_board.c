@@ -10,6 +10,7 @@
 #include "esp_mac.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
+#include "esp_private/esp_clk.h"
 
 // FIRMWARE_BOARD must be supplied by the consumer as a C string literal,
 // e.g. add_compile_definitions(FIRMWARE_BOARD="bitaxe-601"). Don't re-stringify
@@ -166,4 +167,31 @@ bb_err_t bb_board_get_idf_version(char *out, size_t out_size)
 bb_err_t bb_board_get_reset_reason(char *out, size_t out_size)
 {
     return copy_str(out, out_size, reset_reason_str(esp_reset_reason()));
+}
+
+size_t bb_board_heap_free_total(void)
+{
+    return heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+}
+
+size_t bb_board_heap_free_internal(void)
+{
+    return heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+}
+
+size_t bb_board_heap_minimum_ever(void)
+{
+    return heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
+}
+
+uint32_t bb_board_chip_revision(void)
+{
+    esp_chip_info_t info;
+    esp_chip_info(&info);
+    return info.revision;
+}
+
+uint32_t bb_board_cpu_freq_mhz(void)
+{
+    return (uint32_t)(esp_clk_cpu_freq() / 1000000);
 }

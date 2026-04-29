@@ -47,6 +47,14 @@ bb_err_t bb_board_get_mac          (char *out, size_t out_size);
 bb_err_t bb_board_get_idf_version  (char *out, size_t out_size);
 bb_err_t bb_board_get_reset_reason (char *out, size_t out_size);
 
+// PSRAM-inclusive (MALLOC_CAP_DEFAULT). Differs from bb_board_get_free_heap
+// which is INTERNAL only.
+size_t   bb_board_heap_free_total(void);
+size_t   bb_board_heap_free_internal(void);
+size_t   bb_board_heap_minimum_ever(void);
+uint32_t bb_board_chip_revision(void);
+uint32_t bb_board_cpu_freq_mhz(void);
+
 #ifdef ESP_PLATFORM
 #endif
 

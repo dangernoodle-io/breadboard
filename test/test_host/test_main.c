@@ -345,6 +345,13 @@ void test_bb_timer_periodic_fires_repeatedly_then_stops(void);
 void test_bb_timer_delete_after_stop(void);
 void test_bb_timer_delete_without_start(void);
 
+// Forward declarations from test_bb_board.c
+void test_bb_board_heap_free_total_callable(void);
+void test_bb_board_heap_free_internal_callable(void);
+void test_bb_board_heap_minimum_ever_callable(void);
+void test_bb_board_chip_revision_callable(void);
+void test_bb_board_cpu_freq_mhz_callable(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_mdns_host_reset();
@@ -700,6 +707,13 @@ int main(void) {
     RUN_TEST(test_bb_timer_periodic_fires_repeatedly_then_stops);
     RUN_TEST(test_bb_timer_delete_after_stop);
     RUN_TEST(test_bb_timer_delete_without_start);
+
+    // bb_board tests
+    RUN_TEST(test_bb_board_heap_free_total_callable);
+    RUN_TEST(test_bb_board_heap_free_internal_callable);
+    RUN_TEST(test_bb_board_heap_minimum_ever_callable);
+    RUN_TEST(test_bb_board_chip_revision_callable);
+    RUN_TEST(test_bb_board_cpu_freq_mhz_callable);
 
     return UNITY_END();
 }
