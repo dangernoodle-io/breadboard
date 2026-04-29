@@ -16,7 +16,7 @@ config BB_HTTP_MAX_URI_HANDLERS_OVERRIDE
 
 config BB_HTTP_MAX_OPEN_SOCKETS
     int "Maximum concurrent HTTP sockets"
-    default 9
+    default 5
     range 4 16
     help
       ESP-IDF httpd reserves 3 of these for internal control sockets, so
