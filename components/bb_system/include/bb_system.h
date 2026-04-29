@@ -1,6 +1,6 @@
 #pragma once
 
-#include "bb_nv.h"  // for bb_err_t (and bool via stdbool via nv_config)
+#include "bb_core.h"  // for bb_err_t
 #include <stdbool.h>
 #include <stddef.h>
 
