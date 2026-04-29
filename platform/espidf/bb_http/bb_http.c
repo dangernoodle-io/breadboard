@@ -54,11 +54,26 @@ bb_err_t bb_http_server_ensure_started(void)
 {
     if (s_server) return BB_OK;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_open_sockets = 7;
+    config.max_open_sockets =
+#ifdef CONFIG_BB_HTTP_MAX_OPEN_SOCKETS
+        CONFIG_BB_HTTP_MAX_OPEN_SOCKETS;
+#else
+        9;
+#endif
     config.lru_purge_enable = true;
     config.stack_size = 6144;
-    config.recv_wait_timeout = 30;
-    config.send_wait_timeout = 30;
+    config.recv_wait_timeout =
+#ifdef CONFIG_BB_HTTP_RECV_WAIT_TIMEOUT_S
+        CONFIG_BB_HTTP_RECV_WAIT_TIMEOUT_S;
+#else
+        10;
+#endif
+    config.send_wait_timeout =
+#ifdef CONFIG_BB_HTTP_SEND_WAIT_TIMEOUT_S
+        CONFIG_BB_HTTP_SEND_WAIT_TIMEOUT_S;
+#else
+        10;
+#endif
     config.uri_match_fn = httpd_uri_match_wildcard;
 
     // Auto-size max_uri_handlers from registry contributions
