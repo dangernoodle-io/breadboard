@@ -169,11 +169,6 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
                                  const bb_http_asset_t *assets,
                                  size_t n);
 
-// Portable platform helpers. Implemented per-backend under
-// platform/espidf/system/ and platform/arduino/system/.
-//   bb_system_reboot: reboots the device; does not return on success.
-void bb_system_reboot(void);
-
 // Ensure the HTTP server is started (low-level helper; prefer bb_http_server_start).
 // Used by provisioning and other advanced features. Idempotent.
 bb_err_t bb_http_server_ensure_started(void);

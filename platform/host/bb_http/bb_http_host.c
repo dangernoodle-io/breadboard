@@ -151,6 +151,4 @@ bb_err_t bb_http_unregister_route(bb_http_handle_t server,
     return BB_OK;
 }
 
-void bb_system_reboot(void) {}
-
 bb_err_t bb_http_server_ensure_started(void) { return BB_OK; }
