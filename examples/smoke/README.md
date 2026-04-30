@@ -9,12 +9,12 @@ A single portable smoke app that exercises `bb_log` + `bb_nv` + `bb_wifi` + `bb_
 | `esp32` | ESP32-D0 / WROOM-32 dev board | ESP-IDF | — | verified |
 | `esp32c3` | ESP32-C3-DevKitM-1 (RISC-V) | ESP-IDF | USB-Serial-JTAG console | verified |
 | `elecrow-p4-hmi7` | Elecrow CrowPanel P4 HMI 7.0 (ESP32-P4) | ESP-IDF | MIPI-DSI display via `bb_display` | verified |
+| `tdongle` | LILYGO T-Dongle-S3 (ESP32-S3) | ESP-IDF | USB-Serial-JTAG console; onboard ST7735 LCD not exercised (deferred to B1-28) | verified |
 | `r4_wifis3` | Arduino UNO R4 WiFi | WiFiS3 (on-board ESP32-S3) | — | verified |
 | `uno_cc3000` | Arduino UNO (classic AVR) + Adafruit CC3000 shield | Adafruit_CC3000 | — | verified |
 
 ESP-IDF envs use NVS-provisioned wifi credentials — no `secrets.h` needed. The `secrets.h` setup below is Arduino-only.
 
-Other ESP-IDF envs (`tdongle`) land in follow-up PRs.
 
 `uno_cc3000` is AVR-only — Adafruit_CC3000 uses deprecated SPI APIs that don't exist on Cortex-M Arduino cores. Folding CC3000 onto the R4 Minima would require a forked or replacement library.
 
