@@ -1,0 +1,7 @@
+; Apple Silicon override for native arm64 toolchains. See README "Apple
+; Silicon notes" for full setup. Replace YOUR_USERNAME with your macOS login.
+
+[env:r4_wifis3]
+platform_packages =
+    toolchain-gccarmnoneeabi@symlink:///Users/YOUR_USERNAME/.local/pio-arm-none-eabi
+    tool-bossac@symlink:///Users/YOUR_USERNAME/.local/pio-bossac

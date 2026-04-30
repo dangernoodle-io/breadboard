@@ -22,7 +22,7 @@ coverage: test ## Coverage report (gcovr)
 	    --exclude-unreachable-branches \
 	    --print-summary --coveralls gcovr-coveralls.json
 
-smoke: smoke-elecrow-p4-hmi7 smoke-arduino-uno-cc3000 smoke-esp32-wroom-32
+smoke: smoke-elecrow-p4-hmi7 smoke-arduino-uno-cc3000 smoke-esp32-wroom-32 smoke-r4_wifis3
 
 smoke-elecrow-p4-hmi7: ## Build examples/elecrow-p4-hmi7
 	$(PIO) run -d examples/elecrow-p4-hmi7
@@ -33,6 +33,10 @@ smoke-arduino-uno-cc3000: ## Build Arduino Uno + CC3000 example
 
 smoke-esp32-wroom-32: ## Build examples/esp32-wroom-32 (classic ESP32-D0 / WROOM-32)
 	$(PIO) run -d examples/esp32-wroom-32
+
+smoke-r4_wifis3: ## Build smoke example for Arduino UNO R4 WiFi
+	cp examples/smoke/include/secrets.h.example examples/smoke/include/secrets.h
+	$(PIO) run -d examples/smoke -e r4_wifis3
 
 clean: ## Clean build artifacts
 	$(PIO) run -t clean

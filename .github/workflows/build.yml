@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        example: [elecrow-p4-hmi7, arduino-uno-cc3000, esp32-wroom-32]
+        example: [elecrow-p4-hmi7, arduino-uno-cc3000, esp32-wroom-32, r4_wifis3]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
