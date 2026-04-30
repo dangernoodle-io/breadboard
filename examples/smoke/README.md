@@ -6,10 +6,13 @@ A single portable smoke app that exercises `bb_log` + `bb_nv` + `bb_wifi` + `bb_
 
 | env | board | bb_wifi backend | hardware |
 |---|---|---|---|
+| `esp32` | ESP32-D0 / WROOM-32 dev board | ESP-IDF | verified |
 | `r4_wifis3` | Arduino UNO R4 WiFi | WiFiS3 (on-board ESP32-S3) | verified |
 | `uno_cc3000` | Arduino UNO (classic AVR) + Adafruit CC3000 shield | Adafruit_CC3000 | verified |
 
-ESP-IDF envs (`esp32`, `esp32p4`, `esp32c3`, `tdongle`) land in a follow-up PR.
+ESP-IDF envs use NVS-provisioned wifi credentials — no `secrets.h` needed. The `secrets.h` setup below is Arduino-only.
+
+Other ESP-IDF envs (`esp32p4`, `esp32c3`, `tdongle`) land in follow-up PRs.
 
 `uno_cc3000` is AVR-only — Adafruit_CC3000 uses deprecated SPI APIs that don't exist on Cortex-M Arduino cores. Folding CC3000 onto the R4 Minima would require a forked or replacement library.
 
