@@ -24,8 +24,8 @@ coverage: test ## Coverage report (gcovr)
 
 smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-r4_wifis3 smoke-uno_cc3000
 
-smoke-elecrow-p4-hmi7: ## Build examples/elecrow-p4-hmi7
-	$(PIO) run -d examples/elecrow-p4-hmi7
+smoke-elecrow-p4-hmi7: ## Build smoke example for Elecrow CrowPanel P4 HMI 7.0 (with display)
+	$(PIO) run -d examples/smoke -e elecrow-p4-hmi7
 
 smoke-esp32: ## Build smoke example for classic ESP32-D0 / WROOM-32
 	$(PIO) run -d examples/smoke -e esp32
