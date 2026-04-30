@@ -8,7 +8,6 @@
 // namespace, which is idempotent.
 
 #include "bb_log.h"
-#include "bb_http.h"
 #include "bb_registry.h"
 #include "smoke_app.h"
 #include "freertos/FreeRTOS.h"
@@ -19,8 +18,8 @@ static const char *TAG = "smoke";
 void app_main(void)
 {
     bb_registry_init_early();
-    smoke_app_setup();                             // starts http server, registers /ping
-    bb_registry_init(bb_http_server_get_handle()); // registers all auto-routes
+    smoke_app_setup();
+    bb_registry_init();
     bb_log_i(TAG, "smoke boot ok");
     while (1) {
         smoke_app_loop();
