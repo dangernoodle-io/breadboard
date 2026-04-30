@@ -22,7 +22,7 @@ coverage: test ## Coverage report (gcovr)
 	    --exclude-unreachable-branches \
 	    --print-summary --coveralls gcovr-coveralls.json
 
-smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32c3 smoke-r4_wifis3 smoke-uno_cc3000
+smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32c3 smoke-r4_wifis3 smoke-tdongle smoke-uno_cc3000
 
 smoke-elecrow-p4-hmi7: ## Build smoke example for Elecrow CrowPanel P4 HMI 7.0 (with display)
 	$(PIO) run -d examples/smoke -e elecrow-p4-hmi7
@@ -32,6 +32,9 @@ smoke-esp32: ## Build smoke example for classic ESP32-D0 / WROOM-32
 
 smoke-esp32c3: ## Build smoke example for ESP32-C3-DevKitM-1
 	$(PIO) run -d examples/smoke -e esp32c3
+
+smoke-tdongle: ## Build smoke example for LILYGO T-Dongle-S3
+	$(PIO) run -d examples/smoke -e tdongle
 
 smoke-r4_wifis3: ## Build smoke example for Arduino UNO R4 WiFi
 	rm -rf examples/smoke/.pio/platform
