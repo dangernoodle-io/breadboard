@@ -96,12 +96,7 @@ void bb_log_panic_mirror_write(const char *data, size_t len)
         remaining -= chunk;
     }
 
-    // Recompute CRC every 64 writes (approx)
-    static uint32_t s_crc_counter = 0;
-    if (++s_crc_counter >= 64) {
-        s_crc_counter = 0;
-        s_panic_rec.crc = bb_crc32((const uint8_t *)s_panic_rec.buf, s_panic_rec.length);
-    }
+    s_panic_rec.crc = bb_crc32((const uint8_t *)s_panic_rec.buf, s_panic_rec.length);
 }
 
 bool bb_log_panic_available(void)
