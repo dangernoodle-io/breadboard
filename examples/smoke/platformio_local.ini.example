@@ -5,3 +5,8 @@
 platform_packages =
     toolchain-gccarmnoneeabi@symlink:///Users/YOUR_USERNAME/.local/pio-arm-none-eabi
     tool-bossac@symlink:///Users/YOUR_USERNAME/.local/pio-bossac
+
+[env:uno_cc3000]
+platform_packages =
+    toolchain-atmelavr@symlink:///Users/YOUR_USERNAME/.local/pio-avr
+    tool-avrdude@symlink:///Users/YOUR_USERNAME/.local/pio-avrdude

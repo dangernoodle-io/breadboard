@@ -7,10 +7,11 @@ A single portable smoke app that exercises `bb_log` + `bb_nv` + `bb_wifi` + `bb_
 | env | board | bb_wifi backend | hardware |
 |---|---|---|---|
 | `r4_wifis3` | Arduino UNO R4 WiFi | WiFiS3 (on-board ESP32-S3) | verified |
+| `uno_cc3000` | Arduino UNO (classic AVR) + Adafruit CC3000 shield | Adafruit_CC3000 | verified |
 
 ESP-IDF envs (`esp32`, `esp32p4`, `esp32c3`, `tdongle`) land in a follow-up PR.
 
-The CC3000 backend lives in its own example at `examples/arduino-uno-cc3000/` (AVR Uno only) — Adafruit_CC3000 doesn't support the renesas-ra SPI API, so a CC3000 env can't be folded into smoke until the upstream library is forked or replaced.
+`uno_cc3000` is AVR-only — Adafruit_CC3000 uses deprecated SPI APIs that don't exist on Cortex-M Arduino cores. Folding CC3000 onto the R4 Minima would require a forked or replacement library.
 
 ## Setup
 
@@ -23,6 +24,7 @@ cp include/secrets.h.example include/secrets.h
 
 ```bash
 pio run -e r4_wifis3
+pio run -e uno_cc3000
 ```
 
 ## Flash + monitor (R4 WiFi)
