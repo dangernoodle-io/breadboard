@@ -1,12 +1,12 @@
 #include "bb_log.h"
 #include "bb_core.h"
+#include <string.h>
 
 #ifdef CONFIG_BB_LOG_PANIC_CAPTURE
 
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
-#include <string.h>
 
 #define PANIC_MAGIC 0xBB10C7C7
 
@@ -32,6 +32,43 @@ static uint32_t bb_crc32(const uint8_t *data, size_t len)
     }
     return crc ^ 0xFFFFFFFFU;
 }
+
+#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
+#include "esp_core_dump.h"
+
+static bb_log_panic_summary_t s_summary;
+static bool s_have_summary = false;
+
+static void bb_log_panic_coredump_init(void)
+{
+    if (esp_core_dump_image_check() != ESP_OK) return;
+
+    esp_core_dump_summary_t cd_summary;
+    if (esp_core_dump_get_summary(&cd_summary) != ESP_OK) return;
+
+    strncpy(s_summary.task_name, cd_summary.exc_task, sizeof(s_summary.task_name) - 1);
+    s_summary.task_name[sizeof(s_summary.task_name) - 1] = '\0';
+    s_summary.exc_pc = cd_summary.exc_pc;
+
+#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
+    // Xtensa: exc_cause is in ex_info.exc_cause, backtrace in exc_bt_info.bt/depth
+    s_summary.exc_cause = cd_summary.ex_info.exc_cause;
+    uint32_t depth = cd_summary.exc_bt_info.depth;
+    if (depth > BB_LOG_PANIC_BACKTRACE_MAX) depth = BB_LOG_PANIC_BACKTRACE_MAX;
+    s_summary.bt_count = depth;
+    for (uint32_t i = 0; i < depth; i++) {
+        s_summary.bt_addrs[i] = cd_summary.exc_bt_info.bt[i];
+    }
+#else
+    // RISC-V (ESP32-C3, ESP32-C6, ESP32-H2, ESP32-P4, etc.):
+    // mcause in ex_info.mcause; no on-device backtrace (stack dump only)
+    s_summary.exc_cause = cd_summary.ex_info.mcause;
+    s_summary.bt_count = 0;
+#endif
+
+    s_have_summary = true;
+}
+#endif /* CONFIG_BB_LOG_PANIC_COREDUMP */
 
 static bb_err_t bb_log_panic_init(void)
 {
@@ -59,6 +96,10 @@ static bb_err_t bb_log_panic_init(void)
     s_panic_rec.magic = 0;
     s_panic_rec.length = 0;
     s_panic_rec.write_pos = 0;
+
+#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
+    bb_log_panic_coredump_init();
+#endif
 
     return BB_OK;
 }
@@ -148,6 +189,31 @@ void bb_log_panic_clear(void)
     s_panic_rec.length = 0;
     s_panic_rec.write_pos = 0;
     s_panic_rec.crc = 0;
+#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
+    s_have_summary = false;
+    esp_core_dump_image_erase();
+#endif
+}
+
+bool bb_log_panic_coredump_available(void)
+{
+#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
+    return s_have_summary;
+#else
+    return false;
+#endif
+}
+
+bb_err_t bb_log_panic_coredump_get(bb_log_panic_summary_t *out)
+{
+    if (!out) return BB_ERR_INVALID_ARG;
+#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
+    if (!s_have_summary) return BB_ERR_NOT_FOUND;
+    *out = s_summary;
+    return BB_OK;
+#else
+    return BB_ERR_NOT_FOUND;
+#endif
 }
 
 #else
@@ -167,6 +233,17 @@ bb_err_t bb_log_panic_get(char *out, size_t *len_inout)
 
 void bb_log_panic_clear(void)
 {
+}
+
+bool bb_log_panic_coredump_available(void)
+{
+    return false;
+}
+
+bb_err_t bb_log_panic_coredump_get(bb_log_panic_summary_t *out)
+{
+    (void)out;
+    return BB_ERR_NOT_FOUND;
 }
 
 #endif /* CONFIG_BB_LOG_PANIC_CAPTURE */

@@ -159,6 +159,8 @@ static const bb_route_t s_log_level_post_route = {
 extern bool bb_log_panic_available(void);
 extern bb_err_t bb_log_panic_get(char *out, size_t *len_inout);
 extern void bb_log_panic_clear(void);
+extern bool bb_log_panic_coredump_available(void);
+extern bb_err_t bb_log_panic_coredump_get(bb_log_panic_summary_t *out);
 
 static bb_err_t panic_get_handler(bb_http_request_t *req)
 {
@@ -167,7 +169,6 @@ static bb_err_t panic_get_handler(bb_http_request_t *req)
         return bb_http_resp_send_err(req, 500, "JSON alloc failed");
     }
 
-#ifdef CONFIG_BB_LOG_PANIC_CAPTURE
     bool available = bb_log_panic_available();
     bb_json_obj_set_bool(root, "available", available);
 
@@ -192,8 +193,22 @@ static bb_err_t panic_get_handler(bb_http_request_t *req)
             bb_json_obj_set_string(root, "log_tail", panic_buf);
         }
     }
-#else
-    bb_json_obj_set_bool(root, "available", false);
+
+#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
+    if (bb_log_panic_coredump_available()) {
+        bb_log_panic_summary_t summary;
+        if (bb_log_panic_coredump_get(&summary) == BB_OK) {
+            bb_json_obj_set_string(root, "task", summary.task_name);
+            bb_json_obj_set_number(root, "exc_pc", (double)summary.exc_pc);
+            bb_json_obj_set_number(root, "exc_cause", (double)summary.exc_cause);
+
+            bb_json_t bt = bb_json_arr_new();
+            for (uint32_t i = 0; i < summary.bt_count; i++) {
+                bb_json_arr_append_number(bt, (double)summary.bt_addrs[i]);
+            }
+            bb_json_obj_set_arr(root, "backtrace", bt);
+        }
+    }
 #endif
 
     bb_http_resp_set_status(req, 200);
@@ -215,9 +230,13 @@ static const bb_route_response_t s_panic_get_responses[] = {
       "\"properties\":{"
       "\"available\":{\"type\":\"boolean\"},"
       "\"reset_reason\":{\"type\":\"string\"},"
-      "\"log_tail\":{\"type\":\"string\"}},"
+      "\"log_tail\":{\"type\":\"string\"},"
+      "\"task\":{\"type\":\"string\"},"
+      "\"exc_pc\":{\"type\":\"integer\"},"
+      "\"exc_cause\":{\"type\":\"integer\"},"
+      "\"backtrace\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}}},"
       "\"required\":[\"available\"]}",
-      "panic log status and contents" },
+      "panic log status, log tail, and coredump backtrace (when available)" },
     { 0 },
 };
 

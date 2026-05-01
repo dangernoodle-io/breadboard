@@ -38,4 +38,21 @@ config BB_LOG_PANIC_BUF_SIZE
         the chip's RTC slow memory budget (~8KB on ESP32-S3, less on
         smaller chips). 2 KB captures roughly the last 30-50 log lines.
 
+config BB_LOG_PANIC_COREDUMP
+    bool "Capture ESP-IDF coredump for panic backtraces"
+    default n
+    depends on BB_LOG_PANIC_CAPTURE
+    help
+        On panic, ESP-IDF writes a coredump to a dedicated flash partition.
+        On the next boot, bb_log_panic decodes it via esp_core_dump_get_summary
+        and exposes the task name, exception PC, and backtrace via
+        GET /api/diag/panic. Requires a "coredump" partition entry in the
+        consumer's partitions.csv (see examples/smoke/partitions.*.csv for
+        the 64 KB layout). Also requires the following in sdkconfig.defaults:
+            CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+            CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+            CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+        Disabled by default to avoid forcing the partition change on existing
+        consumers.
+
 endmenu

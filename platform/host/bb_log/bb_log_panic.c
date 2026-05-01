@@ -18,3 +18,14 @@ bb_err_t bb_log_panic_get(char *out, size_t *len_inout)
 void bb_log_panic_clear(void)
 {
 }
+
+bool bb_log_panic_coredump_available(void)
+{
+    return false;
+}
+
+bb_err_t bb_log_panic_coredump_get(bb_log_panic_summary_t *out)
+{
+    (void)out;
+    return BB_ERR_NOT_FOUND;
+}
