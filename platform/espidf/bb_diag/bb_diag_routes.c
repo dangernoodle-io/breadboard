@@ -115,6 +115,30 @@ static const bb_route_t s_panic_delete_route = {
     .handler  = panic_delete_handler,
 };
 
+#ifdef CONFIG_BB_DIAG_PANIC_TRIGGER
+static bb_err_t panic_trigger_handler(bb_http_request_t *req)
+{
+    (void)req;
+    volatile int *p = NULL;
+    *p = 0;
+    return BB_OK;
+}
+
+static const bb_route_response_t s_panic_trigger_responses[] = {
+    { 500, NULL, NULL, "never returned — handler panics before sending response" },
+    { 0 },
+};
+
+static const bb_route_t s_panic_trigger_route = {
+    .method    = BB_HTTP_POST,
+    .path      = "/api/diag/panic/trigger",
+    .tag       = "diag",
+    .summary   = "Force a panic via null dereference (debug builds only)",
+    .responses = s_panic_trigger_responses,
+    .handler   = panic_trigger_handler,
+};
+#endif
+
 // /api/info extender: adds an optional "panic" object only when a panic
 // log or coredump is present, so clean boots see no schema change.
 static void bb_diag_info_extender(bb_json_t root)
@@ -139,6 +163,12 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 
     err = bb_http_register_described_route(server, &s_panic_delete_route);
     if (err != BB_OK) return err;
+
+#ifdef CONFIG_BB_DIAG_PANIC_TRIGGER
+    err = bb_http_register_described_route(server, &s_panic_trigger_route);
+    if (err != BB_OK) return err;
+    bb_log_w(TAG, "panic trigger route ENABLED — debug build only");
+#endif
 
     bb_info_register_extender(bb_diag_info_extender);
 
