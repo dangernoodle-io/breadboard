@@ -8,7 +8,8 @@
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 
-#define PANIC_MAGIC 0xBB10C7C7
+#define PANIC_MAGIC        0xBB10C7C7
+#define BOOTS_SINCE_MAGIC  0xBB10C7C8
 
 typedef struct {
     uint32_t magic;
@@ -19,6 +20,11 @@ typedef struct {
 } bb_log_panic_record_t;
 
 static RTC_NOINIT_ATTR bb_log_panic_record_t s_panic_rec;
+// RTC-backed boots-since-panic counter. Survives soft resets, lost on power
+// cycle (alongside s_panic_rec). Magic-validated separately so cold-boot
+// garbage doesn't read as a stale counter value.
+static RTC_NOINIT_ATTR uint32_t s_boots_since;
+static RTC_NOINIT_ATTR uint32_t s_boots_since_magic;
 static bool s_have_panic_log = false;
 
 static uint32_t bb_crc32(const uint8_t *data, size_t len)
@@ -96,6 +102,19 @@ static bb_err_t bb_log_panic_init(void)
     s_panic_rec.magic = 0;
     s_panic_rec.length = 0;
     s_panic_rec.write_pos = 0;
+
+    // Update boots-since-panic counter. RTC NOINIT is garbage on cold boot;
+    // magic-check before trusting the value. Reset to 0 on (a) cold boot,
+    // (b) fresh panic-class reset reason (we are now the post-panic boot).
+    bool was_panic_boot = (reason == ESP_RST_PANIC || reason == ESP_RST_TASK_WDT ||
+                           reason == ESP_RST_INT_WDT || reason == ESP_RST_WDT ||
+                           reason == ESP_RST_BROWNOUT);
+    if (s_boots_since_magic != BOOTS_SINCE_MAGIC || was_panic_boot) {
+        s_boots_since = 0;
+        s_boots_since_magic = BOOTS_SINCE_MAGIC;
+    } else if (s_boots_since < UINT32_MAX) {
+        s_boots_since++;
+    }
 
 #ifdef CONFIG_BB_LOG_PANIC_COREDUMP
     bb_log_panic_coredump_init();
@@ -189,10 +208,22 @@ void bb_log_panic_clear(void)
     s_panic_rec.length = 0;
     s_panic_rec.write_pos = 0;
     s_panic_rec.crc = 0;
+    s_boots_since = 0;
+    s_boots_since_magic = BOOTS_SINCE_MAGIC;
 #ifdef CONFIG_BB_LOG_PANIC_COREDUMP
     s_have_summary = false;
     esp_core_dump_image_erase();
 #endif
+}
+
+uint32_t bb_log_panic_boots_since(void)
+{
+    bool have_panic = s_have_panic_log;
+#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
+    have_panic = have_panic || s_have_summary;
+#endif
+    if (!have_panic) return 0;
+    return (s_boots_since_magic == BOOTS_SINCE_MAGIC) ? s_boots_since : 0;
 }
 
 bool bb_log_panic_coredump_available(void)
@@ -244,6 +275,11 @@ bb_err_t bb_log_panic_coredump_get(bb_log_panic_summary_t *out)
 {
     (void)out;
     return BB_ERR_NOT_FOUND;
+}
+
+uint32_t bb_log_panic_boots_since(void)
+{
+    return 0;
 }
 
 #endif /* CONFIG_BB_LOG_PANIC_CAPTURE */
