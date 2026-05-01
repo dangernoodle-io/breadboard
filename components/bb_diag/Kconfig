@@ -47,6 +47,17 @@ config BB_DIAG_ROUTES
         bb_info_register_extender. Adds bb_http, bb_json, bb_registry,
         and bb_info to bb_diag's PRIV_REQUIRES.
 
+config BB_DIAG_PANIC_TRIGGER
+    bool "Expose POST /api/diag/panic/trigger to force a panic (debug only)"
+    default n
+    depends on BB_DIAG_ROUTES
+    help
+        When enabled, bb_diag exposes POST /api/diag/panic/trigger which
+        deliberately dereferences a null pointer to force a LoadProhibited
+        panic. Used to validate panic capture / coredump end-to-end on bench
+        hardware without physically rebooting the device. NEVER ship to
+        production: any unauthenticated caller can crash the firmware.
+
 config BB_DIAG_AUTOREGISTER
     bool "Auto-init bb_diag panic capture + routes via bb_registry"
     default y
