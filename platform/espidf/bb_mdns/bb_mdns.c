@@ -34,7 +34,11 @@ static bb_mdns_browse_sub_t s_subs[BB_MDNS_BROWSE_MAX];
 #define BB_MDNS_EVT_QUEUE_DEPTH 16
 static QueueHandle_t    s_evt_queue     = NULL;
 static TaskHandle_t     s_dispatch_task = NULL;
-static SemaphoreHandle_t s_subs_mutex   = NULL;
+static SemaphoreHandle_t s_subs_mutex     = NULL;
+// Serializes lifecycle teardown across the wifi-disconnect callback and the
+// esp_register_shutdown_handler path. Both can fire during esp_restart and the
+// portable bb_mdns_lifecycle started→stopped transition is not atomic.
+static SemaphoreHandle_t s_lifecycle_mutex = NULL;
 static uint32_t         s_evt_drop_count = 0;
 
 // Async TXT query infrastructure
@@ -604,7 +608,11 @@ static void bb_mdns_on_got_ip(void)
 
 static void bb_mdns_on_disconnect(void)
 {
-    if (!bb_mdns_lifecycle_is_started(&s_lc)) return;
+    if (s_lifecycle_mutex) xSemaphoreTake(s_lifecycle_mutex, portMAX_DELAY);
+    if (!bb_mdns_lifecycle_is_started(&s_lc)) {
+        if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
+        return;
+    }
     bb_log_i(TAG, "wifi disconnected — tearing down mdns");
     if (s_announce_timer) {
         esp_timer_stop(s_announce_timer);
@@ -616,11 +624,16 @@ static void bb_mdns_on_disconnect(void)
     if (res != BB_MDNS_LC_OK && res != BB_MDNS_LC_NOT_STARTED) {
         bb_log_w(TAG, "bb_mdns_on_disconnect: lifecycle stop returned %d", res);
     }
+    if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
 }
 
 static void bb_mdns_shutdown(void)
 {
-    if (!bb_mdns_lifecycle_is_started(&s_lc)) return;
+    if (s_lifecycle_mutex) xSemaphoreTake(s_lifecycle_mutex, portMAX_DELAY);
+    if (!bb_mdns_lifecycle_is_started(&s_lc)) {
+        if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
+        return;
+    }
     if (s_announce_timer) {
         esp_timer_stop(s_announce_timer);
         esp_timer_delete(s_announce_timer);
@@ -631,6 +644,7 @@ static void bb_mdns_shutdown(void)
     if (res != BB_MDNS_LC_OK && res != BB_MDNS_LC_NOT_STARTED) {
         bb_log_w(TAG, "bb_mdns_shutdown: lifecycle stop returned %d", res);
     }
+    if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
 }
 
 void bb_mdns_init(void)
@@ -638,6 +652,9 @@ void bb_mdns_init(void)
     // Create mutex and dispatch infrastructure once (outlives WiFi cycles)
     if (!s_subs_mutex) {
         s_subs_mutex = xSemaphoreCreateMutex();
+    }
+    if (!s_lifecycle_mutex) {
+        s_lifecycle_mutex = xSemaphoreCreateMutex();
     }
     if (!s_evt_pool_lock) {
         s_evt_pool_lock = xSemaphoreCreateMutex();
