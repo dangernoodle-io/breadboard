@@ -1,8 +1,9 @@
-#include "bb_log.h"
+#include "bb_diag.h"
 #include "bb_core.h"
+#include "bb_log.h"
 #include <string.h>
 
-#ifdef CONFIG_BB_LOG_PANIC_CAPTURE
+#ifdef CONFIG_BB_DIAG_PANIC_CAPTURE
 
 #include "esp_system.h"
 #include "nvs_flash.h"
@@ -16,10 +17,10 @@ typedef struct {
     uint32_t length;
     uint32_t write_pos;
     uint32_t crc;
-    char buf[CONFIG_BB_LOG_PANIC_BUF_SIZE];
-} bb_log_panic_record_t;
+    char buf[CONFIG_BB_DIAG_PANIC_BUF_SIZE];
+} bb_diag_panic_record_t;
 
-static RTC_NOINIT_ATTR bb_log_panic_record_t s_panic_rec;
+static RTC_NOINIT_ATTR bb_diag_panic_record_t s_panic_rec;
 // RTC-backed boots-since-panic counter. Survives soft resets, lost on power
 // cycle (alongside s_panic_rec). Magic-validated separately so cold-boot
 // garbage doesn't read as a stale counter value.
@@ -39,13 +40,13 @@ static uint32_t bb_crc32(const uint8_t *data, size_t len)
     return crc ^ 0xFFFFFFFFU;
 }
 
-#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
 #include "esp_core_dump.h"
 
-static bb_log_panic_summary_t s_summary;
+static bb_diag_panic_summary_t s_summary;
 static bool s_have_summary = false;
 
-static void bb_log_panic_coredump_init(void)
+static void bb_diag_panic_coredump_init(void)
 {
     if (esp_core_dump_image_check() != ESP_OK) return;
 
@@ -60,7 +61,7 @@ static void bb_log_panic_coredump_init(void)
     // Xtensa: exc_cause is in ex_info.exc_cause, backtrace in exc_bt_info.bt/depth
     s_summary.exc_cause = cd_summary.ex_info.exc_cause;
     uint32_t depth = cd_summary.exc_bt_info.depth;
-    if (depth > BB_LOG_PANIC_BACKTRACE_MAX) depth = BB_LOG_PANIC_BACKTRACE_MAX;
+    if (depth > BB_DIAG_PANIC_BACKTRACE_MAX) depth = BB_DIAG_PANIC_BACKTRACE_MAX;
     s_summary.bt_count = depth;
     for (uint32_t i = 0; i < depth; i++) {
         s_summary.bt_addrs[i] = cd_summary.exc_bt_info.bt[i];
@@ -74,15 +75,18 @@ static void bb_log_panic_coredump_init(void)
 
     s_have_summary = true;
 }
-#endif /* CONFIG_BB_LOG_PANIC_COREDUMP */
+#endif /* CONFIG_BB_DIAG_PANIC_COREDUMP */
 
-static bb_err_t bb_log_panic_init(void)
+// Forward decl: tap entry called from bb_log_stream
+void bb_diag_panic_capture_write(const char *data, size_t len);
+
+static bb_err_t bb_diag_panic_init(void)
 {
     esp_reset_reason_t reason = esp_reset_reason();
 
     // Check magic + CRC to detect valid panic record
     bool valid_record = false;
-    if (s_panic_rec.magic == PANIC_MAGIC && s_panic_rec.length <= CONFIG_BB_LOG_PANIC_BUF_SIZE) {
+    if (s_panic_rec.magic == PANIC_MAGIC && s_panic_rec.length <= CONFIG_BB_DIAG_PANIC_BUF_SIZE) {
         uint32_t computed_crc = bb_crc32((const uint8_t *)s_panic_rec.buf, s_panic_rec.length);
         if (computed_crc == s_panic_rec.crc) {
             valid_record = true;
@@ -116,19 +120,22 @@ static bb_err_t bb_log_panic_init(void)
         s_boots_since++;
     }
 
-#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
-    bb_log_panic_coredump_init();
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
+    bb_diag_panic_coredump_init();
 #endif
+
+    // Install the log-stream tap so subsequent log writes mirror into the RTC buffer
+    bb_log_stream_set_tap(bb_diag_panic_capture_write);
 
     return BB_OK;
 }
 
 // Register in early tier so we detect panic logs before normal boot proceeds
 #include "bb_registry.h"
-BB_REGISTRY_REGISTER_EARLY(bb_log_panic, bb_log_panic_init);
+BB_REGISTRY_REGISTER_EARLY(bb_diag_panic, bb_diag_panic_init);
 
-// Mirror write from bb_log_stream: called from s_log_vprintf when a line is written to ringbuf
-void bb_log_panic_mirror_write(const char *data, size_t len)
+// Tap entry called from bb_log_stream's vprintf hook for every line
+void bb_diag_panic_capture_write(const char *data, size_t len)
 {
     if (s_panic_rec.magic != PANIC_MAGIC) {
         // First write of this boot: initialize
@@ -137,20 +144,20 @@ void bb_log_panic_mirror_write(const char *data, size_t len)
         s_panic_rec.write_pos = 0;
     }
 
-    if (len == 0 || len > CONFIG_BB_LOG_PANIC_BUF_SIZE) return;
+    if (len == 0 || len > CONFIG_BB_DIAG_PANIC_BUF_SIZE) return;
 
     // Circular write
     size_t remaining = len;
     size_t src_pos = 0;
 
     while (remaining > 0) {
-        size_t space_to_end = CONFIG_BB_LOG_PANIC_BUF_SIZE - s_panic_rec.write_pos;
+        size_t space_to_end = CONFIG_BB_DIAG_PANIC_BUF_SIZE - s_panic_rec.write_pos;
         size_t chunk = (remaining < space_to_end) ? remaining : space_to_end;
 
         memcpy(&s_panic_rec.buf[s_panic_rec.write_pos], &data[src_pos], chunk);
-        s_panic_rec.write_pos = (s_panic_rec.write_pos + chunk) % CONFIG_BB_LOG_PANIC_BUF_SIZE;
-        s_panic_rec.length = (s_panic_rec.length < CONFIG_BB_LOG_PANIC_BUF_SIZE) ?
-                             (s_panic_rec.length + chunk) : CONFIG_BB_LOG_PANIC_BUF_SIZE;
+        s_panic_rec.write_pos = (s_panic_rec.write_pos + chunk) % CONFIG_BB_DIAG_PANIC_BUF_SIZE;
+        s_panic_rec.length = (s_panic_rec.length < CONFIG_BB_DIAG_PANIC_BUF_SIZE) ?
+                             (s_panic_rec.length + chunk) : CONFIG_BB_DIAG_PANIC_BUF_SIZE;
 
         src_pos += chunk;
         remaining -= chunk;
@@ -159,12 +166,12 @@ void bb_log_panic_mirror_write(const char *data, size_t len)
     s_panic_rec.crc = bb_crc32((const uint8_t *)s_panic_rec.buf, s_panic_rec.length);
 }
 
-bool bb_log_panic_available(void)
+bool bb_diag_panic_available(void)
 {
     return s_have_panic_log;
 }
 
-bb_err_t bb_log_panic_get(char *out, size_t *len_inout)
+bb_err_t bb_diag_panic_get(char *out, size_t *len_inout)
 {
     if (!out || !len_inout || *len_inout == 0) {
         return BB_ERR_INVALID_ARG;
@@ -179,9 +186,9 @@ bb_err_t bb_log_panic_get(char *out, size_t *len_inout)
 
     // Copy from the circular buffer in order (oldest to newest)
     // If we wrapped, start from write_pos; otherwise start from 0
-    if (s_panic_rec.length == CONFIG_BB_LOG_PANIC_BUF_SIZE) {
+    if (s_panic_rec.length == CONFIG_BB_DIAG_PANIC_BUF_SIZE) {
         // Buffer is full and wrapped: copy write_pos to end, then 0 to write_pos
-        size_t first_chunk = CONFIG_BB_LOG_PANIC_BUF_SIZE - s_panic_rec.write_pos;
+        size_t first_chunk = CONFIG_BB_DIAG_PANIC_BUF_SIZE - s_panic_rec.write_pos;
         if (first_chunk > to_copy) first_chunk = to_copy;
 
         memcpy(out, &s_panic_rec.buf[s_panic_rec.write_pos], first_chunk);
@@ -201,7 +208,7 @@ bb_err_t bb_log_panic_get(char *out, size_t *len_inout)
     return BB_OK;
 }
 
-void bb_log_panic_clear(void)
+void bb_diag_panic_clear(void)
 {
     s_have_panic_log = false;
     s_panic_rec.magic = 0;
@@ -210,35 +217,35 @@ void bb_log_panic_clear(void)
     s_panic_rec.crc = 0;
     s_boots_since = 0;
     s_boots_since_magic = BOOTS_SINCE_MAGIC;
-#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
     s_have_summary = false;
     esp_core_dump_image_erase();
 #endif
 }
 
-uint32_t bb_log_panic_boots_since(void)
+uint32_t bb_diag_panic_boots_since(void)
 {
     bool have_panic = s_have_panic_log;
-#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
     have_panic = have_panic || s_have_summary;
 #endif
     if (!have_panic) return 0;
     return (s_boots_since_magic == BOOTS_SINCE_MAGIC) ? s_boots_since : 0;
 }
 
-bool bb_log_panic_coredump_available(void)
+bool bb_diag_panic_coredump_available(void)
 {
-#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
     return s_have_summary;
 #else
     return false;
 #endif
 }
 
-bb_err_t bb_log_panic_coredump_get(bb_log_panic_summary_t *out)
+bb_err_t bb_diag_panic_coredump_get(bb_diag_panic_summary_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
-#ifdef CONFIG_BB_LOG_PANIC_COREDUMP
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
     if (!s_have_summary) return BB_ERR_NOT_FOUND;
     *out = s_summary;
     return BB_OK;
@@ -250,36 +257,36 @@ bb_err_t bb_log_panic_coredump_get(bb_log_panic_summary_t *out)
 #else
 
 // Stubs when panic capture is disabled
-bool bb_log_panic_available(void)
+bool bb_diag_panic_available(void)
 {
     return false;
 }
 
-bb_err_t bb_log_panic_get(char *out, size_t *len_inout)
+bb_err_t bb_diag_panic_get(char *out, size_t *len_inout)
 {
     (void)out;
     (void)len_inout;
     return BB_ERR_NOT_FOUND;
 }
 
-void bb_log_panic_clear(void)
+void bb_diag_panic_clear(void)
 {
 }
 
-bool bb_log_panic_coredump_available(void)
+bool bb_diag_panic_coredump_available(void)
 {
     return false;
 }
 
-bb_err_t bb_log_panic_coredump_get(bb_log_panic_summary_t *out)
+bb_err_t bb_diag_panic_coredump_get(bb_diag_panic_summary_t *out)
 {
     (void)out;
     return BB_ERR_NOT_FOUND;
 }
 
-uint32_t bb_log_panic_boots_since(void)
+uint32_t bb_diag_panic_boots_since(void)
 {
     return 0;
 }
 
-#endif /* CONFIG_BB_LOG_PANIC_CAPTURE */
+#endif /* CONFIG_BB_DIAG_PANIC_CAPTURE */
