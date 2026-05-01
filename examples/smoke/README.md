@@ -43,6 +43,35 @@ pio device monitor -e r4_wifis3
 
 Once associated, `curl http://<ip>/ping` returns `pong`.
 
+## Panic capture
+
+All 4 ESP-IDF envs have `CONFIG_BB_LOG_PANIC_COREDUMP=y` and a `coredump` partition in their `partitions.*.csv`. On the next boot after a panic, `GET /api/diag/panic` returns the structured backtrace alongside the existing `log_tail` field:
+
+```json
+{
+  "available": true,
+  "reset_reason": "panic",
+  "log_tail": "...",
+  "task": "main",
+  "exc_pc": 1074003456,
+  "exc_cause": 28,
+  "backtrace": [1074003456, 1074003712, ...]
+}
+```
+
+**For downstream consumers** that want coredump capture:
+1. Add to `partitions.csv` (4 MB flash): `coredump, data, coredump, 0x3E0000, 0x10000,`
+2. Add to `partitions.csv` (16 MB flash): `coredump, data, coredump, 0xFE0000, 0x10000,`
+3. Add to `sdkconfig.defaults`:
+   ```
+   CONFIG_BB_LOG_PANIC_COREDUMP=y
+   CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+   CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+   CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+   ```
+
+`CONFIG_BB_LOG_PANIC_COREDUMP` defaults to `n` — existing consumers without a coredump partition are unaffected.
+
 ## Apple Silicon notes
 
 The PlatformIO bundled `arm-none-eabi-gcc` and `bossac` for the Renesas RA platform are x86_64 binaries. On arm64 Macs without Rosetta, install native equivalents and override via `platformio_local.ini`:

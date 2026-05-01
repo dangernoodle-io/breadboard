@@ -5,6 +5,10 @@ set(_log_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log.c"
 set(_log_reqs bb_core esp_ringbuf freertos log bb_nv)
 set(_log_priv_reqs bb_http bb_json bb_registry)
 
+if(CONFIG_BB_LOG_PANIC_COREDUMP)
+    list(APPEND _log_priv_reqs espcoredump)
+endif()
+
 if(CONFIG_BB_LOG_ROUTES)
     list(APPEND _log_srcs
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log_routes.c"
@@ -17,6 +21,16 @@ idf_component_register(
     REQUIRES ${_log_reqs}
     PRIV_REQUIRES ${_log_priv_reqs}
 )
+
+if(CONFIG_BB_LOG_PANIC_COREDUMP)
+    idf_component_get_property(espcoredump_dir espcoredump COMPONENT_DIR)
+    target_include_directories(${COMPONENT_LIB} PRIVATE ${espcoredump_dir}/include)
+    if(CONFIG_IDF_TARGET_ARCH_XTENSA)
+        target_include_directories(${COMPONENT_LIB} PRIVATE ${espcoredump_dir}/include/port/xtensa)
+    elseif(CONFIG_IDF_TARGET_ARCH_RISCV)
+        target_include_directories(${COMPONENT_LIB} PRIVATE ${espcoredump_dir}/include/port/riscv)
+    endif()
+endif()
 
 if(CONFIG_BB_LOG_ROUTES)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")

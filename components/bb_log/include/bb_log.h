@@ -132,5 +132,37 @@ bb_err_t bb_log_panic_get(char *out, size_t *len_inout);
 /**
  * Clear the panic record after it has been read or acknowledged.
  * Safe to call even if no panic log is available.
+ * When CONFIG_BB_LOG_PANIC_COREDUMP=y, also erases the coredump image from flash.
  */
 void bb_log_panic_clear(void);
+
+/**
+ * Structured summary of the previous boot's panic, populated from ESP-IDF coredump.
+ * Requires CONFIG_BB_LOG_PANIC_COREDUMP=y plus a "coredump" partition in partitions.csv.
+ */
+#define BB_LOG_PANIC_TASK_NAME_MAX 16
+#define BB_LOG_PANIC_BACKTRACE_MAX 16
+
+typedef struct {
+    char     task_name[BB_LOG_PANIC_TASK_NAME_MAX];
+    uint32_t exc_pc;
+    uint32_t exc_cause;
+    uint32_t bt_count;
+    uint32_t bt_addrs[BB_LOG_PANIC_BACKTRACE_MAX];
+} bb_log_panic_summary_t;
+
+/**
+ * Returns true if a coredump from the previous boot is decodable.
+ * Independent of bb_log_panic_available — coredump and RTC log mirror
+ * are separate capture mechanisms.
+ * Host: always returns false.
+ */
+bool bb_log_panic_coredump_available(void);
+
+/**
+ * Populates `out` with the panic summary (task, exc_pc, exc_cause, backtrace).
+ * Returns BB_OK on success, BB_ERR_NOT_FOUND if no coredump,
+ * BB_ERR_INVALID_ARG if out=NULL.
+ * Host: always returns BB_ERR_NOT_FOUND.
+ */
+bb_err_t bb_log_panic_coredump_get(bb_log_panic_summary_t *out);
