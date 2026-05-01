@@ -64,8 +64,14 @@ COMPONENT_MAP = {
         "sources": [
             "platform/espidf/bb_log/bb_log.c",
             "platform/host/bb_log/bb_log_level.c",
-            "platform/host/bb_log/bb_log_panic.c",
             "components/bb_log/src/bb_log_level.c",
+        ],
+        "depends":  ["bb_core"],
+    },
+    "bb_diag": {
+        "includes": ["components/bb_diag/include"],
+        "sources": [
+            "platform/host/bb_diag/bb_diag_panic.c",
         ],
         "depends":  ["bb_core"],
     },
