@@ -34,11 +34,11 @@ static void sse_task(void *arg)
 
     char line[192];
     char frame[220];
-    /* Send a comment-frame keepalive every ~10s of silence. EventSource
-     * ignores `:` lines, but the chunk write surfaces a dead peer immediately
-     * so the task can clean up — and the client can use the gap between
-     * keepalives to detect a stalled stream. */
-    const int idle_ticks_per_ping = 20; /* 20 * 500ms drain timeout = 10s */
+    /* Send a comment-frame keepalive every CONFIG_BB_LOG_SSE_KEEPALIVE_MS of
+     * silence. EventSource ignores `:` lines, but the chunk write surfaces a
+     * dead peer immediately so the task can clean up — and the client can use
+     * the gap between keepalives to detect a stalled stream. */
+    const int idle_ticks_per_ping = CONFIG_BB_LOG_SSE_KEEPALIVE_MS / 500;
     int idle_ticks = 0;
     while (err == BB_OK) {
         size_t n = bb_log_stream_drain(line, sizeof(line), 500);

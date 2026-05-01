@@ -9,6 +9,17 @@ config BB_LOG_ROUTES
         POST /api/log/level. Adds bb_http, bb_json, and bb_registry to
         bb_log's PRIV_REQUIRES. Disable for headless logging-only consumers.
 
+config BB_LOG_SSE_KEEPALIVE_MS
+    int "SSE keepalive interval (ms)"
+    default 5000
+    range 1000 60000
+    depends on BB_LOG_ROUTES
+    help
+        Interval at which /api/logs SSE emits a comment-frame keepalive
+        during silence. Lower values surface dead peers faster (so the
+        single SSE slot frees up sooner) but add chunk-write traffic on
+        idle connections. Rounded down to the nearest 500ms drain tick.
+
 config BB_LOG_STREAM_AUTOREGISTER
     bool "Auto-init bb_log_stream via bb_registry early tier"
     default y
