@@ -29,3 +29,8 @@ bb_err_t bb_log_panic_coredump_get(bb_log_panic_summary_t *out)
     (void)out;
     return BB_ERR_NOT_FOUND;
 }
+
+uint32_t bb_log_panic_boots_since(void)
+{
+    return 0;
+}

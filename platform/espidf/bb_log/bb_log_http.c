@@ -161,6 +161,7 @@ extern bb_err_t bb_log_panic_get(char *out, size_t *len_inout);
 extern void bb_log_panic_clear(void);
 extern bool bb_log_panic_coredump_available(void);
 extern bb_err_t bb_log_panic_coredump_get(bb_log_panic_summary_t *out);
+extern uint32_t bb_log_panic_boots_since(void);
 
 static bb_err_t panic_get_handler(bb_http_request_t *req)
 {
@@ -170,7 +171,11 @@ static bb_err_t panic_get_handler(bb_http_request_t *req)
     }
 
     bool available = bb_log_panic_available();
+    bool coredump_avail = bb_log_panic_coredump_available();
     bb_json_obj_set_bool(root, "available", available);
+    if (available || coredump_avail) {
+        bb_json_obj_set_number(root, "boots_since", (double)bb_log_panic_boots_since());
+    }
 
     if (available) {
         // Get reset reason string
@@ -195,7 +200,7 @@ static bb_err_t panic_get_handler(bb_http_request_t *req)
     }
 
 #ifdef CONFIG_BB_LOG_PANIC_COREDUMP
-    if (bb_log_panic_coredump_available()) {
+    if (coredump_avail) {
         bb_log_panic_summary_t summary;
         if (bb_log_panic_coredump_get(&summary) == BB_OK) {
             bb_json_obj_set_string(root, "task", summary.task_name);
@@ -229,6 +234,7 @@ static const bb_route_response_t s_panic_get_responses[] = {
       "{\"type\":\"object\","
       "\"properties\":{"
       "\"available\":{\"type\":\"boolean\"},"
+      "\"boots_since\":{\"type\":\"integer\"},"
       "\"reset_reason\":{\"type\":\"string\"},"
       "\"log_tail\":{\"type\":\"string\"},"
       "\"task\":{\"type\":\"string\"},"

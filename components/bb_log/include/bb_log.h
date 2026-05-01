@@ -166,3 +166,15 @@ bool bb_log_panic_coredump_available(void);
  * Host: always returns BB_ERR_NOT_FOUND.
  */
 bb_err_t bb_log_panic_coredump_get(bb_log_panic_summary_t *out);
+
+/**
+ * Returns the number of boots since the most recent panic was captured.
+ *   0 = current boot was the post-panic boot (panic just happened)
+ *   N = N clean boots have happened since the panic was captured
+ * Returns 0 when no panic is available, or when a power cycle reset the
+ * RTC-backed counter (the coredump on flash may still be present, but the
+ * counter cannot distinguish a fresh capture from a post-power-cycle boot).
+ * Useful as a freshness signal for monitoring callers.
+ * Host: always returns 0.
+ */
+uint32_t bb_log_panic_boots_since(void);
