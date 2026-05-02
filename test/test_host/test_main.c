@@ -357,6 +357,22 @@ void test_bb_registry_init_calls_each_init_fn(void);
 void test_bb_registry_init_reports_first_error_but_continues(void);
 void test_bb_registry_clear_resets_count(void);
 
+// Forward declarations from test_bb_byte_order.c
+void test_bb_load_be32_constant(void);
+void test_bb_load_le32_constant(void);
+void test_bb_store_be32_round_trip(void);
+void test_bb_store_le32_round_trip(void);
+void test_bb_load_be32_store_be32_round_trip(void);
+void test_bb_load_le32_store_le32_round_trip(void);
+void test_bb_load_be16_constant(void);
+void test_bb_load_le16_constant(void);
+void test_bb_load_be16_store_be16_round_trip(void);
+void test_bb_load_le16_store_le16_round_trip(void);
+void test_bb_load_be32_misaligned(void);
+void test_bb_store_be32_misaligned(void);
+void test_bb_load_be16_misaligned(void);
+void test_bb_store_be16_misaligned(void);
+
 // Forward declarations from test_bb_timer.c
 void test_bb_timer_create_null_out_returns_err(void);
 void test_bb_timer_create_null_cb_returns_err(void);
@@ -773,6 +789,22 @@ int main(void) {
     RUN_TEST(test_bb_registry_init_calls_each_init_fn);
     RUN_TEST(test_bb_registry_init_reports_first_error_but_continues);
     RUN_TEST(test_bb_registry_clear_resets_count);
+
+    // bb_byte_order tests
+    RUN_TEST(test_bb_load_be32_constant);
+    RUN_TEST(test_bb_load_le32_constant);
+    RUN_TEST(test_bb_store_be32_round_trip);
+    RUN_TEST(test_bb_store_le32_round_trip);
+    RUN_TEST(test_bb_load_be32_store_be32_round_trip);
+    RUN_TEST(test_bb_load_le32_store_le32_round_trip);
+    RUN_TEST(test_bb_load_be16_constant);
+    RUN_TEST(test_bb_load_le16_constant);
+    RUN_TEST(test_bb_load_be16_store_be16_round_trip);
+    RUN_TEST(test_bb_load_le16_store_le16_round_trip);
+    RUN_TEST(test_bb_load_be32_misaligned);
+    RUN_TEST(test_bb_store_be32_misaligned);
+    RUN_TEST(test_bb_load_be16_misaligned);
+    RUN_TEST(test_bb_store_be16_misaligned);
 
     // bb_timer tests
     RUN_TEST(test_bb_timer_create_null_out_returns_err);
