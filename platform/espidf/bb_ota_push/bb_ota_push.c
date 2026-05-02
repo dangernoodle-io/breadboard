@@ -164,10 +164,11 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     bb_log_i(TAG, "OTA complete, rebooting");
     bb_http_resp_sendstr(req, "OTA complete. Rebooting...");
 
-    if (paused && s_resume_cb) {
-        s_resume_cb();
-    }
-
+    // Do not resume the consumer's worker (e.g. mining task) on the
+    // success path — we are about to esp_restart(). Resuming here lets
+    // the worker spin up for ~500ms only to be killed mid-work, wasting
+    // CPU/heat and competing with the reboot path for resources. The
+    // failure path (resume_and_exit below) still resumes correctly.
     vTaskDelay(pdMS_TO_TICKS(500));
     esp_restart();
     return BB_OK;  // unreachable
