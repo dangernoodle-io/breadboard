@@ -1,0 +1,12 @@
+menu "bb_display_ek79007"
+
+config BB_DISPLAY_EK79007_AUTOREGISTER
+    bool "Auto-register EK79007 display backend"
+    default y
+    help
+        When enabled, the EK79007 backend self-registers via a
+        constructor before app_main and bb_display_init() will
+        select it. Disable to keep the component's public API
+        available without registering at link time.
+
+endmenu
