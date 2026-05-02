@@ -74,7 +74,21 @@ typedef struct {
  *
  * The `txt` array view is owned by bb_mdns and remains valid ONLY for the
  * duration of the callback — consumers that need to retain TXT records
- * must copy them. on_removed fires with the inlined instance_name only. */
+ * must copy them. on_removed fires with the inlined instance_name only.
+ *
+ * Freshness: IDF's mDNS browser only invokes its notify callback on PTR
+ * state changes (initial discovery, removal). Active advertisers
+ * re-announcing with the same TTL are silently absorbed by IDF's cache,
+ * so on_peer would NEVER fire again for stable peers without
+ * intervention. To surface "still alive", bb_mdns periodically deletes +
+ * re-creates each browse subscription (interval set by
+ * CONFIG_BB_MDNS_BROWSE_REFRESH_INTERVAL_S, default 60s, 0 disables);
+ * each refresh reissues a PTR query and produces fresh on_peer
+ * notifications for any responder. Peers that don't reply within the
+ * new query window fire on_removed before any subsequent on_peer; this
+ * is normal refresh churn, not a real disconnect. Consumers needing
+ * finer freshness can layer their own bb_mdns_query_txt / per-peer
+ * probe on top. */
 typedef void (*bb_mdns_peer_cb)(const bb_mdns_peer_t *peer, void *ctx);
 typedef void (*bb_mdns_peer_removed_cb)(const char *instance_name, void *ctx);
 
