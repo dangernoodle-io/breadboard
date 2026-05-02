@@ -88,6 +88,11 @@ bb_err_t bb_http_server_ensure_started(void)
         10;
 #endif
     config.uri_match_fn = httpd_uri_match_wildcard;
+#ifdef CONFIG_BB_HTTP_TASK_CORE_ID
+    if (CONFIG_BB_HTTP_TASK_CORE_ID >= 0) {
+        config.core_id = CONFIG_BB_HTTP_TASK_CORE_ID;
+    }
+#endif
 
     // Auto-size max_uri_handlers from registry contributions
     extern size_t bb_registry_route_count_total(void);
@@ -185,6 +190,11 @@ bb_http_handle_t bb_http_server_get_handle(void)
 // Shim handler adapter: translates bb_http_handler_fn ↔ httpd_req_t*
 static esp_err_t bb_shim_handler(httpd_req_t *req)
 {
+    static bool s_core_logged = false;
+    if (!s_core_logged) {
+        s_core_logged = true;
+        bb_log_i("bb_http", "httpd worker on core %d", xPortGetCoreID());
+    }
     bb_http_handler_fn fn = (bb_http_handler_fn)req->user_ctx;
     if (!fn) return ESP_FAIL;
     return fn((bb_http_request_t*)req) == BB_OK ? ESP_OK : ESP_FAIL;

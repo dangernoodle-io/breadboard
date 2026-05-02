@@ -46,4 +46,15 @@ config BB_HTTP_SEND_WAIT_TIMEOUT_S
       Maximum time httpd waits on a single send() before returning
       timeout. See BB_HTTP_RECV_WAIT_TIMEOUT_S.
 
+config BB_HTTP_TASK_CORE_ID
+    int "HTTP server task core affinity (-1 = no affinity, 0 = CPU0, 1 = CPU1)"
+    default -1
+    range -1 1
+    help
+      Pins the esp_http_server worker task to a specific core. The IDF
+      default (tskNO_AFFINITY) lets the worker land on either CPU, which
+      can starve under contention with a high-priority single-core busy
+      loop on the same CPU (e.g. a SHA mining hot loop). Pin off the
+      hot-loop core to keep HTTP responsive.
+
 endmenu
