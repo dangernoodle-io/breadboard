@@ -157,14 +157,10 @@ void test_bb_mdns_dispatch_removed_fires_callback(void)
 void test_bb_mdns_dispatch_peer_null_cb_no_crash(void)
 {
     bb_mdns_browse_start("_acme", "_tcp", NULL, NULL, NULL);
-    bb_mdns_peer_t peer = {
-        .instance_name = "acme-device-01",
-        .hostname      = NULL,
-        .ip4           = NULL,
-        .port          = 80,
-        .txt           = NULL,
-        .txt_count     = 0,
-    };
+    bb_mdns_peer_t peer = {0};
+    strncpy(peer.instance_name, "acme-device-01", sizeof(peer.instance_name) - 1);
+    /* hostname / ip4 stay zero-length — the post-B1-86 sentinel for "missing". */
+    peer.port = 80;
     bb_err_t err = bb_mdns_host_dispatch_peer("_acme", "_tcp", &peer);
     TEST_ASSERT_EQUAL(BB_OK, err);
     bb_mdns_browse_stop("_acme", "_tcp");
@@ -180,14 +176,8 @@ void test_bb_mdns_dispatch_removed_null_cb_no_crash(void)
 
 void test_bb_mdns_dispatch_no_subscription_returns_ok(void)
 {
-    bb_mdns_peer_t peer = {
-        .instance_name = "orphan-device",
-        .hostname      = NULL,
-        .ip4           = NULL,
-        .port          = 0,
-        .txt           = NULL,
-        .txt_count     = 0,
-    };
+    bb_mdns_peer_t peer = {0};
+    strncpy(peer.instance_name, "orphan-device", sizeof(peer.instance_name) - 1);
     bb_err_t err = bb_mdns_host_dispatch_peer("_nosub", "_tcp", &peer);
     TEST_ASSERT_EQUAL(BB_OK, err);
     err = bb_mdns_host_dispatch_removed("_nosub", "_tcp", "orphan-device");
@@ -196,7 +186,8 @@ void test_bb_mdns_dispatch_no_subscription_returns_ok(void)
 
 /* B1-84: empty ip4 must not drop the event — consumers decide what to do.
  * On host the dispatch hook calls the callback directly (no A-record lookup),
- * so this test locks in the contract: NULL ip4 is plumbed through unchanged. */
+ * so this test locks in the contract: empty ip4 is plumbed through unchanged.
+ * Post-B1-86 the missing-ip4 sentinel is a zero-length string, not NULL. */
 static const bb_mdns_peer_t *s_last_peer_ptr = NULL;
 static bb_mdns_peer_t s_last_peer_copy;
 
@@ -204,10 +195,7 @@ static void capture_peer_cb(const bb_mdns_peer_t *peer, void *ctx)
 {
     (void)ctx;
     s_last_peer_ptr = peer;
-    s_last_peer_copy.instance_name = peer->instance_name;
-    s_last_peer_copy.hostname      = peer->hostname;
-    s_last_peer_copy.ip4           = peer->ip4;
-    s_last_peer_copy.port          = peer->port;
+    s_last_peer_copy = *peer;
 }
 
 void test_bb_mdns_dispatch_peer_with_empty_ip4_dispatches_anyway(void)
@@ -216,18 +204,15 @@ void test_bb_mdns_dispatch_peer_with_empty_ip4_dispatches_anyway(void)
     memset(&s_last_peer_copy, 0, sizeof(s_last_peer_copy));
 
     bb_mdns_browse_start("_acme", "_tcp", capture_peer_cb, NULL, NULL);
-    bb_mdns_peer_t peer = {
-        .instance_name = "test-device-01",
-        .hostname      = "test-device.local",
-        .ip4           = NULL,
-        .port          = 80,
-        .txt           = NULL,
-        .txt_count     = 0,
-    };
+    bb_mdns_peer_t peer = {0};
+    strncpy(peer.instance_name, "test-device-01",     sizeof(peer.instance_name) - 1);
+    strncpy(peer.hostname,      "test-device.local", sizeof(peer.hostname)      - 1);
+    /* peer.ip4 stays "" — the empty-ip4 contract under test. */
+    peer.port = 80;
     bb_err_t err = bb_mdns_host_dispatch_peer("_acme", "_tcp", &peer);
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_NOT_NULL(s_last_peer_ptr);
-    TEST_ASSERT_NULL(s_last_peer_copy.ip4);
+    TEST_ASSERT_EQUAL_STRING("",               s_last_peer_copy.ip4);
     TEST_ASSERT_EQUAL_STRING("test-device-01", s_last_peer_copy.instance_name);
     bb_mdns_browse_stop("_acme", "_tcp");
 }
@@ -272,15 +257,14 @@ void test_bb_mdns_query_dispatch_invokes_cb_with_result(void)
     bb_mdns_txt_t txt[] = {
         { .key = "version", .value = "v1.2.3" },
     };
-    bb_mdns_query_result_t result = {
-        .err           = BB_OK,
-        .instance_name = "acme-miner-01",
-        .hostname      = "acme-miner.local",
-        .ip4           = "192.168.1.42",
-        .port          = 4444,
-        .txt           = txt,
-        .txt_count     = 1,
-    };
+    bb_mdns_query_result_t result = {0};
+    result.err = BB_OK;
+    strncpy(result.instance_name, "acme-miner-01",     sizeof(result.instance_name) - 1);
+    strncpy(result.hostname,      "acme-miner.local", sizeof(result.hostname)      - 1);
+    strncpy(result.ip4,           "192.168.1.42",     sizeof(result.ip4)           - 1);
+    result.port      = 4444;
+    result.txt       = txt;
+    result.txt_count = 1;
 
     bb_err_t err = bb_mdns_host_dispatch_query_result(&result, test_query_cb, NULL);
     TEST_ASSERT_EQUAL(BB_OK, err);
@@ -294,15 +278,10 @@ void test_bb_mdns_query_dispatch_propagates_err_field(void)
     s_query_cb_fired = 0;
     s_query_cb_err = BB_OK;
 
-    bb_mdns_query_result_t result = {
-        .err           = BB_ERR_NOT_FOUND,
-        .instance_name = NULL,
-        .hostname      = NULL,
-        .ip4           = NULL,
-        .port          = 0,
-        .txt           = NULL,
-        .txt_count     = 0,
-    };
+    bb_mdns_query_result_t result = {0};
+    result.err = BB_ERR_NOT_FOUND;
+    /* All scalar string fields stay zero-length — the post-B1-86 sentinel
+     * for "missing" on the error path. */
 
     bb_err_t err = bb_mdns_host_dispatch_query_result(&result, test_query_cb, NULL);
     TEST_ASSERT_EQUAL(BB_OK, err);

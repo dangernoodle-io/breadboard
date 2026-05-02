@@ -62,9 +62,9 @@ typedef struct {
     bool     is_removal;
     char     service[32];
     char     proto[8];
-    char     instance_name[64];
-    char     hostname[64];
-    char     ip4[16];
+    char     instance_name[BB_MDNS_INSTANCE_NAME_MAX];
+    char     hostname[BB_MDNS_HOSTNAME_MAX];
+    char     ip4[BB_MDNS_IP4_MAX];
     uint16_t port;
     size_t   txt_count;
     bb_mdns_txt_t txt[BB_MDNS_EVT_TXT_MAX];
@@ -259,14 +259,13 @@ static void bb_mdns_query_task(void *arg)
                                        req.timeout_ms, &results);
 
         bb_mdns_query_result_t out = { .err = (err == ESP_OK) ? BB_OK : (bb_err_t)err };
-        char ip4_buf[16] = "";
         bb_mdns_txt_t txt_view[8] = {0};
 
         if (err == ESP_OK && results) {
             if (results->addr) {
                 for (mdns_ip_addr_t *a = results->addr; a; a = a->next) {
                     if (a->addr.type == ESP_IPADDR_TYPE_V4) {
-                        snprintf(ip4_buf, sizeof(ip4_buf), IPSTR,
+                        snprintf(out.ip4, sizeof(out.ip4), IPSTR,
                                  IP2STR(&a->addr.u_addr.ip4));
                         break;
                     }
@@ -277,12 +276,15 @@ static void bb_mdns_query_task(void *arg)
                 txt_view[i].key   = (char *)results->txt[i].key;
                 txt_view[i].value = (char *)results->txt[i].value;
             }
-            out.instance_name = results->instance_name;
-            out.hostname      = results->hostname;
-            out.ip4           = ip4_buf[0] ? ip4_buf : NULL;
-            out.port          = results->port;
-            out.txt           = n ? txt_view : NULL;
-            out.txt_count     = n;
+            if (results->instance_name) {
+                strncpy(out.instance_name, results->instance_name, sizeof(out.instance_name) - 1);
+            }
+            if (results->hostname) {
+                strncpy(out.hostname, results->hostname, sizeof(out.hostname) - 1);
+            }
+            out.port      = results->port;
+            out.txt       = n ? txt_view : NULL;
+            out.txt_count = n;
         }
 
         if (req.cb) req.cb(&out, req.ctx);
@@ -325,14 +327,13 @@ static void bb_mdns_dispatch_task(void *arg)
         if (evt->is_removal) {
             if (on_removed) on_removed(evt->instance_name, ctx);
         } else if (on_peer) {
-            bb_mdns_peer_t peer = {
-                .instance_name = evt->instance_name,
-                .hostname      = evt->hostname[0]   ? evt->hostname : NULL,
-                .ip4           = evt->ip4[0]        ? evt->ip4      : NULL,
-                .port          = evt->port,
-                .txt           = evt->txt_count     ? evt->txt      : NULL,
-                .txt_count     = evt->txt_count,
-            };
+            bb_mdns_peer_t peer = {0};
+            strncpy(peer.instance_name, evt->instance_name, sizeof(peer.instance_name) - 1);
+            strncpy(peer.hostname,      evt->hostname,      sizeof(peer.hostname) - 1);
+            strncpy(peer.ip4,           evt->ip4,           sizeof(peer.ip4) - 1);
+            peer.port      = evt->port;
+            peer.txt       = evt->txt_count ? evt->txt : NULL;
+            peer.txt_count = evt->txt_count;
             on_peer(&peer, ctx);
         }
         evt_pool_free(evt);
