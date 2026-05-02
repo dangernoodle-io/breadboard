@@ -8,4 +8,21 @@ config BB_MDNS_AUTOREGISTER
         bb_registry_init(server). Disable to skip the automatic init while
         keeping the component's public C API (caller must invoke bb_mdns_init manually).
 
+config BB_MDNS_BROWSE_REFRESH_INTERVAL_S
+    int "Periodic browse-refresh interval (seconds, 0 disables)"
+    default 60
+    range 0 3600
+    help
+        IDF's mDNS browser only fires the notify callback on PTR
+        state changes (add / remove). Active advertisers re-announcing
+        with the same TTL are silently refreshed in IDF's cache, so
+        consumers never see a "still alive" event for stable peers and
+        their last-seen timestamps stagnate.
+
+        At this interval, bb_mdns deletes and re-creates each active
+        browse subscription, forcing a fresh PTR scan. Any responder
+        produces a fresh add notification; any peer that doesn't reply
+        in the new query window fires its removal callback first.
+        Set to 0 to disable the periodic refresh.
+
 endmenu

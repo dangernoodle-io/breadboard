@@ -81,6 +81,10 @@ static SemaphoreHandle_t s_evt_pool_lock = NULL;
 static bb_mdns_evt_t *evt_pool_alloc(void);
 static void evt_pool_free(bb_mdns_evt_t *evt);
 
+// Forward declarations for browse refresh timer (used by bb_mdns_on_got_ip)
+static void browse_refresh_timer_start(void);
+static void browse_refresh_timer_stop(void);
+
 // App-injected mDNS hostname
 static char s_mdns_hostname[64] = "bsp-device";
 static bool s_mdns_hostname_set = false;
@@ -105,6 +109,14 @@ static bb_mdns_lifecycle_state_t s_lc = {0};
  * last-write-wins coalesce delays the announce until the burst settles. */
 #define BB_MDNS_ANNOUNCE_DELAY_US (100 * 1000)  /* 100 ms */
 static esp_timer_handle_t s_announce_timer = NULL;
+
+/* Periodic browse-refresh timer. IDF's mdns_browse only fires the notify
+ * callback on PTR state changes; same-TTL re-announces by an active
+ * advertiser are silently absorbed. To surface "still alive" without
+ * patching IDF, periodically delete + re-create each browse, which forces
+ * a fresh PTR scan and produces a new add notification per responder.
+ * See B1-87. */
+static esp_timer_handle_t s_browse_refresh_timer = NULL;
 
 static int apply_announce_locked(void)
 {
@@ -604,7 +616,85 @@ static void bb_mdns_on_got_ip(void)
         char instance_name[64];
         mdns_build_instance_name(instance_name, sizeof(instance_name));
         mdns_instance_name_set(instance_name);
+        browse_refresh_timer_start();
     }
+}
+
+/* Refresh callback: walks s_subs[] and replays mdns_browse_delete +
+ * mdns_browse_new for each in-use slot. Snapshots svc/proto under the
+ * subs mutex, then drops the lock for the IDF calls (same pattern as
+ * bb_mdns_re_arm_browses) to avoid blocking the dispatch task while
+ * the IDF mDNS task processes the delete/new. */
+static void browse_refresh_timer_cb(void *arg)
+{
+    (void)arg;
+    if (!bb_mdns_lifecycle_is_started(&s_lc)) return;
+
+    int refreshed = 0;
+    for (int i = 0; i < BB_MDNS_BROWSE_MAX; i++) {
+        char svc[32]   = {0};
+        char proto[8]  = {0};
+        bool in_use = false;
+        if (s_subs_mutex && xSemaphoreTake(s_subs_mutex, portMAX_DELAY) == pdTRUE) {
+            in_use = s_subs[i].in_use;
+            if (in_use) {
+                strncpy(svc,   s_subs[i].service, sizeof(svc)   - 1);
+                strncpy(proto, s_subs[i].proto,   sizeof(proto) - 1);
+            }
+            xSemaphoreGive(s_subs_mutex);
+        }
+        if (!in_use) continue;
+
+        /* Best-effort delete; ignore "not found" — a concurrent stop or
+         * prior refresh failure would have left the slot bookkeeping out
+         * of sync with IDF, and we still want to seed a fresh browser. */
+        mdns_browse_delete(svc, proto);
+        mdns_browse_t *handle = mdns_browse_new(svc, proto, internal_notifier);
+        if (!handle) {
+            bb_log_w(TAG, "browse refresh failed: %s.%s", svc, proto);
+        } else {
+            refreshed++;
+        }
+    }
+    if (refreshed > 0) {
+        bb_log_d(TAG, "refreshed %d browse subscription(s)", refreshed);
+    }
+}
+
+static void browse_refresh_timer_start(void)
+{
+#if CONFIG_BB_MDNS_BROWSE_REFRESH_INTERVAL_S > 0
+    if (s_browse_refresh_timer) return;
+    esp_timer_create_args_t args = {
+        .callback = browse_refresh_timer_cb,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "bb_mdns_browse_refresh",
+    };
+    esp_err_t err = esp_timer_create(&args, &s_browse_refresh_timer);
+    if (err != ESP_OK) {
+        bb_log_w(TAG, "esp_timer_create(browse_refresh) failed: %s",
+                 esp_err_to_name(err));
+        s_browse_refresh_timer = NULL;
+        return;
+    }
+    uint64_t period_us = (uint64_t)CONFIG_BB_MDNS_BROWSE_REFRESH_INTERVAL_S * 1000000ULL;
+    err = esp_timer_start_periodic(s_browse_refresh_timer, period_us);
+    if (err != ESP_OK) {
+        bb_log_w(TAG, "esp_timer_start_periodic(browse_refresh) failed: %s",
+                 esp_err_to_name(err));
+        esp_timer_delete(s_browse_refresh_timer);
+        s_browse_refresh_timer = NULL;
+    }
+#endif
+}
+
+static void browse_refresh_timer_stop(void)
+{
+    if (!s_browse_refresh_timer) return;
+    esp_timer_stop(s_browse_refresh_timer);
+    esp_timer_delete(s_browse_refresh_timer);
+    s_browse_refresh_timer = NULL;
 }
 
 static void bb_mdns_on_disconnect(void)
@@ -620,6 +710,7 @@ static void bb_mdns_on_disconnect(void)
         esp_timer_delete(s_announce_timer);
         s_announce_timer = NULL;
     }
+    browse_refresh_timer_stop();
 
     bb_mdns_lifecycle_result_t res = bb_mdns_lifecycle_stop(&s_lc, &s_lc_adapter);
     if (res != BB_MDNS_LC_OK && res != BB_MDNS_LC_NOT_STARTED) {
@@ -640,6 +731,7 @@ static void bb_mdns_shutdown(void)
         esp_timer_delete(s_announce_timer);
         s_announce_timer = NULL;
     }
+    browse_refresh_timer_stop();
 
     bb_mdns_lifecycle_result_t res = bb_mdns_lifecycle_stop(&s_lc, &s_lc_adapter);
     if (res != BB_MDNS_LC_OK && res != BB_MDNS_LC_NOT_STARTED) {
