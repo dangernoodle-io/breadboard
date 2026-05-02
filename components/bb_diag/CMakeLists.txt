@@ -13,6 +13,29 @@ idf_component_register(
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)
+    # Kconfig can't `select`/`imply` into ESP-IDF's coredump choice groups, so
+    # silently-misconfigured consumers would build clean and capture nothing
+    # until an actual panic exposes the gap. Fail-fast at configure time
+    # instead, naming each missing key so the consumer can paste-and-fix.
+    set(_bb_diag_missing "")
+    if(NOT CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH)
+        list(APPEND _bb_diag_missing "CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y")
+    endif()
+    if(NOT CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF)
+        list(APPEND _bb_diag_missing "CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y")
+    endif()
+    if(NOT CONFIG_ESP_COREDUMP_CHECKSUM_CRC32)
+        list(APPEND _bb_diag_missing "CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y")
+    endif()
+    if(_bb_diag_missing)
+        string(REPLACE ";" "\n  " _bb_diag_missing_fmt "${_bb_diag_missing}")
+        message(FATAL_ERROR
+            "CONFIG_BB_DIAG_PANIC_COREDUMP=y requires the following sdkconfig keys "
+            "(set in sdkconfig.defaults or sdkconfig/<env>):\n  ${_bb_diag_missing_fmt}\n"
+            "Also requires a 'coredump' entry in partitions.csv "
+            "(see examples/smoke/partitions.*.csv).")
+    endif()
+
     idf_component_get_property(espcoredump_dir espcoredump COMPONENT_DIR)
     target_include_directories(${COMPONENT_LIB} PRIVATE ${espcoredump_dir}/include)
     if(CONFIG_IDF_TARGET_ARCH_XTENSA)
