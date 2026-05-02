@@ -27,7 +27,7 @@ static bb_err_t ping_handler(bb_http_request_t *req) {
 void smoke_app_setup(void) {
 #ifdef BB_SMOKE_DISPLAY
     bb_display_init();
-    bb_display_show_splash("smoke", "v0.0.0");
+    bb_display_show_splash("smoke", "v0.0.0", NULL);
 #endif
     bb_nv_config_init();
     bb_log_i(TAG, "boot");

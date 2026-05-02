@@ -1,81 +1,88 @@
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include "bb_core.h"
 
-/**
- * Initialize the display (EK79007 MIPI-DSI RGB565 panel).
- * Configures LDO channel 3 for DPHY voltage, creates DSI bus with 2 lanes @ 900 Mbps,
- * initializes panel with built-in vendor commands, sets up backlight GPIO, then
- * initializes LVGL via esp_lvgl_port.
+/*
+ * bb_display — panel-agnostic display API.
  *
- * @return BB_OK on success, BB_ERR_* on failure
+ * Core surface is pixel-buffer primitives only (clear / blit / flush)
+ * so consumers are never locked into a particular text/font/size
+ * model. Optional layered helpers (draw_text, show_splash, show_prov)
+ * are built on top of blit and accept a swappable font, defaulting to
+ * the bundled 8x16 ASCII bitmap when font is NULL.
+ *
+ * Wiring: panel drivers ship as `bb_display_<chip>` components (e.g.
+ * bb_display_ek79007 for the LVGL+MIPI-DSI EK79007) and register a
+ * `bb_display_backend_t` (see bb_display_backend.h) at link time. A
+ * consumer adds the backend(s) it needs to REQUIRES; a headless
+ * consumer adds neither bb_display nor any backend, paying nothing.
+ *
+ * Multi-backend in one image is allowed (last register wins at init);
+ * most builds link exactly one.
  */
-bb_err_t bb_display_init(void);
 
-/**
- * Clear display to a solid color derived from an RGB565 value.
- *
- * @deprecated Prefer LVGL APIs directly (acquire lock, manipulate objects, release lock).
- *
- * @param rgb565 Color in RGB565 format (5R:6G:5B bits); expanded to RGB888 internally.
- *
- * @note Sets the active screen background color only. Does not remove existing widgets.
- */
+bb_err_t bb_display_init(void);
+void     bb_display_off(void);
+bool     bb_display_ready(void);
+
+uint16_t bb_display_width(void);
+uint16_t bb_display_height(void);
+
+/* Fill the entire framebuffer with `rgb565`. Synchronous-ness is
+ * backend-defined; call bb_display_flush() if you need the panel
+ * updated before returning. */
 void bb_display_clear(uint16_t rgb565);
 
-/**
- * Show splash screen with product name and version.
- * Clears existing screen content and renders centered labels.
+/* Write a rectangle of RGB565 pixels into the framebuffer. `pixels`
+ * is row-major, length w*h, little-endian RGB565 per pixel. Out-of-
+ * bounds rectangles are clipped, not an error. Backends that map
+ * RGB565 to a different native format (e.g. monochrome OLED) convert
+ * internally. */
+void bb_display_blit(int16_t x, int16_t y,
+                     uint16_t w, uint16_t h,
+                     const uint16_t *pixels);
+
+/* Push any pending writes to the panel. Backends that update the
+ * panel on every primitive treat this as a no-op. */
+void bb_display_flush(void);
+
+/* -------- Optional layered helpers (built on blit) -------- */
+
+/*
+ * Bitmap font descriptor. `bitmap` packs `glyph_count` glyphs back to
+ * back; each glyph is `glyph_h` bytes, one byte per row, MSB =
+ * leftmost pixel. Glyphs cover codepoints
+ * [first_codepoint, first_codepoint + glyph_count). Out-of-range
+ * codepoints render as blanks.
  *
- * @param product  Product name (e.g. "MyProduct")
- * @param version  Version string (e.g. "v1.2.3")
+ * Width per glyph must fit in 8 bits (one byte per row); for wider
+ * glyphs add a multi-byte-row variant later.
  */
-void bb_display_show_splash(const char *product, const char *version);
+typedef struct {
+    uint8_t  glyph_w;
+    uint8_t  glyph_h;
+    uint8_t  first_codepoint;
+    uint8_t  glyph_count;
+    const uint8_t *bitmap;
+} bb_display_font_t;
 
-/**
- * Show provisioning screen with AP SSID and password.
- * Clears existing screen content and renders stacked labels.
- *
- * @param ap_ssid   AP SSID name
- * @param ap_pass   AP password
- */
-void bb_display_show_prov(const char *ap_ssid, const char *ap_pass);
+/* Bundled default 8x16 ASCII font (codepoints 0x20..0x7E). */
+extern const bb_display_font_t bb_display_font_8x16;
 
-/**
- * Turn display off: deinit LVGL port and tear down panel hardware.
- */
-void bb_display_off(void);
+/* Render `text` at (x,y) using `font` (NULL → bb_display_font_8x16).
+ * Backends with a native text engine (e.g. LVGL) may implement this
+ * directly; others fall back to a per-glyph rasterizer + blit. */
+void bb_display_draw_text(int16_t x, int16_t y, const char *text,
+                          const bb_display_font_t *font,
+                          uint16_t fg_rgb565, uint16_t bg_rgb565);
 
-#ifdef ESP_PLATFORM
-#include "lvgl.h"
+/* Clear and render a centered two-line splash. */
+void bb_display_show_splash(const char *product, const char *version,
+                            const bb_display_font_t *font);
 
-/**
- * Return the cached active LVGL screen for this display.
- *
- * Every call into LVGL from application code (including lv_timer callbacks
- * not running on the LVGL task) MUST be wrapped in bb_display_lock /
- * bb_display_unlock. Failing to hold the lock causes race conditions with
- * the LVGL port task.
- */
-lv_obj_t *bb_display_screen(void);
-
-/**
- * Acquire the LVGL port mutex.
- *
- * Every call into LVGL from application code (including lv_timer callbacks
- * not running on the LVGL task) MUST be wrapped in bb_display_lock /
- * bb_display_unlock. Failing to hold the lock causes race conditions with
- * the LVGL port task.
- *
- * @param timeout_ms Timeout in ms. 0 waits indefinitely.
- * @return true if lock was acquired, false on timeout.
- */
-bool bb_display_lock(uint32_t timeout_ms);
-
-/**
- * Release the LVGL port mutex acquired by bb_display_lock.
- */
-void bb_display_unlock(void);
-
-#endif /* ESP_PLATFORM */
+/* Clear and render a centered three-line provisioning screen
+ * ("Provisioning" / ssid / pass). */
+void bb_display_show_prov(const char *ap_ssid, const char *ap_pass,
+                          const bb_display_font_t *font);
