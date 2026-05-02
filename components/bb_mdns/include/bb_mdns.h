@@ -50,34 +50,44 @@ typedef struct {
     char *value;
 } bb_mdns_txt_t;
 
+/* Bounds for inlined string fields below. Sized to match the underlying
+ * mDNS event slot buffers; safe to copy by value. */
+#define BB_MDNS_INSTANCE_NAME_MAX 64
+#define BB_MDNS_HOSTNAME_MAX      64
+#define BB_MDNS_IP4_MAX           16
+
 typedef struct {
-    const char         *instance_name;   /* e.g. "TaipanMiner-abc123" */
-    const char         *hostname;        /* e.g. "tdongles3-1.local" */
-    const char         *ip4;             /* first IPv4 dotted-quad, NULL if v6-only */
-    uint16_t            port;
-    const bb_mdns_txt_t *txt;            /* TXT key/value pairs (read-only view) */
+    char     instance_name[BB_MDNS_INSTANCE_NAME_MAX]; /* e.g. "TaipanMiner-abc123" */
+    char     hostname[BB_MDNS_HOSTNAME_MAX];           /* e.g. "tdongles3-1.local", "" if unknown */
+    char     ip4[BB_MDNS_IP4_MAX];                     /* dotted-quad, "" if v6-only / unresolved */
+    uint16_t port;
+    const bb_mdns_txt_t *txt;       /* TXT key/value pairs (read-only view, callback-scoped) */
     size_t              txt_count;
 } bb_mdns_peer_t;
 
 /* Callbacks fire from the bb_mdns dispatch task (NOT the IDF mDNS task,
- * NOT the caller's task). The bb_mdns_peer_t and its referenced strings
- * are owned by bb_mdns and remain valid only for the duration of the
- * callback; consumers must copy any data they need to retain. on_removed
- * fires with just the instance_name (also valid only for the call). */
+ * NOT the caller's task).
+ *
+ * Scalar string fields (instance_name, hostname, ip4) are inlined into the
+ * struct, so a `bb_mdns_peer_t` copy is sufficient to retain them. Empty
+ * fields are zero-length strings, never NULL.
+ *
+ * The `txt` array view is owned by bb_mdns and remains valid ONLY for the
+ * duration of the callback — consumers that need to retain TXT records
+ * must copy them. on_removed fires with the inlined instance_name only. */
 typedef void (*bb_mdns_peer_cb)(const bb_mdns_peer_t *peer, void *ctx);
 typedef void (*bb_mdns_peer_removed_cb)(const char *instance_name, void *ctx);
 
-/* Result of an async TXT query. instance_name, hostname, ip4, txt[] are
- * owned by bb_mdns and valid only for the duration of the callback —
- * same lifetime contract as bb_mdns_peer_t add events. err is BB_OK on
- * success; on failure (timeout, no response, IDF error) other fields
- * are unspecified except err. */
+/* Result of an async TXT query. Same field-ownership contract as
+ * bb_mdns_peer_t: scalar strings are inlined and copy-safe; the `txt`
+ * view is callback-scoped. err is BB_OK on success; on failure (timeout,
+ * no response, IDF error) other fields are unspecified except err. */
 typedef struct {
-    bb_err_t           err;
-    const char         *instance_name;
-    const char         *hostname;
-    const char         *ip4;
-    uint16_t            port;
+    bb_err_t err;
+    char     instance_name[BB_MDNS_INSTANCE_NAME_MAX];
+    char     hostname[BB_MDNS_HOSTNAME_MAX];
+    char     ip4[BB_MDNS_IP4_MAX];
+    uint16_t port;
     const bb_mdns_txt_t *txt;
     size_t              txt_count;
 } bb_mdns_query_result_t;
