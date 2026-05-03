@@ -60,15 +60,68 @@ static bb_err_t st7789_init(uint16_t *width_out, uint16_t *height_out)
     return BB_OK;
 }
 
+static bb_err_t st7789_set_rotation(uint16_t deg, uint16_t *w, uint16_t *h)
+{
+    if (!bb_display_st77xx_panel) return BB_ERR_INVALID_STATE;
+
+    bool swap_xy, mirror_x, mirror_y;
+    uint16_t width = LCD_WIDTH, height = LCD_HEIGHT;
+
+    switch (deg) {
+        case 0:
+            swap_xy = false;
+            mirror_x = false;
+            mirror_y = false;
+            width = LCD_WIDTH;
+            height = LCD_HEIGHT;
+            break;
+        case 90:
+            swap_xy = true;
+            mirror_x = true;
+            mirror_y = false;
+            width = LCD_HEIGHT;
+            height = LCD_WIDTH;
+            break;
+        case 180:
+            swap_xy = false;
+            mirror_x = true;
+            mirror_y = true;
+            width = LCD_WIDTH;
+            height = LCD_HEIGHT;
+            break;
+        case 270:
+            swap_xy = true;
+            mirror_x = false;
+            mirror_y = true;
+            width = LCD_HEIGHT;
+            height = LCD_WIDTH;
+            break;
+        default:
+            return BB_ERR_INVALID_ARG;
+    }
+
+    if (esp_lcd_panel_swap_xy(bb_display_st77xx_panel, swap_xy) != ESP_OK) {
+        return BB_ERR_INVALID_STATE;
+    }
+    if (esp_lcd_panel_mirror(bb_display_st77xx_panel, mirror_x, mirror_y) != ESP_OK) {
+        return BB_ERR_INVALID_STATE;
+    }
+
+    *w = width;
+    *h = height;
+    return BB_OK;
+}
+
 static const bb_display_backend_t s_backend = {
-    .name      = "st7789",
-    .probe     = NULL,
-    .init      = st7789_init,
-    .clear     = bb_display_st77xx_clear,
-    .blit      = bb_display_st77xx_blit,
-    .flush     = NULL,
-    .off       = bb_display_st77xx_off,
-    .draw_text = NULL,
+    .name         = "st7789",
+    .probe        = NULL,
+    .init         = st7789_init,
+    .clear        = bb_display_st77xx_clear,
+    .blit         = bb_display_st77xx_blit,
+    .flush        = NULL,
+    .off          = bb_display_st77xx_off,
+    .draw_text    = NULL,
+    .set_rotation = st7789_set_rotation,
 };
 
 void bb_display_register__st7789(void) __attribute__((constructor));

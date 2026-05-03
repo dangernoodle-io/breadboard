@@ -141,15 +141,32 @@ static void ssd1306_off(void) {
     cmd(0xAE);  /* DISPLAYOFF */
 }
 
+static bb_err_t ssd1306_set_rotation(uint16_t deg, uint16_t *w, uint16_t *h) {
+    if (deg == 0) {
+        cmd(0xA0);  /* SEGREMAP normal */
+        cmd(0xC0);  /* COMSCANDEC normal */
+    } else if (deg == 180) {
+        cmd(0xA1);  /* SEGREMAP flipped */
+        cmd(0xC8);  /* COMSCANDEC flipped */
+    } else {
+        return BB_ERR_INVALID_STATE;  /* 90/270 not supported on page-oriented FB */
+    }
+    /* dimensions don't change */
+    *w = SSD1306_WIDTH;
+    *h = SSD1306_HEIGHT;
+    return BB_OK;
+}
+
 static const bb_display_backend_t s_backend = {
-    .name      = "ssd1306",
-    .probe     = ssd1306_probe,
-    .init      = ssd1306_init,
-    .clear     = ssd1306_clear,
-    .blit      = ssd1306_blit,
-    .flush     = NULL,
-    .off       = ssd1306_off,
-    .draw_text = NULL,
+    .name         = "ssd1306",
+    .probe        = ssd1306_probe,
+    .init         = ssd1306_init,
+    .clear        = ssd1306_clear,
+    .blit         = ssd1306_blit,
+    .flush        = NULL,
+    .off          = ssd1306_off,
+    .draw_text    = NULL,
+    .set_rotation = ssd1306_set_rotation,
 };
 
 void bb_display_register__ssd1306(void) __attribute__((constructor));

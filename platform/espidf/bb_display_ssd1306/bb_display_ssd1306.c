@@ -149,15 +149,38 @@ static void ssd1306_off(void)
      * s_owned_bus. */
 }
 
+static bb_err_t ssd1306_set_rotation(uint16_t deg, uint16_t *w, uint16_t *h)
+{
+    if (!s_panel) return BB_ERR_INVALID_STATE;
+
+    if (deg == 0) {
+        if (esp_lcd_panel_mirror(s_panel, false, false) != ESP_OK) {
+            return BB_ERR_INVALID_STATE;
+        }
+    } else if (deg == 180) {
+        if (esp_lcd_panel_mirror(s_panel, true, true) != ESP_OK) {
+            return BB_ERR_INVALID_STATE;
+        }
+    } else {
+        return BB_ERR_INVALID_STATE;  /* 90/270 not supported on page-oriented FB */
+    }
+
+    /* dimensions don't change */
+    *w = SSD1306_WIDTH;
+    *h = SSD1306_HEIGHT;
+    return BB_OK;
+}
+
 static const bb_display_backend_t s_backend = {
-    .name      = "ssd1306",
-    .probe     = ssd1306_probe,
-    .init      = ssd1306_init,
-    .clear     = ssd1306_clear,
-    .blit      = ssd1306_blit,
-    .flush     = NULL,            /* every blit/clear pushes immediately */
-    .off       = ssd1306_off,
-    .draw_text = NULL,            /* core rasterizes via font + blit */
+    .name         = "ssd1306",
+    .probe        = ssd1306_probe,
+    .init         = ssd1306_init,
+    .clear        = ssd1306_clear,
+    .blit         = ssd1306_blit,
+    .flush        = NULL,            /* every blit/clear pushes immediately */
+    .off          = ssd1306_off,
+    .draw_text    = NULL,            /* core rasterizes via font + blit */
+    .set_rotation = ssd1306_set_rotation,
 };
 
 #if CONFIG_BB_DISPLAY_SSD1306_AUTOREGISTER

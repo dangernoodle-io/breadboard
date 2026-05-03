@@ -357,14 +357,15 @@ static void ek79007_draw_text(int16_t x, int16_t y, const char *text,
 }
 
 static const bb_display_backend_t s_backend = {
-    .name      = "ek79007",
-    .probe     = NULL,
-    .init      = ek79007_init,
-    .clear     = ek79007_clear,
-    .blit      = ek79007_blit,
-    .flush     = ek79007_flush,
-    .off       = ek79007_off,
-    .draw_text = ek79007_draw_text,
+    .name         = "ek79007",
+    .probe        = NULL,
+    .init         = ek79007_init,
+    .clear        = ek79007_clear,
+    .blit         = ek79007_blit,
+    .flush        = ek79007_flush,
+    .off          = ek79007_off,
+    .draw_text    = ek79007_draw_text,
+    .set_rotation = NULL,  /* LVGL handles rotation; out of scope for this API */
 };
 
 #if CONFIG_BB_DISPLAY_EK79007_AUTOREGISTER

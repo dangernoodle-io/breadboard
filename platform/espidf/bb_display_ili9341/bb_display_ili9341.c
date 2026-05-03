@@ -164,15 +164,68 @@ static void ili9341_off(void) {
     }
 }
 
+static bb_err_t ili9341_set_rotation(uint16_t deg, uint16_t *w, uint16_t *h)
+{
+    if (!s_panel) return BB_ERR_INVALID_STATE;
+
+    bool swap_xy, mirror_x, mirror_y;
+    uint16_t width = ILI9341_NATIVE_H, height = ILI9341_NATIVE_W;  /* default landscape */
+
+    switch (deg) {
+        case 0:
+            swap_xy = false;
+            mirror_x = false;
+            mirror_y = false;
+            width = ILI9341_NATIVE_W;
+            height = ILI9341_NATIVE_H;
+            break;
+        case 90:
+            swap_xy = true;
+            mirror_x = true;
+            mirror_y = false;
+            width = ILI9341_NATIVE_H;
+            height = ILI9341_NATIVE_W;
+            break;
+        case 180:
+            swap_xy = false;
+            mirror_x = true;
+            mirror_y = true;
+            width = ILI9341_NATIVE_W;
+            height = ILI9341_NATIVE_H;
+            break;
+        case 270:
+            swap_xy = true;
+            mirror_x = false;
+            mirror_y = true;
+            width = ILI9341_NATIVE_H;
+            height = ILI9341_NATIVE_W;
+            break;
+        default:
+            return BB_ERR_INVALID_ARG;
+    }
+
+    if (esp_lcd_panel_swap_xy(s_panel, swap_xy) != ESP_OK) {
+        return BB_ERR_INVALID_STATE;
+    }
+    if (esp_lcd_panel_mirror(s_panel, mirror_x, mirror_y) != ESP_OK) {
+        return BB_ERR_INVALID_STATE;
+    }
+
+    *w = width;
+    *h = height;
+    return BB_OK;
+}
+
 static const bb_display_backend_t s_backend = {
-    .name      = "ili9341",
-    .probe     = ili9341_probe,
-    .init      = ili9341_init,
-    .clear     = ili9341_clear,
-    .blit      = ili9341_blit,
-    .flush     = NULL,
-    .off       = ili9341_off,
-    .draw_text = NULL,
+    .name         = "ili9341",
+    .probe        = ili9341_probe,
+    .init         = ili9341_init,
+    .clear        = ili9341_clear,
+    .blit         = ili9341_blit,
+    .flush        = NULL,
+    .off          = ili9341_off,
+    .draw_text    = NULL,
+    .set_rotation = ili9341_set_rotation,
 };
 
 #if CONFIG_BB_DISPLAY_ILI9341_AUTOREGISTER

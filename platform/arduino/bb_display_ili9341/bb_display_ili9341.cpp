@@ -242,15 +242,55 @@ static void ili9341_off(void) {
 #endif
 }
 
+static bb_err_t ili9341_set_rotation(uint16_t deg, uint16_t *w, uint16_t *h) {
+    /* MADCTL register (0x36) bits:
+     * MX=0x40, MY=0x80, MV=0x20, BGR=0x08 */
+    uint8_t madctl = 0x08;  /* BGR always on */
+    uint16_t width = ILI9341_NATIVE_W, height = ILI9341_NATIVE_H;
+
+    switch (deg) {
+        case 0:
+            madctl |= 0x40;  /* MX */
+            break;
+        case 90:
+            madctl |= (0x20 | 0x08);  /* MV | BGR (landscape) */
+            /* 90° rotation swaps dimensions */
+            width = ILI9341_NATIVE_H;
+            height = ILI9341_NATIVE_W;
+            break;
+        case 180:
+            madctl |= (0x80 | 0x40);  /* MY | MX */
+            break;
+        case 270:
+            madctl |= (0x20 | 0x80 | 0x40);  /* MV | MY | MX */
+            /* 270° rotation swaps dimensions */
+            width = ILI9341_NATIVE_H;
+            height = ILI9341_NATIVE_W;
+            break;
+        default:
+            return BB_ERR_INVALID_ARG;
+    }
+
+    s_spi->beginTransaction(s_spi_settings);
+    send_cmd(0x36);
+    send_data_byte(madctl);
+    s_spi->endTransaction();
+
+    *w = width;
+    *h = height;
+    return BB_OK;
+}
+
 static const bb_display_backend_t s_backend = {
-    .name      = "ili9341",
-    .probe     = ili9341_probe,
-    .init      = ili9341_init,
-    .clear     = ili9341_clear,
-    .blit      = ili9341_blit,
-    .flush     = NULL,
-    .off       = ili9341_off,
-    .draw_text = NULL,
+    .name         = "ili9341",
+    .probe        = ili9341_probe,
+    .init         = ili9341_init,
+    .clear        = ili9341_clear,
+    .blit         = ili9341_blit,
+    .flush        = NULL,
+    .off          = ili9341_off,
+    .draw_text    = NULL,
+    .set_rotation = ili9341_set_rotation,
 };
 
 extern "C" {
