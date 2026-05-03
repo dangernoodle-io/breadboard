@@ -14,7 +14,10 @@ extern "C" {
 #define BB_DISPLAY_SSD1306_I2C_ADDR 0x3C
 #endif
 #ifndef BB_DISPLAY_SSD1306_HEIGHT
-#define BB_DISPLAY_SSD1306_HEIGHT 32
+/* 128x64 is the dominant "0.96 inch" module size in the wild (and what most
+ * SSD1315 modules ship with too). Override to 32 for the smaller 0.49"
+ * 128x32 variant. */
+#define BB_DISPLAY_SSD1306_HEIGHT 64
 #endif
 #define SSD1306_WIDTH  128
 #define SSD1306_HEIGHT BB_DISPLAY_SSD1306_HEIGHT
