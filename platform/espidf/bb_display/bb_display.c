@@ -6,7 +6,10 @@
 
 static const char *TAG = "bb_display";
 
-static const bb_display_backend_t *s_backend = NULL;
+#define BB_DISPLAY_MAX_BACKENDS 8
+static const bb_display_backend_t *s_backends[BB_DISPLAY_MAX_BACKENDS];
+static size_t s_backend_count = 0;
+static const bb_display_backend_t *s_active = NULL;
 static bool     s_ready = false;
 static uint16_t s_width = 0;
 static uint16_t s_height = 0;
@@ -14,30 +17,56 @@ static uint16_t s_height = 0;
 void bb_display_register_backend(const bb_display_backend_t *backend)
 {
     if (!backend) return;
-    s_backend = backend;
+    if (s_backend_count >= BB_DISPLAY_MAX_BACKENDS) {
+        bb_log_w(TAG, "backend registry full; dropping %s", backend->name ? backend->name : "?");
+        return;
+    }
+    s_backends[s_backend_count++] = backend;
 }
 
 bb_err_t bb_display_init(void)
 {
     if (s_ready) return BB_OK;
-    if (!s_backend || !s_backend->init) {
+    if (s_backend_count == 0) {
         bb_log_w(TAG, "no backend registered — display API is a no-op");
         return BB_ERR_INVALID_STATE;
     }
 
-    uint16_t w = 0, h = 0;
-    bb_err_t err = s_backend->init(&w, &h);
-    if (err != BB_OK) {
-        bb_log_e(TAG, "backend %s init failed: %d",
-                 s_backend->name ? s_backend->name : "?", (int)err);
-        return err;
+    for (size_t i = 0; i < s_backend_count; i++) {
+        const bb_display_backend_t *candidate = s_backends[i];
+        if (!candidate || !candidate->init) continue;
+
+        /* Call probe if available. */
+        bool probed = false;
+        if (candidate->probe) {
+            bb_err_t probe_err = candidate->probe();
+            probed = true;
+            if (probe_err != BB_OK) {
+                bb_log_i(TAG, "probe %s: not found", candidate->name ? candidate->name : "?");
+                continue;
+            }
+        }
+
+        /* Try init. */
+        uint16_t w = 0, h = 0;
+        bb_err_t err = candidate->init(&w, &h);
+        if (err != BB_OK) {
+            bb_log_w(TAG, "init %s failed: %d", candidate->name ? candidate->name : "?", (int)err);
+            continue;
+        }
+
+        /* Success. */
+        s_active = candidate;
+        s_width = w;
+        s_height = h;
+        s_ready = true;
+        bb_log_i(TAG, "init: %ux%u (%s) [probed=%s]", (unsigned)w, (unsigned)h,
+                 candidate->name ? candidate->name : "?", probed ? "yes" : "no");
+        return BB_OK;
     }
-    s_width  = w;
-    s_height = h;
-    s_ready  = true;
-    bb_log_i(TAG, "init: %ux%u (%s)", (unsigned)w, (unsigned)h,
-             s_backend->name ? s_backend->name : "?");
-    return BB_OK;
+
+    bb_log_e(TAG, "no backend succeeded initialization");
+    return BB_ERR_INVALID_STATE;
 }
 
 bool     bb_display_ready(void)  { return s_ready; }
@@ -46,27 +75,28 @@ uint16_t bb_display_height(void) { return s_height; }
 
 void bb_display_clear(uint16_t rgb565)
 {
-    if (!s_ready || !s_backend->clear) return;
-    s_backend->clear(rgb565);
+    if (!s_ready || !s_active->clear) return;
+    s_active->clear(rgb565);
 }
 
 void bb_display_blit(int16_t x, int16_t y, uint16_t w, uint16_t h, const uint16_t *pixels)
 {
-    if (!s_ready || !s_backend->blit || !pixels || !w || !h) return;
-    s_backend->blit(x, y, w, h, pixels);
+    if (!s_ready || !s_active->blit || !pixels || !w || !h) return;
+    s_active->blit(x, y, w, h, pixels);
 }
 
 void bb_display_flush(void)
 {
-    if (!s_ready || !s_backend->flush) return;
-    s_backend->flush();
+    if (!s_ready || !s_active->flush) return;
+    s_active->flush();
 }
 
 void bb_display_off(void)
 {
     if (!s_ready) return;
-    if (s_backend->off) s_backend->off();
+    if (s_active->off) s_active->off();
     s_ready = false;
+    s_active = NULL;
     s_width = 0;
     s_height = 0;
 }
@@ -104,11 +134,11 @@ void bb_display_draw_text(int16_t x, int16_t y, const char *text,
     if (!s_ready || !text) return;
     if (!font) font = &bb_display_font_8x16;
 
-    if (s_backend->draw_text) {
-        s_backend->draw_text(x, y, text, font, fg, bg);
+    if (s_active->draw_text) {
+        s_active->draw_text(x, y, text, font, fg, bg);
         return;
     }
-    if (!s_backend->blit) return;
+    if (!s_active->blit) return;
     if (font->glyph_w > BB_DISPLAY_RASTER_MAX_W ||
         font->glyph_h > BB_DISPLAY_RASTER_MAX_H) return;
 
@@ -116,7 +146,7 @@ void bb_display_draw_text(int16_t x, int16_t y, const char *text,
     int16_t cx = x;
     for (const char *p = text; *p; p++) {
         rasterize_glyph(font, (uint8_t)*p, fg, bg, glyph);
-        s_backend->blit(cx, y, font->glyph_w, font->glyph_h, glyph);
+        s_active->blit(cx, y, font->glyph_w, font->glyph_h, glyph);
         cx += font->glyph_w;
     }
 }
