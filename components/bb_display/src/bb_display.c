@@ -222,3 +222,18 @@ void bb_display_set_default_font(const bb_display_font_t *font)
         s_default_font = font;
     }
 }
+
+bb_err_t bb_display_set_rotation(uint16_t deg)
+{
+    if (!s_ready || !s_active) return BB_ERR_INVALID_STATE;
+    if (deg != 0 && deg != 90 && deg != 180 && deg != 270) return BB_ERR_INVALID_ARG;
+    if (!s_active->set_rotation) return BB_ERR_INVALID_STATE;
+
+    uint16_t nw = s_width, nh = s_height;
+    bb_err_t err = s_active->set_rotation(deg, &nw, &nh);
+    if (err == BB_OK) {
+        s_width = nw;
+        s_height = nh;
+    }
+    return err;
+}

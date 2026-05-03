@@ -51,6 +51,7 @@ typedef struct bb_display_backend_s {
                           const bb_display_font_t *font,
                           uint16_t fg_rgb565,
                           uint16_t bg_rgb565);
+    bb_err_t (*set_rotation)(uint16_t deg, uint16_t *new_w, uint16_t *new_h);  /* Optional. */
 } bb_display_backend_t;
 
 /* Register a backend. Appends to ordered list. Safe from a constructor before main. */

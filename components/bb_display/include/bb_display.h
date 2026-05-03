@@ -108,3 +108,8 @@ void bb_display_show_prov(const char *ap_ssid, const char *ap_pass,
 /* Set the fallback font used when callers pass NULL to draw_text,
  * show_splash, show_prov. Pass NULL to restore the compile-time default. */
 void bb_display_set_default_font(const bb_display_font_t *font);
+
+/* Rotate the display. Valid values: 0, 90, 180, 270.
+ * Returns BB_ERR_INVALID_STATE if the active backend doesn't support this
+ * angle, or BB_ERR_INVALID_ARG for non-cardinal values. */
+bb_err_t bb_display_set_rotation(uint16_t deg);

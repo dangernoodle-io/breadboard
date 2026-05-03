@@ -213,19 +213,57 @@ static void common_off(void) {
 #endif
 }
 
+static bb_err_t st77xx_set_rotation(uint16_t deg, uint16_t *w, uint16_t *h) {
+    /* MADCTL register (0x36) bits:
+     * MX=0x40, MY=0x80, MV=0x20, BGR=0x08 */
+    uint8_t madctl = 0x08;  /* BGR always on */
+    uint16_t width = BB_DISPLAY_ST77XX_WIDTH, height = BB_DISPLAY_ST77XX_HEIGHT;
+
+    switch (deg) {
+        case 0:
+            madctl |= 0x00;  /* no flips */
+            break;
+        case 90:
+            madctl |= (0x20 | 0x40);  /* MV | MX (swap + mirror_x) */
+            width = BB_DISPLAY_ST77XX_HEIGHT;
+            height = BB_DISPLAY_ST77XX_WIDTH;
+            break;
+        case 180:
+            madctl |= (0x80 | 0x40);  /* MY | MX (mirror_y + mirror_x) */
+            break;
+        case 270:
+            madctl |= (0x20 | 0x80);  /* MV | MY (swap + mirror_y) */
+            width = BB_DISPLAY_ST77XX_HEIGHT;
+            height = BB_DISPLAY_ST77XX_WIDTH;
+            break;
+        default:
+            return BB_ERR_INVALID_ARG;
+    }
+
+    s_spi->beginTransaction(s_spi_settings);
+    send_cmd(0x36);
+    send_data_byte(madctl);
+    s_spi->endTransaction();
+
+    *w = width;
+    *h = height;
+    return BB_OK;
+}
+
 extern "C" {
 
 #if defined(BB_DISPLAY_ST77XX_VARIANT_ST7735) || \
     (!defined(BB_DISPLAY_ST77XX_VARIANT_ST7789) && !defined(BB_DISPLAY_ST77XX_REGISTER_BOTH))
 static const bb_display_backend_t s_backend_st7735 = {
-    .name      = "st7735",
-    .probe     = NULL,
-    .init      = st7735_init,
-    .clear     = common_clear,
-    .blit      = common_blit,
-    .flush     = NULL,
-    .off       = common_off,
-    .draw_text = NULL,
+    .name         = "st7735",
+    .probe        = NULL,
+    .init         = st7735_init,
+    .clear        = common_clear,
+    .blit         = common_blit,
+    .flush        = NULL,
+    .off          = common_off,
+    .draw_text    = NULL,
+    .set_rotation = st77xx_set_rotation,
 };
 void bb_display_register__st7735(void) __attribute__((constructor));
 void bb_display_register__st7735(void) {
@@ -235,14 +273,15 @@ void bb_display_register__st7735(void) {
 
 #if defined(BB_DISPLAY_ST77XX_VARIANT_ST7789) || defined(BB_DISPLAY_ST77XX_REGISTER_BOTH)
 static const bb_display_backend_t s_backend_st7789 = {
-    .name      = "st7789",
-    .probe     = NULL,
-    .init      = st7789_init,
-    .clear     = common_clear,
-    .blit      = common_blit,
-    .flush     = NULL,
-    .off       = common_off,
-    .draw_text = NULL,
+    .name         = "st7789",
+    .probe        = NULL,
+    .init         = st7789_init,
+    .clear        = common_clear,
+    .blit         = common_blit,
+    .flush        = NULL,
+    .off          = common_off,
+    .draw_text    = NULL,
+    .set_rotation = st77xx_set_rotation,
 };
 void bb_display_register__st7789(void) __attribute__((constructor));
 void bb_display_register__st7789(void) {
