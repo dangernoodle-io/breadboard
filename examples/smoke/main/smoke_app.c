@@ -11,7 +11,7 @@
 #include "bb_wifi.h"
 #include "smoke_app.h"
 
-#ifdef BB_SMOKE_DISPLAY
+#if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
 #include "bb_display.h"
 #endif
 
@@ -25,9 +25,13 @@ static bb_err_t ping_handler(bb_http_request_t *req) {
 }
 
 void smoke_app_setup(void) {
-#ifdef BB_SMOKE_DISPLAY
-    bb_display_init();
-    bb_display_show_splash("smoke", "v0.0.0", NULL);
+#if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
+    if (bb_display_init() == BB_OK) {
+        bb_log_i(TAG, "display: %ux%u", bb_display_width(), bb_display_height());
+        bb_display_show_splash("smoke", "v0.0.0", NULL);
+    } else {
+        bb_log_w(TAG, "display: no probe match");
+    }
 #endif
     bb_nv_config_init();
     bb_log_i(TAG, "boot");
