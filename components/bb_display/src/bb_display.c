@@ -14,6 +14,19 @@ static bool     s_ready = false;
 static uint16_t s_width = 0;
 static uint16_t s_height = 0;
 
+/* Default font selection: prefer largest available. */
+#if BB_DISPLAY_FONT_8X16
+static const bb_display_font_t *s_compile_time_default_font = &bb_display_font_8x16;
+#elif BB_DISPLAY_FONT_6X8
+static const bb_display_font_t *s_compile_time_default_font = &bb_display_font_6x8;
+#elif BB_DISPLAY_FONT_5X7
+static const bb_display_font_t *s_compile_time_default_font = &bb_display_font_5x7;
+#else
+static const bb_display_font_t *s_compile_time_default_font = NULL;
+#endif
+
+static const bb_display_font_t *s_default_font = NULL;  /* Initialized in bb_display_init(). */
+
 void bb_display_register_backend(const bb_display_backend_t *backend)
 {
     if (!backend) return;
@@ -30,6 +43,11 @@ bb_err_t bb_display_init(void)
     if (s_backend_count == 0) {
         bb_log_w(TAG, "no backend registered — display API is a no-op");
         return BB_ERR_INVALID_STATE;
+    }
+
+    /* Initialize default font on first init. */
+    if (s_default_font == NULL) {
+        s_default_font = s_compile_time_default_font;
     }
 
     for (size_t i = 0; i < s_backend_count; i++) {
@@ -132,7 +150,8 @@ void bb_display_draw_text(int16_t x, int16_t y, const char *text,
                           uint16_t fg, uint16_t bg)
 {
     if (!s_ready || !text) return;
-    if (!font) font = &bb_display_font_8x16;
+    if (!font) font = s_default_font;
+    if (!font) return;
 
     if (s_active->draw_text) {
         s_active->draw_text(x, y, text, font, fg, bg);
@@ -156,7 +175,8 @@ static void render_centered_lines(const char * const *lines, size_t n,
                                   uint16_t fg, uint16_t bg)
 {
     if (!s_ready || n == 0) return;
-    if (!font) font = &bb_display_font_8x16;
+    if (!font) font = s_default_font;
+    if (!font) return;
     int total_h = (int)n * font->glyph_h;
     int y0 = ((int)s_height - total_h) / 2;
     if (y0 < 0) y0 = 0;
@@ -192,4 +212,13 @@ void bb_display_show_prov(const char *ap_ssid, const char *ap_pass,
         ap_pass ? ap_pass : "",
     };
     render_centered_lines(lines, 3, font, 0xFFFF, 0x0140);
+}
+
+void bb_display_set_default_font(const bb_display_font_t *font)
+{
+    if (font == NULL) {
+        s_default_font = s_compile_time_default_font;
+    } else {
+        s_default_font = font;
+    }
 }

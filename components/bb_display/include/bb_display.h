@@ -68,8 +68,26 @@ typedef struct {
     const uint8_t *bitmap;
 } bb_display_font_t;
 
-/* Bundled default 8x16 ASCII font (codepoints 0x20..0x7E). */
+/* Bundled fonts. Availability depends on Kconfig/compile flags. */
+#ifndef BB_DISPLAY_FONT_8X16
+#define BB_DISPLAY_FONT_8X16 1
+#endif
+#ifndef BB_DISPLAY_FONT_6X8
+#define BB_DISPLAY_FONT_6X8 1
+#endif
+#ifndef BB_DISPLAY_FONT_5X7
+#define BB_DISPLAY_FONT_5X7 1
+#endif
+
+#if BB_DISPLAY_FONT_8X16
 extern const bb_display_font_t bb_display_font_8x16;
+#endif
+#if BB_DISPLAY_FONT_6X8
+extern const bb_display_font_t bb_display_font_6x8;
+#endif
+#if BB_DISPLAY_FONT_5X7
+extern const bb_display_font_t bb_display_font_5x7;
+#endif
 
 /* Render `text` at (x,y) using `font` (NULL → bb_display_font_8x16).
  * Backends with a native text engine (e.g. LVGL) may implement this
@@ -86,3 +104,7 @@ void bb_display_show_splash(const char *product, const char *version,
  * ("Provisioning" / ssid / pass). */
 void bb_display_show_prov(const char *ap_ssid, const char *ap_pass,
                           const bb_display_font_t *font);
+
+/* Set the fallback font used when callers pass NULL to draw_text,
+ * show_splash, show_prov. Pass NULL to restore the compile-time default. */
+void bb_display_set_default_font(const bb_display_font_t *font);
