@@ -291,3 +291,49 @@ extern "C" bb_err_t bb_nv_erase(const char *ns, const char *key) {
 extern "C" const char *bb_nv_config_wifi_ssid(void) { return ""; }
 extern "C" const char *bb_nv_config_wifi_pass(void) { return ""; }
 extern "C" bool bb_nv_config_display_enabled(void) { return false; }
+
+// -------- batched setters (Arduino: forwarders, no commit savings) --------
+// EEPROM writes are byte-direct on AVR and per-record-managed in this layer,
+// so there's no flash-bus contention to amortize. Forward each set to the
+// per-key API; preserves API parity with the ESP-IDF backend.
+
+extern "C" bb_err_t bb_nv_batch_begin(bb_nv_batch_t *batch, const char *ns) {
+    if (!batch || !ns) return BB_ERR_INVALID_ARG;
+    batch->_impl = 0;
+    batch->_err = BB_OK;
+    batch->_open = 1;
+    strncpy(batch->_ns, ns, sizeof(batch->_ns) - 1);
+    batch->_ns[sizeof(batch->_ns) - 1] = '\0';
+    return BB_OK;
+}
+
+#define BB_NV_BATCH_FWD(WIDTH)                                                  \
+    extern "C" bb_err_t bb_nv_batch_set_u##WIDTH(bb_nv_batch_t *batch,          \
+                                                 const char *key,                \
+                                                 uint##WIDTH##_t value) {       \
+        if (!batch || !key) return BB_ERR_INVALID_ARG;                          \
+        if (!batch->_open) return BB_ERR_INVALID_STATE;                         \
+        if (batch->_err != BB_OK) return batch->_err;                           \
+        bb_err_t err = bb_nv_set_u##WIDTH(batch->_ns, key, value);              \
+        if (err != BB_OK) batch->_err = err;                                    \
+        return err;                                                             \
+    }
+BB_NV_BATCH_FWD(8)
+BB_NV_BATCH_FWD(16)
+BB_NV_BATCH_FWD(32)
+#undef BB_NV_BATCH_FWD
+
+extern "C" bb_err_t bb_nv_batch_set_str(bb_nv_batch_t *batch, const char *key, const char *value) {
+    if (!batch || !key || !value) return BB_ERR_INVALID_ARG;
+    if (!batch->_open) return BB_ERR_INVALID_STATE;
+    if (batch->_err != BB_OK) return batch->_err;
+    bb_err_t err = bb_nv_set_str(batch->_ns, key, value);
+    if (err != BB_OK) batch->_err = err;
+    return err;
+}
+
+extern "C" bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch) {
+    if (!batch) return BB_ERR_INVALID_ARG;
+    batch->_open = 0;
+    return batch->_err;
+}

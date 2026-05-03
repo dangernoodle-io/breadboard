@@ -521,6 +521,82 @@ bb_err_t bb_nv_erase(const char *ns, const char *key)
     return err;
 }
 
+/* -------- batched setters -------- */
+
+bb_err_t bb_nv_batch_begin(bb_nv_batch_t *batch, const char *ns)
+{
+    if (batch == NULL || ns == NULL) return BB_ERR_INVALID_ARG;
+    batch->_impl = 0;
+    batch->_err = BB_OK;
+    batch->_open = 0;
+    copy_str(batch->_ns, ns, sizeof(batch->_ns));
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
+    if (err != BB_OK) {
+        batch->_err = err;
+        return err;
+    }
+    batch->_impl = (uintptr_t)handle;
+    batch->_open = 1;
+    return BB_OK;
+}
+
+/* Common entry guard for batch setters: rejects null args, unopened handles,
+ * and sticky-poisoned batches (where a previous set already failed). */
+static bb_err_t batch_check(bb_nv_batch_t *batch, const char *key)
+{
+    if (batch == NULL || key == NULL) return BB_ERR_INVALID_ARG;
+    if (!batch->_open) return BB_ERR_INVALID_STATE;
+    return batch->_err;
+}
+
+#define BB_NV_BATCH_SET_INT(WIDTH)                                                          \
+    bb_err_t bb_nv_batch_set_u##WIDTH(bb_nv_batch_t *batch, const char *key,                \
+                                      uint##WIDTH##_t value)                                \
+    {                                                                                       \
+        bb_err_t pre = batch_check(batch, key);                                             \
+        if (pre != BB_OK) return pre;                                                       \
+        nvs_handle_t h = (nvs_handle_t)batch->_impl;                                        \
+        bb_err_t err = nvs_set_u##WIDTH(h, key, value);                                     \
+        if (err == ESP_ERR_NVS_TYPE_MISMATCH) {                                             \
+            bb_log_w(TAG_NV, "type mismatch on batch set '%s/%s', rewriting",               \
+                     batch->_ns, key);                                                      \
+            (void)nvs_erase_key(h, key);                                                    \
+            err = nvs_set_u##WIDTH(h, key, value);                                          \
+        }                                                                                   \
+        if (err != BB_OK) batch->_err = err;                                                \
+        return err;                                                                         \
+    }
+BB_NV_BATCH_SET_INT(8)
+BB_NV_BATCH_SET_INT(16)
+BB_NV_BATCH_SET_INT(32)
+#undef BB_NV_BATCH_SET_INT
+
+bb_err_t bb_nv_batch_set_str(bb_nv_batch_t *batch, const char *key, const char *value)
+{
+    bb_err_t pre = batch_check(batch, key);
+    if (pre != BB_OK) return pre;
+    if (value == NULL) return BB_ERR_INVALID_ARG;
+    nvs_handle_t h = (nvs_handle_t)batch->_impl;
+    bb_err_t err = nvs_set_str(h, key, value);
+    if (err != BB_OK) batch->_err = err;
+    return err;
+}
+
+bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch)
+{
+    if (batch == NULL) return BB_ERR_INVALID_ARG;
+    if (!batch->_open) return batch->_err;
+    nvs_handle_t h = (nvs_handle_t)batch->_impl;
+    bb_err_t err = batch->_err;
+    if (err == BB_OK) err = nvs_commit(h);
+    nvs_close(h);
+    batch->_open = 0;
+    batch->_impl = 0;
+    if (err != BB_OK && batch->_err == BB_OK) batch->_err = err;
+    return err;
+}
+
 #else
 
 bb_err_t bb_nv_set_u8(const char *ns, const char *key, uint8_t value)
@@ -601,6 +677,46 @@ bb_err_t bb_nv_erase(const char *ns, const char *key)
         return BB_ERR_INVALID_ARG;
     }
     return BB_OK;
+}
+
+/* -------- batched setters (host stubs) -------- */
+
+bb_err_t bb_nv_batch_begin(bb_nv_batch_t *batch, const char *ns)
+{
+    if (batch == NULL || ns == NULL) return BB_ERR_INVALID_ARG;
+    batch->_impl = 0;
+    batch->_err = BB_OK;
+    batch->_open = 1;
+    copy_str(batch->_ns, ns, sizeof(batch->_ns));
+    return BB_OK;
+}
+
+#define BB_NV_BATCH_SET_STUB(WIDTH)                                                  \
+    bb_err_t bb_nv_batch_set_u##WIDTH(bb_nv_batch_t *batch, const char *key,         \
+                                      uint##WIDTH##_t value)                         \
+    {                                                                                \
+        (void)value;                                                                  \
+        if (batch == NULL || key == NULL) return BB_ERR_INVALID_ARG;                 \
+        if (!batch->_open) return BB_ERR_INVALID_STATE;                              \
+        return batch->_err;                                                          \
+    }
+BB_NV_BATCH_SET_STUB(8)
+BB_NV_BATCH_SET_STUB(16)
+BB_NV_BATCH_SET_STUB(32)
+#undef BB_NV_BATCH_SET_STUB
+
+bb_err_t bb_nv_batch_set_str(bb_nv_batch_t *batch, const char *key, const char *value)
+{
+    if (batch == NULL || key == NULL || value == NULL) return BB_ERR_INVALID_ARG;
+    if (!batch->_open) return BB_ERR_INVALID_STATE;
+    return batch->_err;
+}
+
+bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch)
+{
+    if (batch == NULL) return BB_ERR_INVALID_ARG;
+    batch->_open = 0;
+    return batch->_err;
 }
 
 #endif

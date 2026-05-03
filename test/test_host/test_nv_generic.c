@@ -241,3 +241,91 @@ void test_nv_get_u16_returns_fallback(void)
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL_UINT16(0xBEEF, val);
 }
+
+// -------- batched setter tests --------
+
+void test_nv_batch_begin_null_batch(void)
+{
+    bb_err_t err = bb_nv_batch_begin(NULL, "ns");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_nv_batch_begin_null_ns(void)
+{
+    bb_nv_batch_t batch;
+    bb_err_t err = bb_nv_batch_begin(&batch, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_nv_batch_begin_valid(void)
+{
+    bb_nv_batch_t batch;
+    bb_err_t err = bb_nv_batch_begin(&batch, "ns");
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    bb_nv_batch_commit(&batch);
+}
+
+void test_nv_batch_set_u32_before_begin(void)
+{
+    bb_nv_batch_t batch = {0};
+    bb_err_t err = bb_nv_batch_set_u32(&batch, "k", 1);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, err);
+}
+
+void test_nv_batch_set_u32_null_key(void)
+{
+    bb_nv_batch_t batch;
+    bb_nv_batch_begin(&batch, "ns");
+    bb_err_t err = bb_nv_batch_set_u32(&batch, NULL, 1);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+    bb_nv_batch_commit(&batch);
+}
+
+void test_nv_batch_set_u32_valid(void)
+{
+    bb_nv_batch_t batch;
+    bb_nv_batch_begin(&batch, "ns");
+    bb_err_t err = bb_nv_batch_set_u32(&batch, "k", 0xFEEDFACE);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    bb_nv_batch_commit(&batch);
+}
+
+void test_nv_batch_set_str_null_value(void)
+{
+    bb_nv_batch_t batch;
+    bb_nv_batch_begin(&batch, "ns");
+    bb_err_t err = bb_nv_batch_set_str(&batch, "k", NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+    bb_nv_batch_commit(&batch);
+}
+
+void test_nv_batch_commit_null(void)
+{
+    bb_err_t err = bb_nv_batch_commit(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_nv_batch_set_after_commit_rejected(void)
+{
+    bb_nv_batch_t batch;
+    bb_nv_batch_begin(&batch, "ns");
+    bb_nv_batch_commit(&batch);
+    bb_err_t err = bb_nv_batch_set_u32(&batch, "k", 1);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, err);
+}
+
+void test_nv_batch_three_u32_writes_succeed(void)
+{
+    /* Mirrors the TM mining_stats_save_lifetime call shape. */
+    bb_nv_batch_t batch;
+    bb_err_t err = bb_nv_batch_begin(&batch, "taipanminer");
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    err = bb_nv_batch_set_u32(&batch, "lt_shares",    100);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    err = bb_nv_batch_set_u32(&batch, "lt_hashes_lo", 0xCAFEBABE);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    err = bb_nv_batch_set_u32(&batch, "lt_hashes_hi", 0xDEADBEEF);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    err = bb_nv_batch_commit(&batch);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+}

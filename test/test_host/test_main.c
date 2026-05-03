@@ -157,6 +157,16 @@ void test_nv_get_str_truncates_fallback(void);
 void test_nv_erase_null_ns(void);
 void test_nv_erase_null_key(void);
 void test_nv_erase_valid(void);
+void test_nv_batch_begin_null_batch(void);
+void test_nv_batch_begin_null_ns(void);
+void test_nv_batch_begin_valid(void);
+void test_nv_batch_set_u32_before_begin(void);
+void test_nv_batch_set_u32_null_key(void);
+void test_nv_batch_set_u32_valid(void);
+void test_nv_batch_set_str_null_value(void);
+void test_nv_batch_commit_null(void);
+void test_nv_batch_set_after_commit_rejected(void);
+void test_nv_batch_three_u32_writes_succeed(void);
 
 // Forward declarations from test_bb_json.c
 void test_bb_json_obj_string_roundtrip(void);
@@ -596,6 +606,16 @@ int main(void) {
     RUN_TEST(test_nv_erase_null_ns);
     RUN_TEST(test_nv_erase_null_key);
     RUN_TEST(test_nv_erase_valid);
+    RUN_TEST(test_nv_batch_begin_null_batch);
+    RUN_TEST(test_nv_batch_begin_null_ns);
+    RUN_TEST(test_nv_batch_begin_valid);
+    RUN_TEST(test_nv_batch_set_u32_before_begin);
+    RUN_TEST(test_nv_batch_set_u32_null_key);
+    RUN_TEST(test_nv_batch_set_u32_valid);
+    RUN_TEST(test_nv_batch_set_str_null_value);
+    RUN_TEST(test_nv_batch_commit_null);
+    RUN_TEST(test_nv_batch_set_after_commit_rejected);
+    RUN_TEST(test_nv_batch_three_u32_writes_succeed);
 
     // Route registry tests
     RUN_TEST(test_route_registry_count_starts_at_zero);
