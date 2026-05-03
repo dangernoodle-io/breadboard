@@ -358,6 +358,7 @@ static void ek79007_draw_text(int16_t x, int16_t y, const char *text,
 
 static const bb_display_backend_t s_backend = {
     .name      = "ek79007",
+    .probe     = NULL,
     .init      = ek79007_init,
     .clear     = ek79007_clear,
     .blit      = ek79007_blit,

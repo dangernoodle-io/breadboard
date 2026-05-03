@@ -1,0 +1,36 @@
+menu "bb_display_st77xx"
+
+choice BB_DISPLAY_ST77XX_VARIANT
+    prompt "ST77xx panel variant"
+    default BB_DISPLAY_ST77XX_VARIANT_ST7735
+    help
+        Picks which backend the bb_display_st77xx component compiles
+        and registers. Both variants share the underlying ESP-IDF
+        st7789 panel driver; the ST7735 path overlays a custom
+        vendor-init sequence (gamma/power/frame) needed for the
+        LilyGo T-Dongle S3 panel that the default ST7735 driver
+        doesn't program correctly. Future probe-capable boards can
+        register both and let the registry's probe()->init() walker
+        pick at runtime.
+
+config BB_DISPLAY_ST77XX_VARIANT_ST7735
+    bool "ST7735 (LilyGo T-Dongle S3)"
+
+config BB_DISPLAY_ST77XX_VARIANT_ST7789
+    bool "ST7789 (generic)"
+
+endchoice
+
+config BB_DISPLAY_ST7735_SKIP_VENDOR_INIT
+    bool "ST7735: skip vendor-init overlay"
+    depends on BB_DISPLAY_ST77XX_VARIANT_ST7735
+    default n
+    help
+        The ST7735 backend overlays a custom vendor-init sequence
+        (gamma/power/frame) on top of esp_lcd_new_panel_st7789's
+        standard init. This is needed for the LilyGo T-Dongle S3
+        panel, where the default driver doesn't program the chip
+        correctly. Enable this option for ST7735 panels where the
+        stock driver works on its own — skips the overlay entirely.
+
+endmenu
