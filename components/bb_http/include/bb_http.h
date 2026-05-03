@@ -123,6 +123,47 @@ typedef void *bb_json_t;
 // and ends the response. Caller still owns/frees the doc.
 bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc);
 
+// ============================================================================
+// STREAMING JSON ARRAY API
+// ============================================================================
+
+// Single-use streaming JSON array container. After begin(), caller repeatedly
+// calls emit() for each array element, then calls end() to close. The stream
+// holds a sticky error: the first failed emit() poisons the stream (subsequent
+// emits are no-ops), and end() returns that error. The _open guard prevents
+// re-use after end().
+//
+// On ESP-IDF, this streams true chunked output: "[" in begin(), "," followed
+// by each serialized item, "]" and stream termination in end(). Memory usage
+// is bounded by one per-item JSON subtree at a time.
+//
+// On Arduino and host, items are buffered into a root array; end() calls
+// bb_http_resp_send_json. Same external behavior, buffered internally.
+typedef struct bb_http_json_stream_s {
+    void   *_req;       /* bb_http_request_t * */
+    int     _err;       /* sticky first error, BB_OK initially */
+    uint8_t _first;     /* nonzero until first element emitted */
+    uint8_t _open;      /* nonzero between begin and end */
+} bb_http_json_stream_t;
+
+/* Begin a streaming JSON array response. Sets Content-Type: application/json,
+ * opens chunked transfer-encoding, emits "[". After return the caller emits
+ * elements via _emit, then closes via _end (always — even on error). */
+bb_err_t bb_http_resp_json_arr_begin(bb_http_request_t *req,
+                                     bb_http_json_stream_t *out);
+
+/* Serialize one bb_json_t (object or scalar — typically a per-item object)
+ * into the stream, preceded by "," for all but the first element. Caller
+ * retains ownership of `item` and is responsible for bb_json_free(item).
+ * Errors are sticky and surfaced by _end. */
+bb_err_t bb_http_resp_json_arr_emit(bb_http_json_stream_t *stream,
+                                    bb_json_t item);
+
+/* Close the array: emits "]", ends the chunked response, returns the sticky
+ * error (BB_OK if all emits succeeded). Always closes the underlying response
+ * regardless of sticky-err state. Single-use. */
+bb_err_t bb_http_resp_json_arr_end(bb_http_json_stream_t *stream);
+
 // Request accessors — MVP: read the body as a single buffer.
 int bb_http_req_body_len(bb_http_request_t *req);
 int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size);

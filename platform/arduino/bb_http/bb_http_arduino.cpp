@@ -1,6 +1,7 @@
 #ifdef ARDUINO
 
 #include "bb_http.h"
+#include "bb_json.h"
 #include "bb_wifi.h"
 #include <Arduino.h>
 #include <string.h>
@@ -302,6 +303,126 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
                                  size_t n) {
     (void)server; (void)assets; (void)n;
     return BB_ERR_INVALID_STATE;
+}
+
+bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc) {
+    (void)doc;
+    bb_http_request_impl_t *r = (bb_http_request_impl_t *)req;
+    if (!r) return BB_ERR_INVALID_ARG;
+    bb_http_resp_set_type(req, "application/json");
+    // Arduino MVP: caller builds and sends the JSON via bb_http_resp_send
+    return BB_OK;
+}
+
+// ============================================================================
+// STREAMING JSON ARRAY API — Arduino backend (buffered)
+// ============================================================================
+
+// We use a static side-table to map request pointers to their buffered arrays.
+// Simpler than trying to hide a bb_json_t inside the stream struct.
+#define STREAM_TABLE_SIZE 2
+static struct {
+    bb_http_request_t *req;
+    bb_json_t arr;
+} s_stream_table[STREAM_TABLE_SIZE];
+
+static bb_json_t stream_get_arr(bb_http_request_t *req) {
+    for (int i = 0; i < STREAM_TABLE_SIZE; i++) {
+        if (s_stream_table[i].req == req) return s_stream_table[i].arr;
+    }
+    return NULL;
+}
+
+static void stream_set_arr(bb_http_request_t *req, bb_json_t arr) {
+    for (int i = 0; i < STREAM_TABLE_SIZE; i++) {
+        if (s_stream_table[i].req == NULL) {
+            s_stream_table[i].req = req;
+            s_stream_table[i].arr = arr;
+            return;
+        }
+    }
+}
+
+static void stream_clear_arr(bb_http_request_t *req) {
+    for (int i = 0; i < STREAM_TABLE_SIZE; i++) {
+        if (s_stream_table[i].req == req) {
+            s_stream_table[i].req = NULL;
+            s_stream_table[i].arr = NULL;
+            return;
+        }
+    }
+}
+
+bb_err_t bb_http_resp_json_arr_begin(bb_http_request_t *req,
+                                     bb_http_json_stream_t *out) {
+    if (!req || !out) return BB_ERR_INVALID_ARG;
+
+    // Create the buffered array
+    bb_json_t arr = bb_json_arr_new();
+    if (!arr) return BB_ERR_NO_SPACE;
+
+    stream_set_arr(req, arr);
+
+    out->_req = req;
+    out->_err = BB_OK;
+    out->_first = 1;
+    out->_open = 1;
+
+    return bb_http_resp_set_type(req, "application/json");
+}
+
+bb_err_t bb_http_resp_json_arr_emit(bb_http_json_stream_t *stream,
+                                    bb_json_t item) {
+    if (!stream) return BB_ERR_INVALID_ARG;
+    if (!stream->_open) return BB_ERR_INVALID_STATE;
+    if (stream->_err != BB_OK) return stream->_err;
+
+    bb_http_request_t *req = (bb_http_request_t *)stream->_req;
+    bb_json_t arr = stream_get_arr(req);
+    if (!arr) return BB_ERR_INVALID_STATE;
+
+    // Mark as no longer first
+    stream->_first = 0;
+
+    // Append the item to the array. Caller retains ownership, so we can't
+    // transfer ownership. The simplest approach: serialize, parse, transfer.
+    // (A full bb_json_clone would be cleaner but isn't available yet.)
+    char *json_str = bb_json_item_serialize(item);
+    if (!json_str) {
+        // Serialize failed; append null
+        bb_json_arr_append_string(arr, "null");
+        return BB_OK;
+    }
+
+    bb_json_t cloned = bb_json_parse(json_str, 0);
+    bb_json_free_str(json_str);
+    if (!cloned) {
+        // Parse failed; append null
+        bb_json_arr_append_string(arr, "null");
+        return BB_OK;
+    }
+
+    bb_json_arr_append_obj(arr, cloned);
+    return BB_OK;
+}
+
+bb_err_t bb_http_resp_json_arr_end(bb_http_json_stream_t *stream) {
+    if (!stream) return BB_ERR_INVALID_ARG;
+
+    stream->_open = 0;
+    bb_http_request_t *req = (bb_http_request_t *)stream->_req;
+    bb_json_t arr = stream_get_arr(req);
+
+    if (!arr) return BB_ERR_INVALID_STATE;
+
+    // Send the buffered array
+    bb_err_t err = bb_http_resp_send_json(req, arr);
+
+    // Clean up
+    bb_json_free(arr);
+    stream_clear_arr(req);
+
+    return stream->_err != BB_OK ? stream->_err : err;
 }
 
 }  // extern "C"

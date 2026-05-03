@@ -108,6 +108,20 @@ void test_bb_json_walk_children_object(void);
 void test_bb_json_walk_children_array(void);
 void test_bb_http_resp_send_json_callable(void);
 
+// Forward declarations from test_bb_http_json_arr_stream.c
+void test_json_arr_begin_null_req(void);
+void test_json_arr_begin_null_stream(void);
+void test_json_arr_begin_init(void);
+void test_json_arr_emit_unopened(void);
+void test_json_arr_emit_after_end(void);
+void test_json_arr_sticky_error(void);
+void test_json_arr_empty(void);
+void test_json_arr_single_item(void);
+void test_json_arr_multiple_items(void);
+void test_json_arr_emit_null_item(void);
+void test_json_arr_emit_null_stream(void);
+void test_json_arr_end_null_stream(void);
+
 // Forward declarations from test_nv_config.c
 void test_nv_config_init_success(void);
 void test_nv_config_wifi_ssid_empty_after_init(void);
@@ -562,6 +576,20 @@ int main(void) {
     RUN_TEST(test_bb_json_walk_children_object);
     RUN_TEST(test_bb_json_walk_children_array);
     RUN_TEST(test_bb_http_resp_send_json_callable);
+
+    // bb_http JSON array streaming tests
+    RUN_TEST(test_json_arr_begin_null_req);
+    RUN_TEST(test_json_arr_begin_null_stream);
+    RUN_TEST(test_json_arr_begin_init);
+    RUN_TEST(test_json_arr_emit_unopened);
+    RUN_TEST(test_json_arr_emit_after_end);
+    RUN_TEST(test_json_arr_sticky_error);
+    RUN_TEST(test_json_arr_empty);
+    RUN_TEST(test_json_arr_single_item);
+    RUN_TEST(test_json_arr_multiple_items);
+    RUN_TEST(test_json_arr_emit_null_item);
+    RUN_TEST(test_json_arr_emit_null_stream);
+    RUN_TEST(test_json_arr_end_null_stream);
 
     // NV config tests
     RUN_TEST(test_nv_config_init_success);
