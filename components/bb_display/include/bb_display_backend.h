@@ -3,6 +3,10 @@
 #include "bb_core.h"
 #include "bb_display.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * bb_display backend interface.
  *
@@ -51,3 +55,7 @@ typedef struct bb_display_backend_s {
 
 /* Register a backend. Appends to ordered list. Safe from a constructor before main. */
 void bb_display_register_backend(const bb_display_backend_t *backend);
+
+#ifdef __cplusplus
+}
+#endif
