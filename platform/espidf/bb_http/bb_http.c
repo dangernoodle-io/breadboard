@@ -640,3 +640,83 @@ bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc)
     bb_err_t fin = bb_http_resp_send_chunk(req, NULL, 0);
     return err != BB_OK ? err : fin;
 }
+
+// ============================================================================
+// STREAMING JSON ARRAY API — ESP-IDF backend
+// ============================================================================
+
+bb_err_t bb_http_resp_json_arr_begin(bb_http_request_t *req,
+                                     bb_http_json_stream_t *out)
+{
+    if (!req || !out) return BB_ERR_INVALID_ARG;
+
+    bb_err_t err = bb_http_resp_set_type(req, "application/json");
+    if (err != BB_OK) return err;
+
+    err = bb_http_resp_send_chunk(req, "[", -1);
+    if (err != BB_OK) return err;
+
+    out->_req = req;
+    out->_err = BB_OK;
+    out->_first = 1;
+    out->_open = 1;
+    return BB_OK;
+}
+
+bb_err_t bb_http_resp_json_arr_emit(bb_http_json_stream_t *stream,
+                                    bb_json_t item)
+{
+    if (!stream) return BB_ERR_INVALID_ARG;
+    if (!stream->_open) return BB_ERR_INVALID_STATE;
+    if (stream->_err != BB_OK) return stream->_err;  // sticky error is a no-op
+
+    bb_http_request_t *req = (bb_http_request_t *)stream->_req;
+
+    // Emit comma before all but the first element
+    if (!stream->_first) {
+        bb_err_t err = bb_http_resp_send_chunk(req, ",", -1);
+        if (err != BB_OK) {
+            stream->_err = err;
+            return err;
+        }
+    }
+    stream->_first = 0;
+
+    // Serialize and emit the item
+    char *json_str = bb_json_item_serialize(item);
+    bb_err_t err;
+    if (json_str) {
+        err = bb_http_resp_send_chunk(req, json_str, -1);
+        bb_json_free_str(json_str);
+    } else {
+        // If serialize fails, emit literal null to keep stream valid
+        err = bb_http_resp_send_chunk(req, "null", -1);
+    }
+
+    if (err != BB_OK) {
+        stream->_err = err;
+    }
+    return err;
+}
+
+bb_err_t bb_http_resp_json_arr_end(bb_http_json_stream_t *stream)
+{
+    if (!stream) return BB_ERR_INVALID_ARG;
+
+    stream->_open = 0;
+    bb_http_request_t *req = (bb_http_request_t *)stream->_req;
+
+    // Emit closing bracket
+    bb_err_t err = bb_http_resp_send_chunk(req, "]", -1);
+    if (err != BB_OK && stream->_err == BB_OK) {
+        stream->_err = err;
+    }
+
+    // Terminate the chunked response
+    bb_err_t fin = bb_http_resp_send_chunk(req, NULL, 0);
+    if (fin != BB_OK && stream->_err == BB_OK) {
+        stream->_err = fin;
+    }
+
+    return stream->_err;
+}
