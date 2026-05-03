@@ -18,9 +18,10 @@ config BB_DISPLAY_SSD1306_I2C_ADDR
 
 config BB_DISPLAY_SSD1306_HEIGHT
     int "OLED height (px)"
-    default 32
+    default 64
     help
-        128x32 (default) or 128x64. Width is always 128.
+        128x64 (default — most "0.96 inch" modules) or 128x32 (the
+        smaller 0.49" variant). Width is always 128.
 
 config BB_DISPLAY_SSD1306_I2C_HZ
     int "I²C bus speed (Hz)"
