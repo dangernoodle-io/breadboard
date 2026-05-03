@@ -72,21 +72,21 @@ typedef struct {
 #ifndef BB_DISPLAY_FONT_8X16
 #define BB_DISPLAY_FONT_8X16 1
 #endif
-#ifndef BB_DISPLAY_FONT_6X8
-#define BB_DISPLAY_FONT_6X8 1
+#ifndef BB_DISPLAY_FONT_6X12
+#define BB_DISPLAY_FONT_6X12 1
 #endif
-#ifndef BB_DISPLAY_FONT_5X7
-#define BB_DISPLAY_FONT_5X7 1
+#ifndef BB_DISPLAY_FONT_5X8
+#define BB_DISPLAY_FONT_5X8 1
 #endif
 
 #if BB_DISPLAY_FONT_8X16
 extern const bb_display_font_t bb_display_font_8x16;
 #endif
-#if BB_DISPLAY_FONT_6X8
-extern const bb_display_font_t bb_display_font_6x8;
+#if BB_DISPLAY_FONT_6X12
+extern const bb_display_font_t bb_display_font_6x12;
 #endif
-#if BB_DISPLAY_FONT_5X7
-extern const bb_display_font_t bb_display_font_5x7;
+#if BB_DISPLAY_FONT_5X8
+extern const bb_display_font_t bb_display_font_5x8;
 #endif
 
 /* Render `text` at (x,y) using `font` (NULL → bb_display_font_8x16).

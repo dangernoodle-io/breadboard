@@ -24,13 +24,76 @@ static bb_err_t ping_handler(bb_http_request_t *req) {
     return BB_OK;
 }
 
+#if defined(BB_WIFI_BACKEND_R4) && defined(BB_DISPLAY_FONT_5X8) && defined(BB_DISPLAY_FONT_6X12)
+/* Tiny user-supplied font: 4x4 digits 0..3 only. Demonstrates that consumers
+ * can ship their own bb_display_font_t — no rebuild of bb_display required. */
+static const uint8_t s_my_glyphs_4x4[4 * 4] = {
+    /* '0' */ 0xF0, 0x90, 0x90, 0xF0,
+    /* '1' */ 0x60, 0x20, 0x20, 0x70,
+    /* '2' */ 0xF0, 0x10, 0x60, 0xF0,
+    /* '3' */ 0xF0, 0x70, 0x10, 0xF0,
+};
+static const bb_display_font_t s_my_font_4x4 = {
+    .glyph_w = 4,
+    .glyph_h = 4,
+    .first_codepoint = 0x30,
+    .glyph_count = 4,
+    .bitmap = s_my_glyphs_4x4,
+};
+#endif
+
 void smoke_app_setup(void) {
 #if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
     if (bb_display_init() == BB_OK) {
         bb_log_i(TAG, "display: %ux%u", bb_display_width(), bb_display_height());
-        bb_display_show_splash("smoke", "v0.0.0", NULL);
+        bb_display_show_splash("smoke", "boot", NULL);
     } else {
         bb_log_w(TAG, "display: no probe match");
+    }
+#endif
+
+#if defined(BB_WIFI_BACKEND_R4) && defined(BB_DISPLAY_FONT_5X8) && defined(BB_DISPLAY_FONT_6X12)
+    /* Bench showcase: cycle the SSD1315 OLED through every font + rotation
+     * combo the bb_display API can express. Runs forever — WiFi/HTTP setup
+     * below never fires when this is reached. Disable by undefining one of
+     * the BB_DISPLAY_FONT_* knobs to drop into the normal smoke path.
+     *
+     * The bench OLED is mounted with its native top-of-screen at the bottom
+     * of the user's view, so we start at rotation 180 (looks right-side-up
+     * to the user) and flip to 0 (upside-down to the user) for each font. */
+    bb_log_i(TAG, "display showcase active — wifi/http disabled");
+
+    /* Per-entry labels: line1 = font name, line2 = "size". The 4x4 entry only
+     * has digit glyphs 0..3, so its labels are pure digits. */
+    struct {
+        const char *line1;
+        const char *line2;
+        const bb_display_font_t *font;
+    } fonts[] = {
+        { "font", "8x16", NULL                 },  /* NULL → compile-time default 8x16 */
+        { "font", "6x12",  &bb_display_font_6x12 },
+        { "font", "5x8",  &bb_display_font_5x8 },
+        { "0123", "0123", &s_my_font_4x4       },  /* user-supplied; digits 0..3 only */
+    };
+    const size_t n_fonts = sizeof(fonts) / sizeof(fonts[0]);
+    const uint16_t orientations[2] = { 180, 0 };  /* upright, then upside-down */
+
+    for (;;) {
+        for (size_t i = 0; i < n_fonts; i++) {
+            bb_display_set_default_font(fonts[i].font);
+            for (size_t j = 0; j < 2; j++) {
+                /* Clear in the CURRENT orientation first so the rotation
+                 * flips an already-black screen — eliminates the brief
+                 * flash of old-content-mirrored that happens when you
+                 * rotate first then clear. */
+                bb_display_clear(0x0000);
+                bb_display_set_rotation(orientations[j]);
+                bb_display_show_splash(fonts[i].line1, fonts[i].line2, NULL);
+                bb_log_i(TAG, "showcase: %s @ %u", fonts[i].line2,
+                         (unsigned)orientations[j]);
+                delay(2000);
+            }
+        }
     }
 #endif
     bb_nv_config_init();
