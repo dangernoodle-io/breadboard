@@ -201,6 +201,12 @@ void test_route_registry_foreach_empty_is_noop(void);
 void test_route_registry_foreach_null_cb_is_safe(void);
 void test_route_registry_descriptor_fields_preserved(void);
 void test_route_registry_count_after_clear_and_readd(void);
+// Forward declarations from test_route_schemas.c
+void test_route_schemas_manifest_fixture_parses(void);
+void test_route_schemas_registry_all_valid(void);
+void test_route_schemas_walker_flags_malformed(void);
+void test_set_raw_writes_null_on_malformed_json(void);
+void test_set_raw_writes_parsed_object_on_valid_json(void);
 void test_register_described_route_rejects_null(void);
 void test_register_described_route_propagates_underlying_failure(void);
 void test_register_described_route_overflow_returns_ok(void);
@@ -602,6 +608,11 @@ int main(void) {
     RUN_TEST(test_route_registry_foreach_null_cb_is_safe);
     RUN_TEST(test_route_registry_descriptor_fields_preserved);
     RUN_TEST(test_route_registry_count_after_clear_and_readd);
+    RUN_TEST(test_route_schemas_manifest_fixture_parses);
+    RUN_TEST(test_route_schemas_registry_all_valid);
+    RUN_TEST(test_route_schemas_walker_flags_malformed);
+    RUN_TEST(test_set_raw_writes_null_on_malformed_json);
+    RUN_TEST(test_set_raw_writes_parsed_object_on_valid_json);
     RUN_TEST(test_register_described_route_rejects_null);
     RUN_TEST(test_register_described_route_propagates_underlying_failure);
     RUN_TEST(test_register_described_route_overflow_returns_ok);

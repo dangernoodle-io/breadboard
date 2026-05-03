@@ -6,7 +6,17 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include "cJSON.h"
+
+#ifdef ESP_PLATFORM
+#include "esp_log.h"
+#define BB_JSON_LOG_PARSE_ERR(key, off) \
+    ESP_LOGE("bb_json", "set_raw('%s'): cJSON_Parse failed at offset %ld", (key), (long)(off))
+#else
+#define BB_JSON_LOG_PARSE_ERR(key, off) \
+    fprintf(stderr, "bb_json: set_raw('%s'): cJSON_Parse failed at offset %ld\n", (key), (long)(off))
+#endif
 
 // ---------------------------------------------------------------------------
 // Fault injection (host-only test hook)
@@ -295,6 +305,11 @@ void bb_json_obj_set_raw(bb_json_t obj, const char *key, const char *json_litera
     if (!obj || !key) return;
     cJSON *parsed = json_literal ? cJSON_Parse(json_literal) : NULL;
     if (!parsed) {
+        if (json_literal) {
+            const char *err = cJSON_GetErrorPtr();
+            long off = err ? (long)(err - json_literal) : -1;
+            BB_JSON_LOG_PARSE_ERR(key, off);
+        }
         cJSON_AddNullToObject((cJSON *)obj, key);
         return;
     }
