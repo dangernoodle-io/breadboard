@@ -71,8 +71,14 @@ typedef struct {
     char     payload[256];   /* packed key\0value\0… */
 } bb_mdns_evt_t;
 
-// Event pool: static 4-slot pool to avoid per-event malloc
-#define BB_MDNS_EVT_POOL_SIZE 4
+// Event pool: static slot pool to avoid per-event malloc.
+// Size via Kconfig (default 16); IDF mDNS delivers a linked list of results
+// in a single notifier callback, so this caps a single-burst capacity.
+#ifdef CONFIG_BB_MDNS_EVT_POOL_SIZE
+#define BB_MDNS_EVT_POOL_SIZE CONFIG_BB_MDNS_EVT_POOL_SIZE
+#else
+#define BB_MDNS_EVT_POOL_SIZE 16
+#endif
 static bb_mdns_evt_t s_evt_pool[BB_MDNS_EVT_POOL_SIZE];
 static bool s_evt_in_use[BB_MDNS_EVT_POOL_SIZE];
 static SemaphoreHandle_t s_evt_pool_lock = NULL;

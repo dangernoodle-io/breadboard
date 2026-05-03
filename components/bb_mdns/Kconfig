@@ -25,4 +25,18 @@ config BB_MDNS_BROWSE_REFRESH_INTERVAL_S
         in the new query window fires its removal callback first.
         Set to 0 to disable the periodic refresh.
 
+config BB_MDNS_EVT_POOL_SIZE
+    int "Notifier event pool size"
+    default 16
+    range 4 64
+    help
+        Pre-allocated bb_mdns_evt_t slots used by the notifier callback to
+        hand events to the dispatch task without per-event malloc. IDF's
+        mDNS task delivers a linked list of mdns_result_t in one callback,
+        so this caps how many peers can be queued in a single notify burst
+        before events are dropped (logged as "event pool exhausted").
+
+        Each slot is ~430 bytes. Bump if soak shows drops with many peers
+        responding to a browse; lower only on RAM-tight targets.
+
 endmenu
