@@ -113,9 +113,16 @@ static void set_pixel(int x, int y, bool on)
     else    s_fb[page * SSD1306_WIDTH + x] &= ~mask;
 }
 
-/* RGB565 → on/off threshold: any non-zero color = on. Cheap, matches
- * what most consumer rasterizers actually want for monochrome OLEDs. */
-static inline bool rgb565_to_mono(uint16_t c) { return c != 0; }
+/* RGB565 → 1bpp via luma threshold. The previous "any non-zero = on" was too
+ * aggressive: near-black backgrounds like 0x0004 mapped to ON and washed the
+ * whole screen. Use a ~50% luma cutoff so callers can pass real RGB565 colors
+ * intended for color panels and still get sensible mono rendering. */
+static inline bool rgb565_to_mono(uint16_t c) {
+    uint8_t r = (c >> 11) & 0x1F;
+    uint8_t g = (c >> 5)  & 0x3F;
+    uint8_t b = c & 0x1F;
+    return (r * 2 + g + b * 2) > 90;
+}
 
 static void ssd1306_clear(uint16_t rgb565)
 {
