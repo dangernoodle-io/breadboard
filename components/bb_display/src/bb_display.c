@@ -17,10 +17,10 @@ static uint16_t s_height = 0;
 /* Default font selection: prefer largest available. */
 #if BB_DISPLAY_FONT_8X16
 static const bb_display_font_t *s_compile_time_default_font = &bb_display_font_8x16;
-#elif BB_DISPLAY_FONT_6X8
-static const bb_display_font_t *s_compile_time_default_font = &bb_display_font_6x8;
-#elif BB_DISPLAY_FONT_5X7
-static const bb_display_font_t *s_compile_time_default_font = &bb_display_font_5x7;
+#elif BB_DISPLAY_FONT_6X12
+static const bb_display_font_t *s_compile_time_default_font = &bb_display_font_6x12;
+#elif BB_DISPLAY_FONT_5X8
+static const bb_display_font_t *s_compile_time_default_font = &bb_display_font_5x8;
 #else
 static const bb_display_font_t *s_compile_time_default_font = NULL;
 #endif
