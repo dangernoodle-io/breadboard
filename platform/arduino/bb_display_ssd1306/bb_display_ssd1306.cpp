@@ -100,7 +100,17 @@ static bb_err_t ssd1306_init(uint16_t *w, uint16_t *h) {
     return BB_OK;
 }
 
-static inline bool rgb565_to_mono(uint16_t c) { return c != 0; }
+/* RGB565 → 1bpp via luma threshold. The previous "any non-zero = on" was too
+ * aggressive: near-black backgrounds like 0x0004 mapped to ON and washed the
+ * whole screen. Use a ~50% luma cutoff so callers can pass real RGB565 colors
+ * intended for color panels and still get sensible mono rendering. */
+static inline bool rgb565_to_mono(uint16_t c) {
+    uint8_t r = (c >> 11) & 0x1F;       /* 0..31 */
+    uint8_t g = (c >> 5)  & 0x3F;       /* 0..63 */
+    uint8_t b = c & 0x1F;               /* 0..31 */
+    /* Approx luma: r*2 + g + b*2, max = 31*2 + 63 + 31*2 = 187. Threshold 90 ≈ 48%. */
+    return (r * 2 + g + b * 2) > 90;
+}
 
 static void set_pixel(int x, int y, bool on) {
     if (x < 0 || x >= SSD1306_WIDTH || y < 0 || y >= SSD1306_HEIGHT) return;
