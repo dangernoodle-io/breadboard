@@ -58,6 +58,43 @@ bb_err_t bb_nv_get_u32(const char *ns, const char *key, uint32_t *out, uint32_t 
 bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, const char *fallback);
 bb_err_t bb_nv_erase  (const char *ns, const char *key);
 
+/* ---------------------------------------------------------------------------
+ * Batched setters
+ *
+ * Collapse multiple set_* operations into one open + commit + close cycle.
+ * On ESP-IDF that reduces N flash transactions to 1, cutting ~(N-1) × commit
+ * worth of SPI-bus contention — important on the share-accept hot path where
+ * the per-key API can stall higher-priority tasks waiting on flash. On
+ * Arduino each set is forwarded to the per-key API (no batching benefit but
+ * API parity preserved). On host the calls are no-ops that validate args.
+ *
+ *   bb_nv_batch_t batch;
+ *   bb_err_t err = bb_nv_batch_begin(&batch, "ns");
+ *   if (err != BB_OK) return err;
+ *   bb_nv_batch_set_u32(&batch, "k1", v1);
+ *   bb_nv_batch_set_u32(&batch, "k2", v2);
+ *   err = bb_nv_batch_commit(&batch);   // commits + closes (always)
+ *
+ * Errors are sticky: the first set_* failure poisons the batch and is
+ * returned by bb_nv_batch_commit. The underlying handle is closed regardless,
+ * so the batch is single-use.
+ *
+ * The struct contents are backend-private; never inspect or modify them.
+ * --------------------------------------------------------------------------- */
+typedef struct bb_nv_batch_s {
+    uintptr_t _impl;       /* ESP-IDF: nvs_handle_t; other backends: private */
+    int       _err;        /* sticky first error, BB_OK initially */
+    uint8_t   _open;       /* nonzero between begin and commit */
+    char      _ns[16];     /* namespace copy (NVS max is 15+null) */
+} bb_nv_batch_t;
+
+bb_err_t bb_nv_batch_begin (bb_nv_batch_t *batch, const char *ns);
+bb_err_t bb_nv_batch_set_u8 (bb_nv_batch_t *batch, const char *key, uint8_t  value);
+bb_err_t bb_nv_batch_set_u16(bb_nv_batch_t *batch, const char *key, uint16_t value);
+bb_err_t bb_nv_batch_set_u32(bb_nv_batch_t *batch, const char *key, uint32_t value);
+bb_err_t bb_nv_batch_set_str(bb_nv_batch_t *batch, const char *key, const char *value);
+bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch);
+
 #ifdef __cplusplus
 }
 #endif
