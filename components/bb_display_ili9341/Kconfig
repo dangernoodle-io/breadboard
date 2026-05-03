@@ -1,0 +1,27 @@
+menu "bb_display_ili9341"
+
+config BB_DISPLAY_ILI9341_AUTOREGISTER
+    bool "Auto-register ILI9341 backend"
+    default y
+
+config BB_DISPLAY_ILI9341_SPI_HOST
+    int "SPI host (2 = SPI2_HOST, 3 = SPI3_HOST)"
+    default 2
+    range 2 3
+
+config BB_DISPLAY_ILI9341_PIXEL_CLK_HZ
+    int "SPI pixel clock (Hz)"
+    default 40000000
+    help
+        ILI9341 tops out around 40 MHz on most boards. Drop to 20 MHz
+        if you see tearing or unreliable transfers on long ribbon
+        cables (e.g. Arduino shield form factor).
+
+config BB_DISPLAY_ILI9341_BL_ACTIVE_LOW
+    bool "Backlight is active-low"
+    default n
+    help
+        Most generic ILI9341 boards drive backlight active-high
+        (BL=1 turns the LED on). Some Arduino shields invert it.
+
+endmenu
