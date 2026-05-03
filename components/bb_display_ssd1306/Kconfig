@@ -1,0 +1,29 @@
+menu "bb_display_ssd1306"
+
+config BB_DISPLAY_SSD1306_AUTOREGISTER
+    bool "Auto-register SSD1306 backend"
+    default y
+    help
+        When enabled, the SSD1306 backend self-registers via a
+        constructor before app_main and bb_display_init() will
+        consider it during the registry walk. Disable to keep the
+        component's public API available without registering.
+
+config BB_DISPLAY_SSD1306_I2C_ADDR
+    hex "SSD1306 I²C address"
+    default 0x3C
+    help
+        7-bit I²C device address. Most SSD1306 modules use 0x3C
+        (SA0=0); some use 0x3D (SA0=1).
+
+config BB_DISPLAY_SSD1306_HEIGHT
+    int "OLED height (px)"
+    default 32
+    help
+        128x32 (default) or 128x64. Width is always 128.
+
+config BB_DISPLAY_SSD1306_I2C_HZ
+    int "I²C bus speed (Hz)"
+    default 400000
+
+endmenu
