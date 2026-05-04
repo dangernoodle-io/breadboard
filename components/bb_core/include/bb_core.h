@@ -27,6 +27,7 @@ typedef esp_err_t bb_err_t;
 #define BB_ERR_NOT_INITIALIZED  ESP_ERR_NVS_NOT_INITIALIZED
 #define BB_ERR_NO_SPACE         ESP_ERR_NO_MEM
 #define BB_ERR_INVALID_STATE    ESP_ERR_INVALID_STATE
+#define BB_ERR_UNSUPPORTED      ESP_ERR_NOT_SUPPORTED
 #else
 typedef int bb_err_t;
 #define BB_OK                   0
@@ -35,6 +36,7 @@ typedef int bb_err_t;
 #define BB_ERR_NOT_INITIALIZED  3
 #define BB_ERR_NO_SPACE         4
 #define BB_ERR_INVALID_STATE    5
+#define BB_ERR_UNSUPPORTED      6
 #endif
 
 // ---------------------------------------------------------------------------
