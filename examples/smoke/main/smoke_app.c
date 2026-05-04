@@ -11,6 +11,7 @@
 #include "bb_wifi.h"
 #include "bb_led.h"
 #include "bb_led_gpio.h"
+#include "bb_led_pwm.h"
 #include "smoke_app.h"
 
 #if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
@@ -113,6 +114,22 @@ void smoke_app_setup(void) {
         bb_log_i(TAG, "bb_led_gpio: ok");
     } else {
         bb_log_w(TAG, "bb_led_gpio: open failed");
+    }
+
+    // === bb_led_pwm ===
+    bb_led_pwm_cfg_t led_pwm_cfg = {
+        .gpio = 4,
+        .freq_hz = 5000,
+        .resolution_bits = 8,
+        .active_low = false,
+    };
+    bb_led_handle_t led_pwm_handle = NULL;
+    if (bb_led_pwm_open(&led_pwm_cfg, &led_pwm_handle) == BB_OK) {
+        bb_led_set_brightness(led_pwm_handle, 0, 25);
+        bb_led_close(led_pwm_handle);
+        bb_log_i(TAG, "bb_led_pwm: ok");
+    } else {
+        bb_log_w(TAG, "bb_led_pwm: open failed");
     }
 
     uint32_t boot_count = 0;
