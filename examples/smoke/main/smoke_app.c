@@ -9,6 +9,8 @@
 #include "bb_nv.h"
 #include "bb_http.h"
 #include "bb_wifi.h"
+#include "bb_led.h"
+#include "bb_led_gpio.h"
 #include "smoke_app.h"
 
 #if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
@@ -98,6 +100,20 @@ void smoke_app_setup(void) {
 #endif
     bb_nv_config_init();
     bb_log_i(TAG, "boot");
+
+    // === bb_led ===
+    bb_led_gpio_cfg_t led_cfg = {
+        .gpio = 2,
+        .active_low = false,
+    };
+    bb_led_handle_t led_handle = NULL;
+    if (bb_led_gpio_open(&led_cfg, &led_handle) == BB_OK) {
+        bb_led_set_on(led_handle, 0, false);
+        bb_led_close(led_handle);
+        bb_log_i(TAG, "bb_led_gpio: ok");
+    } else {
+        bb_log_w(TAG, "bb_led_gpio: open failed");
+    }
 
     uint32_t boot_count = 0;
     bb_nv_get_u32("app", "boot", &boot_count, 0);
