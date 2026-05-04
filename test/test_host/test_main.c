@@ -512,6 +512,17 @@ void test_pwm_invalid_args(void);
 void test_pwm_initial_state_off_active_high(void);
 void test_pwm_initial_state_off_active_low(void);
 
+// Forward declarations from test_bb_led_apa102.c
+void bb_led_apa102_host_test_reset(void);
+void test_apa102_open_close(void);
+void test_apa102_initial_flush_dark(void);
+void test_apa102_set_color_and_flush(void);
+void test_apa102_set_brightness_partial(void);
+void test_apa102_fill_color(void);
+void test_apa102_idx_out_of_range(void);
+void test_apa102_invalid_args(void);
+void test_apa102_disabled_pixel_zeros_rgb(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_mdns_host_reset();
@@ -519,6 +530,7 @@ void setUp(void) {
     bb_mdns_lifecycle_test_reset();
     bb_led_test_reset();
     bb_led_pwm_test_reset();
+    bb_led_apa102_host_test_reset();
 }
 void tearDown(void) {}
 
@@ -1033,6 +1045,16 @@ int main(void) {
     RUN_TEST(test_pwm_invalid_args);
     RUN_TEST(test_pwm_initial_state_off_active_high);
     RUN_TEST(test_pwm_initial_state_off_active_low);
+
+    // bb_led_apa102 tests
+    RUN_TEST(test_apa102_open_close);
+    RUN_TEST(test_apa102_initial_flush_dark);
+    RUN_TEST(test_apa102_set_color_and_flush);
+    RUN_TEST(test_apa102_set_brightness_partial);
+    RUN_TEST(test_apa102_fill_color);
+    RUN_TEST(test_apa102_idx_out_of_range);
+    RUN_TEST(test_apa102_invalid_args);
+    RUN_TEST(test_apa102_disabled_pixel_zeros_rgb);
 
     return UNITY_END();
 }
