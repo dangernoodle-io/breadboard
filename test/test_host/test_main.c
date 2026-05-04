@@ -480,11 +480,31 @@ void test_bb_mdns_lifecycle_announce_when_stopped_marks_dirty(void);
 void test_bb_mdns_lifecycle_restart_cycle(void);
 void test_bb_mdns_lifecycle_invalid_args(void);
 
+// Forward declarations from test_bb_led.c
+void bb_led_test_reset(void);
+void test_bb_led_caps_and_count(void);
+void test_bb_led_set_on(void);
+void test_bb_led_set_color_unsupported_when_no_rgb_cap(void);
+void test_bb_led_idx_out_of_range(void);
+void test_bb_led_fill_color_iterates(void);
+void test_bb_led_close_calls_driver(void);
+void test_bb_led_brightness_pct_validation(void);
+
+// Forward declarations from test_bb_led_gpio.c
+void test_gpio_open_close(void);
+void test_gpio_active_high_set_on(void);
+void test_gpio_active_low_set_on(void);
+void test_gpio_idx_must_be_zero(void);
+void test_gpio_initial_state_off(void);
+void test_gpio_initial_state_off_active_low(void);
+void test_gpio_invalid_args(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_mdns_host_reset();
     wifi_reconn_policy_test_reset();
     bb_mdns_lifecycle_test_reset();
+    bb_led_test_reset();
 }
 void tearDown(void) {}
 
@@ -969,6 +989,24 @@ int main(void) {
     RUN_TEST(test_bb_mdns_lifecycle_announce_when_stopped_marks_dirty);
     RUN_TEST(test_bb_mdns_lifecycle_restart_cycle);
     RUN_TEST(test_bb_mdns_lifecycle_invalid_args);
+
+    // bb_led tests
+    RUN_TEST(test_bb_led_caps_and_count);
+    RUN_TEST(test_bb_led_set_on);
+    RUN_TEST(test_bb_led_set_color_unsupported_when_no_rgb_cap);
+    RUN_TEST(test_bb_led_idx_out_of_range);
+    RUN_TEST(test_bb_led_fill_color_iterates);
+    RUN_TEST(test_bb_led_close_calls_driver);
+    RUN_TEST(test_bb_led_brightness_pct_validation);
+
+    // bb_led_gpio tests
+    RUN_TEST(test_gpio_open_close);
+    RUN_TEST(test_gpio_active_high_set_on);
+    RUN_TEST(test_gpio_active_low_set_on);
+    RUN_TEST(test_gpio_idx_must_be_zero);
+    RUN_TEST(test_gpio_initial_state_off);
+    RUN_TEST(test_gpio_initial_state_off_active_low);
+    RUN_TEST(test_gpio_invalid_args);
 
     return UNITY_END();
 }
