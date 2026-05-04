@@ -12,6 +12,7 @@
 #include "bb_led.h"
 #include "bb_led_gpio.h"
 #include "bb_led_pwm.h"
+#include "bb_led_apa102.h"
 #include "smoke_app.h"
 
 #if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
@@ -130,6 +131,24 @@ void smoke_app_setup(void) {
         bb_log_i(TAG, "bb_led_pwm: ok");
     } else {
         bb_log_w(TAG, "bb_led_pwm: open failed");
+    }
+
+    // === bb_led_apa102 ===
+    bb_led_apa102_cfg_t led_apa_cfg = {
+        .pin_clk = 6,
+        .pin_din = 7,
+        .led_count = 1,
+        .global_brightness_31 = 15,
+    };
+    bb_led_handle_t led_apa_handle = NULL;
+    if (bb_led_apa102_open(&led_apa_cfg, &led_apa_handle) == BB_OK) {
+        bb_led_set_color(led_apa_handle, 0, 0, 0, 32);
+        bb_led_set_on(led_apa_handle, 0, true);
+        bb_led_flush(led_apa_handle);
+        bb_led_close(led_apa_handle);
+        bb_log_i(TAG, "bb_led_apa102: ok");
+    } else {
+        bb_log_w(TAG, "bb_led_apa102: open failed");
     }
 
     uint32_t boot_count = 0;
