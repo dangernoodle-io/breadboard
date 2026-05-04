@@ -52,19 +52,19 @@ static bb_err_t do_flush(state_t *s) {
 }
 
 static bb_err_t op_set_on(void *st, uint16_t idx, bool on) {
-    state_t *s = st;
+    state_t *s = (state_t *)st;
     s->enabled[idx] = on;
     return BB_OK;
 }
 
 static bb_err_t op_set_brightness(void *st, uint16_t idx, uint8_t pct) {
-    state_t *s = st;
+    state_t *s = (state_t *)st;
     s->bri[idx] = (uint8_t)(((uint32_t)pct * 31) / 100);
     return BB_OK;
 }
 
 static bb_err_t op_set_color(void *st, uint16_t idx, uint8_t r, uint8_t g, uint8_t b) {
-    state_t *s = st;
+    state_t *s = (state_t *)st;
     s->rgb[idx*3 + 0] = r;
     s->rgb[idx*3 + 1] = g;
     s->rgb[idx*3 + 2] = b;
@@ -72,11 +72,11 @@ static bb_err_t op_set_color(void *st, uint16_t idx, uint8_t r, uint8_t g, uint8
 }
 
 static bb_err_t op_flush(void *st) {
-    return do_flush(st);
+    return do_flush((state_t *)st);
 }
 
 static bb_err_t op_close(void *st) {
-    state_t *s = st;
+    state_t *s = (state_t *)st;
     digitalWrite(s->pin_clk, 0);
     digitalWrite(s->pin_din, 0);
     free(s->rgb);
@@ -98,14 +98,14 @@ bb_err_t bb_led_apa102_open(const bb_led_apa102_cfg_t *cfg, bb_led_handle_t *out
     digitalWrite(cfg->pin_clk, 0);
     digitalWrite(cfg->pin_din, 0);
 
-    state_t *s = calloc(1, sizeof *s);
+    state_t *s = (state_t *)calloc(1, sizeof *s);
     if (!s) return BB_ERR_NO_SPACE;
     s->pin_clk = cfg->pin_clk;
     s->pin_din = cfg->pin_din;
     s->led_count = cfg->led_count;
-    s->rgb = calloc(cfg->led_count * 3, 1);
-    s->bri = calloc(cfg->led_count, 1);
-    s->enabled = calloc(cfg->led_count, sizeof(bool));
+    s->rgb = (uint8_t *)calloc(cfg->led_count * 3, 1);
+    s->bri = (uint8_t *)calloc(cfg->led_count, 1);
+    s->enabled = (bool *)calloc(cfg->led_count, sizeof(bool));
     if (!s->rgb || !s->bri || !s->enabled) {
         free(s->rgb); free(s->bri); free(s->enabled); free(s);
         return BB_ERR_NO_SPACE;
@@ -114,7 +114,7 @@ bb_err_t bb_led_apa102_open(const bb_led_apa102_cfg_t *cfg, bb_led_handle_t *out
     // Initialize per-LED brightness to global default.
     for (uint16_t i = 0; i < cfg->led_count; i++) s->bri[i] = cfg->global_brightness_31;
 
-    bb_led_driver_t *drv = calloc(1, sizeof *drv);
+    bb_led_driver_t *drv = (bb_led_driver_t *)calloc(1, sizeof *drv);
     if (!drv) { free(s->rgb); free(s->bri); free(s->enabled); free(s); return BB_ERR_NO_SPACE; }
     *drv = (bb_led_driver_t){
         .set_on = op_set_on,
