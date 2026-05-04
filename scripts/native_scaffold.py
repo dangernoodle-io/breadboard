@@ -190,6 +190,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_led_apa102/bb_led_apa102.c"],
         "depends":  ["bb_core", "bb_led"],
     },
+    "bb_led_anim": {
+        "includes": ["components/bb_led_anim/include", "platform/host/bb_led_anim"],
+        "sources":  ["platform/host/bb_led_anim/bb_led_anim.c"],
+        "depends":  ["bb_core", "bb_led", "bb_log"],
+    },
 }
 
 

@@ -523,6 +523,22 @@ void test_apa102_idx_out_of_range(void);
 void test_apa102_invalid_args(void);
 void test_apa102_disabled_pixel_zeros_rgb(void);
 
+// Forward declarations from test_bb_led_anim.c
+void bb_led_anim_test_reset(void);
+void test_anim_attach_null_cfg_returns_invalid_arg(void);
+void test_anim_attach_null_out_returns_invalid_arg(void);
+void test_anim_detach_no_crash(void);
+void test_anim_set_solid_on_onoff_handle_returns_ok(void);
+void test_anim_set_rgb_pattern_on_onoff_handle_returns_unsupported(void);
+void test_anim_set_chase_on_single_led_returns_unsupported(void);
+void test_anim_blink_on_at_quarter_period(void);
+void test_anim_blink_off_at_three_quarter_period(void);
+void test_anim_breathe_brightness_rises_then_falls(void);
+void test_anim_color_cycle_red_dominant_at_hue_zero(void);
+void test_anim_color_cycle_green_dominant_at_one_third_period(void);
+void test_anim_color_cycle_blue_dominant_at_two_thirds_period(void);
+void test_anim_detach_null_returns_invalid_arg(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_mdns_host_reset();
@@ -531,6 +547,7 @@ void setUp(void) {
     bb_led_test_reset();
     bb_led_pwm_test_reset();
     bb_led_apa102_host_test_reset();
+    bb_led_anim_test_reset();
 }
 void tearDown(void) {}
 
@@ -1055,6 +1072,21 @@ int main(void) {
     RUN_TEST(test_apa102_idx_out_of_range);
     RUN_TEST(test_apa102_invalid_args);
     RUN_TEST(test_apa102_disabled_pixel_zeros_rgb);
+
+    // bb_led_anim tests
+    RUN_TEST(test_anim_attach_null_cfg_returns_invalid_arg);
+    RUN_TEST(test_anim_attach_null_out_returns_invalid_arg);
+    RUN_TEST(test_anim_detach_no_crash);
+    RUN_TEST(test_anim_set_solid_on_onoff_handle_returns_ok);
+    RUN_TEST(test_anim_set_rgb_pattern_on_onoff_handle_returns_unsupported);
+    RUN_TEST(test_anim_set_chase_on_single_led_returns_unsupported);
+    RUN_TEST(test_anim_blink_on_at_quarter_period);
+    RUN_TEST(test_anim_blink_off_at_three_quarter_period);
+    RUN_TEST(test_anim_breathe_brightness_rises_then_falls);
+    RUN_TEST(test_anim_color_cycle_red_dominant_at_hue_zero);
+    RUN_TEST(test_anim_color_cycle_green_dominant_at_one_third_period);
+    RUN_TEST(test_anim_color_cycle_blue_dominant_at_two_thirds_period);
+    RUN_TEST(test_anim_detach_null_returns_invalid_arg);
 
     return UNITY_END();
 }
