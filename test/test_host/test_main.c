@@ -490,6 +490,15 @@ void test_bb_led_fill_color_iterates(void);
 void test_bb_led_close_calls_driver(void);
 void test_bb_led_brightness_pct_validation(void);
 
+// Forward declarations from test_bb_led_gpio.c
+void test_gpio_open_close(void);
+void test_gpio_active_high_set_on(void);
+void test_gpio_active_low_set_on(void);
+void test_gpio_idx_must_be_zero(void);
+void test_gpio_initial_state_off(void);
+void test_gpio_initial_state_off_active_low(void);
+void test_gpio_invalid_args(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_mdns_host_reset();
@@ -989,6 +998,15 @@ int main(void) {
     RUN_TEST(test_bb_led_fill_color_iterates);
     RUN_TEST(test_bb_led_close_calls_driver);
     RUN_TEST(test_bb_led_brightness_pct_validation);
+
+    // bb_led_gpio tests
+    RUN_TEST(test_gpio_open_close);
+    RUN_TEST(test_gpio_active_high_set_on);
+    RUN_TEST(test_gpio_active_low_set_on);
+    RUN_TEST(test_gpio_idx_must_be_zero);
+    RUN_TEST(test_gpio_initial_state_off);
+    RUN_TEST(test_gpio_initial_state_off_active_low);
+    RUN_TEST(test_gpio_invalid_args);
 
     return UNITY_END();
 }
