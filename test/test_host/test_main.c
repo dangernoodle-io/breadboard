@@ -499,12 +499,26 @@ void test_gpio_initial_state_off(void);
 void test_gpio_initial_state_off_active_low(void);
 void test_gpio_invalid_args(void);
 
+// Forward declarations from test_bb_led_pwm.c
+void bb_led_pwm_test_reset(void);
+void test_pwm_open_close(void);
+void test_pwm_set_brightness_active_high(void);
+void test_pwm_set_brightness_active_low(void);
+void test_pwm_set_on_active_high(void);
+void test_pwm_set_on_active_low(void);
+void test_pwm_set_color_unsupported(void);
+void test_pwm_idx_must_be_zero(void);
+void test_pwm_invalid_args(void);
+void test_pwm_initial_state_off_active_high(void);
+void test_pwm_initial_state_off_active_low(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_mdns_host_reset();
     wifi_reconn_policy_test_reset();
     bb_mdns_lifecycle_test_reset();
     bb_led_test_reset();
+    bb_led_pwm_test_reset();
 }
 void tearDown(void) {}
 
@@ -1007,6 +1021,18 @@ int main(void) {
     RUN_TEST(test_gpio_initial_state_off);
     RUN_TEST(test_gpio_initial_state_off_active_low);
     RUN_TEST(test_gpio_invalid_args);
+
+    // bb_led_pwm tests
+    RUN_TEST(test_pwm_open_close);
+    RUN_TEST(test_pwm_set_brightness_active_high);
+    RUN_TEST(test_pwm_set_brightness_active_low);
+    RUN_TEST(test_pwm_set_on_active_high);
+    RUN_TEST(test_pwm_set_on_active_low);
+    RUN_TEST(test_pwm_set_color_unsupported);
+    RUN_TEST(test_pwm_idx_must_be_zero);
+    RUN_TEST(test_pwm_invalid_args);
+    RUN_TEST(test_pwm_initial_state_off_active_high);
+    RUN_TEST(test_pwm_initial_state_off_active_low);
 
     return UNITY_END();
 }

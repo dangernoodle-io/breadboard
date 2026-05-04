@@ -180,6 +180,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_led_gpio/bb_led_gpio.c"],
         "depends":  ["bb_core", "bb_led"],
     },
+    "bb_led_pwm": {
+        "includes": ["components/bb_led_pwm/include", "platform/host/bb_led_pwm"],
+        "sources":  ["platform/host/bb_led_pwm/bb_led_pwm.c"],
+        "depends":  ["bb_core", "bb_led"],
+    },
 }
 
 
