@@ -542,6 +542,20 @@ void test_btn_gpio_inject_sets_released(void);
 void test_btn_gpio_invalid_args(void);
 void test_btn_gpio_poll_noop_on_host(void);
 
+// Forward declarations from test_bb_button_events.c
+void test_btn_evt_attach_null_cfg_returns_invalid_arg(void);
+void test_btn_evt_attach_null_out_returns_invalid_arg(void);
+void test_btn_evt_attach_null_button_returns_invalid_arg(void);
+void test_btn_evt_single_click_emits_exactly_one_click(void);
+void test_btn_evt_double_click_emits_exactly_one_double_click(void);
+void test_btn_evt_double_click_no_click_emitted(void);
+void test_btn_evt_long_press_start_fires_once(void);
+void test_btn_evt_repeat_events_monotonic_held_ms(void);
+void test_btn_evt_long_press_end_correct_held_ms(void);
+void test_btn_evt_no_repeat_after_long_press_end(void);
+void test_btn_evt_medium_press_no_event(void);
+void test_btn_evt_detach_no_crash_on_subsequent_events(void);
+
 // Forward declarations from test_bb_led_anim.c
 void bb_led_anim_test_reset(void);
 void test_anim_attach_null_cfg_returns_invalid_arg(void);
@@ -1110,6 +1124,20 @@ int main(void) {
     RUN_TEST(test_btn_gpio_inject_sets_released);
     RUN_TEST(test_btn_gpio_invalid_args);
     RUN_TEST(test_btn_gpio_poll_noop_on_host);
+
+    // bb_button_events tests
+    RUN_TEST(test_btn_evt_attach_null_cfg_returns_invalid_arg);
+    RUN_TEST(test_btn_evt_attach_null_out_returns_invalid_arg);
+    RUN_TEST(test_btn_evt_attach_null_button_returns_invalid_arg);
+    RUN_TEST(test_btn_evt_single_click_emits_exactly_one_click);
+    RUN_TEST(test_btn_evt_double_click_emits_exactly_one_double_click);
+    RUN_TEST(test_btn_evt_double_click_no_click_emitted);
+    RUN_TEST(test_btn_evt_long_press_start_fires_once);
+    RUN_TEST(test_btn_evt_repeat_events_monotonic_held_ms);
+    RUN_TEST(test_btn_evt_long_press_end_correct_held_ms);
+    RUN_TEST(test_btn_evt_no_repeat_after_long_press_end);
+    RUN_TEST(test_btn_evt_medium_press_no_event);
+    RUN_TEST(test_btn_evt_detach_no_crash_on_subsequent_events);
 
     // bb_led_anim tests
     RUN_TEST(test_anim_attach_null_cfg_returns_invalid_arg);
