@@ -1,4 +1,4 @@
-set(SMOKE_REQUIRES bb_nv bb_log bb_wifi bb_http bb_mdns bb_registry bb_ota_pull bb_ota_push bb_info bb_board bb_manifest bb_ota_validator bb_system bb_openapi bb_led bb_led_gpio bb_led_pwm bb_led_apa102 bb_led_anim)
+set(SMOKE_REQUIRES bb_nv bb_log bb_wifi bb_http bb_mdns bb_registry bb_ota_pull bb_ota_push bb_info bb_board bb_manifest bb_ota_validator bb_system bb_openapi bb_led bb_led_gpio bb_led_pwm bb_led_apa102 bb_led_anim bb_button bb_button_gpio)
 
 if(FIRMWARE_BOARD STREQUAL "elecrow_p4_hmi7")
     list(APPEND SMOKE_REQUIRES bb_display bb_display_ek79007)
