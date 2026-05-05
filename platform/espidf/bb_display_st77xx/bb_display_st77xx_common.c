@@ -84,13 +84,10 @@ void bb_display_st77xx_blit(int16_t x, int16_t y, uint16_t w, uint16_t h, const 
 {
     if (!bb_display_st77xx_panel || !pixels || !w || !h) return;
 
-    /* Apply board-defined offsets. */
-    int16_t x_adj = x + LCD_OFFSET_X;
-    int16_t y_adj = y + LCD_OFFSET_Y;
-
-    /* Ensure rect is within panel bounds. */
-    if (x_adj < 0 || y_adj < 0 || x_adj + w > LCD_WIDTH || y_adj + h > LCD_HEIGHT) {
-        bb_log_w(TAG, "blit out of bounds: (%d,%d) %ux%u", x_adj, y_adj, w, h);
+    /* Panel offsets are applied in hardware via esp_lcd_panel_set_gap() at init —
+     * do not add them here or they double up. */
+    if (x < 0 || y < 0 || (uint16_t)x + w > LCD_WIDTH || (uint16_t)y + h > LCD_HEIGHT) {
+        bb_log_w(TAG, "blit out of bounds: (%d,%d) %ux%u", x, y, w, h);
         return;
     }
 
@@ -106,8 +103,7 @@ void bb_display_st77xx_blit(int16_t x, int16_t y, uint16_t w, uint16_t h, const 
             /* Swap bytes: XRRRRR GGG | BBBBB XX -> GGG BBBBB | XX XRRRRR */
             stack_buf[i] = ((pixel & 0xFF) << 8) | ((pixel >> 8) & 0xFF);
         }
-        esp_lcd_panel_draw_bitmap(bb_display_st77xx_panel, x_adj, y_adj,
-                                  x_adj + w, y_adj + h, stack_buf);
+        esp_lcd_panel_draw_bitmap(bb_display_st77xx_panel, x, y, x + w, y + h, stack_buf);
     } else {
         /* Large blits: allocate heap buffer (bounded). */
         if (pixel_count > 8192) {
@@ -123,8 +119,7 @@ void bb_display_st77xx_blit(int16_t x, int16_t y, uint16_t w, uint16_t h, const 
             uint16_t pixel = pixels[i];
             buf[i] = ((pixel & 0xFF) << 8) | ((pixel >> 8) & 0xFF);
         }
-        esp_lcd_panel_draw_bitmap(bb_display_st77xx_panel, x_adj, y_adj,
-                                  x_adj + w, y_adj + h, buf);
+        esp_lcd_panel_draw_bitmap(bb_display_st77xx_panel, x, y, x + w, y + h, buf);
         free(buf);
     }
 }
