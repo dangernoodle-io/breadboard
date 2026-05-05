@@ -16,6 +16,7 @@
 #include "bb_led_anim.h"
 #include "bb_button.h"
 #include "bb_button_gpio.h"
+#include "bb_button_events.h"
 #include "smoke_app.h"
 
 #if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
@@ -23,6 +24,19 @@
 #endif
 
 static const char *TAG = "smoke";
+
+static void btn_events_cb(const bb_button_events_event_t *e, void *user) {
+    (void)user;
+    const char *kind_str = "?";
+    switch (e->kind) {
+        case BB_BTN_EVT_CLICK:              kind_str = "CLICK"; break;
+        case BB_BTN_EVT_DOUBLE_CLICK:       kind_str = "DOUBLE_CLICK"; break;
+        case BB_BTN_EVT_LONG_PRESS_START:   kind_str = "LONG_PRESS_START"; break;
+        case BB_BTN_EVT_LONG_PRESS_END:     kind_str = "LONG_PRESS_END"; break;
+        case BB_BTN_EVT_REPEAT:             kind_str = "REPEAT"; break;
+    }
+    bb_log_i(TAG, "bb_button_events: %s (held_ms=%lu)", kind_str, (unsigned long)e->held_ms);
+}
 
 static bb_err_t ping_handler(bb_http_request_t *req) {
     bb_http_resp_set_header(req, "Content-Type", "text/plain");
@@ -193,6 +207,28 @@ void smoke_app_setup(void) {
     bb_button_handle_t btn = NULL;
     if (bb_button_gpio_open(&btn_cfg, &btn) == BB_OK) {
         bb_button_poll(btn);
+
+        // === bb_button_events ===
+        bb_button_events_cfg_t events_cfg = {
+            .button = btn,
+            .click_max_ms = 0,
+            .double_click_window_ms = 0,
+            .long_press_ms = 0,
+            .repeat_interval_ms = 0,
+            .tick_period_ms = 0,
+            .auto_start_timer = true,
+            .cb = btn_events_cb,
+            .user = NULL,
+        };
+        bb_button_events_handle_t events = NULL;
+        if (bb_button_events_attach(&events_cfg, &events) == BB_OK) {
+            bb_button_events_tick(events);
+            bb_button_events_detach(events);
+            bb_log_i(TAG, "bb_button_events: ok");
+        } else {
+            bb_log_w(TAG, "bb_button_events: attach failed");
+        }
+
         bb_button_close(btn);
         bb_log_i(TAG, "bb_button_gpio: ok");
     } else {
