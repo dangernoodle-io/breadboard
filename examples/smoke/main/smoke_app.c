@@ -13,6 +13,7 @@
 #include "bb_led_gpio.h"
 #include "bb_led_pwm.h"
 #include "bb_led_apa102.h"
+#include "bb_led_anim.h"
 #include "smoke_app.h"
 
 #if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
@@ -149,6 +150,35 @@ void smoke_app_setup(void) {
         bb_log_i(TAG, "bb_led_apa102: ok");
     } else {
         bb_log_w(TAG, "bb_led_apa102: open failed");
+    }
+
+    // === bb_led_anim ===
+    bb_led_gpio_cfg_t led_anim_cfg = {
+        .gpio = 2,
+        .active_low = false,
+    };
+    bb_led_handle_t led_anim_led = NULL;
+    if (bb_led_gpio_open(&led_anim_cfg, &led_anim_led) == BB_OK) {
+        bb_led_anim_cfg_t anim_cfg = {
+            .led = led_anim_led,
+            .tick_period_ms = 20,
+            .auto_start_timer = false,
+        };
+        bb_led_anim_handle_t anim = NULL;
+        if (bb_led_anim_attach(&anim_cfg, &anim) == BB_OK) {
+            bb_led_anim_pattern_t pat = { .kind = BB_ANIM_BLINK };
+            pat.blink.period_ms = 1000;
+            pat.blink.duty_pct = 50;
+            bb_led_anim_set(anim, &pat);
+            bb_led_anim_tick(anim);
+            bb_led_anim_detach(anim);
+            bb_log_i(TAG, "bb_led_anim: ok");
+        } else {
+            bb_log_w(TAG, "bb_led_anim: attach failed");
+        }
+        bb_led_close(led_anim_led);
+    } else {
+        bb_log_w(TAG, "bb_led_anim: open failed");
     }
 
     uint32_t boot_count = 0;
