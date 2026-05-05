@@ -195,6 +195,16 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_led_anim/bb_led_anim.c"],
         "depends":  ["bb_core", "bb_led", "bb_log"],
     },
+    "bb_button": {
+        "includes": ["components/bb_button/include"],
+        "sources":  ["platform/host/bb_button/bb_button.c"],
+        "depends":  ["bb_core"],
+    },
+    "bb_button_gpio": {
+        "includes": ["components/bb_button_gpio/include", "platform/host/bb_button_gpio"],
+        "sources":  ["platform/host/bb_button_gpio/bb_button_gpio.c"],
+        "depends":  ["bb_core", "bb_button"],
+    },
 }
 
 
