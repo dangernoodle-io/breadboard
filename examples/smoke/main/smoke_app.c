@@ -14,6 +14,8 @@
 #include "bb_led_pwm.h"
 #include "bb_led_apa102.h"
 #include "bb_led_anim.h"
+#include "bb_button.h"
+#include "bb_button_gpio.h"
 #include "smoke_app.h"
 
 #if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
@@ -179,6 +181,22 @@ void smoke_app_setup(void) {
         bb_led_close(led_anim_led);
     } else {
         bb_log_w(TAG, "bb_led_anim: open failed");
+    }
+
+    // === bb_button ===
+    bb_button_gpio_cfg_t btn_cfg = {
+        .gpio = 0,
+        .active_low = true,
+        .debounce_ms = 25,
+        .prefer_isr = true,
+    };
+    bb_button_handle_t btn = NULL;
+    if (bb_button_gpio_open(&btn_cfg, &btn) == BB_OK) {
+        bb_button_poll(btn);
+        bb_button_close(btn);
+        bb_log_i(TAG, "bb_button_gpio: ok");
+    } else {
+        bb_log_w(TAG, "bb_button_gpio: open failed");
     }
 
     uint32_t boot_count = 0;
