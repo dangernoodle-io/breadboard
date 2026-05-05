@@ -142,7 +142,10 @@ COMPONENT_MAP = {
     },
     "bb_openapi": {
         "includes": ["components/bb_openapi/include"],
-        "sources":  ["components/bb_openapi/src/bb_openapi_emit.c"],
+        "sources":  [
+            "components/bb_openapi/src/bb_openapi_emit.c",
+            "components/bb_openapi/src/bb_openapi_validate.c",
+        ],
         "depends":  ["bb_core", "bb_http", "bb_json"],
     },
     "bb_manifest": {
