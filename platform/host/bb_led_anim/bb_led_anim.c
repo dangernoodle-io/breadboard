@@ -24,6 +24,8 @@ static const char *TAG = "bb_led_anim";
 static uint32_t s_mock_time_ms = 0;
 void bb_led_anim_set_mock_time_ms(uint32_t ms) { s_mock_time_ms = ms; }
 static uint32_t now_ms(void) { return s_mock_time_ms; }
+#elif defined(ARDUINO)
+static uint32_t now_ms(void) { return (uint32_t)millis(); }
 #else
 static uint32_t now_ms(void)
 {
