@@ -523,6 +523,25 @@ void test_apa102_idx_out_of_range(void);
 void test_apa102_invalid_args(void);
 void test_apa102_disabled_pixel_zeros_rgb(void);
 
+// Forward declarations from test_bb_button.c
+void test_bb_button_open_null_cfg(void);
+void test_bb_button_open_null_out(void);
+void test_bb_button_press_past_debounce_fires_cb(void);
+void test_bb_button_second_press_within_debounce_suppressed(void);
+void test_bb_button_press_then_release_fires_two_cbs(void);
+void test_bb_button_is_pressed_reflects_debounced_state(void);
+void test_bb_button_get_queue_returns_null_on_host(void);
+void test_bb_button_active_low_false_high_is_press(void);
+void test_bb_button_close_subsequent_inject_noop(void);
+
+// Forward declarations from test_bb_button_gpio.c
+void test_btn_gpio_open_close(void);
+void test_btn_gpio_initial_state_not_pressed(void);
+void test_btn_gpio_inject_sets_pressed(void);
+void test_btn_gpio_inject_sets_released(void);
+void test_btn_gpio_invalid_args(void);
+void test_btn_gpio_poll_noop_on_host(void);
+
 // Forward declarations from test_bb_led_anim.c
 void bb_led_anim_test_reset(void);
 void test_anim_attach_null_cfg_returns_invalid_arg(void);
@@ -1072,6 +1091,25 @@ int main(void) {
     RUN_TEST(test_apa102_idx_out_of_range);
     RUN_TEST(test_apa102_invalid_args);
     RUN_TEST(test_apa102_disabled_pixel_zeros_rgb);
+
+    // bb_button tests
+    RUN_TEST(test_bb_button_open_null_cfg);
+    RUN_TEST(test_bb_button_open_null_out);
+    RUN_TEST(test_bb_button_press_past_debounce_fires_cb);
+    RUN_TEST(test_bb_button_second_press_within_debounce_suppressed);
+    RUN_TEST(test_bb_button_press_then_release_fires_two_cbs);
+    RUN_TEST(test_bb_button_is_pressed_reflects_debounced_state);
+    RUN_TEST(test_bb_button_get_queue_returns_null_on_host);
+    RUN_TEST(test_bb_button_active_low_false_high_is_press);
+    RUN_TEST(test_bb_button_close_subsequent_inject_noop);
+
+    // bb_button_gpio tests
+    RUN_TEST(test_btn_gpio_open_close);
+    RUN_TEST(test_btn_gpio_initial_state_not_pressed);
+    RUN_TEST(test_btn_gpio_inject_sets_pressed);
+    RUN_TEST(test_btn_gpio_inject_sets_released);
+    RUN_TEST(test_btn_gpio_invalid_args);
+    RUN_TEST(test_btn_gpio_poll_noop_on_host);
 
     // bb_led_anim tests
     RUN_TEST(test_anim_attach_null_cfg_returns_invalid_arg);
