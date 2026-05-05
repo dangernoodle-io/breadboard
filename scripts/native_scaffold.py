@@ -205,6 +205,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_button_gpio/bb_button_gpio.c"],
         "depends":  ["bb_core", "bb_button"],
     },
+    "bb_button_events": {
+        "includes": ["components/bb_button_events/include", "platform/host/bb_button_events"],
+        "sources":  ["platform/host/bb_button_events/bb_button_events.c"],
+        "depends":  ["bb_core", "bb_button", "bb_log"],
+    },
 }
 
 
