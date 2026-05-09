@@ -16,11 +16,14 @@ check: ## Static analysis (cppcheck)
 test: ## Run host unit tests
 	$(PIO) test -e native
 
-coverage: test ## Coverage report (gcovr)
+coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging when Coveralls flags drops
 	gcovr --root . --filter 'components/' \
 	    --exclude-throw-branches \
 	    --exclude-unreachable-branches \
-	    --print-summary --coveralls gcovr-coveralls.json
+	    --txt-metric branch \
+	    --print-summary \
+	    --coveralls gcovr-coveralls.json \
+	    --txt
 
 smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32c3 smoke-r4_wifis3 smoke-tdongle smoke-uno_cc3000
 
