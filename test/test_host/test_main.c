@@ -261,6 +261,20 @@ void test_route_schemas_registry_all_valid(void);
 void test_route_schemas_walker_flags_malformed(void);
 void test_set_raw_writes_null_on_malformed_json(void);
 void test_set_raw_writes_parsed_object_on_valid_json(void);
+// Forward declarations from test_route_fidelity.c
+void test_fidelity_reboot(void);
+void test_fidelity_board(void);
+void test_fidelity_info(void);
+void test_fidelity_health(void);
+void test_fidelity_wifi_info(void);
+void test_fidelity_ota_status(void);
+void test_fidelity_ota_mark_valid_409(void);
+void test_capture_begin_end_basic(void);
+void test_capture_default_status_is_200(void);
+void test_capture_send_json_sets_content_type(void);
+void test_capture_multi_write_appends(void);
+void test_capture_end_null_args_returns_err(void);
+void test_capture_no_active_slot_ignored(void);
 void test_register_described_route_rejects_null(void);
 void test_register_described_route_propagates_underlying_failure(void);
 void test_register_described_route_overflow_returns_ok(void);
@@ -880,6 +894,23 @@ int main(void) {
     RUN_TEST(test_route_schemas_walker_flags_malformed);
     RUN_TEST(test_set_raw_writes_null_on_malformed_json);
     RUN_TEST(test_set_raw_writes_parsed_object_on_valid_json);
+
+    // Capture harness unit tests
+    RUN_TEST(test_capture_begin_end_basic);
+    RUN_TEST(test_capture_default_status_is_200);
+    RUN_TEST(test_capture_send_json_sets_content_type);
+    RUN_TEST(test_capture_multi_write_appends);
+    RUN_TEST(test_capture_end_null_args_returns_err);
+    RUN_TEST(test_capture_no_active_slot_ignored);
+
+    // Fidelity audit: handler output vs declared response schema
+    RUN_TEST(test_fidelity_reboot);
+    RUN_TEST(test_fidelity_board);
+    RUN_TEST(test_fidelity_info);
+    RUN_TEST(test_fidelity_health);
+    RUN_TEST(test_fidelity_wifi_info);
+    RUN_TEST(test_fidelity_ota_status);
+    RUN_TEST(test_fidelity_ota_mark_valid_409);
     RUN_TEST(test_register_described_route_rejects_null);
     RUN_TEST(test_register_described_route_propagates_underlying_failure);
     RUN_TEST(test_register_described_route_overflow_returns_ok);
