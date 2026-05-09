@@ -1,12 +1,39 @@
 // Host stubs for bb_http functions that require a real HTTP server backend.
 // These are no-ops used only by the native (host) test environment.
 // The route registry (route_registry.c) is portable and compiled directly.
+//
+// Capture harness: tests can arm a capture slot via bb_http_host_capture_begin
+// before invoking a handler; the response helpers record status, content-type,
+// and body into the slot instead of sending them to a real network connection.
+// Only one slot is active at a time (host tests are single-threaded).
 #include "bb_http.h"
+#include "bb_http_host.h"
 #include "bb_json.h"
 #include <stdlib.h>
+#include <string.h>
 
 // Test hook: force bb_http_register_route to fail
 static bool s_force_register_fail = false;
+
+// ============================================================================
+// Capture slot (single, host tests are single-threaded)
+// ============================================================================
+
+typedef struct {
+    bb_http_request_t *req;      // non-NULL when a capture is active
+    int                status;   // last status set (default 200)
+    char               content_type[64];
+    char              *body;     // heap-owned, grows via realloc
+    size_t             body_len;
+} capture_slot_t;
+
+static capture_slot_t s_cap;
+
+static capture_slot_t *capture_find(bb_http_request_t *req)
+{
+    if (s_cap.req == req) return &s_cap;
+    return NULL;
+}
 
 void bb_http_host_force_register_fail(bool fail)
 {
@@ -30,15 +57,24 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
 
 bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
 {
+    capture_slot_t *cap = capture_find(req);
+    if (cap) {
+        cap->status = status_code;
+        return BB_OK;
+    }
     (void)req;
-    (void)status_code;
     return BB_OK;
 }
 
 bb_err_t bb_http_resp_set_type(bb_http_request_t *req, const char *mime)
 {
+    capture_slot_t *cap = capture_find(req);
+    if (cap && mime) {
+        strncpy(cap->content_type, mime, sizeof(cap->content_type) - 1);
+        cap->content_type[sizeof(cap->content_type) - 1] = '\0';
+        return BB_OK;
+    }
     (void)req;
-    (void)mime;
     return BB_OK;
 }
 
@@ -52,9 +88,18 @@ bb_err_t bb_http_resp_set_header(bb_http_request_t *req, const char *key, const 
 
 bb_err_t bb_http_resp_send(bb_http_request_t *req, const char *body, size_t len)
 {
+    capture_slot_t *cap = capture_find(req);
+    if (cap && body && len > 0) {
+        char *newbuf = realloc(cap->body, cap->body_len + len + 1);
+        if (newbuf) {
+            memcpy(newbuf + cap->body_len, body, len);
+            cap->body_len += len;
+            newbuf[cap->body_len] = '\0';
+            cap->body = newbuf;
+        }
+        return BB_OK;
+    }
     (void)req;
-    (void)body;
-    (void)len;
     return BB_OK;
 }
 
@@ -100,8 +145,7 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
 
 bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)
 {
-    (void)req;
-    (void)str;
+    if (str) return bb_http_resp_send(req, str, strlen(str));
     return BB_OK;
 }
 
@@ -115,6 +159,28 @@ bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int le
 
 bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc)
 {
+    capture_slot_t *cap = capture_find(req);
+    if (cap) {
+        // Default content-type for JSON if not already set
+        if (cap->content_type[0] == '\0') {
+            strncpy(cap->content_type, "application/json",
+                    sizeof(cap->content_type) - 1);
+            cap->content_type[sizeof(cap->content_type) - 1] = '\0';
+        }
+        char *serialized = bb_json_serialize(doc);
+        if (serialized) {
+            size_t len = strlen(serialized);
+            char *newbuf = realloc(cap->body, cap->body_len + len + 1);
+            if (newbuf) {
+                memcpy(newbuf + cap->body_len, serialized, len);
+                cap->body_len += len;
+                newbuf[cap->body_len] = '\0';
+                cap->body = newbuf;
+            }
+            bb_json_free_str(serialized);
+        }
+        return BB_OK;
+    }
     (void)req;
     (void)doc;
     return BB_OK;
@@ -169,6 +235,53 @@ static int s_host_reserved_routes = 0;
 void bb_http_reserve_routes(int n) { if (n > 0) s_host_reserved_routes += n; }
 int  bb_http_host_reserved_routes(void) { return s_host_reserved_routes; }
 void bb_http_host_reset_reserved(void)  { s_host_reserved_routes = 0; }
+
+// ============================================================================
+// Public capture API
+// ============================================================================
+
+// Sentinel: a small non-NULL non-stack address used as the fake req cookie.
+// We store its address so it is stable across calls.
+static int s_capture_cookie;
+
+void bb_http_host_capture_begin(bb_http_request_t **out_req)
+{
+    bb_http_request_t *req = (bb_http_request_t *)&s_capture_cookie;
+    s_cap.req      = req;
+    s_cap.status   = 200;
+    s_cap.body     = NULL;
+    s_cap.body_len = 0;
+    memset(s_cap.content_type, 0, sizeof(s_cap.content_type));
+    if (out_req) *out_req = req;
+}
+
+bb_err_t bb_http_host_capture_end(bb_http_request_t *req,
+                                  bb_http_host_capture_t *out)
+{
+    if (!req || !out) return BB_ERR_INVALID_ARG;
+    if (s_cap.req != req) return BB_ERR_INVALID_ARG;
+
+    out->status   = s_cap.status;
+    out->body     = s_cap.body;
+    out->body_len = s_cap.body_len;
+    strncpy(out->content_type, s_cap.content_type,
+            sizeof(out->content_type) - 1);
+    out->content_type[sizeof(out->content_type) - 1] = '\0';
+
+    // Disarm the slot (body ownership transferred to caller)
+    s_cap.req  = NULL;
+    s_cap.body = NULL;
+    s_cap.body_len = 0;
+    return BB_OK;
+}
+
+void bb_http_host_capture_free(bb_http_host_capture_t *cap)
+{
+    if (!cap) return;
+    free(cap->body);
+    cap->body     = NULL;
+    cap->body_len = 0;
+}
 
 // ============================================================================
 // STREAMING JSON ARRAY API — Host backend (buffered)

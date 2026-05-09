@@ -153,3 +153,8 @@ const char *bb_mdns_get_hostname(void)
 {
     return NULL;  /* host: no cached hostname */
 }
+
+bool bb_mdns_started(void)
+{
+    return false;  /* host: mDNS not running */
+}

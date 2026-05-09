@@ -86,7 +86,7 @@ COMPONENT_MAP = {
         "depends":  ["bb_core"],
     },
     "bb_http": {
-        "includes": ["components/bb_http/include"],
+        "includes": ["components/bb_http/include", "platform/host/bb_http/include"],
         "sources": [
             "components/bb_http/src/http_utils.c",
             "components/bb_http/src/route_registry.c",
