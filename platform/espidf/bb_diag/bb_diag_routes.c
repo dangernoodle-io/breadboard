@@ -64,6 +64,10 @@ static bb_err_t panic_get_handler(bb_http_request_t *req)
                 bb_json_arr_append_number(bt, (double)summary.bt_addrs[i]);
             }
             bb_json_obj_set_arr(root, "backtrace", bt);
+
+            if (summary.panic_reason[0] != '\0') {
+                bb_json_obj_set_string(root, "panic_reason", summary.panic_reason);
+            }
         }
     }
 #endif
@@ -92,9 +96,10 @@ static const bb_route_response_t s_panic_get_responses[] = {
       "\"task\":{\"type\":\"string\"},"
       "\"exc_pc\":{\"type\":\"integer\"},"
       "\"exc_cause\":{\"type\":\"integer\"},"
-      "\"backtrace\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}}},"
+      "\"backtrace\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}},"
+      "\"panic_reason\":{\"type\":\"string\"}},"
       "\"required\":[\"available\"]}",
-      "panic log status, log tail, and coredump backtrace (when available)" },
+      "panic log status, log tail, coredump backtrace, and panic reason text (when available)" },
     { 0 },
 };
 

@@ -74,6 +74,11 @@ static void bb_diag_panic_coredump_init(void)
     s_summary.bt_count = 0;
 #endif
 
+    s_summary.panic_reason[0] = '\0';
+    if (esp_core_dump_get_panic_reason(s_summary.panic_reason, sizeof(s_summary.panic_reason)) != ESP_OK) {
+        s_summary.panic_reason[0] = '\0';   /* defensive: clear on partial fill */
+    }
+
     s_have_summary = true;
 }
 #endif /* CONFIG_BB_DIAG_PANIC_COREDUMP */
