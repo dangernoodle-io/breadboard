@@ -6,6 +6,12 @@
 #include "bb_registry.h"
 
 #include "esp_system.h"
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
+#include "esp_core_dump.h"
+#include "esp_partition.h"
+#include <stdlib.h>
+#include <stdio.h>
+#endif
 
 static const char *TAG = "bb_diag_routes";
 
@@ -58,6 +64,10 @@ static bb_err_t panic_get_handler(bb_http_request_t *req)
                 bb_json_arr_append_number(bt, (double)summary.bt_addrs[i]);
             }
             bb_json_obj_set_arr(root, "backtrace", bt);
+
+            if (summary.panic_reason[0] != '\0') {
+                bb_json_obj_set_string(root, "panic_reason", summary.panic_reason);
+            }
         }
     }
 #endif
@@ -86,9 +96,10 @@ static const bb_route_response_t s_panic_get_responses[] = {
       "\"task\":{\"type\":\"string\"},"
       "\"exc_pc\":{\"type\":\"integer\"},"
       "\"exc_cause\":{\"type\":\"integer\"},"
-      "\"backtrace\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}}},"
+      "\"backtrace\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}},"
+      "\"panic_reason\":{\"type\":\"string\"}},"
       "\"required\":[\"available\"]}",
-      "panic log status, log tail, and coredump backtrace (when available)" },
+      "panic log status, log tail, coredump backtrace, and panic reason text (when available)" },
     { 0 },
 };
 
@@ -139,6 +150,79 @@ static const bb_route_t s_panic_trigger_route = {
 };
 #endif
 
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
+static bb_err_t coredump_get_handler(bb_http_request_t *req)
+{
+    size_t size = bb_diag_panic_coredump_size();
+    if (size == 0) {
+        return bb_http_resp_send_err(req, 404, "no coredump available");
+    }
+
+    // Allocate in chunks to keep heap pressure manageable on a panicked device.
+    // 4KB chunks; one buffer for the whole file would be ~64KB which we'd rather avoid.
+    enum { CHUNK = 4096 };
+    uint8_t *chunk = malloc(CHUNK);
+    if (!chunk) return bb_http_resp_send_err(req, 500, "alloc failed");
+
+    bb_http_resp_set_status(req, 200);
+    bb_http_resp_set_type(req, "application/octet-stream");
+    char content_len[24];
+    snprintf(content_len, sizeof content_len, "%zu", size);
+    bb_http_resp_set_header(req, "Content-Length", content_len);
+    bb_http_resp_set_header(req, "Content-Disposition", "attachment; filename=\"coredump.bin\"");
+
+    // Use the partition API directly for chunked reads — no need to allocate the
+    // entire coredump buffer to satisfy the "fits in max_len" precondition of
+    // bb_diag_panic_coredump_read_bytes.
+    const esp_partition_t *part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, NULL);
+    if (!part) {
+        free(chunk);
+        return bb_http_resp_send_err(req, 500, "partition not found");
+    }
+    size_t addr = 0, total = 0;
+    if (esp_core_dump_image_get(&addr, &total) != ESP_OK) {
+        free(chunk);
+        return bb_http_resp_send_err(req, 500, "image_get failed");
+    }
+    size_t part_offset = (addr >= part->address) ? (addr - part->address) : 0;
+
+    size_t sent = 0;
+    bb_err_t err = BB_OK;
+    while (sent < total) {
+        size_t want = (total - sent < CHUNK) ? (total - sent) : CHUNK;
+        if (esp_partition_read(part, part_offset + sent, chunk, want) != ESP_OK) {
+            err = BB_ERR_INVALID_STATE;
+            break;
+        }
+        err = bb_http_resp_send_chunk(req, (const char *)chunk, (int)want);
+        if (err != BB_OK) break;
+        sent += want;
+    }
+    // Terminate the chunked response (NULL/0 sentinel).
+    if (err == BB_OK) {
+        err = bb_http_resp_send_chunk(req, NULL, 0);
+    }
+    free(chunk);
+    return err;
+}
+
+static const bb_route_response_t s_coredump_get_responses[] = {
+    { 200, "application/octet-stream", NULL, "raw coredump bytes" },
+    { 404, NULL, NULL, "no coredump available" },
+    { 0 },
+};
+
+static const bb_route_t s_coredump_get_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/diag/coredump",
+    .tag      = "diag",
+    .summary  = "Download raw coredump partition bytes",
+    .responses = s_coredump_get_responses,
+    .handler  = coredump_get_handler,
+};
+#endif /* CONFIG_BB_DIAG_PANIC_COREDUMP */
+
 // /api/info extender: adds an optional "panic" object only when a panic
 // log or coredump is present, so clean boots see no schema change.
 static void bb_diag_info_extender(bb_json_t root)
@@ -168,6 +252,11 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     err = bb_http_register_described_route(server, &s_panic_trigger_route);
     if (err != BB_OK) return err;
     bb_log_w(TAG, "panic trigger route ENABLED — debug build only");
+#endif
+
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
+    err = bb_http_register_described_route(server, &s_coredump_get_route);
+    if (err != BB_OK) return err;
 #endif
 
     bb_info_register_extender(bb_diag_info_extender);

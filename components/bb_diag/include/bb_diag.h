@@ -34,6 +34,7 @@ void bb_diag_panic_clear(void);
  */
 #define BB_DIAG_PANIC_TASK_NAME_MAX 16
 #define BB_DIAG_PANIC_BACKTRACE_MAX 16
+#define BB_DIAG_PANIC_REASON_MAX    200  /* matches ESP-IDF's example buffer size */
 
 typedef struct {
     char     task_name[BB_DIAG_PANIC_TASK_NAME_MAX];
@@ -41,6 +42,10 @@ typedef struct {
     uint32_t exc_cause;
     uint32_t bt_count;
     uint32_t bt_addrs[BB_DIAG_PANIC_BACKTRACE_MAX];
+    char     panic_reason[BB_DIAG_PANIC_REASON_MAX]; /* full panic reason text from coredump;
+                                                        WDT: "Task watchdog got triggered…";
+                                                        exception: human-readable cause;
+                                                        empty string when not available */
 } bb_diag_panic_summary_t;
 
 /**
@@ -52,7 +57,9 @@ typedef struct {
 bool bb_diag_panic_coredump_available(void);
 
 /**
- * Populates `out` with the panic summary (task, exc_pc, exc_cause, backtrace).
+ * Populates `out` with the panic summary (task, exc_pc, exc_cause, backtrace, panic_reason).
+ * panic_reason is populated via esp_core_dump_get_panic_reason(); empty string when
+ * ESP-IDF returns ESP_ERR_NOT_FOUND (e.g., normal panic without a captured reason).
  * Returns BB_OK on success, BB_ERR_NOT_FOUND if no coredump,
  * BB_ERR_INVALID_ARG if out=NULL.
  * Host: always returns BB_ERR_NOT_FOUND.
@@ -70,3 +77,24 @@ bb_err_t bb_diag_panic_coredump_get(bb_diag_panic_summary_t *out);
  * Host: always returns 0.
  */
 uint32_t bb_diag_panic_boots_since(void);
+
+/**
+ * Read the raw coredump bytes from the coredump partition into the caller's buffer.
+ * `out_len` returns the actual coredump size (not the buffer capacity).
+ *
+ * Returns:
+ *   BB_OK             — coredump read successfully into `buf`; `*out_len` set
+ *   BB_ERR_NOT_FOUND  — no valid coredump in flash
+ *   BB_ERR_INVALID_ARG — buf NULL, max_len 0, or out_len NULL
+ *   BB_ERR_NO_SPACE   — coredump is larger than max_len; *out_len set to required size
+ *   BB_ERR_INVALID_STATE — read error
+ *
+ * Host: always returns BB_ERR_NOT_FOUND.
+ */
+bb_err_t bb_diag_panic_coredump_read_bytes(uint8_t *buf, size_t max_len, size_t *out_len);
+
+/**
+ * Returns the size in bytes of the stored coredump, or 0 if none.
+ * Useful to size a buffer before calling bb_diag_panic_coredump_read_bytes.
+ */
+size_t bb_diag_panic_coredump_size(void);
