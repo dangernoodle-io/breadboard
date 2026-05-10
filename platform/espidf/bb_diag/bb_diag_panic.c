@@ -42,6 +42,7 @@ static uint32_t bb_crc32(const uint8_t *data, size_t len)
 
 #ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
 #include "esp_core_dump.h"
+#include "esp_partition.h"
 
 static bb_diag_panic_summary_t s_summary;
 static bool s_have_summary = false;
@@ -254,6 +255,47 @@ bb_err_t bb_diag_panic_coredump_get(bb_diag_panic_summary_t *out)
 #endif
 }
 
+size_t bb_diag_panic_coredump_size(void)
+{
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
+    if (!s_have_summary) return 0;
+    size_t addr = 0, size = 0;
+    if (esp_core_dump_image_get(&addr, &size) != ESP_OK) return 0;
+    return size;
+#else
+    return 0;
+#endif
+}
+
+bb_err_t bb_diag_panic_coredump_read_bytes(uint8_t *buf, size_t max_len, size_t *out_len)
+{
+    if (!buf || max_len == 0 || !out_len) return BB_ERR_INVALID_ARG;
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
+    if (!s_have_summary) return BB_ERR_NOT_FOUND;
+
+    size_t addr = 0, size = 0;
+    if (esp_core_dump_image_get(&addr, &size) != ESP_OK) return BB_ERR_NOT_FOUND;
+
+    *out_len = size;
+    if (size > max_len) return BB_ERR_NO_SPACE;
+
+    const esp_partition_t *part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, NULL);
+    if (!part) return BB_ERR_NOT_FOUND;
+
+    // esp_core_dump_image_get returns absolute flash addr; compute offset within partition:
+    size_t part_offset = (addr >= part->address) ? (addr - part->address) : 0;
+    if (esp_partition_read(part, part_offset, buf, size) != ESP_OK) {
+        return BB_ERR_INVALID_STATE;
+    }
+    return BB_OK;
+#else
+    (void)buf; (void)max_len;
+    *out_len = 0;
+    return BB_ERR_NOT_FOUND;
+#endif
+}
+
 #else
 
 // Stubs when panic capture is disabled
@@ -287,6 +329,18 @@ bb_err_t bb_diag_panic_coredump_get(bb_diag_panic_summary_t *out)
 uint32_t bb_diag_panic_boots_since(void)
 {
     return 0;
+}
+
+size_t bb_diag_panic_coredump_size(void)
+{
+    return 0;
+}
+
+bb_err_t bb_diag_panic_coredump_read_bytes(uint8_t *buf, size_t max_len, size_t *out_len)
+{
+    (void)buf; (void)max_len;
+    if (out_len) *out_len = 0;
+    return BB_ERR_NOT_FOUND;
 }
 
 #endif /* CONFIG_BB_DIAG_PANIC_CAPTURE */

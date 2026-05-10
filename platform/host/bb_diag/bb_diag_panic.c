@@ -34,3 +34,12 @@ uint32_t bb_diag_panic_boots_since(void)
 {
     return 0;
 }
+
+size_t bb_diag_panic_coredump_size(void) { return 0; }
+
+bb_err_t bb_diag_panic_coredump_read_bytes(uint8_t *buf, size_t max_len, size_t *out_len)
+{
+    (void)buf; (void)max_len;
+    if (out_len) *out_len = 0;
+    return BB_ERR_NOT_FOUND;
+}

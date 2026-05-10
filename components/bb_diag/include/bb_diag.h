@@ -70,3 +70,24 @@ bb_err_t bb_diag_panic_coredump_get(bb_diag_panic_summary_t *out);
  * Host: always returns 0.
  */
 uint32_t bb_diag_panic_boots_since(void);
+
+/**
+ * Read the raw coredump bytes from the coredump partition into the caller's buffer.
+ * `out_len` returns the actual coredump size (not the buffer capacity).
+ *
+ * Returns:
+ *   BB_OK             — coredump read successfully into `buf`; `*out_len` set
+ *   BB_ERR_NOT_FOUND  — no valid coredump in flash
+ *   BB_ERR_INVALID_ARG — buf NULL, max_len 0, or out_len NULL
+ *   BB_ERR_NO_SPACE   — coredump is larger than max_len; *out_len set to required size
+ *   BB_ERR_INVALID_STATE — read error
+ *
+ * Host: always returns BB_ERR_NOT_FOUND.
+ */
+bb_err_t bb_diag_panic_coredump_read_bytes(uint8_t *buf, size_t max_len, size_t *out_len);
+
+/**
+ * Returns the size in bytes of the stored coredump, or 0 if none.
+ * Useful to size a buffer before calling bb_diag_panic_coredump_read_bytes.
+ */
+size_t bb_diag_panic_coredump_size(void);
