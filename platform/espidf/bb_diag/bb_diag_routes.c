@@ -223,12 +223,39 @@ static const bb_route_t s_coredump_get_route = {
 };
 #endif /* CONFIG_BB_DIAG_PANIC_COREDUMP */
 
+// --- abnormal-resets ---
+
+static bb_err_t abnormal_resets_delete_handler(bb_http_request_t *req)
+{
+    bb_diag_abnormal_reset_count_clear();
+    bb_http_resp_set_status(req, 204);
+    return bb_http_resp_send(req, NULL, 0);
+}
+
+static const bb_route_response_t s_abnormal_resets_delete_responses[] = {
+    { 204, NULL, NULL, "abnormal-reset counter cleared" },
+    { 0 },
+};
+
+static const bb_route_t s_abnormal_resets_delete_route = {
+    .method    = BB_HTTP_DELETE,
+    .path      = "/api/diag/abnormal-resets",
+    .tag       = "diag",
+    .summary   = "Reset the abnormal-reset counter to zero",
+    .responses = s_abnormal_resets_delete_responses,
+    .handler   = abnormal_resets_delete_handler,
+};
+
 // /api/info extender: adds an optional "panic" object only when a panic
 // log or coredump is present, so clean boots see no schema change.
+// Always emits "abnormal_reset_count" so operators can see the lifetime counter.
 static void bb_diag_info_extender(bb_json_t root)
 {
     bool avail = bb_diag_panic_available();
     bool coredump = bb_diag_panic_coredump_available();
+
+    bb_json_obj_set_number(root, "abnormal_reset_count", (double)bb_diag_abnormal_reset_count());
+
     if (!avail && !coredump) return;
 
     bb_json_t panic = bb_json_obj_new();
@@ -259,9 +286,12 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
 #endif
 
+    err = bb_http_register_described_route(server, &s_abnormal_resets_delete_route);
+    if (err != BB_OK) return err;
+
     bb_info_register_extender(bb_diag_info_extender);
 
-    bb_log_i(TAG, "panic routes + info extender registered");
+    bb_log_i(TAG, "diag routes + info extender registered");
     return BB_OK;
 }
 

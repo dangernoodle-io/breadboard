@@ -98,3 +98,16 @@ bb_err_t bb_diag_panic_coredump_read_bytes(uint8_t *buf, size_t max_len, size_t 
  * Useful to size a buffer before calling bb_diag_panic_coredump_read_bytes.
  */
 size_t bb_diag_panic_coredump_size(void);
+
+/**
+ * Returns the persistent count of abnormal resets (panic, task_wdt, int_wdt, wdt, brownout)
+ * since the counter was last cleared. Survives power cycles via NVS.
+ * Host: always returns 0.
+ */
+uint32_t bb_diag_abnormal_reset_count(void);
+
+/**
+ * Resets the abnormal-reset counter to 0 in NVS.
+ * Host: no-op.
+ */
+void bb_diag_abnormal_reset_count_clear(void);

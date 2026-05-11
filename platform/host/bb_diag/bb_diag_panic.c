@@ -43,3 +43,6 @@ bb_err_t bb_diag_panic_coredump_read_bytes(uint8_t *buf, size_t max_len, size_t 
     if (out_len) *out_len = 0;
     return BB_ERR_NOT_FOUND;
 }
+
+uint32_t bb_diag_abnormal_reset_count(void) { return 0; }
+void bb_diag_abnormal_reset_count_clear(void) {}

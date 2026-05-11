@@ -1,11 +1,25 @@
 #include "bb_diag.h"
 #include "bb_core.h"
 #include "bb_log.h"
+#include "bb_nv.h"
+#include "esp_system.h"
 #include <string.h>
+
+#define BB_DIAG_NV_NS       "bb_diag"
+#define BB_DIAG_NV_KEY_RST  "reset_count"
+
+static uint32_t s_abnormal_reset_count = 0;
+
+uint32_t bb_diag_abnormal_reset_count(void) { return s_abnormal_reset_count; }
+
+void bb_diag_abnormal_reset_count_clear(void)
+{
+    s_abnormal_reset_count = 0;
+    bb_nv_set_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, 0);
+}
 
 #ifdef CONFIG_BB_DIAG_PANIC_CAPTURE
 
-#include "esp_system.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 
@@ -124,6 +138,13 @@ static bb_err_t bb_diag_panic_init(void)
         s_boots_since_magic = BOOTS_SINCE_MAGIC;
     } else if (s_boots_since < UINT32_MAX) {
         s_boots_since++;
+    }
+
+    // NVS-backed abnormal-reset counter — survives power cycles
+    bb_nv_get_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, &s_abnormal_reset_count, 0);
+    if (was_panic_boot) {
+        s_abnormal_reset_count++;
+        bb_nv_set_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, s_abnormal_reset_count);
     }
 
 #ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
@@ -304,6 +325,24 @@ bb_err_t bb_diag_panic_coredump_read_bytes(uint8_t *buf, size_t max_len, size_t 
 #else
 
 // Stubs when panic capture is disabled
+
+static bb_err_t bb_diag_panic_init(void)
+{
+    esp_reset_reason_t reason = esp_reset_reason();
+    bool was_panic_boot = (reason == ESP_RST_PANIC || reason == ESP_RST_TASK_WDT ||
+                           reason == ESP_RST_INT_WDT || reason == ESP_RST_WDT ||
+                           reason == ESP_RST_BROWNOUT);
+    bb_nv_get_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, &s_abnormal_reset_count, 0);
+    if (was_panic_boot) {
+        s_abnormal_reset_count++;
+        bb_nv_set_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, s_abnormal_reset_count);
+    }
+    return BB_OK;
+}
+
+#include "bb_registry.h"
+BB_REGISTRY_REGISTER_EARLY(bb_diag_panic, bb_diag_panic_init);
+
 bool bb_diag_panic_available(void)
 {
     return false;
