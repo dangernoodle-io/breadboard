@@ -11,6 +11,11 @@
 // Initialize mDNS. Registers got-IP callback on bb_wifi. Idempotent.
 void bb_mdns_init(void);
 
+// Tear down mDNS. Stops the service and any timers. Idempotent — safe
+// to call when not started. Pair with bb_mdns_init() to live-toggle
+// mdns at runtime (e.g. from a settings handler).
+void bb_mdns_deinit(void);
+
 // Set mDNS hostname. Must be called after bb_mdns_init().
 void bb_mdns_set_hostname(const char *hostname);
 
