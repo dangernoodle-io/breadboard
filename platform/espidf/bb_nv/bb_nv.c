@@ -26,6 +26,8 @@ static struct {
     char wifi_ssid[32];
     char wifi_pass[64];
     uint8_t display_en;
+    uint8_t mdns_en;
+    uint8_t knot_en;
 } s_config;
 
 // Helper to load a string from NVS with fallback (ESP only)
@@ -55,6 +57,8 @@ bb_err_t bb_nv_config_init(void)
         bb_log_i(TAG, "no config in NVS");
         memset(&s_config, 0, sizeof(s_config));
         s_config.display_en = 1;  // default: display on
+        s_config.mdns_en = 1;  // default: mdns on
+        s_config.knot_en = 1;  // default: knot on
         return BB_OK;
     }
 
@@ -69,6 +73,14 @@ bb_err_t bb_nv_config_init(void)
         s_config.display_en = 1;  // default: display on
     }
 
+    if (nvs_get_u8(handle, "mdns_en", &s_config.mdns_en) != ESP_OK) {
+        s_config.mdns_en = 1;  // default: mdns on
+    }
+
+    if (nvs_get_u8(handle, "knot_en", &s_config.knot_en) != ESP_OK) {
+        s_config.knot_en = 1;  // default: knot on
+    }
+
     nvs_close(handle);
 
     bb_log_i(TAG, "config loaded");
@@ -76,6 +88,8 @@ bb_err_t bb_nv_config_init(void)
     // Native build: no NVS, all fields empty/zero
     memset(&s_config, 0, sizeof(s_config));
     s_config.display_en = 1;
+    s_config.mdns_en = 1;
+    s_config.knot_en = 1;
 #endif
     return BB_OK;
 }
@@ -175,6 +189,50 @@ bb_err_t bb_nv_config_set_display_enabled(bool en)
 
     if (err == BB_OK) {
         s_config.display_en = en ? 1 : 0;
+    }
+
+    return err;
+}
+
+bb_err_t bb_nv_config_set_mdns_enabled(bool en)
+{
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_set_u8(handle, "mdns_en", en ? 1 : 0);
+    if (err == BB_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    if (err == BB_OK) {
+        s_config.mdns_en = en ? 1 : 0;
+    }
+
+    return err;
+}
+
+bb_err_t bb_nv_config_set_knot_enabled(bool en)
+{
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_set_u8(handle, "knot_en", en ? 1 : 0);
+    if (err == BB_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    if (err == BB_OK) {
+        s_config.knot_en = en ? 1 : 0;
     }
 
     return err;
@@ -734,3 +792,5 @@ BB_REGISTRY_REGISTER_EARLY(bb_nv_config, bb_nv_config_init);
 const char *bb_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }
 const char *bb_nv_config_wifi_pass(void) { return s_config.wifi_pass; }
 bool bb_nv_config_display_enabled(void) { return s_config.display_en != 0; }
+bool bb_nv_config_mdns_enabled(void) { return s_config.mdns_en != 0; }
+bool bb_nv_config_knot_enabled(void) { return s_config.knot_en != 0; }
