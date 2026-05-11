@@ -36,6 +36,12 @@ const char *bb_mdns_get_hostname(void);
 
 #endif /* ESP_PLATFORM */
 
+// Start (or restart) mDNS synchronously. Used by consumers that have just
+// called bb_mdns_deinit() and want to re-arm without waiting for the next
+// wifi got-IP event. No-op when mdns is already started. Safe to call
+// before bb_mdns_init() — becomes a no-op until init has run.
+void bb_mdns_start(void);
+
 // Sanitize and build RFC 1035-compliant hostname label: lowercase [a-z0-9], collapse/trim dashes, cap at 63 chars.
 void bb_mdns_build_hostname(const char *prefix, const char *suffix, char *out, size_t out_size);
 

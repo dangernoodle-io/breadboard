@@ -57,6 +57,11 @@ void bb_mdns_deinit(void)
     bb_log_d(TAG, "deinit stub");
 }
 
+void bb_mdns_start(void)
+{
+    bb_log_d(TAG, "start stub");
+}
+
 void bb_mdns_announce(void)
 {
     s_announce_count++;
