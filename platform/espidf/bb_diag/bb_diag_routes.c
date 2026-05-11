@@ -7,6 +7,8 @@
 
 #include "esp_system.h"
 #include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <stdlib.h>
 #ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
 #include "esp_core_dump.h"
@@ -330,6 +332,85 @@ static const bb_route_t s_heap_check_route = {
     .handler   = heap_check_handler,
 };
 
+// --- tasks ---
+// Requires CONFIG_FREERTOS_USE_TRACE_FACILITY=y (provides uxTaskGetSystemState).
+
+#if CONFIG_FREERTOS_USE_TRACE_FACILITY
+static bb_err_t tasks_get_handler(bb_http_request_t *req)
+{
+    UBaseType_t n = uxTaskGetNumberOfTasks();
+    TaskStatus_t *arr = malloc(sizeof(TaskStatus_t) * n);
+    if (!arr) return bb_http_resp_send_err(req, 500, "alloc failed");
+
+    uint32_t total_runtime = 0;
+    UBaseType_t got = uxTaskGetSystemState(arr, n, &total_runtime);
+
+    bb_json_t root = bb_json_arr_new();
+    for (UBaseType_t i = 0; i < got; i++) {
+        bb_json_t t = bb_json_obj_new();
+        bb_json_obj_set_string(t, "name",       arr[i].pcTaskName);
+        bb_json_obj_set_number(t, "prio",       (double)arr[i].uxCurrentPriority);
+        bb_json_obj_set_number(t, "base_prio",  (double)arr[i].uxBasePriority);
+        bb_json_obj_set_number(t, "stack_hwm",  (double)arr[i].usStackHighWaterMark);
+
+        const char *state_str = "?";
+        switch (arr[i].eCurrentState) {
+            case eRunning:   state_str = "running";   break;
+            case eReady:     state_str = "ready";     break;
+            case eBlocked:   state_str = "blocked";   break;
+            case eSuspended: state_str = "suspended"; break;
+            case eDeleted:   state_str = "deleted";   break;
+            case eInvalid:   state_str = "invalid";   break;
+            default: break;
+        }
+        bb_json_obj_set_string(t, "state", state_str);
+
+#if CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID
+        bb_json_obj_set_number(t, "core", (double)arr[i].xCoreID);
+#endif
+#if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+        bb_json_obj_set_number(t, "runtime", (double)arr[i].ulRunTimeCounter);
+#endif
+        bb_json_arr_append_obj(root, t);
+    }
+    free(arr);
+
+    bb_http_resp_set_status(req, 200);
+    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return err;
+}
+
+static const bb_route_response_t s_tasks_get_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"array\","
+      "\"items\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"name\":{\"type\":\"string\"},"
+      "\"prio\":{\"type\":\"integer\"},"
+      "\"base_prio\":{\"type\":\"integer\"},"
+      "\"stack_hwm\":{\"type\":\"integer\"},"
+      "\"state\":{\"type\":\"string\"},"
+      "\"core\":{\"type\":\"integer\"},"
+      "\"runtime\":{\"type\":\"integer\"}}}}",
+      "task list; core requires CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
+      "runtime requires CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS" },
+    { 0 },
+};
+
+static const bb_route_t s_tasks_get_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/tasks",
+    .tag       = "diag",
+    .summary   = "List all FreeRTOS tasks with state, priority, and stack high-water mark "
+                 "(requires CONFIG_FREERTOS_USE_TRACE_FACILITY=y; "
+                 "core field: CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
+                 "runtime field: CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS)",
+    .responses = s_tasks_get_responses,
+    .handler   = tasks_get_handler,
+};
+#endif /* CONFIG_FREERTOS_USE_TRACE_FACILITY */
+
 // /api/info extender: adds an optional "panic" object only when a panic
 // log or coredump is present, so clean boots see no schema change.
 // Always emits "abnormal_reset_count" so operators can see the lifetime counter.
@@ -378,6 +459,11 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 
     err = bb_http_register_described_route(server, &s_heap_check_route);
     if (err != BB_OK) return err;
+
+#if CONFIG_FREERTOS_USE_TRACE_FACILITY
+    err = bb_http_register_described_route(server, &s_tasks_get_route);
+    if (err != BB_OK) return err;
+#endif
 
     bb_info_register_extender(bb_diag_info_extender);
 
