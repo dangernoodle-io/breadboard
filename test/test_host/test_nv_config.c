@@ -38,13 +38,6 @@ void test_nv_config_mdns_enabled_default_true(void)
     TEST_ASSERT_TRUE(enabled);
 }
 
-void test_nv_config_knot_enabled_default_true(void)
-{
-    bb_nv_config_init();
-    bool enabled = bb_nv_config_knot_enabled();
-    TEST_ASSERT_TRUE(enabled);
-}
-
 void test_nv_config_is_provisioned_stub_returns_false(void)
 {
     bb_nv_config_init();

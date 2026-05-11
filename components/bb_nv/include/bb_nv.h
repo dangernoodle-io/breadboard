@@ -21,7 +21,6 @@ const char *bb_nv_config_wifi_ssid(void);
 const char *bb_nv_config_wifi_pass(void);
 bool bb_nv_config_display_enabled(void);
 bool bb_nv_config_mdns_enabled(void);
-bool bb_nv_config_knot_enabled(void);
 
 #ifdef ESP_PLATFORM
 bool bb_nv_config_is_provisioned(void);
@@ -40,7 +39,6 @@ bb_err_t bb_nv_config_set_ota_skip_check(bool skip);
 bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass);
 bb_err_t bb_nv_config_set_display_enabled(bool en);
 bb_err_t bb_nv_config_set_mdns_enabled(bool en);
-bb_err_t bb_nv_config_set_knot_enabled(bool en);
 #else
 static inline bool bb_nv_config_is_provisioned(void) { return false; }
 #endif

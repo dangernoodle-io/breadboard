@@ -292,7 +292,6 @@ extern "C" const char *bb_nv_config_wifi_ssid(void) { return ""; }
 extern "C" const char *bb_nv_config_wifi_pass(void) { return ""; }
 extern "C" bool bb_nv_config_display_enabled(void) { return false; }
 extern "C" bool bb_nv_config_mdns_enabled(void) { return false; }
-extern "C" bool bb_nv_config_knot_enabled(void) { return false; }
 
 // -------- batched setters (Arduino: forwarders, no commit savings) --------
 // EEPROM writes are byte-direct on AVR and per-record-managed in this layer,
