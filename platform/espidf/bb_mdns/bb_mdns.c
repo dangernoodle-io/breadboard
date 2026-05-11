@@ -725,7 +725,7 @@ static void bb_mdns_on_disconnect(void)
     if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
 }
 
-static void bb_mdns_shutdown(void)
+void bb_mdns_deinit(void)
 {
     if (s_lifecycle_mutex) xSemaphoreTake(s_lifecycle_mutex, portMAX_DELAY);
     if (!bb_mdns_lifecycle_is_started(&s_lc)) {
@@ -741,9 +741,14 @@ static void bb_mdns_shutdown(void)
 
     bb_mdns_lifecycle_result_t res = bb_mdns_lifecycle_stop(&s_lc, &s_lc_adapter);
     if (res != BB_MDNS_LC_OK && res != BB_MDNS_LC_NOT_STARTED) {
-        bb_log_w(TAG, "bb_mdns_shutdown: lifecycle stop returned %d", res);
+        bb_log_w(TAG, "bb_mdns_deinit: lifecycle stop returned %d", res);
     }
     if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
+}
+
+static void bb_mdns_shutdown(void)
+{
+    bb_mdns_deinit();
 }
 
 void bb_mdns_init(void)

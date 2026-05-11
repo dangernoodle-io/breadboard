@@ -47,6 +47,11 @@ void test_bb_mdns_browse_stop_null_proto(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
 }
 
+/* bb_mdns_deinit host stub tests.
+ * bb_mdns_deinit is ESP_PLATFORM-only; host test cannot call it.
+ * Functional verification happens on actual ESP32 hardware (see smoke test).
+ * This placeholder documents the feature. */
+
 /* bb_mdns_announce host stub tests.
  * Timer-based auto-coalesce (bb_mdns_set_txt arming esp_timer) is ESP-IDF
  * hardware behaviour — verified by flashing, not here. */

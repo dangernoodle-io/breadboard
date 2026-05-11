@@ -52,6 +52,11 @@ void bb_mdns_set_txt(const char *key, const char *value)
     bb_log_d(TAG, "set_txt stub: %s=%s", key, value);
 }
 
+void bb_mdns_deinit(void)
+{
+    bb_log_d(TAG, "deinit stub");
+}
+
 void bb_mdns_announce(void)
 {
     s_announce_count++;
