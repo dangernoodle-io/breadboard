@@ -6,10 +6,13 @@
 #include "bb_registry.h"
 
 #include "esp_system.h"
+#include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <stdlib.h>
 #ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
 #include "esp_core_dump.h"
 #include "esp_partition.h"
-#include <stdlib.h>
 #include <stdio.h>
 #endif
 
@@ -223,12 +226,201 @@ static const bb_route_t s_coredump_get_route = {
 };
 #endif /* CONFIG_BB_DIAG_PANIC_COREDUMP */
 
+// --- abnormal-resets ---
+
+static bb_err_t abnormal_resets_delete_handler(bb_http_request_t *req)
+{
+    bb_diag_abnormal_reset_count_clear();
+    bb_http_resp_set_status(req, 204);
+    return bb_http_resp_send(req, NULL, 0);
+}
+
+static const bb_route_response_t s_abnormal_resets_delete_responses[] = {
+    { 204, NULL, NULL, "abnormal-reset counter cleared" },
+    { 0 },
+};
+
+static const bb_route_t s_abnormal_resets_delete_route = {
+    .method    = BB_HTTP_DELETE,
+    .path      = "/api/diag/abnormal-resets",
+    .tag       = "diag",
+    .summary   = "Reset the abnormal-reset counter to zero",
+    .responses = s_abnormal_resets_delete_responses,
+    .handler   = abnormal_resets_delete_handler,
+};
+
+// --- heap ---
+
+static bb_err_t heap_get_handler(bb_http_request_t *req)
+{
+    bb_json_t root = bb_json_obj_new();
+    if (!root) return bb_http_resp_send_err(req, 500, "JSON alloc failed");
+
+    struct cap_entry { const char *name; uint32_t caps; };
+    static const struct cap_entry caps[] = {
+        { "internal", MALLOC_CAP_INTERNAL },
+        { "dma",      MALLOC_CAP_DMA },
+        { "spiram",   MALLOC_CAP_SPIRAM },
+        { "exec",     MALLOC_CAP_EXEC },
+        { "default",  MALLOC_CAP_DEFAULT },
+    };
+    for (size_t i = 0; i < sizeof(caps) / sizeof(caps[0]); i++) {
+        if (heap_caps_get_total_size(caps[i].caps) == 0) continue;
+        multi_heap_info_t info;
+        heap_caps_get_info(&info, caps[i].caps);
+        bb_json_t cap = bb_json_obj_new();
+        bb_json_obj_set_number(cap, "free",               (double)info.total_free_bytes);
+        bb_json_obj_set_number(cap, "allocated",          (double)info.total_allocated_bytes);
+        bb_json_obj_set_number(cap, "largest_free_block", (double)info.largest_free_block);
+        bb_json_obj_set_number(cap, "minimum_ever_free",  (double)info.minimum_free_bytes);
+        bb_json_obj_set_obj(root, caps[i].name, cap);
+    }
+
+    bb_http_resp_set_status(req, 200);
+    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return err;
+}
+
+static bb_err_t heap_check_handler(bb_http_request_t *req)
+{
+    bool ok = heap_caps_check_integrity_all(true);
+    bb_json_t root = bb_json_obj_new();
+    if (!root) return bb_http_resp_send_err(req, 500, "JSON alloc failed");
+    bb_json_obj_set_bool(root, "ok", ok);
+    bb_http_resp_set_status(req, ok ? 200 : 500);
+    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return err;
+}
+
+static const bb_route_response_t s_heap_get_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"additionalProperties\":{"
+      "\"type\":\"object\","
+      "\"properties\":{"
+      "\"free\":{\"type\":\"integer\"},"
+      "\"allocated\":{\"type\":\"integer\"},"
+      "\"largest_free_block\":{\"type\":\"integer\"},"
+      "\"minimum_ever_free\":{\"type\":\"integer\"}}}}",
+      "per-capability heap stats (internal, dma, spiram, exec, default — only present caps included)" },
+    { 0 },
+};
+
+static const bb_route_t s_heap_get_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/heap",
+    .tag       = "diag",
+    .summary   = "Per-capability heap statistics",
+    .responses = s_heap_get_responses,
+    .handler   = heap_get_handler,
+};
+
+static const bb_route_response_t s_heap_check_responses[] = {
+    { 200, "application/json", "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}}}", "heap integrity OK" },
+    { 500, "application/json", NULL, "heap corruption detected; details in device log" },
+    { 0 },
+};
+
+static const bb_route_t s_heap_check_route = {
+    .method    = BB_HTTP_POST,
+    .path      = "/api/diag/heap/check",
+    .tag       = "diag",
+    .summary   = "Run heap integrity check across all regions",
+    .responses = s_heap_check_responses,
+    .handler   = heap_check_handler,
+};
+
+// --- tasks ---
+// Requires CONFIG_FREERTOS_USE_TRACE_FACILITY=y (provides uxTaskGetSystemState).
+
+#if CONFIG_FREERTOS_USE_TRACE_FACILITY
+static bb_err_t tasks_get_handler(bb_http_request_t *req)
+{
+    UBaseType_t n = uxTaskGetNumberOfTasks();
+    TaskStatus_t *arr = malloc(sizeof(TaskStatus_t) * n);
+    if (!arr) return bb_http_resp_send_err(req, 500, "alloc failed");
+
+    uint32_t total_runtime = 0;
+    UBaseType_t got = uxTaskGetSystemState(arr, n, &total_runtime);
+
+    bb_json_t root = bb_json_arr_new();
+    for (UBaseType_t i = 0; i < got; i++) {
+        bb_json_t t = bb_json_obj_new();
+        bb_json_obj_set_string(t, "name",       arr[i].pcTaskName);
+        bb_json_obj_set_number(t, "prio",       (double)arr[i].uxCurrentPriority);
+        bb_json_obj_set_number(t, "base_prio",  (double)arr[i].uxBasePriority);
+        bb_json_obj_set_number(t, "stack_hwm",  (double)arr[i].usStackHighWaterMark);
+
+        const char *state_str = "?";
+        switch (arr[i].eCurrentState) {
+            case eRunning:   state_str = "running";   break;
+            case eReady:     state_str = "ready";     break;
+            case eBlocked:   state_str = "blocked";   break;
+            case eSuspended: state_str = "suspended"; break;
+            case eDeleted:   state_str = "deleted";   break;
+            case eInvalid:   state_str = "invalid";   break;
+            default: break;
+        }
+        bb_json_obj_set_string(t, "state", state_str);
+
+#if CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID
+        bb_json_obj_set_number(t, "core", (double)arr[i].xCoreID);
+#endif
+#if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+        bb_json_obj_set_number(t, "runtime", (double)arr[i].ulRunTimeCounter);
+#endif
+        bb_json_arr_append_obj(root, t);
+    }
+    free(arr);
+
+    bb_http_resp_set_status(req, 200);
+    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return err;
+}
+
+static const bb_route_response_t s_tasks_get_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"array\","
+      "\"items\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"name\":{\"type\":\"string\"},"
+      "\"prio\":{\"type\":\"integer\"},"
+      "\"base_prio\":{\"type\":\"integer\"},"
+      "\"stack_hwm\":{\"type\":\"integer\"},"
+      "\"state\":{\"type\":\"string\"},"
+      "\"core\":{\"type\":\"integer\"},"
+      "\"runtime\":{\"type\":\"integer\"}}}}",
+      "task list; core requires CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
+      "runtime requires CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS" },
+    { 0 },
+};
+
+static const bb_route_t s_tasks_get_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/tasks",
+    .tag       = "diag",
+    .summary   = "List all FreeRTOS tasks with state, priority, and stack high-water mark "
+                 "(requires CONFIG_FREERTOS_USE_TRACE_FACILITY=y; "
+                 "core field: CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
+                 "runtime field: CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS)",
+    .responses = s_tasks_get_responses,
+    .handler   = tasks_get_handler,
+};
+#endif /* CONFIG_FREERTOS_USE_TRACE_FACILITY */
+
 // /api/info extender: adds an optional "panic" object only when a panic
 // log or coredump is present, so clean boots see no schema change.
+// Always emits "abnormal_reset_count" so operators can see the lifetime counter.
 static void bb_diag_info_extender(bb_json_t root)
 {
     bool avail = bb_diag_panic_available();
     bool coredump = bb_diag_panic_coredump_available();
+
+    bb_json_obj_set_number(root, "abnormal_reset_count", (double)bb_diag_abnormal_reset_count());
+
     if (!avail && !coredump) return;
 
     bb_json_t panic = bb_json_obj_new();
@@ -259,9 +451,23 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
 #endif
 
+    err = bb_http_register_described_route(server, &s_abnormal_resets_delete_route);
+    if (err != BB_OK) return err;
+
+    err = bb_http_register_described_route(server, &s_heap_get_route);
+    if (err != BB_OK) return err;
+
+    err = bb_http_register_described_route(server, &s_heap_check_route);
+    if (err != BB_OK) return err;
+
+#if CONFIG_FREERTOS_USE_TRACE_FACILITY
+    err = bb_http_register_described_route(server, &s_tasks_get_route);
+    if (err != BB_OK) return err;
+#endif
+
     bb_info_register_extender(bb_diag_info_extender);
 
-    bb_log_i(TAG, "panic routes + info extender registered");
+    bb_log_i(TAG, "diag routes + info extender registered");
     return BB_OK;
 }
 

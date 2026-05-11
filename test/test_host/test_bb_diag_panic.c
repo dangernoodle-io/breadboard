@@ -48,3 +48,15 @@ void test_bb_diag_panic_clear_after_unavailable(void)
     bb_diag_panic_clear();
     TEST_ASSERT_FALSE(bb_diag_panic_available());
 }
+
+void test_bb_diag_abnormal_reset_count_returns_zero_on_host(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0, bb_diag_abnormal_reset_count());
+}
+
+void test_bb_diag_abnormal_reset_count_clear_is_safe_on_host(void)
+{
+    // Should be a safe no-op on host
+    bb_diag_abnormal_reset_count_clear();
+    TEST_ASSERT_EQUAL_UINT32(0, bb_diag_abnormal_reset_count());
+}
