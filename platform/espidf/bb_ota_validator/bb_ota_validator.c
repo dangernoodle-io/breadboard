@@ -57,6 +57,34 @@ bool bb_ota_is_pending(void)
     return atomic_load(&s_pending) && !atomic_load(&s_marked_valid);
 }
 
+static atomic_bool s_is_validated = ATOMIC_VAR_INIT(false);
+static atomic_bool s_validated_cached = ATOMIC_VAR_INIT(false);
+
+bool bb_ota_is_validated(void)
+{
+    // Cache the result since it's immutable post-boot for the running partition.
+    if (atomic_load(&s_validated_cached)) {
+        return atomic_load(&s_is_validated);
+    }
+
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (running == NULL) {
+        atomic_store(&s_validated_cached, true);
+        return false;
+    }
+
+    esp_ota_img_states_t ota_state;
+    if (esp_ota_get_state_partition(running, &ota_state) != ESP_OK) {
+        atomic_store(&s_validated_cached, true);
+        return false;
+    }
+
+    bool result = (ota_state == ESP_OTA_IMG_VALID);
+    atomic_store(&s_is_validated, result);
+    atomic_store(&s_validated_cached, true);
+    return result;
+}
+
 static bb_err_t mark_valid_handler(bb_http_request_t *req)
 {
     bb_http_resp_set_type(req, "application/json");

@@ -11,6 +11,7 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
+#include "bb_ota_validator.h"
 
 static const char *TAG = "bb_wifi";
 #define WIFI_CONNECTED_BIT BIT0
@@ -303,6 +304,10 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
         s_ip_handler = NULL;
 
         if (restart_on_timeout) {
+            if (bb_ota_is_validated()) {
+                bb_log_w(TAG, "wifi cold-boot timeout; firmware validated, returning ESP_ERR_TIMEOUT without reboot");
+                return ESP_ERR_TIMEOUT;
+            }
             bb_log_e(TAG, "WiFi connection timeout after 60s, restarting");
             bb_nv_config_increment_boot_count();
             esp_restart();

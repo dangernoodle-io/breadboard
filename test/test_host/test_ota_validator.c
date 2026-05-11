@@ -29,3 +29,17 @@ void test_ota_validator_mark_valid_idempotent_on_host(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_ota_mark_valid("first"));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_ota_mark_valid("second"));
 }
+
+// On the host backend, bb_ota_is_validated() always returns false (no OTA partition).
+void test_ota_validator_is_validated_false_on_host(void)
+{
+    TEST_ASSERT_FALSE(bb_ota_is_validated());
+}
+
+// Multiple calls to is_validated return the same false value (cached).
+void test_ota_validator_is_validated_consistent_on_host(void)
+{
+    TEST_ASSERT_FALSE(bb_ota_is_validated());
+    TEST_ASSERT_FALSE(bb_ota_is_validated());
+    TEST_ASSERT_FALSE(bb_ota_is_validated());
+}
