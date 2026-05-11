@@ -6,10 +6,11 @@
 #include "bb_registry.h"
 
 #include "esp_system.h"
+#include "esp_heap_caps.h"
+#include <stdlib.h>
 #ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
 #include "esp_core_dump.h"
 #include "esp_partition.h"
-#include <stdlib.h>
 #include <stdio.h>
 #endif
 
@@ -246,6 +247,89 @@ static const bb_route_t s_abnormal_resets_delete_route = {
     .handler   = abnormal_resets_delete_handler,
 };
 
+// --- heap ---
+
+static bb_err_t heap_get_handler(bb_http_request_t *req)
+{
+    bb_json_t root = bb_json_obj_new();
+    if (!root) return bb_http_resp_send_err(req, 500, "JSON alloc failed");
+
+    struct cap_entry { const char *name; uint32_t caps; };
+    static const struct cap_entry caps[] = {
+        { "internal", MALLOC_CAP_INTERNAL },
+        { "dma",      MALLOC_CAP_DMA },
+        { "spiram",   MALLOC_CAP_SPIRAM },
+        { "exec",     MALLOC_CAP_EXEC },
+        { "default",  MALLOC_CAP_DEFAULT },
+    };
+    for (size_t i = 0; i < sizeof(caps) / sizeof(caps[0]); i++) {
+        if (heap_caps_get_total_size(caps[i].caps) == 0) continue;
+        multi_heap_info_t info;
+        heap_caps_get_info(&info, caps[i].caps);
+        bb_json_t cap = bb_json_obj_new();
+        bb_json_obj_set_number(cap, "free",               (double)info.total_free_bytes);
+        bb_json_obj_set_number(cap, "allocated",          (double)info.total_allocated_bytes);
+        bb_json_obj_set_number(cap, "largest_free_block", (double)info.largest_free_block);
+        bb_json_obj_set_number(cap, "minimum_ever_free",  (double)info.minimum_free_bytes);
+        bb_json_obj_set_obj(root, caps[i].name, cap);
+    }
+
+    bb_http_resp_set_status(req, 200);
+    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return err;
+}
+
+static bb_err_t heap_check_handler(bb_http_request_t *req)
+{
+    bool ok = heap_caps_check_integrity_all(true);
+    bb_json_t root = bb_json_obj_new();
+    if (!root) return bb_http_resp_send_err(req, 500, "JSON alloc failed");
+    bb_json_obj_set_bool(root, "ok", ok);
+    bb_http_resp_set_status(req, ok ? 200 : 500);
+    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return err;
+}
+
+static const bb_route_response_t s_heap_get_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"additionalProperties\":{"
+      "\"type\":\"object\","
+      "\"properties\":{"
+      "\"free\":{\"type\":\"integer\"},"
+      "\"allocated\":{\"type\":\"integer\"},"
+      "\"largest_free_block\":{\"type\":\"integer\"},"
+      "\"minimum_ever_free\":{\"type\":\"integer\"}}}}",
+      "per-capability heap stats (internal, dma, spiram, exec, default — only present caps included)" },
+    { 0 },
+};
+
+static const bb_route_t s_heap_get_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/heap",
+    .tag       = "diag",
+    .summary   = "Per-capability heap statistics",
+    .responses = s_heap_get_responses,
+    .handler   = heap_get_handler,
+};
+
+static const bb_route_response_t s_heap_check_responses[] = {
+    { 200, "application/json", "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}}}", "heap integrity OK" },
+    { 500, "application/json", NULL, "heap corruption detected; details in device log" },
+    { 0 },
+};
+
+static const bb_route_t s_heap_check_route = {
+    .method    = BB_HTTP_POST,
+    .path      = "/api/diag/heap/check",
+    .tag       = "diag",
+    .summary   = "Run heap integrity check across all regions",
+    .responses = s_heap_check_responses,
+    .handler   = heap_check_handler,
+};
+
 // /api/info extender: adds an optional "panic" object only when a panic
 // log or coredump is present, so clean boots see no schema change.
 // Always emits "abnormal_reset_count" so operators can see the lifetime counter.
@@ -287,6 +371,12 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 #endif
 
     err = bb_http_register_described_route(server, &s_abnormal_resets_delete_route);
+    if (err != BB_OK) return err;
+
+    err = bb_http_register_described_route(server, &s_heap_get_route);
+    if (err != BB_OK) return err;
+
+    err = bb_http_register_described_route(server, &s_heap_check_route);
     if (err != BB_OK) return err;
 
     bb_info_register_extender(bb_diag_info_extender);
