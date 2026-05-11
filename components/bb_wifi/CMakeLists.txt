@@ -6,7 +6,7 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "."
     REQUIRES bb_core esp_wifi esp_netif esp_event esp_timer esp_system bb_nv bb_log lwip
-    PRIV_REQUIRES bb_http bb_json bb_registry
+    PRIV_REQUIRES bb_http bb_json bb_registry bb_ota_validator
 )
 
 if(CONFIG_BB_WIFI_ROUTES_AUTOREGISTER)

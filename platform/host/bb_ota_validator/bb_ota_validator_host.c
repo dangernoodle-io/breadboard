@@ -16,4 +16,9 @@ bool bb_ota_is_pending(void)
     return false;
 }
 
+bool bb_ota_is_validated(void)
+{
+    return false;
+}
+
 #endif /* !ESP_PLATFORM */

@@ -1,6 +1,7 @@
 #include "wifi_reconn.h"
 #include "wifi_reconn_policy.h"
 #include "bb_nv.h"
+#include "bb_ota_validator.h"
 
 #include "esp_wifi.h"
 #include "esp_wifi_types.h"
@@ -60,10 +61,16 @@ static void handle_disconnect(uint8_t reason, reconn_state_t *state, uint32_t *b
 
     switch (action) {
         case WIFI_RECONN_ACTION_REBOOT:
-            bb_log_e(TAG, "persistent disconnect for >5min (reason=%u, handshake=%d, generic=%d), rebooting",
-                     reason, s_state.handshake_fail_count, s_state.generic_fail_count);
-            bb_nv_config_increment_boot_count();
-            esp_restart();
+            if (bb_ota_is_validated()) {
+                bb_log_w(TAG, "persistent disconnect (reason=%u, handshake=%d, generic=%d) on validated firmware: safeguard reboot, boot_count not incremented",
+                         reason, s_state.handshake_fail_count, s_state.generic_fail_count);
+                esp_restart();
+            } else {
+                bb_log_e(TAG, "persistent disconnect for >5min (reason=%u, handshake=%d, generic=%d), rebooting",
+                         reason, s_state.handshake_fail_count, s_state.generic_fail_count);
+                bb_nv_config_increment_boot_count();
+                esp_restart();
+            }
             break;
 
         case WIFI_RECONN_ACTION_SCHEDULE_BACKOFF:
