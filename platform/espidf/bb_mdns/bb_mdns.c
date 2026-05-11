@@ -614,9 +614,15 @@ static void bb_mdns_start_internal(void)
     }
 }
 
-// Callback invoked by bb_wifi when IP is obtained
-static void bb_mdns_on_got_ip(void)
+// Start (or restart) mDNS synchronously. Used by consumers that have just
+// called bb_mdns_deinit() and want to re-arm without waiting for the next
+// wifi got-IP event. Safe to call before bb_mdns_init() — becomes a no-op
+// until init has run (guarded by s_lifecycle_mutex check).
+void bb_mdns_start(void)
 {
+    // Guard: if not initialized yet, be a no-op until bb_mdns_init() runs
+    if (!s_lifecycle_mutex) return;
+
     bb_mdns_start_internal();
     if (bb_mdns_lifecycle_is_started(&s_lc)) {
         char instance_name[64];
@@ -777,7 +783,7 @@ void bb_mdns_init(void)
     }
 
     // Register callback with bb_wifi
-    bb_wifi_register_on_got_ip(bb_mdns_on_got_ip);
+    bb_wifi_register_on_got_ip(bb_mdns_start);
     bb_wifi_register_on_disconnect(bb_mdns_on_disconnect);
     esp_register_shutdown_handler(bb_mdns_shutdown);
 }

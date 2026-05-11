@@ -47,6 +47,14 @@ void test_bb_mdns_browse_stop_null_proto(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
 }
 
+void test_bb_mdns_start_idempotent_noop(void)
+{
+    /* On host, bb_mdns_start is a no-op stub. Verify it doesn't crash. */
+    bb_mdns_start();
+    bb_mdns_start();
+    /* No assertion; if the test completes, the stub is safe. */
+}
+
 /* bb_mdns_deinit host stub tests.
  * bb_mdns_deinit is ESP_PLATFORM-only; host test cannot call it.
  * Functional verification happens on actual ESP32 hardware (see smoke test).
