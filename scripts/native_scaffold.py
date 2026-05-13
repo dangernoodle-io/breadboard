@@ -213,6 +213,19 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_button_events/bb_button_events.c"],
         "depends":  ["bb_core", "bb_button", "bb_log"],
     },
+    "bb_event": {
+        "includes": ["components/bb_event/include", "components/bb_event"],
+        "sources": [
+            "components/bb_event/bb_event_common.c",
+            "platform/host/bb_event/bb_event_host.c",
+        ],
+        "depends":  ["bb_core", "bb_log"],
+    },
+    "bb_event_ring": {
+        "includes": ["components/bb_event_ring/include"],
+        "sources":  ["components/bb_event_ring/bb_event_ring.c"],
+        "depends":  ["bb_core", "bb_event"],
+    },
 }
 
 

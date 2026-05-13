@@ -17,6 +17,7 @@
 #include "bb_button.h"
 #include "bb_button_gpio.h"
 #include "bb_button_events.h"
+#include "bb_event.h"
 #include "smoke_app.h"
 
 #if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
@@ -37,6 +38,23 @@ static void btn_events_cb(const bb_button_events_event_t *e, void *user) {
     }
     bb_log_i(TAG, "bb_button_events: %s (held_ms=%lu)", kind_str, (unsigned long)e->held_ms);
 }
+
+// === bb_event demo ===
+#if defined(CONFIG_BB_SMOKE_EVENT) && CONFIG_BB_SMOKE_EVENT
+
+static int32_t s_heartbeat_counter = 0;
+
+static void heartbeat_handler(bb_event_topic_t topic, int32_t id,
+                              const void *data, size_t size, void *user)
+{
+    (void)topic;
+    (void)data;
+    (void)size;
+    (void)user;
+    bb_log_i(TAG, "bb_event heartbeat: id=%ld", (long)id);
+}
+
+#endif // CONFIG_BB_SMOKE_EVENT
 
 static bb_err_t ping_handler(bb_http_request_t *req) {
     bb_http_resp_set_header(req, "Content-Type", "text/plain");
@@ -248,8 +266,49 @@ void smoke_app_setup(void) {
 
     bb_http_server_start();
     bb_http_register_route(bb_http_server_get_handle(), BB_HTTP_GET, "/ping", ping_handler);
+
+#if defined(CONFIG_BB_SMOKE_EVENT) && CONFIG_BB_SMOKE_EVENT
+    bb_event_topic_t heartbeat_topic = NULL;
+    if (bb_event_topic_register("smoke.heartbeat", &heartbeat_topic) == BB_OK) {
+        bb_event_sub_t sub = NULL;
+        if (bb_event_subscribe(heartbeat_topic, heartbeat_handler, NULL, &sub) == BB_OK) {
+            bb_log_i(TAG, "bb_event: heartbeat demo ready");
+        } else {
+            bb_log_w(TAG, "bb_event: subscribe failed");
+        }
+    } else {
+        bb_log_w(TAG, "bb_event: topic register failed");
+    }
+#endif
 }
 
 void smoke_app_loop(void) {
     bb_http_server_poll();
+
+#if defined(CONFIG_BB_SMOKE_EVENT) && CONFIG_BB_SMOKE_EVENT
+    static uint32_t s_last_heartbeat_ms = 0;
+    static const uint32_t s_heartbeat_interval_ms = 1000;
+
+    // Get current time
+#ifdef ARDUINO
+    uint32_t now_ms = millis();
+#else
+    extern uint32_t esp_timer_get_time(void);
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+#endif
+
+    // Post heartbeat every ~1000ms
+    if (now_ms - s_last_heartbeat_ms >= s_heartbeat_interval_ms) {
+        s_last_heartbeat_ms = now_ms;
+        bb_event_topic_t topic = NULL;
+        if (bb_event_topic_lookup("smoke.heartbeat", &topic) == BB_OK) {
+            bb_event_post(topic, s_heartbeat_counter++, NULL, 0);
+        }
+    }
+
+    // Arduino: pump the event queue
+#ifdef ARDUINO
+    bb_event_pump(0);
+#endif
+#endif // CONFIG_BB_SMOKE_EVENT
 }

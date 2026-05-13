@@ -17,6 +17,8 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 |-----------|---------|-----------|
 | `bb_hw` | Consumer-supplied board pin/peripheral header resolved at compile time via `-DBB_HW_BOARD_HEADER="<name>.h"` | ESP-IDF |
 | `bb_display` | MIPI-DSI panel init (EK79007) with LVGL via `esp_lvgl_port`; consumer holds `bb_display_lock` for all LVGL calls. Exposes `bb_display_screen` / `bb_display_lock` / `bb_display_unlock` for direct LVGL access. | ESP-IDF |
+| `bb_event` | Generic app-level event bus on a portable callback list. Multi-subscriber publish/subscribe with queued dispatch; ESP-IDF uses a FreeRTOS dispatcher task, Arduino requires `bb_event_pump()` from `loop()`. | ESP-IDF, Arduino |
+| `bb_event_ring` | Circular buffer variant of `bb_event` with replay-on-subscribe — for SSE/WebSocket fan-out and event history. | ESP-IDF, Arduino |
 | `bb_json` | Portable JSON builder + minimal parser; cJSON backend on ESP-IDF/host, ArduinoJson backend on Arduino. Opaque `bb_json_t` handle — no backend headers leak into public API. | ESP-IDF, Arduino |
 | `bb_http` | HTTP server wrapper with portable route registration API; optional `bb_route_t` descriptors carry OpenAPI metadata for `bb_openapi` consumption; Arduino backend routes/handlers with fixed-buffer response batching | ESP-IDF, Arduino |
 | `bb_log` | Ring-buffered log capture, runtime tag-level control, and `bb_log_{e,w,i,d,v}` macros for platform-abstract logging. Optional routes module (`CONFIG_BB_LOG_ROUTES`, default-on) adds SSE `/api/logs` stream, `GET /api/logs/status`, and log-level GET/POST | ESP-IDF, Arduino |

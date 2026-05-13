@@ -1,0 +1,32 @@
+menu "breadboard: bb_event"
+
+config BB_EVENT_AUTOREGISTER
+    bool "Auto-init bb_event via bb_registry"
+    default y
+    help
+        When enabled, bb_event_init runs automatically via bb_registry.
+
+config BB_EVENT_MAX_TOPICS
+    int "Maximum number of event topics"
+    default 16
+    range 1 256
+    help
+        Maximum number of topics that can be created at runtime.
+
+config BB_EVENT_QUEUE_DEPTH
+    int "Event queue depth per subscription"
+    default 16
+    range 1 256
+    help
+        Number of events that can be queued per subscription before
+        the oldest event is dropped.
+
+config BB_EVENT_MAX_PAYLOAD
+    int "Maximum event payload size (bytes)"
+    default 256
+    range 0 4096
+    help
+        Maximum size of event payload data. Set to 0 if events
+        contain only metadata.
+
+endmenu

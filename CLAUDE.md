@@ -87,6 +87,10 @@ Auto-registration is opt-out via Kconfig. Each registry entry has a `CONFIG_BB_<
 
 Today this pattern owns (regular tier): `bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_log` (routes), `bb_board`, `bb_manifest`, `bb_ota_validator`, `bb_wifi` (routes), `bb_system` (routes), `bb_openapi`, `bb_mdns`. Early tier: `bb_log_stream` (via `CONFIG_BB_LOG_STREAM_AUTOREGISTER`), `bb_nv_flash`, `bb_nv_config` (via `CONFIG_BB_NV_FLASH_AUTOREGISTER`, `CONFIG_BB_NV_CONFIG_AUTOREGISTER`). When routes are disabled, routes source files and HTTP/JSON/registry deps are dropped from PRIV_REQUIRES — see bb_log for reference.
 
+## Event bus (bb_event, bb_event_ring)
+
+`bb_event` is a portable callback-list publish/subscribe event bus. On ESP-IDF, subscribers receive events via a FreeRTOS dispatcher task; on Arduino, the app pumps events from `loop()` via `bb_event_pump()`. `bb_event_ring` is a sibling component providing a circular buffer with replay-on-subscribe — designed for fan-out scenarios (SSE/WebSocket subscribers, persistent event history). Both use the same `bb_event_t` opaque handle and dispatch model; `bb_event_ring` layers replay semantics on top of `bb_event` internally.
+
 ## Provisioning UI
 
 The `bb_prov` component manages the provisioning state machine and HTTP `/save` handler. Callers MUST supply at least one asset with `path="/"` to `bb_prov_start`. For bare-minimum bringup, add `REQUIRES bb_prov_default_form` and pass `&bb_prov_default_form_asset`. Custom UIs pass their own asset array instead. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
