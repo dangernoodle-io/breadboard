@@ -23,7 +23,7 @@ extern "C" {
 typedef esp_err_t bb_err_t;
 #define BB_OK                   ESP_OK
 #define BB_ERR_INVALID_ARG      ESP_ERR_INVALID_ARG
-#define BB_ERR_NOT_FOUND        ESP_ERR_NVS_NOT_FOUND
+#define BB_ERR_NOT_FOUND        ESP_ERR_NOT_FOUND
 #define BB_ERR_NOT_INITIALIZED  ESP_ERR_NVS_NOT_INITIALIZED
 #define BB_ERR_NO_SPACE         ESP_ERR_NO_MEM
 #define BB_ERR_INVALID_STATE    ESP_ERR_INVALID_STATE
