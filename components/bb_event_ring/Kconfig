@@ -1,0 +1,9 @@
+menu "breadboard: bb_event_ring"
+
+config BB_EVENT_RING_ENABLED
+    bool "Enable bb_event_ring"
+    default y
+    help
+        Enable the ring buffer event storage backend.
+
+endmenu
