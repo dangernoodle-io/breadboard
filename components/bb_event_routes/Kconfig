@@ -1,0 +1,57 @@
+menu "breadboard: bb_event_routes"
+
+config BB_EVENT_ROUTES_AUTOREGISTER
+    bool "Auto-register /api/events route via bb_registry"
+    default y
+    help
+        When enabled, bb_event_routes registers GET /api/events automatically
+        via the bb_registry regular tier after the HTTP server starts.
+
+config BB_EVENT_ROUTES_MAX_CLIENTS
+    int "Max concurrent SSE clients"
+    default 4
+    range 1 32
+    help
+        Maximum number of simultaneous /api/events subscribers. Additional
+        connections receive 503 {"error":"max_clients"}.
+
+config BB_EVENT_ROUTES_QUEUE_DEPTH
+    int "Per-client event queue depth"
+    default 32
+    range 4 256
+    help
+        Events buffered per subscriber. On overflow, the oldest entry is
+        dropped and the dropped counter is incremented; the next emitted
+        frame's id reflects the gap.
+
+config BB_EVENT_ROUTES_RING_CAPACITY
+    int "Per-attached-topic replay ring capacity"
+    default 16
+    range 1 256
+    help
+        bb_event_ring depth backing replay-on-connect for each attached topic.
+
+config BB_EVENT_ROUTES_RING_MAX_ENTRY
+    int "Per-attached-topic replay payload cap (bytes)"
+    default 256
+    range 16 4096
+    help
+        Maximum per-event payload size buffered for replay.
+
+config BB_EVENT_ROUTES_HEARTBEAT_MS
+    int "Idle heartbeat interval (ms)"
+    default 15000
+    range 1000 600000
+    help
+        On idle, emit a SSE comment-frame `: ping` every N ms so dead peers
+        surface promptly via the chunk write.
+
+config BB_EVENT_ROUTES_MAX_TOPICS
+    int "Max attached topics"
+    default 8
+    range 1 64
+    help
+        Maximum number of topics that can be attached via
+        bb_event_routes_attach().
+
+endmenu

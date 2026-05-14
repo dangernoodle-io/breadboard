@@ -3,6 +3,7 @@
 #include "bb_mdns_host_test_hooks.h"
 #include "bb_event_test.h"
 #include "../../components/bb_event_ring/bb_event_ring_internal.h"
+#include "../../components/bb_event_routes/src/bb_event_routes_internal.h"
 #include "test_alloc_inject.h"
 
 // Forward declarations from test_bb_log.c
@@ -711,6 +712,39 @@ void test_bb_event_subscribe_with_prep_null_prep_subscribes(void);
 void test_bb_event_subscribe_with_prep_invalid_args(void);
 void test_bb_event_lock_unlock_round_trip(void);
 
+// Forward declarations from test_bb_event_routes.c
+void test_bb_event_routes_init_idempotent(void);
+void test_bb_event_routes_init_null_cfg_uses_defaults(void);
+void test_bb_event_routes_init_zero_cfg_fields_use_defaults(void);
+void test_bb_event_routes_drain_null_buf_returns_zero(void);
+void test_bb_event_routes_attach_returns_not_found_for_unregistered_topic(void);
+void test_bb_event_routes_attach_dedupes_same_topic(void);
+void test_bb_event_routes_attach_null_returns_invalid_arg(void);
+void test_bb_event_routes_attach_before_init_returns_invalid_state(void);
+void test_bb_event_routes_client_acquire_release_round_trip(void);
+void test_bb_event_routes_client_acquire_null_out_returns_invalid_arg(void);
+void test_bb_event_routes_client_acquire_before_init_returns_invalid_state(void);
+void test_bb_event_routes_client_release_null_noop(void);
+void test_bb_event_routes_client_pool_exhaustion_returns_no_space(void);
+void test_bb_event_routes_drain_emits_sse_frame(void);
+void test_bb_event_routes_drain_empty_payload_emits_object(void);
+void test_bb_event_routes_drain_empty_queue_returns_zero(void);
+void test_bb_event_routes_drain_null_client_returns_zero(void);
+void test_bb_event_routes_drain_tiny_buf_returns_zero(void);
+void test_bb_event_routes_two_clients_both_receive(void);
+void test_bb_event_routes_queue_overflow_drops_oldest(void);
+void test_bb_event_routes_client_acquire_replays_buffered_events(void);
+void test_bb_event_routes_init_max_clients_above_cap_returns_invalid_arg(void);
+void test_bb_event_routes_attach_table_full_returns_no_space(void);
+void test_bb_event_routes_heartbeat_ms_returns_configured_value(void);
+void test_bb_event_routes_reset_releases_held_client(void);
+void test_bb_event_routes_capture_walks_past_non_matching_topic(void);
+void test_bb_event_routes_drain_truncated_falls_back_to_safe_frame(void);
+void test_bb_event_routes_client_acquire_entries_calloc_fails(void);
+void test_bb_event_routes_client_acquire_payload_calloc_fails(void);
+void test_bb_event_routes_attach_ring_allocation_fails(void);
+void test_bb_event_routes_client_acquire_subscribe_failure_rolls_back(void);
+
 // Forward declarations from test_bb_led_anim.c
 void bb_led_anim_test_reset(void);
 void test_anim_attach_null_cfg_returns_invalid_arg(void);
@@ -736,6 +770,8 @@ void setUp(void) {
     bb_led_pwm_test_reset();
     bb_led_apa102_host_test_reset();
     bb_led_anim_test_reset();
+    bb_event_routes_reset_for_test();
+    bb_event_routes_reset_allocator();
     bb_event_reset_for_test();
     bb_event_port_reset_for_test();
     bb_event_ring_reset_allocator();
@@ -1453,6 +1489,39 @@ int main(void) {
     RUN_TEST(test_bb_event_subscribe_with_prep_null_prep_subscribes);
     RUN_TEST(test_bb_event_subscribe_with_prep_invalid_args);
     RUN_TEST(test_bb_event_lock_unlock_round_trip);
+
+    // bb_event_routes tests
+    RUN_TEST(test_bb_event_routes_init_idempotent);
+    RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);
+    RUN_TEST(test_bb_event_routes_init_zero_cfg_fields_use_defaults);
+    RUN_TEST(test_bb_event_routes_drain_null_buf_returns_zero);
+    RUN_TEST(test_bb_event_routes_attach_returns_not_found_for_unregistered_topic);
+    RUN_TEST(test_bb_event_routes_attach_dedupes_same_topic);
+    RUN_TEST(test_bb_event_routes_attach_null_returns_invalid_arg);
+    RUN_TEST(test_bb_event_routes_attach_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_event_routes_client_acquire_release_round_trip);
+    RUN_TEST(test_bb_event_routes_client_acquire_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_event_routes_client_acquire_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_event_routes_client_release_null_noop);
+    RUN_TEST(test_bb_event_routes_client_pool_exhaustion_returns_no_space);
+    RUN_TEST(test_bb_event_routes_drain_emits_sse_frame);
+    RUN_TEST(test_bb_event_routes_drain_empty_payload_emits_object);
+    RUN_TEST(test_bb_event_routes_drain_empty_queue_returns_zero);
+    RUN_TEST(test_bb_event_routes_drain_null_client_returns_zero);
+    RUN_TEST(test_bb_event_routes_drain_tiny_buf_returns_zero);
+    RUN_TEST(test_bb_event_routes_two_clients_both_receive);
+    RUN_TEST(test_bb_event_routes_queue_overflow_drops_oldest);
+    RUN_TEST(test_bb_event_routes_client_acquire_replays_buffered_events);
+    RUN_TEST(test_bb_event_routes_init_max_clients_above_cap_returns_invalid_arg);
+    RUN_TEST(test_bb_event_routes_attach_table_full_returns_no_space);
+    RUN_TEST(test_bb_event_routes_heartbeat_ms_returns_configured_value);
+    RUN_TEST(test_bb_event_routes_reset_releases_held_client);
+    RUN_TEST(test_bb_event_routes_capture_walks_past_non_matching_topic);
+    RUN_TEST(test_bb_event_routes_drain_truncated_falls_back_to_safe_frame);
+    RUN_TEST(test_bb_event_routes_client_acquire_entries_calloc_fails);
+    RUN_TEST(test_bb_event_routes_client_acquire_payload_calloc_fails);
+    RUN_TEST(test_bb_event_routes_attach_ring_allocation_fails);
+    RUN_TEST(test_bb_event_routes_client_acquire_subscribe_failure_rolls_back);
 
     // bb_led_anim tests
     RUN_TEST(test_anim_attach_null_cfg_returns_invalid_arg);
