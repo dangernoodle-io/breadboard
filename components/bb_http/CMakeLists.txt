@@ -3,5 +3,6 @@ idf_component_register(
          "src/http_utils.c"
          "src/route_registry.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_nv bb_log bb_json esp_http_server
+    REQUIRES bb_core
+    PRIV_REQUIRES bb_nv bb_log bb_json esp_http_server
 )
