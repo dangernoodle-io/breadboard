@@ -46,6 +46,21 @@ bb_err_t bb_event_post(bb_event_topic_t topic, int32_t id,
 // Cooperative dispatch: drain up to budget events (or all if budget=0); returns count dispatched.
 size_t   bb_event_pump(uint32_t budget);
 
+// Serialization primitive for consumers that maintain state mutated both from
+// subscriber callbacks AND from outside dispatch (e.g. bb_event_ring). Held
+// across snapshot/replay setup in bb_event_subscribe_with_prep.
+void     bb_event_lock(void);
+void     bb_event_unlock(void);
+
+// Run prep(prep_arg) under bb_event's lock, then atomically subscribe so no
+// events dispatch on `topic` between prep returning and the subscription
+// becoming active. prep may be NULL.
+bb_err_t bb_event_subscribe_with_prep(bb_event_topic_t topic,
+                                      bb_event_handler_fn cb, void *user,
+                                      void (*prep)(void *prep_arg),
+                                      void *prep_arg,
+                                      bb_event_sub_t *out_sub);
+
 #ifdef __cplusplus
 }
 #endif

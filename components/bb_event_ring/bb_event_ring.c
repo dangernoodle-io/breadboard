@@ -1,5 +1,4 @@
 #include "bb_event_ring.h"
-#include "bb_event_port.h"
 #include "bb_log.h"
 #include <stdlib.h>
 #include <string.h>
@@ -55,10 +54,8 @@ static void ring_capture(bb_event_topic_t topic,
     bb_event_ring_t ring = (bb_event_ring_t)user;
     if (!ring) return;  // LCOV_EXCL_LINE
 
-    // bb_event_port_lock() is held during dispatch per Phase 2 design, but we take it again
-    // for clarity: the ring's state is shared and we're about to modify head/tail/count.
-    // The lock is recursive, so nested takes are safe.
-    bb_event_port_lock();
+    // Serialize against subscribe_with_replay's snapshot, which takes the same lock.
+    bb_event_lock();
 
     size_t write_idx = ring->head;
 
@@ -84,7 +81,7 @@ static void ring_capture(bb_event_topic_t topic,
     // Advance head to next write position
     ring->head = (ring->head + 1) % ring->capacity;
 
-    bb_event_port_unlock();
+    bb_event_unlock();
 }
 
 bb_err_t bb_event_ring_attach(bb_event_topic_t topic, size_t capacity,
@@ -145,6 +142,38 @@ bb_err_t bb_event_ring_attach(bb_event_topic_t topic, size_t capacity,
     return BB_OK;
 }
 
+// Snapshot entry layout shared between prep and replay loop.
+typedef struct {
+    int32_t id;
+    size_t size;
+    uint8_t payload[512];  // assumes max_entry <= 512
+} snapshot_entry_t;
+
+typedef struct {
+    bb_event_ring_t ring;
+    snapshot_entry_t *snapshot;
+    size_t snap_count;
+} snapshot_ctx_t;
+
+static void snapshot_prep(void *arg)
+{
+    snapshot_ctx_t *ctx = (snapshot_ctx_t *)arg;
+    bb_event_ring_t ring = ctx->ring;
+
+    // Walk entries from oldest to newest into the pre-allocated snapshot buffer.
+    for (size_t i = 0; i < ring->count; i++) {
+        size_t idx = (ring->tail + i) % ring->capacity;
+        ctx->snapshot[i].id = ring->entries[idx].id;
+        ctx->snapshot[i].size = ring->entries[idx].size;
+        if (ctx->snapshot[i].size > 0) {
+            memcpy(ctx->snapshot[i].payload,
+                   ring->payload_buf + (idx * ring->max_entry),
+                   ctx->snapshot[i].size);
+        }
+    }
+    ctx->snap_count = ring->count;
+}
+
 bb_err_t bb_event_ring_subscribe_with_replay(bb_event_ring_t ring,
                                              bb_event_handler_fn cb, void *user,
                                              bb_event_sub_t *out_sub)
@@ -153,44 +182,18 @@ bb_err_t bb_event_ring_subscribe_with_replay(bb_event_ring_t ring,
         return BB_ERR_INVALID_ARG;
     }
 
-    bb_event_port_lock();
-
-    // Snapshot current buffered entries (oldest to newest)
-    typedef struct {
-        int32_t id;
-        size_t size;
-        uint8_t payload[512];  // Temp: assume max_entry <= 512 for snapshot
-    } snapshot_entry_t;
-
-    snapshot_entry_t *snapshot = NULL;
-    size_t snap_count = 0;
-
-    if (ring->count > 0) {
-        snapshot = (snapshot_entry_t *)s_calloc(ring->count, sizeof(*snapshot));
-        if (!snapshot) {
-            bb_event_port_unlock();
-            bb_log_e(TAG, "failed to allocate snapshot");
-            return BB_ERR_NO_SPACE;
-        }
-
-        // Walk entries from oldest to newest
-        for (size_t i = 0; i < ring->count; i++) {
-            size_t idx = (ring->tail + i) % ring->capacity;
-            snapshot[i].id = ring->entries[idx].id;
-            snapshot[i].size = ring->entries[idx].size;
-            if (snapshot[i].size > 0) {
-                memcpy(snapshot[i].payload, ring->payload_buf + (idx * ring->max_entry),
-                       snapshot[i].size);
-            }
-        }
-        snap_count = ring->count;
+    // Pre-allocate worst-case snapshot buffer before taking the lock. Using
+    // ring->capacity (not ->count) avoids racing with ring_capture for the size.
+    snapshot_entry_t *snapshot = (snapshot_entry_t *)s_calloc(ring->capacity, sizeof(*snapshot));
+    if (!snapshot) {
+        bb_log_e(TAG, "failed to allocate snapshot");
+        return BB_ERR_NO_SPACE;
     }
 
-    // Subscribe for live events while still holding the lock
-    bb_err_t err = bb_event_subscribe(ring->topic, cb, user, out_sub);
+    snapshot_ctx_t ctx = { .ring = ring, .snapshot = snapshot, .snap_count = 0 };
 
-    bb_event_port_unlock();
-
+    bb_err_t err = bb_event_subscribe_with_prep(ring->topic, cb, user,
+                                                snapshot_prep, &ctx, out_sub);
     if (err != BB_OK) {
         s_free(snapshot);
         bb_log_e(TAG, "failed to subscribe");
@@ -198,10 +201,11 @@ bb_err_t bb_event_ring_subscribe_with_replay(bb_event_ring_t ring,
     }
 
     // Replay snapshot (outside lock, so new events post naturally)
-    for (size_t i = 0; i < snap_count; i++) {
+    for (size_t i = 0; i < ctx.snap_count; i++) {
         cb(ring->topic, snapshot[i].id, snapshot[i].payload, snapshot[i].size, user);
     }
 
+    size_t snap_count = ctx.snap_count;
     s_free(snapshot);
     bb_log_d(TAG, "replayed %zu entries", snap_count);
     return BB_OK;

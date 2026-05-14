@@ -158,17 +158,13 @@ bb_err_t bb_event_topic_lookup(const char *name, bb_event_topic_t *out)
     return BB_ERR_NOT_FOUND;
 }
 
-bb_err_t bb_event_subscribe(bb_event_topic_t topic,
-                            bb_event_handler_fn cb, void *user,
-                            bb_event_sub_t *out_sub)
+// Caller must hold the bb_event lock.
+static bb_err_t subscribe_locked(bb_event_topic_t topic,
+                                 bb_event_handler_fn cb, void *user,
+                                 bb_event_sub_t *out_sub)
 {
-    if (!topic || !cb || !out_sub) return BB_ERR_INVALID_ARG;
-
-    bb_event_port_lock();
-
     bb_event_subscriber_t *sub = alloc_subscriber();
     if (!sub) {
-        bb_event_port_unlock();
         bb_log_e(TAG, "subscriber pool full: %d/%d", BB_EVENT_MAX_SUBSCRIBERS, BB_EVENT_MAX_SUBSCRIBERS);
         return BB_ERR_NO_SPACE;
     }
@@ -180,11 +176,39 @@ bb_err_t bb_event_subscribe(bb_event_topic_t topic,
     sub->next = t->entry.sub_head;
     t->entry.sub_head = sub;
 
-    bb_event_port_unlock();
-
     *out_sub = (bb_event_sub_t)sub;
     return BB_OK;
 }
+
+bb_err_t bb_event_subscribe(bb_event_topic_t topic,
+                            bb_event_handler_fn cb, void *user,
+                            bb_event_sub_t *out_sub)
+{
+    if (!topic || !cb || !out_sub) return BB_ERR_INVALID_ARG;
+
+    bb_event_port_lock();
+    bb_err_t err = subscribe_locked(topic, cb, user, out_sub);
+    bb_event_port_unlock();
+    return err;
+}
+
+bb_err_t bb_event_subscribe_with_prep(bb_event_topic_t topic,
+                                      bb_event_handler_fn cb, void *user,
+                                      void (*prep)(void *prep_arg),
+                                      void *prep_arg,
+                                      bb_event_sub_t *out_sub)
+{
+    if (!topic || !cb || !out_sub) return BB_ERR_INVALID_ARG;
+
+    bb_event_port_lock();
+    if (prep) prep(prep_arg);
+    bb_err_t err = subscribe_locked(topic, cb, user, out_sub);
+    bb_event_port_unlock();
+    return err;
+}
+
+void bb_event_lock(void)   { bb_event_port_lock(); }
+void bb_event_unlock(void) { bb_event_port_unlock(); }
 
 bb_err_t bb_event_unsubscribe(bb_event_sub_t sub)
 {

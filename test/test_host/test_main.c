@@ -705,6 +705,10 @@ void test_ring_subscribe_with_replay_snapshot_calloc_fails(void);
 void test_ring_subscribe_when_subscriber_pool_exhausted(void);
 void test_bb_event_ring_capture_null_data_with_size(void);
 void test_bb_event_ring_attach_subscribe_failure_frees_all(void);
+void test_bb_event_subscribe_with_prep_runs_prep_before_subscribe(void);
+void test_bb_event_subscribe_with_prep_null_prep_subscribes(void);
+void test_bb_event_subscribe_with_prep_invalid_args(void);
+void test_bb_event_lock_unlock_round_trip(void);
 
 // Forward declarations from test_bb_led_anim.c
 void bb_led_anim_test_reset(void);
@@ -1444,6 +1448,10 @@ int main(void) {
     RUN_TEST(test_ring_subscribe_when_subscriber_pool_exhausted);
     RUN_TEST(test_bb_event_ring_capture_null_data_with_size);
     RUN_TEST(test_bb_event_ring_attach_subscribe_failure_frees_all);
+    RUN_TEST(test_bb_event_subscribe_with_prep_runs_prep_before_subscribe);
+    RUN_TEST(test_bb_event_subscribe_with_prep_null_prep_subscribes);
+    RUN_TEST(test_bb_event_subscribe_with_prep_invalid_args);
+    RUN_TEST(test_bb_event_lock_unlock_round_trip);
 
     // bb_led_anim tests
     RUN_TEST(test_anim_attach_null_cfg_returns_invalid_arg);

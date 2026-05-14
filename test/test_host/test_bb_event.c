@@ -799,3 +799,96 @@ void test_bb_event_post_exceeds_max_payload_at_runtime_limit(void) {
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
 }
 
+
+/* Covers bb_event_subscribe_with_prep:
+   - prep runs once, before subscription becomes active
+   - returns BB_ERR_INVALID_ARG on bad args; prep may be NULL */
+static int g_prep_ran = 0;
+static void test_prep_fn(void *arg) {
+    int *count = (int *)arg;
+    if (count) (*count)++;
+    g_prep_ran++;
+}
+
+void test_bb_event_subscribe_with_prep_runs_prep_before_subscribe(void) {
+    setup_sync_mode();
+    reset_log();
+    bb_event_init(&small_cfg);
+
+    bb_event_topic_t topic;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_topic_register("prep.topic", &topic));
+
+    /* Post and drain event A before subscribing; new sub should not see it. */
+    int32_t payload = 1;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_post(topic, 1, &payload, sizeof(payload)));
+    bb_event_pump(0);
+    TEST_ASSERT_EQUAL(0, g_log.call_count);
+
+    g_prep_ran = 0;
+    int prep_count = 0;
+    bb_event_sub_t sub;
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_event_subscribe_with_prep(topic, record_handler, &g_log,
+                                     test_prep_fn, &prep_count, &sub));
+    TEST_ASSERT_EQUAL(1, g_prep_ran);
+    TEST_ASSERT_EQUAL(1, prep_count);
+    TEST_ASSERT_EQUAL(0, g_log.call_count); /* prep ran but no replay */
+
+    /* Subscription is now active: a new post is delivered. */
+    payload = 2;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_post(topic, 2, &payload, sizeof(payload)));
+    bb_event_pump(0);
+    TEST_ASSERT_EQUAL(1, g_log.call_count);
+    TEST_ASSERT_EQUAL(2, g_log.calls[0].id);
+
+    bb_event_unsubscribe(sub);
+}
+
+/* NULL prep degenerates to atomic subscribe. */
+void test_bb_event_subscribe_with_prep_null_prep_subscribes(void) {
+    setup_sync_mode();
+    reset_log();
+    bb_event_init(&small_cfg);
+
+    bb_event_topic_t topic;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_topic_register("prep.null", &topic));
+
+    bb_event_sub_t sub;
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_event_subscribe_with_prep(topic, record_handler, &g_log,
+                                     NULL, NULL, &sub));
+
+    int32_t payload = 99;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_post(topic, 99, &payload, sizeof(payload)));
+    bb_event_pump(0);
+    TEST_ASSERT_EQUAL(1, g_log.call_count);
+    TEST_ASSERT_EQUAL(99, g_log.calls[0].id);
+
+    bb_event_unsubscribe(sub);
+}
+
+/* Validates BB_ERR_INVALID_ARG on each missing required arg. */
+void test_bb_event_subscribe_with_prep_invalid_args(void) {
+    setup_sync_mode();
+    bb_event_init(&small_cfg);
+
+    bb_event_topic_t topic;
+    bb_event_topic_register("prep.invalid", &topic);
+    bb_event_sub_t sub;
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+        bb_event_subscribe_with_prep(NULL, record_handler, &g_log, NULL, NULL, &sub));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+        bb_event_subscribe_with_prep(topic, NULL, &g_log, NULL, NULL, &sub));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+        bb_event_subscribe_with_prep(topic, record_handler, &g_log, NULL, NULL, NULL));
+}
+
+/* bb_event_lock/unlock are exported and idempotent in nesting (rely on platform mutex). */
+void test_bb_event_lock_unlock_round_trip(void) {
+    setup_sync_mode();
+    bb_event_init(&small_cfg);
+    bb_event_lock();
+    bb_event_unlock();
+    /* No assertion beyond clean exit — proves symbols are linked and callable. */
+}
