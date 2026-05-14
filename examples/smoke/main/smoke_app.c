@@ -18,6 +18,9 @@
 #include "bb_button_gpio.h"
 #include "bb_button_events.h"
 #include "bb_event.h"
+#ifdef ESP_PLATFORM
+#include "bb_event_routes.h"
+#endif
 #include "smoke_app.h"
 
 #if defined(BB_SMOKE_DISPLAY) || defined(BB_WIFI_BACKEND_R4)
@@ -276,6 +279,12 @@ void smoke_app_setup(void) {
         } else {
             bb_log_w(TAG, "bb_event: subscribe failed");
         }
+#ifdef ESP_PLATFORM
+        // Surface the heartbeat topic on /api/events for end-to-end SSE smoke.
+        if (bb_event_routes_attach("smoke.heartbeat") != BB_OK) {
+            bb_log_w(TAG, "bb_event_routes: attach failed");
+        }
+#endif
     } else {
         bb_log_w(TAG, "bb_event: topic register failed");
     }
