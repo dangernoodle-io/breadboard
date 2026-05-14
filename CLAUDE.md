@@ -40,6 +40,32 @@ Use `bb_log_{e,w,i,d,v}(tag, fmt, ...)` macros for all breadboard component code
 - Platform-specific implementations under `platform/espidf/` and `platform/arduino/`.
 - Component names are prefixed `bb_`.
 
+## Header visibility and component coupling
+
+These rules govern which headers go where and how components depend on each other. Violations show up as `_port.h`/`_internal.h` files reaching across component boundaries, sibling tests grepping into another component's implementation directory, and `REQUIRES` lists that grow because nobody pruned them.
+
+### Public vs private headers
+
+- `components/<name>/include/` is the **public** surface — anything in there is reachable by every consumer that REQUIRES the component. Only headers intended for cross-component use belong here.
+- Platform-port contracts, test-injection hooks, vtables, and anything ending in `_port.h` / `_internal.h` / `_priv.h` are **private**. Put them next to the implementation (`components/<name>/<name>_internal.h` or `components/<name>/private/`), not in `include/`.
+- Platform impls (`platform/<backend>/<name>/`) include the private header via a relative path; consumers cannot reach it.
+
+### REQUIRES vs PRIV_REQUIRES
+
+- If your **public header** includes a header from another component, that component goes in `REQUIRES` — its types appear in your API.
+- If your `.c` / `.cpp` / private headers include a header from another component but your public headers don't, that component goes in `PRIV_REQUIRES` — it's an implementation detail.
+- Default to `PRIV_REQUIRES`. Adding to `REQUIRES` is a commitment to expose another component's surface transitively.
+- Test code is not part of the component's REQUIRES contract; test-only deps go in the `test_*` env's `lib_deps`, not the component CMakeLists.
+
+### Tests must not reach into other components
+
+- A test file may `#include` any public header (`components/<name>/include/<name>.h`).
+- A test file MUST NOT `#include "../../components/X/src/...h"` or `#include "../../components/X/X_internal.h"` to call private functions. If a test needs a hook (mock allocator, state reset, etc.), the owning component exposes it through a dedicated `<name>_test.h` header guarded by `BB_<NAME>_TESTING`, and the test includes that header by name.
+
+### Includes at file top
+
+`#include` lives at the top of the file with the other includes. Mid-file `#include` directives hide dependencies from grep and from anyone scanning the include block for impact; conditional gating belongs around the *use* of the symbol, not the include itself.
+
 ## Embedding assets
 
 Use the CMake helper `bb_embed_assets()` in `cmake/bb_embed.cmake` to embed binary assets (HTML, fonts, images, etc.) into firmware. The helper wraps the raw `scripts/embed_html.py` CLI tool, which converts a file to a gzipped C byte-array source file: `python3 scripts/embed_html.py <input> <output.c> <symbol>`. Components include the helper with `include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_embed.cmake")` and call it before `idf_component_register` to populate `SRCS`. The helper avoids duplicating `add_custom_command` boilerplate across breadboard components and downstream consumers (TaipanMiner, snugfeather).
