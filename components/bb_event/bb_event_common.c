@@ -1,6 +1,7 @@
 #include "bb_event.h"
 #include "bb_event_port.h"
 #include "bb_log.h"
+#include "bb_registry.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -259,8 +260,6 @@ size_t bb_event_pump(uint32_t budget)
 // ---------------------------------------------------------------------------
 // Auto-register via bb_registry
 // ---------------------------------------------------------------------------
-
-#include "bb_registry.h"
 
 #if CONFIG_BB_EVENT_AUTOREGISTER
 static bb_err_t bb_event_autoinit(void)
