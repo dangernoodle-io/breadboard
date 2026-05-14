@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "../../components/bb_log/src/bb_log_internal.h"
 #include "bb_mdns_host_test_hooks.h"
+#include "bb_event_test.h"
 #include "../../components/bb_event_ring/bb_event_ring_internal.h"
 #include "test_alloc_inject.h"
 

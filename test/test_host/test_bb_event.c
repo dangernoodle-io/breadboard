@@ -1,7 +1,6 @@
 #include "unity.h"
 #include "bb_event.h"
-#include "bb_event_port.h"
-#include "../../components/bb_event_ring/bb_event_ring_internal.h"
+#include "bb_event_test.h"
 #include "test_alloc_inject.h"
 #include <string.h>
 #include <stdlib.h>
