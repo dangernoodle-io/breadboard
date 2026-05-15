@@ -4,6 +4,7 @@
 #include "bb_event_test.h"
 #include "../../components/bb_event_ring/bb_event_ring_internal.h"
 #include "../../components/bb_event_routes/src/bb_event_routes_internal.h"
+#include "../../platform/host/bb_http_client/bb_http_client_host.h"
 #include "test_alloc_inject.h"
 
 // Forward declarations from test_bb_log.c
@@ -713,6 +714,19 @@ void test_bb_event_subscribe_with_prep_invalid_args(void);
 void test_bb_event_lock_unlock_round_trip(void);
 
 // Forward declarations from test_bb_event_routes.c
+// Forward declarations from test_bb_http_client.c
+void test_bb_http_client_get_null_url_returns_invalid_arg(void);
+void test_bb_http_client_get_null_body_returns_invalid_arg(void);
+void test_bb_http_client_get_null_out_returns_invalid_arg(void);
+void test_bb_http_client_get_zero_cap_returns_invalid_arg(void);
+void test_bb_http_client_get_no_mock_returns_invalid_state(void);
+void test_bb_http_client_get_mock_success_returns_body(void);
+void test_bb_http_client_get_mock_404_returns_ok_with_status(void);
+void test_bb_http_client_get_mock_truncates_when_body_too_big(void);
+void test_bb_http_client_get_mock_transport_error_returns_passthrough(void);
+void test_bb_http_client_get_empty_body_is_valid(void);
+void test_bb_http_client_get_cfg_honored(void);
+
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
 void test_bb_event_routes_init_zero_cfg_fields_use_defaults(void);
@@ -770,6 +784,7 @@ void setUp(void) {
     bb_led_pwm_test_reset();
     bb_led_apa102_host_test_reset();
     bb_led_anim_test_reset();
+    bb_http_client_clear_mock();
     bb_event_routes_reset_for_test();
     bb_event_routes_reset_allocator();
     bb_event_reset_for_test();
@@ -1491,6 +1506,19 @@ int main(void) {
     RUN_TEST(test_bb_event_lock_unlock_round_trip);
 
     // bb_event_routes tests
+    // bb_http_client tests
+    RUN_TEST(test_bb_http_client_get_null_url_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_get_null_body_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_get_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_get_zero_cap_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_get_no_mock_returns_invalid_state);
+    RUN_TEST(test_bb_http_client_get_mock_success_returns_body);
+    RUN_TEST(test_bb_http_client_get_mock_404_returns_ok_with_status);
+    RUN_TEST(test_bb_http_client_get_mock_truncates_when_body_too_big);
+    RUN_TEST(test_bb_http_client_get_mock_transport_error_returns_passthrough);
+    RUN_TEST(test_bb_http_client_get_empty_body_is_valid);
+    RUN_TEST(test_bb_http_client_get_cfg_honored);
+
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);
     RUN_TEST(test_bb_event_routes_init_zero_cfg_fields_use_defaults);

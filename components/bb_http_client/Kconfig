@@ -1,0 +1,18 @@
+menu "breadboard: bb_http_client"
+
+config BB_HTTP_CLIENT_DEFAULT_TIMEOUT_MS
+    int "Default request timeout (ms)"
+    default 10000
+    range 1000 120000
+    help
+        Default per-request timeout for bb_http_client_get when cfg.timeout_ms
+        is 0.
+
+config BB_HTTP_CLIENT_DEFAULT_MAX_ATTEMPTS
+    int "Default retry attempts"
+    default 3
+    range 1 10
+    help
+        Default number of transport attempts before giving up.
+
+endmenu

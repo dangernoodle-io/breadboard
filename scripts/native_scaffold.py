@@ -226,6 +226,12 @@ COMPONENT_MAP = {
         "sources":  ["components/bb_event_ring/bb_event_ring.c"],
         "depends":  ["bb_core", "bb_event"],
     },
+    "bb_http_client": {
+        "includes": ["components/bb_http_client/include",
+                     "platform/host/bb_http_client"],
+        "sources":  ["platform/host/bb_http_client/bb_http_client_host.c"],
+        "depends":  ["bb_core"],
+    },
     "bb_event_routes": {
         "includes": ["components/bb_event_routes/include", "components/bb_event_routes/src"],
         "sources":  [
