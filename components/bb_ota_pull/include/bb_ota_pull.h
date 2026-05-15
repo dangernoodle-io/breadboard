@@ -60,8 +60,9 @@ void bb_ota_pull_set_http_timeout_ms(uint32_t ms);
  * and asset download URL for the given board.
  *
  * Platform-independent implementation, testable on host.
+ * Thin wrapper around bb_release_manifest_parse_github for backward compatibility.
  *
- * @param json       Full JSON response body
+ * @param json       Full JSON response body (null-terminated)
  * @param board_name Board name to match (e.g. "tdongle-s3")
  * @param out_tag    Buffer for tag_name (min 32 bytes)
  * @param tag_size   Size of out_tag buffer
