@@ -172,6 +172,22 @@ void test_ota_validator_mark_valid_returns_invalid_state_on_host(void);
 void test_ota_validator_mark_valid_null_reason_on_host(void);
 void test_ota_validator_mark_valid_idempotent_on_host(void);
 
+// Forward declarations from test_bb_release_manifest.c
+void test_bb_release_manifest_parse_github_valid_manifest(void);
+void test_bb_release_manifest_parse_github_missing_tag(void);
+void test_bb_release_manifest_parse_github_missing_asset(void);
+void test_bb_release_manifest_parse_github_null_args(void);
+void test_bb_release_manifest_parse_github_bad_json(void);
+void test_bb_release_manifest_parse_github_multiple_assets(void);
+void test_bb_release_manifest_parse_github_whitespace_around_colons(void);
+void test_bb_release_manifest_parse_github_handles_escape_sequences(void);
+void test_bb_release_manifest_parse_github_unicode_escape_skipped(void);
+void test_bb_release_manifest_parse_github_skips_non_matching_first_asset(void);
+void test_bb_release_manifest_parse_github_asset_missing_name_skipped(void);
+void test_bb_release_manifest_parse_github_matching_asset_no_url(void);
+void test_bb_release_manifest_parse_github_assets_not_array(void);
+void test_bb_release_manifest_parse_github_empty_assets_array(void);
+
 // Forward declarations from test_nv_generic.c
 void test_nv_set_u8_null_ns(void);
 void test_nv_set_u8_null_key(void);
@@ -891,6 +907,22 @@ int main(void) {
     RUN_TEST(test_ota_validator_mark_valid_returns_invalid_state_on_host);
     RUN_TEST(test_ota_validator_mark_valid_null_reason_on_host);
     RUN_TEST(test_ota_validator_mark_valid_idempotent_on_host);
+
+    // Release manifest tests
+    RUN_TEST(test_bb_release_manifest_parse_github_valid_manifest);
+    RUN_TEST(test_bb_release_manifest_parse_github_missing_tag);
+    RUN_TEST(test_bb_release_manifest_parse_github_missing_asset);
+    RUN_TEST(test_bb_release_manifest_parse_github_null_args);
+    RUN_TEST(test_bb_release_manifest_parse_github_bad_json);
+    RUN_TEST(test_bb_release_manifest_parse_github_multiple_assets);
+    RUN_TEST(test_bb_release_manifest_parse_github_whitespace_around_colons);
+    RUN_TEST(test_bb_release_manifest_parse_github_handles_escape_sequences);
+    RUN_TEST(test_bb_release_manifest_parse_github_unicode_escape_skipped);
+    RUN_TEST(test_bb_release_manifest_parse_github_skips_non_matching_first_asset);
+    RUN_TEST(test_bb_release_manifest_parse_github_asset_missing_name_skipped);
+    RUN_TEST(test_bb_release_manifest_parse_github_matching_asset_no_url);
+    RUN_TEST(test_bb_release_manifest_parse_github_assets_not_array);
+    RUN_TEST(test_bb_release_manifest_parse_github_empty_assets_array);
 
     // HTTP utils tests
     RUN_TEST(test_url_decode_basic);

@@ -1,4 +1,5 @@
 #include "bb_ota_pull.h"
+#include "bb_release_manifest.h"
 #include "bb_json.h"
 #include <stdarg.h>
 #include <string.h>
@@ -213,169 +214,33 @@ void bb_ota_pull_set_firmware_board(const char *board)
     }
 }
 
-/**
- * Targeted scanner for GitHub releases/latest JSON. Extracts only the two
- * fields we use (tag_name + matching asset's browser_download_url) without
- * loading the document into a parse tree. Removes the dependency on response
- * size: avoids the 16 KB cJSON_Parse cliff that has bricked OTA on devices
- * once auto-generated changelogs grew past the read buffer.
- *
- * Platform-independent, testable on host. Helpers are escape-aware (\" \\).
+/*
+ * Wrapper around bb_release_manifest_parse_github for backward compatibility.
+ * Converts bb_err_t return codes to legacy int contract:
+ *  - BB_OK -> 0 (success)
+ *  - BB_ERR_NOT_FOUND with empty out_tag -> -1 (no tag_name field)
+ *  - BB_ERR_NOT_FOUND with populated out_tag -> -2 (tag found but no matching asset)
+ *  - BB_ERR_INVALID_ARG -> -1
  */
-
-/* Find the next `"<key>"<ws>:` pair in [p, end). Returns pointer to the
- * first non-whitespace byte of the value, or NULL if not found. Skips over
- * the contents of any string it encounters so it never matches a key
- * pattern that lives inside a string value. */
-static const char *find_key(const char *p, const char *end, const char *key)
-{
-    size_t key_len = strlen(key);
-    while (p < end) {
-        if (*p == '"') {
-            const char *str_start = ++p;
-            while (p < end && *p != '"') {
-                if (*p == '\\' && p + 1 < end) p += 2;
-                else p++;
-            }
-            if (p >= end) return NULL;
-            const char *str_end = p;  /* points at closing " */
-            p++;
-            const char *q = p;
-            while (q < end && (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r')) q++;
-            if (q < end && *q == ':') {
-                if ((size_t)(str_end - str_start) == key_len &&
-                    memcmp(str_start, key, key_len) == 0) {
-                    q++;
-                    while (q < end && (*q == ' ' || *q == '\t' || *q == '\n' || *q == '\r')) q++;
-                    return q;
-                }
-            }
-        } else {
-            p++;
-        }
-    }
-    return NULL;
-}
-
-/* Copy a JSON string value into out (truncated to out_size-1, always null-
- * terminated). p must point at the opening `"`. Returns pointer past the
- * closing `"`, or NULL if not a string / unterminated. */
-static const char *copy_string_value(const char *p, const char *end,
-                                     char *out, size_t out_size)
-{
-    if (p >= end || *p != '"' || out_size == 0) return NULL;
-    p++;
-    size_t i = 0;
-    while (p < end && *p != '"') {
-        char c = *p;
-        if (c == '\\' && p + 1 < end) {
-            p++;
-            switch (*p) {
-                case 'n':  c = '\n'; p++; break;
-                case 't':  c = '\t'; p++; break;
-                case 'r':  c = '\r'; p++; break;
-                case 'b':  c = '\b'; p++; break;
-                case 'f':  c = '\f'; p++; break;
-                case '"':  c = '"';  p++; break;
-                case '\\': c = '\\'; p++; break;
-                case '/':  c = '/';  p++; break;
-                case 'u':
-                    /* \uXXXX — not present in tag_name or download URL; skip. */
-                    if (p + 4 < end) p += 5;
-                    else p = end;
-                    continue;
-                default:   c = *p;  p++; break;
-            }
-        } else {
-            p++;
-        }
-        if (i + 1 < out_size) out[i++] = c;
-    }
-    if (p >= end) return NULL;  /* unterminated */
-    out[i] = '\0';
-    return p + 1;
-}
-
-/* p must point at '{'. Returns pointer to the matching '}', or NULL on
- * unbalanced / EOF. Tracks string boundaries so braces inside strings
- * don't confuse the depth count. */
-static const char *match_brace(const char *p, const char *end)
-{
-    if (p >= end || *p != '{') return NULL;
-    int depth = 1;
-    p++;
-    while (p < end && depth > 0) {
-        if (*p == '"') {
-            p++;
-            while (p < end && *p != '"') {
-                if (*p == '\\' && p + 1 < end) p += 2;
-                else p++;
-            }
-            if (p >= end) return NULL;
-            p++;
-        } else if (*p == '{') {
-            depth++;
-            p++;
-        } else if (*p == '}') {
-            depth--;
-            if (depth == 0) return p;
-            p++;
-        } else {
-            p++;
-        }
-    }
-    return NULL;
-}
-
 int bb_ota_pull_parse_release_json(const char *json, const char *board_name,
                                      char *out_tag, size_t tag_size,
                                      char *out_url, size_t url_size)
 {
-    if (!json || !board_name || !out_tag || !out_url) return -1;
-    if (tag_size == 0 || url_size == 0) return -1;
+    if (!json) return -1;  // Legacy contract requires json to be non-NULL
 
-    const char *end = json + strlen(json);
+    size_t json_len = strlen(json);
+    bb_err_t err = bb_release_manifest_parse_github(
+        json, json_len,
+        board_name,
+        out_tag, tag_size,
+        out_url, url_size);
 
-    /* tag_name is required; missing -> -1 (malformed). */
-    const char *tag_p = find_key(json, end, "tag_name");
-    if (!tag_p || *tag_p != '"') return -1;
-    if (!copy_string_value(tag_p, end, out_tag, tag_size)) return -1;
-
-    /* assets array: must be present AND an array. */
-    const char *assets_p = find_key(json, end, "assets");
-    if (!assets_p || *assets_p != '[') return -2;
-    assets_p++;
-
-    char asset_name[128];
-    snprintf(asset_name, sizeof(asset_name), "%s.bin", board_name);
-
-    const char *p = assets_p;
-    while (p < end) {
-        while (p < end && (*p == ',' || *p == ' ' || *p == '\t' ||
-                           *p == '\n' || *p == '\r')) p++;
-        if (p >= end || *p == ']') break;
-        if (*p != '{') break;
-
-        const char *obj_end = match_brace(p, end);
-        if (!obj_end) return -1;
-
-        char this_name[128] = {0};
-        const char *name_p = find_key(p, obj_end, "name");
-        if (name_p && *name_p == '"') {
-            copy_string_value(name_p, obj_end, this_name, sizeof(this_name));
-        }
-
-        if (strcmp(this_name, asset_name) == 0) {
-            const char *url_p = find_key(p, obj_end, "browser_download_url");
-            if (!url_p || *url_p != '"') return -2;
-            if (!copy_string_value(url_p, obj_end, out_url, url_size)) return -2;
-            return 0;
-        }
-
-        p = obj_end + 1;
+    if (err == BB_OK) return 0;
+    if (err == BB_ERR_NOT_FOUND) {
+        // Distinguish missing-tag (out_tag empty) from missing-asset (out_tag set).
+        return (out_tag && out_tag[0] != '\0') ? -2 : -1;
     }
-
-    return -2;
+    return -1;  // BB_ERR_INVALID_ARG or any other error
 }
 
 #ifdef ESP_PLATFORM

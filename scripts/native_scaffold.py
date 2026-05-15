@@ -120,7 +120,7 @@ COMPONENT_MAP = {
     "bb_ota_pull": {
         "includes": ["components/bb_ota_pull/include", "platform/host/bb_ota_pull"],
         "sources":  ["platform/espidf/bb_ota_pull/bb_ota_pull.c"],
-        "depends":  ["bb_core", "bb_http", "bb_nv", "bb_log", "bb_json"],
+        "depends":  ["bb_core", "bb_http", "bb_nv", "bb_log", "bb_json", "bb_release_manifest"],
     },
     "bb_ota_push": {
         "includes": ["components/bb_ota_push/include"],
@@ -239,6 +239,11 @@ COMPONENT_MAP = {
             "platform/host/bb_event_routes/bb_event_routes_host.c",
         ],
         "depends":  ["bb_core", "bb_event", "bb_event_ring", "bb_log"],
+    },
+    "bb_release_manifest": {
+        "includes": ["components/bb_release_manifest/include"],
+        "sources":  ["components/bb_release_manifest/src/bb_release_manifest_github.c"],
+        "depends":  ["bb_core"],
     },
 }
 
