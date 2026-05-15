@@ -1,0 +1,29 @@
+menu "breadboard: bb_update_check"
+
+config BB_UPDATE_CHECK_AUTOREGISTER
+    bool "Auto-register GET /api/update/status via bb_registry"
+    default y
+    help
+        When enabled, bb_update_check registers GET /api/update/status
+        automatically via the bb_registry regular tier after the HTTP server
+        starts. The polling timer is created at the same time but does not
+        fire until bb_update_check_set_releases_url has been called.
+
+config BB_UPDATE_CHECK_INTERVAL_S
+    int "Default polling interval (seconds)"
+    default 21600
+    range 60 604800
+    help
+        Default poll interval when cfg.interval_s is 0. 21600 = 6 hours,
+        which stays well under GitHub's 60 req/h unauthenticated rate
+        limit even with many devices behind one NAT.
+
+config BB_UPDATE_CHECK_BODY_SIZE
+    int "Response body buffer size (bytes)"
+    default 32768
+    range 4096 131072
+    help
+        Internal buffer for the manifest response. Allocated once at init.
+        GitHub's releases/latest JSON for a typical project is ~8-20 KB.
+
+endmenu

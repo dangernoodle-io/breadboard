@@ -5,6 +5,7 @@
 #include "../../components/bb_event_ring/bb_event_ring_internal.h"
 #include "../../components/bb_event_routes/src/bb_event_routes_internal.h"
 #include "../../platform/host/bb_http_client/bb_http_client_host.h"
+#include "../../components/bb_update_check/src/bb_update_check_internal.h"
 #include "test_alloc_inject.h"
 
 // Forward declarations from test_bb_log.c
@@ -743,6 +744,31 @@ void test_bb_http_client_get_mock_transport_error_returns_passthrough(void);
 void test_bb_http_client_get_empty_body_is_valid(void);
 void test_bb_http_client_get_cfg_honored(void);
 
+// Forward declarations from test_bb_update_check.c
+void test_bb_update_check_init_idempotent(void);
+void test_bb_update_check_init_with_cfg_uses_overrides(void);
+void test_bb_update_check_get_status_before_init_returns_invalid_state(void);
+void test_bb_update_check_get_status_null_out_returns_invalid_arg(void);
+void test_bb_update_check_set_releases_url_validates(void);
+void test_bb_update_check_set_releases_url_before_init_returns_invalid_state(void);
+void test_bb_update_check_set_parser_before_init_returns_invalid_state(void);
+void test_bb_update_check_set_parser_null_restores_default(void);
+void test_bb_update_check_run_one_before_init_returns_invalid_arg(void);
+void test_bb_update_check_run_one_without_url_returns_invalid_state(void);
+void test_bb_update_check_now_without_url_returns_invalid_state(void);
+void test_bb_update_check_now_before_init_returns_invalid_arg(void);
+void test_bb_update_check_run_one_newer_release_flips_available(void);
+void test_bb_update_check_run_one_same_version_keeps_unavailable(void);
+void test_bb_update_check_run_one_transport_failure_sticky(void);
+void test_bb_update_check_run_one_http_404_sticky_failure(void);
+void test_bb_update_check_run_one_parse_failure_sticky(void);
+void test_bb_update_check_run_one_recovers_after_failure(void);
+void test_bb_update_check_run_one_custom_parser_invoked(void);
+void test_bb_update_check_now_drives_a_check(void);
+void test_bb_update_check_post_initial_publishes_on_first_check(void);
+void test_bb_update_check_dev_tag_treated_as_older(void);
+void test_bb_update_check_run_one_newer_to_same_transitions_back(void);
+
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
 void test_bb_event_routes_init_zero_cfg_fields_use_defaults(void);
@@ -801,6 +827,7 @@ void setUp(void) {
     bb_led_apa102_host_test_reset();
     bb_led_anim_test_reset();
     bb_http_client_clear_mock();
+    bb_update_check_reset_for_test();
     bb_event_routes_reset_for_test();
     bb_event_routes_reset_allocator();
     bb_event_reset_for_test();
@@ -1550,6 +1577,31 @@ int main(void) {
     RUN_TEST(test_bb_http_client_get_mock_transport_error_returns_passthrough);
     RUN_TEST(test_bb_http_client_get_empty_body_is_valid);
     RUN_TEST(test_bb_http_client_get_cfg_honored);
+
+    // bb_update_check tests
+    RUN_TEST(test_bb_update_check_init_idempotent);
+    RUN_TEST(test_bb_update_check_init_with_cfg_uses_overrides);
+    RUN_TEST(test_bb_update_check_get_status_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_update_check_get_status_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_update_check_set_releases_url_validates);
+    RUN_TEST(test_bb_update_check_set_releases_url_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_update_check_set_parser_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_update_check_set_parser_null_restores_default);
+    RUN_TEST(test_bb_update_check_run_one_before_init_returns_invalid_arg);
+    RUN_TEST(test_bb_update_check_run_one_without_url_returns_invalid_state);
+    RUN_TEST(test_bb_update_check_now_without_url_returns_invalid_state);
+    RUN_TEST(test_bb_update_check_now_before_init_returns_invalid_arg);
+    RUN_TEST(test_bb_update_check_run_one_newer_release_flips_available);
+    RUN_TEST(test_bb_update_check_run_one_same_version_keeps_unavailable);
+    RUN_TEST(test_bb_update_check_run_one_transport_failure_sticky);
+    RUN_TEST(test_bb_update_check_run_one_http_404_sticky_failure);
+    RUN_TEST(test_bb_update_check_run_one_parse_failure_sticky);
+    RUN_TEST(test_bb_update_check_run_one_recovers_after_failure);
+    RUN_TEST(test_bb_update_check_run_one_custom_parser_invoked);
+    RUN_TEST(test_bb_update_check_now_drives_a_check);
+    RUN_TEST(test_bb_update_check_post_initial_publishes_on_first_check);
+    RUN_TEST(test_bb_update_check_dev_tag_treated_as_older);
+    RUN_TEST(test_bb_update_check_run_one_newer_to_same_transitions_back);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);
