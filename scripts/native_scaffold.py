@@ -240,6 +240,13 @@ COMPONENT_MAP = {
         ],
         "depends":  ["bb_core", "bb_event", "bb_event_ring", "bb_log"],
     },
+    "bb_update_check": {
+        "includes": ["components/bb_update_check/include",
+                     "components/bb_update_check/src"],
+        "sources":  ["components/bb_update_check/src/bb_update_check_common.c"],
+        "depends":  ["bb_core", "bb_release_manifest", "bb_http_client",
+                     "bb_event", "bb_log", "bb_mdns", "bb_system"],
+    },
     "bb_release_manifest": {
         "includes": ["components/bb_release_manifest/include"],
         "sources":  ["components/bb_release_manifest/src/bb_release_manifest_github.c"],

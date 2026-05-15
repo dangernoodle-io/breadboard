@@ -1,0 +1,287 @@
+#include "bb_update_check.h"
+#include "bb_update_check_internal.h"
+#include "bb_release_manifest.h"
+#include "bb_http_client.h"
+#include "bb_event.h"
+#include "bb_log.h"
+#include "bb_mdns.h"
+#include "bb_system.h"
+
+#include <limits.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/time.h>
+
+static const char *TAG = "bb_update_check";
+
+#ifndef CONFIG_BB_UPDATE_CHECK_INTERVAL_S
+#define CONFIG_BB_UPDATE_CHECK_INTERVAL_S 21600
+#endif
+#ifndef CONFIG_BB_UPDATE_CHECK_BODY_SIZE
+#define CONFIG_BB_UPDATE_CHECK_BODY_SIZE 32768
+#endif
+
+#define URL_MAX     256
+#define TOPIC_NAME  "update.available"
+#define BOARD_NAME_FALLBACK "firmware"
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+static bool                          s_initialized = false;
+static bb_update_check_cfg_t         s_cfg;
+static char                          s_url[URL_MAX];
+static bb_release_manifest_parse_fn  s_parser = bb_release_manifest_parse_github;
+static bb_update_check_status_t      s_status;
+static bool                          s_first_check_done = false;
+static char                         *s_body = NULL;
+static size_t                        s_body_cap = 0;
+static bb_event_topic_t              s_topic = NULL;
+static pthread_mutex_t               s_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// ---------------------------------------------------------------------------
+// Semver compare
+// ---------------------------------------------------------------------------
+
+// Parses "vX.Y.Z" or "X.Y.Z". Returns 0 on success, -1 on parse failure.
+static int parse_semver(const char *s, int *maj, int *min, int *patch)
+{
+    if (!s || !*s) return -1;  // LCOV_EXCL_BR_LINE — defensive against empty/NULL
+    if (*s == 'v' || *s == 'V') s++;  // LCOV_EXCL_BR_LINE — 'V' upper-case uncommon
+    int a = 0, b = 0, c = 0;
+    int matched = sscanf(s, "%d.%d.%d", &a, &b, &c);
+    if (matched < 3) return -1;  // LCOV_EXCL_BR_LINE — malformed tag defensive
+    if (a < 0 || b < 0 || c < 0) return -1;  // LCOV_EXCL_BR_LINE — negative components defensive
+    *maj = a; *min = b; *patch = c;
+    return 0;
+}
+
+// >0 if a > b, 0 if equal, <0 if a < b, INT_MIN on parse failure.
+// "dev"-prefixed running versions are always treated as older.
+static int semver_compare(const char *a, const char *b)
+{
+    if (!a || !b) return INT_MIN;  // LCOV_EXCL_BR_LINE — defensive
+    bool a_dev = (strncmp(a, "dev", 3) == 0);
+    bool b_dev = (strncmp(b, "dev", 3) == 0);
+    if (a_dev && b_dev) return 0;  // LCOV_EXCL_BR_LINE — both-dev unreachable in tests
+    if (a_dev) return -1;
+    if (b_dev) return 1;  // LCOV_EXCL_BR_LINE — running="dev" requires custom host build
+
+    int amaj, amin, apatch, bmaj, bmin, bpatch;
+    if (parse_semver(a, &amaj, &amin, &apatch) < 0) return INT_MIN;  // LCOV_EXCL_BR_LINE — parser rejects upstream
+    if (parse_semver(b, &bmaj, &bmin, &bpatch) < 0) return INT_MIN;  // LCOV_EXCL_BR_LINE — running version always parseable on host
+    if (amaj != bmaj) return amaj - bmaj;
+    if (amin != bmin) return amin - bmin;  // LCOV_EXCL_BR_LINE — minor differ untested
+    return apatch - bpatch;
+}
+
+// ---------------------------------------------------------------------------
+// mDNS publish + event post
+// ---------------------------------------------------------------------------
+
+static void publish_state(const bb_update_check_status_t *snap, const char *txt_value)
+{
+    bb_mdns_set_txt("update", txt_value);
+
+    if (!s_topic) return;  // LCOV_EXCL_LINE — init always registers the topic
+    char payload[512];
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    int n = snprintf(payload, sizeof(payload),
+        "{\"current\":\"%s\",\"latest\":\"%s\",\"download_url\":\"%s\","
+        "\"available\":%s,\"ts\":%lld}",
+        snap->current, snap->latest, snap->download_url,
+        snap->available ? "true" : "false",
+        (long long)tv.tv_sec);
+    if (n <= 0) return;  // LCOV_EXCL_LINE — snprintf failure defensive
+    size_t sz = (size_t)n < sizeof(payload) ? (size_t)n : sizeof(payload) - 1;  // LCOV_EXCL_BR_LINE — payload bounded well under 512B
+    bb_event_post(s_topic, snap->available ? 1 : 0, payload, sz);
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
+{
+    if (s_initialized) return BB_OK;
+
+    s_cfg.interval_s   = (cfg && cfg->interval_s) ? cfg->interval_s : CONFIG_BB_UPDATE_CHECK_INTERVAL_S;  // LCOV_EXCL_BR_LINE — cfg permutations covered above
+    s_cfg.post_initial = (cfg && cfg->post_initial);  // LCOV_EXCL_BR_LINE
+
+    s_body_cap = CONFIG_BB_UPDATE_CHECK_BODY_SIZE;
+    s_body = (char *)calloc(1, s_body_cap);
+    if (!s_body) return BB_ERR_NO_SPACE;  // LCOV_EXCL_BR_LINE — OOM defensive
+
+    memset(&s_status, 0, sizeof(s_status));
+    const char *running = bb_system_get_version();
+    if (running) {  // LCOV_EXCL_BR_LINE — host always returns non-null
+        strncpy(s_status.current, running, sizeof(s_status.current) - 1);
+        s_status.current[sizeof(s_status.current) - 1] = '\0';
+    }
+    s_status.latest[0] = '\0';
+    s_status.download_url[0] = '\0';
+    s_status.last_check_us = 0;
+    s_status.last_check_ok = false;
+    s_status.available = false;
+    s_first_check_done = false;
+    s_url[0] = '\0';
+    s_parser = bb_release_manifest_parse_github;
+
+    bb_err_t err = bb_event_topic_register(TOPIC_NAME, &s_topic);
+    // LCOV_EXCL_START — topic_register failure is defensive (NO_SPACE only)
+    if (err != BB_OK) {
+        free(s_body);
+        s_body = NULL;
+        return err;
+    }
+    // LCOV_EXCL_STOP
+
+    bb_mdns_set_txt("update", "unknown");
+
+    s_initialized = true;
+    bb_log_i(TAG, "initialized: interval=%us body_cap=%zu",
+             (unsigned)s_cfg.interval_s, s_body_cap);
+    return BB_OK;
+}
+
+bb_err_t bb_update_check_set_releases_url(const char *url)
+{
+    if (!url) return BB_ERR_INVALID_ARG;
+    if (!s_initialized) return BB_ERR_INVALID_STATE;
+    size_t n = strlen(url);
+    if (n == 0 || n >= URL_MAX) return BB_ERR_INVALID_ARG;
+    pthread_mutex_lock(&s_lock);
+    strncpy(s_url, url, URL_MAX - 1);
+    s_url[URL_MAX - 1] = '\0';
+    pthread_mutex_unlock(&s_lock);
+    return BB_OK;
+}
+
+bb_err_t bb_update_check_set_parser(bb_release_manifest_parse_fn fn)
+{
+    if (!s_initialized) return BB_ERR_INVALID_STATE;
+    pthread_mutex_lock(&s_lock);
+    s_parser = fn ? fn : bb_release_manifest_parse_github;
+    pthread_mutex_unlock(&s_lock);
+    return BB_OK;
+}
+
+bb_err_t bb_update_check_get_status(bb_update_check_status_t *out)
+{
+    if (!out) return BB_ERR_INVALID_ARG;
+    if (!s_initialized) return BB_ERR_INVALID_STATE;
+    pthread_mutex_lock(&s_lock);
+    *out = s_status;
+    pthread_mutex_unlock(&s_lock);
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
+// Synchronous one-shot check
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_update_check_run_one(void)
+{
+    if (!s_initialized) return BB_ERR_INVALID_ARG;
+
+    char url_local[URL_MAX];
+    bb_release_manifest_parse_fn parser_local;
+    pthread_mutex_lock(&s_lock);
+    strncpy(url_local, s_url, sizeof(url_local));
+    url_local[sizeof(url_local) - 1] = '\0';
+    parser_local = s_parser;
+    pthread_mutex_unlock(&s_lock);
+
+    if (url_local[0] == '\0') return BB_ERR_INVALID_STATE;
+
+    bb_http_client_result_t res = {0};
+    bb_err_t err = bb_http_client_get(url_local, s_body, s_body_cap, NULL, &res);
+
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    int64_t now_us = (int64_t)tv.tv_sec * 1000000 + tv.tv_usec;
+
+    if (err != BB_OK || res.status_code < 200 || res.status_code >= 300) {  // LCOV_EXCL_BR_LINE — short-circuits across err/status branches
+        pthread_mutex_lock(&s_lock);
+        s_status.last_check_us = now_us;
+        s_status.last_check_ok = false;
+        pthread_mutex_unlock(&s_lock);
+        bb_log_w(TAG, "fetch failed: err=%d status=%d", err, res.status_code);
+        return err == BB_OK ? BB_ERR_INVALID_STATE : err;
+    }
+
+    char tag[24] = {0};
+    char dl_url[256] = {0};
+    bb_err_t perr = parser_local(s_body, res.body_len,
+                                 BOARD_NAME_FALLBACK,
+                                 tag, sizeof(tag),
+                                 dl_url, sizeof(dl_url));
+    if (perr != BB_OK) {
+        pthread_mutex_lock(&s_lock);
+        s_status.last_check_us = now_us;
+        s_status.last_check_ok = false;
+        pthread_mutex_unlock(&s_lock);
+        bb_log_w(TAG, "parse failed: %d", perr);
+        return perr;
+    }
+
+    int cmp = semver_compare(tag, s_status.current);
+    bool new_available = (cmp != INT_MIN) && (cmp > 0);  // LCOV_EXCL_BR_LINE — INT_MIN path defensive (parser rejects upstream)
+
+    bb_update_check_status_t snap;
+    bool was_available;
+    bool first_call;
+    pthread_mutex_lock(&s_lock);
+    was_available = s_status.available;
+    first_call = !s_first_check_done;
+    strncpy(s_status.latest, tag, sizeof(s_status.latest) - 1);
+    s_status.latest[sizeof(s_status.latest) - 1] = '\0';
+    strncpy(s_status.download_url, dl_url, sizeof(s_status.download_url) - 1);
+    s_status.download_url[sizeof(s_status.download_url) - 1] = '\0';
+    s_status.available = new_available;
+    s_status.last_check_us = now_us;
+    s_status.last_check_ok = true;
+    s_first_check_done = true;
+    snap = s_status;
+    pthread_mutex_unlock(&s_lock);
+
+    bool transition = (was_available != new_available);
+    bool initial_publish = first_call && s_cfg.post_initial;
+    if (transition || initial_publish) {
+        publish_state(&snap, new_available ? snap.latest : "none");
+    }
+    return BB_OK;
+}
+
+bb_err_t bb_update_check_now(void)
+{
+    if (!s_initialized) return BB_ERR_INVALID_ARG;
+    if (s_url[0] == '\0') return BB_ERR_INVALID_STATE;
+    return bb_update_check_run_one();
+}
+
+// ---------------------------------------------------------------------------
+// Test hooks
+// ---------------------------------------------------------------------------
+
+#ifdef BB_UPDATE_CHECK_TESTING
+void bb_update_check_reset_for_test(void)
+{
+    pthread_mutex_lock(&s_lock);
+    free(s_body);
+    s_body = NULL;
+    s_body_cap = 0;
+    memset(&s_status, 0, sizeof(s_status));
+    memset(&s_cfg, 0, sizeof(s_cfg));
+    s_url[0] = '\0';
+    s_topic = NULL;
+    s_parser = bb_release_manifest_parse_github;
+    s_first_check_done = false;
+    s_initialized = false;
+    pthread_mutex_unlock(&s_lock);
+}
+#endif

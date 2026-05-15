@@ -20,6 +20,7 @@
 #include "bb_event.h"
 #ifdef ESP_PLATFORM
 #include "bb_event_routes.h"
+#include "bb_update_check.h"
 #endif
 #include "smoke_app.h"
 
@@ -287,6 +288,15 @@ void smoke_app_setup(void) {
 #endif
     } else {
         bb_log_w(TAG, "bb_event: topic register failed");
+    }
+#endif
+
+#ifdef ESP_PLATFORM
+    // bb_update_check: link-load only. No URL set, so polling stays idle and
+    // bb_update_check_now() returns BB_ERR_INVALID_STATE cleanly. Consumers
+    // (TaipanMiner, snugfeather) call bb_update_check_set_releases_url(...).
+    if (bb_update_check_init(NULL) != BB_OK) {
+        bb_log_w(TAG, "bb_update_check: init failed");
     }
 #endif
 }

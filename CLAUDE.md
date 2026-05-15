@@ -119,6 +119,10 @@ Today this pattern owns (regular tier): `bb_ota_pull`, `bb_ota_push`, `bb_info`,
 
 `bb_event_routes` exposes `GET /api/events` as a Server-Sent Events stream. Producers call `bb_event_routes_attach("topic.name")` to surface a topic on the stream; the route fans out to multiple concurrent clients, each with its own replay-on-connect via `bb_event_ring`. The payload contract is **caller posts valid UTF-8 JSON** — the route emits it raw in the SSE `data:` field. Arduino targets ship a 503 stub today (CC3000 RAM constraints); ESP-IDF is the production path.
 
+## Update check (bb_update_check, bb_release_manifest, bb_http_client)
+
+`bb_update_check` periodically polls a release-manifest URL, compares the returned version against `bb_system_get_version()`, and on a state change posts the `update.available` `bb_event` topic and updates the mDNS TXT key `update=<value>` (`unknown` pre-check, `none` up to date, `<tag>` when newer is available). Consumers call `bb_update_check_set_releases_url(url)` and optionally `bb_update_check_set_parser(fn)` to swap the manifest parser. The default parser is `bb_release_manifest_parse_github`; consumers using GitLab, Jenkins, S3, or a private artifact server supply their own `bb_release_manifest_parse_fn`. Fetches go through `bb_http_client` — the same portable outbound HTTP wrapper now used for release manifests; `bb_ota_pull` will migrate to it in a follow-up. The component auto-registers `GET /api/update/status` and is ESP-IDF only; Arduino targets stub every setter to `BB_ERR_UNSUPPORTED`.
+
 ## Provisioning UI
 
 The `bb_prov` component manages the provisioning state machine and HTTP `/save` handler. Callers MUST supply at least one asset with `path="/"` to `bb_prov_start`. For bare-minimum bringup, add `REQUIRES bb_prov_default_form` and pass `&bb_prov_default_form_asset`. Custom UIs pass their own asset array instead. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
