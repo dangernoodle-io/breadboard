@@ -1,5 +1,6 @@
 #include "bb_ota_pull.h"
 #include "bb_release_manifest.h"
+#include "bb_http_client.h"
 #include "bb_json.h"
 #include <stdarg.h>
 #include <string.h>
@@ -214,35 +215,6 @@ void bb_ota_pull_set_firmware_board(const char *board)
     }
 }
 
-/*
- * Wrapper around bb_release_manifest_parse_github for backward compatibility.
- * Converts bb_err_t return codes to legacy int contract:
- *  - BB_OK -> 0 (success)
- *  - BB_ERR_NOT_FOUND with empty out_tag -> -1 (no tag_name field)
- *  - BB_ERR_NOT_FOUND with populated out_tag -> -2 (tag found but no matching asset)
- *  - BB_ERR_INVALID_ARG -> -1
- */
-int bb_ota_pull_parse_release_json(const char *json, const char *board_name,
-                                     char *out_tag, size_t tag_size,
-                                     char *out_url, size_t url_size)
-{
-    if (!json) return -1;  // Legacy contract requires json to be non-NULL
-
-    size_t json_len = strlen(json);
-    bb_err_t err = bb_release_manifest_parse_github(
-        json, json_len,
-        board_name,
-        out_tag, tag_size,
-        out_url, url_size);
-
-    if (err == BB_OK) return 0;
-    if (err == BB_ERR_NOT_FOUND) {
-        // Distinguish missing-tag (out_tag empty) from missing-asset (out_tag set).
-        return (out_tag && out_tag[0] != '\0') ? -2 : -1;
-    }
-    return -1;  // BB_ERR_INVALID_ARG or any other error
-}
-
 #ifdef ESP_PLATFORM
 
 static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
@@ -252,91 +224,43 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
         return ESP_ERR_NO_MEM;
     }
 
-    esp_http_client_config_t config = {
-        .url = s_releases_url,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 10000,
-        .user_agent = esp_app_get_description()->project_name,
-        .buffer_size = 4096,
+    bb_http_client_cfg_t cfg = {
+        .timeout_ms    = 10000,
+        .max_attempts  = 3,
+        .buffer_size   = 4096,
+        .user_agent    = esp_app_get_description()->project_name,
+        .accept_header = "application/vnd.github+json",
     };
+    bb_http_client_result_t http_res = {0};
 
-    // Retry the open+headers handshake up to 3 times on transport errors.
-    // TLS handshake flakes + GitHub CDN hiccups are common; the whole client
-    // state is dirty after a failed open, so we reinit per attempt.
-    esp_http_client_handle_t client = NULL;
-    esp_err_t err = ESP_FAIL;
-    int status = 0;
-    int content_length = 0;
-    const int max_attempts = 3;
-    const int backoff_ms[] = {2000, 4000};
-    for (int attempt = 0; attempt < max_attempts; attempt++) {
-        client = esp_http_client_init(&config);
-        if (!client) {
-            err = ESP_FAIL;
-            bb_log_w(TAG, "http init attempt %d/%d failed",
-                     attempt + 1, max_attempts);
-        } else {
-            esp_http_client_set_header(client, "Accept", "application/vnd.github+json");
-            esp_http_client_set_header(client, "X-GitHub-Api-Version", "2022-11-28");
-            esp_http_client_set_method(client, HTTP_METHOD_GET);
-
-            err = esp_http_client_open(client, 0);
-            if (err == ESP_OK) {
-                content_length = esp_http_client_fetch_headers(client);
-                status = esp_http_client_get_status_code(client);
-                if (status == 200) {
-                    if (attempt > 0) {
-                        bb_log_i(TAG, "http open succeeded on attempt %d/%d",
-                                 attempt + 1, max_attempts);
-                    }
-                    break;
-                }
-                bb_log_w(TAG, "http open attempt %d/%d: GitHub API returned %d",
-                         attempt + 1, max_attempts, status);
-                err = ESP_FAIL;
-            } else {
-                bb_log_w(TAG, "http open attempt %d/%d failed: %s",
-                         attempt + 1, max_attempts, esp_err_to_name(err));
-            }
-            esp_http_client_close(client);
-            esp_http_client_cleanup(client);
-            client = NULL;
-        }
-        if (attempt + 1 < max_attempts) {
-            vTaskDelay(pdMS_TO_TICKS(backoff_ms[attempt]));
-        }
-    }
-    if (err != ESP_OK || !client) {
-        bb_log_e(TAG, "http open failed after %d attempts", max_attempts);
+    bb_err_t herr = bb_http_client_get(s_releases_url, buf, API_BUF_MAX,
+                                       &cfg, &http_res);
+    esp_err_t err = ESP_OK;
+    if (herr != BB_OK) {
+        bb_log_e(TAG, "manifest fetch transport failed");
+        err = ESP_FAIL;
         goto cleanup;
     }
-
-    int total = 0;
-    int read_len;
-    while (total < API_BUF_MAX - 1 &&
-           (read_len = esp_http_client_read(client, buf + total,
-                                            API_BUF_MAX - total - 1)) > 0) {
-        total += read_len;
+    if (http_res.status_code != 200) {
+        bb_log_e(TAG, "manifest fetch returned HTTP %d", http_res.status_code);
+        err = ESP_FAIL;
+        goto cleanup;
     }
-    buf[total] = '\0';
-    (void)content_length;
-
-    if (total == 0) {
-        bb_log_e(TAG, "empty response from GitHub API");
+    if (http_res.body_len == 0) {
+        bb_log_e(TAG, "empty response from manifest URL");
         err = ESP_FAIL;
         goto cleanup;
     }
 
-    // Determine board name to use for asset lookup
     const char *board = s_firmware_board[0] != '\0' ? s_firmware_board : "unknown";
 
-    int parse_ret = bb_ota_pull_parse_release_json(
-        buf, board,
+    bb_err_t parse_err = bb_release_manifest_parse_github(
+        buf, http_res.body_len, board,
         result->latest_tag, sizeof(result->latest_tag),
         result->asset_url, sizeof(result->asset_url));
 
-    if (parse_ret != 0) {
-        bb_log_e(TAG, "failed to parse release json: %d", parse_ret);
+    if (parse_err != BB_OK) {
+        bb_log_e(TAG, "failed to parse release manifest: %d", (int)parse_err);
         err = ESP_FAIL;
         goto cleanup;
     }
@@ -353,8 +277,6 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
     }
 
 cleanup:
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
     ota_pull_release_api_buf();
     return err;
 }

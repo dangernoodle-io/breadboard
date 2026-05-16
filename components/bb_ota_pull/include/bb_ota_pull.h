@@ -55,25 +55,6 @@ void bb_ota_pull_set_firmware_board(const char *board);
  */
 void bb_ota_pull_set_http_timeout_ms(uint32_t ms);
 
-/**
- * Parse a GitHub releases/latest JSON response and extract the latest tag
- * and asset download URL for the given board.
- *
- * Platform-independent implementation, testable on host.
- * Thin wrapper around bb_release_manifest_parse_github for backward compatibility.
- *
- * @param json       Full JSON response body (null-terminated)
- * @param board_name Board name to match (e.g. "tdongle-s3")
- * @param out_tag    Buffer for tag_name (min 32 bytes)
- * @param tag_size   Size of out_tag buffer
- * @param out_url    Buffer for browser_download_url (min 256 bytes)
- * @param url_size   Size of out_url buffer
- * @return 0 on success, -1 if tag not found, -2 if no matching asset
- */
-int bb_ota_pull_parse_release_json(const char *json, const char *board_name,
-                                     char *out_tag, size_t tag_size,
-                                     char *out_url, size_t url_size);
-
 #ifdef ESP_PLATFORM
 #include "bb_nv.h"
 #include "bb_http.h"
