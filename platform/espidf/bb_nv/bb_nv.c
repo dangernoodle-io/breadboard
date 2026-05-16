@@ -52,7 +52,7 @@ bb_err_t bb_nv_config_init(void)
     nvs_handle_t handle;
     bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle);
 
-    if (err == BB_ERR_NOT_FOUND) {
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
         bb_log_i(TAG, "no config in NVS");
         memset(&s_config, 0, sizeof(s_config));
         s_config.display_en = 1;  // default: display on
@@ -112,7 +112,7 @@ bool bb_nv_config_is_provisioned(void)
     err = nvs_get_u8(handle, "provisioned", &value);
     nvs_close(handle);
 
-    if (err == BB_ERR_NOT_FOUND) {
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
         return false;
     }
 
@@ -215,7 +215,7 @@ bb_err_t bb_nv_config_clear_provisioned(void)
     bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
     if (err != BB_OK) return err;
     err = nvs_erase_key(handle, "provisioned");
-    if (err == BB_ERR_NOT_FOUND) err = BB_OK;
+    if (err == ESP_ERR_NVS_NOT_FOUND) err = BB_OK;
     if (err == BB_OK) err = nvs_commit(handle);
     nvs_close(handle);
     return err;
@@ -227,10 +227,10 @@ bb_err_t bb_nv_config_clear_wifi(void)
     bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
     if (err != BB_OK) return err;
     err = nvs_erase_key(handle, "wifi_ssid");
-    if (err == BB_ERR_NOT_FOUND) err = BB_OK;
+    if (err == ESP_ERR_NVS_NOT_FOUND) err = BB_OK;
     if (err == BB_OK) {
         err = nvs_erase_key(handle, "wifi_pass");
-        if (err == BB_ERR_NOT_FOUND) err = BB_OK;
+        if (err == ESP_ERR_NVS_NOT_FOUND) err = BB_OK;
     }
     if (err == BB_OK) err = nvs_commit(handle);
     nvs_close(handle);
@@ -397,7 +397,7 @@ bb_err_t bb_nv_get_u8(const char *ns, const char *key, uint8_t *out, uint8_t fal
     nvs_handle_t handle;
     bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
 
-    if (err == BB_ERR_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
+    if (err == ESP_ERR_NVS_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
         *out = fallback;
         return BB_OK;
     }
@@ -409,7 +409,7 @@ bb_err_t bb_nv_get_u8(const char *ns, const char *key, uint8_t *out, uint8_t fal
     err = nvs_get_u8(handle, key, out);
     nvs_close(handle);
 
-    if (err == BB_ERR_NOT_FOUND) {
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
         *out = fallback;
         return BB_OK;
     }
@@ -431,7 +431,7 @@ bb_err_t bb_nv_get_u16(const char *ns, const char *key, uint16_t *out, uint16_t 
     nvs_handle_t handle;
     bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
 
-    if (err == BB_ERR_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
+    if (err == ESP_ERR_NVS_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
         *out = fallback;
         return BB_OK;
     }
@@ -443,7 +443,7 @@ bb_err_t bb_nv_get_u16(const char *ns, const char *key, uint16_t *out, uint16_t 
     err = nvs_get_u16(handle, key, out);
     nvs_close(handle);
 
-    if (err == BB_ERR_NOT_FOUND) {
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
         *out = fallback;
         return BB_OK;
     }
@@ -465,7 +465,7 @@ bb_err_t bb_nv_get_u32(const char *ns, const char *key, uint32_t *out, uint32_t 
     nvs_handle_t handle;
     bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
 
-    if (err == BB_ERR_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
+    if (err == ESP_ERR_NVS_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
         *out = fallback;
         return BB_OK;
     }
@@ -477,7 +477,7 @@ bb_err_t bb_nv_get_u32(const char *ns, const char *key, uint32_t *out, uint32_t 
     err = nvs_get_u32(handle, key, out);
     nvs_close(handle);
 
-    if (err == BB_ERR_NOT_FOUND) {
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
         *out = fallback;
         return BB_OK;
     }
@@ -499,7 +499,7 @@ bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, c
     nvs_handle_t handle;
     bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
 
-    if (err == BB_ERR_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
+    if (err == ESP_ERR_NVS_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
         if (fallback == NULL) {
             buf[0] = '\0';
         } else {
@@ -516,7 +516,7 @@ bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, c
     err = nvs_get_str(handle, key, buf, &buf_len);
     nvs_close(handle);
 
-    if (err == BB_ERR_NOT_FOUND) {
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
         if (fallback == NULL) {
             buf[0] = '\0';
         } else {
@@ -539,7 +539,7 @@ bb_err_t bb_nv_erase(const char *ns, const char *key)
     if (err != BB_OK) return err;
 
     err = nvs_erase_key(handle, key);
-    if (err == BB_ERR_NOT_FOUND) {
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
         err = BB_OK;
     }
     if (err == BB_OK) {
