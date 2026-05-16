@@ -282,12 +282,58 @@ cleanup:
 }
 
 /**
+ * Reconfigure the task WDT timeout while preserving the idle-task mask and
+ * panic-on-timeout policy from the firmware's Kconfig defaults.
+ *
+ * Used to bracket the OTA flash phase: extends the timeout so cache_disable
+ * windows + consumer pause windows don't trip WDT-subscribed tasks (idle
+ * tasks, consumer mining tasks). Restored to CONFIG_ESP_TASK_WDT_TIMEOUT_S
+ * on every worker exit path.
+ */
+static void ota_wdt_set_timeout(uint32_t timeout_s)
+{
+    esp_task_wdt_config_t cfg = {
+        .timeout_ms = timeout_s * 1000U,
+        .idle_core_mask =
+#if defined(CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0) && CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
+            (1U << 0) |
+#endif
+#if defined(CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1) && CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
+            (1U << 1) |
+#endif
+            0U,
+        .trigger_panic =
+#if defined(CONFIG_ESP_TASK_WDT_PANIC) && CONFIG_ESP_TASK_WDT_PANIC
+            true,
+#else
+            false,
+#endif
+    };
+    esp_err_t err = esp_task_wdt_reconfigure(&cfg);
+    if (err != ESP_OK) {
+        bb_log_w(TAG, "esp_task_wdt_reconfigure(%ums): %s",
+                 (unsigned)cfg.timeout_ms, esp_err_to_name(err));
+    }
+}
+
+static void ota_wdt_extend(void)
+{
+    ota_wdt_set_timeout(CONFIG_BB_OTA_PULL_WDT_EXTENDED_S);
+}
+
+static void ota_wdt_restore(void)
+{
+    ota_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
+}
+
+/**
  * Re-subscribe to the task WDT and delete the calling task.
  * Called at every exit path of worker tasks that removed themselves from
  * the WDT at entry. Best-effort: error is ignored — the task is dying.
  */
 static void ota_task_exit(void)
 {
+    ota_wdt_restore();
     esp_task_wdt_add(NULL);
     vTaskDelete(NULL);
 }
@@ -326,6 +372,13 @@ static void ota_worker_task(void *arg)
             return;
         }
     }
+
+    // Extend the task WDT timeout for the flash phase. esp_flash_write +
+    // cache_disable windows plus the consumer pause window can easily exceed
+    // CONFIG_ESP_TASK_WDT_TIMEOUT_S, tripping WDT-subscribed tasks (idle
+    // tasks, consumer mining tasks blocked in their pause primitives).
+    // Restored on every exit path via ota_task_exit().
+    ota_wdt_extend();
 
     // WiFi IP pre-flight — catches OTA attempts fired during reconnect
     // (stale DNS cache, no bound IP). One short retry then bail.
@@ -527,6 +580,12 @@ static void ota_check_worker_task(void *arg)
     if (s_pause_cb) {
         paused = s_pause_cb();
     }
+
+    // Extend the task WDT timeout for the manifest fetch. The pause window
+    // plus TLS handshake / response read on weak WiFi can exceed
+    // CONFIG_ESP_TASK_WDT_TIMEOUT_S and trip subscribed tasks. Restored on
+    // exit via ota_task_exit().
+    ota_wdt_extend();
 
     // Acquire PM lock to prevent DVFS during HTTP/TLS operations
     ota_pm_lock_acquire();

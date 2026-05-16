@@ -9,4 +9,20 @@ config BB_OTA_PULL_AUTOREGISTER
         public C API but drive route registration manually or skip routes
         entirely (e.g. headless OTA-driver use).
 
+config BB_OTA_PULL_WDT_EXTENDED_S
+    int "Task WDT timeout (s) during OTA flash phase"
+    range 30 1800
+    default 300
+    help
+        While bb_ota_pull is downloading + writing firmware, esp_flash_write
+        calls cache_disable for tens of ms at a time, and consumer pause
+        callbacks may hold the mining task in a semaphore wait for the full
+        download. WDT-subscribed tasks (typically IDLE0 and consumer mining
+        tasks) cannot reset the WDT during these windows; if the cumulative
+        unfed window exceeds CONFIG_ESP_TASK_WDT_TIMEOUT_S the WDT trips.
+
+        bb_ota_pull temporarily reconfigures the WDT timeout to this value
+        for the duration of the OTA work, then restores the Kconfig default
+        on exit. 300 s covers a full firmware download over weak WiFi.
+
 endmenu
