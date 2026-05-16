@@ -9,4 +9,17 @@ config BB_OTA_PUSH_AUTOREGISTER
         public C API but drive route registration manually or skip the route
         entirely (e.g. headless OTA-driver use).
 
+config BB_OTA_PUSH_WDT_EXTENDED_S
+    int "Task WDT timeout (s) during OTA push receive+write phase"
+    range 30 1800
+    default 300
+    help
+        Same rationale as CONFIG_BB_OTA_PULL_WDT_EXTENDED_S: esp_ota_write
+        triggers cache_disable, and the consumer pause callback may hold
+        the mining task in a semaphore wait for the full upload window.
+        WDT-subscribed tasks (idle, mining) cannot reset the WDT during
+        these windows; bb_ota_push temporarily reconfigures the WDT timeout
+        for the duration of the push and restores
+        CONFIG_ESP_TASK_WDT_TIMEOUT_S on exit.
+
 endmenu
