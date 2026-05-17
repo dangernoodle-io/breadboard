@@ -125,7 +125,12 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
     bb_timer_start(s_timer);
 
 #if defined(CONFIG_BB_UPDATE_CHECK_AUTO_ATTACH) && CONFIG_BB_UPDATE_CHECK_AUTO_ATTACH
-    (void)bb_event_routes_attach("update.available");
+    {
+        bb_err_t attach_err = bb_event_routes_attach("update.available");
+        if (attach_err != BB_OK) {
+            bb_log_w(TAG, "auto-attach failed for 'update.available': %d", attach_err);
+        }
+    }
 #endif
 
     bb_log_i(TAG, "registered /api/update/status; period=%" PRIu32 " s",
