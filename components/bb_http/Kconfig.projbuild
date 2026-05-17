@@ -14,7 +14,7 @@ config BB_HTTP_MAX_URI_HANDLERS_MIN
     int "Minimum max_uri_handlers floor"
     default 32
     help
-      Floor for auto-sized max_uri_handlers. Auto-size = sum(registry route_count)
+      Floor for auto-sized max_uri_handlers. Auto-size = sum(registry order)
       + fixed overhead (preflight + asset slack + safety). Final cap is
       max(auto-size, this floor).
 

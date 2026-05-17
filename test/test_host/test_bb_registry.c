@@ -161,15 +161,121 @@ void test_bb_registry_route_count_total_empty(void)
 void test_bb_registry_route_count_total_sums_correctly(void)
 {
     bb_registry_clear();
-    bb_registry_entry_t e1 = { .name = "e1", .init = fake_init_1, .route_count = 3 };
-    bb_registry_entry_t e2 = { .name = "e2", .init = fake_init_2, .route_count = 5 };
-    bb_registry_entry_t e3 = { .name = "e3", .init = fake_init_4, .route_count = 0 };
+    bb_registry_entry_t e1 = { .name = "e1", .init = fake_init_1, .order = 3 };
+    bb_registry_entry_t e2 = { .name = "e2", .init = fake_init_2, .order = 5 };
+    bb_registry_entry_t e3 = { .name = "e3", .init = fake_init_4, .order = 0 };
 
     bb_registry_add(&e1);
     bb_registry_add(&e2);
     bb_registry_add(&e3);
 
     TEST_ASSERT_EQUAL(8, bb_registry_route_count_total());
+}
+
+// ============================================================================
+// Order-priority tests
+// ============================================================================
+
+// Track invocation sequence for order tests
+static int s_order_seq[10];
+static int s_order_seq_idx = 0;
+
+static bb_err_t order_fn_a(bb_http_handle_t server)
+{
+    (void)server;
+    s_order_seq[s_order_seq_idx++] = 'A';
+    return BB_OK;
+}
+
+static bb_err_t order_fn_b(bb_http_handle_t server)
+{
+    (void)server;
+    s_order_seq[s_order_seq_idx++] = 'B';
+    return BB_OK;
+}
+
+static bb_err_t order_fn_c(bb_http_handle_t server)
+{
+    (void)server;
+    s_order_seq[s_order_seq_idx++] = 'C';
+    return BB_OK;
+}
+
+static bb_err_t order_fn_d(bb_http_handle_t server)
+{
+    (void)server;
+    s_order_seq[s_order_seq_idx++] = 'D';
+    return BB_OK;
+}
+
+// Two entries registered in order A(order=5) then B(order=1): B must run first.
+void test_bb_registry_init_honors_order_priority(void)
+{
+    bb_registry_clear();
+    s_order_seq_idx = 0;
+
+    bb_registry_entry_t eA = { .name = "A", .init = order_fn_a, .order = 5 };
+    bb_registry_entry_t eB = { .name = "B", .init = order_fn_b, .order = 1 };
+
+    bb_registry_add(&eA);
+    bb_registry_add(&eB);
+
+    bb_err_t err = bb_registry_init();
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(2, s_order_seq_idx);
+    // B (order=1) must run before A (order=5)
+    TEST_ASSERT_EQUAL('B', s_order_seq[0]);
+    TEST_ASSERT_EQUAL('A', s_order_seq[1]);
+}
+
+// Two entries with same order must run in registration (insertion) order — stable sort.
+void test_bb_registry_init_same_order_preserves_insertion_order(void)
+{
+    bb_registry_clear();
+    s_order_seq_idx = 0;
+
+    bb_registry_entry_t eC = { .name = "C", .init = order_fn_c, .order = 2 };
+    bb_registry_entry_t eD = { .name = "D", .init = order_fn_d, .order = 2 };
+
+    bb_registry_add(&eC);
+    bb_registry_add(&eD);
+
+    bb_err_t err = bb_registry_init();
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(2, s_order_seq_idx);
+    // Same order: C registered first, must run first
+    TEST_ASSERT_EQUAL('C', s_order_seq[0]);
+    TEST_ASSERT_EQUAL('D', s_order_seq[1]);
+}
+
+// Mix: four entries, verify full ascending-order output with stable tie-breaking.
+void test_bb_registry_init_order_mixed(void)
+{
+    bb_registry_clear();
+    s_order_seq_idx = 0;
+
+    // Register in this order: A(5), B(0), C(5), D(0)
+    // Expected run order (ascending order, stable): B(0), D(0), A(5), C(5)
+    bb_registry_entry_t eA = { .name = "A", .init = order_fn_a, .order = 5 };
+    bb_registry_entry_t eB = { .name = "B", .init = order_fn_b, .order = 0 };
+    bb_registry_entry_t eC = { .name = "C", .init = order_fn_c, .order = 5 };
+    bb_registry_entry_t eD = { .name = "D", .init = order_fn_d, .order = 0 };
+
+    bb_registry_add(&eA);
+    bb_registry_add(&eB);
+    bb_registry_add(&eC);
+    bb_registry_add(&eD);
+
+    bb_err_t err = bb_registry_init();
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(4, s_order_seq_idx);
+    TEST_ASSERT_EQUAL('B', s_order_seq[0]);
+    TEST_ASSERT_EQUAL('D', s_order_seq[1]);
+    TEST_ASSERT_EQUAL('A', s_order_seq[2]);
+    TEST_ASSERT_EQUAL('C', s_order_seq[3]);
 }
 
 // ============================================================================
