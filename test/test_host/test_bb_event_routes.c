@@ -594,3 +594,69 @@ void test_bb_event_routes_attach_ex_retained_true(void)
     TEST_ASSERT_EQUAL_STRING("retained.topic", name);
     TEST_ASSERT_NOT_NULL(ring);
 }
+
+void test_bb_event_routes_client_acquire_ex_filters_to_matching_topic(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(&small_cfg);
+
+    bb_event_topic_t ta, tb;
+    bb_event_topic_register("topic.a", &ta);
+    bb_event_topic_register("topic.b", &tb);
+    bb_event_routes_attach("topic.a");
+    bb_event_routes_attach("topic.b");
+
+    bb_event_routes_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire_ex(&c, "topic.a"));
+
+    // Post on both topics
+    bb_event_post(ta, 0, "{\"a\":1}", 7);
+    bb_event_post(tb, 0, "{\"b\":2}", 7);
+    bb_event_pump(0);
+
+    // Drain — only "topic.a" frame should appear
+    char frame[256] = {0};
+    size_t n = bb_event_routes_drain_frame(c, frame, sizeof(frame));
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_NOT_NULL(strstr(frame, "event: topic.a"));
+    TEST_ASSERT_NULL(strstr(frame, "event: topic.b"));
+
+    // No more frames (topic.b was filtered)
+    TEST_ASSERT_EQUAL(0, bb_event_routes_drain_frame(c, frame, sizeof(frame)));
+
+    bb_event_routes_client_release(c);
+}
+
+void test_bb_event_routes_client_acquire_ex_null_filter_subscribes_to_all(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(&small_cfg);
+
+    bb_event_topic_t ta, tb;
+    bb_event_topic_register("topic.x", &ta);
+    bb_event_topic_register("topic.y", &tb);
+    bb_event_routes_attach("topic.x");
+    bb_event_routes_attach("topic.y");
+
+    bb_event_routes_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire_ex(&c, NULL));
+
+    // Post on both topics
+    bb_event_post(ta, 0, "{\"x\":1}", 7);
+    bb_event_post(tb, 0, "{\"y\":2}", 7);
+    bb_event_pump(0);
+
+    // Drain — should see both topics
+    char frame[256] = {0};
+    size_t n = bb_event_routes_drain_frame(c, frame, sizeof(frame));
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_TRUE(strstr(frame, "event: topic.x") || strstr(frame, "event: topic.y"));
+
+    n = bb_event_routes_drain_frame(c, frame, sizeof(frame));
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_TRUE(strstr(frame, "event: topic.x") || strstr(frame, "event: topic.y"));
+
+    bb_event_routes_client_release(c);
+}

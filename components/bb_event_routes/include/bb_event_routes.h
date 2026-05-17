@@ -9,6 +9,9 @@
 extern "C" {
 #endif
 
+// Opaque handle to a connected SSE client.
+typedef struct bb_event_routes_client bb_event_routes_client_t;
+
 // bb_event_routes — surfaces bb_event topics on `GET /api/events` as a
 // Server-Sent Events stream.
 //
@@ -60,6 +63,20 @@ bb_err_t bb_event_routes_topic_info(size_t idx,
 
 // Diagnostics: number of client slots currently in use.
 size_t bb_event_routes_active_client_count(void);
+
+// Acquire a new SSE client slot and subscribe to topics.
+// Like bb_event_routes_client_acquire, but accepts an optional topic_filter.
+// Pass NULL to subscribe to all attached topics (same as bb_event_routes_client_acquire).
+// Pass a non-NULL topic name to subscribe only to that topic.
+// If topic_filter doesn't match any attached topic, the client is still acquired
+// but receives only heartbeats.
+bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
+                                           const char *topic_filter);
+
+// Acquire a new SSE client slot and subscribe to all attached topics.
+// Convenience wrapper: bb_event_routes_client_acquire_ex(out, NULL).
+// Preferred form is bb_event_routes_client_acquire_ex for filtered subscriptions.
+bb_err_t bb_event_routes_client_acquire(bb_event_routes_client_t **out);
 
 #ifdef __cplusplus
 }

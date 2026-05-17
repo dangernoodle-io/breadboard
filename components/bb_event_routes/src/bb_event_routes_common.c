@@ -234,7 +234,8 @@ bb_err_t bb_event_routes_attach(const char *topic_name)
 // Client lifecycle (called by route handler)
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_event_routes_client_acquire(bb_event_routes_client_t **out)
+bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
+                                           const char *topic_filter)
 {
     if (!out) return BB_ERR_INVALID_ARG;
     if (!s_cfg.initialized) return BB_ERR_INVALID_STATE;
@@ -263,8 +264,12 @@ bb_err_t bb_event_routes_client_acquire(bb_event_routes_client_t **out)
                 return BB_ERR_NO_SPACE;
             }
 
-            // Subscribe to every attached topic. Replay-on-connect via ring.
+            // Subscribe to matching topics. Replay-on-connect via ring.
             for (size_t k = 0; k < s_num_topics; k++) {
+                // Filter to topic_filter if specified.
+                if (topic_filter && strcmp(s_topics[k].name, topic_filter) != 0) {
+                    continue;
+                }
                 bb_event_sub_t sub = NULL;
                 bb_err_t err = bb_event_ring_subscribe_with_replay(
                     s_topics[k].ring, capture_cb, c, &sub);
@@ -290,6 +295,11 @@ bb_err_t bb_event_routes_client_acquire(bb_event_routes_client_t **out)
         }
     }
     return BB_ERR_NO_SPACE;
+}
+
+bb_err_t bb_event_routes_client_acquire(bb_event_routes_client_t **out)
+{
+    return bb_event_routes_client_acquire_ex(out, NULL);
 }
 
 void bb_event_routes_client_release(bb_event_routes_client_t *c)
