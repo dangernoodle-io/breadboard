@@ -96,6 +96,50 @@ static const bb_route_t s_status_route = {
     .handler  = status_handler,
 };
 
+// ---------------------------------------------------------------------------
+// POST /api/update/check
+// ---------------------------------------------------------------------------
+
+static bb_err_t check_now_handler(bb_http_request_t *req)
+{
+    bb_err_t err = bb_update_check_now();
+    if (err != BB_OK) {
+        bb_http_resp_send_err(req, 500, "check failed");
+        return BB_OK;
+    }
+
+    bb_json_t root = bb_json_obj_new();
+    if (!root) {
+        bb_http_resp_send_err(req, 500, "json error");
+        return BB_OK;
+    }
+
+    bb_json_obj_set_string(root, "status", "checking");
+    bb_err_t r = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return r;
+}
+
+static const bb_route_response_t s_check_now_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+       "\"properties\":{"
+         "\"status\":{\"type\":\"string\"}},"
+       "\"required\":[\"status\"]}",
+      "check initiated" },
+    { 500, "application/json", NULL, "check failed" },
+    { 0 },
+};
+
+static const bb_route_t s_check_now_route = {
+    .method   = BB_HTTP_POST,
+    .path     = "/api/update/check",
+    .tag      = "update",
+    .summary  = "Trigger manual lightweight manifest check",
+    .responses = s_check_now_responses,
+    .handler  = check_now_handler,
+};
+
 static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
@@ -104,6 +148,9 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
 
     err = bb_http_register_described_route(server, &s_status_route);
+    if (err != BB_OK) return err;
+
+    err = bb_http_register_described_route(server, &s_check_now_route);
     if (err != BB_OK) return err;
 
     s_kick = xSemaphoreCreateBinary();
@@ -144,7 +191,7 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
     }
 #endif
 
-    bb_log_i(TAG, "registered /api/update/status; period=%" PRIu32 " s",
+    bb_log_i(TAG, "registered /api/update/status, /api/update/check; period=%" PRIu32 " s",
              (uint32_t)CONFIG_BB_UPDATE_CHECK_INTERVAL_S);
     return BB_OK;
 }
