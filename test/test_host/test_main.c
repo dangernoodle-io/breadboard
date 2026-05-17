@@ -70,6 +70,16 @@ void test_ota_pull_skip_check_callback_returns_false(void);
 void test_bb_ota_pull_set_http_timeout_ms_default_is_20000(void);
 void test_bb_ota_pull_set_http_timeout_ms_zero_restores_default(void);
 
+// Forward declarations from test_bb_ota_pull_manifest.c
+void test_ota_pull_manifest_fetch_success(void);
+void test_ota_pull_manifest_transport_failure(void);
+void test_ota_pull_manifest_http_404(void);
+void test_ota_pull_manifest_board_asset_not_found(void);
+void test_ota_pull_manifest_bad_json(void);
+void test_ota_pull_manifest_realistic_github_payload(void);
+void test_ota_pull_manifest_fallback_board_name(void);
+void test_ota_pull_manifest_asset_found_ota_proceeds(void);
+
 // Forward declarations from test_ota_push.c
 void test_ota_push_skip_check_callback_registration(void);
 void test_ota_push_skip_check_callback_returns_true(void);
@@ -968,6 +978,16 @@ int main(void) {
     RUN_TEST(test_ota_pull_skip_check_callback_returns_false);
     RUN_TEST(test_bb_ota_pull_set_http_timeout_ms_default_is_20000);
     RUN_TEST(test_bb_ota_pull_set_http_timeout_ms_zero_restores_default);
+
+    // OTA pull — streaming manifest fetch
+    RUN_TEST(test_ota_pull_manifest_fetch_success);
+    RUN_TEST(test_ota_pull_manifest_transport_failure);
+    RUN_TEST(test_ota_pull_manifest_http_404);
+    RUN_TEST(test_ota_pull_manifest_board_asset_not_found);
+    RUN_TEST(test_ota_pull_manifest_bad_json);
+    RUN_TEST(test_ota_pull_manifest_realistic_github_payload);
+    RUN_TEST(test_ota_pull_manifest_fallback_board_name);
+    RUN_TEST(test_ota_pull_manifest_asset_found_ota_proceeds);
 
     // OTA push tests
     RUN_TEST(test_ota_push_skip_check_callback_registration);

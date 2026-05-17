@@ -120,7 +120,7 @@ COMPONENT_MAP = {
     "bb_ota_pull": {
         "includes": ["components/bb_ota_pull/include", "platform/host/bb_ota_pull"],
         "sources":  ["platform/espidf/bb_ota_pull/bb_ota_pull.c"],
-        "depends":  ["bb_core", "bb_http", "bb_nv", "bb_log", "bb_json", "bb_release_manifest"],
+        "depends":  ["bb_core", "bb_http", "bb_nv", "bb_log", "bb_json", "bb_release_manifest", "bb_http_client"],
     },
     "bb_ota_push": {
         "includes": ["components/bb_ota_push/include"],

@@ -68,34 +68,8 @@ static const char *TAG = "bb_ota_pull";
  * to further conserve transient stack on heap-pressed boards. */
 #define OTA_CHECK_STACK 8192
 #define OTA_CHECK_PRIO 3
-#define API_BUF_MAX    32768
 
 static volatile bool s_ota_in_progress = false;
-
-// Pre-allocated API response buffer. Allocated once at register-handler time
-// while heap is still mostly contiguous; reused on every check. Avoids the
-// failure mode where the largest free contiguous block has fragmented below
-// API_BUF_MAX after long uptime, causing on-demand malloc to fail and the
-// background check to abort with "failed to allocate response buffer".
-static char *s_api_buf = NULL;
-
-static char *ota_pull_get_api_buf(void)
-{
-    if (s_api_buf) return s_api_buf;
-    s_api_buf = malloc(API_BUF_MAX);
-    if (!s_api_buf) {
-        bb_log_e(TAG, "failed to allocate API buffer (%d bytes)", API_BUF_MAX);
-    }
-    return s_api_buf;
-}
-
-static void ota_pull_release_api_buf(void)
-{
-    if (s_api_buf) {
-        free(s_api_buf);
-        s_api_buf = NULL;
-    }
-}
 static int s_ota_task_core = 1;  // default: Core 1 (bitaxe-friendly, frees Core 0 for httpd/stratum)
 
 #ifdef CONFIG_PM_ENABLE
@@ -215,54 +189,86 @@ void bb_ota_pull_set_firmware_board(const char *board)
     }
 }
 
-#ifdef ESP_PLATFORM
+// ---------------------------------------------------------------------------
+// Portable manifest-fetch — no ESP-IDF types; compiled on host and device.
+// ---------------------------------------------------------------------------
 
-static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
+static bb_err_t ota_manifest_chunk_cb(void *cv, const char *data, size_t len)
 {
-    char *buf = ota_pull_get_api_buf();
-    if (!buf) {
-        return ESP_ERR_NO_MEM;
+    return bb_release_manifest_parse_github_stream_feed(
+        (bb_release_manifest_stream_ctx_t *)cv, data, len);
+}
+
+/**
+ * Fetch and stream-parse the release manifest.
+ *
+ * Fills out_tag and out_url on success. The board name used for asset
+ * matching is taken from s_firmware_board (falls back to "unknown").
+ *
+ * Returns BB_OK, BB_ERR_INVALID_STATE (transport/HTTP error), or
+ * BB_ERR_NOT_FOUND (parse: tag/asset missing).
+ */
+static bb_err_t ota_fetch_manifest(char *out_tag, size_t tag_cap,
+                                   char *out_url, size_t url_cap)
+{
+    const char *board = s_firmware_board[0] != '\0' ? s_firmware_board : "unknown";
+
+    bb_release_manifest_stream_ctx_t stream_ctx;
+    bb_err_t perr = bb_release_manifest_parse_github_stream_begin(
+        &stream_ctx, board, out_tag, tag_cap, out_url, url_cap);
+    if (perr != BB_OK) {  // LCOV_EXCL_BR_LINE — args always valid here
+        return perr;      // LCOV_EXCL_LINE
     }
 
     bb_http_client_cfg_t cfg = {
         .timeout_ms    = 10000,
         .max_attempts  = 3,
         .buffer_size   = 4096,
+#ifdef ESP_PLATFORM
         .user_agent    = esp_app_get_description()->project_name,
+#else
+        .user_agent    = "bb_ota_pull/0.1",
+#endif
         .accept_header = "application/vnd.github+json",
     };
     bb_http_client_result_t http_res = {0};
 
-    bb_err_t herr = bb_http_client_get(s_releases_url, buf, API_BUF_MAX,
-                                       &cfg, &http_res);
-    esp_err_t err = ESP_OK;
+    bb_err_t herr = bb_http_client_get_stream(s_releases_url,
+                                              ota_manifest_chunk_cb, &stream_ctx,
+                                              &cfg, &http_res);
+
+    bb_err_t end_err = bb_release_manifest_parse_github_stream_end(&stream_ctx);
+
     if (herr != BB_OK) {
-        bb_log_e(TAG, "manifest fetch transport failed");
-        err = ESP_FAIL;
-        goto cleanup;
+        return BB_ERR_INVALID_STATE;
     }
     if (http_res.status_code != 200) {
-        bb_log_e(TAG, "manifest fetch returned HTTP %d", http_res.status_code);
-        err = ESP_FAIL;
-        goto cleanup;
+        return BB_ERR_INVALID_STATE;
     }
-    if (http_res.body_len == 0) {
-        bb_log_e(TAG, "empty response from manifest URL");
-        err = ESP_FAIL;
-        goto cleanup;
+    if (end_err != BB_OK) {
+        return end_err;
     }
+    return BB_OK;
+}
 
-    const char *board = s_firmware_board[0] != '\0' ? s_firmware_board : "unknown";
+#ifdef BB_OTA_PULL_TESTING
+// Test hook: run ota_fetch_manifest with the currently configured URL/board.
+bb_err_t bb_ota_pull_fetch_manifest_for_test(char *out_tag, size_t tag_cap,
+                                             char *out_url, size_t url_cap)
+{
+    return ota_fetch_manifest(out_tag, tag_cap, out_url, url_cap);
+}
+#endif
 
-    bb_err_t parse_err = bb_release_manifest_parse_github(
-        buf, http_res.body_len, board,
-        result->latest_tag, sizeof(result->latest_tag),
-        result->asset_url, sizeof(result->asset_url));
+#ifdef ESP_PLATFORM
 
-    if (parse_err != BB_OK) {
-        bb_log_e(TAG, "failed to parse release manifest: %d", (int)parse_err);
-        err = ESP_FAIL;
-        goto cleanup;
+static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
+{
+    bb_err_t err = ota_fetch_manifest(result->latest_tag, sizeof(result->latest_tag),
+                                      result->asset_url,  sizeof(result->asset_url));
+    if (err != BB_OK) {
+        bb_log_e(TAG, "manifest fetch/parse failed: %d", (int)err);
+        return ESP_FAIL;
     }
 
     const esp_app_desc_t *running = esp_app_get_description();
@@ -276,9 +282,7 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
         bb_log_i(TAG, "already up to date: %s", result->latest_tag);
     }
 
-cleanup:
-    ota_pull_release_api_buf();
-    return err;
+    return ESP_OK;
 }
 
 /**
@@ -921,12 +925,6 @@ static bb_err_t bb_ota_pull_init(bb_http_handle_t server)
     if (!server) {
         return BB_ERR_INVALID_ARG;
     }
-
-    /* Pre-allocate the API response buffer now, while heap is mostly contiguous.
-     * Lazy allocation in ota_pull_check() fails on long-uptime boards (esp.
-     * bitaxe with ASIC + mDNS + log writer task stacks fragmenting heap below
-     * the 16 KB threshold). Failure here is non-fatal — check path will retry. */
-    (void)ota_pull_get_api_buf();
 
     bb_err_t err = bb_http_register_route(server, BB_HTTP_GET,
                                           "/api/ota/check", ota_check_handler);
