@@ -1,5 +1,15 @@
 menu "breadboard: bb_wifi (routes)"
 
+config BB_WIFI_AUTOREGISTER
+    bool "Auto-init WiFi STA via bb_registry EARLY tier"
+    default y
+    help
+        When enabled, bb_wifi self-registers in the EARLY tier via
+        BB_REGISTRY_REGISTER_EARLY so bb_registry_init_early() calls
+        bb_wifi_init_sta() automatically. Disable if the application
+        drives WiFi init manually (e.g. provisioning mode, AP mode,
+        or custom retry policy).
+
 config BB_WIFI_ROUTES_AUTOREGISTER
     bool "Auto-register /api/wifi and /api/scan HTTP routes via bb_registry"
     default y

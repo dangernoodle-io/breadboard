@@ -1,5 +1,15 @@
 menu "BB HTTP Server"
 
+config BB_HTTP_AUTOSTART
+    bool "Auto-start HTTP server from bb_registry_init()"
+    default y
+    help
+        When enabled, bb_registry_init() calls bb_http_server_start() automatically
+        after the PRE_HTTP tier and before the regular route-registration tier.
+        Disable if the application manages server startup itself (e.g. after CORS
+        or OpenAPI configuration that must precede server start).
+
+
 config BB_HTTP_MAX_URI_HANDLERS_MIN
     int "Minimum max_uri_handlers floor"
     default 32

@@ -502,6 +502,12 @@ void test_bb_registry_foreach_visits_all_in_order(void);
 void test_bb_registry_init_calls_each_init_fn(void);
 void test_bb_registry_init_reports_first_error_but_continues(void);
 void test_bb_registry_clear_resets_count(void);
+void test_bb_registry_pre_http_starts_empty(void);
+void test_bb_registry_pre_http_add_increments_count(void);
+void test_bb_registry_pre_http_foreach_visits_in_insertion_order(void);
+void test_bb_registry_pre_http_init_calls_each_fn(void);
+void test_bb_registry_pre_http_init_reports_first_error_but_continues(void);
+void test_bb_registry_pre_http_clear_resets_count(void);
 
 // Forward declarations from test_bb_byte_order.c
 void test_bb_load_be32_constant(void);
@@ -1326,6 +1332,12 @@ int main(void) {
     RUN_TEST(test_bb_registry_init_calls_each_init_fn);
     RUN_TEST(test_bb_registry_init_reports_first_error_but_continues);
     RUN_TEST(test_bb_registry_clear_resets_count);
+    RUN_TEST(test_bb_registry_pre_http_starts_empty);
+    RUN_TEST(test_bb_registry_pre_http_add_increments_count);
+    RUN_TEST(test_bb_registry_pre_http_foreach_visits_in_insertion_order);
+    RUN_TEST(test_bb_registry_pre_http_init_calls_each_fn);
+    RUN_TEST(test_bb_registry_pre_http_init_reports_first_error_but_continues);
+    RUN_TEST(test_bb_registry_pre_http_clear_resets_count);
 
     // bb_byte_order tests
     RUN_TEST(test_bb_load_be32_constant);
