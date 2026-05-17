@@ -1,4 +1,3 @@
-#define _POSIX_C_SOURCE 200809L
 #include "bb_event_ring.h"
 #include "bb_log.h"
 #include <stdlib.h>
@@ -7,6 +6,9 @@
 #ifdef ESP_PLATFORM
 #include "esp_timer.h"
 static int64_t bb_event_ring_now_us(void) { return esp_timer_get_time(); }
+#elif defined(ARDUINO)
+#include <Arduino.h>
+static int64_t bb_event_ring_now_us(void) { return (int64_t)micros(); }
 #else
 #include <time.h>
 static int64_t bb_event_ring_now_us(void)
