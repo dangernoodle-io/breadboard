@@ -24,6 +24,20 @@ static bb_err_t mock_parser(const char *body, size_t body_len,
     return BB_OK;
 }
 
+// Parser that always returns a version equal to the running version.
+// bb_system_get_version() on host returns "0.0.0-host" (parses as 0.0.0).
+static bb_err_t same_version_parser(const char *body, size_t body_len,
+                                    const char *board, char *out_tag, size_t tag_sz,
+                                    char *out_url, size_t url_sz)
+{
+    (void)body; (void)body_len; (void)board;
+    strncpy(out_tag, "v0.0.0", tag_sz - 1);
+    out_tag[tag_sz - 1] = '\0';
+    strncpy(out_url, "http://mock.example/firmware.bin", url_sz - 1);
+    out_url[url_sz - 1] = '\0';
+    return BB_OK;
+}
+
 static const char *VALID_BODY =
     "{\"tag_name\":\"v9.9.9\","
     "\"assets\":[{\"name\":\"firmware.bin\","
@@ -333,4 +347,123 @@ void test_bb_update_check_now_drives_a_check(void)
     bb_update_check_status_t st;
     bb_update_check_get_status(&st);
     TEST_ASSERT_TRUE(st.available);
+}
+
+void test_bb_update_check_custom_parser_transport_error(void)
+{
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(mock_parser);
+    bb_http_client_set_mock_transport_error(BB_ERR_INVALID_STATE);
+
+    bb_err_t err = bb_update_check_run_one();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_FALSE(st.last_check_ok);
+    TEST_ASSERT_NOT_EQUAL(0, st.last_check_us);
+}
+
+static bb_err_t failing_parser(const char *body, size_t body_len,
+                               const char *board, char *out_tag, size_t tag_sz,
+                               char *out_url, size_t url_sz)
+{
+    (void)body; (void)body_len; (void)board;
+    (void)out_tag; (void)tag_sz; (void)out_url; (void)url_sz;
+    return BB_ERR_NOT_FOUND;
+}
+
+void test_bb_update_check_custom_parser_parse_failure(void)
+{
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(failing_parser);
+    bb_http_client_set_mock_response("anything", 8, 200);
+
+    bb_err_t err = bb_update_check_run_one();
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, err);
+
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_FALSE(st.last_check_ok);
+    TEST_ASSERT_NOT_EQUAL(0, st.last_check_us);
+}
+
+void test_bb_update_check_custom_parser_http_404(void)
+{
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(mock_parser);
+    bb_http_client_set_mock_response("Not Found", 9, 404);
+
+    bb_err_t err = bb_update_check_run_one();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_FALSE(st.last_check_ok);
+}
+
+void test_bb_update_check_custom_parser_body_exceeds_16k(void)
+{
+    // A response body larger than CUSTOM_PARSER_BUF_SIZE (16384 bytes) exercises
+    // the buf_chunk_cb overflow path: copy==0 (L210 false branch), overflow flag
+    // set (L214 true), and the early-return on a subsequent chunk (L207 true).
+    // mock_parser ignores the body so the parse succeeds regardless.
+    reset_world();
+    bb_update_check_cfg_t cfg = { .interval_s = 60, .post_initial = false };
+    bb_update_check_init(&cfg);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(mock_parser);
+
+    // 16641 bytes > 16384 (CUSTOM_PARSER_BUF_SIZE) + 256-byte chunk padding
+    const size_t big = 16641;
+    char *body = (char *)malloc(big);
+    TEST_ASSERT_NOT_NULL(body);
+    memset(body, 'x', big - 1);
+    body[big - 1] = '\0';
+    bb_http_client_set_mock_response(body, big, 200);
+
+    bb_err_t err = bb_update_check_run_one();
+    free(body);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_EQUAL_STRING("v9.9.9", st.latest);
+}
+
+void test_bb_update_check_custom_parser_post_initial_publishes(void)
+{
+    // Custom-parser path with post_initial=true and no version transition:
+    // same_version_parser returns v0.0.0 == running, so transition=false but
+    // initial_publish=true — exercises the `|| initial_publish` branch of the
+    // `if (transition || initial_publish)` guard (L370-372).
+    reset_world();
+    bb_update_check_cfg_t cfg = { .interval_s = 60, .post_initial = true };
+    bb_update_check_init(&cfg);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(same_version_parser);
+    bb_http_client_set_mock_response("x", 1, 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_FALSE(st.available);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+
+    // Second run: first_call=false, transition=false, initial_publish=false.
+    // Exercises the `&&` short-circuit at L370 (first_call=false path) and
+    // the `if (transition || initial_publish)` false branch at L371.
+    bb_http_client_set_mock_response("x", 1, 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_FALSE(st.available);
+    TEST_ASSERT_TRUE(st.last_check_ok);
 }

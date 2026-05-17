@@ -111,3 +111,88 @@ bb_err_t bb_http_client_get(const char *url,
     out->truncated = truncated;
     return BB_OK;
 }
+
+bb_err_t bb_http_client_get_stream(const char *url,
+                                   bb_http_client_chunk_cb cb, void *ctx,
+                                   const bb_http_client_cfg_t *cfg,
+                                   bb_http_client_result_t *out)
+{
+    if (!url || !cb || !out) return BB_ERR_INVALID_ARG;
+
+    uint32_t timeout_ms = (cfg && cfg->timeout_ms)   ? cfg->timeout_ms   : CONFIG_BB_HTTP_CLIENT_DEFAULT_TIMEOUT_MS;
+    uint8_t  attempts   = (cfg && cfg->max_attempts) ? cfg->max_attempts : CONFIG_BB_HTTP_CLIENT_DEFAULT_MAX_ATTEMPTS;
+    uint16_t buf_size   = (cfg && cfg->buffer_size)  ? cfg->buffer_size  : 4096;
+    const char *ua      = (cfg && cfg->user_agent)   ? cfg->user_agent   : "bb_http_client/0.1";
+    const char *accept  = (cfg && cfg->accept_header)? cfg->accept_header: "*/*";
+
+    out->status_code = 0;
+    out->body_len = 0;
+    out->truncated = false;
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = (int)timeout_ms,
+        .user_agent = ua,
+        .buffer_size = buf_size,
+    };
+
+    esp_http_client_handle_t client = NULL;
+    esp_err_t err = ESP_FAIL;
+    int status = 0;
+
+    for (int attempt = 0; attempt < attempts; attempt++) {
+        client = esp_http_client_init(&config);
+        if (!client) {
+            err = ESP_FAIL;
+            bb_log_w(TAG, "stream init attempt %d/%d failed", attempt + 1, attempts);
+        } else {
+            esp_http_client_set_header(client, "Accept", accept);
+            esp_http_client_set_method(client, HTTP_METHOD_GET);
+            err = esp_http_client_open(client, 0);
+            if (err == ESP_OK) {
+                esp_http_client_fetch_headers(client);
+                status = esp_http_client_get_status_code(client);
+                if (status >= 200 && status < 600) {
+                    break;
+                }
+                err = ESP_FAIL;
+            }
+            esp_http_client_close(client);
+            esp_http_client_cleanup(client);
+            client = NULL;
+        }
+        if (attempt + 1 < attempts) {
+            int idx = attempt < (int)(sizeof(s_backoff_ms)/sizeof(s_backoff_ms[0]))
+                          ? attempt : (int)(sizeof(s_backoff_ms)/sizeof(s_backoff_ms[0])) - 1;
+            vTaskDelay(pdMS_TO_TICKS(s_backoff_ms[idx]));
+        }
+    }
+
+    if (err != ESP_OK || !client) {
+        bb_log_e(TAG, "%s: stream transport failed after %d attempts", url, attempts);
+        return BB_ERR_INVALID_STATE;
+    }
+
+    // Stream body in 2 KB chunks to the callback.
+    char chunk_buf[2048];
+    size_t total = 0;
+    int read_len;
+    bb_err_t cb_err = BB_OK;
+
+    while (cb_err == BB_OK) {
+        read_len = esp_http_client_read(client, chunk_buf, sizeof(chunk_buf));
+        if (read_len <= 0) break;
+        total += (size_t)read_len;
+        cb_err = cb(ctx, chunk_buf, (size_t)read_len);
+    }
+
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+
+    out->status_code = status;
+    out->body_len = total;
+    out->truncated = (cb_err == BB_ERR_NO_SPACE);
+    if (cb_err != BB_OK) return cb_err;
+    return BB_OK;
+}

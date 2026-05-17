@@ -18,14 +18,6 @@ config BB_UPDATE_CHECK_INTERVAL_S
         which stays well under GitHub's 60 req/h unauthenticated rate
         limit even with many devices behind one NAT.
 
-config BB_UPDATE_CHECK_BODY_SIZE
-    int "Response body buffer size (bytes)"
-    default 32768
-    range 4096 131072
-    help
-        Internal buffer for the manifest response. Allocated once at init.
-        GitHub's releases/latest JSON for a typical project is ~8-20 KB.
-
 config BB_UPDATE_CHECK_AUTO_ATTACH
     bool "Auto-attach update.available to /api/events"
     default y

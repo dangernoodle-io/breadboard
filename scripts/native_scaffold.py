@@ -249,7 +249,10 @@ COMPONENT_MAP = {
     },
     "bb_release_manifest": {
         "includes": ["components/bb_release_manifest/include"],
-        "sources":  ["components/bb_release_manifest/src/bb_release_manifest_github.c"],
+        "sources":  [
+            "components/bb_release_manifest/src/bb_release_manifest_github.c",
+            "components/bb_release_manifest/src/bb_release_manifest_github_stream.c",
+        ],
         "depends":  ["bb_core"],
     },
 }

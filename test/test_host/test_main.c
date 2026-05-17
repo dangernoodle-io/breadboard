@@ -181,6 +181,52 @@ void test_bb_release_manifest_parse_github_matching_asset_no_url(void);
 void test_bb_release_manifest_parse_github_assets_not_array(void);
 void test_bb_release_manifest_parse_github_empty_assets_array(void);
 
+// Forward declarations from test_release_manifest_github_stream.c
+void test_stream_begin_null_ctx_returns_invalid_arg(void);
+void test_stream_begin_null_board_returns_invalid_arg(void);
+void test_stream_begin_null_tag_returns_invalid_arg(void);
+void test_stream_begin_null_url_returns_invalid_arg(void);
+void test_stream_begin_zero_tag_cap_returns_invalid_arg(void);
+void test_stream_begin_zero_url_cap_returns_invalid_arg(void);
+void test_stream_begin_cap_of_one_returns_invalid_arg(void);
+void test_stream_end_null_ctx_returns_invalid_arg(void);
+void test_stream_whole_body_chunk(void);
+void test_stream_256_byte_chunks(void);
+void test_stream_7_byte_chunks(void);
+void test_stream_1_byte_chunks(void);
+void test_stream_skips_non_matching_first_asset(void);
+void test_stream_skips_non_matching_first_asset_256(void);
+void test_stream_missing_tag_returns_not_found(void);
+void test_stream_missing_assets_returns_not_found(void);
+void test_stream_no_matching_asset_returns_not_found(void);
+void test_stream_empty_assets_array_returns_not_found(void);
+void test_stream_bad_json_returns_not_found(void);
+void test_stream_asset_missing_url_returns_not_found(void);
+void test_stream_taipanminer_board_name(void);
+void test_stream_backslash_slash_in_url(void);
+void test_stream_feed_after_error_is_noop(void);
+void test_stream_whitespace_around_colons_1byte(void);
+void test_stream_backslash_backslash_in_url(void);
+void test_stream_unicode_escape_in_url_dropped(void);
+void test_stream_escape_in_asset_name_no_match(void);
+void test_stream_board_name_truncation(void);
+void test_stream_skip_string_with_escape(void);
+void test_stream_toplevel_nested_array_skipped(void);
+void test_stream_toplevel_nested_object_skipped(void);
+void test_stream_skip_depth_string_with_braces(void);
+void test_stream_skip_depth_string_with_escape(void);
+void test_stream_escaped_key_char_ignored(void);
+void test_stream_assets_array_exit_via_scan_key(void);
+void test_stream_asset_scalar_field_skipped(void);
+void test_stream_toplevel_scalar_field_skipped(void);
+void test_stream_asset_with_nested_array_field_skipped(void);
+void test_stream_asset_with_nested_object_field_skipped(void);
+void test_stream_asset_name_at_capacity_truncated_no_match(void);
+void test_stream_very_long_key_truncated_ignored(void);
+void test_stream_long_key_with_escape_at_capacity_ignored(void);
+void test_stream_skip_depth_nested_array_inside_object(void);
+void test_stream_skip_depth_multi_level_nesting(void);
+
 // Forward declarations from test_nv_generic.c
 void test_nv_set_u8_null_ns(void);
 void test_nv_set_u8_null_key(void);
@@ -742,6 +788,19 @@ void test_bb_http_client_get_mock_transport_error_returns_passthrough(void);
 void test_bb_http_client_get_empty_body_is_valid(void);
 void test_bb_http_client_get_cfg_honored(void);
 
+// Forward declarations from test_bb_http_client_stream.c
+void test_bb_http_client_stream_null_url_returns_invalid_arg(void);
+void test_bb_http_client_stream_null_cb_returns_invalid_arg(void);
+void test_bb_http_client_stream_null_out_returns_invalid_arg(void);
+void test_bb_http_client_stream_transport_error_propagated(void);
+void test_bb_http_client_stream_small_body_reassembled(void);
+void test_bb_http_client_stream_large_body_multiple_chunks(void);
+void test_bb_http_client_stream_empty_body(void);
+void test_bb_http_client_stream_early_stop_sets_truncated(void);
+void test_bb_http_client_stream_cb_error_propagated(void);
+void test_bb_http_client_stream_404_status_code(void);
+void test_bb_http_client_stream_cfg_honored(void);
+
 // Forward declarations from test_bb_update_check.c
 void test_bb_update_check_init_idempotent(void);
 void test_bb_update_check_init_with_cfg_uses_overrides(void);
@@ -766,6 +825,11 @@ void test_bb_update_check_now_drives_a_check(void);
 void test_bb_update_check_post_initial_publishes_on_first_check(void);
 void test_bb_update_check_dev_tag_treated_as_older(void);
 void test_bb_update_check_run_one_newer_to_same_transitions_back(void);
+void test_bb_update_check_custom_parser_transport_error(void);
+void test_bb_update_check_custom_parser_parse_failure(void);
+void test_bb_update_check_custom_parser_http_404(void);
+void test_bb_update_check_custom_parser_body_exceeds_16k(void);
+void test_bb_update_check_custom_parser_post_initial_publishes(void);
 
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
@@ -933,6 +997,52 @@ int main(void) {
     RUN_TEST(test_bb_release_manifest_parse_github_matching_asset_no_url);
     RUN_TEST(test_bb_release_manifest_parse_github_assets_not_array);
     RUN_TEST(test_bb_release_manifest_parse_github_empty_assets_array);
+
+    // Streaming release manifest parser tests
+    RUN_TEST(test_stream_begin_null_ctx_returns_invalid_arg);
+    RUN_TEST(test_stream_begin_null_board_returns_invalid_arg);
+    RUN_TEST(test_stream_begin_null_tag_returns_invalid_arg);
+    RUN_TEST(test_stream_begin_null_url_returns_invalid_arg);
+    RUN_TEST(test_stream_begin_zero_tag_cap_returns_invalid_arg);
+    RUN_TEST(test_stream_begin_zero_url_cap_returns_invalid_arg);
+    RUN_TEST(test_stream_begin_cap_of_one_returns_invalid_arg);
+    RUN_TEST(test_stream_end_null_ctx_returns_invalid_arg);
+    RUN_TEST(test_stream_whole_body_chunk);
+    RUN_TEST(test_stream_256_byte_chunks);
+    RUN_TEST(test_stream_7_byte_chunks);
+    RUN_TEST(test_stream_1_byte_chunks);
+    RUN_TEST(test_stream_skips_non_matching_first_asset);
+    RUN_TEST(test_stream_skips_non_matching_first_asset_256);
+    RUN_TEST(test_stream_missing_tag_returns_not_found);
+    RUN_TEST(test_stream_missing_assets_returns_not_found);
+    RUN_TEST(test_stream_no_matching_asset_returns_not_found);
+    RUN_TEST(test_stream_empty_assets_array_returns_not_found);
+    RUN_TEST(test_stream_bad_json_returns_not_found);
+    RUN_TEST(test_stream_asset_missing_url_returns_not_found);
+    RUN_TEST(test_stream_taipanminer_board_name);
+    RUN_TEST(test_stream_backslash_slash_in_url);
+    RUN_TEST(test_stream_feed_after_error_is_noop);
+    RUN_TEST(test_stream_whitespace_around_colons_1byte);
+    RUN_TEST(test_stream_backslash_backslash_in_url);
+    RUN_TEST(test_stream_unicode_escape_in_url_dropped);
+    RUN_TEST(test_stream_escape_in_asset_name_no_match);
+    RUN_TEST(test_stream_board_name_truncation);
+    RUN_TEST(test_stream_skip_string_with_escape);
+    RUN_TEST(test_stream_toplevel_nested_array_skipped);
+    RUN_TEST(test_stream_toplevel_nested_object_skipped);
+    RUN_TEST(test_stream_skip_depth_string_with_braces);
+    RUN_TEST(test_stream_skip_depth_string_with_escape);
+    RUN_TEST(test_stream_escaped_key_char_ignored);
+    RUN_TEST(test_stream_assets_array_exit_via_scan_key);
+    RUN_TEST(test_stream_asset_scalar_field_skipped);
+    RUN_TEST(test_stream_toplevel_scalar_field_skipped);
+    RUN_TEST(test_stream_asset_with_nested_array_field_skipped);
+    RUN_TEST(test_stream_asset_with_nested_object_field_skipped);
+    RUN_TEST(test_stream_asset_name_at_capacity_truncated_no_match);
+    RUN_TEST(test_stream_very_long_key_truncated_ignored);
+    RUN_TEST(test_stream_long_key_with_escape_at_capacity_ignored);
+    RUN_TEST(test_stream_skip_depth_nested_array_inside_object);
+    RUN_TEST(test_stream_skip_depth_multi_level_nesting);
 
     // HTTP utils tests
     RUN_TEST(test_url_decode_basic);
@@ -1574,6 +1684,19 @@ int main(void) {
     RUN_TEST(test_bb_http_client_get_empty_body_is_valid);
     RUN_TEST(test_bb_http_client_get_cfg_honored);
 
+    // bb_http_client_get_stream tests
+    RUN_TEST(test_bb_http_client_stream_null_url_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_stream_null_cb_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_stream_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_stream_transport_error_propagated);
+    RUN_TEST(test_bb_http_client_stream_small_body_reassembled);
+    RUN_TEST(test_bb_http_client_stream_large_body_multiple_chunks);
+    RUN_TEST(test_bb_http_client_stream_empty_body);
+    RUN_TEST(test_bb_http_client_stream_early_stop_sets_truncated);
+    RUN_TEST(test_bb_http_client_stream_cb_error_propagated);
+    RUN_TEST(test_bb_http_client_stream_404_status_code);
+    RUN_TEST(test_bb_http_client_stream_cfg_honored);
+
     // bb_update_check tests
     RUN_TEST(test_bb_update_check_init_idempotent);
     RUN_TEST(test_bb_update_check_init_with_cfg_uses_overrides);
@@ -1598,6 +1721,11 @@ int main(void) {
     RUN_TEST(test_bb_update_check_post_initial_publishes_on_first_check);
     RUN_TEST(test_bb_update_check_dev_tag_treated_as_older);
     RUN_TEST(test_bb_update_check_run_one_newer_to_same_transitions_back);
+    RUN_TEST(test_bb_update_check_custom_parser_transport_error);
+    RUN_TEST(test_bb_update_check_custom_parser_parse_failure);
+    RUN_TEST(test_bb_update_check_custom_parser_http_404);
+    RUN_TEST(test_bb_update_check_custom_parser_body_exceeds_16k);
+    RUN_TEST(test_bb_update_check_custom_parser_post_initial_publishes);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);
