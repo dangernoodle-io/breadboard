@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.16.0)
-list(APPEND EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/../../components")
+list(APPEND EXTRA_COMPONENT_DIRS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../components"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../platform/espidf/bb_event_ring_espidf"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../platform/espidf/bb_event_routes_espidf"
+)
 
 if(NOT DEFINED FIRMWARE_BOARD)
     message(FATAL_ERROR "FIRMWARE_BOARD must be set via -DFIRMWARE_BOARD=...")
