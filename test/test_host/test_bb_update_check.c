@@ -17,7 +17,8 @@ static int g_pause_order  = 0;
 static int g_resume_order = 0;
 static int g_hook_seq     = 0;
 
-static void hook_pause(void)  { g_hook_seq++; g_pause_calls++;  g_pause_order  = g_hook_seq; g_last_hook = 1; }
+static bool g_pause_returns = true;
+static bool hook_pause(void)  { g_hook_seq++; g_pause_calls++;  g_pause_order  = g_hook_seq; g_last_hook = 1; return g_pause_returns; }
 static void hook_resume(void) { g_hook_seq++; g_resume_calls++; g_resume_order = g_hook_seq; g_last_hook = 2; }
 
 // Mock parser used by the override test.
@@ -72,6 +73,7 @@ static void reset_world(void)
     g_pause_order  = 0;
     g_resume_order = 0;
     g_hook_seq     = 0;
+    g_pause_returns = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -629,4 +631,36 @@ void test_bb_update_check_hooks_custom_parser_parse_error(void)
     TEST_ASSERT_EQUAL(1, g_pause_calls);
     TEST_ASSERT_EQUAL(1, g_resume_calls);
     TEST_ASSERT_TRUE(g_pause_order < g_resume_order);
+}
+
+// pause returning false: fetch is skipped and resume is NOT called.
+void test_bb_update_check_pause_returns_false_skips_fetch(void)
+{
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_hooks(hook_pause, hook_resume);
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+
+    g_pause_returns = false;
+    bb_err_t err = bb_update_check_run_one();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    TEST_ASSERT_EQUAL(1, g_pause_calls);
+    TEST_ASSERT_EQUAL(0, g_resume_calls);
+}
+
+void test_bb_update_check_pause_returns_false_custom_parser_skips_fetch(void)
+{
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(mock_parser);
+    bb_update_check_set_hooks(hook_pause, hook_resume);
+    bb_http_client_set_mock_response("anything", 8, 200);
+
+    g_pause_returns = false;
+    bb_err_t err = bb_update_check_run_one();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    TEST_ASSERT_EQUAL(1, g_pause_calls);
+    TEST_ASSERT_EQUAL(0, g_resume_calls);
 }

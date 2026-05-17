@@ -44,15 +44,19 @@ bb_err_t bb_update_check_set_releases_url(const char *url);
 // Override the manifest parser. Pass NULL to restore the default (GitHub).
 bb_err_t bb_update_check_set_parser(bb_release_manifest_parse_fn fn);
 
-// Hook functions invoked around each manifest fetch.
-typedef void (*bb_update_check_hook_fn)(void);
+// Hook functions invoked around each manifest fetch. Matches the bb_ota_pull
+// hook shape so consumers can pass the same mining_pause / mining_resume.
+// pause returns true on success; if false, the fetch is skipped and resume
+// is NOT called.
+typedef bool (*bb_update_check_pause_cb_t)(void);
+typedef void (*bb_update_check_resume_cb_t)(void);
 
 // Set optional pause/resume hooks. pause is called just before
 // bb_http_client_get_stream; resume is called immediately after (success or
 // failure). Pass NULL for either to disable. Returns BB_ERR_INVALID_STATE if
 // called before bb_update_check_init.
-bb_err_t bb_update_check_set_hooks(bb_update_check_hook_fn pause,
-                                   bb_update_check_hook_fn resume);
+bb_err_t bb_update_check_set_hooks(bb_update_check_pause_cb_t pause,
+                                   bb_update_check_resume_cb_t resume);
 
 // Trigger an immediate non-blocking check.
 bb_err_t bb_update_check_now(void);

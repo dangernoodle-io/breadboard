@@ -849,6 +849,8 @@ void test_bb_update_check_hooks_called_once_per_run(void);
 void test_bb_update_check_hooks_custom_parser_success(void);
 void test_bb_update_check_hooks_custom_parser_transport_error(void);
 void test_bb_update_check_hooks_custom_parser_parse_error(void);
+void test_bb_update_check_pause_returns_false_skips_fetch(void);
+void test_bb_update_check_pause_returns_false_custom_parser_skips_fetch(void);
 
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
@@ -1764,6 +1766,8 @@ int main(void) {
     RUN_TEST(test_bb_update_check_hooks_custom_parser_success);
     RUN_TEST(test_bb_update_check_hooks_custom_parser_transport_error);
     RUN_TEST(test_bb_update_check_hooks_custom_parser_parse_error);
+    RUN_TEST(test_bb_update_check_pause_returns_false_skips_fetch);
+    RUN_TEST(test_bb_update_check_pause_returns_false_custom_parser_skips_fetch);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);
