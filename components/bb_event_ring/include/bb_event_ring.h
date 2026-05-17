@@ -1,5 +1,6 @@
 #pragma once
 #include <stddef.h>
+#include <stdint.h>
 #include "bb_event.h"
 
 #ifdef __cplusplus
@@ -21,6 +22,21 @@ bb_err_t bb_event_ring_subscribe_with_replay(bb_event_ring_t ring,
 
 // Stop capturing; free resources. `ring` is invalid after this.
 void bb_event_ring_detach(bb_event_ring_t ring);
+
+// Diagnostics: configured capacity of the ring.
+size_t bb_event_ring_capacity(bb_event_ring_t ring);
+
+// Diagnostics: number of entries currently held in the ring (0 → no replay possible).
+size_t bb_event_ring_count(bb_event_ring_t ring);
+
+// Diagnostics: metadata of the most recent entry captured.
+// Populates *id, *size, *post_us (timestamp from esp_timer_get_time or clock_gettime).
+// Returns BB_ERR_NOT_FOUND when the ring is empty.
+// Any out-pointer may be NULL if the caller doesn't need that field.
+bb_err_t bb_event_ring_last_entry_info(bb_event_ring_t ring,
+                                       uint32_t *id,
+                                       size_t *size,
+                                       int64_t *post_us);
 
 #ifdef __cplusplus
 }

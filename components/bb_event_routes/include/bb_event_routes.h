@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "bb_core.h"
+#include "bb_event_ring.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,6 +37,20 @@ bb_err_t bb_event_routes_init(const bb_event_routes_cfg_t *cfg);
 // Returns BB_ERR_NOT_FOUND if the topic isn't registered, BB_ERR_NO_SPACE if
 // the per-attached-topic slot array is full.
 bb_err_t bb_event_routes_attach(const char *topic_name);
+
+// Diagnostics: number of topics currently attached.
+size_t bb_event_routes_topic_count(void);
+
+// Diagnostics: name and ring handle for attached topic at index `idx`.
+// Returns BB_ERR_NOT_FOUND when idx >= topic_count.
+// *name is a pointer into internal storage (valid until reset_for_test or process exit).
+// *ring may be NULL if the topic has no ring (shouldn't happen in normal usage).
+bb_err_t bb_event_routes_topic_info(size_t idx,
+                                    const char **name,
+                                    bb_event_ring_t *ring);
+
+// Diagnostics: number of client slots currently in use.
+size_t bb_event_routes_active_client_count(void);
 
 #ifdef __cplusplus
 }
