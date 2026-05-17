@@ -26,4 +26,14 @@ config BB_UPDATE_CHECK_BODY_SIZE
         Internal buffer for the manifest response. Allocated once at init.
         GitHub's releases/latest JSON for a typical project is ~8-20 KB.
 
+config BB_UPDATE_CHECK_AUTO_ATTACH
+    bool "Auto-attach update.available to /api/events"
+    default y
+    depends on BB_EVENT_ROUTES_AUTOREGISTER
+    help
+        When enabled, bb_update_check's init attaches "update.available"
+        to the bb_event_routes SSE stream so /api/events surfaces it
+        without an explicit consumer call. Disable if a consumer wants
+        the bb_event topic for internal logic only.
+
 endmenu
