@@ -28,6 +28,7 @@ static struct {
     char hostname[33];
     uint8_t display_en;
     uint8_t mdns_en;
+    uint8_t update_check_en;
 } s_config;
 
 #include <stdbool.h>
@@ -78,6 +79,7 @@ bb_err_t bb_nv_config_init(void)
         memset(&s_config, 0, sizeof(s_config));
         s_config.display_en = 1;  // default: display on
         s_config.mdns_en = 1;  // default: mdns on
+        s_config.update_check_en = 1;  // default: update check on
         return BB_OK;
     }
 
@@ -97,6 +99,10 @@ bb_err_t bb_nv_config_init(void)
         s_config.mdns_en = 1;  // default: mdns on
     }
 
+    if (nvs_get_u8(handle, "update_check_en", &s_config.update_check_en) != ESP_OK) {
+        s_config.update_check_en = 1;  // default: update check on
+    }
+
     nvs_close(handle);
 
     bb_log_i(TAG, "config loaded");
@@ -105,6 +111,7 @@ bb_err_t bb_nv_config_init(void)
     memset(&s_config, 0, sizeof(s_config));
     s_config.display_en = 1;
     s_config.mdns_en = 1;
+    s_config.update_check_en = 1;
 #endif
     return BB_OK;
 }
@@ -246,6 +253,28 @@ bb_err_t bb_nv_config_set_mdns_enabled(bool en)
 
     if (err == BB_OK) {
         s_config.mdns_en = en ? 1 : 0;
+    }
+
+    return err;
+}
+
+bb_err_t bb_nv_config_set_update_check_enabled(bool en)
+{
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_set_u8(handle, "update_check_en", en ? 1 : 0);
+    if (err == BB_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    if (err == BB_OK) {
+        s_config.update_check_en = en ? 1 : 0;
     }
 
     return err;
@@ -792,13 +821,19 @@ bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch)
 
 #endif
 
-// Host implementation of bb_nv_config_set_hostname (non-ESP)
+// Host implementations of ESP-only setters (non-ESP)
 #ifndef ESP_PLATFORM
 bb_err_t bb_nv_config_set_hostname(const char *hostname)
 {
     if (!hostname) return BB_ERR_INVALID_ARG;
     if (!nv_valid_hostname(hostname)) return BB_ERR_INVALID_ARG;
     copy_str(s_config.hostname, hostname, sizeof(s_config.hostname));
+    return BB_OK;
+}
+
+bb_err_t bb_nv_config_set_update_check_enabled(bool en)
+{
+    s_config.update_check_en = en ? 1 : 0;
     return BB_OK;
 }
 #endif
@@ -818,3 +853,4 @@ const char *bb_nv_config_wifi_pass(void) { return s_config.wifi_pass; }
 const char *bb_nv_config_hostname(void) { return s_config.hostname; }
 bool bb_nv_config_display_enabled(void) { return s_config.display_en != 0; }
 bool bb_nv_config_mdns_enabled(void) { return s_config.mdns_en != 0; }
+bool bb_nv_config_update_check_enabled(void) { return s_config.update_check_en != 0; }

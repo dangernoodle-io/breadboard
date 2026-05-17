@@ -895,6 +895,10 @@ void test_bb_update_check_publish_initial_snapshot_available_is_false(void);
 void test_bb_update_check_get_status_returns_copy_of_cached_state(void);
 void test_bb_update_check_get_status_reflects_failure(void);
 void test_bb_update_check_kick_returns_ok_on_host(void);
+void test_bb_update_check_status_enabled_is_true_by_default(void);
+void test_bb_update_check_run_one_disabled_returns_ok_without_fetch(void);
+void test_bb_update_check_status_enabled_reflects_nv_flag(void);
+void test_bb_update_check_reenabled_runs_check(void);
 
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
@@ -1872,6 +1876,10 @@ int main(void) {
     RUN_TEST(test_bb_update_check_get_status_returns_copy_of_cached_state);
     RUN_TEST(test_bb_update_check_get_status_reflects_failure);
     RUN_TEST(test_bb_update_check_kick_returns_ok_on_host);
+    RUN_TEST(test_bb_update_check_status_enabled_is_true_by_default);
+    RUN_TEST(test_bb_update_check_run_one_disabled_returns_ok_without_fetch);
+    RUN_TEST(test_bb_update_check_status_enabled_reflects_nv_flag);
+    RUN_TEST(test_bb_update_check_reenabled_runs_check);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);

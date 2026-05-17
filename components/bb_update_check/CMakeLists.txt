@@ -4,7 +4,7 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES bb_core bb_release_manifest
-    PRIV_REQUIRES bb_http_client bb_event bb_http bb_log bb_mdns bb_system bb_timer bb_registry bb_json esp_http_server bb_event_routes)
+    PRIV_REQUIRES bb_http_client bb_event bb_http bb_log bb_mdns bb_nv bb_system bb_timer bb_registry bb_json esp_http_server bb_event_routes)
 
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
 if(CONFIG_BB_UPDATE_CHECK_AUTOREGISTER)

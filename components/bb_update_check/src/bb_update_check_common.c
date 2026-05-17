@@ -5,6 +5,7 @@
 #include "bb_event.h"
 #include "bb_log.h"
 #include "bb_mdns.h"
+#include "bb_nv.h"
 #include "bb_system.h"
 
 #include <limits.h>
@@ -208,6 +209,7 @@ bb_err_t bb_update_check_get_status(bb_update_check_status_t *out)
     pthread_mutex_lock(&s_lock);
     *out = s_status;
     pthread_mutex_unlock(&s_lock);
+    out->enabled = bb_nv_config_update_check_enabled();
     return BB_OK;
 }
 
@@ -265,6 +267,11 @@ static bb_err_t buf_chunk_cb(void *cv, const char *data, size_t n)
 bb_err_t bb_update_check_run_one(void)
 {
     if (!s_initialized) return BB_ERR_INVALID_ARG;
+
+    if (!bb_nv_config_update_check_enabled()) {
+        bb_log_i(TAG, "update check disabled via bb_nv; skipping");
+        return BB_OK;
+    }
 
     char url_local[URL_MAX];
     char board_local[BOARD_MAX];
@@ -472,5 +479,7 @@ void bb_update_check_reset_for_test(void)
     s_first_check_done = false;
     s_initialized = false;
     pthread_mutex_unlock(&s_lock);
+    // Restore default: update check enabled (mirrors bb_nv_config_init default).
+    bb_nv_config_set_update_check_enabled(true);
 }
 #endif
