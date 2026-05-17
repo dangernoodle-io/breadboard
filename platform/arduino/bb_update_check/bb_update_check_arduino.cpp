@@ -40,6 +40,13 @@ bb_err_t bb_update_check_now(void)
     return BB_ERR_UNSUPPORTED;
 }
 
+bb_err_t bb_update_check_kick(void)
+{
+    // Arduino has no worker task, so provide a synchronous stub that calls now().
+    // On host, both functions have the same semantics (synchronous).
+    return bb_update_check_now();
+}
+
 bb_err_t bb_update_check_get_status(bb_update_check_status_t *out)
 {
     (void)out;

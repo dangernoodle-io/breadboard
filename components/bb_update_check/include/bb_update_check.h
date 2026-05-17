@@ -80,8 +80,19 @@ typedef void (*bb_update_check_resume_cb_t)(void);
 bb_err_t bb_update_check_set_hooks(bb_update_check_pause_cb_t pause,
                                    bb_update_check_resume_cb_t resume);
 
-// Trigger an immediate non-blocking check.
+// Trigger an immediate synchronous check on the caller's stack.
+// Runs the full manifest fetch and parsing synchronously. Use only from contexts
+// with ≥8 KB stack (e.g. the worker task itself or test harnesses).
+// HTTP handlers and other stack-constrained code should use bb_update_check_kick().
 bb_err_t bb_update_check_now(void);
+
+// Kick the bb_update_check worker to run a check on its own task stack.
+// Non-blocking: returns immediately. Use this from HTTP handlers or other
+// stack-constrained contexts. The result lands in bb_update_check_get_status()
+// after the worker completes; subscribers to update.available will see a post
+// if the check transitions state.
+// This function is ESP-IDF only; host/Arduino backends provide a synchronous stub.
+bb_err_t bb_update_check_kick(void);
 
 // Copy the latest status snapshot into out. BB_ERR_INVALID_ARG if out is NULL,
 // BB_ERR_INVALID_STATE if init hasn't run.

@@ -544,7 +544,7 @@ resume_and_exit:
  */
 static bb_err_t ota_check_handler(bb_http_request_t *req)
 {
-    bb_update_check_now();  // non-blocking kick; ignore return (no URL set is OK)
+    bb_update_check_kick();  // truly non-blocking; ignore return (no URL set is OK)
 
     const char *response = "{\"status\":\"checking\"}";
     bb_http_resp_set_status(req, 200);
