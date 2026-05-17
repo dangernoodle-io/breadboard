@@ -940,3 +940,53 @@ void test_bb_update_check_publish_initial_snapshot_available_is_false(void)
     bb_event_unsubscribe(sub);
     bb_event_ring_detach(ring);
 }
+
+// ---------------------------------------------------------------------------
+// bb_update_check_get_status: safe copy without holding lock externally
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_get_status_returns_copy_of_cached_state(void)
+{
+    // After a successful run, get_status must return the exact same fields
+    // that were written by run_one (latest, download_url, available, last_check_ok).
+    // Verifies the copy is complete and the caller does not need to hold any
+    // lock externally.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    bb_update_check_status_t a, b;
+    // Two back-to-back calls without any intervening mutation must return equal state.
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&a));
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&b));
+
+    TEST_ASSERT_EQUAL_STRING(a.latest,       b.latest);
+    TEST_ASSERT_EQUAL_STRING(a.download_url, b.download_url);
+    TEST_ASSERT_EQUAL(a.available,      b.available);
+    TEST_ASSERT_EQUAL(a.last_check_ok,  b.last_check_ok);
+    TEST_ASSERT_EQUAL(a.last_check_us,  b.last_check_us);
+
+    // Mutating the returned copy must not affect the next call.
+    a.available = false;
+    a.latest[0] = '\0';
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&b));
+    TEST_ASSERT_TRUE(b.available);
+    TEST_ASSERT_EQUAL_STRING("v9.9.9", b.latest);
+}
+
+void test_bb_update_check_get_status_reflects_failure(void)
+{
+    // After a transport failure, get_status must report last_check_ok=false.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_http_client_set_mock_transport_error(BB_ERR_INVALID_STATE);
+    bb_update_check_run_one();
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_FALSE(st.last_check_ok);
+    TEST_ASSERT_FALSE(st.available);
+}

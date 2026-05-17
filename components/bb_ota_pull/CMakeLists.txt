@@ -3,7 +3,7 @@ idf_component_register(
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_http esp_https_ota esp_http_client app_update
              esp_app_format esp-tls mbedtls
-    PRIV_REQUIRES bb_wifi bb_log bb_json bb_registry bb_release_manifest bb_http_client
+    PRIV_REQUIRES bb_wifi bb_log bb_json bb_registry bb_release_manifest bb_http_client bb_update_check
 )
 
 if(CONFIG_BB_OTA_PULL_AUTOREGISTER)
