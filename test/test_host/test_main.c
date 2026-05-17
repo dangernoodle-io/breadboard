@@ -851,6 +851,14 @@ void test_bb_update_check_hooks_custom_parser_transport_error(void);
 void test_bb_update_check_hooks_custom_parser_parse_error(void);
 void test_bb_update_check_pause_returns_false_skips_fetch(void);
 void test_bb_update_check_pause_returns_false_custom_parser_skips_fetch(void);
+void test_bb_update_check_set_firmware_board_before_init_returns_invalid_state(void);
+void test_bb_update_check_set_firmware_board_too_long_returns_invalid_arg(void);
+void test_bb_update_check_set_firmware_board_null_clears_to_default(void);
+void test_bb_update_check_set_firmware_board_empty_string_clears_to_default(void);
+void test_bb_update_check_firmware_board_matches_named_asset(void);
+void test_bb_update_check_firmware_board_default_does_not_match_named_asset(void);
+void test_bb_update_check_firmware_board_with_bin_suffix_no_match(void);
+void test_bb_update_check_firmware_board_custom_parser_receives_board(void);
 
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
@@ -1768,6 +1776,14 @@ int main(void) {
     RUN_TEST(test_bb_update_check_hooks_custom_parser_parse_error);
     RUN_TEST(test_bb_update_check_pause_returns_false_skips_fetch);
     RUN_TEST(test_bb_update_check_pause_returns_false_custom_parser_skips_fetch);
+    RUN_TEST(test_bb_update_check_set_firmware_board_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_update_check_set_firmware_board_too_long_returns_invalid_arg);
+    RUN_TEST(test_bb_update_check_set_firmware_board_null_clears_to_default);
+    RUN_TEST(test_bb_update_check_set_firmware_board_empty_string_clears_to_default);
+    RUN_TEST(test_bb_update_check_firmware_board_matches_named_asset);
+    RUN_TEST(test_bb_update_check_firmware_board_default_does_not_match_named_asset);
+    RUN_TEST(test_bb_update_check_firmware_board_with_bin_suffix_no_match);
+    RUN_TEST(test_bb_update_check_firmware_board_custom_parser_receives_board);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);
