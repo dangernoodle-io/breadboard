@@ -827,16 +827,12 @@ void test_bb_update_check_firmware_board_custom_parser_receives_board(void)
 // Initial snapshot at init: ring has count=1 immediately after bb_update_check_init
 // ---------------------------------------------------------------------------
 
-void test_bb_update_check_init_publishes_initial_snapshot_to_ring(void)
+void test_bb_update_check_init_alone_does_not_publish(void)
 {
-    // After init (no releases_url set, no fetch), the component must have posted
-    // one entry to the update.available topic so that a ring attached to it
-    // immediately has count=1. This closes the cold-boot window where SSE clients
-    // connecting before the first periodic check see empty state.
-    //
-    // Strategy: pre-register the topic before calling bb_update_check_init so we
-    // can attach a ring first.  bb_event_topic_register is idempotent — when
-    // bb_update_check_init calls it internally it gets back the same handle.
+    // After init alone (without calling bb_update_check_publish_initial),
+    // any ring attached to the topic must have count=0. This codifies the
+    // new contract: callers must explicitly call publish_initial after attaching
+    // the ring to populate the state topic.
     setenv("BB_EVENT_HOST_SYNC", "1", 1);
     reset_world();
 
@@ -848,12 +844,47 @@ void test_bb_update_check_init_publishes_initial_snapshot_to_ring(void)
     err = bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
     TEST_ASSERT_EQUAL(BB_OK, err);
 
-    // Now init — must post the initial snapshot to the topic we already have a ring on.
+    // Init — does NOT post the initial snapshot anymore.
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_init(NULL));
-    // Drain the event queue so the ring captures the initial post.
     bb_event_pump(0);
 
-    // Ring must have count=1 (the initial snapshot post).
+    // Ring must have count=0 (no initial publish yet).
+    TEST_ASSERT_EQUAL(0, (int)bb_event_ring_count(ring));
+
+    bb_event_ring_detach(ring);
+}
+
+void test_bb_update_check_publish_initial_before_init_returns_invalid_state(void)
+{
+    reset_world();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_update_check_publish_initial());
+}
+
+void test_bb_update_check_publish_initial_populates_ring(void)
+{
+    // After init and explicit bb_update_check_publish_initial, the ring
+    // must have count=1 (the initial snapshot post).
+    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    reset_world();
+
+    bb_event_topic_t topic = NULL;
+    bb_err_t err = bb_event_topic_register("update.available", &topic);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_event_ring_t ring = NULL;
+    err = bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    // Init — does not post yet.
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_init(NULL));
+    bb_event_pump(0);
+    TEST_ASSERT_EQUAL(0, (int)bb_event_ring_count(ring));
+
+    // Now call publish_initial explicitly.
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_publish_initial());
+    bb_event_pump(0);
+
+    // Ring must now have count=1.
     TEST_ASSERT_EQUAL(1, (int)bb_event_ring_count(ring));
 
     bb_event_ring_detach(ring);
@@ -876,9 +907,10 @@ static void snap_capture(bb_event_topic_t topic, int32_t id,
     }
 }
 
-void test_bb_update_check_init_initial_snapshot_available_is_false(void)
+void test_bb_update_check_publish_initial_snapshot_available_is_false(void)
 {
-    // The initial snapshot must have available=false (no check has run yet).
+    // The initial snapshot (from publish_initial) must have available=false
+    // (no check has run yet).
     setenv("BB_EVENT_HOST_SYNC", "1", 1);
     reset_world();
     s_snap_count = 0;
@@ -892,7 +924,9 @@ void test_bb_update_check_init_initial_snapshot_available_is_false(void)
     bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
 
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_init(NULL));
-    // Drain the event queue so the ring captures the initial post.
+    // Publish the initial snapshot explicitly.
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_publish_initial());
+    // Drain the event queue so the ring captures the post.
     bb_event_pump(0);
 
     // Subscribe with replay and inspect the payload.

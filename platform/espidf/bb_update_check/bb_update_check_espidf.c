@@ -132,6 +132,15 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
         if (attach_err != BB_OK) {
             bb_log_w(TAG, "auto-attach failed for 'update.available': %d", attach_err);
         }
+
+        // Now that the ring is attached, publish the initial snapshot so that SSE
+        // clients connecting before the first periodic check (up to
+        // CONFIG_BB_UPDATE_CHECK_INTERVAL_S seconds) replay this entry rather than
+        // seeing empty state.
+        err = bb_update_check_publish_initial();
+        if (err != BB_OK) {
+            bb_log_w(TAG, "failed to publish initial snapshot: %d", err);
+        }
     }
 #endif
 
