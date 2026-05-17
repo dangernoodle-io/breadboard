@@ -36,8 +36,8 @@ static bb_update_check_status_t      s_status;
 static bool                          s_first_check_done = false;
 static bb_event_topic_t              s_topic = NULL;
 static pthread_mutex_t               s_lock = PTHREAD_MUTEX_INITIALIZER;
-static bb_update_check_hook_fn       s_pause_hook = NULL;
-static bb_update_check_hook_fn       s_resume_hook = NULL;
+static bb_update_check_pause_cb_t    s_pause_hook = NULL;
+static bb_update_check_resume_cb_t   s_resume_hook = NULL;
 
 // ---------------------------------------------------------------------------
 // Semver compare
@@ -160,8 +160,8 @@ bb_err_t bb_update_check_set_parser(bb_release_manifest_parse_fn fn)
     return BB_OK;
 }
 
-bb_err_t bb_update_check_set_hooks(bb_update_check_hook_fn pause,
-                                   bb_update_check_hook_fn resume)
+bb_err_t bb_update_check_set_hooks(bb_update_check_pause_cb_t pause,
+                                   bb_update_check_resume_cb_t resume)
 {
     if (!s_initialized) return BB_ERR_INVALID_STATE;
     pthread_mutex_lock(&s_lock);
@@ -238,8 +238,8 @@ bb_err_t bb_update_check_run_one(void)
 
     char url_local[URL_MAX];
     bb_release_manifest_parse_fn parser_local;
-    bb_update_check_hook_fn pause_local;
-    bb_update_check_hook_fn resume_local;
+    bb_update_check_pause_cb_t  pause_local;
+    bb_update_check_resume_cb_t resume_local;
     pthread_mutex_lock(&s_lock);
     strncpy(url_local, s_url, sizeof(url_local));
     url_local[sizeof(url_local) - 1] = '\0';
@@ -269,7 +269,10 @@ bb_err_t bb_update_check_run_one(void)
             return perr;      // LCOV_EXCL_LINE
         }
 
-        if (pause_local) pause_local();
+        if (pause_local && !pause_local()) {
+            bb_log_w(TAG, "pause hook refused; skipping fetch");
+            return BB_ERR_INVALID_STATE;
+        }
         err = bb_http_client_get_stream(url_local, chunk_cb, &fc, NULL, &res);
         if (resume_local) resume_local();
 
@@ -337,7 +340,11 @@ bb_err_t bb_update_check_run_one(void)
         bc.len      = 0;
         bc.overflow = false;
 
-        if (pause_local) pause_local();
+        if (pause_local && !pause_local()) {
+            bb_log_w(TAG, "pause hook refused; skipping fetch");
+            free(bc.buf);
+            return BB_ERR_INVALID_STATE;
+        }
         err = bb_http_client_get_stream(url_local, buf_chunk_cb, &bc, NULL, &res);
         if (resume_local) resume_local();
 
