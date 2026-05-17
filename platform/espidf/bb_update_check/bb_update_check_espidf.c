@@ -8,6 +8,7 @@
 #include "bb_registry.h"
 #include "bb_timer.h"
 #include "bb_json.h"
+#include "bb_event_routes.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -118,6 +119,10 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
     err = bb_timer_create("upd_check", BB_TIMER_PERIODIC, period_us, timer_cb, NULL, &s_timer);
     if (err != BB_OK) return err;
     bb_timer_start(s_timer);
+
+#if defined(CONFIG_BB_UPDATE_CHECK_AUTO_ATTACH) && CONFIG_BB_UPDATE_CHECK_AUTO_ATTACH
+    (void)bb_event_routes_attach("update.available");
+#endif
 
     bb_log_i(TAG, "registered /api/update/status; period=%" PRIu32 " s",
              (uint32_t)CONFIG_BB_UPDATE_CHECK_INTERVAL_S);
