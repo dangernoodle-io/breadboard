@@ -2,6 +2,7 @@
 #include "bb_http.h"
 #include "bb_registry.h"
 
+#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
@@ -41,6 +42,20 @@ static void sse_task(void *arg)
     const int idle_ticks_per_ping = CONFIG_BB_LOG_SSE_KEEPALIVE_MS / 500;
     int idle_ticks = 0;
     while (err == BB_OK) {
+        /* Peer-disconnect detection: peek the read side. recv()==0 means peer sent
+         * FIN; recv()==-1 with EAGAIN/EWOULDBLOCK means alive but quiet; recv()==-1
+         * with anything else (ECONNRESET, EBADF, ENOTCONN) means dead. We don't
+         * actually read any data — SSE is server→client only — but a peek catches
+         * the close window faster than waiting for the next keepalive write. */
+        char peek;
+        ssize_t prc = recv(fd, &peek, 1, MSG_DONTWAIT | MSG_PEEK);
+        if (prc == 0) {
+            err = BB_ERR_INVALID_STATE;  // peer FIN
+            break;
+        } else if (prc < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            err = BB_ERR_INVALID_STATE;  // ECONNRESET / EBADF / etc
+            break;
+        }
         size_t n = bb_log_stream_drain(line, sizeof(line), 500);
         if (n == 0) {
             if (++idle_ticks >= idle_ticks_per_ping) {
