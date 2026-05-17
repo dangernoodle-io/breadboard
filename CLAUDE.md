@@ -86,8 +86,10 @@ BB_REGISTRY_REGISTER_PRE_HTTP(bb_<comp>, bb_<comp>_init);  // bb_err_t fn(void)
 
 **Regular tier** — HTTP route registration (server arg):
 ```c
-BB_REGISTRY_REGISTER(bb_<comp>, bb_<comp>_init);  // bb_err_t fn(bb_http_handle_t server)
+BB_REGISTRY_REGISTER(bb_<comp>, bb_<comp>_init);        // order=0 (default)
+BB_REGISTRY_REGISTER_N(bb_<comp>, bb_<comp>_init, N);   // explicit order N
 ```
+`BB_REGISTRY_REGISTER_N` accepts an integer `order` as the third argument. The regular-tier walker sorts entries by `.order` ascending before invoking inits — lower numbers run first. Ties preserve registration (insertion) order, i.e. the sort is stable. `BB_REGISTRY_REGISTER` is shorthand for `BB_REGISTRY_REGISTER_N(..., 0)`. Example: `bb_event_routes` registers at order 0; `bb_update_check` registers at order 4 so `bb_event_routes_init` (which sets `s_cfg.initialized = true`) has already run before `bb_update_check` calls `bb_event_routes_attach`.
 
 All three tiers require the matching CMake helper (in `cmake/bb_registry.cmake`) to prevent garbage-collection under PlatformIO:
 

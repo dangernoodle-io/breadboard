@@ -11,7 +11,7 @@ typedef bb_err_t (*bb_registry_init_fn)(bb_http_handle_t server);
 typedef struct {
     const char            *name;
     bb_registry_init_fn    init;
-    int                    route_count;
+    int                    order;
 } bb_registry_entry_t;
 
 void    bb_registry_add(const bb_registry_entry_t *entry);
@@ -27,7 +27,7 @@ size_t  bb_registry_route_count_total(void);
 // cmake/bb_registry.cmake for the bb_registry_force_register() helper.
 #define BB_REGISTRY_REGISTER_N(name_, fn_, n_)                                 \
     static const bb_registry_entry_t bb_registry_entry__##name_ = {            \
-        .name = #name_, .init = (fn_), .route_count = (n_)                     \
+        .name = #name_, .init = (fn_), .order = (n_)                           \
     };                                                                          \
     void bb_registry_register__##name_(void) __attribute__((constructor));     \
     void bb_registry_register__##name_(void) {                                 \
@@ -41,6 +41,7 @@ typedef bb_err_t (*bb_registry_init_early_fn)(void);
 typedef struct {
     const char                  *name;
     bb_registry_init_early_fn    init;
+    int                          order;
 } bb_registry_entry_early_t;
 
 void     bb_registry_add_early(const bb_registry_entry_early_t *entry);
@@ -70,6 +71,7 @@ typedef bb_err_t (*bb_registry_init_pre_http_fn)(void);
 typedef struct {
     const char                    *name;
     bb_registry_init_pre_http_fn   init;
+    int                            order;
 } bb_registry_entry_pre_http_t;
 
 void     bb_registry_add_pre_http(const bb_registry_entry_pre_http_t *entry);

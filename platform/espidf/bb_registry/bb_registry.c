@@ -82,8 +82,23 @@ bb_err_t bb_registry_init(void)
             nodes[n++] = p;
         }
 
-        // Walk backwards to get insertion order (since we prepend)
-        for (int i = (int)n - 1; i >= 0; i--) {
+        // Reverse into insertion order (we prepend, so head is last-registered).
+        for (size_t lo = 0, hi = n - 1; lo < hi; lo++, hi--) {
+            node_t *tmp = nodes[lo]; nodes[lo] = nodes[hi]; nodes[hi] = tmp;
+        }
+        // Stable insertion sort by .order ascending — preserves insertion-order
+        // tie-breaking because the array is already in insertion order.
+        for (size_t i = 1; i < n; i++) {
+            node_t *key = nodes[i];
+            int j = (int)i - 1;
+            while (j >= 0 && nodes[j]->entry->order > key->entry->order) {
+                nodes[j + 1] = nodes[j];
+                j--;
+            }
+            nodes[j + 1] = key;
+        }
+
+        for (size_t i = 0; i < n; i++) {
             bb_err_t err = nodes[i]->entry->init(server);
             if (err != BB_OK && first_error == BB_OK) {
                 first_error = err;
@@ -133,7 +148,7 @@ size_t bb_registry_route_count_total(void)
 {
     size_t total = 0;
     for (node_t *p = s_head; p; p = p->next) {
-        total += p->entry->route_count;
+        total += (size_t)p->entry->order;
     }
     return total;
 }
