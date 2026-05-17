@@ -779,6 +779,22 @@ void test_ring_subscribe_with_replay_snapshot_calloc_fails(void);
 void test_ring_subscribe_when_subscriber_pool_exhausted(void);
 void test_bb_event_ring_capture_null_data_with_size(void);
 void test_bb_event_ring_attach_subscribe_failure_frees_all(void);
+
+// Forward declarations from test_bb_event_ring_introspection.c
+void test_bb_event_ring_capacity_null_returns_zero(void);
+void test_bb_event_ring_capacity_returns_configured_value(void);
+void test_bb_event_ring_count_null_returns_zero(void);
+void test_bb_event_ring_count_empty_ring_returns_zero(void);
+void test_bb_event_ring_count_after_posts(void);
+void test_bb_event_ring_count_capped_at_capacity(void);
+void test_bb_event_ring_last_entry_info_null_ring_returns_invalid_arg(void);
+void test_bb_event_ring_last_entry_info_empty_ring_returns_not_found(void);
+void test_bb_event_ring_last_entry_info_populated_ring(void);
+void test_bb_event_ring_last_entry_info_reflects_latest_post(void);
+void test_bb_event_ring_last_entry_info_after_eviction(void);
+void test_bb_event_ring_last_entry_info_null_out_params_ok(void);
+void test_bb_event_ring_last_entry_info_zero_size_payload(void);
+
 void test_bb_event_subscribe_with_prep_runs_prep_before_subscribe(void);
 void test_bb_event_subscribe_with_prep_null_prep_subscribes(void);
 void test_bb_event_subscribe_with_prep_invalid_args(void);
@@ -891,6 +907,21 @@ void test_bb_event_routes_client_acquire_entries_calloc_fails(void);
 void test_bb_event_routes_client_acquire_payload_calloc_fails(void);
 void test_bb_event_routes_attach_ring_allocation_fails(void);
 void test_bb_event_routes_client_acquire_subscribe_failure_rolls_back(void);
+
+// Forward declarations from test_bb_event_routes_diag.c
+void test_bb_event_routes_topic_count_zero_before_attach(void);
+void test_bb_event_routes_topic_count_increments_on_attach(void);
+void test_bb_event_routes_topic_count_unchanged_on_dedup_attach(void);
+void test_bb_event_routes_topic_info_out_of_range_returns_not_found(void);
+void test_bb_event_routes_topic_info_returns_correct_name(void);
+void test_bb_event_routes_topic_info_null_out_params_ok(void);
+void test_bb_event_routes_topic_info_multiple_topics(void);
+void test_bb_event_routes_topic_info_ring_reflects_posts(void);
+void test_bb_event_routes_active_client_count_zero_before_acquire(void);
+void test_bb_event_routes_active_client_count_increments_on_acquire(void);
+void test_bb_event_routes_active_client_count_at_max(void);
+void test_bb_event_routes_diag_full_round_trip(void);
+void test_bb_event_routes_topic_count_zero_after_reset(void);
 
 // Forward declarations from test_bb_led_anim.c
 void bb_led_anim_test_reset(void);
@@ -1704,6 +1735,22 @@ int main(void) {
     RUN_TEST(test_ring_subscribe_when_subscriber_pool_exhausted);
     RUN_TEST(test_bb_event_ring_capture_null_data_with_size);
     RUN_TEST(test_bb_event_ring_attach_subscribe_failure_frees_all);
+
+    // bb_event_ring introspection tests
+    RUN_TEST(test_bb_event_ring_capacity_null_returns_zero);
+    RUN_TEST(test_bb_event_ring_capacity_returns_configured_value);
+    RUN_TEST(test_bb_event_ring_count_null_returns_zero);
+    RUN_TEST(test_bb_event_ring_count_empty_ring_returns_zero);
+    RUN_TEST(test_bb_event_ring_count_after_posts);
+    RUN_TEST(test_bb_event_ring_count_capped_at_capacity);
+    RUN_TEST(test_bb_event_ring_last_entry_info_null_ring_returns_invalid_arg);
+    RUN_TEST(test_bb_event_ring_last_entry_info_empty_ring_returns_not_found);
+    RUN_TEST(test_bb_event_ring_last_entry_info_populated_ring);
+    RUN_TEST(test_bb_event_ring_last_entry_info_reflects_latest_post);
+    RUN_TEST(test_bb_event_ring_last_entry_info_after_eviction);
+    RUN_TEST(test_bb_event_ring_last_entry_info_null_out_params_ok);
+    RUN_TEST(test_bb_event_ring_last_entry_info_zero_size_payload);
+
     RUN_TEST(test_bb_event_subscribe_with_prep_runs_prep_before_subscribe);
     RUN_TEST(test_bb_event_subscribe_with_prep_null_prep_subscribes);
     RUN_TEST(test_bb_event_subscribe_with_prep_invalid_args);
@@ -1816,6 +1863,21 @@ int main(void) {
     RUN_TEST(test_bb_event_routes_client_acquire_payload_calloc_fails);
     RUN_TEST(test_bb_event_routes_attach_ring_allocation_fails);
     RUN_TEST(test_bb_event_routes_client_acquire_subscribe_failure_rolls_back);
+
+    // bb_event_routes diag tests
+    RUN_TEST(test_bb_event_routes_topic_count_zero_before_attach);
+    RUN_TEST(test_bb_event_routes_topic_count_increments_on_attach);
+    RUN_TEST(test_bb_event_routes_topic_count_unchanged_on_dedup_attach);
+    RUN_TEST(test_bb_event_routes_topic_info_out_of_range_returns_not_found);
+    RUN_TEST(test_bb_event_routes_topic_info_returns_correct_name);
+    RUN_TEST(test_bb_event_routes_topic_info_null_out_params_ok);
+    RUN_TEST(test_bb_event_routes_topic_info_multiple_topics);
+    RUN_TEST(test_bb_event_routes_topic_info_ring_reflects_posts);
+    RUN_TEST(test_bb_event_routes_active_client_count_zero_before_acquire);
+    RUN_TEST(test_bb_event_routes_active_client_count_increments_on_acquire);
+    RUN_TEST(test_bb_event_routes_active_client_count_at_max);
+    RUN_TEST(test_bb_event_routes_diag_full_round_trip);
+    RUN_TEST(test_bb_event_routes_topic_count_zero_after_reset);
 
     // bb_led_anim tests
     RUN_TEST(test_anim_attach_null_cfg_returns_invalid_arg);

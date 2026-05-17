@@ -3,6 +3,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef ESP_PLATFORM
+#include "esp_timer.h"
+static int64_t bb_event_ring_now_us(void) { return esp_timer_get_time(); }
+#else
+#include <time.h>
+static int64_t bb_event_ring_now_us(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000LL + (int64_t)(ts.tv_nsec / 1000);
+}
+#endif
+
 static const char *TAG = "bb_event_ring";
 
 typedef void *(*bb_event_ring_calloc_fn)(size_t n, size_t sz);
@@ -42,6 +55,10 @@ struct bb_event_ring {
     size_t tail;   // Oldest entry position (when full)
     size_t count;  // Number of entries in ring
 
+    // Diagnostics: metadata of the most recent captured entry (0 if none)
+    int64_t last_post_us;
+    size_t  last_size;
+
     bb_event_sub_t port_sub;  // Ring's own subscriber handle
 };
 
@@ -69,6 +86,10 @@ static void ring_capture(bb_event_topic_t topic,
     if (size > 0 && data) {  // LCOV_EXCL_BR_LINE
         memcpy(ring->payload_buf + (write_idx * ring->max_entry), data, size);
     }
+
+    // Record diagnostics for the most recent entry.
+    ring->last_post_us = bb_event_ring_now_us();
+    ring->last_size    = size;
 
     // Update count and tail BEFORE advancing head: if we're evicting, we evict tail BEFORE we move to next position
     if (ring->count < ring->capacity) {
@@ -208,6 +229,47 @@ bb_err_t bb_event_ring_subscribe_with_replay(bb_event_ring_t ring,
     size_t snap_count = ctx.snap_count;
     s_free(snapshot);
     bb_log_d(TAG, "replayed %zu entries", snap_count);
+    return BB_OK;
+}
+
+size_t bb_event_ring_capacity(bb_event_ring_t ring)
+{
+    if (!ring) return 0;
+    // capacity is set at attach time and never changes — no lock needed.
+    return ring->capacity;
+}
+
+size_t bb_event_ring_count(bb_event_ring_t ring)
+{
+    if (!ring) return 0;
+    bb_event_lock();
+    size_t n = ring->count;
+    bb_event_unlock();
+    return n;
+}
+
+bb_err_t bb_event_ring_last_entry_info(bb_event_ring_t ring,
+                                       uint32_t *id,
+                                       size_t *size,
+                                       int64_t *post_us)
+{
+    if (!ring) return BB_ERR_INVALID_ARG;
+
+    bb_event_lock();
+    if (ring->count == 0) {
+        bb_event_unlock();
+        return BB_ERR_NOT_FOUND;
+    }
+    // Most recent entry is at (head - 1) mod capacity.
+    size_t last_idx = (ring->head + ring->capacity - 1) % ring->capacity;
+    uint32_t entry_id   = (uint32_t)ring->entries[last_idx].id;
+    size_t   entry_size = ring->entries[last_idx].size;
+    int64_t  entry_us   = ring->last_post_us;
+    bb_event_unlock();
+
+    if (id)      *id      = entry_id;
+    if (size)    *size    = entry_size;
+    if (post_us) *post_us = entry_us;
     return BB_OK;
 }
 

@@ -1,8 +1,11 @@
 // ESP-IDF route handler for bb_event_routes — registers GET /api/events,
 // spawns a FreeRTOS task per client, drains queued events to SSE frames.
+// Also registers GET /api/diag/events for topic discovery + ring diagnostics.
 #include "bb_event_routes.h"
 #include "bb_event_routes_internal.h"
+#include "bb_event_ring.h"
 #include "bb_http.h"
+#include "bb_json.h"
 #include "bb_log.h"
 #include "bb_registry.h"
 
@@ -170,6 +173,103 @@ static const bb_route_t s_events_route = {
     .handler = NULL,
 };
 
+// ---------------------------------------------------------------------------
+// Diag handler: GET /api/diag/events
+// ---------------------------------------------------------------------------
+
+static bb_err_t diag_events_handler(bb_http_request_t *req)
+{
+    bb_json_t root = bb_json_obj_new();
+    if (!root) return bb_http_resp_send_err(req, 500, "JSON alloc failed");
+
+    bb_json_t topics_arr = bb_json_arr_new();
+    if (!topics_arr) {
+        bb_json_free(root);
+        return bb_http_resp_send_err(req, 500, "JSON alloc failed");
+    }
+
+    size_t n = bb_event_routes_topic_count();
+    for (size_t i = 0; i < n; i++) {
+        const char *name = NULL;
+        bb_event_ring_t ring = NULL;
+        if (bb_event_routes_topic_info(i, &name, &ring) != BB_OK) continue;
+
+        bb_json_t entry = bb_json_obj_new();
+        if (!entry) continue;
+
+        bb_json_obj_set_string(entry, "name", name ? name : "");
+
+        if (ring) {
+            size_t cap = bb_event_ring_capacity(ring);
+            bb_json_obj_set_number(entry, "ring_capacity", (double)cap);
+            size_t count = bb_event_ring_count(ring);
+            bb_json_obj_set_number(entry, "ring_count", (double)count);
+
+            uint32_t last_id  = 0;
+            size_t   last_sz  = 0;
+            int64_t  last_us  = 0;
+            if (bb_event_ring_last_entry_info(ring, &last_id, &last_sz, &last_us) == BB_OK) {
+                bb_json_obj_set_number(entry, "last_id",      (double)last_id);
+                bb_json_obj_set_number(entry, "last_post_us", (double)last_us);
+                bb_json_obj_set_number(entry, "last_size",    (double)last_sz);
+            } else {
+                bb_json_obj_set_number(entry, "last_id",      0);
+                bb_json_obj_set_number(entry, "last_post_us", 0);
+                bb_json_obj_set_number(entry, "last_size",    0);
+            }
+        } else {
+            bb_json_obj_set_number(entry, "ring_capacity", 0);
+            bb_json_obj_set_number(entry, "ring_count",    0);
+            bb_json_obj_set_number(entry, "last_id",       0);
+            bb_json_obj_set_number(entry, "last_post_us",  0);
+            bb_json_obj_set_number(entry, "last_size",     0);
+        }
+
+        bb_json_arr_append_obj(topics_arr, entry);
+    }
+
+    bb_json_obj_set_arr(root, "topics", topics_arr);
+    bb_json_obj_set_number(root, "max_clients",    (double)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS);
+    bb_json_obj_set_number(root, "active_clients", (double)bb_event_routes_active_client_count());
+
+    bb_http_resp_set_status(req, 200);
+    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return err;
+}
+
+static const bb_route_response_t s_diag_events_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"topics\":{\"type\":\"array\",\"items\":{"
+      "\"type\":\"object\","
+      "\"properties\":{"
+      "\"name\":{\"type\":\"string\"},"
+      "\"ring_capacity\":{\"type\":\"integer\"},"
+      "\"ring_count\":{\"type\":\"integer\"},"
+      "\"last_id\":{\"type\":\"integer\"},"
+      "\"last_post_us\":{\"type\":\"integer\"},"
+      "\"last_size\":{\"type\":\"integer\"}},"
+      "\"required\":[\"name\",\"ring_capacity\",\"ring_count\","
+      "\"last_id\",\"last_post_us\",\"last_size\"]}},"
+      "\"max_clients\":{\"type\":\"integer\"},"
+      "\"active_clients\":{\"type\":\"integer\"}},"
+      "\"required\":[\"topics\",\"max_clients\",\"active_clients\"]}",
+      "topic discovery and ring-buffer diagnostics for /api/events — "
+      "ring_count=0 means no replay data; last_post_us=0 means no events captured yet" },
+    { 0 },
+};
+
+static const bb_route_t s_diag_events_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/events",
+    .tag       = "diag",
+    .summary   = "List attached SSE topics with ring-buffer diagnostics",
+    .responses = s_diag_events_responses,
+    .handler   = diag_events_handler,
+};
+
 static bb_err_t bb_event_routes_register_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
@@ -178,7 +278,9 @@ static bb_err_t bb_event_routes_register_routes_init(bb_http_handle_t server)
     err = bb_http_register_route(server, BB_HTTP_GET, "/api/events", events_handler);
     if (err != BB_OK) return err;
     bb_http_register_route_descriptor_only(&s_events_route);
-    bb_log_i(TAG, "registered /api/events");
+    err = bb_http_register_described_route(server, &s_diag_events_route);
+    if (err != BB_OK) return err;
+    bb_log_i(TAG, "registered /api/events + /api/diag/events");
     return BB_OK;
 }
 

@@ -351,6 +351,34 @@ size_t bb_event_routes_drain_frame(bb_event_routes_client_t *c, char *buf, size_
 uint32_t bb_event_routes_heartbeat_ms(void) { return s_cfg.heartbeat_ms; }
 
 // ---------------------------------------------------------------------------
+// Diagnostics accessors (public, no ESP-IDF deps)
+// ---------------------------------------------------------------------------
+
+size_t bb_event_routes_topic_count(void)
+{
+    return s_num_topics;
+}
+
+bb_err_t bb_event_routes_topic_info(size_t idx,
+                                    const char **name,
+                                    bb_event_ring_t *ring)
+{
+    if (idx >= s_num_topics) return BB_ERR_NOT_FOUND;
+    if (name) *name = s_topics[idx].name;
+    if (ring) *ring = s_topics[idx].ring;
+    return BB_OK;
+}
+
+size_t bb_event_routes_active_client_count(void)
+{
+    size_t active = 0;
+    for (size_t i = 0; i < CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS; i++) {
+        if (atomic_load(&s_clients[i].in_use)) active++;
+    }
+    return active;
+}
+
+// ---------------------------------------------------------------------------
 // Test hooks
 // ---------------------------------------------------------------------------
 
