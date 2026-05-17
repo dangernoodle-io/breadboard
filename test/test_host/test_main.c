@@ -151,6 +151,13 @@ void test_nv_config_wifi_ssid_empty_after_init(void);
 void test_nv_config_wifi_pass_empty_after_init(void);
 void test_nv_config_display_enabled_default_true(void);
 void test_nv_config_is_provisioned_stub_returns_false(void);
+void test_hostname_default_empty(void);
+void test_hostname_set_get_roundtrip(void);
+void test_hostname_validates_charset(void);
+void test_hostname_validates_length(void);
+void test_hostname_rejects_leading_hyphen(void);
+void test_hostname_rejects_trailing_hyphen(void);
+void test_hostname_rejects_null(void);
 
 // Forward declarations from test_ota_validator.c
 void test_ota_validator_is_pending_false_on_host(void);
@@ -1001,6 +1008,13 @@ int main(void) {
     RUN_TEST(test_nv_config_wifi_pass_empty_after_init);
     RUN_TEST(test_nv_config_display_enabled_default_true);
     RUN_TEST(test_nv_config_is_provisioned_stub_returns_false);
+    RUN_TEST(test_hostname_default_empty);
+    RUN_TEST(test_hostname_set_get_roundtrip);
+    RUN_TEST(test_hostname_validates_charset);
+    RUN_TEST(test_hostname_validates_length);
+    RUN_TEST(test_hostname_rejects_leading_hyphen);
+    RUN_TEST(test_hostname_rejects_trailing_hyphen);
+    RUN_TEST(test_hostname_rejects_null);
 
     // Generic NV API tests
     RUN_TEST(test_nv_set_u8_null_ns);

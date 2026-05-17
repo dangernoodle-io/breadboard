@@ -44,3 +44,56 @@ void test_nv_config_is_provisioned_stub_returns_false(void)
     bool provisioned = bb_nv_config_is_provisioned();
     TEST_ASSERT_FALSE(provisioned);
 }
+
+void test_hostname_default_empty(void)
+{
+    bb_nv_config_init();
+    const char *hostname = bb_nv_config_hostname();
+    TEST_ASSERT_NOT_NULL(hostname);
+    TEST_ASSERT_EQUAL_STRING("", hostname);
+}
+
+void test_hostname_set_get_roundtrip(void)
+{
+    bb_nv_config_init();
+    bb_err_t err = bb_nv_config_set_hostname("tdongle-s3-1");
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    const char *hostname = bb_nv_config_hostname();
+    TEST_ASSERT_EQUAL_STRING("tdongle-s3-1", hostname);
+}
+
+void test_hostname_validates_charset(void)
+{
+    bb_nv_config_init();
+    bb_err_t err = bb_nv_config_set_hostname("bad host!");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_hostname_validates_length(void)
+{
+    bb_nv_config_init();
+    // 33 character string exceeds max of 32
+    bb_err_t err = bb_nv_config_set_hostname("012345678901234567890123456789012");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_hostname_rejects_leading_hyphen(void)
+{
+    bb_nv_config_init();
+    bb_err_t err = bb_nv_config_set_hostname("-foo");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_hostname_rejects_trailing_hyphen(void)
+{
+    bb_nv_config_init();
+    bb_err_t err = bb_nv_config_set_hostname("foo-");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_hostname_rejects_null(void)
+{
+    bb_nv_config_init();
+    bb_err_t err = bb_nv_config_set_hostname(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}

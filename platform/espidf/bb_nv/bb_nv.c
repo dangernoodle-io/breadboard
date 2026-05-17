@@ -25,9 +25,30 @@ static const char *TAG_NV = "bb_nv";
 static struct {
     char wifi_ssid[32];
     char wifi_pass[64];
+    char hostname[33];
     uint8_t display_en;
     uint8_t mdns_en;
 } s_config;
+
+#include <stdbool.h>
+
+// RFC 1123 / 952: letters, digits, hyphens; first/last cannot be hyphen;
+// length 1..32. Tolerant of mixed case (DHCP / mDNS treat case-insensitively).
+static bool nv_valid_hostname(const char *s)
+{
+    if (!s) return false;
+    size_t len = strlen(s);
+    if (len == 0 || len > 32) return false;
+    if (s[0] == '-' || s[len - 1] == '-') return false;
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '-')) {
+            return false;
+        }
+    }
+    return true;
+}
 
 // Helper to load a string from NVS with fallback (ESP only)
 #ifdef ESP_PLATFORM
@@ -66,6 +87,7 @@ bb_err_t bb_nv_config_init(void)
 
     load_str(handle, "wifi_ssid", s_config.wifi_ssid, sizeof(s_config.wifi_ssid), "");
     load_str(handle, "wifi_pass", s_config.wifi_pass, sizeof(s_config.wifi_pass), "");
+    load_str(handle, "hostname", s_config.hostname, sizeof(s_config.hostname), "");
 
     if (nvs_get_u8(handle, "display_en", &s_config.display_en) != ESP_OK) {
         s_config.display_en = 1;  // default: display on
@@ -162,6 +184,26 @@ bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass)
         s_config.wifi_pass[sizeof(s_config.wifi_pass) - 1] = '\0';
     }
 
+    return err;
+}
+
+bb_err_t bb_nv_config_set_hostname(const char *hostname)
+{
+    if (!hostname) return BB_ERR_INVALID_ARG;
+    if (!nv_valid_hostname(hostname)) return BB_ERR_INVALID_ARG;
+
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != BB_OK) return err;
+
+    err = nvs_set_str(handle, "hostname", hostname);
+    if (err == BB_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+
+    if (err == BB_OK) {
+        strncpy(s_config.hostname, hostname, sizeof(s_config.hostname) - 1);
+        s_config.hostname[sizeof(s_config.hostname) - 1] = '\0';
+    }
     return err;
 }
 
@@ -750,6 +792,17 @@ bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch)
 
 #endif
 
+// Host implementation of bb_nv_config_set_hostname (non-ESP)
+#ifndef ESP_PLATFORM
+bb_err_t bb_nv_config_set_hostname(const char *hostname)
+{
+    if (!hostname) return BB_ERR_INVALID_ARG;
+    if (!nv_valid_hostname(hostname)) return BB_ERR_INVALID_ARG;
+    copy_str(s_config.hostname, hostname, sizeof(s_config.hostname));
+    return BB_OK;
+}
+#endif
+
 #include "bb_registry.h"
 
 #if CONFIG_BB_NV_FLASH_AUTOREGISTER
@@ -762,5 +815,6 @@ BB_REGISTRY_REGISTER_EARLY(bb_nv_config, bb_nv_config_init);
 
 const char *bb_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }
 const char *bb_nv_config_wifi_pass(void) { return s_config.wifi_pass; }
+const char *bb_nv_config_hostname(void) { return s_config.hostname; }
 bool bb_nv_config_display_enabled(void) { return s_config.display_en != 0; }
 bool bb_nv_config_mdns_enabled(void) { return s_config.mdns_en != 0; }
