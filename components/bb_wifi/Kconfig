@@ -10,6 +10,18 @@ config BB_WIFI_AUTOREGISTER
         drives WiFi init manually (e.g. provisioning mode, AP mode,
         or custom retry policy).
 
+config BB_WIFI_RETRY_FOREVER_WHEN_VALIDATED
+    bool "Retry wifi forever when OTA is validated"
+    default y
+    depends on BB_WIFI_AUTOREGISTER
+    help
+      When the running firmware has been validated (bb_ota_is_validated()
+      is true), bb_wifi_autoinit retries the STA connect indefinitely on
+      cold-boot timeout instead of falling back to AP mode. A network
+      outage shouldn't wipe credentials on a known-good build. Disable
+      this if you want strict timeout-then-AP behavior even for validated
+      firmware.
+
 config BB_WIFI_ROUTES_AUTOREGISTER
     bool "Auto-register /api/wifi and /api/scan HTTP routes via bb_registry"
     default y

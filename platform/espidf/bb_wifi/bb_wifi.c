@@ -455,7 +455,34 @@ bb_err_t bb_wifi_set_hostname(const char *hostname)
 #if CONFIG_BB_WIFI_AUTOREGISTER
 static bb_err_t bb_wifi_autoinit(void)
 {
-    return bb_wifi_init_sta();
+    // Apply persisted hostname before connect so DHCP/mDNS get the right name
+    // on first packet. Empty string means "not set"; bb_wifi_set_hostname
+    // tolerates that case (no-op).
+    const char *hn = bb_nv_config_hostname();
+    if (hn && hn[0]) {
+        bb_wifi_set_hostname(hn);
+    }
+
+    bb_err_t err = bb_wifi_init_sta();
+
+#if CONFIG_BB_WIFI_RETRY_FOREVER_WHEN_VALIDATED
+    // Validated firmware should keep trying — a network outage shouldn't wipe
+    // credentials or knock the device into AP mode. Unvalidated firmware
+    // falls through to the existing boot-count / AP-fallback path that
+    // bb_wifi already implements internally.
+    while (err != BB_OK && bb_ota_is_validated()) {
+        bb_log_w(TAG, "wifi cold-boot timeout; retrying in 30s");
+        vTaskDelay(pdMS_TO_TICKS(30000));
+        err = bb_wifi_init_sta();
+    }
+#endif
+
+    if (err != BB_OK) {
+        // Swallow the error so the EARLY-tier walker continues. Consumers that
+        // need wifi state explicitly call bb_wifi_is_connected().
+        bb_log_w(TAG, "bb_wifi_autoinit: connect failed (%d); continuing", (int)err);
+    }
+    return BB_OK;
 }
 BB_REGISTRY_REGISTER_EARLY(bb_wifi, bb_wifi_autoinit);
 #endif
