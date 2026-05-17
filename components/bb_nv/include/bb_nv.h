@@ -22,6 +22,7 @@ const char *bb_nv_config_wifi_pass(void);
 const char *bb_nv_config_hostname(void);
 bool bb_nv_config_display_enabled(void);
 bool bb_nv_config_mdns_enabled(void);
+bool bb_nv_config_update_check_enabled(void);
 
 #ifdef ESP_PLATFORM
 bool bb_nv_config_is_provisioned(void);
@@ -46,6 +47,9 @@ static inline bool bb_nv_config_is_provisioned(void) { return false; }
 // Host: set_hostname implemented in platform/espidf/bb_nv/bb_nv.c for host builds
 bb_err_t bb_nv_config_set_hostname(const char *hostname);
 #endif
+
+// Available on all platforms: in-memory on host, NVS-persisted on ESP-IDF.
+bb_err_t bb_nv_config_set_update_check_enabled(bool en);
 
 // All bb_nv_set_u* variants erase-on-type-mismatch: if an existing NVS entry
 // under the same key has a different integer width, the entry is erased and

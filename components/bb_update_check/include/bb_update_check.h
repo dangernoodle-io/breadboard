@@ -33,6 +33,7 @@ typedef struct {
     int64_t last_check_us;     // 0 if never
     bool    last_check_ok;     // false => sticky failure
     bool    available;
+    bool    enabled;           // mirrors bb_nv_config_update_check_enabled()
 } bb_update_check_status_t;
 
 // Idempotent. cfg=NULL uses Kconfig defaults.

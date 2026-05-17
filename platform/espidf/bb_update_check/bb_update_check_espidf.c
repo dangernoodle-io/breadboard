@@ -71,6 +71,7 @@ static bb_err_t status_handler(bb_http_request_t *req)
     bb_json_obj_set_string(root, "download_url", st.download_url);
     bb_json_obj_set_bool(root, "available", st.available);
     bb_json_obj_set_bool(root, "last_check_ok", st.last_check_ok);
+    bb_json_obj_set_bool(root, "enabled", st.enabled);
     // Unix seconds when last_check_us is non-zero; omitted otherwise so the
     // client can render "never checked" cleanly.
     if (st.last_check_us != 0) {
@@ -90,9 +91,10 @@ static const bb_route_response_t s_status_responses[] = {
          "\"download_url\":{\"type\":\"string\"},"
          "\"available\":{\"type\":\"boolean\"},"
          "\"last_check_ok\":{\"type\":\"boolean\"},"
+         "\"enabled\":{\"type\":\"boolean\"},"
          "\"last_check_ts\":{\"type\":\"integer\"}},"
        "\"required\":[\"current\",\"latest\",\"download_url\","
-                     "\"available\",\"last_check_ok\"]}",
+                     "\"available\",\"last_check_ok\",\"enabled\"]}",
       "current status of the update poller" },
     { 503, "application/json", NULL, "bb_update_check not initialized" },
     { 0 },

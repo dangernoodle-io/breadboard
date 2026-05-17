@@ -6,6 +6,7 @@
 #include "bb_event.h"
 #include "bb_event_ring.h"
 #include "bb_event_test.h"
+#include "bb_nv.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -1012,5 +1013,80 @@ void test_bb_update_check_kick_returns_ok_on_host(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
     TEST_ASSERT_TRUE(st.available);
     TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_EQUAL_STRING("v9.9.9", st.latest);
+}
+
+// ---------------------------------------------------------------------------
+// bb_nv_config_update_check_enabled runtime opt-out
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_status_enabled_is_true_by_default(void)
+{
+    // get_status must reflect enabled=true when bb_nv has not been changed.
+    reset_world();
+    bb_update_check_init(NULL);
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_TRUE(st.enabled);
+}
+
+void test_bb_update_check_run_one_disabled_returns_ok_without_fetch(void)
+{
+    // When disabled via bb_nv, run_one must return BB_OK immediately and not
+    // fetch — the mock response is intentionally absent to catch any attempt.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_nv_config_set_update_check_enabled(false);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    // Status must be unchanged from the initial zero state.
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_FALSE(st.last_check_ok);
+    TEST_ASSERT_FALSE(st.available);
+    TEST_ASSERT_EQUAL(0, st.last_check_us);
+    TEST_ASSERT_FALSE(st.enabled);
+}
+
+void test_bb_update_check_status_enabled_reflects_nv_flag(void)
+{
+    // get_status.enabled tracks bb_nv_config_update_check_enabled() live.
+    reset_world();
+    bb_update_check_init(NULL);
+
+    bb_nv_config_set_update_check_enabled(false);
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_FALSE(st.enabled);
+
+    bb_nv_config_set_update_check_enabled(true);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_TRUE(st.enabled);
+}
+
+void test_bb_update_check_reenabled_runs_check(void)
+{
+    // After disabling and re-enabling, run_one performs a real check.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+
+    // Disable: run_one must be a no-op.
+    bb_nv_config_set_update_check_enabled(false);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_FALSE(st.last_check_ok);
+
+    // Re-enable: subsequent run_one must fetch and succeed.
+    bb_nv_config_set_update_check_enabled(true);
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_TRUE(st.available);
     TEST_ASSERT_EQUAL_STRING("v9.9.9", st.latest);
 }
