@@ -114,6 +114,12 @@ The `bb_nv_config` component persists device configuration to NVS: WiFi credenti
 
 **Topic discovery and diagnostics.** `GET /api/diag/events` lists every topic currently attached to `/api/events` with ring-buffer diagnostics: `ring_capacity`, `ring_count` (0 → no replay possible), `last_id`, `last_post_us`, and `last_size`. Top-level fields `max_clients` and `active_clients` show the configured concurrency cap and how many SSE connections are live. This is the first step when SSE shows `: connected` but no replay data — confirm the topic is attached and `ring_count > 0` before investigating the producer.
 
+**Platform split (ESP-IDF components).** `bb_event_ring` and `bb_event_routes` are portable components with no ESP-IDF dependencies in their `components/` CMakeLists. ESP-IDF platform implementations live in standalone components under `platform/espidf/`:
+- `platform/espidf/bb_event_ring_espidf/` — provides `bb_event_ring_now_us()` backed by `esp_timer_get_time()`. REQUIRES `bb_event_ring esp_timer`.
+- `platform/espidf/bb_event_routes_espidf/` — registers `/api/events` + `/api/diag/events` HTTP routes. REQUIRES `bb_event_routes` and all ESP-only deps (`bb_json`, `esp_http_server`).
+
+ESP-IDF consumers must add both directories to `EXTRA_COMPONENT_DIRS` and include `bb_event_ring_espidf` and `bb_event_routes_espidf` in their component's `REQUIRES` list (or the app's `idf_component_register` REQUIRES). The portable `bb_event_ring` and `bb_event_routes` components declare no `esp_timer`, `esp_http_server`, or `bb_json` dependencies.
+
 ## Update check (bb_update_check, bb_release_manifest, bb_http_client)
 
 `bb_update_check` periodically polls a release-manifest URL, compares the returned version against `bb_system_get_version()`, and on a state change posts the `update.available` `bb_event` topic and updates the mDNS TXT key `update=<value>` (`unknown` pre-check, `none` up to date, `<tag>` when newer is available). Consumers call `bb_update_check_set_releases_url(url)` and optionally `bb_update_check_set_parser(fn)` to swap the manifest parser. The default parser is `bb_release_manifest_parse_github`; consumers using GitLab, Jenkins, S3, or a private artifact server supply their own `bb_release_manifest_parse_fn`. Fetches go through `bb_http_client` — the same portable outbound HTTP wrapper used by both `bb_update_check` and `bb_ota_pull` for release manifest fetches. The component auto-registers `GET /api/update/status` and is ESP-IDF only; Arduino targets stub every setter to `BB_ERR_UNSUPPORTED`.

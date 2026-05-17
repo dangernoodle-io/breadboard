@@ -3,21 +3,27 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef ESP_PLATFORM
-#include "esp_timer.h"
-static int64_t bb_event_ring_now_us(void) { return esp_timer_get_time(); }
-#elif defined(ARDUINO)
+// Clock abstraction: returns microseconds since an arbitrary epoch.
+// On ESP-IDF the platform component (platform/espidf/bb_event_ring/) provides
+// a strong definition backed by esp_timer_get_time(). On Arduino and POSIX
+// hosts the portable definition below is used.
+int64_t bb_event_ring_now_us(void);
+
+#ifndef ESP_PLATFORM
+#if defined(ARDUINO)
 #include <Arduino.h>
-static int64_t bb_event_ring_now_us(void) { return (int64_t)micros(); }
+int64_t bb_event_ring_now_us(void) { return (int64_t)micros(); }
 #else
+#define _POSIX_C_SOURCE 200112L
 #include <time.h>
-static int64_t bb_event_ring_now_us(void)
+int64_t bb_event_ring_now_us(void)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (int64_t)ts.tv_sec * 1000000LL + (int64_t)(ts.tv_nsec / 1000);
 }
 #endif
+#endif // !ESP_PLATFORM
 
 static const char *TAG = "bb_event_ring";
 
