@@ -36,7 +36,21 @@ typedef struct {
 } bb_update_check_status_t;
 
 // Idempotent. cfg=NULL uses Kconfig defaults.
+// NOTE: bb_update_check_init does NOT post an initial snapshot; callers must
+// call bb_update_check_publish_initial() after attaching a ring to the topic
+// (via bb_event_routes_attach_ex or bb_event_ring_attach_ex) to ensure SSE
+// clients connecting before the first periodic check see the last known state.
 bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg);
+
+// Publish an initial snapshot to the update.available topic. Must be called
+// after bb_update_check_init and after attaching a ring/routes (e.g. via
+// bb_event_routes_attach_ex(..., true) with retained=true). This ensures SSE
+// clients connecting before the first periodic check (up to
+// CONFIG_BB_UPDATE_CHECK_INTERVAL_S seconds) replay this entry rather than
+// seeing empty state. The initial state has available=false, current=<running>,
+// latest="", download_url="", last_check_ok=false. Returns BB_ERR_INVALID_STATE
+// if init hasn't run.
+bb_err_t bb_update_check_publish_initial(void);
 
 // Releases URL (string is copied into a fixed-size internal buffer).
 bb_err_t bb_update_check_set_releases_url(const char *url);

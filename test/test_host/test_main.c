@@ -888,8 +888,10 @@ void test_bb_update_check_firmware_board_matches_named_asset(void);
 void test_bb_update_check_firmware_board_default_does_not_match_named_asset(void);
 void test_bb_update_check_firmware_board_with_bin_suffix_no_match(void);
 void test_bb_update_check_firmware_board_custom_parser_receives_board(void);
-void test_bb_update_check_init_publishes_initial_snapshot_to_ring(void);
-void test_bb_update_check_init_initial_snapshot_available_is_false(void);
+void test_bb_update_check_init_alone_does_not_publish(void);
+void test_bb_update_check_publish_initial_before_init_returns_invalid_state(void);
+void test_bb_update_check_publish_initial_populates_ring(void);
+void test_bb_update_check_publish_initial_snapshot_available_is_false(void);
 
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
@@ -1860,8 +1862,10 @@ int main(void) {
     RUN_TEST(test_bb_update_check_firmware_board_default_does_not_match_named_asset);
     RUN_TEST(test_bb_update_check_firmware_board_with_bin_suffix_no_match);
     RUN_TEST(test_bb_update_check_firmware_board_custom_parser_receives_board);
-    RUN_TEST(test_bb_update_check_init_publishes_initial_snapshot_to_ring);
-    RUN_TEST(test_bb_update_check_init_initial_snapshot_available_is_false);
+    RUN_TEST(test_bb_update_check_init_alone_does_not_publish);
+    RUN_TEST(test_bb_update_check_publish_initial_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_update_check_publish_initial_populates_ring);
+    RUN_TEST(test_bb_update_check_publish_initial_snapshot_available_is_false);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);
