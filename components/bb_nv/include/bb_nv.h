@@ -19,6 +19,7 @@ bb_err_t bb_nv_flash_init(void);
 
 const char *bb_nv_config_wifi_ssid(void);
 const char *bb_nv_config_wifi_pass(void);
+const char *bb_nv_config_hostname(void);
 bool bb_nv_config_display_enabled(void);
 bool bb_nv_config_mdns_enabled(void);
 
@@ -37,10 +38,13 @@ bool      bb_nv_config_ota_skip_check(void);
 bb_err_t bb_nv_config_set_ota_skip_check(bool skip);
 
 bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass);
+bb_err_t bb_nv_config_set_hostname(const char *hostname);
 bb_err_t bb_nv_config_set_display_enabled(bool en);
 bb_err_t bb_nv_config_set_mdns_enabled(bool en);
 #else
 static inline bool bb_nv_config_is_provisioned(void) { return false; }
+// Host: set_hostname implemented in platform/espidf/bb_nv/bb_nv.c for host builds
+bb_err_t bb_nv_config_set_hostname(const char *hostname);
 #endif
 
 // All bb_nv_set_u* variants erase-on-type-mismatch: if an existing NVS entry
