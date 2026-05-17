@@ -91,36 +91,25 @@ void bb_display_st77xx_blit(int16_t x, int16_t y, uint16_t w, uint16_t h, const 
         return;
     }
 
-    /* Byte-swap RGB565 into buffer (ESP LCD expects big-endian on SPI). */
-    size_t pixel_count = (size_t)w * h;
-    uint16_t *buf = NULL;
-
-    if (pixel_count <= 256) {
-        /* Small blits: use stack buffer. */
-        uint16_t stack_buf[256];
-        for (size_t i = 0; i < pixel_count; i++) {
-            uint16_t pixel = pixels[i];
-            /* Swap bytes: XRRRRR GGG | BBBBB XX -> GGG BBBBB | XX XRRRRR */
-            stack_buf[i] = ((pixel & 0xFF) << 8) | ((pixel >> 8) & 0xFF);
+    /* Byte-swap RGB565 into a fixed-size tile buffer and push row-by-row.
+     * Avoids the previous 16 KB transient heap alloc (pixel_count * 2 B at
+     * max 8192 px) — mirrors the ILI9341 backend's bounce-buffer approach.
+     * B1-208 / heap-audit P3-D. */
+    enum { BOUNCE_PIXELS = 512 };
+    static uint16_t bounce[BOUNCE_PIXELS];
+    int16_t row = 0;
+    while (row < (int16_t)h) {
+        size_t rows_this_pass = BOUNCE_PIXELS / w;
+        if (rows_this_pass == 0) rows_this_pass = 1;
+        if ((size_t)(h - row) < rows_this_pass) rows_this_pass = h - row;
+        size_t pixels_this_pass = rows_this_pass * w;
+        if (pixels_this_pass > BOUNCE_PIXELS) pixels_this_pass = BOUNCE_PIXELS;
+        for (size_t i = 0; i < pixels_this_pass; i++) {
+            uint16_t pixel = pixels[row * w + i];
+            bounce[i] = (uint16_t)((pixel & 0xFF) << 8) | ((pixel >> 8) & 0xFF);
         }
-        esp_lcd_panel_draw_bitmap(bb_display_st77xx_panel, x, y, x + w, y + h, stack_buf);
-    } else {
-        /* Large blits: allocate heap buffer (bounded). */
-        if (pixel_count > 8192) {
-            bb_log_w(TAG, "blit too large: %zu pixels (max 8192)", pixel_count);
-            return;
-        }
-        buf = malloc(pixel_count * sizeof(uint16_t));
-        if (!buf) {
-            bb_log_w(TAG, "blit malloc failed for %zu pixels", pixel_count);
-            return;
-        }
-        for (size_t i = 0; i < pixel_count; i++) {
-            uint16_t pixel = pixels[i];
-            buf[i] = ((pixel & 0xFF) << 8) | ((pixel >> 8) & 0xFF);
-        }
-        esp_lcd_panel_draw_bitmap(bb_display_st77xx_panel, x, y, x + w, y + h, buf);
-        free(buf);
+        esp_lcd_panel_draw_bitmap(bb_display_st77xx_panel, x, y + row, x + w, y + row + rows_this_pass, bounce);
+        row += (int16_t)rows_this_pass;
     }
 }
 
