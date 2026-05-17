@@ -36,6 +36,8 @@ static bb_update_check_status_t      s_status;
 static bool                          s_first_check_done = false;
 static bb_event_topic_t              s_topic = NULL;
 static pthread_mutex_t               s_lock = PTHREAD_MUTEX_INITIALIZER;
+static bb_update_check_hook_fn       s_pause_hook = NULL;
+static bb_update_check_hook_fn       s_resume_hook = NULL;
 
 // ---------------------------------------------------------------------------
 // Semver compare
@@ -158,6 +160,17 @@ bb_err_t bb_update_check_set_parser(bb_release_manifest_parse_fn fn)
     return BB_OK;
 }
 
+bb_err_t bb_update_check_set_hooks(bb_update_check_hook_fn pause,
+                                   bb_update_check_hook_fn resume)
+{
+    if (!s_initialized) return BB_ERR_INVALID_STATE;
+    pthread_mutex_lock(&s_lock);
+    s_pause_hook  = pause;
+    s_resume_hook = resume;
+    pthread_mutex_unlock(&s_lock);
+    return BB_OK;
+}
+
 bb_err_t bb_update_check_get_status(bb_update_check_status_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
@@ -225,10 +238,14 @@ bb_err_t bb_update_check_run_one(void)
 
     char url_local[URL_MAX];
     bb_release_manifest_parse_fn parser_local;
+    bb_update_check_hook_fn pause_local;
+    bb_update_check_hook_fn resume_local;
     pthread_mutex_lock(&s_lock);
     strncpy(url_local, s_url, sizeof(url_local));
     url_local[sizeof(url_local) - 1] = '\0';
-    parser_local = s_parser;
+    parser_local  = s_parser;
+    pause_local   = s_pause_hook;
+    resume_local  = s_resume_hook;
     pthread_mutex_unlock(&s_lock);
 
     if (url_local[0] == '\0') return BB_ERR_INVALID_STATE;
@@ -252,7 +269,9 @@ bb_err_t bb_update_check_run_one(void)
             return perr;      // LCOV_EXCL_LINE
         }
 
+        if (pause_local) pause_local();
         err = bb_http_client_get_stream(url_local, chunk_cb, &fc, NULL, &res);
+        if (resume_local) resume_local();
 
         struct timeval tv;
         gettimeofday(&tv, NULL);
@@ -318,7 +337,9 @@ bb_err_t bb_update_check_run_one(void)
         bc.len      = 0;
         bc.overflow = false;
 
+        if (pause_local) pause_local();
         err = bb_http_client_get_stream(url_local, buf_chunk_cb, &bc, NULL, &res);
+        if (resume_local) resume_local();
 
         struct timeval tv;
         gettimeofday(&tv, NULL);
@@ -395,6 +416,8 @@ void bb_update_check_reset_for_test(void)
     s_url[0] = '\0';
     s_topic = NULL;
     s_parser = bb_release_manifest_parse_github;
+    s_pause_hook = NULL;
+    s_resume_hook = NULL;
     s_first_check_done = false;
     s_initialized = false;
     pthread_mutex_unlock(&s_lock);
