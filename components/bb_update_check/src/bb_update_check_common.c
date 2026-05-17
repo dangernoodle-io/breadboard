@@ -20,8 +20,9 @@ static const char *TAG = "bb_update_check";
 #define CONFIG_BB_UPDATE_CHECK_INTERVAL_S 21600
 #endif
 
-#define URL_MAX     256
-#define TOPIC_NAME  "update.available"
+#define URL_MAX        256
+#define BOARD_MAX       64
+#define TOPIC_NAME     "update.available"
 #define BOARD_NAME_FALLBACK "firmware"
 
 // ---------------------------------------------------------------------------
@@ -31,6 +32,7 @@ static const char *TAG = "bb_update_check";
 static bool                          s_initialized = false;
 static bb_update_check_cfg_t         s_cfg;
 static char                          s_url[URL_MAX];
+static char                          s_firmware_board[BOARD_MAX];
 static bb_release_manifest_parse_fn  s_parser = bb_release_manifest_parse_github;
 static bb_update_check_status_t      s_status;
 static bool                          s_first_check_done = false;
@@ -122,6 +124,7 @@ bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
     s_status.available = false;
     s_first_check_done = false;
     s_url[0] = '\0';
+    s_firmware_board[0] = '\0';
     s_parser = bb_release_manifest_parse_github;
 
     bb_err_t err = bb_event_topic_register(TOPIC_NAME, &s_topic);
@@ -156,6 +159,22 @@ bb_err_t bb_update_check_set_parser(bb_release_manifest_parse_fn fn)
     if (!s_initialized) return BB_ERR_INVALID_STATE;
     pthread_mutex_lock(&s_lock);
     s_parser = fn ? fn : bb_release_manifest_parse_github;
+    pthread_mutex_unlock(&s_lock);
+    return BB_OK;
+}
+
+bb_err_t bb_update_check_set_firmware_board(const char *board)
+{
+    if (!s_initialized) return BB_ERR_INVALID_STATE;
+    // NULL/empty clears to default; non-empty must fit the internal buffer.
+    if (board && board[0] != '\0' && strlen(board) >= BOARD_MAX) return BB_ERR_INVALID_ARG;
+    pthread_mutex_lock(&s_lock);
+    if (!board || board[0] == '\0') {
+        s_firmware_board[0] = '\0';
+    } else {
+        strncpy(s_firmware_board, board, BOARD_MAX - 1);
+        s_firmware_board[BOARD_MAX - 1] = '\0';
+    }
     pthread_mutex_unlock(&s_lock);
     return BB_OK;
 }
@@ -237,16 +256,21 @@ bb_err_t bb_update_check_run_one(void)
     if (!s_initialized) return BB_ERR_INVALID_ARG;
 
     char url_local[URL_MAX];
+    char board_local[BOARD_MAX];
     bb_release_manifest_parse_fn parser_local;
     bb_update_check_pause_cb_t  pause_local;
     bb_update_check_resume_cb_t resume_local;
     pthread_mutex_lock(&s_lock);
     strncpy(url_local, s_url, sizeof(url_local));
     url_local[sizeof(url_local) - 1] = '\0';
+    strncpy(board_local, s_firmware_board, sizeof(board_local));
+    board_local[sizeof(board_local) - 1] = '\0';
     parser_local  = s_parser;
     pause_local   = s_pause_hook;
     resume_local  = s_resume_hook;
     pthread_mutex_unlock(&s_lock);
+
+    const char *board_name = (board_local[0] != '\0') ? board_local : BOARD_NAME_FALLBACK;
 
     if (url_local[0] == '\0') return BB_ERR_INVALID_STATE;
 
@@ -263,7 +287,7 @@ bb_err_t bb_update_check_run_one(void)
         fc.parse_err = BB_OK;
 
         perr = bb_release_manifest_parse_github_stream_begin(
-            &fc.stream_ctx, BOARD_NAME_FALLBACK,
+            &fc.stream_ctx, board_name,
             tag, sizeof(tag), dl_url, sizeof(dl_url));
         if (perr != BB_OK) {  // LCOV_EXCL_BR_LINE — args always valid here
             return perr;      // LCOV_EXCL_LINE
@@ -362,7 +386,7 @@ bb_err_t bb_update_check_run_one(void)
             return err == BB_OK ? BB_ERR_INVALID_STATE : err;
         }
 
-        perr = parser_local(bc.buf, bc.len, BOARD_NAME_FALLBACK,
+        perr = parser_local(bc.buf, bc.len, board_name,
                             tag, sizeof(tag), dl_url, sizeof(dl_url));
         free(bc.buf);
         if (perr != BB_OK) {
@@ -421,6 +445,7 @@ void bb_update_check_reset_for_test(void)
     memset(&s_status, 0, sizeof(s_status));
     memset(&s_cfg, 0, sizeof(s_cfg));
     s_url[0] = '\0';
+    s_firmware_board[0] = '\0';
     s_topic = NULL;
     s_parser = bb_release_manifest_parse_github;
     s_pause_hook = NULL;

@@ -22,6 +22,19 @@ bb_err_t bb_update_check_set_parser(bb_release_manifest_parse_fn fn)
     return BB_ERR_UNSUPPORTED;
 }
 
+bb_err_t bb_update_check_set_firmware_board(const char *board)
+{
+    (void)board;
+    return BB_ERR_UNSUPPORTED;
+}
+
+bb_err_t bb_update_check_set_hooks(bb_update_check_pause_cb_t pause,
+                                   bb_update_check_resume_cb_t resume)
+{
+    (void)pause; (void)resume;
+    return BB_ERR_UNSUPPORTED;
+}
+
 bb_err_t bb_update_check_now(void)
 {
     return BB_ERR_UNSUPPORTED;

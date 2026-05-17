@@ -60,6 +60,12 @@ static const char *SAME_BODY_TEMPLATE =
     "\"assets\":[{\"name\":\"firmware.bin\","
     "\"browser_download_url\":\"https://example.com/firmware.bin\"}]}";
 
+// Body with a taipanminer-tdongle-s3.bin asset (no firmware.bin).
+static const char *TDONGLE_BODY =
+    "{\"tag_name\":\"v9.9.9\","
+    "\"assets\":[{\"name\":\"taipanminer-tdongle-s3.bin\","
+    "\"browser_download_url\":\"https://example.com/taipanminer-tdongle-s3.bin\"}]}";
+
 static void reset_world(void)
 {
     bb_update_check_reset_for_test();
@@ -663,4 +669,155 @@ void test_bb_update_check_pause_returns_false_custom_parser_skips_fetch(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
     TEST_ASSERT_EQUAL(1, g_pause_calls);
     TEST_ASSERT_EQUAL(0, g_resume_calls);
+}
+
+// ---------------------------------------------------------------------------
+// bb_update_check_set_firmware_board
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_set_firmware_board_before_init_returns_invalid_state(void)
+{
+    reset_world();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE,
+                      bb_update_check_set_firmware_board("taipanminer-tdongle-s3"));
+}
+
+void test_bb_update_check_set_firmware_board_too_long_returns_invalid_arg(void)
+{
+    reset_world();
+    bb_update_check_init(NULL);
+    // 64 chars is exactly BOARD_MAX — must be rejected (>= BOARD_MAX).
+    char too_long[65];
+    memset(too_long, 'a', sizeof(too_long) - 1);
+    too_long[sizeof(too_long) - 1] = '\0';
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_update_check_set_firmware_board(too_long));
+}
+
+void test_bb_update_check_set_firmware_board_null_clears_to_default(void)
+{
+    // After setting a board and then passing NULL, a run with the default
+    // firmware.bin body should match again.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_update_check_set_firmware_board("taipanminer-tdongle-s3"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_set_firmware_board(NULL));
+
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_EQUAL_STRING("v9.9.9", st.latest);
+}
+
+void test_bb_update_check_set_firmware_board_empty_string_clears_to_default(void)
+{
+    // Empty string "" reverts to BOARD_NAME_FALLBACK, same as NULL.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_update_check_set_firmware_board("taipanminer-tdongle-s3"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_set_firmware_board(""));
+
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_EQUAL_STRING("v9.9.9", st.latest);
+}
+
+void test_bb_update_check_firmware_board_matches_named_asset(void)
+{
+    // Setting "taipanminer-tdongle-s3" causes the parser to look for
+    // "taipanminer-tdongle-s3.bin" — the TDONGLE_BODY has exactly that asset.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_update_check_set_firmware_board("taipanminer-tdongle-s3"));
+
+    bb_http_client_set_mock_response(TDONGLE_BODY, strlen(TDONGLE_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_TRUE(st.available);
+    TEST_ASSERT_EQUAL_STRING("v9.9.9", st.latest);
+    TEST_ASSERT_EQUAL_STRING("https://example.com/taipanminer-tdongle-s3.bin",
+                             st.download_url);
+}
+
+void test_bb_update_check_firmware_board_default_does_not_match_named_asset(void)
+{
+    // Without setting a board, the default "firmware" fallback does NOT match
+    // "taipanminer-tdongle-s3.bin" — parse fails with BB_ERR_NOT_FOUND.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    // Do NOT call set_firmware_board — use default.
+
+    bb_http_client_set_mock_response(TDONGLE_BODY, strlen(TDONGLE_BODY), 200);
+    bb_err_t err = bb_update_check_run_one();
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, err);
+
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_FALSE(st.last_check_ok);
+}
+
+void test_bb_update_check_firmware_board_with_bin_suffix_no_match(void)
+{
+    // A consumer that accidentally passes "taipanminer-tdongle-s3.bin"
+    // (with the suffix) should NOT match because the parser appends another
+    // ".bin", producing "taipanminer-tdongle-s3.bin.bin".
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_update_check_set_firmware_board("taipanminer-tdongle-s3.bin"));
+
+    bb_http_client_set_mock_response(TDONGLE_BODY, strlen(TDONGLE_BODY), 200);
+    bb_err_t err = bb_update_check_run_one();
+    // Parser won't find "taipanminer-tdongle-s3.bin.bin" in the asset list.
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, err);
+}
+
+// File-scope state for board_capture_parser (nested functions not portable).
+static const char *s_captured_board = NULL;
+
+static bb_err_t board_capture_parser(const char *body, size_t body_len,
+                                     const char *board, char *out_tag, size_t tag_sz,
+                                     char *out_url, size_t url_sz)
+{
+    (void)body; (void)body_len;
+    s_captured_board = board;
+    strncpy(out_tag, "v1.2.3", tag_sz - 1); out_tag[tag_sz - 1] = '\0';
+    strncpy(out_url, "http://x/f.bin", url_sz - 1); out_url[url_sz - 1] = '\0';
+    return BB_OK;
+}
+
+void test_bb_update_check_firmware_board_custom_parser_receives_board(void)
+{
+    // Custom-parser path: the board argument received by the parser must be
+    // the overridden board name (not BOARD_NAME_FALLBACK).
+    s_captured_board = NULL;
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(board_capture_parser);
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_update_check_set_firmware_board("taipanminer-bitaxe-650"));
+
+    bb_http_client_set_mock_response("x", 1, 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    TEST_ASSERT_NOT_NULL(s_captured_board);
+    TEST_ASSERT_EQUAL_STRING("taipanminer-bitaxe-650", s_captured_board);
 }
