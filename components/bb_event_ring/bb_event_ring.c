@@ -182,16 +182,17 @@ bb_err_t bb_event_ring_attach(bb_event_topic_t topic, size_t capacity,
     return bb_event_ring_attach_ex(topic, capacity, max_entry, false, out);
 }
 
-// Snapshot entry layout shared between prep and replay loop.
+// Snapshot entry metadata (header). Payloads are stored separately in a flat buffer.
 typedef struct {
     int32_t id;
     size_t size;
-    uint8_t payload[512];  // assumes max_entry <= 512
-} snapshot_entry_t;
+} snapshot_header_t;
 
 typedef struct {
     bb_event_ring_t ring;
-    snapshot_entry_t *snapshot;
+    snapshot_header_t *headers;
+    uint8_t *payloads;
+    size_t max_entry;
     size_t snap_count;
 } snapshot_ctx_t;
 
@@ -203,12 +204,12 @@ static void snapshot_prep(void *arg)
     // Walk entries from oldest to newest into the pre-allocated snapshot buffer.
     for (size_t i = 0; i < ring->count; i++) {
         size_t idx = (ring->tail + i) % ring->capacity;
-        ctx->snapshot[i].id = ring->entries[idx].id;
-        ctx->snapshot[i].size = ring->entries[idx].size;
-        if (ctx->snapshot[i].size > 0) {
-            memcpy(ctx->snapshot[i].payload,
+        ctx->headers[i].id = ring->entries[idx].id;
+        ctx->headers[i].size = ring->entries[idx].size;
+        if (ctx->headers[i].size > 0) {
+            memcpy(ctx->payloads + (i * ctx->max_entry),
                    ring->payload_buf + (idx * ring->max_entry),
-                   ctx->snapshot[i].size);
+                   ctx->headers[i].size);
         }
     }
     ctx->snap_count = ring->count;
@@ -222,31 +223,42 @@ bb_err_t bb_event_ring_subscribe_with_replay(bb_event_ring_t ring,
         return BB_ERR_INVALID_ARG;
     }
 
-    // Pre-allocate worst-case snapshot buffer before taking the lock. Using
+    // Pre-allocate worst-case snapshot buffers before taking the lock. Using
     // ring->capacity (not ->count) avoids racing with ring_capture for the size.
-    snapshot_entry_t *snapshot = (snapshot_entry_t *)s_calloc(ring->capacity, sizeof(*snapshot));
-    if (!snapshot) {
-        bb_log_e(TAG, "failed to allocate snapshot");
+    // Allocate two buffers: headers and payloads (right-sized to max_entry, not fixed 512).
+    snapshot_header_t *headers = (snapshot_header_t *)s_calloc(ring->capacity, sizeof(*headers));
+    if (!headers) {
+        bb_log_e(TAG, "failed to allocate snapshot headers");
         return BB_ERR_NO_SPACE;
     }
 
-    snapshot_ctx_t ctx = { .ring = ring, .snapshot = snapshot, .snap_count = 0 };
+    uint8_t *payloads = (uint8_t *)s_calloc(ring->capacity, ring->max_entry);
+    if (!payloads) {
+        bb_log_e(TAG, "failed to allocate snapshot payloads");
+        s_free(headers);
+        return BB_ERR_NO_SPACE;
+    }
+
+    snapshot_ctx_t ctx = { .ring = ring, .headers = headers, .payloads = payloads,
+                           .max_entry = ring->max_entry, .snap_count = 0 };
 
     bb_err_t err = bb_event_subscribe_with_prep(ring->topic, cb, user,
                                                 snapshot_prep, &ctx, out_sub);
     if (err != BB_OK) {
-        s_free(snapshot);
+        s_free(payloads);
+        s_free(headers);
         bb_log_e(TAG, "failed to subscribe");
         return err;
     }
 
     // Replay snapshot (outside lock, so new events post naturally)
     for (size_t i = 0; i < ctx.snap_count; i++) {
-        cb(ring->topic, snapshot[i].id, snapshot[i].payload, snapshot[i].size, user);
+        cb(ring->topic, headers[i].id, payloads + (i * ring->max_entry), headers[i].size, user);
     }
 
     size_t snap_count = ctx.snap_count;
-    s_free(snapshot);
+    s_free(payloads);
+    s_free(headers);
     bb_log_d(TAG, "replayed %zu entries", snap_count);
     return BB_OK;
 }
