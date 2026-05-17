@@ -377,7 +377,7 @@ static void run_fidelity(const fidelity_entry_t *e)
     TEST_ASSERT_EQUAL_MESSAGE(BB_OK, end_rc, e->route);
 
     // --- status check ---
-    char msg[256];
+    char msg[512];
     snprintf(msg, sizeof(msg), "%s: expected status %d got %d",
              e->route, e->expected_status, cap.status);
     TEST_ASSERT_EQUAL_INT_MESSAGE(e->expected_status, cap.status, msg);
