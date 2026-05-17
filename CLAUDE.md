@@ -34,6 +34,8 @@ When extending an existing component: match the existing style even if older cod
 
 Use `bb_log_{e,w,i,d,v}(tag, fmt, ...)` macros for all breadboard component code. On ESP-IDF these expand to `ESP_LOG{E,W,I,D,V}`; on host they map to `fprintf` (debug/verbose compile out to keep test output clean).
 
+The `bb_log_stream` ringbuffer is lazy-allocated on the first call to `bb_log_stream_init()` (heap-allocated, SPIRAM-preferred with fallback to default heap), reducing BSS footprint by ~6 KB when no log consumer is attached. The allocation is idempotent; subsequent calls return `BB_OK` immediately. Buffer size is tunable via `CONFIG_BB_LOG_STREAM_BUF_BYTES` (default 6144 bytes).
+
 ## Layout
 
 - Components under `components/<name>/` with public headers.

@@ -29,4 +29,13 @@ config BB_LOG_STREAM_AUTOREGISTER
         Disable to manually call bb_log_stream_init(). Independent of
         CONFIG_BB_LOG_ROUTES (stream capture vs. HTTP routes).
 
+config BB_LOG_STREAM_BUF_BYTES
+    int "Stream ringbuffer size (bytes)"
+    default 6144
+    range 512 65536
+    help
+        Size of the ringbuffer used to capture log lines for SSE consumers.
+        Allocated on heap (SPIRAM-preferred with fallback) only when
+        bb_log_stream_init() is called. Default 6144 bytes (6 KB).
+
 endmenu
