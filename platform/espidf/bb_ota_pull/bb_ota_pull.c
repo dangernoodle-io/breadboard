@@ -1,4 +1,5 @@
 #include "bb_ota_pull.h"
+#include "bb_update_check.h"
 #include "bb_release_manifest.h"
 #include "bb_http_client.h"
 #include "bb_json.h"
@@ -64,9 +65,6 @@ static const char *TAG = "bb_ota_pull";
 
 #define OTA_TASK_STACK 12288
 #define OTA_TASK_PRIO  3
-/* TLS handshake + JSON parse worker shares the shared bb_http_client floor. */
-#define OTA_CHECK_STACK BB_HTTP_CLIENT_TASK_STACK
-#define OTA_CHECK_PRIO 3
 
 static volatile bool s_ota_in_progress = false;
 static int s_ota_task_core = 1;  // default: Core 1 (bitaxe-friendly, frees Core 0 for httpd/stratum)
@@ -143,13 +141,7 @@ static void ota_set_error(const char *fmt, ...)
 typedef struct {
     char latest_tag[32];
     char asset_url[256];
-    bool update_available;
-} ota_pull_check_result_t;
-
-static bool s_check_in_progress = false;
-static bool s_check_done = false;
-static bool s_check_failed = false;
-static ota_pull_check_result_t s_cached_check = {0};
+} ota_worker_arg_t;
 
 #endif // ESP_PLATFORM
 
@@ -261,29 +253,6 @@ bb_err_t bb_ota_pull_fetch_manifest_for_test(char *out_tag, size_t tag_cap,
 
 #ifdef ESP_PLATFORM
 
-static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
-{
-    bb_err_t err = ota_fetch_manifest(result->latest_tag, sizeof(result->latest_tag),
-                                      result->asset_url,  sizeof(result->asset_url));
-    if (err != BB_OK) {
-        bb_log_e(TAG, "manifest fetch/parse failed: %d", (int)err);
-        return ESP_FAIL;
-    }
-
-    const esp_app_desc_t *running = esp_app_get_description();
-    result->update_available = strncmp(running->version, "dev", 3) == 0 ||
-                               strcmp(result->latest_tag, running->version) != 0;
-
-    if (result->update_available) {
-        bb_log_i(TAG, "update available: %s -> %s",
-                 running->version, result->latest_tag);
-    } else {
-        bb_log_i(TAG, "already up to date: %s", result->latest_tag);
-    }
-
-    return ESP_OK;
-}
-
 /**
  * Reconfigure the task WDT timeout while preserving the idle-task mask and
  * panic-on-timeout policy from the firmware's Kconfig defaults.
@@ -354,9 +323,9 @@ static void ota_worker_task(void *arg)
         bb_log_w(TAG, "esp_task_wdt_delete: %s", esp_err_to_name(wdt_err));
     }
 
-    ota_pull_check_result_t result;
+    ota_worker_arg_t result;
     if (arg) {
-        memcpy(&result, arg, sizeof(ota_pull_check_result_t));
+        memcpy(&result, arg, sizeof(ota_worker_arg_t));
         free(arg);
     } else {
         ota_task_exit();
@@ -565,149 +534,20 @@ resume_and_exit:
 }
 
 /**
- * OTA check worker task - performs the version check in background.
- */
-static void ota_check_worker_task(void *arg)
-{
-    // Remove this task from the task WDT for the same reason as ota_worker_task:
-    // the TLS check involves blocking mbedtls recv that must not trip the WDT.
-    esp_err_t wdt_err = esp_task_wdt_delete(NULL);
-    if (wdt_err != ESP_OK && wdt_err != ESP_ERR_NOT_FOUND) {
-        bb_log_w(TAG, "esp_task_wdt_delete: %s", esp_err_to_name(wdt_err));
-    }
-
-    bb_log_i(TAG, "ota check worker on core %d", xPortGetCoreID());
-
-    // Cooperatively pause work to free memory for TLS handshake
-    bool paused = false;
-    if (s_pause_cb) {
-        paused = s_pause_cb();
-    }
-
-    // Extend the task WDT timeout for the manifest fetch. The pause window
-    // plus TLS handshake / response read on weak WiFi can exceed
-    // CONFIG_ESP_TASK_WDT_TIMEOUT_S and trip subscribed tasks. Restored on
-    // exit via ota_task_exit().
-    ota_wdt_extend();
-
-    // Acquire PM lock to prevent DVFS during HTTP/TLS operations
-    ota_pm_lock_acquire();
-
-    ota_pull_check_result_t result = {0};
-    esp_err_t err = ota_pull_check(&result);
-
-    // Release PM lock after the check is complete
-    ota_pm_lock_release();
-
-    bool ok = (err == ESP_OK);
-    taskENTER_CRITICAL(&s_ota_status_mux);
-    if (ok) {
-        memcpy(&s_cached_check, &result, sizeof(ota_pull_check_result_t));
-        s_check_done = true;
-        s_check_failed = false;
-    } else {
-        s_check_done = false;
-        s_check_failed = true;
-    }
-    s_check_in_progress = false;
-    taskEXIT_CRITICAL(&s_ota_status_mux);
-
-    if (ok) {
-        bb_log_i(TAG, "background check completed");
-    } else {
-        bb_log_e(TAG, "background check failed");
-    }
-
-    // Resume mining after the "completed" log so the serial output reads in
-    // the order operators expect (paused → result → completed → resumed).
-    if (paused && s_resume_cb) {
-        s_resume_cb();
-    }
-
-    ota_task_exit();
-}
-
-/**
- * GET /api/ota/check - Check for available updates (non-blocking)
+ * GET /api/ota/check - Kick the bb_update_check worker and return immediately.
+ *
+ * bb_update_check owns the single persistent 8 KB worker (s_worker). Delegating
+ * here eliminates the duplicate per-call 12 KB ota_check_worker_task that
+ * previously caused OOM under fragmented heap on bitaxe-650 (TA-378). Callers
+ * poll GET /api/update/status for the result; the response shape is unchanged
+ * so the webui does not need to change.
  */
 static bb_err_t ota_check_handler(bb_http_request_t *req)
 {
-    // Snapshot state under critical section. When the previous background
-    // check failed, clear the sticky failure flag and fall through to the
-    // retrigger path so the CLI can recover without the device needing a
-    // reboot.
-    bool check_done, check_in_progress;
-    ota_pull_check_result_t cached;
-    taskENTER_CRITICAL(&s_ota_status_mux);
-    check_done = s_check_done;
-    check_in_progress = s_check_in_progress;
-    if (s_check_failed) {
-        s_check_failed = false;
-    }
-    if (check_done) {
-        memcpy(&cached, &s_cached_check, sizeof(cached));
-        s_check_done = false;  // invalidate cache
-    }
-    taskEXIT_CRITICAL(&s_ota_status_mux);
-
-    // If we have a cached result, return it
-    if (check_done) {
-        bb_json_t root = bb_json_obj_new();
-        if (!root) {
-            const char *error_response = "{\"error\":\"json_error\"}";
-            bb_http_resp_set_status(req, 500);
-            bb_http_resp_set_type(req, "application/json");
-            bb_http_resp_send(req, error_response, strlen(error_response));
-            return BB_OK;
-        }
-
-        const esp_app_desc_t *running_desc = esp_app_get_description();
-        if (running_desc) {
-            bb_json_obj_set_string(root, "current_version", running_desc->version);
-        }
-        bb_json_obj_set_string(root, "latest_version", cached.latest_tag);
-        bb_json_obj_set_bool(root, "update_available", cached.update_available);
-
-        char asset_name[128];
-        const char *board = s_firmware_board[0] != '\0' ? s_firmware_board : "unknown";
-        snprintf(asset_name, sizeof(asset_name), "%s.bin", board);
-        bb_json_obj_set_string(root, "asset", asset_name);
-
-        bb_err_t err = bb_http_resp_send_json(req, root);
-        bb_json_free(root);
-        return err;
-    }
-
-    // Trigger background check if not already running
-    if (!check_in_progress) {
-        taskENTER_CRITICAL(&s_ota_status_mux);
-        s_check_in_progress = true;
-        taskEXIT_CRITICAL(&s_ota_status_mux);
-
-        BaseType_t task_result = xTaskCreatePinnedToCore(
-            ota_check_worker_task,
-            "ota_chk",
-            OTA_CHECK_STACK,
-            NULL,
-            OTA_CHECK_PRIO,
-            NULL,
-            s_ota_task_core
-        );
-
-        if (task_result != pdPASS) {
-            taskENTER_CRITICAL(&s_ota_status_mux);
-            s_check_in_progress = false;
-            taskEXIT_CRITICAL(&s_ota_status_mux);
-            const char *response = "{\"error\":\"task_create_failed\"}";
-            bb_http_resp_set_status(req, 500);
-            bb_http_resp_set_type(req, "application/json");
-            bb_http_resp_send(req, response, strlen(response));
-            return BB_OK;
-        }
-    }
+    bb_update_check_now();  // non-blocking kick; ignore return (no URL set is OK)
 
     const char *response = "{\"status\":\"checking\"}";
-    bb_http_resp_set_status(req, 202);
+    bb_http_resp_set_status(req, 200);
     bb_http_resp_set_type(req, "application/json");
     bb_http_resp_send(req, response, strlen(response));
     return BB_OK;
@@ -715,6 +555,10 @@ static bb_err_t ota_check_handler(bb_http_request_t *req)
 
 /**
  * POST /api/ota/update - Trigger firmware update
+ *
+ * Reads bb_update_check's cached status instead of maintaining a parallel
+ * cache. Returns 503 if no successful check has run yet, 409 if the check
+ * reports no update available or an OTA is already in progress.
  */
 static bb_err_t ota_update_handler(bb_http_request_t *req)
 {
@@ -731,14 +575,21 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
     s_ota_in_progress = true;
     taskEXIT_CRITICAL(&s_ota_status_mux);
 
-    // Use cached check result instead of hitting GitHub again — avoids a second
-    // TLS handshake that fails under memory pressure when work is active.
-    ota_pull_check_result_t result = {0};
-    taskENTER_CRITICAL(&s_ota_status_mux);
-    memcpy(&result, &s_cached_check, sizeof(result));
-    taskEXIT_CRITICAL(&s_ota_status_mux);
+    // Read bb_update_check's cached status — no second TLS handshake needed.
+    bb_update_check_status_t uc_status;
+    bb_err_t uc_err = bb_update_check_get_status(&uc_status);
+    if (uc_err != BB_OK || !uc_status.last_check_ok) {
+        taskENTER_CRITICAL(&s_ota_status_mux);
+        s_ota_in_progress = false;
+        taskEXIT_CRITICAL(&s_ota_status_mux);
+        const char *response = "{\"error\":\"no_recent_check\"}";
+        bb_http_resp_set_status(req, 503);
+        bb_http_resp_set_type(req, "application/json");
+        bb_http_resp_send(req, response, strlen(response));
+        return BB_OK;
+    }
 
-    if (!result.update_available) {
+    if (!uc_status.available) {
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
@@ -748,8 +599,8 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         return BB_OK;
     }
 
-    // Allocate task argument
-    ota_pull_check_result_t *task_arg = malloc(sizeof(ota_pull_check_result_t));
+    // Build a task argument from the cached check status.
+    ota_worker_arg_t *task_arg = malloc(sizeof(ota_worker_arg_t));
     if (!task_arg) {
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
@@ -761,7 +612,11 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         return BB_OK;
     }
 
-    memcpy(task_arg, &result, sizeof(ota_pull_check_result_t));
+    strncpy(task_arg->latest_tag, uc_status.latest,       sizeof(task_arg->latest_tag) - 1);
+    task_arg->latest_tag[sizeof(task_arg->latest_tag) - 1] = '\0';
+    strncpy(task_arg->asset_url,  uc_status.download_url, sizeof(task_arg->asset_url) - 1);
+    task_arg->asset_url[sizeof(task_arg->asset_url) - 1] = '\0';
+
     taskENTER_CRITICAL(&s_ota_status_mux);
     s_ota_status.state = OTA_STATE_CHECKING;
     s_ota_status.progress_pct = 0;
@@ -841,18 +696,9 @@ static bb_err_t ota_status_handler(bb_http_request_t *req)
 static const bb_route_response_t s_ota_check_responses[] = {
     { 200, "application/json",
       "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"current_version\":{\"type\":\"string\"},"
-      "\"latest_version\":{\"type\":\"string\"},"
-      "\"update_available\":{\"type\":\"boolean\"},"
-      "\"asset\":{\"type\":\"string\"}},"
-      "\"required\":[\"latest_version\",\"update_available\"]}",
-      "cached check result with version comparison" },
-    { 202, "application/json",
-      "{\"type\":\"object\","
       "\"properties\":{\"status\":{\"type\":\"string\"}},"
       "\"required\":[\"status\"]}",
-      "check triggered in background" },
+      "check kicked; poll GET /api/update/status for result" },
     { 0 },
 };
 
@@ -880,7 +726,12 @@ static const bb_route_response_t s_ota_update_responses[] = {
       "{\"type\":\"object\","
       "\"properties\":{\"error\":{\"type\":\"string\"}},"
       "\"required\":[\"error\"]}",
-      "update already in progress" },
+      "update already in progress or no update available" },
+    { 503, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "no recent successful check — run GET /api/ota/check first" },
     { 0 },
 };
 
@@ -961,42 +812,12 @@ BB_REGISTRY_REGISTER_N(bb_ota_pull, bb_ota_pull_init, 3);
 
 /**
  * Trigger an immediate OTA check (non-blocking).
+ * Delegates to bb_update_check_now() — the single source of truth for
+ * manifest fetches. bb_update_check owns the persistent 8 KB worker.
  */
 bb_err_t bb_ota_pull_check_now(void)
 {
-    if (s_releases_url[0] == '\0') {
-        bb_log_e(TAG, "releases URL not set; call bb_ota_pull_set_releases_url() first");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    bool check_in_progress;
-    taskENTER_CRITICAL(&s_ota_status_mux);
-    check_in_progress = s_check_in_progress;
-    s_check_in_progress = true;
-    taskEXIT_CRITICAL(&s_ota_status_mux);
-
-    if (check_in_progress) {
-        return ESP_ERR_INVALID_STATE;  // Already checking
-    }
-
-    BaseType_t task_result = xTaskCreatePinnedToCore(
-        ota_check_worker_task,
-        "ota_chk",
-        OTA_CHECK_STACK,
-        NULL,
-        OTA_CHECK_PRIO,
-        NULL,
-        s_ota_task_core
-    );
-
-    if (task_result != pdPASS) {
-        taskENTER_CRITICAL(&s_ota_status_mux);
-        s_check_in_progress = false;
-        taskEXIT_CRITICAL(&s_ota_status_mux);
-        return ESP_ERR_NO_MEM;
-    }
-
-    return ESP_OK;
+    return bb_update_check_now();
 }
 
 void bb_ota_pull_set_task_core(int core)
