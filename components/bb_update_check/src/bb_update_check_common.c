@@ -445,6 +445,14 @@ bb_err_t bb_update_check_now(void)
     return bb_update_check_run_one();
 }
 
+#ifndef ESP_PLATFORM
+// Host/Arduino stub: no worker task, so kick is synchronous like now().
+bb_err_t bb_update_check_kick(void)
+{
+    return bb_update_check_now();
+}
+#endif
+
 // ---------------------------------------------------------------------------
 // Test hooks
 // ---------------------------------------------------------------------------

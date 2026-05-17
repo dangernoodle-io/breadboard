@@ -990,3 +990,27 @@ void test_bb_update_check_get_status_reflects_failure(void)
     TEST_ASSERT_FALSE(st.last_check_ok);
     TEST_ASSERT_FALSE(st.available);
 }
+
+// ---------------------------------------------------------------------------
+// bb_update_check_kick
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_kick_returns_ok_on_host(void)
+{
+    // On host/Arduino backends, bb_update_check_kick() provides a synchronous
+    // stub that calls bb_update_check_now(). This test verifies the host stub
+    // returns BB_OK and performs the check without any worker task involvement.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+
+    // On host, kick() is synchronous and should drive a check.
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_kick());
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_TRUE(st.available);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_EQUAL_STRING("v9.9.9", st.latest);
+}
