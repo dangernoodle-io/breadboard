@@ -64,9 +64,8 @@ static const char *TAG = "bb_ota_pull";
 
 #define OTA_TASK_STACK 12288
 #define OTA_TASK_PRIO  3
-/* 8 KB headroom for the TLS handshake + JSON parse worker. Reduced from 12 KB
- * to further conserve transient stack on heap-pressed boards. */
-#define OTA_CHECK_STACK 8192
+/* TLS handshake + JSON parse worker shares the shared bb_http_client floor. */
+#define OTA_CHECK_STACK BB_HTTP_CLIENT_TASK_STACK
 #define OTA_CHECK_PRIO 3
 
 static volatile bool s_ota_in_progress = false;

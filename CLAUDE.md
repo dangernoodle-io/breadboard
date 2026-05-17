@@ -122,6 +122,8 @@ The streaming parser (`bb_release_manifest_parse_github_stream_{begin,feed,end}`
 
 **Pause/resume hooks.** `bb_update_check_set_hooks(pause_fn, resume_fn)` lets consumers bracket each manifest fetch with optional callbacks. `pause_fn` is called just before `bb_http_client_get_stream`; `resume_fn` immediately after — on both success and failure paths. This mirrors `bb_ota_pull_set_hooks` and exists for the same reason: on tight-heap dual-core boards (tdongle-s3, bitaxe), the mbedTLS handshake transient (~20–30 KB) on top of an active mining workload causes OOMs. Consumers suspend the ASIC/mining task in the pause hook and resume it in the resume hook. Either argument may be NULL to disable that side.
 
+**Task stack budget.** Any task that calls `bb_http_client_get*` must allocate at least `BB_HTTP_CLIENT_TASK_STACK` bytes (8 KiB default, `CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE`). The mbedTLS handshake + cert-bundle parse path needs 5–8 KiB; a smaller task stack overflows into adjacent heap blocks and corrupts heap metadata, surfacing as an unrelated assertion in the next `calloc`. Both `bb_update_check` and `bb_ota_pull` reference the macro so the budget stays consistent.
+
 ## Provisioning UI
 
 The `bb_prov` component manages the provisioning state machine and HTTP `/save` handler. Callers MUST supply at least one asset with `path="/"` to `bb_prov_start`. For bare-minimum bringup, add `REQUIRES bb_prov_default_form` and pass `&bb_prov_default_form_asset`. Custom UIs pass their own asset array instead. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.

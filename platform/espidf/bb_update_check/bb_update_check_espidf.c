@@ -4,6 +4,7 @@
 #include "bb_update_check.h"
 #include "bb_update_check_internal.h"
 #include "bb_http.h"
+#include "bb_http_client.h"
 #include "bb_log.h"
 #include "bb_registry.h"
 #include "bb_timer.h"
@@ -107,7 +108,10 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
 
     s_kick = xSemaphoreCreateBinary();
     if (!s_kick) return BB_ERR_NO_SPACE;
-    if (xTaskCreate(worker_task, "upd_check", 4096, NULL, 1, &s_worker) != pdPASS) {
+    // Stack sized for the mbedTLS handshake + cert-bundle parse path inside
+    // bb_http_client_get_stream. Shared with bb_ota_pull via the same macro.
+    if (xTaskCreate(worker_task, "upd_check", BB_HTTP_CLIENT_TASK_STACK,
+                    NULL, 1, &s_worker) != pdPASS) {
         vSemaphoreDelete(s_kick);
         s_kick = NULL;
         return BB_ERR_INVALID_STATE;

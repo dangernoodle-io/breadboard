@@ -15,4 +15,17 @@ config BB_HTTP_CLIENT_DEFAULT_MAX_ATTEMPTS
     help
         Default number of transport attempts before giving up.
 
+config BB_HTTP_CLIENT_TASK_STACK_SIZE
+    int "Minimum task stack size for callers of bb_http_client_get* (bytes)"
+    default 8192
+    range 4096 16384
+    help
+        Any FreeRTOS task that calls bb_http_client_get or
+        bb_http_client_get_stream must allocate at least this much stack to
+        cover the mbedTLS handshake + cert-bundle parse path. 8 KiB is the
+        empirically-validated floor on ESP32-S3; 4 KiB overflows into adjacent
+        heap. Use the BB_HTTP_CLIENT_TASK_STACK macro from bb_http_client.h
+        when calling xTaskCreate so the budget stays consistent across
+        consumers.
+
 endmenu

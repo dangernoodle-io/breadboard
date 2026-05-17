@@ -2,6 +2,22 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "bb_core.h"
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
+
+// Minimum FreeRTOS task stack size (bytes) for any task that calls
+// bb_http_client_get or bb_http_client_get_stream. Covers the mbedTLS
+// handshake + cert-bundle parse path. Pass to xTaskCreate so the budget
+// stays consistent across consumers (bb_ota_pull, bb_update_check, ...).
+// Override via CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE.
+#ifndef BB_HTTP_CLIENT_TASK_STACK
+#  if defined(CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE)
+#    define BB_HTTP_CLIENT_TASK_STACK CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE
+#  else
+#    define BB_HTTP_CLIENT_TASK_STACK 8192
+#  endif
+#endif
 
 #ifdef __cplusplus
 extern "C" {
