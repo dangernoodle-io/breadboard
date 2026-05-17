@@ -782,6 +782,7 @@ void test_ring_subscribe_with_replay_snapshot_calloc_fails(void);
 void test_ring_subscribe_when_subscriber_pool_exhausted(void);
 void test_bb_event_ring_capture_null_data_with_size(void);
 void test_bb_event_ring_attach_subscribe_failure_frees_all(void);
+void test_bb_event_ring_subscribe_replay_second_alloc_failure_frees_first(void);
 
 // Forward declarations from test_bb_event_ring_retained.c
 void test_bb_event_ring_attach_ex_retained_true_returns_ok(void);
@@ -921,6 +922,7 @@ void test_bb_event_routes_client_acquire_entries_calloc_fails(void);
 void test_bb_event_routes_client_acquire_payload_calloc_fails(void);
 void test_bb_event_routes_attach_ring_allocation_fails(void);
 void test_bb_event_routes_client_acquire_subscribe_failure_rolls_back(void);
+void test_bb_event_routes_attach_ex_retained_true(void);
 
 // Forward declarations from test_bb_event_routes_diag.c
 void test_bb_event_routes_topic_count_zero_before_attach(void);
@@ -1752,6 +1754,7 @@ int main(void) {
     RUN_TEST(test_ring_subscribe_when_subscriber_pool_exhausted);
     RUN_TEST(test_bb_event_ring_capture_null_data_with_size);
     RUN_TEST(test_bb_event_ring_attach_subscribe_failure_frees_all);
+    RUN_TEST(test_bb_event_ring_subscribe_replay_second_alloc_failure_frees_first);
 
     // bb_event_ring retained-flag tests
     RUN_TEST(test_bb_event_ring_attach_ex_retained_true_returns_ok);
@@ -1891,6 +1894,7 @@ int main(void) {
     RUN_TEST(test_bb_event_routes_client_acquire_payload_calloc_fails);
     RUN_TEST(test_bb_event_routes_attach_ring_allocation_fails);
     RUN_TEST(test_bb_event_routes_client_acquire_subscribe_failure_rolls_back);
+    RUN_TEST(test_bb_event_routes_attach_ex_retained_true);
 
     // bb_event_routes diag tests
     RUN_TEST(test_bb_event_routes_topic_count_zero_before_attach);

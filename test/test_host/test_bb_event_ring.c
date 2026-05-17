@@ -701,3 +701,38 @@ void test_bb_event_ring_attach_subscribe_failure_frees_all(void) {
     /* Cleanup. */
     for (int i = 0; i < filled; i++) bb_event_unsubscribe(filler[i]);
 }
+
+/* Test: second alloc (payloads buffer) fails in bb_event_ring_subscribe_with_replay.
+   Covers line 238: s_free(headers) in the cleanup path after the second calloc fails.
+   Forces first calloc (headers) to succeed and second calloc (payloads) to fail. */
+void test_bb_event_ring_subscribe_replay_second_alloc_failure_frees_first(void) {
+    setup_sync_mode();
+    bb_event_init(&small_cfg);
+
+    bb_event_topic_t topic = NULL;
+    bb_event_topic_register("test.ring_replay_second_fail", &topic);
+
+    bb_event_ring_t ring = NULL;
+    bb_err_t err = bb_event_ring_attach(topic, 4, 64, &ring);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    /* Post one event so replay has something */
+    bb_event_post(topic, 100, "data", 5);
+    bb_event_pump(0);
+
+    /* Set allocator to fail on 2nd calloc (payloads buffer) */
+    test_alloc_reset();
+    bb_event_ring_set_allocator(test_failing_calloc, free);
+    test_alloc_fail_at = 1;  /* 0=headers succeeds, 1=payloads fails */
+
+    /* Attempt subscribe_with_replay; should fail and free headers */
+    handler_log_t log = {0};
+    bb_event_sub_t sub = NULL;
+    err = bb_event_ring_subscribe_with_replay(ring, record_handler, &log, &sub);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    TEST_ASSERT_NULL(sub);  /* No subscriber created on error */
+
+    /* Restore allocator */
+    bb_event_ring_set_allocator(NULL, NULL);
+    bb_event_ring_detach(ring);
+}

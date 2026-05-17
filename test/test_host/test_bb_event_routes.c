@@ -558,21 +558,39 @@ void test_bb_event_routes_client_acquire_subscribe_failure_rolls_back(void)
     bb_event_topic_register("sub.topic2", &t2);
     bb_event_routes_attach("sub.topic2");
 
-    /* Make snapshot fail on the 2nd ring (first sub succeeds; second triggers
-     * rollback). */
+    /* Make subscribe_with_replay fail on the 2nd topic's first alloc. The
+     * snapshot path callocs twice per subscribe (headers, then payloads), so
+     * 4 callocs total across both topics. test_alloc_fail_at=2 means topic 1
+     * completes (callocs 0,1) and topic 2's header alloc fails (calloc 2) —
+     * c->num_subs=1 at that point, exercising the rollback unsubscribe loop. */
     test_alloc_reset();
-    test_alloc_fail_at = 1;  /* index of failing call inside subscribe_with_replay snapshot */
+    test_alloc_fail_at = 2;
     bb_event_ring_set_allocator(test_failing_calloc, free);
 
     bb_event_routes_client_t *c = NULL;
-    /* Acquire may succeed (no ring entries means snapshot calloc isn't called) */
-    /* or fail with NO_SPACE; either way no leak. */
     bb_err_t err = bb_event_routes_client_acquire(&c);
 
     bb_event_ring_set_allocator(NULL, NULL);
     test_alloc_fail_at = -1;
 
-    if (err == BB_OK) bb_event_routes_client_release(c);
-    /* Both outcomes are valid; the goal is exercising the rollback paths. */
-    TEST_ASSERT_TRUE(err == BB_OK || err == BB_ERR_NO_SPACE);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+}
+
+void test_bb_event_routes_attach_ex_retained_true(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(&small_cfg);
+
+    bb_event_topic_t t;
+    bb_event_topic_register("retained.topic", &t);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_attach_ex("retained.topic", true));
+
+    /* Verify the topic is attached and accessible via topic_info. */
+    const char *name = NULL;
+    bb_event_ring_t ring = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_topic_info(0, &name, &ring));
+    TEST_ASSERT_EQUAL_STRING("retained.topic", name);
+    TEST_ASSERT_NOT_NULL(ring);
 }
