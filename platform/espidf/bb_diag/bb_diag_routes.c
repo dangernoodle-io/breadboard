@@ -16,6 +16,11 @@
 #include <stdio.h>
 #endif
 
+#include "lwip/tcpip.h"
+#include "lwip/tcp.h"
+#include "lwip/ip_addr.h"
+#include "lwip/priv/tcp_priv.h"
+
 static const char *TAG = "bb_diag_routes";
 
 static bb_err_t panic_get_handler(bb_http_request_t *req)
@@ -411,6 +416,129 @@ static const bb_route_t s_tasks_get_route = {
 };
 #endif /* CONFIG_FREERTOS_USE_TRACE_FACILITY */
 
+// --- sockets ---
+// Walks LWIP TCP PCB lists under LOCK_TCPIP_CORE and emits a JSON snapshot
+// of per-state counts and individual PCBs. Designed for hunting CLOSE_WAIT
+// pile-ups that exhaust the LWIP socket pool under sustained SSE churn.
+
+static const char *s_tcp_state_names[] = {
+    "CLOSED", "LISTEN", "SYN_SENT", "SYN_RCVD",
+    "ESTABLISHED", "FIN_WAIT_1", "FIN_WAIT_2",
+    "CLOSE_WAIT", "CLOSING", "LAST_ACK", "TIME_WAIT"
+};
+#define S_TCP_STATE_COUNT (sizeof(s_tcp_state_names) / sizeof(s_tcp_state_names[0]))
+
+// Number of state names must cover all states (0..TIME_WAIT=10).
+_Static_assert(S_TCP_STATE_COUNT == 11, "tcp state name table mismatch");
+
+static bb_err_t sockets_get_handler(bb_http_request_t *req)
+{
+    bb_json_t root = bb_json_obj_new();
+    if (!root) return bb_http_resp_send_err(req, 500, "JSON alloc failed");
+
+    // Arrays for per-state counts (indices map to enum tcp_state values).
+    uint32_t by_state[S_TCP_STATE_COUNT] = {0};
+    uint32_t in_use = 0;
+
+    bb_json_t pcbs_arr = bb_json_arr_new();
+    if (!pcbs_arr) {
+        bb_json_free(root);
+        return bb_http_resp_send_err(req, 500, "JSON alloc failed");
+    }
+
+    // Walk all four PCB lists under the LWIP core lock.
+    // LOCK_TCPIP_CORE is a no-op when LWIP_TCPIP_CORE_LOCKING=0, so this is
+    // always safe regardless of the compile-time locking configuration.
+    LOCK_TCPIP_CORE();
+
+    // Four lists: active, TIME_WAIT, bound, LISTEN.
+    struct tcp_pcb *lists[4];
+    lists[0] = tcp_active_pcbs;
+    lists[1] = tcp_tw_pcbs;
+    lists[2] = tcp_bound_pcbs;
+    lists[3] = (struct tcp_pcb *)tcp_listen_pcbs.pcbs;
+
+    for (int li = 0; li < 4; li++) {
+        for (struct tcp_pcb *p = lists[li]; p != NULL; p = p->next) {
+            enum tcp_state st = p->state;
+            uint32_t idx = (uint32_t)st;
+            if (idx < S_TCP_STATE_COUNT) {
+                by_state[idx]++;
+            }
+            if (st != CLOSED) {
+                in_use++;
+            }
+
+            // Per-PCB entry.
+            char remote_ip_str[40];
+            ipaddr_ntoa_r(&p->remote_ip, remote_ip_str, sizeof(remote_ip_str));
+
+            const char *state_name = (idx < S_TCP_STATE_COUNT)
+                                     ? s_tcp_state_names[idx] : "UNKNOWN";
+
+            bb_json_t entry = bb_json_obj_new();
+            if (entry) {
+                bb_json_obj_set_number(entry, "local_port",  (double)p->local_port);
+                bb_json_obj_set_string(entry, "remote_ip",   remote_ip_str);
+                bb_json_obj_set_number(entry, "remote_port", (double)p->remote_port);
+                bb_json_obj_set_string(entry, "state",       state_name);
+                bb_json_arr_append_obj(pcbs_arr, entry);
+            }
+        }
+    }
+
+    UNLOCK_TCPIP_CORE();
+
+    // Assemble top-level fields.
+    bb_json_obj_set_number(root, "lwip_max_sockets", (double)CONFIG_LWIP_MAX_SOCKETS);
+    bb_json_obj_set_number(root, "in_use",           (double)in_use);
+
+    bb_json_t by_state_obj = bb_json_obj_new();
+    if (by_state_obj) {
+        for (uint32_t i = 0; i < S_TCP_STATE_COUNT; i++) {
+            bb_json_obj_set_number(by_state_obj, s_tcp_state_names[i], (double)by_state[i]);
+        }
+        bb_json_obj_set_obj(root, "by_state", by_state_obj);
+    }
+
+    bb_json_obj_set_arr(root, "pcbs", pcbs_arr);
+
+    bb_log_i(TAG, "sockets: in_use=%"PRIu32" CLOSE_WAIT=%"PRIu32" TIME_WAIT=%"PRIu32,
+             in_use, by_state[CLOSE_WAIT], by_state[TIME_WAIT]);
+
+    bb_http_resp_set_status(req, 200);
+    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return err;
+}
+
+static const bb_route_response_t s_sockets_get_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"lwip_max_sockets\":{\"type\":\"integer\"},"
+      "\"in_use\":{\"type\":\"integer\"},"
+      "\"by_state\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"integer\"}},"
+      "\"pcbs\":{\"type\":\"array\",\"items\":{"
+      "\"type\":\"object\","
+      "\"properties\":{"
+      "\"local_port\":{\"type\":\"integer\"},"
+      "\"remote_ip\":{\"type\":\"string\"},"
+      "\"remote_port\":{\"type\":\"integer\"},"
+      "\"state\":{\"type\":\"string\"}}}}}}",
+      "LWIP TCP socket state distribution: per-state counts and per-PCB detail" },
+    { 0 },
+};
+
+static const bb_route_t s_sockets_get_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/sockets",
+    .tag       = "diag",
+    .summary   = "LWIP TCP socket state distribution (in_use, by_state counts, per-PCB detail)",
+    .responses = s_sockets_get_responses,
+    .handler   = sockets_get_handler,
+};
+
 // /api/info extender: adds an optional "panic" object only when a panic
 // log or coredump is present, so clean boots see no schema change.
 // Always emits "abnormal_reset_count" so operators can see the lifetime counter.
@@ -464,6 +592,9 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     err = bb_http_register_described_route(server, &s_tasks_get_route);
     if (err != BB_OK) return err;
 #endif
+
+    err = bb_http_register_described_route(server, &s_sockets_get_route);
+    if (err != BB_OK) return err;
 
     bb_info_register_extender(bb_diag_info_extender);
 

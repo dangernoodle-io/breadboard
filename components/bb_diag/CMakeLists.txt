@@ -9,7 +9,7 @@ idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_log bb_registry bb_http bb_json bb_info bb_nv espcoredump
+    PRIV_REQUIRES bb_log bb_registry bb_http bb_json bb_info bb_nv espcoredump lwip
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)

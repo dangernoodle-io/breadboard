@@ -139,6 +139,10 @@ build_flags =
 
 Examples in this repo (elecrow-p4-hmi7, esp32-wroom-32) own their own board headers under `examples/<name>/board/`. bb_hw component provides no bundled board definitions.
 
+## bb_diag
+
+`bb_diag` registers diagnostic HTTP routes under `/api/diag/`: panic log, coredump, heap stats, FreeRTOS task list, and abnormal-reset counter. `GET /api/diag/sockets` dumps LWIP TCP state distribution (per-state counts + per-PCB detail) for diagnosing socket exhaustion.
+
 ## Releases
 
 Tagging is manual: `git tag -a vX.Y.Z -m 'chore: vX.Y.Z tag' && git push origin vX.Y.Z`. The `release.yml` workflow waits for CI then publishes a GitHub release with auto-generated notes categorized by PR label (`.github/release.yml`). PR labels are auto-applied from conventional-commit prefixes; `new-component` PRs need that label set manually.
