@@ -70,9 +70,14 @@ bb_err_t bb_event_port_init(size_t queue_depth, size_t max_payload,
     s_port.queue_depth = queue_depth;
     s_port.slot_stride = sizeof(bb_event_queue_entry_t) + max_payload;
 
-    // Allocate fixed-stride buffer pool
+    // Allocate fixed-stride buffer pool, preferring PSRAM with fallback to default heap
+    // (no DMA needed: payloads copied out before any DMA operation)
     s_port.buffer_pool = heap_caps_calloc(queue_depth, s_port.slot_stride,
-                                          MALLOC_CAP_DEFAULT | MALLOC_CAP_DMA);
+                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_port.buffer_pool) {
+        s_port.buffer_pool = heap_caps_calloc(queue_depth, s_port.slot_stride,
+                                              MALLOC_CAP_DEFAULT);
+    }
     if (!s_port.buffer_pool) {
         bb_log_e(TAG, "failed to allocate buffer pool: %zu slots x %zu bytes",
                  queue_depth, s_port.slot_stride);
