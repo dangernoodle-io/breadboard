@@ -20,10 +20,10 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 #ifdef ESP_PLATFORM
 
 #include "freertos/ringbuf.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "bb_log_stream";
 
-#define LOG_STREAM_BUF_BYTES     6144
 #define LOG_STREAM_LINE_MAX      192
 #define LOG_WRITER_QUEUE_LEN     16
 #define LOG_WRITER_TASK_STACK    2048
@@ -34,11 +34,12 @@ typedef struct {
     size_t len;
 } log_writer_msg_t;
 
-static uint8_t s_rb_storage[LOG_STREAM_BUF_BYTES];
-static StaticRingbuffer_t s_rb_static;
+static uint8_t *s_rb_storage = NULL;
+static StaticRingbuffer_t *s_rb_static = NULL;
 static RingbufHandle_t s_rb = NULL;
 static vprintf_like_t s_orig_vprintf = NULL;
 static bool s_ready = false;
+static bool s_initialized = false;
 static uint32_t s_dropped_lines = 0;
 
 static QueueHandle_t s_writer_q = NULL;
@@ -109,16 +110,52 @@ static int s_log_vprintf(const char *fmt, va_list args)
 
 bb_err_t bb_log_stream_init(void)
 {
-    s_rb = xRingbufferCreateStatic(LOG_STREAM_BUF_BYTES, RINGBUF_TYPE_NOSPLIT,
-                                    s_rb_storage, &s_rb_static);
+    // Idempotent: if already initialized, return success
+    if (s_initialized) {
+        return ESP_OK;
+    }
+
+    // Allocate ringbuffer storage, preferring PSRAM with fallback to default heap
+    size_t buf_bytes = CONFIG_BB_LOG_STREAM_BUF_BYTES;
+    s_rb_storage = heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_rb_storage) {
+        s_rb_storage = heap_caps_malloc(buf_bytes, MALLOC_CAP_DEFAULT);
+    }
+    if (!s_rb_storage) {
+        bb_log_e(TAG, "ringbuffer storage allocation failed");
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Allocate static ringbuffer struct
+    s_rb_static = heap_caps_malloc(sizeof(StaticRingbuffer_t), MALLOC_CAP_DEFAULT);
+    if (!s_rb_static) {
+        bb_log_e(TAG, "ringbuffer struct allocation failed");
+        heap_caps_free(s_rb_storage);
+        s_rb_storage = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Create the ringbuffer with heap-allocated storage
+    s_rb = xRingbufferCreateStatic(buf_bytes, RINGBUF_TYPE_NOSPLIT,
+                                    s_rb_storage, s_rb_static);
     if (!s_rb) {
         bb_log_e(TAG, "ring buffer creation failed");
+        heap_caps_free(s_rb_static);
+        heap_caps_free(s_rb_storage);
+        s_rb_static = NULL;
+        s_rb_storage = NULL;
         return ESP_ERR_NO_MEM;
     }
 
     s_writer_q = xQueueCreate(LOG_WRITER_QUEUE_LEN, sizeof(log_writer_msg_t));
     if (!s_writer_q) {
         bb_log_e(TAG, "writer queue creation failed");
+        vRingbufferDelete(s_rb);
+        s_rb = NULL;
+        heap_caps_free(s_rb_static);
+        heap_caps_free(s_rb_storage);
+        s_rb_static = NULL;
+        s_rb_storage = NULL;
         return ESP_ERR_NO_MEM;
     }
 
@@ -127,12 +164,19 @@ bb_err_t bb_log_stream_init(void)
         bb_log_e(TAG, "writer task creation failed");
         vQueueDelete(s_writer_q);
         s_writer_q = NULL;
+        vRingbufferDelete(s_rb);
+        s_rb = NULL;
+        heap_caps_free(s_rb_static);
+        heap_caps_free(s_rb_storage);
+        s_rb_static = NULL;
+        s_rb_storage = NULL;
         return ESP_ERR_NO_MEM;
     }
 
     s_orig_vprintf = esp_log_set_vprintf(s_log_vprintf);
+    s_initialized = true;
     s_ready = true;
-    bb_log_i(TAG, "log stream initialised (%" PRIu32 " bytes)", (uint32_t)LOG_STREAM_BUF_BYTES);
+    bb_log_i(TAG, "log stream initialised (%" PRIu32 " bytes)", (uint32_t)buf_bytes);
     return ESP_OK;
 }
 
