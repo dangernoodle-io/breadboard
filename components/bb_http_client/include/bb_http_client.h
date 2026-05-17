@@ -9,13 +9,12 @@ extern "C" {
 
 // bb_http_client — portable outbound HTTP GET wrapper.
 //
-// Designed for one-shot release-manifest / status fetches where the caller
-// owns the response buffer. Streaming and large responses are out of scope;
-// for those, callers should use the platform client directly (ESP-IDF) or
-// file a feature request.
+// Two fetch modes:
+//   bb_http_client_get        — buffers the entire response; caller-owned buffer.
+//   bb_http_client_get_stream — streams body chunks to a callback; no body buffer.
 //
 // Implementations:
-//   - ESP-IDF: esp_http_client_perform with TLS via the ESP cert bundle.
+//   - ESP-IDF: esp_http_client with TLS via the ESP cert bundle.
 //   - Host:    pthread mock; tests register a response via the test hook in
 //              the host port header. Real network access is not implemented
 //              on host (intentionally — host tests must be hermetic).
@@ -48,6 +47,33 @@ bb_err_t bb_http_client_get(const char *url,
                             char *body, size_t body_cap,
                             const bb_http_client_cfg_t *cfg,
                             bb_http_client_result_t *out);
+
+// Callback invoked for each received chunk during bb_http_client_get_stream.
+//
+// `data` is a transient buffer valid only for the duration of the call;
+// `len` is the number of bytes in this chunk (always > 0).
+//
+// Return BB_OK to continue streaming, any other bb_err_t to abort:
+//   BB_ERR_NO_SPACE — signals a clean parser-side "buffer full" abort;
+//                     out->truncated will be set to true.
+//   Any other error — propagated as-is from bb_http_client_get_stream.
+typedef bb_err_t (*bb_http_client_chunk_cb)(void *ctx, const char *data, size_t len);
+
+// Streaming variant of bb_http_client_get. Body is never buffered; instead,
+// `cb(ctx, chunk, len)` is called for each received chunk. Only the parser
+// state (ctx) lives in memory at the end.
+//
+// Returns:
+//   BB_OK              — transport + all cb() calls completed
+//   BB_ERR_INVALID_ARG — NULL url / cb / out
+//   BB_ERR_INVALID_STATE — transport failed after all retries
+//   BB_ERR_NO_SPACE    — cb returned BB_ERR_NO_SPACE (out->truncated = true)
+//   other              — error returned by cb, propagated as-is
+//   BB_ERR_UNSUPPORTED — platform stub (Arduino today)
+bb_err_t bb_http_client_get_stream(const char *url,
+                                   bb_http_client_chunk_cb cb, void *ctx,
+                                   const bb_http_client_cfg_t *cfg,
+                                   bb_http_client_result_t *out);
 
 #ifdef __cplusplus
 }

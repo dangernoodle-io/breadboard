@@ -95,3 +95,43 @@ bb_err_t bb_http_client_get(const char *url,
     out->truncated = truncated;
     return BB_OK;
 }
+
+bb_err_t bb_http_client_get_stream(const char *url,
+                                   bb_http_client_chunk_cb cb, void *ctx,
+                                   const bb_http_client_cfg_t *cfg,
+                                   bb_http_client_result_t *out)
+{
+    (void)cfg;
+    if (!url || !cb || !out) return BB_ERR_INVALID_ARG;
+
+    pthread_mutex_lock(&s_mock_lock);
+    mock_state_t m = s_mock;
+    pthread_mutex_unlock(&s_mock_lock);
+
+    if (m.transport_result != BB_OK) {
+        out->status_code = 0;
+        out->body_len = 0;
+        out->truncated = false;
+        return m.transport_result;
+    }
+
+    // Replay the mock body in ~256-byte chunks so streaming tests exercise
+    // chunk-boundary handling. Chunk size must be > 0 even for tiny bodies.
+    const size_t chunk_size = 256;
+    size_t total = 0;
+    size_t remaining = m.body_len;
+    bb_err_t cb_err = BB_OK;
+
+    while (remaining > 0 && cb_err == BB_OK) {
+        size_t n = remaining < chunk_size ? remaining : chunk_size;
+        cb_err = cb(ctx, m.body ? m.body + total : "", n);
+        total     += n;
+        remaining -= n;
+    }
+
+    out->status_code = m.status_code;
+    out->body_len    = total;
+    out->truncated   = (cb_err == BB_ERR_NO_SPACE);
+    if (cb_err != BB_OK) return cb_err;
+    return BB_OK;
+}
