@@ -112,9 +112,11 @@ bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
     s_cfg.interval_s   = (cfg && cfg->interval_s) ? cfg->interval_s : CONFIG_BB_UPDATE_CHECK_INTERVAL_S;  // LCOV_EXCL_BR_LINE — cfg permutations covered above
     s_cfg.post_initial = (cfg && cfg->post_initial);  // LCOV_EXCL_BR_LINE
 
+    // Body buffer is allocated lazily per-fetch in bb_update_check_run_one()
+    // so the 32 KB (default) response buffer doesn't sit idle on memory-tight
+    // boards between polls. Only s_body_cap is set here; s_body stays NULL
+    // until the first fetch.
     s_body_cap = CONFIG_BB_UPDATE_CHECK_BODY_SIZE;
-    s_body = (char *)calloc(1, s_body_cap);
-    if (!s_body) return BB_ERR_NO_SPACE;  // LCOV_EXCL_BR_LINE — OOM defensive
 
     memset(&s_status, 0, sizeof(s_status));
     const char *running = bb_system_get_version();
@@ -134,8 +136,6 @@ bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
     bb_err_t err = bb_event_topic_register(TOPIC_NAME, &s_topic);
     // LCOV_EXCL_START — topic_register failure is defensive (NO_SPACE only)
     if (err != BB_OK) {
-        free(s_body);
-        s_body = NULL;
         return err;
     }
     // LCOV_EXCL_STOP
@@ -198,6 +198,12 @@ bb_err_t bb_update_check_run_one(void)
 
     if (url_local[0] == '\0') return BB_ERR_INVALID_STATE;
 
+    s_body = (char *)calloc(1, s_body_cap);
+    if (!s_body) {  // LCOV_EXCL_START — OOM defensive
+        bb_log_w(TAG, "body alloc failed (%zu B)", s_body_cap);
+        return BB_ERR_NO_SPACE;
+    }  // LCOV_EXCL_STOP
+
     bb_http_client_result_t res = {0};
     bb_err_t err = bb_http_client_get(url_local, s_body, s_body_cap, NULL, &res);
 
@@ -211,6 +217,8 @@ bb_err_t bb_update_check_run_one(void)
         s_status.last_check_ok = false;
         pthread_mutex_unlock(&s_lock);
         bb_log_w(TAG, "fetch failed: err=%d status=%d", err, res.status_code);
+        free(s_body);
+        s_body = NULL;
         return err == BB_OK ? BB_ERR_INVALID_STATE : err;
     }
 
@@ -220,6 +228,8 @@ bb_err_t bb_update_check_run_one(void)
                                  BOARD_NAME_FALLBACK,
                                  tag, sizeof(tag),
                                  dl_url, sizeof(dl_url));
+    free(s_body);
+    s_body = NULL;
     if (perr != BB_OK) {
         pthread_mutex_lock(&s_lock);
         s_status.last_check_us = now_us;
