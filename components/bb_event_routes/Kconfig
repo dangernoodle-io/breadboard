@@ -9,20 +9,30 @@ config BB_EVENT_ROUTES_AUTOREGISTER
 
 config BB_EVENT_ROUTES_MAX_CLIENTS
     int "Max concurrent SSE clients"
-    default 4
+    default 2
     range 1 32
     help
         Maximum number of simultaneous /api/events subscribers. Additional
         connections receive 503 {"error":"max_clients"}.
 
+        Default is conservative for tight-heap boards (ESP32-S3 without PSRAM,
+        ~30 KB heap budget for idle TLS handshake). Each client consumes ~2.7 KB
+        (8*256 B payload buf + 8*24 B queue entry overhead + ~88 B mutex).
+        Consumers with more heap can override in sdkconfig.
+
 config BB_EVENT_ROUTES_QUEUE_DEPTH
     int "Per-client event queue depth"
-    default 32
+    default 8
     range 4 256
     help
         Events buffered per subscriber. On overflow, the oldest entry is
         dropped and the dropped counter is incremented; the next emitted
         frame's id reflects the gap.
+
+        Default is conservative for tight-heap boards (ESP32-S3 without PSRAM,
+        ~30 KB heap budget for idle TLS handshake). With default max_clients=2
+        and queue_depth=8, each client consumes ~2.7 KB total. Consumers with
+        more heap can override in sdkconfig.
 
 config BB_EVENT_ROUTES_RING_CAPACITY
     int "Per-attached-topic replay ring capacity"
