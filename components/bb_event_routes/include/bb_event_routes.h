@@ -1,4 +1,5 @@
 #pragma once
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "bb_core.h"
@@ -36,6 +37,14 @@ bb_err_t bb_event_routes_init(const bb_event_routes_cfg_t *cfg);
 // registered via bb_event_topic_register. Idempotent per topic.
 // Returns BB_ERR_NOT_FOUND if the topic isn't registered, BB_ERR_NO_SPACE if
 // the per-attached-topic slot array is full.
+// When `retained` is true the underlying ring is created with retained=true
+// (see bb_event_ring_attach_ex). Use this for state topics where new SSE
+// clients should always receive the last known value on connect.
+// Preferred form for retained topics; bb_event_routes_attach is equivalent
+// to bb_event_routes_attach_ex(name, false).
+bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained);
+
+// Convenience wrapper: bb_event_routes_attach_ex(topic_name, false).
 bb_err_t bb_event_routes_attach(const char *topic_name);
 
 // Diagnostics: number of topics currently attached.

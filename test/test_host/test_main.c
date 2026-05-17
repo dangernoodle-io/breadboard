@@ -783,6 +783,15 @@ void test_ring_subscribe_when_subscriber_pool_exhausted(void);
 void test_bb_event_ring_capture_null_data_with_size(void);
 void test_bb_event_ring_attach_subscribe_failure_frees_all(void);
 
+// Forward declarations from test_bb_event_ring_retained.c
+void test_bb_event_ring_attach_ex_retained_true_returns_ok(void);
+void test_bb_event_ring_attach_ex_retained_false_same_as_attach(void);
+void test_bb_event_ring_retained_subscribe_after_one_post_replays(void);
+void test_bb_event_ring_retained_capacity1_overflow_delivers_most_recent(void);
+void test_bb_event_ring_retained_overflow_delivers_most_recent_n(void);
+void test_bb_event_ring_attach_ex_null_topic_returns_invalid_arg(void);
+void test_bb_event_ring_attach_ex_null_out_returns_invalid_arg(void);
+
 // Forward declarations from test_bb_event_ring_introspection.c
 void test_bb_event_ring_capacity_null_returns_zero(void);
 void test_bb_event_ring_capacity_returns_configured_value(void);
@@ -878,6 +887,8 @@ void test_bb_update_check_firmware_board_matches_named_asset(void);
 void test_bb_update_check_firmware_board_default_does_not_match_named_asset(void);
 void test_bb_update_check_firmware_board_with_bin_suffix_no_match(void);
 void test_bb_update_check_firmware_board_custom_parser_receives_board(void);
+void test_bb_update_check_init_publishes_initial_snapshot_to_ring(void);
+void test_bb_update_check_init_initial_snapshot_available_is_false(void);
 
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
@@ -1742,6 +1753,15 @@ int main(void) {
     RUN_TEST(test_bb_event_ring_capture_null_data_with_size);
     RUN_TEST(test_bb_event_ring_attach_subscribe_failure_frees_all);
 
+    // bb_event_ring retained-flag tests
+    RUN_TEST(test_bb_event_ring_attach_ex_retained_true_returns_ok);
+    RUN_TEST(test_bb_event_ring_attach_ex_retained_false_same_as_attach);
+    RUN_TEST(test_bb_event_ring_retained_subscribe_after_one_post_replays);
+    RUN_TEST(test_bb_event_ring_retained_capacity1_overflow_delivers_most_recent);
+    RUN_TEST(test_bb_event_ring_retained_overflow_delivers_most_recent_n);
+    RUN_TEST(test_bb_event_ring_attach_ex_null_topic_returns_invalid_arg);
+    RUN_TEST(test_bb_event_ring_attach_ex_null_out_returns_invalid_arg);
+
     // bb_event_ring introspection tests
     RUN_TEST(test_bb_event_ring_capacity_null_returns_zero);
     RUN_TEST(test_bb_event_ring_capacity_returns_configured_value);
@@ -1837,6 +1857,8 @@ int main(void) {
     RUN_TEST(test_bb_update_check_firmware_board_default_does_not_match_named_asset);
     RUN_TEST(test_bb_update_check_firmware_board_with_bin_suffix_no_match);
     RUN_TEST(test_bb_update_check_firmware_board_custom_parser_receives_board);
+    RUN_TEST(test_bb_update_check_init_publishes_initial_snapshot_to_ring);
+    RUN_TEST(test_bb_update_check_init_initial_snapshot_available_is_false);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);

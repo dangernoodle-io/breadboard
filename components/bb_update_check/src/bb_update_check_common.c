@@ -137,6 +137,17 @@ bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
     bb_mdns_set_txt("update", "unknown");
 
     s_initialized = true;
+
+    // Publish an initial snapshot at T=0 so the ring is non-empty from boot.
+    // Any SSE client that connects before the first periodic check (up to
+    // CONFIG_BB_UPDATE_CHECK_INTERVAL_S seconds away) will replay this entry
+    // rather than seeing empty state. The initial state: available=false,
+    // current=<running version>, latest="", download_url="", last_check_ok=false.
+    {
+        bb_update_check_status_t snap = s_status;
+        publish_state(&snap, "unknown");
+    }
+
     bb_log_i(TAG, "initialized: interval=%us", (unsigned)s_cfg.interval_s);
     return BB_OK;
 }
