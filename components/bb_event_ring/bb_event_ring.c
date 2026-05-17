@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "bb_event_ring.h"
 #include "bb_log.h"
 #include <stdlib.h>
