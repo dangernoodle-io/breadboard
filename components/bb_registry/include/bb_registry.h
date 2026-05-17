@@ -62,6 +62,35 @@ void     bb_registry_clear_early(void);
         bb_registry_add_early(&bb_registry_entry_early__##name_);                    \
     }
 
+// PRE_HTTP tier — runs after EARLY, before the HTTP server starts.
+// Signature is parallel to EARLY (no server arg).
+
+typedef bb_err_t (*bb_registry_init_pre_http_fn)(void);
+
+typedef struct {
+    const char                    *name;
+    bb_registry_init_pre_http_fn   init;
+} bb_registry_entry_pre_http_t;
+
+void     bb_registry_add_pre_http(const bb_registry_entry_pre_http_t *entry);
+bb_err_t bb_registry_init_pre_http(void);
+size_t   bb_registry_count_pre_http(void);
+void     bb_registry_foreach_pre_http(void (*cb)(const bb_registry_entry_pre_http_t *, void *), void *ctx);
+void     bb_registry_clear_pre_http(void);
+
+// The constructor is global (not static) so each component's CMakeLists can
+// add `-u bb_registry_register_pre_http__<name>` to force-keep the .o under PlatformIO,
+// whose espidf builder strips IDF's WHOLE_ARCHIVE flag. See
+// cmake/bb_registry.cmake for the bb_registry_force_register_pre_http() helper.
+#define BB_REGISTRY_REGISTER_PRE_HTTP(name_, fn_)                                           \
+    static const bb_registry_entry_pre_http_t bb_registry_entry_pre_http__##name_ = {      \
+        .name = #name_, .init = (fn_)                                                       \
+    };                                                                                      \
+    void bb_registry_register_pre_http__##name_(void) __attribute__((constructor));        \
+    void bb_registry_register_pre_http__##name_(void) {                                    \
+        bb_registry_add_pre_http(&bb_registry_entry_pre_http__##name_);                    \
+    }
+
 #ifdef __cplusplus
 }
 #endif

@@ -9,7 +9,12 @@ idf_component_register(
     PRIV_REQUIRES bb_http bb_json bb_registry bb_ota_validator
 )
 
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+
+if(CONFIG_BB_WIFI_AUTOREGISTER)
+    bb_registry_force_register_early(${COMPONENT_LIB} bb_wifi)
+endif()
+
 if(CONFIG_BB_WIFI_ROUTES_AUTOREGISTER)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
     bb_registry_force_register(${COMPONENT_LIB} bb_wifi_routes)
 endif()

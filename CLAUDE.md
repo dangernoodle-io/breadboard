@@ -72,46 +72,33 @@ Use the CMake helper `bb_embed_assets()` in `cmake/bb_embed.cmake` to embed bina
 
 ## Registry (handler-lifecycle)
 
-The `bb_registry` component holds two parallel ordered lists of entries: a regular tier (post-server-start) and an early tier (pre-server-start). Components self-register at link time via `BB_REGISTRY_REGISTER(name, init_fn)` (regular tier) or `BB_REGISTRY_REGISTER_EARLY(name, init_fn)` (early tier). The app calls `bb_registry_init_early()` before `bb_http_server_start` and `bb_registry_init(server)` after.
+`bb_registry` holds three ordered lists — EARLY → PRE_HTTP → REGULAR — driven by two app calls: `bb_registry_init_early()` then `bb_registry_init()`. `bb_registry_init()` walks PRE_HTTP, optionally autostarts the HTTP server (`CONFIG_BB_HTTP_AUTOSTART`, default y), then walks the regular tier. Components self-register at link time via a macro; disabling the corresponding `CONFIG_BB_<NAME>_AUTOREGISTER` Kconfig (default y) removes the registration without touching the public API.
 
-**Regular tier (post-server-start)** — for HTTP route registration:
-
-Pattern in a component source file:
+**EARLY tier** — NVS, WiFi init, board bring-up (no server arg):
 ```c
-#include "bb_registry.h"
-static bb_err_t bb_<comp>_init(bb_http_handle_t server) {
-    // route registration body
-    return BB_OK;
-}
-BB_REGISTRY_REGISTER(bb_<comp>, bb_<comp>_init);
+BB_REGISTRY_REGISTER_EARLY(bb_<comp>, bb_<comp>_init);  // bb_err_t fn(void)
 ```
 
-The macro emits a `__attribute__((constructor))` that runs before `app_main`. The component must appear in the app's CMake `REQUIRES` — without it, the linker drops the archive and the constructor never fires. The public `bb_<comp>_register_handler(server)` function is replaced by this pattern.
-
-**Early tier (pre-server-start)** — for log capture, board init, or other early bootstrapping:
-
+**PRE_HTTP tier** — tasks that must run after EARLY but before the HTTP server (no server arg):
 ```c
-#include "bb_registry.h"
-static bb_err_t bb_<comp>_init(void) {
-    // early init body (no server argument)
-    return BB_OK;
-}
-BB_REGISTRY_REGISTER_EARLY(bb_<comp>, bb_<comp>_init);
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_<comp>, bb_<comp>_init);  // bb_err_t fn(void)
 ```
 
-The init_fn takes no arguments (server not yet running). Runs in insertion order before HTTP server start.
+**Regular tier** — HTTP route registration (server arg):
+```c
+BB_REGISTRY_REGISTER(bb_<comp>, bb_<comp>_init);  // bb_err_t fn(bb_http_handle_t server)
+```
 
-Both tiers require the CMake helper `bb_registry_force_register()` or `bb_registry_force_register_early()` (in `cmake/bb_registry.cmake`) to keep constructor-only translation units from being garbage-collected under PlatformIO (which strips `WHOLE_ARCHIVE`). The helper passes `-u bb_registry_register__<name>` or `-u bb_registry_register_early__<name>` respectively.
+All three tiers require the matching CMake helper (in `cmake/bb_registry.cmake`) to prevent garbage-collection under PlatformIO:
 
 ```cmake
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
-bb_registry_force_register(${COMPONENT_LIB} bb_<name>)        # regular tier
-bb_registry_force_register_early(${COMPONENT_LIB} bb_<name>)  # early tier
+bb_registry_force_register(${COMPONENT_LIB} bb_<name>)           # regular
+bb_registry_force_register_early(${COMPONENT_LIB} bb_<name>)     # early
+bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_<name>)  # pre_http
 ```
 
-Auto-registration is opt-out via Kconfig. Each registry entry has a `CONFIG_BB_<NAME>_AUTOREGISTER` flag (default-on) that gates the `BB_REGISTRY_REGISTER[_EARLY]` invocation and the corresponding CMake helper call. Disabling preserves the component's public C API but removes the registration.
-
-Today this pattern owns (regular tier): `bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_log` (routes), `bb_board`, `bb_manifest`, `bb_ota_validator`, `bb_wifi` (routes), `bb_system` (routes), `bb_openapi`, `bb_mdns`. Early tier: `bb_log_stream` (via `CONFIG_BB_LOG_STREAM_AUTOREGISTER`), `bb_nv_flash`, `bb_nv_config` (via `CONFIG_BB_NV_FLASH_AUTOREGISTER`, `CONFIG_BB_NV_CONFIG_AUTOREGISTER`). When routes are disabled, routes source files and HTTP/JSON/registry deps are dropped from PRIV_REQUIRES — see bb_log for reference.
+Today this pattern owns — regular: `bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_log` (routes), `bb_board`, `bb_manifest`, `bb_ota_validator`, `bb_wifi` (routes), `bb_system` (routes), `bb_openapi`, `bb_mdns`. Early: `bb_log_stream`, `bb_nv_flash`, `bb_nv_config`, `bb_wifi` (STA init via `CONFIG_BB_WIFI_AUTOREGISTER`). PRE_HTTP: none yet (tier is available for consumers). HTTP server autostart is gated on `CONFIG_BB_HTTP_AUTOSTART` (default y); disable it if CORS or OpenAPI config must precede server start.
 
 ## Event bus (bb_event, bb_event_ring, bb_event_routes)
 

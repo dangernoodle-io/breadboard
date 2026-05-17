@@ -20,3 +20,14 @@ endfunction()
 function(bb_registry_force_register_early comp_lib name)
     target_link_libraries(${comp_lib} INTERFACE "-u bb_registry_register_early__${name}")
 endfunction()
+
+# Force-keep a bb_registry pre_http-tier-registered component's .o under linkers that
+# garbage-collect translation units with no external symbol references.
+# Same rationale as bb_registry_force_register, but for the pre_http-tier API.
+#
+# Usage in a component's CMakeLists.txt, after idf_component_register():
+#   include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+#   bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_<name>)
+function(bb_registry_force_register_pre_http comp_lib name)
+    target_link_libraries(${comp_lib} INTERFACE "-u bb_registry_register_pre_http__${name}")
+endfunction()

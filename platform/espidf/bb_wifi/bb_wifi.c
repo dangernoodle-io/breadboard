@@ -1,6 +1,7 @@
 #include "bb_wifi.h"
 #include "bb_nv.h"
 #include "wifi_reconn.h"
+#include "bb_registry.h"
 #include <string.h>
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -450,6 +451,14 @@ bb_err_t bb_wifi_set_hostname(const char *hostname)
     esp_err_t err = esp_netif_set_hostname(sta, hostname);
     return (err == ESP_OK) ? BB_OK : BB_ERR_INVALID_STATE;
 }
+
+#if CONFIG_BB_WIFI_AUTOREGISTER
+static bb_err_t bb_wifi_autoinit(void)
+{
+    return bb_wifi_init_sta();
+}
+BB_REGISTRY_REGISTER_EARLY(bb_wifi, bb_wifi_autoinit);
+#endif
 
 // Transport stubs — ESP-IDF bb_http uses esp_http_server directly.
 bb_err_t bb_wifi_listen(uint16_t port) { (void)port; return BB_ERR_INVALID_STATE; }
