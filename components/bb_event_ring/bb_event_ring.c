@@ -55,6 +55,7 @@ struct bb_event_ring {
     bb_event_topic_t topic;
     size_t capacity;
     size_t max_entry;
+    bool   retained;  // Marks topic as state-not-events; see bb_event_ring_attach_ex docs.
 
     // Ring buffer: array of entries, each followed by max_entry bytes for payload
     bb_event_ring_entry_t *entries;
@@ -114,8 +115,9 @@ static void ring_capture(bb_event_topic_t topic,
     bb_event_unlock();
 }
 
-bb_err_t bb_event_ring_attach(bb_event_topic_t topic, size_t capacity,
-                              size_t max_entry, bb_event_ring_t *out)
+bb_err_t bb_event_ring_attach_ex(bb_event_topic_t topic, size_t capacity,
+                                 size_t max_entry, bool retained,
+                                 bb_event_ring_t *out)
 {
     if (!topic || !capacity || !max_entry || !out) {
         return BB_ERR_INVALID_ARG;
@@ -153,6 +155,7 @@ bb_err_t bb_event_ring_attach(bb_event_topic_t topic, size_t capacity,
     ring->topic = topic;
     ring->capacity = capacity;
     ring->max_entry = max_entry;
+    ring->retained = retained;
     ring->head = 0;
     ring->tail = 0;
     ring->count = 0;
@@ -168,8 +171,15 @@ bb_err_t bb_event_ring_attach(bb_event_topic_t topic, size_t capacity,
     }
 
     *out = ring;
-    bb_log_i(TAG, "attached ring: capacity=%zu max_entry=%zu", capacity, max_entry);
+    bb_log_i(TAG, "attached ring: capacity=%zu max_entry=%zu retained=%d",
+             capacity, max_entry, (int)retained);
     return BB_OK;
+}
+
+bb_err_t bb_event_ring_attach(bb_event_topic_t topic, size_t capacity,
+                              size_t max_entry, bb_event_ring_t *out)
+{
+    return bb_event_ring_attach_ex(topic, capacity, max_entry, false, out);
 }
 
 // Snapshot entry layout shared between prep and replay loop.

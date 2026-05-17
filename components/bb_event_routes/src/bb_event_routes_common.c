@@ -186,7 +186,7 @@ bb_err_t bb_event_routes_init(const bb_event_routes_cfg_t *cfg)
     return BB_OK;
 }
 
-bb_err_t bb_event_routes_attach(const char *topic_name)
+bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained)
 {
     if (!topic_name) return BB_ERR_INVALID_ARG;
     if (!s_cfg.initialized) return BB_ERR_INVALID_STATE;
@@ -209,7 +209,8 @@ bb_err_t bb_event_routes_attach(const char *topic_name)
     }
 
     bb_event_ring_t ring = NULL;
-    err = bb_event_ring_attach(topic, s_cfg.ring_capacity, s_cfg.ring_max_entry, &ring);
+    err = bb_event_ring_attach_ex(topic, s_cfg.ring_capacity, s_cfg.ring_max_entry,
+                                  retained, &ring);
     if (err != BB_OK) {
         bb_log_e(TAG, "ring attach failed for '%s': %d", topic_name, err);
         return err;
@@ -220,8 +221,13 @@ bb_err_t bb_event_routes_attach(const char *topic_name)
     t->name[TOPIC_NAME_MAX - 1] = '\0';
     t->topic = topic;
     t->ring = ring;
-    bb_log_d(TAG, "attached '%s'", topic_name);
+    bb_log_d(TAG, "attached '%s' retained=%d", topic_name, (int)retained);
     return BB_OK;
+}
+
+bb_err_t bb_event_routes_attach(const char *topic_name)
+{
+    return bb_event_routes_attach_ex(topic_name, false);
 }
 
 // ---------------------------------------------------------------------------

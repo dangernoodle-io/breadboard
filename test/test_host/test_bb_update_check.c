@@ -4,6 +4,7 @@
 #include "bb_release_manifest.h"
 #include "bb_http_client_host.h"
 #include "bb_event.h"
+#include "bb_event_ring.h"
 #include "bb_event_test.h"
 #include <stdio.h>
 #include <string.h>
@@ -820,4 +821,88 @@ void test_bb_update_check_firmware_board_custom_parser_receives_board(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
     TEST_ASSERT_NOT_NULL(s_captured_board);
     TEST_ASSERT_EQUAL_STRING("taipanminer-bitaxe-650", s_captured_board);
+}
+
+// ---------------------------------------------------------------------------
+// Initial snapshot at init: ring has count=1 immediately after bb_update_check_init
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_init_publishes_initial_snapshot_to_ring(void)
+{
+    // After init (no releases_url set, no fetch), the component must have posted
+    // one entry to the update.available topic so that a ring attached to it
+    // immediately has count=1. This closes the cold-boot window where SSE clients
+    // connecting before the first periodic check see empty state.
+    //
+    // Strategy: pre-register the topic before calling bb_update_check_init so we
+    // can attach a ring first.  bb_event_topic_register is idempotent — when
+    // bb_update_check_init calls it internally it gets back the same handle.
+    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    reset_world();
+
+    bb_event_topic_t topic = NULL;
+    bb_err_t err = bb_event_topic_register("update.available", &topic);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_event_ring_t ring = NULL;
+    err = bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    // Now init — must post the initial snapshot to the topic we already have a ring on.
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_init(NULL));
+    // Drain the event queue so the ring captures the initial post.
+    bb_event_pump(0);
+
+    // Ring must have count=1 (the initial snapshot post).
+    TEST_ASSERT_EQUAL(1, (int)bb_event_ring_count(ring));
+
+    bb_event_ring_detach(ring);
+}
+
+// File-scope state for the snapshot payload inspector.
+static int    s_snap_count   = 0;
+static char   s_snap_payload[512];
+static size_t s_snap_size    = 0;
+
+static void snap_capture(bb_event_topic_t topic, int32_t id,
+                         const void *data, size_t size, void *user)
+{
+    (void)topic; (void)id; (void)user;
+    s_snap_count++;
+    s_snap_size = size;
+    if (size > 0 && data && size < sizeof(s_snap_payload)) {
+        memcpy(s_snap_payload, data, size);
+        s_snap_payload[size] = '\0';
+    }
+}
+
+void test_bb_update_check_init_initial_snapshot_available_is_false(void)
+{
+    // The initial snapshot must have available=false (no check has run yet).
+    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    reset_world();
+    s_snap_count = 0;
+    s_snap_size  = 0;
+    s_snap_payload[0] = '\0';
+
+    bb_event_topic_t topic = NULL;
+    bb_event_topic_register("update.available", &topic);
+
+    bb_event_ring_t ring = NULL;
+    bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_init(NULL));
+    // Drain the event queue so the ring captures the initial post.
+    bb_event_pump(0);
+
+    // Subscribe with replay and inspect the payload.
+    bb_event_sub_t sub = NULL;
+    bb_event_ring_subscribe_with_replay(ring, snap_capture, NULL, &sub);
+
+    TEST_ASSERT_EQUAL(1, s_snap_count);
+    // The payload must contain "available":false
+    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "\"available\":false"));
+
+    bb_event_unsubscribe(sub);
+    bb_event_ring_detach(ring);
 }
