@@ -840,6 +840,15 @@ void test_bb_update_check_custom_parser_parse_failure(void);
 void test_bb_update_check_custom_parser_http_404(void);
 void test_bb_update_check_custom_parser_body_exceeds_16k(void);
 void test_bb_update_check_custom_parser_post_initial_publishes(void);
+void test_bb_update_check_set_hooks_before_init_returns_invalid_state(void);
+void test_bb_update_check_set_hooks_null_clears(void);
+void test_bb_update_check_hooks_called_in_order_on_success(void);
+void test_bb_update_check_hooks_resume_fires_on_transport_error(void);
+void test_bb_update_check_hooks_resume_fires_on_parse_error(void);
+void test_bb_update_check_hooks_called_once_per_run(void);
+void test_bb_update_check_hooks_custom_parser_success(void);
+void test_bb_update_check_hooks_custom_parser_transport_error(void);
+void test_bb_update_check_hooks_custom_parser_parse_error(void);
 
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
@@ -1746,6 +1755,15 @@ int main(void) {
     RUN_TEST(test_bb_update_check_custom_parser_http_404);
     RUN_TEST(test_bb_update_check_custom_parser_body_exceeds_16k);
     RUN_TEST(test_bb_update_check_custom_parser_post_initial_publishes);
+    RUN_TEST(test_bb_update_check_set_hooks_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_update_check_set_hooks_null_clears);
+    RUN_TEST(test_bb_update_check_hooks_called_in_order_on_success);
+    RUN_TEST(test_bb_update_check_hooks_resume_fires_on_transport_error);
+    RUN_TEST(test_bb_update_check_hooks_resume_fires_on_parse_error);
+    RUN_TEST(test_bb_update_check_hooks_called_once_per_run);
+    RUN_TEST(test_bb_update_check_hooks_custom_parser_success);
+    RUN_TEST(test_bb_update_check_hooks_custom_parser_transport_error);
+    RUN_TEST(test_bb_update_check_hooks_custom_parser_parse_error);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);

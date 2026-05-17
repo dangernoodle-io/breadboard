@@ -9,6 +9,17 @@
 #include <string.h>
 #include <stdlib.h>
 
+// Hook invocation counters (reset in reset_world).
+static int g_pause_calls  = 0;
+static int g_resume_calls = 0;
+static int g_last_hook    = 0; // 1=pause, 2=resume (tracks order)
+static int g_pause_order  = 0;
+static int g_resume_order = 0;
+static int g_hook_seq     = 0;
+
+static void hook_pause(void)  { g_hook_seq++; g_pause_calls++;  g_pause_order  = g_hook_seq; g_last_hook = 1; }
+static void hook_resume(void) { g_hook_seq++; g_resume_calls++; g_resume_order = g_hook_seq; g_last_hook = 2; }
+
 // Mock parser used by the override test.
 static int g_mock_parser_calls = 0;
 static bb_err_t mock_parser(const char *body, size_t body_len,
@@ -55,6 +66,12 @@ static void reset_world(void)
     bb_event_reset_for_test();
     bb_event_init(NULL);
     g_mock_parser_calls = 0;
+    g_pause_calls  = 0;
+    g_resume_calls = 0;
+    g_last_hook    = 0;
+    g_pause_order  = 0;
+    g_resume_order = 0;
+    g_hook_seq     = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -466,4 +483,150 @@ void test_bb_update_check_custom_parser_post_initial_publishes(void)
     bb_update_check_get_status(&st);
     TEST_ASSERT_FALSE(st.available);
     TEST_ASSERT_TRUE(st.last_check_ok);
+}
+
+// ---------------------------------------------------------------------------
+// bb_update_check_set_hooks
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_set_hooks_before_init_returns_invalid_state(void)
+{
+    reset_world();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE,
+                      bb_update_check_set_hooks(hook_pause, hook_resume));
+}
+
+void test_bb_update_check_set_hooks_null_clears(void)
+{
+    reset_world();
+    bb_update_check_init(NULL);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_set_hooks(hook_pause, hook_resume));
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_set_hooks(NULL, NULL));
+    // After clearing, a successful run must not call either hook.
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    TEST_ASSERT_EQUAL(0, g_pause_calls);
+    TEST_ASSERT_EQUAL(0, g_resume_calls);
+}
+
+void test_bb_update_check_hooks_called_in_order_on_success(void)
+{
+    // Default (github streaming) parser path: pause before fetch, resume after.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_hooks(hook_pause, hook_resume);
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    TEST_ASSERT_EQUAL(1, g_pause_calls);
+    TEST_ASSERT_EQUAL(1, g_resume_calls);
+    // pause must have been called before resume
+    TEST_ASSERT_TRUE(g_pause_order < g_resume_order);
+    TEST_ASSERT_EQUAL(2, g_last_hook);
+}
+
+void test_bb_update_check_hooks_resume_fires_on_transport_error(void)
+{
+    // Default path: resume must fire even when the fetch fails.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_hooks(hook_pause, hook_resume);
+    bb_http_client_set_mock_transport_error(BB_ERR_INVALID_STATE);
+
+    bb_err_t err = bb_update_check_run_one();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+
+    TEST_ASSERT_EQUAL(1, g_pause_calls);
+    TEST_ASSERT_EQUAL(1, g_resume_calls);
+    TEST_ASSERT_TRUE(g_pause_order < g_resume_order);
+}
+
+void test_bb_update_check_hooks_resume_fires_on_parse_error(void)
+{
+    // Default path: resume must fire even when the parse step fails.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_hooks(hook_pause, hook_resume);
+    bb_http_client_set_mock_response("not json", 8, 200);
+
+    bb_err_t err = bb_update_check_run_one();
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, err);
+
+    TEST_ASSERT_EQUAL(1, g_pause_calls);
+    TEST_ASSERT_EQUAL(1, g_resume_calls);
+    TEST_ASSERT_TRUE(g_pause_order < g_resume_order);
+}
+
+void test_bb_update_check_hooks_called_once_per_run(void)
+{
+    // Two consecutive runs each trigger exactly one pause+resume pair.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_hooks(hook_pause, hook_resume);
+
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    TEST_ASSERT_EQUAL(1, g_pause_calls);
+    TEST_ASSERT_EQUAL(1, g_resume_calls);
+
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    TEST_ASSERT_EQUAL(2, g_pause_calls);
+    TEST_ASSERT_EQUAL(2, g_resume_calls);
+}
+
+void test_bb_update_check_hooks_custom_parser_success(void)
+{
+    // Custom parser path: hooks must also fire.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(mock_parser);
+    bb_update_check_set_hooks(hook_pause, hook_resume);
+    bb_http_client_set_mock_response("anything", 8, 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    TEST_ASSERT_EQUAL(1, g_pause_calls);
+    TEST_ASSERT_EQUAL(1, g_resume_calls);
+    TEST_ASSERT_TRUE(g_pause_order < g_resume_order);
+}
+
+void test_bb_update_check_hooks_custom_parser_transport_error(void)
+{
+    // Custom parser path: resume fires even on transport failure.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(mock_parser);
+    bb_update_check_set_hooks(hook_pause, hook_resume);
+    bb_http_client_set_mock_transport_error(BB_ERR_INVALID_STATE);
+
+    bb_err_t err = bb_update_check_run_one();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    TEST_ASSERT_EQUAL(1, g_pause_calls);
+    TEST_ASSERT_EQUAL(1, g_resume_calls);
+    TEST_ASSERT_TRUE(g_pause_order < g_resume_order);
+}
+
+void test_bb_update_check_hooks_custom_parser_parse_error(void)
+{
+    // Custom parser path: resume fires even when parse fails.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(failing_parser);
+    bb_update_check_set_hooks(hook_pause, hook_resume);
+    bb_http_client_set_mock_response("anything", 8, 200);
+
+    bb_err_t err = bb_update_check_run_one();
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, err);
+    TEST_ASSERT_EQUAL(1, g_pause_calls);
+    TEST_ASSERT_EQUAL(1, g_resume_calls);
+    TEST_ASSERT_TRUE(g_pause_order < g_resume_order);
 }
