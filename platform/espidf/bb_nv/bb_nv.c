@@ -1,5 +1,6 @@
 #include "bb_nv.h"
 #include "bb_log.h"
+#include "bb_manifest.h"
 #include <string.h>
 
 /* strlcpy isn't standard C — newlib exposes it under feature flags, but
@@ -17,6 +18,63 @@ static inline void copy_str(char *dst, const char *src, size_t size)
 #endif
 
 static const char *TAG_NV = "bb_nv";
+
+static const bb_manifest_nv_t s_bb_cfg_keys[] = {
+    {
+        .key              = "wifi_ssid",
+        .type             = "str",
+        .default_         = NULL,
+        .max_len          = 32,
+        .desc             = "WiFi SSID",
+        .reboot_required  = true,
+        .provisioning_only = true,
+    },
+    {
+        .key              = "wifi_pass",
+        .type             = "str",
+        .default_         = NULL,
+        .max_len          = 63,
+        .desc             = "WiFi password",
+        .reboot_required  = true,
+        .provisioning_only = true,
+    },
+    {
+        .key              = "hostname",
+        .type             = "str",
+        .default_         = NULL,
+        .max_len          = 32,
+        .desc             = "Network hostname (DHCP + mDNS)",
+        .reboot_required  = true,
+        .provisioning_only = false,
+    },
+    {
+        .key              = "mdns_en",
+        .type             = "bool",
+        .default_         = "true",
+        .max_len          = 0,
+        .desc             = "Enable mDNS service advertisement",
+        .reboot_required  = true,
+        .provisioning_only = false,
+    },
+    {
+        .key              = "update_check_en",
+        .type             = "bool",
+        .default_         = "true",
+        .max_len          = 0,
+        .desc             = "Enable periodic firmware update check",
+        .reboot_required  = false,
+        .provisioning_only = false,
+    },
+    {
+        .key              = "display_en",
+        .type             = "bool",
+        .default_         = "true",
+        .max_len          = 0,
+        .desc             = "Enable display backend",
+        .reboot_required  = true,
+        .provisioning_only = false,
+    },
+};
 
 #ifndef BB_NV_CONFIG_NAMESPACE
 #define BB_NV_CONFIG_NAMESPACE "bb_cfg"
@@ -113,6 +171,8 @@ bb_err_t bb_nv_config_init(void)
     s_config.mdns_en = 1;
     s_config.update_check_en = 1;
 #endif
+    bb_manifest_register_nv(BB_NV_CONFIG_NAMESPACE, s_bb_cfg_keys,
+                            sizeof(s_bb_cfg_keys) / sizeof(s_bb_cfg_keys[0]));
     return BB_OK;
 }
 
