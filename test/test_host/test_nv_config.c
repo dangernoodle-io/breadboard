@@ -105,6 +105,8 @@ void test_nv_config_init_registers_bb_cfg_keys(void)
     bb_manifest_clear();
     bb_err_t err = bb_nv_config_init();
     TEST_ASSERT_EQUAL(BB_OK, err);
+    err = bb_nv_config_manifest_init();
+    TEST_ASSERT_EQUAL(BB_OK, err);
 
     bb_json_t doc = bb_manifest_emit();
     TEST_ASSERT_NOT_NULL(doc);

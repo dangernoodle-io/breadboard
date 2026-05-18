@@ -171,9 +171,13 @@ bb_err_t bb_nv_config_init(void)
     s_config.mdns_en = 1;
     s_config.update_check_en = 1;
 #endif
-    bb_manifest_register_nv(BB_NV_CONFIG_NAMESPACE, s_bb_cfg_keys,
-                            sizeof(s_bb_cfg_keys) / sizeof(s_bb_cfg_keys[0]));
     return BB_OK;
+}
+
+bb_err_t bb_nv_config_manifest_init(void)
+{
+    return bb_manifest_register_nv(BB_NV_CONFIG_NAMESPACE, s_bb_cfg_keys,
+                                   sizeof(s_bb_cfg_keys) / sizeof(s_bb_cfg_keys[0]));
 }
 
 #ifdef ESP_PLATFORM
@@ -913,6 +917,10 @@ BB_REGISTRY_REGISTER_EARLY(bb_nv_flash, bb_nv_flash_init);
 
 #if CONFIG_BB_NV_CONFIG_AUTOREGISTER
 BB_REGISTRY_REGISTER_EARLY(bb_nv_config, bb_nv_config_init);
+#endif
+
+#if CONFIG_BB_NV_CONFIG_MANIFEST_AUTOREGISTER
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_nv_config_manifest, bb_nv_config_manifest_init);
 #endif
 
 const char *bb_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }

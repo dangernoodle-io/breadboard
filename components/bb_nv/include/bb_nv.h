@@ -12,6 +12,11 @@ extern "C" {
 
 bb_err_t bb_nv_config_init(void);
 
+// Register bb_cfg NVS keys with /api/manifest. Called automatically at
+// PRE_HTTP tier when CONFIG_BB_NV_CONFIG_MANIFEST_AUTOREGISTER=y (default).
+// Consumers may also call it directly before bb_registry_init() if needed.
+bb_err_t bb_nv_config_manifest_init(void);
+
 /// Initialize the NV flash partition. Handles the
 /// ESP_ERR_NVS_NO_FREE_PAGES / NEW_VERSION_FOUND erase-and-retry case.
 /// Idempotent — safe to call multiple times.
