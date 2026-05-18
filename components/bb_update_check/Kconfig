@@ -16,7 +16,10 @@ config BB_UPDATE_CHECK_INTERVAL_S
     help
         Default poll interval when cfg.interval_s is 0. 21600 = 6 hours,
         which stays well under GitHub's 60 req/h unauthenticated rate
-        limit even with many devices behind one NAT.
+        limit even with many devices behind one NAT. Each tick the ESP-IDF
+        worker picks the next interval as this value plus uniform ±10 min
+        jitter (±600 s, floored at 60 s) to desynchronize fleets that
+        reboot together.
 
 config BB_UPDATE_CHECK_AUTO_ATTACH
     bool "Auto-attach update.available to /api/events"
