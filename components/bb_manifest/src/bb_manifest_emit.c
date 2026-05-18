@@ -56,11 +56,16 @@ bb_err_t bb_manifest_register_nv(const char *namespace,
         return BB_ERR_NO_SPACE;
     }
 
-    // Check if namespace already registered
+    // Check if namespace already registered.
+    // Downgraded to warn+BB_OK: duplicate calls are benign when the registry
+    // tier is re-walked (e.g. bb_registry_init_pre_http called explicitly and
+    // again internally by bb_registry_init). Log clearly so the double-walk
+    // is still visible in device logs.
     for (size_t i = 0; i < nv_reg.count; i++) {
         if (strcmp(nv_reg.entries[i].namespace, namespace) == 0) {
-            bb_log_e(TAG, "namespace %s already registered", namespace);
-            return BB_ERR_INVALID_STATE;
+            bb_log_w(TAG, "namespace %s already registered (double-walk?); ignoring",
+                     namespace);
+            return BB_OK;
         }
     }
 

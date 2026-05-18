@@ -483,7 +483,11 @@ void test_manifest_register_mdns_too_many_keys_per_service(void)
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
 }
 
-void test_manifest_register_nv_duplicate_namespace_returns_err(void)
+// Duplicate namespace registration is downgraded to warn+BB_OK so a
+// double-walk of the PRE_HTTP tier (bb_registry_init_pre_http called
+// explicitly then again inside bb_registry_init) does not abort the
+// registry. The warning log keeps the double-walk visible.
+void test_manifest_register_nv_duplicate_namespace_returns_ok(void)
 {
     bb_manifest_clear();
 
@@ -502,8 +506,12 @@ void test_manifest_register_nv_duplicate_namespace_returns_err(void)
     bb_err_t err1 = bb_manifest_register_nv("dup_ns", keys, 1);
     TEST_ASSERT_EQUAL(BB_OK, err1);
 
+    // Second registration of same namespace must return BB_OK (not abort).
     bb_err_t err2 = bb_manifest_register_nv("dup_ns", keys, 1);
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err2);
+    TEST_ASSERT_EQUAL_MESSAGE(BB_OK, err2,
+        "duplicate namespace must return BB_OK (double-walk tolerated)");
+
+    bb_manifest_clear();
 }
 
 void test_manifest_register_mdns_duplicate_service_returns_err(void)

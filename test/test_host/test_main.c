@@ -169,6 +169,8 @@ void test_hostname_rejects_leading_hyphen(void);
 void test_hostname_rejects_trailing_hyphen(void);
 void test_hostname_rejects_null(void);
 void test_nv_config_init_registers_bb_cfg_keys(void);
+void test_nv_config_manifest_init_succeeds_before_manifest_init(void);
+void test_nv_config_manifest_init_double_call_returns_ok(void);
 
 // Forward declarations from test_ota_validator.c
 void test_ota_validator_is_pending_false_on_host(void);
@@ -392,7 +394,7 @@ void test_manifest_register_nv_overflow_returns_err(void);
 void test_manifest_register_mdns_overflow_returns_err(void);
 void test_manifest_register_nv_too_many_keys_per_namespace(void);
 void test_manifest_register_mdns_too_many_keys_per_service(void);
-void test_manifest_register_nv_duplicate_namespace_returns_err(void);
+void test_manifest_register_nv_duplicate_namespace_returns_ok(void);
 void test_manifest_register_mdns_duplicate_service_returns_err(void);
 void test_manifest_register_nv_null_namespace_returns_err(void);
 void test_manifest_register_nv_null_keys_returns_err(void);
@@ -1248,6 +1250,8 @@ int main(void) {
     RUN_TEST(test_hostname_rejects_trailing_hyphen);
     RUN_TEST(test_hostname_rejects_null);
     RUN_TEST(test_nv_config_init_registers_bb_cfg_keys);
+    RUN_TEST(test_nv_config_manifest_init_succeeds_before_manifest_init);
+    RUN_TEST(test_nv_config_manifest_init_double_call_returns_ok);
 
     // Generic NV API tests
     RUN_TEST(test_nv_set_u8_null_ns);
@@ -1405,7 +1409,7 @@ int main(void) {
     RUN_TEST(test_manifest_register_mdns_overflow_returns_err);
     RUN_TEST(test_manifest_register_nv_too_many_keys_per_namespace);
     RUN_TEST(test_manifest_register_mdns_too_many_keys_per_service);
-    RUN_TEST(test_manifest_register_nv_duplicate_namespace_returns_err);
+    RUN_TEST(test_manifest_register_nv_duplicate_namespace_returns_ok);
     RUN_TEST(test_manifest_register_mdns_duplicate_service_returns_err);
     RUN_TEST(test_manifest_register_nv_null_namespace_returns_err);
     RUN_TEST(test_manifest_register_nv_null_keys_returns_err);

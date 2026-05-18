@@ -128,3 +128,50 @@ void test_nv_config_init_registers_bb_cfg_keys(void)
     bb_json_free(doc);
     bb_manifest_clear();
 }
+
+// Lazy-init test: bb_manifest_register_nv works without any explicit
+// bb_manifest_init() call first — the registry is zero-initialized static
+// state, always ready.
+void test_nv_config_manifest_init_succeeds_before_manifest_init(void)
+{
+    // Simulate fresh boot: manifest registry is clean, bb_manifest_init
+    // (HTTP route registration) has NOT been called.
+    bb_manifest_clear();
+
+    bb_err_t err = bb_nv_config_manifest_init();
+    TEST_ASSERT_EQUAL_MESSAGE(BB_OK, err,
+        "bb_manifest_register_nv must work before bb_manifest_init runs");
+
+    // Verify keys are actually registered and visible
+    bb_json_t doc = bb_manifest_emit();
+    TEST_ASSERT_NOT_NULL(doc);
+    char *json = bb_json_serialize(doc);
+    TEST_ASSERT_NOT_NULL(json);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"namespace\":\"bb_cfg\""));
+    bb_json_free_str(json);
+    bb_json_free(doc);
+
+    bb_manifest_clear();
+}
+
+// Duplicate-namespace regression for TA-380: bb_registry_init() walks
+// PRE_HTTP internally, so if the caller already ran bb_registry_init_pre_http()
+// explicitly, bb_nv_config_manifest_init() is called twice. With the old
+// BB_ERR_INVALID_STATE return this aborted bb_registry_init() and panicked
+// the device. The fix downgrades duplicates to warn+BB_OK so the double-walk
+// is survivable while remaining visible in device logs.
+void test_nv_config_manifest_init_double_call_returns_ok(void)
+{
+    bb_manifest_clear();
+
+    bb_err_t first = bb_nv_config_manifest_init();
+    TEST_ASSERT_EQUAL(BB_OK, first);
+
+    // Second call (simulates double-walk via bb_registry_init_pre_http +
+    // bb_registry_init) must NOT abort — must return BB_OK.
+    bb_err_t second = bb_nv_config_manifest_init();
+    TEST_ASSERT_EQUAL_MESSAGE(BB_OK, second,
+        "duplicate bb_cfg registration must return BB_OK (double-walk tolerated)");
+
+    bb_manifest_clear();
+}
