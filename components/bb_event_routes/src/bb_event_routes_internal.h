@@ -12,7 +12,13 @@ extern "C" {
 typedef struct bb_event_routes_client bb_event_routes_client_t;
 
 // Allocate a client slot. BB_ERR_NO_SPACE if max_clients reached.
-// Subscribes to every attached topic with replay-on-connect.
+// Subscribes to matching topic(s) with replay-on-connect.
+// If topic_filter is NULL, subscribes to all attached topics.
+// If topic_filter is non-NULL, subscribes only to topics matching that name.
+bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
+                                           const char *topic_filter);
+
+// Convenience wrapper: bb_event_routes_client_acquire_ex(out, NULL).
 bb_err_t bb_event_routes_client_acquire(bb_event_routes_client_t **out);
 
 // Release: unsubscribe from every topic, free buffers, mark slot free.

@@ -108,8 +108,15 @@ static void sse_task(void *arg)
 
 static bb_err_t events_handler(bb_http_request_t *req)
 {
+    // Parse optional ?topic= query parameter
+    char topic_buf[32] = {0};
+    const char *topic_filter = NULL;
+    if (bb_http_req_query_key_value(req, "topic", topic_buf, sizeof(topic_buf)) == BB_OK) {
+        topic_filter = topic_buf;
+    }
+
     bb_event_routes_client_t *client = NULL;
-    bb_err_t err = bb_event_routes_client_acquire(&client);
+    bb_err_t err = bb_event_routes_client_acquire_ex(&client, topic_filter);
     if (err == BB_ERR_NO_SPACE) {
         bb_http_resp_set_status(req, 503);
         bb_http_resp_set_type(req, "application/json");
