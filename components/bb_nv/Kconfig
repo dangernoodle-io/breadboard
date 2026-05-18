@@ -8,4 +8,9 @@ config BB_NV_CONFIG_AUTOREGISTER
     bool "Auto-load breadboard typed config (wifi creds, display flag) via bb_registry early tier"
     default y
 
+config BB_NV_CONFIG_MANIFEST_AUTOREGISTER
+    bool "Auto-register bb_cfg NVS keys with /api/manifest via bb_registry pre_http tier"
+    default y
+    depends on BB_MANIFEST_AUTOREGISTER
+
 endmenu

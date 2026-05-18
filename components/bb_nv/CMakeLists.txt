@@ -14,3 +14,8 @@ if(CONFIG_BB_NV_CONFIG_AUTOREGISTER)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
     bb_registry_force_register_early(${COMPONENT_LIB} bb_nv_config)
 endif()
+
+if(CONFIG_BB_NV_CONFIG_MANIFEST_AUTOREGISTER)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+    bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_nv_config_manifest)
+endif()
