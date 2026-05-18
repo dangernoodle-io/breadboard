@@ -168,6 +168,7 @@ void test_hostname_validates_length(void);
 void test_hostname_rejects_leading_hyphen(void);
 void test_hostname_rejects_trailing_hyphen(void);
 void test_hostname_rejects_null(void);
+void test_nv_config_init_registers_bb_cfg_keys(void);
 
 // Forward declarations from test_ota_validator.c
 void test_ota_validator_is_pending_false_on_host(void);
@@ -1246,6 +1247,7 @@ int main(void) {
     RUN_TEST(test_hostname_rejects_leading_hyphen);
     RUN_TEST(test_hostname_rejects_trailing_hyphen);
     RUN_TEST(test_hostname_rejects_null);
+    RUN_TEST(test_nv_config_init_registers_bb_cfg_keys);
 
     // Generic NV API tests
     RUN_TEST(test_nv_set_u8_null_ns);

@@ -2,7 +2,7 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_nv/bb_nv.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core nvs_flash
-    PRIV_REQUIRES bb_log bb_registry
+    PRIV_REQUIRES bb_log bb_registry bb_manifest
 )
 
 if(CONFIG_BB_NV_FLASH_AUTOREGISTER)

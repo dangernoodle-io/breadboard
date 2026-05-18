@@ -1,5 +1,7 @@
 #include "unity.h"
 #include "bb_nv.h"
+#include "bb_manifest.h"
+#include "bb_json.h"
 #include <string.h>
 
 void test_nv_config_init_success(void)
@@ -96,4 +98,31 @@ void test_hostname_rejects_null(void)
     bb_nv_config_init();
     bb_err_t err = bb_nv_config_set_hostname(NULL);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_nv_config_init_registers_bb_cfg_keys(void)
+{
+    bb_manifest_clear();
+    bb_err_t err = bb_nv_config_init();
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_json_t doc = bb_manifest_emit();
+    TEST_ASSERT_NOT_NULL(doc);
+
+    char *json = bb_json_serialize(doc);
+    TEST_ASSERT_NOT_NULL(json);
+
+    // Namespace present
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"namespace\":\"bb_cfg\""));
+    // All 6 keys present
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"wifi_ssid\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"wifi_pass\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"hostname\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"mdns_en\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"update_check_en\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"display_en\""));
+
+    bb_json_free_str(json);
+    bb_json_free(doc);
+    bb_manifest_clear();
 }
