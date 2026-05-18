@@ -157,6 +157,33 @@ static bb_json_t build_operation(const bb_route_t *route)
         }
     }
 
+    // parameters array (query / path / header)
+    if (route->parameters && route->parameters_count > 0) {
+        bb_json_t params = bb_json_arr_new();
+        if (params) {
+            for (size_t i = 0; i < route->parameters_count; i++) {
+                const bb_route_param_t *p = &route->parameters[i];
+                bb_json_t param_obj = bb_json_obj_new();
+                if (!param_obj) continue;
+                bb_json_obj_set_string(param_obj, "name", p->name ? p->name : "");
+                bb_json_obj_set_string(param_obj, "in",   p->in   ? p->in   : "query");
+                if (p->description) {
+                    bb_json_obj_set_string(param_obj, "description", p->description);
+                }
+                bb_json_obj_set_bool(param_obj, "required", p->required);
+                if (p->schema_type) {
+                    bb_json_t schema = bb_json_obj_new();
+                    if (schema) {
+                        bb_json_obj_set_string(schema, "type", p->schema_type);
+                        bb_json_obj_set_obj(param_obj, "schema", schema);
+                    }
+                }
+                bb_json_arr_append_obj(params, param_obj);
+            }
+            bb_json_obj_set_arr(op, "parameters", params);
+        }
+    }
+
     // requestBody — gated on request_schema; request_content_type without schema is ignored
     if (route->request_schema) {
         bb_json_t req_body = bb_json_obj_new();

@@ -462,6 +462,17 @@ void test_openapi_emit_invalid_method_defaults_to_get(void);
 void test_openapi_emit_response_null_description(void);
 void test_openapi_emit_response_null_content_type_defaults_to_json(void);
 void test_openapi_emit_long_path_truncates_operation_id(void);
+void test_openapi_emit_parameters_array_present(void);
+void test_openapi_emit_parameters_absent_when_null(void);
+void test_openapi_emit_param_null_description_omitted(void);
+void test_openapi_emit_param_in_path(void);
+void test_openapi_emit_multiple_params_on_route(void);
+void test_openapi_emit_param_count_zero_omits_parameters(void);
+void test_openapi_emit_param_null_name_defaults_to_empty(void);
+void test_openapi_emit_param_null_in_defaults_to_query(void);
+void test_openapi_emit_oom_params_arr_skips_parameters(void);
+void test_openapi_emit_oom_param_obj_skips_entry(void);
+void test_openapi_emit_oom_schema_obj_skips_schema(void);
 
 // Forward declarations from test_bb_openapi_validate.c
 void test_validate_null_schema_json_returns_invalid_arg(void);
@@ -1450,6 +1461,17 @@ int main(void) {
     RUN_TEST(test_openapi_emit_response_null_description);
     RUN_TEST(test_openapi_emit_response_null_content_type_defaults_to_json);
     RUN_TEST(test_openapi_emit_long_path_truncates_operation_id);
+    RUN_TEST(test_openapi_emit_parameters_array_present);
+    RUN_TEST(test_openapi_emit_parameters_absent_when_null);
+    RUN_TEST(test_openapi_emit_param_null_description_omitted);
+    RUN_TEST(test_openapi_emit_param_in_path);
+    RUN_TEST(test_openapi_emit_multiple_params_on_route);
+    RUN_TEST(test_openapi_emit_param_count_zero_omits_parameters);
+    RUN_TEST(test_openapi_emit_param_null_name_defaults_to_empty);
+    RUN_TEST(test_openapi_emit_param_null_in_defaults_to_query);
+    RUN_TEST(test_openapi_emit_oom_params_arr_skips_parameters);
+    RUN_TEST(test_openapi_emit_oom_param_obj_skips_entry);
+    RUN_TEST(test_openapi_emit_oom_schema_obj_skips_schema);
 
     // bb_openapi_validate tests
     RUN_TEST(test_validate_null_schema_json_returns_invalid_arg);

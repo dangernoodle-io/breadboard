@@ -1521,3 +1521,482 @@ void test_openapi_emit_long_path_truncates_operation_id(void)
     TEST_ASSERT_NOT_NULL(doc);
     bb_json_free(doc);
 }
+
+// ---------------------------------------------------------------------------
+// parameters field: route with query parameter emits parameters array
+// ---------------------------------------------------------------------------
+
+static const bb_route_param_t s_qparams[] = {
+    {
+        .name        = "topic",
+        .in          = "query",
+        .description = "Filter by topic name",
+        .required    = false,
+        .schema_type = "string",
+    },
+};
+
+static const bb_route_response_t s_param_resp[] = {
+    { .status = 200, .description = "ok" },
+    { .status = 0 },
+};
+
+static const bb_route_t s_route_with_params = {
+    .method            = BB_HTTP_GET,
+    .path              = "/api/param-test",
+    .tag               = "test",
+    .summary           = "Route with query param",
+    .operation_id      = "getParamTest",
+    .responses         = s_param_resp,
+    .handler           = stub_handler,
+    .parameters        = s_qparams,
+    .parameters_count  = 1,
+};
+
+void test_openapi_emit_parameters_array_present(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_with_params);
+
+    bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/param-test");
+    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    TEST_ASSERT_NOT_NULL(get_op);
+
+    bb_json_t params = bb_json_obj_get_item(get_op, "parameters");
+    TEST_ASSERT_NOT_NULL(params);
+    TEST_ASSERT_TRUE(bb_json_item_is_array(params));
+    TEST_ASSERT_EQUAL(1, bb_json_arr_size(params));
+
+    bb_json_t p0 = bb_json_arr_get_item(params, 0);
+    TEST_ASSERT_NOT_NULL(p0);
+
+    char name[32];
+    bool ok = bb_json_obj_get_string(p0, "name", name, sizeof(name));
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_STRING("topic", name);
+
+    char in_val[16];
+    ok = bb_json_obj_get_string(p0, "in", in_val, sizeof(in_val));
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_STRING("query", in_val);
+
+    // schema.type should be "string"
+    bb_json_t schema = bb_json_obj_get_item(p0, "schema");
+    TEST_ASSERT_NOT_NULL(schema);
+    char stype[16];
+    ok = bb_json_obj_get_string(schema, "type", stype, sizeof(stype));
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_STRING("string", stype);
+
+    bb_json_free(doc);
+}
+
+void test_openapi_emit_parameters_absent_when_null(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_foo);  // no parameters field
+
+    bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t foo       = bb_json_obj_get_item(paths, "/api/foo");
+    bb_json_t get_op    = bb_json_obj_get_item(foo, "get");
+    TEST_ASSERT_NOT_NULL(get_op);
+
+    bb_json_t params = bb_json_obj_get_item(get_op, "parameters");
+    TEST_ASSERT_NULL(params);
+
+    bb_json_free(doc);
+}
+
+// ---------------------------------------------------------------------------
+// parameters: null description and null schema_type omit those fields
+// ---------------------------------------------------------------------------
+
+static const bb_route_param_t s_param_no_desc_no_schema[] = {
+    {
+        .name        = "id",
+        .in          = "query",
+        .description = NULL,
+        .required    = false,
+        .schema_type = NULL,
+    },
+};
+
+static const bb_route_t s_route_param_minimal = {
+    .method           = BB_HTTP_GET,
+    .path             = "/api/param-minimal",
+    .responses        = s_param_resp,
+    .handler          = stub_handler,
+    .parameters       = s_param_no_desc_no_schema,
+    .parameters_count = 1,
+};
+
+void test_openapi_emit_param_null_description_omitted(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_param_minimal);
+
+    bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/param-minimal");
+    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    bb_json_t params    = bb_json_obj_get_item(get_op, "parameters");
+    TEST_ASSERT_NOT_NULL(params);
+
+    bb_json_t p0 = bb_json_arr_get_item(params, 0);
+    TEST_ASSERT_NOT_NULL(p0);
+
+    // description NULL → key not emitted
+    bb_json_t desc = bb_json_obj_get_item(p0, "description");
+    TEST_ASSERT_NULL(desc);
+
+    // schema_type NULL → schema key not emitted
+    bb_json_t schema = bb_json_obj_get_item(p0, "schema");
+    TEST_ASSERT_NULL(schema);
+
+    bb_json_free(doc);
+}
+
+// ---------------------------------------------------------------------------
+// parameters: path param (in="path", required=true)
+// ---------------------------------------------------------------------------
+
+static const bb_route_param_t s_path_param[] = {
+    {
+        .name        = "device_id",
+        .in          = "path",
+        .description = "Device identifier",
+        .required    = true,
+        .schema_type = "string",
+    },
+};
+
+static const bb_route_t s_route_path_param = {
+    .method           = BB_HTTP_GET,
+    .path             = "/api/devices/{device_id}",
+    .responses        = s_param_resp,
+    .handler          = stub_handler,
+    .parameters       = s_path_param,
+    .parameters_count = 1,
+};
+
+void test_openapi_emit_param_in_path(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_path_param);
+
+    bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/devices/{device_id}");
+    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    bb_json_t params    = bb_json_obj_get_item(get_op, "parameters");
+    TEST_ASSERT_NOT_NULL(params);
+    TEST_ASSERT_EQUAL(1, bb_json_arr_size(params));
+
+    bb_json_t p0 = bb_json_arr_get_item(params, 0);
+    TEST_ASSERT_NOT_NULL(p0);
+
+    char in_val[16];
+    bool ok = bb_json_obj_get_string(p0, "in", in_val, sizeof(in_val));
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_STRING("path", in_val);
+
+    bb_json_free(doc);
+}
+
+// ---------------------------------------------------------------------------
+// parameters: multiple params on one route
+// ---------------------------------------------------------------------------
+
+static const bb_route_param_t s_multi_params[] = {
+    {
+        .name        = "page",
+        .in          = "query",
+        .description = "Page number",
+        .required    = false,
+        .schema_type = "integer",
+    },
+    {
+        .name        = "limit",
+        .in          = "query",
+        .description = NULL,
+        .required    = false,
+        .schema_type = "integer",
+    },
+};
+
+static const bb_route_t s_route_multi_params = {
+    .method           = BB_HTTP_GET,
+    .path             = "/api/multi-params",
+    .responses        = s_param_resp,
+    .handler          = stub_handler,
+    .parameters       = s_multi_params,
+    .parameters_count = 2,
+};
+
+void test_openapi_emit_multiple_params_on_route(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_multi_params);
+
+    bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/multi-params");
+    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    bb_json_t params    = bb_json_obj_get_item(get_op, "parameters");
+    TEST_ASSERT_NOT_NULL(params);
+    TEST_ASSERT_EQUAL(2, bb_json_arr_size(params));
+
+    bb_json_t p0 = bb_json_arr_get_item(params, 0);
+    bb_json_t p1 = bb_json_arr_get_item(params, 1);
+    TEST_ASSERT_NOT_NULL(p0);
+    TEST_ASSERT_NOT_NULL(p1);
+
+    char name[32];
+    bool ok = bb_json_obj_get_string(p0, "name", name, sizeof(name));
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_STRING("page", name);
+
+    ok = bb_json_obj_get_string(p1, "name", name, sizeof(name));
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_STRING("limit", name);
+
+    // p1 has NULL description → key absent
+    bb_json_t desc = bb_json_obj_get_item(p1, "description");
+    TEST_ASSERT_NULL(desc);
+
+    bb_json_free(doc);
+}
+
+// ---------------------------------------------------------------------------
+// parameters: non-NULL array with count==0 emits no parameters key (line 161 branch 2)
+// ---------------------------------------------------------------------------
+
+static const bb_route_param_t s_empty_params[] = { /* intentionally empty */ };
+
+static const bb_route_t s_route_params_count_zero = {
+    .method           = BB_HTTP_GET,
+    .path             = "/api/params-zero",
+    .responses        = s_param_resp,
+    .handler          = stub_handler,
+    .parameters       = s_empty_params,
+    .parameters_count = 0,
+};
+
+void test_openapi_emit_param_count_zero_omits_parameters(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_params_count_zero);
+
+    bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/params-zero");
+    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    TEST_ASSERT_NOT_NULL(get_op);
+
+    // parameters != NULL but count == 0 -> no "parameters" key emitted
+    bb_json_t params = bb_json_obj_get_item(get_op, "parameters");
+    TEST_ASSERT_NULL(params);
+
+    bb_json_free(doc);
+}
+
+// ---------------------------------------------------------------------------
+// parameters: null name falls back to "" (line 168 branch 1)
+// parameters: null in falls back to "query" (line 169 branch 1)
+// ---------------------------------------------------------------------------
+
+static const bb_route_param_t s_param_null_name_in[] = {
+    {
+        .name        = NULL,
+        .in          = NULL,
+        .description = NULL,
+        .required    = false,
+        .schema_type = NULL,
+    },
+};
+
+static const bb_route_t s_route_param_null_name_in = {
+    .method           = BB_HTTP_GET,
+    .path             = "/api/param-null-name-in",
+    .responses        = s_param_resp,
+    .handler          = stub_handler,
+    .parameters       = s_param_null_name_in,
+    .parameters_count = 1,
+};
+
+void test_openapi_emit_param_null_name_defaults_to_empty(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_param_null_name_in);
+
+    bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/param-null-name-in");
+    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    bb_json_t params    = bb_json_obj_get_item(get_op, "parameters");
+    TEST_ASSERT_NOT_NULL(params);
+
+    bb_json_t p0 = bb_json_arr_get_item(params, 0);
+    TEST_ASSERT_NOT_NULL(p0);
+
+    char name[16];
+    bool ok = bb_json_obj_get_string(p0, "name", name, sizeof(name));
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_STRING("", name);
+
+    bb_json_free(doc);
+}
+
+void test_openapi_emit_param_null_in_defaults_to_query(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_param_null_name_in);
+
+    bb_openapi_meta_t meta = { .title = "Test", .version = "1.0.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/param-null-name-in");
+    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    bb_json_t params    = bb_json_obj_get_item(get_op, "parameters");
+    bb_json_t p0        = bb_json_arr_get_item(params, 0);
+    TEST_ASSERT_NOT_NULL(p0);
+
+    char in_val[16];
+    bool ok = bb_json_obj_get_string(p0, "in", in_val, sizeof(in_val));
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_STRING("query", in_val);
+
+    bb_json_free(doc);
+}
+
+// ---------------------------------------------------------------------------
+// OOM: params array alloc failure skips parameters (line 163 branch 1)
+// OOM: param_obj alloc failure skips that entry (line 167 branch 1)
+// OOM: schema obj alloc failure skips schema (line 176 branch 0)
+// ---------------------------------------------------------------------------
+
+// Route with one param (no tag, no req_body) for OOM targeting.
+// Alloc order: root=0, info=1, paths_obj=2, path_item=3, op=4, params=5, param_obj=6, schema=7
+static const bb_route_param_t s_oom_param[] = {
+    {
+        .name        = "q",
+        .in          = "query",
+        .description = NULL,
+        .required    = false,
+        .schema_type = "string",
+    },
+};
+
+static const bb_route_t s_route_oom_params = {
+    .method           = BB_HTTP_GET,
+    .path             = "/api/oom-params",
+    .tag              = NULL,
+    .summary          = NULL,
+    .operation_id     = "getOomParams",
+    .request_schema   = NULL,
+    .responses        = s_oom_responses,
+    .handler          = stub_handler,
+    .parameters       = s_oom_param,
+    .parameters_count = 1,
+};
+
+void test_openapi_emit_oom_params_arr_skips_parameters(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_oom_params);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    // root=0, info=1, paths_obj=2, path_item=3, op=4, params=5
+    bb_json_host_force_alloc_fail_after(5);
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/oom-params");
+    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    TEST_ASSERT_NOT_NULL(get_op);
+    // params alloc failed -> no "parameters" key
+    bb_json_t params = bb_json_obj_get_item(get_op, "parameters");
+    TEST_ASSERT_NULL(params);
+
+    bb_json_free(doc);
+    bb_json_host_force_alloc_fail_after(-1);
+}
+
+void test_openapi_emit_oom_param_obj_skips_entry(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_oom_params);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    // root=0, info=1, paths_obj=2, path_item=3, op=4, params=5, param_obj=6
+    bb_json_host_force_alloc_fail_after(6);
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/oom-params");
+    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    TEST_ASSERT_NOT_NULL(get_op);
+    // param_obj alloc failed -> continue; array was set but empty
+    bb_json_t params = bb_json_obj_get_item(get_op, "parameters");
+    TEST_ASSERT_NOT_NULL(params);
+    TEST_ASSERT_EQUAL(0, bb_json_arr_size(params));
+
+    bb_json_free(doc);
+    bb_json_host_force_alloc_fail_after(-1);
+}
+
+void test_openapi_emit_oom_schema_obj_skips_schema(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_oom_params);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    // root=0, info=1, paths_obj=2, path_item=3, op=4, params=5, param_obj=6, schema=7
+    bb_json_host_force_alloc_fail_after(7);
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t paths     = bb_json_obj_get_item(doc, "paths");
+    bb_json_t path_item = bb_json_obj_get_item(paths, "/api/oom-params");
+    bb_json_t get_op    = bb_json_obj_get_item(path_item, "get");
+    TEST_ASSERT_NOT_NULL(get_op);
+    bb_json_t params = bb_json_obj_get_item(get_op, "parameters");
+    TEST_ASSERT_NOT_NULL(params);
+    TEST_ASSERT_EQUAL(1, bb_json_arr_size(params));
+    bb_json_t p0     = bb_json_arr_get_item(params, 0);
+    TEST_ASSERT_NOT_NULL(p0);
+    // schema alloc failed -> no "schema" key
+    bb_json_t schema = bb_json_obj_get_item(p0, "schema");
+    TEST_ASSERT_NULL(schema);
+
+    bb_json_free(doc);
+    bb_json_host_force_alloc_fail_after(-1);
+}

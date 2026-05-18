@@ -171,13 +171,26 @@ static const bb_route_response_t s_events_responses[] = {
     { 0 },
 };
 
+static const bb_route_param_t s_events_params[] = {
+    {
+        .name        = "topic",
+        .in          = "query",
+        .description = "Filter the SSE stream to a single topic name. Available topics are "
+                       "listed by GET /api/diag/events. Omit to receive all attached topics.",
+        .required    = false,
+        .schema_type = "string",
+    },
+};
+
 static const bb_route_t s_events_route = {
-    .method = BB_HTTP_GET,
-    .path = "/api/events",
-    .tag = "events",
-    .summary = "Stream bb_event topic posts via SSE",
-    .responses = s_events_responses,
-    .handler = NULL,
+    .method            = BB_HTTP_GET,
+    .path              = "/api/events",
+    .tag               = "events",
+    .summary           = "Stream bb_event topic posts via SSE",
+    .responses         = s_events_responses,
+    .handler           = NULL,
+    .parameters        = s_events_params,
+    .parameters_count  = 1,
 };
 
 // ---------------------------------------------------------------------------

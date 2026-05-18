@@ -60,6 +60,16 @@ typedef struct {
     const char *description;   // human-readable one-liner
 } bb_route_response_t;
 
+// OpenAPI 3.1 ParameterObject descriptor. All pointer fields must remain valid
+// for the life of the server (static/rodata).
+typedef struct {
+    const char *name;         // parameter name, e.g. "topic"
+    const char *in;           // location: "query", "path", or "header"
+    const char *description;  // human-readable one-liner; NULL to omit
+    bool        required;     // true for path params; false for optional query/header params
+    const char *schema_type;  // JSON Schema primitive type: "string", "integer", etc.
+} bb_route_param_t;
+
 // Full descriptor for a single route carrying OpenAPI metadata.
 // All pointer fields must remain valid for the life of the server (static/rodata).
 // The registry stores const bb_route_t * pointers — descriptor lifetime is the
@@ -74,6 +84,8 @@ typedef struct {
     const char               *request_schema;        // JSON Schema fragment; NULL if no body
     const bb_route_response_t *responses;            // null-terminated by {.status = 0}
     bb_http_handler_fn        handler;
+    const bb_route_param_t   *parameters;            // NULL or pointer to parameters array
+    size_t                    parameters_count;      // 0 when parameters is NULL
 } bb_route_t;
 
 // Register a described route. Equivalent to bb_http_register_route() plus
