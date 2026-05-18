@@ -390,7 +390,8 @@ void test_manifest_register_nv_overflow_returns_err(void)
 {
     bb_manifest_clear();
 
-    // Try to register more than NV_NAMESPACE_CAP (8) namespaces
+    // Try to register more than NV_NAMESPACE_CAP (16) entries.
+    // Each call creates one entry; fill all 16 then expect the 17th to fail.
     const bb_manifest_nv_t keys[] = {
         {
             .key = "dummy",
@@ -403,18 +404,19 @@ void test_manifest_register_nv_overflow_returns_err(void)
         },
     };
 
-    // Use static namespace names to avoid dynamic buffer reuse
+    // Use static namespace names to avoid dynamic buffer reuse (16 unique namespaces)
     static const char *ns_names[] = {
         "ns_a", "ns_b", "ns_c", "ns_d", "ns_e", "ns_f", "ns_g", "ns_h",
+        "ns_i", "ns_j", "ns_k", "ns_l", "ns_m", "ns_n", "ns_o", "ns_p",
     };
 
-    // Register 8 namespaces (should succeed)
-    for (int i = 0; i < 8; i++) {
+    // Register 16 entries (should succeed)
+    for (int i = 0; i < 16; i++) {
         bb_err_t err = bb_manifest_register_nv(ns_names[i], keys, 1);
         TEST_ASSERT_EQUAL(BB_OK, err);
     }
 
-    // Try to register the 9th (should fail)
+    // Try to register the 17th (should fail)
     bb_err_t err = bb_manifest_register_nv("ns_overflow", keys, 1);
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
 }
@@ -483,7 +485,8 @@ void test_manifest_register_mdns_too_many_keys_per_service(void)
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
 }
 
-void test_manifest_register_nv_duplicate_namespace_returns_err(void)
+// Same namespace, same key from two callers → real bug → BB_ERR_INVALID_STATE
+void test_manifest_register_nv_duplicate_key_in_shared_namespace_returns_err(void)
 {
     bb_manifest_clear();
 
@@ -499,11 +502,117 @@ void test_manifest_register_nv_duplicate_namespace_returns_err(void)
         },
     };
 
-    bb_err_t err1 = bb_manifest_register_nv("dup_ns", keys, 1);
+    bb_err_t err1 = bb_manifest_register_nv("shared_ns", keys, 1);
     TEST_ASSERT_EQUAL(BB_OK, err1);
 
-    bb_err_t err2 = bb_manifest_register_nv("dup_ns", keys, 1);
+    // Second call with the SAME key name must fail
+    bb_err_t err2 = bb_manifest_register_nv("shared_ns", keys, 1);
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err2);
+}
+
+// Two callers register different keys in the same namespace → both appear
+void test_manifest_register_nv_shared_namespace_different_keys_both_emitted(void)
+{
+    bb_manifest_clear();
+
+    static const bb_manifest_nv_t caller_a_keys[] = {
+        {
+            .key = "pool_host",
+            .type = "str",
+            .default_ = NULL,
+            .max_len = 64,
+            .desc = "Mining pool hostname",
+            .reboot_required = true,
+            .provisioning_only = false,
+        },
+    };
+
+    static const bb_manifest_nv_t caller_b_keys[] = {
+        {
+            .key = "wifi_ssid",
+            .type = "str",
+            .default_ = NULL,
+            .max_len = 32,
+            .desc = "WiFi SSID",
+            .reboot_required = true,
+            .provisioning_only = true,
+        },
+    };
+
+    bb_err_t err1 = bb_manifest_register_nv("taipanminer", caller_a_keys, 1);
+    TEST_ASSERT_EQUAL(BB_OK, err1);
+
+    bb_err_t err2 = bb_manifest_register_nv("taipanminer", caller_b_keys, 1);
+    TEST_ASSERT_EQUAL(BB_OK, err2);
+
+    bb_json_t doc = bb_manifest_emit();
+    TEST_ASSERT_NOT_NULL(doc);
+
+    char *json = bb_json_serialize(doc);
+    TEST_ASSERT_NOT_NULL(json);
+
+    // Namespace should appear exactly once
+    const char *ns_ptr = strstr(json, "\"namespace\":\"taipanminer\"");
+    TEST_ASSERT_NOT_NULL(ns_ptr);
+    // No second occurrence
+    TEST_ASSERT_NULL(strstr(ns_ptr + 1, "\"namespace\":\"taipanminer\""));
+
+    // Both keys must appear
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"pool_host\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"wifi_ssid\""));
+
+    bb_json_free_str(json);
+    bb_json_free(doc);
+}
+
+// Two callers register different namespaces → unchanged behavior, both present
+void test_manifest_register_nv_two_callers_different_namespaces(void)
+{
+    bb_manifest_clear();
+
+    static const bb_manifest_nv_t keys_a[] = {
+        {
+            .key = "pool_host",
+            .type = "str",
+            .default_ = NULL,
+            .max_len = 64,
+            .desc = "Pool host",
+            .reboot_required = true,
+            .provisioning_only = false,
+        },
+    };
+
+    static const bb_manifest_nv_t keys_b[] = {
+        {
+            .key = "hostname",
+            .type = "str",
+            .default_ = "breadboard",
+            .max_len = 32,
+            .desc = "Device hostname",
+            .reboot_required = true,
+            .provisioning_only = false,
+        },
+    };
+
+    bb_err_t err1 = bb_manifest_register_nv("app_ns", keys_a, 1);
+    TEST_ASSERT_EQUAL(BB_OK, err1);
+
+    bb_err_t err2 = bb_manifest_register_nv("bb_ns", keys_b, 1);
+    TEST_ASSERT_EQUAL(BB_OK, err2);
+
+    bb_json_t doc = bb_manifest_emit();
+    TEST_ASSERT_NOT_NULL(doc);
+
+    char *json = bb_json_serialize(doc);
+    TEST_ASSERT_NOT_NULL(json);
+
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"namespace\":\"app_ns\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"namespace\":\"bb_ns\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"pool_host\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"hostname\""));
+
+    bb_json_free_str(json);
+    bb_json_free(doc);
 }
 
 void test_manifest_register_mdns_duplicate_service_returns_err(void)

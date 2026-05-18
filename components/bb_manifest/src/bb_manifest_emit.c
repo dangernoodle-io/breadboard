@@ -6,7 +6,10 @@
 static const char *TAG = "bb_manifest";
 
 // Capacity limits
-#define NV_NAMESPACE_CAP 8
+// NV_NAMESPACE_CAP counts entries, not unique namespaces.  Multiple callers
+// can register distinct keys under the same namespace; each call is one entry.
+// 16 entries supports up to ~2 callers × 8 logical namespaces.
+#define NV_NAMESPACE_CAP 16
 #define NV_KEYS_PER_NAMESPACE_CAP 32
 #define MDNS_SERVICE_CAP 4
 #define MDNS_KEYS_PER_SERVICE_CAP 16
@@ -56,11 +59,23 @@ bb_err_t bb_manifest_register_nv(const char *namespace,
         return BB_ERR_NO_SPACE;
     }
 
-    // Check if namespace already registered
+    // Walk existing entries for this namespace and validate no key-name
+    // collisions.  Same namespace, different keys is fine (multiple callers).
+    // Same namespace, same key name is a real bug.
     for (size_t i = 0; i < nv_reg.count; i++) {
-        if (strcmp(nv_reg.entries[i].namespace, namespace) == 0) {
-            bb_log_e(TAG, "namespace %s already registered", namespace);
-            return BB_ERR_INVALID_STATE;
+        if (strcmp(nv_reg.entries[i].namespace, namespace) != 0) {
+            continue;
+        }
+        // Namespace already has at least one entry — check for key collisions.
+        for (size_t ei = 0; ei < nv_reg.entries[i].n; ei++) {
+            for (size_t ni = 0; ni < n; ni++) {
+                if (strcmp(nv_reg.entries[i].keys[ei].key, keys[ni].key) == 0) {
+                    bb_log_e(TAG,
+                             "namespace %s: duplicate key '%s' (already registered)",
+                             namespace, keys[ni].key);
+                    return BB_ERR_INVALID_STATE;
+                }
+            }
         }
     }
 
@@ -158,6 +173,49 @@ static bb_json_t emit_values_array(const char *values_str)
     return arr;
 }
 
+// Append all keys from a single nv_namespace_entry_t into keys_arr.
+// Returns false on OOM (caller must free and return NULL).
+static bool emit_nv_keys(bb_json_t keys_arr, bb_json_t ns_obj,
+                         bb_json_t nvs_arr, bb_json_t root,
+                         const nv_namespace_entry_t *entry)
+{
+    for (size_t j = 0; j < entry->n; j++) {
+        const bb_manifest_nv_t *key = &entry->keys[j];
+
+        bb_json_t key_obj = bb_json_obj_new();
+        if (!key_obj) {
+            bb_log_e(TAG, "failed to allocate key object");
+            bb_json_free(keys_arr);
+            bb_json_free(ns_obj);
+            bb_json_free(nvs_arr);
+            bb_json_free(root);
+            return false;
+        }
+
+        bb_json_obj_set_string(key_obj, "key", key->key);
+        bb_json_obj_set_string(key_obj, "type", key->type);
+
+        // Set default (null if key->default_ is NULL, otherwise a string)
+        if (key->default_ == NULL) {
+            bb_json_obj_set_null(key_obj, "default");
+        } else {
+            bb_json_obj_set_string(key_obj, "default", key->default_);
+        }
+
+        // Set max_len (omit or set to 0 when not applicable)
+        if (key->max_len > 0) {
+            bb_json_obj_set_number(key_obj, "max_len", (double)key->max_len);
+        }
+
+        bb_json_obj_set_string(key_obj, "desc", key->desc);
+        bb_json_obj_set_bool(key_obj, "reboot_required", key->reboot_required);
+        bb_json_obj_set_bool(key_obj, "provisioning_only", key->provisioning_only);
+
+        bb_json_arr_append_obj(keys_arr, key_obj);
+    }
+    return true;
+}
+
 bb_json_t bb_manifest_emit(void)
 {
     bb_json_t root = bb_json_obj_new();
@@ -166,7 +224,8 @@ bb_json_t bb_manifest_emit(void)
         return NULL;
     }
 
-    // Build NVS array
+    // Build NVS array, grouping all entries by namespace so multiple callers
+    // contributing keys to the same namespace emit as one logical object.
     bb_json_t nvs_arr = bb_json_arr_new();
     if (!nvs_arr) {
         bb_json_free(root);
@@ -174,8 +233,17 @@ bb_json_t bb_manifest_emit(void)
         return NULL;
     }
 
+    // Track which entry indices have already been emitted (first-entry wins
+    // as the anchor for each namespace).
+    bool emitted[NV_NAMESPACE_CAP] = {false};
+
     for (size_t i = 0; i < nv_reg.count; i++) {
-        const nv_namespace_entry_t *entry = &nv_reg.entries[i];
+        if (emitted[i]) {
+            continue;
+        }
+        emitted[i] = true;
+
+        const nv_namespace_entry_t *anchor = &nv_reg.entries[i];
 
         bb_json_t ns_obj = bb_json_obj_new();
         if (!ns_obj) {
@@ -185,9 +253,10 @@ bb_json_t bb_manifest_emit(void)
             return NULL;
         }
 
-        bb_json_obj_set_string(ns_obj, "namespace", entry->namespace);
+        bb_json_obj_set_string(ns_obj, "namespace", anchor->namespace);
 
-        // Build keys array for this namespace
+        // Build keys array: anchor entry first, then any later entries that
+        // share the same namespace.
         bb_json_t keys_arr = bb_json_arr_new();
         if (!keys_arr) {
             bb_json_free(ns_obj);
@@ -197,39 +266,21 @@ bb_json_t bb_manifest_emit(void)
             return NULL;
         }
 
-        for (size_t j = 0; j < entry->n; j++) {
-            const bb_manifest_nv_t *key = &entry->keys[j];
+        // Anchor
+        if (!emit_nv_keys(keys_arr, ns_obj, nvs_arr, root, anchor)) {
+            return NULL;
+        }
 
-            bb_json_t key_obj = bb_json_obj_new();
-            if (!key_obj) {
-                bb_json_free(keys_arr);
-                bb_json_free(ns_obj);
-                bb_json_free(nvs_arr);
-                bb_json_free(root);
-                bb_log_e(TAG, "failed to allocate key object");
+        // Additional entries with the same namespace
+        for (size_t k = i + 1; k < nv_reg.count; k++) {
+            if (strcmp(nv_reg.entries[k].namespace, anchor->namespace) != 0) {
+                continue;
+            }
+            emitted[k] = true;
+            if (!emit_nv_keys(keys_arr, ns_obj, nvs_arr, root,
+                               &nv_reg.entries[k])) {
                 return NULL;
             }
-
-            bb_json_obj_set_string(key_obj, "key", key->key);
-            bb_json_obj_set_string(key_obj, "type", key->type);
-
-            // Set default (null if key->default_ is NULL, otherwise a string)
-            if (key->default_ == NULL) {
-                bb_json_obj_set_null(key_obj, "default");
-            } else {
-                bb_json_obj_set_string(key_obj, "default", key->default_);
-            }
-
-            // Set max_len (omit or set to 0 when not applicable)
-            if (key->max_len > 0) {
-                bb_json_obj_set_number(key_obj, "max_len", (double)key->max_len);
-            }
-
-            bb_json_obj_set_string(key_obj, "desc", key->desc);
-            bb_json_obj_set_bool(key_obj, "reboot_required", key->reboot_required);
-            bb_json_obj_set_bool(key_obj, "provisioning_only", key->provisioning_only);
-
-            bb_json_arr_append_obj(keys_arr, key_obj);
         }
 
         bb_json_obj_set_obj(ns_obj, "keys", keys_arr);
