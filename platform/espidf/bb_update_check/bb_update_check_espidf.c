@@ -7,7 +7,6 @@
 #include "bb_http_client.h"
 #include "bb_log.h"
 #include "bb_registry.h"
-#include "bb_timer.h"
 #include "bb_json.h"
 #include "bb_event_routes.h"
 
@@ -16,15 +15,37 @@
 #include <inttypes.h>
 #include <sys/time.h>
 
+#include "esp_random.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
 static const char *TAG = "bb_update_check";
 
-static bb_timer_handle_t s_timer = NULL;
-static SemaphoreHandle_t s_kick  = NULL;
-static TaskHandle_t      s_worker = NULL;
+// Jitter range in seconds applied to each periodic reschedule.
+#define BB_UPDATE_CHECK_JITTER_S  600   // ±10 minutes
+#define BB_UPDATE_CHECK_FLOOR_S    60   // minimum interval
+
+static esp_timer_handle_t s_timer = NULL;
+static SemaphoreHandle_t  s_kick  = NULL;
+static TaskHandle_t       s_worker = NULL;
+
+// Compute next poll interval: CONFIG_BB_UPDATE_CHECK_INTERVAL_S ± jitter,
+// floored at BB_UPDATE_CHECK_FLOOR_S.  Uses esp_random() for uniform jitter.
+static uint64_t next_interval_us(void)
+{
+    // esp_random() returns a full 32-bit uniform random value.
+    // Map to [0, 2*JITTER_S] then subtract JITTER_S for signed offset.
+    uint32_t r = esp_random();
+    int32_t  offset_s = (int32_t)(r % (uint32_t)(2 * BB_UPDATE_CHECK_JITTER_S + 1))
+                        - BB_UPDATE_CHECK_JITTER_S;
+    int32_t  interval_s = (int32_t)CONFIG_BB_UPDATE_CHECK_INTERVAL_S + offset_s;
+    if (interval_s < BB_UPDATE_CHECK_FLOOR_S) {
+        interval_s = BB_UPDATE_CHECK_FLOOR_S;
+    }
+    return (uint64_t)interval_s * 1000000ULL;
+}
 
 static void worker_task(void *arg)
 {
@@ -39,6 +60,9 @@ static void timer_cb(void *arg)
 {
     (void)arg;
     if (s_kick) xSemaphoreGive(s_kick);
+    // Reschedule one-shot timer with jitter so back-to-back polls from a
+    // fleet that rebooted together drift apart over time.
+    esp_timer_start_once(s_timer, next_interval_us());
 }
 
 // ---------------------------------------------------------------------------
@@ -130,12 +154,16 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
         return BB_ERR_INVALID_STATE;
     }
 
-    // Create the periodic timer. interval comes from Kconfig; the worker is
-    // a no-op until set_releases_url is called.
-    uint64_t period_us = (uint64_t)CONFIG_BB_UPDATE_CHECK_INTERVAL_S * 1000000ULL;
-    err = bb_timer_create("upd_check", BB_TIMER_PERIODIC, period_us, timer_cb, NULL, &s_timer);
+    // Create a one-shot timer; timer_cb reschedules it with ±10 min jitter
+    // each tick so a fleet that rebooted together drifts apart over time.
+    esp_timer_create_args_t timer_args = {
+        .callback = timer_cb,
+        .arg      = NULL,
+        .name     = "upd_check",
+    };
+    err = esp_timer_create(&timer_args, &s_timer);
     if (err != BB_OK) return err;
-    bb_timer_start(s_timer);
+    esp_timer_start_once(s_timer, next_interval_us());
 
 #if defined(CONFIG_BB_UPDATE_CHECK_AUTO_ATTACH) && CONFIG_BB_UPDATE_CHECK_AUTO_ATTACH
     {
