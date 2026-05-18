@@ -32,6 +32,12 @@ typedef struct {
 // Only one capture slot is active at a time (host tests are single-threaded).
 void bb_http_host_capture_begin(bb_http_request_t **out_req);
 
+// Inject a request body into the active capture slot. Must be called after
+// bb_http_host_capture_begin and before invoking the handler. The body string
+// is referenced (not copied) — it must remain valid until after the handler
+// returns. Passing NULL clears any previously injected body.
+void bb_http_host_capture_set_req_body(const char *body, int len);
+
 // Disarm the active capture slot and populate *out with the intercepted response.
 // Returns BB_OK on success, BB_ERR_INVALID_ARG on NULL args or if req does not
 // match the active slot.
@@ -41,6 +47,10 @@ bb_err_t bb_http_host_capture_end(bb_http_request_t *req,
 
 // Free heap memory owned by a capture (cap->body). Safe to call with NULL body.
 void bb_http_host_capture_free(bb_http_host_capture_t *cap);
+
+// Test hook: force bb_http_req_recv to return -1 (simulates read failure).
+// Reset to false after the test.
+void bb_http_host_force_recv_fail(bool fail);
 
 #ifdef __cplusplus
 }

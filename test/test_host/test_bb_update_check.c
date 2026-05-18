@@ -3,9 +3,11 @@
 #include "bb_update_check_internal.h"
 #include "bb_release_manifest.h"
 #include "bb_http_client_host.h"
+#include "bb_http_host.h"
 #include "bb_event.h"
 #include "bb_event_ring.h"
 #include "bb_event_test.h"
+#include "bb_json.h"
 #include "bb_nv.h"
 #include <stdio.h>
 #include <string.h>
@@ -1089,4 +1091,237 @@ void test_bb_update_check_reenabled_runs_check(void)
     TEST_ASSERT_TRUE(st.last_check_ok);
     TEST_ASSERT_TRUE(st.available);
     TEST_ASSERT_EQUAL_STRING("v9.9.9", st.latest);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/update/check/config  — HTTP handler tests
+// ---------------------------------------------------------------------------
+
+void test_update_check_config_get_returns_enabled_true_by_default(void)
+{
+    reset_world();
+    bb_nv_config_set_update_check_enabled(true);
+
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_err_t rc = bb_update_check_config_get_handler(req);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(200, cap.status);
+    TEST_ASSERT_NOT_NULL(cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"enabled\":true"));
+    bb_http_host_capture_free(&cap);
+}
+
+void test_update_check_config_get_returns_enabled_false_when_disabled(void)
+{
+    reset_world();
+    bb_nv_config_set_update_check_enabled(false);
+
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_err_t rc = bb_update_check_config_get_handler(req);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(200, cap.status);
+    TEST_ASSERT_NOT_NULL(cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"enabled\":false"));
+    bb_http_host_capture_free(&cap);
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/update/check/config — HTTP handler tests
+// ---------------------------------------------------------------------------
+
+void test_update_check_config_post_toggles_to_false(void)
+{
+    reset_world();
+    bb_nv_config_set_update_check_enabled(true);
+
+    const char *body = "{\"enabled\":false}";
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_body(body, (int)strlen(body));
+    bb_err_t rc = bb_update_check_config_post_handler(req);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(200, cap.status);
+    TEST_ASSERT_NOT_NULL(cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"enabled\":false"));
+    TEST_ASSERT_FALSE(bb_nv_config_update_check_enabled());
+    bb_http_host_capture_free(&cap);
+}
+
+void test_update_check_config_post_toggles_to_true(void)
+{
+    reset_world();
+    bb_nv_config_set_update_check_enabled(false);
+
+    const char *body = "{\"enabled\":true}";
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_body(body, (int)strlen(body));
+    bb_err_t rc = bb_update_check_config_post_handler(req);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(200, cap.status);
+    TEST_ASSERT_NOT_NULL(cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"enabled\":true"));
+    TEST_ASSERT_TRUE(bb_nv_config_update_check_enabled());
+    bb_http_host_capture_free(&cap);
+}
+
+void test_update_check_config_post_no_body_returns_400(void)
+{
+    reset_world();
+
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    // no body injected — body_len will be 0
+    bb_err_t rc = bb_update_check_config_post_handler(req);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(400, cap.status);
+    bb_http_host_capture_free(&cap);
+}
+
+void test_update_check_config_post_invalid_json_returns_400(void)
+{
+    reset_world();
+
+    const char *body = "not-json{{{";
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_body(body, (int)strlen(body));
+    bb_err_t rc = bb_update_check_config_post_handler(req);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(400, cap.status);
+    bb_http_host_capture_free(&cap);
+}
+
+void test_update_check_config_post_missing_enabled_field_returns_400(void)
+{
+    reset_world();
+
+    const char *body = "{\"other\":true}";
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_body(body, (int)strlen(body));
+    bb_err_t rc = bb_update_check_config_post_handler(req);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(400, cap.status);
+    bb_http_host_capture_free(&cap);
+}
+
+void test_update_check_config_post_wrong_type_for_enabled_returns_400(void)
+{
+    reset_world();
+
+    const char *body = "{\"enabled\":\"yes\"}";
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_body(body, (int)strlen(body));
+    bb_err_t rc = bb_update_check_config_post_handler(req);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(400, cap.status);
+    bb_http_host_capture_free(&cap);
+}
+
+void test_update_check_config_get_route_descriptor_is_correct(void)
+{
+    const bb_route_t *r = bb_update_check_config_get_route();
+    TEST_ASSERT_NOT_NULL(r);
+    TEST_ASSERT_EQUAL(BB_HTTP_GET, r->method);
+    TEST_ASSERT_EQUAL_STRING("/api/update/check/config", r->path);
+    TEST_ASSERT_EQUAL_STRING("update", r->tag);
+}
+
+void test_update_check_config_post_route_descriptor_is_correct(void)
+{
+    const bb_route_t *r = bb_update_check_config_post_route();
+    TEST_ASSERT_NOT_NULL(r);
+    TEST_ASSERT_EQUAL(BB_HTTP_POST, r->method);
+    TEST_ASSERT_EQUAL_STRING("/api/update/check/config", r->path);
+    TEST_ASSERT_EQUAL_STRING("update", r->tag);
+    TEST_ASSERT_NOT_NULL(r->request_schema);
+}
+
+void test_update_check_config_post_oversized_body_returns_400(void)
+{
+    // body_len > BB_UPDATE_CHECK_CONFIG_BODY_MAX (64) — exercises branch 2
+    // of the `body_len <= 0 || body_len > MAX` guard at line 487.
+    reset_world();
+
+    // 65 bytes of JSON-ish content — more than the 64-byte cap.
+    const char *big_body = "{\"enabled\":true,\"extra\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}";
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_body(big_body, (int)strlen(big_body));
+    bb_err_t rc = bb_update_check_config_post_handler(req);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(400, cap.status);
+    bb_http_host_capture_free(&cap);
+}
+
+void test_update_check_config_post_recv_failure_returns_400(void)
+{
+    // bb_http_req_recv returns -1 — exercises the n < 0 branch at line 493.
+    reset_world();
+
+    const char *body = "{\"enabled\":true}";
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_body(body, (int)strlen(body));
+    bb_http_host_force_recv_fail(true);
+    bb_err_t rc = bb_update_check_config_post_handler(req);
+    bb_http_host_force_recv_fail(false);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(400, cap.status);
+    bb_http_host_capture_free(&cap);
+}
+
+void test_update_check_config_post_nv_write_failure_returns_500(void)
+{
+    // bb_nv_config_set_update_check_enabled fails — exercises the err != BB_OK
+    // branch at line 511 and the 500 response path.
+    reset_world();
+
+    const char *body = "{\"enabled\":false}";
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_capture_set_req_body(body, (int)strlen(body));
+    bb_nv_config_host_force_set_update_check_fail(true);
+    bb_err_t rc = bb_update_check_config_post_handler(req);
+    bb_nv_config_host_force_set_update_check_fail(false);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(500, cap.status);
+    bb_http_host_capture_free(&cap);
 }

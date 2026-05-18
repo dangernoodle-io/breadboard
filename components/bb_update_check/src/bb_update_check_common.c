@@ -1,8 +1,10 @@
 #include "bb_update_check.h"
 #include "bb_update_check_internal.h"
 #include "bb_release_manifest.h"
+#include "bb_http.h"
 #include "bb_http_client.h"
 #include "bb_event.h"
+#include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mdns.h"
 #include "bb_nv.h"
@@ -459,6 +461,109 @@ bb_err_t bb_update_check_kick(void)
     return bb_update_check_now();
 }
 #endif
+
+// ---------------------------------------------------------------------------
+// GET /api/update/check/config  — read the runtime opt-out flag
+// POST /api/update/check/config — write the runtime opt-out flag
+// Defined here (not in bb_update_check_espidf.c) so host tests can reach them.
+// Route registration is performed by the platform port.
+// ---------------------------------------------------------------------------
+
+#define BB_UPDATE_CHECK_CONFIG_BODY_MAX 64
+
+bb_err_t bb_update_check_config_get_handler(bb_http_request_t *req)
+{
+    bool enabled = bb_nv_config_update_check_enabled();
+    bb_json_t root = bb_json_obj_new();
+    bb_json_obj_set_bool(root, "enabled", enabled);
+    bb_err_t r = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return r;
+}
+
+bb_err_t bb_update_check_config_post_handler(bb_http_request_t *req)
+{
+    int body_len = bb_http_req_body_len(req);
+    if (body_len <= 0 || body_len > BB_UPDATE_CHECK_CONFIG_BODY_MAX) {
+        return bb_http_resp_send_err(req, 400, "invalid request");
+    }
+
+    char body[BB_UPDATE_CHECK_CONFIG_BODY_MAX + 1];
+    int n = bb_http_req_recv(req, body, sizeof(body) - 1);
+    if (n < 0) {
+        return bb_http_resp_send_err(req, 400, "read failed");
+    }
+    body[n] = '\0';
+
+    bb_json_t doc = bb_json_parse(body, (size_t)n);
+    if (!doc) {
+        return bb_http_resp_send_err(req, 400, "invalid JSON");
+    }
+
+    bool enabled;
+    if (!bb_json_obj_get_bool(doc, "enabled", &enabled)) {
+        bb_json_free(doc);
+        return bb_http_resp_send_err(req, 400, "missing or invalid 'enabled'");
+    }
+    bb_json_free(doc);
+
+    bb_err_t err = bb_nv_config_set_update_check_enabled(enabled);
+    if (err != BB_OK) {
+        return bb_http_resp_send_err(req, 500, "NV write failed");
+    }
+
+    bb_json_t root = bb_json_obj_new();
+    bb_json_obj_set_bool(root, "enabled", bb_nv_config_update_check_enabled());
+    bb_err_t r = bb_http_resp_send_json(req, root);
+    bb_json_free(root);
+    return r;
+}
+
+static const bb_route_response_t s_config_get_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+       "\"properties\":{\"enabled\":{\"type\":\"boolean\"}},"
+       "\"required\":[\"enabled\"]}",
+      "current update-check opt-out state" },
+    { 0 },
+};
+
+static const bb_route_t s_config_get_route = {
+    .method   = BB_HTTP_GET,
+    .path     = "/api/update/check/config",
+    .tag      = "update",
+    .summary  = "Get update-check enabled flag",
+    .responses = s_config_get_responses,
+    .handler  = bb_update_check_config_get_handler,
+};
+
+static const bb_route_response_t s_config_post_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+       "\"properties\":{\"enabled\":{\"type\":\"boolean\"}},"
+       "\"required\":[\"enabled\"]}",
+      "updated state" },
+    { 400, "text/plain", NULL, "missing or invalid body" },
+    { 500, "text/plain", NULL, "NV write failed" },
+    { 0 },
+};
+
+static const bb_route_t s_config_post_route = {
+    .method               = BB_HTTP_POST,
+    .path                 = "/api/update/check/config",
+    .tag                  = "update",
+    .summary              = "Set update-check enabled flag",
+    .request_content_type = "application/json",
+    .request_schema       =
+        "{\"type\":\"object\","
+         "\"properties\":{\"enabled\":{\"type\":\"boolean\"}},"
+         "\"required\":[\"enabled\"]}",
+    .responses = s_config_post_responses,
+    .handler  = bb_update_check_config_post_handler,
+};
+
+const bb_route_t *bb_update_check_config_get_route(void)  { return &s_config_get_route; }
+const bb_route_t *bb_update_check_config_post_route(void) { return &s_config_post_route; }
 
 // ---------------------------------------------------------------------------
 // Test hooks

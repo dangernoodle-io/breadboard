@@ -24,6 +24,17 @@ extern "C" {
 // BB_ERR_INVALID_ARG if init hasn't run.
 bb_err_t bb_update_check_run_one(void);
 
+// HTTP handler functions for GET/POST /api/update/check/config.
+// Defined in bb_update_check_common.c so they compile on host (for testing).
+// Route registration is performed by the platform port (bb_update_check_espidf.c).
+#include "bb_http.h"
+bb_err_t bb_update_check_config_get_handler(bb_http_request_t *req);
+bb_err_t bb_update_check_config_post_handler(bb_http_request_t *req);
+
+// Accessors for the route descriptors (static rodata in bb_update_check_common.c).
+const bb_route_t *bb_update_check_config_get_route(void);
+const bb_route_t *bb_update_check_config_post_route(void);
+
 #ifdef BB_UPDATE_CHECK_TESTING
 // Reset all state so a test can start clean. Does NOT touch bb_event or
 // bb_mdns global state (callers reset those separately).
