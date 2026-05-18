@@ -24,6 +24,12 @@ bool bb_nv_config_display_enabled(void);
 bool bb_nv_config_mdns_enabled(void);
 bool bb_nv_config_update_check_enabled(void);
 
+#ifndef ESP_PLATFORM
+// Test hook: force the next bb_nv_config_set_update_check_enabled call to fail.
+// Reset to false after the test.
+void bb_nv_config_host_force_set_update_check_fail(bool fail);
+#endif
+
 #ifdef ESP_PLATFORM
 bool bb_nv_config_is_provisioned(void);
 bb_err_t bb_nv_config_set_provisioned(void);

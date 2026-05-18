@@ -14,6 +14,8 @@
 
 // Test hook: force bb_http_register_route to fail
 static bool s_force_register_fail = false;
+// Test hook: force bb_http_req_recv to return -1
+static bool s_force_recv_fail = false;
 
 // ============================================================================
 // Capture slot (single, host tests are single-threaded)
@@ -25,6 +27,9 @@ typedef struct {
     char               content_type[64];
     char              *body;     // heap-owned, grows via realloc
     size_t             body_len;
+    // injected request body (not owned; caller ensures lifetime)
+    const char        *req_body;
+    int                req_body_len;
 } capture_slot_t;
 
 static capture_slot_t s_cap;
@@ -38,6 +43,11 @@ static capture_slot_t *capture_find(bb_http_request_t *req)
 void bb_http_host_force_register_fail(bool fail)
 {
     s_force_register_fail = fail;
+}
+
+void bb_http_host_force_recv_fail(bool fail)
+{
+    s_force_recv_fail = fail;
 }
 
 bb_err_t bb_http_register_route(bb_http_handle_t server,
@@ -105,6 +115,21 @@ bb_err_t bb_http_resp_send(bb_http_request_t *req, const char *body, size_t len)
 
 bb_err_t bb_http_resp_send_err(bb_http_request_t *req, int status_code, const char *message)
 {
+    capture_slot_t *cap = capture_find(req);
+    if (cap) {
+        cap->status = status_code;
+        if (message) {
+            size_t len = strlen(message);
+            char *newbuf = realloc(cap->body, cap->body_len + len + 1);
+            if (newbuf) {
+                memcpy(newbuf + cap->body_len, message, len);
+                cap->body_len += len;
+                newbuf[cap->body_len] = '\0';
+                cap->body = newbuf;
+            }
+        }
+        return BB_OK;
+    }
     (void)req;
     (void)status_code;
     (void)message;
@@ -113,12 +138,23 @@ bb_err_t bb_http_resp_send_err(bb_http_request_t *req, int status_code, const ch
 
 int bb_http_req_body_len(bb_http_request_t *req)
 {
+    capture_slot_t *cap = capture_find(req);
+    if (cap && cap->req_body) return cap->req_body_len;
     (void)req;
     return 0;
 }
 
 int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size)
 {
+    if (s_force_recv_fail) return -1;
+    capture_slot_t *cap = capture_find(req);
+    if (cap && cap->req_body && cap->req_body_len > 0) {
+        int n = cap->req_body_len;
+        if ((size_t)n >= buf_size) n = (int)(buf_size - 1);
+        memcpy(buf, cap->req_body, (size_t)n);
+        buf[n] = '\0';
+        return n;
+    }
     (void)req;
     (void)buf;
     (void)buf_size;
@@ -247,12 +283,20 @@ static int s_capture_cookie;
 void bb_http_host_capture_begin(bb_http_request_t **out_req)
 {
     bb_http_request_t *req = (bb_http_request_t *)&s_capture_cookie;
-    s_cap.req      = req;
-    s_cap.status   = 200;
-    s_cap.body     = NULL;
-    s_cap.body_len = 0;
+    s_cap.req          = req;
+    s_cap.status       = 200;
+    s_cap.body         = NULL;
+    s_cap.body_len     = 0;
+    s_cap.req_body     = NULL;
+    s_cap.req_body_len = 0;
     memset(s_cap.content_type, 0, sizeof(s_cap.content_type));
     if (out_req) *out_req = req;
+}
+
+void bb_http_host_capture_set_req_body(const char *body, int len)
+{
+    s_cap.req_body     = body;
+    s_cap.req_body_len = body ? len : 0;
 }
 
 bb_err_t bb_http_host_capture_end(bb_http_request_t *req,

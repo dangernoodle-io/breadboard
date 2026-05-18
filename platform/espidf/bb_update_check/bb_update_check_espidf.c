@@ -143,6 +143,12 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
     err = bb_http_register_described_route(server, &s_status_route);
     if (err != BB_OK) return err;
 
+    err = bb_http_register_described_route(server, bb_update_check_config_get_route());
+    if (err != BB_OK) return err;
+
+    err = bb_http_register_described_route(server, bb_update_check_config_post_route());
+    if (err != BB_OK) return err;
+
     s_kick = xSemaphoreCreateBinary();
     if (!s_kick) return BB_ERR_NO_SPACE;
     // Stack sized for the mbedTLS handshake + cert-bundle parse path inside

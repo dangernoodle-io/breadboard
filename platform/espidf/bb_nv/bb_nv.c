@@ -831,8 +831,15 @@ bb_err_t bb_nv_config_set_hostname(const char *hostname)
     return BB_OK;
 }
 
+static bool s_force_set_update_check_fail = false;
+void bb_nv_config_host_force_set_update_check_fail(bool fail)
+{
+    s_force_set_update_check_fail = fail;
+}
+
 bb_err_t bb_nv_config_set_update_check_enabled(bool en)
 {
+    if (s_force_set_update_check_fail) return BB_ERR_INVALID_STATE;
     s_config.update_check_en = en ? 1 : 0;
     return BB_OK;
 }

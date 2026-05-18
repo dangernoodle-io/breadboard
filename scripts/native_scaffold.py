@@ -244,7 +244,8 @@ COMPONENT_MAP = {
         "includes": ["components/bb_update_check/include",
                      "components/bb_update_check/src"],
         "sources":  ["components/bb_update_check/src/bb_update_check_common.c"],
-        "depends":  ["bb_core", "bb_release_manifest", "bb_http_client",
+        "depends":  ["bb_core", "bb_http", "bb_json", "bb_nv",
+                     "bb_release_manifest", "bb_http_client",
                      "bb_event", "bb_log", "bb_mdns", "bb_system"],
     },
     "bb_release_manifest": {
