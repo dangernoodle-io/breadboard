@@ -455,6 +455,15 @@ bb_err_t bb_wifi_set_hostname(const char *hostname)
 #if CONFIG_BB_WIFI_AUTOREGISTER
 static bb_err_t bb_wifi_autoinit(void)
 {
+    // No credentials → nothing to connect to. Return immediately so the
+    // EARLY-tier walker continues and the consumer can branch into
+    // provisioning mode (AP fallback).
+    const char *ssid = bb_nv_config_wifi_ssid();
+    if (!ssid || !ssid[0]) {
+        bb_log_i(TAG, "bb_wifi_autoinit: no ssid configured; skipping connect");
+        return BB_OK;
+    }
+
     // Apply persisted hostname before connect so DHCP/mDNS get the right name
     // on first packet. Empty string means "not set"; bb_wifi_set_hostname
     // tolerates that case (no-op).
