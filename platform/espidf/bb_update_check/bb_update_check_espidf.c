@@ -30,10 +30,13 @@ static const char *TAG = "bb_update_check";
 static esp_timer_handle_t s_timer = NULL;
 static SemaphoreHandle_t  s_kick  = NULL;
 static TaskHandle_t       s_worker = NULL;
-// Default: no affinity. Consumers with CPU-bound work on one core should
-// pin via bb_update_check_set_task_core to avoid starving IDLE on that core
-// during the mbedTLS handshake. See bb_update_check.h.
-static int                s_task_core = tskNO_AFFINITY;
+// Default: Core 1. On dual-core boards Core 0 carries lwip + wifi + httpd +
+// the consumer's stratum/control-plane tasks; the mbedTLS handshake runs
+// CPU-bound for 200–600 ms per attempt and would starve IDLE0 past the task
+// watchdog if it landed there. Mirrors bb_ota_pull's default (Core 1).
+// Consumers can opt out via bb_update_check_set_task_core(tskNO_AFFINITY)
+// or pin elsewhere. See bb_update_check.h.
+static int                s_task_core = 1;
 
 // Compute next poll interval: CONFIG_BB_UPDATE_CHECK_INTERVAL_S ± jitter,
 // floored at BB_UPDATE_CHECK_FLOOR_S.  Uses esp_random() for uniform jitter.
