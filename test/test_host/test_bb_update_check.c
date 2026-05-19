@@ -498,6 +498,21 @@ void test_bb_update_check_custom_parser_post_initial_publishes(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_update_check_set_task_core (host stub — no-op, just exercise the symbol)
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_set_task_core_host_is_noop(void)
+{
+    reset_world();
+    bb_update_check_set_task_core(0);
+    bb_update_check_set_task_core(1);
+    bb_update_check_set_task_core(-1);
+    // No observable state to check on host — function returns void and host
+    // stub has no worker task. Coverage-only test to keep the host stub line
+    // executed.
+}
+
+// ---------------------------------------------------------------------------
 // bb_update_check_set_hooks
 // ---------------------------------------------------------------------------
 

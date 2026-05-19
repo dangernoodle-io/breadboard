@@ -460,6 +460,12 @@ bb_err_t bb_update_check_kick(void)
 {
     return bb_update_check_now();
 }
+
+// Host/Arduino stub: no worker task to pin, no-op.
+void bb_update_check_set_task_core(int core)
+{
+    (void)core;
+}
 #endif
 
 // ---------------------------------------------------------------------------
