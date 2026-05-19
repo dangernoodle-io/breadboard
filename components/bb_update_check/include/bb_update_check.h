@@ -82,13 +82,9 @@ bb_err_t bb_update_check_set_hooks(bb_update_check_pause_cb_t pause,
                                    bb_update_check_resume_cb_t resume);
 
 // Configure which FreeRTOS core the bb_update_check worker task runs on.
-// Default tskNO_AFFINITY (-1) lets FreeRTOS schedule. On dual-core boards
-// where mining or other CPU-bound work shares the unpinned core, the
-// mbedTLS handshake the worker performs can starve IDLE on that core long
-// enough to trip the task watchdog (e.g. TaipanMiner tdongle-s3 with HW SHA
-// mining on core 1 + handshake landing on core 0). Pin to the core that has
-// real headroom (typically the mining-paused core via the pause hook).
-// Mirrors bb_ota_pull_set_task_core. Pass tskNO_AFFINITY to revert.
+// Default is Core 1 — matches bb_ota_pull_set_task_core's default and
+// keeps the mbedTLS handshake off the core that carries lwip/wifi/httpd.
+// Pass tskNO_AFFINITY (-1) to let FreeRTOS schedule, or 0 to force Core 0.
 // MUST be called BEFORE bb_update_check_register_init (i.e. before the
 // worker task is created); changes after that point are ignored.
 void bb_update_check_set_task_core(int core);
