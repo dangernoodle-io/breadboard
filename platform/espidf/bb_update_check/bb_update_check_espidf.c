@@ -30,6 +30,10 @@ static const char *TAG = "bb_update_check";
 static esp_timer_handle_t s_timer = NULL;
 static SemaphoreHandle_t  s_kick  = NULL;
 static TaskHandle_t       s_worker = NULL;
+// Default: no affinity. Consumers with CPU-bound work on one core should
+// pin via bb_update_check_set_task_core to avoid starving IDLE on that core
+// during the mbedTLS handshake. See bb_update_check.h.
+static int                s_task_core = tskNO_AFFINITY;
 
 // Compute next poll interval: CONFIG_BB_UPDATE_CHECK_INTERVAL_S ± jitter,
 // floored at BB_UPDATE_CHECK_FLOOR_S.  Uses esp_random() for uniform jitter.
@@ -153,8 +157,8 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
     if (!s_kick) return BB_ERR_NO_SPACE;
     // Stack sized for the mbedTLS handshake + cert-bundle parse path inside
     // bb_http_client_get_stream. Shared with bb_ota_pull via the same macro.
-    if (xTaskCreate(worker_task, "upd_check", BB_HTTP_CLIENT_TASK_STACK,
-                    NULL, 1, &s_worker) != pdPASS) {
+    if (xTaskCreatePinnedToCore(worker_task, "upd_check", BB_HTTP_CLIENT_TASK_STACK,
+                                NULL, 1, &s_worker, s_task_core) != pdPASS) {
         vSemaphoreDelete(s_kick);
         s_kick = NULL;
         return BB_ERR_INVALID_STATE;
@@ -194,6 +198,11 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
     bb_log_i(TAG, "registered /api/update/status; period=%" PRIu32 " s",
              (uint32_t)CONFIG_BB_UPDATE_CHECK_INTERVAL_S);
     return BB_OK;
+}
+
+void bb_update_check_set_task_core(int core)
+{
+    s_task_core = core;
 }
 
 #if CONFIG_BB_UPDATE_CHECK_AUTOREGISTER

@@ -881,6 +881,7 @@ void test_bb_update_check_custom_parser_parse_failure(void);
 void test_bb_update_check_custom_parser_http_404(void);
 void test_bb_update_check_custom_parser_body_exceeds_16k(void);
 void test_bb_update_check_custom_parser_post_initial_publishes(void);
+void test_bb_update_check_set_task_core_host_is_noop(void);
 void test_bb_update_check_set_hooks_before_init_returns_invalid_state(void);
 void test_bb_update_check_set_hooks_null_clears(void);
 void test_bb_update_check_hooks_called_in_order_on_success(void);
@@ -1889,6 +1890,7 @@ int main(void) {
     RUN_TEST(test_bb_update_check_custom_parser_http_404);
     RUN_TEST(test_bb_update_check_custom_parser_body_exceeds_16k);
     RUN_TEST(test_bb_update_check_custom_parser_post_initial_publishes);
+    RUN_TEST(test_bb_update_check_set_task_core_host_is_noop);
     RUN_TEST(test_bb_update_check_set_hooks_before_init_returns_invalid_state);
     RUN_TEST(test_bb_update_check_set_hooks_null_clears);
     RUN_TEST(test_bb_update_check_hooks_called_in_order_on_success);
