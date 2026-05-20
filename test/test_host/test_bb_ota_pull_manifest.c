@@ -4,10 +4,15 @@
 // bb_ota_pull_fetch_manifest_for_test. The host mock delivers the JSON
 // body in ~256-byte chunks via bb_http_client_get_stream, matching the
 // realistic on-device delivery pattern.
+//
+// Board name is now configured via bb_update_check_set_firmware_board() —
+// bb_ota_pull no longer has its own board state.
 
 #include "unity.h"
 #include "bb_ota_pull.h"
 #include "bb_ota_pull_test_hooks.h"
+#include "bb_update_check.h"
+#include "bb_event.h"
 #include "bb_http_client_host.h"
 #include <string.h>
 #include <stdlib.h>
@@ -17,7 +22,7 @@
 // ---------------------------------------------------------------------------
 
 // Minimal valid GitHub releases/latest payload. "firmware" asset matches
-// the board name set in each test via bb_ota_pull_set_firmware_board().
+// the board name set in each test via bb_update_check_set_firmware_board().
 static const char *MANIFEST_VALID =
     "{\"tag_name\":\"v1.2.3\","
     "\"assets\":["
@@ -49,11 +54,16 @@ static const char *MANIFEST_REALISTIC =
     "\"browser_download_url\":\"https://example.com/myboard.bin\"}"
     "]}";
 
+// reset_world initializes bb_update_check (setUp resets it) and sets a
+// default board name of "firmware" via bb_update_check_set_firmware_board.
+// bb_event_init is required before bb_update_check_init (topic registration).
 static void reset_world(void)
 {
     bb_http_client_clear_mock();
     bb_ota_pull_set_releases_url("http://example.com/releases/latest");
-    bb_ota_pull_set_firmware_board("firmware");
+    bb_event_init(NULL);
+    bb_update_check_init(NULL);
+    bb_update_check_set_firmware_board("firmware");
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +156,7 @@ void test_ota_pull_manifest_bad_json(void)
 void test_ota_pull_manifest_realistic_github_payload(void)
 {
     reset_world();
-    bb_ota_pull_set_firmware_board("myboard");
+    bb_update_check_set_firmware_board("myboard");
     bb_http_client_set_mock_response(MANIFEST_REALISTIC, strlen(MANIFEST_REALISTIC), 200);
 
     char tag[32] = {0};
@@ -166,9 +176,8 @@ void test_ota_pull_manifest_fallback_board_name(void)
 {
     // Clear the board name — ota_fetch_manifest uses "unknown" as fallback.
     // Payload has no "unknown.bin" asset so parse returns NOT_FOUND.
-    bb_http_client_clear_mock();
-    bb_ota_pull_set_releases_url("http://example.com/releases/latest");
-    bb_ota_pull_set_firmware_board(NULL);
+    reset_world();
+    bb_update_check_set_firmware_board(NULL);
 
     bb_http_client_set_mock_response(MANIFEST_VALID, strlen(MANIFEST_VALID), 200);
 
@@ -188,7 +197,7 @@ void test_ota_pull_manifest_fallback_board_name(void)
 void test_ota_pull_manifest_asset_found_ota_proceeds(void)
 {
     reset_world();
-    bb_ota_pull_set_firmware_board("firmware");
+    bb_update_check_set_firmware_board("firmware");
     bb_http_client_set_mock_response(MANIFEST_VALID, strlen(MANIFEST_VALID), 200);
 
     char tag[32] = {0};

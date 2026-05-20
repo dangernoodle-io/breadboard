@@ -281,9 +281,20 @@ void bb_event_port_set_malloc(void *(*m)(size_t)) { s_port_malloc = m ? m : mall
 void bb_event_port_reset_for_test(void) {
     /* free port resources if allocated; null out s_port so init can rerun */
     if (s_port) {
+        if (s_port->thread_running) {
+            /* Signal the dispatcher thread to wake and exit, then join it
+             * before destroying the mutex/condvar.  Destroying a condvar
+             * while a thread is blocked in pthread_cond_wait is UB on Linux
+             * (POSIX); the thread can block indefinitely, preventing process
+             * exit and causing CI timeouts. */
+            pthread_mutex_lock(&s_port->mutex);
+            s_port->thread_running = false;
+            pthread_cond_signal(&s_port->cond);
+            pthread_mutex_unlock(&s_port->mutex);
+            pthread_join(s_port->dispatcher_thread, NULL);
+        }
         pthread_cond_destroy(&s_port->cond);
         pthread_mutex_destroy(&s_port->mutex);
-        s_port->thread_running = false;
         free(s_port->queue_memory);
         free(s_port);
         s_port = NULL;

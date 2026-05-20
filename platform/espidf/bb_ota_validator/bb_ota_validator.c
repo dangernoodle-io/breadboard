@@ -42,13 +42,7 @@ bb_err_t bb_ota_mark_valid(const char *reason)
     if (!atomic_load(&s_pending) || atomic_load(&s_marked_valid)) {
         return BB_ERR_INVALID_STATE;
     }
-    bool was_marked = atomic_exchange(&s_marked_valid, true);
-    if (was_marked) {
-        return BB_ERR_INVALID_STATE;
-    }
-    esp_ota_mark_app_valid_cancel_rollback();
-    bb_nv_config_reset_boot_count();
-    bb_log_w(TAG, "firmware validated via %s", reason ? reason : "unknown");
+    mark_valid_internal(reason);
     return BB_OK;
 }
 

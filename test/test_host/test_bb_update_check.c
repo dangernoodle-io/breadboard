@@ -70,6 +70,12 @@ static const char *TDONGLE_BODY =
     "\"assets\":[{\"name\":\"taipanminer-tdongle-s3.bin\","
     "\"browser_download_url\":\"https://example.com/taipanminer-tdongle-s3.bin\"}]}";
 
+// Body with "unknown.bin" — matches BOARD_NAME_FALLBACK ("unknown").
+static const char *UNKNOWN_BODY =
+    "{\"tag_name\":\"v9.9.9\","
+    "\"assets\":[{\"name\":\"unknown.bin\","
+    "\"browser_download_url\":\"https://example.com/unknown.bin\"}]}";
+
 static void reset_world(void)
 {
     bb_update_check_reset_for_test();
@@ -191,6 +197,7 @@ void test_bb_update_check_run_one_newer_release_flips_available(void)
     bb_update_check_init(NULL);
     /* Host bb_system_get_version returns "0.0.0" so v9.9.9 is newer. */
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
 
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
@@ -209,6 +216,7 @@ void test_bb_update_check_run_one_same_version_keeps_unavailable(void)
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
     /* "0.0.0" matches host fallback running version; not newer. */
     char body[256];
     snprintf(body, sizeof(body), SAME_BODY_TEMPLATE, "v0.0.0");
@@ -273,6 +281,7 @@ void test_bb_update_check_run_one_recovers_after_failure(void)
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
 
     /* First: transport error. */
     bb_http_client_set_mock_transport_error(BB_ERR_INVALID_STATE);
@@ -311,6 +320,7 @@ void test_bb_update_check_post_initial_publishes_on_first_check(void)
     bb_update_check_cfg_t cfg = { .interval_s = 60, .post_initial = true };
     bb_update_check_init(&cfg);
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
     /* Same-as-current body: no transition, but post_initial should publish. */
     char body[256];
     snprintf(body, sizeof(body), SAME_BODY_TEMPLATE, "v0.0.0");
@@ -329,6 +339,7 @@ void test_bb_update_check_dev_tag_treated_as_older(void)
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
     /* "dev" tag is older than running "0.0.0" -> not available. */
     char body[256];
     snprintf(body, sizeof(body), SAME_BODY_TEMPLATE, "dev1.2.3");
@@ -347,6 +358,7 @@ void test_bb_update_check_run_one_newer_to_same_transitions_back(void)
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
 
     /* First: newer release; available -> true. */
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
@@ -369,6 +381,7 @@ void test_bb_update_check_now_drives_a_check(void)
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
 
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_now());
@@ -545,6 +558,7 @@ void test_bb_update_check_set_hooks_null_clears(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_set_hooks(NULL, NULL));
     // After clearing, a successful run must not call either hook.
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
     TEST_ASSERT_EQUAL(0, g_pause_calls);
@@ -557,6 +571,7 @@ void test_bb_update_check_hooks_called_in_order_on_success(void)
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
     bb_update_check_set_hooks(hook_pause, hook_resume);
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
 
@@ -609,6 +624,7 @@ void test_bb_update_check_hooks_called_once_per_run(void)
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
     bb_update_check_set_hooks(hook_pause, hook_resume);
 
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
@@ -730,7 +746,7 @@ void test_bb_update_check_set_firmware_board_too_long_returns_invalid_arg(void)
 void test_bb_update_check_set_firmware_board_null_clears_to_default(void)
 {
     // After setting a board and then passing NULL, a run with the default
-    // firmware.bin body should match again.
+    // unknown.bin body (BOARD_NAME_FALLBACK = "unknown") should match again.
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
@@ -738,7 +754,7 @@ void test_bb_update_check_set_firmware_board_null_clears_to_default(void)
                       bb_update_check_set_firmware_board("taipanminer-tdongle-s3"));
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_set_firmware_board(NULL));
 
-    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    bb_http_client_set_mock_response(UNKNOWN_BODY, strlen(UNKNOWN_BODY), 200);
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
 
     bb_update_check_status_t st;
@@ -749,7 +765,7 @@ void test_bb_update_check_set_firmware_board_null_clears_to_default(void)
 
 void test_bb_update_check_set_firmware_board_empty_string_clears_to_default(void)
 {
-    // Empty string "" reverts to BOARD_NAME_FALLBACK, same as NULL.
+    // Empty string "" reverts to BOARD_NAME_FALLBACK ("unknown"), same as NULL.
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
@@ -757,7 +773,7 @@ void test_bb_update_check_set_firmware_board_empty_string_clears_to_default(void
                       bb_update_check_set_firmware_board("taipanminer-tdongle-s3"));
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_set_firmware_board(""));
 
-    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    bb_http_client_set_mock_response(UNKNOWN_BODY, strlen(UNKNOWN_BODY), 200);
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
 
     bb_update_check_status_t st;
@@ -790,12 +806,12 @@ void test_bb_update_check_firmware_board_matches_named_asset(void)
 
 void test_bb_update_check_firmware_board_default_does_not_match_named_asset(void)
 {
-    // Without setting a board, the default "firmware" fallback does NOT match
+    // Without setting a board, the default "unknown" fallback does NOT match
     // "taipanminer-tdongle-s3.bin" — parse fails with BB_ERR_NOT_FOUND.
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
-    // Do NOT call set_firmware_board — use default.
+    // Do NOT call set_firmware_board — use default ("unknown").
 
     bb_http_client_set_mock_response(TDONGLE_BODY, strlen(TDONGLE_BODY), 200);
     bb_err_t err = bb_update_check_run_one();
@@ -853,6 +869,45 @@ void test_bb_update_check_firmware_board_custom_parser_receives_board(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
     TEST_ASSERT_NOT_NULL(s_captured_board);
     TEST_ASSERT_EQUAL_STRING("taipanminer-bitaxe-650", s_captured_board);
+}
+
+// ---------------------------------------------------------------------------
+// bb_update_check_get_status — board field
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_get_status_board_reflects_fallback(void)
+{
+    // When no board is set, get_status.board is BOARD_NAME_FALLBACK ("unknown").
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL_STRING("unknown", st.board);
+}
+
+void test_bb_update_check_get_status_board_reflects_set_value(void)
+{
+    // When board is set, get_status.board mirrors the configured value.
+    reset_world();
+    bb_update_check_init(NULL);
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_update_check_set_firmware_board("taipanminer-tdongle-s3"));
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL_STRING("taipanminer-tdongle-s3", st.board);
+}
+
+void test_bb_update_check_get_status_board_reverts_to_fallback_after_clear(void)
+{
+    // After setting a board and clearing it (NULL), get_status.board is "unknown".
+    reset_world();
+    bb_update_check_init(NULL);
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_update_check_set_firmware_board("taipanminer-tdongle-s3"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_set_firmware_board(NULL));
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL_STRING("unknown", st.board);
 }
 
 // ---------------------------------------------------------------------------
@@ -986,6 +1041,7 @@ void test_bb_update_check_get_status_returns_copy_of_cached_state(void)
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
 
@@ -1035,6 +1091,7 @@ void test_bb_update_check_kick_returns_ok_on_host(void)
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
 
     // On host, kick() is synchronous and should drive a check.
@@ -1104,6 +1161,7 @@ void test_bb_update_check_reenabled_runs_check(void)
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
 
     // Disable: run_one must be a no-op.
     bb_nv_config_set_update_check_enabled(false);

@@ -30,6 +30,7 @@ typedef struct {
     char    current[24];
     char    latest[24];
     char    download_url[256];
+    char    board[64];         // effective board name used for the last check ("unknown" if unset)
     int64_t last_check_us;     // 0 if never
     bool    last_check_ok;     // false => sticky failure
     bool    available;
@@ -60,7 +61,7 @@ bb_err_t bb_update_check_set_releases_url(const char *url);
 bb_err_t bb_update_check_set_parser(bb_release_manifest_parse_fn fn);
 
 // Set the firmware board name used when matching release assets.
-// The default is "firmware" (matches "firmware.bin"). Pass the board prefix
+// The default is "unknown" (matches "unknown.bin"). Pass the board prefix
 // without the ".bin" suffix (e.g. "taipanminer-tdongle-s3"). Pass NULL or ""
 // to revert to the default. The string is copied into a fixed-size buffer.
 // Returns BB_ERR_INVALID_STATE if called before bb_update_check_init,
