@@ -295,7 +295,10 @@ static bb_err_t bb_ota_push_init(bb_http_handle_t server)
     }
 
     // Add descriptor for OpenAPI spec emission.
-    bb_http_register_route_descriptor_only(&s_ota_push_route);
+    bb_err_t desc_err = bb_http_register_route_descriptor_only(&s_ota_push_route);
+    if (desc_err != BB_OK) {
+        bb_log_e(TAG, "failed to register ota-push descriptor: %d", desc_err);
+    }
 
     bb_log_i(TAG, "OTA push handler registered");
     return BB_OK;

@@ -48,7 +48,7 @@ static bb_err_t registry_add(const bb_route_t *route)
     if (s_count >= BB_ROUTE_REGISTRY_CAP) {
         bb_log_e(TAG, "route registry full (cap=%d); dropping descriptor for %s",
                  BB_ROUTE_REGISTRY_CAP, route->path ? route->path : "(null)");
-        return BB_OK;  // overflow is non-fatal
+        return BB_ERR_NO_SPACE;
     }
     s_registry[s_count++] = route;
     return BB_OK;

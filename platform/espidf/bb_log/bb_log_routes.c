@@ -202,8 +202,14 @@ static bb_err_t bb_log_stream_register_routes_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
 
     // Register descriptors for OpenAPI spec; handlers are already registered above.
-    bb_http_register_route_descriptor_only(&s_logs_route);
-    bb_http_register_route_descriptor_only(&s_logs_status_route);
+    bb_err_t desc_err = bb_http_register_route_descriptor_only(&s_logs_route);
+    if (desc_err != BB_OK) {
+        bb_log_e(TAG, "failed to register logs descriptor: %d", desc_err);
+    }
+    desc_err = bb_http_register_route_descriptor_only(&s_logs_status_route);
+    if (desc_err != BB_OK) {
+        bb_log_e(TAG, "failed to register logs-status descriptor: %d", desc_err);
+    }
 
     bb_log_i(TAG, "log stream routes registered");
     return BB_OK;
