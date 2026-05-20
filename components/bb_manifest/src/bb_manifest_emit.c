@@ -3,7 +3,7 @@
 
 #include <string.h>
 
-static const char *TAG = "bb_manifest";
+static const char *TAG = "bb_manifest_emit";
 
 // Capacity limits
 #define NV_NAMESPACE_CAP 8

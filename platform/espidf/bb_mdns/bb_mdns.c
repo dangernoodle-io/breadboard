@@ -1,6 +1,8 @@
 #include "bb_mdns.h"
 #include "bb_mdns_lifecycle.h"
 #include "bb_wifi.h"
+#include "bb_registry.h"
+#include "bb_http.h"
 #include "mdns.h"
 #include "esp_app_desc.h"
 #include "esp_mac.h"
@@ -966,9 +968,6 @@ bb_err_t bb_mdns_query_txt(const char *instance_name, const char *service, const
 // ---------------------------------------------------------------------------
 // Registry auto-registration
 // ---------------------------------------------------------------------------
-
-#include "bb_registry.h"
-#include "bb_http.h"
 
 static bb_err_t bb_mdns_registry_init(bb_http_handle_t server)
 {

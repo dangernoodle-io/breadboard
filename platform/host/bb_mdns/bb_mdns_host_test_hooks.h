@@ -16,6 +16,7 @@
 
 int bb_mdns_host_announce_count(void);
 int bb_mdns_host_set_txt_count(void);
+bool bb_mdns_host_warned(void);
 void bb_mdns_host_reset(void);
 
 bb_err_t bb_mdns_host_dispatch_peer(const char *service, const char *proto,

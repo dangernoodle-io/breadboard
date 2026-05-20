@@ -580,6 +580,10 @@ void test_bb_mdns_dispatch_peer_with_empty_ip4_dispatches_anyway(void);
 void test_bb_mdns_query_txt_null_args_returns_invalid_arg(void);
 void test_bb_mdns_query_dispatch_invokes_cb_with_result(void);
 void test_bb_mdns_query_dispatch_propagates_err_field(void);
+void test_mdns_host_warn_fires_on_first_set_txt(void);
+void test_mdns_host_warn_fires_only_once_on_set_txt(void);
+void test_mdns_host_warn_fires_on_first_announce(void);
+void test_mdns_host_reset_clears_warned_flag(void);
 
 // Forward declarations from test_bb_registry.c
 void test_bb_registry_starts_empty(void);
@@ -1611,6 +1615,10 @@ int main(void) {
     RUN_TEST(test_bb_mdns_query_txt_null_args_returns_invalid_arg);
     RUN_TEST(test_bb_mdns_query_dispatch_invokes_cb_with_result);
     RUN_TEST(test_bb_mdns_query_dispatch_propagates_err_field);
+    RUN_TEST(test_mdns_host_warn_fires_on_first_set_txt);
+    RUN_TEST(test_mdns_host_warn_fires_only_once_on_set_txt);
+    RUN_TEST(test_mdns_host_warn_fires_on_first_announce);
+    RUN_TEST(test_mdns_host_reset_clears_warned_flag);
 
     // bb_registry tests
     RUN_TEST(test_bb_registry_starts_empty);

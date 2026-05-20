@@ -1,6 +1,9 @@
 #pragma once
 // Private interface shared by bb_update_check_common.c and the per-platform
 // ports / route handlers. Not for external consumers.
+
+// Single source of truth for the update-check event topic name.
+#define BB_UPDATE_CHECK_TOPIC "update.available"
 #include "bb_core.h"
 #include "bb_update_check.h"
 #include <stddef.h>

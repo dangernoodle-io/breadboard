@@ -8,6 +8,31 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifndef ESP_PLATFORM
+#include "bb_ota_pull_test_hooks.h"
+#endif
+
+#ifdef ESP_PLATFORM
+#include "bb_http.h"
+#include "bb_log.h"
+#include "bb_registry.h"
+#include "bb_wifi.h"
+#include "esp_https_ota.h"
+#include "esp_http_client.h"
+#include "esp_ota_ops.h"
+#include "esp_app_desc.h"
+#include "esp_crt_bundle.h"
+#include "esp_system.h"
+#include "esp_timer.h"
+#include "esp_task_wdt.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/portmacro.h"
+#ifdef CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#endif
+#endif
+
 // Pluggable pause/resume callbacks
 static bb_ota_pause_cb_t s_pause_cb = NULL;
 static bb_ota_resume_cb_t s_resume_cb = NULL;
@@ -30,7 +55,6 @@ void bb_ota_pull_set_http_timeout_ms(uint32_t ms)
 }
 
 #ifndef ESP_PLATFORM
-#include "bb_ota_pull_test_hooks.h"
 uint32_t bb_ota_pull_host_get_http_timeout_ms(void)
 {
     return s_http_timeout_ms;
@@ -38,25 +62,6 @@ uint32_t bb_ota_pull_host_get_http_timeout_ms(void)
 #endif
 
 #ifdef ESP_PLATFORM
-#include "bb_http.h"
-#include "bb_log.h"
-#include "bb_registry.h"
-#include "bb_wifi.h"
-#include "esp_https_ota.h"
-#include "esp_http_client.h"
-#include "esp_ota_ops.h"
-#include "esp_app_desc.h"
-#include "esp_crt_bundle.h"
-#include "esp_system.h"
-#include "esp_timer.h"
-#include "esp_task_wdt.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/portmacro.h"
-
-#ifdef CONFIG_PM_ENABLE
-#include "esp_pm.h"
-#endif
 
 static const char *TAG = "bb_ota_pull";
 

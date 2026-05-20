@@ -301,3 +301,40 @@ void test_bb_mdns_query_dispatch_propagates_err_field(void)
     TEST_ASSERT_EQUAL(1, s_query_cb_fired);
     TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, s_query_cb_err);
 }
+
+/* One-time-warned tests: verify s_warned fires on first stub call,
+ * not on subsequent calls. setUp() calls bb_mdns_host_reset() so each
+ * test starts with s_warned == false. */
+
+void test_mdns_host_warn_fires_on_first_set_txt(void)
+{
+    TEST_ASSERT_FALSE(bb_mdns_host_warned());
+    bb_mdns_set_txt("key", "val");
+    TEST_ASSERT_TRUE(bb_mdns_host_warned());
+}
+
+void test_mdns_host_warn_fires_only_once_on_set_txt(void)
+{
+    bb_mdns_set_txt("key", "val");
+    TEST_ASSERT_TRUE(bb_mdns_host_warned());
+    /* Second call — warning already fired; flag stays true (not re-cleared). */
+    bb_mdns_set_txt("key2", "val2");
+    TEST_ASSERT_TRUE(bb_mdns_host_warned());
+    /* Counters still accumulate; warning is a one-shot side-effect. */
+    TEST_ASSERT_EQUAL(2, bb_mdns_host_set_txt_count());
+}
+
+void test_mdns_host_warn_fires_on_first_announce(void)
+{
+    TEST_ASSERT_FALSE(bb_mdns_host_warned());
+    bb_mdns_announce();
+    TEST_ASSERT_TRUE(bb_mdns_host_warned());
+}
+
+void test_mdns_host_reset_clears_warned_flag(void)
+{
+    bb_mdns_announce();
+    TEST_ASSERT_TRUE(bb_mdns_host_warned());
+    bb_mdns_host_reset();
+    TEST_ASSERT_FALSE(bb_mdns_host_warned());
+}

@@ -2,9 +2,13 @@
 #include "bb_mdns.h"
 #include "bb_mdns_host_test_hooks.h"
 #include "bb_log.h"
+#include <stdbool.h>
 #include <string.h>
 
 static const char *TAG = "bb_mdns";
+
+/* One-time warning: mDNS is unsupported on host (no network stack). */
+static bool s_warned = false;
 
 /* Counters for host test assertions. */
 static int s_announce_count = 0;
@@ -12,10 +16,12 @@ static int s_set_txt_count  = 0;
 
 int bb_mdns_host_announce_count(void) { return s_announce_count; }
 int bb_mdns_host_set_txt_count(void)  { return s_set_txt_count; }
+bool bb_mdns_host_warned(void)         { return s_warned; }
 void bb_mdns_host_reset(void)
 {
     s_announce_count = 0;
     s_set_txt_count  = 0;
+    s_warned         = false;
 }
 
 /* Subscription table — mirrors espidf implementation for dispatch testing. */
@@ -48,6 +54,10 @@ static bb_mdns_host_sub_t *host_sub_find(const char *service, const char *proto)
 void bb_mdns_set_txt(const char *key, const char *value)
 {
     if (!key || !value) return;
+    if (!s_warned) {
+        bb_log_w(TAG, "mDNS not supported on host platform; calls are no-ops");
+        s_warned = true;
+    }
     s_set_txt_count++;
     bb_log_d(TAG, "set_txt stub: %s=%s", key, value);
 }
@@ -64,6 +74,10 @@ void bb_mdns_start(void)
 
 void bb_mdns_announce(void)
 {
+    if (!s_warned) {
+        bb_log_w(TAG, "mDNS not supported on host platform; calls are no-ops");
+        s_warned = true;
+    }
     s_announce_count++;
     bb_log_d(TAG, "announce stub");
 }
@@ -75,6 +89,10 @@ bb_err_t bb_mdns_browse_start(const char *service, const char *proto,
 {
     if (!service || !proto) {
         return BB_ERR_INVALID_ARG;
+    }
+    if (!s_warned) {
+        bb_log_w(TAG, "mDNS not supported on host platform; calls are no-ops");
+        s_warned = true;
     }
 
     // Update existing subscription (idempotent)
@@ -109,6 +127,10 @@ bb_err_t bb_mdns_browse_stop(const char *service, const char *proto)
     if (!service || !proto) {
         return BB_ERR_INVALID_ARG;
     }
+    if (!s_warned) {
+        bb_log_w(TAG, "mDNS not supported on host platform; calls are no-ops");
+        s_warned = true;
+    }
 
     bb_mdns_host_sub_t *sub = host_sub_find(service, proto);
     if (sub) {
@@ -123,6 +145,10 @@ bb_err_t bb_mdns_query_txt(const char *instance_name, const char *service, const
 {
     (void)timeout_ms;
     if (!instance_name || !service || !proto) return BB_ERR_INVALID_ARG;
+    if (!s_warned) {
+        bb_log_w(TAG, "mDNS not supported on host platform; calls are no-ops");
+        s_warned = true;
+    }
     (void)cb;
     (void)ctx;
     return BB_OK;  /* host: never delivers a callback; tests use dispatch hook */

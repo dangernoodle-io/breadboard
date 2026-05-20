@@ -1,6 +1,20 @@
 #include "bb_ota_push.h"
 #include <string.h>
 
+#ifdef ESP_PLATFORM
+#include "bb_http.h"
+#include "bb_log.h"
+#include "bb_registry.h"
+#include "esp_ota_ops.h"
+#include "esp_image_format.h"
+#include "esp_app_desc.h"
+#include "esp_system.h"
+#include "esp_task_wdt.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/portmacro.h"
+#endif
+
 // Pluggable pause/resume callbacks
 static bb_ota_pause_cb_t s_pause_cb = NULL;
 static bb_ota_resume_cb_t s_resume_cb = NULL;
@@ -41,20 +55,9 @@ int bb_ota_push_validate_content_len_for_test(int content_len, int max_size)
 #endif
 
 #ifdef ESP_PLATFORM
-#include "bb_http.h"
-#include "bb_log.h"
-#include "bb_registry.h"
-#include "esp_ota_ops.h"
 
 // bb_http_req_recv returns this value on socket timeout (mirrors httpd internal)
 #define BB_OTA_RECV_TIMEOUT (-3)
-#include "esp_image_format.h"
-#include "esp_app_desc.h"
-#include "esp_system.h"
-#include "esp_task_wdt.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/portmacro.h"
 
 static const char *TAG = "bb_ota_push";
 

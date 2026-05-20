@@ -188,7 +188,7 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
     {
         // retained=true: update.available is a state topic — new SSE clients should
         // always receive the last known value even before the first periodic check fires.
-        bb_err_t attach_err = bb_event_routes_attach_ex("update.available", true);
+        bb_err_t attach_err = bb_event_routes_attach_ex(BB_UPDATE_CHECK_TOPIC, true);
         if (attach_err != BB_OK) {
             bb_log_w(TAG, "auto-attach failed for 'update.available': %d", attach_err);
         }
