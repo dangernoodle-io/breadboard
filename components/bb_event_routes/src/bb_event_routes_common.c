@@ -60,6 +60,7 @@ typedef struct {
 
 static attached_topic_t s_topics[CONFIG_BB_EVENT_ROUTES_MAX_TOPICS];
 static size_t s_num_topics = 0;
+static void *s_topics_lock = NULL;  // guards s_num_topics and s_topics[]
 
 // ---------------------------------------------------------------------------
 // Client slots
@@ -119,14 +120,17 @@ static void capture_cb(bb_event_topic_t topic, int32_t id,
     bb_event_routes_client_t *c = (bb_event_routes_client_t *)user;
     if (!c || !atomic_load(&c->in_use)) return;  // LCOV_EXCL_BR_LINE — defensive
 
-    // Locate topic index. Linear scan over a small array is fine.
+    // Locate topic index under the topics lock to avoid racing attach_ex.
     int topic_idx = -1;
-    for (size_t i = 0; i < s_num_topics; i++) {  // LCOV_EXCL_BR_LINE — capture only fires when a topic is attached
+    bb_event_routes_port_lock(s_topics_lock);
+    size_t num_topics = s_num_topics;
+    for (size_t i = 0; i < num_topics; i++) {  // LCOV_EXCL_BR_LINE — capture only fires when a topic is attached
         if (s_topics[i].topic == topic) {
             topic_idx = (int)i;
             break;
         }
     }
+    bb_event_routes_port_unlock(s_topics_lock);
     if (topic_idx < 0) return;  // LCOV_EXCL_LINE — attach guarantees a match
 
     size_t copy = size > c->max_entry ? c->max_entry : size;
@@ -166,6 +170,11 @@ bb_err_t bb_event_routes_init(const bb_event_routes_cfg_t *cfg)
 {
     if (s_cfg.initialized) return BB_OK;
 
+    if (!s_topics_lock) {
+        s_topics_lock = bb_event_routes_port_lock_create();
+        if (!s_topics_lock) return BB_ERR_NO_SPACE;  // LCOV_EXCL_LINE — OOM on lock alloc
+    }
+
     s_cfg.max_clients    = (cfg && cfg->max_clients)        ? cfg->max_clients        : CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS;
     s_cfg.queue_depth    = (cfg && cfg->per_client_queue)   ? cfg->per_client_queue   : CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH;
     s_cfg.ring_capacity  = (cfg && cfg->ring_capacity)      ? cfg->ring_capacity      : CONFIG_BB_EVENT_ROUTES_RING_CAPACITY;
@@ -192,12 +201,20 @@ bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained)
     if (!topic_name) return BB_ERR_INVALID_ARG;
     if (!s_cfg.initialized) return BB_ERR_INVALID_STATE;
 
-    // Dedupe
+    // Hold the topics lock for the full attach: dedupe + bounds check + ring
+    // ops + commit.  bb_event_ring_attach_ex uses its own bb_event_lock (a
+    // separate lock from s_topics_lock) so there is no deadlock risk.
+    // Holding the lock across the whole operation prevents TOCTOU without
+    // requiring a re-check after re-acquire.
+    bb_event_routes_port_lock(s_topics_lock);
     for (size_t i = 0; i < s_num_topics; i++) {
-        if (strcmp(s_topics[i].name, topic_name) == 0) return BB_OK;
+        if (strcmp(s_topics[i].name, topic_name) == 0) {
+            bb_event_routes_port_unlock(s_topics_lock);
+            return BB_OK;
+        }
     }
-
     if (s_num_topics >= CONFIG_BB_EVENT_ROUTES_MAX_TOPICS) {
+        bb_event_routes_port_unlock(s_topics_lock);
         bb_log_e(TAG, "topic table full");
         return BB_ERR_NO_SPACE;
     }
@@ -205,6 +222,7 @@ bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained)
     bb_event_topic_t topic = NULL;
     bb_err_t err = bb_event_topic_lookup(topic_name, &topic);
     if (err != BB_OK) {
+        bb_event_routes_port_unlock(s_topics_lock);
         bb_log_e(TAG, "topic '%s' not registered", topic_name);
         return err;
     }
@@ -213,6 +231,7 @@ bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained)
     err = bb_event_ring_attach_ex(topic, s_cfg.ring_capacity, s_cfg.ring_max_entry,
                                   retained, &ring);
     if (err != BB_OK) {
+        bb_event_routes_port_unlock(s_topics_lock);
         bb_log_e(TAG, "ring attach failed for '%s': %d", topic_name, err);
         return err;
     }
@@ -222,6 +241,8 @@ bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained)
     t->name[TOPIC_NAME_MAX - 1] = '\0';
     t->topic = topic;
     t->ring = ring;
+    bb_event_routes_port_unlock(s_topics_lock);
+
     bb_log_d(TAG, "attached '%s' retained=%d", topic_name, (int)retained);
     return BB_OK;
 }
@@ -268,15 +289,28 @@ bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
                 return BB_ERR_NO_SPACE;
             }
 
+            // Snapshot the topic table under the lock so concurrent attach_ex
+            // calls cannot race the iteration below.
+            typedef struct { bb_event_ring_t ring; char name[TOPIC_NAME_MAX]; } topic_snap_t;
+            topic_snap_t snaps[CONFIG_BB_EVENT_ROUTES_MAX_TOPICS];
+            size_t snap_count;
+            bb_event_routes_port_lock(s_topics_lock);
+            snap_count = s_num_topics;
+            for (size_t k = 0; k < snap_count; k++) {
+                snaps[k].ring = s_topics[k].ring;
+                memcpy(snaps[k].name, s_topics[k].name, TOPIC_NAME_MAX);
+            }
+            bb_event_routes_port_unlock(s_topics_lock);
+
             // Subscribe to matching topics. Replay-on-connect via ring.
-            for (size_t k = 0; k < s_num_topics; k++) {
+            for (size_t k = 0; k < snap_count; k++) {
                 // Filter to topic_filter if specified.
-                if (topic_filter && strcmp(s_topics[k].name, topic_filter) != 0) {
+                if (topic_filter && strcmp(snaps[k].name, topic_filter) != 0) {
                     continue;
                 }
                 bb_event_sub_t sub = NULL;
                 bb_err_t err = bb_event_ring_subscribe_with_replay(
-                    s_topics[k].ring, capture_cb, c, &sub);
+                    snaps[k].ring, capture_cb, c, &sub);
                 if (err != BB_OK) {
                     // Roll back: unsubscribe what we already did, release.
                     for (size_t j = 0; j < c->num_subs; j++) {
@@ -353,7 +387,16 @@ size_t bb_event_routes_drain_frame(bb_event_routes_client_t *c, char *buf, size_
     c->dropped = 0;
     bb_event_routes_port_unlock(c->port_lock);
 
-    const char *topic_name = s_topics[e.topic_idx].name;
+    // Read topic name under the topics lock; copy to local so serialization
+    // is lock-free.
+    char topic_name[TOPIC_NAME_MAX];
+    bb_event_routes_port_lock(s_topics_lock);
+    if ((size_t)e.topic_idx < s_num_topics) {
+        memcpy(topic_name, s_topics[e.topic_idx].name, TOPIC_NAME_MAX);
+    } else {
+        topic_name[0] = '\0';  // LCOV_EXCL_LINE — topic_idx always valid at capture time
+    }
+    bb_event_routes_port_unlock(s_topics_lock);
     int n;
     if (copy == 0) {
         n = snprintf(buf, buflen, "event: %s\ndata: {}\nid: %llu\n\n",
@@ -385,16 +428,24 @@ void *bb_event_routes_client_event(bb_event_routes_client_t *c)
 
 size_t bb_event_routes_topic_count(void)
 {
-    return s_num_topics;
+    bb_event_routes_port_lock(s_topics_lock);
+    size_t n = s_num_topics;
+    bb_event_routes_port_unlock(s_topics_lock);
+    return n;
 }
 
 bb_err_t bb_event_routes_topic_info(size_t idx,
                                     const char **name,
                                     bb_event_ring_t *ring)
 {
-    if (idx >= s_num_topics) return BB_ERR_NOT_FOUND;
+    bb_event_routes_port_lock(s_topics_lock);
+    if (idx >= s_num_topics) {
+        bb_event_routes_port_unlock(s_topics_lock);
+        return BB_ERR_NOT_FOUND;
+    }
     if (name) *name = s_topics[idx].name;
     if (ring) *ring = s_topics[idx].ring;
+    bb_event_routes_port_unlock(s_topics_lock);
     return BB_OK;
 }
 
@@ -423,6 +474,10 @@ void bb_event_routes_reset_for_test(void) {
     }
     s_num_topics = 0;
     memset(&s_cfg, 0, sizeof(s_cfg));
+    if (s_topics_lock) {
+        bb_event_routes_port_lock_destroy(s_topics_lock);
+        s_topics_lock = NULL;
+    }
 }
 
 size_t bb_event_routes_queued_for_test(bb_event_routes_client_t *c) {
