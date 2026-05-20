@@ -973,6 +973,8 @@ void test_bb_event_routes_topic_info_ring_reflects_posts(void);
 void test_bb_event_routes_active_client_count_zero_before_acquire(void);
 void test_bb_event_routes_active_client_count_increments_on_acquire(void);
 void test_bb_event_routes_active_client_count_at_max(void);
+void test_bb_event_routes_client_event_null_for_null_client(void);
+void test_bb_event_routes_client_event_returns_non_null_after_acquire(void);
 void test_bb_event_routes_diag_full_round_trip(void);
 void test_bb_event_routes_topic_count_zero_after_reset(void);
 
@@ -1982,6 +1984,8 @@ int main(void) {
     RUN_TEST(test_bb_event_routes_active_client_count_zero_before_acquire);
     RUN_TEST(test_bb_event_routes_active_client_count_increments_on_acquire);
     RUN_TEST(test_bb_event_routes_active_client_count_at_max);
+    RUN_TEST(test_bb_event_routes_client_event_null_for_null_client);
+    RUN_TEST(test_bb_event_routes_client_event_returns_non_null_after_acquire);
     RUN_TEST(test_bb_event_routes_diag_full_round_trip);
     RUN_TEST(test_bb_event_routes_topic_count_zero_after_reset);
 
