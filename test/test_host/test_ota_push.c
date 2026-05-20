@@ -98,3 +98,31 @@ void test_ota_push_pause_hook_returns_true(void)
 
     bb_ota_push_set_hooks(NULL, NULL);
 }
+
+// Content-length validation tests
+#define TEST_MAX_SIZE (4 * 1024 * 1024)  // 4 MB — matches Kconfig default
+
+void test_ota_push_validate_content_len_zero_returns_400(void)
+{
+    TEST_ASSERT_EQUAL_INT(400, bb_ota_push_validate_content_len(0, TEST_MAX_SIZE));
+}
+
+void test_ota_push_validate_content_len_negative_returns_400(void)
+{
+    TEST_ASSERT_EQUAL_INT(400, bb_ota_push_validate_content_len(-1, TEST_MAX_SIZE));
+}
+
+void test_ota_push_validate_content_len_oversized_returns_413(void)
+{
+    TEST_ASSERT_EQUAL_INT(413, bb_ota_push_validate_content_len(TEST_MAX_SIZE + 1, TEST_MAX_SIZE));
+}
+
+void test_ota_push_validate_content_len_at_max_returns_ok(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, bb_ota_push_validate_content_len(TEST_MAX_SIZE, TEST_MAX_SIZE));
+}
+
+void test_ota_push_validate_content_len_valid_returns_ok(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, bb_ota_push_validate_content_len(65536, TEST_MAX_SIZE));
+}

@@ -9,6 +9,19 @@ config BB_OTA_PUSH_AUTOREGISTER
         public C API but drive route registration manually or skip the route
         entirely (e.g. headless OTA-driver use).
 
+config BB_OTA_PUSH_MAX_SIZE
+    int "Maximum firmware binary size accepted by /api/ota/push (bytes)"
+    range 65536 16777216
+    default 4194304
+    help
+        Upper bound on Content-Length accepted by the OTA push handler.
+        Requests with Content-Length exceeding this value are rejected
+        with HTTP 413 before entering the receive loop. Requests with
+        Content-Length <= 0 are rejected with HTTP 400. The default
+        (4 MB) is comfortably larger than a typical OTA partition;
+        consumers on boards with a smaller OTA partition can lower this
+        to fail fast rather than spinning through receive timeout retries.
+
 config BB_OTA_PUSH_WDT_EXTENDED_S
     int "Task WDT timeout (s) during OTA push receive+write phase"
     range 30 1800

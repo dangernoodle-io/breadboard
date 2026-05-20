@@ -86,6 +86,11 @@ void test_ota_push_skip_check_callback_returns_true(void);
 void test_ota_push_skip_check_callback_returns_false(void);
 void test_ota_push_hooks_registration(void);
 void test_ota_push_pause_hook_returns_true(void);
+void test_ota_push_validate_content_len_zero_returns_400(void);
+void test_ota_push_validate_content_len_negative_returns_400(void);
+void test_ota_push_validate_content_len_oversized_returns_413(void);
+void test_ota_push_validate_content_len_at_max_returns_ok(void);
+void test_ota_push_validate_content_len_valid_returns_ok(void);
 
 // Forward declarations from test_http_utils.c
 void test_url_decode_basic(void);
@@ -1106,6 +1111,11 @@ int main(void) {
     RUN_TEST(test_ota_push_skip_check_callback_returns_false);
     RUN_TEST(test_ota_push_hooks_registration);
     RUN_TEST(test_ota_push_pause_hook_returns_true);
+    RUN_TEST(test_ota_push_validate_content_len_zero_returns_400);
+    RUN_TEST(test_ota_push_validate_content_len_negative_returns_400);
+    RUN_TEST(test_ota_push_validate_content_len_oversized_returns_413);
+    RUN_TEST(test_ota_push_validate_content_len_at_max_returns_ok);
+    RUN_TEST(test_ota_push_validate_content_len_valid_returns_ok);
 
     // OTA validator tests
     RUN_TEST(test_ota_validator_is_pending_false_on_host);
