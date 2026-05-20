@@ -91,6 +91,7 @@ struct bb_event_routes_client {
     size_t num_subs;
 
     void *port_lock;              // platform-supplied mutex (opaque)
+    void *event;                  // platform-supplied signal (opaque) — wakes SSE writer
 };
 
 static bb_event_routes_client_t s_clients[CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS];
@@ -154,7 +155,7 @@ static void capture_cb(bb_event_topic_t topic, int32_t id,
 
     bb_event_routes_port_unlock(c->port_lock);
 
-    bb_event_routes_port_notify(c->port_lock);
+    bb_event_routes_port_event_signal(c->event);
 }
 
 // ---------------------------------------------------------------------------
@@ -253,13 +254,16 @@ bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
             c->entries = (queue_entry_t *)s_calloc(c->queue_depth, sizeof(queue_entry_t));
             c->payload_buf = (uint8_t *)s_calloc(c->queue_depth, c->max_entry);
             c->port_lock = bb_event_routes_port_lock_create();
-            if (!c->entries || !c->payload_buf || !c->port_lock) {  // LCOV_EXCL_BR_LINE — port_lock alloc covered by entries/payload paths
+            c->event = bb_event_routes_port_event_create();
+            if (!c->entries || !c->payload_buf || !c->port_lock || !c->event) {  // LCOV_EXCL_BR_LINE — port_lock alloc covered by entries/payload paths
                 s_free(c->entries);
                 s_free(c->payload_buf);
                 if (c->port_lock) bb_event_routes_port_lock_destroy(c->port_lock);  // LCOV_EXCL_BR_LINE
+                if (c->event) bb_event_routes_port_event_destroy(c->event);
                 c->entries = NULL;
                 c->payload_buf = NULL;
                 c->port_lock = NULL;
+                c->event = NULL;
                 atomic_store(&c->in_use, false);
                 return BB_ERR_NO_SPACE;
             }
@@ -281,9 +285,11 @@ bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
                     s_free(c->entries);
                     s_free(c->payload_buf);
                     bb_event_routes_port_lock_destroy(c->port_lock);
+                    bb_event_routes_port_event_destroy(c->event);
                     c->entries = NULL;
                     c->payload_buf = NULL;
                     c->port_lock = NULL;
+                    c->event = NULL;
                     atomic_store(&c->in_use, false);
                     return err;
                 }
@@ -312,9 +318,11 @@ void bb_event_routes_client_release(bb_event_routes_client_t *c)
     s_free(c->entries);
     s_free(c->payload_buf);
     if (c->port_lock) bb_event_routes_port_lock_destroy(c->port_lock);  // LCOV_EXCL_BR_LINE — port_lock always set on release path
+    if (c->event) bb_event_routes_port_event_destroy(c->event);
     c->entries = NULL;
     c->payload_buf = NULL;
     c->port_lock = NULL;
+    c->event = NULL;
     atomic_store(&c->in_use, false);
 }
 
@@ -365,6 +373,11 @@ size_t bb_event_routes_drain_frame(bb_event_routes_client_t *c, char *buf, size_
 }
 
 uint32_t bb_event_routes_heartbeat_ms(void) { return s_cfg.heartbeat_ms; }
+
+void *bb_event_routes_client_event(bb_event_routes_client_t *c)
+{
+    return c ? c->event : NULL;
+}
 
 // ---------------------------------------------------------------------------
 // Diagnostics accessors (public, no ESP-IDF deps)

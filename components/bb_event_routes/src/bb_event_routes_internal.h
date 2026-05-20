@@ -2,6 +2,7 @@
 // Private interface shared by bb_event_routes_common.c and the per-platform
 // route handlers. Not for external consumers — kept out of include/.
 #include "bb_core.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -28,6 +29,10 @@ void     bb_event_routes_client_release(bb_event_routes_client_t *c);
 // Returns the number of bytes written (0 if queue empty or buflen too small).
 size_t   bb_event_routes_drain_frame(bb_event_routes_client_t *c, char *buf, size_t buflen);
 
+// Accessor for the per-client event signal handle. Platform code uses this
+// to wait for new events without reaching into the opaque client struct.
+void *   bb_event_routes_client_event(bb_event_routes_client_t *c);
+
 uint32_t bb_event_routes_heartbeat_ms(void);
 
 // Platform-supplied mutex shim. The "lock" is whatever opaque handle the
@@ -37,6 +42,15 @@ void  bb_event_routes_port_lock_destroy(void *lock);
 void  bb_event_routes_port_lock(void *lock);
 void  bb_event_routes_port_unlock(void *lock);
 void  bb_event_routes_port_notify(void *lock);  // optional: wake the SSE task
+
+// Per-client event signal: created at acquire, destroyed at release, signaled
+// by capture_cb when a new event has been enqueued so the SSE writer task can
+// drain immediately instead of polling. Wait returns true if signaled, false
+// on timeout — letting the writer emit heartbeats on the same path.
+void *bb_event_routes_port_event_create(void);
+void  bb_event_routes_port_event_destroy(void *event);
+void  bb_event_routes_port_event_signal(void *event);
+bool  bb_event_routes_port_event_wait(void *event, uint32_t timeout_ms);
 
 #ifdef BB_EVENT_ROUTES_TESTING
 void     bb_event_routes_reset_for_test(void);
