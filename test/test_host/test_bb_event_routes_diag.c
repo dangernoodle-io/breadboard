@@ -218,6 +218,38 @@ void test_bb_event_routes_active_client_count_at_max(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_event_routes_client_event accessor + port_event signal/wait
+// ---------------------------------------------------------------------------
+
+void test_bb_event_routes_client_event_null_for_null_client(void)
+{
+    TEST_ASSERT_NULL(bb_event_routes_client_event(NULL));
+}
+
+void test_bb_event_routes_client_event_returns_non_null_after_acquire(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(&small_cfg);
+
+    bb_event_routes_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire(&c));
+    void *ev = bb_event_routes_client_event(c);
+    TEST_ASSERT_NOT_NULL(ev);
+
+    // Exercise the host port_event shims (signal + wait are no-ops on host
+    // but should be safe to call with the live handle).
+    bb_event_routes_port_event_signal(ev);
+    TEST_ASSERT_FALSE(bb_event_routes_port_event_wait(ev, 0));
+
+    // Null-handle safety: signal and wait must tolerate NULL.
+    bb_event_routes_port_event_signal(NULL);
+    TEST_ASSERT_FALSE(bb_event_routes_port_event_wait(NULL, 0));
+
+    bb_event_routes_client_release(c);
+}
+
+// ---------------------------------------------------------------------------
 // Combined: topic_info ring state matches what last_entry_info returns
 // ---------------------------------------------------------------------------
 

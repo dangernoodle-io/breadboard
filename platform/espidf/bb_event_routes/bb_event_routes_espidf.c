@@ -9,10 +9,12 @@
 #include "bb_log.h"
 #include "bb_registry.h"
 
+#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <netinet/tcp.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -47,6 +49,31 @@ void bb_event_routes_port_unlock(void *lock)
 
 void bb_event_routes_port_notify(void *lock) { (void)lock; }
 
+// Binary semaphore: capture_cb signals after enqueue; sse_task waits with a
+// heartbeat-sized timeout so it wakes immediately on new events and emits a
+// keepalive ping otherwise — no polling, no extra latency.
+void *bb_event_routes_port_event_create(void)
+{
+    return (void *)xSemaphoreCreateBinary();
+}
+
+void bb_event_routes_port_event_destroy(void *event)
+{
+    if (event) vSemaphoreDelete((SemaphoreHandle_t)event);
+}
+
+void bb_event_routes_port_event_signal(void *event)
+{
+    if (event) xSemaphoreGive((SemaphoreHandle_t)event);
+}
+
+bool bb_event_routes_port_event_wait(void *event, uint32_t timeout_ms)
+{
+    if (!event) return false;
+    TickType_t ticks = (timeout_ms == 0) ? 0 : pdMS_TO_TICKS(timeout_ms);
+    return xSemaphoreTake((SemaphoreHandle_t)event, ticks) == pdTRUE;
+}
+
 // ---------------------------------------------------------------------------
 // Per-client SSE task
 // ---------------------------------------------------------------------------
@@ -61,11 +88,18 @@ static void sse_task(void *arg)
     sse_task_arg_t *t = (sse_task_arg_t *)arg;
     bb_http_request_t *req = t->req;
     bb_event_routes_client_t *client = t->client;
+    void *event = bb_event_routes_client_event(client);
     free(t);
 
     int fd = bb_http_req_sockfd(req);
     struct timeval tv = { .tv_sec = 30, .tv_usec = 0 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    // Disable Nagle on this socket. SSE frames are small (<512 B) and meant
+    // to arrive promptly; with Nagle on the kernel could hold a frame for
+    // ~40-200ms waiting for more data, adding visible latency to events like
+    // the update.available badge transition.
+    int one = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
 
     bb_http_resp_set_type(req, "text/event-stream");
     bb_http_resp_set_header(req, "Cache-Control", "no-cache");
@@ -77,21 +111,39 @@ static void sse_task(void *arg)
 
     char frame[CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY + 96];
     const uint32_t hb_ms = bb_event_routes_heartbeat_ms();
-    const int idle_ticks_per_ping = hb_ms / 200;
-    int idle_ticks = 0;
 
+    // Event-driven loop: wait on the per-client signal up to one heartbeat
+    // interval. Signaled → drain everything queued and send. Timeout → ping.
+    // No polling, no fixed 200ms latency tail.
     while (err == BB_OK) {
-        size_t n = bb_event_routes_drain_frame(client, frame, sizeof(frame));
-        if (n == 0) {
-            if (++idle_ticks >= idle_ticks_per_ping) {
-                err = bb_http_resp_send_chunk(req, ": ping\n\n", -1);
-                idle_ticks = 0;
-            }
-            vTaskDelay(pdMS_TO_TICKS(200));
-            continue;
+        // Peer-disconnect detection: peek the read side. recv()==0 means peer
+        // sent FIN; recv()==-1 with EAGAIN/EWOULDBLOCK means alive but quiet;
+        // recv()==-1 with anything else (ECONNRESET, EBADF, ENOTCONN) means
+        // dead. SSE is server→client only — we never actually read data — but
+        // a peek catches the close window faster than waiting for SO_RCVTIMEO
+        // or the next keepalive write, freeing the client slot promptly so a
+        // reconnecting browser doesn't double up on slots.
+        char peek;
+        ssize_t prc = recv(fd, &peek, 1, MSG_DONTWAIT | MSG_PEEK);
+        if (prc == 0) {
+            err = BB_ERR_INVALID_STATE;  // peer FIN
+            break;
+        } else if (prc < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            err = BB_ERR_INVALID_STATE;
+            break;
         }
-        idle_ticks = 0;
-        err = bb_http_resp_send_chunk(req, frame, (int)n);
+
+        bool signaled = bb_event_routes_port_event_wait(event, hb_ms);
+        if (signaled) {
+            for (;;) {
+                size_t n = bb_event_routes_drain_frame(client, frame, sizeof(frame));
+                if (n == 0) break;
+                err = bb_http_resp_send_chunk(req, frame, (int)n);
+                if (err != BB_OK) break;
+            }
+        } else {
+            err = bb_http_resp_send_chunk(req, ": ping\n\n", -1);
+        }
     }
 
     if (err == BB_OK) {
