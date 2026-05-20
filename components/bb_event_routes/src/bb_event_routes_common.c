@@ -259,7 +259,7 @@ bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
                 s_free(c->entries);
                 s_free(c->payload_buf);
                 if (c->port_lock) bb_event_routes_port_lock_destroy(c->port_lock);  // LCOV_EXCL_BR_LINE
-                if (c->event) bb_event_routes_port_event_destroy(c->event);
+                if (c->event) bb_event_routes_port_event_destroy(c->event);  // LCOV_EXCL_BR_LINE — paired with port_lock alloc-failure path
                 c->entries = NULL;
                 c->payload_buf = NULL;
                 c->port_lock = NULL;
@@ -318,7 +318,7 @@ void bb_event_routes_client_release(bb_event_routes_client_t *c)
     s_free(c->entries);
     s_free(c->payload_buf);
     if (c->port_lock) bb_event_routes_port_lock_destroy(c->port_lock);  // LCOV_EXCL_BR_LINE — port_lock always set on release path
-    if (c->event) bb_event_routes_port_event_destroy(c->event);
+    if (c->event) bb_event_routes_port_event_destroy(c->event);  // LCOV_EXCL_BR_LINE — event always set on release path
     c->entries = NULL;
     c->payload_buf = NULL;
     c->port_lock = NULL;
