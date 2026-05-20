@@ -26,7 +26,7 @@ static const char *TAG = "bb_update_check";
 #define URL_MAX        256
 #define BOARD_MAX       64
 #define TOPIC_NAME     "update.available"
-#define BOARD_NAME_FALLBACK "firmware"
+#define BOARD_NAME_FALLBACK "unknown"
 
 // ---------------------------------------------------------------------------
 // State
@@ -210,6 +210,9 @@ bb_err_t bb_update_check_get_status(bb_update_check_status_t *out)
     if (!s_initialized) return BB_ERR_INVALID_STATE;
     pthread_mutex_lock(&s_lock);
     *out = s_status;
+    const char *board_eff = (s_firmware_board[0] != '\0') ? s_firmware_board : BOARD_NAME_FALLBACK;
+    strncpy(out->board, board_eff, sizeof(out->board) - 1);
+    out->board[sizeof(out->board) - 1] = '\0';
     pthread_mutex_unlock(&s_lock);
     out->enabled = bb_nv_config_update_check_enabled();
     return BB_OK;

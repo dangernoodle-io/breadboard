@@ -18,9 +18,6 @@ static bb_ota_skip_check_cb_t s_skip_check_cb = NULL;
 // Releases URL — caller must set before bb_ota_pull_check_now()
 static char s_releases_url[512] = "";
 
-// Firmware board name
-static char s_firmware_board[64] = "";
-
 // Per-recv HTTP timeout for OTA download (ms). Consumer-tunable via
 // bb_ota_pull_set_http_timeout_ms(). Default 20 s matches the original
 // hard-coded value; pass 0 to restore the default.
@@ -169,17 +166,6 @@ void bb_ota_pull_set_releases_url(const char *url)
     }
 }
 
-// Public API: Set firmware board
-void bb_ota_pull_set_firmware_board(const char *board)
-{
-    if (board) {
-        strncpy(s_firmware_board, board, sizeof(s_firmware_board) - 1);
-        s_firmware_board[sizeof(s_firmware_board) - 1] = '\0';
-    } else {
-        s_firmware_board[0] = '\0';
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Portable manifest-fetch — no ESP-IDF types; compiled on host and device.
 // ---------------------------------------------------------------------------
@@ -194,7 +180,8 @@ static bb_err_t ota_manifest_chunk_cb(void *cv, const char *data, size_t len)
  * Fetch and stream-parse the release manifest.
  *
  * Fills out_tag and out_url on success. The board name used for asset
- * matching is taken from s_firmware_board (falls back to "unknown").
+ * matching is taken from bb_update_check_get_status() — the single source
+ * of truth for the configured board name.
  *
  * Returns BB_OK, BB_ERR_INVALID_STATE (transport/HTTP error), or
  * BB_ERR_NOT_FOUND (parse: tag/asset missing).
@@ -202,7 +189,10 @@ static bb_err_t ota_manifest_chunk_cb(void *cv, const char *data, size_t len)
 static bb_err_t ota_fetch_manifest(char *out_tag, size_t tag_cap,
                                    char *out_url, size_t url_cap)
 {
-    const char *board = s_firmware_board[0] != '\0' ? s_firmware_board : "unknown";
+    bb_update_check_status_t uc_status;
+    bb_err_t status_err = bb_update_check_get_status(&uc_status);
+    const char *board = (status_err == BB_OK && uc_status.board[0] != '\0')
+                        ? uc_status.board : "unknown";
 
     bb_release_manifest_stream_ctx_t stream_ctx;
     bb_err_t perr = bb_release_manifest_parse_github_stream_begin(

@@ -41,13 +41,6 @@ void bb_ota_pull_set_skip_check_cb(bb_ota_skip_check_cb_t cb);
 void bb_ota_pull_set_releases_url(const char *url);
 
 /**
- * Set the firmware board name/prefix for asset lookup.
- * Default: read from FIRMWARE_BOARD cmake define
- * @param board Board name (e.g. "tdongle-s3")
- */
-void bb_ota_pull_set_firmware_board(const char *board);
-
-/**
  * Set the per-recv HTTP timeout used for the OTA download.
  * Default 20000 ms. Pass 0 to restore the default. Must be called
  * before the OTA task is started; later calls take effect on the
