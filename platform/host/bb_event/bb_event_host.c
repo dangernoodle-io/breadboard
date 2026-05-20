@@ -1,3 +1,12 @@
+// Must come before any system header — glibc <features.h> latches feature
+// flags on first include, and we need PTHREAD_MUTEX_RECURSIVE +
+// pthread_mutexattr_settype which glibc gates on _GNU_SOURCE
+// (or _XOPEN_SOURCE >= 500). macOS / BSD libc expose them unconditionally,
+// so this only surfaces on the Linux host build (CI).
+#if !defined(_GNU_SOURCE)
+#define _GNU_SOURCE 1
+#endif
+
 #include "bb_event.h"
 #include "bb_event_port.h"
 #include "bb_log.h"
