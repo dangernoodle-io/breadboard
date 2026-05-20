@@ -474,6 +474,11 @@ void test_openapi_emit_param_null_in_defaults_to_query(void);
 void test_openapi_emit_oom_params_arr_skips_parameters(void);
 void test_openapi_emit_oom_param_obj_skips_entry(void);
 void test_openapi_emit_oom_schema_obj_skips_schema(void);
+void test_openapi_emit_stream_produces_valid_openapi_doc(void);
+void test_openapi_emit_stream_null_args_return_invalid_arg(void);
+void test_openapi_emit_stream_includes_servers_and_description(void);
+void test_openapi_emit_stream_applies_defaults_when_meta_fields_missing(void);
+void test_openapi_emit_stream_handles_multiple_methods_per_path(void);
 
 // Forward declarations from test_bb_openapi_validate.c
 void test_validate_null_schema_json_returns_invalid_arg(void);
@@ -1489,6 +1494,11 @@ int main(void) {
     RUN_TEST(test_openapi_emit_param_null_name_defaults_to_empty);
     RUN_TEST(test_openapi_emit_param_null_in_defaults_to_query);
     RUN_TEST(test_openapi_emit_oom_params_arr_skips_parameters);
+    RUN_TEST(test_openapi_emit_stream_produces_valid_openapi_doc);
+    RUN_TEST(test_openapi_emit_stream_null_args_return_invalid_arg);
+    RUN_TEST(test_openapi_emit_stream_includes_servers_and_description);
+    RUN_TEST(test_openapi_emit_stream_applies_defaults_when_meta_fields_missing);
+    RUN_TEST(test_openapi_emit_stream_handles_multiple_methods_per_path);
     RUN_TEST(test_openapi_emit_oom_param_obj_skips_entry);
     RUN_TEST(test_openapi_emit_oom_schema_obj_skips_schema);
 

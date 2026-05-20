@@ -1,3 +1,10 @@
+// Must come before any system header (which transitively pulls features.h
+// and locks _POSIX_C_SOURCE at the glibc default). Needed so <time.h> below
+// exposes clock_gettime + CLOCK_MONOTONIC on the POSIX host backend.
+#if !defined(ESP_PLATFORM) && !defined(ARDUINO) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200112L
+#endif
+
 #include "bb_event_ring.h"
 #include "bb_log.h"
 #include <stdlib.h>
@@ -14,7 +21,6 @@ int64_t bb_event_ring_now_us(void);
 #include <Arduino.h>
 int64_t bb_event_ring_now_us(void) { return (int64_t)micros(); }
 #else
-#define _POSIX_C_SOURCE 200112L
 #include <time.h>
 int64_t bb_event_ring_now_us(void)
 {

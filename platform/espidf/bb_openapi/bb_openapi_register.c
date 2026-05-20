@@ -21,15 +21,20 @@ static bb_err_t openapi_handler(bb_http_request_t *req)
     if (!effective.title) effective.title = "breadboard device";
     if (!effective.version) effective.version = bb_system_get_version();
 
-    bb_json_t doc = bb_openapi_emit(&effective);
-    if (!doc) {
-        bb_http_resp_send_err(req, 500, "openapi emit failed");
-        return BB_ERR_INVALID_STATE;
-    }
+    bb_err_t err = bb_http_resp_set_type(req, "application/json");
+    if (err != BB_OK) return err;
 
-    bb_err_t err = bb_http_resp_send_json(req, doc);
-    bb_json_free(doc);
-    return err;
+    // Stream the spec directly so we never materialize the full JSON tree.
+    // bb_openapi_emit() in tree-build mode was crashing httpd workers on
+    // tight-stack boards (tdongle-s3, ESP32-WROOM-32) once the route count
+    // grew past ~50 — see B1-222.
+    err = bb_openapi_emit_stream(req, &effective);
+
+    // Always finalize the chunked response even on error; without the zero-
+    // length closer the client may see a truncated body that's still
+    // "successful" enough to confuse JSON parsers.
+    bb_err_t fin = bb_http_resp_send_chunk(req, NULL, 0);
+    return err != BB_OK ? err : fin;
 }
 
 // ---------------------------------------------------------------------------

@@ -2000,3 +2000,144 @@ void test_openapi_emit_oom_schema_obj_skips_schema(void)
     bb_json_free(doc);
     bb_json_host_force_alloc_fail_after(-1);
 }
+
+
+// ---------------------------------------------------------------------------
+// bb_openapi_emit_stream — streaming variant; chunks are concatenated into the
+// host capture slot and validated as a single string.
+// ---------------------------------------------------------------------------
+
+#include "bb_http_host.h"
+
+void test_openapi_emit_stream_produces_valid_openapi_doc(void)
+{
+    register_fixtures();
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta = { .title = "Stream", .version = "9.9.9" };
+    bb_err_t err = bb_openapi_emit_stream(req, &meta);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    // Sanity: doc starts/ends correctly and contains the three fixture paths.
+    TEST_ASSERT_EQUAL_STRING_LEN("{\"openapi\":\"3.1.0\"", cap.body, 18);
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"title\":\"Stream\""));
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"version\":\"9.9.9\""));
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"/api/foo\""));
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"/api/bar\""));
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"/api/baz\""));
+    // tail
+    TEST_ASSERT_EQUAL_STRING_LEN("}}", cap.body + cap.body_len - 2, 2);
+
+    // Parses as valid JSON
+    bb_json_t parsed = bb_json_parse(cap.body, cap.body_len);
+    TEST_ASSERT_NOT_NULL(parsed);
+    bb_json_free(parsed);
+
+    bb_http_host_capture_free(&cap);
+}
+
+void test_openapi_emit_stream_null_args_return_invalid_arg(void)
+{
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_openapi_emit_stream(NULL, &meta));
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_openapi_emit_stream(req, NULL));
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    bb_http_host_capture_free(&cap);
+}
+
+
+void test_openapi_emit_stream_includes_servers_and_description(void)
+{
+    register_fixtures();
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta = {
+        .title = "Stream2",
+        .version = "1.0.0",
+        .description = "test description",
+        .server_url = "http://example.invalid",
+    };
+    bb_err_t err = bb_openapi_emit_stream(req, &meta);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"description\":\"test description\""));
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"servers\":[{\"url\":\"http://example.invalid\"}]"));
+
+    bb_http_host_capture_free(&cap);
+}
+
+void test_openapi_emit_stream_applies_defaults_when_meta_fields_missing(void)
+{
+    register_fixtures();
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta = {0};  // title + version both NULL
+    bb_err_t err = bb_openapi_emit_stream(req, &meta);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    // Defaults applied
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"title\":\"breadboard device\""));
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"version\":\"0.0.0\""));
+
+    bb_http_host_capture_free(&cap);
+}
+
+// Fixture: two methods on the same path — exercises the multi-method branch
+// in stream_operations_walker (the comma separator between methods).
+static const bb_route_response_t s_stream_multi_responses[] = {
+    { .status = 200, .description = "ok" },
+    { .status = 0 },
+};
+static const bb_route_t s_stream_route_multi_get = {
+    .method = BB_HTTP_GET, .path = "/api/stream-multi", .tag = "multi",
+    .summary = "GET multi", .responses = s_stream_multi_responses, .handler = stub_handler,
+};
+static const bb_route_t s_stream_route_multi_post = {
+    .method = BB_HTTP_POST, .path = "/api/stream-multi", .tag = "multi",
+    .summary = "POST multi", .responses = s_stream_multi_responses, .handler = stub_handler,
+};
+
+void test_openapi_emit_stream_handles_multiple_methods_per_path(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_stream_route_multi_get);
+    bb_http_register_described_route(NULL, &s_stream_route_multi_post);
+
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_emit_stream(req, &meta));
+
+    bb_http_host_capture_t cap = {0};
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL(cap.body);
+
+    // Both methods present under the single path
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"/api/stream-multi\":{"));
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"get\":"));
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"post\":"));
+
+    bb_http_host_capture_free(&cap);
+}
