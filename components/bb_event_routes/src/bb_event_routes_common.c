@@ -170,10 +170,8 @@ bb_err_t bb_event_routes_init(const bb_event_routes_cfg_t *cfg)
 {
     if (s_cfg.initialized) return BB_OK;
 
-    if (!s_topics_lock) {
-        s_topics_lock = bb_event_routes_port_lock_create();
-        if (!s_topics_lock) return BB_ERR_NO_SPACE;  // LCOV_EXCL_LINE — OOM on lock alloc
-    }
+    s_topics_lock = bb_event_routes_port_lock_create();
+    if (!s_topics_lock) return BB_ERR_NO_SPACE;  // LCOV_EXCL_LINE — OOM on lock alloc
 
     s_cfg.max_clients    = (cfg && cfg->max_clients)        ? cfg->max_clients        : CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS;
     s_cfg.queue_depth    = (cfg && cfg->per_client_queue)   ? cfg->per_client_queue   : CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH;
@@ -388,14 +386,10 @@ size_t bb_event_routes_drain_frame(bb_event_routes_client_t *c, char *buf, size_
     bb_event_routes_port_unlock(c->port_lock);
 
     // Read topic name under the topics lock; copy to local so serialization
-    // is lock-free.
+    // is lock-free.  capture_cb guarantees topic_idx is always valid.
     char topic_name[TOPIC_NAME_MAX];
     bb_event_routes_port_lock(s_topics_lock);
-    if ((size_t)e.topic_idx < s_num_topics) {
-        memcpy(topic_name, s_topics[e.topic_idx].name, TOPIC_NAME_MAX);
-    } else {
-        topic_name[0] = '\0';  // LCOV_EXCL_LINE — topic_idx always valid at capture time
-    }
+    memcpy(topic_name, s_topics[e.topic_idx].name, TOPIC_NAME_MAX);
     bb_event_routes_port_unlock(s_topics_lock);
     int n;
     if (copy == 0) {
