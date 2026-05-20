@@ -32,6 +32,13 @@ void bb_ota_push_set_hooks(bb_ota_pause_cb_t pause, bb_ota_resume_cb_t resume);
  */
 void bb_ota_push_set_skip_check_cb(bb_ota_push_skip_check_cb_t cb);
 
+/**
+ * Validate Content-Length for an OTA push request.
+ * Returns 0 if valid, 400 if content_len <= 0, 413 if content_len > max_size.
+ * Exposed for host unit testing; called internally by the HTTP handler.
+ */
+int bb_ota_push_validate_content_len(int content_len, int max_size);
+
 #ifdef ESP_PLATFORM
 #include "bb_nv.h"
 #include "bb_http.h"

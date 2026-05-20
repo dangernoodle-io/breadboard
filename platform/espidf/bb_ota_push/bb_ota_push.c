@@ -21,6 +21,25 @@ void bb_ota_push_set_skip_check_cb(bb_ota_push_skip_check_cb_t cb)
     s_skip_check_cb = cb;
 }
 
+/**
+ * Validate the OTA push Content-Length.
+ * Returns 0 if valid, 400 if content_len <= 0, 413 if content_len > max_size.
+ * Exposed outside #ifdef ESP_PLATFORM for host unit testing.
+ */
+int bb_ota_push_validate_content_len(int content_len, int max_size)
+{
+    if (content_len <= 0) return 400;
+    if (content_len > max_size) return 413;
+    return 0;
+}
+
+#ifdef BB_OTA_PUSH_TESTING
+int bb_ota_push_validate_content_len_for_test(int content_len, int max_size)
+{
+    return bb_ota_push_validate_content_len(content_len, max_size);
+}
+#endif
+
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
 #include "bb_log.h"
@@ -81,6 +100,20 @@ static void ota_wdt_set_timeout(uint32_t timeout_s)
  */
 static bb_err_t ota_push_handler(bb_http_request_t *req)
 {
+    int content_len = bb_http_req_body_len(req);
+    int validate_status = bb_ota_push_validate_content_len(
+        content_len, CONFIG_BB_OTA_PUSH_MAX_SIZE);
+    if (validate_status != 0) {
+        bb_log_e(TAG, "OTA push rejected: content_len=%d, status=%d",
+                 content_len, validate_status);
+        if (validate_status == 413) {
+            bb_http_resp_send_err(req, 413, "Payload Too Large");
+        } else {
+            bb_http_resp_send_err(req, 400, "Invalid Content-Length");
+        }
+        return BB_ERR_INVALID_ARG;
+    }
+
     const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
     if (!partition) {
         bb_http_resp_send_err(req, 500, "No OTA partition");
@@ -123,7 +156,6 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
 
     int received = 0;
     int timeout_count = 0;
-    int content_len = bb_http_req_body_len(req);
 
     while (received < content_len) {
         int ret = bb_http_req_recv(req, buf,
@@ -228,8 +260,9 @@ resume_and_exit:
 
 static const bb_route_response_t s_ota_push_responses[] = {
     { 200, "text/plain", NULL, "OTA complete; device rebooting" },
-    { 400, "text/plain", NULL, "firmware board mismatch or invalid binary" },
+    { 400, "text/plain", NULL, "firmware board mismatch, invalid binary, or Content-Length <= 0" },
     { 408, "text/plain", NULL, "upload timeout" },
+    { 413, "text/plain", NULL, "payload exceeds CONFIG_BB_OTA_PUSH_MAX_SIZE (default 4 MB)" },
     { 500, "text/plain", NULL, "OTA write or validation failed" },
     { 0 },
 };
