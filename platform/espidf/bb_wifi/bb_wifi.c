@@ -3,11 +3,13 @@
 #include "wifi_reconn.h"
 #include "bb_registry.h"
 #include <string.h>
+#include <stdatomic.h>
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "bb_log.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
+#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
@@ -22,7 +24,7 @@ static const char *TAG = "bb_wifi";
 static bool s_netif_initialized = false;
 static esp_netif_t *s_sta_netif = NULL;
 static EventGroupHandle_t s_wifi_event_group = NULL;
-static int s_retry_count = 0;
+static atomic_int s_retry_count = 0;
 static esp_event_handler_instance_t s_wifi_handler = NULL;
 static esp_event_handler_instance_t s_ip_handler = NULL;
 static esp_timer_handle_t s_reconnect_timer = NULL;
@@ -42,6 +44,9 @@ static volatile bool s_scan_in_progress = false;
 // Cached AP info — updated on STA_CONNECTED event and by periodic refresh timer.
 // bb_wifi_get_info reads this instead of calling esp_wifi_sta_get_ap_info (which
 // takes the WiFi driver mutex and blocks when the driver is busy).
+// s_ap_mux guards s_cached_ssid, s_cached_bssid, and s_cached_rssi; portMUX
+// is safe from both task and event-handler contexts without FreeRTOS API calls.
+static portMUX_TYPE s_ap_mux = portMUX_INITIALIZER_UNLOCKED;
 static char s_cached_ssid[33] = {0};
 static uint8_t s_cached_bssid[6] = {0};
 static int8_t s_cached_rssi = 0;
@@ -53,7 +58,9 @@ static void rssi_refresh_cb(void *arg)
     if (!s_has_ip) return;
     wifi_ap_record_t info;
     if (esp_wifi_sta_get_ap_info(&info) == ESP_OK) {
+        portENTER_CRITICAL(&s_ap_mux);
         s_cached_rssi = info.rssi;
+        portEXIT_CRITICAL(&s_ap_mux);
     }
 }
 
@@ -76,7 +83,7 @@ void bb_wifi_get_disconnect(uint8_t *reason, int64_t *age_us)
 
 int bb_wifi_get_retry_count(void)
 {
-    return wifi_reconn_is_active() ? wifi_reconn_get_retry_count() : s_retry_count;
+    return wifi_reconn_is_active() ? wifi_reconn_get_retry_count() : atomic_load(&s_retry_count);
 }
 
 bb_err_t bb_wifi_get_ip_str(char *out, size_t out_len)
@@ -102,7 +109,9 @@ bb_err_t bb_wifi_get_ip_str(char *out, size_t out_len)
 bb_err_t bb_wifi_get_rssi(int8_t *out)
 {
     if (!out) return ESP_FAIL;
+    portENTER_CRITICAL(&s_ap_mux);
     *out = s_cached_rssi;
+    portEXIT_CRITICAL(&s_ap_mux);
     return ESP_OK;
 }
 
@@ -116,10 +125,12 @@ bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)
     if (!out) return ESP_FAIL;
     memset(out, 0, sizeof(*out));
 
+    portENTER_CRITICAL(&s_ap_mux);
     strncpy(out->ssid, s_cached_ssid, sizeof(out->ssid) - 1);
     out->ssid[sizeof(out->ssid) - 1] = '\0';
     memcpy(out->bssid, s_cached_bssid, sizeof(out->bssid));
     out->rssi = s_cached_rssi;
+    portEXIT_CRITICAL(&s_ap_mux);
 
     snprintf(out->ip, sizeof(out->ip), "0.0.0.0");
     bb_wifi_get_ip_str(out->ip, sizeof(out->ip));
@@ -157,9 +168,11 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         const wifi_event_sta_connected_t *e = (const wifi_event_sta_connected_t *)event_data;
         if (e) {
             size_t n = e->ssid_len < sizeof(s_cached_ssid) - 1 ? e->ssid_len : sizeof(s_cached_ssid) - 1;
+            portENTER_CRITICAL(&s_ap_mux);
             memcpy(s_cached_ssid, e->ssid, n);
             s_cached_ssid[n] = '\0';
             memcpy(s_cached_bssid, e->bssid, sizeof(s_cached_bssid));
+            portEXIT_CRITICAL(&s_ap_mux);
         }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *disc = (wifi_event_sta_disconnected_t *)event_data;
@@ -176,9 +189,9 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         }
 
         // Boot-time connect: legacy inline retry until wifi_connect_sta() hands off
-        if (s_retry_count >= WIFI_MAX_RETRY) {
+        if (atomic_load(&s_retry_count) >= WIFI_MAX_RETRY) {
             bb_log_w(TAG, "max retries reached, delaying 5s before retry");
-            s_retry_count = 0;
+            atomic_store(&s_retry_count, 0);
             if (!s_reconnect_timer) {
                 const esp_timer_create_args_t args = {
                     .callback = reconnect_timer_cb,
@@ -191,12 +204,12 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             return;
         }
         esp_wifi_connect();
-        s_retry_count++;
-        bb_log_w(TAG, "retry %d/%d", s_retry_count, WIFI_MAX_RETRY);
+        int rc = atomic_fetch_add(&s_retry_count, 1) + 1;
+        bb_log_w(TAG, "retry %d/%d", rc, WIFI_MAX_RETRY);
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         bb_log_i(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
-        s_retry_count = 0;
+        atomic_store(&s_retry_count, 0);
         s_has_ip = true;
         if (wifi_reconn_is_active()) {
             wifi_reconn_on_got_ip();
@@ -398,6 +411,9 @@ static void scan_worker_task(void *arg)
 {
     (void)arg;
     int count = bb_wifi_scan_networks(s_cached_scan, WIFI_SCAN_MAX);
+    // Release fence: ensure s_cached_scan[] writes are visible before the
+    // count is published to readers.
+    atomic_thread_fence(memory_order_release);
     s_cached_scan_count = count;
     s_scan_in_progress = false;
 
@@ -433,6 +449,9 @@ int bb_wifi_scan_get_cached(bb_wifi_ap_t *results, int max_results)
         return 0;
     }
 
+    // Acquire fence: pairs with the release fence in scan_worker_task so that
+    // the s_cached_scan[] entries written before the count are visible here.
+    atomic_thread_fence(memory_order_acquire);
     int count = s_cached_scan_count;
     if (count > max_results) {
         count = max_results;
@@ -466,10 +485,14 @@ static bb_err_t bb_wifi_autoinit(void)
 
     // Apply persisted hostname before connect so DHCP/mDNS get the right name
     // on first packet. Empty string means "not set"; bb_wifi_set_hostname
-    // tolerates that case (no-op).
+    // tolerates that case (no-op). Log but don't bail on failure — hostname is
+    // best-effort and must not block the connect path.
     const char *hn = bb_nv_config_hostname();
     if (hn && hn[0]) {
-        bb_wifi_set_hostname(hn);
+        bb_err_t hn_err = bb_wifi_set_hostname(hn);
+        if (hn_err != BB_OK) {
+            bb_log_w(TAG, "bb_wifi_set_hostname failed (%d); continuing", (int)hn_err);
+        }
     }
 
     bb_err_t err = bb_wifi_init_sta();
@@ -479,9 +502,16 @@ static bb_err_t bb_wifi_autoinit(void)
     // credentials or knock the device into AP mode. Unvalidated firmware
     // falls through to the existing boot-count / AP-fallback path that
     // bb_wifi already implements internally.
+    //
+    // Sleep is broken into 1 s chunks so the task WDT (default 5 s in ESP-IDF
+    // v5.x, subscribed to app_main by default) is fed on every iteration and
+    // the 30 s backoff doesn't trip it.
     while (err != BB_OK && bb_ota_is_validated()) {
         bb_log_w(TAG, "wifi cold-boot timeout; retrying in 30s");
-        vTaskDelay(pdMS_TO_TICKS(30000));
+        for (int i = 0; i < 30; i++) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            esp_task_wdt_reset();
+        }
         err = bb_wifi_init_sta();
     }
 #endif
