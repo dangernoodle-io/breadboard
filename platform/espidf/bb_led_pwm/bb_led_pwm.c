@@ -1,7 +1,7 @@
 #include "bb_led_pwm.h"
 #include "bb_led_driver.h"
+#include "bb_log.h"
 #include "driver/ledc.h"
-#include "esp_log.h"
 #include <stdlib.h>
 
 static const char *TAG = "bb_led_pwm";
@@ -80,7 +80,7 @@ bb_err_t bb_led_pwm_open(const bb_led_pwm_cfg_t *cfg, bb_led_handle_t *out) {
         s_timer_freq_hz = cfg->freq_hz;
         s_timer_resolution = cfg->resolution_bits;
     } else if (s_timer_freq_hz != cfg->freq_hz || s_timer_resolution != cfg->resolution_bits) {
-        ESP_LOGW(TAG, "shared LEDC timer already configured @ %lu Hz / %u-bit; ignoring requested %lu/%u",
+        bb_log_w(TAG, "shared LEDC timer already configured @ %lu Hz / %u-bit; ignoring requested %lu/%u",
                  (unsigned long)s_timer_freq_hz, (unsigned)s_timer_resolution,
                  (unsigned long)cfg->freq_hz, (unsigned)cfg->resolution_bits);
     }

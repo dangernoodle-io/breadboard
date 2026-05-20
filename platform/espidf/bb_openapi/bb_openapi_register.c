@@ -6,7 +6,7 @@
 
 #include <string.h>
 
-static const char *TAG = "bb_openapi";
+static const char *TAG = "bb_openapi_routes";
 
 // Module-level meta pointer set at registration time.
 static const bb_openapi_meta_t *s_meta = NULL;

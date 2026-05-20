@@ -25,7 +25,6 @@ static const char *TAG = "bb_update_check";
 
 #define URL_MAX        256
 #define BOARD_MAX       64
-#define TOPIC_NAME     "update.available"
 #define BOARD_NAME_FALLBACK "unknown"
 
 // ---------------------------------------------------------------------------
@@ -130,7 +129,7 @@ bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
     s_firmware_board[0] = '\0';
     s_parser = bb_release_manifest_parse_github;
 
-    bb_err_t err = bb_event_topic_register(TOPIC_NAME, &s_topic);
+    bb_err_t err = bb_event_topic_register(BB_UPDATE_CHECK_TOPIC, &s_topic);
     // LCOV_EXCL_START — topic_register failure is defensive (NO_SPACE only)
     if (err != BB_OK) {
         return err;

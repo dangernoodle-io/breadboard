@@ -1,7 +1,14 @@
 #include "bb_nv.h"
 #include "bb_log.h"
 #include "bb_manifest.h"
+#include "bb_registry.h"
+#include <stdbool.h>
 #include <string.h>
+
+#ifdef ESP_PLATFORM
+#include "nvs_flash.h"
+#include "nvs.h"
+#endif
 
 /* strlcpy isn't standard C — newlib exposes it under feature flags, but
  * the warning we hit under TaipanMiner's build profile is real. Roll a
@@ -12,10 +19,6 @@ static inline void copy_str(char *dst, const char *src, size_t size)
     strncpy(dst, src, size - 1);
     dst[size - 1] = '\0';
 }
-
-#ifdef ESP_PLATFORM
-#include "nvs_flash.h"
-#endif
 
 static const char *TAG_NV = "bb_nv";
 
@@ -89,8 +92,6 @@ static struct {
     uint8_t update_check_en;
 } s_config;
 
-#include <stdbool.h>
-
 // RFC 1123 / 952: letters, digits, hyphens; first/last cannot be hyphen;
 // length 1..32. Tolerant of mixed case (DHCP / mDNS treat case-insensitively).
 static bool nv_valid_hostname(const char *s)
@@ -111,8 +112,6 @@ static bool nv_valid_hostname(const char *s)
 
 // Helper to load a string from NVS with fallback (ESP only)
 #ifdef ESP_PLATFORM
-#include "nvs.h"
-#include "bb_log.h"
 static const char *TAG = "nv_config";
 
 static void load_str(nvs_handle_t handle, const char *key, char *buf, size_t buf_size, const char *fallback)
@@ -249,10 +248,8 @@ bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass)
     nvs_close(handle);
 
     if (err == BB_OK) {
-        strncpy(s_config.wifi_ssid, ssid, sizeof(s_config.wifi_ssid) - 1);
-        s_config.wifi_ssid[sizeof(s_config.wifi_ssid) - 1] = '\0';
-        strncpy(s_config.wifi_pass, pass, sizeof(s_config.wifi_pass) - 1);
-        s_config.wifi_pass[sizeof(s_config.wifi_pass) - 1] = '\0';
+        copy_str(s_config.wifi_ssid, ssid, sizeof(s_config.wifi_ssid));
+        copy_str(s_config.wifi_pass, pass, sizeof(s_config.wifi_pass));
     }
 
     return err;
@@ -272,8 +269,7 @@ bb_err_t bb_nv_config_set_hostname(const char *hostname)
     nvs_close(handle);
 
     if (err == BB_OK) {
-        strncpy(s_config.hostname, hostname, sizeof(s_config.hostname) - 1);
-        s_config.hostname[sizeof(s_config.hostname) - 1] = '\0';
+        copy_str(s_config.hostname, hostname, sizeof(s_config.hostname));
     }
     return err;
 }
@@ -908,8 +904,6 @@ bb_err_t bb_nv_config_set_update_check_enabled(bool en)
     return BB_OK;
 }
 #endif
-
-#include "bb_registry.h"
 
 #if CONFIG_BB_NV_FLASH_AUTOREGISTER
 BB_REGISTRY_REGISTER_EARLY(bb_nv_flash, bb_nv_flash_init);

@@ -5,7 +5,7 @@
 #include <ctype.h>
 #include <stdio.h>
 
-static const char *TAG = "bb_openapi";
+static const char *TAG = "bb_openapi_emit";
 
 #define UNIQUE_PATH_CAP 64
 

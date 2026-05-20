@@ -10,9 +10,9 @@
 #include "cJSON.h"
 
 #ifdef ESP_PLATFORM
-#include "esp_log.h"
+#include "bb_log.h"
 #define BB_JSON_LOG_PARSE_ERR(key, off) \
-    ESP_LOGE("bb_json", "set_raw('%s'): cJSON_Parse failed at offset %ld", (key), (long)(off))
+    bb_log_e("bb_json", "set_raw('%s'): cJSON_Parse failed at offset %ld", (key), (long)(off))
 #else
 #define BB_JSON_LOG_PARSE_ERR(key, off) \
     fprintf(stderr, "bb_json: set_raw('%s'): cJSON_Parse failed at offset %ld\n", (key), (long)(off))

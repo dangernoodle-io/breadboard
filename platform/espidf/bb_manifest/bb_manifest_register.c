@@ -5,7 +5,7 @@
 
 #include <string.h>
 
-static const char *TAG = "bb_manifest";
+static const char *TAG = "bb_manifest_routes";
 
 static bb_err_t manifest_handler(bb_http_request_t *req)
 {

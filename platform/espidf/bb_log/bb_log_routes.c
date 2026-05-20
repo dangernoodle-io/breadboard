@@ -8,7 +8,6 @@
 #include <string.h>
 #include <sys/socket.h>
 
-#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -107,7 +106,7 @@ static bb_err_t logs_handler(bb_http_request_t *req)
     }
 
     if (client_type == 2) {
-        ESP_LOGI(TAG, "external log client connected");
+        bb_log_i(TAG, "external log client connected");
     }
 
     bb_http_request_t *async_req = NULL;
