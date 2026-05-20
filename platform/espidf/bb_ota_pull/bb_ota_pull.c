@@ -798,9 +798,18 @@ static bb_err_t bb_ota_pull_init(bb_http_handle_t server)
     }
 
     // Add descriptors to registry for OpenAPI spec emission.
-    bb_http_register_route_descriptor_only(&s_ota_check_route);
-    bb_http_register_route_descriptor_only(&s_ota_update_route);
-    bb_http_register_route_descriptor_only(&s_ota_status_route);
+    bb_err_t desc_err = bb_http_register_route_descriptor_only(&s_ota_check_route);
+    if (desc_err != BB_OK) {
+        bb_log_e(TAG, "failed to register ota-check descriptor: %d", desc_err);
+    }
+    desc_err = bb_http_register_route_descriptor_only(&s_ota_update_route);
+    if (desc_err != BB_OK) {
+        bb_log_e(TAG, "failed to register ota-update descriptor: %d", desc_err);
+    }
+    desc_err = bb_http_register_route_descriptor_only(&s_ota_status_route);
+    if (desc_err != BB_OK) {
+        bb_log_e(TAG, "failed to register ota-status descriptor: %d", desc_err);
+    }
 
     bb_log_i(TAG, "OTA pull handlers registered");
     return BB_OK;

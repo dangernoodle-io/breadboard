@@ -349,7 +349,10 @@ static bb_err_t bb_event_routes_register_routes_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
     err = bb_http_register_route(server, BB_HTTP_GET, "/api/events", events_handler);
     if (err != BB_OK) return err;
-    bb_http_register_route_descriptor_only(&s_events_route);
+    bb_err_t desc_err = bb_http_register_route_descriptor_only(&s_events_route);
+    if (desc_err != BB_OK) {
+        bb_log_e(TAG, "failed to register events descriptor: %d", desc_err);
+    }
     err = bb_http_register_described_route(server, &s_diag_events_route);
     if (err != BB_OK) return err;
     bb_log_i(TAG, "registered /api/events + /api/diag/events");

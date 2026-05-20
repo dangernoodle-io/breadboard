@@ -200,7 +200,7 @@ void test_register_described_route_propagates_underlying_failure(void)
     TEST_ASSERT_EQUAL(0, bb_http_route_registry_count());
 }
 
-void test_register_described_route_overflow_returns_ok(void)
+void test_register_described_route_overflow_returns_no_space(void)
 {
     bb_http_route_registry_clear();
 
@@ -235,9 +235,9 @@ void test_register_described_route_overflow_returns_ok(void)
     }
     TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
 
-    // 65th should succeed but not add to registry (overflow logged)
+    // 65th must return BB_ERR_NO_SPACE so the caller can detect the drop
     bb_err_t err = bb_http_register_described_route(NULL, &s_overflow_routes[64]);
-    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
     TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
 }
 
@@ -267,7 +267,7 @@ void test_register_route_descriptor_only_adds_to_registry(void)
     TEST_ASSERT_EQUAL_PTR(&s_route_stats, ctx.visited[0]);
 }
 
-void test_register_route_descriptor_only_overflow_returns_ok(void)
+void test_register_route_descriptor_only_overflow_returns_no_space(void)
 {
     bb_http_route_registry_clear();
 
@@ -296,9 +296,9 @@ void test_register_route_descriptor_only_overflow_returns_ok(void)
     }
     TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
 
-    // 65th should succeed (overflow non-fatal) but not add to registry
+    // 65th must return BB_ERR_NO_SPACE so the caller can detect the drop
     bb_err_t err = bb_http_register_route_descriptor_only(&s_overflow_routes[64]);
-    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
     TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
 }
 
@@ -351,7 +351,7 @@ void test_register_route_descriptor_only_overflow_logs_null_path(void)
     };
 
     bb_err_t err = bb_http_register_described_route(NULL, &s_null_path_route);
-    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
     TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
 }
 
@@ -412,4 +412,45 @@ void test_register_route_table_propagates_failure(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
     // First entry's described-route call failed; nothing was added.
     TEST_ASSERT_EQUAL(0, bb_http_route_registry_count());
+}
+
+// ---------------------------------------------------------------------------
+// Overflow returns BB_ERR_NO_SPACE (audit F14)
+// ---------------------------------------------------------------------------
+
+void test_registry_overflow_returns_no_space(void)
+{
+    bb_http_route_registry_clear();
+
+    static const bb_route_response_t s_resp[] = {
+        { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+        { .status = 0 },
+    };
+    static bb_route_t s_routes[65];
+    static char       s_paths[65][16];
+
+    for (int i = 0; i < 65; i++) {
+        snprintf(s_paths[i], sizeof(s_paths[i]), "/api/f14/%d", i);
+        s_routes[i] = (bb_route_t){
+            .method    = BB_HTTP_GET,
+            .path      = s_paths[i],
+            .tag       = "f14",
+            .summary   = "overflow audit F14",
+            .responses = s_resp,
+            .handler   = stub_handler,
+        };
+    }
+
+    // Fill registry to cap with descriptor-only (no server needed).
+    for (int i = 0; i < 64; i++) {
+        bb_err_t err = bb_http_register_route_descriptor_only(&s_routes[i]);
+        TEST_ASSERT_EQUAL_MESSAGE(BB_OK, err, "expected BB_OK for entries 0-63");
+    }
+    TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
+
+    // 65th registration must return BB_ERR_NO_SPACE.
+    bb_err_t err = bb_http_register_route_descriptor_only(&s_routes[64]);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    // Registry count must remain at cap — descriptor was not added.
+    TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
 }

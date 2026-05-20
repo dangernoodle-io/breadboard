@@ -77,7 +77,10 @@ static bb_err_t bb_manifest_init(bb_http_handle_t server)
     }
 
     // Add descriptor for OpenAPI spec emission (self-describing).
-    bb_http_register_route_descriptor_only(&s_manifest_route);
+    bb_err_t desc_err = bb_http_register_route_descriptor_only(&s_manifest_route);
+    if (desc_err != BB_OK) {
+        bb_log_e(TAG, "failed to register manifest descriptor: %d", desc_err);
+    }
 
     bb_log_i(TAG, "registered GET /api/manifest");
     return BB_OK;
