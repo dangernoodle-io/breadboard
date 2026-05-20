@@ -60,6 +60,20 @@ typedef struct {
 // key. Up to 64 unique paths are supported (matches registry cap).
 bb_json_t bb_openapi_emit(const bb_openapi_meta_t *meta);
 
+// Streaming variant: sends the OpenAPI document directly to the response via
+// bb_http_resp_send_chunk so peak memory is bounded to one operation's JSON
+// tree at a time. Avoids the heap+stack pressure of materializing the full
+// document on a board with many routes — the in-memory tree builder
+// (bb_openapi_emit) crashed httpd workers on tdongle-s3 / ESP32-WROOM-32
+// once the route count grew past ~50 routes (B1-222).
+//
+// Caller is responsible for finalizing the chunked response after this
+// returns (e.g. via bb_http_resp_send_chunk(req, NULL, 0)).
+//
+// Returns BB_OK on success or the first non-OK error encountered.
+bb_err_t bb_openapi_emit_stream(bb_http_request_t *req,
+                                const bb_openapi_meta_t *meta);
+
 // Set metadata for OpenAPI spec emission. Must be called before
 // bb_registry_init() if custom metadata is desired.
 // meta pointer must remain valid for the lifetime of the server.

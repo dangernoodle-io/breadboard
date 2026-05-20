@@ -187,9 +187,20 @@ bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)
 
 bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int len)
 {
-    (void)req;
-    (void)buf;
-    (void)len;
+    capture_slot_t *cap = capture_find(req);
+    if (cap && buf) {
+        size_t add = (len < 0) ? strlen(buf) : (size_t)len;
+        if (add > 0) {
+            char *grown = realloc(cap->body, cap->body_len + add + 1);
+            if (grown) {
+                cap->body = grown;
+                memcpy(cap->body + cap->body_len, buf, add);
+                cap->body_len += add;
+                cap->body[cap->body_len] = '\0';
+            }
+        }
+    }
+    // NULL/zero-length terminator on chunked encoding — no-op for capture.
     return BB_OK;
 }
 

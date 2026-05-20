@@ -325,3 +325,144 @@ bb_json_t bb_openapi_emit(const bb_openapi_meta_t *meta)
 
     return root;
 }
+
+// ---------------------------------------------------------------------------
+// Streaming emitter — sends the OpenAPI document chunk-by-chunk so peak memory
+// is bounded to one operation's JSON tree at a time. Avoids the heap+stack
+// pressure of materializing the full document on a board with many routes.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bb_http_request_t *req;
+    const char        *path;
+    bool               first_method;
+    bb_err_t           err;
+} stream_path_ctx_t;
+
+static void stream_operations_walker(const bb_route_t *route, void *ctx)
+{
+    stream_path_ctx_t *sc = (stream_path_ctx_t *)ctx;
+    if (sc->err != BB_OK) return;  // LCOV_EXCL_BR_LINE — short-circuit after prior chunk failure
+    if (strcmp(route->path, sc->path) != 0) return;
+
+    if (!sc->first_method) {
+        sc->err = bb_http_resp_send_chunk(sc->req, ",", -1);
+        if (sc->err != BB_OK) return;  // LCOV_EXCL_BR_LINE — send_chunk always BB_OK on host
+    }
+    sc->first_method = false;
+
+    // Emit "method": — method names are HTTP verbs (lowercase a-z), JSON-safe.
+    const char *m = method_str(route->method);
+    sc->err = bb_http_resp_send_chunk(sc->req, "\"", -1);
+    if (sc->err == BB_OK) sc->err = bb_http_resp_send_chunk(sc->req, m, -1);  // LCOV_EXCL_BR_LINE
+    if (sc->err == BB_OK) sc->err = bb_http_resp_send_chunk(sc->req, "\":", -1);  // LCOV_EXCL_BR_LINE
+    if (sc->err != BB_OK) return;  // LCOV_EXCL_BR_LINE
+
+    bb_json_t op = build_operation(route);
+    // LCOV_EXCL_START — host bb_json_obj_new + bb_json_item_serialize never
+    // fail, so the {} fallback paths are unreachable from the host harness.
+    if (!op) {
+        sc->err = bb_http_resp_send_chunk(sc->req, "{}", -1);
+        return;
+    }
+    // LCOV_EXCL_STOP
+
+    char *op_str = bb_json_item_serialize(op);
+    bb_json_free(op);
+    if (op_str) {  // LCOV_EXCL_BR_LINE — host serialize never returns NULL
+        sc->err = bb_http_resp_send_chunk(sc->req, op_str, -1);
+        bb_json_free_str(op_str);
+    } else {
+        sc->err = bb_http_resp_send_chunk(sc->req, "{}", -1);  // LCOV_EXCL_LINE
+    }
+}
+
+// Stream a small bb_json subtree (info, servers) by building it, serializing
+// it, sending the result, and freeing. Returns BB_OK or first error.
+static bb_err_t stream_subtree(bb_http_request_t *req, bb_json_t subtree)
+{
+    if (!subtree) return BB_ERR_NO_SPACE;  // LCOV_EXCL_BR_LINE — caller passes live subtree
+    char *s = bb_json_item_serialize(subtree);
+    bb_json_free(subtree);
+    if (!s) return BB_ERR_NO_SPACE;  // LCOV_EXCL_BR_LINE — serialize never fails on host
+    bb_err_t err = bb_http_resp_send_chunk(req, s, -1);
+    bb_json_free_str(s);
+    return err;
+}
+
+bb_err_t bb_openapi_emit_stream(bb_http_request_t *req,
+                                const bb_openapi_meta_t *meta)
+{
+    if (!req || !meta) return BB_ERR_INVALID_ARG;
+
+    bb_openapi_meta_t effective = *meta;
+    if (!effective.title)   effective.title   = "breadboard device";
+    if (!effective.version) effective.version = "0.0.0";
+
+    bb_err_t err = bb_http_resp_send_chunk(req,
+        "{\"openapi\":\"3.1.0\",\"info\":", -1);
+    if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE — host send_chunk always BB_OK
+
+    // info — small fixed-size subtree.
+    bb_json_t info = bb_json_obj_new();
+    if (!info) return BB_ERR_NO_SPACE;  // LCOV_EXCL_BR_LINE — alloc failure path
+    bb_json_obj_set_string(info, "title",   effective.title);
+    bb_json_obj_set_string(info, "version", effective.version);
+    if (effective.description) {
+        bb_json_obj_set_string(info, "description", effective.description);
+    }
+    err = stream_subtree(req, info);
+    if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
+
+    // servers — optional, single-element array.
+    if (effective.server_url) {
+        err = bb_http_resp_send_chunk(req, ",\"servers\":", -1);
+        if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
+        bb_json_t servers = bb_json_arr_new();
+        bb_json_t server_e = bb_json_obj_new();
+        // LCOV_EXCL_START — host bb_json_*_new never returns NULL, so the
+        // partial-alloc rollback path is unreachable from host tests.
+        if (!servers || !server_e) {
+            if (servers)  bb_json_free(servers);
+            if (server_e) bb_json_free(server_e);
+            return BB_ERR_NO_SPACE;
+        }
+        // LCOV_EXCL_STOP
+        bb_json_obj_set_string(server_e, "url", effective.server_url);
+        bb_json_arr_append_obj(servers, server_e);
+        err = stream_subtree(req, servers);
+        if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
+    }
+
+    err = bb_http_resp_send_chunk(req, ",\"paths\":{", -1);
+    if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
+
+    path_set_t ps;
+    memset(&ps, 0, sizeof(ps));
+    bb_http_route_registry_foreach(collect_paths_walker, &ps);
+
+    for (size_t i = 0; i < ps.count; i++) {
+        if (i > 0) {
+            err = bb_http_resp_send_chunk(req, ",", -1);
+            if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
+        }
+        // Paths in the bb_http registry are static const char * literals
+        // composed of /[a-zA-Z0-9_/-]+/ — JSON-safe without escaping.
+        err = bb_http_resp_send_chunk(req, "\"", -1);
+        if (err == BB_OK) err = bb_http_resp_send_chunk(req, ps.paths[i], -1);  // LCOV_EXCL_BR_LINE
+        if (err == BB_OK) err = bb_http_resp_send_chunk(req, "\":{", -1);  // LCOV_EXCL_BR_LINE
+        if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
+
+        stream_path_ctx_t sc = {
+            .req = req, .path = ps.paths[i],
+            .first_method = true, .err = BB_OK,
+        };
+        bb_http_route_registry_foreach(stream_operations_walker, &sc);
+        if (sc.err != BB_OK) return sc.err;  // LCOV_EXCL_BR_LINE
+
+        err = bb_http_resp_send_chunk(req, "}", -1);
+        if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
+    }
+
+    return bb_http_resp_send_chunk(req, "}}", -1);
+}
