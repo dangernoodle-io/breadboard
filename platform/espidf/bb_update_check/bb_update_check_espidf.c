@@ -37,6 +37,12 @@ static TaskHandle_t       s_worker = NULL;
 // Consumers can opt out via bb_update_check_set_task_core(tskNO_AFFINITY)
 // or pin elsewhere. See bb_update_check.h.
 static int                s_task_core = 1;
+// Default worker priority is 1 (low). Consumers running the worker on a core
+// that also hosts a high-priority CPU-bound task (e.g. mining at prio 20)
+// must raise this above that task's priority via bb_update_check_set_task_priority;
+// otherwise the kick semaphore wakes the worker but it never gets CPU to call
+// the pause hook. See bb_update_check.h.
+static int                s_task_priority = 1;
 
 // Compute next poll interval: CONFIG_BB_UPDATE_CHECK_INTERVAL_S ± jitter,
 // floored at BB_UPDATE_CHECK_FLOOR_S.  Uses esp_random() for uniform jitter.
@@ -161,7 +167,7 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
     // Stack sized for the mbedTLS handshake + cert-bundle parse path inside
     // bb_http_client_get_stream. Shared with bb_ota_pull via the same macro.
     if (xTaskCreatePinnedToCore(worker_task, "upd_check", BB_HTTP_CLIENT_TASK_STACK,
-                                NULL, 1, &s_worker, s_task_core) != pdPASS) {
+                                NULL, s_task_priority, &s_worker, s_task_core) != pdPASS) {
         vSemaphoreDelete(s_kick);
         s_kick = NULL;
         return BB_ERR_INVALID_STATE;
@@ -206,6 +212,11 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
 void bb_update_check_set_task_core(int core)
 {
     s_task_core = core;
+}
+
+void bb_update_check_set_task_priority(int priority)
+{
+    s_task_priority = priority;
 }
 
 #if CONFIG_BB_UPDATE_CHECK_AUTOREGISTER

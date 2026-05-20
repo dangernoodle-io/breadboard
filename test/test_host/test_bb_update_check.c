@@ -513,6 +513,20 @@ void test_bb_update_check_set_task_core_host_is_noop(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_update_check_set_task_priority (host stub — no-op, just exercise the symbol)
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_set_task_priority_host_is_noop(void)
+{
+    reset_world();
+    bb_update_check_set_task_priority(1);
+    bb_update_check_set_task_priority(21);
+    bb_update_check_set_task_priority(0);
+    // No observable state — host stub has no worker task. Coverage-only test
+    // to keep the host stub line executed.
+}
+
+// ---------------------------------------------------------------------------
 // bb_update_check_set_hooks
 // ---------------------------------------------------------------------------
 

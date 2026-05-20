@@ -89,6 +89,16 @@ bb_err_t bb_update_check_set_hooks(bb_update_check_pause_cb_t pause,
 // worker task is created); changes after that point are ignored.
 void bb_update_check_set_task_core(int core);
 
+// Configure the FreeRTOS priority of the bb_update_check worker task.
+// Default is 1 — low so the worker yields to application tasks. Consumers
+// pinning the worker to the same core as a high-priority CPU-bound task
+// (e.g. a mining hashloop) need to raise the priority above that task's,
+// otherwise the kick semaphore wakes the worker but it never gets CPU
+// to call the pause hook. MUST be called BEFORE bb_update_check_register_init
+// (i.e. before the worker task is created); changes after that point are
+// ignored.
+void bb_update_check_set_task_priority(int priority);
+
 // Trigger an immediate synchronous check on the caller's stack.
 // Runs the full manifest fetch and parsing synchronously. Use only from contexts
 // with ≥8 KB stack (e.g. the worker task itself or test harnesses).

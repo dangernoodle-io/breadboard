@@ -466,6 +466,12 @@ void bb_update_check_set_task_core(int core)
 {
     (void)core;
 }
+
+// Host/Arduino stub: no worker task to prioritize, no-op.
+void bb_update_check_set_task_priority(int priority)
+{
+    (void)priority;
+}
 #endif
 
 // ---------------------------------------------------------------------------
