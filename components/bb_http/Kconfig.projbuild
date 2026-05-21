@@ -1,5 +1,16 @@
 menu "BB HTTP Server"
 
+config BB_HTTP_ROUTE_REGISTRY_CAP
+    int "Route descriptor registry capacity"
+    default 64
+    range 16 256
+    help
+        Maximum number of route descriptors held in the process-wide
+        bb_http route registry (used by bb_openapi and route introspection).
+        Overflow is logged and the descriptor is silently dropped. Default 64
+        matches the original hardcoded value; typical firmware uses 19-40
+        routes. Lower for ROM-tight builds; raise for large applications.
+
 config BB_HTTP_AUTOSTART
     bool "Auto-start HTTP server from bb_registry_init()"
     default y

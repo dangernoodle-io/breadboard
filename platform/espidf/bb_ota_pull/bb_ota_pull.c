@@ -41,7 +41,8 @@ static bb_ota_resume_cb_t s_resume_cb = NULL;
 static bb_ota_skip_check_cb_t s_skip_check_cb = NULL;
 
 // Releases URL — caller must set before bb_ota_pull_check_now()
-static char s_releases_url[512] = "";
+// GitHub release-asset URLs are ~120-180 bytes; 256 is sufficient.
+static char s_releases_url[256] = "";
 
 // Per-recv HTTP timeout for OTA download (ms). Consumer-tunable via
 // bb_ota_pull_set_http_timeout_ms(). Default 20 s matches the original

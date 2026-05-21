@@ -227,22 +227,22 @@ void test_bb_log_tag_at_null_args(void) {
 }
 
 void test_bb_log_registry_full(void) {
-    // Fill registry to capacity (32 entries)
-    for (int i = 0; i < 32; i++) {
+    // Fill registry to capacity (CONFIG_BB_LOG_TAG_REGISTRY_MAX = 24 in native env)
+    for (int i = 0; i < 24; i++) {
         char tag[32];
         snprintf(tag, sizeof(tag), "tag_%d", i);
         bb_log_tag_register(tag, BB_LOG_LEVEL_INFO);
     }
 
-    // Verify all 32 are present
+    // Verify all 24 are present
     const char *tag_out;
     bb_log_level_t level_out;
-    for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < 24; i++) {
         TEST_ASSERT_TRUE(bb_log_tag_at(i, &tag_out, &level_out));
     }
 
-    // 33rd should fail (no crash, registry stays at 32)
-    TEST_ASSERT_FALSE(bb_log_tag_at(32, &tag_out, &level_out));
+    // 25th should fail (no crash, registry stays at 24)
+    TEST_ASSERT_FALSE(bb_log_tag_at(24, &tag_out, &level_out));
 
     // Try to register a new tag; should be silently dropped
     bb_log_tag_register("tag_overflow", BB_LOG_LEVEL_INFO);

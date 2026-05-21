@@ -5,7 +5,11 @@
 
 // Maximum number of described routes the registry holds.
 // Overflow is logged and the descriptor is silently dropped.
+#ifdef CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP
+#define BB_ROUTE_REGISTRY_CAP CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP
+#else
 #define BB_ROUTE_REGISTRY_CAP 64
+#endif
 
 static const char *TAG = "bb_http_registry";
 

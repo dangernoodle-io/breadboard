@@ -585,6 +585,26 @@ void test_mdns_host_warn_fires_on_first_set_txt(void);
 void test_mdns_host_warn_fires_only_once_on_set_txt(void);
 void test_mdns_host_warn_fires_on_first_announce(void);
 void test_mdns_host_reset_clears_warned_flag(void);
+void test_build_hostname_prefix_only(void);
+void test_build_hostname_prefix_and_suffix(void);
+void test_build_hostname_empty_suffix_acts_as_prefix_only(void);
+void test_build_hostname_null_prefix_and_suffix(void);
+void test_build_hostname_input_exceeds_work_buffer(void);
+void test_build_hostname_sanitizes_uppercase(void);
+void test_build_hostname_sanitizes_special_chars(void);
+void test_build_hostname_collapses_consecutive_dashes(void);
+void test_build_hostname_trims_leading_trailing_dashes(void);
+void test_build_hostname_caps_at_63_chars(void);
+void test_build_hostname_out_size_zero_is_noop(void);
+void test_build_hostname_suffix_dropped_when_no_room(void);
+void test_build_hostname_null_prefix_with_suffix(void);
+void test_build_hostname_out_size_small_caps_label(void);
+void test_build_hostname_char_above_z_becomes_dash(void);
+void test_build_hostname_char_between_Z_and_a_becomes_dash(void);
+void test_build_hostname_digit_in_input(void);
+void test_build_hostname_leading_dash_trim_with_content(void);
+void test_build_hostname_all_special_chars_produces_empty(void);
+void test_build_hostname_suffix_sanitizes_to_empty(void);
 
 // Forward declarations from test_bb_registry.c
 void test_bb_registry_starts_empty(void);
@@ -973,7 +993,7 @@ void test_bb_update_check_run_one_newer_to_same_transitions_back(void);
 void test_bb_update_check_custom_parser_transport_error(void);
 void test_bb_update_check_custom_parser_parse_failure(void);
 void test_bb_update_check_custom_parser_http_404(void);
-void test_bb_update_check_custom_parser_body_exceeds_16k(void);
+void test_bb_update_check_custom_parser_body_exceeds_buf(void);
 void test_bb_update_check_custom_parser_post_initial_publishes(void);
 void test_bb_update_check_set_task_core_host_is_noop(void);
 void test_bb_update_check_set_task_priority_host_is_noop(void);
@@ -1703,6 +1723,28 @@ int main(void) {
     RUN_TEST(test_mdns_host_warn_fires_on_first_announce);
     RUN_TEST(test_mdns_host_reset_clears_warned_flag);
 
+    // bb_mdns_build_hostname tests
+    RUN_TEST(test_build_hostname_prefix_only);
+    RUN_TEST(test_build_hostname_prefix_and_suffix);
+    RUN_TEST(test_build_hostname_empty_suffix_acts_as_prefix_only);
+    RUN_TEST(test_build_hostname_null_prefix_and_suffix);
+    RUN_TEST(test_build_hostname_input_exceeds_work_buffer);
+    RUN_TEST(test_build_hostname_sanitizes_uppercase);
+    RUN_TEST(test_build_hostname_sanitizes_special_chars);
+    RUN_TEST(test_build_hostname_collapses_consecutive_dashes);
+    RUN_TEST(test_build_hostname_trims_leading_trailing_dashes);
+    RUN_TEST(test_build_hostname_caps_at_63_chars);
+    RUN_TEST(test_build_hostname_out_size_zero_is_noop);
+    RUN_TEST(test_build_hostname_suffix_dropped_when_no_room);
+    RUN_TEST(test_build_hostname_null_prefix_with_suffix);
+    RUN_TEST(test_build_hostname_out_size_small_caps_label);
+    RUN_TEST(test_build_hostname_char_above_z_becomes_dash);
+    RUN_TEST(test_build_hostname_char_between_Z_and_a_becomes_dash);
+    RUN_TEST(test_build_hostname_digit_in_input);
+    RUN_TEST(test_build_hostname_leading_dash_trim_with_content);
+    RUN_TEST(test_build_hostname_all_special_chars_produces_empty);
+    RUN_TEST(test_build_hostname_suffix_sanitizes_to_empty);
+
     // bb_registry tests
     RUN_TEST(test_bb_registry_starts_empty);
     RUN_TEST(test_bb_registry_add_increments_count);
@@ -2084,7 +2126,7 @@ int main(void) {
     RUN_TEST(test_bb_update_check_custom_parser_transport_error);
     RUN_TEST(test_bb_update_check_custom_parser_parse_failure);
     RUN_TEST(test_bb_update_check_custom_parser_http_404);
-    RUN_TEST(test_bb_update_check_custom_parser_body_exceeds_16k);
+    RUN_TEST(test_bb_update_check_custom_parser_body_exceeds_buf);
     RUN_TEST(test_bb_update_check_custom_parser_post_initial_publishes);
     RUN_TEST(test_bb_update_check_set_task_core_host_is_noop);
     RUN_TEST(test_bb_update_check_set_task_priority_host_is_noop);

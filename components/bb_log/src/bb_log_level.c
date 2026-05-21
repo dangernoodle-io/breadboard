@@ -4,7 +4,11 @@
 #include <ctype.h>
 #include <string.h>
 
+#ifdef CONFIG_BB_LOG_TAG_REGISTRY_MAX
+#define BB_LOG_REGISTRY_MAX CONFIG_BB_LOG_TAG_REGISTRY_MAX
+#else
 #define BB_LOG_REGISTRY_MAX 32
+#endif
 
 typedef struct {
     char tag[32];

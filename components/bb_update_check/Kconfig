@@ -31,4 +31,17 @@ config BB_UPDATE_CHECK_AUTO_ATTACH
         without an explicit consumer call. Disable if a consumer wants
         the bb_event topic for internal logic only.
 
+config BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES
+    int "Custom parser response buffer size (bytes)"
+    default 8192
+    range 1024 65536
+    help
+        Size of the heap buffer allocated per fetch when a custom parser
+        is registered via bb_update_check_set_parser(). The default GitHub
+        parser is fully streaming and does not use this buffer. Custom
+        parsers receive the complete response body here; if the response
+        exceeds this limit, it is truncated and a warning is logged.
+        Default 8192 saves 8 KB heap vs the old hardcoded 16384.
+        Raise if your custom parser needs to process larger responses.
+
 endmenu

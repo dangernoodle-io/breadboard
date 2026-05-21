@@ -338,3 +338,182 @@ void test_mdns_host_reset_clears_warned_flag(void)
     bb_mdns_host_reset();
     TEST_ASSERT_FALSE(bb_mdns_host_warned());
 }
+
+// ---------------------------------------------------------------------------
+// bb_mdns_build_hostname tests
+// ---------------------------------------------------------------------------
+
+void test_build_hostname_prefix_only(void)
+{
+    char out[64];
+    bb_mdns_build_hostname("mydevice", NULL, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("mydevice", out);
+}
+
+void test_build_hostname_prefix_and_suffix(void)
+{
+    char out[64];
+    bb_mdns_build_hostname("mydevice", "aabbcc", out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("mydevice-aabbcc", out);
+}
+
+void test_build_hostname_empty_suffix_acts_as_prefix_only(void)
+{
+    char out[64];
+    bb_mdns_build_hostname("mydevice", "", out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("mydevice", out);
+}
+
+void test_build_hostname_null_prefix_and_suffix(void)
+{
+    char out[64];
+    bb_mdns_build_hostname(NULL, NULL, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("", out);
+}
+
+void test_build_hostname_input_exceeds_work_buffer(void)
+{
+    // 300-char prefix forces sanitize_into to exit on the "w < work_size - 1"
+    // arm of the loop bound (256-byte work buffer fills before src NUL).
+    char big[301];
+    memset(big, 'a', 300);
+    big[300] = '\0';
+    char out[64];
+    bb_mdns_build_hostname(big, NULL, out, sizeof(out));
+    // Output is the truncated prefix (63 chars of 'a' fit in out[64]).
+    TEST_ASSERT_EQUAL_UINT(63, strlen(out));
+    for (size_t i = 0; i < 63; i++) TEST_ASSERT_EQUAL_CHAR('a', out[i]);
+}
+
+void test_build_hostname_sanitizes_uppercase(void)
+{
+    char out[64];
+    bb_mdns_build_hostname("MyDevice", NULL, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("mydevice", out);
+}
+
+void test_build_hostname_sanitizes_special_chars(void)
+{
+    char out[64];
+    /* "foo bar" -> "foo-bar" (space -> '-') */
+    bb_mdns_build_hostname("foo bar", NULL, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("foo-bar", out);
+}
+
+void test_build_hostname_collapses_consecutive_dashes(void)
+{
+    char out[64];
+    /* "foo!!bar" -> "foo--bar" -> "foo-bar" */
+    bb_mdns_build_hostname("foo!!bar", NULL, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("foo-bar", out);
+}
+
+void test_build_hostname_trims_leading_trailing_dashes(void)
+{
+    char out[64];
+    /* "!foo!" -> "-foo-" -> "foo" */
+    bb_mdns_build_hostname("!foo!", NULL, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("foo", out);
+}
+
+void test_build_hostname_caps_at_63_chars(void)
+{
+    /* prefix longer than 63 chars, no suffix */
+    char long_prefix[128];
+    memset(long_prefix, 'a', 100);
+    long_prefix[100] = '\0';
+    char out[128];
+    bb_mdns_build_hostname(long_prefix, NULL, out, sizeof(out));
+    TEST_ASSERT_EQUAL(63, (int)strlen(out));
+}
+
+void test_build_hostname_out_size_zero_is_noop(void)
+{
+    char out[16] = "original";
+    bb_mdns_build_hostname("foo", NULL, out, 0);
+    /* out must not be modified when out_size < 1 */
+    TEST_ASSERT_EQUAL_STRING("original", out);
+}
+
+void test_build_hostname_suffix_dropped_when_no_room(void)
+{
+    /* prefix of 62 chars + separator would leave 0 chars for suffix content;
+     * the separator is omitted (trailing '-' is invalid RFC 1035) and suffix
+     * is dropped. Result: 62-char prefix. */
+    char prefix[128];
+    memset(prefix, 'a', 62);
+    prefix[62] = '\0';
+    char out[128];
+    bb_mdns_build_hostname(prefix, "z", out, sizeof(out));
+    TEST_ASSERT_EQUAL(62, (int)strlen(out));
+}
+
+void test_build_hostname_null_prefix_with_suffix(void)
+{
+    char out[64];
+    bb_mdns_build_hostname(NULL, "suffix", out, sizeof(out));
+    /* null prefix produces 0-len prefix, no separator, just suffix */
+    TEST_ASSERT_EQUAL_STRING("suffix", out);
+}
+
+void test_build_hostname_out_size_small_caps_label(void)
+{
+    /* out_size <= 63: max_label = out_size - 1, not 63 */
+    char out[10];
+    bb_mdns_build_hostname("abcdefghijklmnop", NULL, out, sizeof(out));
+    /* max_label = 9; result is first 9 chars */
+    TEST_ASSERT_EQUAL(9, (int)strlen(out));
+    TEST_ASSERT_EQUAL_STRING("abcdefghi", out);
+}
+
+void test_build_hostname_char_above_z_becomes_dash(void)
+{
+    /* '{' (123) is > 'z' (122): hits the 'c > z' branch in sanitize_into */
+    char out[64];
+    bb_mdns_build_hostname("foo{bar", NULL, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("foo-bar", out);
+}
+
+void test_build_hostname_char_between_Z_and_a_becomes_dash(void)
+{
+    /* '_' (95) is > 'Z' (90) and < 'a' (97): hits c > 'Z' and c < 'a' branches */
+    char out[64];
+    bb_mdns_build_hostname("foo_bar", NULL, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("foo-bar", out);
+}
+
+void test_build_hostname_digit_in_input(void)
+{
+    /* ':' (58) is > '9' (57): hits c > '9' branch; also covers digit pass-through */
+    char out[64];
+    bb_mdns_build_hostname("foo9:bar", NULL, out, sizeof(out));
+    /* '9' passes, ':' -> '-', result: "foo9-bar" */
+    TEST_ASSERT_EQUAL_STRING("foo9-bar", out);
+}
+
+void test_build_hostname_leading_dash_trim_with_content(void)
+{
+    /* "!foo" -> "-foo"; start=1 (leading '-'), final_len=3 (content remains): memmove path */
+    char out[64];
+    bb_mdns_build_hostname("!foo", NULL, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("foo", out);
+}
+
+void test_build_hostname_all_special_chars_produces_empty(void)
+{
+    /* "!!!" -> "---" -> collapse -> "-" -> trim all -> start=1, final_len=0 */
+    char out[64];
+    bb_mdns_build_hostname("!!!", NULL, out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("", out);
+}
+
+void test_build_hostname_suffix_sanitizes_to_empty(void)
+{
+    /* suffix of all special chars sanitizes to "" (suffix_len == 0 after
+     * sanitize_into); exercises the (prefix_len > 0 && suffix_len > 0)
+     * false arm and the (sep && suffix_len > 0) false arm in the with-suffix
+     * branch of bb_mdns_build_hostname. Result: just the prefix. */
+    char out[64];
+    bb_mdns_build_hostname("mydevice", "!!!", out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("mydevice", out);
+}
