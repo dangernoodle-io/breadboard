@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <sys/socket.h>
 
 static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
@@ -427,10 +429,37 @@ bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)
     return bb_http_resp_send(req, str, strlen(str));
 }
 
+#ifdef CONFIG_BB_HTTP_RESP_SEND_CHUNK_LIVENESS_PROBE
+/* Returns true if the peer has already closed the socket (FIN received or
+ * RST seen). Non-blocking; treats EAGAIN/EWOULDBLOCK as "still alive". */
+static bool sock_peer_closed(httpd_req_t *http_req)
+{
+    int fd = httpd_req_to_sockfd(http_req);
+    if (fd < 0) return true;
+    char probe;
+    int n = recv(fd, &probe, 1, MSG_PEEK | MSG_DONTWAIT);
+    if (n == 0) return true;  /* clean FIN */
+    if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) return true;
+    return false;
+}
+#endif
+
 bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int len)
 {
     httpd_req_t *http_req = (httpd_req_t *)req;
     if (!http_req) return BB_ERR_INVALID_ARG;
+#ifdef CONFIG_BB_HTTP_RESP_SEND_CHUNK_LIVENESS_PROBE
+    /* Short-circuit if the peer is already gone. Doesn't fully close the
+     * race (RST can land between probe and lwip_send) but stops the long
+     * tail of writing N more chunks into a dead socket — particularly
+     * relevant for SSE streamers (bb_log_routes, bb_event_routes) and the
+     * chunked-JSON fallback in bb_http_resp_send_json. The zero-length
+     * terminator (len==0) is allowed through so callers can finalize the
+     * chunked response in their cleanup path without an extra branch. */
+    if (len != 0 && sock_peer_closed(http_req)) {
+        return BB_ERR_INVALID_STATE;
+    }
+#endif
     int send_len = (len < 0) ? HTTPD_RESP_USE_STRLEN : len;
     esp_err_t err = httpd_resp_send_chunk(http_req, buf, send_len);
     return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;

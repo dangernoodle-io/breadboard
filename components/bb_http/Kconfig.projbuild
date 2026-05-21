@@ -81,4 +81,36 @@ config BB_HTTP_LWIP_RESERVE
       httpd more headroom for parallel-fetch UIs. Raising it carves off more
       slots for outbound work at httpd's expense.
 
+config BB_HTTP_LWIP_SEM_PER_THREAD
+    bool "Use per-thread lwip op-completed sem (SSE / chunked-emit safety)"
+    default y
+    select LWIP_NETCONN_SEM_PER_THREAD
+    help
+      Forces CONFIG_LWIP_NETCONN_SEM_PER_THREAD so lwip's per-call
+      op_completed_sem lives in per-thread TLS instead of inside the
+      netconn / select_cb struct. Without this, a peer RST that frees
+      the netconn (or a closed socket that frees its select_cb) while
+      another thread is mid-call invalidates the sem, and LWIP_ASSERT
+      aborts the device inside tcpip_send_msg_wait_sem (chunked emit)
+      or lwip_select (httpd select loop).
+
+      Cost: roughly one sem (~88 B) per thread that touches lwip; on a
+      typical ESP-IDF firmware that's ~1 KB heap. Worth it on any
+      consumer running SSE under normal browser load.
+
+      Disable only if you've explicitly profiled the heap cost and
+      know you're not running SSE or chunked emits under load.
+
+config BB_HTTP_RESP_SEND_CHUNK_LIVENESS_PROBE
+    bool "Probe socket liveness before each bb_http_resp_send_chunk"
+    default y
+    help
+      Before each chunk send, non-blocking peek the underlying socket
+      so that a peer that already closed surfaces as an early error
+      return rather than dragging the chunked emitter through N more
+      no-op sends. Defense-in-depth complement to
+      BB_HTTP_LWIP_SEM_PER_THREAD; doesn't fully close the race (peer
+      can still RST between probe and lwip_send) but stops long-tail
+      writes into a dead socket.
+
 endmenu
