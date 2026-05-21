@@ -8,6 +8,7 @@
 #include "bb_button_gpio_host.h"
 #include "bb_button_events_host.h"
 #include <string.h>
+#include <unistd.h>
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -404,5 +405,85 @@ void test_btn_evt_detach_no_crash_on_subsequent_events(void)
     // caller-owned button still works
     TEST_ASSERT_FALSE(bb_button_is_pressed(btn));
 
+    bb_button_close(btn);
+}
+
+// ---------------------------------------------------------------------------
+// Tests: auto_start_timer
+// ---------------------------------------------------------------------------
+
+// auto_start=true: timer fires periodically and drives do_step().
+// Use a 50ms tick period; set up so that a CLICK fires after the double_click
+// window (release at t=100, window=200ms → fires when 300ms elapses since release
+// without a second press). Wait for at least one timer period and confirm the
+// event arrives without any manual tick() call.
+void test_btn_evt_auto_start_timer_fires(void)
+{
+    reset_log();
+    bb_button_handle_t btn = open_btn();
+
+    bb_button_events_cfg_t cfg = {
+        .button                = btn,
+        .click_max_ms          = 200,
+        .double_click_window_ms = 200,
+        .long_press_ms         = 800,
+        .repeat_interval_ms    = 100,
+        .tick_period_ms        = 50,
+        .auto_start_timer      = true,
+        .cb                    = record_cb,
+        .user                  = &g_log,
+    };
+    bb_button_events_handle_t h = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_button_events_attach(&cfg, &h));
+    TEST_ASSERT_NOT_NULL(h);
+
+    // inject a short press — real wall-clock timestamps from bb_timer_now_us
+    uint32_t now = (uint32_t)(/* dummy */ 100);
+    bb_button_host_inject_edge(btn, true,  100);
+    bb_button_host_inject_edge(btn, false, 200);
+
+    // wait for double_click_window (200ms) to expire via the 50ms timer
+    usleep(400000); // 400ms
+
+    TEST_ASSERT_GREATER_THAN(0, g_log.count);
+    int found = 0;
+    for (int i = 0; i < g_log.count; i++) {
+        if (g_log.events[i].kind == BB_BTN_EVT_CLICK) found = 1;
+    }
+    TEST_ASSERT_TRUE(found);
+
+    bb_button_events_detach(h);
+    bb_button_close(btn);
+}
+
+// auto_start=false: without explicit tick() calls, no state transitions happen.
+void test_btn_evt_no_auto_start_timer_does_not_fire(void)
+{
+    reset_log();
+    bb_button_handle_t btn = open_btn();
+
+    bb_button_events_cfg_t cfg = {
+        .button                = btn,
+        .click_max_ms          = 200,
+        .double_click_window_ms = 200,
+        .long_press_ms         = 800,
+        .repeat_interval_ms    = 100,
+        .tick_period_ms        = 20,
+        .auto_start_timer      = false,
+        .cb                    = record_cb,
+        .user                  = &g_log,
+    };
+    bb_button_events_handle_t h = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_button_events_attach(&cfg, &h));
+    TEST_ASSERT_NOT_NULL(h);
+
+    bb_button_host_inject_edge(btn, true,  100);
+    bb_button_host_inject_edge(btn, false, 200);
+
+    // sleep without calling tick() — state machine stays in S_WAIT_DOUBLE
+    usleep(400000); // 400ms, well past window
+    TEST_ASSERT_EQUAL(0, g_log.count);
+
+    bb_button_events_detach(h);
     bb_button_close(btn);
 }

@@ -39,8 +39,8 @@ typedef struct {
     uint16_t double_click_window_ms;        // 0 → default 400; gap after release for 2nd click
     uint16_t long_press_ms;                 // 0 → default 800; hold threshold for long_press_start
     uint16_t repeat_interval_ms;            // 0 → default 100; period of REPEAT events while held
-    uint16_t tick_period_ms;                // 0 → default 20 (50 Hz); ESP-IDF auto-timer period
-    bool     auto_start_timer;              // ESP-IDF only; ignored on host/arduino
+    uint16_t tick_period_ms;                // 0 → default 20 (50 Hz); auto-timer period
+    bool     auto_start_timer;             // host/ESP-IDF: start bb_timer; Arduino: returns BB_ERR_UNSUPPORTED
     bb_button_events_cb_t cb;
     void *user;
 } bb_button_events_cfg_t;

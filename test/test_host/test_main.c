@@ -741,6 +741,8 @@ void test_btn_evt_long_press_end_correct_held_ms(void);
 void test_btn_evt_no_repeat_after_long_press_end(void);
 void test_btn_evt_medium_press_no_event(void);
 void test_btn_evt_detach_no_crash_on_subsequent_events(void);
+void test_btn_evt_auto_start_timer_fires(void);
+void test_btn_evt_no_auto_start_timer_does_not_fire(void);
 
 // Forward declarations from test_bb_event.c
 void test_bb_event_init_topic_register_subscribe_post_pump_fires(void);
@@ -1774,6 +1776,8 @@ int main(void) {
     RUN_TEST(test_btn_evt_no_repeat_after_long_press_end);
     RUN_TEST(test_btn_evt_medium_press_no_event);
     RUN_TEST(test_btn_evt_detach_no_crash_on_subsequent_events);
+    RUN_TEST(test_btn_evt_auto_start_timer_fires);
+    RUN_TEST(test_btn_evt_no_auto_start_timer_does_not_fire);
 
     // bb_event tests
     RUN_TEST(test_bb_event_init_topic_register_subscribe_post_pump_fires);
