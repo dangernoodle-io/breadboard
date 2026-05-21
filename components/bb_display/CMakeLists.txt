@@ -1,9 +1,17 @@
+set(SRCS "${CMAKE_CURRENT_LIST_DIR}/src/bb_display.c")
+
+if(CONFIG_BB_DISPLAY_FONT_8X16)
+    list(APPEND SRCS "${CMAKE_CURRENT_LIST_DIR}/src/bb_display_font_8x16.c")
+endif()
+if(CONFIG_BB_DISPLAY_FONT_6X12)
+    list(APPEND SRCS "${CMAKE_CURRENT_LIST_DIR}/src/bb_display_font_6x12.c")
+endif()
+if(CONFIG_BB_DISPLAY_FONT_5X8)
+    list(APPEND SRCS "${CMAKE_CURRENT_LIST_DIR}/src/bb_display_font_5x8.c")
+endif()
+
 idf_component_register(
-    SRCS
-        "${CMAKE_CURRENT_LIST_DIR}/src/bb_display.c"
-        "${CMAKE_CURRENT_LIST_DIR}/src/bb_display_font_8x16.c"
-        "${CMAKE_CURRENT_LIST_DIR}/src/bb_display_font_6x12.c"
-        "${CMAKE_CURRENT_LIST_DIR}/src/bb_display_font_5x8.c"
+    SRCS ${SRCS}
     INCLUDE_DIRS "include"
     REQUIRES bb_core
     PRIV_REQUIRES bb_log)

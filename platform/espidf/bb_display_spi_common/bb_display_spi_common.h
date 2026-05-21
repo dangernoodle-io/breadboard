@@ -34,6 +34,13 @@ void bb_display_blit_spi(esp_lcd_panel_handle_t panel,
                          uint16_t w, uint16_t h,
                          const uint16_t *pixels);
 
+/* Fill a rectangle with a solid color, reusing the internal bounce buffer.
+ * Avoids a per-driver static scanline array (saves 640+ B BSS per driver). */
+void bb_display_clear_spi(esp_lcd_panel_handle_t panel,
+                          uint16_t x, uint16_t y,
+                          uint16_t w, uint16_t h,
+                          uint16_t rgb565_swapped);
+
 #ifdef __cplusplus
 }
 #endif

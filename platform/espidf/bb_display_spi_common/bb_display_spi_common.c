@@ -44,6 +44,9 @@ bb_err_t bb_display_spi_init_bus(int pin_mosi, int pin_miso, int pin_clk,
     return BB_OK;
 }
 
+enum { BOUNCE_PIXELS = 512 };
+static uint16_t s_bounce[BOUNCE_PIXELS];
+
 void bb_display_blit_spi(esp_lcd_panel_handle_t panel,
                          int16_t x, int16_t y,
                          uint16_t w, uint16_t h,
@@ -51,8 +54,6 @@ void bb_display_blit_spi(esp_lcd_panel_handle_t panel,
 {
     if (!panel || !pixels || !w || !h) return;
 
-    enum { BOUNCE_PIXELS = 512 };
-    static uint16_t bounce[BOUNCE_PIXELS];
     int16_t row = 0;
     while (row < (int16_t)h) {
         size_t rows_this_pass = BOUNCE_PIXELS / w;
@@ -62,9 +63,25 @@ void bb_display_blit_spi(esp_lcd_panel_handle_t panel,
         if (pixels_this_pass > BOUNCE_PIXELS) pixels_this_pass = BOUNCE_PIXELS;
         for (size_t i = 0; i < pixels_this_pass; i++) {
             uint16_t c = pixels[row * w + i];
-            bounce[i] = (uint16_t)((c >> 8) | (c << 8));
+            s_bounce[i] = (uint16_t)((c >> 8) | (c << 8));
         }
-        esp_lcd_panel_draw_bitmap(panel, x, y + row, x + w, y + row + (int16_t)rows_this_pass, bounce);
+        esp_lcd_panel_draw_bitmap(panel, x, y + row, x + w, y + row + (int16_t)rows_this_pass, s_bounce);
         row += (int16_t)rows_this_pass;
+    }
+}
+
+void bb_display_clear_spi(esp_lcd_panel_handle_t panel,
+                          uint16_t x, uint16_t y,
+                          uint16_t w, uint16_t h,
+                          uint16_t rgb565_swapped)
+{
+    if (!panel || !w || !h) return;
+
+    /* Fill bounce buffer with the solid color once; reuse for every scanline. */
+    size_t fill = w < BOUNCE_PIXELS ? w : BOUNCE_PIXELS;
+    for (size_t i = 0; i < fill; i++) s_bounce[i] = rgb565_swapped;
+
+    for (uint16_t row = 0; row < h; row++) {
+        esp_lcd_panel_draw_bitmap(panel, x, y + row, x + w, y + row + 1, s_bounce);
     }
 }

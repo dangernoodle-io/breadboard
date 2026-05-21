@@ -68,14 +68,22 @@ typedef struct {
     const uint8_t *bitmap;
 } bb_display_font_t;
 
-/* Bundled fonts. Availability depends on Kconfig/compile flags. */
-#ifndef BB_DISPLAY_FONT_8X16
+/* Bundled fonts. Availability is governed by Kconfig (ESP-IDF) or explicit
+ * -DBB_DISPLAY_FONT_* flags (Arduino/host). All three default to 1 so that
+ * builds not using Kconfig stay back-compat. */
+#ifdef CONFIG_BB_DISPLAY_FONT_8X16
+#define BB_DISPLAY_FONT_8X16 CONFIG_BB_DISPLAY_FONT_8X16
+#elif !defined(BB_DISPLAY_FONT_8X16)
 #define BB_DISPLAY_FONT_8X16 1
 #endif
-#ifndef BB_DISPLAY_FONT_6X12
+#ifdef CONFIG_BB_DISPLAY_FONT_6X12
+#define BB_DISPLAY_FONT_6X12 CONFIG_BB_DISPLAY_FONT_6X12
+#elif !defined(BB_DISPLAY_FONT_6X12)
 #define BB_DISPLAY_FONT_6X12 1
 #endif
-#ifndef BB_DISPLAY_FONT_5X8
+#ifdef CONFIG_BB_DISPLAY_FONT_5X8
+#define BB_DISPLAY_FONT_5X8 CONFIG_BB_DISPLAY_FONT_5X8
+#elif !defined(BB_DISPLAY_FONT_5X8)
 #define BB_DISPLAY_FONT_5X8 1
 #endif
 
