@@ -1,6 +1,6 @@
 idf_component_register(
     SRCS
-        "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_button/bb_button.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_button/bb_button.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
     PRIV_REQUIRES bb_log)
