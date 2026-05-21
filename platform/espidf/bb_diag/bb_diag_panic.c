@@ -30,7 +30,10 @@ typedef struct {
     uint32_t magic;
     uint32_t length;
     uint32_t write_pos;
-    uint32_t crc;
+    /* Legacy: per-write CRC, no longer maintained. Field kept so the on-RTC
+     * struct layout doesn't shift for projects that mix-and-match BB
+     * versions across reboots; never written, never read. */
+    uint32_t crc_unused;
     char buf[CONFIG_BB_DIAG_PANIC_BUF_SIZE];
 } bb_diag_panic_record_t;
 
@@ -41,18 +44,6 @@ static RTC_NOINIT_ATTR bb_diag_panic_record_t s_panic_rec;
 static RTC_NOINIT_ATTR uint32_t s_boots_since;
 static RTC_NOINIT_ATTR uint32_t s_boots_since_magic;
 static bool s_have_panic_log = false;
-
-static uint32_t bb_crc32(const uint8_t *data, size_t len)
-{
-    uint32_t crc = 0xFFFFFFFFU;
-    for (size_t i = 0; i < len; i++) {
-        crc ^= data[i];
-        for (int j = 0; j < 8; j++) {
-            crc = (crc >> 1) ^ ((crc & 1) ? 0xEDB88320U : 0);
-        }
-    }
-    return crc ^ 0xFFFFFFFFU;
-}
 
 #ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
 #include "esp_core_dump.h"
@@ -104,14 +95,14 @@ static bb_err_t bb_diag_panic_init(void)
 {
     esp_reset_reason_t reason = esp_reset_reason();
 
-    // Check magic + CRC to detect valid panic record
-    bool valid_record = false;
-    if (s_panic_rec.magic == PANIC_MAGIC && s_panic_rec.length <= CONFIG_BB_DIAG_PANIC_BUF_SIZE) {
-        uint32_t computed_crc = bb_crc32((const uint8_t *)s_panic_rec.buf, s_panic_rec.length);
-        if (computed_crc == s_panic_rec.crc) {
-            valid_record = true;
-        }
-    }
+    // Magic + length-bound check is sufficient to detect a valid panic
+    // record. The previous CRC validation was paired with a per-write CRC
+    // (recomputed on every log line) that stalled mining_hw on classic
+    // ESP32 hard enough to trip the task watchdog (B1-227). A panic that
+    // interrupts a write leaves at worst a few bytes of garbage at the
+    // buffer tail — acceptable for a best-effort post-mortem log.
+    bool valid_record = (s_panic_rec.magic == PANIC_MAGIC &&
+                         s_panic_rec.length <= CONFIG_BB_DIAG_PANIC_BUF_SIZE);
 
     // Determine if we should expose the panic log
     if (valid_record && (reason == ESP_RST_PANIC || reason == ESP_RST_TASK_WDT ||
@@ -190,7 +181,7 @@ void bb_diag_panic_capture_write(const char *data, size_t len)
         remaining -= chunk;
     }
 
-    s_panic_rec.crc = bb_crc32((const uint8_t *)s_panic_rec.buf, s_panic_rec.length);
+    /* No CRC maintenance — see init() for the rationale (B1-227). */
 }
 
 bool bb_diag_panic_available(void)
@@ -241,7 +232,7 @@ void bb_diag_panic_clear(void)
     s_panic_rec.magic = 0;
     s_panic_rec.length = 0;
     s_panic_rec.write_pos = 0;
-    s_panic_rec.crc = 0;
+    s_panic_rec.crc_unused = 0;
     s_boots_since = 0;
     s_boots_since_magic = BOOTS_SINCE_MAGIC;
 #ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
