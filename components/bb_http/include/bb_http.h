@@ -188,6 +188,91 @@ bb_err_t bb_http_resp_json_arr_emit(bb_http_json_stream_t *stream,
  * regardless of sticky-err state. Single-use. */
 bb_err_t bb_http_resp_json_arr_end(bb_http_json_stream_t *stream);
 
+// ============================================================================
+// STREAMING JSON OBJECT API
+// ============================================================================
+
+// Single-use streaming JSON object emitter. Field-by-field emission with
+// comma tracking and JSON escaping — no full-tree buffer ever needed.
+//
+// Usage pattern:
+//   bb_http_json_obj_stream_t obj;
+//   bb_http_resp_json_obj_begin(req, &obj);
+//   bb_http_resp_json_obj_set_str(&obj, "name", "alice");
+//   bb_http_resp_json_obj_set_int(&obj, "age", 30);
+//   bb_http_resp_json_obj_end(&obj);
+//
+// Internal buffer: fields are accumulated in a ~1 KB stack buffer per stream;
+// the buffer is flushed via bb_http_resp_send_chunk whenever it would overflow.
+// _end() flushes the remainder and sends the chunked-transfer terminator.
+//
+// Nesting: _set_obj_begin/_set_obj_end and _set_arr_begin/_set_arr_end allow
+// nested objects and arrays. Each nesting level increments _depth; the open
+// guard and comma tracking apply per-context at emit time.
+//
+// Sticky error: the first failure poisons the stream; all subsequent calls are
+// no-ops. _end() always flushes and closes the response, then returns the
+// sticky error.
+#define BB_HTTP_JSON_OBJ_BUF_SIZE 1024
+
+typedef struct bb_http_json_obj_stream_s {
+    void    *_req;                           /* bb_http_request_t * */
+    int      _err;                           /* sticky first error, BB_OK initially */
+    uint8_t  _open;                          /* nonzero between begin and end */
+    uint8_t  _depth;                         /* nesting depth (0 = top-level obj) */
+    uint8_t  _needs_comma[8];               /* per-depth comma flag (max 8 levels) */
+    char     _buf[BB_HTTP_JSON_OBJ_BUF_SIZE]; /* internal flush buffer */
+    size_t   _buf_len;                       /* bytes used in _buf */
+} bb_http_json_obj_stream_t;
+
+/* Begin a streaming JSON object response. Sets Content-Type: application/json,
+ * opens chunked transfer-encoding, emits "{". After return the caller emits
+ * fields via _set_*, then closes via _end (always — even on error). */
+bb_err_t bb_http_resp_json_obj_begin(bb_http_request_t *req,
+                                     bb_http_json_obj_stream_t *out);
+
+/* Emit "key":"val" with JSON escaping on val.
+ * val may be NULL; emits "key":null in that case. */
+bb_err_t bb_http_resp_json_obj_set_str(bb_http_json_obj_stream_t *stream,
+                                       const char *key, const char *val);
+
+/* Emit "key":N as a floating-point number. */
+bb_err_t bb_http_resp_json_obj_set_num(bb_http_json_obj_stream_t *stream,
+                                       const char *key, double val);
+
+/* Emit "key":N formatted as an integer (int64_t). */
+bb_err_t bb_http_resp_json_obj_set_int(bb_http_json_obj_stream_t *stream,
+                                       const char *key, int64_t val);
+
+/* Emit "key":true or "key":false. */
+bb_err_t bb_http_resp_json_obj_set_bool(bb_http_json_obj_stream_t *stream,
+                                        const char *key, bool val);
+
+/* Emit "key":null. */
+bb_err_t bb_http_resp_json_obj_set_null(bb_http_json_obj_stream_t *stream,
+                                        const char *key);
+
+/* Begin a nested object: emit "key":{ and push depth.
+ * Caller follows with _set_* calls, then calls _set_obj_end. */
+bb_err_t bb_http_resp_json_obj_set_obj_begin(bb_http_json_obj_stream_t *stream,
+                                             const char *key);
+
+/* End a nested object: emit } and pop depth. */
+bb_err_t bb_http_resp_json_obj_set_obj_end(bb_http_json_obj_stream_t *stream);
+
+/* Begin a nested array: emit "key":[ and push depth.
+ * Array elements should be emitted directly via _raw (see below) or via the
+ * arr API after opening. When inside an array context, there is no key. */
+bb_err_t bb_http_resp_json_obj_set_arr_begin(bb_http_json_obj_stream_t *stream,
+                                             const char *key);
+
+/* End a nested array: emit ] and pop depth. */
+bb_err_t bb_http_resp_json_obj_set_arr_end(bb_http_json_obj_stream_t *stream);
+
+/* Close the top-level object: flush buffer, emit "}", end chunked response,
+ * return sticky error. Always closes regardless of sticky-err state. */
+bb_err_t bb_http_resp_json_obj_end(bb_http_json_obj_stream_t *stream);
+
 // Request accessors — MVP: read the body as a single buffer.
 int bb_http_req_body_len(bb_http_request_t *req);
 int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size);

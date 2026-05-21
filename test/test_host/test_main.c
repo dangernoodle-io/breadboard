@@ -161,6 +161,30 @@ void test_json_arr_emit_null_item(void);
 void test_json_arr_emit_null_stream(void);
 void test_json_arr_end_null_stream(void);
 
+// Forward declarations from test_bb_http_json_obj_stream.c
+void test_json_obj_begin_null_req(void);
+void test_json_obj_begin_null_stream(void);
+void test_json_obj_begin_init(void);
+void test_json_obj_empty(void);
+void test_json_obj_set_str_basic(void);
+void test_json_obj_set_str_null_val(void);
+void test_json_obj_set_str_escape(void);
+void test_json_obj_set_int(void);
+void test_json_obj_set_int_negative(void);
+void test_json_obj_set_bool_true(void);
+void test_json_obj_set_bool_false(void);
+void test_json_obj_set_null(void);
+void test_json_obj_multiple_fields(void);
+void test_json_obj_nested_obj(void);
+void test_json_obj_nested_arr(void);
+void test_json_obj_set_after_end(void);
+void test_json_obj_sticky_error(void);
+void test_json_obj_set_str_null_stream(void);
+void test_json_obj_set_int_null_stream(void);
+void test_json_obj_set_bool_null_stream(void);
+void test_json_obj_set_null_null_stream(void);
+void test_json_obj_end_null_stream(void);
+
 // Forward declarations from test_nv_config.c
 void test_nv_config_init_success(void);
 void test_nv_config_wifi_ssid_empty_after_init(void);
@@ -1363,6 +1387,30 @@ int main(void) {
     RUN_TEST(test_json_arr_emit_null_item);
     RUN_TEST(test_json_arr_emit_null_stream);
     RUN_TEST(test_json_arr_end_null_stream);
+
+    // Streaming JSON object tests
+    RUN_TEST(test_json_obj_begin_null_req);
+    RUN_TEST(test_json_obj_begin_null_stream);
+    RUN_TEST(test_json_obj_begin_init);
+    RUN_TEST(test_json_obj_empty);
+    RUN_TEST(test_json_obj_set_str_basic);
+    RUN_TEST(test_json_obj_set_str_null_val);
+    RUN_TEST(test_json_obj_set_str_escape);
+    RUN_TEST(test_json_obj_set_int);
+    RUN_TEST(test_json_obj_set_int_negative);
+    RUN_TEST(test_json_obj_set_bool_true);
+    RUN_TEST(test_json_obj_set_bool_false);
+    RUN_TEST(test_json_obj_set_null);
+    RUN_TEST(test_json_obj_multiple_fields);
+    RUN_TEST(test_json_obj_nested_obj);
+    RUN_TEST(test_json_obj_nested_arr);
+    RUN_TEST(test_json_obj_set_after_end);
+    RUN_TEST(test_json_obj_sticky_error);
+    RUN_TEST(test_json_obj_set_str_null_stream);
+    RUN_TEST(test_json_obj_set_int_null_stream);
+    RUN_TEST(test_json_obj_set_bool_null_stream);
+    RUN_TEST(test_json_obj_set_null_null_stream);
+    RUN_TEST(test_json_obj_end_null_stream);
 
     // NV config tests
     RUN_TEST(test_nv_config_init_success);

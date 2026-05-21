@@ -2,6 +2,7 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_http/bb_http.c"
          "src/http_utils.c"
          "src/route_registry.c"
+         "src/bb_http_json_obj.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
     PRIV_REQUIRES bb_nv bb_log bb_json esp_http_server
