@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "bb_timer.h"
 #include <unistd.h>
+#include <stdint.h>
 
 static volatile int s_count = 0;
 
@@ -92,4 +93,12 @@ void test_bb_timer_delete_without_start(void)
 
     err = bb_timer_delete(h);
     TEST_ASSERT_EQUAL(BB_OK, err);
+}
+
+void test_bb_timer_now_us_increases_over_time(void)
+{
+    uint64_t t0 = bb_timer_now_us();
+    usleep(10000);  // 10 ms
+    uint64_t t1 = bb_timer_now_us();
+    TEST_ASSERT_GREATER_THAN(t0, t1);
 }

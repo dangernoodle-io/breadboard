@@ -196,7 +196,7 @@ COMPONENT_MAP = {
     "bb_led_anim": {
         "includes": ["components/bb_led_anim/include", "platform/host/bb_led_anim"],
         "sources":  ["platform/host/bb_led_anim/bb_led_anim.c"],
-        "depends":  ["bb_core", "bb_led", "bb_log"],
+        "depends":  ["bb_core", "bb_led", "bb_log", "bb_timer"],
     },
     "bb_button": {
         "includes": ["components/bb_button/include"],
