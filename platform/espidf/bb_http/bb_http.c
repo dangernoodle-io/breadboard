@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <sys/socket.h>
+#include "lwip/sockets.h"
 
 static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
@@ -49,6 +50,17 @@ void bb_http_set_cors_headers(const char *headers)
 }
 
 static esp_err_t preflight_handler(httpd_req_t *req);
+
+// One-shot work item queued on the httpd worker thread immediately after server
+// start.  Calling lwip_socket_thread_init() here pre-allocates the per-thread
+// LWIP TLS semaphore while heap is plentiful, eliminating the lazy-alloc-under-
+// load path that aborts the device under B1-223.
+static void prealloc_tls_sem_cb(void *arg)
+{
+    (void)arg;
+    lwip_socket_thread_init();
+    bb_log_i(TAG, "httpd lwip TLS sem pre-allocated (B1-223 step 1)");
+}
 
 // Ensure the shared HTTP server is started. Exposed for bb_prov to call.
 // Low-level helper; most consumers should use bb_http_server_start instead.
@@ -123,6 +135,18 @@ bb_err_t bb_http_server_ensure_started(void)
 
     esp_err_t err = httpd_start(&s_server, &config);
     if (err != ESP_OK) return err;
+
+    /* B1-223 (root cause C): lwip lazily allocates a per-thread TLS semaphore
+     * the first time sys_thread_sem_get() is called on a thread.  Under heap
+     * pressure during the ~200 lwip_send calls of a large /api/pool response
+     * the alloc can return NULL, which triggers the LWIP_ASSERT in
+     * tcpip_send_msg_wait_sem (tcpip.c:453) and aborts the device.
+     *
+     * Fix: queue a one-shot work item that runs on the httpd worker thread
+     * immediately after server start, when heap is still plentiful, so the
+     * sem is pre-allocated before any real request arrives.
+     * LWIP_NETCONN_SEM_PER_THREAD must be 1 (shipped via PR #301). */
+    httpd_queue_work(s_server, prealloc_tls_sem_cb, NULL);
 
     httpd_uri_t preflight = { .uri = "/*", .method = HTTP_OPTIONS, .handler = preflight_handler };
     err = httpd_register_uri_handler(s_server, &preflight);
