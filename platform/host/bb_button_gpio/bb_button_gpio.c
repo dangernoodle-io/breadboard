@@ -2,32 +2,20 @@
 // Pin state is kept in memory; bb_button_host_inject_edge() simulates edges.
 //
 // Clock: BB_BUTTON_MOCK_CLOCK → callers supply now_ms to inject_edge directly;
-//        ARDUINO → millis(); else clock_gettime CLOCK_MONOTONIC.
+//        else bb_clock_now_ms() (portable monotonic ms via bb_clock.h).
 #include "bb_button_gpio.h"
 #include "bb_button_gpio_host.h"
 #include "bb_button_driver.h"
+#include "bb_clock.h"
 #include <stdlib.h>
 #include <stddef.h>
-
-#ifndef ARDUINO
-#include <time.h>
-#endif
 
 // ---------------------------------------------------------------------------
 // Clock (used by inject when caller doesn't supply timestamp — polling mode)
 // ---------------------------------------------------------------------------
 
 #ifndef BB_BUTTON_MOCK_CLOCK
-#ifdef ARDUINO
-static uint32_t now_ms(void) { return (uint32_t)millis(); }
-#else
-static uint32_t now_ms(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint32_t)((uint64_t)ts.tv_sec * 1000u + ts.tv_nsec / 1000000u);
-}
-#endif
+static uint32_t now_ms(void) { return bb_clock_now_ms(); }
 #endif // !BB_BUTTON_MOCK_CLOCK
 
 // ---------------------------------------------------------------------------
@@ -113,7 +101,7 @@ bb_err_t bb_button_gpio_open(const bb_button_gpio_cfg_t *cfg, bb_button_handle_t
     s->drv.is_pressed  = op_is_pressed;
     s->drv.poll        = op_poll;
     s->drv.close       = op_close;
-    s->drv.debounce_ms = cfg->debounce_ms ? cfg->debounce_ms : 25;
+    s->drv.debounce_ms = cfg->debounce_ms ? cfg->debounce_ms : BB_BUTTON_DEBOUNCE_MS_DEFAULT;
 
     bb_err_t rc = bb_button_handle_create(&s->drv, s, out);
     if (rc != BB_OK) { free(s); return rc; }

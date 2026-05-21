@@ -127,7 +127,7 @@ static void step_solid(struct bb_led_anim *h)
 
 static void step_blink(struct bb_led_anim *h, uint32_t elapsed_ms)
 {
-    uint32_t period = h->pat.blink.period_ms ? h->pat.blink.period_ms : 1000u;
+    uint32_t period = h->pat.blink.period_ms ? h->pat.blink.period_ms : BB_LED_ANIM_BLINK_PERIOD_DEFAULT_MS;
     uint32_t phase  = elapsed_ms % period;
     bool on = phase < (uint32_t)period * h->pat.blink.duty_pct / 100u;
     uint16_t cnt = bb_led_count(h->led);
@@ -138,7 +138,7 @@ static void step_blink(struct bb_led_anim *h, uint32_t elapsed_ms)
 
 static void step_breathe(struct bb_led_anim *h, uint32_t elapsed_ms)
 {
-    uint32_t period   = h->pat.breathe.period_ms ? h->pat.breathe.period_ms : 2000u;
+    uint32_t period   = h->pat.breathe.period_ms ? h->pat.breathe.period_ms : BB_LED_ANIM_BREATHE_PERIOD_DEFAULT_MS;
     uint32_t phase_ms = elapsed_ms % period;
     uint8_t  sin_idx  = (uint8_t)((uint32_t)phase_ms * 256u / period);
     uint8_t  s        = sin8(sin_idx);
@@ -154,7 +154,7 @@ static void step_breathe(struct bb_led_anim *h, uint32_t elapsed_ms)
 
 static void step_pulse(struct bb_led_anim *h, uint32_t elapsed_ms)
 {
-    uint32_t period   = h->pat.pulse.period_ms ? h->pat.pulse.period_ms : 1000u;
+    uint32_t period   = h->pat.pulse.period_ms ? h->pat.pulse.period_ms : BB_LED_ANIM_PULSE_PERIOD_DEFAULT_MS;
     uint32_t decay_ms = h->pat.pulse.decay_ms  ? h->pat.pulse.decay_ms  : period / 2u;
     uint32_t phase    = elapsed_ms % period;
     uint32_t ramp_ms  = (period > decay_ms) ? (period - decay_ms) / 2u : 1u;
@@ -178,7 +178,7 @@ static void step_pulse(struct bb_led_anim *h, uint32_t elapsed_ms)
 
 static void step_color_cycle(struct bb_led_anim *h, uint32_t elapsed_ms)
 {
-    uint32_t period = h->pat.color_cycle.period_ms ? h->pat.color_cycle.period_ms : 3000u;
+    uint32_t period = h->pat.color_cycle.period_ms ? h->pat.color_cycle.period_ms : BB_LED_ANIM_COLOR_CYCLE_PERIOD_DEFAULT_MS;
     uint16_t hue    = (uint16_t)((elapsed_ms % period) * 360u / period);
     uint8_t  sat    = (uint8_t)((uint32_t)h->pat.color_cycle.sat_pct * 255u / 100u);
     uint8_t  val    = (uint8_t)((uint32_t)h->pat.color_cycle.val_pct * 255u / 100u);
@@ -191,7 +191,7 @@ static void step_color_cycle(struct bb_led_anim *h, uint32_t elapsed_ms)
 static void step_chase(struct bb_led_anim *h, uint32_t elapsed_ms)
 {
     uint16_t cnt    = bb_led_count(h->led);
-    uint32_t period = h->pat.chase.period_ms ? h->pat.chase.period_ms : 1000u;
+    uint32_t period = h->pat.chase.period_ms ? h->pat.chase.period_ms : BB_LED_ANIM_CHASE_PERIOD_DEFAULT_MS;
     uint16_t head   = (uint16_t)((elapsed_ms % period) * cnt / period);
     uint8_t  tail   = h->pat.chase.tail_len ? h->pat.chase.tail_len : 3u;
 
@@ -270,7 +270,7 @@ bb_err_t bb_led_anim_attach(const bb_led_anim_cfg_t *cfg, bb_led_anim_handle_t *
     if (!h) return BB_ERR_NO_SPACE;
 
     h->led            = cfg->led;
-    h->tick_period_ms = cfg->tick_period_ms ? cfg->tick_period_ms : 20u;
+    h->tick_period_ms = cfg->tick_period_ms ? cfg->tick_period_ms : BB_LED_ANIM_TICK_DEFAULT_MS;
     h->start_ms       = now_ms();
     h->last_tick_ms   = h->start_ms;
     h->paused         = false;

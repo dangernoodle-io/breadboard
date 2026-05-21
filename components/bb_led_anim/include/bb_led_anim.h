@@ -35,9 +35,17 @@ typedef struct {
     };
 } bb_led_anim_pattern_t;
 
+// Defaults applied when the corresponding pattern field is 0.
+#define BB_LED_ANIM_BLINK_PERIOD_DEFAULT_MS        1000
+#define BB_LED_ANIM_BREATHE_PERIOD_DEFAULT_MS      2000
+#define BB_LED_ANIM_PULSE_PERIOD_DEFAULT_MS        1000
+#define BB_LED_ANIM_COLOR_CYCLE_PERIOD_DEFAULT_MS  3000
+#define BB_LED_ANIM_CHASE_PERIOD_DEFAULT_MS        1000
+#define BB_LED_ANIM_TICK_DEFAULT_MS                  20
+
 typedef struct {
     bb_led_handle_t led;
-    uint32_t tick_period_ms;  // 0 → default 20 ms (50 Hz)
+    uint32_t tick_period_ms;  // 0 → default BB_LED_ANIM_TICK_DEFAULT_MS (50 Hz)
     bool auto_start_timer;    // ESP-IDF only; ignored on host/arduino
 } bb_led_anim_cfg_t;
 

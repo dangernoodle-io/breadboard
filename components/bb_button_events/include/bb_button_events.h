@@ -33,13 +33,20 @@ typedef struct {
 
 typedef void (*bb_button_events_cb_t)(const bb_button_events_event_t *e, void *user);
 
+// Defaults applied when the corresponding cfg field is 0.
+#define BB_BUTTON_EVENTS_CLICK_MAX_MS_DEFAULT     400
+#define BB_BUTTON_EVENTS_DOUBLE_CLICK_MS_DEFAULT  400
+#define BB_BUTTON_EVENTS_LONG_PRESS_MS_DEFAULT    800
+#define BB_BUTTON_EVENTS_REPEAT_MS_DEFAULT        100
+#define BB_BUTTON_EVENTS_TICK_MS_DEFAULT           20
+
 typedef struct {
     bb_button_handle_t   button;            // required; caller-owned
-    uint16_t click_max_ms;                  // 0 → default 400; max press to count as click
-    uint16_t double_click_window_ms;        // 0 → default 400; gap after release for 2nd click
-    uint16_t long_press_ms;                 // 0 → default 800; hold threshold for long_press_start
-    uint16_t repeat_interval_ms;            // 0 → default 100; period of REPEAT events while held
-    uint16_t tick_period_ms;                // 0 → default 20 (50 Hz); auto-timer period
+    uint16_t click_max_ms;                  // 0 → default BB_BUTTON_EVENTS_CLICK_MAX_MS_DEFAULT
+    uint16_t double_click_window_ms;        // 0 → default BB_BUTTON_EVENTS_DOUBLE_CLICK_MS_DEFAULT
+    uint16_t long_press_ms;                 // 0 → default BB_BUTTON_EVENTS_LONG_PRESS_MS_DEFAULT
+    uint16_t repeat_interval_ms;            // 0 → default BB_BUTTON_EVENTS_REPEAT_MS_DEFAULT
+    uint16_t tick_period_ms;                // 0 → default BB_BUTTON_EVENTS_TICK_MS_DEFAULT (50 Hz)
     bool     auto_start_timer;             // host/ESP-IDF: start bb_timer; Arduino: returns BB_ERR_UNSUPPORTED
     bb_button_events_cb_t cb;
     void *user;
