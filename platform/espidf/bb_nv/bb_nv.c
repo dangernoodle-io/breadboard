@@ -10,6 +10,13 @@
 #include "nvs.h"
 #endif
 
+#define BB_NV_KEY_WIFI_SSID         "wifi_ssid"
+#define BB_NV_KEY_WIFI_PASS         "wifi_pass"
+#define BB_NV_KEY_HOSTNAME          "hostname"
+#define BB_NV_KEY_MDNS_EN           "mdns_en"
+#define BB_NV_KEY_UPDATE_CHECK_EN   "update_check_en"
+#define BB_NV_KEY_DISPLAY_EN        "display_en"
+
 /* strlcpy isn't standard C — newlib exposes it under feature flags, but
  * the warning we hit under TaipanMiner's build profile is real. Roll a
  * tiny helper so the file is self-contained. */
@@ -24,7 +31,7 @@ static const char *TAG_NV = "bb_nv";
 
 static const bb_manifest_nv_t s_bb_cfg_keys[] = {
     {
-        .key              = "wifi_ssid",
+        .key              = BB_NV_KEY_WIFI_SSID,
         .type             = "str",
         .default_         = NULL,
         .max_len          = 32,
@@ -33,7 +40,7 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
         .provisioning_only = true,
     },
     {
-        .key              = "wifi_pass",
+        .key              = BB_NV_KEY_WIFI_PASS,
         .type             = "str",
         .default_         = NULL,
         .max_len          = 63,
@@ -42,7 +49,7 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
         .provisioning_only = true,
     },
     {
-        .key              = "hostname",
+        .key              = BB_NV_KEY_HOSTNAME,
         .type             = "str",
         .default_         = NULL,
         .max_len          = 32,
@@ -51,7 +58,7 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
         .provisioning_only = false,
     },
     {
-        .key              = "mdns_en",
+        .key              = BB_NV_KEY_MDNS_EN,
         .type             = "bool",
         .default_         = "true",
         .max_len          = 0,
@@ -60,7 +67,7 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
         .provisioning_only = false,
     },
     {
-        .key              = "update_check_en",
+        .key              = BB_NV_KEY_UPDATE_CHECK_EN,
         .type             = "bool",
         .default_         = "true",
         .max_len          = 0,
@@ -69,7 +76,7 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
         .provisioning_only = false,
     },
     {
-        .key              = "display_en",
+        .key              = BB_NV_KEY_DISPLAY_EN,
         .type             = "bool",
         .default_         = "true",
         .max_len          = 0,
@@ -121,6 +128,28 @@ static void load_str(nvs_handle_t handle, const char *key, char *buf, size_t buf
         copy_str(buf, fallback, buf_size);
     }
 }
+
+static bb_err_t nv_config_set_u8(const char *key, uint8_t val)
+{
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != BB_OK) return err;
+    err = nvs_set_u8(handle, key, val);
+    if (err == BB_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
+
+static bb_err_t nv_config_set_str(const char *key, const char *val)
+{
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != BB_OK) return err;
+    err = nvs_set_str(handle, key, val);
+    if (err == BB_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
 #endif
 
 bb_err_t bb_nv_config_init(void)
@@ -144,19 +173,19 @@ bb_err_t bb_nv_config_init(void)
         return err;
     }
 
-    load_str(handle, "wifi_ssid", s_config.wifi_ssid, sizeof(s_config.wifi_ssid), "");
-    load_str(handle, "wifi_pass", s_config.wifi_pass, sizeof(s_config.wifi_pass), "");
-    load_str(handle, "hostname", s_config.hostname, sizeof(s_config.hostname), "");
+    load_str(handle, BB_NV_KEY_WIFI_SSID, s_config.wifi_ssid, sizeof(s_config.wifi_ssid), "");
+    load_str(handle, BB_NV_KEY_WIFI_PASS, s_config.wifi_pass, sizeof(s_config.wifi_pass), "");
+    load_str(handle, BB_NV_KEY_HOSTNAME, s_config.hostname, sizeof(s_config.hostname), "");
 
-    if (nvs_get_u8(handle, "display_en", &s_config.display_en) != ESP_OK) {
+    if (nvs_get_u8(handle, BB_NV_KEY_DISPLAY_EN, &s_config.display_en) != ESP_OK) {
         s_config.display_en = 1;  // default: display on
     }
 
-    if (nvs_get_u8(handle, "mdns_en", &s_config.mdns_en) != ESP_OK) {
+    if (nvs_get_u8(handle, BB_NV_KEY_MDNS_EN, &s_config.mdns_en) != ESP_OK) {
         s_config.mdns_en = 1;  // default: mdns on
     }
 
-    if (nvs_get_u8(handle, "update_check_en", &s_config.update_check_en) != ESP_OK) {
+    if (nvs_get_u8(handle, BB_NV_KEY_UPDATE_CHECK_EN, &s_config.update_check_en) != ESP_OK) {
         s_config.update_check_en = 1;  // default: update check on
     }
 
@@ -231,27 +260,12 @@ bb_err_t bb_nv_config_set_provisioned(void)
 
 bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass)
 {
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
-
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    err = nvs_set_str(handle, "wifi_ssid", ssid);
-    if (err == BB_OK) {
-        err = nvs_set_str(handle, "wifi_pass", pass);
-    }
-    if (err == BB_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-
+    bb_err_t err = nv_config_set_str(BB_NV_KEY_WIFI_SSID, ssid);
+    if (err == BB_OK) err = nv_config_set_str(BB_NV_KEY_WIFI_PASS, pass);
     if (err == BB_OK) {
         copy_str(s_config.wifi_ssid, ssid, sizeof(s_config.wifi_ssid));
         copy_str(s_config.wifi_pass, pass, sizeof(s_config.wifi_pass));
     }
-
     return err;
 }
 
@@ -259,84 +273,29 @@ bb_err_t bb_nv_config_set_hostname(const char *hostname)
 {
     if (!hostname) return BB_ERR_INVALID_ARG;
     if (!nv_valid_hostname(hostname)) return BB_ERR_INVALID_ARG;
-
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
-    if (err != BB_OK) return err;
-
-    err = nvs_set_str(handle, "hostname", hostname);
-    if (err == BB_OK) err = nvs_commit(handle);
-    nvs_close(handle);
-
-    if (err == BB_OK) {
-        copy_str(s_config.hostname, hostname, sizeof(s_config.hostname));
-    }
+    bb_err_t err = nv_config_set_str(BB_NV_KEY_HOSTNAME, hostname);
+    if (err == BB_OK) copy_str(s_config.hostname, hostname, sizeof(s_config.hostname));
     return err;
 }
 
 bb_err_t bb_nv_config_set_display_enabled(bool en)
 {
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
-
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    err = nvs_set_u8(handle, "display_en", en ? 1 : 0);
-    if (err == BB_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-
-    if (err == BB_OK) {
-        s_config.display_en = en ? 1 : 0;
-    }
-
+    bb_err_t err = nv_config_set_u8(BB_NV_KEY_DISPLAY_EN, en ? 1 : 0);
+    if (err == BB_OK) s_config.display_en = en ? 1 : 0;
     return err;
 }
 
 bb_err_t bb_nv_config_set_mdns_enabled(bool en)
 {
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
-
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    err = nvs_set_u8(handle, "mdns_en", en ? 1 : 0);
-    if (err == BB_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-
-    if (err == BB_OK) {
-        s_config.mdns_en = en ? 1 : 0;
-    }
-
+    bb_err_t err = nv_config_set_u8(BB_NV_KEY_MDNS_EN, en ? 1 : 0);
+    if (err == BB_OK) s_config.mdns_en = en ? 1 : 0;
     return err;
 }
 
 bb_err_t bb_nv_config_set_update_check_enabled(bool en)
 {
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
-
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    err = nvs_set_u8(handle, "update_check_en", en ? 1 : 0);
-    if (err == BB_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-
-    if (err == BB_OK) {
-        s_config.update_check_en = en ? 1 : 0;
-    }
-
+    bb_err_t err = nv_config_set_u8(BB_NV_KEY_UPDATE_CHECK_EN, en ? 1 : 0);
+    if (err == BB_OK) s_config.update_check_en = en ? 1 : 0;
     return err;
 }
 
