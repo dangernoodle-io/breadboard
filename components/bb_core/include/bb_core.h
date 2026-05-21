@@ -52,6 +52,15 @@ typedef int bb_err_t;
 typedef void *bb_http_handle_t;
 typedef void *bb_http_request_t;
 
+// ---------------------------------------------------------------------------
+// Pause/resume callback types (shared by bb_ota_pull, bb_update_check, etc.)
+// ---------------------------------------------------------------------------
+// pause_cb: called before an outbound HTTP fetch; return true to allow,
+//           false to skip the fetch (resume will NOT be called on false).
+// resume_cb: called after the fetch completes, on both success and failure.
+typedef bool (*bb_http_pause_cb_t)(void);
+typedef void (*bb_http_resume_cb_t)(void);
+
 #ifdef __cplusplus
 }
 #endif

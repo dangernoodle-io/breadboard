@@ -1,6 +1,7 @@
 extern "C" {
 #include "bb_led_gpio.h"
 #include "bb_led_driver.h"
+#include "../../../components/bb_led_gpio/bb_led_gpio_internal.h"
 #include <stdlib.h>
 }
 #include <Arduino.h>
@@ -9,14 +10,11 @@ extern "C" {
 
 typedef struct { int gpio; bool active_low; } state_t;
 
-static int level_for_on(const state_t *s, bool on) {
-    return s->active_low ? (on ? LOW : HIGH) : (on ? HIGH : LOW);
-}
-
 static bb_err_t op_set_on(void *st, uint16_t idx, bool on) {
     (void)idx;
     state_t *s = (state_t*)st;
-    digitalWrite(s->gpio, level_for_on(s, on));
+    // bb_led_gpio_level_for_on returns 0/1; LOW==0, HIGH==1 on Arduino
+    digitalWrite(s->gpio, bb_led_gpio_level_for_on(s->active_low, on));
     return BB_OK;
 }
 
@@ -40,7 +38,7 @@ bb_err_t bb_led_gpio_open(const bb_led_gpio_cfg_t *cfg, bb_led_handle_t *out) {
     s->gpio = cfg->gpio;
     s->active_low = cfg->active_low;
     pinMode(s->gpio, OUTPUT);
-    digitalWrite(s->gpio, level_for_on(s, false));
+    digitalWrite(s->gpio, bb_led_gpio_level_for_on(s->active_low, false));
     return bb_led_handle_create(&s_drv, s, out);
 }
 

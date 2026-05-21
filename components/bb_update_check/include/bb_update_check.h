@@ -72,8 +72,8 @@ bb_err_t bb_update_check_set_firmware_board(const char *board);
 // hook shape so consumers can pass the same mining_pause / mining_resume.
 // pause returns true on success; if false, the fetch is skipped and resume
 // is NOT called.
-typedef bool (*bb_update_check_pause_cb_t)(void);
-typedef void (*bb_update_check_resume_cb_t)(void);
+typedef bb_http_pause_cb_t  bb_update_check_pause_cb_t;
+typedef bb_http_resume_cb_t bb_update_check_resume_cb_t;
 
 // Set optional pause/resume hooks. pause is called just before
 // bb_http_client_get_stream; resume is called immediately after (success or
