@@ -450,11 +450,12 @@ void test_bb_update_check_custom_parser_http_404(void)
     TEST_ASSERT_FALSE(st.last_check_ok);
 }
 
-void test_bb_update_check_custom_parser_body_exceeds_16k(void)
+void test_bb_update_check_custom_parser_body_exceeds_buf(void)
 {
-    // A response body larger than CUSTOM_PARSER_BUF_SIZE (16384 bytes) exercises
-    // the buf_chunk_cb overflow path: copy==0 (L210 false branch), overflow flag
-    // set (L214 true), and the early-return on a subsequent chunk (L207 true).
+    // A response body larger than CUSTOM_PARSER_BUF_SIZE exercises the
+    // buf_chunk_cb overflow path: copy==0 (false branch), overflow flag set
+    // (true branch), and early-return on a subsequent chunk (overflow==true).
+    // Also exercises the new overflow warning log path.
     // mock_parser ignores the body so the parse succeeds regardless.
     reset_world();
     bb_update_check_cfg_t cfg = { .interval_s = 60, .post_initial = false };
@@ -462,8 +463,10 @@ void test_bb_update_check_custom_parser_body_exceeds_16k(void)
     bb_update_check_set_releases_url("http://example.com/r.json");
     bb_update_check_set_parser(mock_parser);
 
-    // 16641 bytes > 16384 (CUSTOM_PARSER_BUF_SIZE) + 256-byte chunk padding
-    const size_t big = 16641;
+    // 8705 bytes > 8192 (CUSTOM_PARSER_BUF_SIZE default) + 256-byte chunk padding.
+    // Mock sends 256-byte chunks; 33rd chunk overflows the 8192-byte buffer,
+    // 34th chunk hits the bc->overflow==true early-return path.
+    const size_t big = 8705;
     char *body = (char *)malloc(big);
     TEST_ASSERT_NOT_NULL(body);
     memset(body, 'x', big - 1);

@@ -88,7 +88,7 @@ static void publish_state(const bb_update_check_status_t *snap, const char *txt_
     bb_mdns_set_txt("update", txt_value);
 
     if (!s_topic) return;  // LCOV_EXCL_LINE — init always registers the topic
-    char payload[512];
+    char payload[256];
     struct timeval tv;
     gettimeofday(&tv, NULL);
     int n = snprintf(payload, sizeof(payload),
@@ -241,7 +241,11 @@ static bb_err_t chunk_cb(void *cv, const char *data, size_t len)
 // Streaming chunk callback context for custom (buffered) parsers
 // ---------------------------------------------------------------------------
 
-#define CUSTOM_PARSER_BUF_SIZE 16384
+#ifdef CONFIG_BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES
+#define CUSTOM_PARSER_BUF_SIZE CONFIG_BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES
+#else
+#define CUSTOM_PARSER_BUF_SIZE 8192
+#endif
 
 typedef struct {
     char    *buf;
@@ -260,7 +264,10 @@ static bb_err_t buf_chunk_cb(void *cv, const char *data, size_t n)
         memcpy(bc->buf + bc->len, data, copy);
         bc->len += copy;
     }
-    if (n > avail) bc->overflow = true;
+    if (n > avail) {
+        bc->overflow = true;
+        bb_log_w(TAG, "custom parser buffer overflow: response truncated at %zu bytes; raise CONFIG_BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES", bc->cap);
+    }
     return BB_OK;
 }
 

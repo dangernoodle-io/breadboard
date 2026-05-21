@@ -137,6 +137,7 @@ COMPONENT_MAP = {
         "sources": [
             "platform/host/bb_mdns/bb_mdns_host.c",
             "components/bb_mdns/bb_mdns_lifecycle.c",
+            "components/bb_mdns/bb_mdns_util.c",
         ],
         "depends":  ["bb_core", "bb_nv"],
     },

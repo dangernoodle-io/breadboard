@@ -8,10 +8,13 @@ config BB_EVENT_AUTOREGISTER
 
 config BB_EVENT_MAX_TOPICS
     int "Maximum number of event topics"
-    default 16
+    default 8
     range 1 256
     help
         Maximum number of topics that can be created at runtime.
+        Default 8 covers typical usage (update.available, mining.share.*,
+        ota.progress, etc.) and saves ~2 KB BSS vs the old default of 16.
+        Raise if your application attaches more than 8 concurrent topics.
 
 config BB_EVENT_QUEUE_DEPTH
     int "Event queue depth per subscription"

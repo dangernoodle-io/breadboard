@@ -12,13 +12,15 @@ config BB_DIAG_PANIC_CAPTURE
 
 config BB_DIAG_PANIC_BUF_SIZE
     int "Panic log RTC buffer size (bytes)"
-    default 2048
+    default 1024
     range 512 8192
     depends on BB_DIAG_PANIC_CAPTURE
     help
         Size of the circular buffer in RTC slow memory. Must fit in
         the chip's RTC slow memory budget (~8KB on ESP32-S3, less on
-        smaller chips). 2 KB captures roughly the last 30-50 log lines.
+        smaller chips). ~30 lines fit in 1024 bytes; raise if you need
+        deeper panic context. Default 1024 saves 1 KB RTC slow memory
+        vs the old default of 2048.
 
 config BB_DIAG_PANIC_COREDUMP
     bool "Capture ESP-IDF coredump for panic backtraces"

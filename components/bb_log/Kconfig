@@ -38,4 +38,15 @@ config BB_LOG_STREAM_BUF_BYTES
         Allocated on heap (SPIRAM-preferred with fallback) only when
         bb_log_stream_init() is called. Default 6144 bytes (6 KB).
 
+config BB_LOG_TAG_REGISTRY_MAX
+    int "Maximum number of log tag registry entries"
+    default 24
+    range 8 128
+    help
+        Maximum number of distinct log tags that can be registered via
+        bb_log_tag_register(). Each entry is ~33 bytes BSS. Default 24
+        covers typical firmware usage (14-16 tags) with comfortable headroom
+        and saves 320 B BSS vs the old hardcoded value of 32. Raise if
+        your application registers more than 24 distinct log tags.
+
 endmenu

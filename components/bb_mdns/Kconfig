@@ -27,7 +27,7 @@ config BB_MDNS_BROWSE_REFRESH_INTERVAL_S
 
 config BB_MDNS_EVT_POOL_SIZE
     int "Notifier event pool size"
-    default 16
+    default 8
     range 4 64
     help
         Pre-allocated bb_mdns_evt_t slots used by the notifier callback to
@@ -36,7 +36,17 @@ config BB_MDNS_EVT_POOL_SIZE
         so this caps how many peers can be queued in a single notify burst
         before events are dropped (logged as "event pool exhausted").
 
-        Each slot is ~430 bytes. Bump if soak shows drops with many peers
-        responding to a browse; lower only on RAM-tight targets.
+        Each slot is ~588 bytes; default 8 fits 1-8 peers and saves ~4.7 KB
+        BSS vs the old default of 16. Raise to 16+ for large LANs.
+
+config BB_MDNS_TXT_PENDING_MAX
+    int "Maximum pending TXT key/value pairs before mDNS starts"
+    default 4
+    range 1 16
+    help
+        bb_mdns_set_txt() may be called before the mDNS service has started.
+        Pending writes are held in a static table of this size and flushed
+        when the service starts. Default 4 covers typical usage (update,
+        board, fw, custom key). Raise if more TXT keys are set pre-start.
 
 endmenu
