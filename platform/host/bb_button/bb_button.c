@@ -34,7 +34,7 @@ bb_err_t bb_button_handle_create(const bb_button_driver_t *drv, void *state, bb_
     if (!h) return BB_ERR_NO_SPACE;
     h->drv         = drv;
     h->state       = state;
-    h->debounce_ms = drv->debounce_ms ? drv->debounce_ms : 25;
+    h->debounce_ms = drv->debounce_ms ? drv->debounce_ms : BB_BUTTON_DEBOUNCE_MS_DEFAULT;
 #ifdef ESP_PLATFORM
     h->queue = xQueueCreate(8, sizeof(bb_button_event_t));
 #else

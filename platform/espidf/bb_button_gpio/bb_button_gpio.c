@@ -92,7 +92,7 @@ bb_err_t bb_button_gpio_open(const bb_button_gpio_cfg_t *cfg, bb_button_handle_t
     s->drv.is_pressed  = op_is_pressed;
     s->drv.poll        = op_poll;
     s->drv.close       = op_close;
-    s->drv.debounce_ms = cfg->debounce_ms ? cfg->debounce_ms : 25;
+    s->drv.debounce_ms = cfg->debounce_ms ? cfg->debounce_ms : BB_BUTTON_DEBOUNCE_MS_DEFAULT;
 
     s->intr_q = xQueueCreate(4, sizeof(uint8_t));
     if (!s->intr_q) { free(s); return BB_ERR_NO_SPACE; }

@@ -22,6 +22,9 @@ typedef struct {
 
 typedef void (*bb_button_cb_t)(const bb_button_event_t *e, void *user);
 
+// Default debounce window applied when bb_button_gpio_cfg_t.debounce_ms == 0.
+#define BB_BUTTON_DEBOUNCE_MS_DEFAULT 25
+
 bb_err_t bb_button_set_callback(bb_button_handle_t h, bb_button_cb_t cb, void *user);
 bb_err_t bb_button_poll        (bb_button_handle_t h);   // safe to call always; no-op on full-ISR backends
 bool     bb_button_is_pressed  (bb_button_handle_t h);   // current debounced state

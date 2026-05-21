@@ -210,11 +210,11 @@ bb_err_t bb_button_events_attach(const bb_button_events_cfg_t *cfg,
     h->button                 = cfg->button;
     h->cb                     = cfg->cb;
     h->user                   = cfg->user;
-    h->click_max_ms           = cfg->click_max_ms          ? cfg->click_max_ms          : 400u;
-    h->double_click_window_ms = cfg->double_click_window_ms ? cfg->double_click_window_ms : 400u;
-    h->long_press_ms          = cfg->long_press_ms         ? cfg->long_press_ms         : 800u;
-    h->repeat_interval_ms     = cfg->repeat_interval_ms    ? cfg->repeat_interval_ms    : 100u;
-    h->tick_period_ms         = cfg->tick_period_ms        ? cfg->tick_period_ms        : 20u;
+    h->click_max_ms           = cfg->click_max_ms          ? cfg->click_max_ms          : BB_BUTTON_EVENTS_CLICK_MAX_MS_DEFAULT;
+    h->double_click_window_ms = cfg->double_click_window_ms ? cfg->double_click_window_ms : BB_BUTTON_EVENTS_DOUBLE_CLICK_MS_DEFAULT;
+    h->long_press_ms          = cfg->long_press_ms         ? cfg->long_press_ms         : BB_BUTTON_EVENTS_LONG_PRESS_MS_DEFAULT;
+    h->repeat_interval_ms     = cfg->repeat_interval_ms    ? cfg->repeat_interval_ms    : BB_BUTTON_EVENTS_REPEAT_MS_DEFAULT;
+    h->tick_period_ms         = cfg->tick_period_ms        ? cfg->tick_period_ms        : BB_BUTTON_EVENTS_TICK_MS_DEFAULT;
     h->state                  = S_IDLE;
     h->last_tick_ms           = now_ms();
 
