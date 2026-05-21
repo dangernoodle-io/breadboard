@@ -116,13 +116,14 @@ void test_nv_config_init_registers_bb_cfg_keys(void)
 
     // Namespace present
     TEST_ASSERT_NOT_NULL(strstr(json, "\"namespace\":\"bb_cfg\""));
-    // All 6 keys present
+    // All 7 keys present
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"wifi_ssid\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"wifi_pass\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"hostname\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"mdns_en\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"update_check_en\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"display_en\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"provisioned\""));
 
     bb_json_free_str(json);
     bb_json_free(doc);

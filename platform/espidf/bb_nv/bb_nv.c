@@ -16,6 +16,7 @@
 #define BB_NV_KEY_MDNS_EN           "mdns_en"
 #define BB_NV_KEY_UPDATE_CHECK_EN   "update_check_en"
 #define BB_NV_KEY_DISPLAY_EN        "display_en"
+#define BB_NV_KEY_PROVISIONED       "provisioned"
 
 /* strlcpy isn't standard C — newlib exposes it under feature flags, but
  * the warning we hit under TaipanMiner's build profile is real. Roll a
@@ -81,6 +82,17 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
         .default_         = "true",
         .max_len          = 0,
         .desc             = "Enable display backend",
+        .reboot_required  = true,
+        .provisioning_only = false,
+    },
+    {
+        .key              = BB_NV_KEY_PROVISIONED,
+        .type             = "bool",
+        .default_         = "false",
+        .max_len          = 0,
+        .desc             = "Provisioning completed flag (set after first successful config save; "
+                            "pre-seed via direct NVS write to skip AP-mode boot, e.g. for "
+                            "factory flash workflows)",
         .reboot_required  = true,
         .provisioning_only = false,
     },
@@ -230,7 +242,7 @@ bool bb_nv_config_is_provisioned(void)
     }
 
     uint8_t value = 0;
-    err = nvs_get_u8(handle, "provisioned", &value);
+    err = nvs_get_u8(handle, BB_NV_KEY_PROVISIONED, &value);
     nvs_close(handle);
 
     if (err == ESP_ERR_NVS_NOT_FOUND) {
@@ -249,7 +261,7 @@ bb_err_t bb_nv_config_set_provisioned(void)
         return err;
     }
 
-    err = nvs_set_u8(handle, "provisioned", 1);
+    err = nvs_set_u8(handle, BB_NV_KEY_PROVISIONED, 1);
     if (err == BB_OK) {
         err = nvs_commit(handle);
     }
@@ -304,7 +316,7 @@ bb_err_t bb_nv_config_clear_provisioned(void)
     nvs_handle_t handle;
     bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
     if (err != BB_OK) return err;
-    err = nvs_erase_key(handle, "provisioned");
+    err = nvs_erase_key(handle, BB_NV_KEY_PROVISIONED);
     if (err == ESP_ERR_NVS_NOT_FOUND) err = BB_OK;
     if (err == BB_OK) err = nvs_commit(handle);
     nvs_close(handle);
