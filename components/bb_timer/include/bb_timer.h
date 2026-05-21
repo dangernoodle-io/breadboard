@@ -21,6 +21,11 @@ bb_err_t bb_timer_start(bb_timer_handle_t h);
 bb_err_t bb_timer_stop(bb_timer_handle_t h);
 bb_err_t bb_timer_delete(bb_timer_handle_t h);
 
+// Return the current monotonic time in microseconds.
+// Backed by esp_timer_get_time() on ESP-IDF and clock_gettime(CLOCK_MONOTONIC)
+// on host/Arduino.
+uint64_t bb_timer_now_us(void);
+
 #ifdef __cplusplus
 }
 #endif

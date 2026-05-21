@@ -1,18 +1,22 @@
-// bb_led_anim — pattern/animation library (host/arduino platform).
-// Auto-timer is not supported on host; consumers call bb_led_anim_tick().
+// bb_led_anim — pattern/animation library.
+// Canonical source for host and ESP-IDF; Arduino shim includes this file.
+//
+// Auto-start timer: routed through bb_timer on host/ESP-IDF.  On Arduino
+// bb_timer has no backend, so auto_start_timer returns BB_ERR_UNSUPPORTED;
+// callers must drive animation via bb_led_anim_tick() from loop().
 //
 // When BB_LED_ANIM_MOCK_CLOCK is defined (test builds), now_ms() reads from a
 // settable static; call bb_led_anim_set_mock_time_ms() to advance time.
 #include "bb_led_anim.h"
 #include "bb_led.h"
 #include "bb_log.h"
+#ifndef ARDUINO
+#include "bb_timer.h"
+#endif
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <inttypes.h>
-
-#ifndef ARDUINO
-#include <time.h>
-#endif
 
 static const char *TAG = "bb_led_anim";
 
@@ -29,9 +33,7 @@ static uint32_t now_ms(void) { return (uint32_t)millis(); }
 #else
 static uint32_t now_ms(void)
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint32_t)((uint64_t)ts.tv_sec * 1000u + ts.tv_nsec / 1000000u);
+    return (uint32_t)(bb_timer_now_us() / 1000u);
 }
 #endif
 
@@ -96,7 +98,10 @@ struct bb_led_anim {
     uint32_t              last_tick_ms;
     bool                  paused;
     bool                  has_pattern;
-    bool                  dirty;  // for SOLID: write-once flag
+    bool                  dirty;
+#ifndef ARDUINO
+    bb_timer_handle_t     timer;
+#endif
 };
 
 // ---------------------------------------------------------------------------
@@ -207,7 +212,7 @@ static void step_chase(struct bb_led_anim *h, uint32_t elapsed_ms)
     bb_led_flush(h->led);
 }
 
-static void step(struct bb_led_anim *h)
+static void do_step(struct bb_led_anim *h)
 {
     if (h->paused || !h->has_pattern) return;
     uint32_t n       = now_ms();
@@ -223,6 +228,14 @@ static void step(struct bb_led_anim *h)
     }
     h->last_tick_ms = n;
 }
+
+#ifndef ARDUINO
+static void timer_cb(void *arg)
+{
+    struct bb_led_anim *h = (struct bb_led_anim *)arg;
+    do_step(h);
+}
+#endif
 
 // ---------------------------------------------------------------------------
 // Caps helpers
@@ -263,6 +276,30 @@ bb_err_t bb_led_anim_attach(const bb_led_anim_cfg_t *cfg, bb_led_anim_handle_t *
     h->paused         = false;
     h->has_pattern    = false;
     h->dirty          = false;
+#ifndef ARDUINO
+    h->timer          = NULL;
+
+    if (cfg->auto_start_timer) {
+        bb_err_t rc = bb_timer_create("bb_led_anim", BB_TIMER_PERIODIC,
+                                      (uint64_t)h->tick_period_ms * 1000u,
+                                      timer_cb, h, &h->timer);
+        if (rc != BB_OK) {
+            free(h);
+            return BB_ERR_INVALID_STATE;
+        }
+        rc = bb_timer_start(h->timer);
+        if (rc != BB_OK) {
+            bb_timer_delete(h->timer);
+            free(h);
+            return BB_ERR_INVALID_STATE;
+        }
+    }
+#else
+    if (cfg->auto_start_timer) {
+        free(h);
+        return BB_ERR_UNSUPPORTED;
+    }
+#endif
 
     *out = h;
     bb_log_i(TAG, "attached (tick=%"PRIu32"ms)", h->tick_period_ms);
@@ -307,13 +344,20 @@ bb_err_t bb_led_anim_tick(bb_led_anim_handle_t h)
     if (!h) return BB_ERR_INVALID_ARG;
     uint32_t n = now_ms();
     if (n - h->last_tick_ms < h->tick_period_ms) return BB_OK;
-    step(h);
+    do_step(h);
     return BB_OK;
 }
 
 bb_err_t bb_led_anim_detach(bb_led_anim_handle_t h)
 {
     if (!h) return BB_ERR_INVALID_ARG;
+#ifndef ARDUINO
+    if (h->timer) {
+        bb_timer_stop(h->timer);
+        bb_timer_delete(h->timer);
+        h->timer = NULL;
+    }
+#endif
     free(h);
     return BB_OK;
 }

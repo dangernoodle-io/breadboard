@@ -625,6 +625,7 @@ void test_bb_timer_one_shot_fires_once(void);
 void test_bb_timer_periodic_fires_repeatedly_then_stops(void);
 void test_bb_timer_delete_after_stop(void);
 void test_bb_timer_delete_without_start(void);
+void test_bb_timer_now_us_increases_over_time(void);
 
 // Forward declarations from test_bb_board.c
 void test_bb_board_heap_free_total_callable(void);
@@ -1012,6 +1013,8 @@ void test_anim_color_cycle_red_dominant_at_hue_zero(void);
 void test_anim_color_cycle_green_dominant_at_one_third_period(void);
 void test_anim_color_cycle_blue_dominant_at_two_thirds_period(void);
 void test_anim_detach_null_returns_invalid_arg(void);
+void test_anim_auto_start_timer_fires(void);
+void test_anim_no_auto_start_timer_does_not_fire(void);
 
 void setUp(void) {
     _bb_log_registry_reset();
@@ -1660,6 +1663,7 @@ int main(void) {
     RUN_TEST(test_bb_timer_periodic_fires_repeatedly_then_stops);
     RUN_TEST(test_bb_timer_delete_after_stop);
     RUN_TEST(test_bb_timer_delete_without_start);
+    RUN_TEST(test_bb_timer_now_us_increases_over_time);
 
     // bb_board tests
     RUN_TEST(test_bb_board_heap_free_total_callable);
@@ -2041,6 +2045,8 @@ int main(void) {
     RUN_TEST(test_anim_color_cycle_green_dominant_at_one_third_period);
     RUN_TEST(test_anim_color_cycle_blue_dominant_at_two_thirds_period);
     RUN_TEST(test_anim_detach_null_returns_invalid_arg);
+    RUN_TEST(test_anim_auto_start_timer_fires);
+    RUN_TEST(test_anim_no_auto_start_timer_does_not_fire);
 
     return UNITY_END();
 }

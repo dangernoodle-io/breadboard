@@ -115,3 +115,10 @@ bb_err_t bb_timer_delete(bb_timer_handle_t h)
     free(impl);
     return BB_OK;
 }
+
+uint64_t bb_timer_now_us(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000u + (uint64_t)ts.tv_nsec / 1000u;
+}

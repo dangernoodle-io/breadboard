@@ -6,6 +6,7 @@
 #include "bb_led_driver.h"
 #include "bb_led_anim_host.h"
 #include <string.h>
+#include <unistd.h>
 
 // ---------------------------------------------------------------------------
 // Mock bb_led driver
@@ -357,4 +358,55 @@ void test_anim_color_cycle_blue_dominant_at_two_thirds_period(void)
 void test_anim_detach_null_returns_invalid_arg(void)
 {
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_led_anim_detach(NULL));
+}
+
+// ---------------------------------------------------------------------------
+// Tests: auto_start_timer
+// ---------------------------------------------------------------------------
+
+// auto_start=true: timer fires periodically and drives the animation step.
+// Use a 50ms period; set a solid pattern (will flush on first callback since
+// dirty=true), then sleep long enough for at least one callback to land.
+void test_anim_auto_start_timer_fires(void)
+{
+    bb_led_handle_t led = open_led(&s_drv_onoff);
+    bb_led_anim_cfg_t cfg = { .led = led, .tick_period_ms = 50, .auto_start_timer = true };
+    bb_led_anim_handle_t ah = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_anim_attach(&cfg, &ah));
+    TEST_ASSERT_NOT_NULL(ah);
+
+    bb_led_anim_pattern_t pat = { .kind = BB_ANIM_SOLID };
+    pat.solid.r = 0; pat.solid.g = 0; pat.solid.b = 0; pat.solid.brightness_pct = 100;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_anim_set(ah, &pat));
+
+    // Wait for at least two timer periods.
+    usleep(200000);
+
+    TEST_ASSERT_GREATER_THAN(0, g_mock.flush_calls);
+
+    bb_led_anim_detach(ah);
+    bb_led_close(led);
+}
+
+// auto_start=false: without explicit tick() calls no step fires.
+void test_anim_no_auto_start_timer_does_not_fire(void)
+{
+    memset(&g_mock, 0, sizeof g_mock);
+    bb_led_handle_t led = open_led(&s_drv_onoff);
+    bb_led_anim_cfg_t cfg = { .led = led, .tick_period_ms = 20, .auto_start_timer = false };
+    bb_led_anim_handle_t ah = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_anim_attach(&cfg, &ah));
+    TEST_ASSERT_NOT_NULL(ah);
+
+    bb_led_anim_pattern_t pat = { .kind = BB_ANIM_SOLID };
+    pat.solid.r = 0; pat.solid.g = 0; pat.solid.b = 0; pat.solid.brightness_pct = 100;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_anim_set(ah, &pat));
+
+    // Sleep without calling tick() — no flush should occur.
+    usleep(100000);
+
+    TEST_ASSERT_EQUAL(0, g_mock.flush_calls);
+
+    bb_led_anim_detach(ah);
+    bb_led_close(led);
 }

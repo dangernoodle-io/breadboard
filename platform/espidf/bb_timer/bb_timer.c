@@ -101,3 +101,8 @@ bb_err_t bb_timer_delete(bb_timer_handle_t h)
     free(impl);
     return err;
 }
+
+uint64_t bb_timer_now_us(void)
+{
+    return (uint64_t)esp_timer_get_time();
+}
