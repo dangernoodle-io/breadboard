@@ -13,16 +13,17 @@ Public headers must not include `esp_*.h` or `freertos/*.h` outside `#ifdef ESP_
 The `bb_info` component demonstrates the portable-header pattern: its public extender callback takes a `bb_json_t` handle (from `bb_json`) rather than a backend-specific pointer, so consumer headers stay free of cJSON/ArduinoJson includes. Platform-specific logic lives under `platform/espidf/` and `platform/host/`.
 
 For the Arduino backend specifically:
-- Log format strings (`bb_log_*` calls) should be wrapped in `F()` to force them into PROGMEM to preserve SRAM on tiny platforms (2 KB on Uno). For now, breadboard's own logging is sparse enough that this is deferred — only enforce it when a real project hits SRAM pressure.
-- Backend implementations are in `platform/arduino/<component>/` as `.cpp` files (not `.c`), since the Arduino framework and ecosystem (EEPROM, Serial, libraries) are C++ native.
-- `bb_http` on Arduino batches the entire response (status + headers + body) into a single `client.write()` call due to unreliable `fastrprint()` flush behavior across many tiny writes. Request bodies are not supported to save SRAM on resource-constrained targets.
+- Log format strings (`bb_log_*` calls) should be wrapped in `F()` to force them into PROGMEM to preserve SRAM. Deferred until a real project hits SRAM pressure.
+- Backend implementations are in `platform/arduino/<component>/` as `.cpp` files (not `.c`).
+- `bb_http` on Arduino batches the entire response into a single `client.write()` call. Request bodies are not supported.
+- `bb_led_anim` and `bb_button_events` with `auto_start_timer=true` return `BB_ERR_UNSUPPORTED` on Arduino; consumers must call tick manually.
 
 ## API conventions
 
 Public headers under `components/*/include/` follow these rules so that the same header compiles unchanged on ESP-IDF, Arduino, and host test backends.
 
 - **Return `bb_err_t`**, never `esp_err_t` (or any other platform type). `bb_err_t` is a typedef for `esp_err_t` under ESP-IDF and `int` elsewhere — values pass through unchanged.
-- **Cross-cutting types live in `bb_core`.** `bb_err_t`, `BB_OK`/`BB_ERR_*` macros, `bb_http_handle_t`, and `bb_http_request_t` are defined in `components/bb_core/include/bb_core.h`. Components REQUIRES `bb_core` for these types — never `bb_nv` for the error type or `bb_http` for the handle typedef alone.
+- **Cross-cutting types live in `bb_core`.** `bb_err_t`, `BB_OK`/`BB_ERR_*` macros, `bb_http_handle_t`, `bb_http_request_t`, `bb_http_pause_cb_t`, and `bb_http_resume_cb_t` are defined in `components/bb_core/include/bb_core.h`. REQUIRES `bb_core` for these types — never `bb_nv` for the error type or `bb_http` for the handle typedef alone. `bb_ota_pause/resume_cb_t` and `bb_update_check_pause/resume_cb_t` are aliases for the `bb_core.h` typedefs. Portable `bb_clock_now_ms()` lives in `bb_core/include/bb_clock.h`.
 - **Log via `bb_log_*`**, never `ESP_LOG*`. Portable impls live under `platform/<backend>/bb_log/`.
 - **No `#ifdef ESP_PLATFORM` in public headers.** If a function needs an ESP-IDF type in its signature, wrap it behind an opaque `bb_*` handle (see `bb_http_request_t` wrapping `httpd_req_t *`).
 - **No ESP-IDF headers** (`esp_err.h`, `esp_http_server.h`, `nvs_flash.h`, …) included transitively from public headers. Private `.c` files may include them freely.
@@ -36,6 +37,8 @@ Use `bb_log_{e,w,i,d,v}(tag, fmt, ...)` macros for all breadboard component code
 
 The `bb_log_stream` ringbuffer is lazy-allocated on the first call to `bb_log_stream_init()` (heap-allocated, SPIRAM-preferred with fallback to default heap), reducing BSS footprint by ~6 KB when no log consumer is attached. The allocation is idempotent; subsequent calls return `BB_OK` immediately. Buffer size is tunable via `CONFIG_BB_LOG_STREAM_BUF_BYTES` (default 6144 bytes).
 
+`bb_log.h` does **not** transitively expose `bb_nv.h` or `freertos/FreeRTOS.h`; components that previously relied on this transitive inclusion must add explicit includes.
+
 ## Layout
 
 - Components under `components/<name>/` with public headers.
@@ -44,29 +47,29 @@ The `bb_log_stream` ringbuffer is lazy-allocated on the first call to `bb_log_st
 
 ## Header visibility and component coupling
 
-These rules govern which headers go where and how components depend on each other. Violations show up as `_port.h`/`_internal.h` files reaching across component boundaries, sibling tests grepping into another component's implementation directory, and `REQUIRES` lists that grow because nobody pruned them.
+These rules govern which headers go where and how components depend on each other.
 
 ### Public vs private headers
 
-- `components/<name>/include/` is the **public** surface — anything in there is reachable by every consumer that REQUIRES the component. Only headers intended for cross-component use belong here.
-- Platform-port contracts, test-injection hooks, vtables, and anything ending in `_port.h` / `_internal.h` / `_priv.h` are **private**. Put them next to the implementation (`components/<name>/<name>_internal.h` or `components/<name>/private/`), not in `include/`.
-- Platform impls (`platform/<backend>/<name>/`) include the private header via a relative path; consumers cannot reach it.
+- `components/<name>/include/` is the **public** surface. Only headers intended for cross-component use belong here.
+- `_port.h` / `_internal.h` / `_priv.h` headers are **private** — put them next to the implementation, not in `include/`.
+- Platform impls (`platform/<backend>/<name>/`) include private headers via relative paths; consumers cannot reach them.
 
 ### REQUIRES vs PRIV_REQUIRES
 
-- If your **public header** includes a header from another component, that component goes in `REQUIRES` — its types appear in your API.
-- If your `.c` / `.cpp` / private headers include a header from another component but your public headers don't, that component goes in `PRIV_REQUIRES` — it's an implementation detail.
-- Default to `PRIV_REQUIRES`. Adding to `REQUIRES` is a commitment to expose another component's surface transitively.
-- Test code is not part of the component's REQUIRES contract; test-only deps go in the `test_*` env's `lib_deps`, not the component CMakeLists.
+- Public header includes another component's header → that component goes in `REQUIRES`.
+- `.c` / `.cpp` / private headers include another component's header but public headers don't → `PRIV_REQUIRES`.
+- **Default to `PRIV_REQUIRES`.** `REQUIRES` transitively exposes another component's surface.
+- Test-only deps go in the `test_*` env's `lib_deps`, not the component CMakeLists.
 
 ### Tests must not reach into other components
 
-- A test file may `#include` any public header (`components/<name>/include/<name>.h`).
-- A test file MUST NOT `#include "../../components/X/src/...h"` or `#include "../../components/X/X_internal.h"` to call private functions. If a test needs a hook (mock allocator, state reset, etc.), the owning component exposes it through a dedicated `<name>_test.h` header guarded by `BB_<NAME>_TESTING`, and the test includes that header by name.
+- Tests may `#include` any public header (`components/<name>/include/<name>.h`).
+- Tests MUST NOT `#include` private implementation headers. If a test needs a hook, the component exposes it via `<name>_test.h` guarded by `BB_<NAME>_TESTING`.
 
 ### Includes at file top
 
-`#include` lives at the top of the file with the other includes. Mid-file `#include` directives hide dependencies from grep and from anyone scanning the include block for impact; conditional gating belongs around the *use* of the symbol, not the include itself.
+`#include` lives at the top of the file. Mid-file `#include` directives hide dependencies; conditional gating belongs around the *use* of the symbol, not the include itself.
 
 ## Embedding assets
 
@@ -104,6 +107,10 @@ bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_<name>)  # pre_http
 
 Today this pattern owns — regular: `bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_log` (routes), `bb_board`, `bb_manifest`, `bb_ota_validator`, `bb_wifi` (routes), `bb_system` (routes), `bb_openapi`, `bb_mdns`. Early: `bb_log_stream`, `bb_nv_flash`, `bb_nv_config`, `bb_wifi` (STA init via `CONFIG_BB_WIFI_AUTOREGISTER`). PRE_HTTP: none yet (tier is available for consumers). HTTP server autostart is gated on `CONFIG_BB_HTTP_AUTOSTART` (default y); disable it if CORS or OpenAPI config must precede server start. Socket reservation for non-httpd usage (stratum TCP, mDNS UDP, transient outbound) is tunable via `CONFIG_BB_HTTP_LWIP_RESERVE` (default 3, range 1–6) — lower it to give httpd more headroom, raise it to preserve slots for outbound work.
 
+`bb_http_register_route` and related registration functions return `BB_ERR_NO_SPACE` when the route registry is full (was silently `BB_OK`). Registry capacity is tunable via `CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP` (default 64).
+
+**Display self-registration.** `BB_DISPLAY_AUTOREGISTER(chip, kconfig_sym, backend_ptr)` macro (in `bb_display_spi_common`) replaces per-driver constructor boilerplate. SSD1306 framebuffer is heap-allocated at init; `bb_display_ssd1306_init` can return `BB_ERR_NO_MEM`. ili9341 and st77xx share a bounce buffer via `bb_display_spi_common` for blit and clear operations.
+
 The `bb_nv_config` component persists device configuration to NVS: WiFi credentials, hostname (32 chars max, RFC1123 charset), and DHCP/mDNS feature flags. Hostname is available via `bb_nv_config_hostname()` and settable via `bb_nv_config_set_hostname()` with validation for leading/trailing hyphens and non-alphanumeric characters.
 
 `bb_wifi_autoinit` (EARLY tier) reads the hostname from `bb_nv_config_hostname()` and applies it before connecting so DHCP/mDNS see the right name on first packet; on validated builds it retries the STA connect indefinitely (30 s backoff, `CONFIG_BB_WIFI_RETRY_FOREVER_WHEN_VALIDATED`, default y) so a network outage doesn't knock the device into AP mode; errors are swallowed so the EARLY walker continues for provisioning flows.
@@ -132,29 +139,36 @@ Set `retained=true` for **state topics** (topics that publish current state, not
 
 ESP-IDF consumers must add both directories to `EXTRA_COMPONENT_DIRS` and include `bb_event_ring_espidf` and `bb_event_routes_espidf` in their component's `REQUIRES` list (or the app's `idf_component_register` REQUIRES). The portable `bb_event_ring` and `bb_event_routes` components declare no `esp_timer`, `esp_http_server`, or `bb_json` dependencies.
 
-**Heap budgets and Kconfig defaults.** Each SSE client consumes heap for its payload buffer, queue entries, and synchronization primitives. At defaults `BB_EVENT_ROUTES_MAX_CLIENTS=2` and `BB_EVENT_ROUTES_QUEUE_DEPTH=8`, each client uses ~2.7 KB (8×256 B payload buf + 8×24 B queue entry overhead + ~88 B mutex). These defaults are conservative for tight-heap boards without PSRAM (ESP32-S3, ~30 KB heap budget reserved for idle TLS handshake). Consumers with more heap can override via `sdkconfig`. See components/bb_event_routes/Kconfig for rationale.
+**Heap budgets and Kconfig defaults.** At defaults `BB_EVENT_ROUTES_MAX_CLIENTS=2` and `BB_EVENT_ROUTES_QUEUE_DEPTH=8`, each client uses ~2.7 KB (8×256 B payload buf + 8×24 B queue entry overhead + ~88 B mutex). Consumers with more heap can override via `sdkconfig`. See `components/bb_event_routes/Kconfig`.
 
-**Dispatch pool allocation.** The dispatch pool prefers PSRAM when available with fallback to default heap; not used for DMA so no internal-SRAM constraint is needed.
+**Dispatch pool and per-client queue allocation.** The dispatch pool and per-client queues prefer SPIRAM on ESP-IDF (overridden at platform init with fallback to default heap). `bb_event_ring` per-topic rings also use SPIRAM-preferred allocation on ESP-IDF.
+
+**Tunables (from `#296`).** `BB_EVENT_MAX_TOPICS` default 8; `BB_MDNS_EVT_POOL_SIZE` default 8; `BB_DIAG_PANIC_BUF_SIZE` default 1024 (RTC slow). New: `BB_LOG_TAG_REGISTRY_MAX` (default 24), `BB_HTTP_ROUTE_REGISTRY_CAP` (default 64), `BB_MDNS_TXT_PENDING_MAX` (default 4), `BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES` (default 8192).
 
 ## Update check (bb_update_check, bb_release_manifest, bb_http_client)
 
-`bb_update_check` periodically polls a release-manifest URL, compares the returned version against `bb_system_get_version()`, and on a state change posts the `update.available` `bb_event` topic and updates the mDNS TXT key `update=<value>` (`unknown` pre-check, `none` up to date, `<tag>` when newer is available). **Initial snapshot publishing.** `bb_update_check_init` does NOT post an initial snapshot; callers must explicitly call `bb_update_check_publish_initial()` after attaching a ring/routes to the topic (via `bb_event_routes_attach_ex(..., true)` with `retained=true`, or `bb_event_ring_attach_ex(..., true)`). This ensures SSE clients connecting before the first periodic check (up to `CONFIG_BB_UPDATE_CHECK_INTERVAL_S` seconds) replay the last known state rather than seeing empty state. The initial snapshot has `available=false`, `current=<running version>`, `latest=""`, `download_url=""`, `last_check_ok=false`. The ESP-IDF platform implementation (`bb_update_check_register_init`) calls `bb_update_check_publish_initial()` automatically after attaching under `CONFIG_BB_UPDATE_CHECK_AUTO_ATTACH`. Consumers call `bb_update_check_set_releases_url(url)` and optionally `bb_update_check_set_parser(fn)` to swap the manifest parser. The default parser is `bb_release_manifest_parse_github`; consumers using GitLab, Jenkins, S3, or a private artifact server supply their own `bb_release_manifest_parse_fn`. Fetches go through `bb_http_client` — the same portable outbound HTTP wrapper used by both `bb_update_check` and `bb_ota_pull` for release manifest fetches. The component auto-registers `GET /api/update/status` and is ESP-IDF only; Arduino targets stub every setter to `BB_ERR_UNSUPPORTED`.
+`bb_update_check` periodically polls a release-manifest URL, compares the returned version against `bb_system_get_version()`, and on a state change posts the `update.available` `bb_event` topic and updates the mDNS TXT key `update=<value>` (`unknown` pre-check, `none` up to date, `<tag>` when newer is available).
+
+- **Initial snapshot:** `bb_update_check_init` does NOT post one; callers must call `bb_update_check_publish_initial()` after attaching a ring/routes with `retained=true`. The ESP-IDF platform impl (`bb_update_check_register_init`) does this automatically under `CONFIG_BB_UPDATE_CHECK_AUTO_ATTACH`. Initial snapshot: `available=false`, `current=<running version>`, `latest=""`, `download_url=""`, `last_check_ok=false`.
+- **Parser:** `bb_update_check_set_releases_url(url)` + optionally `bb_update_check_set_parser(fn)`. Default parser is `bb_release_manifest_parse_github`; custom parsers supply `bb_release_manifest_parse_fn`.
+- **Transport:** fetches via `bb_http_client` (same wrapper as `bb_ota_pull`).
+- **Routes:** auto-registers `GET /api/update/status`; ESP-IDF only — Arduino stubs every setter to `BB_ERR_UNSUPPORTED`.
 
 **Runtime opt-out.** `bb_nv_config_update_check_enabled()` / `bb_nv_config_set_update_check_enabled(bool)` mirror the `_mdns_enabled` pattern: the getter returns `true` by default; the setter persists to NVS on ESP-IDF (in-memory only on host). The periodic timer still fires on its interval, but `bb_update_check_run_one` no-ops and returns `BB_OK` when the flag is `false`. `GET /api/update/status` includes an `"enabled"` boolean field that reflects the current NV setting. The compile-time `CONFIG_BB_UPDATE_CHECK_AUTOREGISTER` Kconfig is unchanged; both compile-time and runtime opt-outs are independent.
 
-**Firmware board name.** `bb_update_check_set_firmware_board(board)` overrides the asset name prefix used when matching release assets. The default is `"unknown"` (looks for `unknown.bin`). Pass the board prefix without `.bin` (e.g. `"taipanminer-tdongle-s3"` matches `taipanminer-tdongle-s3.bin`). Pass `NULL` or `""` to revert to the default. The configured board is the single source of truth — `bb_update_check_get_status().board` exposes the effective board name (i.e. the configured value or `"unknown"` when unset). `bb_ota_pull` reads the board from `bb_update_check_get_status()` rather than maintaining its own board state. Returns `BB_ERR_INVALID_STATE` before init, `BB_ERR_INVALID_ARG` if the string exceeds 63 chars.
+**Firmware board name.** `bb_update_check_set_firmware_board(board)` overrides the asset name prefix used when matching release assets. Default fallback is `"unknown"` (looks for `unknown.bin`). Pass the board prefix without `.bin` (e.g. `"taipanminer-tdongle-s3"` → `taipanminer-tdongle-s3.bin`). Pass `NULL` or `""` to revert to the default. `bb_update_check_get_status().board` is the single source of truth for the effective board name. `bb_ota_pull` reads from `bb_update_check_get_status()` — **`bb_ota_pull_set_firmware_board` has been removed**; use `bb_update_check_set_firmware_board` only. Returns `BB_ERR_INVALID_STATE` before init, `BB_ERR_INVALID_ARG` if string exceeds 63 chars.
 
-**Streaming fetch path.** The default GitHub parser (`bb_release_manifest_parse_github`) is invoked via the streaming API: `bb_http_client_get_stream` feeds 2 KB chunks into `bb_release_manifest_parse_github_stream_feed` as bytes arrive over the socket. Only the parser state (~400 B on stack) and the two extracted strings (`tag_name`, `browser_download_url`) live in memory — no per-fetch body buffer is allocated. Custom parsers registered via `bb_update_check_set_parser` fall back to a local 16 KB heap allocation per fetch (freed immediately after the call). `bb_ota_pull` uses `bb_update_check_get_status()` to read the cached check result rather than performing its own manifest fetch. `ota_fetch_manifest` (in `bb_ota_pull.c`, outside `#ifdef ESP_PLATFORM`) is still compiled for the `BB_OTA_PULL_TESTING` hook; it is no longer called on device.
+**Streaming fetch path.** The default GitHub parser is invoked via the streaming API: `bb_http_client_get_stream` feeds 2 KB chunks into `bb_release_manifest_parse_github_stream_feed`. Only parser state (~400 B on stack) and the two extracted strings live in memory. Custom parsers registered via `bb_update_check_set_parser` fall back to a heap allocation per fetch (size tunable via `CONFIG_BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES`, default 8192 bytes). `bb_ota_pull` uses `bb_update_check_get_status()` for the cached result; `ota_fetch_manifest` is still compiled for the `BB_OTA_PULL_TESTING` hook but is not called on device.
 
 **`bb_update_check` is the single source of truth for manifest checks.** `bb_update_check_get_status(bb_update_check_status_t *out)` copies the cached status snapshot under the internal pthread mutex. Callers do not hold any lock. `POST /api/ota/update` reads this to extract `latest` and `download_url` for the OTA worker; returns 503 if `last_check_ok == false` (no recent successful check), 409 if `available == false`. `GET /api/ota/check` is a thin back-compat wrapper that calls `bb_update_check_kick()` and returns `{"status":"checking"}` (200) immediately; callers poll `GET /api/update/status` for results.
 
-**Public API for checks: `bb_update_check_now()` vs `bb_update_check_kick()`.** The component exposes two check-initiation functions with different stack budgets and blocking semantics:
-- `bb_update_check_now()` is **synchronous** — runs the full manifest fetch + mbedTLS handshake (5–8 KiB peak) on the caller's stack. Use only from contexts with ≥8 KB stack (worker task, test harnesses). Returns immediately with the check result.
-- `bb_update_check_kick()` is **non-blocking** — on ESP-IDF, posts the semaphore that wakes the worker task to run `bb_update_check_run_one()` on its own 8 KiB stack. Returns immediately with `BB_OK`/`BB_ERR_INVALID_STATE`. The check result lands in `bb_update_check_get_status()` after the worker completes; new-state transitions post the `update.available` event. Use this from HTTP handlers and other stack-constrained contexts (httpd workers typically have 4 KB). On host/Arduino backends, `bb_update_check_kick()` provides a synchronous stub that calls `bb_update_check_now()` (no worker task available).
+**`bb_update_check_now()` vs `bb_update_check_kick()`:**
+- `now()` — synchronous; runs manifest fetch + mbedTLS on caller's stack (needs ≥8 KB). Use from worker tasks and test harnesses.
+- `kick()` — non-blocking on ESP-IDF; posts semaphore to wake worker task. Use from HTTP handlers (httpd workers ~4 KB). On host/Arduino, synchronous stub.
 
-The streaming parser (`bb_release_manifest_parse_github_stream_{begin,feed,end}`) is a resumable byte-at-a-time state machine in `bb_release_manifest_github_stream.c`. It handles keys and values split across chunk boundaries, nested objects in the assets array, and the same matching rule as the buffered parser: `assets[].name == "<board_fallback>.bin"` → take that asset's `browser_download_url`.
+The streaming parser (`bb_release_manifest_parse_github_stream_{begin,feed,end}`) is a resumable byte-at-a-time state machine. Matches `assets[].name == "<board_fallback>.bin"` → takes that asset's `browser_download_url`.
 
-**Pause/resume hooks.** `bb_update_check_set_hooks(pause_fn, resume_fn)` lets consumers bracket each manifest fetch with optional callbacks. `pause_fn` is called just before `bb_http_client_get_stream`; `resume_fn` immediately after — on both success and failure paths. This mirrors `bb_ota_pull_set_hooks` and exists for the same reason: on tight-heap dual-core boards (tdongle-s3, bitaxe), the mbedTLS handshake transient (~20–30 KB) on top of an active mining workload causes OOMs. Consumers suspend the ASIC/mining task in the pause hook and resume it in the resume hook. Either argument may be NULL to disable that side.
+**Pause/resume hooks.** `bb_update_check_set_hooks(pause_fn, resume_fn)` brackets each manifest fetch. `pause_fn` is called just before `bb_http_client_get_stream`; `resume_fn` immediately after (both success and failure). Mirrors `bb_ota_pull_set_hooks`. Callback types are `bb_http_pause_cb_t` / `bb_http_resume_cb_t` from `bb_core.h`. Either argument may be NULL.
 
 **Task stack budget.** Any task that calls `bb_http_client_get*` must allocate at least `BB_HTTP_CLIENT_TASK_STACK` bytes (8 KiB default, `CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE`). The mbedTLS handshake + cert-bundle parse path needs 5–8 KiB; a smaller task stack overflows into adjacent heap blocks and corrupts heap metadata, surfacing as an unrelated assertion in the next `calloc`. Both `bb_update_check` and `bb_ota_pull` reference the macro so the budget stays consistent.
 
@@ -167,6 +181,14 @@ The `bb_prov` component manages the provisioning state machine and HTTP `/save` 
 ## Display
 
 LVGL is initialized inside `bb_display_init` via `esp_lvgl_port`. The consumer's `sdkconfig` governs LVGL font availability (`CONFIG_LV_FONT_MONTSERRAT_*`) and color depth (must be 16-bit / RGB565); breadboard does not ship pre-defined dashboard layouts. Every call into LVGL from application code (including `lv_timer` callbacks not running on the LVGL task) must be wrapped in `bb_display_lock` / `bb_display_unlock`. The `bb_display` component is currently ESP-IDF-only.
+
+`bb_display_spi_common` provides shared SPI helpers: `bb_display_spi_init_bus()`, `bb_display_blit_spi()`, `bb_display_clear_spi()`. ili9341 and st77xx share a bounce buffer via this component. Use `BB_DISPLAY_AUTOREGISTER(chip, kconfig_sym, backend_ptr)` instead of per-driver constructor boilerplate.
+
+Per-font Kconfigs: `CONFIG_BB_DISPLAY_FONT_5X8`, `CONFIG_BB_DISPLAY_FONT_6X12`, `CONFIG_BB_DISPLAY_FONT_8X16` (all default y).
+
+## Portable timing
+
+`bb_clock_now_ms()` in `bb_core/include/bb_clock.h` provides a portable millisecond timestamp. Named timing constants live in their respective headers: `BB_BUTTON_DEBOUNCE_MS_DEFAULT`, `BB_BUTTON_EVENTS_*_DEFAULT_MS`, `BB_LED_ANIM_*_DEFAULT_MS`. `bb_timer` also exposes `bb_timer_now_us()` for microsecond timestamps.
 
 ## bb_hw
 
@@ -181,9 +203,13 @@ build_flags =
 
 Examples in this repo (elecrow-p4-hmi7, esp32-wroom-32) own their own board headers under `examples/<name>/board/`. bb_hw component provides no bundled board definitions.
 
+## OTA push body cap
+
+`POST /api/ota/push` enforces a body size limit via `CONFIG_BB_OTA_PUSH_MAX_SIZE` (default 4 MB). Requests exceeding the limit return 413 before any flash write begins.
+
 ## bb_diag
 
-`bb_diag` registers diagnostic HTTP routes under `/api/diag/`: panic log, coredump, heap stats, FreeRTOS task list, and abnormal-reset counter. `GET /api/diag/sockets` dumps LWIP TCP state distribution (per-state counts + per-PCB detail) for diagnosing socket exhaustion.
+`bb_diag` registers diagnostic HTTP routes under `/api/diag/`: panic log, coredump, heap stats, FreeRTOS task list, and abnormal-reset counter. Panic buffer size is tunable via `BB_DIAG_PANIC_BUF_SIZE` (default 1024 bytes, stored in RTC slow memory). `GET /api/diag/sockets` dumps LWIP TCP state distribution (per-state counts + per-PCB detail) for diagnosing socket exhaustion.
 
 ## Releases
 

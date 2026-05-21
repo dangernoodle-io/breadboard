@@ -17,6 +17,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 |-----------|---------|-----------|
 | `bb_hw` | Consumer-supplied board pin/peripheral header resolved at compile time via `-DBB_HW_BOARD_HEADER="<name>.h"` | ESP-IDF |
 | `bb_display` | MIPI-DSI panel init (EK79007) with LVGL via `esp_lvgl_port`; consumer holds `bb_display_lock` for all LVGL calls. Exposes `bb_display_screen` / `bb_display_lock` / `bb_display_unlock` for direct LVGL access. | ESP-IDF |
+| `bb_display_spi_common` | Shared SPI helpers for SPI-based display drivers: `bb_display_spi_init_bus()`, `bb_display_blit_spi()`, `bb_display_clear_spi()`. Shared bounce buffer used by ili9341 and st77xx. `BB_DISPLAY_AUTOREGISTER` macro replaces per-driver constructor boilerplate. | ESP-IDF |
 | `bb_event` | Generic app-level event bus on a portable callback list. Multi-subscriber publish/subscribe with queued dispatch; ESP-IDF uses a FreeRTOS dispatcher task, Arduino requires `bb_event_pump()` from `loop()`. | ESP-IDF, Arduino |
 | `bb_event_ring` | Circular buffer variant of `bb_event` with replay-on-subscribe — for SSE/WebSocket fan-out and event history. | ESP-IDF, Arduino |
 | `bb_event_routes` | Surfaces attached `bb_event` topics on `GET /api/events` as Server-Sent Events. Multi-client with per-topic replay; payload contract is "producer posts valid JSON, route emits raw". | ESP-IDF (Arduino: 503 stub) |
@@ -31,6 +32,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 | `bb_ota_push` | HTTP firmware upload handler | ESP-IDF |
 | `bb_ota_validator` | Owns the full OTA rollback state machine: boot-time pending detection, rollback-safety preflight, `bb_ota_mark_valid(reason)` signal API, POST `/api/ota/mark-valid` | ESP-IDF (portable stubs on non-ESP) |
 | `bb_board` | Runtime sysinfo (chip model, cores, flash, heap, OTA state) and GET `/api/board` | ESP-IDF |
+| `bb_clock` | Portable millisecond timestamp (`bb_clock_now_ms()`) in `bb_core/include/bb_clock.h`; no platform headers in consumers. | ESP-IDF, Arduino, host |
 | `bb_info` | Composite GET `/api/info` merging sysinfo + wifi + consumer-registered extender callbacks | ESP-IDF |
 | `bb_mdns` | mDNS service registration (registry auto-init via `CONFIG_BB_MDNS_AUTOREGISTER`); setters for hostname, instance, service-type are caller-driven | ESP-IDF |
 | `bb_openapi` | Opt-in OpenAPI 3.1 spec emitter; walks the `bb_http` route descriptor registry to publish `GET /api/openapi.json` via registry auto-registration; same emitter drives build-time codegen via `host_tools/emit_openapi` | ESP-IDF, host |
@@ -73,6 +75,11 @@ Auto-registration is opt-out. Each registry-using component exposes a Kconfig fl
 | `CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER` | System routes module dropped entirely; `bb_http`/`bb_json`/`bb_registry`/`esp_timer` no longer in `bb_system`'s PRIV_REQUIRES |
 | `CONFIG_BB_OPENAPI_AUTOREGISTER` | `/api/openapi.json` not registered; `bb_openapi_emit` and `bb_openapi_set_meta` still work |
 | `CONFIG_BB_MDNS_AUTOREGISTER` | `bb_mdns_init` not auto-called via registry; caller must invoke it manually (setters still available) |
+| `CONFIG_BB_OTA_PUSH_MAX_SIZE` | Body size cap for `POST /api/ota/push` (default 4 MB); requests over the limit return 413 |
+| `CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP` | Max registered HTTP routes (default 64); `bb_http_register_*` returns `BB_ERR_NO_SPACE` when full |
+| `CONFIG_BB_LOG_TAG_REGISTRY_MAX` | Max log tag entries (default 24) |
+| `CONFIG_BB_MDNS_TXT_PENDING_MAX` | Max pending mDNS TXT updates (default 4) |
+| `CONFIG_BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES` | Heap buffer for custom manifest parsers (default 8192 bytes) |
 
 Tagged source archives will be published on the [releases page](https://github.com/dangernoodle-io/breadboard/releases) once the API stabilizes.
 
