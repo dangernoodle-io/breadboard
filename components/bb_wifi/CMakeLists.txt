@@ -5,8 +5,8 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/wifi_reconn_policy.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "."
-    REQUIRES bb_core esp_wifi esp_netif esp_event esp_timer esp_system bb_nv bb_log lwip
-    PRIV_REQUIRES bb_http bb_json bb_registry bb_ota_validator
+    REQUIRES bb_core
+    PRIV_REQUIRES bb_http bb_json bb_registry bb_ota_validator esp_wifi esp_netif esp_event esp_timer esp_system bb_log bb_nv lwip
 )
 
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")

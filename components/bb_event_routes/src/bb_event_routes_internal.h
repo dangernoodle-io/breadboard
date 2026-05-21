@@ -52,12 +52,15 @@ void  bb_event_routes_port_event_destroy(void *event);
 void  bb_event_routes_port_event_signal(void *event);
 bool  bb_event_routes_port_event_wait(void *event, uint32_t timeout_ms);
 
+// Allocator override: used by tests (failing-alloc injection) and by the
+// ESP-IDF platform component (SPIRAM-preferred allocator for client queues).
+void     bb_event_routes_set_allocator(void *(*c)(size_t, size_t), void (*f)(void *));
+void     bb_event_routes_reset_allocator(void);
+
 #ifdef BB_EVENT_ROUTES_TESTING
 void     bb_event_routes_reset_for_test(void);
 size_t   bb_event_routes_queued_for_test(bb_event_routes_client_t *c);
 uint64_t bb_event_routes_dropped_for_test(bb_event_routes_client_t *c);
-void     bb_event_routes_set_allocator(void *(*c)(size_t, size_t), void (*f)(void *));
-void     bb_event_routes_reset_allocator(void);
 #endif
 
 #ifdef __cplusplus
