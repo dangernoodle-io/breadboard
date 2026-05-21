@@ -39,7 +39,6 @@ typedef void  (*bb_event_ring_free_fn)(void *p);
 static bb_event_ring_calloc_fn s_calloc = calloc;
 static bb_event_ring_free_fn   s_free   = free;
 
-#ifdef BB_EVENT_TESTING
 void bb_event_ring_set_allocator(bb_event_ring_calloc_fn c, bb_event_ring_free_fn f) {
     s_calloc = c ? c : calloc;
     s_free   = f ? f : free;
@@ -49,7 +48,6 @@ void bb_event_ring_reset_allocator(void) {
     s_calloc = calloc;
     s_free   = free;
 }
-#endif
 
 typedef struct {
     int32_t id;

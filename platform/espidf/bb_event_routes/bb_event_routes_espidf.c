@@ -342,9 +342,15 @@ static const bb_route_t s_diag_events_route = {
     .handler   = diag_events_handler,
 };
 
+// Forward declaration: implemented in bb_event_routes_spiram.c (same component).
+// Sets SPIRAM-preferred allocator for per-client queue buffers before any
+// client slot is allocated.
+void bb_event_routes_spiram_init(void);
+
 static bb_err_t bb_event_routes_register_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
+    bb_event_routes_spiram_init();
     bb_err_t err = bb_event_routes_init(NULL);
     if (err != BB_OK) return err;
     err = bb_http_register_route(server, BB_HTTP_GET, "/api/events", events_handler);

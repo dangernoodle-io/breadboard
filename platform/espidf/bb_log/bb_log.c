@@ -19,7 +19,10 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 
 #ifdef ESP_PLATFORM
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/ringbuf.h"
+#include "freertos/task.h"
 #include "esp_heap_caps.h"
 
 static const char *TAG = "bb_log_stream";

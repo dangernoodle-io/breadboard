@@ -85,9 +85,6 @@ bool bb_log_tag_at(size_t index, const char **tag_out, bb_log_level_t *level_out
 
 #ifdef ESP_PLATFORM
 
-#include "bb_nv.h"
-#include "freertos/FreeRTOS.h"
-
 /**
  * Initialise the ring buffer and install the custom vprintf hook.
  * Must be called once from app_main before any tasks are started.

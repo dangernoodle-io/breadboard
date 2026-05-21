@@ -50,7 +50,6 @@ void bb_ota_pull_set_releases_url(const char *url);
 void bb_ota_pull_set_http_timeout_ms(uint32_t ms);
 
 #ifdef ESP_PLATFORM
-#include "bb_nv.h"
 #include "bb_http.h"
 
 /**
