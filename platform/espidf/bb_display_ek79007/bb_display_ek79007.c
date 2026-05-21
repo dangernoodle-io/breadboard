@@ -1,5 +1,6 @@
 #include "bb_display.h"
 #include "bb_display_backend.h"
+#include "bb_display_autoregister.h"
 #include "bb_display_ek79007.h"
 
 #include "bb_log.h"
@@ -368,10 +369,4 @@ static const bb_display_backend_t s_backend = {
     .set_rotation = NULL,  /* LVGL handles rotation; out of scope for this API */
 };
 
-#if CONFIG_BB_DISPLAY_EK79007_AUTOREGISTER
-__attribute__((constructor))
-static void bb_display_register__ek79007(void)
-{
-    bb_display_register_backend(&s_backend);
-}
-#endif
+BB_DISPLAY_AUTOREGISTER(ek79007, CONFIG_BB_DISPLAY_EK79007_AUTOREGISTER, &s_backend)

@@ -1,5 +1,6 @@
 #include "bb_display.h"
 #include "bb_display_backend.h"
+#include "bb_display_autoregister.h"
 #include "bb_log.h"
 #include "sdkconfig.h"
 #include "bb_hw.h"
@@ -186,8 +187,4 @@ static const bb_display_backend_t s_backend = {
     .set_rotation = st7735_set_rotation,
 };
 
-void bb_display_register__st7735(void) __attribute__((constructor));
-void bb_display_register__st7735(void)
-{
-    bb_display_register_backend(&s_backend);
-}
+BB_DISPLAY_AUTOREGISTER(st7735, CONFIG_BB_DISPLAY_ST7735_AUTOREGISTER, &s_backend)

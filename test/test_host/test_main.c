@@ -7,6 +7,7 @@
 #include "../../platform/host/bb_http_client/bb_http_client_host.h"
 #include "../../components/bb_update_check/src/bb_update_check_internal.h"
 #include "test_alloc_inject.h"
+#include "../../components/bb_display/bb_display_test.h"
 
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
@@ -618,6 +619,81 @@ void test_bb_store_be32_misaligned(void);
 void test_bb_load_be16_misaligned(void);
 void test_bb_store_be16_misaligned(void);
 
+// Forward declarations from test_bb_display.c
+void bb_display_test_reset_mock(void);
+void test_bb_display_not_ready_before_init(void);
+void test_bb_display_init_no_backend_returns_err(void);
+void test_bb_display_init_with_backend_succeeds(void);
+void test_bb_display_init_calls_init_once(void);
+void test_bb_display_probe_ok_proceeds_to_init(void);
+void test_bb_display_probe_fail_skips_init(void);
+void test_bb_display_falls_through_to_second_backend(void);
+void test_bb_display_init_fail_returns_err(void);
+void test_bb_display_clear_dispatches(void);
+void test_bb_display_blit_dispatches(void);
+void test_bb_display_blit_null_pixels_no_dispatch(void);
+void test_bb_display_blit_zero_dimensions_no_dispatch(void);
+void test_bb_display_off_dispatches(void);
+void test_bb_display_no_dispatch_before_init(void);
+void test_bb_display_set_rotation_no_backend_returns_err(void);
+void test_bb_display_set_rotation_invalid_angle(void);
+void test_bb_display_set_rotation_no_support_returns_err(void);
+void test_rgb565_byteswap_forms_equivalent(void);
+void test_rgb565_byteswap_round_trip(void);
+void test_bounce_rows_narrow_image(void);
+void test_bounce_rows_wide_image(void);
+void test_bounce_rows_wider_than_bounce(void);
+void test_bounce_rows_exact_fit(void);
+void test_bounce_rows_partial_last_pass(void);
+void test_bb_display_flush_dispatches(void);
+void test_bb_display_flush_no_flush_fn_is_noop(void);
+void test_bb_display_set_rotation_succeeds(void);
+void test_bb_display_set_rotation_updates_dimensions(void);
+void test_bb_display_set_rotation_propagates_error(void);
+void test_bb_display_register_null_is_ignored(void);
+void test_bb_display_backend_with_null_init_is_skipped(void);
+void test_bb_display_registry_full_drops_excess(void);
+void test_bb_display_init_idempotent_after_success(void);
+void test_bb_display_draw_text_before_init_noop(void);
+void test_bb_display_draw_text_null_text_noop(void);
+void test_bb_display_draw_text_uses_backend_draw_text(void);
+void test_bb_display_draw_text_falls_back_to_blit(void);
+void test_bb_display_draw_text_null_font_uses_default(void);
+void test_bb_display_set_default_font_null_restores_default(void);
+void test_bb_display_set_default_font_custom(void);
+void test_bb_display_show_splash_before_init_noop(void);
+void test_bb_display_show_splash_calls_clear_and_blit(void);
+void test_bb_display_show_prov_before_init_noop(void);
+void test_bb_display_show_prov_calls_clear_and_blit(void);
+void test_bb_display_show_splash_null_strings(void);
+void test_bb_display_show_prov_null_strings(void);
+void test_bb_display_off_with_no_off_fn(void);
+void test_bb_display_draw_text_no_font_at_all_noop(void);
+void test_bb_display_show_splash_null_font_uses_default(void);
+void test_bb_display_show_prov_null_font_uses_default(void);
+void test_bb_display_clear_null_fn_is_noop(void);
+void test_bb_display_blit_null_fn_is_noop(void);
+void test_bb_display_null_name_backend_inits(void);
+void test_bb_display_default_font_set_before_init_preserved(void);
+void test_bb_display_draw_text_out_of_range_codepoint(void);
+void test_bb_display_draw_text_oversized_font_noop(void);
+void test_bb_display_draw_text_null_blit_fn_noop(void);
+void test_bb_display_show_splash_tall_font_clamps_y(void);
+void test_bb_display_show_splash_wide_text_clamps_x(void);
+void test_bb_display_show_splash_null_line_ok(void);
+void test_bb_display_flush_before_ready_is_noop(void);
+void test_bb_display_off_before_ready_is_noop(void);
+void test_bb_display_registry_full_null_name_dropped(void);
+void test_bb_display_init_fail_null_name(void);
+void test_bb_display_probe_fail_null_name(void);
+void test_bb_display_probe_success_logs_probed(void);
+void test_bb_display_draw_text_cp_past_glyph_count(void);
+void test_bb_display_draw_text_no_default_font_noop(void);
+void test_bb_display_show_splash_no_default_font_noop(void);
+void test_bb_display_set_rotation_zero(void);
+void test_bb_display_set_rotation_180(void);
+void test_bb_display_set_rotation_270(void);
+
 // Forward declarations from test_bb_timer.c
 void test_bb_timer_create_null_out_returns_err(void);
 void test_bb_timer_create_null_cb_returns_err(void);
@@ -1036,6 +1112,8 @@ void setUp(void) {
     bb_event_ring_reset_allocator();
     bb_event_port_set_malloc(NULL);
     test_alloc_reset();
+    bb_display_reset_for_testing();
+    bb_display_test_reset_mock();
 }
 void tearDown(void) {}
 
@@ -1641,6 +1719,80 @@ int main(void) {
     RUN_TEST(test_bb_registry_pre_http_init_calls_each_fn);
     RUN_TEST(test_bb_registry_pre_http_init_reports_first_error_but_continues);
     RUN_TEST(test_bb_registry_pre_http_clear_resets_count);
+
+    // bb_display tests
+    RUN_TEST(test_bb_display_not_ready_before_init);
+    RUN_TEST(test_bb_display_init_no_backend_returns_err);
+    RUN_TEST(test_bb_display_init_with_backend_succeeds);
+    RUN_TEST(test_bb_display_init_calls_init_once);
+    RUN_TEST(test_bb_display_probe_ok_proceeds_to_init);
+    RUN_TEST(test_bb_display_probe_fail_skips_init);
+    RUN_TEST(test_bb_display_falls_through_to_second_backend);
+    RUN_TEST(test_bb_display_init_fail_returns_err);
+    RUN_TEST(test_bb_display_clear_dispatches);
+    RUN_TEST(test_bb_display_blit_dispatches);
+    RUN_TEST(test_bb_display_blit_null_pixels_no_dispatch);
+    RUN_TEST(test_bb_display_blit_zero_dimensions_no_dispatch);
+    RUN_TEST(test_bb_display_off_dispatches);
+    RUN_TEST(test_bb_display_no_dispatch_before_init);
+    RUN_TEST(test_bb_display_set_rotation_no_backend_returns_err);
+    RUN_TEST(test_bb_display_set_rotation_invalid_angle);
+    RUN_TEST(test_bb_display_set_rotation_no_support_returns_err);
+    RUN_TEST(test_rgb565_byteswap_forms_equivalent);
+    RUN_TEST(test_rgb565_byteswap_round_trip);
+    RUN_TEST(test_bounce_rows_narrow_image);
+    RUN_TEST(test_bounce_rows_wide_image);
+    RUN_TEST(test_bounce_rows_wider_than_bounce);
+    RUN_TEST(test_bounce_rows_exact_fit);
+    RUN_TEST(test_bounce_rows_partial_last_pass);
+    RUN_TEST(test_bb_display_flush_dispatches);
+    RUN_TEST(test_bb_display_flush_no_flush_fn_is_noop);
+    RUN_TEST(test_bb_display_set_rotation_succeeds);
+    RUN_TEST(test_bb_display_set_rotation_updates_dimensions);
+    RUN_TEST(test_bb_display_set_rotation_propagates_error);
+    RUN_TEST(test_bb_display_register_null_is_ignored);
+    RUN_TEST(test_bb_display_backend_with_null_init_is_skipped);
+    RUN_TEST(test_bb_display_registry_full_drops_excess);
+    RUN_TEST(test_bb_display_init_idempotent_after_success);
+    RUN_TEST(test_bb_display_draw_text_before_init_noop);
+    RUN_TEST(test_bb_display_draw_text_null_text_noop);
+    RUN_TEST(test_bb_display_draw_text_uses_backend_draw_text);
+    RUN_TEST(test_bb_display_draw_text_falls_back_to_blit);
+    RUN_TEST(test_bb_display_draw_text_null_font_uses_default);
+    RUN_TEST(test_bb_display_set_default_font_null_restores_default);
+    RUN_TEST(test_bb_display_set_default_font_custom);
+    RUN_TEST(test_bb_display_show_splash_before_init_noop);
+    RUN_TEST(test_bb_display_show_splash_calls_clear_and_blit);
+    RUN_TEST(test_bb_display_show_prov_before_init_noop);
+    RUN_TEST(test_bb_display_show_prov_calls_clear_and_blit);
+    RUN_TEST(test_bb_display_show_splash_null_strings);
+    RUN_TEST(test_bb_display_show_prov_null_strings);
+    RUN_TEST(test_bb_display_off_with_no_off_fn);
+    RUN_TEST(test_bb_display_draw_text_no_font_at_all_noop);
+    RUN_TEST(test_bb_display_show_splash_null_font_uses_default);
+    RUN_TEST(test_bb_display_show_prov_null_font_uses_default);
+    RUN_TEST(test_bb_display_clear_null_fn_is_noop);
+    RUN_TEST(test_bb_display_blit_null_fn_is_noop);
+    RUN_TEST(test_bb_display_null_name_backend_inits);
+    RUN_TEST(test_bb_display_default_font_set_before_init_preserved);
+    RUN_TEST(test_bb_display_draw_text_out_of_range_codepoint);
+    RUN_TEST(test_bb_display_draw_text_oversized_font_noop);
+    RUN_TEST(test_bb_display_draw_text_null_blit_fn_noop);
+    RUN_TEST(test_bb_display_show_splash_tall_font_clamps_y);
+    RUN_TEST(test_bb_display_show_splash_wide_text_clamps_x);
+    RUN_TEST(test_bb_display_show_splash_null_line_ok);
+    RUN_TEST(test_bb_display_flush_before_ready_is_noop);
+    RUN_TEST(test_bb_display_off_before_ready_is_noop);
+    RUN_TEST(test_bb_display_registry_full_null_name_dropped);
+    RUN_TEST(test_bb_display_init_fail_null_name);
+    RUN_TEST(test_bb_display_probe_fail_null_name);
+    RUN_TEST(test_bb_display_probe_success_logs_probed);
+    RUN_TEST(test_bb_display_draw_text_cp_past_glyph_count);
+    RUN_TEST(test_bb_display_draw_text_no_default_font_noop);
+    RUN_TEST(test_bb_display_show_splash_no_default_font_noop);
+    RUN_TEST(test_bb_display_set_rotation_zero);
+    RUN_TEST(test_bb_display_set_rotation_180);
+    RUN_TEST(test_bb_display_set_rotation_270);
 
     // bb_byte_order tests
     RUN_TEST(test_bb_load_be32_constant);

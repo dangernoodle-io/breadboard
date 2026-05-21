@@ -2,6 +2,10 @@
 #include "bb_display_backend.h"
 #include "bb_log.h"
 
+#ifdef BB_DISPLAY_TESTING
+#include "../bb_display_test.h"
+#endif
+
 #include <string.h>
 
 static const char *TAG = "bb_display";
@@ -27,11 +31,29 @@ static const bb_display_font_t *s_compile_time_default_font = NULL;
 
 static const bb_display_font_t *s_default_font = NULL;  /* Initialized in bb_display_init(). */
 
+#ifdef BB_DISPLAY_TESTING
+void bb_display_reset_for_testing(void)
+{
+    s_backend_count = 0;
+    s_active = NULL;
+    s_ready = false;
+    s_width = 0;
+    s_height = 0;
+    s_default_font = NULL;
+}
+
+void bb_display_clear_default_font_for_testing(void)
+{
+    s_default_font = NULL;
+}
+#endif
+
 void bb_display_register_backend(const bb_display_backend_t *backend)
 {
     if (!backend) return;
     if (s_backend_count >= BB_DISPLAY_MAX_BACKENDS) {
-        bb_log_w(TAG, "backend registry full; dropping %s", backend->name ? backend->name : "?");
+        const char *nm = backend->name ? backend->name : "?";
+        bb_log_w(TAG, "backend registry full; dropping %s", nm);
         return;
     }
     s_backends[s_backend_count++] = backend;
@@ -52,7 +74,9 @@ bb_err_t bb_display_init(void)
 
     for (size_t i = 0; i < s_backend_count; i++) {
         const bb_display_backend_t *candidate = s_backends[i];
-        if (!candidate || !candidate->init) continue;
+        if (!candidate->init) continue;
+
+        const char *nm = candidate->name ? candidate->name : "?";
 
         /* Call probe if available. */
         bool probed = false;
@@ -60,7 +84,7 @@ bb_err_t bb_display_init(void)
             bb_err_t probe_err = candidate->probe();
             probed = true;
             if (probe_err != BB_OK) {
-                bb_log_i(TAG, "probe %s: not found", candidate->name ? candidate->name : "?");
+                bb_log_i(TAG, "probe %s: not found", nm);
                 continue;
             }
         }
@@ -69,7 +93,7 @@ bb_err_t bb_display_init(void)
         uint16_t w = 0, h = 0;
         bb_err_t err = candidate->init(&w, &h);
         if (err != BB_OK) {
-            bb_log_w(TAG, "init %s failed: %d", candidate->name ? candidate->name : "?", (int)err);
+            bb_log_w(TAG, "init %s failed: %d", nm, (int)err);
             continue;
         }
 
@@ -78,8 +102,7 @@ bb_err_t bb_display_init(void)
         s_width = w;
         s_height = h;
         s_ready = true;
-        bb_log_i(TAG, "init: %ux%u (%s) [probed=%s]", (unsigned)w, (unsigned)h,
-                 candidate->name ? candidate->name : "?", probed ? "yes" : "no");
+        bb_log_i(TAG, "init: %ux%u (%s) [probed=%d]", (unsigned)w, (unsigned)h, nm, probed);
         return BB_OK;
     }
 
@@ -174,14 +197,13 @@ static void render_centered_lines(const char * const *lines, size_t n,
                                   const bb_display_font_t *font,
                                   uint16_t fg, uint16_t bg)
 {
-    if (!s_ready || n == 0) return;
     if (!font) font = s_default_font;
     if (!font) return;
-    int total_h = (int)n * font->glyph_h;
+    int total_h = (int)n * (int)font->glyph_h;
     int y0 = ((int)s_height - total_h) / 2;
     if (y0 < 0) y0 = 0;
     for (size_t i = 0; i < n; i++) {
-        const char *t = lines[i] ? lines[i] : "";
+        const char *t = lines[i];
         int text_w = (int)strlen(t) * font->glyph_w;
         int x = ((int)s_width - text_w) / 2;
         if (x < 0) x = 0;
@@ -225,7 +247,7 @@ void bb_display_set_default_font(const bb_display_font_t *font)
 
 bb_err_t bb_display_set_rotation(uint16_t deg)
 {
-    if (!s_ready || !s_active) return BB_ERR_INVALID_STATE;
+    if (!s_ready) return BB_ERR_INVALID_STATE;
     if (deg != 0 && deg != 90 && deg != 180 && deg != 270) return BB_ERR_INVALID_ARG;
     if (!s_active->set_rotation) return BB_ERR_INVALID_STATE;
 

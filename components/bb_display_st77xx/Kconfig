@@ -21,6 +21,16 @@ config BB_DISPLAY_ST77XX_VARIANT_ST7789
 
 endchoice
 
+config BB_DISPLAY_ST7735_AUTOREGISTER
+    bool "Auto-register ST7735 backend"
+    depends on BB_DISPLAY_ST77XX_VARIANT_ST7735
+    default y
+
+config BB_DISPLAY_ST7789_AUTOREGISTER
+    bool "Auto-register ST7789 backend"
+    depends on BB_DISPLAY_ST77XX_VARIANT_ST7789
+    default y
+
 config BB_DISPLAY_ST7735_SKIP_VENDOR_INIT
     bool "ST7735: skip vendor-init overlay"
     depends on BB_DISPLAY_ST77XX_VARIANT_ST7735
