@@ -3,17 +3,18 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include "bb_core.h"
 
 /**
  * Callback invoked before OTA apply to pause work.
  * @return true if caller paused work, false otherwise
  */
-typedef bool (*bb_ota_pause_cb_t)(void);
+typedef bb_http_pause_cb_t  bb_ota_pause_cb_t;
 
 /**
  * Callback invoked after OTA apply to resume work.
  */
-typedef void (*bb_ota_resume_cb_t)(void);
+typedef bb_http_resume_cb_t bb_ota_resume_cb_t;
 
 /**
  * Callback to skip project-name mismatch check.

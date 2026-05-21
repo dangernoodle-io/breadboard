@@ -1,5 +1,6 @@
 #include "bb_led_gpio.h"
 #include "bb_led_driver.h"
+#include "../../../components/bb_led_gpio/bb_led_gpio_internal.h"
 #include "driver/gpio.h"
 #include <stdlib.h>
 
@@ -8,14 +9,10 @@ typedef struct {
     bool active_low;
 } state_t;
 
-static int level_for_on(const state_t *s, bool on) {
-    return s->active_low ? (on ? 0 : 1) : (on ? 1 : 0);
-}
-
 static bb_err_t op_set_on(void *st, uint16_t idx, bool on) {
     (void)idx;
     state_t *s = st;
-    return gpio_set_level(s->gpio, level_for_on(s, on)) == ESP_OK ? BB_OK : BB_ERR_INVALID_STATE;
+    return gpio_set_level(s->gpio, bb_led_gpio_level_for_on(s->active_low, on)) == ESP_OK ? BB_OK : BB_ERR_INVALID_STATE;
 }
 
 static bb_err_t op_close(void *st) {
@@ -54,7 +51,7 @@ bb_err_t bb_led_gpio_open(const bb_led_gpio_cfg_t *cfg, bb_led_handle_t *out) {
     s->active_low = cfg->active_low;
 
     // Drive OFF initially.
-    gpio_set_level(s->gpio, level_for_on(s, false));
+    gpio_set_level(s->gpio, bb_led_gpio_level_for_on(s->active_low, false));
 
     bb_err_t rc = bb_led_handle_create(&s_drv, s, out);
     if (rc != BB_OK) { free(s); gpio_reset_pin(s->gpio); }

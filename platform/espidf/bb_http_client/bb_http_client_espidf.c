@@ -22,6 +22,13 @@ static const char *TAG = "bb_http_client";
 
 static const int s_backoff_ms[] = {2000, 4000, 8000};
 
+static void apply_backoff(int attempt)
+{
+    int len = (int)(sizeof(s_backoff_ms) / sizeof(s_backoff_ms[0]));
+    int idx = attempt < len ? attempt : len - 1;
+    vTaskDelay(pdMS_TO_TICKS(s_backoff_ms[idx]));
+}
+
 bb_err_t bb_http_client_get(const char *url,
                             char *body, size_t body_cap,
                             const bb_http_client_cfg_t *cfg,
@@ -73,9 +80,7 @@ bb_err_t bb_http_client_get(const char *url,
             client = NULL;
         }
         if (attempt + 1 < attempts) {
-            int idx = attempt < (int)(sizeof(s_backoff_ms)/sizeof(s_backoff_ms[0]))
-                          ? attempt : (int)(sizeof(s_backoff_ms)/sizeof(s_backoff_ms[0])) - 1;
-            vTaskDelay(pdMS_TO_TICKS(s_backoff_ms[idx]));
+            apply_backoff(attempt);
         }
     }
 
@@ -163,9 +168,7 @@ bb_err_t bb_http_client_get_stream(const char *url,
             client = NULL;
         }
         if (attempt + 1 < attempts) {
-            int idx = attempt < (int)(sizeof(s_backoff_ms)/sizeof(s_backoff_ms[0]))
-                          ? attempt : (int)(sizeof(s_backoff_ms)/sizeof(s_backoff_ms[0])) - 1;
-            vTaskDelay(pdMS_TO_TICKS(s_backoff_ms[idx]));
+            apply_backoff(attempt);
         }
     }
 

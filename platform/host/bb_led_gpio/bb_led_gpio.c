@@ -1,6 +1,7 @@
 #include "bb_led_gpio.h"
 #include "bb_led_gpio_host.h"
 #include "bb_led_driver.h"
+#include "../../../components/bb_led_gpio/bb_led_gpio_internal.h"
 #include <stdlib.h>
 
 #define BB_LED_GPIO_HOST_MAX_PIN 64
@@ -13,14 +14,10 @@ int bb_led_gpio_host_get_level(int gpio) {
 
 typedef struct { int gpio; bool active_low; } state_t;
 
-static int level_for_on(const state_t *s, bool on) {
-    return s->active_low ? (on ? 0 : 1) : (on ? 1 : 0);
-}
-
 static bb_err_t op_set_on(void *st, uint16_t idx, bool on) {
     (void)idx;
     state_t *s = st;
-    if (s->gpio < BB_LED_GPIO_HOST_MAX_PIN) s_host_last_level[s->gpio] = level_for_on(s, on);
+    if (s->gpio < BB_LED_GPIO_HOST_MAX_PIN) s_host_last_level[s->gpio] = bb_led_gpio_level_for_on(s->active_low, on);
     return BB_OK;
 }
 
@@ -43,6 +40,6 @@ bb_err_t bb_led_gpio_open(const bb_led_gpio_cfg_t *cfg, bb_led_handle_t *out) {
     if (!s) return BB_ERR_NO_SPACE;
     s->gpio = cfg->gpio;
     s->active_low = cfg->active_low;
-    s_host_last_level[s->gpio] = level_for_on(s, false);
+    s_host_last_level[s->gpio] = bb_led_gpio_level_for_on(s->active_low, false);
     return bb_led_handle_create(&s_drv, s, out);
 }
