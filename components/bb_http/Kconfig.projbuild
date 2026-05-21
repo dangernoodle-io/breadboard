@@ -95,15 +95,20 @@ config BB_HTTP_LWIP_RESERVE
 config BB_HTTP_LWIP_SEM_PER_THREAD
     bool "Use per-thread lwip op-completed sem (SSE / chunked-emit safety)"
     default y
-    select LWIP_NETCONN_SEM_PER_THREAD
     help
-      Forces CONFIG_LWIP_NETCONN_SEM_PER_THREAD so lwip's per-call
+      Defines LWIP_NETCONN_SEM_PER_THREAD=1 build-wide so lwip's per-call
       op_completed_sem lives in per-thread TLS instead of inside the
       netconn / select_cb struct. Without this, a peer RST that frees
       the netconn (or a closed socket that frees its select_cb) while
       another thread is mid-call invalidates the sem, and LWIP_ASSERT
       aborts the device inside tcpip_send_msg_wait_sem (chunked emit)
       or lwip_select (httpd select loop).
+
+      LWIP_NETCONN_SEM_PER_THREAD is a pure lwip C macro (not an
+      ESP-IDF Kconfig symbol), so bb_http's CMakeLists injects
+      -DLWIP_NETCONN_SEM_PER_THREAD=1 into the build-wide COMPILE_OPTIONS
+      when this knob is on. A prior `select` directive here was a
+      silent no-op — Kconfig only `select`s other Kconfig symbols.
 
       Cost: roughly one sem (~88 B) per thread that touches lwip; on a
       typical ESP-IDF firmware that's ~1 KB heap. Worth it on any
