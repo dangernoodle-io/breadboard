@@ -635,6 +635,27 @@ bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc)
         return bb_http_resp_send(req, "null", 4);
     }
 
+    /* Prefer one-shot serialize + Content-Length send. The chunked emitter
+     * (json_stream_node + bb_http_resp_send_chunk) makes one lwip_send call
+     * per field / comma / brace — a 4 KB JSON tree easily reaches 200+
+     * chunks. Each chunk routes through tcpip_send_msg_wait_sem, which
+     * aborts the device via LWIP_ASSERT if the peer closes the socket and
+     * the netconn's op_completed_sem is freed before the next chunk lands.
+     * Reproduced on bitaxe-650 with the dashboard + SSE log stream open.
+     * One-shot collapses ~200 lwip_send calls to one and effectively
+     * eliminates the race window for typical /api responses. Falls back
+     * to streaming only when cJSON_PrintUnformatted returns NULL on very
+     * large trees (e.g. a fully-materialized /api/openapi.json), where
+     * streaming-with-race is the lesser harm vs sending nothing. */
+    {
+        char *one_shot = bb_json_item_serialize(doc);
+        if (one_shot) {
+            err = bb_http_resp_send(req, one_shot, strlen(one_shot));
+            bb_json_free_str(one_shot);
+            return err;
+        }
+    }
+
     err = json_stream_node(req, doc);
     // Always finalize the chunked response — without the zero-length chunk
     // the client may see a truncated body even if everything else succeeded.
