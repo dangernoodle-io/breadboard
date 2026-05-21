@@ -211,7 +211,7 @@ COMPONENT_MAP = {
     "bb_button_events": {
         "includes": ["components/bb_button_events/include", "platform/host/bb_button_events"],
         "sources":  ["platform/host/bb_button_events/bb_button_events.c"],
-        "depends":  ["bb_core", "bb_button", "bb_log"],
+        "depends":  ["bb_core", "bb_button", "bb_log", "bb_timer"],
     },
     "bb_event": {
         "includes": ["components/bb_event/include", "components/bb_event"],
