@@ -1,8 +1,8 @@
+#include "bb_display_spi_common.h"
 #include "bb_log.h"
 #include "bb_hw.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_io.h"
-#include "driver/spi_master.h"
 #include "driver/gpio.h"
 
 #include <string.h>
@@ -21,36 +21,15 @@ bb_err_t bb_display_st77xx_init_bus(void)
 {
     if (s_bus_initialized) return BB_OK;
 
-    /* Configure SPI bus. */
-    spi_bus_config_t bus_cfg = {
-        .mosi_io_num = PIN_LCD_MOSI,
-        .miso_io_num = -1,
-        .sclk_io_num = PIN_LCD_CLK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = LCD_WIDTH * LCD_HEIGHT * 2,
-    };
-    esp_err_t err = spi_bus_initialize(LCD_SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "spi bus init failed: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    /* Configure panel I/O (SPI). */
-    esp_lcd_panel_io_spi_config_t io_cfg = {
-        .cs_gpio_num = PIN_LCD_CS,
-        .dc_gpio_num = PIN_LCD_DC,
-        .spi_mode = 0,
-        .pclk_hz = LCD_PIXEL_CLK,
-        .trans_queue_depth = 10,
-        .lcd_cmd_bits = 8,
-        .lcd_param_bits = 8,
-    };
-    err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_SPI_HOST,
-                                   &io_cfg, &bb_display_st77xx_panel_io);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "panel io init failed: %s", esp_err_to_name(err));
-        bb_display_st77xx_panel_io = NULL;
+    bb_err_t err = bb_display_spi_init_bus(
+        PIN_LCD_MOSI, /*pin_miso=*/-1, PIN_LCD_CLK,
+        LCD_WIDTH * LCD_HEIGHT * 2,
+        LCD_SPI_HOST,
+        LCD_PIXEL_CLK,
+        PIN_LCD_CS, PIN_LCD_DC,
+        &bb_display_st77xx_panel_io);
+    if (err != BB_OK) {
+        bb_log_e(TAG, "init_bus failed");
         return err;
     }
 
@@ -91,26 +70,7 @@ void bb_display_st77xx_blit(int16_t x, int16_t y, uint16_t w, uint16_t h, const 
         return;
     }
 
-    /* Byte-swap RGB565 into a fixed-size tile buffer and push row-by-row.
-     * Avoids the previous 16 KB transient heap alloc (pixel_count * 2 B at
-     * max 8192 px) — mirrors the ILI9341 backend's bounce-buffer approach.
-     * B1-208 / heap-audit P3-D. */
-    enum { BOUNCE_PIXELS = 512 };
-    static uint16_t bounce[BOUNCE_PIXELS];
-    int16_t row = 0;
-    while (row < (int16_t)h) {
-        size_t rows_this_pass = BOUNCE_PIXELS / w;
-        if (rows_this_pass == 0) rows_this_pass = 1;
-        if ((size_t)(h - row) < rows_this_pass) rows_this_pass = h - row;
-        size_t pixels_this_pass = rows_this_pass * w;
-        if (pixels_this_pass > BOUNCE_PIXELS) pixels_this_pass = BOUNCE_PIXELS;
-        for (size_t i = 0; i < pixels_this_pass; i++) {
-            uint16_t pixel = pixels[row * w + i];
-            bounce[i] = (uint16_t)((pixel & 0xFF) << 8) | ((pixel >> 8) & 0xFF);
-        }
-        esp_lcd_panel_draw_bitmap(bb_display_st77xx_panel, x, y + row, x + w, y + row + rows_this_pass, bounce);
-        row += (int16_t)rows_this_pass;
-    }
+    bb_display_blit_spi(bb_display_st77xx_panel, x, y, w, h, pixels);
 }
 
 void bb_display_st77xx_off(void)

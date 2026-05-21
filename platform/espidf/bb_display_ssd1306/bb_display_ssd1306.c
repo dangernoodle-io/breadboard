@@ -1,5 +1,6 @@
 #include "bb_display.h"
 #include "bb_display_backend.h"
+#include "bb_display_autoregister.h"
 #include "bb_display_ssd1306.h"
 #include "bb_log.h"
 #include "bb_hw.h"
@@ -183,9 +184,4 @@ static const bb_display_backend_t s_backend = {
     .set_rotation = ssd1306_set_rotation,
 };
 
-#if CONFIG_BB_DISPLAY_SSD1306_AUTOREGISTER
-void bb_display_register__ssd1306(void) __attribute__((constructor));
-void bb_display_register__ssd1306(void) {
-    bb_display_register_backend(&s_backend);
-}
-#endif
+BB_DISPLAY_AUTOREGISTER(ssd1306, CONFIG_BB_DISPLAY_SSD1306_AUTOREGISTER, &s_backend)

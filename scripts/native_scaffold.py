@@ -153,6 +153,16 @@ COMPONENT_MAP = {
         "sources":  ["components/bb_manifest/src/bb_manifest_emit.c"],
         "depends":  ["bb_core", "bb_http", "bb_json"],
     },
+    "bb_display": {
+        "includes": ["components/bb_display/include"],
+        "sources":  [
+            "components/bb_display/src/bb_display.c",
+            "components/bb_display/src/bb_display_font_5x8.c",
+            "components/bb_display/src/bb_display_font_6x12.c",
+            "components/bb_display/src/bb_display_font_8x16.c",
+        ],
+        "depends":  ["bb_core", "bb_log"],
+    },
     "bb_registry": {
         "includes": ["components/bb_registry/include"],
         "sources":  ["platform/host/bb_registry/bb_registry.c"],

@@ -1,11 +1,12 @@
 #include "bb_display.h"
 #include "bb_display_backend.h"
+#include "bb_display_autoregister.h"
 #include "bb_display_ili9341.h"
+#include "bb_display_spi_common.h"
 #include "bb_log.h"
 #include "bb_hw.h"
 #include "sdkconfig.h"
 
-#include "driver/spi_master.h"
 #include "driver/gpio.h"
 #include "nvs.h"
 #include "esp_lcd_panel_io.h"
@@ -24,42 +25,19 @@ static esp_lcd_panel_io_handle_t s_io    = NULL;
 static esp_lcd_panel_handle_t    s_panel = NULL;
 static bool                      s_bus_inited = false;
 
-static bool spi_bus_init_once(void) {
-    if (s_bus_inited) return true;
-    spi_bus_config_t cfg = {
-        .mosi_io_num = PIN_LCD_MOSI,
-        .miso_io_num = PIN_LCD_MISO,
-        .sclk_io_num = PIN_LCD_CLK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = ILI9341_NATIVE_W * ILI9341_NATIVE_H * 2,
-    };
-    int host = CONFIG_BB_DISPLAY_ILI9341_SPI_HOST;
-    if (spi_bus_initialize((spi_host_device_t)host, &cfg, SPI_DMA_CH_AUTO) != ESP_OK) {
-        bb_log_e(TAG, "spi bus init failed");
-        return false;
-    }
-    s_bus_inited = true;
-    return true;
-}
-
 static bool panel_io_init_once(void) {
     if (s_io) return true;
-    if (!spi_bus_init_once()) return false;
-    esp_lcd_panel_io_spi_config_t io_cfg = {
-        .cs_gpio_num = PIN_LCD_CS,
-        .dc_gpio_num = PIN_LCD_DC,
-        .spi_mode = 0,
-        .pclk_hz = CONFIG_BB_DISPLAY_ILI9341_PIXEL_CLK_HZ,
-        .trans_queue_depth = 10,
-        .lcd_cmd_bits = 8,
-        .lcd_param_bits = 8,
-    };
+    if (s_bus_inited) return true;
     int host = CONFIG_BB_DISPLAY_ILI9341_SPI_HOST;
-    if (esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)(intptr_t)host, &io_cfg, &s_io) != ESP_OK) {
-        bb_log_e(TAG, "panel io init failed");
-        return false;
-    }
+    bb_err_t err = bb_display_spi_init_bus(
+        PIN_LCD_MOSI, PIN_LCD_MISO, PIN_LCD_CLK,
+        ILI9341_NATIVE_W * ILI9341_NATIVE_H * 2,
+        host,
+        CONFIG_BB_DISPLAY_ILI9341_PIXEL_CLK_HZ,
+        PIN_LCD_CS, PIN_LCD_DC,
+        &s_io);
+    if (err != BB_OK) return false;
+    s_bus_inited = true;
     return true;
 }
 
@@ -132,23 +110,7 @@ static void ili9341_clear(uint16_t rgb565) {
 }
 
 static void ili9341_blit(int16_t x, int16_t y, uint16_t w, uint16_t h, const uint16_t *pixels) {
-    if (!s_panel || !pixels || !w || !h) return;
-    enum { BOUNCE_PIXELS = 512 };
-    static uint16_t bounce[BOUNCE_PIXELS];
-    int16_t row = 0;
-    while (row < (int16_t)h) {
-        size_t rows_this_pass = BOUNCE_PIXELS / w;
-        if (rows_this_pass == 0) rows_this_pass = 1;
-        if ((size_t)(h - row) < rows_this_pass) rows_this_pass = h - row;
-        size_t pixels_this_pass = rows_this_pass * w;
-        if (pixels_this_pass > BOUNCE_PIXELS) pixels_this_pass = BOUNCE_PIXELS;
-        for (size_t i = 0; i < pixels_this_pass; i++) {
-            uint16_t c = pixels[row * w + i];
-            bounce[i] = (uint16_t)((c >> 8) | (c << 8));
-        }
-        esp_lcd_panel_draw_bitmap(s_panel, x, y + row, x + w, y + row + rows_this_pass, bounce);
-        row += (int16_t)rows_this_pass;
-    }
+    bb_display_blit_spi(s_panel, x, y, w, h, pixels);
 }
 
 static void ili9341_off(void) {
@@ -228,9 +190,4 @@ static const bb_display_backend_t s_backend = {
     .set_rotation = ili9341_set_rotation,
 };
 
-#if CONFIG_BB_DISPLAY_ILI9341_AUTOREGISTER
-void bb_display_register__ili9341(void) __attribute__((constructor));
-void bb_display_register__ili9341(void) {
-    bb_display_register_backend(&s_backend);
-}
-#endif
+BB_DISPLAY_AUTOREGISTER(ili9341, CONFIG_BB_DISPLAY_ILI9341_AUTOREGISTER, &s_backend)
