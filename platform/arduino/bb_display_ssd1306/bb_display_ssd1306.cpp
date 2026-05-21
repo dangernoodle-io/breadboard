@@ -7,6 +7,7 @@ extern "C" {
 #include <Wire.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
 
 /* Tunables — ESP-IDF backend has Kconfig knobs; Arduino has plain #defines.
  * Override via -DBB_DISPLAY_SSD1306_* in the consumer's build_flags. */
@@ -22,8 +23,9 @@ extern "C" {
 #define SSD1306_WIDTH  128
 #define SSD1306_HEIGHT BB_DISPLAY_SSD1306_HEIGHT
 #define SSD1306_PAGES  (SSD1306_HEIGHT / 8)
+#define SSD1306_FB_SZ  (SSD1306_WIDTH * SSD1306_PAGES)
 
-static uint8_t s_fb[SSD1306_WIDTH * SSD1306_PAGES];
+static uint8_t *s_fb = NULL;   /* heap-allocated in init */
 static bool s_wire_inited = false;
 
 static void wire_init_once() {
@@ -42,15 +44,16 @@ static void cmd(uint8_t c) {
 
 /* Push the framebuffer over I²C in 16-byte data chunks. */
 static void flush_fb(void) {
+    if (!s_fb) return;
     /* Set page + column addressing range to whole-screen. */
     cmd(0x21); cmd(0); cmd(SSD1306_WIDTH - 1);
     cmd(0x22); cmd(0); cmd(SSD1306_PAGES - 1);
 
     const size_t chunk = 16;
-    for (size_t i = 0; i < sizeof(s_fb); i += chunk) {
+    for (size_t i = 0; i < SSD1306_FB_SZ; i += chunk) {
         Wire.beginTransmission(BB_DISPLAY_SSD1306_I2C_ADDR);
         Wire.write((uint8_t)0x40);  /* control: data follows */
-        size_t n = sizeof(s_fb) - i < chunk ? sizeof(s_fb) - i : chunk;
+        size_t n = SSD1306_FB_SZ - i < chunk ? SSD1306_FB_SZ - i : chunk;
         Wire.write(&s_fb[i], n);
         Wire.endTransmission();
     }
@@ -68,6 +71,10 @@ static bb_err_t ssd1306_probe(void) {
 
 static bb_err_t ssd1306_init(uint16_t *w, uint16_t *h) {
     wire_init_once();
+    if (!s_fb) {
+        s_fb = (uint8_t *)malloc(SSD1306_FB_SZ);
+        if (!s_fb) return BB_ERR_NO_SPACE;
+    }
 
     /* Standard SSD1306 init sequence — same as Adafruit's reference, just
      * inlined so we don't drag in their library. Differences for 32 vs 64
@@ -95,7 +102,7 @@ static bb_err_t ssd1306_init(uint16_t *w, uint16_t *h) {
     cmd(0x2E);              /* DEACTIVATE_SCROLL */
     cmd(0xAF);              /* DISPLAYON */
 
-    memset(s_fb, 0, sizeof(s_fb));
+    memset(s_fb, 0, SSD1306_FB_SZ);
     flush_fb();
 
     *w = SSD1306_WIDTH;
@@ -123,12 +130,13 @@ static void set_pixel(int x, int y, bool on) {
 }
 
 static void ssd1306_clear(uint16_t rgb565) {
-    memset(s_fb, rgb565_to_mono(rgb565) ? 0xFF : 0x00, sizeof(s_fb));
+    if (!s_fb) return;
+    memset(s_fb, rgb565_to_mono(rgb565) ? 0xFF : 0x00, SSD1306_FB_SZ);
     flush_fb();
 }
 
 static void ssd1306_blit(int16_t x, int16_t y, uint16_t w, uint16_t h, const uint16_t *pixels) {
-    if (!pixels || !w || !h) return;
+    if (!pixels || !w || !h || !s_fb) return;
     for (uint16_t row = 0; row < h; row++) {
         for (uint16_t col = 0; col < w; col++) {
             set_pixel(x + col, y + row, rgb565_to_mono(pixels[row * w + col]));

@@ -1,0 +1,24 @@
+menu "bb_display fonts"
+
+config BB_DISPLAY_FONT_5X8
+    bool "Include 5x8 font"
+    default y
+    help
+        Spleen 5x8 bitmap font (~760 B flash rodata). Disable to save
+        flash when the 5x8 font is not used.
+
+config BB_DISPLAY_FONT_6X12
+    bool "Include 6x12 font"
+    default y
+    help
+        Spleen 6x12 bitmap font (~1140 B flash rodata). Disable to save
+        flash when the 6x12 font is not used.
+
+config BB_DISPLAY_FONT_8X16
+    bool "Include 8x16 font"
+    default y
+    help
+        Spleen 8x16 bitmap font (~1520 B flash rodata). Disable to save
+        flash when the 8x16 font is not used.
+
+endmenu

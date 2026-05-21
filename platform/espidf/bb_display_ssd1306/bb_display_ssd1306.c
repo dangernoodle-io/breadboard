@@ -12,8 +12,10 @@
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_ssd1306.h"
+#include "esp_heap_caps.h"
 
 #include <string.h>
+#include <stdlib.h>
 
 static const char *TAG = "bb_display_ssd1306";
 
@@ -26,7 +28,7 @@ static i2c_master_bus_handle_t s_user_bus = NULL;   /* override via setter */
 static i2c_master_bus_handle_t s_owned_bus = NULL;  /* created by us if no override */
 static esp_lcd_panel_io_handle_t s_io     = NULL;
 static esp_lcd_panel_handle_t    s_panel  = NULL;
-static uint8_t                   s_fb[SSD1306_FB_SZ];
+static uint8_t                  *s_fb     = NULL;   /* heap-allocated in init */
 
 void bb_display_ssd1306_set_i2c_bus(i2c_master_bus_handle_t bus)
 {
@@ -67,6 +69,14 @@ static bb_err_t ssd1306_init(uint16_t *w, uint16_t *h)
     i2c_master_bus_handle_t bus = resolve_bus();
     if (!bus) return BB_ERR_INVALID_STATE;
 
+    if (!s_fb) {
+        s_fb = heap_caps_malloc(SSD1306_FB_SZ, MALLOC_CAP_8BIT);
+        if (!s_fb) {
+            bb_log_e(TAG, "framebuffer alloc failed (%u B)", (unsigned)SSD1306_FB_SZ);
+            return BB_ERR_NO_SPACE;
+        }
+    }
+
     esp_lcd_panel_io_i2c_config_t io_cfg = {
         .dev_addr = CONFIG_BB_DISPLAY_SSD1306_I2C_ADDR,
         .control_phase_bytes = 1,
@@ -94,7 +104,7 @@ static bb_err_t ssd1306_init(uint16_t *w, uint16_t *h)
     esp_lcd_panel_init(s_panel);
     esp_lcd_panel_disp_on_off(s_panel, true);
 
-    memset(s_fb, 0, sizeof(s_fb));
+    memset(s_fb, 0, SSD1306_FB_SZ);
     esp_lcd_panel_draw_bitmap(s_panel, 0, 0, SSD1306_WIDTH, SSD1306_HEIGHT, s_fb);
 
     *w = SSD1306_WIDTH;
@@ -127,13 +137,14 @@ static inline bool rgb565_to_mono(uint16_t c) {
 
 static void ssd1306_clear(uint16_t rgb565)
 {
-    memset(s_fb, rgb565_to_mono(rgb565) ? 0xFF : 0x00, sizeof(s_fb));
+    if (!s_fb) return;
+    memset(s_fb, rgb565_to_mono(rgb565) ? 0xFF : 0x00, SSD1306_FB_SZ);
     if (s_panel) esp_lcd_panel_draw_bitmap(s_panel, 0, 0, SSD1306_WIDTH, SSD1306_HEIGHT, s_fb);
 }
 
 static void ssd1306_blit(int16_t x, int16_t y, uint16_t w, uint16_t h, const uint16_t *pixels)
 {
-    if (!pixels || !s_panel) return;
+    if (!pixels || !s_panel || !s_fb) return;
     for (uint16_t row = 0; row < h; row++) {
         for (uint16_t col = 0; col < w; col++) {
             set_pixel(x + col, y + row, rgb565_to_mono(pixels[row * w + col]));

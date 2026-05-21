@@ -101,12 +101,8 @@ static bb_err_t ili9341_init(uint16_t *w, uint16_t *h) {
 
 static void ili9341_clear(uint16_t rgb565) {
     if (!s_panel) return;
-    static uint16_t s_line[ILI9341_NATIVE_H];
     uint16_t swapped = (uint16_t)((rgb565 >> 8) | (rgb565 << 8));
-    for (int x = 0; x < ILI9341_NATIVE_H; x++) s_line[x] = swapped;
-    for (int y = 0; y < ILI9341_NATIVE_W; y++) {
-        esp_lcd_panel_draw_bitmap(s_panel, 0, y, ILI9341_NATIVE_H, y + 1, s_line);
-    }
+    bb_display_clear_spi(s_panel, 0, 0, ILI9341_NATIVE_H, ILI9341_NATIVE_W, swapped);
 }
 
 static void ili9341_blit(int16_t x, int16_t y, uint16_t w, uint16_t h, const uint16_t *pixels) {
