@@ -1,6 +1,6 @@
 idf_component_register(
     SRCS
-        "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_led/bb_led.c"
+        "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_led/bb_led.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
     PRIV_REQUIRES bb_log)
