@@ -16,6 +16,12 @@
 static bool s_force_register_fail = false;
 // Test hook: force bb_http_req_recv to return -1
 static bool s_force_recv_fail = false;
+// Test hook: force bb_http_resp_set_type to return BB_ERR_INVALID_STATE
+static bool s_force_set_type_fail = false;
+// Test hook: force bb_http_resp_send_chunk to return BB_ERR_NO_SPACE
+static bool s_force_send_chunk_fail = false;
+// Test hook: force send_chunk to fail only on the terminator call (buf==NULL)
+static bool s_force_send_chunk_term_fail = false;
 
 // ============================================================================
 // Capture slot (single, host tests are single-threaded)
@@ -50,6 +56,21 @@ void bb_http_host_force_recv_fail(bool fail)
     s_force_recv_fail = fail;
 }
 
+void bb_http_host_force_set_type_fail(bool fail)
+{
+    s_force_set_type_fail = fail;
+}
+
+void bb_http_host_force_send_chunk_fail(bool fail)
+{
+    s_force_send_chunk_fail = fail;
+}
+
+void bb_http_host_force_send_chunk_term_fail(bool fail)
+{
+    s_force_send_chunk_term_fail = fail;
+}
+
 bb_err_t bb_http_register_route(bb_http_handle_t server,
                                 bb_http_method_t method,
                                 const char *path,
@@ -78,6 +99,7 @@ bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
 
 bb_err_t bb_http_resp_set_type(bb_http_request_t *req, const char *mime)
 {
+    if (s_force_set_type_fail) return BB_ERR_INVALID_STATE;
     capture_slot_t *cap = capture_find(req);
     if (cap && mime) {
         strncpy(cap->content_type, mime, sizeof(cap->content_type) - 1);
@@ -187,6 +209,8 @@ bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)
 
 bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int len)
 {
+    if (s_force_send_chunk_fail) return BB_ERR_NO_SPACE;
+    if (s_force_send_chunk_term_fail && buf == NULL) return BB_ERR_NO_SPACE;
     capture_slot_t *cap = capture_find(req);
     if (cap && buf) {
         size_t add = (len < 0) ? strlen(buf) : (size_t)len;

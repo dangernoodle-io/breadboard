@@ -184,6 +184,24 @@ void test_json_obj_set_int_null_stream(void);
 void test_json_obj_set_bool_null_stream(void);
 void test_json_obj_set_null_null_stream(void);
 void test_json_obj_end_null_stream(void);
+void test_json_obj_set_num_basic(void);
+void test_json_obj_set_num_integer_value(void);
+void test_json_obj_set_num_null_stream(void);
+void test_json_obj_set_num_not_open(void);
+void test_json_obj_set_num_sticky_error(void);
+void test_json_obj_set_str_escape_cr(void);
+void test_json_obj_set_str_escape_ctrl(void);
+void test_json_obj_set_obj_begin_depth_overflow(void);
+void test_json_obj_set_arr_begin_depth_overflow(void);
+void test_json_obj_set_obj_end_underflow(void);
+void test_json_obj_set_arr_end_underflow(void);
+void test_json_obj_maybe_comma_depth_guard(void);
+void test_json_obj_buffer_flush_on_overflow(void);
+void test_json_obj_large_string_direct_send(void);
+void test_json_obj_begin_set_type_fail(void);
+void test_json_obj_begin_send_chunk_fail(void);
+void test_json_obj_end_term_chunk_fail(void);
+void test_json_obj_flush_send_chunk_fail(void);
 
 // Forward declarations from test_nv_config.c
 void test_nv_config_init_success(void);
@@ -1411,6 +1429,24 @@ int main(void) {
     RUN_TEST(test_json_obj_set_bool_null_stream);
     RUN_TEST(test_json_obj_set_null_null_stream);
     RUN_TEST(test_json_obj_end_null_stream);
+    RUN_TEST(test_json_obj_set_num_basic);
+    RUN_TEST(test_json_obj_set_num_integer_value);
+    RUN_TEST(test_json_obj_set_num_null_stream);
+    RUN_TEST(test_json_obj_set_num_not_open);
+    RUN_TEST(test_json_obj_set_num_sticky_error);
+    RUN_TEST(test_json_obj_set_str_escape_cr);
+    RUN_TEST(test_json_obj_set_str_escape_ctrl);
+    RUN_TEST(test_json_obj_set_obj_begin_depth_overflow);
+    RUN_TEST(test_json_obj_set_arr_begin_depth_overflow);
+    RUN_TEST(test_json_obj_set_obj_end_underflow);
+    RUN_TEST(test_json_obj_set_arr_end_underflow);
+    RUN_TEST(test_json_obj_maybe_comma_depth_guard);
+    RUN_TEST(test_json_obj_buffer_flush_on_overflow);
+    RUN_TEST(test_json_obj_large_string_direct_send);
+    RUN_TEST(test_json_obj_begin_set_type_fail);
+    RUN_TEST(test_json_obj_begin_send_chunk_fail);
+    RUN_TEST(test_json_obj_end_term_chunk_fail);
+    RUN_TEST(test_json_obj_flush_send_chunk_fail);
 
     // NV config tests
     RUN_TEST(test_nv_config_init_success);

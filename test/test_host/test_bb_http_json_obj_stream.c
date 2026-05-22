@@ -2,6 +2,7 @@
 #include "bb_http.h"
 #include "bb_http_host.h"
 #include <string.h>
+#include <stdio.h>
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -331,4 +332,339 @@ void test_json_obj_end_null_stream(void)
 {
     bb_err_t err = bb_http_resp_json_obj_end(NULL);
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+// ---------------------------------------------------------------------------
+// set_num
+// ---------------------------------------------------------------------------
+
+void test_json_obj_set_num_basic(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_num(&obj, "pi", 3.14);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    TEST_ASSERT_EQUAL_STRING("{\"pi\":3.14}", s_cap.body);
+    cap_free();
+}
+
+void test_json_obj_set_num_integer_value(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_num(&obj, "n", 42.0);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    TEST_ASSERT_EQUAL_STRING("{\"n\":42}", s_cap.body);
+    cap_free();
+}
+
+void test_json_obj_set_num_null_stream(void)
+{
+    bb_err_t err = bb_http_resp_json_obj_set_num(NULL, "k", 1.0);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_json_obj_set_num_not_open(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_end(&obj);
+
+    bb_err_t err = bb_http_resp_json_obj_set_num(&obj, "k", 1.0);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_num_sticky_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    obj._err = BB_ERR_NO_SPACE;
+
+    bb_err_t err = bb_http_resp_json_obj_set_num(&obj, "k", 1.0);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// string escape — \r and control characters
+// ---------------------------------------------------------------------------
+
+void test_json_obj_set_str_escape_cr(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "msg", "line1\rline2");
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    TEST_ASSERT_EQUAL_STRING("{\"msg\":\"line1\\rline2\"}", s_cap.body);
+    cap_free();
+}
+
+void test_json_obj_set_str_escape_ctrl(void)
+{
+    // ASCII BEL (0x07) is a control char < 0x20, not \n/\r/\t
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "x", "\x07");
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    TEST_ASSERT_EQUAL_STRING("{\"x\":\"\\u0007\"}", s_cap.body);
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// depth overflow — set_obj_begin and set_arr_begin at max depth
+// ---------------------------------------------------------------------------
+
+void test_json_obj_set_obj_begin_depth_overflow(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+
+    // Nest 7 levels deep (depth goes 0→7); the 8th begin must fail
+    for (int i = 0; i < 7; i++) {
+        bb_err_t e = bb_http_resp_json_obj_set_obj_begin(&obj, "a");
+        TEST_ASSERT_EQUAL_MESSAGE(BB_OK, e, "unexpected error before max depth");
+    }
+    bb_err_t err = bb_http_resp_json_obj_set_obj_begin(&obj, "overflow");
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+    // Stream is now poisoned; end returns the error
+    err = bb_http_resp_json_obj_end(&obj);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_arr_begin_depth_overflow(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+
+    for (int i = 0; i < 7; i++) {
+        bb_err_t e = bb_http_resp_json_obj_set_arr_begin(&obj, "a");
+        TEST_ASSERT_EQUAL_MESSAGE(BB_OK, e, "unexpected error before max depth");
+    }
+    bb_err_t err = bb_http_resp_json_obj_set_arr_begin(&obj, "overflow");
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+    err = bb_http_resp_json_obj_end(&obj);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+    cap_end();
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// depth underflow — end when depth is already 0
+// ---------------------------------------------------------------------------
+
+void test_json_obj_set_obj_end_underflow(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+
+    // No matching begin — depth is already 0
+    bb_err_t err = bb_http_resp_json_obj_set_obj_end(&obj);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_arr_end_underflow(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+
+    bb_err_t err = bb_http_resp_json_obj_set_arr_end(&obj);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// obj_maybe_comma depth-guard (depth manually set to MAX)
+// ---------------------------------------------------------------------------
+
+void test_json_obj_maybe_comma_depth_guard(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+
+    // Force depth to 8 (= BB_JSON_OBJ_MAX_DEPTH) to trigger the guard
+    obj._depth = 8;
+    bb_err_t err = bb_http_resp_json_obj_set_str(&obj, "k", "v");
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, obj._err);
+    // Reset depth so end() can flush without crashing
+    obj._depth = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// buffer flush — trigger mid-stream flush by filling the buffer
+// ---------------------------------------------------------------------------
+
+void test_json_obj_buffer_flush_on_overflow(void)
+{
+    // Write enough data to overflow the 1024-byte internal buffer.
+    // Each field emits: ,"key":VALUE. We write many small string fields.
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+
+    // 100 fields of ~12 bytes each = ~1200 bytes, exceeding the 1024 buffer
+    for (int i = 0; i < 100; i++) {
+        char key[8];
+        snprintf(key, sizeof(key), "k%d", i);
+        bb_err_t e = bb_http_resp_json_obj_set_str(&obj, key, "val");
+        TEST_ASSERT_EQUAL(BB_OK, e);
+    }
+    bb_err_t err = bb_http_resp_json_obj_end(&obj);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    cap_end();
+    // Verify the body starts/ends correctly
+    TEST_ASSERT_NOT_NULL(s_cap.body);
+    TEST_ASSERT_EQUAL('{', s_cap.body[0]);
+    TEST_ASSERT_EQUAL('}', s_cap.body[s_cap.body_len - 1]);
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// large token — string > BB_HTTP_JSON_OBJ_BUF_SIZE triggers direct send
+// ---------------------------------------------------------------------------
+
+void test_json_obj_large_string_direct_send(void)
+{
+    // A string value > 1024 bytes bypasses the buffer (direct send path)
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+
+    char big[1100];
+    memset(big, 'A', sizeof(big) - 1);
+    big[sizeof(big) - 1] = '\0';
+
+    bb_err_t err = bb_http_resp_json_obj_set_str(&obj, "data", big);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    err = bb_http_resp_json_obj_end(&obj);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    cap_end();
+    TEST_ASSERT_NOT_NULL(s_cap.body);
+    // Body must contain all 1099 'A' chars
+    TEST_ASSERT_NOT_NULL(strstr(s_cap.body, big));
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// begin fails when set_type fails (line 141)
+// ---------------------------------------------------------------------------
+
+void test_json_obj_begin_set_type_fail(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_host_force_set_type_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_host_force_set_type_fail(false);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    cap_end();
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// begin fails when initial send_chunk("{") fails (lines 149-150)
+// ---------------------------------------------------------------------------
+
+void test_json_obj_begin_send_chunk_fail(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_host_force_send_chunk_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_host_force_send_chunk_fail(false);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, obj._err);
+    cap_end();
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// end() terminal send_chunk(NULL,0) failure propagates (lines 319-320)
+// ---------------------------------------------------------------------------
+
+void test_json_obj_end_term_chunk_fail(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "k", "v");
+
+    // Force only the terminator call (buf==NULL) to fail; flush proceeds OK.
+    bb_http_host_force_send_chunk_term_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_end(&obj);
+    bb_http_host_force_send_chunk_term_fail(false);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    cap_end();
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// send_chunk failure propagates through flush path
+// ---------------------------------------------------------------------------
+
+void test_json_obj_flush_send_chunk_fail(void)
+{
+    // Inject a send_chunk failure mid-stream by filling the buffer to near
+    // capacity and then enabling the failure hook before the overflow flush.
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+
+    // Write fields until we have >= 900 bytes in the buffer (near the 1024
+    // limit). 90 fields of ~11 bytes each = ~990 bytes.
+    for (int i = 0; i < 90; i++) {
+        char key[8];
+        snprintf(key, sizeof(key), "k%d", i);
+        bb_http_resp_json_obj_set_str(&obj, key, "v");
+    }
+
+    // Inject failure. The next write that pushes buf_len + len > 1024 will
+    // call obj_flush which calls send_chunk and receives the error.
+    bb_http_host_force_send_chunk_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_set_str(&obj, "trigger", "overflow");
+    bb_http_host_force_send_chunk_fail(false);
+
+    // If the flush was triggered, err != BB_OK and _err is poisoned.
+    // If the buffer wasn't full enough, force the flush path via end().
+    if (err == BB_OK) {
+        // buf_len is still > 0; end() calls obj_flush with fail hook off —
+        // it will succeed. Instead, re-enable the hook for the flush in end().
+        bb_http_host_force_send_chunk_fail(true);
+        err = bb_http_resp_json_obj_end(&obj);
+        bb_http_host_force_send_chunk_fail(false);
+    } else {
+        bb_http_resp_json_obj_end(&obj);
+    }
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    cap_end();
+    cap_free();
 }
