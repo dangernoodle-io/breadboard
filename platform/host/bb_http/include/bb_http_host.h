@@ -52,6 +52,18 @@ void bb_http_host_capture_free(bb_http_host_capture_t *cap);
 // Reset to false after the test.
 void bb_http_host_force_recv_fail(bool fail);
 
+// Test hook: force bb_http_resp_set_type to return BB_ERR_INVALID_STATE.
+// Reset to false after the test.
+void bb_http_host_force_set_type_fail(bool fail);
+
+// Test hook: force bb_http_resp_send_chunk to return BB_ERR_NO_SPACE.
+// Reset to false after the test.
+void bb_http_host_force_send_chunk_fail(bool fail);
+
+// Test hook: force send_chunk to fail only on the terminator call (buf==NULL).
+// Reset to false after the test.
+void bb_http_host_force_send_chunk_term_fail(bool fail);
+
 #ifdef __cplusplus
 }
 #endif
