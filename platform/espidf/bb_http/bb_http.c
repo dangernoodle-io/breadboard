@@ -345,62 +345,6 @@ bb_err_t bb_http_resp_set_header(bb_http_request_t *req, const char *key, const 
     return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
 }
 
-bb_err_t bb_http_resp_send(bb_http_request_t *req, const char *body, size_t len)
-{
-    httpd_req_t *http_req = (httpd_req_t*)req;
-    if (!http_req) return BB_ERR_INVALID_ARG;
-
-    esp_err_t err = httpd_resp_send(http_req, body, len);
-    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
-}
-
-bb_err_t bb_http_resp_send_err(bb_http_request_t *req, int status_code, const char *message)
-{
-    httpd_req_t *http_req = (httpd_req_t*)req;
-    if (!http_req) return BB_ERR_INVALID_ARG;
-
-    // Map status code to httpd_err_code_t
-    httpd_err_code_t err_code;
-    switch (status_code) {
-        case 400:
-            err_code = HTTPD_400_BAD_REQUEST;
-            break;
-        case 404:
-            err_code = HTTPD_404_NOT_FOUND;
-            break;
-        case 405:
-            err_code = HTTPD_405_METHOD_NOT_ALLOWED;
-            break;
-        case 408:
-            err_code = HTTPD_408_REQ_TIMEOUT;
-            break;
-        case 411:
-            err_code = HTTPD_411_LENGTH_REQUIRED;
-            break;
-        case 414:
-            err_code = HTTPD_414_URI_TOO_LONG;
-            break;
-        case 431:
-            err_code = HTTPD_431_REQ_HDR_FIELDS_TOO_LARGE;
-            break;
-        case 500:
-            err_code = HTTPD_500_INTERNAL_SERVER_ERROR;
-            break;
-        case 501:
-            err_code = HTTPD_501_METHOD_NOT_IMPLEMENTED;
-            break;
-        case 505:
-            err_code = HTTPD_505_VERSION_NOT_SUPPORTED;
-            break;
-        default:
-            err_code = HTTPD_500_INTERNAL_SERVER_ERROR;
-            break;
-    }
-
-    esp_err_t err = httpd_resp_send_err(http_req, err_code, message);
-    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
-}
-
 int bb_http_req_body_len(bb_http_request_t *req)
 {
     httpd_req_t *http_req = (httpd_req_t*)req;
@@ -449,8 +393,9 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
 
 bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)
 {
-    if (!str) return bb_http_resp_send(req, NULL, 0);
-    return bb_http_resp_send(req, str, strlen(str));
+    bb_err_t err = bb_http_resp_send_chunk(req, str, str ? -1 : 0);
+    if (err != BB_OK) return err;
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
 #ifdef CONFIG_BB_HTTP_RESP_SEND_CHUNK_LIVENESS_PROBE
@@ -477,7 +422,7 @@ bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int le
      * race (RST can land between probe and lwip_send) but stops the long
      * tail of writing N more chunks into a dead socket — particularly
      * relevant for SSE streamers (bb_log_routes, bb_event_routes) and the
-     * chunked-JSON fallback in bb_http_resp_send_json. The zero-length
+     * chunked fallback path in bb_http_resp_send_json. The zero-length
      * terminator (len==0) is allowed through so callers can finalize the
      * chunked response in their cleanup path without an extra branch. */
     if (len != 0 && sock_peer_closed(http_req)) {
@@ -667,53 +612,6 @@ static bb_err_t json_stream_node(bb_http_request_t *req, bb_json_t node)
     bb_err_t err = bb_http_resp_send_chunk(req, s, -1);
     bb_json_free_str(s);
     return err;
-}
-
-bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc)
-{
-    if (!req) return BB_ERR_INVALID_ARG;
-
-    bb_err_t err = bb_http_resp_set_type(req, "application/json");
-    if (err != BB_OK) return err;
-
-    // Scalars / null at the root: send as a single non-chunked response so the
-    // socket isn't put into chunked-encoding mode for a tiny payload.
-    if (bb_json_get_kind(doc) == BB_JSON_KIND_OTHER) {
-        char *json_str = bb_json_item_serialize(doc);
-        if (json_str) {
-            err = bb_http_resp_send(req, json_str, strlen(json_str));
-            bb_json_free_str(json_str);
-            return err;
-        }
-        return bb_http_resp_send(req, "null", 4);
-    }
-
-    /* Prefer one-shot serialize + Content-Length send. The chunked emitter
-     * (json_stream_node + bb_http_resp_send_chunk) makes one lwip_send call
-     * per field / comma / brace — a 4 KB JSON tree easily reaches 200+
-     * chunks. Each chunk routes through tcpip_send_msg_wait_sem, which
-     * aborts the device via LWIP_ASSERT if the peer closes the socket and
-     * the netconn's op_completed_sem is freed before the next chunk lands.
-     * Reproduced on bitaxe-650 with the dashboard + SSE log stream open.
-     * One-shot collapses ~200 lwip_send calls to one and effectively
-     * eliminates the race window for typical /api responses. Falls back
-     * to streaming only when cJSON_PrintUnformatted returns NULL on very
-     * large trees (e.g. a fully-materialized /api/openapi.json), where
-     * streaming-with-race is the lesser harm vs sending nothing. */
-    {
-        char *one_shot = bb_json_item_serialize(doc);
-        if (one_shot) {
-            err = bb_http_resp_send(req, one_shot, strlen(one_shot));
-            bb_json_free_str(one_shot);
-            return err;
-        }
-    }
-
-    err = json_stream_node(req, doc);
-    // Always finalize the chunked response — without the zero-length chunk
-    // the client may see a truncated body even if everything else succeeded.
-    bb_err_t fin = bb_http_resp_send_chunk(req, NULL, 0);
-    return err != BB_OK ? err : fin;
 }
 
 // ============================================================================

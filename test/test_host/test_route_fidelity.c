@@ -21,7 +21,6 @@
 #include "bb_http.h"
 #include "bb_http_host.h"
 #include "bb_openapi.h"
-#include "bb_json.h"
 #include "bb_board.h"
 #include "bb_wifi.h"
 #include "bb_system.h"
@@ -172,7 +171,9 @@ static bb_err_t h_reboot(bb_http_request_t *req)
 {
     static const char body[] = "{\"status\":\"rebooting\"}";
     bb_http_resp_set_type(req, "application/json");
-    return bb_http_resp_send(req, body, sizeof(body) - 1);
+    bb_err_t err = bb_http_resp_send_chunk(req, body, sizeof(body) - 1);
+    if (err != BB_OK) return err;
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
 static bb_err_t h_board(bb_http_request_t *req)
@@ -180,26 +181,24 @@ static bb_err_t h_board(bb_http_request_t *req)
     bb_board_info_t info;
     bb_board_get_info(&info);
 
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_string(root, "board", info.board);
-    bb_json_obj_set_string(root, "project_name", info.project_name);
-    bb_json_obj_set_string(root, "version", info.version);
-    bb_json_obj_set_string(root, "idf_version", info.idf_version);
-    bb_json_obj_set_string(root, "build_date", info.build_date);
-    bb_json_obj_set_string(root, "build_time", info.build_time);
-    bb_json_obj_set_string(root, "chip_model", info.chip_model);
-    bb_json_obj_set_number(root, "cores", (double)info.cores);
-    bb_json_obj_set_string(root, "mac", info.mac);
-    bb_json_obj_set_number(root, "flash_size", (double)info.flash_size);
-    bb_json_obj_set_number(root, "total_heap", (double)info.total_heap);
-    bb_json_obj_set_number(root, "free_heap", (double)info.free_heap);
-    bb_json_obj_set_number(root, "app_size", (double)info.app_size);
-    bb_json_obj_set_string(root, "reset_reason", info.reset_reason);
-    bb_json_obj_set_bool(root, "ota_validated", info.ota_validated);
-
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "board", info.board);
+    bb_http_resp_json_obj_set_str(&obj, "project_name", info.project_name);
+    bb_http_resp_json_obj_set_str(&obj, "version", info.version);
+    bb_http_resp_json_obj_set_str(&obj, "idf_version", info.idf_version);
+    bb_http_resp_json_obj_set_str(&obj, "build_date", info.build_date);
+    bb_http_resp_json_obj_set_str(&obj, "build_time", info.build_time);
+    bb_http_resp_json_obj_set_str(&obj, "chip_model", info.chip_model);
+    bb_http_resp_json_obj_set_num(&obj, "cores", (double)info.cores);
+    bb_http_resp_json_obj_set_str(&obj, "mac", info.mac);
+    bb_http_resp_json_obj_set_num(&obj, "flash_size", (double)info.flash_size);
+    bb_http_resp_json_obj_set_num(&obj, "total_heap", (double)info.total_heap);
+    bb_http_resp_json_obj_set_num(&obj, "free_heap", (double)info.free_heap);
+    bb_http_resp_json_obj_set_num(&obj, "app_size", (double)info.app_size);
+    bb_http_resp_json_obj_set_str(&obj, "reset_reason", info.reset_reason);
+    bb_http_resp_json_obj_set_bool(&obj, "ota_validated", info.ota_validated);
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static bb_err_t h_info(bb_http_request_t *req)
@@ -214,43 +213,40 @@ static bb_err_t h_info(bb_http_request_t *req)
              w.bssid[0], w.bssid[1], w.bssid[2],
              w.bssid[3], w.bssid[4], w.bssid[5]);
 
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_string(root, "board", b.board);
-    bb_json_obj_set_string(root, "project_name", b.project_name);
-    bb_json_obj_set_string(root, "version", b.version);
-    bb_json_obj_set_string(root, "idf_version", b.idf_version);
-    bb_json_obj_set_string(root, "build_date", b.build_date);
-    bb_json_obj_set_string(root, "build_time", b.build_time);
-    bb_json_obj_set_string(root, "chip_model", b.chip_model);
-    bb_json_obj_set_number(root, "cores", (double)b.cores);
-    bb_json_obj_set_string(root, "mac", b.mac);
-    bb_json_obj_set_number(root, "flash_size", (double)b.flash_size);
-    bb_json_obj_set_number(root, "total_heap", (double)b.total_heap);
-    bb_json_obj_set_number(root, "free_heap", (double)b.free_heap);
-    bb_json_obj_set_number(root, "app_size", (double)b.app_size);
-    bb_json_obj_set_string(root, "reset_reason", b.reset_reason);
-    bb_json_obj_set_bool(root, "ota_validated", b.ota_validated);
-    bb_json_obj_set_number(root, "heap_free_total", (double)bb_board_heap_free_total());
-    bb_json_obj_set_number(root, "heap_free_internal", (double)bb_board_heap_free_internal());
-    bb_json_obj_set_number(root, "heap_minimum_ever", (double)bb_board_heap_minimum_ever());
-    bb_json_obj_set_number(root, "heap_largest_free_block", (double)bb_board_heap_largest_free_block());
-    bb_json_obj_set_number(root, "chip_revision", (double)bb_board_chip_revision());
-    bb_json_obj_set_number(root, "cpu_freq_mhz", (double)bb_board_cpu_freq_mhz());
-
-    bb_json_t net = bb_json_obj_new();
-    bb_json_obj_set_string(net, "ssid", w.ssid);
-    bb_json_obj_set_string(net, "bssid", bssid);
-    bb_json_obj_set_number(net, "rssi", (double)w.rssi);
-    bb_json_obj_set_string(net, "ip", w.ip);
-    bb_json_obj_set_bool(net, "connected", w.connected);
-    bb_json_obj_set_number(net, "disc_reason", (double)w.disc_reason);
-    bb_json_obj_set_number(net, "disc_age_s", (double)w.disc_age_s);
-    bb_json_obj_set_number(net, "retry_count", (double)w.retry_count);
-    bb_json_obj_set_obj(root, "network", net);
-
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "board", b.board);
+    bb_http_resp_json_obj_set_str(&obj, "project_name", b.project_name);
+    bb_http_resp_json_obj_set_str(&obj, "version", b.version);
+    bb_http_resp_json_obj_set_str(&obj, "idf_version", b.idf_version);
+    bb_http_resp_json_obj_set_str(&obj, "build_date", b.build_date);
+    bb_http_resp_json_obj_set_str(&obj, "build_time", b.build_time);
+    bb_http_resp_json_obj_set_str(&obj, "chip_model", b.chip_model);
+    bb_http_resp_json_obj_set_num(&obj, "cores", (double)b.cores);
+    bb_http_resp_json_obj_set_str(&obj, "mac", b.mac);
+    bb_http_resp_json_obj_set_num(&obj, "flash_size", (double)b.flash_size);
+    bb_http_resp_json_obj_set_num(&obj, "total_heap", (double)b.total_heap);
+    bb_http_resp_json_obj_set_num(&obj, "free_heap", (double)b.free_heap);
+    bb_http_resp_json_obj_set_num(&obj, "app_size", (double)b.app_size);
+    bb_http_resp_json_obj_set_str(&obj, "reset_reason", b.reset_reason);
+    bb_http_resp_json_obj_set_bool(&obj, "ota_validated", b.ota_validated);
+    bb_http_resp_json_obj_set_num(&obj, "heap_free_total", (double)bb_board_heap_free_total());
+    bb_http_resp_json_obj_set_num(&obj, "heap_free_internal", (double)bb_board_heap_free_internal());
+    bb_http_resp_json_obj_set_num(&obj, "heap_minimum_ever", (double)bb_board_heap_minimum_ever());
+    bb_http_resp_json_obj_set_num(&obj, "heap_largest_free_block", (double)bb_board_heap_largest_free_block());
+    bb_http_resp_json_obj_set_num(&obj, "chip_revision", (double)bb_board_chip_revision());
+    bb_http_resp_json_obj_set_num(&obj, "cpu_freq_mhz", (double)bb_board_cpu_freq_mhz());
+    bb_http_resp_json_obj_set_obj_begin(&obj, "network");
+    bb_http_resp_json_obj_set_str(&obj, "ssid", w.ssid);
+    bb_http_resp_json_obj_set_str(&obj, "bssid", bssid);
+    bb_http_resp_json_obj_set_num(&obj, "rssi", (double)w.rssi);
+    bb_http_resp_json_obj_set_str(&obj, "ip", w.ip);
+    bb_http_resp_json_obj_set_bool(&obj, "connected", w.connected);
+    bb_http_resp_json_obj_set_num(&obj, "disc_reason", (double)w.disc_reason);
+    bb_http_resp_json_obj_set_num(&obj, "disc_age_s", (double)w.disc_age_s);
+    bb_http_resp_json_obj_set_num(&obj, "retry_count", (double)w.retry_count);
+    bb_http_resp_json_obj_set_obj_end(&obj);
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static bb_err_t h_health(bb_http_request_t *req)
@@ -265,26 +261,23 @@ static bb_err_t h_health(bb_http_request_t *req)
 
     bool ok = w.connected && b.ota_validated && mdns_up;
 
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_bool(root, "ok", ok);
-    bb_json_obj_set_number(root, "free_heap", (double)b.free_heap);
-    bb_json_obj_set_bool(root, "validated", b.ota_validated);
-
-    bb_json_t net = bb_json_obj_new();
-    bb_json_obj_set_bool(net, "connected", w.connected);
-    bb_json_obj_set_number(net, "rssi", (double)w.rssi);
-    bb_json_obj_set_number(net, "disc_age_s", (double)w.disc_age_s);
-    bb_json_obj_set_number(net, "retry_count", (double)w.retry_count);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_bool(&obj, "ok", ok);
+    bb_http_resp_json_obj_set_num(&obj, "free_heap", (double)b.free_heap);
+    bb_http_resp_json_obj_set_bool(&obj, "validated", b.ota_validated);
+    bb_http_resp_json_obj_set_obj_begin(&obj, "network");
+    bb_http_resp_json_obj_set_bool(&obj, "connected", w.connected);
+    bb_http_resp_json_obj_set_num(&obj, "rssi", (double)w.rssi);
+    bb_http_resp_json_obj_set_num(&obj, "disc_age_s", (double)w.disc_age_s);
+    bb_http_resp_json_obj_set_num(&obj, "retry_count", (double)w.retry_count);
     if (hostname) {
-        bb_json_obj_set_string(net, "mdns", hostname);
+        bb_http_resp_json_obj_set_str(&obj, "mdns", hostname);
     } else {
-        bb_json_obj_set_null(net, "mdns");
+        bb_http_resp_json_obj_set_null(&obj, "mdns");
     }
-    bb_json_obj_set_obj(root, "network", net);
-
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    bb_http_resp_json_obj_set_obj_end(&obj);
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static bb_err_t h_wifi_info(bb_http_request_t *req)
@@ -297,33 +290,29 @@ static bb_err_t h_wifi_info(bb_http_request_t *req)
              info.bssid[0], info.bssid[1], info.bssid[2],
              info.bssid[3], info.bssid[4], info.bssid[5]);
 
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_string(root, "ssid", info.ssid);
-    bb_json_obj_set_string(root, "bssid", bssid);
-    bb_json_obj_set_number(root, "rssi", (double)info.rssi);
-    bb_json_obj_set_string(root, "ip", info.ip);
-    bb_json_obj_set_bool(root, "connected", info.connected);
-    bb_json_obj_set_number(root, "disc_reason", (double)info.disc_reason);
-    bb_json_obj_set_number(root, "disc_age_s", (double)info.disc_age_s);
-    bb_json_obj_set_number(root, "retry_count", (double)info.retry_count);
-
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "ssid", info.ssid);
+    bb_http_resp_json_obj_set_str(&obj, "bssid", bssid);
+    bb_http_resp_json_obj_set_num(&obj, "rssi", (double)info.rssi);
+    bb_http_resp_json_obj_set_str(&obj, "ip", info.ip);
+    bb_http_resp_json_obj_set_bool(&obj, "connected", info.connected);
+    bb_http_resp_json_obj_set_num(&obj, "disc_reason", (double)info.disc_reason);
+    bb_http_resp_json_obj_set_num(&obj, "disc_age_s", (double)info.disc_age_s);
+    bb_http_resp_json_obj_set_num(&obj, "retry_count", (double)info.retry_count);
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 // OTA status: mirrors ota_status_handler idle-state path.
 static bb_err_t h_ota_status(bb_http_request_t *req)
 {
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_string(root, "state", "idle");
-    bb_json_obj_set_bool(root, "in_progress", false);
-    bb_json_obj_set_number(root, "progress_pct", 0);
-    bb_json_obj_set_string(root, "last_error", "");
-
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "state", "idle");
+    bb_http_resp_json_obj_set_bool(&obj, "in_progress", false);
+    bb_http_resp_json_obj_set_num(&obj, "progress_pct", 0);
+    bb_http_resp_json_obj_set_str(&obj, "last_error", "");
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 // OTA mark-valid 409: on host bb_ota_is_pending() is always false.
@@ -332,7 +321,9 @@ static bb_err_t h_ota_mark_valid_409(bb_http_request_t *req)
     bb_http_resp_set_type(req, "application/json");
     bb_http_resp_set_status(req, 409);
     static const char body[] = "{\"error\":\"not pending\"}";
-    return bb_http_resp_send(req, body, sizeof(body) - 1);
+    bb_err_t err = bb_http_resp_send_chunk(req, body, sizeof(body) - 1);
+    if (err != BB_OK) return err;
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -494,10 +485,10 @@ void test_capture_send_json_sets_content_type(void)
     bb_http_request_t *req = NULL;
     bb_http_host_capture_begin(&req);
 
-    bb_json_t obj = bb_json_obj_new();
-    bb_json_obj_set_string(obj, "k", "v");
-    bb_http_resp_send_json(req, obj);
-    bb_json_free(obj);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "k", "v");
+    bb_http_resp_json_obj_end(&obj);
 
     bb_http_host_capture_t cap;
     memset(&cap, 0, sizeof(cap));
@@ -512,8 +503,9 @@ void test_capture_multi_write_appends(void)
     bb_http_request_t *req = NULL;
     bb_http_host_capture_begin(&req);
 
-    bb_http_resp_send(req, "aaa", 3);
-    bb_http_resp_send(req, "bbb", 3);
+    bb_http_resp_send_chunk(req, "aaa", 3);
+    bb_http_resp_send_chunk(req, "bbb", 3);
+    bb_http_resp_send_chunk(req, NULL, 0);
 
     bb_http_host_capture_t cap;
     memset(&cap, 0, sizeof(cap));
@@ -544,7 +536,7 @@ void test_capture_no_active_slot_ignored(void)
     bb_http_request_t *fake = (bb_http_request_t *)&(int){99};
     bb_http_resp_set_status(fake, 500);
     bb_http_resp_set_type(fake, "text/plain");
-    bb_http_resp_send(fake, "hello", 5);
+    bb_http_resp_send_chunk(fake, "hello", 5);
     bb_http_resp_sendstr(fake, "world");
     // No crash = pass
 }

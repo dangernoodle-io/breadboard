@@ -145,7 +145,6 @@ void test_bb_json_get_kind_array(void);
 void test_bb_json_get_kind_scalar(void);
 void test_bb_json_walk_children_object(void);
 void test_bb_json_walk_children_array(void);
-void test_bb_http_resp_send_json_callable(void);
 
 // Forward declarations from test_bb_http_json_arr_stream.c
 void test_json_arr_begin_null_req(void);
@@ -1422,7 +1421,6 @@ int main(void) {
     RUN_TEST(test_bb_json_get_kind_scalar);
     RUN_TEST(test_bb_json_walk_children_object);
     RUN_TEST(test_bb_json_walk_children_array);
-    RUN_TEST(test_bb_http_resp_send_json_callable);
 
     // bb_http JSON array streaming tests
     RUN_TEST(test_json_arr_begin_null_req);
