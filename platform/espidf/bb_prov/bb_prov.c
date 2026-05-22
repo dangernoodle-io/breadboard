@@ -48,12 +48,20 @@ static bb_err_t prov_save_handler(bb_http_request_t *req)
     // Validate content length to prevent silent body truncation
     int content_len = bb_http_req_body_len(req);
     if (content_len > (int)(sizeof(body) - 1)) {
-        bb_http_resp_send_err(req, 400, "Body too large");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "Body too large");
+        bb_http_resp_json_obj_end(&obj);
         return BB_ERR_INVALID_ARG;
     }
     int len = bb_http_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) {
-        bb_http_resp_send_err(req, 400, "Empty body");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "Empty body");
+        bb_http_resp_json_obj_end(&obj);
         return BB_ERR_INVALID_ARG;
     }
     body[len] = '\0';
@@ -61,19 +69,33 @@ static bb_err_t prov_save_handler(bb_http_request_t *req)
     // Parse URL-encoded fields
     char ssid[32] = "", pass[64] = "";
     switch (bb_prov_parse_body(body, len, ssid, sizeof(ssid), pass, sizeof(pass))) {
-        case BB_PROV_PARSE_EMPTY_BODY:
-            bb_http_resp_send_err(req, 400, "Empty body");
+        case BB_PROV_PARSE_EMPTY_BODY: {
+            bb_http_resp_set_status(req, 400);
+            bb_http_json_obj_stream_t obj;
+            bb_http_resp_json_obj_begin(req, &obj);
+            bb_http_resp_json_obj_set_str(&obj, "error", "Empty body");
+            bb_http_resp_json_obj_end(&obj);
             return BB_ERR_INVALID_ARG;
-        case BB_PROV_PARSE_SSID_REQUIRED:
-            bb_http_resp_send_err(req, 400, "SSID required");
+        }
+        case BB_PROV_PARSE_SSID_REQUIRED: {
+            bb_http_resp_set_status(req, 400);
+            bb_http_json_obj_stream_t obj;
+            bb_http_resp_json_obj_begin(req, &obj);
+            bb_http_resp_json_obj_set_str(&obj, "error", "SSID required");
+            bb_http_resp_json_obj_end(&obj);
             return BB_ERR_INVALID_ARG;
+        }
         case BB_PROV_PARSE_OK:
             break;
     }
 
     bb_err_t err = bb_nv_config_set_wifi(ssid, pass);
     if (err != BB_OK) {
-        bb_http_resp_send_err(req, 500, "Failed to save config");
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "Failed to save config");
+        bb_http_resp_json_obj_end(&obj);
         return BB_ERR_INVALID_STATE;
     }
 
@@ -82,7 +104,7 @@ static bb_err_t prov_save_handler(bb_http_request_t *req)
         if (cb_err != BB_OK) return BB_ERR_INVALID_STATE;
     } else {
         bb_http_resp_set_status(req, 204);
-        bb_http_resp_send(req, NULL, 0);
+        bb_http_resp_send_chunk(req, NULL, 0);
     }
 
     bb_prov_signal_done();
@@ -94,7 +116,7 @@ static bb_err_t prov_redirect_handler(bb_http_request_t *req)
     set_common_headers(req);
     bb_http_resp_set_status(req, 302);
     bb_http_resp_set_header(req, "Location", "http://192.168.4.1/");
-    bb_http_resp_send(req, NULL, 0);
+    bb_http_resp_send_chunk(req, NULL, 0);
     return BB_OK;
 }
 

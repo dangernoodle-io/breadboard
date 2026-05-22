@@ -7,7 +7,6 @@
 #include "bb_http_client.h"
 #include "bb_log.h"
 #include "bb_registry.h"
-#include "bb_json.h"
 #include "bb_event_routes.h"
 
 #include <stdio.h>
@@ -98,25 +97,30 @@ static bb_err_t status_handler(bb_http_request_t *req)
     bb_update_check_status_t st;
     bb_err_t err = bb_update_check_get_status(&st);
     if (err != BB_OK) {
-        bb_http_resp_send_err(req, 503, "not initialized");
+        bb_http_resp_set_status(req, 503);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "not initialized");
+        bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
 
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_string(root, "current", st.current);
-    bb_json_obj_set_string(root, "latest", st.latest);
-    bb_json_obj_set_string(root, "download_url", st.download_url);
-    bb_json_obj_set_bool(root, "available", st.available);
-    bb_json_obj_set_bool(root, "last_check_ok", st.last_check_ok);
-    bb_json_obj_set_bool(root, "enabled", st.enabled);
+    bb_http_json_obj_stream_t obj;
+    err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+    bb_http_resp_json_obj_set_str(&obj,  "current",       st.current);
+    bb_http_resp_json_obj_set_str(&obj,  "latest",        st.latest);
+    bb_http_resp_json_obj_set_str(&obj,  "download_url",  st.download_url);
+    bb_http_resp_json_obj_set_bool(&obj, "available",     st.available);
+    bb_http_resp_json_obj_set_bool(&obj, "last_check_ok", st.last_check_ok);
+    bb_http_resp_json_obj_set_bool(&obj, "enabled",       st.enabled);
     // Unix seconds when last_check_us is non-zero; omitted otherwise so the
     // client can render "never checked" cleanly.
     if (st.last_check_us != 0) {
-        bb_json_obj_set_number(root, "last_check_ts", (double)(st.last_check_us / 1000000));
+        bb_http_resp_json_obj_set_int(&obj, "last_check_ts",
+                                      (int64_t)(st.last_check_us / 1000000));
     }
-    bb_err_t r = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return r;
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static const bb_route_response_t s_status_responses[] = {

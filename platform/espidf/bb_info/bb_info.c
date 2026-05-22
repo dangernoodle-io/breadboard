@@ -1,5 +1,6 @@
 #include "bb_info.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "bb_board.h"
@@ -84,6 +85,19 @@ static void add_network_object(bb_json_t root, const bb_wifi_info_t *w)
     bb_json_obj_set_obj(root, "network", net);
 }
 
+// Serialize a bb_json_t tree and stream it via chunked transfer.
+// Returns BB_OK on success. Caller owns/frees root.
+static bb_err_t send_json_tree(bb_http_request_t *req, bb_json_t root)
+{
+    char *str = bb_json_serialize(root);
+    if (!str) return BB_ERR_NO_MEM;
+    bb_err_t err = bb_http_resp_set_type(req, "application/json");
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
+    free(str);
+    return err;
+}
+
 static bb_err_t info_handler(bb_http_request_t *req)
 {
     bb_board_info_t b;
@@ -105,7 +119,7 @@ static bb_err_t info_handler(bb_http_request_t *req)
         s_extenders[i](root);
     }
 
-    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_err_t err = send_json_tree(req, root);
     bb_json_free(root);
     return err;
 }
@@ -143,7 +157,7 @@ static bb_err_t health_handler(bb_http_request_t *req)
         s_health_extenders[i](root);
     }
 
-    bb_err_t err = bb_http_resp_send_json(req, root);
+    bb_err_t err = send_json_tree(req, root);
     bb_json_free(root);
     return err;
 }

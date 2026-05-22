@@ -96,12 +96,12 @@ static bb_err_t logs_handler(bb_http_request_t *req)
 
     if (s_sse_task_handle) {
         bb_http_resp_set_status(req, 503);
-        bb_http_resp_set_type(req, "application/json");
-        char body[96];
-        int n = snprintf(body, sizeof(body),
-            "{\"error\":\"busy\",\"active_client\":\"%s\"}",
-            s_sse_client_type == 1 ? "browser" : "external");
-        bb_http_resp_send(req, body, n);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "busy");
+        bb_http_resp_json_obj_set_str(&obj, "active_client",
+                                      s_sse_client_type == 1 ? "browser" : "external");
+        bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
 
@@ -111,7 +111,11 @@ static bb_err_t logs_handler(bb_http_request_t *req)
 
     bb_http_request_t *async_req = NULL;
     if (bb_http_req_async_handler_begin(req, &async_req) != BB_OK) {
-        bb_http_resp_send_err(req, 500, "Async init failed");
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "Async init failed");
+        bb_http_resp_json_obj_end(&obj);
         return BB_ERR_INVALID_STATE;
     }
 
@@ -126,17 +130,19 @@ static bb_err_t logs_handler(bb_http_request_t *req)
 
 static bb_err_t logs_status_handler(bb_http_request_t *req)
 {
-    bb_http_resp_set_type(req, "application/json");
-    char buf[96];
     uint32_t dropped = bb_log_stream_dropped_lines();
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+    bb_http_resp_json_obj_set_bool(&obj, "active", s_sse_client_type != 0);
     if (s_sse_client_type == 0) {
-        snprintf(buf, sizeof(buf), "{\"active\":false,\"client\":null,\"dropped\":%" PRIu32 "}", dropped);
+        bb_http_resp_json_obj_set_null(&obj, "client");
     } else {
-        snprintf(buf, sizeof(buf), "{\"active\":true,\"client\":\"%s\",\"dropped\":%" PRIu32 "}",
-                 s_sse_client_type == 1 ? "browser" : "external", dropped);
+        bb_http_resp_json_obj_set_str(&obj, "client",
+                                      s_sse_client_type == 1 ? "browser" : "external");
     }
-    bb_http_resp_sendstr(req, buf);
-    return BB_OK;
+    bb_http_resp_json_obj_set_int(&obj, "dropped", (int64_t)dropped);
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 // ---------------------------------------------------------------------------

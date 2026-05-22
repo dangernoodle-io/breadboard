@@ -25,37 +25,36 @@ static const char *TAG = "bb_diag_routes";
 
 static bb_err_t panic_get_handler(bb_http_request_t *req)
 {
-    bb_json_t root = bb_json_obj_new();
-    if (!root) {
-        return bb_http_resp_send_err(req, 500, "JSON alloc failed");
-    }
-
-    bool available = bb_diag_panic_available();
+    bool available     = bb_diag_panic_available();
     bool coredump_avail = bb_diag_panic_coredump_available();
-    bb_json_obj_set_bool(root, "available", available);
+
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+
+    bb_http_resp_json_obj_set_bool(&obj, "available", available);
     if (available || coredump_avail) {
-        bb_json_obj_set_number(root, "boots_since", (double)bb_diag_panic_boots_since());
+        bb_http_resp_json_obj_set_int(&obj, "boots_since",
+                                      (int64_t)bb_diag_panic_boots_since());
     }
 
     if (available) {
-        // Get reset reason string
         const char *reason_str = "unknown";
         esp_reset_reason_t reason = esp_reset_reason();
         switch (reason) {
-            case ESP_RST_PANIC:      reason_str = "panic"; break;
-            case ESP_RST_TASK_WDT:   reason_str = "task_wdt"; break;
-            case ESP_RST_INT_WDT:    reason_str = "int_wdt"; break;
-            case ESP_RST_WDT:        reason_str = "wdt"; break;
-            case ESP_RST_BROWNOUT:   reason_str = "brownout"; break;
+            case ESP_RST_PANIC:    reason_str = "panic";    break;
+            case ESP_RST_TASK_WDT: reason_str = "task_wdt"; break;
+            case ESP_RST_INT_WDT:  reason_str = "int_wdt";  break;
+            case ESP_RST_WDT:      reason_str = "wdt";      break;
+            case ESP_RST_BROWNOUT: reason_str = "brownout"; break;
             default: break;
         }
-        bb_json_obj_set_string(root, "reset_reason", reason_str);
+        bb_http_resp_json_obj_set_str(&obj, "reset_reason", reason_str);
 
-        // Retrieve panic log
         char panic_buf[512];
         size_t panic_len = sizeof(panic_buf) - 1;
         if (bb_diag_panic_get(panic_buf, &panic_len) == BB_OK) {
-            bb_json_obj_set_string(root, "log_tail", panic_buf);
+            bb_http_resp_json_obj_set_str(&obj, "log_tail", panic_buf);
         }
     }
 
@@ -63,34 +62,31 @@ static bb_err_t panic_get_handler(bb_http_request_t *req)
     if (coredump_avail) {
         bb_diag_panic_summary_t summary;
         if (bb_diag_panic_coredump_get(&summary) == BB_OK) {
-            bb_json_obj_set_string(root, "task", summary.task_name);
-            bb_json_obj_set_number(root, "exc_pc", (double)summary.exc_pc);
-            bb_json_obj_set_number(root, "exc_cause", (double)summary.exc_cause);
+            bb_http_resp_json_obj_set_str(&obj, "task",      summary.task_name);
+            bb_http_resp_json_obj_set_int(&obj, "exc_pc",    (int64_t)summary.exc_pc);
+            bb_http_resp_json_obj_set_int(&obj, "exc_cause", (int64_t)summary.exc_cause);
 
-            bb_json_t bt = bb_json_arr_new();
+            bb_http_resp_json_obj_set_arr_begin(&obj, "backtrace");
             for (uint32_t i = 0; i < summary.bt_count; i++) {
-                bb_json_arr_append_number(bt, (double)summary.bt_addrs[i]);
+                bb_http_resp_json_obj_set_int(&obj, NULL, (int64_t)summary.bt_addrs[i]);
             }
-            bb_json_obj_set_arr(root, "backtrace", bt);
+            bb_http_resp_json_obj_set_arr_end(&obj);
 
             if (summary.panic_reason[0] != '\0') {
-                bb_json_obj_set_string(root, "panic_reason", summary.panic_reason);
+                bb_http_resp_json_obj_set_str(&obj, "panic_reason", summary.panic_reason);
             }
         }
     }
 #endif
 
-    bb_http_resp_set_status(req, 200);
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static bb_err_t panic_delete_handler(bb_http_request_t *req)
 {
     bb_diag_panic_clear();
     bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send(req, NULL, 0);
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
 static const bb_route_response_t s_panic_get_responses[] = {
@@ -163,14 +159,26 @@ static bb_err_t coredump_get_handler(bb_http_request_t *req)
 {
     size_t size = bb_diag_panic_coredump_size();
     if (size == 0) {
-        return bb_http_resp_send_err(req, 404, "no coredump available");
+        bb_http_resp_set_status(req, 404);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "no coredump available");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_ERR_NOT_FOUND;
     }
 
     // Allocate in chunks to keep heap pressure manageable on a panicked device.
     // 4KB chunks; one buffer for the whole file would be ~64KB which we'd rather avoid.
     enum { CHUNK = 4096 };
     uint8_t *chunk = malloc(CHUNK);
-    if (!chunk) return bb_http_resp_send_err(req, 500, "alloc failed");
+    if (!chunk) {
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "alloc failed");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_ERR_NO_SPACE;
+    }
 
     bb_http_resp_set_status(req, 200);
     bb_http_resp_set_type(req, "application/octet-stream");
@@ -186,12 +194,22 @@ static bb_err_t coredump_get_handler(bb_http_request_t *req)
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, NULL);
     if (!part) {
         free(chunk);
-        return bb_http_resp_send_err(req, 500, "partition not found");
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "partition not found");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_ERR_INVALID_STATE;
     }
     size_t addr = 0, total = 0;
     if (esp_core_dump_image_get(&addr, &total) != ESP_OK) {
         free(chunk);
-        return bb_http_resp_send_err(req, 500, "image_get failed");
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "image_get failed");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_ERR_INVALID_STATE;
     }
     size_t part_offset = (addr >= part->address) ? (addr - part->address) : 0;
 
@@ -237,7 +255,7 @@ static bb_err_t abnormal_resets_delete_handler(bb_http_request_t *req)
 {
     bb_diag_abnormal_reset_count_clear();
     bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send(req, NULL, 0);
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
 static const bb_route_response_t s_abnormal_resets_delete_responses[] = {
@@ -258,9 +276,6 @@ static const bb_route_t s_abnormal_resets_delete_route = {
 
 static bb_err_t heap_get_handler(bb_http_request_t *req)
 {
-    bb_json_t root = bb_json_obj_new();
-    if (!root) return bb_http_resp_send_err(req, 500, "JSON alloc failed");
-
     struct cap_entry { const char *name; uint32_t caps; };
     static const struct cap_entry caps[] = {
         { "internal", MALLOC_CAP_INTERNAL },
@@ -269,34 +284,35 @@ static bb_err_t heap_get_handler(bb_http_request_t *req)
         { "exec",     MALLOC_CAP_EXEC },
         { "default",  MALLOC_CAP_DEFAULT },
     };
+
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+
     for (size_t i = 0; i < sizeof(caps) / sizeof(caps[0]); i++) {
         if (heap_caps_get_total_size(caps[i].caps) == 0) continue;
         multi_heap_info_t info;
         heap_caps_get_info(&info, caps[i].caps);
-        bb_json_t cap = bb_json_obj_new();
-        bb_json_obj_set_number(cap, "free",               (double)info.total_free_bytes);
-        bb_json_obj_set_number(cap, "allocated",          (double)info.total_allocated_bytes);
-        bb_json_obj_set_number(cap, "largest_free_block", (double)info.largest_free_block);
-        bb_json_obj_set_number(cap, "minimum_ever_free",  (double)info.minimum_free_bytes);
-        bb_json_obj_set_obj(root, caps[i].name, cap);
+        bb_http_resp_json_obj_set_obj_begin(&obj, caps[i].name);
+        bb_http_resp_json_obj_set_int(&obj, "free",               (int64_t)info.total_free_bytes);
+        bb_http_resp_json_obj_set_int(&obj, "allocated",          (int64_t)info.total_allocated_bytes);
+        bb_http_resp_json_obj_set_int(&obj, "largest_free_block", (int64_t)info.largest_free_block);
+        bb_http_resp_json_obj_set_int(&obj, "minimum_ever_free",  (int64_t)info.minimum_free_bytes);
+        bb_http_resp_json_obj_set_obj_end(&obj);
     }
 
-    bb_http_resp_set_status(req, 200);
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static bb_err_t heap_check_handler(bb_http_request_t *req)
 {
     bool ok = heap_caps_check_integrity_all(true);
-    bb_json_t root = bb_json_obj_new();
-    if (!root) return bb_http_resp_send_err(req, 500, "JSON alloc failed");
-    bb_json_obj_set_bool(root, "ok", ok);
     bb_http_resp_set_status(req, ok ? 200 : 500);
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+    bb_http_resp_json_obj_set_bool(&obj, "ok", ok);
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static const bb_route_response_t s_heap_get_responses[] = {
@@ -345,19 +361,26 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
 {
     UBaseType_t n = uxTaskGetNumberOfTasks();
     TaskStatus_t *arr = malloc(sizeof(TaskStatus_t) * n);
-    if (!arr) return bb_http_resp_send_err(req, 500, "alloc failed");
+    if (!arr) {
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t err_obj;
+        bb_http_resp_json_obj_begin(req, &err_obj);
+        bb_http_resp_json_obj_set_str(&err_obj, "error", "alloc failed");
+        bb_http_resp_json_obj_end(&err_obj);
+        return BB_ERR_NO_SPACE;
+    }
 
     uint32_t total_runtime = 0;
     UBaseType_t got = uxTaskGetSystemState(arr, n, &total_runtime);
 
-    bb_json_t root = bb_json_arr_new();
-    for (UBaseType_t i = 0; i < got; i++) {
-        bb_json_t t = bb_json_obj_new();
-        bb_json_obj_set_string(t, "name",       arr[i].pcTaskName);
-        bb_json_obj_set_number(t, "prio",       (double)arr[i].uxCurrentPriority);
-        bb_json_obj_set_number(t, "base_prio",  (double)arr[i].uxBasePriority);
-        bb_json_obj_set_number(t, "stack_hwm",  (double)arr[i].usStackHighWaterMark);
+    // Emit as a top-level JSON array via the obj stream (array-at-root pattern:
+    // use arr_begin with a wrapping object field is not applicable here; instead
+    // we use bb_http_resp_json_arr_begin directly).
+    bb_http_json_stream_t stream;
+    bb_err_t err = bb_http_resp_json_arr_begin(req, &stream);
+    if (err != BB_OK) { free(arr); return err; }
 
+    for (UBaseType_t i = 0; i < got; i++) {
         const char *state_str = "?";
         switch (arr[i].eCurrentState) {
             case eRunning:   state_str = "running";   break;
@@ -368,22 +391,23 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
             case eInvalid:   state_str = "invalid";   break;
             default: break;
         }
-        bb_json_obj_set_string(t, "state", state_str);
-
+        bb_json_t t = bb_json_obj_new();
+        bb_json_obj_set_string(t, "name",      arr[i].pcTaskName);
+        bb_json_obj_set_number(t, "prio",      (double)arr[i].uxCurrentPriority);
+        bb_json_obj_set_number(t, "base_prio", (double)arr[i].uxBasePriority);
+        bb_json_obj_set_number(t, "stack_hwm", (double)arr[i].usStackHighWaterMark);
+        bb_json_obj_set_string(t, "state",     state_str);
 #if CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID
-        bb_json_obj_set_number(t, "core", (double)arr[i].xCoreID);
+        bb_json_obj_set_number(t, "core",    (double)arr[i].xCoreID);
 #endif
 #if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
         bb_json_obj_set_number(t, "runtime", (double)arr[i].ulRunTimeCounter);
 #endif
-        bb_json_arr_append_obj(root, t);
+        bb_http_resp_json_arr_emit(&stream, t);
+        bb_json_free(t);
     }
     free(arr);
-
-    bb_http_resp_set_status(req, 200);
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    return bb_http_resp_json_arr_end(&stream);
 }
 
 static const bb_route_response_t s_tasks_get_responses[] = {
@@ -433,25 +457,17 @@ _Static_assert(S_TCP_STATE_COUNT == 11, "tcp state name table mismatch");
 
 static bb_err_t sockets_get_handler(bb_http_request_t *req)
 {
-    bb_json_t root = bb_json_obj_new();
-    if (!root) return bb_http_resp_send_err(req, 500, "JSON alloc failed");
-
-    // Arrays for per-state counts (indices map to enum tcp_state values).
+    // Walk PCB lists under core lock and snapshot counts + per-entry data.
     uint32_t by_state[S_TCP_STATE_COUNT] = {0};
     uint32_t in_use = 0;
 
-    bb_json_t pcbs_arr = bb_json_arr_new();
-    if (!pcbs_arr) {
-        bb_json_free(root);
-        return bb_http_resp_send_err(req, 500, "JSON alloc failed");
-    }
+    // PCB snapshot: at most CONFIG_LWIP_MAX_SOCKETS entries.
+    typedef struct { uint16_t local_port; uint16_t remote_port;
+                     char remote_ip[40]; uint32_t state_idx; } pcb_snap_t;
+    pcb_snap_t *snaps = malloc(sizeof(pcb_snap_t) * (size_t)CONFIG_LWIP_MAX_SOCKETS);
+    size_t snap_count = 0;
 
-    // Walk all four PCB lists under the LWIP core lock.
-    // LOCK_TCPIP_CORE is a no-op when LWIP_TCPIP_CORE_LOCKING=0, so this is
-    // always safe regardless of the compile-time locking configuration.
     LOCK_TCPIP_CORE();
-
-    // Four lists: active, TIME_WAIT, bound, LISTEN.
     struct tcp_pcb *lists[4];
     lists[0] = tcp_active_pcbs;
     lists[1] = tcp_tw_pcbs;
@@ -462,54 +478,52 @@ static bb_err_t sockets_get_handler(bb_http_request_t *req)
         for (struct tcp_pcb *p = lists[li]; p != NULL; p = p->next) {
             enum tcp_state st = p->state;
             uint32_t idx = (uint32_t)st;
-            if (idx < S_TCP_STATE_COUNT) {
-                by_state[idx]++;
-            }
-            if (st != CLOSED) {
-                in_use++;
-            }
-
-            // Per-PCB entry.
-            char remote_ip_str[40];
-            ipaddr_ntoa_r(&p->remote_ip, remote_ip_str, sizeof(remote_ip_str));
-
-            const char *state_name = (idx < S_TCP_STATE_COUNT)
-                                     ? s_tcp_state_names[idx] : "UNKNOWN";
-
-            bb_json_t entry = bb_json_obj_new();
-            if (entry) {
-                bb_json_obj_set_number(entry, "local_port",  (double)p->local_port);
-                bb_json_obj_set_string(entry, "remote_ip",   remote_ip_str);
-                bb_json_obj_set_number(entry, "remote_port", (double)p->remote_port);
-                bb_json_obj_set_string(entry, "state",       state_name);
-                bb_json_arr_append_obj(pcbs_arr, entry);
+            if (idx < S_TCP_STATE_COUNT) by_state[idx]++;
+            if (st != CLOSED) in_use++;
+            if (snaps && snap_count < (size_t)CONFIG_LWIP_MAX_SOCKETS) {
+                pcb_snap_t *s = &snaps[snap_count++];
+                s->local_port  = p->local_port;
+                s->remote_port = p->remote_port;
+                s->state_idx   = idx;
+                ipaddr_ntoa_r(&p->remote_ip, s->remote_ip, sizeof(s->remote_ip));
             }
         }
     }
-
     UNLOCK_TCPIP_CORE();
-
-    // Assemble top-level fields.
-    bb_json_obj_set_number(root, "lwip_max_sockets", (double)CONFIG_LWIP_MAX_SOCKETS);
-    bb_json_obj_set_number(root, "in_use",           (double)in_use);
-
-    bb_json_t by_state_obj = bb_json_obj_new();
-    if (by_state_obj) {
-        for (uint32_t i = 0; i < S_TCP_STATE_COUNT; i++) {
-            bb_json_obj_set_number(by_state_obj, s_tcp_state_names[i], (double)by_state[i]);
-        }
-        bb_json_obj_set_obj(root, "by_state", by_state_obj);
-    }
-
-    bb_json_obj_set_arr(root, "pcbs", pcbs_arr);
 
     bb_log_i(TAG, "sockets: in_use=%"PRIu32" CLOSE_WAIT=%"PRIu32" TIME_WAIT=%"PRIu32,
              in_use, by_state[CLOSE_WAIT], by_state[TIME_WAIT]);
 
-    bb_http_resp_set_status(req, 200);
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) { free(snaps); return err; }
+
+    bb_http_resp_json_obj_set_int(&obj, "lwip_max_sockets", (int64_t)CONFIG_LWIP_MAX_SOCKETS);
+    bb_http_resp_json_obj_set_int(&obj, "in_use",           (int64_t)in_use);
+
+    bb_http_resp_json_obj_set_obj_begin(&obj, "by_state");
+    for (uint32_t i = 0; i < S_TCP_STATE_COUNT; i++) {
+        bb_http_resp_json_obj_set_int(&obj, s_tcp_state_names[i], (int64_t)by_state[i]);
+    }
+    bb_http_resp_json_obj_set_obj_end(&obj);
+
+    bb_http_resp_json_obj_set_arr_begin(&obj, "pcbs");
+    if (snaps) {
+        for (size_t i = 0; i < snap_count; i++) {
+            const char *state_name = (snaps[i].state_idx < S_TCP_STATE_COUNT)
+                                     ? s_tcp_state_names[snaps[i].state_idx] : "UNKNOWN";
+            bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
+            bb_http_resp_json_obj_set_int(&obj, "local_port",  (int64_t)snaps[i].local_port);
+            bb_http_resp_json_obj_set_str(&obj, "remote_ip",   snaps[i].remote_ip);
+            bb_http_resp_json_obj_set_int(&obj, "remote_port", (int64_t)snaps[i].remote_port);
+            bb_http_resp_json_obj_set_str(&obj, "state",       state_name);
+            bb_http_resp_json_obj_set_obj_end(&obj);
+        }
+    }
+    bb_http_resp_json_obj_set_arr_end(&obj);
+
+    free(snaps);
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static const bb_route_response_t s_sockets_get_responses[] = {
