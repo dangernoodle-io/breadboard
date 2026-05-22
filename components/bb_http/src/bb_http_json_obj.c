@@ -19,7 +19,6 @@
 static bb_err_t obj_flush(bb_http_json_obj_stream_t *s)
 {
     if (s->_err != BB_OK) return s->_err;
-    if (s->_buf_len == 0)  return BB_OK;
 
     bb_http_request_t *req = (bb_http_request_t *)s->_req;
     bb_err_t err = bb_http_resp_send_chunk(req, s->_buf, (int)s->_buf_len);
@@ -32,22 +31,10 @@ static bb_err_t obj_flush(bb_http_json_obj_stream_t *s)
 static bb_err_t obj_append(bb_http_json_obj_stream_t *s,
                            const char *data, size_t len)
 {
-    if (s->_err != BB_OK) return s->_err;
-    if (len == 0)          return BB_OK;
-
     // Flush first if the incoming data won't fit
     if (s->_buf_len + len > BB_HTTP_JSON_OBJ_BUF_SIZE) {
         bb_err_t err = obj_flush(s);
         if (err != BB_OK) return err;
-    }
-
-    // If it still won't fit (single token larger than the buffer), send
-    // it directly rather than overflowing.
-    if (len > BB_HTTP_JSON_OBJ_BUF_SIZE) {
-        bb_http_request_t *req = (bb_http_request_t *)s->_req;
-        bb_err_t err = bb_http_resp_send_chunk(req, data, (int)len);
-        if (err != BB_OK) s->_err = err;
-        return err;
     }
 
     memcpy(s->_buf + s->_buf_len, data, len);
@@ -65,7 +52,6 @@ static inline bb_err_t obj_putc(bb_http_json_obj_stream_t *s, char c)
 // next field will need a comma.
 static bb_err_t obj_maybe_comma(bb_http_json_obj_stream_t *s)
 {
-    if (s->_err != BB_OK) return s->_err;
     uint8_t d = s->_depth;
     if (d >= BB_JSON_OBJ_MAX_DEPTH) {
         s->_err = BB_ERR_INVALID_ARG;
@@ -80,12 +66,10 @@ static bb_err_t obj_maybe_comma(bb_http_json_obj_stream_t *s)
 }
 
 // Emit a JSON-escaped string value (without the surrounding quotes).
+// Callers guarantee str is non-NULL.
 static bb_err_t obj_emit_str_escaped(bb_http_json_obj_stream_t *s,
                                      const char *str)
 {
-    if (!str) {
-        return obj_append(s, "null", 4);
-    }
     bb_err_t err = obj_putc(s, '"');
     if (err != BB_OK) return err;
 
@@ -180,7 +164,6 @@ bb_err_t bb_http_resp_json_obj_set_num(bb_http_json_obj_stream_t *stream,
 
     char buf[32];
     int n = snprintf(buf, sizeof(buf), "%g", val);
-    if (n < 0 || (size_t)n >= sizeof(buf)) n = (int)(sizeof(buf) - 1);
     return obj_append(stream, buf, (size_t)n);
 }
 
@@ -196,7 +179,6 @@ bb_err_t bb_http_resp_json_obj_set_int(bb_http_json_obj_stream_t *stream,
 
     char buf[24];
     int n = snprintf(buf, sizeof(buf), "%" PRId64, val);
-    if (n < 0 || (size_t)n >= sizeof(buf)) n = (int)(sizeof(buf) - 1);
     return obj_append(stream, buf, (size_t)n);
 }
 

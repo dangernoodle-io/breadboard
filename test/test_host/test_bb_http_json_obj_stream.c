@@ -668,3 +668,526 @@ void test_json_obj_flush_send_chunk_fail(void)
     cap_end();
     cap_free();
 }
+
+// ---------------------------------------------------------------------------
+// NULL / closed / sticky-error guards for set_int, set_bool, set_null
+// ---------------------------------------------------------------------------
+
+void test_json_obj_set_int_not_open(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_end(&obj);
+    bb_err_t err = bb_http_resp_json_obj_set_int(&obj, "k", 1);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_int_sticky_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    obj._err = BB_ERR_NO_SPACE;
+    bb_err_t err = bb_http_resp_json_obj_set_int(&obj, "k", 1);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_bool_not_open(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_end(&obj);
+    bb_err_t err = bb_http_resp_json_obj_set_bool(&obj, "k", true);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_bool_sticky_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    obj._err = BB_ERR_NO_SPACE;
+    bb_err_t err = bb_http_resp_json_obj_set_bool(&obj, "k", false);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_null_not_open(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_end(&obj);
+    bb_err_t err = bb_http_resp_json_obj_set_null(&obj, "k");
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_null_sticky_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    obj._err = BB_ERR_NO_SPACE;
+    bb_err_t err = bb_http_resp_json_obj_set_null(&obj, "k");
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// NULL / closed / sticky-error guards for set_obj_begin/end, set_arr_begin/end
+// ---------------------------------------------------------------------------
+
+void test_json_obj_set_obj_begin_null_stream(void)
+{
+    bb_err_t err = bb_http_resp_json_obj_set_obj_begin(NULL, "k");
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_json_obj_set_obj_begin_not_open(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_end(&obj);
+    bb_err_t err = bb_http_resp_json_obj_set_obj_begin(&obj, "k");
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_obj_begin_sticky_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    obj._err = BB_ERR_NO_SPACE;
+    bb_err_t err = bb_http_resp_json_obj_set_obj_begin(&obj, "k");
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_obj_end_null_stream(void)
+{
+    bb_err_t err = bb_http_resp_json_obj_set_obj_end(NULL);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_json_obj_set_obj_end_not_open(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_end(&obj);
+    bb_err_t err = bb_http_resp_json_obj_set_obj_end(&obj);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_obj_end_sticky_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_obj_begin(&obj, "inner");
+    obj._err = BB_ERR_NO_SPACE;
+    bb_err_t err = bb_http_resp_json_obj_set_obj_end(&obj);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_arr_begin_null_stream(void)
+{
+    bb_err_t err = bb_http_resp_json_obj_set_arr_begin(NULL, "k");
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_json_obj_set_arr_begin_not_open(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_end(&obj);
+    bb_err_t err = bb_http_resp_json_obj_set_arr_begin(&obj, "k");
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_arr_begin_sticky_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    obj._err = BB_ERR_NO_SPACE;
+    bb_err_t err = bb_http_resp_json_obj_set_arr_begin(&obj, "k");
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_arr_end_null_stream(void)
+{
+    bb_err_t err = bb_http_resp_json_obj_set_arr_end(NULL);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_json_obj_set_arr_end_not_open(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_end(&obj);
+    bb_err_t err = bb_http_resp_json_obj_set_arr_end(&obj);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, err);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_arr_end_sticky_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_arr_begin(&obj, "items");
+    obj._err = BB_ERR_NO_SPACE;
+    bb_err_t err = bb_http_resp_json_obj_set_arr_end(&obj);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
+// Error propagation via buffer-near-full + send_chunk failure.
+//
+// Pattern: pre-fill the internal buffer to 1023 bytes so the next append
+// (len >= 2) overflows the 1024-byte buffer, triggering obj_flush, which
+// fails because send_chunk is broken.  This drives the error-return branches
+// deep inside obj_append, obj_maybe_comma, obj_emit_str_escaped, obj_emit_key,
+// and every public set_* wrapper.
+// ---------------------------------------------------------------------------
+
+// Helper: write exactly `n` bytes into stream->_buf without going through the
+// public API (so no flush is triggered and no error is recorded).
+static void fill_buf(bb_http_json_obj_stream_t *s, size_t n)
+{
+    memset(s->_buf, 'X', n);
+    s->_buf_len = n;
+}
+
+void test_json_obj_append_flush_error(void)
+{
+    // Fill buffer so next 2-byte append triggers overflow flush.
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 1);  // 1023 bytes in buf
+
+    bb_http_host_force_send_chunk_fail(true);
+    // set_null emits "null" (4 bytes) — first append triggers flush+fail
+    bb_err_t err = bb_http_resp_json_obj_set_null(&obj, NULL);
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_maybe_comma_putc_error(void)
+{
+    // Get a comma pending, then overflow+fail when the comma is written.
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_null(&obj, "first");  // _needs_comma[0] = 1
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE);      // pack buf to 1024 (full)
+
+    bb_http_host_force_send_chunk_fail(true);
+    // obj_maybe_comma tries to putc(',') — buffer full, triggers flush+fail
+    bb_err_t err = bb_http_resp_json_obj_set_null(&obj, "second");
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_emit_str_first_quote_error(void)
+{
+    // Trigger the error path on the opening '"' in obj_emit_str_escaped.
+    // Sequence: write one field (sets _needs_comma[0]=1), fill buf to 1023,
+    // then write a second field.  obj_maybe_comma writes ',' (buf -> 1024),
+    // then obj_emit_str_escaped tries putc('"') which overflows -> flush+fail.
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    bb_http_resp_json_obj_set_null(&obj, "a");  // _needs_comma[0] = 1
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 1);  // 1023 bytes
+
+    bb_http_host_force_send_chunk_fail(true);
+    // comma writes to slot 1023 (no overflow), then '"' at slot 1024 overflows
+    bb_err_t err = bb_http_resp_json_obj_set_int(&obj, "k", 0);
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_emit_str_loop_error(void)
+{
+    // The key fits in the buffer (first quote + k = 2 bytes from 1022 free),
+    // but the loop character write overflows.  Use a 2-char key so that after
+    // the opening quote the loop triggers the overflow.
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 2);  // 1022 bytes; 2 slots free
+
+    bb_http_host_force_send_chunk_fail(true);
+    // putc('"') fits (slot 1023), first char of key "ab" overflows (slot 1025)
+    bb_err_t err = bb_http_resp_json_obj_set_bool(&obj, "ab", true);
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_emit_key_after_str_error(void)
+{
+    // The key's closing quote fits, but the ':' after obj_emit_str_escaped
+    // overflows + fails — driving the err check at the end of obj_emit_key.
+    // Use a key that exactly fills the remaining buffer up to the ':'.
+    // Buffer = BUF_SIZE - 3; opening '"' + 1 key char + closing '"' = 3 bytes
+    // exactly fills the buffer; then ':' overflows.
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 3);  // 1021 bytes; 3 slots
+
+    bb_http_host_force_send_chunk_fail(true);
+    // '"' + 'k' + '"' fills the buffer; ':' triggers flush+fail
+    bb_err_t err = bb_http_resp_json_obj_set_num(&obj, "k", 1.0);
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_obj_begin_emit_key_error(void)
+{
+    // Emit key for set_obj_begin fails (flush+fail on key emission).
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 1);
+
+    bb_http_host_force_send_chunk_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_set_obj_begin(&obj, "x");
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_obj_begin_putc_brace_error(void)
+{
+    // Key fits but the '{' after it triggers overflow+fail.
+    // Key "k": '"' + 'k' + '"' + ':' = 4 bytes; use BUF_SIZE-4 to leave 4 free.
+    // Then '{' would need slot BUF_SIZE+1 — but actually after the 4-byte key
+    // the buffer is full, and '{' triggers a flush.
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 4);  // 1020 bytes; 4 slots
+
+    bb_http_host_force_send_chunk_fail(true);
+    // '"k":' fills slots 1021-1024; '{' needs slot 1025 → flush+fail
+    bb_err_t err = bb_http_resp_json_obj_set_obj_begin(&obj, "k");
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_arr_begin_emit_key_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 1);
+
+    bb_http_host_force_send_chunk_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_set_arr_begin(&obj, "x");
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_arr_begin_putc_bracket_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 4);
+
+    bb_http_host_force_send_chunk_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_set_arr_begin(&obj, "k");
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_str_emit_key_error(void)
+{
+    // err != BB_OK branch at line "if (err != BB_OK) return err" after obj_emit_key
+    // in set_str.
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 1);
+
+    bb_http_host_force_send_chunk_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_set_str(&obj, "x", "v");
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_int_emit_key_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 1);
+
+    bb_http_host_force_send_chunk_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_set_int(&obj, "x", 1);
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_bool_emit_key_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 1);
+
+    bb_http_host_force_send_chunk_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_set_bool(&obj, "x", true);
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_null_emit_key_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 1);
+
+    bb_http_host_force_send_chunk_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_set_null(&obj, "x");
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
+void test_json_obj_set_num_emit_key_error(void)
+{
+    cap_begin();
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(s_req, &obj);
+    fill_buf(&obj, BB_HTTP_JSON_OBJ_BUF_SIZE - 1);
+
+    bb_http_host_force_send_chunk_fail(true);
+    bb_err_t err = bb_http_resp_json_obj_set_num(&obj, "x", 1.0);
+    bb_http_host_force_send_chunk_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    obj._err = BB_OK;
+    obj._buf_len = 0;
+    bb_http_resp_json_obj_end(&obj);
+    cap_end();
+    cap_free();
+}
+
