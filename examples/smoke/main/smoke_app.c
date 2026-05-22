@@ -62,7 +62,8 @@ static void heartbeat_handler(bb_event_topic_t topic, int32_t id,
 
 static bb_err_t ping_handler(bb_http_request_t *req) {
     bb_http_resp_set_header(req, "Content-Type", "text/plain");
-    bb_http_resp_send(req, "pong\n", 5);
+    bb_http_resp_send_chunk(req, "pong\n", 5);
+    bb_http_resp_send_chunk(req, NULL, 0);
     bb_log_i(TAG, "GET /ping -> pong");
     return BB_OK;
 }

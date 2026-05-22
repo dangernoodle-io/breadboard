@@ -118,46 +118,6 @@ bb_err_t bb_http_resp_set_header(bb_http_request_t *req, const char *key, const 
     return BB_OK;
 }
 
-bb_err_t bb_http_resp_send(bb_http_request_t *req, const char *body, size_t len)
-{
-    capture_slot_t *cap = capture_find(req);
-    if (cap && body && len > 0) {
-        char *newbuf = realloc(cap->body, cap->body_len + len + 1);
-        if (newbuf) {
-            memcpy(newbuf + cap->body_len, body, len);
-            cap->body_len += len;
-            newbuf[cap->body_len] = '\0';
-            cap->body = newbuf;
-        }
-        return BB_OK;
-    }
-    (void)req;
-    return BB_OK;
-}
-
-bb_err_t bb_http_resp_send_err(bb_http_request_t *req, int status_code, const char *message)
-{
-    capture_slot_t *cap = capture_find(req);
-    if (cap) {
-        cap->status = status_code;
-        if (message) {
-            size_t len = strlen(message);
-            char *newbuf = realloc(cap->body, cap->body_len + len + 1);
-            if (newbuf) {
-                memcpy(newbuf + cap->body_len, message, len);
-                cap->body_len += len;
-                newbuf[cap->body_len] = '\0';
-                cap->body = newbuf;
-            }
-        }
-        return BB_OK;
-    }
-    (void)req;
-    (void)status_code;
-    (void)message;
-    return BB_OK;
-}
-
 int bb_http_req_body_len(bb_http_request_t *req)
 {
     capture_slot_t *cap = capture_find(req);
@@ -203,8 +163,9 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
 
 bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)
 {
-    if (str) return bb_http_resp_send(req, str, strlen(str));
-    return BB_OK;
+    bb_err_t err = bb_http_resp_send_chunk(req, str, str ? -1 : 0);
+    if (err != BB_OK) return err;
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
 bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int len)
@@ -228,33 +189,19 @@ bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int le
     return BB_OK;
 }
 
-bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc)
+static bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc)
 {
-    capture_slot_t *cap = capture_find(req);
-    if (cap) {
-        // Default content-type for JSON if not already set
-        if (cap->content_type[0] == '\0') {
-            strncpy(cap->content_type, "application/json",
-                    sizeof(cap->content_type) - 1);
-            cap->content_type[sizeof(cap->content_type) - 1] = '\0';
-        }
-        char *serialized = bb_json_serialize(doc);
-        if (serialized) {
-            size_t len = strlen(serialized);
-            char *newbuf = realloc(cap->body, cap->body_len + len + 1);
-            if (newbuf) {
-                memcpy(newbuf + cap->body_len, serialized, len);
-                cap->body_len += len;
-                newbuf[cap->body_len] = '\0';
-                cap->body = newbuf;
-            }
-            bb_json_free_str(serialized);
-        }
-        return BB_OK;
+    bb_err_t err = bb_http_resp_set_type(req, "application/json");
+    if (err != BB_OK) return err;
+    char *serialized = bb_json_serialize(doc);
+    if (serialized) {
+        err = bb_http_resp_send_chunk(req, serialized, -1);
+        bb_json_free_str(serialized);
+    } else {
+        err = bb_http_resp_send_chunk(req, "null", 4);
     }
-    (void)req;
-    (void)doc;
-    return BB_OK;
+    if (err != BB_OK) return err;
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
 int bb_http_req_sockfd(bb_http_request_t *req)

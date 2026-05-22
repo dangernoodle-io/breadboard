@@ -122,16 +122,13 @@ bb_err_t bb_http_register_route_descriptor_only(const bb_route_t *route);
 // Return the number of descriptors currently in the registry.
 size_t bb_http_route_registry_count(void);
 
-// Response helpers — usable inside a handler. MVP: fixed-size body, no streaming.
+// Response helpers — usable inside a handler.
 bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code);
 bb_err_t bb_http_resp_set_type(bb_http_request_t *req, const char *mime);
 bb_err_t bb_http_resp_set_header(bb_http_request_t *req, const char *key, const char *value);
-bb_err_t bb_http_resp_send(bb_http_request_t *req, const char *body, size_t len);
 
-// Send an HTTP error response (status + plain-text message). Convenience for handlers.
-bb_err_t bb_http_resp_send_err(bb_http_request_t *req, int status_code, const char *message);
-
-// Convenience send: equivalent to bb_http_resp_send(req, str, strlen(str)).
+// Convenience send: sets Content-Type and sends str as a single chunk, then
+// ends the chunked response. Equivalent to send_chunk(str) + send_chunk(NULL,0).
 bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str);
 
 // Chunked send for streaming responses (e.g. SSE).
@@ -141,11 +138,6 @@ bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int le
 
 // Forward declaration for JSON streaming (avoids circular dependency).
 typedef void *bb_json_t;
-
-// Send a JSON document as the response body. Sets Content-Type: application/json,
-// streams the doc via chunked transfer-encoding (no contiguous buffer needed),
-// and ends the response. Caller still owns/frees the doc.
-bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc);
 
 // ============================================================================
 // STREAMING JSON ARRAY API
@@ -161,8 +153,9 @@ bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc);
 // by each serialized item, "]" and stream termination in end(). Memory usage
 // is bounded by one per-item JSON subtree at a time.
 //
-// On Arduino and host, items are buffered into a root array; end() calls
-// bb_http_resp_send_json. Same external behavior, buffered internally.
+// On Arduino and host, items are buffered into a root array; end() serializes
+// and sends the whole array as a single response. Same external behavior,
+// buffered internally.
 typedef struct bb_http_json_stream_s {
     void   *_req;       /* bb_http_request_t * */
     int     _err;       /* sticky first error, BB_OK initially */

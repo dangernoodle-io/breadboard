@@ -1,5 +1,4 @@
 #include "unity.h"
-#include "bb_http.h"
 #include "bb_json.h"
 
 static int s_walk_count = 0;
@@ -61,12 +60,3 @@ void test_bb_json_walk_children_array(void)
     bb_json_free(arr);
 }
 
-void test_bb_http_resp_send_json_callable(void)
-{
-    // Host stub is a no-op; just verify it's callable and returns OK
-    bb_json_t obj = bb_json_obj_new();
-    bb_json_obj_set_string(obj, "key", "value");
-    bb_err_t err = bb_http_resp_send_json(NULL, obj);
-    TEST_ASSERT_EQUAL(err, BB_OK);
-    bb_json_free(obj);
-}
