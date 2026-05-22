@@ -5,7 +5,6 @@
 #include "bb_event_routes_internal.h"
 #include "bb_event_ring.h"
 #include "bb_http.h"
-#include "bb_json.h"
 #include "bb_log.h"
 #include "bb_registry.h"
 
@@ -171,19 +170,29 @@ static bb_err_t events_handler(bb_http_request_t *req)
     bb_err_t err = bb_event_routes_client_acquire_ex(&client, topic_filter);
     if (err == BB_ERR_NO_SPACE) {
         bb_http_resp_set_status(req, 503);
-        bb_http_resp_set_type(req, "application/json");
-        bb_http_resp_sendstr(req, "{\"error\":\"max_clients\"}");
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "max_clients");
+        bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
     if (err != BB_OK) {
-        bb_http_resp_send_err(req, 500, "event routes not initialized");
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "event routes not initialized");
+        bb_http_resp_json_obj_end(&obj);
         return err;
     }
 
     bb_http_request_t *async_req = NULL;
     if (bb_http_req_async_handler_begin(req, &async_req) != BB_OK) {
         bb_event_routes_client_release(client);
-        bb_http_resp_send_err(req, 500, "Async init failed");
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "Async init failed");
+        bb_http_resp_json_obj_end(&obj);
         return BB_ERR_INVALID_STATE;
     }
 
@@ -251,63 +260,52 @@ static const bb_route_t s_events_route = {
 
 static bb_err_t diag_events_handler(bb_http_request_t *req)
 {
-    bb_json_t root = bb_json_obj_new();
-    if (!root) return bb_http_resp_send_err(req, 500, "JSON alloc failed");
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
 
-    bb_json_t topics_arr = bb_json_arr_new();
-    if (!topics_arr) {
-        bb_json_free(root);
-        return bb_http_resp_send_err(req, 500, "JSON alloc failed");
-    }
-
+    // "topics" array
+    bb_http_resp_json_obj_set_arr_begin(&obj, "topics");
     size_t n = bb_event_routes_topic_count();
     for (size_t i = 0; i < n; i++) {
         const char *name = NULL;
         bb_event_ring_t ring = NULL;
         if (bb_event_routes_topic_info(i, &name, &ring) != BB_OK) continue;
 
-        bb_json_t entry = bb_json_obj_new();
-        if (!entry) continue;
-
-        bb_json_obj_set_string(entry, "name", name ? name : "");
+        bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
+        bb_http_resp_json_obj_set_str(&obj, "name", name ? name : "");
 
         if (ring) {
-            size_t cap = bb_event_ring_capacity(ring);
-            bb_json_obj_set_number(entry, "ring_capacity", (double)cap);
-            size_t count = bb_event_ring_count(ring);
-            bb_json_obj_set_number(entry, "ring_count", (double)count);
+            bb_http_resp_json_obj_set_int(&obj, "ring_capacity", (int64_t)bb_event_ring_capacity(ring));
+            bb_http_resp_json_obj_set_int(&obj, "ring_count",    (int64_t)bb_event_ring_count(ring));
 
-            uint32_t last_id  = 0;
-            size_t   last_sz  = 0;
-            int64_t  last_us  = 0;
+            uint32_t last_id = 0;
+            size_t   last_sz = 0;
+            int64_t  last_us = 0;
             if (bb_event_ring_last_entry_info(ring, &last_id, &last_sz, &last_us) == BB_OK) {
-                bb_json_obj_set_number(entry, "last_id",      (double)last_id);
-                bb_json_obj_set_number(entry, "last_post_us", (double)last_us);
-                bb_json_obj_set_number(entry, "last_size",    (double)last_sz);
+                bb_http_resp_json_obj_set_int(&obj, "last_id",      (int64_t)last_id);
+                bb_http_resp_json_obj_set_int(&obj, "last_post_us", last_us);
+                bb_http_resp_json_obj_set_int(&obj, "last_size",    (int64_t)last_sz);
             } else {
-                bb_json_obj_set_number(entry, "last_id",      0);
-                bb_json_obj_set_number(entry, "last_post_us", 0);
-                bb_json_obj_set_number(entry, "last_size",    0);
+                bb_http_resp_json_obj_set_int(&obj, "last_id",      0);
+                bb_http_resp_json_obj_set_int(&obj, "last_post_us", 0);
+                bb_http_resp_json_obj_set_int(&obj, "last_size",    0);
             }
         } else {
-            bb_json_obj_set_number(entry, "ring_capacity", 0);
-            bb_json_obj_set_number(entry, "ring_count",    0);
-            bb_json_obj_set_number(entry, "last_id",       0);
-            bb_json_obj_set_number(entry, "last_post_us",  0);
-            bb_json_obj_set_number(entry, "last_size",     0);
+            bb_http_resp_json_obj_set_int(&obj, "ring_capacity", 0);
+            bb_http_resp_json_obj_set_int(&obj, "ring_count",    0);
+            bb_http_resp_json_obj_set_int(&obj, "last_id",       0);
+            bb_http_resp_json_obj_set_int(&obj, "last_post_us",  0);
+            bb_http_resp_json_obj_set_int(&obj, "last_size",     0);
         }
-
-        bb_json_arr_append_obj(topics_arr, entry);
+        bb_http_resp_json_obj_set_obj_end(&obj);
     }
+    bb_http_resp_json_obj_set_arr_end(&obj);
 
-    bb_json_obj_set_arr(root, "topics", topics_arr);
-    bb_json_obj_set_number(root, "max_clients",    (double)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS);
-    bb_json_obj_set_number(root, "active_clients", (double)bb_event_routes_active_client_count());
+    bb_http_resp_json_obj_set_int(&obj, "max_clients",    (int64_t)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS);
+    bb_http_resp_json_obj_set_int(&obj, "active_clients", (int64_t)bb_event_routes_active_client_count());
 
-    bb_http_resp_set_status(req, 200);
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static const bb_route_response_t s_diag_events_responses[] = {

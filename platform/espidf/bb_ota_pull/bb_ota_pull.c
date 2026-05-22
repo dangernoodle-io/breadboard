@@ -2,7 +2,6 @@
 #include "bb_update_check.h"
 #include "bb_release_manifest.h"
 #include "bb_http_client.h"
-#include "bb_json.h"
 #include <stdarg.h>
 #include <string.h>
 #include <stdio.h>
@@ -542,11 +541,11 @@ static bb_err_t ota_check_handler(bb_http_request_t *req)
 {
     bb_update_check_kick();  // truly non-blocking; ignore return (no URL set is OK)
 
-    const char *response = "{\"status\":\"checking\"}";
-    bb_http_resp_set_status(req, 200);
-    bb_http_resp_set_type(req, "application/json");
-    bb_http_resp_send(req, response, strlen(response));
-    return BB_OK;
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+    bb_http_resp_json_obj_set_str(&obj, "status", "checking");
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 /**
@@ -562,10 +561,11 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
     taskENTER_CRITICAL(&s_ota_status_mux);
     if (s_ota_in_progress) {
         taskEXIT_CRITICAL(&s_ota_status_mux);
-        const char *response = "{\"error\":\"update_in_progress\"}";
         bb_http_resp_set_status(req, 409);
-        bb_http_resp_set_type(req, "application/json");
-        bb_http_resp_send(req, response, strlen(response));
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "update_in_progress");
+        bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
     s_ota_in_progress = true;
@@ -578,10 +578,11 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
-        const char *response = "{\"error\":\"no_recent_check\"}";
         bb_http_resp_set_status(req, 503);
-        bb_http_resp_set_type(req, "application/json");
-        bb_http_resp_send(req, response, strlen(response));
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "no_recent_check");
+        bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
 
@@ -589,9 +590,10 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
-        const char *response = "{\"status\":\"already_up_to_date\"}";
-        bb_http_resp_set_type(req, "application/json");
-        bb_http_resp_send(req, response, strlen(response));
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "status", "already_up_to_date");
+        bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
 
@@ -601,10 +603,11 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
-        const char *response = "{\"error\":\"allocation_failed\"}";
         bb_http_resp_set_status(req, 500);
-        bb_http_resp_set_type(req, "application/json");
-        bb_http_resp_send(req, response, strlen(response));
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "allocation_failed");
+        bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
 
@@ -635,19 +638,19 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
-        const char *response = "{\"error\":\"task_create_failed\"}";
         bb_http_resp_set_status(req, 500);
-        bb_http_resp_set_type(req, "application/json");
-        bb_http_resp_send(req, response, strlen(response));
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "task_create_failed");
+        bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
 
-    const char *response = "{\"status\":\"update_started\"}";
     bb_http_resp_set_status(req, 202);
-    bb_http_resp_set_type(req, "application/json");
-    bb_http_resp_send(req, response, strlen(response));
-
-    return BB_OK;
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "status", "update_started");
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 /**
@@ -663,25 +666,16 @@ static bb_err_t ota_status_handler(bb_http_request_t *req)
     in_progress = s_ota_in_progress;
     taskEXIT_CRITICAL(&s_ota_status_mux);
 
-    bb_json_t root = bb_json_obj_new();
-    if (!root) {
-        const char *response = "{\"error\":\"json_error\"}";
-        bb_http_resp_set_status(req, 500);
-        bb_http_resp_set_type(req, "application/json");
-        bb_http_resp_send(req, response, strlen(response));
-        return BB_OK;
-    }
-
-    bb_json_obj_set_string(root, "state", s_ota_state_names[status_copy.state]);
-    bb_json_obj_set_bool(root, "in_progress", in_progress);
-    bb_json_obj_set_number(root, "progress_pct", status_copy.progress_pct);
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+    bb_http_resp_json_obj_set_str(&obj,  "state",        s_ota_state_names[status_copy.state]);
+    bb_http_resp_json_obj_set_bool(&obj, "in_progress",  in_progress);
+    bb_http_resp_json_obj_set_int(&obj,  "progress_pct", (int64_t)status_copy.progress_pct);
     if (status_copy.last_error[0] != '\0') {
-        bb_json_obj_set_string(root, "last_error", status_copy.last_error);
+        bb_http_resp_json_obj_set_str(&obj, "last_error", status_copy.last_error);
     }
-
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 // ---------------------------------------------------------------------------

@@ -81,23 +81,30 @@ bool bb_ota_is_validated(void)
 
 static bb_err_t mark_valid_handler(bb_http_request_t *req)
 {
-    bb_http_resp_set_type(req, "application/json");
-
     if (!bb_ota_is_pending()) {
         bb_http_resp_set_status(req, 409);
-        static const char body[] = "{\"error\":\"not pending\"}";
-        return bb_http_resp_send(req, body, sizeof(body) - 1);
+        bb_http_json_obj_stream_t obj;
+        bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+        if (err != BB_OK) return err;
+        bb_http_resp_json_obj_set_str(&obj, "error", "not pending");
+        return bb_http_resp_json_obj_end(&obj);
     }
 
     bb_err_t rc = bb_ota_mark_valid("http");
     if (rc != BB_OK) {
         bb_http_resp_set_status(req, 500);
-        static const char body[] = "{\"error\":\"internal\"}";
-        return bb_http_resp_send(req, body, sizeof(body) - 1);
+        bb_http_json_obj_stream_t obj;
+        bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+        if (err != BB_OK) return err;
+        bb_http_resp_json_obj_set_str(&obj, "error", "internal");
+        return bb_http_resp_json_obj_end(&obj);
     }
 
-    static const char ok_body[] = "{\"status\":\"valid\"}";
-    return bb_http_resp_send(req, ok_body, sizeof(ok_body) - 1);
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+    bb_http_resp_json_obj_set_str(&obj, "status", "valid");
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 bb_err_t bb_ota_validator_init(bb_http_handle_t server)

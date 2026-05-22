@@ -1,8 +1,10 @@
 #include "bb_manifest.h"
 #include "bb_http.h"
+#include "bb_json.h"
 #include "bb_log.h"
 #include "bb_registry.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "bb_manifest_routes";
@@ -11,12 +13,29 @@ static bb_err_t manifest_handler(bb_http_request_t *req)
 {
     bb_json_t doc = bb_manifest_emit();
     if (!doc) {
-        bb_http_resp_send_err(req, 500, "manifest emit failed");
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "manifest emit failed");
+        bb_http_resp_json_obj_end(&obj);
         return BB_ERR_INVALID_STATE;
     }
 
-    bb_err_t err = bb_http_resp_send_json(req, doc);
+    char *str = bb_json_serialize(doc);
     bb_json_free(doc);
+    if (!str) {
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "serialize failed");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_ERR_NO_SPACE;
+    }
+
+    bb_err_t err = bb_http_resp_set_type(req, "application/json");
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
+    free(str);
     return err;
 }
 

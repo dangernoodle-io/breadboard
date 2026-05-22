@@ -2,6 +2,7 @@
 
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "bb_http.h"
@@ -20,19 +21,18 @@ static bb_err_t wifi_info_handler(bb_http_request_t *req)
              info.bssid[0], info.bssid[1], info.bssid[2],
              info.bssid[3], info.bssid[4], info.bssid[5]);
 
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_string(root, "ssid", info.ssid);
-    bb_json_obj_set_string(root, "bssid", bssid);
-    bb_json_obj_set_number(root, "rssi", (double)info.rssi);
-    bb_json_obj_set_string(root, "ip", info.ip);
-    bb_json_obj_set_bool(root, "connected", info.connected);
-    bb_json_obj_set_number(root, "disc_reason", (double)info.disc_reason);
-    bb_json_obj_set_number(root, "disc_age_s", (double)info.disc_age_s);
-    bb_json_obj_set_number(root, "retry_count", (double)info.retry_count);
-
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+    bb_http_resp_json_obj_set_str(&obj, "ssid",        info.ssid);
+    bb_http_resp_json_obj_set_str(&obj, "bssid",       bssid);
+    bb_http_resp_json_obj_set_int(&obj, "rssi",        (int64_t)info.rssi);
+    bb_http_resp_json_obj_set_str(&obj, "ip",          info.ip);
+    bb_http_resp_json_obj_set_bool(&obj, "connected",  info.connected);
+    bb_http_resp_json_obj_set_int(&obj, "disc_reason", (int64_t)info.disc_reason);
+    bb_http_resp_json_obj_set_int(&obj, "disc_age_s",  (int64_t)info.disc_age_s);
+    bb_http_resp_json_obj_set_int(&obj, "retry_count", (int64_t)info.retry_count);
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static bb_err_t scan_handler(bb_http_request_t *req)
@@ -43,17 +43,18 @@ static bb_err_t scan_handler(bb_http_request_t *req)
     memset(aps, 0, sizeof(aps));
     int count = bb_wifi_scan_get_cached(aps, WIFI_SCAN_MAX);
 
-    bb_json_t arr = bb_json_arr_new();
+    bb_http_json_stream_t stream;
+    bb_err_t rc = bb_http_resp_json_arr_begin(req, &stream);
+    if (rc != BB_OK) return rc;
     for (int i = 0; i < count; i++) {
         bb_json_t ap = bb_json_obj_new();
-        bb_json_obj_set_string(ap, "ssid", aps[i].ssid);
-        bb_json_obj_set_number(ap, "rssi", aps[i].rssi);
-        bb_json_obj_set_bool(ap, "secure", aps[i].secure);
-        bb_json_arr_append_obj(arr, ap);
+        bb_json_obj_set_string(ap, "ssid",   aps[i].ssid);
+        bb_json_obj_set_number(ap, "rssi",   aps[i].rssi);
+        bb_json_obj_set_bool(ap,   "secure", aps[i].secure);
+        bb_http_resp_json_arr_emit(&stream, ap);
+        bb_json_free(ap);
     }
-    bb_err_t rc = bb_http_resp_send_json(req, arr);
-    bb_json_free(arr);
-    return rc;
+    return bb_http_resp_json_arr_end(&stream);
 }
 
 // ---------------------------------------------------------------------------

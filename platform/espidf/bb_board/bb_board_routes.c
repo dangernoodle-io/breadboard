@@ -3,7 +3,6 @@
 #include <string.h>
 
 #include "bb_http.h"
-#include "bb_json.h"
 #include "bb_registry.h"
 
 static bb_err_t board_info_handler(bb_http_request_t *req)
@@ -11,26 +10,25 @@ static bb_err_t board_info_handler(bb_http_request_t *req)
     bb_board_info_t info;
     bb_board_get_info(&info);
 
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_string(root, "board", info.board);
-    bb_json_obj_set_string(root, "project_name", info.project_name);
-    bb_json_obj_set_string(root, "version", info.version);
-    bb_json_obj_set_string(root, "idf_version", info.idf_version);
-    bb_json_obj_set_string(root, "build_date", info.build_date);
-    bb_json_obj_set_string(root, "build_time", info.build_time);
-    bb_json_obj_set_string(root, "chip_model", info.chip_model);
-    bb_json_obj_set_number(root, "cores", (double)info.cores);
-    bb_json_obj_set_string(root, "mac", info.mac);
-    bb_json_obj_set_number(root, "flash_size", (double)info.flash_size);
-    bb_json_obj_set_number(root, "total_heap", (double)info.total_heap);
-    bb_json_obj_set_number(root, "free_heap", (double)info.free_heap);
-    bb_json_obj_set_number(root, "app_size", (double)info.app_size);
-    bb_json_obj_set_string(root, "reset_reason", info.reset_reason);
-    bb_json_obj_set_bool(root, "ota_validated", info.ota_validated);
-
-    bb_err_t err = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return err;
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+    bb_http_resp_json_obj_set_str(&obj, "board",        info.board);
+    bb_http_resp_json_obj_set_str(&obj, "project_name", info.project_name);
+    bb_http_resp_json_obj_set_str(&obj, "version",      info.version);
+    bb_http_resp_json_obj_set_str(&obj, "idf_version",  info.idf_version);
+    bb_http_resp_json_obj_set_str(&obj, "build_date",   info.build_date);
+    bb_http_resp_json_obj_set_str(&obj, "build_time",   info.build_time);
+    bb_http_resp_json_obj_set_str(&obj, "chip_model",   info.chip_model);
+    bb_http_resp_json_obj_set_int(&obj, "cores",        (int64_t)info.cores);
+    bb_http_resp_json_obj_set_str(&obj, "mac",          info.mac);
+    bb_http_resp_json_obj_set_int(&obj, "flash_size",   (int64_t)info.flash_size);
+    bb_http_resp_json_obj_set_int(&obj, "total_heap",   (int64_t)info.total_heap);
+    bb_http_resp_json_obj_set_int(&obj, "free_heap",    (int64_t)info.free_heap);
+    bb_http_resp_json_obj_set_int(&obj, "app_size",     (int64_t)info.app_size);
+    bb_http_resp_json_obj_set_str(&obj, "reset_reason", info.reset_reason);
+    bb_http_resp_json_obj_set_bool(&obj, "ota_validated", info.ota_validated);
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 // ---------------------------------------------------------------------------

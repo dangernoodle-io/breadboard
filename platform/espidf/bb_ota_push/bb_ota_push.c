@@ -110,16 +110,25 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         bb_log_e(TAG, "OTA push rejected: content_len=%d, status=%d",
                  content_len, validate_status);
         if (validate_status == 413) {
-            bb_http_resp_send_err(req, 413, "Payload Too Large");
+            bb_http_resp_set_status(req, 413);
         } else {
-            bb_http_resp_send_err(req, 400, "Invalid Content-Length");
+            bb_http_resp_set_status(req, 400);
         }
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error",
+            validate_status == 413 ? "Payload Too Large" : "Invalid Content-Length");
+        bb_http_resp_json_obj_end(&obj);
         return BB_ERR_INVALID_ARG;
     }
 
     const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
     if (!partition) {
-        bb_http_resp_send_err(req, 500, "No OTA partition");
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "No OTA partition");
+        bb_http_resp_json_obj_end(&obj);
         return BB_ERR_INVALID_STATE;
     }
 
@@ -127,7 +136,11 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     esp_err_t err = esp_ota_begin(partition, OTA_SIZE_UNKNOWN, &ota_handle);
     if (err != ESP_OK) {
         bb_log_e(TAG, "esp_ota_begin failed: %s", esp_err_to_name(err));
-        bb_http_resp_send_err(req, 500, "OTA begin failed");
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "OTA begin failed");
+        bb_http_resp_json_obj_end(&obj);
         return BB_ERR_INVALID_STATE;
     }
 
@@ -149,7 +162,11 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     char *buf = malloc(OTA_RECV_BUF_SIZE);
     if (!buf) {
         bb_log_e(TAG, "malloc failed for OTA receive buffer");
-        bb_http_resp_send_err(req, 500, "malloc failed");
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "malloc failed");
+        bb_http_resp_json_obj_end(&obj);
         ota_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
         if (paused && s_resume_cb) {
             s_resume_cb();
@@ -168,7 +185,11 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
             if (++timeout_count > OTA_TIMEOUT_RETRIES) {
                 bb_log_e(TAG, "OTA upload timeout after %d retries", timeout_count);
                 esp_ota_abort(ota_handle);
-                bb_http_resp_send_err(req, 408, "Upload timeout");
+                bb_http_resp_set_status(req, 408);
+                bb_http_json_obj_stream_t obj;
+                bb_http_resp_json_obj_begin(req, &obj);
+                bb_http_resp_json_obj_set_str(&obj, "error", "Upload timeout");
+                bb_http_resp_json_obj_end(&obj);
                 free(buf);
                 goto resume_and_exit;
             }
@@ -179,7 +200,11 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         if (ret <= 0) {
             bb_log_e(TAG, "OTA receive error at %d/%d", received, content_len);
             esp_ota_abort(ota_handle);
-            bb_http_resp_send_err(req, 500, "Receive failed");
+            bb_http_resp_set_status(req, 500);
+            bb_http_json_obj_stream_t obj;
+            bb_http_resp_json_obj_begin(req, &obj);
+            bb_http_resp_json_obj_set_str(&obj, "error", "Receive failed");
+            bb_http_resp_json_obj_end(&obj);
             free(buf);
             goto resume_and_exit;
         }
@@ -202,7 +227,11 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
                     bb_log_e(TAG, "OTA rejected: firmware is for '%s', this device is '%s'",
                              incoming->project_name, running->project_name);
                     esp_ota_abort(ota_handle);
-                    bb_http_resp_send_err(req, 400, "Firmware board mismatch");
+                    bb_http_resp_set_status(req, 400);
+                    bb_http_json_obj_stream_t bm_obj;
+                    bb_http_resp_json_obj_begin(req, &bm_obj);
+                    bb_http_resp_json_obj_set_str(&bm_obj, "error", "Firmware board mismatch");
+                    bb_http_resp_json_obj_end(&bm_obj);
                     free(buf);
                     goto resume_and_exit;
                 }
@@ -214,7 +243,11 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         if (err != ESP_OK) {
             bb_log_e(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
             esp_ota_abort(ota_handle);
-            bb_http_resp_send_err(req, 500, "OTA write failed");
+            bb_http_resp_set_status(req, 500);
+            bb_http_json_obj_stream_t obj;
+            bb_http_resp_json_obj_begin(req, &obj);
+            bb_http_resp_json_obj_set_str(&obj, "error", "OTA write failed");
+            bb_http_resp_json_obj_end(&obj);
             free(buf);
             goto resume_and_exit;
         }
@@ -238,7 +271,12 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     }
 
     bb_log_i(TAG, "OTA complete, rebooting");
-    bb_http_resp_sendstr(req, "OTA complete. Rebooting...");
+    {
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "status", "rebooting");
+        bb_http_resp_json_obj_end(&obj);
+    }
 
     // Do not resume the consumer's worker (e.g. mining task) on the
     // success path — we are about to esp_restart(). Resuming here lets
