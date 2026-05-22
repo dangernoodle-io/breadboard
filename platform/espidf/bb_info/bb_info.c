@@ -90,7 +90,7 @@ static void add_network_object(bb_json_t root, const bb_wifi_info_t *w)
 static bb_err_t send_json_tree(bb_http_request_t *req, bb_json_t root)
 {
     char *str = bb_json_serialize(root);
-    if (!str) return BB_ERR_NO_MEM;
+    if (!str) return BB_ERR_NO_SPACE;
     bb_err_t err = bb_http_resp_set_type(req, "application/json");
     if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
     if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);

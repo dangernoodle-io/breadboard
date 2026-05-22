@@ -29,7 +29,7 @@ static bb_err_t manifest_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_begin(req, &obj);
         bb_http_resp_json_obj_set_str(&obj, "error", "serialize failed");
         bb_http_resp_json_obj_end(&obj);
-        return BB_ERR_NO_MEM;
+        return BB_ERR_NO_SPACE;
     }
 
     bb_err_t err = bb_http_resp_set_type(req, "application/json");
