@@ -484,8 +484,8 @@ void bb_update_check_set_task_priority(int priority)
 #endif
 
 // ---------------------------------------------------------------------------
-// GET /api/update/check/config  — read the runtime opt-out flag
-// POST /api/update/check/config — write the runtime opt-out flag
+// GET /api/update/config  — read the runtime opt-out flag
+// POST /api/update/config — write the runtime opt-out flag
 // Defined here (not in bb_update_check_espidf.c) so host tests can reach them.
 // Route registration is performed by the platform port.
 // ---------------------------------------------------------------------------
@@ -576,7 +576,7 @@ static const bb_route_response_t s_config_get_responses[] = {
 
 static const bb_route_t s_config_get_route = {
     .method   = BB_HTTP_GET,
-    .path     = "/api/update/check/config",
+    .path     = "/api/update/config",
     .tag      = "update",
     .summary  = "Get update-check enabled flag",
     .responses = s_config_get_responses,
@@ -596,7 +596,7 @@ static const bb_route_response_t s_config_post_responses[] = {
 
 static const bb_route_t s_config_post_route = {
     .method               = BB_HTTP_POST,
-    .path                 = "/api/update/check/config",
+    .path                 = "/api/update/config",
     .tag                  = "update",
     .summary              = "Set update-check enabled flag",
     .request_content_type = "application/json",

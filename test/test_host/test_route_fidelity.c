@@ -7,7 +7,6 @@
 // SKIPPED ROUTES (with rationale):
 //   /api/logs           - SSE stream (text/event-stream); not JSON
 //   /api/version        - text/plain; no schema to validate
-//   /api/ping           - text/plain; no schema to validate
 //   /api/scan           - bb_wifi_routes.c includes <esp_wifi.h> which cannot
 //                         link on host; scan uses esp_wifi_scan internally.
 //                         Follow-up: add a bb_wifi_scan host shim (B1-???).
@@ -16,6 +15,9 @@
 //                         The route descriptor exists for OpenAPI docs only.
 //                         Audited indirectly via the declared schema literal.
 //   /api/ota/update     - same as /api/ota/check above.
+// REMOVED ROUTES (no longer registered):
+//   /api/board          - dropped; superseded by /api/info
+//   /api/ping           - dropped; superseded by /api/health
 
 #include "unity.h"
 #include "bb_http.h"
@@ -48,27 +50,6 @@ static const char k_reboot_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{\"status\":{\"type\":\"string\"}},"
     "\"required\":[\"status\"]}";
-
-// GET /api/board — bb_board_routes.c
-static const char k_board_schema[] =
-    "{\"type\":\"object\","
-    "\"properties\":{"
-    "\"board\":{\"type\":\"string\"},"
-    "\"project_name\":{\"type\":\"string\"},"
-    "\"version\":{\"type\":\"string\"},"
-    "\"idf_version\":{\"type\":\"string\"},"
-    "\"build_date\":{\"type\":\"string\"},"
-    "\"build_time\":{\"type\":\"string\"},"
-    "\"chip_model\":{\"type\":\"string\"},"
-    "\"cores\":{\"type\":\"integer\"},"
-    "\"mac\":{\"type\":\"string\"},"
-    "\"flash_size\":{\"type\":\"integer\"},"
-    "\"total_heap\":{\"type\":\"integer\"},"
-    "\"free_heap\":{\"type\":\"integer\"},"
-    "\"app_size\":{\"type\":\"integer\"},"
-    "\"reset_reason\":{\"type\":\"string\"},"
-    "\"ota_validated\":{\"type\":\"boolean\"}},"
-    "\"required\":[\"board\",\"version\"]}";
 
 // GET /api/info — bb_info.c (espidf)
 static const char k_info_schema[] =
@@ -174,31 +155,6 @@ static bb_err_t h_reboot(bb_http_request_t *req)
     bb_err_t err = bb_http_resp_send_chunk(req, body, sizeof(body) - 1);
     if (err != BB_OK) return err;
     return bb_http_resp_send_chunk(req, NULL, 0);
-}
-
-static bb_err_t h_board(bb_http_request_t *req)
-{
-    bb_board_info_t info;
-    bb_board_get_info(&info);
-
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "board", info.board);
-    bb_http_resp_json_obj_set_str(&obj, "project_name", info.project_name);
-    bb_http_resp_json_obj_set_str(&obj, "version", info.version);
-    bb_http_resp_json_obj_set_str(&obj, "idf_version", info.idf_version);
-    bb_http_resp_json_obj_set_str(&obj, "build_date", info.build_date);
-    bb_http_resp_json_obj_set_str(&obj, "build_time", info.build_time);
-    bb_http_resp_json_obj_set_str(&obj, "chip_model", info.chip_model);
-    bb_http_resp_json_obj_set_num(&obj, "cores", (double)info.cores);
-    bb_http_resp_json_obj_set_str(&obj, "mac", info.mac);
-    bb_http_resp_json_obj_set_num(&obj, "flash_size", (double)info.flash_size);
-    bb_http_resp_json_obj_set_num(&obj, "total_heap", (double)info.total_heap);
-    bb_http_resp_json_obj_set_num(&obj, "free_heap", (double)info.free_heap);
-    bb_http_resp_json_obj_set_num(&obj, "app_size", (double)info.app_size);
-    bb_http_resp_json_obj_set_str(&obj, "reset_reason", info.reset_reason);
-    bb_http_resp_json_obj_set_bool(&obj, "ota_validated", info.ota_validated);
-    return bb_http_resp_json_obj_end(&obj);
 }
 
 static bb_err_t h_info(bb_http_request_t *req)
@@ -341,7 +297,6 @@ typedef struct {
 // Table of all audited (route, handler, status, content-type, schema) tuples.
 static const fidelity_entry_t k_audit[] = {
     { "/api/reboot",         h_reboot,            200, "application/json", k_reboot_schema       },
-    { "/api/board",          h_board,             200, "application/json", k_board_schema        },
     { "/api/info",           h_info,              200, "application/json", k_info_schema         },
     { "/api/health",         h_health,            200, "application/json", k_health_schema       },
     { "/api/wifi",           h_wifi_info,         200, "application/json", k_wifi_schema         },
@@ -413,34 +368,29 @@ void test_fidelity_reboot(void)
     run_fidelity(&k_audit[0]);
 }
 
-void test_fidelity_board(void)
+void test_fidelity_info(void)
 {
     run_fidelity(&k_audit[1]);
 }
 
-void test_fidelity_info(void)
+void test_fidelity_health(void)
 {
     run_fidelity(&k_audit[2]);
 }
 
-void test_fidelity_health(void)
+void test_fidelity_wifi_info(void)
 {
     run_fidelity(&k_audit[3]);
 }
 
-void test_fidelity_wifi_info(void)
+void test_fidelity_ota_status(void)
 {
     run_fidelity(&k_audit[4]);
 }
 
-void test_fidelity_ota_status(void)
-{
-    run_fidelity(&k_audit[5]);
-}
-
 void test_fidelity_ota_mark_valid_409(void)
 {
-    run_fidelity(&k_audit[6]);
+    run_fidelity(&k_audit[5]);
 }
 
 // ---------------------------------------------------------------------------

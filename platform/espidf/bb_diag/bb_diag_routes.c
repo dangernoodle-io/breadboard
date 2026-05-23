@@ -10,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdlib.h>
+#include <string.h>
 #ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
 #include "esp_core_dump.h"
 #include "esp_partition.h"
@@ -274,6 +275,9 @@ static const bb_route_t s_abnormal_resets_delete_route = {
 
 // --- heap ---
 
+// GET /api/diag/heap[?check=true]
+// Optional query param ?check=true runs heap_caps_check_integrity_all and
+// appends "integrity_ok": bool to the response.
 static bb_err_t heap_get_handler(bb_http_request_t *req)
 {
     struct cap_entry { const char *name; uint32_t caps; };
@@ -284,6 +288,15 @@ static bb_err_t heap_get_handler(bb_http_request_t *req)
         { "exec",     MALLOC_CAP_EXEC },
         { "default",  MALLOC_CAP_DEFAULT },
     };
+
+    char check_val[8];
+    bool run_check = (bb_http_req_query_key_value(req, "check", check_val, sizeof(check_val)) == BB_OK
+                      && strcmp(check_val, "true") == 0);
+
+    bool integrity_ok = false;
+    if (run_check) {
+        integrity_ok = heap_caps_check_integrity_all(true);
+    }
 
     bb_http_json_obj_stream_t obj;
     bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
@@ -301,23 +314,18 @@ static bb_err_t heap_get_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_obj_end(&obj);
     }
 
-    return bb_http_resp_json_obj_end(&obj);
-}
+    if (run_check) {
+        bb_http_resp_json_obj_set_bool(&obj, "integrity_ok", integrity_ok);
+    }
 
-static bb_err_t heap_check_handler(bb_http_request_t *req)
-{
-    bool ok = heap_caps_check_integrity_all(true);
-    bb_http_resp_set_status(req, ok ? 200 : 500);
-    bb_http_json_obj_stream_t obj;
-    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
-    if (err != BB_OK) return err;
-    bb_http_resp_json_obj_set_bool(&obj, "ok", ok);
     return bb_http_resp_json_obj_end(&obj);
 }
 
 static const bb_route_response_t s_heap_get_responses[] = {
     { 200, "application/json",
       "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"integrity_ok\":{\"type\":\"boolean\"}},"
       "\"additionalProperties\":{"
       "\"type\":\"object\","
       "\"properties\":{"
@@ -325,7 +333,7 @@ static const bb_route_response_t s_heap_get_responses[] = {
       "\"allocated\":{\"type\":\"integer\"},"
       "\"largest_free_block\":{\"type\":\"integer\"},"
       "\"minimum_ever_free\":{\"type\":\"integer\"}}}}",
-      "per-capability heap stats (internal, dma, spiram, exec, default — only present caps included)" },
+      "per-capability heap stats; optional ?check=true appends integrity_ok field" },
     { 0 },
 };
 
@@ -333,24 +341,9 @@ static const bb_route_t s_heap_get_route = {
     .method    = BB_HTTP_GET,
     .path      = "/api/diag/heap",
     .tag       = "diag",
-    .summary   = "Per-capability heap statistics",
+    .summary   = "Per-capability heap statistics; pass ?check=true to run integrity check",
     .responses = s_heap_get_responses,
     .handler   = heap_get_handler,
-};
-
-static const bb_route_response_t s_heap_check_responses[] = {
-    { 200, "application/json", "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}}}", "heap integrity OK" },
-    { 500, "application/json", NULL, "heap corruption detected; details in device log" },
-    { 0 },
-};
-
-static const bb_route_t s_heap_check_route = {
-    .method    = BB_HTTP_POST,
-    .path      = "/api/diag/heap/check",
-    .tag       = "diag",
-    .summary   = "Run heap integrity check across all regions",
-    .responses = s_heap_check_responses,
-    .handler   = heap_check_handler,
 };
 
 // --- tasks ---
@@ -597,9 +590,6 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
 
     err = bb_http_register_described_route(server, &s_heap_get_route);
-    if (err != BB_OK) return err;
-
-    err = bb_http_register_described_route(server, &s_heap_check_route);
     if (err != BB_OK) return err;
 
 #if CONFIG_FREERTOS_USE_TRACE_FACILITY

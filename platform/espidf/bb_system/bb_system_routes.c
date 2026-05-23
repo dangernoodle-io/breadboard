@@ -2,11 +2,6 @@
 #include "bb_system.h"
 #include "bb_registry.h"
 
-#include <inttypes.h>
-#include <string.h>
-#include <stdio.h>
-
-#include "esp_timer.h"
 
 static bb_err_t version_handler(bb_http_request_t *req)
 {
@@ -28,18 +23,6 @@ static bb_err_t reboot_handler(bb_http_request_t *req)
     return rc;
 }
 
-static bb_err_t ping_handler(bb_http_request_t *req)
-{
-    char body[32];
-    uint32_t uptime_s = (uint32_t)(esp_timer_get_time() / 1000000ULL);
-    int n = snprintf(body, sizeof(body), "ok %" PRIu32, uptime_s);
-    if (n < 0 || (size_t)n >= sizeof(body)) n = 2;  /* safe fallback to "ok" */
-    bb_http_resp_set_type(req, "text/plain");
-    bb_err_t err = bb_http_resp_send_chunk(req, body, n);
-    if (err != BB_OK) return err;
-    return bb_http_resp_send_chunk(req, NULL, 0);
-}
-
 // ---------------------------------------------------------------------------
 // Route descriptors
 // ---------------------------------------------------------------------------
@@ -56,20 +39,6 @@ static const bb_route_t s_version_route = {
     .summary  = "Get firmware version",
     .responses = s_version_responses,
     .handler  = version_handler,
-};
-
-static const bb_route_response_t s_ping_responses[] = {
-    { 200, "text/plain", NULL, "ok <uptime_seconds>" },
-    { 0 },
-};
-
-static const bb_route_t s_ping_route = {
-    .method   = BB_HTTP_GET,
-    .path     = "/api/ping",
-    .tag      = "system",
-    .summary  = "Liveness check",
-    .responses = s_ping_responses,
-    .handler  = ping_handler,
 };
 
 static const bb_route_response_t s_reboot_responses[] = {
@@ -96,8 +65,6 @@ static bb_err_t bb_system_routes_init(bb_http_handle_t server)
 
     bb_err_t rc;
     rc = bb_http_register_described_route(server, &s_version_route);
-    if (rc != BB_OK) return rc;
-    rc = bb_http_register_described_route(server, &s_ping_route);
     if (rc != BB_OK) return rc;
     rc = bb_http_register_described_route(server, &s_reboot_route);
     if (rc != BB_OK) return rc;

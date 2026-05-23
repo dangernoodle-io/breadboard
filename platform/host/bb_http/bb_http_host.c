@@ -36,6 +36,9 @@ typedef struct {
     // injected request body (not owned; caller ensures lifetime)
     const char        *req_body;
     int                req_body_len;
+    // injected query params: simple key=value pairs (not owned; caller ensures lifetime)
+    const char        *query_key;
+    const char        *query_val;
 } capture_slot_t;
 
 static capture_slot_t s_cap;
@@ -213,10 +216,14 @@ int bb_http_req_sockfd(bb_http_request_t *req)
 bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
                                      char *out, size_t out_len)
 {
-    (void)req;
-    (void)key;
+    capture_slot_t *cap = capture_find(req);
+    if (cap && cap->query_key && key && strcmp(cap->query_key, key) == 0 && cap->query_val) {
+        size_t vlen = strlen(cap->query_val);
+        if (vlen + 1 > out_len) return BB_ERR_INVALID_ARG;
+        memcpy(out, cap->query_val, vlen + 1);
+        return BB_OK;
+    }
     (void)out;
-    (void)out_len;
     return BB_ERR_INVALID_ARG;
 }
 
@@ -271,6 +278,8 @@ void bb_http_host_capture_begin(bb_http_request_t **out_req)
     s_cap.body_len     = 0;
     s_cap.req_body     = NULL;
     s_cap.req_body_len = 0;
+    s_cap.query_key    = NULL;
+    s_cap.query_val    = NULL;
     memset(s_cap.content_type, 0, sizeof(s_cap.content_type));
     if (out_req) *out_req = req;
 }
@@ -279,6 +288,12 @@ void bb_http_host_capture_set_req_body(const char *body, int len)
 {
     s_cap.req_body     = body;
     s_cap.req_body_len = body ? len : 0;
+}
+
+void bb_http_host_capture_set_query_param(const char *key, const char *val)
+{
+    s_cap.query_key = key;
+    s_cap.query_val = val;
 }
 
 bb_err_t bb_http_host_capture_end(bb_http_request_t *req,

@@ -415,7 +415,6 @@ void test_set_raw_writes_null_on_malformed_json(void);
 void test_set_raw_writes_parsed_object_on_valid_json(void);
 // Forward declarations from test_route_fidelity.c
 void test_fidelity_reboot(void);
-void test_fidelity_board(void);
 void test_fidelity_info(void);
 void test_fidelity_health(void);
 void test_fidelity_wifi_info(void);
@@ -1599,7 +1598,6 @@ int main(void) {
 
     // Fidelity audit: handler output vs declared response schema
     RUN_TEST(test_fidelity_reboot);
-    RUN_TEST(test_fidelity_board);
     RUN_TEST(test_fidelity_info);
     RUN_TEST(test_fidelity_health);
     RUN_TEST(test_fidelity_wifi_info);

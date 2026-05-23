@@ -38,6 +38,13 @@ void bb_http_host_capture_begin(bb_http_request_t **out_req);
 // returns. Passing NULL clears any previously injected body.
 void bb_http_host_capture_set_req_body(const char *body, int len);
 
+// Inject a single query parameter into the active capture slot. Must be called
+// after bb_http_host_capture_begin and before invoking the handler. The strings
+// are referenced (not copied) — both must remain valid until after the handler
+// returns. Pass NULL key to clear any previously injected param.
+// Only one key=value pair is supported at a time.
+void bb_http_host_capture_set_query_param(const char *key, const char *val);
+
 // Disarm the active capture slot and populate *out with the intercepted response.
 // Returns BB_OK on success, BB_ERR_INVALID_ARG on NULL args or if req does not
 // match the active slot.

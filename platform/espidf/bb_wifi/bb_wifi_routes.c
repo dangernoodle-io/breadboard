@@ -102,10 +102,10 @@ static const bb_route_response_t s_scan_responses[] = {
 };
 
 static const bb_route_t s_scan_route = {
-    .method   = BB_HTTP_GET,
+    .method   = BB_HTTP_POST,
     .path     = "/api/scan",
     .tag      = "wifi",
-    .summary  = "Scan for Wi-Fi networks",
+    .summary  = "Trigger Wi-Fi network scan and return cached results",
     .responses = s_scan_responses,
     .handler  = scan_handler,
 };

@@ -1184,7 +1184,7 @@ void test_bb_update_check_reenabled_runs_check(void)
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/update/check/config  — HTTP handler tests
+// GET /api/update/config  — HTTP handler tests
 // ---------------------------------------------------------------------------
 
 void test_update_check_config_get_returns_enabled_true_by_default(void)
@@ -1224,7 +1224,7 @@ void test_update_check_config_get_returns_enabled_false_when_disabled(void)
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/update/check/config — HTTP handler tests
+// POST /api/update/config — HTTP handler tests
 // ---------------------------------------------------------------------------
 
 void test_update_check_config_post_toggles_to_false(void)
@@ -1341,7 +1341,7 @@ void test_update_check_config_get_route_descriptor_is_correct(void)
     const bb_route_t *r = bb_update_check_config_get_route();
     TEST_ASSERT_NOT_NULL(r);
     TEST_ASSERT_EQUAL(BB_HTTP_GET, r->method);
-    TEST_ASSERT_EQUAL_STRING("/api/update/check/config", r->path);
+    TEST_ASSERT_EQUAL_STRING("/api/update/config", r->path);
     TEST_ASSERT_EQUAL_STRING("update", r->tag);
 }
 
@@ -1350,7 +1350,7 @@ void test_update_check_config_post_route_descriptor_is_correct(void)
     const bb_route_t *r = bb_update_check_config_post_route();
     TEST_ASSERT_NOT_NULL(r);
     TEST_ASSERT_EQUAL(BB_HTTP_POST, r->method);
-    TEST_ASSERT_EQUAL_STRING("/api/update/check/config", r->path);
+    TEST_ASSERT_EQUAL_STRING("/api/update/config", r->path);
     TEST_ASSERT_EQUAL_STRING("update", r->tag);
     TEST_ASSERT_NOT_NULL(r->request_schema);
 }
