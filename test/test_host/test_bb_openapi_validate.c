@@ -514,6 +514,49 @@ void test_validate_smoke_panic_schema(void)
     cJSON_Delete(value);
 }
 
+// Mirrors GET /api/diag/boot 200 response schema from
+// platform/espidf/bb_diag/bb_diag_routes.c — panic available + unavailable branches
+void test_validate_smoke_boot_schema(void)
+{
+    static const char schema[] =
+        "{\"type\":\"object\","
+        "\"properties\":{"
+        "\"reset_reason\":{\"type\":\"string\"},"
+        "\"abnormal_reset_count\":{\"type\":\"integer\"},"
+        "\"panic\":{\"type\":\"object\","
+        "\"properties\":{"
+        "\"available\":{\"type\":\"boolean\"},"
+        "\"boots_since\":{\"type\":\"integer\"},"
+        "\"reset_reason\":{\"type\":\"string\"}},"
+        "\"required\":[\"available\"]}},"
+        "\"required\":[\"reset_reason\",\"abnormal_reset_count\",\"panic\"]}";
+
+    // panic not available
+    cJSON *clean = cJSON_CreateObject();
+    cJSON_AddStringToObject(clean, "reset_reason", "poweron");
+    cJSON_AddNumberToObject(clean, "abnormal_reset_count", 0);
+    cJSON *panic_obj = cJSON_CreateObject();
+    cJSON_AddFalseToObject(panic_obj, "available");
+    cJSON_AddItemToObject(clean, "panic", panic_obj);
+    bb_openapi_validate_err_t err;
+    bb_err_t rc = bb_openapi_validate(schema, clean, &err);
+    TEST_ASSERT_EQUAL_MESSAGE(BB_OK, rc, err.message);
+    cJSON_Delete(clean);
+
+    // panic available with extra fields
+    cJSON *panicked = cJSON_CreateObject();
+    cJSON_AddStringToObject(panicked, "reset_reason", "panic");
+    cJSON_AddNumberToObject(panicked, "abnormal_reset_count", 3);
+    cJSON *panic_obj2 = cJSON_CreateObject();
+    cJSON_AddTrueToObject(panic_obj2, "available");
+    cJSON_AddNumberToObject(panic_obj2, "boots_since", 0);
+    cJSON_AddStringToObject(panic_obj2, "reset_reason", "panic");
+    cJSON_AddItemToObject(panicked, "panic", panic_obj2);
+    rc = bb_openapi_validate(schema, panicked, &err);
+    TEST_ASSERT_EQUAL_MESSAGE(BB_OK, rc, err.message);
+    cJSON_Delete(panicked);
+}
+
 // ---------------------------------------------------------------------------
 // err=NULL branches for enum, required, properties, items
 // ---------------------------------------------------------------------------

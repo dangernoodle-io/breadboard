@@ -83,12 +83,99 @@ static bb_err_t panic_get_handler(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
-static bb_err_t panic_delete_handler(bb_http_request_t *req)
+// Helper: map esp_reset_reason_t to a short string
+static const char *reset_reason_to_str(esp_reset_reason_t reason)
+{
+    switch (reason) {
+        case ESP_RST_POWERON:  return "poweron";
+        case ESP_RST_EXT:      return "ext";
+        case ESP_RST_SW:       return "software";
+        case ESP_RST_PANIC:    return "panic";
+        case ESP_RST_INT_WDT:  return "int_wdt";
+        case ESP_RST_TASK_WDT: return "task_wdt";
+        case ESP_RST_WDT:      return "wdt";
+        case ESP_RST_DEEPSLEEP:return "deepsleep";
+        case ESP_RST_BROWNOUT: return "brownout";
+        case ESP_RST_SDIO:     return "sdio";
+        default:               return "unknown";
+    }
+}
+
+// GET /api/diag/boot — compact boot-anomaly summary
+static bb_err_t boot_get_handler(bb_http_request_t *req)
+{
+    esp_reset_reason_t reason = esp_reset_reason();
+    const char *reason_str = reset_reason_to_str(reason);
+    bool panic_avail = bb_diag_panic_available();
+
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+
+    bb_http_resp_json_obj_set_str(&obj, "reset_reason", reason_str);
+    bb_http_resp_json_obj_set_int(&obj, "abnormal_reset_count",
+                                  (int64_t)bb_diag_abnormal_reset_count());
+
+    bb_http_resp_json_obj_set_obj_begin(&obj, "panic");
+    bb_http_resp_json_obj_set_bool(&obj, "available", panic_avail);
+    if (panic_avail) {
+        bb_http_resp_json_obj_set_int(&obj, "boots_since",
+                                      (int64_t)bb_diag_panic_boots_since());
+        bb_http_resp_json_obj_set_str(&obj, "reset_reason", reason_str);
+    }
+    bb_http_resp_json_obj_set_obj_end(&obj);
+
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+// DELETE /api/diag/boot — clear panic log + abnormal-reset counter
+static bb_err_t boot_delete_handler(bb_http_request_t *req)
 {
     bb_diag_panic_clear();
+    bb_diag_abnormal_reset_count_clear();
     bb_http_resp_set_status(req, 204);
     return bb_http_resp_send_chunk(req, NULL, 0);
 }
+
+static const bb_route_response_t s_boot_get_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"reset_reason\":{\"type\":\"string\"},"
+      "\"abnormal_reset_count\":{\"type\":\"integer\"},"
+      "\"panic\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"available\":{\"type\":\"boolean\"},"
+      "\"boots_since\":{\"type\":\"integer\"},"
+      "\"reset_reason\":{\"type\":\"string\"}},"
+      "\"required\":[\"available\"]}},"
+      "\"required\":[\"reset_reason\",\"abnormal_reset_count\",\"panic\"]}",
+      "current boot reset reason, abnormal-reset count, and panic availability summary" },
+    { 0 },
+};
+
+static const bb_route_t s_boot_get_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/boot",
+    .tag       = "diag",
+    .summary   = "Boot anomaly summary: reset reason, abnormal-reset count, panic availability",
+    .responses = s_boot_get_responses,
+    .handler   = boot_get_handler,
+};
+
+static const bb_route_response_t s_boot_delete_responses[] = {
+    { 204, NULL, NULL, "panic log and abnormal-reset counter cleared" },
+    { 0 },
+};
+
+static const bb_route_t s_boot_delete_route = {
+    .method    = BB_HTTP_DELETE,
+    .path      = "/api/diag/boot",
+    .tag       = "diag",
+    .summary   = "Clear panic log and abnormal-reset counter",
+    .responses = s_boot_delete_responses,
+    .handler   = boot_delete_handler,
+};
 
 static const bb_route_response_t s_panic_get_responses[] = {
     { 200, "application/json",
@@ -115,20 +202,6 @@ static const bb_route_t s_panic_get_route = {
     .summary  = "Get panic log from previous abnormal boot",
     .responses = s_panic_get_responses,
     .handler  = panic_get_handler,
-};
-
-static const bb_route_response_t s_panic_delete_responses[] = {
-    { 204, NULL, NULL, "panic log cleared" },
-    { 0 },
-};
-
-static const bb_route_t s_panic_delete_route = {
-    .method   = BB_HTTP_DELETE,
-    .path     = "/api/diag/panic",
-    .tag      = "diag",
-    .summary  = "Clear panic log",
-    .responses = s_panic_delete_responses,
-    .handler  = panic_delete_handler,
 };
 
 #ifdef CONFIG_BB_DIAG_PANIC_TRIGGER
@@ -249,29 +322,6 @@ static const bb_route_t s_coredump_get_route = {
     .handler  = coredump_get_handler,
 };
 #endif /* CONFIG_BB_DIAG_PANIC_COREDUMP */
-
-// --- abnormal-resets ---
-
-static bb_err_t abnormal_resets_delete_handler(bb_http_request_t *req)
-{
-    bb_diag_abnormal_reset_count_clear();
-    bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send_chunk(req, NULL, 0);
-}
-
-static const bb_route_response_t s_abnormal_resets_delete_responses[] = {
-    { 204, NULL, NULL, "abnormal-reset counter cleared" },
-    { 0 },
-};
-
-static const bb_route_t s_abnormal_resets_delete_route = {
-    .method    = BB_HTTP_DELETE,
-    .path      = "/api/diag/abnormal-resets",
-    .tag       = "diag",
-    .summary   = "Reset the abnormal-reset counter to zero",
-    .responses = s_abnormal_resets_delete_responses,
-    .handler   = abnormal_resets_delete_handler,
-};
 
 // --- heap ---
 
@@ -569,10 +619,13 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
-    bb_err_t err = bb_http_register_described_route(server, &s_panic_get_route);
+    bb_err_t err = bb_http_register_described_route(server, &s_boot_get_route);
     if (err != BB_OK) return err;
 
-    err = bb_http_register_described_route(server, &s_panic_delete_route);
+    err = bb_http_register_described_route(server, &s_boot_delete_route);
+    if (err != BB_OK) return err;
+
+    err = bb_http_register_described_route(server, &s_panic_get_route);
     if (err != BB_OK) return err;
 
 #ifdef CONFIG_BB_DIAG_PANIC_TRIGGER
@@ -585,9 +638,6 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     err = bb_http_register_described_route(server, &s_coredump_get_route);
     if (err != BB_OK) return err;
 #endif
-
-    err = bb_http_register_described_route(server, &s_abnormal_resets_delete_route);
-    if (err != BB_OK) return err;
 
     err = bb_http_register_described_route(server, &s_heap_get_route);
     if (err != BB_OK) return err;

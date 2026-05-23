@@ -147,6 +147,20 @@ static const char k_mark_valid_409_schema[] =
     "\"properties\":{\"error\":{\"type\":\"string\"}},"
     "\"required\":[\"error\"]}";
 
+// GET /api/diag/boot — platform/espidf/bb_diag/bb_diag_routes.c
+static const char k_boot_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+    "\"reset_reason\":{\"type\":\"string\"},"
+    "\"abnormal_reset_count\":{\"type\":\"integer\"},"
+    "\"panic\":{\"type\":\"object\","
+    "\"properties\":{"
+    "\"available\":{\"type\":\"boolean\"},"
+    "\"boots_since\":{\"type\":\"integer\"},"
+    "\"reset_reason\":{\"type\":\"string\"}},"
+    "\"required\":[\"available\"]}},"
+    "\"required\":[\"reset_reason\",\"abnormal_reset_count\",\"panic\"]}";
+
 // ---------------------------------------------------------------------------
 // Host-local handler implementations
 // These mirror what the production handlers emit using host-available functions.
@@ -276,6 +290,34 @@ static bb_err_t h_ota_status(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
+// GET /api/diag/boot — panic not available (clean boot)
+static bb_err_t h_boot_no_panic(bb_http_request_t *req)
+{
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "reset_reason", "poweron");
+    bb_http_resp_json_obj_set_int(&obj, "abnormal_reset_count", 0);
+    bb_http_resp_json_obj_set_obj_begin(&obj, "panic");
+    bb_http_resp_json_obj_set_bool(&obj, "available", false);
+    bb_http_resp_json_obj_set_obj_end(&obj);
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+// GET /api/diag/boot — panic available (post-panic boot)
+static bb_err_t h_boot_with_panic(bb_http_request_t *req)
+{
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "reset_reason", "panic");
+    bb_http_resp_json_obj_set_int(&obj, "abnormal_reset_count", 3);
+    bb_http_resp_json_obj_set_obj_begin(&obj, "panic");
+    bb_http_resp_json_obj_set_bool(&obj, "available", true);
+    bb_http_resp_json_obj_set_int(&obj, "boots_since", 0);
+    bb_http_resp_json_obj_set_str(&obj, "reset_reason", "panic");
+    bb_http_resp_json_obj_set_obj_end(&obj);
+    return bb_http_resp_json_obj_end(&obj);
+}
+
 // OTA mark-valid 409: on host bb_ota_is_pending() is always false.
 static bb_err_t h_ota_mark_valid_409(bb_http_request_t *req)
 {
@@ -301,12 +343,14 @@ typedef struct {
 
 // Table of all audited (route, handler, status, content-type, schema) tuples.
 static const fidelity_entry_t k_audit[] = {
-    { "/api/reboot",         h_reboot,            200, "application/json", k_reboot_schema       },
-    { "/api/info",           h_info,              200, "application/json", k_info_schema         },
-    { "/api/health",         h_health,            200, "application/json", k_health_schema       },
-    { "/api/wifi",           h_wifi_info,         200, "application/json", k_wifi_schema         },
+    { "/api/reboot",            h_reboot,            200, "application/json", k_reboot_schema        },
+    { "/api/info",              h_info,              200, "application/json", k_info_schema          },
+    { "/api/health",            h_health,            200, "application/json", k_health_schema        },
+    { "/api/wifi",              h_wifi_info,         200, "application/json", k_wifi_schema          },
     { "/api/update/progress",   h_ota_status,        200, "application/json", k_ota_status_schema    },
     { "/api/update/mark-valid", h_ota_mark_valid_409,409, "application/json", k_mark_valid_409_schema},
+    { "/api/diag/boot (clean)", h_boot_no_panic,     200, "application/json", k_boot_schema          },
+    { "/api/diag/boot (panic)", h_boot_with_panic,   200, "application/json", k_boot_schema          },
     { NULL, NULL, 0, NULL, NULL },
 };
 
@@ -396,6 +440,16 @@ void test_fidelity_ota_status(void)
 void test_fidelity_ota_mark_valid_409(void)
 {
     run_fidelity(&k_audit[5]);
+}
+
+void test_fidelity_boot_no_panic(void)
+{
+    run_fidelity(&k_audit[6]);
+}
+
+void test_fidelity_boot_with_panic(void)
+{
+    run_fidelity(&k_audit[7]);
 }
 
 // ---------------------------------------------------------------------------

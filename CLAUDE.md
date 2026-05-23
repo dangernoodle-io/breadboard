@@ -209,7 +209,7 @@ Examples in this repo (elecrow-p4-hmi7, esp32-wroom-32) own their own board head
 
 ## bb_diag
 
-`bb_diag` registers diagnostic HTTP routes under `/api/diag/`: panic log, coredump, heap stats, FreeRTOS task list, and abnormal-reset counter. Panic buffer size is tunable via `BB_DIAG_PANIC_BUF_SIZE` (default 1024 bytes, stored in RTC slow memory). `GET /api/diag/sockets` dumps LWIP TCP state distribution (per-state counts + per-PCB detail) for diagnosing socket exhaustion.
+`bb_diag` registers diagnostic HTTP routes under `/api/diag/`: boot anomaly summary, panic log, coredump, heap stats, FreeRTOS task list, and abnormal-reset counter. `GET /api/diag/boot` returns a compact JSON summary of the current boot's reset reason, the persistent abnormal-reset count, and panic availability. `DELETE /api/diag/boot` clears both the panic log and the abnormal-reset counter in a single call. `GET /api/diag/panic` returns the full panic log detail (log tail, coredump backtrace, task info). Panic buffer size is tunable via `BB_DIAG_PANIC_BUF_SIZE` (default 1024 bytes, stored in RTC slow memory). `GET /api/diag/sockets` dumps LWIP TCP state distribution (per-state counts + per-PCB detail) for diagnosing socket exhaustion.
 
 ## Releases
 
