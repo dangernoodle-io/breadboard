@@ -437,7 +437,7 @@ void test_validate_smoke_reboot_schema(void)
     cJSON_Delete(value);
 }
 
-// Mirrors GET /api/ota/check 200 response schema from
+// Mirrors POST /api/update/check 200 response schema from
 // platform/espidf/bb_ota_pull/bb_ota_pull.c
 void test_validate_smoke_ota_check_schema(void)
 {

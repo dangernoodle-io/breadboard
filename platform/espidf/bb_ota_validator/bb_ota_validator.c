@@ -140,8 +140,8 @@ bb_err_t bb_ota_validator_init(bb_http_handle_t server)
 
     static const bb_route_t s_mark_valid_route = {
         .method   = BB_HTTP_POST,
-        .path     = "/api/ota/mark-valid",
-        .tag      = "ota",
+        .path     = "/api/update/mark-valid",
+        .tag      = "update",
         .summary  = "Mark running firmware as valid",
         .responses = s_mark_valid_responses,
         .handler  = mark_valid_handler,

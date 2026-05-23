@@ -349,7 +349,7 @@ bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
     }
 
     // Register all registry routes (system, wifi routes, info, etc.).
-    // This includes /api/version, /api/scan, /api/reboot and others.
+    // This includes /api/scan, /api/reboot, /api/info, /api/health and others.
     bb_err_t rc = bb_registry_init();
     if (rc != BB_OK) return rc;
 

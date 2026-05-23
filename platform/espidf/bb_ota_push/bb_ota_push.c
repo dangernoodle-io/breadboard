@@ -98,7 +98,7 @@ static void ota_wdt_set_timeout(uint32_t timeout_s)
 }
 
 /**
- * POST /api/ota/push - Receive and flash firmware via HTTP upload.
+ * POST /api/update/push - Receive and flash firmware via HTTP upload.
  * Expects raw binary .bin file in request body.
  */
 static bb_err_t ota_push_handler(bb_http_request_t *req)
@@ -310,8 +310,8 @@ static const bb_route_response_t s_ota_push_responses[] = {
 
 static const bb_route_t s_ota_push_route = {
     .method               = BB_HTTP_POST,
-    .path                 = "/api/ota/push",
-    .tag                  = "ota",
+    .path                 = "/api/update/push",
+    .tag                  = "update",
     .summary              = "Upload and flash firmware binary",
     .request_content_type = "application/octet-stream",
     .request_schema       = NULL,  // raw binary .bin file
@@ -329,9 +329,9 @@ static bb_err_t bb_ota_push_init(bb_http_handle_t server)
     }
 
     bb_err_t err = bb_http_register_route(server, BB_HTTP_POST,
-                                          "/api/ota/push", ota_push_handler);
+                                          "/api/update/push", ota_push_handler);
     if (err != BB_OK) {
-        bb_log_e(TAG, "failed to register /api/ota/push handler");
+        bb_log_e(TAG, "failed to register /api/update/push handler");
         return err;
     }
 
