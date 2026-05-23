@@ -160,7 +160,7 @@ ESP-IDF consumers must add both directories to `EXTRA_COMPONENT_DIRS` and includ
 
 **Streaming fetch path.** The default GitHub parser is invoked via the streaming API: `bb_http_client_get_stream` feeds 2 KB chunks into `bb_release_manifest_parse_github_stream_feed`. Only parser state (~400 B on stack) and the two extracted strings live in memory. Custom parsers registered via `bb_update_check_set_parser` fall back to a heap allocation per fetch (size tunable via `CONFIG_BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES`, default 8192 bytes). `bb_ota_pull` uses `bb_update_check_get_status()` for the cached result; `ota_fetch_manifest` is still compiled for the `BB_OTA_PULL_TESTING` hook but is not called on device.
 
-**`bb_update_check` is the single source of truth for manifest checks.** `bb_update_check_get_status(bb_update_check_status_t *out)` copies the cached status snapshot under the internal pthread mutex. Callers do not hold any lock. `POST /api/ota/update` reads this to extract `latest` and `download_url` for the OTA worker; returns 503 if `last_check_ok == false` (no recent successful check), 409 if `available == false`. `GET /api/ota/check` is a thin back-compat wrapper that calls `bb_update_check_kick()` and returns `{"status":"checking"}` (200) immediately; callers poll `GET /api/update/status` for results.
+**`bb_update_check` is the single source of truth for manifest checks.** `bb_update_check_get_status(bb_update_check_status_t *out)` copies the cached status snapshot under the internal pthread mutex. Callers do not hold any lock. `POST /api/update/apply` reads this to extract `latest` and `download_url` for the OTA worker; returns 503 if `last_check_ok == false` (no recent successful check), 409 if `available == false`. `POST /api/update/check` calls `bb_update_check_kick()` and returns `{"status":"checking"}` (200) immediately; callers poll `GET /api/update/status` for results.
 
 **`bb_update_check_now()` vs `bb_update_check_kick()`:**
 - `now()` — synchronous; runs manifest fetch + mbedTLS on caller's stack (needs ≥8 KB). Use from worker tasks and test harnesses.
@@ -176,7 +176,7 @@ The streaming parser (`bb_release_manifest_parse_github_stream_{begin,feed,end}`
 
 The `bb_prov` component manages the provisioning state machine and HTTP `/save` handler. Callers MUST supply at least one asset with `path="/"` to `bb_prov_start`. For bare-minimum bringup, add `REQUIRES bb_prov_default_form` and pass `&bb_prov_default_form_asset`. Custom UIs pass their own asset array instead. `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
 
-`bb_prov_start(assets, n, extra)` owns the full prov-mode route graph: it registers `/save`, assets, registry routes (e.g. `/api/version`, `POST /api/scan`, `/api/reboot`), an optional consumer `extra` callback, then the captive-portal `/*` GET wildcard — in that exact order so specific handlers always win first-match. Pass `NULL` for `extra` when the UI only needs the built-ins. Use `extra` for advanced UIs that need dynamic endpoints (e.g. live diagnostics, pool-test buttons); register them on `server` and bb_prov will sequence them correctly. Additional form fields (pool/wallet/worker/etc.) stay on the `/save` body and are parsed via `bb_prov_set_save_callback`.
+`bb_prov_start(assets, n, extra)` owns the full prov-mode route graph: it registers `/save`, assets, registry routes (e.g. `POST /api/scan`, `/api/reboot`, `/api/info`), an optional consumer `extra` callback, then the captive-portal `/*` GET wildcard — in that exact order so specific handlers always win first-match. Pass `NULL` for `extra` when the UI only needs the built-ins. Use `extra` for advanced UIs that need dynamic endpoints (e.g. live diagnostics, pool-test buttons); register them on `server` and bb_prov will sequence them correctly. Additional form fields (pool/wallet/worker/etc.) stay on the `/save` body and are parsed via `bb_prov_set_save_callback`.
 
 ## Display
 
@@ -205,7 +205,7 @@ Examples in this repo (elecrow-p4-hmi7, esp32-wroom-32) own their own board head
 
 ## OTA push body cap
 
-`POST /api/ota/push` enforces a body size limit via `CONFIG_BB_OTA_PUSH_MAX_SIZE` (default 4 MB). Requests exceeding the limit return 413 before any flash write begins.
+`POST /api/update/push` enforces a body size limit via `CONFIG_BB_OTA_PUSH_MAX_SIZE` (default 4 MB). Requests exceeding the limit return 413 before any flash write begins.
 
 ## bb_diag
 

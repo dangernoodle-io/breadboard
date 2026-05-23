@@ -5,19 +5,24 @@
 // and test_bb_http_json_arr_stream.c (fake req cookie).
 //
 // SKIPPED ROUTES (with rationale):
-//   /api/logs           - SSE stream (text/event-stream); not JSON
-//   /api/version        - text/plain; no schema to validate
-//   /api/scan           - bb_wifi_routes.c includes <esp_wifi.h> which cannot
-//                         link on host; scan uses esp_wifi_scan internally.
-//                         Follow-up: add a bb_wifi_scan host shim (B1-???).
-//   /api/ota/check      - handler registered via bb_http_register_route (not
-//                         described); handler pointer is NULL in route struct.
-//                         The route descriptor exists for OpenAPI docs only.
-//                         Audited indirectly via the declared schema literal.
-//   /api/ota/update     - same as /api/ota/check above.
+//   /api/logs              - SSE stream (text/event-stream); not JSON
+//   /api/scan              - bb_wifi_routes.c includes <esp_wifi.h> which cannot
+//                            link on host; scan uses esp_wifi_scan internally.
+//                            Follow-up: add a bb_wifi_scan host shim (B1-???).
+//   /api/update/check      - handler registered via bb_http_register_route (not
+//                            described); handler pointer is NULL in route struct.
+//                            The route descriptor exists for OpenAPI docs only.
+//                            Audited indirectly via the declared schema literal.
+//   /api/update/apply      - same as /api/update/check above.
 // REMOVED ROUTES (no longer registered):
-//   /api/board          - dropped; superseded by /api/info
-//   /api/ping           - dropped; superseded by /api/health
+//   /api/board             - dropped; superseded by /api/info
+//   /api/ping              - dropped; superseded by /api/health
+//   /api/version           - dropped; use GET /api/info for .version field
+//   /api/ota/check         - moved to POST /api/update/check
+//   /api/ota/update        - moved to POST /api/update/apply
+//   /api/ota/status        - moved to GET /api/update/progress
+//   /api/ota/push          - moved to POST /api/update/push
+//   /api/ota/mark-valid    - moved to POST /api/update/mark-valid
 
 #include "unity.h"
 #include "bb_http.h"
@@ -119,7 +124,7 @@ static const char k_wifi_schema[] =
     "\"retry_count\":{\"type\":\"integer\"}},"
     "\"required\":[\"ssid\",\"connected\"]}";
 
-// GET /api/ota/status — bb_ota_pull.c (espidf)
+// GET /api/update/progress — bb_ota_pull.c (espidf)
 static const char k_ota_status_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
@@ -130,13 +135,13 @@ static const char k_ota_status_schema[] =
     "\"last_error\":{\"type\":\"string\"}},"
     "\"required\":[\"state\",\"in_progress\",\"progress_pct\"]}";
 
-// POST /api/ota/mark-valid 200 — bb_ota_validator.c (espidf)
+// POST /api/update/mark-valid 200 — bb_ota_validator.c (espidf)
 static const char k_mark_valid_ok_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{\"status\":{\"type\":\"string\"}},"
     "\"required\":[\"status\"]}";
 
-// POST /api/ota/mark-valid 409 — bb_ota_validator.c (espidf)
+// POST /api/update/mark-valid 409 — bb_ota_validator.c (espidf)
 static const char k_mark_valid_409_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{\"error\":{\"type\":\"string\"}},"
@@ -300,8 +305,8 @@ static const fidelity_entry_t k_audit[] = {
     { "/api/info",           h_info,              200, "application/json", k_info_schema         },
     { "/api/health",         h_health,            200, "application/json", k_health_schema       },
     { "/api/wifi",           h_wifi_info,         200, "application/json", k_wifi_schema         },
-    { "/api/ota/status",     h_ota_status,        200, "application/json", k_ota_status_schema   },
-    { "/api/ota/mark-valid", h_ota_mark_valid_409,409, "application/json", k_mark_valid_409_schema},
+    { "/api/update/progress",   h_ota_status,        200, "application/json", k_ota_status_schema    },
+    { "/api/update/mark-valid", h_ota_mark_valid_409,409, "application/json", k_mark_valid_409_schema},
     { NULL, NULL, 0, NULL, NULL },
 };
 
