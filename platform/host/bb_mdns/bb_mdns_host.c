@@ -5,6 +5,10 @@
 #include <stdbool.h>
 #include <string.h>
 
+#ifdef BB_MDNS_TESTING
+#include "bb_mdns_test.h"
+#endif
+
 static const char *TAG = "bb_mdns";
 
 /* One-time warning: mDNS is unsupported on host (no network stack). */
@@ -194,3 +198,100 @@ bool bb_mdns_started(void)
 {
     return false;  /* host: mDNS not running */
 }
+
+// ---------------------------------------------------------------------------
+// Coalesce test hooks (BB_MDNS_TESTING only)
+// ---------------------------------------------------------------------------
+// These mirror the batch-append / flush logic in platform/espidf/bb_mdns/bb_mdns.c
+// but run on host without IDF deps (no mutexes, no esp_timer).  Tests drive
+// bb_mdns_coalesce_append_for_test() to inject synthetic peer events into the
+// batch, then call bb_mdns_coalesce_flush_for_test() to simulate the timer
+// firing.  Assertions verify the single-flush contract and per-peer callbacks.
+
+#ifdef BB_MDNS_TESTING
+
+#define BB_MDNS_HOST_BATCH_MAX 16
+
+typedef struct {
+    bb_mdns_peer_t entries[BB_MDNS_HOST_BATCH_MAX];
+    bool           is_removal[BB_MDNS_HOST_BATCH_MAX];
+    char           instance_names[BB_MDNS_HOST_BATCH_MAX][BB_MDNS_INSTANCE_NAME_MAX];
+    char           service[BB_MDNS_HOST_BATCH_MAX][32];
+    char           proto[BB_MDNS_HOST_BATCH_MAX][8];
+    int            count;
+    int            flush_count;     /* how many times flush was called */
+    int            queue_enqueue_count; /* items posted to the simulated dispatch queue */
+} bb_mdns_coalesce_state_t;
+
+static bb_mdns_coalesce_state_t s_coalesce;
+
+void bb_mdns_coalesce_reset_for_test(void)
+{
+    memset(&s_coalesce, 0, sizeof(s_coalesce));
+}
+
+int bb_mdns_coalesce_batch_count(void)
+{
+    return s_coalesce.count;
+}
+
+int bb_mdns_coalesce_flush_count(void)
+{
+    return s_coalesce.flush_count;
+}
+
+int bb_mdns_coalesce_queue_enqueue_count(void)
+{
+    return s_coalesce.queue_enqueue_count;
+}
+
+bb_err_t bb_mdns_coalesce_append_for_test(const char *service, const char *proto,
+                                          const bb_mdns_peer_t *peer, bool is_removal)
+{
+    if (!service || !proto) return BB_ERR_INVALID_ARG;
+    if (s_coalesce.count >= BB_MDNS_HOST_BATCH_MAX) return BB_ERR_NO_SPACE;
+    int i = s_coalesce.count;
+    if (peer) {
+        s_coalesce.entries[i] = *peer;
+    } else {
+        memset(&s_coalesce.entries[i], 0, sizeof(bb_mdns_peer_t));
+    }
+    s_coalesce.is_removal[i] = is_removal;
+    strncpy(s_coalesce.service[i], service, sizeof(s_coalesce.service[i]) - 1);
+    s_coalesce.service[i][sizeof(s_coalesce.service[i]) - 1] = '\0';
+    strncpy(s_coalesce.proto[i], proto, sizeof(s_coalesce.proto[i]) - 1);
+    s_coalesce.proto[i][sizeof(s_coalesce.proto[i]) - 1] = '\0';
+    if (peer && peer->instance_name[0] != '\0') {
+        strncpy(s_coalesce.instance_names[i], peer->instance_name,
+                sizeof(s_coalesce.instance_names[i]) - 1);
+    }
+    s_coalesce.count++;
+    return BB_OK;
+}
+
+// Simulate timer fire: dispatch all pending batch entries to registered callbacks,
+// then reset the batch.  Returns the number of entries dispatched.
+int bb_mdns_coalesce_flush_for_test(void)
+{
+    s_coalesce.flush_count++;
+    int n = s_coalesce.count;
+    if (n == 0) return 0;
+
+    // One simulated queue enqueue per flush.
+    s_coalesce.queue_enqueue_count++;
+
+    for (int i = 0; i < n; i++) {
+        const char *svc = s_coalesce.service[i];
+        const char *proto = s_coalesce.proto[i];
+        if (s_coalesce.is_removal[i]) {
+            bb_mdns_host_dispatch_removed(svc, proto,
+                                          s_coalesce.instance_names[i]);
+        } else {
+            bb_mdns_host_dispatch_peer(svc, proto, &s_coalesce.entries[i]);
+        }
+    }
+    s_coalesce.count = 0;
+    return n;
+}
+
+#endif /* BB_MDNS_TESTING */

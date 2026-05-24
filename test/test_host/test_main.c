@@ -681,6 +681,18 @@ void test_build_hostname_leading_dash_trim_with_content(void);
 void test_build_hostname_all_special_chars_produces_empty(void);
 void test_build_hostname_suffix_sanitizes_to_empty(void);
 
+// Forward declarations from test_bb_mdns_coalesce.c
+void test_coalesce_n_peers_single_flush(void);
+void test_coalesce_single_peer_flush_fires(void);
+void test_coalesce_removal_events_dispatch(void);
+void test_coalesce_flush_empty_batch_is_noop(void);
+void test_coalesce_concurrent_append_goes_into_next_batch(void);
+void test_coalesce_batch_full_returns_no_space(void);
+void test_coalesce_multiple_flushes_each_one_enqueue(void);
+void test_coalesce_append_null_peer_removal_is_safe(void);
+void test_coalesce_flush_no_subscription_no_crash(void);
+void test_coalesce_reset_clears_all_state(void);
+
 // Forward declarations from test_bb_registry.c
 void test_bb_registry_starts_empty(void);
 void test_bb_registry_add_increments_count(void);
@@ -1894,6 +1906,18 @@ int main(void) {
     RUN_TEST(test_build_hostname_leading_dash_trim_with_content);
     RUN_TEST(test_build_hostname_all_special_chars_produces_empty);
     RUN_TEST(test_build_hostname_suffix_sanitizes_to_empty);
+
+    // bb_mdns coalescing tests
+    RUN_TEST(test_coalesce_n_peers_single_flush);
+    RUN_TEST(test_coalesce_single_peer_flush_fires);
+    RUN_TEST(test_coalesce_removal_events_dispatch);
+    RUN_TEST(test_coalesce_flush_empty_batch_is_noop);
+    RUN_TEST(test_coalesce_concurrent_append_goes_into_next_batch);
+    RUN_TEST(test_coalesce_batch_full_returns_no_space);
+    RUN_TEST(test_coalesce_multiple_flushes_each_one_enqueue);
+    RUN_TEST(test_coalesce_append_null_peer_removal_is_safe);
+    RUN_TEST(test_coalesce_flush_no_subscription_no_crash);
+    RUN_TEST(test_coalesce_reset_clears_all_state);
 
     // bb_registry tests
     RUN_TEST(test_bb_registry_starts_empty);
