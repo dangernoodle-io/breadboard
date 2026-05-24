@@ -73,21 +73,144 @@ typedef struct {
     char     payload[256];   /* packed key\0value\0… */
 } bb_mdns_evt_t;
 
-// Event pool: static slot pool to avoid per-event malloc.
-// Size via Kconfig (default 16); IDF mDNS delivers a linked list of results
-// in a single notifier callback, so this caps a single-burst capacity.
-#ifdef CONFIG_BB_MDNS_EVT_POOL_SIZE
-#define BB_MDNS_EVT_POOL_SIZE CONFIG_BB_MDNS_EVT_POOL_SIZE
-#else
-#define BB_MDNS_EVT_POOL_SIZE 16
-#endif
-static bb_mdns_evt_t s_evt_pool[BB_MDNS_EVT_POOL_SIZE];
-static bool s_evt_in_use[BB_MDNS_EVT_POOL_SIZE];
+// Mutex that protects the coalescing batch buffer (s_batch) and the batch
+// item slot (s_batch_item).  Replaces the old per-event pool mutex; the
+// Kconfig BB_MDNS_EVT_POOL_SIZE now only governs the dispatch queue depth
+// rather than a pool of statically-allocated event structs.
 static SemaphoreHandle_t s_evt_pool_lock = NULL;
 
-// Forward declarations for pool functions (used by dispatch_task)
-static bb_mdns_evt_t *evt_pool_alloc(void);
-static void evt_pool_free(bb_mdns_evt_t *evt);
+// ---------------------------------------------------------------------------
+// Coalescing batch buffer (producer-side)
+// ---------------------------------------------------------------------------
+// IDF's mDNS notifier fires once per peer in rapid succession when a
+// browse-refresh scan returns multiple results.  On CPU-starved boards the
+// dispatch task can't drain the per-event pool fast enough, causing pool
+// exhaustion and dropped events.  Solution: buffer incoming peer events into
+// a static batch and flush them as a single queue item after a short window.
+//
+// The pending batch and the flush timer are protected by s_evt_pool_lock
+// (reusing the existing mutex avoids introducing a second lock).
+//
+// BB_MDNS_BATCH_MAX — internal, not Kconfig; 16 slots covers any realistic
+// browse-refresh burst.  The dispatch queue still only needs 1–2 slots for
+// a normal refresh cycle.
+#define BB_MDNS_BATCH_MAX 16
+
+typedef struct {
+    bb_mdns_evt_t entries[BB_MDNS_BATCH_MAX];
+    int           count;
+} bb_mdns_batch_t;
+
+// Batched queue item: a single allocation wrapping all pending peers.
+// Allocated from the event pool (one slot per flush), freed by dispatcher.
+typedef struct {
+    int           count;
+    bb_mdns_evt_t entries[BB_MDNS_BATCH_MAX];
+} bb_mdns_batch_item_t;
+
+// Sentinel pointer value placed in s_evt_queue to distinguish batched items
+// from legacy single-event pointers.  Tag the LSB; aligned allocs always
+// have LSB==0 naturally.
+#define BB_MDNS_BATCH_TAG ((uintptr_t)1)
+#define BB_MDNS_IS_BATCH(p) (((uintptr_t)(p) & BB_MDNS_BATCH_TAG) != 0)
+#define BB_MDNS_BATCH_PTR(p) ((bb_mdns_batch_item_t *)((uintptr_t)(p) & ~BB_MDNS_BATCH_TAG))
+#define BB_MDNS_TAG_BATCH(p) ((bb_mdns_evt_t *)((uintptr_t)(p) | BB_MDNS_BATCH_TAG))
+
+static bb_mdns_batch_t   s_batch;
+static esp_timer_handle_t s_flush_timer = NULL;
+
+// Batch pool: single static slot — one flush in flight at a time is sufficient
+// because the dispatcher frees it before the next flush timer fires.
+static bb_mdns_batch_item_t s_batch_item;
+static bool                 s_batch_item_in_use = false;
+
+static bb_mdns_batch_item_t *batch_item_alloc(void)
+{
+    if (s_batch_item_in_use) return NULL;
+    s_batch_item_in_use = true;
+    memset(&s_batch_item, 0, sizeof(s_batch_item));
+    return &s_batch_item;
+}
+
+static void batch_item_free(bb_mdns_batch_item_t *item)
+{
+    if (item == &s_batch_item) s_batch_item_in_use = false;
+}
+
+// Flush timer callback: runs on esp_timer task (not mDNS task, not dispatch task).
+// Swaps the pending batch into a batch item and enqueues one pointer.
+static void flush_timer_cb(void *arg)
+{
+    (void)arg;
+    xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY);
+
+    if (s_batch.count == 0) {
+        xSemaphoreGive(s_evt_pool_lock);
+        return;
+    }
+
+    bb_mdns_batch_item_t *item = batch_item_alloc();
+    if (!item) {
+        // Batch item already in flight (dispatcher hasn't freed it yet).
+        // Leave pending events in the batch; they'll go out on the next timer
+        // fire — but we need to re-arm the timer since it's one-shot.
+        xSemaphoreGive(s_evt_pool_lock);
+        // Re-arm immediately so the pending events aren't orphaned.
+        esp_timer_start_once(s_flush_timer, 50 * 1000);
+        return;
+    }
+
+    // Swap batch into item.
+    item->count = s_batch.count;
+    memcpy(item->entries, s_batch.entries,
+           (size_t)s_batch.count * sizeof(bb_mdns_evt_t));
+    s_batch.count = 0;
+
+    xSemaphoreGive(s_evt_pool_lock);
+
+    bb_mdns_evt_t *tagged = BB_MDNS_TAG_BATCH(item);
+    if (xQueueSend(s_evt_queue, &tagged, 0) != pdTRUE) {
+        xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY);
+        batch_item_free(item);
+        xSemaphoreGive(s_evt_pool_lock);
+        s_evt_drop_count++;
+        if ((s_evt_drop_count & 0x0F) == 1) {
+            bb_log_w(TAG, "flush: evt queue full, %lu events dropped",
+                     (unsigned long)s_evt_drop_count);
+        }
+    }
+}
+
+static void flush_timer_ensure_created(void)
+{
+    if (s_flush_timer) return;
+    esp_timer_create_args_t args = {
+        .callback        = flush_timer_cb,
+        .arg             = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name            = "bb_mdns_flush",
+    };
+    esp_err_t err = esp_timer_create(&args, &s_flush_timer);
+    if (err != ESP_OK) {
+        bb_log_w(TAG, "esp_timer_create(flush) failed: %s", esp_err_to_name(err));
+    }
+}
+
+// Append a peer event to the pending batch (called under s_evt_pool_lock).
+// Starts the one-shot flush timer on the first append to an empty batch.
+// Returns false if the batch is full (event dropped).
+static bool batch_append_locked(const bb_mdns_evt_t *evt)
+{
+    if (s_batch.count >= BB_MDNS_BATCH_MAX) return false;
+    s_batch.entries[s_batch.count++] = *evt;
+    if (s_batch.count == 1 && s_flush_timer) {
+        // First event in a new batch — arm the one-shot 50 ms flush window.
+        // If the timer is already pending (re-arm is a no-op by design), do
+        // nothing: subsequent events extend the same batch and go out together.
+        esp_timer_start_once(s_flush_timer, 50 * 1000);  /* 50 ms */
+    }
+    return true;
+}
 
 // Forward declarations for browse refresh timer (used by bb_mdns_on_got_ip)
 static void browse_refresh_timer_start(void);
@@ -317,165 +440,155 @@ static void bb_mdns_query_task(void *arg)
     }
 }
 
-// Dispatch task: dequeues events and fires consumer callbacks
+// Dispatch a single evt entry: resolve ip4 if missing, fire per-peer callbacks.
+// Called from the dispatch task for each entry in a batch.
+static void dispatch_one(const bb_mdns_evt_t *evt)
+{
+    bb_mdns_peer_cb on_peer = NULL;
+    bb_mdns_peer_removed_cb on_removed = NULL;
+    void *ctx = NULL;
+    xSemaphoreTake(s_subs_mutex, portMAX_DELAY);
+    bb_mdns_browse_sub_t *sub = browse_sub_find(evt->service, evt->proto);
+    if (sub) {
+        on_peer    = sub->on_peer;
+        on_removed = sub->on_removed;
+        ctx        = sub->ctx;
+    }
+    xSemaphoreGive(s_subs_mutex);
+
+    // If add event has no ip4, attempt a short A-record lookup before dispatch.
+    // Blocks only the worker task (not the IDF mDNS task) — acceptable on LAN.
+    char ip4_resolved[BB_MDNS_IP4_MAX];
+    strncpy(ip4_resolved, evt->ip4, sizeof(ip4_resolved) - 1);
+    ip4_resolved[sizeof(ip4_resolved) - 1] = '\0';
+    if (!evt->is_removal && ip4_resolved[0] == '\0' && evt->hostname[0] != '\0') {
+        esp_ip4_addr_t out_ip;
+        esp_err_t qerr = mdns_query_a(evt->hostname, 200, &out_ip);
+        if (qerr == ESP_OK) {
+            snprintf(ip4_resolved, sizeof(ip4_resolved), IPSTR, IP2STR(&out_ip));
+        } else {
+            bb_log_d(TAG, "A lookup for %s failed (%s), dispatching without ip4",
+                     evt->hostname, esp_err_to_name(qerr));
+        }
+    }
+
+    if (evt->is_removal) {
+        if (on_removed) on_removed(evt->instance_name, ctx);
+    } else if (on_peer) {
+        bb_mdns_peer_t peer = {0};
+        strncpy(peer.instance_name, evt->instance_name, sizeof(peer.instance_name) - 1);
+        strncpy(peer.hostname,      evt->hostname,      sizeof(peer.hostname) - 1);
+        strncpy(peer.ip4,           ip4_resolved,       sizeof(peer.ip4) - 1);
+        peer.port      = evt->port;
+        peer.txt       = evt->txt_count ? evt->txt : NULL;
+        peer.txt_count = evt->txt_count;
+        on_peer(&peer, ctx);
+    }
+}
+
+// Dispatch task: dequeues events and fires consumer callbacks.
+// Queue items are either a tagged bb_mdns_batch_item_t pointer (batched flush)
+// or a legacy single-event bb_mdns_evt_t pointer from the old path.  The
+// batch path is the hot path post-coalesce; the legacy path is retained only
+// for any remaining callers that bypass batch_append_locked.
 static void bb_mdns_dispatch_task(void *arg)
 {
     (void)arg;
-    bb_mdns_evt_t *evt;
+    bb_mdns_evt_t *raw;
     for (;;) {
-        if (xQueueReceive(s_evt_queue, &evt, portMAX_DELAY) != pdTRUE) continue;
-        bb_mdns_peer_cb on_peer = NULL;
-        bb_mdns_peer_removed_cb on_removed = NULL;
-        void *ctx = NULL;
-        xSemaphoreTake(s_subs_mutex, portMAX_DELAY);
-        bb_mdns_browse_sub_t *sub = browse_sub_find(evt->service, evt->proto);
-        if (sub) {
-            on_peer    = sub->on_peer;
-            on_removed = sub->on_removed;
-            ctx        = sub->ctx;
+        if (xQueueReceive(s_evt_queue, &raw, portMAX_DELAY) != pdTRUE) continue;
+
+        // All queue items are batched flush pointers (tagged).
+        bb_mdns_batch_item_t *item = BB_MDNS_BATCH_PTR(raw);
+        for (int i = 0; i < item->count; i++) {
+            dispatch_one(&item->entries[i]);
         }
-        xSemaphoreGive(s_subs_mutex);
-        // If add event has no ip4, attempt a short A-record lookup before dispatch.
-        // Blocks only the worker task (not the IDF mDNS task) — acceptable on LAN.
-        if (!evt->is_removal && evt->ip4[0] == '\0' && evt->hostname[0] != '\0') {
-            esp_ip4_addr_t out_ip;
-            esp_err_t qerr = mdns_query_a(evt->hostname, 200, &out_ip);
-            if (qerr == ESP_OK) {
-                snprintf(evt->ip4, sizeof(evt->ip4), IPSTR, IP2STR(&out_ip));
-            } else {
-                bb_log_d(TAG, "A lookup for %s failed (%s), dispatching without ip4",
-                         evt->hostname, esp_err_to_name(qerr));
+        xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY);
+        batch_item_free(item);
+        xSemaphoreGive(s_evt_pool_lock);
+    }
+}
+
+// Populate a bb_mdns_evt_t from an mdns_result_t.
+static void fill_evt_from_result(bb_mdns_evt_t *evt, const mdns_result_t *r)
+{
+    memset(evt, 0, sizeof(*evt));
+    strncpy(evt->service, r->service_type ? r->service_type : "", sizeof(evt->service) - 1);
+    strncpy(evt->proto,   r->proto        ? r->proto        : "", sizeof(evt->proto)   - 1);
+    strncpy(evt->instance_name,
+            r->instance_name ? r->instance_name : "",
+            sizeof(evt->instance_name) - 1);
+
+    if (r->ttl == 0) {
+        evt->is_removal = true;
+        return;
+    }
+
+    evt->is_removal = false;
+    strncpy(evt->hostname, r->hostname ? r->hostname : "", sizeof(evt->hostname) - 1);
+    evt->port = r->port;
+
+    // First IPv4 address
+    if (r->addr) {
+        for (mdns_ip_addr_t *addr = r->addr; addr; addr = addr->next) {
+            if (addr->addr.type == ESP_IPADDR_TYPE_V4) {
+                snprintf(evt->ip4, sizeof(evt->ip4), IPSTR,
+                         IP2STR(&addr->addr.u_addr.ip4));
+                break;
             }
         }
-
-        if (evt->is_removal) {
-            if (on_removed) on_removed(evt->instance_name, ctx);
-        } else if (on_peer) {
-            bb_mdns_peer_t peer = {0};
-            strncpy(peer.instance_name, evt->instance_name, sizeof(peer.instance_name) - 1);
-            strncpy(peer.hostname,      evt->hostname,      sizeof(peer.hostname) - 1);
-            strncpy(peer.ip4,           evt->ip4,           sizeof(peer.ip4) - 1);
-            peer.port      = evt->port;
-            peer.txt       = evt->txt_count ? evt->txt : NULL;
-            peer.txt_count = evt->txt_count;
-            on_peer(&peer, ctx);
-        }
-        evt_pool_free(evt);
     }
-}
 
-// Allocate an event from the pool or return NULL if all slots busy
-static bb_mdns_evt_t *evt_pool_alloc(void)
-{
-    if (!s_evt_pool_lock) return NULL;
-
-    if (xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY) != pdTRUE) return NULL;
-
-    bb_mdns_evt_t *evt = NULL;
-    for (int i = 0; i < BB_MDNS_EVT_POOL_SIZE; i++) {
-        if (!s_evt_in_use[i]) {
-            s_evt_in_use[i] = true;
-            evt = &s_evt_pool[i];
-            memset(evt, 0, sizeof(bb_mdns_evt_t));
+    // TXT records: pack key\0value\0 into payload[], point txt[].key/value in
+    size_t n = r->txt_count;
+    if (n > BB_MDNS_EVT_TXT_MAX) {
+        bb_log_w(TAG, "notifier: %zu txt records exceed cap %d, truncating",
+                 n, BB_MDNS_EVT_TXT_MAX);
+        n = BB_MDNS_EVT_TXT_MAX;
+    }
+    char *p   = evt->payload;
+    char *end = evt->payload + sizeof(evt->payload);
+    for (size_t i = 0; i < n && p < end; i++) {
+        const char *k = r->txt[i].key   ? r->txt[i].key   : "";
+        const char *v = r->txt[i].value ? r->txt[i].value : "";
+        size_t klen = strlen(k);
+        size_t vlen = strlen(v);
+        if (p + klen + 1 + vlen + 1 > end) {
+            bb_log_w(TAG, "notifier: payload full, truncating txt at %zu", i);
             break;
         }
+        memcpy(p, k, klen + 1);
+        evt->txt[i].key = p;
+        p += klen + 1;
+        memcpy(p, v, vlen + 1);
+        evt->txt[i].value = p;
+        p += vlen + 1;
+        evt->txt_count++;
     }
-
-    xSemaphoreGive(s_evt_pool_lock);
-    return evt;
-}
-
-// Release an event back to the pool
-static void evt_pool_free(bb_mdns_evt_t *evt)
-{
-    if (!evt || !s_evt_pool_lock) return;
-
-    if (xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY) != pdTRUE) return;
-
-    for (int i = 0; i < BB_MDNS_EVT_POOL_SIZE; i++) {
-        if (&s_evt_pool[i] == evt) {
-            s_evt_in_use[i] = false;
-            break;
-        }
-    }
-
-    xSemaphoreGive(s_evt_pool_lock);
 }
 
 // Internal notifier called by mdns_browse for all results — runs on IDF mDNS task.
-// Enqueues deep-copied events; does NOT touch s_subs[] directly.
+// Coalesces all peers from a single IDF callback burst into the pending batch
+// buffer under s_evt_pool_lock.  The flush timer drains the batch as one queue
+// item after a 50 ms window, keeping the dispatch queue pressure near-zero
+// regardless of how many peers IDF reports per callback.
 static void internal_notifier(mdns_result_t *results)
 {
+    if (!s_evt_pool_lock) return;
+
+    xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY);
     for (mdns_result_t *r = results; r; r = r->next) {
-        bb_mdns_evt_t *evt = evt_pool_alloc();
-        if (!evt) {
-            bb_log_w(TAG, "notifier: event pool exhausted, dropping event");
-            continue;
-        }
-
-        // Copy service/proto for dispatch-task lookup
-        strncpy(evt->service, r->service_type ? r->service_type : "", sizeof(evt->service) - 1);
-        strncpy(evt->proto,   r->proto        ? r->proto        : "", sizeof(evt->proto)   - 1);
-        strncpy(evt->instance_name,
-                r->instance_name ? r->instance_name : "",
-                sizeof(evt->instance_name) - 1);
-
-        if (r->ttl == 0) {
-            evt->is_removal = true;
-        } else {
-            evt->is_removal = false;
-            strncpy(evt->hostname, r->hostname ? r->hostname : "", sizeof(evt->hostname) - 1);
-            evt->port = r->port;
-
-            // First IPv4 address
-            if (r->addr) {
-                for (mdns_ip_addr_t *addr = r->addr; addr; addr = addr->next) {
-                    if (addr->addr.type == ESP_IPADDR_TYPE_V4) {
-                        snprintf(evt->ip4, sizeof(evt->ip4), IPSTR,
-                                 IP2STR(&addr->addr.u_addr.ip4));
-                        break;
-                    }
-                }
-            }
-
-            // TXT records: pack key\0value\0 into payload[], point txt[].key/value in
-            size_t n = r->txt_count;
-            if (n > BB_MDNS_EVT_TXT_MAX) {
-                bb_log_w(TAG, "notifier: %zu txt records exceed cap %d, truncating",
-                         n, BB_MDNS_EVT_TXT_MAX);
-                n = BB_MDNS_EVT_TXT_MAX;
-            }
-            char *p = evt->payload;
-            char *end = evt->payload + sizeof(evt->payload);
-            for (size_t i = 0; i < n && p < end; i++) {
-                const char *k = r->txt[i].key   ? r->txt[i].key   : "";
-                const char *v = r->txt[i].value ? r->txt[i].value : "";
-                size_t klen = strlen(k);
-                size_t vlen = strlen(v);
-                // Need k\0v\0 to fit
-                if (p + klen + 1 + vlen + 1 > end) {
-                    bb_log_w(TAG, "notifier: payload full, truncating txt at %zu", i);
-                    break;
-                }
-                memcpy(p, k, klen + 1);
-                evt->txt[i].key = p;
-                p += klen + 1;
-                memcpy(p, v, vlen + 1);
-                evt->txt[i].value = p;
-                p += vlen + 1;
-                evt->txt_count++;
-            }
-        }
-
-        if (xQueueSend(s_evt_queue, &evt, 0) != pdTRUE) {
-            evt_pool_free(evt);
+        bb_mdns_evt_t tmp;
+        fill_evt_from_result(&tmp, r);
+        if (!batch_append_locked(&tmp)) {
             s_evt_drop_count++;
-            // Log once per 16 drops (suppress flood; bit 0 of (count-1) == 0 when count is 1, 17, 33…)
             if ((s_evt_drop_count & 0x0F) == 1) {
-                bb_log_w(TAG, "evt queue full, %lu events dropped", (unsigned long)s_evt_drop_count);
+                bb_log_w(TAG, "notifier: batch full, %lu events dropped",
+                         (unsigned long)s_evt_drop_count);
             }
         }
     }
+    xSemaphoreGive(s_evt_pool_lock);
 }
 
 static void mdns_build_hostname(char *out, size_t out_size)
@@ -787,6 +900,9 @@ void bb_mdns_init(void)
     if (!s_query_task) {
         xTaskCreate(bb_mdns_query_task, "bb_mdns_query", 4096, NULL, 3, &s_query_task);
     }
+
+    // Create the coalescing flush timer (one-shot, 50 ms window).
+    flush_timer_ensure_created();
 
     // Register callback with bb_wifi
     bb_wifi_register_on_got_ip(bb_mdns_start);

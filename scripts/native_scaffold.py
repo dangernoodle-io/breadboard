@@ -141,6 +141,7 @@ COMPONENT_MAP = {
             "components/bb_mdns/bb_mdns_util.c",
         ],
         "depends":  ["bb_core", "bb_nv"],
+        # components/bb_mdns/ already in includes above, which also resolves bb_mdns_test.h
     },
     "bb_openapi": {
         "includes": ["components/bb_openapi/include"],

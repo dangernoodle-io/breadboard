@@ -13,6 +13,9 @@
 // bb_mdns_host_dispatch_peer() and bb_mdns_host_dispatch_removed() invoke the
 // registered callbacks synchronously (no queue/task on host), allowing tests
 // to verify dispatch behaviour without hardware.
+//
+// For coalescing batch tests, include bb_mdns_test.h (gated by BB_MDNS_TESTING)
+// and use bb_mdns_coalesce_{append,flush}_for_test().
 
 int bb_mdns_host_announce_count(void);
 int bb_mdns_host_set_txt_count(void);
