@@ -137,6 +137,40 @@ static void batch_item_free(bb_mdns_batch_item_t *item)
     if (item == &s_batch_item) s_batch_item_in_use = false;
 }
 
+// Flush the current batch synchronously. Called under s_evt_pool_lock; temporarily
+// releases the lock for the queue send, then re-acquires it before returning.
+// Returns true if the batch was enqueued successfully, false if the queue was full
+// or the batch item slot was unavailable (batch item still in flight).
+static bool batch_do_flush_locked(void)
+{
+    if (s_batch.count == 0) return true;  /* empty — nothing to do */
+
+    bb_mdns_batch_item_t *item = batch_item_alloc();
+    if (!item) {
+        /* Batch item slot still held by dispatcher.  The timer will re-fire or
+         * the overflow path will retry — just leave the batch intact. */
+        return false;
+    }
+
+    item->count = s_batch.count;
+    memcpy(item->entries, s_batch.entries,
+           (size_t)s_batch.count * sizeof(bb_mdns_evt_t));
+    s_batch.count = 0;
+
+    /* Drop the lock for the queue send so the dispatcher task can run. */
+    xSemaphoreGive(s_evt_pool_lock);
+
+    bb_mdns_evt_t *tagged = BB_MDNS_TAG_BATCH(item);
+    bool ok = (xQueueSend(s_evt_queue, &tagged, 0) == pdTRUE);
+
+    xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY);
+
+    if (!ok) {
+        batch_item_free(item);
+    }
+    return ok;
+}
+
 // Flush timer callback: runs on esp_timer task (not mDNS task, not dispatch task).
 // Swaps the pending batch into a batch item and enqueues one pointer.
 static void flush_timer_cb(void *arg)
@@ -149,36 +183,31 @@ static void flush_timer_cb(void *arg)
         return;
     }
 
-    bb_mdns_batch_item_t *item = batch_item_alloc();
-    if (!item) {
-        // Batch item already in flight (dispatcher hasn't freed it yet).
-        // Leave pending events in the batch; they'll go out on the next timer
-        // fire — but we need to re-arm the timer since it's one-shot.
+    bool items_remain = (s_batch.count > 0);  /* snapshot before flush attempt */
+    if (!batch_do_flush_locked()) {
+        /* batch_do_flush_locked re-acquired the lock before returning.
+         * Two failure modes:
+         *   (a) batch item slot unavailable (dispatcher still holds it) →
+         *       s_batch.count > 0 (unchanged); re-arm so events aren't orphaned.
+         *   (b) dispatcher queue full → s_batch.count == 0 (batch was cleared
+         *       before the queue send failed); log the drop. */
+        (void)items_remain;
+        bool queue_full_drop = (s_batch.count == 0);
         xSemaphoreGive(s_evt_pool_lock);
-        // Re-arm immediately so the pending events aren't orphaned.
-        esp_timer_start_once(s_flush_timer, 50 * 1000);
+        if (queue_full_drop) {
+            s_evt_drop_count++;
+            if ((s_evt_drop_count & 0x0F) == 1) {
+                bb_log_w(TAG, "flush: evt queue full, %lu events dropped",
+                         (unsigned long)s_evt_drop_count);
+            }
+        } else {
+            /* Events still pending — re-arm to avoid orphaning them. */
+            esp_timer_start_once(s_flush_timer, 50 * 1000);
+        }
         return;
     }
 
-    // Swap batch into item.
-    item->count = s_batch.count;
-    memcpy(item->entries, s_batch.entries,
-           (size_t)s_batch.count * sizeof(bb_mdns_evt_t));
-    s_batch.count = 0;
-
     xSemaphoreGive(s_evt_pool_lock);
-
-    bb_mdns_evt_t *tagged = BB_MDNS_TAG_BATCH(item);
-    if (xQueueSend(s_evt_queue, &tagged, 0) != pdTRUE) {
-        xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY);
-        batch_item_free(item);
-        xSemaphoreGive(s_evt_pool_lock);
-        s_evt_drop_count++;
-        if ((s_evt_drop_count & 0x0F) == 1) {
-            bb_log_w(TAG, "flush: evt queue full, %lu events dropped",
-                     (unsigned long)s_evt_drop_count);
-        }
-    }
 }
 
 static void flush_timer_ensure_created(void)
@@ -198,15 +227,33 @@ static void flush_timer_ensure_created(void)
 
 // Append a peer event to the pending batch (called under s_evt_pool_lock).
 // Starts the one-shot flush timer on the first append to an empty batch.
-// Returns false if the batch is full (event dropped).
+//
+// On overflow (batch full): synchronously flushes the current batch to the
+// dispatcher queue, resets the batch, cancels the pending flush timer, appends
+// the new event, and re-arms the flush timer.  This makes BB_MDNS_BATCH_MAX a
+// max-batch-size knob rather than a drop threshold.
+//
+// Returns true if the event was appended; false only if both the batch item slot
+// and the dispatcher queue were full simultaneously (queue+batch overload).
 static bool batch_append_locked(const bb_mdns_evt_t *evt)
 {
-    if (s_batch.count >= BB_MDNS_BATCH_MAX) return false;
+    if (s_batch.count >= BB_MDNS_BATCH_MAX) {
+        /* Batch is full — flush synchronously before appending.
+         * Cancel the pending timer first; the synchronous flush supersedes it. */
+        if (s_flush_timer) esp_timer_stop(s_flush_timer);  /* ignore if not running */
+
+        if (!batch_do_flush_locked()) {
+            /* batch_do_flush_locked re-acquired the lock; check failure mode:
+             *   (a) batch item unavailable (count still > 0) — queue+batch full
+             *   (b) queue rejected (count == 0) — queue+batch full */
+            return false;  /* caller logs the drop */
+        }
+        /* Flush succeeded; batch.count is now 0.  Fall through to append. */
+    }
+
     s_batch.entries[s_batch.count++] = *evt;
     if (s_batch.count == 1 && s_flush_timer) {
-        // First event in a new batch — arm the one-shot 50 ms flush window.
-        // If the timer is already pending (re-arm is a no-op by design), do
-        // nothing: subsequent events extend the same batch and go out together.
+        /* First event in a new batch — arm the one-shot 50 ms flush window. */
         esp_timer_start_once(s_flush_timer, 50 * 1000);  /* 50 ms */
     }
     return true;
@@ -581,9 +628,13 @@ static void internal_notifier(mdns_result_t *results)
         bb_mdns_evt_t tmp;
         fill_evt_from_result(&tmp, r);
         if (!batch_append_locked(&tmp)) {
+            /* Both the batch item slot and the dispatcher queue are full —
+             * real overload condition.  The per-burst counter resets each time
+             * a drain succeeds (s_evt_drop_count is incremented inside
+             * flush_timer_cb for queue-full drops too). */
             s_evt_drop_count++;
             if ((s_evt_drop_count & 0x0F) == 1) {
-                bb_log_w(TAG, "notifier: batch full, %lu events dropped",
+                bb_log_w(TAG, "notifier: queue+batch full, event dropped (%lu total)",
                          (unsigned long)s_evt_drop_count);
             }
         }

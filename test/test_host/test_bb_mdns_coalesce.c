@@ -9,12 +9,12 @@
  * Shared state for per-peer callback tracking
  * ---------------------------------------------------------------------------*/
 
-#define MAX_CAPTURED_PEERS 16
+#define MAX_CAPTURED_PEERS 64
 
 static int      s_peer_fired    = 0;
 static int      s_removed_fired = 0;
 static bb_mdns_peer_t s_captured[MAX_CAPTURED_PEERS];
-static char     s_removed_names[MAX_CAPTURED_PEERS][BB_MDNS_INSTANCE_NAME_MAX];
+static char           s_removed_names[MAX_CAPTURED_PEERS][BB_MDNS_INSTANCE_NAME_MAX];
 
 static void capture_peer_cb(const bb_mdns_peer_t *peer, void *ctx)
 {
@@ -220,25 +220,49 @@ void test_coalesce_concurrent_append_goes_into_next_batch(void)
 }
 
 /* ---------------------------------------------------------------------------
- * TC6: Batch full returns BB_ERR_NO_SPACE (overflow guard).
+ * TC6: 32 events back-to-back (no flush timer) → TWO batches of 16,
+ *       all 32 peers preserved, all per-peer callbacks fired exactly once.
+ *       This is the esp32-wroom32 single-core repro scenario.
  * ---------------------------------------------------------------------------*/
-void test_coalesce_batch_full_returns_no_space(void)
+void test_coalesce_overflow_flush_32_events_two_batches(void)
 {
     coalesce_setUp();
+    bb_mdns_browse_start("_acme", "_tcp", capture_peer_cb, NULL, NULL);
 
-    /* Fill the batch to capacity (BB_MDNS_HOST_BATCH_MAX == 16). */
-    for (int i = 0; i < 16; i++) {
+    /* Inject 32 peers without firing the flush timer.  At peer 17 the batch
+     * overflows → synchronous flush of batch 1 (16 peers) → batch 2 starts. */
+    for (int i = 0; i < 32; i++) {
         char name[BB_MDNS_INSTANCE_NAME_MAX];
+        char ip[BB_MDNS_IP4_MAX];
         snprintf(name, sizeof(name), "acme-flood-%02d", i);
-        bb_mdns_peer_t peer = make_peer(name, "1.2.3.4", 80);
+        snprintf(ip,   sizeof(ip),   "10.0.1.%d", i);
+        bb_mdns_peer_t peer = make_peer(name, ip, (uint16_t)(5000 + i));
         bb_err_t err = bb_mdns_coalesce_append_for_test("_acme", "_tcp", &peer, false);
         TEST_ASSERT_EQUAL(BB_OK, err);
     }
 
-    /* 17th append must fail. */
-    bb_mdns_peer_t overflow = make_peer("overflow-peer", "1.2.3.4", 80);
-    bb_err_t err = bb_mdns_coalesce_append_for_test("_acme", "_tcp", &overflow, false);
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    /* After 32 appends: first 16 were auto-flushed (1 enqueue + 16 callbacks),
+     * remaining 16 are still in the batch. */
+    TEST_ASSERT_EQUAL(1, bb_mdns_coalesce_queue_enqueue_count());
+    TEST_ASSERT_EQUAL(16, s_peer_fired);
+    TEST_ASSERT_EQUAL(16, bb_mdns_coalesce_batch_count());
+
+    /* Simulate flush timer for the second batch. */
+    int dispatched = bb_mdns_coalesce_flush_for_test();
+    TEST_ASSERT_EQUAL(16, dispatched);
+    TEST_ASSERT_EQUAL(2, bb_mdns_coalesce_queue_enqueue_count());
+    TEST_ASSERT_EQUAL(32, s_peer_fired);
+    TEST_ASSERT_EQUAL(0, bb_mdns_coalesce_batch_count());
+
+    /* All 32 peers arrived in order (first 16 from auto-flush, next 16 from timer). */
+    for (int i = 0; i < 32; i++) {
+        char expected[BB_MDNS_INSTANCE_NAME_MAX];
+        snprintf(expected, sizeof(expected), "acme-flood-%02d", i);
+        TEST_ASSERT_EQUAL_STRING(expected, s_captured[i].instance_name);
+        TEST_ASSERT_EQUAL((uint16_t)(5000 + i), s_captured[i].port);
+    }
+
+    bb_mdns_browse_stop("_acme", "_tcp");
 }
 
 /* ---------------------------------------------------------------------------
@@ -317,4 +341,88 @@ void test_coalesce_reset_clears_all_state(void)
     TEST_ASSERT_EQUAL(0, bb_mdns_coalesce_batch_count());
     TEST_ASSERT_EQUAL(0, bb_mdns_coalesce_flush_count());
     TEST_ASSERT_EQUAL(0, bb_mdns_coalesce_queue_enqueue_count());
+}
+
+/* ---------------------------------------------------------------------------
+ * TC11: Queue-full path — timer flush rejected when queue depth is held at cap.
+ *        Verify: 0 enqueues, 0 callbacks, batch cleared; drain recovers.
+ * ---------------------------------------------------------------------------*/
+void test_coalesce_queue_full_flush_drops_and_drain_recovers(void)
+{
+    coalesce_setUp();
+    bb_mdns_browse_start("_acme", "_tcp", capture_peer_cb, NULL, NULL);
+
+    /* Hold queue at cap (simulate full dispatcher queue). */
+    bb_mdns_coalesce_queue_depth_cap_set_for_test(1);
+    bb_mdns_coalesce_queue_depth_hold_for_test(1);
+
+    /* Fill and timer-flush one batch — enqueue rejected (queue full). */
+    for (int i = 0; i < 6; i++) {
+        char name[BB_MDNS_INSTANCE_NAME_MAX];
+        snprintf(name, sizeof(name), "blocked-%02d", i);
+        bb_mdns_peer_t p = make_peer(name, "10.2.0.1", 80);
+        bb_err_t err = bb_mdns_coalesce_append_for_test("_acme", "_tcp", &p, false);
+        TEST_ASSERT_EQUAL(BB_OK, err);
+    }
+    bb_mdns_coalesce_flush_for_test();
+
+    TEST_ASSERT_EQUAL(0, bb_mdns_coalesce_queue_enqueue_count());
+    TEST_ASSERT_EQUAL(0, s_peer_fired);
+
+    /* Drain the queue; subsequent batch enqueues cleanly. */
+    bb_mdns_coalesce_queue_drain_for_test();
+
+    bb_mdns_peer_t recovery = make_peer("recovery-peer", "10.3.0.1", 9999);
+    bb_err_t err = bb_mdns_coalesce_append_for_test("_acme", "_tcp", &recovery, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    bb_mdns_coalesce_flush_for_test();
+    TEST_ASSERT_EQUAL(1, bb_mdns_coalesce_queue_enqueue_count());
+    TEST_ASSERT_EQUAL(1, s_peer_fired);
+    TEST_ASSERT_EQUAL_STRING("recovery-peer", s_captured[0].instance_name);
+
+    bb_mdns_browse_stop("_acme", "_tcp");
+}
+
+/* ---------------------------------------------------------------------------
+ * TC12: Queue-full overflow drop — BB_ERR_NO_SPACE when both batch and
+ *        dispatcher queue are full simultaneously.
+ *        Verify drop_count increments; drain recovers.
+ * ---------------------------------------------------------------------------*/
+void test_coalesce_queue_and_batch_full_drops_and_recovers(void)
+{
+    coalesce_setUp();
+    bb_mdns_browse_start("_acme", "_tcp", capture_peer_cb, NULL, NULL);
+
+    /* Hold queue full (cap=1, depth=1). */
+    bb_mdns_coalesce_queue_depth_cap_set_for_test(1);
+    bb_mdns_coalesce_queue_depth_hold_for_test(1);
+
+    /* Fill batch to MAX (16). */
+    for (int i = 0; i < 16; i++) {
+        char name[BB_MDNS_INSTANCE_NAME_MAX];
+        snprintf(name, sizeof(name), "flood-%02d", i);
+        bb_mdns_peer_t p = make_peer(name, "10.4.0.1", 80);
+        bb_err_t err = bb_mdns_coalesce_append_for_test("_acme", "_tcp", &p, false);
+        TEST_ASSERT_EQUAL(BB_OK, err);
+    }
+    TEST_ASSERT_EQUAL(0, bb_mdns_coalesce_drop_count());
+
+    /* 17th append triggers overflow flush → rejected → event dropped. */
+    bb_mdns_peer_t extra = make_peer("overflow-event", "10.4.0.1", 80);
+    bb_err_t err = bb_mdns_coalesce_append_for_test("_acme", "_tcp", &extra, false);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    TEST_ASSERT_EQUAL(1, bb_mdns_coalesce_drop_count());
+    TEST_ASSERT_EQUAL(0, s_peer_fired);
+
+    /* Drain the queue and confirm recovery. */
+    bb_mdns_coalesce_queue_drain_for_test();
+
+    bb_mdns_peer_t ok_peer = make_peer("ok-peer", "10.5.0.1", 7777);
+    err = bb_mdns_coalesce_append_for_test("_acme", "_tcp", &ok_peer, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    bb_mdns_coalesce_flush_for_test();
+    TEST_ASSERT_EQUAL(1, bb_mdns_coalesce_queue_enqueue_count());
+    TEST_ASSERT_EQUAL(1, s_peer_fired);
+
+    bb_mdns_browse_stop("_acme", "_tcp");
 }

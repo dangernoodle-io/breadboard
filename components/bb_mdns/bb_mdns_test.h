@@ -36,5 +36,14 @@ int bb_mdns_coalesce_flush_for_test(void);
 int bb_mdns_coalesce_batch_count(void);
 int bb_mdns_coalesce_flush_count(void);
 int bb_mdns_coalesce_queue_enqueue_count(void);
+int bb_mdns_coalesce_drop_count(void);
+
+// Simulate a bounded dispatcher queue.  cap=0 means unlimited (default).
+// After setting a cap, drive appends until enqueues are refused; then call
+// bb_mdns_coalesce_queue_drain_for_test() to free all slots and allow new enqueues.
+void bb_mdns_coalesce_queue_depth_cap_set_for_test(int cap);
+// Pin the simulated queue depth to n (forces depth >= cap to block flushes).
+void bb_mdns_coalesce_queue_depth_hold_for_test(int depth);
+void bb_mdns_coalesce_queue_drain_for_test(void);
 
 #endif /* BB_MDNS_TESTING */

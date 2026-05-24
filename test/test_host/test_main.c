@@ -687,11 +687,13 @@ void test_coalesce_single_peer_flush_fires(void);
 void test_coalesce_removal_events_dispatch(void);
 void test_coalesce_flush_empty_batch_is_noop(void);
 void test_coalesce_concurrent_append_goes_into_next_batch(void);
-void test_coalesce_batch_full_returns_no_space(void);
+void test_coalesce_overflow_flush_32_events_two_batches(void);
 void test_coalesce_multiple_flushes_each_one_enqueue(void);
 void test_coalesce_append_null_peer_removal_is_safe(void);
 void test_coalesce_flush_no_subscription_no_crash(void);
 void test_coalesce_reset_clears_all_state(void);
+void test_coalesce_queue_full_flush_drops_and_drain_recovers(void);
+void test_coalesce_queue_and_batch_full_drops_and_recovers(void);
 
 // Forward declarations from test_bb_registry.c
 void test_bb_registry_starts_empty(void);
@@ -1913,11 +1915,13 @@ int main(void) {
     RUN_TEST(test_coalesce_removal_events_dispatch);
     RUN_TEST(test_coalesce_flush_empty_batch_is_noop);
     RUN_TEST(test_coalesce_concurrent_append_goes_into_next_batch);
-    RUN_TEST(test_coalesce_batch_full_returns_no_space);
+    RUN_TEST(test_coalesce_overflow_flush_32_events_two_batches);
     RUN_TEST(test_coalesce_multiple_flushes_each_one_enqueue);
     RUN_TEST(test_coalesce_append_null_peer_removal_is_safe);
     RUN_TEST(test_coalesce_flush_no_subscription_no_crash);
     RUN_TEST(test_coalesce_reset_clears_all_state);
+    RUN_TEST(test_coalesce_queue_full_flush_drops_and_drain_recovers);
+    RUN_TEST(test_coalesce_queue_and_batch_full_drops_and_recovers);
 
     // bb_registry tests
     RUN_TEST(test_bb_registry_starts_empty);

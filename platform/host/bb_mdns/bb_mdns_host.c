@@ -219,8 +219,11 @@ typedef struct {
     char           service[BB_MDNS_HOST_BATCH_MAX][32];
     char           proto[BB_MDNS_HOST_BATCH_MAX][8];
     int            count;
-    int            flush_count;     /* how many times flush was called */
-    int            queue_enqueue_count; /* items posted to the simulated dispatch queue */
+    int            flush_count;          /* how many times flush was called */
+    int            queue_enqueue_count;  /* items posted to the simulated dispatch queue */
+    int            queue_depth;          /* current simulated queue depth */
+    int            queue_depth_cap;      /* 0 = unlimited; >0 = max queue depth */
+    int            drop_count;           /* queue+batch full drops */
 } bb_mdns_coalesce_state_t;
 
 static bb_mdns_coalesce_state_t s_coalesce;
@@ -245,11 +248,78 @@ int bb_mdns_coalesce_queue_enqueue_count(void)
     return s_coalesce.queue_enqueue_count;
 }
 
+int bb_mdns_coalesce_drop_count(void)
+{
+    return s_coalesce.drop_count;
+}
+
+void bb_mdns_coalesce_queue_depth_cap_set_for_test(int cap)
+{
+    s_coalesce.queue_depth_cap = cap;
+}
+
+void bb_mdns_coalesce_queue_depth_hold_for_test(int depth)
+{
+    s_coalesce.queue_depth = depth;
+}
+
+void bb_mdns_coalesce_queue_drain_for_test(void)
+{
+    s_coalesce.queue_depth = 0;
+}
+
+/* Internal: flush current batch to simulated queue.  Returns true on success,
+ * false if queue is full (cap exceeded).  Dispatches callbacks on success. */
+static bool coalesce_do_flush(void)
+{
+    int n = s_coalesce.count;
+    if (n == 0) return true;  /* empty — nothing to do */
+
+    /* Check queue depth cap. */
+    if (s_coalesce.queue_depth_cap > 0 &&
+        s_coalesce.queue_depth >= s_coalesce.queue_depth_cap) {
+        /* Queue full — clear the batch (events are lost) and report failure. */
+        s_coalesce.count = 0;
+        return false;
+    }
+
+    s_coalesce.queue_enqueue_count++;
+    s_coalesce.queue_depth++;
+
+    for (int i = 0; i < n; i++) {
+        const char *svc   = s_coalesce.service[i];
+        const char *proto = s_coalesce.proto[i];
+        if (s_coalesce.is_removal[i]) {
+            bb_mdns_host_dispatch_removed(svc, proto, s_coalesce.instance_names[i]);
+        } else {
+            bb_mdns_host_dispatch_peer(svc, proto, &s_coalesce.entries[i]);
+        }
+    }
+    s_coalesce.count = 0;
+    /* Simulate dispatcher freeing the item immediately (no real task delay). */
+    s_coalesce.queue_depth--;
+    return true;
+}
+
+/* Mirror of the ESP-IDF batch_append_locked logic:
+ * - If batch is full, flush synchronously before appending.
+ * - If flush fails (queue full), drop the event.
+ * Returns BB_OK on success, BB_ERR_NO_SPACE on queue+batch overload. */
 bb_err_t bb_mdns_coalesce_append_for_test(const char *service, const char *proto,
                                           const bb_mdns_peer_t *peer, bool is_removal)
 {
     if (!service || !proto) return BB_ERR_INVALID_ARG;
-    if (s_coalesce.count >= BB_MDNS_HOST_BATCH_MAX) return BB_ERR_NO_SPACE;
+
+    if (s_coalesce.count >= BB_MDNS_HOST_BATCH_MAX) {
+        /* Batch full — flush synchronously (mirrors batch_append_locked). */
+        if (!coalesce_do_flush()) {
+            /* Queue also full — real overload, drop the event. */
+            s_coalesce.drop_count++;
+            return BB_ERR_NO_SPACE;
+        }
+        /* Flush succeeded; batch.count is 0.  Fall through to append. */
+    }
+
     int i = s_coalesce.count;
     if (peer) {
         s_coalesce.entries[i] = *peer;
@@ -269,28 +339,15 @@ bb_err_t bb_mdns_coalesce_append_for_test(const char *service, const char *proto
     return BB_OK;
 }
 
-// Simulate timer fire: dispatch all pending batch entries to registered callbacks,
-// then reset the batch.  Returns the number of entries dispatched.
+/* Simulate timer fire: dispatch all pending batch entries to registered callbacks,
+ * then reset the batch.  Returns the number of entries dispatched. */
 int bb_mdns_coalesce_flush_for_test(void)
 {
     s_coalesce.flush_count++;
     int n = s_coalesce.count;
     if (n == 0) return 0;
 
-    // One simulated queue enqueue per flush.
-    s_coalesce.queue_enqueue_count++;
-
-    for (int i = 0; i < n; i++) {
-        const char *svc = s_coalesce.service[i];
-        const char *proto = s_coalesce.proto[i];
-        if (s_coalesce.is_removal[i]) {
-            bb_mdns_host_dispatch_removed(svc, proto,
-                                          s_coalesce.instance_names[i]);
-        } else {
-            bb_mdns_host_dispatch_peer(svc, proto, &s_coalesce.entries[i]);
-        }
-    }
-    s_coalesce.count = 0;
+    coalesce_do_flush();
     return n;
 }
 
