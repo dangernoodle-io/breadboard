@@ -211,9 +211,16 @@ bool bb_mdns_started(void)
 #ifdef BB_MDNS_TESTING
 
 #define BB_MDNS_HOST_BATCH_MAX 16
+#define BB_MDNS_HOST_TXT_MAX   8
+#define BB_MDNS_HOST_TXT_BUF   256
 
 typedef struct {
     bb_mdns_peer_t entries[BB_MDNS_HOST_BATCH_MAX];
+    /* Per-entry owned txt storage so dispatched peer->txt remains valid
+     * after the caller's source memory is reused. Mirrors the ESP-IDF
+     * bb_mdns_evt_t payload + pointer-relocation pattern. */
+    bb_mdns_txt_t  txts[BB_MDNS_HOST_BATCH_MAX][BB_MDNS_HOST_TXT_MAX];
+    char           txt_payload[BB_MDNS_HOST_BATCH_MAX][BB_MDNS_HOST_TXT_BUF];
     bool           is_removal[BB_MDNS_HOST_BATCH_MAX];
     char           instance_names[BB_MDNS_HOST_BATCH_MAX][BB_MDNS_INSTANCE_NAME_MAX];
     char           service[BB_MDNS_HOST_BATCH_MAX][32];
@@ -323,6 +330,27 @@ bb_err_t bb_mdns_coalesce_append_for_test(const char *service, const char *proto
     int i = s_coalesce.count;
     if (peer) {
         s_coalesce.entries[i] = *peer;
+        /* Deep-copy the txt[] view into per-entry owned storage so the
+         * dispatched callback sees valid pointers even after the caller's
+         * source memory (peer->txt array + key/value strings) is reused. */
+        size_t n = peer->txt_count;
+        if (n > BB_MDNS_HOST_TXT_MAX) n = BB_MDNS_HOST_TXT_MAX;
+        char *buf = s_coalesce.txt_payload[i];
+        size_t off = 0;
+        for (size_t j = 0; j < n; j++) {
+            const char *k = peer->txt[j].key ? peer->txt[j].key : "";
+            const char *v = peer->txt[j].value ? peer->txt[j].value : "";
+            size_t kl = strlen(k) + 1, vl = strlen(v) + 1;
+            if (off + kl + vl > BB_MDNS_HOST_TXT_BUF) { n = j; break; }  /* truncate */
+            memcpy(buf + off, k, kl);
+            s_coalesce.txts[i][j].key = buf + off;
+            off += kl;
+            memcpy(buf + off, v, vl);
+            s_coalesce.txts[i][j].value = buf + off;
+            off += vl;
+        }
+        s_coalesce.entries[i].txt = s_coalesce.txts[i];
+        s_coalesce.entries[i].txt_count = n;
     } else {
         memset(&s_coalesce.entries[i], 0, sizeof(bb_mdns_peer_t));
     }

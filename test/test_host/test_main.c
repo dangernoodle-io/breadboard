@@ -694,6 +694,7 @@ void test_coalesce_flush_no_subscription_no_crash(void);
 void test_coalesce_reset_clears_all_state(void);
 void test_coalesce_queue_full_flush_drops_and_drain_recovers(void);
 void test_coalesce_queue_and_batch_full_drops_and_recovers(void);
+void test_coalesce_txt_pointers_survive_source_clobber(void);
 
 // Forward declarations from test_bb_registry.c
 void test_bb_registry_starts_empty(void);
@@ -1922,6 +1923,7 @@ int main(void) {
     RUN_TEST(test_coalesce_reset_clears_all_state);
     RUN_TEST(test_coalesce_queue_full_flush_drops_and_drain_recovers);
     RUN_TEST(test_coalesce_queue_and_batch_full_drops_and_recovers);
+    RUN_TEST(test_coalesce_txt_pointers_survive_source_clobber);
 
     // bb_registry tests
     RUN_TEST(test_bb_registry_starts_empty);

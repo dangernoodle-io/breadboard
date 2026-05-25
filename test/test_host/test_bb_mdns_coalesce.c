@@ -426,3 +426,54 @@ void test_coalesce_queue_and_batch_full_drops_and_recovers(void)
 
     bb_mdns_browse_stop("_acme", "_tcp");
 }
+
+/* ---------------------------------------------------------------------------
+ * TC9 (regression for #311): TXT key/value pointers must remain valid in the
+ * dispatched peer after the caller's source memory is overwritten. The
+ * coalescing struct-copy previously left txt[i].key/value pointing into the
+ * source evt's payload; once the source went out of scope the dispatcher
+ * delivered dangling pointers. Verified by stomping the source buffers
+ * AFTER append + BEFORE flush, then asserting the captured peer's TXT
+ * data still reads the original strings.
+ * ---------------------------------------------------------------------------*/
+void test_coalesce_txt_pointers_survive_source_clobber(void)
+{
+    coalesce_setUp();
+    bb_mdns_browse_start("_acme", "_tcp", capture_peer_cb, NULL, NULL);
+
+    /* Caller-owned TXT storage that we'll deliberately clobber after append. */
+    char k0[16] = "version";
+    char v0[32] = "1.2.3-dev";
+    char k1[16] = "board";
+    char v1[32] = "tdongle-s3";
+    bb_mdns_txt_t txts[2] = {
+        { .key = k0, .value = v0 },
+        { .key = k1, .value = v1 },
+    };
+
+    bb_mdns_peer_t peer = make_peer("txt-peer", "10.6.0.1", 5555);
+    peer.txt       = txts;
+    peer.txt_count = 2;
+
+    bb_err_t err = bb_mdns_coalesce_append_for_test("_acme", "_tcp", &peer, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    /* Source memory goes away — overwrite everything the caller owned. */
+    memset(k0,   0xAA, sizeof(k0));
+    memset(v0,   0xAA, sizeof(v0));
+    memset(k1,   0xAA, sizeof(k1));
+    memset(v1,   0xAA, sizeof(v1));
+    memset(txts, 0xAA, sizeof(txts));
+    memset(&peer, 0xAA, sizeof(peer));
+
+    /* Flush; the dispatcher must see the ORIGINAL TXT strings. */
+    bb_mdns_coalesce_flush_for_test();
+    TEST_ASSERT_EQUAL(1, s_peer_fired);
+    TEST_ASSERT_EQUAL(2, s_captured[0].txt_count);
+    TEST_ASSERT_EQUAL_STRING("version",   s_captured[0].txt[0].key);
+    TEST_ASSERT_EQUAL_STRING("1.2.3-dev", s_captured[0].txt[0].value);
+    TEST_ASSERT_EQUAL_STRING("board",     s_captured[0].txt[1].key);
+    TEST_ASSERT_EQUAL_STRING("tdongle-s3", s_captured[0].txt[1].value);
+
+    bb_mdns_browse_stop("_acme", "_tcp");
+}
