@@ -251,7 +251,18 @@ static bool batch_append_locked(const bb_mdns_evt_t *evt)
         /* Flush succeeded; batch.count is now 0.  Fall through to append. */
     }
 
-    s_batch.entries[s_batch.count++] = *evt;
+    bb_mdns_evt_t *dst = &s_batch.entries[s_batch.count++];
+    *dst = *evt;
+    /* The struct copy duplicates payload[] but leaves txt[i].key/value
+     * pointing into the source evt's payload. Relocate each pointer by the
+     * offset between the source and destination payloads so the txt array
+     * remains valid for the dispatcher (which fires after the source evt
+     * has gone out of scope). */
+    intptr_t off = (intptr_t)dst->payload - (intptr_t)evt->payload;
+    for (size_t i = 0; i < dst->txt_count && i < BB_MDNS_EVT_TXT_MAX; i++) {
+        if (dst->txt[i].key)   dst->txt[i].key   = (char *)((intptr_t)dst->txt[i].key   + off);
+        if (dst->txt[i].value) dst->txt[i].value = (char *)((intptr_t)dst->txt[i].value + off);
+    }
     if (s_batch.count == 1 && s_flush_timer) {
         /* First event in a new batch — arm the one-shot 50 ms flush window. */
         esp_timer_start_once(s_flush_timer, 50 * 1000);  /* 50 ms */
