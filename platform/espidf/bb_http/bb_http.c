@@ -59,7 +59,7 @@ static void prealloc_tls_sem_cb(void *arg)
 {
     (void)arg;
     lwip_socket_thread_init();
-    bb_log_i(TAG, "httpd lwip TLS sem pre-allocated (B1-223 step 1)");
+    bb_log_i(TAG, "httpd lwip TLS sem pre-allocated");
 }
 
 // Ensure the shared HTTP server is started. Exposed for bb_prov to call.
