@@ -382,10 +382,23 @@ static void ota_worker_task(void *arg)
         .user_agent = esp_app_get_description()->project_name,
         .buffer_size = 4096,
         .buffer_size_tx = 2048,
+        /* Keep-alive is required for partial-http-download (Range requests on
+         * the same connection). */
+        .keep_alive_enable = true,
     };
 
     esp_https_ota_config_t ota_config = {
         .http_config = &http_config,
+        /* Chunk the firmware download via HTTP Range headers (4 KB per GET).
+         * Without this, the server can send TLS records up to 16 KB and
+         * mbedtls's IN buffer must be sized to match — that's the ~17 KB
+         * alloc that fails on fragmented internal heap when no PSRAM is
+         * available (tdongle-s3, esp32-wroom32). With chunked downloads each
+         * TLS record is ~5 KB and consumers can compile-time lower
+         * CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN to 8 KB, dropping the mbedtls
+         * peak allocation from ~17 KB to ~9 KB. */
+        .partial_http_download = true,
+        .max_http_request_size = 4096,
     };
 
     // Verify OTA partition exists before attempting
