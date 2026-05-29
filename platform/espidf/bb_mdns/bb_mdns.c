@@ -155,6 +155,23 @@ static bool batch_do_flush_locked(void)
     item->count = s_batch.count;
     memcpy(item->entries, s_batch.entries,
            (size_t)s_batch.count * sizeof(bb_mdns_evt_t));
+
+    /* The memcpy duplicated each entry's payload[] but left its txt[].key/value
+     * pointers aimed at the SOURCE s_batch payload. s_batch is a persistent
+     * static buffer reused by the next browse burst before the (single-core
+     * starved) dispatcher consumes this item — reading through the stale
+     * pointers then yields another peer's TXT (cross-attributed worker/version,
+     * or blanks). Relocate each pointer into the item's own payload copy. */
+    for (int e = 0; e < item->count; e++) {
+        intptr_t off = (intptr_t)item->entries[e].payload -
+                       (intptr_t)s_batch.entries[e].payload;
+        for (size_t t = 0; t < item->entries[e].txt_count && t < BB_MDNS_EVT_TXT_MAX; t++) {
+            if (item->entries[e].txt[t].key)
+                item->entries[e].txt[t].key   = (char *)((intptr_t)item->entries[e].txt[t].key   + off);
+            if (item->entries[e].txt[t].value)
+                item->entries[e].txt[t].value = (char *)((intptr_t)item->entries[e].txt[t].value + off);
+        }
+    }
     s_batch.count = 0;
 
     /* Drop the lock for the queue send so the dispatcher task can run. */
