@@ -22,6 +22,19 @@ config BB_OTA_PUSH_MAX_SIZE
         consumers on boards with a smaller OTA partition can lower this
         to fail fast rather than spinning through receive timeout retries.
 
+config BB_OTA_PUSH_RECV_BUF_SIZE
+    int "OTA push receive/write chunk size (bytes)"
+    range 512 16384
+    default 1024
+    help
+        Size of the buffer used to receive the uploaded firmware and feed
+        esp_ota_write(). Larger chunks mean fewer recv/write iterations and
+        bigger flash writes, which avoids a flow-control stall on RAM-tight
+        single-core targets (e.g. ESP32-S2) where the small default plus a
+        small TCP window can wedge the transfer under cache-disable
+        backpressure. Default 1024 preserves prior behavior; the buffer is
+        malloc'd for the OTA duration, so size it to fit available heap.
+
 config BB_OTA_PUSH_WDT_EXTENDED_S
     int "Task WDT timeout (s) during OTA push receive+write phase"
     range 30 1800

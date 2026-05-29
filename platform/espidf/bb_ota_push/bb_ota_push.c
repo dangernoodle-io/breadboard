@@ -61,7 +61,7 @@ int bb_ota_push_validate_content_len_for_test(int content_len, int max_size)
 
 static const char *TAG = "bb_ota_push";
 
-#define OTA_RECV_BUF_SIZE 1024
+#define OTA_RECV_BUF_SIZE CONFIG_BB_OTA_PUSH_RECV_BUF_SIZE
 #define OTA_TIMEOUT_RETRIES 30
 
 /**
