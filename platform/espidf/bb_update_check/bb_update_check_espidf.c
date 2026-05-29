@@ -170,8 +170,14 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
     if (!s_kick) return BB_ERR_NO_SPACE;
     // Stack sized for the mbedTLS handshake + cert-bundle parse path inside
     // bb_http_client_get_stream. Shared with bb_ota_pull via the same macro.
+    // On single-core (unicore) targets, core 1 does not exist and
+    // xTaskCreatePinnedToCore asserts; fall back to no affinity.
+    int task_core = s_task_core;
+    if (task_core != tskNO_AFFINITY && task_core >= configNUMBER_OF_CORES) {
+        task_core = tskNO_AFFINITY;
+    }
     if (xTaskCreatePinnedToCore(worker_task, "upd_check", BB_HTTP_CLIENT_TASK_STACK,
-                                NULL, s_task_priority, &s_worker, s_task_core) != pdPASS) {
+                                NULL, s_task_priority, &s_worker, task_core) != pdPASS) {
         vSemaphoreDelete(s_kick);
         s_kick = NULL;
         return BB_ERR_INVALID_STATE;

@@ -31,4 +31,20 @@ config BB_WIFI_ROUTES_AUTOREGISTER
         bb_registry. The wifi driver init APIs (bb_wifi_init, _init_sta,
         _ensure_netif, etc.) stay caller-driven regardless of this flag.
 
+choice BB_WIFI_POWER_SAVE
+    prompt "WiFi power-save mode"
+    default BB_WIFI_PS_MIN_MODEM
+    help
+        WiFi modem power-save. MIN_MODEM (default) sleeps the radio between
+        beacons to save power but can cause beacon-miss/idle disconnects on
+        quiet links; NONE keeps the radio always on for best link stability
+        (recommended for mains-powered/always-on devices like miners).
+    config BB_WIFI_PS_NONE
+        bool "None (radio always on)"
+    config BB_WIFI_PS_MIN_MODEM
+        bool "Minimum modem sleep"
+    config BB_WIFI_PS_MAX_MODEM
+        bool "Maximum modem sleep"
+endchoice
+
 endmenu

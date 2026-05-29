@@ -261,6 +261,18 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
         s_sta_netif = esp_netif_create_default_wifi_sta();
     }
 
+    // Apply the persisted hostname now that the STA netif exists but before
+    // esp_wifi_start(), so the first DHCP DISCOVER carries the configured name.
+    // esp_netif_set_hostname requires the netif to exist, so this cannot run
+    // earlier (in autoinit) — DHCP/mDNS otherwise fall back to "espressif".
+    const char *hn = bb_nv_config_hostname();
+    if (hn && hn[0]) {
+        esp_err_t hn_err = esp_netif_set_hostname(s_sta_netif, hn);
+        if (hn_err != ESP_OK) {
+            bb_log_w(TAG, "esp_netif_set_hostname failed (%d); continuing", (int)hn_err);
+        }
+    }
+
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
@@ -279,7 +291,13 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+#if CONFIG_BB_WIFI_PS_NONE
+    esp_wifi_set_ps(WIFI_PS_NONE);
+#elif CONFIG_BB_WIFI_PS_MAX_MODEM
+    esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
+#else
     esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+#endif
 
     // Initialize RSSI refresh timer
     if (!s_rssi_refresh_timer) {
@@ -483,18 +501,8 @@ static bb_err_t bb_wifi_autoinit(void)
         return BB_OK;
     }
 
-    // Apply persisted hostname before connect so DHCP/mDNS get the right name
-    // on first packet. Empty string means "not set"; bb_wifi_set_hostname
-    // tolerates that case (no-op). Log but don't bail on failure — hostname is
-    // best-effort and must not block the connect path.
-    const char *hn = bb_nv_config_hostname();
-    if (hn && hn[0]) {
-        bb_err_t hn_err = bb_wifi_set_hostname(hn);
-        if (hn_err != BB_OK) {
-            bb_log_w(TAG, "bb_wifi_set_hostname failed (%d); continuing", (int)hn_err);
-        }
-    }
-
+    // Hostname is applied inside wifi_connect_sta() right after the STA netif
+    // is created — esp_netif_set_hostname requires the netif to exist.
     bb_err_t err = bb_wifi_init_sta();
 
 #if CONFIG_BB_WIFI_RETRY_FOREVER_WHEN_VALIDATED

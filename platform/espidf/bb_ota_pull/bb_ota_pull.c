@@ -635,6 +635,12 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
     s_ota_status.last_error[0] = '\0';
     taskEXIT_CRITICAL(&s_ota_status_mux);
 
+    // On single-core (unicore) targets, core 1 does not exist and
+    // xTaskCreatePinnedToCore asserts; fall back to no affinity.
+    int ota_task_core = s_ota_task_core;
+    if (ota_task_core != tskNO_AFFINITY && ota_task_core >= configNUMBER_OF_CORES) {
+        ota_task_core = tskNO_AFFINITY;
+    }
     TaskHandle_t task_handle = NULL;
     BaseType_t task_result = xTaskCreatePinnedToCore(
         ota_worker_task,
@@ -643,7 +649,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         task_arg,
         OTA_TASK_PRIO,
         &task_handle,
-        s_ota_task_core
+        ota_task_core
     );
 
     if (task_result != pdPASS) {
