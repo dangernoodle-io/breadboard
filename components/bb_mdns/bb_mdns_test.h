@@ -19,6 +19,38 @@
 #include "bb_mdns.h"
 #include <stdbool.h>
 
+// ---------------------------------------------------------------------------
+// TXT pending cache hooks — tests for TA-404 persistent replay semantics
+// ---------------------------------------------------------------------------
+// The cache is the source of truth for all set_txt calls.  Simulate the
+// lifecycle with:
+//   bb_mdns_txt_pending_reset_for_test()  — clear cache (call in setUp)
+//   bb_mdns_simulate_start_for_test()     — simulate wifi got-ip / mDNS start
+//   bb_mdns_simulate_stop_for_test()      — simulate wifi disconnect / teardown
+//
+// Inspect with:
+//   bb_mdns_txt_pending_count()           — entries currently in the cache
+//   bb_mdns_txt_pending_get_value(key)    — value for a key, or NULL if absent
+//   bb_mdns_txt_replay_count()            — how many times start was called
+//   bb_mdns_txt_is_up()                   — whether mDNS is currently "up"
+//   bb_mdns_txt_live_set_count()          — set_txt write-throughs while up
+
+// Reset all txt-pending test state (call in setUp()).
+void bb_mdns_txt_pending_reset_for_test(void);
+
+// Simulate a wifi-got-ip / mDNS start event; replays the cache.
+void bb_mdns_simulate_start_for_test(void);
+
+// Simulate a wifi-disconnect / mDNS teardown event.
+void bb_mdns_simulate_stop_for_test(void);
+
+// Inspectors.
+int         bb_mdns_txt_pending_count(void);
+const char *bb_mdns_txt_pending_get_value(const char *key);  // NULL if not found
+int         bb_mdns_txt_replay_count(void);   // cumulative start() calls
+bool        bb_mdns_txt_is_up(void);
+int         bb_mdns_txt_live_set_count(void); // write-throughs while mDNS up
+
 // Reset all coalesce test state (call in setUp()).
 void bb_mdns_coalesce_reset_for_test(void);
 

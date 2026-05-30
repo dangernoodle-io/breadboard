@@ -2,6 +2,7 @@
 #include "bb_nv.h"
 #include "bb_mdns.h"
 #include "bb_mdns_host_test_hooks.h"
+#include "bb_mdns_test.h"
 #include <string.h>
 
 void test_bb_mdns_browse_start_null_service(void)
@@ -516,4 +517,74 @@ void test_build_hostname_suffix_sanitizes_to_empty(void)
     char out[64];
     bb_mdns_build_hostname("mydevice", "!!!", out, sizeof(out));
     TEST_ASSERT_EQUAL_STRING("mydevice", out);
+}
+
+// ---------------------------------------------------------------------------
+// TXT persistent cache tests (TA-404)
+// ---------------------------------------------------------------------------
+
+/* set_txt before start populates the cache. */
+void test_txt_cache_populated_before_start(void)
+{
+    bb_mdns_host_reset();
+    bb_mdns_set_txt("worker", "miner-01");
+    TEST_ASSERT_EQUAL(1, bb_mdns_txt_pending_count());
+    TEST_ASSERT_EQUAL_STRING("miner-01", bb_mdns_txt_pending_get_value("worker"));
+}
+
+/* Cache survives a simulated start (replay increments counter; entries stay). */
+void test_txt_cache_survives_start(void)
+{
+    bb_mdns_host_reset();
+    bb_mdns_set_txt("worker", "miner-01");
+    bb_mdns_set_txt("board", "tdongle-s3");
+    bb_mdns_simulate_start_for_test();
+    TEST_ASSERT_EQUAL(1, bb_mdns_txt_replay_count());
+    TEST_ASSERT_EQUAL(2, bb_mdns_txt_pending_count());
+    TEST_ASSERT_EQUAL_STRING("miner-01",  bb_mdns_txt_pending_get_value("worker"));
+    TEST_ASSERT_EQUAL_STRING("tdongle-s3", bb_mdns_txt_pending_get_value("board"));
+}
+
+/* Cache survives stop + restart — the reconnect replay path. */
+void test_txt_cache_survives_stop_and_restart(void)
+{
+    bb_mdns_host_reset();
+    bb_mdns_set_txt("worker", "miner-01");
+    bb_mdns_set_txt("state",  "mining");
+    bb_mdns_simulate_start_for_test();
+    bb_mdns_simulate_stop_for_test();
+    /* cache must still be populated after teardown */
+    TEST_ASSERT_EQUAL(2, bb_mdns_txt_pending_count());
+    TEST_ASSERT_FALSE(bb_mdns_txt_is_up());
+    /* second start replays same entries */
+    bb_mdns_simulate_start_for_test();
+    TEST_ASSERT_EQUAL(2, bb_mdns_txt_replay_count());
+    TEST_ASSERT_EQUAL_STRING("miner-01", bb_mdns_txt_pending_get_value("worker"));
+    TEST_ASSERT_EQUAL_STRING("mining",   bb_mdns_txt_pending_get_value("state"));
+}
+
+/* set_txt while mDNS is up updates cache AND counts as a live write-through. */
+void test_txt_cache_write_through_while_up(void)
+{
+    bb_mdns_host_reset();
+    bb_mdns_set_txt("worker", "miner-01");
+    bb_mdns_simulate_start_for_test();
+    TEST_ASSERT_EQUAL(0, bb_mdns_txt_live_set_count());
+    bb_mdns_set_txt("worker", "miner-02");
+    TEST_ASSERT_EQUAL(1, bb_mdns_txt_live_set_count());
+    /* cache also updated — single authoritative value */
+    TEST_ASSERT_EQUAL_STRING("miner-02", bb_mdns_txt_pending_get_value("worker"));
+}
+
+/* Stop then re-set while down updates the cache so the next start sees it. */
+void test_txt_cache_update_while_down_replays_on_next_start(void)
+{
+    bb_mdns_host_reset();
+    bb_mdns_set_txt("worker", "miner-01");
+    bb_mdns_simulate_start_for_test();
+    bb_mdns_simulate_stop_for_test();
+    bb_mdns_set_txt("worker", "miner-99");  /* update while down */
+    TEST_ASSERT_EQUAL(0, bb_mdns_txt_live_set_count());  /* no write-through while down */
+    bb_mdns_simulate_start_for_test();
+    TEST_ASSERT_EQUAL_STRING("miner-99", bb_mdns_txt_pending_get_value("worker"));
 }

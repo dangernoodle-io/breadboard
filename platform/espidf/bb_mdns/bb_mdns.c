@@ -380,10 +380,11 @@ static void announce_arm(uint64_t delay_us)
     }
 }
 
-/* Pending TXT items: bb_mdns_set_txt() may be called before the service has
- * actually started (start happens on wifi got-ip, async). Buffer the kv pairs
- * and replay them in bb_mdns_start_internal so apps can configure TXT eagerly
- * without racing the wifi callback. */
+/* Persistent TXT cache: authoritative store for all set_txt calls. Every
+ * bb_mdns_set_txt() update goes here regardless of mDNS state; every mDNS
+ * start (including reconnects) replays the full cache so TXT records survive
+ * wifi flaps without a device reboot. Cache entries are never cleared — only
+ * overwritten when the same key is set again. */
 #ifdef CONFIG_BB_MDNS_TXT_PENDING_MAX
 #define BB_MDNS_TXT_PENDING_MAX CONFIG_BB_MDNS_TXT_PENDING_MAX
 #else
@@ -423,10 +424,12 @@ static void txt_pending_flush(const char *service_type)
                                                   s_txt_pending[i].key,
                                                   s_txt_pending[i].value);
         if (err != ESP_OK) {
-            bb_log_w(TAG, "deferred txt %s=%s failed: %s",
+            bb_log_w(TAG, "txt replay %s=%s failed: %s",
                      s_txt_pending[i].key, s_txt_pending[i].value, esp_err_to_name(err));
         }
-        s_txt_pending[i].in_use = false;
+        /* Do NOT clear in_use: cache is persistent so the next mDNS start
+         * (wifi reconnect) replays the same entries without requiring another
+         * set_txt call from the application. */
     }
 }
 
@@ -1041,11 +1044,13 @@ const char *bb_mdns_get_hostname(void)
 void bb_mdns_set_txt(const char *key, const char *value)
 {
     if (!key || !value) return;
+    /* Always update the persistent cache — it is the source of truth and is
+     * replayed on every mDNS start, including wifi-reconnect re-inits. */
+    txt_pending_store(key, value);
     if (!bb_mdns_lifecycle_is_started(&s_lc)) {
-        /* Buffer until service starts (typically when wifi gets an IP). */
-        txt_pending_store(key, value);
-        return;
+        return;  /* mDNS not up yet; cache replay on start will apply it */
     }
+    /* Write-through: apply immediately to the live mDNS service as well. */
     const char *service_type = s_mdns_service_type_set ? s_mdns_service_type : "_bsp";
     esp_err_t err = mdns_service_txt_item_set(service_type, "_tcp", key, value);
     if (err != ESP_OK) {

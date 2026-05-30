@@ -680,6 +680,12 @@ void test_build_hostname_digit_in_input(void);
 void test_build_hostname_leading_dash_trim_with_content(void);
 void test_build_hostname_all_special_chars_produces_empty(void);
 void test_build_hostname_suffix_sanitizes_to_empty(void);
+// TA-404: persistent TXT cache
+void test_txt_cache_populated_before_start(void);
+void test_txt_cache_survives_start(void);
+void test_txt_cache_survives_stop_and_restart(void);
+void test_txt_cache_write_through_while_up(void);
+void test_txt_cache_update_while_down_replays_on_next_start(void);
 
 // Forward declarations from test_bb_mdns_coalesce.c
 void test_coalesce_n_peers_single_flush(void);
@@ -1909,6 +1915,12 @@ int main(void) {
     RUN_TEST(test_build_hostname_leading_dash_trim_with_content);
     RUN_TEST(test_build_hostname_all_special_chars_produces_empty);
     RUN_TEST(test_build_hostname_suffix_sanitizes_to_empty);
+    // TA-404: persistent TXT cache across mdns re-init
+    RUN_TEST(test_txt_cache_populated_before_start);
+    RUN_TEST(test_txt_cache_survives_start);
+    RUN_TEST(test_txt_cache_survives_stop_and_restart);
+    RUN_TEST(test_txt_cache_write_through_while_up);
+    RUN_TEST(test_txt_cache_update_while_down_replays_on_next_start);
 
     // bb_mdns coalescing tests
     RUN_TEST(test_coalesce_n_peers_single_flush);
