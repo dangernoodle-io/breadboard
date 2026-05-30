@@ -18,6 +18,85 @@ static bool s_warned = false;
 static int s_announce_count = 0;
 static int s_set_txt_count  = 0;
 
+// ---------------------------------------------------------------------------
+// TXT pending cache — shadow of the ESP-IDF persistent cache (BB_MDNS_TESTING)
+// Declared before bb_mdns_host_reset so the reset function can clear it.
+// ---------------------------------------------------------------------------
+#ifdef BB_MDNS_TESTING
+
+#define BB_MDNS_HOST_TXT_PENDING_MAX 8
+typedef struct { char key[16]; char value[64]; bool in_use; } bb_mdns_host_txt_t;
+static bb_mdns_host_txt_t s_host_txt[BB_MDNS_HOST_TXT_PENDING_MAX];
+static bool s_host_mdns_up      = false;
+static int  s_host_replay_count = 0;
+static int  s_host_live_set     = 0;
+
+static void host_txt_store(const char *key, const char *value)
+{
+    int free_slot = -1;
+    for (int i = 0; i < BB_MDNS_HOST_TXT_PENDING_MAX; i++) {
+        if (s_host_txt[i].in_use && strcmp(s_host_txt[i].key, key) == 0) {
+            strncpy(s_host_txt[i].value, value, sizeof(s_host_txt[i].value) - 1);
+            s_host_txt[i].value[sizeof(s_host_txt[i].value) - 1] = '\0';
+            return;
+        }
+        if (!s_host_txt[i].in_use && free_slot < 0) free_slot = i;
+    }
+    if (free_slot < 0) return;
+    strncpy(s_host_txt[free_slot].key, key, sizeof(s_host_txt[free_slot].key) - 1);
+    s_host_txt[free_slot].key[sizeof(s_host_txt[free_slot].key) - 1] = '\0';
+    strncpy(s_host_txt[free_slot].value, value, sizeof(s_host_txt[free_slot].value) - 1);
+    s_host_txt[free_slot].value[sizeof(s_host_txt[free_slot].value) - 1] = '\0';
+    s_host_txt[free_slot].in_use = true;
+}
+
+void bb_mdns_txt_pending_reset_for_test(void)
+{
+    memset(s_host_txt, 0, sizeof(s_host_txt));
+    s_host_mdns_up      = false;
+    s_host_replay_count = 0;
+    s_host_live_set     = 0;
+}
+
+void bb_mdns_simulate_start_for_test(void)
+{
+    s_host_mdns_up = true;
+    s_host_replay_count++;
+    /* replay is a no-op on host; the cache state itself is what tests inspect */
+}
+
+void bb_mdns_simulate_stop_for_test(void)
+{
+    s_host_mdns_up = false;
+    /* cache must survive teardown — do NOT clear s_host_txt here */
+}
+
+int bb_mdns_txt_pending_count(void)
+{
+    int n = 0;
+    for (int i = 0; i < BB_MDNS_HOST_TXT_PENDING_MAX; i++) {
+        if (s_host_txt[i].in_use) n++;
+    }
+    return n;
+}
+
+const char *bb_mdns_txt_pending_get_value(const char *key)
+{
+    if (!key) return NULL;
+    for (int i = 0; i < BB_MDNS_HOST_TXT_PENDING_MAX; i++) {
+        if (s_host_txt[i].in_use && strcmp(s_host_txt[i].key, key) == 0) {
+            return s_host_txt[i].value;
+        }
+    }
+    return NULL;
+}
+
+int  bb_mdns_txt_replay_count(void)   { return s_host_replay_count; }
+bool bb_mdns_txt_is_up(void)          { return s_host_mdns_up; }
+int  bb_mdns_txt_live_set_count(void) { return s_host_live_set; }
+
+#endif /* BB_MDNS_TESTING */
+
 int bb_mdns_host_announce_count(void) { return s_announce_count; }
 int bb_mdns_host_set_txt_count(void)  { return s_set_txt_count; }
 bool bb_mdns_host_warned(void)         { return s_warned; }
@@ -26,6 +105,9 @@ void bb_mdns_host_reset(void)
     s_announce_count = 0;
     s_set_txt_count  = 0;
     s_warned         = false;
+#ifdef BB_MDNS_TESTING
+    bb_mdns_txt_pending_reset_for_test();
+#endif
 }
 
 /* Subscription table — mirrors espidf implementation for dispatch testing. */
@@ -64,6 +146,12 @@ void bb_mdns_set_txt(const char *key, const char *value)
     }
     s_set_txt_count++;
     bb_log_d(TAG, "set_txt stub: %s=%s", key, value);
+#ifdef BB_MDNS_TESTING
+    /* Mirror the ESP-IDF persistent-cache semantics: always store, write-through
+     * when up (simulated by incrementing live_set counter). */
+    host_txt_store(key, value);
+    if (s_host_mdns_up) s_host_live_set++;
+#endif
 }
 
 void bb_mdns_deinit(void)
