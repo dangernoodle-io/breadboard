@@ -47,6 +47,27 @@ bb_err_t bb_timer_periodic_stop(bb_periodic_timer_t t);
 // Stop and free. Handle invalid after this returns.
 bb_err_t bb_timer_periodic_delete(bb_periodic_timer_t t);
 
+// ---------------------------------------------------------------------------
+// One-shot timer API — portable wrapper around esp_timer one-shot scheduling.
+// ---------------------------------------------------------------------------
+
+// Opaque one-shot-timer handle.
+typedef struct bb_oneshot_timer *bb_oneshot_timer_t;
+
+// Create a one-shot timer. `cb(arg)` fires once, `delay_us` after start.
+// `name` is for diagnostics (may be NULL). On BB_OK, *out holds the handle.
+bb_err_t bb_timer_oneshot_create(void (*cb)(void *arg), void *arg,
+                                 const char *name, bb_oneshot_timer_t *out);
+
+// Arm: fire once after delay_us. Re-arming a pending/fired timer restarts it.
+bb_err_t bb_timer_oneshot_start(bb_oneshot_timer_t t, uint64_t delay_us);
+
+// Cancel a pending fire (no-op if already fired or not armed).
+bb_err_t bb_timer_oneshot_stop(bb_oneshot_timer_t t);
+
+// Cancel and free. Handle invalid after this returns.
+bb_err_t bb_timer_oneshot_delete(bb_oneshot_timer_t t);
+
 #ifdef __cplusplus
 }
 #endif
