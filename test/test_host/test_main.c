@@ -633,6 +633,10 @@ void test_bb_system_get_build_date_returns_nonnull_nonempty(void);
 void test_bb_system_get_build_time_returns_nonnull_nonempty(void);
 void test_bb_system_get_idf_version_returns_nonnull_nonempty(void);
 void test_bb_error_check_happy_path(void);
+void test_bb_system_read_temp_default_unsupported(void);
+void test_bb_system_read_temp_null_out(void);
+void test_bb_system_read_temp_injected_ok(void);
+void test_bb_system_read_temp_injected_error(void);
 
 // Forward declarations from test_bb_mdns.c
 void test_bb_mdns_browse_start_null_service(void);
@@ -1879,6 +1883,10 @@ int main(void) {
     RUN_TEST(test_bb_system_get_build_time_returns_nonnull_nonempty);
     RUN_TEST(test_bb_system_get_idf_version_returns_nonnull_nonempty);
     RUN_TEST(test_bb_error_check_happy_path);
+    RUN_TEST(test_bb_system_read_temp_default_unsupported);
+    RUN_TEST(test_bb_system_read_temp_null_out);
+    RUN_TEST(test_bb_system_read_temp_injected_ok);
+    RUN_TEST(test_bb_system_read_temp_injected_error);
 
     // bb_mdns tests
     RUN_TEST(test_bb_mdns_browse_start_null_service);

@@ -83,6 +83,14 @@ const char *bb_system_get_idf_version(void);
 /// On host: prints a diagnostic to stderr and exits with code 0.
 void bb_system_restart(void);
 
+/// Reads the SoC internal die-temperature sensor.
+/// Returns BB_OK and writes *out (degrees Celsius) on silicon that has the
+/// modern temperature_sensor peripheral (esp32s2/s3/c3/c6/h2/...).
+/// Returns BB_ERR_UNSUPPORTED on parts without it — notably the classic
+/// ESP32, whose legacy sensor is uncalibrated and intentionally not surfaced —
+/// and on host/Arduino backends. *out is untouched on error.
+bb_err_t bb_system_read_temp_celsius(float *out);
+
 #ifdef __cplusplus
 }
 #endif

@@ -4,6 +4,12 @@
 
 #include "esp_app_desc.h"
 #include "esp_system.h"
+#include "soc/soc_caps.h"
+
+#if SOC_TEMP_SENSOR_SUPPORTED
+#include "driver/temperature_sensor.h"
+#include <pthread.h>
+#endif
 
 static const char *TAG = "bb_system";
 
@@ -119,4 +125,33 @@ const char *bb_system_get_idf_version(void)
 void bb_system_restart(void)
 {
     esp_restart();
+}
+
+bb_err_t bb_system_read_temp_celsius(float *out)
+{
+    if (!out) return BB_ERR_INVALID_ARG;
+#if SOC_TEMP_SENSOR_SUPPORTED
+    static temperature_sensor_handle_t s_handle = NULL;
+    static pthread_mutex_t s_lock = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_lock(&s_lock);
+    if (s_handle == NULL) {
+        temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
+        esp_err_t err = temperature_sensor_install(&cfg, &s_handle);
+        if (err == ESP_OK) err = temperature_sensor_enable(s_handle);
+        if (err != ESP_OK) {
+            if (s_handle) { temperature_sensor_uninstall(s_handle); s_handle = NULL; }
+            pthread_mutex_unlock(&s_lock);
+            return err;
+        }
+    }
+    pthread_mutex_unlock(&s_lock);
+    float c = 0.0f;
+    esp_err_t err = temperature_sensor_get_celsius(s_handle, &c);
+    if (err != ESP_OK) return err;
+    *out = c;
+    return BB_OK;
+#else
+    (void)out;
+    return BB_ERR_UNSUPPORTED;
+#endif
 }

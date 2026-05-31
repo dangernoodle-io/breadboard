@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "bb_system.h"
+#include "bb_system_test.h"
 #include <string.h>
 
 void test_bb_system_get_version_returns_nonnull(void)
@@ -47,4 +48,38 @@ void test_bb_error_check_happy_path(void)
     // BB_ERROR_CHECK with BB_OK must not abort
     BB_ERROR_CHECK(BB_OK);
     TEST_PASS();
+}
+
+void test_bb_system_read_temp_default_unsupported(void)
+{
+    // host default: no sensor, must return BB_ERR_UNSUPPORTED
+    bb_system_set_temp_for_test(0.0f, BB_ERR_UNSUPPORTED);
+    float f = -999.0f;
+    bb_err_t rc = bb_system_read_temp_celsius(&f);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_UNSUPPORTED, rc);
+    TEST_ASSERT_EQUAL_FLOAT(-999.0f, f);  // *out untouched on error
+}
+
+void test_bb_system_read_temp_null_out(void)
+{
+    bb_err_t rc = bb_system_read_temp_celsius(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
+}
+
+void test_bb_system_read_temp_injected_ok(void)
+{
+    bb_system_set_temp_for_test(42.5f, BB_OK);
+    float f = 0.0f;
+    bb_err_t rc = bb_system_read_temp_celsius(&f);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_FLOAT(42.5f, f);
+}
+
+void test_bb_system_read_temp_injected_error(void)
+{
+    bb_system_set_temp_for_test(0.0f, BB_ERR_UNSUPPORTED);
+    float f = -1.0f;
+    bb_err_t rc = bb_system_read_temp_celsius(&f);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_UNSUPPORTED, rc);
+    TEST_ASSERT_EQUAL_FLOAT(-1.0f, f);  // *out untouched on error
 }
