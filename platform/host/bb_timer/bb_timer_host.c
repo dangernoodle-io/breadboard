@@ -4,6 +4,10 @@
 #include <time.h>
 #include <stdbool.h>
 
+#ifdef BB_TIMER_TESTING
+#include "bb_timer_periodic_test.h"
+#endif
+
 typedef struct {
     bb_timer_type_t type;
     uint64_t period_us;
@@ -122,3 +126,79 @@ uint64_t bb_timer_now_us(void)
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000u + (uint64_t)ts.tv_nsec / 1000u;
 }
+
+// ---------------------------------------------------------------------------
+// Periodic timer API — host stub
+// ---------------------------------------------------------------------------
+
+struct bb_periodic_timer {
+    void     (*cb)(void *arg);
+    void      *arg;
+    uint64_t   period_us;
+    bool       running;
+};
+
+bb_err_t bb_timer_periodic_create(void (*cb)(void *arg), void *arg,
+                                  const char *name, bb_periodic_timer_t *out)
+{
+    (void)name;
+
+    if (cb == NULL || out == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    struct bb_periodic_timer *t =
+        (struct bb_periodic_timer *)malloc(sizeof(*t));
+    if (t == NULL) {
+        return BB_ERR_NO_SPACE;
+    }
+
+    t->cb        = cb;
+    t->arg       = arg;
+    t->period_us = 0;
+    t->running   = false;
+
+    *out = t;
+    return BB_OK;
+}
+
+bb_err_t bb_timer_periodic_start(bb_periodic_timer_t t, uint64_t period_us)
+{
+    if (t == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    t->period_us = period_us;
+    t->running   = true;
+    return BB_OK;
+}
+
+bb_err_t bb_timer_periodic_stop(bb_periodic_timer_t t)
+{
+    if (t == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    t->running = false;
+    return BB_OK;
+}
+
+bb_err_t bb_timer_periodic_delete(bb_periodic_timer_t t)
+{
+    if (t == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    free(t);
+    return BB_OK;
+}
+
+#ifdef BB_TIMER_TESTING
+void bb_timer_periodic_fire_for_test(bb_periodic_timer_t t)
+{
+    if (t == NULL || !t->running) {
+        return;
+    }
+    t->cb(t->arg);
+}
+#endif

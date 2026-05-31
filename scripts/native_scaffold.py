@@ -172,7 +172,7 @@ COMPONENT_MAP = {
         "depends":  ["bb_core"],
     },
     "bb_timer": {
-        "includes": ["components/bb_timer/include"],
+        "includes": ["components/bb_timer/include", "platform/host/bb_timer"],
         "sources":  ["platform/host/bb_timer/bb_timer_host.c"],
         "depends":  ["bb_core"],
     },

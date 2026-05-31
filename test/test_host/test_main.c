@@ -823,6 +823,16 @@ void test_bb_timer_delete_after_stop(void);
 void test_bb_timer_delete_without_start(void);
 void test_bb_timer_now_us_increases_over_time(void);
 
+// Forward declarations from test_bb_timer_periodic.c
+void test_bb_timer_periodic_create_null_cb_returns_err(void);
+void test_bb_timer_periodic_create_null_out_returns_err(void);
+void test_bb_timer_periodic_create_start_fire_increments(void);
+void test_bb_timer_periodic_stop_prevents_fire(void);
+void test_bb_timer_periodic_restart_after_stop_fires_again(void);
+void test_bb_timer_periodic_arg_passed_to_cb(void);
+void test_bb_timer_periodic_delete_after_stop(void);
+void test_bb_timer_periodic_fire_without_start_is_noop(void);
+
 // Forward declarations from test_bb_board.c
 void test_bb_board_heap_free_total_callable(void);
 void test_bb_board_heap_free_internal_callable(void);
@@ -2073,6 +2083,16 @@ int main(void) {
     RUN_TEST(test_bb_timer_delete_after_stop);
     RUN_TEST(test_bb_timer_delete_without_start);
     RUN_TEST(test_bb_timer_now_us_increases_over_time);
+
+    // bb_timer periodic API tests
+    RUN_TEST(test_bb_timer_periodic_create_null_cb_returns_err);
+    RUN_TEST(test_bb_timer_periodic_create_null_out_returns_err);
+    RUN_TEST(test_bb_timer_periodic_create_start_fire_increments);
+    RUN_TEST(test_bb_timer_periodic_stop_prevents_fire);
+    RUN_TEST(test_bb_timer_periodic_restart_after_stop_fires_again);
+    RUN_TEST(test_bb_timer_periodic_arg_passed_to_cb);
+    RUN_TEST(test_bb_timer_periodic_delete_after_stop);
+    RUN_TEST(test_bb_timer_periodic_fire_without_start_is_noop);
 
     // bb_board tests
     RUN_TEST(test_bb_board_heap_free_total_callable);

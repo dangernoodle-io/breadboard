@@ -26,6 +26,27 @@ bb_err_t bb_timer_delete(bb_timer_handle_t h);
 // on host/Arduino.
 uint64_t bb_timer_now_us(void);
 
+// ---------------------------------------------------------------------------
+// Periodic timer API — portable wrapper around esp_timer periodic scheduling.
+// ---------------------------------------------------------------------------
+
+// Opaque periodic-timer handle.
+typedef struct bb_periodic_timer *bb_periodic_timer_t;
+
+// Create a periodic timer. `cb(arg)` fires every period once started. `name`
+// is for diagnostics (may be NULL). On BB_OK, *out holds the handle.
+bb_err_t bb_timer_periodic_create(void (*cb)(void *arg), void *arg,
+                                  const char *name, bb_periodic_timer_t *out);
+
+// Start (or restart) firing every period_us microseconds.
+bb_err_t bb_timer_periodic_start(bb_periodic_timer_t t, uint64_t period_us);
+
+// Stop firing (restartable).
+bb_err_t bb_timer_periodic_stop(bb_periodic_timer_t t);
+
+// Stop and free. Handle invalid after this returns.
+bb_err_t bb_timer_periodic_delete(bb_periodic_timer_t t);
+
 #ifdef __cplusplus
 }
 #endif
