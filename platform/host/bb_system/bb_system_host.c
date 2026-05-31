@@ -1,5 +1,9 @@
 #include "bb_system.h"
 
+#ifdef BB_SYSTEM_TESTING
+#include "bb_system_test.h"
+#endif
+
 #include "bb_log.h"
 
 #include <stdio.h>
@@ -85,3 +89,27 @@ void bb_system_restart(void)
     fprintf(stderr, "bb_system_restart: host stub — exiting\n");
     exit(0);
 }
+
+#ifdef BB_SYSTEM_TESTING
+static float    s_test_temp = 0.0f;
+static bb_err_t s_test_rc   = BB_ERR_UNSUPPORTED;
+
+void bb_system_set_temp_for_test(float celsius, bb_err_t rc)
+{
+    s_test_temp = celsius;
+    s_test_rc   = rc;
+}
+
+bb_err_t bb_system_read_temp_celsius(float *out)
+{
+    if (!out) return BB_ERR_INVALID_ARG;
+    if (s_test_rc == BB_OK) *out = s_test_temp;
+    return s_test_rc;
+}
+#else
+bb_err_t bb_system_read_temp_celsius(float *out)
+{
+    (void)out;
+    return BB_ERR_UNSUPPORTED;
+}
+#endif

@@ -114,7 +114,7 @@ COMPONENT_MAP = {
         "depends":  ["bb_core", "bb_log", "bb_nv"],
     },
     "bb_system": {
-        "includes": ["components/bb_system/include"],
+        "includes": ["components/bb_system/include", "platform/host/bb_system"],
         "sources":  ["platform/host/bb_system/bb_system_host.c"],
         "depends":  ["bb_core"],
     },
