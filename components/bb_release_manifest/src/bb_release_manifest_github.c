@@ -127,9 +127,10 @@ bb_err_t bb_release_manifest_parse_github(
         return BB_ERR_INVALID_ARG;
     }
 
-    // Zero outputs so callers can distinguish which extraction failed when
-    // BB_ERR_NOT_FOUND comes back: out_tag empty => tag missing, out_tag
-    // populated but out_url empty => no matching asset.
+    // Zero outputs so callers can distinguish outcomes without an error code:
+    //   out_tag empty           → tag missing/malformed → BB_ERR_NOT_FOUND
+    //   out_tag set, out_url="" → release parsed, no matching asset → BB_OK
+    //   out_tag set, out_url set → full match → BB_OK
     out_tag[0] = '\0';
     out_url[0] = '\0';
 
@@ -177,5 +178,9 @@ bb_err_t bb_release_manifest_parse_github(
         p = obj_end + 1;
     }
 
-    return BB_ERR_NOT_FOUND;
+    // Loop exhausted without finding a matching asset. The tag was extracted
+    // successfully (out_tag is set). Return BB_OK with out_url[0]=='\0' so
+    // callers can distinguish "no asset for this board" from a genuine parse
+    // failure (BB_ERR_NOT_FOUND, which means tag was missing/malformed).
+    return BB_OK;
 }

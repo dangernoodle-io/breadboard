@@ -21,6 +21,25 @@ extern "C" {
 // The parser is overridable: default is bb_release_manifest_parse_github;
 // consumers can swap in their own (e.g. GitLab) via bb_update_check_set_parser.
 
+// Terminal outcome of the last update check.
+//
+// Distinct from last_check_ok:
+//   UP_TO_DATE, AVAILABLE, NO_ASSET → last_check_ok=true (check succeeded)
+//   FAILED                          → last_check_ok=false
+//   UNKNOWN                         → initial state, no check has run
+//
+// NO_ASSET means the release was parsed successfully but no <board>.bin asset
+// was found for this board. It is a SUCCESS outcome (last_check_ok=true) so
+// consumers polling last_check_ok do not hang waiting for a check that never
+// transitions to OK. available=false and download_url="" for NO_ASSET.
+typedef enum {
+    BB_UPDATE_OUTCOME_UNKNOWN = 0,
+    BB_UPDATE_OUTCOME_UP_TO_DATE,
+    BB_UPDATE_OUTCOME_AVAILABLE,
+    BB_UPDATE_OUTCOME_NO_ASSET,
+    BB_UPDATE_OUTCOME_FAILED,
+} bb_update_check_outcome_t;
+
 typedef struct {
     uint32_t interval_s;     // 0 -> CONFIG_BB_UPDATE_CHECK_INTERVAL_S (21600 s = 6 h)
     bool     post_initial;   // post update.available on first successful check even if up to date
@@ -32,9 +51,10 @@ typedef struct {
     char    download_url[256];
     char    board[64];         // effective board name used for the last check ("unknown" if unset)
     int64_t last_check_us;     // 0 if never
-    bool    last_check_ok;     // false => sticky failure
+    bool    last_check_ok;     // false => sticky failure (FAILED outcome)
     bool    available;
     bool    enabled;           // mirrors bb_nv_config_update_check_enabled()
+    bb_update_check_outcome_t outcome; // terminal outcome of the last check
 } bb_update_check_status_t;
 
 // Idempotent. cfg=NULL uses Kconfig defaults.

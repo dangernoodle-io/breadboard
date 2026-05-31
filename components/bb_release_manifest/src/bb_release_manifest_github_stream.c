@@ -530,6 +530,15 @@ bb_err_t bb_release_manifest_parse_github_stream_end(
     stream_state_t *s = ctx_state(ctx);
 
     if (s->err != BB_OK) return s->err;  // LCOV_EXCL_BR_LINE — err only set on BB_ERR_NO_SPACE (oversized buffers)
-    if (!s->tag_found || !s->url_found) return BB_ERR_NOT_FOUND;
+
+    // Distinguish two sub-cases of "not fully found":
+    //   tag_found=true, url_found=false → release parsed, no matching asset for
+    //     this board. Return BB_OK with url_out[0]=='\0' so callers can detect
+    //     the no-asset case without confusing it with a malformed/missing body.
+    //   tag_found=false → body was malformed or tag_name was missing: genuine
+    //     parse error. Return BB_ERR_NOT_FOUND.
+    if (!s->tag_found) return BB_ERR_NOT_FOUND;
+    // tag_found=true: url_out is either populated (full match) or empty (no asset).
+    // Either way return BB_OK; caller inspects url_out[0]=='\0' for the no-asset case.
     return BB_OK;
 }

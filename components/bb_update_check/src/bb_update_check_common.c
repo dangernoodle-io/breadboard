@@ -124,6 +124,7 @@ bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
     s_status.last_check_us = 0;
     s_status.last_check_ok = false;
     s_status.available = false;
+    s_status.outcome = BB_UPDATE_OUTCOME_UNKNOWN;
     s_first_check_done = false;
     s_url[0] = '\0';
     s_firmware_board[0] = '\0';
@@ -337,6 +338,7 @@ bb_err_t bb_update_check_run_one(void)
             pthread_mutex_lock(&s_lock);
             s_status.last_check_us = now_us;
             s_status.last_check_ok = false;
+            s_status.outcome = BB_UPDATE_OUTCOME_FAILED;
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "fetch failed: err=%d status=%d", err, res.status_code);
             return err == BB_OK ? BB_ERR_INVALID_STATE : err;
@@ -347,9 +349,38 @@ bb_err_t bb_update_check_run_one(void)
             pthread_mutex_lock(&s_lock);
             s_status.last_check_us = now_us;
             s_status.last_check_ok = false;
+            s_status.outcome = BB_UPDATE_OUTCOME_FAILED;
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "parse failed: %d", perr);
             return perr;
+        }
+
+        // No-asset terminal: tag parsed successfully but no matching board asset.
+        // This is a success outcome (last_check_ok=true) — distinguishable from
+        // up_to_date. Consumers polling last_check_ok will not hang.
+        if (dl_url[0] == '\0') {
+            bb_update_check_status_t snap;
+            bool was_available;
+            bool first_call;
+            pthread_mutex_lock(&s_lock);
+            was_available = s_status.available;
+            first_call = !s_first_check_done;
+            s_status.latest[0] = '\0';
+            s_status.download_url[0] = '\0';
+            s_status.available = false;
+            s_status.last_check_us = now_us;
+            s_status.last_check_ok = true;
+            s_status.outcome = BB_UPDATE_OUTCOME_NO_ASSET;
+            s_first_check_done = true;
+            snap = s_status;
+            pthread_mutex_unlock(&s_lock);
+            bb_log_i(TAG, "update check: no firmware asset for this board");
+            bool transition = (was_available != false);
+            bool initial_publish = first_call && s_cfg.post_initial;
+            if (transition || initial_publish) {
+                publish_state(&snap, "none");
+            }
+            return BB_OK;
         }
 
         // Fall through to the version-compare + publish block below.
@@ -370,6 +401,7 @@ bb_err_t bb_update_check_run_one(void)
         s_status.available = new_available;
         s_status.last_check_us = now_us;
         s_status.last_check_ok = true;
+        s_status.outcome = new_available ? BB_UPDATE_OUTCOME_AVAILABLE : BB_UPDATE_OUTCOME_UP_TO_DATE;
         s_first_check_done = true;
         snap = s_status;
         pthread_mutex_unlock(&s_lock);
@@ -409,6 +441,7 @@ bb_err_t bb_update_check_run_one(void)
             pthread_mutex_lock(&s_lock);
             s_status.last_check_us = now_us;
             s_status.last_check_ok = false;
+            s_status.outcome = BB_UPDATE_OUTCOME_FAILED;
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "fetch failed: err=%d status=%d", err, res.status_code);
             free(bc.buf);
@@ -422,9 +455,38 @@ bb_err_t bb_update_check_run_one(void)
             pthread_mutex_lock(&s_lock);
             s_status.last_check_us = now_us;
             s_status.last_check_ok = false;
+            s_status.outcome = BB_UPDATE_OUTCOME_FAILED;
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "parse failed: %d", perr);
             return perr;
+        }
+
+        // No-asset terminal: tag parsed successfully but no matching board asset.
+        // This is a success outcome (last_check_ok=true) — distinguishable from
+        // up_to_date. Consumers polling last_check_ok will not hang.
+        if (dl_url[0] == '\0') {
+            bb_update_check_status_t snap;
+            bool was_available;
+            bool first_call;
+            pthread_mutex_lock(&s_lock);
+            was_available = s_status.available;
+            first_call = !s_first_check_done;
+            s_status.latest[0] = '\0';
+            s_status.download_url[0] = '\0';
+            s_status.available = false;
+            s_status.last_check_us = now_us;
+            s_status.last_check_ok = true;
+            s_status.outcome = BB_UPDATE_OUTCOME_NO_ASSET;
+            s_first_check_done = true;
+            snap = s_status;
+            pthread_mutex_unlock(&s_lock);
+            bb_log_i(TAG, "update check: no firmware asset for this board");
+            bool transition = (was_available != false);
+            bool initial_publish = first_call && s_cfg.post_initial;
+            if (transition || initial_publish) {
+                publish_state(&snap, "none");
+            }
+            return BB_OK;
         }
 
         int cmp = semver_compare(tag, s_status.current);
@@ -443,6 +505,7 @@ bb_err_t bb_update_check_run_one(void)
         s_status.available = new_available;
         s_status.last_check_us = now_us;
         s_status.last_check_ok = true;
+        s_status.outcome = new_available ? BB_UPDATE_OUTCOME_AVAILABLE : BB_UPDATE_OUTCOME_UP_TO_DATE;
         s_first_check_done = true;
         snap = s_status;
         pthread_mutex_unlock(&s_lock);
@@ -620,6 +683,7 @@ void bb_update_check_reset_for_test(void)
 {
     pthread_mutex_lock(&s_lock);
     memset(&s_status, 0, sizeof(s_status));
+    s_status.outcome = BB_UPDATE_OUTCOME_UNKNOWN;
     memset(&s_cfg, 0, sizeof(s_cfg));
     s_url[0] = '\0';
     s_firmware_board[0] = '\0';

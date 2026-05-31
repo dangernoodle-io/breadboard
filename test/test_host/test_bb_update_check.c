@@ -810,7 +810,10 @@ void test_bb_update_check_firmware_board_matches_named_asset(void)
 void test_bb_update_check_firmware_board_default_does_not_match_named_asset(void)
 {
     // Without setting a board, the default "unknown" fallback does NOT match
-    // "taipanminer-tdongle-s3.bin" — parse fails with BB_ERR_NOT_FOUND.
+    // "taipanminer-tdongle-s3.bin". The release is parsed successfully (tag
+    // found) but no matching asset exists: outcome=NO_ASSET, last_check_ok=true,
+    // available=false. This is a SUCCESS terminal — callers polling last_check_ok
+    // see true and do not hang/misreport.
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
@@ -818,18 +821,22 @@ void test_bb_update_check_firmware_board_default_does_not_match_named_asset(void
 
     bb_http_client_set_mock_response(TDONGLE_BODY, strlen(TDONGLE_BODY), 200);
     bb_err_t err = bb_update_check_run_one();
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, err);
+    TEST_ASSERT_EQUAL(BB_OK, err);
 
     bb_update_check_status_t st;
     bb_update_check_get_status(&st);
-    TEST_ASSERT_FALSE(st.last_check_ok);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_FALSE(st.available);
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_NO_ASSET, st.outcome);
+    TEST_ASSERT_EQUAL_STRING("", st.download_url);
 }
 
 void test_bb_update_check_firmware_board_with_bin_suffix_no_match(void)
 {
     // A consumer that accidentally passes "taipanminer-tdongle-s3.bin"
     // (with the suffix) should NOT match because the parser appends another
-    // ".bin", producing "taipanminer-tdongle-s3.bin.bin".
+    // ".bin", producing "taipanminer-tdongle-s3.bin.bin". The tag is found
+    // but no matching asset exists → outcome=NO_ASSET, last_check_ok=true.
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
@@ -839,7 +846,13 @@ void test_bb_update_check_firmware_board_with_bin_suffix_no_match(void)
     bb_http_client_set_mock_response(TDONGLE_BODY, strlen(TDONGLE_BODY), 200);
     bb_err_t err = bb_update_check_run_one();
     // Parser won't find "taipanminer-tdongle-s3.bin.bin" in the asset list.
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, err);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_FALSE(st.available);
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_NO_ASSET, st.outcome);
 }
 
 // File-scope state for board_capture_parser (nested functions not portable).
@@ -1414,4 +1427,287 @@ void test_update_check_config_post_nv_write_failure_returns_500(void)
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL(500, cap.status);
     bb_http_host_capture_free(&cap);
+}
+
+// ---------------------------------------------------------------------------
+// bb_update_check_outcome_t — four terminal outcomes
+// ---------------------------------------------------------------------------
+
+// Body with tag_name but no matching asset for the board: no-asset terminal.
+// Uses test-board name "test-board"; body has "other-board.bin" only.
+static const char *NO_ASSET_BODY =
+    "{\"tag_name\":\"v9.9.9\","
+    "\"assets\":[{\"name\":\"other-board.bin\","
+    "\"browser_download_url\":\"https://example.com/other-board.bin\"}]}";
+
+void test_bb_update_check_outcome_no_asset_streaming(void)
+{
+    // Streaming path (default GitHub parser): release parsed, no matching asset.
+    // outcome=NO_ASSET, last_check_ok=true, available=false.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("test-board");
+    bb_http_client_set_mock_response(NO_ASSET_BODY, strlen(NO_ASSET_BODY), 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_NO_ASSET, st.outcome);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_FALSE(st.available);
+    TEST_ASSERT_EQUAL_STRING("", st.download_url);
+    TEST_ASSERT_EQUAL_STRING("", st.latest);
+}
+
+// Parser that returns BB_OK but leaves url empty (simulates no-asset for custom path).
+static bb_err_t no_asset_custom_parser(const char *body, size_t body_len,
+                                       const char *board, char *out_tag, size_t tag_sz,
+                                       char *out_url, size_t url_sz)
+{
+    (void)body; (void)body_len; (void)board;
+    strncpy(out_tag, "v9.9.9", tag_sz - 1);
+    out_tag[tag_sz - 1] = '\0';
+    out_url[0] = '\0';  // empty url = no-asset terminal
+    return BB_OK;
+}
+
+void test_bb_update_check_outcome_no_asset_custom_parser(void)
+{
+    // Custom parser path: parser returns BB_OK with empty url.
+    // outcome=NO_ASSET, last_check_ok=true, available=false.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("test-board");
+    bb_update_check_set_parser(no_asset_custom_parser);
+    bb_http_client_set_mock_response("anything", 8, 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_NO_ASSET, st.outcome);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_FALSE(st.available);
+    TEST_ASSERT_EQUAL_STRING("", st.download_url);
+}
+
+// No-asset on first check with post_initial=true: exercises the
+// initial_publish branch of the NO_ASSET path (bb_update_check_common.c:380).
+void test_bb_update_check_outcome_no_asset_post_initial_streaming(void)
+{
+    reset_world();
+    bb_update_check_cfg_t cfg = { .interval_s = 60, .post_initial = true };
+    bb_update_check_init(&cfg);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");  // NO_ASSET_BODY lacks firmware.bin
+    bb_http_client_set_mock_response(NO_ASSET_BODY, strlen(NO_ASSET_BODY), 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_NO_ASSET, st.outcome);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_FALSE(st.available);
+}
+
+// First check finds an update (available=true); second finds no asset.
+// was_available=true -> transition branch of NO_ASSET path (common.c:379).
+void test_bb_update_check_outcome_no_asset_transition_streaming(void)
+{
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
+
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_TRUE(st.available);
+
+    bb_http_client_set_mock_response(NO_ASSET_BODY, strlen(NO_ASSET_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_NO_ASSET, st.outcome);
+    TEST_ASSERT_FALSE(st.available);
+}
+
+// Custom-parser counterpart of the post_initial no-asset case (common.c:486).
+void test_bb_update_check_outcome_no_asset_post_initial_custom(void)
+{
+    reset_world();
+    bb_update_check_cfg_t cfg = { .interval_s = 60, .post_initial = true };
+    bb_update_check_init(&cfg);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("test-board");
+    bb_update_check_set_parser(no_asset_custom_parser);
+    bb_http_client_set_mock_response("anything", 8, 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_NO_ASSET, st.outcome);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_FALSE(st.available);
+}
+
+// Custom parser: available on the first call, no-asset on the second.
+// was_available=true -> transition branch of NO_ASSET path (common.c:485).
+static int g_avail_then_noasset_calls = 0;
+static bb_err_t avail_then_no_asset_parser(const char *body, size_t body_len,
+                                           const char *board, char *out_tag, size_t tag_sz,
+                                           char *out_url, size_t url_sz)
+{
+    (void)body; (void)body_len; (void)board;
+    g_avail_then_noasset_calls++;
+    strncpy(out_tag, "v9.9.9", tag_sz - 1);
+    out_tag[tag_sz - 1] = '\0';
+    if (g_avail_then_noasset_calls == 1) {
+        strncpy(out_url, "https://example.com/firmware.bin", url_sz - 1);
+        out_url[url_sz - 1] = '\0';
+    } else {
+        out_url[0] = '\0';  // no asset on the re-check
+    }
+    return BB_OK;
+}
+
+void test_bb_update_check_outcome_no_asset_transition_custom(void)
+{
+    reset_world();
+    g_avail_then_noasset_calls = 0;
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("test-board");
+    bb_update_check_set_parser(avail_then_no_asset_parser);
+    bb_http_client_set_mock_response("anything", 8, 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_update_check_status_t st;
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_TRUE(st.available);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_update_check_get_status(&st);
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_NO_ASSET, st.outcome);
+    TEST_ASSERT_FALSE(st.available);
+}
+
+void test_bb_update_check_outcome_available_streaming(void)
+{
+    // Streaming path: newer version + matching asset -> outcome=AVAILABLE.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_AVAILABLE, st.outcome);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_TRUE(st.available);
+}
+
+void test_bb_update_check_outcome_up_to_date_streaming(void)
+{
+    // Streaming path: same version -> outcome=UP_TO_DATE.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
+    char body[256];
+    snprintf(body, sizeof(body), SAME_BODY_TEMPLATE, "v0.0.0");
+    bb_http_client_set_mock_response(body, strlen(body), 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_UP_TO_DATE, st.outcome);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_FALSE(st.available);
+}
+
+void test_bb_update_check_outcome_failed_transport_error(void)
+{
+    // Transport error -> outcome=FAILED, last_check_ok=false.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_http_client_set_mock_transport_error(BB_ERR_INVALID_STATE);
+
+    bb_update_check_run_one();
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_FAILED, st.outcome);
+    TEST_ASSERT_FALSE(st.last_check_ok);
+}
+
+void test_bb_update_check_outcome_failed_parse_error(void)
+{
+    // Malformed body (no tag_name) -> outcome=FAILED, last_check_ok=false.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_http_client_set_mock_response("not json", 8, 200);
+
+    bb_update_check_run_one();
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_FAILED, st.outcome);
+    TEST_ASSERT_FALSE(st.last_check_ok);
+}
+
+void test_bb_update_check_outcome_unknown_before_any_check(void)
+{
+    // Before any check runs, outcome=UNKNOWN.
+    reset_world();
+    bb_update_check_init(NULL);
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_UNKNOWN, st.outcome);
+}
+
+void test_bb_update_check_outcome_available_custom_parser(void)
+{
+    // Custom parser returning a newer version -> outcome=AVAILABLE.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(mock_parser);
+    bb_http_client_set_mock_response("anything", 8, 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_AVAILABLE, st.outcome);
+    TEST_ASSERT_TRUE(st.available);
+}
+
+void test_bb_update_check_outcome_failed_custom_parser_error(void)
+{
+    // Custom parser returning an error -> outcome=FAILED.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(failing_parser);
+    bb_http_client_set_mock_response("anything", 8, 200);
+
+    bb_update_check_run_one();
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_FAILED, st.outcome);
+    TEST_ASSERT_FALSE(st.last_check_ok);
 }

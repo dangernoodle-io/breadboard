@@ -209,31 +209,43 @@ void test_stream_missing_tag_returns_not_found(void)
     TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, ret);
 }
 
-void test_stream_missing_assets_returns_not_found(void)
+void test_stream_missing_assets_returns_no_asset(void)
 {
+    // tag_name found but no assets key: tag_found=true, url_found=false.
+    // Returns BB_OK with empty url_out (no-asset terminal, not a parse error).
     const char *json = "{\"tag_name\":\"v1.0.0\"}";
     char tag[32] = {0}, url[256] = {0};
     bb_err_t ret = stream_parse(json, "fw", tag, sizeof(tag), url, sizeof(url), 7);
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, ret);
+    TEST_ASSERT_EQUAL(BB_OK, ret);
+    TEST_ASSERT_EQUAL_STRING("v1.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("", url);
 }
 
-void test_stream_no_matching_asset_returns_not_found(void)
+void test_stream_no_matching_asset_returns_no_asset(void)
 {
+    // tag_name found, assets array present, but no asset matches the board name.
+    // Returns BB_OK with empty url_out (no-asset terminal).
     const char *json =
         "{\"tag_name\":\"v1.0.0\",\"assets\":["
         "{\"name\":\"other.bin\",\"browser_download_url\":\"https://x/other.bin\"}"
         "]}";
     char tag[32] = {0}, url[256] = {0};
     bb_err_t ret = stream_parse(json, "fw", tag, sizeof(tag), url, sizeof(url), 256);
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, ret);
+    TEST_ASSERT_EQUAL(BB_OK, ret);
+    TEST_ASSERT_EQUAL_STRING("v1.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("", url);
 }
 
-void test_stream_empty_assets_array_returns_not_found(void)
+void test_stream_empty_assets_array_returns_no_asset(void)
 {
+    // tag_name found, empty assets array: no asset for any board.
+    // Returns BB_OK with empty url_out (no-asset terminal).
     const char *json = "{\"tag_name\":\"v1.0.0\",\"assets\":[]}";
     char tag[32] = {0}, url[256] = {0};
     bb_err_t ret = stream_parse(json, "fw", tag, sizeof(tag), url, sizeof(url), 7);
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, ret);
+    TEST_ASSERT_EQUAL(BB_OK, ret);
+    TEST_ASSERT_EQUAL_STRING("v1.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("", url);
 }
 
 void test_stream_bad_json_returns_not_found(void)
@@ -247,15 +259,19 @@ void test_stream_bad_json_returns_not_found(void)
 // Asset with no browser_download_url
 // ---------------------------------------------------------------------------
 
-void test_stream_asset_missing_url_returns_not_found(void)
+void test_stream_asset_missing_url_returns_no_asset(void)
 {
+    // Asset name matches but browser_download_url is absent: tag_found=true,
+    // url_found=false. Returns BB_OK with empty url_out (no-asset terminal).
     const char *json =
         "{\"tag_name\":\"v1.0.0\",\"assets\":["
         "{\"name\":\"fw.bin\",\"size\":42}"
         "]}";
     char tag[32] = {0}, url[256] = {0};
     bb_err_t ret = stream_parse(json, "fw", tag, sizeof(tag), url, sizeof(url), 7);
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, ret);
+    TEST_ASSERT_EQUAL(BB_OK, ret);
+    TEST_ASSERT_EQUAL_STRING("v1.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("", url);
 }
 
 // ---------------------------------------------------------------------------
@@ -306,21 +322,25 @@ void test_stream_backslash_slash_in_url(void)
 // feed after error is a no-op
 // ---------------------------------------------------------------------------
 
-void test_stream_feed_after_error_is_noop(void)
+void test_stream_feed_after_no_asset_is_noop(void)
 {
+    // Feed valid data with tag_name only (no assets key). This exercises the
+    // "no asset" terminal: tag_found=true, url_found=false -> BB_OK, empty url.
+    // After _end, further _feed calls must not crash.
     bb_release_manifest_stream_ctx_t ctx;
     char tag[32] = {0}, url[256] = {0};
     bb_release_manifest_parse_github_stream_begin(
         &ctx, "fw", tag, sizeof(tag), url, sizeof(url));
 
-    // Feed valid data to find tag_name, then stop before finding assets.
-    // Force an early end -> not found.
-    const char *partial = "{\"tag_name\":\"v1.0.0\"";
+    const char *partial = "{\"tag_name\":\"v1.0.0\"}";
     bb_release_manifest_parse_github_stream_feed(&ctx, partial, strlen(partial));
     bb_err_t end1 = bb_release_manifest_parse_github_stream_end(&ctx);
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, end1);
+    // tag found, no url found -> no-asset terminal (BB_OK, empty url)
+    TEST_ASSERT_EQUAL(BB_OK, end1);
+    TEST_ASSERT_EQUAL_STRING("v1.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("", url);
 
-    // More feeds should not crash or change the result.
+    // More feeds should not crash.
     bb_release_manifest_parse_github_stream_feed(&ctx, "}", 1);
 }
 
@@ -388,7 +408,8 @@ void test_stream_unicode_escape_in_url_dropped(void)
 void test_stream_escape_in_asset_name_no_match(void)
 {
     // Asset name with a \\ inside it. The decoded name won't match "fw" so
-    // we get NOT_FOUND, but the escape path in copy_tmp_char is exercised.
+    // no url match — exercises the escape path in copy_tmp_char.
+    // tag_found=true, url_found=false → BB_OK with empty url.
     const char *json =
         "{\"tag_name\":\"v1.0.0\",\"assets\":["
         "{\"name\":\"f\\\\w.bin\","
@@ -396,8 +417,10 @@ void test_stream_escape_in_asset_name_no_match(void)
         "]}";
     char tag[32] = {0}, url[256] = {0};
     bb_err_t ret = stream_parse(json, "fw", tag, sizeof(tag), url, sizeof(url), 1);
-    // "f\w.bin" != "fw.bin" so no URL match -> NOT_FOUND
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, ret);
+    // "f\w.bin" != "fw.bin" so no URL match -> no-asset terminal (BB_OK, empty url)
+    TEST_ASSERT_EQUAL(BB_OK, ret);
+    TEST_ASSERT_EQUAL_STRING("v1.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("", url);
 }
 
 // ---------------------------------------------------------------------------
@@ -407,8 +430,9 @@ void test_stream_escape_in_asset_name_no_match(void)
 void test_stream_board_name_truncation(void)
 {
     // Pass a 200-char board name — exceeds the 128-byte budget so it's
-    // truncated internally. Parse still succeeds structurally (returns
-    // NOT_FOUND because the asset name won't match the truncated form).
+    // truncated internally. Parse still succeeds structurally but the
+    // truncated name doesn't match "fw.bin", so url stays empty (no-asset).
+    // Returns BB_OK with empty url_out (tag_found=true, url_found=false).
     char long_board[201];
     memset(long_board, 'a', 200);
     long_board[200] = '\0';
@@ -425,9 +449,11 @@ void test_stream_board_name_truncation(void)
     TEST_ASSERT_EQUAL(BB_OK, err);
 
     feed_in_chunks(&ctx, json, strlen(json), 256);
-    // NOT_FOUND: truncated board name doesn't match "fw"
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND,
+    // truncated board name doesn't match "fw" -> no-asset terminal (BB_OK, empty url)
+    TEST_ASSERT_EQUAL(BB_OK,
         bb_release_manifest_parse_github_stream_end(&ctx));
+    TEST_ASSERT_EQUAL_STRING("v1.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("", url);
 }
 
 // ---------------------------------------------------------------------------
@@ -700,7 +726,10 @@ void test_stream_asset_name_at_capacity_truncated_no_match(void)
 
     char tag[32] = {0}, url[256] = {0};
     bb_err_t ret = stream_parse(json, "fw", tag, sizeof(tag), url, sizeof(url), 1);
-    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, ret);
+    // Truncated name won't match -> no-asset terminal (BB_OK, empty url)
+    TEST_ASSERT_EQUAL(BB_OK, ret);
+    TEST_ASSERT_EQUAL_STRING("v1.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("", url);
 }
 
 // ---------------------------------------------------------------------------
