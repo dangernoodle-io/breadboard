@@ -833,6 +833,15 @@ void test_bb_timer_periodic_arg_passed_to_cb(void);
 void test_bb_timer_periodic_delete_after_stop(void);
 void test_bb_timer_periodic_fire_without_start_is_noop(void);
 
+// Forward declarations from test_bb_timer_oneshot.c
+void test_bb_timer_oneshot_create_null_cb_returns_err(void);
+void test_bb_timer_oneshot_create_null_out_returns_err(void);
+void test_bb_timer_oneshot_fires_once(void);
+void test_bb_timer_oneshot_rearm_fires_again(void);
+void test_bb_timer_oneshot_stop_prevents_fire(void);
+void test_bb_timer_oneshot_delete_frees(void);
+void test_bb_timer_oneshot_arg_passed_to_cb(void);
+
 // Forward declarations from test_bb_board.c
 void test_bb_board_heap_free_total_callable(void);
 void test_bb_board_heap_free_internal_callable(void);
@@ -2093,6 +2102,15 @@ int main(void) {
     RUN_TEST(test_bb_timer_periodic_arg_passed_to_cb);
     RUN_TEST(test_bb_timer_periodic_delete_after_stop);
     RUN_TEST(test_bb_timer_periodic_fire_without_start_is_noop);
+
+    // bb_timer one-shot API tests
+    RUN_TEST(test_bb_timer_oneshot_create_null_cb_returns_err);
+    RUN_TEST(test_bb_timer_oneshot_create_null_out_returns_err);
+    RUN_TEST(test_bb_timer_oneshot_fires_once);
+    RUN_TEST(test_bb_timer_oneshot_rearm_fires_again);
+    RUN_TEST(test_bb_timer_oneshot_stop_prevents_fire);
+    RUN_TEST(test_bb_timer_oneshot_delete_frees);
+    RUN_TEST(test_bb_timer_oneshot_arg_passed_to_cb);
 
     // bb_board tests
     RUN_TEST(test_bb_board_heap_free_total_callable);

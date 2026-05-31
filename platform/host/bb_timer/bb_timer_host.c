@@ -202,3 +202,84 @@ void bb_timer_periodic_fire_for_test(bb_periodic_timer_t t)
     t->cb(t->arg);
 }
 #endif
+
+// ---------------------------------------------------------------------------
+// One-shot timer API — host stub
+// ---------------------------------------------------------------------------
+
+#ifdef BB_TIMER_TESTING
+#include "bb_timer_oneshot_test.h"
+#endif
+
+struct bb_oneshot_timer {
+    void     (*cb)(void *arg);
+    void      *arg;
+    uint64_t   delay_us;
+    bool       armed;
+};
+
+bb_err_t bb_timer_oneshot_create(void (*cb)(void *arg), void *arg,
+                                 const char *name, bb_oneshot_timer_t *out)
+{
+    (void)name;
+
+    if (cb == NULL || out == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    struct bb_oneshot_timer *t =
+        (struct bb_oneshot_timer *)malloc(sizeof(*t));
+    if (t == NULL) {
+        return BB_ERR_NO_SPACE;
+    }
+
+    t->cb       = cb;
+    t->arg      = arg;
+    t->delay_us = 0;
+    t->armed    = false;
+
+    *out = t;
+    return BB_OK;
+}
+
+bb_err_t bb_timer_oneshot_start(bb_oneshot_timer_t t, uint64_t delay_us)
+{
+    if (t == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    t->delay_us = delay_us;
+    t->armed    = true;
+    return BB_OK;
+}
+
+bb_err_t bb_timer_oneshot_stop(bb_oneshot_timer_t t)
+{
+    if (t == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    t->armed = false;
+    return BB_OK;
+}
+
+bb_err_t bb_timer_oneshot_delete(bb_oneshot_timer_t t)
+{
+    if (t == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    free(t);
+    return BB_OK;
+}
+
+#ifdef BB_TIMER_TESTING
+void bb_timer_oneshot_fire_for_test(bb_oneshot_timer_t t)
+{
+    if (t == NULL || !t->armed) {
+        return;
+    }
+    t->armed = false;  // One-shot: disarm before invoking so re-arm in cb works
+    t->cb(t->arg);
+}
+#endif

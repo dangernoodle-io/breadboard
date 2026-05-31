@@ -192,3 +192,89 @@ bb_err_t bb_timer_periodic_delete(bb_periodic_timer_t t)
     free(t);
     return err;
 }
+
+// ---------------------------------------------------------------------------
+// One-shot timer API — ESP-IDF backend
+// ---------------------------------------------------------------------------
+
+struct bb_oneshot_timer {
+    esp_timer_handle_t h;
+    void (*cb)(void *arg);
+    void *arg;
+};
+
+static void oneshot_dispatcher(void *arg)
+{
+    struct bb_oneshot_timer *t = (struct bb_oneshot_timer *)arg;
+    t->cb(t->arg);
+}
+
+bb_err_t bb_timer_oneshot_create(void (*cb)(void *arg), void *arg,
+                                 const char *name, bb_oneshot_timer_t *out)
+{
+    if (cb == NULL || out == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    struct bb_oneshot_timer *t =
+        (struct bb_oneshot_timer *)malloc(sizeof(*t));
+    if (t == NULL) {
+        return BB_ERR_NO_SPACE;
+    }
+
+    t->cb  = cb;
+    t->arg = arg;
+
+    esp_timer_create_args_t args = {
+        .callback        = oneshot_dispatcher,
+        .arg             = t,
+        .name            = name,
+        .dispatch_method = ESP_TIMER_TASK,
+    };
+
+    bb_err_t err = esp_timer_create(&args, &t->h);
+    if (err != BB_OK) {
+        free(t);
+        return err;
+    }
+
+    *out = t;
+    return BB_OK;
+}
+
+bb_err_t bb_timer_oneshot_start(bb_oneshot_timer_t t, uint64_t delay_us)
+{
+    if (t == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    // esp_timer_start_once returns ESP_ERR_INVALID_STATE when already running;
+    // stop first so callers can safely re-arm.
+    esp_timer_stop(t->h);  // Ignore error — may not be running
+    return esp_timer_start_once(t->h, delay_us);
+}
+
+bb_err_t bb_timer_oneshot_stop(bb_oneshot_timer_t t)
+{
+    if (t == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    bb_err_t err = esp_timer_stop(t->h);
+    if (err == ESP_ERR_INVALID_STATE) {
+        return BB_OK;  // Already stopped (fired or never armed) — not an error
+    }
+    return err;
+}
+
+bb_err_t bb_timer_oneshot_delete(bb_oneshot_timer_t t)
+{
+    if (t == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    esp_timer_stop(t->h);  // Ignore error
+    bb_err_t err = esp_timer_delete(t->h);
+    free(t);
+    return err;
+}
