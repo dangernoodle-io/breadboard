@@ -92,6 +92,20 @@ bb_err_t bb_update_check_kick(void)
 // GET /api/update/status
 // ---------------------------------------------------------------------------
 
+// Map outcome enum to the JSON string value for /api/update/status.
+// These exact strings are part of the public API consumed by TaipanMiner webui
+// and taipan-cli. Do not rename without a coordinated consumer update.
+static const char *outcome_str(bb_update_check_outcome_t o)
+{
+    switch (o) {
+        case BB_UPDATE_OUTCOME_UP_TO_DATE: return "up_to_date";
+        case BB_UPDATE_OUTCOME_AVAILABLE:  return "available";
+        case BB_UPDATE_OUTCOME_NO_ASSET:   return "no_asset";
+        case BB_UPDATE_OUTCOME_FAILED:     return "check_failed";
+        default:                           return "unknown";
+    }
+}
+
 static bb_err_t status_handler(bb_http_request_t *req)
 {
     bb_update_check_status_t st;
@@ -114,6 +128,7 @@ static bb_err_t status_handler(bb_http_request_t *req)
     bb_http_resp_json_obj_set_bool(&obj, "available",     st.available);
     bb_http_resp_json_obj_set_bool(&obj, "last_check_ok", st.last_check_ok);
     bb_http_resp_json_obj_set_bool(&obj, "enabled",       st.enabled);
+    bb_http_resp_json_obj_set_str(&obj,  "outcome",       outcome_str(st.outcome));
     // Unix seconds when last_check_us is non-zero; omitted otherwise so the
     // client can render "never checked" cleanly.
     if (st.last_check_us != 0) {
@@ -133,9 +148,12 @@ static const bb_route_response_t s_status_responses[] = {
          "\"available\":{\"type\":\"boolean\"},"
          "\"last_check_ok\":{\"type\":\"boolean\"},"
          "\"enabled\":{\"type\":\"boolean\"},"
+         "\"outcome\":{\"type\":\"string\","
+           "\"enum\":[\"unknown\",\"up_to_date\",\"available\","
+                     "\"no_asset\",\"check_failed\"]},"
          "\"last_check_ts\":{\"type\":\"integer\"}},"
        "\"required\":[\"current\",\"latest\",\"download_url\","
-                     "\"available\",\"last_check_ok\",\"enabled\"]}",
+                     "\"available\",\"last_check_ok\",\"enabled\",\"outcome\"]}",
       "current status of the update poller" },
     { 503, "application/json", NULL, "bb_update_check not initialized" },
     { 0 },

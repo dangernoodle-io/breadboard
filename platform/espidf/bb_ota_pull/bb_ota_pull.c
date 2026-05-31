@@ -234,6 +234,11 @@ static bb_err_t ota_fetch_manifest(char *out_tag, size_t tag_cap,
     if (end_err != BB_OK) {
         return end_err;
     }
+    // BB_OK with empty url means the release was parsed but no asset matched
+    // this board. Treat as NOT_FOUND so callers can distinguish from a full match.
+    if (out_url[0] == '\0') {
+        return BB_ERR_NOT_FOUND;
+    }
     return BB_OK;
 }
 

@@ -109,14 +109,17 @@ void test_bb_release_manifest_parse_github_assets_not_array(void)
     TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, ret);
 }
 
-/* Empty assets array — exercises the loop-exit branches (153 array-end, 154 not-{). */
+/* Empty assets array — exercises the loop-exit branches (153 array-end, 154 not-{).
+ * tag_name found, no matching asset -> BB_OK with empty url (no-asset terminal). */
 void test_bb_release_manifest_parse_github_empty_assets_array(void)
 {
     const char *json = "{\"tag_name\":\"v1.0.0\",\"assets\":[]}";
     char tag[32], url[256];
     bb_err_t ret = bb_release_manifest_parse_github(json, strlen(json), "x",
                                                     tag, sizeof(tag), url, sizeof(url));
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, ret);
+    TEST_ASSERT_EQUAL_INT(BB_OK, ret);
+    TEST_ASSERT_EQUAL_STRING("v1.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("", url);
 }
 
 void test_bb_release_manifest_parse_github_valid_manifest(void)
@@ -157,6 +160,8 @@ void test_bb_release_manifest_parse_github_missing_tag(void)
 
 void test_bb_release_manifest_parse_github_missing_asset(void)
 {
+    // tag_name found, assets array present, but no asset matches the board name.
+    // Returns BB_OK with empty url_out (no-asset terminal, not a parse error).
     const char *json =
         "{\"tag_name\":\"v1.2.3\",\"assets\":["
         "{\"name\":\"taipanminer-bitaxe-601.bin\","
@@ -170,7 +175,9 @@ void test_bb_release_manifest_parse_github_missing_asset(void)
         tag, sizeof(tag),
         url, sizeof(url));
 
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, ret);
+    TEST_ASSERT_EQUAL_INT(BB_OK, ret);
+    TEST_ASSERT_EQUAL_STRING("v1.2.3", tag);
+    TEST_ASSERT_EQUAL_STRING("", url);
 }
 
 void test_bb_release_manifest_parse_github_null_args(void)
