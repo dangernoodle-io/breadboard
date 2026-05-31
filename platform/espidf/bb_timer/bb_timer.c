@@ -102,7 +102,7 @@ bb_err_t bb_timer_delete(bb_timer_handle_t h)
     return err;
 }
 
-uint64_t bb_timer_now_us(void)
+uint64_t IRAM_ATTR bb_timer_now_us(void)
 {
     return (uint64_t)esp_timer_get_time();
 }
