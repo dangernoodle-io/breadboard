@@ -1,3 +1,11 @@
+// Expose POSIX clock_gettime/CLOCK_MONOTONIC + nanosleep regardless of the
+// consumer's -std (TaipanMiner's native test env uses strict -std=c99, which
+// otherwise hides them). Must precede every include. Scoped to this host
+// backend so consumers don't need a global feature-test flag.
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "bb_timer.h"
 #include <stdlib.h>
 #include <pthread.h>
