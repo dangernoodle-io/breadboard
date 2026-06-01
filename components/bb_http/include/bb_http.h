@@ -136,6 +136,13 @@ bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str);
 // buf == NULL and len == 0 ends the chunked response.
 bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int len);
 
+// Send a bodyless "204 No Content" response: sets the 204 status and finishes
+// with no body and no chunked Transfer-Encoding (Content-Length: 0). Use for a
+// successful POST/PUT/DELETE that returns nothing. Do NOT use
+// send_chunk(NULL, 0) for this — it frames the 204 as chunked, which strict
+// HTTP proxies (e.g. node http-proxy) reject as a protocol error.
+bb_err_t bb_http_resp_no_content(bb_http_request_t *req);
+
 // Forward declaration for JSON streaming (avoids circular dependency).
 typedef void *bb_json_t;
 

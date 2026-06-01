@@ -260,6 +260,14 @@ bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int le
     (void)req; (void)buf; (void)len; return BB_ERR_INVALID_STATE;
 }
 
+bb_err_t bb_http_resp_no_content(bb_http_request_t *req) {
+    bb_http_request_impl_t *r = (bb_http_request_impl_t *)req;
+    if (!r) return BB_ERR_INVALID_ARG;
+    r->resp_status = 204;
+    flush_headers(r);  // status line + headers, no body
+    return BB_OK;
+}
+
 int bb_http_req_sockfd(bb_http_request_t *req) { (void)req; return -1; }
 
 bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,

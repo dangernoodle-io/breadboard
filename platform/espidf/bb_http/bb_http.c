@@ -434,6 +434,19 @@ bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int le
     return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
 }
 
+bb_err_t bb_http_resp_no_content(bb_http_request_t *req)
+{
+    httpd_req_t *http_req = (httpd_req_t *)req;
+    if (!http_req) return BB_ERR_INVALID_ARG;
+
+    // httpd_resp_send emits a complete, non-chunked response with
+    // Content-Length: 0. A 204 framed via httpd_resp_send_chunk (chunked
+    // Transfer-Encoding) is malformed and rejected by strict HTTP proxies.
+    httpd_resp_set_status(http_req, "204 No Content");
+    esp_err_t err = httpd_resp_send(http_req, NULL, 0);
+    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_STATE;
+}
+
 int bb_http_req_sockfd(bb_http_request_t *req)
 {
     httpd_req_t *http_req = (httpd_req_t *)req;

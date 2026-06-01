@@ -192,6 +192,15 @@ bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int le
     return BB_OK;
 }
 
+bb_err_t bb_http_resp_no_content(bb_http_request_t *req)
+{
+    capture_slot_t *cap = capture_find(req);
+    if (cap) {
+        cap->status = 204;  // bodyless; cap->body stays empty
+    }
+    return BB_OK;
+}
+
 static bb_err_t bb_http_resp_send_json(bb_http_request_t *req, bb_json_t doc)
 {
     bb_err_t err = bb_http_resp_set_type(req, "application/json");
