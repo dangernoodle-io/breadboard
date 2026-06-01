@@ -77,3 +77,32 @@ void test_bb_ota_pull_set_http_timeout_ms_zero_restores_default(void)
 // WDT exclusion (ota_worker_task / ota_check_worker_task) is ESP-IDF-only;
 // it requires esp_task_wdt_delete/add which have no host stub. Correctness
 // is verified by code review and smoke builds against espidf targets.
+
+// ---------------------------------------------------------------------------
+// bb_ota_pull_download_should_retry — pure retry-decision helper
+// ---------------------------------------------------------------------------
+
+void test_download_should_retry_ok_and_complete_is_false(void)
+{
+    // perform returned OK and data is complete — no retry needed
+    TEST_ASSERT_FALSE(bb_ota_pull_download_should_retry(0, true));
+}
+
+void test_download_should_retry_perform_error_triggers_retry(void)
+{
+    // perform exited with an error — retry regardless of complete flag
+    TEST_ASSERT_TRUE(bb_ota_pull_download_should_retry(1, true));
+    TEST_ASSERT_TRUE(bb_ota_pull_download_should_retry(1, false));
+}
+
+void test_download_should_retry_incomplete_data_triggers_retry(void)
+{
+    // perform returned OK but data is incomplete (e.g. CDN drop at 54%) — retry
+    TEST_ASSERT_TRUE(bb_ota_pull_download_should_retry(0, false));
+}
+
+void test_download_should_retry_both_error_and_incomplete_triggers_retry(void)
+{
+    // both conditions true — still retry
+    TEST_ASSERT_TRUE(bb_ota_pull_download_should_retry(-1, false));
+}

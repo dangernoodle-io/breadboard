@@ -3,6 +3,7 @@
 #include "bb_core.h"  // for bb_err_t
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
@@ -82,6 +83,12 @@ const char *bb_system_get_idf_version(void);
 /// On ESP-IDF: calls esp_restart() (does not return).
 /// On host: prints a diagnostic to stderr and exits with code 0.
 void bb_system_restart(void);
+
+/// Reconfigure the task WDT timeout while preserving the firmware's idle-core
+/// mask and panic-on-timeout policy. Brackets long flash-write phases (OTA
+/// push/pull) so WDT-subscribed tasks (idle, consumer mining tasks blocked in
+/// pause primitives) don't trip. ESP-IDF only; no-op on host/Arduino.
+void bb_system_wdt_set_timeout(uint32_t timeout_s);
 
 /// Reads the SoC internal die-temperature sensor.
 /// Returns BB_OK and writes *out (degrees Celsius) on silicon that has the

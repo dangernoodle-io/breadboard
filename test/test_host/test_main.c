@@ -70,6 +70,10 @@ void test_ota_pull_skip_check_callback_returns_true(void);
 void test_ota_pull_skip_check_callback_returns_false(void);
 void test_bb_ota_pull_set_http_timeout_ms_default_is_20000(void);
 void test_bb_ota_pull_set_http_timeout_ms_zero_restores_default(void);
+void test_download_should_retry_ok_and_complete_is_false(void);
+void test_download_should_retry_perform_error_triggers_retry(void);
+void test_download_should_retry_incomplete_data_triggers_retry(void);
+void test_download_should_retry_both_error_and_incomplete_triggers_retry(void);
 
 // Forward declarations from test_bb_ota_pull_manifest.c
 void test_ota_pull_manifest_fetch_success(void);
@@ -1338,6 +1342,10 @@ int main(void) {
     RUN_TEST(test_ota_pull_skip_check_callback_returns_false);
     RUN_TEST(test_bb_ota_pull_set_http_timeout_ms_default_is_20000);
     RUN_TEST(test_bb_ota_pull_set_http_timeout_ms_zero_restores_default);
+    RUN_TEST(test_download_should_retry_ok_and_complete_is_false);
+    RUN_TEST(test_download_should_retry_perform_error_triggers_retry);
+    RUN_TEST(test_download_should_retry_incomplete_data_triggers_retry);
+    RUN_TEST(test_download_should_retry_both_error_and_incomplete_triggers_retry);
 
     // OTA pull — streaming manifest fetch
     RUN_TEST(test_ota_pull_manifest_fetch_success);
