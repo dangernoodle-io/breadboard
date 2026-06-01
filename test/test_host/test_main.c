@@ -161,6 +161,7 @@ void test_json_arr_emit_null_stream(void);
 void test_json_arr_end_null_stream(void);
 
 // Forward declarations from test_bb_http_json_obj_stream.c
+void test_resp_no_content_sets_204_empty_body(void);
 void test_json_obj_begin_null_req(void);
 void test_json_obj_begin_null_stream(void);
 void test_json_obj_begin_init(void);
@@ -1496,6 +1497,7 @@ int main(void) {
     RUN_TEST(test_json_arr_end_null_stream);
 
     // Streaming JSON object tests
+    RUN_TEST(test_resp_no_content_sets_204_empty_body);
     RUN_TEST(test_json_obj_begin_null_req);
     RUN_TEST(test_json_obj_begin_null_stream);
     RUN_TEST(test_json_obj_begin_init);

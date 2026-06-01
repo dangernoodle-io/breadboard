@@ -28,6 +28,21 @@ static void cap_free(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_http_resp_no_content — bodyless 204
+// ---------------------------------------------------------------------------
+
+void test_resp_no_content_sets_204_empty_body(void)
+{
+    cap_begin();
+    bb_err_t err = bb_http_resp_no_content(s_req);
+    cap_end();
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(204, s_cap.status);
+    TEST_ASSERT_NULL(s_cap.body);  // no body written
+    cap_free();
+}
+
+// ---------------------------------------------------------------------------
 // begin / argument validation
 // ---------------------------------------------------------------------------
 
