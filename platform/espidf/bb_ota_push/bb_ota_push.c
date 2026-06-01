@@ -253,6 +253,15 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         }
 
         received += ret;
+
+        // Yield each iteration so the IDLE task (and the WiFi/lwIP stack) get
+        // CPU during the receive+write loop. On single-core targets the httpd
+        // worker otherwise monopolizes the core for the whole transfer and the
+        // task WDT trips the idle task — the extended WDT timeout only delays
+        // that, it does not prevent it. One tick per ~4 KB chunk is negligible
+        // overhead (a few seconds across a 1 MB image) and also lets the TCP
+        // window refill, improving throughput.
+        vTaskDelay(1);
     }
 
     bb_log_i(TAG, "OTA receive complete (%d bytes), validating", received);
