@@ -49,3 +49,73 @@ function(bb_embed_assets)
 
     set(${ARG_OUT_SRCS} ${_gen} PARENT_SCOPE)
 endfunction()
+
+# bb_embed_site(OUT_SRCS <var> TABLE <sym> DIST_DIR <dir> [URL_PREFIX <p>])
+#
+# Walks <dir> at CMake CONFIGURE time, calls gen_site.py to produce one gzipped
+# blob .c per file plus a <sym>_table.c with the bb_http_asset_t[] table and
+# lazy accessor.  Appends all generated .c paths to <OUT_SRCS> in caller scope.
+#
+# Reconfigures automatically when any file under DIST_DIR changes
+# (CONFIGURE_DEPENDS via file(GLOB_RECURSE)).
+#
+# DIST_DIR resolves relative to CMAKE_CURRENT_LIST_DIR (caller's directory).
+#
+# Generated C API:
+#   bb_http_asset_t <sym>[];                      // mutable table (len filled at runtime)
+#   const bb_http_asset_t *<sym>_get(size_t *n);  // idempotent lazy accessor
+
+function(bb_embed_site)
+    cmake_parse_arguments(ARG "" "OUT_SRCS;TABLE;DIST_DIR;URL_PREFIX" "" ${ARGN})
+
+    # Inspection-pass guard: skip when binary dir is not yet resolved.
+    if(CMAKE_CURRENT_BINARY_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+        return()
+    endif()
+
+    if(NOT ARG_TABLE)
+        message(FATAL_ERROR "bb_embed_site: TABLE is required")
+    endif()
+    if(NOT ARG_DIST_DIR)
+        message(FATAL_ERROR "bb_embed_site: DIST_DIR is required")
+    endif()
+
+    get_filename_component(_bb_cmake_dir "${CMAKE_CURRENT_FUNCTION_LIST_FILE}" DIRECTORY)
+    set(_script "${_bb_cmake_dir}/../scripts/gen_site.py")
+
+    # Resolve DIST_DIR relative to caller's list dir
+    if(NOT IS_ABSOLUTE "${ARG_DIST_DIR}")
+        set(_dist_abs "${CMAKE_CURRENT_LIST_DIR}/${ARG_DIST_DIR}")
+    else()
+        set(_dist_abs "${ARG_DIST_DIR}")
+    endif()
+
+    # Build optional --url-prefix argument
+    set(_prefix_arg "")
+    if(ARG_URL_PREFIX)
+        set(_prefix_arg "--url-prefix" "${ARG_URL_PREFIX}")
+    endif()
+
+    execute_process(
+        COMMAND python3 "${_script}"
+            "${_dist_abs}"
+            "${CMAKE_CURRENT_BINARY_DIR}"
+            "${ARG_TABLE}"
+            ${_prefix_arg}
+        RESULT_VARIABLE _rc
+        OUTPUT_VARIABLE _stdout
+        ERROR_VARIABLE  _stderr
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    if(NOT _rc EQUAL 0)
+        message(FATAL_ERROR "bb_embed_site: gen_site.py failed for ${ARG_TABLE}: ${_stderr}")
+    endif()
+
+    # Split stdout (one absolute .c path per line) into a CMake list
+    string(REPLACE "\n" ";" _gen "${_stdout}")
+
+    # Register dist dir contents as configure-time dependencies
+    file(GLOB_RECURSE _site_inputs CONFIGURE_DEPENDS "${_dist_abs}/*")
+
+    set(${ARG_OUT_SRCS} ${_gen} PARENT_SCOPE)
+endfunction()

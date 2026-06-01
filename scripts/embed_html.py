@@ -19,6 +19,9 @@ Exits nonzero with a message on read/write errors.
 
 Also usable as a PlatformIO pre-build script via SCons Import("env") — the
 try/except at module level handles both contexts.
+
+Importable API:
+    embed_file(input_path, output_c_path, symbol_name)  — same as CLI, raises SystemExit on error.
 """
 import gzip
 import io
@@ -31,8 +34,20 @@ except NameError:
     pass
 
 
-def embed(input_path, output_c_path, symbol_name):
+def embed_file(input_path, output_c_path, symbol_name):
+    """Read input_path, gzip-compress it, write a C source file to output_c_path.
+
+    Importable entry point — same behaviour as the CLI but the progress message
+    goes to stderr so callers capturing stdout (e.g. gen_site.py via CMake
+    execute_process OUTPUT_VARIABLE) receive only the intended output.
+    Calls sys.exit(1) on read/write errors.
+    """
+    embed(input_path, output_c_path, symbol_name, _progress_to_stderr=True)
+
+
+def embed(input_path, output_c_path, symbol_name, _progress_to_stderr=False):
     """Read input_path, gzip-compress it, write a C source file to output_c_path."""
+    _progress_out = sys.stderr if _progress_to_stderr else sys.stdout
     try:
         with open(input_path, "rb") as f:
             raw = f.read()
@@ -75,7 +90,8 @@ def embed(input_path, output_c_path, symbol_name):
 
     print(
         f"embed_html: {basename} -> {output_c_path} "
-        f"({len(raw)} bytes -> {len(data)} bytes compressed)"
+        f"({len(raw)} bytes -> {len(data)} bytes compressed)",
+        file=_progress_out,
     )
 
 
