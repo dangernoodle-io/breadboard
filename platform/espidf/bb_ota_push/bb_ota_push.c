@@ -5,11 +5,11 @@
 #include "bb_http.h"
 #include "bb_log.h"
 #include "bb_registry.h"
+#include "bb_system.h"
 #include "esp_ota_ops.h"
 #include "esp_image_format.h"
 #include "esp_app_desc.h"
 #include "esp_system.h"
-#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/portmacro.h"
@@ -65,39 +65,6 @@ static const char *TAG = "bb_ota_push";
 #define OTA_TIMEOUT_RETRIES 30
 
 /**
- * Reconfigure the task WDT timeout while preserving the firmware's idle-core
- * mask and panic-on-timeout policy. Mirrors the helper in bb_ota_pull.c.
- * Used to bracket the OTA receive+write phase so WDT-subscribed tasks (idle
- * tasks, consumer mining tasks blocked in pause primitives) don't trip
- * during long uploads on weak WiFi.
- */
-static void ota_wdt_set_timeout(uint32_t timeout_s)
-{
-    esp_task_wdt_config_t cfg = {
-        .timeout_ms = timeout_s * 1000U,
-        .idle_core_mask =
-#if defined(CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0) && CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
-            (1U << 0) |
-#endif
-#if defined(CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1) && CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
-            (1U << 1) |
-#endif
-            0U,
-        .trigger_panic =
-#if defined(CONFIG_ESP_TASK_WDT_PANIC) && CONFIG_ESP_TASK_WDT_PANIC
-            true,
-#else
-            false,
-#endif
-    };
-    esp_err_t err = esp_task_wdt_reconfigure(&cfg);
-    if (err != ESP_OK) {
-        bb_log_w(TAG, "esp_task_wdt_reconfigure(%ums): %s",
-                 (unsigned)cfg.timeout_ms, esp_err_to_name(err));
-    }
-}
-
-/**
  * POST /api/update/push - Receive and flash firmware via HTTP upload.
  * Expects raw binary .bin file in request body.
  */
@@ -147,17 +114,12 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     bb_log_i(TAG, "OTA started, receiving to partition '%s' at 0x%"PRIx32,
              partition->label, partition->address);
 
-    // Pause work before beginning flash writes
-    bool paused = false;
-    if (s_pause_cb) {
-        paused = s_pause_cb();
-    }
-
-    // Extend the task WDT timeout for the receive+write phase. esp_ota_write
+    // Pause work and extend WDT for the receive+write phase. esp_ota_write
     // cache_disable windows + the consumer pause window can exceed
     // CONFIG_ESP_TASK_WDT_TIMEOUT_S; subscribed tasks (idle, mining) would
     // otherwise trip. Restored on every exit path (success path reboots).
-    ota_wdt_set_timeout(CONFIG_BB_OTA_PUSH_WDT_EXTENDED_S);
+    bool s_paused = (s_pause_cb != NULL) ? s_pause_cb() : false;
+    bb_system_wdt_set_timeout(CONFIG_BB_OTA_PUSH_WDT_EXTENDED_S);  // push proceeds regardless of pause result
 
     char *buf = malloc(OTA_RECV_BUF_SIZE);
     if (!buf) {
@@ -167,10 +129,8 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_begin(req, &obj);
         bb_http_resp_json_obj_set_str(&obj, "error", "malloc failed");
         bb_http_resp_json_obj_end(&obj);
-        ota_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
-        if (paused && s_resume_cb) {
-            s_resume_cb();
-        }
+        bb_system_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
+        if (s_paused && s_resume_cb) { s_resume_cb(); }
         return BB_ERR_NO_SPACE;
     }
 
@@ -297,10 +257,8 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     return BB_OK;  // unreachable
 
 resume_and_exit:
-    ota_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
-    if (paused && s_resume_cb) {
-        s_resume_cb();
-    }
+    bb_system_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
+    if (s_paused && s_resume_cb) { s_resume_cb(); }
     return BB_ERR_INVALID_STATE;
 }
 

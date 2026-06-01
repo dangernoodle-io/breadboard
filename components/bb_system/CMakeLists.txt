@@ -1,5 +1,5 @@
 set(_sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system.c")
-set(_sys_priv_reqs bb_log esp_app_format esp_timer bb_http bb_registry esp_driver_tsens)
+set(_sys_priv_reqs bb_log esp_app_format esp_timer bb_http bb_registry esp_driver_tsens esp_system)
 
 if(CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER)
     list(APPEND _sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system_routes.c")

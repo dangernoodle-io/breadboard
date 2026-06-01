@@ -15,6 +15,7 @@
 #include "bb_http.h"
 #include "bb_log.h"
 #include "bb_registry.h"
+#include "bb_system.h"
 #include "bb_wifi.h"
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
@@ -70,6 +71,11 @@ static const char *TAG = "bb_ota_pull";
 
 static volatile bool s_ota_in_progress = false;
 static int s_ota_task_core = 1;  // default: Core 1 (bitaxe-friendly, frees Core 0 for httpd/stratum)
+// Worker priority. On single-core targets the worker must outrank a CPU-bound
+// consumer task (e.g. a SW-mining hot loop) so it can preempt and call the pause
+// hook; otherwise the download starves the idle task and trips the WDT. Consumers
+// raise this via bb_ota_pull_set_task_priority (mirrors bb_update_check).
+static int s_ota_task_prio = OTA_TASK_PRIO;
 
 #ifdef CONFIG_PM_ENABLE
 static esp_pm_lock_handle_t s_ota_pm_lock = NULL;
@@ -242,6 +248,27 @@ static bb_err_t ota_fetch_manifest(char *out_tag, size_t tag_cap,
     return BB_OK;
 }
 
+// ---------------------------------------------------------------------------
+// Portable retry-decision helper — no ESP-IDF types; compiled on host+device.
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when an OTA download attempt should be retried.
+ *
+ * A download must be retried if the perform loop exited with an error OR the
+ * complete-data flag was not set. Board-name mismatch is NOT passed here — it
+ * is deterministic and handled before the perform loop.
+ *
+ * @param perform_err  last error code from esp_https_ota_perform()
+ *                     (pass 0 / BB_OK when perform loop completed without error)
+ * @param data_complete  result of esp_https_ota_is_complete_data_received()
+ * @return true if the attempt failed and the caller should retry
+ */
+bool bb_ota_pull_download_should_retry(int perform_err, bool data_complete)
+{
+    return (perform_err != 0) || !data_complete;
+}
+
 #ifdef BB_OTA_PULL_TESTING
 // Test hook: run ota_fetch_manifest with the currently configured URL/board.
 bb_err_t bb_ota_pull_fetch_manifest_for_test(char *out_tag, size_t tag_cap,
@@ -253,50 +280,9 @@ bb_err_t bb_ota_pull_fetch_manifest_for_test(char *out_tag, size_t tag_cap,
 
 #ifdef ESP_PLATFORM
 
-/**
- * Reconfigure the task WDT timeout while preserving the idle-task mask and
- * panic-on-timeout policy from the firmware's Kconfig defaults.
- *
- * Used to bracket the OTA flash phase: extends the timeout so cache_disable
- * windows + consumer pause windows don't trip WDT-subscribed tasks (idle
- * tasks, consumer mining tasks). Restored to CONFIG_ESP_TASK_WDT_TIMEOUT_S
- * on every worker exit path.
- */
-static void ota_wdt_set_timeout(uint32_t timeout_s)
-{
-    esp_task_wdt_config_t cfg = {
-        .timeout_ms = timeout_s * 1000U,
-        .idle_core_mask =
-#if defined(CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0) && CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
-            (1U << 0) |
-#endif
-#if defined(CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1) && CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
-            (1U << 1) |
-#endif
-            0U,
-        .trigger_panic =
-#if defined(CONFIG_ESP_TASK_WDT_PANIC) && CONFIG_ESP_TASK_WDT_PANIC
-            true,
-#else
-            false,
-#endif
-    };
-    esp_err_t err = esp_task_wdt_reconfigure(&cfg);
-    if (err != ESP_OK) {
-        bb_log_w(TAG, "esp_task_wdt_reconfigure(%ums): %s",
-                 (unsigned)cfg.timeout_ms, esp_err_to_name(err));
-    }
-}
-
-static void ota_wdt_extend(void)
-{
-    ota_wdt_set_timeout(CONFIG_BB_OTA_PULL_WDT_EXTENDED_S);
-}
-
-static void ota_wdt_restore(void)
-{
-    ota_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
-}
+// Wrappers: extend/restore WDT timeout around the OTA flash phase.
+static void ota_wdt_extend(void)  { bb_system_wdt_set_timeout(CONFIG_BB_OTA_PULL_WDT_EXTENDED_S); }
+static void ota_wdt_restore(void) { bb_system_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S); }
 
 /**
  * Re-subscribe to the task WDT and delete the calling task.
@@ -332,25 +318,20 @@ static void ota_worker_task(void *arg)
         return;
     }
 
-    // Cooperatively pause work to free memory for OTA download
-    bool paused = false;
-    if (s_pause_cb) {
-        paused = s_pause_cb();
-        if (!paused) {
-            bb_log_e(TAG, "mining pause failed — aborting OTA to avoid tls contention");
-            ota_set_error("mining pause failed");
-            s_ota_in_progress = false;
-            ota_task_exit();
-            return;
-        }
-    }
-
-    // Extend the task WDT timeout for the flash phase. esp_flash_write +
-    // cache_disable windows plus the consumer pause window can easily exceed
-    // CONFIG_ESP_TASK_WDT_TIMEOUT_S, tripping WDT-subscribed tasks (idle
-    // tasks, consumer mining tasks blocked in their pause primitives).
-    // Restored on every exit path via ota_task_exit().
+    // Cooperatively pause work and extend WDT for the flash phase.
+    // esp_flash_write + cache_disable windows plus the consumer pause window
+    // can easily exceed CONFIG_ESP_TASK_WDT_TIMEOUT_S, tripping WDT-subscribed
+    // tasks (idle tasks, consumer mining tasks blocked in their pause
+    // primitives). Restored on every exit path via ota_task_exit().
+    bool s_paused = (s_pause_cb != NULL) ? s_pause_cb() : false;
+    bool pause_ok = (s_pause_cb == NULL) || s_paused;
     ota_wdt_extend();
+    if (!pause_ok) {
+        ota_set_error("mining pause failed — aborting OTA to avoid tls contention");
+        s_ota_in_progress = false;
+        ota_task_exit();
+        return;
+    }
 
     // WiFi IP pre-flight — catches OTA attempts fired during reconnect
     // (stale DNS cache, no bound IP). One short retry then bail.
@@ -415,106 +396,153 @@ static void ota_worker_task(void *arg)
     }
     bb_log_i(TAG, "OTA target partition: %s", update_partition->label);
 
-    // Retry handshake/header-read errors up to 3 times. TLS handshake flakes
-    // (mbedtls fatal alert, ECONNRESET during open) and GitHub CDN redirect
-    // hiccups are transient — a short backoff usually clears them. Don't retry
-    // past get_img_desc: once we start writing flash we're committed.
+    // Download retry loop — covers begin → get_img_desc → board check →
+    // perform loop → completeness check as a single retryable unit.
+    //
+    // Transient failures anywhere in the download phase (TLS handshake flakes,
+    // CDN connection drops mid-transfer, partial reads) retry from scratch with
+    // backoff. Board-name mismatch is deterministic and never retried.
+    //
+    // Each failed attempt aborts and NULLs the handle before sleeping so no
+    // socket or handle leaks across retries.
     esp_https_ota_handle_t ota_handle = NULL;
     esp_err_t err = ESP_FAIL;
     esp_app_desc_t img_desc;
-    const int max_attempts = 3;
-    const int backoff_ms[] = {5000, 15000, 30000};
-    for (int attempt = 0; attempt < max_attempts; attempt++) {
-        err = esp_https_ota_begin(&ota_config, &ota_handle);
-        if (err == ESP_OK) {
-            err = esp_https_ota_get_img_desc(ota_handle, &img_desc);
+    const int max_dl_attempts = 3;
+    const int dl_backoff_ms[] = {3000, 10000, 20000};
+    bool download_ok = false;
+
+    for (int dl = 0; dl < max_dl_attempts && !download_ok; dl++) {
+        if (dl > 0) {
+            bb_log_i(TAG, "OTA download attempt %d/%d (backoff %d ms)",
+                     dl + 1, max_dl_attempts, dl_backoff_ms[dl - 1]);
+            vTaskDelay(pdMS_TO_TICKS(dl_backoff_ms[dl - 1]));
+        }
+
+        // --- begin + get_img_desc (kept as inner retry for handshake flakes) ---
+        // Each inner attempt that opens a handle aborts it on failure so the
+        // outer loop always starts with ota_handle == NULL.
+        err = ESP_FAIL;
+        for (int attempt = 0; attempt < max_dl_attempts; attempt++) {
+            err = esp_https_ota_begin(&ota_config, &ota_handle);
             if (err == ESP_OK) {
-                if (attempt > 0) {
-                    bb_log_i(TAG, "OTA handshake succeeded on attempt %d/%d",
-                             attempt + 1, max_attempts);
+                err = esp_https_ota_get_img_desc(ota_handle, &img_desc);
+                if (err == ESP_OK) {
+                    if (attempt > 0) {
+                        bb_log_i(TAG, "OTA handshake succeeded on attempt %d/%d",
+                                 attempt + 1, max_dl_attempts);
+                    }
+                    break;
                 }
+                bb_log_w(TAG, "ota_get_img_desc attempt %d/%d failed: %s",
+                         attempt + 1, max_dl_attempts, esp_err_to_name(err));
+                esp_https_ota_abort(ota_handle);
+                ota_handle = NULL;
+            } else {
+                bb_log_w(TAG, "ota_begin attempt %d/%d failed: %s",
+                         attempt + 1, max_dl_attempts, esp_err_to_name(err));
+                ota_handle = NULL;
+            }
+            if (attempt + 1 < max_dl_attempts) {
+                vTaskDelay(pdMS_TO_TICKS(dl_backoff_ms[attempt]));
+            }
+        }
+        if (err != ESP_OK) {
+            // Handshake exhausted inner retries — count this as one download
+            // attempt and let the outer loop decide whether to retry.
+            bb_log_w(TAG, "OTA download attempt %d/%d: handshake failed: %s",
+                     dl + 1, max_dl_attempts, esp_err_to_name(err));
+            // ota_handle is already NULL here (aborted in inner loop)
+            continue;
+        }
+
+        // --- Board-name mismatch check (deterministic — do NOT retry) ---
+        const esp_app_desc_t *running = esp_app_get_description();
+        if (strncmp(img_desc.project_name, running->project_name,
+                    sizeof(img_desc.project_name)) != 0) {
+            bool skip_check = (s_skip_check_cb != NULL && s_skip_check_cb());
+            if (skip_check) {
+                bb_log_w(TAG, "OTA project-name mismatch, skipping check per consumer request: got '%s', expected '%s'",
+                         img_desc.project_name, running->project_name);
+            } else {
+                bb_log_e(TAG, "board mismatch: got '%s', expected '%s'",
+                         img_desc.project_name, running->project_name);
+                ota_set_error("board mismatch: got '%s', expected '%s'",
+                              img_desc.project_name, running->project_name);
+                esp_https_ota_abort(ota_handle);
+                ota_handle = NULL;
+                goto resume_and_exit;
+            }
+        }
+
+        // --- Perform loop ---
+        int image_size = esp_https_ota_get_image_size(ota_handle);
+        bb_log_i(TAG, "OTA download starting (image size: %d bytes)", image_size);
+
+        // Reset per-attempt progress state so stall detection and progress
+        // logging are sane on retried attempts.
+        int last_logged_pct = -1;
+        int64_t last_progress_us = esp_timer_get_time();
+        int last_read = 0;
+        while (true) {
+            err = esp_https_ota_perform(ota_handle);
+            if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
                 break;
             }
-            bb_log_w(TAG, "ota_get_img_desc attempt %d/%d failed: %s",
-                     attempt + 1, max_attempts, esp_err_to_name(err));
+            int read_so_far = esp_https_ota_get_image_len_read(ota_handle);
+            if (image_size > 0) {
+                int pct = (read_so_far * 100) / image_size;
+                taskENTER_CRITICAL(&s_ota_status_mux);
+                s_ota_status.progress_pct = pct;
+                taskEXIT_CRITICAL(&s_ota_status_mux);
+                if (pct / 10 != last_logged_pct / 10) {
+                    bb_log_i(TAG, "OTA progress: %d%% (%d/%d bytes)",
+                             pct, read_so_far, image_size);
+                    last_logged_pct = pct;
+                }
+            }
+            // Warn if no bytes moved in the last 10s — surfaces a stalled
+            // socket that would otherwise look like silence in the logs.
+            int64_t now_us = esp_timer_get_time();
+            if (read_so_far != last_read) {
+                last_read = read_so_far;
+                last_progress_us = now_us;
+            } else if (now_us - last_progress_us > 10LL * 1000 * 1000) {
+                bb_log_w(TAG, "OTA stalled: no bytes for >10s at %d bytes", read_so_far);
+                last_progress_us = now_us;
+            }
+
+            // Yield each iteration so the IDLE task (and the WiFi/lwIP stack)
+            // get CPU during the download+write loop. On single-core targets
+            // the OTA worker otherwise monopolizes the core for the whole
+            // transfer — with software AES the decrypt is CPU-bound and rarely
+            // blocks on recv — and the task WDT trips the idle task; the
+            // extended WDT timeout only delays that, it does not prevent it.
+            // One tick per ~4 KB chunk is negligible overhead (a few seconds
+            // across a 1 MB image) and also lets the TCP window refill,
+            // improving throughput.
+            vTaskDelay(1);
+        }
+
+        // --- Completeness check ---
+        if (err != ESP_OK || !esp_https_ota_is_complete_data_received(ota_handle)) {
+            const char *reason = (err != ESP_OK)
+                ? esp_err_to_name(err) : "incomplete data received";
+            bb_log_w(TAG, "OTA download attempt %d/%d failed: %s",
+                     dl + 1, max_dl_attempts, reason);
             esp_https_ota_abort(ota_handle);
             ota_handle = NULL;
-        } else {
-            bb_log_w(TAG, "ota_begin attempt %d/%d failed: %s",
-                     attempt + 1, max_attempts, esp_err_to_name(err));
+            // Outer loop will retry or exhaust attempts
+            continue;
         }
-        if (attempt + 1 < max_attempts) {
-            vTaskDelay(pdMS_TO_TICKS(backoff_ms[attempt]));
-        }
-    }
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "OTA handshake failed after %d attempts: %s",
-                 max_attempts, esp_err_to_name(err));
-        ota_set_error("ota handshake failed after %d attempts: %s",
-                      max_attempts, esp_err_to_name(err));
-        goto resume_and_exit;
+
+        download_ok = true;
     }
 
-    const esp_app_desc_t *running = esp_app_get_description();
-    if (strncmp(img_desc.project_name, running->project_name,
-                sizeof(img_desc.project_name)) != 0) {
-        // Check if consumer provided a skip-check callback
-        bool skip_check = (s_skip_check_cb != NULL && s_skip_check_cb());
-        if (skip_check) {
-            bb_log_w(TAG, "OTA project-name mismatch, skipping check per consumer request: got '%s', expected '%s'",
-                     img_desc.project_name, running->project_name);
-        } else {
-            bb_log_e(TAG, "board mismatch: got '%s', expected '%s'",
-                     img_desc.project_name, running->project_name);
-            ota_set_error("board mismatch: got '%s', expected '%s'",
-                          img_desc.project_name, running->project_name);
-            esp_https_ota_abort(ota_handle);
-            goto resume_and_exit;
-        }
-    }
-
-    int image_size = esp_https_ota_get_image_size(ota_handle);
-    bb_log_i(TAG, "OTA download starting (image size: %d bytes)", image_size);
-
-    int last_logged_pct = -1;
-    int64_t last_progress_us = esp_timer_get_time();
-    int last_read = 0;
-    while (true) {
-        err = esp_https_ota_perform(ota_handle);
-        if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
-            break;
-        }
-        int read_so_far = esp_https_ota_get_image_len_read(ota_handle);
-        if (image_size > 0) {
-            int pct = (read_so_far * 100) / image_size;
-            taskENTER_CRITICAL(&s_ota_status_mux);
-            s_ota_status.progress_pct = pct;
-            taskEXIT_CRITICAL(&s_ota_status_mux);
-            if (pct / 10 != last_logged_pct / 10) {
-                bb_log_i(TAG, "OTA progress: %d%% (%d/%d bytes)",
-                         pct, read_so_far, image_size);
-                last_logged_pct = pct;
-            }
-        }
-        // Warn if no bytes moved in the last 10s — surfaces a stalled
-        // socket that would otherwise look like silence in the logs.
-        int64_t now_us = esp_timer_get_time();
-        if (read_so_far != last_read) {
-            last_read = read_so_far;
-            last_progress_us = now_us;
-        } else if (now_us - last_progress_us > 10LL * 1000 * 1000) {
-            bb_log_w(TAG, "OTA stalled: no bytes for >10s at %d bytes", read_so_far);
-            last_progress_us = now_us;
-        }
-    }
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "esp_https_ota_perform exited with: %s", esp_err_to_name(err));
-    }
-
-    if (!esp_https_ota_is_complete_data_received(ota_handle)) {
-        bb_log_e(TAG, "incomplete OTA data received");
-        ota_set_error("incomplete OTA data received");
-        esp_https_ota_abort(ota_handle);
+    if (!download_ok) {
+        bb_log_e(TAG, "OTA download failed after %d attempts", max_dl_attempts);
+        ota_set_error("download failed after %d attempts", max_dl_attempts);
+        // ota_handle is NULL here (aborted in last failed iteration)
         goto resume_and_exit;
     }
 
@@ -539,10 +567,9 @@ static void ota_worker_task(void *arg)
 resume_and_exit:
     ota_pm_lock_release();
     s_ota_in_progress = false;
-    if (paused && s_resume_cb) {
+    if (s_paused && s_resume_cb) {
         s_resume_cb();
     }
-
     ota_task_exit();
 }
 
@@ -652,7 +679,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         "ota_pull",
         OTA_TASK_STACK,
         task_arg,
-        OTA_TASK_PRIO,
+        s_ota_task_prio,
         &task_handle,
         ota_task_core
     );
@@ -846,6 +873,11 @@ bb_err_t bb_ota_pull_check_now(void)
 void bb_ota_pull_set_task_core(int core)
 {
     s_ota_task_core = core;
+}
+
+void bb_ota_pull_set_task_priority(int priority)
+{
+    s_ota_task_prio = priority;
 }
 
 #endif // ESP_PLATFORM
