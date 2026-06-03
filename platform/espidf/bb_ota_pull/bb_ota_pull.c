@@ -25,6 +25,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_task_wdt.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/portmacro.h"
@@ -328,6 +329,23 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
     bb_err_t ret = ESP_FAIL;
 
     ota_wdt_extend();
+
+#if CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES > 0
+    // Pre-OTA heap guard (B1-237): refuse cleanly if the largest contiguous
+    // internal block can't hold the mbedTLS handshake buffers — better a clear
+    // error than an OOM panic mid-handshake on a tight, no-PSRAM board.
+    {
+        size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (largest < (size_t)CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES) {
+            bb_log_e(TAG, "OTA refused: largest free block %u < %d (TLS won't fit)",
+                     (unsigned)largest, CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES);
+            ota_set_error("insufficient heap for OTA: %u < %d",
+                          (unsigned)largest, CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES);
+            ret = ESP_ERR_NO_MEM;
+            goto done;
+        }
+    }
+#endif
 
     // WiFi IP pre-flight — catches OTA attempts fired during reconnect
     // (stale DNS cache, no bound IP). One short retry then bail.
