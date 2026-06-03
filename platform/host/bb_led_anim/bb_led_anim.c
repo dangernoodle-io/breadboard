@@ -99,10 +99,37 @@ struct bb_led_anim {
     bool                  paused;
     bool                  has_pattern;
     bool                  dirty;
+    uint16_t              last_level;     // last brightness emitted (transition source)
+    uint32_t              fade_ms;        // 0 = no active transition fade
+    uint32_t              fade_start_ms;
+    uint16_t              fade_from;      // level to fade from at transition start
 #ifndef ARDUINO
     bb_timer_handle_t     timer;
 #endif
 };
+
+// Emit a 16-bit brightness level to every LED, applying an in-progress transition
+// fade (linear lerp fade_from → target over fade_ms, in perceptual set_level space;
+// the driver applies gamma downstream). Records last_level so a later transition can
+// fade from wherever the output currently sits.
+static void emit_level(struct bb_led_anim *h, uint16_t target)
+{
+    uint16_t out = target;
+    if (h->fade_ms) {
+        uint32_t fe = now_ms() - h->fade_start_ms;
+        if (fe >= h->fade_ms) {
+            h->fade_ms = 0;                       // fade complete → settle on target
+        } else {
+            int32_t span = (int32_t)target - (int32_t)h->fade_from;
+            out = (uint16_t)((int32_t)h->fade_from + span * (int32_t)fe / (int32_t)h->fade_ms);
+        }
+    }
+    uint16_t cnt = bb_led_count(h->led);
+    for (uint16_t i = 0; i < cnt; i++)
+        bb_led_set_level(h->led, i, out);
+    bb_led_flush(h->led);
+    h->last_level = out;
+}
 
 // ---------------------------------------------------------------------------
 // Pattern step functions
@@ -115,12 +142,19 @@ static void step_solid(struct bb_led_anim *h)
     bb_led_caps_t caps = bb_led_caps(h->led);
     if (caps & BB_LED_CAP_RGB)
         bb_led_fill_color(h->led, h->pat.solid.r, h->pat.solid.g, h->pat.solid.b);
-    if (caps & BB_LED_CAP_BRIGHTNESS)
+    if (caps & BB_LED_CAP_BRIGHTNESS) {
+        // A brightness LED conveys "on" via the level itself; calling set_on(true)
+        // as well would force full duty and clobber brightness_pct (op_set_on →
+        // 100%). So use set_level only — the ONOFF branch below is for pure on/off
+        // LEDs with no brightness control.
+        uint16_t lvl = (uint16_t)((uint32_t)h->pat.solid.brightness_pct * 65535u / 100u);
         for (uint16_t i = 0; i < cnt; i++)
-            bb_led_set_level(h->led, i, (uint16_t)((uint32_t)h->pat.solid.brightness_pct * 65535u / 100u));
-    if (caps & BB_LED_CAP_ONOFF)
+            bb_led_set_level(h->led, i, lvl);
+        h->last_level = lvl;   // record as a transition source (no fade for instant solid)
+    } else if (caps & BB_LED_CAP_ONOFF) {
         for (uint16_t i = 0; i < cnt; i++)
             bb_led_set_on(h->led, i, true);
+    }
     bb_led_flush(h->led);
     h->dirty = false;
 }
@@ -131,9 +165,16 @@ static void step_blink(struct bb_led_anim *h, uint32_t elapsed_ms)
     uint32_t phase  = elapsed_ms % period;
     bool on = phase < (uint32_t)period * h->pat.blink.duty_pct / 100u;
     uint16_t cnt = bb_led_count(h->led);
-    for (uint16_t i = 0; i < cnt; i++)
-        bb_led_set_on(h->led, i, on);
-    bb_led_flush(h->led);
+    if (h->pat.blink.level_pct) {
+        // Flash at a brightness level (gamma applied downstream by set_level)
+        // rather than full on/off. level_pct 0 keeps the legacy on/off path.
+        uint16_t level = on ? (uint16_t)((uint32_t)h->pat.blink.level_pct * 65535u / 100u) : 0u;
+        emit_level(h, level);
+    } else {
+        for (uint16_t i = 0; i < cnt; i++)
+            bb_led_set_on(h->led, i, on);
+        bb_led_flush(h->led);
+    }
 }
 
 static void step_breathe(struct bb_led_anim *h, uint32_t elapsed_ms)
@@ -148,10 +189,7 @@ static void step_breathe(struct bb_led_anim *h, uint32_t elapsed_ms)
     uint16_t max_level = (uint16_t)((uint32_t)h->pat.breathe.max_pct * 65535u / 100u);
     uint32_t range     = (max_level > min_level) ? (uint32_t)(max_level - min_level) : 0u;
     uint16_t level     = (uint16_t)(min_level + (uint32_t)s * range / 255u);
-    uint16_t cnt = bb_led_count(h->led);
-    for (uint16_t i = 0; i < cnt; i++)
-        bb_led_set_level(h->led, i, level);
-    bb_led_flush(h->led);
+    emit_level(h, level);
 }
 
 static void step_pulse(struct bb_led_anim *h, uint32_t elapsed_ms)
@@ -171,10 +209,7 @@ static void step_pulse(struct bb_led_anim *h, uint32_t elapsed_ms)
     } else {
         level = 0;
     }
-    uint16_t cnt = bb_led_count(h->led);
-    for (uint16_t i = 0; i < cnt; i++)
-        bb_led_set_level(h->led, i, level);
-    bb_led_flush(h->led);
+    emit_level(h, level);
 }
 
 static void step_color_cycle(struct bb_led_anim *h, uint32_t elapsed_ms)
@@ -247,7 +282,7 @@ static bb_led_caps_t pattern_required_caps(const bb_led_anim_pattern_t *pat,
 {
     switch (pat->kind) {
     case BB_ANIM_SOLID:       return BB_LED_CAP_ONOFF;
-    case BB_ANIM_BLINK:       return BB_LED_CAP_ONOFF;
+    case BB_ANIM_BLINK:       return pat->blink.level_pct ? BB_LED_CAP_BRIGHTNESS : BB_LED_CAP_ONOFF;
     case BB_ANIM_BREATHE:     return BB_LED_CAP_BRIGHTNESS;
     case BB_ANIM_PULSE:       return BB_LED_CAP_BRIGHTNESS;
     case BB_ANIM_COLOR_CYCLE: return BB_LED_CAP_RGB;
@@ -307,7 +342,9 @@ bb_err_t bb_led_anim_attach(const bb_led_anim_cfg_t *cfg, bb_led_anim_handle_t *
     return BB_OK;
 }
 
-bb_err_t bb_led_anim_set(bb_led_anim_handle_t h, const bb_led_anim_pattern_t *pat)
+// Caps-check + apply a pattern (shared by set / set_transition). Does not touch
+// the fade fields.
+static bb_err_t anim_apply(bb_led_anim_handle_t h, const bb_led_anim_pattern_t *pat)
 {
     if (!h || !pat) return BB_ERR_INVALID_ARG;
 
@@ -323,6 +360,28 @@ bb_err_t bb_led_anim_set(bb_led_anim_handle_t h, const bb_led_anim_pattern_t *pa
     h->last_tick_ms = h->start_ms;
     h->has_pattern  = true;
     h->dirty        = true;
+    return BB_OK;
+}
+
+bb_err_t bb_led_anim_set(bb_led_anim_handle_t h, const bb_led_anim_pattern_t *pat)
+{
+    bb_err_t rc = anim_apply(h, pat);
+    if (rc == BB_OK) h->fade_ms = 0;   // instant swap cancels any in-progress fade
+    return rc;
+}
+
+bb_err_t bb_led_anim_set_transition(bb_led_anim_handle_t h,
+                                    const bb_led_anim_pattern_t *pat, uint32_t fade_ms)
+{
+    if (!h || !pat) return BB_ERR_INVALID_ARG;
+    // Capture the current output BEFORE applying the new pattern so the fade
+    // starts from whatever level is showing now (e.g. a boot solid).
+    uint16_t from = h->last_level;
+    bb_err_t rc = anim_apply(h, pat);
+    if (rc != BB_OK) return rc;
+    h->fade_from     = from;
+    h->fade_start_ms = h->start_ms;
+    h->fade_ms       = fade_ms;        // 0 → no fade (identical to bb_led_anim_set)
     return BB_OK;
 }
 
