@@ -10,6 +10,9 @@ extern "C" {
 typedef struct {
     bb_err_t (*set_on)        (void *state, uint16_t idx, bool on);
     bb_err_t (*set_brightness)(void *state, uint16_t idx, uint8_t pct);
+    // Optional fine-resolution brightness (0..65535, perceptual; driver applies
+    // gamma). NULL = unsupported → bb_led_set_level() bridges to set_brightness.
+    bb_err_t (*set_level)     (void *state, uint16_t idx, uint16_t level);
     bb_err_t (*set_color)     (void *state, uint16_t idx, uint8_t r, uint8_t g, uint8_t b);
     bb_err_t (*flush)         (void *state);
     bb_err_t (*close)         (void *state);

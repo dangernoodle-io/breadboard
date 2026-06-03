@@ -1,10 +1,12 @@
 #include "bb_led_pwm.h"
 #include "bb_led_driver.h"
+#include "bb_led_gamma.h"
 #include "bb_led_pwm_host.h"
 #include <stdlib.h>
 
 #define BB_LED_PWM_HOST_MAX_PIN 64
 static int s_host_last_pct[BB_LED_PWM_HOST_MAX_PIN];
+static long s_host_last_level[BB_LED_PWM_HOST_MAX_PIN];  // gamma-corrected, 0..65535
 static bool s_host_seen[BB_LED_PWM_HOST_MAX_PIN];
 
 int bb_led_pwm_host_get_pct(int gpio) {
@@ -12,9 +14,17 @@ int bb_led_pwm_host_get_pct(int gpio) {
     return s_host_seen[gpio] ? s_host_last_pct[gpio] : -1;
 }
 
+// Last value set via bb_led_set_level, after CIE gamma + active_low, 0..65535.
+// -1 if never set or out of range. Lets tests assert the gamma LUT was applied.
+long bb_led_pwm_host_get_level(int gpio) {
+    if (gpio < 0 || gpio >= BB_LED_PWM_HOST_MAX_PIN) return -1;
+    return s_host_seen[gpio] ? s_host_last_level[gpio] : -1;
+}
+
 void bb_led_pwm_test_reset(void) {
     for (int i = 0; i < BB_LED_PWM_HOST_MAX_PIN; i++) {
         s_host_last_pct[i] = 0;
+        s_host_last_level[i] = 0;
         s_host_seen[i] = false;
     }
 }
@@ -41,6 +51,15 @@ static bb_err_t op_set_brightness(void *st, uint16_t idx, uint8_t pct) {
     return BB_OK;
 }
 
+static bb_err_t op_set_level(void *st, uint16_t idx, uint16_t level) {
+    (void)idx;
+    state_t *s = st;
+    long eff = (long)bb_led_gamma_cie(level);        // 0..65535
+    if (s->active_low) eff = 65535 - eff;
+    if (s->gpio < BB_LED_PWM_HOST_MAX_PIN) { s_host_last_level[s->gpio] = eff; s_host_seen[s->gpio] = true; }
+    return BB_OK;
+}
+
 static bb_err_t op_close(void *st) {
     state_t *s = st;
     if (s->gpio < BB_LED_PWM_HOST_MAX_PIN) s_host_seen[s->gpio] = false;
@@ -50,6 +69,7 @@ static bb_err_t op_close(void *st) {
 
 static const bb_led_driver_t s_drv = {
     .set_on = op_set_on, .set_brightness = op_set_brightness,
+    .set_level = op_set_level,
     .set_color = NULL, .flush = NULL, .close = op_close,
     .caps = BB_LED_CAP_ONOFF | BB_LED_CAP_BRIGHTNESS, .count = 1,
 };

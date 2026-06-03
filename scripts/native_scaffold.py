@@ -193,7 +193,8 @@ COMPONENT_MAP = {
     },
     "bb_led": {
         "includes": ["components/bb_led/include"],
-        "sources":  ["platform/host/bb_led/bb_led.c"],
+        "sources":  ["platform/host/bb_led/bb_led.c",
+                     "platform/host/bb_led/bb_led_gamma.c"],
         "depends":  ["bb_core"],
     },
     "bb_led_gpio": {

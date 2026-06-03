@@ -5,6 +5,7 @@
 
 extern "C" {
 #include "../../host/bb_led/bb_led.c"
+#include "../../host/bb_led/bb_led_gamma.c"
 } // extern "C"
 
 #endif // ARDUINO

@@ -5,21 +5,25 @@
 #include <string.h>
 
 typedef struct {
-    bool    on[8];
-    uint8_t pct[8];
-    uint8_t r[8], g[8], b[8];
-    bool    flushed;
-    bool    closed;
+    bool     on[8];
+    uint8_t  pct[8];
+    uint16_t level[8];
+    bool     level_seen[8];
+    uint8_t  r[8], g[8], b[8];
+    bool     flushed;
+    bool     closed;
 } mock_state_t;
 
 static mock_state_t g_mock;
 
 static bb_err_t m_set_on        (void *s, uint16_t i, bool v)                          { ((mock_state_t *)s)->on[i] = v; return BB_OK; }
 static bb_err_t m_set_brightness(void *s, uint16_t i, uint8_t p)                       { ((mock_state_t *)s)->pct[i] = p; return BB_OK; }
+static bb_err_t m_set_level     (void *s, uint16_t i, uint16_t l)                      { mock_state_t *m = s; m->level[i]=l; m->level_seen[i]=true; return BB_OK; }
 static bb_err_t m_set_color     (void *s, uint16_t i, uint8_t r, uint8_t g, uint8_t b) { mock_state_t *m = s; m->r[i]=r; m->g[i]=g; m->b[i]=b; return BB_OK; }
 static bb_err_t m_flush         (void *s)                                              { ((mock_state_t *)s)->flushed = true; return BB_OK; }
 static bb_err_t m_close         (void *s)                                              { ((mock_state_t *)s)->closed  = true; return BB_OK; }
 
+// No set_level → exercises the core's level→pct bridge.
 static const bb_led_driver_t mock_full = {
     .set_on=m_set_on, .set_brightness=m_set_brightness, .set_color=m_set_color,
     .flush=m_flush, .close=m_close,
@@ -31,6 +35,14 @@ static const bb_led_driver_t mock_onoff_only = {
     .set_on=m_set_on, .set_brightness=m_set_brightness, .set_color=m_set_color,
     .flush=m_flush, .close=m_close,
     .caps  = BB_LED_CAP_ONOFF,
+    .count = 1,
+};
+
+// Has set_level → bb_led_set_level should call it directly (no bridge).
+static const bb_led_driver_t mock_with_level = {
+    .set_on=m_set_on, .set_brightness=m_set_brightness, .set_level=m_set_level,
+    .set_color=m_set_color, .flush=m_flush, .close=m_close,
+    .caps  = BB_LED_CAP_ONOFF | BB_LED_CAP_BRIGHTNESS,
     .count = 1,
 };
 
@@ -100,5 +112,40 @@ void test_bb_led_brightness_pct_validation(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_led_set_brightness(h, 0, 101));
     TEST_ASSERT_EQUAL(BB_OK, bb_led_set_brightness(h, 0, 100));
     TEST_ASSERT_EQUAL_UINT8(100, g_mock.pct[0]);
+    bb_led_close(h);
+}
+
+void test_bb_led_set_level_bridges_to_set_brightness(void)
+{
+    // mock_full has no set_level → core maps level→pct (round to nearest).
+    bb_led_handle_t h;
+    bb_led_handle_create(&mock_full, &g_mock, &h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 65535));
+    TEST_ASSERT_EQUAL_UINT8(100, g_mock.pct[0]);
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 0));
+    TEST_ASSERT_EQUAL_UINT8(0, g_mock.pct[0]);
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 32768));  // ~50%
+    TEST_ASSERT_EQUAL_UINT8(50, g_mock.pct[0]);
+    TEST_ASSERT_FALSE(g_mock.level_seen[0]);                  // bridge, not direct
+    bb_led_close(h);
+}
+
+void test_bb_led_set_level_calls_driver_when_present(void)
+{
+    // mock_with_level has set_level → called directly, set_brightness untouched.
+    bb_led_handle_t h;
+    bb_led_handle_create(&mock_with_level, &g_mock, &h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 40000));
+    TEST_ASSERT_TRUE(g_mock.level_seen[0]);
+    TEST_ASSERT_EQUAL_UINT16(40000, g_mock.level[0]);
+    TEST_ASSERT_EQUAL_UINT8(0, g_mock.pct[0]);               // set_brightness not called
+    bb_led_close(h);
+}
+
+void test_bb_led_set_level_unsupported_without_brightness_cap(void)
+{
+    bb_led_handle_t h;
+    bb_led_handle_create(&mock_onoff_only, &g_mock, &h);
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_led_set_level(h, 0, 30000));
     bb_led_close(h);
 }

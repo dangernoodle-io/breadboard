@@ -15,14 +15,16 @@
 #define MOCK_COUNT 4
 
 typedef struct {
-    bool    on[MOCK_COUNT];
-    uint8_t pct[MOCK_COUNT];
-    uint8_t r[MOCK_COUNT], g[MOCK_COUNT], b[MOCK_COUNT];
-    int     set_on_calls;
-    int     set_brightness_calls;
-    int     set_color_calls;
-    int     flush_calls;
-    bool    closed;
+    bool     on[MOCK_COUNT];
+    uint8_t  pct[MOCK_COUNT];
+    uint16_t level[MOCK_COUNT];
+    uint8_t  r[MOCK_COUNT], g[MOCK_COUNT], b[MOCK_COUNT];
+    int      set_on_calls;
+    int      set_brightness_calls;
+    int      set_level_calls;
+    int      set_color_calls;
+    int      flush_calls;
+    bool     closed;
 } anim_mock_state_t;
 
 static anim_mock_state_t g_mock;
@@ -39,6 +41,13 @@ static bb_err_t m_set_brightness(void *s, uint16_t i, uint8_t p)
     anim_mock_state_t *m = (anim_mock_state_t *)s;
     m->pct[i] = p;
     m->set_brightness_calls++;
+    return BB_OK;
+}
+static bb_err_t m_set_level(void *s, uint16_t i, uint16_t l)
+{
+    anim_mock_state_t *m = (anim_mock_state_t *)s;
+    m->level[i] = l;
+    m->set_level_calls++;
     return BB_OK;
 }
 static bb_err_t m_set_color(void *s, uint16_t i, uint8_t r, uint8_t g, uint8_t b)
@@ -78,6 +87,14 @@ static const bb_led_driver_t s_drv_onoff = {
 // BRIGHTNESS driver (count=1)
 static const bb_led_driver_t s_drv_brightness = {
     .set_on = m_set_on, .set_brightness = m_set_brightness,
+    .set_color = m_set_color, .flush = m_flush, .close = m_close,
+    .caps  = BB_LED_CAP_ONOFF | BB_LED_CAP_BRIGHTNESS,
+    .count = 1,
+};
+
+// BRIGHTNESS driver WITH the fine set_level op (count=1) — captures 16-bit levels.
+static const bb_led_driver_t s_drv_level = {
+    .set_on = m_set_on, .set_brightness = m_set_brightness, .set_level = m_set_level,
     .set_color = m_set_color, .flush = m_flush, .close = m_close,
     .caps  = BB_LED_CAP_ONOFF | BB_LED_CAP_BRIGHTNESS,
     .count = 1,
@@ -406,6 +423,38 @@ void test_anim_no_auto_start_timer_does_not_fire(void)
     usleep(100000);
 
     TEST_ASSERT_EQUAL(0, g_mock.flush_calls);
+
+    bb_led_anim_detach(ah);
+    bb_led_close(led);
+}
+
+// Regression for B1-243: a dim 0–5% breathe used to render only ~6 integer-pct
+// levels. The 16-bit set_level path must sweep many distinct levels.
+void test_anim_breathe_dim_has_many_levels(void)
+{
+    bb_led_handle_t led = open_led(&s_drv_level);
+    bb_led_anim_handle_t ah = attach(led);
+
+    bb_led_anim_pattern_t pat = { .kind = BB_ANIM_BREATHE };
+    pat.breathe.period_ms = 2000;
+    pat.breathe.min_pct   = 0;
+    pat.breathe.max_pct   = 5;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_anim_set(ah, &pat));
+
+    // Sample levels across a full breathe period (50 ms steps > 20 ms tick guard).
+    uint16_t seen[64];
+    int n_seen = 0;
+    for (uint32_t t = 0; t <= 2000; t += 50) {
+        bb_led_anim_set_mock_time_ms(t);
+        bb_led_anim_tick(ah);
+        uint16_t lv = g_mock.level[0];
+        bool found = false;
+        for (int j = 0; j < n_seen; j++) if (seen[j] == lv) { found = true; break; }
+        if (!found && n_seen < 64) seen[n_seen++] = lv;
+    }
+
+    TEST_ASSERT_TRUE(g_mock.set_level_calls > 0);   // used the fine path, not the bridge
+    TEST_ASSERT_TRUE(n_seen >= 20);                 // smooth, not ~6 steps
 
     bb_led_anim_detach(ah);
     bb_led_close(led);

@@ -43,6 +43,18 @@ bb_err_t bb_led_set_brightness(bb_led_handle_t h, uint16_t idx, uint8_t pct)
     return h->drv->set_brightness(h->state, idx, pct);
 }
 
+bb_err_t bb_led_set_level(bb_led_handle_t h, uint16_t idx, uint16_t level)
+{
+    if (!valid(h))       return BB_ERR_INVALID_STATE;
+    if (!idx_ok(h, idx)) return BB_ERR_INVALID_ARG;
+    if (!has_cap(h, BB_LED_CAP_BRIGHTNESS)) return BB_ERR_UNSUPPORTED;
+    if (h->drv->set_level)
+        return h->drv->set_level(h->state, idx, level);
+    // Bridge: driver only does coarse 0..100 — map level→pct (round to nearest).
+    uint8_t pct = (uint8_t)(((uint32_t)level * 100u + 32767u) / 65535u);
+    return h->drv->set_brightness(h->state, idx, pct);
+}
+
 bb_err_t bb_led_set_color(bb_led_handle_t h, uint16_t idx, uint8_t r, uint8_t g, uint8_t b)
 {
     if (!valid(h))       return BB_ERR_INVALID_STATE;

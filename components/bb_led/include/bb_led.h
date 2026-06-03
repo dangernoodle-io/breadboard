@@ -22,6 +22,9 @@ uint16_t      bb_led_count(bb_led_handle_t h);
 
 bb_err_t bb_led_set_on        (bb_led_handle_t h, uint16_t idx, bool on);
 bb_err_t bb_led_set_brightness(bb_led_handle_t h, uint16_t idx, uint8_t pct); // 0..100
+// Fine-resolution brightness: level 0..65535, perceptual (driver applies gamma).
+// Requires BB_LED_CAP_BRIGHTNESS; bridges to set_brightness on drivers without it.
+bb_err_t bb_led_set_level     (bb_led_handle_t h, uint16_t idx, uint16_t level);
 bb_err_t bb_led_set_color     (bb_led_handle_t h, uint16_t idx, uint8_t r, uint8_t g, uint8_t b);
 bb_err_t bb_led_fill_color    (bb_led_handle_t h, uint8_t r, uint8_t g, uint8_t b);
 bb_err_t bb_led_flush         (bb_led_handle_t h);

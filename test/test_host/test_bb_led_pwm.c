@@ -94,6 +94,40 @@ void test_pwm_set_color_unsupported(void)
     bb_led_close(h);
 }
 
+void test_pwm_set_level_applies_gamma(void)
+{
+    bb_led_pwm_cfg_t cfg = { .gpio = 14, .freq_hz = 5000, .resolution_bits = 8, .active_low = false };
+    bb_led_handle_t h;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_pwm_open(&cfg, &h));
+
+    // ~5% of full range (3277/65535). A linear map would land near 3277; the CIE
+    // gamma curve compresses the dim end far below that — that's the smoothness.
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 3277));
+    long got = bb_led_pwm_host_get_level(14);
+    TEST_ASSERT_TRUE(got >= 0);
+    TEST_ASSERT_TRUE(got < 3277);   // gamma compressed
+    TEST_ASSERT_TRUE(got < 1000);   // substantially dimmer than the linear value
+
+    // Endpoints are exact (gamma(0)=0, gamma(max)=max).
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 0));
+    TEST_ASSERT_EQUAL_INT(0, (int)bb_led_pwm_host_get_level(14));
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 65535));
+    TEST_ASSERT_EQUAL_INT(65535, (int)bb_led_pwm_host_get_level(14));
+    bb_led_close(h);
+}
+
+void test_pwm_set_level_active_low_inverts(void)
+{
+    bb_led_pwm_cfg_t cfg = { .gpio = 15, .freq_hz = 5000, .resolution_bits = 8, .active_low = true };
+    bb_led_handle_t h;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_pwm_open(&cfg, &h));
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 65535));
+    TEST_ASSERT_EQUAL_INT(0, (int)bb_led_pwm_host_get_level(15));      // inverted
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 0));
+    TEST_ASSERT_EQUAL_INT(65535, (int)bb_led_pwm_host_get_level(15));
+    bb_led_close(h);
+}
+
 void test_pwm_idx_must_be_zero(void)
 {
     bb_led_pwm_cfg_t cfg = { .gpio = 10, .freq_hz = 5000, .resolution_bits = 8, .active_low = false };
