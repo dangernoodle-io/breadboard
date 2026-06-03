@@ -128,6 +128,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/espidf/bb_ota_push/bb_ota_push.c"],
         "depends":  ["bb_core", "bb_http", "bb_log"],
     },
+    "bb_ota_boot": {
+        "includes": ["components/bb_ota_boot/include"],
+        "sources":  ["platform/espidf/bb_ota_boot/bb_ota_boot.c"],
+        "depends":  ["bb_core", "bb_log", "bb_nv"],
+    },
     "bb_ota_validator": {
         "includes": ["components/bb_ota_validator/include"],
         "sources":  ["platform/host/bb_ota_validator/bb_ota_validator_host.c"],
