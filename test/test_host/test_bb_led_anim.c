@@ -252,6 +252,47 @@ void test_anim_blink_off_at_three_quarter_period(void)
     bb_led_close(led);
 }
 
+// level_pct > 0: blink flashes via set_level at that brightness (not full on/off).
+void test_anim_blink_level_pct_flashes_at_level(void)
+{
+    bb_led_anim_set_mock_time_ms(0);
+    bb_led_handle_t led = open_led(&s_drv_level);
+    bb_led_anim_handle_t ah = attach(led);
+
+    bb_led_anim_pattern_t pat = { .kind = BB_ANIM_BLINK };
+    pat.blink.period_ms = 1000; pat.blink.duty_pct = 50; pat.blink.level_pct = 25;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_anim_set(ah, &pat));
+
+    // ON phase → set_level to ~25% (25*65535/100 = 16383), not set_on.
+    bb_led_anim_set_mock_time_ms(250);
+    bb_led_anim_tick(ah);
+    TEST_ASSERT_EQUAL_UINT16(16383, g_mock.level[0]);
+    TEST_ASSERT_TRUE(g_mock.set_level_calls > 0);
+    TEST_ASSERT_EQUAL_INT(0, g_mock.set_on_calls);   // never used the on/off path
+
+    // OFF phase → level 0.
+    bb_led_anim_set_mock_time_ms(750);
+    bb_led_anim_tick(ah);
+    TEST_ASSERT_EQUAL_UINT16(0, g_mock.level[0]);
+
+    bb_led_anim_detach(ah);
+    bb_led_close(led);
+}
+
+// level_pct > 0 needs BRIGHTNESS; on an ONOFF-only handle it must be unsupported.
+void test_anim_blink_level_pct_unsupported_on_onoff(void)
+{
+    bb_led_handle_t led = open_led(&s_drv_onoff);
+    bb_led_anim_handle_t ah = attach(led);
+
+    bb_led_anim_pattern_t pat = { .kind = BB_ANIM_BLINK };
+    pat.blink.period_ms = 1000; pat.blink.duty_pct = 50; pat.blink.level_pct = 25;
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_led_anim_set(ah, &pat));
+
+    bb_led_anim_detach(ah);
+    bb_led_close(led);
+}
+
 // ---------------------------------------------------------------------------
 // Tests: BREATHE
 // ---------------------------------------------------------------------------
@@ -455,6 +496,83 @@ void test_anim_breathe_dim_has_many_levels(void)
 
     TEST_ASSERT_TRUE(g_mock.set_level_calls > 0);   // used the fine path, not the bridge
     TEST_ASSERT_TRUE(n_seen >= 20);                 // smooth, not ~6 steps
+
+    bb_led_anim_detach(ah);
+    bb_led_close(led);
+}
+
+// ---------------------------------------------------------------------------
+// Tests: transition / fade handoff
+// ---------------------------------------------------------------------------
+
+// A boot solid 50% should fade INTO a dim breathe over fade_ms — mid-fade the
+// level is pulled up toward the 50% source (well above the breathe ceiling), and
+// after the window it settles onto the pure breathe.
+void test_anim_set_transition_fades_from_current_level(void)
+{
+    bb_led_anim_set_mock_time_ms(0);
+    bb_led_handle_t led = open_led(&s_drv_level);
+    bb_led_anim_handle_t ah = attach(led);
+
+    // Boot solid 50% → last_level = 50% of 65535 = 32767.
+    bb_led_anim_pattern_t solid = { .kind = BB_ANIM_SOLID };
+    solid.solid.brightness_pct = 50;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_anim_set(ah, &solid));
+    bb_led_anim_set_mock_time_ms(20);
+    bb_led_anim_tick(ah);
+    uint16_t solid_level = g_mock.level[0];
+    TEST_ASSERT_EQUAL_UINT16(32767, solid_level);
+    // A brightness LED must NOT also get set_on(true) for solid — that would
+    // force full duty and clobber the 50% on real PWM hardware.
+    TEST_ASSERT_EQUAL_INT(0, g_mock.set_on_calls);
+
+    // Transition into a dim 1–10% breathe over 800 ms, starting at t=1000.
+    bb_led_anim_set_mock_time_ms(1000);
+    bb_led_anim_pattern_t breathe = { .kind = BB_ANIM_BREATHE };
+    breathe.breathe.period_ms = 3000; breathe.breathe.min_pct = 1; breathe.breathe.max_pct = 10;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_anim_set_transition(ah, &breathe, 800));
+
+    uint16_t breathe_ceiling = (uint16_t)(10u * 65535u / 100u);   // 6553
+
+    // Mid-fade (t=1400, 50% through): blended level sits between the breathe
+    // target and the 50% source — proving the fade, not the raw pattern, drives it.
+    bb_led_anim_set_mock_time_ms(1400);
+    bb_led_anim_tick(ah);
+    uint16_t mid = g_mock.level[0];
+    TEST_ASSERT_TRUE(mid > breathe_ceiling);   // still pulled up by the fade
+    TEST_ASSERT_TRUE(mid < solid_level);       // and below the 50% source
+
+    // Past the fade window (t=1900): pure breathe, at/under its 10% ceiling.
+    bb_led_anim_set_mock_time_ms(1900);
+    bb_led_anim_tick(ah);
+    TEST_ASSERT_TRUE(g_mock.level[0] <= breathe_ceiling + 1);
+
+    bb_led_anim_detach(ah);
+    bb_led_close(led);
+}
+
+// fade_ms 0 behaves exactly like bb_led_anim_set (no blend): the very first tick
+// of the new pattern shows its raw value, not a blend with the prior level.
+void test_anim_set_transition_zero_fade_is_instant(void)
+{
+    bb_led_anim_set_mock_time_ms(0);
+    bb_led_handle_t led = open_led(&s_drv_level);
+    bb_led_anim_handle_t ah = attach(led);
+
+    bb_led_anim_pattern_t solid = { .kind = BB_ANIM_SOLID };
+    solid.solid.brightness_pct = 50;
+    bb_led_anim_set(ah, &solid);
+    bb_led_anim_set_mock_time_ms(20);
+    bb_led_anim_tick(ah);
+
+    // Transition to a SOLID 5% with fade_ms 0 → immediate 5% (3276), not a blend.
+    bb_led_anim_set_mock_time_ms(100);
+    bb_led_anim_pattern_t low = { .kind = BB_ANIM_SOLID };
+    low.solid.brightness_pct = 5;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_anim_set_transition(ah, &low, 0));
+    bb_led_anim_set_mock_time_ms(120);
+    bb_led_anim_tick(ah);
+    TEST_ASSERT_EQUAL_UINT16(3276, g_mock.level[0]);
 
     bb_led_anim_detach(ah);
     bb_led_close(led);

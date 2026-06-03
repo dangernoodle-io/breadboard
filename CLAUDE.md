@@ -190,6 +190,13 @@ Per-font Kconfigs: `CONFIG_BB_DISPLAY_FONT_5X8`, `CONFIG_BB_DISPLAY_FONT_6X12`, 
 
 `bb_clock_now_ms()` in `bb_core/include/bb_clock.h` provides a portable millisecond timestamp. Named timing constants live in their respective headers: `BB_BUTTON_DEBOUNCE_MS_DEFAULT`, `BB_BUTTON_EVENTS_*_DEFAULT_MS`, `BB_LED_ANIM_*_DEFAULT_MS`. `bb_timer` also exposes `bb_timer_now_us()` for microsecond timestamps.
 
+## LED animation (bb_led_anim)
+
+`bb_led_anim` drives patterns (SOLID/BLINK/BREATHE/PULSE/COLOR_CYCLE/CHASE) on a `bb_led` handle off a `bb_timer` (or `bb_led_anim_tick()` on Arduino). Brightness patterns interpolate at 16-bit and emit via `bb_led_set_level` so the driver's CIE gamma renders a smooth dim sweep.
+
+- **Pattern transitions.** `bb_led_anim_set_transition(h, pat, fade_ms)` cross-fades from the current output level into the new pattern over `fade_ms` (e.g. a boot solid 50% fading into a breathe heartbeat). The fade is a brightness lerp in perceptual `set_level` space — **brightness/level patterns only** (solid, breathe, pulse, blink-with-level); RGB colour is not crossfaded. `bb_led_anim_set` is the instant (`fade_ms 0`) form.
+- **Blink brightness.** `BB_ANIM_BLINK` gains `level_pct`: `0` keeps the legacy full on/off (`BB_LED_CAP_ONOFF`); `>0` flashes at that brightness via `set_level` (gamma-correct, needs `BB_LED_CAP_BRIGHTNESS`).
+
 ## bb_hw
 
 Board pin/peripheral headers are consumer-supplied. Each firmware must provide its own board header file. In your build, set `-DBB_HW_BOARD_HEADER="<name>.h"` and ensure that header is on the include path (via CMake include dirs or PlatformIO `build_flags`). `bb_hw.h` requires this define and will error if not provided.

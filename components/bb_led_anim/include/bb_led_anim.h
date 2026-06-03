@@ -27,7 +27,9 @@ typedef struct {
     bb_led_anim_kind_t kind;
     union {
         struct { uint8_t r, g, b, brightness_pct; } solid;
-        struct { uint32_t period_ms; uint8_t duty_pct; } blink;
+        // level_pct 0 → legacy full on/off (BB_LED_CAP_ONOFF); >0 → flash at that
+        // brightness via set_level (gamma-correct, needs BB_LED_CAP_BRIGHTNESS).
+        struct { uint32_t period_ms; uint8_t duty_pct; uint8_t level_pct; } blink;
         struct { uint32_t period_ms; uint8_t min_pct, max_pct; } breathe;
         struct { uint32_t period_ms; uint8_t peak_pct; uint32_t decay_ms; } pulse;
         struct { uint32_t period_ms; uint8_t sat_pct, val_pct; } color_cycle;
@@ -56,6 +58,13 @@ bb_err_t bb_led_anim_attach(const bb_led_anim_cfg_t *cfg, bb_led_anim_handle_t *
 // Swap the active pattern. Resets phase to now. Checks caps; returns
 // BB_ERR_UNSUPPORTED when the handle's bb_led lacks the required caps.
 bb_err_t bb_led_anim_set   (bb_led_anim_handle_t h, const bb_led_anim_pattern_t *pat);
+
+// Like bb_led_anim_set, but cross-fades from the current output level into the
+// new pattern over fade_ms (brightness/level patterns only — solid, breathe,
+// pulse, blink-with-level; RGB colour is not crossfaded). fade_ms 0 is identical
+// to bb_led_anim_set. The fade runs in perceptual set_level space.
+bb_err_t bb_led_anim_set_transition(bb_led_anim_handle_t h,
+                                    const bb_led_anim_pattern_t *pat, uint32_t fade_ms);
 
 // Suspend/resume ticking (pattern state is preserved).
 bb_err_t bb_led_anim_pause (bb_led_anim_handle_t h);
