@@ -124,4 +124,22 @@ typedef void (*bb_log_stream_tap_fn)(const char *data, size_t len);
  */
 void bb_log_stream_set_tap(bb_log_stream_tap_fn fn);
 
+#if CONFIG_BB_LOG_UDP_SINK
+/**
+ * Mirror every formatted log line to a UDP datagram target (one datagram per
+ * line) — a first-class sink alongside the console writer and SSE ring. The
+ * log hook only enqueues; a dedicated low-priority task owns the socket and
+ * does the sendto, so the blocking call never runs inside the IDF log mutex.
+ * Intended for headless / pre-httpd states (e.g. OTA-only boot mode) where the
+ * SSE HTTP stream isn't available. `ip_be` is a network-order IPv4 address
+ * (INADDR_BROADCAST = 255.255.255.255 for subnet broadcast). Lazily spawns the
+ * sender task on first enable. Compiled out unless CONFIG_BB_LOG_UDP_SINK=y.
+ * NOTE: log lines may carry SSID/hostname — enable deliberately.
+ */
+void bb_log_udp_enable(uint32_t ip_be, uint16_t port);
+
+/** Stop mirroring to UDP (task/socket retained; enqueue gated off). */
+void bb_log_udp_disable(void);
+#endif /* CONFIG_BB_LOG_UDP_SINK */
+
 #endif /* ESP_PLATFORM */
