@@ -38,6 +38,19 @@ config BB_LOG_STREAM_BUF_BYTES
         Allocated on heap (SPIRAM-preferred with fallback) only when
         bb_log_stream_init() is called. Default 6144 bytes (6 KB).
 
+config BB_LOG_UDP_SINK
+    bool "Mirror log lines to a UDP datagram sink"
+    default n
+    help
+        When enabled, bb_log compiles an optional UDP mirror output. A consumer
+        calls bb_log_udp_enable(ip_be, port) at runtime to broadcast every
+        formatted log line as a UDP datagram (one per line); a dedicated
+        low-priority task owns the socket so sendto never runs inside the IDF
+        log mutex. Intended for headless / pre-httpd states (e.g. OTA-only boot
+        mode) where the SSE HTTP stream isn't reachable. Default off — the
+        machinery is compiled out entirely. NOTE: log lines may carry SSID /
+        hostname; enable deliberately.
+
 config BB_LOG_TAG_REGISTRY_MAX
     int "Maximum number of log tag registry entries"
     default 24

@@ -24,6 +24,10 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 #include "freertos/ringbuf.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
+#if CONFIG_BB_LOG_UDP_SINK
+#include "lwip/sockets.h"
+#include "lwip/inet.h"
+#endif
 
 static const char *TAG = "bb_log_stream";
 
@@ -72,6 +76,43 @@ static void s_writer_task_fn(void *arg)
     }
 }
 
+#if CONFIG_BB_LOG_UDP_SINK
+/* Optional UDP mirror sink — a first-class output alongside the console writer
+ * and ring buffer. The vprintf hook only enqueues (non-blocking); a dedicated
+ * low-priority task owns the socket and does the sendto, so the blocking call
+ * never runs inside the ESP-IDF log mutex. Default-compiled-out (Kconfig n). */
+#define LOG_UDP_QUEUE_LEN     16
+#define LOG_UDP_TASK_STACK    3072
+#define LOG_UDP_TASK_PRIO     1
+
+static QueueHandle_t       s_udp_q = NULL;
+static TaskHandle_t        s_udp_task = NULL;
+static volatile bool       s_udp_enabled = false;
+static volatile uint32_t   s_udp_ip_be = 0;     /* network-order IPv4 */
+static volatile uint16_t   s_udp_port = 0;
+static volatile uint32_t   s_udp_dropped = 0;
+
+static void s_udp_task_fn(void *arg)
+{
+    (void)arg;
+    int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd >= 0) {
+        int on = 1;
+        setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on));
+    }
+    log_writer_msg_t msg;
+    for (;;) {
+        if (xQueueReceive(s_udp_q, &msg, portMAX_DELAY) != pdTRUE) continue;
+        if (fd < 0 || !s_udp_enabled) continue;
+        struct sockaddr_in dst = { 0 };
+        dst.sin_family      = AF_INET;
+        dst.sin_port        = htons(s_udp_port);
+        dst.sin_addr.s_addr = s_udp_ip_be;
+        sendto(fd, msg.line, msg.len, 0, (struct sockaddr *)&dst, sizeof(dst));
+    }
+}
+#endif /* CONFIG_BB_LOG_UDP_SINK */
+
 // Optional tap installed by bb_diag (or any consumer) to observe every line
 static bb_log_stream_tap_fn s_tap;
 
@@ -108,8 +149,45 @@ static int s_log_vprintf(const char *fmt, va_list args)
     bb_log_stream_tap_fn tap = s_tap;
     if (tap) tap(msg.line, msg.len);
 
+#if CONFIG_BB_LOG_UDP_SINK
+    /* 4. Enqueue for the UDP mirror — non-blocking, drop on full. sendto runs
+     *    on s_udp_task, never here inside the IDF log mutex. */
+    if (s_udp_enabled && s_udp_q && xQueueSend(s_udp_q, &msg, 0) != pdTRUE) {
+        s_udp_dropped++;
+    }
+#endif
+
     return n;
 }
+
+#if CONFIG_BB_LOG_UDP_SINK
+void bb_log_udp_enable(uint32_t ip_be, uint16_t port)
+{
+    s_udp_ip_be = ip_be;
+    s_udp_port  = port;
+    if (!s_udp_q) {
+        s_udp_q = xQueueCreate(LOG_UDP_QUEUE_LEN, sizeof(log_writer_msg_t));
+        if (!s_udp_q) {
+            bb_log_e(TAG, "udp sink queue alloc failed");
+            return;
+        }
+    }
+    if (!s_udp_task) {
+        if (xTaskCreate(s_udp_task_fn, "bb_log_udp", LOG_UDP_TASK_STACK,
+                        NULL, LOG_UDP_TASK_PRIO, &s_udp_task) != pdPASS) {
+            bb_log_e(TAG, "udp sink task create failed");
+            return;
+        }
+    }
+    s_udp_enabled = true;
+    bb_log_i(TAG, "udp log sink enabled -> port %u", (unsigned)port);
+}
+
+void bb_log_udp_disable(void)
+{
+    s_udp_enabled = false;
+}
+#endif /* CONFIG_BB_LOG_UDP_SINK */
 
 bb_err_t bb_log_stream_init(void)
 {
