@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include "bb_core.h"   // bb_ota_progress_cb_t / bb_ota_phase_t
 
 /**
  * Callback invoked before OTA apply to pause work.
@@ -31,6 +32,13 @@ void bb_ota_push_set_hooks(bb_ota_pause_cb_t pause, bb_ota_resume_cb_t resume);
  * Allows consumers to override firmware board mismatch validation if needed.
  */
 void bb_ota_push_set_skip_check_cb(bb_ota_push_skip_check_cb_t cb);
+
+/**
+ * Set an optional progress callback (shared `bb_ota_progress_cb_t` from bb_core)
+ * fired through the push: START, PROGRESS(pct), then SUCCESS or FAIL. Used for
+ * LED/feedback. NULL to clear.
+ */
+void bb_ota_push_set_progress_cb(bb_ota_progress_cb_t cb);
 
 /**
  * Validate Content-Length for an OTA push request.

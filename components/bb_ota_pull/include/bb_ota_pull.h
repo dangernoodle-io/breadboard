@@ -35,6 +35,13 @@ void bb_ota_pull_set_hooks(bb_ota_pause_cb_t pause, bb_ota_resume_cb_t resume);
 void bb_ota_pull_set_skip_check_cb(bb_ota_skip_check_cb_t cb);
 
 /**
+ * Set an optional progress callback (shared `bb_ota_progress_cb_t` from bb_core)
+ * fired through the pull: START, PROGRESS(pct) per ~10%, then SUCCESS or FAIL.
+ * Used for LED/feedback; inherited by bb_ota_pull_run_sync. NULL to clear.
+ */
+void bb_ota_pull_set_progress_cb(bb_ota_progress_cb_t cb);
+
+/**
  * Set the GitHub releases URL for fetching updates.
  * Default: https://api.github.com/repos/dangernoodle-io/snugfeather/releases/latest
  * @param url URL to set (or NULL to reset to default)
@@ -75,5 +82,14 @@ void bb_ota_pull_set_task_core(int core);
  * Mirrors bb_update_check_set_task_priority.
  */
 void bb_ota_pull_set_task_priority(int priority);
+
+/**
+ * Download + flash a firmware image synchronously on the CALLING task (no
+ * worker spawn). Returns BB_OK when the new image is written and the caller
+ * should reboot, else an error. Intended for OTA-only boot mode, where the full
+ * heap is available because no subsystems have started. Does not pause/resume
+ * work and does not reboot — the caller owns that.
+ */
+bb_err_t bb_ota_pull_run_sync(const char *asset_url);
 
 #endif // ESP_PLATFORM

@@ -97,6 +97,11 @@ void test_ota_push_validate_content_len_oversized_returns_413(void);
 void test_ota_push_validate_content_len_at_max_returns_ok(void);
 void test_ota_push_validate_content_len_valid_returns_ok(void);
 
+// Forward declarations from test_ota_boot.c
+void test_ota_boot_pending_returns_bool(void);
+void test_ota_boot_arm_callable(void);
+void test_ota_boot_progress_cb_registration(void);
+
 // Forward declarations from test_http_utils.c
 void test_url_decode_basic(void);
 void test_url_decode_plus_as_space(void);
@@ -1368,6 +1373,10 @@ int main(void) {
     RUN_TEST(test_ota_push_validate_content_len_oversized_returns_413);
     RUN_TEST(test_ota_push_validate_content_len_at_max_returns_ok);
     RUN_TEST(test_ota_push_validate_content_len_valid_returns_ok);
+
+    RUN_TEST(test_ota_boot_pending_returns_bool);
+    RUN_TEST(test_ota_boot_arm_callable);
+    RUN_TEST(test_ota_boot_progress_cb_registration);
 
     // OTA validator tests
     RUN_TEST(test_ota_validator_is_pending_false_on_host);

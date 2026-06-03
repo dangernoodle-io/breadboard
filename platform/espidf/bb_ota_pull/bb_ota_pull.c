@@ -40,6 +40,9 @@ static bb_ota_resume_cb_t s_resume_cb = NULL;
 // Pluggable skip-check callback
 static bb_ota_skip_check_cb_t s_skip_check_cb = NULL;
 
+// Optional progress callback (LED/feedback) — shared bb_core typedef.
+static bb_ota_progress_cb_t s_progress_cb = NULL;
+
 // Releases URL — caller must set before bb_ota_pull_check_now()
 // GitHub release-asset URLs are ~120-180 bytes; 256 is sufficient.
 static char s_releases_url[256] = "";
@@ -164,6 +167,12 @@ void bb_ota_pull_set_hooks(bb_ota_pause_cb_t pause, bb_ota_resume_cb_t resume)
 void bb_ota_pull_set_skip_check_cb(bb_ota_skip_check_cb_t cb)
 {
     s_skip_check_cb = cb;
+}
+
+// Public API: Set progress callback (LED/feedback during the pull)
+void bb_ota_pull_set_progress_cb(bb_ota_progress_cb_t cb)
+{
+    s_progress_cb = cb;
 }
 
 // Public API: Set releases URL
@@ -296,42 +305,29 @@ static void ota_task_exit(void)
     vTaskDelete(NULL);
 }
 
-/**
- * OTA worker task - performs the actual firmware update.
- */
-static void ota_worker_task(void *arg)
+// Fire the optional progress callback (LED/feedback). No-op if unset.
+static void ota_progress(bb_ota_phase_t phase, int pct)
 {
-    // Remove this task from the task WDT. OTA is single-shot and long-running;
-    // a stalled mbedtls recv should surface as a clean HTTP timeout, not a
-    // WDT panic. ota_task_exit() re-adds before dying.
-    esp_err_t wdt_err = esp_task_wdt_delete(NULL);
-    if (wdt_err != ESP_OK && wdt_err != ESP_ERR_NOT_FOUND) {
-        bb_log_w(TAG, "esp_task_wdt_delete: %s", esp_err_to_name(wdt_err));
-    }
+    bb_ota_progress_cb_t cb = s_progress_cb;
+    if (cb) cb(phase, pct);
+}
 
-    ota_worker_arg_t result;
-    if (arg) {
-        memcpy(&result, arg, sizeof(ota_worker_arg_t));
-        free(arg);
-    } else {
-        ota_task_exit();
-        return;
-    }
+/**
+ * ota_download_and_flash — generic download + flash core, runs on the CALLER's
+ * task. Acquires the PM lock and extends the task WDT for the flash phase (both
+ * restored on every exit). Does NOT pause/resume work, touch s_ota_in_progress,
+ * manage task-WDT subscription, or reboot — the caller owns task lifecycle and
+ * the post-success esp_restart(). Returns BB_OK when the new image is written
+ * and ready to boot, else an error (status/last_error already set).
+ *
+ * Shared by ota_worker_task (spawn path) and bb_ota_pull_run_sync (boot-mode
+ * full-heap path) so there is a single tested download path.
+ */
+static bb_err_t ota_download_and_flash(const char *asset_url)
+{
+    bb_err_t ret = ESP_FAIL;
 
-    // Cooperatively pause work and extend WDT for the flash phase.
-    // esp_flash_write + cache_disable windows plus the consumer pause window
-    // can easily exceed CONFIG_ESP_TASK_WDT_TIMEOUT_S, tripping WDT-subscribed
-    // tasks (idle tasks, consumer mining tasks blocked in their pause
-    // primitives). Restored on every exit path via ota_task_exit().
-    bool s_paused = (s_pause_cb != NULL) ? s_pause_cb() : false;
-    bool pause_ok = (s_pause_cb == NULL) || s_paused;
     ota_wdt_extend();
-    if (!pause_ok) {
-        ota_set_error("mining pause failed — aborting OTA to avoid tls contention");
-        s_ota_in_progress = false;
-        ota_task_exit();
-        return;
-    }
 
     // WiFi IP pre-flight — catches OTA attempts fired during reconnect
     // (stale DNS cache, no bound IP). One short retry then bail.
@@ -340,7 +336,7 @@ static void ota_worker_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(2000));
         if (!bb_wifi_has_ip()) {
             ota_set_error("wifi not ready");
-            goto resume_and_exit;
+            goto done;
         }
     }
 
@@ -350,15 +346,16 @@ static void ota_worker_task(void *arg)
     ota_pm_lock_acquire();
 
     bb_log_i(TAG, "ota worker on core %d", xPortGetCoreID());
-    bb_log_i(TAG, "starting OTA update from %s", result.asset_url);
+    bb_log_i(TAG, "starting OTA update from %s", asset_url);
     taskENTER_CRITICAL(&s_ota_status_mux);
     s_ota_status.state = OTA_STATE_DOWNLOADING;
     s_ota_status.progress_pct = 0;
     s_ota_status.last_error[0] = '\0';
     taskEXIT_CRITICAL(&s_ota_status_mux);
+    ota_progress(BB_OTA_PHASE_START, 0);
 
     esp_http_client_config_t http_config = {
-        .url = result.asset_url,
+        .url = asset_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         /* WDT exclusion (see ota_worker_task entry) lifts the coupling between
          * this timeout and CONFIG_ESP_TASK_WDT_TIMEOUT_S. A stalled socket now
@@ -392,7 +389,7 @@ static void ota_worker_task(void *arg)
     if (!update_partition) {
         bb_log_e(TAG, "no OTA update partition found");
         ota_set_error("no OTA update partition (check partition table)");
-        goto resume_and_exit;
+        goto done_release;
     }
     bb_log_i(TAG, "OTA target partition: %s", update_partition->label);
 
@@ -471,7 +468,7 @@ static void ota_worker_task(void *arg)
                               img_desc.project_name, running->project_name);
                 esp_https_ota_abort(ota_handle);
                 ota_handle = NULL;
-                goto resume_and_exit;
+                goto done_release;
             }
         }
 
@@ -498,6 +495,7 @@ static void ota_worker_task(void *arg)
                 if (pct / 10 != last_logged_pct / 10) {
                     bb_log_i(TAG, "OTA progress: %d%% (%d/%d bytes)",
                              pct, read_so_far, image_size);
+                    ota_progress(BB_OTA_PHASE_PROGRESS, pct);
                     last_logged_pct = pct;
                 }
             }
@@ -543,7 +541,7 @@ static void ota_worker_task(void *arg)
         bb_log_e(TAG, "OTA download failed after %d attempts", max_dl_attempts);
         ota_set_error("download failed after %d attempts", max_dl_attempts);
         // ota_handle is NULL here (aborted in last failed iteration)
-        goto resume_and_exit;
+        goto done_release;
     }
 
     taskENTER_CRITICAL(&s_ota_status_mux);
@@ -556,21 +554,87 @@ static void ota_worker_task(void *arg)
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_status.state = OTA_STATE_COMPLETE;
         taskEXIT_CRITICAL(&s_ota_status_mux);
+        ret = BB_OK;        // image written; caller reboots
+        goto done_release;
+    }
+
+    bb_log_e(TAG, "esp_https_ota_finish failed: %s", esp_err_to_name(err));
+    ota_set_error("esp_https_ota_finish: %s", esp_err_to_name(err));
+    ret = err;
+
+done_release:
+    ota_pm_lock_release();
+done:
+    ota_wdt_restore();
+    ota_progress(ret == BB_OK ? BB_OTA_PHASE_SUCCESS : BB_OTA_PHASE_FAIL,
+                 ret == BB_OK ? 100 : 0);
+    return ret;
+}
+
+/**
+ * OTA worker task — spawn path for POST /api/update/apply. Removes itself from
+ * the task WDT, pauses cooperative work, runs the shared download core, then
+ * reboots on success or resumes work on failure.
+ */
+static void ota_worker_task(void *arg)
+{
+    // Remove this task from the task WDT. OTA is single-shot and long-running;
+    // a stalled mbedtls recv should surface as a clean HTTP timeout, not a
+    // WDT panic. ota_task_exit() re-adds before dying.
+    esp_err_t wdt_err = esp_task_wdt_delete(NULL);
+    if (wdt_err != ESP_OK && wdt_err != ESP_ERR_NOT_FOUND) {
+        bb_log_w(TAG, "esp_task_wdt_delete: %s", esp_err_to_name(wdt_err));
+    }
+
+    ota_worker_arg_t result;
+    if (arg) {
+        memcpy(&result, arg, sizeof(ota_worker_arg_t));
+        free(arg);
+    } else {
+        ota_task_exit();
+        return;
+    }
+
+    // Cooperatively pause work before the download. The pause window plus the
+    // flash phase can exceed CONFIG_ESP_TASK_WDT_TIMEOUT_S; the core extends the
+    // WDT (and ota_task_exit restores it).
+    bool paused = (s_pause_cb != NULL) ? s_pause_cb() : false;
+    bool pause_ok = (s_pause_cb == NULL) || paused;
+    if (!pause_ok) {
+        ota_set_error("mining pause failed — aborting OTA to avoid tls contention");
+        s_ota_in_progress = false;
+        ota_task_exit();
+        return;
+    }
+
+    bb_err_t err = ota_download_and_flash(result.asset_url);
+    if (err == BB_OK) {
         bb_log_i(TAG, "OTA complete, rebooting to %s", result.latest_tag);
         vTaskDelay(pdMS_TO_TICKS(500));
         esp_restart();
     }
 
-    bb_log_e(TAG, "esp_https_ota_finish failed: %s", esp_err_to_name(err));
-    ota_set_error("esp_https_ota_finish: %s", esp_err_to_name(err));
-
-resume_and_exit:
-    ota_pm_lock_release();
     s_ota_in_progress = false;
-    if (s_paused && s_resume_cb) {
+    if (paused && s_resume_cb) {
         s_resume_cb();
     }
     ota_task_exit();
+}
+
+/**
+ * bb_ota_pull_run_sync — run the firmware download+flash synchronously on the
+ * CALLING task (no worker spawn). On BB_OK the new image is written and the
+ * caller should reboot. Intended for the OTA-only boot-mode path where the full
+ * heap is available because no subsystems have started. Does not pause/resume
+ * (nothing is running) and does not reboot (caller decides).
+ */
+bb_err_t bb_ota_pull_run_sync(const char *asset_url)
+{
+    if (!asset_url || asset_url[0] == '\0') return ESP_ERR_INVALID_ARG;
+    // The caller (boot task) is long-lived during the download; drop it from
+    // the task WDT if subscribed (best-effort — the boot task usually isn't).
+    esp_task_wdt_delete(NULL);
+    return ota_download_and_flash(asset_url);
 }
 
 /**

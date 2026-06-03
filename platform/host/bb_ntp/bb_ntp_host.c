@@ -22,3 +22,9 @@ bool bb_ntp_is_synced(void)
 {
     return false;
 }
+
+bool bb_ntp_wait_synced(uint32_t timeout_ms)
+{
+    (void)timeout_ms;
+    return false;
+}

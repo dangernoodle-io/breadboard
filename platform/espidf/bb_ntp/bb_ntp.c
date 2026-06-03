@@ -1,8 +1,11 @@
 #include "bb_ntp.h"
 #include "bb_log.h"
 #include "esp_sntp.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 #include <sys/time.h>
+#include <time.h>
 
 static const char *TAG = "bb_ntp";
 static const char *DEFAULT_SERVER = "pool.ntp.org";
@@ -51,4 +54,22 @@ bb_err_t bb_ntp_stop(void)
 bool bb_ntp_is_synced(void)
 {
     return s_synced;
+}
+
+#define BB_NTP_SANE_EPOCH 1700000000  /* ~2023-11-14; clock below this is bogus */
+
+bool bb_ntp_wait_synced(uint32_t timeout_ms)
+{
+    const TickType_t step = pdMS_TO_TICKS(250);
+    uint32_t waited = 0;
+    for (;;) {
+        if (s_synced && (long)time(NULL) > BB_NTP_SANE_EPOCH) {
+            return true;
+        }
+        if (waited >= timeout_ms) {
+            return false;
+        }
+        vTaskDelay(step);
+        waited += 250;
+    }
 }

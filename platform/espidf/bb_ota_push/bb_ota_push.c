@@ -22,11 +22,20 @@ static bb_ota_resume_cb_t s_resume_cb = NULL;
 // Pluggable skip-check callback
 static bb_ota_push_skip_check_cb_t s_skip_check_cb = NULL;
 
+// Optional progress callback (LED/feedback) — shared bb_core typedef.
+static bb_ota_progress_cb_t s_progress_cb = NULL;
+
 // Public API: Set pause/resume callbacks
 void bb_ota_push_set_hooks(bb_ota_pause_cb_t pause, bb_ota_resume_cb_t resume)
 {
     s_pause_cb = pause;
     s_resume_cb = resume;
+}
+
+// Public API: Set progress callback (LED/feedback during the push)
+void bb_ota_push_set_progress_cb(bb_ota_progress_cb_t cb)
+{
+    s_progress_cb = cb;
 }
 
 // Public API: Set skip-check callback
@@ -63,6 +72,13 @@ static const char *TAG = "bb_ota_push";
 
 #define OTA_RECV_BUF_SIZE CONFIG_BB_OTA_PUSH_RECV_BUF_SIZE
 #define OTA_TIMEOUT_RETRIES 30
+
+// Fire the optional progress callback (LED/feedback). No-op if unset.
+static void ota_push_progress(bb_ota_phase_t phase, int pct)
+{
+    bb_ota_progress_cb_t cb = s_progress_cb;
+    if (cb) cb(phase, pct);
+}
 
 /**
  * POST /api/update/push - Receive and flash firmware via HTTP upload.
@@ -136,6 +152,8 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
 
     int received = 0;
     int timeout_count = 0;
+    int last_pct = -1;
+    ota_push_progress(BB_OTA_PHASE_START, 0);
 
     while (received < content_len) {
         int ret = bb_http_req_recv(req, buf,
@@ -213,6 +231,13 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         }
 
         received += ret;
+        if (content_len > 0) {
+            int pct = (int)((int64_t)received * 100 / content_len);
+            if (pct / 10 != last_pct / 10) {
+                ota_push_progress(BB_OTA_PHASE_PROGRESS, pct);
+                last_pct = pct;
+            }
+        }
 
         // Yield each iteration so the IDLE task (and the WiFi/lwIP stack) get
         // CPU during the receive+write loop. On single-core targets the httpd
@@ -240,6 +265,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     }
 
     bb_log_i(TAG, "OTA complete, rebooting");
+    ota_push_progress(BB_OTA_PHASE_SUCCESS, 100);
     {
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
@@ -257,6 +283,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     return BB_OK;  // unreachable
 
 resume_and_exit:
+    ota_push_progress(BB_OTA_PHASE_FAIL, 0);
     bb_system_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
     if (s_paused && s_resume_cb) { s_resume_cb(); }
     return BB_ERR_INVALID_STATE;

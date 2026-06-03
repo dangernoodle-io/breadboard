@@ -61,6 +61,21 @@ typedef void *bb_http_request_t;
 typedef bool (*bb_http_pause_cb_t)(void);
 typedef void (*bb_http_resume_cb_t)(void);
 
+// ---------------------------------------------------------------------------
+// OTA progress callback (shared by bb_ota_pull, bb_ota_push, bb_ota_boot)
+// ---------------------------------------------------------------------------
+// Lets a consumer surface OTA activity uniformly across every update path —
+// e.g. flash an LED. Fired at phase transitions; `pct` (0..100) is meaningful
+// only on BB_OTA_PHASE_PROGRESS (ignore it otherwise). Called from the worker
+// task that performs the update — keep handlers short and non-blocking.
+typedef enum {
+    BB_OTA_PHASE_START,     // download/transfer beginning
+    BB_OTA_PHASE_PROGRESS,  // in progress; pct = percent complete
+    BB_OTA_PHASE_SUCCESS,   // image written/validated (reboot imminent)
+    BB_OTA_PHASE_FAIL,      // aborted/failed
+} bb_ota_phase_t;
+typedef void (*bb_ota_progress_cb_t)(bb_ota_phase_t phase, int pct);
+
 #ifdef __cplusplus
 }
 #endif
