@@ -173,12 +173,15 @@ static void ota_boot_reboot_task(void *arg)
     esp_restart();
 }
 
-// POST /api/update/boot — arm boot mode and reboot. The lean trigger: one route,
-// no download worker until the next boot.
+// POST /api/update/apply — arm boot mode and reboot. The lean trigger: one route,
+// no download worker until the next boot. On a boot-mode board this is the single
+// owner of /api/update/apply (bb_ota_pull does not register it); the distinct
+// "rebooting_for_boot_mode_ota" status tells clients to wait for the device to
+// reappear on a bumped version rather than poll /api/update/progress.
 static bb_err_t ota_boot_handler(bb_http_request_t *req)
 {
     bb_ota_boot_arm();
-    bb_log_w(TAG, "OTA boot-mode armed via /api/update/boot; rebooting");
+    bb_log_w(TAG, "OTA boot-mode armed via /api/update/apply; rebooting");
     bb_http_resp_set_status(req, 202);
     bb_http_json_obj_stream_t obj;
     bb_http_resp_json_obj_begin(req, &obj);
@@ -200,19 +203,19 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
     };
     static const bb_route_t s_route = {
         .method    = BB_HTTP_POST,
-        .path      = "/api/update/boot",
+        .path      = "/api/update/apply",
         .tag       = "update",
-        .summary   = "Arm OTA boot mode and reboot (full-heap pull next boot)",
+        .summary   = "Apply update via OTA boot mode: arm + reboot (full-heap pull next boot)",
         .responses = s_responses,
         .handler   = ota_boot_handler,
     };
 
     bb_err_t rc = bb_http_register_described_route(server, &s_route);
     if (rc != BB_OK) {
-        bb_log_e(TAG, "register /api/update/boot failed: %d", rc);
+        bb_log_e(TAG, "register /api/update/apply failed: %d", rc);
         return rc;
     }
-    bb_log_i(TAG, "OTA boot route registered");
+    bb_log_i(TAG, "OTA boot-mode apply route registered");
     return BB_OK;
 }
 

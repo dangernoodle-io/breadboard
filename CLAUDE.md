@@ -203,6 +203,16 @@ build_flags =
 
 Examples in this repo (elecrow-p4-hmi7, esp32-wroom-32) own their own board headers under `examples/<name>/board/`. bb_hw component provides no bundled board definitions.
 
+## OTA strategy (`/api/update/apply` owner)
+
+OTA update strategy is a mutually-exclusive Kconfig **choice** `BB_OTA_STRATEGY` (in `bb_core/Kconfig`, always sourced): `BB_OTA_STRATEGY_PULL` (default) | `BB_OTA_STRATEGY_BOOT` | `BB_OTA_STRATEGY_NONE`. The choice drives the defaults of `CONFIG_BB_OTA_PULL_AUTOREGISTER` (`default y if BB_OTA_STRATEGY_PULL`) and `CONFIG_BB_OTA_BOOT_AUTOREGISTER` (`default y if BB_OTA_STRATEGY_BOOT`), so **`POST /api/update/apply` has exactly one owner** — never both. `bb_ota_boot` links on every board but its route + force-register compile out unless the strategy is boot-mode.
+
+`POST /api/update/apply` returns a strategy-specific 202 `status`:
+- in-place pull (`bb_ota_pull`) → `update_started` — download proceeds at runtime heap; poll `GET /api/update/progress`.
+- boot-mode (`bb_ota_boot`) → `rebooting_for_boot_mode_ota` — device reboots immediately and pulls at full early-boot heap; the client waits for the device to reappear on a bumped version (no `/progress` route on a boot-mode board). Distinct from `bb_system`'s generic `rebooting` (`POST /api/reboot`, same firmware).
+
+There is no `/api/update/boot` verb — boot-mode arms via `/api/update/apply`. The per-component autoregister bools stay user-visible for the manual-registration escape hatch.
+
 ## OTA push body cap
 
 `POST /api/update/push` enforces a body size limit via `CONFIG_BB_OTA_PUSH_MAX_SIZE` (default 4 MB). Requests exceeding the limit return 413 before any flash write begins.

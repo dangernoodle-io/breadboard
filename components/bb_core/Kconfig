@@ -1,0 +1,40 @@
+menu "breadboard: OTA strategy"
+
+choice BB_OTA_STRATEGY
+    prompt "OTA update strategy (/api/update/apply owner)"
+    default BB_OTA_STRATEGY_PULL
+    help
+        Selects which component owns POST /api/update/apply. Exactly one
+        strategy is active per board, so /apply has a single registrant and
+        bb_ota_pull / bb_ota_boot never both auto-register the route.
+
+        This choice only drives the default of the per-component autoregister
+        symbols (BB_OTA_PULL_AUTOREGISTER, BB_OTA_BOOT_AUTOREGISTER); each can
+        still be overridden to register the route manually.
+
+config BB_OTA_STRATEGY_PULL
+    bool "In-place pull (bb_ota_pull owns /api/update/apply)"
+    help
+        bb_ota_pull downloads + flashes the new image in place at runtime
+        heap, then reboots. Suitable for boards with enough contiguous heap
+        for the TLS + OTA buffers.
+
+config BB_OTA_STRATEGY_BOOT
+    bool "Boot-mode full-heap pull (bb_ota_boot owns /api/update/apply)"
+    help
+        bb_ota_boot arms a one-shot flag and reboots; the manifest resolve +
+        firmware download run at FULL early-boot heap before any subsystem
+        starts. For tight / serial-less single-core boards (e.g.
+        esp32-s2-mini) that cannot afford an in-place pull under a fragmented
+        runtime heap.
+
+config BB_OTA_STRATEGY_NONE
+    bool "None / push-only (no /api/update/apply owner)"
+    help
+        Neither pull nor boot auto-registers /api/update/apply. Use for
+        push-only firmware delivery (POST /api/update/push) or boards with no
+        onboard OTA trigger.
+
+endchoice
+
+endmenu
