@@ -25,4 +25,20 @@ config BB_OTA_PULL_WDT_EXTENDED_S
         for the duration of the OTA work, then restores the Kconfig default
         on exit. 300 s covers a full firmware download over weak WiFi.
 
+config BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
+    int "Pre-OTA minimum largest-free-block guard (bytes, 0=off)"
+    range 0 131072
+    default 0
+    help
+        Pre-flight heap guard. Before the TLS handshake, bb_ota_pull checks
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)
+        and refuses the pull (clean error, no crash) if it is below this value
+        — the mbedTLS IN buffer + handshake need a contiguous internal block.
+
+        Default 0 disables the guard (no behaviour change). Set it on tight,
+        no-PSRAM boards where an in-place pull at low heap would otherwise OOM
+        mid-handshake and panic. A sane floor is roughly
+        CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN + a few KB. Does not meaningfully
+        affect the full-heap OTA boot-mode path (ample heap by construction).
+
 endmenu
