@@ -117,7 +117,7 @@ static void step_solid(struct bb_led_anim *h)
         bb_led_fill_color(h->led, h->pat.solid.r, h->pat.solid.g, h->pat.solid.b);
     if (caps & BB_LED_CAP_BRIGHTNESS)
         for (uint16_t i = 0; i < cnt; i++)
-            bb_led_set_brightness(h->led, i, h->pat.solid.brightness_pct);
+            bb_led_set_level(h->led, i, (uint16_t)((uint32_t)h->pat.solid.brightness_pct * 65535u / 100u));
     if (caps & BB_LED_CAP_ONOFF)
         for (uint16_t i = 0; i < cnt; i++)
             bb_led_set_on(h->led, i, true);
@@ -141,14 +141,16 @@ static void step_breathe(struct bb_led_anim *h, uint32_t elapsed_ms)
     uint32_t period   = h->pat.breathe.period_ms ? h->pat.breathe.period_ms : BB_LED_ANIM_BREATHE_PERIOD_DEFAULT_MS;
     uint32_t phase_ms = elapsed_ms % period;
     uint8_t  sin_idx  = (uint8_t)((uint32_t)phase_ms * 256u / period);
-    uint8_t  s        = sin8(sin_idx);
-    uint8_t  min_pct  = h->pat.breathe.min_pct;
-    uint8_t  max_pct  = h->pat.breathe.max_pct;
-    uint8_t  range    = (max_pct > min_pct) ? (max_pct - min_pct) : 0u;
-    uint8_t  pct      = min_pct + (uint8_t)((uint32_t)s * range / 255u);
+    uint8_t  s        = sin8(sin_idx);                     // 0..255
+    // Interpolate min/max percent into 16-bit levels so the driver (+ gamma) can
+    // render a smooth dim breathe instead of ~6 integer-percent steps.
+    uint16_t min_level = (uint16_t)((uint32_t)h->pat.breathe.min_pct * 65535u / 100u);
+    uint16_t max_level = (uint16_t)((uint32_t)h->pat.breathe.max_pct * 65535u / 100u);
+    uint32_t range     = (max_level > min_level) ? (uint32_t)(max_level - min_level) : 0u;
+    uint16_t level     = (uint16_t)(min_level + (uint32_t)s * range / 255u);
     uint16_t cnt = bb_led_count(h->led);
     for (uint16_t i = 0; i < cnt; i++)
-        bb_led_set_brightness(h->led, i, pct);
+        bb_led_set_level(h->led, i, level);
     bb_led_flush(h->led);
 }
 
@@ -158,21 +160,20 @@ static void step_pulse(struct bb_led_anim *h, uint32_t elapsed_ms)
     uint32_t decay_ms = h->pat.pulse.decay_ms  ? h->pat.pulse.decay_ms  : period / 2u;
     uint32_t phase    = elapsed_ms % period;
     uint32_t ramp_ms  = (period > decay_ms) ? (period - decay_ms) / 2u : 1u;
-    uint8_t  peak     = h->pat.pulse.peak_pct;
-    uint8_t  pct;
+    uint16_t peak     = (uint16_t)((uint32_t)h->pat.pulse.peak_pct * 65535u / 100u);
+    uint16_t level;
 
     if (phase < ramp_ms) {
-        pct = (uint8_t)((uint32_t)phase * peak / ramp_ms);
+        level = (uint16_t)((uint32_t)phase * peak / ramp_ms);
     } else if (phase < ramp_ms + decay_ms) {
-        uint32_t d         = phase - ramp_ms;
-        uint32_t remaining = (uint32_t)peak * (decay_ms - d) / decay_ms;
-        pct = (uint8_t)(remaining > 100u ? 100u : remaining);
+        uint32_t d = phase - ramp_ms;
+        level = (uint16_t)((uint32_t)peak * (decay_ms - d) / decay_ms);
     } else {
-        pct = 0;
+        level = 0;
     }
     uint16_t cnt = bb_led_count(h->led);
     for (uint16_t i = 0; i < cnt; i++)
-        bb_led_set_brightness(h->led, i, pct);
+        bb_led_set_level(h->led, i, level);
     bb_led_flush(h->led);
 }
 

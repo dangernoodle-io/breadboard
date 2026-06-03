@@ -2,6 +2,7 @@
 #include "unity.h"
 #include "bb_led_apa102.h"
 #include "bb_led_apa102_host.h"
+#include "bb_led_gamma.h"
 
 void test_apa102_open_close(void)
 {
@@ -184,6 +185,34 @@ void test_apa102_disabled_pixel_zeros_rgb(void)
     TEST_ASSERT_EQUAL_UINT8(0x00, buf[5]);
     TEST_ASSERT_EQUAL_UINT8(0x00, buf[6]);
     TEST_ASSERT_EQUAL_UINT8(0x00, buf[7]);
+
+    bb_led_close(h);
+}
+
+// B1-243: set_level scales the BASE color by CIE gamma at 8-bit (global=31),
+// not the coarse 5-bit global — and must preserve hue (green stays green).
+void test_apa102_set_level_scales_color_with_gamma(void)
+{
+    bb_led_apa102_cfg_t cfg = { .pin_clk = 10, .pin_din = 11, .led_count = 1, .global_brightness_31 = 31 };
+    bb_led_handle_t h;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_apa102_open(&cfg, &h));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_color(h, 0, 0x00, 0xFF, 0x00));  // green base
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_on(h, 0, true));
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 32768));             // ~50%
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_flush(h));
+
+    size_t len;
+    const uint8_t *buf = bb_led_apa102_host_last_buf(0, &len);
+    TEST_ASSERT_NOT_NULL(buf);
+    TEST_ASSERT_EQUAL(9, len);  // 4 start + 1 LED*4 + 1 end
+
+    uint8_t g_expected = (uint8_t)((uint32_t)255 * bb_led_gamma_cie(32768) / 65535u);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, buf[4]);        // header 0xE0|31 (global max in fine path)
+    TEST_ASSERT_EQUAL_UINT8(0x00, buf[5]);        // B (green base → 0)
+    TEST_ASSERT_EQUAL_UINT8(g_expected, buf[6]);  // G = base * gamma(level)
+    TEST_ASSERT_EQUAL_UINT8(0x00, buf[7]);        // R (green base → 0) — hue preserved
+    TEST_ASSERT_TRUE(g_expected > 0 && g_expected < 127);  // gamma-compressed below linear 50%
 
     bb_led_close(h);
 }

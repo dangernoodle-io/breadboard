@@ -1,6 +1,7 @@
 extern "C" {
 #include "bb_led_pwm.h"
 #include "bb_led_driver.h"
+#include "bb_led_gamma.h"
 #include <stdlib.h>
 }
 #include <Arduino.h>
@@ -32,6 +33,15 @@ static bb_err_t op_set_brightness(void *st, uint16_t idx, uint8_t pct) {
     return BB_OK;
 }
 
+static bb_err_t op_set_level(void *st, uint16_t idx, uint16_t level) {
+    (void)idx;
+    state_t *s = (state_t*)st;
+    uint8_t v = (uint8_t)(bb_led_gamma_cie(level) >> 8);  // CIE gamma → 8-bit
+    if (s->active_low) v = (uint8_t)(255U - v);
+    analogWrite(s->gpio, v);
+    return BB_OK;
+}
+
 static bb_err_t op_close(void *st) {
     state_t *s = (state_t*)st;
     analogWrite(s->gpio, s->active_low ? 255 : 0);
@@ -42,6 +52,7 @@ static bb_err_t op_close(void *st) {
 
 static const bb_led_driver_t s_drv = {
     .set_on = op_set_on, .set_brightness = op_set_brightness,
+    .set_level = op_set_level,
     .set_color = NULL, .flush = NULL, .close = op_close,
     .caps = (bb_led_caps_t)(BB_LED_CAP_ONOFF | BB_LED_CAP_BRIGHTNESS), .count = 1,
 };

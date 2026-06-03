@@ -1,5 +1,6 @@
 #include "bb_led_pwm.h"
 #include "bb_led_driver.h"
+#include "bb_led_gamma.h"
 #include "bb_log.h"
 #include "driver/ledc.h"
 #include <stdlib.h>
@@ -43,6 +44,15 @@ static bb_err_t op_set_brightness(void *st, uint16_t idx, uint8_t pct) {
     return apply_duty(s, pct_to_duty(s, pct));
 }
 
+static bb_err_t op_set_level(void *st, uint16_t idx, uint16_t level) {
+    (void)idx;
+    state_t *s = st;
+    // Perceptual level → CIE-corrected luminance → full-resolution duty.
+    uint32_t lin = bb_led_gamma_cie(level);            // 0..65535
+    uint32_t d   = (uint32_t)lin * s->max_duty / 65535u;
+    return apply_duty(s, s->active_low ? (s->max_duty - d) : d);
+}
+
 static bb_err_t op_close(void *st) {
     state_t *s = st;
     ledc_stop(LEDC_LOW_SPEED_MODE, s->channel, s->active_low ? 1 : 0);
@@ -53,6 +63,7 @@ static bb_err_t op_close(void *st) {
 static const bb_led_driver_t s_drv = {
     .set_on = op_set_on,
     .set_brightness = op_set_brightness,
+    .set_level = op_set_level,
     .set_color = NULL,
     .flush = NULL,
     .close = op_close,

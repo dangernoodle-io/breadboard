@@ -900,6 +900,9 @@ void test_bb_led_idx_out_of_range(void);
 void test_bb_led_fill_color_iterates(void);
 void test_bb_led_close_calls_driver(void);
 void test_bb_led_brightness_pct_validation(void);
+void test_bb_led_set_level_bridges_to_set_brightness(void);
+void test_bb_led_set_level_calls_driver_when_present(void);
+void test_bb_led_set_level_unsupported_without_brightness_cap(void);
 
 // Forward declarations from test_bb_led_gpio.c
 void test_gpio_open_close(void);
@@ -918,6 +921,8 @@ void test_pwm_set_brightness_active_low(void);
 void test_pwm_set_on_active_high(void);
 void test_pwm_set_on_active_low(void);
 void test_pwm_set_color_unsupported(void);
+void test_pwm_set_level_applies_gamma(void);
+void test_pwm_set_level_active_low_inverts(void);
 void test_pwm_idx_must_be_zero(void);
 void test_pwm_invalid_args(void);
 void test_pwm_initial_state_off_active_high(void);
@@ -928,6 +933,7 @@ void bb_led_apa102_host_test_reset(void);
 void test_apa102_open_close(void);
 void test_apa102_initial_flush_dark(void);
 void test_apa102_set_color_and_flush(void);
+void test_apa102_set_level_scales_color_with_gamma(void);
 void test_apa102_set_brightness_partial(void);
 void test_apa102_fill_color(void);
 void test_apa102_idx_out_of_range(void);
@@ -1246,6 +1252,7 @@ void test_anim_detach_no_crash(void);
 void test_anim_set_solid_on_onoff_handle_returns_ok(void);
 void test_anim_set_rgb_pattern_on_onoff_handle_returns_unsupported(void);
 void test_anim_set_chase_on_single_led_returns_unsupported(void);
+void test_anim_breathe_dim_has_many_levels(void);
 void test_anim_blink_on_at_quarter_period(void);
 void test_anim_blink_off_at_three_quarter_period(void);
 void test_anim_breathe_brightness_rises_then_falls(void);
@@ -2176,6 +2183,9 @@ int main(void) {
     RUN_TEST(test_bb_led_fill_color_iterates);
     RUN_TEST(test_bb_led_close_calls_driver);
     RUN_TEST(test_bb_led_brightness_pct_validation);
+    RUN_TEST(test_bb_led_set_level_bridges_to_set_brightness);
+    RUN_TEST(test_bb_led_set_level_calls_driver_when_present);
+    RUN_TEST(test_bb_led_set_level_unsupported_without_brightness_cap);
 
     // bb_led_gpio tests
     RUN_TEST(test_gpio_open_close);
@@ -2193,6 +2203,8 @@ int main(void) {
     RUN_TEST(test_pwm_set_on_active_high);
     RUN_TEST(test_pwm_set_on_active_low);
     RUN_TEST(test_pwm_set_color_unsupported);
+    RUN_TEST(test_pwm_set_level_applies_gamma);
+    RUN_TEST(test_pwm_set_level_active_low_inverts);
     RUN_TEST(test_pwm_idx_must_be_zero);
     RUN_TEST(test_pwm_invalid_args);
     RUN_TEST(test_pwm_initial_state_off_active_high);
@@ -2202,6 +2214,7 @@ int main(void) {
     RUN_TEST(test_apa102_open_close);
     RUN_TEST(test_apa102_initial_flush_dark);
     RUN_TEST(test_apa102_set_color_and_flush);
+    RUN_TEST(test_apa102_set_level_scales_color_with_gamma);
     RUN_TEST(test_apa102_set_brightness_partial);
     RUN_TEST(test_apa102_fill_color);
     RUN_TEST(test_apa102_idx_out_of_range);
@@ -2519,6 +2532,7 @@ int main(void) {
     RUN_TEST(test_anim_set_solid_on_onoff_handle_returns_ok);
     RUN_TEST(test_anim_set_rgb_pattern_on_onoff_handle_returns_unsupported);
     RUN_TEST(test_anim_set_chase_on_single_led_returns_unsupported);
+    RUN_TEST(test_anim_breathe_dim_has_many_levels);
     RUN_TEST(test_anim_blink_on_at_quarter_period);
     RUN_TEST(test_anim_blink_off_at_three_quarter_period);
     RUN_TEST(test_anim_breathe_brightness_rises_then_falls);
