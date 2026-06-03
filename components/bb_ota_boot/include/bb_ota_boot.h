@@ -12,9 +12,15 @@ extern "C" {
  *
  * In-place pull can't clear the TLS+OTA buffers under a fragmented runtime heap
  * (e.g. esp32-s2-mini). Boot mode does the pull at FULL heap: a one-shot NVS
- * flag is armed (via POST /api/update/boot), the device reboots, and before any
+ * flag is armed (via POST /api/update/apply), the device reboots, and before any
  * subsystem starts it resolves the latest release and pulls it, then reboots
  * into the new image.
+ *
+ * On a boot-mode board bb_ota_boot is the single owner of POST /api/update/apply
+ * (bb_ota_pull does not register it — see the BB_OTA_STRATEGY Kconfig choice).
+ * The route returns {"status":"rebooting_for_boot_mode_ota"}, distinct from
+ * pull's "update_started", so clients wait for the device to reappear on a
+ * bumped version rather than poll /api/update/progress.
  *
  * Runtime cost on a tight board is a single lean route (gated by
  * CONFIG_BB_OTA_BOOT_AUTOREGISTER) — no download worker until boot. The manifest
@@ -39,8 +45,8 @@ bool bb_ota_boot_pending(void);
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
 
-/* Registry hook — registers POST /api/update/boot (arm + reboot). Gated by
- * CONFIG_BB_OTA_BOOT_AUTOREGISTER. */
+/* Registry hook — registers POST /api/update/apply (arm + reboot). Gated by
+ * CONFIG_BB_OTA_BOOT_AUTOREGISTER (defaults on only when BB_OTA_STRATEGY_BOOT). */
 bb_err_t bb_ota_boot_init(bb_http_handle_t server);
 
 /*

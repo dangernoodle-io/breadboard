@@ -2,14 +2,18 @@ menu "breadboard: bb_ota_boot"
 
 config BB_OTA_BOOT_AUTOREGISTER
     bool "Auto-register the OTA boot-mode HTTP route via bb_registry"
-    default y
+    default y if BB_OTA_STRATEGY_BOOT
+    default n
     help
         When enabled, bb_ota_boot self-registers a single lean route
-        (POST /api/update/boot) through bb_registry. The route only arms a
+        (POST /api/update/apply) through bb_registry. The route only arms a
         one-shot NVS flag and reboots — the manifest resolve + firmware
         download happen at full heap on the next boot (bb_ota_boot_run_if_pending).
         This is the cheap trigger for tight / serial-less single-core boards
-        that cannot afford bb_ota_pull's full route set at runtime. Disable to
-        keep the public C API but register the route manually or skip it.
+        that cannot afford bb_ota_pull's full route set at runtime. Defaults on
+        only when the OTA strategy is boot-mode (see BB_OTA_STRATEGY), so
+        /api/update/apply has a single owner — bb_ota_pull does not register it
+        on a boot-mode board. Disable to keep the public C API but register the
+        route manually or skip it.
 
 endmenu
