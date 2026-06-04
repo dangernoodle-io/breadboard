@@ -60,3 +60,32 @@ void test_bb_diag_abnormal_reset_count_clear_is_safe_on_host(void)
     bb_diag_abnormal_reset_count_clear();
     TEST_ASSERT_EQUAL_UINT32(0, bb_diag_abnormal_reset_count());
 }
+
+void test_bb_diag_panic_app_sha_returns_not_found_on_host(void)
+{
+    char buf[BB_DIAG_PANIC_APP_SHA256_MAX];
+    bb_err_t err = bb_diag_panic_app_sha(buf, sizeof(buf));
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, err);
+}
+
+void test_bb_diag_panic_app_sha_invalid_args(void)
+{
+    char buf[BB_DIAG_PANIC_APP_SHA256_MAX];
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_diag_panic_app_sha(NULL, sizeof(buf)));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_diag_panic_app_sha(buf, 0));
+}
+
+void test_bb_diag_panic_coredump_erase_is_safe_on_host(void)
+{
+    // no-op on host — must not crash
+    bb_diag_panic_coredump_erase();
+    TEST_PASS();
+}
+
+void test_bb_diag_panic_coredump_erase_idempotent_on_host(void)
+{
+    // calling twice must also be safe
+    bb_diag_panic_coredump_erase();
+    bb_diag_panic_coredump_erase();
+    TEST_PASS();
+}

@@ -76,6 +76,9 @@ static bb_err_t panic_get_handler(bb_http_request_t *req)
             if (summary.panic_reason[0] != '\0') {
                 bb_http_resp_json_obj_set_str(&obj, "panic_reason", summary.panic_reason);
             }
+            if (summary.app_sha256[0] != '\0') {
+                bb_http_resp_json_obj_set_str(&obj, "app_sha256", summary.app_sha256);
+            }
         }
     }
 #endif
@@ -241,6 +244,13 @@ static bb_err_t coredump_get_handler(bb_http_request_t *req)
         return BB_ERR_NOT_FOUND;
     }
 
+    /* Parse ?consume query param: truthy = "1" or "true". */
+    char consume_val[8] = {0};
+    bool consume = false;
+    if (bb_http_req_query_key_value(req, "consume", consume_val, sizeof(consume_val)) == BB_OK) {
+        consume = (strcmp(consume_val, "1") == 0 || strcmp(consume_val, "true") == 0);
+    }
+
     // Allocate in chunks to keep heap pressure manageable on a panicked device.
     // 4KB chunks; one buffer for the whole file would be ~64KB which we'd rather avoid.
     enum { CHUNK = 4096 };
@@ -260,6 +270,13 @@ static bb_err_t coredump_get_handler(bb_http_request_t *req)
     snprintf(content_len, sizeof content_len, "%zu", size);
     bb_http_resp_set_header(req, "Content-Length", content_len);
     bb_http_resp_set_header(req, "Content-Disposition", "attachment; filename=\"coredump.bin\"");
+
+    /* Emit X-Coredump-App-SHA256 so the caller knows which build the dump is from
+     * without having to download and decode it. */
+    char app_sha[BB_DIAG_PANIC_APP_SHA256_MAX];
+    if (bb_diag_panic_app_sha(app_sha, sizeof(app_sha)) == BB_OK) {
+        bb_http_resp_set_header(req, "X-Coredump-App-SHA256", app_sha);
+    }
 
     // Use the partition API directly for chunked reads — no need to allocate the
     // entire coredump buffer to satisfy the "fits in max_len" precondition of
@@ -304,11 +321,22 @@ static bb_err_t coredump_get_handler(bb_http_request_t *req)
         err = bb_http_resp_send_chunk(req, NULL, 0);
     }
     free(chunk);
+
+    /* Erase only after a fully successful stream — a dropped connection must not
+     * silently discard the crash evidence. */
+    if (err == BB_OK && consume) {
+        bb_diag_panic_coredump_erase();
+    }
+
     return err;
 }
 
 static const bb_route_response_t s_coredump_get_responses[] = {
-    { 200, "application/octet-stream", NULL, "raw coredump bytes" },
+    { 200, "application/octet-stream", NULL,
+      "raw coredump bytes; includes X-Coredump-App-SHA256 header with the crashing "
+      "app ELF SHA256 hex string (identifies the build without downloading). "
+      "Pass ?consume=1 to erase the coredump from flash only after the full image "
+      "has been streamed successfully — a dropped download does NOT erase the dump." },
     { 404, NULL, NULL, "no coredump available" },
     { 0 },
 };
@@ -317,7 +345,7 @@ static const bb_route_t s_coredump_get_route = {
     .method   = BB_HTTP_GET,
     .path     = "/api/diag/coredump",
     .tag      = "diag",
-    .summary  = "Download raw coredump partition bytes",
+    .summary  = "Download raw coredump partition bytes; ?consume=1 erases after successful transfer",
     .responses = s_coredump_get_responses,
     .handler  = coredump_get_handler,
 };

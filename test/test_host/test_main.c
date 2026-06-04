@@ -63,6 +63,10 @@ void test_bb_diag_panic_clear_is_safe_on_host(void);
 void test_bb_diag_panic_clear_after_unavailable(void);
 void test_bb_diag_abnormal_reset_count_returns_zero_on_host(void);
 void test_bb_diag_abnormal_reset_count_clear_is_safe_on_host(void);
+void test_bb_diag_panic_app_sha_returns_not_found_on_host(void);
+void test_bb_diag_panic_app_sha_invalid_args(void);
+void test_bb_diag_panic_coredump_erase_is_safe_on_host(void);
+void test_bb_diag_panic_coredump_erase_idempotent_on_host(void);
 
 // Forward declarations from test_ota_pull.c
 void test_ota_pull_skip_check_callback_registration(void);
@@ -1354,6 +1358,10 @@ int main(void) {
     RUN_TEST(test_bb_diag_panic_clear_after_unavailable);
     RUN_TEST(test_bb_diag_abnormal_reset_count_returns_zero_on_host);
     RUN_TEST(test_bb_diag_abnormal_reset_count_clear_is_safe_on_host);
+    RUN_TEST(test_bb_diag_panic_app_sha_returns_not_found_on_host);
+    RUN_TEST(test_bb_diag_panic_app_sha_invalid_args);
+    RUN_TEST(test_bb_diag_panic_coredump_erase_is_safe_on_host);
+    RUN_TEST(test_bb_diag_panic_coredump_erase_idempotent_on_host);
 
     // OTA pull tests
     RUN_TEST(test_ota_pull_skip_check_callback_registration);
