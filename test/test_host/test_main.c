@@ -466,6 +466,12 @@ void test_asset_null_encoding_absent(void);
 void test_multiple_assets_different_types(void);
 void test_asset_encoding_variations(void);
 void test_zero_length_asset(void);
+// wildcard handler tests
+void test_wildcard_known_asset_serves_bytes(void);
+void test_wildcard_unknown_path_returns_404(void);
+void test_wildcard_root_maps_to_index_html(void);
+void test_wildcard_gzip_asset_content_type(void);
+void test_wildcard_query_string_stripped(void);
 
 // Forward declarations from test_bb_wifi.c
 void test_bb_wifi_set_hostname_null(void);
@@ -1731,6 +1737,12 @@ int main(void) {
     RUN_TEST(test_multiple_assets_different_types);
     RUN_TEST(test_asset_encoding_variations);
     RUN_TEST(test_zero_length_asset);
+    // wildcard handler tests
+    RUN_TEST(test_wildcard_known_asset_serves_bytes);
+    RUN_TEST(test_wildcard_unknown_path_returns_404);
+    RUN_TEST(test_wildcard_root_maps_to_index_html);
+    RUN_TEST(test_wildcard_gzip_asset_content_type);
+    RUN_TEST(test_wildcard_query_string_stripped);
 
     // bb_json tests
     RUN_TEST(test_bb_json_obj_string_roundtrip);

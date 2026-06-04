@@ -111,7 +111,7 @@ bb_err_t bb_http_server_ensure_started(void)
 
     // Auto-size max_uri_handlers from registry contributions
     extern size_t bb_registry_route_count_total(void);
-    #define BB_HTTP_OVERHEAD_SLACK 13  // preflight=1 + assets≈8 + safety=4
+    #define BB_HTTP_OVERHEAD_SLACK 6   // preflight=1 + assets=1 (wildcard) + safety=4
 
     int cap;
     #ifdef CONFIG_BB_HTTP_MAX_URI_HANDLERS_OVERRIDE
@@ -227,26 +227,48 @@ static esp_err_t bb_shim_handler(httpd_req_t *req)
     return fn((bb_http_request_t*)req) == BB_OK ? ESP_OK : ESP_FAIL;
 }
 
-// Static asset handler: reads the asset from user_ctx and emits it with headers
-static esp_err_t asset_handler(httpd_req_t *req)
+// Asset table used by the single wildcard handler.
+static const bb_http_asset_t *s_assets      = NULL;
+static size_t                 s_asset_count = 0;
+
+// Serve a single asset: set headers and send bytes.
+static esp_err_t bb_http_serve_asset(httpd_req_t *req, const bb_http_asset_t *asset)
 {
-    const bb_http_asset_t *asset = (const bb_http_asset_t*)req->user_ctx;
-    if (!asset) return ESP_FAIL;
-
-    // Set Content-Type
     httpd_resp_set_type(req, asset->mime);
-
-    // Set Content-Encoding if present
     if (asset->encoding) {
         httpd_resp_set_hdr(req, "Content-Encoding", asset->encoding);
     }
-
-    // Set Cache-Control
     httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=300");
+    return httpd_resp_send(req, (const char*)asset->data, asset->len);
+}
 
-    // Send body
-    esp_err_t err = httpd_resp_send(req, (const char*)asset->data, asset->len);
-    return err;
+// Wildcard GET handler for "/*": look up req->uri in the asset table by exact
+// path match. The embed table stores the SPA index at "/" (not "/index.html"),
+// mirroring the old per-asset registration, so "/" matches directly.
+static esp_err_t asset_wildcard_handler(httpd_req_t *req)
+{
+    const char *uri = req->uri;
+
+    // Strip query string for matching (uri may contain "?..." suffix)
+    char path_buf[256];
+    const char *q = strchr(uri, '?');
+    if (q) {
+        size_t plen = (size_t)(q - uri);
+        if (plen >= sizeof(path_buf)) plen = sizeof(path_buf) - 1;
+        memcpy(path_buf, uri, plen);
+        path_buf[plen] = '\0';
+        uri = path_buf;
+    }
+
+    for (size_t i = 0; i < s_asset_count; i++) {
+        if (strcmp(s_assets[i].path, uri) == 0) {
+            return bb_http_serve_asset(req, &s_assets[i]);
+        }
+    }
+
+    // No match → 404
+    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
+    return ESP_OK;
 }
 
 bb_err_t bb_http_register_route(bb_http_handle_t server,
@@ -367,27 +389,34 @@ bb_err_t bb_http_register_assets(bb_http_handle_t server,
     httpd_handle_t h = (httpd_handle_t)server;
     if (!h || !assets) return BB_ERR_INVALID_ARG;
 
+    // Validate entries upfront
     for (size_t i = 0; i < n; i++) {
-        const bb_http_asset_t *asset = &assets[i];
-        if (!asset->path || !asset->mime || !asset->data) {
+        if (!assets[i].path || !assets[i].mime || !assets[i].data) {
             return BB_ERR_INVALID_ARG;
         }
-
-        httpd_uri_t uri = {
-            .uri = asset->path,
-            .method = HTTP_GET,
-            .handler = asset_handler,
-            .user_ctx = (void*)asset,
-        };
-
-        esp_err_t err = httpd_register_uri_handler(h, &uri);
-        if (err != ESP_OK) {
-            bb_log_e(TAG, "register route failed (GET %s): %s", asset->path, esp_err_to_name(err));
-            return BB_ERR_INVALID_ARG;
-        }
-        s_registered_handlers++;
     }
 
+    // Store table for the wildcard handler
+    s_assets      = assets;
+    s_asset_count = n;
+
+    // Register a single "/*" GET handler (registered last so specific routes
+    // registered before this call win first-match).
+    httpd_uri_t uri = {
+        .uri     = "/*",
+        .method  = HTTP_GET,
+        .handler = asset_wildcard_handler,
+        .user_ctx = NULL,
+    };
+
+    esp_err_t err = httpd_register_uri_handler(h, &uri);
+    if (err != ESP_OK) {
+        bb_log_e(TAG, "register route failed (GET /*): %s", esp_err_to_name(err));
+        return BB_ERR_INVALID_ARG;
+    }
+    s_registered_handlers++;
+
+    bb_log_i(TAG, "assets: %u files via single wildcard handler", (unsigned)n);
     return BB_OK;
 }
 

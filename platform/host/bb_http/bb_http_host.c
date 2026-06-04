@@ -154,14 +154,69 @@ bb_err_t bb_http_server_stop(void)    { return BB_OK; }
 bb_http_handle_t bb_http_server_get_handle(void) { return NULL; }
 void bb_http_server_poll(void) {}
 
+// ============================================================================
+// Asset wildcard — host implementation (mirrors espidf backend for testing)
+// ============================================================================
+
+static const bb_http_asset_t *s_assets      = NULL;
+static size_t                 s_asset_count = 0;
+
 bb_err_t bb_http_register_assets(bb_http_handle_t server,
                                  const bb_http_asset_t *assets,
                                  size_t n)
 {
     (void)server;
-    (void)assets;
-    (void)n;
+    s_assets      = assets;
+    s_asset_count = n;
     return BB_OK;
+}
+
+// Serve a single asset via the capture harness.
+bb_err_t bb_http_host_serve_asset(bb_http_request_t *req, const bb_http_asset_t *asset)
+{
+    if (!req || !asset) return BB_ERR_INVALID_ARG;
+    bb_err_t err = bb_http_resp_set_type(req, asset->mime);
+    if (err != BB_OK) return err;
+    if (asset->encoding) {
+        bb_http_resp_set_header(req, "Content-Encoding", asset->encoding);
+    }
+    bb_http_resp_set_header(req, "Cache-Control", "public, max-age=300");
+    return bb_http_resp_send_chunk(req, (const char*)asset->data, (int)asset->len);
+}
+
+// Wildcard lookup: find asset by exact URI path match and serve it.
+// Returns BB_OK with status 404 if not found.
+bb_err_t bb_http_host_asset_wildcard(bb_http_request_t *req, const char *uri)
+{
+    if (!req || !uri) return BB_ERR_INVALID_ARG;
+
+    // Strip query string
+    char path_buf[256];
+    const char *q = strchr(uri, '?');
+    if (q) {
+        size_t plen = (size_t)(q - uri);
+        if (plen >= sizeof(path_buf)) plen = sizeof(path_buf) - 1;
+        memcpy(path_buf, uri, plen);
+        path_buf[plen] = '\0';
+        uri = path_buf;
+    }
+
+    for (size_t i = 0; i < s_asset_count; i++) {
+        if (strcmp(s_assets[i].path, uri) == 0) {
+            return bb_http_host_serve_asset(req, &s_assets[i]);
+        }
+    }
+
+    // Not found → 404
+    bb_http_resp_set_status(req, 404);
+    return BB_OK;
+}
+
+// Reset host asset table (for test teardown).
+void bb_http_host_reset_assets(void)
+{
+    s_assets      = NULL;
+    s_asset_count = 0;
 }
 
 bb_err_t bb_http_resp_sendstr(bb_http_request_t *req, const char *str)

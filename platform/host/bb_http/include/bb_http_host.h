@@ -71,6 +71,19 @@ void bb_http_host_force_send_chunk_fail(bool fail);
 // Reset to false after the test.
 void bb_http_host_force_send_chunk_term_fail(bool fail);
 
+// Asset wildcard test hooks (mirror the ESP-IDF asset_wildcard_handler logic).
+// Register an asset table via bb_http_register_assets first, then call these.
+
+// Serve a single asset into the capture slot.
+bb_err_t bb_http_host_serve_asset(bb_http_request_t *req, const bb_http_asset_t *asset);
+
+// Look up `uri` in the registered asset table and serve it, or set 404.
+// Handles "/" → "/index.html" convention and query-string stripping.
+bb_err_t bb_http_host_asset_wildcard(bb_http_request_t *req, const char *uri);
+
+// Reset the stored asset table (call in teardown after wildcard tests).
+void bb_http_host_reset_assets(void);
+
 #ifdef __cplusplus
 }
 #endif
