@@ -409,3 +409,41 @@ void test_bb_registry_pre_http_clear_resets_count(void)
     bb_registry_clear_pre_http();
     TEST_ASSERT_EQUAL(0, bb_registry_count_pre_http());
 }
+
+// Idempotency guard: calling bb_registry_init_pre_http() then bb_registry_init()
+// must not double-invoke PRE_HTTP inits — each entry runs exactly once.
+void test_bb_registry_pre_http_no_double_init_via_init(void)
+{
+    bb_registry_clear_pre_http();
+    bb_registry_clear();
+    memset(s_pre_http_flags, 0, sizeof(s_pre_http_flags));
+    s_pre_http_call_count = 0;
+    s_pre_http_order_idx  = 0;
+
+    bb_registry_entry_pre_http_t e1 = { .name = "ph1", .init = pre_http_fn_1 };
+    bb_registry_entry_pre_http_t e2 = { .name = "ph2", .init = pre_http_fn_2 };
+
+    // Add a no-op regular entry so bb_registry_init()'s regular walker has n > 0.
+    bb_registry_entry_t reg = { .name = "noop", .init = fake_init_1, .order = 0 };
+
+    bb_registry_add_pre_http(&e1);
+    bb_registry_add_pre_http(&e2);
+    bb_registry_add(&reg);
+
+    // Consumer calls init_pre_http() standalone first, then init() — latent footgun scenario.
+    bb_err_t err1 = bb_registry_init_pre_http();
+    TEST_ASSERT_EQUAL(BB_OK, err1);
+    TEST_ASSERT_EQUAL(2, s_pre_http_call_count);
+
+    // Reset regular-tier counter so it doesn't pollute PRE_HTTP count check.
+    s_init_call_count = 0;
+
+    // init() internally re-walks PRE_HTTP tier; guard must skip it.
+    bb_err_t err2 = bb_registry_init();
+    TEST_ASSERT_EQUAL(BB_OK, err2);
+
+    // Each PRE_HTTP init must have run exactly once total.
+    TEST_ASSERT_EQUAL(2, s_pre_http_call_count);
+    TEST_ASSERT_TRUE(s_pre_http_flags[0]);
+    TEST_ASSERT_TRUE(s_pre_http_flags[1]);
+}
