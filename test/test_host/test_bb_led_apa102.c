@@ -189,8 +189,9 @@ void test_apa102_disabled_pixel_zeros_rgb(void)
     bb_led_close(h);
 }
 
-// B1-243: set_level scales the BASE color by CIE gamma at 8-bit (global=31),
-// not the coarse 5-bit global — and must preserve hue (green stays green).
+// B1-243: set_level distributes across APA102 5-bit global AND 8-bit color for
+// fine resolution at dim levels; hue (green stays green) must be preserved.
+// At level16=32768: env=12071, target=1456, g5=6, col=242 → header=0xE6, G=242.
 void test_apa102_set_level_scales_color_with_gamma(void)
 {
     bb_led_apa102_cfg_t cfg = { .pin_clk = 10, .pin_din = 11, .led_count = 1, .global_brightness_31 = 31 };
@@ -207,14 +208,111 @@ void test_apa102_set_level_scales_color_with_gamma(void)
     TEST_ASSERT_NOT_NULL(buf);
     TEST_ASSERT_EQUAL(9, len);  // 4 start + 1 LED*4 + 1 end
 
-    uint8_t g_expected = (uint8_t)((uint32_t)255 * bb_led_gamma_cie(32768) / 65535u);
-    TEST_ASSERT_EQUAL_UINT8(0xFF, buf[4]);        // header 0xE0|31 (global max in fine path)
+    // New algorithm: env=12071, target=12071*7905/65535=1456, g5=ceil(1456/255)=6, col=1456/6=242
+    // header=0xE0|6=0xE6, G=255*242/255=242, B=0, R=0 — hue preserved
+    TEST_ASSERT_EQUAL_UINT8(0xE6, buf[4]);        // header 0xE0|6 (global=6 in fine path)
     TEST_ASSERT_EQUAL_UINT8(0x00, buf[5]);        // B (green base → 0)
-    TEST_ASSERT_EQUAL_UINT8(g_expected, buf[6]);  // G = base * gamma(level)
+    TEST_ASSERT_EQUAL_UINT8(242, buf[6]);         // G = 255*col/255 = col = 242
     TEST_ASSERT_EQUAL_UINT8(0x00, buf[7]);        // R (green base → 0) — hue preserved
-    TEST_ASSERT_TRUE(g_expected > 0 && g_expected < 127);  // gamma-compressed below linear 50%
+    TEST_ASSERT_TRUE(buf[6] > 0 && buf[6] < 255); // dimmed but non-zero
 
     bb_led_close(h);
+}
+
+// Regression: set_level (and set_brightness) must enable the pixel on their own.
+// bb_led_anim drives brightness via set_level and NEVER calls set_on, so a
+// missing enable left APA102 boards (e.g. tdongle) dark for the whole boot-solid
+// + breathe sequence. The wire header must NOT be the disabled off-frame (0xE0).
+// At level16=32768: g5=6, col=242 → header=0xE6 (not 0xE0), R=242.
+void test_apa102_set_level_enables_without_set_on(void)
+{
+    bb_led_apa102_cfg_t cfg = { .pin_clk = 10, .pin_din = 11, .led_count = 1, .global_brightness_31 = 31 };
+    bb_led_handle_t h;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_apa102_open(&cfg, &h));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_color(h, 0, 0xFF, 0x00, 0x00));  // red base
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 32768));             // ~50%, NO set_on
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_flush(h));
+
+    size_t len;
+    const uint8_t *buf = bb_led_apa102_host_last_buf(0, &len);
+    TEST_ASSERT_NOT_NULL(buf);
+    // New algorithm: g5=6, col=242; header=0xE6 (NOT 0xE0 off-frame, NOT 0xFF full)
+    TEST_ASSERT_NOT_EQUAL(0xE0, buf[4]);          // enabled — NOT the off-frame
+    TEST_ASSERT_EQUAL_UINT8(0xE6, buf[4]);        // enabled at global=6
+    TEST_ASSERT_EQUAL_UINT8(242, buf[7]);         // red rendered at col=242
+    TEST_ASSERT_TRUE(buf[7] > 0);                 // the LED is lit, not dark
+
+    bb_led_close(h);
+}
+
+void test_apa102_set_brightness_enables_without_set_on(void)
+{
+    bb_led_apa102_cfg_t cfg = { .pin_clk = 10, .pin_din = 11, .led_count = 1, .global_brightness_31 = 31 };
+    bb_led_handle_t h;
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_apa102_open(&cfg, &h));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_color(h, 0, 0xFF, 0xFF, 0xFF));  // white
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_brightness(h, 0, 50));           // 50%, NO set_on
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_flush(h));
+
+    size_t len;
+    const uint8_t *buf = bb_led_apa102_host_last_buf(0, &len);
+    TEST_ASSERT_NOT_NULL(buf);
+    TEST_ASSERT_EQUAL_UINT8(0xE0 | 15, buf[4]);   // enabled at bri 15 (50%·31/100) — not the off-frame
+    TEST_ASSERT_EQUAL_UINT8(0xFF, buf[5]);        // white rendered (B)
+
+    // brightness 0 turns it back off
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_brightness(h, 0, 0));
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_flush(h));
+    buf = bb_led_apa102_host_last_buf(0, &len);
+    TEST_ASSERT_EQUAL_UINT8(0xE0, buf[4]);        // disabled
+
+    bb_led_close(h);
+}
+
+// Resolution win: two distinct low level16 values that previously mapped to the
+// same 8-bit color (old_col=0 for both) now produce DIFFERENT emitted frames
+// because the new algorithm uses the full global*color product space.
+// level16=100: env≈1, target=0, g5=1, col=1 → white pixel color bytes = 1
+// level16=160: env≈2, target=0, g5=1, col=2 → white pixel color bytes = 2
+// (Both had old_col=0, i.e. the old algorithm emitted identical zero color bytes.)
+void test_apa102_level_resolution_improves_at_low_level(void)
+{
+    bb_led_apa102_cfg_t cfg = { .pin_clk = 10, .pin_din = 11, .led_count = 1, .global_brightness_31 = 31 };
+    bb_led_handle_t h;
+    size_t len;
+    const uint8_t *buf;
+
+    // Render at level16=100
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_apa102_open(&cfg, &h));
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_color(h, 0, 0xFF, 0xFF, 0xFF));  // white base
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 100));
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_flush(h));
+    buf = bb_led_apa102_host_last_buf(0, &len);
+    TEST_ASSERT_NOT_NULL(buf);
+    // header=0xE0|1=0xE1, color bytes all=col_a=1
+    uint8_t hdr_a   = buf[4];
+    uint8_t color_a = buf[7];  // R channel (white → same for all channels)
+    bb_led_close(h);
+
+    // Render at level16=160
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_apa102_open(&cfg, &h));
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_color(h, 0, 0xFF, 0xFF, 0xFF));  // white base
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_level(h, 0, 160));
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_flush(h));
+    buf = bb_led_apa102_host_last_buf(0, &len);
+    TEST_ASSERT_NOT_NULL(buf);
+    uint8_t hdr_b   = buf[4];
+    uint8_t color_b = buf[7];  // R channel
+    bb_led_close(h);
+
+    // The two frames must differ (monotonic brightness product)
+    TEST_ASSERT_TRUE(color_a != color_b || hdr_a != hdr_b);
+    // And the higher level must produce a strictly greater or equal product
+    uint32_t product_a = (hdr_a & 0x1F) * (uint32_t)color_a;
+    uint32_t product_b = (hdr_b & 0x1F) * (uint32_t)color_b;
+    TEST_ASSERT_TRUE(product_b >= product_a);
 }
 
 void bb_led_apa102_host_test_reset(void) {
