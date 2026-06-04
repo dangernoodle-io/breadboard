@@ -6,8 +6,10 @@
 
 #include "esp_err.h"
 #include "esp_ota_ops.h"
+#include "esp_partition.h"
 #include "esp_app_format.h"
 #include "bb_http.h"
+#include "bb_json.h"
 #include "bb_log.h"
 #include "bb_nv.h"
 #include "bb_registry.h"
@@ -79,6 +81,79 @@ bool bb_ota_is_validated(void)
     return result;
 }
 
+static const char *ota_state_str(esp_ota_img_states_t st)
+{
+    switch (st) {
+    case ESP_OTA_IMG_NEW:            return "new";
+    case ESP_OTA_IMG_PENDING_VERIFY: return "pending_verify";
+    case ESP_OTA_IMG_VALID:          return "valid";
+    case ESP_OTA_IMG_INVALID:        return "invalid";
+    case ESP_OTA_IMG_ABORTED:        return "aborted";
+    case ESP_OTA_IMG_UNDEFINED:      return "undefined";
+    default:                         return "undefined";
+    }
+}
+
+static bb_err_t partitions_handler(bb_http_request_t *req)
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+
+    bb_http_json_stream_t arr;
+    bb_err_t rc = bb_http_resp_json_arr_begin(req, &arr);
+    if (rc != BB_OK) return rc;
+
+    // Iterate all app partitions: factory + ota_0..ota_N
+    esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_APP,
+                                                      ESP_PARTITION_SUBTYPE_ANY,
+                                                      NULL);
+    while (it) {
+        const esp_partition_t *p = esp_partition_get(it);
+        if (p) {
+            bb_json_t item = bb_json_obj_new();
+            if (item) {
+                bb_json_obj_set_string(item, "label",   p->label);
+                bb_json_obj_set_number(item, "address", (double)p->address);
+                bb_json_obj_set_number(item, "size",    (double)p->size);
+                bb_json_obj_set_bool  (item, "running", p == running);
+
+                esp_ota_img_states_t st;
+                const char *state_str;
+                if (esp_ota_get_state_partition(p, &st) == ESP_OK) {
+                    state_str = ota_state_str(st);
+                } else {
+                    state_str = "undefined";
+                }
+                bb_json_obj_set_string(item, "state", state_str);
+
+                bb_http_resp_json_arr_emit(&arr, item);
+                bb_json_free(item);
+            }
+        }
+        it = esp_partition_next(it);
+    }
+    esp_partition_iterator_release(it);
+
+    return bb_http_resp_json_arr_end(&arr);
+}
+
+static bb_err_t recover_handler(bb_http_request_t *req)
+{
+    esp_err_t err = esp_ota_erase_last_boot_app_partition();
+    bb_log_i(TAG, "ota recover: erase_last_boot_app -> %s", esp_err_to_name(err));
+
+    bb_http_json_obj_stream_t obj;
+    bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
+    if (rc != BB_OK) return rc;
+
+    if (err == ESP_OK) {
+        bb_http_resp_json_obj_set_str(&obj, "status", "recovered");
+    } else {
+        bb_http_resp_json_obj_set_str(&obj, "status", "nothing_to_recover");
+        bb_http_resp_json_obj_set_str(&obj, "detail", esp_err_to_name(err));
+    }
+    return bb_http_resp_json_obj_end(&obj);
+}
+
 static bb_err_t mark_valid_handler(bb_http_request_t *req)
 {
     if (!bb_ota_is_pending()) {
@@ -147,7 +222,55 @@ bb_err_t bb_ota_validator_init(bb_http_handle_t server)
         .handler  = mark_valid_handler,
     };
 
+    static const bb_route_response_t s_partitions_responses[] = {
+        { 200, "application/json",
+          "{\"type\":\"array\","
+          "\"items\":{\"type\":\"object\","
+          "\"properties\":{"
+          "\"label\":{\"type\":\"string\"},"
+          "\"address\":{\"type\":\"integer\"},"
+          "\"size\":{\"type\":\"integer\"},"
+          "\"running\":{\"type\":\"boolean\"},"
+          "\"state\":{\"type\":\"string\"}},"
+          "\"required\":[\"label\",\"address\",\"size\",\"running\",\"state\"]}}",
+          "list of OTA app partition slot states" },
+        { 0 },
+    };
+
+    static const bb_route_t s_partitions_route = {
+        .method    = BB_HTTP_GET,
+        .path      = "/api/update/partitions",
+        .tag       = "update",
+        .summary   = "List OTA partition slot states",
+        .responses = s_partitions_responses,
+        .handler   = partitions_handler,
+    };
+
+    static const bb_route_response_t s_recover_responses[] = {
+        { 200, "application/json",
+          "{\"type\":\"object\","
+          "\"properties\":{"
+          "\"status\":{\"type\":\"string\"},"
+          "\"detail\":{\"type\":\"string\"}},"
+          "\"required\":[\"status\"]}",
+          "slot cleared (recovered) or nothing to recover" },
+        { 0 },
+    };
+
+    static const bb_route_t s_recover_route = {
+        .method    = BB_HTTP_POST,
+        .path      = "/api/update/recover",
+        .tag       = "update",
+        .summary   = "Clear a wedged inactive OTA slot (erase previous boot app)",
+        .responses = s_recover_responses,
+        .handler   = recover_handler,
+    };
+
     bb_err_t rc = bb_http_register_described_route(server, &s_mark_valid_route);
+    if (rc != BB_OK) return BB_ERR_INVALID_STATE;
+    rc = bb_http_register_described_route(server, &s_partitions_route);
+    if (rc != BB_OK) return BB_ERR_INVALID_STATE;
+    rc = bb_http_register_described_route(server, &s_recover_route);
     return rc == BB_OK ? BB_OK : BB_ERR_INVALID_STATE;
 }
 
