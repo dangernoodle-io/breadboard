@@ -41,13 +41,20 @@ static bb_err_t do_flush(state_t *s) {
         uint8_t r = s->rgb[i*3 + 0], g = s->rgb[i*3 + 1], b = s->rgb[i*3 + 2];
         uint8_t bri = s->bri[i];
         if (s->level_set[i]) {
-            // Fine path: global current high, base color scaled by the CIE-gamma
-            // envelope at 8-bit (smoother dim than the 5-bit global).
-            uint32_t env = bb_led_gamma_cie(s->level16[i]);  // 0..65535
-            r = (uint8_t)((uint32_t)r * env / 65535u);
-            g = (uint8_t)((uint32_t)g * env / 65535u);
-            b = (uint8_t)((uint32_t)b * env / 65535u);
-            bri = 31;
+            // Distribute the gamma'd level across the APA102 5-bit global current AND
+            // 8-bit color so the dim end keeps fine resolution instead of quantizing to
+            // a few 8-bit color steps. brightness == global*color is continuous across
+            // the global steps, so the dim sweep stays smooth. Keep color as high as
+            // possible (divide target by the chosen global) for max per-step resolution.
+            uint32_t env = bb_led_gamma_cie(s->level16[i]);   // 0..65535
+            uint32_t target = env * (31u * 255u) / 65535u;    // 0..7905  (global*color space)
+            uint8_t g5 = (uint8_t)((target + 254u) / 255u);   // ceil(target/255) -> 0..31
+            if (g5 == 0) g5 = 1;
+            uint32_t col = target / g5;                       // 0..255, kept high
+            r = (uint8_t)((uint32_t)r * col / 255u);
+            g = (uint8_t)((uint32_t)g * col / 255u);
+            b = (uint8_t)((uint32_t)b * col / 255u);
+            bri = (uint8_t)g5;
         }
         tx_byte(s->pin_clk, s->pin_din, 0xE0 | (bri & 0x1F));
         tx_byte(s->pin_clk, s->pin_din, b);  // B
@@ -73,6 +80,7 @@ static bb_err_t op_set_brightness(void *st, uint16_t idx, uint8_t pct) {
     state_t *s = st;
     s->bri[idx] = (uint8_t)(((uint32_t)pct * 31) / 100);
     s->level_set[idx] = false;  // revert to the coarse 5-bit global path
+    s->enabled[idx] = (pct > 0); // applying a brightness drives the LED on/off
     return BB_OK;
 }
 
@@ -80,6 +88,7 @@ static bb_err_t op_set_level(void *st, uint16_t idx, uint16_t level) {
     state_t *s = st;
     s->level16[idx] = level;
     s->level_set[idx] = true;   // scale base color by gamma(level) at flush
+    s->enabled[idx] = true;     // a level drives the LED; level 0 renders black via the gamma scale
     return BB_OK;
 }
 

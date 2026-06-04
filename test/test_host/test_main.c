@@ -934,11 +934,14 @@ void test_apa102_open_close(void);
 void test_apa102_initial_flush_dark(void);
 void test_apa102_set_color_and_flush(void);
 void test_apa102_set_level_scales_color_with_gamma(void);
+void test_apa102_set_level_enables_without_set_on(void);
+void test_apa102_set_brightness_enables_without_set_on(void);
 void test_apa102_set_brightness_partial(void);
 void test_apa102_fill_color(void);
 void test_apa102_idx_out_of_range(void);
 void test_apa102_invalid_args(void);
 void test_apa102_disabled_pixel_zeros_rgb(void);
+void test_apa102_level_resolution_improves_at_low_level(void);
 
 // Forward declarations from test_bb_button.c
 void test_bb_button_open_null_cfg(void);
@@ -2219,11 +2222,14 @@ int main(void) {
     RUN_TEST(test_apa102_initial_flush_dark);
     RUN_TEST(test_apa102_set_color_and_flush);
     RUN_TEST(test_apa102_set_level_scales_color_with_gamma);
+    RUN_TEST(test_apa102_set_level_enables_without_set_on);
+    RUN_TEST(test_apa102_set_brightness_enables_without_set_on);
     RUN_TEST(test_apa102_set_brightness_partial);
     RUN_TEST(test_apa102_fill_color);
     RUN_TEST(test_apa102_idx_out_of_range);
     RUN_TEST(test_apa102_invalid_args);
     RUN_TEST(test_apa102_disabled_pixel_zeros_rgb);
+    RUN_TEST(test_apa102_level_resolution_improves_at_low_level);
 
     // bb_button tests
     RUN_TEST(test_bb_button_open_null_cfg);
