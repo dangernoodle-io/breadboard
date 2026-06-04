@@ -84,6 +84,12 @@ static void bb_diag_panic_coredump_init(void)
         s_summary.panic_reason[0] = '\0';   /* defensive: clear on partial fill */
     }
 
+    /* Copy ELF SHA256: cd_summary.app_elf_sha256 is a NUL-terminated hex string
+     * of length APP_ELF_SHA256_SZ (= CONFIG_APP_RETRIEVE_LEN_ELF_SHA + 1). */
+    strncpy(s_summary.app_sha256, (const char *)cd_summary.app_elf_sha256,
+            sizeof(s_summary.app_sha256) - 1);
+    s_summary.app_sha256[sizeof(s_summary.app_sha256) - 1] = '\0';
+
     s_have_summary = true;
 }
 #endif /* CONFIG_BB_DIAG_PANIC_COREDUMP */
@@ -313,6 +319,30 @@ bb_err_t bb_diag_panic_coredump_read_bytes(uint8_t *buf, size_t max_len, size_t 
 #endif
 }
 
+bb_err_t bb_diag_panic_app_sha(char *out, size_t out_size)
+{
+    if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
+    if (!s_have_summary || s_summary.app_sha256[0] == '\0') return BB_ERR_NOT_FOUND;
+    strncpy(out, s_summary.app_sha256, out_size - 1);
+    out[out_size - 1] = '\0';
+    return BB_OK;
+#else
+    (void)out_size;
+    return BB_ERR_NOT_FOUND;
+#endif
+}
+
+void bb_diag_panic_coredump_erase(void)
+{
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
+    if (!s_have_summary) return;
+    esp_core_dump_image_erase();
+    s_have_summary = false;
+    s_summary.app_sha256[0] = '\0';
+#endif
+}
+
 #else
 
 // Stubs when panic capture is disabled
@@ -377,5 +407,14 @@ bb_err_t bb_diag_panic_coredump_read_bytes(uint8_t *buf, size_t max_len, size_t 
     if (out_len) *out_len = 0;
     return BB_ERR_NOT_FOUND;
 }
+
+bb_err_t bb_diag_panic_app_sha(char *out, size_t out_size)
+{
+    if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
+    out[0] = '\0';
+    return BB_ERR_NOT_FOUND;
+}
+
+void bb_diag_panic_coredump_erase(void) {}
 
 #endif /* CONFIG_BB_DIAG_PANIC_CAPTURE */

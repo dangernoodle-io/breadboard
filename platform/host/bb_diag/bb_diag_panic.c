@@ -44,5 +44,14 @@ bb_err_t bb_diag_panic_coredump_read_bytes(uint8_t *buf, size_t max_len, size_t 
     return BB_ERR_NOT_FOUND;
 }
 
+bb_err_t bb_diag_panic_app_sha(char *out, size_t out_size)
+{
+    if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
+    out[0] = '\0';
+    return BB_ERR_NOT_FOUND;
+}
+
+void bb_diag_panic_coredump_erase(void) {}
+
 uint32_t bb_diag_abnormal_reset_count(void) { return 0; }
 void bb_diag_abnormal_reset_count_clear(void) {}

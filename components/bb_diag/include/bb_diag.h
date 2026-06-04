@@ -32,9 +32,12 @@ void bb_diag_panic_clear(void);
  * Structured summary of the previous boot's panic, populated from ESP-IDF coredump.
  * Requires CONFIG_BB_DIAG_PANIC_COREDUMP=y plus a "coredump" partition in partitions.csv.
  */
-#define BB_DIAG_PANIC_TASK_NAME_MAX 16
-#define BB_DIAG_PANIC_BACKTRACE_MAX 16
-#define BB_DIAG_PANIC_REASON_MAX    200  /* matches ESP-IDF's example buffer size */
+#define BB_DIAG_PANIC_TASK_NAME_MAX  16
+#define BB_DIAG_PANIC_BACKTRACE_MAX  16
+#define BB_DIAG_PANIC_REASON_MAX     200  /* matches ESP-IDF's example buffer size */
+/* SHA256 hex string: up to 64 hex chars + NUL.  Matches the maximum of
+ * CONFIG_APP_RETRIEVE_LEN_ELF_SHA (range 8–64, default 9). */
+#define BB_DIAG_PANIC_APP_SHA256_MAX 65
 
 typedef struct {
     char     task_name[BB_DIAG_PANIC_TASK_NAME_MAX];
@@ -46,6 +49,9 @@ typedef struct {
                                                         WDT: "Task watchdog got triggered…";
                                                         exception: human-readable cause;
                                                         empty string when not available */
+    char     app_sha256[BB_DIAG_PANIC_APP_SHA256_MAX]; /* crashing app ELF SHA256 hex string
+                                                          (from esp_core_dump_summary_t.app_elf_sha256);
+                                                          empty string when not available */
 } bb_diag_panic_summary_t;
 
 /**
@@ -98,6 +104,27 @@ bb_err_t bb_diag_panic_coredump_read_bytes(uint8_t *buf, size_t max_len, size_t 
  * Useful to size a buffer before calling bb_diag_panic_coredump_read_bytes.
  */
 size_t bb_diag_panic_coredump_size(void);
+
+/**
+ * Copy the crashing app's ELF SHA256 hex string into `out` (NUL-terminated).
+ * `out` must be at least BB_DIAG_PANIC_APP_SHA256_MAX bytes.
+ * Returns BB_OK if a coredump is available and the SHA was populated,
+ * BB_ERR_NOT_FOUND if no coredump or SHA is empty,
+ * BB_ERR_INVALID_ARG if out or out_size is 0.
+ * Host: always returns BB_ERR_NOT_FOUND.
+ */
+bb_err_t bb_diag_panic_app_sha(char *out, size_t out_size);
+
+/**
+ * Erase the coredump image from flash and clear the in-memory summary.
+ * Safe to call even when no coredump is present (no-op).
+ * MUST NOT clear the panic log record, boots_since counter, or the NVS
+ * abnormal-reset counter — only the coredump image and its summary are consumed.
+ * Use this after a successful remote pull when ?consume=1 is passed to
+ * GET /api/diag/coredump.
+ * Host: no-op.
+ */
+void bb_diag_panic_coredump_erase(void);
 
 /**
  * Returns the persistent count of abnormal resets (panic, task_wdt, int_wdt, wdt, brownout)
