@@ -1,5 +1,6 @@
 #include "bb_registry.h"
 #include "bb_http.h"
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -21,6 +22,7 @@ typedef struct node_pre_http {
 static node_t *s_head = NULL;
 static node_early_t *s_early_head = NULL;
 static node_pre_http_t *s_pre_http_head = NULL;
+static bool s_pre_http_walked = false;
 
 void bb_registry_add(const bb_registry_entry_t *entry)
 {
@@ -40,20 +42,25 @@ bb_err_t bb_registry_init(void)
 
     // 1. Walk PRE_HTTP entries (after EARLY, before server start)
     {
-        size_t count = bb_registry_count_pre_http();
-        printf("[bb_registry] pre_http init: %zu entries\n", count);
+        if (s_pre_http_walked) {
+            printf("[bb_registry] pre_http init: already walked, skipping\n");
+        } else {
+            size_t count = bb_registry_count_pre_http();
+            printf("[bb_registry] pre_http init: %zu entries\n", count);
 
-        node_pre_http_t *nodes[256];
-        size_t n = 0;
-        for (node_pre_http_t *p = s_pre_http_head; p && n < 256; p = p->next) {
-            nodes[n++] = p;
-        }
-
-        for (int i = (int)n - 1; i >= 0; i--) {
-            bb_err_t err = nodes[i]->entry->init();
-            if (err != BB_OK && first_error == BB_OK) {
-                first_error = err;
+            node_pre_http_t *nodes[256];
+            size_t n = 0;
+            for (node_pre_http_t *p = s_pre_http_head; p && n < 256; p = p->next) {
+                nodes[n++] = p;
             }
+
+            for (int i = (int)n - 1; i >= 0; i--) {
+                bb_err_t err = nodes[i]->entry->init();
+                if (err != BB_OK && first_error == BB_OK) {
+                    first_error = err;
+                }
+            }
+            s_pre_http_walked = true;
         }
     }
 
@@ -241,6 +248,11 @@ void bb_registry_add_pre_http(const bb_registry_entry_pre_http_t *entry)
 
 bb_err_t bb_registry_init_pre_http(void)
 {
+    if (s_pre_http_walked) {
+        printf("[bb_registry] pre_http init: already walked, skipping\n");
+        return BB_OK;
+    }
+
     size_t count = bb_registry_count_pre_http();
     printf("[bb_registry] pre_http init: %zu entries\n", count);
 
@@ -259,6 +271,7 @@ bb_err_t bb_registry_init_pre_http(void)
         }
     }
 
+    s_pre_http_walked = true;
     return first_error;
 }
 
@@ -293,4 +306,5 @@ void bb_registry_clear_pre_http(void)
         s_pre_http_head = s_pre_http_head->next;
         free(tmp);
     }
+    s_pre_http_walked = false;
 }
