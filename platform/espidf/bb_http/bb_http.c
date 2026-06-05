@@ -109,25 +109,34 @@ bb_err_t bb_http_server_ensure_started(void)
     }
 #endif
 
-    // Auto-size max_uri_handlers from registry contributions
-    extern size_t bb_registry_route_count_total(void);
-    #define BB_HTTP_OVERHEAD_SLACK 6   // preflight=1 + assets=1 (wildcard) + safety=4
+    // Size max_uri_handlers from explicit pre-start declarations:
+    //   s_reserved_routes — accumulated by bb_http_reserve_routes() calls from
+    //                        PRE_HTTP-tier init functions (one per component that
+    //                        registers live httpd routes; count must be exact).
+    //   BB_HTTP_EXPLICIT_PREFLIGHT — OPTIONS /* registered unconditionally below.
+    //   BB_HTTP_EXPLICIT_ASSET_WILDCARD — GET /* from bb_http_register_assets(),
+    //                        counted unconditionally; prov-mode consumers must
+    //                        include it in their bb_http_reserve_routes() call.
+    #define BB_HTTP_EXPLICIT_PREFLIGHT     1
+    #define BB_HTTP_EXPLICIT_ASSET_WILDCARD 1
 
     int cap;
     #ifdef CONFIG_BB_HTTP_MAX_URI_HANDLERS_OVERRIDE
     if (CONFIG_BB_HTTP_MAX_URI_HANDLERS_OVERRIDE > 0) {
         cap = CONFIG_BB_HTTP_MAX_URI_HANDLERS_OVERRIDE;
     } else {
-        int sum = (int)bb_registry_route_count_total() + s_reserved_routes;
-        int auto_size = sum + BB_HTTP_OVERHEAD_SLACK;
+        int declared = s_reserved_routes
+                     + BB_HTTP_EXPLICIT_PREFLIGHT
+                     + BB_HTTP_EXPLICIT_ASSET_WILDCARD;
         int min_cap = CONFIG_BB_HTTP_MAX_URI_HANDLERS_MIN;
-        cap = auto_size > min_cap ? auto_size : min_cap;
+        cap = declared > min_cap ? declared : min_cap;
     }
     #else
-    int sum = (int)bb_registry_route_count_total();
-    int auto_size = sum + BB_HTTP_OVERHEAD_SLACK;
+    int declared = s_reserved_routes
+                 + BB_HTTP_EXPLICIT_PREFLIGHT
+                 + BB_HTTP_EXPLICIT_ASSET_WILDCARD;
     int min_cap = 32;  // default floor when no Kconfig
-    cap = auto_size > min_cap ? auto_size : min_cap;
+    cap = declared > min_cap ? declared : min_cap;
     #endif
 
     config.max_uri_handlers = cap;

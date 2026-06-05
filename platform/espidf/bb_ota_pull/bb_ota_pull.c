@@ -939,6 +939,12 @@ static bb_err_t bb_ota_pull_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_OTA_PULL_AUTOREGISTER
+static bb_err_t bb_ota_pull_reserve_routes(void)
+{
+    bb_http_reserve_routes(3);  // POST /api/update/check + POST /api/update/apply + GET /api/update/progress
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_ota_pull, bb_ota_pull_reserve_routes);
 BB_REGISTRY_REGISTER_N(bb_ota_pull, bb_ota_pull_init, 3);
 #endif
 

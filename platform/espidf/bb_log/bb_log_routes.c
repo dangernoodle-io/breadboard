@@ -220,4 +220,14 @@ static bb_err_t bb_log_stream_register_routes_init(bb_http_handle_t server)
     return BB_OK;
 }
 
+// PRE_HTTP companion: declare route count before server starts (must match
+// the number of bb_http_register_route() calls in bb_log_stream_register_routes_init: 2).
+// Note: bb_http_register_route_descriptor_only() does NOT register a handler
+// slot, so only the two bb_http_register_route() calls count here.
+static bb_err_t bb_log_stream_register_routes_reserve(void)
+{
+    bb_http_reserve_routes(2);  // GET /api/logs + GET /api/logs/status
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_log_stream_register_routes, bb_log_stream_register_routes_reserve);
 BB_REGISTRY_REGISTER_N(bb_log_stream_register_routes, bb_log_stream_register_routes_init, 2);

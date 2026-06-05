@@ -19,7 +19,9 @@ idf_component_register(
 
 if(CONFIG_BB_LOG_ROUTES)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+    bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_log_register_routes)
     bb_registry_force_register(${COMPONENT_LIB} bb_log_register_routes)
+    bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_log_stream_register_routes)
     bb_registry_force_register(${COMPONENT_LIB} bb_log_stream_register_routes)
 endif()
 

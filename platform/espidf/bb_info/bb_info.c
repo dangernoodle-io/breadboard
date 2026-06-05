@@ -257,5 +257,13 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_INFO_AUTOREGISTER
+// PRE_HTTP companion: declare route count before server starts (must match
+// the number of bb_http_register_* calls in bb_info_init above: 2).
+static bb_err_t bb_info_reserve_routes(void)
+{
+    bb_http_reserve_routes(2);  // GET /api/info + GET /api/health
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_info, bb_info_reserve_routes);
 BB_REGISTRY_REGISTER_N(bb_info, bb_info_init, 2);
 #endif

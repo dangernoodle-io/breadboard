@@ -340,6 +340,12 @@ static bb_err_t bb_ota_push_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_OTA_PUSH_AUTOREGISTER
+static bb_err_t bb_ota_push_reserve_routes(void)
+{
+    bb_http_reserve_routes(1);  // POST /api/update/push
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_ota_push, bb_ota_push_reserve_routes);
 BB_REGISTRY_REGISTER_N(bb_ota_push, bb_ota_push_init, 1);
 #endif
 

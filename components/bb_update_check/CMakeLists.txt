@@ -8,5 +8,6 @@ idf_component_register(
 
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
 if(CONFIG_BB_UPDATE_CHECK_AUTOREGISTER)
+    bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_update_check)
     bb_registry_force_register(${COMPONENT_LIB} bb_update_check)
 endif()

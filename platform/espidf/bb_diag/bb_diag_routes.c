@@ -684,10 +684,10 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-// Route-count hint: must equal the number of bb_http_register_described_route()
-// calls in bb_diag_routes_init so that bb_registry_route_count_total() gives
-// bb_http an accurate max_uri_handlers budget.  Keep each term adjacent to its
-// corresponding #ifdef so an add/remove touches both at once.
+// BB_DIAG_ROUTE_COUNT: exact count of bb_http_register_described_route() calls
+// in bb_diag_routes_init, used by the PRE_HTTP reserve companion below.
+// Keep each term adjacent to its corresponding #ifdef so an add/remove touches
+// both at once.
 //   5 always-on: boot GET, boot DELETE, panic GET, heap GET, sockets GET
 //   +1 if CONFIG_BB_DIAG_PANIC_TRIGGER: panic/trigger POST
 //   +1 if CONFIG_BB_DIAG_PANIC_COREDUMP: coredump GET
@@ -709,4 +709,10 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 #endif
 #define BB_DIAG_ROUTE_COUNT (5 + BB_DIAG_N_TRIGGER + BB_DIAG_N_COREDUMP + BB_DIAG_N_TASKS)
 
+static bb_err_t bb_diag_routes_reserve(void)
+{
+    bb_http_reserve_routes(BB_DIAG_ROUTE_COUNT);
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_diag_routes, bb_diag_routes_reserve);
 BB_REGISTRY_REGISTER_N(bb_diag_routes, bb_diag_routes_init, BB_DIAG_ROUTE_COUNT);

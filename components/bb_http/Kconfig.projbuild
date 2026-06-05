@@ -7,8 +7,9 @@ config BB_HTTP_ROUTE_REGISTRY_CAP
     help
         Maximum number of route descriptors held in the process-wide
         bb_http route registry (used by bb_openapi and route introspection).
-        Overflow is logged and the descriptor is silently dropped. Default 64
-        matches the original hardcoded value; typical firmware uses 19-40
+        When BB_HTTP_ROUTE_REGISTRY_STRICT is enabled (default), overflow
+        panics at boot; otherwise the descriptor is silently dropped. Default
+        64 matches the original hardcoded value; typical firmware uses 19-40
         routes. Lower for ROM-tight builds; raise for large applications.
 
 config BB_HTTP_AUTOSTART
@@ -116,6 +117,17 @@ config BB_HTTP_LWIP_SEM_PER_THREAD
 
       Disable only if you've explicitly profiled the heap cost and
       know you're not running SSE or chunked emits under load.
+
+config BB_HTTP_ROUTE_REGISTRY_STRICT
+    bool "Panic/assert on route registry overflow after regular-tier walk"
+    default y
+    help
+      After bb_registry_init() finishes the regular-tier (route-registration)
+      walk, audit bb_http_route_registry_count() against BB_ROUTE_REGISTRY_CAP.
+      When enabled (default), overflow triggers an assert (fatal). At count >=
+      CAP-8 a bb_log_w warning fires unconditionally even when strict is off.
+      Disable only on explicitly constrained ROM builds where the silent-drop
+      behaviour is acceptable.
 
 config BB_HTTP_RESP_SEND_CHUNK_LIVENESS_PROBE
     bool "Probe socket liveness before each bb_http_resp_send_chunk"

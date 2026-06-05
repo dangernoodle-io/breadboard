@@ -82,5 +82,11 @@ static bb_err_t bb_openapi_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_OPENAPI_AUTOREGISTER
+static bb_err_t bb_openapi_reserve_routes(void)
+{
+    bb_http_reserve_routes(1);  // GET /api/openapi.json
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_openapi, bb_openapi_reserve_routes);
 BB_REGISTRY_REGISTER_N(bb_openapi, bb_openapi_init, 1);
 #endif

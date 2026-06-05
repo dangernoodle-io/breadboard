@@ -275,6 +275,16 @@ bb_err_t bb_ota_validator_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_OTA_VALIDATOR_AUTOREGISTER
+// PRE_HTTP companion: declare route count before server starts. This was
+// previously declared as 1 (the sort-key order value), but bb_ota_validator_init
+// registers 3 routes: POST /api/update/mark-valid, GET /api/update/partitions,
+// POST /api/update/recover. The undercount was masked only by BB_HTTP_OVERHEAD_SLACK.
+static bb_err_t bb_ota_validator_reserve_routes(void)
+{
+    bb_http_reserve_routes(3);  // POST /api/update/mark-valid + GET /api/update/partitions + POST /api/update/recover
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_ota_validator, bb_ota_validator_reserve_routes);
 BB_REGISTRY_REGISTER_N(bb_ota_validator, bb_ota_validator_init, 1);
 #endif
 

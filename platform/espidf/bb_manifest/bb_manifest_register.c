@@ -106,5 +106,11 @@ static bb_err_t bb_manifest_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_MANIFEST_AUTOREGISTER
+static bb_err_t bb_manifest_reserve_routes(void)
+{
+    bb_http_reserve_routes(1);  // GET /api/manifest
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_manifest, bb_manifest_reserve_routes);
 BB_REGISTRY_REGISTER_N(bb_manifest, bb_manifest_init, 1);
 #endif

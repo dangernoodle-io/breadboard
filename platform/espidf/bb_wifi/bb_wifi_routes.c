@@ -122,5 +122,11 @@ static bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_WIFI_ROUTES_AUTOREGISTER
+static bb_err_t bb_wifi_routes_reserve(void)
+{
+    bb_http_reserve_routes(2);  // GET /api/wifi + POST /api/scan
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_wifi_routes, bb_wifi_routes_reserve);
 BB_REGISTRY_REGISTER_N(bb_wifi_routes, bb_wifi_routes_init, 2);
 #endif

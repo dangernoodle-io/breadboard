@@ -19,12 +19,15 @@ bb_err_t bb_registry_init(void);
 size_t  bb_registry_count(void);
 void    bb_registry_foreach(void (*cb)(const bb_registry_entry_t *, void *), void *ctx);
 void    bb_registry_clear(void);
-size_t  bb_registry_route_count_total(void);
 
 // The constructor is global (not static) so each component's CMakeLists can
 // add `-u bb_registry_register__<name>` to force-keep the .o under PlatformIO,
 // whose espidf builder strips IDF's WHOLE_ARCHIVE flag. See
 // cmake/bb_registry.cmake for the bb_registry_force_register() helper.
+//
+// N is a sort key only — lower N runs first. It is NOT a route-count hint.
+// Route counts are declared via bb_http_reserve_routes() in a companion
+// BB_REGISTRY_REGISTER_PRE_HTTP init function.
 #define BB_REGISTRY_REGISTER_N(name_, fn_, n_)                                 \
     static const bb_registry_entry_t bb_registry_entry__##name_ = {            \
         .name = #name_, .init = (fn_), .order = (n_)                           \

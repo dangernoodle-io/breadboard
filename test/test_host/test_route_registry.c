@@ -387,6 +387,29 @@ void test_http_reserve_routes_accumulates(void)
     bb_http_host_reset_reserved();
 }
 
+// Regression guard: simulates three PRE_HTTP companion functions each calling
+// bb_http_reserve_routes() with their module's exact route count, then asserts
+// the total matches. If a companion is removed or its count drifts, this test
+// catches the mismatch before a device boot exposes it.
+void test_reserve_declared_total_from_companions(void)
+{
+    bb_http_host_reset_reserved();
+    TEST_ASSERT_EQUAL(0, bb_http_host_reserved_routes());
+
+    // Simulate three PRE_HTTP companions (e.g. bb_info=2, bb_wifi=2, bb_system=1)
+    bb_http_reserve_routes(2);   // bb_info
+    bb_http_reserve_routes(2);   // bb_wifi
+    bb_http_reserve_routes(1);   // bb_system
+    TEST_ASSERT_EQUAL(5, bb_http_host_reserved_routes());
+
+    // Simulate adding a previously undercounted module (bb_ota_validator: 3 not 1)
+    bb_http_reserve_routes(3);   // bb_ota_validator (correct count)
+    TEST_ASSERT_EQUAL(8, bb_http_host_reserved_routes());
+
+    bb_http_host_reset_reserved();
+    TEST_ASSERT_EQUAL(0, bb_http_host_reserved_routes());
+}
+
 void test_register_route_table_registers_all(void)
 {
     bb_http_route_registry_clear();
