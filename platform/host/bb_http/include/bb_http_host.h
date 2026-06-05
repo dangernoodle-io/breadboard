@@ -25,6 +25,8 @@ typedef struct {
     char   content_type[64]; // set by bb_http_resp_set_type or send_json default
     char  *body;             // heap-owned, NUL-terminated; NULL if nothing sent
     size_t body_len;         // length of body (excluding NUL terminator)
+    bool   has_acao;         // Access-Control-Allow-Origin was set
+    bool   has_acapn;        // Access-Control-Allow-Private-Network was set
 } bb_http_host_capture_t;
 
 // Arm a new capture slot. Writes a fake (non-NULL) request cookie to *out_req.

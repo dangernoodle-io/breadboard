@@ -50,4 +50,20 @@ config BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
         entirely (restores the pre-#330 behaviour). Does not meaningfully affect
         the full-heap OTA boot-mode path (ample heap by construction).
 
+config BB_OTA_PULL_APPLY_CACHE_FRESH_S
+    int "POST /api/update/apply: cached check freshness window (seconds, 0=always refresh)"
+    range 0 86400
+    default 300
+    help
+        When POST /api/update/apply is called, bb_ota_pull trusts the
+        bb_update_check cached result if it is younger than this many seconds
+        (cache-first). If the cache is stale or empty, bb_ota_pull kicks the
+        update-check worker and waits up to ~15 s for a fresh result before
+        deciding.
+
+        Default 300 s (5 minutes): a fleet apply right after a release or
+        right after a reboot refreshes automatically instead of silently
+        no-oping on a stale RAM cache. Setting to 0 forces a refresh on every
+        apply call regardless of cache age.
+
 endmenu

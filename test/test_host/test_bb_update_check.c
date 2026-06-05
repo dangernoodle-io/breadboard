@@ -1711,3 +1711,31 @@ void test_bb_update_check_outcome_failed_custom_parser_error(void)
     TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_FAILED, st.outcome);
     TEST_ASSERT_FALSE(st.last_check_ok);
 }
+
+// ---------------------------------------------------------------------------
+// bb_update_check_run_blocking (host stub)
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_run_blocking_before_init_returns_invalid_state(void)
+{
+    reset_world();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_update_check_run_blocking(5000));
+}
+
+void test_bb_update_check_run_blocking_runs_check_on_host(void)
+{
+    // On host, run_blocking is synchronous and behaves like now().
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_blocking(5000));
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_TRUE(st.available);
+    TEST_ASSERT_TRUE(st.last_check_ok);
+    TEST_ASSERT_EQUAL_STRING("v9.9.9", st.latest);
+}

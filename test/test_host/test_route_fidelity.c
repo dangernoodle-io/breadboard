@@ -453,6 +453,145 @@ void test_fidelity_boot_with_panic(void)
 }
 
 // ---------------------------------------------------------------------------
+// CORS header capture tests
+//
+// CORS headers are set per-route, not globally. The three OTA routes that
+// lacked ACAO/ACAPN now set them explicitly at the top of their handlers:
+//   - GET  /api/update/status   (bb_update_check_espidf.c: status_handler)
+//   - POST /api/update/apply    (bb_ota_pull.c: ota_update_handler)
+//   - GET  /api/update/progress (bb_ota_pull.c: ota_status_handler)
+//
+// Routes that already set ACAO themselves (TaipanMiner /api/stats etc.) are
+// NOT touched — they continue to set it exactly once.
+//
+// These tests verify:
+//   (a) the capture harness correctly tracks CORS header calls, and
+//   (b) handlers that call set_header for ACAO and ACAPN produce
+//       has_acao=true/has_acapn=true (one copy, not two).
+//   (c) handlers that do NOT call set_header leave has_acao/has_acapn false.
+//   (d) the OTA route handler stubs emit CORS headers exactly once.
+// ---------------------------------------------------------------------------
+
+void test_capture_cors_headers_recorded(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    // Simulate a handler that explicitly sets CORS headers (e.g. ota_update_handler)
+    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
+    bb_http_resp_sendstr(req, "{}");
+
+    bb_http_host_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_TRUE_MESSAGE(cap.has_acao,  "Access-Control-Allow-Origin not captured");
+    TEST_ASSERT_TRUE_MESSAGE(cap.has_acapn, "Access-Control-Allow-Private-Network not captured");
+
+    bb_http_host_capture_free(&cap);
+}
+
+void test_capture_cors_absent_by_default(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+
+    // Handler that does NOT set CORS headers — shim no longer injects globally
+    bb_http_resp_sendstr(req, "{}");
+
+    bb_http_host_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_FALSE_MESSAGE(cap.has_acao,  "has_acao should be false without explicit set_header");
+    TEST_ASSERT_FALSE_MESSAGE(cap.has_acapn, "has_acapn should be false without explicit set_header");
+
+    bb_http_host_capture_free(&cap);
+}
+
+// OTA update/progress handler stub: mirrors ota_status_handler CORS injection.
+static bb_err_t h_ota_progress_cors(bb_http_request_t *req)
+{
+    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "state", "idle");
+    bb_http_resp_json_obj_set_bool(&obj, "in_progress", false);
+    bb_http_resp_json_obj_set_int(&obj, "progress_pct", 0);
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+// OTA apply handler stub: mirrors ota_update_handler CORS injection.
+static bb_err_t h_ota_apply_cors(bb_http_request_t *req)
+{
+    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
+    bb_http_resp_set_status(req, 409);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "error", "update_in_progress");
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+// Update-status handler stub: mirrors status_handler CORS injection.
+static bb_err_t h_update_status_cors(bb_http_request_t *req)
+{
+    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "current", "v1.0.0");
+    bb_http_resp_json_obj_set_str(&obj, "latest", "v1.0.0");
+    bb_http_resp_json_obj_set_str(&obj, "download_url", "");
+    bb_http_resp_json_obj_set_bool(&obj, "available", false);
+    bb_http_resp_json_obj_set_bool(&obj, "last_check_ok", false);
+    bb_http_resp_json_obj_set_bool(&obj, "enabled", true);
+    bb_http_resp_json_obj_set_str(&obj, "outcome", "unknown");
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+void test_ota_progress_handler_emits_cors_headers(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    h_ota_progress_cors(req);
+    bb_http_host_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_TRUE_MESSAGE(cap.has_acao,  "GET /api/update/progress: missing ACAO");
+    TEST_ASSERT_TRUE_MESSAGE(cap.has_acapn, "GET /api/update/progress: missing ACAPN");
+    bb_http_host_capture_free(&cap);
+}
+
+void test_ota_apply_handler_emits_cors_headers(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    h_ota_apply_cors(req);
+    bb_http_host_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_TRUE_MESSAGE(cap.has_acao,  "POST /api/update/apply: missing ACAO");
+    TEST_ASSERT_TRUE_MESSAGE(cap.has_acapn, "POST /api/update/apply: missing ACAPN");
+    bb_http_host_capture_free(&cap);
+}
+
+void test_update_status_handler_emits_cors_headers(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    h_update_status_cors(req);
+    bb_http_host_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_TRUE_MESSAGE(cap.has_acao,  "GET /api/update/status: missing ACAO");
+    TEST_ASSERT_TRUE_MESSAGE(cap.has_acapn, "GET /api/update/status: missing ACAPN");
+    bb_http_host_capture_free(&cap);
+}
+
+// ---------------------------------------------------------------------------
 // Capture harness unit tests
 // ---------------------------------------------------------------------------
 

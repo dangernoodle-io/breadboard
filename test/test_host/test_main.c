@@ -85,6 +85,13 @@ void test_download_should_retry_ok_and_complete_is_false(void);
 void test_download_should_retry_perform_error_triggers_retry(void);
 void test_download_should_retry_incomplete_data_triggers_retry(void);
 void test_download_should_retry_both_error_and_incomplete_triggers_retry(void);
+void test_apply_cache_is_fresh_fresh_result_returns_true(void);
+void test_apply_cache_is_fresh_stale_result_returns_false(void);
+void test_apply_cache_is_fresh_never_checked_returns_false(void);
+void test_apply_cache_is_fresh_last_check_ok_false_returns_false(void);
+void test_apply_cache_is_fresh_window_zero_always_returns_false(void);
+void test_apply_cache_is_fresh_exactly_at_window_boundary_returns_true(void);
+void test_apply_cache_is_fresh_one_us_past_window_returns_false(void);
 
 // Forward declarations from test_bb_ota_pull_manifest.c
 void test_ota_pull_manifest_fetch_success(void);
@@ -443,6 +450,11 @@ void test_fidelity_ota_status(void);
 void test_fidelity_ota_mark_valid_409(void);
 void test_fidelity_boot_no_panic(void);
 void test_fidelity_boot_with_panic(void);
+void test_capture_cors_headers_recorded(void);
+void test_capture_cors_absent_by_default(void);
+void test_ota_progress_handler_emits_cors_headers(void);
+void test_ota_apply_handler_emits_cors_headers(void);
+void test_update_status_handler_emits_cors_headers(void);
 void test_capture_begin_end_basic(void);
 void test_capture_default_status_is_200(void);
 void test_capture_send_json_sets_content_type(void);
@@ -1183,6 +1195,8 @@ void test_bb_update_check_publish_initial_snapshot_available_is_false(void);
 void test_bb_update_check_get_status_returns_copy_of_cached_state(void);
 void test_bb_update_check_get_status_reflects_failure(void);
 void test_bb_update_check_kick_returns_ok_on_host(void);
+void test_bb_update_check_run_blocking_before_init_returns_invalid_state(void);
+void test_bb_update_check_run_blocking_runs_check_on_host(void);
 void test_bb_update_check_status_enabled_is_true_by_default(void);
 void test_bb_update_check_run_one_disabled_returns_ok_without_fetch(void);
 void test_bb_update_check_status_enabled_reflects_nv_flag(void);
@@ -1397,6 +1411,15 @@ int main(void) {
     RUN_TEST(test_download_should_retry_perform_error_triggers_retry);
     RUN_TEST(test_download_should_retry_incomplete_data_triggers_retry);
     RUN_TEST(test_download_should_retry_both_error_and_incomplete_triggers_retry);
+
+    // OTA pull — apply cache freshness predicate
+    RUN_TEST(test_apply_cache_is_fresh_fresh_result_returns_true);
+    RUN_TEST(test_apply_cache_is_fresh_stale_result_returns_false);
+    RUN_TEST(test_apply_cache_is_fresh_never_checked_returns_false);
+    RUN_TEST(test_apply_cache_is_fresh_last_check_ok_false_returns_false);
+    RUN_TEST(test_apply_cache_is_fresh_window_zero_always_returns_false);
+    RUN_TEST(test_apply_cache_is_fresh_exactly_at_window_boundary_returns_true);
+    RUN_TEST(test_apply_cache_is_fresh_one_us_past_window_returns_false);
 
     // OTA pull — streaming manifest fetch
     RUN_TEST(test_ota_pull_manifest_fetch_success);
@@ -1712,6 +1735,13 @@ int main(void) {
     RUN_TEST(test_route_schemas_walker_flags_malformed);
     RUN_TEST(test_set_raw_writes_null_on_malformed_json);
     RUN_TEST(test_set_raw_writes_parsed_object_on_valid_json);
+
+    // CORS header capture tests
+    RUN_TEST(test_capture_cors_headers_recorded);
+    RUN_TEST(test_capture_cors_absent_by_default);
+    RUN_TEST(test_ota_progress_handler_emits_cors_headers);
+    RUN_TEST(test_ota_apply_handler_emits_cors_headers);
+    RUN_TEST(test_update_status_handler_emits_cors_headers);
 
     // Capture harness unit tests
     RUN_TEST(test_capture_begin_end_basic);
@@ -2492,6 +2522,8 @@ int main(void) {
     RUN_TEST(test_bb_update_check_get_status_returns_copy_of_cached_state);
     RUN_TEST(test_bb_update_check_get_status_reflects_failure);
     RUN_TEST(test_bb_update_check_kick_returns_ok_on_host);
+    RUN_TEST(test_bb_update_check_run_blocking_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_update_check_run_blocking_runs_check_on_host);
     RUN_TEST(test_bb_update_check_status_enabled_is_true_by_default);
     RUN_TEST(test_bb_update_check_run_one_disabled_returns_ok_without_fetch);
     RUN_TEST(test_bb_update_check_status_enabled_reflects_nv_flag);

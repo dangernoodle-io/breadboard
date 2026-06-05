@@ -56,6 +56,19 @@ void bb_ota_pull_set_releases_url(const char *url);
  */
 void bb_ota_pull_set_http_timeout_ms(uint32_t ms);
 
+/**
+ * Pure freshness predicate for the POST /api/update/apply cache-first logic.
+ *
+ * Returns true when the cached update-check result is fresh enough to trust:
+ *   - last_check_ok must be true (a successful check ran)
+ *   - (now_us - last_check_us) must be <= window_s * 1e6
+ *   - window_s == 0 always returns false (always refresh)
+ *
+ * No ESP-IDF dependencies; exercised on host by unit tests.
+ */
+bool bb_ota_pull_apply_cache_is_fresh(bool last_check_ok, int64_t last_check_us,
+                                      int64_t now_us, int32_t window_s);
+
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
 
