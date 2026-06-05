@@ -6,14 +6,30 @@
 //
 // SKIPPED ROUTES (with rationale):
 //   /api/logs              - SSE stream (text/event-stream); not JSON
+//   /api/events            - SSE stream (text/event-stream); not JSON
+//   /api/logs/status       - handler lives in platform/espidf/bb_log/bb_log_routes.c
+//                            (static fn) and calls bb_log_stream_dropped_lines()
+//                            which has no host implementation
 //   /api/scan              - bb_wifi_routes.c includes <esp_wifi.h> which cannot
 //                            link on host; scan uses esp_wifi_scan internally.
 //                            Follow-up: add a bb_wifi_scan host shim (B1-???).
-//   /api/update/check      - handler registered via bb_http_register_route (not
-//                            described); handler pointer is NULL in route struct.
-//                            The route descriptor exists for OpenAPI docs only.
-//                            Audited indirectly via the declared schema literal.
-//   /api/update/apply      - same as /api/update/check above.
+//   /api/update/apply      - ota_update_handler calls esp_restart() (ESP-IDF only);
+//                            ota_boot_handler same. Both handlers are static in
+//                            ESP-IDF platform files.
+//   /api/update/partitions - calls esp_ota_get_running_partition (ESP-IDF only)
+//   /api/update/recover    - calls esp_ota_erase_last_boot_app_partition (ESP-IDF only)
+//   /api/update/mark-valid (200) - bb_ota_is_pending() always false on host; 409 path covered
+//   /api/diag/heap         - calls heap_caps_* (ESP-IDF only)
+//   /api/diag/sockets      - walks LWIP TCP PCBs (ESP-IDF only)
+//   /api/diag/tasks        - CONFIG_FREERTOS_USE_TRACE_FACILITY (ESP-IDF only)
+//   /api/diag/coredump     - ESP-IDF partition API (ESP-IDF only)
+//   /api/diag/panic/trigger- debug-only; ESP-IDF only
+//   /api/openapi.json      - uses bb_openapi_emit_stream; no fixed schema to validate
+//                            (self-describing meta-spec); already covered by test_openapi_emit.c
+//   /api/manifest          - wraps bb_manifest_emit; no fidelity schema declared
+//                            (descriptor .handler = NULL); already covered by test_manifest.c
+//   DELETE /api/diag/boot  - returns 204 No Content; no JSON body
+//   POST /api/log/level    - returns 204 No Content on success; JSON only on 400 errors
 // REMOVED ROUTES (no longer registered):
 //   /api/board             - dropped; superseded by /api/info
 //   /api/ping              - dropped; superseded by /api/health
@@ -32,6 +48,12 @@
 #include "bb_wifi.h"
 #include "bb_system.h"
 #include "bb_mdns.h"
+#include "bb_diag.h"
+#include "bb_event.h"
+#include "bb_update_check.h"
+#include "bb_event_routes.h"
+#include "bb_event_ring.h"
+#include "bb_log.h"
 
 // bb_mdns_started and bb_mdns_get_hostname are declared in bb_mdns.h only
 // under #ifdef ESP_PLATFORM. The host stub implements them; forward-declare
@@ -160,6 +182,84 @@ static const char k_boot_schema[] =
     "\"reset_reason\":{\"type\":\"string\"}},"
     "\"required\":[\"available\"]}},"
     "\"required\":[\"reset_reason\",\"abnormal_reset_count\",\"panic\"]}";
+
+// GET /api/diag/panic — platform/espidf/bb_diag/bb_diag_routes.c
+static const char k_panic_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+    "\"available\":{\"type\":\"boolean\"},"
+    "\"boots_since\":{\"type\":\"integer\"},"
+    "\"reset_reason\":{\"type\":\"string\"},"
+    "\"log_tail\":{\"type\":\"string\"},"
+    "\"task\":{\"type\":\"string\"},"
+    "\"exc_pc\":{\"type\":\"integer\"},"
+    "\"exc_cause\":{\"type\":\"integer\"},"
+    "\"backtrace\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}},"
+    "\"panic_reason\":{\"type\":\"string\"}},"
+    "\"required\":[\"available\"]}";
+
+// GET /api/update/status — platform/espidf/bb_update_check/bb_update_check_espidf.c
+static const char k_update_status_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+    "\"current\":{\"type\":\"string\"},"
+    "\"latest\":{\"type\":\"string\"},"
+    "\"download_url\":{\"type\":\"string\"},"
+    "\"available\":{\"type\":\"boolean\"},"
+    "\"last_check_ok\":{\"type\":\"boolean\"},"
+    "\"enabled\":{\"type\":\"boolean\"},"
+    "\"outcome\":{\"type\":\"string\","
+    "\"enum\":[\"unknown\",\"up_to_date\",\"available\","
+    "\"no_asset\",\"check_failed\"]},"
+    "\"last_check_ts\":{\"type\":\"integer\"}},"
+    "\"required\":[\"current\",\"latest\",\"download_url\","
+    "\"available\",\"last_check_ok\",\"enabled\",\"outcome\"]}";
+
+// GET /api/update/config — components/bb_update_check/src/bb_update_check_common.c
+static const char k_update_config_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{\"enabled\":{\"type\":\"boolean\"}},"
+    "\"required\":[\"enabled\"]}";
+
+// POST /api/update/check — platform/espidf/bb_ota_pull/bb_ota_pull.c (ota_check_handler)
+static const char k_update_check_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{\"status\":{\"type\":\"string\"}},"
+    "\"required\":[\"status\"]}";
+
+// GET /api/diag/events — platform/espidf/bb_event_routes/bb_event_routes_espidf.c
+static const char k_diag_events_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+    "\"topics\":{\"type\":\"array\",\"items\":{"
+    "\"type\":\"object\","
+    "\"properties\":{"
+    "\"name\":{\"type\":\"string\"},"
+    "\"ring_capacity\":{\"type\":\"integer\"},"
+    "\"ring_count\":{\"type\":\"integer\"},"
+    "\"last_id\":{\"type\":\"integer\"},"
+    "\"last_post_us\":{\"type\":\"integer\"},"
+    "\"last_size\":{\"type\":\"integer\"}},"
+    "\"required\":[\"name\",\"ring_capacity\",\"ring_count\","
+    "\"last_id\",\"last_post_us\",\"last_size\"]}},"
+    "\"max_clients\":{\"type\":\"integer\"},"
+    "\"active_clients\":{\"type\":\"integer\"}},"
+    "\"required\":[\"topics\",\"max_clients\",\"active_clients\"]}";
+
+// GET /api/log/level — platform/espidf/bb_log/bb_log_http.c
+static const char k_log_level_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+    "\"levels\":{\"type\":\"array\","
+    "\"items\":{\"type\":\"string\","
+    "\"enum\":[\"none\",\"error\",\"warn\",\"info\",\"debug\",\"verbose\"]}},"
+    "\"tags\":{\"type\":\"array\","
+    "\"items\":{\"type\":\"object\","
+    "\"properties\":{"
+    "\"tag\":{\"type\":\"string\"},"
+    "\"level\":{\"type\":\"string\"}},"
+    "\"required\":[\"tag\",\"level\"]}}},"
+    "\"required\":[\"levels\",\"tags\"]}";
 
 // ---------------------------------------------------------------------------
 // Host-local handler implementations
@@ -329,6 +429,189 @@ static bb_err_t h_ota_mark_valid_409(bb_http_request_t *req)
     return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
+// GET /api/diag/panic — no-panic path (host: bb_diag_panic_available() = false,
+// bb_diag_panic_coredump_available() = false).
+// Mirrors panic_get_handler in platform/espidf/bb_diag/bb_diag_routes.c.
+static bb_err_t h_diag_panic(bb_http_request_t *req)
+{
+    bool available      = bb_diag_panic_available();
+    bool coredump_avail = bb_diag_panic_coredump_available();
+
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+
+    bb_http_resp_json_obj_set_bool(&obj, "available", available);
+    if (available || coredump_avail) {
+        bb_http_resp_json_obj_set_int(&obj, "boots_since",
+                                      (int64_t)bb_diag_panic_boots_since());
+    }
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+// GET /api/update/status — idle state (mirrors status_handler in
+// platform/espidf/bb_update_check/bb_update_check_espidf.c).
+// Requires bb_update_check_init() to have been called.
+static bb_err_t h_update_status(bb_http_request_t *req)
+{
+    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
+
+    bb_update_check_status_t st;
+    bb_err_t err = bb_update_check_get_status(&st);
+    if (err != BB_OK) {
+        bb_http_resp_set_status(req, 503);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "not initialized");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_OK;
+    }
+
+    /* Map outcome enum to string (mirrors outcome_str() in production handler). */
+    const char *outcome;
+    switch (st.outcome) {
+        case BB_UPDATE_OUTCOME_UP_TO_DATE: outcome = "up_to_date";  break;
+        case BB_UPDATE_OUTCOME_AVAILABLE:  outcome = "available";   break;
+        case BB_UPDATE_OUTCOME_NO_ASSET:   outcome = "no_asset";    break;
+        case BB_UPDATE_OUTCOME_FAILED:     outcome = "check_failed";break;
+        default:                           outcome = "unknown";     break;
+    }
+
+    bb_http_json_obj_stream_t obj;
+    err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+    bb_http_resp_json_obj_set_str(&obj,  "current",       st.current);
+    bb_http_resp_json_obj_set_str(&obj,  "latest",        st.latest);
+    bb_http_resp_json_obj_set_str(&obj,  "download_url",  st.download_url);
+    bb_http_resp_json_obj_set_bool(&obj, "available",     st.available);
+    bb_http_resp_json_obj_set_bool(&obj, "last_check_ok", st.last_check_ok);
+    bb_http_resp_json_obj_set_bool(&obj, "enabled",       st.enabled);
+    bb_http_resp_json_obj_set_str(&obj,  "outcome",       outcome);
+    if (st.last_check_us != 0) {
+        bb_http_resp_json_obj_set_int(&obj, "last_check_ts",
+                                      (int64_t)(st.last_check_us / 1000000));
+    }
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+// GET /api/update/config — mirrors bb_update_check_config_get_handler in
+// components/bb_update_check/src/bb_update_check_common.c.
+static bb_err_t h_update_config_get(bb_http_request_t *req)
+{
+    bool enabled = bb_nv_config_update_check_enabled();
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+    bb_http_resp_json_obj_set_bool(&obj, "enabled", enabled);
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+// POST /api/update/check — mirrors ota_check_handler in
+// platform/espidf/bb_ota_pull/bb_ota_pull.c.
+// Handler just responds {"status":"checking"} and kicks the worker.
+// On host we only test the JSON shape, not the kick.
+static bb_err_t h_update_check(bb_http_request_t *req)
+{
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+    bb_http_resp_json_obj_set_str(&obj, "status", "checking");
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+// GET /api/diag/events — mirrors diag_events_handler in
+// platform/espidf/bb_event_routes/bb_event_routes_espidf.c.
+// Uses only public bb_event_routes and bb_event_ring APIs.
+// Requires bb_event_routes_init() to have been called.
+static bb_err_t h_diag_events(bb_http_request_t *req)
+{
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+
+    bb_http_resp_json_obj_set_arr_begin(&obj, "topics");
+    size_t n = bb_event_routes_topic_count();
+    for (size_t i = 0; i < n; i++) {
+        const char *name = NULL;
+        bb_event_ring_t ring = NULL;
+        if (bb_event_routes_topic_info(i, &name, &ring) != BB_OK) continue;
+
+        bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
+        bb_http_resp_json_obj_set_str(&obj, "name", name ? name : "");
+
+        if (ring) {
+            bb_http_resp_json_obj_set_int(&obj, "ring_capacity", (int64_t)bb_event_ring_capacity(ring));
+            bb_http_resp_json_obj_set_int(&obj, "ring_count",    (int64_t)bb_event_ring_count(ring));
+
+            uint32_t last_id = 0;
+            size_t   last_sz = 0;
+            int64_t  last_us = 0;
+            if (bb_event_ring_last_entry_info(ring, &last_id, &last_sz, &last_us) == BB_OK) {
+                bb_http_resp_json_obj_set_int(&obj, "last_id",      (int64_t)last_id);
+                bb_http_resp_json_obj_set_int(&obj, "last_post_us", last_us);
+                bb_http_resp_json_obj_set_int(&obj, "last_size",    (int64_t)last_sz);
+            } else {
+                bb_http_resp_json_obj_set_int(&obj, "last_id",      0);
+                bb_http_resp_json_obj_set_int(&obj, "last_post_us", 0);
+                bb_http_resp_json_obj_set_int(&obj, "last_size",    0);
+            }
+        } else {
+            bb_http_resp_json_obj_set_int(&obj, "ring_capacity", 0);
+            bb_http_resp_json_obj_set_int(&obj, "ring_count",    0);
+            bb_http_resp_json_obj_set_int(&obj, "last_id",       0);
+            bb_http_resp_json_obj_set_int(&obj, "last_post_us",  0);
+            bb_http_resp_json_obj_set_int(&obj, "last_size",     0);
+        }
+        bb_http_resp_json_obj_set_obj_end(&obj);
+    }
+    bb_http_resp_json_obj_set_arr_end(&obj);
+
+    /* max_clients: mirrors CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS used by the
+     * production handler; fall back to the same default the component uses
+     * when building without sdkconfig (host test environment). */
+#ifndef CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS
+#define CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS 4
+#endif
+    bb_http_resp_json_obj_set_int(&obj, "max_clients",    (int64_t)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS);
+    bb_http_resp_json_obj_set_int(&obj, "active_clients", (int64_t)bb_event_routes_active_client_count());
+
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+// GET /api/log/level — mirrors log_level_get_handler in
+// platform/espidf/bb_log/bb_log_http.c.
+// Uses only portable bb_log_tag_at / bb_log_level_to_str APIs.
+static bb_err_t h_log_level_get(bb_http_request_t *req)
+{
+    static const char *s_level_names[] = {
+        "none", "error", "warn", "info", "debug", "verbose",
+    };
+
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+
+    bb_http_resp_json_obj_set_arr_begin(&obj, "levels");
+    for (size_t i = 0; i < sizeof(s_level_names) / sizeof(s_level_names[0]); i++) {
+        bb_http_resp_json_obj_set_str(&obj, NULL, s_level_names[i]);
+    }
+    bb_http_resp_json_obj_set_arr_end(&obj);
+
+    bb_http_resp_json_obj_set_arr_begin(&obj, "tags");
+    const char *tag = NULL;
+    bb_log_level_t lv;
+    for (size_t i = 0; bb_log_tag_at(i, &tag, &lv); i++) {
+        bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
+        bb_http_resp_json_obj_set_str(&obj, "tag",   tag);
+        bb_http_resp_json_obj_set_str(&obj, "level", bb_log_level_to_str(lv));
+        bb_http_resp_json_obj_set_obj_end(&obj);
+    }
+    bb_http_resp_json_obj_set_arr_end(&obj);
+
+    return bb_http_resp_json_obj_end(&obj);
+}
+
 // ---------------------------------------------------------------------------
 // Audit entry: one per (handler, expected-status, schema) pair
 // ---------------------------------------------------------------------------
@@ -342,6 +625,9 @@ typedef struct {
 } fidelity_entry_t;
 
 // Table of all audited (route, handler, status, content-type, schema) tuples.
+// Entries that require subsystem state setup (bb_update_check_init,
+// bb_event_routes_init) are NOT listed here; their test functions below do
+// their own setup and call run_fidelity with a stack-allocated entry.
 static const fidelity_entry_t k_audit[] = {
     { "/api/reboot",            h_reboot,            200, "application/json", k_reboot_schema        },
     { "/api/info",              h_info,              200, "application/json", k_info_schema          },
@@ -351,6 +637,10 @@ static const fidelity_entry_t k_audit[] = {
     { "/api/update/mark-valid", h_ota_mark_valid_409,409, "application/json", k_mark_valid_409_schema},
     { "/api/diag/boot (clean)", h_boot_no_panic,     200, "application/json", k_boot_schema          },
     { "/api/diag/boot (panic)", h_boot_with_panic,   200, "application/json", k_boot_schema          },
+    /* No-state routes: */
+    { "/api/diag/panic",        h_diag_panic,        200, "application/json", k_panic_schema         },
+    { "/api/update/check",      h_update_check,      200, "application/json", k_update_check_schema  },
+    { "/api/log/level",         h_log_level_get,     200, "application/json", k_log_level_schema     },
     { NULL, NULL, 0, NULL, NULL },
 };
 
@@ -450,6 +740,68 @@ void test_fidelity_boot_no_panic(void)
 void test_fidelity_boot_with_panic(void)
 {
     run_fidelity(&k_audit[7]);
+}
+
+void test_fidelity_diag_panic(void)
+{
+    run_fidelity(&k_audit[8]);
+}
+
+void test_fidelity_update_check(void)
+{
+    run_fidelity(&k_audit[9]);
+}
+
+void test_fidelity_log_level_get(void)
+{
+    run_fidelity(&k_audit[10]);
+}
+
+// Routes that require subsystem state setup are tested individually below.
+
+// GET /api/update/status: requires bb_update_check_init().
+// Also ensures bb_event_init() has run (bb_update_check_init calls
+// bb_event_topic_register which requires an initialized event bus).
+void test_fidelity_update_status(void)
+{
+    bb_event_init(NULL);          /* idempotent; ensures topic registry ready */
+    bb_update_check_init(NULL);   /* idempotent; uses Kconfig defaults */
+
+    const fidelity_entry_t e = {
+        "/api/update/status", h_update_status, 200,
+        "application/json",   k_update_status_schema,
+    };
+    run_fidelity(&e);
+}
+
+// GET /api/update/config: requires bb_nv_config_update_check_enabled() (portable).
+void test_fidelity_update_config_get(void)
+{
+    const fidelity_entry_t e = {
+        "/api/update/config", h_update_config_get, 200,
+        "application/json",   k_update_config_schema,
+    };
+    run_fidelity(&e);
+}
+
+// GET /api/diag/events: requires bb_event_routes_init().
+// Uses the minimum valid config; no topics attached → empty topics array.
+void test_fidelity_diag_events(void)
+{
+    static const bb_event_routes_cfg_t cfg = {
+        .max_clients      = 1,
+        .per_client_queue = 2,
+        .ring_capacity    = 2,
+        .ring_max_entry   = 64,
+        .heartbeat_ms     = 1000,
+    };
+    bb_event_routes_init(&cfg);  /* idempotent */
+
+    const fidelity_entry_t e = {
+        "/api/diag/events", h_diag_events, 200,
+        "application/json", k_diag_events_schema,
+    };
+    run_fidelity(&e);
 }
 
 // ---------------------------------------------------------------------------
