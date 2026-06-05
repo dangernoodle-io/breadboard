@@ -138,15 +138,6 @@ void bb_registry_clear(void)
     }
 }
 
-size_t bb_registry_route_count_total(void)
-{
-    size_t total = 0;
-    for (node_t *p = s_head; p; p = p->next) {
-        total += (size_t)p->entry->order;
-    }
-    return total;
-}
-
 void bb_registry_add_early(const bb_registry_entry_early_t *entry)
 {
     if (!entry) return;

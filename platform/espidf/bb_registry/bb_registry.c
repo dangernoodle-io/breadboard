@@ -1,8 +1,12 @@
 #include "bb_registry.h"
 #include "bb_http.h"
+#include "bb_log.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
+
+static const char *TAG = "bb_registry";
 
 typedef struct node {
     const bb_registry_entry_t *entry;
@@ -113,6 +117,27 @@ bb_err_t bb_registry_init(void)
         }
     }
 
+    // Strict registry-cap audit: after all routes are registered, check whether
+    // the route descriptor registry overflowed. A high-watermark warning fires
+    // at count >= CAP-8 so developers notice before hitting the hard cap.
+    // CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT (default y) elevates overflow to a
+    // fatal assert so miscounted reserve declarations surface at boot rather than
+    // silently dropping route descriptors from the OpenAPI / introspection registry.
+    {
+        size_t reg_count = bb_http_route_registry_count();
+        size_t cap = (size_t)CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP;
+        if (reg_count >= cap) {
+            bb_log_e(TAG, "route registry FULL: %zu/%zu descriptors registered — increase BB_HTTP_ROUTE_REGISTRY_CAP",
+                     reg_count, cap);
+#if defined(CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT) && CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT
+            assert(reg_count < cap && "route registry overflow — increase BB_HTTP_ROUTE_REGISTRY_CAP");
+#endif
+        } else if (reg_count + 8 >= cap) {
+            bb_log_w(TAG, "route registry high-watermark: %zu/%zu descriptors — consider raising BB_HTTP_ROUTE_REGISTRY_CAP",
+                     reg_count, cap);
+        }
+    }
+
     return first_error;
 }
 
@@ -149,15 +174,6 @@ void bb_registry_clear(void)
         s_head = s_head->next;
         free(tmp);
     }
-}
-
-size_t bb_registry_route_count_total(void)
-{
-    size_t total = 0;
-    for (node_t *p = s_head; p; p = p->next) {
-        total += (size_t)p->entry->order;
-    }
-    return total;
 }
 
 void bb_registry_add_early(const bb_registry_entry_early_t *entry)

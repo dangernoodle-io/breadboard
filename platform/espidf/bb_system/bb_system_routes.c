@@ -46,5 +46,11 @@ static bb_err_t bb_system_routes_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER
+static bb_err_t bb_system_routes_reserve(void)
+{
+    bb_http_reserve_routes(1);  // POST /api/reboot
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_system_routes, bb_system_routes_reserve);
 BB_REGISTRY_REGISTER_N(bb_system_routes, bb_system_routes_init, 3);
 #endif

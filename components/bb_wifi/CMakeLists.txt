@@ -16,5 +16,6 @@ if(CONFIG_BB_WIFI_AUTOREGISTER)
 endif()
 
 if(CONFIG_BB_WIFI_ROUTES_AUTOREGISTER)
+    bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_wifi_routes)
     bb_registry_force_register(${COMPONENT_LIB} bb_wifi_routes)
 endif()

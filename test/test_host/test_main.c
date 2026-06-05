@@ -452,6 +452,7 @@ void test_register_route_descriptor_only_overflow_returns_no_space(void);
 void test_registry_overflow_returns_no_space(void);
 void test_http_route_handler_count_returns_zero_on_host(void);
 void test_http_reserve_routes_accumulates(void);
+void test_reserve_declared_total_from_companions(void);
 void test_register_route_table_registers_all(void);
 void test_register_route_table_null_table_returns_err(void);
 void test_register_route_table_propagates_failure(void);
@@ -1723,6 +1724,7 @@ int main(void) {
     RUN_TEST(test_registry_overflow_returns_no_space);
     RUN_TEST(test_http_route_handler_count_returns_zero_on_host);
     RUN_TEST(test_http_reserve_routes_accumulates);
+    RUN_TEST(test_reserve_declared_total_from_companions);
     RUN_TEST(test_register_route_table_registers_all);
     RUN_TEST(test_register_route_table_null_table_returns_err);
     RUN_TEST(test_register_route_table_propagates_failure);

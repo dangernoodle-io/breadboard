@@ -248,5 +248,11 @@ void bb_update_check_set_task_priority(int priority)
 }
 
 #if CONFIG_BB_UPDATE_CHECK_AUTOREGISTER
+static bb_err_t bb_update_check_reserve_routes(void)
+{
+    bb_http_reserve_routes(3);  // GET /api/update/status + GET /api/update/config + POST /api/update/config
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_update_check, bb_update_check_reserve_routes);
 BB_REGISTRY_REGISTER_N(bb_update_check, bb_update_check_register_init, 4);
 #endif

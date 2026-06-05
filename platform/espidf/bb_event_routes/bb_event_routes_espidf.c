@@ -364,5 +364,11 @@ static bb_err_t bb_event_routes_register_routes_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_EVENT_ROUTES_AUTOREGISTER
+static bb_err_t bb_event_routes_reserve_routes(void)
+{
+    bb_http_reserve_routes(2);  // GET /api/events + GET /api/diag/events
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_event_routes, bb_event_routes_reserve_routes);
 BB_REGISTRY_REGISTER(bb_event_routes, bb_event_routes_register_routes_init);
 #endif

@@ -220,6 +220,12 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_OTA_BOOT_AUTOREGISTER
+static bb_err_t bb_ota_boot_reserve_routes(void)
+{
+    bb_http_reserve_routes(1);  // POST /api/update/apply
+    return BB_OK;
+}
+BB_REGISTRY_REGISTER_PRE_HTTP(bb_ota_boot, bb_ota_boot_reserve_routes);
 BB_REGISTRY_REGISTER_N(bb_ota_boot, bb_ota_boot_init, 1);
 #endif
 

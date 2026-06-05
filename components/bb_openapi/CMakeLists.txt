@@ -9,5 +9,6 @@ idf_component_register(
 
 if(CONFIG_BB_OPENAPI_AUTOREGISTER)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+    bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_openapi)
     bb_registry_force_register(${COMPONENT_LIB} bb_openapi)
 endif()
