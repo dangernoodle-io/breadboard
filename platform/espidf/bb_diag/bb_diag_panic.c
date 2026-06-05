@@ -3,10 +3,26 @@
 #include "bb_log.h"
 #include "bb_nv.h"
 #include "esp_system.h"
+#include "esp_app_desc.h"
 #include <string.h>
 
-#define BB_DIAG_NV_NS       "bb_diag"
-#define BB_DIAG_NV_KEY_RST  "reset_count"
+#define BB_DIAG_NV_NS        "bb_diag"
+#define BB_DIAG_NV_KEY_RST   "reset_count"
+/* 4-byte fingerprint of the running app's ELF SHA256; used to detect firmware
+ * changes and auto-reset the abnormal-reset counter on new deploys/OTA. */
+#define BB_DIAG_NV_KEY_APPFP "app_fp"
+
+/* Derive a stable 32-bit fingerprint from the running app's ELF SHA256.
+ * Uses the first 4 bytes of the raw SHA256 (little-endian uint32). Collision
+ * probability is negligible for change-detection between consecutive builds. */
+static uint32_t bb_diag_running_app_fp(void)
+{
+    const uint8_t *sha = esp_app_get_description()->app_elf_sha256;
+    return ((uint32_t)sha[0])
+         | ((uint32_t)sha[1] << 8)
+         | ((uint32_t)sha[2] << 16)
+         | ((uint32_t)sha[3] << 24);
+}
 
 static uint32_t s_abnormal_reset_count = 0;
 
@@ -137,11 +153,25 @@ static bb_err_t bb_diag_panic_init(void)
         s_boots_since++;
     }
 
-    // NVS-backed abnormal-reset counter — survives power cycles
-    bb_nv_get_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, &s_abnormal_reset_count, 0);
-    if (was_panic_boot) {
-        s_abnormal_reset_count++;
-        bb_nv_set_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, s_abnormal_reset_count);
+    // NVS-backed abnormal-reset counter — "abnormal resets since this firmware
+    // was deployed"; auto-resets when the running app SHA fingerprint changes.
+    {
+        uint32_t stored_fp = 0;
+        uint32_t stored_count = 0;
+        bb_nv_get_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_APPFP, &stored_fp, 0);
+        bb_nv_get_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, &stored_count, 0);
+        uint32_t running_fp = bb_diag_running_app_fp();
+        bb_diag_reset_result_t r = bb_diag_reset_decision(stored_fp, running_fp,
+                                                           stored_count, was_panic_boot);
+        s_abnormal_reset_count = r.new_count;
+        bb_nv_batch_t batch;
+        if (bb_nv_batch_begin(&batch, BB_DIAG_NV_NS) == BB_OK) {
+            bb_nv_batch_set_u32(&batch, BB_DIAG_NV_KEY_RST, r.new_count);
+            if (r.store_fp) {
+                bb_nv_batch_set_u32(&batch, BB_DIAG_NV_KEY_APPFP, running_fp);
+            }
+            bb_nv_batch_commit(&batch);
+        }
     }
 
 #ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
@@ -353,10 +383,21 @@ static bb_err_t bb_diag_panic_init(void)
     bool was_panic_boot = (reason == ESP_RST_PANIC || reason == ESP_RST_TASK_WDT ||
                            reason == ESP_RST_INT_WDT || reason == ESP_RST_WDT ||
                            reason == ESP_RST_BROWNOUT);
-    bb_nv_get_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, &s_abnormal_reset_count, 0);
-    if (was_panic_boot) {
-        s_abnormal_reset_count++;
-        bb_nv_set_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, s_abnormal_reset_count);
+    uint32_t stored_fp = 0;
+    uint32_t stored_count = 0;
+    bb_nv_get_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_APPFP, &stored_fp, 0);
+    bb_nv_get_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, &stored_count, 0);
+    uint32_t running_fp = bb_diag_running_app_fp();
+    bb_diag_reset_result_t r = bb_diag_reset_decision(stored_fp, running_fp,
+                                                       stored_count, was_panic_boot);
+    s_abnormal_reset_count = r.new_count;
+    bb_nv_batch_t batch;
+    if (bb_nv_batch_begin(&batch, BB_DIAG_NV_NS) == BB_OK) {
+        bb_nv_batch_set_u32(&batch, BB_DIAG_NV_KEY_RST, r.new_count);
+        if (r.store_fp) {
+            bb_nv_batch_set_u32(&batch, BB_DIAG_NV_KEY_APPFP, running_fp);
+        }
+        bb_nv_batch_commit(&batch);
     }
     return BB_OK;
 }

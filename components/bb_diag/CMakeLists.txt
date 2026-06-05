@@ -1,4 +1,7 @@
-set(_diag_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag/bb_diag_panic.c")
+set(_diag_srcs
+    "${CMAKE_CURRENT_LIST_DIR}/bb_diag_reset_decision.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag/bb_diag_panic.c"
+)
 
 if(CONFIG_BB_DIAG_ROUTES)
     list(APPEND _diag_srcs
@@ -9,7 +12,7 @@ idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_log bb_registry bb_http bb_json bb_info bb_nv espcoredump lwip nvs_flash esp_partition
+    PRIV_REQUIRES bb_log bb_registry bb_http bb_json bb_info bb_nv espcoredump lwip nvs_flash esp_partition esp_app_format
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)
