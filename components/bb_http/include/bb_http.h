@@ -346,6 +346,13 @@ size_t bb_http_route_handler_cap(void);
 // has run, the cap is fixed.
 void bb_http_reserve_routes(int n);
 
+// Return true if `uri` matches any route in the registry (exact or wildcard-
+// suffix match, same semantics as httpd_uri_match_wildcard). The catch-all
+// wildcards registered by bb_http itself — OPTIONS /* and GET /* — are
+// excluded from consideration so a bogus path under them still returns false.
+// Portable: usable on host (test) and ESP-IDF platforms.
+bool bb_http_uri_is_registered(const char *uri);
+
 #ifdef __cplusplus
 }
 #endif

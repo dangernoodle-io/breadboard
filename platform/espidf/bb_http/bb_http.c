@@ -50,6 +50,7 @@ void bb_http_set_cors_headers(const char *headers)
 }
 
 static esp_err_t preflight_handler(httpd_req_t *req);
+static esp_err_t method_not_allowed_err_handler(httpd_req_t *req, httpd_err_code_t err);
 
 // One-shot work item queued on the httpd worker thread immediately after server
 // start.  Calling lwip_socket_thread_init() here pre-allocates the per-thread
@@ -145,6 +146,13 @@ bb_err_t bb_http_server_ensure_started(void)
     esp_err_t err = httpd_start(&s_server, &config);
     if (err != ESP_OK) return err;
 
+    // Register a custom 405 error handler that distinguishes "real 405" (URI is
+    // registered for a different method) from "URI not registered at all" (should
+    // be 404). Without this, the OPTIONS /* CORS preflight wildcard causes httpd
+    // to return 405 for every unregistered URI on non-OPTIONS requests.
+    httpd_register_err_handler(s_server, HTTPD_405_METHOD_NOT_ALLOWED,
+                               method_not_allowed_err_handler);
+
     /* B1-223 (root cause C): lwip lazily allocates a per-thread TLS semaphore
      * the first time sys_thread_sem_get() is called on a thread.  Under heap
      * pressure during the ~200 lwip_send calls of a large /api/pool response
@@ -188,6 +196,30 @@ static esp_err_t preflight_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", s_cors_headers);
     httpd_resp_set_status(req, "204 No Content");
     httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+// Custom 405 error handler: distinguishes between a genuine "method not
+// allowed" (the URI IS registered, just for a different HTTP method) and a
+// plain "not found" (the URI is not registered at all).
+//
+// Root cause: OPTIONS /* (CORS preflight) is a wildcard that httpd matches
+// against every URI. When a non-OPTIONS request arrives for an unregistered
+// path, httpd finds no exact handler, but the OPTIONS /* wildcard "wins" the
+// method check, so it returns 405 instead of 404. This handler corrects that:
+// if the requested URI is not present in our route registry for ANY method
+// (excluding the internal OPTIONS/* and GET/* catch-all wildcards), we send
+// 404. Only genuine method-mismatch requests (e.g. GET on a POST-only route)
+// keep the 405.
+static esp_err_t method_not_allowed_err_handler(httpd_req_t *req,
+                                                httpd_err_code_t err)
+{
+    (void)err;
+    if (!bb_http_uri_is_registered(req->uri)) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
+    } else {
+        httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method Not Allowed");
+    }
     return ESP_OK;
 }
 

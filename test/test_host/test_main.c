@@ -488,6 +488,19 @@ void test_reserve_declared_total_from_companions(void);
 void test_register_route_table_registers_all(void);
 void test_register_route_table_null_table_returns_err(void);
 void test_register_route_table_propagates_failure(void);
+void test_uri_is_registered_exact_match(void);
+void test_uri_is_registered_bogus_path(void);
+void test_uri_is_registered_post_only_route(void);
+void test_uri_is_registered_wildcard_route_matches_subpath(void);
+void test_uri_is_registered_wildcard_route_does_not_match_unrelated(void);
+void test_uri_is_registered_catchall_wildcards_excluded(void);
+void test_uri_is_registered_query_string_stripped(void);
+void test_uri_is_registered_null_uri(void);
+void test_uri_is_registered_empty_registry(void);
+void test_uri_is_registered_skips_null_path_entry(void);
+void test_uri_is_registered_very_long_uri_with_query(void);
+void test_uri_is_registered_empty_pattern_no_match(void);
+void test_uri_is_registered_post_catchall_is_registered(void);
 
 // Forward declarations from test_bb_http_assets.c
 void test_asset_type_definition(void);
@@ -1800,6 +1813,19 @@ int main(void) {
     RUN_TEST(test_register_route_table_registers_all);
     RUN_TEST(test_register_route_table_null_table_returns_err);
     RUN_TEST(test_register_route_table_propagates_failure);
+    RUN_TEST(test_uri_is_registered_exact_match);
+    RUN_TEST(test_uri_is_registered_bogus_path);
+    RUN_TEST(test_uri_is_registered_post_only_route);
+    RUN_TEST(test_uri_is_registered_wildcard_route_matches_subpath);
+    RUN_TEST(test_uri_is_registered_wildcard_route_does_not_match_unrelated);
+    RUN_TEST(test_uri_is_registered_catchall_wildcards_excluded);
+    RUN_TEST(test_uri_is_registered_query_string_stripped);
+    RUN_TEST(test_uri_is_registered_null_uri);
+    RUN_TEST(test_uri_is_registered_empty_registry);
+    RUN_TEST(test_uri_is_registered_skips_null_path_entry);
+    RUN_TEST(test_uri_is_registered_very_long_uri_with_query);
+    RUN_TEST(test_uri_is_registered_empty_pattern_no_match);
+    RUN_TEST(test_uri_is_registered_post_catchall_is_registered);
 
     // HTTP asset tests
     RUN_TEST(test_asset_type_definition);
