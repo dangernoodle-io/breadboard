@@ -222,6 +222,8 @@ OTA update strategy is a mutually-exclusive Kconfig **choice** `BB_OTA_STRATEGY`
 
 There is no `/api/update/boot` verb — boot-mode arms via `/api/update/apply`. The per-component autoregister bools stay user-visible for the manual-registration escape hatch.
 
+**Strategy↔update-check coupling.** `CONFIG_BB_UPDATE_CHECK_AUTOREGISTER` defaults off when `BB_OTA_STRATEGY_BOOT` is selected: boot-mode boards run the manifest check synchronously inside the boot-mode worker at full early-boot heap, so the recurring runtime task (~8 KB worker + HTTPS timer) is dead weight and cannot complete a TLS handshake on heap-tight boards. Pull-strategy boards keep the default `y`. Override to `y` explicitly if a boot-mode board also needs the runtime `GET /api/update/status` route.
+
 ## OTA push body cap
 
 `POST /api/update/push` enforces a body size limit via `CONFIG_BB_OTA_PUSH_MAX_SIZE` (default 4 MB). Requests exceeding the limit return 413 before any flash write begins.
