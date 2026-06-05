@@ -224,6 +224,12 @@ There is no `/api/update/boot` verb — boot-mode arms via `/api/update/apply`. 
 
 **Strategy↔update-check coupling.** `CONFIG_BB_UPDATE_CHECK_AUTOREGISTER` defaults off when `BB_OTA_STRATEGY_BOOT` is selected: boot-mode boards run the manifest check synchronously inside the boot-mode worker at full early-boot heap, so the recurring runtime task (~8 KB worker + HTTPS timer) is dead weight and cannot complete a TLS handshake on heap-tight boards. Pull-strategy boards keep the default `y`. Override to `y` explicitly if a boot-mode board also needs the runtime `GET /api/update/status` route.
 
+## OTA TLS pre-flight heap guard (bb_ota_pull)
+
+`CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES` (default **9216**) guards the in-place pull path: before the TLS handshake, `bb_ota_pull` checks `heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)` and refuses the pull with a clean error (`ESP_ERR_NO_MEM`) if the largest contiguous internal block is below this value. This prevents an OOM crash mid-handshake on a fragmented or low-heap no-PSRAM board.
+
+The default (9216) equals `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` (typically 8192) + ~1 KB record overhead — the contiguous internal block the mbedTLS handshake requires. If a consumer raises `MBEDTLS_SSL_IN_CONTENT_LEN` above 8192, `BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES` should be raised to match (new value + ~1024). Set to 0 to disable the check. The guard is inert on boards with ample heap headroom (all current pull-strategy boards have well over 9 KB largest free block at OTA time).
+
 ## OTA push body cap
 
 `POST /api/update/push` enforces a body size limit via `CONFIG_BB_OTA_PUSH_MAX_SIZE` (default 4 MB). Requests exceeding the limit return 413 before any flash write begins.
