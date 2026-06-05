@@ -32,17 +32,22 @@ config BB_OTA_PULL_WDT_EXTENDED_S
 config BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
     int "Pre-OTA minimum largest-free-block guard (bytes, 0=off)"
     range 0 131072
-    default 0
+    default 9216
     help
         Pre-flight heap guard. Before the TLS handshake, bb_ota_pull checks
         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)
         and refuses the pull (clean error, no crash) if it is below this value
         — the mbedTLS IN buffer + handshake need a contiguous internal block.
 
-        Default 0 disables the guard (no behaviour change). Set it on tight,
-        no-PSRAM boards where an in-place pull at low heap would otherwise OOM
-        mid-handshake and panic. A sane floor is roughly
-        CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN + a few KB. Does not meaningfully
-        affect the full-heap OTA boot-mode path (ample heap by construction).
+        Default 9216 (≈ CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN 8192 + ~1 KB record
+        overhead) so a low-heap or fragmented no-PSRAM board refuses the OTA
+        cleanly instead of OOM-crashing mid-TLS-handshake. The guard is inert
+        on boards with adequate heap headroom (all current pull-strategy boards
+        have well over 9 KB largest free block at OTA time).
+
+        If your project raises CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN above 8192,
+        set this to that value + ~1024 to match. Set to 0 to disable the check
+        entirely (restores the pre-#330 behaviour). Does not meaningfully affect
+        the full-heap OTA boot-mode path (ample heap by construction).
 
 endmenu
