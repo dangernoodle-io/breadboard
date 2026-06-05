@@ -2,6 +2,7 @@
 #include "bb_log.h"
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 // Maximum number of described routes the registry holds.
 // Overflow is logged and the descriptor is silently dropped.
@@ -93,4 +94,62 @@ bb_err_t bb_http_register_route_table(bb_http_handle_t server,
         if (err != BB_OK) return err;
     }
     return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
+// URI registration check
+// ---------------------------------------------------------------------------
+
+// Match a URI against a route path pattern using the same wildcard semantics
+// as httpd_uri_match_wildcard: a pattern ending in '*' is a prefix match
+// (the '*' acts as a suffix wildcard); anything else is an exact match.
+// Strip query string from uri before comparing.
+static bool uri_pattern_match(const char *pattern, const char *uri)
+{
+    if (!pattern || !uri) return false;  // LCOV_EXCL_BR_LINE — caller guards both before calling
+
+    // Strip query string from uri for matching
+    char path_buf[256];
+    const char *q = strchr(uri, '?');
+    if (q) {
+        size_t plen = (size_t)(q - uri);
+        if (plen >= sizeof(path_buf)) plen = sizeof(path_buf) - 1;
+        memcpy(path_buf, uri, plen);
+        path_buf[plen] = '\0';
+        uri = path_buf;
+    }
+
+    size_t plen = strlen(pattern);
+    if (plen > 0 && pattern[plen - 1] == '*') {
+        // Wildcard: uri must start with everything before the '*'
+        return strncmp(uri, pattern, plen - 1) == 0;
+    }
+    return strcmp(uri, pattern) == 0;
+}
+
+// Paths for the two internal catch-all wildcards registered by bb_http itself.
+// These are excluded from "is this URI registered?" because they match every
+// URI — a bogus path under them must still yield 404, not 405.
+#define BB_HTTP_PREFLIGHT_URI  "/*"   // OPTIONS /*  — CORS preflight
+#define BB_HTTP_ASSET_URI      "/*"   // GET /*      — static asset wildcard
+
+bool bb_http_uri_is_registered(const char *uri)
+{
+    if (!uri) return false;
+
+    for (size_t i = 0; i < s_count; i++) {
+        const bb_route_t *r = s_registry[i];
+        if (!r || !r->path) continue;  // LCOV_EXCL_BR_LINE — !r is unreachable; registry_add never stores NULL
+
+        // Skip the two internal catch-all wildcard routes so that a path that
+        // only matches via "/*" (preflight or asset wildcard) is not considered
+        // "registered" for the purpose of 404 vs 405 disambiguation.
+        if (strcmp(r->path, BB_HTTP_PREFLIGHT_URI) == 0 &&
+            r->method == BB_HTTP_OPTIONS) continue;
+        if (strcmp(r->path, BB_HTTP_ASSET_URI) == 0 &&
+            r->method == BB_HTTP_GET) continue;
+
+        if (uri_pattern_match(r->path, uri)) return true;
+    }
+    return false;
 }

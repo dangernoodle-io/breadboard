@@ -438,6 +438,237 @@ void test_register_route_table_propagates_failure(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_http_uri_is_registered
+// ---------------------------------------------------------------------------
+
+// Reusable descriptors for the predicate tests (POST-only route + wildcard)
+static const bb_route_response_t s_apply_responses[] = {
+    { .status = 202, .content_type = "application/json", .schema = NULL, .description = "started" },
+    { .status = 0 },
+};
+
+static const bb_route_t s_route_apply = {
+    .method    = BB_HTTP_POST,
+    .path      = "/api/update/apply",
+    .tag       = "ota",
+    .summary   = "Trigger OTA update",
+    .responses = s_apply_responses,
+    .handler   = stub_handler,
+};
+
+static const bb_route_response_t s_wildcard_responses[] = {
+    { .status = 200, .content_type = "text/event-stream", .schema = NULL, .description = "stream" },
+    { .status = 0 },
+};
+
+// A real wildcard route that IS registered (e.g. /api/events/*)
+static const bb_route_t s_route_events_wildcard = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/events/*",
+    .tag       = "events",
+    .summary   = "SSE stream",
+    .responses = s_wildcard_responses,
+    .handler   = stub_handler,
+};
+
+// The internal asset catch-all — same path as OPTIONS preflight but different method
+static const bb_route_t s_route_asset_catchall = {
+    .method    = BB_HTTP_GET,
+    .path      = "/*",
+    .tag       = "assets",
+    .summary   = "asset wildcard",
+    .responses = s_wildcard_responses,
+    .handler   = stub_handler,
+};
+
+// The internal OPTIONS preflight catch-all
+static const bb_route_t s_route_preflight_catchall = {
+    .method    = BB_HTTP_OPTIONS,
+    .path      = "/*",
+    .tag       = "cors",
+    .summary   = "preflight wildcard",
+    .responses = s_wildcard_responses,
+    .handler   = stub_handler,
+};
+
+// (a) Exact-match registered route → true
+void test_uri_is_registered_exact_match(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_stats);
+    TEST_ASSERT_TRUE(bb_http_uri_is_registered("/api/stats"));
+}
+
+// (b) Unregistered path → false
+void test_uri_is_registered_bogus_path(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_stats);
+    TEST_ASSERT_FALSE(bb_http_uri_is_registered("/api/totally-bogus-xyz"));
+}
+
+// (c) POST-only route; URI is registered (just for wrong method — 405 is correct)
+void test_uri_is_registered_post_only_route(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_apply);
+    // URI IS registered (as POST) — predicate should return true
+    TEST_ASSERT_TRUE(bb_http_uri_is_registered("/api/update/apply"));
+}
+
+// (d) Wildcard route matches sub-paths
+void test_uri_is_registered_wildcard_route_matches_subpath(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_events_wildcard);
+    TEST_ASSERT_TRUE(bb_http_uri_is_registered("/api/events/mining"));
+}
+
+// (e) Wildcard route registered; unrelated bogus path → false
+void test_uri_is_registered_wildcard_route_does_not_match_unrelated(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_events_wildcard);
+    TEST_ASSERT_FALSE(bb_http_uri_is_registered("/api/totally-bogus-xyz"));
+}
+
+// (f) GET /* (asset catch-all) and OPTIONS /* (preflight) in registry — should
+//     not make every path "registered". These are the internal catch-alls that
+//     the real bb_http server registers outside the described-route path; if
+//     they somehow end up in the registry the predicate must exclude them.
+void test_uri_is_registered_catchall_wildcards_excluded(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_asset_catchall);
+    bb_http_register_described_route(NULL, &s_route_preflight_catchall);
+    // A bogus path must not be considered registered just because "/*" matches
+    TEST_ASSERT_FALSE(bb_http_uri_is_registered("/api/totally-bogus-xyz"));
+}
+
+// (g) Query string stripped before matching
+void test_uri_is_registered_query_string_stripped(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_stats);
+    TEST_ASSERT_TRUE(bb_http_uri_is_registered("/api/stats?format=json"));
+}
+
+// (h) NULL uri → false (no crash)
+void test_uri_is_registered_null_uri(void)
+{
+    bb_http_route_registry_clear();
+    TEST_ASSERT_FALSE(bb_http_uri_is_registered(NULL));
+}
+
+// (i) Empty registry → false
+void test_uri_is_registered_empty_registry(void)
+{
+    bb_http_route_registry_clear();
+    TEST_ASSERT_FALSE(bb_http_uri_is_registered("/api/stats"));
+}
+
+// (j) Route with null path in registry — skip over it, not crash
+void test_uri_is_registered_skips_null_path_entry(void)
+{
+    bb_http_route_registry_clear();
+    // Register a route with null path via descriptor-only (bypasses the
+    // httpd layer which would reject it), then follow it with a real route.
+    static const bb_route_response_t s_resp[] = {
+        { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+        { .status = 0 },
+    };
+    static const bb_route_t s_null_path = {
+        .method    = BB_HTTP_GET,
+        .path      = NULL,
+        .tag       = "test",
+        .summary   = "null path",
+        .responses = s_resp,
+        .handler   = stub_handler,
+    };
+    static const bb_route_t s_real = {
+        .method    = BB_HTTP_GET,
+        .path      = "/api/real",
+        .tag       = "test",
+        .summary   = "real route",
+        .responses = s_resp,
+        .handler   = stub_handler,
+    };
+    // Use descriptor-only to place the null-path entry directly into the registry
+    bb_http_register_route_descriptor_only(&s_null_path);
+    bb_http_register_route_descriptor_only(&s_real);
+    // Must not crash, and the real route must still match
+    TEST_ASSERT_TRUE(bb_http_uri_is_registered("/api/real"));
+    TEST_ASSERT_FALSE(bb_http_uri_is_registered("/api/bogus"));
+}
+
+// (k) URI longer than path_buf (>255 chars) with a query string — exercise the
+//     plen >= sizeof(path_buf) truncation branch inside uri_pattern_match.
+void test_uri_is_registered_very_long_uri_with_query(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_stats);
+
+    // Build a URI whose path part is 300 'a' chars followed by "?q=1".
+    // snprintf fills 300 'a's then the query string.
+    char long_uri[310];
+    snprintf(long_uri, sizeof(long_uri),
+             "%300s?q=1",
+             "/api/stats");  // snprintf pads with spaces; we overwrite below
+    // Overwrite the space-padding with 'a' up to the '?'
+    for (int i = 0; i < 300 && long_uri[i] != '?'; i++) {
+        long_uri[i] = 'a';
+    }
+    // Should not match /api/stats (different path), and must not crash
+    TEST_ASSERT_FALSE(bb_http_uri_is_registered(long_uri));
+}
+
+// (l) Pattern with empty path — exercise plen==0 branch in uri_pattern_match.
+void test_uri_is_registered_empty_pattern_no_match(void)
+{
+    bb_http_route_registry_clear();
+    static const bb_route_response_t s_resp[] = {
+        { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+        { .status = 0 },
+    };
+    static const bb_route_t s_empty_path = {
+        .method    = BB_HTTP_GET,
+        .path      = "",
+        .tag       = "test",
+        .summary   = "empty path",
+        .responses = s_resp,
+        .handler   = stub_handler,
+    };
+    bb_http_register_route_descriptor_only(&s_empty_path);
+    // Empty pattern matches only the empty URI (exact strcmp)
+    TEST_ASSERT_TRUE(bb_http_uri_is_registered(""));
+    TEST_ASSERT_FALSE(bb_http_uri_is_registered("/api/anything"));
+}
+
+// (m) Non-GET, non-OPTIONS route with path "/*" — exercises the false branch of
+//     the GET /* exclusion: path matches but method is neither GET nor OPTIONS so
+//     the route IS considered registered (it contributes to 405 logic).
+void test_uri_is_registered_post_catchall_is_registered(void)
+{
+    bb_http_route_registry_clear();
+    static const bb_route_response_t s_resp[] = {
+        { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+        { .status = 0 },
+    };
+    static const bb_route_t s_post_catchall = {
+        .method    = BB_HTTP_POST,
+        .path      = "/*",
+        .tag       = "test",
+        .summary   = "post catchall",
+        .responses = s_resp,
+        .handler   = stub_handler,
+    };
+    bb_http_register_route_descriptor_only(&s_post_catchall);
+    // POST /* is NOT the asset or preflight wildcard, so it IS considered
+    // registered — any path matches it via wildcard.
+    TEST_ASSERT_TRUE(bb_http_uri_is_registered("/api/anything"));
+}
+
+// ---------------------------------------------------------------------------
 // Overflow returns BB_ERR_NO_SPACE (audit F14)
 // ---------------------------------------------------------------------------
 
