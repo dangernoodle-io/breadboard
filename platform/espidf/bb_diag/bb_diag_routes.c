@@ -684,4 +684,29 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-BB_REGISTRY_REGISTER_N(bb_diag_routes, bb_diag_routes_init, 4);
+// Route-count hint: must equal the number of bb_http_register_described_route()
+// calls in bb_diag_routes_init so that bb_registry_route_count_total() gives
+// bb_http an accurate max_uri_handlers budget.  Keep each term adjacent to its
+// corresponding #ifdef so an add/remove touches both at once.
+//   5 always-on: boot GET, boot DELETE, panic GET, heap GET, sockets GET
+//   +1 if CONFIG_BB_DIAG_PANIC_TRIGGER: panic/trigger POST
+//   +1 if CONFIG_BB_DIAG_PANIC_COREDUMP: coredump GET
+//   +1 if CONFIG_FREERTOS_USE_TRACE_FACILITY: tasks GET
+#ifdef CONFIG_BB_DIAG_PANIC_TRIGGER
+#  define BB_DIAG_N_TRIGGER 1
+#else
+#  define BB_DIAG_N_TRIGGER 0
+#endif
+#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
+#  define BB_DIAG_N_COREDUMP 1
+#else
+#  define BB_DIAG_N_COREDUMP 0
+#endif
+#if CONFIG_FREERTOS_USE_TRACE_FACILITY
+#  define BB_DIAG_N_TASKS 1
+#else
+#  define BB_DIAG_N_TASKS 0
+#endif
+#define BB_DIAG_ROUTE_COUNT (5 + BB_DIAG_N_TRIGGER + BB_DIAG_N_COREDUMP + BB_DIAG_N_TASKS)
+
+BB_REGISTRY_REGISTER_N(bb_diag_routes, bb_diag_routes_init, BB_DIAG_ROUTE_COUNT);
