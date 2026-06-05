@@ -91,10 +91,14 @@ static SemaphoreHandle_t s_evt_pool_lock = NULL;
 // The pending batch and the flush timer are protected by s_evt_pool_lock
 // (reusing the existing mutex avoids introducing a second lock).
 //
-// BB_MDNS_BATCH_MAX — internal, not Kconfig; 16 slots covers any realistic
-// browse-refresh burst.  The dispatch queue still only needs 1–2 slots for
-// a normal refresh cycle.
+// BB_MDNS_BATCH_MAX — Kconfig-driven on ESP-IDF; host fallback for unit tests.
+// Sizes the two static coalescing arrays (s_batch and s_batch_item), each
+// bb_mdns_evt_t[BB_MDNS_BATCH_MAX] (~516 B each).  Default 16 → ~8.2 KB .bss.
+#ifdef CONFIG_BB_MDNS_BATCH_MAX
+#define BB_MDNS_BATCH_MAX CONFIG_BB_MDNS_BATCH_MAX
+#else
 #define BB_MDNS_BATCH_MAX 16
+#endif
 
 typedef struct {
     bb_mdns_evt_t entries[BB_MDNS_BATCH_MAX];

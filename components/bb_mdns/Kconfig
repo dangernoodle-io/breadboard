@@ -39,6 +39,27 @@ config BB_MDNS_EVT_POOL_SIZE
         Each slot is ~588 bytes; default 8 fits 1-8 peers and saves ~4.7 KB
         BSS vs the old default of 16. Raise to 16+ for large LANs.
 
+config BB_MDNS_BATCH_MAX
+    int "mDNS coalescing batch size"
+    default 16
+    range 2 64
+    help
+        Maximum number of peer events buffered in the coalescing batch before
+        a synchronous flush is triggered.  Two file-scope static arrays
+        (s_batch and s_batch_item, each bb_mdns_evt_t[BB_MDNS_BATCH_MAX]) are
+        sized by this value, so each unit costs ~516 bytes of .bss per array
+        (~1 KB total per step).  At the default of 16 the two arrays occupy
+        ~8.2 KB of .bss combined.
+
+        Lowering this on small-heap boards (e.g. ESP32-S2 with ~148 KB total
+        heap) reclaims BSS at the cost of dropping peers beyond the batch
+        within a single refresh burst — any dropped peers are recovered on the
+        next periodic browse refresh (~60 s).  Setting it to 4 reclaims ~12.4 KB
+        relative to the default of 16.
+
+        Raise above 16 only on boards with ample RAM and networks with unusually
+        large peer counts.
+
 config BB_MDNS_TXT_PENDING_MAX
     int "Maximum pending TXT key/value pairs before mDNS starts"
     default 4
