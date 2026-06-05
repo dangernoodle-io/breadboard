@@ -119,6 +119,19 @@ void test_ota_push_validate_content_len_valid_returns_ok(void);
 void test_ota_boot_pending_returns_bool(void);
 void test_ota_boot_arm_callable(void);
 void test_ota_boot_progress_cb_registration(void);
+void test_ota_boot_phase_str_start_returns_downloading(void);
+void test_ota_boot_phase_str_progress_returns_downloading(void);
+void test_ota_boot_phase_str_success_returns_complete(void);
+void test_ota_boot_phase_str_fail_returns_error(void);
+void test_ota_boot_set_mdns_service_valid(void);
+void test_ota_boot_set_mdns_service_null_hostname_returns_invalid_arg(void);
+void test_ota_boot_set_mdns_service_null_service_type_returns_invalid_arg(void);
+void test_ota_boot_set_mdns_service_null_proto_returns_invalid_arg(void);
+void test_ota_boot_set_mdns_service_hostname_too_long_returns_invalid_arg(void);
+void test_ota_boot_set_mdns_service_hostname_max_minus_one_ok(void);
+void test_ota_boot_set_mdns_service_service_type_too_long_returns_invalid_arg(void);
+void test_ota_boot_set_mdns_service_proto_too_long_returns_invalid_arg(void);
+void test_ota_boot_set_mdns_service_port_zero_ok(void);
 
 // Forward declarations from test_http_utils.c
 void test_url_decode_basic(void);
@@ -1446,6 +1459,19 @@ int main(void) {
     RUN_TEST(test_ota_boot_pending_returns_bool);
     RUN_TEST(test_ota_boot_arm_callable);
     RUN_TEST(test_ota_boot_progress_cb_registration);
+    RUN_TEST(test_ota_boot_phase_str_start_returns_downloading);
+    RUN_TEST(test_ota_boot_phase_str_progress_returns_downloading);
+    RUN_TEST(test_ota_boot_phase_str_success_returns_complete);
+    RUN_TEST(test_ota_boot_phase_str_fail_returns_error);
+    RUN_TEST(test_ota_boot_set_mdns_service_valid);
+    RUN_TEST(test_ota_boot_set_mdns_service_null_hostname_returns_invalid_arg);
+    RUN_TEST(test_ota_boot_set_mdns_service_null_service_type_returns_invalid_arg);
+    RUN_TEST(test_ota_boot_set_mdns_service_null_proto_returns_invalid_arg);
+    RUN_TEST(test_ota_boot_set_mdns_service_hostname_too_long_returns_invalid_arg);
+    RUN_TEST(test_ota_boot_set_mdns_service_hostname_max_minus_one_ok);
+    RUN_TEST(test_ota_boot_set_mdns_service_service_type_too_long_returns_invalid_arg);
+    RUN_TEST(test_ota_boot_set_mdns_service_proto_too_long_returns_invalid_arg);
+    RUN_TEST(test_ota_boot_set_mdns_service_port_zero_ok);
 
     // OTA validator tests
     RUN_TEST(test_ota_validator_is_pending_false_on_host);
