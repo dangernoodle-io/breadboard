@@ -134,6 +134,17 @@ bb_err_t bb_update_check_now(void);
 // This function is ESP-IDF only; host/Arduino backends provide a synchronous stub.
 bb_err_t bb_update_check_kick(void);
 
+// Kick the worker and block until the check completes or timeout_ms elapses.
+// On ESP-IDF: kicks the worker semaphore, then polls last_check_us advancing
+// (sampled before the kick) with 100 ms sleeps, so the httpd request task
+// blocks but other sockets are unaffected. The worker runs on its own stack
+// so there is no stack-overflow risk from this call site.
+// On host/Arduino: synchronous stub that calls bb_update_check_now() directly.
+// Returns BB_OK if the check completed within the timeout,
+// BB_ERR_TIMEOUT if timeout_ms elapsed before the worker finished,
+// BB_ERR_INVALID_STATE if init hasn't run.
+bb_err_t bb_update_check_run_blocking(uint32_t timeout_ms);
+
 // Copy the latest status snapshot into out. BB_ERR_INVALID_ARG if out is NULL,
 // BB_ERR_INVALID_STATE if init hasn't run.
 bb_err_t bb_update_check_get_status(bb_update_check_status_t *out);

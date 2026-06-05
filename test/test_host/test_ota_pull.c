@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "bb_ota_pull.h"
 #include "bb_ota_pull_test_hooks.h"
+#include <stdint.h>
 
 // Skip-check callback tests
 static bool s_skip_check_callback_called = false;
@@ -77,6 +78,70 @@ void test_bb_ota_pull_set_http_timeout_ms_zero_restores_default(void)
 // WDT exclusion (ota_worker_task / ota_check_worker_task) is ESP-IDF-only;
 // it requires esp_task_wdt_delete/add which have no host stub. Correctness
 // is verified by code review and smoke builds against espidf targets.
+
+// ---------------------------------------------------------------------------
+// bb_ota_pull_apply_cache_is_fresh — pure freshness predicate
+// ---------------------------------------------------------------------------
+
+// Helper: 5-minute window in microseconds.
+#define WINDOW_5MIN_S 300
+#define ONE_MIN_US    (60LL * 1000000LL)
+#define FIVE_MIN_US   (300LL * 1000000LL)
+
+void test_apply_cache_is_fresh_fresh_result_returns_true(void)
+{
+    // last_check 1 minute ago, 5-minute window -> fresh
+    int64_t now_us  = 10000000000LL;
+    int64_t last_us = now_us - ONE_MIN_US;
+    TEST_ASSERT_TRUE(bb_ota_pull_apply_cache_is_fresh(true, last_us, now_us, WINDOW_5MIN_S));
+}
+
+void test_apply_cache_is_fresh_stale_result_returns_false(void)
+{
+    // last_check 10 minutes ago, 5-minute window -> stale
+    int64_t now_us  = 10000000000LL;
+    int64_t last_us = now_us - (10LL * ONE_MIN_US);
+    TEST_ASSERT_FALSE(bb_ota_pull_apply_cache_is_fresh(true, last_us, now_us, WINDOW_5MIN_S));
+}
+
+void test_apply_cache_is_fresh_never_checked_returns_false(void)
+{
+    // last_check_us == 0 -> never checked
+    int64_t now_us = 10000000000LL;
+    TEST_ASSERT_FALSE(bb_ota_pull_apply_cache_is_fresh(false, 0, now_us, WINDOW_5MIN_S));
+}
+
+void test_apply_cache_is_fresh_last_check_ok_false_returns_false(void)
+{
+    // last_check_ok=false -> stale regardless of age
+    int64_t now_us  = 10000000000LL;
+    int64_t last_us = now_us - ONE_MIN_US;  // recent, but failed
+    TEST_ASSERT_FALSE(bb_ota_pull_apply_cache_is_fresh(false, last_us, now_us, WINDOW_5MIN_S));
+}
+
+void test_apply_cache_is_fresh_window_zero_always_returns_false(void)
+{
+    // window_s == 0 -> always refresh regardless of cache age
+    int64_t now_us  = 10000000000LL;
+    int64_t last_us = now_us - 1000LL;  // 1 ms ago - very recent
+    TEST_ASSERT_FALSE(bb_ota_pull_apply_cache_is_fresh(true, last_us, now_us, 0));
+}
+
+void test_apply_cache_is_fresh_exactly_at_window_boundary_returns_true(void)
+{
+    // age == window (exactly at the boundary) -> fresh (<=)
+    int64_t now_us  = 10000000000LL;
+    int64_t last_us = now_us - FIVE_MIN_US;
+    TEST_ASSERT_TRUE(bb_ota_pull_apply_cache_is_fresh(true, last_us, now_us, WINDOW_5MIN_S));
+}
+
+void test_apply_cache_is_fresh_one_us_past_window_returns_false(void)
+{
+    // age == window + 1 us -> stale
+    int64_t now_us  = 10000000000LL;
+    int64_t last_us = now_us - FIVE_MIN_US - 1LL;
+    TEST_ASSERT_FALSE(bb_ota_pull_apply_cache_is_fresh(true, last_us, now_us, WINDOW_5MIN_S));
+}
 
 // ---------------------------------------------------------------------------
 // bb_ota_pull_download_should_retry — pure retry-decision helper

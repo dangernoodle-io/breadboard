@@ -39,6 +39,9 @@ typedef struct {
     // injected query params: simple key=value pairs (not owned; caller ensures lifetime)
     const char        *query_key;
     const char        *query_val;
+    // captured CORS headers (for test assertions)
+    bool               has_acao;  // Access-Control-Allow-Origin was set
+    bool               has_acapn; // Access-Control-Allow-Private-Network was set
 } capture_slot_t;
 
 static capture_slot_t s_cap;
@@ -115,8 +118,11 @@ bb_err_t bb_http_resp_set_type(bb_http_request_t *req, const char *mime)
 
 bb_err_t bb_http_resp_set_header(bb_http_request_t *req, const char *key, const char *value)
 {
-    (void)req;
-    (void)key;
+    capture_slot_t *cap = capture_find(req);
+    if (cap && key) {
+        if (strcmp(key, "Access-Control-Allow-Origin") == 0)        cap->has_acao  = true;
+        if (strcmp(key, "Access-Control-Allow-Private-Network") == 0) cap->has_acapn = true;
+    }
     (void)value;
     return BB_OK;
 }
@@ -344,6 +350,8 @@ void bb_http_host_capture_begin(bb_http_request_t **out_req)
     s_cap.req_body_len = 0;
     s_cap.query_key    = NULL;
     s_cap.query_val    = NULL;
+    s_cap.has_acao     = false;
+    s_cap.has_acapn    = false;
     memset(s_cap.content_type, 0, sizeof(s_cap.content_type));
     if (out_req) *out_req = req;
 }
@@ -369,6 +377,8 @@ bb_err_t bb_http_host_capture_end(bb_http_request_t *req,
     out->status   = s_cap.status;
     out->body     = s_cap.body;
     out->body_len = s_cap.body_len;
+    out->has_acao  = s_cap.has_acao;
+    out->has_acapn = s_cap.has_acapn;
     strncpy(out->content_type, s_cap.content_type,
             sizeof(out->content_type) - 1);
     out->content_type[sizeof(out->content_type) - 1] = '\0';

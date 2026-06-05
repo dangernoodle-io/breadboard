@@ -533,6 +533,14 @@ bb_err_t bb_update_check_kick(void)
     return bb_update_check_now();
 }
 
+// Host/Arduino stub: no worker task, so run_blocking is synchronous like now().
+bb_err_t bb_update_check_run_blocking(uint32_t timeout_ms)
+{
+    (void)timeout_ms;
+    if (!s_initialized) return BB_ERR_INVALID_STATE;
+    return bb_update_check_now();
+}
+
 // Host/Arduino stub: no worker task to pin, no-op.
 void bb_update_check_set_task_core(int core)
 {

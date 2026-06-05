@@ -89,6 +89,44 @@ bb_err_t bb_update_check_kick(void)
 }
 
 // ---------------------------------------------------------------------------
+// Kick + wait for completion (public API)
+// ---------------------------------------------------------------------------
+
+// Poll interval and total timeout for bb_update_check_run_blocking.
+#define BB_UPDATE_CHECK_BLOCKING_POLL_MS  100
+
+bb_err_t bb_update_check_run_blocking(uint32_t timeout_ms)
+{
+    if (!s_kick) return BB_ERR_INVALID_STATE;
+
+    // Sample last_check_us before the kick so we can detect the worker
+    // completing by observing it advance (the worker always writes a non-zero
+    // last_check_us on both success and failure paths).
+    bb_update_check_status_t before;
+    bb_err_t err = bb_update_check_get_status(&before);
+    if (err != BB_OK) return BB_ERR_INVALID_STATE;
+    int64_t pre_check_us = before.last_check_us;
+
+    xSemaphoreGive(s_kick);
+
+    uint32_t elapsed_ms = 0;
+    while (elapsed_ms < timeout_ms) {
+        vTaskDelay(pdMS_TO_TICKS(BB_UPDATE_CHECK_BLOCKING_POLL_MS));
+        elapsed_ms += BB_UPDATE_CHECK_BLOCKING_POLL_MS;
+
+        bb_update_check_status_t after;
+        if (bb_update_check_get_status(&after) != BB_OK) break;
+        if (after.last_check_us != pre_check_us) {
+            // Worker completed a check (last_check_us advanced).
+            return BB_OK;
+        }
+    }
+
+    bb_log_w(TAG, "run_blocking: timed out after %" PRIu32 " ms", elapsed_ms);
+    return BB_ERR_TIMEOUT;
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/update/status
 // ---------------------------------------------------------------------------
 
@@ -108,6 +146,9 @@ static const char *outcome_str(bb_update_check_outcome_t o)
 
 static bb_err_t status_handler(bb_http_request_t *req)
 {
+    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
+
     bb_update_check_status_t st;
     bb_err_t err = bb_update_check_get_status(&st);
     if (err != BB_OK) {
