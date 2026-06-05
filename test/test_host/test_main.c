@@ -67,6 +67,13 @@ void test_bb_diag_panic_app_sha_returns_not_found_on_host(void);
 void test_bb_diag_panic_app_sha_invalid_args(void);
 void test_bb_diag_panic_coredump_erase_is_safe_on_host(void);
 void test_bb_diag_panic_coredump_erase_idempotent_on_host(void);
+void test_bb_diag_reset_decision_first_boot_clean(void);
+void test_bb_diag_reset_decision_first_boot_abnormal(void);
+void test_bb_diag_reset_decision_new_firmware_abnormal(void);
+void test_bb_diag_reset_decision_new_firmware_clean(void);
+void test_bb_diag_reset_decision_same_firmware_abnormal(void);
+void test_bb_diag_reset_decision_same_firmware_clean(void);
+void test_bb_diag_reset_decision_same_firmware_clean_from_zero(void);
 
 // Forward declarations from test_ota_pull.c
 void test_ota_pull_skip_check_callback_registration(void);
@@ -1370,6 +1377,15 @@ int main(void) {
     RUN_TEST(test_bb_diag_panic_app_sha_invalid_args);
     RUN_TEST(test_bb_diag_panic_coredump_erase_is_safe_on_host);
     RUN_TEST(test_bb_diag_panic_coredump_erase_idempotent_on_host);
+
+    // bb_diag_reset_decision pure-function tests
+    RUN_TEST(test_bb_diag_reset_decision_first_boot_clean);
+    RUN_TEST(test_bb_diag_reset_decision_first_boot_abnormal);
+    RUN_TEST(test_bb_diag_reset_decision_new_firmware_abnormal);
+    RUN_TEST(test_bb_diag_reset_decision_new_firmware_clean);
+    RUN_TEST(test_bb_diag_reset_decision_same_firmware_abnormal);
+    RUN_TEST(test_bb_diag_reset_decision_same_firmware_clean);
+    RUN_TEST(test_bb_diag_reset_decision_same_firmware_clean_from_zero);
 
     // OTA pull tests
     RUN_TEST(test_ota_pull_skip_check_callback_registration);

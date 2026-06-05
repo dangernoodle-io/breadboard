@@ -71,6 +71,7 @@ COMPONENT_MAP = {
     "bb_diag": {
         "includes": ["components/bb_diag/include"],
         "sources": [
+            "components/bb_diag/bb_diag_reset_decision.c",
             "platform/host/bb_diag/bb_diag_panic.c",
         ],
         "depends":  ["bb_core"],

@@ -128,7 +128,11 @@ void bb_diag_panic_coredump_erase(void);
 
 /**
  * Returns the persistent count of abnormal resets (panic, task_wdt, int_wdt, wdt, brownout)
- * since the counter was last cleared. Survives power cycles via NVS.
+ * since this firmware was deployed. Auto-resets to 0 at boot when the running app's SHA
+ * fingerprint differs from the one stored at the last counter update (i.e. new flash or OTA).
+ * The deploy boot itself is the clean baseline and is NOT counted.
+ * Still explicitly clearable via DELETE /api/diag/boot (calls bb_diag_abnormal_reset_count_clear).
+ * Survives power cycles via NVS.
  * Host: always returns 0.
  */
 uint32_t bb_diag_abnormal_reset_count(void);
@@ -138,3 +142,32 @@ uint32_t bb_diag_abnormal_reset_count(void);
  * Host: no-op.
  */
 void bb_diag_abnormal_reset_count_clear(void);
+
+/**
+ * Output of bb_diag_reset_decision(): the new counter value to persist and
+ * whether the app fingerprint should be stored.
+ */
+typedef struct {
+    uint32_t new_count; /**< counter value to write back to NVS */
+    bool     store_fp;  /**< true when running_fp must be written to NVS */
+} bb_diag_reset_result_t;
+
+/**
+ * Pure decision function for the abnormal-reset counter update.
+ * Contains no NVS or ESP-IDF calls — fully host-testable.
+ *
+ * @param stored_fp   Fingerprint stored in NVS from the last counter update.
+ *                    0 means "never stored" (first boot after flash/factory erase).
+ * @param running_fp  Fingerprint of the currently running firmware (derived from
+ *                    the app ELF SHA256).
+ * @param stored_count Counter value read from NVS.
+ * @param is_abnormal  True when the reset reason is panic / watchdog / brownout.
+ *
+ * Logic:
+ *   - stored_fp == 0 OR stored_fp != running_fp (new firmware): new_count = 0,
+ *     store_fp = true; the deploy boot is the clean baseline, not incremented.
+ *   - stored_fp == running_fp (same build): new_count = stored_count + (is_abnormal ? 1 : 0),
+ *     store_fp = false (fp unchanged).
+ */
+bb_diag_reset_result_t bb_diag_reset_decision(uint32_t stored_fp, uint32_t running_fp,
+                                               uint32_t stored_count, bool is_abnormal);

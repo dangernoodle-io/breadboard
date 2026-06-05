@@ -89,3 +89,61 @@ void test_bb_diag_panic_coredump_erase_idempotent_on_host(void)
     bb_diag_panic_coredump_erase();
     TEST_PASS();
 }
+
+// ---- bb_diag_reset_decision pure-function tests ----
+
+// (a) First boot: stored_fp == 0 → count reset to 0, fp must be stored
+void test_bb_diag_reset_decision_first_boot_clean(void)
+{
+    bb_diag_reset_result_t r = bb_diag_reset_decision(0, 0xDEADBEEF, 5, false);
+    TEST_ASSERT_EQUAL_UINT32(0, r.new_count);
+    TEST_ASSERT_TRUE(r.store_fp);
+}
+
+void test_bb_diag_reset_decision_first_boot_abnormal(void)
+{
+    // Deploy boot is the clean baseline — NOT counted even if reset reason is abnormal
+    bb_diag_reset_result_t r = bb_diag_reset_decision(0, 0xDEADBEEF, 3, true);
+    TEST_ASSERT_EQUAL_UINT32(0, r.new_count);
+    TEST_ASSERT_TRUE(r.store_fp);
+}
+
+// (b) New firmware (stored_fp != running_fp) + abnormal → counter RESETS to 0, new fp stored
+void test_bb_diag_reset_decision_new_firmware_abnormal(void)
+{
+    bb_diag_reset_result_t r = bb_diag_reset_decision(0xAAAAAAAA, 0xBBBBBBBB, 7, true);
+    TEST_ASSERT_EQUAL_UINT32(0, r.new_count);
+    TEST_ASSERT_TRUE(r.store_fp);
+}
+
+// New firmware, clean reset → also resets to 0 and stores fp
+void test_bb_diag_reset_decision_new_firmware_clean(void)
+{
+    bb_diag_reset_result_t r = bb_diag_reset_decision(0x11111111, 0x22222222, 10, false);
+    TEST_ASSERT_EQUAL_UINT32(0, r.new_count);
+    TEST_ASSERT_TRUE(r.store_fp);
+}
+
+// (c) Same firmware + abnormal → count increments by 1
+void test_bb_diag_reset_decision_same_firmware_abnormal(void)
+{
+    bb_diag_reset_result_t r = bb_diag_reset_decision(0xCAFEBABE, 0xCAFEBABE, 4, true);
+    TEST_ASSERT_EQUAL_UINT32(5, r.new_count);
+    TEST_ASSERT_FALSE(r.store_fp);
+}
+
+// (d) Same firmware + clean reset → count unchanged
+void test_bb_diag_reset_decision_same_firmware_clean(void)
+{
+    bb_diag_reset_result_t r = bb_diag_reset_decision(0x12345678, 0x12345678, 3, false);
+    TEST_ASSERT_EQUAL_UINT32(3, r.new_count);
+    TEST_ASSERT_FALSE(r.store_fp);
+}
+
+// Same firmware, count starts at 0, clean → stays 0
+void test_bb_diag_reset_decision_same_firmware_clean_from_zero(void)
+{
+    bb_diag_reset_result_t r = bb_diag_reset_decision(0xABCDABCD, 0xABCDABCD, 0, false);
+    TEST_ASSERT_EQUAL_UINT32(0, r.new_count);
+    TEST_ASSERT_FALSE(r.store_fp);
+}
