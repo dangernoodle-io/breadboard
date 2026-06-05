@@ -16,4 +16,15 @@ config BB_OTA_BOOT_AUTOREGISTER
         on a boot-mode board. Disable to keep the public C API but register the
         route manually or skip it.
 
+config BB_OTA_BOOT_PROGRESS_HTTP
+    bool "Serve /api/update/progress + advertise mDNS during boot-mode OTA"
+    default n
+    help
+      When set, bb_ota_boot stands up a one-route HTTP server (GET
+      /api/update/progress) and advertises (responder-only, no browse) mDNS
+      during the boot-mode OTA download, so a remote dashboard sees live
+      progress and the device stays discoverable. Costs ~12 KB heap during
+      the download (httpd task + mDNS responder). Leave off for heap-tight or
+      headless consumers — the existing progress callback is unaffected.
+
 endmenu

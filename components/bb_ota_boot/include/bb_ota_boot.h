@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "bb_core.h"
 
 #ifdef __cplusplus
@@ -34,6 +35,33 @@ extern "C" {
  * (forwarded to bb_ota_pull). NULL to clear.
  */
 void bb_ota_boot_set_progress_cb(bb_ota_progress_cb_t cb);
+
+/*
+ * Map an OTA phase to its JSON state string used by GET /api/update/progress.
+ * START/PROGRESS -> "downloading", SUCCESS -> "complete", FAIL -> "error".
+ * Pure function — safe to call on any platform, useful for host tests.
+ */
+const char *bb_ota_boot_phase_str(bb_ota_phase_t phase);
+
+/*
+ * Set the mDNS service identity for advertise-only mDNS during boot-mode OTA.
+ * Only meaningful when CONFIG_BB_OTA_BOOT_PROGRESS_HTTP is enabled; on other
+ * configurations this is a no-op that returns BB_OK.
+ *
+ * Call before bb_ota_boot_run_if_pending(). All strings are copied into
+ * fixed-size buffers (max 63 chars each for hostname/service_type/proto; port
+ * is stored as-is). Returns BB_ERR_INVALID_ARG if any string exceeds its limit
+ * or if hostname/service_type/proto is NULL.
+ *
+ * hostname     — mDNS hostname (e.g. "taipanminer-s2")
+ * service_type — mDNS service type without leading underscore (e.g. "_taipanminer")
+ * proto        — transport protocol (e.g. "_tcp")
+ * port         — service port (e.g. 80)
+ */
+bb_err_t bb_ota_boot_set_mdns_service(const char *hostname,
+                                      const char *service_type,
+                                      const char *proto,
+                                      uint16_t    port);
 
 /* Arm OTA boot mode: persist the one-shot flag so the NEXT boot performs the
  * full-heap pull. Does NOT reboot — the caller (or the HTTP route) decides. */

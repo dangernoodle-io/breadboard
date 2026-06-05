@@ -33,6 +33,9 @@ smoke-elecrow-p4-hmi7: ## Build smoke example for Elecrow CrowPanel P4 HMI 7.0 (
 smoke-esp32: ## Build smoke example for classic ESP32-D0 / WROOM-32
 	$(PIO) run -d examples/smoke -e esp32
 
+smoke-esp32-boot-progress: ## Build smoke with BB_OTA_BOOT_PROGRESS_HTTP=y (gated path compile gate)
+	$(PIO) run -d examples/smoke -e esp32-boot-progress
+
 smoke-esp32c3: ## Build smoke example for ESP32-C3-DevKitM-1
 	$(PIO) run -d examples/smoke -e esp32c3
 
