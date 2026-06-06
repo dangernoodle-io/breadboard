@@ -2,6 +2,7 @@
 #include "bb_log.h"
 #include "bb_manifest.h"
 #include "bb_registry.h"
+#include "bb_nv_wifi_pending.h"
 #include <stdbool.h>
 #include <string.h>
 
@@ -19,6 +20,9 @@
 #define BB_NV_KEY_UPDATE_CHECK_EN   "update_check_en"
 #define BB_NV_KEY_DISPLAY_EN        "display_en"
 #define BB_NV_KEY_PROVISIONED       "provisioned"
+#define BB_NV_KEY_WIFI_SSID_P       "wifi_ssid_p"
+#define BB_NV_KEY_WIFI_PASS_P       "wifi_pass_p"
+#define BB_NV_KEY_WIFI_TRY          "wifi_try"
 
 /* strlcpy isn't standard C — newlib exposes it under feature flags, but
  * the warning we hit under TaipanMiner's build profile is real. Roll a
@@ -123,6 +127,16 @@ static struct {
     uint8_t mdns_en;
     uint8_t update_check_en;
 } s_config;
+
+/* Pending wifi creds — staged separately from live creds.
+ * NEVER loaded into s_config.wifi_ssid/wifi_pass; kept isolated so the
+ * RTC-restore gate (s_config.wifi_ssid[0]=='\0') is not affected. */
+#ifdef ESP_PLATFORM
+static struct {
+    char ssid[32]; /* BB_WIFI_PENDING_SSID_MAX+1 */
+    char pass[64]; /* BB_WIFI_PENDING_PASS_MAX+1 */
+} s_pending;
+#endif
 
 // RFC 1123 / 952: letters, digits, hyphens; first/last cannot be hyphen;
 // length 1..32. Tolerant of mixed case (DHCP / mDNS treat case-insensitively).
@@ -269,6 +283,19 @@ bb_err_t bb_nv_config_init(void)
     nvs_close(handle);
 #endif
 
+    /* Load pending wifi creds cache — separate from live load; must not affect
+     * the s_config.wifi_ssid[0]=='\0' RTC-restore gate above. */
+    {
+        nvs_handle_t ph;
+        memset(&s_pending, 0, sizeof(s_pending));
+        bb_err_t perr = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &ph);
+        if (perr == BB_OK) {
+            load_str(ph, BB_NV_KEY_WIFI_SSID_P, s_pending.ssid, sizeof(s_pending.ssid), "");
+            load_str(ph, BB_NV_KEY_WIFI_PASS_P, s_pending.pass, sizeof(s_pending.pass), "");
+            nvs_close(ph);
+        }
+    }
+
     bb_log_i(TAG, "config loaded");
 #else
     // Native build: no NVS, all fields empty/zero
@@ -354,6 +381,122 @@ bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass)
         uint8_t prov = bb_nv_config_is_provisioned() ? 1 : 0;
         bb_nv_creds_mirror_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, prov);
 #endif
+    }
+    return err;
+}
+
+bb_err_t bb_nv_config_set_wifi_pending(const char *ssid, const char *pass)
+{
+    bb_err_t verr = bb_wifi_pending_validate(ssid, pass);
+    if (verr != BB_OK) return verr;
+
+    const char *p = pass ? pass : "";
+    bb_nv_batch_t batch;
+    bb_err_t err = bb_nv_batch_begin(&batch, BB_NV_CONFIG_NAMESPACE);
+    if (err != BB_OK) return err;
+    bb_nv_batch_set_str(&batch, BB_NV_KEY_WIFI_SSID_P, ssid);
+    bb_nv_batch_set_str(&batch, BB_NV_KEY_WIFI_PASS_P, p);
+    bb_nv_batch_set_u8(&batch, BB_NV_KEY_WIFI_TRY, 1);
+    err = bb_nv_batch_commit(&batch);
+    if (err == BB_OK) {
+        copy_str(s_pending.ssid, ssid, sizeof(s_pending.ssid));
+        copy_str(s_pending.pass, p,    sizeof(s_pending.pass));
+    }
+    return err;
+}
+
+bool bb_nv_config_wifi_pending_active(void)
+{
+    uint8_t try_flag = 0;
+    nvs_handle_t h;
+    if (nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &h) == BB_OK) {
+        nvs_get_u8(h, BB_NV_KEY_WIFI_TRY, &try_flag);
+        nvs_close(h);
+    }
+    return bb_wifi_pending_decide(try_flag, s_pending.ssid) == BB_WIFI_PENDING_TRY;
+}
+
+const char *bb_nv_config_wifi_pending_ssid(void)
+{
+    return s_pending.ssid;
+}
+
+const char *bb_nv_config_wifi_pending_pass(void)
+{
+    return s_pending.pass;
+}
+
+bb_err_t bb_nv_config_commit_wifi_pending(void)
+{
+    if (s_pending.ssid[0] == '\0') return BB_ERR_INVALID_STATE;
+
+    /* One batched transaction: promote pending -> live, erase pending keys. */
+    nvs_handle_t h;
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &h);
+    if (err != BB_OK) return err;
+
+    err = nvs_set_str(h, BB_NV_KEY_WIFI_SSID, s_pending.ssid);
+    if (err == BB_OK) err = nvs_set_str(h, BB_NV_KEY_WIFI_PASS, s_pending.pass);
+    if (err == BB_OK) {
+        /* erase pending keys — absent key is benign */
+        bb_err_t e;
+        e = nvs_erase_key(h, BB_NV_KEY_WIFI_TRY);
+        if (e == ESP_ERR_NVS_NOT_FOUND) e = BB_OK;
+        if (e != BB_OK) err = e;
+    }
+    if (err == BB_OK) {
+        bb_err_t e;
+        e = nvs_erase_key(h, BB_NV_KEY_WIFI_SSID_P);
+        if (e == ESP_ERR_NVS_NOT_FOUND) e = BB_OK;
+        if (e != BB_OK) err = e;
+    }
+    if (err == BB_OK) {
+        bb_err_t e;
+        e = nvs_erase_key(h, BB_NV_KEY_WIFI_PASS_P);
+        if (e == ESP_ERR_NVS_NOT_FOUND) e = BB_OK;
+        if (e != BB_OK) err = e;
+    }
+    if (err == BB_OK) err = nvs_commit(h);
+    nvs_close(h);
+
+    if (err == BB_OK) {
+        copy_str(s_config.wifi_ssid, s_pending.ssid, sizeof(s_config.wifi_ssid));
+        copy_str(s_config.wifi_pass, s_pending.pass, sizeof(s_config.wifi_pass));
+        memset(&s_pending, 0, sizeof(s_pending));
+#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
+        uint8_t prov = bb_nv_config_is_provisioned() ? 1 : 0;
+        bb_nv_creds_mirror_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, prov);
+#endif
+    }
+    return err;
+}
+
+bb_err_t bb_nv_config_clear_wifi_pending(void)
+{
+    nvs_handle_t h;
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &h);
+    if (err != BB_OK) return err;
+
+    bb_err_t e;
+    e = nvs_erase_key(h, BB_NV_KEY_WIFI_SSID_P);
+    if (e == ESP_ERR_NVS_NOT_FOUND) e = BB_OK;
+    if (e != BB_OK) err = e;
+
+    if (err == BB_OK) {
+        e = nvs_erase_key(h, BB_NV_KEY_WIFI_PASS_P);
+        if (e == ESP_ERR_NVS_NOT_FOUND) e = BB_OK;
+        if (e != BB_OK) err = e;
+    }
+    if (err == BB_OK) {
+        e = nvs_erase_key(h, BB_NV_KEY_WIFI_TRY);
+        if (e == ESP_ERR_NVS_NOT_FOUND) e = BB_OK;
+        if (e != BB_OK) err = e;
+    }
+    if (err == BB_OK) err = nvs_commit(h);
+    nvs_close(h);
+
+    if (err == BB_OK) {
+        memset(&s_pending, 0, sizeof(s_pending));
     }
     return err;
 }
