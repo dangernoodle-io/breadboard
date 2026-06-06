@@ -149,11 +149,27 @@ static bb_err_t logs_status_handler(bb_http_request_t *req)
 // Route descriptors (descriptor-only; handlers registered via bb_http_register_route)
 // ---------------------------------------------------------------------------
 
+static const bb_route_param_t s_logs_params[] = {
+    {
+        .name        = "source",
+        .in          = "query",
+        .description = "Set to 'browser' to identify this client as a browser-originated "
+                       "connection; any other value (or omitted) is treated as an external client.",
+        .required    = false,
+        .schema_type = "string",
+    },
+};
+
 static const bb_route_response_t s_logs_responses[] = {
     { 200, "text/event-stream", NULL,
       "Server-Sent Events stream of log lines; each event carries one log "
       "line as `data: <line>`. Stream is long-lived; only one client at a "
       "time is supported." },
+    { 500, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "async handler init failed or task create failed" },
     { 503, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{"
@@ -165,12 +181,14 @@ static const bb_route_response_t s_logs_responses[] = {
 };
 
 static const bb_route_t s_logs_route = {
-    .method   = BB_HTTP_GET,
-    .path     = "/api/logs",
-    .tag      = "logs",
-    .summary  = "Stream log output via SSE",
-    .responses = s_logs_responses,
-    .handler  = NULL,  // SSE handler; uses async API
+    .method           = BB_HTTP_GET,
+    .path             = "/api/logs",
+    .tag              = "logs",
+    .summary          = "Stream log output via SSE",
+    .responses        = s_logs_responses,
+    .parameters       = s_logs_params,
+    .parameters_count = 1,
+    .handler          = NULL,  // SSE handler; uses async API
 };
 
 static const bb_route_response_t s_logs_status_responses[] = {

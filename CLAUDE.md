@@ -220,7 +220,7 @@ OTA update strategy is a mutually-exclusive Kconfig **choice** `BB_OTA_STRATEGY`
 
 `POST /api/update/apply` returns a strategy-specific 202 `status`:
 - in-place pull (`bb_ota_pull`) → `update_started` — download proceeds at runtime heap; poll `GET /api/update/progress`.
-- boot-mode (`bb_ota_boot`) → `rebooting_for_boot_mode_ota` — device reboots immediately and pulls at full early-boot heap; the client waits for the device to reappear on a bumped version (no `/progress` route on a boot-mode board). Distinct from `bb_system`'s generic `rebooting` (`POST /api/reboot`, same firmware).
+- boot-mode (`bb_ota_boot`) → `rebooting_for_boot_mode_ota` — device reboots immediately and pulls at full early-boot heap. When `CONFIG_BB_OTA_BOOT_PROGRESS_HTTP=y`, the board serves a transient `GET /api/update/progress` during the boot-OTA window (same `{state,in_progress,progress_pct}` schema as the pull progress route) via a minimal httpd instance that exists only for the duration of the download; absent in normal operation. Without that config, the client waits for the device to reappear on a bumped version with no progress feed. Distinct from `bb_system`'s generic `rebooting` (`POST /api/reboot`, same firmware).
 
 There is no `/api/update/boot` verb — boot-mode arms via `/api/update/apply`. The per-component autoregister bools stay user-visible for the manual-registration escape hatch.
 

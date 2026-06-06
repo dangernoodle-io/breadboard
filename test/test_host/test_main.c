@@ -493,6 +493,11 @@ void test_set_raw_writes_null_on_malformed_json(void);
 void test_set_raw_writes_parsed_object_on_valid_json(void);
 void test_wifi_patch_request_schema_requires_ssid(void);
 void test_wifi_patch_route_descriptor_has_request_schema(void);
+// B1-246 durable descriptor-fidelity guard
+void test_desc_audit_all_routes_registered(void);
+void test_desc_audit_query_params(void);
+void test_desc_audit_request_schema_presence(void);
+void test_desc_audit_response_content_types(void);
 // Forward declarations from test_route_fidelity.c
 void test_fidelity_reboot(void);
 void test_fidelity_info(void);
@@ -1860,6 +1865,11 @@ int main(void) {
     RUN_TEST(test_set_raw_writes_parsed_object_on_valid_json);
     RUN_TEST(test_wifi_patch_request_schema_requires_ssid);
     RUN_TEST(test_wifi_patch_route_descriptor_has_request_schema);
+    // B1-246 durable descriptor-fidelity guard
+    RUN_TEST(test_desc_audit_all_routes_registered);
+    RUN_TEST(test_desc_audit_query_params);
+    RUN_TEST(test_desc_audit_request_schema_presence);
+    RUN_TEST(test_desc_audit_response_content_types);
 
     // CORS header capture tests
     RUN_TEST(test_capture_cors_headers_recorded);

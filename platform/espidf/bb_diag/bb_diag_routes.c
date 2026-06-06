@@ -331,23 +331,45 @@ static bb_err_t coredump_get_handler(bb_http_request_t *req)
     return err;
 }
 
+static const bb_route_param_t s_coredump_get_params[] = {
+    {
+        .name        = "consume",
+        .in          = "query",
+        .description = "Set to 1 or true to erase the coredump from flash after a fully "
+                       "successful transfer. A dropped download does NOT erase the dump.",
+        .required    = false,
+        .schema_type = "string",
+    },
+};
+
 static const bb_route_response_t s_coredump_get_responses[] = {
     { 200, "application/octet-stream", NULL,
       "raw coredump bytes; includes X-Coredump-App-SHA256 header with the crashing "
       "app ELF SHA256 hex string (identifies the build without downloading). "
       "Pass ?consume=1 to erase the coredump from flash only after the full image "
       "has been streamed successfully — a dropped download does NOT erase the dump." },
-    { 404, NULL, NULL, "no coredump available" },
+    { 404, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "no coredump available" },
+    { 500, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "allocation failure, partition not found, or coredump image_get failed" },
     { 0 },
 };
 
 static const bb_route_t s_coredump_get_route = {
-    .method   = BB_HTTP_GET,
-    .path     = "/api/diag/coredump",
-    .tag      = "diag",
-    .summary  = "Download raw coredump partition bytes; ?consume=1 erases after successful transfer",
-    .responses = s_coredump_get_responses,
-    .handler  = coredump_get_handler,
+    .method            = BB_HTTP_GET,
+    .path              = "/api/diag/coredump",
+    .tag               = "diag",
+    .summary           = "Download raw coredump partition bytes; ?consume=1 erases after successful transfer",
+    .responses         = s_coredump_get_responses,
+    .parameters        = s_coredump_get_params,
+    .parameters_count  = 1,
+    .handler           = coredump_get_handler,
 };
 #endif /* CONFIG_BB_DIAG_PANIC_COREDUMP */
 
@@ -399,6 +421,17 @@ static bb_err_t heap_get_handler(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
+static const bb_route_param_t s_heap_get_params[] = {
+    {
+        .name        = "check",
+        .in          = "query",
+        .description = "Set to true to run heap_caps_check_integrity_all and append "
+                       "integrity_ok boolean to the response.",
+        .required    = false,
+        .schema_type = "string",
+    },
+};
+
 static const bb_route_response_t s_heap_get_responses[] = {
     { 200, "application/json",
       "{\"type\":\"object\","
@@ -416,12 +449,14 @@ static const bb_route_response_t s_heap_get_responses[] = {
 };
 
 static const bb_route_t s_heap_get_route = {
-    .method    = BB_HTTP_GET,
-    .path      = "/api/diag/heap",
-    .tag       = "diag",
-    .summary   = "Per-capability heap statistics; pass ?check=true to run integrity check",
-    .responses = s_heap_get_responses,
-    .handler   = heap_get_handler,
+    .method           = BB_HTTP_GET,
+    .path             = "/api/diag/heap",
+    .tag              = "diag",
+    .summary          = "Per-capability heap statistics; pass ?check=true to run integrity check",
+    .responses        = s_heap_get_responses,
+    .parameters       = s_heap_get_params,
+    .parameters_count = 1,
+    .handler          = heap_get_handler,
 };
 
 // --- tasks ---
@@ -495,6 +530,11 @@ static const bb_route_response_t s_tasks_get_responses[] = {
       "\"runtime\":{\"type\":\"integer\"}}}}",
       "task list; core requires CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
       "runtime requires CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS" },
+    { 500, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "allocation failure (malloc for TaskStatus_t array failed)" },
     { 0 },
 };
 

@@ -72,6 +72,11 @@ static const bb_route_response_t s_manifest_responses[] = {
       "\"desc\":{\"type\":\"string\"},"
       "\"values\":{\"type\":\"string\"}}}}}}}}}}",
       "NVS key manifest and mDNS TXT key manifest" },
+    { 500, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "bb_manifest_emit or JSON serialization failed" },
     { 0 },
 };
 
