@@ -206,12 +206,17 @@ static const bb_route_response_t s_wifi_patch_responses[] = {
 };
 
 static const bb_route_t s_wifi_patch_route = {
-    .method    = BB_HTTP_PATCH,
-    .path      = "/api/wifi",
-    .tag       = "wifi",
-    .summary   = "Stage new Wi-Fi credentials and arm deferred reboot",
-    .responses = s_wifi_patch_responses,
-    .handler   = wifi_patch_handler,
+    .method               = BB_HTTP_PATCH,
+    .path                 = "/api/wifi",
+    .tag                  = "wifi",
+    .summary              = "Stage new Wi-Fi credentials and arm deferred reboot",
+    .request_content_type = "application/json",
+    .request_schema       = "{\"type\":\"object\","
+                            "\"properties\":{\"ssid\":{\"type\":\"string\",\"maxLength\":31},"
+                            "\"password\":{\"type\":\"string\",\"maxLength\":63}},"
+                            "\"required\":[\"ssid\"]}",
+    .responses            = s_wifi_patch_responses,
+    .handler              = wifi_patch_handler,
 };
 
 #endif /* CONFIG_BB_WIFI_RECONFIGURE */

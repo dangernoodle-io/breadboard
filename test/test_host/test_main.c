@@ -491,6 +491,8 @@ void test_route_schemas_registry_all_valid(void);
 void test_route_schemas_walker_flags_malformed(void);
 void test_set_raw_writes_null_on_malformed_json(void);
 void test_set_raw_writes_parsed_object_on_valid_json(void);
+void test_wifi_patch_request_schema_requires_ssid(void);
+void test_wifi_patch_route_descriptor_has_request_schema(void);
 // Forward declarations from test_route_fidelity.c
 void test_fidelity_reboot(void);
 void test_fidelity_info(void);
@@ -1856,6 +1858,8 @@ int main(void) {
     RUN_TEST(test_route_schemas_walker_flags_malformed);
     RUN_TEST(test_set_raw_writes_null_on_malformed_json);
     RUN_TEST(test_set_raw_writes_parsed_object_on_valid_json);
+    RUN_TEST(test_wifi_patch_request_schema_requires_ssid);
+    RUN_TEST(test_wifi_patch_route_descriptor_has_request_schema);
 
     // CORS header capture tests
     RUN_TEST(test_capture_cors_headers_recorded);
