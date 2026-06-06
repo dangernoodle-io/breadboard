@@ -96,6 +96,7 @@ COMPONENT_MAP = {
             "components/bb_http/src/http_utils.c",
             "components/bb_http/src/route_registry.c",
             "components/bb_http/src/bb_http_json_obj.c",
+            "components/bb_http/src/bb_http_api_dispatch.c",
             "platform/host/bb_http/bb_http_host.c",
         ],
         "depends":  ["bb_core", "bb_log"],
