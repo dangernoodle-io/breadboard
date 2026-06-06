@@ -27,4 +27,10 @@ config BB_OTA_BOOT_PROGRESS_HTTP
       the download (httpd task + mDNS responder). Leave off for heap-tight or
       headless consumers — the existing progress callback is unaffected.
 
+      The transient GET /api/update/progress endpoint is ONLY available during
+      the boot-mode OTA download window — it is not part of the normal-operation
+      OpenAPI spec (boot-mode boards do not compile bb_ota_pull, so /progress
+      is absent in normal mode). The response schema is identical to bb_ota_pull's
+      /api/update/progress: {state:string, in_progress:bool, progress_pct:integer}.
+
 endmenu
