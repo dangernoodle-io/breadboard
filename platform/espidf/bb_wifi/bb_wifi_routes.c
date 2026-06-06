@@ -11,6 +11,10 @@
 
 #include "esp_wifi.h"
 
+#if CONFIG_BB_WIFI_RECONFIGURE
+#include "bb_nv_wifi_pending.h"
+#endif
+
 static bb_err_t wifi_info_handler(bb_http_request_t *req)
 {
     bb_wifi_info_t info;
@@ -110,6 +114,108 @@ static const bb_route_t s_scan_route = {
     .handler  = scan_handler,
 };
 
+#if CONFIG_BB_WIFI_RECONFIGURE
+
+static bb_err_t wifi_patch_handler(bb_http_request_t *req)
+{
+    int body_len = bb_http_req_body_len(req);
+    if (body_len <= 0 || body_len > 256) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "missing or oversized body");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_ERR_INVALID_ARG;
+    }
+
+    char body[256];
+    int n = bb_http_req_recv(req, body, sizeof(body) - 1);
+    if (n < 0) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "read failed");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_ERR_INVALID_ARG;
+    }
+    body[n] = '\0';
+
+    bb_json_t parsed = bb_json_parse(body, (size_t)n);
+    if (!parsed) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "invalid JSON");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_ERR_INVALID_ARG;
+    }
+
+    char ssid[BB_WIFI_PENDING_SSID_MAX + 1];
+    char pass[BB_WIFI_PENDING_PASS_MAX + 1];
+    ssid[0] = '\0';
+    pass[0] = '\0';
+    bb_json_obj_get_string(parsed, "ssid",     ssid, sizeof(ssid));
+    bb_json_obj_get_string(parsed, "password", pass, sizeof(pass));
+    bb_json_free(parsed);
+
+    /* Determine a descriptive validation error before calling validate. */
+    const char *err_msg = NULL;
+    if (!ssid[0]) {
+        err_msg = "ssid required";
+    } else if (strlen(ssid) > BB_WIFI_PENDING_SSID_MAX) {
+        err_msg = "ssid too long";
+    } else if (strlen(pass) > BB_WIFI_PENDING_PASS_MAX) {
+        err_msg = "password too long";
+    }
+
+    if (!err_msg && bb_wifi_pending_validate(ssid, pass) != BB_OK) {
+        err_msg = "invalid credentials";
+    }
+
+    if (err_msg) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", err_msg);
+        bb_http_resp_json_obj_end(&obj);
+        return BB_ERR_INVALID_ARG;
+    }
+
+    bb_http_resp_set_status(req, 202);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "status", "rebooting_to_try_wifi");
+    bb_http_resp_json_obj_end(&obj);
+
+    bb_wifi_reconfigure(ssid, pass);
+    return BB_OK;
+}
+
+static const bb_route_response_t s_wifi_patch_responses[] = {
+    { 202, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"status\":{\"type\":\"string\"}},"
+      "\"required\":[\"status\"]}",
+      "reconfigure accepted; device will reboot to try new credentials" },
+    { 400, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "invalid request body or credentials" },
+    { 0 },
+};
+
+static const bb_route_t s_wifi_patch_route = {
+    .method    = BB_HTTP_PATCH,
+    .path      = "/api/wifi",
+    .tag       = "wifi",
+    .summary   = "Stage new Wi-Fi credentials and arm deferred reboot",
+    .responses = s_wifi_patch_responses,
+    .handler   = wifi_patch_handler,
+};
+
+#endif /* CONFIG_BB_WIFI_RECONFIGURE */
+
 static bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
@@ -118,13 +224,21 @@ static bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
     if (rc != BB_OK) return rc;
     rc = bb_http_register_described_route(server, &s_scan_route);
     if (rc != BB_OK) return rc;
+#if CONFIG_BB_WIFI_RECONFIGURE
+    rc = bb_http_register_described_route(server, &s_wifi_patch_route);
+    if (rc != BB_OK) return rc;
+#endif
     return BB_OK;
 }
 
 #if CONFIG_BB_WIFI_ROUTES_AUTOREGISTER
 static bb_err_t bb_wifi_routes_reserve(void)
 {
+#if CONFIG_BB_WIFI_RECONFIGURE
+    bb_http_reserve_routes(3);  // GET /api/wifi + POST /api/scan + PATCH /api/wifi
+#else
     bb_http_reserve_routes(2);  // GET /api/wifi + POST /api/scan
+#endif
     return BB_OK;
 }
 BB_REGISTRY_REGISTER_PRE_HTTP(bb_wifi_routes, bb_wifi_routes_reserve);

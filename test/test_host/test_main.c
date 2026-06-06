@@ -503,6 +503,8 @@ void test_fidelity_boot_with_panic(void);
 void test_fidelity_diag_panic(void);
 void test_fidelity_update_check(void);
 void test_fidelity_log_level_get(void);
+void test_fidelity_wifi_patch_202(void);
+void test_fidelity_wifi_patch_400(void);
 void test_fidelity_update_status(void);
 void test_fidelity_update_config_get(void);
 void test_fidelity_diag_events(void);
@@ -1882,6 +1884,8 @@ int main(void) {
     RUN_TEST(test_fidelity_diag_panic);
     RUN_TEST(test_fidelity_update_check);
     RUN_TEST(test_fidelity_log_level_get);
+    RUN_TEST(test_fidelity_wifi_patch_202);
+    RUN_TEST(test_fidelity_wifi_patch_400);
     RUN_TEST(test_fidelity_update_status);
     RUN_TEST(test_fidelity_update_config_get);
     RUN_TEST(test_fidelity_diag_events);

@@ -246,6 +246,18 @@ static const char k_diag_events_schema[] =
     "\"active_clients\":{\"type\":\"integer\"}},"
     "\"required\":[\"topics\",\"max_clients\",\"active_clients\"]}";
 
+// PATCH /api/wifi 202 — platform/espidf/bb_wifi/bb_wifi_routes.c (CONFIG_BB_WIFI_RECONFIGURE)
+static const char k_wifi_patch_202_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{\"status\":{\"type\":\"string\"}},"
+    "\"required\":[\"status\"]}";
+
+// PATCH /api/wifi 400 — platform/espidf/bb_wifi/bb_wifi_routes.c (CONFIG_BB_WIFI_RECONFIGURE)
+static const char k_wifi_patch_400_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{\"error\":{\"type\":\"string\"}},"
+    "\"required\":[\"error\"]}";
+
 // GET /api/log/level — platform/espidf/bb_log/bb_log_http.c
 static const char k_log_level_schema[] =
     "{\"type\":\"object\","
@@ -612,6 +624,26 @@ static bb_err_t h_log_level_get(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
+// PATCH /api/wifi 202 — mirrors wifi_patch_handler success path.
+static bb_err_t h_wifi_patch_202(bb_http_request_t *req)
+{
+    bb_http_resp_set_status(req, 202);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "status", "rebooting_to_try_wifi");
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+// PATCH /api/wifi 400 — mirrors wifi_patch_handler validation failure path.
+static bb_err_t h_wifi_patch_400(bb_http_request_t *req)
+{
+    bb_http_resp_set_status(req, 400);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "error", "ssid required");
+    return bb_http_resp_json_obj_end(&obj);
+}
+
 // ---------------------------------------------------------------------------
 // Audit entry: one per (handler, expected-status, schema) pair
 // ---------------------------------------------------------------------------
@@ -639,8 +671,10 @@ static const fidelity_entry_t k_audit[] = {
     { "/api/diag/boot (panic)", h_boot_with_panic,   200, "application/json", k_boot_schema          },
     /* No-state routes: */
     { "/api/diag/panic",        h_diag_panic,        200, "application/json", k_panic_schema         },
-    { "/api/update/check",      h_update_check,      200, "application/json", k_update_check_schema  },
-    { "/api/log/level",         h_log_level_get,     200, "application/json", k_log_level_schema     },
+    { "/api/update/check",      h_update_check,      200, "application/json", k_update_check_schema    },
+    { "/api/log/level",         h_log_level_get,     200, "application/json", k_log_level_schema       },
+    { "PATCH /api/wifi 202",    h_wifi_patch_202,    202, "application/json", k_wifi_patch_202_schema  },
+    { "PATCH /api/wifi 400",    h_wifi_patch_400,    400, "application/json", k_wifi_patch_400_schema  },
     { NULL, NULL, 0, NULL, NULL },
 };
 
@@ -755,6 +789,16 @@ void test_fidelity_update_check(void)
 void test_fidelity_log_level_get(void)
 {
     run_fidelity(&k_audit[10]);
+}
+
+void test_fidelity_wifi_patch_202(void)
+{
+    run_fidelity(&k_audit[11]);
+}
+
+void test_fidelity_wifi_patch_400(void)
+{
+    run_fidelity(&k_audit[12]);
 }
 
 // Routes that require subsystem state setup are tested individually below.
