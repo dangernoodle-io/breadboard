@@ -984,6 +984,12 @@ void test_bb_board_heap_minimum_ever_callable(void);
 void test_bb_board_heap_largest_free_block_callable(void);
 void test_bb_board_chip_revision_callable(void);
 void test_bb_board_cpu_freq_mhz_callable(void);
+void test_bb_board_heap_internal_free_callable(void);
+void test_bb_board_heap_internal_total_callable(void);
+void test_bb_board_psram_free_callable(void);
+void test_bb_board_psram_total_callable(void);
+void test_bb_board_rtc_used_callable(void);
+void test_bb_board_rtc_total_callable(void);
 
 // Forward declarations from test_bb_info.c
 void test_bb_health_register_extender_null_returns_err(void);
@@ -2394,6 +2400,12 @@ int main(void) {
     RUN_TEST(test_bb_board_heap_largest_free_block_callable);
     RUN_TEST(test_bb_board_chip_revision_callable);
     RUN_TEST(test_bb_board_cpu_freq_mhz_callable);
+    RUN_TEST(test_bb_board_heap_internal_free_callable);
+    RUN_TEST(test_bb_board_heap_internal_total_callable);
+    RUN_TEST(test_bb_board_psram_free_callable);
+    RUN_TEST(test_bb_board_psram_total_callable);
+    RUN_TEST(test_bb_board_rtc_used_callable);
+    RUN_TEST(test_bb_board_rtc_total_callable);
 
     // bb_info tests
     RUN_TEST(test_bb_health_register_extender_null_returns_err);

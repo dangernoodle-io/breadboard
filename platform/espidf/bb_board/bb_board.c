@@ -11,6 +11,7 @@
 #include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "esp_private/esp_clk.h"
+#include "soc/soc.h"
 
 // FIRMWARE_BOARD must be supplied by the consumer as a C string literal,
 // e.g. add_compile_definitions(FIRMWARE_BOARD="bitaxe-601"). Don't re-stringify
@@ -199,4 +200,78 @@ uint32_t bb_board_chip_revision(void)
 uint32_t bb_board_cpu_freq_mhz(void)
 {
     return (uint32_t)(esp_clk_cpu_freq() / 1000000);
+}
+
+size_t bb_board_heap_internal_free(void)
+{
+    return heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+}
+
+size_t bb_board_heap_internal_total(void)
+{
+    return heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+}
+
+size_t bb_board_psram_free(void)
+{
+    return heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+}
+
+size_t bb_board_psram_total(void)
+{
+    return heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+}
+
+/*
+ * RTC slow memory accounting.
+ *
+ * total: SOC_RTC_DATA_HIGH - SOC_RTC_DATA_LOW (8192 bytes on ESP32-S3).
+ *        Sourced from soc/soc.h which is included transitively via esp_chip_info.h.
+ *
+ * used: span of all static RTC sections as exported by the ESP-IDF linker script.
+ *       Sections and their symbols:
+ *         .rtc.data    [_rtc_data_start      .. _rtc_data_end)
+ *         .rtc.bss     [_rtc_bss_start       .. _rtc_bss_end)
+ *         .rtc_noinit  [_rtc_noinit_start    .. _rtc_noinit_end)
+ *         .rtc_force_slow [_rtc_force_slow_start .. _rtc_force_slow_end)
+ *       used = lowest start address .. highest end address of the above.
+ *       This measures the contiguous span actually mapped by the linker.
+ *
+ * When SOC_RTC_DATA_LOW is not defined (non-ESP32 target), both return 0.
+ */
+size_t bb_board_rtc_used(void)
+{
+#ifdef SOC_RTC_DATA_LOW
+    extern int _rtc_data_start, _rtc_data_end;
+    extern int _rtc_bss_start, _rtc_bss_end;
+    extern int _rtc_noinit_start, _rtc_noinit_end;
+    extern int _rtc_force_slow_start, _rtc_force_slow_end;
+
+    uintptr_t lo = (uintptr_t)&_rtc_data_start;
+    uintptr_t hi = (uintptr_t)&_rtc_data_end;
+
+#define BB_RTC_EXTEND(s, e) do { \
+    uintptr_t _s = (uintptr_t)&(s); uintptr_t _e = (uintptr_t)&(e); \
+    if (_s < lo) lo = _s; \
+    if (_e > hi) hi = _e; \
+} while (0)
+
+    BB_RTC_EXTEND(_rtc_bss_start,        _rtc_bss_end);
+    BB_RTC_EXTEND(_rtc_noinit_start,     _rtc_noinit_end);
+    BB_RTC_EXTEND(_rtc_force_slow_start, _rtc_force_slow_end);
+#undef BB_RTC_EXTEND
+
+    return (hi > lo) ? (size_t)(hi - lo) : 0;
+#else
+    return 0;
+#endif
+}
+
+size_t bb_board_rtc_total(void)
+{
+#ifdef SOC_RTC_DATA_LOW
+    return (size_t)(SOC_RTC_DATA_HIGH - SOC_RTC_DATA_LOW);
+#else
+    return 0;
+#endif
 }

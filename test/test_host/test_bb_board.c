@@ -38,3 +38,39 @@ void test_bb_board_cpu_freq_mhz_callable(void)
     uint32_t freq = bb_board_cpu_freq_mhz();
     TEST_ASSERT_EQUAL_UINT32(freq, freq);  // Sanity: no crash, returns uint32_t
 }
+
+void test_bb_board_heap_internal_free_callable(void)
+{
+    size_t sz = bb_board_heap_internal_free();
+    TEST_ASSERT_EQUAL_INT(sz, sz);  // Sanity: no crash, returns size_t
+}
+
+void test_bb_board_heap_internal_total_callable(void)
+{
+    size_t sz = bb_board_heap_internal_total();
+    TEST_ASSERT_EQUAL_INT(sz, sz);  // Sanity: no crash, returns size_t
+}
+
+void test_bb_board_psram_free_callable(void)
+{
+    size_t sz = bb_board_psram_free();
+    TEST_ASSERT_EQUAL_INT(sz, sz);  // Sanity: no crash, returns size_t
+}
+
+void test_bb_board_psram_total_callable(void)
+{
+    size_t sz = bb_board_psram_total();
+    TEST_ASSERT_EQUAL_INT(sz, sz);  // Sanity: no crash, returns size_t
+}
+
+void test_bb_board_rtc_used_callable(void)
+{
+    size_t sz = bb_board_rtc_used();
+    TEST_ASSERT_EQUAL_INT(sz, sz);  // Sanity: no crash, returns size_t
+}
+
+void test_bb_board_rtc_total_callable(void)
+{
+    size_t sz = bb_board_rtc_total();
+    TEST_ASSERT_EQUAL_INT(sz, sz);  // Sanity: no crash, returns size_t
+}

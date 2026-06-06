@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "bb_nv.h"
+#include "bb_core.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,6 +55,21 @@ size_t   bb_board_heap_minimum_ever(void);
 size_t   bb_board_heap_largest_free_block(void);
 uint32_t bb_board_chip_revision(void);
 uint32_t bb_board_cpu_freq_mhz(void);
+
+// Internal-only heap (MALLOC_CAP_INTERNAL). 0 if unavailable.
+size_t   bb_board_heap_internal_free(void);
+size_t   bb_board_heap_internal_total(void);
+
+// PSRAM heap (MALLOC_CAP_SPIRAM). Both 0 on boards with no PSRAM.
+size_t   bb_board_psram_free(void);
+size_t   bb_board_psram_total(void);
+
+// RTC slow memory region. Not a heap — statically partitioned.
+// used = bytes consumed by static RTC sections (.rtc.data, .rtc.bss,
+//         .rtc_noinit, .rtc_force_slow). total = full RTC slow region size.
+// Both 0 on platforms where RTC slow memory is not supported.
+size_t   bb_board_rtc_used(void);
+size_t   bb_board_rtc_total(void);
 
 #ifdef ESP_PLATFORM
 #endif

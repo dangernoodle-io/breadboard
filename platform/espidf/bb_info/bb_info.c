@@ -64,6 +64,21 @@ static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
     bb_json_obj_set_number(root, "heap_largest_free_block", (double)bb_board_heap_largest_free_block());
     bb_json_obj_set_number(root, "chip_revision", (double)bb_board_chip_revision());
     bb_json_obj_set_number(root, "cpu_freq_mhz", (double)bb_board_cpu_freq_mhz());
+
+    bb_json_t heap_internal = bb_json_obj_new();
+    bb_json_obj_set_number(heap_internal, "free",  (double)bb_board_heap_internal_free());
+    bb_json_obj_set_number(heap_internal, "total", (double)bb_board_heap_internal_total());
+    bb_json_obj_set_obj(root, "heap_internal", heap_internal);
+
+    bb_json_t heap_psram = bb_json_obj_new();
+    bb_json_obj_set_number(heap_psram, "free",  (double)bb_board_psram_free());
+    bb_json_obj_set_number(heap_psram, "total", (double)bb_board_psram_total());
+    bb_json_obj_set_obj(root, "heap_psram", heap_psram);
+
+    bb_json_t rtc = bb_json_obj_new();
+    bb_json_obj_set_number(rtc, "used",  (double)bb_board_rtc_used());
+    bb_json_obj_set_number(rtc, "total", (double)bb_board_rtc_total());
+    bb_json_obj_set_obj(root, "rtc", rtc);
 }
 
 static void add_network_object(bb_json_t root, const bb_wifi_info_t *w)
@@ -191,6 +206,18 @@ static const bb_route_response_t s_info_responses[] = {
       "\"heap_largest_free_block\":{\"type\":\"integer\"},"
       "\"chip_revision\":{\"type\":\"integer\"},"
       "\"cpu_freq_mhz\":{\"type\":\"integer\"},"
+      "\"heap_internal\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"free\":{\"type\":\"integer\"},"
+      "\"total\":{\"type\":\"integer\"}}},"
+      "\"heap_psram\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"free\":{\"type\":\"integer\"},"
+      "\"total\":{\"type\":\"integer\"}}},"
+      "\"rtc\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"used\":{\"type\":\"integer\"},"
+      "\"total\":{\"type\":\"integer\"}}},"
       "\"network\":{\"type\":\"object\","
       "\"properties\":{"
       "\"ssid\":{\"type\":\"string\"},"

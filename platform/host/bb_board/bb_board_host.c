@@ -102,3 +102,33 @@ uint32_t bb_board_cpu_freq_mhz(void)
 {
     return 0;
 }
+
+size_t bb_board_heap_internal_free(void)
+{
+    return 0;
+}
+
+size_t bb_board_heap_internal_total(void)
+{
+    return 0;
+}
+
+size_t bb_board_psram_free(void)
+{
+    return 0;
+}
+
+size_t bb_board_psram_total(void)
+{
+    return 0;
+}
+
+size_t bb_board_rtc_used(void)
+{
+    return 0;
+}
+
+size_t bb_board_rtc_total(void)
+{
+    return 0;
+}
