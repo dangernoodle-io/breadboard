@@ -1,4 +1,5 @@
 #include "bb_http.h"
+#include "bb_http_api_dispatch.h"
 #include "bb_json.h"
 #include "esp_http_server.h"
 #include "bb_log.h"
@@ -8,6 +9,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <stdbool.h>
 #include <sys/socket.h>
 #include "lwip/sockets.h"
 
@@ -15,11 +17,12 @@ static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
 static int s_max_uri_handlers = 0;        // set by ensure_started
 static int s_registered_handlers = 0;     // incremented on every successful register
-static int s_reserved_routes = 0;         // imperative-consumer reservations (bb_prov etc.)
 
+/* Vestigial since /api dispatch; kept for ABI — PRE_HTTP companions still call
+ * it but route count no longer drives max_uri_handlers. */
 void bb_http_reserve_routes(int n)
 {
-    if (n > 0) s_reserved_routes += n;
+    (void)n;
 }
 
 static const char *s_cors_methods = "GET, POST, OPTIONS";
@@ -50,6 +53,7 @@ void bb_http_set_cors_headers(const char *headers)
 }
 
 static esp_err_t preflight_handler(httpd_req_t *req);
+static esp_err_t api_dispatch_handler(httpd_req_t *req);
 static esp_err_t method_not_allowed_err_handler(httpd_req_t *req, httpd_err_code_t err);
 
 // One-shot work item queued on the httpd worker thread immediately after server
@@ -110,35 +114,18 @@ bb_err_t bb_http_server_ensure_started(void)
     }
 #endif
 
-    // Size max_uri_handlers from explicit pre-start declarations:
-    //   s_reserved_routes — accumulated by bb_http_reserve_routes() calls from
-    //                        PRE_HTTP-tier init functions (one per component that
-    //                        registers live httpd routes; count must be exact).
-    //   BB_HTTP_EXPLICIT_PREFLIGHT — OPTIONS /* registered unconditionally below.
-    //   BB_HTTP_EXPLICIT_ASSET_WILDCARD — GET /* from bb_http_register_assets(),
-    //                        counted unconditionally; prov-mode consumers must
-    //                        include it in their bb_http_reserve_routes() call.
-    #define BB_HTTP_EXPLICIT_PREFLIGHT     1
-    #define BB_HTTP_EXPLICIT_ASSET_WILDCARD 1
-
-    int cap;
-    #ifdef CONFIG_BB_HTTP_MAX_URI_HANDLERS_OVERRIDE
-    if (CONFIG_BB_HTTP_MAX_URI_HANDLERS_OVERRIDE > 0) {
-        cap = CONFIG_BB_HTTP_MAX_URI_HANDLERS_OVERRIDE;
-    } else {
-        int declared = s_reserved_routes
-                     + BB_HTTP_EXPLICIT_PREFLIGHT
-                     + BB_HTTP_EXPLICIT_ASSET_WILDCARD;
-        int min_cap = CONFIG_BB_HTTP_MAX_URI_HANDLERS_MIN;
-        cap = declared > min_cap ? declared : min_cap;
-    }
-    #else
-    int declared = s_reserved_routes
-                 + BB_HTTP_EXPLICIT_PREFLIGHT
-                 + BB_HTTP_EXPLICIT_ASSET_WILDCARD;
-    int min_cap = 32;  // default floor when no Kconfig
-    cap = declared > min_cap ? declared : min_cap;
-    #endif
+    // max_uri_handlers is now a single constant knob (BB_HTTP_MAX_URI_HANDLERS,
+    // default 12). /api/* routes do NOT consume httpd handler slots — they are
+    // dispatched via the bb_api_dispatch table instead. The 12-slot default
+    // covers: GET/POST/PUT/PATCH/DELETE /api/* (5) + OPTIONS /* (1) + GET /* (1)
+    // + headroom for non-/api routes (/save, captive /*) registered by consumers.
+    // bb_http_reserve_routes() is now vestigial; route count no longer drives
+    // this value.
+#ifdef CONFIG_BB_HTTP_MAX_URI_HANDLERS
+    int cap = CONFIG_BB_HTTP_MAX_URI_HANDLERS;
+#else
+    int cap = 12;
+#endif
 
     config.max_uri_handlers = cap;
     s_max_uri_handlers = cap;
@@ -171,6 +158,30 @@ bb_err_t bb_http_server_ensure_started(void)
         s_registered_handlers++;
     } else {
         bb_log_e(TAG, "register route failed (OPTIONS /*): %s", esp_err_to_name(err));
+    }
+
+    // Register per-method /api/* wildcards that dispatch via bb_api_dispatch.
+    // INVARIANT: these must be registered before the asset GET /* wildcard
+    // (bb_http_register_assets), because esp_http_server uses first-registered-
+    // first-matched semantics for wildcard URIs. ensure_started() runs before
+    // any consumer calls bb_http_register_assets(), so the ordering is guaranteed.
+    static const int s_api_methods[] = {
+        HTTP_GET, HTTP_POST, HTTP_PUT, HTTP_PATCH, HTTP_DELETE
+    };
+    for (size_t mi = 0; mi < sizeof(s_api_methods)/sizeof(s_api_methods[0]); mi++) {
+        httpd_uri_t api_uri = {
+            .uri     = "/api/*",
+            .method  = s_api_methods[mi],
+            .handler = api_dispatch_handler,
+            .user_ctx = NULL,
+        };
+        esp_err_t merr = httpd_register_uri_handler(s_server, &api_uri);
+        if (merr == ESP_OK) {
+            s_registered_handlers++;
+        } else {
+            bb_log_e(TAG, "register route failed (/api/* method %d): %s",
+                     s_api_methods[mi], esp_err_to_name(merr));
+        }
     }
 
     bb_log_i(TAG, "HTTP server started, max_uri_handlers=%d", cap);
@@ -223,7 +234,59 @@ static esp_err_t method_not_allowed_err_handler(httpd_req_t *req,
     return ESP_OK;
 }
 
+// Wildcard handler for GET/POST/PUT/PATCH/DELETE /api/*.
+// Maps the httpd method integer back to bb_http_method_t, strips the query
+// string from req->uri, then looks up in bb_api_dispatch.
+//   HIT             → wrap req as bb_http_request_t* and call the handler.
+//   METHOD_MISMATCH → 405 with JSON body.
+//   MISS            → 404 with JSON body.
+// SSE and async handlers work unchanged: their fn(req) calls
+// bb_http_req_async_handler_begin + task-spawn internally.
+static esp_err_t api_dispatch_handler(httpd_req_t *req)
+{
+    // Map httpd method integer → bb_http_method_t.
+    bb_http_method_t method;
+    switch (req->method) {
+        case HTTP_GET:    method = BB_HTTP_GET;    break;
+        case HTTP_POST:   method = BB_HTTP_POST;   break;
+        case HTTP_PUT:    method = BB_HTTP_PUT;    break;
+        case HTTP_PATCH:  method = BB_HTTP_PATCH;  break;
+        case HTTP_DELETE: method = BB_HTTP_DELETE; break;
+        default:
+            httpd_resp_set_status(req, "405 Method Not Allowed");
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_sendstr(req, "{\"error\":\"method not allowed\"}");
+            return ESP_OK;
+    }
 
+    // Strip query string: dispatch lookup accepts URI with query but doing it
+    // here avoids duplicate work across many handlers.
+    const char *uri = req->uri;
+
+    bb_http_handler_fn handler = NULL;
+    bb_api_dispatch_result_t res = bb_api_dispatch_lookup(method, uri, &handler);
+
+    if (res == BB_API_DISPATCH_HIT) {
+        // Wrap httpd_req_t* as bb_http_request_t* — identical cast used by
+        // bb_shim_handler. The fn(req) contract is the same for sync and async
+        // (SSE/async) handlers.
+        bb_err_t herr = handler((bb_http_request_t *)req);
+        return herr == BB_OK ? ESP_OK : ESP_FAIL;
+    }
+
+    if (res == BB_API_DISPATCH_METHOD_MISMATCH) {
+        httpd_resp_set_status(req, "405 Method Not Allowed");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"method not allowed\"}");
+        return ESP_OK;
+    }
+
+    // MISS
+    httpd_resp_set_status(req, "404 Not Found");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"error\":\"not found\"}");
+    return ESP_OK;
+}
 
 esp_err_t bb_http_server_start(void)
 {
@@ -320,35 +383,34 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
     httpd_handle_t h = (httpd_handle_t)server;
     if (!h || !handler) return BB_ERR_INVALID_ARG;
 
-    // Map method (HTTP_GET, HTTP_POST are enum constants)
-    int http_method_mapped;
-    switch (method) {
-        case BB_HTTP_GET:
-            http_method_mapped = HTTP_GET;
-            break;
-        case BB_HTTP_POST:
-            http_method_mapped = HTTP_POST;
-            break;
-        case BB_HTTP_PATCH:
-            http_method_mapped = HTTP_PATCH;
-            break;
-        case BB_HTTP_PUT:
-            http_method_mapped = HTTP_PUT;
-            break;
-        case BB_HTTP_DELETE:
-            http_method_mapped = HTTP_DELETE;
-            break;
-        case BB_HTTP_OPTIONS:
-            http_method_mapped = HTTP_OPTIONS;
-            break;
-        default:
-            return BB_ERR_INVALID_ARG;
+    // /api/* routes are served by per-method wildcard handlers that dispatch
+    // through bb_api_dispatch — they do NOT occupy httpd handler slots.
+    if (path && strncmp(path, "/api/", 5) == 0) {
+        bb_err_t derr = bb_api_dispatch_add(method, path, handler);
+        if (derr != BB_OK) {
+            bb_log_e(TAG, "api dispatch table full, dropping %s %s",
+                     bb_http_method_str(method), path);
+            // Non-fatal: return BB_OK so bb_http_register_described_route still
+            // adds the OpenAPI descriptor (route is listed even if undispatchable).
+        }
+        return BB_OK;
     }
 
-    // Build httpd_uri_t with handler stored in user_ctx
+    // Non-/api paths (e.g. /save, captive /*, asset /*): register with httpd.
+    int http_method_mapped;
+    switch (method) {
+        case BB_HTTP_GET:     http_method_mapped = HTTP_GET;     break;
+        case BB_HTTP_POST:    http_method_mapped = HTTP_POST;    break;
+        case BB_HTTP_PATCH:   http_method_mapped = HTTP_PATCH;   break;
+        case BB_HTTP_PUT:     http_method_mapped = HTTP_PUT;     break;
+        case BB_HTTP_DELETE:  http_method_mapped = HTTP_DELETE;  break;
+        case BB_HTTP_OPTIONS: http_method_mapped = HTTP_OPTIONS; break;
+        default:              return BB_ERR_INVALID_ARG;
+    }
+
     httpd_uri_t uri = {
-        .uri = path,
-        .method = http_method_mapped,
+        .uri     = path,
+        .method  = http_method_mapped,
         .handler = bb_shim_handler,
         .user_ctx = (void*)handler,
     };

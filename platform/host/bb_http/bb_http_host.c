@@ -8,6 +8,7 @@
 // Only one slot is active at a time (host tests are single-threaded).
 #include "bb_http.h"
 #include "bb_http_host.h"
+#include "bb_http_api_dispatch.h"
 #include "bb_json.h"
 #include <stdlib.h>
 #include <string.h>
@@ -83,12 +84,18 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
                                 bb_http_handler_fn handler)
 {
     (void)server;
-    (void)method;
-    (void)path;
-    (void)handler;
     if (s_force_register_fail) {
         return BB_ERR_INVALID_STATE;
     }
+    // Mirror espidf split: /api/ routes feed the dispatch table so host tests
+    // can exercise bb_api_dispatch_lookup on the same table as the device.
+    if (path && strncmp(path, "/api/", 5) == 0) {
+        bb_api_dispatch_add(method, path, handler);
+        return BB_OK;
+    }
+    (void)method;
+    (void)path;
+    (void)handler;
     return BB_OK;
 }
 
@@ -326,6 +333,9 @@ bb_err_t bb_http_server_ensure_started(void) { return BB_OK; }
 size_t bb_http_route_handler_count(void) { return 0; }
 size_t bb_http_route_handler_cap(void)   { return 0; }
 
+/* bb_http_reserve_routes is vestigial since /api dispatch (route count no longer
+ * drives max_uri_handlers on espidf). On host, we still track the counter so
+ * existing test assertions on bb_http_host_reserved_routes() continue to pass. */
 static int s_host_reserved_routes = 0;
 void bb_http_reserve_routes(int n) { if (n > 0) s_host_reserved_routes += n; }
 int  bb_http_host_reserved_routes(void) { return s_host_reserved_routes; }

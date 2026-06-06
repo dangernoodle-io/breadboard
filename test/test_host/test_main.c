@@ -299,6 +299,22 @@ void test_hostname_rejects_trailing_hyphen(void);
 void test_hostname_rejects_null(void);
 void test_nv_config_init_registers_bb_cfg_keys(void);
 
+// Forward declarations from test_api_dispatch.c
+void test_api_dispatch_add_and_lookup_hit(void);
+void test_api_dispatch_lookup_miss_unknown_path(void);
+void test_api_dispatch_method_mismatch(void);
+void test_api_dispatch_method_discrimination(void);
+void test_api_dispatch_query_string_stripped(void);
+void test_api_dispatch_exact_not_prefix_longer_uri(void);
+void test_api_dispatch_exact_not_prefix_shorter_uri(void);
+void test_api_dispatch_non_api_uri_miss(void);
+void test_api_dispatch_overflow_returns_no_space(void);
+void test_api_dispatch_reset_clears(void);
+void test_api_dispatch_null_uri_returns_miss(void);
+void test_api_dispatch_null_out_handler_returns_miss(void);
+void test_api_dispatch_null_path_entry_skipped(void);
+void test_api_dispatch_high_watermark_warn(void);
+
 // Forward declarations from test_nv_creds_mirror.c
 void test_nv_creds_mirror_pack_valid_roundtrip(void);
 void test_nv_creds_mirror_flip_ssid_invalidates(void);
@@ -2784,6 +2800,22 @@ int main(void) {
     RUN_TEST(test_anim_detach_null_returns_invalid_arg);
     RUN_TEST(test_anim_auto_start_timer_fires);
     RUN_TEST(test_anim_no_auto_start_timer_does_not_fire);
+
+    // bb_http_api_dispatch pure-function tests
+    RUN_TEST(test_api_dispatch_add_and_lookup_hit);
+    RUN_TEST(test_api_dispatch_lookup_miss_unknown_path);
+    RUN_TEST(test_api_dispatch_method_mismatch);
+    RUN_TEST(test_api_dispatch_method_discrimination);
+    RUN_TEST(test_api_dispatch_query_string_stripped);
+    RUN_TEST(test_api_dispatch_exact_not_prefix_longer_uri);
+    RUN_TEST(test_api_dispatch_exact_not_prefix_shorter_uri);
+    RUN_TEST(test_api_dispatch_non_api_uri_miss);
+    RUN_TEST(test_api_dispatch_overflow_returns_no_space);
+    RUN_TEST(test_api_dispatch_reset_clears);
+    RUN_TEST(test_api_dispatch_null_uri_returns_miss);
+    RUN_TEST(test_api_dispatch_null_out_handler_returns_miss);
+    RUN_TEST(test_api_dispatch_null_path_entry_skipped);
+    RUN_TEST(test_api_dispatch_high_watermark_warn);
 
     return UNITY_END();
 }
