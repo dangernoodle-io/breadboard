@@ -45,6 +45,7 @@
 #include "bb_http_host.h"
 #include "bb_openapi.h"
 #include "bb_board.h"
+#include "bb_nv.h"
 #include "bb_wifi.h"
 #include "bb_system.h"
 #include "bb_mdns.h"
@@ -103,6 +104,18 @@ static const char k_info_schema[] =
     "\"heap_largest_free_block\":{\"type\":\"integer\"},"
     "\"chip_revision\":{\"type\":\"integer\"},"
     "\"cpu_freq_mhz\":{\"type\":\"integer\"},"
+    "\"heap_internal\":{\"type\":\"object\","
+    "\"properties\":{"
+    "\"free\":{\"type\":\"integer\"},"
+    "\"total\":{\"type\":\"integer\"}}},"
+    "\"heap_psram\":{\"type\":\"object\","
+    "\"properties\":{"
+    "\"free\":{\"type\":\"integer\"},"
+    "\"total\":{\"type\":\"integer\"}}},"
+    "\"rtc\":{\"type\":\"object\","
+    "\"properties\":{"
+    "\"used\":{\"type\":\"integer\"},"
+    "\"total\":{\"type\":\"integer\"}}},"
     "\"network\":{\"type\":\"object\","
     "\"properties\":{"
     "\"ssid\":{\"type\":\"string\"},"
@@ -323,6 +336,18 @@ static bb_err_t h_info(bb_http_request_t *req)
     bb_http_resp_json_obj_set_num(&obj, "heap_largest_free_block", (double)bb_board_heap_largest_free_block());
     bb_http_resp_json_obj_set_num(&obj, "chip_revision", (double)bb_board_chip_revision());
     bb_http_resp_json_obj_set_num(&obj, "cpu_freq_mhz", (double)bb_board_cpu_freq_mhz());
+    bb_http_resp_json_obj_set_obj_begin(&obj, "heap_internal");
+    bb_http_resp_json_obj_set_num(&obj, "free",  (double)bb_board_heap_internal_free());
+    bb_http_resp_json_obj_set_num(&obj, "total", (double)bb_board_heap_internal_total());
+    bb_http_resp_json_obj_set_obj_end(&obj);
+    bb_http_resp_json_obj_set_obj_begin(&obj, "heap_psram");
+    bb_http_resp_json_obj_set_num(&obj, "free",  (double)bb_board_psram_free());
+    bb_http_resp_json_obj_set_num(&obj, "total", (double)bb_board_psram_total());
+    bb_http_resp_json_obj_set_obj_end(&obj);
+    bb_http_resp_json_obj_set_obj_begin(&obj, "rtc");
+    bb_http_resp_json_obj_set_num(&obj, "used",  (double)bb_board_rtc_used());
+    bb_http_resp_json_obj_set_num(&obj, "total", (double)bb_board_rtc_total());
+    bb_http_resp_json_obj_set_obj_end(&obj);
     bb_http_resp_json_obj_set_obj_begin(&obj, "network");
     bb_http_resp_json_obj_set_str(&obj, "ssid", w.ssid);
     bb_http_resp_json_obj_set_str(&obj, "bssid", bssid);

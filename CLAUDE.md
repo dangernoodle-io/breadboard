@@ -236,6 +236,16 @@ The default (9216) equals `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` (typically 8192) +
 
 `POST /api/update/push` enforces a body size limit via `CONFIG_BB_OTA_PUSH_MAX_SIZE` (default 4 MB). Requests exceeding the limit return 413 before any flash write begins.
 
+## GET /api/info memory regions
+
+`GET /api/info` includes three nested memory-region objects (additive; back-compat `free_heap` and `heap_minimum_ever` flat fields unchanged):
+
+- `heap_internal` `{free, total}` — `MALLOC_CAP_INTERNAL` (FreeRTOS/regular SRAM heap).
+- `heap_psram`    `{free, total}` — `MALLOC_CAP_SPIRAM`; both 0 on no-PSRAM boards.
+- `rtc`           `{used, total}` — RTC slow memory (static, not a heap). `total` = `SOC_RTC_DATA_HIGH − SOC_RTC_DATA_LOW` (8192 bytes on ESP32-S3). `used` = span of linker sections `_rtc_data_{start,end}`, `_rtc_bss_{start,end}`, `_rtc_noinit_{start,end}`, `_rtc_force_slow_{start,end}`. Host stubs return 0/0 for all three.
+
+New `bb_board` accessors: `bb_board_heap_internal_{free,total}()`, `bb_board_psram_{free,total}()`, `bb_board_rtc_{used,total}()`.
+
 ## bb_diag
 
 `bb_diag` registers diagnostic HTTP routes under `/api/diag/`: boot anomaly summary, panic log, coredump, heap stats, FreeRTOS task list, and abnormal-reset counter. `GET /api/diag/boot` returns a compact JSON summary of the current boot's reset reason, the persistent abnormal-reset count, and panic availability. `DELETE /api/diag/boot` clears both the panic log and the abnormal-reset counter in a single call. `GET /api/diag/panic` returns the full panic log detail (log tail, coredump backtrace, task info). Panic buffer size is tunable via `BB_DIAG_PANIC_BUF_SIZE` (default 1024 bytes, stored in RTC slow memory). `GET /api/diag/sockets` dumps LWIP TCP state distribution (per-state counts + per-PCB detail) for diagnosing socket exhaustion.
