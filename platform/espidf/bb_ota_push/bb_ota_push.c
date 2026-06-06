@@ -294,11 +294,31 @@ resume_and_exit:
 // ---------------------------------------------------------------------------
 
 static const bb_route_response_t s_ota_push_responses[] = {
-    { 200, "text/plain", NULL, "OTA complete; device rebooting" },
-    { 400, "text/plain", NULL, "firmware board mismatch, invalid binary, or Content-Length <= 0" },
-    { 408, "text/plain", NULL, "upload timeout" },
-    { 413, "text/plain", NULL, "payload exceeds CONFIG_BB_OTA_PUSH_MAX_SIZE (default 4 MB)" },
-    { 500, "text/plain", NULL, "OTA write or validation failed" },
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"status\":{\"type\":\"string\"}},"
+      "\"required\":[\"status\"]}",
+      "OTA complete; device rebooting" },
+    { 400, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "firmware board mismatch, invalid binary, or Content-Length <= 0" },
+    { 408, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "upload timeout" },
+    { 413, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "payload exceeds CONFIG_BB_OTA_PUSH_MAX_SIZE (default 4 MB)" },
+    { 500, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "OTA write or validation failed, allocation failure, or no OTA partition" },
     { 0 },
 };
 

@@ -927,6 +927,11 @@ static const bb_route_response_t s_ota_update_responses[] = {
       "\"properties\":{\"error\":{\"type\":\"string\"}},"
       "\"required\":[\"error\"]}",
       "update already in progress or no update available" },
+    { 500, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "allocation failure or OTA worker task create failed" },
     { 503, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{\"error\":{\"type\":\"string\"}},"

@@ -210,6 +210,11 @@ bb_err_t bb_ota_validator_init(bb_http_handle_t server)
           "\"properties\":{\"error\":{\"type\":\"string\"}},"
           "\"required\":[\"error\"]}",
           "no OTA pending verification" },
+        { 500, "application/json",
+          "{\"type\":\"object\","
+          "\"properties\":{\"error\":{\"type\":\"string\"}},"
+          "\"required\":[\"error\"]}",
+          "bb_ota_mark_valid returned an error (e.g. already marked)" },
         { 0 },
     };
 

@@ -128,7 +128,11 @@ static const bb_route_t s_log_level_get_route = {
 
 static const bb_route_response_t s_log_level_post_responses[] = {
     { 204, NULL, NULL, "log level updated" },
-    { 400, "text/plain", NULL, "invalid tag or level" },
+    { 400, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "invalid tag or level, missing tag, or read failure" },
     { 0 },
 };
 

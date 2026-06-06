@@ -224,6 +224,11 @@ static const bb_route_response_t s_events_responses[] = {
       "`event:` (topic name), `data:` (JSON payload posted by the producer), "
       "and `id:` (monotonic per-stream). Topic must have been attached via "
       "bb_event_routes_attach." },
+    { 500, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "event routes not initialized, or async handler init failed" },
     { 503, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{\"error\":{\"type\":\"string\",\"enum\":[\"max_clients\"]}},"
