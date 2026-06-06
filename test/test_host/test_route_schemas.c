@@ -25,6 +25,15 @@
 // Fixtures
 // ---------------------------------------------------------------------------
 
+// Mirrors platform/espidf/bb_wifi/bb_wifi_routes.c (s_wifi_patch_route.request_schema).
+// Copy-pasted intentionally: edits to the production literal must update this too.
+// Also guards that the schema declares requestBody + requires ssid (not just parses).
+static const char k_wifi_patch_request_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{\"ssid\":{\"type\":\"string\",\"maxLength\":31},"
+    "\"password\":{\"type\":\"string\",\"maxLength\":63}},"
+    "\"required\":[\"ssid\"]}";
+
 // Mirrors platform/espidf/bb_manifest/bb_manifest_register.c. Copy-pasted
 // intentionally: any future edit to the production literal must also update
 // this string, which forces a re-validation pass through the test.
@@ -68,6 +77,31 @@ static const bb_route_t s_manifest_route = {
     .summary   = "manifest schema fixture",
     .responses = s_manifest_responses,
     .handler   = NULL,
+};
+
+static const bb_route_response_t s_wifi_patch_responses[] = {
+    { 202, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"status\":{\"type\":\"string\"}},"
+      "\"required\":[\"status\"]}",
+      "reconfigure accepted" },
+    { 400, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "bad request" },
+    { 0 },
+};
+
+static const bb_route_t s_wifi_patch_route = {
+    .method               = BB_HTTP_PATCH,
+    .path                 = "/api/wifi",
+    .tag                  = "wifi",
+    .summary              = "Stage new Wi-Fi credentials and arm deferred reboot",
+    .request_content_type = "application/json",
+    .request_schema       = k_wifi_patch_request_schema,
+    .responses            = s_wifi_patch_responses,
+    .handler              = NULL,
 };
 
 // ---------------------------------------------------------------------------
@@ -127,6 +161,8 @@ void test_route_schemas_registry_all_valid(void)
 {
     bb_http_route_registry_clear();
     bb_err_t err = bb_http_register_route_descriptor_only(&s_manifest_route);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    err = bb_http_register_route_descriptor_only(&s_wifi_patch_route);
     TEST_ASSERT_EQUAL(BB_OK, err);
 
     schema_check_ctx_t ctx = { 0 };
@@ -195,4 +231,43 @@ void test_set_raw_writes_parsed_object_on_valid_json(void)
         "valid schema should not be substituted with null");
     bb_json_free_str(out);
     bb_json_free(obj);
+}
+
+// Guard: PATCH /api/wifi request_schema declares a requestBody and requires ssid.
+// If the production literal omits request_schema or drops the ssid requirement,
+// this test trips before the spec regression ships.
+void test_wifi_patch_request_schema_requires_ssid(void)
+{
+    cJSON *schema = cJSON_Parse(k_wifi_patch_request_schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(schema,
+        "PATCH /api/wifi request_schema must parse as valid JSON");
+
+    cJSON *required = cJSON_GetObjectItem(schema, "required");
+    TEST_ASSERT_NOT_NULL_MESSAGE(required,
+        "PATCH /api/wifi request_schema must have a 'required' array");
+    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsArray(required),
+        "PATCH /api/wifi request_schema 'required' must be an array");
+
+    bool has_ssid = false;
+    cJSON *item = NULL;
+    cJSON_ArrayForEach(item, required) {
+        if (cJSON_IsString(item) && strcmp(item->valuestring, "ssid") == 0) {
+            has_ssid = true;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(has_ssid,
+        "PATCH /api/wifi request_schema must list 'ssid' in required[]");
+
+    cJSON_Delete(schema);
+}
+
+// Guard: PATCH /api/wifi route descriptor sets request_schema (OpenAPI requestBody
+// will be emitted). Catches the regression where the field is accidentally cleared.
+void test_wifi_patch_route_descriptor_has_request_schema(void)
+{
+    TEST_ASSERT_NOT_NULL_MESSAGE(s_wifi_patch_route.request_schema,
+        "PATCH /api/wifi route descriptor must set request_schema");
+    TEST_ASSERT_NOT_NULL_MESSAGE(s_wifi_patch_route.request_content_type,
+        "PATCH /api/wifi route descriptor must set request_content_type");
 }
