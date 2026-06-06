@@ -313,6 +313,20 @@ void test_nv_creds_mirror_null_ssid_treated_as_empty(void);
 void test_nv_creds_mirror_null_pass_treated_as_empty(void);
 void test_nv_creds_mirror_empty_ssid_is_valid_but_not_restorable(void);
 
+// Forward declarations from test_nv_wifi_pending.c
+void test_wifi_pending_decide_try0_with_ssid_returns_none(void);
+void test_wifi_pending_decide_try1_empty_ssid_returns_none(void);
+void test_wifi_pending_decide_try1_null_ssid_returns_none(void);
+void test_wifi_pending_decide_try1_valid_ssid_returns_try(void);
+void test_wifi_pending_validate_null_ssid_returns_invalid_arg(void);
+void test_wifi_pending_validate_empty_ssid_returns_invalid_arg(void);
+void test_wifi_pending_validate_ssid_at_max_returns_ok(void);
+void test_wifi_pending_validate_ssid_over_max_returns_invalid_arg(void);
+void test_wifi_pending_validate_pass_at_max_returns_ok(void);
+void test_wifi_pending_validate_pass_over_max_returns_invalid_arg(void);
+void test_wifi_pending_validate_null_pass_returns_ok(void);
+void test_wifi_pending_validate_empty_pass_returns_ok(void);
+
 // Forward declarations from test_ota_validator.c
 void test_ota_validator_is_pending_false_on_host(void);
 void test_ota_validator_mark_valid_returns_invalid_state_on_host(void);
@@ -489,6 +503,8 @@ void test_fidelity_boot_with_panic(void);
 void test_fidelity_diag_panic(void);
 void test_fidelity_update_check(void);
 void test_fidelity_log_level_get(void);
+void test_fidelity_wifi_patch_202(void);
+void test_fidelity_wifi_patch_400(void);
 void test_fidelity_update_status(void);
 void test_fidelity_update_config_get(void);
 void test_fidelity_diag_events(void);
@@ -1763,6 +1779,20 @@ int main(void) {
     RUN_TEST(test_nv_creds_mirror_null_pass_treated_as_empty);
     RUN_TEST(test_nv_creds_mirror_empty_ssid_is_valid_but_not_restorable);
 
+    // NV wifi-pending decide/validate tests
+    RUN_TEST(test_wifi_pending_decide_try0_with_ssid_returns_none);
+    RUN_TEST(test_wifi_pending_decide_try1_empty_ssid_returns_none);
+    RUN_TEST(test_wifi_pending_decide_try1_null_ssid_returns_none);
+    RUN_TEST(test_wifi_pending_decide_try1_valid_ssid_returns_try);
+    RUN_TEST(test_wifi_pending_validate_null_ssid_returns_invalid_arg);
+    RUN_TEST(test_wifi_pending_validate_empty_ssid_returns_invalid_arg);
+    RUN_TEST(test_wifi_pending_validate_ssid_at_max_returns_ok);
+    RUN_TEST(test_wifi_pending_validate_ssid_over_max_returns_invalid_arg);
+    RUN_TEST(test_wifi_pending_validate_pass_at_max_returns_ok);
+    RUN_TEST(test_wifi_pending_validate_pass_over_max_returns_invalid_arg);
+    RUN_TEST(test_wifi_pending_validate_null_pass_returns_ok);
+    RUN_TEST(test_wifi_pending_validate_empty_pass_returns_ok);
+
     // Generic NV API tests
     RUN_TEST(test_nv_set_u8_null_ns);
     RUN_TEST(test_nv_set_u8_null_key);
@@ -1854,6 +1884,8 @@ int main(void) {
     RUN_TEST(test_fidelity_diag_panic);
     RUN_TEST(test_fidelity_update_check);
     RUN_TEST(test_fidelity_log_level_get);
+    RUN_TEST(test_fidelity_wifi_patch_202);
+    RUN_TEST(test_fidelity_wifi_patch_400);
     RUN_TEST(test_fidelity_update_status);
     RUN_TEST(test_fidelity_update_config_get);
     RUN_TEST(test_fidelity_diag_events);

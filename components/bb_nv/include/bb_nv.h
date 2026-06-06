@@ -61,10 +61,40 @@ bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass);
 bb_err_t bb_nv_config_set_hostname(const char *hostname);
 bb_err_t bb_nv_config_set_display_enabled(bool en);
 bb_err_t bb_nv_config_set_mdns_enabled(bool en);
+
+/// Stage pending wifi credentials (wifi_ssid_p / wifi_pass_p / wifi_try=1).
+/// Validates via bb_wifi_pending_validate. Does NOT touch live creds or mirror.
+bb_err_t bb_nv_config_set_wifi_pending(const char *ssid, const char *pass);
+
+/// Return true if a pending wifi reconfigure is armed (try flag set + ssid non-empty).
+bool bb_nv_config_wifi_pending_active(void);
+
+/// Return the staged pending SSID (empty string when none).
+const char *bb_nv_config_wifi_pending_ssid(void);
+
+/// Return the staged pending password (empty string when none).
+const char *bb_nv_config_wifi_pending_pass(void);
+
+/// Promote pending creds to live (wifi_ssid / wifi_pass), erase pending NVS
+/// keys, update s_config and the RTC mirror. BB_ERR_INVALID_STATE if no pending.
+bb_err_t bb_nv_config_commit_wifi_pending(void);
+
+/// Erase pending NVS keys and clear the in-RAM pending cache.
+/// Does NOT touch live creds or the RTC mirror.
+bb_err_t bb_nv_config_clear_wifi_pending(void);
+
 #else
 static inline bool bb_nv_config_is_provisioned(void) { return false; }
 // Host: set_hostname implemented in platform/espidf/bb_nv/bb_nv.c for host builds
 bb_err_t bb_nv_config_set_hostname(const char *hostname);
+
+static inline bb_err_t bb_nv_config_set_wifi_pending(const char *ssid, const char *pass)
+    { (void)ssid; (void)pass; return BB_ERR_UNSUPPORTED; }
+static inline bool bb_nv_config_wifi_pending_active(void) { return false; }
+static inline const char *bb_nv_config_wifi_pending_ssid(void) { return ""; }
+static inline const char *bb_nv_config_wifi_pending_pass(void) { return ""; }
+static inline bb_err_t bb_nv_config_commit_wifi_pending(void) { return BB_ERR_UNSUPPORTED; }
+static inline bb_err_t bb_nv_config_clear_wifi_pending(void) { return BB_ERR_UNSUPPORTED; }
 #endif
 
 // Available on all platforms: in-memory on host, NVS-persisted on ESP-IDF.

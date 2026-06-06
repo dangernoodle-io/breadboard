@@ -81,6 +81,7 @@ COMPONENT_MAP = {
         "sources":  [
             "platform/espidf/bb_nv/bb_nv.c",
             "components/bb_nv/bb_nv_creds_mirror.c",
+            "components/bb_nv/bb_nv_wifi_pending.c",
         ],
         "depends":  ["bb_core", "bb_registry"],
     },

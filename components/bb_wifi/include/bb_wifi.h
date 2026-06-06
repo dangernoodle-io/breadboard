@@ -113,6 +113,18 @@ bool bb_wifi_has_ip(void);
 bb_err_t bb_wifi_get_info(bb_wifi_info_t *out);
 
 // ---------------------------------------------------------------------------
+// Runtime WiFi reconfigure (brick-safe pending-creds try)
+// ---------------------------------------------------------------------------
+
+// Stage new WiFi credentials and reboot to try them. On boot, if the pending
+// credentials succeed (got-IP), they are committed as the new live creds.
+// On timeout they are cleared and the device reboots onto the prior live creds
+// without incrementing boot_count. Returns BB_OK after staging and arming the
+// deferred reboot; the response to the caller can flush before the restart
+// fires. Returns BB_ERR_UNSUPPORTED when CONFIG_BB_WIFI_RECONFIGURE is off.
+bb_err_t bb_wifi_reconfigure(const char *ssid, const char *pass);
+
+// ---------------------------------------------------------------------------
 // Transport (consumed by Arduino bb_http)
 // ---------------------------------------------------------------------------
 // Generic non-blocking accept-loop transport. The Arduino bb_http backend
