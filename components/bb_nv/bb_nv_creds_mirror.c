@@ -31,11 +31,9 @@ static uint32_t crc32_buf(const uint8_t *buf, size_t len)
  * always NUL-terminates. Safe when src is NULL (writes empty string).
  * Avoids relying on strlcpy which is not available on all host toolchains.
  * ---------------------------------------------------------------------------*/
+/* Precondition: dst_cap >= 1 (callers pass sizeof of fixed mirror buffers). */
 static void bounded_copy(char *dst, const char *src, size_t dst_cap)
 {
-    if (dst_cap == 0) {
-        return;
-    }
     if (src == NULL) {
         dst[0] = '\0';
         return;

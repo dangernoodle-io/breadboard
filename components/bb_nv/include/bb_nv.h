@@ -41,6 +41,14 @@ bb_err_t bb_nv_config_set_provisioned(void);
 bb_err_t bb_nv_config_clear_provisioned(void);
 bb_err_t bb_nv_config_clear_wifi(void);
 
+/// Returns true if the NVS partition was erased this boot (corruption or version
+/// mismatch). Always available under ESP_PLATFORM regardless of Kconfig.
+bool bb_nv_config_was_erased(void);
+
+/// Returns true if wifi creds were restored from the RTC backup this boot.
+/// Always false when CONFIG_BB_NV_CREDS_RTC_BACKUP is disabled.
+bool bb_nv_config_creds_restored(void);
+
 #define BB_NV_CONFIG_BOOT_FAIL_THRESHOLD 3
 uint8_t   bb_nv_config_boot_count(void);
 bb_err_t bb_nv_config_increment_boot_count(void);
