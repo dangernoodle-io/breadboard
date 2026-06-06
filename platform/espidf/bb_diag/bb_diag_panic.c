@@ -61,6 +61,12 @@ static RTC_NOINIT_ATTR uint32_t s_boots_since;
 static RTC_NOINIT_ATTR uint32_t s_boots_since_magic;
 static bool s_have_panic_log = false;
 
+// Serve buffer: ordered copy of the crash log, preserved before the RTC
+// buffer is reset for the recovery boot. Plain .bss — repopulated each boot
+// from RTC, no need to survive resets. bb_diag_panic_get serves from here.
+static char   s_panic_log_serve[CONFIG_BB_DIAG_PANIC_BUF_SIZE];
+static size_t s_panic_log_serve_len = 0;
+
 #ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
 #include "esp_core_dump.h"
 #include "esp_partition.h"
@@ -113,6 +119,49 @@ static void bb_diag_panic_coredump_init(void)
 // Forward decl: tap entry called from bb_log_stream
 void bb_diag_panic_capture_write(const char *data, size_t len);
 
+/**
+ * Copy the circular panic buffer (oldest-to-newest) into a flat output buffer.
+ * Pure function — no global state. Used both at boot-time preserve and in tests.
+ *
+ * @param buf       Source circular buffer of size buf_size.
+ * @param buf_size  Total capacity of the circular buffer.
+ * @param length    Number of valid bytes in buf (clamped to buf_size).
+ * @param write_pos Current write cursor (next byte to overwrite when full).
+ * @param out       Destination buffer; will be NUL-terminated on return.
+ * @param out_cap   Capacity of out (including space for NUL terminator).
+ * @return Number of bytes written (excluding NUL).
+ */
+size_t bb_diag_panic_order_copy(const char *buf, size_t buf_size,
+                                 size_t length, size_t write_pos,
+                                 char *out, size_t out_cap)
+{
+    if (!buf || !out || buf_size == 0 || out_cap == 0) {
+        if (out && out_cap > 0) out[0] = '\0';
+        return 0;
+    }
+
+    size_t to_copy = (length < out_cap - 1) ? length : (out_cap - 1);
+
+    if (length == buf_size) {
+        // Buffer full and wrapped: oldest byte is at write_pos
+        size_t first_chunk = buf_size - write_pos;
+        if (first_chunk > to_copy) first_chunk = to_copy;
+
+        memcpy(out, &buf[write_pos], first_chunk);
+
+        size_t second_chunk = to_copy - first_chunk;
+        if (second_chunk > 0) {
+            memcpy(&out[first_chunk], buf, second_chunk);
+        }
+    } else {
+        // Not wrapped: oldest byte is at index 0
+        memcpy(out, buf, to_copy);
+    }
+
+    out[to_copy] = '\0';
+    return to_copy;
+}
+
 static bb_err_t bb_diag_panic_init(void)
 {
     esp_reset_reason_t reason = esp_reset_reason();
@@ -131,14 +180,35 @@ static bb_err_t bb_diag_panic_init(void)
                          reason == ESP_RST_INT_WDT || reason == ESP_RST_WDT ||
                          reason == ESP_RST_BROWNOUT)) {
         s_have_panic_log = true;
+        // Preserve the crash log into the serve buffer BEFORE resetting the
+        // RTC record — the tap re-armed below will start writing the recovery
+        // boot's logs into s_panic_rec, overwriting the crash boot's data.
+        // bb_diag_panic_get serves from s_panic_log_serve, not s_panic_rec.
+        s_panic_log_serve_len = bb_diag_panic_order_copy(
+            s_panic_rec.buf,
+            CONFIG_BB_DIAG_PANIC_BUF_SIZE,
+            s_panic_rec.length,
+            s_panic_rec.write_pos,
+            s_panic_log_serve,
+            sizeof(s_panic_log_serve));
     } else {
         s_have_panic_log = false;
+        s_panic_log_serve_len = 0;
     }
 
     // Reset magic for new boot's captures
     s_panic_rec.magic = 0;
     s_panic_rec.length = 0;
     s_panic_rec.write_pos = 0;
+
+    // Arm the log-stream tap as early as possible — immediately after the RTC
+    // buffer is clean — so any crash that occurs during the remainder of this
+    // init (NVS counter, coredump summary) or in a later EARLY component is
+    // captured. bb_log_stream_init() is idempotent; if bb_log_stream ran first
+    // in the EARLY walker this is a no-op. If bb_diag_panic runs first it boots
+    // the stream right now, before any other work below.
+    bb_log_stream_init();
+    bb_log_stream_set_tap(bb_diag_panic_capture_write);
 
     // Update boots-since-panic counter. RTC NOINIT is garbage on cold boot;
     // magic-check before trusting the value. Reset to 0 on (a) cold boot,
@@ -177,9 +247,6 @@ static bb_err_t bb_diag_panic_init(void)
 #ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
     bb_diag_panic_coredump_init();
 #endif
-
-    // Install the log-stream tap so subsequent log writes mirror into the RTC buffer
-    bb_log_stream_set_tap(bb_diag_panic_capture_write);
 
     return BB_OK;
 }
@@ -235,27 +302,14 @@ bb_err_t bb_diag_panic_get(char *out, size_t *len_inout)
         return BB_ERR_NOT_FOUND;
     }
 
+    // Serve from the pre-ordered serve buffer (populated at init from the crash
+    // boot's RTC record, before the RTC buffer was reset for the recovery boot).
     size_t capacity = *len_inout;
-    size_t to_copy = (s_panic_rec.length < capacity - 1) ? s_panic_rec.length : (capacity - 1);
+    size_t to_copy = (s_panic_log_serve_len < capacity - 1)
+                         ? s_panic_log_serve_len
+                         : (capacity - 1);
 
-    // Copy from the circular buffer in order (oldest to newest)
-    // If we wrapped, start from write_pos; otherwise start from 0
-    if (s_panic_rec.length == CONFIG_BB_DIAG_PANIC_BUF_SIZE) {
-        // Buffer is full and wrapped: copy write_pos to end, then 0 to write_pos
-        size_t first_chunk = CONFIG_BB_DIAG_PANIC_BUF_SIZE - s_panic_rec.write_pos;
-        if (first_chunk > to_copy) first_chunk = to_copy;
-
-        memcpy(out, &s_panic_rec.buf[s_panic_rec.write_pos], first_chunk);
-
-        size_t second_chunk = to_copy - first_chunk;
-        if (second_chunk > 0) {
-            memcpy(&out[first_chunk], s_panic_rec.buf, second_chunk);
-        }
-    } else {
-        // Buffer hasn't wrapped: copy from start
-        memcpy(out, s_panic_rec.buf, to_copy);
-    }
-
+    memcpy(out, s_panic_log_serve, to_copy);
     out[to_copy] = '\0';
     *len_inout = to_copy;
 
@@ -265,6 +319,7 @@ bb_err_t bb_diag_panic_get(char *out, size_t *len_inout)
 void bb_diag_panic_clear(void)
 {
     s_have_panic_log = false;
+    s_panic_log_serve_len = 0;
     s_panic_rec.magic = 0;
     s_panic_rec.length = 0;
     s_panic_rec.write_pos = 0;

@@ -171,3 +171,24 @@ typedef struct {
  */
 bb_diag_reset_result_t bb_diag_reset_decision(uint32_t stored_fp, uint32_t running_fp,
                                                uint32_t stored_count, bool is_abnormal);
+
+/**
+ * Pure helper: copy a circular panic log buffer (oldest-to-newest) into a
+ * flat output buffer and NUL-terminate it. No global state — fully host-testable.
+ *
+ * @param buf       Source circular buffer of capacity buf_size.
+ * @param buf_size  Total capacity of the circular buffer.
+ * @param length    Number of valid bytes in buf (clamped to buf_size internally).
+ * @param write_pos Current write cursor (next byte to overwrite when full).
+ * @param out       Destination buffer.
+ * @param out_cap   Capacity of out including space for the NUL terminator.
+ * @return Number of bytes written (excluding NUL terminator).
+ *
+ * When length == buf_size the buffer has wrapped and the oldest byte is at
+ * write_pos; otherwise the buffer is linear and the oldest byte is at index 0.
+ * ESP-IDF: used internally by bb_diag_panic_init to preserve the crash log.
+ * Host: implemented in platform/host/bb_diag/bb_diag_panic.c for test coverage.
+ */
+size_t bb_diag_panic_order_copy(const char *buf, size_t buf_size,
+                                 size_t length, size_t write_pos,
+                                 char *out, size_t out_cap);
