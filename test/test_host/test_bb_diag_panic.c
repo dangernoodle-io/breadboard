@@ -147,3 +147,112 @@ void test_bb_diag_reset_decision_same_firmware_clean_from_zero(void)
     TEST_ASSERT_EQUAL_UINT32(0, r.new_count);
     TEST_ASSERT_FALSE(r.store_fp);
 }
+
+// ---- bb_diag_panic_order_copy unit tests ----
+
+// Not-wrapped: length < buf_size, data starts at index 0
+void test_panic_order_copy_not_wrapped(void)
+{
+    const char src[] = "hello world";   // 11 bytes
+    char out[64];
+    size_t n = bb_diag_panic_order_copy(src, sizeof(src) - 1,
+                                         11, 11,  // write_pos=11, not full
+                                         out, sizeof(out));
+    TEST_ASSERT_EQUAL_size_t(11, n);
+    TEST_ASSERT_EQUAL_STRING("hello world", out);
+}
+
+// Wrapped: length == buf_size, write_pos in the middle
+// buf = "DEFABC" with buf_size=6, write_pos=3, length=6 → ordered: "ABCDEF"
+void test_panic_order_copy_wrapped(void)
+{
+    const char src[6] = {'D','E','F','A','B','C'};
+    char out[16];
+    size_t n = bb_diag_panic_order_copy(src, 6,
+                                         6, 3,  // full, write_pos=3
+                                         out, sizeof(out));
+    TEST_ASSERT_EQUAL_size_t(6, n);
+    TEST_ASSERT_EQUAL_STRING("ABCDEF", out);
+}
+
+// Full buffer, write_pos at 0 (wrapped exactly at boundary)
+void test_panic_order_copy_full_write_pos_zero(void)
+{
+    const char src[4] = {'A','B','C','D'};
+    char out[16];
+    size_t n = bb_diag_panic_order_copy(src, 4,
+                                         4, 0,  // full, write_pos=0 → not actually wrapped in content
+                                         out, sizeof(out));
+    TEST_ASSERT_EQUAL_size_t(4, n);
+    TEST_ASSERT_EQUAL_STRING("ABCD", out);
+}
+
+// Empty buffer (length == 0)
+void test_panic_order_copy_empty(void)
+{
+    const char src[8] = {0};
+    char out[16];
+    out[0] = 'X';
+    size_t n = bb_diag_panic_order_copy(src, 8,
+                                         0, 0,
+                                         out, sizeof(out));
+    TEST_ASSERT_EQUAL_size_t(0, n);
+    TEST_ASSERT_EQUAL_STRING("", out);
+}
+
+// Truncation: out_cap smaller than the data
+void test_panic_order_copy_truncation(void)
+{
+    const char src[] = "ABCDEFGHIJ";  // 10 bytes, not wrapped
+    char out[5];  // capacity 5 → max 4 bytes + NUL
+    size_t n = bb_diag_panic_order_copy(src, 10,
+                                         10, 10,  // not full (length < buf_size=10? no, equal — but write_pos=10 == buf_size is the not-wrapped case)
+                                         out, sizeof(out));
+    // length(10) == buf_size(10): wrapped case, write_pos=10 which equals buf_size
+    // first_chunk = buf_size - write_pos = 0, so second_chunk handles everything
+    // to_copy = min(10, 4) = 4
+    TEST_ASSERT_EQUAL_size_t(4, n);
+    out[4] = '\0';
+    TEST_ASSERT_EQUAL_STRING("ABCD", out);
+}
+
+// Truncation on wrapped buffer
+void test_panic_order_copy_truncation_wrapped(void)
+{
+    // buf = "56123" with buf_size=5, write_pos=2, length=5 → ordered: "12356"
+    const char src[5] = {'5','6','1','2','3'};   // wait: write_pos=2 → oldest is at index 2
+    // actual ordered = src[2..4] + src[0..1] = "123" + "56" = "12356"
+    char out[4];  // capacity 4 → max 3 bytes + NUL
+    size_t n = bb_diag_panic_order_copy(src, 5,
+                                         5, 2,
+                                         out, sizeof(out));
+    TEST_ASSERT_EQUAL_size_t(3, n);
+    TEST_ASSERT_EQUAL_STRING("123", out);
+}
+
+// NULL buf returns 0 and NUL-terminates out
+void test_panic_order_copy_null_buf(void)
+{
+    char out[8] = "garbage";
+    size_t n = bb_diag_panic_order_copy(NULL, 8, 4, 0, out, sizeof(out));
+    TEST_ASSERT_EQUAL_size_t(0, n);
+    TEST_ASSERT_EQUAL_CHAR('\0', out[0]);
+}
+
+// NULL out returns 0
+void test_panic_order_copy_null_out(void)
+{
+    const char src[8] = {0};
+    size_t n = bb_diag_panic_order_copy(src, 8, 4, 0, NULL, 8);
+    TEST_ASSERT_EQUAL_size_t(0, n);
+}
+
+// out_cap of 1 produces empty string (only room for NUL)
+void test_panic_order_copy_out_cap_one(void)
+{
+    const char src[] = "hello";
+    char out[1];
+    size_t n = bb_diag_panic_order_copy(src, 5, 5, 0, out, 1);
+    TEST_ASSERT_EQUAL_size_t(0, n);
+    TEST_ASSERT_EQUAL_CHAR('\0', out[0]);
+}

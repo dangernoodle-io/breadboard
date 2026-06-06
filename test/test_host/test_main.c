@@ -74,6 +74,15 @@ void test_bb_diag_reset_decision_new_firmware_clean(void);
 void test_bb_diag_reset_decision_same_firmware_abnormal(void);
 void test_bb_diag_reset_decision_same_firmware_clean(void);
 void test_bb_diag_reset_decision_same_firmware_clean_from_zero(void);
+void test_panic_order_copy_not_wrapped(void);
+void test_panic_order_copy_wrapped(void);
+void test_panic_order_copy_full_write_pos_zero(void);
+void test_panic_order_copy_empty(void);
+void test_panic_order_copy_truncation(void);
+void test_panic_order_copy_truncation_wrapped(void);
+void test_panic_order_copy_null_buf(void);
+void test_panic_order_copy_null_out(void);
+void test_panic_order_copy_out_cap_one(void);
 
 // Forward declarations from test_ota_pull.c
 void test_ota_pull_skip_check_callback_registration(void);
@@ -1432,6 +1441,15 @@ int main(void) {
     RUN_TEST(test_bb_diag_reset_decision_same_firmware_abnormal);
     RUN_TEST(test_bb_diag_reset_decision_same_firmware_clean);
     RUN_TEST(test_bb_diag_reset_decision_same_firmware_clean_from_zero);
+    RUN_TEST(test_panic_order_copy_not_wrapped);
+    RUN_TEST(test_panic_order_copy_wrapped);
+    RUN_TEST(test_panic_order_copy_full_write_pos_zero);
+    RUN_TEST(test_panic_order_copy_empty);
+    RUN_TEST(test_panic_order_copy_truncation);
+    RUN_TEST(test_panic_order_copy_truncation_wrapped);
+    RUN_TEST(test_panic_order_copy_null_buf);
+    RUN_TEST(test_panic_order_copy_null_out);
+    RUN_TEST(test_panic_order_copy_out_cap_one);
 
     // OTA pull tests
     RUN_TEST(test_ota_pull_skip_check_callback_registration);
