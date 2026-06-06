@@ -14,6 +14,13 @@ bb_err_t bb_wifi_set_hostname(const char *hostname)
     return BB_OK;
 }
 
+bb_err_t bb_wifi_reconfigure(const char *ssid, const char *pass)
+{
+    (void)ssid;
+    (void)pass;
+    return BB_ERR_UNSUPPORTED;
+}
+
 // Return a zeroed-out info snapshot. No network state is available on host.
 bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)
 {

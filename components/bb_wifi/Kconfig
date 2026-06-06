@@ -31,6 +31,28 @@ config BB_WIFI_ROUTES_AUTOREGISTER
         bb_registry. The wifi driver init APIs (bb_wifi_init, _init_sta,
         _ensure_netif, etc.) stay caller-driven regardless of this flag.
 
+config BB_WIFI_RECONFIGURE
+    bool "Enable runtime wifi reconfigure + pending-creds try on boot"
+    default y
+    help
+        Enables bb_wifi_reconfigure() which stages new credentials and reboots
+        to try them. On boot, if pending creds get an IP they are committed as
+        the new live credentials. On timeout the pending creds are cleared and
+        the device reboots onto the prior live creds without incrementing
+        boot_count. When disabled bb_wifi_reconfigure() returns BB_ERR_UNSUPPORTED
+        and the autoinit path is byte-for-byte identical to the baseline.
+
+config BB_WIFI_PENDING_TRY_TIMEOUT_S
+    int "Bounded connect timeout for a runtime wifi reconfigure try (seconds)"
+    default 30
+    range 10 120
+    depends on BB_WIFI_RECONFIGURE
+    help
+        Maximum time (seconds) to wait for an IP when attempting to connect
+        with pending (staged) credentials. On timeout the pending creds are
+        discarded, the device reboots onto the prior live credentials, and
+        boot_count is NOT incremented.
+
 choice BB_WIFI_POWER_SAVE
     prompt "WiFi power-save mode"
     default BB_WIFI_PS_MIN_MODEM

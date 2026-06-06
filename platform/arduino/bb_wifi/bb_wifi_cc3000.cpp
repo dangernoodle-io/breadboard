@@ -274,6 +274,13 @@ void bb_conn_close(bb_conn_t *c) {
     if (c == &g_conn_slot) g_conn_slot_active = false;
 }
 
+bb_err_t bb_wifi_reconfigure(const char *ssid, const char *pass)
+{
+    (void)ssid;
+    (void)pass;
+    return BB_ERR_UNSUPPORTED;
+}
+
 }  // extern "C"
 
 #endif

@@ -1,5 +1,6 @@
 #include "bb_wifi.h"
 #include "bb_nv.h"
+#include "bb_nv_wifi_pending.h"
 #include "wifi_reconn.h"
 #include "bb_registry.h"
 #include <string.h>
@@ -29,6 +30,9 @@ static esp_event_handler_instance_t s_wifi_handler = NULL;
 static esp_event_handler_instance_t s_ip_handler = NULL;
 static esp_timer_handle_t s_reconnect_timer = NULL;
 static volatile bool s_has_ip = false;
+#if CONFIG_BB_WIFI_RECONFIGURE
+static volatile bool s_pending_try = false;
+#endif
 
 // Got-IP callback
 static bb_wifi_on_got_ip_cb_t s_on_got_ip_cb = NULL;
@@ -214,6 +218,12 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         if (wifi_reconn_is_active()) {
             wifi_reconn_on_got_ip();
         }
+#if CONFIG_BB_WIFI_RECONFIGURE
+        if (s_pending_try) {
+            s_pending_try = false;
+            bb_nv_config_commit_wifi_pending();
+        }
+#endif
         bb_nv_config_reset_boot_count();
         if (s_wifi_event_group) {
             xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
@@ -251,7 +261,10 @@ bb_err_t bb_wifi_ensure_netif(void)
     return ESP_OK;
 }
 
-static esp_err_t wifi_connect_sta(bool restart_on_timeout)
+typedef enum { CREDS_LIVE, CREDS_PENDING } wifi_creds_src_t;
+
+static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
+                                     bool restart_on_timeout, bool is_pending_try)
 {
     s_wifi_event_group = xEventGroupCreate();
 
@@ -286,8 +299,20 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     }
 
     wifi_config_t wifi_config = {0};
-    strncpy((char *)wifi_config.sta.ssid, bb_nv_config_wifi_ssid(), sizeof(wifi_config.sta.ssid));
-    strncpy((char *)wifi_config.sta.password, bb_nv_config_wifi_pass(), sizeof(wifi_config.sta.password));
+#if CONFIG_BB_WIFI_RECONFIGURE
+    if (src == CREDS_PENDING) {
+        strncpy((char *)wifi_config.sta.ssid, bb_nv_config_wifi_pending_ssid(), sizeof(wifi_config.sta.ssid));
+        strncpy((char *)wifi_config.sta.password, bb_nv_config_wifi_pending_pass(), sizeof(wifi_config.sta.password));
+    } else {
+#endif
+        strncpy((char *)wifi_config.sta.ssid, bb_nv_config_wifi_ssid(), sizeof(wifi_config.sta.ssid));
+        strncpy((char *)wifi_config.sta.password, bb_nv_config_wifi_pass(), sizeof(wifi_config.sta.password));
+#if CONFIG_BB_WIFI_RECONFIGURE
+    }
+#else
+    (void)src;
+    (void)is_pending_try;
+#endif
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -312,9 +337,9 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
         esp_timer_start_periodic(s_rssi_refresh_timer, 5 * 1000 * 1000);  // 5s
     }
 
-    bb_log_i(TAG, "connecting to %s", bb_nv_config_wifi_ssid());
+    bb_log_i(TAG, "connecting to %s", (char *)wifi_config.sta.ssid);
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
-                                           pdFALSE, pdFALSE, pdMS_TO_TICKS(60000));
+                                           pdFALSE, pdFALSE, pdMS_TO_TICKS(timeout_ms));
 
     if ((bits & WIFI_CONNECTED_BIT) == 0) {
         vEventGroupDelete(s_wifi_event_group);
@@ -344,7 +369,7 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
             bb_nv_config_increment_boot_count();
             esp_restart();
         } else {
-            bb_log_e(TAG, "WiFi connection timeout after 60s");
+            bb_log_e(TAG, "WiFi connection timeout after %us", (unsigned)(timeout_ms / 1000));
             return ESP_ERR_TIMEOUT;
         }
     }
@@ -359,12 +384,12 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
 
 bb_err_t bb_wifi_init(void)
 {
-    return wifi_connect_sta(true);
+    return wifi_connect_sta_ex(CREDS_LIVE, 60000, true, false);
 }
 
 bb_err_t bb_wifi_init_sta(void)
 {
-    return wifi_connect_sta(false);
+    return wifi_connect_sta_ex(CREDS_LIVE, 60000, false, false);
 }
 
 int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results)
@@ -489,6 +514,42 @@ bb_err_t bb_wifi_set_hostname(const char *hostname)
     return (err == ESP_OK) ? BB_OK : BB_ERR_INVALID_STATE;
 }
 
+#if CONFIG_BB_WIFI_RECONFIGURE
+static void reconfig_reboot_timer_cb(void *arg)
+{
+    (void)arg;
+    esp_restart();
+}
+
+bb_err_t bb_wifi_reconfigure(const char *ssid, const char *pass)
+{
+    bb_err_t err = bb_wifi_pending_validate(ssid, pass);
+    if (err != BB_OK) return err;
+
+    err = bb_nv_config_set_wifi_pending(ssid, pass);
+    if (err != BB_OK) return err;
+
+    static esp_timer_handle_t s_reconfig_timer = NULL;
+    if (!s_reconfig_timer) {
+        const esp_timer_create_args_t args = {
+            .callback = reconfig_reboot_timer_cb,
+            .name = "bb_wifi_reconfig",
+        };
+        esp_timer_create(&args, &s_reconfig_timer);
+    }
+    esp_timer_stop(s_reconfig_timer);
+    esp_timer_start_once(s_reconfig_timer, 500 * 1000); // 500 ms — lets HTTP 202 flush
+    return BB_OK;
+}
+#else
+bb_err_t bb_wifi_reconfigure(const char *ssid, const char *pass)
+{
+    (void)ssid;
+    (void)pass;
+    return BB_ERR_UNSUPPORTED;
+}
+#endif
+
 #if CONFIG_BB_WIFI_AUTOREGISTER
 static bb_err_t bb_wifi_autoinit(void)
 {
@@ -501,7 +562,29 @@ static bb_err_t bb_wifi_autoinit(void)
         return BB_OK;
     }
 
-    // Hostname is applied inside wifi_connect_sta() right after the STA netif
+#if CONFIG_BB_WIFI_RECONFIGURE
+    // Pending-creds try: if a runtime reconfigure armed new credentials, attempt
+    // to connect with them under a bounded timeout. Success commits them as live;
+    // timeout discards them and reboots onto the untouched live creds WITHOUT
+    // incrementing boot_count so the device does not drift toward AP-fallback.
+    if (bb_nv_config_wifi_pending_active()) {
+        s_pending_try = true;
+        esp_err_t terr = wifi_connect_sta_ex(CREDS_PENDING,
+            (uint32_t)CONFIG_BB_WIFI_PENDING_TRY_TIMEOUT_S * 1000,
+            /*restart_on_timeout=*/false, /*is_pending_try=*/true);
+        if (terr == ESP_OK) {
+            // Commit already happened in the got-IP handler.
+            return BB_OK;
+        }
+        s_pending_try = false;
+        bb_nv_config_clear_wifi_pending();
+        bb_log_w(TAG, "pending wifi try failed; reverting to saved network and rebooting");
+        esp_restart();
+        // unreachable — esp_restart does not return
+    }
+#endif
+
+    // Hostname is applied inside wifi_connect_sta_ex() right after the STA netif
     // is created — esp_netif_set_hostname requires the netif to exist.
     bb_err_t err = bb_wifi_init_sta();
 
