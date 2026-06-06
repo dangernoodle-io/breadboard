@@ -8,6 +8,8 @@
 #ifdef ESP_PLATFORM
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "esp_attr.h"
+#include "bb_nv_creds_mirror.h"
 #endif
 
 #define BB_NV_KEY_WIFI_SSID         "wifi_ssid"
@@ -29,6 +31,17 @@ static inline void copy_str(char *dst, const char *src, size_t size)
 }
 
 static const char *TAG_NV = "bb_nv";
+
+/* RTC creds backup — B1-242.
+ * s_creds_mirror survives software reset/panic (RTC_NOINIT_ATTR).
+ * s_nvs_was_erased and s_creds_restored are plain BSS (per-boot flags). */
+#ifdef ESP_PLATFORM
+static bool s_nvs_was_erased;
+static bool s_creds_restored;
+#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
+static RTC_NOINIT_ATTR bb_nv_creds_mirror_t s_creds_mirror;
+#endif
+#endif
 
 static const bb_manifest_nv_t s_bb_cfg_keys[] = {
     {
@@ -189,6 +202,58 @@ bb_err_t bb_nv_config_init(void)
     load_str(handle, BB_NV_KEY_WIFI_PASS, s_config.wifi_pass, sizeof(s_config.wifi_pass), "");
     load_str(handle, BB_NV_KEY_HOSTNAME, s_config.hostname, sizeof(s_config.hostname), "");
 
+#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
+    /* Restore+heal: if NVS has no creds but the RTC mirror is valid, recover
+     * them. Close the read-only handle and reopen read-write so the heal
+     * write-back goes through the same handle lifecycle as the rest of init.
+     * Avoids a re-entrant bb_nv_config_set_wifi call (which would re-pack the
+     * mirror redundantly) and keeps a single commit for both credential keys. */
+    {
+        bool handle_open = true;
+        if (s_config.wifi_ssid[0] == '\0' &&
+            bb_nv_creds_mirror_valid(&s_creds_mirror) &&
+            s_creds_mirror.ssid[0] != '\0') {
+            nvs_close(handle);
+            handle_open = false;
+            bb_err_t rw_err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+            if (rw_err == BB_OK) {
+                handle_open = true;
+                copy_str(s_config.wifi_ssid, s_creds_mirror.ssid, sizeof(s_config.wifi_ssid));
+                copy_str(s_config.wifi_pass, s_creds_mirror.pass, sizeof(s_config.wifi_pass));
+                nvs_set_str(handle, BB_NV_KEY_WIFI_SSID, s_config.wifi_ssid);
+                nvs_set_str(handle, BB_NV_KEY_WIFI_PASS, s_config.wifi_pass);
+                if (s_creds_mirror.provisioned) {
+                    nvs_set_u8(handle, BB_NV_KEY_PROVISIONED, 1);
+                }
+                nvs_commit(handle);
+            } else {
+                /* Reopen failed — apply creds in-memory; NVS heals on next write. */
+                copy_str(s_config.wifi_ssid, s_creds_mirror.ssid, sizeof(s_config.wifi_ssid));
+                copy_str(s_config.wifi_pass, s_creds_mirror.pass, sizeof(s_config.wifi_pass));
+            }
+            s_creds_restored = true;
+            bb_log_w(TAG, "creds restored from RTC backup");
+        }
+        /* Load remaining booleans only if handle is still open. */
+        if (handle_open) {
+            if (nvs_get_u8(handle, BB_NV_KEY_DISPLAY_EN, &s_config.display_en) != ESP_OK) {
+                s_config.display_en = 1;
+            }
+            if (nvs_get_u8(handle, BB_NV_KEY_MDNS_EN, &s_config.mdns_en) != ESP_OK) {
+                s_config.mdns_en = 1;
+            }
+            if (nvs_get_u8(handle, BB_NV_KEY_UPDATE_CHECK_EN, &s_config.update_check_en) != ESP_OK) {
+                s_config.update_check_en = 1;
+            }
+            nvs_close(handle);
+        } else {
+            s_config.display_en = 1;
+            s_config.mdns_en = 1;
+            s_config.update_check_en = 1;
+        }
+    }
+#else
+
     if (nvs_get_u8(handle, BB_NV_KEY_DISPLAY_EN, &s_config.display_en) != ESP_OK) {
         s_config.display_en = 1;  // default: display on
     }
@@ -202,6 +267,7 @@ bb_err_t bb_nv_config_init(void)
     }
 
     nvs_close(handle);
+#endif
 
     bb_log_i(TAG, "config loaded");
 #else
@@ -225,7 +291,8 @@ bb_err_t bb_nv_flash_init(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        bb_log_w(TAG, "nvs_flash_init erase-and-retry");
+        bb_log_e(TAG, "NVS erased on corruption — creds may be lost");
+        s_nvs_was_erased = true;
         ESP_ERROR_CHECK(nvs_flash_erase());
         err = nvs_flash_init();
     }
@@ -267,6 +334,12 @@ bb_err_t bb_nv_config_set_provisioned(void)
     }
     nvs_close(handle);
 
+#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
+    if (err == BB_OK) {
+        bb_nv_creds_mirror_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, 1);
+    }
+#endif
+
     return err;
 }
 
@@ -277,6 +350,10 @@ bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass)
     if (err == BB_OK) {
         copy_str(s_config.wifi_ssid, ssid, sizeof(s_config.wifi_ssid));
         copy_str(s_config.wifi_pass, pass, sizeof(s_config.wifi_pass));
+#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
+        uint8_t prov = bb_nv_config_is_provisioned() ? 1 : 0;
+        bb_nv_creds_mirror_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, prov);
+#endif
     }
     return err;
 }
@@ -320,6 +397,12 @@ bb_err_t bb_nv_config_clear_provisioned(void)
     if (err == ESP_ERR_NVS_NOT_FOUND) err = BB_OK;
     if (err == BB_OK) err = nvs_commit(handle);
     nvs_close(handle);
+#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
+    if (err == BB_OK) {
+        /* Deliberate clear — invalidate mirror so it can't resurrect the creds. */
+        memset(&s_creds_mirror, 0, sizeof(s_creds_mirror));
+    }
+#endif
     return err;
 }
 
@@ -339,6 +422,10 @@ bb_err_t bb_nv_config_clear_wifi(void)
     if (err == BB_OK) {
         s_config.wifi_ssid[0] = '\0';
         s_config.wifi_pass[0] = '\0';
+#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
+        /* Deliberate factory-reset — invalidate mirror so it can't resurrect the creds. */
+        memset(&s_creds_mirror, 0, sizeof(s_creds_mirror));
+#endif
     }
     return err;
 }
@@ -728,6 +815,22 @@ bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch)
     return err;
 }
 
+/* Query API — both symbols always present under ESP_PLATFORM so consumers
+ * link unconditionally regardless of CONFIG_BB_NV_CREDS_RTC_BACKUP. */
+bool bb_nv_config_was_erased(void)
+{
+    return s_nvs_was_erased;
+}
+
+bool bb_nv_config_creds_restored(void)
+{
+#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
+    return s_creds_restored;
+#else
+    return false;
+#endif
+}
+
 #else
 
 bb_err_t bb_nv_set_u8(const char *ns, const char *key, uint8_t value)
@@ -850,7 +953,7 @@ bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch)
     return batch->_err;
 }
 
-#endif
+#endif /* !ESP_PLATFORM (host stubs for set/get/batch) */
 
 // Host implementations of ESP-only setters (non-ESP)
 #ifndef ESP_PLATFORM

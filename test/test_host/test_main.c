@@ -299,6 +299,20 @@ void test_hostname_rejects_trailing_hyphen(void);
 void test_hostname_rejects_null(void);
 void test_nv_config_init_registers_bb_cfg_keys(void);
 
+// Forward declarations from test_nv_creds_mirror.c
+void test_nv_creds_mirror_pack_valid_roundtrip(void);
+void test_nv_creds_mirror_flip_ssid_invalidates(void);
+void test_nv_creds_mirror_flip_pass_invalidates(void);
+void test_nv_creds_mirror_flip_provisioned_invalidates(void);
+void test_nv_creds_mirror_magic_mismatch_invalid(void);
+void test_nv_creds_mirror_version_mismatch_invalid(void);
+void test_nv_creds_mirror_null_is_invalid(void);
+void test_nv_creds_mirror_ssid_truncated_nul_terminated(void);
+void test_nv_creds_mirror_pass_truncated_nul_terminated(void);
+void test_nv_creds_mirror_null_ssid_treated_as_empty(void);
+void test_nv_creds_mirror_null_pass_treated_as_empty(void);
+void test_nv_creds_mirror_empty_ssid_is_valid_but_not_restorable(void);
+
 // Forward declarations from test_ota_validator.c
 void test_ota_validator_is_pending_false_on_host(void);
 void test_ota_validator_mark_valid_returns_invalid_state_on_host(void);
@@ -1734,6 +1748,20 @@ int main(void) {
     RUN_TEST(test_hostname_rejects_trailing_hyphen);
     RUN_TEST(test_hostname_rejects_null);
     RUN_TEST(test_nv_config_init_registers_bb_cfg_keys);
+
+    // NV creds mirror tests
+    RUN_TEST(test_nv_creds_mirror_pack_valid_roundtrip);
+    RUN_TEST(test_nv_creds_mirror_flip_ssid_invalidates);
+    RUN_TEST(test_nv_creds_mirror_flip_pass_invalidates);
+    RUN_TEST(test_nv_creds_mirror_flip_provisioned_invalidates);
+    RUN_TEST(test_nv_creds_mirror_magic_mismatch_invalid);
+    RUN_TEST(test_nv_creds_mirror_version_mismatch_invalid);
+    RUN_TEST(test_nv_creds_mirror_null_is_invalid);
+    RUN_TEST(test_nv_creds_mirror_ssid_truncated_nul_terminated);
+    RUN_TEST(test_nv_creds_mirror_pass_truncated_nul_terminated);
+    RUN_TEST(test_nv_creds_mirror_null_ssid_treated_as_empty);
+    RUN_TEST(test_nv_creds_mirror_null_pass_treated_as_empty);
+    RUN_TEST(test_nv_creds_mirror_empty_ssid_is_valid_but_not_restorable);
 
     // Generic NV API tests
     RUN_TEST(test_nv_set_u8_null_ns);

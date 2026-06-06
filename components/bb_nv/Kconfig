@@ -13,4 +13,12 @@ config BB_NV_CONFIG_MANIFEST_AUTOREGISTER
     default y
     depends on BB_MANIFEST_AUTOREGISTER
 
+config BB_NV_CREDS_RTC_BACKUP
+    bool "Back up wifi creds to RTC slow memory (survive NVS erase-on-corruption)"
+    default y
+    help
+      Mirrors wifi ssid/pass/provisioned (~108 bytes) into RTC_NOINIT memory so a
+      crash-induced NVS erase doesn't strand a headless board. Survives software
+      reset/panic; lost on full power-off. See B1-242.
+
 endmenu
