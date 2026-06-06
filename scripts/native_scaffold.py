@@ -78,7 +78,10 @@ COMPONENT_MAP = {
     },
     "bb_nv": {
         "includes": ["components/bb_nv/include"],
-        "sources":  ["platform/espidf/bb_nv/bb_nv.c"],
+        "sources":  [
+            "platform/espidf/bb_nv/bb_nv.c",
+            "components/bb_nv/bb_nv_creds_mirror.c",
+        ],
         "depends":  ["bb_core", "bb_registry"],
     },
     "bb_json": {
