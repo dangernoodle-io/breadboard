@@ -271,3 +271,468 @@ void test_wifi_patch_route_descriptor_has_request_schema(void)
     TEST_ASSERT_NOT_NULL_MESSAGE(s_wifi_patch_route.request_content_type,
         "PATCH /api/wifi route descriptor must set request_content_type");
 }
+
+// ---------------------------------------------------------------------------
+// Durable descriptor-fidelity guard (B1-246)
+//
+// Maintenance contract: every route with declared params, request body, or
+// non-trivial response content types must have an entry in k_desc_audit[].
+// When a new route is added that fits those criteria, add an entry — the
+// "unknown route coverage" test below will NOT trip (it only fires if an
+// entry in the table no longer matches any registered route). Adding a new
+// route without updating this table means no param/content-type guard for it.
+//
+// Each entry specifies:
+//   route   - path string (for diagnostics)
+//   method  - BB_HTTP_* constant
+//   want_params_named - expected query param names (NULL-terminated array)
+//   want_request_schema_present - true iff request_schema must be non-NULL
+//   want_response_content_type - expected content_type for the given status code
+//   want_response_status - status code to check
+//
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    const char  *route;
+    bb_http_method_t method;
+    // Params: NULL-terminated list of expected query param names.
+    const char  *want_params_named[8];
+    // Request body: true → request_schema must be non-NULL and non-empty.
+    bool         want_request_schema;
+    // Response content-type check: status=0 disables this check.
+    int          want_response_status;
+    const char  *want_response_content_type;
+} desc_audit_entry_t;
+
+// Mirrors production descriptors fixed in B1-246. Keep in sync with handler files.
+// Null-terminated param lists; NULL at index 0 means no params expected.
+static const desc_audit_entry_t k_desc_audit[] = {
+    // Tier 1: params added
+    { "/api/diag/coredump", BB_HTTP_GET,
+      { "consume", NULL }, false, 500, "application/json" },
+    { "/api/logs",          BB_HTTP_GET,
+      { "source", NULL },  false, 500, "application/json" },
+    { "/api/diag/heap",     BB_HTTP_GET,
+      { "check", NULL },   false,   0, NULL },
+    // Tier 1: content-type fixes
+    { "/api/update/push",   BB_HTTP_POST,
+      { NULL },             false, 200, "application/json" },
+    { "/api/update/push",   BB_HTTP_POST,
+      { NULL },             false, 400, "application/json" },
+    { "/api/update/push",   BB_HTTP_POST,
+      { NULL },             false, 500, "application/json" },
+    { "/api/log/level",     BB_HTTP_POST,
+      { NULL },             true,  400, "application/json" },
+    // Tier 2: 500 responses added
+    { "/api/events",            BB_HTTP_GET,
+      { NULL },             false, 500, "application/json" },
+    { "/api/update/apply",  BB_HTTP_POST,
+      { NULL },             false, 500, "application/json" },
+    { "/api/update/mark-valid", BB_HTTP_POST,
+      { NULL },             false, 500, "application/json" },
+    { "/api/diag/tasks",    BB_HTTP_GET,
+      { NULL },             false, 500, "application/json" },
+    { "/api/manifest",      BB_HTTP_GET,
+      { NULL },             false, 500, "application/json" },
+    // Sentinel
+    { NULL },
+};
+
+// Fixtures: minimal descriptors that mirror the production route descriptors
+// for the routes in k_desc_audit. These are seeded into the registry so the
+// walker can find them. Copy-pasted from production — edits to production
+// literals must update these too.
+
+// GET /api/diag/coredump fixture
+static const bb_route_param_t s_coredump_params_fixture[] = {
+    { "consume", "query", "erase coredump after full successful transfer", false, "string" },
+};
+static const bb_route_response_t s_coredump_responses_fixture[] = {
+    { 200, "application/octet-stream", NULL, "raw coredump bytes" },
+    { 404, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "no coredump" },
+    { 500, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "alloc or partition failure" },
+    { 0 },
+};
+static const bb_route_t s_coredump_route_fixture = {
+    .method           = BB_HTTP_GET,
+    .path             = "/api/diag/coredump",
+    .tag              = "diag",
+    .responses        = s_coredump_responses_fixture,
+    .parameters       = s_coredump_params_fixture,
+    .parameters_count = 1,
+    .handler          = NULL,
+};
+
+// GET /api/logs fixture
+static const bb_route_param_t s_logs_params_fixture[] = {
+    { "source", "query", "browser or external client type", false, "string" },
+};
+static const bb_route_response_t s_logs_responses_fixture[] = {
+    { 200, "text/event-stream", NULL, "SSE stream" },
+    { 500, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "async init failed" },
+    { 503, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\",\"enum\":[\"busy\"]},"
+      "\"active_client\":{\"type\":\"string\",\"enum\":[\"browser\",\"external\"]}},"
+      "\"required\":[\"error\",\"active_client\"]}",
+      "busy" },
+    { 0 },
+};
+static const bb_route_t s_logs_route_fixture = {
+    .method           = BB_HTTP_GET,
+    .path             = "/api/logs",
+    .tag              = "logs",
+    .responses        = s_logs_responses_fixture,
+    .parameters       = s_logs_params_fixture,
+    .parameters_count = 1,
+    .handler          = NULL,
+};
+
+// GET /api/diag/heap fixture
+static const bb_route_param_t s_heap_params_fixture[] = {
+    { "check", "query", "run heap integrity check", false, "string" },
+};
+static const bb_route_response_t s_heap_responses_fixture[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"integrity_ok\":{\"type\":\"boolean\"}},"
+      "\"additionalProperties\":{\"type\":\"object\"}}",
+      "heap stats" },
+    { 0 },
+};
+static const bb_route_t s_heap_route_fixture = {
+    .method           = BB_HTTP_GET,
+    .path             = "/api/diag/heap",
+    .tag              = "diag",
+    .responses        = s_heap_responses_fixture,
+    .parameters       = s_heap_params_fixture,
+    .parameters_count = 1,
+    .handler          = NULL,
+};
+
+// POST /api/update/push fixture
+static const bb_route_response_t s_ota_push_responses_fixture[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"}},\"required\":[\"status\"]}",
+      "OTA complete" },
+    { 400, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "board mismatch" },
+    { 408, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "timeout" },
+    { 413, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "too large" },
+    { 500, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "write failed" },
+    { 0 },
+};
+static const bb_route_t s_ota_push_route_fixture = {
+    .method               = BB_HTTP_POST,
+    .path                 = "/api/update/push",
+    .tag                  = "update",
+    .request_content_type = "application/octet-stream",
+    .request_schema       = NULL,
+    .responses            = s_ota_push_responses_fixture,
+    .handler              = NULL,
+};
+
+// POST /api/log/level fixture
+static const char k_log_level_post_req_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+    "\"tag\":{\"type\":\"string\"},"
+    "\"level\":{\"type\":\"string\","
+    "\"enum\":[\"none\",\"error\",\"warn\",\"info\",\"debug\",\"verbose\"]}},"
+    "\"required\":[\"tag\",\"level\"]}";
+static const bb_route_response_t s_log_level_post_responses_fixture[] = {
+    { 204, NULL, NULL, "updated" },
+    { 400, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "invalid tag or level" },
+    { 0 },
+};
+static const bb_route_t s_log_level_post_route_fixture = {
+    .method               = BB_HTTP_POST,
+    .path                 = "/api/log/level",
+    .tag                  = "logs",
+    .request_content_type = "application/x-www-form-urlencoded",
+    .request_schema       = k_log_level_post_req_schema,
+    .responses            = s_log_level_post_responses_fixture,
+    .handler              = NULL,
+};
+
+// GET /api/events fixture
+static const bb_route_response_t s_events_responses_fixture[] = {
+    { 200, "text/event-stream", NULL, "SSE stream" },
+    { 500, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "not initialized or async init failed" },
+    { 503, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\",\"enum\":[\"max_clients\"]}},"
+      "\"required\":[\"error\"]}",
+      "max clients" },
+    { 0 },
+};
+static const bb_route_t s_events_route_fixture = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/events",
+    .tag       = "events",
+    .responses = s_events_responses_fixture,
+    .handler   = NULL,
+};
+
+// POST /api/update/apply fixture
+static const bb_route_response_t s_ota_update_responses_fixture[] = {
+    { 202, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"}},\"required\":[\"status\"]}",
+      "started" },
+    { 200, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"}},\"required\":[\"status\"]}",
+      "up to date" },
+    { 409, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "in progress or no update" },
+    { 500, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "alloc or task create failed" },
+    { 503, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "no recent check" },
+    { 0 },
+};
+static const bb_route_t s_ota_update_route_fixture = {
+    .method    = BB_HTTP_POST,
+    .path      = "/api/update/apply",
+    .tag       = "update",
+    .responses = s_ota_update_responses_fixture,
+    .handler   = NULL,
+};
+
+// POST /api/update/mark-valid fixture
+static const bb_route_response_t s_mark_valid_responses_fixture[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"}},\"required\":[\"status\"]}",
+      "marked valid" },
+    { 409, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "not pending" },
+    { 500, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "internal error" },
+    { 0 },
+};
+static const bb_route_t s_mark_valid_route_fixture = {
+    .method    = BB_HTTP_POST,
+    .path      = "/api/update/mark-valid",
+    .tag       = "update",
+    .responses = s_mark_valid_responses_fixture,
+    .handler   = NULL,
+};
+
+// GET /api/diag/tasks fixture
+static const bb_route_response_t s_tasks_responses_fixture[] = {
+    { 200, "application/json",
+      "{\"type\":\"array\","
+      "\"items\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"name\":{\"type\":\"string\"},"
+      "\"prio\":{\"type\":\"integer\"},"
+      "\"state\":{\"type\":\"string\"}}}}",
+      "task list" },
+    { 500, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "alloc failed" },
+    { 0 },
+};
+static const bb_route_t s_tasks_route_fixture = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/tasks",
+    .tag       = "diag",
+    .responses = s_tasks_responses_fixture,
+    .handler   = NULL,
+};
+
+// GET /api/manifest fixture (extends the existing k_manifest_schema fixture)
+static const bb_route_response_t s_manifest_with_500_responses_fixture[] = {
+    { 200, "application/json", k_manifest_schema, "manifest" },
+    { 500, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
+      "emit or serialize failed" },
+    { 0 },
+};
+static const bb_route_t s_manifest_with_500_route_fixture = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/manifest",
+    .tag       = "manifest",
+    .responses = s_manifest_with_500_responses_fixture,
+    .handler   = NULL,
+};
+
+// ---------------------------------------------------------------------------
+// Walker helpers for descriptor-audit assertions
+// ---------------------------------------------------------------------------
+
+// Find a registered route by (path, method). Returns the first matching entry.
+typedef struct { const char *path; bb_http_method_t method; const bb_route_t *found; } find_ctx_t;
+
+static void find_route_walker(const bb_route_t *r, void *ctx_)
+{
+    find_ctx_t *ctx = (find_ctx_t *)ctx_;
+    if (!r || ctx->found) return;
+    if (r->method == ctx->method && r->path && strcmp(r->path, ctx->path) == 0) {
+        ctx->found = r;
+    }
+}
+
+// Find a response entry by status code.
+static const bb_route_response_t *find_response(const bb_route_t *r, int status)
+{
+    if (!r || !r->responses) return NULL;
+    for (const bb_route_response_t *resp = r->responses; resp->status != 0; resp++) {
+        if (resp->status == status) return resp;
+    }
+    return NULL;
+}
+
+// Check whether a route has a param with the given name in 'query'.
+static bool has_query_param(const bb_route_t *r, const char *name)
+{
+    if (!r || !r->parameters || r->parameters_count == 0) return false;
+    for (size_t i = 0; i < r->parameters_count; i++) {
+        const bb_route_param_t *p = &r->parameters[i];
+        if (p->name && strcmp(p->name, name) == 0 &&
+            p->in   && strcmp(p->in,   "query") == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Seed all B1-246 fixture routes into the registry, run the audit, then clear.
+static void seed_desc_audit_fixtures(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_route_descriptor_only(&s_coredump_route_fixture);
+    bb_http_register_route_descriptor_only(&s_logs_route_fixture);
+    bb_http_register_route_descriptor_only(&s_heap_route_fixture);
+    bb_http_register_route_descriptor_only(&s_ota_push_route_fixture);
+    bb_http_register_route_descriptor_only(&s_log_level_post_route_fixture);
+    bb_http_register_route_descriptor_only(&s_events_route_fixture);
+    bb_http_register_route_descriptor_only(&s_ota_update_route_fixture);
+    bb_http_register_route_descriptor_only(&s_mark_valid_route_fixture);
+    bb_http_register_route_descriptor_only(&s_tasks_route_fixture);
+    bb_http_register_route_descriptor_only(&s_manifest_with_500_route_fixture);
+}
+
+// ---------------------------------------------------------------------------
+// Descriptor-audit tests
+// ---------------------------------------------------------------------------
+
+// Every entry in k_desc_audit[] must find a registered route matching (path, method).
+// If a fixture above is removed or renamed this fires.
+void test_desc_audit_all_routes_registered(void)
+{
+    seed_desc_audit_fixtures();
+
+    char msg[256];
+    for (const desc_audit_entry_t *e = k_desc_audit; e->route != NULL; e++) {
+        find_ctx_t ctx = { e->route, e->method, NULL };
+        bb_http_route_registry_foreach(find_route_walker, &ctx);
+        snprintf(msg, sizeof(msg),
+                 "B1-246 audit: route not found in registry: %s (method %d)",
+                 e->route, (int)e->method);
+        TEST_ASSERT_NOT_NULL_MESSAGE(ctx.found, msg);
+    }
+
+    bb_http_route_registry_clear();
+}
+
+// For each k_desc_audit entry that specifies expected query params, verify the
+// found route declares them.
+void test_desc_audit_query_params(void)
+{
+    seed_desc_audit_fixtures();
+
+    char msg[256];
+    for (const desc_audit_entry_t *e = k_desc_audit; e->route != NULL; e++) {
+        if (e->want_params_named[0] == NULL) continue;  // no params expected
+
+        find_ctx_t ctx = { e->route, e->method, NULL };
+        bb_http_route_registry_foreach(find_route_walker, &ctx);
+        if (!ctx.found) continue;  // caught by test_desc_audit_all_routes_registered
+
+        for (int i = 0; i < 8 && e->want_params_named[i] != NULL; i++) {
+            snprintf(msg, sizeof(msg),
+                     "B1-246 audit: %s (method %d) missing query param '%s'",
+                     e->route, (int)e->method, e->want_params_named[i]);
+            TEST_ASSERT_TRUE_MESSAGE(has_query_param(ctx.found, e->want_params_named[i]), msg);
+        }
+    }
+
+    bb_http_route_registry_clear();
+}
+
+// For each k_desc_audit entry that requests request_schema presence, verify it.
+void test_desc_audit_request_schema_presence(void)
+{
+    seed_desc_audit_fixtures();
+
+    char msg[256];
+    for (const desc_audit_entry_t *e = k_desc_audit; e->route != NULL; e++) {
+        if (!e->want_request_schema) continue;
+
+        find_ctx_t ctx = { e->route, e->method, NULL };
+        bb_http_route_registry_foreach(find_route_walker, &ctx);
+        if (!ctx.found) continue;
+
+        snprintf(msg, sizeof(msg),
+                 "B1-246 audit: %s (method %d) must have non-NULL request_schema",
+                 e->route, (int)e->method);
+        TEST_ASSERT_NOT_NULL_MESSAGE(ctx.found->request_schema, msg);
+    }
+
+    bb_http_route_registry_clear();
+}
+
+// For each k_desc_audit entry with a response content-type expectation, verify
+// the declared content_type for that status code matches.
+void test_desc_audit_response_content_types(void)
+{
+    seed_desc_audit_fixtures();
+
+    char msg[256];
+    for (const desc_audit_entry_t *e = k_desc_audit; e->route != NULL; e++) {
+        if (e->want_response_status == 0 || e->want_response_content_type == NULL) continue;
+
+        find_ctx_t ctx = { e->route, e->method, NULL };
+        bb_http_route_registry_foreach(find_route_walker, &ctx);
+        if (!ctx.found) continue;
+
+        const bb_route_response_t *resp = find_response(ctx.found, e->want_response_status);
+        snprintf(msg, sizeof(msg),
+                 "B1-246 audit: %s (method %d) has no response entry for status %d",
+                 e->route, (int)e->method, e->want_response_status);
+        TEST_ASSERT_NOT_NULL_MESSAGE(resp, msg);
+
+        snprintf(msg, sizeof(msg),
+                 "B1-246 audit: %s status %d: expected content_type '%s' got '%s'",
+                 e->route, e->want_response_status,
+                 e->want_response_content_type,
+                 resp->content_type ? resp->content_type : "(null)");
+        TEST_ASSERT_NOT_NULL_MESSAGE(resp->content_type, msg);
+        TEST_ASSERT_EQUAL_STRING_MESSAGE(e->want_response_content_type,
+                                         resp->content_type, msg);
+    }
+
+    bb_http_route_registry_clear();
+}
