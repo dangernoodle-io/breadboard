@@ -1,7 +1,11 @@
 #include "bb_http_api_dispatch.h"
+#include "bb_log.h"
 
 #include <stddef.h>
+#include <stdbool.h>
 #include <string.h>
+
+static const char *TAG = "api_dispatch";
 
 /* ---------------------------------------------------------------------------
  * Internal route entry
@@ -17,6 +21,7 @@ typedef struct {
  * ---------------------------------------------------------------------------*/
 static bb_api_dispatch_entry_t s_dispatch[BB_API_DISPATCH_CAP];
 static size_t                  s_count;
+static bool                    s_warned;
 
 /* ---------------------------------------------------------------------------
  * Public API
@@ -25,7 +30,8 @@ static size_t                  s_count;
 void bb_api_dispatch_reset(void)
 {
     memset(s_dispatch, 0, sizeof(s_dispatch));
-    s_count = 0;
+    s_count  = 0;
+    s_warned = false;
 }
 
 bb_err_t bb_api_dispatch_add(bb_http_method_t method, const char *path,
@@ -38,6 +44,15 @@ bb_err_t bb_api_dispatch_add(bb_http_method_t method, const char *path,
     s_dispatch[s_count].path    = path;
     s_dispatch[s_count].handler = handler;
     s_count++;
+
+    /* High-watermark warn: fire once when count crosses CAP-8. */
+    if (!s_warned && s_count >= (size_t)(BB_API_DISPATCH_CAP - 8)) {
+        s_warned = true;
+        bb_log_w(TAG, "api dispatch table at %u/%u; %d slots remain",
+                 (unsigned)s_count, (unsigned)BB_API_DISPATCH_CAP,
+                 (int)(BB_API_DISPATCH_CAP - (int)s_count));
+    }
+
     return BB_OK;
 }
 

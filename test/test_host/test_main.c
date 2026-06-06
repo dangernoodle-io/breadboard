@@ -313,6 +313,7 @@ void test_api_dispatch_reset_clears(void);
 void test_api_dispatch_null_uri_returns_miss(void);
 void test_api_dispatch_null_out_handler_returns_miss(void);
 void test_api_dispatch_null_path_entry_skipped(void);
+void test_api_dispatch_high_watermark_warn(void);
 
 // Forward declarations from test_nv_creds_mirror.c
 void test_nv_creds_mirror_pack_valid_roundtrip(void);
@@ -2814,6 +2815,7 @@ int main(void) {
     RUN_TEST(test_api_dispatch_null_uri_returns_miss);
     RUN_TEST(test_api_dispatch_null_out_handler_returns_miss);
     RUN_TEST(test_api_dispatch_null_path_entry_skipped);
+    RUN_TEST(test_api_dispatch_high_watermark_warn);
 
     return UNITY_END();
 }

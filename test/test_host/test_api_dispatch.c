@@ -246,3 +246,26 @@ void test_api_dispatch_null_path_entry_skipped(void)
     TEST_ASSERT_EQUAL(BB_API_DISPATCH_MISS, res);
     TEST_ASSERT_NULL(out);
 }
+
+/* ---------------------------------------------------------------------------
+ * High-watermark warn: adding CAP-8 entries triggers the warn branch;
+ * the (CAP-7)th add still succeeds.
+ * ---------------------------------------------------------------------------*/
+void test_api_dispatch_high_watermark_warn(void)
+{
+    bb_api_dispatch_reset();
+
+    /* Add CAP-8 entries — watermark fires on the last one. */
+    for (int i = 0; i < BB_API_DISPATCH_CAP - 8; i++) {
+        TEST_ASSERT_EQUAL(BB_OK,
+            bb_api_dispatch_add(BB_HTTP_GET, "/api/fill", handler_other));
+    }
+    TEST_ASSERT_EQUAL(BB_API_DISPATCH_CAP - 8, (int)bb_api_dispatch_count());
+
+    /* The next 8 adds must still succeed (warn was informational). */
+    for (int i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL(BB_OK,
+            bb_api_dispatch_add(BB_HTTP_POST, "/api/fill", handler_other));
+    }
+    TEST_ASSERT_EQUAL(BB_API_DISPATCH_CAP, (int)bb_api_dispatch_count());
+}

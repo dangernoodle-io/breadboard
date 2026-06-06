@@ -21,20 +21,23 @@ config BB_HTTP_AUTOSTART
         Disable if the application manages server startup itself (e.g. after CORS
         or OpenAPI configuration that must precede server start).
 
-
-config BB_HTTP_MAX_URI_HANDLERS_MIN
-    int "Minimum max_uri_handlers floor"
-    default 32
+config BB_HTTP_MAX_URI_HANDLERS
+    int "Fixed httpd handler-table size"
+    default 12
     help
-      Floor for auto-sized max_uri_handlers. Auto-size = sum(registry order)
-      + fixed overhead (preflight + asset slack + safety). Final cap is
-      max(auto-size, this floor).
+        Fixed httpd handler-table size: the /api/* wildcards (5) + OPTIONS /* +
+        asset GET /* + headroom for non-/api routes (/save, captive portal /*,
+        etc.). /api endpoints do NOT consume these slots — they use the dispatch
+        table (BB_HTTP_API_DISPATCH_CAP instead).
 
-config BB_HTTP_MAX_URI_HANDLERS_OVERRIDE
-    int "Force max_uri_handlers to a specific value (0 = auto)"
-    default 0
+config BB_HTTP_API_DISPATCH_CAP
+    int "API dispatch table capacity"
+    default 64
     help
-      Non-zero forces this exact value, bypassing auto-sizing.
+        Maximum number of /api/* route entries in the static dispatch table.
+        Each entry costs sizeof(bb_api_dispatch_entry_t) (~12 bytes on 32-bit).
+        A high-watermark warning fires once when count reaches CAP-8.
+        Does not affect httpd's handler-table (BB_HTTP_MAX_URI_HANDLERS).
 
 config BB_HTTP_MAX_OPEN_SOCKETS
     int "Maximum concurrent HTTP sockets"
