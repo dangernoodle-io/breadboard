@@ -225,6 +225,12 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_fan_routes/bb_fan_routes_host.c"],
         "depends":  ["bb_fan", "bb_core", "bb_http", "bb_json", "bb_info"],
     },
+    "bb_thermal": {
+        "includes": ["components/bb_thermal/include",
+                     "platform/host/bb_temp"],
+        "sources":  ["platform/host/bb_thermal/bb_thermal_host.c"],
+        "depends":  ["bb_temp", "bb_power", "bb_fan", "bb_info", "bb_core", "bb_http", "bb_json"],
+    },
     "bb_led": {
         "includes": ["components/bb_led/include"],
         "sources":  [
