@@ -1171,6 +1171,13 @@ void test_program_compensation_written_when_nonzero(void);
 void test_program_vout_command_positive_exp(void);
 void test_program_default_freq_when_zero(void);
 void test_program_default_oc_limit_when_zero(void);
+void test_program_essential_writes_have_essential_true(void);
+void test_program_protection_writes_have_essential_false(void);
+void test_program_ton_delay_written_when_nonzero(void);
+void test_program_ton_max_fault_written_when_nonzero(void);
+void test_program_ton_max_fault_response_written_when_nonzero(void);
+void test_program_overflow_on_essential_byte_write(void);
+void test_program_overflow_on_block5_write(void);
 
 // Forward declarations from test_bb_power_routes.c
 void test_bb_power_routes_present_true_fields(void);
@@ -2812,6 +2819,13 @@ int main(void) {
     RUN_TEST(test_program_vout_command_positive_exp);
     RUN_TEST(test_program_default_freq_when_zero);
     RUN_TEST(test_program_default_oc_limit_when_zero);
+    RUN_TEST(test_program_essential_writes_have_essential_true);
+    RUN_TEST(test_program_protection_writes_have_essential_false);
+    RUN_TEST(test_program_ton_delay_written_when_nonzero);
+    RUN_TEST(test_program_ton_max_fault_written_when_nonzero);
+    RUN_TEST(test_program_ton_max_fault_response_written_when_nonzero);
+    RUN_TEST(test_program_overflow_on_essential_byte_write);
+    RUN_TEST(test_program_overflow_on_block5_write);
 
     // bb_power_routes tests
     RUN_TEST(test_bb_power_routes_present_true_fields);

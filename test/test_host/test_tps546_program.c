@@ -722,3 +722,151 @@ void test_program_default_oc_limit_when_zero(void)
     int ma = tps546_slinear11_to_ma(w->word);
     TEST_ASSERT_INT_WITHIN(100, 30000, ma);
 }
+
+// ---------------------------------------------------------------------------
+// essential flag: essential=true for core writes, essential=false for protection
+// ---------------------------------------------------------------------------
+
+// FREQUENCY_SWITCH, VOUT_COMMAND, IOUT_OC_FAULT_LIMIT, IOUT_OC_FAULT_RESPONSE
+// must all have essential=true (a NACK on these means the chip cannot operate).
+void test_program_essential_writes_have_essential_true(void)
+{
+    bb_power_tps546_cfg_t cfg = make_default_family_cfg();
+    bb_tps546_write_t prog[40];
+    int n = bb_power_tps546_build_init_program(&cfg, EXP_N, prog, 40);
+
+    const bb_tps546_write_t *w;
+
+    w = find_write(prog, n, BB_PMBUS_FREQUENCY_SWITCH);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_TRUE(w->essential);
+
+    w = find_write(prog, n, BB_PMBUS_VOUT_COMMAND);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_TRUE(w->essential);
+
+    w = find_write(prog, n, BB_PMBUS_IOUT_OC_FAULT_LIMIT);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_TRUE(w->essential);
+
+    w = find_write(prog, n, BB_PMBUS_IOUT_OC_FAULT_RESPONSE);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_TRUE(w->essential);
+}
+
+// Protection-config writes (VOUT_OV_WARN, VOUT_UV_WARN, VIN_ON, VIN_OV_FAULT, etc.)
+// must have essential=false (a NACK is warn+continue, not a fatal error).
+void test_program_protection_writes_have_essential_false(void)
+{
+    bb_power_tps546_cfg_t cfg = make_default_family_cfg();
+    bb_tps546_write_t prog[40];
+    int n = bb_power_tps546_build_init_program(&cfg, EXP_N, prog, 40);
+
+    const bb_tps546_write_t *w;
+
+    w = find_write(prog, n, BB_PMBUS_VOUT_OV_WARN_LIMIT);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_FALSE(w->essential);
+
+    w = find_write(prog, n, BB_PMBUS_VOUT_UV_WARN_LIMIT);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_FALSE(w->essential);
+
+    w = find_write(prog, n, BB_PMBUS_VIN_ON);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_FALSE(w->essential);
+
+    w = find_write(prog, n, BB_PMBUS_VIN_OV_FAULT_LIMIT);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_FALSE(w->essential);
+
+    w = find_write(prog, n, BB_PMBUS_ON_OFF_CONFIG);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_FALSE(w->essential);
+}
+
+// TON_DELAY is written (and has essential=false) when ton_delay_ms is non-zero.
+void test_program_ton_delay_written_when_nonzero(void)
+{
+    bb_power_tps546_cfg_t cfg = make_default_family_cfg();
+    cfg.protect.ton_delay_ms = 5;
+
+    bb_tps546_write_t prog[40];
+    int n = bb_power_tps546_build_init_program(&cfg, EXP_N, prog, 40);
+    const bb_tps546_write_t *w = find_write(prog, n, BB_PMBUS_TON_DELAY);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_EQUAL_UINT8(BB_TPS546_W_WORD, w->width);
+    TEST_ASSERT_FALSE(w->essential);
+    // 5 ms < 1024 → SLINEAR11 exp=0, mantissa=5 → code=5
+    TEST_ASSERT_EQUAL_UINT16(5u, w->word);
+}
+
+// TON_MAX_FAULT_LIMIT is written when ton_max_fault_ms is non-zero.
+void test_program_ton_max_fault_written_when_nonzero(void)
+{
+    bb_power_tps546_cfg_t cfg = make_default_family_cfg();
+    cfg.protect.ton_max_fault_ms = 10;
+
+    bb_tps546_write_t prog[40];
+    int n = bb_power_tps546_build_init_program(&cfg, EXP_N, prog, 40);
+    const bb_tps546_write_t *w = find_write(prog, n, BB_PMBUS_TON_MAX_FAULT_LIMIT);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_EQUAL_UINT8(BB_TPS546_W_WORD, w->width);
+    TEST_ASSERT_FALSE(w->essential);
+}
+
+// TON_MAX_FAULT_RESPONSE is written when non-zero.
+void test_program_ton_max_fault_response_written_when_nonzero(void)
+{
+    bb_power_tps546_cfg_t cfg = make_default_family_cfg();
+    cfg.protect.ton_max_fault_response = 0xB0u;
+
+    bb_tps546_write_t prog[40];
+    int n = bb_power_tps546_build_init_program(&cfg, EXP_N, prog, 40);
+    const bb_tps546_write_t *w = find_write(prog, n, BB_PMBUS_TON_MAX_FAULT_RESPONSE);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_EQUAL_UINT8(BB_TPS546_W_BYTE, w->width);
+    TEST_ASSERT_EQUAL_UINT8(0xB0u, (uint8_t)w->word);
+    TEST_ASSERT_FALSE(w->essential);
+}
+
+// Buffer overflow at emit_byte_ex: force overflow on an essential byte write
+// (IOUT_OC_FAULT_RESPONSE is written near the end; use a tiny buffer that fits
+// everything before it but not it). The builder returns -1 on overflow.
+void test_program_overflow_on_essential_byte_write(void)
+{
+    bb_power_tps546_cfg_t cfg;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.target_mv  = 1150;
+    cfg.switch_freq_khz = 650;
+    cfg.oc_limit_a = 30;
+    cfg.oc_response = 0xC0;
+    // zero protect: program = FREQUENCY_SWITCH + VOUT_COMMAND + IOUT_OC_FAULT_LIMIT
+    //               + IOUT_OC_FAULT_RESPONSE = 4 entries total.
+    // Pass max=3 so it overflows at IOUT_OC_FAULT_RESPONSE (the essential byte write).
+    bb_tps546_write_t prog[4];
+    int n = bb_power_tps546_build_init_program(&cfg, EXP_N, prog, 3);
+    TEST_ASSERT_EQUAL_INT(-1, n);
+}
+
+// Buffer overflow at emit_block5_ex: force overflow on the block5 write.
+// Minimum program with compensation: ON_OFF_CONFIG(1) + SYNC_CONFIG(2) + FREQ(3)
+// + COMPENSATION(4). Use max=3 so compensation overflows emit_block5_ex.
+void test_program_overflow_on_block5_write(void)
+{
+    bb_power_tps546_cfg_t cfg;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.target_mv   = 1150;
+    cfg.switch_freq_khz = 650;
+    cfg.oc_limit_a  = 30;
+    cfg.oc_response = 0xC0;
+    cfg.protect.on_off_config = 0x1Au;
+    cfg.protect.sync_config   = 0x10u;
+    // compensation non-zero so block5 is emitted
+    cfg.protect.compensation_config[0] = 0x01u;
+    // Program order: ON_OFF_CONFIG, SYNC_CONFIG, FREQUENCY_SWITCH, COMPENSATION_CONFIG.
+    // With max=3 the 4th entry (compensation) overflows emit_block5_ex.
+    bb_tps546_write_t prog[4];
+    int n = bb_power_tps546_build_init_program(&cfg, EXP_N, prog, 3);
+    TEST_ASSERT_EQUAL_INT(-1, n);
+}
