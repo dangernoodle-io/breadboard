@@ -1000,6 +1000,25 @@ void test_bb_board_psram_total_callable(void);
 void test_bb_board_rtc_used_callable(void);
 void test_bb_board_rtc_total_callable(void);
 
+// Forward declarations from test_bb_http_extender.c
+void test_bb_http_extender_null_fn_returns_invalid_arg(void);
+void test_bb_http_extender_register_returns_ok(void);
+void test_bb_http_extender_register_after_freeze_returns_invalid_state(void);
+void test_bb_http_extender_per_route_capacity(void);
+void test_bb_http_extender_two_route_ids_independent(void);
+void test_bb_http_extender_run_no_extenders_noop(void);
+void test_bb_http_extender_run_calls_in_order(void);
+void test_bb_http_extender_run_isolates_routes(void);
+void test_bb_http_extender_assemble_no_extenders_base_plus_suffix(void);
+void test_bb_http_extender_assemble_null_fragment_skipped(void);
+void test_bb_http_extender_assemble_one_fragment(void);
+void test_bb_http_extender_assemble_two_fragments(void);
+void test_bb_http_extender_get_assembled_schema_cached(void);
+void test_bb_http_extender_reset_clears_state(void);
+void test_bb_http_extender_route_table_full_returns_no_space(void);
+void test_bb_http_extender_assemble_no_extenders_route(void);
+void test_bb_http_extender_assemble_no_extenders_table_full(void);
+
 // Forward declarations from test_bb_info.c
 void test_bb_health_register_extender_null_returns_err(void);
 void test_bb_health_register_extender_capacity(void);
@@ -2902,6 +2921,25 @@ int main(void) {
     RUN_TEST(test_anim_detach_null_returns_invalid_arg);
     RUN_TEST(test_anim_auto_start_timer_fires);
     RUN_TEST(test_anim_no_auto_start_timer_does_not_fire);
+
+    // bb_http_extender tests
+    RUN_TEST(test_bb_http_extender_null_fn_returns_invalid_arg);
+    RUN_TEST(test_bb_http_extender_register_returns_ok);
+    RUN_TEST(test_bb_http_extender_register_after_freeze_returns_invalid_state);
+    RUN_TEST(test_bb_http_extender_per_route_capacity);
+    RUN_TEST(test_bb_http_extender_two_route_ids_independent);
+    RUN_TEST(test_bb_http_extender_run_no_extenders_noop);
+    RUN_TEST(test_bb_http_extender_run_calls_in_order);
+    RUN_TEST(test_bb_http_extender_run_isolates_routes);
+    RUN_TEST(test_bb_http_extender_assemble_no_extenders_base_plus_suffix);
+    RUN_TEST(test_bb_http_extender_assemble_null_fragment_skipped);
+    RUN_TEST(test_bb_http_extender_assemble_one_fragment);
+    RUN_TEST(test_bb_http_extender_assemble_two_fragments);
+    RUN_TEST(test_bb_http_extender_get_assembled_schema_cached);
+    RUN_TEST(test_bb_http_extender_reset_clears_state);
+    RUN_TEST(test_bb_http_extender_route_table_full_returns_no_space);
+    RUN_TEST(test_bb_http_extender_assemble_no_extenders_route);
+    RUN_TEST(test_bb_http_extender_assemble_no_extenders_table_full);
 
     // bb_http_api_dispatch pure-function tests
     RUN_TEST(test_api_dispatch_add_and_lookup_hit);
