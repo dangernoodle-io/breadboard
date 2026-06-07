@@ -7,25 +7,15 @@
 
 static const char *TAG = "bb_power_tps546";
 
-// PMBus registers
-#define PMBUS_CLEAR_FAULTS          0x03
-#define PMBUS_OPERATION             0x01
-#define PMBUS_VOUT_MODE             0x20
-#define PMBUS_VOUT_COMMAND          0x21
-#define PMBUS_FREQUENCY_SWITCH      0x33
-#define PMBUS_IOUT_OC_FAULT_LIMIT   0x46
-#define PMBUS_IOUT_OC_FAULT_RESPONSE 0x47
-#define PMBUS_READ_VIN              0x88
-#define PMBUS_READ_VOUT             0x8B
-#define PMBUS_READ_IOUT             0x8C
-#define PMBUS_READ_TEMPERATURE_1    0x8D
-
-#define OPERATION_ON   0x80
+#define OPERATION_ON   0x80u
 
 // Defaults (lifted from TM init params)
-#define TPS546_DEFAULT_FREQ_KHZ   650
-#define TPS546_DEFAULT_OC_LIMIT_A  30
-#define TPS546_DEFAULT_OC_RESPONSE 0xC0
+#define TPS546_DEFAULT_FREQ_KHZ   650u
+#define TPS546_DEFAULT_OC_LIMIT_A  30u
+#define TPS546_DEFAULT_OC_RESPONSE 0xC0u
+
+// Max writes in init program (ON_OFF_CONFIG through TON_MAX_FAULT_RESPONSE = ~30 max)
+#define INIT_PROG_MAX 40
 
 typedef struct {
     i2c_master_dev_handle_t dev;
@@ -68,10 +58,41 @@ static esp_err_t pmbus_send_byte(i2c_master_dev_handle_t dev, uint8_t reg)
     return i2c_master_transmit(dev, &reg, 1, 100);
 }
 
-// Encode a small positive integer as SLINEAR11 with exponent 0.
-static uint16_t slinear11_encode_int(uint16_t value)
+static esp_err_t pmbus_write_block5(i2c_master_dev_handle_t dev, uint8_t reg, const uint8_t *data)
 {
-    return value & 0x07FFu;
+    // SMBus block write: [reg, count, data...]
+    uint8_t buf[7] = {reg, 5, data[0], data[1], data[2], data[3], data[4]};
+    return i2c_master_transmit(dev, buf, 7, 100);
+}
+
+// ---------------------------------------------------------------------------
+// Execute a build_init_program output on the device
+// ---------------------------------------------------------------------------
+
+static esp_err_t exec_program(i2c_master_dev_handle_t dev,
+                               const bb_tps546_write_t *prog, int n)
+{
+    for (int i = 0; i < n; i++) {
+        esp_err_t err;
+        switch (prog[i].width) {
+        case BB_TPS546_W_BYTE:
+            err = pmbus_write_byte(dev, prog[i].reg, (uint8_t)prog[i].word);
+            break;
+        case BB_TPS546_W_WORD:
+            err = pmbus_write_word(dev, prog[i].reg, prog[i].word);
+            break;
+        case BB_TPS546_W_BLOCK5:
+            err = pmbus_write_block5(dev, prog[i].reg, prog[i].block);
+            break;
+        default:
+            return ESP_ERR_INVALID_ARG; // LCOV_EXCL_LINE
+        }
+        if (err != ESP_OK) {
+            bb_log_e(TAG, "PMBus write reg=0x%02X failed: %d", prog[i].reg, err);
+            return err;
+        }
+    }
+    return ESP_OK;
 }
 
 // Encode millivolts to ULINEAR16 using the VOUT_MODE exponent.
@@ -89,7 +110,7 @@ static int op_read_vout_mv(void *state)
 {
     tps546_state_t *s = state;
     uint16_t raw;
-    if (pmbus_read_word(s->dev, PMBUS_READ_VOUT, &raw) != ESP_OK) return -1;
+    if (pmbus_read_word(s->dev, BB_PMBUS_READ_VOUT, &raw) != ESP_OK) return -1;
     return tps546_ulinear16_to_mv(raw, s->vout_n);
 }
 
@@ -97,7 +118,7 @@ static int op_read_iout_ma(void *state)
 {
     tps546_state_t *s = state;
     uint16_t raw;
-    if (pmbus_read_word(s->dev, PMBUS_READ_IOUT, &raw) != ESP_OK) return -1;
+    if (pmbus_read_word(s->dev, BB_PMBUS_READ_IOUT, &raw) != ESP_OK) return -1;
     return tps546_slinear11_to_ma(raw);
 }
 
@@ -105,7 +126,7 @@ static int op_read_vin_mv(void *state)
 {
     tps546_state_t *s = state;
     uint16_t raw;
-    if (pmbus_read_word(s->dev, PMBUS_READ_VIN, &raw) != ESP_OK) return -1;
+    if (pmbus_read_word(s->dev, BB_PMBUS_READ_VIN, &raw) != ESP_OK) return -1;
     return tps546_slinear11_to_mv(raw);
 }
 
@@ -113,7 +134,7 @@ static int op_read_temp_c(void *state)
 {
     tps546_state_t *s = state;
     uint16_t raw;
-    if (pmbus_read_word(s->dev, PMBUS_READ_TEMPERATURE_1, &raw) != ESP_OK) return -1;
+    if (pmbus_read_word(s->dev, BB_PMBUS_READ_TEMPERATURE_1, &raw) != ESP_OK) return -1;
     return tps546_slinear11_to_c_int(raw);
 }
 
@@ -121,7 +142,7 @@ static bb_err_t op_set_vout_mv(void *state, uint16_t mv)
 {
     tps546_state_t *s = state;
     uint16_t code = mv_to_ulinear16(mv, s->vout_n);
-    if (pmbus_write_word(s->dev, PMBUS_VOUT_COMMAND, code) != ESP_OK)
+    if (pmbus_write_word(s->dev, BB_PMBUS_VOUT_COMMAND, code) != ESP_OK)
         return BB_ERR_INVALID_STATE;
     bb_log_i(TAG, "VOUT_COMMAND=0x%04X (%u mV)", code, mv);
     return BB_OK;
@@ -159,43 +180,28 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
 
     // Read VOUT_MODE to get exponent
     uint8_t vout_mode;
-    err = pmbus_read_byte(s->dev, PMBUS_VOUT_MODE, &vout_mode);
+    err = pmbus_read_byte(s->dev, BB_PMBUS_VOUT_MODE, &vout_mode);
     if (err != ESP_OK) { free(s); return err; }
 
     s->vout_n = (int8_t)(vout_mode & 0x1F);
     if (s->vout_n & 0x10) s->vout_n |= (int8_t)0xE0; // sign-extend from bit 4
     bb_log_i(TAG, "VOUT_MODE=0x%02X exponent=%d", vout_mode, s->vout_n);
 
-    // Set initial output voltage
-    uint16_t code = mv_to_ulinear16(cfg->target_mv, s->vout_n);
-    err = pmbus_write_word(s->dev, PMBUS_VOUT_COMMAND, code);
-    if (err != ESP_OK) { free(s); return err; }
-    bb_log_i(TAG, "VOUT_COMMAND=0x%04X (%u mV)", code, cfg->target_mv);
+    // Build and execute the full protection init program
+    bb_tps546_write_t prog[INIT_PROG_MAX];
+    int n = bb_power_tps546_build_init_program(cfg, s->vout_n, prog, INIT_PROG_MAX);
+    if (n < 0) { free(s); return ESP_ERR_NO_MEM; } // LCOV_EXCL_LINE
 
-    // Switching frequency
-    uint32_t freq_khz = cfg->switch_freq_khz ? cfg->switch_freq_khz : TPS546_DEFAULT_FREQ_KHZ;
-    err = pmbus_write_word(s->dev, PMBUS_FREQUENCY_SWITCH,
-                           slinear11_encode_int((uint16_t)freq_khz));
+    err = exec_program(s->dev, prog, n);
     if (err != ESP_OK) { free(s); return err; }
-    bb_log_i(TAG, "switching freq %u kHz", (unsigned)freq_khz);
-
-    // Overcurrent limit
-    uint8_t oc_limit = cfg->oc_limit_a ? cfg->oc_limit_a : TPS546_DEFAULT_OC_LIMIT_A;
-    err = pmbus_write_word(s->dev, PMBUS_IOUT_OC_FAULT_LIMIT,
-                           slinear11_encode_int(oc_limit));
-    if (err != ESP_OK) { free(s); return err; }
-
-    // Overcurrent response
-    uint8_t oc_resp = cfg->oc_response ? cfg->oc_response : TPS546_DEFAULT_OC_RESPONSE;
-    err = pmbus_write_byte(s->dev, PMBUS_IOUT_OC_FAULT_RESPONSE, oc_resp);
-    if (err != ESP_OK) { free(s); return err; }
+    bb_log_i(TAG, "init program: %d writes", n);
 
     // Clear latched faults from prior boots
-    err = pmbus_send_byte(s->dev, PMBUS_CLEAR_FAULTS);
+    err = pmbus_send_byte(s->dev, BB_PMBUS_CLEAR_FAULTS);
     if (err != ESP_OK) { free(s); return err; }
 
     // Power on
-    err = pmbus_write_byte(s->dev, PMBUS_OPERATION, OPERATION_ON);
+    err = pmbus_write_byte(s->dev, BB_PMBUS_OPERATION, OPERATION_ON);
     if (err != ESP_OK) { free(s); return err; }
     bb_log_i(TAG, "powered on at %u mV", cfg->target_mv);
 

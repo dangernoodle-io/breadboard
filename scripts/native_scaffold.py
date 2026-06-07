@@ -208,11 +208,15 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_power/bb_power.c"],
         "depends":  ["bb_core"],
     },
+    "bb_power_tps546": {
+        "includes": ["components/bb_power_tps546/include"],
+        "sources":  ["platform/host/bb_power_tps546/bb_power_tps546_program.c"],
+        "depends":  ["bb_power", "bb_core"],
+    },
     "bb_power_routes": {
-        "includes": ["components/bb_power_routes/include",
-                     "components/bb_power_tps546/include"],
+        "includes": ["components/bb_power_routes/include"],
         "sources":  ["platform/host/bb_power_routes/bb_power_routes_host.c"],
-        "depends":  ["bb_power", "bb_core", "bb_http", "bb_json", "bb_info"],
+        "depends":  ["bb_power", "bb_power_tps546", "bb_core", "bb_http", "bb_json", "bb_info"],
     },
     "bb_fan": {
         "includes": ["components/bb_fan/include"],

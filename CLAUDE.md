@@ -227,7 +227,31 @@ Sensor availability: ESP32-S2/S3/C3/C6/H2 and later have the modern `temperature
 - `vout_mv`, `iout_ma`, `vin_mv`, `temp_c` — -1 if unavailable or read error
 - `pout_mw` — `(vout_mv * iout_ma) / 1000` when both ≥0; else -1 (raw, no board offset)
 
-**`bb_power_tps546` backend (ESP-IDF only).** `bb_power_tps546_open(cfg, &h)` adds the device to an I2C bus, runs the TPS546 init sequence (programs switch freq, OC limit, OC response, clears faults, powers on), and calls `bb_power_handle_create`. Config: `{ bus, addr, target_mv, switch_freq_khz, oc_limit_a, oc_response }` — zero values use defaults (650 kHz, 30 A, 0xC0). PMBus decode math lives in `components/bb_power_tps546/include/tps546_decode.h` (pure, no ESP-IDF; host-testable).
+**`bb_power_tps546` backend (ESP-IDF only).** `bb_power_tps546_open(cfg, &h)` adds the device to an I2C bus, runs the full TPS546 protection init sequence (AxeOS default-family parity), and calls `bb_power_handle_create`.
+
+Config `bb_power_tps546_cfg_t`: `{ bus, addr, target_mv, switch_freq_khz, oc_limit_a, oc_response, protect }` — zero values in the outer fields use defaults (650 kHz, 30 A, 0xC0). The `protect` sub-struct (`bb_power_tps546_protect_t`) carries the full protection and soft-start config; **every field defaults to 0 = skip that write**, so existing callers that don't populate `protect` get unchanged behaviour.
+
+**`cfg.protect` fields** (all 0 = skip; VOUT factors multiplied by `target_mv/1000` at encode time):
+- `vin_on_v`, `vin_off_v`, `vin_uv_warn_v`, `vin_ov_fault_v` — VIN thresholds (V, SLINEAR11 float)
+- `vin_ov_fault_response` — VIN OV fault response byte (e.g. 0xB7)
+- `vout_scale_loop` — VOUT_SCALE_LOOP factor (SLINEAR11 float; e.g. 0.25)
+- `vout_max_v`, `vout_min_v` — absolute VOUT clamps (V, ULINEAR16)
+- `vout_ov_fault_factor`, `vout_ov_warn_factor` — OV limits = factor × target_V (ULINEAR16)
+- `vout_margin_high`, `vout_margin_low` — margin limits = factor × target_V (ULINEAR16)
+- `vout_uv_warn_factor`, `vout_uv_fault_factor` — UV limits = factor × target_V (ULINEAR16)
+- `iout_oc_warn_a` — IOUT OC warn limit (A, SLINEAR11 float)
+- `ot_warn_c`, `ot_fault_c` — OT limits (°C, SLINEAR11 int)
+- `ot_fault_response` — OT fault response byte (e.g. 0xFF)
+- `ton_delay_ms`, `ton_rise_ms`, `ton_max_fault_ms` — soft-start timing (ms, SLINEAR11 int)
+- `ton_max_fault_response` — TON max fault response byte
+- `on_off_config`, `stack_config`, `sync_config`, `phase` — topology registers
+- `compensation_config[5]` — COMPENSATION_CONFIG block (written iff any byte non-zero)
+
+**Pure builder (host-testable).** `bb_power_tps546_build_init_program(cfg, vout_exp, out, max)` returns the ordered PMBus write list as `bb_tps546_write_t` entries in AxeOS `write_entire_config()` order. No I2C; compiled on both host and ESP-IDF. The espidf executor walks the program and issues byte/word/block writes, then CLEAR_FAULTS + OPERATION_ON.
+
+Encode helpers in `tps546_decode.h` (pure, host-testable): `tps546_float_2_slinear11`, `tps546_int_2_slinear11`, `tps546_float_2_ulinear16`.
+
+PMBus decode math also in `tps546_decode.h` (no ESP-IDF; host-testable).
 
 **`/api/power` route (`bb_power_routes`, opt-in).** Route registration is **opt-in** via `CONFIG_BB_POWER_ROUTES_AUTOREGISTER` (default **n**). When enabled, `bb_power_routes_init` auto-registers at order 1; disable it and call `bb_power_routes_init` manually to control registration timing, or omit the call entirely if your app defines its own `/api/power` handler. Emits a JSON object from `bb_power_primary()`:
 - `present` (bool) — `bb_power_primary() != NULL`
@@ -241,8 +265,9 @@ Sensor availability: ESP32-S2/S3/C3/C6/H2 and later have the modern `temperature
 **Sources:**
 - `components/bb_power/` — portable core (header + CMakeLists + Kconfig)
 - `platform/host/bb_power/bb_power.c` — shared core (compiled host + espidf)
-- `components/bb_power_tps546/` — TPS546 backend (espidf-only)
-- `platform/espidf/bb_power_tps546/bb_power_tps546.c`
+- `components/bb_power_tps546/` — TPS546 component (headers + CMakeLists)
+- `platform/espidf/bb_power_tps546/bb_power_tps546.c` — ESP-IDF open/exec
+- `platform/host/bb_power_tps546/bb_power_tps546_program.c` — pure builder (compiled host + espidf)
 - `components/bb_power_routes/` — route component
 - `platform/espidf/bb_power_routes/bb_power_routes.c`
 - `platform/host/bb_power_routes/bb_power_routes_host.c` (test hooks)
