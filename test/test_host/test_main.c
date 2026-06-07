@@ -314,6 +314,10 @@ void test_api_dispatch_null_uri_returns_miss(void);
 void test_api_dispatch_null_out_handler_returns_miss(void);
 void test_api_dispatch_null_path_entry_skipped(void);
 void test_api_dispatch_high_watermark_warn(void);
+void test_api_dispatch_dup_same_method_and_path_dropped(void);
+void test_api_dispatch_dup_different_method_same_path_both_kept(void);
+void test_api_dispatch_dup_null_path_not_dup_detected(void);
+void test_api_dispatch_dup_scan_skips_null_path_existing_entry(void);
 
 // Forward declarations from test_nv_creds_mirror.c
 void test_nv_creds_mirror_pack_valid_roundtrip(void);
@@ -3212,6 +3216,10 @@ int main(void) {
     RUN_TEST(test_api_dispatch_null_out_handler_returns_miss);
     RUN_TEST(test_api_dispatch_null_path_entry_skipped);
     RUN_TEST(test_api_dispatch_high_watermark_warn);
+    RUN_TEST(test_api_dispatch_dup_same_method_and_path_dropped);
+    RUN_TEST(test_api_dispatch_dup_different_method_same_path_both_kept);
+    RUN_TEST(test_api_dispatch_dup_null_path_not_dup_detected);
+    RUN_TEST(test_api_dispatch_dup_scan_skips_null_path_existing_entry);
 
     return UNITY_END();
 }

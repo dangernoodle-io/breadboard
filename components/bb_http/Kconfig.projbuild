@@ -132,6 +132,17 @@ config BB_HTTP_ROUTE_REGISTRY_STRICT
       Disable only on explicitly constrained ROM builds where the silent-drop
       behaviour is acceptable.
 
+config BB_HTTP_ROUTE_DUP_STRICT
+    bool "Panic/assert on duplicate (method,path) route registration"
+    default n
+    help
+      When a route with the same HTTP method and path is registered more than
+      once, bb_api_dispatch_add always warns and drops the duplicate (first
+      registration wins). When this option is enabled, a duplicate additionally
+      triggers an assert (fatal), surfacing accidental collisions in CI and
+      smoke builds. Disable (default) in production firmware where the
+      warn-and-drop behaviour is acceptable.
+
 config BB_HTTP_RESP_SEND_CHUNK_LIVENESS_PROBE
     bool "Probe socket liveness before each bb_http_resp_send_chunk"
     default y

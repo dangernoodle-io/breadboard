@@ -40,6 +40,28 @@ bb_err_t bb_api_dispatch_add(bb_http_method_t method, const char *path,
     if (s_count >= BB_API_DISPATCH_CAP) {
         return BB_ERR_NO_SPACE;
     }
+
+    /* Duplicate-route safeguard: scan for an existing (method, path) pair.
+     * Uses the same case-sensitive exact-match semantics as the dispatcher. */
+    if (path != NULL) {
+        size_t path_len = strlen(path);
+        for (size_t i = 0; i < s_count; i++) {
+            if (s_dispatch[i].method != method) continue;
+            if (s_dispatch[i].path == NULL) continue;
+            if (strlen(s_dispatch[i].path) != path_len) continue;
+            if (memcmp(s_dispatch[i].path, path, path_len) == 0) {
+                bb_log_w(TAG, "duplicate route %d %s ignored (first registration wins)",
+                         (int)method, path);
+#if defined(CONFIG_BB_HTTP_ROUTE_DUP_STRICT) && CONFIG_BB_HTTP_ROUTE_DUP_STRICT
+                bb_log_e(TAG, "duplicate route %d %s — aborting (BB_HTTP_ROUTE_DUP_STRICT)",
+                         (int)method, path);
+                assert(0 && "duplicate (method,path) route registration — increase route uniqueness or disable BB_HTTP_ROUTE_DUP_STRICT");
+#endif
+                return BB_ERR_INVALID_STATE;
+            }
+        }
+    }
+
     s_dispatch[s_count].method  = method;
     s_dispatch[s_count].path    = path;
     s_dispatch[s_count].handler = handler;
