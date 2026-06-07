@@ -55,6 +55,7 @@ static const bb_led_driver_t s_drv = {
     .set_level = op_set_level,
     .set_color = NULL, .flush = NULL, .close = op_close,
     .caps = (bb_led_caps_t)(BB_LED_CAP_ONOFF | BB_LED_CAP_BRIGHTNESS), .count = 1,
+    .name = "pwm",
 };
 
 bb_err_t bb_led_pwm_open(const bb_led_pwm_cfg_t *cfg, bb_led_handle_t *out) {

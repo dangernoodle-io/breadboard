@@ -47,7 +47,11 @@ static const bb_led_driver_t mock_with_level = {
 };
 
 // Reset mock state between tests — called by test_main.c setUp().
-void bb_led_test_reset(void) { memset(&g_mock, 0, sizeof g_mock); }
+void bb_led_test_reset(void)
+{
+    memset(&g_mock, 0, sizeof g_mock);
+    bb_led_set_primary(NULL);
+}
 
 void test_bb_led_caps_and_count(void)
 {
@@ -149,3 +153,186 @@ void test_bb_led_set_level_unsupported_without_brightness_cap(void)
     TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_led_set_level(h, 0, 30000));
     bb_led_close(h);
 }
+
+/* ---------------------------------------------------------------------------
+ * Tests: bb_led_primary / bb_led_set_primary / bb_led_name accessors
+ * --------------------------------------------------------------------------- */
+
+void test_bb_led_primary_null_before_set(void)
+{
+    /* bb_led_primary() returns NULL before bb_led_set_primary is called. */
+    TEST_ASSERT_NULL(bb_led_primary());
+}
+
+void test_bb_led_set_primary_stores_handle(void)
+{
+    bb_led_handle_t h;
+    bb_led_handle_create(&mock_full, &g_mock, &h);
+    bb_led_set_primary(h);
+    TEST_ASSERT_EQUAL_PTR(h, bb_led_primary());
+    bb_led_set_primary(NULL);
+    bb_led_close(h);
+}
+
+void test_bb_led_set_primary_null_clears(void)
+{
+    bb_led_handle_t h;
+    bb_led_handle_create(&mock_full, &g_mock, &h);
+    bb_led_set_primary(h);
+    bb_led_set_primary(NULL);
+    TEST_ASSERT_NULL(bb_led_primary());
+    bb_led_close(h);
+}
+
+void test_bb_led_name_returns_driver_name(void)
+{
+    bb_led_handle_t h;
+    bb_led_handle_create(&mock_full, &g_mock, &h);
+    /* mock_full has no .name set in the static struct; driver name is NULL for mock. */
+    /* We test with a named driver. */
+    static const bb_led_driver_t named_driver = {
+        .name = "testled",
+        .set_on = m_set_on,
+        .set_brightness = m_set_brightness,
+        .set_color = m_set_color,
+        .flush = m_flush,
+        .close = m_close,
+        .caps  = BB_LED_CAP_ONOFF | BB_LED_CAP_BRIGHTNESS | BB_LED_CAP_RGB,
+        .count = 1,
+    };
+    bb_led_handle_t h2;
+    bb_led_handle_create(&named_driver, &g_mock, &h2);
+    TEST_ASSERT_EQUAL_STRING("testled", bb_led_name(h2));
+    bb_led_close(h);
+    bb_led_close(h2);
+}
+
+void test_bb_led_name_null_handle_returns_null(void)
+{
+    TEST_ASSERT_NULL(bb_led_name(NULL));
+}
+
+/* ---------------------------------------------------------------------------
+ * Tests: /api/info led extender (CONFIG_BB_LED_INFO)
+ * --------------------------------------------------------------------------- */
+
+#include "bb_led_info.h"
+#include "bb_info.h"
+#include "bb_info_test.h"
+#include "bb_json.h"
+
+/* Drivers with names for testing. */
+static const bb_led_driver_t drv_apa102 = {
+    .name  = "apa102",
+    .set_on = m_set_on, .set_brightness = m_set_brightness,
+    .set_color = m_set_color, .flush = m_flush, .close = m_close,
+    .caps  = BB_LED_CAP_ONOFF | BB_LED_CAP_BRIGHTNESS | BB_LED_CAP_RGB,
+    .count = 8,
+};
+
+static const bb_led_driver_t drv_pwm = {
+    .name  = "pwm",
+    .set_on = m_set_on, .set_brightness = m_set_brightness,
+    .set_color = m_set_color, .flush = m_flush, .close = m_close,
+    .caps  = BB_LED_CAP_ONOFF | BB_LED_CAP_BRIGHTNESS,
+    .count = 1,
+};
+
+void test_bb_led_info_schema_in_assembled_schema(void)
+{
+    bb_led_register_info();
+    const char *schema = bb_info_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"led\""),
+                                 "led key not in assembled schema");
+    TEST_ASSERT_NOT_NULL(strstr(schema, "\"present\""));
+    TEST_ASSERT_NOT_NULL(strstr(schema, "\"type\""));
+    TEST_ASSERT_NOT_NULL(strstr(schema, "\"count\""));
+    TEST_ASSERT_NOT_NULL(strstr(schema, "\"rgb\""));
+}
+
+void test_bb_led_info_extender_no_primary_present_false(void)
+{
+    /* No primary set → present:false */
+    bb_led_set_primary(NULL);
+    bb_led_register_info();
+
+    bb_json_t root = bb_json_obj_new();
+    bb_info_invoke_extenders_for_test(root);
+
+    bb_json_t led = bb_json_obj_get_item(root, "led");
+    TEST_ASSERT_NOT_NULL_MESSAGE(led, "led key missing from extender output");
+
+    bool present = true;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(led, "present", &present));
+    TEST_ASSERT_FALSE(present);
+
+    bb_json_free(root);
+}
+
+void test_bb_led_info_extender_rgb_primary_present_true(void)
+{
+    /* apa102 driver: rgb=true, count=8 */
+    bb_led_handle_t h;
+    bb_led_handle_create(&drv_apa102, &g_mock, &h);
+    bb_led_set_primary(h);
+    bb_led_register_info();
+
+    bb_json_t root = bb_json_obj_new();
+    bb_info_invoke_extenders_for_test(root);
+
+    bb_json_t led = bb_json_obj_get_item(root, "led");
+    TEST_ASSERT_NOT_NULL_MESSAGE(led, "led key missing");
+
+    bool present = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(led, "present", &present));
+    TEST_ASSERT_TRUE(present);
+
+    char type[32] = {0};
+    TEST_ASSERT_TRUE(bb_json_obj_get_string(led, "type", type, sizeof(type)));
+    TEST_ASSERT_EQUAL_STRING("apa102", type);
+
+    double count = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(led, "count", &count));
+    TEST_ASSERT_EQUAL_DOUBLE(8.0, count);
+
+    bool rgb = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(led, "rgb", &rgb));
+    TEST_ASSERT_TRUE(rgb);
+
+    bb_json_free(root);
+    bb_led_set_primary(NULL);
+    bb_led_close(h);
+}
+
+void test_bb_led_info_extender_pwm_primary_rgb_false(void)
+{
+    /* pwm driver: no RGB cap */
+    bb_led_handle_t h;
+    bb_led_handle_create(&drv_pwm, &g_mock, &h);
+    bb_led_set_primary(h);
+    bb_led_register_info();
+
+    bb_json_t root = bb_json_obj_new();
+    bb_info_invoke_extenders_for_test(root);
+
+    bb_json_t led = bb_json_obj_get_item(root, "led");
+    TEST_ASSERT_NOT_NULL_MESSAGE(led, "led key missing");
+
+    bool present = false;
+    bb_json_obj_get_bool(led, "present", &present);
+    TEST_ASSERT_TRUE(present);
+
+    bool rgb = true;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(led, "rgb", &rgb));
+    TEST_ASSERT_FALSE(rgb);
+
+    double count = 0;
+    bb_json_obj_get_number(led, "count", &count);
+    TEST_ASSERT_EQUAL_DOUBLE(1.0, count);
+
+    bb_json_free(root);
+    bb_led_set_primary(NULL);
+    bb_led_close(h);
+}
+

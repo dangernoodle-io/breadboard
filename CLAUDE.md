@@ -190,6 +190,31 @@ LVGL is initialized inside `bb_display_init` via `esp_lvgl_port`. The consumer's
 
 Per-font Kconfigs: `CONFIG_BB_DISPLAY_FONT_5X8`, `CONFIG_BB_DISPLAY_FONT_6X12`, `CONFIG_BB_DISPLAY_FONT_8X16` (all default y).
 
+**`/api/info` display extender (`bb_display_info` satellite).** Add `REQUIRES bb_display_info` and call `bb_display_register_info()` before `bb_http_server_start` to register a `bb_info` extender that emits a nested `"display"` object:
+- `present` (bool) — `bb_display_backend_name() != NULL`
+- if present: `panel` (string), `width`/`height` (int), `enabled` (bool from `bb_nv_config_display_enabled()`)
+- if absent: `{"present": false}`
+
+Also contributes a JSON-Schema properties fragment to the `/api/info` 200 response schema via `bb_info_register_extender_ex`. Sources: `platform/espidf/bb_display_info/bb_display_info.c` (ESP-IDF) / `platform/host/bb_display_info/bb_display_info.c` (host).
+
+## LED
+
+`bb_led` is a portable multi-handle LED API. `bb_led_set_primary(h)` / `bb_led_primary()` record a single app-level primary/status LED handle for introspection; `bb_led_name(h)` returns the driver's static name string (e.g. `"apa102"`, `"pwm"`, `"gpio"`).
+
+**`/api/info` LED extender (`bb_led_info` satellite).** Add `REQUIRES bb_led_info` and call `bb_led_register_info()` before `bb_http_server_start` to register a `bb_info` extender that emits a nested `"led"` object from `bb_led_primary()`:
+- `present` (bool) — `bb_led_primary() != NULL`
+- if present: `type` (string, `bb_led_name`), `count` (int), `rgb` (bool, `BB_LED_CAP_RGB`)
+- if absent: `{"present": false}`
+
+Also contributes a JSON-Schema properties fragment via `bb_info_register_extender_ex`. Source: `platform/host/bb_led_info/bb_led_info.c`.
+
+**`/api/health` temperature extender (`bb_temp` satellite).** Add `REQUIRES bb_temp` and call `bb_temp_register_info()` before `bb_http_server_start` to register a `bb_health` extender that emits a nested `"temp"` object on `/api/health`:
+- `present` (bool) — SoC internal temperature sensor supported and readable (`bb_temp_read_soc` succeeded)
+- if present: `soc_c` (number, die temperature in Celsius, 1 decimal place)
+- if absent: `{"present": false}`
+
+Sensor availability: ESP32-S2/S3/C3/C6/H2 and later have the modern `temperature_sensor` peripheral. Classic ESP32 (WROOM-32) does NOT — `present` is always `false` on that target. The component compiles cleanly on all targets via `#if SOC_TEMP_SENSOR_SUPPORTED` in `bb_system`. Also contributes a JSON-Schema properties fragment to the `/api/health` 200 response schema via `bb_health_register_extender_ex`. Sources: `platform/espidf/bb_temp/bb_temp.c` (ESP-IDF) / `platform/host/bb_temp/bb_temp.c` (host, test-injectable via `BB_TEMP_TESTING` + `bb_temp_test_set_soc`).
+
 ## Portable timing
 
 `bb_clock_now_ms()` in `bb_core/include/bb_clock.h` provides a portable millisecond timestamp. Named timing constants live in their respective headers: `BB_BUTTON_DEBOUNCE_MS_DEFAULT`, `BB_BUTTON_EVENTS_*_DEFAULT_MS`, `BB_LED_ANIM_*_DEFAULT_MS`. `bb_timer` also exposes `bb_timer_now_us()` for microsecond timestamps.

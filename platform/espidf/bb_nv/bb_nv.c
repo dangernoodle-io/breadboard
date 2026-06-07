@@ -1114,6 +1114,12 @@ void bb_nv_config_host_force_set_update_check_fail(bool fail)
     s_force_set_update_check_fail = fail;
 }
 
+bb_err_t bb_nv_config_set_display_enabled(bool en)
+{
+    s_config.display_en = en ? 1 : 0;
+    return BB_OK;
+}
+
 bb_err_t bb_nv_config_set_update_check_enabled(bool en)
 {
     if (s_force_set_update_check_fail) return BB_ERR_INVALID_STATE;

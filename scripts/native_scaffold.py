@@ -177,6 +177,11 @@ COMPONENT_MAP = {
         ],
         "depends":  ["bb_core", "bb_log"],
     },
+    "bb_display_info": {
+        "includes": ["components/bb_display_info/include"],
+        "sources":  ["platform/host/bb_display_info/bb_display_info.c"],
+        "depends":  ["bb_display", "bb_info", "bb_nv", "bb_json", "bb_core"],
+    },
     "bb_registry": {
         "includes": ["components/bb_registry/include"],
         "sources":  ["platform/host/bb_registry/bb_registry.c"],
@@ -199,9 +204,21 @@ COMPONENT_MAP = {
     },
     "bb_led": {
         "includes": ["components/bb_led/include"],
-        "sources":  ["platform/host/bb_led/bb_led.c",
-                     "platform/host/bb_led/bb_led_gamma.c"],
+        "sources":  [
+            "platform/host/bb_led/bb_led.c",
+            "platform/host/bb_led/bb_led_gamma.c",
+        ],
         "depends":  ["bb_core"],
+    },
+    "bb_led_info": {
+        "includes": ["components/bb_led_info/include"],
+        "sources":  ["platform/host/bb_led_info/bb_led_info.c"],
+        "depends":  ["bb_led", "bb_info", "bb_json", "bb_core"],
+    },
+    "bb_temp": {
+        "includes": ["components/bb_temp/include", "platform/host/bb_temp"],
+        "sources":  ["platform/host/bb_temp/bb_temp.c"],
+        "depends":  ["bb_info", "bb_json", "bb_core"],
     },
     "bb_led_gpio": {
         "includes": ["components/bb_led_gpio/include", "platform/host/bb_led_gpio"],

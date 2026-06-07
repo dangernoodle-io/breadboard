@@ -9,6 +9,8 @@ struct bb_led {
     void *state;
 };
 
+static bb_led_handle_t s_primary = NULL;
+
 static bool valid(bb_led_handle_t h)                    { return h && h->drv; }
 static bool has_cap(bb_led_handle_t h, bb_led_caps_t c) { return (h->drv->caps & c) != 0; }
 static bool idx_ok(bb_led_handle_t h, uint16_t idx)     { return idx < h->drv->count; }
@@ -24,8 +26,11 @@ bb_err_t bb_led_handle_create(const bb_led_driver_t *drv, void *state, bb_led_ha
     return BB_OK;
 }
 
-bb_led_caps_t bb_led_caps(bb_led_handle_t h)  { return valid(h) ? h->drv->caps  : BB_LED_CAP_NONE; }
-uint16_t      bb_led_count(bb_led_handle_t h) { return valid(h) ? h->drv->count : 0; }
+bb_led_caps_t   bb_led_caps   (bb_led_handle_t h) { return valid(h) ? h->drv->caps  : BB_LED_CAP_NONE; }
+uint16_t        bb_led_count  (bb_led_handle_t h) { return valid(h) ? h->drv->count : 0; }
+const char     *bb_led_name   (bb_led_handle_t h) { return valid(h) ? h->drv->name  : NULL; }
+void            bb_led_set_primary(bb_led_handle_t h) { s_primary = h; }
+bb_led_handle_t bb_led_primary(void)                  { return s_primary; }
 
 bb_err_t bb_led_set_on(bb_led_handle_t h, uint16_t idx, bool on)
 {

@@ -542,6 +542,8 @@ void test_capture_send_json_sets_content_type(void);
 void test_capture_multi_write_appends(void);
 void test_capture_end_null_args_returns_err(void);
 void test_capture_no_active_slot_ignored(void);
+void test_fidelity_info_with_extender(void);
+void test_fidelity_info_schema_matches_assembled(void);
 void test_register_described_route_rejects_null(void);
 void test_register_described_route_propagates_underlying_failure(void);
 void test_register_described_route_overflow_returns_no_space(void);
@@ -948,6 +950,13 @@ void test_bb_display_show_splash_no_default_font_noop(void);
 void test_bb_display_set_rotation_zero(void);
 void test_bb_display_set_rotation_180(void);
 void test_bb_display_set_rotation_270(void);
+void test_bb_display_info_schema_in_assembled_schema(void);
+void test_bb_display_info_extender_no_backend_present_false(void);
+void test_bb_display_info_extender_with_backend_present_true(void);
+void test_bb_display_info_enabled_tracks_nv_config(void);
+void test_bb_display_backend_name_persists_after_off(void);
+void test_bb_display_dims_persist_after_off(void);
+void test_bb_display_info_extender_present_true_after_off(void);
 
 // Forward declarations from test_bb_timer.c
 void test_bb_timer_create_null_out_returns_err(void);
@@ -995,6 +1004,22 @@ void test_bb_board_rtc_total_callable(void);
 void test_bb_health_register_extender_null_returns_err(void);
 void test_bb_health_register_extender_capacity(void);
 void test_bb_info_register_extender_null_returns_err(void);
+void test_bb_info_register_extender_ex_null_fn_returns_invalid_arg(void);
+void test_bb_info_register_extender_ex_null_schema_succeeds(void);
+void test_bb_info_register_extender_ex_empty_schema_succeeds(void);
+void test_bb_info_assembled_schema_contains_fragment(void);
+void test_bb_info_assembled_schema_no_extenders_equals_base_plus_suffix(void);
+void test_bb_info_assembled_schema_two_extenders_both_present_valid_json(void);
+void test_bb_info_assembled_schema_is_valid_json(void);
+void test_bb_info_register_after_freeze_returns_invalid_state(void);
+void test_bb_info_capabilities_registered_appear_in_schema(void);
+void test_bb_info_capabilities_dedup(void);
+void test_bb_info_capabilities_empty_schema_present(void);
+void test_bb_info_capabilities_over_cap_drops_extra(void);
+void test_bb_info_capabilities_post_freeze_ignored(void);
+void test_bb_info_assembled_schema_contains_capabilities_array(void);
+void bb_info_reset_for_test(void);
+void bb_info_invoke_extenders_for_test(void *root);
 
 // Forward declarations from test_wifi_reconn_policy.c
 void wifi_reconn_policy_test_reset(void);
@@ -1034,6 +1059,24 @@ void test_bb_led_brightness_pct_validation(void);
 void test_bb_led_set_level_bridges_to_set_brightness(void);
 void test_bb_led_set_level_calls_driver_when_present(void);
 void test_bb_led_set_level_unsupported_without_brightness_cap(void);
+void test_bb_led_primary_null_before_set(void);
+void test_bb_led_set_primary_stores_handle(void);
+void test_bb_led_set_primary_null_clears(void);
+void test_bb_led_name_returns_driver_name(void);
+void test_bb_led_name_null_handle_returns_null(void);
+void test_bb_led_info_schema_in_assembled_schema(void);
+void test_bb_led_info_extender_no_primary_present_false(void);
+void test_bb_led_info_extender_rgb_primary_present_true(void);
+void test_bb_led_info_extender_pwm_primary_rgb_false(void);
+
+// Forward declarations from test_bb_temp.c
+void test_bb_temp_read_soc_default_absent(void);
+void test_bb_temp_read_soc_injected_present(void);
+void test_bb_temp_read_soc_null_out_returns_false(void);
+void test_bb_temp_health_extender_absent_by_default(void);
+void test_bb_temp_health_extender_present_with_value(void);
+void test_bb_temp_health_extender_value_rounds_to_one_decimal(void);
+void test_bb_temp_health_schema_fragment_present(void);
 
 // Forward declarations from test_bb_led_gpio.c
 void test_gpio_open_close(void);
@@ -1423,6 +1466,7 @@ void setUp(void) {
     test_alloc_reset();
     bb_display_reset_for_testing();
     bb_display_test_reset_mock();
+    bb_info_reset_for_test();
 }
 void tearDown(void) {}
 
@@ -1925,6 +1969,8 @@ int main(void) {
     RUN_TEST(test_fidelity_update_status);
     RUN_TEST(test_fidelity_update_config_get);
     RUN_TEST(test_fidelity_diag_events);
+    RUN_TEST(test_fidelity_info_with_extender);
+    RUN_TEST(test_fidelity_info_schema_matches_assembled);
     RUN_TEST(test_register_described_route_rejects_null);
     RUN_TEST(test_register_described_route_propagates_underlying_failure);
     RUN_TEST(test_register_described_route_overflow_returns_no_space);
@@ -2349,6 +2395,16 @@ int main(void) {
     RUN_TEST(test_bb_display_set_rotation_180);
     RUN_TEST(test_bb_display_set_rotation_270);
 
+    // bb_display_info satellite tests
+    RUN_TEST(test_bb_display_info_schema_in_assembled_schema);
+    RUN_TEST(test_bb_display_info_extender_no_backend_present_false);
+    RUN_TEST(test_bb_display_info_extender_with_backend_present_true);
+    RUN_TEST(test_bb_display_info_enabled_tracks_nv_config);
+    // regression guard: persistent introspection after bb_display_off()
+    RUN_TEST(test_bb_display_backend_name_persists_after_off);
+    RUN_TEST(test_bb_display_dims_persist_after_off);
+    RUN_TEST(test_bb_display_info_extender_present_true_after_off);
+
     // bb_byte_order tests
     RUN_TEST(test_bb_load_be32_constant);
     RUN_TEST(test_bb_load_le32_constant);
@@ -2411,6 +2467,20 @@ int main(void) {
     RUN_TEST(test_bb_health_register_extender_null_returns_err);
     RUN_TEST(test_bb_health_register_extender_capacity);
     RUN_TEST(test_bb_info_register_extender_null_returns_err);
+    RUN_TEST(test_bb_info_register_extender_ex_null_fn_returns_invalid_arg);
+    RUN_TEST(test_bb_info_register_extender_ex_null_schema_succeeds);
+    RUN_TEST(test_bb_info_register_extender_ex_empty_schema_succeeds);
+    RUN_TEST(test_bb_info_assembled_schema_contains_fragment);
+    RUN_TEST(test_bb_info_assembled_schema_no_extenders_equals_base_plus_suffix);
+    RUN_TEST(test_bb_info_assembled_schema_two_extenders_both_present_valid_json);
+    RUN_TEST(test_bb_info_assembled_schema_is_valid_json);
+    RUN_TEST(test_bb_info_register_after_freeze_returns_invalid_state);
+    RUN_TEST(test_bb_info_capabilities_registered_appear_in_schema);
+    RUN_TEST(test_bb_info_capabilities_dedup);
+    RUN_TEST(test_bb_info_capabilities_empty_schema_present);
+    RUN_TEST(test_bb_info_capabilities_over_cap_drops_extra);
+    RUN_TEST(test_bb_info_capabilities_post_freeze_ignored);
+    RUN_TEST(test_bb_info_assembled_schema_contains_capabilities_array);
 
     // wifi_reconn_policy tests
     RUN_TEST(test_wifi_reconn_tier1_handshake_fast_retry);
@@ -2447,6 +2517,26 @@ int main(void) {
     RUN_TEST(test_bb_led_set_level_bridges_to_set_brightness);
     RUN_TEST(test_bb_led_set_level_calls_driver_when_present);
     RUN_TEST(test_bb_led_set_level_unsupported_without_brightness_cap);
+    RUN_TEST(test_bb_led_primary_null_before_set);
+    RUN_TEST(test_bb_led_set_primary_stores_handle);
+    RUN_TEST(test_bb_led_set_primary_null_clears);
+    RUN_TEST(test_bb_led_name_returns_driver_name);
+    RUN_TEST(test_bb_led_name_null_handle_returns_null);
+
+    // bb_led_info satellite tests
+    RUN_TEST(test_bb_led_info_schema_in_assembled_schema);
+    RUN_TEST(test_bb_led_info_extender_no_primary_present_false);
+    RUN_TEST(test_bb_led_info_extender_rgb_primary_present_true);
+    RUN_TEST(test_bb_led_info_extender_pwm_primary_rgb_false);
+
+    // bb_temp satellite tests
+    RUN_TEST(test_bb_temp_read_soc_default_absent);
+    RUN_TEST(test_bb_temp_read_soc_injected_present);
+    RUN_TEST(test_bb_temp_read_soc_null_out_returns_false);
+    RUN_TEST(test_bb_temp_health_extender_absent_by_default);
+    RUN_TEST(test_bb_temp_health_extender_present_with_value);
+    RUN_TEST(test_bb_temp_health_extender_value_rounds_to_one_decimal);
+    RUN_TEST(test_bb_temp_health_schema_fragment_present);
 
     // bb_led_gpio tests
     RUN_TEST(test_gpio_open_close);

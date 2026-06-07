@@ -23,9 +23,15 @@
  * most builds link exactly one.
  */
 
-bb_err_t bb_display_init(void);
-void     bb_display_off(void);
-bool     bb_display_ready(void);
+bb_err_t    bb_display_init(void);
+void        bb_display_off(void);
+bool        bb_display_ready(void);
+
+// Returns the panel backend's name (e.g. "st77xx", "ssd1306"), reflecting the
+// most recently successfully-initialized backend.  Returns NULL only if no
+// backend has ever successfully initialized.  NOT cleared by bb_display_off() —
+// use bb_display_ready() to test whether the display is currently active.
+const char *bb_display_backend_name(void);
 
 uint16_t bb_display_width(void);
 uint16_t bb_display_height(void);
@@ -121,3 +127,4 @@ void bb_display_set_default_font(const bb_display_font_t *font);
  * Returns BB_ERR_INVALID_STATE if the active backend doesn't support this
  * angle, or BB_ERR_INVALID_ARG for non-cardinal values. */
 bb_err_t bb_display_set_rotation(uint16_t deg);
+

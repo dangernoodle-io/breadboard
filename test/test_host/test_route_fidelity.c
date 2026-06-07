@@ -55,6 +55,9 @@
 #include "bb_event_routes.h"
 #include "bb_event_ring.h"
 #include "bb_log.h"
+#include "bb_info.h"
+#include "bb_info_test.h"
+#include "../../components/bb_info/bb_info_schema_priv.h"
 
 // bb_mdns_started and bb_mdns_get_hostname are declared in bb_mdns.h only
 // under #ifdef ESP_PLATFORM. The host stub implements them; forward-declare
@@ -80,6 +83,9 @@ static const char k_reboot_schema[] =
     "\"required\":[\"status\"]}";
 
 // GET /api/info — bb_info.c (espidf)
+// IMPORTANT: must match bb_info_get_assembled_schema() with no extenders registered.
+// (test_fidelity_info_schema_matches_assembled enforces this.)
+// Includes http_handler_count and http_handler_cap added in bb-periph-info.
 static const char k_info_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
@@ -125,7 +131,11 @@ static const char k_info_schema[] =
     "\"connected\":{\"type\":\"boolean\"},"
     "\"disc_reason\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"retry_count\":{\"type\":\"integer\"}}}},"
+    "\"retry_count\":{\"type\":\"integer\"}}}"
+    ",\"http_handler_count\":{\"type\":\"integer\"},"
+    "\"http_handler_cap\":{\"type\":\"integer\"},"
+    "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}"
+    "},"
     "\"required\":[\"board\",\"version\",\"network\"]}";
 
 // GET /api/health — bb_info.c (espidf)
@@ -358,6 +368,13 @@ static bb_err_t h_info(bb_http_request_t *req)
     bb_http_resp_json_obj_set_num(&obj, "disc_age_s", (double)w.disc_age_s);
     bb_http_resp_json_obj_set_num(&obj, "retry_count", (double)w.retry_count);
     bb_http_resp_json_obj_set_obj_end(&obj);
+    bb_http_resp_json_obj_set_num(&obj, "http_handler_count",
+                                  (double)bb_http_route_handler_count());
+    bb_http_resp_json_obj_set_num(&obj, "http_handler_cap",
+                                  (double)bb_http_route_handler_cap());
+    // capabilities: always emit (empty array when none registered)
+    bb_http_resp_json_obj_set_arr_begin(&obj, "capabilities");
+    bb_http_resp_json_obj_set_arr_end(&obj);
     return bb_http_resp_json_obj_end(&obj);
 }
 
@@ -1108,4 +1125,65 @@ void test_capture_no_active_slot_ignored(void)
     bb_http_resp_send_chunk(fake, "hello", 5);
     bb_http_resp_sendstr(fake, "world");
     // No crash = pass
+}
+
+// ---------------------------------------------------------------------------
+// New fidelity tests for schema-carrying extenders
+// ---------------------------------------------------------------------------
+
+static void extender_add_xtest(void *root)
+{
+    // Host extender: root is void* on host; no-op here.
+    // The point is the schema fragment — not the runtime field.
+    (void)root;
+}
+
+// (a) Register extender with fragment; validate info body against assembled schema.
+void test_fidelity_info_with_extender(void)
+{
+    static const char frag[] = "\"xtest\":{\"type\":\"string\"}";
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_info_register_extender_ex(extender_add_xtest, frag));
+
+    const char *schema = bb_info_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, frag),
+        "fragment not in assembled schema");
+
+    // Validate info body against the assembled schema.
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    h_info(req);
+    bb_http_host_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_NOT_NULL(cap.body);
+    cJSON *parsed = cJSON_Parse(cap.body);
+    TEST_ASSERT_NOT_NULL_MESSAGE(parsed, "info body not valid JSON");
+
+    bb_openapi_validate_err_t verr;
+    memset(&verr, 0, sizeof(verr));
+    bb_err_t vrc = bb_openapi_validate(schema, parsed, &verr);
+    if (vrc != BB_OK) {
+        char msg[512];
+        snprintf(msg, sizeof(msg),
+                 "schema violation at '%s': %s", verr.path, verr.message);
+        TEST_FAIL_MESSAGE(msg);
+    }
+
+    cJSON_Delete(parsed);
+    bb_http_host_capture_free(&cap);
+}
+
+// (b) Assert k_info_schema == bb_info_get_assembled_schema() with no extenders.
+//     Kills double-maintenance drift between this file and bb_info_schema_priv.h.
+void test_fidelity_info_schema_matches_assembled(void)
+{
+    // setUp resets bb_info state, so no extenders are registered here.
+    const char *assembled = bb_info_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(assembled);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(k_info_schema, assembled,
+        "k_info_schema in test_route_fidelity.c differs from assembled schema; "
+        "update k_info_schema to match bb_info_schema_priv.h base+suffix");
 }
