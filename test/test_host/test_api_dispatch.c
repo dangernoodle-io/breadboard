@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "bb_http_api_dispatch.h"
 #include "bb_core.h"
+#include <stdio.h>
 
 /* ---------------------------------------------------------------------------
  * Stub handler functions — used only for pointer comparison, never called.
@@ -154,13 +155,14 @@ void test_api_dispatch_overflow_returns_no_space(void)
 {
     bb_api_dispatch_reset();
 
-    /* Fill the table with /api/0 … /api/<CAP-1> using static path storage.
-     * All paths share the same static pointer — the test only cares that
-     * the CAP-th add fails; the lookup MISS below uses a distinct literal. */
+    /* Fill the table with distinct paths /api/fill0 … /api/fill<CAP-1>
+     * so the dup-detection scan does not drop any entries. */
     static const char *overflow_path = "/api/overflow";
+    static char fill_paths[BB_API_DISPATCH_CAP][24];
 
     for (int i = 0; i < BB_API_DISPATCH_CAP; i++) {
-        bb_err_t err = bb_api_dispatch_add(BB_HTTP_GET, "/api/fill",
+        snprintf(fill_paths[i], sizeof(fill_paths[i]), "/api/fill%d", i);
+        bb_err_t err = bb_api_dispatch_add(BB_HTTP_GET, fill_paths[i],
                                            handler_other);
         TEST_ASSERT_EQUAL(BB_OK, err);
     }
@@ -248,6 +250,97 @@ void test_api_dispatch_null_path_entry_skipped(void)
 }
 
 /* ---------------------------------------------------------------------------
+ * Duplicate (method,path): second add is dropped, count unchanged, first
+ * handler still dispatches.
+ * ---------------------------------------------------------------------------*/
+void test_api_dispatch_dup_same_method_and_path_dropped(void)
+{
+    bb_api_dispatch_reset();
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_api_dispatch_add(BB_HTTP_GET, "/api/x", handler_get_x));
+    TEST_ASSERT_EQUAL(1, (int)bb_api_dispatch_count());
+
+    /* Second registration of the same (method, path) must return non-OK
+     * and leave the count unchanged. */
+    bb_err_t err = bb_api_dispatch_add(BB_HTTP_GET, "/api/x", handler_other);
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(1, (int)bb_api_dispatch_count());
+
+    /* First handler must still be the one that dispatches. */
+    bb_http_handler_fn out = NULL;
+    bb_api_dispatch_result_t res =
+        bb_api_dispatch_lookup(BB_HTTP_GET, "/api/x", &out);
+    TEST_ASSERT_EQUAL(BB_API_DISPATCH_HIT, res);
+    TEST_ASSERT_EQUAL_PTR(handler_get_x, out);
+}
+
+/* ---------------------------------------------------------------------------
+ * Duplicate check is NOT triggered when method differs — same path, different
+ * method must both be kept (e.g. GET and POST on the same path are not dups).
+ * ---------------------------------------------------------------------------*/
+void test_api_dispatch_dup_different_method_same_path_both_kept(void)
+{
+    bb_api_dispatch_reset();
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_api_dispatch_add(BB_HTTP_GET, "/api/x", handler_get_x));
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_api_dispatch_add(BB_HTTP_POST, "/api/x", handler_post_x));
+    TEST_ASSERT_EQUAL(2, (int)bb_api_dispatch_count());
+
+    bb_http_handler_fn out_get = NULL;
+    TEST_ASSERT_EQUAL(BB_API_DISPATCH_HIT,
+        bb_api_dispatch_lookup(BB_HTTP_GET, "/api/x", &out_get));
+    TEST_ASSERT_EQUAL_PTR(handler_get_x, out_get);
+
+    bb_http_handler_fn out_post = NULL;
+    TEST_ASSERT_EQUAL(BB_API_DISPATCH_HIT,
+        bb_api_dispatch_lookup(BB_HTTP_POST, "/api/x", &out_post));
+    TEST_ASSERT_EQUAL_PTR(handler_post_x, out_post);
+}
+
+/* ---------------------------------------------------------------------------
+ * NULL path does not participate in dup-detection scan — both adds succeed
+ * without crashing.  (NULL paths are already covered elsewhere for lookup
+ * safety; this guards the new scan loop against NULL entries.)
+ * ---------------------------------------------------------------------------*/
+void test_api_dispatch_dup_null_path_not_dup_detected(void)
+{
+    bb_api_dispatch_reset();
+    /* First add with NULL path. */
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_api_dispatch_add(BB_HTTP_GET, NULL, handler_get_x));
+    /* Second add with NULL path — must not false-positive as a dup. */
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_api_dispatch_add(BB_HTTP_GET, NULL, handler_post_x));
+    TEST_ASSERT_EQUAL(2, (int)bb_api_dispatch_count());
+}
+
+/* ---------------------------------------------------------------------------
+ * Dup scan skips existing NULL-path entries when the incoming path is
+ * non-NULL — exercises the `s_dispatch[i].path == NULL` continue branch
+ * inside the dup-detection loop.
+ * ---------------------------------------------------------------------------*/
+void test_api_dispatch_dup_scan_skips_null_path_existing_entry(void)
+{
+    bb_api_dispatch_reset();
+    /* Pre-populate with a NULL-path entry so the scan encounters it. */
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_api_dispatch_add(BB_HTTP_GET, NULL, handler_get_x));
+
+    /* Add a non-NULL path — dup scan must traverse (and skip) the NULL entry
+     * without crashing, and this add must succeed. */
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_api_dispatch_add(BB_HTTP_GET, "/api/x", handler_post_x));
+    TEST_ASSERT_EQUAL(2, (int)bb_api_dispatch_count());
+
+    /* The non-NULL route must be reachable. */
+    bb_http_handler_fn out = NULL;
+    TEST_ASSERT_EQUAL(BB_API_DISPATCH_HIT,
+        bb_api_dispatch_lookup(BB_HTTP_GET, "/api/x", &out));
+    TEST_ASSERT_EQUAL_PTR(handler_post_x, out);
+}
+
+/* ---------------------------------------------------------------------------
  * High-watermark warn: adding CAP-8 entries triggers the warn branch;
  * the (CAP-7)th add still succeeds.
  * ---------------------------------------------------------------------------*/
@@ -255,17 +348,26 @@ void test_api_dispatch_high_watermark_warn(void)
 {
     bb_api_dispatch_reset();
 
-    /* Add CAP-8 entries — watermark fires on the last one. */
+    /* Add CAP-8 entries with distinct paths — watermark fires on the last one.
+     * Using distinct paths ensures the dup-detection scan does not drop any. */
+    static char wm_paths[BB_API_DISPATCH_CAP][24];
+
     for (int i = 0; i < BB_API_DISPATCH_CAP - 8; i++) {
+        snprintf(wm_paths[i], sizeof(wm_paths[i]), "/api/wm%d", i);
         TEST_ASSERT_EQUAL(BB_OK,
-            bb_api_dispatch_add(BB_HTTP_GET, "/api/fill", handler_other));
+            bb_api_dispatch_add(BB_HTTP_GET, wm_paths[i], handler_other));
     }
     TEST_ASSERT_EQUAL(BB_API_DISPATCH_CAP - 8, (int)bb_api_dispatch_count());
 
-    /* The next 8 adds must still succeed (warn was informational). */
+    /* The next 8 adds must still succeed (warn was informational).
+     * Use POST to avoid method collision with the GET entries above on shared path. */
     for (int i = 0; i < 8; i++) {
+        snprintf(wm_paths[BB_API_DISPATCH_CAP - 8 + i],
+                 sizeof(wm_paths[0]), "/api/wm%d", BB_API_DISPATCH_CAP - 8 + i);
         TEST_ASSERT_EQUAL(BB_OK,
-            bb_api_dispatch_add(BB_HTTP_POST, "/api/fill", handler_other));
+            bb_api_dispatch_add(BB_HTTP_POST,
+                                wm_paths[BB_API_DISPATCH_CAP - 8 + i],
+                                handler_other));
     }
     TEST_ASSERT_EQUAL(BB_API_DISPATCH_CAP, (int)bb_api_dispatch_count());
 }
