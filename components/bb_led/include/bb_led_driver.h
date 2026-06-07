@@ -18,6 +18,9 @@ typedef struct {
     bb_err_t (*close)         (void *state);
     bb_led_caps_t caps;
     uint16_t count;
+    // Static-lifetime driver/backend identity string (e.g. "apa102", "pwm", "gpio").
+    // Set by the backend at vtable construction time. May be NULL on legacy drivers.
+    const char *name;
 } bb_led_driver_t;
 
 // Called from a driver's _open after allocating its state struct.

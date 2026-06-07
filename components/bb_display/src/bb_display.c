@@ -110,9 +110,10 @@ bb_err_t bb_display_init(void)
     return BB_ERR_INVALID_STATE;
 }
 
-bool     bb_display_ready(void)  { return s_ready; }
-uint16_t bb_display_width(void)  { return s_width; }
-uint16_t bb_display_height(void) { return s_height; }
+bool        bb_display_ready(void)        { return s_ready; }
+uint16_t    bb_display_width(void)        { return s_width; }
+uint16_t    bb_display_height(void)       { return s_height; }
+const char *bb_display_backend_name(void) { return s_active ? s_active->name : NULL; }
 
 void bb_display_clear(uint16_t rgb565)
 {

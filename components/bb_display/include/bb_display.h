@@ -23,9 +23,14 @@
  * most builds link exactly one.
  */
 
-bb_err_t bb_display_init(void);
-void     bb_display_off(void);
-bool     bb_display_ready(void);
+bb_err_t    bb_display_init(void);
+void        bb_display_off(void);
+bool        bb_display_ready(void);
+
+// Returns the active panel backend's name (e.g. "st77xx", "ssd1306"),
+// or NULL if no backend is registered or bb_display_init has not succeeded.
+// Valid only after a successful bb_display_init(); cleared by bb_display_off().
+const char *bb_display_backend_name(void);
 
 uint16_t bb_display_width(void);
 uint16_t bb_display_height(void);

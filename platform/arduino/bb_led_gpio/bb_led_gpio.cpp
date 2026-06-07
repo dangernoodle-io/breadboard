@@ -28,7 +28,7 @@ static bb_err_t op_close(void *st) {
 static const bb_led_driver_t s_drv = {
     .set_on = op_set_on, .set_brightness = NULL, .set_level = NULL, .set_color = NULL,
     .flush = NULL, .close = op_close,
-    .caps = BB_LED_CAP_ONOFF, .count = 1,
+    .caps = BB_LED_CAP_ONOFF, .count = 1, .name = "gpio",
 };
 
 bb_err_t bb_led_gpio_open(const bb_led_gpio_cfg_t *cfg, bb_led_handle_t *out) {

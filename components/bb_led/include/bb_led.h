@@ -20,6 +20,18 @@ typedef enum {
 bb_led_caps_t bb_led_caps (bb_led_handle_t h);
 uint16_t      bb_led_count(bb_led_handle_t h);
 
+// Returns the driver's static name string (e.g. "apa102", "pwm", "gpio"),
+// or NULL if h is invalid or the driver has no name.
+const char   *bb_led_name (bb_led_handle_t h);
+
+// Records h as the app's designated primary/status LED handle for introspection.
+// bb_led itself stays multi-handle/handle-based; this is a single app-level slot.
+// Pass NULL to clear. Does not transfer ownership.
+void          bb_led_set_primary(bb_led_handle_t h);
+
+// Returns the handle recorded by bb_led_set_primary(), or NULL if none set.
+bb_led_handle_t bb_led_primary(void);
+
 bb_err_t bb_led_set_on        (bb_led_handle_t h, uint16_t idx, bool on);
 bb_err_t bb_led_set_brightness(bb_led_handle_t h, uint16_t idx, uint8_t pct); // 0..100
 // Fine-resolution brightness: level 0..65535, perceptual (driver applies gamma).

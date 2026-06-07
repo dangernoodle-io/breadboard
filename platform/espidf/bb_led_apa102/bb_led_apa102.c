@@ -159,6 +159,7 @@ bb_err_t bb_led_apa102_open(const bb_led_apa102_cfg_t *cfg, bb_led_handle_t *out
         .close = op_close,
         .caps = (bb_led_caps_t)(BB_LED_CAP_ONOFF | BB_LED_CAP_BRIGHTNESS | BB_LED_CAP_RGB),
         .count = cfg->led_count,
+        .name = "apa102",
     };
     s->drv = drv;
 
