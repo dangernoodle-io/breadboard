@@ -245,6 +245,40 @@ Sensor availability: ESP32-S2/S3/C3/C6/H2 and later have the modern `temperature
 - `platform/espidf/bb_power_routes/bb_power_routes.c`
 - `platform/host/bb_power_routes/bb_power_routes_host.c` (test hooks)
 
+## Fan (`bb_fan`, `bb_fan_emc2101`, `/api/fan`)
+
+`bb_fan` is a portable fan-controller + temperature HAL. `bb_fan_set_primary(h)` / `bb_fan_primary()` record a single app-level primary fan handle. `bb_fan_poll(h)` reads all channels via the vtable and caches the result (mutex-protected). `bb_fan_snapshot(h, &out)` returns the cached reading (mutex-protected); integer fields are -1 and float fields are NAN if h is NULL or readings errored.
+
+**Poll/snapshot model.** Consumer calls `bb_fan_poll` periodically (e.g. once per second) and the HTTP handler calls `bb_fan_snapshot` — the two paths are decoupled and thread-safe via `pthread_mutex_t`.
+
+**`bb_fan_snapshot_t` fields:**
+- `rpm` — -1 if unavailable or stalled (tach = 0xFFFF)
+- `duty_pct` — -1 if not yet set or unknown
+- `die_c` — NAN if external diode read failed or not supported
+- `board_c` — NAN if internal sensor read failed or not supported
+
+**`bb_fan_emc2101` backend (ESP-IDF only).** `bb_fan_emc2101_open(cfg, &h)` adds the device to an I2C bus, runs the EMC2101 init sequence (config register, fan config register, optional ideality/beta compensation writes, failsafe 100% duty), and calls `bb_fan_handle_create`. Config: `{ bus, addr, ideality, beta }` — `ideality`/`beta` = 0 skips those register writes (e.g. bitaxe-403). Pure decode math (ext temp 11-bit 0.125°C, internal temp 8-bit 1°C, RPM = 5400000/tach) lives in `components/bb_fan_emc2101/include/emc2101_decode.h` (pure, no ESP-IDF; host-testable).
+
+**`/api/fan` route (`bb_fan_routes`).** GET emits a JSON object from `bb_fan_primary()`:
+- `present` (bool) — `bb_fan_primary() != NULL`
+- `rpm`, `duty_pct` — number or null (when -1 or not present)
+- then `bb_http_route_run_extenders("fan", root)` — satellites add fields (e.g. autofan target)
+
+POST `{"duty_pct": N}` (0..100) sets raw duty on the primary handle; returns 200 `{"status":"ok","duty_pct":N}`, 400 on bad input, 503 if no primary.
+
+**NOTE (POST /api/fan vs TM autofan config):** TM's existing POST /api/fan sets autofan config; this BB route provides generic raw-duty HAL control. Reconciliation is deferred to P4.
+
+**Route-extender ordering.** Satellites register "fan" extenders at order 0. `bb_fan_routes_init` runs at order 1 and calls `bb_http_route_assemble_schema("fan", base, suffix)`. `bb_http_extender_freeze()` is called by `bb_info_init` (order 2).
+
+**Sources:**
+- `components/bb_fan/` — portable core (header + CMakeLists + Kconfig)
+- `platform/host/bb_fan/bb_fan.c` — shared dispatch (compiled host + espidf)
+- `components/bb_fan_emc2101/` — EMC2101 backend (espidf-only)
+- `platform/espidf/bb_fan_emc2101/bb_fan_emc2101.c`
+- `components/bb_fan_routes/` — route component
+- `platform/espidf/bb_fan_routes/bb_fan_routes.c`
+- `platform/host/bb_fan_routes/bb_fan_routes_host.c` (test hooks)
+
 ## Portable timing
 
 `bb_clock_now_ms()` in `bb_core/include/bb_clock.h` provides a portable millisecond timestamp. Named timing constants live in their respective headers: `BB_BUTTON_DEBOUNCE_MS_DEFAULT`, `BB_BUTTON_EVENTS_*_DEFAULT_MS`, `BB_LED_ANIM_*_DEFAULT_MS`. `bb_timer` also exposes `bb_timer_now_us()` for microsecond timestamps.

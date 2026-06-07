@@ -214,6 +214,17 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_power_routes/bb_power_routes_host.c"],
         "depends":  ["bb_power", "bb_core", "bb_http", "bb_json", "bb_info"],
     },
+    "bb_fan": {
+        "includes": ["components/bb_fan/include"],
+        "sources":  ["platform/host/bb_fan/bb_fan.c"],
+        "depends":  ["bb_core"],
+    },
+    "bb_fan_routes": {
+        "includes": ["components/bb_fan_routes/include",
+                     "components/bb_fan_emc2101/include"],
+        "sources":  ["platform/host/bb_fan_routes/bb_fan_routes_host.c"],
+        "depends":  ["bb_fan", "bb_core", "bb_http", "bb_json", "bb_info"],
+    },
     "bb_led": {
         "includes": ["components/bb_led/include"],
         "sources":  [
