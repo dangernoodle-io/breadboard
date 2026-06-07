@@ -215,6 +215,36 @@ Also contributes a JSON-Schema properties fragment via `bb_info_register_extende
 
 Sensor availability: ESP32-S2/S3/C3/C6/H2 and later have the modern `temperature_sensor` peripheral. Classic ESP32 (WROOM-32) does NOT — `present` is always `false` on that target. The component compiles cleanly on all targets via `#if SOC_TEMP_SENSOR_SUPPORTED` in `bb_system`. Also contributes a JSON-Schema properties fragment to the `/api/health` 200 response schema via `bb_health_register_extender_ex`. Sources: `platform/espidf/bb_temp/bb_temp.c` (ESP-IDF) / `platform/host/bb_temp/bb_temp.c` (host, test-injectable via `BB_TEMP_TESTING` + `bb_temp_test_set_soc`).
 
+## Power (`bb_power`, `bb_power_tps546`, `/api/power`)
+
+`bb_power` is a portable voltage-regulator monitor HAL. `bb_power_set_primary(h)` / `bb_power_primary()` record a single app-level primary power handle. `bb_power_poll(h)` reads all channels via the vtable and caches the result (mutex-protected). `bb_power_snapshot(h, &out)` returns the cached reading (mutex-protected); all fields are -1 if h is NULL or readings errored.
+
+**Poll/snapshot model.** The consumer calls `bb_power_poll` periodically (e.g. once per second from a monitoring task) and the HTTP handler calls `bb_power_snapshot` to read the cache — the two paths are decoupled and thread-safe via a `pthread_mutex_t` (POSIX on host; ESP-IDF ships a POSIX pthread layer).
+
+**`bb_power_snapshot_t` fields:**
+- `vout_mv`, `iout_ma`, `vin_mv`, `temp_c` — -1 if unavailable or read error
+- `pout_mw` — `(vout_mv * iout_ma) / 1000` when both ≥0; else -1 (raw, no board offset)
+
+**`bb_power_tps546` backend (ESP-IDF only).** `bb_power_tps546_open(cfg, &h)` adds the device to an I2C bus, runs the TPS546 init sequence (programs switch freq, OC limit, OC response, clears faults, powers on), and calls `bb_power_handle_create`. Config: `{ bus, addr, target_mv, switch_freq_khz, oc_limit_a, oc_response }` — zero values use defaults (650 kHz, 30 A, 0xC0). PMBus decode math lives in `components/bb_power_tps546/include/tps546_decode.h` (pure, no ESP-IDF; host-testable).
+
+**`/api/power` route (`bb_power_routes`).** Emits a JSON object from `bb_power_primary()`:
+- `present` (bool) — `bb_power_primary() != NULL`
+- `vout_mv`, `iout_ma`, `pout_mw`, `vin_mv`, `temp_c` — number or null (when -1 or not present)
+- then `bb_http_route_run_extenders("power", root)` — satellites (e.g. TM) add fields like `pcore_mw`
+
+**Route-extender ordering.** Satellites register "power" extenders at order 0 (regular tier). `bb_power_routes_init` runs at order 1 and calls `bb_http_route_assemble_schema("power", base, suffix)` to build the published schema. `bb_http_extender_freeze()` is called by `bb_info_init` (order 2); no double-freeze.
+
+**Schema.** `s_power_responses[0].schema` is set at `bb_power_routes_init` time to the assembled string (base fields + extender fragments + required array).
+
+**Sources:**
+- `components/bb_power/` — portable core (header + CMakeLists + Kconfig)
+- `platform/host/bb_power/bb_power.c` — shared core (compiled host + espidf)
+- `components/bb_power_tps546/` — TPS546 backend (espidf-only)
+- `platform/espidf/bb_power_tps546/bb_power_tps546.c`
+- `components/bb_power_routes/` — route component
+- `platform/espidf/bb_power_routes/bb_power_routes.c`
+- `platform/host/bb_power_routes/bb_power_routes_host.c` (test hooks)
+
 ## Portable timing
 
 `bb_clock_now_ms()` in `bb_core/include/bb_clock.h` provides a portable millisecond timestamp. Named timing constants live in their respective headers: `BB_BUTTON_DEBOUNCE_MS_DEFAULT`, `BB_BUTTON_EVENTS_*_DEFAULT_MS`, `BB_LED_ANIM_*_DEFAULT_MS`. `bb_timer` also exposes `bb_timer_now_us()` for microsecond timestamps.
