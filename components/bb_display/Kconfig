@@ -1,3 +1,5 @@
+menu "bb_display"
+
 menu "bb_display fonts"
 
 config BB_DISPLAY_FONT_5X8
@@ -20,5 +22,7 @@ config BB_DISPLAY_FONT_8X16
     help
         Spleen 8x16 bitmap font (~1520 B flash rodata). Disable to save
         flash when the 8x16 font is not used.
+
+endmenu
 
 endmenu

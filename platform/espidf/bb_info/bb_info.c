@@ -11,7 +11,7 @@
 #include "bb_registry.h"
 #include "bb_wifi.h"
 
-#include "../../components/bb_info/bb_info_schema_priv.h"
+#include "../../../components/bb_info/bb_info_schema_priv.h"
 
 #define BB_INFO_MAX_EXTENDERS 4
 #define BB_HEALTH_MAX_EXTENDERS 4

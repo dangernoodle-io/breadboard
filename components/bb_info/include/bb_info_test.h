@@ -23,6 +23,11 @@ void bb_info_freeze_for_test(void);
 // Called from setUp() in test_main.c to isolate tests.
 void bb_info_reset_for_test(void);
 
+// Invoke all registered /api/info extenders against root.
+// Mirrors what bb_info's info_handler does on ESP-IDF so host tests can
+// verify extender JSON output without a live HTTP server.
+void bb_info_invoke_extenders_for_test(void *root);
+
 #ifdef __cplusplus
 }
 #endif

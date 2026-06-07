@@ -12,15 +12,25 @@
 
 #include "bb_log.h"
 #include "bb_registry.h"
+#include "bb_led_info.h"
 #include "smoke_app.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#if __has_include("bb_display_info.h")
+#include "bb_display_info.h"
+#define BB_HAVE_DISPLAY_INFO 1
+#endif
 
 static const char *TAG = "smoke";
 
 void app_main(void)
 {
     bb_registry_init_early();
+    bb_led_register_info();
+#ifdef BB_HAVE_DISPLAY_INFO
+    bb_display_register_info();
+#endif
     bb_registry_init();
     smoke_app_setup();
     bb_log_i(TAG, "smoke boot ok");

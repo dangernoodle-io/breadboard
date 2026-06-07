@@ -71,6 +71,13 @@ void bb_info_freeze_for_test(void)
     s_frozen = true;
 }
 
+void bb_info_invoke_extenders_for_test(void *root)
+{
+    for (int i = 0; i < s_extender_count; i++) {
+        s_extenders[i].fn(root);
+    }
+}
+
 void bb_info_reset_for_test(void)
 {
     memset(s_extenders, 0, sizeof(s_extenders));

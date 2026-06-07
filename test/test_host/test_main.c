@@ -950,6 +950,10 @@ void test_bb_display_show_splash_no_default_font_noop(void);
 void test_bb_display_set_rotation_zero(void);
 void test_bb_display_set_rotation_180(void);
 void test_bb_display_set_rotation_270(void);
+void test_bb_display_info_schema_in_assembled_schema(void);
+void test_bb_display_info_extender_no_backend_present_false(void);
+void test_bb_display_info_extender_with_backend_present_true(void);
+void test_bb_display_info_enabled_tracks_nv_config(void);
 
 // Forward declarations from test_bb_timer.c
 void test_bb_timer_create_null_out_returns_err(void);
@@ -1006,6 +1010,7 @@ void test_bb_info_assembled_schema_two_extenders_both_present_valid_json(void);
 void test_bb_info_assembled_schema_is_valid_json(void);
 void test_bb_info_register_after_freeze_returns_invalid_state(void);
 void bb_info_reset_for_test(void);
+void bb_info_invoke_extenders_for_test(void *root);
 
 // Forward declarations from test_wifi_reconn_policy.c
 void wifi_reconn_policy_test_reset(void);
@@ -1045,6 +1050,15 @@ void test_bb_led_brightness_pct_validation(void);
 void test_bb_led_set_level_bridges_to_set_brightness(void);
 void test_bb_led_set_level_calls_driver_when_present(void);
 void test_bb_led_set_level_unsupported_without_brightness_cap(void);
+void test_bb_led_primary_null_before_set(void);
+void test_bb_led_set_primary_stores_handle(void);
+void test_bb_led_set_primary_null_clears(void);
+void test_bb_led_name_returns_driver_name(void);
+void test_bb_led_name_null_handle_returns_null(void);
+void test_bb_led_info_schema_in_assembled_schema(void);
+void test_bb_led_info_extender_no_primary_present_false(void);
+void test_bb_led_info_extender_rgb_primary_present_true(void);
+void test_bb_led_info_extender_pwm_primary_rgb_false(void);
 
 // Forward declarations from test_bb_led_gpio.c
 void test_gpio_open_close(void);
@@ -2363,6 +2377,12 @@ int main(void) {
     RUN_TEST(test_bb_display_set_rotation_180);
     RUN_TEST(test_bb_display_set_rotation_270);
 
+    // bb_display_info satellite tests
+    RUN_TEST(test_bb_display_info_schema_in_assembled_schema);
+    RUN_TEST(test_bb_display_info_extender_no_backend_present_false);
+    RUN_TEST(test_bb_display_info_extender_with_backend_present_true);
+    RUN_TEST(test_bb_display_info_enabled_tracks_nv_config);
+
     // bb_byte_order tests
     RUN_TEST(test_bb_load_be32_constant);
     RUN_TEST(test_bb_load_le32_constant);
@@ -2469,6 +2489,17 @@ int main(void) {
     RUN_TEST(test_bb_led_set_level_bridges_to_set_brightness);
     RUN_TEST(test_bb_led_set_level_calls_driver_when_present);
     RUN_TEST(test_bb_led_set_level_unsupported_without_brightness_cap);
+    RUN_TEST(test_bb_led_primary_null_before_set);
+    RUN_TEST(test_bb_led_set_primary_stores_handle);
+    RUN_TEST(test_bb_led_set_primary_null_clears);
+    RUN_TEST(test_bb_led_name_returns_driver_name);
+    RUN_TEST(test_bb_led_name_null_handle_returns_null);
+
+    // bb_led_info satellite tests
+    RUN_TEST(test_bb_led_info_schema_in_assembled_schema);
+    RUN_TEST(test_bb_led_info_extender_no_primary_present_false);
+    RUN_TEST(test_bb_led_info_extender_rgb_primary_present_true);
+    RUN_TEST(test_bb_led_info_extender_pwm_primary_rgb_false);
 
     // bb_led_gpio tests
     RUN_TEST(test_gpio_open_close);

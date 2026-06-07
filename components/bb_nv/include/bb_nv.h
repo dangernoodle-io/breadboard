@@ -25,8 +25,9 @@ bb_err_t bb_nv_flash_init(void);
 const char *bb_nv_config_wifi_ssid(void);
 const char *bb_nv_config_wifi_pass(void);
 const char *bb_nv_config_hostname(void);
-bool bb_nv_config_display_enabled(void);
-bool bb_nv_config_mdns_enabled(void);
+bool     bb_nv_config_display_enabled(void);
+bb_err_t bb_nv_config_set_display_enabled(bool en);
+bool     bb_nv_config_mdns_enabled(void);
 bool bb_nv_config_update_check_enabled(void);
 
 #ifndef ESP_PLATFORM
@@ -59,7 +60,6 @@ bb_err_t bb_nv_config_set_ota_skip_check(bool skip);
 
 bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass);
 bb_err_t bb_nv_config_set_hostname(const char *hostname);
-bb_err_t bb_nv_config_set_display_enabled(bool en);
 bb_err_t bb_nv_config_set_mdns_enabled(bool en);
 
 /// Stage pending wifi credentials (wifi_ssid_p / wifi_pass_p / wifi_try=1).

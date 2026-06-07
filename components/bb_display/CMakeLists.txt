@@ -1,4 +1,6 @@
 set(SRCS "${CMAKE_CURRENT_LIST_DIR}/src/bb_display.c")
+set(_display_reqs bb_core)
+set(_display_priv_reqs bb_log)
 
 if(CONFIG_BB_DISPLAY_FONT_8X16)
     list(APPEND SRCS "${CMAKE_CURRENT_LIST_DIR}/src/bb_display_font_8x16.c")
@@ -13,5 +15,5 @@ endif()
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "include"
-    REQUIRES bb_core
-    PRIV_REQUIRES bb_log)
+    REQUIRES ${_display_reqs}
+    PRIV_REQUIRES ${_display_priv_reqs})
