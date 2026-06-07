@@ -542,6 +542,8 @@ void test_capture_send_json_sets_content_type(void);
 void test_capture_multi_write_appends(void);
 void test_capture_end_null_args_returns_err(void);
 void test_capture_no_active_slot_ignored(void);
+void test_fidelity_info_with_extender(void);
+void test_fidelity_info_schema_matches_assembled(void);
 void test_register_described_route_rejects_null(void);
 void test_register_described_route_propagates_underlying_failure(void);
 void test_register_described_route_overflow_returns_no_space(void);
@@ -995,6 +997,15 @@ void test_bb_board_rtc_total_callable(void);
 void test_bb_health_register_extender_null_returns_err(void);
 void test_bb_health_register_extender_capacity(void);
 void test_bb_info_register_extender_null_returns_err(void);
+void test_bb_info_register_extender_ex_null_fn_returns_invalid_arg(void);
+void test_bb_info_register_extender_ex_null_schema_succeeds(void);
+void test_bb_info_register_extender_ex_empty_schema_succeeds(void);
+void test_bb_info_assembled_schema_contains_fragment(void);
+void test_bb_info_assembled_schema_no_extenders_equals_base_plus_suffix(void);
+void test_bb_info_assembled_schema_two_extenders_both_present_valid_json(void);
+void test_bb_info_assembled_schema_is_valid_json(void);
+void test_bb_info_register_after_freeze_returns_invalid_state(void);
+void bb_info_reset_for_test(void);
 
 // Forward declarations from test_wifi_reconn_policy.c
 void wifi_reconn_policy_test_reset(void);
@@ -1423,6 +1434,7 @@ void setUp(void) {
     test_alloc_reset();
     bb_display_reset_for_testing();
     bb_display_test_reset_mock();
+    bb_info_reset_for_test();
 }
 void tearDown(void) {}
 
@@ -1925,6 +1937,8 @@ int main(void) {
     RUN_TEST(test_fidelity_update_status);
     RUN_TEST(test_fidelity_update_config_get);
     RUN_TEST(test_fidelity_diag_events);
+    RUN_TEST(test_fidelity_info_with_extender);
+    RUN_TEST(test_fidelity_info_schema_matches_assembled);
     RUN_TEST(test_register_described_route_rejects_null);
     RUN_TEST(test_register_described_route_propagates_underlying_failure);
     RUN_TEST(test_register_described_route_overflow_returns_no_space);
@@ -2411,6 +2425,14 @@ int main(void) {
     RUN_TEST(test_bb_health_register_extender_null_returns_err);
     RUN_TEST(test_bb_health_register_extender_capacity);
     RUN_TEST(test_bb_info_register_extender_null_returns_err);
+    RUN_TEST(test_bb_info_register_extender_ex_null_fn_returns_invalid_arg);
+    RUN_TEST(test_bb_info_register_extender_ex_null_schema_succeeds);
+    RUN_TEST(test_bb_info_register_extender_ex_empty_schema_succeeds);
+    RUN_TEST(test_bb_info_assembled_schema_contains_fragment);
+    RUN_TEST(test_bb_info_assembled_schema_no_extenders_equals_base_plus_suffix);
+    RUN_TEST(test_bb_info_assembled_schema_two_extenders_both_present_valid_json);
+    RUN_TEST(test_bb_info_assembled_schema_is_valid_json);
+    RUN_TEST(test_bb_info_register_after_freeze_returns_invalid_state);
 
     // wifi_reconn_policy tests
     RUN_TEST(test_wifi_reconn_tier1_handshake_fast_retry);

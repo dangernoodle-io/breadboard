@@ -11,34 +11,63 @@
 #include "bb_registry.h"
 #include "bb_wifi.h"
 
+#include "../../components/bb_info/bb_info_schema_priv.h"
+
 #define BB_INFO_MAX_EXTENDERS 4
 #define BB_HEALTH_MAX_EXTENDERS 4
 
 static const char *TAG = "bb_info";
 
-static bb_info_extender_fn s_extenders[BB_INFO_MAX_EXTENDERS];
-static int s_extender_count = 0;
-static bool s_frozen = false;
+typedef struct {
+    bb_info_extender_fn fn;
+    const char         *schema_props;
+} bb_info_extender_entry_t;
 
-static bb_info_extender_fn s_health_extenders[BB_HEALTH_MAX_EXTENDERS];
-static int s_health_extender_count = 0;
+static bb_info_extender_entry_t s_extenders[BB_INFO_MAX_EXTENDERS];
+static int   s_extender_count = 0;
+static bool  s_frozen         = false;
 
-bb_err_t bb_info_register_extender(bb_info_extender_fn fn)
+static bb_info_extender_entry_t s_health_extenders[BB_HEALTH_MAX_EXTENDERS];
+static int   s_health_extender_count = 0;
+
+// Assembled schema strings (malloc'd at init; NULL on malloc failure).
+static char *s_assembled_info_schema    = NULL;
+static char *s_assembled_health_schema  = NULL;
+
+bb_err_t bb_info_register_extender_ex(bb_info_extender_fn fn,
+                                       const char *schema_props_fragment)
 {
     if (!fn) return BB_ERR_INVALID_ARG;
     if (s_frozen) return BB_ERR_INVALID_STATE;
     if (s_extender_count >= BB_INFO_MAX_EXTENDERS) return BB_ERR_NO_SPACE;
-    s_extenders[s_extender_count++] = fn;
+    const char *frag = (schema_props_fragment && schema_props_fragment[0]) ? schema_props_fragment : NULL;
+    s_extenders[s_extender_count].fn          = fn;
+    s_extenders[s_extender_count].schema_props = frag;
+    s_extender_count++;
+    return BB_OK;
+}
+
+bb_err_t bb_info_register_extender(bb_info_extender_fn fn)
+{
+    return bb_info_register_extender_ex(fn, NULL);
+}
+
+bb_err_t bb_health_register_extender_ex(bb_info_extender_fn fn,
+                                         const char *schema_props_fragment)
+{
+    if (!fn) return BB_ERR_INVALID_ARG;
+    if (s_frozen) return BB_ERR_INVALID_STATE;
+    if (s_health_extender_count >= BB_HEALTH_MAX_EXTENDERS) return BB_ERR_NO_SPACE;
+    const char *frag = (schema_props_fragment && schema_props_fragment[0]) ? schema_props_fragment : NULL;
+    s_health_extenders[s_health_extender_count].fn          = fn;
+    s_health_extenders[s_health_extender_count].schema_props = frag;
+    s_health_extender_count++;
     return BB_OK;
 }
 
 bb_err_t bb_health_register_extender(bb_info_extender_fn fn)
 {
-    if (!fn) return BB_ERR_INVALID_ARG;
-    if (s_frozen) return BB_ERR_INVALID_STATE;
-    if (s_health_extender_count >= BB_HEALTH_MAX_EXTENDERS) return BB_ERR_NO_SPACE;
-    s_health_extenders[s_health_extender_count++] = fn;
-    return BB_OK;
+    return bb_health_register_extender_ex(fn, NULL);
 }
 
 static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
@@ -131,7 +160,7 @@ static bb_err_t info_handler(bb_http_request_t *req)
     bb_json_obj_set_number(root, "http_handler_cap", (double)bb_http_route_handler_cap());
 
     for (int i = 0; i < s_extender_count; i++) {
-        s_extenders[i](root);
+        s_extenders[i].fn(root);
     }
 
     bb_err_t err = send_json_tree(req, root);
@@ -169,7 +198,7 @@ static bb_err_t health_handler(bb_http_request_t *req)
     bb_json_obj_set_obj(root, "network", net);
 
     for (int i = 0; i < s_health_extender_count; i++) {
-        s_health_extenders[i](root);
+        s_health_extenders[i].fn(root);
     }
 
     bb_err_t err = send_json_tree(req, root);
@@ -178,57 +207,84 @@ static bb_err_t health_handler(bb_http_request_t *req)
 }
 
 // ---------------------------------------------------------------------------
+// Schema assembly
+// ---------------------------------------------------------------------------
+
+// Assembles base + extender fragments + suffix into a malloc'd string.
+// Returns NULL on malloc failure.
+static char *assemble_schema(const char *base, const char *suffix,
+                              const bb_info_extender_entry_t *entries, int count)
+{
+    size_t len = strlen(base) + strlen(suffix) + 1; // +1 for NUL
+    for (int i = 0; i < count; i++) {
+        if (entries[i].schema_props) {
+            len += 1 + strlen(entries[i].schema_props); // comma + fragment
+        }
+    }
+
+    char *buf = malloc(len);
+    if (!buf) return NULL;
+
+    char *p = buf;
+    p = stpcpy(p, base);
+    for (int i = 0; i < count; i++) {
+        if (entries[i].schema_props) {
+            *p++ = ',';
+            p = stpcpy(p, entries[i].schema_props);
+        }
+    }
+    stpcpy(p, suffix);
+    return buf;
+}
+
+static void assemble_info_schema(void)
+{
+    s_assembled_info_schema = assemble_schema(
+        k_info_schema_base, k_info_schema_suffix,
+        s_extenders, s_extender_count);
+    if (!s_assembled_info_schema) {
+        bb_log_w(TAG, "info schema assembly: malloc failed; schema will be NULL");
+    }
+}
+
+static void assemble_health_schema(void)
+{
+    // Health schema is not split the same way (no extension base/suffix defined),
+    // so we use the monolithic literal directly. If health extenders carry fragments,
+    // we still need to assemble.
+    static const char k_health_base[] =
+        "{\"type\":\"object\","
+        "\"properties\":{"
+        "\"ok\":{\"type\":\"boolean\"},"
+        "\"free_heap\":{\"type\":\"integer\"},"
+        "\"validated\":{\"type\":\"boolean\"},"
+        "\"network\":{\"type\":\"object\","
+        "\"properties\":{"
+        "\"connected\":{\"type\":\"boolean\"},"
+        "\"rssi\":{\"type\":\"integer\"},"
+        "\"disc_age_s\":{\"type\":\"integer\"},"
+        "\"retry_count\":{\"type\":\"integer\"},"
+        "\"mdns\":{\"type\":[\"string\",\"null\"]}}}";
+
+    static const char k_health_suffix[] =
+        "},"
+        "\"required\":[\"ok\",\"network\"]}";
+
+    s_assembled_health_schema = assemble_schema(
+        k_health_base, k_health_suffix,
+        s_health_extenders, s_health_extender_count);
+    if (!s_assembled_health_schema) {
+        bb_log_w(TAG, "health schema assembly: malloc failed; schema will be NULL");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Route descriptor
 // ---------------------------------------------------------------------------
 
-static const bb_route_response_t s_info_responses[] = {
+static bb_route_response_t s_info_responses[] = {
     { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"board\":{\"type\":\"string\"},"
-      "\"project_name\":{\"type\":\"string\"},"
-      "\"version\":{\"type\":\"string\"},"
-      "\"idf_version\":{\"type\":\"string\"},"
-      "\"build_date\":{\"type\":\"string\"},"
-      "\"build_time\":{\"type\":\"string\"},"
-      "\"chip_model\":{\"type\":\"string\"},"
-      "\"cores\":{\"type\":\"integer\"},"
-      "\"mac\":{\"type\":\"string\"},"
-      "\"flash_size\":{\"type\":\"integer\"},"
-      "\"total_heap\":{\"type\":\"integer\"},"
-      "\"free_heap\":{\"type\":\"integer\"},"
-      "\"app_size\":{\"type\":\"integer\"},"
-      "\"reset_reason\":{\"type\":\"string\"},"
-      "\"ota_validated\":{\"type\":\"boolean\"},"
-      "\"heap_free_total\":{\"type\":\"integer\"},"
-      "\"heap_free_internal\":{\"type\":\"integer\"},"
-      "\"heap_minimum_ever\":{\"type\":\"integer\"},"
-      "\"heap_largest_free_block\":{\"type\":\"integer\"},"
-      "\"chip_revision\":{\"type\":\"integer\"},"
-      "\"cpu_freq_mhz\":{\"type\":\"integer\"},"
-      "\"heap_internal\":{\"type\":\"object\","
-      "\"properties\":{"
-      "\"free\":{\"type\":\"integer\"},"
-      "\"total\":{\"type\":\"integer\"}}},"
-      "\"heap_psram\":{\"type\":\"object\","
-      "\"properties\":{"
-      "\"free\":{\"type\":\"integer\"},"
-      "\"total\":{\"type\":\"integer\"}}},"
-      "\"rtc\":{\"type\":\"object\","
-      "\"properties\":{"
-      "\"used\":{\"type\":\"integer\"},"
-      "\"total\":{\"type\":\"integer\"}}},"
-      "\"network\":{\"type\":\"object\","
-      "\"properties\":{"
-      "\"ssid\":{\"type\":\"string\"},"
-      "\"bssid\":{\"type\":\"string\"},"
-      "\"rssi\":{\"type\":\"integer\"},"
-      "\"ip\":{\"type\":\"string\"},"
-      "\"connected\":{\"type\":\"boolean\"},"
-      "\"disc_reason\":{\"type\":\"integer\"},"
-      "\"disc_age_s\":{\"type\":\"integer\"},"
-      "\"retry_count\":{\"type\":\"integer\"}}}},"
-      "\"required\":[\"board\",\"version\",\"network\"]}",
+      NULL,  // filled by assemble_info_schema() at init
       "full device info including board and network" },
     { 0 },
 };
@@ -242,21 +298,9 @@ static const bb_route_t s_info_route = {
     .handler  = info_handler,
 };
 
-static const bb_route_response_t s_health_responses[] = {
+static bb_route_response_t s_health_responses[] = {
     { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"ok\":{\"type\":\"boolean\"},"
-      "\"free_heap\":{\"type\":\"integer\"},"
-      "\"validated\":{\"type\":\"boolean\"},"
-      "\"network\":{\"type\":\"object\","
-      "\"properties\":{"
-      "\"connected\":{\"type\":\"boolean\"},"
-      "\"rssi\":{\"type\":\"integer\"},"
-      "\"disc_age_s\":{\"type\":\"integer\"},"
-      "\"retry_count\":{\"type\":\"integer\"},"
-      "\"mdns\":{\"type\":[\"string\",\"null\"]}}}},"
-      "\"required\":[\"ok\",\"network\"]}",
+      NULL,  // filled by assemble_health_schema() at init
       "liveness check" },
     { 0 },
 };
@@ -274,6 +318,10 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     s_frozen = true;
+
+    assemble_info_schema();
+    assemble_health_schema();
+
     bb_err_t err = bb_http_register_described_route(server, &s_info_route);
     if (err != BB_OK) return err;
     bb_log_i(TAG, "info route registered");
