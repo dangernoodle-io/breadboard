@@ -349,7 +349,18 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
     s_frozen = true;
 
     assemble_info_schema();
+    // Wire the assembled schema buffer into the route descriptor so that OpenAPI
+    // emits it in /api/openapi.json and clients can validate responses. Without
+    // this assignment, the descriptor's .schema field stays NULL and OpenAPI skips
+    // it. If assemble_info_schema() fails (malloc), s_assembled_info_schema is NULL
+    // and the descriptor gracefully remains NULL — same as before.
+    s_info_responses[0].schema = s_assembled_info_schema;
+
     assemble_health_schema();
+    // Wire the assembled health schema buffer into the route descriptor for the same
+    // reason: OpenAPI needs it to emit the schema in /api/openapi.json. Gracefully
+    // handles malloc failure (NULL assignment is safe).
+    s_health_responses[0].schema = s_assembled_health_schema;
 
     bb_err_t err = bb_http_register_described_route(server, &s_info_route);
     if (err != BB_OK) return err;
