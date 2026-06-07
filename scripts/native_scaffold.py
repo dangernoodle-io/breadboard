@@ -203,6 +203,17 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_info/bb_info_host.c"],
         "depends":  ["bb_core", "bb_http", "bb_json", "bb_board", "bb_wifi"],
     },
+    "bb_power": {
+        "includes": ["components/bb_power/include"],
+        "sources":  ["platform/host/bb_power/bb_power.c"],
+        "depends":  ["bb_core"],
+    },
+    "bb_power_routes": {
+        "includes": ["components/bb_power_routes/include",
+                     "components/bb_power_tps546/include"],
+        "sources":  ["platform/host/bb_power_routes/bb_power_routes_host.c"],
+        "depends":  ["bb_power", "bb_core", "bb_http", "bb_json", "bb_info"],
+    },
     "bb_led": {
         "includes": ["components/bb_led/include"],
         "sources":  [

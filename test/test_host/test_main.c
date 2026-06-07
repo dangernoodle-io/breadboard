@@ -1066,6 +1066,64 @@ void test_bb_mdns_lifecycle_announce_when_stopped_marks_dirty(void);
 void test_bb_mdns_lifecycle_restart_cycle(void);
 void test_bb_mdns_lifecycle_invalid_args(void);
 
+// Forward declarations from test_bb_power.c
+void bb_power_test_reset_local(void);
+void test_bb_power_handle_create_null_drv(void);
+void test_bb_power_handle_create_null_out(void);
+void test_bb_power_handle_create_succeeds(void);
+void test_bb_power_poll_computes_pout_mw(void);
+void test_bb_power_poll_pout_mw_negative_when_vout_error(void);
+void test_bb_power_poll_pout_mw_negative_when_iout_error(void);
+void test_bb_power_poll_all_error_fields(void);
+void test_bb_power_poll_null_handle(void);
+void test_bb_power_poll_updates_all_fields(void);
+void test_bb_power_snapshot_null_handle_all_minus_one(void);
+void test_bb_power_snapshot_returns_cache(void);
+void test_bb_power_snapshot_null_out_is_safe(void);
+void test_bb_power_set_vout_mv_delegates(void);
+void test_bb_power_set_vout_mv_null_handle(void);
+void test_bb_power_set_vout_mv_no_fn_unsupported(void);
+void test_bb_power_name_returns_driver_name(void);
+void test_bb_power_name_null_handle_returns_null(void);
+void test_bb_power_name_null_driver_name_returns_null(void);
+void test_bb_power_primary_null_before_set(void);
+void test_bb_power_set_primary_stores_handle(void);
+void test_bb_power_set_primary_null_clears(void);
+void test_bb_power_initial_snapshot_all_minus_one(void);
+
+// Forward declarations from test_tps546_decode.c
+void test_ulinear16_to_mv_negative_exp(void);
+void test_ulinear16_to_mv_rounding(void);
+void test_ulinear16_to_mv_zero_raw(void);
+void test_ulinear16_to_mv_zero_exp(void);
+void test_ulinear16_to_mv_exp_minus8(void);
+void test_slinear11_decode_zero(void);
+void test_slinear11_decode_positive_mantissa(void);
+void test_slinear11_decode_negative_mantissa_minus1(void);
+void test_slinear11_decode_negative_exponent(void);
+void test_slinear11_to_ma_30a_oc(void);
+void test_slinear11_to_ma_10a(void);
+void test_slinear11_to_ma_negative(void);
+void test_slinear11_to_c_int_45c(void);
+void test_slinear11_to_c_int_zero(void);
+void test_slinear11_to_mv_12v(void);
+void test_slinear11_to_mv_zero(void);
+void test_slinear11_to_mv_5v(void);
+void test_slinear11_to_mv_negative_exp_path(void);
+void test_slinear11_to_mv_neg_exp_neg_mantissa(void);
+void test_slinear11_to_c_int_negative_exp(void);
+void test_slinear11_to_c_int_neg_exp_neg_mantissa(void);
+void test_slinear11_to_ma_negative_exp(void);
+void test_slinear11_to_ma_neg_exp_neg_mantissa(void);
+
+// Forward declarations from test_bb_power_routes.c
+void test_bb_power_routes_present_true_fields(void);
+void test_bb_power_routes_no_primary_present_false(void);
+void test_bb_power_routes_error_readings_emit_null(void);
+void test_bb_power_routes_extender_field_appears(void);
+void test_bb_power_routes_schema_contains_base_fields(void);
+void test_bb_power_routes_schema_contains_extender_fragment(void);
+
 // Forward declarations from test_bb_led.c
 void bb_led_test_reset(void);
 void test_bb_led_caps_and_count(void);
@@ -1470,6 +1528,7 @@ void setUp(void) {
     bb_mdns_host_reset();
     wifi_reconn_policy_test_reset();
     bb_mdns_lifecycle_test_reset();
+    bb_power_test_reset_local();
     bb_led_test_reset();
     bb_led_pwm_test_reset();
     bb_led_apa102_host_test_reset();
@@ -2524,6 +2583,63 @@ int main(void) {
     RUN_TEST(test_bb_mdns_lifecycle_announce_when_stopped_marks_dirty);
     RUN_TEST(test_bb_mdns_lifecycle_restart_cycle);
     RUN_TEST(test_bb_mdns_lifecycle_invalid_args);
+
+    // bb_power HAL tests
+    RUN_TEST(test_bb_power_handle_create_null_drv);
+    RUN_TEST(test_bb_power_handle_create_null_out);
+    RUN_TEST(test_bb_power_handle_create_succeeds);
+    RUN_TEST(test_bb_power_poll_computes_pout_mw);
+    RUN_TEST(test_bb_power_poll_pout_mw_negative_when_vout_error);
+    RUN_TEST(test_bb_power_poll_pout_mw_negative_when_iout_error);
+    RUN_TEST(test_bb_power_poll_all_error_fields);
+    RUN_TEST(test_bb_power_poll_null_handle);
+    RUN_TEST(test_bb_power_poll_updates_all_fields);
+    RUN_TEST(test_bb_power_snapshot_null_handle_all_minus_one);
+    RUN_TEST(test_bb_power_snapshot_returns_cache);
+    RUN_TEST(test_bb_power_snapshot_null_out_is_safe);
+    RUN_TEST(test_bb_power_set_vout_mv_delegates);
+    RUN_TEST(test_bb_power_set_vout_mv_null_handle);
+    RUN_TEST(test_bb_power_set_vout_mv_no_fn_unsupported);
+    RUN_TEST(test_bb_power_name_returns_driver_name);
+    RUN_TEST(test_bb_power_name_null_handle_returns_null);
+    RUN_TEST(test_bb_power_name_null_driver_name_returns_null);
+    RUN_TEST(test_bb_power_primary_null_before_set);
+    RUN_TEST(test_bb_power_set_primary_stores_handle);
+    RUN_TEST(test_bb_power_set_primary_null_clears);
+    RUN_TEST(test_bb_power_initial_snapshot_all_minus_one);
+
+    // tps546_decode decode math tests
+    RUN_TEST(test_ulinear16_to_mv_negative_exp);
+    RUN_TEST(test_ulinear16_to_mv_rounding);
+    RUN_TEST(test_ulinear16_to_mv_zero_raw);
+    RUN_TEST(test_ulinear16_to_mv_zero_exp);
+    RUN_TEST(test_ulinear16_to_mv_exp_minus8);
+    RUN_TEST(test_slinear11_decode_zero);
+    RUN_TEST(test_slinear11_decode_positive_mantissa);
+    RUN_TEST(test_slinear11_decode_negative_mantissa_minus1);
+    RUN_TEST(test_slinear11_decode_negative_exponent);
+    RUN_TEST(test_slinear11_to_ma_30a_oc);
+    RUN_TEST(test_slinear11_to_ma_10a);
+    RUN_TEST(test_slinear11_to_ma_negative);
+    RUN_TEST(test_slinear11_to_c_int_45c);
+    RUN_TEST(test_slinear11_to_c_int_zero);
+    RUN_TEST(test_slinear11_to_mv_12v);
+    RUN_TEST(test_slinear11_to_mv_zero);
+    RUN_TEST(test_slinear11_to_mv_5v);
+    RUN_TEST(test_slinear11_to_mv_negative_exp_path);
+    RUN_TEST(test_slinear11_to_mv_neg_exp_neg_mantissa);
+    RUN_TEST(test_slinear11_to_c_int_negative_exp);
+    RUN_TEST(test_slinear11_to_c_int_neg_exp_neg_mantissa);
+    RUN_TEST(test_slinear11_to_ma_negative_exp);
+    RUN_TEST(test_slinear11_to_ma_neg_exp_neg_mantissa);
+
+    // bb_power_routes tests
+    RUN_TEST(test_bb_power_routes_present_true_fields);
+    RUN_TEST(test_bb_power_routes_no_primary_present_false);
+    RUN_TEST(test_bb_power_routes_error_readings_emit_null);
+    RUN_TEST(test_bb_power_routes_extender_field_appears);
+    RUN_TEST(test_bb_power_routes_schema_contains_base_fields);
+    RUN_TEST(test_bb_power_routes_schema_contains_extender_fragment);
 
     // bb_led tests
     RUN_TEST(test_bb_led_caps_and_count);
