@@ -208,6 +208,13 @@ Also contributes a JSON-Schema properties fragment to the `/api/info` 200 respon
 
 Also contributes a JSON-Schema properties fragment via `bb_info_register_extender_ex`. Source: `platform/host/bb_led_info/bb_led_info.c`.
 
+**`/api/health` temperature extender (`bb_temp` satellite).** Add `REQUIRES bb_temp` and call `bb_temp_register_info()` before `bb_http_server_start` to register a `bb_health` extender that emits a nested `"temp"` object on `/api/health`:
+- `present` (bool) — SoC internal temperature sensor supported and readable (`bb_temp_read_soc` succeeded)
+- if present: `soc_c` (number, die temperature in Celsius, 1 decimal place)
+- if absent: `{"present": false}`
+
+Sensor availability: ESP32-S2/S3/C3/C6/H2 and later have the modern `temperature_sensor` peripheral. Classic ESP32 (WROOM-32) does NOT — `present` is always `false` on that target. The component compiles cleanly on all targets via `#if SOC_TEMP_SENSOR_SUPPORTED` in `bb_system`. Also contributes a JSON-Schema properties fragment to the `/api/health` 200 response schema via `bb_health_register_extender_ex`. Sources: `platform/espidf/bb_temp/bb_temp.c` (ESP-IDF) / `platform/host/bb_temp/bb_temp.c` (host, test-injectable via `BB_TEMP_TESTING` + `bb_temp_test_set_soc`).
+
 ## Portable timing
 
 `bb_clock_now_ms()` in `bb_core/include/bb_clock.h` provides a portable millisecond timestamp. Named timing constants live in their respective headers: `BB_BUTTON_DEBOUNCE_MS_DEFAULT`, `BB_BUTTON_EVENTS_*_DEFAULT_MS`, `BB_LED_ANIM_*_DEFAULT_MS`. `bb_timer` also exposes `bb_timer_now_us()` for microsecond timestamps.

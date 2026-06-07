@@ -32,6 +32,10 @@ static int   s_health_extender_count = 0;
 static char *s_assembled_info_schema = NULL;
 static bool  s_assembled_info_done   = false;
 
+// Assembled health extender schema (lazily built on first call).
+static char *s_assembled_health_schema = NULL;
+static bool  s_assembled_health_done   = false;
+
 bb_err_t bb_info_register_extender_ex(bb_info_extender_fn fn,
                                        const char *schema_props_fragment)
 {
@@ -96,6 +100,47 @@ void bb_info_invoke_extenders_for_test(void *root)
     }
 }
 
+void bb_health_invoke_extenders_for_test(void *root)
+{
+    for (int i = 0; i < s_health_extender_count; i++) {
+        s_health_extenders[i].fn(root);
+    }
+}
+
+const char *bb_health_get_assembled_extender_schema(void)
+{
+    if (s_assembled_health_done) return s_assembled_health_schema;
+
+    /* Compute length of all health extender fragments joined by commas. */
+    size_t len = 1; /* NUL terminator */
+    bool first = true;
+    for (int i = 0; i < s_health_extender_count; i++) {
+        if (s_health_extenders[i].schema_props) {
+            if (!first) len += 1; /* comma */
+            len += strlen(s_health_extenders[i].schema_props);
+            first = false;
+        }
+    }
+
+    char *buf = malloc(len);
+    if (buf) {
+        char *p = buf;
+        bool first2 = true;
+        for (int i = 0; i < s_health_extender_count; i++) {
+            if (s_health_extenders[i].schema_props) {
+                if (!first2) *p++ = ',';
+                p = stpcpy(p, s_health_extenders[i].schema_props);
+                first2 = false;
+            }
+        }
+        *p = '\0';
+    }
+
+    s_assembled_health_schema = buf;
+    s_assembled_health_done   = true;
+    return s_assembled_health_schema;
+}
+
 void bb_info_reset_for_test(void)
 {
     memset(s_extenders, 0, sizeof(s_extenders));
@@ -108,6 +153,9 @@ void bb_info_reset_for_test(void)
     free(s_assembled_info_schema);
     s_assembled_info_schema = NULL;
     s_assembled_info_done   = false;
+    free(s_assembled_health_schema);
+    s_assembled_health_schema = NULL;
+    s_assembled_health_done   = false;
 }
 
 const char *bb_info_get_assembled_schema(void)

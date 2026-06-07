@@ -1066,6 +1066,15 @@ void test_bb_led_info_extender_no_primary_present_false(void);
 void test_bb_led_info_extender_rgb_primary_present_true(void);
 void test_bb_led_info_extender_pwm_primary_rgb_false(void);
 
+// Forward declarations from test_bb_temp.c
+void test_bb_temp_read_soc_default_absent(void);
+void test_bb_temp_read_soc_injected_present(void);
+void test_bb_temp_read_soc_null_out_returns_false(void);
+void test_bb_temp_health_extender_absent_by_default(void);
+void test_bb_temp_health_extender_present_with_value(void);
+void test_bb_temp_health_extender_value_rounds_to_one_decimal(void);
+void test_bb_temp_health_schema_fragment_present(void);
+
 // Forward declarations from test_bb_led_gpio.c
 void test_gpio_open_close(void);
 void test_gpio_active_high_set_on(void);
@@ -2512,6 +2521,15 @@ int main(void) {
     RUN_TEST(test_bb_led_info_extender_no_primary_present_false);
     RUN_TEST(test_bb_led_info_extender_rgb_primary_present_true);
     RUN_TEST(test_bb_led_info_extender_pwm_primary_rgb_false);
+
+    // bb_temp satellite tests
+    RUN_TEST(test_bb_temp_read_soc_default_absent);
+    RUN_TEST(test_bb_temp_read_soc_injected_present);
+    RUN_TEST(test_bb_temp_read_soc_null_out_returns_false);
+    RUN_TEST(test_bb_temp_health_extender_absent_by_default);
+    RUN_TEST(test_bb_temp_health_extender_present_with_value);
+    RUN_TEST(test_bb_temp_health_extender_value_rounds_to_one_decimal);
+    RUN_TEST(test_bb_temp_health_schema_fragment_present);
 
     // bb_led_gpio tests
     RUN_TEST(test_gpio_open_close);

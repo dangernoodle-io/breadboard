@@ -215,6 +215,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_led_info/bb_led_info.c"],
         "depends":  ["bb_led", "bb_info", "bb_json", "bb_core"],
     },
+    "bb_temp": {
+        "includes": ["components/bb_temp/include", "platform/host/bb_temp"],
+        "sources":  ["platform/host/bb_temp/bb_temp.c"],
+        "depends":  ["bb_info", "bb_json", "bb_core"],
+    },
     "bb_led_gpio": {
         "includes": ["components/bb_led_gpio/include", "platform/host/bb_led_gpio"],
         "sources":  ["platform/host/bb_led_gpio/bb_led_gpio.c"],
