@@ -227,7 +227,7 @@ Sensor availability: ESP32-S2/S3/C3/C6/H2 and later have the modern `temperature
 
 **`bb_power_tps546` backend (ESP-IDF only).** `bb_power_tps546_open(cfg, &h)` adds the device to an I2C bus, runs the TPS546 init sequence (programs switch freq, OC limit, OC response, clears faults, powers on), and calls `bb_power_handle_create`. Config: `{ bus, addr, target_mv, switch_freq_khz, oc_limit_a, oc_response }` — zero values use defaults (650 kHz, 30 A, 0xC0). PMBus decode math lives in `components/bb_power_tps546/include/tps546_decode.h` (pure, no ESP-IDF; host-testable).
 
-**`/api/power` route (`bb_power_routes`).** Emits a JSON object from `bb_power_primary()`:
+**`/api/power` route (`bb_power_routes`, opt-in).** Route registration is **opt-in** via `CONFIG_BB_POWER_ROUTES_AUTOREGISTER` (default **n**). When enabled, `bb_power_routes_init` auto-registers at order 1; disable it and call `bb_power_routes_init` manually to control registration timing, or omit the call entirely if your app defines its own `/api/power` handler. Emits a JSON object from `bb_power_primary()`:
 - `present` (bool) — `bb_power_primary() != NULL`
 - `vout_mv`, `iout_ma`, `pout_mw`, `vin_mv`, `temp_c` — number or null (when -1 or not present)
 - then `bb_http_route_run_extenders("power", root)` — satellites (e.g. TM) add fields like `pcore_mw`
@@ -259,7 +259,7 @@ Sensor availability: ESP32-S2/S3/C3/C6/H2 and later have the modern `temperature
 
 **`bb_fan_emc2101` backend (ESP-IDF only).** `bb_fan_emc2101_open(cfg, &h)` adds the device to an I2C bus, runs the EMC2101 init sequence (config register, fan config register, optional ideality/beta compensation writes, failsafe 100% duty), and calls `bb_fan_handle_create`. Config: `{ bus, addr, ideality, beta }` — `ideality`/`beta` = 0 skips those register writes (e.g. bitaxe-403). Pure decode math (ext temp 11-bit 0.125°C, internal temp 8-bit 1°C, RPM = 5400000/tach) lives in `components/bb_fan_emc2101/include/emc2101_decode.h` (pure, no ESP-IDF; host-testable).
 
-**`/api/fan` route (`bb_fan_routes`).** GET emits a JSON object from `bb_fan_primary()`:
+**`/api/fan` route (`bb_fan_routes`, opt-in).** Route registration is **opt-in** via `CONFIG_BB_FAN_ROUTES_AUTOREGISTER` (default **n**). When enabled, `bb_fan_routes_init` auto-registers at order 1; disable it and call `bb_fan_routes_init` manually to control registration timing, or omit the call entirely if your app defines its own `/api/fan` handler. GET emits a JSON object from `bb_fan_primary()`:
 - `present` (bool) — `bb_fan_primary() != NULL`
 - `rpm`, `duty_pct` — number or null (when -1 or not present)
 - then `bb_http_route_run_extenders("fan", root)` — satellites add fields (e.g. autofan target)
@@ -281,7 +281,7 @@ POST `{"duty_pct": N}` (0..100) sets raw duty on the primary handle; returns 200
 
 ## Thermal aggregate (`bb_thermal`, `/api/thermal`)
 
-`bb_thermal` is a route-only component (no HAL, no backend) that aggregates temperatures from `bb_temp` (SoC), `bb_power` (VR), and `bb_fan` (ASIC die + board) into a single `/api/thermal` endpoint. It is opt-in by REQUIRES — a consumer wanting the aggregate thermal view adds `REQUIRES bb_thermal`.
+`bb_thermal` is a route-only component (no HAL, no backend) that aggregates temperatures from `bb_temp` (SoC), `bb_power` (VR), and `bb_fan` (ASIC die + board) into a single `/api/thermal` endpoint. It is opt-in by REQUIRES — a consumer wanting the aggregate thermal view adds `REQUIRES bb_thermal`. Route registration is also **opt-in** via `CONFIG_BB_THERMAL_AUTOREGISTER` (default **n**). When enabled, `bb_thermal_init` auto-registers at order 1; disable it and call `bb_thermal_init` manually to control registration timing, or omit the call entirely if your app defines its own `/api/thermal` handler.
 
 **`GET /api/thermal`** emits four source objects, each `{present, c}` (c = number °C, or null when not present):
 
