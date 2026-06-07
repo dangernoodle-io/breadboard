@@ -60,10 +60,11 @@ static const char k_info_schema_base[] =
     "\"retry_count\":{\"type\":\"integer\"}}}";
 
 // Suffix closes the properties object and adds the required array.
-// Also documents http_handler_count and http_handler_cap which are emitted
-// by info_handler but were previously absent from the schema.
+// Also documents http_handler_count, http_handler_cap, and capabilities which
+// are emitted by info_handler but were previously absent from the schema.
 static const char k_info_schema_suffix[] =
     ",\"http_handler_count\":{\"type\":\"integer\"},"
-    "\"http_handler_cap\":{\"type\":\"integer\"}"
+    "\"http_handler_cap\":{\"type\":\"integer\"},"
+    "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}"
     "},"
     "\"required\":[\"board\",\"version\",\"network\"]}";

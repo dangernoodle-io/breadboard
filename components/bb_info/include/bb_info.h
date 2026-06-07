@@ -52,6 +52,27 @@ bb_err_t bb_health_register_extender(bb_info_extender_fn fn);
 bb_err_t bb_health_register_extender_ex(bb_info_extender_fn fn,
                                          const char *schema_props_fragment);
 
+// ---------------------------------------------------------------------------
+// Capability registry
+// ---------------------------------------------------------------------------
+
+// Maximum number of distinct capabilities that can be registered.
+#define BB_INFO_MAX_CAPABILITIES 32
+
+// Register a capability flag by name.
+//
+// name must have static/rodata lifetime — the pointer is stored, the string
+// is NOT copied. Presence-only: register only capabilities that are present.
+// Duplicates are silently ignored (string compare).
+//
+// Must be called before bb_http_server_start (before the extender table is
+// frozen). If called after the server has started, the call is ignored and a
+// warning is logged — mirrors the extender post-freeze behaviour.
+//
+// If the registry is full (BB_INFO_MAX_CAPABILITIES reached) the extra
+// registration is dropped and a warning is logged.
+void bb_info_register_capability(const char *name);
+
 #ifdef __cplusplus
 }
 #endif

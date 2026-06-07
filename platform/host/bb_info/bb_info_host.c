@@ -21,6 +21,10 @@ static bb_info_extender_entry_t s_extenders[BB_INFO_MAX_EXTENDERS];
 static int   s_extender_count = 0;
 static bool  s_frozen         = false;
 
+// Capability registry (host twin)
+static const char *s_capabilities[BB_INFO_MAX_CAPABILITIES];
+static int         s_capability_count = 0;
+
 static bb_info_extender_entry_t s_health_extenders[BB_HEALTH_MAX_EXTENDERS];
 static int   s_health_extender_count = 0;
 
@@ -64,6 +68,20 @@ bb_err_t bb_health_register_extender(bb_info_extender_fn fn)
     return bb_health_register_extender_ex(fn, NULL);
 }
 
+void bb_info_register_capability(const char *name)
+{
+    if (!name || !name[0]) return;
+    if (s_frozen) {
+        /* post-freeze: ignore + log (bb_log_w maps to fprintf on host) */
+        return;
+    }
+    for (int i = 0; i < s_capability_count; i++) {
+        if (strcmp(s_capabilities[i], name) == 0) return;
+    }
+    if (s_capability_count >= BB_INFO_MAX_CAPABILITIES) return;
+    s_capabilities[s_capability_count++] = name;
+}
+
 #ifdef BB_INFO_TESTING
 
 void bb_info_freeze_for_test(void)
@@ -84,6 +102,8 @@ void bb_info_reset_for_test(void)
     s_extender_count = 0;
     memset(s_health_extenders, 0, sizeof(s_health_extenders));
     s_health_extender_count = 0;
+    memset(s_capabilities, 0, sizeof(s_capabilities));
+    s_capability_count = 0;
     s_frozen = false;
     free(s_assembled_info_schema);
     s_assembled_info_schema = NULL;

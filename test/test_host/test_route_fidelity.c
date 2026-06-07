@@ -133,7 +133,8 @@ static const char k_info_schema[] =
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"retry_count\":{\"type\":\"integer\"}}}"
     ",\"http_handler_count\":{\"type\":\"integer\"},"
-    "\"http_handler_cap\":{\"type\":\"integer\"}"
+    "\"http_handler_cap\":{\"type\":\"integer\"},"
+    "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}"
     "},"
     "\"required\":[\"board\",\"version\",\"network\"]}";
 
@@ -371,6 +372,9 @@ static bb_err_t h_info(bb_http_request_t *req)
                                   (double)bb_http_route_handler_count());
     bb_http_resp_json_obj_set_num(&obj, "http_handler_cap",
                                   (double)bb_http_route_handler_cap());
+    // capabilities: always emit (empty array when none registered)
+    bb_http_resp_json_obj_set_arr_begin(&obj, "capabilities");
+    bb_http_resp_json_obj_set_arr_end(&obj);
     return bb_http_resp_json_obj_end(&obj);
 }
 

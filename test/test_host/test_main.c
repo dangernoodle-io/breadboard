@@ -1009,6 +1009,12 @@ void test_bb_info_assembled_schema_no_extenders_equals_base_plus_suffix(void);
 void test_bb_info_assembled_schema_two_extenders_both_present_valid_json(void);
 void test_bb_info_assembled_schema_is_valid_json(void);
 void test_bb_info_register_after_freeze_returns_invalid_state(void);
+void test_bb_info_capabilities_registered_appear_in_schema(void);
+void test_bb_info_capabilities_dedup(void);
+void test_bb_info_capabilities_empty_schema_present(void);
+void test_bb_info_capabilities_over_cap_drops_extra(void);
+void test_bb_info_capabilities_post_freeze_ignored(void);
+void test_bb_info_assembled_schema_contains_capabilities_array(void);
 void bb_info_reset_for_test(void);
 void bb_info_invoke_extenders_for_test(void *root);
 
@@ -2453,6 +2459,12 @@ int main(void) {
     RUN_TEST(test_bb_info_assembled_schema_two_extenders_both_present_valid_json);
     RUN_TEST(test_bb_info_assembled_schema_is_valid_json);
     RUN_TEST(test_bb_info_register_after_freeze_returns_invalid_state);
+    RUN_TEST(test_bb_info_capabilities_registered_appear_in_schema);
+    RUN_TEST(test_bb_info_capabilities_dedup);
+    RUN_TEST(test_bb_info_capabilities_empty_schema_present);
+    RUN_TEST(test_bb_info_capabilities_over_cap_drops_extra);
+    RUN_TEST(test_bb_info_capabilities_post_freeze_ignored);
+    RUN_TEST(test_bb_info_assembled_schema_contains_capabilities_array);
 
     // wifi_reconn_policy tests
     RUN_TEST(test_wifi_reconn_tier1_handshake_fast_retry);

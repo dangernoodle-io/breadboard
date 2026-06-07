@@ -27,6 +27,10 @@ static bb_info_extender_entry_t s_extenders[BB_INFO_MAX_EXTENDERS];
 static int   s_extender_count = 0;
 static bool  s_frozen         = false;
 
+// Capability registry
+static const char *s_capabilities[BB_INFO_MAX_CAPABILITIES];
+static int         s_capability_count = 0;
+
 static bb_info_extender_entry_t s_health_extenders[BB_HEALTH_MAX_EXTENDERS];
 static int   s_health_extender_count = 0;
 
@@ -68,6 +72,24 @@ bb_err_t bb_health_register_extender_ex(bb_info_extender_fn fn,
 bb_err_t bb_health_register_extender(bb_info_extender_fn fn)
 {
     return bb_health_register_extender_ex(fn, NULL);
+}
+
+void bb_info_register_capability(const char *name)
+{
+    if (!name || !name[0]) return;
+    if (s_frozen) {
+        bb_log_w(TAG, "bb_info_register_capability(%s): ignored after freeze", name);
+        return;
+    }
+    // Dedup: ignore if already registered.
+    for (int i = 0; i < s_capability_count; i++) {
+        if (strcmp(s_capabilities[i], name) == 0) return;
+    }
+    if (s_capability_count >= BB_INFO_MAX_CAPABILITIES) {
+        bb_log_w(TAG, "bb_info_register_capability(%s): registry full, dropping", name);
+        return;
+    }
+    s_capabilities[s_capability_count++] = name;
 }
 
 static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
@@ -158,6 +180,13 @@ static bb_err_t info_handler(bb_http_request_t *req)
     extern size_t bb_http_route_handler_cap(void);
     bb_json_obj_set_number(root, "http_handler_count", (double)bb_http_route_handler_count());
     bb_json_obj_set_number(root, "http_handler_cap", (double)bb_http_route_handler_cap());
+
+    // Emit capabilities array (always present, even if empty)
+    bb_json_t caps = bb_json_arr_new();
+    for (int i = 0; i < s_capability_count; i++) {
+        bb_json_arr_append_string(caps, s_capabilities[i]);
+    }
+    bb_json_obj_set_arr(root, "capabilities", caps);
 
     for (int i = 0; i < s_extender_count; i++) {
         s_extenders[i].fn(root);
