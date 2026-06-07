@@ -3,6 +3,7 @@
 // The write order matches AxeOS write_entire_config() exactly.
 #include "bb_power_tps546.h"
 #include "tps546_decode.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -10,40 +11,62 @@
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-static int emit_byte(bb_tps546_write_t *out, int max, int *n,
-                     uint8_t reg, uint8_t val)
+static int emit_byte_ex(bb_tps546_write_t *out, int max, int *n,
+                        uint8_t reg, uint8_t val, bool essential)
 {
     if (*n >= max) return -1;
-    out[*n].reg   = reg;
-    out[*n].width = BB_TPS546_W_BYTE;
-    out[*n].word  = val;
+    out[*n].reg       = reg;
+    out[*n].width     = BB_TPS546_W_BYTE;
+    out[*n].word      = val;
+    out[*n].essential = essential;
     memset(out[*n].block, 0, 5);
     (*n)++;
     return 0;
+}
+
+static int emit_word_ex(bb_tps546_write_t *out, int max, int *n,
+                        uint8_t reg, uint16_t val, bool essential)
+{
+    if (*n >= max) return -1;
+    out[*n].reg       = reg;
+    out[*n].width     = BB_TPS546_W_WORD;
+    out[*n].word      = val;
+    out[*n].essential = essential;
+    memset(out[*n].block, 0, 5);
+    (*n)++;
+    return 0;
+}
+
+static int emit_block5_ex(bb_tps546_write_t *out, int max, int *n,
+                          uint8_t reg, const uint8_t *data, bool essential)
+{
+    if (*n >= max) return -1;
+    out[*n].reg       = reg;
+    out[*n].width     = BB_TPS546_W_BLOCK5;
+    out[*n].word      = 0;
+    out[*n].essential = essential;
+    memcpy(out[*n].block, data, 5);
+    (*n)++;
+    return 0;
+}
+
+// Convenience wrappers — essential=false (protection writes, best-effort)
+static int emit_byte(bb_tps546_write_t *out, int max, int *n,
+                     uint8_t reg, uint8_t val)
+{
+    return emit_byte_ex(out, max, n, reg, val, false);
 }
 
 static int emit_word(bb_tps546_write_t *out, int max, int *n,
                      uint8_t reg, uint16_t val)
 {
-    if (*n >= max) return -1;
-    out[*n].reg   = reg;
-    out[*n].width = BB_TPS546_W_WORD;
-    out[*n].word  = val;
-    memset(out[*n].block, 0, 5);
-    (*n)++;
-    return 0;
+    return emit_word_ex(out, max, n, reg, val, false);
 }
 
 static int emit_block5(bb_tps546_write_t *out, int max, int *n,
                        uint8_t reg, const uint8_t *data)
 {
-    if (*n >= max) return -1;
-    out[*n].reg   = reg;
-    out[*n].width = BB_TPS546_W_BLOCK5;
-    out[*n].word  = 0;
-    memcpy(out[*n].block, data, 5);
-    (*n)++;
-    return 0;
+    return emit_block5_ex(out, max, n, reg, data, false);
 }
 
 // Convenience: emit if the int guard value is non-zero.
@@ -99,11 +122,11 @@ int bb_power_tps546_build_init_program(
     // --- PHASE (byte) ---
     EMIT_BYTE_IF(BB_PMBUS_PHASE, p->phase);
 
-    // --- FREQUENCY_SWITCH (word, SLINEAR11 of int kHz) ---
+    // --- FREQUENCY_SWITCH (word, SLINEAR11 of int kHz) — essential ---
     {
         uint32_t freq = cfg->switch_freq_khz ? cfg->switch_freq_khz : 650u;
         uint16_t code = tps546_int_2_slinear11((int)freq);
-        if (emit_word(out, max, &n, BB_PMBUS_FREQUENCY_SWITCH, code) < 0) return -1;
+        if (emit_word_ex(out, max, &n, BB_PMBUS_FREQUENCY_SWITCH, code, true) < 0) return -1;
     }
 
     // --- COMPENSATION_CONFIG (5-byte block, if any byte non-zero) ---
@@ -136,11 +159,11 @@ int bb_power_tps546_build_init_program(
     // --- VOUT_SCALE_LOOP (word, SLINEAR11 float) ---
     EMIT_SLINEAR11_FLOAT_IF(BB_PMBUS_VOUT_SCALE_LOOP, p->vout_scale_loop);
 
-    // --- VOUT_COMMAND (word, ULINEAR16) — always written from target_mv ---
+    // --- VOUT_COMMAND (word, ULINEAR16) — always written from target_mv, essential ---
     {
         float target_v = (float)cfg->target_mv / 1000.0f;
         uint16_t code = tps546_float_2_ulinear16(target_v, vout_exp);
-        if (emit_word(out, max, &n, BB_PMBUS_VOUT_COMMAND, code) < 0) return -1;
+        if (emit_word_ex(out, max, &n, BB_PMBUS_VOUT_COMMAND, code, true) < 0) return -1;
     }
 
     // --- VOUT_MAX (word, ULINEAR16 absolute V) ---
@@ -182,17 +205,17 @@ int bb_power_tps546_build_init_program(
     // --- IOUT_OC_WARN_LIMIT (word, SLINEAR11 float A) ---
     EMIT_SLINEAR11_FLOAT_IF(BB_PMBUS_IOUT_OC_WARN_LIMIT, p->iout_oc_warn_a);
 
-    // --- IOUT_OC_FAULT_LIMIT (word, SLINEAR11 float A) ---
+    // --- IOUT_OC_FAULT_LIMIT (word, SLINEAR11 float A) — essential ---
     {
         float oc_a = cfg->oc_limit_a ? (float)cfg->oc_limit_a : 30.0f;
         uint16_t code = tps546_float_2_slinear11(oc_a);
-        if (emit_word(out, max, &n, BB_PMBUS_IOUT_OC_FAULT_LIMIT, code) < 0) return -1;
+        if (emit_word_ex(out, max, &n, BB_PMBUS_IOUT_OC_FAULT_LIMIT, code, true) < 0) return -1;
     }
 
-    // --- IOUT_OC_FAULT_RESPONSE (byte) ---
+    // --- IOUT_OC_FAULT_RESPONSE (byte) — essential ---
     {
         uint8_t resp = cfg->oc_response ? cfg->oc_response : 0xC0u;
-        if (emit_byte(out, max, &n, BB_PMBUS_IOUT_OC_FAULT_RESPONSE, resp) < 0) return -1;
+        if (emit_byte_ex(out, max, &n, BB_PMBUS_IOUT_OC_FAULT_RESPONSE, resp, true) < 0) return -1;
     }
 
     // --- OT_WARN_LIMIT (word, SLINEAR11 int °C) ---

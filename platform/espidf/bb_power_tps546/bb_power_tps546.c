@@ -88,8 +88,14 @@ static esp_err_t exec_program(i2c_master_dev_handle_t dev,
             return ESP_ERR_INVALID_ARG; // LCOV_EXCL_LINE
         }
         if (err != ESP_OK) {
-            bb_log_e(TAG, "PMBus write reg=0x%02X failed: %d", prog[i].reg, err);
-            return err;
+            if (prog[i].essential) {
+                bb_log_e(TAG, "PMBus write reg=0x%02X failed (essential): %d", prog[i].reg, err);
+                return err;
+            }
+            // Protection-config write rejected by chip (unsupported or locked register).
+            // Log a warning and continue — partial protection is better than a boot failure.
+            bb_log_w(TAG, "PMBus write reg=0x%02X failed (non-essential, skipped): %d",
+                     prog[i].reg, err);
         }
     }
     return ESP_OK;
@@ -166,6 +172,8 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
 {
     if (!cfg || !out) return BB_ERR_INVALID_ARG;
 
+    bb_log_i(TAG, "opening TPS546 at addr=0x%02X target=%u mV", cfg->addr, cfg->target_mv);
+
     tps546_state_t *s = calloc(1, sizeof *s); // LCOV_EXCL_BR_LINE
     if (!s) return BB_ERR_NO_SPACE;           // LCOV_EXCL_LINE
 
@@ -176,12 +184,20 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
         .scl_speed_hz    = 400000,
     };
     esp_err_t err = i2c_master_bus_add_device(cfg->bus, &dev_cfg, &s->dev);
-    if (err != ESP_OK) { free(s); return err; }
+    if (err != ESP_OK) {
+        bb_log_e(TAG, "i2c_master_bus_add_device failed: %d", err);
+        free(s);
+        return err;
+    }
 
-    // Read VOUT_MODE to get exponent
+    // Read VOUT_MODE to get exponent — first I2C op; failure here means the chip is not responding
     uint8_t vout_mode;
     err = pmbus_read_byte(s->dev, BB_PMBUS_VOUT_MODE, &vout_mode);
-    if (err != ESP_OK) { free(s); return err; }
+    if (err != ESP_OK) {
+        bb_log_e(TAG, "VOUT_MODE read failed (chip not responding at 0x%02X): %d", cfg->addr, err);
+        free(s);
+        return err;
+    }
 
     s->vout_n = (int8_t)(vout_mode & 0x1F);
     if (s->vout_n & 0x10) s->vout_n |= (int8_t)0xE0; // sign-extend from bit 4

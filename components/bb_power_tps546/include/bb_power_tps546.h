@@ -2,6 +2,7 @@
 #pragma once
 #include "bb_power.h"
 #include "tps546_decode.h"
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -119,6 +120,7 @@ typedef struct {
     bb_tps546_width_t width;
     uint16_t          word;      // used for BYTE and WORD writes
     uint8_t           block[5]; // used for BLOCK5 writes
+    bool              essential; // if false, a write error is warned but non-fatal
 } bb_tps546_write_t;
 
 // ---------------------------------------------------------------------------
