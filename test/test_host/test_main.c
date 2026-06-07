@@ -1124,6 +1124,64 @@ void test_bb_power_routes_extender_field_appears(void);
 void test_bb_power_routes_schema_contains_base_fields(void);
 void test_bb_power_routes_schema_contains_extender_fragment(void);
 
+// Forward declarations from test_bb_fan.c
+void bb_fan_test_reset_local(void);
+void test_bb_fan_handle_create_null_drv(void);
+void test_bb_fan_handle_create_null_out(void);
+void test_bb_fan_handle_create_succeeds(void);
+void test_bb_fan_poll_caches_rpm_and_duty(void);
+void test_bb_fan_poll_die_fail_gives_nan(void);
+void test_bb_fan_poll_board_fail_gives_nan(void);
+void test_bb_fan_poll_null_fns_give_sentinel(void);
+void test_bb_fan_poll_null_handle(void);
+void test_bb_fan_snapshot_null_handle_sentinels(void);
+void test_bb_fan_snapshot_returns_cache(void);
+void test_bb_fan_snapshot_null_out_is_safe(void);
+void test_bb_fan_initial_snapshot_sentinels(void);
+void test_bb_fan_set_duty_pct_delegates(void);
+void test_bb_fan_set_duty_pct_null_handle(void);
+void test_bb_fan_set_duty_pct_no_fn_unsupported(void);
+void test_bb_fan_get_duty_pct_from_cache(void);
+void test_bb_fan_get_duty_pct_null_handle(void);
+void test_bb_fan_name_returns_driver_name(void);
+void test_bb_fan_name_null_handle_returns_null(void);
+void test_bb_fan_name_null_driver_name_returns_null(void);
+void test_bb_fan_primary_null_before_set(void);
+void test_bb_fan_set_primary_stores_handle(void);
+void test_bb_fan_set_primary_null_clears(void);
+
+// Forward declarations from test_emc2101_decode.c
+void test_emc2101_ext_temp_positive(void);
+void test_emc2101_ext_temp_zero(void);
+void test_emc2101_ext_temp_fractional(void);
+void test_emc2101_ext_temp_negative(void);
+void test_emc2101_ext_temp_minus_one(void);
+void test_emc2101_int_temp_positive(void);
+void test_emc2101_int_temp_zero(void);
+void test_emc2101_int_temp_negative(void);
+void test_emc2101_rpm_typical(void);
+void test_emc2101_rpm_stalled(void);
+void test_emc2101_rpm_max_speed(void);
+void test_emc2101_pct_to_duty_zero(void);
+void test_emc2101_pct_to_duty_100(void);
+void test_emc2101_pct_to_duty_50(void);
+void test_emc2101_pct_to_duty_clamp_below_zero(void);
+void test_emc2101_pct_to_duty_clamp_above_100(void);
+
+// Forward declarations from test_bb_fan_routes.c
+void test_bb_fan_routes_get_present_true(void);
+void test_bb_fan_routes_get_no_primary_present_false(void);
+void test_bb_fan_routes_get_error_readings_emit_null(void);
+void test_bb_fan_routes_get_extender_field_appears(void);
+void test_bb_fan_routes_post_valid_sets_duty(void);
+void test_bb_fan_routes_post_no_body_400(void);
+void test_bb_fan_routes_post_invalid_json_400(void);
+void test_bb_fan_routes_post_missing_duty_pct_400(void);
+void test_bb_fan_routes_post_out_of_range_400(void);
+void test_bb_fan_routes_post_no_primary_503(void);
+void test_bb_fan_routes_schema_contains_base_fields(void);
+void test_bb_fan_routes_schema_contains_extender_fragment(void);
+
 // Forward declarations from test_bb_led.c
 void bb_led_test_reset(void);
 void test_bb_led_caps_and_count(void);
@@ -1529,6 +1587,7 @@ void setUp(void) {
     wifi_reconn_policy_test_reset();
     bb_mdns_lifecycle_test_reset();
     bb_power_test_reset_local();
+    bb_fan_test_reset_local();
     bb_led_test_reset();
     bb_led_pwm_test_reset();
     bb_led_apa102_host_test_reset();
@@ -2640,6 +2699,63 @@ int main(void) {
     RUN_TEST(test_bb_power_routes_extender_field_appears);
     RUN_TEST(test_bb_power_routes_schema_contains_base_fields);
     RUN_TEST(test_bb_power_routes_schema_contains_extender_fragment);
+
+    // bb_fan HAL tests
+    RUN_TEST(test_bb_fan_handle_create_null_drv);
+    RUN_TEST(test_bb_fan_handle_create_null_out);
+    RUN_TEST(test_bb_fan_handle_create_succeeds);
+    RUN_TEST(test_bb_fan_poll_caches_rpm_and_duty);
+    RUN_TEST(test_bb_fan_poll_die_fail_gives_nan);
+    RUN_TEST(test_bb_fan_poll_board_fail_gives_nan);
+    RUN_TEST(test_bb_fan_poll_null_fns_give_sentinel);
+    RUN_TEST(test_bb_fan_poll_null_handle);
+    RUN_TEST(test_bb_fan_snapshot_null_handle_sentinels);
+    RUN_TEST(test_bb_fan_snapshot_returns_cache);
+    RUN_TEST(test_bb_fan_snapshot_null_out_is_safe);
+    RUN_TEST(test_bb_fan_initial_snapshot_sentinels);
+    RUN_TEST(test_bb_fan_set_duty_pct_delegates);
+    RUN_TEST(test_bb_fan_set_duty_pct_null_handle);
+    RUN_TEST(test_bb_fan_set_duty_pct_no_fn_unsupported);
+    RUN_TEST(test_bb_fan_get_duty_pct_from_cache);
+    RUN_TEST(test_bb_fan_get_duty_pct_null_handle);
+    RUN_TEST(test_bb_fan_name_returns_driver_name);
+    RUN_TEST(test_bb_fan_name_null_handle_returns_null);
+    RUN_TEST(test_bb_fan_name_null_driver_name_returns_null);
+    RUN_TEST(test_bb_fan_primary_null_before_set);
+    RUN_TEST(test_bb_fan_set_primary_stores_handle);
+    RUN_TEST(test_bb_fan_set_primary_null_clears);
+
+    // emc2101_decode decode math tests
+    RUN_TEST(test_emc2101_ext_temp_positive);
+    RUN_TEST(test_emc2101_ext_temp_zero);
+    RUN_TEST(test_emc2101_ext_temp_fractional);
+    RUN_TEST(test_emc2101_ext_temp_negative);
+    RUN_TEST(test_emc2101_ext_temp_minus_one);
+    RUN_TEST(test_emc2101_int_temp_positive);
+    RUN_TEST(test_emc2101_int_temp_zero);
+    RUN_TEST(test_emc2101_int_temp_negative);
+    RUN_TEST(test_emc2101_rpm_typical);
+    RUN_TEST(test_emc2101_rpm_stalled);
+    RUN_TEST(test_emc2101_rpm_max_speed);
+    RUN_TEST(test_emc2101_pct_to_duty_zero);
+    RUN_TEST(test_emc2101_pct_to_duty_100);
+    RUN_TEST(test_emc2101_pct_to_duty_50);
+    RUN_TEST(test_emc2101_pct_to_duty_clamp_below_zero);
+    RUN_TEST(test_emc2101_pct_to_duty_clamp_above_100);
+
+    // bb_fan_routes tests
+    RUN_TEST(test_bb_fan_routes_get_present_true);
+    RUN_TEST(test_bb_fan_routes_get_no_primary_present_false);
+    RUN_TEST(test_bb_fan_routes_get_error_readings_emit_null);
+    RUN_TEST(test_bb_fan_routes_get_extender_field_appears);
+    RUN_TEST(test_bb_fan_routes_post_valid_sets_duty);
+    RUN_TEST(test_bb_fan_routes_post_no_body_400);
+    RUN_TEST(test_bb_fan_routes_post_invalid_json_400);
+    RUN_TEST(test_bb_fan_routes_post_missing_duty_pct_400);
+    RUN_TEST(test_bb_fan_routes_post_out_of_range_400);
+    RUN_TEST(test_bb_fan_routes_post_no_primary_503);
+    RUN_TEST(test_bb_fan_routes_schema_contains_base_fields);
+    RUN_TEST(test_bb_fan_routes_schema_contains_extender_fragment);
 
     // bb_led tests
     RUN_TEST(test_bb_led_caps_and_count);

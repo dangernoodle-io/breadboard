@@ -1,0 +1,11 @@
+menu "breadboard: bb_fan_routes"
+
+config BB_FAN_ROUTES_AUTOREGISTER
+    bool "Auto-register /api/fan HTTP route via bb_registry"
+    default y
+    help
+        When enabled, bb_fan_routes self-registers GET+POST /api/fan through
+        bb_registry at order 1 (after order-0 satellites have registered
+        their extenders). Disable to call bb_fan_routes_init manually.
+
+endmenu
