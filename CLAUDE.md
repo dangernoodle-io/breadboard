@@ -279,6 +279,32 @@ POST `{"duty_pct": N}` (0..100) sets raw duty on the primary handle; returns 200
 - `platform/espidf/bb_fan_routes/bb_fan_routes.c`
 - `platform/host/bb_fan_routes/bb_fan_routes_host.c` (test hooks)
 
+## Thermal aggregate (`bb_thermal`, `/api/thermal`)
+
+`bb_thermal` is a route-only component (no HAL, no backend) that aggregates temperatures from `bb_temp` (SoC), `bb_power` (VR), and `bb_fan` (ASIC die + board) into a single `/api/thermal` endpoint. It is opt-in by REQUIRES — a consumer wanting the aggregate thermal view adds `REQUIRES bb_thermal`.
+
+**`GET /api/thermal`** emits four source objects, each `{present, c}` (c = number °C, or null when not present):
+
+```json
+{ "soc":   {"present": bool, "c": number|null},
+  "vr":    {"present": bool, "c": number|null},
+  "asic":  {"present": bool, "c": number|null},
+  "board": {"present": bool, "c": number|null} }
+```
+
+- `soc`: `bb_temp_read_soc(&c)` → present = (rc == true).
+- `vr`: `bb_power_snapshot(bb_power_primary())` → present = primary != NULL && temp_c >= 0; c = temp_c.
+- `asic`: `bb_fan_snapshot(bb_fan_primary())` → present = primary != NULL && !isnan(die_c); c = die_c.
+- `board`: same fan snapshot → present = primary != NULL && !isnan(board_c); c = board_c.
+- then `bb_http_route_run_extenders("thermal", root)` — satellites (e.g. TM) can add mining-context temps.
+
+**Route-extender ordering.** Satellites register "thermal" extenders at order 0. `bb_thermal_init` runs at order 1 and calls `bb_http_route_assemble_schema("thermal", base, suffix)`. `bb_http_extender_freeze()` is called by `bb_info_init` (order 2).
+
+**Sources:**
+- `components/bb_thermal/` — route component (header + CMakeLists + Kconfig)
+- `platform/espidf/bb_thermal/bb_thermal.c`
+- `platform/host/bb_thermal/bb_thermal_host.c` (test hooks)
+
 ## Portable timing
 
 `bb_clock_now_ms()` in `bb_core/include/bb_clock.h` provides a portable millisecond timestamp. Named timing constants live in their respective headers: `BB_BUTTON_DEBOUNCE_MS_DEFAULT`, `BB_BUTTON_EVENTS_*_DEFAULT_MS`, `BB_LED_ANIM_*_DEFAULT_MS`. `bb_timer` also exposes `bb_timer_now_us()` for microsecond timestamps.

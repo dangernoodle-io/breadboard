@@ -1,0 +1,11 @@
+menu "breadboard: bb_thermal"
+
+config BB_THERMAL_AUTOREGISTER
+    bool "Auto-register /api/thermal HTTP route via bb_registry"
+    default y
+    help
+        When enabled, bb_thermal self-registers GET /api/thermal through
+        bb_registry at order 1 (after order-0 satellites have registered
+        their extenders). Disable to call bb_thermal_init manually.
+
+endmenu

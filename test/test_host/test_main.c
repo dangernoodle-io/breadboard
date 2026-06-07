@@ -1182,6 +1182,18 @@ void test_bb_fan_routes_post_no_primary_503(void);
 void test_bb_fan_routes_schema_contains_base_fields(void);
 void test_bb_fan_routes_schema_contains_extender_fragment(void);
 
+// Forward declarations from test_bb_thermal.c
+void bb_thermal_reset_for_test(void);
+void test_bb_thermal_all_present(void);
+void test_bb_thermal_all_absent(void);
+void test_bb_thermal_mixed_soc_only(void);
+void test_bb_thermal_mixed_vr_only(void);
+void test_bb_thermal_vr_temp_minus1_absent(void);
+void test_bb_thermal_asic_nan_board_present(void);
+void test_bb_thermal_extender_field_appears(void);
+void test_bb_thermal_schema_contains_base_objects(void);
+void test_bb_thermal_schema_contains_extender_fragment(void);
+
 // Forward declarations from test_bb_led.c
 void bb_led_test_reset(void);
 void test_bb_led_caps_and_count(void);
@@ -1588,6 +1600,7 @@ void setUp(void) {
     bb_mdns_lifecycle_test_reset();
     bb_power_test_reset_local();
     bb_fan_test_reset_local();
+    bb_thermal_reset_for_test();
     bb_led_test_reset();
     bb_led_pwm_test_reset();
     bb_led_apa102_host_test_reset();
@@ -2756,6 +2769,17 @@ int main(void) {
     RUN_TEST(test_bb_fan_routes_post_no_primary_503);
     RUN_TEST(test_bb_fan_routes_schema_contains_base_fields);
     RUN_TEST(test_bb_fan_routes_schema_contains_extender_fragment);
+
+    // bb_thermal route tests
+    RUN_TEST(test_bb_thermal_all_present);
+    RUN_TEST(test_bb_thermal_all_absent);
+    RUN_TEST(test_bb_thermal_mixed_soc_only);
+    RUN_TEST(test_bb_thermal_mixed_vr_only);
+    RUN_TEST(test_bb_thermal_vr_temp_minus1_absent);
+    RUN_TEST(test_bb_thermal_asic_nan_board_present);
+    RUN_TEST(test_bb_thermal_extender_field_appears);
+    RUN_TEST(test_bb_thermal_schema_contains_base_objects);
+    RUN_TEST(test_bb_thermal_schema_contains_extender_fragment);
 
     // bb_led tests
     RUN_TEST(test_bb_led_caps_and_count);
