@@ -113,7 +113,7 @@ const char *bb_http_route_assemble_schema(const char *route_id,
     }
 
     char *buf = malloc(len);
-    if (!buf) return NULL;
+    if (!buf) return NULL;  // LCOV_EXCL_LINE — malloc failure defensive
 
     char *p = buf;
     p = stpcpy(p, base);
@@ -170,11 +170,6 @@ void bb_http_extender_reset_for_test(void)
     memset(s_routes, 0, sizeof(s_routes));
     s_route_count = 0;
     s_frozen      = false;
-}
-
-void bb_http_extender_freeze_for_test(void)
-{
-    s_frozen = true;
 }
 
 const char *bb_http_extender_get_assembled_schema(const char *route_id)

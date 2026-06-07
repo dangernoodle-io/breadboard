@@ -13,10 +13,6 @@ extern "C" {
 // unfreezes. Called from setUp() so each test starts clean.
 void bb_http_extender_reset_for_test(void);
 
-// Freeze the extender table (mirrors what bb_info_init does on espidf).
-// Safe to call multiple times (idempotent).
-void bb_http_extender_freeze_for_test(void);
-
 // Return the assembled schema for route_id previously built by
 // bb_http_route_assemble_schema(). NULL if not yet assembled or malloc failed.
 // Caller must NOT free the result.

@@ -1,10 +1,12 @@
 #include "bb_info.h"
 
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "bb_board.h"
 #include "bb_http.h"
+#include "bb_http_extender.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mdns.h"
@@ -13,42 +15,27 @@
 
 #include "../../../components/bb_info/bb_info_schema_priv.h"
 
-#define BB_INFO_MAX_EXTENDERS 4
-#define BB_HEALTH_MAX_EXTENDERS 4
-
 static const char *TAG = "bb_info";
 
-typedef struct {
-    bb_info_extender_fn fn;
-    const char         *schema_props;
-} bb_info_extender_entry_t;
-
-static bb_info_extender_entry_t s_extenders[BB_INFO_MAX_EXTENDERS];
-static int   s_extender_count = 0;
-static bool  s_frozen         = false;
-
+// ---------------------------------------------------------------------------
 // Capability registry
+// ---------------------------------------------------------------------------
+
 static const char *s_capabilities[BB_INFO_MAX_CAPABILITIES];
 static int         s_capability_count = 0;
+// Mirrored freeze flag for capabilities (set alongside the extender freeze).
+static bool        s_cap_frozen       = false;
 
-static bb_info_extender_entry_t s_health_extenders[BB_HEALTH_MAX_EXTENDERS];
-static int   s_health_extender_count = 0;
-
-// Assembled schema strings (malloc'd at init; NULL on malloc failure).
-static char *s_assembled_info_schema    = NULL;
-static char *s_assembled_health_schema  = NULL;
+// ---------------------------------------------------------------------------
+// Public bb_info extender wrappers (back-compat thin wrappers)
+// ---------------------------------------------------------------------------
 
 bb_err_t bb_info_register_extender_ex(bb_info_extender_fn fn,
                                        const char *schema_props_fragment)
 {
-    if (!fn) return BB_ERR_INVALID_ARG;
-    if (s_frozen) return BB_ERR_INVALID_STATE;
-    if (s_extender_count >= BB_INFO_MAX_EXTENDERS) return BB_ERR_NO_SPACE;
-    const char *frag = (schema_props_fragment && schema_props_fragment[0]) ? schema_props_fragment : NULL;
-    s_extenders[s_extender_count].fn          = fn;
-    s_extenders[s_extender_count].schema_props = frag;
-    s_extender_count++;
-    return BB_OK;
+    return bb_http_register_route_extender("info",
+                                           (bb_http_extender_fn)fn,
+                                           schema_props_fragment);
 }
 
 bb_err_t bb_info_register_extender(bb_info_extender_fn fn)
@@ -59,14 +46,9 @@ bb_err_t bb_info_register_extender(bb_info_extender_fn fn)
 bb_err_t bb_health_register_extender_ex(bb_info_extender_fn fn,
                                          const char *schema_props_fragment)
 {
-    if (!fn) return BB_ERR_INVALID_ARG;
-    if (s_frozen) return BB_ERR_INVALID_STATE;
-    if (s_health_extender_count >= BB_HEALTH_MAX_EXTENDERS) return BB_ERR_NO_SPACE;
-    const char *frag = (schema_props_fragment && schema_props_fragment[0]) ? schema_props_fragment : NULL;
-    s_health_extenders[s_health_extender_count].fn          = fn;
-    s_health_extenders[s_health_extender_count].schema_props = frag;
-    s_health_extender_count++;
-    return BB_OK;
+    return bb_http_register_route_extender("health",
+                                           (bb_http_extender_fn)fn,
+                                           schema_props_fragment);
 }
 
 bb_err_t bb_health_register_extender(bb_info_extender_fn fn)
@@ -77,7 +59,7 @@ bb_err_t bb_health_register_extender(bb_info_extender_fn fn)
 void bb_info_register_capability(const char *name)
 {
     if (!name || !name[0]) return;
-    if (s_frozen) {
+    if (s_cap_frozen) {
         bb_log_w(TAG, "bb_info_register_capability(%s): ignored after freeze", name);
         return;
     }
@@ -91,6 +73,10 @@ void bb_info_register_capability(const char *name)
     }
     s_capabilities[s_capability_count++] = name;
 }
+
+// ---------------------------------------------------------------------------
+// JSON helpers
+// ---------------------------------------------------------------------------
 
 static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
 {
@@ -152,7 +138,6 @@ static void add_network_object(bb_json_t root, const bb_wifi_info_t *w)
 }
 
 // Serialize a bb_json_t tree and stream it via chunked transfer.
-// Returns BB_OK on success. Caller owns/frees root.
 static bb_err_t send_json_tree(bb_http_request_t *req, bb_json_t root)
 {
     char *str = bb_json_serialize(root);
@@ -188,9 +173,7 @@ static bb_err_t info_handler(bb_http_request_t *req)
     }
     bb_json_obj_set_arr(root, "capabilities", caps);
 
-    for (int i = 0; i < s_extender_count; i++) {
-        s_extenders[i].fn(root);
-    }
+    bb_http_route_run_extenders("info", root);
 
     bb_err_t err = send_json_tree(req, root);
     bb_json_free(root);
@@ -226,85 +209,11 @@ static bb_err_t health_handler(bb_http_request_t *req)
     }
     bb_json_obj_set_obj(root, "network", net);
 
-    for (int i = 0; i < s_health_extender_count; i++) {
-        s_health_extenders[i].fn(root);
-    }
+    bb_http_route_run_extenders("health", root);
 
     bb_err_t err = send_json_tree(req, root);
     bb_json_free(root);
     return err;
-}
-
-// ---------------------------------------------------------------------------
-// Schema assembly
-// ---------------------------------------------------------------------------
-
-// Assembles base + extender fragments + suffix into a malloc'd string.
-// Returns NULL on malloc failure.
-static char *assemble_schema(const char *base, const char *suffix,
-                              const bb_info_extender_entry_t *entries, int count)
-{
-    size_t len = strlen(base) + strlen(suffix) + 1; // +1 for NUL
-    for (int i = 0; i < count; i++) {
-        if (entries[i].schema_props) {
-            len += 1 + strlen(entries[i].schema_props); // comma + fragment
-        }
-    }
-
-    char *buf = malloc(len);
-    if (!buf) return NULL;
-
-    char *p = buf;
-    p = stpcpy(p, base);
-    for (int i = 0; i < count; i++) {
-        if (entries[i].schema_props) {
-            *p++ = ',';
-            p = stpcpy(p, entries[i].schema_props);
-        }
-    }
-    stpcpy(p, suffix);
-    return buf;
-}
-
-static void assemble_info_schema(void)
-{
-    s_assembled_info_schema = assemble_schema(
-        k_info_schema_base, k_info_schema_suffix,
-        s_extenders, s_extender_count);
-    if (!s_assembled_info_schema) {
-        bb_log_w(TAG, "info schema assembly: malloc failed; schema will be NULL");
-    }
-}
-
-static void assemble_health_schema(void)
-{
-    // Health schema is not split the same way (no extension base/suffix defined),
-    // so we use the monolithic literal directly. If health extenders carry fragments,
-    // we still need to assemble.
-    static const char k_health_base[] =
-        "{\"type\":\"object\","
-        "\"properties\":{"
-        "\"ok\":{\"type\":\"boolean\"},"
-        "\"free_heap\":{\"type\":\"integer\"},"
-        "\"validated\":{\"type\":\"boolean\"},"
-        "\"network\":{\"type\":\"object\","
-        "\"properties\":{"
-        "\"connected\":{\"type\":\"boolean\"},"
-        "\"rssi\":{\"type\":\"integer\"},"
-        "\"disc_age_s\":{\"type\":\"integer\"},"
-        "\"retry_count\":{\"type\":\"integer\"},"
-        "\"mdns\":{\"type\":[\"string\",\"null\"]}}}";
-
-    static const char k_health_suffix[] =
-        "},"
-        "\"required\":[\"ok\",\"network\"]}";
-
-    s_assembled_health_schema = assemble_schema(
-        k_health_base, k_health_suffix,
-        s_health_extenders, s_health_extender_count);
-    if (!s_assembled_health_schema) {
-        bb_log_w(TAG, "health schema assembly: malloc failed; schema will be NULL");
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -313,54 +222,78 @@ static void assemble_health_schema(void)
 
 static bb_route_response_t s_info_responses[] = {
     { 200, "application/json",
-      NULL,  // filled by assemble_info_schema() at init
+      NULL,  // filled by bb_http_route_assemble_schema() at init
       "full device info including board and network" },
     { 0 },
 };
 
 static const bb_route_t s_info_route = {
-    .method   = BB_HTTP_GET,
-    .path     = "/api/info",
-    .tag      = "info",
-    .summary  = "Get full device info",
+    .method    = BB_HTTP_GET,
+    .path      = "/api/info",
+    .tag       = "info",
+    .summary   = "Get full device info",
     .responses = s_info_responses,
-    .handler  = info_handler,
+    .handler   = info_handler,
 };
 
 static bb_route_response_t s_health_responses[] = {
     { 200, "application/json",
-      NULL,  // filled by assemble_health_schema() at init
+      NULL,  // filled by bb_http_route_assemble_schema() at init
       "liveness check" },
     { 0 },
 };
 
 static const bb_route_t s_health_route = {
-    .method   = BB_HTTP_GET,
-    .path     = "/api/health",
-    .tag      = "health",
-    .summary  = "Get liveness status",
+    .method    = BB_HTTP_GET,
+    .path      = "/api/health",
+    .tag       = "health",
+    .summary   = "Get liveness status",
     .responses = s_health_responses,
-    .handler  = health_handler,
+    .handler   = health_handler,
 };
+
+// Health schema base/suffix (info base/suffix are in the shared priv header).
+static const char k_health_base[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+    "\"ok\":{\"type\":\"boolean\"},"
+    "\"free_heap\":{\"type\":\"integer\"},"
+    "\"validated\":{\"type\":\"boolean\"},"
+    "\"network\":{\"type\":\"object\","
+    "\"properties\":{"
+    "\"connected\":{\"type\":\"boolean\"},"
+    "\"rssi\":{\"type\":\"integer\"},"
+    "\"disc_age_s\":{\"type\":\"integer\"},"
+    "\"retry_count\":{\"type\":\"integer\"},"
+    "\"mdns\":{\"type\":[\"string\",\"null\"]}}}";
+
+static const char k_health_suffix[] =
+    "},"
+    "\"required\":[\"ok\",\"network\"]}";
 
 static bb_err_t bb_info_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
-    s_frozen = true;
+    s_cap_frozen = true;
+    bb_http_extender_freeze();
 
-    assemble_info_schema();
-    // Wire the assembled schema buffer into the route descriptor so that OpenAPI
-    // emits it in /api/openapi.json and clients can validate responses. Without
-    // this assignment, the descriptor's .schema field stays NULL and OpenAPI skips
-    // it. If assemble_info_schema() fails (malloc), s_assembled_info_schema is NULL
-    // and the descriptor gracefully remains NULL — same as before.
-    s_info_responses[0].schema = s_assembled_info_schema;
+    // Assemble and publish info schema. The assembled buffer is stored inside
+    // the extender registry and published into s_info_responses[0].schema so
+    // that OpenAPI emits it in /api/openapi.json.
+    const char *info_schema = bb_http_route_assemble_schema(
+        "info", k_info_schema_base, k_info_schema_suffix);
+    if (!info_schema) {
+        bb_log_w(TAG, "info schema assembly: malloc failed; schema will be NULL");
+    }
+    s_info_responses[0].schema = info_schema;
 
-    assemble_health_schema();
-    // Wire the assembled health schema buffer into the route descriptor for the same
-    // reason: OpenAPI needs it to emit the schema in /api/openapi.json. Gracefully
-    // handles malloc failure (NULL assignment is safe).
-    s_health_responses[0].schema = s_assembled_health_schema;
+    // Assemble and publish health schema.
+    const char *health_schema = bb_http_route_assemble_schema(
+        "health", k_health_base, k_health_suffix);
+    if (!health_schema) {
+        bb_log_w(TAG, "health schema assembly: malloc failed; schema will be NULL");
+    }
+    s_health_responses[0].schema = health_schema;
 
     bb_err_t err = bb_http_register_described_route(server, &s_info_route);
     if (err != BB_OK) return err;

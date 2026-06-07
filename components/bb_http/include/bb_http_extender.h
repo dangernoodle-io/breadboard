@@ -69,7 +69,7 @@ const char *bb_http_route_assemble_schema(const char *route_id,
 // Freeze the registry: all subsequent registration attempts return
 // BB_ERR_INVALID_STATE. Called once (idempotent) at server-start time.
 // On espidf this is called inside bb_info_init() / equivalent init fns.
-// On host the test harness calls it via bb_http_extender_freeze_for_test().
+// On host the test harness also calls this function.
 void bb_http_extender_freeze(void);
 
 #ifdef __cplusplus
