@@ -954,6 +954,9 @@ void test_bb_display_info_schema_in_assembled_schema(void);
 void test_bb_display_info_extender_no_backend_present_false(void);
 void test_bb_display_info_extender_with_backend_present_true(void);
 void test_bb_display_info_enabled_tracks_nv_config(void);
+void test_bb_display_backend_name_persists_after_off(void);
+void test_bb_display_dims_persist_after_off(void);
+void test_bb_display_info_extender_present_true_after_off(void);
 
 // Forward declarations from test_bb_timer.c
 void test_bb_timer_create_null_out_returns_err(void);
@@ -2397,6 +2400,10 @@ int main(void) {
     RUN_TEST(test_bb_display_info_extender_no_backend_present_false);
     RUN_TEST(test_bb_display_info_extender_with_backend_present_true);
     RUN_TEST(test_bb_display_info_enabled_tracks_nv_config);
+    // regression guard: persistent introspection after bb_display_off()
+    RUN_TEST(test_bb_display_backend_name_persists_after_off);
+    RUN_TEST(test_bb_display_dims_persist_after_off);
+    RUN_TEST(test_bb_display_info_extender_present_true_after_off);
 
     // bb_byte_order tests
     RUN_TEST(test_bb_load_be32_constant);

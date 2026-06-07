@@ -18,6 +18,13 @@ static bool     s_ready = false;
 static uint16_t s_width = 0;
 static uint16_t s_height = 0;
 
+/* Persistent panel record — set when init succeeds, NOT cleared by bb_display_off().
+ * Reflects hardware capability ("a display backend was ever successfully initialized")
+ * independent of the runtime on/off state. */
+static const bb_display_backend_t *s_panel = NULL;
+static uint16_t s_panel_width = 0;
+static uint16_t s_panel_height = 0;
+
 /* Default font selection: prefer largest available. */
 #if BB_DISPLAY_FONT_8X16
 static const bb_display_font_t *s_compile_time_default_font = &bb_display_font_8x16;
@@ -39,6 +46,9 @@ void bb_display_reset_for_testing(void)
     s_ready = false;
     s_width = 0;
     s_height = 0;
+    s_panel = NULL;
+    s_panel_width = 0;
+    s_panel_height = 0;
     s_default_font = NULL;
 }
 
@@ -101,6 +111,9 @@ bb_err_t bb_display_init(void)
         s_active = candidate;
         s_width = w;
         s_height = h;
+        s_panel = candidate;
+        s_panel_width = w;
+        s_panel_height = h;
         s_ready = true;
         bb_log_i(TAG, "init: %ux%u (%s) [probed=%d]", (unsigned)w, (unsigned)h, nm, probed);
         return BB_OK;
@@ -111,9 +124,9 @@ bb_err_t bb_display_init(void)
 }
 
 bool        bb_display_ready(void)        { return s_ready; }
-uint16_t    bb_display_width(void)        { return s_width; }
-uint16_t    bb_display_height(void)       { return s_height; }
-const char *bb_display_backend_name(void) { return s_active ? s_active->name : NULL; }
+uint16_t    bb_display_width(void)        { return s_active ? s_width : s_panel_width; }
+uint16_t    bb_display_height(void)       { return s_active ? s_height : s_panel_height; }
+const char *bb_display_backend_name(void) { return s_panel ? s_panel->name : NULL; }
 
 void bb_display_clear(uint16_t rgb565)
 {

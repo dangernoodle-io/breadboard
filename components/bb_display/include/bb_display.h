@@ -27,9 +27,10 @@ bb_err_t    bb_display_init(void);
 void        bb_display_off(void);
 bool        bb_display_ready(void);
 
-// Returns the active panel backend's name (e.g. "st77xx", "ssd1306"),
-// or NULL if no backend is registered or bb_display_init has not succeeded.
-// Valid only after a successful bb_display_init(); cleared by bb_display_off().
+// Returns the panel backend's name (e.g. "st77xx", "ssd1306"), reflecting the
+// most recently successfully-initialized backend.  Returns NULL only if no
+// backend has ever successfully initialized.  NOT cleared by bb_display_off() —
+// use bb_display_ready() to test whether the display is currently active.
 const char *bb_display_backend_name(void);
 
 uint16_t bb_display_width(void);

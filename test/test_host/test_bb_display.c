@@ -1168,3 +1168,83 @@ void test_bb_display_info_enabled_tracks_nv_config(void)
     bb_nv_config_set_display_enabled(true);
 }
 
+/* ---------------------------------------------------------------------------
+ * Tests: persistent introspection survives bb_display_off()
+ *
+ * Regression guard for the bug where bb_display_off() cleared s_active,
+ * causing bb_display_backend_name() to return NULL and the /api/info extender
+ * to report present:false on boards with display_en=false.
+ * --------------------------------------------------------------------------- */
+
+void test_bb_display_backend_name_persists_after_off(void)
+{
+    /* init succeeds → backend_name returns "mock". */
+    bb_display_backend_t b = make_mock(false);
+    bb_display_register_backend(&b);
+    TEST_ASSERT_EQUAL(BB_OK, bb_display_init());
+    TEST_ASSERT_EQUAL_STRING("mock", bb_display_backend_name());
+
+    /* After off: ready goes false but backend_name must still return "mock". */
+    bb_display_off();
+    TEST_ASSERT_FALSE(bb_display_ready());
+    TEST_ASSERT_EQUAL_STRING("mock", bb_display_backend_name());
+}
+
+void test_bb_display_dims_persist_after_off(void)
+{
+    bb_display_backend_t b = make_mock(false);
+    bb_display_register_backend(&b);
+    TEST_ASSERT_EQUAL(BB_OK, bb_display_init());
+    TEST_ASSERT_EQUAL_UINT16(320, bb_display_width());
+    TEST_ASSERT_EQUAL_UINT16(240, bb_display_height());
+
+    bb_display_off();
+    TEST_ASSERT_EQUAL_UINT16(320, bb_display_width());
+    TEST_ASSERT_EQUAL_UINT16(240, bb_display_height());
+}
+
+void test_bb_display_info_extender_present_true_after_off(void)
+{
+    /* Regression: extender must report present:true even when display is off
+     * (display_en=false path).  The panel name is non-NULL (set at init time)
+     * even though bb_display_ready() is false. */
+    bb_display_backend_t b = make_mock(false);
+    bb_display_register_backend(&b);
+    bb_display_init();
+    bb_display_off();
+    TEST_ASSERT_FALSE(bb_display_ready());
+
+    /* Disable NV flag to simulate display_en=false. */
+    bb_nv_config_set_display_enabled(false);
+
+    bb_display_register_info();
+    bb_json_t root = bb_json_obj_new();
+    bb_info_invoke_extenders_for_test(root);
+
+    bb_json_t disp = bb_json_obj_get_item(root, "display");
+    TEST_ASSERT_NOT_NULL_MESSAGE(disp, "display key missing");
+
+    bool present = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(disp, "present", &present));
+    TEST_ASSERT_TRUE_MESSAGE(present, "present must be true when panel was initialized, even after off");
+
+    char panel[32] = {0};
+    TEST_ASSERT_TRUE(bb_json_obj_get_string(disp, "panel", panel, sizeof(panel)));
+    TEST_ASSERT_EQUAL_STRING("mock", panel);
+
+    double width = 0, height = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(disp, "width",  &width));
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(disp, "height", &height));
+    TEST_ASSERT_EQUAL_DOUBLE(320.0, width);
+    TEST_ASSERT_EQUAL_DOUBLE(240.0, height);
+
+    bool enabled = true;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(disp, "enabled", &enabled));
+    TEST_ASSERT_FALSE_MESSAGE(enabled, "enabled must reflect NV config (false)");
+
+    bb_json_free(root);
+
+    /* Restore NV state. */
+    bb_nv_config_set_display_enabled(true);
+}
+
