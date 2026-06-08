@@ -83,6 +83,14 @@ void test_panic_order_copy_truncation_wrapped(void);
 void test_panic_order_copy_null_buf(void);
 void test_panic_order_copy_null_out(void);
 void test_panic_order_copy_out_cap_one(void);
+void test_bb_diag_scrub_text_null_safe(void);
+void test_bb_diag_scrub_text_empty_string(void);
+void test_bb_diag_scrub_text_printable_unchanged(void);
+void test_bb_diag_scrub_text_high_bytes_replaced(void);
+void test_bb_diag_scrub_text_tab_newline_cr_preserved(void);
+void test_bb_diag_scrub_text_control_chars_replaced(void);
+void test_bb_diag_scrub_text_del_replaced(void);
+void test_bb_diag_scrub_text_all_printable_ascii(void);
 
 // Forward declarations from test_ota_pull.c
 void test_ota_pull_skip_check_callback_registration(void);
@@ -1835,6 +1843,16 @@ int main(void) {
     RUN_TEST(test_panic_order_copy_null_buf);
     RUN_TEST(test_panic_order_copy_null_out);
     RUN_TEST(test_panic_order_copy_out_cap_one);
+
+    // bb_diag_scrub_text pure-function tests
+    RUN_TEST(test_bb_diag_scrub_text_null_safe);
+    RUN_TEST(test_bb_diag_scrub_text_empty_string);
+    RUN_TEST(test_bb_diag_scrub_text_printable_unchanged);
+    RUN_TEST(test_bb_diag_scrub_text_high_bytes_replaced);
+    RUN_TEST(test_bb_diag_scrub_text_tab_newline_cr_preserved);
+    RUN_TEST(test_bb_diag_scrub_text_control_chars_replaced);
+    RUN_TEST(test_bb_diag_scrub_text_del_replaced);
+    RUN_TEST(test_bb_diag_scrub_text_all_printable_ascii);
 
     // OTA pull tests
     RUN_TEST(test_ota_pull_skip_check_callback_registration);

@@ -83,6 +83,7 @@ static void bb_diag_panic_coredump_init(void)
 
     strncpy(s_summary.task_name, cd_summary.exc_task, sizeof(s_summary.task_name) - 1);
     s_summary.task_name[sizeof(s_summary.task_name) - 1] = '\0';
+    bb_diag_scrub_text(s_summary.task_name);
     s_summary.exc_pc = cd_summary.exc_pc;
 
 #if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
@@ -102,7 +103,9 @@ static void bb_diag_panic_coredump_init(void)
 #endif
 
     s_summary.panic_reason[0] = '\0';
-    if (esp_core_dump_get_panic_reason(s_summary.panic_reason, sizeof(s_summary.panic_reason)) != ESP_OK) {
+    if (esp_core_dump_get_panic_reason(s_summary.panic_reason, sizeof(s_summary.panic_reason)) == ESP_OK) {
+        bb_diag_scrub_text(s_summary.panic_reason);
+    } else {
         s_summary.panic_reason[0] = '\0';   /* defensive: clear on partial fill */
     }
 

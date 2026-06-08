@@ -256,3 +256,77 @@ void test_panic_order_copy_out_cap_one(void)
     TEST_ASSERT_EQUAL_size_t(0, n);
     TEST_ASSERT_EQUAL_CHAR('\0', out[0]);
 }
+
+// ---- bb_diag_scrub_text unit tests ----
+
+void test_bb_diag_scrub_text_null_safe(void)
+{
+    // must not crash on NULL
+    bb_diag_scrub_text(NULL);
+    TEST_PASS();
+}
+
+void test_bb_diag_scrub_text_empty_string(void)
+{
+    char s[] = "";
+    bb_diag_scrub_text(s);
+    TEST_ASSERT_EQUAL_STRING("", s);
+}
+
+void test_bb_diag_scrub_text_printable_unchanged(void)
+{
+    char s[] = "Task watchdog got triggered: main";
+    char expected[] = "Task watchdog got triggered: main";
+    bb_diag_scrub_text(s);
+    TEST_ASSERT_EQUAL_STRING(expected, s);
+}
+
+void test_bb_diag_scrub_text_high_bytes_replaced(void)
+{
+    // embed 0x9e and 0xcb — non-UTF-8 high bytes seen on-device
+    // 0x3f is '?' (printable ASCII) — stays unchanged
+    char s[] = "did not reset:\n - d\x9e\xcb\x3f";
+    bb_diag_scrub_text(s);
+    // 0x9e → '?', 0xcb → '?', 0x3f ('?') stays
+    TEST_ASSERT_EQUAL_STRING("did not reset:\n - d???", s);
+}
+
+void test_bb_diag_scrub_text_tab_newline_cr_preserved(void)
+{
+    char s[] = "line1\tline2\nline3\rend";
+    bb_diag_scrub_text(s);
+    TEST_ASSERT_EQUAL_STRING("line1\tline2\nline3\rend", s);
+}
+
+void test_bb_diag_scrub_text_control_chars_replaced(void)
+{
+    // 0x01 (SOH) and 0x1F (US) are non-printable control chars — must be scrubbed
+    char s[] = "\x01hello\x1fworld";
+    bb_diag_scrub_text(s);
+    TEST_ASSERT_EQUAL_STRING("?hello?world", s);
+}
+
+void test_bb_diag_scrub_text_del_replaced(void)
+{
+    // 0x7F (DEL) is not in the printable range 0x20..0x7E
+    char s[] = "abc\x7f" "def";
+    bb_diag_scrub_text(s);
+    TEST_ASSERT_EQUAL_STRING("abc?def", s);
+}
+
+void test_bb_diag_scrub_text_all_printable_ascii(void)
+{
+    // full printable ASCII range 0x20..0x7E unchanged
+    char s[96];
+    for (int i = 0; i < 95; i++) {
+        s[i] = (char)(0x20 + i);
+    }
+    s[95] = '\0';
+    char expected[96];
+    for (int i = 0; i < 95; i++) {
+        expected[i] = (char)(0x20 + i);
+    }
+    expected[95] = '\0';
+    bb_diag_scrub_text(s);
+    TEST_ASSERT_EQUAL_STRING(expected, s);
+}

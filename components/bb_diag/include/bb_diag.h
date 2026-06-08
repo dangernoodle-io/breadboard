@@ -173,6 +173,15 @@ bb_diag_reset_result_t bb_diag_reset_decision(uint32_t stored_fp, uint32_t runni
                                                uint32_t stored_count, bool is_abnormal);
 
 /**
+ * Pure helper: scrub non-UTF-8 / non-printable bytes from a NUL-terminated
+ * string in place. Each byte that is not in the set
+ *   { 0x09 (\t), 0x0A (\n), 0x0D (\r), 0x20..0x7E (printable ASCII) }
+ * is replaced with '?'.  Stops at the NUL terminator.  NULL-safe (no-op on NULL).
+ * Contains no ESP-IDF calls — fully host-testable.
+ */
+void bb_diag_scrub_text(char *s);
+
+/**
  * Pure helper: copy a circular panic log buffer (oldest-to-newest) into a
  * flat output buffer and NUL-terminate it. No global state — fully host-testable.
  *
