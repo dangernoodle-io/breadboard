@@ -1338,6 +1338,14 @@ void test_bb_led_info_schema_in_assembled_schema(void);
 void test_bb_led_info_extender_no_primary_present_false(void);
 void test_bb_led_info_extender_rgb_primary_present_true(void);
 void test_bb_led_info_extender_pwm_primary_rgb_false(void);
+void test_bb_led_enabled_default_true(void);
+void test_bb_led_set_enabled_false(void);
+void test_bb_led_set_enabled_roundtrip(void);
+void test_bb_led_set_enabled_null_returns_err(void);
+void test_bb_led_enabled_null_returns_false(void);
+void test_bb_led_info_schema_includes_enabled(void);
+void test_bb_led_info_extender_enabled_true_by_default(void);
+void test_bb_led_info_extender_enabled_false_after_set(void);
 
 // Forward declarations from test_bb_temp.c
 void test_bb_temp_read_soc_default_absent(void);
@@ -3043,6 +3051,15 @@ int main(void) {
     RUN_TEST(test_bb_led_info_extender_no_primary_present_false);
     RUN_TEST(test_bb_led_info_extender_rgb_primary_present_true);
     RUN_TEST(test_bb_led_info_extender_pwm_primary_rgb_false);
+    // bb_led enabled flag tests
+    RUN_TEST(test_bb_led_enabled_default_true);
+    RUN_TEST(test_bb_led_set_enabled_false);
+    RUN_TEST(test_bb_led_set_enabled_roundtrip);
+    RUN_TEST(test_bb_led_set_enabled_null_returns_err);
+    RUN_TEST(test_bb_led_enabled_null_returns_false);
+    RUN_TEST(test_bb_led_info_schema_includes_enabled);
+    RUN_TEST(test_bb_led_info_extender_enabled_true_by_default);
+    RUN_TEST(test_bb_led_info_extender_enabled_false_after_set);
 
     // bb_temp satellite tests
     RUN_TEST(test_bb_temp_read_soc_default_absent);
