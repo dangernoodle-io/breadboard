@@ -277,6 +277,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_partition/bb_partition.c"],
         "depends":  ["bb_core"],
     },
+    "bb_ota_led": {
+        "includes": ["components/bb_ota_led/include", "platform/host/bb_ota_led"],
+        "sources":  ["platform/host/bb_ota_led/bb_ota_led.c"],
+        "depends":  ["bb_core"],
+    },
     "bb_led_apa102": {
         "includes": ["components/bb_led_apa102/include", "platform/host/bb_led_apa102"],
         "sources":  ["platform/host/bb_led_apa102/bb_led_apa102.c"],

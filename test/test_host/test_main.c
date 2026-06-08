@@ -1399,6 +1399,15 @@ void test_bb_partition_list_cap_truncation(void);
 void test_bb_partition_get_running(void);
 void test_bb_partition_get_next_ota(void);
 
+// Forward declarations from test_bb_ota_led.c
+void test_ota_led_start_calls_updating(void);
+void test_ota_led_progress_calls_updating_with_pct(void);
+void test_ota_led_success_calls_success(void);
+void test_ota_led_fail_calls_restore(void);
+void test_ota_led_unknown_phase_restores(void);
+void test_ota_led_no_init_is_safe(void);
+void test_ota_led_null_op_is_safe(void);
+
 // Forward declarations from test_bb_led_rgb_pwm.c
 void bb_led_rgb_pwm_host_test_reset(void);
 void test_rgb_pwm_open_close(void);
@@ -1889,6 +1898,15 @@ int main(void) {
     RUN_TEST(test_bb_partition_list_cap_truncation);
     RUN_TEST(test_bb_partition_get_running);
     RUN_TEST(test_bb_partition_get_next_ota);
+
+    // bb_ota_led tests
+    RUN_TEST(test_ota_led_start_calls_updating);
+    RUN_TEST(test_ota_led_progress_calls_updating_with_pct);
+    RUN_TEST(test_ota_led_success_calls_success);
+    RUN_TEST(test_ota_led_fail_calls_restore);
+    RUN_TEST(test_ota_led_unknown_phase_restores);
+    RUN_TEST(test_ota_led_no_init_is_safe);
+    RUN_TEST(test_ota_led_null_op_is_safe);
 
     // OTA pull tests
     RUN_TEST(test_ota_pull_skip_check_callback_registration);
