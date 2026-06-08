@@ -1,5 +1,6 @@
 set(_diag_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_reset_decision.c"
+    "${CMAKE_CURRENT_LIST_DIR}/bb_diag_scrub.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag/bb_diag_panic.c"
 )
 
