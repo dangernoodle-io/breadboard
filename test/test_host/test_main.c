@@ -1250,6 +1250,7 @@ void test_bb_fan_routes_pid_input_src_emits_die_for_die(void);
 void test_bb_fan_routes_persist_cb_fires_on_post(void);
 void test_bb_fan_routes_persist_cb_not_called_by_direct_set(void);
 void test_bb_fan_routes_persist_cb_not_called_when_null(void);
+void test_bb_fan_routes_get_emits_autofan_cfg_fields(void);
 #endif /* CONFIG_BB_FAN_AUTOFAN */
 
 // Forward declarations from test_bb_fan_autofan.c (BB_FAN_AUTOFAN feature)
@@ -2956,6 +2957,7 @@ int main(void) {
     RUN_TEST(test_bb_fan_routes_persist_cb_fires_on_post);
     RUN_TEST(test_bb_fan_routes_persist_cb_not_called_by_direct_set);
     RUN_TEST(test_bb_fan_routes_persist_cb_not_called_when_null);
+    RUN_TEST(test_bb_fan_routes_get_emits_autofan_cfg_fields);
 #endif
 
     // bb_fan autofan PID tests (BB_FAN_AUTOFAN feature)

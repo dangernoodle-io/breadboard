@@ -592,6 +592,16 @@ static cJSON *run_af_get(void)
         bb_json_obj_set_null(root, "duty_pct");
     }
     if (present && h) {
+        // Autofan config fields (consumer contract).
+        bb_fan_autofan_cfg_t cfg;
+        bb_fan_get_autofan_cfg(h, &cfg);
+        bb_json_obj_set_bool(root,   "autofan",      cfg.enabled);
+        bb_json_obj_set_number(root, "die_target_c", (double)cfg.die_target_c);
+        bb_json_obj_set_number(root, "vr_target_c",  (double)cfg.aux_target_c);
+        bb_json_obj_set_number(root, "manual_pct",   (double)cfg.manual_pct);
+        bb_json_obj_set_number(root, "min_pct",      (double)cfg.min_pct);
+
+        // Autofan telemetry fields.
         bb_fan_autofan_telemetry_t tel;
         bb_fan_get_autofan_telemetry(h, &tel);
         if (tel.die_ema_c >= 0.0f) {
@@ -897,6 +907,59 @@ void test_bb_fan_routes_persist_cb_not_called_when_null(void)
     TEST_ASSERT_EQUAL_INT(204, cap.status);
     bb_http_host_capture_free(&cap);
 
+    bb_fan_set_primary(NULL);
+    free(h);
+}
+
+// ---------------------------------------------------------------------------
+// C: GET /api/fan emits all 5 autofan config fields with correct values
+// ---------------------------------------------------------------------------
+
+void test_bb_fan_routes_get_emits_autofan_cfg_fields(void)
+{
+    bb_fan_handle_t h;
+    bb_fan_handle_create(&drv_fake, &g_fan, &h);
+    bb_fan_set_primary(h);
+
+    // Set a known autofan config.
+    bb_fan_autofan_cfg_t cfg = {
+        .enabled      = true,
+        .die_target_c = 72.5f,
+        .aux_target_c = 85.0f,
+        .min_pct      = 20,
+        .manual_pct   = 45,
+    };
+    bb_fan_set_autofan(h, &cfg);
+
+    cJSON *body = run_af_get();
+    TEST_ASSERT_NOT_NULL_MESSAGE(body, "GET did not return JSON");
+
+    // autofan (bool, enabled=true)
+    cJSON *af = cJSON_GetObjectItemCaseSensitive(body, "autofan");
+    TEST_ASSERT_NOT_NULL_MESSAGE(af, "autofan field missing from GET response");
+    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsTrue(af), "autofan should be true");
+
+    // die_target_c
+    cJSON *die_t = cJSON_GetObjectItemCaseSensitive(body, "die_target_c");
+    TEST_ASSERT_NOT_NULL_MESSAGE(die_t, "die_target_c missing from GET response");
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 72.5f, (float)cJSON_GetNumberValue(die_t));
+
+    // vr_target_c (wire name for aux_target_c)
+    cJSON *vr_t = cJSON_GetObjectItemCaseSensitive(body, "vr_target_c");
+    TEST_ASSERT_NOT_NULL_MESSAGE(vr_t, "vr_target_c missing from GET response");
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 85.0f, (float)cJSON_GetNumberValue(vr_t));
+
+    // manual_pct
+    cJSON *man = cJSON_GetObjectItemCaseSensitive(body, "manual_pct");
+    TEST_ASSERT_NOT_NULL_MESSAGE(man, "manual_pct missing from GET response");
+    TEST_ASSERT_EQUAL_INT(45, (int)cJSON_GetNumberValue(man));
+
+    // min_pct
+    cJSON *minp = cJSON_GetObjectItemCaseSensitive(body, "min_pct");
+    TEST_ASSERT_NOT_NULL_MESSAGE(minp, "min_pct missing from GET response");
+    TEST_ASSERT_EQUAL_INT(20, (int)cJSON_GetNumberValue(minp));
+
+    cJSON_Delete(body);
     bb_fan_set_primary(NULL);
     free(h);
 }
