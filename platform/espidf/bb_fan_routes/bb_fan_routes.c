@@ -181,17 +181,20 @@ void bb_fan_routes_emit(bb_http_request_t *req)
 
 #ifdef CONFIG_BB_FAN_AUTOFAN
     if (present && h) {
-        // Emit autofan config fields — consumer reads these from cfg copy
-        // We expose them via the telemetry getter + a separate config getter.
-        // For simplicity, get telemetry and emit all autofan fields.
+        // Autofan config fields (consumer contract: autofan, die_target_c,
+        // vr_target_c, manual_pct, min_pct). cfg.aux_target_c → "vr_target_c".
+        bb_fan_autofan_cfg_t cfg;
+        bb_fan_get_autofan_cfg(h, &cfg);
+        bb_json_obj_set_bool(root,   "autofan",      cfg.enabled);
+        bb_json_obj_set_number(root, "die_target_c", (double)cfg.die_target_c);
+        bb_json_obj_set_number(root, "vr_target_c",  (double)cfg.aux_target_c);
+        bb_json_obj_set_number(root, "manual_pct",   (double)cfg.manual_pct);
+        bb_json_obj_set_number(root, "min_pct",      (double)cfg.min_pct);
+
+        // Autofan telemetry fields.
         bb_fan_autofan_telemetry_t tel;
         bb_fan_get_autofan_telemetry(h, &tel);
 
-        // Config fields — we need a way to read cfg; use a temporary approach:
-        // bb_fan_get_autofan reads config (we'll add a getter or embed in telemetry).
-        // Since we only have telemetry getter, TM consumers will call their own
-        // config source for die_target_c etc and use extenders.
-        // For the bb-owned flow: emit telemetry EMA/PID fields here.
         if (tel.die_ema_c >= 0.0f) {
             bb_json_obj_set_number(root, "die_ema_c", (double)tel.die_ema_c);
         } else {
