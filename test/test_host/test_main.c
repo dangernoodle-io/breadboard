@@ -540,6 +540,7 @@ void test_fidelity_update_check(void);
 void test_fidelity_log_level_get(void);
 void test_fidelity_wifi_patch_202(void);
 void test_fidelity_wifi_patch_400(void);
+void test_fidelity_diag_partitions(void);
 void test_fidelity_update_status(void);
 void test_fidelity_update_config_get(void);
 void test_fidelity_diag_events(void);
@@ -1389,6 +1390,15 @@ void test_pwm_invalid_args(void);
 void test_pwm_initial_state_off_active_high(void);
 void test_pwm_initial_state_off_active_low(void);
 
+// Forward declarations from test_bb_partition.c
+void test_bb_partition_list_count(void);
+void test_bb_partition_ota0_running(void);
+void test_bb_partition_ota1_next_ota(void);
+void test_bb_partition_coredump_present(void);
+void test_bb_partition_list_cap_truncation(void);
+void test_bb_partition_get_running(void);
+void test_bb_partition_get_next_ota(void);
+
 // Forward declarations from test_bb_led_rgb_pwm.c
 void bb_led_rgb_pwm_host_test_reset(void);
 void test_rgb_pwm_open_close(void);
@@ -1871,6 +1881,15 @@ int main(void) {
     RUN_TEST(test_bb_diag_scrub_text_del_replaced);
     RUN_TEST(test_bb_diag_scrub_text_all_printable_ascii);
 
+    // bb_partition tests
+    RUN_TEST(test_bb_partition_list_count);
+    RUN_TEST(test_bb_partition_ota0_running);
+    RUN_TEST(test_bb_partition_ota1_next_ota);
+    RUN_TEST(test_bb_partition_coredump_present);
+    RUN_TEST(test_bb_partition_list_cap_truncation);
+    RUN_TEST(test_bb_partition_get_running);
+    RUN_TEST(test_bb_partition_get_next_ota);
+
     // OTA pull tests
     RUN_TEST(test_ota_pull_skip_check_callback_registration);
     RUN_TEST(test_ota_pull_skip_check_callback_returns_true);
@@ -2283,6 +2302,7 @@ int main(void) {
     RUN_TEST(test_fidelity_log_level_get);
     RUN_TEST(test_fidelity_wifi_patch_202);
     RUN_TEST(test_fidelity_wifi_patch_400);
+    RUN_TEST(test_fidelity_diag_partitions);
     RUN_TEST(test_fidelity_update_status);
     RUN_TEST(test_fidelity_update_config_get);
     RUN_TEST(test_fidelity_diag_events);
