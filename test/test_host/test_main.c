@@ -1280,6 +1280,30 @@ void test_autofan_set_autofan_null_handle(void);
 void test_autofan_set_autofan_null_cfg(void);
 #endif /* CONFIG_BB_FAN_AUTOFAN */
 
+// Forward declarations from test_bb_fan_pid_unit.c (direct PID internals)
+#ifdef CONFIG_BB_FAN_AUTOFAN
+void test_pid_set_clock_null_is_ignored(void);
+void test_pid_set_mode_auto_when_already_auto_no_reinit(void);
+void test_pid_compute_returns_false_in_manual_mode(void);
+void test_pid_p_on_m_mode_fires(void);
+void test_pid_set_tunings_negative_kp_is_rejected(void);
+void test_pid_set_tunings_negative_ki_is_rejected(void);
+void test_pid_set_tunings_negative_kd_is_rejected(void);
+void test_pid_set_tunings_direct_direction_positive_gains(void);
+void test_pid_set_tunings_simple_wrapper(void);
+void test_pid_set_sample_time_zero_is_noop(void);
+void test_pid_set_sample_time_negative_is_noop(void);
+void test_pid_set_output_limits_min_eq_max_noop(void);
+void test_pid_set_output_limits_min_gt_max_noop(void);
+void test_pid_set_output_limits_clamps_output_above_max(void);
+void test_pid_set_output_limits_clamps_output_below_min(void);
+void test_pid_set_direction_while_auto_negates_gains(void);
+void test_pid_set_direction_same_dir_while_auto_no_flip(void);
+void test_pid_initialize_clamps_output_sum_above_max(void);
+void test_pid_get_mode_manual(void);
+void test_pid_get_mode_automatic(void);
+#endif /* CONFIG_BB_FAN_AUTOFAN */
+
 // Forward declarations from test_bb_thermal.c
 void bb_thermal_reset_for_test(void);
 void test_bb_thermal_all_present(void);
@@ -2960,6 +2984,28 @@ int main(void) {
     RUN_TEST(test_autofan_set_aux_temp_null_handle);
     RUN_TEST(test_autofan_set_autofan_null_handle);
     RUN_TEST(test_autofan_set_autofan_null_cfg);
+
+    // bb_fan_pid direct unit tests (covers internal branches not reachable via integration tests)
+    RUN_TEST(test_pid_set_clock_null_is_ignored);
+    RUN_TEST(test_pid_set_mode_auto_when_already_auto_no_reinit);
+    RUN_TEST(test_pid_compute_returns_false_in_manual_mode);
+    RUN_TEST(test_pid_p_on_m_mode_fires);
+    RUN_TEST(test_pid_set_tunings_negative_kp_is_rejected);
+    RUN_TEST(test_pid_set_tunings_negative_ki_is_rejected);
+    RUN_TEST(test_pid_set_tunings_negative_kd_is_rejected);
+    RUN_TEST(test_pid_set_tunings_direct_direction_positive_gains);
+    RUN_TEST(test_pid_set_tunings_simple_wrapper);
+    RUN_TEST(test_pid_set_sample_time_zero_is_noop);
+    RUN_TEST(test_pid_set_sample_time_negative_is_noop);
+    RUN_TEST(test_pid_set_output_limits_min_eq_max_noop);
+    RUN_TEST(test_pid_set_output_limits_min_gt_max_noop);
+    RUN_TEST(test_pid_set_output_limits_clamps_output_above_max);
+    RUN_TEST(test_pid_set_output_limits_clamps_output_below_min);
+    RUN_TEST(test_pid_set_direction_while_auto_negates_gains);
+    RUN_TEST(test_pid_set_direction_same_dir_while_auto_no_flip);
+    RUN_TEST(test_pid_initialize_clamps_output_sum_above_max);
+    RUN_TEST(test_pid_get_mode_manual);
+    RUN_TEST(test_pid_get_mode_automatic);
 #endif /* CONFIG_BB_FAN_AUTOFAN */
 
     // bb_thermal route tests
