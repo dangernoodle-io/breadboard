@@ -50,6 +50,7 @@
 #include "bb_system.h"
 #include "bb_mdns.h"
 #include "bb_diag.h"
+#include "bb_partition.h"
 #include "bb_event.h"
 #include "bb_update_check.h"
 #include "bb_event_routes.h"
@@ -280,6 +281,20 @@ static const char k_wifi_patch_400_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{\"error\":{\"type\":\"string\"}},"
     "\"required\":[\"error\"]}";
+
+// GET /api/diag/partitions — platform/espidf/bb_diag/bb_diag_routes.c
+static const char k_partitions_schema[] =
+    "{\"type\":\"array\","
+    "\"items\":{\"type\":\"object\","
+    "\"properties\":{"
+    "\"label\":{\"type\":\"string\"},"
+    "\"type\":{\"type\":\"string\"},"
+    "\"subtype\":{\"type\":\"string\"},"
+    "\"offset\":{\"type\":\"integer\"},"
+    "\"size\":{\"type\":\"integer\"},"
+    "\"running\":{\"type\":\"boolean\"},"
+    "\"next_ota\":{\"type\":\"boolean\"}},"
+    "\"required\":[\"label\",\"type\",\"offset\",\"size\"]}}";
 
 // GET /api/log/level — platform/espidf/bb_log/bb_log_http.c
 static const char k_log_level_schema[] =
@@ -666,6 +681,37 @@ static bb_err_t h_log_level_get(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
+// GET /api/diag/partitions — canned 2-partition response using bb_partition host mock.
+// Does NOT call the real partitions_get_handler (static in bb_diag_routes.c);
+// mirrors its emit pattern to verify schema fidelity.
+static bb_err_t h_diag_partitions(bb_http_request_t *req)
+{
+    bb_partition_info_t parts[8];
+    size_t count = 0;
+    bb_partition_list(parts, sizeof(parts) / sizeof(parts[0]), &count);
+    if (count > 2) count = 2;  // emit just the first 2 for the fidelity test
+
+    bb_http_json_stream_t arr;
+    bb_err_t rc = bb_http_resp_json_arr_begin(req, &arr);
+    if (rc != BB_OK) return rc;
+
+    for (size_t i = 0; i < count; i++) {
+        bb_json_t item = bb_json_obj_new();
+        if (item) {
+            bb_json_obj_set_string(item, "label",    parts[i].label);
+            bb_json_obj_set_string(item, "type",     parts[i].type);
+            bb_json_obj_set_string(item, "subtype",  parts[i].subtype);
+            bb_json_obj_set_number(item, "offset",   (double)parts[i].offset);
+            bb_json_obj_set_number(item, "size",     (double)parts[i].size);
+            bb_json_obj_set_bool  (item, "running",  parts[i].running);
+            bb_json_obj_set_bool  (item, "next_ota", parts[i].next_ota);
+            bb_http_resp_json_arr_emit(&arr, item);
+            bb_json_free(item);
+        }
+    }
+    return bb_http_resp_json_arr_end(&arr);
+}
+
 // PATCH /api/wifi 202 — mirrors wifi_patch_handler success path.
 static bb_err_t h_wifi_patch_202(bb_http_request_t *req)
 {
@@ -715,8 +761,9 @@ static const fidelity_entry_t k_audit[] = {
     { "/api/diag/panic",        h_diag_panic,        200, "application/json", k_panic_schema         },
     { "/api/update/check",      h_update_check,      200, "application/json", k_update_check_schema    },
     { "/api/log/level",         h_log_level_get,     200, "application/json", k_log_level_schema       },
-    { "PATCH /api/wifi 202",    h_wifi_patch_202,    202, "application/json", k_wifi_patch_202_schema  },
-    { "PATCH /api/wifi 400",    h_wifi_patch_400,    400, "application/json", k_wifi_patch_400_schema  },
+    { "PATCH /api/wifi 202",         h_wifi_patch_202,    202, "application/json", k_wifi_patch_202_schema  },
+    { "PATCH /api/wifi 400",         h_wifi_patch_400,    400, "application/json", k_wifi_patch_400_schema  },
+    { "/api/diag/partitions",        h_diag_partitions,   200, "application/json", k_partitions_schema      },
     { NULL, NULL, 0, NULL, NULL },
 };
 
@@ -841,6 +888,11 @@ void test_fidelity_wifi_patch_202(void)
 void test_fidelity_wifi_patch_400(void)
 {
     run_fidelity(&k_audit[12]);
+}
+
+void test_fidelity_diag_partitions(void)
+{
+    run_fidelity(&k_audit[13]);
 }
 
 // Routes that require subsystem state setup are tested individually below.

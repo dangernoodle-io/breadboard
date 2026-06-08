@@ -272,6 +272,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_led_rgb_pwm/bb_led_rgb_pwm.c"],
         "depends":  ["bb_core", "bb_led"],
     },
+    "bb_partition": {
+        "includes": ["components/bb_partition/include", "platform/host/bb_partition"],
+        "sources":  ["platform/host/bb_partition/bb_partition.c"],
+        "depends":  ["bb_core"],
+    },
     "bb_led_apa102": {
         "includes": ["components/bb_led_apa102/include", "platform/host/bb_led_apa102"],
         "sources":  ["platform/host/bb_led_apa102/bb_led_apa102.c"],
