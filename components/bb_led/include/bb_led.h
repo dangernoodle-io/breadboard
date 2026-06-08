@@ -32,6 +32,15 @@ void          bb_led_set_primary(bb_led_handle_t h);
 // Returns the handle recorded by bb_led_set_primary(), or NULL if none set.
 bb_led_handle_t bb_led_primary(void);
 
+// Consumer-controlled logical enabled flag (default true = on).
+// Does NOT change LED hardware state — it is a reported state flag the consumer
+// sets (e.g. to reflect a heartbeat being disabled).  Sourced by bb_led_info
+// in the /api/info "led" object.  Existing consumers that never call
+// bb_led_set_enabled() see enabled:true by default, preserving back-compat.
+// Returns BB_ERR_INVALID_STATE if h is NULL.
+bb_err_t bb_led_set_enabled(bb_led_handle_t h, bool enabled);
+bool     bb_led_enabled(bb_led_handle_t h);
+
 bb_err_t bb_led_set_on        (bb_led_handle_t h, uint16_t idx, bool on);
 bb_err_t bb_led_set_brightness(bb_led_handle_t h, uint16_t idx, uint8_t pct); // 0..100
 // Fine-resolution brightness: level 0..65535, perceptual (driver applies gamma).

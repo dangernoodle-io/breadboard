@@ -9,7 +9,8 @@ static const char k_led_schema_fragment[] =
     "\"present\":{\"type\":\"boolean\"},"
     "\"type\":{\"type\":[\"string\",\"null\"]},"
     "\"count\":{\"type\":\"integer\"},"
-    "\"rgb\":{\"type\":\"boolean\"}}}";
+    "\"rgb\":{\"type\":\"boolean\"},"
+    "\"enabled\":{\"type\":\"boolean\"}}}";
 
 static void led_info_extender(bb_json_t root)
 {
@@ -22,6 +23,7 @@ static void led_info_extender(bb_json_t root)
         bb_json_obj_set_number(led, "count", (double)bb_led_count(primary));
         bb_json_obj_set_bool(led, "rgb",
                              (bb_led_caps(primary) & BB_LED_CAP_RGB) != 0);
+        bb_json_obj_set_bool(led, "enabled", bb_led_enabled(primary));
     } else {
         bb_json_obj_set_bool(led, "present", false);
     }

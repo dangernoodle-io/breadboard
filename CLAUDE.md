@@ -205,8 +205,10 @@ Also contributes a JSON-Schema properties fragment to the `/api/info` 200 respon
 
 **`/api/info` LED extender (`bb_led_info` satellite).** Add `REQUIRES bb_led_info` and call `bb_led_register_info()` before `bb_http_server_start` to register a `bb_info` extender that emits a nested `"led"` object from `bb_led_primary()`:
 - `present` (bool) — `bb_led_primary() != NULL`
-- if present: `type` (string, `bb_led_name`), `count` (int), `rgb` (bool, `BB_LED_CAP_RGB`)
+- if present: `type` (string, `bb_led_name`), `count` (int), `rgb` (bool, `BB_LED_CAP_RGB`), `enabled` (bool, `bb_led_enabled(primary)`)
 - if absent: `{"present": false}`
+
+`bb_led_enabled(h)` / `bb_led_set_enabled(h, bool)` — consumer-controlled logical on/off flag stored on the handle (default `true`). Does **not** change LED hardware; it is a reported state field consumers set to reflect logical LED state (e.g. heartbeat disabled). Existing consumers that never call `bb_led_set_enabled` see `enabled:true` in the info response.
 
 Also contributes a JSON-Schema properties fragment via `bb_info_register_extender_ex`. Source: `platform/host/bb_led_info/bb_led_info.c`.
 

@@ -16,6 +16,10 @@ extern "C" {
  * extender table is frozen). The consumer must also set bb_led_set_primary()
  * before calling this if a present:true reading is desired.
  *
+ * The "enabled" field reflects bb_led_enabled(primary) — the consumer-
+ * controlled logical on/off flag (default true).  It does not affect hardware;
+ * set it via bb_led_set_enabled() to report the LED's logical state.
+ *
  * Presence of this satellite component in the build (via REQUIRES) is the
  * opt-in mechanism — no Kconfig gate is needed.
  */

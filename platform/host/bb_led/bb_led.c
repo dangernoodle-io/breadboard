@@ -7,6 +7,7 @@
 struct bb_led {
     const bb_led_driver_t *drv;
     void *state;
+    bool enabled;  /* consumer-controlled reported state; default true */
 };
 
 static bb_led_handle_t s_primary = NULL;
@@ -20,8 +21,9 @@ bb_err_t bb_led_handle_create(const bb_led_driver_t *drv, void *state, bb_led_ha
     if (!drv || !out) return BB_ERR_INVALID_ARG;
     bb_led_handle_t h = (bb_led_handle_t)calloc(1, sizeof(struct bb_led));
     if (!h) return BB_ERR_NO_SPACE;
-    h->drv   = drv;
-    h->state = state;
+    h->drv     = drv;
+    h->state   = state;
+    h->enabled = true;  /* default: on */
     *out = h;
     return BB_OK;
 }
@@ -31,6 +33,18 @@ uint16_t        bb_led_count  (bb_led_handle_t h) { return valid(h) ? h->drv->co
 const char     *bb_led_name   (bb_led_handle_t h) { return valid(h) ? h->drv->name  : NULL; }
 void            bb_led_set_primary(bb_led_handle_t h) { s_primary = h; }
 bb_led_handle_t bb_led_primary(void)                  { return s_primary; }
+
+bb_err_t bb_led_set_enabled(bb_led_handle_t h, bool enabled)
+{
+    if (!valid(h)) return BB_ERR_INVALID_STATE;
+    h->enabled = enabled;
+    return BB_OK;
+}
+
+bool bb_led_enabled(bb_led_handle_t h)
+{
+    return valid(h) ? h->enabled : false;
+}
 
 bb_err_t bb_led_set_on(bb_led_handle_t h, uint16_t idx, bool on)
 {

@@ -336,3 +336,103 @@ void test_bb_led_info_extender_pwm_primary_rgb_false(void)
     bb_led_close(h);
 }
 
+/* ---------------------------------------------------------------------------
+ * Tests: bb_led_enabled / bb_led_set_enabled
+ * --------------------------------------------------------------------------- */
+
+void test_bb_led_enabled_default_true(void)
+{
+    bb_led_handle_t h;
+    bb_led_handle_create(&mock_full, &g_mock, &h);
+    TEST_ASSERT_TRUE(bb_led_enabled(h));
+    bb_led_close(h);
+}
+
+void test_bb_led_set_enabled_false(void)
+{
+    bb_led_handle_t h;
+    bb_led_handle_create(&mock_full, &g_mock, &h);
+    TEST_ASSERT_EQUAL(BB_OK, bb_led_set_enabled(h, false));
+    TEST_ASSERT_FALSE(bb_led_enabled(h));
+    bb_led_close(h);
+}
+
+void test_bb_led_set_enabled_roundtrip(void)
+{
+    bb_led_handle_t h;
+    bb_led_handle_create(&mock_full, &g_mock, &h);
+    bb_led_set_enabled(h, false);
+    TEST_ASSERT_FALSE(bb_led_enabled(h));
+    bb_led_set_enabled(h, true);
+    TEST_ASSERT_TRUE(bb_led_enabled(h));
+    bb_led_close(h);
+}
+
+void test_bb_led_set_enabled_null_returns_err(void)
+{
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_led_set_enabled(NULL, false));
+}
+
+void test_bb_led_enabled_null_returns_false(void)
+{
+    TEST_ASSERT_FALSE(bb_led_enabled(NULL));
+}
+
+/* ---------------------------------------------------------------------------
+ * Tests: bb_led_info emits enabled field
+ * --------------------------------------------------------------------------- */
+
+void test_bb_led_info_schema_includes_enabled(void)
+{
+    bb_led_register_info();
+    const char *schema = bb_info_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"enabled\""),
+                                 "enabled key not in assembled schema");
+}
+
+void test_bb_led_info_extender_enabled_true_by_default(void)
+{
+    bb_led_handle_t h;
+    bb_led_handle_create(&drv_apa102, &g_mock, &h);
+    bb_led_set_primary(h);
+    bb_led_register_info();
+
+    bb_json_t root = bb_json_obj_new();
+    bb_info_invoke_extenders_for_test(root);
+
+    bb_json_t led = bb_json_obj_get_item(root, "led");
+    TEST_ASSERT_NOT_NULL_MESSAGE(led, "led key missing");
+
+    bool enabled = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(led, "enabled", &enabled));
+    TEST_ASSERT_TRUE(enabled);
+
+    bb_json_free(root);
+    bb_led_set_primary(NULL);
+    bb_led_close(h);
+}
+
+void test_bb_led_info_extender_enabled_false_after_set(void)
+{
+    bb_led_handle_t h;
+    bb_led_handle_create(&drv_apa102, &g_mock, &h);
+    bb_led_set_enabled(h, false);
+    bb_led_set_primary(h);
+    bb_led_register_info();
+
+    bb_json_t root = bb_json_obj_new();
+    bb_info_invoke_extenders_for_test(root);
+
+    bb_json_t led = bb_json_obj_get_item(root, "led");
+    TEST_ASSERT_NOT_NULL_MESSAGE(led, "led key missing");
+
+    bool enabled = true;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(led, "enabled", &enabled));
+    TEST_ASSERT_FALSE(enabled);
+
+    bb_json_free(root);
+    bb_led_set_primary(NULL);
+    bb_led_close(h);
+}
+
