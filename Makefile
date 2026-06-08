@@ -36,6 +36,9 @@ smoke-esp32: ## Build smoke example for classic ESP32-D0 / WROOM-32
 smoke-esp32-boot-progress: ## Build smoke with BB_OTA_BOOT_PROGRESS_HTTP=y (gated path compile gate)
 	$(PIO) run -d examples/smoke -e esp32-boot-progress
 
+smoke-esp32-autofan: ## Build smoke with BB_FAN_AUTOFAN=y (autofan compile gate)
+	$(PIO) run -d examples/smoke -e esp32-autofan
+
 smoke-esp32c3: ## Build smoke example for ESP32-C3-DevKitM-1
 	$(PIO) run -d examples/smoke -e esp32c3
 

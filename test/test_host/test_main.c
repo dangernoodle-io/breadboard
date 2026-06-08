@@ -1245,6 +1245,33 @@ void test_bb_fan_routes_post_no_primary_503(void);
 void test_bb_fan_routes_schema_contains_base_fields(void);
 void test_bb_fan_routes_schema_contains_extender_fragment(void);
 
+// Forward declarations from test_bb_fan_autofan.c (BB_FAN_AUTOFAN feature)
+#ifdef CONFIG_BB_FAN_AUTOFAN
+void test_autofan_hotter_than_target_increases_duty(void);
+void test_autofan_cooler_than_target_gives_min_pct(void);
+void test_autofan_sample_time_gate_no_update_before_5s(void);
+void test_autofan_sample_time_gate_fires_at_5s(void);
+void test_autofan_output_clamp_at_max_100(void);
+void test_autofan_output_clamp_at_min_pct(void);
+void test_autofan_ema_converges_toward_temp(void);
+void test_autofan_die_src_when_die_ratio_larger(void);
+void test_autofan_aux_src_when_aux_ratio_larger(void);
+void test_autofan_die_src_when_aux_not_fed(void);
+void test_autofan_disabled_does_not_change_duty(void);
+void test_autofan_disabled_no_pid_output(void);
+void test_autofan_temp_fail_gives_100pct(void);
+void test_autofan_toggle_disable_reenable(void);
+void test_autofan_pid_convergence_stable_temp(void);
+void test_autofan_telemetry_uninitialized_before_poll(void);
+void test_autofan_telemetry_populated_after_poll(void);
+void test_autofan_telemetry_null_handle_returns_defaults(void);
+void test_autofan_get_cfg_reads_back(void);
+void test_autofan_get_cfg_null_args(void);
+void test_autofan_set_aux_temp_null_handle(void);
+void test_autofan_set_autofan_null_handle(void);
+void test_autofan_set_autofan_null_cfg(void);
+#endif /* CONFIG_BB_FAN_AUTOFAN */
+
 // Forward declarations from test_bb_thermal.c
 void bb_thermal_reset_for_test(void);
 void test_bb_thermal_all_present(void);
@@ -2891,6 +2918,33 @@ int main(void) {
     RUN_TEST(test_bb_fan_routes_post_no_primary_503);
     RUN_TEST(test_bb_fan_routes_schema_contains_base_fields);
     RUN_TEST(test_bb_fan_routes_schema_contains_extender_fragment);
+
+    // bb_fan autofan PID tests (BB_FAN_AUTOFAN feature)
+#ifdef CONFIG_BB_FAN_AUTOFAN
+    RUN_TEST(test_autofan_hotter_than_target_increases_duty);
+    RUN_TEST(test_autofan_cooler_than_target_gives_min_pct);
+    RUN_TEST(test_autofan_sample_time_gate_no_update_before_5s);
+    RUN_TEST(test_autofan_sample_time_gate_fires_at_5s);
+    RUN_TEST(test_autofan_output_clamp_at_max_100);
+    RUN_TEST(test_autofan_output_clamp_at_min_pct);
+    RUN_TEST(test_autofan_ema_converges_toward_temp);
+    RUN_TEST(test_autofan_die_src_when_die_ratio_larger);
+    RUN_TEST(test_autofan_aux_src_when_aux_ratio_larger);
+    RUN_TEST(test_autofan_die_src_when_aux_not_fed);
+    RUN_TEST(test_autofan_disabled_does_not_change_duty);
+    RUN_TEST(test_autofan_disabled_no_pid_output);
+    RUN_TEST(test_autofan_temp_fail_gives_100pct);
+    RUN_TEST(test_autofan_toggle_disable_reenable);
+    RUN_TEST(test_autofan_pid_convergence_stable_temp);
+    RUN_TEST(test_autofan_telemetry_uninitialized_before_poll);
+    RUN_TEST(test_autofan_telemetry_populated_after_poll);
+    RUN_TEST(test_autofan_telemetry_null_handle_returns_defaults);
+    RUN_TEST(test_autofan_get_cfg_reads_back);
+    RUN_TEST(test_autofan_get_cfg_null_args);
+    RUN_TEST(test_autofan_set_aux_temp_null_handle);
+    RUN_TEST(test_autofan_set_autofan_null_handle);
+    RUN_TEST(test_autofan_set_autofan_null_cfg);
+#endif /* CONFIG_BB_FAN_AUTOFAN */
 
     // bb_thermal route tests
     RUN_TEST(test_bb_thermal_all_present);

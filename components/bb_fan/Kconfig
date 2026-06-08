@@ -1,3 +1,24 @@
 menu "breadboard: bb_fan"
 
+config BB_FAN_AUTOFAN
+    bool "Enable autofan PID controller in bb_fan"
+    default n
+    help
+        When enabled, bb_fan owns a PID-based autofan controller that runs
+        inside bb_fan_poll(). Parameters are a faithful port of TaipanMiner's
+        proven autofan: Kp=5 Ki=0.1 Kd=2, P_ON_E, REVERSE direction,
+        5000 ms sample time, dual EMA (alpha=0.2) for die and aux (VR) temps,
+        input-src selected by max((ema-target)/target) ratio.
+
+        When enabled, POST /api/fan (via bb_fan_routes) parses autofan config
+        fields (autofan, die_target_c, vr_target_c, manual_pct, min_pct)
+        instead of raw duty_pct. GET /api/fan gains additional telemetry fields
+        (die_ema_c, vr_ema_c, pid_input_c, pid_input_src).
+
+        Consumers that feed aux (VR) temperature must call bb_fan_set_aux_temp()
+        periodically. bb_fan does not depend on bb_power; the consumer is
+        responsible for reading the VR sensor and feeding it here.
+
+        Default off — enable when your app wants bb_fan to own autofan policy.
+
 endmenu

@@ -289,17 +289,23 @@ PMBus decode math also in `tps546_decode.h` (no ESP-IDF; host-testable).
 **`/api/fan` route (`bb_fan_routes`, opt-in).** Route registration is **opt-in** via `CONFIG_BB_FAN_ROUTES_AUTOREGISTER` (default **n**). When enabled, `bb_fan_routes_init` auto-registers at order 1; disable it and call `bb_fan_routes_init` manually to control registration timing, or omit the call entirely if your app defines its own `/api/fan` handler. GET emits a JSON object from `bb_fan_primary()`:
 - `present` (bool) — `bb_fan_primary() != NULL`
 - `rpm`, `duty_pct` — number or null (when -1 or not present)
-- then `bb_http_route_run_extenders("fan", root)` — satellites add fields (e.g. autofan target)
+- then `bb_http_route_run_extenders("fan", root)` — satellites add fields
 
-POST `{"duty_pct": N}` (0..100) sets raw duty on the primary handle; returns 200 `{"status":"ok","duty_pct":N}`, 400 on bad input, 503 if no primary.
+When `CONFIG_BB_FAN_AUTOFAN=y`, GET also emits: `die_ema_c`, `vr_ema_c`, `pid_input_c`, `pid_input_src` (same field names as TM's `/api/fan`).
 
-**NOTE (POST /api/fan vs TM autofan config):** TM's existing POST /api/fan sets autofan config; this BB route provides generic raw-duty HAL control. Reconciliation is deferred to P4.
+POST behavior:
+- Without `BB_FAN_AUTOFAN`: `{"duty_pct": N}` (0..100) sets raw duty; returns 200 `{"status":"ok","duty_pct":N}`, 400 on bad input, 503 if no primary.
+- With `BB_FAN_AUTOFAN`: parses autofan config fields — `autofan` (bool), `die_target_c`, `vr_target_c`, `manual_pct`, `min_pct` (all optional, partial update); returns 204 on success.
+
+**Autofan PID (`CONFIG_BB_FAN_AUTOFAN`, default n).** Opt-in PID controller that runs inside `bb_fan_poll()` when enabled. Faithful port of TM's proven autofan: Kp=5 Ki=0.1 Kd=2, P_ON_E, REVERSE direction, 5000 ms sample time, dual EMA (alpha=0.2) for die and aux temps. Input source selected by max((ema−target)/target) ratio. Config via `bb_fan_set_autofan(h, cfg)`; aux (VR) temp fed by consumer via `bb_fan_set_aux_temp(h, c)` (bb_fan does not depend on bb_power). Telemetry via `bb_fan_get_autofan_telemetry(h, &tel)`. On ESP-IDF, call `bb_fan_autofan_inject_clock(h)` once after handle creation to inject the esp_timer clock (required for correct 5s gating). When autofan is disabled, `bb_fan_poll()` does not change duty — consumer calls `bb_fan_set_duty_pct()` directly.
 
 **Route-extender ordering.** Satellites register "fan" extenders at order 0. `bb_fan_routes_init` runs at order 1 and calls `bb_http_route_assemble_schema("fan", base, suffix)`. `bb_http_extender_freeze()` is called by `bb_info_init` (order 2).
 
 **Sources:**
 - `components/bb_fan/` — portable core (header + CMakeLists + Kconfig)
+- `components/bb_fan/src/bb_fan_pid.c` — vendored PID (MIT; compiled when BB_FAN_AUTOFAN=y)
 - `platform/host/bb_fan/bb_fan.c` — shared dispatch (compiled host + espidf)
+- `platform/espidf/bb_fan/bb_fan_clock_espidf.c` — esp_timer clock shim (espidf + BB_FAN_AUTOFAN)
 - `components/bb_fan_emc2101/` — EMC2101 backend (espidf-only)
 - `platform/espidf/bb_fan_emc2101/bb_fan_emc2101.c`
 - `components/bb_fan_routes/` — route component

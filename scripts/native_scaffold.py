@@ -219,8 +219,11 @@ COMPONENT_MAP = {
         "depends":  ["bb_power", "bb_power_tps546", "bb_core", "bb_http", "bb_json", "bb_info"],
     },
     "bb_fan": {
-        "includes": ["components/bb_fan/include"],
-        "sources":  ["platform/host/bb_fan/bb_fan.c"],
+        "includes": ["components/bb_fan/include", "components/bb_fan/src"],
+        "sources":  [
+            "platform/host/bb_fan/bb_fan.c",
+            "components/bb_fan/src/bb_fan_pid.c",
+        ],
         "depends":  ["bb_core"],
     },
     "bb_fan_routes": {
