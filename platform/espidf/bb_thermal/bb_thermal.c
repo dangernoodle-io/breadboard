@@ -140,7 +140,9 @@ bb_err_t bb_thermal_init(bb_http_handle_t server)
     }
     s_thermal_responses[0].schema = schema;
 
-    bb_route_t route = s_thermal_route;
+    // static: registry stores this pointer; descriptor must outlive init (B 405-walk deref)
+    static bb_route_t route;
+    route = s_thermal_route;
     route.handler = thermal_handler;
 
     bb_err_t err = bb_http_register_described_route(server, &route);

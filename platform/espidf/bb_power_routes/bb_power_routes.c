@@ -133,7 +133,9 @@ bb_err_t bb_power_routes_init(bb_http_handle_t server)
     s_power_responses[0].schema = schema;
 
     // Wire handler into the route descriptor.
-    bb_route_t route = s_power_route;
+    // static: registry stores this pointer; descriptor must outlive init (B 405-walk deref)
+    static bb_route_t route;
+    route = s_power_route;
     route.handler = power_handler;
 
     bb_err_t err = bb_http_register_described_route(server, &route);
