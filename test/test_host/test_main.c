@@ -1244,6 +1244,13 @@ void test_bb_fan_routes_post_out_of_range_400(void);
 void test_bb_fan_routes_post_no_primary_503(void);
 void test_bb_fan_routes_schema_contains_base_fields(void);
 void test_bb_fan_routes_schema_contains_extender_fragment(void);
+#ifdef CONFIG_BB_FAN_AUTOFAN
+void test_bb_fan_routes_pid_input_src_emits_vr_for_aux(void);
+void test_bb_fan_routes_pid_input_src_emits_die_for_die(void);
+void test_bb_fan_routes_persist_cb_fires_on_post(void);
+void test_bb_fan_routes_persist_cb_not_called_by_direct_set(void);
+void test_bb_fan_routes_persist_cb_not_called_when_null(void);
+#endif /* CONFIG_BB_FAN_AUTOFAN */
 
 // Forward declarations from test_bb_fan_autofan.c (BB_FAN_AUTOFAN feature)
 #ifdef CONFIG_BB_FAN_AUTOFAN
@@ -1257,7 +1264,8 @@ void test_autofan_ema_converges_toward_temp(void);
 void test_autofan_die_src_when_die_ratio_larger(void);
 void test_autofan_aux_src_when_aux_ratio_larger(void);
 void test_autofan_die_src_when_aux_not_fed(void);
-void test_autofan_disabled_does_not_change_duty(void);
+void test_autofan_disabled_applies_manual_pct(void);
+void test_autofan_disabled_manual_pct_clamped(void);
 void test_autofan_disabled_no_pid_output(void);
 void test_autofan_temp_fail_gives_100pct(void);
 void test_autofan_toggle_disable_reenable(void);
@@ -2918,6 +2926,13 @@ int main(void) {
     RUN_TEST(test_bb_fan_routes_post_no_primary_503);
     RUN_TEST(test_bb_fan_routes_schema_contains_base_fields);
     RUN_TEST(test_bb_fan_routes_schema_contains_extender_fragment);
+#ifdef CONFIG_BB_FAN_AUTOFAN
+    RUN_TEST(test_bb_fan_routes_pid_input_src_emits_vr_for_aux);
+    RUN_TEST(test_bb_fan_routes_pid_input_src_emits_die_for_die);
+    RUN_TEST(test_bb_fan_routes_persist_cb_fires_on_post);
+    RUN_TEST(test_bb_fan_routes_persist_cb_not_called_by_direct_set);
+    RUN_TEST(test_bb_fan_routes_persist_cb_not_called_when_null);
+#endif
 
     // bb_fan autofan PID tests (BB_FAN_AUTOFAN feature)
 #ifdef CONFIG_BB_FAN_AUTOFAN
@@ -2931,7 +2946,8 @@ int main(void) {
     RUN_TEST(test_autofan_die_src_when_die_ratio_larger);
     RUN_TEST(test_autofan_aux_src_when_aux_ratio_larger);
     RUN_TEST(test_autofan_die_src_when_aux_not_fed);
-    RUN_TEST(test_autofan_disabled_does_not_change_duty);
+    RUN_TEST(test_autofan_disabled_applies_manual_pct);
+    RUN_TEST(test_autofan_disabled_manual_pct_clamped);
     RUN_TEST(test_autofan_disabled_no_pid_output);
     RUN_TEST(test_autofan_temp_fail_gives_100pct);
     RUN_TEST(test_autofan_toggle_disable_reenable);

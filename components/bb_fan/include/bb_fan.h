@@ -49,12 +49,13 @@ bb_fan_handle_t bb_fan_primary(void);
 
 // ---------------------------------------------------------------------------
 // Autofan (opt-in: CONFIG_BB_FAN_AUTOFAN)
-// When enabled, bb_fan_poll() runs a PID controller after reading temps:
-//   - EMA-filters die_c (alpha=0.2) and an optional aux temperature
-//   - Selects the "hotter" sensor by (ema - target) / target ratio
-//   - Runs PID (Kp=5, Ki=0.1, Kd=2, REVERSE, P_ON_E, 5000 ms sample time)
-//   - Applies result via bb_fan_set_duty_pct(); honors min_pct and overheat
-// When disabled, poll behaves exactly as before (no duty changes).
+// BB fully owns fan duty in both modes when this feature is compiled in:
+//   - enabled=true:  PID controller (Kp=5, Ki=0.1, Kd=2, REVERSE, P_ON_E,
+//                    5000 ms sample time, dual EMA alpha=0.2) via set_duty_pct.
+//   - enabled=false: manual_pct (clamped 0..100) applied each poll.
+// Consumers never call bb_fan_set_duty_pct() for steady-state control.
+// When compiled OUT (default), poll behavior is unchanged (no duty control).
+// pid_input_src internal values: "die" or "aux"; GET /api/fan wire names: "die" or "vr".
 // ---------------------------------------------------------------------------
 #ifdef CONFIG_BB_FAN_AUTOFAN
 
@@ -72,7 +73,7 @@ typedef struct {
     float die_ema_c;        // EMA-filtered die temp; <0 = uninitialized
     float aux_ema_c;        // EMA-filtered aux temp; <0 = uninitialized or not fed
     float pid_input_c;      // Sensor temp fed to PID this tick; <0 = uninitialized
-    const char *pid_input_src; // "die" or "aux" (or "" before first tick)
+    const char *pid_input_src; // internal: "die" or "aux" (wire layer maps "aux"→"vr")
 } bb_fan_autofan_telemetry_t;
 
 // Apply autofan config. Thread-safe. Takes effect on next bb_fan_poll().

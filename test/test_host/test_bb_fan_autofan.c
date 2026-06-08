@@ -313,11 +313,12 @@ void test_autofan_die_src_when_aux_not_fed(void)
 
 // ---------------------------------------------------------------------------
 // Manual mode (autofan disabled)
-// When autofan is disabled, bb_fan_poll() does NOT change duty.
-// Consumer controls duty via bb_fan_set_duty_pct() directly.
+// When CONFIG_BB_FAN_AUTOFAN is compiled in and autofan is disabled,
+// bb_fan_poll() applies manual_pct to fan duty each poll.
+// BB fully owns fan duty in both modes (PID when enabled, manual_pct when disabled).
 // ---------------------------------------------------------------------------
 
-void test_autofan_disabled_does_not_change_duty(void)
+void test_autofan_disabled_applies_manual_pct(void)
 {
     bb_fan_handle_t h = make_handle();
 
@@ -330,17 +331,37 @@ void test_autofan_disabled_does_not_change_duty(void)
     };
     bb_fan_set_autofan(h, &cfg);
 
-    // Set duty manually first
-    bb_fan_set_duty_pct(h, 42);
-    g_af.set_duty_last = 42; // track what was set
+    g_af.die_c = 75.0f; // hot, but autofan is off
+    bb_fan_poll(h);
 
-    g_af.die_c = 75.0f; // hot but autofan is off
-    // Reset set_duty_count to detect if poll calls set_duty_pct
-    int count_before = g_af.duty_count;
-    bb_fan_poll(h); // should NOT change duty
+    // BB applies manual_pct via set_duty_pct each poll
+    TEST_ASSERT_EQUAL_INT(70, g_af.set_duty_last);
+    TEST_ASSERT_EQUAL_INT(70, g_af.duty_pct);
 
-    // set_duty_pct should NOT have been called again
-    TEST_ASSERT_EQUAL_INT(count_before, g_af.duty_count);
+    free(h);
+}
+
+void test_autofan_disabled_manual_pct_clamped(void)
+{
+    bb_fan_handle_t h = make_handle();
+
+    bb_fan_autofan_cfg_t cfg = {
+        .enabled      = false,
+        .die_target_c = 60.0f,
+        .aux_target_c = 0.0f,
+        .min_pct      = 25,
+        .manual_pct   = 150, // out of range → clamped to 100
+    };
+    bb_fan_set_autofan(h, &cfg);
+
+    g_af.die_c = 50.0f;
+    bb_fan_poll(h);
+    TEST_ASSERT_EQUAL_INT(100, g_af.set_duty_last);
+
+    cfg.manual_pct = -5; // out of range → clamped to 0
+    bb_fan_set_autofan(h, &cfg);
+    bb_fan_poll(h);
+    TEST_ASSERT_EQUAL_INT(0, g_af.set_duty_last);
 
     free(h);
 }
@@ -358,16 +379,12 @@ void test_autofan_disabled_no_pid_output(void)
     };
     bb_fan_set_autofan(h, &cfg);
 
-    // Set duty manually
-    bb_fan_set_duty_pct(h, 50);
-    int count_before = g_af.duty_count;
-
     g_af.die_c = 75.0f;
     advance_poll(h, 5000);
     advance_poll(h, 5000);
 
-    // Autofan disabled: duty NOT changed by poll
-    TEST_ASSERT_EQUAL_INT(count_before, g_af.duty_count);
+    // Autofan disabled: duty driven by manual_pct, not PID
+    TEST_ASSERT_EQUAL_INT(50, g_af.set_duty_last);
 
     free(h);
 }
@@ -403,7 +420,7 @@ void test_autofan_toggle_disable_reenable(void)
     int duty_auto = g_af.set_duty_last;
     TEST_ASSERT_GREATER_THAN(25, duty_auto);
 
-    // Disable: poll no longer changes duty
+    // Disable: poll applies manual_pct (not PID)
     bb_fan_autofan_cfg_t cfg = {
         .enabled    = false,
         .die_target_c = 60.0f,
@@ -411,9 +428,8 @@ void test_autofan_toggle_disable_reenable(void)
         .manual_pct = 50,
     };
     bb_fan_set_autofan(h, &cfg);
-    int count_before = g_af.duty_count;
-    advance_poll(h, 5000); // should NOT call set_duty_pct
-    TEST_ASSERT_EQUAL_INT(count_before, g_af.duty_count);
+    advance_poll(h, 5000); // applies manual_pct
+    TEST_ASSERT_EQUAL_INT(50, g_af.set_duty_last);
 
     // Re-enable: PID re-arms, duty driven again
     enable_autofan(h, 60.0f, 0.0f, 25, 100);

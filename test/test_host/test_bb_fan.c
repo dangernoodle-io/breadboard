@@ -122,16 +122,26 @@ void test_bb_fan_poll_caches_rpm_and_duty(void)
     bb_fan_handle_create(&drv_full, &g_fake, &h);
 
     g_fake.rpm      = 3200;
-    g_fake.duty_pct = 75;
     g_fake.die_c    = 72.5f;
     g_fake.board_c  = 35.0f;
+
+#ifdef CONFIG_BB_FAN_AUTOFAN
+    // When autofan is compiled in, BB owns duty: poll applies manual_pct (default 100).
+    g_fake.duty_pct = 3200; // irrelevant — will be overwritten by manual_pct
+#else
+    g_fake.duty_pct = 75;
+#endif
 
     TEST_ASSERT_EQUAL(BB_OK, bb_fan_poll(h));
 
     bb_fan_snapshot_t s;
     bb_fan_snapshot(h, &s);
     TEST_ASSERT_EQUAL_INT(3200, s.rpm);
-    TEST_ASSERT_EQUAL_INT(75,   s.duty_pct);
+#ifdef CONFIG_BB_FAN_AUTOFAN
+    TEST_ASSERT_EQUAL_INT(100, s.duty_pct); // default manual_pct=100
+#else
+    TEST_ASSERT_EQUAL_INT(75, s.duty_pct);
+#endif
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 72.5f, s.die_c);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 35.0f, s.board_c);
 
@@ -282,7 +292,12 @@ void test_bb_fan_get_duty_pct_from_cache(void)
 
     g_fake.duty_pct = 60;
     bb_fan_poll(h);
+#ifdef CONFIG_BB_FAN_AUTOFAN
+    // BB owns duty when autofan compiled in: returns manual_pct (default 100).
+    TEST_ASSERT_EQUAL_INT(100, bb_fan_get_duty_pct(h));
+#else
     TEST_ASSERT_EQUAL_INT(60, bb_fan_get_duty_pct(h));
+#endif
 
     free(h);
 }

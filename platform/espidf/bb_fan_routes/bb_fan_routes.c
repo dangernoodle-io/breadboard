@@ -13,6 +13,20 @@
 
 static const char *TAG = "bb_fan_routes";
 
+#ifdef CONFIG_BB_FAN_AUTOFAN
+// Persist callback registered by the consumer (e.g. TM) to save config to NVS.
+// Fired only from the POST handler path; never from bb_fan_set_autofan() directly.
+static void (*s_persist_cb)(void *ctx, const bb_fan_autofan_cfg_t *cfg) = NULL;
+static void *s_persist_ctx = NULL;
+
+void bb_fan_routes_set_autofan_persist_cb(
+    void (*cb)(void *ctx, const bb_fan_autofan_cfg_t *cfg), void *ctx)
+{
+    s_persist_cb  = cb;
+    s_persist_ctx = ctx;
+}
+#endif /* CONFIG_BB_FAN_AUTOFAN */
+
 // ---------------------------------------------------------------------------
 // Base JSON-Schema for GET /api/fan 200 response
 // ---------------------------------------------------------------------------
@@ -32,7 +46,7 @@ static const char k_fan_schema_base[] =
     "\"die_ema_c\":{\"type\":[\"number\",\"null\"],\"description\":\"filtered ASIC die temperature\"},"
     "\"vr_ema_c\":{\"type\":[\"number\",\"null\"],\"description\":\"filtered VR temperature\"},"
     "\"pid_input_c\":{\"type\":[\"number\",\"null\"],\"description\":\"PID input selected by max(err/target) ratio\"},"
-    "\"pid_input_src\":{\"type\":\"string\",\"description\":\"which sensor is driving PID: die or aux\"}";
+    "\"pid_input_src\":{\"type\":\"string\",\"enum\":[\"die\",\"vr\"],\"description\":\"which sensor is driving PID: die or vr\"}";
 #else
 static const char k_fan_schema_base[] =
     "{\"type\":\"object\","
@@ -193,8 +207,10 @@ void bb_fan_routes_emit(bb_http_request_t *req)
         } else {
             bb_json_obj_set_null(root, "pid_input_c");
         }
-        bb_json_obj_set_string(root, "pid_input_src",
-                               tel.pid_input_src ? tel.pid_input_src : "");
+        // Wire-layer mapping: internal "aux" → TM contract name "vr".
+        const char *src = tel.pid_input_src ? tel.pid_input_src : "";
+        if (src[0] == 'a') src = "vr";  // "aux" → "vr"
+        bb_json_obj_set_string(root, "pid_input_src", src);
     }
 #endif /* CONFIG_BB_FAN_AUTOFAN */
 
@@ -295,6 +311,12 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
     bb_json_free(parsed);
 
     bb_fan_set_autofan(h, &cfg);
+
+    // Invoke persist callback if registered (POST path only — not from direct set_autofan).
+    if (s_persist_cb) {
+        s_persist_cb(s_persist_ctx, &cfg);
+    }
+
     bb_http_resp_no_content(req);
     return BB_OK;
 }

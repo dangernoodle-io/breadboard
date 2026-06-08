@@ -118,11 +118,15 @@ bb_err_t bb_fan_poll(bb_fan_handle_t h)
     pthread_mutex_unlock(&h->lock);
 
     bool temp_ok = !isnan(s.die_c);
-    int fan_duty = -1; // -1 = let existing duty stand (autofan disabled or not configured)
+    int fan_duty = -1; // -1 = let existing duty stand
 
     if (!cfg.enabled) {
-        // Autofan disabled: do not touch duty (consumer controls via bb_fan_set_duty_pct)
-        // fall through: fan_duty stays -1
+        // Autofan disabled: BB owns duty at manual_pct (clamped 0..100).
+        // This ensures BB fully owns fan duty in both modes when the feature is compiled in.
+        int pct = cfg.manual_pct;
+        if (pct < 0)   pct = 0;
+        if (pct > 100) pct = 100;
+        fan_duty = pct;
         (void)temp_ok;
     } else if (!temp_ok) {
         // Autofan enabled but temp read failed → fail-safe: max cooling
@@ -189,10 +193,8 @@ bb_err_t bb_fan_poll(bb_fan_handle_t h)
         pthread_mutex_unlock(&h->lock);
     }
 
-    if (fan_duty >= 0) {
-        if (h->drv->set_duty_pct) {
-            h->drv->set_duty_pct(h->state, fan_duty);
-        }
+    if (fan_duty >= 0 && h->drv->set_duty_pct) {
+        h->drv->set_duty_pct(h->state, fan_duty);
         s.duty_pct = fan_duty;
     }
 #endif /* CONFIG_BB_FAN_AUTOFAN */
