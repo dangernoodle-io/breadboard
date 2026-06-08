@@ -1389,6 +1389,22 @@ void test_pwm_invalid_args(void);
 void test_pwm_initial_state_off_active_high(void);
 void test_pwm_initial_state_off_active_low(void);
 
+// Forward declarations from test_bb_led_rgb_pwm.c
+void bb_led_rgb_pwm_host_test_reset(void);
+void test_rgb_pwm_open_close(void);
+void test_rgb_pwm_set_color_accepted(void);
+void test_rgb_pwm_set_color_writes_all_three_channels(void);
+void test_rgb_pwm_active_low_inversion_per_channel(void);
+void test_rgb_pwm_active_high_no_inversion(void);
+void test_rgb_pwm_set_level_applies_gamma_to_color(void);
+void test_rgb_pwm_set_level_preserves_hue(void);
+void test_rgb_pwm_set_color_after_set_level_uses_stored_level(void);
+void test_rgb_pwm_set_brightness(void);
+void test_rgb_pwm_set_on_and_off(void);
+void test_rgb_pwm_initial_state_off(void);
+void test_rgb_pwm_invalid_args(void);
+void test_rgb_pwm_fill_color(void);
+
 // Forward declarations from test_bb_led_apa102.c
 void bb_led_apa102_host_test_reset(void);
 void test_apa102_open_close(void);
@@ -1743,6 +1759,7 @@ void setUp(void) {
     bb_thermal_reset_for_test();
     bb_led_test_reset();
     bb_led_pwm_test_reset();
+    bb_led_rgb_pwm_host_test_reset();
     bb_led_apa102_host_test_reset();
     bb_led_anim_test_reset();
     bb_http_client_clear_mock();
@@ -3112,6 +3129,21 @@ int main(void) {
     RUN_TEST(test_pwm_invalid_args);
     RUN_TEST(test_pwm_initial_state_off_active_high);
     RUN_TEST(test_pwm_initial_state_off_active_low);
+
+    // bb_led_rgb_pwm tests
+    RUN_TEST(test_rgb_pwm_open_close);
+    RUN_TEST(test_rgb_pwm_set_color_accepted);
+    RUN_TEST(test_rgb_pwm_set_color_writes_all_three_channels);
+    RUN_TEST(test_rgb_pwm_active_low_inversion_per_channel);
+    RUN_TEST(test_rgb_pwm_active_high_no_inversion);
+    RUN_TEST(test_rgb_pwm_set_level_applies_gamma_to_color);
+    RUN_TEST(test_rgb_pwm_set_level_preserves_hue);
+    RUN_TEST(test_rgb_pwm_set_color_after_set_level_uses_stored_level);
+    RUN_TEST(test_rgb_pwm_set_brightness);
+    RUN_TEST(test_rgb_pwm_set_on_and_off);
+    RUN_TEST(test_rgb_pwm_initial_state_off);
+    RUN_TEST(test_rgb_pwm_invalid_args);
+    RUN_TEST(test_rgb_pwm_fill_color);
 
     // bb_led_apa102 tests
     RUN_TEST(test_apa102_open_close);
