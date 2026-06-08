@@ -1,4 +1,5 @@
 #include "bb_ota_push.h"
+#include <stdint.h>
 #include <string.h>
 
 #ifdef ESP_PLATFORM
@@ -63,7 +64,33 @@ int bb_ota_push_validate_content_len_for_test(int content_len, int max_size)
 }
 #endif
 
+/* Maximum wall-clock time (ms) allowed for the whole OTA receive, derived from a
+ * minimum acceptable average throughput. A trickle slower than this average is
+ * aborted so a slow/stalled upload can't hold the device (mining paused + WDT
+ * extended) for the full extended-WDT window. Clamped to [floor_ms, ceil_ms].
+ * ceil_ms MUST be < the extended WDT window so the abort beats the watchdog.
+ * Exposed outside ESP_PLATFORM for host unit testing. */
+uint32_t bb_ota_push_deadline_ms(int content_len, int min_bytes_per_sec,
+                                 uint32_t floor_ms, uint32_t ceil_ms)
+{
+    if (content_len <= 0 || min_bytes_per_sec <= 0) return floor_ms;
+    uint64_t ms = (uint64_t)content_len * 1000u / (uint32_t)min_bytes_per_sec;
+    if (ms < floor_ms) ms = floor_ms;
+    if (ms > ceil_ms)  ms = ceil_ms;
+    return (uint32_t)ms;
+}
+
+#ifdef BB_OTA_PUSH_TESTING
+uint32_t bb_ota_push_deadline_ms_for_test(int content_len, int min_bytes_per_sec,
+                                          uint32_t floor_ms, uint32_t ceil_ms)
+{
+    return bb_ota_push_deadline_ms(content_len, min_bytes_per_sec, floor_ms, ceil_ms);
+}
+#endif
+
 #ifdef ESP_PLATFORM
+
+#include "bb_clock.h"
 
 // bb_http_req_recv returns this value on socket timeout (mirrors httpd internal)
 #define BB_OTA_RECV_TIMEOUT (-3)
@@ -155,7 +182,26 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     int last_pct = -1;
     ota_push_progress(BB_OTA_PHASE_START, 0);
 
+    uint32_t ota_start_ms = bb_clock_now_ms();
+    uint32_t ota_deadline_ms = bb_ota_push_deadline_ms(
+        content_len, CONFIG_BB_OTA_PUSH_MIN_BPS,
+        30000u, (uint32_t)CONFIG_BB_OTA_PUSH_MAX_DURATION_S * 1000u);
+
     while (received < content_len) {
+        if ((uint32_t)(bb_clock_now_ms() - ota_start_ms) > ota_deadline_ms) {
+            bb_log_e(TAG, "OTA upload too slow: %d/%d bytes in %ums (deadline %ums) — aborting",
+                     received, content_len,
+                     (unsigned)(bb_clock_now_ms() - ota_start_ms), (unsigned)ota_deadline_ms);
+            esp_ota_abort(ota_handle);
+            bb_http_resp_set_status(req, 408);
+            bb_http_json_obj_stream_t obj;
+            bb_http_resp_json_obj_begin(req, &obj);
+            bb_http_resp_json_obj_set_str(&obj, "error", "Upload too slow");
+            bb_http_resp_json_obj_end(&obj);
+            free(buf);
+            goto resume_and_exit;
+        }
+
         int ret = bb_http_req_recv(req, buf,
             OTA_RECV_BUF_SIZE < (content_len - received) ? OTA_RECV_BUF_SIZE : (content_len - received));
 
