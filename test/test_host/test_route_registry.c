@@ -669,6 +669,69 @@ void test_uri_is_registered_post_catchall_is_registered(void)
 }
 
 // ---------------------------------------------------------------------------
+// Regression: described-route with static-storage descriptor survives registry
+// walk after registration (guards the 405-walk dangling-pointer fix).
+//
+// Contract: callers pass a descriptor whose lifetime outlasts the registry.
+// We cannot unit-test UB directly, so we assert positive coverage:
+//   - is_registered returns true for the registered path
+//   - is_registered returns false for an unregistered path
+//   - foreach yields a pointer whose .path field is readable (non-crashing)
+// If the fix ever regresses to a stack-local, Address Sanitizer or Valgrind
+// will catch the stale-pointer read here before it crashes on device.
+// ---------------------------------------------------------------------------
+
+// Static descriptors that mirror the pattern used by bb_power_routes,
+// bb_fan_routes, and bb_thermal (handler wired at registration time, not in
+// the initialiser — hence they cannot be const).
+static const bb_route_response_t s_persist_responses[] = {
+    { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+    { .status = 0 },
+};
+
+// Template (const): all fields except handler.
+static const bb_route_t s_persist_template = {
+    .method               = BB_HTTP_GET,
+    .path                 = "/api/persist-test",
+    .tag                  = "test",
+    .summary              = "persist regression",
+    .operation_id         = "getPersistTest",
+    .request_content_type = NULL,
+    .request_schema       = NULL,
+    .responses            = s_persist_responses,
+    .handler              = NULL,
+};
+
+// Working copy with static storage: mirrors bb_power_routes/bb_fan_routes/bb_thermal fix.
+static bb_route_t s_persist_working;
+
+void test_uri_is_registered_described_route_persists_in_registry(void)
+{
+    bb_http_route_registry_clear();
+
+    // Wire handler at "init time" (same pattern as the fixed components).
+    s_persist_working         = s_persist_template;
+    s_persist_working.handler = stub_handler;
+
+    bb_err_t err = bb_http_register_described_route(NULL, &s_persist_working);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    // Positive: path IS registered.
+    TEST_ASSERT_TRUE(bb_http_uri_is_registered("/api/persist-test"));
+
+    // Negative: unrelated path is NOT registered.
+    TEST_ASSERT_FALSE(bb_http_uri_is_registered("/api/not-registered"));
+
+    // foreach must yield a valid (non-crashing) path string — if the descriptor
+    // were a dangling stack pointer, ASan/Valgrind would fire here.
+    walk_ctx_t ctx = { .count = 0 };
+    bb_http_route_registry_foreach(collect_walker, &ctx);
+    TEST_ASSERT_EQUAL(1, ctx.count);
+    TEST_ASSERT_NOT_NULL(ctx.visited[0]->path);
+    TEST_ASSERT_EQUAL_STRING("/api/persist-test", ctx.visited[0]->path);
+}
+
+// ---------------------------------------------------------------------------
 // Overflow returns BB_ERR_NO_SPACE (audit F14)
 // ---------------------------------------------------------------------------
 

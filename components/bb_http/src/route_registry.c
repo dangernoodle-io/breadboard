@@ -48,6 +48,11 @@ void bb_http_route_registry_foreach(bb_route_walker_fn cb, void *ctx)
 // Internal helper: add a descriptor pointer to the registry
 // ---------------------------------------------------------------------------
 
+// IMPORTANT: callers MUST pass a descriptor with static or persistent storage
+// duration.  A stack-local bb_route_t dangles immediately after the enclosing
+// function returns; the 405 walk dereferences r->path on every request and will
+// LoadProhibited-crash on the garbage pointer.  Use a function-static or
+// translation-unit-static copy when the handler field must be wired at runtime.
 static bb_err_t registry_add(const bb_route_t *route)
 {
     if (s_count >= BB_ROUTE_REGISTRY_CAP) {

@@ -404,12 +404,16 @@ bb_err_t bb_fan_routes_init(bb_http_handle_t server)
     }
     s_fan_get_responses[0].schema = schema;
 
-    bb_route_t get_route = s_fan_get_route;
+    // static: registry stores this pointer; descriptor must outlive init (B 405-walk deref)
+    static bb_route_t get_route;
+    get_route = s_fan_get_route;
     get_route.handler = fan_get_handler;
     bb_err_t err = bb_http_register_described_route(server, &get_route);
     if (err != BB_OK) return err;
 
-    bb_route_t post_route = s_fan_post_route;
+    // static: registry stores this pointer; descriptor must outlive init (B 405-walk deref)
+    static bb_route_t post_route;
+    post_route = s_fan_post_route;
     post_route.handler = fan_post_handler;
     err = bb_http_register_described_route(server, &post_route);
     if (err != BB_OK) return err;

@@ -575,6 +575,7 @@ void test_uri_is_registered_skips_null_path_entry(void);
 void test_uri_is_registered_very_long_uri_with_query(void);
 void test_uri_is_registered_empty_pattern_no_match(void);
 void test_uri_is_registered_post_catchall_is_registered(void);
+void test_uri_is_registered_described_route_persists_in_registry(void);
 
 // Forward declarations from test_bb_http_assets.c
 void test_asset_type_definition(void);
@@ -2279,6 +2280,7 @@ int main(void) {
     RUN_TEST(test_uri_is_registered_very_long_uri_with_query);
     RUN_TEST(test_uri_is_registered_empty_pattern_no_match);
     RUN_TEST(test_uri_is_registered_post_catchall_is_registered);
+    RUN_TEST(test_uri_is_registered_described_route_persists_in_registry);
 
     // HTTP asset tests
     RUN_TEST(test_asset_type_definition);
