@@ -17,11 +17,31 @@ config BB_DISPLAY_ILI9341_PIXEL_CLK_HZ
         if you see tearing or unreliable transfers on long ribbon
         cables (e.g. Arduino shield form factor).
 
+config BB_DISPLAY_ILI9341_READ_CLK_HZ
+    int "SPI read clock for register probing (Hz)"
+    default 5000000
+    range 100000 10000000
+    help
+        Clock used only during probe (RDDID 0xD3 read). The ILI9341 cannot
+        drive MISO reliably above ~6.6 MHz. After probe this IO handle is
+        deleted and the pixel clock (above) is used for all subsequent writes.
+        Default 5 MHz is safe for known CYD/breakout boards.
+
 config BB_DISPLAY_ILI9341_BL_ACTIVE_LOW
     bool "Backlight is active-low"
     default n
     help
         Most generic ILI9341 boards drive backlight active-high
         (BL=1 turns the LED on). Some Arduino shields invert it.
+
+config BB_DISPLAY_ILI9341_SKIP_PROBE
+    bool "Skip RDDID probe (assume panel present)"
+    default n
+    help
+        When set, the ILI9341 backend registers with a NULL probe, so
+        bb_display_init treats it as present without an RDDID read. Use on
+        boards whose panel MISO/SDO is not wired (e.g. many CYD variants are
+        write-only) — the panel is committed at build time, and writes work
+        at the full pixel clock. Leave off for boards with readable MISO.
 
 endmenu
