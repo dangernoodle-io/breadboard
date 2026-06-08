@@ -29,6 +29,13 @@ bb_err_t bb_display_spi_init_bus(int pin_mosi, int pin_miso, int pin_clk,
                                  int pclk_hz, int pin_cs, int pin_dc,
                                  esp_lcd_panel_io_handle_t *out_io);
 
+/* New primitives (ILI9341 probe needs bus-only init + per-clock IO handles). */
+bb_err_t bb_display_spi_init_bus_only(int pin_mosi, int pin_miso, int pin_clk,
+                                      int max_transfer_sz, int host);
+
+bb_err_t bb_display_spi_new_panel_io(int host, int pclk_hz, int pin_cs, int pin_dc,
+                                     esp_lcd_panel_io_handle_t *out_io);
+
 void bb_display_blit_spi(esp_lcd_panel_handle_t panel,
                          int16_t x, int16_t y,
                          uint16_t w, uint16_t h,

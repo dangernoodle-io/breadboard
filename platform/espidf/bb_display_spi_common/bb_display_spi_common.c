@@ -6,25 +6,28 @@
 
 static const char *TAG = "bb_display_spi";
 
-bb_err_t bb_display_spi_init_bus(int pin_mosi, int pin_miso, int pin_clk,
-                                 int max_transfer_sz, int host,
-                                 int pclk_hz, int pin_cs, int pin_dc,
-                                 esp_lcd_panel_io_handle_t *out_io)
+bb_err_t bb_display_spi_init_bus_only(int pin_mosi, int pin_miso, int pin_clk,
+                                       int max_transfer_sz, int host)
 {
     spi_bus_config_t bus_cfg = {
-        .mosi_io_num      = pin_mosi,
-        .miso_io_num      = pin_miso,
-        .sclk_io_num      = pin_clk,
-        .quadwp_io_num    = -1,
-        .quadhd_io_num    = -1,
-        .max_transfer_sz  = max_transfer_sz,
+        .mosi_io_num     = pin_mosi,
+        .miso_io_num     = pin_miso,
+        .sclk_io_num     = pin_clk,
+        .quadwp_io_num   = -1,
+        .quadhd_io_num   = -1,
+        .max_transfer_sz = max_transfer_sz,
     };
     esp_err_t err = spi_bus_initialize((spi_host_device_t)host, &bus_cfg, SPI_DMA_CH_AUTO);
     if (err != ESP_OK) {
         bb_log_e(TAG, "spi bus init failed: %s", esp_err_to_name(err));
         return err;
     }
+    return BB_OK;
+}
 
+bb_err_t bb_display_spi_new_panel_io(int host, int pclk_hz, int pin_cs, int pin_dc,
+                                      esp_lcd_panel_io_handle_t *out_io)
+{
     esp_lcd_panel_io_spi_config_t io_cfg = {
         .cs_gpio_num       = pin_cs,
         .dc_gpio_num       = pin_dc,
@@ -34,14 +37,26 @@ bb_err_t bb_display_spi_init_bus(int pin_mosi, int pin_miso, int pin_clk,
         .lcd_cmd_bits      = 8,
         .lcd_param_bits    = 8,
     };
-    err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)(intptr_t)host, &io_cfg, out_io);
+    esp_err_t err = esp_lcd_new_panel_io_spi(
+        (esp_lcd_spi_bus_handle_t)(intptr_t)host, &io_cfg, out_io);
     if (err != ESP_OK) {
         bb_log_e(TAG, "panel io init failed: %s", esp_err_to_name(err));
         *out_io = NULL;
         return err;
     }
-
     return BB_OK;
+}
+
+/* Back-compat wrapper — existing callers (st77xx) keep building unchanged. */
+bb_err_t bb_display_spi_init_bus(int pin_mosi, int pin_miso, int pin_clk,
+                                  int max_transfer_sz, int host,
+                                  int pclk_hz, int pin_cs, int pin_dc,
+                                  esp_lcd_panel_io_handle_t *out_io)
+{
+    bb_err_t err = bb_display_spi_init_bus_only(
+        pin_mosi, pin_miso, pin_clk, max_transfer_sz, host);
+    if (err != BB_OK) return err;
+    return bb_display_spi_new_panel_io(host, pclk_hz, pin_cs, pin_dc, out_io);
 }
 
 enum { BOUNCE_PIXELS = 512 };
