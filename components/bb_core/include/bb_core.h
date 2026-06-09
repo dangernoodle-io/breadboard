@@ -78,6 +78,13 @@ typedef enum {
 } bb_ota_phase_t;
 typedef void (*bb_ota_progress_cb_t)(bb_ota_phase_t phase, int pct);
 
+// ---------------------------------------------------------------------------
+// OTA skip-check callback (shared by bb_ota_pull, bb_ota_push, bb_ota_hooks)
+// ---------------------------------------------------------------------------
+// Called before the project-name board mismatch check. Return true to skip
+// the check and proceed with the OTA regardless, false to enforce it.
+typedef bool (*bb_ota_skip_check_cb_t)(void);
+
 #ifdef __cplusplus
 }
 #endif

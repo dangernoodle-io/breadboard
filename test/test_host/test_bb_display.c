@@ -22,6 +22,7 @@ static int g_init_calls;
 static int g_clear_calls;
 static int g_blit_calls;
 static int g_off_calls;
+static int g_on_calls;
 static int g_flush_calls;
 static int g_draw_text_calls;
 static int g_set_rotation_calls;
@@ -38,6 +39,7 @@ static void reset_mock(void)
     g_clear_calls   = 0;
     g_blit_calls    = 0;
     g_off_calls     = 0;
+    g_on_calls      = 0;
     g_flush_calls   = 0;
     g_draw_text_calls = 0;
     g_set_rotation_calls = 0;
@@ -82,6 +84,11 @@ static void mock_off(void)
     g_off_calls++;
 }
 
+static void mock_on(void)
+{
+    g_on_calls++;
+}
+
 static void mock_flush(void)
 {
     g_flush_calls++;
@@ -111,6 +118,7 @@ static const bb_display_backend_t s_mock = {
     .blit         = mock_blit,
     .flush        = NULL,
     .off          = mock_off,
+    .on           = mock_on,
     .draw_text    = NULL,
     .set_rotation = NULL,
 };
@@ -910,6 +918,49 @@ void test_bb_display_off_before_ready_is_noop(void)
     /* off before init: must not crash */
     bb_display_off();
     TEST_ASSERT_FALSE(bb_display_ready());
+}
+
+void test_bb_display_on_dispatches(void)
+{
+    bb_display_backend_t b = make_mock(false);
+    bb_display_register_backend(&b);
+    bb_display_init();
+    bb_display_off();
+    TEST_ASSERT_FALSE(bb_display_ready());
+    bb_display_on();
+    TEST_ASSERT_EQUAL_INT(1, g_on_calls);
+    TEST_ASSERT_TRUE(bb_display_ready());
+}
+
+void test_bb_display_on_with_no_on_fn(void)
+{
+    bb_display_backend_t b = make_mock(false);
+    b.on = NULL;
+    bb_display_register_backend(&b);
+    bb_display_init();
+    bb_display_off();
+    bb_display_on();  /* must not crash */
+    TEST_ASSERT_TRUE(bb_display_ready());
+}
+
+void test_bb_display_on_before_ready_is_noop(void)
+{
+    /* on before init: must not crash */
+    bb_display_on();
+    TEST_ASSERT_FALSE(bb_display_ready());
+}
+
+void test_bb_display_on_when_already_on_is_noop(void)
+{
+    /* on() while already ready: early-return, backend .on not re-invoked */
+    bb_display_backend_t b = make_mock(false);
+    bb_display_register_backend(&b);
+    bb_display_init();
+    TEST_ASSERT_TRUE(bb_display_ready());
+    g_on_calls = 0;
+    bb_display_on();
+    TEST_ASSERT_EQUAL_INT(0, g_on_calls);
+    TEST_ASSERT_TRUE(bb_display_ready());
 }
 
 /* ---------------------------------------------------------------------------

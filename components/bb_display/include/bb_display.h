@@ -25,6 +25,7 @@
 
 bb_err_t    bb_display_init(void);
 void        bb_display_off(void);
+void        bb_display_on(void);
 bool        bb_display_ready(void);
 
 // Returns the panel backend's name (e.g. "st77xx", "ssd1306"), reflecting the

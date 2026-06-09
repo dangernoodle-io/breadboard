@@ -1,4 +1,5 @@
 #include "bb_ota_boot.h"
+#include "bb_ota_hooks.h"
 #include "bb_log.h"
 #include "bb_nv.h"
 
@@ -13,13 +14,6 @@
 
 // Maximum string lengths for set_mdns_service args (hostname/service/proto).
 #define OTA_BOOT_MDNS_STR_MAX  64
-
-static bb_ota_progress_cb_t s_progress_cb = NULL;
-
-// Pct-stash: unconditional — negligible cost, no behavior change for existing
-// consumers. The gated HTTP handler reads these to serve live progress.
-static bb_ota_phase_t s_boot_phase = BB_OTA_PHASE_FAIL;
-static int            s_boot_pct   = 0;
 
 // mDNS service identity (set by consumer before run_if_pending; used under gated path).
 static char     s_mdns_hostname[OTA_BOOT_MDNS_STR_MAX] = {0};
@@ -37,11 +31,6 @@ const char *bb_ota_boot_phase_str(bb_ota_phase_t phase)
     case BB_OTA_PHASE_FAIL:     return "error";
     default:                    return "error";
     }
-}
-
-void bb_ota_boot_set_progress_cb(bb_ota_progress_cb_t cb)
-{
-    s_progress_cb = cb;
 }
 
 bb_err_t bb_ota_boot_set_mdns_service(const char *hostname,
@@ -110,23 +99,6 @@ static void breadcrumb(uint8_t stage)
     bb_nv_set_u8(OTA_BOOT_NS, OTA_BOOT_STAGE_KEY, stage);
 }
 
-// Internal thunk: stash phase+pct then forward to consumer cb (if any).
-// Replaces the direct forward to bb_ota_pull_set_progress_cb so the gated
-// HTTP handler can always read current state, regardless of whether the
-// consumer supplied a cb.
-static void boot_progress_thunk(bb_ota_phase_t phase, int pct)
-{
-    s_boot_phase = phase;
-    s_boot_pct   = pct;
-    bb_ota_progress_cb_t cb = s_progress_cb;
-    if (cb) cb(phase, pct);
-}
-
-static void ota_boot_progress(bb_ota_phase_t phase, int pct)
-{
-    boot_progress_thunk(phase, pct);
-}
-
 // Boot-mode worker: resolve the latest asset + pull it, both at full heap. Runs
 // on a fat stack (the mbedTLS handshake in bb_update_check_now needs >=8 KB, more
 // than the main task carries). NEVER returns — always reboots.
@@ -147,7 +119,7 @@ static void ota_boot_worker(void *arg)
         bb_update_check_set_firmware_board(s_boot_board) != BB_OK) {
         bb_log_e(TAG, "boot-mode: update_check setup failed, rebooting normal");
         breadcrumb(0xE2);
-        ota_boot_progress(BB_OTA_PHASE_FAIL, 0);
+        bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
         esp_restart();
     }
 
@@ -156,13 +128,13 @@ static void ota_boot_worker(void *arg)
         bb_update_check_get_status(&st) != BB_OK || !st.last_check_ok) {
         bb_log_e(TAG, "boot-mode: manifest check failed, rebooting normal");
         breadcrumb(0xE2);
-        ota_boot_progress(BB_OTA_PHASE_FAIL, 0);
+        bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
         esp_restart();
     }
     if (!st.available || st.download_url[0] == '\0') {
         bb_log_w(TAG, "boot-mode: no update available, rebooting normal");
         breadcrumb(0xE3);
-        ota_boot_progress(BB_OTA_PHASE_FAIL, 0);
+        bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
         esp_restart();
     }
     breadcrumb(4);
@@ -190,17 +162,19 @@ static void ota_boot_worker(void *arg)
 
 #if CONFIG_BB_OTA_BOOT_PROGRESS_HTTP
 // GET /api/update/progress — served during boot-mode download window.
-// Reads the stashed phase+pct set by boot_progress_thunk; no lock needed
-// (single-writer: the worker task; single-reader: the httpd task; both on
-// the same core on single-core targets; on dual-core the read is a word-sized
-// load and the worst case is a stale pct, which is acceptable for a progress UI).
+// Reads the last emitted progress from bb_ota_hooks (shared stash updated by
+// bb_ota_emit_progress); no lock needed (single-writer: the worker task;
+// single-reader: the httpd task; both on the same core on single-core targets;
+// on dual-core the read is a word-sized load and the worst case is a stale pct,
+// which is acceptable for a progress UI).
 static bb_err_t ota_boot_progress_handler(bb_http_request_t *req)
 {
     bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
     bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
 
-    bb_ota_phase_t phase = s_boot_phase;
-    int            pct   = s_boot_pct;
+    bb_ota_phase_t phase;
+    int            pct;
+    bb_ota_last_progress(&phase, &pct);
 
     bb_http_json_obj_stream_t obj;
     bb_http_resp_json_obj_begin(req, &obj);
@@ -263,7 +237,7 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
     // on the next reset (no boot loop).
     bb_nv_set_u8(OTA_BOOT_NS, OTA_BOOT_FLAG_KEY, 0);
     breadcrumb(1);
-    ota_boot_progress(BB_OTA_PHASE_START, 0);
+    bb_ota_emit_progress("boot", BB_OTA_PHASE_START, 0);
     bb_log_w(TAG, "OTA boot-mode: pulling firmware at full heap");
 
     // Wait for the STA link (caller started WiFi; IP may not be bound yet).
@@ -273,7 +247,7 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
     if (!bb_wifi_has_ip()) {
         bb_log_e(TAG, "OTA boot-mode: no wifi, rebooting normal");
         breadcrumb(0xE1);
-        ota_boot_progress(BB_OTA_PHASE_FAIL, 0);
+        bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
         esp_restart();
     }
     breadcrumb(2);
@@ -298,16 +272,13 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
 #endif
 
     // Hand the resolve + pull to a fat-stack worker (the TLS handshakes need more
-    // stack than the main task carries); forward the thunk so downloads drive the
-    // pct-stash (and consumer LED via s_progress_cb). This task then blocks;
-    // the worker always reboots.
+    // stack than the main task carries). This task then blocks; the worker always reboots.
     s_boot_url   = releases_url;
     s_boot_board = board;
-    bb_ota_pull_set_progress_cb(boot_progress_thunk);
     if (xTaskCreate(ota_boot_worker, "ota_boot", OTA_BOOT_WORKER_STACK, NULL, 5, NULL) != pdPASS) {
         bb_log_e(TAG, "OTA boot-mode: worker create failed, rebooting normal");
         breadcrumb(0xE5);
-        ota_boot_progress(BB_OTA_PHASE_FAIL, 0);
+        bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
         esp_restart();
     }
     for (;;) {

@@ -1,4 +1,5 @@
 #include "bb_ota_pull.h"
+#include "bb_ota_hooks.h"
 #include "bb_update_check.h"
 #include "bb_release_manifest.h"
 #include "bb_http_client.h"
@@ -34,16 +35,6 @@
 #include "esp_pm.h"
 #endif
 #endif
-
-// Pluggable pause/resume callbacks
-static bb_ota_pause_cb_t s_pause_cb = NULL;
-static bb_ota_resume_cb_t s_resume_cb = NULL;
-
-// Pluggable skip-check callback
-static bb_ota_skip_check_cb_t s_skip_check_cb = NULL;
-
-// Optional progress callback (LED/feedback) — shared bb_core typedef.
-static bb_ota_progress_cb_t s_progress_cb = NULL;
 
 // Releases URL — caller must set before bb_ota_pull_check_now()
 // GitHub release-asset URLs are ~120-180 bytes; 256 is sufficient.
@@ -168,25 +159,6 @@ typedef struct {
 } ota_worker_arg_t;
 
 #endif // ESP_PLATFORM
-
-// Public API: Set pause/resume callbacks
-void bb_ota_pull_set_hooks(bb_ota_pause_cb_t pause, bb_ota_resume_cb_t resume)
-{
-    s_pause_cb = pause;
-    s_resume_cb = resume;
-}
-
-// Public API: Set skip-check callback
-void bb_ota_pull_set_skip_check_cb(bb_ota_skip_check_cb_t cb)
-{
-    s_skip_check_cb = cb;
-}
-
-// Public API: Set progress callback (LED/feedback during the pull)
-void bb_ota_pull_set_progress_cb(bb_ota_progress_cb_t cb)
-{
-    s_progress_cb = cb;
-}
 
 // Public API: Set releases URL
 void bb_ota_pull_set_releases_url(const char *url)
@@ -340,13 +312,6 @@ static void ota_task_exit(void)
     vTaskDelete(NULL);
 }
 
-// Fire the optional progress callback (LED/feedback). No-op if unset.
-static void ota_progress(bb_ota_phase_t phase, int pct)
-{
-    bb_ota_progress_cb_t cb = s_progress_cb;
-    if (cb) cb(phase, pct);
-}
-
 /**
  * ota_download_and_flash — generic download + flash core, runs on the CALLER's
  * task. Acquires the PM lock and extends the task WDT for the flash phase (both
@@ -404,7 +369,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
     s_ota_status.progress_pct = 0;
     s_ota_status.last_error[0] = '\0';
     taskEXIT_CRITICAL(&s_ota_status_mux);
-    ota_progress(BB_OTA_PHASE_START, 0);
+    bb_ota_emit_progress("pull", BB_OTA_PHASE_START, 0);
 
     esp_http_client_config_t http_config = {
         .url = asset_url,
@@ -431,9 +396,17 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
          * available (tdongle-s3, esp32-wroom32). With chunked downloads each
          * TLS record is ~5 KB and consumers can compile-time lower
          * CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN to 8 KB, dropping the mbedtls
-         * peak allocation from ~17 KB to ~9 KB. */
+         * peak allocation from ~17 KB to ~9 KB.
+         *
+         * Chunk size is CONFIG_BB_OTA_PULL_HTTP_CHUNK_SIZE (default 4096). With
+         * DYNAMIC_BUFFER the inbound record buffer is re-allocated per TLS record
+         * mid-transfer; a 4 KB chunk needs a ~4.4 KB contiguous block each record,
+         * which fails once the heap fragments below that under concurrent
+         * httpd/SSE load on no-PSRAM boards. Those boards set the chunk to 2048
+         * (~2.2 KB per-record alloc) for a far more fragmented-heap-tolerant pull;
+         * PSRAM boards keep 4096 for fewer round-trips. */
         .partial_http_download = true,
-        .max_http_request_size = 4096,
+        .max_http_request_size = CONFIG_BB_OTA_PULL_HTTP_CHUNK_SIZE,
     };
 
     // Verify OTA partition exists before attempting
@@ -509,7 +482,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
         const esp_app_desc_t *running = esp_app_get_description();
         if (strncmp(img_desc.project_name, running->project_name,
                     sizeof(img_desc.project_name)) != 0) {
-            bool skip_check = (s_skip_check_cb != NULL && s_skip_check_cb());
+            bool skip_check = bb_ota_skip_check();
             if (skip_check) {
                 bb_log_w(TAG, "OTA project-name mismatch, skipping check per consumer request: got '%s', expected '%s'",
                          img_desc.project_name, running->project_name);
@@ -547,7 +520,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
                 if (pct / 10 != last_logged_pct / 10) {
                     bb_log_i(TAG, "OTA progress: %d%% (%d/%d bytes)",
                              pct, read_so_far, image_size);
-                    ota_progress(BB_OTA_PHASE_PROGRESS, pct);
+                    bb_ota_emit_progress("pull", BB_OTA_PHASE_PROGRESS, pct);
                     last_logged_pct = pct;
                 }
             }
@@ -618,8 +591,8 @@ done_release:
     ota_pm_lock_release();
 done:
     ota_wdt_restore();
-    ota_progress(ret == BB_OK ? BB_OTA_PHASE_SUCCESS : BB_OTA_PHASE_FAIL,
-                 ret == BB_OK ? 100 : 0);
+    bb_ota_emit_progress("pull", ret == BB_OK ? BB_OTA_PHASE_SUCCESS : BB_OTA_PHASE_FAIL,
+                         ret == BB_OK ? 100 : 0);
     return ret;
 }
 
@@ -650,8 +623,9 @@ static void ota_worker_task(void *arg)
     // Cooperatively pause work before the download. The pause window plus the
     // flash phase can exceed CONFIG_ESP_TASK_WDT_TIMEOUT_S; the core extends the
     // WDT (and ota_task_exit restores it).
-    bool paused = (s_pause_cb != NULL) ? s_pause_cb() : false;
-    bool pause_ok = (s_pause_cb == NULL) || paused;
+    bool paused = false;
+    bool pause_ok;
+    if (bb_ota_has_pause_hook()) { paused = bb_ota_pause(); pause_ok = paused; } else { pause_ok = true; }
     if (!pause_ok) {
         ota_set_error("mining pause failed — aborting OTA to avoid tls contention");
         s_ota_in_progress = false;
@@ -667,9 +641,7 @@ static void ota_worker_task(void *arg)
     }
 
     s_ota_in_progress = false;
-    if (paused && s_resume_cb) {
-        s_resume_cb();
-    }
+    if (paused) { bb_ota_resume(); }
     ota_task_exit();
 }
 

@@ -52,6 +52,9 @@ typedef struct bb_display_backend_s {
                           uint16_t fg_rgb565,
                           uint16_t bg_rgb565);
     bb_err_t (*set_rotation)(uint16_t deg, uint16_t *new_w, uint16_t *new_h);  /* Optional. */
+    /* Optional: re-enable the panel after off(). NULL = unsupported (bb_display_on no-ops).
+     * Last field so backends that omit it (e.g. Arduino designated inits) trailing-zero it. */
+    void     (*on)(void);
 } bb_display_backend_t;
 
 /* Register a backend. Appends to ordered list. Safe from a constructor before main. */

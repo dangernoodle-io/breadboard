@@ -1,6 +1,8 @@
 #include "bb_ota_push.h"
+#include "bb_ota_hooks.h"
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
@@ -15,35 +17,6 @@
 #include "freertos/task.h"
 #include "freertos/portmacro.h"
 #endif
-
-// Pluggable pause/resume callbacks
-static bb_ota_pause_cb_t s_pause_cb = NULL;
-static bb_ota_resume_cb_t s_resume_cb = NULL;
-
-// Pluggable skip-check callback
-static bb_ota_push_skip_check_cb_t s_skip_check_cb = NULL;
-
-// Optional progress callback (LED/feedback) — shared bb_core typedef.
-static bb_ota_progress_cb_t s_progress_cb = NULL;
-
-// Public API: Set pause/resume callbacks
-void bb_ota_push_set_hooks(bb_ota_pause_cb_t pause, bb_ota_resume_cb_t resume)
-{
-    s_pause_cb = pause;
-    s_resume_cb = resume;
-}
-
-// Public API: Set progress callback (LED/feedback during the push)
-void bb_ota_push_set_progress_cb(bb_ota_progress_cb_t cb)
-{
-    s_progress_cb = cb;
-}
-
-// Public API: Set skip-check callback
-void bb_ota_push_set_skip_check_cb(bb_ota_push_skip_check_cb_t cb)
-{
-    s_skip_check_cb = cb;
-}
 
 /**
  * Validate the OTA push Content-Length.
@@ -100,13 +73,6 @@ static const char *TAG = "bb_ota_push";
 #define OTA_RECV_BUF_SIZE CONFIG_BB_OTA_PUSH_RECV_BUF_SIZE
 #define OTA_TIMEOUT_RETRIES 30
 
-// Fire the optional progress callback (LED/feedback). No-op if unset.
-static void ota_push_progress(bb_ota_phase_t phase, int pct)
-{
-    bb_ota_progress_cb_t cb = s_progress_cb;
-    if (cb) cb(phase, pct);
-}
-
 /**
  * POST /api/update/push - Receive and flash firmware via HTTP upload.
  * Expects raw binary .bin file in request body.
@@ -142,6 +108,14 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         return BB_ERR_INVALID_STATE;
     }
 
+    // Pause work and extend WDT BEFORE esp_ota_begin (which erases the flash
+    // partition). esp_ota_begin triggers cache_disable; the consumer pause
+    // window can exceed CONFIG_ESP_TASK_WDT_TIMEOUT_S. Restored on every exit
+    // path (success path reboots). The no-partition path above is pre-pause
+    // and needs no resume.
+    bool s_paused = bb_ota_pause();
+    bb_system_wdt_set_timeout(CONFIG_BB_OTA_PUSH_WDT_EXTENDED_S);  // push proceeds regardless of pause result
+
     esp_ota_handle_t ota_handle;
     esp_err_t err = esp_ota_begin(partition, OTA_SIZE_UNKNOWN, &ota_handle);
     if (err != ESP_OK) {
@@ -151,20 +125,18 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_begin(req, &obj);
         bb_http_resp_json_obj_set_str(&obj, "error", "OTA begin failed");
         bb_http_resp_json_obj_end(&obj);
+        // buf not yet malloc'd; restore WDT + resume inline (resume_and_exit frees buf).
+        bb_system_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
+        if (s_paused) { bb_ota_resume(); }
+        bb_ota_emit_progress("push", BB_OTA_PHASE_FAIL, 0);
         return BB_ERR_INVALID_STATE;
     }
 
     bb_log_i(TAG, "OTA started, receiving to partition '%s' at 0x%"PRIx32,
              partition->label, partition->address);
 
-    // Pause work and extend WDT for the receive+write phase. esp_ota_write
-    // cache_disable windows + the consumer pause window can exceed
-    // CONFIG_ESP_TASK_WDT_TIMEOUT_S; subscribed tasks (idle, mining) would
-    // otherwise trip. Restored on every exit path (success path reboots).
-    bool s_paused = (s_pause_cb != NULL) ? s_pause_cb() : false;
-    bb_system_wdt_set_timeout(CONFIG_BB_OTA_PUSH_WDT_EXTENDED_S);  // push proceeds regardless of pause result
-
-    char *buf = malloc(OTA_RECV_BUF_SIZE);
+    char *buf = NULL;
+    buf = malloc(OTA_RECV_BUF_SIZE);
     if (!buf) {
         bb_log_e(TAG, "malloc failed for OTA receive buffer");
         bb_http_resp_set_status(req, 500);
@@ -173,14 +145,14 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_str(&obj, "error", "malloc failed");
         bb_http_resp_json_obj_end(&obj);
         bb_system_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
-        if (s_paused && s_resume_cb) { s_resume_cb(); }
+        if (s_paused) { bb_ota_resume(); }
         return BB_ERR_NO_SPACE;
     }
 
     int received = 0;
     int timeout_count = 0;
     int last_pct = -1;
-    ota_push_progress(BB_OTA_PHASE_START, 0);
+    bb_ota_emit_progress("push", BB_OTA_PHASE_START, 0);
 
     uint32_t ota_start_ms = bb_clock_now_ms();
     uint32_t ota_deadline_ms = bb_ota_push_deadline_ms(
@@ -242,7 +214,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
 
             if (strncmp(incoming->project_name, running->project_name,
                         sizeof(incoming->project_name)) != 0) {
-                bool skip_check = (s_skip_check_cb != NULL && s_skip_check_cb());
+                bool skip_check = bb_ota_skip_check();
                 if (skip_check) {
                     bb_log_w(TAG, "OTA board mismatch IGNORED (skip_check): "
                              "firmware is for '%s', this device is '%s'",
@@ -280,7 +252,9 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         if (content_len > 0) {
             int pct = (int)((int64_t)received * 100 / content_len);
             if (pct / 10 != last_pct / 10) {
-                ota_push_progress(BB_OTA_PHASE_PROGRESS, pct);
+                bb_log_i(TAG, "OTA progress: %d%% (%d/%d bytes)",
+                         pct, received, content_len);
+                bb_ota_emit_progress("push", BB_OTA_PHASE_PROGRESS, pct);
                 last_pct = pct;
             }
         }
@@ -311,7 +285,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     }
 
     bb_log_i(TAG, "OTA complete, rebooting");
-    ota_push_progress(BB_OTA_PHASE_SUCCESS, 100);
+    bb_ota_emit_progress("push", BB_OTA_PHASE_SUCCESS, 100);
     {
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
@@ -329,9 +303,9 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     return BB_OK;  // unreachable
 
 resume_and_exit:
-    ota_push_progress(BB_OTA_PHASE_FAIL, 0);
+    bb_ota_emit_progress("push", BB_OTA_PHASE_FAIL, 0);
     bb_system_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
-    if (s_paused && s_resume_cb) { s_resume_cb(); }
+    if (s_paused) { bb_ota_resume(); }
     return BB_ERR_INVALID_STATE;
 }
 
