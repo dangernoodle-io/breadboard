@@ -71,7 +71,7 @@ uint32_t bb_ota_push_deadline_ms_for_test(int content_len, int min_bytes_per_sec
 static const char *TAG = "bb_ota_push";
 
 #define OTA_RECV_BUF_SIZE CONFIG_BB_OTA_PUSH_RECV_BUF_SIZE
-#define OTA_TIMEOUT_RETRIES 30
+#define OTA_TIMEOUT_RETRIES CONFIG_BB_OTA_PUSH_RECV_TIMEOUT_RETRIES
 
 /**
  * POST /api/update/push - Receive and flash firmware via HTTP upload.

@@ -50,6 +50,42 @@ config BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
         entirely (restores the pre-#330 behaviour). Does not meaningfully affect
         the full-heap OTA boot-mode path (ample heap by construction).
 
+config BB_OTA_PULL_HTTP_TIMEOUT_MS
+    int "Per-recv HTTP timeout (ms) for OTA download"
+    range 1000 120000
+    default 20000
+    help
+        Per-recv HTTP timeout (ms) for the OTA download; the runtime setter
+        bb_ota_pull_set_http_timeout_ms() overrides it.
+
+config BB_OTA_PULL_DL_MAX_ATTEMPTS
+    int "Max OTA download attempts"
+    range 1 10
+    default 3
+    help
+        Max download attempts (outer retry loop + inner handshake retry).
+
+config BB_OTA_PULL_DL_BACKOFF_BASE_MS
+    int "Base retry backoff (ms)"
+    range 0 60000
+    default 3000
+    help
+        Base retry backoff (ms); doubles each attempt up to the cap.
+
+config BB_OTA_PULL_DL_BACKOFF_MAX_MS
+    int "Cap for exponential retry backoff (ms)"
+    range 0 120000
+    default 20000
+    help
+        Cap for the exponential retry backoff (ms).
+
+config BB_OTA_PULL_STALL_WARN_S
+    int "Stall warning threshold (seconds)"
+    range 1 600
+    default 10
+    help
+        Warn if no download bytes move for this many seconds.
+
 config BB_OTA_PULL_HTTP_CHUNK_SIZE
     int "OTA download HTTP Range chunk size (bytes)"
     range 1024 16384

@@ -48,6 +48,14 @@ config BB_OTA_PUSH_WDT_EXTENDED_S
         for the duration of the push and restores
         CONFIG_ESP_TASK_WDT_TIMEOUT_S on exit.
 
+config BB_OTA_PUSH_RECV_TIMEOUT_RETRIES
+    int "Consecutive recv-timeout retries before aborting OTA push"
+    range 1 1000
+    default 30
+    help
+        Consecutive recv-timeout retries tolerated before aborting an OTA push
+        receive.
+
 config BB_OTA_PUSH_MIN_BPS
     int "Minimum accepted OTA push throughput (bytes/sec)"
     default 10240

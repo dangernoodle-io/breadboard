@@ -41,9 +41,12 @@
 static char s_releases_url[256] = "";
 
 // Per-recv HTTP timeout for OTA download (ms). Consumer-tunable via
-// bb_ota_pull_set_http_timeout_ms(). Default 20 s matches the original
-// hard-coded value; pass 0 to restore the default.
-#define BB_OTA_HTTP_TIMEOUT_MS_DEFAULT 20000
+// bb_ota_pull_set_http_timeout_ms(). Default driven by Kconfig; fallback for
+// host builds where CONFIG_* is undefined; pass 0 to restore the default.
+#ifndef CONFIG_BB_OTA_PULL_HTTP_TIMEOUT_MS
+#define CONFIG_BB_OTA_PULL_HTTP_TIMEOUT_MS 20000
+#endif
+#define BB_OTA_HTTP_TIMEOUT_MS_DEFAULT CONFIG_BB_OTA_PULL_HTTP_TIMEOUT_MS
 static uint32_t s_http_timeout_ms = BB_OTA_HTTP_TIMEOUT_MS_DEFAULT;
 
 void bb_ota_pull_set_http_timeout_ms(uint32_t ms)
@@ -312,6 +315,15 @@ static void ota_task_exit(void)
     vTaskDelete(NULL);
 }
 
+// Exponential download retry backoff: base, base*2, ... capped at max.
+static uint32_t ota_dl_backoff_ms(int attempt)
+{
+    uint32_t b = (uint32_t)CONFIG_BB_OTA_PULL_DL_BACKOFF_BASE_MS;
+    uint32_t cap = (uint32_t)CONFIG_BB_OTA_PULL_DL_BACKOFF_MAX_MS;
+    for (int i = 0; i < attempt && b < cap; i++) b <<= 1;
+    return b > cap ? cap : b;
+}
+
 /**
  * ota_download_and_flash — generic download + flash core, runs on the CALLER's
  * task. Acquires the PM lock and extends the task WDT for the flash phase (both
@@ -430,15 +442,14 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
     esp_https_ota_handle_t ota_handle = NULL;
     esp_err_t err = ESP_FAIL;
     esp_app_desc_t img_desc;
-    const int max_dl_attempts = 3;
-    const int dl_backoff_ms[] = {3000, 10000, 20000};
+    const int max_dl_attempts = CONFIG_BB_OTA_PULL_DL_MAX_ATTEMPTS;
     bool download_ok = false;
 
     for (int dl = 0; dl < max_dl_attempts && !download_ok; dl++) {
         if (dl > 0) {
-            bb_log_i(TAG, "OTA download attempt %d/%d (backoff %d ms)",
-                     dl + 1, max_dl_attempts, dl_backoff_ms[dl - 1]);
-            vTaskDelay(pdMS_TO_TICKS(dl_backoff_ms[dl - 1]));
+            bb_log_i(TAG, "OTA download attempt %d/%d (backoff %u ms)",
+                     dl + 1, max_dl_attempts, (unsigned)ota_dl_backoff_ms(dl - 1));
+            vTaskDelay(pdMS_TO_TICKS(ota_dl_backoff_ms(dl - 1)));
         }
 
         // --- begin + get_img_desc (kept as inner retry for handshake flakes) ---
@@ -466,7 +477,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
                 ota_handle = NULL;
             }
             if (attempt + 1 < max_dl_attempts) {
-                vTaskDelay(pdMS_TO_TICKS(dl_backoff_ms[attempt]));
+                vTaskDelay(pdMS_TO_TICKS(ota_dl_backoff_ms(attempt)));
             }
         }
         if (err != ESP_OK) {
@@ -530,8 +541,9 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
             if (read_so_far != last_read) {
                 last_read = read_so_far;
                 last_progress_us = now_us;
-            } else if (now_us - last_progress_us > 10LL * 1000 * 1000) {
-                bb_log_w(TAG, "OTA stalled: no bytes for >10s at %d bytes", read_so_far);
+            } else if (now_us - last_progress_us > (int64_t)CONFIG_BB_OTA_PULL_STALL_WARN_S * 1000000LL) {
+                bb_log_w(TAG, "OTA stalled: no bytes for >%ds at %d bytes",
+                         CONFIG_BB_OTA_PULL_STALL_WARN_S, read_so_far);
                 last_progress_us = now_us;
             }
 
