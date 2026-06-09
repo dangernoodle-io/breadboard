@@ -131,6 +131,13 @@ void test_ota_push_validate_content_len_negative_returns_400(void);
 void test_ota_push_validate_content_len_oversized_returns_413(void);
 void test_ota_push_validate_content_len_at_max_returns_ok(void);
 void test_ota_push_validate_content_len_valid_returns_ok(void);
+void test_ota_push_deadline_ms_small_content_returns_floor(void);
+void test_ota_push_deadline_ms_mid_content_within_bounds(void);
+void test_ota_push_deadline_ms_large_content_clamped_to_ceil(void);
+void test_ota_push_deadline_ms_zero_content_len_returns_floor(void);
+void test_ota_push_deadline_ms_negative_content_len_returns_floor(void);
+void test_ota_push_deadline_ms_zero_min_bps_returns_floor(void);
+void test_ota_push_deadline_ms_realistic_case(void);
 
 // Forward declarations from test_ota_boot.c
 void test_ota_boot_pending_returns_bool(void);
@@ -1949,6 +1956,13 @@ int main(void) {
     RUN_TEST(test_ota_push_validate_content_len_oversized_returns_413);
     RUN_TEST(test_ota_push_validate_content_len_at_max_returns_ok);
     RUN_TEST(test_ota_push_validate_content_len_valid_returns_ok);
+    RUN_TEST(test_ota_push_deadline_ms_small_content_returns_floor);
+    RUN_TEST(test_ota_push_deadline_ms_mid_content_within_bounds);
+    RUN_TEST(test_ota_push_deadline_ms_large_content_clamped_to_ceil);
+    RUN_TEST(test_ota_push_deadline_ms_zero_content_len_returns_floor);
+    RUN_TEST(test_ota_push_deadline_ms_negative_content_len_returns_floor);
+    RUN_TEST(test_ota_push_deadline_ms_zero_min_bps_returns_floor);
+    RUN_TEST(test_ota_push_deadline_ms_realistic_case);
 
     RUN_TEST(test_ota_boot_pending_returns_bool);
     RUN_TEST(test_ota_boot_arm_callable);

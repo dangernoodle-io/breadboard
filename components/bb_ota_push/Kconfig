@@ -48,4 +48,20 @@ config BB_OTA_PUSH_WDT_EXTENDED_S
         for the duration of the push and restores
         CONFIG_ESP_TASK_WDT_TIMEOUT_S on exit.
 
+config BB_OTA_PUSH_MIN_BPS
+    int "Minimum accepted OTA push throughput (bytes/sec)"
+    default 10240
+    help
+        Average upload throughput floor for /api/update/push. The receive is
+        aborted if the transfer's running average falls below this (via a
+        content-length-derived deadline), so a slow/stalled upload can't hold
+        the device with mining paused and the WDT extended. 10240 = 10 KB/s.
+
+config BB_OTA_PUSH_MAX_DURATION_S
+    int "Maximum OTA push receive duration (s)"
+    default 240
+    help
+        Hard ceiling on the whole receive phase. MUST be less than
+        BB_OTA_PUSH_WDT_EXTENDED_S so the clean abort+resume beats the task WDT.
+
 endmenu
