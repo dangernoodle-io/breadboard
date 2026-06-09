@@ -30,13 +30,6 @@ extern "C" {
  */
 
 /*
- * Optional progress callback (shared bb_core typedef) for LED/feedback. Fired at
- * START on entry, then the download phase emits PROGRESS(pct) / SUCCESS / FAIL
- * (forwarded to bb_ota_pull). NULL to clear.
- */
-void bb_ota_boot_set_progress_cb(bb_ota_progress_cb_t cb);
-
-/*
  * Map an OTA phase to its JSON state string used by GET /api/update/progress.
  * START/PROGRESS -> "downloading", SUCCESS -> "complete", FAIL -> "error".
  * Pure function — safe to call on any platform, useful for host tests.

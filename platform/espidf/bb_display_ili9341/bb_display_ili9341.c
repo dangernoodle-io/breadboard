@@ -147,6 +147,18 @@ static void ili9341_off(void) {
     }
 }
 
+static void ili9341_on(void) {
+    if (!s_panel) return;
+    esp_lcd_panel_disp_on_off(s_panel, true);
+    if (PIN_LCD_BL >= 0) {
+#if CONFIG_BB_DISPLAY_ILI9341_BL_ACTIVE_LOW
+        gpio_set_level(PIN_LCD_BL, 0);
+#else
+        gpio_set_level(PIN_LCD_BL, 1);
+#endif
+    }
+}
+
 static bb_err_t ili9341_set_rotation(uint16_t deg, uint16_t *w, uint16_t *h)
 {
     if (!s_panel) return BB_ERR_INVALID_STATE;
@@ -209,6 +221,7 @@ static const bb_display_backend_t s_backend = {
     .blit         = ili9341_blit,
     .flush        = NULL,
     .off          = ili9341_off,
+    .on           = ili9341_on,
     .draw_text    = NULL,
     .set_rotation = ili9341_set_rotation,
 };

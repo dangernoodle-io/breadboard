@@ -129,17 +129,22 @@ COMPONENT_MAP = {
     "bb_ota_pull": {
         "includes": ["components/bb_ota_pull/include", "platform/host/bb_ota_pull"],
         "sources":  ["platform/espidf/bb_ota_pull/bb_ota_pull.c"],
-        "depends":  ["bb_core", "bb_http", "bb_nv", "bb_log", "bb_json", "bb_release_manifest", "bb_http_client"],
+        "depends":  ["bb_core", "bb_http", "bb_nv", "bb_log", "bb_json", "bb_release_manifest", "bb_http_client", "bb_ota_hooks"],
     },
     "bb_ota_push": {
         "includes": ["components/bb_ota_push/include"],
         "sources":  ["platform/espidf/bb_ota_push/bb_ota_push.c"],
-        "depends":  ["bb_core", "bb_http", "bb_log"],
+        "depends":  ["bb_core", "bb_http", "bb_log", "bb_ota_hooks"],
     },
     "bb_ota_boot": {
         "includes": ["components/bb_ota_boot/include"],
         "sources":  ["platform/espidf/bb_ota_boot/bb_ota_boot.c"],
-        "depends":  ["bb_core", "bb_log", "bb_nv"],
+        "depends":  ["bb_core", "bb_log", "bb_nv", "bb_ota_hooks"],
+    },
+    "bb_ota_hooks": {
+        "includes": ["components/bb_ota_hooks/include"],
+        "sources":  ["platform/espidf/bb_ota_hooks/bb_ota_hooks.c"],
+        "depends":  ["bb_core", "bb_log"],
     },
     "bb_ota_validator": {
         "includes": ["components/bb_ota_validator/include"],

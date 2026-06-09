@@ -93,9 +93,6 @@ void test_bb_diag_scrub_text_del_replaced(void);
 void test_bb_diag_scrub_text_all_printable_ascii(void);
 
 // Forward declarations from test_ota_pull.c
-void test_ota_pull_skip_check_callback_registration(void);
-void test_ota_pull_skip_check_callback_returns_true(void);
-void test_ota_pull_skip_check_callback_returns_false(void);
 void test_bb_ota_pull_set_http_timeout_ms_default_is_20000(void);
 void test_bb_ota_pull_set_http_timeout_ms_zero_restores_default(void);
 void test_download_should_retry_ok_and_complete_is_false(void);
@@ -121,11 +118,6 @@ void test_ota_pull_manifest_fallback_board_name(void);
 void test_ota_pull_manifest_asset_found_ota_proceeds(void);
 
 // Forward declarations from test_ota_push.c
-void test_ota_push_skip_check_callback_registration(void);
-void test_ota_push_skip_check_callback_returns_true(void);
-void test_ota_push_skip_check_callback_returns_false(void);
-void test_ota_push_hooks_registration(void);
-void test_ota_push_pause_hook_returns_true(void);
 void test_ota_push_validate_content_len_zero_returns_400(void);
 void test_ota_push_validate_content_len_negative_returns_400(void);
 void test_ota_push_validate_content_len_oversized_returns_413(void);
@@ -138,11 +130,9 @@ void test_ota_push_deadline_ms_zero_content_len_returns_floor(void);
 void test_ota_push_deadline_ms_negative_content_len_returns_floor(void);
 void test_ota_push_deadline_ms_zero_min_bps_returns_floor(void);
 void test_ota_push_deadline_ms_realistic_case(void);
-
 // Forward declarations from test_ota_boot.c
 void test_ota_boot_pending_returns_bool(void);
 void test_ota_boot_arm_callable(void);
-void test_ota_boot_progress_cb_registration(void);
 void test_ota_boot_phase_str_start_returns_downloading(void);
 void test_ota_boot_phase_str_progress_returns_downloading(void);
 void test_ota_boot_phase_str_success_returns_complete(void);
@@ -961,6 +951,10 @@ void test_bb_display_show_splash_wide_text_clamps_x(void);
 void test_bb_display_show_splash_null_line_ok(void);
 void test_bb_display_flush_before_ready_is_noop(void);
 void test_bb_display_off_before_ready_is_noop(void);
+void test_bb_display_on_dispatches(void);
+void test_bb_display_on_with_no_on_fn(void);
+void test_bb_display_on_before_ready_is_noop(void);
+void test_bb_display_on_when_already_on_is_noop(void);
 void test_bb_display_registry_full_null_name_dropped(void);
 void test_bb_display_init_fail_null_name(void);
 void test_bb_display_probe_fail_null_name(void);
@@ -1414,6 +1408,25 @@ void test_ota_led_fail_calls_restore(void);
 void test_ota_led_unknown_phase_restores(void);
 void test_ota_led_no_init_is_safe(void);
 void test_ota_led_null_op_is_safe(void);
+
+// Forward declarations from test_bb_ota_hooks.c
+void test_ota_hooks_json_push_start(void);
+void test_ota_hooks_json_pull_progress_42(void);
+void test_ota_hooks_json_success(void);
+void test_ota_hooks_json_fail(void);
+void test_ota_hooks_json_out_of_range_state_unknown(void);
+void test_ota_hooks_json_tiny_buf_returns_zero(void);
+void test_ota_hooks_emit_fires_cb(void);
+void test_ota_hooks_last_progress_returns_last_emit(void);
+void test_ota_hooks_multiple_emits_update_last(void);
+void test_ota_hooks_pause_returns_true_when_cb_returns_true(void);
+void test_ota_hooks_pause_returns_false_when_no_cb(void);
+void test_ota_hooks_resume_calls_cb(void);
+void test_ota_hooks_resume_no_crash_when_null(void);
+void test_ota_hooks_skip_check_returns_true(void);
+void test_ota_hooks_skip_check_returns_false(void);
+void test_ota_hooks_skip_check_null_returns_false(void);
+void test_ota_hooks_has_pause_hook_reflects_set(void);
 
 // Forward declarations from test_bb_led_rgb_pwm.c
 void bb_led_rgb_pwm_host_test_reset(void);
@@ -1916,9 +1929,6 @@ int main(void) {
     RUN_TEST(test_ota_led_null_op_is_safe);
 
     // OTA pull tests
-    RUN_TEST(test_ota_pull_skip_check_callback_registration);
-    RUN_TEST(test_ota_pull_skip_check_callback_returns_true);
-    RUN_TEST(test_ota_pull_skip_check_callback_returns_false);
     RUN_TEST(test_bb_ota_pull_set_http_timeout_ms_default_is_20000);
     RUN_TEST(test_bb_ota_pull_set_http_timeout_ms_zero_restores_default);
     RUN_TEST(test_download_should_retry_ok_and_complete_is_false);
@@ -1946,11 +1956,6 @@ int main(void) {
     RUN_TEST(test_ota_pull_manifest_asset_found_ota_proceeds);
 
     // OTA push tests
-    RUN_TEST(test_ota_push_skip_check_callback_registration);
-    RUN_TEST(test_ota_push_skip_check_callback_returns_true);
-    RUN_TEST(test_ota_push_skip_check_callback_returns_false);
-    RUN_TEST(test_ota_push_hooks_registration);
-    RUN_TEST(test_ota_push_pause_hook_returns_true);
     RUN_TEST(test_ota_push_validate_content_len_zero_returns_400);
     RUN_TEST(test_ota_push_validate_content_len_negative_returns_400);
     RUN_TEST(test_ota_push_validate_content_len_oversized_returns_413);
@@ -1963,10 +1968,8 @@ int main(void) {
     RUN_TEST(test_ota_push_deadline_ms_negative_content_len_returns_floor);
     RUN_TEST(test_ota_push_deadline_ms_zero_min_bps_returns_floor);
     RUN_TEST(test_ota_push_deadline_ms_realistic_case);
-
     RUN_TEST(test_ota_boot_pending_returns_bool);
     RUN_TEST(test_ota_boot_arm_callable);
-    RUN_TEST(test_ota_boot_progress_cb_registration);
     RUN_TEST(test_ota_boot_phase_str_start_returns_downloading);
     RUN_TEST(test_ota_boot_phase_str_progress_returns_downloading);
     RUN_TEST(test_ota_boot_phase_str_success_returns_complete);
@@ -1980,6 +1983,25 @@ int main(void) {
     RUN_TEST(test_ota_boot_set_mdns_service_service_type_too_long_returns_invalid_arg);
     RUN_TEST(test_ota_boot_set_mdns_service_proto_too_long_returns_invalid_arg);
     RUN_TEST(test_ota_boot_set_mdns_service_port_zero_ok);
+
+    // OTA hooks tests
+    RUN_TEST(test_ota_hooks_json_push_start);
+    RUN_TEST(test_ota_hooks_json_pull_progress_42);
+    RUN_TEST(test_ota_hooks_json_success);
+    RUN_TEST(test_ota_hooks_json_fail);
+    RUN_TEST(test_ota_hooks_json_out_of_range_state_unknown);
+    RUN_TEST(test_ota_hooks_json_tiny_buf_returns_zero);
+    RUN_TEST(test_ota_hooks_emit_fires_cb);
+    RUN_TEST(test_ota_hooks_last_progress_returns_last_emit);
+    RUN_TEST(test_ota_hooks_multiple_emits_update_last);
+    RUN_TEST(test_ota_hooks_pause_returns_true_when_cb_returns_true);
+    RUN_TEST(test_ota_hooks_pause_returns_false_when_no_cb);
+    RUN_TEST(test_ota_hooks_resume_calls_cb);
+    RUN_TEST(test_ota_hooks_resume_no_crash_when_null);
+    RUN_TEST(test_ota_hooks_skip_check_returns_true);
+    RUN_TEST(test_ota_hooks_skip_check_returns_false);
+    RUN_TEST(test_ota_hooks_skip_check_null_returns_false);
+    RUN_TEST(test_ota_hooks_has_pause_hook_reflects_set);
 
     // OTA validator tests
     RUN_TEST(test_ota_validator_is_pending_false_on_host);
@@ -2754,6 +2776,10 @@ int main(void) {
     RUN_TEST(test_bb_display_show_splash_null_line_ok);
     RUN_TEST(test_bb_display_flush_before_ready_is_noop);
     RUN_TEST(test_bb_display_off_before_ready_is_noop);
+    RUN_TEST(test_bb_display_on_dispatches);
+    RUN_TEST(test_bb_display_on_with_no_on_fn);
+    RUN_TEST(test_bb_display_on_before_ready_is_noop);
+    RUN_TEST(test_bb_display_on_when_already_on_is_noop);
     RUN_TEST(test_bb_display_registry_full_null_name_dropped);
     RUN_TEST(test_bb_display_init_fail_null_name);
     RUN_TEST(test_bb_display_probe_fail_null_name);

@@ -20,15 +20,6 @@ void test_ota_boot_arm_callable(void)
     TEST_ASSERT_TRUE(true);
 }
 
-static void noop_progress(bb_ota_phase_t phase, int pct) { (void)phase; (void)pct; }
-
-void test_ota_boot_progress_cb_registration(void)
-{
-    bb_ota_boot_set_progress_cb(noop_progress);
-    bb_ota_boot_set_progress_cb(NULL);
-    TEST_ASSERT_TRUE(true);
-}
-
 // ---------------------------------------------------------------------------
 // bb_ota_boot_phase_str — pure helper, testable on host
 // ---------------------------------------------------------------------------

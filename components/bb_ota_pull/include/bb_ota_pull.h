@@ -6,42 +6,6 @@
 #include "bb_core.h"
 
 /**
- * Callback invoked before OTA apply to pause work.
- * @return true if caller paused work, false otherwise
- */
-typedef bb_http_pause_cb_t  bb_ota_pause_cb_t;
-
-/**
- * Callback invoked after OTA apply to resume work.
- */
-typedef bb_http_resume_cb_t bb_ota_resume_cb_t;
-
-/**
- * Callback to skip project-name mismatch check.
- * @return true to skip check and proceed with OTA, false to abort on mismatch
- */
-typedef bool (*bb_ota_skip_check_cb_t)(void);
-
-/**
- * Set optional callbacks for pausing/resuming work during OTA.
- * If unset, OTA proceeds without pause.
- */
-void bb_ota_pull_set_hooks(bb_ota_pause_cb_t pause, bb_ota_resume_cb_t resume);
-
-/**
- * Set optional callback to skip project-name mismatch check.
- * Allows consumers to override firmware board mismatch validation if needed.
- */
-void bb_ota_pull_set_skip_check_cb(bb_ota_skip_check_cb_t cb);
-
-/**
- * Set an optional progress callback (shared `bb_ota_progress_cb_t` from bb_core)
- * fired through the pull: START, PROGRESS(pct) per ~10%, then SUCCESS or FAIL.
- * Used for LED/feedback; inherited by bb_ota_pull_run_sync. NULL to clear.
- */
-void bb_ota_pull_set_progress_cb(bb_ota_progress_cb_t cb);
-
-/**
  * Set the GitHub releases URL for fetching updates.
  * Default: https://api.github.com/repos/dangernoodle-io/snugfeather/releases/latest
  * @param url URL to set (or NULL to reset to default)

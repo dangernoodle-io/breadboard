@@ -1,0 +1,15 @@
+menu "breadboard: bb_ota_hooks"
+
+config BB_OTA_HOOKS_AUTOREGISTER
+    bool "Auto-register bb_ota_hooks (attach ota.progress)"
+    default y
+
+config BB_OTA_HOOKS_AUTO_ATTACH
+    bool "Auto-attach ota.progress to /api/events"
+    default y
+    depends on BB_EVENT_ROUTES_AUTOREGISTER
+    help
+        Surface OTA progress as the non-retained 'ota.progress' SSE topic on /api/events
+        ({"via":...,"state":...,"pct":N}) for push, pull, and boot uniformly.
+
+endmenu

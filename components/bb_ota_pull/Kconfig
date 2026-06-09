@@ -50,6 +50,27 @@ config BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
         entirely (restores the pre-#330 behaviour). Does not meaningfully affect
         the full-heap OTA boot-mode path (ample heap by construction).
 
+config BB_OTA_PULL_HTTP_CHUNK_SIZE
+    int "OTA download HTTP Range chunk size (bytes)"
+    range 1024 16384
+    default 4096
+    help
+        esp_https_ota partial_http_download chunk size (bytes per Range GET).
+        Drives the inbound TLS record size, hence the per-record mbedTLS
+        buffer allocation.
+
+        Default 4096: each TLS record is ~4.4 KB. On a no-PSRAM board with
+        DYNAMIC_BUFFER (per-record realloc), that allocation fails mid-download
+        once concurrent httpd/SSE load fragments the internal heap below ~4.4 KB
+        contiguous — observed largest_free_block collapsing to ~4.6 KB at ~80%.
+
+        Lower to 2048 on no-PSRAM boards that do an in-place pull (esp32-wroom32,
+        esp32-wroom32-cyd, esp32-c3): the per-record alloc drops to ~2.2 KB,
+        fitting a far more fragmented heap, at the cost of ~2x more Range GETs.
+        Leave at 4096 on PSRAM boards (bitaxe-*), which do not fragment, and on
+        boot-mode boards (esp32-s2), which pull at full early-boot heap — both
+        benefit from fewer round-trips. Must stay <= MBEDTLS_SSL_IN_CONTENT_LEN.
+
 config BB_OTA_PULL_APPLY_CACHE_FRESH_S
     int "POST /api/update/apply: cached check freshness window (seconds, 0=always refresh)"
     range 0 86400

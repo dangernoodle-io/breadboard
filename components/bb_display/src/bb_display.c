@@ -156,6 +156,17 @@ void bb_display_off(void)
     s_height = 0;
 }
 
+void bb_display_on(void)
+{
+    if (s_ready) return;  // already on
+    if (!s_panel) return;  // no panel was ever successfully initialized
+    if (s_panel->on) s_panel->on();
+    s_active = s_panel;
+    s_width = s_panel_width;
+    s_height = s_panel_height;
+    s_ready = true;
+}
+
 /* -------- Layered helpers — font rasterizer fallback -------- */
 
 /* Glyph rasterization buffer. Sized for the bundled 8x16 font; bigger
