@@ -100,6 +100,15 @@ static SemaphoreHandle_t s_evt_pool_lock = NULL;
 #define BB_MDNS_BATCH_MAX 16
 #endif
 
+// FreeRTOS priority for the dispatch + query tasks (Kconfig BB_MDNS_TASK_PRIORITY).
+// Single-core boards (C3/S2) raise this so the dispatch task is not starved by
+// the miner and drops coalesced browse-notify bursts; see Kconfig help.
+#ifdef CONFIG_BB_MDNS_TASK_PRIORITY
+#define BB_MDNS_TASK_PRIO CONFIG_BB_MDNS_TASK_PRIORITY
+#else
+#define BB_MDNS_TASK_PRIO 3
+#endif
+
 typedef struct {
     bb_mdns_evt_t entries[BB_MDNS_BATCH_MAX];
     int           count;
@@ -978,13 +987,13 @@ void bb_mdns_init(void)
         s_evt_queue = xQueueCreate(BB_MDNS_EVT_QUEUE_DEPTH, sizeof(bb_mdns_evt_t *));
     }
     if (!s_dispatch_task) {
-        xTaskCreate(bb_mdns_dispatch_task, "bb_mdns_disp", 4096, NULL, 3, &s_dispatch_task);
+        xTaskCreate(bb_mdns_dispatch_task, "bb_mdns_disp", 4096, NULL, BB_MDNS_TASK_PRIO, &s_dispatch_task);
     }
     if (!s_query_queue) {
         s_query_queue = xQueueCreate(BB_MDNS_QUERY_QUEUE_DEPTH, sizeof(bb_mdns_query_req_t));
     }
     if (!s_query_task) {
-        xTaskCreate(bb_mdns_query_task, "bb_mdns_query", 4096, NULL, 3, &s_query_task);
+        xTaskCreate(bb_mdns_query_task, "bb_mdns_query", 4096, NULL, BB_MDNS_TASK_PRIO, &s_query_task);
     }
 
     // Create the coalescing flush timer (one-shot, 50 ms window).
