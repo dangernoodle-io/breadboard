@@ -76,13 +76,14 @@ bool bb_ota_boot_pending(void)
 #include "bb_update_check.h"
 #include "bb_http.h"
 #include "bb_registry.h"
+#include "bb_http_client.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_heap_caps.h"
 
 #if CONFIG_BB_OTA_BOOT_PROGRESS_HTTP
 #include "mdns.h"
-#include "esp_heap_caps.h"
 #endif
 
 static const char *TAG = "bb_ota_boot";
@@ -93,6 +94,89 @@ static const char *TAG = "bb_ota_boot";
 // Resolve+pull params handed to the worker (single boot-mode run, statics safe).
 static const char *s_boot_url   = NULL;
 static const char *s_boot_board = NULL;
+
+// Stashed releases_url/board so STATUS_HTTP routes can init bb_update_check
+// even when nothing is pending (set in bb_ota_boot_run_if_pending).
+#if CONFIG_BB_OTA_BOOT_STATUS_HTTP
+#define OTA_BOOT_STATUS_URL_MAX   256
+#define OTA_BOOT_STATUS_BOARD_MAX  64
+static char s_status_url[OTA_BOOT_STATUS_URL_MAX]     = {0};
+static char s_status_board[OTA_BOOT_STATUS_BOARD_MAX] = {0};
+static bool s_status_check_initialized                 = false;
+
+// Heap bar for the on-demand check — mirrors bb_ota_pull's pre-flight guard.
+// Default matches CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES (9216).
+#ifndef CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
+#  define BB_OTA_BOOT_STATUS_MIN_HEAP 9216
+#else
+#  define BB_OTA_BOOT_STATUS_MIN_HEAP CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
+#endif
+
+// Ensure bb_update_check is ready for the on-demand routes. Called at init
+// (route-registration time) and from run_if_pending after stashing url/board.
+static void status_check_ensure_init(void)
+{
+    if (s_status_check_initialized) return;
+    if (s_status_url[0] == '\0') return;  // url not stashed yet
+    if (bb_update_check_init(NULL) != BB_OK) return;
+    bb_update_check_set_releases_url(s_status_url);
+    bb_update_check_set_firmware_board(s_status_board[0] ? s_status_board : NULL);
+    s_status_check_initialized = true;
+}
+
+// Transient fat-stack task: runs one on-demand manifest check then exits.
+static void status_check_task(void *arg)
+{
+    (void)arg;
+    bb_update_check_now();
+    vTaskDelete(NULL);
+}
+
+// GET /api/update/status — delegates to the shared emitter.
+static bb_err_t ota_boot_status_handler(bb_http_request_t *req)
+{
+    return bb_update_check_emit_status_json(req);
+}
+
+// POST /api/update/check — on-demand heap-guarded one-shot check.
+static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
+{
+    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
+
+#if BB_OTA_BOOT_STATUS_MIN_HEAP > 0
+    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (largest < (size_t)BB_OTA_BOOT_STATUS_MIN_HEAP) {
+        bb_log_w(TAG, "check: insufficient heap (%u < %u), skipping",
+                 (unsigned)largest, (unsigned)BB_OTA_BOOT_STATUS_MIN_HEAP);
+        bb_http_resp_set_status(req, 503);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "insufficient_heap");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_OK;
+    }
+#endif
+
+    if (xTaskCreate(status_check_task, "ota_status_chk",
+                    BB_HTTP_CLIENT_TASK_STACK, NULL, 1, NULL) != pdPASS) {
+        bb_log_e(TAG, "check: task create failed");
+        bb_http_resp_set_status(req, 503);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "task_create_failed");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_OK;
+    }
+
+    bb_http_resp_set_status(req, 202);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "status", "checking");
+    bb_http_resp_json_obj_end(&obj);
+    return BB_OK;
+}
+#endif // CONFIG_BB_OTA_BOOT_STATUS_HTTP
 
 static void breadcrumb(uint8_t stage)
 {
@@ -230,6 +314,24 @@ static void boot_progress_server_start(void)
 
 void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
 {
+#if CONFIG_BB_OTA_BOOT_STATUS_HTTP
+    // Stash url/board so the on-demand routes have them whether or not a boot
+    // is pending. Do this unconditionally before the pending check so status
+    // routes work even on a normal (non-pending) boot.
+    if (releases_url && releases_url[0] != '\0') {
+        strncpy(s_status_url, releases_url, OTA_BOOT_STATUS_URL_MAX - 1);
+        s_status_url[OTA_BOOT_STATUS_URL_MAX - 1] = '\0';
+    }
+    if (board && board[0] != '\0') {
+        strncpy(s_status_board, board, OTA_BOOT_STATUS_BOARD_MAX - 1);
+        s_status_board[OTA_BOOT_STATUS_BOARD_MAX - 1] = '\0';
+    }
+    // Init bb_update_check now that we have the url/board (idempotent if
+    // already done at route-registration time with a previously stashed url).
+    s_status_check_initialized = false;  // force re-init with fresh url/board
+    status_check_ensure_init();
+#endif
+
     if (!bb_ota_boot_pending()) {
         return;
     }
@@ -337,6 +439,73 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
         return rc;
     }
     bb_log_i(TAG, "OTA boot-mode apply route registered");
+
+#if CONFIG_BB_OTA_BOOT_STATUS_HTTP
+    // Attempt early init of bb_update_check in case run_if_pending was already
+    // called (url/board stashed). If not yet called, init will complete once
+    // run_if_pending stashes the url/board.
+    status_check_ensure_init();
+
+    static const bb_route_response_t s_status_responses[] = {
+        { 200, "application/json",
+          "{\"type\":\"object\","
+           "\"properties\":{"
+             "\"current\":{\"type\":\"string\"},"
+             "\"latest\":{\"type\":\"string\"},"
+             "\"download_url\":{\"type\":\"string\"},"
+             "\"available\":{\"type\":\"boolean\"},"
+             "\"last_check_ok\":{\"type\":\"boolean\"},"
+             "\"enabled\":{\"type\":\"boolean\"},"
+             "\"outcome\":{\"type\":\"string\","
+               "\"enum\":[\"unknown\",\"up_to_date\",\"available\","
+                         "\"no_asset\",\"check_failed\"]},"
+             "\"last_check_ts\":{\"type\":\"integer\"}},"
+           "\"required\":[\"current\",\"latest\",\"download_url\","
+                         "\"available\",\"last_check_ok\",\"enabled\",\"outcome\"]}",
+          "current status of the update poller" },
+        { 503, "application/json", NULL, "bb_update_check not initialized" },
+        { 0 },
+    };
+    static const bb_route_t s_status_route = {
+        .method    = BB_HTTP_GET,
+        .path      = "/api/update/status",
+        .tag       = "update",
+        .summary   = "Latest known release-check state (boot-mode on-demand)",
+        .responses = s_status_responses,
+        .handler   = ota_boot_status_handler,
+    };
+
+    static const bb_route_response_t s_check_responses[] = {
+        { 202, "application/json",
+          "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"}}}",
+          "check triggered; poll GET /api/update/status for result" },
+        { 503, "application/json",
+          "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}}}",
+          "insufficient heap or task creation failed" },
+        { 0 },
+    };
+    static const bb_route_t s_check_route = {
+        .method    = BB_HTTP_POST,
+        .path      = "/api/update/check",
+        .tag       = "update",
+        .summary   = "Trigger an on-demand update check (boot-mode boards)",
+        .responses = s_check_responses,
+        .handler   = ota_boot_check_handler,
+    };
+
+    rc = bb_http_register_described_route(server, &s_status_route);
+    if (rc != BB_OK) {
+        bb_log_e(TAG, "register /api/update/status failed: %d", rc);
+        return rc;
+    }
+    rc = bb_http_register_described_route(server, &s_check_route);
+    if (rc != BB_OK) {
+        bb_log_e(TAG, "register /api/update/check failed: %d", rc);
+        return rc;
+    }
+    bb_log_i(TAG, "OTA boot-mode status routes registered");
+#endif // CONFIG_BB_OTA_BOOT_STATUS_HTTP
+
     return BB_OK;
 }
 

@@ -148,6 +148,17 @@ void test_ota_boot_set_mdns_service_service_type_too_long_returns_invalid_arg(vo
 void test_ota_boot_set_mdns_service_proto_too_long_returns_invalid_arg(void);
 void test_ota_boot_set_mdns_service_port_zero_ok(void);
 
+// Forward declarations from test_bb_update_check_emit.c
+void test_emit_status_json_before_init_returns_503(void);
+void test_emit_status_json_after_init_has_all_required_fields(void);
+void test_emit_status_json_available_true_after_newer_release(void);
+void test_emit_status_json_outcome_check_failed(void);
+void test_emit_status_json_outcome_unknown_before_check(void);
+void test_emit_status_json_outcome_up_to_date(void);
+void test_emit_status_json_outcome_no_asset(void);
+void test_emit_status_json_sets_cors_headers(void);
+void test_emit_status_json_enabled_reflects_nv_flag(void);
+
 // Forward declarations from test_http_utils.c
 void test_url_decode_basic(void);
 void test_url_decode_plus_as_space(void);
@@ -1994,6 +2005,17 @@ int main(void) {
     RUN_TEST(test_ota_boot_set_mdns_service_service_type_too_long_returns_invalid_arg);
     RUN_TEST(test_ota_boot_set_mdns_service_proto_too_long_returns_invalid_arg);
     RUN_TEST(test_ota_boot_set_mdns_service_port_zero_ok);
+
+    // bb_update_check_emit_status_json tests
+    RUN_TEST(test_emit_status_json_before_init_returns_503);
+    RUN_TEST(test_emit_status_json_after_init_has_all_required_fields);
+    RUN_TEST(test_emit_status_json_available_true_after_newer_release);
+    RUN_TEST(test_emit_status_json_outcome_check_failed);
+    RUN_TEST(test_emit_status_json_outcome_unknown_before_check);
+    RUN_TEST(test_emit_status_json_outcome_up_to_date);
+    RUN_TEST(test_emit_status_json_outcome_no_asset);
+    RUN_TEST(test_emit_status_json_sets_cors_headers);
+    RUN_TEST(test_emit_status_json_enabled_reflects_nv_flag);
 
     // OTA hooks tests
     RUN_TEST(test_ota_hooks_json_push_start);
