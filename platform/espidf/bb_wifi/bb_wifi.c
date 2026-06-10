@@ -10,7 +10,7 @@
 #include "bb_log.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
-#include "esp_task_wdt.h"
+#include "bb_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
@@ -601,7 +601,7 @@ static bb_err_t bb_wifi_autoinit(void)
         bb_log_w(TAG, "wifi cold-boot timeout; retrying in 30s");
         for (int i = 0; i < 30; i++) {
             vTaskDelay(pdMS_TO_TICKS(1000));
-            esp_task_wdt_reset();
+            bb_wdt_task_feed();
         }
         err = bb_wifi_init_sta();
     }

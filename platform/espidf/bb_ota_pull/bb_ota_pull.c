@@ -17,8 +17,8 @@
 #include "bb_http.h"
 #include "bb_log.h"
 #include "bb_registry.h"
-#include "bb_system.h"
 #include "bb_wifi.h"
+#include "bb_wdt.h"
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
 #include "esp_ota_ops.h"
@@ -26,7 +26,6 @@
 #include "esp_crt_bundle.h"
 #include "esp_system.h"
 #include "esp_timer.h"
-#include "esp_task_wdt.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -299,19 +298,17 @@ bb_err_t bb_ota_pull_fetch_manifest_for_test(char *out_tag, size_t tag_cap,
 
 #ifdef ESP_PLATFORM
 
-// Wrappers: extend/restore WDT timeout around the OTA flash phase.
-static void ota_wdt_extend(void)  { bb_system_wdt_set_timeout(CONFIG_BB_OTA_PULL_WDT_EXTENDED_S); }
-static void ota_wdt_restore(void) { bb_system_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S); }
-
 /**
- * Re-subscribe to the task WDT and delete the calling task.
- * Called at every exit path of worker tasks that removed themselves from
- * the WDT at entry. Best-effort: error is ignored — the task is dying.
+ * Restore the WDT timeout and delete the calling task.
+ * Called at every exit path of worker tasks that removed themselves from the
+ * WDT at entry. The task must NOT re-subscribe before dying: re-adding a task
+ * that is about to be deleted leaves a dangling WDT entry pointing at a freed
+ * TCB, which the next WDT check reads as a garbled task name that never feeds —
+ * tripping a spurious task_wdt panic. The task stays unsubscribed as it exits.
  */
 static void ota_task_exit(void)
 {
-    ota_wdt_restore();
-    esp_task_wdt_add(NULL);
+    bb_wdt_extend_end();
     vTaskDelete(NULL);
 }
 
@@ -339,7 +336,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
 {
     bb_err_t ret = ESP_FAIL;
 
-    ota_wdt_extend();
+    bb_wdt_extend_begin(CONFIG_BB_OTA_PULL_WDT_EXTENDED_S);
 
 #if CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES > 0
     // Pre-OTA heap guard (B1-237): refuse cleanly if the largest contiguous
@@ -602,7 +599,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
 done_release:
     ota_pm_lock_release();
 done:
-    ota_wdt_restore();
+    bb_wdt_extend_end();
     bb_ota_emit_progress("pull", ret == BB_OK ? BB_OTA_PHASE_SUCCESS : BB_OTA_PHASE_FAIL,
                          ret == BB_OK ? 100 : 0);
     return ret;
@@ -618,9 +615,9 @@ static void ota_worker_task(void *arg)
     // Remove this task from the task WDT. OTA is single-shot and long-running;
     // a stalled mbedtls recv should surface as a clean HTTP timeout, not a
     // WDT panic. ota_task_exit() re-adds before dying.
-    esp_err_t wdt_err = esp_task_wdt_delete(NULL);
-    if (wdt_err != ESP_OK && wdt_err != ESP_ERR_NOT_FOUND) {
-        bb_log_w(TAG, "esp_task_wdt_delete: %s", esp_err_to_name(wdt_err));
+    bb_err_t wdt_err = bb_wdt_task_unsubscribe();
+    if (wdt_err != BB_OK) {
+        bb_log_w(TAG, "bb_wdt_task_unsubscribe: %d", wdt_err);
     }
 
     ota_worker_arg_t result;
@@ -669,7 +666,7 @@ bb_err_t bb_ota_pull_run_sync(const char *asset_url)
     if (!asset_url || asset_url[0] == '\0') return ESP_ERR_INVALID_ARG;
     // The caller (boot task) is long-lived during the download; drop it from
     // the task WDT if subscribed (best-effort — the boot task usually isn't).
-    esp_task_wdt_delete(NULL);
+    bb_wdt_task_unsubscribe();
     return ota_download_and_flash(asset_url);
 }
 

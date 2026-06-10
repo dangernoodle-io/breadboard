@@ -126,6 +126,14 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_system/bb_system_host.c"],
         "depends":  ["bb_core"],
     },
+    "bb_wdt": {
+        "includes": ["components/bb_wdt/include", "platform/host/bb_wdt"],
+        "sources":  [
+            "platform/host/bb_wdt/bb_wdt.c",
+            "components/bb_wdt/bb_wdt_park_wait.c",
+        ],
+        "depends":  ["bb_core"],
+    },
     "bb_ota_pull": {
         "includes": ["components/bb_ota_pull/include", "platform/host/bb_ota_pull"],
         "sources":  ["platform/espidf/bb_ota_pull/bb_ota_pull.c"],

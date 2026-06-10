@@ -90,11 +90,6 @@ void bb_system_restart(void)
     exit(0);
 }
 
-void bb_system_wdt_set_timeout(uint32_t timeout_s)
-{
-    (void)timeout_s;
-}
-
 #ifdef BB_SYSTEM_TESTING
 static float    s_test_temp = 0.0f;
 static bb_err_t s_test_rc   = BB_ERR_UNSUPPORTED;
