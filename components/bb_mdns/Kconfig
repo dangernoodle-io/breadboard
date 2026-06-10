@@ -70,4 +70,22 @@ config BB_MDNS_TXT_PENDING_MAX
         when the service starts. Default 4 covers typical usage (update,
         board, fw, custom key). Raise if more TXT keys are set pre-start.
 
+config BB_MDNS_TASK_PRIORITY
+    int "bb_mdns dispatch/query task priority"
+    default 3
+    range 1 24
+    help
+        FreeRTOS priority for the bb_mdns dispatch and query tasks. The
+        dispatch task drains coalesced browse-notify events and frees the
+        single coalescing batch slot; if it is starved the slot is not freed
+        in time and bursts of peer events are dropped (logged as
+        "notifier: queue+batch full").
+
+        On dual-core boards the default of 3 is ample — the task runs on the
+        core the miner is not pinned to. On single-core boards (ESP32-C3/S2)
+        the dispatch task competes with the miner on the one core; raise this
+        (e.g. 10, still well below a typical priority-20 mining task) so it
+        drains promptly and browse-based discovery (e.g. knot) does not lag.
+        Keep it below the consumer's mining/hot-loop task priority.
+
 endmenu
