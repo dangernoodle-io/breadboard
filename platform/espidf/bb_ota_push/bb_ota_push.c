@@ -8,7 +8,7 @@
 #include "bb_http.h"
 #include "bb_log.h"
 #include "bb_registry.h"
-#include "bb_system.h"
+#include "bb_wdt.h"
 #include "esp_ota_ops.h"
 #include "esp_image_format.h"
 #include "esp_app_desc.h"
@@ -114,7 +114,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     // path (success path reboots). The no-partition path above is pre-pause
     // and needs no resume.
     bool s_paused = bb_ota_pause();
-    bb_system_wdt_set_timeout(CONFIG_BB_OTA_PUSH_WDT_EXTENDED_S);  // push proceeds regardless of pause result
+    bb_wdt_extend_begin(CONFIG_BB_OTA_PUSH_WDT_EXTENDED_S);  // push proceeds regardless of pause result
 
     esp_ota_handle_t ota_handle;
     esp_err_t err = esp_ota_begin(partition, OTA_SIZE_UNKNOWN, &ota_handle);
@@ -126,7 +126,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_str(&obj, "error", "OTA begin failed");
         bb_http_resp_json_obj_end(&obj);
         // buf not yet malloc'd; restore WDT + resume inline (resume_and_exit frees buf).
-        bb_system_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
+        bb_wdt_extend_end();
         if (s_paused) { bb_ota_resume(); }
         bb_ota_emit_progress("push", BB_OTA_PHASE_FAIL, 0);
         return BB_ERR_INVALID_STATE;
@@ -144,7 +144,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_begin(req, &obj);
         bb_http_resp_json_obj_set_str(&obj, "error", "malloc failed");
         bb_http_resp_json_obj_end(&obj);
-        bb_system_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
+        bb_wdt_extend_end();
         if (s_paused) { bb_ota_resume(); }
         return BB_ERR_NO_SPACE;
     }
@@ -304,7 +304,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
 
 resume_and_exit:
     bb_ota_emit_progress("push", BB_OTA_PHASE_FAIL, 0);
-    bb_system_wdt_set_timeout(CONFIG_ESP_TASK_WDT_TIMEOUT_S);
+    bb_wdt_extend_end();
     if (s_paused) { bb_ota_resume(); }
     return BB_ERR_INVALID_STATE;
 }

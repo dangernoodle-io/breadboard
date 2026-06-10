@@ -8,6 +8,7 @@
 #include "../../components/bb_update_check/src/bb_update_check_internal.h"
 #include "test_alloc_inject.h"
 #include "../../components/bb_display/bb_display_test.h"
+#include "../../platform/host/bb_wdt/bb_wdt_test.h"
 
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
@@ -771,6 +772,15 @@ void test_validate_path_render_truncation(void);
 void test_validate_path_render_buffer_full_midloop(void);
 void test_validate_path_push_index_overflow(void);
 void test_validate_additional_properties_non_bool_ignored(void);
+
+// Forward declarations from test_bb_wdt.c
+void test_bb_wdt_park_wait_resume_unsubscribes_and_resubscribes(void);
+void test_bb_wdt_park_wait_timeout_still_resubscribes(void);
+void test_bb_wdt_park_wait_null_try_wait_returns_false(void);
+void test_bb_wdt_feed_increments_counter(void);
+void test_bb_wdt_subscribe_increments_counter(void);
+void test_bb_wdt_unsubscribe_increments_counter(void);
+void test_bb_wdt_set_timeout_noop_on_host(void);
 
 // Forward declarations from test_bb_system.c
 void test_bb_system_get_version_returns_nonnull(void);
@@ -1813,6 +1823,7 @@ void setUp(void) {
     bb_display_reset_for_testing();
     bb_display_test_reset_mock();
     bb_info_reset_for_test();
+    bb_wdt_test_reset();
 }
 void tearDown(void) {}
 
@@ -3603,6 +3614,15 @@ int main(void) {
     RUN_TEST(test_api_dispatch_dup_different_method_same_path_both_kept);
     RUN_TEST(test_api_dispatch_dup_null_path_not_dup_detected);
     RUN_TEST(test_api_dispatch_dup_scan_skips_null_path_existing_entry);
+
+    // bb_wdt tests
+    RUN_TEST(test_bb_wdt_park_wait_resume_unsubscribes_and_resubscribes);
+    RUN_TEST(test_bb_wdt_park_wait_timeout_still_resubscribes);
+    RUN_TEST(test_bb_wdt_park_wait_null_try_wait_returns_false);
+    RUN_TEST(test_bb_wdt_feed_increments_counter);
+    RUN_TEST(test_bb_wdt_subscribe_increments_counter);
+    RUN_TEST(test_bb_wdt_unsubscribe_increments_counter);
+    RUN_TEST(test_bb_wdt_set_timeout_noop_on_host);
 
     return UNITY_END();
 }
