@@ -33,4 +33,36 @@ config BB_OTA_BOOT_PROGRESS_HTTP
       is absent in normal mode). The response schema is identical to bb_ota_pull's
       /api/update/progress: {state:string, in_progress:bool, progress_pct:integer}.
 
+config BB_OTA_BOOT_STATUS_HTTP
+    bool "Serve GET /api/update/status + POST /api/update/check for boot-mode boards"
+    default n
+    help
+      When set, bb_ota_boot registers two runtime routes on the main httpd
+      (the normal registry path, not the transient boot-progress server):
+
+        GET  /api/update/status  — returns cached bb_update_check status JSON
+                                   (same shape as the persistent worker route).
+        POST /api/update/check   — on-demand one-shot manifest check. Guards
+                                   against low heap: if the largest contiguous
+                                   internal block is below the TLS threshold
+                                   (CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES,
+                                   default 9216 bytes) it returns 503
+                                   {"error":"insufficient_heap"} and leaves the
+                                   cached result intact. Otherwise spawns a
+                                   transient fat-stack task that calls
+                                   bb_update_check_now() then exits; responds
+                                   202 {"status":"checking"} immediately. Client
+                                   polls GET /api/update/status for results.
+
+      Intended for boot-strategy boards (e.g. ESP32-S2) that skip the
+      persistent bb_update_check worker (CONFIG_BB_UPDATE_CHECK_AUTOREGISTER
+      defaults off for BB_OTA_STRATEGY_BOOT) but still need a runtime status
+      endpoint for the web UI and taipan-cli. bb_update_check is initialised
+      once at startup using the releases_url/board values passed to
+      bb_ota_boot_run_if_pending; if that function has not been called yet the
+      routes respond with 503.
+
+      No persistent worker task is created — the only TLS activity is on-demand
+      via POST /api/update/check, and only when heap permits.
+
 endmenu

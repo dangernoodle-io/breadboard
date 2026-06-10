@@ -149,6 +149,17 @@ bb_err_t bb_update_check_run_blocking(uint32_t timeout_ms);
 // BB_ERR_INVALID_STATE if init hasn't run.
 bb_err_t bb_update_check_get_status(bb_update_check_status_t *out);
 
+// Serialize the current bb_update_check status to JSON and send it as an HTTP
+// response body. Emits the same JSON shape as GET /api/update/status (fields:
+// current, latest, download_url, available, last_check_ok, enabled, outcome,
+// last_check_ts). Sets CORS headers. Returns 503 with {"error":"not initialized"}
+// if bb_update_check_init has not been called. This is the shared emitter used
+// by both the persistent bb_update_check route and the boot-mode on-demand route
+// (bb_ota_boot with CONFIG_BB_OTA_BOOT_STATUS_HTTP); the JSON shape is the
+// public contract for taipan-cli and the webui — do not change without a
+// coordinated consumer update.
+bb_err_t bb_update_check_emit_status_json(bb_http_request_t *req);
+
 #ifdef __cplusplus
 }
 #endif

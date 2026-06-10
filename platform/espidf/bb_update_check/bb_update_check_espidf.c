@@ -130,53 +130,9 @@ bb_err_t bb_update_check_run_blocking(uint32_t timeout_ms)
 // GET /api/update/status
 // ---------------------------------------------------------------------------
 
-// Map outcome enum to the JSON string value for /api/update/status.
-// These exact strings are part of the public API consumed by TaipanMiner webui
-// and taipan-cli. Do not rename without a coordinated consumer update.
-static const char *outcome_str(bb_update_check_outcome_t o)
-{
-    switch (o) {
-        case BB_UPDATE_OUTCOME_UP_TO_DATE: return "up_to_date";
-        case BB_UPDATE_OUTCOME_AVAILABLE:  return "available";
-        case BB_UPDATE_OUTCOME_NO_ASSET:   return "no_asset";
-        case BB_UPDATE_OUTCOME_FAILED:     return "check_failed";
-        default:                           return "unknown";
-    }
-}
-
 static bb_err_t status_handler(bb_http_request_t *req)
 {
-    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
-    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
-
-    bb_update_check_status_t st;
-    bb_err_t err = bb_update_check_get_status(&st);
-    if (err != BB_OK) {
-        bb_http_resp_set_status(req, 503);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "not initialized");
-        bb_http_resp_json_obj_end(&obj);
-        return BB_OK;
-    }
-
-    bb_http_json_obj_stream_t obj;
-    err = bb_http_resp_json_obj_begin(req, &obj);
-    if (err != BB_OK) return err;
-    bb_http_resp_json_obj_set_str(&obj,  "current",       st.current);
-    bb_http_resp_json_obj_set_str(&obj,  "latest",        st.latest);
-    bb_http_resp_json_obj_set_str(&obj,  "download_url",  st.download_url);
-    bb_http_resp_json_obj_set_bool(&obj, "available",     st.available);
-    bb_http_resp_json_obj_set_bool(&obj, "last_check_ok", st.last_check_ok);
-    bb_http_resp_json_obj_set_bool(&obj, "enabled",       st.enabled);
-    bb_http_resp_json_obj_set_str(&obj,  "outcome",       outcome_str(st.outcome));
-    // Unix seconds when last_check_us is non-zero; omitted otherwise so the
-    // client can render "never checked" cleanly.
-    if (st.last_check_us != 0) {
-        bb_http_resp_json_obj_set_int(&obj, "last_check_ts",
-                                      (int64_t)(st.last_check_us / 1000000));
-    }
-    return bb_http_resp_json_obj_end(&obj);
+    return bb_update_check_emit_status_json(req);
 }
 
 static const bb_route_response_t s_status_responses[] = {
