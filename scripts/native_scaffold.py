@@ -151,7 +151,8 @@ COMPONENT_MAP = {
     },
     "bb_ota_hooks": {
         "includes": ["components/bb_ota_hooks/include"],
-        "sources":  ["platform/espidf/bb_ota_hooks/bb_ota_hooks.c"],
+        "sources":  ["platform/espidf/bb_ota_hooks/bb_ota_hooks.c",
+                     "platform/host/bb_ota_hooks/bb_ota_led.c"],
         "depends":  ["bb_core", "bb_log"],
     },
     "bb_ota_validator": {
@@ -291,8 +292,8 @@ COMPONENT_MAP = {
         "depends":  ["bb_core"],
     },
     "bb_ota_led": {
-        "includes": ["components/bb_ota_led/include", "platform/host/bb_ota_led"],
-        "sources":  ["platform/host/bb_ota_led/bb_ota_led.c"],
+        "includes": ["components/bb_ota_hooks/include", "platform/host/bb_ota_hooks"],
+        "sources":  ["platform/host/bb_ota_hooks/bb_ota_led.c"],
         "depends":  ["bb_core"],
     },
     "bb_led_apa102": {
