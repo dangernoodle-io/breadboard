@@ -81,10 +81,11 @@ COMPONENT_MAP = {
         "includes": ["components/bb_nv/include"],
         "sources":  [
             "platform/espidf/bb_nv/bb_nv.c",
+            "platform/espidf/bb_nv/bb_nv_routes.c",
             "components/bb_nv/bb_nv_creds_mirror.c",
             "components/bb_nv/bb_nv_wifi_pending.c",
         ],
-        "depends":  ["bb_core", "bb_registry"],
+        "depends":  ["bb_core", "bb_registry", "bb_http", "bb_json"],
     },
     "bb_json": {
         "includes": ["components/bb_json/include", "platform/host/bb_json"],

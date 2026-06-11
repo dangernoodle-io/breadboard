@@ -21,4 +21,19 @@ config BB_NV_CREDS_RTC_BACKUP
       crash-induced NVS erase doesn't strand a headless board. Survives software
       reset/panic; lost on full power-off. See B1-242.
 
+config BB_NV_FACTORY_RESET
+    bool "Enable POST /api/factory-reset route (full NVS wipe + deferred reboot)"
+    default n
+    help
+      When enabled, registers POST /api/factory-reset. A valid request body
+      {"confirm":"factory-reset"} erases the entire NVS partition (all namespaces),
+      invalidates the RTC creds mirror so the restore-heal path cannot resurrect
+      credentials, responds 202, then reboots after ~500 ms. Disabled by default
+      because factory reset is a destructive operation that should be opt-in.
+
+config BB_NV_FACTORY_RESET_AUTOREGISTER
+    bool "Auto-register /api/factory-reset via bb_registry"
+    default y
+    depends on BB_NV_FACTORY_RESET
+
 endmenu

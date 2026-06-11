@@ -12,6 +12,12 @@ extern "C" {
 
 bb_err_t bb_nv_config_init(void);
 
+/// Factory reset: erase ALL NVS flash, clear the in-RAM config, and invalidate
+/// the RTC creds mirror (so the restore-heal path does not re-populate creds on
+/// next boot). Returns BB_OK on success. Available on all platforms (host build
+/// clears in-memory state so host tests can assert the reset).
+bb_err_t bb_nv_config_factory_reset(void);
+
 // Register bb_cfg NVS keys with /api/manifest. Called automatically at
 // PRE_HTTP tier when CONFIG_BB_NV_CONFIG_MANIFEST_AUTOREGISTER=y (default).
 // Consumers may also call it directly before bb_registry_init() if needed.
@@ -153,6 +159,12 @@ bb_err_t bb_nv_batch_set_u16(bb_nv_batch_t *batch, const char *key, uint16_t val
 bb_err_t bb_nv_batch_set_u32(bb_nv_batch_t *batch, const char *key, uint32_t value);
 bb_err_t bb_nv_batch_set_str(bb_nv_batch_t *batch, const char *key, const char *value);
 bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch);
+
+#ifdef BB_NV_FACTORY_RESET_TESTING
+/// Expose the factory-reset route handler for host unit tests.
+/// Only available when CONFIG_BB_NV_FACTORY_RESET=1 and BB_NV_FACTORY_RESET_TESTING is defined.
+bb_err_t bb_nv_factory_reset_handler_for_test(bb_http_request_t *req);
+#endif /* BB_NV_FACTORY_RESET_TESTING */
 
 #ifdef __cplusplus
 }

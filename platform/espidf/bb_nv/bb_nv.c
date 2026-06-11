@@ -958,6 +958,31 @@ bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch)
     return err;
 }
 
+bb_err_t bb_nv_config_factory_reset(void)
+{
+    bb_log_i(TAG, "factory reset: erasing NVS partition");
+    bb_err_t err = nvs_flash_erase();
+    if (err != BB_OK) {
+        bb_log_e(TAG, "factory reset: nvs_flash_erase failed: %d", err);
+        return err;
+    }
+    /* Invalidate the RTC mirror so the restore-heal path on next boot does NOT
+     * re-populate credentials. Without this, the mirror's valid CRC would cause
+     * bb_nv_config_init to copy creds back into NVS, silently defeating the reset. */
+#if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
+    memset(&s_creds_mirror, 0, sizeof(s_creds_mirror));
+    /* magic is now 0 → bb_nv_creds_mirror_valid() returns false → no heal. */
+#endif
+    /* Clear in-RAM cache so callers see the wiped state immediately. */
+    memset(&s_config, 0, sizeof(s_config));
+    s_config.display_en = 1;
+    s_config.mdns_en = 1;
+    s_config.update_check_en = 1;
+    memset(&s_pending, 0, sizeof(s_pending));
+    bb_log_i(TAG, "factory reset: done");
+    return BB_OK;
+}
+
 /* Query API — both symbols always present under ESP_PLATFORM so consumers
  * link unconditionally regardless of CONFIG_BB_NV_CREDS_RTC_BACKUP. */
 bool bb_nv_config_was_erased(void)
@@ -1124,6 +1149,18 @@ bb_err_t bb_nv_config_set_update_check_enabled(bool en)
 {
     if (s_force_set_update_check_fail) return BB_ERR_INVALID_STATE;
     s_config.update_check_en = en ? 1 : 0;
+    return BB_OK;
+}
+
+bb_err_t bb_nv_config_factory_reset(void)
+{
+    /* Host implementation: clear in-memory config to defaults. No NVS or RTC
+     * mirror exists on host, so we just zero the cache. This lets host tests
+     * assert that factory reset clears credentials and resets flag state. */
+    memset(&s_config, 0, sizeof(s_config));
+    s_config.display_en = 1;
+    s_config.mdns_en = 1;
+    s_config.update_check_en = 1;
     return BB_OK;
 }
 #endif
