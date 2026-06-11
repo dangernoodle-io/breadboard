@@ -69,10 +69,11 @@ COMPONENT_MAP = {
         "depends":  ["bb_core"],
     },
     "bb_diag": {
-        "includes": ["components/bb_diag/include"],
+        "includes": ["components/bb_diag/include", "components/bb_diag"],
         "sources": [
             "components/bb_diag/bb_diag_reset_decision.c",
             "components/bb_diag/bb_diag_scrub.c",
+            "components/bb_diag/bb_diag_event_common.c",
             "platform/host/bb_diag/bb_diag_panic.c",
         ],
         "depends":  ["bb_core"],
@@ -195,8 +196,11 @@ COMPONENT_MAP = {
         "depends":  ["bb_core", "bb_log"],
     },
     "bb_display_info": {
-        "includes": ["components/bb_display_info/include"],
-        "sources":  ["platform/host/bb_display_info/bb_display_info.c"],
+        "includes": ["components/bb_display_info/include", "components/bb_display_info"],
+        "sources":  [
+            "platform/host/bb_display_info/bb_display_info.c",
+            "components/bb_display_info/bb_display_info_event_common.c",
+        ],
         "depends":  ["bb_display", "bb_info", "bb_nv", "bb_json", "bb_core"],
     },
     "bb_registry": {
@@ -218,6 +222,15 @@ COMPONENT_MAP = {
         "includes": ["components/bb_info/include"],
         "sources":  ["platform/host/bb_info/bb_info_host.c"],
         "depends":  ["bb_core", "bb_http", "bb_json", "bb_board", "bb_wifi"],
+    },
+    "bb_health": {
+        "includes": ["components/bb_health/include", "components/bb_health"],
+        "sources":  [
+            "platform/host/bb_health/bb_health_host.c",
+            "platform/host/bb_health/bb_health_stack_host.c",
+            "components/bb_health/bb_health_stack_common.c",
+        ],
+        "depends":  ["bb_core", "bb_http", "bb_json"],
     },
     "bb_power": {
         "includes": ["components/bb_power/include"],
@@ -270,7 +283,7 @@ COMPONENT_MAP = {
     "bb_temp": {
         "includes": ["components/bb_temp/include", "platform/host/bb_temp"],
         "sources":  ["platform/host/bb_temp/bb_temp.c"],
-        "depends":  ["bb_info", "bb_json", "bb_core"],
+        "depends":  ["bb_health", "bb_json", "bb_core"],
     },
     "bb_led_gpio": {
         "includes": ["components/bb_led_gpio/include", "platform/host/bb_led_gpio"],

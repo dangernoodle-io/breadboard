@@ -1,4 +1,5 @@
 #include "bb_display_info.h"
+#include "bb_display_info_event_priv.h"
 #include "bb_display.h"
 #include "bb_info.h"
 #include "bb_json.h"
@@ -34,4 +35,5 @@ static void display_info_extender(void *root)
 void bb_display_register_info(void)
 {
     bb_info_register_extender_ex(display_info_extender, k_display_schema_fragment);
+    // Host stub: no event bus; the pure builder is exercised via direct tests.
 }

@@ -28,17 +28,6 @@ void bb_info_reset_for_test(void);
 // verify extender JSON output without a live HTTP server.
 void bb_info_invoke_extenders_for_test(void *root);
 
-// Invoke all registered /api/health extenders against root.
-// Mirrors what bb_info's health_handler does on ESP-IDF so host tests can
-// verify health extender JSON output without a live HTTP server.
-void bb_health_invoke_extenders_for_test(void *root);
-
-// Returns the assembled /api/health 200 response schema fragment string,
-// lazily constructed on first call from registered health extender fragments.
-// Only the extender-contributed portion; not the full health schema.
-// NULL if malloc fails. Caller must NOT free the result.
-const char *bb_health_get_assembled_extender_schema(void);
-
 #ifdef __cplusplus
 }
 #endif

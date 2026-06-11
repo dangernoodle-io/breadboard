@@ -1,7 +1,7 @@
 #include "unity.h"
 #include "bb_temp.h"
-#include "bb_info.h"
-#include "bb_info_test.h"
+#include "bb_health.h"
+#include "bb_health_test.h"
 #include "bb_json.h"
 
 #include "../../platform/host/bb_temp/bb_temp_test.h"
@@ -111,7 +111,7 @@ void test_bb_temp_health_extender_value_rounds_to_one_decimal(void)
 void test_bb_temp_health_schema_fragment_present(void)
 {
     bb_temp_register_info();
-    const char *frag = bb_health_get_assembled_extender_schema();
+    const char *frag = bb_health_get_assembled_schema();
     TEST_ASSERT_NOT_NULL(frag);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(frag, "\"temp\""),
                                  "temp key not in health extender schema fragment");

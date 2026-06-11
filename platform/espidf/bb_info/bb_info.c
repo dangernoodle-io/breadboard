@@ -9,7 +9,6 @@
 #include "bb_http_extender.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_mdns.h"
 #include "bb_registry.h"
 #include "bb_wifi.h"
 
@@ -41,19 +40,6 @@ bb_err_t bb_info_register_extender_ex(bb_info_extender_fn fn,
 bb_err_t bb_info_register_extender(bb_info_extender_fn fn)
 {
     return bb_info_register_extender_ex(fn, NULL);
-}
-
-bb_err_t bb_health_register_extender_ex(bb_info_extender_fn fn,
-                                         const char *schema_props_fragment)
-{
-    return bb_http_register_route_extender("health",
-                                           (bb_http_extender_fn)fn,
-                                           schema_props_fragment);
-}
-
-bb_err_t bb_health_register_extender(bb_info_extender_fn fn)
-{
-    return bb_health_register_extender_ex(fn, NULL);
 }
 
 void bb_info_register_capability(const char *name)
@@ -180,42 +166,6 @@ static bb_err_t info_handler(bb_http_request_t *req)
     return err;
 }
 
-static bb_err_t health_handler(bb_http_request_t *req)
-{
-    bb_board_info_t b;
-    bb_wifi_info_t w;
-    bb_board_get_info(&b);
-    bb_wifi_get_info(&w);
-
-    bool mdns_up = bb_mdns_started();
-    const char *hostname = bb_mdns_get_hostname();
-
-    bool ok = w.connected && b.ota_validated && mdns_up;
-
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_bool(root, "ok", ok);
-    bb_json_obj_set_number(root, "free_heap", (double)b.free_heap);
-    bb_json_obj_set_bool(root, "validated", b.ota_validated);
-
-    bb_json_t net = bb_json_obj_new();
-    bb_json_obj_set_bool(net, "connected", w.connected);
-    bb_json_obj_set_number(net, "rssi", (double)w.rssi);
-    bb_json_obj_set_number(net, "disc_age_s", (double)w.disc_age_s);
-    bb_json_obj_set_number(net, "retry_count", (double)w.retry_count);
-    if (hostname) {
-        bb_json_obj_set_string(net, "mdns", hostname);
-    } else {
-        bb_json_obj_set_null(net, "mdns");
-    }
-    bb_json_obj_set_obj(root, "network", net);
-
-    bb_http_route_run_extenders("health", root);
-
-    bb_err_t err = send_json_tree(req, root);
-    bb_json_free(root);
-    return err;
-}
-
 // ---------------------------------------------------------------------------
 // Route descriptor
 // ---------------------------------------------------------------------------
@@ -236,41 +186,6 @@ static const bb_route_t s_info_route = {
     .handler   = info_handler,
 };
 
-static bb_route_response_t s_health_responses[] = {
-    { 200, "application/json",
-      NULL,  // filled by bb_http_route_assemble_schema() at init
-      "liveness check" },
-    { 0 },
-};
-
-static const bb_route_t s_health_route = {
-    .method    = BB_HTTP_GET,
-    .path      = "/api/health",
-    .tag       = "health",
-    .summary   = "Get liveness status",
-    .responses = s_health_responses,
-    .handler   = health_handler,
-};
-
-// Health schema base/suffix (info base/suffix are in the shared priv header).
-static const char k_health_base[] =
-    "{\"type\":\"object\","
-    "\"properties\":{"
-    "\"ok\":{\"type\":\"boolean\"},"
-    "\"free_heap\":{\"type\":\"integer\"},"
-    "\"validated\":{\"type\":\"boolean\"},"
-    "\"network\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"connected\":{\"type\":\"boolean\"},"
-    "\"rssi\":{\"type\":\"integer\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"retry_count\":{\"type\":\"integer\"},"
-    "\"mdns\":{\"type\":[\"string\",\"null\"]}}}";
-
-static const char k_health_suffix[] =
-    "},"
-    "\"required\":[\"ok\",\"network\"]}";
-
 static bb_err_t bb_info_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
@@ -287,29 +202,18 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
     }
     s_info_responses[0].schema = info_schema;
 
-    // Assemble and publish health schema.
-    const char *health_schema = bb_http_route_assemble_schema(
-        "health", k_health_base, k_health_suffix);
-    if (!health_schema) {
-        bb_log_w(TAG, "health schema assembly: malloc failed; schema will be NULL");
-    }
-    s_health_responses[0].schema = health_schema;
-
     bb_err_t err = bb_http_register_described_route(server, &s_info_route);
     if (err != BB_OK) return err;
     bb_log_i(TAG, "info route registered");
-    err = bb_http_register_described_route(server, &s_health_route);
-    if (err != BB_OK) return err;
-    bb_log_i(TAG, "health route registered");
     return BB_OK;
 }
 
 #if CONFIG_BB_INFO_AUTOREGISTER
 // PRE_HTTP companion: declare route count before server starts (must match
-// the number of bb_http_register_* calls in bb_info_init above: 2).
+// the number of bb_http_register_* calls in bb_info_init above: 1).
 static bb_err_t bb_info_reserve_routes(void)
 {
-    bb_http_reserve_routes(2);  // GET /api/info + GET /api/health
+    bb_http_reserve_routes(1);  // GET /api/info
     return BB_OK;
 }
 BB_REGISTRY_REGISTER_PRE_HTTP(bb_info, bb_info_reserve_routes);

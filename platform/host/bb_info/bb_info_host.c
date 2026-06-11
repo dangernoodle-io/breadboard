@@ -34,19 +34,6 @@ bb_err_t bb_info_register_extender(bb_info_extender_fn fn)
     return bb_info_register_extender_ex(fn, NULL);
 }
 
-bb_err_t bb_health_register_extender_ex(bb_info_extender_fn fn,
-                                         const char *schema_props_fragment)
-{
-    return bb_http_register_route_extender("health",
-                                           (bb_http_extender_fn)fn,
-                                           schema_props_fragment);
-}
-
-bb_err_t bb_health_register_extender(bb_info_extender_fn fn)
-{
-    return bb_health_register_extender_ex(fn, NULL);
-}
-
 void bb_info_register_capability(const char *name)
 {
     if (!name || !name[0]) return;
@@ -73,41 +60,6 @@ void bb_info_freeze_for_test(void)
 void bb_info_invoke_extenders_for_test(void *root)
 {
     bb_http_route_run_extenders("info", root);
-}
-
-void bb_health_invoke_extenders_for_test(void *root)
-{
-    bb_http_route_run_extenders("health", root);
-}
-
-// Health schema base/suffix (mirrors espidf bb_info.c).
-static const char k_health_base[] =
-    "{\"type\":\"object\","
-    "\"properties\":{"
-    "\"ok\":{\"type\":\"boolean\"},"
-    "\"free_heap\":{\"type\":\"integer\"},"
-    "\"validated\":{\"type\":\"boolean\"},"
-    "\"network\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"connected\":{\"type\":\"boolean\"},"
-    "\"rssi\":{\"type\":\"integer\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"retry_count\":{\"type\":\"integer\"},"
-    "\"mdns\":{\"type\":[\"string\",\"null\"]}}}";
-
-static const char k_health_suffix[] =
-    "},"
-    "\"required\":[\"ok\",\"network\"]}";
-
-const char *bb_health_get_assembled_extender_schema(void)
-{
-    // Build via generic facility. The assembled schema includes base + frags +
-    // suffix; callers that previously used this to get "only the fragments"
-    // now get the full health schema — which is what tests actually need for
-    // the fidelity check. bb_http_route_assemble_schema caches the result.
-    const char *cached = bb_http_extender_get_assembled_schema("health");
-    if (cached) return cached;
-    return bb_http_route_assemble_schema("health", k_health_base, k_health_suffix);
 }
 
 void bb_info_reset_for_test(void)

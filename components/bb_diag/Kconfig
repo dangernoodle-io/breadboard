@@ -70,4 +70,14 @@ config BB_DIAG_AUTOREGISTER
         install the log-stream tap, and bb_diag_routes_init runs in the
         regular tier to register HTTP routes and the info extender.
 
+config BB_DIAG_AUTO_ATTACH
+    bool "Auto-attach diag.boot to /api/events"
+    default y
+    depends on BB_EVENT_ROUTES_AUTOREGISTER
+    help
+        When enabled, bb_diag_routes_init attaches the "diag.boot" retained
+        topic to the bb_event_routes SSE stream so /api/events surfaces it
+        without an explicit consumer call. Disable if a consumer wants the
+        bb_event topic for internal logic only.
+
 endmenu

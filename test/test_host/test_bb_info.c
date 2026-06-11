@@ -26,30 +26,6 @@ static void test_extender_fn2(bb_json_t root)
     s_extender_call_count++;
 }
 
-// ---------------------------------------------------------------------------
-// Existing tests
-// ---------------------------------------------------------------------------
-
-void test_bb_health_register_extender_null_returns_err(void)
-{
-    bb_err_t err = bb_health_register_extender(NULL);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
-}
-
-void test_bb_health_register_extender_capacity(void)
-{
-    // Capacity is now BB_HTTP_EXTENDER_MAX_PER_ROUTE (from the generic facility).
-    // Fill the table completely.
-    for (int i = 0; i < BB_HTTP_EXTENDER_MAX_PER_ROUTE; i++) {
-        bb_err_t err = bb_health_register_extender(test_extender_fn);
-        TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    }
-
-    // One over capacity should return NO_SPACE.
-    bb_err_t err = bb_health_register_extender(test_extender_fn);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
-}
-
 void test_bb_info_register_extender_null_returns_err(void)
 {
     bb_err_t err = bb_info_register_extender(NULL);

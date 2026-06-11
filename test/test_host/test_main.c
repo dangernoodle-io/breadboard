@@ -10,6 +10,8 @@
 #include "../../components/bb_display/bb_display_test.h"
 #include "../../platform/host/bb_wdt/bb_wdt_test.h"
 #include "bb_i2c_test.h"
+#include "bb_health_test.h"
+#include "../../components/bb_health/bb_health_stack.h"
 
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
@@ -93,6 +95,20 @@ void test_bb_diag_scrub_text_tab_newline_cr_preserved(void);
 void test_bb_diag_scrub_text_control_chars_replaced(void);
 void test_bb_diag_scrub_text_del_replaced(void);
 void test_bb_diag_scrub_text_all_printable_ascii(void);
+
+// Forward declarations from test_bb_diag_event.c
+void test_bb_diag_boot_build_json_poweron_clean(void);
+void test_bb_diag_boot_build_json_panic_with_count(void);
+void test_bb_diag_boot_build_json_task_wdt(void);
+void test_bb_diag_boot_build_json_rolled_back_true(void);
+void test_bb_diag_boot_build_json_all_flags_true(void);
+void test_bb_diag_boot_build_json_zero_count(void);
+void test_bb_diag_boot_build_json_large_count(void);
+void test_bb_diag_boot_build_json_null_buf_returns_neg1(void);
+void test_bb_diag_boot_build_json_zero_buf_sz_returns_neg1(void);
+void test_bb_diag_boot_build_json_null_reset_reason_returns_neg1(void);
+void test_bb_diag_boot_build_json_starts_with_brace(void);
+void test_bb_diag_boot_build_json_ends_with_brace(void);
 
 // Forward declarations from test_ota_pull.c
 void test_bb_ota_pull_set_http_timeout_ms_default_is_20000(void);
@@ -1072,9 +1088,47 @@ void test_bb_http_extender_route_table_full_returns_no_space(void);
 void test_bb_http_extender_assemble_no_extenders_route(void);
 void test_bb_http_extender_assemble_no_extenders_table_full(void);
 
-// Forward declarations from test_bb_info.c
+// Forward declarations from test_bb_health.c
 void test_bb_health_register_extender_null_returns_err(void);
 void test_bb_health_register_extender_capacity(void);
+void test_bb_health_register_extender_ex_null_fn_returns_invalid_arg(void);
+void test_bb_health_register_after_freeze_returns_invalid_state(void);
+void test_bb_health_assembled_schema_no_extenders_equals_base_plus_suffix(void);
+void test_bb_health_assembled_schema_is_valid_json(void);
+void test_bb_health_assembled_schema_contains_fragment(void);
+void test_bb_health_assembled_schema_with_fragment_is_valid_json(void);
+
+// Forward declarations from test_bb_health_stack.c
+void test_bb_health_stack_is_low_below_threshold(void);
+void test_bb_health_stack_is_low_at_threshold_is_not_low(void);
+void test_bb_health_stack_is_low_above_threshold(void);
+void test_bb_health_stack_is_low_zero_threshold(void);
+void test_bb_health_stack_is_low_zero_free_nonzero_threshold(void);
+void test_bb_health_stack_build_json_low_true(void);
+void test_bb_health_stack_build_json_low_false(void);
+void test_bb_health_stack_build_json_null_buf_returns_neg1(void);
+void test_bb_health_stack_build_json_zero_buf_sz_returns_neg1(void);
+void test_bb_health_stack_build_json_null_task_name_returns_neg1(void);
+void test_bb_health_stack_build_json_initial_snapshot(void);
+void test_bb_health_stack_simulate_transition_into_low_posts(void);
+void test_bb_health_stack_simulate_already_low_no_repost(void);
+void test_bb_health_stack_simulate_normal_no_post(void);
+void test_bb_health_stack_simulate_recovery_then_low_again_posts_once(void);
+void test_bb_health_stack_simulate_multiple_tasks(void);
+void test_bb_health_stack_simulate_at_threshold_not_low(void);
+void test_bb_health_stack_reset_clears_state(void);
+
+// Forward declarations from test_bb_display_info_event.c
+void test_bb_display_info_event_build_json_present_true(void);
+void test_bb_display_info_event_build_json_present_true_other_panel(void);
+void test_bb_display_info_event_build_json_present_false_with_reason(void);
+void test_bb_display_info_event_build_json_present_false_init_failed(void);
+void test_bb_display_info_event_build_json_present_false_no_reason(void);
+void test_bb_display_info_event_build_json_null_buf_returns_neg1(void);
+void test_bb_display_info_event_build_json_zero_buf_sz_returns_neg1(void);
+void test_bb_display_info_event_build_json_present_true_null_panel_returns_neg1(void);
+
+// Forward declarations from test_bb_info.c
 void test_bb_info_register_extender_null_returns_err(void);
 void test_bb_info_register_extender_ex_null_fn_returns_invalid_arg(void);
 void test_bb_info_register_extender_ex_null_schema_succeeds(void);
@@ -1091,7 +1145,6 @@ void test_bb_info_capabilities_over_cap_drops_extra(void);
 void test_bb_info_capabilities_post_freeze_ignored(void);
 void test_bb_info_assembled_schema_contains_capabilities_array(void);
 void bb_info_reset_for_test(void);
-void bb_info_invoke_extenders_for_test(void *root);
 
 // Forward declarations from test_wifi_reconn_policy.c
 void wifi_reconn_policy_test_reset(void);
@@ -1893,6 +1946,8 @@ void setUp(void) {
     bb_display_reset_for_testing();
     bb_display_test_reset_mock();
     bb_info_reset_for_test();
+    bb_health_reset_for_test();
+    bb_health_stack_reset_for_test();
     bb_wdt_test_reset();
 }
 void tearDown(void) {}
@@ -1990,6 +2045,20 @@ int main(void) {
     RUN_TEST(test_bb_diag_scrub_text_control_chars_replaced);
     RUN_TEST(test_bb_diag_scrub_text_del_replaced);
     RUN_TEST(test_bb_diag_scrub_text_all_printable_ascii);
+
+    // bb_diag_boot_build_json (diag.boot event topic pure builder)
+    RUN_TEST(test_bb_diag_boot_build_json_poweron_clean);
+    RUN_TEST(test_bb_diag_boot_build_json_panic_with_count);
+    RUN_TEST(test_bb_diag_boot_build_json_task_wdt);
+    RUN_TEST(test_bb_diag_boot_build_json_rolled_back_true);
+    RUN_TEST(test_bb_diag_boot_build_json_all_flags_true);
+    RUN_TEST(test_bb_diag_boot_build_json_zero_count);
+    RUN_TEST(test_bb_diag_boot_build_json_large_count);
+    RUN_TEST(test_bb_diag_boot_build_json_null_buf_returns_neg1);
+    RUN_TEST(test_bb_diag_boot_build_json_zero_buf_sz_returns_neg1);
+    RUN_TEST(test_bb_diag_boot_build_json_null_reset_reason_returns_neg1);
+    RUN_TEST(test_bb_diag_boot_build_json_starts_with_brace);
+    RUN_TEST(test_bb_diag_boot_build_json_ends_with_brace);
 
     // bb_partition tests
     RUN_TEST(test_bb_partition_list_count);
@@ -2967,9 +3036,47 @@ int main(void) {
     RUN_TEST(test_bb_board_rtc_used_callable);
     RUN_TEST(test_bb_board_rtc_total_callable);
 
-    // bb_info tests
+    // bb_health tests
     RUN_TEST(test_bb_health_register_extender_null_returns_err);
     RUN_TEST(test_bb_health_register_extender_capacity);
+    RUN_TEST(test_bb_health_register_extender_ex_null_fn_returns_invalid_arg);
+    RUN_TEST(test_bb_health_register_after_freeze_returns_invalid_state);
+    RUN_TEST(test_bb_health_assembled_schema_no_extenders_equals_base_plus_suffix);
+    RUN_TEST(test_bb_health_assembled_schema_is_valid_json);
+    RUN_TEST(test_bb_health_assembled_schema_contains_fragment);
+    RUN_TEST(test_bb_health_assembled_schema_with_fragment_is_valid_json);
+
+    // bb_health_stack tests
+    RUN_TEST(test_bb_health_stack_is_low_below_threshold);
+    RUN_TEST(test_bb_health_stack_is_low_at_threshold_is_not_low);
+    RUN_TEST(test_bb_health_stack_is_low_above_threshold);
+    RUN_TEST(test_bb_health_stack_is_low_zero_threshold);
+    RUN_TEST(test_bb_health_stack_is_low_zero_free_nonzero_threshold);
+    RUN_TEST(test_bb_health_stack_build_json_low_true);
+    RUN_TEST(test_bb_health_stack_build_json_low_false);
+    RUN_TEST(test_bb_health_stack_build_json_null_buf_returns_neg1);
+    RUN_TEST(test_bb_health_stack_build_json_zero_buf_sz_returns_neg1);
+    RUN_TEST(test_bb_health_stack_build_json_null_task_name_returns_neg1);
+    RUN_TEST(test_bb_health_stack_build_json_initial_snapshot);
+    RUN_TEST(test_bb_health_stack_simulate_transition_into_low_posts);
+    RUN_TEST(test_bb_health_stack_simulate_already_low_no_repost);
+    RUN_TEST(test_bb_health_stack_simulate_normal_no_post);
+    RUN_TEST(test_bb_health_stack_simulate_recovery_then_low_again_posts_once);
+    RUN_TEST(test_bb_health_stack_simulate_multiple_tasks);
+    RUN_TEST(test_bb_health_stack_simulate_at_threshold_not_low);
+    RUN_TEST(test_bb_health_stack_reset_clears_state);
+
+    // bb_display_info_event tests (health.display event topic pure builder)
+    RUN_TEST(test_bb_display_info_event_build_json_present_true);
+    RUN_TEST(test_bb_display_info_event_build_json_present_true_other_panel);
+    RUN_TEST(test_bb_display_info_event_build_json_present_false_with_reason);
+    RUN_TEST(test_bb_display_info_event_build_json_present_false_init_failed);
+    RUN_TEST(test_bb_display_info_event_build_json_present_false_no_reason);
+    RUN_TEST(test_bb_display_info_event_build_json_null_buf_returns_neg1);
+    RUN_TEST(test_bb_display_info_event_build_json_zero_buf_sz_returns_neg1);
+    RUN_TEST(test_bb_display_info_event_build_json_present_true_null_panel_returns_neg1);
+
+    // bb_info tests
     RUN_TEST(test_bb_info_register_extender_null_returns_err);
     RUN_TEST(test_bb_info_register_extender_ex_null_fn_returns_invalid_arg);
     RUN_TEST(test_bb_info_register_extender_ex_null_schema_succeeds);

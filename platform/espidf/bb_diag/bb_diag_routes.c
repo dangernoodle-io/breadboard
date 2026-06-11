@@ -1,10 +1,15 @@
 #include "bb_diag.h"
+#include "bb_diag_event_priv.h"
+#include "bb_event.h"
+#include "bb_event_routes.h"
 #include "bb_http.h"
 #include "bb_info.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_ota_validator.h"
 #include "bb_partition.h"
 #include "bb_registry.h"
+#include "bb_system.h"
 
 #include "esp_system.h"
 #include "esp_heap_caps.h"
@@ -782,6 +787,40 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
 
     bb_info_register_extender(bb_diag_info_extender);
+
+    // Register retained diag.boot event topic and publish initial snapshot.
+    {
+        bb_event_topic_t topic = NULL;
+        bb_err_t terr = bb_event_topic_register(BB_DIAG_BOOT_TOPIC, &topic);
+        if (terr != BB_OK) {
+            bb_log_w(TAG, "diag.boot topic register failed: %d", (int)terr);
+        } else {
+#if defined(CONFIG_BB_DIAG_AUTO_ATTACH) && CONFIG_BB_DIAG_AUTO_ATTACH
+            {
+                bb_err_t aerr = bb_event_routes_attach_ex(BB_DIAG_BOOT_TOPIC, true);
+                if (aerr != BB_OK) {
+                    bb_log_w(TAG, "auto-attach failed for '" BB_DIAG_BOOT_TOPIC "': %d",
+                             (int)aerr);
+                }
+            }
+#endif
+            // Publish initial retained snapshot: republish this boot's
+            // persisted state (RTC/NVS) so /api/events replays it for
+            // late-connecting SSE clients.
+            const char *rr = bb_system_reset_reason_str(bb_system_get_reset_reason());
+            uint32_t arc = bb_diag_abnormal_reset_count();
+            bool pa = bb_diag_panic_available();
+            // rolled_back: running partition is PENDING_VERIFY (unverified OTA image).
+            bool rb = !bb_ota_is_validated();
+            char payload[192];
+            int n = bb_diag_boot_build_json(payload, sizeof(payload),
+                                            rr, arc, pa, rb);
+            if (n > 0) {
+                size_t sz = (size_t)n < sizeof(payload) ? (size_t)n : sizeof(payload) - 1;
+                bb_event_post(topic, 0, payload, sz);
+            }
+        }
+    }
 
     bb_log_i(TAG, "diag routes + info extender registered");
     return BB_OK;
