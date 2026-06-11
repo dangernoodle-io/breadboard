@@ -22,6 +22,10 @@ bool bb_ntp_is_synced(void);
 /// make server certs read as not-yet-valid.
 bool bb_ntp_wait_synced(uint32_t timeout_ms);
 
+/// Returns the Unix timestamp (seconds since epoch) of the last successful NTP
+/// sync, or 0 if the clock has never been synchronized.
+int64_t bb_ntp_last_sync_unix(void);
+
 #ifdef __cplusplus
 }
 #endif

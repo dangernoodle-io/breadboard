@@ -12,10 +12,12 @@ static const char *DEFAULT_SERVER = "pool.ntp.org";
 
 static bool s_synced = false;
 static bool s_started = false;
+static int64_t s_last_sync_unix = 0;
 
 static void ntp_time_sync_notification_cb(struct timeval *tv)
 {
     bb_log_i(TAG, "SNTP time synchronized");
+    s_last_sync_unix = (int64_t)tv->tv_sec;
     s_synced = true;
 }
 
@@ -54,6 +56,11 @@ bb_err_t bb_ntp_stop(void)
 bool bb_ntp_is_synced(void)
 {
     return s_synced;
+}
+
+int64_t bb_ntp_last_sync_unix(void)
+{
+    return s_last_sync_unix;
 }
 
 #define BB_NTP_SANE_EPOCH 1700000000  /* ~2023-11-14; clock below this is bogus */

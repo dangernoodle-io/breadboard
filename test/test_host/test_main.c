@@ -1490,6 +1490,11 @@ void test_bb_led_info_schema_includes_enabled(void);
 void test_bb_led_info_extender_enabled_true_by_default(void);
 void test_bb_led_info_extender_enabled_false_after_set(void);
 
+// Forward declarations from test_bb_ntp_info.c
+void test_bb_ntp_info_schema_in_assembled_schema(void);
+void test_bb_ntp_info_extender_synced_false_last_sync_zero(void);
+void test_bb_ntp_info_extender_ntp_key_always_present(void);
+
 // Forward declarations from test_bb_temp.c
 void test_bb_temp_read_soc_default_absent(void);
 void test_bb_temp_read_soc_injected_present(void);
@@ -3431,6 +3436,11 @@ int main(void) {
     RUN_TEST(test_bb_led_info_schema_includes_enabled);
     RUN_TEST(test_bb_led_info_extender_enabled_true_by_default);
     RUN_TEST(test_bb_led_info_extender_enabled_false_after_set);
+
+    // bb_ntp_info satellite tests
+    RUN_TEST(test_bb_ntp_info_schema_in_assembled_schema);
+    RUN_TEST(test_bb_ntp_info_extender_synced_false_last_sync_zero);
+    RUN_TEST(test_bb_ntp_info_extender_ntp_key_always_present);
 
     // bb_temp satellite tests
     RUN_TEST(test_bb_temp_read_soc_default_absent);
