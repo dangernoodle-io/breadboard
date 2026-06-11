@@ -6,7 +6,7 @@
 // calls. The runtime endpoint GET /api/manifest serves a JSON document
 // describing the consumer-registered NVS keyspace and mDNS TXT keyset.
 
-#include "bb_http.h"
+#include "bb_core.h"
 #include "bb_json.h"
 
 #include <stdbool.h>
