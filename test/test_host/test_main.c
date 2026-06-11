@@ -9,6 +9,7 @@
 #include "test_alloc_inject.h"
 #include "../../components/bb_display/bb_display_test.h"
 #include "../../platform/host/bb_wdt/bb_wdt_test.h"
+#include "bb_i2c_test.h"
 
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
@@ -1103,6 +1104,47 @@ void test_bb_mdns_lifecycle_announce_when_stopped_marks_dirty(void);
 void test_bb_mdns_lifecycle_restart_cycle(void);
 void test_bb_mdns_lifecycle_invalid_args(void);
 
+// Forward declarations from test_bb_i2c.c
+void test_bb_i2c_bus_create_null_cfg(void);
+void test_bb_i2c_bus_create_null_out(void);
+void test_bb_i2c_bus_create_zero_clk(void);
+void test_bb_i2c_bus_create_succeeds(void);
+void test_bb_i2c_bus_delete_null_is_safe(void);
+void test_bb_i2c_dev_add_null_bus(void);
+void test_bb_i2c_dev_add_null_out(void);
+void test_bb_i2c_dev_add_succeeds(void);
+void test_bb_i2c_dev_add_explicit_speed(void);
+void test_bb_i2c_dev_remove_null_is_safe(void);
+void test_bb_i2c_dev_write_null_dev(void);
+void test_bb_i2c_dev_write_null_buf(void);
+void test_bb_i2c_dev_write_zero_len(void);
+void test_bb_i2c_dev_write_records_payload(void);
+void test_bb_i2c_dev_read_null_dev(void);
+void test_bb_i2c_dev_read_null_buf(void);
+void test_bb_i2c_dev_read_zero_len(void);
+void test_bb_i2c_dev_read_returns_queued_bytes(void);
+void test_bb_i2c_dev_read_zeros_when_no_queue(void);
+void test_bb_i2c_dev_write_read_null_dev(void);
+void test_bb_i2c_dev_write_read_null_w(void);
+void test_bb_i2c_dev_write_read_null_r(void);
+void test_bb_i2c_dev_write_read_zero_wlen(void);
+void test_bb_i2c_dev_write_read_zero_rlen(void);
+void test_bb_i2c_dev_write_read_roundtrip(void);
+void test_bb_i2c_dev_read_reg8_null_dev(void);
+void test_bb_i2c_dev_read_reg8_null_val(void);
+void test_bb_i2c_dev_read_reg8_sends_reg_gets_value(void);
+void test_bb_i2c_dev_write_reg8_null_dev(void);
+void test_bb_i2c_dev_write_reg8_sends_reg_and_val(void);
+void test_bb_i2c_register_roundtrip(void);
+void test_bb_i2c_force_err_write(void);
+void test_bb_i2c_force_err_read(void);
+void test_bb_i2c_force_err_write_read(void);
+void test_bb_i2c_force_err_read_reg8(void);
+void test_bb_i2c_force_err_write_reg8(void);
+void test_bb_i2c_force_err_clear_with_bb_ok(void);
+void test_bb_i2c_host_reset_clears_state(void);
+void test_bb_i2c_multiple_devices_on_bus(void);
+
 // Forward declarations from test_bb_power.c
 void bb_power_test_reset_local(void);
 void test_bb_power_handle_create_null_drv(void);
@@ -1816,6 +1858,7 @@ void setUp(void) {
     wifi_reconn_policy_test_reset();
     bb_mdns_lifecycle_test_reset();
     bb_power_test_reset_local();
+    bb_i2c_host_reset();
     bb_fan_test_reset_local();
     bb_thermal_reset_for_test();
     bb_led_test_reset();
@@ -2936,6 +2979,47 @@ int main(void) {
     RUN_TEST(test_bb_mdns_lifecycle_announce_when_stopped_marks_dirty);
     RUN_TEST(test_bb_mdns_lifecycle_restart_cycle);
     RUN_TEST(test_bb_mdns_lifecycle_invalid_args);
+
+    // bb_i2c tests
+    RUN_TEST(test_bb_i2c_bus_create_null_cfg);
+    RUN_TEST(test_bb_i2c_bus_create_null_out);
+    RUN_TEST(test_bb_i2c_bus_create_zero_clk);
+    RUN_TEST(test_bb_i2c_bus_create_succeeds);
+    RUN_TEST(test_bb_i2c_bus_delete_null_is_safe);
+    RUN_TEST(test_bb_i2c_dev_add_null_bus);
+    RUN_TEST(test_bb_i2c_dev_add_null_out);
+    RUN_TEST(test_bb_i2c_dev_add_succeeds);
+    RUN_TEST(test_bb_i2c_dev_add_explicit_speed);
+    RUN_TEST(test_bb_i2c_dev_remove_null_is_safe);
+    RUN_TEST(test_bb_i2c_dev_write_null_dev);
+    RUN_TEST(test_bb_i2c_dev_write_null_buf);
+    RUN_TEST(test_bb_i2c_dev_write_zero_len);
+    RUN_TEST(test_bb_i2c_dev_write_records_payload);
+    RUN_TEST(test_bb_i2c_dev_read_null_dev);
+    RUN_TEST(test_bb_i2c_dev_read_null_buf);
+    RUN_TEST(test_bb_i2c_dev_read_zero_len);
+    RUN_TEST(test_bb_i2c_dev_read_returns_queued_bytes);
+    RUN_TEST(test_bb_i2c_dev_read_zeros_when_no_queue);
+    RUN_TEST(test_bb_i2c_dev_write_read_null_dev);
+    RUN_TEST(test_bb_i2c_dev_write_read_null_w);
+    RUN_TEST(test_bb_i2c_dev_write_read_null_r);
+    RUN_TEST(test_bb_i2c_dev_write_read_zero_wlen);
+    RUN_TEST(test_bb_i2c_dev_write_read_zero_rlen);
+    RUN_TEST(test_bb_i2c_dev_write_read_roundtrip);
+    RUN_TEST(test_bb_i2c_dev_read_reg8_null_dev);
+    RUN_TEST(test_bb_i2c_dev_read_reg8_null_val);
+    RUN_TEST(test_bb_i2c_dev_read_reg8_sends_reg_gets_value);
+    RUN_TEST(test_bb_i2c_dev_write_reg8_null_dev);
+    RUN_TEST(test_bb_i2c_dev_write_reg8_sends_reg_and_val);
+    RUN_TEST(test_bb_i2c_register_roundtrip);
+    RUN_TEST(test_bb_i2c_force_err_write);
+    RUN_TEST(test_bb_i2c_force_err_read);
+    RUN_TEST(test_bb_i2c_force_err_write_read);
+    RUN_TEST(test_bb_i2c_force_err_read_reg8);
+    RUN_TEST(test_bb_i2c_force_err_write_reg8);
+    RUN_TEST(test_bb_i2c_force_err_clear_with_bb_ok);
+    RUN_TEST(test_bb_i2c_host_reset_clears_state);
+    RUN_TEST(test_bb_i2c_multiple_devices_on_bus);
 
     // bb_power HAL tests
     RUN_TEST(test_bb_power_handle_create_null_drv);

@@ -291,6 +291,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_partition/bb_partition.c"],
         "depends":  ["bb_core"],
     },
+    "bb_i2c": {
+        "includes": ["components/bb_i2c/include"],
+        "sources":  ["platform/host/bb_i2c/bb_i2c.c"],
+        "depends":  ["bb_core", "bb_log"],
+    },
     "bb_ota_led": {
         "includes": ["components/bb_ota_hooks/include", "platform/host/bb_ota_hooks"],
         "sources":  ["platform/host/bb_ota_hooks/bb_ota_led.c"],
