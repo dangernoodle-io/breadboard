@@ -25,6 +25,10 @@ CONFIG_ESP_HOST_WIFI_ENABLED=y
 
 # FreeRTOS configuration
 CONFIG_FREERTOS_HZ=1000
+# Stack overflow detection: method 2 (PTRVAL canary) prints the overflowing
+# task name instead of aborting silently. Recommended alongside bb_health stack
+# monitor. See CONFIG_BB_HEALTH_STACK_POLL_MS in bb_health Kconfig.
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW=2
 
 # Logging configuration
 CONFIG_LOG_DEFAULT_LEVEL=3

@@ -39,19 +39,6 @@ bb_err_t bb_info_register_extender(bb_info_extender_fn fn);
 bb_err_t bb_info_register_extender_ex(bb_info_extender_fn fn,
                                        const char *schema_props_fragment);
 
-// Register an extender for /api/health. Same fn signature as
-// bb_info_register_extender; called separately so /api/info and
-// /api/health get distinct extension hooks. Fixed capacity (4 slots).
-// Must be called before bb_http_server_start.
-// Thin wrapper around bb_health_register_extender_ex(fn, NULL).
-bb_err_t bb_health_register_extender(bb_info_extender_fn fn);
-
-// Register an extender for /api/health with an optional schema fragment.
-// Same fragment contract as bb_info_register_extender_ex; merged into the
-// /api/health 200 response schema's "properties" object.
-bb_err_t bb_health_register_extender_ex(bb_info_extender_fn fn,
-                                         const char *schema_props_fragment);
-
 // ---------------------------------------------------------------------------
 // Capability registry
 // ---------------------------------------------------------------------------

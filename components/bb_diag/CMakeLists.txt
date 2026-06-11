@@ -1,6 +1,7 @@
 set(_diag_srcs
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_reset_decision.c"
     "${CMAKE_CURRENT_LIST_DIR}/bb_diag_scrub.c"
+    "${CMAKE_CURRENT_LIST_DIR}/bb_diag_event_common.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_diag/bb_diag_panic.c"
 )
 
@@ -11,9 +12,9 @@ endif()
 
 idf_component_register(
     SRCS ${_diag_srcs}
-    INCLUDE_DIRS "include"
+    INCLUDE_DIRS "include" "."
     REQUIRES bb_core bb_partition
-    PRIV_REQUIRES bb_log bb_registry bb_http bb_json bb_info bb_nv espcoredump lwip nvs_flash esp_partition esp_app_format
+    PRIV_REQUIRES bb_log bb_registry bb_http bb_json bb_info bb_nv bb_system bb_ota_validator bb_event bb_event_routes espcoredump lwip nvs_flash esp_partition esp_app_format
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)

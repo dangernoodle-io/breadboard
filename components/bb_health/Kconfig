@@ -1,0 +1,53 @@
+menu "breadboard: bb_health"
+
+config BB_HEALTH_AUTOREGISTER
+    bool "Auto-register /api/health HTTP route via bb_registry"
+    default y
+    help
+        When enabled, bb_health self-registers GET /api/health through bb_registry.
+        Disable to keep the bb_health_register_extender API but skip the route
+        entirely.
+
+config BB_HEALTH_STACK_POLL_MS
+    int "Stack high-water monitor poll interval (ms)"
+    default 10000
+    range 1000 3600000
+    help
+        How often the stack high-water monitor checks all FreeRTOS task
+        stack margins. Default 10 000 ms (10 s) is a low-overhead poll
+        that catches margin erosion well before a real overflow.
+
+        Note: the monitor requires CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+        (enabled automatically by FREERTOS_GENERATE_RUN_TIME_STATS or
+        similar; check your sdkconfig). If TRACE_FACILITY is off, the
+        monitor compiles as a no-op and this setting has no effect.
+
+        Strongly recommended: also set
+          CONFIG_FREERTOS_CHECK_STACKOVERFLOW_PTRVAL=y
+        (CONFIG_FREERTOS_CHECK_STACKOVERFLOW=2) so a real overflow prints
+        an attributable task-name message instead of a silent abort.
+
+config BB_HEALTH_STACK_LOW_BYTES
+    int "Stack low-water threshold (bytes)"
+    default 512
+    range 64 65536
+    help
+        Free stack bytes below which a task is flagged as low. The monitor
+        posts a health.stack event on the first poll where a task crosses
+        below this threshold (transition into low), not on every poll, to
+        avoid spamming the event bus.
+
+        uxTaskGetStackHighWaterMark returns words; the monitor multiplies
+        by sizeof(StackType_t) (4 on Xtensa/RISC-V 32-bit) to get bytes.
+
+config BB_HEALTH_AUTO_ATTACH
+    bool "Auto-attach health.stack to /api/events"
+    default y
+    depends on BB_EVENT_ROUTES_AUTOREGISTER
+    help
+        When enabled, bb_health's stack monitor attaches the "health.stack"
+        topic to the bb_event_routes SSE stream so /api/events surfaces it
+        without an explicit consumer call. Disable if you want the bb_event
+        topic for internal subscribers only.
+
+endmenu
