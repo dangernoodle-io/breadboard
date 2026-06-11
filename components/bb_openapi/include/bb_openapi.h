@@ -20,8 +20,6 @@
 #include "bb_http.h"
 #include "bb_json.h"
 
-#include <cJSON.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -94,18 +92,18 @@ typedef struct {
     char message[192];  // human-readable failure reason
 } bb_openapi_validate_err_t;
 
-// Validate `value` (already-parsed cJSON tree) against `schema_json` (raw
-// JSON Schema string literal).
+// Validate `value` (already-parsed JSON tree, as a bb_json_t handle) against
+// `schema_json` (raw JSON Schema string literal).
 //
 // Returns BB_OK if valid; err is untouched.
 // Returns BB_ERR_VALIDATION if invalid; err (if non-NULL) is filled with
 //   the first failure encountered: path + message.
 // Returns BB_ERR_INVALID_ARG if schema_json fails to parse as JSON.
 //
-// Memory: schema_json is parsed internally via cJSON_Parse and freed before
-//   return. The caller retains ownership of value and schema_json.
+// Memory: schema_json is parsed internally and freed before return.
+//   The caller retains ownership of value and schema_json.
 bb_err_t bb_openapi_validate(const char *schema_json,
-                             const cJSON *value,
+                             bb_json_t value,
                              bb_openapi_validate_err_t *err);
 
 #ifdef __cplusplus
