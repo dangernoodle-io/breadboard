@@ -158,6 +158,7 @@ void test_emit_status_json_outcome_up_to_date(void);
 void test_emit_status_json_outcome_no_asset(void);
 void test_emit_status_json_sets_cors_headers(void);
 void test_emit_status_json_enabled_reflects_nv_flag(void);
+void test_emit_status_json_obj_begin_fail_returns_err(void);
 
 // Forward declarations from test_http_utils.c
 void test_url_decode_basic(void);
@@ -2016,6 +2017,7 @@ int main(void) {
     RUN_TEST(test_emit_status_json_outcome_no_asset);
     RUN_TEST(test_emit_status_json_sets_cors_headers);
     RUN_TEST(test_emit_status_json_enabled_reflects_nv_flag);
+    RUN_TEST(test_emit_status_json_obj_begin_fail_returns_err);
 
     // OTA hooks tests
     RUN_TEST(test_ota_hooks_json_push_start);

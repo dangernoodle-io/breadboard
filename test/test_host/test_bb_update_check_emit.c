@@ -259,3 +259,24 @@ void test_emit_status_json_enabled_reflects_nv_flag(void)
     TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"enabled\":false"));
     bb_http_host_capture_free(&cap);
 }
+
+// ---------------------------------------------------------------------------
+// emit when bb_http_resp_json_obj_begin fails — propagates the error
+// ---------------------------------------------------------------------------
+
+void test_emit_status_json_obj_begin_fail_returns_err(void)
+{
+    reset_world();
+    bb_update_check_init(NULL);  /* ensures get_status returns BB_OK */
+
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_force_set_type_fail(true);
+    bb_err_t rc = bb_update_check_emit_status_json(req);
+    bb_http_host_force_set_type_fail(false);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);
+    bb_http_host_capture_free(&cap);
+}
