@@ -57,10 +57,30 @@ These rules govern which headers go where and how components depend on each othe
 
 ### REQUIRES vs PRIV_REQUIRES
 
-- Public header includes another component's header → that component goes in `REQUIRES`.
-- `.c` / `.cpp` / private headers include another component's header but public headers don't → `PRIV_REQUIRES`.
-- **Default to `PRIV_REQUIRES`.** `REQUIRES` transitively exposes another component's surface.
+- **Decisive test:** a dep goes in `REQUIRES` ONLY if THIS component's public header (`include/`) includes that dep's header or uses its types. Everything else → `PRIV_REQUIRES`. **Default to `PRIV_REQUIRES`.**
+- `REQUIRES` transitively exposes the dep's entire surface to all consumers — it is not a "strong recommendation" or "encouraged dependency".
 - Test-only deps go in the `test_*` env's `lib_deps`, not the component CMakeLists.
+
+### Component dependency hygiene
+
+**No ESP-IDF / third-party types in public headers.** Wrap behind an opaque `bb_*` handle:
+- `bb_http_request_t` (`void*`) hides `httpd_req_t*`
+- `bb_json_t` (`void*`) hides `cJSON*`
+
+If a new type would force an `#include <esp_…>` or `#include "cJSON.h"` into a public header, define a `bb_*` opaque alias instead.
+
+**Exception — large-panel LVGL backends.** `ek79007` and future big-panel backends deliberately expose `lv_obj_t*` in their public header and keep `esp_lvgl_port` in `REQUIRES`. This is the documented escape hatch for panels where hand-blitting is impractical. See the Display section. Do NOT apply this exception to small panels or non-display components.
+
+**High-risk dep watchlist** — these MUST be `PRIV_REQUIRES` unless a public header genuinely needs them:
+- `esp_driver_*`, `esp_lcd`, `esp_http_server`, `esp_timer`, `esp_system`
+- `app_update`, `espressif__mdns`
+- `json` / `cJSON`
+
+**Self-check before committing a new component:**
+```sh
+grep -nE '#include <esp_|#include "esp_|cJSON|i2c_master|httpd_' components/<name>/include/*.h
+```
+This should be empty (outside the LVGL exception). **TODO:** add this as a CI lint step — not currently enforced.
 
 ### Tests must not reach into other components
 
@@ -105,7 +125,7 @@ bb_registry_force_register_early(${COMPONENT_LIB} bb_<name>)     # early
 bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_<name>)  # pre_http
 ```
 
-Today this pattern owns — regular: `bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_log` (routes), `bb_manifest`, `bb_ota_validator`, `bb_wifi` (routes), `bb_system` (routes), `bb_openapi`, `bb_mdns`, `bb_event_routes`, `bb_update_check`, `bb_diag` (routes). Early: `bb_log_stream`, `bb_nv_flash`, `bb_nv_config`, `bb_wifi` (STA init via `CONFIG_BB_WIFI_AUTOREGISTER`). PRE_HTTP: `bb_http_reserve_routes(N)` is vestigial (see Route-sizing model below) but companion init functions may still call it harmlessly. HTTP server autostart is gated on `CONFIG_BB_HTTP_AUTOSTART` (default y); disable it if CORS or OpenAPI config must precede server start. Socket reservation for non-httpd usage (stratum TCP, mDNS UDP, transient outbound) is tunable via `CONFIG_BB_HTTP_LWIP_RESERVE` (default 3, range 1–6) — lower it to give httpd more headroom, raise it to preserve slots for outbound work.
+Today this pattern owns — regular: `bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_log` (routes), `bb_manifest`, `bb_ota_validator`, `bb_wifi` (routes), `bb_system` (routes), `bb_openapi`, `bb_mdns`, `bb_event_routes`, `bb_update_check`, `bb_diag` (routes). Early: `bb_log_stream`, `bb_nv_flash`, `bb_nv_config`, `bb_wifi` (STA init via `CONFIG_BB_WIFI_AUTOREGISTER`), `bb_diag_panic`, `bb_event`. PRE_HTTP: `bb_http_reserve_routes(N)` is vestigial (see Route-sizing model below) but companion init functions may still call it harmlessly. HTTP server autostart is gated on `CONFIG_BB_HTTP_AUTOSTART` (default y); disable it if CORS or OpenAPI config must precede server start. Socket reservation for non-httpd usage (stratum TCP, mDNS UDP, transient outbound) is tunable via `CONFIG_BB_HTTP_LWIP_RESERVE` (default 3, range 1–6) — lower it to give httpd more headroom, raise it to preserve slots for outbound work.
 
 **Route-sizing model.** All `/api/*` routes are served by per-method wildcard httpd handlers (`GET/POST/PUT/PATCH/DELETE /api/*`, registered at server start before any consumer asset `GET /*`) that dispatch internally via the `bb_api_dispatch` table (`BB_HTTP_API_DISPATCH_CAP`, default 64). A high-watermark `bb_log_w` fires once when count reaches `CAP-8`; overflow returns `BB_ERR_NO_SPACE` (non-fatal, logged). `/api/*` routes do **not** consume httpd handler slots. `max_uri_handlers` (`BB_HTTP_MAX_URI_HANDLERS`, default 12, constant) covers only the fixed wildcards (5 api + OPTIONS + GET asset) plus headroom for non-`/api` routes (`/save`, captive `/*`). `bb_http_reserve_routes()` is vestigial (ABI kept; body is a no-op on espidf; calls from existing PRE_HTTP companions are harmless). When adding a new `/api/` endpoint, no PRE_HTTP companion or reserve call is needed — just call `bb_http_register_route` in the regular tier. When adding a non-`/api` httpd route (e.g. a captive-portal path), raise `BB_HTTP_MAX_URI_HANDLERS` in your `sdkconfig` if headroom is exhausted.
 
@@ -186,7 +206,9 @@ The `bb_prov` component manages the provisioning state machine and HTTP `/save` 
 
 ## Display
 
-LVGL is initialized inside `bb_display_init` via `esp_lvgl_port`. The consumer's `sdkconfig` governs LVGL font availability (`CONFIG_LV_FONT_MONTSERRAT_*`) and color depth (must be 16-bit / RGB565); breadboard does not ship pre-defined dashboard layouts. Every call into LVGL from application code (including `lv_timer` callbacks not running on the LVGL task) must be wrapped in `bb_display_lock` / `bb_display_unlock`. The `bb_display` component is currently ESP-IDF-only.
+**Two display tiers — chosen by panel class, not preference.** `bb_display`'s core API is portable pixel-blit primitives (clear/blit/flush). Small SPI/I2C panels (st77xx, ili9341, ssd1306) implement it directly and pull in **no** UI framework. Large MIPI-DSI / RGB framebuffer panels (ek79007) are instead driven via **LVGL** (`esp_lvgl_port`) and additionally hand the consumer an `lv_obj_t *` screen root (e.g. `bb_display_ek79007_screen()`) so it can build rich widget UIs. That LVGL coupling is **deliberate and ESP-IDF-only** — hand-blitting a 1024x600 UI is impractical, and the `lv_obj_t` handoff is the agreed escape hatch, **not** a portability leak (so `esp_lvgl_port` stays in that backend's public `REQUIRES`). New big-panel backends follow this shape; small panels must **not** pull LVGL — it doesn't fit a no-PSRAM, CPU-busy classic ESP32 (e.g. the CYD/2432S028R, which uses the blit path).
+
+For LVGL-backed panels: LVGL is initialized inside `bb_display_init` when an LVGL backend is registered. The consumer's `sdkconfig` governs LVGL font availability (`CONFIG_LV_FONT_MONTSERRAT_*`) and color depth (must be 16-bit / RGB565); breadboard does not ship pre-defined dashboard layouts. Every call into LVGL from application code (including `lv_timer` callbacks not running on the LVGL task) must be wrapped in `bb_display_lock` / `bb_display_unlock`. The `bb_display` component is ESP-IDF-only.
 
 `bb_display_spi_common` provides shared SPI helpers: `bb_display_spi_init_bus()`, `bb_display_blit_spi()`, `bb_display_clear_spi()`. ili9341 and st77xx share a bounce buffer via this component. Use `BB_DISPLAY_AUTOREGISTER(chip, kconfig_sym, backend_ptr)` instead of per-driver constructor boilerplate.
 

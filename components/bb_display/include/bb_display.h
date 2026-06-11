@@ -21,6 +21,18 @@
  *
  * Multi-backend in one image is allowed (last register wins at init);
  * most builds link exactly one.
+ *
+ * Two rendering tiers — chosen by panel class, not preference:
+ *   - Small SPI/I2C panels (st77xx, ili9341, ssd1306) implement the
+ *     portable blit core above and pull in no UI framework.
+ *   - Large MIPI-DSI / RGB framebuffer panels (ek79007) are driven via
+ *     LVGL (esp_lvgl_port) and ADDITIONALLY expose an `lv_obj_t *`
+ *     screen root (e.g. bb_display_ek79007_screen()) so consumers build
+ *     rich widget UIs directly. That LVGL coupling is deliberate and
+ *     ESP-IDF-only — hand-blitting a 1024x600 UI is impractical, and the
+ *     lv_obj_t handoff is the agreed escape hatch, not a portability
+ *     leak. New big-panel backends follow this shape; small panels must
+ *     NOT pull LVGL (it doesn't fit a no-PSRAM, CPU-busy classic ESP32).
  */
 
 bb_err_t    bb_display_init(void);
