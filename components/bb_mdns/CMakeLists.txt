@@ -4,8 +4,8 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/bb_mdns_lifecycle.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "."
-    REQUIRES espressif__mdns esp_system bb_core
-    PRIV_REQUIRES bb_http bb_log bb_hw bb_wifi bb_registry esp_app_format esp_netif esp_timer
+    REQUIRES bb_core
+    PRIV_REQUIRES bb_http bb_log bb_hw bb_wifi bb_registry esp_app_format esp_netif esp_timer espressif__mdns esp_system
 )
 
 # Ensure managed component is available
