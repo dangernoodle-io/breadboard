@@ -4,7 +4,7 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_openapi/bb_openapi_register.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_http bb_json
-    PRIV_REQUIRES bb_log bb_system bb_registry
+    PRIV_REQUIRES bb_log bb_system bb_registry json
 )
 
 if(CONFIG_BB_OPENAPI_AUTOREGISTER)
