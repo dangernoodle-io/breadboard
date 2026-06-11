@@ -1,5 +1,8 @@
 #include "bb_ntp.h"
+#include "bb_nv.h"
 #include "bb_log.h"
+#include <stdlib.h>
+#include <time.h>
 
 static const char *TAG = "bb_ntp";
 static bool s_warned = false;
@@ -32,4 +35,25 @@ bool bb_ntp_wait_synced(uint32_t timeout_ms)
 int64_t bb_ntp_last_sync_unix(void)
 {
     return 0;
+}
+
+void bb_ntp_apply_saved_timezone(void)
+{
+    const char *tz = bb_nv_config_timezone();
+    if (tz && tz[0] != '\0') {
+        setenv("TZ", tz, 1);
+    } else {
+        setenv("TZ", "UTC0", 1);
+    }
+    tzset();
+}
+
+bb_err_t bb_ntp_set_timezone(const char *posix_tz)
+{
+    bb_err_t err = bb_nv_config_set_timezone(posix_tz);
+    if (err != BB_OK) return err;
+    const char *t = (posix_tz && posix_tz[0] != '\0') ? posix_tz : "UTC0";
+    setenv("TZ", t, 1);
+    tzset();
+    return BB_OK;
 }
