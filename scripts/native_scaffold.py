@@ -280,6 +280,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_led_info/bb_led_info.c"],
         "depends":  ["bb_led", "bb_info", "bb_json", "bb_core"],
     },
+    "bb_ntp_info": {
+        "includes": ["components/bb_ntp_info/include"],
+        "sources":  ["platform/host/bb_ntp_info/bb_ntp_info.c"],
+        "depends":  ["bb_ntp", "bb_info", "bb_json", "bb_core"],
+    },
     "bb_temp": {
         "includes": ["components/bb_temp/include", "platform/host/bb_temp"],
         "sources":  ["platform/host/bb_temp/bb_temp.c"],

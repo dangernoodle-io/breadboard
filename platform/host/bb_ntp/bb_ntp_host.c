@@ -28,3 +28,8 @@ bool bb_ntp_wait_synced(uint32_t timeout_ms)
     (void)timeout_ms;
     return false;
 }
+
+int64_t bb_ntp_last_sync_unix(void)
+{
+    return 0;
+}
