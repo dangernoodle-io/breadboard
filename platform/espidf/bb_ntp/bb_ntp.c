@@ -1,8 +1,10 @@
 #include "bb_ntp.h"
 #include "bb_log.h"
+#include "bb_nv.h"
 #include "esp_sntp.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
@@ -28,6 +30,8 @@ bb_err_t bb_ntp_start(const char *server)
     }
 
     const char *ntp_server = server ? server : DEFAULT_SERVER;
+
+    bb_ntp_apply_saved_timezone();
 
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, (char *)ntp_server);
@@ -79,4 +83,25 @@ bool bb_ntp_wait_synced(uint32_t timeout_ms)
         vTaskDelay(step);
         waited += 250;
     }
+}
+
+void bb_ntp_apply_saved_timezone(void)
+{
+    const char *tz = bb_nv_config_timezone();
+    if (tz && tz[0] != '\0') {
+        setenv("TZ", tz, 1);
+    } else {
+        setenv("TZ", "UTC0", 1);
+    }
+    tzset();
+}
+
+bb_err_t bb_ntp_set_timezone(const char *posix_tz)
+{
+    bb_err_t err = bb_nv_config_set_timezone(posix_tz);
+    if (err != BB_OK) return err;
+    const char *t = (posix_tz && posix_tz[0] != '\0') ? posix_tz : "UTC0";
+    setenv("TZ", t, 1);
+    tzset();
+    return BB_OK;
 }

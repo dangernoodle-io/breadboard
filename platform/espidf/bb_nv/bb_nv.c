@@ -16,6 +16,7 @@
 #define BB_NV_KEY_WIFI_SSID         "wifi_ssid"
 #define BB_NV_KEY_WIFI_PASS         "wifi_pass"
 #define BB_NV_KEY_HOSTNAME          "hostname"
+#define BB_NV_KEY_TIMEZONE          "timezone"
 #define BB_NV_KEY_MDNS_EN           "mdns_en"
 #define BB_NV_KEY_UPDATE_CHECK_EN   "update_check_en"
 #define BB_NV_KEY_DISPLAY_EN        "display_en"
@@ -23,6 +24,8 @@
 #define BB_NV_KEY_WIFI_SSID_P       "wifi_ssid_p"
 #define BB_NV_KEY_WIFI_PASS_P       "wifi_pass_p"
 #define BB_NV_KEY_WIFI_TRY          "wifi_try"
+
+#define BB_NV_TIMEZONE_MAX_LEN 65  /* 64 chars + NUL */
 
 /* strlcpy isn't standard C — newlib exposes it under feature flags, but
  * the warning we hit under TaipanMiner's build profile is real. Roll a
@@ -76,6 +79,15 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
         .provisioning_only = false,
     },
     {
+        .key              = BB_NV_KEY_TIMEZONE,
+        .type             = "str",
+        .default_         = NULL,
+        .max_len          = 64,
+        .desc             = "POSIX timezone string (e.g. EST5EDT,M3.2.0,M11.1.0); empty = UTC",
+        .reboot_required  = false,
+        .provisioning_only = false,
+    },
+    {
         .key              = BB_NV_KEY_MDNS_EN,
         .type             = "bool",
         .default_         = "true",
@@ -123,6 +135,7 @@ static struct {
     char wifi_ssid[32];
     char wifi_pass[64];
     char hostname[33];
+    char timezone[BB_NV_TIMEZONE_MAX_LEN];
     uint8_t display_en;
     uint8_t mdns_en;
     uint8_t update_check_en;
@@ -215,6 +228,7 @@ bb_err_t bb_nv_config_init(void)
     load_str(handle, BB_NV_KEY_WIFI_SSID, s_config.wifi_ssid, sizeof(s_config.wifi_ssid), "");
     load_str(handle, BB_NV_KEY_WIFI_PASS, s_config.wifi_pass, sizeof(s_config.wifi_pass), "");
     load_str(handle, BB_NV_KEY_HOSTNAME, s_config.hostname, sizeof(s_config.hostname), "");
+    load_str(handle, BB_NV_KEY_TIMEZONE, s_config.timezone, sizeof(s_config.timezone), "");
 
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
     /* Restore+heal: if NVS has no creds but the RTC mirror is valid, recover
@@ -507,6 +521,15 @@ bb_err_t bb_nv_config_set_hostname(const char *hostname)
     if (!nv_valid_hostname(hostname)) return BB_ERR_INVALID_ARG;
     bb_err_t err = nv_config_set_str(BB_NV_KEY_HOSTNAME, hostname);
     if (err == BB_OK) copy_str(s_config.hostname, hostname, sizeof(s_config.hostname));
+    return err;
+}
+
+bb_err_t bb_nv_config_set_timezone(const char *tz)
+{
+    const char *t = (tz && tz[0] != '\0') ? tz : "";
+    if (strlen(t) >= BB_NV_TIMEZONE_MAX_LEN) return BB_ERR_INVALID_ARG;
+    bb_err_t err = nv_config_set_str(BB_NV_KEY_TIMEZONE, t);
+    if (err == BB_OK) copy_str(s_config.timezone, t, sizeof(s_config.timezone));
     return err;
 }
 
@@ -1139,6 +1162,14 @@ void bb_nv_config_host_force_set_update_check_fail(bool fail)
     s_force_set_update_check_fail = fail;
 }
 
+bb_err_t bb_nv_config_set_timezone(const char *tz)
+{
+    const char *t = (tz && tz[0] != '\0') ? tz : "";
+    if (strlen(t) >= BB_NV_TIMEZONE_MAX_LEN) return BB_ERR_INVALID_ARG;
+    copy_str(s_config.timezone, t, sizeof(s_config.timezone));
+    return BB_OK;
+}
+
 bb_err_t bb_nv_config_set_display_enabled(bool en)
 {
     s_config.display_en = en ? 1 : 0;
@@ -1180,6 +1211,7 @@ BB_REGISTRY_REGISTER_PRE_HTTP(bb_nv_config_manifest, bb_nv_config_manifest_init)
 const char *bb_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }
 const char *bb_nv_config_wifi_pass(void) { return s_config.wifi_pass; }
 const char *bb_nv_config_hostname(void) { return s_config.hostname; }
+const char *bb_nv_config_timezone(void) { return s_config.timezone; }
 bool bb_nv_config_display_enabled(void) { return s_config.display_en != 0; }
 bool bb_nv_config_mdns_enabled(void) { return s_config.mdns_en != 0; }
 bool bb_nv_config_update_check_enabled(void) { return s_config.update_check_en != 0; }
