@@ -318,6 +318,21 @@ void test_hostname_rejects_trailing_hyphen(void);
 void test_hostname_rejects_null(void);
 void test_nv_config_init_registers_bb_cfg_keys(void);
 
+// Forward declarations from test_bb_nv_factory_reset.c
+void test_nv_factory_reset_clears_config(void);
+void test_nv_factory_reset_clears_wifi_ssid(void);
+void test_nv_factory_reset_returns_ok_after_reinit(void);
+void test_nv_factory_reset_restores_defaults(void);
+#if CONFIG_BB_NV_FACTORY_RESET
+void test_nv_factory_reset_route_no_body_returns_400(void);
+void test_nv_factory_reset_route_wrong_confirm_returns_400(void);
+void test_nv_factory_reset_route_missing_confirm_field_returns_400(void);
+void test_nv_factory_reset_route_invalid_json_returns_400(void);
+void test_nv_factory_reset_route_valid_confirm_returns_202(void);
+void test_nv_factory_reset_route_valid_confirm_clears_config(void);
+void test_nv_factory_reset_route_oversized_body_returns_400(void);
+#endif /* CONFIG_BB_NV_FACTORY_RESET */
+
 // Forward declarations from test_api_dispatch.c
 void test_api_dispatch_add_and_lookup_hit(void);
 void test_api_dispatch_lookup_miss_unknown_path(void);
@@ -2305,6 +2320,21 @@ int main(void) {
     RUN_TEST(test_hostname_rejects_trailing_hyphen);
     RUN_TEST(test_hostname_rejects_null);
     RUN_TEST(test_nv_config_init_registers_bb_cfg_keys);
+
+    // NV factory reset tests (B1-260)
+    RUN_TEST(test_nv_factory_reset_clears_config);
+    RUN_TEST(test_nv_factory_reset_clears_wifi_ssid);
+    RUN_TEST(test_nv_factory_reset_returns_ok_after_reinit);
+    RUN_TEST(test_nv_factory_reset_restores_defaults);
+#if CONFIG_BB_NV_FACTORY_RESET
+    RUN_TEST(test_nv_factory_reset_route_no_body_returns_400);
+    RUN_TEST(test_nv_factory_reset_route_wrong_confirm_returns_400);
+    RUN_TEST(test_nv_factory_reset_route_missing_confirm_field_returns_400);
+    RUN_TEST(test_nv_factory_reset_route_invalid_json_returns_400);
+    RUN_TEST(test_nv_factory_reset_route_valid_confirm_returns_202);
+    RUN_TEST(test_nv_factory_reset_route_valid_confirm_clears_config);
+    RUN_TEST(test_nv_factory_reset_route_oversized_body_returns_400);
+#endif /* CONFIG_BB_NV_FACTORY_RESET */
 
     // NV creds mirror tests
     RUN_TEST(test_nv_creds_mirror_pack_valid_roundtrip);
