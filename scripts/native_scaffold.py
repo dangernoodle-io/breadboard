@@ -403,6 +403,16 @@ COMPONENT_MAP = {
         ],
         "depends":  ["bb_core"],
     },
+    "bb_pub": {
+        "includes": ["components/bb_pub/include"],
+        "sources":  ["platform/host/bb_pub/bb_pub.c"],
+        "depends":  ["bb_core", "bb_json", "bb_nv", "bb_log"],
+    },
+    "bb_pub_mqtt": {
+        "includes": ["components/bb_pub_mqtt/include"],
+        "sources":  ["platform/host/bb_pub_mqtt/bb_pub_mqtt.c"],
+        "depends":  ["bb_core", "bb_pub", "bb_mqtt"],
+    },
 }
 
 
