@@ -202,6 +202,9 @@ int bb_power_tps546_build_init_program(
         }
     }
 
+    // --- VOUT_UV_FAULT_RESPONSE (byte) ---
+    EMIT_BYTE_IF(BB_PMBUS_VOUT_UV_FAULT_RESPONSE, p->vout_uv_fault_response);
+
     // --- IOUT_OC_WARN_LIMIT (word, SLINEAR11 float A) ---
     EMIT_SLINEAR11_FLOAT_IF(BB_PMBUS_IOUT_OC_WARN_LIMIT, p->iout_oc_warn_a);
 

@@ -9,6 +9,16 @@ static const char *TAG = "bb_power_tps546";
 
 #define OPERATION_ON   0x80u
 
+// PMBus STATUS registers (not in the public header — read-only diagnostic use only)
+#define BB_PMBUS_STATUS_BYTE        0x78u
+#define BB_PMBUS_STATUS_WORD        0x79u
+#define BB_PMBUS_STATUS_VOUT        0x7Au
+#define BB_PMBUS_STATUS_IOUT        0x7Bu
+#define BB_PMBUS_STATUS_INPUT       0x7Cu
+#define BB_PMBUS_STATUS_TEMPERATURE 0x7Du
+#define BB_PMBUS_STATUS_CML         0x7Eu
+#define BB_PMBUS_STATUS_MFR         0x80u
+
 // Defaults (lifted from TM init params)
 #define TPS546_DEFAULT_FREQ_KHZ   650u
 #define TPS546_DEFAULT_OC_LIMIT_A  30u
@@ -92,9 +102,10 @@ static esp_err_t exec_program(i2c_master_dev_handle_t dev,
                 bb_log_e(TAG, "PMBus write reg=0x%02X failed (essential): %d", prog[i].reg, err);
                 return err;
             }
-            // Protection-config write rejected by chip (unsupported or locked register).
-            // Log a warning and continue — partial protection is better than a boot failure.
-            bb_log_w(TAG, "PMBus write reg=0x%02X failed (non-essential, skipped): %d",
+            // Non-critical limit the chip declined (e.g. OV/UV *warn* thresholds
+            // 0x42/0x43, which some TPS546 parts reject): it keeps its default and
+            // operation/fault protection is unaffected. Info, not a warning.
+            bb_log_i(TAG, "PMBus reg=0x%02X declined by chip; default kept (non-critical limit): %d",
                      prog[i].reg, err);
         }
     }
@@ -202,6 +213,25 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
     s->vout_n = (int8_t)(vout_mode & 0x1F);
     if (s->vout_n & 0x10) s->vout_n |= (int8_t)0xE0; // sign-extend from bit 4
     bb_log_i(TAG, "VOUT_MODE=0x%02X exponent=%d", vout_mode, s->vout_n);
+
+    // Dump STATUS registers BEFORE CLEAR_FAULTS so latched fault bits are visible.
+    // Reads are best-effort — failures set the field to 0xFF/0xFFFF; init continues.
+    {
+        uint16_t st_word = 0xFFFF;
+        uint8_t  st_byte = 0xFF, st_vout = 0xFF, st_iout = 0xFF;
+        uint8_t  st_in   = 0xFF, st_temp = 0xFF, st_cml  = 0xFF, st_mfr = 0xFF;
+        pmbus_read_word(s->dev, BB_PMBUS_STATUS_WORD,        &st_word);
+        pmbus_read_byte(s->dev, BB_PMBUS_STATUS_BYTE,        &st_byte);
+        pmbus_read_byte(s->dev, BB_PMBUS_STATUS_VOUT,        &st_vout);
+        pmbus_read_byte(s->dev, BB_PMBUS_STATUS_IOUT,        &st_iout);
+        pmbus_read_byte(s->dev, BB_PMBUS_STATUS_INPUT,       &st_in);
+        pmbus_read_byte(s->dev, BB_PMBUS_STATUS_TEMPERATURE, &st_temp);
+        pmbus_read_byte(s->dev, BB_PMBUS_STATUS_CML,         &st_cml);
+        pmbus_read_byte(s->dev, BB_PMBUS_STATUS_MFR,         &st_mfr);
+        bb_log_w(TAG, "TPS546 STATUS @init: WORD=0x%04X BYTE=0x%02X VOUT=0x%02X IOUT=0x%02X"
+                 " INPUT=0x%02X TEMP=0x%02X CML=0x%02X MFR=0x%02X",
+                 st_word, st_byte, st_vout, st_iout, st_in, st_temp, st_cml, st_mfr);
+    }
 
     // Build and execute the full protection init program
     bb_tps546_write_t prog[INIT_PROG_MAX];
