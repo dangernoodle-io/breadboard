@@ -425,6 +425,34 @@ New `bb_board` accessors: `bb_board_heap_internal_{free,total}()`, `bb_board_psr
 
 **Abnormal-reset counter semantics.** `abnormal_reset_count` (surfaced as `wdt_resets` in consumers) counts abnormal resets *since this firmware was deployed*, not a lifetime total. At each boot, the running app's ELF SHA256 is fingerprinted (first 4 bytes of the raw SHA256, stored in NVS key `app_fp` under the `bb_diag` namespace). If the stored fingerprint is absent (`0`) or differs from the running firmware, the counter is reset to 0 and the new fingerprint is stored — the deploy boot itself is the clean baseline and is not counted. Subsequent abnormal resets on the same build increment as before. Still explicitly clearable via `DELETE /api/diag/boot`. The decision logic is factored into the pure host-testable function `bb_diag_reset_decision()` in `components/bb_diag/bb_diag_reset_decision.c`.
 
+## bb_version — build-time firmware version identifier
+
+`scripts/bb_version.py` is a PlatformIO pre-script that writes a generated C header at
+`<PROJECT_DIR>/.breadboard/gen/bb_version_gen.h` containing `#define BB_FW_VERSION_STR "<string>"`.
+`bb_system_get_version()` returns `BB_FW_VERSION_STR` when the header is present (via
+`#if __has_include("bb_version_gen.h")`), otherwise falls back to `esp_app_desc.version`.
+The header is only rewritten when the content changes, preventing spurious recompiles.
+
+**Precedence (highest → lowest):**
+1. `BB_FW_VERSION` env var non-empty → used verbatim (override for CI/release pipelines)
+2. Consumer repo has an exact git tag at HEAD → use that tag (release builds)
+3. Dev default: `dev-g<consumer_short_sha>[-dirty]-bb-g<bb_short_sha>[-dirty]`
+   - consumer repo = `$PROJECT_DIR`; breadboard repo = resolved from the script's real path
+
+**Wiring a consumer (PlatformIO):**
+```ini
+extra_scripts = pre:.breadboard/scripts/bb_version.py
+```
+The script appends `.breadboard/gen` to `CPPPATH` automatically — no manual `build_flags` needed.
+
+**Build-time guarantee:** the script runs on every `pio run`, so the version always reflects
+the actual shas at build time even for incremental builds (not configure-time stale).
+
+**CMake consumers:** `include("<breadboard>/cmake/bb_version.cmake")` before `project()` to
+also set `PROJECT_VER` from the same logic (embeds into `esp_app_desc.version`).
+
+**Fail-soft:** if git is unavailable, emits `dev-unknown` rather than erroring the build.
+
 ## Releases
 
 Tagging is manual: `git tag -a vX.Y.Z -m 'chore: vX.Y.Z tag' && git push origin vX.Y.Z`. The `release.yml` workflow waits for CI then publishes a GitHub release with auto-generated notes categorized by PR label (`.github/release.yml`). PR labels are auto-applied from conventional-commit prefixes; `new-component` PRs need that label set manually.
