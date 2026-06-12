@@ -1,0 +1,12 @@
+menu "breadboard: bb_http_pub_routes"
+
+config BB_HTTP_PUB_ROUTES_AUTOREGISTER
+    bool "Auto-register /api/httppub HTTP routes via bb_registry"
+    default y
+    help
+        When enabled, bb_http_pub_routes self-registers GET and PATCH
+        /api/httppub through bb_registry at order 6. Disable to call
+        bb_http_pub_routes_init manually, or omit the call entirely if
+        your app defines its own /api/httppub handler.
+
+endmenu
