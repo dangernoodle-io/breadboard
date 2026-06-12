@@ -199,3 +199,99 @@ bb_err_t bb_http_client_get_stream(const char *url,
     if (cb_err != BB_OK) return cb_err;
     return BB_OK;
 }
+
+bb_err_t bb_http_client_post(const char *url,
+                             const char *body, size_t body_len,
+                             const char *content_type,
+                             char *resp, size_t resp_cap,
+                             const bb_http_client_cfg_t *cfg,
+                             bb_http_client_result_t *out)
+{
+    if (!url || !resp || resp_cap == 0 || !out) return BB_ERR_INVALID_ARG;
+
+    uint32_t timeout_ms = (cfg && cfg->timeout_ms)   ? cfg->timeout_ms   : CONFIG_BB_HTTP_CLIENT_DEFAULT_TIMEOUT_MS;
+    uint8_t  attempts   = (cfg && cfg->max_attempts) ? cfg->max_attempts : CONFIG_BB_HTTP_CLIENT_DEFAULT_MAX_ATTEMPTS;
+    uint16_t buf_size   = (cfg && cfg->buffer_size)  ? cfg->buffer_size  : 4096;
+    const char *ua      = (cfg && cfg->user_agent)   ? cfg->user_agent   : "bb_http_client/0.1";
+    const char *ct      = content_type               ? content_type      : "application/json";
+
+    out->status_code = 0;
+    out->body_len = 0;
+    out->truncated = false;
+
+    // Use ca_cert_pem override when provided; otherwise fall back to bundle.
+    const char *ca_pem = (cfg && cfg->ca_cert_pem) ? cfg->ca_cert_pem : NULL;
+
+    esp_http_client_config_t config = {
+        .url              = url,
+        .crt_bundle_attach = (ca_pem == NULL) ? esp_crt_bundle_attach : NULL,
+        .cert_pem         = ca_pem,
+        .client_cert_pem  = (cfg && cfg->client_cert_pem) ? cfg->client_cert_pem : NULL,
+        .client_key_pem   = (cfg && cfg->client_key_pem)  ? cfg->client_key_pem  : NULL,
+        .timeout_ms       = (int)timeout_ms,
+        .user_agent       = ua,
+        .buffer_size      = buf_size,
+        .method           = HTTP_METHOD_POST,
+    };
+
+    esp_http_client_handle_t client = NULL;
+    esp_err_t err = ESP_FAIL;
+    int status = 0;
+
+    for (int attempt = 0; attempt < attempts; attempt++) {
+        client = esp_http_client_init(&config);
+        if (!client) {
+            err = ESP_FAIL;
+            bb_log_w(TAG, "post init attempt %d/%d failed", attempt + 1, attempts);
+        } else {
+            esp_http_client_set_method(client, HTTP_METHOD_POST);
+            esp_http_client_set_header(client, "Content-Type", ct);
+            esp_http_client_set_post_field(client, body, (int)body_len);
+            err = esp_http_client_open(client, (int)body_len);
+            if (err == ESP_OK) {
+                esp_http_client_fetch_headers(client);
+                status = esp_http_client_get_status_code(client);
+                if (status >= 200 && status < 600) {
+                    break;
+                }
+                err = ESP_FAIL;
+            }
+            esp_http_client_close(client);
+            esp_http_client_cleanup(client);
+            client = NULL;
+        }
+        if (attempt + 1 < attempts) {
+            apply_backoff(attempt);
+        }
+    }
+
+    if (err != ESP_OK || !client) {
+        bb_log_e(TAG, "%s: post transport failed after %d attempts", url, attempts);
+        return BB_ERR_INVALID_STATE;
+    }
+
+    // Drain response body into caller buffer.
+    size_t total = 0;
+    int read_len;
+    bool truncated = false;
+    while (total + 1 < resp_cap) {
+        read_len = esp_http_client_read(client, resp + total, resp_cap - total - 1);
+        if (read_len <= 0) break;
+        total += (size_t)read_len;
+    }
+    if (total + 1 >= resp_cap) {
+        char overflow[16];
+        if (esp_http_client_read(client, overflow, sizeof(overflow)) > 0) {
+            truncated = true;
+        }
+    }
+    resp[total] = '\0';
+
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+
+    out->status_code = status;
+    out->body_len    = total;
+    out->truncated   = truncated;
+    return BB_OK;
+}

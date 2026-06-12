@@ -29,6 +29,8 @@ static mock_state_t s_mock = {
 };
 static pthread_mutex_t s_mock_lock = PTHREAD_MUTEX_INITIALIZER;
 
+static bb_http_client_post_record_t s_last_post = { .called = false };
+
 void bb_http_client_set_mock_response(const char *body, size_t body_len,
                                       int status_code)
 {
@@ -57,7 +59,16 @@ void bb_http_client_clear_mock(void)
     s_mock.body_len = 0;
     s_mock.status_code = 0;
     s_mock.transport_result = BB_ERR_INVALID_STATE;
+    s_last_post = (bb_http_client_post_record_t){ .called = false };
     pthread_mutex_unlock(&s_mock_lock);
+}
+
+bb_http_client_post_record_t bb_http_client_get_last_post(void)
+{
+    pthread_mutex_lock(&s_mock_lock);
+    bb_http_client_post_record_t rec = s_last_post;
+    pthread_mutex_unlock(&s_mock_lock);
+    return rec;
 }
 
 bb_err_t bb_http_client_get(const char *url,
@@ -133,5 +144,53 @@ bb_err_t bb_http_client_get_stream(const char *url,
     out->body_len    = total;
     out->truncated   = (cb_err == BB_ERR_NO_SPACE);
     if (cb_err != BB_OK) return cb_err;
+    return BB_OK;
+}
+
+bb_err_t bb_http_client_post(const char *url,
+                             const char *body, size_t body_len,
+                             const char *content_type,
+                             char *resp, size_t resp_cap,
+                             const bb_http_client_cfg_t *cfg,
+                             bb_http_client_result_t *out)
+{
+    if (!url || !resp || resp_cap == 0 || !out) return BB_ERR_INVALID_ARG;
+
+    pthread_mutex_lock(&s_mock_lock);
+    mock_state_t m = s_mock;
+
+    // Record the POST for test inspection.
+    s_last_post.called          = true;
+    s_last_post.method          = "POST";
+    s_last_post.url             = url;
+    s_last_post.body            = body;
+    s_last_post.body_len        = body_len;
+    s_last_post.content_type    = content_type ? content_type : "application/json";
+    s_last_post.has_client_cert = (cfg && cfg->client_cert_pem != NULL);
+    s_last_post.has_client_key  = (cfg && cfg->client_key_pem  != NULL);
+    s_last_post.has_ca_cert     = (cfg && cfg->ca_cert_pem     != NULL);
+    pthread_mutex_unlock(&s_mock_lock);
+
+    if (m.transport_result != BB_OK) {
+        out->status_code = 0;
+        out->body_len    = 0;
+        out->truncated   = false;
+        return m.transport_result;
+    }
+
+    size_t copy = m.body_len;
+    bool truncated = false;
+    if (copy >= resp_cap) {
+        copy = resp_cap - 1;
+        truncated = true;
+    }
+    if (copy > 0 && m.body) {
+        memcpy(resp, m.body, copy);
+    }
+    resp[copy] = '\0';
+
+    out->status_code = m.status_code;
+    out->body_len    = copy;
+    out->truncated   = truncated;
     return BB_OK;
 }
