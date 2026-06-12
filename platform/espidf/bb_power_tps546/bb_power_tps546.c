@@ -2,12 +2,21 @@
 #include "bb_power_driver.h"
 #include "tps546_decode.h"
 #include "bb_log.h"
+#include "esp_rom_sys.h"
 #include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "bb_power_tps546";
 
 #define OPERATION_ON   0x80u
+
+// Retry count for protection-limit writes. The TPS546 occasionally NACKs a
+// word write to 0x40/0x42/0x43 with a transient ESP_ERR_INVALID_STATE; the
+// bus self-recovers between attempts, so retrying lands the write. Without
+// this, the UV-fault floor (0x43) may never be programmed, leaving the
+// regulator on its high default threshold — a Vin transient then trips a
+// latched UV fault that collapses vcore to ~10 mV (board stops, needs cycle).
+#define BB_TPS546_WRITE_RETRIES 3
 
 // Defaults (lifted from TM init params)
 #define TPS546_DEFAULT_FREQ_KHZ   650u
@@ -74,18 +83,29 @@ static esp_err_t exec_program(i2c_master_dev_handle_t dev,
 {
     for (int i = 0; i < n; i++) {
         esp_err_t err;
-        switch (prog[i].width) {
-        case BB_TPS546_W_BYTE:
-            err = pmbus_write_byte(dev, prog[i].reg, (uint8_t)prog[i].word);
-            break;
-        case BB_TPS546_W_WORD:
-            err = pmbus_write_word(dev, prog[i].reg, prog[i].word);
-            break;
-        case BB_TPS546_W_BLOCK5:
-            err = pmbus_write_block5(dev, prog[i].reg, prog[i].block);
-            break;
-        default:
-            return ESP_ERR_INVALID_ARG; // LCOV_EXCL_LINE
+        for (int attempt = 0; attempt < BB_TPS546_WRITE_RETRIES; attempt++) {
+            if (attempt > 0) {
+                esp_rom_delay_us(500);
+            }
+            switch (prog[i].width) {
+            case BB_TPS546_W_BYTE:
+                err = pmbus_write_byte(dev, prog[i].reg, (uint8_t)prog[i].word);
+                break;
+            case BB_TPS546_W_WORD:
+                err = pmbus_write_word(dev, prog[i].reg, prog[i].word);
+                break;
+            case BB_TPS546_W_BLOCK5:
+                err = pmbus_write_block5(dev, prog[i].reg, prog[i].block);
+                break;
+            default:
+                return ESP_ERR_INVALID_ARG; // LCOV_EXCL_LINE
+            }
+            if (err == ESP_OK) {
+                if (attempt > 0) {
+                    bb_log_w(TAG, "PMBus write reg=0x%02X recovered after %d attempt(s)", prog[i].reg, attempt + 1);
+                }
+                break;
+            }
         }
         if (err != ESP_OK) {
             if (prog[i].essential) {
