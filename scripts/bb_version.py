@@ -46,7 +46,7 @@ def _short_sha(cwd):
 
 
 def _is_dirty(cwd):
-    return bool(_run_git(["status", "--porcelain"], cwd))
+    return bool(_run_git(["status", "--porcelain", "--untracked-files=no"], cwd))
 
 
 def _exact_tag(cwd):
