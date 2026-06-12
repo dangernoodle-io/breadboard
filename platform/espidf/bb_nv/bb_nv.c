@@ -1024,8 +1024,51 @@ bool bb_nv_config_creds_restored(void)
 
 #else
 
+/* ---------------------------------------------------------------------------
+ * Host in-memory string store for bb_nv_get_str / bb_nv_set_str.
+ *
+ * Provides real set/get round-trip semantics on host so components that read
+ * NVS (e.g. bb_tls_creds) can be exercised in unit tests.  Integers remain
+ * no-op stubs (tests that need integer NVS round-trips on host should be
+ * promoted to ESP-IDF target tests).
+ *
+ * Capacity is intentionally small — enough for test scenarios.
+ * --------------------------------------------------------------------------- */
+
+#define BB_NV_HOST_STR_NS_MAX   16
+#define BB_NV_HOST_STR_KEY_MAX  16
+#define BB_NV_HOST_STR_VAL_MAX  4096
+#define BB_NV_HOST_STR_ENTRIES  32
+
+typedef struct {
+    char ns [BB_NV_HOST_STR_NS_MAX];
+    char key[BB_NV_HOST_STR_KEY_MAX];
+    char val[BB_NV_HOST_STR_VAL_MAX];
+    bool used;
+} bb_nv_host_str_entry_t;
+
+static bb_nv_host_str_entry_t s_str_store[BB_NV_HOST_STR_ENTRIES];
+
+void bb_nv_host_str_store_reset(void)
+{
+    memset(s_str_store, 0, sizeof(s_str_store));
+}
+
+static bb_nv_host_str_entry_t *str_store_find(const char *ns, const char *key)
+{
+    for (int i = 0; i < BB_NV_HOST_STR_ENTRIES; i++) {
+        if (s_str_store[i].used &&
+            strncmp(s_str_store[i].ns,  ns,  BB_NV_HOST_STR_NS_MAX  - 1) == 0 &&
+            strncmp(s_str_store[i].key, key, BB_NV_HOST_STR_KEY_MAX - 1) == 0) {
+            return &s_str_store[i];
+        }
+    }
+    return NULL;
+}
+
 bb_err_t bb_nv_set_u8(const char *ns, const char *key, uint8_t value)
 {
+    (void)value;
     if (ns == NULL || key == NULL) {
         return BB_ERR_INVALID_ARG;
     }
@@ -1034,6 +1077,7 @@ bb_err_t bb_nv_set_u8(const char *ns, const char *key, uint8_t value)
 
 bb_err_t bb_nv_set_u16(const char *ns, const char *key, uint16_t value)
 {
+    (void)value;
     if (ns == NULL || key == NULL) {
         return BB_ERR_INVALID_ARG;
     }
@@ -1042,6 +1086,7 @@ bb_err_t bb_nv_set_u16(const char *ns, const char *key, uint16_t value)
 
 bb_err_t bb_nv_set_u32(const char *ns, const char *key, uint32_t value)
 {
+    (void)value;
     if (ns == NULL || key == NULL) {
         return BB_ERR_INVALID_ARG;
     }
@@ -1053,6 +1098,22 @@ bb_err_t bb_nv_set_str(const char *ns, const char *key, const char *value)
     if (ns == NULL || key == NULL || value == NULL) {
         return BB_ERR_INVALID_ARG;
     }
+    /* Update existing entry if present */
+    bb_nv_host_str_entry_t *e = str_store_find(ns, key);
+    if (!e) {
+        /* Find a free slot */
+        for (int i = 0; i < BB_NV_HOST_STR_ENTRIES; i++) {
+            if (!s_str_store[i].used) {
+                e = &s_str_store[i];
+                break;
+            }
+        }
+    }
+    if (!e) return BB_ERR_NO_SPACE; /* store full */
+    copy_str(e->ns,  ns,  sizeof(e->ns));
+    copy_str(e->key, key, sizeof(e->key));
+    copy_str(e->val, value, sizeof(e->val));
+    e->used = true;
     return BB_OK;
 }
 
@@ -1088,6 +1149,11 @@ bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, c
     if (ns == NULL || key == NULL || buf == NULL || len == 0) {
         return BB_ERR_INVALID_ARG;
     }
+    const bb_nv_host_str_entry_t *e = str_store_find(ns, key);
+    if (e) {
+        copy_str(buf, e->val, len);
+        return BB_OK;
+    }
     if (fallback == NULL) {
         buf[0] = '\0';
     } else {
@@ -1100,6 +1166,10 @@ bb_err_t bb_nv_erase(const char *ns, const char *key)
 {
     if (ns == NULL || key == NULL) {
         return BB_ERR_INVALID_ARG;
+    }
+    bb_nv_host_str_entry_t *e = str_store_find(ns, key);
+    if (e) {
+        memset(e, 0, sizeof(*e));
     }
     return BB_OK;
 }

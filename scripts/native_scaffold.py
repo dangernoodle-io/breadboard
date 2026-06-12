@@ -315,6 +315,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_i2c/bb_i2c.c"],
         "depends":  ["bb_core", "bb_log"],
     },
+    "bb_tls_creds": {
+        "includes": ["components/bb_tls_creds/include"],
+        "sources":  ["platform/host/bb_tls_creds/bb_tls_creds.c"],
+        "depends":  ["bb_core", "bb_nv", "bb_log"],
+    },
     "bb_ota_led": {
         "includes": ["components/bb_ota_hooks/include", "platform/host/bb_ota_hooks"],
         "sources":  ["platform/host/bb_ota_hooks/bb_ota_led.c"],
