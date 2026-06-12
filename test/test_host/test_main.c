@@ -2009,6 +2009,54 @@ void test_bb_pub_mqtt_tick_forwards_to_mqtt_stub(void);
 void test_bb_pub_mqtt_skipped_source_not_forwarded(void);
 void test_bb_pub_mqtt_multiple_sources_each_forwarded(void);
 
+// Forward declarations from test_bb_pub_fan.c
+void test_bb_pub_fan_publishes_expected_fields(void);
+void test_bb_pub_fan_topic_is_correct(void);
+void test_bb_pub_fan_rpm_value_present(void);
+void test_bb_pub_fan_rpm_null_when_minus_one(void);
+void test_bb_pub_fan_die_c_null_when_nan(void);
+void test_bb_pub_fan_board_c_null_when_nan(void);
+void test_bb_pub_fan_skips_when_no_primary(void);
+void test_bb_pub_fan_payload_has_ts_field(void);
+
+// Forward declarations from test_bb_pub_power.c
+void test_bb_pub_power_publishes_expected_fields(void);
+void test_bb_pub_power_topic_is_correct(void);
+void test_bb_pub_power_vout_value_present(void);
+void test_bb_pub_power_vout_null_when_minus_one(void);
+void test_bb_pub_power_temp_null_when_minus_one(void);
+void test_bb_pub_power_pout_mw_computed(void);
+void test_bb_pub_power_skips_when_no_primary(void);
+void test_bb_pub_power_payload_has_ts_field(void);
+
+// Forward declarations from test_bb_pub_thermal.c
+void test_bb_pub_thermal_publishes_soc_field(void);
+void test_bb_pub_thermal_publishes_vr_field(void);
+void test_bb_pub_thermal_publishes_asic_and_board_fields(void);
+void test_bb_pub_thermal_topic_is_correct(void);
+void test_bb_pub_thermal_skips_when_all_absent(void);
+void test_bb_pub_thermal_vr_null_when_temp_minus_one(void);
+void test_bb_pub_thermal_asic_null_when_die_nan(void);
+void test_bb_pub_thermal_payload_has_ts_field(void);
+
+// Forward declarations from test_bb_pub_info.c
+void test_bb_pub_info_always_publishes(void);
+void test_bb_pub_info_topic_is_correct(void);
+void test_bb_pub_info_has_heap_internal_free(void);
+void test_bb_pub_info_has_heap_internal_total(void);
+void test_bb_pub_info_has_psram_free(void);
+void test_bb_pub_info_has_psram_total(void);
+void test_bb_pub_info_has_uptime_ms(void);
+void test_bb_pub_info_has_version(void);
+void test_bb_pub_info_has_heap_internal_largest_block(void);
+void test_bb_pub_info_has_heap_internal_min_free(void);
+void test_bb_pub_info_has_rtc_used(void);
+void test_bb_pub_info_has_rtc_total(void);
+void test_bb_pub_info_has_flash_size(void);
+void test_bb_pub_info_has_app_size(void);
+void test_bb_pub_info_has_wdt_resets(void);
+void test_bb_pub_info_payload_has_ts_field(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_nv_host_str_store_reset();
@@ -4046,6 +4094,54 @@ int main(void) {
     RUN_TEST(test_bb_pub_mqtt_tick_forwards_to_mqtt_stub);
     RUN_TEST(test_bb_pub_mqtt_skipped_source_not_forwarded);
     RUN_TEST(test_bb_pub_mqtt_multiple_sources_each_forwarded);
+
+    // bb_pub_fan tests
+    RUN_TEST(test_bb_pub_fan_publishes_expected_fields);
+    RUN_TEST(test_bb_pub_fan_topic_is_correct);
+    RUN_TEST(test_bb_pub_fan_rpm_value_present);
+    RUN_TEST(test_bb_pub_fan_rpm_null_when_minus_one);
+    RUN_TEST(test_bb_pub_fan_die_c_null_when_nan);
+    RUN_TEST(test_bb_pub_fan_board_c_null_when_nan);
+    RUN_TEST(test_bb_pub_fan_skips_when_no_primary);
+    RUN_TEST(test_bb_pub_fan_payload_has_ts_field);
+
+    // bb_pub_power tests
+    RUN_TEST(test_bb_pub_power_publishes_expected_fields);
+    RUN_TEST(test_bb_pub_power_topic_is_correct);
+    RUN_TEST(test_bb_pub_power_vout_value_present);
+    RUN_TEST(test_bb_pub_power_vout_null_when_minus_one);
+    RUN_TEST(test_bb_pub_power_temp_null_when_minus_one);
+    RUN_TEST(test_bb_pub_power_pout_mw_computed);
+    RUN_TEST(test_bb_pub_power_skips_when_no_primary);
+    RUN_TEST(test_bb_pub_power_payload_has_ts_field);
+
+    // bb_pub_thermal tests
+    RUN_TEST(test_bb_pub_thermal_publishes_soc_field);
+    RUN_TEST(test_bb_pub_thermal_publishes_vr_field);
+    RUN_TEST(test_bb_pub_thermal_publishes_asic_and_board_fields);
+    RUN_TEST(test_bb_pub_thermal_topic_is_correct);
+    RUN_TEST(test_bb_pub_thermal_skips_when_all_absent);
+    RUN_TEST(test_bb_pub_thermal_vr_null_when_temp_minus_one);
+    RUN_TEST(test_bb_pub_thermal_asic_null_when_die_nan);
+    RUN_TEST(test_bb_pub_thermal_payload_has_ts_field);
+
+    // bb_pub_info tests
+    RUN_TEST(test_bb_pub_info_always_publishes);
+    RUN_TEST(test_bb_pub_info_topic_is_correct);
+    RUN_TEST(test_bb_pub_info_has_heap_internal_free);
+    RUN_TEST(test_bb_pub_info_has_heap_internal_total);
+    RUN_TEST(test_bb_pub_info_has_psram_free);
+    RUN_TEST(test_bb_pub_info_has_psram_total);
+    RUN_TEST(test_bb_pub_info_has_uptime_ms);
+    RUN_TEST(test_bb_pub_info_has_version);
+    RUN_TEST(test_bb_pub_info_has_heap_internal_largest_block);
+    RUN_TEST(test_bb_pub_info_has_heap_internal_min_free);
+    RUN_TEST(test_bb_pub_info_has_rtc_used);
+    RUN_TEST(test_bb_pub_info_has_rtc_total);
+    RUN_TEST(test_bb_pub_info_has_flash_size);
+    RUN_TEST(test_bb_pub_info_has_app_size);
+    RUN_TEST(test_bb_pub_info_has_wdt_resets);
+    RUN_TEST(test_bb_pub_info_payload_has_ts_field);
 
     return UNITY_END();
 }

@@ -413,6 +413,26 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_pub_mqtt/bb_pub_mqtt.c"],
         "depends":  ["bb_core", "bb_pub", "bb_mqtt"],
     },
+    "bb_pub_fan": {
+        "includes": ["components/bb_pub_fan/include"],
+        "sources":  ["platform/host/bb_pub_fan/bb_pub_fan.c"],
+        "depends":  ["bb_core", "bb_pub", "bb_fan"],
+    },
+    "bb_pub_power": {
+        "includes": ["components/bb_pub_power/include"],
+        "sources":  ["platform/host/bb_pub_power/bb_pub_power.c"],
+        "depends":  ["bb_core", "bb_pub", "bb_power"],
+    },
+    "bb_pub_thermal": {
+        "includes": ["components/bb_pub_thermal/include"],
+        "sources":  ["platform/host/bb_pub_thermal/bb_pub_thermal.c"],
+        "depends":  ["bb_core", "bb_pub", "bb_fan", "bb_power", "bb_temp"],
+    },
+    "bb_pub_info": {
+        "includes": ["components/bb_pub_info/include"],
+        "sources":  ["platform/host/bb_pub_info/bb_pub_info.c"],
+        "depends":  ["bb_core", "bb_pub", "bb_board", "bb_system", "bb_diag"],
+    },
 }
 
 
