@@ -6,6 +6,10 @@
 #include "esp_system.h"
 #include "soc/soc_caps.h"
 
+#if __has_include("bb_version_gen.h")
+#include "bb_version_gen.h"
+#endif
+
 #if SOC_TEMP_SENSOR_SUPPORTED
 #include "driver/temperature_sensor.h"
 #include <pthread.h>
@@ -88,8 +92,12 @@ bool bb_system_is_abnormal_reset(void)
 
 const char *bb_system_get_version(void)
 {
+#ifdef BB_FW_VERSION_STR
+    return BB_FW_VERSION_STR;
+#else
     const esp_app_desc_t *app = esp_app_get_description();
     return (app && app->version[0]) ? app->version : "0.0.0";
+#endif
 }
 
 void bb_system_log_boot_info(void)
