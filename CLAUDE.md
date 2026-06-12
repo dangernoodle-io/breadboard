@@ -453,6 +453,28 @@ also set `PROJECT_VER` from the same logic (embeds into `esp_app_desc.version`).
 
 **Fail-soft:** if git is unavailable, emits `dev-unknown` rather than erroring the build.
 
+## Telemetry publisher (bb_mqtt, bb_pub, bb_pub_mqtt, satellites)
+
+**`bb_mqtt`** — portable MQTT client HAL. NVS namespace `bb_mqtt`; `/api/mqtt` PATCH/GET routes; TLS via `bb_tls_creds`. `bb_mqtt_publish(h, topic, payload, len, qos, retain)`.
+
+**`bb_pub`** — transport-agnostic telemetry core. Maintains a source registry and a single `bb_pub_sink_t`. `bb_pub_register_source(subtopic, sample_fn, ctx)` adds a source; `bb_pub_tick_once()` calls each source, injects shared `ts` (uptime-ms via `bb_clock_now_ms`), and forwards serialized JSON to the sink as `<prefix>/<hostname>/<subtopic>`. Periodic worker task registered at PRE_HTTP tier (`CONFIG_BB_PUB_AUTOREGISTER`, default y). Source cap: `CONFIG_BB_PUB_MAX_SOURCES` (default 8). Testing: `BB_PUB_TESTING` enables `bb_pub_test_reset()`.
+
+**`bb_pub_mqtt`** — `bb_pub_sink_t` adapter that forwards payloads to `bb_mqtt_publish`. `bb_pub_mqtt_sink(h, &out)` fills the sink struct.
+
+**`bb_http_pub`** — `bb_pub_sink_t` adapter that publishes telemetry over HTTP via `bb_http_client_post`. Primary use-case: AWS IoT Core HTTPS publish (`https://<endpoint>:8443/topics/<encoded-topic>?qos=<n>`). NVS namespace `bb_http_pub` holds `base`, `path_tmpl` (default `/topics/{topic}?qos={qos}`), `qos` (default 1), `enabled`. TLS mutual-auth credentials resolved via `bb_tls_creds` from the same namespace. Routes: GET/PATCH `/api/httppub` via `bb_http_pub_routes` (auto-registers at order 6; masks TLS creds, reports `ca_set`/`cert_set`/`key_set`). `bb_http_pub_url_encode` percent-encodes topic strings (slash → `%2F`). Init: `bb_http_pub_init(cfg_or_null)` then `bb_http_pub_sink(&sink)`. Sources: `components/bb_http_pub/` + `platform/host/bb_http_pub/bb_http_pub.c` (compiled host + espidf); `components/bb_http_pub_routes/` + `platform/espidf/bb_http_pub_routes/bb_http_pub_routes.c` + `platform/host/bb_http_pub_routes/bb_http_pub_routes_host.c`.
+
+**Satellite sources** — each self-registers at PRE_HTTP tier (`CONFIG_BB_PUB_<X>_AUTO_ATTACH`, default y, depends on `BB_PUB_AUTOREGISTER`). Returns false (skip) when the HAL primary is absent.
+
+| Component | Subtopic | Fields |
+|-----------|----------|--------|
+| `bb_pub_fan` | `fan` | `rpm`, `duty_pct`, `die_c`, `board_c` (number or null); when `BB_FAN_AUTOFAN`: `die_ema_c`, `vr_ema_c`, `pid_input_c`, `pid_input_src` |
+| `bb_pub_power` | `power` | `vout_mv`, `iout_ma`, `pout_mw`, `vin_mv`, `temp_c` (number or null) |
+| `bb_pub_thermal` | `thermal` | `soc_c`, `vr_c`, `asic_c`, `board_c` (number or null); skips only when all HAL primaries absent |
+| `bb_pub_info` | `info` | `heap_internal_free`, `heap_internal_total`, `heap_internal_largest_block`, `heap_internal_min_free`, `psram_free`, `psram_total` (bytes), `rtc_used`, `rtc_total`, `flash_size`, `app_size`, `wdt_resets`, `uptime_ms`, `version` (string); always publishes |
+| `bb_pub_wifi` | `wifi` | `rssi` (integer dBm); skips when STA not connected (`bb_wifi_has_ip()` false) |
+
+Sources: `components/bb_pub_<x>/` (header, CMakeLists, Kconfig) + `platform/host/bb_pub_<x>/bb_pub_<x>.c` (compiled host + espidf).
+
 ## Releases
 
 Tagging is manual: `git tag -a vX.Y.Z -m 'chore: vX.Y.Z tag' && git push origin vX.Y.Z`. The `release.yml` workflow waits for CI then publishes a GitHub release with auto-generated notes categorized by PR label (`.github/release.yml`). PR labels are auto-applied from conventional-commit prefixes; `new-component` PRs need that label set manually.
