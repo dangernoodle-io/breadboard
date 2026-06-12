@@ -263,6 +263,7 @@ Config `bb_power_tps546_cfg_t`: `{ bus, addr, target_mv, switch_freq_khz, oc_lim
 - `vout_ov_fault_factor`, `vout_ov_warn_factor` — OV limits = factor × target_V (ULINEAR16)
 - `vout_margin_high`, `vout_margin_low` — margin limits = factor × target_V (ULINEAR16)
 - `vout_uv_warn_factor`, `vout_uv_fault_factor` — UV limits = factor × target_V (ULINEAR16)
+- `vout_uv_fault_response` — UV-fault response byte; 0xBF = hiccup/auto-restart (continuous retry) vs default latch-off; 0 = skip
 - `iout_oc_warn_a` — IOUT OC warn limit (A, SLINEAR11 float)
 - `ot_warn_c`, `ot_fault_c` — OT limits (°C, SLINEAR11 int)
 - `ot_fault_response` — OT fault response byte (e.g. 0xFF)

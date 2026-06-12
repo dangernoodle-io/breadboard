@@ -30,6 +30,7 @@ extern "C" {
 #define BB_PMBUS_VOUT_OV_WARN_LIMIT     0x42u
 #define BB_PMBUS_VOUT_UV_WARN_LIMIT     0x43u
 #define BB_PMBUS_VOUT_UV_FAULT_LIMIT    0x44u
+#define BB_PMBUS_VOUT_UV_FAULT_RESPONSE 0x45u
 #define BB_PMBUS_IOUT_OC_FAULT_LIMIT    0x46u
 #define BB_PMBUS_IOUT_OC_FAULT_RESPONSE 0x47u
 #define BB_PMBUS_IOUT_OC_WARN_LIMIT     0x4Au
@@ -81,6 +82,10 @@ typedef struct {
     float    vout_margin_low;        // MARGIN_LOW      = factor × target_V; 0 = skip
     float    vout_uv_warn_factor;    // UV warn limit   = factor × target_V; 0 = skip
     float    vout_uv_fault_factor;   // UV fault limit  = factor × target_V; 0 = skip
+    // VOUT UV fault response byte (0 = skip → chip default latch-off).
+    // 0xBF = shut down + continuous hiccup restart with max inter-retry delay,
+    // so a transient undervoltage self-recovers instead of latching.
+    uint8_t  vout_uv_fault_response;
 
     // IOUT (OC warn; OC fault/response come from the outer cfg fields)
     float    iout_oc_warn_a;         // IOUT OC warn limit (A, SLINEAR11); 0 = skip

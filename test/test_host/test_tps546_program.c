@@ -541,6 +541,7 @@ void test_program_zero_protect_skips_all_protection_writes(void)
     TEST_ASSERT_NULL(find_write(prog, n, BB_PMBUS_VOUT_MARGIN_LOW));
     TEST_ASSERT_NULL(find_write(prog, n, BB_PMBUS_VOUT_UV_WARN_LIMIT));
     TEST_ASSERT_NULL(find_write(prog, n, BB_PMBUS_VOUT_UV_FAULT_LIMIT));
+    TEST_ASSERT_NULL(find_write(prog, n, BB_PMBUS_VOUT_UV_FAULT_RESPONSE));
     TEST_ASSERT_NULL(find_write(prog, n, BB_PMBUS_IOUT_OC_WARN_LIMIT));
     TEST_ASSERT_NULL(find_write(prog, n, BB_PMBUS_OT_WARN_LIMIT));
     TEST_ASSERT_NULL(find_write(prog, n, BB_PMBUS_OT_FAULT_LIMIT));
@@ -558,14 +559,16 @@ void test_program_zero_protect_skips_all_protection_writes(void)
 //        < VOUT_SCALE_LOOP < VOUT_COMMAND < VOUT_MAX < VOUT_MIN
 //        < VOUT_OV_FAULT_LIMIT < VOUT_OV_WARN_LIMIT < VOUT_MARGIN_HIGH
 //        < VOUT_MARGIN_LOW < VOUT_UV_WARN_LIMIT < VOUT_UV_FAULT_LIMIT
+//        < VOUT_UV_FAULT_RESPONSE
 //        < IOUT_OC_WARN_LIMIT < IOUT_OC_FAULT_LIMIT < IOUT_OC_FAULT_RESPONSE
 //        < OT_WARN_LIMIT < OT_FAULT_LIMIT < OT_FAULT_RESPONSE < TON_RISE
 void test_program_order_matches_axeos(void)
 {
     bb_power_tps546_cfg_t cfg = make_default_family_cfg();
-    cfg.protect.stack_config   = 0x0001u; // non-zero so it appears
-    cfg.protect.phase          = 0x01u;   // non-zero so it appears (0x00=single is skip)
-    cfg.protect.iout_oc_warn_a = 25.0f;
+    cfg.protect.stack_config            = 0x0001u; // non-zero so it appears
+    cfg.protect.phase                   = 0x01u;   // non-zero so it appears (0x00=single is skip)
+    cfg.protect.iout_oc_warn_a          = 25.0f;
+    cfg.protect.vout_uv_fault_response  = 0xBFu;  // non-zero so it appears
 
     bb_tps546_write_t prog[40];
     int n = bb_power_tps546_build_init_program(&cfg, EXP_N, prog, 40);
@@ -590,6 +593,7 @@ void test_program_order_matches_axeos(void)
     int idx_vml      = find_write_idx(prog, n, BB_PMBUS_VOUT_MARGIN_LOW);
     int idx_vuvw     = find_write_idx(prog, n, BB_PMBUS_VOUT_UV_WARN_LIMIT);
     int idx_vuvf     = find_write_idx(prog, n, BB_PMBUS_VOUT_UV_FAULT_LIMIT);
+    int idx_vuvfr    = find_write_idx(prog, n, BB_PMBUS_VOUT_UV_FAULT_RESPONSE);
     int idx_ioc_warn = find_write_idx(prog, n, BB_PMBUS_IOUT_OC_WARN_LIMIT);
     int idx_ioc_flt  = find_write_idx(prog, n, BB_PMBUS_IOUT_OC_FAULT_LIMIT);
     int idx_ioc_rsp  = find_write_idx(prog, n, BB_PMBUS_IOUT_OC_FAULT_RESPONSE);
@@ -629,7 +633,8 @@ void test_program_order_matches_axeos(void)
     TEST_ASSERT_LESS_THAN_INT(idx_vml,      idx_vmh);     // vmh < vml
     TEST_ASSERT_LESS_THAN_INT(idx_vuvw,     idx_vml);     // vml < vuvw
     TEST_ASSERT_LESS_THAN_INT(idx_vuvf,     idx_vuvw);    // vuvw < vuvf
-    TEST_ASSERT_LESS_THAN_INT(idx_ioc_warn, idx_vuvf);    // vuvf < ioc_warn
+    TEST_ASSERT_LESS_THAN_INT(idx_vuvfr,   idx_vuvf);    // vuvf < vuvfr
+    TEST_ASSERT_LESS_THAN_INT(idx_ioc_warn, idx_vuvfr);   // vuvfr < ioc_warn
     TEST_ASSERT_LESS_THAN_INT(idx_ioc_flt,  idx_ioc_warn);// ioc_warn < ioc_flt
     TEST_ASSERT_LESS_THAN_INT(idx_ioc_rsp,  idx_ioc_flt); // ioc_flt < ioc_rsp
     TEST_ASSERT_LESS_THAN_INT(idx_ot_warn,  idx_ioc_rsp); // ioc_rsp < ot_warn
@@ -828,6 +833,32 @@ void test_program_ton_max_fault_response_written_when_nonzero(void)
     TEST_ASSERT_EQUAL_UINT8(BB_TPS546_W_BYTE, w->width);
     TEST_ASSERT_EQUAL_UINT8(0xB0u, (uint8_t)w->word);
     TEST_ASSERT_FALSE(w->essential);
+}
+
+// VOUT_UV_FAULT_RESPONSE: emitted when non-zero (0xBF = hiccup/auto-restart)
+void test_program_vout_uv_fault_response_written_when_nonzero(void)
+{
+    bb_power_tps546_cfg_t cfg = make_default_family_cfg();
+    cfg.protect.vout_uv_fault_response = 0xBFu;
+
+    bb_tps546_write_t prog[40];
+    int n = bb_power_tps546_build_init_program(&cfg, EXP_N, prog, 40);
+    const bb_tps546_write_t *w = find_write(prog, n, BB_PMBUS_VOUT_UV_FAULT_RESPONSE);
+    TEST_ASSERT_NOT_NULL(w);
+    TEST_ASSERT_EQUAL_UINT8(BB_TPS546_W_BYTE, w->width);
+    TEST_ASSERT_EQUAL_UINT8(0xBFu, (uint8_t)w->word);
+    TEST_ASSERT_FALSE(w->essential);
+}
+
+// VOUT_UV_FAULT_RESPONSE: NOT emitted when zero (default latch-off preserved)
+void test_program_vout_uv_fault_response_skipped_when_zero(void)
+{
+    bb_power_tps546_cfg_t cfg = make_default_family_cfg();
+    // vout_uv_fault_response not set (zero by default in make_default_family_cfg)
+
+    bb_tps546_write_t prog[40];
+    int n = bb_power_tps546_build_init_program(&cfg, EXP_N, prog, 40);
+    TEST_ASSERT_NULL(find_write(prog, n, BB_PMBUS_VOUT_UV_FAULT_RESPONSE));
 }
 
 // Buffer overflow at emit_byte_ex: force overflow on an essential byte write
