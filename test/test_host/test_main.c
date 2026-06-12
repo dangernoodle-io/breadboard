@@ -1759,6 +1759,24 @@ void test_bb_http_client_stream_cb_error_propagated(void);
 void test_bb_http_client_stream_404_status_code(void);
 void test_bb_http_client_stream_cfg_honored(void);
 
+// Forward declarations from test_bb_http_client_post.c
+void test_bb_http_client_post_null_url_returns_invalid_arg(void);
+void test_bb_http_client_post_null_resp_returns_invalid_arg(void);
+void test_bb_http_client_post_zero_resp_cap_returns_invalid_arg(void);
+void test_bb_http_client_post_null_out_returns_invalid_arg(void);
+void test_bb_http_client_post_no_mock_returns_invalid_state(void);
+void test_bb_http_client_post_transport_error_returns_passthrough(void);
+void test_bb_http_client_post_captures_method_url_body(void);
+void test_bb_http_client_post_default_content_type_is_application_json(void);
+void test_bb_http_client_post_content_type_override(void);
+void test_bb_http_client_post_no_cfg_no_tls_fields(void);
+void test_bb_http_client_post_cfg_with_client_cert_key_recorded(void);
+void test_bb_http_client_post_cfg_partial_no_client_key(void);
+void test_bb_http_client_post_404_status_returned(void);
+void test_bb_http_client_post_response_truncated(void);
+void test_bb_http_client_post_empty_response_body(void);
+void test_bb_http_client_post_clear_mock_resets_record(void);
+
 // Forward declarations from test_bb_mqtt.c
 void test_bb_mqtt_publish_captures_topic(void);
 void test_bb_mqtt_publish_captures_payload(void);
@@ -3805,6 +3823,24 @@ int main(void) {
     RUN_TEST(test_bb_http_client_stream_cb_error_propagated);
     RUN_TEST(test_bb_http_client_stream_404_status_code);
     RUN_TEST(test_bb_http_client_stream_cfg_honored);
+
+    // bb_http_client_post tests
+    RUN_TEST(test_bb_http_client_post_null_url_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_post_null_resp_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_post_zero_resp_cap_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_post_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_post_no_mock_returns_invalid_state);
+    RUN_TEST(test_bb_http_client_post_transport_error_returns_passthrough);
+    RUN_TEST(test_bb_http_client_post_captures_method_url_body);
+    RUN_TEST(test_bb_http_client_post_default_content_type_is_application_json);
+    RUN_TEST(test_bb_http_client_post_content_type_override);
+    RUN_TEST(test_bb_http_client_post_no_cfg_no_tls_fields);
+    RUN_TEST(test_bb_http_client_post_cfg_with_client_cert_key_recorded);
+    RUN_TEST(test_bb_http_client_post_cfg_partial_no_client_key);
+    RUN_TEST(test_bb_http_client_post_404_status_returned);
+    RUN_TEST(test_bb_http_client_post_response_truncated);
+    RUN_TEST(test_bb_http_client_post_empty_response_body);
+    RUN_TEST(test_bb_http_client_post_clear_mock_resets_record);
 
     // bb_update_check tests
     RUN_TEST(test_bb_update_check_init_idempotent);

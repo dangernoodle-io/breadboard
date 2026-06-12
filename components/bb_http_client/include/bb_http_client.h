@@ -7,10 +7,10 @@
 #endif
 
 // Minimum FreeRTOS task stack size (bytes) for any task that calls
-// bb_http_client_get or bb_http_client_get_stream. Covers the mbedTLS
-// handshake + cert-bundle parse path. Pass to xTaskCreate so the budget
-// stays consistent across consumers (bb_ota_pull, bb_update_check, ...).
-// Override via CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE.
+// bb_http_client_get, bb_http_client_get_stream, or bb_http_client_post.
+// Covers the mbedTLS handshake + cert-bundle parse path. Pass to xTaskCreate
+// so the budget stays consistent across consumers (bb_ota_pull,
+// bb_update_check, ...). Override via CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE.
 #ifndef BB_HTTP_CLIENT_TASK_STACK
 #  if defined(CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE)
 #    define BB_HTTP_CLIENT_TASK_STACK CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE
@@ -42,6 +42,12 @@ typedef struct {
     uint16_t buffer_size;      // internal client receive buffer; 0 -> 4096
     const char *user_agent;    // NULL -> "bb_http_client/0.1"
     const char *accept_header; // NULL -> "*/*"
+    // TLS overrides — all NULL means use ESP public cert bundle (default).
+    // Set ca_cert_pem to override CA/server verification (PEM string).
+    // Set client_cert_pem + client_key_pem for mutual TLS (both required).
+    const char *ca_cert_pem;      // server/CA cert PEM override; NULL => crt_bundle_attach
+    const char *client_cert_pem;  // client cert PEM for mutual TLS (optional)
+    const char *client_key_pem;   // client private key PEM for mutual TLS (optional)
 } bb_http_client_cfg_t;
 
 typedef struct {
@@ -90,6 +96,28 @@ bb_err_t bb_http_client_get_stream(const char *url,
                                    bb_http_client_chunk_cb cb, void *ctx,
                                    const bb_http_client_cfg_t *cfg,
                                    bb_http_client_result_t *out);
+
+// Perform an HTTP POST to `url`, sending `body` (length `body_len`) with the
+// given `content_type` (NULL => "application/json"). The response body is
+// buffered into caller-supplied `resp` (capacity `resp_cap`); `out` receives
+// the status code, response length, and truncation flag.
+//
+// TLS configuration is taken from cfg->ca_cert_pem / cfg->client_cert_pem /
+// cfg->client_key_pem.  All NULL => public cert bundle (default).
+//
+// cfg may be NULL to use defaults.
+//
+// Returns:
+//   BB_OK              — transport completed; check out->status_code for HTTP status
+//   BB_ERR_INVALID_ARG — NULL url / resp / out, or zero resp_cap
+//   BB_ERR_INVALID_STATE — transport failed after all retries
+//   BB_ERR_UNSUPPORTED — platform stub (Arduino today)
+bb_err_t bb_http_client_post(const char *url,
+                             const char *body, size_t body_len,
+                             const char *content_type,
+                             char *resp, size_t resp_cap,
+                             const bb_http_client_cfg_t *cfg,
+                             bb_http_client_result_t *out);
 
 #ifdef __cplusplus
 }
