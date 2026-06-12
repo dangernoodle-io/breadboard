@@ -48,6 +48,10 @@ bb_err_t bb_nv_config_set_timezone(const char *tz);
 // Test hook: force the next bb_nv_config_set_update_check_enabled call to fail.
 // Reset to false after the test.
 void bb_nv_config_host_force_set_update_check_fail(bool fail);
+
+// Test hook: clear the in-memory string store used by host bb_nv_get_str /
+// bb_nv_set_str.  Call from setUp() to prevent cross-test leakage.
+void bb_nv_host_str_store_reset(void);
 #endif
 
 #ifdef ESP_PLATFORM

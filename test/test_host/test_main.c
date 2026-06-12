@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "../../components/bb_log/src/bb_log_internal.h"
+#include "bb_nv.h"
 #include "bb_mdns_host_test_hooks.h"
 #include "bb_event_test.h"
 #include "../../components/bb_event_ring/bb_event_ring_internal.h"
@@ -1925,8 +1926,24 @@ void test_anim_detach_null_returns_invalid_arg(void);
 void test_anim_auto_start_timer_fires(void);
 void test_anim_no_auto_start_timer_does_not_fire(void);
 
+// Forward declarations from test_bb_tls_creds.c
+void test_bb_tls_creds_override_ca_beats_nvs(void);
+void test_bb_tls_creds_override_all_fields(void);
+void test_bb_tls_creds_nvs_used_when_no_override(void);
+void test_bb_tls_creds_nvs_partial_only_ca(void);
+void test_bb_tls_creds_nvs_skipped_when_ns_null(void);
+void test_bb_tls_creds_all_absent_returns_ok_null_buffers(void);
+void test_bb_tls_creds_null_out_returns_invalid_arg(void);
+void test_bb_tls_creds_free_zeroes_fields(void);
+void test_bb_tls_creds_free_null_is_safe(void);
+void test_bb_tls_creds_free_double_free_safe(void);
+void test_bb_tls_creds_buffers_are_independent_copies(void);
+void test_bb_tls_creds_override_buffer_is_copy(void);
+void test_bb_tls_creds_len_matches_strlen(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
+    bb_nv_host_str_store_reset();
     bb_mdns_host_reset();
     wifi_reconn_policy_test_reset();
     bb_mdns_lifecycle_test_reset();
@@ -3878,6 +3895,21 @@ int main(void) {
     RUN_TEST(test_bb_wdt_subscribe_increments_counter);
     RUN_TEST(test_bb_wdt_unsubscribe_increments_counter);
     RUN_TEST(test_bb_wdt_set_timeout_noop_on_host);
+
+    // bb_tls_creds tests
+    RUN_TEST(test_bb_tls_creds_override_ca_beats_nvs);
+    RUN_TEST(test_bb_tls_creds_override_all_fields);
+    RUN_TEST(test_bb_tls_creds_nvs_used_when_no_override);
+    RUN_TEST(test_bb_tls_creds_nvs_partial_only_ca);
+    RUN_TEST(test_bb_tls_creds_nvs_skipped_when_ns_null);
+    RUN_TEST(test_bb_tls_creds_all_absent_returns_ok_null_buffers);
+    RUN_TEST(test_bb_tls_creds_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_tls_creds_free_zeroes_fields);
+    RUN_TEST(test_bb_tls_creds_free_null_is_safe);
+    RUN_TEST(test_bb_tls_creds_free_double_free_safe);
+    RUN_TEST(test_bb_tls_creds_buffers_are_independent_copies);
+    RUN_TEST(test_bb_tls_creds_override_buffer_is_copy);
+    RUN_TEST(test_bb_tls_creds_len_matches_strlen);
 
     return UNITY_END();
 }
