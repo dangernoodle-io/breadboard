@@ -1,0 +1,12 @@
+menu "breadboard: bb_pub_power"
+
+config BB_PUB_POWER_AUTO_ATTACH
+    bool "Auto-register power telemetry source with bb_pub"
+    default y
+    depends on BB_PUB_AUTOREGISTER
+    help
+        When enabled, bb_pub_power self-registers at the PRE_HTTP tier (after
+        bb_pub) so power readings are published on every bb_pub tick under
+        the "power" subtopic. Disable to call bb_pub_power_register() manually.
+
+endmenu
