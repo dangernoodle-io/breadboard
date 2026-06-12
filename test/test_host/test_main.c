@@ -2039,6 +2039,14 @@ void test_bb_pub_thermal_vr_null_when_temp_minus_one(void);
 void test_bb_pub_thermal_asic_null_when_die_nan(void);
 void test_bb_pub_thermal_payload_has_ts_field(void);
 
+// Forward declarations from test_bb_pub_wifi.c
+void test_bb_pub_wifi_skips_when_disconnected(void);
+void test_bb_pub_wifi_publishes_when_connected(void);
+void test_bb_pub_wifi_topic_is_correct(void);
+void test_bb_pub_wifi_has_rssi_field(void);
+void test_bb_pub_wifi_rssi_value_correct(void);
+void test_bb_pub_wifi_payload_has_ts_field(void);
+
 // Forward declarations from test_bb_pub_info.c
 void test_bb_pub_info_always_publishes(void);
 void test_bb_pub_info_topic_is_correct(void);
@@ -4124,6 +4132,14 @@ int main(void) {
     RUN_TEST(test_bb_pub_thermal_vr_null_when_temp_minus_one);
     RUN_TEST(test_bb_pub_thermal_asic_null_when_die_nan);
     RUN_TEST(test_bb_pub_thermal_payload_has_ts_field);
+
+    // bb_pub_wifi tests
+    RUN_TEST(test_bb_pub_wifi_skips_when_disconnected);
+    RUN_TEST(test_bb_pub_wifi_publishes_when_connected);
+    RUN_TEST(test_bb_pub_wifi_topic_is_correct);
+    RUN_TEST(test_bb_pub_wifi_has_rssi_field);
+    RUN_TEST(test_bb_pub_wifi_rssi_value_correct);
+    RUN_TEST(test_bb_pub_wifi_payload_has_ts_field);
 
     // bb_pub_info tests
     RUN_TEST(test_bb_pub_info_always_publishes);
