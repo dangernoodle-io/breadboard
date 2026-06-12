@@ -1,4 +1,5 @@
 #include "unity.h"
+#include "bb_pub.h"
 #include "../../components/bb_log/src/bb_log_internal.h"
 #include "bb_nv.h"
 #include "bb_mdns_host_test_hooks.h"
@@ -1985,6 +1986,29 @@ void test_bb_tls_creds_buffers_are_independent_copies(void);
 void test_bb_tls_creds_override_buffer_is_copy(void);
 void test_bb_tls_creds_len_matches_strlen(void);
 
+// Forward declarations from test_bb_pub.c
+void test_bb_pub_tick_no_sink_is_noop(void);
+void test_bb_pub_tick_no_sources_is_noop(void);
+void test_bb_pub_single_source_produces_one_publish(void);
+void test_bb_pub_topic_format_is_prefix_hostname_subtopic(void);
+void test_bb_pub_payload_contains_source_field(void);
+void test_bb_pub_payload_contains_ts_field(void);
+void test_bb_pub_multiple_sources_each_produce_publish(void);
+void test_bb_pub_source_returning_false_is_skipped(void);
+void test_bb_pub_max_sources_plus_one_returns_no_space(void);
+void test_bb_pub_swap_sink_routes_to_new_sink(void);
+void test_bb_pub_null_subtopic_returns_invalid_arg(void);
+void test_bb_pub_null_fn_returns_invalid_arg(void);
+void test_bb_pub_set_sink_null_clears_sink(void);
+
+// Forward declarations from test_bb_pub_mqtt.c
+void test_bb_pub_mqtt_sink_null_handle_returns_invalid_arg(void);
+void test_bb_pub_mqtt_sink_null_out_returns_invalid_arg(void);
+void test_bb_pub_mqtt_sink_returns_ok(void);
+void test_bb_pub_mqtt_tick_forwards_to_mqtt_stub(void);
+void test_bb_pub_mqtt_skipped_source_not_forwarded(void);
+void test_bb_pub_mqtt_multiple_sources_each_forwarded(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_nv_host_str_store_reset();
@@ -2015,6 +2039,7 @@ void setUp(void) {
     bb_health_reset_for_test();
     bb_health_stack_reset_for_test();
     bb_wdt_test_reset();
+    bb_pub_test_reset();
 }
 void tearDown(void) {}
 
@@ -3998,6 +4023,29 @@ int main(void) {
     RUN_TEST(test_bb_tls_creds_buffers_are_independent_copies);
     RUN_TEST(test_bb_tls_creds_override_buffer_is_copy);
     RUN_TEST(test_bb_tls_creds_len_matches_strlen);
+
+    // bb_pub tests
+    RUN_TEST(test_bb_pub_tick_no_sink_is_noop);
+    RUN_TEST(test_bb_pub_tick_no_sources_is_noop);
+    RUN_TEST(test_bb_pub_single_source_produces_one_publish);
+    RUN_TEST(test_bb_pub_topic_format_is_prefix_hostname_subtopic);
+    RUN_TEST(test_bb_pub_payload_contains_source_field);
+    RUN_TEST(test_bb_pub_payload_contains_ts_field);
+    RUN_TEST(test_bb_pub_multiple_sources_each_produce_publish);
+    RUN_TEST(test_bb_pub_source_returning_false_is_skipped);
+    RUN_TEST(test_bb_pub_max_sources_plus_one_returns_no_space);
+    RUN_TEST(test_bb_pub_swap_sink_routes_to_new_sink);
+    RUN_TEST(test_bb_pub_null_subtopic_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_null_fn_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_set_sink_null_clears_sink);
+
+    // bb_pub_mqtt tests
+    RUN_TEST(test_bb_pub_mqtt_sink_null_handle_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_mqtt_sink_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_mqtt_sink_returns_ok);
+    RUN_TEST(test_bb_pub_mqtt_tick_forwards_to_mqtt_stub);
+    RUN_TEST(test_bb_pub_mqtt_skipped_source_not_forwarded);
+    RUN_TEST(test_bb_pub_mqtt_multiple_sources_each_forwarded);
 
     return UNITY_END();
 }

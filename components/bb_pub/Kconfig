@@ -1,0 +1,34 @@
+menu "breadboard: bb_pub"
+
+config BB_PUB_MAX_SOURCES
+    int "Maximum number of registered telemetry sources"
+    default 8
+    range 1 64
+    help
+        Capacity of the source registry. Attempting to register more sources
+        than this returns BB_ERR_NO_SPACE. A high-watermark warning is logged
+        when the registry reaches capacity minus one.
+
+config BB_PUB_TOPIC_PREFIX
+    string "MQTT topic prefix for published telemetry"
+    default "metrics"
+    help
+        The first segment of the publish topic:
+          <BB_PUB_TOPIC_PREFIX>/<hostname>/<subtopic>
+
+config BB_PUB_INTERVAL_MS
+    int "Telemetry publish interval in milliseconds"
+    default 10000
+    range 1000 3600000
+    help
+        How often bb_pub fires the sample+publish cycle on ESP-IDF (via
+        bb_timer periodic). Not used on host (call bb_pub_tick_once() directly).
+
+config BB_PUB_AUTOREGISTER
+    bool "Auto-register bb_pub init via bb_registry (PRE_HTTP tier)"
+    default y
+    help
+        When enabled, bb_pub self-registers at the PRE_HTTP tier, which starts
+        the periodic worker task. Disable to call bb_pub_start manually.
+
+endmenu
