@@ -1,0 +1,23 @@
+menu "breadboard: bb_mqtt"
+
+config BB_MQTT_AUTOREGISTER
+    bool "Auto-register MQTT client init via bb_registry (EARLY tier)"
+    default y
+    help
+        When enabled, bb_mqtt self-registers at the EARLY tier. On init it reads
+        NVS namespace "bb_mqtt" for uri/client_id/username/password/enabled and,
+        when enabled=1, connects to the broker. Disable to call bb_mqtt_init
+        manually.
+
+config BB_MQTT_KEEPALIVE
+    int "MQTT keepalive interval in seconds"
+    default 120
+    range 10 3600
+    help
+        MQTT keepalive sent to the broker. If the broker closes the connection
+        after this many seconds of inactivity, esp-mqtt will reconnect
+        automatically (unless disable_auto_reconnect is set).
+        Note: CONFIG_MQTT_TASK_STACK_SIZE may need to be raised to 6144 or
+        higher when TLS is enabled (mbedTLS handshake requires ~5-8 KB stack).
+
+endmenu

@@ -1,0 +1,12 @@
+menu "breadboard: bb_mqtt_routes"
+
+config BB_MQTT_ROUTES_AUTOREGISTER
+    bool "Auto-register /api/mqtt HTTP routes via bb_registry"
+    default y
+    help
+        When enabled, bb_mqtt_routes self-registers GET and PATCH /api/mqtt
+        through bb_registry at order 5. Disable to call bb_mqtt_routes_init
+        manually, or omit the call entirely if your app defines its own
+        /api/mqtt handler.
+
+endmenu

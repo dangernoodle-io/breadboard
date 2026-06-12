@@ -1758,6 +1758,50 @@ void test_bb_http_client_stream_cb_error_propagated(void);
 void test_bb_http_client_stream_404_status_code(void);
 void test_bb_http_client_stream_cfg_honored(void);
 
+// Forward declarations from test_bb_mqtt.c
+void test_bb_mqtt_publish_captures_topic(void);
+void test_bb_mqtt_publish_captures_payload(void);
+void test_bb_mqtt_publish_captures_qos_retain(void);
+void test_bb_mqtt_publish_count_increments(void);
+void test_bb_mqtt_publish_last_is_most_recent(void);
+void test_bb_mqtt_publish_explicit_len(void);
+void test_bb_mqtt_host_reset_clears_pubs(void);
+void test_bb_mqtt_init_client_id_null_uses_hostname(void);
+void test_bb_mqtt_init_client_id_override(void);
+void test_bb_mqtt_init_client_id_empty_broker_assigned(void);
+void test_bb_mqtt_is_connected_default_true(void);
+void test_bb_mqtt_is_connected_set_false(void);
+void test_bb_mqtt_is_connected_set_true(void);
+void test_bb_mqtt_is_connected_null_returns_false(void);
+void test_bb_mqtt_init_null_cfg_returns_invalid_arg(void);
+void test_bb_mqtt_init_null_out_returns_invalid_arg(void);
+void test_bb_mqtt_destroy_null_is_safe(void);
+void test_bb_mqtt_default_returns_null_initially(void);
+void test_bb_mqtt_default_returns_set_handle(void);
+void test_bb_mqtt_default_cleared_by_set_null(void);
+
+// Forward declarations from test_bb_mqtt_routes.c
+void test_bb_mqtt_routes_get_empty_nvs(void);
+void test_bb_mqtt_routes_get_masks_password(void);
+void test_bb_mqtt_routes_get_password_empty_when_not_set(void);
+void test_bb_mqtt_routes_get_ca_set_true_when_nvs_has_ca(void);
+void test_bb_mqtt_routes_get_ca_set_false_when_not_in_nvs(void);
+void test_bb_mqtt_routes_get_cert_set_and_key_set_flags(void);
+void test_bb_mqtt_routes_get_connected_from_client(void);
+void test_bb_mqtt_routes_get_connected_false_when_disconnected(void);
+void test_bb_mqtt_routes_get_connected_via_default(void);
+void test_bb_mqtt_routes_get_connected_false_via_default_when_disconnected(void);
+void test_bb_mqtt_routes_patch_persists_uri(void);
+void test_bb_mqtt_routes_patch_persists_client_id(void);
+void test_bb_mqtt_routes_patch_persists_username(void);
+void test_bb_mqtt_routes_patch_persists_password(void);
+void test_bb_mqtt_routes_patch_persists_tls_ca(void);
+void test_bb_mqtt_routes_patch_persists_enabled(void);
+void test_bb_mqtt_routes_patch_persists_tls_flag(void);
+void test_bb_mqtt_routes_patch_partial_update_leaves_others(void);
+void test_bb_mqtt_routes_patch_no_body_400(void);
+void test_bb_mqtt_routes_patch_invalid_json_400(void);
+
 // Forward declarations from test_bb_update_check.c
 void test_bb_update_check_init_idempotent(void);
 void test_bb_update_check_init_with_cfg_uses_overrides(void);
@@ -3895,6 +3939,50 @@ int main(void) {
     RUN_TEST(test_bb_wdt_subscribe_increments_counter);
     RUN_TEST(test_bb_wdt_unsubscribe_increments_counter);
     RUN_TEST(test_bb_wdt_set_timeout_noop_on_host);
+
+    // bb_mqtt tests
+    RUN_TEST(test_bb_mqtt_publish_captures_topic);
+    RUN_TEST(test_bb_mqtt_publish_captures_payload);
+    RUN_TEST(test_bb_mqtt_publish_captures_qos_retain);
+    RUN_TEST(test_bb_mqtt_publish_count_increments);
+    RUN_TEST(test_bb_mqtt_publish_last_is_most_recent);
+    RUN_TEST(test_bb_mqtt_publish_explicit_len);
+    RUN_TEST(test_bb_mqtt_host_reset_clears_pubs);
+    RUN_TEST(test_bb_mqtt_init_client_id_null_uses_hostname);
+    RUN_TEST(test_bb_mqtt_init_client_id_override);
+    RUN_TEST(test_bb_mqtt_init_client_id_empty_broker_assigned);
+    RUN_TEST(test_bb_mqtt_is_connected_default_true);
+    RUN_TEST(test_bb_mqtt_is_connected_set_false);
+    RUN_TEST(test_bb_mqtt_is_connected_set_true);
+    RUN_TEST(test_bb_mqtt_is_connected_null_returns_false);
+    RUN_TEST(test_bb_mqtt_init_null_cfg_returns_invalid_arg);
+    RUN_TEST(test_bb_mqtt_init_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_mqtt_destroy_null_is_safe);
+    RUN_TEST(test_bb_mqtt_default_returns_null_initially);
+    RUN_TEST(test_bb_mqtt_default_returns_set_handle);
+    RUN_TEST(test_bb_mqtt_default_cleared_by_set_null);
+
+    // bb_mqtt_routes tests
+    RUN_TEST(test_bb_mqtt_routes_get_empty_nvs);
+    RUN_TEST(test_bb_mqtt_routes_get_masks_password);
+    RUN_TEST(test_bb_mqtt_routes_get_password_empty_when_not_set);
+    RUN_TEST(test_bb_mqtt_routes_get_ca_set_true_when_nvs_has_ca);
+    RUN_TEST(test_bb_mqtt_routes_get_ca_set_false_when_not_in_nvs);
+    RUN_TEST(test_bb_mqtt_routes_get_cert_set_and_key_set_flags);
+    RUN_TEST(test_bb_mqtt_routes_get_connected_from_client);
+    RUN_TEST(test_bb_mqtt_routes_get_connected_false_when_disconnected);
+    RUN_TEST(test_bb_mqtt_routes_get_connected_via_default);
+    RUN_TEST(test_bb_mqtt_routes_get_connected_false_via_default_when_disconnected);
+    RUN_TEST(test_bb_mqtt_routes_patch_persists_uri);
+    RUN_TEST(test_bb_mqtt_routes_patch_persists_client_id);
+    RUN_TEST(test_bb_mqtt_routes_patch_persists_username);
+    RUN_TEST(test_bb_mqtt_routes_patch_persists_password);
+    RUN_TEST(test_bb_mqtt_routes_patch_persists_tls_ca);
+    RUN_TEST(test_bb_mqtt_routes_patch_persists_enabled);
+    RUN_TEST(test_bb_mqtt_routes_patch_persists_tls_flag);
+    RUN_TEST(test_bb_mqtt_routes_patch_partial_update_leaves_others);
+    RUN_TEST(test_bb_mqtt_routes_patch_no_body_400);
+    RUN_TEST(test_bb_mqtt_routes_patch_invalid_json_400);
 
     // bb_tls_creds tests
     RUN_TEST(test_bb_tls_creds_override_ca_beats_nvs);
