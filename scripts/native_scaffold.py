@@ -433,6 +433,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_pub_info/bb_pub_info.c"],
         "depends":  ["bb_core", "bb_pub", "bb_board", "bb_system", "bb_diag"],
     },
+    "bb_pub_wifi": {
+        "includes": ["components/bb_pub_wifi/include"],
+        "sources":  ["platform/host/bb_pub_wifi/bb_pub_wifi.c"],
+        "depends":  ["bb_core", "bb_pub", "bb_wifi"],
+    },
 }
 
 
