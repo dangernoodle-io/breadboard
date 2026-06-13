@@ -388,6 +388,16 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t sess,
     return BB_OK;
 }
 
+bb_err_t bb_http_client_session_set_header(bb_http_client_session_t sess,
+                                           const char *name,
+                                           const char *value)
+{
+    if (!sess || !name || !value) return BB_ERR_INVALID_ARG;
+    espidf_session_t *s = (espidf_session_t *)sess;
+    esp_err_t err = esp_http_client_set_header(s->client, name, value);
+    return (err == ESP_OK) ? BB_OK : BB_ERR_INVALID_STATE;
+}
+
 void bb_http_client_session_close(bb_http_client_session_t sess)
 {
     if (!sess) return;
