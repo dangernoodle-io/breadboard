@@ -45,6 +45,31 @@ typedef struct {
 // The record is reset by bb_http_client_clear_mock().
 bb_http_client_post_record_t bb_http_client_get_last_post(void);
 
+// -------------------------------------------------------------------------
+// Session capture — populated by each bb_http_client_session_post call.
+// Strings point into caller-supplied buffers; safe to read until the
+// next session_post or clear_mock call.
+// -------------------------------------------------------------------------
+typedef struct {
+    bool        called;
+    const char *url;
+    const char *body;          // pointer into caller's body arg (may be NULL)
+    size_t      body_len;
+    const char *content_type;  // effective content-type (never NULL after a call)
+    int         canned_status; // status returned by session_post (set via hook)
+} bb_http_client_session_record_t;
+
+// Set the canned HTTP status code returned by session_post (default: 200).
+// Also sets transport_result to BB_OK implicitly.
+void bb_http_client_session_set_mock_status(int status_code);
+
+// Force the next session_post call to return a transport error.
+void bb_http_client_session_set_mock_transport_error(bb_err_t err);
+
+// Return the capture record from the last bb_http_client_session_post call.
+// Reset by bb_http_client_clear_mock().
+bb_http_client_session_record_t bb_http_client_session_last_post(void);
+
 #ifdef __cplusplus
 }
 #endif

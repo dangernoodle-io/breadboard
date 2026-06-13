@@ -304,3 +304,97 @@ bb_err_t bb_http_client_post(const char *url,
     out->truncated   = truncated;
     return BB_OK;
 }
+
+// ---------------------------------------------------------------------------
+// Reusable keep-alive session
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    esp_http_client_handle_t client;
+} espidf_session_t;
+
+bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
+                                     const char *url_base,
+                                     bb_http_client_session_t *out)
+{
+    if (!url_base || !out) return BB_ERR_INVALID_ARG;
+
+    uint32_t timeout_ms = (cfg && cfg->timeout_ms)   ? cfg->timeout_ms   : CONFIG_BB_HTTP_CLIENT_DEFAULT_TIMEOUT_MS;
+    uint16_t buf_size   = (cfg && cfg->buffer_size)  ? cfg->buffer_size  : 4096;
+    const char *ua      = (cfg && cfg->user_agent)   ? cfg->user_agent   : "bb_http_client/0.1";
+    const char *ca_pem  = (cfg && cfg->ca_cert_pem)  ? cfg->ca_cert_pem  : NULL;
+
+    espidf_session_t *s = (espidf_session_t *)calloc(1, sizeof(espidf_session_t));
+    if (!s) return BB_ERR_NO_SPACE;
+
+    esp_http_client_config_t config = {
+        .url                = url_base,
+        .method             = HTTP_METHOD_POST,
+        .keep_alive_enable  = true,
+        .crt_bundle_attach  = (ca_pem == NULL) ? esp_crt_bundle_attach : NULL,
+        .cert_pem           = ca_pem,
+        .client_cert_pem    = (cfg && cfg->client_cert_pem) ? cfg->client_cert_pem : NULL,
+        .client_key_pem     = (cfg && cfg->client_key_pem)  ? cfg->client_key_pem  : NULL,
+        .timeout_ms         = (int)timeout_ms,
+        .user_agent         = ua,
+        .buffer_size        = buf_size,
+    };
+
+    s->client = esp_http_client_init(&config);
+    if (!s->client) {
+        free(s);
+        return BB_ERR_INVALID_STATE;
+    }
+
+    *out = (bb_http_client_session_t)s;
+    return BB_OK;
+}
+
+bb_err_t bb_http_client_session_post(bb_http_client_session_t sess,
+                                     const char *url,
+                                     const char *body, size_t body_len,
+                                     const char *content_type,
+                                     bb_http_client_result_t *out)
+{
+    if (!sess || !url || !out) return BB_ERR_INVALID_ARG;
+    espidf_session_t *s = (espidf_session_t *)sess;
+
+    const char *ct = content_type ? content_type : "application/json";
+
+    esp_http_client_set_url(s->client, url);
+    esp_http_client_set_header(s->client, "Content-Type", ct);
+    esp_http_client_set_post_field(s->client, body, (int)body_len);
+
+    esp_err_t err = esp_http_client_perform(s->client);
+    if (err != ESP_OK) {
+        bb_log_w(TAG, "session POST %s: perform error %d", url, err);
+        out->status_code = 0;
+        out->body_len    = 0;
+        out->truncated   = false;
+        return BB_ERR_INVALID_STATE;
+    }
+
+    int status = esp_http_client_get_status_code(s->client);
+    out->status_code = status;
+    out->body_len    = 0;
+    out->truncated   = false;
+
+    if (status < 200 || status >= 300) {
+        bb_log_w(TAG, "session POST %s: HTTP %d", url, status);
+        return BB_ERR_INVALID_STATE;
+    }
+
+    bb_log_d(TAG, "session POST %s -> %d", url, status);
+    return BB_OK;
+}
+
+void bb_http_client_session_close(bb_http_client_session_t sess)
+{
+    if (!sess) return;
+    espidf_session_t *s = (espidf_session_t *)sess;
+    if (s->client) {
+        esp_http_client_cleanup(s->client);
+        s->client = NULL;
+    }
+    free(s);
+}

@@ -1,9 +1,11 @@
 // Tests for bb_http_pub:
 // - url_encode: slash → %2F, unreserved chars pass through
 // - sink publish() builds expected URL (base + path_template substitution)
-//   and calls bb_http_client_post — verified via bb_http_client_get_last_post
+//   and calls bb_http_client_session_post — verified via
+//   bb_http_client_session_last_post (session API, not one-shot post)
 // - custom path_tmpl override
 // - disabled → no POST
+// - session reused across multiple publishes (same handle, not re-opened)
 #include "unity.h"
 #include "bb_http_pub.h"
 #include "bb_nv.h"
@@ -25,7 +27,7 @@ static void reset_state(void)
 
 static void set_mock_200(void)
 {
-    bb_http_client_set_mock_response("{}", 2, 200);
+    bb_http_client_session_set_mock_status(200);
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +111,8 @@ void test_bb_http_pub_sink_builds_url_with_default_template(void)
     rc = sink.publish(sink.ctx, topic, payload, (int)strlen(payload));
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
-    bb_http_client_post_record_t rec = bb_http_client_get_last_post();
+    // Verify via session record (not one-shot post record).
+    bb_http_client_session_record_t rec = bb_http_client_session_last_post();
     TEST_ASSERT_TRUE(rec.called);
 
     // URL must contain the encoded topic (slashes → %2F)
@@ -145,7 +148,7 @@ void test_bb_http_pub_sink_custom_path_template(void)
     bb_err_t rc = sink.publish(sink.ctx, topic, payload, (int)strlen(payload));
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
-    bb_http_client_post_record_t rec = bb_http_client_get_last_post();
+    bb_http_client_session_record_t rec = bb_http_client_session_last_post();
     TEST_ASSERT_TRUE(rec.called);
     // URL should use custom template path, topic encoded
     TEST_ASSERT_NOT_NULL(strstr(rec.url, "/publish/test%2Fdata"));
@@ -156,7 +159,7 @@ void test_bb_http_pub_sink_custom_path_template(void)
 void test_bb_http_pub_sink_disabled_no_post(void)
 {
     reset_state();
-    // No mock needed — disabled path must not call bb_http_client_post.
+    // No mock needed — disabled path must not call session_post.
 
     bb_http_pub_cfg_t cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -173,7 +176,7 @@ void test_bb_http_pub_sink_disabled_no_post(void)
     bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
-    bb_http_client_post_record_t rec = bb_http_client_get_last_post();
+    bb_http_client_session_record_t rec = bb_http_client_session_last_post();
     TEST_ASSERT_FALSE(rec.called);
 }
 
@@ -181,4 +184,86 @@ void test_bb_http_pub_sink_null_out_returns_invalid_arg(void)
 {
     bb_err_t rc = bb_http_pub_sink(NULL);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
+}
+
+// ---------------------------------------------------------------------------
+// Session reuse: multiple publishes share ONE session (no new socket/conn)
+// ---------------------------------------------------------------------------
+
+void test_bb_http_pub_session_reused_across_publishes(void)
+{
+    reset_state();
+    set_mock_200();
+
+    bb_http_pub_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com:8443", sizeof(cfg.base) - 1);
+    cfg.qos     = 1;
+    cfg.enabled = true;
+
+    bb_http_pub_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_http_pub_sink(&sink);
+
+    // Two separate publishes — both must succeed via the same session.
+    bb_err_t rc = sink.publish(sink.ctx, "t/one", "{\"n\":1}", 6);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    bb_http_client_session_record_t rec1 = bb_http_client_session_last_post();
+    TEST_ASSERT_TRUE(rec1.called);
+    TEST_ASSERT_NOT_NULL(strstr(rec1.url, "t%2Fone"));
+
+    rc = sink.publish(sink.ctx, "t/two", "{\"n\":2}", 6);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    bb_http_client_session_record_t rec2 = bb_http_client_session_last_post();
+    TEST_ASSERT_TRUE(rec2.called);
+    TEST_ASSERT_NOT_NULL(strstr(rec2.url, "t%2Ftwo"));
+    // one-shot post record must remain uncalled (session path, not post path)
+    bb_http_client_post_record_t post_rec = bb_http_client_get_last_post();
+    TEST_ASSERT_FALSE(post_rec.called);
+}
+
+// ---------------------------------------------------------------------------
+// Session invalidated on config change
+// ---------------------------------------------------------------------------
+
+void test_bb_http_pub_session_invalidated_on_set_cfg(void)
+{
+    reset_state();
+    set_mock_200();
+
+    bb_http_pub_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://original.example.com:8443", sizeof(cfg.base) - 1);
+    cfg.qos     = 1;
+    cfg.enabled = true;
+
+    bb_http_pub_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_http_pub_sink(&sink);
+
+    // First publish opens the session.
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    // Change config — session must close and reopen on next publish.
+    bb_http_pub_cfg_t cfg2;
+    memset(&cfg2, 0, sizeof(cfg2));
+    strncpy(cfg2.base, "https://new.example.com:8443", sizeof(cfg2.base) - 1);
+    cfg2.qos     = 0;
+    cfg2.enabled = true;
+    bb_http_pub_set_cfg(&cfg2);
+
+    rc = sink.publish(sink.ctx, "t/y", "{}", 2);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    bb_http_client_session_record_t rec = bb_http_client_session_last_post();
+    TEST_ASSERT_TRUE(rec.called);
+    // URL should now use the new base.
+    TEST_ASSERT_NOT_NULL(strstr(rec.url, "new.example.com"));
 }

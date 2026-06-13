@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 typedef struct {
     const char *body;       // borrowed; tests typically pass a string literal
@@ -30,6 +31,21 @@ static mock_state_t s_mock = {
 static pthread_mutex_t s_mock_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static bb_http_client_post_record_t s_last_post = { .called = false };
+
+// ---------------------------------------------------------------------------
+// Session mock state (declared early so clear_mock can reference them)
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    int      canned_status;
+    bb_err_t transport_result;
+} session_mock_state_t;
+
+static session_mock_state_t s_session_mock = {
+    .canned_status    = 200,
+    .transport_result = BB_OK,
+};
+static bb_http_client_session_record_t s_session_last = { .called = false };
 
 void bb_http_client_set_mock_response(const char *body, size_t body_len,
                                       int status_code)
@@ -60,7 +76,89 @@ void bb_http_client_clear_mock(void)
     s_mock.status_code = 0;
     s_mock.transport_result = BB_ERR_INVALID_STATE;
     s_last_post = (bb_http_client_post_record_t){ .called = false };
+    s_session_mock.canned_status    = 200;
+    s_session_mock.transport_result = BB_OK;
+    s_session_last = (bb_http_client_session_record_t){ .called = false };
     pthread_mutex_unlock(&s_mock_lock);
+}
+
+void bb_http_client_session_set_mock_status(int status_code)
+{
+    pthread_mutex_lock(&s_mock_lock);
+    s_session_mock.canned_status    = status_code;
+    s_session_mock.transport_result = BB_OK;
+    pthread_mutex_unlock(&s_mock_lock);
+}
+
+void bb_http_client_session_set_mock_transport_error(bb_err_t err)
+{
+    pthread_mutex_lock(&s_mock_lock);
+    s_session_mock.transport_result = err;
+    pthread_mutex_unlock(&s_mock_lock);
+}
+
+bb_http_client_session_record_t bb_http_client_session_last_post(void)
+{
+    pthread_mutex_lock(&s_mock_lock);
+    bb_http_client_session_record_t rec = s_session_last;
+    pthread_mutex_unlock(&s_mock_lock);
+    return rec;
+}
+
+// Session handle — opaque struct; on host just holds the url_base string.
+typedef struct {
+    char url_base[256];
+} host_session_t;
+
+bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
+                                     const char *url_base,
+                                     bb_http_client_session_t *out)
+{
+    (void)cfg;
+    if (!url_base || !out) return BB_ERR_INVALID_ARG;
+    host_session_t *s = (host_session_t *)calloc(1, sizeof(host_session_t));
+    if (!s) return BB_ERR_NO_SPACE;
+    strncpy(s->url_base, url_base, sizeof(s->url_base) - 1);
+    *out = (bb_http_client_session_t)s;
+    return BB_OK;
+}
+
+bb_err_t bb_http_client_session_post(bb_http_client_session_t s,
+                                     const char *url,
+                                     const char *body, size_t body_len,
+                                     const char *content_type,
+                                     bb_http_client_result_t *out)
+{
+    if (!s || !url || !out) return BB_ERR_INVALID_ARG;
+
+    pthread_mutex_lock(&s_mock_lock);
+    session_mock_state_t m = s_session_mock;
+
+    s_session_last.called       = true;
+    s_session_last.url          = url;
+    s_session_last.body         = body;
+    s_session_last.body_len     = body_len;
+    s_session_last.content_type = content_type ? content_type : "application/json";
+    s_session_last.canned_status = m.canned_status;
+    pthread_mutex_unlock(&s_mock_lock);
+
+    if (m.transport_result != BB_OK) {
+        out->status_code = 0;
+        out->body_len    = 0;
+        out->truncated   = false;
+        return m.transport_result;
+    }
+
+    out->status_code = m.canned_status;
+    out->body_len    = 0;
+    out->truncated   = false;
+    return BB_OK;
+}
+
+void bb_http_client_session_close(bb_http_client_session_t s)
+{
+    if (!s) return;
+    free(s);
 }
 
 bb_http_client_post_record_t bb_http_client_get_last_post(void)

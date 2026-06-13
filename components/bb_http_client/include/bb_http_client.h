@@ -119,6 +119,51 @@ bb_err_t bb_http_client_post(const char *url,
                              const bb_http_client_cfg_t *cfg,
                              bb_http_client_result_t *out);
 
+// ---------------------------------------------------------------------------
+// Reusable keep-alive session API
+//
+// A session wraps a single persistent TCP (or TLS) connection to one host.
+// The connection is established lazily on the first bb_http_client_session_post
+// call and reused across subsequent posts — no new socket per call.
+//
+// Typical use: one session per telemetry sink (bb_http_pub), opened once and
+// kept alive for the module lifetime.  On transport error, the handle remains
+// valid; the next post attempt will reconnect automatically.
+//
+// cfg may be NULL to use defaults.  TLS fields in cfg (ca_cert_pem,
+// client_cert_pem, client_key_pem) are read once at session_open time and
+// must remain valid until session_close.
+// ---------------------------------------------------------------------------
+
+typedef void *bb_http_client_session_t;
+
+// Open a reusable keep-alive session.  Does not connect immediately; the
+// connection is established on the first session_post call.
+//
+// Returns:
+//   BB_OK              — *out is a valid (non-NULL) session handle
+//   BB_ERR_INVALID_ARG — NULL url_base or out
+//   BB_ERR_NO_SPACE    — allocation failure
+bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
+                                     const char *url_base,
+                                     bb_http_client_session_t *out);
+
+// POST body to url over the reused connection.  The response body is ignored
+// (publisher doesn't need it).  out->status_code is set on transport success.
+//
+// Returns:
+//   BB_OK                — transport completed; check out->status_code
+//   BB_ERR_INVALID_ARG   — NULL s, url, or out
+//   BB_ERR_INVALID_STATE — transport or HTTP error
+bb_err_t bb_http_client_session_post(bb_http_client_session_t s,
+                                     const char *url,
+                                     const char *body, size_t body_len,
+                                     const char *content_type,
+                                     bb_http_client_result_t *out);
+
+// Close the session and release all resources.  Safe to call with NULL.
+void bb_http_client_session_close(bb_http_client_session_t s);
+
 #ifdef __cplusplus
 }
 #endif

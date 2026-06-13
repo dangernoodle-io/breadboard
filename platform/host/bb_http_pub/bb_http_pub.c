@@ -21,8 +21,10 @@ static const char *TAG = "bb_http_pub";
 // Module state
 // ---------------------------------------------------------------------------
 
-static bb_http_pub_cfg_t s_cfg;
-static bool              s_initialized = false;
+static bb_http_pub_cfg_t         s_cfg;
+static bool                      s_initialized = false;
+static bb_http_client_session_t  s_session      = NULL;
+static bb_tls_creds_t            s_creds;        // kept alive for session lifetime
 
 // ---------------------------------------------------------------------------
 // NVS helpers
@@ -141,6 +143,49 @@ static size_t build_url(const bb_http_pub_cfg_t *cfg,
 }
 
 // ---------------------------------------------------------------------------
+// Session lifecycle helpers
+// ---------------------------------------------------------------------------
+
+static void session_close(void)
+{
+    if (s_session) {
+        bb_http_client_session_close(s_session);
+        s_session = NULL;
+    }
+    bb_tls_creds_free(&s_creds);
+}
+
+// Ensure the session is open.  Opens lazily on first call; resolves TLS
+// credentials once and keeps them alive for the session lifetime.
+static bb_err_t session_ensure(void)
+{
+    if (s_session) return BB_OK;
+
+    memset(&s_creds, 0, sizeof(s_creds));
+    bb_err_t rc = bb_tls_creds_resolve(BB_HTTP_PUB_NVS_NS, NULL, &s_creds);
+    if (rc != BB_OK) {
+        bb_log_e(TAG, "tls_creds_resolve failed: %d", rc);
+        return rc;
+    }
+
+    bb_http_client_cfg_t http_cfg;
+    memset(&http_cfg, 0, sizeof(http_cfg));
+    http_cfg.ca_cert_pem     = s_creds.ca;
+    http_cfg.client_cert_pem = s_creds.cert;
+    http_cfg.client_key_pem  = s_creds.key;
+
+    rc = bb_http_client_session_open(&http_cfg, s_cfg.base, &s_session);
+    if (rc != BB_OK) {
+        bb_log_e(TAG, "session_open failed: %d", rc);
+        bb_tls_creds_free(&s_creds);
+        return rc;
+    }
+
+    bb_log_i(TAG, "session opened to %s", s_cfg.base);
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
 // Sink publish function
 // ---------------------------------------------------------------------------
 
@@ -160,45 +205,24 @@ static bb_err_t http_pub_publish(void *ctx,
         return BB_OK;
     }
 
-    // Build URL.
+    // Build URL for this topic.
     char url[BB_HTTP_PUB_BASE_MAX + BB_HTTP_PUB_PATH_MAX + 512];
     if (!build_url(&s_cfg, topic, url, sizeof(url))) {
         bb_log_e(TAG, "url build failed (base or path too long)");
         return BB_ERR_INVALID_ARG;
     }
 
-    // Resolve TLS credentials.
-    bb_tls_creds_t creds;
-    memset(&creds, 0, sizeof(creds));
-    bb_err_t rc = bb_tls_creds_resolve(BB_HTTP_PUB_NVS_NS, NULL, &creds);
-    if (rc != BB_OK) {
-        bb_log_e(TAG, "tls_creds_resolve failed: %d", rc);
-        return rc;
-    }
+    // Ensure one reusable session is open (lazy open, keep-alive).
+    bb_err_t rc = session_ensure();
+    if (rc != BB_OK) return rc;
 
-    bb_http_client_cfg_t http_cfg;
-    memset(&http_cfg, 0, sizeof(http_cfg));
-    http_cfg.ca_cert_pem     = creds.ca;
-    http_cfg.client_cert_pem = creds.cert;
-    http_cfg.client_key_pem  = creds.key;
-
-    char resp[CONFIG_BB_HTTP_PUB_RESP_BUF_BYTES];
     bb_http_client_result_t out;
-    rc = bb_http_client_post(url, payload, (size_t)len,
-                              "application/json",
-                              resp, sizeof(resp),
-                              &http_cfg, &out);
-
-    bb_tls_creds_free(&creds);
-
+    rc = bb_http_client_session_post(s_session, url, payload, (size_t)len,
+                                      "application/json", &out);
     if (rc != BB_OK) {
-        bb_log_e(TAG, "POST transport error: %d", rc);
+        bb_log_e(TAG, "session POST transport error: %d", rc);
+        // Keep the handle; perform() reconnects on next call.
         return rc;
-    }
-
-    if (out.status_code < 200 || out.status_code >= 300) {
-        bb_log_w(TAG, "POST returned status %d", out.status_code);
-        return BB_ERR_INVALID_STATE;
     }
 
     bb_log_d(TAG, "published to %s -> %d", url, out.status_code);
@@ -211,6 +235,9 @@ static bb_err_t http_pub_publish(void *ctx,
 
 bb_err_t bb_http_pub_init(const bb_http_pub_cfg_t *over)
 {
+    // Close any existing session — config may have changed.
+    session_close();
+
     load_from_nvs(&s_cfg);
 
     if (over) {
@@ -241,6 +268,8 @@ void bb_http_pub_get_cfg(bb_http_pub_cfg_t *out)
 bb_err_t bb_http_pub_set_cfg(const bb_http_pub_cfg_t *cfg)
 {
     if (!cfg) return BB_ERR_INVALID_ARG;
+    // Config changed — close the session so the next publish reopens with new creds/base.
+    session_close();
     s_cfg = *cfg;
     save_to_nvs(cfg);
     return BB_OK;

@@ -1810,6 +1810,22 @@ void test_bb_http_pub_sink_builds_url_with_default_template(void);
 void test_bb_http_pub_sink_custom_path_template(void);
 void test_bb_http_pub_sink_disabled_no_post(void);
 void test_bb_http_pub_sink_null_out_returns_invalid_arg(void);
+void test_bb_http_pub_session_reused_across_publishes(void);
+void test_bb_http_pub_session_invalidated_on_set_cfg(void);
+
+// Forward declarations from test_bb_http_client_session.c
+void test_bb_http_client_session_open_null_url_base_returns_invalid_arg(void);
+void test_bb_http_client_session_open_null_out_returns_invalid_arg(void);
+void test_bb_http_client_session_open_succeeds(void);
+void test_bb_http_client_session_post_null_session_returns_invalid_arg(void);
+void test_bb_http_client_session_post_null_url_returns_invalid_arg(void);
+void test_bb_http_client_session_post_null_out_returns_invalid_arg(void);
+void test_bb_http_client_session_close_null_is_safe(void);
+void test_bb_http_client_session_post_captures_url_body_content_type(void);
+void test_bb_http_client_session_post_default_content_type_application_json(void);
+void test_bb_http_client_session_post_transport_error_passthrough(void);
+void test_bb_http_client_session_post_2xx_returns_ok(void);
+void test_bb_http_client_session_clear_mock_resets_record(void);
 
 // Forward declarations from test_bb_update_check.c
 void test_bb_update_check_init_idempotent(void);
@@ -4157,6 +4173,22 @@ int main(void) {
     RUN_TEST(test_bb_http_pub_sink_custom_path_template);
     RUN_TEST(test_bb_http_pub_sink_disabled_no_post);
     RUN_TEST(test_bb_http_pub_sink_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_http_pub_session_reused_across_publishes);
+    RUN_TEST(test_bb_http_pub_session_invalidated_on_set_cfg);
+
+    // bb_http_client session tests
+    RUN_TEST(test_bb_http_client_session_open_null_url_base_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_session_open_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_session_open_succeeds);
+    RUN_TEST(test_bb_http_client_session_post_null_session_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_session_post_null_url_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_session_post_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_http_client_session_close_null_is_safe);
+    RUN_TEST(test_bb_http_client_session_post_captures_url_body_content_type);
+    RUN_TEST(test_bb_http_client_session_post_default_content_type_application_json);
+    RUN_TEST(test_bb_http_client_session_post_transport_error_passthrough);
+    RUN_TEST(test_bb_http_client_session_post_2xx_returns_ok);
+    RUN_TEST(test_bb_http_client_session_clear_mock_resets_record);
 
     // bb_pub tests
     RUN_TEST(test_bb_pub_tick_no_sink_is_noop);
