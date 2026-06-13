@@ -15,9 +15,9 @@
 #include <string.h>
 #include <stdio.h>
 
-// CONFIG_BB_PUB_MAX_SOURCES, CONFIG_BB_PUB_MAX_SINKS, and
-// CONFIG_BB_PUB_TOPIC_PREFIX are provided by Kconfig on ESP-IDF; supply
-// defaults for host builds.
+// CONFIG_BB_PUB_MAX_SOURCES, CONFIG_BB_PUB_MAX_SINKS,
+// CONFIG_BB_PUB_TOPIC_PREFIX, and CONFIG_BB_PUB_INTERVAL_MS are provided by
+// Kconfig on ESP-IDF; supply defaults for host builds.
 #ifndef CONFIG_BB_PUB_MAX_SOURCES
 #define CONFIG_BB_PUB_MAX_SOURCES 8
 #endif
@@ -27,6 +27,18 @@
 #ifndef CONFIG_BB_PUB_TOPIC_PREFIX
 #define CONFIG_BB_PUB_TOPIC_PREFIX "metrics"
 #endif
+#ifndef CONFIG_BB_PUB_INTERVAL_MS
+#define CONFIG_BB_PUB_INTERVAL_MS 10000
+#endif
+
+// Interval bounds (must match Kconfig range).
+#define BB_PUB_INTERVAL_MS_MIN   1000UL
+#define BB_PUB_INTERVAL_MS_MAX   3600000UL
+
+// NVS namespace and keys used by bb_pub for its own persistent config.
+#define BB_PUB_NVS_NS           "bb_pub"
+#define BB_PUB_NVS_KEY_INTERVAL "interval_ms"
+#define BB_PUB_NVS_KEY_ENABLED  "enabled"
 
 static const char *TAG = "bb_pub";
 
@@ -46,6 +58,30 @@ static bool            s_hwm_warned     = false;
 
 static bb_pub_sink_t   s_sinks[CONFIG_BB_PUB_MAX_SINKS];
 static int             s_sink_count     = 0;
+
+// ---------------------------------------------------------------------------
+// Runtime config (NVS-persisted)
+// ---------------------------------------------------------------------------
+
+// Effective interval in ms; loaded from NVS at first get, default = compile-time.
+static uint32_t s_interval_ms  = 0;   /* 0 = not yet loaded */
+// Persistent enable toggle; 1 = enabled (default).
+static uint8_t  s_enabled      = 1;
+// Whether s_interval_ms has been loaded from NVS.
+static bool     s_config_loaded = false;
+
+// Optional hook for live timer re-arm; set by the ESP-IDF worker.
+static void (*s_interval_apply_hook)(uint32_t ms) = NULL;
+
+// Load interval + enabled from NVS into the in-RAM cache (idempotent).
+static void ensure_config_loaded(void)
+{
+    if (s_config_loaded) return;
+    bb_nv_get_u32(BB_PUB_NVS_NS, BB_PUB_NVS_KEY_INTERVAL, &s_interval_ms,
+                  (uint32_t)CONFIG_BB_PUB_INTERVAL_MS);
+    bb_nv_get_u8(BB_PUB_NVS_NS, BB_PUB_NVS_KEY_ENABLED, &s_enabled, 1);
+    s_config_loaded = true;
+}
 
 // ---------------------------------------------------------------------------
 // Pause state
@@ -133,6 +169,55 @@ bb_err_t bb_pub_register_source(const char *subtopic, bb_pub_sample_fn fn, void 
 }
 
 // ---------------------------------------------------------------------------
+// Public API — interval + enabled
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_pub_set_interval_ms(uint32_t ms)
+{
+    if (ms < BB_PUB_INTERVAL_MS_MIN || ms > BB_PUB_INTERVAL_MS_MAX) {
+        return BB_ERR_INVALID_ARG;
+    }
+    ensure_config_loaded();
+    s_interval_ms = ms;
+    bb_err_t err = bb_nv_set_u32(BB_PUB_NVS_NS, BB_PUB_NVS_KEY_INTERVAL, ms);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "set_interval_ms: NVS write failed: %d", err);
+    }
+    if (s_interval_apply_hook) {
+        s_interval_apply_hook(ms);
+    }
+    return BB_OK;
+}
+
+uint32_t bb_pub_get_interval_ms(void)
+{
+    ensure_config_loaded();
+    return s_interval_ms;
+}
+
+bb_err_t bb_pub_set_enabled(bool en)
+{
+    ensure_config_loaded();
+    s_enabled = en ? 1u : 0u;
+    bb_err_t err = bb_nv_set_u8(BB_PUB_NVS_NS, BB_PUB_NVS_KEY_ENABLED, s_enabled);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "set_enabled: NVS write failed: %d", err);
+    }
+    return BB_OK;
+}
+
+bool bb_pub_is_enabled(void)
+{
+    ensure_config_loaded();
+    return s_enabled != 0;
+}
+
+void bb_pub_set_interval_apply_hook(void (*hook)(uint32_t ms))
+{
+    s_interval_apply_hook = hook;
+}
+
+// ---------------------------------------------------------------------------
 // Public API — pause / resume
 // ---------------------------------------------------------------------------
 
@@ -157,8 +242,10 @@ bool bb_pub_is_paused(void)
 
 bb_err_t bb_pub_tick_once(void)
 {
-    if (s_paused)      return BB_OK;
-    if (s_sink_count == 0) return BB_OK;
+    ensure_config_loaded();
+    if (!bb_pub_is_enabled()) return BB_OK;
+    if (s_paused)              return BB_OK;
+    if (s_sink_count == 0)     return BB_OK;
 
     // Take ONE timestamp for the entire cycle.
     uint32_t ts_ms = bb_clock_now_ms();
@@ -237,12 +324,17 @@ bb_err_t bb_pub_tick_once(void)
 #ifdef BB_PUB_TESTING
 void bb_pub_test_reset(void)
 {
-    s_source_count    = 0;
-    s_hwm_warned      = false;
-    s_sink_count      = 0;
-    s_last_publish_ok = false;
-    s_last_publish_ms = 0;
-    s_published_ever  = false;
-    s_paused          = false;
+    s_source_count      = 0;
+    s_hwm_warned        = false;
+    s_sink_count        = 0;
+    s_last_publish_ok   = false;
+    s_last_publish_ms   = 0;
+    s_published_ever    = false;
+    s_paused            = false;
+    // Reset runtime config to defaults.
+    s_interval_ms       = (uint32_t)CONFIG_BB_PUB_INTERVAL_MS;
+    s_enabled           = 1;
+    s_config_loaded     = true;   /* bypass NVS for tests */
+    s_interval_apply_hook = NULL;
 }
 #endif

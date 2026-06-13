@@ -114,13 +114,57 @@ typedef struct {
 bb_err_t bb_pub_get_status(bb_pub_status_t *out);
 
 // ---------------------------------------------------------------------------
-// Pause / resume
+// Runtime configuration — interval and enable toggle
+// ---------------------------------------------------------------------------
+
+/**
+ * Set the publish interval. Persists to NVS (namespace "bb_pub", key
+ * "interval_ms") and, on ESP-IDF, re-arms the periodic timer immediately so
+ * the new period takes effect without reboot.
+ *
+ * Valid range: 1000 ms .. 3 600 000 ms (1 s .. 1 hr). Returns
+ * BB_ERR_INVALID_ARG for 0 or any value outside that range.
+ *
+ * Note: the ESP-IDF timer re-arm path requires on-hardware confirmation; the
+ * host build updates the in-RAM value only (no timer to re-arm).
+ */
+bb_err_t bb_pub_set_interval_ms(uint32_t ms);
+
+/**
+ * Return the current effective publish interval in milliseconds. Defaults to
+ * CONFIG_BB_PUB_INTERVAL_MS when NVS is empty.
+ */
+uint32_t bb_pub_get_interval_ms(void);
+
+/**
+ * Enable or disable the publisher persistently (NVS namespace "bb_pub", key
+ * "enabled"). When disabled, bb_pub_tick_once is a cheap no-op regardless of
+ * the pause/resume state. Persists across reboots.
+ *
+ * DISTINCTION from pause/resume: `enabled` is a persistent config toggle
+ * (user-controlled, survives reboot). `pause/resume` is a transient,
+ * in-memory gate for short-lived quiescing (e.g. during OTA). Both gates are
+ * independent: a tick publishes ONLY when enabled=true AND not paused.
+ */
+bb_err_t bb_pub_set_enabled(bool en);
+
+/**
+ * Return true if the publisher is currently enabled (NVS-persisted flag,
+ * default true). Independent from the pause state; see bb_pub_set_enabled.
+ */
+bool bb_pub_is_enabled(void);
+
+// ---------------------------------------------------------------------------
+// Pause / resume  (transient, in-memory — see bb_pub_set_enabled for the
+//                  persistent enabled flag)
 // ---------------------------------------------------------------------------
 
 /**
  * Pause publishing. While paused, bb_pub_tick_once returns BB_OK immediately
  * without calling any source sample_fn or sink publish. Idempotent.
  * Safe to call from any context (e.g. an OTA pause hook).
+ *
+ * Gating: a tick publishes only when enabled=true AND not paused.
  */
 void bb_pub_pause(void);
 
@@ -159,10 +203,18 @@ bb_err_t bb_pub_tick_once(void);
 
 #ifdef BB_PUB_TESTING
 
-/** Reset source registry and all sinks to empty state. */
+/** Reset source registry, all sinks, and interval/enabled to defaults. */
 void bb_pub_test_reset(void);
 
 #endif /* BB_PUB_TESTING */
+
+/**
+ * Register a hook called by bb_pub_set_interval_ms after the new value is
+ * stored. On ESP-IDF the worker registers this hook at start-up to re-arm the
+ * periodic timer; the host build leaves it NULL. Passing NULL clears the hook.
+ * This symbol is always available (not gated on BB_PUB_TESTING).
+ */
+void bb_pub_set_interval_apply_hook(void (*hook)(uint32_t ms));
 
 #ifdef __cplusplus
 }

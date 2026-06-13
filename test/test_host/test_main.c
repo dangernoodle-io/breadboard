@@ -2054,6 +2054,23 @@ void test_bb_pub_is_paused_reflects_state(void);
 void test_bb_pub_pause_is_idempotent(void);
 void test_bb_pub_resume_from_not_paused_is_safe(void);
 void test_bb_pub_test_reset_clears_paused(void);
+void test_bb_pub_interval_default_is_compile_time(void);
+void test_bb_pub_set_interval_ms_updates_getter(void);
+void test_bb_pub_set_interval_ms_min_bound_accepted(void);
+void test_bb_pub_set_interval_ms_max_bound_accepted(void);
+void test_bb_pub_set_interval_ms_zero_rejected(void);
+void test_bb_pub_set_interval_ms_below_min_rejected(void);
+void test_bb_pub_set_interval_ms_above_max_rejected(void);
+void test_bb_pub_test_reset_clears_interval_to_default(void);
+void test_bb_pub_is_enabled_true_by_default(void);
+void test_bb_pub_set_enabled_false_makes_tick_noop(void);
+void test_bb_pub_set_enabled_true_resumes_publishing(void);
+void test_bb_pub_enabled_false_not_paused_is_noop(void);
+void test_bb_pub_enabled_true_paused_is_noop(void);
+void test_bb_pub_enabled_true_not_paused_publishes(void);
+void test_bb_pub_test_reset_clears_enabled_to_default(void);
+void test_bb_pub_interval_apply_hook_called_on_set(void);
+void test_bb_pub_interval_apply_hook_not_called_on_invalid(void);
 
 // Forward declarations from test_bb_telemetry.c
 void test_bb_telemetry_register_ok(void);
@@ -2132,6 +2149,18 @@ void test_bb_pub_telemetry_get_last_publish_age_minus1_when_never(void);
 void test_bb_pub_telemetry_get_last_publish_age_nonneg_after_tick(void);
 void test_bb_pub_telemetry_get_last_publish_ok_false_with_failing_sink(void);
 void test_bb_pub_telemetry_get_last_publish_ok_true_with_good_sink(void);
+void test_bb_pub_telemetry_get_has_enabled(void);
+void test_bb_pub_telemetry_get_interval_ms_reflects_default(void);
+void test_bb_pub_telemetry_get_enabled_true_by_default(void);
+void test_bb_pub_telemetry_patch_interval_ms_updates_getter(void);
+void test_bb_pub_telemetry_patch_interval_ms_reflected_in_get(void);
+void test_bb_pub_telemetry_patch_interval_ms_zero_rejected(void);
+void test_bb_pub_telemetry_patch_interval_ms_below_min_rejected(void);
+void test_bb_pub_telemetry_patch_interval_ms_above_max_rejected(void);
+void test_bb_pub_telemetry_patch_enabled_false_persists(void);
+void test_bb_pub_telemetry_patch_enabled_true_persists(void);
+void test_bb_pub_telemetry_patch_enabled_reflected_in_get(void);
+void test_bb_pub_telemetry_patch_partial_only_changes_present_fields(void);
 
 // Forward declarations from test_bb_sink_mqtt.c
 void test_bb_sink_mqtt_null_handle_returns_invalid_arg(void);
@@ -4295,6 +4324,23 @@ int main(void) {
     RUN_TEST(test_bb_pub_pause_is_idempotent);
     RUN_TEST(test_bb_pub_resume_from_not_paused_is_safe);
     RUN_TEST(test_bb_pub_test_reset_clears_paused);
+    RUN_TEST(test_bb_pub_interval_default_is_compile_time);
+    RUN_TEST(test_bb_pub_set_interval_ms_updates_getter);
+    RUN_TEST(test_bb_pub_set_interval_ms_min_bound_accepted);
+    RUN_TEST(test_bb_pub_set_interval_ms_max_bound_accepted);
+    RUN_TEST(test_bb_pub_set_interval_ms_zero_rejected);
+    RUN_TEST(test_bb_pub_set_interval_ms_below_min_rejected);
+    RUN_TEST(test_bb_pub_set_interval_ms_above_max_rejected);
+    RUN_TEST(test_bb_pub_test_reset_clears_interval_to_default);
+    RUN_TEST(test_bb_pub_is_enabled_true_by_default);
+    RUN_TEST(test_bb_pub_set_enabled_false_makes_tick_noop);
+    RUN_TEST(test_bb_pub_set_enabled_true_resumes_publishing);
+    RUN_TEST(test_bb_pub_enabled_false_not_paused_is_noop);
+    RUN_TEST(test_bb_pub_enabled_true_paused_is_noop);
+    RUN_TEST(test_bb_pub_enabled_true_not_paused_publishes);
+    RUN_TEST(test_bb_pub_test_reset_clears_enabled_to_default);
+    RUN_TEST(test_bb_pub_interval_apply_hook_called_on_set);
+    RUN_TEST(test_bb_pub_interval_apply_hook_not_called_on_invalid);
 
     // bb_telemetry tests
     RUN_TEST(test_bb_telemetry_register_ok);
@@ -4373,6 +4419,18 @@ int main(void) {
     RUN_TEST(test_bb_pub_telemetry_get_last_publish_age_nonneg_after_tick);
     RUN_TEST(test_bb_pub_telemetry_get_last_publish_ok_false_with_failing_sink);
     RUN_TEST(test_bb_pub_telemetry_get_last_publish_ok_true_with_good_sink);
+    RUN_TEST(test_bb_pub_telemetry_get_has_enabled);
+    RUN_TEST(test_bb_pub_telemetry_get_interval_ms_reflects_default);
+    RUN_TEST(test_bb_pub_telemetry_get_enabled_true_by_default);
+    RUN_TEST(test_bb_pub_telemetry_patch_interval_ms_updates_getter);
+    RUN_TEST(test_bb_pub_telemetry_patch_interval_ms_reflected_in_get);
+    RUN_TEST(test_bb_pub_telemetry_patch_interval_ms_zero_rejected);
+    RUN_TEST(test_bb_pub_telemetry_patch_interval_ms_below_min_rejected);
+    RUN_TEST(test_bb_pub_telemetry_patch_interval_ms_above_max_rejected);
+    RUN_TEST(test_bb_pub_telemetry_patch_enabled_false_persists);
+    RUN_TEST(test_bb_pub_telemetry_patch_enabled_true_persists);
+    RUN_TEST(test_bb_pub_telemetry_patch_enabled_reflected_in_get);
+    RUN_TEST(test_bb_pub_telemetry_patch_partial_only_changes_present_fields);
 
     // bb_sink_mqtt tests
     RUN_TEST(test_bb_sink_mqtt_null_handle_returns_invalid_arg);

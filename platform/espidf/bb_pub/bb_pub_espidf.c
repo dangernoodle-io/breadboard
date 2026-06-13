@@ -18,11 +18,9 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 
-static const char *TAG = "bb_pub";
+#include <inttypes.h>
 
-#ifndef CONFIG_BB_PUB_INTERVAL_MS
-#define CONFIG_BB_PUB_INTERVAL_MS 10000
-#endif
+static const char *TAG = "bb_pub";
 
 // Worker task stack in bytes. Tunable via CONFIG_BB_PUB_WORKER_STACK (Kconfig).
 // Default 8192: covers mbedTLS handshake for HTTP/TLS sinks (bb_sink_http).
@@ -53,6 +51,19 @@ static void timer_cb(void *arg)
     if (s_kick) xSemaphoreGive(s_kick);
 }
 
+// Hook called by bb_pub_set_interval_ms when a new interval is persisted.
+// Re-arms the periodic timer with the new period without reboot.
+static void interval_apply_hook(uint32_t ms)
+{
+    if (!s_timer) return;
+    bb_err_t err = bb_timer_periodic_start(s_timer, (uint64_t)ms * 1000ULL);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "interval_apply_hook: timer re-arm failed: %d", err);
+    } else {
+        bb_log_i(TAG, "publish interval updated to %"PRIu32" ms", ms);
+    }
+}
+
 static bb_err_t bb_pub_start(void)
 {
     s_kick = xSemaphoreCreateBinary();
@@ -71,14 +82,18 @@ static bb_err_t bb_pub_start(void)
         return err;
     }
 
-    err = bb_timer_periodic_start(s_timer,
-                                  (uint64_t)CONFIG_BB_PUB_INTERVAL_MS * 1000ULL);
+    // Register hook before loading interval so set_interval_ms can re-arm.
+    bb_pub_set_interval_apply_hook(interval_apply_hook);
+
+    // Use the NVS-persisted interval (or compile-time default) for initial start.
+    uint32_t interval_ms = bb_pub_get_interval_ms();
+    err = bb_timer_periodic_start(s_timer, (uint64_t)interval_ms * 1000ULL);
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to start periodic timer: %d", err);
         return err;
     }
 
-    bb_log_i(TAG, "started; interval=%d ms", CONFIG_BB_PUB_INTERVAL_MS);
+    bb_log_i(TAG, "started; interval=%"PRIu32" ms", interval_ms);
     return BB_OK;
 }
 
