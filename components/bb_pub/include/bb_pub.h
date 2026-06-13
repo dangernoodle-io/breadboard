@@ -113,6 +113,28 @@ typedef struct {
  */
 bb_err_t bb_pub_get_status(bb_pub_status_t *out);
 
+// ---------------------------------------------------------------------------
+// Pause / resume
+// ---------------------------------------------------------------------------
+
+/**
+ * Pause publishing. While paused, bb_pub_tick_once returns BB_OK immediately
+ * without calling any source sample_fn or sink publish. Idempotent.
+ * Safe to call from any context (e.g. an OTA pause hook).
+ */
+void bb_pub_pause(void);
+
+/**
+ * Resume publishing after a bb_pub_pause call. Idempotent; safe to call when
+ * not paused.
+ */
+void bb_pub_resume(void);
+
+/**
+ * Returns true if the publisher is currently paused.
+ */
+bool bb_pub_is_paused(void);
+
 /**
  * Run one sample+publish cycle synchronously (used by the ESP-IDF worker task
  * and host tests). For each registered source:

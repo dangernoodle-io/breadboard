@@ -2022,6 +2022,12 @@ void test_bb_pub_status_after_tick_published_ever_true(void);
 void test_bb_pub_status_failing_sink_sets_last_publish_not_ok(void);
 void test_bb_pub_status_no_sink_not_published(void);
 void test_bb_pub_status_null_out_returns_invalid_arg(void);
+void test_bb_pub_pause_stops_publishing(void);
+void test_bb_pub_resume_restores_publishing(void);
+void test_bb_pub_is_paused_reflects_state(void);
+void test_bb_pub_pause_is_idempotent(void);
+void test_bb_pub_resume_from_not_paused_is_safe(void);
+void test_bb_pub_test_reset_clears_paused(void);
 
 // Forward declarations from test_bb_telemetry.c
 void test_bb_telemetry_register_ok(void);
@@ -4217,6 +4223,12 @@ int main(void) {
     RUN_TEST(test_bb_pub_status_failing_sink_sets_last_publish_not_ok);
     RUN_TEST(test_bb_pub_status_no_sink_not_published);
     RUN_TEST(test_bb_pub_status_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_pause_stops_publishing);
+    RUN_TEST(test_bb_pub_resume_restores_publishing);
+    RUN_TEST(test_bb_pub_is_paused_reflects_state);
+    RUN_TEST(test_bb_pub_pause_is_idempotent);
+    RUN_TEST(test_bb_pub_resume_from_not_paused_is_safe);
+    RUN_TEST(test_bb_pub_test_reset_clears_paused);
 
     // bb_telemetry tests
     RUN_TEST(test_bb_telemetry_register_ok);
