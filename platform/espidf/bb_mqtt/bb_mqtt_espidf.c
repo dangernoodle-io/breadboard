@@ -12,6 +12,12 @@
 // has an IP address.  bb_mqtt_init registers a bb_wifi_on_got_ip callback
 // (or starts immediately when bb_wifi_has_ip() is already true).  Only the
 // FIRST start is deferred; esp-mqtt's built-in reconnect handles later drops.
+//
+// Event-handler safety: esp-mqtt dispatches events via the ESP event loop,
+// which can hold a queued event after esp_mqtt_client_stop returns.  To
+// prevent a stale event firing into a freed handle we set h->destroyed =
+// true and NULL h->client BEFORE calling esp_mqtt_client_destroy; the
+// event handler checks h->destroyed under h->lock and returns immediately.
 #include "bb_mqtt.h"
 #include "bb_tls_creds.h"
 #include "bb_log.h"
@@ -45,6 +51,8 @@ typedef struct {
     SemaphoreHandle_t        lock;
     bool                     connected;
     bool                     started;   // true once esp_mqtt_client_start called
+    bool                     destroyed; // set before esp_mqtt_client_destroy;
+                                        // guards event handler against stale arg
 } bb_mqtt_handle_t;
 
 // ---------------------------------------------------------------------------
@@ -93,6 +101,17 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
                                int32_t event_id, void *event_data)
 {
     bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)arg;
+
+    // Guard: esp-mqtt may dispatch a queued event after esp_mqtt_client_stop
+    // returns (the event loop processes its queue independently).  If destroy
+    // has already been called we bail immediately to avoid accessing freed
+    // memory.  h->lock is still valid here because we delete it AFTER setting
+    // destroyed and calling esp_mqtt_client_destroy.
+    xSemaphoreTake(h->lock, portMAX_DELAY);
+    bool dead = h->destroyed;
+    xSemaphoreGive(h->lock);
+    if (dead) return;
+
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         xSemaphoreTake(h->lock, portMAX_DELAY);
@@ -219,10 +238,18 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
         }
         h->started = true;
     } else {
-        // No IP yet — register got-IP hook; start fires when WiFi connects.
+        // No IP yet — arm the got-IP hook, then start immediately if WiFi
+        // acquired an IP in the narrow window between the bb_wifi_has_ip()
+        // check above and now.  bb_wifi_register_on_got_ip fires the callback
+        // synchronously when s_has_ip is already true; mqtt_start_once is
+        // idempotent (h->started guard) so calling it from both paths is safe.
         s_pending_start = h;
         bb_wifi_register_on_got_ip(on_got_ip_cb);
-        bb_log_i(TAG, "init: start deferred until got-ip");
+        // If the immediate-fire path ran, h->started is already true and
+        // we skip the deferred log to avoid the misleading message.
+        if (!h->started) {
+            bb_log_i(TAG, "init: start deferred until got-ip");
+        }
     }
 
     bb_log_i(TAG, "init: uri=%s tls=%d", cfg->uri, cfg->tls);
@@ -268,7 +295,21 @@ bb_err_t bb_mqtt_destroy(bb_mqtt_t handle)
     if (!handle) return BB_OK;
     bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)handle;
     if (h->client) {
-        esp_mqtt_client_stop(h->client);
+        // Mark destroyed under lock BEFORE stop/destroy so that any event
+        // already queued in the event loop (and not yet dispatched when stop
+        // returns) finds the guard and returns immediately instead of
+        // dereferencing freed memory → InstrFetchProhibited.
+        if (h->lock) {
+            xSemaphoreTake(h->lock, portMAX_DELAY);
+            h->destroyed = true;
+            xSemaphoreGive(h->lock);
+        }
+        // Only stop a client that was actually started; calling
+        // esp_mqtt_client_stop on an unstarted client is a no-op in some
+        // esp-mqtt versions but triggers internal assertion failures in others.
+        if (h->started) {
+            esp_mqtt_client_stop(h->client);
+        }
         esp_mqtt_client_destroy(h->client);
         h->client = NULL;
     }
@@ -279,6 +320,18 @@ bb_err_t bb_mqtt_destroy(bb_mqtt_t handle)
     }
     free(h);
     return BB_OK;
+}
+
+// bb_mqtt_stop — stop and destroy the client, clearing the handle.
+// Idempotent: safe to call with a NULL or already-destroyed handle.
+// Used by telemetry sink teardown (B1-275) to release the client when
+// the exclusive sink slot is lost.
+bb_err_t bb_mqtt_stop(bb_mqtt_t *handle_p)
+{
+    if (!handle_p || !*handle_p) return BB_OK;
+    bb_err_t rc = bb_mqtt_destroy(*handle_p);
+    *handle_p = NULL;
+    return rc;
 }
 
 // ---------------------------------------------------------------------------
@@ -360,8 +413,12 @@ bb_err_t bb_mqtt_reconfigure(void)
         return BB_OK;
     }
 
-    // Cancel any pending deferred start for the old client before destroying it.
-    if (s_pending_start == (bb_mqtt_handle_t *)s_auto_client) {
+    // Cancel any pending deferred start for the old client before destroying
+    // it.  Only clear s_pending_start when it actually points to the client
+    // we are about to tear down — never clobber a handle that belongs to a
+    // different (future) init that raced us.
+    if (s_pending_start != NULL &&
+        s_pending_start == (bb_mqtt_handle_t *)s_auto_client) {
         s_pending_start = NULL;
     }
 

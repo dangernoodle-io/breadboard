@@ -255,3 +255,117 @@ void test_bb_mqtt_host_reset_clears_reconfigure_count(void)
     TEST_ASSERT_EQUAL_INT(0, bb_mqtt_test_reconfigure_count());
     bb_mqtt_destroy(h);
 }
+
+// ---------------------------------------------------------------------------
+// bb_mqtt_stop tests — lifecycle: disable→enabled guard, stop→NULL, idempotent
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_stop_null_handle_p_is_safe(void)
+{
+    // bb_mqtt_stop(NULL) must not crash.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(NULL));
+}
+
+void test_bb_mqtt_stop_null_deref_is_safe(void)
+{
+    // bb_mqtt_stop(&h) where h==NULL must not crash.
+    bb_mqtt_t h = NULL;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
+    TEST_ASSERT_NULL(h);
+}
+
+void test_bb_mqtt_stop_clears_handle(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    TEST_ASSERT_NOT_NULL(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
+    // After stop the handle must be NULL — caller cannot accidentally reuse it.
+    TEST_ASSERT_NULL(h);
+}
+
+void test_bb_mqtt_stop_idempotent(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
+    // Second call: handle is already NULL → must return BB_OK without crash.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
+    TEST_ASSERT_NULL(h);
+}
+
+void test_bb_mqtt_stop_publish_after_stop_returns_error(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
+    // After stop the handle is NULL; publish must return INVALID_ARG (not crash).
+    bb_err_t rc = bb_mqtt_publish(h, "t", "v", -1, 0, false);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle: disabled→enabled guard tests (host approximation)
+// These exercise the guard logic paths that mirror the ESP-IDF reconfigure
+// null-client guard (no client to stop/destroy when enabling from disabled).
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_reconfigure_from_no_client_is_safe(void)
+{
+    // Simulates: MQTT disabled at boot (s_auto_client == NULL), PATCH enables.
+    // On the host stub bb_mqtt_reconfigure is a counter increment; it must
+    // return BB_OK without crashing even when called with no prior client.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+    bb_err_t rc = bb_mqtt_reconfigure();
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_lifecycle_init_stop_reinit(void)
+{
+    // Simulates: init → stop → reinit (hot-reconnect path without real mqtt).
+    // Verifies the handle pointer semantics: stop clears to NULL, reinit gives
+    // a fresh handle, publish works on the new handle.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
+    TEST_ASSERT_NULL(h);
+
+    // Re-init (new handle).
+    h = make_client(NULL, NULL);
+    TEST_ASSERT_NOT_NULL(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_mqtt_publish(h, "test/topic", "payload", -1, 0, false));
+    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_host_pub_count(h));
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_lifecycle_enabled_disabled_enabled(void)
+{
+    // enabled → disabled (stop) → enabled (reinit): each phase must be clean.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_publish(h, "t", "1", -1, 0, false);
+    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_host_pub_count(h));
+
+    // Disable: stop frees and NULLs the handle.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
+    TEST_ASSERT_NULL(h);
+
+    // Re-enable: fresh handle, clean pub count.
+    h = make_client(NULL, NULL);
+    TEST_ASSERT_NOT_NULL(h);
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_host_pub_count(h));
+
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_default_null_after_stop(void)
+{
+    // Mirrors the ESP-IDF path where s_auto_client is NULLed after stop.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_default_set(h);
+    TEST_ASSERT_EQUAL_PTR(h, bb_mqtt_default());
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
+    // Caller is responsible for clearing the default after stop (mirrors
+    // bb_mqtt_reconfigure setting s_auto_client = NULL).
+    bb_mqtt_default_set(NULL);
+    TEST_ASSERT_NULL(bb_mqtt_default());
+}

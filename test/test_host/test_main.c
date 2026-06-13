@@ -1801,6 +1801,15 @@ void test_bb_mqtt_default_cleared_by_set_null(void);
 void test_bb_mqtt_reconfigure_increments_count(void);
 void test_bb_mqtt_reconfigure_idempotent(void);
 void test_bb_mqtt_host_reset_clears_reconfigure_count(void);
+void test_bb_mqtt_stop_null_handle_p_is_safe(void);
+void test_bb_mqtt_stop_null_deref_is_safe(void);
+void test_bb_mqtt_stop_clears_handle(void);
+void test_bb_mqtt_stop_idempotent(void);
+void test_bb_mqtt_stop_publish_after_stop_returns_error(void);
+void test_bb_mqtt_reconfigure_from_no_client_is_safe(void);
+void test_bb_mqtt_lifecycle_init_stop_reinit(void);
+void test_bb_mqtt_lifecycle_enabled_disabled_enabled(void);
+void test_bb_mqtt_default_null_after_stop(void);
 
 // Forward declarations from test_bb_mqtt_info.c
 void test_bb_mqtt_health_no_handle_enabled_false(void);
@@ -4274,6 +4283,15 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_reconfigure_increments_count);
     RUN_TEST(test_bb_mqtt_reconfigure_idempotent);
     RUN_TEST(test_bb_mqtt_host_reset_clears_reconfigure_count);
+    RUN_TEST(test_bb_mqtt_stop_null_handle_p_is_safe);
+    RUN_TEST(test_bb_mqtt_stop_null_deref_is_safe);
+    RUN_TEST(test_bb_mqtt_stop_clears_handle);
+    RUN_TEST(test_bb_mqtt_stop_idempotent);
+    RUN_TEST(test_bb_mqtt_stop_publish_after_stop_returns_error);
+    RUN_TEST(test_bb_mqtt_reconfigure_from_no_client_is_safe);
+    RUN_TEST(test_bb_mqtt_lifecycle_init_stop_reinit);
+    RUN_TEST(test_bb_mqtt_lifecycle_enabled_disabled_enabled);
+    RUN_TEST(test_bb_mqtt_default_null_after_stop);
 
     // bb_mqtt_info tests
     RUN_TEST(test_bb_mqtt_health_no_handle_enabled_false);
