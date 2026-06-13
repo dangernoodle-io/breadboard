@@ -325,20 +325,10 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_mqtt/bb_mqtt.c"],
         "depends":  ["bb_core", "bb_nv", "bb_tls_creds"],
     },
-    "bb_mqtt_routes": {
-        "includes": ["components/bb_mqtt_routes/include"],
-        "sources":  ["platform/host/bb_mqtt_routes/bb_mqtt_routes_host.c"],
-        "depends":  ["bb_mqtt", "bb_core", "bb_nv", "bb_http", "bb_json"],
-    },
     "bb_http_pub": {
         "includes": ["components/bb_http_pub/include"],
         "sources":  ["platform/host/bb_http_pub/bb_http_pub.c"],
         "depends":  ["bb_core", "bb_pub", "bb_http_client", "bb_tls_creds", "bb_nv", "bb_log"],
-    },
-    "bb_http_pub_routes": {
-        "includes": ["components/bb_http_pub_routes/include"],
-        "sources":  ["platform/host/bb_http_pub_routes/bb_http_pub_routes_host.c"],
-        "depends":  ["bb_http_pub", "bb_core", "bb_nv", "bb_http", "bb_json"],
     },
     "bb_ota_led": {
         "includes": ["components/bb_ota_hooks/include", "platform/host/bb_ota_hooks"],
@@ -418,11 +408,6 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_pub/bb_pub.c"],
         "depends":  ["bb_core", "bb_json", "bb_nv", "bb_log"],
     },
-    "bb_pub_routes": {
-        "includes": ["components/bb_pub_routes/include"],
-        "sources":  ["platform/host/bb_pub_routes/bb_pub_routes_host.c"],
-        "depends":  ["bb_pub", "bb_core", "bb_http", "bb_log"],
-    },
     "bb_pub_mqtt": {
         "includes": ["components/bb_pub_mqtt/include"],
         "sources":  ["platform/host/bb_pub_mqtt/bb_pub_mqtt.c"],
@@ -452,6 +437,26 @@ COMPONENT_MAP = {
         "includes": ["components/bb_pub_wifi/include"],
         "sources":  ["platform/host/bb_pub_wifi/bb_pub_wifi.c"],
         "depends":  ["bb_core", "bb_pub", "bb_wifi"],
+    },
+    "bb_telemetry": {
+        "includes": ["components/bb_telemetry/include"],
+        "sources":  ["platform/host/bb_telemetry/bb_telemetry.c"],
+        "depends":  ["bb_core", "bb_json", "bb_log"],
+    },
+    "bb_mqtt_telemetry": {
+        "includes": ["components/bb_mqtt_telemetry/include"],
+        "sources":  ["platform/host/bb_mqtt_telemetry/bb_mqtt_telemetry_host.c"],
+        "depends":  ["bb_mqtt", "bb_core", "bb_nv", "bb_json", "bb_telemetry"],
+    },
+    "bb_http_pub_telemetry": {
+        "includes": ["components/bb_http_pub_telemetry/include"],
+        "sources":  ["platform/host/bb_http_pub_telemetry/bb_http_pub_telemetry_host.c"],
+        "depends":  ["bb_http_pub", "bb_core", "bb_nv", "bb_json", "bb_telemetry"],
+    },
+    "bb_pub_telemetry": {
+        "includes": ["components/bb_pub_telemetry/include"],
+        "sources":  ["platform/host/bb_pub_telemetry/bb_pub_telemetry_host.c"],
+        "depends":  ["bb_pub", "bb_core", "bb_json", "bb_telemetry"],
     },
 }
 

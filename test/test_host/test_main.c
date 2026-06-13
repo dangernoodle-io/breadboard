@@ -1799,28 +1799,6 @@ void test_bb_mqtt_default_returns_null_initially(void);
 void test_bb_mqtt_default_returns_set_handle(void);
 void test_bb_mqtt_default_cleared_by_set_null(void);
 
-// Forward declarations from test_bb_mqtt_routes.c
-void test_bb_mqtt_routes_get_empty_nvs(void);
-void test_bb_mqtt_routes_get_masks_password(void);
-void test_bb_mqtt_routes_get_password_empty_when_not_set(void);
-void test_bb_mqtt_routes_get_ca_set_true_when_nvs_has_ca(void);
-void test_bb_mqtt_routes_get_ca_set_false_when_not_in_nvs(void);
-void test_bb_mqtt_routes_get_cert_set_and_key_set_flags(void);
-void test_bb_mqtt_routes_get_connected_from_client(void);
-void test_bb_mqtt_routes_get_connected_false_when_disconnected(void);
-void test_bb_mqtt_routes_get_connected_via_default(void);
-void test_bb_mqtt_routes_get_connected_false_via_default_when_disconnected(void);
-void test_bb_mqtt_routes_patch_persists_uri(void);
-void test_bb_mqtt_routes_patch_persists_client_id(void);
-void test_bb_mqtt_routes_patch_persists_username(void);
-void test_bb_mqtt_routes_patch_persists_password(void);
-void test_bb_mqtt_routes_patch_persists_tls_ca(void);
-void test_bb_mqtt_routes_patch_persists_enabled(void);
-void test_bb_mqtt_routes_patch_persists_tls_flag(void);
-void test_bb_mqtt_routes_patch_partial_update_leaves_others(void);
-void test_bb_mqtt_routes_patch_no_body_400(void);
-void test_bb_mqtt_routes_patch_invalid_json_400(void);
-
 // Forward declarations from test_bb_http_pub.c
 void test_bb_http_pub_url_encode_slash_to_pct2F(void);
 void test_bb_http_pub_url_encode_unreserved_pass_through(void);
@@ -1832,23 +1810,6 @@ void test_bb_http_pub_sink_builds_url_with_default_template(void);
 void test_bb_http_pub_sink_custom_path_template(void);
 void test_bb_http_pub_sink_disabled_no_post(void);
 void test_bb_http_pub_sink_null_out_returns_invalid_arg(void);
-
-// Forward declarations from test_bb_http_pub_routes.c
-void test_bb_http_pub_routes_get_empty_nvs(void);
-void test_bb_http_pub_routes_get_default_path_tmpl(void);
-void test_bb_http_pub_routes_get_ca_set_true_when_nvs_has_ca(void);
-void test_bb_http_pub_routes_get_ca_set_false_when_not_in_nvs(void);
-void test_bb_http_pub_routes_get_cert_set_and_key_set_flags(void);
-void test_bb_http_pub_routes_patch_persists_base(void);
-void test_bb_http_pub_routes_patch_persists_path_tmpl(void);
-void test_bb_http_pub_routes_patch_persists_tls_ca(void);
-void test_bb_http_pub_routes_patch_persists_tls_cert(void);
-void test_bb_http_pub_routes_patch_persists_tls_key(void);
-void test_bb_http_pub_routes_patch_persists_qos(void);
-void test_bb_http_pub_routes_patch_persists_enabled(void);
-void test_bb_http_pub_routes_patch_partial_update_leaves_others(void);
-void test_bb_http_pub_routes_patch_no_body_returns_400(void);
-void test_bb_http_pub_routes_patch_invalid_json_returns_400(void);
 
 // Forward declarations from test_bb_update_check.c
 void test_bb_update_check_init_idempotent(void);
@@ -2046,21 +2007,69 @@ void test_bb_pub_status_failing_sink_sets_last_publish_not_ok(void);
 void test_bb_pub_status_no_sink_not_published(void);
 void test_bb_pub_status_null_out_returns_invalid_arg(void);
 
-// Forward declarations from test_bb_pub_routes.c
-void test_bb_pub_routes_get_has_interval_ms(void);
-void test_bb_pub_routes_get_has_topic_prefix(void);
-void test_bb_pub_routes_get_has_source_count(void);
-void test_bb_pub_routes_get_has_sink_count(void);
-void test_bb_pub_routes_get_has_published_ever(void);
-void test_bb_pub_routes_get_has_last_publish_ok(void);
-void test_bb_pub_routes_get_has_last_publish_age_ms(void);
-void test_bb_pub_routes_get_counts_reflect_registered(void);
-void test_bb_pub_routes_get_published_ever_false_before_tick(void);
-void test_bb_pub_routes_get_published_ever_true_after_tick(void);
-void test_bb_pub_routes_get_last_publish_age_minus1_when_never(void);
-void test_bb_pub_routes_get_last_publish_age_nonneg_after_tick(void);
-void test_bb_pub_routes_get_last_publish_ok_false_with_failing_sink(void);
-void test_bb_pub_routes_get_last_publish_ok_true_with_good_sink(void);
+// Forward declarations from test_bb_telemetry.c
+void test_bb_telemetry_register_ok(void);
+void test_bb_telemetry_register_null_name_returns_invalid_arg(void);
+void test_bb_telemetry_register_null_get_returns_invalid_arg(void);
+void test_bb_telemetry_register_overflow_returns_no_space(void);
+void test_bb_telemetry_register_readonly_null_patch_ok(void);
+void test_bb_telemetry_build_get_empty_registry(void);
+void test_bb_telemetry_build_get_one_section(void);
+void test_bb_telemetry_build_get_two_sections(void);
+void test_bb_telemetry_dispatch_patch_known_section(void);
+void test_bb_telemetry_dispatch_patch_unknown_section_ignored(void);
+void test_bb_telemetry_dispatch_patch_readonly_returns_invalid_arg(void);
+
+// Forward declarations from test_bb_mqtt_telemetry.c
+void test_bb_mqtt_telemetry_get_empty_nvs(void);
+void test_bb_mqtt_telemetry_get_masks_password(void);
+void test_bb_mqtt_telemetry_get_password_empty_when_not_set(void);
+void test_bb_mqtt_telemetry_get_ca_set_true_when_nvs_has_ca(void);
+void test_bb_mqtt_telemetry_get_ca_set_false_when_not_in_nvs(void);
+void test_bb_mqtt_telemetry_get_cert_set_and_key_set_flags(void);
+void test_bb_mqtt_telemetry_get_connected_from_client(void);
+void test_bb_mqtt_telemetry_get_connected_false_when_disconnected(void);
+void test_bb_mqtt_telemetry_get_connected_via_default(void);
+void test_bb_mqtt_telemetry_get_connected_false_via_default_when_disconnected(void);
+void test_bb_mqtt_telemetry_patch_persists_uri(void);
+void test_bb_mqtt_telemetry_patch_persists_client_id(void);
+void test_bb_mqtt_telemetry_patch_persists_username(void);
+void test_bb_mqtt_telemetry_patch_persists_password(void);
+void test_bb_mqtt_telemetry_patch_persists_tls_ca(void);
+void test_bb_mqtt_telemetry_patch_persists_enabled(void);
+void test_bb_mqtt_telemetry_patch_persists_tls_flag(void);
+void test_bb_mqtt_telemetry_patch_partial_update_leaves_others(void);
+
+// Forward declarations from test_bb_http_pub_telemetry.c
+void test_bb_http_pub_telemetry_get_empty_nvs(void);
+void test_bb_http_pub_telemetry_get_default_path_tmpl(void);
+void test_bb_http_pub_telemetry_get_ca_set_true_when_nvs_has_ca(void);
+void test_bb_http_pub_telemetry_get_ca_set_false_when_not_in_nvs(void);
+void test_bb_http_pub_telemetry_get_cert_set_and_key_set_flags(void);
+void test_bb_http_pub_telemetry_patch_persists_base(void);
+void test_bb_http_pub_telemetry_patch_persists_path_tmpl(void);
+void test_bb_http_pub_telemetry_patch_persists_tls_ca(void);
+void test_bb_http_pub_telemetry_patch_persists_tls_cert(void);
+void test_bb_http_pub_telemetry_patch_persists_tls_key(void);
+void test_bb_http_pub_telemetry_patch_persists_qos(void);
+void test_bb_http_pub_telemetry_patch_persists_enabled(void);
+void test_bb_http_pub_telemetry_patch_partial_update_leaves_others(void);
+
+// Forward declarations from test_bb_pub_telemetry.c
+void test_bb_pub_telemetry_get_has_interval_ms(void);
+void test_bb_pub_telemetry_get_has_topic_prefix(void);
+void test_bb_pub_telemetry_get_has_source_count(void);
+void test_bb_pub_telemetry_get_has_sink_count(void);
+void test_bb_pub_telemetry_get_has_published_ever(void);
+void test_bb_pub_telemetry_get_has_last_publish_ok(void);
+void test_bb_pub_telemetry_get_has_last_publish_age_ms(void);
+void test_bb_pub_telemetry_get_counts_reflect_registered(void);
+void test_bb_pub_telemetry_get_published_ever_false_before_tick(void);
+void test_bb_pub_telemetry_get_published_ever_true_after_tick(void);
+void test_bb_pub_telemetry_get_last_publish_age_minus1_when_never(void);
+void test_bb_pub_telemetry_get_last_publish_age_nonneg_after_tick(void);
+void test_bb_pub_telemetry_get_last_publish_ok_false_with_failing_sink(void);
+void test_bb_pub_telemetry_get_last_publish_ok_true_with_good_sink(void);
 
 // Forward declarations from test_bb_pub_mqtt.c
 void test_bb_pub_mqtt_sink_null_handle_returns_invalid_arg(void);
@@ -4137,28 +4146,6 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_default_returns_set_handle);
     RUN_TEST(test_bb_mqtt_default_cleared_by_set_null);
 
-    // bb_mqtt_routes tests
-    RUN_TEST(test_bb_mqtt_routes_get_empty_nvs);
-    RUN_TEST(test_bb_mqtt_routes_get_masks_password);
-    RUN_TEST(test_bb_mqtt_routes_get_password_empty_when_not_set);
-    RUN_TEST(test_bb_mqtt_routes_get_ca_set_true_when_nvs_has_ca);
-    RUN_TEST(test_bb_mqtt_routes_get_ca_set_false_when_not_in_nvs);
-    RUN_TEST(test_bb_mqtt_routes_get_cert_set_and_key_set_flags);
-    RUN_TEST(test_bb_mqtt_routes_get_connected_from_client);
-    RUN_TEST(test_bb_mqtt_routes_get_connected_false_when_disconnected);
-    RUN_TEST(test_bb_mqtt_routes_get_connected_via_default);
-    RUN_TEST(test_bb_mqtt_routes_get_connected_false_via_default_when_disconnected);
-    RUN_TEST(test_bb_mqtt_routes_patch_persists_uri);
-    RUN_TEST(test_bb_mqtt_routes_patch_persists_client_id);
-    RUN_TEST(test_bb_mqtt_routes_patch_persists_username);
-    RUN_TEST(test_bb_mqtt_routes_patch_persists_password);
-    RUN_TEST(test_bb_mqtt_routes_patch_persists_tls_ca);
-    RUN_TEST(test_bb_mqtt_routes_patch_persists_enabled);
-    RUN_TEST(test_bb_mqtt_routes_patch_persists_tls_flag);
-    RUN_TEST(test_bb_mqtt_routes_patch_partial_update_leaves_others);
-    RUN_TEST(test_bb_mqtt_routes_patch_no_body_400);
-    RUN_TEST(test_bb_mqtt_routes_patch_invalid_json_400);
-
     // bb_http_pub tests
     RUN_TEST(test_bb_http_pub_url_encode_slash_to_pct2F);
     RUN_TEST(test_bb_http_pub_url_encode_unreserved_pass_through);
@@ -4170,23 +4157,6 @@ int main(void) {
     RUN_TEST(test_bb_http_pub_sink_custom_path_template);
     RUN_TEST(test_bb_http_pub_sink_disabled_no_post);
     RUN_TEST(test_bb_http_pub_sink_null_out_returns_invalid_arg);
-
-    // bb_http_pub_routes tests
-    RUN_TEST(test_bb_http_pub_routes_get_empty_nvs);
-    RUN_TEST(test_bb_http_pub_routes_get_default_path_tmpl);
-    RUN_TEST(test_bb_http_pub_routes_get_ca_set_true_when_nvs_has_ca);
-    RUN_TEST(test_bb_http_pub_routes_get_ca_set_false_when_not_in_nvs);
-    RUN_TEST(test_bb_http_pub_routes_get_cert_set_and_key_set_flags);
-    RUN_TEST(test_bb_http_pub_routes_patch_persists_base);
-    RUN_TEST(test_bb_http_pub_routes_patch_persists_path_tmpl);
-    RUN_TEST(test_bb_http_pub_routes_patch_persists_tls_ca);
-    RUN_TEST(test_bb_http_pub_routes_patch_persists_tls_cert);
-    RUN_TEST(test_bb_http_pub_routes_patch_persists_tls_key);
-    RUN_TEST(test_bb_http_pub_routes_patch_persists_qos);
-    RUN_TEST(test_bb_http_pub_routes_patch_persists_enabled);
-    RUN_TEST(test_bb_http_pub_routes_patch_partial_update_leaves_others);
-    RUN_TEST(test_bb_http_pub_routes_patch_no_body_returns_400);
-    RUN_TEST(test_bb_http_pub_routes_patch_invalid_json_returns_400);
 
     // bb_pub tests
     RUN_TEST(test_bb_pub_tick_no_sink_is_noop);
@@ -4216,21 +4186,69 @@ int main(void) {
     RUN_TEST(test_bb_pub_status_no_sink_not_published);
     RUN_TEST(test_bb_pub_status_null_out_returns_invalid_arg);
 
-    // bb_pub_routes tests
-    RUN_TEST(test_bb_pub_routes_get_has_interval_ms);
-    RUN_TEST(test_bb_pub_routes_get_has_topic_prefix);
-    RUN_TEST(test_bb_pub_routes_get_has_source_count);
-    RUN_TEST(test_bb_pub_routes_get_has_sink_count);
-    RUN_TEST(test_bb_pub_routes_get_has_published_ever);
-    RUN_TEST(test_bb_pub_routes_get_has_last_publish_ok);
-    RUN_TEST(test_bb_pub_routes_get_has_last_publish_age_ms);
-    RUN_TEST(test_bb_pub_routes_get_counts_reflect_registered);
-    RUN_TEST(test_bb_pub_routes_get_published_ever_false_before_tick);
-    RUN_TEST(test_bb_pub_routes_get_published_ever_true_after_tick);
-    RUN_TEST(test_bb_pub_routes_get_last_publish_age_minus1_when_never);
-    RUN_TEST(test_bb_pub_routes_get_last_publish_age_nonneg_after_tick);
-    RUN_TEST(test_bb_pub_routes_get_last_publish_ok_false_with_failing_sink);
-    RUN_TEST(test_bb_pub_routes_get_last_publish_ok_true_with_good_sink);
+    // bb_telemetry tests
+    RUN_TEST(test_bb_telemetry_register_ok);
+    RUN_TEST(test_bb_telemetry_register_null_name_returns_invalid_arg);
+    RUN_TEST(test_bb_telemetry_register_null_get_returns_invalid_arg);
+    RUN_TEST(test_bb_telemetry_register_overflow_returns_no_space);
+    RUN_TEST(test_bb_telemetry_register_readonly_null_patch_ok);
+    RUN_TEST(test_bb_telemetry_build_get_empty_registry);
+    RUN_TEST(test_bb_telemetry_build_get_one_section);
+    RUN_TEST(test_bb_telemetry_build_get_two_sections);
+    RUN_TEST(test_bb_telemetry_dispatch_patch_known_section);
+    RUN_TEST(test_bb_telemetry_dispatch_patch_unknown_section_ignored);
+    RUN_TEST(test_bb_telemetry_dispatch_patch_readonly_returns_invalid_arg);
+
+    // bb_mqtt_telemetry tests
+    RUN_TEST(test_bb_mqtt_telemetry_get_empty_nvs);
+    RUN_TEST(test_bb_mqtt_telemetry_get_masks_password);
+    RUN_TEST(test_bb_mqtt_telemetry_get_password_empty_when_not_set);
+    RUN_TEST(test_bb_mqtt_telemetry_get_ca_set_true_when_nvs_has_ca);
+    RUN_TEST(test_bb_mqtt_telemetry_get_ca_set_false_when_not_in_nvs);
+    RUN_TEST(test_bb_mqtt_telemetry_get_cert_set_and_key_set_flags);
+    RUN_TEST(test_bb_mqtt_telemetry_get_connected_from_client);
+    RUN_TEST(test_bb_mqtt_telemetry_get_connected_false_when_disconnected);
+    RUN_TEST(test_bb_mqtt_telemetry_get_connected_via_default);
+    RUN_TEST(test_bb_mqtt_telemetry_get_connected_false_via_default_when_disconnected);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_persists_uri);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_persists_client_id);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_persists_username);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_persists_password);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_persists_tls_ca);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_persists_enabled);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_persists_tls_flag);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_partial_update_leaves_others);
+
+    // bb_http_pub_telemetry tests
+    RUN_TEST(test_bb_http_pub_telemetry_get_empty_nvs);
+    RUN_TEST(test_bb_http_pub_telemetry_get_default_path_tmpl);
+    RUN_TEST(test_bb_http_pub_telemetry_get_ca_set_true_when_nvs_has_ca);
+    RUN_TEST(test_bb_http_pub_telemetry_get_ca_set_false_when_not_in_nvs);
+    RUN_TEST(test_bb_http_pub_telemetry_get_cert_set_and_key_set_flags);
+    RUN_TEST(test_bb_http_pub_telemetry_patch_persists_base);
+    RUN_TEST(test_bb_http_pub_telemetry_patch_persists_path_tmpl);
+    RUN_TEST(test_bb_http_pub_telemetry_patch_persists_tls_ca);
+    RUN_TEST(test_bb_http_pub_telemetry_patch_persists_tls_cert);
+    RUN_TEST(test_bb_http_pub_telemetry_patch_persists_tls_key);
+    RUN_TEST(test_bb_http_pub_telemetry_patch_persists_qos);
+    RUN_TEST(test_bb_http_pub_telemetry_patch_persists_enabled);
+    RUN_TEST(test_bb_http_pub_telemetry_patch_partial_update_leaves_others);
+
+    // bb_pub_telemetry tests
+    RUN_TEST(test_bb_pub_telemetry_get_has_interval_ms);
+    RUN_TEST(test_bb_pub_telemetry_get_has_topic_prefix);
+    RUN_TEST(test_bb_pub_telemetry_get_has_source_count);
+    RUN_TEST(test_bb_pub_telemetry_get_has_sink_count);
+    RUN_TEST(test_bb_pub_telemetry_get_has_published_ever);
+    RUN_TEST(test_bb_pub_telemetry_get_has_last_publish_ok);
+    RUN_TEST(test_bb_pub_telemetry_get_has_last_publish_age_ms);
+    RUN_TEST(test_bb_pub_telemetry_get_counts_reflect_registered);
+    RUN_TEST(test_bb_pub_telemetry_get_published_ever_false_before_tick);
+    RUN_TEST(test_bb_pub_telemetry_get_published_ever_true_after_tick);
+    RUN_TEST(test_bb_pub_telemetry_get_last_publish_age_minus1_when_never);
+    RUN_TEST(test_bb_pub_telemetry_get_last_publish_age_nonneg_after_tick);
+    RUN_TEST(test_bb_pub_telemetry_get_last_publish_ok_false_with_failing_sink);
+    RUN_TEST(test_bb_pub_telemetry_get_last_publish_ok_true_with_good_sink);
 
     // bb_pub_mqtt tests
     RUN_TEST(test_bb_pub_mqtt_sink_null_handle_returns_invalid_arg);
