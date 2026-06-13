@@ -79,6 +79,36 @@ bb_err_t bb_pub_add_sink(const bb_pub_sink_t *sink);
  */
 void bb_pub_clear_sinks(void);
 
+// ---------------------------------------------------------------------------
+// Payload-extender interface
+// ---------------------------------------------------------------------------
+
+/**
+ * Payload extender callback. Called for EACH source's JSON object every tick,
+ * AFTER its sample_fn fills it and the shared `ts` is injected, BEFORE
+ * serialize. `obj` is MUTABLE — add or alter fields. `source` is the source
+ * subtopic name. Runs only when the tick actually publishes (skipped when
+ * paused or disabled).
+ */
+typedef void (*bb_pub_payload_fn)(bb_json_t obj, const char *source, void *ctx);
+
+/**
+ * Register a payload extender. Extenders are invoked in registration order
+ * on every published message. A registered extender sees the full JSON object
+ * (including the ts field) and may add or alter any field.
+ *
+ * Cap: BB_PUB_MAX_PAYLOAD_EXTENDERS (default 4). When the registry is at
+ * cap-1 (high-watermark), a bb_log_w is emitted once. Attempting to register
+ * past the cap returns BB_ERR_NO_SPACE.
+ *
+ * Returns BB_ERR_INVALID_ARG if fn is NULL.
+ */
+bb_err_t bb_pub_register_payload_extender(bb_pub_payload_fn fn, void *ctx);
+
+// ---------------------------------------------------------------------------
+// Source interface
+// ---------------------------------------------------------------------------
+
 /**
  * Register a telemetry source. `subtopic` becomes the trailing component of
  * the publish topic: "<prefix>/<hostname>/<subtopic>".

@@ -2071,6 +2071,15 @@ void test_bb_pub_enabled_true_not_paused_publishes(void);
 void test_bb_pub_test_reset_clears_enabled_to_default(void);
 void test_bb_pub_interval_apply_hook_called_on_set(void);
 void test_bb_pub_interval_apply_hook_not_called_on_invalid(void);
+void test_bb_pub_payload_extender_adds_field_to_all_sources(void);
+void test_bb_pub_payload_extenders_apply_in_registration_order(void);
+void test_bb_pub_payload_extender_can_mutate_existing_field(void);
+void test_bb_pub_payload_extender_source_arg_matches_subtopic(void);
+void test_bb_pub_payload_extender_cap_overflow_returns_no_space(void);
+void test_bb_pub_payload_extender_null_fn_returns_invalid_arg(void);
+void test_bb_pub_payload_extender_not_called_when_paused(void);
+void test_bb_pub_payload_extender_not_called_when_disabled(void);
+void test_bb_pub_test_reset_clears_payload_extenders(void);
 
 // Forward declarations from test_bb_telemetry.c
 void test_bb_telemetry_register_ok(void);
@@ -4341,6 +4350,15 @@ int main(void) {
     RUN_TEST(test_bb_pub_test_reset_clears_enabled_to_default);
     RUN_TEST(test_bb_pub_interval_apply_hook_called_on_set);
     RUN_TEST(test_bb_pub_interval_apply_hook_not_called_on_invalid);
+    RUN_TEST(test_bb_pub_payload_extender_adds_field_to_all_sources);
+    RUN_TEST(test_bb_pub_payload_extenders_apply_in_registration_order);
+    RUN_TEST(test_bb_pub_payload_extender_can_mutate_existing_field);
+    RUN_TEST(test_bb_pub_payload_extender_source_arg_matches_subtopic);
+    RUN_TEST(test_bb_pub_payload_extender_cap_overflow_returns_no_space);
+    RUN_TEST(test_bb_pub_payload_extender_null_fn_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_payload_extender_not_called_when_paused);
+    RUN_TEST(test_bb_pub_payload_extender_not_called_when_disabled);
+    RUN_TEST(test_bb_pub_test_reset_clears_payload_extenders);
 
     // bb_telemetry tests
     RUN_TEST(test_bb_telemetry_register_ok);

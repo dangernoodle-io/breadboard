@@ -760,3 +760,189 @@ void test_bb_pub_interval_apply_hook_not_called_on_invalid(void)
 
     TEST_ASSERT_EQUAL_INT(0, s_hook_call_count);
 }
+
+// ---------------------------------------------------------------------------
+// Payload-extender tests
+// ---------------------------------------------------------------------------
+
+// Extender that adds a "site" field to every object.
+static void extender_add_site(bb_json_t obj, const char *source, void *ctx)
+{
+    (void)source;
+    (void)ctx;
+    bb_json_obj_set_string(obj, "site", "acme");
+}
+
+// Extender that sets "a" = 1.
+static void extender_set_a(bb_json_t obj, const char *source, void *ctx)
+{
+    (void)source;
+    (void)ctx;
+    bb_json_obj_set_number(obj, "a", 1.0);
+}
+
+// Extender that overwrites "a" = 2 (tests ordering).
+static void extender_overwrite_a(bb_json_t obj, const char *source, void *ctx)
+{
+    (void)source;
+    (void)ctx;
+    bb_json_obj_set_number(obj, "a", 2.0);
+}
+
+// Extender that adds "mutated" = 1 to mark that it ran after sample_fn.
+static void extender_add_mutated_marker(bb_json_t obj, const char *source, void *ctx)
+{
+    (void)source;
+    (void)ctx;
+    bb_json_obj_set_number(obj, "mutated", 1.0);
+}
+
+// Per-source log: records which source names were seen.
+#define SOURCE_LOG_CAP 8
+static char s_seen_sources[SOURCE_LOG_CAP][64];
+static int  s_seen_source_count;
+
+static void extender_log_source(bb_json_t obj, const char *source, void *ctx)
+{
+    (void)obj;
+    (void)ctx;
+    if (s_seen_source_count < SOURCE_LOG_CAP) {
+        strncpy(s_seen_sources[s_seen_source_count], source,
+                sizeof(s_seen_sources[0]) - 1);
+        s_seen_sources[s_seen_source_count][sizeof(s_seen_sources[0]) - 1] = '\0';
+        s_seen_source_count++;
+    }
+}
+
+void test_bb_pub_payload_extender_adds_field_to_all_sources(void)
+{
+    setup_with_sink();
+    bb_pub_register_source("temp",  sample_temperature, NULL);
+    bb_pub_register_source("power", sample_voltage,     NULL);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_payload_extender(extender_add_site, NULL));
+
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(2, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"site\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"acme\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[1].payload, "\"site\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[1].payload, "\"acme\""));
+}
+
+void test_bb_pub_payload_extenders_apply_in_registration_order(void)
+{
+    setup_with_sink();
+    bb_pub_register_source("temp", sample_temperature, NULL);
+
+    // Register set_a first, then overwrite_a second — last write wins.
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_payload_extender(extender_set_a,       NULL));
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_payload_extender(extender_overwrite_a, NULL));
+
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    // "a":2 means overwrite_a ran last (correct order).
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"a\":2"));
+}
+
+void test_bb_pub_payload_extender_can_mutate_existing_field(void)
+{
+    // Demonstrates the extender runs AFTER sample_fn and can add/modify the object.
+    // The extender adds a "mutated" marker; both the sample field (value_c)
+    // and the extender field appear in the published payload.
+    setup_with_sink();
+    bb_pub_register_source("temp", sample_temperature, NULL);  // sets value_c=72.5
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_payload_extender(extender_add_mutated_marker, NULL));
+
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    // sample_fn field still present
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"value_c\""));
+    // extender field also present — extender ran after sample_fn
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"mutated\""));
+}
+
+void test_bb_pub_payload_extender_source_arg_matches_subtopic(void)
+{
+    setup_with_sink();
+    bb_pub_register_source("temp",  sample_temperature, NULL);
+    bb_pub_register_source("power", sample_voltage,     NULL);
+
+    s_seen_source_count = 0;
+    memset(s_seen_sources, 0, sizeof(s_seen_sources));
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_payload_extender(extender_log_source, NULL));
+
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(2, s_seen_source_count);
+    TEST_ASSERT_EQUAL_STRING("temp",  s_seen_sources[0]);
+    TEST_ASSERT_EQUAL_STRING("power", s_seen_sources[1]);
+}
+
+void test_bb_pub_payload_extender_cap_overflow_returns_no_space(void)
+{
+    bb_pub_test_reset();
+    for (int i = 0; i < BB_PUB_MAX_PAYLOAD_EXTENDERS; i++) {
+        TEST_ASSERT_EQUAL(BB_OK,
+            bb_pub_register_payload_extender(extender_add_site, NULL));
+    }
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
+        bb_pub_register_payload_extender(extender_add_site, NULL));
+}
+
+void test_bb_pub_payload_extender_null_fn_returns_invalid_arg(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+        bb_pub_register_payload_extender(NULL, NULL));
+}
+
+void test_bb_pub_payload_extender_not_called_when_paused(void)
+{
+    setup_with_sink();
+    s_seen_source_count = 0;
+    memset(s_seen_sources, 0, sizeof(s_seen_sources));
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_payload_extender(extender_log_source, NULL));
+
+    bb_pub_pause();
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(0, s_seen_source_count);
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+}
+
+void test_bb_pub_payload_extender_not_called_when_disabled(void)
+{
+    setup_with_sink();
+    s_seen_source_count = 0;
+    memset(s_seen_sources, 0, sizeof(s_seen_sources));
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_payload_extender(extender_log_source, NULL));
+
+    bb_pub_set_enabled(false);
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(0, s_seen_source_count);
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+}
+
+void test_bb_pub_test_reset_clears_payload_extenders(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_payload_extender(extender_add_site, NULL));
+
+    bb_pub_test_reset();  // must clear the extender
+
+    // Re-setup and tick — extender must NOT fire.
+    setup_with_sink();
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"site\""));
+}
