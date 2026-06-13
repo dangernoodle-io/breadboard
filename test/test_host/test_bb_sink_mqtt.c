@@ -1,7 +1,7 @@
-// Tests for bb_pub_mqtt: MQTT sink adapter wiring.
+// Tests for bb_sink_mqtt: MQTT sink adapter wiring.
 #include "unity.h"
 #include "bb_pub.h"
-#include "bb_pub_mqtt.h"
+#include "bb_sink_mqtt.h"
 #include "bb_mqtt.h"
 #include "bb_nv.h"
 
@@ -29,34 +29,34 @@ static bool sample_skip(bb_json_t obj, void *ctx)
 // Tests
 // ---------------------------------------------------------------------------
 
-void test_bb_pub_mqtt_sink_null_handle_returns_invalid_arg(void)
+void test_bb_sink_mqtt_null_handle_returns_invalid_arg(void)
 {
     bb_pub_sink_t s;
-    bb_err_t err = bb_pub_mqtt_sink(NULL, &s);
+    bb_err_t err = bb_sink_mqtt(NULL, &s);
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
 }
 
-void test_bb_pub_mqtt_sink_null_out_returns_invalid_arg(void)
+void test_bb_sink_mqtt_null_out_returns_invalid_arg(void)
 {
     bb_mqtt_t h;
     bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
     bb_mqtt_init(&cfg, &h);
-    bb_err_t err = bb_pub_mqtt_sink(h, NULL);
+    bb_err_t err = bb_sink_mqtt(h, NULL);
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
     bb_mqtt_destroy(h);
 }
 
-void test_bb_pub_mqtt_sink_returns_ok(void)
+void test_bb_sink_mqtt_returns_ok(void)
 {
     bb_mqtt_t h;
     bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
     TEST_ASSERT_EQUAL(BB_OK, bb_mqtt_init(&cfg, &h));
     bb_pub_sink_t s;
-    TEST_ASSERT_EQUAL(BB_OK, bb_pub_mqtt_sink(h, &s));
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_mqtt(h, &s));
     bb_mqtt_destroy(h);
 }
 
-void test_bb_pub_mqtt_tick_forwards_to_mqtt_stub(void)
+void test_bb_sink_mqtt_tick_forwards_to_mqtt_stub(void)
 {
     bb_pub_test_reset();
     bb_nv_config_set_hostname("mqtthost");
@@ -67,7 +67,7 @@ void test_bb_pub_mqtt_tick_forwards_to_mqtt_stub(void)
     bb_mqtt_host_reset(h);
 
     bb_pub_sink_t s;
-    bb_pub_mqtt_sink(h, &s);
+    bb_sink_mqtt(h, &s);
     bb_pub_set_sink(&s);
     bb_pub_register_source("cpu", sample_metrics, NULL);
 
@@ -93,7 +93,7 @@ void test_bb_pub_mqtt_tick_forwards_to_mqtt_stub(void)
     bb_mqtt_destroy(h);
 }
 
-void test_bb_pub_mqtt_skipped_source_not_forwarded(void)
+void test_bb_sink_mqtt_skipped_source_not_forwarded(void)
 {
     bb_pub_test_reset();
     bb_nv_config_set_hostname("mqtthost");
@@ -104,7 +104,7 @@ void test_bb_pub_mqtt_skipped_source_not_forwarded(void)
     bb_mqtt_host_reset(h);
 
     bb_pub_sink_t s;
-    bb_pub_mqtt_sink(h, &s);
+    bb_sink_mqtt(h, &s);
     bb_pub_set_sink(&s);
     bb_pub_register_source("skip", sample_skip, NULL);
 
@@ -115,7 +115,7 @@ void test_bb_pub_mqtt_skipped_source_not_forwarded(void)
     bb_mqtt_destroy(h);
 }
 
-void test_bb_pub_mqtt_multiple_sources_each_forwarded(void)
+void test_bb_sink_mqtt_multiple_sources_each_forwarded(void)
 {
     bb_pub_test_reset();
     bb_nv_config_set_hostname("mqtthost");
@@ -126,7 +126,7 @@ void test_bb_pub_mqtt_multiple_sources_each_forwarded(void)
     bb_mqtt_host_reset(h);
 
     bb_pub_sink_t s;
-    bb_pub_mqtt_sink(h, &s);
+    bb_sink_mqtt(h, &s);
     bb_pub_set_sink(&s);
     bb_pub_register_source("a", sample_metrics, NULL);
     bb_pub_register_source("b", sample_metrics, NULL);
