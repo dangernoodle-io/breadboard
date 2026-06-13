@@ -62,10 +62,20 @@ static void httppub_section_get(bb_json_t section, void *ctx)
     bb_json_obj_set_bool  (section, "key_set",   key_set);
 
     // Emit headers array — structured, with per-row secret masking.
-    char hbuf[HEADERS_BUF_MAX] = {0};
-    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf, sizeof(hbuf), "");
-    bb_sink_http_header_t stored[BB_SINK_HTTP_HEADERS_MAX];
+    char *hbuf = calloc(1, HEADERS_BUF_MAX);
+    if (!hbuf) {
+        bb_json_obj_set_arr(section, "headers", bb_json_arr_new());
+        return;
+    }
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf, HEADERS_BUF_MAX, "");
+    bb_sink_http_header_t *stored = calloc(BB_SINK_HTTP_HEADERS_MAX, sizeof(*stored));
+    if (!stored) {
+        free(hbuf);
+        bb_json_obj_set_arr(section, "headers", bb_json_arr_new());
+        return;
+    }
     int n = bb_sink_http_parse_headers(hbuf, stored, BB_SINK_HTTP_HEADERS_MAX);
+    free(hbuf);
 
     bb_json_t arr = bb_json_arr_new();
     for (int i = 0; i < n; i++) {
@@ -79,6 +89,7 @@ static void httppub_section_get(bb_json_t section, void *ctx)
         }
         bb_json_arr_append_obj(arr, entry);
     }
+    free(stored);
     bb_json_obj_set_arr(section, "headers", arr);
 }
 
@@ -90,24 +101,25 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
 {
     (void)ctx;
 
-    char tmp[BB_SINK_HTTP_BODY_MAX + 1];
+    char *tmp = malloc(BB_SINK_HTTP_BODY_MAX + 1);
+    if (!tmp) return BB_ERR_NO_SPACE;
 
-    if (bb_json_obj_get_string(patch, "base",      tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "base",      tmp, BB_SINK_HTTP_BODY_MAX + 1)) {
         bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "base", tmp);
     }
-    if (bb_json_obj_get_string(patch, "path_tmpl", tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "path_tmpl", tmp, BB_SINK_HTTP_BODY_MAX + 1)) {
         bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "path_tmpl", tmp);
     }
-    if (bb_json_obj_get_string(patch, "client_id", tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "client_id", tmp, BB_SINK_HTTP_BODY_MAX + 1)) {
         bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "client_id", tmp);
     }
-    if (bb_json_obj_get_string(patch, "tls_ca",   tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "tls_ca",   tmp, BB_SINK_HTTP_BODY_MAX + 1)) {
         bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "tls_ca", tmp);
     }
-    if (bb_json_obj_get_string(patch, "tls_cert", tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "tls_cert", tmp, BB_SINK_HTTP_BODY_MAX + 1)) {
         bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "tls_cert", tmp);
     }
-    if (bb_json_obj_get_string(patch, "tls_key",  tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "tls_key",  tmp, BB_SINK_HTTP_BODY_MAX + 1)) {
         bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "tls_key", tmp);
     }
 
@@ -133,8 +145,12 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
         if (patch_count > BB_SINK_HTTP_HEADERS_MAX) patch_count = BB_SINK_HTTP_HEADERS_MAX;
 
         // Build patch_entry array from JSON.
-        bb_sink_http_patch_entry_t patch_entries[BB_SINK_HTTP_HEADERS_MAX];
-        memset(patch_entries, 0, sizeof(patch_entries));
+        bb_sink_http_patch_entry_t *patch_entries =
+            calloc(BB_SINK_HTTP_HEADERS_MAX, sizeof(*patch_entries));
+        if (!patch_entries) {
+            free(tmp);
+            return BB_ERR_NO_SPACE;
+        }
         int valid_patch = 0;
 
         for (int i = 0; i < patch_count; i++) {
@@ -166,23 +182,54 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
         }
 
         // Load existing headers from NVS for secret-preserve merge.
-        char hbuf[HEADERS_BUF_MAX] = {0};
-        bb_nv_get_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf, sizeof(hbuf), "");
-        bb_sink_http_header_t existing[BB_SINK_HTTP_HEADERS_MAX];
+        char *hbuf = calloc(1, HEADERS_BUF_MAX);
+        if (!hbuf) {
+            free(patch_entries);
+            free(tmp);
+            return BB_ERR_NO_SPACE;
+        }
+        bb_nv_get_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf, HEADERS_BUF_MAX, "");
+        bb_sink_http_header_t *existing =
+            calloc(BB_SINK_HTTP_HEADERS_MAX, sizeof(*existing));
+        if (!existing) {
+            free(hbuf);
+            free(patch_entries);
+            free(tmp);
+            return BB_ERR_NO_SPACE;
+        }
         int existing_count = bb_sink_http_parse_headers(hbuf, existing, BB_SINK_HTTP_HEADERS_MAX);
+        free(hbuf);
 
         // Merge.
-        bb_sink_http_header_t merged[BB_SINK_HTTP_HEADERS_MAX];
+        bb_sink_http_header_t *merged =
+            calloc(BB_SINK_HTTP_HEADERS_MAX, sizeof(*merged));
+        if (!merged) {
+            free(existing);
+            free(patch_entries);
+            free(tmp);
+            return BB_ERR_NO_SPACE;
+        }
         int merged_count = bb_sink_http_merge_headers(
             patch_entries, valid_patch,
             existing, existing_count,
             merged, BB_SINK_HTTP_HEADERS_MAX);
+        free(existing);
+        free(patch_entries);
 
         // Serialize and persist.
-        char out_buf[HEADERS_BUF_MAX] = {0};
-        bb_sink_http_serialize_headers(merged, merged_count, out_buf, sizeof(out_buf));
+        char *out_buf = calloc(1, HEADERS_BUF_MAX);
+        if (!out_buf) {
+            free(merged);
+            free(tmp);
+            return BB_ERR_NO_SPACE;
+        }
+        bb_sink_http_serialize_headers(merged, merged_count, out_buf, HEADERS_BUF_MAX);
+        free(merged);
         bb_nv_set_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, out_buf);
+        free(out_buf);
     }
+
+    free(tmp);
 
     // Refresh cached cfg from updated NVS.
     bb_sink_http_init(NULL);
