@@ -1,0 +1,12 @@
+menu "breadboard: bb_pub_telemetry"
+
+config BB_PUB_TELEMETRY_AUTOREGISTER
+    bool "Auto-register publisher telemetry section via bb_registry"
+    default y
+    depends on BB_TELEMETRY_AUTOREGISTER
+    help
+        When enabled, bb_pub_telemetry registers the read-only "publisher"
+        section with bb_telemetry at the PRE_HTTP tier. Disable to call
+        bb_pub_telemetry_init manually.
+
+endmenu

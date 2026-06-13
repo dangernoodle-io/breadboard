@@ -1,0 +1,12 @@
+menu "breadboard: bb_http_pub_telemetry"
+
+config BB_HTTP_PUB_TELEMETRY_AUTOREGISTER
+    bool "Auto-register http publish telemetry section via bb_registry"
+    default y
+    depends on BB_TELEMETRY_AUTOREGISTER
+    help
+        When enabled, bb_http_pub_telemetry registers the "http" section with
+        bb_telemetry at the PRE_HTTP tier. Disable to call
+        bb_http_pub_telemetry_init manually.
+
+endmenu
