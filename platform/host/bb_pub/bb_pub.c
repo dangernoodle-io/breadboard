@@ -48,6 +48,12 @@ static bb_pub_sink_t   s_sinks[CONFIG_BB_PUB_MAX_SINKS];
 static int             s_sink_count     = 0;
 
 // ---------------------------------------------------------------------------
+// Pause state
+// ---------------------------------------------------------------------------
+
+static bool s_paused = false;
+
+// ---------------------------------------------------------------------------
 // Status state
 // ---------------------------------------------------------------------------
 
@@ -127,11 +133,31 @@ bb_err_t bb_pub_register_source(const char *subtopic, bb_pub_sample_fn fn, void 
 }
 
 // ---------------------------------------------------------------------------
+// Public API — pause / resume
+// ---------------------------------------------------------------------------
+
+void bb_pub_pause(void)
+{
+    s_paused = true;
+}
+
+void bb_pub_resume(void)
+{
+    s_paused = false;
+}
+
+bool bb_pub_is_paused(void)
+{
+    return s_paused;
+}
+
+// ---------------------------------------------------------------------------
 // Public API — tick
 // ---------------------------------------------------------------------------
 
 bb_err_t bb_pub_tick_once(void)
 {
+    if (s_paused)      return BB_OK;
     if (s_sink_count == 0) return BB_OK;
 
     // Take ONE timestamp for the entire cycle.
@@ -217,5 +243,6 @@ void bb_pub_test_reset(void)
     s_last_publish_ok = false;
     s_last_publish_ms = 0;
     s_published_ever  = false;
+    s_paused          = false;
 }
 #endif

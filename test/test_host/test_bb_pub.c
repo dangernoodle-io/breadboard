@@ -485,3 +485,86 @@ void test_bb_pub_status_null_out_returns_invalid_arg(void)
     bb_pub_test_reset();
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_get_status(NULL));
 }
+
+// ---------------------------------------------------------------------------
+// Pause / resume tests
+// ---------------------------------------------------------------------------
+
+// Track how many times the sample_fn is called.
+static int s_sample_call_count;
+
+static bool sample_counting(bb_json_t obj, void *ctx)
+{
+    (void)ctx;
+    s_sample_call_count++;
+    bb_json_obj_set_number(obj, "v", 1.0);
+    return true;
+}
+
+void test_bb_pub_pause_stops_publishing(void)
+{
+    setup_with_sink();
+    s_sample_call_count = 0;
+    bb_pub_register_source("x", sample_counting, NULL);
+
+    bb_pub_pause();
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+    TEST_ASSERT_EQUAL_INT(0, s_sample_call_count);
+}
+
+void test_bb_pub_resume_restores_publishing(void)
+{
+    setup_with_sink();
+    s_sample_call_count = 0;
+    bb_pub_register_source("x", sample_counting, NULL);
+
+    bb_pub_pause();
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+
+    bb_pub_resume();
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_EQUAL_INT(1, s_sample_call_count);
+}
+
+void test_bb_pub_is_paused_reflects_state(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_FALSE(bb_pub_is_paused());
+
+    bb_pub_pause();
+    TEST_ASSERT_TRUE(bb_pub_is_paused());
+
+    bb_pub_resume();
+    TEST_ASSERT_FALSE(bb_pub_is_paused());
+}
+
+void test_bb_pub_pause_is_idempotent(void)
+{
+    bb_pub_test_reset();
+    bb_pub_pause();
+    bb_pub_pause();
+    TEST_ASSERT_TRUE(bb_pub_is_paused());
+}
+
+void test_bb_pub_resume_from_not_paused_is_safe(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_FALSE(bb_pub_is_paused());
+    bb_pub_resume();  // must not crash or assert
+    TEST_ASSERT_FALSE(bb_pub_is_paused());
+}
+
+void test_bb_pub_test_reset_clears_paused(void)
+{
+    bb_pub_test_reset();
+    bb_pub_pause();
+    TEST_ASSERT_TRUE(bb_pub_is_paused());
+
+    bb_pub_test_reset();
+    TEST_ASSERT_FALSE(bb_pub_is_paused());
+}
