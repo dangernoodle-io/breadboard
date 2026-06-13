@@ -146,21 +146,29 @@ static bb_err_t mqtt_section_patch(bb_json_t patch, void *ctx)
 
 bb_err_t bb_mqtt_telemetry_init(void)
 {
-    // Boot-time precedence: if this sink is NVS-enabled, acquire the exclusive
-    // slot. If another sink already holds the slot (invalid dual-enabled NVS
-    // state), log a warning, write enabled=0 back to NVS, and leave this sink
-    // inactive. MQTT wins over HTTP because it is registered first (PRE_HTTP
-    // tier ordering).
+    // Boot-time precedence: first PRE_HTTP registrant wins the exclusive slot.
+    // In breadboard's default registration order MQTT registers before HTTP,
+    // so MQTT wins by default.  Consumer apps that register HTTP first get HTTP
+    // as the winner.  If this sink is NVS-enabled, try to acquire the slot.
+    // If another sink already holds it, we lost: write enabled=0 back to NVS
+    // for a consistent next boot, and stop the EARLY-connected auto-client
+    // so the esp-mqtt task + heap are freed immediately (no reboot required).
     char enabled_str[4] = "0";
     bb_nv_get_str(BB_MQTT_NVS_NS, "enabled", enabled_str, sizeof(enabled_str), "0");
     if (enabled_str[0] == '1') {
         bb_err_t arc = bb_pub_exclusive_acquire(BB_SINK_MQTT_EXCLUSIVE_ID);
         if (arc != BB_OK) {
-            /* Should not happen: MQTT is the first PRE_HTTP registrant and
-             * always wins the slot. Log and disable to leave a clean state. */
+            /* MQTT lost the exclusive slot — another sink registered earlier
+             * and won.  Write enabled=0 so NVS is consistent on the next boot,
+             * then trigger a reconfigure so the EARLY-connected auto-client is
+             * torn down immediately (no reboot required to free its heap). */
             bb_log_w(TAG, "boot: exclusive slot already taken — "
-                     "disabling mqtt sink");
+                     "disabling mqtt sink and stopping auto-client");
             bb_nv_set_str(BB_MQTT_NVS_NS, "enabled", "0");
+            /* bb_mqtt_reconfigure reads enabled=0 from NVS and stops the client.
+             * On ESP-IDF this runs asynchronously on the mqtt_reconf task;
+             * on host it is synchronous (increments the reconfigure counter). */
+            bb_mqtt_reconfigure();
         }
     }
     return bb_telemetry_register_section("mqtt", mqtt_section_get, mqtt_section_patch, NULL);
