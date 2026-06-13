@@ -1,0 +1,43 @@
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*
+ * bb_mqtt_info — satellite component that surfaces MQTT connection status
+ * in /api/health.
+ *
+ * Include this component (REQUIRES bb_mqtt_info) when you want:
+ *  - bb_mqtt_register_health(): to expose a "mqtt" object on /api/health with
+ *    a schema fragment contributed via bb_health_register_extender_ex.
+ *
+ * Call bb_mqtt_register_health() before bb_http_server_start (before the
+ * health extender table is frozen).
+ *
+ * Presence of this satellite component in the build (via REQUIRES) is the
+ * opt-in mechanism — no Kconfig gate is needed.
+ *
+ * Reported fields:
+ *   "mqtt": {
+ *     "enabled":   bool  — true when bb_mqtt_default() is non-NULL
+ *                          (MQTT was configured and started)
+ *     "connected": bool  — true when the client is currently connected to
+ *                          the broker (bb_mqtt_is_connected)
+ *   }
+ *
+ * No secrets are exposed.
+ */
+
+/*
+ * Register a /api/health extender that emits a "mqtt" object:
+ *   { "enabled": <bool>, "connected": <bool> }
+ * Also contributes a JSON-Schema properties fragment to the /api/health
+ * 200 response schema via bb_health_register_extender_ex.
+ * Call before bb_http_server_start.
+ */
+void bb_mqtt_register_health(void);
+
+#ifdef __cplusplus
+}
+#endif
