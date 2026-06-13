@@ -1802,6 +1802,15 @@ void test_bb_mqtt_reconfigure_increments_count(void);
 void test_bb_mqtt_reconfigure_idempotent(void);
 void test_bb_mqtt_host_reset_clears_reconfigure_count(void);
 
+// Forward declarations from test_bb_mqtt_info.c
+void test_bb_mqtt_health_no_handle_enabled_false(void);
+void test_bb_mqtt_health_no_handle_connected_false(void);
+void test_bb_mqtt_health_handle_present_enabled_true(void);
+void test_bb_mqtt_health_handle_connected_reflects_stub(void);
+void test_bb_mqtt_health_set_disconnected(void);
+void test_bb_mqtt_health_reconnect_reflects_connected_true(void);
+void test_bb_mqtt_health_schema_fragment_present(void);
+
 // Forward declarations from test_bb_sink_http.c
 void test_bb_sink_http_url_encode_slash_to_pct2F(void);
 void test_bb_sink_http_url_encode_unreserved_pass_through(void);
@@ -4248,6 +4257,15 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_reconfigure_increments_count);
     RUN_TEST(test_bb_mqtt_reconfigure_idempotent);
     RUN_TEST(test_bb_mqtt_host_reset_clears_reconfigure_count);
+
+    // bb_mqtt_info tests
+    RUN_TEST(test_bb_mqtt_health_no_handle_enabled_false);
+    RUN_TEST(test_bb_mqtt_health_no_handle_connected_false);
+    RUN_TEST(test_bb_mqtt_health_handle_present_enabled_true);
+    RUN_TEST(test_bb_mqtt_health_handle_connected_reflects_stub);
+    RUN_TEST(test_bb_mqtt_health_set_disconnected);
+    RUN_TEST(test_bb_mqtt_health_reconnect_reflects_connected_true);
+    RUN_TEST(test_bb_mqtt_health_schema_fragment_present);
 
     // bb_sink_http tests
     RUN_TEST(test_bb_sink_http_url_encode_slash_to_pct2F);

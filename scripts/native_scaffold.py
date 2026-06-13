@@ -290,6 +290,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_temp/bb_temp.c"],
         "depends":  ["bb_health", "bb_json", "bb_core"],
     },
+    "bb_mqtt_info": {
+        "includes": ["components/bb_mqtt_info/include"],
+        "sources":  ["platform/host/bb_mqtt_info/bb_mqtt_info.c"],
+        "depends":  ["bb_mqtt", "bb_health", "bb_json", "bb_core"],
+    },
     "bb_led_gpio": {
         "includes": ["components/bb_led_gpio/include", "platform/host/bb_led_gpio"],
         "sources":  ["platform/host/bb_led_gpio/bb_led_gpio.c"],

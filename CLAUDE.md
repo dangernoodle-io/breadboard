@@ -241,6 +241,12 @@ Also contributes a JSON-Schema properties fragment via `bb_info_register_extende
 
 Sensor availability: ESP32-S2/S3/C3/C6/H2 and later have the modern `temperature_sensor` peripheral. Classic ESP32 (WROOM-32) does NOT — `present` is always `false` on that target. The component compiles cleanly on all targets via `#if SOC_TEMP_SENSOR_SUPPORTED` in `bb_system`. Also contributes a JSON-Schema properties fragment to the `/api/health` 200 response schema via `bb_health_register_extender_ex`. Sources: `platform/espidf/bb_temp/bb_temp.c` (ESP-IDF) / `platform/host/bb_temp/bb_temp.c` (host, test-injectable via `BB_TEMP_TESTING` + `bb_temp_test_set_soc`).
 
+**`/api/health` MQTT extender (`bb_mqtt_info` satellite).** Add `REQUIRES bb_mqtt_info` and call `bb_mqtt_register_health()` before `bb_http_server_start` to register a `bb_health` extender that emits a nested `"mqtt"` object on `/api/health`:
+- `enabled` (bool) — `bb_mqtt_default() != NULL` (MQTT was configured and started)
+- `connected` (bool) — `bb_mqtt_is_connected(bb_mqtt_default())`
+
+Also contributes a JSON-Schema properties fragment to the `/api/health` 200 response schema via `bb_health_register_extender_ex`. Sources: `platform/espidf/bb_mqtt_info/bb_mqtt_info.c` (ESP-IDF) / `platform/host/bb_mqtt_info/bb_mqtt_info.c` (host).
+
 ## Power (`bb_power`, `bb_power_tps546`, `/api/power`)
 
 `bb_power` is a portable voltage-regulator monitor HAL. `bb_power_set_primary(h)` / `bb_power_primary()` record a single app-level primary power handle. `bb_power_poll(h)` reads all channels via the vtable and caches the result (mutex-protected). `bb_power_snapshot(h, &out)` returns the cached reading (mutex-protected); all fields are -1 if h is NULL or readings errored.
