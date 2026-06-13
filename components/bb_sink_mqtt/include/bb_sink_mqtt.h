@@ -1,11 +1,11 @@
-// bb_pub_mqtt — MQTT sink adapter for bb_pub.
+// bb_sink_mqtt — MQTT sink adapter for bb_pub.
 //
 // Bridges bb_mqtt_publish into a bb_pub_sink_t so the transport-agnostic
 // bb_pub core can deliver telemetry over MQTT without depending on bb_mqtt.
 //
 // Usage:
 //   bb_pub_sink_t s;
-//   bb_pub_mqtt_sink(mqtt_handle, &s);
+//   bb_sink_mqtt(mqtt_handle, &s);
 //   bb_pub_set_sink(&s);
 #pragma once
 
@@ -22,15 +22,15 @@ extern "C" {
  *   bb_mqtt_publish(h, topic, payload, len, qos=0, retain=false)
  *
  * QoS and retain defaults can be overridden at compile time via:
- *   CONFIG_BB_PUB_MQTT_QOS    (default 0)
- *   CONFIG_BB_PUB_MQTT_RETAIN (default 0 / false)
+ *   CONFIG_BB_SINK_MQTT_QOS    (default 0)
+ *   CONFIG_BB_SINK_MQTT_RETAIN (default 0 / false)
  *
  * The caller owns the bb_pub_sink_t struct and must keep `h` valid for the
  * lifetime of the sink.
  *
  * @return BB_OK on success; BB_ERR_INVALID_ARG if h or out is NULL.
  */
-bb_err_t bb_pub_mqtt_sink(bb_mqtt_t h, bb_pub_sink_t *out);
+bb_err_t bb_sink_mqtt(bb_mqtt_t h, bb_pub_sink_t *out);
 
 #ifdef __cplusplus
 }

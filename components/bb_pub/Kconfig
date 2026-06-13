@@ -50,7 +50,7 @@ config BB_PUB_WORKER_STACK
         each sink's publish() synchronously, so the stack must cover the
         heaviest sink in use:
 
-          - HTTP/TLS sink (bb_http_pub over HTTPS/AWS IoT via bb_http_client_post):
+          - HTTP/TLS sink (bb_sink_http over HTTPS/AWS IoT via bb_http_client_post):
             needs >= 8192 bytes to cover the mbedTLS handshake + cert-bundle parse.
           - MQTT-only or plaintext-HTTP sinks: 4096 is sufficient and saves ~4 KB RAM.
 

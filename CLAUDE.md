@@ -453,15 +453,15 @@ also set `PROJECT_VER` from the same logic (embeds into `esp_app_desc.version`).
 
 **Fail-soft:** if git is unavailable, emits `dev-unknown` rather than erroring the build.
 
-## Telemetry publisher (bb_mqtt, bb_pub, bb_pub_mqtt, satellites)
+## Telemetry publisher (bb_mqtt, bb_pub, bb_sink_mqtt, satellites)
 
 **`bb_mqtt`** — portable MQTT client HAL. NVS namespace `bb_mqtt`; `/api/mqtt` PATCH/GET routes; TLS via `bb_tls_creds`. `bb_mqtt_publish(h, topic, payload, len, qos, retain)`. PATCH to the mqtt telemetry section applies live via `bb_mqtt_reconfigure()` — no reboot required.
 
 **`bb_pub`** — transport-agnostic telemetry core. Maintains a source registry and a fan-out set of `bb_pub_sink_t` sinks. `bb_pub_register_source(subtopic, sample_fn, ctx)` adds a source; `bb_pub_tick_once()` calls each source, injects shared `ts` (uptime-ms via `bb_clock_now_ms`), serializes the JSON once, then delivers it to every registered sink as `<prefix>/<hostname>/<subtopic>`. `bb_pub_set_sink` (back-compat, single-sink) replaces all sinks; `bb_pub_add_sink` appends to the fan-out set; `bb_pub_clear_sinks` empties it. A sink returning non-BB_OK is logged but does not abort delivery to other sinks. Periodic worker task registered at PRE_HTTP tier (`CONFIG_BB_PUB_AUTOREGISTER`, default y). Source cap: `CONFIG_BB_PUB_MAX_SOURCES` (default 8). Sink cap: `CONFIG_BB_PUB_MAX_SINKS` (default 4, range 1–8). Testing: `BB_PUB_TESTING` enables `bb_pub_test_reset()`. **Pause/resume:** `bb_pub_pause()` / `bb_pub_resume()` / `bb_pub_is_paused()` allow a consumer (e.g. an OTA pause hook) to quiesce publishing — while paused, `bb_pub_tick_once` is a cheap no-op (no sample_fn calls, no sink calls, no sockets/CPU).
 
-**`bb_pub_mqtt`** — `bb_pub_sink_t` adapter that forwards payloads to `bb_mqtt_publish`. `bb_pub_mqtt_sink(h, &out)` fills the sink struct.
+**`bb_sink_mqtt`** — `bb_pub_sink_t` adapter that forwards payloads to `bb_mqtt_publish`. `bb_sink_mqtt(h, &out)` fills the sink struct.
 
-**`bb_http_pub`** — `bb_pub_sink_t` adapter that publishes telemetry over HTTP via `bb_http_client_post`. Primary use-case: AWS IoT Core HTTPS publish (`https://<endpoint>:8443/topics/<encoded-topic>?qos=<n>`). NVS namespace `bb_http_pub` holds `base`, `path_tmpl` (default `/topics/{topic}?qos={qos}`), `qos` (default 1), `enabled`. TLS mutual-auth credentials resolved via `bb_tls_creds` from the same namespace. Routes: GET/PATCH `/api/httppub` via `bb_http_pub_routes` (auto-registers at order 6; masks TLS creds, reports `ca_set`/`cert_set`/`key_set`). `bb_http_pub_url_encode` percent-encodes topic strings (slash → `%2F`). Init: `bb_http_pub_init(cfg_or_null)` then `bb_http_pub_sink(&sink)`. Sources: `components/bb_http_pub/` + `platform/host/bb_http_pub/bb_http_pub.c` (compiled host + espidf); `components/bb_http_pub_routes/` + `platform/espidf/bb_http_pub_routes/bb_http_pub_routes.c` + `platform/host/bb_http_pub_routes/bb_http_pub_routes_host.c`.
+**`bb_sink_http`** — `bb_pub_sink_t` adapter that publishes telemetry over HTTP via `bb_http_client_post`. Primary use-case: AWS IoT Core HTTPS publish (`https://<endpoint>:8443/topics/<encoded-topic>?qos=<n>`). NVS namespace `bb_sink_http` holds `base`, `path_tmpl` (default `/topics/{topic}?qos={qos}`), `qos` (default 1), `enabled`. TLS mutual-auth credentials resolved via `bb_tls_creds` from the same namespace. Routes: GET/PATCH `/api/httppub` via `bb_sink_http_routes` (auto-registers at order 6; masks TLS creds, reports `ca_set`/`cert_set`/`key_set`). `bb_sink_http_url_encode` percent-encodes topic strings (slash → `%2F`). Init: `bb_sink_http_init(cfg_or_null)` then `bb_sink_http(&sink)`. Sources: `components/bb_sink_http/` + `platform/host/bb_sink_http/bb_sink_http.c` (compiled host + espidf); `components/bb_sink_http_routes/` + `platform/espidf/bb_sink_http_routes/bb_sink_http_routes.c` + `platform/host/bb_sink_http_routes/bb_sink_http_routes_host.c`.
 
 **Satellite sources** — each self-registers at PRE_HTTP tier (`CONFIG_BB_PUB_<X>_AUTO_ATTACH`, default y, depends on `BB_PUB_AUTOREGISTER`). Returns false (skip) when the HAL primary is absent.
 
@@ -481,7 +481,7 @@ Knobs that affect the bb_pub stack's RAM footprint (all in `sdkconfig` / `menuco
 
 | Kconfig | Default | Notes |
 |---------|---------|-------|
-| `CONFIG_BB_PUB_WORKER_STACK` | 8192 | Worker task stack (bytes). Must be ≥ the heaviest sink. HTTP/TLS (`bb_http_pub` over HTTPS) needs ≥ 8192 for mbedTLS; MQTT-only or plaintext HTTP can drop to 4096 to save ~4 KB RAM. |
+| `CONFIG_BB_PUB_WORKER_STACK` | 8192 | Worker task stack (bytes). Must be ≥ the heaviest sink. HTTP/TLS (`bb_sink_http` over HTTPS) needs ≥ 8192 for mbedTLS; MQTT-only or plaintext HTTP can drop to 4096 to save ~4 KB RAM. |
 | `CONFIG_BB_PUB_MAX_SOURCES` | 8 | Source registry capacity. Each entry is a small struct (~24 B); rarely needs raising. |
 | `CONFIG_BB_PUB_MAX_SINKS` | 4 | Sink array capacity (fan-out). Each entry is a function pointer + context pointer. |
 | `CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE` | 8192 | Referenced by `BB_HTTP_CLIENT_TASK_STACK` macro. Any task (including `bb_pub` worker) calling `bb_http_client_post` needs its stack ≥ this value. |

@@ -1,6 +1,6 @@
-// bb_http_pub — HTTP-publish sink adapter for bb_pub.
+// bb_sink_http — HTTP-publish sink adapter for bb_pub.
 // Compiled on both host (tests) and ESP-IDF (via CMakeLists.txt SRCS path).
-#include "bb_http_pub.h"
+#include "bb_sink_http.h"
 #include "bb_http_client.h"
 #include "bb_tls_creds.h"
 #include "bb_nv.h"
@@ -11,17 +11,17 @@
 #include <stdio.h>
 #include <string.h>
 
-static const char *TAG = "bb_http_pub";
+static const char *TAG = "bb_sink_http";
 
-#ifndef CONFIG_BB_HTTP_PUB_RESP_BUF_BYTES
-#define CONFIG_BB_HTTP_PUB_RESP_BUF_BYTES 256
+#ifndef CONFIG_BB_SINK_HTTP_RESP_BUF_BYTES
+#define CONFIG_BB_SINK_HTTP_RESP_BUF_BYTES 256
 #endif
 
 // ---------------------------------------------------------------------------
 // Module state
 // ---------------------------------------------------------------------------
 
-static bb_http_pub_cfg_t         s_cfg;
+static bb_sink_http_cfg_t         s_cfg;
 static bool                      s_initialized = false;
 static bb_http_client_session_t  s_session      = NULL;
 static bb_tls_creds_t            s_creds;        // kept alive for session lifetime
@@ -30,41 +30,41 @@ static bb_tls_creds_t            s_creds;        // kept alive for session lifet
 // NVS helpers
 // ---------------------------------------------------------------------------
 
-static void load_from_nvs(bb_http_pub_cfg_t *out)
+static void load_from_nvs(bb_sink_http_cfg_t *out)
 {
     memset(out, 0, sizeof(*out));
-    bb_nv_get_str(BB_HTTP_PUB_NVS_NS, "base",
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "base",
                   out->base, sizeof(out->base), "");
-    bb_nv_get_str(BB_HTTP_PUB_NVS_NS, "path_tmpl",
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "path_tmpl",
                   out->path_tmpl, sizeof(out->path_tmpl), "");
 
     char qos_str[8] = "1";
-    bb_nv_get_str(BB_HTTP_PUB_NVS_NS, "qos", qos_str, sizeof(qos_str), "1");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "qos", qos_str, sizeof(qos_str), "1");
     out->qos = (int)qos_str[0] - '0';
     if (out->qos < 0 || out->qos > 2) out->qos = 1;
 
     char enabled_str[4] = "0";
-    bb_nv_get_str(BB_HTTP_PUB_NVS_NS, "enabled",
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "enabled",
                   enabled_str, sizeof(enabled_str), "0");
     out->enabled = (enabled_str[0] == '1');
 }
 
-static void save_to_nvs(const bb_http_pub_cfg_t *cfg)
+static void save_to_nvs(const bb_sink_http_cfg_t *cfg)
 {
-    bb_nv_set_str(BB_HTTP_PUB_NVS_NS, "base",      cfg->base);
-    bb_nv_set_str(BB_HTTP_PUB_NVS_NS, "path_tmpl", cfg->path_tmpl);
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "base",      cfg->base);
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "path_tmpl", cfg->path_tmpl);
 
     char qos_str[4] = {0};
     qos_str[0] = (char)('0' + cfg->qos);
-    bb_nv_set_str(BB_HTTP_PUB_NVS_NS, "qos",     qos_str);
-    bb_nv_set_str(BB_HTTP_PUB_NVS_NS, "enabled", cfg->enabled ? "1" : "0");
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "qos",     qos_str);
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "enabled", cfg->enabled ? "1" : "0");
 }
 
 // ---------------------------------------------------------------------------
 // URL-encode helper (pure, host-testable)
 // ---------------------------------------------------------------------------
 
-size_t bb_http_pub_url_encode(const char *src, char *dst, size_t dst_cap)
+size_t bb_sink_http_url_encode(const char *src, char *dst, size_t dst_cap)
 {
     if (!src || !dst || dst_cap == 0) return 0;
 
@@ -95,15 +95,15 @@ size_t bb_http_pub_url_encode(const char *src, char *dst, size_t dst_cap)
 // URL builder: base + path_tmpl with {topic} and {qos} substitution
 // ---------------------------------------------------------------------------
 
-static size_t build_url(const bb_http_pub_cfg_t *cfg,
+static size_t build_url(const bb_sink_http_cfg_t *cfg,
                         const char *topic,
                         char *dst, size_t dst_cap)
 {
-    const char *tmpl = cfg->path_tmpl[0] ? cfg->path_tmpl : BB_HTTP_PUB_PATH_DEFAULT;
+    const char *tmpl = cfg->path_tmpl[0] ? cfg->path_tmpl : BB_SINK_HTTP_PATH_DEFAULT;
 
     // URL-encode the topic.
     char enc_topic[256];
-    bb_http_pub_url_encode(topic, enc_topic, sizeof(enc_topic));
+    bb_sink_http_url_encode(topic, enc_topic, sizeof(enc_topic));
 
     // Build qos string.
     char qos_str[4];
@@ -162,7 +162,7 @@ static bb_err_t session_ensure(void)
     if (s_session) return BB_OK;
 
     memset(&s_creds, 0, sizeof(s_creds));
-    bb_err_t rc = bb_tls_creds_resolve(BB_HTTP_PUB_NVS_NS, NULL, &s_creds);
+    bb_err_t rc = bb_tls_creds_resolve(BB_SINK_HTTP_NVS_NS, NULL, &s_creds);
     if (rc != BB_OK) {
         bb_log_e(TAG, "tls_creds_resolve failed: %d", rc);
         return rc;
@@ -206,7 +206,7 @@ static bb_err_t http_pub_publish(void *ctx,
     }
 
     // Build URL for this topic.
-    char url[BB_HTTP_PUB_BASE_MAX + BB_HTTP_PUB_PATH_MAX + 512];
+    char url[BB_SINK_HTTP_BASE_MAX + BB_SINK_HTTP_PATH_MAX + 512];
     if (!build_url(&s_cfg, topic, url, sizeof(url))) {
         bb_log_e(TAG, "url build failed (base or path too long)");
         return BB_ERR_INVALID_ARG;
@@ -233,7 +233,7 @@ static bb_err_t http_pub_publish(void *ctx,
 // Public API
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_http_pub_init(const bb_http_pub_cfg_t *over)
+bb_err_t bb_sink_http_init(const bb_sink_http_cfg_t *over)
 {
     // Close any existing session — config may have changed.
     session_close();
@@ -259,13 +259,13 @@ bb_err_t bb_http_pub_init(const bb_http_pub_cfg_t *over)
     return BB_OK;
 }
 
-void bb_http_pub_get_cfg(bb_http_pub_cfg_t *out)
+void bb_sink_http_get_cfg(bb_sink_http_cfg_t *out)
 {
     if (!out) return;
     *out = s_cfg;
 }
 
-bb_err_t bb_http_pub_set_cfg(const bb_http_pub_cfg_t *cfg)
+bb_err_t bb_sink_http_set_cfg(const bb_sink_http_cfg_t *cfg)
 {
     if (!cfg) return BB_ERR_INVALID_ARG;
     // Config changed — close the session so the next publish reopens with new creds/base.
@@ -275,7 +275,7 @@ bb_err_t bb_http_pub_set_cfg(const bb_http_pub_cfg_t *cfg)
     return BB_OK;
 }
 
-bb_err_t bb_http_pub_sink(bb_pub_sink_t *out)
+bb_err_t bb_sink_http(bb_pub_sink_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
     out->publish = http_pub_publish;

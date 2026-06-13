@@ -325,9 +325,9 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_mqtt/bb_mqtt.c"],
         "depends":  ["bb_core", "bb_nv", "bb_tls_creds"],
     },
-    "bb_http_pub": {
-        "includes": ["components/bb_http_pub/include"],
-        "sources":  ["platform/host/bb_http_pub/bb_http_pub.c"],
+    "bb_sink_http": {
+        "includes": ["components/bb_sink_http/include"],
+        "sources":  ["platform/host/bb_sink_http/bb_sink_http.c"],
         "depends":  ["bb_core", "bb_pub", "bb_http_client", "bb_tls_creds", "bb_nv", "bb_log"],
     },
     "bb_ota_led": {
@@ -408,9 +408,9 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_pub/bb_pub.c"],
         "depends":  ["bb_core", "bb_json", "bb_nv", "bb_log"],
     },
-    "bb_pub_mqtt": {
-        "includes": ["components/bb_pub_mqtt/include"],
-        "sources":  ["platform/host/bb_pub_mqtt/bb_pub_mqtt.c"],
+    "bb_sink_mqtt": {
+        "includes": ["components/bb_sink_mqtt/include"],
+        "sources":  ["platform/host/bb_sink_mqtt/bb_sink_mqtt.c"],
         "depends":  ["bb_core", "bb_pub", "bb_mqtt"],
     },
     "bb_pub_fan": {
@@ -448,10 +448,10 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_mqtt_telemetry/bb_mqtt_telemetry_host.c"],
         "depends":  ["bb_mqtt", "bb_core", "bb_nv", "bb_json", "bb_telemetry"],
     },
-    "bb_http_pub_telemetry": {
-        "includes": ["components/bb_http_pub_telemetry/include"],
-        "sources":  ["platform/host/bb_http_pub_telemetry/bb_http_pub_telemetry_host.c"],
-        "depends":  ["bb_http_pub", "bb_core", "bb_nv", "bb_json", "bb_telemetry"],
+    "bb_sink_http_telemetry": {
+        "includes": ["components/bb_sink_http_telemetry/include"],
+        "sources":  ["platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c"],
+        "depends":  ["bb_sink_http", "bb_core", "bb_nv", "bb_json", "bb_telemetry"],
     },
     "bb_pub_telemetry": {
         "includes": ["components/bb_pub_telemetry/include"],

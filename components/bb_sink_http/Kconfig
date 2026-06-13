@@ -1,10 +1,10 @@
-menu "breadboard: bb_http_pub"
+menu "breadboard: bb_sink_http"
 
-config BB_HTTP_PUB_RESP_BUF_BYTES
+config BB_SINK_HTTP_RESP_BUF_BYTES
     int "Response buffer size for HTTP publish (bytes)"
     default 256
     help
-        Size of the stack-allocated response buffer used by bb_http_pub on
+        Size of the stack-allocated response buffer used by bb_sink_http on
         each publish call. AWS IoT Core returns a minimal JSON body on
         success; 256 bytes is sufficient. Increase if your endpoint returns
         larger responses.

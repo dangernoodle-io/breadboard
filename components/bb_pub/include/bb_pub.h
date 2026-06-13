@@ -3,8 +3,8 @@
 // Maintains a registry of sample functions (sources) and a set of publish
 // sinks (fan-out). On each tick, each registered source is called, its JSON
 // object is serialized ONCE, and the result is forwarded to every registered
-// sink. Sinks are deliberately decoupled from transport — see bb_pub_mqtt for
-// the MQTT adapter and bb_http_pub for the HTTP adapter.
+// sink. Sinks are deliberately decoupled from transport — see bb_sink_mqtt for
+// the MQTT adapter and bb_sink_http for the HTTP adapter.
 //
 // Thread-safety: bb_pub_set_sink, bb_pub_add_sink, bb_pub_clear_sinks, and
 // bb_pub_register_source must be called before any concurrent tick.

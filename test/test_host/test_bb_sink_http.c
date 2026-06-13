@@ -1,4 +1,4 @@
-// Tests for bb_http_pub:
+// Tests for bb_sink_http:
 // - url_encode: slash → %2F, unreserved chars pass through
 // - sink publish() builds expected URL (base + path_template substitution)
 //   and calls bb_http_client_session_post — verified via
@@ -7,7 +7,7 @@
 // - disabled → no POST
 // - session reused across multiple publishes (same handle, not re-opened)
 #include "unity.h"
-#include "bb_http_pub.h"
+#include "bb_sink_http.h"
 #include "bb_nv.h"
 #include "../../platform/host/bb_http_client/bb_http_client_host.h"
 
@@ -34,48 +34,48 @@ static void set_mock_200(void)
 // url_encode tests
 // ---------------------------------------------------------------------------
 
-void test_bb_http_pub_url_encode_slash_to_pct2F(void)
+void test_bb_sink_http_url_encode_slash_to_pct2F(void)
 {
     char out[64] = {0};
-    size_t n = bb_http_pub_url_encode("a/b", out, sizeof(out));
+    size_t n = bb_sink_http_url_encode("a/b", out, sizeof(out));
     TEST_ASSERT_EQUAL_STRING("a%2Fb", out);
     TEST_ASSERT_EQUAL_INT(5, (int)n);
 }
 
-void test_bb_http_pub_url_encode_unreserved_pass_through(void)
+void test_bb_sink_http_url_encode_unreserved_pass_through(void)
 {
     char out[64] = {0};
-    bb_http_pub_url_encode("abcABC123-_.~", out, sizeof(out));
+    bb_sink_http_url_encode("abcABC123-_.~", out, sizeof(out));
     TEST_ASSERT_EQUAL_STRING("abcABC123-_.~", out);
 }
 
-void test_bb_http_pub_url_encode_space_to_pct20(void)
+void test_bb_sink_http_url_encode_space_to_pct20(void)
 {
     char out[64] = {0};
-    bb_http_pub_url_encode("a b", out, sizeof(out));
+    bb_sink_http_url_encode("a b", out, sizeof(out));
     TEST_ASSERT_EQUAL_STRING("a%20b", out);
 }
 
-void test_bb_http_pub_url_encode_empty_src(void)
+void test_bb_sink_http_url_encode_empty_src(void)
 {
     char out[16] = {0};
-    size_t n = bb_http_pub_url_encode("", out, sizeof(out));
+    size_t n = bb_sink_http_url_encode("", out, sizeof(out));
     TEST_ASSERT_EQUAL_STRING("", out);
     TEST_ASSERT_EQUAL_INT(0, (int)n);
 }
 
-void test_bb_http_pub_url_encode_null_src(void)
+void test_bb_sink_http_url_encode_null_src(void)
 {
     char out[16] = "X";
-    size_t n = bb_http_pub_url_encode(NULL, out, sizeof(out));
+    size_t n = bb_sink_http_url_encode(NULL, out, sizeof(out));
     TEST_ASSERT_EQUAL_INT(0, (int)n);
 }
 
-void test_bb_http_pub_url_encode_truncation(void)
+void test_bb_sink_http_url_encode_truncation(void)
 {
     char out[4] = {0};  // only room for 3 chars + NUL
     // "ab/" would encode to "ab%2F" (5 chars) — should truncate to "ab\0"
-    bb_http_pub_url_encode("ab/", out, sizeof(out));
+    bb_sink_http_url_encode("ab/", out, sizeof(out));
     // output must be NUL-terminated and fit
     TEST_ASSERT_EQUAL_INT('\0', out[3]);
     // must not contain partial %-encoding
@@ -86,23 +86,23 @@ void test_bb_http_pub_url_encode_truncation(void)
 // Sink: publish builds correct URL
 // ---------------------------------------------------------------------------
 
-void test_bb_http_pub_sink_builds_url_with_default_template(void)
+void test_bb_sink_http_builds_url_with_default_template(void)
 {
     reset_state();
     set_mock_200();
 
-    bb_http_pub_cfg_t cfg;
+    bb_sink_http_cfg_t cfg;
     memset(&cfg, 0, sizeof(cfg));
     strncpy(cfg.base, "https://xxxx-ats.iot.us-east-1.amazonaws.com:8443",
             sizeof(cfg.base) - 1);
     cfg.qos     = 1;
     cfg.enabled = true;
 
-    bb_http_pub_init(&cfg);
+    bb_sink_http_init(&cfg);
 
     bb_pub_sink_t sink;
     memset(&sink, 0, sizeof(sink));
-    bb_err_t rc = bb_http_pub_sink(&sink);
+    bb_err_t rc = bb_sink_http(&sink);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_NOT_NULL(sink.publish);
 
@@ -125,23 +125,23 @@ void test_bb_http_pub_sink_builds_url_with_default_template(void)
     TEST_ASSERT_EQUAL_STRING("application/json", rec.content_type);
 }
 
-void test_bb_http_pub_sink_custom_path_template(void)
+void test_bb_sink_http_custom_path_template(void)
 {
     reset_state();
     set_mock_200();
 
-    bb_http_pub_cfg_t cfg;
+    bb_sink_http_cfg_t cfg;
     memset(&cfg, 0, sizeof(cfg));
     strncpy(cfg.base, "https://broker.example.com", sizeof(cfg.base) - 1);
     strncpy(cfg.path_tmpl, "/publish/{topic}", sizeof(cfg.path_tmpl) - 1);
     cfg.qos     = 0;
     cfg.enabled = true;
 
-    bb_http_pub_init(&cfg);
+    bb_sink_http_init(&cfg);
 
     bb_pub_sink_t sink;
     memset(&sink, 0, sizeof(sink));
-    bb_http_pub_sink(&sink);
+    bb_sink_http(&sink);
 
     const char *topic   = "test/data";
     const char *payload = "{\"x\":1}";
@@ -156,22 +156,22 @@ void test_bb_http_pub_sink_custom_path_template(void)
     TEST_ASSERT_NULL(strstr(rec.url, "qos="));
 }
 
-void test_bb_http_pub_sink_disabled_no_post(void)
+void test_bb_sink_http_disabled_no_post(void)
 {
     reset_state();
     // No mock needed — disabled path must not call session_post.
 
-    bb_http_pub_cfg_t cfg;
+    bb_sink_http_cfg_t cfg;
     memset(&cfg, 0, sizeof(cfg));
     strncpy(cfg.base, "https://broker.example.com", sizeof(cfg.base) - 1);
     cfg.qos     = 1;
     cfg.enabled = false;  // explicitly disabled
 
-    bb_http_pub_init(&cfg);
+    bb_sink_http_init(&cfg);
 
     bb_pub_sink_t sink;
     memset(&sink, 0, sizeof(sink));
-    bb_http_pub_sink(&sink);
+    bb_sink_http(&sink);
 
     bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
@@ -180,9 +180,9 @@ void test_bb_http_pub_sink_disabled_no_post(void)
     TEST_ASSERT_FALSE(rec.called);
 }
 
-void test_bb_http_pub_sink_null_out_returns_invalid_arg(void)
+void test_bb_sink_http_null_out_returns_invalid_arg(void)
 {
-    bb_err_t rc = bb_http_pub_sink(NULL);
+    bb_err_t rc = bb_sink_http(NULL);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
 }
 
@@ -190,22 +190,22 @@ void test_bb_http_pub_sink_null_out_returns_invalid_arg(void)
 // Session reuse: multiple publishes share ONE session (no new socket/conn)
 // ---------------------------------------------------------------------------
 
-void test_bb_http_pub_session_reused_across_publishes(void)
+void test_bb_sink_http_session_reused_across_publishes(void)
 {
     reset_state();
     set_mock_200();
 
-    bb_http_pub_cfg_t cfg;
+    bb_sink_http_cfg_t cfg;
     memset(&cfg, 0, sizeof(cfg));
     strncpy(cfg.base, "https://broker.example.com:8443", sizeof(cfg.base) - 1);
     cfg.qos     = 1;
     cfg.enabled = true;
 
-    bb_http_pub_init(&cfg);
+    bb_sink_http_init(&cfg);
 
     bb_pub_sink_t sink;
     memset(&sink, 0, sizeof(sink));
-    bb_http_pub_sink(&sink);
+    bb_sink_http(&sink);
 
     // Two separate publishes — both must succeed via the same session.
     bb_err_t rc = sink.publish(sink.ctx, "t/one", "{\"n\":1}", 6);
@@ -230,34 +230,34 @@ void test_bb_http_pub_session_reused_across_publishes(void)
 // Session invalidated on config change
 // ---------------------------------------------------------------------------
 
-void test_bb_http_pub_session_invalidated_on_set_cfg(void)
+void test_bb_sink_http_session_invalidated_on_set_cfg(void)
 {
     reset_state();
     set_mock_200();
 
-    bb_http_pub_cfg_t cfg;
+    bb_sink_http_cfg_t cfg;
     memset(&cfg, 0, sizeof(cfg));
     strncpy(cfg.base, "https://original.example.com:8443", sizeof(cfg.base) - 1);
     cfg.qos     = 1;
     cfg.enabled = true;
 
-    bb_http_pub_init(&cfg);
+    bb_sink_http_init(&cfg);
 
     bb_pub_sink_t sink;
     memset(&sink, 0, sizeof(sink));
-    bb_http_pub_sink(&sink);
+    bb_sink_http(&sink);
 
     // First publish opens the session.
     bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     // Change config — session must close and reopen on next publish.
-    bb_http_pub_cfg_t cfg2;
+    bb_sink_http_cfg_t cfg2;
     memset(&cfg2, 0, sizeof(cfg2));
     strncpy(cfg2.base, "https://new.example.com:8443", sizeof(cfg2.base) - 1);
     cfg2.qos     = 0;
     cfg2.enabled = true;
-    bb_http_pub_set_cfg(&cfg2);
+    bb_sink_http_set_cfg(&cfg2);
 
     rc = sink.publish(sink.ctx, "t/y", "{}", 2);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);

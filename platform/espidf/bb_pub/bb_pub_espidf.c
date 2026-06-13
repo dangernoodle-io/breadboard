@@ -6,7 +6,7 @@
 //
 // Stack budget: see CONFIG_BB_PUB_WORKER_STACK (Kconfig, default 8192).
 // The worker calls each sink's publish() synchronously. An HTTP/TLS sink
-// (bb_http_pub over HTTPS via bb_http_client_post) needs >= 8192 bytes for
+// (bb_sink_http over HTTPS via bb_http_client_post) needs >= 8192 bytes for
 // the mbedTLS handshake. MQTT-only or plaintext-HTTP sinks can drop to 4096
 // to save RAM. The default is sized for the heaviest (TLS) case.
 #include "bb_pub.h"
@@ -25,7 +25,7 @@ static const char *TAG = "bb_pub";
 #endif
 
 // Worker task stack in bytes. Tunable via CONFIG_BB_PUB_WORKER_STACK (Kconfig).
-// Default 8192: covers mbedTLS handshake for HTTP/TLS sinks (bb_http_pub).
+// Default 8192: covers mbedTLS handshake for HTTP/TLS sinks (bb_sink_http).
 #ifndef BB_PUB_WORKER_STACK
 #  if defined(CONFIG_BB_PUB_WORKER_STACK)
 #    define BB_PUB_WORKER_STACK CONFIG_BB_PUB_WORKER_STACK
