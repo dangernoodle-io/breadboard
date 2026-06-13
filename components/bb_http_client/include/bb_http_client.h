@@ -161,6 +161,21 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t s,
                                      const char *content_type,
                                      bb_http_client_result_t *out);
 
+// Set a persistent request header on an open session.  The header is applied
+// on every subsequent bb_http_client_session_post call (keep-alive reuse).
+// Both `name` and `value` are copied internally; the caller need not keep
+// them alive after the call returns.
+//
+// Call before or between posts; re-calling with the same name overwrites the
+// previous value.  Passes through to esp_http_client_set_header on ESP-IDF.
+//
+// Returns:
+//   BB_OK              — header applied
+//   BB_ERR_INVALID_ARG — NULL s, name, or value
+bb_err_t bb_http_client_session_set_header(bb_http_client_session_t s,
+                                            const char *name,
+                                            const char *value);
+
 // Close the session and release all resources.  Safe to call with NULL.
 void bb_http_client_session_close(bb_http_client_session_t s);
 

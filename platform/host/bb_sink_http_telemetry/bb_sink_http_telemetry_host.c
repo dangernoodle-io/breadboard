@@ -13,6 +13,8 @@
 
 #define BB_SINK_HTTP_NVS_NS    "bb_sink_http"
 #define BB_SINK_HTTP_BODY_MAX  4096
+#define HEADERS_NVS_KEY        "headers"
+#define HEADERS_BUF_MAX        2048
 
 // ---------------------------------------------------------------------------
 // Section get
@@ -22,13 +24,15 @@ static void httppub_section_get(bb_json_t section, void *ctx)
 {
     (void)ctx;
 
-    char base[BB_SINK_HTTP_BASE_MAX]      = {0};
-    char path_tmpl[BB_SINK_HTTP_PATH_MAX] = {0};
-    char qos_str[4]                      = "1";
-    char enabled_str[4]                  = "0";
+    char base[BB_SINK_HTTP_BASE_MAX]              = {0};
+    char path_tmpl[BB_SINK_HTTP_PATH_MAX]         = {0};
+    char client_id[BB_SINK_HTTP_CLIENT_ID_MAX]    = {0};
+    char qos_str[4]                              = "1";
+    char enabled_str[4]                          = "0";
 
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "base",      base,      sizeof(base),      "");
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "path_tmpl", path_tmpl, sizeof(path_tmpl), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "client_id", client_id, sizeof(client_id), "");
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "qos",       qos_str,   sizeof(qos_str),   "1");
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "enabled",   enabled_str, sizeof(enabled_str), "0");
 
@@ -50,11 +54,32 @@ static void httppub_section_get(bb_json_t section, void *ctx)
     bb_json_obj_set_string(section, "path_tmpl", path_tmpl[0]
                                       ? path_tmpl
                                       : BB_SINK_HTTP_PATH_DEFAULT);
+    bb_json_obj_set_string(section, "client_id", client_id);
     bb_json_obj_set_number(section, "qos",       (double)qos);
     bb_json_obj_set_bool  (section, "enabled",   enabled);
     bb_json_obj_set_bool  (section, "ca_set",    ca_set);
     bb_json_obj_set_bool  (section, "cert_set",  cert_set);
     bb_json_obj_set_bool  (section, "key_set",   key_set);
+
+    // Emit headers array — structured, with per-row secret masking.
+    char hbuf[HEADERS_BUF_MAX] = {0};
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf, sizeof(hbuf), "");
+    bb_sink_http_header_t stored[BB_SINK_HTTP_HEADERS_MAX];
+    int n = bb_sink_http_parse_headers(hbuf, stored, BB_SINK_HTTP_HEADERS_MAX);
+
+    bb_json_t arr = bb_json_arr_new();
+    for (int i = 0; i < n; i++) {
+        bb_json_t entry = bb_json_obj_new();
+        bb_json_obj_set_string(entry, "name",   stored[i].name);
+        bb_json_obj_set_bool  (entry, "secret", stored[i].secret);
+        if (!stored[i].secret) {
+            bb_json_obj_set_string(entry, "value", stored[i].value);
+        } else {
+            bb_json_obj_set_bool(entry, "set", true);
+        }
+        bb_json_arr_append_obj(arr, entry);
+    }
+    bb_json_obj_set_arr(section, "headers", arr);
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +97,9 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
     }
     if (bb_json_obj_get_string(patch, "path_tmpl", tmp, sizeof(tmp))) {
         bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "path_tmpl", tmp);
+    }
+    if (bb_json_obj_get_string(patch, "client_id", tmp, sizeof(tmp))) {
+        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "client_id", tmp);
     }
     if (bb_json_obj_get_string(patch, "tls_ca",   tmp, sizeof(tmp))) {
         bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "tls_ca", tmp);
@@ -96,6 +124,64 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
     bool b;
     if (bb_json_obj_get_bool(patch, "enabled", &b)) {
         bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "enabled", b ? "1" : "0");
+    }
+
+    // Process headers array if present.
+    bb_json_t harr = bb_json_obj_get_item(patch, "headers");
+    if (harr && bb_json_item_is_array(harr)) {
+        int patch_count = bb_json_arr_size(harr);
+        if (patch_count > BB_SINK_HTTP_HEADERS_MAX) patch_count = BB_SINK_HTTP_HEADERS_MAX;
+
+        // Build patch_entry array from JSON.
+        bb_sink_http_patch_entry_t patch_entries[BB_SINK_HTTP_HEADERS_MAX];
+        memset(patch_entries, 0, sizeof(patch_entries));
+        int valid_patch = 0;
+
+        for (int i = 0; i < patch_count; i++) {
+            bb_json_t item = bb_json_arr_get_item(harr, i);
+            if (!item) continue;
+
+            bb_sink_http_patch_entry_t *pe = &patch_entries[valid_patch];
+            if (!bb_json_obj_get_string(item, "name", pe->name, sizeof(pe->name))) {
+                continue;  // name required
+            }
+            if (!bb_sink_http_header_name_valid(pe->name)) continue;
+
+            bool secret_field = false;
+            bb_json_obj_get_bool(item, "secret", &secret_field);
+            pe->secret = secret_field;
+
+            char val_tmp[BB_SINK_HTTP_HEADER_VALUE_MAX] = {0};
+            if (bb_json_obj_get_string(item, "value", val_tmp, sizeof(val_tmp))) {
+                pe->value_present = true;
+                strncpy(pe->value, val_tmp, sizeof(pe->value) - 1);
+                pe->value[sizeof(pe->value) - 1] = '\0';
+                if (!bb_sink_http_header_value_valid(pe->value)) continue;
+            } else {
+                pe->value_present = false;
+                pe->value[0] = '\0';
+            }
+
+            valid_patch++;
+        }
+
+        // Load existing headers from NVS for secret-preserve merge.
+        char hbuf[HEADERS_BUF_MAX] = {0};
+        bb_nv_get_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf, sizeof(hbuf), "");
+        bb_sink_http_header_t existing[BB_SINK_HTTP_HEADERS_MAX];
+        int existing_count = bb_sink_http_parse_headers(hbuf, existing, BB_SINK_HTTP_HEADERS_MAX);
+
+        // Merge.
+        bb_sink_http_header_t merged[BB_SINK_HTTP_HEADERS_MAX];
+        int merged_count = bb_sink_http_merge_headers(
+            patch_entries, valid_patch,
+            existing, existing_count,
+            merged, BB_SINK_HTTP_HEADERS_MAX);
+
+        // Serialize and persist.
+        char out_buf[HEADERS_BUF_MAX] = {0};
+        bb_sink_http_serialize_headers(merged, merged_count, out_buf, sizeof(out_buf));
+        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, out_buf);
     }
 
     // Refresh cached cfg from updated NVS.

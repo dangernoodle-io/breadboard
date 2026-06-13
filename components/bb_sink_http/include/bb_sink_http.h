@@ -38,11 +38,28 @@ extern "C" {
 #define BB_SINK_HTTP_PATH_MAX     128
 #define BB_SINK_HTTP_PATH_DEFAULT "/topics/{topic}?qos={qos}"
 
+// Per-header limits and list cap.
+#define BB_SINK_HTTP_HEADERS_MAX       8
+#define BB_SINK_HTTP_HEADER_NAME_MAX   64
+#define BB_SINK_HTTP_HEADER_VALUE_MAX  256
+#define BB_SINK_HTTP_CLIENT_ID_MAX     64
+
+// A single configurable request header.
+typedef struct {
+    char name[BB_SINK_HTTP_HEADER_NAME_MAX];
+    char value[BB_SINK_HTTP_HEADER_VALUE_MAX];
+    bool secret;  // when true: value omitted from GET, preserved on PATCH if blank
+} bb_sink_http_header_t;
+
 typedef struct {
     char base[BB_SINK_HTTP_BASE_MAX];       // base URL, e.g. https://host:8443
     char path_tmpl[BB_SINK_HTTP_PATH_MAX];  // path template; default if empty
     int  qos;                              // QoS value substituted into {qos}
     bool enabled;                          // when false, publish is a no-op
+    // client_id: sent as X-Client-Id header; defaults to bb_nv_config_hostname() when empty.
+    char client_id[BB_SINK_HTTP_CLIENT_ID_MAX];
+    bb_sink_http_header_t headers[BB_SINK_HTTP_HEADERS_MAX];
+    int  num_headers;
 } bb_sink_http_cfg_t;
 
 // ---------------------------------------------------------------------------
@@ -81,6 +98,67 @@ bb_err_t bb_sink_http(bb_pub_sink_t *out);
 // If dst is too small the output is truncated and NUL-terminated.
 // ---------------------------------------------------------------------------
 size_t bb_sink_http_url_encode(const char *src, char *dst, size_t dst_cap);
+
+// ---------------------------------------------------------------------------
+// Delimited NVS format helpers (pure, host-testable)
+//
+// Format: one header per line, '\n'-separated.
+//   <*>name: value
+// A leading '*' marks the header SECRET (stripped from name).
+// Name and value are split on the FIRST ": " (colon-space).
+// Blank or malformed lines are skipped.
+//
+// Validation (security):
+//   - Header names must be RFC 7230 tokens: no ':', whitespace, or control chars.
+//   - Header values must not contain '\r' or '\n' (HTTP injection guard).
+//   - Entries failing validation are silently skipped on parse, rejected on set.
+// ---------------------------------------------------------------------------
+
+// Parse a delimited NVS string into an array of headers.
+// Returns the number of valid entries written to `out` (≤ BB_SINK_HTTP_HEADERS_MAX).
+// `buf` is a '\0'-terminated delimited string (may be NULL → returns 0).
+int bb_sink_http_parse_headers(const char *buf,
+                                bb_sink_http_header_t *out, int out_max);
+
+// Serialize headers to a delimited NVS string.
+// `dst` receives the result; at most dst_cap-1 bytes written plus NUL terminator.
+// Returns the number of bytes written (excluding NUL).
+size_t bb_sink_http_serialize_headers(const bb_sink_http_header_t *headers,
+                                       int num_headers,
+                                       char *dst, size_t dst_cap);
+
+// ---------------------------------------------------------------------------
+// PATCH merge helper (pure, host-testable)
+//
+// Merges an incoming PATCH headers array against the existing stored list.
+// Rules:
+//   - entry secret==true + absent/empty value → preserve existing stored value by name.
+//   - entry secret==true + non-empty value → update.
+//   - entry secret==false → use provided value (absent ⇒ empty).
+//   - any name NOT in the submitted array → removed.
+// Empty-name entries are rejected; caps are enforced.
+// Writes result to `out`; returns number of valid entries.
+// ---------------------------------------------------------------------------
+typedef struct {
+    char  name[BB_SINK_HTTP_HEADER_NAME_MAX];
+    char  value[BB_SINK_HTTP_HEADER_VALUE_MAX];  // may be empty (absent in PATCH)
+    bool  secret;
+    bool  value_present;  // true if the PATCH body included a "value" key
+} bb_sink_http_patch_entry_t;
+
+int bb_sink_http_merge_headers(const bb_sink_http_patch_entry_t *patch, int patch_count,
+                                const bb_sink_http_header_t *existing, int existing_count,
+                                bb_sink_http_header_t *out, int out_max);
+
+// ---------------------------------------------------------------------------
+// Validation helpers (pure, used by parse and merge)
+// ---------------------------------------------------------------------------
+
+// Returns true if the name is a valid RFC 7230 token (no ':', whitespace, or controls).
+bool bb_sink_http_header_name_valid(const char *name);
+
+// Returns true if the value contains no '\r' or '\n'.
+bool bb_sink_http_header_value_valid(const char *value);
 
 #ifdef __cplusplus
 }
