@@ -461,7 +461,16 @@ static bb_err_t bb_mqtt_autoregister_init(void)
 {
     // Create reentrancy lock on first init.
     if (!s_reconfig_lock) {
-        s_reconfig_lock = xSemaphoreCreateMutex();
+        // Binary semaphore, NOT a mutex: it is taken by the caller (PATCH/httpd
+        // thread) in bb_mqtt_reconfigure and GIVEN BACK by the worker task
+        // (mqtt_reconf_task). FreeRTOS mutexes have strict ownership — giving
+        // from a non-owner task asserts (prvCopyDataToQueue). A binary semaphore
+        // permits cross-task give. Created empty, so give once to start it
+        // "available" (the reentrancy-guard try-take then works as intended).
+        s_reconfig_lock = xSemaphoreCreateBinary();
+        if (s_reconfig_lock) {
+            xSemaphoreGive(s_reconfig_lock);
+        }
     }
 
     // Check enabled flag in NVS.
