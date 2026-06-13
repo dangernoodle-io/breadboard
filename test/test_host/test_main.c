@@ -2297,7 +2297,8 @@ void test_bb_tls_creds_free_null_is_safe(void);
 void test_bb_tls_creds_free_double_free_safe(void);
 void test_bb_tls_creds_buffers_are_independent_copies(void);
 void test_bb_tls_creds_override_buffer_is_copy(void);
-void test_bb_tls_creds_len_matches_strlen(void);
+void test_bb_tls_creds_override_len_includes_nul(void);
+void test_bb_tls_creds_nvs_len_includes_nul(void);
 
 void setUp(void) {
     _bb_log_registry_reset();
@@ -4625,7 +4626,8 @@ int main(void) {
     RUN_TEST(test_bb_tls_creds_free_double_free_safe);
     RUN_TEST(test_bb_tls_creds_buffers_are_independent_copies);
     RUN_TEST(test_bb_tls_creds_override_buffer_is_copy);
-    RUN_TEST(test_bb_tls_creds_len_matches_strlen);
+    RUN_TEST(test_bb_tls_creds_override_len_includes_nul);
+    RUN_TEST(test_bb_tls_creds_nvs_len_includes_nul);
 
     return UNITY_END();
 }
