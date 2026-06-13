@@ -2,6 +2,7 @@
 // - publish captures topic/payload/qos/retain
 // - client_id default (hostname) / override / empty (null) resolution
 // - is_connected flag settable via bb_mqtt_host_set_connected
+// - B1-276: disable/teardown path classified separately from enable path
 #include "unity.h"
 #include "bb_mqtt.h"
 #include "bb_nv.h"
@@ -460,5 +461,131 @@ void test_bb_mqtt_reconfigure_reenable_after_disable(void)
         bb_mqtt_publish(h, "t/after-reenable", "ok", -1, 0, false));
     TEST_ASSERT_EQUAL_INT(1, bb_mqtt_host_pub_count(h));
 
+    bb_mqtt_destroy(h);
+}
+
+// ---------------------------------------------------------------------------
+// B1-276: disable/teardown path vs enable path (inline vs worker split)
+//
+// The ESP-IDF implementation peeks NVS "bb_mqtt"/"enabled" in
+// bb_mqtt_reconfigure() BEFORE deciding whether to run inline (disable) or
+// spawn an 8192-byte task (enable).  The host stub mirrors this classification
+// via bb_mqtt_test_last_reconfigure_was_disable().
+//
+// These tests assert:
+// - disable path (enabled=0 in NVS) is classified as disable
+// - enable path (enabled=1 in NVS) is classified as enable
+// - the path classification survives reentrancy (multiple calls)
+// - boot-loser teardown (enabled=0 written then reconfigure) is classified
+//   as disable — matching the B1-275 boot-loser path
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_reconfigure_disable_path_classified_as_disable(void)
+{
+    // Set NVS enabled=0 then call reconfigure — must classify as disable.
+    bb_nv_host_str_store_reset();
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+    bb_nv_set_str("bb_mqtt", "enabled", "0");
+    bb_err_t rc = bb_mqtt_reconfigure();
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_TRUE(bb_mqtt_test_last_reconfigure_was_disable());
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_reconfigure_enable_path_classified_as_enable(void)
+{
+    // Set NVS enabled=1 then call reconfigure — must classify as enable.
+    bb_nv_host_str_store_reset();
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+    bb_nv_set_str("bb_mqtt", "enabled", "1");
+    bb_err_t rc = bb_mqtt_reconfigure();
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_FALSE(bb_mqtt_test_last_reconfigure_was_disable());
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_reconfigure_disable_returns_ok_without_task_spawn(void)
+{
+    // The disable path must return BB_OK regardless of heap state — on the
+    // host we simulate "fragmented heap" by not needing any 8192 allocation.
+    // On ESP-IDF this corresponds to the inline path that succeeds when
+    // largest free block < 8192 (the B1-276 scenario).
+    bb_nv_host_str_store_reset();
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+    bb_nv_set_str("bb_mqtt", "enabled", "0");
+    // Call three times (reentrancy): must all succeed.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
+    TEST_ASSERT_EQUAL_INT(3, bb_mqtt_test_reconfigure_count());
+    TEST_ASSERT_TRUE(bb_mqtt_test_last_reconfigure_was_disable());
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_reconfigure_enable_then_disable_path_switches(void)
+{
+    // enable → disable: verify the classification flips correctly.
+    bb_nv_host_str_store_reset();
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+
+    // Enable.
+    bb_nv_set_str("bb_mqtt", "enabled", "1");
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
+    TEST_ASSERT_FALSE(bb_mqtt_test_last_reconfigure_was_disable());
+
+    // Disable.
+    bb_nv_set_str("bb_mqtt", "enabled", "0");
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
+    TEST_ASSERT_TRUE(bb_mqtt_test_last_reconfigure_was_disable());
+
+    TEST_ASSERT_EQUAL_INT(2, bb_mqtt_test_reconfigure_count());
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_boot_loser_disable_path_classified_as_disable(void)
+{
+    // Mirrors the B1-275 boot-loser teardown path:
+    //   bb_nv_set_str("enabled", "0")  → bb_mqtt_reconfigure()
+    // Must be classified as disable so on ESP-IDF it runs inline (no 8192 spawn).
+    bb_nv_host_str_store_reset();
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+
+    // Simulate: boot-loser writes enabled=0 then triggers reconfigure.
+    bb_nv_set_str("bb_mqtt", "enabled", "0");
+    bb_err_t rc = bb_mqtt_reconfigure();
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_TRUE(bb_mqtt_test_last_reconfigure_was_disable());
+
+    // Confirm client can be destroyed cleanly after this path.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
+    TEST_ASSERT_NULL(h);
+}
+
+void test_bb_mqtt_reconfigure_concurrent_disable_enable_no_uaf(void)
+{
+    // Rapid disable+enable sequence — no UAF, correct final classification.
+    bb_nv_host_str_store_reset();
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+
+    bb_nv_set_str("bb_mqtt", "enabled", "0");
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());  // disable
+    TEST_ASSERT_TRUE(bb_mqtt_test_last_reconfigure_was_disable());
+
+    bb_nv_set_str("bb_mqtt", "enabled", "1");
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());  // enable
+    TEST_ASSERT_FALSE(bb_mqtt_test_last_reconfigure_was_disable());
+
+    bb_nv_set_str("bb_mqtt", "enabled", "0");
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());  // disable again
+    TEST_ASSERT_TRUE(bb_mqtt_test_last_reconfigure_was_disable());
+
+    // Three calls, all clean.
+    TEST_ASSERT_EQUAL_INT(3, bb_mqtt_test_reconfigure_count());
     bb_mqtt_destroy(h);
 }

@@ -1815,6 +1815,12 @@ void test_bb_mqtt_reconfigure_reentrancy_coalesces(void);
 void test_bb_mqtt_reconfigure_enable_async_connect(void);
 void test_bb_mqtt_reconfigure_disable_stops_client(void);
 void test_bb_mqtt_reconfigure_reenable_after_disable(void);
+void test_bb_mqtt_reconfigure_disable_path_classified_as_disable(void);
+void test_bb_mqtt_reconfigure_enable_path_classified_as_enable(void);
+void test_bb_mqtt_reconfigure_disable_returns_ok_without_task_spawn(void);
+void test_bb_mqtt_reconfigure_enable_then_disable_path_switches(void);
+void test_bb_mqtt_boot_loser_disable_path_classified_as_disable(void);
+void test_bb_mqtt_reconfigure_concurrent_disable_enable_no_uaf(void);
 
 // Forward declarations from test_bb_mqtt_info.c
 void test_bb_mqtt_health_no_handle_enabled_false(void);
@@ -4305,6 +4311,12 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_reconfigure_enable_async_connect);
     RUN_TEST(test_bb_mqtt_reconfigure_disable_stops_client);
     RUN_TEST(test_bb_mqtt_reconfigure_reenable_after_disable);
+    RUN_TEST(test_bb_mqtt_reconfigure_disable_path_classified_as_disable);
+    RUN_TEST(test_bb_mqtt_reconfigure_enable_path_classified_as_enable);
+    RUN_TEST(test_bb_mqtt_reconfigure_disable_returns_ok_without_task_spawn);
+    RUN_TEST(test_bb_mqtt_reconfigure_enable_then_disable_path_switches);
+    RUN_TEST(test_bb_mqtt_boot_loser_disable_path_classified_as_disable);
+    RUN_TEST(test_bb_mqtt_reconfigure_concurrent_disable_enable_no_uaf);
 
     // bb_mqtt_info tests
     RUN_TEST(test_bb_mqtt_health_no_handle_enabled_false);
