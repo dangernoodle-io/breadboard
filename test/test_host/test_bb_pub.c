@@ -396,3 +396,92 @@ void test_bb_pub_failing_sink_does_not_stop_other_sink(void)
     // Capturing sink must have received the publish despite the failing one.
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
 }
+
+// ---------------------------------------------------------------------------
+// Status tests
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_status_initial_counts_zero(void)
+{
+    bb_pub_test_reset();
+    bb_pub_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_get_status(&st));
+    TEST_ASSERT_EQUAL_INT(0, st.source_count);
+    TEST_ASSERT_EQUAL_INT(0, st.sink_count);
+    TEST_ASSERT_FALSE(st.published_ever);
+    TEST_ASSERT_EQUAL_UINT32(0, st.last_publish_ms);
+}
+
+void test_bb_pub_status_counts_reflect_registered(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    bb_pub_sink_t s = make_capture_sink();
+    bb_pub_add_sink(&s);
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_pub_register_source("volt", sample_voltage, NULL);
+
+    bb_pub_status_t st;
+    bb_pub_get_status(&st);
+    TEST_ASSERT_EQUAL_INT(2, st.source_count);
+    TEST_ASSERT_EQUAL_INT(1, st.sink_count);
+}
+
+void test_bb_pub_status_after_tick_published_ever_true(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    bb_pub_sink_t s = make_capture_sink();
+    bb_pub_add_sink(&s);
+    bb_pub_register_source("temp", sample_temperature, NULL);
+
+    bb_pub_tick_once();
+
+    bb_pub_status_t st;
+    bb_pub_get_status(&st);
+    TEST_ASSERT_TRUE(st.published_ever);
+    TEST_ASSERT_TRUE(st.last_publish_ok);
+    TEST_ASSERT_GREATER_THAN_UINT32(0, st.last_publish_ms);
+}
+
+void test_bb_pub_status_failing_sink_sets_last_publish_not_ok(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    bb_pub_sink_t bad = { .publish = failing_publish, .ctx = NULL };
+    bb_pub_add_sink(&bad);
+    bb_pub_register_source("temp", sample_temperature, NULL);
+
+    bb_pub_tick_once();
+
+    bb_pub_status_t st;
+    bb_pub_get_status(&st);
+    TEST_ASSERT_FALSE(st.last_publish_ok);
+    TEST_ASSERT_TRUE(st.published_ever);
+}
+
+void test_bb_pub_status_no_sink_not_published(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    bb_pub_register_source("temp", sample_temperature, NULL);
+
+    bb_pub_tick_once();
+
+    bb_pub_status_t st;
+    bb_pub_get_status(&st);
+    TEST_ASSERT_FALSE(st.published_ever);
+    TEST_ASSERT_EQUAL_UINT32(0, st.last_publish_ms);
+}
+
+void test_bb_pub_status_null_out_returns_invalid_arg(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_get_status(NULL));
+}

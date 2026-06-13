@@ -89,6 +89,30 @@ void bb_pub_clear_sinks(void);
  */
 bb_err_t bb_pub_register_source(const char *subtopic, bb_pub_sample_fn fn, void *ctx);
 
+// ---------------------------------------------------------------------------
+// Status
+// ---------------------------------------------------------------------------
+
+/**
+ * Snapshot of the publisher's runtime state, updated at the end of each tick.
+ * Suitable for GET /api/pub and UI health indicators.
+ */
+typedef struct {
+    int      source_count;      /**< Number of registered sources. */
+    int      sink_count;        /**< Number of registered sinks. */
+    bool     last_publish_ok;   /**< True if the last tick that published
+                                     had all sink calls return BB_OK. */
+    uint32_t last_publish_ms;   /**< bb_clock_now_ms() at the last tick that
+                                     published ≥1 source. 0 = never. */
+    bool     published_ever;    /**< True once at least one tick published. */
+} bb_pub_status_t;
+
+/**
+ * Copy the current publisher status into `out`. Thread-safety: safe to call
+ * from any context; reads file-scope atomics. Always returns BB_OK.
+ */
+bb_err_t bb_pub_get_status(bb_pub_status_t *out);
+
 /**
  * Run one sample+publish cycle synchronously (used by the ESP-IDF worker task
  * and host tests). For each registered source:

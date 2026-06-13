@@ -418,6 +418,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_pub/bb_pub.c"],
         "depends":  ["bb_core", "bb_json", "bb_nv", "bb_log"],
     },
+    "bb_pub_routes": {
+        "includes": ["components/bb_pub_routes/include"],
+        "sources":  ["platform/host/bb_pub_routes/bb_pub_routes_host.c"],
+        "depends":  ["bb_pub", "bb_core", "bb_http", "bb_log"],
+    },
     "bb_pub_mqtt": {
         "includes": ["components/bb_pub_mqtt/include"],
         "sources":  ["platform/host/bb_pub_mqtt/bb_pub_mqtt.c"],
