@@ -19,21 +19,27 @@
 // true and NULL h->client BEFORE calling esp_mqtt_client_destroy; the
 // event handler checks h->destroyed under h->lock and returns immediately.
 //
-// Off-thread reconfigure: bb_mqtt_reconfigure() and bb_mqtt_stop() MUST NOT
-// run heavy esp-mqtt lifecycle work (stop/destroy/init/start + mbedTLS) on
-// the caller's thread.  The httpd worker stack is only 6144 bytes; the
-// esp-mqtt teardown→re-init→connect chain (mbedTLS setup) overflows it.
-// Both functions spawn a one-shot FreeRTOS task ("mqtt_reconf", 8192-byte
-// stack) that executes the heavy work asynchronously and then self-deletes.
-// The caller receives BB_OK immediately; `connected` flips asynchronously
-// once the broker handshake completes (visible via bb_mqtt_is_connected and
-// GET /api/telemetry).
+// Off-thread reconfigure — SPLIT by target state (B1-276):
 //
-// Reentrancy: s_reconfig_lock is held for the lifetime of the worker task so
-// a rapid second PATCH/stop call finds the mutex taken and returns BB_OK
-// immediately (coalesced — the in-flight task already owns the reconfigure).
-// UAF prevention: the worker captures all state it needs before returning so
-// no handle can be freed out from under it.
+//   DISABLE (enabled=false in NVS): teardown only.  esp_mqtt_client_stop +
+//   esp_mqtt_client_destroy do NOT run TLS/mbedTLS; their combined stack
+//   depth is well under 2 KB.  bb_mqtt_reconfigure() runs the teardown
+//   INLINE on the caller's thread (httpd worker, 6144 bytes) after taking
+//   s_reconfig_lock.  No task spawn required.  This path succeeds even when
+//   heap is fragmented (largest free block < 8192) — the bug in B1-276.
+//
+//   ENABLE (enabled=true in NVS): init + start a new client, which includes
+//   the mbedTLS handshake.  This DOES need extra stack.  bb_mqtt_reconfigure()
+//   spawns the 8192-byte "mqtt_reconf" one-shot task for this path only.  If
+//   xTaskCreate(8192) fails (heap too fragmented for the task stack), the
+//   function returns BB_ERR_NO_SPACE cleanly — a TLS handshake cannot succeed
+//   without heap either, so deferring is pointless; the caller can retry.
+//
+// Reentrancy: s_reconfig_lock is taken before any work begins (disable: inline,
+// enable: task spawn) and released after the work completes.  A concurrent
+// second call finds the lock taken and returns BB_OK immediately (coalesced).
+// UAF prevention: no handle is accessed after it is freed; s_auto_client is
+// NULLed before bb_mqtt_destroy is called.
 #include "bb_mqtt.h"
 #include "bb_tls_creds.h"
 #include "bb_log.h"
@@ -344,17 +350,11 @@ bb_err_t bb_mqtt_destroy(bb_mqtt_t handle)
 // Used by telemetry sink teardown (B1-275) to release the client when
 // the exclusive sink slot is lost.
 //
-// ASYNC on ESP-IDF: the heavy esp_mqtt_client_stop+destroy work is
-// routed through the same one-shot "mqtt_reconf" task as bb_mqtt_reconfigure
-// so callers on stack-constrained threads (e.g. httpd, 6144 bytes) are safe.
-// The handle is NULLed immediately so subsequent calls are idempotent;
-// the underlying client resources are freed asynchronously.
-//
-// If CONFIG_BB_MQTT_AUTOREGISTER is enabled, bb_mqtt_stop uses the shared
-// s_reconfig_lock reentrancy guard (see bb_mqtt_reconfigure).  When called
-// outside that context (s_reconfig_lock == NULL), the heavy work runs on the
-// caller's thread — this is acceptable only from the EARLY-tier init error
-// path, which runs on the 8192-byte main task.
+// SYNC on ESP-IDF (httpd-safe): stop+destroy do NOT run TLS/mbedTLS and
+// have a combined stack depth well under 6144 bytes, so they are safe to
+// call inline on the httpd thread.  The handle is NULLed before bb_mqtt_destroy
+// is called so subsequent calls are idempotent.  This mirrors the inline
+// disable path in bb_mqtt_reconfigure (B1-276).
 bb_err_t bb_mqtt_stop(bb_mqtt_t *handle_p)
 {
     if (!handle_p || !*handle_p) return BB_OK;
@@ -377,24 +377,13 @@ static bb_mqtt_t s_auto_client = NULL;
 static SemaphoreHandle_t s_reconfig_lock = NULL;
 
 // ---------------------------------------------------------------------------
-// One-shot reconfigure worker task
-//
-// Runs on a dedicated 8192-byte FreeRTOS task ("mqtt_reconf") so that the
-// heavy esp-mqtt stop→destroy→init→start + mbedTLS chain NEVER executes on
-// the caller's thread.  The httpd worker has only a 6144-byte stack; that is
-// enough for the PATCH handler itself but not for the teardown+TLS path.
-//
-// Lifetime: s_reconfig_lock is taken by the CALLER before spawning the task,
-// then given back by the task just before vTaskDelete(NULL).  This means any
-// concurrent call finds the mutex taken and returns BB_OK immediately
-// (coalesced) rather than spawning a second overlapping task.
+// Shared teardown helper — cancel deferred start, destroy existing client.
+// Called inline (disable path) or from the enable-path worker task.
+// Caller holds s_reconfig_lock.
 // ---------------------------------------------------------------------------
 
-static void mqtt_reconf_task(void *arg)
+static void mqtt_teardown_client(void)
 {
-    (void)arg;
-
-    // --- Tear down existing client -------------------------------------------
     // Cancel any pending deferred start that belongs to the client we are
     // about to destroy.  Clear s_pending_start only when it points to our
     // client, not to a future handle.
@@ -407,16 +396,25 @@ static void mqtt_reconf_task(void *arg)
         bb_mqtt_destroy(s_auto_client);
         s_auto_client = NULL;
     }
+}
 
-    // --- Re-read config from NVS ---------------------------------------------
-    char enabled_str[4] = "0";
-    bb_nv_get_str(BB_MQTT_NVS_NS, "enabled", enabled_str, sizeof(enabled_str), "0");
-    if (enabled_str[0] != '1') {
-        bb_log_i(TAG, "mqtt reconfigured (uri=<none>, enabled=false)");
-        xSemaphoreGive(s_reconfig_lock);
-        vTaskDelete(NULL);
-        return;  // unreachable but keeps static analysis happy
-    }
+// ---------------------------------------------------------------------------
+// One-shot enable worker task (8192-byte stack)
+//
+// Used ONLY for the ENABLE path (enabled=true) where esp_mqtt_client_start +
+// mbedTLS handshake need extra stack beyond the httpd 6144-byte budget.
+//
+// s_reconfig_lock is taken by the CALLER before spawning the task, then
+// released by the task just before vTaskDelete(NULL).  Any concurrent call
+// finds the lock taken and returns BB_OK immediately (coalesced).
+// ---------------------------------------------------------------------------
+
+static void mqtt_enable_task(void *arg)
+{
+    (void)arg;
+
+    // Tear down any existing client before re-initialising.
+    mqtt_teardown_client();
 
     char uri[BB_MQTT_URI_MAX]             = {0};
     char client_id[BB_MQTT_CLIENT_ID_MAX] = {0};
@@ -528,27 +526,51 @@ bb_err_t bb_mqtt_reconfigure(void)
         return BB_ERR_INVALID_STATE;
     }
 
-    // Reentrancy guard — only one reconfigure task at a time.
-    // Non-blocking try: if a task is already in flight, coalesce (return BB_OK).
-    // The in-flight task will pick up the latest NVS config when it re-reads.
+    // Reentrancy guard — only one reconfigure at a time.
+    // Non-blocking try: if work is already in flight, coalesce (return BB_OK).
+    // The in-flight work holds the latest NVS config when it reads.
     if (xSemaphoreTake(s_reconfig_lock, 0) != pdTRUE) {
         bb_log_w(TAG, "reconfigure: already in progress, coalescing");
         return BB_OK;
     }
 
-    // Spawn the one-shot worker.  The task holds s_reconfig_lock and gives
-    // it back just before vTaskDelete(NULL).  Stack 8192 bytes to handle
-    // esp-mqtt teardown + mbedTLS init; priority 5 (below httpd default of 5,
-    // but httpd is already returned to its pool so there is no contention).
-    BaseType_t ok = xTaskCreate(mqtt_reconf_task, "mqtt_reconf",
+    // Peek the target enabled state BEFORE deciding how to proceed.
+    //
+    // DISABLE path (enabled=false): only stop+destroy the existing client.
+    // esp_mqtt_client_stop + esp_mqtt_client_destroy do NOT run TLS/mbedTLS;
+    // their combined stack depth is well under 2 KB — safe to run inline on
+    // the httpd thread (6144-byte stack).  No task spawn needed, which means
+    // this path succeeds even when the heap is too fragmented to allocate an
+    // 8192-byte task stack (B1-276 catch-22).
+    //
+    // ENABLE path (enabled=true): tear down then init + start a new client,
+    // which includes the mbedTLS handshake.  This needs extra stack — spawn
+    // the 8192-byte "mqtt_enable" task.  If xTaskCreate fails (heap fragmented),
+    // return BB_ERR_NO_SPACE: a TLS handshake can't succeed without heap either.
+
+    char enabled_str[4] = "0";
+    bb_nv_get_str(BB_MQTT_NVS_NS, "enabled", enabled_str, sizeof(enabled_str), "0");
+
+    if (enabled_str[0] != '1') {
+        // DISABLE path — inline teardown on caller's thread.
+        mqtt_teardown_client();
+        bb_log_i(TAG, "mqtt reconfigured (uri=<none>, enabled=false)");
+        xSemaphoreGive(s_reconfig_lock);
+        return BB_OK;
+    }
+
+    // ENABLE path — spawn the 8192-byte one-shot task.
+    // Priority 5 keeps parity with the previous implementation.
+    BaseType_t ok = xTaskCreate(mqtt_enable_task, "mqtt_enable",
                                 8192 / sizeof(StackType_t), NULL, 5, NULL);
     if (ok != pdPASS) {
-        bb_log_e(TAG, "reconfigure: xTaskCreate failed");
+        bb_log_e(TAG, "reconfigure: xTaskCreate(8192) failed — heap fragmented; "
+                 "cannot enable mqtt until heap recovers");
         xSemaphoreGive(s_reconfig_lock);
         return BB_ERR_NO_SPACE;
     }
 
-    bb_log_i(TAG, "reconfigure: worker task spawned");
+    bb_log_i(TAG, "reconfigure: enable worker spawned");
     return BB_OK;  // caller (PATCH handler) returns 204 immediately
 }
 
