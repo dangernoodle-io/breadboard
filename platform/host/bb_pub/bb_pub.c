@@ -48,6 +48,14 @@ static bb_pub_sink_t   s_sinks[CONFIG_BB_PUB_MAX_SINKS];
 static int             s_sink_count     = 0;
 
 // ---------------------------------------------------------------------------
+// Status state
+// ---------------------------------------------------------------------------
+
+static bool     s_last_publish_ok  = false;
+static uint32_t s_last_publish_ms  = 0;
+static bool     s_published_ever   = false;
+
+// ---------------------------------------------------------------------------
 // Public API — sinks
 // ---------------------------------------------------------------------------
 
@@ -74,6 +82,21 @@ bb_err_t bb_pub_set_sink(const bb_pub_sink_t *sink)
         return BB_OK;
     }
     return bb_pub_add_sink(sink);
+}
+
+// ---------------------------------------------------------------------------
+// Public API — status
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_pub_get_status(bb_pub_status_t *out)
+{
+    if (!out) return BB_ERR_INVALID_ARG;
+    out->source_count     = s_source_count;
+    out->sink_count       = s_sink_count;
+    out->last_publish_ok  = s_last_publish_ok;
+    out->last_publish_ms  = s_last_publish_ms;
+    out->published_ever   = s_published_ever;
+    return BB_OK;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +144,11 @@ bb_err_t bb_pub_tick_once(void)
 
     char topic[192];
 
+    // Track whether any source emitted during this tick and whether all
+    // sink calls succeeded.
+    bool tick_published = false;
+    bool tick_all_ok    = true;
+
     for (int i = 0; i < s_source_count; i++) {
         bb_pub_source_t *src = &s_sources[i];
 
@@ -158,10 +186,19 @@ bb_err_t bb_pub_tick_once(void)
             bb_err_t err = s_sinks[si].publish(s_sinks[si].ctx, topic, json, json_len);
             if (err != BB_OK) {
                 bb_log_w(TAG, "sink[%d] publish failed for '%s': %d", si, src->subtopic, err);
+                tick_all_ok = false;
             }
         }
 
+        tick_published = true;
         bb_json_free_str(json);
+    }
+
+    // Update status only when at least one source was published this tick.
+    if (tick_published) {
+        s_last_publish_ms  = ts_ms;
+        s_published_ever   = true;
+        s_last_publish_ok  = tick_all_ok;
     }
 
     return BB_OK;
@@ -174,8 +211,11 @@ bb_err_t bb_pub_tick_once(void)
 #ifdef BB_PUB_TESTING
 void bb_pub_test_reset(void)
 {
-    s_source_count = 0;
-    s_hwm_warned   = false;
-    s_sink_count   = 0;
+    s_source_count    = 0;
+    s_hwm_warned      = false;
+    s_sink_count      = 0;
+    s_last_publish_ok = false;
+    s_last_publish_ms = 0;
+    s_published_ever  = false;
 }
 #endif

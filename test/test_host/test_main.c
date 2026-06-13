@@ -2039,6 +2039,28 @@ void test_bb_pub_set_sink_replaces_prior_sinks(void);
 void test_bb_pub_clear_sinks_makes_tick_noop(void);
 void test_bb_pub_max_sinks_plus_one_returns_no_space(void);
 void test_bb_pub_failing_sink_does_not_stop_other_sink(void);
+void test_bb_pub_status_initial_counts_zero(void);
+void test_bb_pub_status_counts_reflect_registered(void);
+void test_bb_pub_status_after_tick_published_ever_true(void);
+void test_bb_pub_status_failing_sink_sets_last_publish_not_ok(void);
+void test_bb_pub_status_no_sink_not_published(void);
+void test_bb_pub_status_null_out_returns_invalid_arg(void);
+
+// Forward declarations from test_bb_pub_routes.c
+void test_bb_pub_routes_get_has_interval_ms(void);
+void test_bb_pub_routes_get_has_topic_prefix(void);
+void test_bb_pub_routes_get_has_source_count(void);
+void test_bb_pub_routes_get_has_sink_count(void);
+void test_bb_pub_routes_get_has_published_ever(void);
+void test_bb_pub_routes_get_has_last_publish_ok(void);
+void test_bb_pub_routes_get_has_last_publish_age_ms(void);
+void test_bb_pub_routes_get_counts_reflect_registered(void);
+void test_bb_pub_routes_get_published_ever_false_before_tick(void);
+void test_bb_pub_routes_get_published_ever_true_after_tick(void);
+void test_bb_pub_routes_get_last_publish_age_minus1_when_never(void);
+void test_bb_pub_routes_get_last_publish_age_nonneg_after_tick(void);
+void test_bb_pub_routes_get_last_publish_ok_false_with_failing_sink(void);
+void test_bb_pub_routes_get_last_publish_ok_true_with_good_sink(void);
 
 // Forward declarations from test_bb_pub_mqtt.c
 void test_bb_pub_mqtt_sink_null_handle_returns_invalid_arg(void);
@@ -4187,6 +4209,28 @@ int main(void) {
     RUN_TEST(test_bb_pub_clear_sinks_makes_tick_noop);
     RUN_TEST(test_bb_pub_max_sinks_plus_one_returns_no_space);
     RUN_TEST(test_bb_pub_failing_sink_does_not_stop_other_sink);
+    RUN_TEST(test_bb_pub_status_initial_counts_zero);
+    RUN_TEST(test_bb_pub_status_counts_reflect_registered);
+    RUN_TEST(test_bb_pub_status_after_tick_published_ever_true);
+    RUN_TEST(test_bb_pub_status_failing_sink_sets_last_publish_not_ok);
+    RUN_TEST(test_bb_pub_status_no_sink_not_published);
+    RUN_TEST(test_bb_pub_status_null_out_returns_invalid_arg);
+
+    // bb_pub_routes tests
+    RUN_TEST(test_bb_pub_routes_get_has_interval_ms);
+    RUN_TEST(test_bb_pub_routes_get_has_topic_prefix);
+    RUN_TEST(test_bb_pub_routes_get_has_source_count);
+    RUN_TEST(test_bb_pub_routes_get_has_sink_count);
+    RUN_TEST(test_bb_pub_routes_get_has_published_ever);
+    RUN_TEST(test_bb_pub_routes_get_has_last_publish_ok);
+    RUN_TEST(test_bb_pub_routes_get_has_last_publish_age_ms);
+    RUN_TEST(test_bb_pub_routes_get_counts_reflect_registered);
+    RUN_TEST(test_bb_pub_routes_get_published_ever_false_before_tick);
+    RUN_TEST(test_bb_pub_routes_get_published_ever_true_after_tick);
+    RUN_TEST(test_bb_pub_routes_get_last_publish_age_minus1_when_never);
+    RUN_TEST(test_bb_pub_routes_get_last_publish_age_nonneg_after_tick);
+    RUN_TEST(test_bb_pub_routes_get_last_publish_ok_false_with_failing_sink);
+    RUN_TEST(test_bb_pub_routes_get_last_publish_ok_true_with_good_sink);
 
     // bb_pub_mqtt tests
     RUN_TEST(test_bb_pub_mqtt_sink_null_handle_returns_invalid_arg);
