@@ -24,6 +24,9 @@
 #ifndef CONFIG_BB_PUB_MAX_SINKS
 #define CONFIG_BB_PUB_MAX_SINKS 4
 #endif
+#ifndef BB_PUB_MAX_PAYLOAD_EXTENDERS
+#define BB_PUB_MAX_PAYLOAD_EXTENDERS 4
+#endif
 #ifndef CONFIG_BB_PUB_TOPIC_PREFIX
 #define CONFIG_BB_PUB_TOPIC_PREFIX "metrics"
 #endif
@@ -58,6 +61,19 @@ static bool            s_hwm_warned     = false;
 
 static bb_pub_sink_t   s_sinks[CONFIG_BB_PUB_MAX_SINKS];
 static int             s_sink_count     = 0;
+
+// ---------------------------------------------------------------------------
+// Payload-extender registry
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bb_pub_payload_fn fn;
+    void             *ctx;
+} bb_pub_payload_entry_t;
+
+static bb_pub_payload_entry_t s_payload_extenders[BB_PUB_MAX_PAYLOAD_EXTENDERS];
+static int                    s_payload_extender_count = 0;
+static bool                   s_payload_hwm_warned     = false;
 
 // ---------------------------------------------------------------------------
 // Runtime config (NVS-persisted)
@@ -165,6 +181,34 @@ bb_err_t bb_pub_register_source(const char *subtopic, bb_pub_sample_fn fn, void 
     src->subtopic[sizeof(src->subtopic) - 1] = '\0';
     src->fn  = fn;
     src->ctx = ctx;
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
+// Public API — payload extenders
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_pub_register_payload_extender(bb_pub_payload_fn fn, void *ctx)
+{
+    if (!fn) return BB_ERR_INVALID_ARG;
+
+    if (s_payload_extender_count >= BB_PUB_MAX_PAYLOAD_EXTENDERS) {
+        bb_log_w(TAG, "payload extender registry full (%d/%d)",
+                 s_payload_extender_count, BB_PUB_MAX_PAYLOAD_EXTENDERS);
+        return BB_ERR_NO_SPACE;
+    }
+
+    // High-watermark warning at cap-1.
+    if (!s_payload_hwm_warned &&
+        s_payload_extender_count == BB_PUB_MAX_PAYLOAD_EXTENDERS - 1) {
+        bb_log_w(TAG, "payload extender registry at high-watermark (%d/%d)",
+                 s_payload_extender_count, BB_PUB_MAX_PAYLOAD_EXTENDERS);
+        s_payload_hwm_warned = true;
+    }
+
+    s_payload_extenders[s_payload_extender_count].fn  = fn;
+    s_payload_extenders[s_payload_extender_count].ctx = ctx;
+    s_payload_extender_count++;
     return BB_OK;
 }
 
@@ -280,6 +324,12 @@ bb_err_t bb_pub_tick_once(void)
         // Inject shared timestamp field (uptime-ms; see file-level note above).
         bb_json_obj_set_number(obj, "ts", (double)ts_ms);
 
+        // Invoke payload extenders in registration order before serialize.
+        for (int pi = 0; pi < s_payload_extender_count; pi++) {
+            s_payload_extenders[pi].fn(obj, src->subtopic,
+                                       s_payload_extenders[pi].ctx);
+        }
+
         char *json = bb_json_serialize(obj);
         bb_json_free(obj);
 
@@ -324,17 +374,19 @@ bb_err_t bb_pub_tick_once(void)
 #ifdef BB_PUB_TESTING
 void bb_pub_test_reset(void)
 {
-    s_source_count      = 0;
-    s_hwm_warned        = false;
-    s_sink_count        = 0;
-    s_last_publish_ok   = false;
-    s_last_publish_ms   = 0;
-    s_published_ever    = false;
-    s_paused            = false;
+    s_source_count             = 0;
+    s_hwm_warned               = false;
+    s_sink_count               = 0;
+    s_last_publish_ok          = false;
+    s_last_publish_ms          = 0;
+    s_published_ever           = false;
+    s_paused                   = false;
+    s_payload_extender_count   = 0;
+    s_payload_hwm_warned       = false;
     // Reset runtime config to defaults.
-    s_interval_ms       = (uint32_t)CONFIG_BB_PUB_INTERVAL_MS;
-    s_enabled           = 1;
-    s_config_loaded     = true;   /* bypass NVS for tests */
-    s_interval_apply_hook = NULL;
+    s_interval_ms              = (uint32_t)CONFIG_BB_PUB_INTERVAL_MS;
+    s_enabled                  = 1;
+    s_config_loaded            = true;   /* bypass NVS for tests */
+    s_interval_apply_hook      = NULL;
 }
 #endif
