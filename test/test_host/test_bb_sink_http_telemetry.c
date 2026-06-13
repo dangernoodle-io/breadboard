@@ -1,8 +1,11 @@
 // Tests for bb_sink_http_telemetry section:
 // - GET masks TLS creds (ca_set/cert_set/key_set) + default path_tmpl
 // - PATCH persists each field (base, path_tmpl, tls_ca/cert/key, qos, enabled)
+// - GET emits client_id (clear) + headers array with per-row secret masking
+// - PATCH persists client_id; PATCH headers array with secret-preserve merge
 #include "unity.h"
 #include "bb_sink_http_telemetry.h"
+#include "bb_sink_http.h"
 #include "bb_nv.h"
 #include "bb_json.h"
 #include "cJSON.h"
@@ -231,4 +234,223 @@ void test_bb_sink_http_telemetry_patch_partial_update_leaves_others(void)
     char buf[128] = {0};
     bb_nv_get_str("bb_sink_http", "base", buf, sizeof(buf), "");
     TEST_ASSERT_EQUAL_STRING("https://original.example.com:8443", buf);
+}
+
+// ---------------------------------------------------------------------------
+// GET: client_id field
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_http_telemetry_get_client_id_empty_by_default(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+
+    cJSON *cid = cJSON_GetObjectItemCaseSensitive(body, "client_id");
+    TEST_ASSERT_NOT_NULL(cid);
+    TEST_ASSERT_TRUE(cJSON_IsString(cid));
+    TEST_ASSERT_EQUAL_STRING("", cJSON_GetStringValue(cid));
+
+    cJSON_Delete(body);
+}
+
+void test_bb_sink_http_telemetry_get_client_id_reflects_nvs(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_nv_set_str("bb_sink_http", "client_id", "acme-device-01");
+
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+
+    cJSON *cid = cJSON_GetObjectItemCaseSensitive(body, "client_id");
+    TEST_ASSERT_NOT_NULL(cid);
+    TEST_ASSERT_EQUAL_STRING("acme-device-01", cJSON_GetStringValue(cid));
+
+    cJSON_Delete(body);
+}
+
+// ---------------------------------------------------------------------------
+// PATCH: client_id persisted to NVS
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_http_telemetry_patch_persists_client_id(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_err_t rc = run_patch("{\"client_id\":\"my-device-42\"}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[64] = {0};
+    bb_nv_get_str("bb_sink_http", "client_id", buf, sizeof(buf), "");
+    TEST_ASSERT_EQUAL_STRING("my-device-42", buf);
+}
+
+// ---------------------------------------------------------------------------
+// GET: headers array — secret masking
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_http_telemetry_get_headers_empty_by_default(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+
+    cJSON *headers = cJSON_GetObjectItemCaseSensitive(body, "headers");
+    TEST_ASSERT_NOT_NULL(headers);
+    TEST_ASSERT_TRUE(cJSON_IsArray(headers));
+    TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(headers));
+
+    cJSON_Delete(body);
+}
+
+void test_bb_sink_http_telemetry_get_headers_non_secret_includes_value(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    // Store a non-secret header via NVS directly (no '*' prefix).
+    bb_nv_set_str("bb_sink_http", "headers", "X-Trace: abc123");
+
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+
+    cJSON *headers = cJSON_GetObjectItemCaseSensitive(body, "headers");
+    TEST_ASSERT_NOT_NULL(headers);
+    TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(headers));
+
+    cJSON *entry = cJSON_GetArrayItem(headers, 0);
+    TEST_ASSERT_NOT_NULL(entry);
+
+    cJSON *name = cJSON_GetObjectItemCaseSensitive(entry, "name");
+    TEST_ASSERT_EQUAL_STRING("X-Trace", cJSON_GetStringValue(name));
+
+    cJSON *secret = cJSON_GetObjectItemCaseSensitive(entry, "secret");
+    TEST_ASSERT_FALSE(cJSON_IsTrue(secret));
+
+    cJSON *value = cJSON_GetObjectItemCaseSensitive(entry, "value");
+    TEST_ASSERT_NOT_NULL(value);
+    TEST_ASSERT_EQUAL_STRING("abc123", cJSON_GetStringValue(value));
+
+    cJSON_Delete(body);
+}
+
+void test_bb_sink_http_telemetry_get_headers_secret_omits_value_has_set(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    // Store a secret header via NVS ('*' prefix).
+    bb_nv_set_str("bb_sink_http", "headers", "*Authorization: Bearer xyz");
+
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+
+    cJSON *headers = cJSON_GetObjectItemCaseSensitive(body, "headers");
+    TEST_ASSERT_NOT_NULL(headers);
+    TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(headers));
+
+    cJSON *entry = cJSON_GetArrayItem(headers, 0);
+    TEST_ASSERT_NOT_NULL(entry);
+
+    // name and secret must be present.
+    cJSON *name = cJSON_GetObjectItemCaseSensitive(entry, "name");
+    TEST_ASSERT_EQUAL_STRING("Authorization", cJSON_GetStringValue(name));
+
+    cJSON *secret = cJSON_GetObjectItemCaseSensitive(entry, "secret");
+    TEST_ASSERT_TRUE(cJSON_IsTrue(secret));
+
+    // value must be ABSENT.
+    cJSON *value = cJSON_GetObjectItemCaseSensitive(entry, "value");
+    TEST_ASSERT_NULL(value);
+
+    // set must be true.
+    cJSON *set = cJSON_GetObjectItemCaseSensitive(entry, "set");
+    TEST_ASSERT_NOT_NULL(set);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(set));
+
+    cJSON_Delete(body);
+}
+
+// ---------------------------------------------------------------------------
+// PATCH: headers array — add non-secret, add secret, secret+blank preserves
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_http_telemetry_patch_headers_add_non_secret(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_err_t rc = run_patch(
+        "{\"headers\":[{\"name\":\"X-Trace\",\"value\":\"abc\",\"secret\":false}]}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[512] = {0};
+    bb_nv_get_str("bb_sink_http", "headers", buf, sizeof(buf), "");
+    TEST_ASSERT_NOT_NULL(strstr(buf, "X-Trace: abc"));
+    // No '*' prefix.
+    TEST_ASSERT_NULL(strstr(buf, "*X-Trace"));
+}
+
+void test_bb_sink_http_telemetry_patch_headers_add_secret_stores_value(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_err_t rc = run_patch(
+        "{\"headers\":[{\"name\":\"Authorization\",\"value\":\"Bearer tok\",\"secret\":true}]}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[512] = {0};
+    bb_nv_get_str("bb_sink_http", "headers", buf, sizeof(buf), "");
+    // Must be stored with '*' prefix.
+    TEST_ASSERT_NOT_NULL(strstr(buf, "*Authorization: Bearer tok"));
+}
+
+void test_bb_sink_http_telemetry_patch_headers_secret_blank_preserves_existing(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    // Pre-populate NVS with a stored secret value.
+    bb_nv_set_str("bb_sink_http", "headers", "*Authorization: Bearer original");
+
+    // PATCH: send Authorization with secret=true but no value → preserve.
+    bb_err_t rc = run_patch(
+        "{\"headers\":[{\"name\":\"Authorization\",\"secret\":true}]}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[512] = {0};
+    bb_nv_get_str("bb_sink_http", "headers", buf, sizeof(buf), "");
+    // Original value must still be there.
+    TEST_ASSERT_NOT_NULL(strstr(buf, "*Authorization: Bearer original"));
+}
+
+void test_bb_sink_http_telemetry_patch_headers_omitted_name_removed(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    // Pre-populate with two headers.
+    bb_nv_set_str("bb_sink_http", "headers", "X-A: va\nX-B: vb");
+
+    // PATCH: only send X-A → X-B removed.
+    bb_err_t rc = run_patch(
+        "{\"headers\":[{\"name\":\"X-A\",\"value\":\"new-va\",\"secret\":false}]}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[512] = {0};
+    bb_nv_get_str("bb_sink_http", "headers", buf, sizeof(buf), "");
+    TEST_ASSERT_NOT_NULL(strstr(buf, "X-A: new-va"));
+    TEST_ASSERT_NULL(strstr(buf, "X-B"));
+}
+
+void test_bb_sink_http_telemetry_patch_headers_independent_edit(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    // Pre-populate with secret auth + non-secret trace.
+    bb_nv_set_str("bb_sink_http", "headers",
+                  "*Authorization: Bearer old\nX-Trace: old-trace");
+
+    // PATCH: update X-Trace, leave Authorization blank (preserve).
+    bb_err_t rc = run_patch(
+        "{\"headers\":["
+        "{\"name\":\"Authorization\",\"secret\":true},"
+        "{\"name\":\"X-Trace\",\"value\":\"new-trace\",\"secret\":false}"
+        "]}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[512] = {0};
+    bb_nv_get_str("bb_sink_http", "headers", buf, sizeof(buf), "");
+    // Secret must be preserved.
+    TEST_ASSERT_NOT_NULL(strstr(buf, "*Authorization: Bearer old"));
+    // Non-secret must be updated.
+    TEST_ASSERT_NOT_NULL(strstr(buf, "X-Trace: new-trace"));
+    TEST_ASSERT_NULL(strstr(buf, "old-trace"));
 }

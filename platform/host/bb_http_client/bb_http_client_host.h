@@ -70,6 +70,31 @@ void bb_http_client_session_set_mock_transport_error(bb_err_t err);
 // Reset by bb_http_client_clear_mock().
 bb_http_client_session_record_t bb_http_client_session_last_post(void);
 
+// -------------------------------------------------------------------------
+// Header capture — populated by bb_http_client_session_set_header calls.
+// Stores a name→value map of all headers applied to the last opened session.
+// Reset by bb_http_client_clear_mock() or when a new session is opened.
+// -------------------------------------------------------------------------
+#define BB_HTTP_CLIENT_HOST_MAX_HEADERS 16
+#define BB_HTTP_CLIENT_HOST_HEADER_NAME_MAX  64
+#define BB_HTTP_CLIENT_HOST_HEADER_VALUE_MAX 512
+
+typedef struct {
+    char name[BB_HTTP_CLIENT_HOST_HEADER_NAME_MAX];
+    char value[BB_HTTP_CLIENT_HOST_HEADER_VALUE_MAX];
+} bb_http_client_header_record_t;
+
+// Return the number of headers applied via session_set_header since the last
+// session_open or clear_mock.
+int bb_http_client_session_header_count(void);
+
+// Return a copy of the header at index i (0-based).  Returns a zeroed struct
+// if i >= header_count.
+bb_http_client_header_record_t bb_http_client_session_header_at(int i);
+
+// Find a header by name (case-sensitive).  Returns a zeroed struct if not found.
+bb_http_client_header_record_t bb_http_client_session_find_header(const char *name);
+
 #ifdef __cplusplus
 }
 #endif

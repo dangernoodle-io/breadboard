@@ -47,6 +47,10 @@ static session_mock_state_t s_session_mock = {
 };
 static bb_http_client_session_record_t s_session_last = { .called = false };
 
+// Header capture state (declared here so clear_mock can reference them).
+static bb_http_client_header_record_t s_headers[BB_HTTP_CLIENT_HOST_MAX_HEADERS];
+static int s_header_count = 0;
+
 void bb_http_client_set_mock_response(const char *body, size_t body_len,
                                       int status_code)
 {
@@ -79,6 +83,8 @@ void bb_http_client_clear_mock(void)
     s_session_mock.canned_status    = 200;
     s_session_mock.transport_result = BB_OK;
     s_session_last = (bb_http_client_session_record_t){ .called = false };
+    memset(s_headers, 0, sizeof(s_headers));
+    s_header_count = 0;
     pthread_mutex_unlock(&s_mock_lock);
 }
 
@@ -105,6 +111,47 @@ bb_http_client_session_record_t bb_http_client_session_last_post(void)
     return rec;
 }
 
+// ---------------------------------------------------------------------------
+// Header capture accessors
+// ---------------------------------------------------------------------------
+
+int bb_http_client_session_header_count(void)
+{
+    pthread_mutex_lock(&s_mock_lock);
+    int n = s_header_count;
+    pthread_mutex_unlock(&s_mock_lock);
+    return n;
+}
+
+bb_http_client_header_record_t bb_http_client_session_header_at(int i)
+{
+    pthread_mutex_lock(&s_mock_lock);
+    bb_http_client_header_record_t rec;
+    memset(&rec, 0, sizeof(rec));
+    if (i >= 0 && i < s_header_count) {
+        rec = s_headers[i];
+    }
+    pthread_mutex_unlock(&s_mock_lock);
+    return rec;
+}
+
+bb_http_client_header_record_t bb_http_client_session_find_header(const char *name)
+{
+    pthread_mutex_lock(&s_mock_lock);
+    bb_http_client_header_record_t rec;
+    memset(&rec, 0, sizeof(rec));
+    if (name) {
+        for (int i = 0; i < s_header_count; i++) {
+            if (strcmp(s_headers[i].name, name) == 0) {
+                rec = s_headers[i];
+                break;
+            }
+        }
+    }
+    pthread_mutex_unlock(&s_mock_lock);
+    return rec;
+}
+
 // Session handle — opaque struct; on host just holds the url_base string.
 typedef struct {
     char url_base[256];
@@ -119,7 +166,40 @@ bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
     host_session_t *s = (host_session_t *)calloc(1, sizeof(host_session_t));
     if (!s) return BB_ERR_NO_SPACE;
     strncpy(s->url_base, url_base, sizeof(s->url_base) - 1);
+    // Reset header capture for the new session.
+    pthread_mutex_lock(&s_mock_lock);
+    memset(s_headers, 0, sizeof(s_headers));
+    s_header_count = 0;
+    pthread_mutex_unlock(&s_mock_lock);
     *out = (bb_http_client_session_t)s;
+    return BB_OK;
+}
+
+bb_err_t bb_http_client_session_set_header(bb_http_client_session_t s,
+                                            const char *name,
+                                            const char *value)
+{
+    if (!s || !name || !value) return BB_ERR_INVALID_ARG;
+
+    pthread_mutex_lock(&s_mock_lock);
+    // Update existing entry if name already present.
+    for (int i = 0; i < s_header_count; i++) {
+        if (strcmp(s_headers[i].name, name) == 0) {
+            strncpy(s_headers[i].value, value, BB_HTTP_CLIENT_HOST_HEADER_VALUE_MAX - 1);
+            s_headers[i].value[BB_HTTP_CLIENT_HOST_HEADER_VALUE_MAX - 1] = '\0';
+            pthread_mutex_unlock(&s_mock_lock);
+            return BB_OK;
+        }
+    }
+    // Append new entry.
+    if (s_header_count < BB_HTTP_CLIENT_HOST_MAX_HEADERS) {
+        strncpy(s_headers[s_header_count].name,  name,  BB_HTTP_CLIENT_HOST_HEADER_NAME_MAX  - 1);
+        strncpy(s_headers[s_header_count].value, value, BB_HTTP_CLIENT_HOST_HEADER_VALUE_MAX - 1);
+        s_headers[s_header_count].name[BB_HTTP_CLIENT_HOST_HEADER_NAME_MAX   - 1] = '\0';
+        s_headers[s_header_count].value[BB_HTTP_CLIENT_HOST_HEADER_VALUE_MAX - 1] = '\0';
+        s_header_count++;
+    }
+    pthread_mutex_unlock(&s_mock_lock);
     return BB_OK;
 }
 

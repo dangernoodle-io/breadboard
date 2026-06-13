@@ -1815,6 +1815,29 @@ void test_bb_sink_http_disabled_no_post(void);
 void test_bb_sink_http_null_out_returns_invalid_arg(void);
 void test_bb_sink_http_session_reused_across_publishes(void);
 void test_bb_sink_http_session_invalidated_on_set_cfg(void);
+void test_bb_sink_http_header_name_valid_normal(void);
+void test_bb_sink_http_header_name_invalid_colon(void);
+void test_bb_sink_http_header_name_invalid_space(void);
+void test_bb_sink_http_header_name_invalid_tab(void);
+void test_bb_sink_http_header_name_invalid_empty(void);
+void test_bb_sink_http_header_value_valid_normal(void);
+void test_bb_sink_http_header_value_invalid_newline(void);
+void test_bb_sink_http_header_value_invalid_cr(void);
+void test_bb_sink_http_parse_serialize_roundtrip(void);
+void test_bb_sink_http_parse_skips_malformed_lines(void);
+void test_bb_sink_http_parse_skips_blank_lines(void);
+void test_bb_sink_http_parse_cap_enforced(void);
+void test_bb_sink_http_parse_null_buf_returns_zero(void);
+void test_bb_sink_http_parse_rejects_value_with_newline(void);
+void test_bb_sink_http_serialize_skips_invalid_entries(void);
+void test_bb_sink_http_merge_adds_non_secret(void);
+void test_bb_sink_http_merge_secret_with_value_updates(void);
+void test_bb_sink_http_merge_secret_blank_preserves_existing(void);
+void test_bb_sink_http_merge_omitted_name_removed(void);
+void test_bb_sink_http_merge_independent_edit_secret_preserved(void);
+void test_bb_sink_http_session_applies_client_id_from_cfg(void);
+void test_bb_sink_http_session_applies_configured_headers(void);
+void test_bb_sink_http_headers_reapplied_after_set_cfg(void);
 
 // Forward declarations from test_bb_http_client_session.c
 void test_bb_http_client_session_open_null_url_base_returns_invalid_arg(void);
@@ -2082,6 +2105,17 @@ void test_bb_sink_http_telemetry_patch_persists_tls_key(void);
 void test_bb_sink_http_telemetry_patch_persists_qos(void);
 void test_bb_sink_http_telemetry_patch_persists_enabled(void);
 void test_bb_sink_http_telemetry_patch_partial_update_leaves_others(void);
+void test_bb_sink_http_telemetry_get_client_id_empty_by_default(void);
+void test_bb_sink_http_telemetry_get_client_id_reflects_nvs(void);
+void test_bb_sink_http_telemetry_patch_persists_client_id(void);
+void test_bb_sink_http_telemetry_get_headers_empty_by_default(void);
+void test_bb_sink_http_telemetry_get_headers_non_secret_includes_value(void);
+void test_bb_sink_http_telemetry_get_headers_secret_omits_value_has_set(void);
+void test_bb_sink_http_telemetry_patch_headers_add_non_secret(void);
+void test_bb_sink_http_telemetry_patch_headers_add_secret_stores_value(void);
+void test_bb_sink_http_telemetry_patch_headers_secret_blank_preserves_existing(void);
+void test_bb_sink_http_telemetry_patch_headers_omitted_name_removed(void);
+void test_bb_sink_http_telemetry_patch_headers_independent_edit(void);
 
 // Forward declarations from test_bb_pub_telemetry.c
 void test_bb_pub_telemetry_get_has_interval_ms(void);
@@ -4190,6 +4224,29 @@ int main(void) {
     RUN_TEST(test_bb_sink_http_null_out_returns_invalid_arg);
     RUN_TEST(test_bb_sink_http_session_reused_across_publishes);
     RUN_TEST(test_bb_sink_http_session_invalidated_on_set_cfg);
+    RUN_TEST(test_bb_sink_http_header_name_valid_normal);
+    RUN_TEST(test_bb_sink_http_header_name_invalid_colon);
+    RUN_TEST(test_bb_sink_http_header_name_invalid_space);
+    RUN_TEST(test_bb_sink_http_header_name_invalid_tab);
+    RUN_TEST(test_bb_sink_http_header_name_invalid_empty);
+    RUN_TEST(test_bb_sink_http_header_value_valid_normal);
+    RUN_TEST(test_bb_sink_http_header_value_invalid_newline);
+    RUN_TEST(test_bb_sink_http_header_value_invalid_cr);
+    RUN_TEST(test_bb_sink_http_parse_serialize_roundtrip);
+    RUN_TEST(test_bb_sink_http_parse_skips_malformed_lines);
+    RUN_TEST(test_bb_sink_http_parse_skips_blank_lines);
+    RUN_TEST(test_bb_sink_http_parse_cap_enforced);
+    RUN_TEST(test_bb_sink_http_parse_null_buf_returns_zero);
+    RUN_TEST(test_bb_sink_http_parse_rejects_value_with_newline);
+    RUN_TEST(test_bb_sink_http_serialize_skips_invalid_entries);
+    RUN_TEST(test_bb_sink_http_merge_adds_non_secret);
+    RUN_TEST(test_bb_sink_http_merge_secret_with_value_updates);
+    RUN_TEST(test_bb_sink_http_merge_secret_blank_preserves_existing);
+    RUN_TEST(test_bb_sink_http_merge_omitted_name_removed);
+    RUN_TEST(test_bb_sink_http_merge_independent_edit_secret_preserved);
+    RUN_TEST(test_bb_sink_http_session_applies_client_id_from_cfg);
+    RUN_TEST(test_bb_sink_http_session_applies_configured_headers);
+    RUN_TEST(test_bb_sink_http_headers_reapplied_after_set_cfg);
 
     // bb_http_client session tests
     RUN_TEST(test_bb_http_client_session_open_null_url_base_returns_invalid_arg);
@@ -4289,6 +4346,17 @@ int main(void) {
     RUN_TEST(test_bb_sink_http_telemetry_patch_persists_qos);
     RUN_TEST(test_bb_sink_http_telemetry_patch_persists_enabled);
     RUN_TEST(test_bb_sink_http_telemetry_patch_partial_update_leaves_others);
+    RUN_TEST(test_bb_sink_http_telemetry_get_client_id_empty_by_default);
+    RUN_TEST(test_bb_sink_http_telemetry_get_client_id_reflects_nvs);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_persists_client_id);
+    RUN_TEST(test_bb_sink_http_telemetry_get_headers_empty_by_default);
+    RUN_TEST(test_bb_sink_http_telemetry_get_headers_non_secret_includes_value);
+    RUN_TEST(test_bb_sink_http_telemetry_get_headers_secret_omits_value_has_set);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_add_non_secret);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_add_secret_stores_value);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_secret_blank_preserves_existing);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_omitted_name_removed);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_independent_edit);
 
     // bb_pub_telemetry tests
     RUN_TEST(test_bb_pub_telemetry_get_has_interval_ms);

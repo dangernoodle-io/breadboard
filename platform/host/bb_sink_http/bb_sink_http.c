@@ -17,6 +17,11 @@ static const char *TAG = "bb_sink_http";
 #define CONFIG_BB_SINK_HTTP_RESP_BUF_BYTES 256
 #endif
 
+// NVS key for the delimited headers string.
+#define HEADERS_NVS_KEY "headers"
+// Maximum NVS buffer for all serialized headers.
+#define HEADERS_BUF_MAX 2048
+
 // ---------------------------------------------------------------------------
 // Module state
 // ---------------------------------------------------------------------------
@@ -25,6 +30,208 @@ static bb_sink_http_cfg_t         s_cfg;
 static bool                      s_initialized = false;
 static bb_http_client_session_t  s_session      = NULL;
 static bb_tls_creds_t            s_creds;        // kept alive for session lifetime
+
+// ---------------------------------------------------------------------------
+// Validation helpers (pure)
+// ---------------------------------------------------------------------------
+
+bool bb_sink_http_header_name_valid(const char *name)
+{
+    if (!name || name[0] == '\0') return false;
+    for (const char *p = name; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        // RFC 7230 token: visible ASCII except delimiters.
+        // Reject ':', whitespace (space/tab), and control chars (<= 0x1F or 0x7F).
+        if (c <= 0x1F || c == 0x7F) return false;
+        if (c == ':' || c == ' ' || c == '\t') return false;
+    }
+    return true;
+}
+
+bool bb_sink_http_header_value_valid(const char *value)
+{
+    if (!value) return false;
+    for (const char *p = value; *p; p++) {
+        if (*p == '\r' || *p == '\n') return false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Parse delimited NVS string → header array (pure)
+// ---------------------------------------------------------------------------
+
+int bb_sink_http_parse_headers(const char *buf,
+                                bb_sink_http_header_t *out, int out_max)
+{
+    if (!buf || !out || out_max <= 0) return 0;
+
+    int count = 0;
+    // Work on a copy since we mutate with NUL terminators.
+    char tmp[HEADERS_BUF_MAX];
+    strncpy(tmp, buf, sizeof(tmp) - 1);
+    tmp[sizeof(tmp) - 1] = '\0';
+
+    char *line = tmp;
+    while (*line && count < out_max) {
+        // Find end of this line.
+        char *nl = strchr(line, '\n');
+        if (nl) *nl = '\0';
+
+        // Skip blank lines.
+        if (line[0] == '\0') {
+            line = nl ? nl + 1 : line + strlen(line);
+            continue;
+        }
+
+        // Check for secret prefix.
+        bool secret = false;
+        char *p = line;
+        if (*p == '*') {
+            secret = true;
+            p++;
+        }
+
+        // Split on first ": " (colon-space).
+        char *sep = strstr(p, ": ");
+        if (!sep) {
+            // Malformed — skip.
+            line = nl ? nl + 1 : p + strlen(p);
+            continue;
+        }
+        *sep = '\0';
+        char *name  = p;
+        char *value = sep + 2;  // skip ": "
+
+        // Validate.
+        if (!bb_sink_http_header_name_valid(name) ||
+            !bb_sink_http_header_value_valid(value)) {
+            line = nl ? nl + 1 : value + strlen(value);
+            continue;
+        }
+
+        // Enforce max lengths.
+        if (strlen(name) >= BB_SINK_HTTP_HEADER_NAME_MAX ||
+            strlen(value) >= BB_SINK_HTTP_HEADER_VALUE_MAX) {
+            line = nl ? nl + 1 : value + strlen(value);
+            continue;
+        }
+
+        bb_sink_http_header_t *h = &out[count++];
+        strncpy(h->name,  name,  sizeof(h->name)  - 1);
+        strncpy(h->value, value, sizeof(h->value) - 1);
+        h->name[sizeof(h->name)   - 1] = '\0';
+        h->value[sizeof(h->value) - 1] = '\0';
+        h->secret = secret;
+
+        line = nl ? nl + 1 : line + strlen(line) + 1;
+    }
+    return count;
+}
+
+// ---------------------------------------------------------------------------
+// Serialize header array → delimited NVS string (pure)
+// ---------------------------------------------------------------------------
+
+size_t bb_sink_http_serialize_headers(const bb_sink_http_header_t *headers,
+                                       int num_headers,
+                                       char *dst, size_t dst_cap)
+{
+    if (!headers || !dst || dst_cap == 0) return 0;
+    size_t pos = 0;
+
+    for (int i = 0; i < num_headers && pos + 1 < dst_cap; i++) {
+        const bb_sink_http_header_t *h = &headers[i];
+        if (!bb_sink_http_header_name_valid(h->name) ||
+            !bb_sink_http_header_value_valid(h->value)) {
+            continue;
+        }
+
+        // prefix '*' for secret.
+        if (h->secret) {
+            if (pos + 1 >= dst_cap) break;
+            dst[pos++] = '*';
+        }
+
+        // write name.
+        size_t nlen = strlen(h->name);
+        if (pos + nlen + 2 >= dst_cap) break;  // need ": " after
+        memcpy(dst + pos, h->name, nlen);
+        pos += nlen;
+
+        // write ": ".
+        dst[pos++] = ':';
+        dst[pos++] = ' ';
+
+        // write value.
+        size_t vlen = strlen(h->value);
+        if (pos + vlen + 1 >= dst_cap) {
+            // Truncate value to fit.
+            vlen = dst_cap - pos - 1;
+        }
+        if (vlen > 0) {
+            memcpy(dst + pos, h->value, vlen);
+            pos += vlen;
+        }
+
+        // separate entries with '\n' (no trailing newline needed, but harmless).
+        if (i + 1 < num_headers && pos + 1 < dst_cap) {
+            dst[pos++] = '\n';
+        }
+    }
+    dst[pos] = '\0';
+    return pos;
+}
+
+// ---------------------------------------------------------------------------
+// PATCH merge helper (pure)
+// ---------------------------------------------------------------------------
+
+int bb_sink_http_merge_headers(const bb_sink_http_patch_entry_t *patch, int patch_count,
+                                const bb_sink_http_header_t *existing, int existing_count,
+                                bb_sink_http_header_t *out, int out_max)
+{
+    if (!out || out_max <= 0) return 0;
+    if (!patch || patch_count <= 0) return 0;
+
+    int count = 0;
+    for (int i = 0; i < patch_count && count < out_max; i++) {
+        const bb_sink_http_patch_entry_t *pe = &patch[i];
+        if (pe->name[0] == '\0') continue;  // reject empty names
+        if (!bb_sink_http_header_name_valid(pe->name)) continue;
+
+        bb_sink_http_header_t *h = &out[count];
+        strncpy(h->name, pe->name, sizeof(h->name) - 1);
+        h->name[sizeof(h->name) - 1] = '\0';
+        h->secret = pe->secret;
+
+        if (pe->secret && (!pe->value_present || pe->value[0] == '\0')) {
+            // Preserve existing value by name lookup.
+            bool found = false;
+            if (existing) {
+                for (int j = 0; j < existing_count; j++) {
+                    if (strcmp(existing[j].name, pe->name) == 0) {
+                        strncpy(h->value, existing[j].value, sizeof(h->value) - 1);
+                        h->value[sizeof(h->value) - 1] = '\0';
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                h->value[0] = '\0';
+            }
+        } else {
+            // Use provided value; validate it.
+            if (!bb_sink_http_header_value_valid(pe->value)) continue;
+            strncpy(h->value, pe->value, sizeof(h->value) - 1);
+            h->value[sizeof(h->value) - 1] = '\0';
+        }
+
+        count++;
+    }
+    return count;
+}
 
 // ---------------------------------------------------------------------------
 // NVS helpers
@@ -47,17 +254,29 @@ static void load_from_nvs(bb_sink_http_cfg_t *out)
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "enabled",
                   enabled_str, sizeof(enabled_str), "0");
     out->enabled = (enabled_str[0] == '1');
+
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "client_id",
+                  out->client_id, sizeof(out->client_id), "");
+
+    char hbuf[HEADERS_BUF_MAX] = {0};
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf, sizeof(hbuf), "");
+    out->num_headers = bb_sink_http_parse_headers(hbuf, out->headers, BB_SINK_HTTP_HEADERS_MAX);
 }
 
 static void save_to_nvs(const bb_sink_http_cfg_t *cfg)
 {
     bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "base",      cfg->base);
     bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "path_tmpl", cfg->path_tmpl);
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "client_id", cfg->client_id);
 
     char qos_str[4] = {0};
     qos_str[0] = (char)('0' + cfg->qos);
     bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "qos",     qos_str);
     bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "enabled", cfg->enabled ? "1" : "0");
+
+    char hbuf[HEADERS_BUF_MAX] = {0};
+    bb_sink_http_serialize_headers(cfg->headers, cfg->num_headers, hbuf, sizeof(hbuf));
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf);
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +362,29 @@ static size_t build_url(const bb_sink_http_cfg_t *cfg,
 }
 
 // ---------------------------------------------------------------------------
+// Apply all configured headers to an open session.
+// ---------------------------------------------------------------------------
+
+static void apply_headers_to_session(void)
+{
+    if (!s_session) return;
+
+    // X-Client-Id: use client_id if set, else hostname.
+    const char *cid = s_cfg.client_id[0] ? s_cfg.client_id : bb_nv_config_hostname();
+    if (cid && cid[0]) {
+        bb_http_client_session_set_header(s_session, "X-Client-Id", cid);
+    }
+
+    // User-configured headers.
+    for (int i = 0; i < s_cfg.num_headers; i++) {
+        const bb_sink_http_header_t *h = &s_cfg.headers[i];
+        if (h->name[0]) {
+            bb_http_client_session_set_header(s_session, h->name, h->value);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Session lifecycle helpers
 // ---------------------------------------------------------------------------
 
@@ -180,6 +422,9 @@ static bb_err_t session_ensure(void)
         bb_tls_creds_free(&s_creds);
         return rc;
     }
+
+    // Apply headers to the freshly opened session.
+    apply_headers_to_session();
 
     bb_log_i(TAG, "session opened to %s", s_cfg.base);
     return BB_OK;
@@ -251,11 +496,23 @@ bb_err_t bb_sink_http_init(const bb_sink_http_cfg_t *over)
         }
         if (over->qos != 0)     s_cfg.qos     = over->qos;
         if (over->enabled)      s_cfg.enabled  = over->enabled;
+        // client_id override (allow setting to empty string explicitly via set_cfg).
+        if (over->client_id[0]) {
+            strncpy(s_cfg.client_id, over->client_id, sizeof(s_cfg.client_id) - 1);
+            s_cfg.client_id[sizeof(s_cfg.client_id) - 1] = '\0';
+        }
+        // headers override: only when num_headers > 0.
+        if (over->num_headers > 0) {
+            int n = over->num_headers;
+            if (n > BB_SINK_HTTP_HEADERS_MAX) n = BB_SINK_HTTP_HEADERS_MAX;
+            memcpy(s_cfg.headers, over->headers, (size_t)n * sizeof(bb_sink_http_header_t));
+            s_cfg.num_headers = n;
+        }
     }
 
     s_initialized = true;
-    bb_log_i(TAG, "init: base=%s enabled=%d qos=%d",
-             s_cfg.base, s_cfg.enabled, s_cfg.qos);
+    bb_log_i(TAG, "init: base=%s enabled=%d qos=%d headers=%d",
+             s_cfg.base, s_cfg.enabled, s_cfg.qos, s_cfg.num_headers);
     return BB_OK;
 }
 
