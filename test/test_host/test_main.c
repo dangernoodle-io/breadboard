@@ -2210,6 +2210,9 @@ void test_boot_both_enabled_mqtt_wins(void);
 void test_boot_only_mqtt_enabled(void);
 void test_boot_only_http_enabled(void);
 void test_boot_neither_enabled(void);
+void test_boot_mqtt_loser_triggers_reconfigure(void);
+void test_boot_mqtt_winner_no_spurious_reconfigure(void);
+void test_runtime_disable_mqtt_triggers_reconfigure(void);
 
 // Forward declarations from test_bb_sink_mqtt.c
 void test_bb_sink_mqtt_null_handle_returns_invalid_arg(void);
@@ -4529,6 +4532,9 @@ int main(void) {
     RUN_TEST(test_boot_only_mqtt_enabled);
     RUN_TEST(test_boot_only_http_enabled);
     RUN_TEST(test_boot_neither_enabled);
+    RUN_TEST(test_boot_mqtt_loser_triggers_reconfigure);
+    RUN_TEST(test_boot_mqtt_winner_no_spurious_reconfigure);
+    RUN_TEST(test_runtime_disable_mqtt_triggers_reconfigure);
 
     // bb_sink_mqtt tests
     RUN_TEST(test_bb_sink_mqtt_null_handle_returns_invalid_arg);

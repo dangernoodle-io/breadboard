@@ -1,5 +1,8 @@
 // Tests for the exclusive-sink arbiter (bb_pub_exclusive_acquire/release)
 // and the mutual-exclusion invariant at the section-patch and boot levels.
+// Also covers the B1-275 loser-teardown path: when a sink loses the
+// exclusive slot at boot its transport must be torn down immediately so
+// heap is freed on the same boot without a reboot.
 //
 // Naming conventions follow the workspace test style.
 #include "unity.h"
@@ -281,6 +284,116 @@ void test_boot_neither_enabled(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_pub_exclusive_acquire("any"));
 
     bb_telemetry_reset_for_test();
+    bb_pub_exclusive_reset();
+    bb_nv_host_str_store_reset();
+}
+
+// ---------------------------------------------------------------------------
+// B1-275: loser-teardown tests
+//
+// When a sink loses the exclusive slot at boot its transport must be torn
+// down immediately.  On the host the teardown path is verified by checking
+// that bb_mqtt_reconfigure() was called (the host stub records the call via
+// bb_mqtt_test_reconfigure_count).  HTTP transport is lazy (no session
+// opened at boot), so there is nothing to tear down on the HTTP-loser path.
+// ---------------------------------------------------------------------------
+
+void test_boot_mqtt_loser_triggers_reconfigure(void)
+{
+    // Simulate both sinks NVS-enabled but HTTP registers first → HTTP wins,
+    // MQTT loses and must stop its auto-client via reconfigure.
+    bb_pub_exclusive_reset();
+    bb_nv_host_str_store_reset();
+    bb_nv_set_str("bb_mqtt",      "enabled", "1");
+    bb_nv_set_str("bb_sink_http", "enabled", "1");
+
+    // Reset the reconfigure counter by resetting a dummy handle.
+    bb_mqtt_t tmp = NULL;
+    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    bb_mqtt_init(&cfg, &tmp);
+    bb_mqtt_host_reset(tmp);  // zeros s_reconfigure_count
+
+    int before = bb_mqtt_test_reconfigure_count();
+
+    // HTTP registers first (wins); MQTT registers second (loses).
+    bb_err_t rc_http = bb_sink_http_telemetry_init();
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc_http);
+
+    bb_err_t rc_mqtt = bb_mqtt_telemetry_init();
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc_mqtt);  // section registration still succeeds
+
+    // MQTT loser must have triggered bb_mqtt_reconfigure() to tear down the
+    // EARLY-connected auto-client.
+    TEST_ASSERT_GREATER_THAN_INT(before, bb_mqtt_test_reconfigure_count());
+
+    // HTTP remains enabled in NVS; MQTT was disabled.
+    char http_buf[4] = {0};
+    bb_nv_get_str("bb_sink_http", "enabled", http_buf, sizeof(http_buf), "0");
+    TEST_ASSERT_EQUAL_STRING("1", http_buf);
+
+    char mqtt_buf[4] = {0};
+    bb_nv_get_str("bb_mqtt", "enabled", mqtt_buf, sizeof(mqtt_buf), "0");
+    TEST_ASSERT_EQUAL_STRING("0", mqtt_buf);
+
+    // Exactly HTTP holds the slot.
+    TEST_ASSERT_EQUAL_INT(BB_OK,          bb_pub_exclusive_acquire("http"));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_CONFLICT, bb_pub_exclusive_acquire("mqtt"));
+
+    bb_mqtt_destroy(tmp);
+    bb_telemetry_reset_for_test();
+    bb_pub_exclusive_reset();
+    bb_nv_host_str_store_reset();
+}
+
+void test_boot_mqtt_winner_no_spurious_reconfigure(void)
+{
+    // When MQTT wins (registers first) it must NOT trigger an extra reconfigure.
+    bb_pub_exclusive_reset();
+    bb_nv_host_str_store_reset();
+    bb_nv_set_str("bb_mqtt",      "enabled", "1");
+    bb_nv_set_str("bb_sink_http", "enabled", "1");
+
+    bb_mqtt_t tmp = NULL;
+    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    bb_mqtt_init(&cfg, &tmp);
+    bb_mqtt_host_reset(tmp);
+
+    int before = bb_mqtt_test_reconfigure_count();
+
+    // MQTT first (wins), HTTP second (loses — no transport to tear down).
+    bb_mqtt_telemetry_init();
+    bb_sink_http_telemetry_init();
+
+    // MQTT winner must NOT have called reconfigure.
+    TEST_ASSERT_EQUAL_INT(before, bb_mqtt_test_reconfigure_count());
+
+    bb_mqtt_destroy(tmp);
+    bb_telemetry_reset_for_test();
+    bb_pub_exclusive_reset();
+    bb_nv_host_str_store_reset();
+}
+
+void test_runtime_disable_mqtt_triggers_reconfigure(void)
+{
+    // Disabling the active MQTT sink via section patch must trigger reconfigure
+    // (live teardown of the transport — no reboot required).
+    reset_all();
+    // Enable MQTT — acquires slot.
+    TEST_ASSERT_EQUAL_INT(BB_OK, patch_mqtt("{\"enabled\":true}"));
+
+    bb_mqtt_t tmp = NULL;
+    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    bb_mqtt_init(&cfg, &tmp);
+    bb_mqtt_host_reset(tmp);
+
+    int before = bb_mqtt_test_reconfigure_count();
+    TEST_ASSERT_EQUAL_INT(BB_OK, patch_mqtt("{\"enabled\":false}"));
+    TEST_ASSERT_GREATER_THAN_INT(before, bb_mqtt_test_reconfigure_count());
+
+    // Slot must now be free.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_pub_exclusive_acquire("http"));
+
+    bb_mqtt_destroy(tmp);
     bb_pub_exclusive_reset();
     bb_nv_host_str_store_reset();
 }
