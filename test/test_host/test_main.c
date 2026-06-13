@@ -1810,6 +1810,11 @@ void test_bb_mqtt_reconfigure_from_no_client_is_safe(void);
 void test_bb_mqtt_lifecycle_init_stop_reinit(void);
 void test_bb_mqtt_lifecycle_enabled_disabled_enabled(void);
 void test_bb_mqtt_default_null_after_stop(void);
+void test_bb_mqtt_reconfigure_deferred_triggers_lifecycle(void);
+void test_bb_mqtt_reconfigure_reentrancy_coalesces(void);
+void test_bb_mqtt_reconfigure_enable_async_connect(void);
+void test_bb_mqtt_reconfigure_disable_stops_client(void);
+void test_bb_mqtt_reconfigure_reenable_after_disable(void);
 
 // Forward declarations from test_bb_mqtt_info.c
 void test_bb_mqtt_health_no_handle_enabled_false(void);
@@ -4292,6 +4297,11 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_lifecycle_init_stop_reinit);
     RUN_TEST(test_bb_mqtt_lifecycle_enabled_disabled_enabled);
     RUN_TEST(test_bb_mqtt_default_null_after_stop);
+    RUN_TEST(test_bb_mqtt_reconfigure_deferred_triggers_lifecycle);
+    RUN_TEST(test_bb_mqtt_reconfigure_reentrancy_coalesces);
+    RUN_TEST(test_bb_mqtt_reconfigure_enable_async_connect);
+    RUN_TEST(test_bb_mqtt_reconfigure_disable_stops_client);
+    RUN_TEST(test_bb_mqtt_reconfigure_reenable_after_disable);
 
     // bb_mqtt_info tests
     RUN_TEST(test_bb_mqtt_health_no_handle_enabled_false);

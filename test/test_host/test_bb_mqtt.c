@@ -369,3 +369,96 @@ void test_bb_mqtt_default_null_after_stop(void)
     bb_mqtt_default_set(NULL);
     TEST_ASSERT_NULL(bb_mqtt_default());
 }
+
+// ---------------------------------------------------------------------------
+// Deferred reconfigure path tests (host approximation of the ESP-IDF one-shot
+// worker task).  On the host the worker runs synchronously inside
+// bb_mqtt_reconfigure; these tests assert the observable lifecycle bookkeeping
+// that is identical across both backends.
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_reconfigure_deferred_triggers_lifecycle(void)
+{
+    // Calling bb_mqtt_reconfigure() must trigger exactly one lifecycle cycle
+    // (increment the counter) and return BB_OK — this mirrors the ESP-IDF
+    // path where the one-shot task does the heavy work then self-deletes.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+    int before = bb_mqtt_test_reconfigure_count();
+    bb_err_t rc = bb_mqtt_reconfigure();
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(before + 1, bb_mqtt_test_reconfigure_count());
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_reconfigure_reentrancy_coalesces(void)
+{
+    // Rapid successive calls must all return BB_OK.  On ESP-IDF only one
+    // worker task spawns at a time (lock held); on the host stub each call
+    // is synchronous so the counter increments, but the key invariant is
+    // no error return.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_reconfigure_enable_async_connect(void)
+{
+    // Simulate: MQTT disabled, PATCH sets enabled=1, bb_mqtt_reconfigure
+    // is called.  On host the stub returns BB_OK immediately; connected state
+    // would flip asynchronously on ESP-IDF once the broker handshake
+    // completes.  Assert: reconfigure returns BB_OK (caller gets 204) and the
+    // reconfigure count advances (lifecycle was triggered).
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+    bb_mqtt_host_set_connected(h, false);  // starts disconnected
+    bb_err_t rc = bb_mqtt_reconfigure();
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    // One lifecycle cycle triggered regardless of connected flag.
+    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_test_reconfigure_count());
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_reconfigure_disable_stops_client(void)
+{
+    // Simulate: MQTT enabled, PATCH sets enabled=0.  The caller:
+    //   1. Writes enabled=0 to NVS.
+    //   2. Calls bb_mqtt_stop(&h) to tear down immediately.
+    //   3. Calls bb_mqtt_reconfigure() so the worker re-reads NVS and skips
+    //      re-init (enabled=0 path).
+    // Assert: handle is NULL after stop; reconfigure still returns BB_OK.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
+    TEST_ASSERT_NULL(h);
+    // Reconfigure with no handle (mirrors ESP-IDF disabled path).
+    bb_err_t rc = bb_mqtt_reconfigure();
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    bb_mqtt_destroy(h);  // h==NULL, safe
+}
+
+void test_bb_mqtt_reconfigure_reenable_after_disable(void)
+{
+    // Full cycle: enable → disable → re-enable.
+    // Phase 1 — enabled.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());  // cycle 1
+    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_test_reconfigure_count());
+
+    // Phase 2 — disable.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
+    TEST_ASSERT_NULL(h);
+
+    // Phase 3 — re-enable: fresh handle, publish works.
+    h = make_client(NULL, NULL);
+    TEST_ASSERT_NOT_NULL(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_mqtt_publish(h, "t/after-reenable", "ok", -1, 0, false));
+    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_host_pub_count(h));
+
+    bb_mqtt_destroy(h);
+}

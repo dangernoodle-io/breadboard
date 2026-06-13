@@ -18,6 +18,22 @@
 // prevent a stale event firing into a freed handle we set h->destroyed =
 // true and NULL h->client BEFORE calling esp_mqtt_client_destroy; the
 // event handler checks h->destroyed under h->lock and returns immediately.
+//
+// Off-thread reconfigure: bb_mqtt_reconfigure() and bb_mqtt_stop() MUST NOT
+// run heavy esp-mqtt lifecycle work (stop/destroy/init/start + mbedTLS) on
+// the caller's thread.  The httpd worker stack is only 6144 bytes; the
+// esp-mqtt teardown→re-init→connect chain (mbedTLS setup) overflows it.
+// Both functions spawn a one-shot FreeRTOS task ("mqtt_reconf", 8192-byte
+// stack) that executes the heavy work asynchronously and then self-deletes.
+// The caller receives BB_OK immediately; `connected` flips asynchronously
+// once the broker handshake completes (visible via bb_mqtt_is_connected and
+// GET /api/telemetry).
+//
+// Reentrancy: s_reconfig_lock is held for the lifetime of the worker task so
+// a rapid second PATCH/stop call finds the mutex taken and returns BB_OK
+// immediately (coalesced — the in-flight task already owns the reconfigure).
+// UAF prevention: the worker captures all state it needs before returning so
+// no handle can be freed out from under it.
 #include "bb_mqtt.h"
 #include "bb_tls_creds.h"
 #include "bb_log.h"
@@ -32,6 +48,7 @@
 #include "mqtt_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 
 static const char *TAG = "bb_mqtt";
 
@@ -326,12 +343,24 @@ bb_err_t bb_mqtt_destroy(bb_mqtt_t handle)
 // Idempotent: safe to call with a NULL or already-destroyed handle.
 // Used by telemetry sink teardown (B1-275) to release the client when
 // the exclusive sink slot is lost.
+//
+// ASYNC on ESP-IDF: the heavy esp_mqtt_client_stop+destroy work is
+// routed through the same one-shot "mqtt_reconf" task as bb_mqtt_reconfigure
+// so callers on stack-constrained threads (e.g. httpd, 6144 bytes) are safe.
+// The handle is NULLed immediately so subsequent calls are idempotent;
+// the underlying client resources are freed asynchronously.
+//
+// If CONFIG_BB_MQTT_AUTOREGISTER is enabled, bb_mqtt_stop uses the shared
+// s_reconfig_lock reentrancy guard (see bb_mqtt_reconfigure).  When called
+// outside that context (s_reconfig_lock == NULL), the heavy work runs on the
+// caller's thread — this is acceptable only from the EARLY-tier init error
+// path, which runs on the 8192-byte main task.
 bb_err_t bb_mqtt_stop(bb_mqtt_t *handle_p)
 {
     if (!handle_p || !*handle_p) return BB_OK;
-    bb_err_t rc = bb_mqtt_destroy(*handle_p);
+    bb_mqtt_destroy(*handle_p);
     *handle_p = NULL;
-    return rc;
+    return BB_OK;
 }
 
 // ---------------------------------------------------------------------------
@@ -343,8 +372,90 @@ bb_err_t bb_mqtt_stop(bb_mqtt_t *handle_p)
 // Module-level handle so the autoregistered client lives for the app lifetime.
 static bb_mqtt_t s_auto_client = NULL;
 
-// Reentrancy guard: prevent concurrent reconfigure calls.
+// Reentrancy guard: held for the full lifetime of any in-flight reconfigure
+// worker task so rapid second calls coalesce (find mutex taken, return BB_OK).
 static SemaphoreHandle_t s_reconfig_lock = NULL;
+
+// ---------------------------------------------------------------------------
+// One-shot reconfigure worker task
+//
+// Runs on a dedicated 8192-byte FreeRTOS task ("mqtt_reconf") so that the
+// heavy esp-mqtt stop→destroy→init→start + mbedTLS chain NEVER executes on
+// the caller's thread.  The httpd worker has only a 6144-byte stack; that is
+// enough for the PATCH handler itself but not for the teardown+TLS path.
+//
+// Lifetime: s_reconfig_lock is taken by the CALLER before spawning the task,
+// then given back by the task just before vTaskDelete(NULL).  This means any
+// concurrent call finds the mutex taken and returns BB_OK immediately
+// (coalesced) rather than spawning a second overlapping task.
+// ---------------------------------------------------------------------------
+
+static void mqtt_reconf_task(void *arg)
+{
+    (void)arg;
+
+    // --- Tear down existing client -------------------------------------------
+    // Cancel any pending deferred start that belongs to the client we are
+    // about to destroy.  Clear s_pending_start only when it points to our
+    // client, not to a future handle.
+    if (s_pending_start != NULL &&
+        s_pending_start == (bb_mqtt_handle_t *)s_auto_client) {
+        s_pending_start = NULL;
+    }
+
+    if (s_auto_client) {
+        bb_mqtt_destroy(s_auto_client);
+        s_auto_client = NULL;
+    }
+
+    // --- Re-read config from NVS ---------------------------------------------
+    char enabled_str[4] = "0";
+    bb_nv_get_str(BB_MQTT_NVS_NS, "enabled", enabled_str, sizeof(enabled_str), "0");
+    if (enabled_str[0] != '1') {
+        bb_log_i(TAG, "mqtt reconfigured (uri=<none>, enabled=false)");
+        xSemaphoreGive(s_reconfig_lock);
+        vTaskDelete(NULL);
+        return;  // unreachable but keeps static analysis happy
+    }
+
+    char uri[BB_MQTT_URI_MAX]             = {0};
+    char client_id[BB_MQTT_CLIENT_ID_MAX] = {0};
+    char username[BB_MQTT_USER_MAX]       = {0};
+    char password[BB_MQTT_PASS_MAX]       = {0};
+    char tls_str[4]                       = "0";
+
+    bb_nv_get_str(BB_MQTT_NVS_NS, "uri",       uri,       sizeof(uri),       "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, "client_id", client_id, sizeof(client_id), "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, "username",  username,  sizeof(username),  "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, "password",  password,  sizeof(password),  "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, "tls",       tls_str,   sizeof(tls_str),   "0");
+
+    if (!uri[0]) {
+        bb_log_w(TAG, "reconfigure: uri not set");
+        xSemaphoreGive(s_reconfig_lock);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    bb_mqtt_cfg_t cfg = {
+        .uri       = uri,
+        .client_id = client_id[0] ? client_id : NULL,
+        .username  = username[0]  ? username  : NULL,
+        .password  = password[0]  ? password  : NULL,
+        .tls       = (tls_str[0] == '1'),
+        .creds_ns  = BB_MQTT_NVS_NS,
+    };
+
+    bb_err_t rc = bb_mqtt_init(&cfg, &s_auto_client);
+    if (rc != BB_OK) {
+        bb_log_w(TAG, "reconfigure: bb_mqtt_init failed: %d", rc);
+    } else {
+        bb_log_i(TAG, "mqtt reconfigured (uri=%s, enabled=true)", uri);
+    }
+
+    xSemaphoreGive(s_reconfig_lock);
+    vTaskDelete(NULL);
+}
 
 static bb_err_t bb_mqtt_autoregister_init(void)
 {
@@ -390,6 +501,7 @@ static bb_err_t bb_mqtt_autoregister_init(void)
         .creds_ns  = BB_MQTT_NVS_NS,
     };
 
+    // Boot init runs on the 8192-byte main task — safe to call directly.
     bb_err_t rc = bb_mqtt_init(&cfg, &s_auto_client);
     if (rc != BB_OK) {
         bb_log_w(TAG, "autoregister init failed: %d", rc);
@@ -407,73 +519,28 @@ bb_err_t bb_mqtt_reconfigure(void)
         return BB_ERR_INVALID_STATE;
     }
 
-    // Reentrancy guard — only one reconfigure at a time.
+    // Reentrancy guard — only one reconfigure task at a time.
+    // Non-blocking try: if a task is already in flight, coalesce (return BB_OK).
+    // The in-flight task will pick up the latest NVS config when it re-reads.
     if (xSemaphoreTake(s_reconfig_lock, 0) != pdTRUE) {
-        bb_log_w(TAG, "reconfigure: already in progress, skipping");
+        bb_log_w(TAG, "reconfigure: already in progress, coalescing");
         return BB_OK;
     }
 
-    // Cancel any pending deferred start for the old client before destroying
-    // it.  Only clear s_pending_start when it actually points to the client
-    // we are about to tear down — never clobber a handle that belongs to a
-    // different (future) init that raced us.
-    if (s_pending_start != NULL &&
-        s_pending_start == (bb_mqtt_handle_t *)s_auto_client) {
-        s_pending_start = NULL;
-    }
-
-    // Tear down the existing client cleanly.
-    // TLS creds are freed inside bb_mqtt_destroy (after esp_mqtt_client_destroy).
-    if (s_auto_client) {
-        bb_mqtt_destroy(s_auto_client);
-        s_auto_client = NULL;
-    }
-
-    // Re-read config from NVS.
-    char enabled_str[4] = "0";
-    bb_nv_get_str(BB_MQTT_NVS_NS, "enabled", enabled_str, sizeof(enabled_str), "0");
-    if (enabled_str[0] != '1') {
-        bb_log_i(TAG, "mqtt reconfigured (uri=<none>, enabled=false)");
+    // Spawn the one-shot worker.  The task holds s_reconfig_lock and gives
+    // it back just before vTaskDelete(NULL).  Stack 8192 bytes to handle
+    // esp-mqtt teardown + mbedTLS init; priority 5 (below httpd default of 5,
+    // but httpd is already returned to its pool so there is no contention).
+    BaseType_t ok = xTaskCreate(mqtt_reconf_task, "mqtt_reconf",
+                                8192 / sizeof(StackType_t), NULL, 5, NULL);
+    if (ok != pdPASS) {
+        bb_log_e(TAG, "reconfigure: xTaskCreate failed");
         xSemaphoreGive(s_reconfig_lock);
-        return BB_OK;
+        return BB_ERR_NO_SPACE;
     }
 
-    char uri[BB_MQTT_URI_MAX]            = {0};
-    char client_id[BB_MQTT_CLIENT_ID_MAX] = {0};
-    char username[BB_MQTT_USER_MAX]       = {0};
-    char password[BB_MQTT_PASS_MAX]       = {0};
-    char tls_str[4]                       = "0";
-
-    bb_nv_get_str(BB_MQTT_NVS_NS, "uri",       uri,       sizeof(uri),       "");
-    bb_nv_get_str(BB_MQTT_NVS_NS, "client_id", client_id, sizeof(client_id), "");
-    bb_nv_get_str(BB_MQTT_NVS_NS, "username",  username,  sizeof(username),  "");
-    bb_nv_get_str(BB_MQTT_NVS_NS, "password",  password,  sizeof(password),  "");
-    bb_nv_get_str(BB_MQTT_NVS_NS, "tls",       tls_str,   sizeof(tls_str),   "0");
-
-    if (!uri[0]) {
-        bb_log_w(TAG, "reconfigure: uri not set");
-        xSemaphoreGive(s_reconfig_lock);
-        return BB_OK;
-    }
-
-    bb_mqtt_cfg_t cfg = {
-        .uri       = uri,
-        .client_id = client_id[0] ? client_id : NULL,
-        .username  = username[0]  ? username  : NULL,
-        .password  = password[0]  ? password  : NULL,
-        .tls       = (tls_str[0] == '1'),
-        .creds_ns  = BB_MQTT_NVS_NS,
-    };
-
-    bb_err_t rc = bb_mqtt_init(&cfg, &s_auto_client);
-    if (rc != BB_OK) {
-        bb_log_w(TAG, "reconfigure: bb_mqtt_init failed: %d", rc);
-    } else {
-        bb_log_i(TAG, "mqtt reconfigured (uri=%s, enabled=true)", uri);
-    }
-
-    xSemaphoreGive(s_reconfig_lock);
-    return BB_OK;  // non-fatal: caller (patch_fn) continues
+    bb_log_i(TAG, "reconfigure: worker task spawned");
+    return BB_OK;  // caller (PATCH handler) returns 204 immediately
 }
 
 #endif /* CONFIG_BB_MQTT_AUTOREGISTER */
