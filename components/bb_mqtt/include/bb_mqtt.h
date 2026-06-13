@@ -85,6 +85,20 @@ bool bb_mqtt_is_connected(bb_mqtt_t h);
 bb_err_t bb_mqtt_destroy(bb_mqtt_t h);
 
 /**
+ * Stop and destroy the client via a pointer-to-handle, setting the handle to
+ * NULL on return.  Idempotent: safe to call with a NULL handle_p or when
+ * *handle_p is already NULL.
+ *
+ * Intended for telemetry sink teardown (B1-275): when the exclusive-sink
+ * slot is released the sink calls bb_mqtt_stop(&s_auto_client) to ensure
+ * the client is fully shut down and the handle is cleared atomically.
+ *
+ * @param handle_p  Pointer to the handle to stop.  Set to NULL on return.
+ * @return BB_OK always (destroy errors are logged but not propagated).
+ */
+bb_err_t bb_mqtt_stop(bb_mqtt_t *handle_p);
+
+/**
  * Re-read the NVS "bb_mqtt" config and apply it to the live client.
  *
  * Safe to call at any time after init, including before WiFi has an IP

@@ -80,6 +80,14 @@ bb_err_t bb_mqtt_destroy(bb_mqtt_t handle)
     return BB_OK;
 }
 
+bb_err_t bb_mqtt_stop(bb_mqtt_t *handle_p)
+{
+    if (!handle_p || !*handle_p) return BB_OK;
+    bb_err_t rc = bb_mqtt_destroy(*handle_p);
+    *handle_p = NULL;
+    return rc;
+}
+
 // ---------------------------------------------------------------------------
 // Default handle (host: settable via test hook; NULL by default)
 // ---------------------------------------------------------------------------
