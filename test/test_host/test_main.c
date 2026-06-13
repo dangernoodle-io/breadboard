@@ -2032,6 +2032,13 @@ void test_bb_pub_swap_sink_routes_to_new_sink(void);
 void test_bb_pub_null_subtopic_returns_invalid_arg(void);
 void test_bb_pub_null_fn_returns_invalid_arg(void);
 void test_bb_pub_set_sink_null_clears_sink(void);
+void test_bb_pub_add_sink_null_returns_invalid_arg(void);
+void test_bb_pub_add_sink_null_publish_returns_invalid_arg(void);
+void test_bb_pub_add_sink_fanout_both_receive(void);
+void test_bb_pub_set_sink_replaces_prior_sinks(void);
+void test_bb_pub_clear_sinks_makes_tick_noop(void);
+void test_bb_pub_max_sinks_plus_one_returns_no_space(void);
+void test_bb_pub_failing_sink_does_not_stop_other_sink(void);
 
 // Forward declarations from test_bb_pub_mqtt.c
 void test_bb_pub_mqtt_sink_null_handle_returns_invalid_arg(void);
@@ -4173,6 +4180,13 @@ int main(void) {
     RUN_TEST(test_bb_pub_null_subtopic_returns_invalid_arg);
     RUN_TEST(test_bb_pub_null_fn_returns_invalid_arg);
     RUN_TEST(test_bb_pub_set_sink_null_clears_sink);
+    RUN_TEST(test_bb_pub_add_sink_null_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_add_sink_null_publish_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_add_sink_fanout_both_receive);
+    RUN_TEST(test_bb_pub_set_sink_replaces_prior_sinks);
+    RUN_TEST(test_bb_pub_clear_sinks_makes_tick_noop);
+    RUN_TEST(test_bb_pub_max_sinks_plus_one_returns_no_space);
+    RUN_TEST(test_bb_pub_failing_sink_does_not_stop_other_sink);
 
     // bb_pub_mqtt tests
     RUN_TEST(test_bb_pub_mqtt_sink_null_handle_returns_invalid_arg);

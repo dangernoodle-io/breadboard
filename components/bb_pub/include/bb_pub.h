@@ -1,13 +1,15 @@
 // bb_pub — transport-agnostic telemetry publisher core.
 //
-// Maintains a registry of sample functions (sources) and a single publish
-// sink. On each tick, each registered source is called, its JSON object
-// is serialized, and the result is forwarded to the sink. The sink is
-// deliberately decoupled from transport — see bb_pub_mqtt for the MQTT adapter.
+// Maintains a registry of sample functions (sources) and a set of publish
+// sinks (fan-out). On each tick, each registered source is called, its JSON
+// object is serialized ONCE, and the result is forwarded to every registered
+// sink. Sinks are deliberately decoupled from transport — see bb_pub_mqtt for
+// the MQTT adapter and bb_http_pub for the HTTP adapter.
 //
-// Thread-safety: bb_pub_set_sink and bb_pub_register_source must be called
-// before any concurrent tick. bb_pub_tick_once is NOT reentrant; call it
-// from a single worker task (or sequentially in tests).
+// Thread-safety: bb_pub_set_sink, bb_pub_add_sink, bb_pub_clear_sinks, and
+// bb_pub_register_source must be called before any concurrent tick.
+// bb_pub_tick_once is NOT reentrant; call it from a single worker task (or
+// sequentially in tests).
 #pragma once
 
 #include <stdbool.h>
@@ -53,10 +55,29 @@ typedef bool (*bb_pub_sample_fn)(bb_json_t obj, void *ctx);
 // ---------------------------------------------------------------------------
 
 /**
- * Set (or replace) the active sink. Pass NULL sink or NULL sink->publish to
- * clear. bb_pub_tick_once silently skips publishing when no sink is set.
+ * Set (or replace) the active sink — back-compat single-sink API.
+ * Clears all previously registered sinks, then adds this one.
+ * Pass NULL sink or NULL sink->publish to clear all sinks; tick is then a
+ * no-op (same as before). Existing single-sink callers are unaffected.
  */
 bb_err_t bb_pub_set_sink(const bb_pub_sink_t *sink);
+
+/**
+ * Add a sink to the fan-out set. All registered sinks receive every published
+ * payload on each tick. A sink returning non-BB_OK is logged (bb_log_w) but
+ * does not abort delivery to the remaining sinks or sources.
+ *
+ * Returns BB_ERR_NO_SPACE when the sink array is full
+ * (CONFIG_BB_PUB_MAX_SINKS). Returns BB_ERR_INVALID_ARG if sink or
+ * sink->publish is NULL.
+ */
+bb_err_t bb_pub_add_sink(const bb_pub_sink_t *sink);
+
+/**
+ * Remove all registered sinks. After this call, tick is a no-op until a sink
+ * is registered again.
+ */
+void bb_pub_clear_sinks(void);
 
 /**
  * Register a telemetry source. `subtopic` becomes the trailing component of
@@ -92,7 +113,7 @@ bb_err_t bb_pub_tick_once(void);
 
 #ifdef BB_PUB_TESTING
 
-/** Reset source registry and sink to empty state. */
+/** Reset source registry and all sinks to empty state. */
 void bb_pub_test_reset(void);
 
 #endif /* BB_PUB_TESTING */

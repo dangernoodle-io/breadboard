@@ -239,3 +239,160 @@ void test_bb_pub_set_sink_null_clears_sink(void)
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(0, s_capture_count);
 }
+
+// ---------------------------------------------------------------------------
+// Second capturing sink (uses a separate counter via ctx)
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    capture_entry_t entries[CAPTURE_CAP];
+    int             count;
+} capture_ctx_t;
+
+static bb_err_t capture_publish_ctx(void *ctx, const char *topic,
+                                     const char *payload, int len)
+{
+    (void)len;
+    capture_ctx_t *c = (capture_ctx_t *)ctx;
+    if (c->count >= CAPTURE_CAP) return BB_ERR_NO_SPACE;
+    capture_entry_t *e = &c->entries[c->count++];
+    strncpy(e->topic,   topic,   sizeof(e->topic)   - 1);
+    strncpy(e->payload, payload, sizeof(e->payload) - 1);
+    return BB_OK;
+}
+
+static bb_err_t failing_publish(void *ctx, const char *topic,
+                                 const char *payload, int len)
+{
+    (void)ctx;
+    (void)topic;
+    (void)payload;
+    (void)len;
+    return BB_ERR_INVALID_STATE;  // always fails
+}
+
+// ---------------------------------------------------------------------------
+// Multi-sink tests
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_add_sink_null_returns_invalid_arg(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_add_sink(NULL));
+}
+
+void test_bb_pub_add_sink_null_publish_returns_invalid_arg(void)
+{
+    bb_pub_test_reset();
+    bb_pub_sink_t s = { .publish = NULL, .ctx = NULL };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_add_sink(&s));
+}
+
+void test_bb_pub_add_sink_fanout_both_receive(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+
+    capture_ctx_t ctx2 = { .count = 0 };
+    memset(ctx2.entries, 0, sizeof(ctx2.entries));
+
+    bb_nv_config_set_hostname("testhost");
+
+    // Add two distinct capturing sinks.
+    bb_pub_sink_t s1 = make_capture_sink();  // uses global s_captured / s_capture_count
+    bb_pub_sink_t s2 = { .publish = capture_publish_ctx, .ctx = &ctx2 };
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&s1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&s2));
+
+    bb_pub_register_source("temp",  sample_temperature, NULL);
+    bb_pub_register_source("power", sample_voltage,     NULL);
+
+    bb_pub_tick_once();
+
+    // Both sinks must have received both sources.
+    TEST_ASSERT_EQUAL_INT(2, s_capture_count);
+    TEST_ASSERT_EQUAL_INT(2, ctx2.count);
+
+    // Both sinks must have received identical topics and payloads.
+    TEST_ASSERT_EQUAL_STRING(s_captured[0].topic,   ctx2.entries[0].topic);
+    TEST_ASSERT_EQUAL_STRING(s_captured[0].payload, ctx2.entries[0].payload);
+    TEST_ASSERT_EQUAL_STRING(s_captured[1].topic,   ctx2.entries[1].topic);
+    TEST_ASSERT_EQUAL_STRING(s_captured[1].payload, ctx2.entries[1].payload);
+}
+
+void test_bb_pub_set_sink_replaces_prior_sinks(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    capture_ctx_t ctx2 = { .count = 0 };
+    memset(ctx2.entries, 0, sizeof(ctx2.entries));
+
+    bb_pub_sink_t s1 = make_capture_sink();
+    bb_pub_sink_t s2 = { .publish = capture_publish_ctx, .ctx = &ctx2 };
+
+    // Register two sinks via add_sink.
+    bb_pub_add_sink(&s1);
+    bb_pub_add_sink(&s2);
+
+    // set_sink must replace both with only s1.
+    bb_pub_set_sink(&s1);
+
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_pub_tick_once();
+
+    // Only the single sink (s1 / global capture) should have received anything.
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_EQUAL_INT(0, ctx2.count);  // s2 was cleared
+}
+
+void test_bb_pub_clear_sinks_makes_tick_noop(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    bb_pub_sink_t s = make_capture_sink();
+    bb_pub_add_sink(&s);
+    bb_pub_register_source("temp", sample_temperature, NULL);
+
+    bb_pub_clear_sinks();
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+}
+
+void test_bb_pub_max_sinks_plus_one_returns_no_space(void)
+{
+    bb_pub_test_reset();
+    bb_pub_sink_t s = make_capture_sink();
+
+    for (int i = 0; i < CONFIG_BB_PUB_MAX_SINKS; i++) {
+        TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&s));
+    }
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_pub_add_sink(&s));
+}
+
+void test_bb_pub_failing_sink_does_not_stop_other_sink(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    // Register a failing sink first, then a capturing sink.
+    bb_pub_sink_t bad = { .publish = failing_publish, .ctx = NULL };
+    bb_pub_sink_t good = make_capture_sink();
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&bad));
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&good));
+
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_err_t err = bb_pub_tick_once();
+
+    // tick must still return BB_OK.
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    // Capturing sink must have received the publish despite the failing one.
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+}
