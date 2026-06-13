@@ -368,10 +368,49 @@ bb_err_t bb_pub_tick_once(void)
 }
 
 // ---------------------------------------------------------------------------
+// Exclusive-sink arbiter
+// ---------------------------------------------------------------------------
+
+static const char *s_exclusive_holder = NULL;   /* NULL = slot free */
+
+bb_err_t bb_pub_exclusive_acquire(const char *sink_id)
+{
+    if (!sink_id) return BB_ERR_INVALID_ARG;
+    if (s_exclusive_holder == NULL) {
+        s_exclusive_holder = sink_id;
+        return BB_OK;
+    }
+    /* Already held by this id (idempotent) */
+    if (s_exclusive_holder == sink_id ||
+        strcmp(s_exclusive_holder, sink_id) == 0) {
+        return BB_OK;
+    }
+    /* Held by a different id — conflict */
+    bb_log_w(TAG, "exclusive sink conflict: '%s' holds slot, '%s' rejected",
+             s_exclusive_holder, sink_id);
+    return BB_ERR_CONFLICT;
+}
+
+void bb_pub_exclusive_release(const char *sink_id)
+{
+    if (!sink_id) return;
+    if (s_exclusive_holder == NULL) return;
+    if (s_exclusive_holder == sink_id ||
+        strcmp(s_exclusive_holder, sink_id) == 0) {
+        s_exclusive_holder = NULL;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Testing hooks
 // ---------------------------------------------------------------------------
 
 #ifdef BB_PUB_TESTING
+void bb_pub_exclusive_reset(void)
+{
+    s_exclusive_holder = NULL;
+}
+
 void bb_pub_test_reset(void)
 {
     s_source_count             = 0;
@@ -388,5 +427,6 @@ void bb_pub_test_reset(void)
     s_enabled                  = 1;
     s_config_loaded            = true;   /* bypass NVS for tests */
     s_interval_apply_hook      = NULL;
+    s_exclusive_holder         = NULL;
 }
 #endif

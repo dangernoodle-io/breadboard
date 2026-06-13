@@ -6,10 +6,17 @@
 #include "bb_json.h"
 #include "bb_telemetry.h"
 #include "bb_registry.h"
+#include "bb_pub.h"
+#include "bb_log.h"
 
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+
+// Stable string ID used for the exclusive-sink arbiter.
+#define BB_SINK_HTTP_EXCLUSIVE_ID  "http"
+
+static const char *TAG = "bb_sink_http_telemetry";
 
 #define BB_SINK_HTTP_NVS_NS    "bb_sink_http"
 #define BB_SINK_HTTP_BODY_MAX  4096
@@ -135,6 +142,17 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
 
     bool b;
     if (bb_json_obj_get_bool(patch, "enabled", &b)) {
+        if (b) {
+            // Acquire the exclusive slot before persisting enabled=true.
+            bb_err_t arc = bb_pub_exclusive_acquire(BB_SINK_HTTP_EXCLUSIVE_ID);
+            if (arc != BB_OK) {
+                bb_log_w(TAG, "enable rejected: exclusive sink conflict");
+                free(tmp);
+                return arc;
+            }
+        } else {
+            bb_pub_exclusive_release(BB_SINK_HTTP_EXCLUSIVE_ID);
+        }
         bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "enabled", b ? "1" : "0");
     }
 
@@ -243,6 +261,19 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
 
 bb_err_t bb_sink_http_telemetry_init(void)
 {
+    // Boot-time precedence: if this sink is NVS-enabled, try to acquire the
+    // exclusive slot. If the slot is already held (MQTT enabled and registered
+    // first), log a warning and write enabled=0 back to NVS — MQTT wins.
+    char enabled_str[4] = "0";
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "enabled", enabled_str, sizeof(enabled_str), "0");
+    if (enabled_str[0] == '1') {
+        bb_err_t arc = bb_pub_exclusive_acquire(BB_SINK_HTTP_EXCLUSIVE_ID);
+        if (arc != BB_OK) {
+            bb_log_w(TAG, "boot: mqtt and http both enabled in NVS — "
+                     "disabling http sink (mqtt wins)");
+            bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "enabled", "0");
+        }
+    }
     return bb_telemetry_register_section("http", httppub_section_get, httppub_section_patch, NULL);
 }
 
@@ -259,6 +290,7 @@ BB_REGISTRY_REGISTER_PRE_HTTP(bb_sink_http_telemetry, bb_sink_http_telemetry_ini
 void bb_sink_http_telemetry_reset_for_test(void)
 {
     bb_nv_host_str_store_reset();
+    bb_pub_exclusive_reset();
 }
 
 void bb_sink_http_telemetry_section_get_for_test(bb_json_t section, void *ctx)

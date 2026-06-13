@@ -228,13 +228,43 @@ bool bb_pub_is_paused(void);
 bb_err_t bb_pub_tick_once(void);
 
 // ---------------------------------------------------------------------------
+// Exclusive-sink arbiter
+// ---------------------------------------------------------------------------
+// Enforces mutual exclusion between telemetry sinks: at most ONE exclusive sink
+// may be active at a time. Each sink identifies itself by a stable string ID
+// (e.g. "mqtt", "http").
+//
+// Boot precedence: if NVS is left with two sinks both marked enabled, the first
+// sink that calls acquire (MQTT, registered earlier in the PRE_HTTP walk) wins;
+// subsequent callers from the conflicting sink receive BB_ERR_CONFLICT and must
+// treat themselves as disabled.
+
+/**
+ * Try to acquire the exclusive-sink slot for `sink_id`.
+ * - If the slot is free: acquired → BB_OK.
+ * - If already held by `sink_id`: idempotent → BB_OK.
+ * - If held by a different id: → BB_ERR_CONFLICT.
+ * `sink_id` must be a stable, non-NULL string.
+ */
+bb_err_t bb_pub_exclusive_acquire(const char *sink_id);
+
+/**
+ * Release the exclusive-sink slot if held by `sink_id`.
+ * Calling with an id that does not hold the slot is a safe no-op.
+ */
+void bb_pub_exclusive_release(const char *sink_id);
+
+// ---------------------------------------------------------------------------
 // Testing hooks (active when BB_PUB_TESTING is defined)
 // ---------------------------------------------------------------------------
 
 #ifdef BB_PUB_TESTING
 
-/** Reset source registry, all sinks, and interval/enabled to defaults. */
+/** Reset source registry, all sinks, interval/enabled, and exclusive arbiter to defaults. */
 void bb_pub_test_reset(void);
+
+/** Reset only the exclusive-sink arbiter (for arbiter-unit tests). */
+void bb_pub_exclusive_reset(void);
 
 #endif /* BB_PUB_TESTING */
 
