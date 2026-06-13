@@ -246,13 +246,22 @@ bb_err_t bb_http_client_post(const char *url,
         } else {
             esp_http_client_set_method(client, HTTP_METHOD_POST);
             esp_http_client_set_header(client, "Content-Type", ct);
-            esp_http_client_set_post_field(client, body, (int)body_len);
+            // Manual open flow: the body MUST be written explicitly with
+            // esp_http_client_write(). esp_http_client_set_post_field() only
+            // applies to esp_http_client_perform(), not open/write — without the
+            // write the server blocks waiting for the Content-Length body that
+            // never arrives, so fetch_headers hangs until the request times out.
             err = esp_http_client_open(client, (int)body_len);
             if (err == ESP_OK) {
-                esp_http_client_fetch_headers(client);
-                status = esp_http_client_get_status_code(client);
-                if (status >= 200 && status < 600) {
-                    break;
+                int wlen = (body && body_len > 0)
+                    ? esp_http_client_write(client, body, (int)body_len)
+                    : 0;
+                if (wlen >= 0) {
+                    esp_http_client_fetch_headers(client);
+                    status = esp_http_client_get_status_code(client);
+                    if (status >= 200 && status < 600) {
+                        break;
+                    }
                 }
                 err = ESP_FAIL;
             }
