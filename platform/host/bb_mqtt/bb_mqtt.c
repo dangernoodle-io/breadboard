@@ -92,6 +92,25 @@ bb_mqtt_t bb_mqtt_default(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_mqtt_reconfigure — host stub
+//
+// Re-reads the stubbed NVS config (no real network IO) and records that a
+// reconfigure happened so tests can assert via bb_mqtt_test_reconfigure_count.
+// ---------------------------------------------------------------------------
+
+static int s_reconfigure_count = 0;
+
+bb_err_t bb_mqtt_reconfigure(void)
+{
+    s_reconfigure_count++;
+    // On the host there is no managed client to tear down/restart.
+    // We do re-read NVS (via bb_nv_get_str) to mirror the ESP-IDF path, but
+    // since there is no real MQTT connection the only observable effect is
+    // incrementing the counter (and picking up config changes for GET reporting).
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
 // Host test hooks
 // ---------------------------------------------------------------------------
 
@@ -123,11 +142,17 @@ void bb_mqtt_host_reset(bb_mqtt_t handle)
     bb_mqtt_host_handle_t *h = (bb_mqtt_host_handle_t *)handle;
     h->count     = 0;
     h->connected = true;
+    s_reconfigure_count = 0;
 }
 
 void bb_mqtt_default_set(bb_mqtt_t h)
 {
     s_default_handle = h;
+}
+
+int bb_mqtt_test_reconfigure_count(void)
+{
+    return s_reconfigure_count;
 }
 
 #endif /* BB_MQTT_TESTING */

@@ -85,6 +85,21 @@ bool bb_mqtt_is_connected(bb_mqtt_t h);
 bb_err_t bb_mqtt_destroy(bb_mqtt_t h);
 
 /**
+ * Re-read the NVS "bb_mqtt" config and apply it to the live client.
+ *
+ * Safe to call at any time after init, including before WiFi has an IP
+ * (defers the reconnect exactly like the initial connect does).  Idempotent.
+ * If enabled=0 in NVS the existing client is stopped and stays down.
+ * Never call from within the mqtt event callback context.
+ *
+ * On the host stub: records that a reconfigure happened (accessible via
+ * bb_mqtt_test_reconfigure_count() when BB_MQTT_TESTING is defined).
+ *
+ * @return BB_OK on success; BB_ERR_INVALID_STATE if not yet initialised.
+ */
+bb_err_t bb_mqtt_reconfigure(void);
+
+/**
  * Return the auto-registered MQTT handle created by the EARLY-tier
  * self-registration (CONFIG_BB_MQTT_AUTOREGISTER=y), or NULL if:
  *   - the feature is compiled out,
@@ -126,6 +141,9 @@ void bb_mqtt_host_reset(bb_mqtt_t h);
 
 /** Override the handle returned by bb_mqtt_default() for testing. */
 void bb_mqtt_default_set(bb_mqtt_t h);
+
+/** Number of bb_mqtt_reconfigure() calls since process start (host stub only). */
+int bb_mqtt_test_reconfigure_count(void);
 
 #endif /* BB_MQTT_TESTING */
 

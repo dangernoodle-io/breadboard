@@ -290,8 +290,16 @@ bb_err_t bb_mqtt_destroy(bb_mqtt_t handle)
 // Module-level handle so the autoregistered client lives for the app lifetime.
 static bb_mqtt_t s_auto_client = NULL;
 
+// Reentrancy guard: prevent concurrent reconfigure calls.
+static SemaphoreHandle_t s_reconfig_lock = NULL;
+
 static bb_err_t bb_mqtt_autoregister_init(void)
 {
+    // Create reentrancy lock on first init.
+    if (!s_reconfig_lock) {
+        s_reconfig_lock = xSemaphoreCreateMutex();
+    }
+
     // Check enabled flag in NVS.
     char enabled_str[4] = "0";
     bb_nv_get_str(BB_MQTT_NVS_NS, "enabled", enabled_str, sizeof(enabled_str), "0");
@@ -338,6 +346,79 @@ static bb_err_t bb_mqtt_autoregister_init(void)
 
 BB_REGISTRY_REGISTER_EARLY(bb_mqtt, bb_mqtt_autoregister_init);
 
+bb_err_t bb_mqtt_reconfigure(void)
+{
+    // Guard: autoregister must have run (lock created).
+    if (!s_reconfig_lock) {
+        bb_log_w(TAG, "reconfigure: not yet initialised");
+        return BB_ERR_INVALID_STATE;
+    }
+
+    // Reentrancy guard — only one reconfigure at a time.
+    if (xSemaphoreTake(s_reconfig_lock, 0) != pdTRUE) {
+        bb_log_w(TAG, "reconfigure: already in progress, skipping");
+        return BB_OK;
+    }
+
+    // Cancel any pending deferred start for the old client before destroying it.
+    if (s_pending_start == (bb_mqtt_handle_t *)s_auto_client) {
+        s_pending_start = NULL;
+    }
+
+    // Tear down the existing client cleanly.
+    // TLS creds are freed inside bb_mqtt_destroy (after esp_mqtt_client_destroy).
+    if (s_auto_client) {
+        bb_mqtt_destroy(s_auto_client);
+        s_auto_client = NULL;
+    }
+
+    // Re-read config from NVS.
+    char enabled_str[4] = "0";
+    bb_nv_get_str(BB_MQTT_NVS_NS, "enabled", enabled_str, sizeof(enabled_str), "0");
+    if (enabled_str[0] != '1') {
+        bb_log_i(TAG, "mqtt reconfigured (uri=<none>, enabled=false)");
+        xSemaphoreGive(s_reconfig_lock);
+        return BB_OK;
+    }
+
+    char uri[BB_MQTT_URI_MAX]            = {0};
+    char client_id[BB_MQTT_CLIENT_ID_MAX] = {0};
+    char username[BB_MQTT_USER_MAX]       = {0};
+    char password[BB_MQTT_PASS_MAX]       = {0};
+    char tls_str[4]                       = "0";
+
+    bb_nv_get_str(BB_MQTT_NVS_NS, "uri",       uri,       sizeof(uri),       "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, "client_id", client_id, sizeof(client_id), "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, "username",  username,  sizeof(username),  "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, "password",  password,  sizeof(password),  "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, "tls",       tls_str,   sizeof(tls_str),   "0");
+
+    if (!uri[0]) {
+        bb_log_w(TAG, "reconfigure: uri not set");
+        xSemaphoreGive(s_reconfig_lock);
+        return BB_OK;
+    }
+
+    bb_mqtt_cfg_t cfg = {
+        .uri       = uri,
+        .client_id = client_id[0] ? client_id : NULL,
+        .username  = username[0]  ? username  : NULL,
+        .password  = password[0]  ? password  : NULL,
+        .tls       = (tls_str[0] == '1'),
+        .creds_ns  = BB_MQTT_NVS_NS,
+    };
+
+    bb_err_t rc = bb_mqtt_init(&cfg, &s_auto_client);
+    if (rc != BB_OK) {
+        bb_log_w(TAG, "reconfigure: bb_mqtt_init failed: %d", rc);
+    } else {
+        bb_log_i(TAG, "mqtt reconfigured (uri=%s, enabled=true)", uri);
+    }
+
+    xSemaphoreGive(s_reconfig_lock);
+    return BB_OK;  // non-fatal: caller (patch_fn) continues
+}
+
 #endif /* CONFIG_BB_MQTT_AUTOREGISTER */
 
 // ---------------------------------------------------------------------------
@@ -352,3 +433,15 @@ bb_mqtt_t bb_mqtt_default(void)
     return NULL;
 #endif
 }
+
+// ---------------------------------------------------------------------------
+// bb_mqtt_reconfigure — stub when autoregister is disabled
+// ---------------------------------------------------------------------------
+
+#if !CONFIG_BB_MQTT_AUTOREGISTER
+bb_err_t bb_mqtt_reconfigure(void)
+{
+    // Autoregister disabled; no managed client to reconfigure.
+    return BB_ERR_INVALID_STATE;
+}
+#endif
