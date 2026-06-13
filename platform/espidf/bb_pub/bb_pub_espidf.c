@@ -4,9 +4,11 @@
 // semaphore to wake the worker. The worker calls bb_pub_tick_once(). This
 // keeps all JSON allocation and publish IO off the timer ISR context.
 //
-// Stack budget: ~4 KB. bb_pub_tick_once builds and serializes small JSON
-// objects (no TLS, no heap-heavy operations); 4 KB is adequate. Consumers
-// with large JSON payloads per source can raise CONFIG_BB_PUB_WORKER_STACK.
+// Stack budget: see CONFIG_BB_PUB_WORKER_STACK (Kconfig, default 8192).
+// The worker calls each sink's publish() synchronously. An HTTP/TLS sink
+// (bb_http_pub over HTTPS via bb_http_client_post) needs >= 8192 bytes for
+// the mbedTLS handshake. MQTT-only or plaintext-HTTP sinks can drop to 4096
+// to save RAM. The default is sized for the heaviest (TLS) case.
 #include "bb_pub.h"
 #include "bb_log.h"
 #include "bb_timer.h"
@@ -22,8 +24,15 @@ static const char *TAG = "bb_pub";
 #define CONFIG_BB_PUB_INTERVAL_MS 10000
 #endif
 
-// Worker task stack in bytes. Sized for small-JSON sources; raise if needed.
-#define BB_PUB_WORKER_STACK 4096
+// Worker task stack in bytes. Tunable via CONFIG_BB_PUB_WORKER_STACK (Kconfig).
+// Default 8192: covers mbedTLS handshake for HTTP/TLS sinks (bb_http_pub).
+#ifndef BB_PUB_WORKER_STACK
+#  if defined(CONFIG_BB_PUB_WORKER_STACK)
+#    define BB_PUB_WORKER_STACK CONFIG_BB_PUB_WORKER_STACK
+#  else
+#    define BB_PUB_WORKER_STACK 8192
+#  endif
+#endif
 
 static bb_periodic_timer_t s_timer  = NULL;
 static SemaphoreHandle_t   s_kick   = NULL;

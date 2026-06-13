@@ -41,4 +41,20 @@ config BB_PUB_AUTOREGISTER
         When enabled, bb_pub self-registers at the PRE_HTTP tier, which starts
         the periodic worker task. Disable to call bb_pub_start manually.
 
+config BB_PUB_WORKER_STACK
+    int "bb_pub telemetry worker task stack (bytes)"
+    default 8192
+    range 2048 16384
+    help
+        FreeRTOS task stack for the bb_pub periodic worker. The worker calls
+        each sink's publish() synchronously, so the stack must cover the
+        heaviest sink in use:
+
+          - HTTP/TLS sink (bb_http_pub over HTTPS/AWS IoT via bb_http_client_post):
+            needs >= 8192 bytes to cover the mbedTLS handshake + cert-bundle parse.
+          - MQTT-only or plaintext-HTTP sinks: 4096 is sufficient and saves ~4 KB RAM.
+
+        The default (8192) is safe for all sink types including TLS. Lower it to
+        4096 only if no HTTP/TLS sink is registered and RAM is constrained.
+
 endmenu

@@ -475,6 +475,25 @@ also set `PROJECT_VER` from the same logic (embeds into `esp_app_desc.version`).
 
 Sources: `components/bb_pub_<x>/` (header, CMakeLists, Kconfig) + `platform/host/bb_pub_<x>/bb_pub_<x>.c` (compiled host + espidf).
 
+### Telemetry memory tuning
+
+Knobs that affect the bb_pub stack's RAM footprint (all in `sdkconfig` / `menuconfig`):
+
+| Kconfig | Default | Notes |
+|---------|---------|-------|
+| `CONFIG_BB_PUB_WORKER_STACK` | 8192 | Worker task stack (bytes). Must be ≥ the heaviest sink. HTTP/TLS (`bb_http_pub` over HTTPS) needs ≥ 8192 for mbedTLS; MQTT-only or plaintext HTTP can drop to 4096 to save ~4 KB RAM. |
+| `CONFIG_BB_PUB_MAX_SOURCES` | 8 | Source registry capacity. Each entry is a small struct (~24 B); rarely needs raising. |
+| `CONFIG_BB_PUB_MAX_SINKS` | 4 | Sink array capacity (fan-out). Each entry is a function pointer + context pointer. |
+| `CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE` | 8192 | Referenced by `BB_HTTP_CLIENT_TASK_STACK` macro. Any task (including `bb_pub` worker) calling `bb_http_client_post` needs its stack ≥ this value. |
+| `CONFIG_MQTT_TASK_STACK_SIZE` | 6144 | esp-mqtt internal task stack. Raise to 8192 when using TLS (MQTTS). |
+| `CONFIG_MQTT_BUFFER_SIZE` | 1024 | esp-mqtt send/receive buffer (bytes). |
+| `CONFIG_MQTT_OUTBOX_SIZE_BYTE` | 4096 | esp-mqtt QoS outbox (bytes, heap). |
+| `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` | 16384 | TLS record input buffer. Drop to 4096 on no-PSRAM boards using HTTPS (AWS IoT accepts 4 KB records). |
+| `CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN` | 4096 | TLS record output buffer. |
+| `CONFIG_MBEDTLS_DYNAMIC_BUFFER` | n | Dynamically allocate TLS buffers (frees them between records). Saves ~20 KB peak heap on no-PSRAM boards at the cost of more frequent allocs. |
+
+**WROOM-32-class (no-PSRAM) guidance.** The classic ESP32 WROOM-32 has ~300 KB usable internal RAM. For plaintext-only deployments, keep `CONFIG_BB_PUB_WORKER_STACK=4096` and skip mbedTLS entirely. If TLS is required, set `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4096`, enable `CONFIG_MBEDTLS_DYNAMIC_BUFFER=y`, and keep `CONFIG_BB_PUB_WORKER_STACK=8192`. Avoid running MQTTS and HTTPS concurrently on the same board without PSRAM.
+
 ## Releases
 
 Tagging is manual: `git tag -a vX.Y.Z -m 'chore: vX.Y.Z tag' && git push origin vX.Y.Z`. The `release.yml` workflow waits for CI then publishes a GitHub release with auto-generated notes categorized by PR label (`.github/release.yml`). PR labels are auto-applied from conventional-commit prefixes; `new-component` PRs need that label set manually.
