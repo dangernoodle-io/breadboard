@@ -568,3 +568,195 @@ void test_bb_pub_test_reset_clears_paused(void)
     bb_pub_test_reset();
     TEST_ASSERT_FALSE(bb_pub_is_paused());
 }
+
+// ---------------------------------------------------------------------------
+// Interval tests
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_interval_default_is_compile_time(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL_UINT32(CONFIG_BB_PUB_INTERVAL_MS, bb_pub_get_interval_ms());
+}
+
+void test_bb_pub_set_interval_ms_updates_getter(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_set_interval_ms(5000));
+    TEST_ASSERT_EQUAL_UINT32(5000, bb_pub_get_interval_ms());
+}
+
+void test_bb_pub_set_interval_ms_min_bound_accepted(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_set_interval_ms(1000));
+    TEST_ASSERT_EQUAL_UINT32(1000, bb_pub_get_interval_ms());
+}
+
+void test_bb_pub_set_interval_ms_max_bound_accepted(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_set_interval_ms(3600000));
+    TEST_ASSERT_EQUAL_UINT32(3600000, bb_pub_get_interval_ms());
+}
+
+void test_bb_pub_set_interval_ms_zero_rejected(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_set_interval_ms(0));
+    // getter unchanged
+    TEST_ASSERT_EQUAL_UINT32(CONFIG_BB_PUB_INTERVAL_MS, bb_pub_get_interval_ms());
+}
+
+void test_bb_pub_set_interval_ms_below_min_rejected(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_set_interval_ms(999));
+    TEST_ASSERT_EQUAL_UINT32(CONFIG_BB_PUB_INTERVAL_MS, bb_pub_get_interval_ms());
+}
+
+void test_bb_pub_set_interval_ms_above_max_rejected(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_set_interval_ms(3600001));
+    TEST_ASSERT_EQUAL_UINT32(CONFIG_BB_PUB_INTERVAL_MS, bb_pub_get_interval_ms());
+}
+
+void test_bb_pub_test_reset_clears_interval_to_default(void)
+{
+    bb_pub_test_reset();
+    bb_pub_set_interval_ms(5000);
+    TEST_ASSERT_EQUAL_UINT32(5000, bb_pub_get_interval_ms());
+
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL_UINT32(CONFIG_BB_PUB_INTERVAL_MS, bb_pub_get_interval_ms());
+}
+
+// ---------------------------------------------------------------------------
+// Enabled toggle tests
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_is_enabled_true_by_default(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_TRUE(bb_pub_is_enabled());
+}
+
+void test_bb_pub_set_enabled_false_makes_tick_noop(void)
+{
+    setup_with_sink();
+    s_sample_call_count = 0;
+    bb_pub_register_source("x", sample_counting, NULL);
+
+    bb_pub_set_enabled(false);
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+    TEST_ASSERT_EQUAL_INT(0, s_sample_call_count);
+}
+
+void test_bb_pub_set_enabled_true_resumes_publishing(void)
+{
+    setup_with_sink();
+    s_sample_call_count = 0;
+    bb_pub_register_source("x", sample_counting, NULL);
+
+    bb_pub_set_enabled(false);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+
+    bb_pub_set_enabled(true);
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_EQUAL_INT(1, s_sample_call_count);
+}
+
+void test_bb_pub_enabled_false_not_paused_is_noop(void)
+{
+    // enabled=false, paused=false → no publish
+    setup_with_sink();
+    s_sample_call_count = 0;
+    bb_pub_register_source("x", sample_counting, NULL);
+
+    bb_pub_set_enabled(false);
+    TEST_ASSERT_FALSE(bb_pub_is_paused());
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+}
+
+void test_bb_pub_enabled_true_paused_is_noop(void)
+{
+    // enabled=true, paused=true → no publish
+    setup_with_sink();
+    s_sample_call_count = 0;
+    bb_pub_register_source("x", sample_counting, NULL);
+
+    TEST_ASSERT_TRUE(bb_pub_is_enabled());
+    bb_pub_pause();
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+}
+
+void test_bb_pub_enabled_true_not_paused_publishes(void)
+{
+    // enabled=true, paused=false → publishes
+    setup_with_sink();
+    s_sample_call_count = 0;
+    bb_pub_register_source("x", sample_counting, NULL);
+
+    TEST_ASSERT_TRUE(bb_pub_is_enabled());
+    TEST_ASSERT_FALSE(bb_pub_is_paused());
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+}
+
+void test_bb_pub_test_reset_clears_enabled_to_default(void)
+{
+    bb_pub_test_reset();
+    bb_pub_set_enabled(false);
+    TEST_ASSERT_FALSE(bb_pub_is_enabled());
+
+    bb_pub_test_reset();
+    TEST_ASSERT_TRUE(bb_pub_is_enabled());
+}
+
+// ---------------------------------------------------------------------------
+// Interval apply hook test
+// ---------------------------------------------------------------------------
+
+static uint32_t s_hook_called_with;
+static int      s_hook_call_count;
+
+static void test_interval_hook(uint32_t ms)
+{
+    s_hook_called_with = ms;
+    s_hook_call_count++;
+}
+
+void test_bb_pub_interval_apply_hook_called_on_set(void)
+{
+    bb_pub_test_reset();
+    s_hook_called_with = 0;
+    s_hook_call_count  = 0;
+
+    bb_pub_set_interval_apply_hook(test_interval_hook);
+    bb_pub_set_interval_ms(2000);
+
+    TEST_ASSERT_EQUAL_INT(1, s_hook_call_count);
+    TEST_ASSERT_EQUAL_UINT32(2000, s_hook_called_with);
+}
+
+void test_bb_pub_interval_apply_hook_not_called_on_invalid(void)
+{
+    bb_pub_test_reset();
+    s_hook_call_count = 0;
+
+    bb_pub_set_interval_apply_hook(test_interval_hook);
+    bb_pub_set_interval_ms(0);  // invalid; hook must not fire
+
+    TEST_ASSERT_EQUAL_INT(0, s_hook_call_count);
+}

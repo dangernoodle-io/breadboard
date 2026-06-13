@@ -14,6 +14,7 @@
 
 // Test hook declarations from host twin.
 void bb_pub_telemetry_section_get_for_test(bb_json_t section, void *ctx);
+bb_err_t bb_pub_telemetry_section_patch_for_test(bb_json_t patch, void *ctx);
 
 // ---------------------------------------------------------------------------
 // Sample + sink helpers
@@ -250,4 +251,151 @@ void test_bb_pub_telemetry_get_last_publish_ok_true_with_good_sink(void)
     cJSON *ok = cJSON_GetObjectItemCaseSensitive(body, "last_publish_ok");
     TEST_ASSERT_TRUE(cJSON_IsTrue(ok));
     cJSON_Delete(body);
+}
+
+// ---------------------------------------------------------------------------
+// GET reports interval_ms and enabled
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_telemetry_get_has_enabled(void)
+{
+    reset_all();
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *f = cJSON_GetObjectItemCaseSensitive(body, "enabled");
+    TEST_ASSERT_NOT_NULL(f);
+    TEST_ASSERT_TRUE(cJSON_IsBool(f));
+    cJSON_Delete(body);
+}
+
+void test_bb_pub_telemetry_get_interval_ms_reflects_default(void)
+{
+    reset_all();
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *f = cJSON_GetObjectItemCaseSensitive(body, "interval_ms");
+    TEST_ASSERT_NOT_NULL(f);
+    TEST_ASSERT_EQUAL_INT(CONFIG_BB_PUB_INTERVAL_MS, (int)cJSON_GetNumberValue(f));
+    cJSON_Delete(body);
+}
+
+void test_bb_pub_telemetry_get_enabled_true_by_default(void)
+{
+    reset_all();
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *f = cJSON_GetObjectItemCaseSensitive(body, "enabled");
+    TEST_ASSERT_TRUE(cJSON_IsTrue(f));
+    cJSON_Delete(body);
+}
+
+// ---------------------------------------------------------------------------
+// PATCH helpers
+// ---------------------------------------------------------------------------
+
+static bb_err_t run_patch_json(const char *json_str)
+{
+    bb_json_t patch = bb_json_parse(json_str, 0);
+    if (!patch) return BB_ERR_INVALID_ARG;
+    bb_err_t err = bb_pub_telemetry_section_patch_for_test(patch, NULL);
+    bb_json_free(patch);
+    return err;
+}
+
+// ---------------------------------------------------------------------------
+// PATCH sets interval and applies
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_telemetry_patch_interval_ms_updates_getter(void)
+{
+    reset_all();
+    bb_err_t err = run_patch_json("{\"interval_ms\":5000}");
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_UINT32(5000, bb_pub_get_interval_ms());
+}
+
+void test_bb_pub_telemetry_patch_interval_ms_reflected_in_get(void)
+{
+    reset_all();
+    run_patch_json("{\"interval_ms\":5000}");
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *f = cJSON_GetObjectItemCaseSensitive(body, "interval_ms");
+    TEST_ASSERT_EQUAL_INT(5000, (int)cJSON_GetNumberValue(f));
+    cJSON_Delete(body);
+}
+
+void test_bb_pub_telemetry_patch_interval_ms_zero_rejected(void)
+{
+    reset_all();
+    bb_err_t err = run_patch_json("{\"interval_ms\":0}");
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+    // getter unchanged
+    TEST_ASSERT_EQUAL_UINT32(CONFIG_BB_PUB_INTERVAL_MS, bb_pub_get_interval_ms());
+}
+
+void test_bb_pub_telemetry_patch_interval_ms_below_min_rejected(void)
+{
+    reset_all();
+    bb_err_t err = run_patch_json("{\"interval_ms\":500}");
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+void test_bb_pub_telemetry_patch_interval_ms_above_max_rejected(void)
+{
+    reset_all();
+    bb_err_t err = run_patch_json("{\"interval_ms\":9999999}");
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
+}
+
+// ---------------------------------------------------------------------------
+// PATCH sets enabled and applies
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_telemetry_patch_enabled_false_persists(void)
+{
+    reset_all();
+    bb_err_t err = run_patch_json("{\"enabled\":false}");
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_FALSE(bb_pub_is_enabled());
+}
+
+void test_bb_pub_telemetry_patch_enabled_true_persists(void)
+{
+    reset_all();
+    bb_pub_set_enabled(false);
+    bb_err_t err = run_patch_json("{\"enabled\":true}");
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_TRUE(bb_pub_is_enabled());
+}
+
+void test_bb_pub_telemetry_patch_enabled_reflected_in_get(void)
+{
+    reset_all();
+    run_patch_json("{\"enabled\":false}");
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *f = cJSON_GetObjectItemCaseSensitive(body, "enabled");
+    TEST_ASSERT_FALSE(cJSON_IsTrue(f));
+    cJSON_Delete(body);
+}
+
+// ---------------------------------------------------------------------------
+// PATCH partial updates — only present fields are touched
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_telemetry_patch_partial_only_changes_present_fields(void)
+{
+    reset_all();
+    // Set known state.
+    bb_pub_set_interval_ms(2000);
+    bb_pub_set_enabled(true);
+
+    // Patch only enabled.
+    bb_err_t err = run_patch_json("{\"enabled\":false}");
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    // interval unchanged.
+    TEST_ASSERT_EQUAL_UINT32(2000, bb_pub_get_interval_ms());
+    // enabled changed.
+    TEST_ASSERT_FALSE(bb_pub_is_enabled());
 }
