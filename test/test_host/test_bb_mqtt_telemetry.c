@@ -341,3 +341,55 @@ void test_bb_mqtt_telemetry_patch_partial_update_leaves_others(void)
     bb_nv_get_str("bb_mqtt", "client_id", id_buf, sizeof(id_buf), "");
     TEST_ASSERT_EQUAL_STRING("new-id", id_buf);
 }
+
+// ---------------------------------------------------------------------------
+// PATCH triggers live reconfigure (hot-reconnect)
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_telemetry_patch_triggers_reconfigure(void)
+{
+    bb_mqtt_telemetry_reset_for_test();
+    // Reset counter via a temporary handle.
+    bb_mqtt_t tmp = NULL;
+    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    bb_mqtt_init(&cfg, &tmp);
+    bb_mqtt_host_reset(tmp);  // resets s_reconfigure_count to 0
+
+    int before = bb_mqtt_test_reconfigure_count();
+    bb_err_t rc = run_patch("{\"uri\":\"mqtt://broker.example.com:1883\"}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(before + 1, bb_mqtt_test_reconfigure_count());
+
+    bb_mqtt_destroy(tmp);
+}
+
+void test_bb_mqtt_telemetry_patch_enabled_false_reconfigures(void)
+{
+    bb_mqtt_telemetry_reset_for_test();
+    bb_mqtt_t tmp = NULL;
+    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    bb_mqtt_init(&cfg, &tmp);
+    bb_mqtt_host_reset(tmp);
+
+    int before = bb_mqtt_test_reconfigure_count();
+    bb_err_t rc = run_patch("{\"enabled\":false}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    // Disabled path still triggers reconfigure (so the live client is torn down).
+    TEST_ASSERT_EQUAL_INT(before + 1, bb_mqtt_test_reconfigure_count());
+
+    bb_mqtt_destroy(tmp);
+}
+
+void test_bb_mqtt_telemetry_patch_new_uri_observed_by_get(void)
+{
+    bb_mqtt_telemetry_reset_for_test();
+    bb_err_t rc = run_patch("{\"uri\":\"mqtt://new-broker.example.com:1883\",\"enabled\":true}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *uri = cJSON_GetObjectItemCaseSensitive(body, "uri");
+    TEST_ASSERT_NOT_NULL(uri);
+    TEST_ASSERT_EQUAL_STRING("mqtt://new-broker.example.com:1883", cJSON_GetStringValue(uri));
+    cJSON_Delete(body);
+}

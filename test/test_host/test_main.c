@@ -1798,6 +1798,9 @@ void test_bb_mqtt_destroy_null_is_safe(void);
 void test_bb_mqtt_default_returns_null_initially(void);
 void test_bb_mqtt_default_returns_set_handle(void);
 void test_bb_mqtt_default_cleared_by_set_null(void);
+void test_bb_mqtt_reconfigure_increments_count(void);
+void test_bb_mqtt_reconfigure_idempotent(void);
+void test_bb_mqtt_host_reset_clears_reconfigure_count(void);
 
 // Forward declarations from test_bb_http_pub.c
 void test_bb_http_pub_url_encode_slash_to_pct2F(void);
@@ -2061,6 +2064,9 @@ void test_bb_mqtt_telemetry_patch_persists_tls_ca(void);
 void test_bb_mqtt_telemetry_patch_persists_enabled(void);
 void test_bb_mqtt_telemetry_patch_persists_tls_flag(void);
 void test_bb_mqtt_telemetry_patch_partial_update_leaves_others(void);
+void test_bb_mqtt_telemetry_patch_triggers_reconfigure(void);
+void test_bb_mqtt_telemetry_patch_enabled_false_reconfigures(void);
+void test_bb_mqtt_telemetry_patch_new_uri_observed_by_get(void);
 
 // Forward declarations from test_bb_http_pub_telemetry.c
 void test_bb_http_pub_telemetry_get_empty_nvs(void);
@@ -4167,6 +4173,9 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_default_returns_null_initially);
     RUN_TEST(test_bb_mqtt_default_returns_set_handle);
     RUN_TEST(test_bb_mqtt_default_cleared_by_set_null);
+    RUN_TEST(test_bb_mqtt_reconfigure_increments_count);
+    RUN_TEST(test_bb_mqtt_reconfigure_idempotent);
+    RUN_TEST(test_bb_mqtt_host_reset_clears_reconfigure_count);
 
     // bb_http_pub tests
     RUN_TEST(test_bb_http_pub_url_encode_slash_to_pct2F);
@@ -4262,6 +4271,9 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_telemetry_patch_persists_enabled);
     RUN_TEST(test_bb_mqtt_telemetry_patch_persists_tls_flag);
     RUN_TEST(test_bb_mqtt_telemetry_patch_partial_update_leaves_others);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_triggers_reconfigure);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_enabled_false_reconfigures);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_new_uri_observed_by_get);
 
     // bb_http_pub_telemetry tests
     RUN_TEST(test_bb_http_pub_telemetry_get_empty_nvs);

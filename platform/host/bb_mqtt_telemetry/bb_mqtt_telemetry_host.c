@@ -117,6 +117,9 @@ static bb_err_t mqtt_section_patch(bb_json_t patch, void *ctx)
         bb_nv_set_str(BB_MQTT_NVS_NS, "enabled", b ? "1" : "0");
     }
 
+    // Apply the new config to the live client without a reboot.
+    bb_mqtt_reconfigure();
+
     return BB_OK;
 }
 

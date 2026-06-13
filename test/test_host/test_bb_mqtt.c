@@ -218,3 +218,40 @@ void test_bb_mqtt_default_cleared_by_set_null(void)
     TEST_ASSERT_NULL(bb_mqtt_default());
     bb_mqtt_destroy(h);
 }
+
+// ---------------------------------------------------------------------------
+// bb_mqtt_reconfigure tests (host stub)
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_reconfigure_increments_count(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);  // resets s_reconfigure_count to 0
+    int before = bb_mqtt_test_reconfigure_count();
+    bb_err_t rc = bb_mqtt_reconfigure();
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(before + 1, bb_mqtt_test_reconfigure_count());
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_reconfigure_idempotent(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+    bb_mqtt_reconfigure();
+    bb_mqtt_reconfigure();
+    bb_mqtt_reconfigure();
+    TEST_ASSERT_EQUAL_INT(3, bb_mqtt_test_reconfigure_count());
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_host_reset_clears_reconfigure_count(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_reset(h);
+    bb_mqtt_reconfigure();
+    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_test_reconfigure_count());
+    bb_mqtt_host_reset(h);
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_test_reconfigure_count());
+    bb_mqtt_destroy(h);
+}
