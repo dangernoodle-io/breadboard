@@ -9,6 +9,16 @@ config BB_PUB_MAX_SOURCES
         than this returns BB_ERR_NO_SPACE. A high-watermark warning is logged
         when the registry reaches capacity minus one.
 
+config BB_PUB_MAX_SINKS
+    int "Maximum number of concurrent telemetry sinks"
+    default 4
+    range 1 8
+    help
+        Capacity of the sink array for fan-out publishing. Attempting to add
+        more sinks than this returns BB_ERR_NO_SPACE. bb_pub_set_sink (single-
+        sink back-compat) replaces all sinks with one, so this limit only
+        applies to callers using bb_pub_add_sink directly.
+
 config BB_PUB_TOPIC_PREFIX
     string "MQTT topic prefix for published telemetry"
     default "metrics"
