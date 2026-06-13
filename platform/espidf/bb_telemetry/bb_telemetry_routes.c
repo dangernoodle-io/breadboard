@@ -99,6 +99,11 @@ static bb_err_t telemetry_patch_handler(bb_http_request_t *req)
         send_json_error(req, 400, "PATCH on read-only section");
         return rc;
     }
+    if (rc == BB_ERR_CONFLICT) {
+        send_json_error(req, 409,
+                        "another telemetry sink is active; disable it first");
+        return rc;
+    }
     if (rc != BB_OK) {
         send_json_error(req, 500, "patch failed");
         return rc;
@@ -127,6 +132,11 @@ static const bb_route_response_t s_telemetry_patch_responses[] = {
       "\"properties\":{\"error\":{\"type\":\"string\"}},"
       "\"required\":[\"error\"]}",
       "bad or missing request body, or read-only section" },
+    { 409, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "another telemetry sink is already active" },
     { 0 },
 };
 

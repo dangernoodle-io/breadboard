@@ -2180,6 +2180,23 @@ void test_bb_pub_telemetry_patch_enabled_true_persists(void);
 void test_bb_pub_telemetry_patch_enabled_reflected_in_get(void);
 void test_bb_pub_telemetry_patch_partial_only_changes_present_fields(void);
 
+// Forward declarations from test_bb_pub_sink_mutex.c
+void test_arbiter_acquire_free_slot_ok(void);
+void test_arbiter_acquire_same_id_idempotent(void);
+void test_arbiter_acquire_other_while_held_conflict(void);
+void test_arbiter_release_frees_slot(void);
+void test_arbiter_release_wrong_id_noop(void);
+void test_arbiter_reset_clears_slot(void);
+void test_mutex_enable_mqtt_ok_when_slot_free(void);
+void test_mutex_enable_http_while_mqtt_active_conflict(void);
+void test_mutex_enable_mqtt_while_http_active_conflict(void);
+void test_mutex_disable_mqtt_then_enable_http_ok(void);
+void test_mutex_patch_without_enabled_field_passes_through(void);
+void test_boot_both_enabled_mqtt_wins(void);
+void test_boot_only_mqtt_enabled(void);
+void test_boot_only_http_enabled(void);
+void test_boot_neither_enabled(void);
+
 // Forward declarations from test_bb_sink_mqtt.c
 void test_bb_sink_mqtt_null_handle_returns_invalid_arg(void);
 void test_bb_sink_mqtt_null_out_returns_invalid_arg(void);
@@ -4467,6 +4484,23 @@ int main(void) {
     RUN_TEST(test_bb_pub_telemetry_patch_enabled_true_persists);
     RUN_TEST(test_bb_pub_telemetry_patch_enabled_reflected_in_get);
     RUN_TEST(test_bb_pub_telemetry_patch_partial_only_changes_present_fields);
+
+    // bb_pub_sink_mutex tests — exclusive-sink arbiter + mutual-exclusion invariant
+    RUN_TEST(test_arbiter_acquire_free_slot_ok);
+    RUN_TEST(test_arbiter_acquire_same_id_idempotent);
+    RUN_TEST(test_arbiter_acquire_other_while_held_conflict);
+    RUN_TEST(test_arbiter_release_frees_slot);
+    RUN_TEST(test_arbiter_release_wrong_id_noop);
+    RUN_TEST(test_arbiter_reset_clears_slot);
+    RUN_TEST(test_mutex_enable_mqtt_ok_when_slot_free);
+    RUN_TEST(test_mutex_enable_http_while_mqtt_active_conflict);
+    RUN_TEST(test_mutex_enable_mqtt_while_http_active_conflict);
+    RUN_TEST(test_mutex_disable_mqtt_then_enable_http_ok);
+    RUN_TEST(test_mutex_patch_without_enabled_field_passes_through);
+    RUN_TEST(test_boot_both_enabled_mqtt_wins);
+    RUN_TEST(test_boot_only_mqtt_enabled);
+    RUN_TEST(test_boot_only_http_enabled);
+    RUN_TEST(test_boot_neither_enabled);
 
     // bb_sink_mqtt tests
     RUN_TEST(test_bb_sink_mqtt_null_handle_returns_invalid_arg);
