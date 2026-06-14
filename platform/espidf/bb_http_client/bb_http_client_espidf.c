@@ -327,10 +327,12 @@ bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
     espidf_session_t *s = (espidf_session_t *)calloc(1, sizeof(espidf_session_t));
     if (!s) return BB_ERR_NO_SPACE;
 
+    bool keep_alive = (cfg && cfg->keep_alive);
+
     esp_http_client_config_t config = {
         .url                = url_base,
         .method             = HTTP_METHOD_POST,
-        .keep_alive_enable  = true,
+        .keep_alive_enable  = keep_alive,
         .crt_bundle_attach  = (ca_pem == NULL) ? esp_crt_bundle_attach : NULL,
         .cert_pem           = ca_pem,
         .client_cert_pem    = (cfg && cfg->client_cert_pem) ? cfg->client_cert_pem : NULL,
@@ -367,7 +369,8 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t sess,
 
     esp_err_t err = esp_http_client_perform(s->client);
     if (err != ESP_OK) {
-        bb_log_w(TAG, "session POST %s: perform error %d", url, err);
+        bb_log_w(TAG, "session POST %s: perform error %d — closing socket", url, err);
+        esp_http_client_close(s->client);
         out->status_code = 0;
         out->body_len    = 0;
         out->truncated   = false;

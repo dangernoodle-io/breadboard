@@ -51,6 +51,10 @@ static bb_http_client_session_record_t s_session_last = { .called = false };
 static bb_http_client_header_record_t s_headers[BB_HTTP_CLIENT_HOST_MAX_HEADERS];
 static int s_header_count = 0;
 
+// Session open tracking.
+static int  s_session_open_count    = 0;
+static bool s_session_last_keep_alive = false;
+
 void bb_http_client_set_mock_response(const char *body, size_t body_len,
                                       int status_code)
 {
@@ -85,6 +89,8 @@ void bb_http_client_clear_mock(void)
     s_session_last = (bb_http_client_session_record_t){ .called = false };
     memset(s_headers, 0, sizeof(s_headers));
     s_header_count = 0;
+    s_session_open_count = 0;
+    s_session_last_keep_alive = false;
     pthread_mutex_unlock(&s_mock_lock);
 }
 
@@ -157,19 +163,36 @@ typedef struct {
     char url_base[256];
 } host_session_t;
 
+int bb_http_client_session_open_count(void)
+{
+    pthread_mutex_lock(&s_mock_lock);
+    int n = s_session_open_count;
+    pthread_mutex_unlock(&s_mock_lock);
+    return n;
+}
+
+bool bb_http_client_session_last_keep_alive(void)
+{
+    pthread_mutex_lock(&s_mock_lock);
+    bool v = s_session_last_keep_alive;
+    pthread_mutex_unlock(&s_mock_lock);
+    return v;
+}
+
 bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
                                      const char *url_base,
                                      bb_http_client_session_t *out)
 {
-    (void)cfg;
     if (!url_base || !out) return BB_ERR_INVALID_ARG;
     host_session_t *s = (host_session_t *)calloc(1, sizeof(host_session_t));
     if (!s) return BB_ERR_NO_SPACE;
     strncpy(s->url_base, url_base, sizeof(s->url_base) - 1);
-    // Reset header capture for the new session.
+    // Reset header capture for the new session; record open.
     pthread_mutex_lock(&s_mock_lock);
     memset(s_headers, 0, sizeof(s_headers));
     s_header_count = 0;
+    s_session_open_count++;
+    s_session_last_keep_alive = (cfg && cfg->keep_alive);
     pthread_mutex_unlock(&s_mock_lock);
     *out = (bb_http_client_session_t)s;
     return BB_OK;

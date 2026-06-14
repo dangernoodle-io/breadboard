@@ -1860,6 +1860,8 @@ void test_bb_sink_http_merge_independent_edit_secret_preserved(void);
 void test_bb_sink_http_session_applies_client_id_from_cfg(void);
 void test_bb_sink_http_session_applies_configured_headers(void);
 void test_bb_sink_http_headers_reapplied_after_set_cfg(void);
+void test_bb_sink_http_session_reset_after_3_consec_failures(void);
+void test_bb_sink_http_keep_alive_cfg_threads_into_session_open(void);
 
 // Forward declarations from test_bb_http_client_session.c
 void test_bb_http_client_session_open_null_url_base_returns_invalid_arg(void);
@@ -4386,6 +4388,8 @@ int main(void) {
     RUN_TEST(test_bb_sink_http_session_applies_client_id_from_cfg);
     RUN_TEST(test_bb_sink_http_session_applies_configured_headers);
     RUN_TEST(test_bb_sink_http_headers_reapplied_after_set_cfg);
+    RUN_TEST(test_bb_sink_http_session_reset_after_3_consec_failures);
+    RUN_TEST(test_bb_sink_http_keep_alive_cfg_threads_into_session_open);
 
     // bb_http_client session tests
     RUN_TEST(test_bb_http_client_session_open_null_url_base_returns_invalid_arg);

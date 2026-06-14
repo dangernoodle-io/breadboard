@@ -30,6 +30,8 @@ static bb_sink_http_cfg_t         s_cfg;
 static bool                      s_initialized = false;
 static bb_http_client_session_t  s_session      = NULL;
 static bb_tls_creds_t            s_creds;        // kept alive for session lifetime
+static int                       s_consec_failures = 0;  // consecutive transport failures
+#define BB_SINK_HTTP_MAX_CONSEC_FAILURES 3
 
 // ---------------------------------------------------------------------------
 // Validation helpers (pure)
@@ -415,6 +417,12 @@ static bb_err_t session_ensure(void)
     http_cfg.ca_cert_pem     = s_creds.ca;
     http_cfg.client_cert_pem = s_creds.cert;
     http_cfg.client_key_pem  = s_creds.key;
+    // Keep-alive: respect Kconfig on ESP-IDF; default true on host/other targets.
+#if defined(CONFIG_BB_HTTP_CLIENT_KEEPALIVE)
+    http_cfg.keep_alive = CONFIG_BB_HTTP_CLIENT_KEEPALIVE;
+#else
+    http_cfg.keep_alive = true;
+#endif
 
     rc = bb_http_client_session_open(&http_cfg, s_cfg.base, &s_session);
     if (rc != BB_OK) {
@@ -466,10 +474,17 @@ static bb_err_t http_pub_publish(void *ctx,
                                       "application/json", &out);
     if (rc != BB_OK) {
         bb_log_e(TAG, "session POST transport error: %d", rc);
-        // Keep the handle; perform() reconnects on next call.
+        s_consec_failures++;
+        if (s_consec_failures >= BB_SINK_HTTP_MAX_CONSEC_FAILURES) {
+            bb_log_w(TAG, "%d consecutive failures — resetting session",
+                     s_consec_failures);
+            session_close();
+            s_consec_failures = 0;
+        }
         return rc;
     }
 
+    s_consec_failures = 0;
     bb_log_d(TAG, "published to %s -> %d", url, out.status_code);
     return BB_OK;
 }

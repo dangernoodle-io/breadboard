@@ -48,6 +48,12 @@ typedef struct {
     const char *ca_cert_pem;      // server/CA cert PEM override; NULL => crt_bundle_attach
     const char *client_cert_pem;  // client cert PEM for mutual TLS (optional)
     const char *client_key_pem;   // client private key PEM for mutual TLS (optional)
+    // Session keep-alive (used by bb_http_client_session_open only).
+    // When true the TCP/TLS connection is reused across posts (default on ESP-IDF).
+    // Set false to open+close a fresh connection on every post.
+    // Zero-initialised cfg → false (off).  Callers that want keep-alive must
+    // set this explicitly or rely on the Kconfig default via session_ensure().
+    bool keep_alive;
 } bb_http_client_cfg_t;
 
 typedef struct {
