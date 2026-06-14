@@ -190,6 +190,11 @@ size_t bb_board_heap_largest_free_block(void)
     return heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
 }
 
+size_t bb_board_heap_internal_largest_free_block(void)
+{
+    return heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
 uint32_t bb_board_chip_revision(void)
 {
     esp_chip_info_t info;

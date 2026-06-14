@@ -30,7 +30,7 @@ static bool info_sample(bb_json_t obj, void *ctx)
     bb_json_obj_set_number(obj, "heap_internal_total",
                            (double)bb_board_heap_internal_total());
     bb_json_obj_set_number(obj, "heap_internal_largest_block",
-                           (double)bb_board_heap_largest_free_block());
+                           (double)bb_board_heap_internal_largest_free_block());
     bb_json_obj_set_number(obj, "heap_internal_min_free",
                            (double)bb_board_heap_minimum_ever());
     bb_json_obj_set_number(obj, "psram_free",
