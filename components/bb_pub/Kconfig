@@ -43,18 +43,21 @@ config BB_PUB_AUTOREGISTER
 
 config BB_PUB_WORKER_STACK
     int "bb_pub telemetry worker task stack (bytes)"
-    default 8192
+    default 8192 if (BB_MQTT_TLS_ENABLE || BB_HTTP_TLS_ENABLE)
+    default 4096
     range 2048 16384
     help
         FreeRTOS task stack for the bb_pub periodic worker. The worker calls
         each sink's publish() synchronously, so the stack must cover the
         heaviest sink in use:
 
-          - HTTP/TLS sink (bb_sink_http over HTTPS/AWS IoT via bb_http_client_post):
-            needs >= 8192 bytes to cover the mbedTLS handshake + cert-bundle parse.
-          - MQTT-only or plaintext-HTTP sinks: 4096 is sufficient and saves ~4 KB RAM.
+          - HTTP/TLS or MQTT/TLS sink: needs >= 8192 bytes to cover the mbedTLS
+            handshake + cert-bundle parse. The default auto-sizes to 8192 when
+            BB_MQTT_TLS_ENABLE or BB_HTTP_TLS_ENABLE is on.
+          - Plaintext MQTT or plaintext HTTP: 4096 is sufficient and saves ~4 KB
+            RAM. The default auto-sizes to 4096 when both TLS gates are OFF.
 
-        The default (8192) is safe for all sink types including TLS. Lower it to
-        4096 only if no HTTP/TLS sink is registered and RAM is constrained.
+        Gate-keyed defaults (B1-274): default 8192 with any TLS gate; 4096
+        without. Override in sdkconfig if your specific sink mix differs.
 
 endmenu

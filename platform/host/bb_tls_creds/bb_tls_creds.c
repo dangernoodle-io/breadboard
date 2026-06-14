@@ -105,6 +105,10 @@ bb_err_t bb_tls_creds_resolve(const char *ns, const bb_tls_creds_cfg_t *over,
         return rc;
     }
 
+    // Client cert and key: only resolved when BB_TLS_MUTUAL_ENABLE is on.
+    // When the gate is OFF the fields stay NULL/0 (zeroed by memset above),
+    // saving NVS lookups and heap allocation on plaintext / CA-only builds.
+#if CONFIG_BB_TLS_MUTUAL_ENABLE
     rc = resolve_one(ov_cert, ns, "tls_cert",
                      bb_tls_creds_embedded_cert, bb_tls_creds_embedded_cert_len,
                      &out->cert, &out->cert_len);
@@ -122,6 +126,10 @@ bb_err_t bb_tls_creds_resolve(const char *ns, const bb_tls_creds_cfg_t *over,
         bb_tls_creds_free(out);
         return rc;
     }
+#else
+    (void)ov_cert;
+    (void)ov_key;
+#endif /* CONFIG_BB_TLS_MUTUAL_ENABLE */
 
     return BB_OK;
 }

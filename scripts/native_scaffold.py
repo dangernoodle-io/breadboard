@@ -325,6 +325,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_tls_creds/bb_tls_creds.c"],
         "depends":  ["bb_core", "bb_nv", "bb_log"],
     },
+    "bb_tls_info": {
+        "includes": ["components/bb_tls_info/include"],
+        "sources":  ["platform/host/bb_tls_info/bb_tls_info.c"],
+        "depends":  ["bb_info", "bb_core"],
+    },
     "bb_mqtt": {
         "includes": ["components/bb_mqtt/include"],
         "sources":  ["platform/host/bb_mqtt/bb_mqtt.c"],
