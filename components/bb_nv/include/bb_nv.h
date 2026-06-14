@@ -135,6 +135,12 @@ bb_err_t bb_nv_get_u32(const char *ns, const char *key, uint32_t *out, uint32_t 
 bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, const char *fallback);
 bb_err_t bb_nv_erase  (const char *ns, const char *key);
 
+/// Returns true if the key exists in the given namespace and its value is
+/// non-empty (length > 1 including NUL). Use this to test key presence without
+/// reading the full value into a fixed-size probe buffer (which would return
+/// false for values longer than the buffer).
+bool bb_nv_exists(const char *ns, const char *key);
+
 /* ---------------------------------------------------------------------------
  * Batched setters
  *
