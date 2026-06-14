@@ -2150,6 +2150,7 @@ void test_bb_mqtt_telemetry_patch_partial_update_leaves_others(void);
 void test_bb_mqtt_telemetry_patch_triggers_reconfigure(void);
 void test_bb_mqtt_telemetry_patch_enabled_false_reconfigures(void);
 void test_bb_mqtt_telemetry_patch_new_uri_observed_by_get(void);
+void test_bb_mqtt_telemetry_patch_large_tls_ca_stored_via_heap(void);
 
 // Forward declarations from test_bb_sink_http_telemetry.c
 void test_bb_sink_http_telemetry_get_empty_nvs(void);
@@ -2176,6 +2177,7 @@ void test_bb_sink_http_telemetry_patch_headers_add_secret_stores_value(void);
 void test_bb_sink_http_telemetry_patch_headers_secret_blank_preserves_existing(void);
 void test_bb_sink_http_telemetry_patch_headers_omitted_name_removed(void);
 void test_bb_sink_http_telemetry_patch_headers_independent_edit(void);
+void test_bb_sink_http_telemetry_patch_large_tls_ca_stored_via_heap(void);
 
 // Forward declarations from test_bb_pub_telemetry.c
 void test_bb_pub_telemetry_get_has_interval_ms(void);
@@ -4484,6 +4486,7 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_telemetry_patch_triggers_reconfigure);
     RUN_TEST(test_bb_mqtt_telemetry_patch_enabled_false_reconfigures);
     RUN_TEST(test_bb_mqtt_telemetry_patch_new_uri_observed_by_get);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_large_tls_ca_stored_via_heap);
 
     // bb_sink_http_telemetry tests
     RUN_TEST(test_bb_sink_http_telemetry_get_empty_nvs);
@@ -4510,6 +4513,7 @@ int main(void) {
     RUN_TEST(test_bb_sink_http_telemetry_patch_headers_secret_blank_preserves_existing);
     RUN_TEST(test_bb_sink_http_telemetry_patch_headers_omitted_name_removed);
     RUN_TEST(test_bb_sink_http_telemetry_patch_headers_independent_edit);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_large_tls_ca_stored_via_heap);
 
     // bb_pub_telemetry tests
     RUN_TEST(test_bb_pub_telemetry_get_has_interval_ms);

@@ -85,30 +85,35 @@ static bb_err_t mqtt_section_patch(bb_json_t patch, void *ctx)
 {
     (void)ctx;
 
-    char tmp[BB_MQTT_BODY_MAX + 1];
+    // Heap-allocate the scratch buffer — 4 KB on the stack overflowed the
+    // 6144-byte httpd thread stack when combined with cJSON parse frames,
+    // causing a 'stack overflow in task httpd' panic on bitaxe.
+    char *tmp = malloc((size_t)BB_MQTT_BODY_MAX + 1);
+    if (!tmp) return BB_ERR_NO_SPACE;
 
-    if (bb_json_obj_get_string(patch, "uri",       tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "uri",       tmp, BB_MQTT_BODY_MAX + 1)) {
         bb_nv_set_str(BB_MQTT_NVS_NS, "uri", tmp);
     }
-    if (bb_json_obj_get_string(patch, "client_id", tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "client_id", tmp, BB_MQTT_BODY_MAX + 1)) {
         bb_nv_set_str(BB_MQTT_NVS_NS, "client_id", tmp);
     }
-    if (bb_json_obj_get_string(patch, "username",  tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "username",  tmp, BB_MQTT_BODY_MAX + 1)) {
         bb_nv_set_str(BB_MQTT_NVS_NS, "username", tmp);
     }
-    if (bb_json_obj_get_string(patch, "password",  tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "password",  tmp, BB_MQTT_BODY_MAX + 1)) {
         bb_nv_set_str(BB_MQTT_NVS_NS, "password", tmp);
     }
-    if (bb_json_obj_get_string(patch, "tls_ca",   tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "tls_ca",   tmp, BB_MQTT_BODY_MAX + 1)) {
         bb_nv_set_str(BB_MQTT_NVS_NS, "tls_ca", tmp);
     }
-    if (bb_json_obj_get_string(patch, "tls_cert", tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "tls_cert", tmp, BB_MQTT_BODY_MAX + 1)) {
         bb_nv_set_str(BB_MQTT_NVS_NS, "tls_cert", tmp);
     }
-    if (bb_json_obj_get_string(patch, "tls_key",  tmp, sizeof(tmp))) {
+    if (bb_json_obj_get_string(patch, "tls_key",  tmp, BB_MQTT_BODY_MAX + 1)) {
         bb_nv_set_str(BB_MQTT_NVS_NS, "tls_key", tmp);
     }
 
+    bb_err_t rc = BB_OK;
     bool b;
     if (bb_json_obj_get_bool(patch, "tls", &b)) {
         bb_nv_set_str(BB_MQTT_NVS_NS, "tls", b ? "1" : "0");
@@ -119,6 +124,7 @@ static bb_err_t mqtt_section_patch(bb_json_t patch, void *ctx)
             bb_err_t arc = bb_pub_exclusive_acquire(BB_SINK_MQTT_EXCLUSIVE_ID);
             if (arc != BB_OK) {
                 bb_log_w(TAG, "enable rejected: exclusive sink conflict");
+                free(tmp);
                 return arc;
             }
         } else {
@@ -127,10 +133,12 @@ static bb_err_t mqtt_section_patch(bb_json_t patch, void *ctx)
         bb_nv_set_str(BB_MQTT_NVS_NS, "enabled", b ? "1" : "0");
     }
 
+    free(tmp);
+
     // Apply the new config to the live client without a reboot.
     bb_mqtt_reconfigure();
 
-    return BB_OK;
+    return rc;
 }
 
 // ---------------------------------------------------------------------------
