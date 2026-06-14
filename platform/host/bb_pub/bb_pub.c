@@ -12,6 +12,7 @@
 #include "bb_log.h"
 #include "bb_nv.h"
 
+#include <pthread.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -103,7 +104,16 @@ static void ensure_config_loaded(void)
 // Pause state
 // ---------------------------------------------------------------------------
 
+// s_paused is always read/written under s_tick_lock so no separate atomic is
+// needed; the lock itself provides the visibility guarantee.
 static bool s_paused = false;
+
+// Tick lock — held for the duration of bb_pub_tick_once's active body (the
+// sample → serialize → sink fan-out loop).  bb_pub_pause() sets s_paused then
+// acquires+releases this lock so it cannot return while a tick is in flight.
+// The lock is a plain (non-recursive) mutex; the worker holds it only for the
+// tick duration so there is no inversion risk with callers of bb_pub_pause().
+static pthread_mutex_t s_tick_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // ---------------------------------------------------------------------------
 // Status state
@@ -267,11 +277,21 @@ void bb_pub_set_interval_apply_hook(void (*hook)(uint32_t ms))
 
 void bb_pub_pause(void)
 {
+    // Set the flag first so the worker skips the next tick body immediately.
+    // Then acquire+release the tick lock to block until any currently-executing
+    // tick completes.  When this function returns the caller is guaranteed that:
+    //   1. no bb_pub_tick_once body is running (lock was released by worker), AND
+    //   2. s_paused is true so no new tick will enter its active body.
     s_paused = true;
+    pthread_mutex_lock(&s_tick_lock);
+    pthread_mutex_unlock(&s_tick_lock);
 }
 
 void bb_pub_resume(void)
 {
+    // No lock needed: setting s_paused=false is fine outside the lock because
+    // the tick body only reads it under the lock at entry; once cleared the
+    // next tick will proceed normally.
     s_paused = false;
 }
 
@@ -288,8 +308,22 @@ bb_err_t bb_pub_tick_once(void)
 {
     ensure_config_loaded();
     if (!bb_pub_is_enabled()) return BB_OK;
-    if (s_paused)              return BB_OK;
-    if (s_sink_count == 0)     return BB_OK;
+
+    // Fast pre-check before taking the lock (avoids lock contention when the
+    // common case is not paused).  The check is repeated under the lock below.
+    if (s_paused) return BB_OK;
+    if (s_sink_count == 0) return BB_OK;
+
+    // Hold the tick lock for the entire active body so that bb_pub_pause() can
+    // block here waiting for an in-flight tick to finish before returning.
+    pthread_mutex_lock(&s_tick_lock);
+
+    // Re-check under the lock: bb_pub_pause() may have set s_paused between
+    // the pre-check above and our lock acquisition.
+    if (s_paused) {
+        pthread_mutex_unlock(&s_tick_lock);
+        return BB_OK;
+    }
 
     // Take ONE timestamp for the entire cycle.
     uint32_t ts_ms = bb_clock_now_ms();
@@ -379,6 +413,7 @@ bb_err_t bb_pub_tick_once(void)
         s_last_publish_ok  = tick_all_ok;
     }
 
+    pthread_mutex_unlock(&s_tick_lock);
     return BB_OK;
 }
 
@@ -443,5 +478,8 @@ void bb_pub_test_reset(void)
     s_config_loaded            = true;   /* bypass NVS for tests */
     s_interval_apply_hook      = NULL;
     s_exclusive_holder         = NULL;
+    // Re-initialise the tick lock so any lock state from a prior test is cleared.
+    pthread_mutex_destroy(&s_tick_lock);
+    pthread_mutex_init(&s_tick_lock, NULL);
 }
 #endif

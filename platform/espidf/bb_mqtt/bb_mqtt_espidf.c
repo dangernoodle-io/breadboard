@@ -57,6 +57,8 @@ typedef struct {
     bool                     destroyed; // set before esp_mqtt_client_destroy;
                                         // guards event handler against stale arg
     bool                     tls;       // captured from cfg.tls at init time
+    bool                     suspended; // true while transiently quiesced via
+                                        // bb_mqtt_suspend_default; cleared by resume
 } bb_mqtt_handle_t;
 
 // ---------------------------------------------------------------------------
@@ -358,13 +360,37 @@ bb_err_t bb_mqtt_stop(bb_mqtt_t *handle_p)
 #if CONFIG_BB_MQTT_AUTOREGISTER
 
 // Module-level handle so the autoregistered client lives for the app lifetime.
-// Created at EARLY tier if enabled=1 in NVS; stable for the device lifetime.
-// bb_mqtt_telemetry_init wires this as a bb_pub sink at PRE_HTTP time.
+//
+// HANDLE STABILITY CONTRACT: s_auto_client is a bb_mqtt_t (void *) whose VALUE
+// changes across suspend/resume — suspend destroys the heap-allocated handle
+// object (frees task + buffers + struct, ~11 KB) and resume recreates it.
+// However, sinks that capture bb_mqtt_default() at boot (e.g. bb_sink_mqtt)
+// publish to the VALUE stored in their bb_pub_sink_t.ctx at the time of each
+// tick, not to the s_auto_client variable itself.  Therefore:
+//
+//  - The caller MUST bracket suspend/resume with bb_pub_pause()/bb_pub_resume()
+//    so no tick fires while the handle is destroyed (NULL).
+//  - After resume the sink's ctx pointer remains the stale pre-suspend value.
+//    bb_sink_mqtt reads bb_mqtt_default() at publish time (not at registration
+//    time), so it picks up the fresh handle automatically — no re-registration
+//    is needed.
+//
+// bb_mqtt_default() returns s_auto_client (NULL when destroyed, non-NULL when
+// live).  Callers that snapshot the return value must treat NULL as "suspended".
 static bb_mqtt_t s_auto_client = NULL;
 
-static bb_err_t bb_mqtt_autoregister_init(void)
+// auto_client_create_from_nvs — read NVS config and create the auto-client.
+//
+// Shared by bb_mqtt_autoregister_init (boot) and bb_mqtt_resume_default (post-
+// suspend recreate).  On success, s_auto_client is set to the new handle but
+// NOT yet started; the caller is responsible for starting appropriately:
+//  - Boot path:   deferred via got-IP callback (handled inside bb_mqtt_init).
+//  - Resume path: immediate start (WiFi/IP already up post-boot).
+//
+// Returns BB_OK on success or when disabled/unconfigured (non-fatal).
+// Returns an error code only when bb_mqtt_init itself fails.
+static bb_err_t auto_client_create_from_nvs(void)
 {
-    // Check enabled flag in NVS.
     char enabled_str[4] = "0";
     bb_nv_get_str(BB_MQTT_NVS_NS, "enabled", enabled_str, sizeof(enabled_str), "0");
     if (enabled_str[0] != '1') {
@@ -391,7 +417,6 @@ static bb_err_t bb_mqtt_autoregister_init(void)
 
     bb_mqtt_cfg_t cfg = {
         .uri       = uri,
-        // client_id: treat empty as NULL (use hostname).
         .client_id = client_id[0] ? client_id : NULL,
         .username  = username[0]  ? username  : NULL,
         .password  = password[0]  ? password  : NULL,
@@ -399,8 +424,20 @@ static bb_err_t bb_mqtt_autoregister_init(void)
         .creds_ns  = BB_MQTT_NVS_NS,
     };
 
-    // Boot init runs on the 8192-byte main task — safe to call directly.
     bb_err_t rc = bb_mqtt_init(&cfg, &s_auto_client);
+    if (rc != BB_OK) {
+        bb_log_w(TAG, "auto_client_create_from_nvs: bb_mqtt_init failed: %d", rc);
+        s_auto_client = NULL;
+    }
+    return rc;
+}
+
+static bb_err_t bb_mqtt_autoregister_init(void)
+{
+    // Boot init runs on the 8192-byte main task — safe to call directly.
+    // auto_client_create_from_nvs also sets up the deferred got-IP start inside
+    // bb_mqtt_init when WiFi has no IP yet (the normal EARLY-tier path).
+    bb_err_t rc = auto_client_create_from_nvs();
     if (rc != BB_OK) {
         bb_log_w(TAG, "autoregister init failed: %d", rc);
     }
@@ -420,6 +457,76 @@ bb_err_t bb_mqtt_stop_default(void)
         s_pending_start = NULL;
     }
     return bb_mqtt_stop(&s_auto_client);
+}
+
+// bb_mqtt_suspend_default — fully release the auto-client to reclaim ~11 KB of
+// heap headroom (esp-mqtt task + send/receive buffers + TLS creds + handle
+// struct) during a heap-heavy TLS operation (e.g. a GitHub update-check
+// handshake on a heap-tight ESP32-S2 board).
+//
+// FULL RELEASE: calls bb_mqtt_stop(&s_auto_client) which stops + DESTROYS the
+// client and NULLs the handle.  This frees the entire ~11 KB budget, leaving
+// the largest_free_block large enough for a concurrent TLS handshake (tested:
+// largest_free_block 21504 after suspend vs ~15 KB with stop-only).
+//
+// Contrast with bb_mqtt_stop_default() which is a permanent disable (never
+// resumed).  suspend/resume is a transient bracket.
+//
+// CALLER CONTRACT: the caller MUST pause publishing (bb_pub_pause) before
+// calling suspend and resume publishing (bb_pub_resume) after resume, so that
+// no bb_pub tick fires while s_auto_client is NULL.  bb_sink_mqtt reads
+// bb_mqtt_default() at publish time, so it picks up NULL during the suspended
+// window and returns BB_ERR_INVALID_ARG — which bb_pub logs but does not fatal
+// on.  To avoid spurious errors and wasted tick work, callers MUST pause.
+//
+// Idempotent: no-op + BB_OK if already suspended (s_auto_client already NULL
+// and s_suspended_flag set).
+static bool s_suspended = false;   // tracks whether we are in a suspend window
+
+bb_err_t bb_mqtt_suspend_default(void)
+{
+    if (s_suspended) return BB_OK;   // idempotent
+
+    if (s_auto_client) {
+        // Clear the pending-start pointer if it still refers to this handle,
+        // so the got-IP callback does not fire into the freed handle.
+        if (s_pending_start != NULL &&
+            s_pending_start == (bb_mqtt_handle_t *)s_auto_client) {
+            s_pending_start = NULL;
+        }
+        bb_mqtt_stop(&s_auto_client);  // destroys + NULLs s_auto_client
+    }
+
+    s_suspended = true;
+    bb_log_i(TAG, "suspended (full release ~11KB for heap-heavy TLS op)");
+    return BB_OK;
+}
+
+// bb_mqtt_resume_default — recreate the auto-client from NVS and reconnect
+// immediately after a bb_mqtt_suspend_default().
+//
+// Post-boot the station already has an IP address, so we do NOT use the
+// deferred got-IP path.  Instead we call auto_client_create_from_nvs() (which
+// runs bb_mqtt_init — this sets up the client and starts it immediately when
+// bb_wifi_has_ip() is true, which it will be post-boot).  If for some reason
+// WiFi is down, bb_mqtt_init falls back to the deferred got-IP path so the
+// behaviour is still safe.
+//
+// Idempotent: no-op + BB_OK if not suspended.
+bb_err_t bb_mqtt_resume_default(void)
+{
+    if (!s_suspended) return BB_OK;   // idempotent
+
+    bb_err_t rc = auto_client_create_from_nvs();
+    if (rc != BB_OK) {
+        bb_log_w(TAG, "resume: auto_client_create_from_nvs failed: %d", rc);
+        // Do NOT clear s_suspended — let the caller retry.
+        return rc;
+    }
+
+    s_suspended = false;
+    bb_log_i(TAG, "resumed (client recreated from NVS, handle=%p)", s_auto_client);
+    return BB_OK;
 }
 
 #endif /* CONFIG_BB_MQTT_AUTOREGISTER */
@@ -445,6 +552,18 @@ bb_mqtt_t bb_mqtt_default(void)
 bb_err_t bb_mqtt_stop_default(void)
 {
     // Autoregister disabled; no managed client to stop.
+    return BB_OK;
+}
+
+bb_err_t bb_mqtt_suspend_default(void)
+{
+    // Autoregister disabled; no managed client to suspend.
+    return BB_OK;
+}
+
+bb_err_t bb_mqtt_resume_default(void)
+{
+    // Autoregister disabled; no managed client to resume.
     return BB_OK;
 }
 #endif
