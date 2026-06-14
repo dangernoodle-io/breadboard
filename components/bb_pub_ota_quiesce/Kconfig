@@ -1,0 +1,15 @@
+menu "breadboard: bb_pub_ota_quiesce"
+
+config BB_PUB_QUIESCE_ON_OTA
+    bool "Pause telemetry publishing during update-check/OTA TLS handshake"
+    default y
+    depends on BB_PUB_AUTOREGISTER
+    help
+        When enabled, bb_pub_ota_quiesce self-registers at the PRE_HTTP tier
+        and installs bb_pub_pause / bb_pub_resume as the pause/resume hooks
+        for both bb_update_check and bb_ota (push/pull/boot). This frees
+        the heap occupied by in-flight telemetry sinks during the mbedTLS
+        handshake, which is critical on heap-tight targets like the ESP32-S2.
+        Disable to install the hooks manually via bb_pub_ota_quiesce_init().
+
+endmenu

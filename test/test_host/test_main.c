@@ -2239,6 +2239,14 @@ void test_bb_pub_fan_board_c_null_when_nan(void);
 void test_bb_pub_fan_skips_when_no_primary(void);
 void test_bb_pub_fan_payload_has_ts_field(void);
 
+// Forward declarations from test_bb_pub_ota_quiesce.c
+void test_bb_pub_ota_quiesce_init_before_update_check_init_returns_invalid_state(void);
+void test_bb_pub_ota_quiesce_ota_hook_set_after_init(void);
+void test_bb_pub_ota_quiesce_pause_hook_pauses_bb_pub(void);
+void test_bb_pub_ota_quiesce_resume_hook_clears_pause(void);
+void test_bb_pub_ota_quiesce_update_check_hooks_fire_during_run(void);
+void test_bb_pub_ota_quiesce_tick_is_noop_while_paused(void);
+
 // Forward declarations from test_bb_pub_power.c
 void test_bb_pub_power_publishes_expected_fields(void);
 void test_bb_pub_power_topic_is_correct(void);
@@ -4597,6 +4605,14 @@ int main(void) {
     RUN_TEST(test_bb_pub_fan_board_c_null_when_nan);
     RUN_TEST(test_bb_pub_fan_skips_when_no_primary);
     RUN_TEST(test_bb_pub_fan_payload_has_ts_field);
+
+    // bb_pub_ota_quiesce tests
+    RUN_TEST(test_bb_pub_ota_quiesce_init_before_update_check_init_returns_invalid_state);
+    RUN_TEST(test_bb_pub_ota_quiesce_ota_hook_set_after_init);
+    RUN_TEST(test_bb_pub_ota_quiesce_pause_hook_pauses_bb_pub);
+    RUN_TEST(test_bb_pub_ota_quiesce_resume_hook_clears_pause);
+    RUN_TEST(test_bb_pub_ota_quiesce_update_check_hooks_fire_during_run);
+    RUN_TEST(test_bb_pub_ota_quiesce_tick_is_noop_while_paused);
 
     // bb_pub_power tests
     RUN_TEST(test_bb_pub_power_publishes_expected_fields);

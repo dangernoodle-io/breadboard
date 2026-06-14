@@ -423,6 +423,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_pub_fan/bb_pub_fan.c"],
         "depends":  ["bb_core", "bb_pub", "bb_fan"],
     },
+    "bb_pub_ota_quiesce": {
+        "includes": ["components/bb_pub_ota_quiesce/include"],
+        "sources":  ["platform/host/bb_pub_ota_quiesce/bb_pub_ota_quiesce.c"],
+        "depends":  ["bb_core", "bb_pub", "bb_update_check", "bb_ota_hooks"],
+    },
     "bb_pub_power": {
         "includes": ["components/bb_pub_power/include"],
         "sources":  ["platform/host/bb_pub_power/bb_pub_power.c"],
