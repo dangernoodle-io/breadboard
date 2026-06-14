@@ -1096,21 +1096,20 @@ void test_bb_update_check_get_status_reflects_failure(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_update_check_kick
+// bb_update_check_kick — on-demand model (B1-240)
 // ---------------------------------------------------------------------------
 
 void test_bb_update_check_kick_returns_ok_on_host(void)
 {
-    // On host/Arduino backends, bb_update_check_kick() provides a synchronous
-    // stub that calls bb_update_check_now(). This test verifies the host stub
-    // returns BB_OK and performs the check without any worker task involvement.
+    // On host the kick() stub acquires the in-flight guard, runs the check
+    // synchronously, then releases the guard.  Verify check executes and
+    // status is updated.
     reset_world();
     bb_update_check_init(NULL);
     bb_update_check_set_releases_url("http://example.com/r.json");
     bb_update_check_set_firmware_board("firmware");
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
 
-    // On host, kick() is synchronous and should drive a check.
     TEST_ASSERT_EQUAL(BB_OK, bb_update_check_kick());
 
     bb_update_check_status_t st;
@@ -1118,6 +1117,61 @@ void test_bb_update_check_kick_returns_ok_on_host(void)
     TEST_ASSERT_TRUE(st.available);
     TEST_ASSERT_TRUE(st.last_check_ok);
     TEST_ASSERT_EQUAL_STRING("v9.9.9", st.latest);
+}
+
+void test_bb_update_check_kick_clears_in_flight_after_run(void)
+{
+    // After kick() completes the in-flight guard must be false so a
+    // subsequent kick can proceed.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_kick());
+    // Guard must be clear — second kick should succeed.
+    TEST_ASSERT_FALSE(bb_update_check_get_in_flight_for_test());
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_kick());
+}
+
+void test_bb_update_check_kick_in_flight_is_noop(void)
+{
+    // If the in-flight guard is already set (simulating a concurrent spawn),
+    // kick() must return BB_OK without performing a fetch and must not
+    // clear the guard.
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
+    // No mock response — if a fetch were attempted the mock would fail.
+
+    // Inject the in-flight state.
+    bb_update_check_set_in_flight_for_test(true);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_kick());
+
+    // Guard must still be set (kick did not clear it — the "running" task owns it).
+    TEST_ASSERT_TRUE(bb_update_check_get_in_flight_for_test());
+
+    // Status must be unchanged (no fetch occurred).
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_FALSE(st.last_check_ok);
+    TEST_ASSERT_EQUAL(0, st.last_check_us);
+
+    // Clean up the guard so subsequent tests start clean.
+    bb_update_check_set_in_flight_for_test(false);
+}
+
+void test_bb_update_check_in_flight_resets_on_reset_world(void)
+{
+    // After reset_world() (which calls bb_update_check_reset_for_test),
+    // the in-flight guard must be false regardless of prior state.
+    bb_update_check_set_in_flight_for_test(true);
+    reset_world();
+    TEST_ASSERT_FALSE(bb_update_check_get_in_flight_for_test());
 }
 
 // ---------------------------------------------------------------------------
