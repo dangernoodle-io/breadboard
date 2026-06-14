@@ -140,6 +140,45 @@ bb_mqtt_t bb_mqtt_default(void);
  */
 bb_err_t bb_mqtt_stop_default(void);
 
+/**
+ * Transiently quiesce the auto-registered MQTT connection by calling
+ * esp_mqtt_client_stop() on the underlying handle.  This tears down the
+ * TCP/TLS socket and the esp-mqtt internal task, freeing heap headroom for
+ * a heap-heavy operation such as a TLS GitHub update-check handshake on
+ * tight no-PSRAM boards (e.g. ESP32-S2).
+ *
+ * The client object and TLS credentials are NOT freed; the connection can
+ * be re-established by calling bb_mqtt_resume_default() after the
+ * heap-heavy operation completes.
+ *
+ * Contrast with bb_mqtt_stop_default(), which stops AND destroys the client
+ * permanently; this function is for a transient, reversible quiesce only.
+ *
+ * Idempotent: no-op + BB_OK if already suspended, if no auto-client exists,
+ * or if the deferred-start has not yet fired (IP not yet acquired).
+ *
+ * @return BB_OK on success or when already suspended; platform error on
+ *         esp_mqtt_client_stop failure.
+ */
+bb_err_t bb_mqtt_suspend_default(void);
+
+/**
+ * Re-establish the auto-registered MQTT connection after a
+ * bb_mqtt_suspend_default() call.  Calls esp_mqtt_client_start() to
+ * reconnect; esp-mqtt's built-in reconnect logic handles subsequent drops.
+ *
+ * Only restarts if the deferred-start guard has already fired (i.e. the
+ * station had an IP address when the client was first started).  Calling
+ * resume before the initial IP is acquired is a safe no-op.
+ *
+ * Idempotent: no-op + BB_OK if not currently suspended, or if no auto-client
+ * exists, or if autoregister is compiled out.
+ *
+ * @return BB_OK on success or when not suspended; platform error on
+ *         esp_mqtt_client_start failure (suspended flag is re-armed).
+ */
+bb_err_t bb_mqtt_resume_default(void);
+
 // ---------------------------------------------------------------------------
 // Host test hooks (only when BB_MQTT_TESTING is defined)
 // ---------------------------------------------------------------------------
@@ -168,6 +207,13 @@ void bb_mqtt_host_reset(bb_mqtt_t h);
 
 /** Override the handle returned by bb_mqtt_default() for testing. */
 void bb_mqtt_default_set(bb_mqtt_t h);
+
+/**
+ * Returns true if bb_mqtt_suspend_default() has been called and the default
+ * handle's suspended flag is set.  Used by tests to assert suspend/resume
+ * state without touching internals.  Returns false when no default is set.
+ */
+bool bb_mqtt_host_is_suspended_default(void);
 
 #endif /* BB_MQTT_TESTING */
 

@@ -353,3 +353,131 @@ void test_bb_mqtt_default_null_after_stop(void)
     TEST_ASSERT_NULL(bb_mqtt_default());
 }
 
+// ---------------------------------------------------------------------------
+// bb_mqtt_suspend_default / bb_mqtt_resume_default tests
+//
+// Semantics under full-release/recreate model:
+//  - suspend DESTROYS the handle: bb_mqtt_default() returns NULL, suspended=true.
+//  - resume RECREATES: bb_mqtt_default() returns a new non-NULL handle,
+//    suspended=false, connected=true (host stub default).
+//  - The original handle value captured before suspend is invalid after
+//    suspend — do NOT call bb_mqtt_destroy on it; the host stub already freed
+//    it inside bb_mqtt_suspend_default.
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_suspend_default_no_client_is_safe(void)
+{
+    // suspend with no default handle must not crash and must return BB_OK.
+    bb_mqtt_default_set(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    // Clean up the suspended flag for subsequent tests.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+}
+
+void test_bb_mqtt_resume_default_no_client_is_safe(void)
+{
+    // resume when not suspended must be a no-op and return BB_OK.
+    bb_mqtt_default_set(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+    // Clean up any recreated handle.
+    bb_mqtt_stop_default();
+}
+
+void test_bb_mqtt_suspend_default_sets_suspended(void)
+{
+    // After suspend: suspended flag set, handle DESTROYED (NULL).
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_default_set(h);
+    TEST_ASSERT_FALSE(bb_mqtt_host_is_suspended_default());
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    TEST_ASSERT_TRUE(bb_mqtt_host_is_suspended_default());
+    // Handle was destroyed by suspend — bb_mqtt_default() must be NULL.
+    TEST_ASSERT_NULL(bb_mqtt_default());
+    // h is now a dangling pointer; do NOT call bb_mqtt_destroy(h).
+    // Resume to restore consistent state for subsequent tests.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+    bb_mqtt_stop_default();
+}
+
+void test_bb_mqtt_resume_default_clears_suspended(void)
+{
+    // After resume: suspended=false, default handle recreated + connected.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_default_set(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    TEST_ASSERT_TRUE(bb_mqtt_host_is_suspended_default());
+    // h is destroyed at this point.
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+    TEST_ASSERT_FALSE(bb_mqtt_host_is_suspended_default());
+    // A fresh handle must exist and be connected.
+    TEST_ASSERT_NOT_NULL(bb_mqtt_default());
+    TEST_ASSERT_TRUE(bb_mqtt_is_connected(bb_mqtt_default()));
+
+    bb_mqtt_stop_default();
+}
+
+void test_bb_mqtt_suspend_default_idempotent(void)
+{
+    // double-suspend must be a no-op and return BB_OK both times.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_default_set(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());  // second: no-op
+    TEST_ASSERT_TRUE(bb_mqtt_host_is_suspended_default());
+    TEST_ASSERT_NULL(bb_mqtt_default());
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+    bb_mqtt_stop_default();
+}
+
+void test_bb_mqtt_resume_default_idempotent(void)
+{
+    // double-resume (second call is not suspended) must be a no-op + BB_OK.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_default_set(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    // h destroyed here.
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+    TEST_ASSERT_FALSE(bb_mqtt_host_is_suspended_default());
+    TEST_ASSERT_NOT_NULL(bb_mqtt_default());
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());  // second resume: no-op
+    TEST_ASSERT_FALSE(bb_mqtt_host_is_suspended_default());
+    // The handle from the first resume is still alive (not re-destroyed).
+    TEST_ASSERT_NOT_NULL(bb_mqtt_default());
+
+    bb_mqtt_stop_default();
+}
+
+void test_bb_mqtt_suspend_resume_cycle(void)
+{
+    // Full destroy → recreate cycle; verify the round-trip twice.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_default_set(h);
+
+    // First cycle.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    TEST_ASSERT_TRUE(bb_mqtt_host_is_suspended_default());
+    TEST_ASSERT_NULL(bb_mqtt_default());
+    // h is now destroyed.
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+    TEST_ASSERT_FALSE(bb_mqtt_host_is_suspended_default());
+    TEST_ASSERT_NOT_NULL(bb_mqtt_default());
+    TEST_ASSERT_TRUE(bb_mqtt_is_connected(bb_mqtt_default()));
+
+    // Second cycle: suspend the recreated handle.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    TEST_ASSERT_TRUE(bb_mqtt_host_is_suspended_default());
+    TEST_ASSERT_NULL(bb_mqtt_default());
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+    TEST_ASSERT_FALSE(bb_mqtt_host_is_suspended_default());
+    TEST_ASSERT_NOT_NULL(bb_mqtt_default());
+
+    bb_mqtt_stop_default();
+}
+

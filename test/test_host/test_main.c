@@ -1814,6 +1814,13 @@ void test_bb_mqtt_stop_publish_after_stop_returns_error(void);
 void test_bb_mqtt_lifecycle_init_stop_reinit(void);
 void test_bb_mqtt_lifecycle_enabled_disabled_enabled(void);
 void test_bb_mqtt_default_null_after_stop(void);
+void test_bb_mqtt_suspend_default_no_client_is_safe(void);
+void test_bb_mqtt_resume_default_no_client_is_safe(void);
+void test_bb_mqtt_suspend_default_sets_suspended(void);
+void test_bb_mqtt_resume_default_clears_suspended(void);
+void test_bb_mqtt_suspend_default_idempotent(void);
+void test_bb_mqtt_resume_default_idempotent(void);
+void test_bb_mqtt_suspend_resume_cycle(void);
 
 // Forward declarations from test_bb_mqtt_info.c
 void test_bb_mqtt_health_no_handle_enabled_false(void);
@@ -4342,6 +4349,13 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_lifecycle_init_stop_reinit);
     RUN_TEST(test_bb_mqtt_lifecycle_enabled_disabled_enabled);
     RUN_TEST(test_bb_mqtt_default_null_after_stop);
+    RUN_TEST(test_bb_mqtt_suspend_default_no_client_is_safe);
+    RUN_TEST(test_bb_mqtt_resume_default_no_client_is_safe);
+    RUN_TEST(test_bb_mqtt_suspend_default_sets_suspended);
+    RUN_TEST(test_bb_mqtt_resume_default_clears_suspended);
+    RUN_TEST(test_bb_mqtt_suspend_default_idempotent);
+    RUN_TEST(test_bb_mqtt_resume_default_idempotent);
+    RUN_TEST(test_bb_mqtt_suspend_resume_cycle);
 
     // bb_mqtt_info tests
     RUN_TEST(test_bb_mqtt_health_no_handle_enabled_false);

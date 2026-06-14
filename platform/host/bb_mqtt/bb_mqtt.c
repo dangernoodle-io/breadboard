@@ -120,6 +120,67 @@ bb_err_t bb_mqtt_stop_default(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_mqtt_suspend_default / bb_mqtt_resume_default — host stubs
+//
+// Models the ESP-IDF full-release semantics:
+//  - suspend: DESTROYS the default handle (frees, NULLs s_default_handle),
+//    sets s_suspended flag.  Mirrors the ~11 KB free on device.
+//  - resume: RECREATES a fresh handle (connected=true, pub ring cleared),
+//    restores s_default_handle, clears s_suspended.
+//
+// bb_mqtt_host_is_suspended_default() reports s_suspended for test assertions.
+// ---------------------------------------------------------------------------
+
+static bool s_suspended = false;
+
+// NVS namespace/key constants (host: mirrored from espidf backend).
+#define BB_MQTT_NVS_NS  "bb_mqtt"
+#define BB_MQTT_URI_MAX 128
+
+bb_err_t bb_mqtt_suspend_default(void)
+{
+    if (s_suspended) return BB_OK;   // idempotent
+
+    // Destroy the current handle to model full release.
+    if (s_default_handle) {
+        bb_mqtt_destroy(s_default_handle);
+        s_default_handle = NULL;
+    }
+
+    s_suspended = true;
+    return BB_OK;
+}
+
+bb_err_t bb_mqtt_resume_default(void)
+{
+    if (!s_suspended) return BB_OK;   // idempotent
+
+    // Recreate a fresh handle to model recreate-from-NVS.
+    // On host: read NVS uri (or use a fallback) and create a new handle.
+    char uri[BB_MQTT_URI_MAX] = {0};
+    bb_nv_get_str(BB_MQTT_NVS_NS, "uri", uri, sizeof(uri), "");
+
+    // If NVS has no uri (typical in unit tests), use a placeholder so init
+    // succeeds — the host stub ignores the uri value for any real network ops.
+    if (!uri[0]) {
+        strncpy(uri, "mqtt://localhost:1883", sizeof(uri) - 1);
+    }
+
+    bb_mqtt_cfg_t cfg = {
+        .uri = uri,
+        .tls = false,
+    };
+    bb_err_t rc = bb_mqtt_init(&cfg, &s_default_handle);
+    if (rc != BB_OK) {
+        // Do NOT clear s_suspended — let caller retry.
+        return rc;
+    }
+
+    s_suspended = false;
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
 // Host test hooks
 // ---------------------------------------------------------------------------
 
@@ -156,6 +217,11 @@ void bb_mqtt_host_reset(bb_mqtt_t handle)
 void bb_mqtt_default_set(bb_mqtt_t h)
 {
     s_default_handle = h;
+}
+
+bool bb_mqtt_host_is_suspended_default(void)
+{
+    return s_suspended;
 }
 
 #endif /* BB_MQTT_TESTING */

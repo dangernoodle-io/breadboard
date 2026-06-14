@@ -3,6 +3,8 @@
 #include "bb_pub.h"
 #include "bb_nv.h"
 
+#include <pthread.h>
+#include <sched.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -567,6 +569,191 @@ void test_bb_pub_test_reset_clears_paused(void)
 
     bb_pub_test_reset();
     TEST_ASSERT_FALSE(bb_pub_is_paused());
+}
+
+// ---------------------------------------------------------------------------
+// Pause quiesce invariant tests
+//
+// These tests verify the lock+flag ordering that makes bb_pub_pause() safe for
+// teardown:
+//   1. pause → tick is a no-op (flag check under the lock)
+//   2. resume → tick publishes again
+//   3. concurrent: bb_pub_pause() blocks until an in-flight tick completes
+// ---------------------------------------------------------------------------
+
+// Sink that blocks inside publish until a signal is given — used to simulate
+// a long-running in-flight tick.
+typedef struct {
+    pthread_mutex_t mu;
+    pthread_cond_t  cv;
+    bool            blocked;   /* true = hold; false = release */
+    int             call_count;
+} blocking_sink_ctx_t;
+
+static bb_err_t blocking_publish(void *ctx, const char *topic,
+                                  const char *payload, int len)
+{
+    (void)topic;
+    (void)payload;
+    (void)len;
+    blocking_sink_ctx_t *b = (blocking_sink_ctx_t *)ctx;
+    pthread_mutex_lock(&b->mu);
+    b->call_count++;
+    // Signal the main thread that we have entered the publish call.
+    pthread_cond_signal(&b->cv);
+    // Block until released by the test.
+    while (b->blocked) {
+        pthread_cond_wait(&b->cv, &b->mu);
+    }
+    pthread_mutex_unlock(&b->mu);
+    return BB_OK;
+}
+
+// Thread arg for the concurrent test.
+typedef struct {
+    blocking_sink_ctx_t *bsink;
+} tick_thread_arg_t;
+
+static void *tick_thread_fn(void *arg)
+{
+    (void)arg;
+    bb_pub_tick_once();
+    return NULL;
+}
+
+// Releases the blocking sink after a short yield — used by the quiesce test to
+// unblock an in-flight tick while bb_pub_pause() is waiting on the tick lock.
+static void *release_blocking_sink_fn(void *arg)
+{
+    blocking_sink_ctx_t *b = (blocking_sink_ctx_t *)arg;
+    // Yield several times to allow bb_pub_pause() to set the flag and reach
+    // the lock before we release the in-flight tick body.
+    for (int i = 0; i < 10; i++) sched_yield();
+    pthread_mutex_lock(&b->mu);
+    b->blocked = false;
+    pthread_cond_signal(&b->cv);
+    pthread_mutex_unlock(&b->mu);
+    return NULL;
+}
+
+// Test 1: pause then tick → no sink calls (flag effective under lock).
+void test_bb_pub_pause_then_tick_is_noop(void)
+{
+    setup_with_sink();
+    s_sample_call_count = 0;
+    bb_pub_register_source("x", sample_counting, NULL);
+
+    bb_pub_pause();
+
+    // tick must not call the sink or the sample_fn
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+    TEST_ASSERT_EQUAL_INT(0, s_sample_call_count);
+    TEST_ASSERT_TRUE(bb_pub_is_paused());
+}
+
+// Test 2: pause → tick is noop → resume → tick publishes (full round-trip).
+void test_bb_pub_pause_resume_round_trip(void)
+{
+    setup_with_sink();
+    s_sample_call_count = 0;
+    bb_pub_register_source("x", sample_counting, NULL);
+
+    bb_pub_pause();
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+
+    bb_pub_resume();
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_EQUAL_INT(1, s_sample_call_count);
+}
+
+// Test 3: concurrent — pause() must not return while a tick body is in flight.
+//
+// Strategy:
+//   - register a blocking sink that holds inside publish until released
+//   - launch a thread that calls bb_pub_tick_once() (will block inside sink)
+//   - wait until the tick is confirmed inside the sink
+//   - call bb_pub_pause() from the main thread (must block until tick exits)
+//   - release the blocking sink
+//   - join the tick thread; assert pause() returned only after tick completed
+void test_bb_pub_pause_blocks_until_in_flight_tick_completes(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    // Set up blocking sink.
+    blocking_sink_ctx_t bsink = {
+        .blocked    = true,
+        .call_count = 0,
+    };
+    pthread_mutex_init(&bsink.mu, NULL);
+    pthread_cond_init(&bsink.cv, NULL);
+
+    bb_pub_sink_t bs = { .publish = blocking_publish, .ctx = &bsink };
+    bb_pub_set_sink(&bs);
+    bb_pub_register_source("x", sample_counting, NULL);
+    s_sample_call_count = 0;
+
+    // Launch tick thread — will block inside blocking_publish.
+    pthread_t tick_tid;
+    pthread_create(&tick_tid, NULL, tick_thread_fn, NULL);
+
+    // Wait until the tick thread is inside the publish call.
+    pthread_mutex_lock(&bsink.mu);
+    while (bsink.call_count == 0) {
+        pthread_cond_wait(&bsink.cv, &bsink.mu);
+    }
+    pthread_mutex_unlock(&bsink.mu);
+
+    // Now call pause() — it must block here until the in-flight tick releases
+    // the tick lock (which happens when blocking_publish returns).
+    // Release the sink *after* starting the pause — because pause sets the
+    // flag first then waits on the lock, we release the sink from this thread
+    // to unblock the worker.  Use a short-lived helper thread so we can
+    // unblock the sink concurrently with pause().
+    //
+    // Implementation: release the blocking sink in a separate thread with a
+    // tiny pthread_yield / spin before unblocking so pause() has time to set
+    // the flag and reach the lock.
+    pthread_t release_tid;
+    pthread_create(&release_tid, NULL, release_blocking_sink_fn, &bsink);
+
+    // This call must block until the in-flight tick exits the tick lock.
+    bb_pub_pause();
+
+    // When pause() returns: paused flag is set AND no tick is running.
+    TEST_ASSERT_TRUE(bb_pub_is_paused());
+
+    // The tick thread must have completed (or will complete immediately since
+    // the sink was released).
+    pthread_join(tick_tid, NULL);
+    pthread_join(release_tid, NULL);
+
+    // The sink was called exactly once (for the in-flight tick).
+    TEST_ASSERT_EQUAL_INT(1, bsink.call_count);
+    // sample_fn was called once (the in-flight tick ran its body).
+    TEST_ASSERT_EQUAL_INT(1, s_sample_call_count);
+
+    // Now verify that a subsequent tick is a no-op (paused).
+    capture_reset();
+    s_sample_call_count = 0;
+
+    // Replace with the fast capture sink for the post-pause check.
+    bb_pub_clear_sinks();
+    bb_pub_sink_t fast = make_capture_sink();
+    bb_pub_add_sink(&fast);
+
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+    TEST_ASSERT_EQUAL_INT(0, s_sample_call_count);
+
+    pthread_mutex_destroy(&bsink.mu);
+    pthread_cond_destroy(&bsink.cv);
 }
 
 // ---------------------------------------------------------------------------
