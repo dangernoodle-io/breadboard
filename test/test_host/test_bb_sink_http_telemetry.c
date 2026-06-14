@@ -10,6 +10,7 @@
 #include "bb_json.h"
 #include "cJSON.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -453,4 +454,72 @@ void test_bb_sink_http_telemetry_patch_headers_independent_edit(void)
     // Non-secret must be updated.
     TEST_ASSERT_NOT_NULL(strstr(buf, "X-Trace: new-trace"));
     TEST_ASSERT_NULL(strstr(buf, "old-trace"));
+}
+
+// ---------------------------------------------------------------------------
+// PATCH: large (>1 KB) tls_ca stored and readable via bb_nv_get_str
+// — exercises the heap-allocated scratch buffer (fixes stack overflow on
+// the 6144-byte httpd thread when a PEM cert is PATCHed).
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_http_telemetry_patch_large_tls_ca_stored_via_heap(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+
+    // Build a >1 KB body: header + 20 lines of 64 'B' chars + footer.
+    static const char header[] = "-----BEGIN CERTIFICATE-----\n";
+    static const char footer[] = "-----END CERTIFICATE-----\n";
+    static const char line[]   =
+        "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n";
+
+    // cert_pem ~1300 bytes: 20 × 65 bytes
+    char cert_pem[1500];
+    int pos = 0;
+    pos += (int)snprintf(cert_pem + pos, sizeof(cert_pem) - (size_t)pos,
+                         "%s", header);
+    for (int i = 0; i < 20; i++) {
+        pos += (int)snprintf(cert_pem + pos, sizeof(cert_pem) - (size_t)pos,
+                             "%s", line);
+    }
+    snprintf(cert_pem + pos, sizeof(cert_pem) - (size_t)pos, "%s", footer);
+
+    TEST_ASSERT_TRUE_MESSAGE(strlen(cert_pem) > 1024,
+                             "cert_pem must be >1 KB to exercise heap path");
+
+    // Build the JSON patch body with the PEM embedded.
+    char *body_json = malloc(strlen(cert_pem) + 64);
+    TEST_ASSERT_NOT_NULL(body_json);
+    // Escape newlines for JSON.
+    char *escaped = malloc(strlen(cert_pem) * 2 + 1);
+    TEST_ASSERT_NOT_NULL(escaped);
+    size_t j = 0;
+    for (size_t i = 0; cert_pem[i]; i++) {
+        if (cert_pem[i] == '\n') { escaped[j++] = '\\'; escaped[j++] = 'n'; }
+        else                     { escaped[j++] = cert_pem[i]; }
+    }
+    escaped[j] = '\0';
+    sprintf(body_json, "{\"tls_ca\":\"%s\"}", escaped);
+    free(escaped);
+
+    bb_err_t rc = run_patch(body_json);
+    free(body_json);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    // Verify the value was persisted — use a buffer large enough for the PEM.
+    char *stored = malloc(sizeof(cert_pem));
+    TEST_ASSERT_NOT_NULL(stored);
+    bb_nv_get_str("bb_sink_http", "tls_ca", stored, sizeof(cert_pem), "");
+    TEST_ASSERT_TRUE_MESSAGE(strlen(stored) > 1024,
+                             "stored tls_ca must be >1 KB");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(stored, "BEGIN CERTIFICATE"),
+                                 "stored tls_ca must contain BEGIN CERTIFICATE");
+    free(stored);
+
+    // GET must report ca_set=true.
+    cJSON *get_body = run_get();
+    TEST_ASSERT_NOT_NULL(get_body);
+    cJSON *ca_set = cJSON_GetObjectItemCaseSensitive(get_body, "ca_set");
+    TEST_ASSERT_NOT_NULL(ca_set);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(ca_set));
+    cJSON_Delete(get_body);
 }
