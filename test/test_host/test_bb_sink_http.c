@@ -663,6 +663,79 @@ void test_bb_sink_http_session_applies_configured_headers(void)
     TEST_ASSERT_EQUAL_STRING("Bearer token", h1.value);
 }
 
+// ---------------------------------------------------------------------------
+// B1-284: session reset after BB_SINK_HTTP_MAX_CONSEC_FAILURES failures
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_http_session_reset_after_3_consec_failures(void)
+{
+    reset_state();
+    // No mock_200 — transport error injected below.
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com:8443", sizeof(cfg.base) - 1);
+    cfg.qos     = 1;
+    cfg.enabled = true;
+
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    // First publish succeeds to open the session (open_count == 1).
+    bb_http_client_session_set_mock_status(200);
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(1, bb_http_client_session_open_count());
+
+    // Now inject 3 consecutive transport errors.
+    for (int i = 0; i < 3; i++) {
+        bb_http_client_session_set_mock_transport_error(BB_ERR_INVALID_STATE);
+        rc = sink.publish(sink.ctx, "t/err", "{}", 2);
+        TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
+    }
+
+    // After the 3rd failure, session_close() should have been called and the
+    // next publish must re-open the session (open_count == 2).
+    bb_http_client_session_set_mock_status(200);
+    rc = sink.publish(sink.ctx, "t/recover", "{}", 2);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(2, bb_http_client_session_open_count());
+}
+
+// ---------------------------------------------------------------------------
+// B1-284: keep_alive cfg flag threads into session_open
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_http_keep_alive_cfg_threads_into_session_open(void)
+{
+    reset_state();
+    bb_http_client_session_set_mock_status(200);
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com:8443", sizeof(cfg.base) - 1);
+    cfg.qos     = 1;
+    cfg.enabled = true;
+
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    // Trigger session open via first publish.
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(1, bb_http_client_session_open_count());
+
+    // On host (no CONFIG_BB_HTTP_CLIENT_KEEPALIVE defined), session_ensure()
+    // defaults keep_alive = true.  Verify the mock recorded it.
+    TEST_ASSERT_TRUE(bb_http_client_session_last_keep_alive());
+}
+
 void test_bb_sink_http_headers_reapplied_after_set_cfg(void)
 {
     reset_state();

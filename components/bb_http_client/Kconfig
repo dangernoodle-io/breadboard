@@ -1,5 +1,16 @@
 menu "breadboard: bb_http_client"
 
+config BB_HTTP_CLIENT_KEEPALIVE
+    bool "Enable TCP/TLS keep-alive on reusable sessions"
+    default y
+    help
+        When enabled, bb_http_client_session_open sets keep_alive_enable=true
+        on the underlying esp_http_client so the TCP/TLS connection is reused
+        across bb_http_client_session_post calls (lower latency per publish).
+        Disable to open+close a fresh connection on every session_post call
+        (higher latency, no idle-socket wedge risk).  The default (y) preserves
+        the behaviour prior to B1-284.
+
 config BB_HTTP_CLIENT_DEFAULT_TIMEOUT_MS
     int "Default request timeout (ms)"
     default 10000

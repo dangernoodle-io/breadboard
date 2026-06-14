@@ -95,6 +95,15 @@ bb_http_client_header_record_t bb_http_client_session_header_at(int i);
 // Find a header by name (case-sensitive).  Returns a zeroed struct if not found.
 bb_http_client_header_record_t bb_http_client_session_find_header(const char *name);
 
+// Return the number of times bb_http_client_session_open has been called since
+// the last bb_http_client_clear_mock().  Tests use this to detect re-opens
+// after a session_close (e.g. after BB_SINK_HTTP_MAX_CONSEC_FAILURES).
+int bb_http_client_session_open_count(void);
+
+// Return the keep_alive value from the cfg passed to the last session_open call.
+// Returns false if session_open has not been called or cfg was NULL.
+bool bb_http_client_session_last_keep_alive(void);
+
 #ifdef __cplusplus
 }
 #endif
