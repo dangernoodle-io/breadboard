@@ -93,6 +93,11 @@ size_t bb_board_heap_largest_free_block(void)
     return 0;
 }
 
+size_t bb_board_heap_internal_largest_free_block(void)
+{
+    return 0;
+}
+
 uint32_t bb_board_chip_revision(void)
 {
     return 0;

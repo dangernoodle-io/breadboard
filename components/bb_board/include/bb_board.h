@@ -59,6 +59,7 @@ uint32_t bb_board_cpu_freq_mhz(void);
 // Internal-only heap (MALLOC_CAP_INTERNAL). 0 if unavailable.
 size_t   bb_board_heap_internal_free(void);
 size_t   bb_board_heap_internal_total(void);
+size_t   bb_board_heap_internal_largest_free_block(void);
 
 // PSRAM heap (MALLOC_CAP_SPIRAM). Both 0 on boards with no PSRAM.
 size_t   bb_board_psram_free(void);
