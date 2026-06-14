@@ -406,17 +406,28 @@ static bb_err_t session_ensure(void)
     if (s_session) return BB_OK;
 
     memset(&s_creds, 0, sizeof(s_creds));
+    // Gate: resolve TLS credentials only when BB_HTTP_TLS_ENABLE is on.
+    // Default OFF = plaintext build; creds stay zeroed and session opens
+    // without TLS (degradation mirrors Arduino-stub pattern used elsewhere).
+#if CONFIG_BB_HTTP_TLS_ENABLE
     bb_err_t rc = bb_tls_creds_resolve(BB_SINK_HTTP_NVS_NS, NULL, &s_creds);
     if (rc != BB_OK) {
         bb_log_e(TAG, "tls_creds_resolve failed: %d", rc);
         return rc;
     }
+#else
+    bb_err_t rc = BB_OK;
+#endif
 
     bb_http_client_cfg_t http_cfg;
     memset(&http_cfg, 0, sizeof(http_cfg));
+#if CONFIG_BB_HTTP_TLS_ENABLE
     http_cfg.ca_cert_pem     = s_creds.ca;
+#if CONFIG_BB_TLS_MUTUAL_ENABLE
     http_cfg.client_cert_pem = s_creds.cert;
     http_cfg.client_key_pem  = s_creds.key;
+#endif /* CONFIG_BB_TLS_MUTUAL_ENABLE */
+#endif /* CONFIG_BB_HTTP_TLS_ENABLE */
     // Keep-alive: respect Kconfig on ESP-IDF; default true on host/other targets.
 #if defined(CONFIG_BB_HTTP_CLIENT_KEEPALIVE)
     http_cfg.keep_alive = CONFIG_BB_HTTP_CLIENT_KEEPALIVE;

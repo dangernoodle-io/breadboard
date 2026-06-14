@@ -461,6 +461,24 @@ also set `PROJECT_VER` from the same logic (embeds into `esp_app_desc.version`).
 
 ## Telemetry publisher (bb_mqtt, bb_pub, bb_sink_mqtt, satellites)
 
+### TLS opt-in gates
+
+All three sink-TLS gates default **n** — the default breadboard build uses plaintext sinks for the smallest footprint:
+
+| Kconfig | Default | Notes |
+|---------|---------|-------|
+| `CONFIG_BB_MQTT_TLS_ENABLE` | n | TLS for the MQTT sink (`bb_mqtt`). |
+| `CONFIG_BB_HTTP_TLS_ENABLE` | n | TLS for the HTTP telemetry sink (`bb_sink_http`). |
+| `CONFIG_BB_TLS_MUTUAL_ENABLE` | n | Mutual TLS (client cert + key). `depends on BB_MQTT_TLS_ENABLE \|\| BB_HTTP_TLS_ENABLE`. |
+
+Consumers opt in per-transport in their own `sdkconfig`. When a gate is OFF, the `bb_tls_creds` credential paths are skipped and the sink proceeds plaintext; no code changes required. The **update-check / OTA HTTPS path** (esp_http_client + crt-bundle) is **independent** of these sink gates — it always has TLS for the GitHub manifest/firmware fetch regardless of which sink gates are on. `BB_HTTP_CLIENT_TASK_STACK_SIZE` stays 8192 for that reason.
+
+**`/api/info` capabilities.** `bb_tls_info` (auto-registers at PRE_HTTP tier via `CONFIG_BB_TLS_INFO_AUTOREGISTER`, default y) injects per-compiled-gate flags into `/api/info` `capabilities[]`: `"mqtt_tls"` when `BB_MQTT_TLS_ENABLE=y`, `"http_tls"` when `BB_HTTP_TLS_ENABLE=y`, `"mutual_tls"` when `BB_TLS_MUTUAL_ENABLE=y`. Clients interrogate this array to detect what TLS support was compiled in without a separate endpoint.
+
+**`MBEDTLS_HARDWARE_SHA=n` requirement.** Apps that run a TLS sink alongside a miner driving the HW SHA engine via MMIO (e.g. TaipanMiner's stratum loop) must set `CONFIG_MBEDTLS_HARDWARE_SHA=n` in their sdkconfig. The HW SHA peripheral is non-reentrant; mbedTLS mid-handshake and the miner MMIO path share it and can corrupt each other's state. SW SHA decouples them at the cost of a slower TLS handshake (~200 ms extra on ESP32 at 240 MHz).
+
+**Mode-aware `BB_PUB_WORKER_STACK`.** The worker stack auto-sizes: 4096 bytes when both TLS gates are OFF (plaintext only), 8192 bytes when `BB_MQTT_TLS_ENABLE` or `BB_HTTP_TLS_ENABLE` is ON. For the upstream esp-idf mbedTLS buffers, see the profile fragments in `sdkconfig/profiles/`.
+
 **`bb_mqtt`** — portable MQTT client HAL. NVS namespace `bb_mqtt`; `/api/mqtt` PATCH/GET routes; TLS via `bb_tls_creds`. `bb_mqtt_publish(h, topic, payload, len, qos, retain)`. Telemetry config is **declarative / reboot-to-apply**: PATCH validates and persists to NVS only; exactly one enabled sink is wired at boot (registration == enabled); a reboot is required to apply changes (`POST /api/reboot`). PATCH returns `{"reboot_required":true}` on success; `GET /api/telemetry` exposes a top-level `pending_reboot` flag.
 
 **`bb_pub`** — transport-agnostic telemetry core. Maintains a source registry and a fan-out set of `bb_pub_sink_t` sinks. `bb_pub_register_source(subtopic, sample_fn, ctx)` adds a source; `bb_pub_tick_once()` calls each source, injects shared `ts` (uptime-ms via `bb_clock_now_ms`), serializes the JSON once, then delivers it to every registered sink as `<prefix>/<hostname>/<subtopic>`. `bb_pub_set_sink` (back-compat, single-sink) replaces all sinks; `bb_pub_add_sink` appends to the fan-out set; `bb_pub_clear_sinks` empties it. A sink returning non-BB_OK is logged but does not abort delivery to other sinks. Periodic worker task registered at PRE_HTTP tier (`CONFIG_BB_PUB_AUTOREGISTER`, default y). Source cap: `CONFIG_BB_PUB_MAX_SOURCES` (default 8). Sink cap: `CONFIG_BB_PUB_MAX_SINKS` (default 4, range 1–8). Testing: `BB_PUB_TESTING` enables `bb_pub_test_reset()`. **Pause/resume:** `bb_pub_pause()` / `bb_pub_resume()` / `bb_pub_is_paused()` allow a consumer (e.g. an OTA pause hook) to quiesce publishing — while paused, `bb_pub_tick_once` is a cheap no-op (no sample_fn calls, no sink calls, no sockets/CPU). **Runtime config (NVS `bb_pub`):** `bb_pub_set_interval_ms(ms)` / `bb_pub_get_interval_ms()` — persist and live-apply the publish period (1 000–3 600 000 ms; ESP-IDF re-arms the timer immediately via `bb_pub_set_interval_apply_hook`). `bb_pub_set_enabled(bool)` / `bb_pub_is_enabled()` — persistent enable toggle (NVS key `enabled`, default on). Both gates are independent: tick publishes only when `enabled=true` AND not paused. The "publisher" `/api/telemetry` section is now read-write: GET reports `interval_ms` + `enabled`; PATCH sets and persists them with bounds validation. NVS re-arm requires on-hardware confirmation; host build updates in-RAM value only. **Payload extenders:** `bb_pub_register_payload_extender(fn, ctx)` registers a `bb_pub_payload_fn` callback invoked for each source's JSON object after `sample_fn` + `ts` injection but before serialize; extenders run in registration order and may add or alter any field (B1-270: source-in-body will be a built-in extender). Cap: `BB_PUB_MAX_PAYLOAD_EXTENDERS` (default 4, high-watermark warn at cap-1, `BB_ERR_NO_SPACE` on overflow). Not called when paused or disabled. Cleared by `bb_pub_test_reset()`.
@@ -489,7 +507,7 @@ Knobs that affect the bb_pub stack's RAM footprint (all in `sdkconfig` / `menuco
 
 | Kconfig | Default | Notes |
 |---------|---------|-------|
-| `CONFIG_BB_PUB_WORKER_STACK` | 8192 | Worker task stack (bytes). Must be ≥ the heaviest sink. HTTP/TLS (`bb_sink_http` over HTTPS) needs ≥ 8192 for mbedTLS; MQTT-only or plaintext HTTP can drop to 4096 to save ~4 KB RAM. |
+| `CONFIG_BB_PUB_WORKER_STACK` | 4096 (plain) / 8192 (TLS) | Worker task stack (bytes). Auto-sizes: 4096 when both `BB_MQTT_TLS_ENABLE` and `BB_HTTP_TLS_ENABLE` are OFF; 8192 when either is ON. Override in sdkconfig if needed. |
 | `CONFIG_BB_PUB_MAX_SOURCES` | 8 | Source registry capacity. Each entry is a small struct (~24 B); rarely needs raising. |
 | `CONFIG_BB_PUB_MAX_SINKS` | 4 | Sink array capacity (fan-out). Each entry is a function pointer + context pointer. |
 | `CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE` | 8192 | Referenced by `BB_HTTP_CLIENT_TASK_STACK` macro. Any task (including `bb_pub` worker) calling `bb_http_client_post` needs its stack ≥ this value. |

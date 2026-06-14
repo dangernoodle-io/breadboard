@@ -2338,6 +2338,13 @@ void test_bb_tls_creds_override_buffer_is_copy(void);
 void test_bb_tls_creds_override_len_includes_nul(void);
 void test_bb_tls_creds_nvs_len_includes_nul(void);
 
+// Forward declarations from test_bb_tls_info.c
+void test_bb_tls_info_register_is_safe(void);
+void test_bb_tls_info_register_schema_remains_valid(void);
+void test_bb_tls_info_all_capabilities_registered(void);
+void test_bb_tls_info_dedup_via_direct_register(void);
+void test_bb_tls_info_leaves_room_for_more_capabilities(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_nv_host_str_store_reset();
@@ -4703,6 +4710,13 @@ int main(void) {
     RUN_TEST(test_bb_tls_creds_override_buffer_is_copy);
     RUN_TEST(test_bb_tls_creds_override_len_includes_nul);
     RUN_TEST(test_bb_tls_creds_nvs_len_includes_nul);
+
+    // bb_tls_info capability registration tests
+    RUN_TEST(test_bb_tls_info_register_is_safe);
+    RUN_TEST(test_bb_tls_info_register_schema_remains_valid);
+    RUN_TEST(test_bb_tls_info_all_capabilities_registered);
+    RUN_TEST(test_bb_tls_info_dedup_via_direct_register);
+    RUN_TEST(test_bb_tls_info_leaves_room_for_more_capabilities);
 
     return UNITY_END();
 }

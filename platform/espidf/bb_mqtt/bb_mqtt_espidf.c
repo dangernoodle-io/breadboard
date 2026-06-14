@@ -158,12 +158,20 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
     }
 
     // Resolve TLS credentials when requested.
+    // Gated on CONFIG_BB_MQTT_TLS_ENABLE (default n = plaintext-only build).
+    // When the gate is OFF and cfg->tls is requested, we degrade gracefully:
+    // skip creds resolve and proceed plaintext — matching the Arduino-stub
+    // pattern used elsewhere (return BB_ERR_UNSUPPORTED only on hard failure).
     if (cfg->tls) {
+#if CONFIG_BB_MQTT_TLS_ENABLE
         bb_err_t rc = bb_tls_creds_resolve(cfg->creds_ns, NULL, &h->creds);
         if (rc != BB_OK) {
             bb_log_w(TAG, "tls_creds_resolve failed: %d", rc);
             // Non-fatal: proceed without creds (broker may accept anonymous TLS)
         }
+#else
+        bb_log_w(TAG, "TLS requested but BB_MQTT_TLS_ENABLE=n; proceeding plaintext");
+#endif
     }
 
     // Determine client_id.
@@ -193,12 +201,18 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
     };
 
     // Broker TLS verification certificate.
+    // Gate: only when BB_MQTT_TLS_ENABLE is on; otherwise h->creds is zeroed
+    // and these assignments are skipped (plaintext degradation).
+#if CONFIG_BB_MQTT_TLS_ENABLE
     if (cfg->tls && h->creds.ca) {
         mqtt_cfg.broker.verification.certificate     = h->creds.ca;
         mqtt_cfg.broker.verification.certificate_len = h->creds.ca_len;
     }
+#endif
 
     // Mutual TLS: client certificate + key.
+    // Additional gate: BB_TLS_MUTUAL_ENABLE (depends on BB_MQTT_TLS_ENABLE).
+#if CONFIG_BB_MQTT_TLS_ENABLE && CONFIG_BB_TLS_MUTUAL_ENABLE
     if (cfg->tls && h->creds.cert) {
         mqtt_cfg.credentials.authentication.certificate     = h->creds.cert;
         mqtt_cfg.credentials.authentication.certificate_len = h->creds.cert_len;
@@ -207,6 +221,7 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
         mqtt_cfg.credentials.authentication.key     = h->creds.key;
         mqtt_cfg.credentials.authentication.key_len = h->creds.key_len;
     }
+#endif
 
     // Last will.
     if (cfg->lwt_topic && cfg->lwt_topic[0]) {

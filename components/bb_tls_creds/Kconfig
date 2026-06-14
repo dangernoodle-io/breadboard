@@ -1,0 +1,35 @@
+menu "breadboard: bb_tls_creds"
+
+config BB_MQTT_TLS_ENABLE
+    bool "Enable TLS for the MQTT sink"
+    default n
+    help
+        Opt-in TLS for the MQTT sink (bb_mqtt).  Default OFF for the
+        smallest firmware footprint; the OTA/update-check HTTPS path
+        (esp_http_client crt-bundle) is independent of this gate.
+        When OFF, a cfg.tls=true request degrades gracefully: the
+        bb_tls_creds resolve and broker-verification blocks are skipped;
+        the broker connection proceeds plaintext.
+
+config BB_HTTP_TLS_ENABLE
+    bool "Enable TLS for the HTTP sink"
+    default n
+    help
+        Opt-in TLS for the HTTP telemetry sink (bb_sink_http).  Default
+        OFF for the smallest firmware footprint; the OTA/update-check
+        HTTPS path (esp_http_client crt-bundle) is independent of this
+        gate.  When OFF, the bb_tls_creds resolve and ca/cert/key
+        assignments are skipped; the HTTP session opens without TLS.
+
+config BB_TLS_MUTUAL_ENABLE
+    bool "Enable mutual TLS (client certificate + key)"
+    default n
+    depends on BB_MQTT_TLS_ENABLE || BB_HTTP_TLS_ENABLE
+    help
+        Opt-in mutual TLS: enables the client certificate and private key
+        credential paths in both the MQTT and HTTP sinks.  Requires at
+        least one of BB_MQTT_TLS_ENABLE or BB_HTTP_TLS_ENABLE.  When OFF
+        bb_tls_creds skips cert/key resolve_one calls, saving RAM and NVS
+        lookup work; only the CA is resolved.
+
+endmenu

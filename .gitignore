@@ -8,6 +8,9 @@ sdkconfig.old
 sdkconfig.*
 !sdkconfig.defaults
 !sdkconfig.defaults.*
+!sdkconfig/
+!sdkconfig/profiles/
+!sdkconfig/profiles/*.conf
 
 # Tooling caches
 .code-graph/
