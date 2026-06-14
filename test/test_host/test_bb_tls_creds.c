@@ -45,9 +45,10 @@ void test_bb_tls_creds_override_all_fields(void)
     TEST_ASSERT_EQUAL_STRING("ca_pem_data",   creds.ca);
     TEST_ASSERT_EQUAL_STRING("cert_pem_data", creds.cert);
     TEST_ASSERT_EQUAL_STRING("key_pem_data",  creds.key);
-    TEST_ASSERT_EQUAL_UINT(strlen("ca_pem_data"),   creds.ca_len);
-    TEST_ASSERT_EQUAL_UINT(strlen("cert_pem_data"), creds.cert_len);
-    TEST_ASSERT_EQUAL_UINT(strlen("key_pem_data"),  creds.key_len);
+    /* lengths include NUL so mbedtls_x509_crt_parse accepts them */
+    TEST_ASSERT_EQUAL_UINT(strlen("ca_pem_data")   + 1, creds.ca_len);
+    TEST_ASSERT_EQUAL_UINT(strlen("cert_pem_data") + 1, creds.cert_len);
+    TEST_ASSERT_EQUAL_UINT(strlen("key_pem_data")  + 1, creds.key_len);
     bb_tls_creds_free(&creds);
 }
 
@@ -197,14 +198,29 @@ void test_bb_tls_creds_override_buffer_is_copy(void)
     bb_tls_creds_free(&creds);
 }
 
-/* ---- Lengths match string length ---- */
+/* ---- Lengths include NUL (mbedtls_x509_crt_parse PEM requirement) ---- */
 
-void test_bb_tls_creds_len_matches_strlen(void)
+void test_bb_tls_creds_override_len_includes_nul(void)
 {
     const char *pem = "-----BEGIN CERTIFICATE-----\nABCD\n-----END CERTIFICATE-----\n";
     bb_tls_creds_cfg_t over = { .ca_pem = pem, .client_cert_pem = NULL, .client_key_pem = NULL };
     bb_tls_creds_t creds = {0};
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_tls_creds_resolve("ns", &over, &creds));
-    TEST_ASSERT_EQUAL_UINT(strlen(pem), creds.ca_len);
+    TEST_ASSERT_EQUAL_UINT(strlen(pem) + 1, creds.ca_len);
+    /* buffer is still a valid C string */
+    TEST_ASSERT_EQUAL_STRING(pem, creds.ca);
+    bb_tls_creds_free(&creds);
+}
+
+void test_bb_tls_creds_nvs_len_includes_nul(void)
+{
+    const char *pem = "-----BEGIN CERTIFICATE-----\nNVS\n-----END CERTIFICATE-----\n";
+    bb_nv_set_str("nvs_ns", "tls_ca", pem);
+
+    bb_tls_creds_t creds = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_tls_creds_resolve("nvs_ns", NULL, &creds));
+    TEST_ASSERT_NOT_NULL(creds.ca);
+    TEST_ASSERT_EQUAL_UINT(strlen(pem) + 1, creds.ca_len);
+    TEST_ASSERT_EQUAL_STRING(pem, creds.ca);
     bb_tls_creds_free(&creds);
 }

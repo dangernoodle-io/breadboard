@@ -45,12 +45,15 @@ static bb_err_t resolve_one(const char *override_pem,
                              char      **out_ptr,
                              size_t     *out_len)
 {
-    /* 1. Programmatic override */
+    /* All three paths below report length INCLUDING the NUL terminator so that
+     * mbedtls_x509_crt_parse (PEM path) receives the NUL it requires.
+     *
+     * 1. Programmatic override */
     if (override_pem != NULL) {
         size_t len = strlen(override_pem);
         *out_ptr = dup_pem(override_pem, len);
         if (!*out_ptr) return BB_ERR_NO_SPACE;
-        *out_len = len;
+        *out_len = len + 1;  /* include NUL — mbedtls PEM parse requires it */
         return BB_OK;
     }
 
@@ -62,12 +65,14 @@ static bb_err_t resolve_one(const char *override_pem,
             size_t len = strlen(buf);
             *out_ptr = dup_pem(buf, len);
             if (!*out_ptr) return BB_ERR_NO_SPACE;
-            *out_len = len;
+            *out_len = len + 1;  /* include NUL — mbedtls PEM parse requires it */
             return BB_OK;
         }
     }
 
-    /* 3. Embedded weak default — skip when len is 0 (not overridden) */
+    /* 3. Embedded weak default — skip when len is 0 (not overridden).
+     * EMBED_TXTFILES appends a NUL and counts it in _len, so embedded_len
+     * already includes the NUL — consistent with paths 1 and 2 above. */
     if (embedded_len > 0 && embedded_data != NULL) {
         *out_ptr = dup_pem(embedded_data, embedded_len);
         if (!*out_ptr) return BB_ERR_NO_SPACE;
