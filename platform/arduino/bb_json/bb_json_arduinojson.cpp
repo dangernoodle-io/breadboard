@@ -113,6 +113,13 @@ void bb_json_obj_set_null(bb_json_t obj, const char *key)
     n->variant.as<JsonObject>()[key] = (char *)nullptr;
 }
 
+void bb_json_obj_delete_key(bb_json_t obj, const char *key)
+{
+    if (!obj || !key) return;
+    bb_json_node_t *n = (bb_json_node_t *)obj;
+    n->variant.as<JsonObject>().remove(key);
+}
+
 void bb_json_obj_set_obj(bb_json_t obj, const char *key, bb_json_t child)
 {
     if (!obj || !key || !child) return;

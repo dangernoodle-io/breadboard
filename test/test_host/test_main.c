@@ -1803,29 +1803,17 @@ void test_bb_mqtt_destroy_null_is_safe(void);
 void test_bb_mqtt_default_returns_null_initially(void);
 void test_bb_mqtt_default_returns_set_handle(void);
 void test_bb_mqtt_default_cleared_by_set_null(void);
-void test_bb_mqtt_reconfigure_increments_count(void);
-void test_bb_mqtt_reconfigure_idempotent(void);
-void test_bb_mqtt_host_reset_clears_reconfigure_count(void);
+void test_bb_mqtt_stop_default_null_default_is_safe(void);
+void test_bb_mqtt_stop_default_clears_default(void);
+void test_bb_mqtt_stop_default_idempotent(void);
 void test_bb_mqtt_stop_null_handle_p_is_safe(void);
 void test_bb_mqtt_stop_null_deref_is_safe(void);
 void test_bb_mqtt_stop_clears_handle(void);
 void test_bb_mqtt_stop_idempotent(void);
 void test_bb_mqtt_stop_publish_after_stop_returns_error(void);
-void test_bb_mqtt_reconfigure_from_no_client_is_safe(void);
 void test_bb_mqtt_lifecycle_init_stop_reinit(void);
 void test_bb_mqtt_lifecycle_enabled_disabled_enabled(void);
 void test_bb_mqtt_default_null_after_stop(void);
-void test_bb_mqtt_reconfigure_deferred_triggers_lifecycle(void);
-void test_bb_mqtt_reconfigure_reentrancy_coalesces(void);
-void test_bb_mqtt_reconfigure_enable_async_connect(void);
-void test_bb_mqtt_reconfigure_disable_stops_client(void);
-void test_bb_mqtt_reconfigure_reenable_after_disable(void);
-void test_bb_mqtt_reconfigure_disable_path_classified_as_disable(void);
-void test_bb_mqtt_reconfigure_enable_path_classified_as_enable(void);
-void test_bb_mqtt_reconfigure_disable_returns_ok_without_task_spawn(void);
-void test_bb_mqtt_reconfigure_enable_then_disable_path_switches(void);
-void test_bb_mqtt_boot_loser_disable_path_classified_as_disable(void);
-void test_bb_mqtt_reconfigure_concurrent_disable_enable_no_uaf(void);
 
 // Forward declarations from test_bb_mqtt_info.c
 void test_bb_mqtt_health_no_handle_enabled_false(void);
@@ -2114,6 +2102,10 @@ void test_bb_pub_payload_extender_null_fn_returns_invalid_arg(void);
 void test_bb_pub_payload_extender_not_called_when_paused(void);
 void test_bb_pub_payload_extender_not_called_when_disabled(void);
 void test_bb_pub_test_reset_clears_payload_extenders(void);
+void test_bb_pub_sink_transport_mqtt_tls_stamped(void);
+void test_bb_pub_sink_transport_http_no_tls_stamped(void);
+void test_bb_pub_sink_no_transport_fields_absent(void);
+void test_bb_pub_two_sinks_each_get_own_transport(void);
 
 // Forward declarations from test_bb_telemetry.c
 void test_bb_telemetry_register_ok(void);
@@ -2147,8 +2139,7 @@ void test_bb_mqtt_telemetry_patch_persists_tls_ca(void);
 void test_bb_mqtt_telemetry_patch_persists_enabled(void);
 void test_bb_mqtt_telemetry_patch_persists_tls_flag(void);
 void test_bb_mqtt_telemetry_patch_partial_update_leaves_others(void);
-void test_bb_mqtt_telemetry_patch_triggers_reconfigure(void);
-void test_bb_mqtt_telemetry_patch_enabled_false_reconfigures(void);
+void test_bb_mqtt_telemetry_patch_does_not_trigger_reconfigure(void);
 void test_bb_mqtt_telemetry_patch_new_uri_observed_by_get(void);
 void test_bb_mqtt_telemetry_patch_large_tls_ca_stored_via_heap(void);
 
@@ -2227,6 +2218,7 @@ void test_boot_mqtt_loser_triggers_reconfigure(void);
 void test_boot_mqtt_winner_no_spurious_reconfigure(void);
 void test_runtime_disable_mqtt_triggers_reconfigure(void);
 
+
 // Forward declarations from test_bb_sink_mqtt.c
 void test_bb_sink_mqtt_null_handle_returns_invalid_arg(void);
 void test_bb_sink_mqtt_null_out_returns_invalid_arg(void);
@@ -2290,6 +2282,36 @@ void test_bb_pub_info_has_flash_size(void);
 void test_bb_pub_info_has_app_size(void);
 void test_bb_pub_info_has_wdt_resets(void);
 void test_bb_pub_info_payload_has_ts_field(void);
+void test_bb_pub_info_has_reset_reason(void);
+void test_bb_pub_info_reset_reason_is_power_on_on_host(void);
+void test_bb_pub_info_has_ota_validated(void);
+void test_bb_pub_info_ota_validated_is_false_on_host(void);
+void test_bb_pub_info_has_rtc_free(void);
+void test_bb_pub_info_rtc_free_is_zero_on_host(void);
+void test_bb_pub_info_has_time_valid(void);
+void test_bb_pub_info_time_valid_is_false_on_host(void);
+void test_bb_pub_info_has_epoch_s(void);
+void test_bb_pub_info_epoch_s_is_zero_when_not_synced(void);
+void test_bb_pub_info_has_time_source(void);
+void test_bb_pub_info_time_source_is_none_on_host(void);
+
+// Forward declarations from test_bb_pub_rtos.c
+void test_bb_pub_rtos_always_publishes(void);
+void test_bb_pub_rtos_topic_is_correct(void);
+void test_bb_pub_rtos_has_min_free_stack(void);
+void test_bb_pub_rtos_has_min_free_stack_task(void);
+void test_bb_pub_rtos_has_task_count(void);
+void test_bb_pub_rtos_task_count_is_nonzero(void);
+void test_bb_pub_rtos_min_free_stack_is_smallest(void);
+void test_bb_pub_rtos_min_free_stack_task_is_bb_pub(void);
+void test_bb_pub_rtos_has_stack_bb_pub(void);
+void test_bb_pub_rtos_has_stack_httpd(void);
+void test_bb_pub_rtos_has_stack_mqtt(void);
+void test_bb_pub_rtos_has_stack_ipc0(void);
+void test_bb_pub_rtos_has_stack_ipc1(void);
+void test_bb_pub_rtos_has_stack_main(void);
+void test_bb_pub_rtos_payload_has_ts_field(void);
+void test_bb_pub_rtos_benign_task_filter(void);
 
 // Forward declarations from test_bb_tls_creds.c
 void test_bb_tls_creds_override_ca_beats_nvs(void);
@@ -4307,29 +4329,17 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_default_returns_null_initially);
     RUN_TEST(test_bb_mqtt_default_returns_set_handle);
     RUN_TEST(test_bb_mqtt_default_cleared_by_set_null);
-    RUN_TEST(test_bb_mqtt_reconfigure_increments_count);
-    RUN_TEST(test_bb_mqtt_reconfigure_idempotent);
-    RUN_TEST(test_bb_mqtt_host_reset_clears_reconfigure_count);
+    RUN_TEST(test_bb_mqtt_stop_default_null_default_is_safe);
+    RUN_TEST(test_bb_mqtt_stop_default_clears_default);
+    RUN_TEST(test_bb_mqtt_stop_default_idempotent);
     RUN_TEST(test_bb_mqtt_stop_null_handle_p_is_safe);
     RUN_TEST(test_bb_mqtt_stop_null_deref_is_safe);
     RUN_TEST(test_bb_mqtt_stop_clears_handle);
     RUN_TEST(test_bb_mqtt_stop_idempotent);
     RUN_TEST(test_bb_mqtt_stop_publish_after_stop_returns_error);
-    RUN_TEST(test_bb_mqtt_reconfigure_from_no_client_is_safe);
     RUN_TEST(test_bb_mqtt_lifecycle_init_stop_reinit);
     RUN_TEST(test_bb_mqtt_lifecycle_enabled_disabled_enabled);
     RUN_TEST(test_bb_mqtt_default_null_after_stop);
-    RUN_TEST(test_bb_mqtt_reconfigure_deferred_triggers_lifecycle);
-    RUN_TEST(test_bb_mqtt_reconfigure_reentrancy_coalesces);
-    RUN_TEST(test_bb_mqtt_reconfigure_enable_async_connect);
-    RUN_TEST(test_bb_mqtt_reconfigure_disable_stops_client);
-    RUN_TEST(test_bb_mqtt_reconfigure_reenable_after_disable);
-    RUN_TEST(test_bb_mqtt_reconfigure_disable_path_classified_as_disable);
-    RUN_TEST(test_bb_mqtt_reconfigure_enable_path_classified_as_enable);
-    RUN_TEST(test_bb_mqtt_reconfigure_disable_returns_ok_without_task_spawn);
-    RUN_TEST(test_bb_mqtt_reconfigure_enable_then_disable_path_switches);
-    RUN_TEST(test_bb_mqtt_boot_loser_disable_path_classified_as_disable);
-    RUN_TEST(test_bb_mqtt_reconfigure_concurrent_disable_enable_no_uaf);
 
     // bb_mqtt_info tests
     RUN_TEST(test_bb_mqtt_health_no_handle_enabled_false);
@@ -4450,6 +4460,10 @@ int main(void) {
     RUN_TEST(test_bb_pub_payload_extender_not_called_when_paused);
     RUN_TEST(test_bb_pub_payload_extender_not_called_when_disabled);
     RUN_TEST(test_bb_pub_test_reset_clears_payload_extenders);
+    RUN_TEST(test_bb_pub_sink_transport_mqtt_tls_stamped);
+    RUN_TEST(test_bb_pub_sink_transport_http_no_tls_stamped);
+    RUN_TEST(test_bb_pub_sink_no_transport_fields_absent);
+    RUN_TEST(test_bb_pub_two_sinks_each_get_own_transport);
 
     // bb_telemetry tests
     RUN_TEST(test_bb_telemetry_register_ok);
@@ -4483,8 +4497,7 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_telemetry_patch_persists_enabled);
     RUN_TEST(test_bb_mqtt_telemetry_patch_persists_tls_flag);
     RUN_TEST(test_bb_mqtt_telemetry_patch_partial_update_leaves_others);
-    RUN_TEST(test_bb_mqtt_telemetry_patch_triggers_reconfigure);
-    RUN_TEST(test_bb_mqtt_telemetry_patch_enabled_false_reconfigures);
+    RUN_TEST(test_bb_mqtt_telemetry_patch_does_not_trigger_reconfigure);
     RUN_TEST(test_bb_mqtt_telemetry_patch_new_uri_observed_by_get);
     RUN_TEST(test_bb_mqtt_telemetry_patch_large_tls_ca_stored_via_heap);
 
@@ -4626,6 +4639,36 @@ int main(void) {
     RUN_TEST(test_bb_pub_info_has_app_size);
     RUN_TEST(test_bb_pub_info_has_wdt_resets);
     RUN_TEST(test_bb_pub_info_payload_has_ts_field);
+    RUN_TEST(test_bb_pub_info_has_reset_reason);
+    RUN_TEST(test_bb_pub_info_reset_reason_is_power_on_on_host);
+    RUN_TEST(test_bb_pub_info_has_ota_validated);
+    RUN_TEST(test_bb_pub_info_ota_validated_is_false_on_host);
+    RUN_TEST(test_bb_pub_info_has_rtc_free);
+    RUN_TEST(test_bb_pub_info_rtc_free_is_zero_on_host);
+    RUN_TEST(test_bb_pub_info_has_time_valid);
+    RUN_TEST(test_bb_pub_info_time_valid_is_false_on_host);
+    RUN_TEST(test_bb_pub_info_has_epoch_s);
+    RUN_TEST(test_bb_pub_info_epoch_s_is_zero_when_not_synced);
+    RUN_TEST(test_bb_pub_info_has_time_source);
+    RUN_TEST(test_bb_pub_info_time_source_is_none_on_host);
+
+    // bb_pub_rtos tests
+    RUN_TEST(test_bb_pub_rtos_always_publishes);
+    RUN_TEST(test_bb_pub_rtos_topic_is_correct);
+    RUN_TEST(test_bb_pub_rtos_has_min_free_stack);
+    RUN_TEST(test_bb_pub_rtos_has_min_free_stack_task);
+    RUN_TEST(test_bb_pub_rtos_has_task_count);
+    RUN_TEST(test_bb_pub_rtos_task_count_is_nonzero);
+    RUN_TEST(test_bb_pub_rtos_min_free_stack_is_smallest);
+    RUN_TEST(test_bb_pub_rtos_min_free_stack_task_is_bb_pub);
+    RUN_TEST(test_bb_pub_rtos_has_stack_bb_pub);
+    RUN_TEST(test_bb_pub_rtos_has_stack_httpd);
+    RUN_TEST(test_bb_pub_rtos_has_stack_mqtt);
+    RUN_TEST(test_bb_pub_rtos_has_stack_ipc0);
+    RUN_TEST(test_bb_pub_rtos_has_stack_ipc1);
+    RUN_TEST(test_bb_pub_rtos_has_stack_main);
+    RUN_TEST(test_bb_pub_rtos_payload_has_ts_field);
+    RUN_TEST(test_bb_pub_rtos_benign_task_filter);
 
     // bb_tls_creds tests
     RUN_TEST(test_bb_tls_creds_override_ca_beats_nvs);

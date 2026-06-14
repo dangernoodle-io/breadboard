@@ -946,3 +946,102 @@ void test_bb_pub_test_reset_clears_payload_extenders(void)
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
     TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"site\""));
 }
+
+// ---------------------------------------------------------------------------
+// Per-sink transport / tls stamping tests
+// ---------------------------------------------------------------------------
+
+// Sink with transport="mqtt", tls=true — payload must contain both fields.
+void test_bb_pub_sink_transport_mqtt_tls_stamped(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    bb_pub_sink_t s = { .publish = capture_publish, .ctx = NULL,
+                        .transport = "mqtt", .tls = true };
+    bb_pub_set_sink(&s);
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"transport\":\"mqtt\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"tls\":true"));
+}
+
+// Sink with transport="http", tls=false — payload must contain both fields.
+void test_bb_pub_sink_transport_http_no_tls_stamped(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    bb_pub_sink_t s = { .publish = capture_publish, .ctx = NULL,
+                        .transport = "http", .tls = false };
+    bb_pub_set_sink(&s);
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"transport\":\"http\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"tls\":false"));
+}
+
+// Sink with transport=NULL — transport and tls fields must be absent.
+void test_bb_pub_sink_no_transport_fields_absent(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    bb_pub_sink_t s = { .publish = capture_publish, .ctx = NULL,
+                        .transport = NULL, .tls = false };
+    bb_pub_set_sink(&s);
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"transport\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"tls\""));
+}
+
+// Two sinks with different transport values — each gets its own stamped payload.
+void test_bb_pub_two_sinks_each_get_own_transport(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    capture_ctx_t ctx2 = { .count = 0 };
+    memset(ctx2.entries, 0, sizeof(ctx2.entries));
+
+    // mqtt sink (tls=true) using global capture
+    bb_pub_sink_t s1 = { .publish = capture_publish,     .ctx = NULL,
+                         .transport = "mqtt", .tls = true };
+    // http sink (tls=false) using ctx2
+    bb_pub_sink_t s2 = { .publish = capture_publish_ctx, .ctx = &ctx2,
+                         .transport = "http", .tls = false };
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&s1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&s2));
+
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_pub_tick_once();
+
+    // Each sink received exactly one publish.
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_EQUAL_INT(1, ctx2.count);
+
+    // Sink 1 (mqtt, tls=true): must have transport=mqtt + tls=true.
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"transport\":\"mqtt\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"tls\":true"));
+
+    // Sink 2 (http, tls=false): must have transport=http + tls=false.
+    TEST_ASSERT_NOT_NULL(strstr(ctx2.entries[0].payload, "\"transport\":\"http\""));
+    TEST_ASSERT_NOT_NULL(strstr(ctx2.entries[0].payload, "\"tls\":false"));
+
+    // Cross-check: mqtt payload must NOT contain "http".
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"http\""));
+    // Cross-check: http payload must NOT contain "\"mqtt\"".
+    TEST_ASSERT_NULL(strstr(ctx2.entries[0].payload, "\"mqtt\""));
+}

@@ -10,6 +10,10 @@
 #define CONFIG_BB_SINK_MQTT_RETAIN 0
 #endif
 
+// ---------------------------------------------------------------------------
+// bb_sink_mqtt — fixed-handle sink
+// ---------------------------------------------------------------------------
+
 static bb_err_t mqtt_publish(void *ctx, const char *topic,
                               const char *payload, int len)
 {
@@ -22,7 +26,10 @@ static bb_err_t mqtt_publish(void *ctx, const char *topic,
 bb_err_t bb_sink_mqtt(bb_mqtt_t h, bb_pub_sink_t *out)
 {
     if (!h || !out) return BB_ERR_INVALID_ARG;
-    out->publish = mqtt_publish;
-    out->ctx     = h;
+    out->publish   = mqtt_publish;
+    out->ctx       = h;
+    out->transport = "mqtt";
+    out->tls       = bb_mqtt_is_tls(h);
     return BB_OK;
 }
+

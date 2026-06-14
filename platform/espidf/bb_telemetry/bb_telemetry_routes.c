@@ -44,6 +44,7 @@ static bb_err_t telemetry_get_handler(bb_http_request_t *req)
     }
 
     bb_telemetry_build_get(root);
+    bb_json_obj_set_bool(root, "pending_reboot", bb_telemetry_pending_reboot());
 
     char *json = bb_json_serialize(root);
     bb_json_free(root);
@@ -109,7 +110,12 @@ static bb_err_t telemetry_patch_handler(bb_http_request_t *req)
         return rc;
     }
 
-    bb_http_resp_no_content(req);
+    // B1-289: config persisted to NVS; reboot required to apply.
+    bb_http_resp_set_status(req, 200);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_bool(&obj, "reboot_required", true);
+    bb_http_resp_json_obj_end(&obj);
     return BB_OK;
 }
 
@@ -126,7 +132,11 @@ static const bb_route_response_t s_telemetry_get_responses[] = {
 };
 
 static const bb_route_response_t s_telemetry_patch_responses[] = {
-    { 204, NULL, NULL, "settings persisted" },
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"reboot_required\":{\"type\":\"boolean\"}},"
+      "\"required\":[\"reboot_required\"]}",
+      "settings persisted to NVS; reboot required to apply" },
     { 400, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{\"error\":{\"type\":\"string\"}},"

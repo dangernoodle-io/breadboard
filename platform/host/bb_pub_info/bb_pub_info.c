@@ -8,8 +8,11 @@
 #include "bb_diag.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_ntp.h"
+#include "bb_ota_validator.h"
 #include "bb_registry.h"
 #include <stdbool.h>
+#include <time.h>
 
 #ifndef CONFIG_BB_PUB_INFO_AUTO_ATTACH
 #define CONFIG_BB_PUB_INFO_AUTO_ATTACH 0
@@ -51,6 +54,37 @@ static bool info_sample(bb_json_t obj, void *ctx)
                            (double)bb_clock_now_ms());
     bb_json_obj_set_string(obj, "version",
                            bb_system_get_version());
+
+    // reset_reason: string boot cause ("power-on", "software", "panic", ...)
+    char reset_reason[16];
+    bb_board_get_reset_reason(reset_reason, sizeof(reset_reason));
+    bb_json_obj_set_string(obj, "reset_reason", reset_reason);
+
+    // ota_validated: true unless running OTA slot is PENDING_VERIFY
+    bb_json_obj_set_bool(obj, "ota_validated", bb_ota_is_validated());
+
+    // rtc_free: derived from rtc_total - rtc_used (RTC slow memory free bytes)
+    size_t rtc_total = bb_board_rtc_total();
+    size_t rtc_used  = bb_board_rtc_used();
+    size_t rtc_free  = (rtc_total >= rtc_used) ? (rtc_total - rtc_used) : 0;
+    bb_json_obj_set_number(obj, "rtc_free", (double)rtc_free);
+
+    // RTC clock fields: time_valid, epoch_s, time_source
+    bool   time_valid  = false;
+    int64_t epoch_s    = 0;
+    const char *time_source = "none";
+    if (bb_ntp_is_synced()) {
+        time_t now = time(NULL);
+        // Sanity-check: year >= 2024 (unix epoch >= 1704067200)
+        if (now >= (time_t)1704067200LL) {
+            time_valid  = true;
+            epoch_s     = (int64_t)now;
+            time_source = "sntp";
+        }
+    }
+    bb_json_obj_set_bool  (obj, "time_valid",   time_valid);
+    bb_json_obj_set_number(obj, "epoch_s",      (double)epoch_s);
+    bb_json_obj_set_string(obj, "time_source",  time_source);
 
     // Always publish — provides a heartbeat even without hardware HALs.
     return true;

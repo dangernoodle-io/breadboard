@@ -79,6 +79,13 @@ bb_err_t bb_mqtt_subscribe(bb_mqtt_t h, const char *topic, int qos);
 bool bb_mqtt_is_connected(bb_mqtt_t h);
 
 /**
+ * Returns true when the client was initialised with TLS (cfg.tls = true).
+ * Safe to call from any context after bb_mqtt_init.
+ * Returns false for NULL handles.
+ */
+bool bb_mqtt_is_tls(bb_mqtt_t h);
+
+/**
  * Disconnect, destroy the client, and free all resources including TLS creds.
  * Safe to call with NULL.
  */
@@ -106,38 +113,6 @@ bb_err_t bb_mqtt_destroy(bb_mqtt_t h);
 bb_err_t bb_mqtt_stop(bb_mqtt_t *handle_p);
 
 /**
- * Re-read the NVS "bb_mqtt" config and apply it to the live client.
- *
- * Safe to call at any time after init, including before WiFi has an IP
- * (defers the reconnect exactly like the initial connect does).  Idempotent.
- * If enabled=0 in NVS the existing client is stopped and stays down.
- * Never call from within the mqtt event callback context.
- *
- * On ESP-IDF the work is SPLIT by the target enabled state (B1-276):
- *
- *   DISABLE (enabled=false in NVS): stop+destroy the live client INLINE on
- *   the caller's thread.  No task spawn.  Succeeds even when heap is fragmented
- *   (largest free block < 8192) — the bug B1-276.  BB_OK is returned once
- *   teardown completes.
- *
- *   ENABLE (enabled=true in NVS): spawn an 8192-byte one-shot task
- *   ("mqtt_enable") for the mbedTLS handshake.  BB_OK is returned immediately;
- *   `connected` flips asynchronously.  If xTaskCreate(8192) fails (heap too
- *   fragmented for the stack), returns BB_ERR_NO_SPACE — a TLS handshake
- *   cannot succeed without heap either; caller should retry later.
- *
- * Rapid concurrent calls coalesce: only one reconfigure runs at a time
- * (reentrancy guard); additional calls return BB_OK immediately.
- *
- * On the host stub: records that a reconfigure happened (accessible via
- * bb_mqtt_test_reconfigure_count() when BB_MQTT_TESTING is defined).
- *
- * @return BB_OK on success; BB_ERR_INVALID_STATE if not yet initialised;
- *         BB_ERR_NO_SPACE if the enable worker task cannot be allocated.
- */
-bb_err_t bb_mqtt_reconfigure(void);
-
-/**
  * Return the auto-registered MQTT handle created by the EARLY-tier
  * self-registration (CONFIG_BB_MQTT_AUTOREGISTER=y), or NULL if:
  *   - the feature is compiled out,
@@ -150,6 +125,20 @@ bb_err_t bb_mqtt_reconfigure(void);
  * Callers must treat NULL as "no MQTT" and skip sink wiring gracefully.
  */
 bb_mqtt_t bb_mqtt_default(void);
+
+/**
+ * Stop and destroy the auto-registered (default) MQTT client.
+ *
+ * Called by bb_mqtt_telemetry_init when MQTT loses the exclusive-sink slot
+ * at boot (B1-289 loser-teardown without reboot).  Cancels any pending
+ * deferred start and calls bb_mqtt_stop on the internal auto-client pointer.
+ *
+ * Idempotent: safe to call when the client is already NULL or when
+ * autoregister is compiled out.
+ *
+ * @return BB_OK always.
+ */
+bb_err_t bb_mqtt_stop_default(void);
 
 // ---------------------------------------------------------------------------
 // Host test hooks (only when BB_MQTT_TESTING is defined)
@@ -179,16 +168,6 @@ void bb_mqtt_host_reset(bb_mqtt_t h);
 
 /** Override the handle returned by bb_mqtt_default() for testing. */
 void bb_mqtt_default_set(bb_mqtt_t h);
-
-/** Number of bb_mqtt_reconfigure() calls since process start (host stub only). */
-int bb_mqtt_test_reconfigure_count(void);
-
-/**
- * Returns true when the most recent bb_mqtt_reconfigure() call classified as
- * a DISABLE (teardown-only, enabled=false in NVS).  Mirrors the ESP-IDF split
- * (B1-276): the disable path runs inline without an 8192-byte task spawn.
- */
-bool bb_mqtt_test_last_reconfigure_was_disable(void);
 
 #endif /* BB_MQTT_TESTING */
 

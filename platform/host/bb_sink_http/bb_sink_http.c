@@ -535,7 +535,12 @@ bb_err_t bb_sink_http_set_cfg(const bb_sink_http_cfg_t *cfg)
 bb_err_t bb_sink_http(bb_pub_sink_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
-    out->publish = http_pub_publish;
-    out->ctx     = NULL;
+    out->publish   = http_pub_publish;
+    out->ctx       = NULL;
+    out->transport = "http";
+    // tls reflects whether the configured base URL uses "https://".
+    // Determined at wire time (bb_sink_http call) rather than per-publish;
+    // transport config is boot-fixed under mutual-exclusion + reboot-to-switch.
+    out->tls = (strncmp(s_cfg.base, "https://", 8) == 0);
     return BB_OK;
 }

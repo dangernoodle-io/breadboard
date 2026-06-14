@@ -2,11 +2,13 @@
 //
 // Bridges bb_mqtt_publish into a bb_pub_sink_t so the transport-agnostic
 // bb_pub core can deliver telemetry over MQTT without depending on bb_mqtt.
+// Under B1-289 (reboot-to-apply) the handle is wired once at boot and is
+// stable for the device lifetime.
 //
 // Usage:
 //   bb_pub_sink_t s;
-//   bb_sink_mqtt(mqtt_handle, &s);
-//   bb_pub_set_sink(&s);
+//   bb_sink_mqtt(bb_mqtt_default(), &s);
+//   bb_pub_add_sink(&s);
 #pragma once
 
 #include "bb_core.h"
@@ -25,12 +27,16 @@ extern "C" {
  *   CONFIG_BB_SINK_MQTT_QOS    (default 0)
  *   CONFIG_BB_SINK_MQTT_RETAIN (default 0 / false)
  *
+ * Sets out->transport = "mqtt" and out->tls = bb_mqtt_is_tls(h) at wire time
+ * so each published payload carries device-reported transport metadata.
+ *
  * The caller owns the bb_pub_sink_t struct and must keep `h` valid for the
  * lifetime of the sink.
  *
  * @return BB_OK on success; BB_ERR_INVALID_ARG if h or out is NULL.
  */
 bb_err_t bb_sink_mqtt(bb_mqtt_t h, bb_pub_sink_t *out);
+
 
 #ifdef __cplusplus
 }
