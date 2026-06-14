@@ -330,31 +330,46 @@ bb_err_t bb_pub_tick_once(void)
                                        s_payload_extenders[pi].ctx);
         }
 
-        char *json = bb_json_serialize(obj);
-        bb_json_free(obj);
-
-        if (!json) {
-            bb_log_w(TAG, "tick: failed to serialize '%s'", src->subtopic);
-            continue;
-        }
-
         snprintf(topic, sizeof(topic), "%s/%s/%s",
                  CONFIG_BB_PUB_TOPIC_PREFIX, hostname, src->subtopic);
 
-        int json_len = (int)strlen(json);
-
-        // Fan-out: deliver to every registered sink. A failing sink does not
-        // abort delivery to the remaining sinks or to subsequent sources.
+        // Fan-out: deliver to every registered sink. Each sink gets its OWN
+        // serialized string so per-sink transport/tls fields can be stamped.
+        // A failing sink does not abort delivery to the remaining sinks.
         for (int si = 0; si < s_sink_count; si++) {
-            bb_err_t err = s_sinks[si].publish(s_sinks[si].ctx, topic, json, json_len);
+            const bb_pub_sink_t *sk = &s_sinks[si];
+
+            // Stamp per-sink metadata fields when transport is set.
+            // Use delete-before-set to avoid cJSON appending duplicate keys
+            // when multiple sinks share the same obj.
+            if (sk->transport) {
+                bb_json_obj_delete_key(obj, "transport");
+                bb_json_obj_delete_key(obj, "tls");
+                bb_json_obj_set_string(obj, "transport", sk->transport);
+                bb_json_obj_set_bool(obj, "tls", sk->tls);
+            }
+
+            char *json = bb_json_serialize(obj);
+            if (!json) {
+                bb_log_w(TAG, "tick: failed to serialize '%s' for sink[%d]",
+                         src->subtopic, si);
+                tick_all_ok = false;
+                continue;
+            }
+
+            int json_len = (int)strlen(json);
+            bb_err_t err = sk->publish(sk->ctx, topic, json, json_len);
+            bb_json_free_str(json);
+
             if (err != BB_OK) {
-                bb_log_w(TAG, "sink[%d] publish failed for '%s': %d", si, src->subtopic, err);
+                bb_log_w(TAG, "sink[%d] publish failed for '%s': %d",
+                         si, src->subtopic, err);
                 tick_all_ok = false;
             }
         }
 
+        bb_json_free(obj);
         tick_published = true;
-        bb_json_free_str(json);
     }
 
     // Update status only when at least one source was published this tick.

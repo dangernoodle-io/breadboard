@@ -36,6 +36,20 @@ typedef bb_err_t (*bb_pub_publish_fn)(void *ctx, const char *topic,
 typedef struct {
     bb_pub_publish_fn publish;
     void             *ctx;
+    /**
+     * Optional transport label injected as "transport" into every payload
+     * delivered by this sink. Typical values: "mqtt", "http". NULL = omit
+     * the field. Must point to a string with lifetime >= the sink lifetime.
+     */
+    const char       *transport;
+    /**
+     * Whether TLS is active on this sink's transport. Injected as "tls"
+     * (boolean) into every payload when transport is non-NULL. Determined
+     * at wire time (bb_sink_mqtt / bb_sink_http call) rather than per-publish,
+     * because transport config is boot-fixed under mutual-exclusion and
+     * reboot-to-switch semantics — the value is correct for the entire boot.
+     */
+    bool              tls;
 } bb_pub_sink_t;
 
 // ---------------------------------------------------------------------------

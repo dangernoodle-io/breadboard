@@ -221,40 +221,34 @@ void test_bb_mqtt_default_cleared_by_set_null(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_mqtt_reconfigure tests (host stub)
+// bb_mqtt_stop_default tests (B1-289)
 // ---------------------------------------------------------------------------
 
-void test_bb_mqtt_reconfigure_increments_count(void)
+void test_bb_mqtt_stop_default_null_default_is_safe(void)
 {
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);  // resets s_reconfigure_count to 0
-    int before = bb_mqtt_test_reconfigure_count();
-    bb_err_t rc = bb_mqtt_reconfigure();
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    TEST_ASSERT_EQUAL_INT(before + 1, bb_mqtt_test_reconfigure_count());
-    bb_mqtt_destroy(h);
+    // stop_default with no default handle must not crash.
+    bb_mqtt_default_set(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop_default());
+    TEST_ASSERT_NULL(bb_mqtt_default());
 }
 
-void test_bb_mqtt_reconfigure_idempotent(void)
+void test_bb_mqtt_stop_default_clears_default(void)
 {
     bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-    bb_mqtt_reconfigure();
-    bb_mqtt_reconfigure();
-    bb_mqtt_reconfigure();
-    TEST_ASSERT_EQUAL_INT(3, bb_mqtt_test_reconfigure_count());
-    bb_mqtt_destroy(h);
+    bb_mqtt_default_set(h);
+    TEST_ASSERT_EQUAL_PTR(h, bb_mqtt_default());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop_default());
+    // After stop_default the default must be NULL (host: stop NULLs via pointer).
+    TEST_ASSERT_NULL(bb_mqtt_default());
 }
 
-void test_bb_mqtt_host_reset_clears_reconfigure_count(void)
+void test_bb_mqtt_stop_default_idempotent(void)
 {
     bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-    bb_mqtt_reconfigure();
-    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_test_reconfigure_count());
-    bb_mqtt_host_reset(h);
-    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_test_reconfigure_count());
-    bb_mqtt_destroy(h);
+    bb_mqtt_default_set(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop_default());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop_default());  // second call safe
+    TEST_ASSERT_NULL(bb_mqtt_default());
 }
 
 // ---------------------------------------------------------------------------
@@ -308,18 +302,6 @@ void test_bb_mqtt_stop_publish_after_stop_returns_error(void)
 // null-client guard (no client to stop/destroy when enabling from disabled).
 // ---------------------------------------------------------------------------
 
-void test_bb_mqtt_reconfigure_from_no_client_is_safe(void)
-{
-    // Simulates: MQTT disabled at boot (s_auto_client == NULL), PATCH enables.
-    // On the host stub bb_mqtt_reconfigure is a counter increment; it must
-    // return BB_OK without crashing even when called with no prior client.
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-    bb_err_t rc = bb_mqtt_reconfigure();
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    bb_mqtt_destroy(h);
-}
-
 void test_bb_mqtt_lifecycle_init_stop_reinit(void)
 {
     // Simulates: init → stop → reinit (hot-reconnect path without real mqtt).
@@ -371,221 +353,3 @@ void test_bb_mqtt_default_null_after_stop(void)
     TEST_ASSERT_NULL(bb_mqtt_default());
 }
 
-// ---------------------------------------------------------------------------
-// Deferred reconfigure path tests (host approximation of the ESP-IDF one-shot
-// worker task).  On the host the worker runs synchronously inside
-// bb_mqtt_reconfigure; these tests assert the observable lifecycle bookkeeping
-// that is identical across both backends.
-// ---------------------------------------------------------------------------
-
-void test_bb_mqtt_reconfigure_deferred_triggers_lifecycle(void)
-{
-    // Calling bb_mqtt_reconfigure() must trigger exactly one lifecycle cycle
-    // (increment the counter) and return BB_OK — this mirrors the ESP-IDF
-    // path where the one-shot task does the heavy work then self-deletes.
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-    int before = bb_mqtt_test_reconfigure_count();
-    bb_err_t rc = bb_mqtt_reconfigure();
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    TEST_ASSERT_EQUAL_INT(before + 1, bb_mqtt_test_reconfigure_count());
-    bb_mqtt_destroy(h);
-}
-
-void test_bb_mqtt_reconfigure_reentrancy_coalesces(void)
-{
-    // Rapid successive calls must all return BB_OK.  On ESP-IDF only one
-    // worker task spawns at a time (lock held); on the host stub each call
-    // is synchronous so the counter increments, but the key invariant is
-    // no error return.
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
-    bb_mqtt_destroy(h);
-}
-
-void test_bb_mqtt_reconfigure_enable_async_connect(void)
-{
-    // Simulate: MQTT disabled, PATCH sets enabled=1, bb_mqtt_reconfigure
-    // is called.  On host the stub returns BB_OK immediately; connected state
-    // would flip asynchronously on ESP-IDF once the broker handshake
-    // completes.  Assert: reconfigure returns BB_OK (caller gets 204) and the
-    // reconfigure count advances (lifecycle was triggered).
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-    bb_mqtt_host_set_connected(h, false);  // starts disconnected
-    bb_err_t rc = bb_mqtt_reconfigure();
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    // One lifecycle cycle triggered regardless of connected flag.
-    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_test_reconfigure_count());
-    bb_mqtt_destroy(h);
-}
-
-void test_bb_mqtt_reconfigure_disable_stops_client(void)
-{
-    // Simulate: MQTT enabled, PATCH sets enabled=0.  The caller:
-    //   1. Writes enabled=0 to NVS.
-    //   2. Calls bb_mqtt_stop(&h) to tear down immediately.
-    //   3. Calls bb_mqtt_reconfigure() so the worker re-reads NVS and skips
-    //      re-init (enabled=0 path).
-    // Assert: handle is NULL after stop; reconfigure still returns BB_OK.
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
-    TEST_ASSERT_NULL(h);
-    // Reconfigure with no handle (mirrors ESP-IDF disabled path).
-    bb_err_t rc = bb_mqtt_reconfigure();
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    bb_mqtt_destroy(h);  // h==NULL, safe
-}
-
-void test_bb_mqtt_reconfigure_reenable_after_disable(void)
-{
-    // Full cycle: enable → disable → re-enable.
-    // Phase 1 — enabled.
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());  // cycle 1
-    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_test_reconfigure_count());
-
-    // Phase 2 — disable.
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
-    TEST_ASSERT_NULL(h);
-
-    // Phase 3 — re-enable: fresh handle, publish works.
-    h = make_client(NULL, NULL);
-    TEST_ASSERT_NOT_NULL(h);
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_mqtt_publish(h, "t/after-reenable", "ok", -1, 0, false));
-    TEST_ASSERT_EQUAL_INT(1, bb_mqtt_host_pub_count(h));
-
-    bb_mqtt_destroy(h);
-}
-
-// ---------------------------------------------------------------------------
-// B1-276: disable/teardown path vs enable path (inline vs worker split)
-//
-// The ESP-IDF implementation peeks NVS "bb_mqtt"/"enabled" in
-// bb_mqtt_reconfigure() BEFORE deciding whether to run inline (disable) or
-// spawn an 8192-byte task (enable).  The host stub mirrors this classification
-// via bb_mqtt_test_last_reconfigure_was_disable().
-//
-// These tests assert:
-// - disable path (enabled=0 in NVS) is classified as disable
-// - enable path (enabled=1 in NVS) is classified as enable
-// - the path classification survives reentrancy (multiple calls)
-// - boot-loser teardown (enabled=0 written then reconfigure) is classified
-//   as disable — matching the B1-275 boot-loser path
-// ---------------------------------------------------------------------------
-
-void test_bb_mqtt_reconfigure_disable_path_classified_as_disable(void)
-{
-    // Set NVS enabled=0 then call reconfigure — must classify as disable.
-    bb_nv_host_str_store_reset();
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-    bb_nv_set_str("bb_mqtt", "enabled", "0");
-    bb_err_t rc = bb_mqtt_reconfigure();
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    TEST_ASSERT_TRUE(bb_mqtt_test_last_reconfigure_was_disable());
-    bb_mqtt_destroy(h);
-}
-
-void test_bb_mqtt_reconfigure_enable_path_classified_as_enable(void)
-{
-    // Set NVS enabled=1 then call reconfigure — must classify as enable.
-    bb_nv_host_str_store_reset();
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-    bb_nv_set_str("bb_mqtt", "enabled", "1");
-    bb_err_t rc = bb_mqtt_reconfigure();
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    TEST_ASSERT_FALSE(bb_mqtt_test_last_reconfigure_was_disable());
-    bb_mqtt_destroy(h);
-}
-
-void test_bb_mqtt_reconfigure_disable_returns_ok_without_task_spawn(void)
-{
-    // The disable path must return BB_OK regardless of heap state — on the
-    // host we simulate "fragmented heap" by not needing any 8192 allocation.
-    // On ESP-IDF this corresponds to the inline path that succeeds when
-    // largest free block < 8192 (the B1-276 scenario).
-    bb_nv_host_str_store_reset();
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-    bb_nv_set_str("bb_mqtt", "enabled", "0");
-    // Call three times (reentrancy): must all succeed.
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
-    TEST_ASSERT_EQUAL_INT(3, bb_mqtt_test_reconfigure_count());
-    TEST_ASSERT_TRUE(bb_mqtt_test_last_reconfigure_was_disable());
-    bb_mqtt_destroy(h);
-}
-
-void test_bb_mqtt_reconfigure_enable_then_disable_path_switches(void)
-{
-    // enable → disable: verify the classification flips correctly.
-    bb_nv_host_str_store_reset();
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-
-    // Enable.
-    bb_nv_set_str("bb_mqtt", "enabled", "1");
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
-    TEST_ASSERT_FALSE(bb_mqtt_test_last_reconfigure_was_disable());
-
-    // Disable.
-    bb_nv_set_str("bb_mqtt", "enabled", "0");
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());
-    TEST_ASSERT_TRUE(bb_mqtt_test_last_reconfigure_was_disable());
-
-    TEST_ASSERT_EQUAL_INT(2, bb_mqtt_test_reconfigure_count());
-    bb_mqtt_destroy(h);
-}
-
-void test_bb_mqtt_boot_loser_disable_path_classified_as_disable(void)
-{
-    // Mirrors the B1-275 boot-loser teardown path:
-    //   bb_nv_set_str("enabled", "0")  → bb_mqtt_reconfigure()
-    // Must be classified as disable so on ESP-IDF it runs inline (no 8192 spawn).
-    bb_nv_host_str_store_reset();
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-
-    // Simulate: boot-loser writes enabled=0 then triggers reconfigure.
-    bb_nv_set_str("bb_mqtt", "enabled", "0");
-    bb_err_t rc = bb_mqtt_reconfigure();
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    TEST_ASSERT_TRUE(bb_mqtt_test_last_reconfigure_was_disable());
-
-    // Confirm client can be destroyed cleanly after this path.
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_stop(&h));
-    TEST_ASSERT_NULL(h);
-}
-
-void test_bb_mqtt_reconfigure_concurrent_disable_enable_no_uaf(void)
-{
-    // Rapid disable+enable sequence — no UAF, correct final classification.
-    bb_nv_host_str_store_reset();
-    bb_mqtt_t h = make_client(NULL, NULL);
-    bb_mqtt_host_reset(h);
-
-    bb_nv_set_str("bb_mqtt", "enabled", "0");
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());  // disable
-    TEST_ASSERT_TRUE(bb_mqtt_test_last_reconfigure_was_disable());
-
-    bb_nv_set_str("bb_mqtt", "enabled", "1");
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());  // enable
-    TEST_ASSERT_FALSE(bb_mqtt_test_last_reconfigure_was_disable());
-
-    bb_nv_set_str("bb_mqtt", "enabled", "0");
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_reconfigure());  // disable again
-    TEST_ASSERT_TRUE(bb_mqtt_test_last_reconfigure_was_disable());
-
-    // Three calls, all clean.
-    TEST_ASSERT_EQUAL_INT(3, bb_mqtt_test_reconfigure_count());
-    bb_mqtt_destroy(h);
-}

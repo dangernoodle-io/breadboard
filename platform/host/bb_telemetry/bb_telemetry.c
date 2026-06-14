@@ -20,7 +20,8 @@ typedef struct {
 } bb_telemetry_section_t;
 
 static bb_telemetry_section_t s_sections[CONFIG_BB_TELEMETRY_MAX_SECTIONS];
-static int s_count = 0;
+static int  s_count           = 0;
+static bool s_pending_reboot  = false;
 
 bb_err_t bb_telemetry_register_section(const char *name,
                                         bb_telemetry_get_fn get,
@@ -53,6 +54,7 @@ void bb_telemetry_build_get(bb_json_t root)
 
 bb_err_t bb_telemetry_dispatch_patch(bb_json_t body)
 {
+    bool any_ok = false;
     for (int i = 0; i < s_count; i++) {
         bb_json_t child = bb_json_obj_get_item(body, s_sections[i].name);
         if (!child) continue;
@@ -62,8 +64,17 @@ bb_err_t bb_telemetry_dispatch_patch(bb_json_t body)
         }
         bb_err_t rc = s_sections[i].patch(child, s_sections[i].ctx);
         if (rc != BB_OK) return rc;
+        any_ok = true;
+    }
+    if (any_ok) {
+        s_pending_reboot = true;
     }
     return BB_OK;
+}
+
+bool bb_telemetry_pending_reboot(void)
+{
+    return s_pending_reboot;
 }
 
 #ifdef BB_TELEMETRY_TESTING
@@ -71,7 +82,8 @@ bb_err_t bb_telemetry_dispatch_patch(bb_json_t body)
 void bb_telemetry_reset_for_test(void)
 {
     memset(s_sections, 0, sizeof(s_sections));
-    s_count = 0;
+    s_count          = 0;
+    s_pending_reboot = false;
 }
 
 void bb_telemetry_build_get_for_test(bb_json_t root)

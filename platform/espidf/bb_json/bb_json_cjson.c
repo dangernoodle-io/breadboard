@@ -93,6 +93,12 @@ void bb_json_obj_set_null(bb_json_t obj, const char *key)
     cJSON_AddNullToObject((cJSON *)obj, key);
 }
 
+void bb_json_obj_delete_key(bb_json_t obj, const char *key)
+{
+    if (!obj || !key) return;
+    cJSON_DeleteItemFromObject((cJSON *)obj, key);
+}
+
 void bb_json_obj_set_obj(bb_json_t obj, const char *key, bb_json_t child)
 {
     if (!obj || !key || !child) return;

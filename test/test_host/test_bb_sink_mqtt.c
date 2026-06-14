@@ -137,3 +137,4 @@ void test_bb_sink_mqtt_multiple_sources_each_forwarded(void)
 
     bb_mqtt_destroy(h);
 }
+

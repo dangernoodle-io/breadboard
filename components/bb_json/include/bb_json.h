@@ -93,6 +93,9 @@ int         bb_json_item_get_int   (bb_json_t item);
 // Free with bb_json_free_str.
 char *bb_json_item_serialize(bb_json_t item);
 
+// Remove the named key from an object. No-op if key is absent. Safe with NULL obj/key.
+void bb_json_obj_delete_key(bb_json_t obj, const char *key);
+
 // ---------------------------------------------------------------------------
 // Raw JSON injection
 // ---------------------------------------------------------------------------

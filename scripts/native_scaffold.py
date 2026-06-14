@@ -443,6 +443,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_pub_wifi/bb_pub_wifi.c"],
         "depends":  ["bb_core", "bb_pub", "bb_wifi"],
     },
+    "bb_pub_rtos": {
+        "includes": ["components/bb_pub_rtos/include"],
+        "sources":  ["platform/host/bb_pub_rtos/bb_pub_rtos.c"],
+        "depends":  ["bb_core", "bb_pub"],
+    },
     "bb_telemetry": {
         "includes": ["components/bb_telemetry/include"],
         "sources":  ["platform/host/bb_telemetry/bb_telemetry.c"],

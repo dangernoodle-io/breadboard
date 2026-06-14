@@ -1,5 +1,8 @@
 // bb_sink_http_telemetry host twin — section get/patch logic + test hooks.
 // Compiled on both host (test) and ESP-IDF (shared logic).
+//
+// B1-289: PATCH /api/telemetry validates + writes NVS only (no live refresh).
+// Boot: bb_sink_http_telemetry_init wires the ONE enabled sink at PRE_HTTP time.
 #include "bb_sink_http_telemetry.h"
 #include "bb_sink_http.h"
 #include "bb_nv.h"
@@ -242,15 +245,17 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
 
     free(tmp);
 
-    // Refresh cached cfg from updated NVS.
-    bb_sink_http_init(NULL);
-
+    // B1-289: NVS-only patch; live refresh removed. A reboot is required
+    // for the new config to take effect (signalled by bb_telemetry_pending_reboot).
     return BB_OK;
 }
 
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
+
+// Static sink struct: lives for the app lifetime once wired at boot.
+static bb_pub_sink_t s_http_sink;
 
 bb_err_t bb_sink_http_telemetry_init(void)
 {
@@ -261,7 +266,16 @@ bb_err_t bb_sink_http_telemetry_init(void)
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "enabled", enabled_str, sizeof(enabled_str), "0");
     if (enabled_str[0] == '1') {
         bb_err_t arc = bb_pub_exclusive_acquire(BB_SINK_HTTP_EXCLUSIVE_ID);
-        if (arc != BB_OK) {
+        if (arc == BB_OK) {
+            // WINNER: init the http sink from NVS and register it with bb_pub.
+            bb_sink_http_init(NULL);
+            if (bb_sink_http(&s_http_sink) == BB_OK) {
+                bb_pub_add_sink(&s_http_sink);
+                bb_log_i(TAG, "boot: http sink registered (winner)");
+            } else {
+                bb_log_w(TAG, "boot: http enabled but sink init failed");
+            }
+        } else {
             bb_log_w(TAG, "boot: mqtt and http both enabled in NVS — "
                      "disabling http sink (mqtt wins)");
             bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "enabled", "0");

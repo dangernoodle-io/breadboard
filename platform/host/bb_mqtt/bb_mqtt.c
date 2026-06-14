@@ -4,11 +4,6 @@
 // bb_mqtt_publish records the last (and all) publish calls in a ring.
 // bb_mqtt_is_connected returns a flag settable via bb_mqtt_host_set_connected.
 // All operations return BB_OK; no real network IO occurs.
-//
-// bb_mqtt_reconfigure mirrors the ESP-IDF split behavior (B1-276): it peeks
-// NVS "bb_mqtt"/"enabled" to decide whether this is a disable (teardown-only)
-// or enable (init+start) call, and records that distinction so tests can assert
-// via bb_mqtt_test_last_was_disable().
 #include "bb_mqtt.h"
 #include "bb_nv.h"
 
@@ -21,6 +16,7 @@ typedef struct {
     bb_mqtt_host_pub_t pubs[BB_MQTT_HOST_PUB_CAP];
     int                count;
     bool               connected;
+    bool               tls;       // captured from cfg.tls at init time
 } bb_mqtt_host_handle_t;
 
 bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
@@ -32,9 +28,16 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
 
     // Simulate "connected" by default so publish tests don't need to set flag.
     h->connected = true;
+    h->tls       = cfg->tls;
 
     *out = h;
     return BB_OK;
+}
+
+bool bb_mqtt_is_tls(bb_mqtt_t handle)
+{
+    if (!handle) return false;
+    return ((bb_mqtt_host_handle_t *)handle)->tls;
 }
 
 bb_err_t bb_mqtt_publish(bb_mqtt_t handle, const char *topic,
@@ -106,29 +109,14 @@ bb_mqtt_t bb_mqtt_default(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_mqtt_reconfigure — host stub
+// bb_mqtt_stop_default — host stub
 //
-// Mirrors the ESP-IDF split behavior (B1-276): peeks NVS "bb_mqtt"/"enabled"
-// to classify the call as disable (teardown-only) or enable (init+start).
-// Records both the total count and the last-was-disable flag so tests can
-// assert the correct path was taken without a real MQTT connection.
+// Stops and NULLs the default handle (mirrors ESP-IDF behavior).
 // ---------------------------------------------------------------------------
 
-static int  s_reconfigure_count    = 0;
-static bool s_last_reconfigure_was_disable = false;
-
-bb_err_t bb_mqtt_reconfigure(void)
+bb_err_t bb_mqtt_stop_default(void)
 {
-    // Peek enabled flag — mirrors the ESP-IDF split in bb_mqtt_reconfigure.
-    char enabled_str[4] = "0";
-    bb_nv_get_str("bb_mqtt", "enabled", enabled_str, sizeof(enabled_str), "0");
-    s_last_reconfigure_was_disable = (enabled_str[0] != '1');
-
-    s_reconfigure_count++;
-    // On the host there is no managed client to tear down/restart.
-    // We re-read NVS to mirror the ESP-IDF path; the observable effects are
-    // the counter increment and the disable/enable classification.
-    return BB_OK;
+    return bb_mqtt_stop(&s_default_handle);
 }
 
 // ---------------------------------------------------------------------------
@@ -163,23 +151,11 @@ void bb_mqtt_host_reset(bb_mqtt_t handle)
     bb_mqtt_host_handle_t *h = (bb_mqtt_host_handle_t *)handle;
     h->count     = 0;
     h->connected = true;
-    s_reconfigure_count             = 0;
-    s_last_reconfigure_was_disable  = false;
 }
 
 void bb_mqtt_default_set(bb_mqtt_t h)
 {
     s_default_handle = h;
-}
-
-int bb_mqtt_test_reconfigure_count(void)
-{
-    return s_reconfigure_count;
-}
-
-bool bb_mqtt_test_last_reconfigure_was_disable(void)
-{
-    return s_last_reconfigure_was_disable;
 }
 
 #endif /* BB_MQTT_TESTING */

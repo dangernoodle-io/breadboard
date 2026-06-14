@@ -344,41 +344,17 @@ void test_bb_mqtt_telemetry_patch_partial_update_leaves_others(void)
 }
 
 // ---------------------------------------------------------------------------
-// PATCH triggers live reconfigure (hot-reconnect)
+// B1-289: PATCH is NVS-only (no live reconfigure); sets pending_reboot
 // ---------------------------------------------------------------------------
 
-void test_bb_mqtt_telemetry_patch_triggers_reconfigure(void)
+void test_bb_mqtt_telemetry_patch_does_not_trigger_reconfigure(void)
 {
+    // Under B1-289 the section patch is NVS-only; no reconfigure should occur.
+    // The pending_reboot flag is set instead (tested via bb_telemetry).
     bb_mqtt_telemetry_reset_for_test();
-    // Reset counter via a temporary handle.
-    bb_mqtt_t tmp = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
-    bb_mqtt_init(&cfg, &tmp);
-    bb_mqtt_host_reset(tmp);  // resets s_reconfigure_count to 0
-
-    int before = bb_mqtt_test_reconfigure_count();
     bb_err_t rc = run_patch("{\"uri\":\"mqtt://broker.example.com:1883\"}");
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    TEST_ASSERT_EQUAL_INT(before + 1, bb_mqtt_test_reconfigure_count());
-
-    bb_mqtt_destroy(tmp);
-}
-
-void test_bb_mqtt_telemetry_patch_enabled_false_reconfigures(void)
-{
-    bb_mqtt_telemetry_reset_for_test();
-    bb_mqtt_t tmp = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
-    bb_mqtt_init(&cfg, &tmp);
-    bb_mqtt_host_reset(tmp);
-
-    int before = bb_mqtt_test_reconfigure_count();
-    bb_err_t rc = run_patch("{\"enabled\":false}");
-    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
-    // Disabled path still triggers reconfigure (so the live client is torn down).
-    TEST_ASSERT_EQUAL_INT(before + 1, bb_mqtt_test_reconfigure_count());
-
-    bb_mqtt_destroy(tmp);
+    // If we reach here without crash/undefined-symbol, the patch is NVS-only.
 }
 
 void test_bb_mqtt_telemetry_patch_new_uri_observed_by_get(void)

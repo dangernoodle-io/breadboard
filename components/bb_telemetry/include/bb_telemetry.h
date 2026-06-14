@@ -8,6 +8,7 @@
 #pragma once
 #include "bb_core.h"
 #include "bb_json.h"
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,7 +34,13 @@ void bb_telemetry_build_get(bb_json_t root);
 
 // Dispatch PATCH body: per section present in body, call patch_fn(child).
 // Returns BB_ERR_INVALID_ARG if a present section has patch_fn==NULL.
+// Sets the pending-reboot flag when any section patch_fn returns BB_OK.
 bb_err_t bb_telemetry_dispatch_patch(bb_json_t body);
+
+// Returns true when a successful PATCH has been applied since boot or last
+// reset.  Used by the route handler to signal {"reboot_required":true} and
+// by GET /api/telemetry to include a "pending_reboot" field (B1-289).
+bool bb_telemetry_pending_reboot(void);
 
 // Register GET + PATCH /api/telemetry with the HTTP server.
 // Called automatically when CONFIG_BB_TELEMETRY_AUTOREGISTER=y.
