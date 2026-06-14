@@ -905,6 +905,22 @@ bb_err_t bb_nv_erase(const char *ns, const char *key)
     return err;
 }
 
+bool bb_nv_exists(const char *ns, const char *key)
+{
+    if (ns == NULL || key == NULL) return false;
+
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
+    if (err != BB_OK) return false;
+
+    size_t required = 0;
+    esp_err_t gerr = nvs_get_str(handle, key, NULL, &required);
+    nvs_close(handle);
+
+    /* required includes the NUL terminator; > 1 means at least one real byte */
+    return (gerr == ESP_OK && required > 1);
+}
+
 /* -------- batched setters -------- */
 
 bb_err_t bb_nv_batch_begin(bb_nv_batch_t *batch, const char *ns)
@@ -1172,6 +1188,13 @@ bb_err_t bb_nv_erase(const char *ns, const char *key)
         memset(e, 0, sizeof(*e));
     }
     return BB_OK;
+}
+
+bool bb_nv_exists(const char *ns, const char *key)
+{
+    if (ns == NULL || key == NULL) return false;
+    const bb_nv_host_str_entry_t *e = str_store_find(ns, key);
+    return (e != NULL && e->val[0] != '\0');
 }
 
 /* -------- batched setters (host stubs) -------- */

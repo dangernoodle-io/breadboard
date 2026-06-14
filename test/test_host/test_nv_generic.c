@@ -329,3 +329,39 @@ void test_nv_batch_three_u32_writes_succeed(void)
     err = bb_nv_batch_commit(&batch);
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 }
+
+// ---------------------------------------------------------------------------
+// bb_nv_exists tests
+// ---------------------------------------------------------------------------
+
+void test_nv_exists_absent_key_returns_false(void)
+{
+    bb_nv_host_str_store_reset();
+    TEST_ASSERT_FALSE(bb_nv_exists("test_ns", "missing_key"));
+}
+
+void test_nv_exists_short_value_returns_true(void)
+{
+    bb_nv_host_str_store_reset();
+    bb_nv_set_str("test_ns", "short_key", "x");
+    TEST_ASSERT_TRUE(bb_nv_exists("test_ns", "short_key"));
+}
+
+void test_nv_exists_long_value_gt8_returns_true(void)
+{
+    bb_nv_host_str_store_reset();
+    /* Value longer than the old 8-byte probe — the key that triggered the bug */
+    bb_nv_set_str("test_ns", "tls_ca",
+                  "-----BEGIN CERTIFICATE-----\nlong_pem_content_here\n-----END CERTIFICATE-----\n");
+    TEST_ASSERT_TRUE(bb_nv_exists("test_ns", "tls_ca"));
+}
+
+void test_nv_exists_null_ns_returns_false(void)
+{
+    TEST_ASSERT_FALSE(bb_nv_exists(NULL, "key"));
+}
+
+void test_nv_exists_null_key_returns_false(void)
+{
+    TEST_ASSERT_FALSE(bb_nv_exists("ns", NULL));
+}

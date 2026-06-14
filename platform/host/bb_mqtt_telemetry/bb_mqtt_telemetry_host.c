@@ -51,16 +51,9 @@ static void mqtt_section_get(bb_json_t section, void *ctx)
     bb_nv_get_str(BB_MQTT_NVS_NS, "enabled",   enabled_str, sizeof(enabled_str), "0");
     bb_nv_get_str(BB_MQTT_NVS_NS, "tls",       tls_str,     sizeof(tls_str),     "0");
 
-    char ca_probe[8]   = {0};
-    char cert_probe[8] = {0};
-    char key_probe[8]  = {0};
-    bb_nv_get_str(BB_MQTT_NVS_NS, "tls_ca",   ca_probe,   sizeof(ca_probe),   "");
-    bb_nv_get_str(BB_MQTT_NVS_NS, "tls_cert", cert_probe, sizeof(cert_probe), "");
-    bb_nv_get_str(BB_MQTT_NVS_NS, "tls_key",  key_probe,  sizeof(key_probe),  "");
-
-    bool ca_set   = (ca_probe[0]   != '\0');
-    bool cert_set = (cert_probe[0] != '\0');
-    bool key_set  = (key_probe[0]  != '\0');
+    bool ca_set   = bb_nv_exists(BB_MQTT_NVS_NS, "tls_ca");
+    bool cert_set = bb_nv_exists(BB_MQTT_NVS_NS, "tls_cert");
+    bool key_set  = bb_nv_exists(BB_MQTT_NVS_NS, "tls_key");
     bool tls_on   = (tls_str[0] == '1');
     bool enabled  = (enabled_str[0] == '1');
 
