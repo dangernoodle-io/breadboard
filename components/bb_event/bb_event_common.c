@@ -280,18 +280,39 @@ void bb_event_common_dispatch(const bb_event_queue_entry_t *entry,
 
     struct bb_event_topic *t = (struct bb_event_topic *)entry->topic;
 
+    // Hold the recursive port lock across the entire subscriber walk.
+    //
+    // The previous code snapshotted only sub_head under the lock, then released
+    // before calling handlers.  On dual-core SMP targets (ESP32-S3 tdongle-s3,
+    // r4_wifis3) a concurrent bb_event_unsubscribe (e.g. bb_event_ring_detach
+    // on SSE-client disconnect from the httpd task) could free a subscriber node
+    // mid-walk, causing the walker to read sub->next from freed/recycled memory
+    // (UAF / corrupted traversal).  Benign on single-core C3/S2 where the
+    // dispatcher task is the only caller, but a real data race on SMP.
+    //
+    // Fix: hold the lock for the full walk.  Callbacks that re-acquire the port
+    // lock (e.g. ring_capture calls bb_event_lock()) are safe because both the
+    // host pthread backend and the ESP-IDF FreeRTOS backend use *recursive*
+    // mutexes (PTHREAD_MUTEX_RECURSIVE / xSemaphoreCreateRecursiveMutex).
+    //
+    // Analysis of every known subscriber callback:
+    //   ring_capture       — calls bb_event_lock() recursively (safe); no I/O;
+    //                        does NOT call bb_event_unsubscribe.
+    //   capture_cb         — acquires s_topics_lock and c->port_lock (both
+    //                        separate from the port mutex; no deadlock risk);
+    //                        no I/O; does NOT call bb_event_unsubscribe.
+    //
+    // No callback unsubscribes-self or another subscriber during dispatch, and
+    // none blocks on I/O, so holding the lock across the walk is safe.
     bb_event_port_lock();
-    // Snapshot the list: walk it while holding lock, then release before calling handlers.
-    // This is safe because we call handlers outside the lock, so unsubscribe can't corrupt the walk.
     bb_event_subscriber_t *sub = t->entry.sub_head;
-    bb_event_port_unlock();
-
     while (sub) {
         if (sub->cb) {  // LCOV_EXCL_LINE
             sub->cb(entry->topic, entry->id, payload, entry->size, sub->user);
         }
         sub = sub->next;
     }
+    bb_event_port_unlock();
 }
 
 // ---------------------------------------------------------------------------
