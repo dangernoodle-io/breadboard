@@ -1,0 +1,26 @@
+menu "breadboard: bb_sink_mqtt"
+
+config BB_SINK_MQTT_QOS
+    int "Default MQTT QoS level for telemetry publishes"
+    default 0
+    range 0 1
+    help
+        MQTT Quality-of-Service level used by bb_sink_mqtt when publishing
+        telemetry payloads. 0 = at-most-once (fire-and-forget, lowest
+        overhead); 1 = at-least-once (acknowledged delivery, required by
+        AWS IoT Core for reliable ingestion). Default 0 matches the prior
+        hardcoded value (no behavior change). Set to 1 for AWS IoT Core
+        deployments. QoS 2 is not supported by bb_sink_mqtt.
+
+config BB_SINK_MQTT_RETAIN
+    bool "Set the MQTT retain flag on telemetry publishes"
+    default n
+    help
+        When enabled, telemetry messages published via bb_sink_mqtt carry
+        the MQTT retain flag so the broker stores the last message per topic
+        and delivers it immediately to new subscribers. Default n (retain
+        off) matches the prior hardcoded value (no behavior change). Enable
+        for deployments where dashboard tools rely on retained state (e.g.
+        Home Assistant auto-discovery).
+
+endmenu

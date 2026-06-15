@@ -141,24 +141,26 @@ bb_mqtt_t bb_mqtt_default(void);
 bb_err_t bb_mqtt_stop_default(void);
 
 /**
- * Transiently quiesce the auto-registered MQTT connection by calling
- * esp_mqtt_client_stop() on the underlying handle.  This tears down the
- * TCP/TLS socket and the esp-mqtt internal task, freeing heap headroom for
- * a heap-heavy operation such as a TLS GitHub update-check handshake on
- * tight no-PSRAM boards (e.g. ESP32-S2).
+ * Fully stop and destroy the auto-registered MQTT connection, freeing heap
+ * headroom for a heap-heavy operation such as a TLS GitHub update-check
+ * handshake on tight no-PSRAM boards (e.g. ESP32-S2).
  *
- * The client object and TLS credentials are NOT freed; the connection can
- * be re-established by calling bb_mqtt_resume_default() after the
- * heap-heavy operation completes.
+ * Calls esp_mqtt_client_stop() followed by esp_mqtt_client_destroy() on the
+ * underlying handle, then frees TLS credentials.  After this call the
+ * auto-client pointer is NULL.  To re-establish the connection call
+ * bb_mqtt_resume_default(), which re-initialises and restarts the client
+ * from the NVS-persisted configuration.
  *
- * Contrast with bb_mqtt_stop_default(), which stops AND destroys the client
- * permanently; this function is for a transient, reversible quiesce only.
+ * Contrast with bb_mqtt_stop_default() (permanent teardown, no resume),
+ * which is used when the MQTT sink loses the exclusive-sink slot at boot.
+ * This function is for a transient pause-and-resume pattern where the
+ * consumer intends to call bb_mqtt_resume_default() afterward.
  *
  * Idempotent: no-op + BB_OK if already suspended, if no auto-client exists,
  * or if the deferred-start has not yet fired (IP not yet acquired).
  *
  * @return BB_OK on success or when already suspended; platform error on
- *         esp_mqtt_client_stop failure.
+ *         esp_mqtt_client_stop/destroy failure.
  */
 bb_err_t bb_mqtt_suspend_default(void);
 

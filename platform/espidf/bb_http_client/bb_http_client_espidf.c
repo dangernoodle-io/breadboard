@@ -19,14 +19,31 @@ static const char *TAG = "bb_http_client";
 #ifndef CONFIG_BB_HTTP_CLIENT_DEFAULT_MAX_ATTEMPTS
 #define CONFIG_BB_HTTP_CLIENT_DEFAULT_MAX_ATTEMPTS 3
 #endif
+#ifndef CONFIG_BB_HTTP_CLIENT_BACKOFF_BASE_MS
+#define CONFIG_BB_HTTP_CLIENT_BACKOFF_BASE_MS 2000
+#endif
+#ifndef CONFIG_BB_HTTP_CLIENT_BACKOFF_MAX_MS
+#define CONFIG_BB_HTTP_CLIENT_BACKOFF_MAX_MS 8000
+#endif
+#ifndef CONFIG_BB_HTTP_CLIENT_STREAM_CHUNK_BYTES
+#define CONFIG_BB_HTTP_CLIENT_STREAM_CHUNK_BYTES 2048
+#endif
+#ifndef CONFIG_BB_HTTP_CLIENT_DEFAULT_BUF_SIZE
+#define CONFIG_BB_HTTP_CLIENT_DEFAULT_BUF_SIZE 4096
+#endif
 
-static const int s_backoff_ms[] = {2000, 4000, 8000};
-
+// Exponential back-off: base * 2^attempt, capped at max.
 static void apply_backoff(int attempt)
 {
-    int len = (int)(sizeof(s_backoff_ms) / sizeof(s_backoff_ms[0]));
-    int idx = attempt < len ? attempt : len - 1;
-    vTaskDelay(pdMS_TO_TICKS(s_backoff_ms[idx]));
+    int delay_ms = CONFIG_BB_HTTP_CLIENT_BACKOFF_BASE_MS;
+    for (int i = 0; i < attempt; i++) {
+        delay_ms *= 2;
+        if (delay_ms >= CONFIG_BB_HTTP_CLIENT_BACKOFF_MAX_MS) {
+            delay_ms = CONFIG_BB_HTTP_CLIENT_BACKOFF_MAX_MS;
+            break;
+        }
+    }
+    vTaskDelay(pdMS_TO_TICKS(delay_ms));
 }
 
 bb_err_t bb_http_client_get(const char *url,
@@ -38,7 +55,7 @@ bb_err_t bb_http_client_get(const char *url,
 
     uint32_t timeout_ms = (cfg && cfg->timeout_ms)   ? cfg->timeout_ms   : CONFIG_BB_HTTP_CLIENT_DEFAULT_TIMEOUT_MS;
     uint8_t  attempts   = (cfg && cfg->max_attempts) ? cfg->max_attempts : CONFIG_BB_HTTP_CLIENT_DEFAULT_MAX_ATTEMPTS;
-    uint16_t buf_size   = (cfg && cfg->buffer_size)  ? cfg->buffer_size  : 4096;
+    uint16_t buf_size   = (cfg && cfg->buffer_size)  ? cfg->buffer_size  : CONFIG_BB_HTTP_CLIENT_DEFAULT_BUF_SIZE;
     const char *ua      = (cfg && cfg->user_agent)   ? cfg->user_agent   : "bb_http_client/0.1";
     const char *accept  = (cfg && cfg->accept_header)? cfg->accept_header: "*/*";
 
@@ -126,7 +143,7 @@ bb_err_t bb_http_client_get_stream(const char *url,
 
     uint32_t timeout_ms = (cfg && cfg->timeout_ms)   ? cfg->timeout_ms   : CONFIG_BB_HTTP_CLIENT_DEFAULT_TIMEOUT_MS;
     uint8_t  attempts   = (cfg && cfg->max_attempts) ? cfg->max_attempts : CONFIG_BB_HTTP_CLIENT_DEFAULT_MAX_ATTEMPTS;
-    uint16_t buf_size   = (cfg && cfg->buffer_size)  ? cfg->buffer_size  : 4096;
+    uint16_t buf_size   = (cfg && cfg->buffer_size)  ? cfg->buffer_size  : CONFIG_BB_HTTP_CLIENT_DEFAULT_BUF_SIZE;
     const char *ua      = (cfg && cfg->user_agent)   ? cfg->user_agent   : "bb_http_client/0.1";
     const char *accept  = (cfg && cfg->accept_header)? cfg->accept_header: "*/*";
 
@@ -177,8 +194,8 @@ bb_err_t bb_http_client_get_stream(const char *url,
         return BB_ERR_INVALID_STATE;
     }
 
-    // Stream body in 2 KB chunks to the callback.
-    char chunk_buf[2048];
+    // Stream body in chunks to the callback.
+    char chunk_buf[CONFIG_BB_HTTP_CLIENT_STREAM_CHUNK_BYTES];
     size_t total = 0;
     int read_len;
     bb_err_t cb_err = BB_OK;
@@ -211,7 +228,7 @@ bb_err_t bb_http_client_post(const char *url,
 
     uint32_t timeout_ms = (cfg && cfg->timeout_ms)   ? cfg->timeout_ms   : CONFIG_BB_HTTP_CLIENT_DEFAULT_TIMEOUT_MS;
     uint8_t  attempts   = (cfg && cfg->max_attempts) ? cfg->max_attempts : CONFIG_BB_HTTP_CLIENT_DEFAULT_MAX_ATTEMPTS;
-    uint16_t buf_size   = (cfg && cfg->buffer_size)  ? cfg->buffer_size  : 4096;
+    uint16_t buf_size   = (cfg && cfg->buffer_size)  ? cfg->buffer_size  : CONFIG_BB_HTTP_CLIENT_DEFAULT_BUF_SIZE;
     const char *ua      = (cfg && cfg->user_agent)   ? cfg->user_agent   : "bb_http_client/0.1";
     const char *ct      = content_type               ? content_type      : "application/json";
 
@@ -320,7 +337,7 @@ bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
     if (!url_base || !out) return BB_ERR_INVALID_ARG;
 
     uint32_t timeout_ms = (cfg && cfg->timeout_ms)   ? cfg->timeout_ms   : CONFIG_BB_HTTP_CLIENT_DEFAULT_TIMEOUT_MS;
-    uint16_t buf_size   = (cfg && cfg->buffer_size)  ? cfg->buffer_size  : 4096;
+    uint16_t buf_size   = (cfg && cfg->buffer_size)  ? cfg->buffer_size  : CONFIG_BB_HTTP_CLIENT_DEFAULT_BUF_SIZE;
     const char *ua      = (cfg && cfg->user_agent)   ? cfg->user_agent   : "bb_http_client/0.1";
     const char *ca_pem  = (cfg && cfg->ca_cert_pem)  ? cfg->ca_cert_pem  : NULL;
 
