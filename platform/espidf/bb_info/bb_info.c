@@ -106,20 +106,8 @@ static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
 
 static void add_network_object(bb_json_t root, const bb_wifi_info_t *w)
 {
-    char bssid[18];
-    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
-             w->bssid[0], w->bssid[1], w->bssid[2],
-             w->bssid[3], w->bssid[4], w->bssid[5]);
-
     bb_json_t net = bb_json_obj_new();
-    bb_json_obj_set_string(net, "ssid", w->ssid);
-    bb_json_obj_set_string(net, "bssid", bssid);
-    bb_json_obj_set_number(net, "rssi", (double)w->rssi);
-    bb_json_obj_set_string(net, "ip", w->ip);
-    bb_json_obj_set_bool(net, "connected", w->connected);
-    bb_json_obj_set_number(net, "disc_reason", (double)w->disc_reason);
-    bb_json_obj_set_number(net, "disc_age_s", (double)w->disc_age_s);
-    bb_json_obj_set_number(net, "retry_count", (double)w->retry_count);
+    bb_wifi_emit_section(net, w);
     bb_json_obj_set_obj(root, "network", net);
 }
 

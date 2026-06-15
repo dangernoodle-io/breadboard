@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include "bb_core.h"
 
 #ifdef ESP_PLATFORM
@@ -14,6 +15,10 @@ typedef void (*bb_health_extender_fn)(bb_json_t root);
 // Host stub: opaque handle for extender callbacks
 typedef void (*bb_health_extender_fn)(void *root);
 #endif
+
+// Compute the /api/health.ok gate: true when WiFi has IP AND OTA is validated.
+// mDNS is intentionally excluded (locked decision B1-269).
+bool bb_health_compute_ok(void);
 
 // Register an extender for /api/health. Fixed capacity (per-route slot count).
 // Must be called before bb_http_server_start; registering after start returns
