@@ -1,16 +1,17 @@
 #pragma once
 
 // Private: shared between platform/espidf and platform/host bb_info implementations.
-// Split of the /api/info 200 JSON-Schema into base + suffix so extender fragments
-// can be injected between them at init time.
 //
-// Assembled result (no extenders):
-//   k_info_schema_base + k_info_schema_suffix
-// must equal the original monolithic literal plus the http_handler_count and
-// http_handler_cap properties that were previously missing from the schema.
+// bb_section_assemble_schema(reg, k_info_schema_base, k_info_schema_suffix) builds the
+// complete /api/info 200 JSON-Schema:
+//   k_info_schema_base + [,"<name>":<schema_props>]* + k_info_schema_suffix
 //
-// Fragment injection (N extenders):
-//   k_info_schema_base + "," + frag[0] + "," + frag[1] + ... + k_info_schema_suffix
+// Root-level fields (board, network, capabilities, http_handler_*) live in base/suffix.
+// Named sections (display, led, ntp, diag) are emitted by bb_section_assemble_schema
+// from each section's schema_props string.
+//
+// NOTE: abnormal_reset_count and panic have been REMOVED from root.
+//       They live in the diag section: diag.{wdt_resets, panic?}.
 
 static const char k_info_schema_base[] =
     "{\"type\":\"object\","
@@ -57,14 +58,14 @@ static const char k_info_schema_base[] =
     "\"connected\":{\"type\":\"boolean\"},"
     "\"disc_reason\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"retry_count\":{\"type\":\"integer\"}}}";
-
-// Suffix closes the properties object and adds the required array.
-// Also documents http_handler_count, http_handler_cap, and capabilities which
-// are emitted by info_handler but were previously absent from the schema.
-static const char k_info_schema_suffix[] =
-    ",\"http_handler_count\":{\"type\":\"integer\"},"
+    "\"retry_count\":{\"type\":\"integer\"}}},"
+    "\"http_handler_count\":{\"type\":\"integer\"},"
     "\"http_handler_cap\":{\"type\":\"integer\"},"
-    "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}"
+    "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}";
+
+// Suffix: the section properties (display, led, ntp, diag, ...) are inserted
+// between base and suffix by bb_section_assemble_schema with commas.
+// The suffix closes the properties object and adds the required array.
+static const char k_info_schema_suffix[] =
     "},"
     "\"required\":[\"board\",\"version\",\"network\"]}";

@@ -258,7 +258,7 @@ void test_bb_led_info_extender_no_primary_present_false(void)
     bb_led_register_info();
 
     bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_extenders_for_test(root);
+    bb_info_invoke_sections_for_test(root);
 
     bb_json_t led = bb_json_obj_get_item(root, "led");
     TEST_ASSERT_NOT_NULL_MESSAGE(led, "led key missing from extender output");
@@ -279,7 +279,7 @@ void test_bb_led_info_extender_rgb_primary_present_true(void)
     bb_led_register_info();
 
     bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_extenders_for_test(root);
+    bb_info_invoke_sections_for_test(root);
 
     bb_json_t led = bb_json_obj_get_item(root, "led");
     TEST_ASSERT_NOT_NULL_MESSAGE(led, "led key missing");
@@ -314,7 +314,7 @@ void test_bb_led_info_extender_pwm_primary_rgb_false(void)
     bb_led_register_info();
 
     bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_extenders_for_test(root);
+    bb_info_invoke_sections_for_test(root);
 
     bb_json_t led = bb_json_obj_get_item(root, "led");
     TEST_ASSERT_NOT_NULL_MESSAGE(led, "led key missing");
@@ -399,7 +399,7 @@ void test_bb_led_info_extender_enabled_true_by_default(void)
     bb_led_register_info();
 
     bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_extenders_for_test(root);
+    bb_info_invoke_sections_for_test(root);
 
     bb_json_t led = bb_json_obj_get_item(root, "led");
     TEST_ASSERT_NOT_NULL_MESSAGE(led, "led key missing");
@@ -422,7 +422,7 @@ void test_bb_led_info_extender_enabled_false_after_set(void)
     bb_led_register_info();
 
     bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_extenders_for_test(root);
+    bb_info_invoke_sections_for_test(root);
 
     bb_json_t led = bb_json_obj_get_item(root, "led");
     TEST_ASSERT_NOT_NULL_MESSAGE(led, "led key missing");

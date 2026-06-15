@@ -89,13 +89,18 @@ char *bb_section_assemble_schema(const bb_section_registry_t *reg,
     char *buf = malloc(len);
     if (!buf) return NULL;  // LCOV_EXCL_LINE
 
+    // True when the base already has object content (last char is not '{').
+    // In that case every section needs a leading ',' — even the first one.
+    size_t base_len = strlen(base_prefix);
+    bool base_has_content = (base_len > 0 && base_prefix[base_len - 1] != '{');
+
     char *p = buf;
     p = stpcpy(p, base_prefix);
     if (reg) {
         for (int i = 0; i < reg->count; i++) {
             const bb_section_entry_t *e = &reg->entries[i];
             if (!e->schema_props) continue;
-            if (!first) *p++ = ',';
+            if (base_has_content || !first) *p++ = ',';
             first = false;
             *p++ = '"';
             p = stpcpy(p, e->name);

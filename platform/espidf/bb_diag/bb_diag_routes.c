@@ -730,23 +730,35 @@ static const bb_route_t s_partitions_get_route = {
     .handler   = partitions_get_handler,
 };
 
-// /api/info extender: adds an optional "panic" object only when a panic
-// log or coredump is present, so clean boots see no schema change.
-// Always emits "abnormal_reset_count" so operators can see the lifetime counter.
-static void bb_diag_info_extender(bb_json_t root)
+// /api/info diag section: emits wdt_resets and optional panic object
+// into the "diag" child section.
+// Note: abnormal_reset_count has been renamed to wdt_resets (B1-269 locked decision).
+// panic is always emitted (present: bool) so the shape is consistent.
+
+static const char k_diag_section_schema[] =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"wdt_resets\":{\"type\":\"integer\"},"
+    "\"panic\":{\"type\":\"object\","
+    "\"properties\":{"
+    "\"available\":{\"type\":\"boolean\"},"
+    "\"coredump\":{\"type\":\"boolean\"},"
+    "\"boots_since\":{\"type\":\"integer\"}}}}}";
+
+static void bb_diag_info_section_get(bb_json_t section, void *ctx)
 {
+    (void)ctx;
     bool avail = bb_diag_panic_available();
     bool coredump = bb_diag_panic_coredump_available();
 
-    bb_json_obj_set_number(root, "abnormal_reset_count", (double)bb_diag_abnormal_reset_count());
-
-    if (!avail && !coredump) return;
+    bb_json_obj_set_number(section, "wdt_resets", (double)bb_diag_abnormal_reset_count());
 
     bb_json_t panic = bb_json_obj_new();
     bb_json_obj_set_bool(panic, "available", avail);
     bb_json_obj_set_bool(panic, "coredump", coredump);
-    bb_json_obj_set_number(panic, "boots_since", (double)bb_diag_panic_boots_since());
-    bb_json_obj_set_obj(root, "panic", panic);
+    if (avail || coredump) {
+        bb_json_obj_set_number(panic, "boots_since", (double)bb_diag_panic_boots_since());
+    }
+    bb_json_obj_set_obj(section, "panic", panic);
 }
 
 static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
@@ -791,7 +803,7 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     err = bb_nv_delete_routes_init(server);
     if (err != BB_OK) return err;
 
-    bb_info_register_extender(bb_diag_info_extender);
+    bb_info_register_section("diag", bb_diag_info_section_get, NULL, k_diag_section_schema);
 
     // Register retained diag.boot event topic and publish initial snapshot.
     {
@@ -827,7 +839,7 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
         }
     }
 
-    bb_log_i(TAG, "diag routes + info extender registered");
+    bb_log_i(TAG, "diag routes + info diag section registered");
     return BB_OK;
 }
 

@@ -1136,7 +1136,7 @@ void test_bb_display_info_extender_no_backend_present_false(void)
     bb_display_register_info();
 
     bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_extenders_for_test(root);
+    bb_info_invoke_sections_for_test(root);
 
     bb_json_t disp = bb_json_obj_get_item(root, "display");
     TEST_ASSERT_NOT_NULL_MESSAGE(disp, "display key missing from extender output");
@@ -1158,7 +1158,7 @@ void test_bb_display_info_extender_with_backend_present_true(void)
     bb_display_register_info();
 
     bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_extenders_for_test(root);
+    bb_info_invoke_sections_for_test(root);
 
     bb_json_t disp = bb_json_obj_get_item(root, "display");
     TEST_ASSERT_NOT_NULL_MESSAGE(disp, "display key missing from extender output");
@@ -1195,7 +1195,7 @@ void test_bb_display_info_enabled_tracks_nv_config(void)
 
     /* Default: enabled=true. */
     bb_json_t root1 = bb_json_obj_new();
-    bb_info_invoke_extenders_for_test(root1);
+    bb_info_invoke_sections_for_test(root1);
     bb_json_t disp1 = bb_json_obj_get_item(root1, "display");
     bool en1 = false;
     bb_json_obj_get_bool(disp1, "enabled", &en1);
@@ -1208,7 +1208,7 @@ void test_bb_display_info_enabled_tracks_nv_config(void)
     bb_display_register_info();
 
     bb_json_t root2 = bb_json_obj_new();
-    bb_info_invoke_extenders_for_test(root2);
+    bb_info_invoke_sections_for_test(root2);
     bb_json_t disp2 = bb_json_obj_get_item(root2, "display");
     bool en2 = true;
     bb_json_obj_get_bool(disp2, "enabled", &en2);
@@ -1270,7 +1270,7 @@ void test_bb_display_info_extender_present_true_after_off(void)
 
     bb_display_register_info();
     bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_extenders_for_test(root);
+    bb_info_invoke_sections_for_test(root);
 
     bb_json_t disp = bb_json_obj_get_item(root, "display");
     TEST_ASSERT_NOT_NULL_MESSAGE(disp, "display key missing");

@@ -1,7 +1,7 @@
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_info/bb_info.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_nv bb_json
+    REQUIRES bb_core bb_nv bb_json bb_section
     PRIV_REQUIRES bb_http bb_board bb_wifi bb_registry bb_log
 )
 
