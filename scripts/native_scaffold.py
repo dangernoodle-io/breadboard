@@ -79,10 +79,11 @@ COMPONENT_MAP = {
         "depends":  ["bb_core"],
     },
     "bb_nv": {
-        "includes": ["components/bb_nv/include"],
+        "includes": ["components/bb_nv/include", "platform/espidf/bb_nv"],
         "sources":  [
             "platform/espidf/bb_nv/bb_nv.c",
             "platform/espidf/bb_nv/bb_nv_routes.c",
+            "platform/espidf/bb_nv/bb_nv_delete_routes.c",
             "components/bb_nv/bb_nv_creds_mirror.c",
             "components/bb_nv/bb_nv_wifi_pending.c",
         ],

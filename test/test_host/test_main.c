@@ -351,6 +351,25 @@ void test_nv_factory_reset_route_valid_confirm_clears_config(void);
 void test_nv_factory_reset_route_oversized_body_returns_400(void);
 #endif /* CONFIG_BB_NV_FACTORY_RESET */
 
+// Forward declarations from test_bb_nv_delete_routes.c
+void test_nv_erase_namespace_null_returns_err(void);
+void test_nv_erase_namespace_removes_all_keys(void);
+void test_nv_erase_namespace_does_not_affect_other_namespaces(void);
+void test_nv_erase_namespace_empty_is_ok(void);
+void test_nv_erase_namespace_then_set_works(void);
+void test_nvs_delete_no_body_returns_400(void);
+void test_nvs_delete_missing_confirm_returns_412(void);
+void test_nvs_delete_confirm_false_returns_412(void);
+void test_nvs_delete_missing_namespace_returns_400(void);
+void test_nvs_delete_ns_string_clears_namespace_returns_200(void);
+void test_nvs_delete_ns_string_with_key_clears_key_returns_200(void);
+void test_nvs_delete_ns_array_clears_each_returns_200(void);
+void test_nvs_delete_ns_array_leaves_other_ns_intact(void);
+void test_nvs_delete_bb_cfg_without_wipe_wifi_returns_412(void);
+void test_nvs_delete_bb_cfg_with_wipe_wifi_returns_200(void);
+void test_nvs_delete_array_with_bb_cfg_no_wipe_wifi_returns_412(void);
+void test_nvs_delete_key_with_array_ns_returns_400(void);
+
 // Forward declarations from test_api_dispatch.c
 void test_api_dispatch_add_and_lookup_hit(void);
 void test_api_dispatch_lookup_miss_unknown_path(void);
@@ -2834,6 +2853,25 @@ int main(void) {
     RUN_TEST(test_nv_factory_reset_route_valid_confirm_clears_config);
     RUN_TEST(test_nv_factory_reset_route_oversized_body_returns_400);
 #endif /* CONFIG_BB_NV_FACTORY_RESET */
+
+    // NVS delete routes tests (B1-290)
+    RUN_TEST(test_nv_erase_namespace_null_returns_err);
+    RUN_TEST(test_nv_erase_namespace_removes_all_keys);
+    RUN_TEST(test_nv_erase_namespace_does_not_affect_other_namespaces);
+    RUN_TEST(test_nv_erase_namespace_empty_is_ok);
+    RUN_TEST(test_nv_erase_namespace_then_set_works);
+    RUN_TEST(test_nvs_delete_no_body_returns_400);
+    RUN_TEST(test_nvs_delete_missing_confirm_returns_412);
+    RUN_TEST(test_nvs_delete_confirm_false_returns_412);
+    RUN_TEST(test_nvs_delete_missing_namespace_returns_400);
+    RUN_TEST(test_nvs_delete_ns_string_clears_namespace_returns_200);
+    RUN_TEST(test_nvs_delete_ns_string_with_key_clears_key_returns_200);
+    RUN_TEST(test_nvs_delete_ns_array_clears_each_returns_200);
+    RUN_TEST(test_nvs_delete_ns_array_leaves_other_ns_intact);
+    RUN_TEST(test_nvs_delete_bb_cfg_without_wipe_wifi_returns_412);
+    RUN_TEST(test_nvs_delete_bb_cfg_with_wipe_wifi_returns_200);
+    RUN_TEST(test_nvs_delete_array_with_bb_cfg_no_wipe_wifi_returns_412);
+    RUN_TEST(test_nvs_delete_key_with_array_ns_returns_400);
 
     // NV creds mirror tests
     RUN_TEST(test_nv_creds_mirror_pack_valid_roundtrip);

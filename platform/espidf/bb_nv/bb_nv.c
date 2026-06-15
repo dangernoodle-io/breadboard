@@ -905,6 +905,29 @@ bb_err_t bb_nv_erase(const char *ns, const char *key)
     return err;
 }
 
+bb_err_t bb_nv_erase_namespace(const char *ns)
+{
+    if (ns == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        /* Namespace doesn't exist — already clean, treat as success. */
+        return BB_OK;
+    }
+    if (err != BB_OK) return err;
+
+    err = nvs_erase_all(handle);
+    if (err == BB_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    return err;
+}
+
 bool bb_nv_exists(const char *ns, const char *key)
 {
     if (ns == NULL || key == NULL) return false;
@@ -1186,6 +1209,20 @@ bb_err_t bb_nv_erase(const char *ns, const char *key)
     bb_nv_host_str_entry_t *e = str_store_find(ns, key);
     if (e) {
         memset(e, 0, sizeof(*e));
+    }
+    return BB_OK;
+}
+
+bb_err_t bb_nv_erase_namespace(const char *ns)
+{
+    if (ns == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+    for (int i = 0; i < BB_NV_HOST_STR_ENTRIES; i++) {
+        if (s_str_store[i].used &&
+            strncmp(s_str_store[i].ns, ns, BB_NV_HOST_STR_NS_MAX - 1) == 0) {
+            memset(&s_str_store[i], 0, sizeof(s_str_store[i]));
+        }
     }
     return BB_OK;
 }

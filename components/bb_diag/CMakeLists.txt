@@ -17,6 +17,12 @@ idf_component_register(
     PRIV_REQUIRES bb_log bb_registry bb_http bb_json bb_info bb_nv bb_system bb_ota_validator bb_event bb_event_routes espcoredump lwip nvs_flash esp_partition esp_app_format
 )
 
+# bb_nv_delete_routes.h is a private header next to its implementation in bb_nv.
+# bb_diag_routes.c includes it to call bb_nv_delete_routes_init.
+target_include_directories(${COMPONENT_LIB} PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_nv"
+)
+
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)
     # Kconfig can't `select`/`imply` into ESP-IDF's coredump choice groups, so
     # silently-misconfigured consumers would build clean and capture nothing

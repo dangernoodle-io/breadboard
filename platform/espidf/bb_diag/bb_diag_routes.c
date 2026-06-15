@@ -6,6 +6,7 @@
 #include "bb_info.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_nv_delete_routes.h"
 #include "bb_ota_validator.h"
 #include "bb_partition.h"
 #include "bb_registry.h"
@@ -786,6 +787,10 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     err = bb_http_register_described_route(server, &s_partitions_get_route);
     if (err != BB_OK) return err;
 
+    /* B1-290: NVS delete route — single DELETE /api/nvs with JSON body. */
+    err = bb_nv_delete_routes_init(server);
+    if (err != BB_OK) return err;
+
     bb_info_register_extender(bb_diag_info_extender);
 
     // Register retained diag.boot event topic and publish initial snapshot.
@@ -830,7 +835,8 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 // in bb_diag_routes_init, used by the PRE_HTTP reserve companion below.
 // Keep each term adjacent to its corresponding #ifdef so an add/remove touches
 // both at once.
-//   6 always-on: boot GET, boot DELETE, panic GET, heap GET, sockets GET, partitions GET
+//    7 always-on: boot GET, boot DELETE, panic GET, heap GET, sockets GET,
+//                 partitions GET, nvs DELETE (single body-based endpoint)
 //   +1 if CONFIG_BB_DIAG_PANIC_TRIGGER: panic/trigger POST
 //   +1 if CONFIG_BB_DIAG_PANIC_COREDUMP: coredump GET
 //   +1 if CONFIG_FREERTOS_USE_TRACE_FACILITY: tasks GET
@@ -849,7 +855,7 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 #else
 #  define BB_DIAG_N_TASKS 0
 #endif
-#define BB_DIAG_ROUTE_COUNT (6 + BB_DIAG_N_TRIGGER + BB_DIAG_N_COREDUMP + BB_DIAG_N_TASKS)
+#define BB_DIAG_ROUTE_COUNT (7 + BB_DIAG_N_TRIGGER + BB_DIAG_N_COREDUMP + BB_DIAG_N_TASKS)
 
 static bb_err_t bb_diag_routes_reserve(void)
 {

@@ -135,6 +135,11 @@ bb_err_t bb_nv_get_u32(const char *ns, const char *key, uint32_t *out, uint32_t 
 bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, const char *fallback);
 bb_err_t bb_nv_erase  (const char *ns, const char *key);
 
+/// Erase all keys in the given namespace (wrap nvs_erase_all on ESP-IDF;
+/// clear all matching entries in the host in-memory store).
+/// Returns BB_OK on success; BB_ERR_INVALID_ARG if ns is NULL.
+bb_err_t bb_nv_erase_namespace(const char *ns);
+
 /// Returns true if the key exists in the given namespace and its value is
 /// non-empty (length > 1 including NUL). Use this to test key presence without
 /// reading the full value into a fixed-size probe buffer (which would return

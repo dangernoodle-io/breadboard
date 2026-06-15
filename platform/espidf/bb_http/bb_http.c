@@ -435,6 +435,7 @@ bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
     const char *status_str = NULL;
     switch (status_code) {
         case 200: status_str = "200 OK"; break;
+        case 201: status_str = "201 Created"; break;
         case 202: status_str = "202 Accepted"; break;
         case 204: status_str = "204 No Content"; break;
         case 302: status_str = "302 Found"; break;
@@ -444,6 +445,7 @@ bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
         case 404: status_str = "404 Not Found"; break;
         case 408: status_str = "408 Request Timeout"; break;
         case 409: status_str = "409 Conflict"; break;
+        case 412: status_str = "412 Precondition Failed"; break;
         case 500: status_str = "500 Internal Server Error"; break;
         case 503: status_str = "503 Service Unavailable"; break;
         default:  return BB_ERR_INVALID_ARG;

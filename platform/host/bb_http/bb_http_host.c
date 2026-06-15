@@ -101,6 +101,21 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
 
 bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
 {
+    // Mirror the espidf switch so unsupported status codes return
+    // BB_ERR_INVALID_ARG on host, matching device behaviour.  Without this
+    // guard a handler that calls set_status(412) on a device build that is
+    // missing the 412 case silently falls through to the default 200, but the
+    // host capture records 412 anyway — masking the bug in CI.
+    switch (status_code) {
+        case 200: case 201: case 202: case 204: case 302:
+        case 400: case 401: case 403: case 404:
+        case 408: case 409: case 412:
+        case 500: case 503:
+            break;
+        default:
+            return BB_ERR_INVALID_ARG;
+    }
+
     capture_slot_t *cap = capture_find(req);
     if (cap) {
         cap->status = status_code;
