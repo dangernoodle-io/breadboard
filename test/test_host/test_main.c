@@ -1766,6 +1766,16 @@ void test_bb_ring_set_allocator_null_args_falls_back_to_default(void);
 void test_bb_ring_clear_null_noop(void);
 void test_bb_ring_peek_nonzero_len_with_zero_buf_cap_skips_copy(void);
 void test_bb_ring_peek_with_buf_on_zero_len_entry_skips_copy(void);
+void test_bb_ring_peek_at_null_ring_returns_invalid_arg(void);
+void test_bb_ring_peek_at_null_out_ptr_returns_invalid_arg(void);
+void test_bb_ring_peek_at_empty_ring_returns_not_found(void);
+void test_bb_ring_peek_at_index_out_of_range_returns_not_found(void);
+void test_bb_ring_peek_at_index_0_is_oldest(void);
+void test_bb_ring_peek_at_last_index_is_newest(void);
+void test_bb_ring_peek_at_all_entries_in_order(void);
+void test_bb_ring_peek_at_is_nondestructive(void);
+void test_bb_ring_peek_at_after_wrap_around(void);
+void test_bb_ring_peek_at_null_buf_probes_metadata(void);
 
 // Forward declarations from test_bb_event_ring_retained.c
 void test_bb_event_ring_attach_ex_retained_true_returns_ok(void);
@@ -4219,6 +4229,16 @@ int main(void) {
     RUN_TEST(test_bb_ring_clear_null_noop);
     RUN_TEST(test_bb_ring_peek_nonzero_len_with_zero_buf_cap_skips_copy);
     RUN_TEST(test_bb_ring_peek_with_buf_on_zero_len_entry_skips_copy);
+    RUN_TEST(test_bb_ring_peek_at_null_ring_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_peek_at_null_out_ptr_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_peek_at_empty_ring_returns_not_found);
+    RUN_TEST(test_bb_ring_peek_at_index_out_of_range_returns_not_found);
+    RUN_TEST(test_bb_ring_peek_at_index_0_is_oldest);
+    RUN_TEST(test_bb_ring_peek_at_last_index_is_newest);
+    RUN_TEST(test_bb_ring_peek_at_all_entries_in_order);
+    RUN_TEST(test_bb_ring_peek_at_is_nondestructive);
+    RUN_TEST(test_bb_ring_peek_at_after_wrap_around);
+    RUN_TEST(test_bb_ring_peek_at_null_buf_probes_metadata);
 
     RUN_TEST(test_bb_event_subscribe_with_prep_runs_prep_before_subscribe);
     RUN_TEST(test_bb_event_subscribe_with_prep_null_prep_subscribes);

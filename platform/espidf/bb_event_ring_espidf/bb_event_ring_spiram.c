@@ -1,36 +1,17 @@
-// ESP-IDF SPIRAM allocator override for bb_event_ring.
+// ESP-IDF SPIRAM allocator for bb_event_ring (post-consolidation stub).
 //
-// bb_event_ring per-topic ring buffers (default 16×256 = 4 KB per topic) are
-// sized to live in SPIRAM on boards with PSRAM so the ~4 KB per topic does not
-// eat into the ~30 KB internal-heap budget shared with TLS handshakes.
-// Fallback to MALLOC_CAP_DEFAULT preserves behaviour on boards without PSRAM.
+// bb_event_ring now stores all entries via bb_ring internally.  SPIRAM
+// preference for that storage is handled by the bb_ring_espidf component
+// (platform/espidf/bb_ring_espidf/bb_ring_spiram.c), which registers a single
+// EARLY-tier hook that calls bb_ring_set_allocator.
 //
-// Registered at EARLY tier so the override is in place before any
-// bb_event_ring_attach_ex call during component init.
-#include "bb_event_ring_internal.h"
-#include "bb_core.h"
-#include "bb_registry.h"
-#include "esp_heap_caps.h"
-#include <stdlib.h>
+// This file is kept as a no-op shim so that existing consumer CMakeLists that
+// list bb_event_ring_espidf in EXTRA_COMPONENT_DIRS continue to compile without
+// modification.  The component still contributes bb_event_ring_clock.c (the
+// esp_timer-backed clock) via its CMakeLists — only the allocator registration
+// has been removed.
+//
+// If a consumer does NOT include bb_ring_espidf in its build, it should add it
+// to ensure event-ring storage lands in SPIRAM on boards with PSRAM.
 
-static void *spiram_calloc(size_t n, size_t sz)
-{
-    void *p = heap_caps_calloc(n, sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!p) {
-        p = heap_caps_calloc(n, sz, MALLOC_CAP_DEFAULT);
-    }
-    return p;
-}
-
-static void spiram_free(void *p)
-{
-    heap_caps_free(p);
-}
-
-static bb_err_t bb_event_ring_spiram_early_init(void)
-{
-    bb_event_ring_set_allocator(spiram_calloc, spiram_free);
-    return BB_OK;
-}
-
-BB_REGISTRY_REGISTER_EARLY(bb_event_ring_spiram, bb_event_ring_spiram_early_init);
+// Intentionally empty — no registration, no allocator override here.

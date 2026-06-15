@@ -693,3 +693,206 @@ void test_bb_ring_peek_with_buf_on_zero_len_entry_skips_copy(void)
 
     bb_ring_destroy(r);
 }
+
+// ---------------------------------------------------------------------------
+// bb_ring_peek_at — non-destructive indexed read
+// ---------------------------------------------------------------------------
+
+void test_bb_ring_peek_at_null_ring_returns_invalid_arg(void)
+{
+    uint8_t buf[8];
+    size_t out_len;
+    int64_t out_ts;
+    uint32_t out_id;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_ring_peek_at(NULL, 0, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+}
+
+void test_bb_ring_peek_at_null_out_ptr_returns_invalid_arg(void)
+{
+    bb_ring_t r = make_ring(4, 32);
+    bb_ring_push(r, "x", 1, 0, 1);
+    uint8_t buf[8];
+    size_t out_len;
+    int64_t out_ts;
+    uint32_t out_id;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_ring_peek_at(r, 0, buf, sizeof(buf), NULL, &out_ts, &out_id));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_ring_peek_at(r, 0, buf, sizeof(buf), &out_len, NULL, &out_id));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_ring_peek_at(r, 0, buf, sizeof(buf), &out_len, &out_ts, NULL));
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_peek_at_empty_ring_returns_not_found(void)
+{
+    bb_ring_t r = make_ring(4, 32);
+    uint8_t buf[32];
+    size_t out_len;
+    int64_t out_ts;
+    uint32_t out_id;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND,
+                      bb_ring_peek_at(r, 0, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_peek_at_index_out_of_range_returns_not_found(void)
+{
+    bb_ring_t r = make_ring(4, 32);
+    bb_ring_push(r, "a", 1, 10, 1);
+    bb_ring_push(r, "b", 1, 20, 2);
+
+    uint8_t buf[32];
+    size_t out_len;
+    int64_t out_ts;
+    uint32_t out_id;
+    // count=2, so index 2 is out of range
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND,
+                      bb_ring_peek_at(r, 2, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_peek_at_index_0_is_oldest(void)
+{
+    bb_ring_t r = make_ring(4, 32);
+    bb_ring_push(r, "first", 5, 100, 10);
+    bb_ring_push(r, "second", 6, 200, 20);
+    bb_ring_push(r, "third", 5, 300, 30);
+
+    uint8_t buf[32] = {0};
+    size_t out_len;
+    int64_t out_ts;
+    uint32_t out_id;
+
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_peek_at(r, 0, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+    TEST_ASSERT_EQUAL_UINT32(10, out_id);
+    TEST_ASSERT_EQUAL_INT64(100, out_ts);
+    TEST_ASSERT_EQUAL_size_t(5, out_len);
+    TEST_ASSERT_EQUAL_STRING("first", (const char *)buf);
+
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_peek_at_last_index_is_newest(void)
+{
+    bb_ring_t r = make_ring(4, 32);
+    bb_ring_push(r, "first", 5, 100, 10);
+    bb_ring_push(r, "second", 6, 200, 20);
+    bb_ring_push(r, "third", 5, 300, 30);
+
+    uint8_t buf[32] = {0};
+    size_t out_len;
+    int64_t out_ts;
+    uint32_t out_id;
+
+    // index 2 = newest (count-1)
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_peek_at(r, 2, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+    TEST_ASSERT_EQUAL_UINT32(30, out_id);
+    TEST_ASSERT_EQUAL_INT64(300, out_ts);
+    TEST_ASSERT_EQUAL_STRING("third", (const char *)buf);
+
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_peek_at_all_entries_in_order(void)
+{
+    bb_ring_t r = make_ring(8, 32);
+    const char *strs[] = {"zero", "one", "two", "three", "four"};
+    int n = (int)(sizeof(strs) / sizeof(strs[0]));
+
+    for (int i = 0; i < n; i++) {
+        bb_ring_push(r, strs[i], strlen(strs[i]) + 1, (int64_t)(i * 10), (uint32_t)i);
+    }
+
+    for (int i = 0; i < n; i++) {
+        uint8_t buf[32] = {0};
+        size_t out_len;
+        int64_t out_ts;
+        uint32_t out_id;
+
+        TEST_ASSERT_EQUAL(BB_OK,
+                          bb_ring_peek_at(r, (size_t)i, buf, sizeof(buf),
+                                          &out_len, &out_ts, &out_id));
+        TEST_ASSERT_EQUAL_UINT32((uint32_t)i, out_id);
+        TEST_ASSERT_EQUAL_INT64((int64_t)(i * 10), out_ts);
+        TEST_ASSERT_EQUAL_STRING(strs[i], (const char *)buf);
+    }
+
+    // Ring count must be unchanged (non-destructive).
+    TEST_ASSERT_EQUAL_size_t((size_t)n, bb_ring_count(r));
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_peek_at_is_nondestructive(void)
+{
+    bb_ring_t r = make_ring(4, 32);
+    bb_ring_push(r, "msg", 3, 1, 42);
+
+    uint8_t buf[32];
+    size_t out_len;
+    int64_t out_ts;
+    uint32_t out_id;
+
+    // Peek at same entry multiple times — count must not change.
+    for (int i = 0; i < 5; i++) {
+        TEST_ASSERT_EQUAL(BB_OK,
+                          bb_ring_peek_at(r, 0, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+        TEST_ASSERT_EQUAL_UINT32(42, out_id);
+    }
+    TEST_ASSERT_EQUAL_size_t(1, bb_ring_count(r));
+
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_peek_at_after_wrap_around(void)
+{
+    // Push more entries than capacity to force head/tail wrap.
+    bb_ring_t r = make_ring(3, 8);
+
+    // Fill to capacity and overflow by 2 (evicts 0 and 1).
+    for (uint32_t i = 0; i < 5; i++) {
+        char buf[4];
+        snprintf(buf, sizeof(buf), "e%u", (unsigned)i);
+        bb_ring_push(r, buf, strlen(buf) + 1, (int64_t)i, i);
+    }
+
+    // Ring holds entries 2, 3, 4 (oldest→newest).
+    TEST_ASSERT_EQUAL_size_t(3, bb_ring_count(r));
+
+    uint32_t expected_ids[] = {2, 3, 4};
+    for (int i = 0; i < 3; i++) {
+        char buf[8] = {0};
+        size_t out_len;
+        int64_t out_ts;
+        uint32_t out_id;
+
+        TEST_ASSERT_EQUAL(BB_OK,
+                          bb_ring_peek_at(r, (size_t)i, buf, sizeof(buf),
+                                          &out_len, &out_ts, &out_id));
+        TEST_ASSERT_EQUAL_UINT32(expected_ids[i], out_id);
+    }
+
+    // Still non-destructive after all reads.
+    TEST_ASSERT_EQUAL_size_t(3, bb_ring_count(r));
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_peek_at_null_buf_probes_metadata(void)
+{
+    bb_ring_t r = make_ring(4, 32);
+    bb_ring_push(r, "hello", 5, 999, 77);
+
+    size_t out_len;
+    int64_t out_ts;
+    uint32_t out_id;
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_peek_at(r, 0, NULL, 0, &out_len, &out_ts, &out_id));
+    TEST_ASSERT_EQUAL_size_t(5, out_len);
+    TEST_ASSERT_EQUAL_INT64(999, out_ts);
+    TEST_ASSERT_EQUAL_UINT32(77, out_id);
+
+    bb_ring_destroy(r);
+}

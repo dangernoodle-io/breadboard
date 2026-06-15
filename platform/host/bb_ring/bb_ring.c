@@ -207,6 +207,29 @@ bb_err_t bb_ring_pop_oldest(bb_ring_t r)
     return BB_OK;
 }
 
+bb_err_t bb_ring_peek_at(bb_ring_t r, size_t index,
+                         void *buf, size_t buf_cap,
+                         size_t *out_len,
+                         int64_t *out_ts,
+                         uint32_t *out_id)
+{
+    if (!r || !out_len || !out_ts || !out_id) return BB_ERR_INVALID_ARG;
+    if (r->count == 0 || index >= r->count) return BB_ERR_NOT_FOUND;
+
+    size_t slot = (r->tail + index) % r->capacity;
+    bb_ring_entry_t *e = &r->entries[slot];
+    *out_len = e->len;
+    *out_ts  = e->ts;
+    *out_id  = e->id;
+
+    if (buf && buf_cap > 0 && e->len > 0) {
+        size_t copy_len = e->len < buf_cap ? e->len : buf_cap;
+        memcpy(buf, r->payload + (slot * r->max_entry), copy_len);
+    }
+
+    return BB_OK;
+}
+
 // ---------------------------------------------------------------------------
 // Introspection
 // ---------------------------------------------------------------------------
