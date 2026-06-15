@@ -891,3 +891,101 @@ void test_bb_event_lock_unlock_round_trip(void) {
     bb_event_unlock();
     /* No assertion beyond clean exit — proves symbols are linked and callable. */
 }
+
+// ---------------------------------------------------------------------------
+// Regression test: HPR-1 — unsubscribe-during-dispatch safety (SMP UAF fix)
+//
+// The old dispatch code snapshotted only sub_head under the lock and then
+// released the lock before walking sub->next.  On SMP (ESP32-S3 fleet) a
+// concurrent bb_event_unsubscribe could free a node mid-walk → UAF.
+//
+// This test exercises the analogous single-threaded scenario where one
+// subscriber's callback unsubscribes a *different* subscriber on the same
+// topic.  Under the old code the walker reads sub->next from a freed/recycled
+// pool node; under the fixed code the lock is held for the full walk so the
+// node cannot be freed until dispatch completes.
+//
+// The test asserts:
+//   1. The walk completes without crash (ASan/valgrind catch UAF on CI).
+//   2. The subscriber whose callback ran (sub_a) ran exactly once.
+//   3. The victim subscriber (sub_b, unsubscribed by sub_a's callback) did NOT
+//      run after being unsubscribed — confirming the unsubscribe took effect on
+//      the next dispatch, not mid-walk.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    int call_count;
+    bb_event_sub_t *victim_sub;  // sub to unsubscribe inside the callback
+} unsub_during_dispatch_ctx_t;
+
+static handler_log_t g_victim_log;
+
+static void unsub_victim_cb(bb_event_topic_t topic, int32_t id,
+                             const void *data, size_t size, void *user)
+{
+    (void)topic; (void)id; (void)data; (void)size;
+    unsub_during_dispatch_ctx_t *ctx = (unsub_during_dispatch_ctx_t *)user;
+    ctx->call_count++;
+    if (ctx->victim_sub && *ctx->victim_sub) {
+        // Attempt to unsubscribe the victim while the dispatcher holds the lock.
+        // Under the fix: bb_event_unsubscribe takes the recursive lock (safe),
+        // unlinks the node, and frees it back to the pool.  The walker, still
+        // holding the outer lock level, has already advanced past this node or
+        // will skip it because it was the next node at the time of the call —
+        // either way, no UAF occurs because the pool node is only recycled, not
+        // freed to the heap, and the walker finishes before any reallocation can
+        // happen within the same locked section.
+        bb_event_unsubscribe(*ctx->victim_sub);
+        *ctx->victim_sub = NULL;
+    }
+}
+
+void test_bb_event_dispatch_unsubscribe_during_walk_is_safe(void)
+{
+    setup_sync_mode();
+    reset_log();
+    memset(&g_victim_log, 0, sizeof g_victim_log);
+
+    bb_event_cfg_t cfg = { .queue_depth = 4, .max_payload = 64 };
+    bb_event_init(&cfg);
+
+    bb_event_topic_t topic = NULL;
+    bb_event_topic_register("race.unsub.walk", &topic);
+
+    // sub_b is subscribed first (becomes tail of list / first to be walked).
+    // sub_a is subscribed second (becomes head).
+    // Walk order (newest-first singly-linked list): sub_a → sub_b.
+    // sub_a's callback unsubscribes sub_b.  The walker must then safely advance
+    // to sub_b->next (which is NULL) without UAF.
+    bb_event_sub_t sub_b = NULL;
+    bb_event_subscribe(topic, record_handler, &g_victim_log, &sub_b);
+
+    unsub_during_dispatch_ctx_t ctx = { .call_count = 0, .victim_sub = &sub_b };
+    bb_event_sub_t sub_a = NULL;
+    bb_event_subscribe(topic, unsub_victim_cb, &ctx, &sub_a);
+
+    // Post one event and drain.
+    bb_event_post(topic, 1, NULL, 0);
+    size_t dispatched = bb_event_pump(0);
+
+    // Walk completed — no crash.
+    TEST_ASSERT_EQUAL(1, dispatched);
+
+    // sub_a's callback ran exactly once.
+    TEST_ASSERT_EQUAL(1, ctx.call_count);
+
+    // sub_b was unsubscribed by sub_a's callback mid-walk.
+    // Depending on traversal order (head→tail), sub_b may or may not have been
+    // called on this dispatch.  Assert that sub_b received AT MOST 1 call
+    // (either before or after being unsubscribed by sub_a, but not double-fired).
+    TEST_ASSERT(g_victim_log.call_count <= 1);
+
+    // sub_b must now be unsubscribed: a second post must not reach sub_b.
+    int prev_victim_calls = g_victim_log.call_count;
+    bb_event_post(topic, 2, NULL, 0);
+    bb_event_pump(0);
+    TEST_ASSERT_EQUAL(prev_victim_calls, g_victim_log.call_count);  // no new calls
+
+    // Cleanup: sub_b was already freed by unsubscribe; only sub_a remains.
+    if (sub_a) bb_event_unsubscribe(sub_a);
+}

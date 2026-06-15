@@ -1752,6 +1752,7 @@ void test_bb_event_subscribe_with_prep_runs_prep_before_subscribe(void);
 void test_bb_event_subscribe_with_prep_null_prep_subscribes(void);
 void test_bb_event_subscribe_with_prep_invalid_args(void);
 void test_bb_event_lock_unlock_round_trip(void);
+void test_bb_event_dispatch_unsubscribe_during_walk_is_safe(void);
 
 // Forward declarations from test_bb_event_routes.c
 // Forward declarations from test_bb_http_client.c
@@ -4213,6 +4214,7 @@ int main(void) {
     RUN_TEST(test_bb_event_subscribe_with_prep_null_prep_subscribes);
     RUN_TEST(test_bb_event_subscribe_with_prep_invalid_args);
     RUN_TEST(test_bb_event_lock_unlock_round_trip);
+    RUN_TEST(test_bb_event_dispatch_unsubscribe_during_walk_is_safe);
 
     // bb_event_routes tests
     // bb_http_client tests
