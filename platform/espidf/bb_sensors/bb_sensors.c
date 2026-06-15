@@ -44,16 +44,29 @@ static bb_err_t fan_section_patch(bb_json_t patch_body, void *ctx)
 
 #ifdef CONFIG_BB_FAN_AUTOFAN
     // Autofan PATCH: optional fields, partial update.
+    // Validate all supplied fields BEFORE applying any — atomicity guarantee.
     bb_fan_autofan_cfg_t cfg;
     bb_fan_get_autofan_cfg(h, &cfg);
 
     double d;
     bool b;
-    if (bb_json_obj_get_bool(patch_body, "autofan", &b))         cfg.enabled      = b;
-    if (bb_json_obj_get_number(patch_body, "die_target_c", &d))  cfg.die_target_c = (float)d;
-    if (bb_json_obj_get_number(patch_body, "vr_target_c",  &d))  cfg.aux_target_c = (float)d;
-    if (bb_json_obj_get_number(patch_body, "manual_pct",   &d))  cfg.manual_pct   = (int)d;
-    if (bb_json_obj_get_number(patch_body, "min_pct",      &d))  cfg.min_pct      = (int)d;
+    if (bb_json_obj_get_number(patch_body, "manual_pct", &d)) {
+        if (d < 0.0 || d > 100.0) return BB_ERR_INVALID_ARG;
+        cfg.manual_pct = (int)d;
+    }
+    if (bb_json_obj_get_number(patch_body, "min_pct", &d)) {
+        if (d < 0.0 || d > 100.0) return BB_ERR_INVALID_ARG;
+        cfg.min_pct = (int)d;
+    }
+    if (bb_json_obj_get_number(patch_body, "die_target_c", &d)) {
+        if (d <= 0.0) return BB_ERR_INVALID_ARG;
+        cfg.die_target_c = (float)d;
+    }
+    if (bb_json_obj_get_number(patch_body, "vr_target_c", &d)) {
+        if (d <= 0.0) return BB_ERR_INVALID_ARG;
+        cfg.aux_target_c = (float)d;
+    }
+    if (bb_json_obj_get_bool(patch_body, "autofan", &b)) cfg.enabled = b;
 
     bb_fan_set_autofan(h, &cfg);
 #else
@@ -309,3 +322,5 @@ bb_err_t bb_sensors_init(bb_http_handle_t server)
 #if CONFIG_BB_SENSORS_AUTOREGISTER
 BB_REGISTRY_REGISTER_N(bb_sensors, bb_sensors_init, 1);
 #endif
+
+

@@ -188,6 +188,9 @@ bb_err_t bb_telemetry_init(bb_http_handle_t server)
     }
     s_telemetry_get_responses[0].schema = schema;
 
+    // Freeze: reject late registrations (all sections must be PRE_HTTP).
+    bb_telemetry_freeze();
+
     bb_err_t rc = bb_http_register_described_route(server, &s_telemetry_get_route);
     if (rc != BB_OK) return rc;
     rc = bb_http_register_described_route(server, &s_telemetry_patch_route);

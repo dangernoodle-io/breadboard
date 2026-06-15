@@ -65,10 +65,11 @@ void test_bb_telemetry_register_null_get_returns_invalid_arg(void)
 
 void test_bb_telemetry_register_overflow_returns_no_space(void)
 {
+    static const char *k_names[] = { "s0","s1","s2","s3","s4","s5","s6","s7" };
     reset_all();
-    // Fill to capacity (default 4).
+    // Fill to capacity (CONFIG_BB_TELEMETRY_MAX_SECTIONS = 4 in test build).
     for (int i = 0; i < CONFIG_BB_TELEMETRY_MAX_SECTIONS; i++) {
-        bb_err_t rc = bb_telemetry_register_section("s", stub_get, NULL, NULL);
+        bb_err_t rc = bb_telemetry_register_section(k_names[i], stub_get, NULL, NULL);
         TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     }
     bb_err_t rc = bb_telemetry_register_section("over", stub_get, NULL, NULL);

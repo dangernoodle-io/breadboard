@@ -18,6 +18,17 @@ bb_err_t bb_section_register(bb_section_registry_t *reg,
     if (reg->frozen)           return BB_ERR_INVALID_STATE;
     if (reg->count >= BB_SECTION_MAX) return BB_ERR_NO_SPACE;
 
+    // Reject duplicate section names — avoids duplicate JSON keys and double
+    // patch_fn dispatch.
+    for (int i = 0; i < reg->count; i++) {
+        if (strcmp(reg->entries[i].name, name) == 0) {
+            if (reg->tag) {
+                bb_log_w(reg->tag, "section '%s' already registered, ignoring duplicate", name);
+            }
+            return BB_ERR_INVALID_STATE;
+        }
+    }
+
     bb_section_entry_t *e = &reg->entries[reg->count];
     e->name         = name;
     e->get          = get;
@@ -39,6 +50,7 @@ void bb_section_build_get(const bb_section_registry_t *reg, bb_json_t root)
     for (int i = 0; i < reg->count; i++) {
         const bb_section_entry_t *e = &reg->entries[i];
         bb_json_t child = bb_json_obj_new();
+        if (!child) continue;  // OOM: skip section rather than crash
         e->get(child, e->ctx);
         bb_json_obj_set_obj(root, e->name, child);
     }
@@ -47,16 +59,27 @@ void bb_section_build_get(const bb_section_registry_t *reg, bb_json_t root)
 bb_err_t bb_section_dispatch_patch(const bb_section_registry_t *reg, bb_json_t body)
 {
     if (!reg) return BB_ERR_INVALID_ARG;
+
+    // Pre-validation pass: reject any read-only section present in the body
+    // BEFORE applying any patch_fn, so multi-section bodies are all-or-nothing.
     for (int i = 0; i < reg->count; i++) {
         const bb_section_entry_t *e = &reg->entries[i];
         bb_json_t child = bb_json_obj_get_item(body, e->name);
         if (!child) continue;
         if (!e->patch) {
             if (reg->tag) {
-                bb_log_w(reg->tag, "PATCH on read-only section '%s'", e->name);
+                bb_log_w(reg->tag, "PATCH on read-only section '%s' — rejecting before apply",
+                         e->name);
             }
             return BB_ERR_INVALID_ARG;
         }
+    }
+
+    // Apply pass: all sections validated as writable above.
+    for (int i = 0; i < reg->count; i++) {
+        const bb_section_entry_t *e = &reg->entries[i];
+        bb_json_t child = bb_json_obj_get_item(body, e->name);
+        if (!child) continue;
         bb_err_t rc = e->patch(child, e->ctx);
         if (rc != BB_OK) return rc;
     }

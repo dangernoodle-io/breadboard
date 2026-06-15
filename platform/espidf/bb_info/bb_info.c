@@ -175,22 +175,31 @@ static const bb_route_t s_info_route = {
 static bb_err_t bb_info_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
+    // NOTE: freeze and schema assembly are deferred to bb_info_freeze_init (order 20)
+    // so that section registrants (e.g. bb_diag_routes at order BB_DIAG_ROUTE_COUNT)
+    // can call bb_info_register_section AFTER this init runs at order 2.
+    bb_err_t err = bb_http_register_described_route(server, &s_info_route);
+    if (err != BB_OK) return err;
+    bb_log_i(TAG, "info route registered (freeze deferred to order 20)");
+    return BB_OK;
+}
+
+// Late init: freeze the section registry and assemble the schema.
+// Runs at order 20, AFTER all section registrants (display/led/ntp/diag at
+// BB_DIAG_ROUTE_COUNT ≈ 7) have called bb_info_register_section.
+static bb_err_t bb_info_freeze_init(bb_http_handle_t server)
+{
+    (void)server;
     s_cap_frozen = true;
     bb_section_freeze(&s_info_reg);
 
-    // Assemble and publish info schema via bb_section_assemble_schema.
-    // The assembled buffer is heap-allocated; it is stored in s_info_responses[0].schema
-    // so that OpenAPI emits it in /api/openapi.json.
     char *info_schema = bb_section_assemble_schema(
         &s_info_reg, k_info_schema_base, k_info_schema_suffix);
     if (!info_schema) {
         bb_log_w(TAG, "info schema assembly: malloc failed; schema will be NULL");
     }
     s_info_responses[0].schema = info_schema;
-
-    bb_err_t err = bb_http_register_described_route(server, &s_info_route);
-    if (err != BB_OK) return err;
-    bb_log_i(TAG, "info route registered");
+    bb_log_i(TAG, "info registry frozen (%d sections)", s_info_reg.count);
     return BB_OK;
 }
 
@@ -204,4 +213,5 @@ static bb_err_t bb_info_reserve_routes(void)
 }
 BB_REGISTRY_REGISTER_PRE_HTTP(bb_info, bb_info_reserve_routes);
 BB_REGISTRY_REGISTER_N(bb_info, bb_info_init, 2);
+BB_REGISTRY_REGISTER_N(bb_info_freeze, bb_info_freeze_init, 20);
 #endif

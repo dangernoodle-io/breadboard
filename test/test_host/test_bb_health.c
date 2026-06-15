@@ -40,11 +40,10 @@ void test_bb_health_register_section_ok(void)
 
 void test_bb_health_register_section_capacity(void)
 {
+    static const char *k_names[] = { "s0","s1","s2","s3","s4","s5","s6","s7" };
     // Fill the table completely (BB_SECTION_MAX = 8 by default).
     for (int i = 0; i < BB_SECTION_MAX; i++) {
-        char name[16];
-        snprintf(name, sizeof(name), "s%d", i);
-        bb_err_t err = bb_health_register_section(name, test_section_get_fn, NULL, NULL);
+        bb_err_t err = bb_health_register_section(k_names[i], test_section_get_fn, NULL, NULL);
         TEST_ASSERT_EQUAL_INT(BB_OK, err);
     }
     // One over capacity should return NO_SPACE.

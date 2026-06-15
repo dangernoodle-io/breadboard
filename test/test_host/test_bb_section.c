@@ -2,6 +2,8 @@
 #include "unity.h"
 #include "bb_section.h"
 #include "bb_json.h"
+#include "bb_info.h"
+#include "bb_info_test.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -90,10 +92,11 @@ void test_bb_section_register_readonly_null_patch_ok(void)
 
 void test_bb_section_register_capacity_returns_no_space(void)
 {
+    static const char *k_names[] = { "s0","s1","s2","s3","s4","s5","s6","s7" };
     bb_section_registry_t reg = make_reg();
     reset_stub();
     for (int i = 0; i < BB_SECTION_MAX; i++) {
-        bb_err_t rc = bb_section_register(&reg, "s", stub_get, NULL, NULL, NULL);
+        bb_err_t rc = bb_section_register(&reg, k_names[i], stub_get, NULL, NULL, NULL);
         TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     }
     bb_err_t rc = bb_section_register(&reg, "over", stub_get, NULL, NULL, NULL);
@@ -286,5 +289,168 @@ void test_bb_section_freeze_build_get_still_works(void)
     bb_section_build_get(&reg, root);
     TEST_ASSERT_EQUAL_INT(1, s_get_calls);
     TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(root, "x"));
+    bb_json_free(root);
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate-name detection (F-04)
+// ---------------------------------------------------------------------------
+
+void test_bb_section_register_dup_name_returns_invalid_state(void)
+{
+    bb_section_registry_t reg = make_reg();
+    reset_stub();
+    bb_err_t rc = bb_section_register(&reg, "foo", stub_get, NULL, NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(1, reg.count);
+
+    // Second registration with the same name must be rejected.
+    rc = bb_section_register(&reg, "foo", stub_get, NULL, NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, rc);
+    TEST_ASSERT_EQUAL_INT(1, reg.count);  // count unchanged
+}
+
+void test_bb_section_register_dup_name_different_case_allowed(void)
+{
+    bb_section_registry_t reg = make_reg();
+    reset_stub();
+    // "Foo" and "foo" are different names — case-sensitive compare.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_section_register(&reg, "Foo", stub_get, NULL, NULL, NULL));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_section_register(&reg, "foo", stub_get, NULL, NULL, NULL));
+    TEST_ASSERT_EQUAL_INT(2, reg.count);
+}
+
+// ---------------------------------------------------------------------------
+// Multi-section PATCH partial-apply prevention (F3)
+// ---------------------------------------------------------------------------
+
+static bb_err_t patch_fan(bb_json_t p, void *ctx) { (void)p; (void)ctx; s_patch_calls++; return BB_OK; }
+
+void test_bb_section_dispatch_patch_multi_read_only_rejects_all(void)
+{
+    bb_section_registry_t reg = make_reg();
+    reset_stub();
+    // "fan" is writable, "power" is read-only.
+    bb_section_register(&reg, "fan",   stub_get, patch_fan, NULL, NULL);
+    bb_section_register(&reg, "power", stub_get, NULL /* ro */, NULL, NULL);
+
+    // Body targets both fan (writable) and power (read-only).
+    bb_json_t body = bb_json_parse("{\"fan\":{\"duty_pct\":50},\"power\":{\"vout_mv\":1200}}", 0);
+    TEST_ASSERT_NOT_NULL(body);
+
+    bb_err_t rc = bb_section_dispatch_patch(&reg, body);
+    bb_json_free(body);
+
+    // Must fail with INVALID_ARG (power is read-only).
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
+    // Fan patch_fn must NOT have been called (validate-before-apply).
+    TEST_ASSERT_EQUAL_INT(0, s_patch_calls);
+}
+
+void test_bb_section_dispatch_patch_single_writable_applies(void)
+{
+    bb_section_registry_t reg = make_reg();
+    reset_stub();
+    bb_section_register(&reg, "fan",   stub_get, patch_fan, NULL, NULL);
+    bb_section_register(&reg, "power", stub_get, NULL /* ro */, NULL, NULL);
+
+    // Body targets only fan (writable) — should succeed.
+    bb_json_t body = bb_json_parse("{\"fan\":{\"duty_pct\":50}}", 0);
+    TEST_ASSERT_NOT_NULL(body);
+
+    bb_err_t rc = bb_section_dispatch_patch(&reg, body);
+    bb_json_free(body);
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(1, s_patch_calls);
+}
+
+// ---------------------------------------------------------------------------
+// assemble_schema: MIXED null + non-null schema_props (A F-09)
+// ---------------------------------------------------------------------------
+
+void test_bb_section_assemble_schema_mixed_null_and_props(void)
+{
+    bb_section_registry_t reg = make_reg();
+    // Register two sections: one with schema_props, one without.
+    bb_section_register(&reg, "diag",      stub_get, NULL, NULL, "{\"type\":\"object\"}");
+    bb_section_register(&reg, "noprops",   stub_get, NULL, NULL, NULL);
+    bb_section_register(&reg, "ntp",       stub_get, NULL, NULL, "{\"type\":\"object\",\"properties\":{\"synced\":{\"type\":\"boolean\"}}}");
+
+    char *s = bb_section_assemble_schema(&reg,
+        "{\"type\":\"object\",\"properties\":{",
+        "}}");
+    TEST_ASSERT_NOT_NULL(s);
+    // "diag" and "ntp" must appear; "noprops" must not.
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s, "\"diag\""),    "diag missing from schema");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s, "\"ntp\""),     "ntp missing from schema");
+    TEST_ASSERT_NULL_MESSAGE(strstr(s, "\"noprops\""),     "noprops should be omitted");
+
+    // Must be valid JSON (parse via bb_json to avoid cJSON coupling).
+    bb_json_t parsed = bb_json_parse(s, strlen(s));
+    TEST_ASSERT_NOT_NULL_MESSAGE(parsed, "mixed-null schema is not valid JSON");
+    bb_json_free(parsed);
+    free(s);
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// P0 regression: diag section registers AFTER info route init (B F1)
+// ---------------------------------------------------------------------------
+
+// Simulates the real registration order:
+//   order 2: bb_info_init (in the fixed code, does NOT freeze)
+//   order 7: bb_diag_routes_init registers "diag" section via bb_info_register_section
+//   order 20: bb_info_freeze_init (freeze + schema assembly)
+// Before the fix: order-2 froze the registry → diag silently dropped.
+// After the fix: order-20 freezes → diag present in /api/info output.
+
+static void diag_info_get(bb_json_t s, void *ctx)
+{
+    (void)ctx;
+    bb_json_obj_set_number(s, "wdt_resets", 0.0);
+}
+
+void test_bb_info_diag_registers_before_freeze_succeeds(void)
+{
+    // Registry not yet frozen (setUp called bb_info_reset_for_test).
+    // Simulate order-7 diag registration BEFORE order-20 freeze.
+    bb_err_t rc = bb_info_register_section("diag", diag_info_get, NULL,
+                                            "{\"type\":\"object\"}");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, rc,
+        "diag section registration failed before freeze — P0 regression");
+
+    // Simulate order-20 freeze.
+    bb_info_freeze_for_test();
+
+    // Late registration after freeze must be rejected.
+    rc = bb_info_register_section("late", diag_info_get, NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, rc);
+
+    // Invoke sections: "diag" must be present with wdt_resets field.
+    bb_json_t root = bb_json_obj_new();
+    bb_info_invoke_sections_for_test(root);
+    bb_json_t diag = bb_json_obj_get_item(root, "diag");
+    TEST_ASSERT_NOT_NULL_MESSAGE(diag,
+        "diag section absent from /api/info output — P0 bug still present");
+    double wdt = -1.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(diag, "wdt_resets", &wdt));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, (float)wdt);
+    bb_json_free(root);
+}
+
+void test_bb_info_diag_registers_after_freeze_fails(void)
+{
+    // Simulate the OLD broken ordering: freeze THEN try to register "diag".
+    bb_info_freeze_for_test();
+
+    bb_err_t rc = bb_info_register_section("diag", diag_info_get, NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, rc);
+
+    // Verify diag is absent from output.
+    bb_json_t root = bb_json_obj_new();
+    bb_info_invoke_sections_for_test(root);
+    TEST_ASSERT_NULL_MESSAGE(bb_json_obj_get_item(root, "diag"),
+        "diag present despite registering after freeze — unexpected");
     bb_json_free(root);
 }

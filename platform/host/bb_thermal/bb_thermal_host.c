@@ -20,6 +20,7 @@
 static void host_emit_source(bb_json_t root, const char *key, bool present, double c_val)
 {
     bb_json_t obj = bb_json_obj_new();
+    if (!obj) return;  // OOM: skip sub-object; do not set NULL key on root
     bb_json_obj_set_bool(obj, "present", present);
     if (present) {
         bb_json_obj_set_number(obj, "c", c_val);
