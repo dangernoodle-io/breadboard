@@ -42,6 +42,13 @@ const bb_route_t *bb_update_check_config_post_route(void);
 // Reset all state so a test can start clean. Does NOT touch bb_event or
 // bb_mdns global state (callers reset those separately).
 void bb_update_check_reset_for_test(void);
+
+// Inject or clear the in-flight guard so host tests can exercise the
+// skip-on-concurrent-kick path without a real FreeRTOS task.
+// On ESP-IDF this toggles s_check_in_flight; on host it toggles a mirrored
+// flag that the host kick() stub respects.
+void bb_update_check_set_in_flight_for_test(bool in_flight);
+bool bb_update_check_get_in_flight_for_test(void);
 #endif
 
 #ifdef __cplusplus

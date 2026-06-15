@@ -12,6 +12,7 @@
 
 #include <limits.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +43,12 @@ static bb_event_topic_t              s_topic = NULL;
 static pthread_mutex_t               s_lock = PTHREAD_MUTEX_INITIALIZER;
 static bb_update_check_pause_cb_t    s_pause_hook = NULL;
 static bb_update_check_resume_cb_t   s_resume_hook = NULL;
+
+#ifndef ESP_PLATFORM
+// On host/Arduino there is no real FreeRTOS task; the in-flight flag is a
+// plain atomic so the host kick() stub can respect it for testing.
+static atomic_bool                   s_in_flight = false;
+#endif
 
 // ---------------------------------------------------------------------------
 // Semver compare
@@ -527,10 +534,20 @@ bb_err_t bb_update_check_now(void)
 }
 
 #ifndef ESP_PLATFORM
-// Host/Arduino stub: no worker task, so kick is synchronous like now().
+// Host/Arduino stub: no real FreeRTOS task; kick() is synchronous but
+// respects the in-flight guard so tests can verify the no-duplicate-spawn path.
 bb_err_t bb_update_check_kick(void)
 {
-    return bb_update_check_now();
+    // Atomically try to claim the in-flight slot.  If already set, a check is
+    // "in flight" — skip (mirrors the ESP-IDF on-demand guard behaviour).
+    bool expected = false;
+    if (!atomic_compare_exchange_strong(&s_in_flight, &expected, true)) {
+        bb_log_d(TAG, "kick: check already in flight, skipping");
+        return BB_OK;
+    }
+    bb_err_t err = bb_update_check_now();
+    atomic_store(&s_in_flight, false);
+    return err;
 }
 
 // Host/Arduino stub: no worker task, so run_blocking is synchronous like now().
@@ -757,5 +774,27 @@ void bb_update_check_reset_for_test(void)
     pthread_mutex_unlock(&s_lock);
     // Restore default: update check enabled (mirrors bb_nv_config_init default).
     bb_nv_config_set_update_check_enabled(true);
+#ifndef ESP_PLATFORM
+    // Reset the in-flight guard so each test starts clean.
+    atomic_store(&s_in_flight, false);
+#endif
 }
+
+#ifndef ESP_PLATFORM
+// Inject the in-flight state for testing the concurrency guard on host.
+void bb_update_check_set_in_flight_for_test(bool in_flight)
+{
+    atomic_store(&s_in_flight, in_flight);
+}
+
+bool bb_update_check_get_in_flight_for_test(void)
+{
+    return atomic_load(&s_in_flight);
+}
+#else
+// On ESP-IDF, the in-flight flag lives in bb_update_check_espidf.c.
+// Provide forward declarations (defined there) so the internal header compiles.
+void bb_update_check_set_in_flight_for_test(bool in_flight);
+bool bb_update_check_get_in_flight_for_test(void);
+#endif
 #endif

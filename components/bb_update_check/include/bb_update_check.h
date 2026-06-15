@@ -102,22 +102,19 @@ typedef bb_http_resume_cb_t bb_update_check_resume_cb_t;
 bb_err_t bb_update_check_set_hooks(bb_update_check_pause_cb_t pause,
                                    bb_update_check_resume_cb_t resume);
 
-// Configure which FreeRTOS core the bb_update_check worker task runs on.
+// Configure which FreeRTOS core the bb_update_check one-shot worker spawns on.
 // Default is Core 1 — matches bb_ota_pull_set_task_core's default and
 // keeps the mbedTLS handshake off the core that carries lwip/wifi/httpd.
 // Pass tskNO_AFFINITY (-1) to let FreeRTOS schedule, or 0 to force Core 0.
-// MUST be called BEFORE bb_update_check_register_init (i.e. before the
-// worker task is created); changes after that point are ignored.
+// Takes effect on the next spawn (can be changed at any time).
 void bb_update_check_set_task_core(int core);
 
-// Configure the FreeRTOS priority of the bb_update_check worker task.
+// Configure the FreeRTOS priority of the bb_update_check one-shot worker task.
 // Default is 1 — low so the worker yields to application tasks. Consumers
 // pinning the worker to the same core as a high-priority CPU-bound task
 // (e.g. a mining hashloop) need to raise the priority above that task's,
-// otherwise the kick semaphore wakes the worker but it never gets CPU
-// to call the pause hook. MUST be called BEFORE bb_update_check_register_init
-// (i.e. before the worker task is created); changes after that point are
-// ignored.
+// otherwise the spawned task never gets CPU to call the pause hook.
+// Takes effect on the next spawn (can be changed at any time).
 void bb_update_check_set_task_priority(int priority);
 
 // Trigger an immediate synchronous check on the caller's stack.
