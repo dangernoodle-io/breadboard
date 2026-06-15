@@ -10,11 +10,15 @@
 #include "bb_clock.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_ntp.h"
 #include "bb_nv.h"
+#include "bb_ring.h"
 
 #include <pthread.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 // CONFIG_BB_PUB_MAX_SOURCES, CONFIG_BB_PUB_MAX_SINKS,
 // CONFIG_BB_PUB_TOPIC_PREFIX, and CONFIG_BB_PUB_INTERVAL_MS are provided by
@@ -122,6 +126,250 @@ static pthread_mutex_t s_tick_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool     s_last_publish_ok  = false;
 static uint32_t s_last_publish_ms  = 0;
 static bool     s_published_ever   = false;
+
+// ---------------------------------------------------------------------------
+// Store-and-forward buffer (CONFIG_BB_PUB_BUFFER_ENABLE)
+// ---------------------------------------------------------------------------
+//
+// Entry wire format (packed into a single bb_ring push):
+//   [topic bytes (NUL-terminated)] [NUL separator] [payload bytes]
+//
+// The ring max_entry_bytes =
+//   BB_PUB_BUFFER_TOPIC_MAX (192) + 1 (NUL sep) + CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES
+//
+// ring entry `ts`  = capture epoch-ms when NTP-synced, else 0 (uptime-ms
+//                    not used here because bb_ring ts is int64 and uptime-ms
+//                    would be ambiguous at replay; 0 signals "unknown epoch").
+// ring entry `id`  = 0 (unused; reserved for future sequencing).
+//
+// Replay: on a tick where sink[0] delivers successfully and the ring is
+// non-empty, drain oldest-first via peek → inject captured_ms if ts>0 →
+// publish to sink[0] → pop on success, stop on failure.
+//
+// Only sink[0] is used for capture and replay to avoid double-buffering
+// the legacy fan-out set.
+
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+
+#ifndef CONFIG_BB_PUB_BUFFER_MAX_ENTRIES
+#define CONFIG_BB_PUB_BUFFER_MAX_ENTRIES 16
+#endif
+#ifndef CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES
+#define CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES 256
+#endif
+
+// Topic budget: must match the topic[] buf in tick.
+#define BB_PUB_BUFFER_TOPIC_MAX 192
+// Total per-entry capacity.
+#define BB_PUB_BUFFER_ENTRY_MAX \
+    (BB_PUB_BUFFER_TOPIC_MAX + 1 + CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES)
+
+static bb_ring_t s_buffer = NULL;
+
+// Lazily create the ring on first enqueue.
+static bb_ring_t buffer_get(void)
+{
+    if (!s_buffer) {
+        bb_err_t err = bb_ring_create(
+            (size_t)CONFIG_BB_PUB_BUFFER_MAX_ENTRIES,
+            (size_t)BB_PUB_BUFFER_ENTRY_MAX,
+            &s_buffer);
+        if (err != BB_OK || !s_buffer) {
+            bb_log_w(TAG, "store-and-forward: ring create failed (%d)", err);
+            s_buffer = NULL;
+        }
+    }
+    return s_buffer;
+}
+
+// Capture epoch accessor.
+// Returns the current wall-clock epoch in milliseconds when NTP is synced,
+// otherwise 0. A ts==0 in the ring means "epoch unknown at capture time";
+// the receiver uses arrival time instead of a backdated point.
+#ifdef BB_PUB_TESTING
+// Test hook: override synced epoch for deterministic tests.
+static int64_t s_test_epoch_ms = -1;   /* -1 = not overridden */
+
+void bb_pub_test_set_synced_epoch_ms(int64_t epoch_ms)
+{
+    s_test_epoch_ms = epoch_ms;
+}
+
+static int64_t capture_epoch_ms(void)
+{
+    if (s_test_epoch_ms >= 0) {
+        return s_test_epoch_ms;
+    }
+    if (bb_ntp_is_synced()) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+    }
+    return 0;
+}
+#else
+static int64_t capture_epoch_ms(void)
+{
+    if (!bb_ntp_is_synced()) return 0;
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+#endif /* BB_PUB_TESTING */
+
+// Push topic+payload into the ring.
+// Called under s_tick_lock.
+static void buffer_capture(const char *topic, const char *payload, int payload_len)
+{
+    bb_ring_t r = buffer_get();
+    if (!r) return;
+
+    size_t topic_len = strlen(topic);
+    if (topic_len >= BB_PUB_BUFFER_TOPIC_MAX) {
+        bb_log_w(TAG, "buffer: topic too long (%zu), skipping capture", topic_len);
+        return;
+    }
+
+    // Pack: topic + NUL + payload
+    size_t entry_len = topic_len + 1 + (size_t)payload_len;
+    if (entry_len > BB_PUB_BUFFER_ENTRY_MAX) {
+        bb_log_w(TAG, "buffer: entry too large (%zu > %zu), skipping capture",
+                 entry_len, (size_t)BB_PUB_BUFFER_ENTRY_MAX);
+        return;
+    }
+
+    // Stack-allocate entry (max 192+1+256 = 449 bytes; safe on any stack).
+    char entry[BB_PUB_BUFFER_ENTRY_MAX];
+    memcpy(entry, topic, topic_len);
+    entry[topic_len] = '\0';
+    if (payload_len > 0) {
+        memcpy(entry + topic_len + 1, payload, (size_t)payload_len);
+    }
+
+    int64_t ts = capture_epoch_ms();
+    bb_err_t err = bb_ring_push(r, entry, entry_len, ts, 0);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "buffer: ring push failed (%d)", err);
+    } else {
+        bb_log_d(TAG, "buffer: captured '%s' (epoch_ms=%lld, ring=%zu)",
+                 topic, (long long)ts, bb_ring_count(r));
+    }
+}
+
+// Splice captured_ms into a JSON payload when ts > 0.
+// Inserts `"captured_ms":<ts>,` right after the opening '{'.
+// Returns a heap-allocated string that the caller must free with free(), or
+// NULL if no injection needed (ts == 0) — caller uses original payload then.
+// Also returns NULL on alloc failure — caller falls back to original.
+static char *inject_captured_ms(const char *payload, int payload_len, int64_t ts)
+{
+    if (ts <= 0) return NULL;
+    if (payload_len < 2 || payload[0] != '{') return NULL;
+
+    // Build: {"captured_ms":<ts>,<rest after '{'>
+    // field = "captured_ms":NNNNNNNNNNNNNN,  (max 14 digits + overhead = ~22 chars)
+    char field[40];
+    int field_len = snprintf(field, sizeof(field), "\"captured_ms\":%lld,", (long long)ts);
+    if (field_len < 0 || (size_t)field_len >= sizeof(field)) return NULL;
+
+    int out_len = 1 + field_len + payload_len - 1;  /* '{' + field + rest */
+    char *out = malloc((size_t)out_len + 1);
+    if (!out) return NULL;
+
+    out[0] = '{';
+    memcpy(out + 1, field, (size_t)field_len);
+    // rest = payload[1..payload_len-1]
+    memcpy(out + 1 + field_len, payload + 1, (size_t)(payload_len - 1));
+    out[out_len] = '\0';
+    return out;
+}
+
+// Replay buffered entries to sink[0].
+// Called under s_tick_lock after a successful sink delivery.
+// Drains all entries oldest-first; stops on first sink failure.
+static void buffer_replay(const bb_pub_sink_t *sink)
+{
+    bb_ring_t r = s_buffer;
+    if (!r || bb_ring_count(r) == 0) return;
+
+    // Replay buffer: peek content size, alloc scratch, deliver, pop on success.
+    static char s_replay_buf[BB_PUB_BUFFER_ENTRY_MAX + 1];
+
+    for (;;) {
+        size_t   entry_len = 0;
+        int64_t  entry_ts  = 0;
+        uint32_t entry_id  = 0;
+
+        bb_err_t err = bb_ring_peek_oldest(r,
+                                           s_replay_buf, sizeof(s_replay_buf) - 1,
+                                           &entry_len, &entry_ts, &entry_id);
+        if (err == BB_ERR_NOT_FOUND) break;  /* ring empty */
+        if (err != BB_OK) {
+            bb_log_w(TAG, "buffer: peek failed (%d), stopping replay", err);
+            break;
+        }
+
+        // Parse topic (NUL-terminated at s_replay_buf[topic_len]).
+        s_replay_buf[entry_len] = '\0';
+        const char *topic   = s_replay_buf;
+        size_t topic_len    = strlen(topic);
+        const char *payload = (topic_len + 1 < entry_len)
+                              ? s_replay_buf + topic_len + 1
+                              : "";
+        int payload_len     = (int)(entry_len - topic_len - 1);
+        if (payload_len < 0) payload_len = 0;
+
+        // Inject captured_ms into payload when epoch was recorded.
+        char *patched = inject_captured_ms(payload, payload_len, entry_ts);
+        const char *pub_payload = patched ? patched : payload;
+        int         pub_len     = patched ? (int)strlen(patched) : payload_len;
+
+        bb_err_t deliver = sink->publish(sink->ctx, topic, pub_payload, pub_len);
+        free(patched);   /* NULL-safe */
+
+        if (deliver != BB_OK) {
+            bb_log_w(TAG, "buffer: replay delivery failed for '%s': %d", topic, deliver);
+            break;   /* sink still down; leave rest in ring */
+        }
+
+        bb_log_d(TAG, "buffer: replayed '%s' (epoch_ms=%lld)", topic, (long long)entry_ts);
+        bb_ring_pop_oldest(r);
+    }
+}
+
+#else  /* !CONFIG_BB_PUB_BUFFER_ENABLE */
+
+// Stub the test hook so it always exists when BB_PUB_TESTING is defined.
+#ifdef BB_PUB_TESTING
+void bb_pub_test_set_synced_epoch_ms(int64_t epoch_ms) { (void)epoch_ms; }
+#endif
+
+#endif /* CONFIG_BB_PUB_BUFFER_ENABLE */
+
+// ---------------------------------------------------------------------------
+// Public API — buffer stats
+// ---------------------------------------------------------------------------
+
+void bb_pub_buffer_stats(bb_pub_buffer_stats_t *out)
+{
+    if (!out) return;
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    bb_ring_t r = s_buffer;
+    if (r) {
+        out->count     = bb_ring_count(r);
+        out->dropped   = bb_ring_dropped(r);
+        out->truncated = bb_ring_truncated(r);
+    } else {
+        out->count     = 0;
+        out->dropped   = 0;
+        out->truncated = 0;
+    }
+#else
+    out->count     = 0;
+    out->dropped   = 0;
+    out->truncated = 0;
+#endif
+}
 
 // ---------------------------------------------------------------------------
 // Public API — sinks
@@ -393,13 +641,20 @@ bb_err_t bb_pub_tick_once(void)
 
             int json_len = (int)strlen(json);
             bb_err_t err = sk->publish(sk->ctx, topic, json, json_len);
-            bb_json_free_str(json);
 
             if (err != BB_OK) {
                 bb_log_w(TAG, "sink[%d] publish failed for '%s': %d",
                          si, src->subtopic, err);
                 tick_all_ok = false;
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+                // Capture to ring on sink[0] failure only.
+                if (si == 0) {
+                    buffer_capture(topic, json, json_len);
+                }
+#endif
             }
+
+            bb_json_free_str(json);
         }
 
         bb_json_free(obj);
@@ -412,6 +667,15 @@ bb_err_t bb_pub_tick_once(void)
         s_published_ever   = true;
         s_last_publish_ok  = tick_all_ok;
     }
+
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    // Replay buffered entries when sink[0] succeeded this tick and the ring
+    // is non-empty. Replay happens after all live sources so it does not
+    // interleave with the current tick's live data.
+    if (tick_all_ok && tick_published && s_sink_count > 0) {
+        buffer_replay(&s_sinks[0]);
+    }
+#endif
 
     pthread_mutex_unlock(&s_tick_lock);
     return BB_OK;
@@ -478,6 +742,12 @@ void bb_pub_test_reset(void)
     s_config_loaded            = true;   /* bypass NVS for tests */
     s_interval_apply_hook      = NULL;
     s_exclusive_holder         = NULL;
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    if (s_buffer) {
+        bb_ring_clear(s_buffer);
+    }
+    s_test_epoch_ms = -1;
+#endif
     // Re-initialise the tick lock so any lock state from a prior test is cleared.
     pthread_mutex_destroy(&s_tick_lock);
     pthread_mutex_init(&s_tick_lock, NULL);

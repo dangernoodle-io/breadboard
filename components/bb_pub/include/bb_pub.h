@@ -242,6 +242,27 @@ bool bb_pub_is_paused(void);
 bb_err_t bb_pub_tick_once(void);
 
 // ---------------------------------------------------------------------------
+// Store-and-forward buffer observability
+// ---------------------------------------------------------------------------
+
+/**
+ * Counters from the store-and-forward ring buffer. All fields are zero when
+ * CONFIG_BB_PUB_BUFFER_ENABLE is off (compiled-out stub) or when the ring
+ * has not yet been created.
+ */
+typedef struct {
+    size_t count;     /**< Current entries waiting for replay. */
+    size_t dropped;   /**< Entries evicted due to ring-full overflow. */
+    size_t truncated; /**< Push attempts rejected: entry too large for ring. */
+} bb_pub_buffer_stats_t;
+
+/**
+ * Read current store-and-forward buffer stats. Always succeeds; returns zeros
+ * when the feature is compiled out or the ring is not yet initialised.
+ */
+void bb_pub_buffer_stats(bb_pub_buffer_stats_t *out);
+
+// ---------------------------------------------------------------------------
 // Exclusive-sink arbiter
 // ---------------------------------------------------------------------------
 // Enforces mutual exclusion between telemetry sinks: at most ONE exclusive sink
@@ -279,6 +300,13 @@ void bb_pub_test_reset(void);
 
 /** Reset only the exclusive-sink arbiter (for arbiter-unit tests). */
 void bb_pub_exclusive_reset(void);
+
+/**
+ * Inject a fake NTP-synced epoch (ms) for buffer tests. Pass 0 to simulate
+ * "not yet synced". Only available when BB_PUB_TESTING is defined.
+ * Only meaningful when CONFIG_BB_PUB_BUFFER_ENABLE is 1.
+ */
+void bb_pub_test_set_synced_epoch_ms(int64_t epoch_ms);
 
 #endif /* BB_PUB_TESTING */
 
