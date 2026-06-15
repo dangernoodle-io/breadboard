@@ -153,10 +153,11 @@ static void send_json_error(bb_http_request_t *req, int status, const char *msg)
 }
 
 // ---------------------------------------------------------------------------
-// GET handler
+// Shared emit helper — writes fan fields into an existing bb_json_t object.
+// Used by /api/fan GET handler and /api/sensors fan section (SSOT).
 // ---------------------------------------------------------------------------
 
-void bb_fan_routes_emit(bb_http_request_t *req)
+void bb_fan_emit_section(bb_json_t obj)
 {
     bb_fan_handle_t h = bb_fan_primary();
     bool present = (h != NULL);
@@ -164,19 +165,18 @@ void bb_fan_routes_emit(bb_http_request_t *req)
     bb_fan_snapshot_t snap;
     bb_fan_snapshot(h, &snap);
 
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_bool(root, "present", present);
+    bb_json_obj_set_bool(obj, "present", present);
 
     if (present && snap.rpm >= 0) {
-        bb_json_obj_set_number(root, "rpm", (double)snap.rpm);
+        bb_json_obj_set_number(obj, "rpm", (double)snap.rpm);
     } else {
-        bb_json_obj_set_null(root, "rpm");
+        bb_json_obj_set_null(obj, "rpm");
     }
 
     if (present && snap.duty_pct >= 0) {
-        bb_json_obj_set_number(root, "duty_pct", (double)snap.duty_pct);
+        bb_json_obj_set_number(obj, "duty_pct", (double)snap.duty_pct);
     } else {
-        bb_json_obj_set_null(root, "duty_pct");
+        bb_json_obj_set_null(obj, "duty_pct");
     }
 
 #ifdef CONFIG_BB_FAN_AUTOFAN
@@ -185,37 +185,49 @@ void bb_fan_routes_emit(bb_http_request_t *req)
         // vr_target_c, manual_pct, min_pct). cfg.aux_target_c → "vr_target_c".
         bb_fan_autofan_cfg_t cfg;
         bb_fan_get_autofan_cfg(h, &cfg);
-        bb_json_obj_set_bool(root,   "autofan",      cfg.enabled);
-        bb_json_obj_set_number(root, "die_target_c", (double)cfg.die_target_c);
-        bb_json_obj_set_number(root, "vr_target_c",  (double)cfg.aux_target_c);
-        bb_json_obj_set_number(root, "manual_pct",   (double)cfg.manual_pct);
-        bb_json_obj_set_number(root, "min_pct",      (double)cfg.min_pct);
+        bb_json_obj_set_bool(obj,   "autofan",      cfg.enabled);
+        bb_json_obj_set_number(obj, "die_target_c", (double)cfg.die_target_c);
+        bb_json_obj_set_number(obj, "vr_target_c",  (double)cfg.aux_target_c);
+        bb_json_obj_set_number(obj, "manual_pct",   (double)cfg.manual_pct);
+        bb_json_obj_set_number(obj, "min_pct",      (double)cfg.min_pct);
 
         // Autofan telemetry fields.
         bb_fan_autofan_telemetry_t tel;
         bb_fan_get_autofan_telemetry(h, &tel);
 
         if (tel.die_ema_c >= 0.0f) {
-            bb_json_obj_set_number(root, "die_ema_c", (double)tel.die_ema_c);
+            bb_json_obj_set_number(obj, "die_ema_c", (double)tel.die_ema_c);
         } else {
-            bb_json_obj_set_null(root, "die_ema_c");
+            bb_json_obj_set_null(obj, "die_ema_c");
         }
         if (tel.aux_ema_c >= 0.0f) {
-            bb_json_obj_set_number(root, "vr_ema_c", (double)tel.aux_ema_c);
+            bb_json_obj_set_number(obj, "vr_ema_c", (double)tel.aux_ema_c);
         } else {
-            bb_json_obj_set_null(root, "vr_ema_c");
+            bb_json_obj_set_null(obj, "vr_ema_c");
         }
         if (tel.pid_input_c >= 0.0f) {
-            bb_json_obj_set_number(root, "pid_input_c", (double)tel.pid_input_c);
+            bb_json_obj_set_number(obj, "pid_input_c", (double)tel.pid_input_c);
         } else {
-            bb_json_obj_set_null(root, "pid_input_c");
+            bb_json_obj_set_null(obj, "pid_input_c");
         }
         // Wire-layer mapping: internal "aux" → TM contract name "vr".
         const char *src = tel.pid_input_src ? tel.pid_input_src : "";
         if (src[0] == 'a') src = "vr";  // "aux" → "vr"
-        bb_json_obj_set_string(root, "pid_input_src", src);
+        bb_json_obj_set_string(obj, "pid_input_src", src);
     }
 #endif /* CONFIG_BB_FAN_AUTOFAN */
+}
+
+// ---------------------------------------------------------------------------
+// GET handler
+// ---------------------------------------------------------------------------
+
+void bb_fan_routes_emit(bb_http_request_t *req)
+{
+    bb_json_t root = bb_json_obj_new();
+
+    // Use shared emit helper (SSOT — same fields as /api/sensors fan section).
+    bb_fan_emit_section(root);
 
     bb_http_route_run_extenders("fan", root);
 

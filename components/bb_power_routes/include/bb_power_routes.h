@@ -15,6 +15,7 @@
 // Host twin: platform/host/bb_power_routes/bb_power_routes_host.c
 #pragma once
 #include "bb_core.h"
+#include "bb_json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +25,11 @@ extern "C" {
 // Assembles the route schema incorporating any registered extenders.
 // Must be called after all "power" extenders have been registered.
 bb_err_t bb_power_routes_init(bb_http_handle_t server);
+
+// Shared emit helper — writes power fields into an existing bb_json_t object.
+// Called by both /api/power GET handler and /api/sensors power section get_fn so
+// both routes share one emitter (SSOT, no behavior drift).
+void bb_power_emit_section(bb_json_t obj);
 
 #ifdef BB_POWER_ROUTES_TESTING
 

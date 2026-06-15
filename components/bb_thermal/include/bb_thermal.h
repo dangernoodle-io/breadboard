@@ -13,6 +13,7 @@
 // Host twin: platform/host/bb_thermal/bb_thermal_host.c
 #pragma once
 #include "bb_core.h"
+#include "bb_json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,6 +23,12 @@ extern "C" {
 // Assembles the route schema incorporating any registered extenders.
 // Must be called after all "thermal" extenders have been registered.
 bb_err_t bb_thermal_init(bb_http_handle_t server);
+
+// Shared emit helper — writes thermal sub-objects into an existing bb_json_t.
+// Emits {soc,vr,asic,board} each as {present,c|null} (route's nested shape;
+// intentionally different from bb_pub_thermal's flat MQTT shape).
+// Called by both /api/thermal GET handler and /api/sensors thermal section get_fn.
+void bb_thermal_emit_section(bb_json_t obj);
 
 #ifdef BB_THERMAL_TESTING
 

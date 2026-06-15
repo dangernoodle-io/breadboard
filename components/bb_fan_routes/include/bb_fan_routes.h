@@ -20,6 +20,7 @@
 // Host twin: platform/host/bb_fan_routes/bb_fan_routes_host.c
 #pragma once
 #include "bb_core.h"
+#include "bb_json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +30,12 @@ extern "C" {
 // Assembles the route schema incorporating any registered extenders.
 // Must be called after all "fan" extenders have been registered.
 bb_err_t bb_fan_routes_init(bb_http_handle_t server);
+
+// Shared emit helper — writes fan fields into an existing bb_json_t object.
+// Called by both /api/fan GET handler and /api/sensors fan section get_fn so
+// both routes share one emitter (SSOT, no behavior drift).
+// Takes a bb_json_t obj — the caller owns it and must set it on the parent.
+void bb_fan_emit_section(bb_json_t obj);
 
 #ifdef CONFIG_BB_FAN_AUTOFAN
 #include "bb_fan.h"
