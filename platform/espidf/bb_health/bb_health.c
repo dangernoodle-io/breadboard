@@ -1,4 +1,5 @@
 #include "bb_health.h"
+#include "bb_section.h"
 
 #include <stdbool.h>
 #include <stdlib.h>
@@ -6,7 +7,6 @@
 
 #include "bb_board.h"
 #include "bb_http.h"
-#include "bb_http_extender.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mdns.h"
@@ -21,21 +21,19 @@ bb_err_t bb_health_stack_monitor_init(void);
 
 static const char *TAG = "bb_health";
 
+// File-scope section registry for /api/health.
+static bb_section_registry_t s_health_reg = { .tag = "bb_health" };
+
 // ---------------------------------------------------------------------------
-// Public bb_health extender wrappers
+// Public API
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_health_register_extender_ex(bb_health_extender_fn fn,
-                                         const char *schema_props_fragment)
+bb_err_t bb_health_register_section(const char *name,
+                                     bb_section_get_fn get,
+                                     void *ctx,
+                                     const char *schema_props)
 {
-    return bb_http_register_route_extender("health",
-                                           (bb_http_extender_fn)fn,
-                                           schema_props_fragment);
-}
-
-bb_err_t bb_health_register_extender(bb_health_extender_fn fn)
-{
-    return bb_health_register_extender_ex(fn, NULL);
+    return bb_section_register(&s_health_reg, name, get, NULL, ctx, schema_props);
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +77,8 @@ static bb_err_t health_handler(bb_http_request_t *req)
     }
     bb_json_obj_set_obj(root, "network", net);
 
-    bb_http_route_run_extenders("health", root);
+    // Sections: mqtt, temp, and any other registered sections.
+    bb_section_build_get(&s_health_reg, root);
 
     bb_err_t err = send_json_tree(req, root);
     bb_json_free(root);
@@ -92,7 +91,7 @@ static bb_err_t health_handler(bb_http_request_t *req)
 
 static bb_route_response_t s_health_responses[] = {
     { 200, "application/json",
-      NULL,  // filled by bb_http_route_assemble_schema() at init
+      NULL,  // filled by bb_section_assemble_schema() at init
       "liveness check" },
     { 0 },
 };
@@ -109,11 +108,11 @@ static const bb_route_t s_health_route = {
 static bb_err_t bb_health_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
-    bb_http_extender_freeze();
+    bb_section_freeze(&s_health_reg);
 
     // Assemble and publish health schema.
-    const char *health_schema = bb_http_route_assemble_schema(
-        "health", k_health_base, k_health_suffix);
+    char *health_schema = bb_section_assemble_schema(
+        &s_health_reg, k_health_base, k_health_suffix);
     if (!health_schema) {
         bb_log_w(TAG, "health schema assembly: malloc failed; schema will be NULL");
     }

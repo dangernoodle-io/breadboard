@@ -11,11 +11,11 @@
 
 /* ---- helpers ---- */
 
-static bb_json_t invoke_extender(void)
+static bb_json_t invoke_sections(void)
 {
     bb_mqtt_register_health();
     bb_json_t root = bb_json_obj_new();
-    bb_health_invoke_extenders_for_test(root);
+    bb_health_invoke_sections_for_test(root);
     return root;
 }
 
@@ -24,7 +24,7 @@ static bb_json_t invoke_extender(void)
 void test_bb_mqtt_health_no_handle_enabled_false(void)
 {
     /* bb_mqtt_default() returns NULL by default on host */
-    bb_json_t root = invoke_extender();
+    bb_json_t root = invoke_sections();
 
     bb_json_t mqtt = bb_json_obj_get_item(root, "mqtt");
     TEST_ASSERT_NOT_NULL_MESSAGE(mqtt, "mqtt key missing from health output");
@@ -38,7 +38,7 @@ void test_bb_mqtt_health_no_handle_enabled_false(void)
 
 void test_bb_mqtt_health_no_handle_connected_false(void)
 {
-    bb_json_t root = invoke_extender();
+    bb_json_t root = invoke_sections();
 
     bb_json_t mqtt = bb_json_obj_get_item(root, "mqtt");
     TEST_ASSERT_NOT_NULL(mqtt);
@@ -60,7 +60,7 @@ void test_bb_mqtt_health_handle_present_enabled_true(void)
     bb_mqtt_default_set(h);
     /* host stub initialises connected=true */
 
-    bb_json_t root = invoke_extender();
+    bb_json_t root = invoke_sections();
     bb_json_t mqtt = bb_json_obj_get_item(root, "mqtt");
     TEST_ASSERT_NOT_NULL(mqtt);
 
@@ -81,7 +81,7 @@ void test_bb_mqtt_health_handle_connected_reflects_stub(void)
     bb_mqtt_default_set(h);
     /* default connected=true on host stub */
 
-    bb_json_t root = invoke_extender();
+    bb_json_t root = invoke_sections();
     bb_json_t mqtt = bb_json_obj_get_item(root, "mqtt");
     TEST_ASSERT_NOT_NULL(mqtt);
 
@@ -104,7 +104,7 @@ void test_bb_mqtt_health_set_disconnected(void)
     bb_mqtt_default_set(h);
     bb_mqtt_host_set_connected(h, false);
 
-    bb_json_t root = invoke_extender();
+    bb_json_t root = invoke_sections();
     bb_json_t mqtt = bb_json_obj_get_item(root, "mqtt");
     TEST_ASSERT_NOT_NULL(mqtt);
 
@@ -130,7 +130,7 @@ void test_bb_mqtt_health_reconnect_reflects_connected_true(void)
     bb_mqtt_host_set_connected(h, false);
     bb_mqtt_host_set_connected(h, true);
 
-    bb_json_t root = invoke_extender();
+    bb_json_t root = invoke_sections();
     bb_json_t mqtt = bb_json_obj_get_item(root, "mqtt");
     TEST_ASSERT_NOT_NULL(mqtt);
 
@@ -143,15 +143,15 @@ void test_bb_mqtt_health_reconnect_reflects_connected_true(void)
     bb_mqtt_destroy(h);
 }
 
-/* ---- test: schema fragment ---- */
+/* ---- test: schema in assembled /api/health schema ---- */
 
 void test_bb_mqtt_health_schema_fragment_present(void)
 {
     bb_mqtt_register_health();
-    const char *frag = bb_health_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(frag);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(frag, "\"mqtt\""),
-                                 "mqtt key not in health schema fragment");
-    TEST_ASSERT_NOT_NULL(strstr(frag, "\"enabled\""));
-    TEST_ASSERT_NOT_NULL(strstr(frag, "\"connected\""));
+    const char *schema = bb_health_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"mqtt\""),
+                                 "mqtt key not in health schema");
+    TEST_ASSERT_NOT_NULL(strstr(schema, "\"enabled\""));
+    TEST_ASSERT_NOT_NULL(strstr(schema, "\"connected\""));
 }

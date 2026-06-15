@@ -233,7 +233,7 @@ COMPONENT_MAP = {
             "platform/host/bb_health/bb_health_emit.c",
             "components/bb_health/bb_health_stack_common.c",
         ],
-        "depends":  ["bb_core", "bb_http", "bb_json", "bb_ota_validator", "bb_wifi"],
+        "depends":  ["bb_core", "bb_http", "bb_json", "bb_ota_validator", "bb_wifi", "bb_section"],
     },
     "bb_power": {
         "includes": ["components/bb_power/include"],
