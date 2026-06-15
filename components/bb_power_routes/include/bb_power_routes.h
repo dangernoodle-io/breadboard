@@ -1,16 +1,8 @@
-// bb_power_routes — GET /api/power route + route-extender bearer for bb_power.
+// bb_power_routes — emit helper for bb_power data (SSOT for /api/sensors power section).
 //
-// Consumers register this component (REQUIRES bb_power_routes) to expose
-// /api/power. Satellite components register power-route extenders via:
-//
-//   bb_http_register_route_extender("power", my_fn, my_schema_frag);
-//
-// before bb_http_extender_freeze() is called (regular-tier init, order 0).
-// bb_power_routes_init assembles the schema after freeze (order 1).
-//
-// Route-extender ordering (same constraint as bb_info):
-//   order 0 — satellites register their "power" extenders
-//   order 1 — bb_power_routes_init freezes + assembles + registers /api/power
+// NOTE: GET /api/power route was deleted in B1-269 PR7.
+// /api/sensors (bb_sensors) is the primary HTTP surface for power data.
+// bb_power_routes_init() is a no-op stub kept for link compatibility.
 //
 // Host twin: platform/host/bb_power_routes/bb_power_routes_host.c
 #pragma once
@@ -21,24 +13,16 @@
 extern "C" {
 #endif
 
-// Register GET /api/power with the HTTP server (regular-tier init fn).
-// Assembles the route schema incorporating any registered extenders.
-// Must be called after all "power" extenders have been registered.
+// No-op stub kept for link compatibility. /api/power route deleted in B1-269 PR7.
 bb_err_t bb_power_routes_init(bb_http_handle_t server);
 
 // Shared emit helper — writes power fields into an existing bb_json_t object.
-// Called by both /api/power GET handler and /api/sensors power section get_fn so
-// both routes share one emitter (SSOT, no behavior drift).
+// Called by /api/sensors power section get_fn so both share one emitter (SSOT).
 void bb_power_emit_section(bb_json_t obj);
 
 #ifdef BB_POWER_ROUTES_TESTING
 
 #include "bb_power_test.h"
-#include "bb_http_extender_test.h"
-
-// Assemble (or return cached) schema for the "power" route_id.
-// Caller must NOT free the result.
-const char *bb_power_routes_get_assembled_schema(void);
 
 // Reset route state for test isolation.
 void bb_power_routes_reset_for_test(void);

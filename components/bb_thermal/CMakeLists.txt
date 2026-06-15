@@ -1,8 +1,8 @@
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_thermal/bb_thermal.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_temp bb_power bb_fan bb_info bb_core bb_json
-    PRIV_REQUIRES bb_http bb_log bb_registry)
+    REQUIRES bb_temp bb_power bb_fan bb_core bb_json
+    PRIV_REQUIRES bb_log bb_registry)
 
 if(CONFIG_BB_THERMAL_AUTOREGISTER)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")

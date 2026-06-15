@@ -101,7 +101,6 @@ COMPONENT_MAP = {
             "components/bb_http/src/route_registry.c",
             "components/bb_http/src/bb_http_json_obj.c",
             "components/bb_http/src/bb_http_api_dispatch.c",
-            "components/bb_http/src/bb_http_extender.c",
             "platform/host/bb_http/bb_http_host.c",
         ],
         "depends":  ["bb_core", "bb_log"],
@@ -474,7 +473,7 @@ COMPONENT_MAP = {
     "bb_sensors": {
         "includes": ["components/bb_sensors/include", "components/bb_sensors"],
         "sources":  ["platform/host/bb_sensors/bb_sensors_host.c"],
-        "depends":  ["bb_core", "bb_json", "bb_section", "bb_fan_routes", "bb_power_routes", "bb_thermal"],
+        "depends":  ["bb_core", "bb_json", "bb_section", "bb_fan_routes", "bb_power_routes", "bb_thermal", "bb_fan"],
     },
     "bb_telemetry": {
         "includes": ["components/bb_telemetry/include"],
