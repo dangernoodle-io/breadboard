@@ -8,6 +8,16 @@
 // DHCP hostname configuration is not available on host/Arduino.
 // Still validates input; network operations return BB_OK (no-op).
 
+#ifdef BB_WIFI_TESTING
+#include "bb_wifi_test.h"
+static bool s_test_has_ip = false;
+
+void bb_wifi_test_set_has_ip(bool has_ip)
+{
+    s_test_has_ip = has_ip;
+}
+#endif /* BB_WIFI_TESTING */
+
 bb_err_t bb_wifi_set_hostname(const char *hostname)
 {
     if (!hostname || !*hostname) return BB_ERR_INVALID_ARG;
@@ -44,7 +54,11 @@ int bb_wifi_get_retry_count(void)
 
 bool bb_wifi_has_ip(void)
 {
+#ifdef BB_WIFI_TESTING
+    return s_test_has_ip;
+#else
     return false;
+#endif
 }
 
 bb_err_t bb_wifi_get_ip_str(char *out, size_t out_len)

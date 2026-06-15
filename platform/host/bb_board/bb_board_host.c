@@ -2,6 +2,16 @@
 
 #include <string.h>
 
+#ifdef BB_BOARD_TESTING
+#include "bb_board_test.h"
+static bool s_test_ota_validated = false;
+
+void bb_board_test_set_ota_validated(bool validated)
+{
+    s_test_ota_validated = validated;
+}
+#endif /* BB_BOARD_TESTING */
+
 bb_err_t bb_board_get_info(bb_board_info_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
@@ -13,6 +23,9 @@ bb_err_t bb_board_get_info(bb_board_info_t *out)
     strncpy(out->chip_model, "host", sizeof(out->chip_model) - 1);
     strncpy(out->idf_version, "0.0.0-host", sizeof(out->idf_version) - 1);
     out->cores = 1;
+#ifdef BB_BOARD_TESTING
+    out->ota_validated = s_test_ota_validated;
+#endif
 
     return BB_OK;
 }
