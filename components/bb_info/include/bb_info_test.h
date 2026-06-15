@@ -10,23 +10,24 @@ extern "C" {
 #endif
 
 // Returns the assembled /api/info 200 response schema, lazily constructed on
-// first call from k_info_schema_base + registered extender fragments +
-// k_info_schema_suffix. NULL if malloc fails. Caller must NOT free the result.
+// first call from k_info_schema_base + registered section schemas +
+// k_info_schema_suffix via bb_section_assemble_schema. NULL if malloc fails.
+// Caller must NOT free the result.
 const char *bb_info_get_assembled_schema(void);
 
-// Freeze the extender table so that registers after this point return
+// Freeze the section table so that registers after this point return
 // BB_ERR_INVALID_STATE. Mirrors what bb_info_init() does on ESP-IDF.
 // Safe to call multiple times (idempotent).
 void bb_info_freeze_for_test(void);
 
-// Reset all bb_info state: clears extender tables, unfreeze, free assembled schema.
-// Called from setUp() in test_main.c to isolate tests.
+// Reset all bb_info state: clears section tables, capabilities, unfreeze,
+// free assembled schema. Called from setUp() in test_main.c to isolate tests.
 void bb_info_reset_for_test(void);
 
-// Invoke all registered /api/info extenders against root.
+// Invoke all registered /api/info section get_fns against root.
 // Mirrors what bb_info's info_handler does on ESP-IDF so host tests can
-// verify extender JSON output without a live HTTP server.
-void bb_info_invoke_extenders_for_test(void *root);
+// verify section JSON output without a live HTTP server.
+void bb_info_invoke_sections_for_test(bb_json_t root);
 
 #ifdef __cplusplus
 }

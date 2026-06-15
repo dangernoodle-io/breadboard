@@ -3,24 +3,21 @@
 #include "bb_info.h"
 #include "bb_json.h"
 
-/* JSON-Schema properties fragment contributed to the /api/info 200 schema. */
-static const char k_ntp_schema_fragment[] =
-    "\"ntp\":{\"type\":\"object\",\"properties\":{"
+/* JSON-Schema value for the "ntp" section. */
+static const char k_ntp_schema[] =
+    "{\"type\":\"object\",\"properties\":{"
     "\"synced\":{\"type\":\"boolean\"},"
     "\"last_sync_unix\":{\"type\":\"number\"}}}";
 
-static void ntp_info_extender(void *root)
+static void ntp_section_get(bb_json_t section, void *ctx)
 {
-    bb_json_t ntp = bb_json_obj_new();
-
-    bb_json_obj_set_bool(ntp, "synced", bb_ntp_is_synced());
-    bb_json_obj_set_number(ntp, "last_sync_unix",
+    (void)ctx;
+    bb_json_obj_set_bool(section, "synced", bb_ntp_is_synced());
+    bb_json_obj_set_number(section, "last_sync_unix",
                            (double)bb_ntp_last_sync_unix());
-
-    bb_json_obj_set_obj((bb_json_t)root, "ntp", ntp);
 }
 
 void bb_ntp_register_info(void)
 {
-    bb_info_register_extender_ex(ntp_info_extender, k_ntp_schema_fragment);
+    bb_info_register_section("ntp", ntp_section_get, NULL, k_ntp_schema);
 }

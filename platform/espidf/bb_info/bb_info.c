@@ -6,15 +6,18 @@
 
 #include "bb_board.h"
 #include "bb_http.h"
-#include "bb_http_extender.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_registry.h"
+#include "bb_section.h"
 #include "bb_wifi.h"
 
 #include "../../../components/bb_info/bb_info_schema_priv.h"
 
 static const char *TAG = "bb_info";
+
+// File-scope section registry for /api/info.
+static bb_section_registry_t s_info_reg = { .tag = "bb_info" };
 
 // ---------------------------------------------------------------------------
 // Capability registry
@@ -22,24 +25,18 @@ static const char *TAG = "bb_info";
 
 static const char *s_capabilities[BB_INFO_MAX_CAPABILITIES];
 static int         s_capability_count = 0;
-// Mirrored freeze flag for capabilities (set alongside the extender freeze).
 static bool        s_cap_frozen       = false;
 
 // ---------------------------------------------------------------------------
-// Public bb_info extender wrappers (back-compat thin wrappers)
+// Public API
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_info_register_extender_ex(bb_info_extender_fn fn,
-                                       const char *schema_props_fragment)
+bb_err_t bb_info_register_section(const char *name,
+                                   bb_section_get_fn get,
+                                   void *ctx,
+                                   const char *schema_props)
 {
-    return bb_http_register_route_extender("info",
-                                           (bb_http_extender_fn)fn,
-                                           schema_props_fragment);
-}
-
-bb_err_t bb_info_register_extender(bb_info_extender_fn fn)
-{
-    return bb_info_register_extender_ex(fn, NULL);
+    return bb_section_register(&s_info_reg, name, get, NULL, ctx, schema_props);
 }
 
 void bb_info_register_capability(const char *name)
@@ -147,7 +144,8 @@ static bb_err_t info_handler(bb_http_request_t *req)
     }
     bb_json_obj_set_arr(root, "capabilities", caps);
 
-    bb_http_route_run_extenders("info", root);
+    // Emit named sections (display, led, ntp, diag, ...)
+    bb_section_build_get(&s_info_reg, root);
 
     bb_err_t err = send_json_tree(req, root);
     bb_json_free(root);
@@ -160,7 +158,7 @@ static bb_err_t info_handler(bb_http_request_t *req)
 
 static bb_route_response_t s_info_responses[] = {
     { 200, "application/json",
-      NULL,  // filled by bb_http_route_assemble_schema() at init
+      NULL,  // filled by bb_section_assemble_schema() at init
       "full device info including board and network" },
     { 0 },
 };
@@ -178,13 +176,13 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     s_cap_frozen = true;
-    bb_http_extender_freeze();
+    bb_section_freeze(&s_info_reg);
 
-    // Assemble and publish info schema. The assembled buffer is stored inside
-    // the extender registry and published into s_info_responses[0].schema so
-    // that OpenAPI emits it in /api/openapi.json.
-    const char *info_schema = bb_http_route_assemble_schema(
-        "info", k_info_schema_base, k_info_schema_suffix);
+    // Assemble and publish info schema via bb_section_assemble_schema.
+    // The assembled buffer is heap-allocated; it is stored in s_info_responses[0].schema
+    // so that OpenAPI emits it in /api/openapi.json.
+    char *info_schema = bb_section_assemble_schema(
+        &s_info_reg, k_info_schema_base, k_info_schema_suffix);
     if (!info_schema) {
         bb_log_w(TAG, "info schema assembly: malloc failed; schema will be NULL");
     }

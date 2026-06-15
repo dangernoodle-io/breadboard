@@ -14,6 +14,7 @@
 #include "bb_i2c_test.h"
 #include "bb_health_test.h"
 #include "../../components/bb_health/bb_health_stack.h"
+#include "bb_http_extender_test.h"
 
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
@@ -1161,15 +1162,15 @@ void test_bb_display_info_event_build_json_zero_buf_sz_returns_neg1(void);
 void test_bb_display_info_event_build_json_present_true_null_panel_returns_neg1(void);
 
 // Forward declarations from test_bb_info.c
-void test_bb_info_register_extender_null_returns_err(void);
-void test_bb_info_register_extender_ex_null_fn_returns_invalid_arg(void);
-void test_bb_info_register_extender_ex_null_schema_succeeds(void);
-void test_bb_info_register_extender_ex_empty_schema_succeeds(void);
-void test_bb_info_assembled_schema_contains_fragment(void);
-void test_bb_info_assembled_schema_no_extenders_equals_base_plus_suffix(void);
-void test_bb_info_assembled_schema_two_extenders_both_present_valid_json(void);
+void test_bb_info_register_section_null_name_returns_err(void);
+void test_bb_info_register_section_null_get_returns_err(void);
+void test_bb_info_register_section_null_schema_succeeds(void);
+void test_bb_info_register_section_after_freeze_returns_invalid_state(void);
+void test_bb_info_section_appears_in_assembled_schema(void);
+void test_bb_info_no_sections_schema_is_base_plus_suffix(void);
+void test_bb_info_two_sections_both_in_schema(void);
 void test_bb_info_assembled_schema_is_valid_json(void);
-void test_bb_info_register_after_freeze_returns_invalid_state(void);
+void test_bb_info_section_get_fn_invoked(void);
 void test_bb_info_capabilities_registered_appear_in_schema(void);
 void test_bb_info_capabilities_dedup(void);
 void test_bb_info_capabilities_empty_schema_present(void);
@@ -2514,6 +2515,7 @@ void setUp(void) {
     bb_display_reset_for_testing();
     bb_display_test_reset_mock();
     bb_info_reset_for_test();
+    bb_http_extender_reset_for_test();
     bb_health_reset_for_test();
     bb_health_stack_reset_for_test();
     bb_wdt_test_reset();
@@ -3676,15 +3678,15 @@ int main(void) {
     RUN_TEST(test_bb_display_info_event_build_json_present_true_null_panel_returns_neg1);
 
     // bb_info tests
-    RUN_TEST(test_bb_info_register_extender_null_returns_err);
-    RUN_TEST(test_bb_info_register_extender_ex_null_fn_returns_invalid_arg);
-    RUN_TEST(test_bb_info_register_extender_ex_null_schema_succeeds);
-    RUN_TEST(test_bb_info_register_extender_ex_empty_schema_succeeds);
-    RUN_TEST(test_bb_info_assembled_schema_contains_fragment);
-    RUN_TEST(test_bb_info_assembled_schema_no_extenders_equals_base_plus_suffix);
-    RUN_TEST(test_bb_info_assembled_schema_two_extenders_both_present_valid_json);
+    RUN_TEST(test_bb_info_register_section_null_name_returns_err);
+    RUN_TEST(test_bb_info_register_section_null_get_returns_err);
+    RUN_TEST(test_bb_info_register_section_null_schema_succeeds);
+    RUN_TEST(test_bb_info_register_section_after_freeze_returns_invalid_state);
+    RUN_TEST(test_bb_info_section_appears_in_assembled_schema);
+    RUN_TEST(test_bb_info_no_sections_schema_is_base_plus_suffix);
+    RUN_TEST(test_bb_info_two_sections_both_in_schema);
     RUN_TEST(test_bb_info_assembled_schema_is_valid_json);
-    RUN_TEST(test_bb_info_register_after_freeze_returns_invalid_state);
+    RUN_TEST(test_bb_info_section_get_fn_invoked);
     RUN_TEST(test_bb_info_capabilities_registered_appear_in_schema);
     RUN_TEST(test_bb_info_capabilities_dedup);
     RUN_TEST(test_bb_info_capabilities_empty_schema_present);

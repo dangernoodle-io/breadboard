@@ -5,35 +5,33 @@
 #include "bb_json.h"
 #include "bb_nv.h"
 
-/* JSON-Schema properties fragment contributed to the /api/info 200 schema. */
-static const char k_display_schema_fragment[] =
-    "\"display\":{\"type\":\"object\",\"properties\":{"
+/* JSON-Schema value for the "display" section. */
+static const char k_display_schema[] =
+    "{\"type\":\"object\",\"properties\":{"
     "\"present\":{\"type\":\"boolean\"},"
     "\"panel\":{\"type\":[\"string\",\"null\"]},"
     "\"width\":{\"type\":\"integer\"},"
     "\"height\":{\"type\":\"integer\"},"
     "\"enabled\":{\"type\":\"boolean\"}}}";
 
-static void display_info_extender(void *root)
+static void display_section_get(bb_json_t section, void *ctx)
 {
+    (void)ctx;
     const char *panel = bb_display_backend_name();
-    bb_json_t disp = bb_json_obj_new();
 
     if (panel) {
-        bb_json_obj_set_bool(disp, "present", true);
-        bb_json_obj_set_string(disp, "panel", panel);
-        bb_json_obj_set_number(disp, "width",  (double)bb_display_width());
-        bb_json_obj_set_number(disp, "height", (double)bb_display_height());
-        bb_json_obj_set_bool(disp, "enabled", bb_nv_config_display_enabled());
+        bb_json_obj_set_bool(section, "present", true);
+        bb_json_obj_set_string(section, "panel", panel);
+        bb_json_obj_set_number(section, "width",  (double)bb_display_width());
+        bb_json_obj_set_number(section, "height", (double)bb_display_height());
+        bb_json_obj_set_bool(section, "enabled", bb_nv_config_display_enabled());
     } else {
-        bb_json_obj_set_bool(disp, "present", false);
+        bb_json_obj_set_bool(section, "present", false);
     }
-
-    bb_json_obj_set_obj((bb_json_t)root, "display", disp);
 }
 
 void bb_display_register_info(void)
 {
-    bb_info_register_extender_ex(display_info_extender, k_display_schema_fragment);
+    bb_info_register_section("display", display_section_get, NULL, k_display_schema);
     // Host stub: no event bus; the pure builder is exercised via direct tests.
 }

@@ -16,37 +16,35 @@ static const char *TAG = "bb_display_info";
 static bool s_registered = false;
 static bb_event_topic_t s_topic = NULL;
 
-/* JSON-Schema properties fragment contributed to the /api/info 200 schema. */
-static const char k_display_schema_fragment[] =
-    "\"display\":{\"type\":\"object\",\"properties\":{"
+/* JSON-Schema value for the "display" section. */
+static const char k_display_schema[] =
+    "{\"type\":\"object\",\"properties\":{"
     "\"present\":{\"type\":\"boolean\"},"
     "\"panel\":{\"type\":[\"string\",\"null\"]},"
     "\"width\":{\"type\":\"integer\"},"
     "\"height\":{\"type\":\"integer\"},"
     "\"enabled\":{\"type\":\"boolean\"}}}";
 
-static void display_info_extender(bb_json_t root)
+static void display_section_get(bb_json_t section, void *ctx)
 {
+    (void)ctx;
     const char *panel = bb_display_backend_name();
-    bb_json_t disp = bb_json_obj_new();
 
     if (panel) {
-        bb_json_obj_set_bool(disp, "present", true);
-        bb_json_obj_set_string(disp, "panel", panel);
-        bb_json_obj_set_number(disp, "width",  (double)bb_display_width());
-        bb_json_obj_set_number(disp, "height", (double)bb_display_height());
-        bb_json_obj_set_bool(disp, "enabled", bb_nv_config_display_enabled());
+        bb_json_obj_set_bool(section, "present", true);
+        bb_json_obj_set_string(section, "panel", panel);
+        bb_json_obj_set_number(section, "width",  (double)bb_display_width());
+        bb_json_obj_set_number(section, "height", (double)bb_display_height());
+        bb_json_obj_set_bool(section, "enabled", bb_nv_config_display_enabled());
     } else {
-        bb_json_obj_set_bool(disp, "present", false);
+        bb_json_obj_set_bool(section, "present", false);
     }
-
-    bb_json_obj_set_obj(root, "display", disp);
 }
 
 // ---------------------------------------------------------------------------
-// bb_display_register_info: register /api/info extender + health.display topic.
+// bb_display_register_info: register /api/info section + health.display topic.
 //
-// Must be called before bb_info_init freezes the extender table (i.e. before
+// Must be called before bb_info_init freezes the section table (i.e. before
 // the regular-tier walk). The bb_event_routes_attach_ex call is intentionally
 // NOT done here — bb_event_routes is not yet initialized at consumer-call time
 // (ESP_ERR_INVALID_STATE / 259). The attach is deferred to
@@ -56,7 +54,7 @@ static void display_info_extender(bb_json_t root)
 
 void bb_display_register_info(void)
 {
-    bb_info_register_extender_ex(display_info_extender, k_display_schema_fragment);
+    bb_info_register_section("display", display_section_get, NULL, k_display_schema);
 
     // Register retained health.display event topic. Must happen early so that
     // any runtime bb_event_post calls before the registry walk still have a

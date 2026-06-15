@@ -223,7 +223,7 @@ COMPONENT_MAP = {
     "bb_info": {
         "includes": ["components/bb_info/include"],
         "sources":  ["platform/host/bb_info/bb_info_host.c"],
-        "depends":  ["bb_core", "bb_http", "bb_json", "bb_board", "bb_wifi"],
+        "depends":  ["bb_core", "bb_http", "bb_json", "bb_board", "bb_wifi", "bb_section"],
     },
     "bb_health": {
         "includes": ["components/bb_health/include", "components/bb_health"],

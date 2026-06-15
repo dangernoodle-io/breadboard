@@ -34,7 +34,7 @@ void test_bb_ntp_info_extender_synced_false_last_sync_zero(void)
     bb_ntp_register_info();
 
     bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_extenders_for_test(root);
+    bb_info_invoke_sections_for_test(root);
 
     bb_json_t ntp = bb_json_obj_get_item(root, "ntp");
     TEST_ASSERT_NOT_NULL_MESSAGE(ntp, "ntp key missing from extender output");
@@ -56,7 +56,7 @@ void test_bb_ntp_info_extender_ntp_key_always_present(void)
     bb_ntp_register_info();
 
     bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_extenders_for_test(root);
+    bb_info_invoke_sections_for_test(root);
 
     bb_json_t ntp = bb_json_obj_get_item(root, "ntp");
     TEST_ASSERT_NOT_NULL_MESSAGE(ntp, "ntp object must always be present");

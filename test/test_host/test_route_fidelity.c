@@ -1193,22 +1193,24 @@ void test_capture_no_active_slot_ignored(void)
 }
 
 // ---------------------------------------------------------------------------
-// New fidelity tests for schema-carrying extenders
+// New fidelity tests for schema-carrying sections
 // ---------------------------------------------------------------------------
 
-static void extender_add_xtest(void *root)
+static void section_add_xtest(bb_json_t section, void *ctx)
 {
-    // Host extender: root is void* on host; no-op here.
-    // The point is the schema fragment — not the runtime field.
-    (void)root;
+    // Section get: write a test field into the child section object.
+    (void)ctx;
+    bb_json_obj_set_string(section, "xfield", "testvalue");
 }
 
-// (a) Register extender with fragment; validate info body against assembled schema.
+// (a) Register section with schema_props; validate info body against assembled schema.
 void test_fidelity_info_with_extender(void)
 {
-    static const char frag[] = "\"xtest\":{\"type\":\"string\"}";
+    static const char schema_props[] =
+        "{\"type\":\"object\",\"properties\":{\"xfield\":{\"type\":\"string\"}}}";
+    static const char frag[] = "\"xtest\":";
     TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_info_register_extender_ex(extender_add_xtest, frag));
+        bb_info_register_section("xtest", section_add_xtest, NULL, schema_props));
 
     const char *schema = bb_info_get_assembled_schema();
     TEST_ASSERT_NOT_NULL(schema);
