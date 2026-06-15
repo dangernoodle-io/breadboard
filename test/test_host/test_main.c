@@ -2160,6 +2160,17 @@ void test_bb_sensors_schema_contains_power_section(void);
 void test_bb_sensors_schema_contains_thermal_section(void);
 void test_bb_sensors_external_section_registered_ok(void);
 void test_bb_sensors_external_section_schema_in_assembled(void);
+#ifdef CONFIG_BB_FAN_AUTOFAN
+void test_bb_sensors_fan_patch_autofan_manual_pct_invalid_over100(void);
+void test_bb_sensors_fan_patch_autofan_manual_pct_invalid_negative(void);
+void test_bb_sensors_fan_patch_autofan_min_pct_invalid_over100(void);
+void test_bb_sensors_fan_patch_autofan_die_target_invalid_zero(void);
+void test_bb_sensors_fan_patch_autofan_die_target_invalid_negative(void);
+void test_bb_sensors_fan_patch_autofan_vr_target_invalid_zero(void);
+void test_bb_sensors_fan_patch_autofan_valid_boundary_0(void);
+void test_bb_sensors_fan_patch_autofan_valid_boundary_100(void);
+void test_bb_sensors_fan_patch_autofan_atomicity_bad_second_field(void);
+#endif
 
 // Forward declarations from test_bb_section.c
 void test_bb_section_register_ok(void);
@@ -2180,6 +2191,13 @@ void test_bb_section_assemble_schema_two_sections(void);
 void test_bb_section_assemble_schema_null_schema_props_omitted(void);
 void test_bb_section_freeze_rejects_register_after(void);
 void test_bb_section_freeze_build_get_still_works(void);
+void test_bb_section_register_dup_name_returns_invalid_state(void);
+void test_bb_section_register_dup_name_different_case_allowed(void);
+void test_bb_section_dispatch_patch_multi_read_only_rejects_all(void);
+void test_bb_section_dispatch_patch_single_writable_applies(void);
+void test_bb_section_assemble_schema_mixed_null_and_props(void);
+void test_bb_info_diag_registers_before_freeze_succeeds(void);
+void test_bb_info_diag_registers_after_freeze_fails(void);
 
 // Forward declarations from test_bb_telemetry.c
 void test_bb_telemetry_register_ok(void);
@@ -4645,6 +4663,13 @@ int main(void) {
     RUN_TEST(test_bb_section_assemble_schema_null_schema_props_omitted);
     RUN_TEST(test_bb_section_freeze_rejects_register_after);
     RUN_TEST(test_bb_section_freeze_build_get_still_works);
+    RUN_TEST(test_bb_section_register_dup_name_returns_invalid_state);
+    RUN_TEST(test_bb_section_register_dup_name_different_case_allowed);
+    RUN_TEST(test_bb_section_dispatch_patch_multi_read_only_rejects_all);
+    RUN_TEST(test_bb_section_dispatch_patch_single_writable_applies);
+    RUN_TEST(test_bb_section_assemble_schema_mixed_null_and_props);
+    RUN_TEST(test_bb_info_diag_registers_before_freeze_succeeds);
+    RUN_TEST(test_bb_info_diag_registers_after_freeze_fails);
 
     // bb_sensors tests
     RUN_TEST(test_bb_sensors_register_null_name_returns_err);
@@ -4669,6 +4694,17 @@ int main(void) {
     RUN_TEST(test_bb_sensors_schema_contains_thermal_section);
     RUN_TEST(test_bb_sensors_external_section_registered_ok);
     RUN_TEST(test_bb_sensors_external_section_schema_in_assembled);
+#ifdef CONFIG_BB_FAN_AUTOFAN
+    RUN_TEST(test_bb_sensors_fan_patch_autofan_manual_pct_invalid_over100);
+    RUN_TEST(test_bb_sensors_fan_patch_autofan_manual_pct_invalid_negative);
+    RUN_TEST(test_bb_sensors_fan_patch_autofan_min_pct_invalid_over100);
+    RUN_TEST(test_bb_sensors_fan_patch_autofan_die_target_invalid_zero);
+    RUN_TEST(test_bb_sensors_fan_patch_autofan_die_target_invalid_negative);
+    RUN_TEST(test_bb_sensors_fan_patch_autofan_vr_target_invalid_zero);
+    RUN_TEST(test_bb_sensors_fan_patch_autofan_valid_boundary_0);
+    RUN_TEST(test_bb_sensors_fan_patch_autofan_valid_boundary_100);
+    RUN_TEST(test_bb_sensors_fan_patch_autofan_atomicity_bad_second_field);
+#endif
 
     // bb_telemetry tests
     RUN_TEST(test_bb_telemetry_register_ok);

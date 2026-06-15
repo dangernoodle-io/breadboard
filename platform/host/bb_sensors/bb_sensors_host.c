@@ -2,6 +2,8 @@
 // Provides section registry, schema assembly, and test-isolation reset.
 #include "bb_sensors.h"
 #include "bb_section.h"
+#include "bb_fan.h"
+#include "bb_json.h"
 
 #include <stdbool.h>
 #include <stdlib.h>
@@ -68,6 +70,50 @@ const char *bb_sensors_get_assembled_schema(void)
             &s_sensors_reg, k_sensors_base, k_sensors_suffix);
     }
     return s_assembled_schema;
+}
+
+// Test hook: drive the real fan autofan validation logic (mirrors fan_section_patch
+// in platform/espidf/bb_sensors/bb_sensors.c) without needing an HTTP server.
+bb_err_t bb_sensors_fan_patch_for_test(bb_json_t patch_body)
+{
+    bb_fan_handle_t h = bb_fan_primary();
+    if (!h) return BB_ERR_INVALID_STATE;
+
+#ifdef CONFIG_BB_FAN_AUTOFAN
+    bb_fan_autofan_cfg_t cfg;
+    bb_fan_get_autofan_cfg(h, &cfg);
+
+    double d;
+    bool b;
+    if (bb_json_obj_get_number(patch_body, "manual_pct", &d)) {
+        if (d < 0.0 || d > 100.0) return BB_ERR_INVALID_ARG;
+        cfg.manual_pct = (int)d;
+    }
+    if (bb_json_obj_get_number(patch_body, "min_pct", &d)) {
+        if (d < 0.0 || d > 100.0) return BB_ERR_INVALID_ARG;
+        cfg.min_pct = (int)d;
+    }
+    if (bb_json_obj_get_number(patch_body, "die_target_c", &d)) {
+        if (d <= 0.0) return BB_ERR_INVALID_ARG;
+        cfg.die_target_c = (float)d;
+    }
+    if (bb_json_obj_get_number(patch_body, "vr_target_c", &d)) {
+        if (d <= 0.0) return BB_ERR_INVALID_ARG;
+        cfg.aux_target_c = (float)d;
+    }
+    if (bb_json_obj_get_bool(patch_body, "autofan", &b)) cfg.enabled = b;
+    bb_fan_set_autofan(h, &cfg);
+    return BB_OK;
+#else
+    double duty_d = -1.0;
+    if (!bb_json_obj_get_number(patch_body, "duty_pct", &duty_d)) {
+        return BB_ERR_INVALID_ARG;
+    }
+    int duty = (int)duty_d;
+    if (duty < 0 || duty > 100) return BB_ERR_INVALID_ARG;
+    bb_fan_set_duty_pct(h, duty);
+    return BB_OK;
+#endif
 }
 
 #endif /* BB_SENSORS_TESTING */

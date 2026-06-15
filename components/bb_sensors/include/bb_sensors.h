@@ -63,6 +63,11 @@ void bb_sensors_reset_for_test(void);
 // Test hook: return the assembled schema (cached, lazy).
 const char *bb_sensors_get_assembled_schema(void);
 
+// Test hook: call the real fan_section_patch directly (bypasses section dispatch).
+// Allows testing fan PATCH field validation without an HTTP server or section registry.
+// Only available when CONFIG_BB_FAN_AUTOFAN is set.
+bb_err_t bb_sensors_fan_patch_for_test(bb_json_t patch_body);
+
 #endif /* BB_SENSORS_TESTING */
 
 #ifdef __cplusplus

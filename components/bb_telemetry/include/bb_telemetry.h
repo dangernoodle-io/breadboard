@@ -56,6 +56,10 @@ bool bb_telemetry_pending_reboot(void);
 // Intended for use in bb_telemetry_init to replace the generic {type:object}.
 char *bb_telemetry_assemble_get_schema(void);
 
+// Freeze the telemetry section registry: reject any registrations after this point.
+// Called by bb_telemetry_init (order 5); also callable by tests.
+void bb_telemetry_freeze(void);
+
 // Register GET + PATCH /api/telemetry with the HTTP server.
 // Called automatically when CONFIG_BB_TELEMETRY_AUTOREGISTER=y.
 bb_err_t bb_telemetry_init(bb_http_handle_t server);

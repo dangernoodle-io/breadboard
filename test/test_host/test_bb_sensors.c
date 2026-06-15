@@ -190,11 +190,10 @@ void test_bb_sensors_register_ok(void)
 
 void test_bb_sensors_register_capacity(void)
 {
+    static const char *k_names[] = { "s0","s1","s2","s3","s4","s5","s6","s7" };
     for (int i = 0; i < BB_SECTION_MAX; i++) {
-        char name[8];
-        snprintf(name, sizeof(name), "s%d", i);
         TEST_ASSERT_EQUAL_INT(BB_OK,
-            bb_sensors_register_section(name, dummy_get, NULL, NULL, NULL));
+            bb_sensors_register_section(k_names[i], dummy_get, NULL, NULL, NULL));
     }
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
         bb_sensors_register_section("over", dummy_get, NULL, NULL, NULL));
@@ -597,3 +596,190 @@ void test_bb_sensors_external_section_schema_in_assembled(void)
     TEST_ASSERT_NOT_NULL_MESSAGE(parsed, "assembled schema with external section is not valid JSON");
     cJSON_Delete(parsed);
 }
+
+// ---------------------------------------------------------------------------
+// Fan PATCH autofan validation (fix #4 — B1-269 hardening)
+// ---------------------------------------------------------------------------
+
+#ifdef CONFIG_BB_FAN_AUTOFAN
+
+// These tests call bb_sensors_fan_patch_for_test() which directly exercises
+// fan_section_patch() (the real autofan validation logic) rather than going
+// through the test-stub section registry (which uses stub callbacks).
+
+static bb_fan_handle_t make_autofan_handle(void)
+{
+    bb_fan_handle_t fh;
+    g_fan.die_fail = g_fan.board_fail = true;
+    bb_fan_handle_create(&drv_fan, &g_fan, &fh);
+    bb_fan_poll(fh);
+    bb_fan_set_primary(fh);
+    return fh;
+}
+
+void test_bb_sensors_fan_patch_autofan_manual_pct_invalid_over100(void)
+{
+    bb_fan_handle_t fh = make_autofan_handle();
+
+    bb_json_t patch = bb_json_obj_new();
+    bb_json_obj_set_number(patch, "manual_pct", 101.0);
+
+    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
+    bb_json_free(patch);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
+        "manual_pct=101 should be rejected");
+
+    bb_fan_set_primary(NULL);
+    free(fh);
+}
+
+void test_bb_sensors_fan_patch_autofan_manual_pct_invalid_negative(void)
+{
+    bb_fan_handle_t fh = make_autofan_handle();
+
+    bb_json_t patch = bb_json_obj_new();
+    bb_json_obj_set_number(patch, "manual_pct", -1.0);
+
+    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
+    bb_json_free(patch);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
+        "manual_pct=-1 should be rejected");
+
+    bb_fan_set_primary(NULL);
+    free(fh);
+}
+
+void test_bb_sensors_fan_patch_autofan_min_pct_invalid_over100(void)
+{
+    bb_fan_handle_t fh = make_autofan_handle();
+
+    bb_json_t patch = bb_json_obj_new();
+    bb_json_obj_set_number(patch, "min_pct", 200.0);
+
+    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
+    bb_json_free(patch);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
+        "min_pct=200 should be rejected");
+
+    bb_fan_set_primary(NULL);
+    free(fh);
+}
+
+void test_bb_sensors_fan_patch_autofan_die_target_invalid_zero(void)
+{
+    bb_fan_handle_t fh = make_autofan_handle();
+
+    bb_json_t patch = bb_json_obj_new();
+    bb_json_obj_set_number(patch, "die_target_c", 0.0);
+
+    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
+    bb_json_free(patch);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
+        "die_target_c=0 should be rejected");
+
+    bb_fan_set_primary(NULL);
+    free(fh);
+}
+
+void test_bb_sensors_fan_patch_autofan_die_target_invalid_negative(void)
+{
+    bb_fan_handle_t fh = make_autofan_handle();
+
+    bb_json_t patch = bb_json_obj_new();
+    bb_json_obj_set_number(patch, "die_target_c", -10.0);
+
+    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
+    bb_json_free(patch);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
+        "die_target_c=-10 should be rejected");
+
+    bb_fan_set_primary(NULL);
+    free(fh);
+}
+
+void test_bb_sensors_fan_patch_autofan_vr_target_invalid_zero(void)
+{
+    bb_fan_handle_t fh = make_autofan_handle();
+
+    bb_json_t patch = bb_json_obj_new();
+    bb_json_obj_set_number(patch, "vr_target_c", 0.0);
+
+    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
+    bb_json_free(patch);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
+        "vr_target_c=0 should be rejected");
+
+    bb_fan_set_primary(NULL);
+    free(fh);
+}
+
+void test_bb_sensors_fan_patch_autofan_valid_boundary_0(void)
+{
+    // manual_pct=0 is valid (0..100 inclusive).
+    bb_fan_handle_t fh = make_autofan_handle();
+
+    bb_json_t patch = bb_json_obj_new();
+    bb_json_obj_set_number(patch, "manual_pct", 0.0);
+
+    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
+    bb_json_free(patch);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, rc, "manual_pct=0 should be accepted");
+
+    bb_fan_autofan_cfg_t after;
+    bb_fan_get_autofan_cfg(fh, &after);
+    TEST_ASSERT_EQUAL_INT(0, after.manual_pct);
+
+    bb_fan_set_primary(NULL);
+    free(fh);
+}
+
+void test_bb_sensors_fan_patch_autofan_valid_boundary_100(void)
+{
+    // manual_pct=100 is valid (0..100 inclusive).
+    bb_fan_handle_t fh = make_autofan_handle();
+
+    bb_json_t patch = bb_json_obj_new();
+    bb_json_obj_set_number(patch, "manual_pct", 100.0);
+
+    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
+    bb_json_free(patch);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, rc, "manual_pct=100 should be accepted");
+
+    bb_fan_autofan_cfg_t after;
+    bb_fan_get_autofan_cfg(fh, &after);
+    TEST_ASSERT_EQUAL_INT(100, after.manual_pct);
+
+    bb_fan_set_primary(NULL);
+    free(fh);
+}
+
+void test_bb_sensors_fan_patch_autofan_atomicity_bad_second_field(void)
+{
+    // Patch: manual_pct=50 (valid field) + die_target_c=0 (invalid).
+    // The local cfg copy absorbs manual_pct=50, then die_target_c=0 causes early
+    // return — bb_fan_set_autofan is never called, so manual_pct stays unchanged.
+    bb_fan_handle_t fh = make_autofan_handle();
+
+    bb_fan_autofan_cfg_t before;
+    bb_fan_get_autofan_cfg(fh, &before);
+
+    bb_json_t patch = bb_json_obj_new();
+    bb_json_obj_set_number(patch, "manual_pct", 50.0);
+    bb_json_obj_set_number(patch, "die_target_c", 0.0);  // invalid
+
+    bb_err_t rc = bb_sensors_fan_patch_for_test(patch);
+    bb_json_free(patch);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_ERR_INVALID_ARG, rc,
+        "patch with invalid die_target_c must be rejected");
+
+    // manual_pct must NOT have been applied (bb_fan_set_autofan never called).
+    bb_fan_autofan_cfg_t after;
+    bb_fan_get_autofan_cfg(fh, &after);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(before.manual_pct, after.manual_pct,
+        "manual_pct changed despite atomic rejection — partial-apply bug");
+
+    bb_fan_set_primary(NULL);
+    free(fh);
+}
+
+#endif /* CONFIG_BB_FAN_AUTOFAN */

@@ -22,7 +22,7 @@ static const char *TAG = "bb_telemetry";
 #endif
 
 static bb_section_registry_t s_reg = { .tag = "bb_telemetry" };
-static bool s_pending_reboot = false;
+static bool  s_pending_reboot = false;
 
 bb_err_t bb_telemetry_register_section_ex(const char *name,
                                            bb_telemetry_get_fn get,
@@ -31,7 +31,11 @@ bb_err_t bb_telemetry_register_section_ex(const char *name,
                                            const char *schema_props)
 {
     if (!name || !get) return BB_ERR_INVALID_ARG;
-    if (s_reg.count >= CONFIG_BB_TELEMETRY_MAX_SECTIONS) return BB_ERR_NO_SPACE;
+    if (s_reg.count >= CONFIG_BB_TELEMETRY_MAX_SECTIONS) {
+        bb_log_w(TAG, "register_section('%s'): registry full (max %d)", name,
+                 CONFIG_BB_TELEMETRY_MAX_SECTIONS);
+        return BB_ERR_NO_SPACE;
+    }
     bb_err_t rc = bb_section_register(&s_reg, name, get, patch, ctx, schema_props);
     if (rc == BB_OK) {
         bb_log_d(TAG, "registered section '%s' (%s)", name, patch ? "rw" : "ro");
@@ -47,6 +51,11 @@ bb_err_t bb_telemetry_register_section(const char *name,
     return bb_telemetry_register_section_ex(name, get, patch, ctx, NULL);
 }
 
+void bb_telemetry_freeze(void)
+{
+    bb_section_freeze(&s_reg);
+}
+
 void bb_telemetry_build_get(bb_json_t root)
 {
     bb_section_build_get(&s_reg, root);
@@ -54,20 +63,25 @@ void bb_telemetry_build_get(bb_json_t root)
 
 bb_err_t bb_telemetry_dispatch_patch(bb_json_t body)
 {
-    bool any_ok = false;
-    for (int i = 0; i < s_reg.count; i++) {
-        bb_json_t child = bb_json_obj_get_item(body, s_reg.entries[i].name);
-        if (!child) continue;
-        if (!s_reg.entries[i].patch) {
-            bb_log_w(TAG, "PATCH on read-only section '%s'", s_reg.entries[i].name);
-            return BB_ERR_INVALID_ARG;
-        }
-        bb_err_t rc = s_reg.entries[i].patch(child, s_reg.entries[i].ctx);
-        if (rc != BB_OK) return rc;
-        any_ok = true;
+    // Delegate to bb_section_dispatch_patch for consistent pre-validation
+    // (all-or-nothing: read-only section in body → reject before any apply).
+    bb_err_t rc = bb_section_dispatch_patch(&s_reg, body);
+    if (rc != BB_OK) {
+        bb_log_w(TAG, "dispatch_patch failed: %d", (int)rc);
+        return rc;
     }
-    if (any_ok) {
+
+    // Set pending_reboot only when at least one section was actually patched.
+    bool any_patched = false;
+    for (int i = 0; i < s_reg.count; i++) {
+        if (bb_json_obj_get_item(body, s_reg.entries[i].name)) {
+            any_patched = true;
+            break;
+        }
+    }
+    if (any_patched) {
         s_pending_reboot = true;
+        bb_log_i(TAG, "telemetry config patched; reboot required");
     }
     return BB_OK;
 }
@@ -83,6 +97,7 @@ bool bb_telemetry_pending_reboot(void)
 
 char *bb_telemetry_assemble_get_schema(void)
 {
+    // Returns a freshly allocated string — caller owns and must free.
     return bb_section_assemble_schema(
         &s_reg,
         "{\"type\":\"object\",\"properties\":{",

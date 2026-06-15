@@ -70,7 +70,7 @@ static const bb_route_response_t s_manifest_responses[] = {
       "\"properties\":{"
       "\"key\":{\"type\":\"string\"},"
       "\"desc\":{\"type\":\"string\"},"
-      "\"values\":{\"type\":\"string\"}}}}}}}}}}",
+      "\"values\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}}}}}}}}}",
       "NVS key manifest and mDNS TXT key manifest" },
     { 500, "application/json",
       "{\"type\":\"object\","

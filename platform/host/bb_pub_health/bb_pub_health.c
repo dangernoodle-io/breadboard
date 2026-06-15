@@ -12,9 +12,8 @@
 // Always publishes (returns true) to provide a continuous health heartbeat.
 #include "bb_pub_health.h"
 #include "bb_pub.h"
+#include "bb_health.h"
 #include "bb_mqtt.h"
-#include "bb_ota_validator.h"
-#include "bb_wifi.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_registry.h"
@@ -34,11 +33,8 @@ static bool health_sample(bb_json_t obj, void *ctx)
 {
     (void)ctx;
 
-    // ok: wifi connected and OTA slot validated
-    bool wifi_connected = bb_wifi_has_ip();
-    bool ota_ok         = bb_ota_is_validated();
-    bool ok             = wifi_connected && ota_ok;
-    bb_json_obj_set_bool(obj, "ok", ok);
+    // ok: delegated to SSOT (bb_health_compute_ok = wifi_has_ip && ota_is_validated)
+    bb_json_obj_set_bool(obj, "ok", bb_health_compute_ok());
 
     // mqtt: gracefully absent when no MQTT client was started
     bb_mqtt_t h         = bb_mqtt_default();
