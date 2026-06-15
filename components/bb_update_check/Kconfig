@@ -52,4 +52,48 @@ config BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES
         Default 8192 saves 8 KB heap vs the old hardcoded 16384.
         Raise if your custom parser needs to process larger responses.
 
+config BB_UPDATE_CHECK_JITTER_S
+    int "Per-tick jitter half-range applied to the poll interval (seconds)"
+    default 600
+    range 0 3600
+    help
+        Each timer reschedule adds a uniform random offset in the range
+        [-JITTER_S, +JITTER_S] to the base interval, floored at
+        BB_UPDATE_CHECK_FLOOR_S. Setting to 0 disables jitter (every
+        device fires at a fixed interval). Default 600 s (±10 minutes)
+        matches the prior hardcoded value (no behavior change).
+
+config BB_UPDATE_CHECK_FLOOR_S
+    int "Minimum permitted poll interval after jitter application (seconds)"
+    default 60
+    range 10 300
+    help
+        Lower bound applied after the jitter offset is computed. Prevents
+        the jitter from scheduling a check sooner than this many seconds.
+        Default 60 matches the prior hardcoded value (no behavior change).
+
+config BB_UPDATE_CHECK_TASK_CORE
+    int "CPU core affinity for the on-demand update-check worker task"
+    default 1
+    range 0 1
+    help
+        Core on which the short-lived update-check worker task is pinned.
+        Core 0 carries lwip/wifi/httpd; the mbedTLS handshake (200-600 ms)
+        would starve IDLE0 on that core. Default 1 matches the prior
+        hardcoded value (no behavior change). Set to tskNO_AFFINITY (-1)
+        via bb_update_check_set_task_core() at runtime for no pinning.
+
+config BB_UPDATE_CHECK_TASK_PRIORITY
+    int "FreeRTOS priority for the on-demand update-check worker task"
+    default 1
+    range 1 24
+    help
+        FreeRTOS priority for the short-lived on-demand worker task that
+        runs bb_update_check_run_one(). On boards running a CPU-bound task
+        at a high priority (e.g. mining at priority 20), raise this above
+        that task to avoid starvation during the mbedTLS handshake. Default
+        1 (lowest app priority) matches the prior hardcoded value (no
+        behavior change). Override at runtime via
+        bb_update_check_set_task_priority().
+
 endmenu

@@ -29,8 +29,11 @@
 #ifndef CONFIG_BB_PUB_MAX_SINKS
 #define CONFIG_BB_PUB_MAX_SINKS 4
 #endif
-#ifndef BB_PUB_MAX_PAYLOAD_EXTENDERS
-#define BB_PUB_MAX_PAYLOAD_EXTENDERS 4
+#ifndef CONFIG_BB_PUB_MAX_PAYLOAD_EXTENDERS
+#define CONFIG_BB_PUB_MAX_PAYLOAD_EXTENDERS 4
+#endif
+#ifndef CONFIG_BB_PUB_SUBTOPIC_MAX
+#define CONFIG_BB_PUB_SUBTOPIC_MAX 64
 #endif
 #ifndef CONFIG_BB_PUB_TOPIC_PREFIX
 #define CONFIG_BB_PUB_TOPIC_PREFIX "metrics"
@@ -55,7 +58,7 @@ static const char *TAG = "bb_pub";
 // ---------------------------------------------------------------------------
 
 typedef struct {
-    char            subtopic[64];
+    char            subtopic[CONFIG_BB_PUB_SUBTOPIC_MAX];
     bb_pub_sample_fn fn;
     void            *ctx;
 } bb_pub_source_t;
@@ -76,7 +79,7 @@ typedef struct {
     void             *ctx;
 } bb_pub_payload_entry_t;
 
-static bb_pub_payload_entry_t s_payload_extenders[BB_PUB_MAX_PAYLOAD_EXTENDERS];
+static bb_pub_payload_entry_t s_payload_extenders[CONFIG_BB_PUB_MAX_PAYLOAD_EXTENDERS];
 static int                    s_payload_extender_count = 0;
 static bool                   s_payload_hwm_warned     = false;
 
@@ -158,8 +161,12 @@ static bool     s_published_ever   = false;
 #define CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES 256
 #endif
 
-// Topic budget: must match the topic[] buf in tick.
-#define BB_PUB_BUFFER_TOPIC_MAX 192
+// Topic budget: tunable via CONFIG_BB_PUB_BUFFER_TOPIC_MAX (Kconfig).
+// Must accommodate CONFIG_BB_PUB_TOPIC_PREFIX + hostname + CONFIG_BB_PUB_SUBTOPIC_MAX + 2 seps + NUL.
+#ifndef CONFIG_BB_PUB_BUFFER_TOPIC_MAX
+#define CONFIG_BB_PUB_BUFFER_TOPIC_MAX 192
+#endif
+#define BB_PUB_BUFFER_TOPIC_MAX CONFIG_BB_PUB_BUFFER_TOPIC_MAX
 // Total per-entry capacity.
 #define BB_PUB_BUFFER_ENTRY_MAX \
     (BB_PUB_BUFFER_TOPIC_MAX + 1 + CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES)
@@ -450,17 +457,17 @@ bb_err_t bb_pub_register_payload_extender(bb_pub_payload_fn fn, void *ctx)
 {
     if (!fn) return BB_ERR_INVALID_ARG;
 
-    if (s_payload_extender_count >= BB_PUB_MAX_PAYLOAD_EXTENDERS) {
+    if (s_payload_extender_count >= CONFIG_BB_PUB_MAX_PAYLOAD_EXTENDERS) {
         bb_log_w(TAG, "payload extender registry full (%d/%d)",
-                 s_payload_extender_count, BB_PUB_MAX_PAYLOAD_EXTENDERS);
+                 s_payload_extender_count, CONFIG_BB_PUB_MAX_PAYLOAD_EXTENDERS);
         return BB_ERR_NO_SPACE;
     }
 
     // High-watermark warning at cap-1.
     if (!s_payload_hwm_warned &&
-        s_payload_extender_count == BB_PUB_MAX_PAYLOAD_EXTENDERS - 1) {
+        s_payload_extender_count == CONFIG_BB_PUB_MAX_PAYLOAD_EXTENDERS - 1) {
         bb_log_w(TAG, "payload extender registry at high-watermark (%d/%d)",
-                 s_payload_extender_count, BB_PUB_MAX_PAYLOAD_EXTENDERS);
+                 s_payload_extender_count, CONFIG_BB_PUB_MAX_PAYLOAD_EXTENDERS);
         s_payload_hwm_warned = true;
     }
 
@@ -581,7 +588,9 @@ bb_err_t bb_pub_tick_once(void)
         hostname = "device";
     }
 
-    char topic[192];
+    // +prefix_len+1+hostname_len+1+subtopic_len+1 — using generous fixed size
+    // that covers CONFIG_BB_PUB_SUBTOPIC_MAX plus typical prefix/hostname.
+    char topic[CONFIG_BB_PUB_SUBTOPIC_MAX + 128];
 
     // Track whether any source emitted during this tick and whether all
     // sink calls succeeded.

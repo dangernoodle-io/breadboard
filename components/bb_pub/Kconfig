@@ -34,6 +34,40 @@ config BB_PUB_INTERVAL_MS
         How often bb_pub fires the sample+publish cycle on ESP-IDF (via
         bb_timer periodic). Not used on host (call bb_pub_tick_once() directly).
 
+config BB_PUB_WORKER_PRIORITY
+    int "bb_pub telemetry worker task priority"
+    default 1
+    range 1 24
+    help
+        FreeRTOS task priority for the bb_pub periodic worker. The default
+        priority 1 (lowest application priority) is appropriate for most
+        deployments. On boards running a high-priority CPU-bound task (e.g.
+        a mining loop at priority 20), raise this above the competing task's
+        priority so the worker is not starved between yields. Default 1
+        matches the prior hardcoded value (no behavior change).
+
+config BB_PUB_MAX_PAYLOAD_EXTENDERS
+    int "Maximum number of registered payload extenders"
+    default 4
+    range 1 16
+    help
+        Capacity of the payload-extender registry. bb_pub_register_payload_extender
+        returns BB_ERR_NO_SPACE when this limit is reached. A high-watermark
+        warning is logged at cap-1. Default 4 matches the prior hardcoded
+        fallback (no behavior change).
+
+config BB_PUB_SUBTOPIC_MAX
+    int "Maximum length of a source subtopic string (bytes)"
+    default 64
+    range 16 128
+    help
+        Size of the per-source subtopic character buffer inside bb_pub. The
+        published topic is <prefix>/<hostname>/<subtopic>; this limit applies
+        to the subtopic segment only. Default 64 matches the prior hardcoded
+        value (no behavior change). Cross-reference BB_PUB_BUFFER_TOPIC_MAX
+        when the buffer feature is enabled — the total topic string must fit
+        within that budget.
+
 config BB_PUB_AUTOREGISTER
     bool "Auto-register bb_pub init via bb_registry (PRE_HTTP tier)"
     default y
@@ -85,9 +119,22 @@ config BB_PUB_BUFFER_MAX_PAYLOAD_BYTES
     depends on BB_PUB_BUFFER_ENABLE
     help
         Maximum size (bytes) for a single ring entry. Each entry packs:
-          topic (up to 192 bytes) + 1-byte NUL separator + payload.
-        Entries larger than this limit are rejected (truncated counter++).
-        The actual ring max_entry_bytes = BB_PUB_BUFFER_MAX_PAYLOAD_BYTES +
-        192 (topic budget) + 1 (separator).
+          topic (up to BB_PUB_BUFFER_TOPIC_MAX bytes) + 1-byte NUL separator
+          + payload. Entries larger than this limit are rejected (truncated
+          counter++). The actual ring max_entry_bytes =
+          BB_PUB_BUFFER_MAX_PAYLOAD_BYTES + BB_PUB_BUFFER_TOPIC_MAX + 1.
+
+config BB_PUB_BUFFER_TOPIC_MAX
+    int "Store-and-forward topic buffer length (bytes)"
+    default 192
+    range 64 512
+    depends on BB_PUB_BUFFER_ENABLE
+    help
+        Maximum length of the topic string captured into each ring entry.
+        Topics longer than this are silently dropped from the buffer (the
+        live publish still proceeds). Must be larger than the longest
+        possible topic: BB_PUB_TOPIC_PREFIX length + hostname length +
+        subtopic length + 2 separators + null terminator. Default 192
+        matches the prior hardcoded value (no behavior change).
 
 endmenu

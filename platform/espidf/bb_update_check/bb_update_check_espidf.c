@@ -34,11 +34,27 @@
 
 static const char *TAG = "bb_update_check";
 
-// Jitter range in seconds applied to each periodic reschedule.
-#define BB_UPDATE_CHECK_JITTER_S  600   // ±10 minutes
-#define BB_UPDATE_CHECK_FLOOR_S    60   // minimum interval
+// Jitter and floor tunables — override via CONFIG_BB_UPDATE_CHECK_JITTER_S and
+// CONFIG_BB_UPDATE_CHECK_FLOOR_S (Kconfig). Defaults match prior hardcoded values.
+#ifndef CONFIG_BB_UPDATE_CHECK_JITTER_S
+#define CONFIG_BB_UPDATE_CHECK_JITTER_S 600
+#endif
+#ifndef CONFIG_BB_UPDATE_CHECK_FLOOR_S
+#define CONFIG_BB_UPDATE_CHECK_FLOOR_S 60
+#endif
+#define BB_UPDATE_CHECK_JITTER_S CONFIG_BB_UPDATE_CHECK_JITTER_S
+#define BB_UPDATE_CHECK_FLOOR_S  CONFIG_BB_UPDATE_CHECK_FLOOR_S
 
 static esp_timer_handle_t s_timer = NULL;
+
+// Default core/priority from Kconfig — both fallback to 1 for host builds
+// that don't include Kconfig. Runtime setters override these values.
+#ifndef CONFIG_BB_UPDATE_CHECK_TASK_CORE
+#define CONFIG_BB_UPDATE_CHECK_TASK_CORE 1
+#endif
+#ifndef CONFIG_BB_UPDATE_CHECK_TASK_PRIORITY
+#define CONFIG_BB_UPDATE_CHECK_TASK_PRIORITY 1
+#endif
 
 // Default: Core 1. On dual-core boards Core 0 carries lwip + wifi + httpd +
 // the consumer's stratum/control-plane tasks; the mbedTLS handshake runs
@@ -46,11 +62,11 @@ static esp_timer_handle_t s_timer = NULL;
 // watchdog if it landed there. Mirrors bb_ota_pull's default (Core 1).
 // Consumers can opt out via bb_update_check_set_task_core(tskNO_AFFINITY)
 // or pin elsewhere. See bb_update_check.h.
-static int  s_task_core     = 1;
-// Default worker priority is 1 (low). Consumers running the worker on a core
-// that also hosts a high-priority CPU-bound task (e.g. mining at prio 20)
-// must raise this above that task's priority via bb_update_check_set_task_priority.
-static int  s_task_priority = 1;
+static int  s_task_core     = CONFIG_BB_UPDATE_CHECK_TASK_CORE;
+// Default worker priority. Consumers running the worker on a core that also
+// hosts a high-priority CPU-bound task (e.g. mining at prio 20) must raise
+// this above that task's priority via bb_update_check_set_task_priority.
+static int  s_task_priority = CONFIG_BB_UPDATE_CHECK_TASK_PRIORITY;
 
 // Concurrency guard: set (false→true) before spawning; cleared at the end of
 // the one-shot task (or on spawn failure).  atomic_compare_exchange_strong is

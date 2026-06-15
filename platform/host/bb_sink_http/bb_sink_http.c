@@ -16,11 +16,20 @@ static const char *TAG = "bb_sink_http";
 #ifndef CONFIG_BB_SINK_HTTP_RESP_BUF_BYTES
 #define CONFIG_BB_SINK_HTTP_RESP_BUF_BYTES 256
 #endif
+#ifndef CONFIG_BB_SINK_HTTP_MAX_CONSEC_FAILURES
+#define CONFIG_BB_SINK_HTTP_MAX_CONSEC_FAILURES 3
+#endif
+// Headers buffer: must cover HEADERS_MAX*(NAME_MAX+VALUE_MAX+4).
+// Default 2596 = 8*(64+256+4)+4 — matches Kconfig default.
+#ifndef CONFIG_BB_SINK_HTTP_HEADERS_BUF_BYTES
+#define CONFIG_BB_SINK_HTTP_HEADERS_BUF_BYTES \
+    (BB_SINK_HTTP_HEADERS_MAX * (BB_SINK_HTTP_HEADER_NAME_MAX + BB_SINK_HTTP_HEADER_VALUE_MAX + 4) + 4)
+#endif
 
 // NVS key for the delimited headers string.
 #define HEADERS_NVS_KEY "headers"
 // Maximum NVS buffer for all serialized headers.
-#define HEADERS_BUF_MAX 2048
+#define HEADERS_BUF_MAX CONFIG_BB_SINK_HTTP_HEADERS_BUF_BYTES
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -31,7 +40,6 @@ static bool                      s_initialized = false;
 static bb_http_client_session_t  s_session      = NULL;
 static bb_tls_creds_t            s_creds;        // kept alive for session lifetime
 static int                       s_consec_failures = 0;  // consecutive transport failures
-#define BB_SINK_HTTP_MAX_CONSEC_FAILURES 3
 
 // ---------------------------------------------------------------------------
 // Validation helpers (pure)
@@ -486,7 +494,7 @@ static bb_err_t http_pub_publish(void *ctx,
     if (rc != BB_OK) {
         bb_log_e(TAG, "session POST transport error: %d", rc);
         s_consec_failures++;
-        if (s_consec_failures >= BB_SINK_HTTP_MAX_CONSEC_FAILURES) {
+        if (s_consec_failures >= CONFIG_BB_SINK_HTTP_MAX_CONSEC_FAILURES) {
             bb_log_w(TAG, "%d consecutive failures — resetting session",
                      s_consec_failures);
             session_close();

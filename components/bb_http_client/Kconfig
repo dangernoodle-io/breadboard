@@ -11,6 +11,47 @@ config BB_HTTP_CLIENT_KEEPALIVE
         (higher latency, no idle-socket wedge risk).  The default (y) preserves
         the behaviour prior to B1-284.
 
+config BB_HTTP_CLIENT_BACKOFF_BASE_MS
+    int "Retry backoff base interval (ms)"
+    default 2000
+    range 100 30000
+    help
+        Base delay for the exponential back-off ladder used between transport
+        retry attempts in bb_http_client_get and bb_http_client_post. The
+        ladder is computed as: attempt 0 → base, attempt 1 → base*2, attempt
+        2 → min(base*4, max). Default 2000 ms matches the prior hardcoded
+        value (no behavior change).
+
+config BB_HTTP_CLIENT_BACKOFF_MAX_MS
+    int "Retry backoff maximum interval (ms)"
+    default 8000
+    range 500 120000
+    help
+        Cap on the exponential back-off ladder. Derived ladder entries beyond
+        this value are clamped to this maximum. Default 8000 ms matches the
+        prior hardcoded maximum (no behavior change).
+
+config BB_HTTP_CLIENT_STREAM_CHUNK_BYTES
+    int "Streaming GET chunk buffer size (bytes)"
+    default 2048
+    range 256 8192
+    help
+        Size of the stack-allocated chunk buffer used by
+        bb_http_client_get_stream to feed response bytes to the caller's
+        callback. Larger values reduce callback frequency at the cost of
+        stack space. Default 2048 matches the prior hardcoded value (no
+        behavior change).
+
+config BB_HTTP_CLIENT_DEFAULT_BUF_SIZE
+    int "Default esp_http_client internal receive buffer size (bytes)"
+    default 4096
+    range 512 16384
+    help
+        Default value for cfg.buffer_size passed to esp_http_client. Controls
+        the internal HTTP receive buffer. Increase for servers that send large
+        response headers. Default 4096 matches the prior hardcoded fallback
+        (no behavior change).
+
 config BB_HTTP_CLIENT_DEFAULT_TIMEOUT_MS
     int "Default request timeout (ms)"
     default 10000
