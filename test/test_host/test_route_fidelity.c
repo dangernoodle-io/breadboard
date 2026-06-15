@@ -198,14 +198,14 @@ static const char k_boot_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
     "\"reset_reason\":{\"type\":\"string\"},"
-    "\"abnormal_reset_count\":{\"type\":\"integer\"},"
+    "\"wdt_resets\":{\"type\":\"integer\"},"
     "\"panic\":{\"type\":\"object\","
     "\"properties\":{"
     "\"available\":{\"type\":\"boolean\"},"
     "\"boots_since\":{\"type\":\"integer\"},"
     "\"reset_reason\":{\"type\":\"string\"}},"
     "\"required\":[\"available\"]}},"
-    "\"required\":[\"reset_reason\",\"abnormal_reset_count\",\"panic\"]}";
+    "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\"]}";
 
 // GET /api/diag/panic — platform/espidf/bb_diag/bb_diag_routes.c
 static const char k_panic_schema[] =
@@ -465,7 +465,7 @@ static bb_err_t h_boot_no_panic(bb_http_request_t *req)
     bb_http_json_obj_stream_t obj;
     bb_http_resp_json_obj_begin(req, &obj);
     bb_http_resp_json_obj_set_str(&obj, "reset_reason", "poweron");
-    bb_http_resp_json_obj_set_int(&obj, "abnormal_reset_count", 0);
+    bb_http_resp_json_obj_set_int(&obj, "wdt_resets", 0);
     bb_http_resp_json_obj_set_obj_begin(&obj, "panic");
     bb_http_resp_json_obj_set_bool(&obj, "available", false);
     bb_http_resp_json_obj_set_obj_end(&obj);
@@ -478,7 +478,7 @@ static bb_err_t h_boot_with_panic(bb_http_request_t *req)
     bb_http_json_obj_stream_t obj;
     bb_http_resp_json_obj_begin(req, &obj);
     bb_http_resp_json_obj_set_str(&obj, "reset_reason", "panic");
-    bb_http_resp_json_obj_set_int(&obj, "abnormal_reset_count", 3);
+    bb_http_resp_json_obj_set_int(&obj, "wdt_resets", 3);
     bb_http_resp_json_obj_set_obj_begin(&obj, "panic");
     bb_http_resp_json_obj_set_bool(&obj, "available", true);
     bb_http_resp_json_obj_set_int(&obj, "boots_since", 0);

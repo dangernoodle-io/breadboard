@@ -522,19 +522,19 @@ void test_validate_smoke_boot_schema(void)
         "{\"type\":\"object\","
         "\"properties\":{"
         "\"reset_reason\":{\"type\":\"string\"},"
-        "\"abnormal_reset_count\":{\"type\":\"integer\"},"
+        "\"wdt_resets\":{\"type\":\"integer\"},"
         "\"panic\":{\"type\":\"object\","
         "\"properties\":{"
         "\"available\":{\"type\":\"boolean\"},"
         "\"boots_since\":{\"type\":\"integer\"},"
         "\"reset_reason\":{\"type\":\"string\"}},"
         "\"required\":[\"available\"]}},"
-        "\"required\":[\"reset_reason\",\"abnormal_reset_count\",\"panic\"]}";
+        "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\"]}";
 
     // panic not available
     cJSON *clean = cJSON_CreateObject();
     cJSON_AddStringToObject(clean, "reset_reason", "poweron");
-    cJSON_AddNumberToObject(clean, "abnormal_reset_count", 0);
+    cJSON_AddNumberToObject(clean, "wdt_resets", 0);
     cJSON *panic_obj = cJSON_CreateObject();
     cJSON_AddFalseToObject(panic_obj, "available");
     cJSON_AddItemToObject(clean, "panic", panic_obj);
@@ -546,7 +546,7 @@ void test_validate_smoke_boot_schema(void)
     // panic available with extra fields
     cJSON *panicked = cJSON_CreateObject();
     cJSON_AddStringToObject(panicked, "reset_reason", "panic");
-    cJSON_AddNumberToObject(panicked, "abnormal_reset_count", 3);
+    cJSON_AddNumberToObject(panicked, "wdt_resets", 3);
     cJSON *panic_obj2 = cJSON_CreateObject();
     cJSON_AddTrueToObject(panic_obj2, "available");
     cJSON_AddNumberToObject(panic_obj2, "boots_since", 0);

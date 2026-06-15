@@ -14,7 +14,7 @@ int bb_diag_boot_build_json(char *buf, size_t buf_sz,
     if (!buf || buf_sz == 0 || !reset_reason) return -1;
     return snprintf(buf, buf_sz,
         "{\"reset_reason\":\"%s\","
-        "\"abnormal_reset_count\":%" PRIu32 ","
+        "\"wdt_resets\":%" PRIu32 ","
         "\"panic_available\":%s,"
         "\"rolled_back\":%s}",
         reset_reason,

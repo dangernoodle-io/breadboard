@@ -12,7 +12,7 @@
 #define BB_DIAG_BOOT_TOPIC "diag.boot"
 
 // Write JSON payload for a diag.boot event into buf[buf_sz].
-// Format: {"reset_reason":"<str>","abnormal_reset_count":<n>,"panic_available":<bool>,"rolled_back":<bool>}
+// Format: {"reset_reason":"<str>","wdt_resets":<n>,"panic_available":<bool>,"rolled_back":<bool>}
 // reset_reason: short string (e.g. "poweron", "panic", "task_wdt"); must not be NULL.
 // Returns number of chars that would have been written (like snprintf), -1 on bad args.
 int bb_diag_boot_build_json(char *buf, size_t buf_sz,
