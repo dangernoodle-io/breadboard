@@ -58,6 +58,7 @@
 #include "bb_log.h"
 #include "bb_info.h"
 #include "bb_info_test.h"
+#include "bb_health.h"
 #include "../../components/bb_info/bb_info_schema_priv.h"
 
 // bb_mdns_started and bb_mdns_get_hostname are declared in bb_mdns.h only
@@ -139,7 +140,9 @@ static const char k_info_schema[] =
     "},"
     "\"required\":[\"board\",\"version\",\"network\"]}";
 
-// GET /api/health — bb_info.c (espidf)
+// GET /api/health — bb_health.c (espidf)
+// network gains ssid/bssid/ip/disc_reason from bb_wifi_emit_section (additive).
+// mdns field KEPT (locked decision B1-269). ok drops mdns from gate.
 static const char k_health_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
@@ -148,8 +151,12 @@ static const char k_health_schema[] =
     "\"validated\":{\"type\":\"boolean\"},"
     "\"network\":{\"type\":\"object\","
     "\"properties\":{"
-    "\"connected\":{\"type\":\"boolean\"},"
+    "\"ssid\":{\"type\":\"string\"},"
+    "\"bssid\":{\"type\":\"string\"},"
     "\"rssi\":{\"type\":\"integer\"},"
+    "\"ip\":{\"type\":\"string\"},"
+    "\"connected\":{\"type\":\"boolean\"},"
+    "\"disc_reason\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"retry_count\":{\"type\":\"integer\"},"
     "\"mdns\":{\"type\":[\"string\",\"null\"]}}}},"
@@ -400,19 +407,25 @@ static bb_err_t h_health(bb_http_request_t *req)
     bb_board_get_info(&b);
     bb_wifi_get_info(&w);
 
-    bool mdns_up = bb_mdns_started();
     const char *hostname = bb_mdns_get_hostname();
 
-    bool ok = w.connected && b.ota_validated && mdns_up;
+    char bssid[18];
+    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
+             w.bssid[0], w.bssid[1], w.bssid[2],
+             w.bssid[3], w.bssid[4], w.bssid[5]);
 
     bb_http_json_obj_stream_t obj;
     bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_bool(&obj, "ok", ok);
+    bb_http_resp_json_obj_set_bool(&obj, "ok", bb_health_compute_ok());
     bb_http_resp_json_obj_set_num(&obj, "free_heap", (double)b.free_heap);
     bb_http_resp_json_obj_set_bool(&obj, "validated", b.ota_validated);
     bb_http_resp_json_obj_set_obj_begin(&obj, "network");
+    bb_http_resp_json_obj_set_str(&obj, "ssid", w.ssid);
+    bb_http_resp_json_obj_set_str(&obj, "bssid", bssid);
+    bb_http_resp_json_obj_set_int(&obj, "rssi", (int64_t)w.rssi);
+    bb_http_resp_json_obj_set_str(&obj, "ip", w.ip);
     bb_http_resp_json_obj_set_bool(&obj, "connected", w.connected);
-    bb_http_resp_json_obj_set_num(&obj, "rssi", (double)w.rssi);
+    bb_http_resp_json_obj_set_int(&obj, "disc_reason", (int64_t)w.disc_reason);
     bb_http_resp_json_obj_set_num(&obj, "disc_age_s", (double)w.disc_age_s);
     bb_http_resp_json_obj_set_num(&obj, "retry_count", (double)w.retry_count);
     if (hostname) {

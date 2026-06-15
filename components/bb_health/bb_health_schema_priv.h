@@ -12,8 +12,12 @@ static const char k_health_base[] =
     "\"validated\":{\"type\":\"boolean\"},"
     "\"network\":{\"type\":\"object\","
     "\"properties\":{"
-    "\"connected\":{\"type\":\"boolean\"},"
+    "\"ssid\":{\"type\":\"string\"},"
+    "\"bssid\":{\"type\":\"string\"},"
     "\"rssi\":{\"type\":\"integer\"},"
+    "\"ip\":{\"type\":\"string\"},"
+    "\"connected\":{\"type\":\"boolean\"},"
+    "\"disc_reason\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"retry_count\":{\"type\":\"integer\"},"
     "\"mdns\":{\"type\":[\"string\",\"null\"]}}}";

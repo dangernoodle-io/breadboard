@@ -1123,6 +1123,12 @@ void test_bb_health_assembled_schema_no_extenders_equals_base_plus_suffix(void);
 void test_bb_health_assembled_schema_is_valid_json(void);
 void test_bb_health_assembled_schema_contains_fragment(void);
 void test_bb_health_assembled_schema_with_fragment_is_valid_json(void);
+void test_bb_health_compute_ok_false_on_host(void);
+void test_bb_health_schema_network_has_ssid(void);
+void test_bb_health_schema_network_has_bssid(void);
+void test_bb_health_schema_network_has_ip(void);
+void test_bb_health_schema_network_has_disc_reason(void);
+void test_bb_health_schema_network_has_mdns(void);
 
 // Forward declarations from test_bb_health_stack.c
 void test_bb_health_stack_is_low_below_threshold(void);
@@ -2390,6 +2396,7 @@ void test_bb_pub_wifi_has_connected_field(void);
 void test_bb_pub_wifi_has_disc_reason_field(void);
 void test_bb_pub_wifi_has_disc_age_s_field(void);
 void test_bb_pub_wifi_has_retry_count_field(void);
+void test_bb_pub_wifi_rssi_is_integer_not_float(void);
 
 // Forward declarations from test_bb_pub_info.c
 void test_bb_pub_info_always_publishes(void);
@@ -3631,6 +3638,12 @@ int main(void) {
     RUN_TEST(test_bb_health_assembled_schema_is_valid_json);
     RUN_TEST(test_bb_health_assembled_schema_contains_fragment);
     RUN_TEST(test_bb_health_assembled_schema_with_fragment_is_valid_json);
+    RUN_TEST(test_bb_health_compute_ok_false_on_host);
+    RUN_TEST(test_bb_health_schema_network_has_ssid);
+    RUN_TEST(test_bb_health_schema_network_has_bssid);
+    RUN_TEST(test_bb_health_schema_network_has_ip);
+    RUN_TEST(test_bb_health_schema_network_has_disc_reason);
+    RUN_TEST(test_bb_health_schema_network_has_mdns);
 
     // bb_health_stack tests
     RUN_TEST(test_bb_health_stack_is_low_below_threshold);
@@ -4898,6 +4911,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_wifi_has_disc_reason_field);
     RUN_TEST(test_bb_pub_wifi_has_disc_age_s_field);
     RUN_TEST(test_bb_pub_wifi_has_retry_count_field);
+    RUN_TEST(test_bb_pub_wifi_rssi_is_integer_not_float);
 
     // bb_pub_info tests
     RUN_TEST(test_bb_pub_info_always_publishes);

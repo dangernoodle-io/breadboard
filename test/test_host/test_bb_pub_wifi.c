@@ -229,3 +229,17 @@ void test_bb_pub_wifi_has_retry_count_field(void)
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"retry_count\""));
 }
+
+void test_bb_pub_wifi_rssi_is_integer_not_float(void)
+{
+    // After the integer-setter fix, rssi must NOT appear as a decimal (e.g. -55.0).
+    // cJSON serializes small whole doubles without a decimal point so "-55" is fine;
+    // "-55.0" or "-55.000" would indicate set_number(double) was still used.
+    setup();
+    bb_pub_wifi_test_set_rssi(true, -55);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NULL_MESSAGE(strstr(s_captured[0].payload, "-55."),
+                             "rssi should be integer (no decimal point)");
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "-55"));
+}

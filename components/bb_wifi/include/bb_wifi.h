@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 #include "bb_core.h"
+#include "bb_json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -111,6 +112,13 @@ bool bb_wifi_has_ip(void);
 // Populate out with a snapshot of the current STA state. Fields the
 // backend cannot supply are zeroed. Returns BB_ERR_INVALID_ARG on null.
 bb_err_t bb_wifi_get_info(bb_wifi_info_t *out);
+
+// Emit the canonical wifi section into a bb_json_t object.
+// Writes: ssid, bssid (colon-hex), rssi (integer), ip, connected,
+// disc_reason (integer), disc_age_s (integer), retry_count (integer).
+// When disconnected all numeric fields are 0/false, strings empty/"0.0.0.0".
+// Requires bb_json.h — callers that include bb_wifi.h must also link bb_json.
+void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info);
 
 // ---------------------------------------------------------------------------
 // Runtime WiFi reconfigure (brick-safe pending-creds try)

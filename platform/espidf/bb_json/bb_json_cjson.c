@@ -81,6 +81,15 @@ void bb_json_obj_set_number(bb_json_t obj, const char *key, double value)
     cJSON_AddNumberToObject((cJSON *)obj, key, value);
 }
 
+void bb_json_obj_set_int(bb_json_t obj, const char *key, int64_t value)
+{
+    if (!obj || !key) return;
+    // cJSON stores numbers as double; integers within [-2^53, 2^53] are
+    // represented exactly. cJSON serializes whole doubles without a decimal
+    // point, so the wire value is an integer (e.g. -55, not -55.0).
+    cJSON_AddNumberToObject((cJSON *)obj, key, (double)value);
+}
+
 void bb_json_obj_set_bool(bb_json_t obj, const char *key, bool value)
 {
     if (!obj || !key) return;

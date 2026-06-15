@@ -61,21 +61,17 @@ static bb_err_t health_handler(bb_http_request_t *req)
     bb_board_get_info(&b);
     bb_wifi_get_info(&w);
 
-    bool mdns_up = bb_mdns_started();
     const char *hostname = bb_mdns_get_hostname();
 
-    bool ok = w.connected && b.ota_validated && mdns_up;
-
     bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_bool(root, "ok", ok);
+    bb_json_obj_set_bool(root, "ok", bb_health_compute_ok());
     bb_json_obj_set_number(root, "free_heap", (double)b.free_heap);
     bb_json_obj_set_bool(root, "validated", b.ota_validated);
 
+    // network: shared wifi section (ssid/bssid/rssi/ip/connected/disc_reason/
+    // disc_age_s/retry_count) plus mdns hostname (kept per locked decision).
     bb_json_t net = bb_json_obj_new();
-    bb_json_obj_set_bool(net, "connected", w.connected);
-    bb_json_obj_set_number(net, "rssi", (double)w.rssi);
-    bb_json_obj_set_number(net, "disc_age_s", (double)w.disc_age_s);
-    bb_json_obj_set_number(net, "retry_count", (double)w.retry_count);
+    bb_wifi_emit_section(net, &w);
     if (hostname) {
         bb_json_obj_set_string(net, "mdns", hostname);
     } else {

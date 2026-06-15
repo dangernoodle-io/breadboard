@@ -99,3 +99,60 @@ void test_bb_health_assembled_schema_with_fragment_is_valid_json(void)
     TEST_ASSERT_NOT_NULL_MESSAGE(parsed, "health schema with extender fragment is not valid JSON");
     cJSON_Delete(parsed);
 }
+
+// ---------------------------------------------------------------------------
+// bb_health_compute_ok tests
+// ---------------------------------------------------------------------------
+
+// On the host stub, bb_wifi_has_ip() returns false and bb_ota_is_validated()
+// returns false, so bb_health_compute_ok() must be false.
+void test_bb_health_compute_ok_false_on_host(void)
+{
+    TEST_ASSERT_FALSE(bb_health_compute_ok());
+}
+
+// ---------------------------------------------------------------------------
+// Schema network field coverage tests
+// ---------------------------------------------------------------------------
+
+// The assembled schema must include ssid/bssid/ip/disc_reason (additive) and
+// mdns (kept per locked decision B1-269).
+void test_bb_health_schema_network_has_ssid(void)
+{
+    const char *schema = bb_health_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"ssid\""),
+                                 "ssid missing from health schema network");
+}
+
+void test_bb_health_schema_network_has_bssid(void)
+{
+    const char *schema = bb_health_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"bssid\""),
+                                 "bssid missing from health schema network");
+}
+
+void test_bb_health_schema_network_has_ip(void)
+{
+    const char *schema = bb_health_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"ip\""),
+                                 "ip missing from health schema network");
+}
+
+void test_bb_health_schema_network_has_disc_reason(void)
+{
+    const char *schema = bb_health_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"disc_reason\""),
+                                 "disc_reason missing from health schema network");
+}
+
+void test_bb_health_schema_network_has_mdns(void)
+{
+    const char *schema = bb_health_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"mdns\""),
+                                 "mdns missing from health schema network (locked: keep field)");
+}

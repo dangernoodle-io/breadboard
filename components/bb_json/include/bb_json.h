@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +25,7 @@ bb_json_t bb_json_arr_new(void);
 
 void bb_json_obj_set_string(bb_json_t obj, const char *key, const char *value);
 void bb_json_obj_set_number(bb_json_t obj, const char *key, double value);
+void bb_json_obj_set_int   (bb_json_t obj, const char *key, int64_t value);
 void bb_json_obj_set_bool  (bb_json_t obj, const char *key, bool value);
 void bb_json_obj_set_null  (bb_json_t obj, const char *key);
 

@@ -20,23 +20,17 @@ static bb_err_t wifi_info_handler(bb_http_request_t *req)
     bb_wifi_info_t info;
     bb_wifi_get_info(&info);
 
-    char bssid[18];
-    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
-             info.bssid[0], info.bssid[1], info.bssid[2],
-             info.bssid[3], info.bssid[4], info.bssid[5]);
+    bb_json_t root = bb_json_obj_new();
+    bb_wifi_emit_section(root, &info);
 
-    bb_http_json_obj_stream_t obj;
-    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
-    if (err != BB_OK) return err;
-    bb_http_resp_json_obj_set_str(&obj, "ssid",        info.ssid);
-    bb_http_resp_json_obj_set_str(&obj, "bssid",       bssid);
-    bb_http_resp_json_obj_set_int(&obj, "rssi",        (int64_t)info.rssi);
-    bb_http_resp_json_obj_set_str(&obj, "ip",          info.ip);
-    bb_http_resp_json_obj_set_bool(&obj, "connected",  info.connected);
-    bb_http_resp_json_obj_set_int(&obj, "disc_reason", (int64_t)info.disc_reason);
-    bb_http_resp_json_obj_set_int(&obj, "disc_age_s",  (int64_t)info.disc_age_s);
-    bb_http_resp_json_obj_set_int(&obj, "retry_count", (int64_t)info.retry_count);
-    return bb_http_resp_json_obj_end(&obj);
+    char *str = bb_json_serialize(root);
+    bb_json_free(root);
+    if (!str) return BB_ERR_NO_SPACE;
+    bb_err_t err = bb_http_resp_set_type(req, "application/json");
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
+    free(str);
+    return err;
 }
 
 static bb_err_t scan_handler(bb_http_request_t *req)

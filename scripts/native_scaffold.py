@@ -115,9 +115,10 @@ COMPONENT_MAP = {
         "includes": ["components/bb_wifi/include", "components/bb_wifi"],
         "sources": [
             "platform/host/bb_wifi/bb_wifi_host.c",
+            "platform/host/bb_wifi/bb_wifi_emit.c",
             "components/bb_wifi/wifi_reconn_policy.c",
         ],
-        "depends":  ["bb_core", "bb_log", "bb_nv"],
+        "depends":  ["bb_core", "bb_log", "bb_nv", "bb_json"],
     },
     "bb_ntp": {
         "includes": ["components/bb_ntp/include"],
@@ -229,9 +230,10 @@ COMPONENT_MAP = {
         "sources":  [
             "platform/host/bb_health/bb_health_host.c",
             "platform/host/bb_health/bb_health_stack_host.c",
+            "platform/host/bb_health/bb_health_emit.c",
             "components/bb_health/bb_health_stack_common.c",
         ],
-        "depends":  ["bb_core", "bb_http", "bb_json"],
+        "depends":  ["bb_core", "bb_http", "bb_json", "bb_ota_validator", "bb_wifi"],
     },
     "bb_power": {
         "includes": ["components/bb_power/include"],
