@@ -1,0 +1,144 @@
+#pragma once
+
+// bb_ring — generic variable-length circular buffer with per-entry metadata.
+//
+// A bounded FIFO ring of variable-length byte entries, each carrying a
+// timestamp (int64_t, caller-supplied microseconds) and a 32-bit id.
+//
+// Capacity model: fixed entry-count capacity, each entry up to max_entry_bytes.
+// Storage is eagerly allocated as two flat arrays:
+//   - metadata array:  capacity × sizeof(bb_ring_entry_t)
+//   - payload buffer:  capacity × max_entry_bytes
+// (mirrors bb_event_ring's proven layout).
+//
+// Eviction: when full, push() silently evicts the oldest entry and increments
+// the dropped counter.
+//
+// Oversized push: payloads larger than max_entry_bytes are REJECTED (not
+// truncated). bb_ring_push() returns BB_ERR_INVALID_ARG and increments the
+// truncated counter. Document choice: reject is safer for binary protocols; the
+// caller can always pre-truncate and push a shorter entry.
+//
+// Thread-safety: bb_ring is NOT internally locked. The caller is responsible
+// for serialising access. (bb_pub holds its tick lock; FreeRTOS consumers
+// should wrap operations in a mutex.)
+//
+// SPIRAM allocation: on ESP-IDF, register the platform/espidf/bb_ring_espidf
+// component (via EXTRA_COMPONENT_DIRS) — it installs a SPIRAM-preferred
+// allocator at EARLY tier. On host builds the default malloc/calloc is used.
+
+#include "bb_core.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// ---------------------------------------------------------------------------
+// Opaque handle
+// ---------------------------------------------------------------------------
+
+typedef struct bb_ring *bb_ring_t;
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+// bb_ring_create — allocate a new ring.
+//
+//   capacity_entries : maximum number of entries the ring holds at once.
+//   max_entry_bytes  : maximum payload size for a single entry (inclusive).
+//   out              : receives the allocated handle on BB_OK.
+//
+// Returns BB_ERR_INVALID_ARG if any arg is zero or out is NULL.
+// Returns BB_ERR_NO_SPACE    if allocation fails.
+bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes, bb_ring_t *out);
+
+// bb_ring_destroy — free all resources. Safe to call with NULL (no-op).
+void bb_ring_destroy(bb_ring_t r);
+
+// ---------------------------------------------------------------------------
+// Write
+// ---------------------------------------------------------------------------
+
+// bb_ring_push — append an entry.
+//
+//   data  : pointer to payload bytes (may be NULL when len == 0).
+//   len   : payload length in bytes.
+//   ts    : caller-supplied timestamp (e.g. microseconds since boot).
+//   id    : caller-supplied 32-bit identifier.
+//
+// If len > max_entry_bytes: returns BB_ERR_INVALID_ARG, increments truncated
+// counter. Entry is NOT written.
+//
+// If ring is full: oldest entry is evicted before writing, dropped counter++.
+//
+// Returns BB_ERR_INVALID_ARG if r is NULL or (len > 0 && data is NULL).
+bb_err_t bb_ring_push(bb_ring_t r, const void *data, size_t len,
+                      int64_t ts, uint32_t id);
+
+// ---------------------------------------------------------------------------
+// FIFO read — peek/pop pattern for replay-then-remove consumers
+// ---------------------------------------------------------------------------
+
+// bb_ring_peek_oldest — copy the oldest entry into caller-supplied buffer.
+//
+// On BB_OK:
+//   *out_len  receives the entry's payload length (may be 0).
+//   *out_ts   receives the entry's timestamp.
+//   *out_id   receives the entry's id.
+//   buf       receives up to min(out_len, buf_cap) payload bytes.
+//
+// Returns BB_ERR_NOT_FOUND if ring is empty.
+// Returns BB_ERR_INVALID_ARG if r or out_len or out_ts or out_id is NULL.
+// Note: if buf_cap < *out_len, only buf_cap bytes are copied. The caller can
+// pass buf=NULL + buf_cap=0 to probe id/ts/len without copying.
+bb_err_t bb_ring_peek_oldest(bb_ring_t r,
+                             void *buf, size_t buf_cap,
+                             size_t *out_len,
+                             int64_t *out_ts,
+                             uint32_t *out_id);
+
+// bb_ring_pop_oldest — remove the oldest entry WITHOUT copying.
+// Returns BB_ERR_NOT_FOUND if ring is empty.
+// Returns BB_ERR_INVALID_ARG if r is NULL.
+bb_err_t bb_ring_pop_oldest(bb_ring_t r);
+
+// ---------------------------------------------------------------------------
+// Introspection
+// ---------------------------------------------------------------------------
+
+// Current number of entries in the ring.
+size_t bb_ring_count(bb_ring_t r);
+
+// Total bytes of payload data currently stored (sum of all entry lengths).
+size_t bb_ring_bytes_used(bb_ring_t r);
+
+// Number of entries dropped due to ring-full eviction since creation or clear.
+size_t bb_ring_dropped(bb_ring_t r);
+
+// Number of push() calls rejected because len > max_entry_bytes.
+size_t bb_ring_truncated(bb_ring_t r);
+
+// ---------------------------------------------------------------------------
+// Maintenance
+// ---------------------------------------------------------------------------
+
+// bb_ring_clear — discard all entries and reset stats. Does NOT free memory.
+void bb_ring_clear(bb_ring_t r);
+
+// ---------------------------------------------------------------------------
+// Allocator hook — for SPIRAM override (ESP-IDF) and failure injection (tests)
+// ---------------------------------------------------------------------------
+// The ESP-IDF SPIRAM platform shim (bb_ring_espidf) calls these at EARLY tier
+// to redirect allocations to SPIRAM-preferred heap with internal fallback.
+// Tests may call them to inject a failing allocator.
+typedef void *(*bb_ring_calloc_fn)(size_t n, size_t sz);
+typedef void  (*bb_ring_free_fn)(void *p);
+void bb_ring_set_allocator(bb_ring_calloc_fn c, bb_ring_free_fn f);
+void bb_ring_reset_allocator(void);
+
+#ifdef __cplusplus
+}
+#endif

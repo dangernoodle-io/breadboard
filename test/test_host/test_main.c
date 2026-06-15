@@ -1727,6 +1727,46 @@ void test_bb_event_ring_capture_null_data_with_size(void);
 void test_bb_event_ring_attach_subscribe_failure_frees_all(void);
 void test_bb_event_ring_subscribe_replay_second_alloc_failure_frees_first(void);
 
+// Forward declarations from test_bb_ring.c
+void test_bb_ring_create_basic(void);
+void test_bb_ring_create_zero_capacity_returns_invalid_arg(void);
+void test_bb_ring_create_zero_max_entry_returns_invalid_arg(void);
+void test_bb_ring_create_null_out_returns_invalid_arg(void);
+void test_bb_ring_destroy_null_noop(void);
+void test_bb_ring_create_struct_alloc_fails(void);
+void test_bb_ring_create_entries_alloc_fails(void);
+void test_bb_ring_create_payload_alloc_fails(void);
+void test_bb_ring_push_null_ring_returns_invalid_arg(void);
+void test_bb_ring_push_null_data_with_nonzero_len_returns_invalid_arg(void);
+void test_bb_ring_push_zero_len_null_data_is_ok(void);
+void test_bb_ring_push_oversized_rejected_and_counter_incremented(void);
+void test_bb_ring_push_exactly_max_entry_bytes_accepted(void);
+void test_bb_ring_fifo_order(void);
+void test_bb_ring_variable_length_entries(void);
+void test_bb_ring_evict_oldest_on_overflow(void);
+void test_bb_ring_dropped_counter_accumulates(void);
+void test_bb_ring_ts_and_id_roundtrip(void);
+void test_bb_ring_bytes_used_tracks_push_and_pop(void);
+void test_bb_ring_bytes_used_decrements_on_eviction(void);
+void test_bb_ring_peek_empty_returns_not_found(void);
+void test_bb_ring_pop_empty_returns_not_found(void);
+void test_bb_ring_peek_null_ring_returns_invalid_arg(void);
+void test_bb_ring_pop_null_ring_returns_invalid_arg(void);
+void test_bb_ring_peek_null_out_len_returns_invalid_arg(void);
+void test_bb_ring_peek_null_out_ts_returns_invalid_arg(void);
+void test_bb_ring_peek_null_out_id_returns_invalid_arg(void);
+void test_bb_ring_peek_null_buf_probes_metadata(void);
+void test_bb_ring_clear_resets_all(void);
+void test_bb_ring_head_tail_wrap(void);
+void test_bb_ring_introspection_null_returns_zero(void);
+void test_bb_ring_peek_zero_len_entry(void);
+void test_bb_ring_peek_deliver_pop_pattern(void);
+void test_bb_ring_peek_truncated_copy_on_small_buf(void);
+void test_bb_ring_set_allocator_null_args_falls_back_to_default(void);
+void test_bb_ring_clear_null_noop(void);
+void test_bb_ring_peek_nonzero_len_with_zero_buf_cap_skips_copy(void);
+void test_bb_ring_peek_with_buf_on_zero_len_entry_skips_copy(void);
+
 // Forward declarations from test_bb_event_ring_retained.c
 void test_bb_event_ring_attach_ex_retained_true_returns_ok(void);
 void test_bb_event_ring_attach_ex_retained_false_same_as_attach(void);
@@ -2228,6 +2268,18 @@ void test_bb_pub_telemetry_patch_enabled_false_persists(void);
 void test_bb_pub_telemetry_patch_enabled_true_persists(void);
 void test_bb_pub_telemetry_patch_enabled_reflected_in_get(void);
 void test_bb_pub_telemetry_patch_partial_only_changes_present_fields(void);
+
+// Forward declarations from test_bb_pub_buffer.c
+void test_bb_pub_buffer_failing_sink_enqueues(void);
+void test_bb_pub_buffer_replay_oldest_first(void);
+void test_bb_pub_buffer_overflow_drops_oldest(void);
+void test_bb_pub_buffer_paused_no_capture(void);
+void test_bb_pub_buffer_disabled_no_capture(void);
+void test_bb_pub_buffer_normal_payload_accepted(void);
+void test_bb_pub_buffer_capture_epoch_injected_on_replay(void);
+void test_bb_pub_buffer_no_epoch_no_captured_ms_field(void);
+void test_bb_pub_buffer_stats_reflect_reality(void);
+void test_bb_pub_buffer_replay_stops_on_failure(void);
 
 // Forward declarations from test_bb_pub_sink_mutex.c
 void test_arbiter_acquire_free_slot_ok(void);
@@ -4128,6 +4180,46 @@ int main(void) {
     RUN_TEST(test_bb_event_ring_last_entry_info_null_out_params_ok);
     RUN_TEST(test_bb_event_ring_last_entry_info_zero_size_payload);
 
+    // bb_ring tests
+    RUN_TEST(test_bb_ring_create_basic);
+    RUN_TEST(test_bb_ring_create_zero_capacity_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_create_zero_max_entry_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_create_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_destroy_null_noop);
+    RUN_TEST(test_bb_ring_create_struct_alloc_fails);
+    RUN_TEST(test_bb_ring_create_entries_alloc_fails);
+    RUN_TEST(test_bb_ring_create_payload_alloc_fails);
+    RUN_TEST(test_bb_ring_push_null_ring_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_push_null_data_with_nonzero_len_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_push_zero_len_null_data_is_ok);
+    RUN_TEST(test_bb_ring_push_oversized_rejected_and_counter_incremented);
+    RUN_TEST(test_bb_ring_push_exactly_max_entry_bytes_accepted);
+    RUN_TEST(test_bb_ring_fifo_order);
+    RUN_TEST(test_bb_ring_variable_length_entries);
+    RUN_TEST(test_bb_ring_evict_oldest_on_overflow);
+    RUN_TEST(test_bb_ring_dropped_counter_accumulates);
+    RUN_TEST(test_bb_ring_ts_and_id_roundtrip);
+    RUN_TEST(test_bb_ring_bytes_used_tracks_push_and_pop);
+    RUN_TEST(test_bb_ring_bytes_used_decrements_on_eviction);
+    RUN_TEST(test_bb_ring_peek_empty_returns_not_found);
+    RUN_TEST(test_bb_ring_pop_empty_returns_not_found);
+    RUN_TEST(test_bb_ring_peek_null_ring_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_pop_null_ring_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_peek_null_out_len_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_peek_null_out_ts_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_peek_null_out_id_returns_invalid_arg);
+    RUN_TEST(test_bb_ring_peek_null_buf_probes_metadata);
+    RUN_TEST(test_bb_ring_clear_resets_all);
+    RUN_TEST(test_bb_ring_head_tail_wrap);
+    RUN_TEST(test_bb_ring_introspection_null_returns_zero);
+    RUN_TEST(test_bb_ring_peek_zero_len_entry);
+    RUN_TEST(test_bb_ring_peek_deliver_pop_pattern);
+    RUN_TEST(test_bb_ring_peek_truncated_copy_on_small_buf);
+    RUN_TEST(test_bb_ring_set_allocator_null_args_falls_back_to_default);
+    RUN_TEST(test_bb_ring_clear_null_noop);
+    RUN_TEST(test_bb_ring_peek_nonzero_len_with_zero_buf_cap_skips_copy);
+    RUN_TEST(test_bb_ring_peek_with_buf_on_zero_len_entry_skips_copy);
+
     RUN_TEST(test_bb_event_subscribe_with_prep_runs_prep_before_subscribe);
     RUN_TEST(test_bb_event_subscribe_with_prep_null_prep_subscribes);
     RUN_TEST(test_bb_event_subscribe_with_prep_invalid_args);
@@ -4652,6 +4744,18 @@ int main(void) {
     RUN_TEST(test_bb_pub_telemetry_patch_enabled_true_persists);
     RUN_TEST(test_bb_pub_telemetry_patch_enabled_reflected_in_get);
     RUN_TEST(test_bb_pub_telemetry_patch_partial_only_changes_present_fields);
+
+    // bb_pub_buffer tests — store-and-forward ring (B1-285)
+    RUN_TEST(test_bb_pub_buffer_failing_sink_enqueues);
+    RUN_TEST(test_bb_pub_buffer_replay_oldest_first);
+    RUN_TEST(test_bb_pub_buffer_overflow_drops_oldest);
+    RUN_TEST(test_bb_pub_buffer_paused_no_capture);
+    RUN_TEST(test_bb_pub_buffer_disabled_no_capture);
+    RUN_TEST(test_bb_pub_buffer_normal_payload_accepted);
+    RUN_TEST(test_bb_pub_buffer_capture_epoch_injected_on_replay);
+    RUN_TEST(test_bb_pub_buffer_no_epoch_no_captured_ms_field);
+    RUN_TEST(test_bb_pub_buffer_stats_reflect_reality);
+    RUN_TEST(test_bb_pub_buffer_replay_stops_on_failure);
 
     // bb_pub_sink_mutex tests — exclusive-sink arbiter + mutual-exclusion invariant
     RUN_TEST(test_arbiter_acquire_free_slot_ok);

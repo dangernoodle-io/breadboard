@@ -47,6 +47,11 @@ static void pub_section_get(bb_json_t section, void *ctx)
     bb_json_obj_set_bool  (section, "last_publish_ok",     st.last_publish_ok);
     bb_json_obj_set_number(section, "last_publish_age_ms", (double)age_ms);
     bb_json_obj_set_bool  (section, "published_ever",      st.published_ever);
+
+    bb_pub_buffer_stats_t buf;
+    bb_pub_buffer_stats(&buf);
+    bb_json_obj_set_number(section, "buffer_count",   (double)buf.count);
+    bb_json_obj_set_number(section, "buffer_dropped", (double)buf.dropped);
 }
 
 // ---------------------------------------------------------------------------

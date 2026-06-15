@@ -60,4 +60,34 @@ config BB_PUB_WORKER_STACK
         Gate-keyed defaults (B1-274): default 8192 with any TLS gate; 4096
         without. Override in sdkconfig if your specific sink mix differs.
 
+config BB_PUB_BUFFER_ENABLE
+    bool "Enable store-and-forward ring buffer (capture on sink error, replay on recovery)"
+    default n
+    help
+        When enabled, bb_pub captures serialized topic+payload entries into a
+        bb_ring when the first sink returns non-BB_OK. On the next tick where
+        the sink succeeds, buffered entries are replayed oldest-first. Requires
+        bb_ring. The entire feature compiles out when this is disabled.
+
+config BB_PUB_BUFFER_MAX_ENTRIES
+    int "Store-and-forward ring capacity (entries)"
+    default 16
+    range 1 256
+    depends on BB_PUB_BUFFER_ENABLE
+    help
+        Maximum number of buffered topic+payload entries. When the ring is
+        full, the oldest entry is evicted and the dropped counter increments.
+
+config BB_PUB_BUFFER_MAX_PAYLOAD_BYTES
+    int "Store-and-forward maximum entry size (bytes)"
+    default 256
+    range 64 4096
+    depends on BB_PUB_BUFFER_ENABLE
+    help
+        Maximum size (bytes) for a single ring entry. Each entry packs:
+          topic (up to 192 bytes) + 1-byte NUL separator + payload.
+        Entries larger than this limit are rejected (truncated counter++).
+        The actual ring max_entry_bytes = BB_PUB_BUFFER_MAX_PAYLOAD_BYTES +
+        192 (topic budget) + 1 (separator).
+
 endmenu
