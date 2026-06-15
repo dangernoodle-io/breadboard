@@ -1,4 +1,4 @@
-// Tests for bb_pub_wifi: wifi RSSI telemetry source.
+// Tests for bb_pub_wifi: full wifi connection telemetry source.
 #include "unity.h"
 #include "bb_pub_wifi.h"
 #include "bb_pub.h"
@@ -49,6 +49,23 @@ static void setup(void)
     bb_pub_sink_t sink = { .publish = capture_publish, .ctx = NULL };
     bb_pub_set_sink(&sink);
     bb_pub_wifi_register();
+}
+
+// Helper: populate a full test info struct.
+static bb_pub_wifi_test_info_t make_info(bool connected, int8_t rssi)
+{
+    bb_pub_wifi_test_info_t info;
+    memset(&info, 0, sizeof(info));
+    info.connected   = connected;
+    info.rssi        = rssi;
+    strncpy(info.ssid, "TestNet", sizeof(info.ssid) - 1);
+    info.bssid[0] = 0xAA; info.bssid[1] = 0xBB; info.bssid[2] = 0xCC;
+    info.bssid[3] = 0xDD; info.bssid[4] = 0xEE; info.bssid[5] = 0xFF;
+    strncpy(info.ip, "192.168.1.42", sizeof(info.ip) - 1);
+    info.disc_reason = 3;
+    info.disc_age_s  = 120;
+    info.retry_count = 2;
+    return info;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,4 +123,109 @@ void test_bb_pub_wifi_payload_has_ts_field(void)
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ts\""));
+}
+
+// ---------------------------------------------------------------------------
+// New parity tests: full wifi info fields
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_wifi_has_ssid_field(void)
+{
+    setup();
+    bb_pub_wifi_test_info_t info = make_info(true, -65);
+    bb_pub_wifi_test_set_info(&info);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ssid\""));
+}
+
+void test_bb_pub_wifi_ssid_value_correct(void)
+{
+    setup();
+    bb_pub_wifi_test_info_t info = make_info(true, -65);
+    bb_pub_wifi_test_set_info(&info);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "TestNet"));
+}
+
+void test_bb_pub_wifi_has_bssid_field(void)
+{
+    setup();
+    bb_pub_wifi_test_info_t info = make_info(true, -65);
+    bb_pub_wifi_test_set_info(&info);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"bssid\""));
+}
+
+void test_bb_pub_wifi_bssid_format_correct(void)
+{
+    setup();
+    bb_pub_wifi_test_info_t info = make_info(true, -65);
+    bb_pub_wifi_test_set_info(&info);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    // bssid should be "aa:bb:cc:dd:ee:ff"
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "aa:bb:cc:dd:ee:ff"));
+}
+
+void test_bb_pub_wifi_has_ip_field(void)
+{
+    setup();
+    bb_pub_wifi_test_info_t info = make_info(true, -65);
+    bb_pub_wifi_test_set_info(&info);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ip\""));
+}
+
+void test_bb_pub_wifi_ip_value_correct(void)
+{
+    setup();
+    bb_pub_wifi_test_info_t info = make_info(true, -65);
+    bb_pub_wifi_test_set_info(&info);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "192.168.1.42"));
+}
+
+void test_bb_pub_wifi_has_connected_field(void)
+{
+    setup();
+    bb_pub_wifi_test_info_t info = make_info(true, -65);
+    bb_pub_wifi_test_set_info(&info);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"connected\""));
+}
+
+void test_bb_pub_wifi_has_disc_reason_field(void)
+{
+    setup();
+    bb_pub_wifi_test_info_t info = make_info(true, -65);
+    bb_pub_wifi_test_set_info(&info);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"disc_reason\""));
+}
+
+void test_bb_pub_wifi_has_disc_age_s_field(void)
+{
+    setup();
+    bb_pub_wifi_test_info_t info = make_info(true, -65);
+    bb_pub_wifi_test_set_info(&info);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"disc_age_s\""));
+}
+
+void test_bb_pub_wifi_has_retry_count_field(void)
+{
+    setup();
+    bb_pub_wifi_test_info_t info = make_info(true, -65);
+    bb_pub_wifi_test_set_info(&info);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"retry_count\""));
 }

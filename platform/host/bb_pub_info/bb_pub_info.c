@@ -12,6 +12,7 @@
 #include "bb_ota_validator.h"
 #include "bb_registry.h"
 #include <stdbool.h>
+#include <string.h>
 #include <time.h>
 
 #ifndef CONFIG_BB_PUB_INFO_AUTO_ATTACH
@@ -54,6 +55,25 @@ static bool info_sample(bb_json_t obj, void *ctx)
                            (double)bb_clock_now_ms());
     bb_json_obj_set_string(obj, "version",
                            bb_system_get_version());
+
+    // Static identity fields: board, chip_model, mac (fleet identification).
+    char board[32];
+    char chip_model[16];
+    char mac[18];
+    board[0]      = '\0';
+    chip_model[0] = '\0';
+    mac[0]        = '\0';
+    {
+        bb_board_info_t bi;
+        if (bb_board_get_info(&bi) == BB_OK) {
+            strncpy(board,      bi.board,      sizeof(board)      - 1);
+            strncpy(chip_model, bi.chip_model, sizeof(chip_model) - 1);
+        }
+    }
+    bb_board_get_mac(mac, sizeof(mac));
+    bb_json_obj_set_string(obj, "board",      board);
+    bb_json_obj_set_string(obj, "chip_model", chip_model);
+    bb_json_obj_set_string(obj, "mac",        mac);
 
     // reset_reason: string boot cause ("power-on", "software", "panic", ...)
     char reset_reason[16];
