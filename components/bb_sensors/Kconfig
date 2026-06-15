@@ -1,0 +1,23 @@
+menu "breadboard: bb_sensors"
+
+config BB_SENSORS_AUTOREGISTER
+    bool "Auto-register /api/sensors HTTP routes via bb_registry"
+    default n
+    help
+        When enabled, bb_sensors self-registers GET /api/sensors and
+        PATCH /api/sensors through bb_registry.
+        Disable to call bb_sensors_init manually or omit the routes entirely.
+        Default n: old /api/fan|power|thermal routes remain the primary path
+        until PR7 deletes them.
+
+config BB_SENSORS_PATCH_BODY_MAX
+    int "Maximum PATCH /api/sensors body size (bytes)"
+    default 256
+    range 64 4096
+    help
+        Hard cap on the PATCH /api/sensors request body. Requests larger
+        than this are rejected with 400 before any parsing occurs.
+        Default 256 bytes is sufficient for full autofan config payloads.
+        Raise for consumers that add large section PATCH payloads.
+
+endmenu

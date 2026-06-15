@@ -76,10 +76,12 @@ static void emit_source(bb_json_t root, const char *key, bool present, double c_
 }
 
 // ---------------------------------------------------------------------------
-// GET handler
+// Shared emit helper — writes thermal sub-objects into an existing bb_json_t.
+// Emits {soc,vr,asic,board} each as {present,c|null} (route's nested shape).
+// Used by /api/thermal GET handler and /api/sensors thermal section (SSOT).
 // ---------------------------------------------------------------------------
 
-void bb_thermal_emit(bb_http_request_t *req)
+void bb_thermal_emit_section(bb_json_t obj)
 {
     // --- SoC (bb_temp) ---
     float soc_c = 0.0f;
@@ -98,12 +100,22 @@ void bb_thermal_emit(bb_http_request_t *req)
     bool asic_present  = (fan != NULL && !isnan(fsnap.die_c));
     bool board_present = (fan != NULL && !isnan(fsnap.board_c));
 
+    emit_source(obj, "soc",   soc_present,  soc_present   ? (double)soc_c        : 0.0);
+    emit_source(obj, "vr",    vr_present,   vr_present    ? (double)psnap.temp_c  : 0.0);
+    emit_source(obj, "asic",  asic_present, asic_present  ? (double)fsnap.die_c   : 0.0);
+    emit_source(obj, "board", board_present,board_present ? (double)fsnap.board_c  : 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// GET handler
+// ---------------------------------------------------------------------------
+
+void bb_thermal_emit(bb_http_request_t *req)
+{
     bb_json_t root = bb_json_obj_new();
 
-    emit_source(root, "soc",   soc_present,  soc_present  ? (double)soc_c       : 0.0);
-    emit_source(root, "vr",    vr_present,   vr_present   ? (double)psnap.temp_c : 0.0);
-    emit_source(root, "asic",  asic_present, asic_present  ? (double)fsnap.die_c  : 0.0);
-    emit_source(root, "board", board_present,board_present ? (double)fsnap.board_c : 0.0);
+    // Use shared emit helper (SSOT — same fields as /api/sensors thermal section).
+    bb_thermal_emit_section(root);
 
     bb_http_route_run_extenders("thermal", root);
 

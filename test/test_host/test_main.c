@@ -2198,6 +2198,31 @@ void test_bb_pub_sink_transport_http_no_tls_stamped(void);
 void test_bb_pub_sink_no_transport_fields_absent(void);
 void test_bb_pub_two_sinks_each_get_own_transport(void);
 
+// Forward declarations from test_bb_sensors.c
+void bb_sensors_reset_for_test(void);
+void test_bb_sensors_register_null_name_returns_err(void);
+void test_bb_sensors_register_null_get_returns_err(void);
+void test_bb_sensors_register_ok(void);
+void test_bb_sensors_register_capacity(void);
+void test_bb_sensors_register_after_freeze_returns_invalid_state(void);
+void test_bb_sensors_get_fan_section_present_false_when_no_primary(void);
+void test_bb_sensors_get_fan_section_present_true_with_primary(void);
+void test_bb_sensors_get_power_section_present_false_when_no_primary(void);
+void test_bb_sensors_get_power_section_present_true_with_primary(void);
+void test_bb_sensors_get_thermal_section_has_soc_vr_asic_board(void);
+void test_bb_sensors_get_thermal_soc_present_when_available(void);
+void test_bb_sensors_fan_patch_duty_pct_applies(void);
+void test_bb_sensors_fan_patch_no_primary_returns_invalid_state(void);
+void test_bb_sensors_power_patch_rejected(void);
+void test_bb_sensors_thermal_patch_rejected(void);
+void test_bb_sensors_schema_no_sections_is_valid_json(void);
+void test_bb_sensors_schema_with_builtin_sections_is_valid_json(void);
+void test_bb_sensors_schema_contains_fan_section(void);
+void test_bb_sensors_schema_contains_power_section(void);
+void test_bb_sensors_schema_contains_thermal_section(void);
+void test_bb_sensors_external_section_registered_ok(void);
+void test_bb_sensors_external_section_schema_in_assembled(void);
+
 // Forward declarations from test_bb_section.c
 void test_bb_section_register_ok(void);
 void test_bb_section_register_null_reg_returns_invalid_arg(void);
@@ -2501,6 +2526,7 @@ void setUp(void) {
     bb_i2c_host_reset();
     bb_fan_test_reset_local();
     bb_thermal_reset_for_test();
+    bb_sensors_reset_for_test();
     bb_led_test_reset();
     bb_led_pwm_test_reset();
     bb_led_rgb_pwm_host_test_reset();
@@ -4737,6 +4763,30 @@ int main(void) {
     RUN_TEST(test_bb_section_assemble_schema_null_schema_props_omitted);
     RUN_TEST(test_bb_section_freeze_rejects_register_after);
     RUN_TEST(test_bb_section_freeze_build_get_still_works);
+
+    // bb_sensors tests
+    RUN_TEST(test_bb_sensors_register_null_name_returns_err);
+    RUN_TEST(test_bb_sensors_register_null_get_returns_err);
+    RUN_TEST(test_bb_sensors_register_ok);
+    RUN_TEST(test_bb_sensors_register_capacity);
+    RUN_TEST(test_bb_sensors_register_after_freeze_returns_invalid_state);
+    RUN_TEST(test_bb_sensors_get_fan_section_present_false_when_no_primary);
+    RUN_TEST(test_bb_sensors_get_fan_section_present_true_with_primary);
+    RUN_TEST(test_bb_sensors_get_power_section_present_false_when_no_primary);
+    RUN_TEST(test_bb_sensors_get_power_section_present_true_with_primary);
+    RUN_TEST(test_bb_sensors_get_thermal_section_has_soc_vr_asic_board);
+    RUN_TEST(test_bb_sensors_get_thermal_soc_present_when_available);
+    RUN_TEST(test_bb_sensors_fan_patch_duty_pct_applies);
+    RUN_TEST(test_bb_sensors_fan_patch_no_primary_returns_invalid_state);
+    RUN_TEST(test_bb_sensors_power_patch_rejected);
+    RUN_TEST(test_bb_sensors_thermal_patch_rejected);
+    RUN_TEST(test_bb_sensors_schema_no_sections_is_valid_json);
+    RUN_TEST(test_bb_sensors_schema_with_builtin_sections_is_valid_json);
+    RUN_TEST(test_bb_sensors_schema_contains_fan_section);
+    RUN_TEST(test_bb_sensors_schema_contains_power_section);
+    RUN_TEST(test_bb_sensors_schema_contains_thermal_section);
+    RUN_TEST(test_bb_sensors_external_section_registered_ok);
+    RUN_TEST(test_bb_sensors_external_section_schema_in_assembled);
 
     // bb_telemetry tests
     RUN_TEST(test_bb_telemetry_register_ok);

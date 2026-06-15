@@ -471,6 +471,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_section/bb_section.c"],
         "depends":  ["bb_core", "bb_json", "bb_log"],
     },
+    "bb_sensors": {
+        "includes": ["components/bb_sensors/include", "components/bb_sensors"],
+        "sources":  ["platform/host/bb_sensors/bb_sensors_host.c"],
+        "depends":  ["bb_core", "bb_json", "bb_section", "bb_fan_routes", "bb_power_routes", "bb_thermal"],
+    },
     "bb_telemetry": {
         "includes": ["components/bb_telemetry/include"],
         "sources":  ["platform/host/bb_telemetry/bb_telemetry.c"],
