@@ -105,6 +105,28 @@ bb_err_t bb_ring_peek_oldest(bb_ring_t r,
 // Returns BB_ERR_INVALID_ARG if r is NULL.
 bb_err_t bb_ring_pop_oldest(bb_ring_t r);
 
+// bb_ring_peek_at — NON-DESTRUCTIVE read of entry at logical index.
+//
+//   index 0 = oldest entry; index (count-1) = newest.
+//
+// On BB_OK:
+//   *out_len  receives the entry's payload length.
+//   *out_ts   receives the entry's timestamp.
+//   *out_id   receives the entry's id.
+//   buf       receives up to min(*out_len, buf_cap) bytes when buf != NULL.
+//
+// Returns BB_ERR_NOT_FOUND if ring is empty or index >= count.
+// Returns BB_ERR_INVALID_ARG if r or out_len or out_ts or out_id is NULL.
+//
+// Does NOT consume (pop) the entry — designed for replay-without-drain use
+// (e.g. bb_event_ring replay-on-subscribe: iterate all N entries without
+// removing them so other subscribers can still replay the same data).
+bb_err_t bb_ring_peek_at(bb_ring_t r, size_t index,
+                         void *buf, size_t buf_cap,
+                         size_t *out_len,
+                         int64_t *out_ts,
+                         uint32_t *out_id);
+
 // ---------------------------------------------------------------------------
 // Introspection
 // ---------------------------------------------------------------------------
