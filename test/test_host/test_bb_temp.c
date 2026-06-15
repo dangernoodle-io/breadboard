@@ -39,19 +39,19 @@ void test_bb_temp_read_soc_null_out_returns_false(void)
     TEST_ASSERT_FALSE(ok);
 }
 
-/* ---- bb_temp_register_info health extender ---- */
+/* ---- bb_temp_register_info health section ---- */
 
 void test_bb_temp_health_extender_absent_by_default(void)
 {
-    /* Default: present=false → extender emits temp:{present:false} */
+    /* Default: present=false → section emits temp:{present:false} */
     bb_temp_test_set_soc(false, 0.0f);
     bb_temp_register_info();
 
     bb_json_t root = bb_json_obj_new();
-    bb_health_invoke_extenders_for_test(root);
+    bb_health_invoke_sections_for_test(root);
 
     bb_json_t temp = bb_json_obj_get_item(root, "temp");
-    TEST_ASSERT_NOT_NULL_MESSAGE(temp, "temp key missing from health extender output");
+    TEST_ASSERT_NOT_NULL_MESSAGE(temp, "temp key missing from health section output");
 
     bool present = true;
     TEST_ASSERT_TRUE(bb_json_obj_get_bool(temp, "present", &present));
@@ -71,10 +71,10 @@ void test_bb_temp_health_extender_present_with_value(void)
     bb_temp_register_info();
 
     bb_json_t root = bb_json_obj_new();
-    bb_health_invoke_extenders_for_test(root);
+    bb_health_invoke_sections_for_test(root);
 
     bb_json_t temp = bb_json_obj_get_item(root, "temp");
-    TEST_ASSERT_NOT_NULL_MESSAGE(temp, "temp key missing from health extender output");
+    TEST_ASSERT_NOT_NULL_MESSAGE(temp, "temp key missing from health section output");
 
     bool present = false;
     TEST_ASSERT_TRUE(bb_json_obj_get_bool(temp, "present", &present));
@@ -96,7 +96,7 @@ void test_bb_temp_health_extender_value_rounds_to_one_decimal(void)
     bb_temp_register_info();
 
     bb_json_t root = bb_json_obj_new();
-    bb_health_invoke_extenders_for_test(root);
+    bb_health_invoke_sections_for_test(root);
 
     bb_json_t temp = bb_json_obj_get_item(root, "temp");
     TEST_ASSERT_NOT_NULL(temp);
@@ -111,10 +111,10 @@ void test_bb_temp_health_extender_value_rounds_to_one_decimal(void)
 void test_bb_temp_health_schema_fragment_present(void)
 {
     bb_temp_register_info();
-    const char *frag = bb_health_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(frag);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(frag, "\"temp\""),
-                                 "temp key not in health extender schema fragment");
-    TEST_ASSERT_NOT_NULL(strstr(frag, "\"present\""));
-    TEST_ASSERT_NOT_NULL(strstr(frag, "\"soc_c\""));
+    const char *schema = bb_health_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"temp\""),
+                                 "temp key not in health schema");
+    TEST_ASSERT_NOT_NULL(strstr(schema, "\"present\""));
+    TEST_ASSERT_NOT_NULL(strstr(schema, "\"soc_c\""));
 }

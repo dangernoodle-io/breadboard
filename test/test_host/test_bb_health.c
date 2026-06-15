@@ -1,7 +1,6 @@
 #include "unity.h"
 #include "bb_health.h"
 #include "bb_health_test.h"
-#include "bb_http_extender.h"
 #include "bb_json.h"
 
 #include "cJSON.h"
@@ -11,45 +10,52 @@
 
 #include "../../components/bb_health/bb_health_schema_priv.h"
 
-static void test_health_extender_fn(void *root)
+static void test_section_get_fn(bb_json_t section, void *ctx)
 {
-    (void)root;
+    (void)ctx;
+    (void)section;
 }
 
 // ---------------------------------------------------------------------------
-// bb_health extender registration tests
+// bb_health section registration tests
 // ---------------------------------------------------------------------------
 
-void test_bb_health_register_extender_null_returns_err(void)
+void test_bb_health_register_section_null_name_returns_err(void)
 {
-    bb_err_t err = bb_health_register_extender(NULL);
+    bb_err_t err = bb_health_register_section(NULL, test_section_get_fn, NULL, NULL);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
 }
 
-void test_bb_health_register_extender_capacity(void)
+void test_bb_health_register_section_null_get_returns_err(void)
 {
-    // Capacity is BB_HTTP_EXTENDER_MAX_PER_ROUTE (from the generic facility).
-    // Fill the table completely.
-    for (int i = 0; i < BB_HTTP_EXTENDER_MAX_PER_ROUTE; i++) {
-        bb_err_t err = bb_health_register_extender(test_health_extender_fn);
+    bb_err_t err = bb_health_register_section("test", NULL, NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_bb_health_register_section_ok(void)
+{
+    bb_err_t err = bb_health_register_section("test", test_section_get_fn, NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+}
+
+void test_bb_health_register_section_capacity(void)
+{
+    // Fill the table completely (BB_SECTION_MAX = 8 by default).
+    for (int i = 0; i < BB_SECTION_MAX; i++) {
+        char name[16];
+        snprintf(name, sizeof(name), "s%d", i);
+        bb_err_t err = bb_health_register_section(name, test_section_get_fn, NULL, NULL);
         TEST_ASSERT_EQUAL_INT(BB_OK, err);
     }
-
     // One over capacity should return NO_SPACE.
-    bb_err_t err = bb_health_register_extender(test_health_extender_fn);
+    bb_err_t err = bb_health_register_section("over", test_section_get_fn, NULL, NULL);
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
 }
 
-void test_bb_health_register_extender_ex_null_fn_returns_invalid_arg(void)
-{
-    bb_err_t err = bb_health_register_extender_ex(NULL, "\"x\":{\"type\":\"string\"}");
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
-}
-
-void test_bb_health_register_after_freeze_returns_invalid_state(void)
+void test_bb_health_register_section_after_freeze_returns_invalid_state(void)
 {
     bb_health_freeze_for_test();
-    bb_err_t err = bb_health_register_extender_ex(test_health_extender_fn, NULL);
+    bb_err_t err = bb_health_register_section("x", test_section_get_fn, NULL, NULL);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, err);
 }
 
@@ -57,7 +63,7 @@ void test_bb_health_register_after_freeze_returns_invalid_state(void)
 // Schema assembly tests
 // ---------------------------------------------------------------------------
 
-void test_bb_health_assembled_schema_no_extenders_equals_base_plus_suffix(void)
+void test_bb_health_assembled_schema_no_sections_equals_base_plus_suffix(void)
 {
     const char *schema = bb_health_get_assembled_schema();
     TEST_ASSERT_NOT_NULL(schema);
@@ -77,26 +83,45 @@ void test_bb_health_assembled_schema_is_valid_json(void)
     cJSON_Delete(parsed);
 }
 
-void test_bb_health_assembled_schema_contains_fragment(void)
+void test_bb_health_assembled_schema_contains_section_props(void)
 {
-    static const char frag[] = "\"temp\":{\"type\":\"object\"}";
-    bb_err_t err = bb_health_register_extender_ex(test_health_extender_fn, frag);
+    static const char sec_schema[] =
+        "{\"type\":\"object\",\"properties\":{\"foo\":{\"type\":\"string\"}}}";
+    bb_err_t err = bb_health_register_section("mysec", test_section_get_fn, NULL, sec_schema);
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
     const char *schema = bb_health_get_assembled_schema();
     TEST_ASSERT_NOT_NULL(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, frag),
-                                 "fragment not found in assembled health schema");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"mysec\""),
+                                 "section key not found in assembled health schema");
+    TEST_ASSERT_NOT_NULL(strstr(schema, "\"foo\""));
 }
 
-void test_bb_health_assembled_schema_with_fragment_is_valid_json(void)
+void test_bb_health_assembled_schema_with_section_is_valid_json(void)
 {
-    static const char frag[] = "\"temp\":{\"type\":\"object\",\"properties\":{\"present\":{\"type\":\"boolean\"}}}";
+    static const char sec_schema[] =
+        "{\"type\":\"object\",\"properties\":{\"present\":{\"type\":\"boolean\"}}}";
     TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_health_register_extender_ex(test_health_extender_fn, frag));
+        bb_health_register_section("mysec", test_section_get_fn, NULL, sec_schema));
     const char *schema = bb_health_get_assembled_schema();
     TEST_ASSERT_NOT_NULL(schema);
     cJSON *parsed = cJSON_Parse(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(parsed, "health schema with extender fragment is not valid JSON");
+    TEST_ASSERT_NOT_NULL_MESSAGE(parsed, "health schema with section is not valid JSON");
+    cJSON_Delete(parsed);
+}
+
+void test_bb_health_assembled_schema_section_comma_is_valid_json(void)
+{
+    // Root fields are in the base; a section after them must have a leading comma.
+    // bb_section_assemble_schema handles this automatically (base ends with non-'{').
+    static const char sec_schema[] =
+        "{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"integer\"}}}";
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_health_register_section("extra", test_section_get_fn, NULL, sec_schema));
+    const char *schema = bb_health_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    cJSON *parsed = cJSON_Parse(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(parsed,
+        "health schema with section after root fields is not valid JSON (comma fix)");
     cJSON_Delete(parsed);
 }
 
@@ -155,4 +180,34 @@ void test_bb_health_schema_network_has_mdns(void)
     TEST_ASSERT_NOT_NULL(schema);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"mdns\""),
                                  "mdns missing from health schema network (locked: keep field)");
+}
+
+// ---------------------------------------------------------------------------
+// Section invocation test
+// ---------------------------------------------------------------------------
+
+static bool s_invoked = false;
+static void track_section_get(bb_json_t section, void *ctx)
+{
+    (void)ctx;
+    s_invoked = true;
+    bb_json_obj_set_bool(section, "alive", true);
+}
+
+void test_bb_health_section_get_fn_invoked(void)
+{
+    s_invoked = false;
+    bb_health_register_section("probe", track_section_get, NULL, NULL);
+    bb_json_t root = bb_json_obj_new();
+    bb_health_invoke_sections_for_test(root);
+    TEST_ASSERT_TRUE_MESSAGE(s_invoked, "section get_fn was not invoked");
+
+    bb_json_t probe = bb_json_obj_get_item(root, "probe");
+    TEST_ASSERT_NOT_NULL_MESSAGE(probe, "probe section missing from root after invoke");
+
+    bool alive = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(probe, "alive", &alive));
+    TEST_ASSERT_TRUE(alive);
+
+    bb_json_free(root);
 }

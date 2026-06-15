@@ -1116,20 +1116,23 @@ void test_bb_http_extender_assemble_no_extenders_route(void);
 void test_bb_http_extender_assemble_no_extenders_table_full(void);
 
 // Forward declarations from test_bb_health.c
-void test_bb_health_register_extender_null_returns_err(void);
-void test_bb_health_register_extender_capacity(void);
-void test_bb_health_register_extender_ex_null_fn_returns_invalid_arg(void);
-void test_bb_health_register_after_freeze_returns_invalid_state(void);
-void test_bb_health_assembled_schema_no_extenders_equals_base_plus_suffix(void);
+void test_bb_health_register_section_null_name_returns_err(void);
+void test_bb_health_register_section_null_get_returns_err(void);
+void test_bb_health_register_section_ok(void);
+void test_bb_health_register_section_capacity(void);
+void test_bb_health_register_section_after_freeze_returns_invalid_state(void);
+void test_bb_health_assembled_schema_no_sections_equals_base_plus_suffix(void);
 void test_bb_health_assembled_schema_is_valid_json(void);
-void test_bb_health_assembled_schema_contains_fragment(void);
-void test_bb_health_assembled_schema_with_fragment_is_valid_json(void);
+void test_bb_health_assembled_schema_contains_section_props(void);
+void test_bb_health_assembled_schema_with_section_is_valid_json(void);
+void test_bb_health_assembled_schema_section_comma_is_valid_json(void);
 void test_bb_health_compute_ok_false_on_host(void);
 void test_bb_health_schema_network_has_ssid(void);
 void test_bb_health_schema_network_has_bssid(void);
 void test_bb_health_schema_network_has_ip(void);
 void test_bb_health_schema_network_has_disc_reason(void);
 void test_bb_health_schema_network_has_mdns(void);
+void test_bb_health_section_get_fn_invoked(void);
 
 // Forward declarations from test_bb_health_stack.c
 void test_bb_health_stack_is_low_below_threshold(void);
@@ -3632,20 +3635,23 @@ int main(void) {
     RUN_TEST(test_bb_board_rtc_total_callable);
 
     // bb_health tests
-    RUN_TEST(test_bb_health_register_extender_null_returns_err);
-    RUN_TEST(test_bb_health_register_extender_capacity);
-    RUN_TEST(test_bb_health_register_extender_ex_null_fn_returns_invalid_arg);
-    RUN_TEST(test_bb_health_register_after_freeze_returns_invalid_state);
-    RUN_TEST(test_bb_health_assembled_schema_no_extenders_equals_base_plus_suffix);
+    RUN_TEST(test_bb_health_register_section_null_name_returns_err);
+    RUN_TEST(test_bb_health_register_section_null_get_returns_err);
+    RUN_TEST(test_bb_health_register_section_ok);
+    RUN_TEST(test_bb_health_register_section_capacity);
+    RUN_TEST(test_bb_health_register_section_after_freeze_returns_invalid_state);
+    RUN_TEST(test_bb_health_assembled_schema_no_sections_equals_base_plus_suffix);
     RUN_TEST(test_bb_health_assembled_schema_is_valid_json);
-    RUN_TEST(test_bb_health_assembled_schema_contains_fragment);
-    RUN_TEST(test_bb_health_assembled_schema_with_fragment_is_valid_json);
+    RUN_TEST(test_bb_health_assembled_schema_contains_section_props);
+    RUN_TEST(test_bb_health_assembled_schema_with_section_is_valid_json);
+    RUN_TEST(test_bb_health_assembled_schema_section_comma_is_valid_json);
     RUN_TEST(test_bb_health_compute_ok_false_on_host);
     RUN_TEST(test_bb_health_schema_network_has_ssid);
     RUN_TEST(test_bb_health_schema_network_has_bssid);
     RUN_TEST(test_bb_health_schema_network_has_ip);
     RUN_TEST(test_bb_health_schema_network_has_disc_reason);
     RUN_TEST(test_bb_health_schema_network_has_mdns);
+    RUN_TEST(test_bb_health_section_get_fn_invoked);
 
     // bb_health_stack tests
     RUN_TEST(test_bb_health_stack_is_low_below_threshold);
