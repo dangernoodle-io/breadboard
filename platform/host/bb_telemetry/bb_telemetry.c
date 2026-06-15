@@ -1,6 +1,9 @@
 // bb_telemetry — section registry + build/dispatch helpers.
 // Compiled on both host (test) and ESP-IDF.
+//
+// Internally delegates to bb_section; public API is ABI-identical to before.
 #include "bb_telemetry.h"
+#include "bb_section.h"
 #include "bb_log.h"
 
 #include <stddef.h>
@@ -12,57 +15,54 @@ static const char *TAG = "bb_telemetry";
 #define CONFIG_BB_TELEMETRY_MAX_SECTIONS 4
 #endif
 
-typedef struct {
-    const char             *name;
-    bb_telemetry_get_fn     get;
-    bb_telemetry_patch_fn   patch;
-    void                   *ctx;
-} bb_telemetry_section_t;
+// Verify that the configured section capacity fits in bb_section's registry.
+// Both constants default to ≤ BB_SECTION_MAX (4 ≤ 8), so this is a safety net.
+#if CONFIG_BB_TELEMETRY_MAX_SECTIONS > BB_SECTION_MAX
+#error "CONFIG_BB_TELEMETRY_MAX_SECTIONS exceeds BB_SECTION_MAX"
+#endif
 
-static bb_telemetry_section_t s_sections[CONFIG_BB_TELEMETRY_MAX_SECTIONS];
-static int  s_count           = 0;
-static bool s_pending_reboot  = false;
+static bb_section_registry_t s_reg = { .tag = "bb_telemetry" };
+static bool s_pending_reboot = false;
+
+bb_err_t bb_telemetry_register_section_ex(const char *name,
+                                           bb_telemetry_get_fn get,
+                                           bb_telemetry_patch_fn patch,
+                                           void *ctx,
+                                           const char *schema_props)
+{
+    if (!name || !get) return BB_ERR_INVALID_ARG;
+    if (s_reg.count >= CONFIG_BB_TELEMETRY_MAX_SECTIONS) return BB_ERR_NO_SPACE;
+    bb_err_t rc = bb_section_register(&s_reg, name, get, patch, ctx, schema_props);
+    if (rc == BB_OK) {
+        bb_log_d(TAG, "registered section '%s' (%s)", name, patch ? "rw" : "ro");
+    }
+    return rc;
+}
 
 bb_err_t bb_telemetry_register_section(const char *name,
                                         bb_telemetry_get_fn get,
                                         bb_telemetry_patch_fn patch,
                                         void *ctx)
 {
-    if (!name || !get) return BB_ERR_INVALID_ARG;
-    if (s_count >= CONFIG_BB_TELEMETRY_MAX_SECTIONS) return BB_ERR_NO_SPACE;
-    s_sections[s_count].name  = name;
-    s_sections[s_count].get   = get;
-    s_sections[s_count].patch = patch;
-    s_sections[s_count].ctx   = ctx;
-    s_count++;
-    bb_log_d(TAG, "registered section '%s' (%s)", name, patch ? "rw" : "ro");
-    return BB_OK;
+    return bb_telemetry_register_section_ex(name, get, patch, ctx, NULL);
 }
-
-// ---------------------------------------------------------------------------
-// Build GET / dispatch PATCH — always compiled (called by route + test hooks)
-// ---------------------------------------------------------------------------
 
 void bb_telemetry_build_get(bb_json_t root)
 {
-    for (int i = 0; i < s_count; i++) {
-        bb_json_t child = bb_json_obj_new();
-        s_sections[i].get(child, s_sections[i].ctx);
-        bb_json_obj_set_obj(root, s_sections[i].name, child);
-    }
+    bb_section_build_get(&s_reg, root);
 }
 
 bb_err_t bb_telemetry_dispatch_patch(bb_json_t body)
 {
     bool any_ok = false;
-    for (int i = 0; i < s_count; i++) {
-        bb_json_t child = bb_json_obj_get_item(body, s_sections[i].name);
+    for (int i = 0; i < s_reg.count; i++) {
+        bb_json_t child = bb_json_obj_get_item(body, s_reg.entries[i].name);
         if (!child) continue;
-        if (!s_sections[i].patch) {
-            bb_log_w(TAG, "PATCH on read-only section '%s'", s_sections[i].name);
+        if (!s_reg.entries[i].patch) {
+            bb_log_w(TAG, "PATCH on read-only section '%s'", s_reg.entries[i].name);
             return BB_ERR_INVALID_ARG;
         }
-        bb_err_t rc = s_sections[i].patch(child, s_sections[i].ctx);
+        bb_err_t rc = s_reg.entries[i].patch(child, s_reg.entries[i].ctx);
         if (rc != BB_OK) return rc;
         any_ok = true;
     }
@@ -77,12 +77,24 @@ bool bb_telemetry_pending_reboot(void)
     return s_pending_reboot;
 }
 
+// ---------------------------------------------------------------------------
+// Schema assembly — builds the real composed GET schema from per-section props.
+// ---------------------------------------------------------------------------
+
+char *bb_telemetry_assemble_get_schema(void)
+{
+    return bb_section_assemble_schema(
+        &s_reg,
+        "{\"type\":\"object\",\"properties\":{",
+        "}}");
+}
+
 #ifdef BB_TELEMETRY_TESTING
 
 void bb_telemetry_reset_for_test(void)
 {
-    memset(s_sections, 0, sizeof(s_sections));
-    s_count          = 0;
+    memset(&s_reg, 0, sizeof(s_reg));
+    s_reg.tag        = "bb_telemetry";
     s_pending_reboot = false;
 }
 

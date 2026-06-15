@@ -281,7 +281,20 @@ bb_err_t bb_sink_http_telemetry_init(void)
             bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "enabled", "0");
         }
     }
-    return bb_telemetry_register_section("http", httppub_section_get, httppub_section_patch, NULL);
+    static const char k_http_schema_props[] =
+        "{\"type\":\"object\","
+        "\"properties\":{"
+        "\"base\":{\"type\":\"string\"},"
+        "\"path_tmpl\":{\"type\":\"string\"},"
+        "\"client_id\":{\"type\":\"string\"},"
+        "\"qos\":{\"type\":\"integer\"},"
+        "\"enabled\":{\"type\":\"boolean\"},"
+        "\"ca_set\":{\"type\":\"boolean\"},"
+        "\"cert_set\":{\"type\":\"boolean\"},"
+        "\"key_set\":{\"type\":\"boolean\"}}}";
+    return bb_telemetry_register_section_ex("http", httppub_section_get,
+                                             httppub_section_patch, NULL,
+                                             k_http_schema_props);
 }
 
 #if CONFIG_BB_SINK_HTTP_TELEMETRY_AUTOREGISTER

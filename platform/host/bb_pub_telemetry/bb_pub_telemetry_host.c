@@ -93,8 +93,22 @@ static bb_err_t pub_section_patch(bb_json_t section_patch, void *ctx)
 
 bb_err_t bb_pub_telemetry_init(void)
 {
-    return bb_telemetry_register_section("publisher", pub_section_get,
-                                         pub_section_patch, NULL);
+    static const char k_pub_schema_props[] =
+        "{\"type\":\"object\","
+        "\"properties\":{"
+        "\"interval_ms\":{\"type\":\"number\"},"
+        "\"enabled\":{\"type\":\"boolean\"},"
+        "\"topic_prefix\":{\"type\":\"string\"},"
+        "\"source_count\":{\"type\":\"number\"},"
+        "\"sink_count\":{\"type\":\"number\"},"
+        "\"last_publish_ok\":{\"type\":\"boolean\"},"
+        "\"last_publish_age_ms\":{\"type\":\"number\"},"
+        "\"published_ever\":{\"type\":\"boolean\"},"
+        "\"buffer_count\":{\"type\":\"number\"},"
+        "\"buffer_dropped\":{\"type\":\"number\"}}}";
+    return bb_telemetry_register_section_ex("publisher", pub_section_get,
+                                             pub_section_patch, NULL,
+                                             k_pub_schema_props);
 }
 
 #if CONFIG_BB_PUB_TELEMETRY_AUTOREGISTER

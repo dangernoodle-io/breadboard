@@ -464,10 +464,15 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_pub_rtos/bb_pub_rtos.c"],
         "depends":  ["bb_core", "bb_pub"],
     },
+    "bb_section": {
+        "includes": ["components/bb_section/include"],
+        "sources":  ["platform/host/bb_section/bb_section.c"],
+        "depends":  ["bb_core", "bb_json", "bb_log"],
+    },
     "bb_telemetry": {
         "includes": ["components/bb_telemetry/include"],
         "sources":  ["platform/host/bb_telemetry/bb_telemetry.c"],
-        "depends":  ["bb_core", "bb_json", "bb_log"],
+        "depends":  ["bb_core", "bb_json", "bb_log", "bb_section"],
     },
     "bb_mqtt_telemetry": {
         "includes": ["components/bb_mqtt_telemetry/include"],

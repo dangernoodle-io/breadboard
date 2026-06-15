@@ -28,6 +28,15 @@ bb_err_t bb_telemetry_register_section(const char *name,
                                         bb_telemetry_patch_fn patch,
                                         void *ctx);
 
+// Like bb_telemetry_register_section but also accepts a JSON schema properties
+// value for the section (used by bb_section_assemble_schema to build the real
+// composed GET schema for /api/telemetry). Pass NULL for schema_props to skip.
+bb_err_t bb_telemetry_register_section_ex(const char *name,
+                                           bb_telemetry_get_fn get,
+                                           bb_telemetry_patch_fn patch,
+                                           void *ctx,
+                                           const char *schema_props);
+
 // Build GET response tree: per section, child=obj_new, get_fn(child),
 // obj_set_obj(root, name, child).
 void bb_telemetry_build_get(bb_json_t root);
@@ -41,6 +50,11 @@ bb_err_t bb_telemetry_dispatch_patch(bb_json_t body);
 // reset.  Used by the route handler to signal {"reboot_required":true} and
 // by GET /api/telemetry to include a "pending_reboot" field (B1-289).
 bool bb_telemetry_pending_reboot(void);
+
+// Assemble the real composed GET schema from all registered section schema_props.
+// Returns a heap-allocated JSON schema string; caller must free.
+// Intended for use in bb_telemetry_init to replace the generic {type:object}.
+char *bb_telemetry_assemble_get_schema(void);
 
 // Register GET + PATCH /api/telemetry with the HTTP server.
 // Called automatically when CONFIG_BB_TELEMETRY_AUTOREGISTER=y.
