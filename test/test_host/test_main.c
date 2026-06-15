@@ -14,8 +14,6 @@
 #include "bb_i2c_test.h"
 #include "bb_health_test.h"
 #include "../../components/bb_health/bb_health_stack.h"
-#include "bb_http_extender_test.h"
-
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
 void test_bb_log_warning(void);
@@ -1096,25 +1094,6 @@ void test_bb_board_psram_total_callable(void);
 void test_bb_board_rtc_used_callable(void);
 void test_bb_board_rtc_total_callable(void);
 
-// Forward declarations from test_bb_http_extender.c
-void test_bb_http_extender_null_fn_returns_invalid_arg(void);
-void test_bb_http_extender_register_returns_ok(void);
-void test_bb_http_extender_register_after_freeze_returns_invalid_state(void);
-void test_bb_http_extender_per_route_capacity(void);
-void test_bb_http_extender_two_route_ids_independent(void);
-void test_bb_http_extender_run_no_extenders_noop(void);
-void test_bb_http_extender_run_calls_in_order(void);
-void test_bb_http_extender_run_isolates_routes(void);
-void test_bb_http_extender_assemble_no_extenders_base_plus_suffix(void);
-void test_bb_http_extender_assemble_null_fragment_skipped(void);
-void test_bb_http_extender_assemble_one_fragment(void);
-void test_bb_http_extender_assemble_two_fragments(void);
-void test_bb_http_extender_get_assembled_schema_cached(void);
-void test_bb_http_extender_reset_clears_state(void);
-void test_bb_http_extender_route_table_full_returns_no_space(void);
-void test_bb_http_extender_assemble_no_extenders_route(void);
-void test_bb_http_extender_assemble_no_extenders_table_full(void);
-
 // Forward declarations from test_bb_health.c
 void test_bb_health_register_section_null_name_returns_err(void);
 void test_bb_health_register_section_null_get_returns_err(void);
@@ -1358,14 +1337,6 @@ void test_program_ton_max_fault_response_written_when_nonzero(void);
 void test_program_overflow_on_essential_byte_write(void);
 void test_program_overflow_on_block5_write(void);
 
-// Forward declarations from test_bb_power_routes.c
-void test_bb_power_routes_present_true_fields(void);
-void test_bb_power_routes_no_primary_present_false(void);
-void test_bb_power_routes_error_readings_emit_null(void);
-void test_bb_power_routes_extender_field_appears(void);
-void test_bb_power_routes_schema_contains_base_fields(void);
-void test_bb_power_routes_schema_contains_extender_fragment(void);
-
 // Forward declarations from test_bb_fan.c
 void bb_fan_test_reset_local(void);
 void test_bb_fan_handle_create_null_drv(void);
@@ -1409,28 +1380,6 @@ void test_emc2101_pct_to_duty_100(void);
 void test_emc2101_pct_to_duty_50(void);
 void test_emc2101_pct_to_duty_clamp_below_zero(void);
 void test_emc2101_pct_to_duty_clamp_above_100(void);
-
-// Forward declarations from test_bb_fan_routes.c
-void test_bb_fan_routes_get_present_true(void);
-void test_bb_fan_routes_get_no_primary_present_false(void);
-void test_bb_fan_routes_get_error_readings_emit_null(void);
-void test_bb_fan_routes_get_extender_field_appears(void);
-void test_bb_fan_routes_post_valid_sets_duty(void);
-void test_bb_fan_routes_post_no_body_400(void);
-void test_bb_fan_routes_post_invalid_json_400(void);
-void test_bb_fan_routes_post_missing_duty_pct_400(void);
-void test_bb_fan_routes_post_out_of_range_400(void);
-void test_bb_fan_routes_post_no_primary_503(void);
-void test_bb_fan_routes_schema_contains_base_fields(void);
-void test_bb_fan_routes_schema_contains_extender_fragment(void);
-#ifdef CONFIG_BB_FAN_AUTOFAN
-void test_bb_fan_routes_pid_input_src_emits_vr_for_aux(void);
-void test_bb_fan_routes_pid_input_src_emits_die_for_die(void);
-void test_bb_fan_routes_persist_cb_fires_on_post(void);
-void test_bb_fan_routes_persist_cb_not_called_by_direct_set(void);
-void test_bb_fan_routes_persist_cb_not_called_when_null(void);
-void test_bb_fan_routes_get_emits_autofan_cfg_fields(void);
-#endif /* CONFIG_BB_FAN_AUTOFAN */
 
 // Forward declarations from test_bb_fan_autofan.c (BB_FAN_AUTOFAN feature)
 #ifdef CONFIG_BB_FAN_AUTOFAN
@@ -1483,18 +1432,6 @@ void test_pid_initialize_clamps_output_sum_above_max(void);
 void test_pid_get_mode_manual(void);
 void test_pid_get_mode_automatic(void);
 #endif /* CONFIG_BB_FAN_AUTOFAN */
-
-// Forward declarations from test_bb_thermal.c
-void bb_thermal_reset_for_test(void);
-void test_bb_thermal_all_present(void);
-void test_bb_thermal_all_absent(void);
-void test_bb_thermal_mixed_soc_only(void);
-void test_bb_thermal_mixed_vr_only(void);
-void test_bb_thermal_vr_temp_minus1_absent(void);
-void test_bb_thermal_asic_nan_board_present(void);
-void test_bb_thermal_extender_field_appears(void);
-void test_bb_thermal_schema_contains_base_objects(void);
-void test_bb_thermal_schema_contains_extender_fragment(void);
 
 // Forward declarations from test_bb_led.c
 void bb_led_test_reset(void);
@@ -2516,6 +2453,10 @@ void test_bb_tls_info_all_capabilities_registered(void);
 void test_bb_tls_info_dedup_via_direct_register(void);
 void test_bb_tls_info_leaves_room_for_more_capabilities(void);
 
+// bb_thermal_reset_for_test: defined in platform/host/bb_thermal/bb_thermal_host.c
+// (BB_THERMAL_TESTING); resets fan+power+temp HAL state for test isolation.
+void bb_thermal_reset_for_test(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_nv_host_str_store_reset();
@@ -2544,7 +2485,6 @@ void setUp(void) {
     bb_display_reset_for_testing();
     bb_display_test_reset_mock();
     bb_info_reset_for_test();
-    bb_http_extender_reset_for_test();
     bb_health_reset_for_test();
     bb_health_stack_reset_for_test();
     bb_wdt_test_reset();
@@ -3899,14 +3839,6 @@ int main(void) {
     RUN_TEST(test_program_overflow_on_essential_byte_write);
     RUN_TEST(test_program_overflow_on_block5_write);
 
-    // bb_power_routes tests
-    RUN_TEST(test_bb_power_routes_present_true_fields);
-    RUN_TEST(test_bb_power_routes_no_primary_present_false);
-    RUN_TEST(test_bb_power_routes_error_readings_emit_null);
-    RUN_TEST(test_bb_power_routes_extender_field_appears);
-    RUN_TEST(test_bb_power_routes_schema_contains_base_fields);
-    RUN_TEST(test_bb_power_routes_schema_contains_extender_fragment);
-
     // bb_fan HAL tests
     RUN_TEST(test_bb_fan_handle_create_null_drv);
     RUN_TEST(test_bb_fan_handle_create_null_out);
@@ -3949,28 +3881,6 @@ int main(void) {
     RUN_TEST(test_emc2101_pct_to_duty_50);
     RUN_TEST(test_emc2101_pct_to_duty_clamp_below_zero);
     RUN_TEST(test_emc2101_pct_to_duty_clamp_above_100);
-
-    // bb_fan_routes tests
-    RUN_TEST(test_bb_fan_routes_get_present_true);
-    RUN_TEST(test_bb_fan_routes_get_no_primary_present_false);
-    RUN_TEST(test_bb_fan_routes_get_error_readings_emit_null);
-    RUN_TEST(test_bb_fan_routes_get_extender_field_appears);
-    RUN_TEST(test_bb_fan_routes_post_valid_sets_duty);
-    RUN_TEST(test_bb_fan_routes_post_no_body_400);
-    RUN_TEST(test_bb_fan_routes_post_invalid_json_400);
-    RUN_TEST(test_bb_fan_routes_post_missing_duty_pct_400);
-    RUN_TEST(test_bb_fan_routes_post_out_of_range_400);
-    RUN_TEST(test_bb_fan_routes_post_no_primary_503);
-    RUN_TEST(test_bb_fan_routes_schema_contains_base_fields);
-    RUN_TEST(test_bb_fan_routes_schema_contains_extender_fragment);
-#ifdef CONFIG_BB_FAN_AUTOFAN
-    RUN_TEST(test_bb_fan_routes_pid_input_src_emits_vr_for_aux);
-    RUN_TEST(test_bb_fan_routes_pid_input_src_emits_die_for_die);
-    RUN_TEST(test_bb_fan_routes_persist_cb_fires_on_post);
-    RUN_TEST(test_bb_fan_routes_persist_cb_not_called_by_direct_set);
-    RUN_TEST(test_bb_fan_routes_persist_cb_not_called_when_null);
-    RUN_TEST(test_bb_fan_routes_get_emits_autofan_cfg_fields);
-#endif
 
     // bb_fan autofan PID tests (BB_FAN_AUTOFAN feature)
 #ifdef CONFIG_BB_FAN_AUTOFAN
@@ -4021,17 +3931,6 @@ int main(void) {
     RUN_TEST(test_pid_get_mode_manual);
     RUN_TEST(test_pid_get_mode_automatic);
 #endif /* CONFIG_BB_FAN_AUTOFAN */
-
-    // bb_thermal route tests
-    RUN_TEST(test_bb_thermal_all_present);
-    RUN_TEST(test_bb_thermal_all_absent);
-    RUN_TEST(test_bb_thermal_mixed_soc_only);
-    RUN_TEST(test_bb_thermal_mixed_vr_only);
-    RUN_TEST(test_bb_thermal_vr_temp_minus1_absent);
-    RUN_TEST(test_bb_thermal_asic_nan_board_present);
-    RUN_TEST(test_bb_thermal_extender_field_appears);
-    RUN_TEST(test_bb_thermal_schema_contains_base_objects);
-    RUN_TEST(test_bb_thermal_schema_contains_extender_fragment);
 
     // bb_led tests
     RUN_TEST(test_bb_led_caps_and_count);
@@ -4529,25 +4428,6 @@ int main(void) {
     RUN_TEST(test_anim_detach_null_returns_invalid_arg);
     RUN_TEST(test_anim_auto_start_timer_fires);
     RUN_TEST(test_anim_no_auto_start_timer_does_not_fire);
-
-    // bb_http_extender tests
-    RUN_TEST(test_bb_http_extender_null_fn_returns_invalid_arg);
-    RUN_TEST(test_bb_http_extender_register_returns_ok);
-    RUN_TEST(test_bb_http_extender_register_after_freeze_returns_invalid_state);
-    RUN_TEST(test_bb_http_extender_per_route_capacity);
-    RUN_TEST(test_bb_http_extender_two_route_ids_independent);
-    RUN_TEST(test_bb_http_extender_run_no_extenders_noop);
-    RUN_TEST(test_bb_http_extender_run_calls_in_order);
-    RUN_TEST(test_bb_http_extender_run_isolates_routes);
-    RUN_TEST(test_bb_http_extender_assemble_no_extenders_base_plus_suffix);
-    RUN_TEST(test_bb_http_extender_assemble_null_fragment_skipped);
-    RUN_TEST(test_bb_http_extender_assemble_one_fragment);
-    RUN_TEST(test_bb_http_extender_assemble_two_fragments);
-    RUN_TEST(test_bb_http_extender_get_assembled_schema_cached);
-    RUN_TEST(test_bb_http_extender_reset_clears_state);
-    RUN_TEST(test_bb_http_extender_route_table_full_returns_no_space);
-    RUN_TEST(test_bb_http_extender_assemble_no_extenders_route);
-    RUN_TEST(test_bb_http_extender_assemble_no_extenders_table_full);
 
     // bb_http_api_dispatch pure-function tests
     RUN_TEST(test_api_dispatch_add_and_lookup_hit);
