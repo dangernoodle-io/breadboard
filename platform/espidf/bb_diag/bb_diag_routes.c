@@ -123,7 +123,7 @@ static bb_err_t boot_get_handler(bb_http_request_t *req)
     if (err != BB_OK) return err;
 
     bb_http_resp_json_obj_set_str(&obj, "reset_reason", reason_str);
-    bb_http_resp_json_obj_set_int(&obj, "abnormal_reset_count",
+    bb_http_resp_json_obj_set_int(&obj, "wdt_resets",
                                   (int64_t)bb_diag_abnormal_reset_count());
 
     bb_http_resp_json_obj_set_obj_begin(&obj, "panic");
@@ -152,15 +152,15 @@ static const bb_route_response_t s_boot_get_responses[] = {
       "{\"type\":\"object\","
       "\"properties\":{"
       "\"reset_reason\":{\"type\":\"string\"},"
-      "\"abnormal_reset_count\":{\"type\":\"integer\"},"
+      "\"wdt_resets\":{\"type\":\"integer\"},"
       "\"panic\":{\"type\":\"object\","
       "\"properties\":{"
       "\"available\":{\"type\":\"boolean\"},"
       "\"boots_since\":{\"type\":\"integer\"},"
       "\"reset_reason\":{\"type\":\"string\"}},"
       "\"required\":[\"available\"]}},"
-      "\"required\":[\"reset_reason\",\"abnormal_reset_count\",\"panic\"]}",
-      "current boot reset reason, abnormal-reset count, and panic availability summary" },
+      "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\"]}",
+      "current boot reset reason, WDT-reset count, and panic availability summary" },
     { 0 },
 };
 
