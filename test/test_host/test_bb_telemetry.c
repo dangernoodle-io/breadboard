@@ -4,6 +4,7 @@
 #include "bb_nv.h"
 
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 
 // ---------------------------------------------------------------------------
@@ -181,4 +182,46 @@ void test_bb_telemetry_dispatch_patch_readonly_returns_invalid_arg(void)
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
 
     bb_json_free(body);
+}
+
+// ---------------------------------------------------------------------------
+// assemble_get_schema: real composed schema (not generic {type:object})
+// ---------------------------------------------------------------------------
+
+void test_bb_telemetry_assemble_get_schema_empty_is_object(void)
+{
+    reset_all();
+    char *s = bb_telemetry_assemble_get_schema();
+    TEST_ASSERT_NOT_NULL(s);
+    // Should be a valid object schema with empty properties.
+    TEST_ASSERT_NOT_NULL(strstr(s, "\"type\":\"object\""));
+    TEST_ASSERT_NOT_NULL(strstr(s, "\"properties\":{"));
+    free(s);
+}
+
+void test_bb_telemetry_assemble_get_schema_section_with_props_appears(void)
+{
+    reset_all();
+    bb_telemetry_register_section_ex("mqtt", stub_get, NULL, NULL,
+                                      "{\"type\":\"object\"}");
+    char *s = bb_telemetry_assemble_get_schema();
+    TEST_ASSERT_NOT_NULL(s);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s, "\"mqtt\""),
+        "assembled schema must contain section name 'mqtt'");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s, "{\"type\":\"object\"}"),
+        "assembled schema must contain the section's schema_props");
+    free(s);
+}
+
+void test_bb_telemetry_assemble_get_schema_no_props_section_omitted(void)
+{
+    reset_all();
+    // Register without schema_props — section should not appear in schema.
+    bb_telemetry_register_section("publisher", stub_get, NULL, NULL);
+    char *s = bb_telemetry_assemble_get_schema();
+    TEST_ASSERT_NOT_NULL(s);
+    // Properties block should be empty.
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"type\":\"object\",\"properties\":{}}", s);
+    free(s);
 }

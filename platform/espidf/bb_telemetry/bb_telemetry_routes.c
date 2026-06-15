@@ -120,13 +120,12 @@ static bb_err_t telemetry_patch_handler(bb_http_request_t *req)
 }
 
 // ---------------------------------------------------------------------------
-// Route descriptors
+// Route descriptors — GET responses[0].schema filled at init from registered sections
 // ---------------------------------------------------------------------------
 
-static const bb_route_response_t s_telemetry_get_responses[] = {
+static bb_route_response_t s_telemetry_get_responses[] = {
     { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"description\":\"Telemetry configuration sections\"}",
+      NULL,  // filled by bb_telemetry_assemble_get_schema() at init
       "Telemetry sections (mqtt, http, publisher)" },
     { 0 },
 };
@@ -150,7 +149,7 @@ static const bb_route_response_t s_telemetry_patch_responses[] = {
     { 0 },
 };
 
-static const bb_route_t s_telemetry_get_route = {
+static bb_route_t s_telemetry_get_route = {
     .method    = BB_HTTP_GET,
     .path      = "/api/telemetry",
     .tag       = "telemetry",
@@ -180,6 +179,14 @@ static const bb_route_t s_telemetry_patch_route = {
 bb_err_t bb_telemetry_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
+
+    // Build real composed GET schema from registered section schema_props.
+    // Sections must be registered (PRE_HTTP tier) before this init (order 5).
+    char *schema = bb_telemetry_assemble_get_schema();
+    if (!schema) {
+        bb_log_w(TAG, "schema assembly: malloc failed; GET schema will be NULL");
+    }
+    s_telemetry_get_responses[0].schema = schema;
 
     bb_err_t rc = bb_http_register_described_route(server, &s_telemetry_get_route);
     if (rc != BB_OK) return rc;

@@ -181,7 +181,22 @@ bb_err_t bb_mqtt_telemetry_init(void)
             bb_mqtt_stop_default();
         }
     }
-    return bb_telemetry_register_section("mqtt", mqtt_section_get, mqtt_section_patch, NULL);
+    static const char k_mqtt_schema_props[] =
+        "{\"type\":\"object\","
+        "\"properties\":{"
+        "\"uri\":{\"type\":\"string\"},"
+        "\"client_id\":{\"type\":\"string\"},"
+        "\"username\":{\"type\":\"string\"},"
+        "\"password\":{\"type\":\"string\"},"
+        "\"tls\":{\"type\":\"boolean\"},"
+        "\"ca_set\":{\"type\":\"boolean\"},"
+        "\"cert_set\":{\"type\":\"boolean\"},"
+        "\"key_set\":{\"type\":\"boolean\"},"
+        "\"enabled\":{\"type\":\"boolean\"},"
+        "\"connected\":{\"type\":\"boolean\"}}}";
+    return bb_telemetry_register_section_ex("mqtt", mqtt_section_get,
+                                             mqtt_section_patch, NULL,
+                                             k_mqtt_schema_props);
 }
 
 #if CONFIG_BB_MQTT_TELEMETRY_AUTOREGISTER

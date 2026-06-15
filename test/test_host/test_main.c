@@ -2188,6 +2188,26 @@ void test_bb_pub_sink_transport_http_no_tls_stamped(void);
 void test_bb_pub_sink_no_transport_fields_absent(void);
 void test_bb_pub_two_sinks_each_get_own_transport(void);
 
+// Forward declarations from test_bb_section.c
+void test_bb_section_register_ok(void);
+void test_bb_section_register_null_reg_returns_invalid_arg(void);
+void test_bb_section_register_null_name_returns_invalid_arg(void);
+void test_bb_section_register_null_get_returns_invalid_arg(void);
+void test_bb_section_register_readonly_null_patch_ok(void);
+void test_bb_section_register_capacity_returns_no_space(void);
+void test_bb_section_build_get_empty_registry(void);
+void test_bb_section_build_get_one_section(void);
+void test_bb_section_build_get_two_sections(void);
+void test_bb_section_dispatch_patch_known_patchable(void);
+void test_bb_section_dispatch_patch_readonly_returns_invalid_arg(void);
+void test_bb_section_dispatch_patch_unknown_section_ignored(void);
+void test_bb_section_assemble_schema_no_sections(void);
+void test_bb_section_assemble_schema_one_section_with_props(void);
+void test_bb_section_assemble_schema_two_sections(void);
+void test_bb_section_assemble_schema_null_schema_props_omitted(void);
+void test_bb_section_freeze_rejects_register_after(void);
+void test_bb_section_freeze_build_get_still_works(void);
+
 // Forward declarations from test_bb_telemetry.c
 void test_bb_telemetry_register_ok(void);
 void test_bb_telemetry_register_null_name_returns_invalid_arg(void);
@@ -2200,6 +2220,9 @@ void test_bb_telemetry_build_get_two_sections(void);
 void test_bb_telemetry_dispatch_patch_known_section(void);
 void test_bb_telemetry_dispatch_patch_unknown_section_ignored(void);
 void test_bb_telemetry_dispatch_patch_readonly_returns_invalid_arg(void);
+void test_bb_telemetry_assemble_get_schema_empty_is_object(void);
+void test_bb_telemetry_assemble_get_schema_section_with_props_appears(void);
+void test_bb_telemetry_assemble_get_schema_no_props_section_omitted(void);
 
 // Forward declarations from test_bb_mqtt_telemetry.c
 void test_bb_mqtt_telemetry_get_empty_nvs(void);
@@ -4674,6 +4697,26 @@ int main(void) {
     RUN_TEST(test_bb_pub_sink_no_transport_fields_absent);
     RUN_TEST(test_bb_pub_two_sinks_each_get_own_transport);
 
+    // bb_section tests
+    RUN_TEST(test_bb_section_register_ok);
+    RUN_TEST(test_bb_section_register_null_reg_returns_invalid_arg);
+    RUN_TEST(test_bb_section_register_null_name_returns_invalid_arg);
+    RUN_TEST(test_bb_section_register_null_get_returns_invalid_arg);
+    RUN_TEST(test_bb_section_register_readonly_null_patch_ok);
+    RUN_TEST(test_bb_section_register_capacity_returns_no_space);
+    RUN_TEST(test_bb_section_build_get_empty_registry);
+    RUN_TEST(test_bb_section_build_get_one_section);
+    RUN_TEST(test_bb_section_build_get_two_sections);
+    RUN_TEST(test_bb_section_dispatch_patch_known_patchable);
+    RUN_TEST(test_bb_section_dispatch_patch_readonly_returns_invalid_arg);
+    RUN_TEST(test_bb_section_dispatch_patch_unknown_section_ignored);
+    RUN_TEST(test_bb_section_assemble_schema_no_sections);
+    RUN_TEST(test_bb_section_assemble_schema_one_section_with_props);
+    RUN_TEST(test_bb_section_assemble_schema_two_sections);
+    RUN_TEST(test_bb_section_assemble_schema_null_schema_props_omitted);
+    RUN_TEST(test_bb_section_freeze_rejects_register_after);
+    RUN_TEST(test_bb_section_freeze_build_get_still_works);
+
     // bb_telemetry tests
     RUN_TEST(test_bb_telemetry_register_ok);
     RUN_TEST(test_bb_telemetry_register_null_name_returns_invalid_arg);
@@ -4686,6 +4729,9 @@ int main(void) {
     RUN_TEST(test_bb_telemetry_dispatch_patch_known_section);
     RUN_TEST(test_bb_telemetry_dispatch_patch_unknown_section_ignored);
     RUN_TEST(test_bb_telemetry_dispatch_patch_readonly_returns_invalid_arg);
+    RUN_TEST(test_bb_telemetry_assemble_get_schema_empty_is_object);
+    RUN_TEST(test_bb_telemetry_assemble_get_schema_section_with_props_appears);
+    RUN_TEST(test_bb_telemetry_assemble_get_schema_no_props_section_omitted);
 
     // bb_mqtt_telemetry tests
     RUN_TEST(test_bb_mqtt_telemetry_get_empty_nvs);

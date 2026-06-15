@@ -1,0 +1,80 @@
+// bb_section — reusable named-section registry.
+//
+// Generalized from bb_telemetry's section pattern.  Each endpoint owns a
+// file-scope bb_section_registry_t instead of a global singleton, so multiple
+// endpoints can each have their own independent registry.
+//
+// Portable header — no esp_/cJSON/nvs_ includes.
+#pragma once
+#include "bb_core.h"
+#include "bb_json.h"
+
+#include <stdbool.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifndef CONFIG_BB_SECTION_MAX
+#define BB_SECTION_MAX 8
+#else
+#define BB_SECTION_MAX CONFIG_BB_SECTION_MAX
+#endif
+
+// Section callbacks.
+// get_fn   writes fields into a new bb_json_t obj for the section.
+// patch_fn reads fields from the parsed sub-object for the section.
+//          NULL = read-only section; PATCH body with this key → BB_ERR_INVALID_ARG.
+typedef void     (*bb_section_get_fn)  (bb_json_t section, void *ctx);
+typedef bb_err_t (*bb_section_patch_fn)(bb_json_t section_patch, void *ctx);
+
+typedef struct {
+    const char           *name;
+    bb_section_get_fn     get;
+    bb_section_patch_fn   patch;
+    void                 *ctx;
+    const char           *schema_props; // JSON schema properties value for this section; may be NULL
+} bb_section_entry_t;
+
+typedef struct {
+    bb_section_entry_t entries[BB_SECTION_MAX];
+    int                count;
+    bool               frozen;
+    const char        *tag;  // log tag; may be NULL
+} bb_section_registry_t;
+
+// Register a named section.
+// Returns BB_ERR_NO_SPACE when registry full, BB_ERR_INVALID_ARG on null name/get,
+// BB_ERR_INVALID_STATE when frozen.
+bb_err_t bb_section_register(bb_section_registry_t *reg,
+                              const char *name,
+                              bb_section_get_fn get,
+                              bb_section_patch_fn patch,
+                              void *ctx,
+                              const char *schema_props);
+
+// Build GET response: for each section, create a child obj, call get(child, ctx),
+// then set root[name] = child.
+void bb_section_build_get(const bb_section_registry_t *reg, bb_json_t root);
+
+// Dispatch PATCH body: for each key present in body, find the matching section
+// and call patch_fn(child, ctx).
+// Returns BB_ERR_INVALID_ARG if a matched section has patch_fn == NULL.
+bb_err_t bb_section_dispatch_patch(const bb_section_registry_t *reg, bb_json_t body);
+
+// Prevent further registrations.
+void bb_section_freeze(bb_section_registry_t *reg);
+
+// Assemble a composed object schema string:
+//   {base_prefix}[,"<name>":<schema_props>]*{base_suffix}
+// base_prefix is the opening of the properties object (e.g. '{"type":"object","properties":{').
+// base_suffix closes it (e.g. '}}').
+// Sections with NULL schema_props are omitted.
+// Returns a heap-allocated string the caller must free, or NULL on OOM.
+char *bb_section_assemble_schema(const bb_section_registry_t *reg,
+                                 const char *base_prefix,
+                                 const char *base_suffix);
+
+#ifdef __cplusplus
+}
+#endif
