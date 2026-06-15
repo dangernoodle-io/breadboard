@@ -258,3 +258,44 @@ void test_bb_pub_info_time_source_is_none_on_host(void)
     // bb_ntp_is_synced() returns false on host → time_source="none".
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"time_source\":\"none\""));
 }
+
+// ---------------------------------------------------------------------------
+// Identity field tests (B1-287 parity gap)
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_info_has_board_field(void)
+{
+    setup();
+    bb_pub_tick_once();
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"board\""));
+}
+
+void test_bb_pub_info_board_is_host_on_host(void)
+{
+    setup();
+    bb_pub_tick_once();
+    // Host stub for bb_board_get_info returns board = "host".
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"board\":\"host\""));
+}
+
+void test_bb_pub_info_has_chip_model_field(void)
+{
+    setup();
+    bb_pub_tick_once();
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"chip_model\""));
+}
+
+void test_bb_pub_info_chip_model_is_host_on_host(void)
+{
+    setup();
+    bb_pub_tick_once();
+    // Host stub for bb_board_get_info returns chip_model = "host".
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"chip_model\":\"host\""));
+}
+
+void test_bb_pub_info_has_mac_field(void)
+{
+    setup();
+    bb_pub_tick_once();
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"mac\""));
+}

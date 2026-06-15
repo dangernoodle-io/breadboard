@@ -2295,6 +2295,16 @@ void test_bb_pub_wifi_topic_is_correct(void);
 void test_bb_pub_wifi_has_rssi_field(void);
 void test_bb_pub_wifi_rssi_value_correct(void);
 void test_bb_pub_wifi_payload_has_ts_field(void);
+void test_bb_pub_wifi_has_ssid_field(void);
+void test_bb_pub_wifi_ssid_value_correct(void);
+void test_bb_pub_wifi_has_bssid_field(void);
+void test_bb_pub_wifi_bssid_format_correct(void);
+void test_bb_pub_wifi_has_ip_field(void);
+void test_bb_pub_wifi_ip_value_correct(void);
+void test_bb_pub_wifi_has_connected_field(void);
+void test_bb_pub_wifi_has_disc_reason_field(void);
+void test_bb_pub_wifi_has_disc_age_s_field(void);
+void test_bb_pub_wifi_has_retry_count_field(void);
 
 // Forward declarations from test_bb_pub_info.c
 void test_bb_pub_info_always_publishes(void);
@@ -2325,6 +2335,24 @@ void test_bb_pub_info_has_epoch_s(void);
 void test_bb_pub_info_epoch_s_is_zero_when_not_synced(void);
 void test_bb_pub_info_has_time_source(void);
 void test_bb_pub_info_time_source_is_none_on_host(void);
+void test_bb_pub_info_has_board_field(void);
+void test_bb_pub_info_board_is_host_on_host(void);
+void test_bb_pub_info_has_chip_model_field(void);
+void test_bb_pub_info_chip_model_is_host_on_host(void);
+void test_bb_pub_info_has_mac_field(void);
+
+// Forward declarations from test_bb_pub_health.c
+void test_bb_pub_health_always_publishes(void);
+void test_bb_pub_health_topic_is_correct(void);
+void test_bb_pub_health_has_ok_field(void);
+void test_bb_pub_health_ok_is_false_on_host(void);
+void test_bb_pub_health_has_mqtt_enabled_field(void);
+void test_bb_pub_health_mqtt_enabled_false_when_no_handle(void);
+void test_bb_pub_health_has_mqtt_connected_field(void);
+void test_bb_pub_health_mqtt_connected_false_when_no_handle(void);
+void test_bb_pub_health_mqtt_enabled_true_when_handle_set(void);
+void test_bb_pub_health_mqtt_connected_reflects_state(void);
+void test_bb_pub_health_payload_has_ts_field(void);
 
 // Forward declarations from test_bb_pub_rtos.c
 void test_bb_pub_rtos_always_publishes(void);
@@ -4690,6 +4718,16 @@ int main(void) {
     RUN_TEST(test_bb_pub_wifi_has_rssi_field);
     RUN_TEST(test_bb_pub_wifi_rssi_value_correct);
     RUN_TEST(test_bb_pub_wifi_payload_has_ts_field);
+    RUN_TEST(test_bb_pub_wifi_has_ssid_field);
+    RUN_TEST(test_bb_pub_wifi_ssid_value_correct);
+    RUN_TEST(test_bb_pub_wifi_has_bssid_field);
+    RUN_TEST(test_bb_pub_wifi_bssid_format_correct);
+    RUN_TEST(test_bb_pub_wifi_has_ip_field);
+    RUN_TEST(test_bb_pub_wifi_ip_value_correct);
+    RUN_TEST(test_bb_pub_wifi_has_connected_field);
+    RUN_TEST(test_bb_pub_wifi_has_disc_reason_field);
+    RUN_TEST(test_bb_pub_wifi_has_disc_age_s_field);
+    RUN_TEST(test_bb_pub_wifi_has_retry_count_field);
 
     // bb_pub_info tests
     RUN_TEST(test_bb_pub_info_always_publishes);
@@ -4720,6 +4758,24 @@ int main(void) {
     RUN_TEST(test_bb_pub_info_epoch_s_is_zero_when_not_synced);
     RUN_TEST(test_bb_pub_info_has_time_source);
     RUN_TEST(test_bb_pub_info_time_source_is_none_on_host);
+    RUN_TEST(test_bb_pub_info_has_board_field);
+    RUN_TEST(test_bb_pub_info_board_is_host_on_host);
+    RUN_TEST(test_bb_pub_info_has_chip_model_field);
+    RUN_TEST(test_bb_pub_info_chip_model_is_host_on_host);
+    RUN_TEST(test_bb_pub_info_has_mac_field);
+
+    // bb_pub_health tests
+    RUN_TEST(test_bb_pub_health_always_publishes);
+    RUN_TEST(test_bb_pub_health_topic_is_correct);
+    RUN_TEST(test_bb_pub_health_has_ok_field);
+    RUN_TEST(test_bb_pub_health_ok_is_false_on_host);
+    RUN_TEST(test_bb_pub_health_has_mqtt_enabled_field);
+    RUN_TEST(test_bb_pub_health_mqtt_enabled_false_when_no_handle);
+    RUN_TEST(test_bb_pub_health_has_mqtt_connected_field);
+    RUN_TEST(test_bb_pub_health_mqtt_connected_false_when_no_handle);
+    RUN_TEST(test_bb_pub_health_mqtt_enabled_true_when_handle_set);
+    RUN_TEST(test_bb_pub_health_mqtt_connected_reflects_state);
+    RUN_TEST(test_bb_pub_health_payload_has_ts_field);
 
     // bb_pub_rtos tests
     RUN_TEST(test_bb_pub_rtos_always_publishes);

@@ -449,6 +449,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_pub_wifi/bb_pub_wifi.c"],
         "depends":  ["bb_core", "bb_pub", "bb_wifi"],
     },
+    "bb_pub_health": {
+        "includes": ["components/bb_pub_health/include"],
+        "sources":  ["platform/host/bb_pub_health/bb_pub_health.c"],
+        "depends":  ["bb_core", "bb_pub", "bb_mqtt", "bb_ota_validator", "bb_wifi"],
+    },
     "bb_pub_rtos": {
         "includes": ["components/bb_pub_rtos/include"],
         "sources":  ["platform/host/bb_pub_rtos/bb_pub_rtos.c"],
