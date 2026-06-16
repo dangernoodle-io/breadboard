@@ -84,6 +84,54 @@ void test_bb_sink_http_telemetry_get_default_path_tmpl(void)
 }
 
 // ---------------------------------------------------------------------------
+// GET: tls boolean derived from base URL scheme
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_http_telemetry_get_tls_false_for_http_base(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_nv_set_str("bb_sink_http", "base", "http://broker.example.com:1883");
+
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+
+    cJSON *tls = cJSON_GetObjectItemCaseSensitive(body, "tls");
+    TEST_ASSERT_NOT_NULL(tls);
+    TEST_ASSERT_FALSE(cJSON_IsTrue(tls));
+
+    cJSON_Delete(body);
+}
+
+void test_bb_sink_http_telemetry_get_tls_true_for_https_base(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_nv_set_str("bb_sink_http", "base", "https://xxxx-ats.iot.us-east-1.amazonaws.com:8443");
+
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+
+    cJSON *tls = cJSON_GetObjectItemCaseSensitive(body, "tls");
+    TEST_ASSERT_NOT_NULL(tls);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(tls));
+
+    cJSON_Delete(body);
+}
+
+void test_bb_sink_http_telemetry_get_tls_false_when_no_base(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+
+    cJSON *tls = cJSON_GetObjectItemCaseSensitive(body, "tls");
+    TEST_ASSERT_NOT_NULL(tls);
+    TEST_ASSERT_FALSE(cJSON_IsTrue(tls));
+
+    cJSON_Delete(body);
+}
+
+// ---------------------------------------------------------------------------
 // GET: ca_set / cert_set / key_set reflect NVS presence
 // ---------------------------------------------------------------------------
 

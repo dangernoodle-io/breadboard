@@ -32,4 +32,13 @@ config BB_TLS_MUTUAL_ENABLE
         bb_tls_creds skips cert/key resolve_one calls, saving RAM and NVS
         lookup work; only the CA is resolved.
 
+config BB_TLS_CREDS_NVS_MAX_LEN
+    int "Max bytes for a single TLS credential read from NVS"
+    default 4096
+    help
+        Bounds the heap buffer used to read one PEM (ca/cert/key) from NVS.
+        Larger client certificate chains may need more than 4096 bytes.
+        Heap-tight boards without PSRAM can lower this value to reclaim RAM
+        at the cost of rejecting oversized credentials.
+
 endmenu
