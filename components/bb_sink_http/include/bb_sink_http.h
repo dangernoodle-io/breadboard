@@ -160,6 +160,15 @@ bool bb_sink_http_header_name_valid(const char *name);
 // Returns true if the value contains no '\r' or '\n'.
 bool bb_sink_http_header_value_valid(const char *value);
 
+// ---------------------------------------------------------------------------
+// Testing hooks (BB_SINK_HTTP_TESTING only)
+// ---------------------------------------------------------------------------
+#ifdef BB_SINK_HTTP_TESTING
+// Inject a custom malloc for heap-failure tests.
+void bb_sink_http_set_malloc(void *(*fn)(size_t));
+void bb_sink_http_reset_malloc(void);
+#endif /* BB_SINK_HTTP_TESTING */
+
 #ifdef __cplusplus
 }
 #endif

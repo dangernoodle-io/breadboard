@@ -1897,6 +1897,9 @@ void test_bb_sink_http_session_applies_configured_headers(void);
 void test_bb_sink_http_headers_reapplied_after_set_cfg(void);
 void test_bb_sink_http_session_reset_after_3_consec_failures(void);
 void test_bb_sink_http_keep_alive_cfg_threads_into_session_open(void);
+void test_bb_sink_http_parse_headers_oom_returns_zero(void);
+void test_bb_sink_http_publish_url_oom_returns_no_space(void);
+void test_bb_sink_http_init_nvs_hbuf_oom_graceful(void);
 
 // Forward declarations from test_bb_http_client_session.c
 void test_bb_http_client_session_open_null_url_base_returns_invalid_arg(void);
@@ -4588,6 +4591,9 @@ int main(void) {
     RUN_TEST(test_bb_sink_http_headers_reapplied_after_set_cfg);
     RUN_TEST(test_bb_sink_http_session_reset_after_3_consec_failures);
     RUN_TEST(test_bb_sink_http_keep_alive_cfg_threads_into_session_open);
+    RUN_TEST(test_bb_sink_http_parse_headers_oom_returns_zero);
+    RUN_TEST(test_bb_sink_http_publish_url_oom_returns_no_space);
+    RUN_TEST(test_bb_sink_http_init_nvs_hbuf_oom_graceful);
 
     // bb_http_client session tests
     RUN_TEST(test_bb_http_client_session_open_null_url_base_returns_invalid_arg);

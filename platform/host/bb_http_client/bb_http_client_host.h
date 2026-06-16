@@ -47,12 +47,15 @@ bb_http_client_post_record_t bb_http_client_get_last_post(void);
 
 // -------------------------------------------------------------------------
 // Session capture — populated by each bb_http_client_session_post call.
-// Strings point into caller-supplied buffers; safe to read until the
-// next session_post or clear_mock call.
+// url is copied into a fixed buffer owned by the record.
+// body and content_type are pointer into caller-supplied buffers; safe to
+// read until the next session_post or clear_mock call.
 // -------------------------------------------------------------------------
+#define BB_HTTP_CLIENT_SESSION_URL_MAX 512
+
 typedef struct {
-    bool        called;
-    const char *url;
+    bool  called;
+    char  url[BB_HTTP_CLIENT_SESSION_URL_MAX];  // copied from caller arg
     const char *body;          // pointer into caller's body arg (may be NULL)
     size_t      body_len;
     const char *content_type;  // effective content-type (never NULL after a call)

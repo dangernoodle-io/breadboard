@@ -9,7 +9,21 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+// ---------------------------------------------------------------------------
+// Testing allocator injection (BB_SINK_HTTP_TESTING only).
+// Allows host tests to inject a failing malloc to exercise OOM paths.
+// ---------------------------------------------------------------------------
+#ifdef BB_SINK_HTTP_TESTING
+static void *(*s_malloc)(size_t) = malloc;
+void bb_sink_http_set_malloc(void *(*fn)(size_t)) { s_malloc = fn ? fn : malloc; }
+void bb_sink_http_reset_malloc(void)              { s_malloc = malloc; }
+#define SINK_MALLOC(n) s_malloc(n)
+#else
+#define SINK_MALLOC(n) malloc(n)
+#endif /* BB_SINK_HTTP_TESTING */
 
 static const char *TAG = "bb_sink_http";
 
@@ -77,10 +91,13 @@ int bb_sink_http_parse_headers(const char *buf,
     if (!buf || !out || out_max <= 0) return 0;
 
     int count = 0;
-    // Work on a copy since we mutate with NUL terminators.
-    char tmp[HEADERS_BUF_MAX];
-    strncpy(tmp, buf, sizeof(tmp) - 1);
-    tmp[sizeof(tmp) - 1] = '\0';
+    // Work on a heap-allocated copy since we mutate with NUL terminators.
+    // Stack allocation of HEADERS_BUF_MAX (~2596 bytes) overflows the
+    // 3584-byte main task stack on WROOM-32 when called from init.
+    char *tmp = (char *)SINK_MALLOC(HEADERS_BUF_MAX);
+    if (!tmp) return 0;
+    strncpy(tmp, buf, HEADERS_BUF_MAX - 1);
+    tmp[HEADERS_BUF_MAX - 1] = '\0';
 
     char *line = tmp;
     while (*line && count < out_max) {
@@ -136,6 +153,7 @@ int bb_sink_http_parse_headers(const char *buf,
 
         line = nl ? nl + 1 : line + strlen(line) + 1;
     }
+    free(tmp);
     return count;
 }
 
@@ -268,9 +286,18 @@ static void load_from_nvs(bb_sink_http_cfg_t *out)
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "client_id",
                   out->client_id, sizeof(out->client_id), "");
 
-    char hbuf[HEADERS_BUF_MAX] = {0};
-    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf, sizeof(hbuf), "");
+    // Heap-allocate the NVS read buffer: HEADERS_BUF_MAX (~2596 bytes) on the
+    // 3584-byte main task stack causes a FreeRTOS stack overflow at PRE_HTTP
+    // init (hardware-confirmed, WROOM-32 with http-sink enabled).
+    char *hbuf = (char *)SINK_MALLOC(HEADERS_BUF_MAX);
+    if (!hbuf) {
+        bb_log_e(TAG, "load_from_nvs: out of memory for headers buffer");
+        return;
+    }
+    hbuf[0] = '\0';
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf, HEADERS_BUF_MAX, "");
     out->num_headers = bb_sink_http_parse_headers(hbuf, out->headers, BB_SINK_HTTP_HEADERS_MAX);
+    free(hbuf);
 }
 
 static void save_to_nvs(const bb_sink_http_cfg_t *cfg)
@@ -284,9 +311,17 @@ static void save_to_nvs(const bb_sink_http_cfg_t *cfg)
     bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "qos",     qos_str);
     bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "enabled", cfg->enabled ? "1" : "0");
 
-    char hbuf[HEADERS_BUF_MAX] = {0};
-    bb_sink_http_serialize_headers(cfg->headers, cfg->num_headers, hbuf, sizeof(hbuf));
+    // Heap-allocate the serialize buffer: HEADERS_BUF_MAX (~2596 bytes) stack
+    // allocation adds up with the caller's frame on constrained tasks.
+    char *hbuf = (char *)SINK_MALLOC(HEADERS_BUF_MAX);
+    if (!hbuf) {
+        bb_log_e(TAG, "save_to_nvs: out of memory for headers buffer");
+        return;
+    }
+    hbuf[0] = '\0';
+    bb_sink_http_serialize_headers(cfg->headers, cfg->num_headers, hbuf, HEADERS_BUF_MAX);
     bb_nv_set_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf);
+    free(hbuf);
 }
 
 // ---------------------------------------------------------------------------
@@ -478,19 +513,30 @@ static bb_err_t http_pub_publish(void *ctx,
     }
 
     // Build URL for this topic.
-    char url[BB_SINK_HTTP_BASE_MAX + BB_SINK_HTTP_PATH_MAX + 512];
-    if (!build_url(&s_cfg, topic, url, sizeof(url))) {
+    // Heap-allocate: BASE_MAX + PATH_MAX + 512 = 768 bytes; on the worker task
+    // this stacks with session_ensure frames — heap keeps the frame small.
+    const size_t url_cap = BB_SINK_HTTP_BASE_MAX + BB_SINK_HTTP_PATH_MAX + 512;
+    char *url = (char *)SINK_MALLOC(url_cap);
+    if (!url) {
+        bb_log_e(TAG, "url build: out of memory");
+        return BB_ERR_NO_SPACE;
+    }
+    if (!build_url(&s_cfg, topic, url, url_cap)) {
         bb_log_e(TAG, "url build failed (base or path too long)");
+        free(url);
         return BB_ERR_INVALID_ARG;
     }
 
     // Ensure one reusable session is open (lazy open, keep-alive).
     bb_err_t rc = session_ensure();
-    if (rc != BB_OK) return rc;
+    if (rc != BB_OK) {
+        free(url);
+        return rc;
+    }
 
-    bb_http_client_result_t out;
+    bb_http_client_result_t result;
     rc = bb_http_client_session_post(s_session, url, payload, (size_t)len,
-                                      "application/json", &out);
+                                      "application/json", &result);
     if (rc != BB_OK) {
         bb_log_e(TAG, "session POST transport error: %d", rc);
         s_consec_failures++;
@@ -500,11 +546,13 @@ static bb_err_t http_pub_publish(void *ctx,
             session_close();
             s_consec_failures = 0;
         }
+        free(url);
         return rc;
     }
 
     s_consec_failures = 0;
-    bb_log_d(TAG, "published to %s -> %d", url, out.status_code);
+    bb_log_d(TAG, "published to %s -> %d", url, result.status_code);
+    free(url);
     return BB_OK;
 }
 
