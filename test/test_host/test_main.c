@@ -177,6 +177,7 @@ void test_emit_status_json_outcome_no_asset(void);
 void test_emit_status_json_sets_cors_headers(void);
 void test_emit_status_json_enabled_reflects_nv_flag(void);
 void test_emit_status_json_obj_begin_fail_returns_err(void);
+void test_emit_status_check_on_apply(void);
 
 // Forward declarations from test_http_utils.c
 void test_url_decode_basic(void);
@@ -2010,6 +2011,8 @@ void test_bb_update_check_outcome_failed_parse_error(void);
 void test_bb_update_check_outcome_unknown_before_any_check(void);
 void test_bb_update_check_outcome_available_custom_parser(void);
 void test_bb_update_check_outcome_failed_custom_parser_error(void);
+void test_bb_update_check_mark_check_on_apply_sets_status(void);
+void test_bb_update_check_mark_check_on_apply_before_init_returns_invalid_state(void);
 
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
@@ -2732,6 +2735,7 @@ int main(void) {
     RUN_TEST(test_emit_status_json_sets_cors_headers);
     RUN_TEST(test_emit_status_json_enabled_reflects_nv_flag);
     RUN_TEST(test_emit_status_json_obj_begin_fail_returns_err);
+    RUN_TEST(test_emit_status_check_on_apply);
 
     // OTA hooks tests
     RUN_TEST(test_ota_hooks_json_push_start);
@@ -4413,6 +4417,8 @@ int main(void) {
     RUN_TEST(test_bb_update_check_outcome_failed_parse_error);
     RUN_TEST(test_bb_update_check_outcome_available_custom_parser);
     RUN_TEST(test_bb_update_check_outcome_failed_custom_parser_error);
+    RUN_TEST(test_bb_update_check_mark_check_on_apply_sets_status);
+    RUN_TEST(test_bb_update_check_mark_check_on_apply_before_init_returns_invalid_state);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);

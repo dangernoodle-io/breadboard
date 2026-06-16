@@ -261,6 +261,30 @@ void test_emit_status_json_enabled_reflects_nv_flag(void)
 }
 
 // ---------------------------------------------------------------------------
+// emit after mark_check_on_apply — outcome=check_on_apply, available=false
+// ---------------------------------------------------------------------------
+
+void test_emit_status_check_on_apply(void)
+{
+    reset_world();
+    bb_update_check_init(NULL);
+    bb_update_check_mark_check_on_apply();
+
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_err_t rc = bb_update_check_emit_status_json(req);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL(200, cap.status);
+    TEST_ASSERT_NOT_NULL(cap.body);
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"outcome\":\"check_on_apply\""));
+    TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"available\":false"));
+    bb_http_host_capture_free(&cap);
+}
+
+// ---------------------------------------------------------------------------
 // emit when bb_http_resp_json_obj_begin fails — propagates the error
 // ---------------------------------------------------------------------------
 
