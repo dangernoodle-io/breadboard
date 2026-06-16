@@ -21,6 +21,11 @@
 #include <stdlib.h>
 
 // ---------------------------------------------------------------------------
+// Failing malloc for OOM tests (BB_SINK_HTTP_TESTING)
+// ---------------------------------------------------------------------------
+static void *failing_malloc(size_t n) { (void)n; return NULL; }
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -781,4 +786,69 @@ void test_bb_sink_http_headers_reapplied_after_set_cfg(void)
 
     bb_http_client_header_record_t h3 = bb_http_client_session_find_header("X-Version");
     TEST_ASSERT_EQUAL_STRING("2", h3.value);
+}
+
+// ---------------------------------------------------------------------------
+// OOM paths — heap-alloc failure coverage (BB_SINK_HTTP_TESTING)
+// ---------------------------------------------------------------------------
+
+// parse_headers: malloc failure → returns 0 (no entries).
+void test_bb_sink_http_parse_headers_oom_returns_zero(void)
+{
+    bb_sink_http_set_malloc(failing_malloc);
+    bb_sink_http_header_t out[4];
+    int n = bb_sink_http_parse_headers("X-A: v1\n", out, 4);
+    bb_sink_http_reset_malloc();
+    TEST_ASSERT_EQUAL_INT(0, n);
+}
+
+// publish: malloc failure for URL buffer → BB_ERR_NO_SPACE.
+void test_bb_sink_http_publish_url_oom_returns_no_space(void)
+{
+    reset_state();
+    set_mock_200();
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com:8443", sizeof(cfg.base) - 1);
+    cfg.qos     = 1;
+    cfg.enabled = true;
+
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    bb_sink_http_set_malloc(failing_malloc);
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
+    bb_sink_http_reset_malloc();
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+}
+
+// load_from_nvs / bb_sink_http_init: malloc failure for hbuf is graceful
+// (init still succeeds with zero headers loaded from NVS).
+void test_bb_sink_http_init_nvs_hbuf_oom_graceful(void)
+{
+    reset_state();
+
+    // Store a header string in NVS so load_from_nvs would normally read it.
+    bb_nv_set_str("bb_sink_http", "headers", "X-A: v1\n");
+
+    // Inject OOM after init is called (malloc will fail for the hbuf).
+    bb_sink_http_set_malloc(failing_malloc);
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com:8443", sizeof(cfg.base) - 1);
+    cfg.enabled = true;
+    bb_err_t rc = bb_sink_http_init(&cfg);
+    bb_sink_http_reset_malloc();
+
+    // init must succeed even though NVS headers couldn't be loaded.
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    // headers should be 0 (OOM prevented NVS load).
+    bb_sink_http_cfg_t out;
+    bb_sink_http_get_cfg(&out);
+    TEST_ASSERT_EQUAL_INT(0, out.num_headers);
 }

@@ -238,7 +238,8 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t s,
     session_mock_state_t m = s_session_mock;
 
     s_session_last.called       = true;
-    s_session_last.url          = url;
+    strncpy(s_session_last.url, url, BB_HTTP_CLIENT_SESSION_URL_MAX - 1);
+    s_session_last.url[BB_HTTP_CLIENT_SESSION_URL_MAX - 1] = '\0';
     s_session_last.body         = body;
     s_session_last.body_len     = body_len;
     s_session_last.content_type = content_type ? content_type : "application/json";
