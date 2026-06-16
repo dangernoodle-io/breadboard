@@ -2380,6 +2380,10 @@ void test_bb_pub_thermal_skips_when_all_absent(void);
 void test_bb_pub_thermal_vr_null_when_temp_minus_one(void);
 void test_bb_pub_thermal_asic_null_when_die_nan(void);
 void test_bb_pub_thermal_payload_has_ts_field(void);
+void test_bb_pub_thermal_omits_vr_c_when_no_power_primary(void);
+void test_bb_pub_thermal_omits_asic_and_board_c_when_no_fan_primary(void);
+void test_bb_pub_thermal_vr_c_null_when_power_primary_present_but_no_reading(void);
+void test_bb_pub_thermal_asic_c_null_when_fan_primary_present_but_die_nan(void);
 
 // Forward declarations from test_bb_pub_wifi.c
 void test_bb_pub_wifi_skips_when_disconnected(void);
@@ -2405,8 +2409,7 @@ void test_bb_pub_info_always_publishes(void);
 void test_bb_pub_info_topic_is_correct(void);
 void test_bb_pub_info_has_heap_internal_free(void);
 void test_bb_pub_info_has_heap_internal_total(void);
-void test_bb_pub_info_has_psram_free(void);
-void test_bb_pub_info_has_psram_total(void);
+void test_bb_pub_info_omits_psram_fields_when_no_psram(void);
 void test_bb_pub_info_has_uptime_ms(void);
 void test_bb_pub_info_has_version(void);
 void test_bb_pub_info_has_heap_internal_largest_block(void);
@@ -4904,6 +4907,10 @@ int main(void) {
     RUN_TEST(test_bb_pub_thermal_vr_null_when_temp_minus_one);
     RUN_TEST(test_bb_pub_thermal_asic_null_when_die_nan);
     RUN_TEST(test_bb_pub_thermal_payload_has_ts_field);
+    RUN_TEST(test_bb_pub_thermal_omits_vr_c_when_no_power_primary);
+    RUN_TEST(test_bb_pub_thermal_omits_asic_and_board_c_when_no_fan_primary);
+    RUN_TEST(test_bb_pub_thermal_vr_c_null_when_power_primary_present_but_no_reading);
+    RUN_TEST(test_bb_pub_thermal_asic_c_null_when_fan_primary_present_but_die_nan);
 
     // bb_pub_wifi tests
     RUN_TEST(test_bb_pub_wifi_skips_when_disconnected);
@@ -4929,8 +4936,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_info_topic_is_correct);
     RUN_TEST(test_bb_pub_info_has_heap_internal_free);
     RUN_TEST(test_bb_pub_info_has_heap_internal_total);
-    RUN_TEST(test_bb_pub_info_has_psram_free);
-    RUN_TEST(test_bb_pub_info_has_psram_total);
+    RUN_TEST(test_bb_pub_info_omits_psram_fields_when_no_psram);
     RUN_TEST(test_bb_pub_info_has_uptime_ms);
     RUN_TEST(test_bb_pub_info_has_version);
     RUN_TEST(test_bb_pub_info_has_heap_internal_largest_block);
