@@ -221,6 +221,89 @@ void test_bb_pub_thermal_skips_when_all_absent(void)
     TEST_ASSERT_EQUAL_INT(0, s_capture_count);
 }
 
+void test_bb_pub_thermal_omits_vr_c_when_no_power_primary(void)
+{
+    reset_all();
+    // SoC present but no power primary — vr_c must be absent from payload.
+    bb_temp_test_set_soc(true, 50.0f);
+
+    bb_pub_sink_t sink = { .publish = capture_publish, .ctx = NULL };
+    bb_pub_set_sink(&sink);
+    bb_pub_thermal_register();
+
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"soc_c\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"vr_c\""));
+}
+
+void test_bb_pub_thermal_omits_asic_and_board_c_when_no_fan_primary(void)
+{
+    reset_all();
+    // SoC present but no fan primary — asic_c and board_c must be absent.
+    bb_temp_test_set_soc(true, 50.0f);
+
+    bb_pub_sink_t sink = { .publish = capture_publish, .ctx = NULL };
+    bb_pub_set_sink(&sink);
+    bb_pub_thermal_register();
+
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"asic_c\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"board_c\""));
+}
+
+void test_bb_pub_thermal_vr_c_null_when_power_primary_present_but_no_reading(void)
+{
+    reset_all();
+    // Power primary exists (hardware present) but temp_c == -1 (no reading).
+    // vr_c key MUST appear with null value.
+    g_pwr.vout_mv = 1200;
+    g_pwr.iout_ma = 5000;
+    g_pwr.vin_mv  = 12000;
+    g_pwr.temp_c  = -1;
+    bb_power_handle_t ph = NULL;
+    bb_power_handle_create(&drv_pwr, &g_pwr, &ph);
+    bb_power_poll(ph);
+    bb_power_set_primary(ph);
+
+    bb_pub_sink_t sink = { .publish = capture_publish, .ctx = NULL };
+    bb_pub_set_sink(&sink);
+    bb_pub_thermal_register();
+
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"vr_c\":null"));
+}
+
+void test_bb_pub_thermal_asic_c_null_when_fan_primary_present_but_die_nan(void)
+{
+    reset_all();
+    // Fan primary exists (hardware present) but die_c is NaN (no reading).
+    // asic_c key MUST appear with null value.
+    g_fan.rpm       = 1800;
+    g_fan.duty_pct  = 50;
+    g_fan.die_c     = NAN;
+    g_fan.board_c   = 30.0f;
+    g_fan.die_fail  = true;
+    g_fan.board_fail = false;
+    bb_fan_handle_t fh = NULL;
+    bb_fan_handle_create(&drv_fan, &g_fan, &fh);
+    bb_fan_poll(fh);
+    bb_fan_set_primary(fh);
+
+    bb_pub_sink_t sink = { .publish = capture_publish, .ctx = NULL };
+    bb_pub_set_sink(&sink);
+    bb_pub_thermal_register();
+
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"asic_c\":null"));
+    // board_c is valid — must be a number, not null.
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"board_c\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"board_c\":null"));
+}
+
 void test_bb_pub_thermal_vr_null_when_temp_minus_one(void)
 {
     reset_all();

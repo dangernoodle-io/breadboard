@@ -36,7 +36,8 @@ static bool thermal_sample(bb_json_t obj, void *ctx)
         bb_json_obj_set_null(obj, "soc_c");
     }
 
-    // VR temperature (bb_power) — publish if primary exists; null when temp unavailable.
+    // VR temperature (bb_power) — omit when no primary (hardware absent).
+    // When primary exists: null if temp unavailable, number if valid.
     bb_power_handle_t ph = bb_power_primary();
     if (ph) {
         bb_power_snapshot_t ps;
@@ -47,11 +48,11 @@ static bool thermal_sample(bb_json_t obj, void *ctx)
             bb_json_obj_set_null(obj, "vr_c");
         }
         any_present = true;
-    } else {
-        bb_json_obj_set_null(obj, "vr_c");
     }
+    // else: no power hardware — omit vr_c entirely.
 
-    // ASIC die temperature + board temperature (bb_fan) — publish if primary exists.
+    // ASIC die + board temperature (bb_fan) — omit both when no primary (hardware absent).
+    // When primary exists: null if reading is NaN, number if valid.
     bb_fan_handle_t fh = bb_fan_primary();
     if (fh) {
         bb_fan_snapshot_t fs;
@@ -67,10 +68,8 @@ static bool thermal_sample(bb_json_t obj, void *ctx)
             bb_json_obj_set_null(obj, "board_c");
         }
         any_present = true;
-    } else {
-        bb_json_obj_set_null(obj, "asic_c");
-        bb_json_obj_set_null(obj, "board_c");
     }
+    // else: no fan hardware — omit asic_c and board_c entirely.
 
     // Skip when nothing is available.
     return any_present;

@@ -37,10 +37,13 @@ static bool info_sample(bb_json_t obj, void *ctx)
                            (double)bb_board_heap_internal_largest_free_block());
     bb_json_obj_set_number(obj, "heap_internal_min_free",
                            (double)bb_board_heap_minimum_ever());
-    bb_json_obj_set_number(obj, "psram_free",
-                           (double)bb_board_psram_free());
-    bb_json_obj_set_number(obj, "psram_total",
-                           (double)bb_board_psram_total());
+    // psram_free / psram_total: omit both when no PSRAM hardware (total == 0).
+    if (bb_board_psram_total() > 0) {
+        bb_json_obj_set_number(obj, "psram_free",
+                               (double)bb_board_psram_free());
+        bb_json_obj_set_number(obj, "psram_total",
+                               (double)bb_board_psram_total());
+    }
     bb_json_obj_set_number(obj, "rtc_used",
                            (double)bb_board_rtc_used());
     bb_json_obj_set_number(obj, "rtc_total",

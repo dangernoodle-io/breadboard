@@ -85,18 +85,14 @@ void test_bb_pub_info_has_heap_internal_total(void)
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"heap_internal_total\""));
 }
 
-void test_bb_pub_info_has_psram_free(void)
+void test_bb_pub_info_omits_psram_fields_when_no_psram(void)
 {
     setup();
+    // Host stub returns psram_total==0 (no PSRAM hardware).
+    // Both psram_free and psram_total must be absent from the payload.
     bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"psram_free\""));
-}
-
-void test_bb_pub_info_has_psram_total(void)
-{
-    setup();
-    bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"psram_total\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"psram_free\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"psram_total\""));
 }
 
 void test_bb_pub_info_has_uptime_ms(void)
