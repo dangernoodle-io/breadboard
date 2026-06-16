@@ -23,11 +23,24 @@ static const char *TAG = "bb_tls_creds";
 /* Maximum PEM size accepted from NVS (4 KiB per credential). */
 #define BB_TLS_CREDS_NVS_MAX_LEN 4096
 
+/* ---------------------------------------------------------------------------
+ * Testing allocator injection (BB_TLS_CREDS_TESTING only).
+ * Allows host tests to inject a failing malloc to exercise OOM paths.
+ * ---------------------------------------------------------------------------*/
+#ifdef BB_TLS_CREDS_TESTING
+static bb_tls_creds_malloc_fn s_malloc = malloc;
+void bb_tls_creds_set_malloc(bb_tls_creds_malloc_fn fn) { s_malloc = fn ? fn : malloc; }
+void bb_tls_creds_reset_malloc(void)                    { s_malloc = malloc; }
+#define TLS_MALLOC(n) s_malloc(n)
+#else
+#define TLS_MALLOC(n) malloc(n)
+#endif /* BB_TLS_CREDS_TESTING */
+
 /* Copy src (len bytes) into a newly heap-allocated NUL-terminated buffer.
  * Returns NULL on allocation failure. */
 static char *dup_pem(const char *src, size_t len)
 {
-    char *buf = (char *)malloc(len + 1);
+    char *buf = (char *)TLS_MALLOC(len + 1);
     if (!buf) return NULL;
     memcpy(buf, src, len);
     buf[len] = '\0';
@@ -57,17 +70,24 @@ static bb_err_t resolve_one(const char *override_pem,
         return BB_OK;
     }
 
-    /* 2. NVS lookup */
+    /* 2. NVS lookup — heap-allocate the read buffer so resolve_one does not
+     * push 4 KiB (BB_TLS_CREDS_NVS_MAX_LEN) onto the caller's stack.  On
+     * constrained targets (e.g. CONFIG_ESP_MAIN_TASK_STACK_SIZE=3584) a
+     * 4 KiB stack buffer here overflows the entire main-task stack and causes
+     * a FreeRTOS stack-overflow crash at PRE_HTTP init (hardware-confirmed). */
     if (ns != NULL) {
-        char buf[BB_TLS_CREDS_NVS_MAX_LEN];
-        bb_err_t rc = bb_nv_get_str(ns, nv_key, buf, sizeof(buf), NULL);
+        char *buf = (char *)TLS_MALLOC(BB_TLS_CREDS_NVS_MAX_LEN);
+        if (!buf) return BB_ERR_NO_SPACE;
+        bb_err_t rc = bb_nv_get_str(ns, nv_key, buf, BB_TLS_CREDS_NVS_MAX_LEN, NULL);
         if (rc == BB_OK && buf[0] != '\0') {
             size_t len = strlen(buf);
             *out_ptr = dup_pem(buf, len);
+            free(buf);
             if (!*out_ptr) return BB_ERR_NO_SPACE;
             *out_len = len + 1;  /* include NUL — mbedtls PEM parse requires it */
             return BB_OK;
         }
+        free(buf);
     }
 
     /* 3. Embedded weak default — skip when len is 0 (not overridden).
