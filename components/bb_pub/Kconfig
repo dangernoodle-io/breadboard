@@ -137,4 +137,26 @@ config BB_PUB_BUFFER_TOPIC_MAX
         subtopic length + 2 separators + null terminator. Default 192
         matches the prior hardcoded value (no behavior change).
 
+config BB_PUB_BUFFER_ALWAYS
+    bool "Always-on ring mode: route all sink[0] telemetry through the ring"
+    default n
+    depends on BB_PUB_BUFFER_ENABLE
+    help
+        When y, every sink[0] publish is enqueued into the ring and drained
+        each tick (enqueue → drain), providing a uniform ordered queue even
+        during healthy operation. Sinks[1..] keep the existing direct fan-out.
+
+        The ring is allocated eagerly at init (not lazily on first failure),
+        so this mode carries a standing RAM cost of approximately
+        MAX_ENTRIES × (TOPIC_MAX + 1 + MAX_PAYLOAD_BYTES) bytes. Recommended
+        only on PSRAM boards where the ring can be allocated in SPIRAM.
+
+        captured_ms is injected ONLY when an entry was genuinely delayed across
+        ticks: inject iff (now_epoch_ms − capture_epoch_ms) > 1.5 × interval_ms.
+        Entries drained the same tick they were enqueued are considered "fresh"
+        and carry no captured_ms field, keeping healthy points clean.
+
+        When n (default), the ring stays lazy and is used only on sink failure
+        (store-and-forward), with zero standing cost until an outage occurs.
+
 endmenu

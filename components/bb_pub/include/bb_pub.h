@@ -308,7 +308,26 @@ void bb_pub_exclusive_reset(void);
  */
 void bb_pub_test_set_synced_epoch_ms(int64_t epoch_ms);
 
+/**
+ * Override the always-on ring mode at runtime for testing. When true, forces
+ * always-on behaviour regardless of CONFIG_BB_PUB_BUFFER_ALWAYS; when false,
+ * forces on-failure (default) behaviour. Pass -1 (cast to bool true/false) is
+ * not applicable — use bb_pub_test_reset() to revert to compile-time default.
+ * Only meaningful when CONFIG_BB_PUB_BUFFER_ENABLE is 1.
+ */
+void bb_pub_test_set_buffer_always(bool always_on);
+
 #endif /* BB_PUB_TESTING */
+
+/**
+ * Eagerly allocate the store-and-forward ring for always-on mode.
+ * Called once at init when CONFIG_BB_PUB_BUFFER_ALWAYS=y so the ring exists
+ * from boot (standing RAM cost accepted by the caller). Idempotent.
+ * On-failure mode (CONFIG_BB_PUB_BUFFER_ALWAYS=n) keeps lazy allocation;
+ * calling this function is a no-op in that case.
+ * Only meaningful when CONFIG_BB_PUB_BUFFER_ENABLE is 1.
+ */
+void bb_pub_buffer_init_eager(void);
 
 /**
  * Register a hook called by bb_pub_set_interval_ms after the new value is

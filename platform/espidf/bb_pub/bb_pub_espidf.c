@@ -99,6 +99,10 @@ static bb_err_t bb_pub_start(void)
         return err;
     }
 
+    // Eagerly allocate the ring when always-on mode is compiled in so the
+    // ring exists from boot (standing RAM cost accepted at config time).
+    bb_pub_buffer_init_eager();
+
     bb_log_i(TAG, "started; interval=%"PRIu32" ms", interval_ms);
     return BB_OK;
 }

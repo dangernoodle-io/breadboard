@@ -173,6 +173,37 @@ static bool     s_published_ever   = false;
 
 static bb_ring_t s_buffer = NULL;
 
+// Runtime toggle for always-on mode (mirrors CONFIG_BB_PUB_BUFFER_ALWAYS).
+// Under BB_PUB_TESTING a test seam overrides the compile-time default so both
+// modes can be exercised in the same binary.
+#ifdef BB_PUB_TESTING
+static int s_buffer_always = -1;   /* -1 = use compile-time default */
+
+void bb_pub_test_set_buffer_always(bool always_on)
+{
+    s_buffer_always = always_on ? 1 : 0;
+}
+
+static bool buffer_always_on(void)
+{
+    if (s_buffer_always >= 0) return s_buffer_always != 0;
+#if CONFIG_BB_PUB_BUFFER_ALWAYS
+    return true;
+#else
+    return false;
+#endif
+}
+#else
+static bool buffer_always_on(void)
+{
+#if CONFIG_BB_PUB_BUFFER_ALWAYS
+    return true;
+#else
+    return false;
+#endif
+}
+#endif /* BB_PUB_TESTING */
+
 // Lazily create the ring on first enqueue.
 static bb_ring_t buffer_get(void)
 {
@@ -187,6 +218,18 @@ static bb_ring_t buffer_get(void)
         }
     }
     return s_buffer;
+}
+
+// Eagerly allocate the ring for always-on mode.
+// Called once at init (espidf start) when CONFIG_BB_PUB_BUFFER_ALWAYS=y so
+// the ring exists from boot.  Idempotent if the ring already exists.
+// In tests the ring is also lazily created by buffer_capture, so this is
+// only strictly needed on device to satisfy the standing-cost guarantee.
+void bb_pub_buffer_init_eager(void)
+{
+    if (buffer_always_on()) {
+        buffer_get();   /* allocate now; logs warning on failure */
+    }
 }
 
 // Capture epoch accessor.
@@ -292,9 +335,23 @@ static char *inject_captured_ms(const char *payload, int payload_len, int64_t ts
 }
 
 // Replay buffered entries to sink[0].
-// Called under s_tick_lock after a successful sink delivery.
-// Drains all entries oldest-first; stops on first sink failure.
-static void buffer_replay(const bb_pub_sink_t *sink)
+// Called under s_tick_lock.  In on-failure mode (always_on=false) this is
+// called only after a successful live-publish tick.  In always-on mode it is
+// called unconditionally every tick.
+//
+// now_epoch_ms     — current wall-clock epoch in ms (0 if NTP not synced).
+// delay_threshold_ms — when > 0, captured_ms is injected ONLY if the entry's
+//                    age (now - entry_ts) exceeds this threshold. When 0,
+//                    captured_ms is injected for any entry with entry_ts > 0
+//                    (on-failure mode: every buffered entry is by definition
+//                    delayed, so no age gate is needed).
+//
+// In always-on mode the caller passes 1.5 × interval_ms so that fresh entries
+// drained the same tick they were enqueued carry no captured_ms (age ≈ 0),
+// while entries that survived a real outage across ticks do carry it.
+// In on-failure mode the caller passes 0 to preserve the prior behavior.
+static void buffer_replay(const bb_pub_sink_t *sink,
+                          int64_t now_epoch_ms, int64_t delay_threshold_ms)
 {
     bb_ring_t r = s_buffer;
     if (!r || bb_ring_count(r) == 0) return;
@@ -326,8 +383,25 @@ static void buffer_replay(const bb_pub_sink_t *sink)
         int payload_len     = (int)(entry_len - topic_len - 1);
         if (payload_len < 0) payload_len = 0;
 
-        // Inject captured_ms into payload when epoch was recorded.
-        char *patched = inject_captured_ms(payload, payload_len, entry_ts);
+        // Determine whether to inject captured_ms.
+        //   - delay_threshold_ms == 0 (on-failure mode): inject whenever
+        //     entry_ts > 0, regardless of age (every buffered entry is
+        //     delayed by definition — it failed at least one prior tick).
+        //   - delay_threshold_ms > 0 (always-on mode): inject only when the
+        //     entry is genuinely old; same-tick fresh entries are not stamped.
+        int64_t inject_ts = 0;
+        if (entry_ts > 0 && now_epoch_ms > 0) {
+            if (delay_threshold_ms == 0) {
+                inject_ts = entry_ts;   /* on-failure: always stamp */
+            } else {
+                int64_t age_ms = now_epoch_ms - entry_ts;
+                if (age_ms > delay_threshold_ms) {
+                    inject_ts = entry_ts;
+                }
+            }
+        }
+
+        char *patched = inject_captured_ms(payload, payload_len, inject_ts);
         const char *pub_payload = patched ? patched : payload;
         int         pub_len     = patched ? (int)strlen(patched) : payload_len;
 
@@ -339,17 +413,20 @@ static void buffer_replay(const bb_pub_sink_t *sink)
             break;   /* sink still down; leave rest in ring */
         }
 
-        bb_log_d(TAG, "buffer: replayed '%s' (epoch_ms=%lld)", topic, (long long)entry_ts);
+        bb_log_d(TAG, "buffer: replayed '%s' (epoch_ms=%lld, inject_ts=%lld)",
+                 topic, (long long)entry_ts, (long long)inject_ts);
         bb_ring_pop_oldest(r);
     }
 }
 
 #else  /* !CONFIG_BB_PUB_BUFFER_ENABLE */
 
-// Stub the test hook so it always exists when BB_PUB_TESTING is defined.
+// Stubs so callers always link cleanly when the buffer feature is compiled out.
 #ifdef BB_PUB_TESTING
 void bb_pub_test_set_synced_epoch_ms(int64_t epoch_ms) { (void)epoch_ms; }
+void bb_pub_test_set_buffer_always(bool always_on)     { (void)always_on; }
 #endif
+void bb_pub_buffer_init_eager(void) {}
 
 #endif /* CONFIG_BB_PUB_BUFFER_ENABLE */
 
@@ -582,6 +659,10 @@ bb_err_t bb_pub_tick_once(void)
 
     // Take ONE timestamp for the entire cycle.
     uint32_t ts_ms = bb_clock_now_ms();
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    // Capture current wall-clock epoch once (0 if NTP not synced).
+    int64_t tick_epoch_ms = capture_epoch_ms();
+#endif
 
     const char *hostname = bb_nv_config_hostname();
     if (!hostname || hostname[0] == '\0') {
@@ -649,6 +730,17 @@ bb_err_t bb_pub_tick_once(void)
             }
 
             int json_len = (int)strlen(json);
+
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+            // Always-on mode: sink[0] is never called directly — enqueue into
+            // the ring instead and drain after the source loop.
+            if (si == 0 && buffer_always_on()) {
+                buffer_capture(topic, json, json_len);
+                bb_json_free_str(json);
+                continue;
+            }
+#endif
+
             bb_err_t err = sk->publish(sk->ctx, topic, json, json_len);
 
             if (err != BB_OK) {
@@ -656,7 +748,7 @@ bb_err_t bb_pub_tick_once(void)
                          si, src->subtopic, err);
                 tick_all_ok = false;
 #if CONFIG_BB_PUB_BUFFER_ENABLE
-                // Capture to ring on sink[0] failure only.
+                // On-failure mode: capture to ring on sink[0] failure only.
                 if (si == 0) {
                     buffer_capture(topic, json, json_len);
                 }
@@ -670,19 +762,50 @@ bb_err_t bb_pub_tick_once(void)
         tick_published = true;
     }
 
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    uint32_t interval_ms = bb_pub_get_interval_ms();
+
+    if (buffer_always_on()) {
+        // Always-on mode: drain ring every tick regardless of tick_all_ok.
+        // The ring was fed by the enqueue path above for every source.
+        // Drain happens after all sources so ordering is preserved.
+        if (s_sink_count > 0) {
+            // Delay threshold: 1.5 × interval.  Fresh entries (age ≈ 0) will
+            // not exceed this → no captured_ms on healthy same-tick points.
+            int64_t threshold_ms = (int64_t)interval_ms + (int64_t)interval_ms / 2;
+            buffer_replay(&s_sinks[0], tick_epoch_ms, threshold_ms);
+        }
+        // last_publish_ok = did the ring drain fully this tick?
+        // A full drain means s_buffer is empty after replay.
+        if (tick_published) {
+            s_last_publish_ms = ts_ms;
+            s_published_ever  = true;
+            bool drained = (s_buffer == NULL || bb_ring_count(s_buffer) == 0);
+            s_last_publish_ok = drained;
+        }
+    } else {
+        // On-failure mode (default): update status first, then replay on
+        // success. Unchanged behavior.
+        if (tick_published) {
+            s_last_publish_ms  = ts_ms;
+            s_published_ever   = true;
+            s_last_publish_ok  = tick_all_ok;
+        }
+        // Replay buffered entries when sink[0] succeeded this tick and the
+        // ring is non-empty.  Replay happens after all live sources so it
+        // does not interleave with the current tick's live data.
+        // Pass delay_threshold_ms=0: on-failure mode stamps any ts>0 entry
+        // unconditionally (every buffered entry is delayed by definition).
+        if (tick_all_ok && tick_published && s_sink_count > 0) {
+            buffer_replay(&s_sinks[0], tick_epoch_ms, 0);
+        }
+    }
+#else
     // Update status only when at least one source was published this tick.
     if (tick_published) {
         s_last_publish_ms  = ts_ms;
         s_published_ever   = true;
         s_last_publish_ok  = tick_all_ok;
-    }
-
-#if CONFIG_BB_PUB_BUFFER_ENABLE
-    // Replay buffered entries when sink[0] succeeded this tick and the ring
-    // is non-empty. Replay happens after all live sources so it does not
-    // interleave with the current tick's live data.
-    if (tick_all_ok && tick_published && s_sink_count > 0) {
-        buffer_replay(&s_sinks[0]);
     }
 #endif
 
@@ -755,7 +878,8 @@ void bb_pub_test_reset(void)
     if (s_buffer) {
         bb_ring_clear(s_buffer);
     }
-    s_test_epoch_ms = -1;
+    s_test_epoch_ms   = -1;
+    s_buffer_always   = -1;   /* revert to compile-time default */
 #endif
     // Re-initialise the tick lock so any lock state from a prior test is cleared.
     pthread_mutex_destroy(&s_tick_lock);
