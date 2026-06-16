@@ -56,9 +56,11 @@
 #include "bb_event_routes.h"
 #include "bb_event_ring.h"
 #include "bb_log.h"
+#include "bb_clock.h"
 #include "bb_info.h"
 #include "bb_info_test.h"
 #include "bb_health.h"
+#include "bb_ntp.h"
 #include "../../components/bb_info/bb_info_schema_priv.h"
 
 // bb_mdns_started and bb_mdns_get_hostname are declared in bb_mdns.h only
@@ -69,6 +71,7 @@ const char *bb_mdns_get_hostname(void);
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <inttypes.h>
 
 #include "cJSON.h"
@@ -136,6 +139,10 @@ static const char k_info_schema[] =
     "\"retry_count\":{\"type\":\"integer\"}}}"
     ",\"http_handler_count\":{\"type\":\"integer\"},"
     "\"http_handler_cap\":{\"type\":\"integer\"},"
+    "\"uptime_ms\":{\"type\":\"integer\"},"
+    "\"boot_epoch\":{\"type\":\"integer\"},"
+    "\"time_valid\":{\"type\":\"boolean\"},"
+    "\"hostname\":{\"type\":[\"string\",\"null\"]},"
     "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}"
     "},"
     "\"required\":[\"board\",\"version\",\"network\"]}";
@@ -394,6 +401,27 @@ static bb_err_t h_info(bb_http_request_t *req)
                                   (double)bb_http_route_handler_count());
     bb_http_resp_json_obj_set_num(&obj, "http_handler_cap",
                                   (double)bb_http_route_handler_cap());
+    // uptime, boot_epoch, time_valid — same accessors as bb_pub_info (SSOT).
+    int64_t uptime_ms = bb_clock_now_ms();
+    bb_http_resp_json_obj_set_int(&obj, "uptime_ms", uptime_ms);
+    bool   time_valid  = false;
+    int64_t boot_epoch = 0;
+    if (bb_ntp_is_synced()) {
+        time_t now = time(NULL);
+        if (now >= (time_t)1704067200LL) {
+            time_valid  = true;
+            boot_epoch  = (int64_t)now - (uptime_ms / 1000);
+        }
+    }
+    bb_http_resp_json_obj_set_bool(&obj, "time_valid",  time_valid);
+    bb_http_resp_json_obj_set_int (&obj, "boot_epoch",  boot_epoch);
+    // hostname — same value as /api/health.network.mdns.
+    const char *hostname_val = bb_mdns_get_hostname();
+    if (hostname_val) {
+        bb_http_resp_json_obj_set_str(&obj, "hostname", hostname_val);
+    } else {
+        bb_http_resp_json_obj_set_null(&obj, "hostname");
+    }
     // capabilities: always emit (empty array when none registered)
     bb_http_resp_json_obj_set_arr_begin(&obj, "capabilities");
     bb_http_resp_json_obj_set_arr_end(&obj);
@@ -1253,4 +1281,70 @@ void test_fidelity_info_schema_matches_assembled(void)
     TEST_ASSERT_EQUAL_STRING_MESSAGE(k_info_schema, assembled,
         "k_info_schema in test_route_fidelity.c differs from assembled schema; "
         "update k_info_schema to match bb_info_schema_priv.h base+suffix");
+}
+
+// ---------------------------------------------------------------------------
+// /api/info body field-presence tests (uptime_ms, boot_epoch, time_valid, hostname)
+// ---------------------------------------------------------------------------
+
+static cJSON *invoke_h_info_and_parse(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    h_info(req);
+    bb_http_host_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_http_host_capture_end(req, &cap);
+    cJSON *parsed = cJSON_Parse(cap.body);
+    bb_http_host_capture_free(&cap);
+    return parsed;
+}
+
+// (I1) uptime_ms is present and >= 0.
+void test_fidelity_info_has_uptime_ms(void)
+{
+    cJSON *doc = invoke_h_info_and_parse();
+    TEST_ASSERT_NOT_NULL_MESSAGE(doc, "info body not valid JSON");
+    cJSON *field = cJSON_GetObjectItemCaseSensitive(doc, "uptime_ms");
+    TEST_ASSERT_NOT_NULL_MESSAGE(field, "uptime_ms missing from /api/info body");
+    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsNumber(field), "uptime_ms is not a number");
+    TEST_ASSERT_TRUE_MESSAGE(field->valuedouble >= 0, "uptime_ms is negative");
+    cJSON_Delete(doc);
+}
+
+// (I2) hostname field is present (null on host since bb_mdns_get_hostname returns NULL).
+void test_fidelity_info_has_hostname(void)
+{
+    cJSON *doc = invoke_h_info_and_parse();
+    TEST_ASSERT_NOT_NULL_MESSAGE(doc, "info body not valid JSON");
+    // hostname must exist as a key (null value is acceptable on host).
+    TEST_ASSERT_TRUE_MESSAGE(
+        cJSON_HasObjectItem(doc, "hostname"),
+        "hostname key missing from /api/info body");
+    cJSON_Delete(doc);
+}
+
+// (I3) time_valid is present and false on host (bb_ntp_is_synced returns false).
+void test_fidelity_info_has_time_valid_false_on_host(void)
+{
+    cJSON *doc = invoke_h_info_and_parse();
+    TEST_ASSERT_NOT_NULL_MESSAGE(doc, "info body not valid JSON");
+    cJSON *field = cJSON_GetObjectItemCaseSensitive(doc, "time_valid");
+    TEST_ASSERT_NOT_NULL_MESSAGE(field, "time_valid missing from /api/info body");
+    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsBool(field), "time_valid is not a boolean");
+    TEST_ASSERT_FALSE_MESSAGE(cJSON_IsTrue(field), "time_valid should be false on host");
+    cJSON_Delete(doc);
+}
+
+// (I4) boot_epoch is present and 0 when time is not valid (host: ntp not synced).
+void test_fidelity_info_boot_epoch_zero_when_not_synced(void)
+{
+    cJSON *doc = invoke_h_info_and_parse();
+    TEST_ASSERT_NOT_NULL_MESSAGE(doc, "info body not valid JSON");
+    cJSON *field = cJSON_GetObjectItemCaseSensitive(doc, "boot_epoch");
+    TEST_ASSERT_NOT_NULL_MESSAGE(field, "boot_epoch missing from /api/info body");
+    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsNumber(field), "boot_epoch is not a number");
+    TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(0.0, field->valuedouble,
+        "boot_epoch should be 0 when time is not valid");
+    cJSON_Delete(doc);
 }

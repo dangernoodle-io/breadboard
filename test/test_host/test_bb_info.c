@@ -217,3 +217,47 @@ void test_bb_info_assembled_schema_contains_capabilities_array(void)
         strstr(schema, "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}"),
         "capabilities array schema descriptor not found in assembled schema");
 }
+
+// ---------------------------------------------------------------------------
+// New field schema presence tests (uptime_ms, boot_epoch, time_valid, hostname)
+// ---------------------------------------------------------------------------
+
+// (U1) Schema contains uptime_ms integer field.
+void test_bb_info_schema_contains_uptime_ms(void)
+{
+    const char *schema = bb_info_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(schema, "\"uptime_ms\":{\"type\":\"integer\"}"),
+        "uptime_ms not found in assembled schema");
+}
+
+// (U2) Schema contains boot_epoch integer field.
+void test_bb_info_schema_contains_boot_epoch(void)
+{
+    const char *schema = bb_info_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(schema, "\"boot_epoch\":{\"type\":\"integer\"}"),
+        "boot_epoch not found in assembled schema");
+}
+
+// (U3) Schema contains time_valid boolean field.
+void test_bb_info_schema_contains_time_valid(void)
+{
+    const char *schema = bb_info_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(schema, "\"time_valid\":{\"type\":\"boolean\"}"),
+        "time_valid not found in assembled schema");
+}
+
+// (U4) Schema contains hostname string-or-null field.
+void test_bb_info_schema_contains_hostname(void)
+{
+    const char *schema = bb_info_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(schema, "\"hostname\""),
+        "hostname not found in assembled schema");
+}

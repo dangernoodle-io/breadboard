@@ -3,11 +3,15 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "bb_board.h"
+#include "bb_clock.h"
 #include "bb_http.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_mdns.h"
+#include "bb_ntp.h"
 #include "bb_registry.h"
 #include "bb_section.h"
 #include "bb_wifi.h"
@@ -136,6 +140,31 @@ static bb_err_t info_handler(bb_http_request_t *req)
     extern size_t bb_http_route_handler_cap(void);
     bb_json_obj_set_number(root, "http_handler_count", (double)bb_http_route_handler_count());
     bb_json_obj_set_number(root, "http_handler_cap", (double)bb_http_route_handler_cap());
+
+    // Uptime, boot epoch, time validity — same accessors as bb_pub_info (SSOT).
+    int64_t uptime_ms = bb_clock_now_ms();
+    bb_json_obj_set_number(root, "uptime_ms", (double)uptime_ms);
+
+    bool   time_valid = false;
+    int64_t boot_epoch = 0;
+    if (bb_ntp_is_synced()) {
+        time_t now = time(NULL);
+        if (now >= (time_t)1704067200LL) {
+            time_valid  = true;
+            int64_t uptime_s = uptime_ms / 1000;
+            boot_epoch = (int64_t)now - uptime_s;
+        }
+    }
+    bb_json_obj_set_bool  (root, "time_valid",  time_valid);
+    bb_json_obj_set_number(root, "boot_epoch",  (double)boot_epoch);
+
+    // Hostname — same value as /api/health.network.mdns.
+    const char *hostname = bb_mdns_get_hostname();
+    if (hostname) {
+        bb_json_obj_set_string(root, "hostname", hostname);
+    } else {
+        bb_json_obj_set_null(root, "hostname");
+    }
 
     // Emit capabilities array (always present, even if empty)
     bb_json_t caps = bb_json_arr_new();

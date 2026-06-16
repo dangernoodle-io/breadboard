@@ -61,6 +61,10 @@ static const char k_info_schema_base[] =
     "\"retry_count\":{\"type\":\"integer\"}}},"
     "\"http_handler_count\":{\"type\":\"integer\"},"
     "\"http_handler_cap\":{\"type\":\"integer\"},"
+    "\"uptime_ms\":{\"type\":\"integer\"},"
+    "\"boot_epoch\":{\"type\":\"integer\"},"
+    "\"time_valid\":{\"type\":\"boolean\"},"
+    "\"hostname\":{\"type\":[\"string\",\"null\"]},"
     "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}";
 
 // Suffix: the section properties (display, led, ntp, diag, ...) are inserted
