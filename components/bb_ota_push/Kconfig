@@ -58,12 +58,19 @@ config BB_OTA_PUSH_RECV_TIMEOUT_RETRIES
 
 config BB_OTA_PUSH_MIN_BPS
     int "Minimum accepted OTA push throughput (bytes/sec)"
-    default 10240
+    default 4096
     help
-        Average upload throughput floor for /api/update/push. The receive is
-        aborted if the transfer's running average falls below this (via a
-        content-length-derived deadline), so a slow/stalled upload can't hold
-        the device with mining paused and the WDT extended. 10240 = 10 KB/s.
+        Minimum average upload throughput (bytes/sec) for /api/update/push.
+        The receive deadline is derived as content_len / MIN_BPS, clamped to
+        [30 s, BB_OTA_PUSH_MAX_DURATION_S]. At 4096 B/s a typical 1.2–1.5 MB
+        firmware image receives the full MAX_DURATION_S (240 s default) window,
+        making the transfer tolerant of weak-link boards (~6 KB/s effective
+        throughput for a 1.5 MB image once the ceiling governs). Genuinely
+        stalled uploads are still caught by the socket recv-timeout retries
+        (BB_OTA_PUSH_RECV_TIMEOUT_RETRIES); this floor only guards against an
+        indefinite slow trickle. Lower further only if even weaker links must
+        be supported, and consider raising BB_OTA_PUSH_MAX_DURATION_S — but
+        keep it below BB_OTA_PUSH_WDT_EXTENDED_S to avoid tripping the WDT.
 
 config BB_OTA_PUSH_MAX_DURATION_S
     int "Maximum OTA push receive duration (s)"
