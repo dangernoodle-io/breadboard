@@ -1793,3 +1793,26 @@ void test_bb_update_check_run_blocking_runs_check_on_host(void)
     TEST_ASSERT_TRUE(st.last_check_ok);
     TEST_ASSERT_EQUAL_STRING("v9.9.9", st.latest);
 }
+
+// ---------------------------------------------------------------------------
+// bb_update_check_mark_check_on_apply
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_mark_check_on_apply_sets_status(void)
+{
+    reset_world();
+    bb_update_check_init(NULL);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_mark_check_on_apply());
+
+    bb_update_check_status_t st;
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_get_status(&st));
+    TEST_ASSERT_EQUAL(BB_UPDATE_OUTCOME_CHECK_ON_APPLY, st.outcome);
+    TEST_ASSERT_FALSE(st.available);
+    TEST_ASSERT_FALSE(st.last_check_ok);
+}
+
+void test_bb_update_check_mark_check_on_apply_before_init_returns_invalid_state(void)
+{
+    reset_world();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_update_check_mark_check_on_apply());
+}

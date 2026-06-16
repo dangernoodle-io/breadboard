@@ -38,6 +38,7 @@ typedef enum {
     BB_UPDATE_OUTCOME_AVAILABLE,
     BB_UPDATE_OUTCOME_NO_ASSET,
     BB_UPDATE_OUTCOME_FAILED,
+    BB_UPDATE_OUTCOME_CHECK_ON_APPLY, // heap-deferred: board checks during apply
 } bb_update_check_outcome_t;
 
 typedef struct {
@@ -145,6 +146,13 @@ bb_err_t bb_update_check_run_blocking(uint32_t timeout_ms);
 // Copy the latest status snapshot into out. BB_ERR_INVALID_ARG if out is NULL,
 // BB_ERR_INVALID_STATE if init hasn't run.
 bb_err_t bb_update_check_get_status(bb_update_check_status_t *out);
+
+// Mark the cached status as deferred-to-apply: sets outcome=check_on_apply,
+// available=false, last_check_ok=false. Used by boot-mode boards when the heap
+// guard fires and CONFIG_BB_OTA_CHECK_ON_APPLY_FALLBACK is enabled. Leaves
+// current/latest/download_url/last_check_us unchanged.
+// Returns BB_ERR_INVALID_STATE if init hasn't run.
+bb_err_t bb_update_check_mark_check_on_apply(void);
 
 // Serialize the current bb_update_check status to JSON and send it as an HTTP
 // response body. Emits the same JSON shape as GET /api/update/status (fields:

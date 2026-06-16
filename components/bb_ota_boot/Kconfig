@@ -65,4 +65,17 @@ config BB_OTA_BOOT_STATUS_HTTP
       No persistent worker task is created — the only TLS activity is on-demand
       via POST /api/update/check, and only when heap permits.
 
+config BB_OTA_CHECK_ON_APPLY_FALLBACK
+    bool "Return check_on_apply directive instead of insufficient_heap"
+    depends on BB_OTA_BOOT_STATUS_HTTP
+    default n
+    help
+      When POST /api/update/check cannot allocate the contiguous heap the TLS
+      manifest fetch needs, return 200 {"status":"check_on_apply"} (and mark
+      GET /api/update/status outcome=check_on_apply, available=false) instead
+      of 503 {"error":"insufficient_heap"}. Signals API consumers to skip the
+      runtime check and POST /api/update/apply directly — boot-mode performs
+      the manifest check at full early-boot heap. Opt-in; off preserves the
+      insufficient_heap error.
+
 endmenu

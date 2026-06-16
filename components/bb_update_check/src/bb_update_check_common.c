@@ -709,12 +709,24 @@ const bb_route_t *bb_update_check_config_post_route(void) { return &s_config_pos
 static const char *outcome_str(bb_update_check_outcome_t o)
 {
     switch (o) {
-        case BB_UPDATE_OUTCOME_UP_TO_DATE: return "up_to_date";
-        case BB_UPDATE_OUTCOME_AVAILABLE:  return "available";
-        case BB_UPDATE_OUTCOME_NO_ASSET:   return "no_asset";
-        case BB_UPDATE_OUTCOME_FAILED:     return "check_failed";
-        default:                           return "unknown";
+        case BB_UPDATE_OUTCOME_UP_TO_DATE:    return "up_to_date";
+        case BB_UPDATE_OUTCOME_AVAILABLE:     return "available";
+        case BB_UPDATE_OUTCOME_NO_ASSET:      return "no_asset";
+        case BB_UPDATE_OUTCOME_FAILED:        return "check_failed";
+        case BB_UPDATE_OUTCOME_CHECK_ON_APPLY: return "check_on_apply";
+        default:                              return "unknown";
     }
+}
+
+bb_err_t bb_update_check_mark_check_on_apply(void)
+{
+    if (!s_initialized) return BB_ERR_INVALID_STATE;
+    pthread_mutex_lock(&s_lock);
+    s_status.outcome       = BB_UPDATE_OUTCOME_CHECK_ON_APPLY;
+    s_status.available     = false;
+    s_status.last_check_ok = false;
+    pthread_mutex_unlock(&s_lock);
+    return BB_OK;
 }
 
 bb_err_t bb_update_check_emit_status_json(bb_http_request_t *req)

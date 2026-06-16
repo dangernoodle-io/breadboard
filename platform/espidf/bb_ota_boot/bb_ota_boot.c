@@ -147,6 +147,16 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
 #if BB_OTA_BOOT_STATUS_MIN_HEAP > 0
     size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (largest < (size_t)BB_OTA_BOOT_STATUS_MIN_HEAP) {
+#if CONFIG_BB_OTA_CHECK_ON_APPLY_FALLBACK
+        bb_log_w(TAG, "check: insufficient heap (%u < %u), returning check_on_apply directive",
+                 (unsigned)largest, (unsigned)BB_OTA_BOOT_STATUS_MIN_HEAP);
+        bb_update_check_mark_check_on_apply();
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "status", "check_on_apply");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_OK;
+#else
         bb_log_w(TAG, "check: insufficient heap (%u < %u), skipping",
                  (unsigned)largest, (unsigned)BB_OTA_BOOT_STATUS_MIN_HEAP);
         bb_http_resp_set_status(req, 503);
@@ -155,6 +165,7 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_str(&obj, "error", "insufficient_heap");
         bb_http_resp_json_obj_end(&obj);
         return BB_OK;
+#endif
     }
 #endif
 
@@ -458,7 +469,7 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
              "\"enabled\":{\"type\":\"boolean\"},"
              "\"outcome\":{\"type\":\"string\","
                "\"enum\":[\"unknown\",\"up_to_date\",\"available\","
-                         "\"no_asset\",\"check_failed\"]},"
+                         "\"no_asset\",\"check_failed\",\"check_on_apply\"]},"
              "\"last_check_ts\":{\"type\":\"integer\"}},"
            "\"required\":[\"current\",\"latest\",\"download_url\","
                          "\"available\",\"last_check_ok\",\"enabled\",\"outcome\"]}",
@@ -476,6 +487,9 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
     };
 
     static const bb_route_response_t s_check_responses[] = {
+        { 200, "application/json",
+          "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\",\"enum\":[\"checking\",\"check_on_apply\"]}}}",
+          "check_on_apply directive (boot-mode heap fallback): POST /api/update/apply directly" },
         { 202, "application/json",
           "{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"}}}",
           "check triggered; poll GET /api/update/status for result" },
