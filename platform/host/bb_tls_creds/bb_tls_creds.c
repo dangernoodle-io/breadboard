@@ -20,8 +20,12 @@ const size_t bb_tls_creds_embedded_key_len   __attribute__((weak)) = 0;
 
 static const char *TAG = "bb_tls_creds";
 
-/* Maximum PEM size accepted from NVS (4 KiB per credential). */
-#define BB_TLS_CREDS_NVS_MAX_LEN 4096
+/* Maximum PEM size accepted from NVS.  On ESP-IDF the Kconfig knob
+ * CONFIG_BB_TLS_CREDS_NVS_MAX_LEN drives this; host tests fall back to 4096. */
+#ifndef CONFIG_BB_TLS_CREDS_NVS_MAX_LEN
+#define CONFIG_BB_TLS_CREDS_NVS_MAX_LEN 4096
+#endif
+#define BB_TLS_CREDS_NVS_MAX_LEN CONFIG_BB_TLS_CREDS_NVS_MAX_LEN
 
 /* ---------------------------------------------------------------------------
  * Testing allocator injection (BB_TLS_CREDS_TESTING only).

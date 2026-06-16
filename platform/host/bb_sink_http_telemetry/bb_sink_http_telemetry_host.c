@@ -50,6 +50,7 @@ static void httppub_section_get(bb_json_t section, void *ctx)
     bool cert_set = bb_nv_exists(BB_SINK_HTTP_NVS_NS, "tls_cert");
     bool key_set  = bb_nv_exists(BB_SINK_HTTP_NVS_NS, "tls_key");
     bool enabled  = (enabled_str[0] == '1');
+    bool tls_on   = (strncmp(base, "https://", 8) == 0);
     int  qos      = (int)(qos_str[0] - '0');
     if (qos < 0 || qos > 2) qos = 1;
 
@@ -59,6 +60,7 @@ static void httppub_section_get(bb_json_t section, void *ctx)
                                       : BB_SINK_HTTP_PATH_DEFAULT);
     bb_json_obj_set_string(section, "client_id", client_id);
     bb_json_obj_set_number(section, "qos",       (double)qos);
+    bb_json_obj_set_bool  (section, "tls",       tls_on);
     bb_json_obj_set_bool  (section, "enabled",   enabled);
     bb_json_obj_set_bool  (section, "ca_set",    ca_set);
     bb_json_obj_set_bool  (section, "cert_set",  cert_set);
@@ -288,6 +290,7 @@ bb_err_t bb_sink_http_telemetry_init(void)
         "\"path_tmpl\":{\"type\":\"string\"},"
         "\"client_id\":{\"type\":\"string\"},"
         "\"qos\":{\"type\":\"integer\"},"
+        "\"tls\":{\"type\":\"boolean\"},"
         "\"enabled\":{\"type\":\"boolean\"},"
         "\"ca_set\":{\"type\":\"boolean\"},"
         "\"cert_set\":{\"type\":\"boolean\"},"

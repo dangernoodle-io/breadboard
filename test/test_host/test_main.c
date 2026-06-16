@@ -2278,6 +2278,9 @@ void test_bb_sink_http_telemetry_patch_headers_secret_blank_preserves_existing(v
 void test_bb_sink_http_telemetry_patch_headers_omitted_name_removed(void);
 void test_bb_sink_http_telemetry_patch_headers_independent_edit(void);
 void test_bb_sink_http_telemetry_patch_large_tls_ca_stored_via_heap(void);
+void test_bb_sink_http_telemetry_get_tls_false_for_http_base(void);
+void test_bb_sink_http_telemetry_get_tls_true_for_https_base(void);
+void test_bb_sink_http_telemetry_get_tls_false_when_no_base(void);
 
 // Forward declarations from test_bb_pub_telemetry.c
 void test_bb_pub_telemetry_get_has_interval_ms(void);
@@ -4800,6 +4803,9 @@ int main(void) {
     RUN_TEST(test_bb_sink_http_telemetry_patch_headers_omitted_name_removed);
     RUN_TEST(test_bb_sink_http_telemetry_patch_headers_independent_edit);
     RUN_TEST(test_bb_sink_http_telemetry_patch_large_tls_ca_stored_via_heap);
+    RUN_TEST(test_bb_sink_http_telemetry_get_tls_false_for_http_base);
+    RUN_TEST(test_bb_sink_http_telemetry_get_tls_true_for_https_base);
+    RUN_TEST(test_bb_sink_http_telemetry_get_tls_false_when_no_base);
 
     // bb_pub_telemetry tests
     RUN_TEST(test_bb_pub_telemetry_get_has_interval_ms);
