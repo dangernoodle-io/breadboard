@@ -71,6 +71,9 @@ static void buf_reset(void)
 {
     bb_pub_test_reset();
     bb_pub_test_set_synced_epoch_ms(-1);   /* not synced */
+    // Default to on-failure mode for tests that don't explicitly set always-on.
+    // Always-on tests call bb_pub_test_set_buffer_always(true) after buf_reset.
+    bb_pub_test_set_buffer_always(false);
     ctx_reset(&s_ctx);
 }
 
@@ -308,6 +311,207 @@ void test_bb_pub_buffer_replay_stops_on_failure(void)
     bb_pub_tick_once();
 
     TEST_ASSERT_EQUAL_INT(3, s_ctx.count);
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
+}
+
+// ---------------------------------------------------------------------------
+// Always-on mode tests (BB_PUB_BUFFER_ALWAYS via runtime seam)
+// ---------------------------------------------------------------------------
+
+// 11. Always-on: sources enqueue then drain same tick → delivered in order, no
+//     captured_ms on fresh points (age << 1.5 × interval).
+void test_bb_pub_buffer_always_healthy_no_captured_ms(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(true);
+
+    // NTP-synced epoch so captured_ms WOULD be injected if logic is wrong.
+    const int64_t fake_epoch = 1700000000000LL;
+    bb_pub_test_set_synced_epoch_ms(fake_epoch);
+
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("topicA", source_fn, NULL);
+    bb_pub_register_source("topicB", source_fn, NULL);
+
+    bb_pub_tick_once();   /* enqueue 2 + drain same tick */
+
+    // Both entries should be delivered to the sink.
+    TEST_ASSERT_EQUAL_INT(2, s_ctx.count);
+
+    // Ring should be empty after drain.
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
+
+    // No captured_ms: entries were fresh (same-tick drain).
+    for (int i = 0; i < s_ctx.count; i++) {
+        TEST_ASSERT_NULL_MESSAGE(
+            strstr(s_ctx.entries[i].payload, "captured_ms"),
+            "fresh always-on point must not have captured_ms");
+    }
+}
+
+// 12. Always-on: source ordering preserved across tick (enqueue order = drain
+//     order = delivery order).
+void test_bb_pub_buffer_always_delivery_order(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(true);
+
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("first",  source_fn, NULL);
+    bb_pub_register_source("second", source_fn, NULL);
+    bb_pub_register_source("third",  source_fn, NULL);
+
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(3, s_ctx.count);
+    TEST_ASSERT_NOT_NULL(strstr(s_ctx.entries[0].topic, "first"));
+    TEST_ASSERT_NOT_NULL(strstr(s_ctx.entries[1].topic, "second"));
+    TEST_ASSERT_NOT_NULL(strstr(s_ctx.entries[2].topic, "third"));
+}
+
+// 13. Always-on outage → recovery: delayed entries carry captured_ms; fresh
+//     entries drained the same tick they are enqueued do not.
+void test_bb_pub_buffer_always_outage_recovery_captured_ms(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(true);
+
+    const int64_t epoch_t0 = 1700000000000LL;
+    // interval_ms default = CONFIG_BB_PUB_INTERVAL_MS = 10000 ms
+    // 1.5 × interval = 15 000 ms.  Advance epoch by 20 000 ms to exceed threshold.
+    const int64_t epoch_t1 = epoch_t0 + 20000LL;
+
+    bb_pub_test_set_synced_epoch_ms(epoch_t0);
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    bb_pub_tick_once();   /* enqueue: entry_ts = epoch_t0; drain fails */
+
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(1, stats.count);   /* still in ring */
+
+    // Advance epoch to simulate time passing; drain on next tick succeeds.
+    bb_pub_test_set_synced_epoch_ms(epoch_t1);
+    s_ctx.fail = false;
+    ctx_reset(&s_ctx);
+
+    bb_pub_tick_once();   /* enqueue fresh (ts=epoch_t1) + drain old + new */
+
+    // 1 delayed entry (from tick 1) + 1 fresh entry (from tick 2) = 2 delivered.
+    TEST_ASSERT_EQUAL_INT(2, s_ctx.count);
+
+    // The delayed entry (epoch_t0 captured, now epoch_t1, age = 20000 > 15000)
+    // must carry captured_ms.
+    char expected[64];
+    snprintf(expected, sizeof(expected), "\"captured_ms\":%lld", (long long)epoch_t0);
+    bool delayed_has_captured_ms = false;
+    bool fresh_has_captured_ms   = false;
+    for (int i = 0; i < s_ctx.count; i++) {
+        if (strstr(s_ctx.entries[i].payload, expected)) {
+            delayed_has_captured_ms = true;
+        }
+        // Fresh entry was captured at epoch_t1; any captured_ms on it is wrong.
+        char fresh_expected[64];
+        snprintf(fresh_expected, sizeof(fresh_expected),
+                 "\"captured_ms\":%lld", (long long)epoch_t1);
+        if (strstr(s_ctx.entries[i].payload, fresh_expected)) {
+            fresh_has_captured_ms = true;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(delayed_has_captured_ms,
+        "delayed always-on entry must have captured_ms");
+    TEST_ASSERT_FALSE_MESSAGE(fresh_has_captured_ms,
+        "fresh always-on entry (same-tick drain) must not have captured_ms");
+
+    // Ring empty after successful drain.
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
+}
+
+// 14. Always-on ring-full eviction: oldest evicted, dropped counter increments.
+void test_bb_pub_buffer_always_overflow(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(true);
+
+    // Make sink always fail so ring fills up.
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    // Ring capacity = 16; tick 20 times → 4 dropped.
+    for (int i = 0; i < 20; i++) {
+        bb_pub_tick_once();
+    }
+
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(16, stats.count);
+    TEST_ASSERT_EQUAL_size_t(4,  stats.dropped);
+}
+
+// 15. Always-on: last_publish_ok reflects whether the ring drained fully.
+void test_bb_pub_buffer_always_last_publish_ok(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(true);
+
+    // Tick 1: sink fails → ring not drained → last_publish_ok = false.
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    bb_pub_tick_once();
+
+    bb_pub_status_t st;
+    bb_pub_get_status(&st);
+    TEST_ASSERT_FALSE_MESSAGE(st.last_publish_ok,
+        "always-on with failing sink should report last_publish_ok=false");
+
+    // Tick 2: sink succeeds → ring drains → last_publish_ok = true.
+    s_ctx.fail = false;
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();
+
+    bb_pub_get_status(&st);
+    TEST_ASSERT_TRUE_MESSAGE(st.last_publish_ok,
+        "always-on with succeeding sink should report last_publish_ok=true");
+}
+
+// 16. Regression: ALWAYS=n (on-failure, default) behavior unchanged —
+//     existing store-and-forward semantics still hold.
+void test_bb_pub_buffer_always_off_regression(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(false);   /* force on-failure mode */
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("topicA", source_fn, NULL);
+    bb_pub_register_source("topicB", source_fn, NULL);
+
+    bb_pub_tick_once();   /* both fail → 2 buffered */
+
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(2, stats.count);
+
+    s_ctx.fail = false;
+    bb_pub_tick_once();   /* live 2 + replay 2 = 4 */
+
+    TEST_ASSERT_EQUAL_INT(4, s_ctx.count);
     bb_pub_buffer_stats(&stats);
     TEST_ASSERT_EQUAL_size_t(0, stats.count);
 }

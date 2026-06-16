@@ -2321,6 +2321,13 @@ void test_bb_pub_buffer_capture_epoch_injected_on_replay(void);
 void test_bb_pub_buffer_no_epoch_no_captured_ms_field(void);
 void test_bb_pub_buffer_stats_reflect_reality(void);
 void test_bb_pub_buffer_replay_stops_on_failure(void);
+// always-on mode tests
+void test_bb_pub_buffer_always_healthy_no_captured_ms(void);
+void test_bb_pub_buffer_always_delivery_order(void);
+void test_bb_pub_buffer_always_outage_recovery_captured_ms(void);
+void test_bb_pub_buffer_always_overflow(void);
+void test_bb_pub_buffer_always_last_publish_ok(void);
+void test_bb_pub_buffer_always_off_regression(void);
 
 // Forward declarations from test_bb_pub_sink_mutex.c
 void test_arbiter_acquire_free_slot_ok(void);
@@ -4849,6 +4856,13 @@ int main(void) {
     RUN_TEST(test_bb_pub_buffer_no_epoch_no_captured_ms_field);
     RUN_TEST(test_bb_pub_buffer_stats_reflect_reality);
     RUN_TEST(test_bb_pub_buffer_replay_stops_on_failure);
+    // always-on mode tests
+    RUN_TEST(test_bb_pub_buffer_always_healthy_no_captured_ms);
+    RUN_TEST(test_bb_pub_buffer_always_delivery_order);
+    RUN_TEST(test_bb_pub_buffer_always_outage_recovery_captured_ms);
+    RUN_TEST(test_bb_pub_buffer_always_overflow);
+    RUN_TEST(test_bb_pub_buffer_always_last_publish_ok);
+    RUN_TEST(test_bb_pub_buffer_always_off_regression);
 
     // bb_pub_sink_mutex tests — exclusive-sink arbiter + mutual-exclusion invariant
     RUN_TEST(test_arbiter_acquire_free_slot_ok);
