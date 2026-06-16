@@ -224,3 +224,27 @@ void test_bb_tls_creds_nvs_len_includes_nul(void)
     TEST_ASSERT_EQUAL_STRING(pem, creds.ca);
     bb_tls_creds_free(&creds);
 }
+
+/* ---- Heap-buffer alloc failure in the NVS path (stack-overflow fix) ---- */
+
+/* The NVS read buffer is now heap-allocated (BB_TLS_CREDS_NVS_MAX_LEN = 4096).
+ * On constrained targets the old 4 KiB stack buf overflowed the entire main
+ * task (CONFIG_ESP_MAIN_TASK_STACK_SIZE=3584).  Inject a failing malloc on the
+ * NVS buf alloc and verify BB_ERR_NO_SPACE is returned with no leak or crash. */
+static void *failing_malloc(size_t sz) { (void)sz; return NULL; }
+
+void test_bb_tls_creds_nvs_buf_alloc_fails_returns_no_space(void)
+{
+    bb_nv_set_str("alloc_fail_ns", "tls_ca", "some_ca_pem");
+
+    bb_tls_creds_set_malloc(failing_malloc);
+    bb_tls_creds_t creds = {0};
+    bb_err_t rc = bb_tls_creds_resolve("alloc_fail_ns", NULL, &creds);
+    bb_tls_creds_reset_malloc();
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+    /* no partial allocation should have escaped */
+    TEST_ASSERT_NULL(creds.ca);
+    TEST_ASSERT_NULL(creds.cert);
+    TEST_ASSERT_NULL(creds.key);
+}

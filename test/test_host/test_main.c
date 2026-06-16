@@ -2475,6 +2475,7 @@ void test_bb_tls_creds_buffers_are_independent_copies(void);
 void test_bb_tls_creds_override_buffer_is_copy(void);
 void test_bb_tls_creds_override_len_includes_nul(void);
 void test_bb_tls_creds_nvs_len_includes_nul(void);
+void test_bb_tls_creds_nvs_buf_alloc_fails_returns_no_space(void);
 
 // Forward declarations from test_bb_tls_info.c
 void test_bb_tls_info_register_is_safe(void);
@@ -4992,6 +4993,7 @@ int main(void) {
     RUN_TEST(test_bb_tls_creds_override_buffer_is_copy);
     RUN_TEST(test_bb_tls_creds_override_len_includes_nul);
     RUN_TEST(test_bb_tls_creds_nvs_len_includes_nul);
+    RUN_TEST(test_bb_tls_creds_nvs_buf_alloc_fails_returns_no_space);
 
     // bb_tls_info capability registration tests
     RUN_TEST(test_bb_tls_info_register_is_safe);

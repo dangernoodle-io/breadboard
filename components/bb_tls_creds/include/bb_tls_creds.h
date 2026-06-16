@@ -53,6 +53,16 @@ bb_err_t bb_tls_creds_resolve(const char *ns, const bb_tls_creds_cfg_t *over,
 void bb_tls_creds_free(bb_tls_creds_t *c);
 
 /* ---------------------------------------------------------------------------
+ * Testing hooks — compiled in only when BB_TLS_CREDS_TESTING is defined.
+ * Allows host tests to inject a failing malloc to exercise OOM paths.
+ * --------------------------------------------------------------------------- */
+#ifdef BB_TLS_CREDS_TESTING
+typedef void *(*bb_tls_creds_malloc_fn)(size_t);
+void bb_tls_creds_set_malloc(bb_tls_creds_malloc_fn fn);
+void bb_tls_creds_reset_malloc(void);
+#endif /* BB_TLS_CREDS_TESTING */
+
+/* ---------------------------------------------------------------------------
  * Optional weak embedded defaults.
  *
  * A consumer (firmware) may define these symbols (e.g. via bb_embed_assets)
