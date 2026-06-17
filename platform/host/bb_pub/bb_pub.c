@@ -269,15 +269,19 @@ static int64_t capture_epoch_ms(void)
 
 // Push topic+payload into the ring.
 // Called under s_tick_lock.
-static void buffer_capture(const char *topic, const char *payload, int payload_len)
+// Returns true if the entry was successfully enqueued, false if it was rejected
+// (topic too long or entry too large for a ring slot).  Callers in always-on
+// mode use the return value to fall back to a direct publish on rejection so
+// oversized entries are not silently dropped.
+static bool buffer_capture(const char *topic, const char *payload, int payload_len)
 {
     bb_ring_t r = buffer_get();
-    if (!r) return;
+    if (!r) return false;
 
     size_t topic_len = strlen(topic);
     if (topic_len >= BB_PUB_BUFFER_TOPIC_MAX) {
         bb_log_w(TAG, "buffer: topic too long (%zu), skipping capture", topic_len);
-        return;
+        return false;
     }
 
     // Pack: topic + NUL + payload
@@ -285,7 +289,7 @@ static void buffer_capture(const char *topic, const char *payload, int payload_l
     if (entry_len > BB_PUB_BUFFER_ENTRY_MAX) {
         bb_log_w(TAG, "buffer: entry too large (%zu > %zu), skipping capture",
                  entry_len, (size_t)BB_PUB_BUFFER_ENTRY_MAX);
-        return;
+        return false;
     }
 
     // Stack-allocate entry (max 192+1+256 = 449 bytes; safe on any stack).
@@ -304,6 +308,7 @@ static void buffer_capture(const char *topic, const char *payload, int payload_l
         bb_log_d(TAG, "buffer: captured '%s' (epoch_ms=%lld, ring=%zu)",
                  topic, (long long)ts, bb_ring_count(r));
     }
+    return true;
 }
 
 // Splice captured_ms into a JSON payload when ts > 0.
@@ -732,12 +737,20 @@ bb_err_t bb_pub_tick_once(void)
             int json_len = (int)strlen(json);
 
 #if CONFIG_BB_PUB_BUFFER_ENABLE
-            // Always-on mode: sink[0] is never called directly — enqueue into
-            // the ring instead and drain after the source loop.
+            // Always-on mode: prefer enqueuing into the ring so the entry is
+            // drained in order after the source loop.  If the entry is too
+            // large for a ring slot, buffer_capture returns false — fall
+            // through to a direct publish so the live data isn't lost (it just
+            // won't be buffered for replay).
             if (si == 0 && buffer_always_on()) {
-                buffer_capture(topic, json, json_len);
-                bb_json_free_str(json);
-                continue;
+                if (buffer_capture(topic, json, json_len)) {
+                    bb_json_free_str(json);
+                    continue;   /* enqueued; drained after the source loop */
+                }
+                // Oversized: can't buffer it — publish directly so the live
+                // data isn't lost.  Falls through to sk->publish below.
+                // Note: last_publish_ok reflects ring-drain status, so this
+                // direct publish does not affect drained semantics.
             }
 #endif
 
@@ -749,8 +762,9 @@ bb_err_t bb_pub_tick_once(void)
                 tick_all_ok = false;
 #if CONFIG_BB_PUB_BUFFER_ENABLE
                 // On-failure mode: capture to ring on sink[0] failure only.
+                // Best-effort; ignore the bool return (oversized → silently skipped).
                 if (si == 0) {
-                    buffer_capture(topic, json, json_len);
+                    (void)buffer_capture(topic, json, json_len);
                 }
 #endif
             }
