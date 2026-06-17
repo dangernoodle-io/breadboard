@@ -409,9 +409,11 @@ There is no `/api/update/boot` verb — boot-mode arms via `/api/update/apply`. 
 
 ## OTA TLS pre-flight heap guard (bb_ota_pull)
 
-`CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES` (default **9216**) guards the in-place pull path: before the TLS handshake, `bb_ota_pull` checks `heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)` and refuses the pull with a clean error (`ESP_ERR_NO_MEM`) if the largest contiguous internal block is below this value. This prevents an OOM crash mid-handshake on a fragmented or low-heap no-PSRAM board.
+The guard checks `heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)` before the TLS handshake and refuses the OTA with a clean error (`ESP_ERR_NO_MEM` / `check_on_apply`) if the largest contiguous internal block is below the floor — preventing an OOM crash mid-handshake on a fragmented or low-heap no-PSRAM board. Gates **both** the in-place pull (`bb_ota_pull`) and the boot-status `POST /api/update/check` (`bb_ota_boot`).
 
-The default (9216) equals `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` (typically 8192) + ~1 KB record overhead — the contiguous internal block the mbedTLS handshake requires. If a consumer raises `MBEDTLS_SSL_IN_CONTENT_LEN` above 8192, `BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES` should be raised to match (new value + ~1024). Set to 0 to disable the check. The guard is inert on boards with ample heap headroom (all current pull-strategy boards have well over 9 KB largest free block at OTA time).
+**`CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` is the single knob — the floor auto-derives from it.** The handshake's dominant contiguous alloc is the mbedTLS IN record buffer (= `SSL_IN_CONTENT_LEN`), so the floor is `SSL_IN_CONTENT_LEN + ~1 KB` record overhead, computed in C. Lower `SSL_IN_CONTENT_LEN` (e.g. 8192→4096 to fit a fragmented no-PSRAM heap) and the floor follows automatically everywhere — do **not** hand-sync a separate guard value.
+
+`CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES` is an optional override: **0 (default) = auto-derive** from `SSL_IN_CONTENT_LEN`; a positive value pins an explicit byte floor; a negative value disables the guard. The guard is inert on boards with ample heap headroom (PSRAM boards, and pull-strategy boards after the OTA pause-hooks free the MQTT/ring heap).
 
 ## OTA push body cap
 

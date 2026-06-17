@@ -2,6 +2,7 @@
 #include "bb_ota_pull.h"
 #include "bb_ota_pull_test_hooks.h"
 #include <stdint.h>
+#include <stddef.h>
 
 void test_bb_ota_pull_set_http_timeout_ms_default_is_20000(void)
 {
@@ -115,4 +116,87 @@ void test_download_should_retry_both_error_and_incomplete_triggers_retry(void)
 {
     // both conditions true — still retry
     TEST_ASSERT_TRUE(bb_ota_pull_download_should_retry(-1, false));
+}
+
+// ---------------------------------------------------------------------------
+// bb_ota_pull_heap_guard_passes — combined contiguous + total-free predicate
+// ---------------------------------------------------------------------------
+
+void test_heap_guard_passes_both_disabled_always_passes(void)
+{
+    // both floors = 0 (disabled) — guard always passes regardless of values
+    TEST_ASSERT_TRUE(bb_ota_pull_heap_guard_passes(0, 0, 0, 0, NULL));
+    TEST_ASSERT_TRUE(bb_ota_pull_heap_guard_passes(1, 0, 1, 0, NULL));
+}
+
+void test_heap_guard_passes_contiguous_ok_total_disabled(void)
+{
+    // contiguous floor set, total-free disabled; block is above floor — pass
+    TEST_ASSERT_TRUE(bb_ota_pull_heap_guard_passes(20000, 16384, 50000, 0, NULL));
+}
+
+void test_heap_guard_passes_contiguous_fails(void)
+{
+    // contiguous block below floor — guard trips on "contiguous"
+    const char *dim = NULL;
+    bool ok = bb_ota_pull_heap_guard_passes(10000, 16384, 50000, 0, &dim);
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_NOT_NULL(dim);
+    TEST_ASSERT_EQUAL_STRING("contiguous", dim);
+}
+
+void test_heap_guard_passes_total_free_fails(void)
+{
+    // contiguous OK but total-free below floor — guard trips on "total-free"
+    const char *dim = NULL;
+    bool ok = bb_ota_pull_heap_guard_passes(20000, 16384, 25000, 30720, &dim);
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_NOT_NULL(dim);
+    TEST_ASSERT_EQUAL_STRING("total-free", dim);
+}
+
+void test_heap_guard_passes_both_ok(void)
+{
+    // both dimensions above their floors — guard passes
+    TEST_ASSERT_TRUE(
+        bb_ota_pull_heap_guard_passes(20000, 16384, 40000, 30720, NULL));
+}
+
+void test_heap_guard_passes_contiguous_fails_before_total_free_checked(void)
+{
+    // contiguous trips first; total-free would also fail but dim reports "contiguous"
+    const char *dim = NULL;
+    bool ok = bb_ota_pull_heap_guard_passes(8000, 16384, 25000, 30720, &dim);
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_EQUAL_STRING("contiguous", dim);
+}
+
+void test_heap_guard_passes_exactly_at_contiguous_floor(void)
+{
+    // block == floor (boundary) — should pass (>=)
+    TEST_ASSERT_TRUE(
+        bb_ota_pull_heap_guard_passes(16384, 16384, 50000, 30720, NULL));
+}
+
+void test_heap_guard_passes_exactly_at_total_free_floor(void)
+{
+    // total_free == floor (boundary) — should pass (>=)
+    TEST_ASSERT_TRUE(
+        bb_ota_pull_heap_guard_passes(20000, 16384, 30720, 30720, NULL));
+}
+
+void test_heap_guard_passes_total_free_only_floor_set(void)
+{
+    // only total-free floor set; total < floor — trips "total-free"
+    const char *dim = NULL;
+    bool ok = bb_ota_pull_heap_guard_passes(20000, 0, 20000, 30720, &dim);
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_EQUAL_STRING("total-free", dim);
+}
+
+void test_heap_guard_passes_null_out_dim_does_not_crash(void)
+{
+    // caller passes NULL for out_dim — must not crash on guard failure
+    bool ok = bb_ota_pull_heap_guard_passes(8000, 16384, 50000, 0, NULL);
+    TEST_ASSERT_FALSE(ok);
 }

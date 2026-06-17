@@ -203,7 +203,17 @@ bb_err_t bb_update_check_set_firmware_board(const char *board)
 bb_err_t bb_update_check_set_hooks(bb_update_check_pause_cb_t pause,
                                    bb_update_check_resume_cb_t resume)
 {
-    if (!s_initialized) return BB_ERR_INVALID_STATE;
+    // Order-independent: boot-strategy boards lazily init bb_update_check
+    // (via bb_ota_boot) AFTER the consumer wires hooks in app_main. Store the
+    // hooks regardless of init so they survive the later init (which does not
+    // clear them) and are present when run_one fires. Pre-init there is no
+    // worker task yet, so the store is single-threaded — skip the lock; once
+    // initialized, take the lock as before.
+    if (!s_initialized) {
+        s_pause_hook  = pause;
+        s_resume_hook = resume;
+        return BB_OK;
+    }
     pthread_mutex_lock(&s_lock);
     s_pause_hook  = pause;
     s_resume_hook = resume;
