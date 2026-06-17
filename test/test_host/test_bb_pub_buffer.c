@@ -515,3 +515,81 @@ void test_bb_pub_buffer_always_off_regression(void)
     bb_pub_buffer_stats(&stats);
     TEST_ASSERT_EQUAL_size_t(0, stats.count);
 }
+
+// ---------------------------------------------------------------------------
+// Oversized-entry fallback tests (B1-oversize-fallback)
+// ---------------------------------------------------------------------------
+
+// Source that emits a payload large enough to exceed BB_PUB_BUFFER_ENTRY_MAX.
+// We add a string field with 300 'x' characters; together with the topic and
+// the mandatory "ts" field the serialized entry will exceed the ring slot.
+static bool oversized_source_fn(bb_json_t obj, void *ctx)
+{
+    (void)ctx;
+    // 300-char value: ensures serialized JSON >> CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES (256).
+    char big[301];
+    memset(big, 'x', 300);
+    big[300] = '\0';
+    bb_json_obj_set_string(obj, "data", big);
+    return true;
+}
+
+// 17. Always-on: oversized entry is published directly instead of being
+//     dropped.  buffer_capture rejects it (entry_len > BB_PUB_BUFFER_ENTRY_MAX)
+//     so the always-on path must fall through to a direct sk->publish call.
+void test_bb_pub_buffer_always_oversized_published_directly(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(true);
+
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("big", oversized_source_fn, NULL);
+
+    bb_pub_tick_once();
+
+    // The oversized entry must have been delivered directly — not dropped.
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, s_ctx.count,
+        "always-on oversized entry must be published directly (not dropped)");
+
+    // The payload must contain the oversized field.
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(s_ctx.entries[0].payload, "\"data\""),
+        "oversized direct-publish payload must contain the data field");
+
+    // Ring must be empty: the oversized entry was never enqueued.
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
+}
+
+// 18. Always-on: a normal-sized payload still goes through the ring
+//     (enqueue → drain), not via direct publish.  This confirms the
+//     fallback path only activates for oversized entries.
+void test_bb_pub_buffer_always_normal_goes_through_ring(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(true);
+
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("small", source_fn, NULL);   /* tiny payload */
+
+    // Tick with sink failing: entry should be enqueued in ring, not published.
+    s_ctx.fail = true;
+    bb_pub_tick_once();
+
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(1, stats.count);   /* enqueued in ring */
+    TEST_ASSERT_EQUAL_INT(0, s_ctx.count);      /* NOT published directly */
+
+    // Now succeed: ring drains normally.
+    s_ctx.fail = false;
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();   /* 1 live + 1 drained = 2 */
+
+    TEST_ASSERT_EQUAL_INT(2, s_ctx.count);
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);   /* ring empty */
+}
