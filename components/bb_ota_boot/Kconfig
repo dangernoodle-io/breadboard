@@ -45,14 +45,17 @@ config BB_OTA_BOOT_STATUS_HTTP
         POST /api/update/check   — on-demand one-shot manifest check. Guards
                                    against low heap: if the largest contiguous
                                    internal block is below the TLS threshold
-                                   (CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES,
-                                   default 9216 bytes) it returns 503
-                                   {"error":"insufficient_heap"} and leaves the
-                                   cached result intact. Otherwise spawns a
-                                   transient fat-stack task that calls
-                                   bb_update_check_now() then exits; responds
-                                   202 {"status":"checking"} immediately. Client
-                                   polls GET /api/update/status for results.
+                                   (auto-derived from
+                                   CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN + ~1 KB,
+                                   or overridden by
+                                   CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES) it
+                                   returns 503 {"error":"insufficient_heap"}
+                                   and leaves the cached result intact.
+                                   Otherwise spawns a transient fat-stack task
+                                   that calls bb_update_check_now() then exits;
+                                   responds 202 {"status":"checking"}
+                                   immediately. Client polls
+                                   GET /api/update/status for results.
 
       Intended for boot-strategy boards (e.g. ESP32-S2) that skip the
       persistent bb_update_check worker (CONFIG_BB_UPDATE_CHECK_AUTOREGISTER

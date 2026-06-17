@@ -33,6 +33,23 @@ void bb_ota_pull_set_http_timeout_ms(uint32_t ms);
 bool bb_ota_pull_apply_cache_is_fresh(bool last_check_ok, int64_t last_check_us,
                                       int64_t now_us, int32_t window_s);
 
+/**
+ * Pure pre-flight heap guard predicate — no ESP-IDF dependencies.
+ *
+ * Returns true when both heap dimensions clear their floors (OTA may proceed).
+ * Returns false when either dimension is below its floor; *out_dim is set to
+ * "contiguous" or "total-free" to identify which dimension tripped.
+ *
+ * @param largest_block    measured largest contiguous free block (bytes)
+ * @param contiguous_floor minimum required contiguous block (0 = disabled)
+ * @param total_free       measured total free heap (bytes)
+ * @param total_floor      minimum required total free heap (0 = disabled)
+ * @param out_dim          on failure, points to a string literal; may be NULL
+ */
+bool bb_ota_pull_heap_guard_passes(size_t largest_block, size_t contiguous_floor,
+                                   size_t total_free, size_t total_floor,
+                                   const char **out_dim);
+
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
 

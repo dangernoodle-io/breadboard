@@ -27,3 +27,19 @@ bb_err_t bb_ota_pull_fetch_manifest_for_test(char *out_tag, size_t tag_cap,
  * @param data_complete result of esp_https_ota_is_complete_data_received()
  */
 bool bb_ota_pull_download_should_retry(int perform_err, bool data_complete);
+
+/**
+ * Pure pre-flight heap guard predicate (portable, no ESP-IDF types).
+ * Returns true when the guard passes (OTA/check may proceed), false when
+ * either heap dimension is below its configured floor.
+ *
+ * @param largest_block    measured largest contiguous free block (bytes)
+ * @param contiguous_floor minimum required contiguous block (0 = disabled)
+ * @param total_free       measured total free heap (bytes)
+ * @param total_floor      minimum required total free heap (0 = disabled)
+ * @param out_dim          on failure, points to "contiguous" or "total-free";
+ *                         may be NULL when the label is not needed
+ */
+bool bb_ota_pull_heap_guard_passes(size_t largest_block, size_t contiguous_floor,
+                                   size_t total_free, size_t total_floor,
+                                   const char **out_dim);

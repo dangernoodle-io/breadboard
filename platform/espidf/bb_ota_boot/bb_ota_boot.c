@@ -104,12 +104,25 @@ static char s_status_url[OTA_BOOT_STATUS_URL_MAX]     = {0};
 static char s_status_board[OTA_BOOT_STATUS_BOARD_MAX] = {0};
 static bool s_status_check_initialized                 = false;
 
-// Heap bar for the on-demand check — mirrors bb_ota_pull's pre-flight guard.
-// Default matches CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES (9216).
-#ifndef CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
-#  define BB_OTA_BOOT_STATUS_MIN_HEAP 9216
+// Heap bar for the on-demand check — same derivation as bb_ota_pull's pre-flight
+// guard. Both must match; MUST keep in sync if this block is ever moved.
+//   CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES:  0 = auto-derive (default),
+//   >0 = explicit byte override, <0 = disable the guard.
+#if CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES > 0
+#  define BB_OTA_HEAP_FLOOR_BYTES CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
+#elif CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES < 0
+#  define BB_OTA_HEAP_FLOOR_BYTES 0   /* guard disabled */
+#elif defined(CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN)
+#  define BB_OTA_HEAP_FLOOR_BYTES (CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN + 1024)
 #else
-#  define BB_OTA_BOOT_STATUS_MIN_HEAP CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
+#  define BB_OTA_HEAP_FLOOR_BYTES 0
+#endif
+#define BB_OTA_BOOT_STATUS_MIN_HEAP BB_OTA_HEAP_FLOOR_BYTES
+
+// Total-free-heap bar — companion to the contiguous bar above. Mirrors
+// CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES from bb_ota_pull/Kconfig.
+#ifndef CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES
+#  define CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES 0
 #endif
 
 // Ensure bb_update_check is ready for the on-demand routes. Called at init
@@ -144,28 +157,38 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
     bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
     bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
 
-#if BB_OTA_BOOT_STATUS_MIN_HEAP > 0
-    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (largest < (size_t)BB_OTA_BOOT_STATUS_MIN_HEAP) {
+#if BB_OTA_BOOT_STATUS_MIN_HEAP > 0 || CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES > 0
+    // Pre-check heap guard: fire check_on_apply (or 503) if either dimension
+    // is too low — contiguous block for the mbedTLS IN buffer, total free for
+    // the whole handshake transient (~20 KB on esp32-s2-mini).
+    {
+        size_t largest    = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        const char *dim   = NULL;
+        if (!bb_ota_pull_heap_guard_passes(largest, BB_OTA_BOOT_STATUS_MIN_HEAP,
+                                           total_free, CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES,
+                                           &dim)) {
 #if CONFIG_BB_OTA_CHECK_ON_APPLY_FALLBACK
-        bb_log_w(TAG, "check: insufficient heap (%u < %u), returning check_on_apply directive",
-                 (unsigned)largest, (unsigned)BB_OTA_BOOT_STATUS_MIN_HEAP);
-        bb_update_check_mark_check_on_apply();
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "status", "check_on_apply");
-        bb_http_resp_json_obj_end(&obj);
-        return BB_OK;
+            bb_log_w(TAG, "check: %s heap guard failed (largest=%u total_free=%u), "
+                     "returning check_on_apply directive",
+                     dim, (unsigned)largest, (unsigned)total_free);
+            bb_update_check_mark_check_on_apply();
+            bb_http_json_obj_stream_t obj;
+            bb_http_resp_json_obj_begin(req, &obj);
+            bb_http_resp_json_obj_set_str(&obj, "status", "check_on_apply");
+            bb_http_resp_json_obj_end(&obj);
+            return BB_OK;
 #else
-        bb_log_w(TAG, "check: insufficient heap (%u < %u), skipping",
-                 (unsigned)largest, (unsigned)BB_OTA_BOOT_STATUS_MIN_HEAP);
-        bb_http_resp_set_status(req, 503);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "insufficient_heap");
-        bb_http_resp_json_obj_end(&obj);
-        return BB_OK;
+            bb_log_w(TAG, "check: %s heap guard failed (largest=%u total_free=%u), skipping",
+                     dim, (unsigned)largest, (unsigned)total_free);
+            bb_http_resp_set_status(req, 503);
+            bb_http_json_obj_stream_t obj;
+            bb_http_resp_json_obj_begin(req, &obj);
+            bb_http_resp_json_obj_set_str(&obj, "error", "insufficient_heap");
+            bb_http_resp_json_obj_end(&obj);
+            return BB_OK;
 #endif
+        }
     }
 #endif
 

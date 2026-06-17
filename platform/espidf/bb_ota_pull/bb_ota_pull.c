@@ -287,6 +287,34 @@ bool bb_ota_pull_apply_cache_is_fresh(bool last_check_ok, int64_t last_check_us,
     return age_us <= window_us;
 }
 
+/**
+ * Pure pre-flight heap guard predicate — no ESP-IDF dependencies.
+ *
+ * Returns true when the guard PASSES (OTA may proceed), false when either
+ * heap dimension is below its configured floor.
+ *
+ * @param largest_block   heap_caps_get_largest_free_block() result (bytes)
+ * @param contiguous_floor  minimum required contiguous block (0 = disabled)
+ * @param total_free      heap_caps_get_free_size() result (bytes)
+ * @param total_floor     minimum required total free heap (0 = disabled)
+ * @param out_dim         on failure, set to "contiguous" or "total-free";
+ *                        may be NULL if the caller does not need the label
+ */
+bool bb_ota_pull_heap_guard_passes(size_t largest_block, size_t contiguous_floor,
+                                   size_t total_free, size_t total_floor,
+                                   const char **out_dim)
+{
+    if (contiguous_floor > 0 && largest_block < contiguous_floor) {
+        if (out_dim) *out_dim = "contiguous";
+        return false;
+    }
+    if (total_floor > 0 && total_free < total_floor) {
+        if (out_dim) *out_dim = "total-free";
+        return false;
+    }
+    return true;
+}
+
 #ifdef BB_OTA_PULL_TESTING
 // Test hook: run ota_fetch_manifest with the currently configured URL/board.
 bb_err_t bb_ota_pull_fetch_manifest_for_test(char *out_tag, size_t tag_cap,
@@ -338,17 +366,43 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
 
     bb_wdt_extend_begin(CONFIG_BB_OTA_PULL_WDT_EXTENDED_S);
 
+// Pre-flight contiguous-heap floor for the OTA TLS handshake. Single source of
+// truth: the mbedTLS IN record buffer the handshake needs is
+// CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN; +~1 KB record overhead. Tuning SSL_IN moves
+// this automatically — one knob. The Kconfig override below is normally left at
+// its auto sentinel.
+//   CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES:  0 = auto-derive (default),
+//   >0 = explicit byte override, <0 = disable the guard.
 #if CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES > 0
-    // Pre-OTA heap guard (B1-237): refuse cleanly if the largest contiguous
-    // internal block can't hold the mbedTLS handshake buffers — better a clear
-    // error than an OOM panic mid-handshake on a tight, no-PSRAM board.
+#  define BB_OTA_HEAP_FLOOR_BYTES CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
+#elif CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES < 0
+#  define BB_OTA_HEAP_FLOOR_BYTES 0   /* guard disabled */
+#elif defined(CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN)
+#  define BB_OTA_HEAP_FLOOR_BYTES (CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN + 1024)
+#else
+#  define BB_OTA_HEAP_FLOOR_BYTES 0
+#endif
+
+#if BB_OTA_HEAP_FLOOR_BYTES > 0 || CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES > 0
+    // Pre-OTA heap guard: refuse cleanly before the TLS handshake if either
+    // heap dimension is too low — better a clear error than an OOM panic.
+    //   Dim-1 (contiguous): largest free block must hold the mbedTLS IN buffer.
+    //   Dim-2 (total free): whole handshake transient (~20 KB) must fit;
+    //     a board can clear dim-1 and still OOM (esp32-s2-mini: ~25 KB total).
     {
-        size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        if (largest < (size_t)CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES) {
-            bb_log_e(TAG, "OTA refused: largest free block %u < %d (TLS won't fit)",
-                     (unsigned)largest, CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES);
-            ota_set_error("insufficient heap for OTA: %u < %d",
-                          (unsigned)largest, CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES);
+        size_t largest    = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        const char *dim   = NULL;
+        if (!bb_ota_pull_heap_guard_passes(largest, BB_OTA_HEAP_FLOOR_BYTES,
+                                           total_free, CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES,
+                                           &dim)) {
+            bb_log_e(TAG, "OTA refused: %s heap guard failed (largest=%u total_free=%u "
+                     "contiguous_floor=%u total_floor=%u)",
+                     dim, (unsigned)largest, (unsigned)total_free,
+                     (unsigned)BB_OTA_HEAP_FLOOR_BYTES,
+                     (unsigned)CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES);
+            ota_set_error("insufficient heap for OTA (%s guard): largest=%u total_free=%u",
+                          dim, (unsigned)largest, (unsigned)total_free);
             ret = ESP_ERR_NO_MEM;
             goto done;
         }

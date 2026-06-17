@@ -30,25 +30,52 @@ config BB_OTA_PULL_WDT_EXTENDED_S
         on exit. 300 s covers a full firmware download over weak WiFi.
 
 config BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
-    int "Pre-OTA minimum largest-free-block guard (bytes, 0=off)"
-    range 0 131072
-    default 9216
+    int "Pre-OTA minimum largest-free-block guard (bytes; 0=auto-derive, <0=disable)"
+    range -1 131072
+    default 0
     help
         Pre-flight heap guard. Before the TLS handshake, bb_ota_pull checks
         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)
-        and refuses the pull (clean error, no crash) if it is below this value
-        — the mbedTLS IN buffer + handshake need a contiguous internal block.
+        and refuses the pull (clean error, no crash) if it is below the
+        derived floor — the mbedTLS IN buffer + handshake need a contiguous
+        internal block.
 
-        Default 9216 (≈ CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN 8192 + ~1 KB record
-        overhead) so a low-heap or fragmented no-PSRAM board refuses the OTA
-        cleanly instead of OOM-crashing mid-TLS-handshake. The guard is inert
-        on boards with adequate heap headroom (all current pull-strategy boards
-        have well over 9 KB largest free block at OTA time).
+        0 (default) = auto-derive: floor = CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN
+        + ~1 KB record overhead. This is the single knob — tune SSL_IN and the
+        guard follows automatically everywhere (pull guard and boot-status
+        check).
 
-        If your project raises CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN above 8192,
-        set this to that value + ~1024 to match. Set to 0 to disable the check
-        entirely (restores the pre-#330 behaviour). Does not meaningfully affect
-        the full-heap OTA boot-mode path (ample heap by construction).
+        Positive value = explicit byte override; use this if the auto formula
+        does not match your board's real handshake budget.
+
+        Negative value = disable the guard entirely (restores pre-#330
+        behaviour).
+
+        Gates both the bb_ota_pull pre-flight check and the boot-status
+        POST /api/update/check heap guard (bb_ota_boot).
+
+config BB_OTA_PULL_MIN_FREE_HEAP_BYTES
+    int "Pre-OTA minimum total-free-heap guard (bytes; 0=disabled)"
+    range 0 262144
+    default 0
+    help
+        Total-free-heap pre-flight floor (heap_caps_get_free_size,
+        MALLOC_CAP_INTERNAL|8BIT), the companion to
+        BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES (which guards the largest
+        *contiguous* block).
+
+        The contiguous guard ensures the biggest single mbedTLS alloc
+        fits; this ensures the *whole* handshake transient fits — a
+        board can clear the contiguous bar and still OOM-panic if total
+        free is too low (esp32-s2-mini: ~20 KB transient vs ~25 KB
+        free).
+
+        0 (default) = disabled, so boards with ample heap are
+        unaffected; set it on heap-tight boot-strategy boards (~30720
+        covers a GitHub TLS handshake + margin) so POST
+        /api/update/check returns check_on_apply instead of panicking.
+
+        Gates both the pull pre-flight and the boot-status check.
 
 config BB_OTA_PULL_HTTP_TIMEOUT_MS
     int "Per-recv HTTP timeout (ms) for OTA download"

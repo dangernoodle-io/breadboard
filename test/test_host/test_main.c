@@ -125,6 +125,16 @@ void test_apply_cache_is_fresh_last_check_ok_false_returns_false(void);
 void test_apply_cache_is_fresh_window_zero_always_returns_false(void);
 void test_apply_cache_is_fresh_exactly_at_window_boundary_returns_true(void);
 void test_apply_cache_is_fresh_one_us_past_window_returns_false(void);
+void test_heap_guard_passes_both_disabled_always_passes(void);
+void test_heap_guard_passes_contiguous_ok_total_disabled(void);
+void test_heap_guard_passes_contiguous_fails(void);
+void test_heap_guard_passes_total_free_fails(void);
+void test_heap_guard_passes_both_ok(void);
+void test_heap_guard_passes_contiguous_fails_before_total_free_checked(void);
+void test_heap_guard_passes_exactly_at_contiguous_floor(void);
+void test_heap_guard_passes_exactly_at_total_free_floor(void);
+void test_heap_guard_passes_total_free_only_floor_set(void);
+void test_heap_guard_passes_null_out_dim_does_not_crash(void);
 
 // Forward declarations from test_bb_ota_pull_manifest.c
 void test_ota_pull_manifest_fetch_success(void);
@@ -1947,7 +1957,7 @@ void test_bb_update_check_custom_parser_body_exceeds_buf(void);
 void test_bb_update_check_custom_parser_post_initial_publishes(void);
 void test_bb_update_check_set_task_core_host_is_noop(void);
 void test_bb_update_check_set_task_priority_host_is_noop(void);
-void test_bb_update_check_set_hooks_before_init_returns_invalid_state(void);
+void test_bb_update_check_set_hooks_before_init_stores_hooks(void);
 void test_bb_update_check_set_hooks_null_clears(void);
 void test_bb_update_check_hooks_called_in_order_on_success(void);
 void test_bb_update_check_hooks_resume_fires_on_transport_error(void);
@@ -2687,6 +2697,18 @@ int main(void) {
     RUN_TEST(test_apply_cache_is_fresh_window_zero_always_returns_false);
     RUN_TEST(test_apply_cache_is_fresh_exactly_at_window_boundary_returns_true);
     RUN_TEST(test_apply_cache_is_fresh_one_us_past_window_returns_false);
+
+    // OTA pull — combined heap guard predicate (contiguous + total-free)
+    RUN_TEST(test_heap_guard_passes_both_disabled_always_passes);
+    RUN_TEST(test_heap_guard_passes_contiguous_ok_total_disabled);
+    RUN_TEST(test_heap_guard_passes_contiguous_fails);
+    RUN_TEST(test_heap_guard_passes_total_free_fails);
+    RUN_TEST(test_heap_guard_passes_both_ok);
+    RUN_TEST(test_heap_guard_passes_contiguous_fails_before_total_free_checked);
+    RUN_TEST(test_heap_guard_passes_exactly_at_contiguous_floor);
+    RUN_TEST(test_heap_guard_passes_exactly_at_total_free_floor);
+    RUN_TEST(test_heap_guard_passes_total_free_only_floor_set);
+    RUN_TEST(test_heap_guard_passes_null_out_dim_does_not_crash);
 
     // OTA pull — streaming manifest fetch
     RUN_TEST(test_ota_pull_manifest_fetch_success);
@@ -4356,7 +4378,7 @@ int main(void) {
     RUN_TEST(test_bb_update_check_custom_parser_post_initial_publishes);
     RUN_TEST(test_bb_update_check_set_task_core_host_is_noop);
     RUN_TEST(test_bb_update_check_set_task_priority_host_is_noop);
-    RUN_TEST(test_bb_update_check_set_hooks_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_update_check_set_hooks_before_init_stores_hooks);
     RUN_TEST(test_bb_update_check_set_hooks_null_clears);
     RUN_TEST(test_bb_update_check_hooks_called_in_order_on_success);
     RUN_TEST(test_bb_update_check_hooks_resume_fires_on_transport_error);

@@ -546,11 +546,23 @@ void test_bb_update_check_set_task_priority_host_is_noop(void)
 // bb_update_check_set_hooks
 // ---------------------------------------------------------------------------
 
-void test_bb_update_check_set_hooks_before_init_returns_invalid_state(void)
+void test_bb_update_check_set_hooks_before_init_stores_hooks(void)
 {
+    // Boot-strategy boards call set_hooks in app_main BEFORE bb_update_check
+    // is lazily initialized by bb_ota_boot. The store must succeed (BB_OK) and
+    // the hooks must survive the later bb_update_check_init (which does not
+    // clear s_pause_hook/s_resume_hook) so run_one fires them.
     reset_world();
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE,
-                      bb_update_check_set_hooks(hook_pause, hook_resume));
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_set_hooks(hook_pause, hook_resume));
+    // Now init (as the lazy path would). Hooks must still be in place.
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_init(NULL));
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    TEST_ASSERT_EQUAL(1, g_pause_calls);
+    TEST_ASSERT_EQUAL(1, g_resume_calls);
+    TEST_ASSERT_TRUE(g_pause_order < g_resume_order);
 }
 
 void test_bb_update_check_set_hooks_null_clears(void)
