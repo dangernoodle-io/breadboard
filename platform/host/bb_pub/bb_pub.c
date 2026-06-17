@@ -280,14 +280,14 @@ static bool buffer_capture(const char *topic, const char *payload, int payload_l
 
     size_t topic_len = strlen(topic);
     if (topic_len >= BB_PUB_BUFFER_TOPIC_MAX) {
-        bb_log_w(TAG, "buffer: topic too long (%zu), skipping capture", topic_len);
+        bb_log_d(TAG, "buffer: topic too long (%zu), not buffered", topic_len);
         return false;
     }
 
     // Pack: topic + NUL + payload
     size_t entry_len = topic_len + 1 + (size_t)payload_len;
     if (entry_len > BB_PUB_BUFFER_ENTRY_MAX) {
-        bb_log_w(TAG, "buffer: entry too large (%zu > %zu), skipping capture",
+        bb_log_d(TAG, "buffer: entry too large (%zu > %zu), not buffered",
                  entry_len, (size_t)BB_PUB_BUFFER_ENTRY_MAX);
         return false;
     }
@@ -751,6 +751,7 @@ bb_err_t bb_pub_tick_once(void)
                 // data isn't lost.  Falls through to sk->publish below.
                 // Note: last_publish_ok reflects ring-drain status, so this
                 // direct publish does not affect drained semantics.
+                bb_log_d(TAG, "buffer: oversized entry published directly (not buffered for replay)");
             }
 #endif
 
