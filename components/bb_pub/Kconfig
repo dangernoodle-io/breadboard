@@ -137,6 +137,16 @@ config BB_PUB_BUFFER_TOPIC_MAX
         subtopic length + 2 separators + null terminator. Default 192
         matches the prior hardcoded value (no behavior change).
 
+config BB_PUB_WORKER_CORE
+    int "bb_pub worker task core affinity"
+    default -1
+    range -1 1
+    help
+        -1 = no affinity (default, runs on either core); 0 or 1 = pin the
+        bb_pub worker task to that core. Pin to the network core (0) to
+        serialize with the esp-mqtt task and avoid a dual-core
+        publish/reconnect race (TA-432).
+
 config BB_PUB_BUFFER_ALWAYS
     bool "Always-on ring mode: route all sink[0] telemetry through the ring"
     default n

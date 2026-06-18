@@ -38,6 +38,17 @@ static const char *TAG = "bb_pub";
 #define CONFIG_BB_PUB_WORKER_PRIORITY 1
 #endif
 
+// Worker task core affinity. Tunable via CONFIG_BB_PUB_WORKER_CORE (Kconfig).
+// Default -1 (tskNO_AFFINITY — identical to xTaskCreate behaviour).
+// Set to 0 to pin to the network core and serialize with esp-mqtt (TA-432).
+#ifndef BB_PUB_WORKER_CORE
+#  if defined(CONFIG_BB_PUB_WORKER_CORE)
+#    define BB_PUB_WORKER_CORE CONFIG_BB_PUB_WORKER_CORE
+#  else
+#    define BB_PUB_WORKER_CORE (-1)
+#  endif
+#endif
+
 static bb_periodic_timer_t s_timer  = NULL;
 static SemaphoreHandle_t   s_kick   = NULL;
 static TaskHandle_t        s_worker = NULL;
@@ -75,8 +86,10 @@ static bb_err_t bb_pub_start(void)
     s_kick = xSemaphoreCreateBinary();
     if (!s_kick) return BB_ERR_NO_SPACE;
 
-    if (xTaskCreate(worker_task, "bb_pub", BB_PUB_WORKER_STACK,
-                    NULL, CONFIG_BB_PUB_WORKER_PRIORITY, &s_worker) != pdPASS) {
+    BaseType_t core = (BB_PUB_WORKER_CORE < 0) ? tskNO_AFFINITY : (BaseType_t)BB_PUB_WORKER_CORE;
+    if (xTaskCreatePinnedToCore(worker_task, "bb_pub", BB_PUB_WORKER_STACK,
+                                NULL, CONFIG_BB_PUB_WORKER_PRIORITY, &s_worker,
+                                core) != pdPASS) {
         vSemaphoreDelete(s_kick);
         s_kick = NULL;
         return BB_ERR_INVALID_STATE;
