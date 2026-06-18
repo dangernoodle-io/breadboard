@@ -2373,6 +2373,11 @@ void test_bb_sink_mqtt_returns_ok(void);
 void test_bb_sink_mqtt_tick_forwards_to_mqtt_stub(void);
 void test_bb_sink_mqtt_skipped_source_not_forwarded(void);
 void test_bb_sink_mqtt_multiple_sources_each_forwarded(void);
+void test_bb_sink_mqtt_default_null_out_returns_invalid_arg(void);
+void test_bb_sink_mqtt_default_returns_ok(void);
+void test_bb_sink_mqtt_default_routes_to_live_handle(void);
+void test_bb_sink_mqtt_default_suspend_is_safe_noop(void);
+void test_bb_sink_mqtt_default_resume_routes_to_new_handle(void);
 
 // Forward declarations from test_bb_pub_fan.c
 void test_bb_pub_fan_publishes_expected_fields(void);
@@ -4925,6 +4930,12 @@ int main(void) {
     RUN_TEST(test_bb_sink_mqtt_tick_forwards_to_mqtt_stub);
     RUN_TEST(test_bb_sink_mqtt_skipped_source_not_forwarded);
     RUN_TEST(test_bb_sink_mqtt_multiple_sources_each_forwarded);
+    // bb_sink_mqtt_default tests (B1-296: dynamic handle, OTA suspend/resume)
+    RUN_TEST(test_bb_sink_mqtt_default_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_sink_mqtt_default_returns_ok);
+    RUN_TEST(test_bb_sink_mqtt_default_routes_to_live_handle);
+    RUN_TEST(test_bb_sink_mqtt_default_suspend_is_safe_noop);
+    RUN_TEST(test_bb_sink_mqtt_default_resume_routes_to_new_handle);
 
     // bb_pub_fan tests
     RUN_TEST(test_bb_pub_fan_publishes_expected_fields);
