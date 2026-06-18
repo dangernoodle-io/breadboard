@@ -37,6 +37,26 @@ extern "C" {
  */
 bb_err_t bb_sink_mqtt(bb_mqtt_t h, bb_pub_sink_t *out);
 
+/**
+ * Fill `out` with a dynamic sink that resolves bb_mqtt_default() on EVERY
+ * publish call rather than capturing the handle pointer at registration time.
+ *
+ * This variant survives OTA suspend/resume: bb_mqtt_suspend_default() destroys
+ * the handle and bb_mqtt_resume_default() allocates a NEW one at a different
+ * address.  Because mqtt_publish_default() calls bb_mqtt_default() each time,
+ * it automatically uses the fresh post-resume handle — no re-registration
+ * needed.  During the suspend window (bb_mqtt_default() == NULL),
+ * bb_mqtt_publish() returns BB_ERR_INVALID_ARG and no publish occurs — a clean
+ * no-op, not a use-after-free crash.
+ *
+ * Prefer this variant over bb_sink_mqtt() for the autoregistered default
+ * client.  Use bb_sink_mqtt() only when you hold an explicit handle that you
+ * know is stable for the sink's lifetime.
+ *
+ * @return BB_OK on success; BB_ERR_INVALID_ARG if out is NULL.
+ */
+bb_err_t bb_sink_mqtt_default(bb_pub_sink_t *out);
+
 
 #ifdef __cplusplus
 }

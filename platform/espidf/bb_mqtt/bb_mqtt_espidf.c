@@ -285,7 +285,21 @@ bb_err_t bb_mqtt_publish(bb_mqtt_t handle, const char *topic,
     if (!handle || !topic) return BB_ERR_INVALID_ARG;
     bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)handle;
 
-    int msg_id = esp_mqtt_client_publish(h->client, topic,
+    // Defense-in-depth (B1-296): take the lock, check destroyed/client under it,
+    // capture the client pointer locally, then release BEFORE the blocking publish
+    // call.  Holding the lock across esp_mqtt_client_publish would deadlock the
+    // event handler (which also acquires h->lock on MQTT events).
+    xSemaphoreTake(h->lock, portMAX_DELAY);
+    bool dead = h->destroyed || (h->client == NULL);
+    esp_mqtt_client_handle_t client = h->client;
+    xSemaphoreGive(h->lock);
+
+    if (dead) {
+        bb_log_w(TAG, "publish skipped: handle destroyed or client NULL");
+        return BB_ERR_INVALID_STATE;
+    }
+
+    int msg_id = esp_mqtt_client_publish(client, topic,
                                           payload, len, qos, (int)retain);
     if (msg_id < 0) {
         bb_log_w(TAG, "publish failed: topic=%s", topic);
@@ -376,19 +390,23 @@ bb_err_t bb_mqtt_stop(bb_mqtt_t *handle_p)
 
 // Module-level handle so the autoregistered client lives for the app lifetime.
 //
-// HANDLE STABILITY CONTRACT: s_auto_client is a bb_mqtt_t (void *) whose VALUE
-// changes across suspend/resume — suspend destroys the heap-allocated handle
-// object (frees task + buffers + struct, ~11 KB) and resume recreates it.
-// However, sinks that capture bb_mqtt_default() at boot (e.g. bb_sink_mqtt)
-// publish to the VALUE stored in their bb_pub_sink_t.ctx at the time of each
-// tick, not to the s_auto_client variable itself.  Therefore:
+// HANDLE STABILITY: s_auto_client is a bb_mqtt_t (void *) whose VALUE changes
+// across suspend/resume — suspend destroys the heap-allocated handle object
+// (frees task + buffers + struct, ~11 KB) and resume recreates it at a NEW
+// address.  Any sink that captured the old pointer value holds a use-after-free
+// reference after suspend (B1-296).
 //
-//  - The caller MUST bracket suspend/resume with bb_pub_pause()/bb_pub_resume()
-//    so no tick fires while the handle is destroyed (NULL).
-//  - After resume the sink's ctx pointer remains the stale pre-suspend value.
-//    bb_sink_mqtt reads bb_mqtt_default() at publish time (not at registration
-//    time), so it picks up the fresh handle automatically — no re-registration
-//    is needed.
+// The telemetry autoregister uses bb_sink_mqtt_default() (NOT bb_sink_mqtt())
+// as the bb_pub sink.  bb_sink_mqtt_default() resolves bb_mqtt_default() on
+// every publish call rather than caching the pointer at boot.  This means:
+//
+//  - During the suspend window (s_auto_client == NULL), bb_mqtt_publish()
+//    receives NULL and returns BB_ERR_INVALID_ARG — a clean no-op.
+//  - After resume the sink automatically targets the new handle; no
+//    re-registration is needed.
+//  - Callers SHOULD still bracket suspend/resume with bb_pub_pause()/
+//    bb_pub_resume() to avoid unnecessary publish attempts during the window,
+//    but even without the pause the dynamic sink is safe (no crash).
 //
 // bb_mqtt_default() returns s_auto_client (NULL when destroyed, non-NULL when
 // live).  Callers that snapshot the return value must treat NULL as "suspended".

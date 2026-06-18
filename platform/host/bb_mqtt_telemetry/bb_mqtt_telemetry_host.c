@@ -161,15 +161,17 @@ bb_err_t bb_mqtt_telemetry_init(void)
     if (enabled_str[0] == '1') {
         bb_err_t arc = bb_pub_exclusive_acquire(BB_SINK_MQTT_EXCLUSIVE_ID);
         if (arc == BB_OK) {
-            // WINNER: wire the EARLY-created auto-client as a bb_pub sink.
-            // The handle is stable for the device lifetime (B1-289).
-            bb_mqtt_t h = bb_mqtt_default();
-            if (h && bb_sink_mqtt(h, &s_mqtt_sink) == BB_OK) {
+            // WINNER: wire a dynamic sink that resolves bb_mqtt_default() at
+            // publish time so it survives the OTA suspend/resume client-recreate.
+            // The handle is NOT stable across suspend/resume — capturing it at
+            // boot was a use-after-free (B1-296). bb_sink_mqtt_default() resolves
+            // bb_mqtt_default() on every publish call; a NULL handle (suspend
+            // window) yields a clean no-op rather than dereferencing freed memory.
+            if (bb_sink_mqtt_default(&s_mqtt_sink) == BB_OK) {
                 bb_pub_add_sink(&s_mqtt_sink);
-                bb_log_i(TAG, "boot: mqtt sink registered (winner)");
+                bb_log_i(TAG, "boot: mqtt sink registered (winner, dynamic handle)");
             } else {
-                bb_log_w(TAG, "boot: mqtt enabled but no default handle; "
-                         "sink not registered");
+                bb_log_w(TAG, "boot: mqtt enabled but sink init failed");
             }
         } else {
             // LOSER: another sink won. Write enabled=0 for a consistent next
