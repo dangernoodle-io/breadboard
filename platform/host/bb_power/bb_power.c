@@ -56,6 +56,8 @@ bb_err_t bb_power_poll(bb_power_handle_t h)
     h->cache = s;
     pthread_mutex_unlock(&h->lock);
 
+    if (h->drv->poll) h->drv->poll(h->state);
+
     return BB_OK;
 }
 
