@@ -17,6 +17,7 @@ bb_err_t bb_display_st77xx_init_bus(void);
 void     bb_display_st77xx_clear(uint16_t);
 void     bb_display_st77xx_blit(int16_t, int16_t, uint16_t, uint16_t, const uint16_t *);
 void     bb_display_st77xx_off(void);
+void     bb_display_st77xx_on(void);
 
 static bb_err_t st7789_init(uint16_t *width_out, uint16_t *height_out)
 {
@@ -122,6 +123,7 @@ static const bb_display_backend_t s_backend = {
     .blit         = bb_display_st77xx_blit,
     .flush        = NULL,
     .off          = bb_display_st77xx_off,
+    .on           = bb_display_st77xx_on,
     .draw_text    = NULL,
     .set_rotation = st7789_set_rotation,
 };

@@ -161,6 +161,11 @@ static void ssd1306_off(void)
      * s_owned_bus. */
 }
 
+static void ssd1306_on(void)
+{
+    if (s_panel) esp_lcd_panel_disp_on_off(s_panel, true);
+}
+
 static bb_err_t ssd1306_set_rotation(uint16_t deg, uint16_t *w, uint16_t *h)
 {
     if (!s_panel) return BB_ERR_INVALID_STATE;
@@ -191,6 +196,7 @@ static const bb_display_backend_t s_backend = {
     .blit         = ssd1306_blit,
     .flush        = NULL,            /* every blit/clear pushes immediately */
     .off          = ssd1306_off,
+    .on           = ssd1306_on,
     .draw_text    = NULL,            /* core rasterizes via font + blit */
     .set_rotation = ssd1306_set_rotation,
 };

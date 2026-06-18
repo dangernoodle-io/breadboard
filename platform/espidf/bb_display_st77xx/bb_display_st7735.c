@@ -17,6 +17,7 @@ bb_err_t bb_display_st77xx_init_bus(void);
 void     bb_display_st77xx_clear(uint16_t);
 void     bb_display_st77xx_blit(int16_t, int16_t, uint16_t, uint16_t, const uint16_t *);
 void     bb_display_st77xx_off(void);
+void     bb_display_st77xx_on(void);
 
 static esp_err_t st7735_vendor_init(void)
 {
@@ -183,6 +184,7 @@ static const bb_display_backend_t s_backend = {
     .blit         = bb_display_st77xx_blit,
     .flush        = NULL,
     .off          = bb_display_st77xx_off,
+    .on           = bb_display_st77xx_on,
     .draw_text    = NULL,
     .set_rotation = st7735_set_rotation,
 };
