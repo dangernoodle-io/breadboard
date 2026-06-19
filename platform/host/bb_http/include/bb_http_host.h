@@ -47,6 +47,12 @@ void bb_http_host_capture_set_req_body(const char *body, int len);
 // Only one key=value pair is supported at a time.
 void bb_http_host_capture_set_query_param(const char *key, const char *val);
 
+// Inject a raw query string for multi-param tests (e.g. "schema&format=json").
+// Overrides the single key/val injection when set; both are cleared by
+// bb_http_host_capture_begin. The string is referenced (not copied) and must
+// remain valid until after the handler returns. Pass NULL to clear.
+void bb_http_host_capture_set_query_string(const char *query_string);
+
 // Disarm the active capture slot and populate *out with the intercepted response.
 // Returns BB_OK on success, BB_ERR_INVALID_ARG on NULL args or if req does not
 // match the active slot.

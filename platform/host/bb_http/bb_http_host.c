@@ -40,6 +40,9 @@ typedef struct {
     // injected query params: simple key=value pairs (not owned; caller ensures lifetime)
     const char        *query_key;
     const char        *query_val;
+    // injected raw query string for multi-param tests (not owned; caller ensures lifetime)
+    // e.g. "schema&format=json" — parsed on demand by bb_http_req_query_key_value
+    const char        *query_string;
     // captured CORS headers (for test assertions)
     bool               has_acao;  // Access-Control-Allow-Origin was set
     bool               has_acapn; // Access-Control-Allow-Private-Network was set
@@ -309,7 +312,40 @@ bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
                                      char *out, size_t out_len)
 {
     capture_slot_t *cap = capture_find(req);
-    if (cap && cap->query_key && key && strcmp(cap->query_key, key) == 0 && cap->query_val) {
+    if (!cap || !key) return BB_ERR_INVALID_ARG;
+
+    // Raw query string (multi-param) takes precedence when set.
+    // Parse "key1=val1&key2&key3=val3" style: segments separated by '&'.
+    if (cap->query_string) {
+        size_t klen = strlen(key);
+        const char *p = cap->query_string;
+        while (p && *p) {
+            const char *amp = strchr(p, '&');
+            size_t seg_len = amp ? (size_t)(amp - p) : strlen(p);
+            // Check if this segment starts with key
+            if (seg_len >= klen && strncmp(p, key, klen) == 0) {
+                if (seg_len == klen) {
+                    // bare key (no '='), treat as key=""
+                    if (out_len < 1) return BB_ERR_INVALID_ARG;
+                    out[0] = '\0';
+                    return BB_OK;
+                } else if (p[klen] == '=') {
+                    // key=value
+                    const char *val = p + klen + 1;
+                    size_t vlen = seg_len - klen - 1;
+                    if (vlen + 1 > out_len) return BB_ERR_INVALID_ARG;
+                    memcpy(out, val, vlen);
+                    out[vlen] = '\0';
+                    return BB_OK;
+                }
+            }
+            p = amp ? amp + 1 : NULL;
+        }
+        return BB_ERR_INVALID_ARG;
+    }
+
+    // Legacy single key=value injection.
+    if (cap->query_key && strcmp(cap->query_key, key) == 0 && cap->query_val) {
         size_t vlen = strlen(cap->query_val);
         if (vlen + 1 > out_len) return BB_ERR_INVALID_ARG;
         memcpy(out, cap->query_val, vlen + 1);
@@ -375,6 +411,7 @@ void bb_http_host_capture_begin(bb_http_request_t **out_req)
     s_cap.req_body_len = 0;
     s_cap.query_key    = NULL;
     s_cap.query_val    = NULL;
+    s_cap.query_string = NULL;
     s_cap.has_acao     = false;
     s_cap.has_acapn    = false;
     memset(s_cap.content_type, 0, sizeof(s_cap.content_type));
@@ -391,6 +428,11 @@ void bb_http_host_capture_set_query_param(const char *key, const char *val)
 {
     s_cap.query_key = key;
     s_cap.query_val = val;
+}
+
+void bb_http_host_capture_set_query_string(const char *query_string)
+{
+    s_cap.query_string = query_string;
 }
 
 bb_err_t bb_http_host_capture_end(bb_http_request_t *req,

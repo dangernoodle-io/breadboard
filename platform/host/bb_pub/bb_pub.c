@@ -42,9 +42,15 @@
 #define CONFIG_BB_PUB_INTERVAL_MS 10000
 #endif
 
+#ifndef CONFIG_BB_METRICS_PREFIX
+#define CONFIG_BB_METRICS_PREFIX "bb"
+#endif
+
 // Interval bounds (must match Kconfig range).
 #define BB_PUB_INTERVAL_MS_MIN   1000UL
 #define BB_PUB_INTERVAL_MS_MAX   3600000UL
+
+#define BB_METRICS_PREFIX_MAX 64
 
 // NVS namespace and keys used by bb_pub for its own persistent config.
 #define BB_PUB_NVS_NS           "bb_pub"
@@ -61,6 +67,8 @@ typedef struct {
     char            subtopic[CONFIG_BB_PUB_SUBTOPIC_MAX];
     bb_pub_sample_fn fn;
     void            *ctx;
+    uint32_t        last_sample_ms;
+    bool            sampled_ever;
 } bb_pub_source_t;
 
 static bb_pub_source_t s_sources[CONFIG_BB_PUB_MAX_SOURCES];
@@ -506,6 +514,56 @@ bb_err_t bb_pub_get_status(bb_pub_status_t *out)
 }
 
 // ---------------------------------------------------------------------------
+// Public API — source enumeration (used by bb_telemetry for /api/telemetry/metrics)
+// ---------------------------------------------------------------------------
+
+int bb_pub_source_count(void)
+{
+    return s_source_count;
+}
+
+bb_err_t bb_pub_source_info(int i, const char **subtopic, bb_pub_sample_fn *fn,
+                             void **ctx, uint32_t *last_sample_ms, bool *sampled_ever)
+{
+    if (i < 0 || i >= s_source_count) return BB_ERR_INVALID_ARG;
+    bb_pub_source_t *src = &s_sources[i];
+    if (subtopic)      *subtopic      = src->subtopic;
+    if (fn)            *fn            = src->fn;
+    if (ctx)           *ctx           = src->ctx;
+    if (last_sample_ms) *last_sample_ms = src->last_sample_ms;
+    if (sampled_ever)  *sampled_ever  = src->sampled_ever;
+    return BB_OK;
+}
+
+bool bb_pub_ring_undersized(void)
+{
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    return buffer_always_on() &&
+           CONFIG_BB_PUB_BUFFER_MAX_ENTRIES < s_source_count;
+#else
+    return false;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Prometheus metric-name prefix
+// ---------------------------------------------------------------------------
+
+static char s_metrics_prefix[BB_METRICS_PREFIX_MAX] = CONFIG_BB_METRICS_PREFIX;
+
+void bb_pub_set_metrics_prefix(const char *prefix)
+{
+    if (!prefix) return;
+    strncpy(s_metrics_prefix, prefix, BB_METRICS_PREFIX_MAX - 1);
+    s_metrics_prefix[BB_METRICS_PREFIX_MAX - 1] = '\0';
+}
+
+const char *bb_pub_metrics_prefix(void)
+{
+    return s_metrics_prefix;
+}
+
+// ---------------------------------------------------------------------------
 // Public API — sources
 // ---------------------------------------------------------------------------
 
@@ -529,8 +587,10 @@ bb_err_t bb_pub_register_source(const char *subtopic, bb_pub_sample_fn fn, void 
     bb_pub_source_t *src = &s_sources[s_source_count++];
     strncpy(src->subtopic, subtopic, sizeof(src->subtopic) - 1);
     src->subtopic[sizeof(src->subtopic) - 1] = '\0';
-    src->fn  = fn;
-    src->ctx = ctx;
+    src->fn             = fn;
+    src->ctx            = ctx;
+    src->last_sample_ms = 0;
+    src->sampled_ever   = false;
     return BB_OK;
 }
 
@@ -717,6 +777,10 @@ bb_err_t bb_pub_tick_once(void)
             continue;
         }
 
+        // Record per-source liveness on the publish==true branch.
+        src->last_sample_ms = ts_ms;
+        src->sampled_ever   = true;
+
         // Inject shared timestamp field (uptime-ms; see file-level note above).
         bb_json_obj_set_number(obj, "ts", (double)ts_ms);
 
@@ -893,6 +957,10 @@ void bb_pub_exclusive_reset(void)
 
 void bb_pub_test_reset(void)
 {
+    for (int i = 0; i < s_source_count; i++) {
+        s_sources[i].last_sample_ms = 0;
+        s_sources[i].sampled_ever   = false;
+    }
     s_source_count             = 0;
     s_hwm_warned               = false;
 #if CONFIG_BB_PUB_BUFFER_ENABLE
@@ -911,6 +979,8 @@ void bb_pub_test_reset(void)
     s_config_loaded            = true;   /* bypass NVS for tests */
     s_interval_apply_hook      = NULL;
     s_exclusive_holder         = NULL;
+    strncpy(s_metrics_prefix, CONFIG_BB_METRICS_PREFIX, BB_METRICS_PREFIX_MAX - 1);
+    s_metrics_prefix[BB_METRICS_PREFIX_MAX - 1] = '\0';
 #if CONFIG_BB_PUB_BUFFER_ENABLE
     if (s_buffer) {
         bb_ring_clear(s_buffer);
