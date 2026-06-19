@@ -2337,6 +2337,25 @@ void test_bb_pub_telemetry_patch_enabled_true_persists(void);
 void test_bb_pub_telemetry_patch_enabled_reflected_in_get(void);
 void test_bb_pub_telemetry_patch_partial_only_changes_present_fields(void);
 
+// Forward declarations from test_bb_telemetry_coupling.c
+void test_couple_publisher_no_explicit_any_sink_true(void);
+void test_couple_publisher_no_explicit_any_sink_false(void);
+void test_couple_publisher_explicit_true_overrides_no_sink(void);
+void test_couple_publisher_explicit_false_overrides_sink_enabled(void);
+void test_couple_publisher_explicit_true_with_sink_enabled(void);
+void test_couple_publisher_explicit_false_with_no_sink(void);
+void test_coupling_enable_mqtt_sets_publisher_enabled(void);
+void test_coupling_disable_last_sink_sets_publisher_disabled(void);
+void test_coupling_enable_http_sets_publisher_enabled(void);
+void test_coupling_disable_http_when_mqtt_still_enabled_keeps_publisher_enabled(void);
+void test_coupling_disable_last_http_sink_sets_publisher_disabled(void);
+void test_coupling_explicit_publisher_enabled_false_wins_when_mqtt_enabled(void);
+void test_coupling_explicit_publisher_enabled_true_wins_when_no_sink_enabled(void);
+void test_no_coupling_when_sink_patch_has_no_enabled_field(void);
+void test_no_coupling_when_only_publisher_section_patched(void);
+void test_coupling_enable_mqtt_and_http_in_same_patch_enables_publisher(void);
+void test_coupling_disable_both_sinks_in_same_patch_disables_publisher(void);
+
 // Forward declarations from test_bb_pub_buffer.c
 void test_bb_pub_buffer_failing_sink_enqueues(void);
 void test_bb_pub_buffer_replay_oldest_first(void);
@@ -4941,6 +4960,25 @@ int main(void) {
     RUN_TEST(test_bb_pub_telemetry_patch_enabled_true_persists);
     RUN_TEST(test_bb_pub_telemetry_patch_enabled_reflected_in_get);
     RUN_TEST(test_bb_pub_telemetry_patch_partial_only_changes_present_fields);
+
+    // publisher–sink coupling tests
+    RUN_TEST(test_couple_publisher_no_explicit_any_sink_true);
+    RUN_TEST(test_couple_publisher_no_explicit_any_sink_false);
+    RUN_TEST(test_couple_publisher_explicit_true_overrides_no_sink);
+    RUN_TEST(test_couple_publisher_explicit_false_overrides_sink_enabled);
+    RUN_TEST(test_couple_publisher_explicit_true_with_sink_enabled);
+    RUN_TEST(test_couple_publisher_explicit_false_with_no_sink);
+    RUN_TEST(test_coupling_enable_mqtt_sets_publisher_enabled);
+    RUN_TEST(test_coupling_disable_last_sink_sets_publisher_disabled);
+    RUN_TEST(test_coupling_enable_http_sets_publisher_enabled);
+    RUN_TEST(test_coupling_disable_http_when_mqtt_still_enabled_keeps_publisher_enabled);
+    RUN_TEST(test_coupling_disable_last_http_sink_sets_publisher_disabled);
+    RUN_TEST(test_coupling_explicit_publisher_enabled_false_wins_when_mqtt_enabled);
+    RUN_TEST(test_coupling_explicit_publisher_enabled_true_wins_when_no_sink_enabled);
+    RUN_TEST(test_no_coupling_when_sink_patch_has_no_enabled_field);
+    RUN_TEST(test_no_coupling_when_only_publisher_section_patched);
+    RUN_TEST(test_coupling_enable_mqtt_and_http_in_same_patch_enables_publisher);
+    RUN_TEST(test_coupling_disable_both_sinks_in_same_patch_disables_publisher);
 
     // bb_pub_buffer tests — store-and-forward ring (B1-285)
     RUN_TEST(test_bb_pub_buffer_failing_sink_enqueues);

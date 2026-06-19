@@ -56,6 +56,15 @@ bool bb_telemetry_pending_reboot(void);
 // Intended for use in bb_telemetry_init to replace the generic {type:object}.
 char *bb_telemetry_assemble_get_schema(void);
 
+// Pure coupling helper: given post-patch sink state and whether publisher.enabled
+// was explicitly set in the PATCH body, return the publisher enabled value to
+// persist.  When publisher_explicit is true, publisher_explicit_value wins
+// (user override).  Otherwise returns any_sink_enabled (auto-coupling).
+// This function has no side effects and is host-testable.
+bool bb_telemetry_couple_publisher(bool any_sink_enabled,
+                                   bool publisher_explicit,
+                                   bool publisher_explicit_value);
+
 // Freeze the telemetry section registry: reject any registrations after this point.
 // Called by bb_telemetry_init (order 5); also callable by tests.
 void bb_telemetry_freeze(void);
