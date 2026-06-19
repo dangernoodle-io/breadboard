@@ -5,9 +5,18 @@
 #include "bb_telemetry.h"
 #include "bb_section.h"
 #include "bb_log.h"
+#include "bb_nv.h"
+#include "bb_pub.h"
+#include "bb_json.h"
 
 #include <stddef.h>
 #include <string.h>
+
+// NVS namespace + key for each sink's enabled flag.
+// These mirror the constants in bb_mqtt_telemetry and bb_sink_http_telemetry.
+#define BB_TELEMETRY_MQTT_NVS_NS     "bb_mqtt"
+#define BB_TELEMETRY_HTTP_NVS_NS     "bb_sink_http"
+#define BB_TELEMETRY_SINK_NVS_KEY    "enabled"
 
 static const char *TAG = "bb_telemetry";
 
@@ -61,8 +70,40 @@ void bb_telemetry_build_get(bb_json_t root)
     bb_section_build_get(&s_reg, root);
 }
 
+// ---------------------------------------------------------------------------
+// Publisher–sink coupling helper (pure, host-testable)
+// ---------------------------------------------------------------------------
+
+// Determine the publisher enabled value to persist after a PATCH that may
+// have changed sink enabled flags.
+//
+// Semantics:
+//   - If publisher_explicit is true, the caller's body explicitly set
+//     publisher.enabled — honour publisher_explicit_value directly (override).
+//   - Otherwise auto-couple: publisher enabled = any_sink_enabled.
+//
+// Returns the value that bb_pub_set_enabled should be called with.
+bool bb_telemetry_couple_publisher(bool any_sink_enabled,
+                                   bool publisher_explicit,
+                                   bool publisher_explicit_value)
+{
+    if (publisher_explicit) {
+        return publisher_explicit_value;
+    }
+    return any_sink_enabled;
+}
+
 bb_err_t bb_telemetry_dispatch_patch(bb_json_t body)
 {
+    // Snapshot sink enabled states BEFORE applying the patch so we can
+    // detect which sinks the body changed.
+    char mqtt_pre[4] = "0";
+    char http_pre[4] = "0";
+    bb_nv_get_str(BB_TELEMETRY_MQTT_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
+                  mqtt_pre, sizeof(mqtt_pre), "0");
+    bb_nv_get_str(BB_TELEMETRY_HTTP_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
+                  http_pre, sizeof(http_pre), "0");
+
     // Delegate to bb_section_dispatch_patch for consistent pre-validation
     // (all-or-nothing: read-only section in body → reject before any apply).
     bb_err_t rc = bb_section_dispatch_patch(&s_reg, body);
@@ -83,6 +124,79 @@ bb_err_t bb_telemetry_dispatch_patch(bb_json_t body)
         s_pending_reboot = true;
         bb_log_i(TAG, "telemetry config patched; reboot required");
     }
+
+    // ---------------------------------------------------------------------------
+    // Publisher–sink coupling (B1-pub-sink-coupling).
+    //
+    // If the body changed a sink's enabled field (mqtt or http section present),
+    // sync the publisher's persisted enabled flag to (any sink enabled), unless
+    // the same body ALSO explicitly set publisher.enabled (user override wins).
+    // ---------------------------------------------------------------------------
+    bool mqtt_section_present = (bb_json_obj_get_item(body, "mqtt") != NULL);
+    bool http_section_present = (bb_json_obj_get_item(body, "http") != NULL);
+
+    // Did the body change any sink's enabled state?
+    bool sink_enabled_changed = false;
+    if (mqtt_section_present || http_section_present) {
+        // Read post-patch sink enabled state from NVS.
+        char mqtt_post[4] = "0";
+        char http_post[4] = "0";
+        bb_nv_get_str(BB_TELEMETRY_MQTT_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
+                      mqtt_post, sizeof(mqtt_post), "0");
+        bb_nv_get_str(BB_TELEMETRY_HTTP_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
+                      http_post, sizeof(http_post), "0");
+
+        // Coupling triggers when any sink enabled flag was written (changed or
+        // re-written) by the patch, i.e. the mqtt or http section was present
+        // AND contained an "enabled" key — inferred from pre vs post comparison
+        // or by checking body sub-objects directly.
+        bool mqtt_enabled_in_patch = false;
+        bool http_enabled_in_patch = false;
+        if (mqtt_section_present) {
+            bb_json_t mqtt_sub = bb_json_obj_get_item(body, "mqtt");
+            bool dummy = false;
+            mqtt_enabled_in_patch = bb_json_obj_get_bool(mqtt_sub, "enabled", &dummy);
+        }
+        if (http_section_present) {
+            bb_json_t http_sub = bb_json_obj_get_item(body, "http");
+            bool dummy = false;
+            http_enabled_in_patch = bb_json_obj_get_bool(http_sub, "enabled", &dummy);
+        }
+
+        sink_enabled_changed = (mqtt_enabled_in_patch || http_enabled_in_patch);
+
+        if (sink_enabled_changed) {
+            bool mqtt_now = (mqtt_post[0] == '1');
+            bool http_now = (http_post[0] == '1');
+            bool any_sink_enabled = (mqtt_now || http_now);
+
+            // Check if the same body explicitly set publisher.enabled.
+            bool pub_explicit = false;
+            bool pub_explicit_value = false;
+            bb_json_t pub_sub = bb_json_obj_get_item(body, "publisher");
+            if (pub_sub) {
+                pub_explicit = bb_json_obj_get_bool(pub_sub, "enabled",
+                                                    &pub_explicit_value);
+            }
+
+            bool new_enabled = bb_telemetry_couple_publisher(
+                any_sink_enabled, pub_explicit, pub_explicit_value);
+            bb_err_t cerr = bb_pub_set_enabled(new_enabled);
+            if (cerr != BB_OK) {
+                bb_log_w(TAG, "couple_publisher: bb_pub_set_enabled failed: %d",
+                         (int)cerr);
+            } else {
+                bb_log_i(TAG, "coupled publisher enabled=%s (mqtt=%s http=%s%s)",
+                         new_enabled ? "true" : "false",
+                         mqtt_now   ? "true" : "false",
+                         http_now   ? "true" : "false",
+                         pub_explicit ? " [explicit override]" : "");
+            }
+        }
+    }
+    (void)mqtt_pre;
+    (void)http_pre;
+
     return BB_OK;
 }
 
