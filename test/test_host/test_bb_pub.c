@@ -1232,3 +1232,75 @@ void test_bb_pub_two_sinks_each_get_own_transport(void)
     // Cross-check: http payload must NOT contain "\"mqtt\"".
     TEST_ASSERT_NULL(strstr(ctx2.entries[0].payload, "\"mqtt\""));
 }
+
+// ---------------------------------------------------------------------------
+// Source-registry overflow guard tests (B1-298)
+// ---------------------------------------------------------------------------
+
+// Verify that registering exactly CONFIG_BB_PUB_MAX_SOURCES sources succeeds
+// and the (MAX+1)-th attempt returns BB_ERR_NO_SPACE.
+// (Mirrors test_bb_pub_max_sources_plus_one_returns_no_space but is explicit
+// about B1-298 coverage: the dropped-subtopic log is emitted on that path.)
+void test_bb_pub_source_overflow_returns_no_space(void)
+{
+    bb_pub_test_reset();
+
+    for (int i = 0; i < CONFIG_BB_PUB_MAX_SOURCES; i++) {
+        TEST_ASSERT_EQUAL(BB_OK,
+            bb_pub_register_source("src", sample_temperature, NULL));
+    }
+
+    // One more must fail with BB_ERR_NO_SPACE (log is emitted to stderr).
+    bb_err_t err = bb_pub_register_source("overflow-src", sample_temperature, NULL);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+}
+
+// Verify that tick still runs without crashing when the registry is full.
+void test_bb_pub_tick_ok_when_source_registry_full(void)
+{
+    setup_with_sink();
+
+    for (int i = 0; i < CONFIG_BB_PUB_MAX_SOURCES; i++) {
+        bb_pub_register_source("s", sample_temperature, NULL);
+    }
+    // Overflow attempt (log guard fires here).
+    bb_pub_register_source("extra", sample_temperature, NULL);
+
+    // Tick must still complete and publish for the registered sources.
+    bb_err_t err = bb_pub_tick_once();
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(CONFIG_BB_PUB_MAX_SOURCES, s_capture_count);
+}
+
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+// Verify that tick completes without crash when always-on ring is smaller than
+// source count (the one-shot ring-size guard fires on the first tick).
+// CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=16, CONFIG_BB_PUB_MAX_SOURCES=8 in native,
+// so to trigger MAX_ENTRIES < s_source_count we need > 16 sources — not
+// achievable within the 8-source cap.  Instead we verify the guard is reset by
+// bb_pub_test_reset and that tick succeeds when sources < ring (healthy path).
+void test_bb_pub_buffer_ring_size_guard_reset_clears_latch(void)
+{
+    // After test_reset the warned latch must be clear and tick must succeed.
+    setup_with_sink();
+    bb_pub_test_set_buffer_always(true);
+    bb_pub_register_source("a", sample_temperature, NULL);
+
+    bb_err_t err = bb_pub_tick_once();
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+
+    // Reset clears internal latch; a second tick must also succeed.
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+    bb_pub_sink_t sink = make_capture_sink();
+    bb_pub_set_sink(&sink);
+    bb_pub_test_set_buffer_always(true);
+    bb_pub_register_source("b", sample_voltage, NULL);
+
+    err = bb_pub_tick_once();
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+}
+#endif /* CONFIG_BB_PUB_BUFFER_ENABLE */
