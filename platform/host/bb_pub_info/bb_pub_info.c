@@ -9,7 +9,6 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_ntp.h"
-#include "bb_ota_validator.h"
 #include "bb_registry.h"
 #include <stdbool.h>
 #include <string.h>
@@ -83,8 +82,14 @@ static bool info_sample(bb_json_t obj, void *ctx)
     bb_board_get_reset_reason(reset_reason, sizeof(reset_reason));
     bb_json_obj_set_string(obj, "reset_reason", reset_reason);
 
-    // ota_validated: true unless running OTA slot is PENDING_VERIFY
-    bb_json_obj_set_bool(obj, "ota_validated", bb_ota_is_validated());
+    // ota_validated: read live from bb_board_get_info() — same source as
+    // /api/info and bb_health — uses the lenient != PENDING_VERIFY check and
+    // re-reads the OTA partition state each call (no stale boot-time cache).
+    {
+        bb_board_info_t _bi;
+        bool _validated = (bb_board_get_info(&_bi) == BB_OK) ? _bi.ota_validated : false;
+        bb_json_obj_set_bool(obj, "ota_validated", _validated);
+    }
 
     // rtc_free: derived from rtc_total - rtc_used (RTC slow memory free bytes)
     size_t rtc_total = bb_board_rtc_total();

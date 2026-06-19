@@ -2463,6 +2463,7 @@ void test_bb_pub_info_has_reset_reason(void);
 void test_bb_pub_info_reset_reason_is_power_on_on_host(void);
 void test_bb_pub_info_has_ota_validated(void);
 void test_bb_pub_info_ota_validated_is_false_on_host(void);
+void test_bb_pub_info_ota_validated_agrees_with_bb_board_after_mark_valid(void);
 void test_bb_pub_info_has_rtc_free(void);
 void test_bb_pub_info_rtc_free_is_zero_on_host(void);
 void test_bb_pub_info_has_time_valid(void);
@@ -5033,6 +5034,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_info_reset_reason_is_power_on_on_host);
     RUN_TEST(test_bb_pub_info_has_ota_validated);
     RUN_TEST(test_bb_pub_info_ota_validated_is_false_on_host);
+    RUN_TEST(test_bb_pub_info_ota_validated_agrees_with_bb_board_after_mark_valid);
     RUN_TEST(test_bb_pub_info_has_rtc_free);
     RUN_TEST(test_bb_pub_info_rtc_free_is_zero_on_host);
     RUN_TEST(test_bb_pub_info_has_time_valid);
