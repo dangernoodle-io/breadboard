@@ -355,6 +355,28 @@ bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
     return BB_ERR_INVALID_ARG;
 }
 
+bool bb_http_req_query_has_key(bb_http_request_t *req, const char *key)
+{
+    capture_slot_t *cap = capture_find(req);
+    if (!cap || !key) return false;
+    size_t klen = strlen(key);
+    if (cap->query_string) {
+        const char *p = cap->query_string;
+        while (p && *p) {
+            const char *amp = strchr(p, '&');
+            size_t seg = amp ? (size_t)(amp - p) : strlen(p);
+            if (seg >= klen && strncmp(p, key, klen) == 0 &&
+                (seg == klen || p[klen] == '=')) {
+                return true;
+            }
+            p = amp ? amp + 1 : NULL;
+        }
+        return false;
+    }
+    if (cap->query_key && strcmp(cap->query_key, key) == 0) return true;
+    return false;
+}
+
 bb_err_t bb_http_req_async_handler_begin(bb_http_request_t *req,
                                          bb_http_request_t **out_async_req)
 {
