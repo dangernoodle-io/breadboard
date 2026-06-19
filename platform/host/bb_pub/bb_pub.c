@@ -129,6 +129,7 @@ static pthread_mutex_t s_tick_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool     s_last_publish_ok  = false;
 static uint32_t s_last_publish_ms  = 0;
 static bool     s_published_ever   = false;
+static bool     s_ring_size_warned = false;
 
 // ---------------------------------------------------------------------------
 // Store-and-forward buffer (CONFIG_BB_PUB_BUFFER_ENABLE)
@@ -513,6 +514,8 @@ bb_err_t bb_pub_register_source(const char *subtopic, bb_pub_sample_fn fn, void 
     if (!subtopic || !fn) return BB_ERR_INVALID_ARG;
 
     if (s_source_count >= CONFIG_BB_PUB_MAX_SOURCES) {
+        bb_log_w(TAG, "source registry full (%d/%d): '%s' dropped",
+                 s_source_count, CONFIG_BB_PUB_MAX_SOURCES, subtopic);
         return BB_ERR_NO_SPACE;
     }
 
@@ -645,6 +648,22 @@ bb_err_t bb_pub_tick_once(void)
 {
     ensure_config_loaded();
     if (!bb_pub_is_enabled()) return BB_OK;
+
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    // One-shot guard: warn when always-on ring is smaller than the per-tick
+    // source count.  In that case the ring evicts the first-enqueued sources
+    // before the drain, causing silent live-data loss every tick.
+    // Emitted once at the first tick (after registration is complete).
+    if (!s_ring_size_warned && buffer_always_on() &&
+        CONFIG_BB_PUB_BUFFER_MAX_ENTRIES < s_source_count) {
+        s_ring_size_warned = true;
+        bb_log_w(TAG,
+                 "always-on ring (%d entries) < source count (%d): "
+                 "first-enqueued sources are evicted before drain every tick "
+                 "(silent live-data loss) — raise CONFIG_BB_PUB_BUFFER_MAX_ENTRIES",
+                 CONFIG_BB_PUB_BUFFER_MAX_ENTRIES, s_source_count);
+    }
+#endif
 
     // Fast pre-check before taking the lock (avoids lock contention when the
     // common case is not paused).  The check is repeated under the lock below.
@@ -876,6 +895,9 @@ void bb_pub_test_reset(void)
 {
     s_source_count             = 0;
     s_hwm_warned               = false;
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    s_ring_size_warned         = false;
+#endif
     s_sink_count               = 0;
     s_last_publish_ok          = false;
     s_last_publish_ms          = 0;

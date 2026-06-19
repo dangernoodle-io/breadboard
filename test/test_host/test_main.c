@@ -2162,6 +2162,11 @@ void test_bb_pub_sink_transport_mqtt_tls_stamped(void);
 void test_bb_pub_sink_transport_http_no_tls_stamped(void);
 void test_bb_pub_sink_no_transport_fields_absent(void);
 void test_bb_pub_two_sinks_each_get_own_transport(void);
+void test_bb_pub_source_overflow_returns_no_space(void);
+void test_bb_pub_tick_ok_when_source_registry_full(void);
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+void test_bb_pub_buffer_ring_size_guard_reset_clears_latch(void);
+#endif
 
 // Forward declarations from test_bb_sensors.c
 void bb_sensors_reset_for_test(void);
@@ -4721,6 +4726,11 @@ int main(void) {
     RUN_TEST(test_bb_pub_sink_transport_http_no_tls_stamped);
     RUN_TEST(test_bb_pub_sink_no_transport_fields_absent);
     RUN_TEST(test_bb_pub_two_sinks_each_get_own_transport);
+    RUN_TEST(test_bb_pub_source_overflow_returns_no_space);
+    RUN_TEST(test_bb_pub_tick_ok_when_source_registry_full);
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    RUN_TEST(test_bb_pub_buffer_ring_size_guard_reset_clears_latch);
+#endif
 
     // bb_section tests
     RUN_TEST(test_bb_section_register_ok);
