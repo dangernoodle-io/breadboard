@@ -469,17 +469,15 @@ static void metrics_emit_pub_health_json(bb_http_json_obj_stream_t *jstream,
 
 static bb_err_t metrics_handler(bb_http_request_t *req)
 {
-    char fmt_buf[16]    = "prom";
-    char schema_buf[8]  = "";
+    char fmt_buf[16] = "prom";
     bool want_json   = false;
-    bool schema_only = false;
 
     bb_http_req_query_key_value(req, "format", fmt_buf, sizeof(fmt_buf));
     if (strncmp(fmt_buf, "json", 4) == 0) want_json = true;
 
-    if (bb_http_req_query_key_value(req, "schema", schema_buf, sizeof(schema_buf)) == BB_OK) {
-        schema_only = true;
-    }
+    // `schema` is a presence flag — bare `?schema` or `?schema=1`. Use has_key
+    // (not key_value) so the bare form works on ESP-IDF too (B1-295 follow-up).
+    bool schema_only = bb_http_req_query_has_key(req, "schema");
 
     const char *prefix = bb_pub_metrics_prefix();
     const char *host   = bb_nv_config_hostname();

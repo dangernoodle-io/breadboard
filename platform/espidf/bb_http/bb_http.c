@@ -612,6 +612,38 @@ bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
     return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
 }
 
+bool bb_http_req_query_has_key(bb_http_request_t *req, const char *key)
+{
+    httpd_req_t *http_req = (httpd_req_t *)req;
+    if (!http_req || !key) return false;
+
+    size_t qlen = httpd_req_get_url_query_len(http_req);
+    if (qlen == 0) return false;
+
+    char *query = malloc(qlen + 1);
+    if (!query) return false;
+
+    bool found = false;
+    if (httpd_req_get_url_query_str(http_req, query, qlen + 1) == ESP_OK) {
+        // Scan &-separated segments for `key` as a whole token (bare or key=...).
+        // httpd_query_key_value can't see bare keys (no '='), so do it ourselves.
+        size_t klen = strlen(key);
+        const char *p = query;
+        while (p && *p) {
+            const char *amp = strchr(p, '&');
+            size_t seg = amp ? (size_t)(amp - p) : strlen(p);
+            if (seg >= klen && strncmp(p, key, klen) == 0 &&
+                (seg == klen || p[klen] == '=')) {
+                found = true;
+                break;
+            }
+            p = amp ? amp + 1 : NULL;
+        }
+    }
+    free(query);
+    return found;
+}
+
 bb_err_t bb_http_req_async_handler_begin(bb_http_request_t *req,
                                          bb_http_request_t **out_async_req)
 {

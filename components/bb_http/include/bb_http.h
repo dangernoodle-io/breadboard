@@ -285,6 +285,12 @@ int bb_http_req_sockfd(bb_http_request_t *req);
 bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
                                      char *out, size_t out_len);
 
+// Return true if the query string contains `key`, whether as a bare flag (`?key`)
+// or with a value (`?key=value`). Use for boolean flag params where presence —
+// not value — matters. Unlike bb_http_req_query_key_value, this detects bare keys
+// on every backend (ESP-IDF's httpd_query_key_value misses keys with no '=').
+bool bb_http_req_query_has_key(bb_http_request_t *req, const char *key);
+
 // Async handler support (ESP-IDF only; used for SSE long-lived connections).
 bb_err_t bb_http_req_async_handler_begin(bb_http_request_t *req,
                                          bb_http_request_t **out_async_req);
