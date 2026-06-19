@@ -532,6 +532,29 @@ Knobs that affect the bb_pub stack's RAM footprint (all in `sdkconfig` / `menuco
 
 **WROOM-32-class (no-PSRAM) guidance.** The classic ESP32 WROOM-32 has ~300 KB usable internal RAM. For plaintext-only deployments, keep `CONFIG_BB_PUB_WORKER_STACK=4096` and skip mbedTLS entirely. If TLS is required, set `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4096`, enable `CONFIG_MBEDTLS_DYNAMIC_BUFFER=y`, and keep `CONFIG_BB_PUB_WORKER_STACK=8192`. The exclusive-sink arbiter guarantees only one telemetry sink (MQTTS or HTTPS) is ever active, so two concurrent TLS sinks cannot coexist by design. The remaining concurrent-TLS scenario to budget heap for is the active telemetry sink (MQTTS or HTTPS) running alongside the HTTPS update-check / OTA-pull client.
 
+### Prometheus metrics (`GET /api/telemetry/metrics`)
+
+Part of **`bb_telemetry`** (B1-295) — not a separate component. It shares `bb_telemetry`'s exact dependency closure (`bb_pub`, `bb_http`, `bb_json`, `bb_nv_config`), so per decision #402 ("extend by default; new component only when it isolates a distinct dependency closure") the route lives in `platform/espidf/bb_telemetry/bb_telemetry_routes.c` and is registered inside `bb_telemetry_init` alongside `/api/telemetry`. It enumerates all registered `bb_pub` sources, calls each sample function, and emits results in Prometheus exposition format or JSON.
+
+**Query params:**
+
+| Param | Values | Effect |
+|-------|--------|--------|
+| `format` | `prom` (default), `json` | Response format |
+| `schema` | bare key (no value) | Return contract/metadata instead of live values |
+
+**Four combos:**
+- `GET /api/telemetry/metrics` → Prometheus text (`text/plain; version=0.0.4`) with live values
+- `GET /api/telemetry/metrics?format=json` → JSON snapshot `{"host":..,"ts_ms":..,"sources":{..},"publisher":{..}}`
+- `GET /api/telemetry/metrics?schema` → `# TYPE` / `# HELP` lines only (no values)
+- `GET /api/telemetry/metrics?schema&format=json` → `{"prefix":..,"metrics":[{name,type,source}],"publisher":[..]}`
+
+**Prefix config:** the metric-name prefix is owned by `bb_pub`. Kconfig `CONFIG_BB_METRICS_PREFIX` (default `"bb"`, in `components/bb_pub/Kconfig`). Override at runtime: `bb_pub_set_metrics_prefix("taipanminer")` before init; the handler reads it via `bb_pub_metrics_prefix()`. All metric names are `<prefix>_<subtopic>_<field>` with non-alphanumeric chars sanitized to `_`. String fields are folded into a single `<prefix>_<subtopic>_info{..} 1` label-set metric.
+
+**Publisher health gauges:** Always emitted: `<prefix>_pub_source_count`, `<prefix>_pub_buffer_count`, `<prefix>_pub_buffer_dropped`, `<prefix>_pub_ring_undersized`, `<prefix>_pub_last_publish_age_ms`.
+
+**Auto-register:** registered by `bb_telemetry_init` at order 5 via `bb_registry` (`CONFIG_BB_TELEMETRY_AUTOREGISTER`, default y), alongside the `/api/telemetry` GET/PATCH routes.
+
 ## Releases
 
 Tagging is manual: `git tag -a vX.Y.Z -m 'chore: vX.Y.Z tag' && git push origin vX.Y.Z`. The `release.yml` workflow waits for CI then publishes a GitHub release with auto-generated notes categorized by PR label (`.github/release.yml`). PR labels are auto-applied from conventional-commit prefixes; `new-component` PRs need that label set manually.

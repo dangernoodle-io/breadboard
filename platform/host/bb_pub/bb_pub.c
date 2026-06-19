@@ -514,7 +514,7 @@ bb_err_t bb_pub_get_status(bb_pub_status_t *out)
 }
 
 // ---------------------------------------------------------------------------
-// Public API — source enumeration (used by bb_telemetry for /api/metrics)
+// Public API — source enumeration (used by bb_telemetry for /api/telemetry/metrics)
 // ---------------------------------------------------------------------------
 
 int bb_pub_source_count(void)

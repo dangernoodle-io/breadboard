@@ -2533,6 +2533,37 @@ void test_bb_tls_info_all_capabilities_registered(void);
 void test_bb_tls_info_dedup_via_direct_register(void);
 void test_bb_tls_info_leaves_room_for_more_capabilities(void);
 
+// Forward declarations from test_bb_telemetry.c (GET /api/telemetry/metrics, B1-295)
+void test_bb_pub_source_count_returns_registered(void);
+void test_bb_pub_source_info_out_of_range_returns_invalid_arg(void);
+void test_bb_pub_source_info_returns_correct_subtopic(void);
+void test_bb_pub_source_info_sampled_ever_starts_false(void);
+void test_bb_pub_ring_undersized_false_by_default(void);
+void test_bb_metrics_prom_values_content_type(void);
+void test_bb_metrics_prom_values_contains_type_line(void);
+void test_bb_metrics_prom_values_contains_numeric_metric(void);
+void test_bb_metrics_prom_values_contains_b_metric(void);
+void test_bb_metrics_prom_values_contains_info_metric(void);
+void test_bb_metrics_prom_values_info_has_label(void);
+void test_bb_metrics_prom_values_skip_source_emits_nothing(void);
+void test_bb_metrics_prom_values_has_pub_ring_undersized(void);
+void test_bb_metrics_prom_values_has_pub_buffer_dropped(void);
+void test_bb_metrics_json_values_content_type(void);
+void test_bb_metrics_json_values_has_sources_key(void);
+void test_bb_metrics_json_values_has_nums_source(void);
+void test_bb_metrics_json_values_has_publisher_key(void);
+void test_bb_metrics_json_values_skip_source_absent(void);
+void test_bb_metrics_schema_prom_content_type(void);
+void test_bb_metrics_schema_prom_has_type_lines(void);
+void test_bb_metrics_schema_prom_no_value_lines(void);
+void test_bb_metrics_schema_json_content_type(void);
+void test_bb_metrics_schema_json_has_prefix(void);
+void test_bb_metrics_schema_json_has_metrics_array(void);
+void test_bb_metrics_schema_json_has_publisher_array(void);
+void test_bb_metrics_schema_json_no_sources_key(void);
+void test_bb_metrics_set_prefix_changes_emitted_names(void);
+void test_bb_metrics_set_prefix_reflected_in_schema_json(void);
+
 // bb_thermal_reset_for_test: defined in platform/host/bb_thermal/bb_thermal_host.c
 // (BB_THERMAL_TESTING); resets fan+power+temp HAL state for test isolation.
 void bb_thermal_reset_for_test(void);
@@ -5103,6 +5134,39 @@ int main(void) {
     RUN_TEST(test_bb_tls_info_all_capabilities_registered);
     RUN_TEST(test_bb_tls_info_dedup_via_direct_register);
     RUN_TEST(test_bb_tls_info_leaves_room_for_more_capabilities);
+
+    // bb_pub accessor tests (B1-295)
+    RUN_TEST(test_bb_pub_source_count_returns_registered);
+    RUN_TEST(test_bb_pub_source_info_out_of_range_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_source_info_returns_correct_subtopic);
+    RUN_TEST(test_bb_pub_source_info_sampled_ever_starts_false);
+    RUN_TEST(test_bb_pub_ring_undersized_false_by_default);
+
+    // bb_metrics endpoint tests (B1-295)
+    RUN_TEST(test_bb_metrics_prom_values_content_type);
+    RUN_TEST(test_bb_metrics_prom_values_contains_type_line);
+    RUN_TEST(test_bb_metrics_prom_values_contains_numeric_metric);
+    RUN_TEST(test_bb_metrics_prom_values_contains_b_metric);
+    RUN_TEST(test_bb_metrics_prom_values_contains_info_metric);
+    RUN_TEST(test_bb_metrics_prom_values_info_has_label);
+    RUN_TEST(test_bb_metrics_prom_values_skip_source_emits_nothing);
+    RUN_TEST(test_bb_metrics_prom_values_has_pub_ring_undersized);
+    RUN_TEST(test_bb_metrics_prom_values_has_pub_buffer_dropped);
+    RUN_TEST(test_bb_metrics_json_values_content_type);
+    RUN_TEST(test_bb_metrics_json_values_has_sources_key);
+    RUN_TEST(test_bb_metrics_json_values_has_nums_source);
+    RUN_TEST(test_bb_metrics_json_values_has_publisher_key);
+    RUN_TEST(test_bb_metrics_json_values_skip_source_absent);
+    RUN_TEST(test_bb_metrics_schema_prom_content_type);
+    RUN_TEST(test_bb_metrics_schema_prom_has_type_lines);
+    RUN_TEST(test_bb_metrics_schema_prom_no_value_lines);
+    RUN_TEST(test_bb_metrics_schema_json_content_type);
+    RUN_TEST(test_bb_metrics_schema_json_has_prefix);
+    RUN_TEST(test_bb_metrics_schema_json_has_metrics_array);
+    RUN_TEST(test_bb_metrics_schema_json_has_publisher_array);
+    RUN_TEST(test_bb_metrics_schema_json_no_sources_key);
+    RUN_TEST(test_bb_metrics_set_prefix_changes_emitted_names);
+    RUN_TEST(test_bb_metrics_set_prefix_reflected_in_schema_json);
 
     return UNITY_END();
 }

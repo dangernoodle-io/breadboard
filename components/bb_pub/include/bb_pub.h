@@ -134,7 +134,7 @@ bb_err_t bb_pub_register_payload_extender(bb_pub_payload_fn fn, void *ctx);
 bb_err_t bb_pub_register_source(const char *subtopic, bb_pub_sample_fn fn, void *ctx);
 
 // ---------------------------------------------------------------------------
-// Source enumeration (used by bb_telemetry for GET /api/metrics)
+// Source enumeration (used by bb_telemetry for GET /api/telemetry/metrics)
 // ---------------------------------------------------------------------------
 
 /**
@@ -158,7 +158,7 @@ bb_err_t bb_pub_source_info(int i, const char **subtopic, bb_pub_sample_fn *fn,
 bool bb_pub_ring_undersized(void);
 
 // ---------------------------------------------------------------------------
-// Prometheus metric-name prefix (consumed by bb_telemetry's GET /api/metrics)
+// Prometheus metric-name prefix (consumed by bb_telemetry's GET /api/telemetry/metrics)
 // ---------------------------------------------------------------------------
 
 /**

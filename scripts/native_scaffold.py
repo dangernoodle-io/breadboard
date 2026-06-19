@@ -477,8 +477,12 @@ COMPONENT_MAP = {
     },
     "bb_telemetry": {
         "includes": ["components/bb_telemetry/include"],
-        "sources":  ["platform/host/bb_telemetry/bb_telemetry.c"],
-        "depends":  ["bb_core", "bb_json", "bb_log", "bb_section"],
+        "sources":  [
+            "platform/host/bb_telemetry/bb_telemetry.c",
+            "platform/espidf/bb_telemetry/bb_telemetry_routes.c",
+        ],
+        "depends":  ["bb_core", "bb_json", "bb_log", "bb_section",
+                     "bb_http", "bb_pub", "bb_nv"],
     },
     "bb_mqtt_telemetry": {
         "includes": ["components/bb_mqtt_telemetry/include"],
