@@ -52,6 +52,15 @@ void bb_display_reset_for_testing(void)
     s_default_font = NULL;
 }
 
+/* Simulate the concurrent-off race window: clear s_active while s_ready stays
+ * set, as a bb_display_off() on another task transiently does between NULLing
+ * s_active and clearing s_ready. Lets host tests exercise the s_active
+ * null-guards in the draw/blit/clear/flush/set_rotation paths. */
+void bb_display_test_clear_active(void)
+{
+    s_active = NULL;
+}
+
 void bb_display_clear_default_font_for_testing(void)
 {
     s_default_font = NULL;

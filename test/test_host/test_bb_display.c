@@ -1075,6 +1075,33 @@ void test_bb_display_set_rotation_after_off_is_noop(void)
     TEST_ASSERT_EQUAL_INT(0, g_set_rotation_calls);
 }
 
+/* Race window: s_active NULLed by a concurrent bb_display_off() while s_ready is
+ * still set. The fix snapshots s_active and null-guards every draw path so this
+ * state is a clean no-op rather than a LoadProhibited. bb_display_off() clears
+ * s_ready too, so we use the test seam to reproduce the s_ready=true/s_active=NULL
+ * window the guards actually defend. Covers the !a branch in all five paths. */
+void bb_display_test_clear_active(void);
+
+void test_bb_display_draw_ops_noop_when_active_null_mid_race(void)
+{
+    bb_display_backend_t b = make_full_mock(true, true, true);
+    bb_display_register_backend(&b);
+    bb_display_init();
+    TEST_ASSERT_TRUE(bb_display_ready());
+    bb_display_test_clear_active();   /* s_active=NULL, s_ready stays true */
+    uint16_t px = 0xFFFF;
+    bb_display_clear(0xFFFF);                                          /* !a */
+    bb_display_blit(0, 0, 1, 1, &px);                                 /* !a */
+    bb_display_flush();                                                /* !a */
+    bb_display_draw_text(0, 0, "X", &bb_display_font_8x16, 0xFFFF, 0); /* !a */
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_display_set_rotation(90)); /* !a */
+    TEST_ASSERT_EQUAL_INT(0, g_clear_calls);
+    TEST_ASSERT_EQUAL_INT(0, g_blit_calls);
+    TEST_ASSERT_EQUAL_INT(0, g_flush_calls);
+    TEST_ASSERT_EQUAL_INT(0, g_draw_text_calls);
+    TEST_ASSERT_EQUAL_INT(0, g_set_rotation_calls);
+}
+
 /* ---------------------------------------------------------------------------
  * Tests: probe succeeds — exercises the probed=1 log path (probed=yes)
  * --------------------------------------------------------------------------- */
