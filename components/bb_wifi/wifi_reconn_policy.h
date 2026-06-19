@@ -46,3 +46,12 @@ wifi_reconn_action_t wifi_reconn_policy_on_disconnect(
 
 // Reset counters on successful IP acquisition.
 void wifi_reconn_policy_on_got_ip(wifi_reconn_state_t *st);
+
+// Policy decision when a connect attempt stalls (no GOT_IP or DISCONNECT
+// within the connecting watchdog window). Mirrors on_disconnect escalation:
+// bumps generic_fail_count, sets first_fail_us if 0, increments retry_count.
+// Returns WIFI_RECONN_ACTION_REBOOT after WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US;
+// otherwise sets *backoff_ms_out=0 and returns WIFI_RECONN_ACTION_RECONNECT_NOW.
+wifi_reconn_action_t wifi_reconn_policy_on_connect_timeout(
+    wifi_reconn_state_t *st, const wifi_reconn_adapter_t *a,
+    uint32_t *backoff_ms_out);
