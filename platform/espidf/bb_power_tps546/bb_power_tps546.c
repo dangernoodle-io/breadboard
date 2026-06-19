@@ -30,6 +30,7 @@ static const char *TAG = "bb_power_tps546";
 typedef struct {
     i2c_master_dev_handle_t dev;
     int8_t vout_n; // VOUT_MODE exponent (negative)
+    uint16_t last_status_word; // last STATUS_WORD logged; 0xFFFF = sentinel (never logged)
 } tps546_state_t;
 
 // ---------------------------------------------------------------------------
@@ -165,12 +166,41 @@ static bb_err_t op_set_vout_mv(void *state, uint16_t mv)
     return BB_OK;
 }
 
+// Read STATUS registers and emit an edge-triggered warning when STATUS_WORD changes.
+// Best-effort: I2C errors are ignored. CLEAR_FAULTS is never issued here.
+static void op_poll(void *state)
+{
+    tps546_state_t *s = state;
+    uint16_t st_word = 0;
+    if (pmbus_read_word(s->dev, BB_PMBUS_STATUS_WORD, &st_word) != ESP_OK) return;
+
+    // Only log when the value changes from what we last logged (edge-trigger).
+    // 0xFFFF sentinel ensures the first read always logs (even if STATUS_WORD == 0).
+    if (st_word == s->last_status_word) return;
+    s->last_status_word = st_word;
+
+    if (st_word == 0) {
+        // Fault cleared — log once so the "all clear" is visible in the log.
+        bb_log_w(TAG, "TPS546 STATUS (op): WORD=0x0000 (cleared)");
+        return;
+    }
+
+    uint8_t st_vout = 0, st_iout = 0, st_in = 0, st_temp = 0;
+    pmbus_read_byte(s->dev, BB_PMBUS_STATUS_VOUT,        &st_vout);
+    pmbus_read_byte(s->dev, BB_PMBUS_STATUS_IOUT,        &st_iout);
+    pmbus_read_byte(s->dev, BB_PMBUS_STATUS_INPUT,       &st_in);
+    pmbus_read_byte(s->dev, BB_PMBUS_STATUS_TEMPERATURE, &st_temp);
+    bb_log_w(TAG, "TPS546 STATUS (op): WORD=0x%04X VOUT=0x%02X IOUT=0x%02X INPUT=0x%02X TEMP=0x%02X",
+             st_word, st_vout, st_iout, st_in, st_temp);
+}
+
 static const bb_power_driver_t s_tps546_vtable = {
     .read_vout_mv = op_read_vout_mv,
     .read_iout_ma = op_read_iout_ma,
     .read_vin_mv  = op_read_vin_mv,
     .read_temp_c  = op_read_temp_c,
     .set_vout_mv  = op_set_vout_mv,
+    .poll         = op_poll,
     .name         = "tps546",
 };
 
@@ -187,6 +217,7 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
 
     tps546_state_t *s = calloc(1, sizeof *s); // LCOV_EXCL_BR_LINE
     if (!s) return BB_ERR_NO_SPACE;           // LCOV_EXCL_LINE
+    s->last_status_word = 0xFFFF; // sentinel: force log on first poll read
 
     // Add device to I2C bus
     i2c_device_config_t dev_cfg = {

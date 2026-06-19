@@ -18,6 +18,9 @@ typedef struct {
     int (*read_temp_c)(void *state);
     // Set output voltage in millivolts.
     bb_err_t (*set_vout_mv)(void *state, uint16_t mv);
+    // Optional per-poll hook called by bb_power_poll after all channel reads.
+    // Best-effort: errors are ignored. May be NULL.
+    void (*poll)(void *state);
     // Static-lifetime identity string (e.g. "tps546"). May be NULL.
     const char *name;
 } bb_power_driver_t;
