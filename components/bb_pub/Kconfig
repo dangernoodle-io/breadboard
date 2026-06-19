@@ -26,6 +26,14 @@ config BB_PUB_TOPIC_PREFIX
         The first segment of the publish topic:
           <BB_PUB_TOPIC_PREFIX>/<hostname>/<subtopic>
 
+config BB_METRICS_PREFIX
+    string "Default Prometheus metric name prefix"
+    default "bb"
+    help
+        Prefix prepended to all metric names emitted by GET /api/metrics
+        (served by bb_telemetry). Consumers can override at runtime via
+        bb_pub_set_metrics_prefix().
+
 config BB_PUB_INTERVAL_MS
     int "Telemetry publish interval in milliseconds"
     default 10000

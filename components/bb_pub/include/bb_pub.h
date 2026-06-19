@@ -134,6 +134,48 @@ bb_err_t bb_pub_register_payload_extender(bb_pub_payload_fn fn, void *ctx);
 bb_err_t bb_pub_register_source(const char *subtopic, bb_pub_sample_fn fn, void *ctx);
 
 // ---------------------------------------------------------------------------
+// Source enumeration (used by bb_telemetry for GET /api/metrics)
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the number of registered sources.
+ */
+int bb_pub_source_count(void);
+
+/**
+ * Return metadata for source at index i.
+ * All out-params are optional (pass NULL to skip).
+ * Returns BB_ERR_INVALID_ARG if i is out of range.
+ */
+bb_err_t bb_pub_source_info(int i, const char **subtopic, bb_pub_sample_fn *fn,
+                             void **ctx, uint32_t *last_sample_ms, bool *sampled_ever);
+
+/**
+ * True when always-on buffering is enabled and the ring entry cap is smaller
+ * than the registered source count (data loss risk on next tick).
+ * Always false when CONFIG_BB_PUB_BUFFER_ENABLE is off.
+ */
+bool bb_pub_ring_undersized(void);
+
+// ---------------------------------------------------------------------------
+// Prometheus metric-name prefix (consumed by bb_telemetry's GET /api/metrics)
+// ---------------------------------------------------------------------------
+
+/**
+ * Set the Prometheus metric name prefix at runtime. The string is copied into
+ * a static buffer (max 64 bytes including NUL). Defaults to
+ * CONFIG_BB_METRICS_PREFIX. NULL is ignored.
+ * TaipanMiner calls bb_pub_set_metrics_prefix("taipanminer") before init.
+ */
+void bb_pub_set_metrics_prefix(const char *prefix);
+
+/**
+ * Return the current Prometheus metric name prefix. Never NULL; defaults to
+ * the CONFIG_BB_METRICS_PREFIX value.
+ */
+const char *bb_pub_metrics_prefix(void);
+
+// ---------------------------------------------------------------------------
 // Status
 // ---------------------------------------------------------------------------
 
