@@ -52,6 +52,15 @@ void bb_display_reset_for_testing(void)
     s_default_font = NULL;
 }
 
+/* Simulate the concurrent-off race window: clear s_active while s_ready stays
+ * set, as a bb_display_off() on another task transiently does between NULLing
+ * s_active and clearing s_ready. Lets host tests exercise the s_active
+ * null-guards in the draw/blit/clear/flush/set_rotation paths. */
+void bb_display_test_clear_active(void)
+{
+    s_active = NULL;
+}
+
 void bb_display_clear_default_font_for_testing(void)
 {
     s_default_font = NULL;
@@ -130,20 +139,29 @@ const char *bb_display_backend_name(void) { return s_panel ? s_panel->name : NUL
 
 void bb_display_clear(uint16_t rgb565)
 {
-    if (!s_ready || !s_active->clear) return;
-    s_active->clear(rgb565);
+    /* Snapshot s_active once: concurrent bb_display_off() on another task may NULL
+     * the global after the ready check but before the dereference. */
+    const bb_display_backend_t *a = s_active;
+    if (!s_ready || !a || !a->clear) return;
+    a->clear(rgb565);
 }
 
 void bb_display_blit(int16_t x, int16_t y, uint16_t w, uint16_t h, const uint16_t *pixels)
 {
-    if (!s_ready || !s_active->blit || !pixels || !w || !h) return;
-    s_active->blit(x, y, w, h, pixels);
+    /* Snapshot s_active once: concurrent bb_display_off() on another task may NULL
+     * the global after the ready check but before the dereference. */
+    const bb_display_backend_t *a = s_active;
+    if (!s_ready || !a || !a->blit || !pixels || !w || !h) return;
+    a->blit(x, y, w, h, pixels);
 }
 
 void bb_display_flush(void)
 {
-    if (!s_ready || !s_active->flush) return;
-    s_active->flush();
+    /* Snapshot s_active once: concurrent bb_display_off() on another task may NULL
+     * the global after the ready check but before the dereference. */
+    const bb_display_backend_t *a = s_active;
+    if (!s_ready || !a || !a->flush) return;
+    a->flush();
 }
 
 void bb_display_off(void)
@@ -197,15 +215,19 @@ void bb_display_draw_text(int16_t x, int16_t y, const char *text,
                           const bb_display_font_t *font,
                           uint16_t fg, uint16_t bg)
 {
-    if (!s_ready || !text) return;
+    /* Snapshot s_active once: concurrent bb_display_off() (e.g. from an OTA pause
+     * hook on another task) may NULL the global between the ready check and the
+     * per-glyph blit call, causing a LoadProhibited panic at s_active->blit(). */
+    const bb_display_backend_t *a = s_active;
+    if (!s_ready || !a || !text) return;
     if (!font) font = s_default_font;
     if (!font) return;
 
-    if (s_active->draw_text) {
-        s_active->draw_text(x, y, text, font, fg, bg);
+    if (a->draw_text) {
+        a->draw_text(x, y, text, font, fg, bg);
         return;
     }
-    if (!s_active->blit) return;
+    if (!a->blit) return;
     if (font->glyph_w > BB_DISPLAY_RASTER_MAX_W ||
         font->glyph_h > BB_DISPLAY_RASTER_MAX_H) return;
 
@@ -213,7 +235,7 @@ void bb_display_draw_text(int16_t x, int16_t y, const char *text,
     int16_t cx = x;
     for (const char *p = text; *p; p++) {
         rasterize_glyph(font, (uint8_t)*p, fg, bg, glyph);
-        s_active->blit(cx, y, font->glyph_w, font->glyph_h, glyph);
+        a->blit(cx, y, font->glyph_w, font->glyph_h, glyph);
         cx += font->glyph_w;
     }
 }
@@ -272,12 +294,15 @@ void bb_display_set_default_font(const bb_display_font_t *font)
 
 bb_err_t bb_display_set_rotation(uint16_t deg)
 {
-    if (!s_ready) return BB_ERR_INVALID_STATE;
+    /* Snapshot s_active once: concurrent bb_display_off() on another task may NULL
+     * the global after the ready check but before the dereference. */
+    const bb_display_backend_t *a = s_active;
+    if (!s_ready || !a) return BB_ERR_INVALID_STATE;
     if (deg != 0 && deg != 90 && deg != 180 && deg != 270) return BB_ERR_INVALID_ARG;
-    if (!s_active->set_rotation) return BB_ERR_INVALID_STATE;
+    if (!a->set_rotation) return BB_ERR_INVALID_STATE;
 
     uint16_t nw = s_width, nh = s_height;
-    bb_err_t err = s_active->set_rotation(deg, &nw, &nh);
+    bb_err_t err = a->set_rotation(deg, &nw, &nh);
     if (err == BB_OK) {
         s_width = nw;
         s_height = nh;

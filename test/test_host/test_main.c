@@ -1066,6 +1066,12 @@ void test_bb_display_info_enabled_tracks_nv_config(void);
 void test_bb_display_backend_name_persists_after_off(void);
 void test_bb_display_dims_persist_after_off(void);
 void test_bb_display_info_extender_present_true_after_off(void);
+void test_bb_display_draw_text_after_off_is_noop(void);
+void test_bb_display_clear_after_off_is_noop(void);
+void test_bb_display_blit_after_off_is_noop(void);
+void test_bb_display_flush_after_off_is_noop(void);
+void test_bb_display_set_rotation_after_off_is_noop(void);
+void test_bb_display_draw_ops_noop_when_active_null_mid_race(void);
 
 // Forward declarations from test_bb_timer.c
 void test_bb_timer_create_null_out_returns_err(void);
@@ -3631,6 +3637,13 @@ int main(void) {
     RUN_TEST(test_bb_display_backend_name_persists_after_off);
     RUN_TEST(test_bb_display_dims_persist_after_off);
     RUN_TEST(test_bb_display_info_extender_present_true_after_off);
+    // regression guard: s_active race fix — draw/blit/clear/flush safe no-ops after off
+    RUN_TEST(test_bb_display_draw_text_after_off_is_noop);
+    RUN_TEST(test_bb_display_clear_after_off_is_noop);
+    RUN_TEST(test_bb_display_blit_after_off_is_noop);
+    RUN_TEST(test_bb_display_flush_after_off_is_noop);
+    RUN_TEST(test_bb_display_set_rotation_after_off_is_noop);
+    RUN_TEST(test_bb_display_draw_ops_noop_when_active_null_mid_race);
 
     // bb_byte_order tests
     RUN_TEST(test_bb_load_be32_constant);

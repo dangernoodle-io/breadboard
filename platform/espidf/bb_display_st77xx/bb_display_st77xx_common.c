@@ -83,3 +83,14 @@ void bb_display_st77xx_off(void)
     /* Disable display. */
     esp_lcd_panel_disp_on_off(bb_display_st77xx_panel, false);
 }
+
+void bb_display_st77xx_on(void)
+{
+    if (!bb_display_st77xx_panel) return;
+
+    /* Turn on backlight (active-low: set to 0). */
+    gpio_set_level(PIN_LCD_BL, 0);
+
+    /* Enable display. */
+    esp_lcd_panel_disp_on_off(bb_display_st77xx_panel, true);
+}
