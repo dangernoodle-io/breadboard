@@ -3,6 +3,7 @@
 #include "bb_pub_info.h"
 #include "bb_pub.h"
 #include "bb_nv.h"
+#include "../../platform/host/bb_board/bb_board_test.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -44,6 +45,7 @@ static void setup(void)
 {
     bb_pub_test_reset();
     capture_reset();
+    bb_board_test_set_ota_validated(false);   /* reset board hook to default */
     bb_nv_config_set_hostname("testhost");
 
     bb_pub_sink_t sink = { .publish = capture_publish, .ctx = NULL };
@@ -190,9 +192,25 @@ void test_bb_pub_info_has_ota_validated(void)
 void test_bb_pub_info_ota_validated_is_false_on_host(void)
 {
     setup();
+    bb_board_test_set_ota_validated(false);
     bb_pub_tick_once();
-    // Host stub for bb_ota_is_validated returns false.
+    // bb_board_get_info().ota_validated returns false (host stub default).
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ota_validated\":false"));
+}
+
+// B1-299: bb_pub_info must agree with bb_board_get_info().ota_validated after
+// a simulated mark-valid (set via bb_board_test_set_ota_validated).
+void test_bb_pub_info_ota_validated_agrees_with_bb_board_after_mark_valid(void)
+{
+    setup();
+
+    // Simulate a successful post-boot mark-valid: board now reports validated.
+    bb_board_test_set_ota_validated(true);
+
+    bb_pub_tick_once();
+
+    // bb_pub_info must now report true — same as bb_board_get_info().ota_validated.
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ota_validated\":true"));
 }
 
 void test_bb_pub_info_has_rtc_free(void)
