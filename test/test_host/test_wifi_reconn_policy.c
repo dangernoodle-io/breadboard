@@ -242,3 +242,48 @@ void test_wifi_reconn_histogram_saturates_at_uint16_max(void)
     wifi_reconn_policy_on_disconnect(&s_state, &adapter, 42, HANDSHAKE_REASON, &backoff);
     TEST_ASSERT_EQUAL(UINT16_MAX, s_state.reason_histogram[42]);
 }
+
+void test_wifi_reconn_connect_timeout_null_args_return_none(void)
+{
+    uint32_t backoff_ms = 0;
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_NONE,
+        wifi_reconn_policy_on_connect_timeout(NULL, &adapter, &backoff_ms));
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_NONE,
+        wifi_reconn_policy_on_connect_timeout(&s_state, NULL, &backoff_ms));
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_NONE,
+        wifi_reconn_policy_on_connect_timeout(&s_state, &adapter, NULL));
+}
+
+void test_wifi_reconn_connect_timeout_within_window(void)
+{
+    uint32_t backoff_ms = 999;
+    wifi_reconn_action_t action = wifi_reconn_policy_on_connect_timeout(
+        &s_state, &adapter, &backoff_ms);
+
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_RECONNECT_NOW, action);
+    TEST_ASSERT_EQUAL(0, backoff_ms);
+    TEST_ASSERT_EQUAL(1, s_state.generic_fail_count);
+    TEST_ASSERT_EQUAL(1, s_state.retry_count);
+    TEST_ASSERT_NOT_EQUAL(0, s_state.first_fail_us);
+    TEST_ASSERT_NOT_EQUAL(0, s_state.last_disconnect_us);
+}
+
+void test_wifi_reconn_connect_timeout_past_window(void)
+{
+    uint32_t backoff_ms = 0;
+
+    // First call sets first_fail_us
+    wifi_reconn_policy_on_connect_timeout(&s_state, &adapter, &backoff_ms);
+    int64_t first_fail = s_state.first_fail_us;
+    TEST_ASSERT_NOT_EQUAL(0, first_fail);
+
+    // Advance clock past the 5-min persistent-fail window
+    s_fake_now_us = first_fail + WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US + 1000000;
+
+    wifi_reconn_action_t action = wifi_reconn_policy_on_connect_timeout(
+        &s_state, &adapter, &backoff_ms);
+
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_REBOOT, action);
+    TEST_ASSERT_EQUAL(2, s_state.generic_fail_count);
+    TEST_ASSERT_EQUAL(2, s_state.retry_count);
+}

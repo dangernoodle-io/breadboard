@@ -3,6 +3,8 @@
 #include "bb_nv.h"
 #include "bb_ota_validator.h"
 
+#include <stdio.h>
+
 #include "esp_wifi.h"
 #include "esp_wifi_types.h"
 #include "bb_log.h"
@@ -54,24 +56,32 @@ static const wifi_reconn_adapter_t s_adapter = {
     .now_us = reconn_now_us,
 };
 
+static void do_safeguard_reboot(const char *ctx)
+{
+    if (bb_ota_is_validated()) {
+        bb_log_w(TAG, "%s (handshake=%d, generic=%d) on validated firmware: safeguard reboot, boot_count not incremented",
+                 ctx, s_state.handshake_fail_count, s_state.generic_fail_count);
+        esp_restart();
+    } else {
+        bb_log_e(TAG, "%s (handshake=%d, generic=%d) for >5min, rebooting",
+                 ctx, s_state.handshake_fail_count, s_state.generic_fail_count);
+        bb_nv_config_increment_boot_count();
+        esp_restart();
+    }
+}
+
 static void handle_disconnect(uint8_t reason, reconn_state_t *state, uint32_t *backoff_ms)
 {
     wifi_reconn_action_t action = wifi_reconn_policy_on_disconnect(
         &s_state, &s_adapter, reason, WIFI_REASON_HANDSHAKE_TIMEOUT, backoff_ms);
 
     switch (action) {
-        case WIFI_RECONN_ACTION_REBOOT:
-            if (bb_ota_is_validated()) {
-                bb_log_w(TAG, "persistent disconnect (reason=%u, handshake=%d, generic=%d) on validated firmware: safeguard reboot, boot_count not incremented",
-                         reason, s_state.handshake_fail_count, s_state.generic_fail_count);
-                esp_restart();
-            } else {
-                bb_log_e(TAG, "persistent disconnect for >5min (reason=%u, handshake=%d, generic=%d), rebooting",
-                         reason, s_state.handshake_fail_count, s_state.generic_fail_count);
-                bb_nv_config_increment_boot_count();
-                esp_restart();
-            }
+        case WIFI_RECONN_ACTION_REBOOT: {
+            char ctx[64];
+            snprintf(ctx, sizeof(ctx), "persistent disconnect (reason=%u)", (unsigned)reason);
+            do_safeguard_reboot(ctx);
             break;
+        }
 
         case WIFI_RECONN_ACTION_SCHEDULE_BACKOFF:
             *state = ST_BACKOFF;
@@ -111,10 +121,10 @@ static void reconn_task(void *arg)
     for (;;) {
         TickType_t wait;
         switch (state) {
-            case ST_BACKOFF:   wait = pdMS_TO_TICKS(backoff_ms); break;
+            case ST_BACKOFF:    wait = pdMS_TO_TICKS(backoff_ms);                        break;
+            case ST_CONNECTING: wait = pdMS_TO_TICKS(WIFI_RECONN_CONNECTING_TIMEOUT_MS); break;
             case ST_IDLE:
-            case ST_CONNECTING:
-            default:           wait = portMAX_DELAY;            break;
+            default:            wait = portMAX_DELAY;                                    break;
         }
 
         reconn_evt_t evt;
@@ -133,6 +143,20 @@ static void reconn_task(void *arg)
                 case EVT_GOT_IP:
                     handle_got_ip(&state, &backoff_ms);
                     break;
+            }
+        } else if (state == ST_CONNECTING) {
+            // Connect watchdog fired: no GOT_IP or DISCONNECT within timeout.
+            uint32_t dummy_backoff = 0;
+            wifi_reconn_action_t action = wifi_reconn_policy_on_connect_timeout(
+                &s_state, &s_adapter, &dummy_backoff);
+            if (action == WIFI_RECONN_ACTION_REBOOT) {
+                do_safeguard_reboot("connect stall");
+            } else {
+                bb_log_w(TAG, "connect stalled %dms, re-attempting (generic=%d)",
+                         WIFI_RECONN_CONNECTING_TIMEOUT_MS, s_state.generic_fail_count);
+                esp_wifi_disconnect();
+                esp_wifi_connect();
+                // stay ST_CONNECTING
             }
         } else {
             // Backoff elapsed

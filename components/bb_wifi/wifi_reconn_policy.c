@@ -87,3 +87,29 @@ void wifi_reconn_policy_on_got_ip(wifi_reconn_state_t *st)
     st->first_fail_us = 0;
     st->retry_count = 0;
 }
+
+wifi_reconn_action_t wifi_reconn_policy_on_connect_timeout(
+    wifi_reconn_state_t *st, const wifi_reconn_adapter_t *a,
+    uint32_t *backoff_ms_out)
+{
+    if (!st || !a || !backoff_ms_out) {
+        return WIFI_RECONN_ACTION_NONE;
+    }
+
+    int64_t now = a->now_us();
+
+    st->last_disconnect_us = now;
+    st->retry_count++;
+    st->generic_fail_count++;
+
+    if (st->first_fail_us == 0) {
+        st->first_fail_us = now;
+    }
+
+    if (now - st->first_fail_us > WIFI_RECONN_PERSISTENT_FAIL_WINDOW_US) {
+        return WIFI_RECONN_ACTION_REBOOT;
+    }
+
+    *backoff_ms_out = 0;
+    return WIFI_RECONN_ACTION_RECONNECT_NOW;
+}

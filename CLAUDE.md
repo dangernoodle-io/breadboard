@@ -141,6 +141,8 @@ The `bb_nv_config` component persists device configuration to NVS: WiFi credenti
 
 `bb_wifi` routes (regular tier, `platform/espidf/bb_wifi/bb_wifi_routes.c`): `GET /api/wifi` (connection info), `POST /api/scan` (scan trigger), and — when `CONFIG_BB_WIFI_RECONFIGURE=y` (default) — `PATCH /api/wifi {ssid, password}` → 202 + deferred reboot via `bb_wifi_reconfigure` (brick-safe; reserve bumps from 2 to 3).
 
+The `wifi_reconn` FSM (`platform/espidf/bb_wifi/wifi_reconn.c`) drives reconnect. ST_CONNECTING is bounded by `WIFI_RECONN_CONNECTING_TIMEOUT_MS` (30 s): if neither GOT_IP nor DISCONNECT arrives, the task calls `wifi_reconn_policy_on_connect_timeout`, re-issues `esp_wifi_disconnect` + `esp_wifi_connect`, and stays in ST_CONNECTING, escalating to the safeguard reboot (`do_safeguard_reboot`) after the 5-min persistent-fail window — same path used by disconnect-triggered reboots.
+
 ## Event bus (bb_event, bb_event_ring, bb_event_routes)
 
 `bb_event` is a portable callback-list publish/subscribe event bus. On ESP-IDF, subscribers receive events via a FreeRTOS dispatcher task; on Arduino, the app pumps events from `loop()` via `bb_event_pump()`. `bb_event_ring` is a sibling component providing a circular buffer with replay-on-subscribe — designed for fan-out scenarios (SSE/WebSocket subscribers, persistent event history). Both use the same `bb_event_t` opaque handle and dispatch model; `bb_event_ring` layers replay semantics on top of `bb_event` internally.
