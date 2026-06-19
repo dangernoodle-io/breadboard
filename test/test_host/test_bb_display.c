@@ -1063,6 +1063,18 @@ void test_bb_display_flush_after_off_is_noop(void)
     TEST_ASSERT_EQUAL_INT(0, g_flush_calls);
 }
 
+void test_bb_display_set_rotation_after_off_is_noop(void)
+{
+    bb_display_backend_t b = make_mock(false);
+    bb_display_register_backend(&b);
+    bb_display_init();
+    bb_display_off();
+    /* s_active is NULL after off → returns at the null-guard, never derefs
+     * a->set_rotation. */
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_display_set_rotation(90));
+    TEST_ASSERT_EQUAL_INT(0, g_set_rotation_calls);
+}
+
 /* ---------------------------------------------------------------------------
  * Tests: probe succeeds — exercises the probed=1 log path (probed=yes)
  * --------------------------------------------------------------------------- */

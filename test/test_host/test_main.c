@@ -1070,6 +1070,7 @@ void test_bb_display_draw_text_after_off_is_noop(void);
 void test_bb_display_clear_after_off_is_noop(void);
 void test_bb_display_blit_after_off_is_noop(void);
 void test_bb_display_flush_after_off_is_noop(void);
+void test_bb_display_set_rotation_after_off_is_noop(void);
 
 // Forward declarations from test_bb_timer.c
 void test_bb_timer_create_null_out_returns_err(void);
@@ -3640,6 +3641,7 @@ int main(void) {
     RUN_TEST(test_bb_display_clear_after_off_is_noop);
     RUN_TEST(test_bb_display_blit_after_off_is_noop);
     RUN_TEST(test_bb_display_flush_after_off_is_noop);
+    RUN_TEST(test_bb_display_set_rotation_after_off_is_noop);
 
     // bb_byte_order tests
     RUN_TEST(test_bb_load_be32_constant);
