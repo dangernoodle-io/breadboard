@@ -148,8 +148,36 @@ typedef struct {
 // Open a TPS546 backend handle.
 // Allocates state, runs the TPS546 init sequence, registers the vtable,
 // and calls bb_power_handle_create.
+//
+// Init sequence (AxeOS-matched): dump STATUS → OPERATION_OFF → exec_program →
+// CLEAR_FAULTS → OPERATION_ON → VOUT_COMMAND.  The OPERATION_OFF step is the
+// key addition: it forces the regulator's enable/latch state fully off before
+// reprogramming, so a firmware reboot clears a latched fault without requiring
+// an AC power-cycle.
 bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
                                bb_power_handle_t *out);
+
+/**
+ * Perform a clean PMBus soft-reset on an already-open TPS546 handle.
+ *
+ * Clears a latched TPS546 (e.g. after a vcore collapse that left the rail at
+ * ~10 mV) without an AC power-cycle by replaying the full init cycle on the
+ * existing I2C device:
+ *
+ *   OPERATION_OFF → exec_program(cfg) → CLEAR_FAULTS → OPERATION_ON → VOUT_COMMAND
+ *
+ * The I2C device handle and VOUT_MODE exponent are reused from the open call;
+ * no new device allocation is performed.
+ *
+ * Callers typically invoke this from a vcore watchdog callback after detecting
+ * a collapsed rail (see bb_vcore_wd in components/bb_power_health/).
+ *
+ * @param h    Handle returned by bb_power_tps546_open().
+ * @param cfg  Same config passed to open() (needed to rebuild the init program).
+ * @return BB_OK on success, or a PMBus error code.
+ */
+bb_err_t bb_power_tps546_recover(bb_power_handle_t h,
+                                  const bb_power_tps546_cfg_t *cfg);
 
 #else /* !ESP_PLATFORM — host test build */
 

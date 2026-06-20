@@ -8,6 +8,11 @@
 static const char *TAG = "bb_power_tps546";
 
 #define OPERATION_ON   0x80u
+// PMBus OPERATION immediate-off (bit7=0): forces the regulator off unconditionally.
+// Written before every init/recover cycle so a reboot fully resets the
+// enable/latch state — matching AxeOS TPS546_init(OFF-first) behaviour.
+// Value 0x00 per PMBus spec Table 16: OPERATION[7]=0 → output disabled immediately.
+#define OPERATION_OFF  0x00u
 
 // PMBus STATUS registers (not in the public header — read-only diagnostic use only)
 #define BB_PMBUS_STATUS_BYTE        0x78u
@@ -205,6 +210,55 @@ static const bb_power_driver_t s_tps546_vtable = {
 };
 
 // ---------------------------------------------------------------------------
+// Shared init/recover cycle — the core PMBus reset-and-reconfig sequence.
+//
+// Sequence (AxeOS-matched):
+//   OPERATION_OFF → exec_program(config) → CLEAR_FAULTS → OPERATION_ON → VOUT_COMMAND
+//
+// The OPERATION_OFF write forces the regulator's enable/latch state fully
+// off before reprogramming.  This is the step AxeOS's TPS546_init() performs
+// first and that breadboard was previously missing.  Without it a reboot
+// after a vcore latch does not clear the fault and the rail stays collapsed
+// until an AC power-cycle.
+//
+// Called by bb_power_tps546_open() during device bring-up and by
+// bb_power_tps546_recover() at runtime to clear a latched fault.
+// ---------------------------------------------------------------------------
+static esp_err_t run_init_cycle(tps546_state_t *s, const bb_power_tps546_cfg_t *cfg)
+{
+    // Step 1: Force OPERATION off — resets enable/latch state before reconfiguring.
+    bb_log_i(TAG, "TPS546 OPERATION_OFF (latch reset)");
+    esp_err_t err = pmbus_write_byte(s->dev, BB_PMBUS_OPERATION, OPERATION_OFF);
+    if (err != ESP_OK) {
+        bb_log_e(TAG, "OPERATION_OFF failed: %d", err);
+        return err;
+    }
+    // Short settle so the rail drains and regulator state stabilises before
+    // we reprogram protection limits.
+    vTaskDelay(pdMS_TO_TICKS(5));
+
+    // Step 2: Reprogram the full protection/config sequence.
+    bb_tps546_write_t prog[INIT_PROG_MAX];
+    int n = bb_power_tps546_build_init_program(cfg, s->vout_n, prog, INIT_PROG_MAX);
+    if (n < 0) return ESP_ERR_NO_MEM; // LCOV_EXCL_LINE
+
+    err = exec_program(s->dev, prog, n);
+    if (err != ESP_OK) return err;
+    bb_log_i(TAG, "init program: %d writes", n);
+
+    // Step 3: Clear latched faults accumulated before/during the OFF step.
+    err = pmbus_send_byte(s->dev, BB_PMBUS_CLEAR_FAULTS);
+    if (err != ESP_OK) return err;
+
+    // Step 4: Power on.
+    err = pmbus_write_byte(s->dev, BB_PMBUS_OPERATION, OPERATION_ON);
+    if (err != ESP_OK) return err;
+    bb_log_i(TAG, "powered on at %u mV", cfg->target_mv);
+
+    return ESP_OK;
+}
+
+// ---------------------------------------------------------------------------
 // Public open
 // ---------------------------------------------------------------------------
 
@@ -245,7 +299,8 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
     if (s->vout_n & 0x10) s->vout_n |= (int8_t)0xE0; // sign-extend from bit 4
     bb_log_i(TAG, "VOUT_MODE=0x%02X exponent=%d", vout_mode, s->vout_n);
 
-    // Dump STATUS registers BEFORE CLEAR_FAULTS so latched fault bits are visible.
+    // Dump STATUS registers BEFORE the OPERATION_OFF/reconfig cycle so latched
+    // fault bits from the prior run are visible in the log.
     // Reads are best-effort — failures set the field to 0xFF/0xFFFF; init continues.
     {
         uint16_t st_word = 0xFFFF;
@@ -264,25 +319,33 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
                  st_word, st_byte, st_vout, st_iout, st_in, st_temp, st_cml, st_mfr);
     }
 
-    // Build and execute the full protection init program
-    bb_tps546_write_t prog[INIT_PROG_MAX];
-    int n = bb_power_tps546_build_init_program(cfg, s->vout_n, prog, INIT_PROG_MAX);
-    if (n < 0) { free(s); return ESP_ERR_NO_MEM; } // LCOV_EXCL_LINE
-
-    err = exec_program(s->dev, prog, n);
+    // Run the full OPERATION_OFF → reconfig → CLEAR_FAULTS → OPERATION_ON cycle.
+    err = run_init_cycle(s, cfg);
     if (err != ESP_OK) { free(s); return err; }
-    bb_log_i(TAG, "init program: %d writes", n);
-
-    // Clear latched faults from prior boots
-    err = pmbus_send_byte(s->dev, BB_PMBUS_CLEAR_FAULTS);
-    if (err != ESP_OK) { free(s); return err; }
-
-    // Power on
-    err = pmbus_write_byte(s->dev, BB_PMBUS_OPERATION, OPERATION_ON);
-    if (err != ESP_OK) { free(s); return err; }
-    bb_log_i(TAG, "powered on at %u mV", cfg->target_mv);
 
     bb_err_t rc = bb_power_handle_create(&s_tps546_vtable, s, out);
     if (rc != BB_OK) free(s); // LCOV_EXCL_LINE
     return rc;
+}
+
+// ---------------------------------------------------------------------------
+// Public recover — clears a latched TPS546 without an AC power-cycle.
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_power_tps546_recover(bb_power_handle_t h, const bb_power_tps546_cfg_t *cfg)
+{
+    if (!h || !cfg) return BB_ERR_INVALID_ARG;
+
+    tps546_state_t *s = bb_power_handle_state(h);
+    if (!s) return BB_ERR_INVALID_STATE; // LCOV_EXCL_LINE
+
+    bb_log_i(TAG, "TPS546 soft-recover: OPERATION_OFF → reconfig → CLEAR_FAULTS → ON");
+
+    esp_err_t err = run_init_cycle(s, cfg);
+    if (err != ESP_OK) {
+        bb_log_e(TAG, "TPS546 recover failed: %d", err);
+        return err;
+    }
+    bb_log_i(TAG, "TPS546 recover complete at %u mV", cfg->target_mv);
+    return BB_OK;
 }
