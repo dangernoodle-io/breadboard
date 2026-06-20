@@ -674,6 +674,44 @@ void test_bb_event_ring_capture_null_data_with_size(void) {
     bb_event_ring_detach(ring);
 }
 
+/* ring_capture oversized-payload path: posting a payload larger than the ring's
+   max_entry causes bb_ring_push to return BB_ERR_INVALID_ARG (and emit a
+   bb_log_w).  The event is silently dropped from the ring; no crash, and the
+   ring count stays 0.  This exercises the newly-added warn path in ring_capture
+   and guards against the class of bug that caused TaipanMiner's net.health SSE
+   ring to stay empty (payload > CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY). */
+void test_bb_event_ring_capture_oversized_payload_dropped(void)
+{
+    setup_sync_mode();
+
+    /* event bus allows up to max_payload=256; ring only accepts up to 8. */
+    bb_event_cfg_t cfg = { .queue_depth = 8, .max_payload = 256 };
+    bb_event_init(&cfg);
+
+    bb_event_topic_t topic = NULL;
+    bb_event_topic_register("ring.oversized", &topic);
+
+    bb_event_ring_t ring = NULL;
+    bb_err_t err = bb_event_ring_attach(topic, 4, /*max_entry=*/8, &ring);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    /* Post a payload that fits the event bus (32 B) but not the ring (8 B). */
+    char big[32];
+    memset(big, 'X', sizeof(big));
+    bb_event_post(topic, 77, big, sizeof(big));
+    bb_event_pump(0);
+
+    /* Ring should be empty — the oversized event was dropped, not corrupted. */
+    TEST_ASSERT_EQUAL_size_t(0, bb_event_ring_count(ring));
+
+    /* A correctly-sized follow-up event MUST still land in the ring. */
+    bb_event_post(topic, 78, "ok", 2);
+    bb_event_pump(0);
+    TEST_ASSERT_EQUAL_size_t(1, bb_event_ring_count(ring));
+
+    bb_event_ring_detach(ring);
+}
+
 /* Covers line 133: bb_event_subscribe failure inside bb_event_ring_attach.
    Force subscribe to fail by exhausting the subscriber pool first. */
 void test_bb_event_ring_attach_subscribe_failure_frees_all(void) {

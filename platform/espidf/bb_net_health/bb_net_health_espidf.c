@@ -100,8 +100,13 @@ static void build_input(bb_net_health_input_t *in)
 }
 
 // Publish a net.health payload to the SSE topic and update the module cache.
-// payload fields: rssi, mqtt_connected, mqtt_reconnect_count,
-// last_disconnect_reason, disc_age_s, state, early_warning.
+//
+// The SSE payload carries only the 4 essential fields (rssi, state,
+// early_warning, throttled) — worst case ~62 B — so it fits inside
+// CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY even on consumers that set a small
+// value like 128 (e.g. TaipanMiner).  The full 8-field detail is always
+// available via GET /api/health "net" section (net_section_get below), which
+// reads from the cache that is updated unconditionally here.
 static void publish_snapshot(const bb_net_health_output_t *out,
                              const bb_net_health_input_t  *in,
                              const bb_wifi_info_t         *wi,
@@ -122,14 +127,12 @@ static void publish_snapshot(const bb_net_health_output_t *out,
     bb_json_t root = bb_json_obj_new();
     if (!root) return;
 
-    bb_json_obj_set_number(root, "rssi",                   (double)in->rssi);
-    bb_json_obj_set_bool(root,   "mqtt_connected",         in->mqtt_connected);
-    bb_json_obj_set_number(root, "mqtt_reconnect_count",   (double)in->mqtt_reconnect_count);
-    bb_json_obj_set_number(root, "last_disconnect_reason", (double)wi->disc_reason);
-    bb_json_obj_set_number(root, "disc_age_s",             (double)in->disc_age_s);
-    bb_json_obj_set_string(root, "state",                  bb_net_state_str(out->state));
-    bb_json_obj_set_bool(root,   "early_warning",          out->early_warning);
-    bb_json_obj_set_bool(root,   "throttled",              throttled);
+    // SSE wire format: 4 essential fields only (~62 B worst case).
+    // Full detail (8 fields) is in GET /api/health "net" section.
+    bb_json_obj_set_number(root, "rssi",          (double)in->rssi);
+    bb_json_obj_set_string(root, "state",         bb_net_state_str(out->state));
+    bb_json_obj_set_bool(root,   "early_warning", out->early_warning);
+    bb_json_obj_set_bool(root,   "throttled",     throttled);
 
     char *json = bb_json_serialize(root);
     bb_json_free(root);

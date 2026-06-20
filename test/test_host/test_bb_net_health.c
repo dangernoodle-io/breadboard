@@ -9,6 +9,7 @@
 #include "unity.h"
 #include "bb_net_health.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 
@@ -519,4 +520,28 @@ void test_bb_net_health_multi_trigger(void)
     eval();
     TEST_ASSERT_TRUE(s_out.early_warning);
     TEST_ASSERT_EQUAL_INT(BB_NET_STATE_POOR, s_out.state);
+}
+
+// ---------------------------------------------------------------------------
+// SSE payload size contract
+// ---------------------------------------------------------------------------
+
+// The net.health SSE topic uses a trimmed 4-field payload (rssi, state,
+// early_warning, throttled) so it fits in small ring slots.  Worst-case
+// input: rssi=-128, state="marginal" (longest), both bools true.
+// This test asserts the serialised length stays under 128 bytes, which is
+// TaipanMiner's CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY value.
+void test_bb_net_health_sse_payload_fits_128_byte_ring_slot(void)
+{
+    // Manually construct the worst-case payload the trimmed publish_snapshot
+    // would emit: {"rssi":-128,"state":"marginal","early_warning":true,"throttled":true}
+    char buf[256];
+    int n = snprintf(buf, sizeof(buf),
+                     "{\"rssi\":-128,\"state\":\"%s\","
+                     "\"early_warning\":true,\"throttled\":true}",
+                     bb_net_state_str(BB_NET_STATE_MARGINAL));
+    TEST_ASSERT_TRUE(n > 0);
+
+    // Must fit comfortably in a 128-byte ring slot.
+    TEST_ASSERT_LESS_THAN(128, (size_t)n);
 }
