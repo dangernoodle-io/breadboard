@@ -1,0 +1,62 @@
+menu "breadboard: bb_power_health"
+
+config BB_VCORE_WD_WARMUP_MS
+    int "Vcore watchdog warmup window (ms)"
+    default 60000
+    range 0 300000
+    help
+        No recovery action is taken for this many ms after boot.
+        Allows the ASIC and regulator to stabilise before monitoring begins.
+
+config BB_VCORE_WD_OK_MV
+    int "Vcore healthy threshold (mV)"
+    default 800
+    range 100 3300
+    help
+        Readings at or above this level are considered healthy.
+        A transient below this clears the healthy streak but does not
+        trigger a collapse until it falls below BB_VCORE_WD_COLLAPSE_MV.
+
+config BB_VCORE_WD_COLLAPSE_MV
+    int "Vcore collapse threshold (mV)"
+    default 500
+    range 0 1000
+    help
+        Readings below this level (with the rail enabled) count toward
+        the collapse poll counter (BB_VCORE_WD_COLLAPSE_POLLS).
+
+config BB_VCORE_WD_COLLAPSE_POLLS
+    int "Consecutive collapsed readings before recovery"
+    default 3
+    range 1 20
+    help
+        Number of consecutive readings below BB_VCORE_WD_COLLAPSE_MV
+        required before a BB_VCORE_WD_RECOVER action is returned.
+
+config BB_VCORE_WD_HEALTHY_RESET_MS
+    int "Continuous healthy duration to reset burst counter (ms)"
+    default 300000
+    range 10000 3600000
+    help
+        After this many ms of uninterrupted healthy readings, the
+        reboot-burst counter is reset.
+
+config BB_VCORE_WD_BURST_MAX
+    int "Maximum recovery attempts per burst window"
+    default 3
+    range 1 20
+    help
+        After this many BB_VCORE_WD_RECOVER actions within
+        BB_VCORE_WD_WINDOW_MS, the watchdog switches to
+        BB_VCORE_WD_BACKOFF until the burst window expires or the
+        rail recovers.
+
+config BB_VCORE_WD_WINDOW_MS
+    int "Burst counting window (ms)"
+    default 600000
+    range 60000 3600000
+    help
+        Time window within which BB_VCORE_WD_BURST_MAX recovery
+        attempts are counted before backing off.
+
+endmenu

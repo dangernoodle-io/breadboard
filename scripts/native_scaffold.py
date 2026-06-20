@@ -244,6 +244,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_power_tps546/bb_power_tps546_program.c"],
         "depends":  ["bb_power", "bb_core"],
     },
+    "bb_power_health": {
+        "includes": ["components/bb_power_health/include"],
+        "sources":  ["components/bb_power_health/src/bb_vcore_wd.c"],
+        "depends":  [],
+    },
     "bb_power_routes": {
         "includes": ["components/bb_power_routes/include"],
         "sources":  ["platform/host/bb_power_routes/bb_power_routes_host.c"],
