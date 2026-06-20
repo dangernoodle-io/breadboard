@@ -16,7 +16,10 @@ typedef struct {
     bb_mqtt_host_pub_t pubs[BB_MQTT_HOST_PUB_CAP];
     int                count;
     bool               connected;
-    bool               tls;       // captured from cfg.tls at init time
+    bool               tls;             // captured from cfg.tls at init time
+    bool               ever_connected;  // set when connected goes true for first time
+    uint32_t           reconnect_count;
+    uint8_t            last_disc_error_type;
 } bb_mqtt_host_handle_t;
 
 bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
@@ -80,6 +83,16 @@ bool bb_mqtt_is_connected(bb_mqtt_t handle)
 {
     if (!handle) return false;
     return ((bb_mqtt_host_handle_t *)handle)->connected;
+}
+
+bb_err_t bb_mqtt_get_stats(bb_mqtt_t handle, bb_mqtt_stats_t *out)
+{
+    if (!handle || !out) return BB_ERR_INVALID_ARG;
+    bb_mqtt_host_handle_t *h = (bb_mqtt_host_handle_t *)handle;
+    out->reconnect_count      = h->reconnect_count;
+    out->last_disc_error_type = h->last_disc_error_type;
+    out->connected            = h->connected;
+    return BB_OK;
 }
 
 bb_err_t bb_mqtt_destroy(bb_mqtt_t handle)
@@ -210,8 +223,27 @@ void bb_mqtt_host_reset(bb_mqtt_t handle)
 {
     if (!handle) return;
     bb_mqtt_host_handle_t *h = (bb_mqtt_host_handle_t *)handle;
-    h->count     = 0;
-    h->connected = true;
+    h->count                 = 0;
+    h->connected             = true;
+    h->ever_connected        = false;
+    h->reconnect_count       = 0;
+    h->last_disc_error_type  = 0;
+}
+
+void bb_mqtt_host_simulate_reconnect(bb_mqtt_t handle)
+{
+    if (!handle) return;
+    bb_mqtt_host_handle_t *h = (bb_mqtt_host_handle_t *)handle;
+    if (!h->ever_connected) {
+        h->ever_connected = true;
+    }
+    h->reconnect_count++;
+}
+
+void bb_mqtt_host_set_last_disc_error_type(bb_mqtt_t handle, uint8_t error_type)
+{
+    if (!handle) return;
+    ((bb_mqtt_host_handle_t *)handle)->last_disc_error_type = error_type;
 }
 
 void bb_mqtt_default_set(bb_mqtt_t h)

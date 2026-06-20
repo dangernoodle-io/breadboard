@@ -53,12 +53,15 @@ typedef struct {
     bb_tls_creds_t           creds;     // kept alive while client runs
     SemaphoreHandle_t        lock;
     bool                     connected;
+    bool                     ever_connected; // true once MQTT_EVENT_CONNECTED fires
     bool                     started;   // true once esp_mqtt_client_start called
     bool                     destroyed; // set before esp_mqtt_client_destroy;
                                         // guards event handler against stale arg
     bool                     tls;       // captured from cfg.tls at init time
     bool                     suspended; // true while transiently quiesced via
                                         // bb_mqtt_suspend_default; cleared by resume
+    uint32_t                 reconnect_count;     // incremented on each reconnect
+    uint8_t                  last_disc_error_type; // last MQTT_EVENT_ERROR error_type
 } bb_mqtt_handle_t;
 
 // ---------------------------------------------------------------------------
@@ -122,18 +125,29 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
     case MQTT_EVENT_CONNECTED:
         xSemaphoreTake(h->lock, portMAX_DELAY);
         h->connected = true;
+        h->ever_connected = true;
         xSemaphoreGive(h->lock);
         bb_log_i(TAG, "connected");
         break;
     case MQTT_EVENT_DISCONNECTED:
         xSemaphoreTake(h->lock, portMAX_DELAY);
+        if (h->ever_connected) {
+            h->reconnect_count++;
+        }
         h->connected = false;
         xSemaphoreGive(h->lock);
-        bb_log_i(TAG, "disconnected");
+        bb_log_i(TAG, "disconnected (reconnect_count=%u)", h->reconnect_count);
         break;
-    case MQTT_EVENT_ERROR:
+    case MQTT_EVENT_ERROR: {
+        esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
+        xSemaphoreTake(h->lock, portMAX_DELAY);
+        if (event->error_handle) {
+            h->last_disc_error_type = (uint8_t)event->error_handle->error_type;
+        }
+        xSemaphoreGive(h->lock);
         bb_log_w(TAG, "mqtt error event");
         break;
+    }
     default:
         break;
     }
@@ -327,6 +341,18 @@ bool bb_mqtt_is_connected(bb_mqtt_t handle)
     bool c = h->connected;
     xSemaphoreGive(h->lock);
     return c;
+}
+
+bb_err_t bb_mqtt_get_stats(bb_mqtt_t handle, bb_mqtt_stats_t *out)
+{
+    if (!handle || !out) return BB_ERR_INVALID_ARG;
+    bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)handle;
+    xSemaphoreTake(h->lock, portMAX_DELAY);
+    out->reconnect_count      = h->reconnect_count;
+    out->last_disc_error_type = h->last_disc_error_type;
+    out->connected            = h->connected;
+    xSemaphoreGive(h->lock);
+    return BB_OK;
 }
 
 bool bb_mqtt_is_tls(bb_mqtt_t handle)

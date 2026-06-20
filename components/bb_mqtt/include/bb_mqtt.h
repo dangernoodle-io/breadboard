@@ -21,6 +21,22 @@ extern "C" {
 typedef void *bb_mqtt_t;
 
 /**
+ * Snapshot of MQTT connection statistics.
+ *
+ * reconnect_count       — number of reconnects since init (incremented on
+ *                         MQTT_EVENT_DISCONNECTED when the client had previously
+ *                         connected at least once).
+ * last_disc_error_type  — error_type from the most recent MQTT_EVENT_ERROR,
+ *                         cast to uint8_t; zero if no error has occurred.
+ * connected             — current connected state (same as bb_mqtt_is_connected).
+ */
+typedef struct {
+    uint32_t reconnect_count;
+    uint8_t  last_disc_error_type;
+    bool     connected;
+} bb_mqtt_stats_t;
+
+/**
  * Configuration for bb_mqtt_init.
  *
  * uri        — MQTT broker URI: mqtt:// or mqtts://host:port
@@ -77,6 +93,17 @@ bb_err_t bb_mqtt_subscribe(bb_mqtt_t h, const char *topic, int qos);
 
 /** Returns true when the client is currently connected to the broker. */
 bool bb_mqtt_is_connected(bb_mqtt_t h);
+
+/**
+ * Return a snapshot of MQTT connection statistics.
+ *
+ * All fields are read under h->lock, providing a consistent snapshot.
+ *
+ * @param h    Handle from bb_mqtt_init.  NULL → all fields zeroed, BB_ERR_INVALID_ARG.
+ * @param out  Receives the statistics snapshot on success.
+ * @return BB_OK on success; BB_ERR_INVALID_ARG if h or out is NULL.
+ */
+bb_err_t bb_mqtt_get_stats(bb_mqtt_t h, bb_mqtt_stats_t *out);
 
 /**
  * Returns true when the client was initialised with TLS (cfg.tls = true).
@@ -206,6 +233,17 @@ void bb_mqtt_host_set_connected(bb_mqtt_t h, bool connected);
 
 /** Reset publish history and connected flag for a handle. */
 void bb_mqtt_host_reset(bb_mqtt_t h);
+
+/**
+ * Simulate a reconnect event: if the handle has ever been connected,
+ * increments reconnect_count (mirrors the ESP-IDF DISCONNECTED path).
+ * If ever_connected is false, sets it to true first so subsequent calls
+ * will increment.
+ */
+void bb_mqtt_host_simulate_reconnect(bb_mqtt_t h);
+
+/** Set the last_disc_error_type field (mirrors MQTT_EVENT_ERROR path). */
+void bb_mqtt_host_set_last_disc_error_type(bb_mqtt_t h, uint8_t error_type);
 
 /** Override the handle returned by bb_mqtt_default() for testing. */
 void bb_mqtt_default_set(bb_mqtt_t h);

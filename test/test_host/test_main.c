@@ -1157,6 +1157,39 @@ void test_bb_health_stack_simulate_multiple_tasks(void);
 void test_bb_health_stack_simulate_at_threshold_not_low(void);
 void test_bb_health_stack_reset_clears_state(void);
 
+// Forward declarations from test_bb_net_health.c
+void test_bb_net_health_rssi_zero_is_poor(void);
+void test_bb_net_health_rssi_positive_is_poor(void);
+void test_bb_net_health_cold_start_poor_rssi_reports_poor(void);
+void test_bb_net_health_cold_start_good_rssi_reports_good(void);
+void test_bb_net_health_hyst_applies_after_cold_start(void);
+void test_bb_net_health_rssi_good_boundary(void);
+void test_bb_net_health_rssi_marginal_lo(void);
+void test_bb_net_health_rssi_marginal_hi(void);
+void test_bb_net_health_rssi_poor_below_marginal_lo(void);
+void test_bb_net_health_rssi_very_poor(void);
+void test_bb_net_health_hyst_down_requires_n_samples(void);
+void test_bb_net_health_hyst_down_reset_on_good_sample(void);
+void test_bb_net_health_hyst_up_requires_n_samples(void);
+void test_bb_net_health_hyst_up_reset_on_poor_sample(void);
+void test_bb_net_health_hyst_up_all_the_way_to_good(void);
+void test_bb_net_health_early_warning_sustained_poor(void);
+void test_bb_net_health_no_early_warning_when_good(void);
+void test_bb_net_health_early_warning_reconnect_increase(void);
+void test_bb_net_health_no_warning_after_reconnect_stabilizes(void);
+void test_bb_net_health_early_warning_disconnect_recent(void);
+void test_bb_net_health_no_early_warning_disconnect_old(void);
+void test_bb_net_state_str_good(void);
+void test_bb_net_state_str_marginal(void);
+void test_bb_net_state_str_poor(void);
+void test_bb_net_state_str_unknown_returns_nonnull(void);
+void test_bb_net_health_throttle_decision_not_throttled_initially(void);
+void test_bb_net_health_throttle_starts_after_sustained_poor(void);
+void test_bb_net_health_throttle_restores_on_good(void);
+void test_bb_net_health_throttle_restores_on_marginal(void);
+void test_bb_net_health_throttle_no_restore_while_poor(void);
+void test_bb_net_health_multi_trigger(void);
+
 // Forward declarations from test_bb_display_info_event.c
 void test_bb_display_info_event_build_json_present_true(void);
 void test_bb_display_info_event_build_json_present_true_other_panel(void);
@@ -3798,6 +3831,39 @@ int main(void) {
     RUN_TEST(test_bb_health_stack_simulate_multiple_tasks);
     RUN_TEST(test_bb_health_stack_simulate_at_threshold_not_low);
     RUN_TEST(test_bb_health_stack_reset_clears_state);
+
+    // bb_net_health pure classifier tests
+    RUN_TEST(test_bb_net_health_rssi_zero_is_poor);
+    RUN_TEST(test_bb_net_health_rssi_positive_is_poor);
+    RUN_TEST(test_bb_net_health_cold_start_poor_rssi_reports_poor);
+    RUN_TEST(test_bb_net_health_cold_start_good_rssi_reports_good);
+    RUN_TEST(test_bb_net_health_hyst_applies_after_cold_start);
+    RUN_TEST(test_bb_net_health_rssi_good_boundary);
+    RUN_TEST(test_bb_net_health_rssi_marginal_lo);
+    RUN_TEST(test_bb_net_health_rssi_marginal_hi);
+    RUN_TEST(test_bb_net_health_rssi_poor_below_marginal_lo);
+    RUN_TEST(test_bb_net_health_rssi_very_poor);
+    RUN_TEST(test_bb_net_health_hyst_down_requires_n_samples);
+    RUN_TEST(test_bb_net_health_hyst_down_reset_on_good_sample);
+    RUN_TEST(test_bb_net_health_hyst_up_requires_n_samples);
+    RUN_TEST(test_bb_net_health_hyst_up_reset_on_poor_sample);
+    RUN_TEST(test_bb_net_health_hyst_up_all_the_way_to_good);
+    RUN_TEST(test_bb_net_health_early_warning_sustained_poor);
+    RUN_TEST(test_bb_net_health_no_early_warning_when_good);
+    RUN_TEST(test_bb_net_health_early_warning_reconnect_increase);
+    RUN_TEST(test_bb_net_health_no_warning_after_reconnect_stabilizes);
+    RUN_TEST(test_bb_net_health_early_warning_disconnect_recent);
+    RUN_TEST(test_bb_net_health_no_early_warning_disconnect_old);
+    RUN_TEST(test_bb_net_state_str_good);
+    RUN_TEST(test_bb_net_state_str_marginal);
+    RUN_TEST(test_bb_net_state_str_poor);
+    RUN_TEST(test_bb_net_state_str_unknown_returns_nonnull);
+    RUN_TEST(test_bb_net_health_throttle_decision_not_throttled_initially);
+    RUN_TEST(test_bb_net_health_throttle_starts_after_sustained_poor);
+    RUN_TEST(test_bb_net_health_throttle_restores_on_good);
+    RUN_TEST(test_bb_net_health_throttle_restores_on_marginal);
+    RUN_TEST(test_bb_net_health_throttle_no_restore_while_poor);
+    RUN_TEST(test_bb_net_health_multi_trigger);
 
     // bb_display_info_event tests (health.display event topic pure builder)
     RUN_TEST(test_bb_display_info_event_build_json_present_true);
