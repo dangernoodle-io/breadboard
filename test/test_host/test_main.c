@@ -1191,6 +1191,24 @@ void test_bb_net_health_throttle_no_restore_while_poor(void);
 void test_bb_net_health_multi_trigger(void);
 void test_bb_net_health_sse_payload_fits_128_byte_ring_slot(void);
 
+// Forward declarations from test_bb_vcore_wd.c
+void test_bb_vcore_wd_warmup_suppresses_all(void);
+void test_bb_vcore_wd_warmup_boundary_exact_still_suppressed(void);
+void test_bb_vcore_wd_warmup_one_ms_past_allows_detection(void);
+void test_bb_vcore_wd_healthy_returns_none(void);
+void test_bb_vcore_wd_healthy_ok_mv_boundary(void);
+void test_bb_vcore_wd_healthy_clears_consec_low(void);
+void test_bb_vcore_wd_healthy_window_resets_burst_counter(void);
+void test_bb_vcore_wd_marginal_returns_none_and_clears_consec_low(void);
+void test_bb_vcore_wd_collapse_requires_n_polls(void);
+void test_bb_vcore_wd_collapse_recover_increments_burst(void);
+void test_bb_vcore_wd_collapse_recover_resets_consec_low(void);
+void test_bb_vcore_wd_collapse_rail_disabled_suppresses(void);
+void test_bb_vcore_wd_burst_max_triggers_backoff(void);
+void test_bb_vcore_wd_backoff_persists_without_healthy(void);
+void test_bb_vcore_wd_burst_window_expiry_resets_and_recovers(void);
+void test_bb_vcore_wd_no_action_when_always_healthy(void);
+
 // Forward declarations from test_bb_display_info_event.c
 void test_bb_display_info_event_build_json_present_true(void);
 void test_bb_display_info_event_build_json_present_true_other_panel(void);
@@ -3867,6 +3885,24 @@ int main(void) {
     RUN_TEST(test_bb_net_health_throttle_no_restore_while_poor);
     RUN_TEST(test_bb_net_health_multi_trigger);
     RUN_TEST(test_bb_net_health_sse_payload_fits_128_byte_ring_slot);
+
+    // bb_vcore_wd tests (pure vcore-collapse watchdog)
+    RUN_TEST(test_bb_vcore_wd_warmup_suppresses_all);
+    RUN_TEST(test_bb_vcore_wd_warmup_boundary_exact_still_suppressed);
+    RUN_TEST(test_bb_vcore_wd_warmup_one_ms_past_allows_detection);
+    RUN_TEST(test_bb_vcore_wd_healthy_returns_none);
+    RUN_TEST(test_bb_vcore_wd_healthy_ok_mv_boundary);
+    RUN_TEST(test_bb_vcore_wd_healthy_clears_consec_low);
+    RUN_TEST(test_bb_vcore_wd_healthy_window_resets_burst_counter);
+    RUN_TEST(test_bb_vcore_wd_marginal_returns_none_and_clears_consec_low);
+    RUN_TEST(test_bb_vcore_wd_collapse_requires_n_polls);
+    RUN_TEST(test_bb_vcore_wd_collapse_recover_increments_burst);
+    RUN_TEST(test_bb_vcore_wd_collapse_recover_resets_consec_low);
+    RUN_TEST(test_bb_vcore_wd_collapse_rail_disabled_suppresses);
+    RUN_TEST(test_bb_vcore_wd_burst_max_triggers_backoff);
+    RUN_TEST(test_bb_vcore_wd_backoff_persists_without_healthy);
+    RUN_TEST(test_bb_vcore_wd_burst_window_expiry_resets_and_recovers);
+    RUN_TEST(test_bb_vcore_wd_no_action_when_always_healthy);
 
     // bb_display_info_event tests (health.display event topic pure builder)
     RUN_TEST(test_bb_display_info_event_build_json_present_true);
