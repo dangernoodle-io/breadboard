@@ -198,6 +198,9 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
         .session = {
             .keepalive = CONFIG_BB_MQTT_KEEPALIVE,
         },
+        .network = {
+            .timeout_ms = CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS,
+        },
     };
 
     // Broker TLS verification certificate.

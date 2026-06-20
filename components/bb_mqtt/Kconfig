@@ -20,4 +20,14 @@ config BB_MQTT_KEEPALIVE
         Note: CONFIG_MQTT_TASK_STACK_SIZE may need to be raised to 6144 or
         higher when TLS is enabled (mbedTLS handshake requires ~5-8 KB stack).
 
+config BB_MQTT_NETWORK_TIMEOUT_MS
+    int "MQTT network timeout (ms)"
+    default 30000
+    range 1000 120000
+    help
+        Maps to esp_mqtt_client_config_t.network.timeout_ms. esp-mqtt
+        defaults to 10000, which aborts writes ("write didn't complete in
+        specified timeout") on a marginal link and forces a reconnect.
+        30s tolerates a slow/weak link without churning.
+
 endmenu
