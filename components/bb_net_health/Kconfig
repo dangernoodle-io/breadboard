@@ -1,0 +1,73 @@
+menu "breadboard: bb_net_health"
+
+config BB_NET_HEALTH_RSSI_GOOD
+    int "RSSI threshold for GOOD bucket (dBm)"
+    default -67
+    range -100 0
+    help
+        RSSI >= this value is classified as GOOD.
+
+config BB_NET_HEALTH_RSSI_MARGINAL_LO
+    int "Lower RSSI threshold for MARGINAL bucket (dBm)"
+    default -75
+    range -100 0
+    help
+        RSSI in the range [BB_NET_HEALTH_RSSI_MARGINAL_LO ..
+        BB_NET_HEALTH_RSSI_GOOD-1] is classified as MARGINAL.
+        RSSI below this value is classified as POOR.
+
+config BB_NET_HEALTH_HYST_DOWN
+    int "Hysteresis sample count before downgrading state"
+    default 3
+    range 1 10
+    help
+        Number of consecutive worse-bucket RSSI samples required before
+        the published state is downgraded. Prevents single-sample flaps.
+
+config BB_NET_HEALTH_HYST_UP
+    int "Hysteresis sample count before upgrading state"
+    default 3
+    range 1 10
+    help
+        Number of consecutive better-bucket RSSI samples required before
+        the published state is upgraded.
+
+config BB_PUB_ADAPTIVE_BACKOFF
+    bool "Adaptive bb_pub interval backoff on weak link"
+    default n
+    help
+        When enabled, bb_net_health slows down the telemetry publish interval
+        (via bb_pub_set_interval_ms) when the link is in a sustained POOR
+        state, then restores the original interval on recovery.
+        Default OFF — with the gate off there is ZERO behavioral change and
+        the throttle decision code compiles out entirely.
+        Gate: #if CONFIG_BB_PUB_ADAPTIVE_BACKOFF.
+
+config BB_PUB_ADAPTIVE_RSSI_THRESH
+    int "RSSI threshold for adaptive backoff (dBm)"
+    default -75
+    range -100 0
+    depends on BB_PUB_ADAPTIVE_BACKOFF
+    help
+        RSSI below this value is considered weak for the purpose of adaptive
+        backoff. Aligns with the POOR bucket lower bound by default.
+
+config BB_PUB_ADAPTIVE_SLOW_MS
+    int "Slowed publish interval during backoff (ms)"
+    default 30000
+    range 1000 3600000
+    depends on BB_PUB_ADAPTIVE_BACKOFF
+    help
+        Publish interval applied via bb_pub_set_interval_ms when the link is
+        in a sustained POOR state.
+
+config BB_PUB_ADAPTIVE_SAMPLES
+    int "Consecutive POOR samples before throttling"
+    default 3
+    range 1 20
+    depends on BB_PUB_ADAPTIVE_BACKOFF
+    help
+        Number of consecutive POOR-state samples (at the 5s evaluator period)
+        before bb_pub_set_interval_ms is called to slow publishing.
+
+endmenu

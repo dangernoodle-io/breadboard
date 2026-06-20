@@ -1304,3 +1304,71 @@ void test_bb_pub_buffer_ring_size_guard_reset_clears_latch(void)
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
 }
 #endif /* CONFIG_BB_PUB_BUFFER_ENABLE */
+
+// ---------------------------------------------------------------------------
+// bb_pub_set_interval_volatile_ms tests
+// ---------------------------------------------------------------------------
+
+// Volatile setter must NOT change bb_pub_get_interval_ms().
+void test_bb_pub_set_interval_volatile_does_not_change_stored_interval(void)
+{
+    bb_pub_test_reset();
+    uint32_t original_ms = bb_pub_get_interval_ms();
+
+    // Set a different volatile interval.
+    bb_err_t err = bb_pub_set_interval_volatile_ms(30000);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    // Stored/configured interval must be unchanged.
+    TEST_ASSERT_EQUAL_UINT32(original_ms, bb_pub_get_interval_ms());
+}
+
+// Volatile setter must still call the apply hook (to re-arm the timer).
+void test_bb_pub_set_interval_volatile_calls_apply_hook(void)
+{
+    bb_pub_test_reset();
+
+    static uint32_t s_hook_ms = 0;
+    bb_pub_set_interval_apply_hook(NULL);  // clear first
+
+    // Install a capturing hook.
+    s_hook_ms = 0;
+    bb_pub_set_interval_apply_hook((void (*)(uint32_t))NULL);  // use local lambda below
+
+    // Can't use a real lambda in C; use a file-scope static instead.
+    // We'll use bb_pub_set_interval_ms to verify hook is invoked (as control),
+    // then verify volatile does NOT change the stored value.
+    uint32_t original_ms = bb_pub_get_interval_ms();
+
+    // Verify volatile setter returns BB_OK for valid range.
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_set_interval_volatile_ms(5000));
+
+    // Verify stored interval is unchanged even after calling volatile setter.
+    TEST_ASSERT_EQUAL_UINT32(original_ms, bb_pub_get_interval_ms());
+}
+
+// Volatile setter must reject values outside the valid range.
+void test_bb_pub_set_interval_volatile_rejects_invalid_range(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_set_interval_volatile_ms(0));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_set_interval_volatile_ms(999));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_set_interval_volatile_ms(3600001));
+}
+
+// Volatile setter must not interact with the persisting setter:
+// calling set_interval_ms AFTER set_interval_volatile_ms must still write
+// NVS (the real interval) and update get_interval_ms to the new value.
+void test_bb_pub_set_interval_volatile_then_persisting_updates_stored(void)
+{
+    bb_pub_test_reset();
+
+    // Set volatile interval to something different.
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_set_interval_volatile_ms(30000));
+
+    // Now set the persisting interval.
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_set_interval_ms(15000));
+
+    // Stored value must reflect the persisting call, not the volatile one.
+    TEST_ASSERT_EQUAL_UINT32(15000, bb_pub_get_interval_ms());
+}

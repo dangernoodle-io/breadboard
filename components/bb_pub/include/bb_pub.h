@@ -379,6 +379,23 @@ void bb_pub_buffer_init_eager(void);
  */
 void bb_pub_set_interval_apply_hook(void (*hook)(uint32_t ms));
 
+/**
+ * Volatile (RAM-only) interval override — re-arms the periodic timer to `ms`
+ * WITHOUT writing NVS and WITHOUT changing the value returned by
+ * bb_pub_get_interval_ms() (which continues to return the persisted/configured
+ * interval).
+ *
+ * Use this for transient throttle adjustments (e.g. adaptive backoff during
+ * poor link) so that a reboot-while-throttled boots at the configured interval
+ * rather than the throttled one.
+ *
+ * Valid range: 1000 ms .. 3 600 000 ms (same as bb_pub_set_interval_ms).
+ * Returns BB_ERR_INVALID_ARG for values outside that range.
+ * On ESP-IDF, calls the interval_apply_hook to re-arm the timer immediately.
+ * On host (no timer), updates no stored state — purely a timer re-arm.
+ */
+bb_err_t bb_pub_set_interval_volatile_ms(uint32_t ms);
+
 #ifdef __cplusplus
 }
 #endif

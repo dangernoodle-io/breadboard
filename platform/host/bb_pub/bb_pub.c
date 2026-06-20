@@ -671,6 +671,20 @@ void bb_pub_set_interval_apply_hook(void (*hook)(uint32_t ms))
     s_interval_apply_hook = hook;
 }
 
+bb_err_t bb_pub_set_interval_volatile_ms(uint32_t ms)
+{
+    if (ms < BB_PUB_INTERVAL_MS_MIN || ms > BB_PUB_INTERVAL_MS_MAX) {
+        return BB_ERR_INVALID_ARG;
+    }
+    // Re-arm the timer via the hook (if registered) WITHOUT touching NVS and
+    // WITHOUT updating s_interval_ms so that bb_pub_get_interval_ms() continues
+    // to return the persisted/configured value.
+    if (s_interval_apply_hook) {
+        s_interval_apply_hook(ms);
+    }
+    return BB_OK;
+}
+
 // ---------------------------------------------------------------------------
 // Public API — pause / resume
 // ---------------------------------------------------------------------------

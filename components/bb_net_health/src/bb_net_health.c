@@ -1,0 +1,116 @@
+// bb_net_health — pure link-health classifier.
+//
+// No ESP-IDF dependencies; compiles on host and device.
+// See bb_net_health.h for threshold and hysteresis constants.
+#include "bb_net_health.h"
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+// Classify raw RSSI into a state bucket (no hysteresis).
+static bb_net_state_t rssi_bucket(int8_t rssi)
+{
+    // rssi >= 0 means no valid reading / not associated — treat as POOR.
+    if (rssi >= 0) {
+        return BB_NET_STATE_POOR;
+    }
+    if (rssi >= BB_NET_HEALTH_RSSI_GOOD) {
+        return BB_NET_STATE_GOOD;
+    }
+    if (rssi >= BB_NET_HEALTH_RSSI_MARGINAL_LO) {
+        return BB_NET_STATE_MARGINAL;
+    }
+    return BB_NET_STATE_POOR;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+void bb_net_health_eval(bb_net_health_state_t       *st,
+                        const bb_net_health_input_t *in,
+                        bb_net_health_output_t      *out)
+{
+    bb_net_state_t raw = rssi_bucket(in->rssi);
+
+    // Cold-start seeding: on the very first call, bypass hysteresis and report
+    // the raw bucket directly so the boot snapshot reflects reality immediately.
+    if (!st->initialized) {
+        st->current_state = raw;
+        st->initialized   = true;
+    } else {
+        // Hysteresis: downgrade requires BB_NET_HEALTH_HYST_DOWN consecutive
+        // worse-bucket samples; upgrade requires BB_NET_HEALTH_HYST_UP
+        // consecutive better-bucket samples.
+        if (raw > st->current_state) {
+            // Moving to a worse bucket.
+            st->down_count++;
+            st->up_count = 0;
+            if (st->down_count >= BB_NET_HEALTH_HYST_DOWN) {
+                st->current_state = raw;
+                st->down_count    = 0;
+            }
+        } else if (raw < st->current_state) {
+            // Moving to a better bucket.
+            st->up_count++;
+            st->down_count = 0;
+            if (st->up_count >= BB_NET_HEALTH_HYST_UP) {
+                st->current_state = raw;
+                st->up_count      = 0;
+            }
+        } else {
+            // Same bucket — clear transition counters.
+            st->down_count = 0;
+            st->up_count   = 0;
+        }
+    }
+
+    // Sustained-poor counter (for adaptive backoff in commit 4).
+    if (st->current_state == BB_NET_STATE_POOR) {
+        st->sustained_poor_count++;
+    } else {
+        st->sustained_poor_count = 0;
+    }
+
+    // Early-warning: true when any of:
+    //  1. Classified state is POOR and has been sustained >= HYST_DOWN samples
+    //     (i.e. state just became or remains POOR).
+    //  2. mqtt_reconnect_count increased since last eval.
+    //  3. !mqtt_connected AND disc_age_s is small (< 60 s) — recent disconnect.
+    bool warn_poor      = (st->current_state == BB_NET_STATE_POOR);
+    bool warn_reconnect = (in->mqtt_reconnect_count > st->last_reconnect_count);
+    bool warn_disc      = (!in->mqtt_connected && in->disc_age_s < 60U);
+
+    out->state         = st->current_state;
+    out->early_warning = warn_poor || warn_reconnect || warn_disc;
+
+    // Update last-seen reconnect count for next eval.
+    st->last_reconnect_count = in->mqtt_reconnect_count;
+}
+
+const char *bb_net_state_str(bb_net_state_t state)
+{
+    switch (state) {
+    case BB_NET_STATE_GOOD:     return "good";
+    case BB_NET_STATE_MARGINAL: return "marginal";
+    case BB_NET_STATE_POOR:     return "poor";
+    default:                    return "poor";
+    }
+}
+
+bool bb_net_health_throttle_decision(bb_net_health_state_t *st, int threshold)
+{
+    if (!st->throttled) {
+        // Start throttling when POOR is sustained >= threshold samples.
+        if (st->sustained_poor_count >= threshold) {
+            st->throttled = true;
+        }
+    } else {
+        // Stop throttling when state recovers to GOOD or MARGINAL.
+        if (st->current_state != BB_NET_STATE_POOR) {
+            st->throttled = false;
+        }
+    }
+    return st->throttled;
+}

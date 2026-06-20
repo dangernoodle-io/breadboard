@@ -249,6 +249,16 @@ Sensor availability: ESP32-S2/S3/C3/C6/H2 and later have the modern `temperature
 
 Also contributes a JSON-Schema properties fragment to the `/api/health` 200 response schema via `bb_health_register_extender_ex`. Sources: `platform/espidf/bb_mqtt_info/bb_mqtt_info.c` (ESP-IDF) / `platform/host/bb_mqtt_info/bb_mqtt_info.c` (host).
 
+**`/api/health` network-health extender + retained SSE topic (`bb_net_health`).** Adds `REQUIRES bb_net_health` and calls in two steps:
+1. `bb_net_health_register_health()` — before `bb_http_server_start` (before the health section table is frozen). Registers a `"net"` section on `/api/health` with fields: `rssi` (int), `mqtt_connected` (bool), `mqtt_reconnect_count` (uint), `last_disconnect_reason` (uint), `disc_age_s` (uint), `state` (string: `"good"` / `"marginal"` / `"poor"`), `early_warning` (bool).
+2. `bb_net_health_attach_sse()` — in the regular-tier init (after `bb_event_routes` is initialised). Attaches the `"net.health"` retained SSE topic, publishes an initial snapshot so the ring is non-empty from T=0, and starts a 5-second periodic evaluator that re-publishes on state or `early_warning` change.
+
+**Pure classifier** (`bb_net_health_eval`): RSSI buckets: GOOD ≥ −67 dBm, MARGINAL −75..−68 dBm, POOR < −75 dBm. Hysteresis: 3 consecutive worse samples before downgrade, 3 better samples before upgrade (no single-sample flap). `early_warning` true when: state is POOR, or `mqtt_reconnect_count` increased since last eval, or MQTT disconnected within 60 s. Host-testable, 100% branch coverage. Sources: `components/bb_net_health/src/bb_net_health.c` (pure, host + device) / `platform/espidf/bb_net_health/bb_net_health.c` (ESP-IDF glue). Adaptive backoff Kconfig knob in commit 4 (`BB_PUB_ADAPTIVE_BACKOFF`); see `components/bb_net_health/Kconfig`.
+
+**`bb_mqtt_stats_t` + `bb_mqtt_get_stats(h, out)`** (added to `bb_mqtt`): snapshot of `reconnect_count`, `last_disc_error_type`, and `connected` read atomically under `h->lock`. Host stub supports `bb_mqtt_host_simulate_reconnect` and `bb_mqtt_host_set_last_disc_error_type` test hooks.
+
+**`CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS`** (default 30 000 ms, range 1 000–120 000): maps to `esp_mqtt_client_config_t.network.timeout_ms`. Prevents esp-mqtt from aborting in-flight writes on a marginal link and churning reconnects.
+
 ## Power (`bb_power`, `bb_power_tps546`, `/api/power`)
 
 `bb_power` is a portable voltage-regulator monitor HAL. `bb_power_set_primary(h)` / `bb_power_primary()` record a single app-level primary power handle. `bb_power_poll(h)` reads all channels via the vtable and caches the result (mutex-protected). `bb_power_snapshot(h, &out)` returns the cached reading (mutex-protected); all fields are -1 if h is NULL or readings errored.
