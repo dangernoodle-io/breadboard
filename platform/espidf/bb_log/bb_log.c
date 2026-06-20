@@ -32,7 +32,7 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 static const char *TAG = "bb_log_stream";
 
 #define LOG_STREAM_LINE_MAX      192
-#define LOG_WRITER_QUEUE_LEN     16
+#define LOG_WRITER_QUEUE_LEN     CONFIG_BB_LOG_STREAM_WRITER_QUEUE_LEN
 #define LOG_WRITER_TASK_STACK    2048
 #define LOG_WRITER_TASK_PRIO     1   /* very low; never preempts mining */
 

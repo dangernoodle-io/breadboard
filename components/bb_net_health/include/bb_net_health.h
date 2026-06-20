@@ -5,7 +5,7 @@
 // with hysteresis.  It is host-testable with 100% branch coverage.
 //
 // The ESP-IDF glue (bb_net_health_register_health, bb_net_health_attach_sse)
-// lives in platform/espidf/bb_net_health/bb_net_health.c and wires the pure
+// lives in platform/espidf/bb_net_health/bb_net_health_espidf.c and wires the pure
 // classifier to /api/health and a retained "net.health" SSE topic.
 //
 // Call order (ESP-IDF side):
