@@ -110,7 +110,12 @@ static void ring_capture(bb_event_topic_t topic,
     // Oversized payloads are rejected by bb_ring_push (returns INVALID_ARG) —
     // the event bus enforces max_payload via bb_event_cfg_t so this should not
     // happen in practice, but the ring is still safe if it does.
-    bb_ring_push(ring->ring, data, size, now, (uint32_t)id);
+    bb_err_t push_err = bb_ring_push(ring->ring, data, size, now, (uint32_t)id);
+    if (push_err != BB_OK) {
+        bb_log_w(TAG, "ring_capture: payload dropped (size=%zu > max_entry=%zu); "
+                 "check CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY",
+                 size, ring->max_entry);
+    }
 
     // Record diagnostics for the most recent entry.
     ring->last_post_us = now;

@@ -1189,6 +1189,7 @@ void test_bb_net_health_throttle_restores_on_good(void);
 void test_bb_net_health_throttle_restores_on_marginal(void);
 void test_bb_net_health_throttle_no_restore_while_poor(void);
 void test_bb_net_health_multi_trigger(void);
+void test_bb_net_health_sse_payload_fits_128_byte_ring_slot(void);
 
 // Forward declarations from test_bb_display_info_event.c
 void test_bb_display_info_event_build_json_present_true(void);
@@ -1735,6 +1736,7 @@ void test_ring_attach_payload_calloc_fails(void);
 void test_ring_subscribe_with_replay_snapshot_calloc_fails(void);
 void test_ring_subscribe_when_subscriber_pool_exhausted(void);
 void test_bb_event_ring_capture_null_data_with_size(void);
+void test_bb_event_ring_capture_oversized_payload_dropped(void);
 void test_bb_event_ring_attach_subscribe_failure_frees_all(void);
 void test_bb_event_ring_subscribe_replay_second_alloc_failure_frees_first(void);
 
@@ -3864,6 +3866,7 @@ int main(void) {
     RUN_TEST(test_bb_net_health_throttle_restores_on_marginal);
     RUN_TEST(test_bb_net_health_throttle_no_restore_while_poor);
     RUN_TEST(test_bb_net_health_multi_trigger);
+    RUN_TEST(test_bb_net_health_sse_payload_fits_128_byte_ring_slot);
 
     // bb_display_info_event tests (health.display event topic pure builder)
     RUN_TEST(test_bb_display_info_event_build_json_present_true);
@@ -4365,6 +4368,7 @@ int main(void) {
     RUN_TEST(test_ring_subscribe_with_replay_snapshot_calloc_fails);
     RUN_TEST(test_ring_subscribe_when_subscriber_pool_exhausted);
     RUN_TEST(test_bb_event_ring_capture_null_data_with_size);
+    RUN_TEST(test_bb_event_ring_capture_oversized_payload_dropped);
     RUN_TEST(test_bb_event_ring_attach_subscribe_failure_frees_all);
     RUN_TEST(test_bb_event_ring_subscribe_replay_second_alloc_failure_frees_first);
 
