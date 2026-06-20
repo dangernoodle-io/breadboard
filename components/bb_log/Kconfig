@@ -62,4 +62,15 @@ config BB_LOG_TAG_REGISTRY_MAX
         and saves 320 B BSS vs the old hardcoded value of 32. Raise if
         your application registers more than 24 distinct log tags.
 
+config BB_LOG_STREAM_WRITER_QUEUE_LEN
+    int "bb_log_stream writer queue depth"
+    default 16
+    range 4 64
+    help
+        Number of slots in the bb_log_stream writer queue. Each slot holds
+        a log message (~200 B), so this directly sizes internal heap. Lower
+        it (e.g. 8) on heap-tight no-PSRAM boards to reclaim ~1.6 KB at the
+        cost of dropping log lines under burst logging. Default 16 keeps
+        current behavior.
+
 endmenu
