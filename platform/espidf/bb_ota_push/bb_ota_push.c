@@ -70,6 +70,15 @@ uint32_t bb_ota_push_deadline_ms_for_test(int content_len, int min_bytes_per_sec
 
 static const char *TAG = "bb_ota_push";
 
+static void ota_push_err(bb_http_request_t *req, int status, const char *msg)
+{
+    bb_http_resp_set_status(req, status);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    bb_http_resp_json_obj_set_str(&obj, "error", msg);
+    bb_http_resp_json_obj_end(&obj);
+}
+
 #define OTA_RECV_BUF_SIZE CONFIG_BB_OTA_PUSH_RECV_BUF_SIZE
 #define OTA_TIMEOUT_RETRIES CONFIG_BB_OTA_PUSH_RECV_TIMEOUT_RETRIES
 
@@ -100,11 +109,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
 
     const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
     if (!partition) {
-        bb_http_resp_set_status(req, 500);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "No OTA partition");
-        bb_http_resp_json_obj_end(&obj);
+        ota_push_err(req, 500, "No OTA partition");
         return BB_ERR_INVALID_STATE;
     }
 
@@ -120,11 +125,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     esp_err_t err = esp_ota_begin(partition, OTA_SIZE_UNKNOWN, &ota_handle);
     if (err != ESP_OK) {
         bb_log_e(TAG, "esp_ota_begin failed: %s", esp_err_to_name(err));
-        bb_http_resp_set_status(req, 500);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "OTA begin failed");
-        bb_http_resp_json_obj_end(&obj);
+        ota_push_err(req, 500, "OTA begin failed");
         // buf not yet malloc'd; restore WDT + resume inline (resume_and_exit frees buf).
         bb_wdt_extend_end();
         if (s_paused) { bb_ota_resume(); }
@@ -139,11 +140,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     buf = malloc(OTA_RECV_BUF_SIZE);
     if (!buf) {
         bb_log_e(TAG, "malloc failed for OTA receive buffer");
-        bb_http_resp_set_status(req, 500);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "malloc failed");
-        bb_http_resp_json_obj_end(&obj);
+        ota_push_err(req, 500, "malloc failed");
         bb_wdt_extend_end();
         if (s_paused) { bb_ota_resume(); }
         return BB_ERR_NO_SPACE;
@@ -165,11 +162,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
                      received, content_len,
                      (unsigned)(bb_clock_now_ms() - ota_start_ms), (unsigned)ota_deadline_ms);
             esp_ota_abort(ota_handle);
-            bb_http_resp_set_status(req, 408);
-            bb_http_json_obj_stream_t obj;
-            bb_http_resp_json_obj_begin(req, &obj);
-            bb_http_resp_json_obj_set_str(&obj, "error", "Upload too slow");
-            bb_http_resp_json_obj_end(&obj);
+            ota_push_err(req, 408, "Upload too slow");
             free(buf);
             goto resume_and_exit;
         }
@@ -181,11 +174,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
             if (++timeout_count > OTA_TIMEOUT_RETRIES) {
                 bb_log_e(TAG, "OTA upload timeout after %d retries", timeout_count);
                 esp_ota_abort(ota_handle);
-                bb_http_resp_set_status(req, 408);
-                bb_http_json_obj_stream_t obj;
-                bb_http_resp_json_obj_begin(req, &obj);
-                bb_http_resp_json_obj_set_str(&obj, "error", "Upload timeout");
-                bb_http_resp_json_obj_end(&obj);
+                ota_push_err(req, 408, "Upload timeout");
                 free(buf);
                 goto resume_and_exit;
             }
@@ -196,11 +185,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         if (ret <= 0) {
             bb_log_e(TAG, "OTA receive error at %d/%d", received, content_len);
             esp_ota_abort(ota_handle);
-            bb_http_resp_set_status(req, 500);
-            bb_http_json_obj_stream_t obj;
-            bb_http_resp_json_obj_begin(req, &obj);
-            bb_http_resp_json_obj_set_str(&obj, "error", "Receive failed");
-            bb_http_resp_json_obj_end(&obj);
+            ota_push_err(req, 500, "Receive failed");
             free(buf);
             goto resume_and_exit;
         }
@@ -223,11 +208,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
                     bb_log_e(TAG, "OTA rejected: firmware is for '%s', this device is '%s'",
                              incoming->project_name, running->project_name);
                     esp_ota_abort(ota_handle);
-                    bb_http_resp_set_status(req, 400);
-                    bb_http_json_obj_stream_t bm_obj;
-                    bb_http_resp_json_obj_begin(req, &bm_obj);
-                    bb_http_resp_json_obj_set_str(&bm_obj, "error", "Firmware board mismatch");
-                    bb_http_resp_json_obj_end(&bm_obj);
+                    ota_push_err(req, 400, "Firmware board mismatch");
                     free(buf);
                     goto resume_and_exit;
                 }
@@ -239,11 +220,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
         if (err != ESP_OK) {
             bb_log_e(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
             esp_ota_abort(ota_handle);
-            bb_http_resp_set_status(req, 500);
-            bb_http_json_obj_stream_t obj;
-            bb_http_resp_json_obj_begin(req, &obj);
-            bb_http_resp_json_obj_set_str(&obj, "error", "OTA write failed");
-            bb_http_resp_json_obj_end(&obj);
+            ota_push_err(req, 500, "OTA write failed");
             free(buf);
             goto resume_and_exit;
         }
@@ -275,12 +252,14 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     err = esp_ota_end(ota_handle);
     if (err != ESP_OK) {
         bb_log_e(TAG, "esp_ota_end failed: %s (0x%x)", esp_err_to_name(err), err);
+        ota_push_err(req, 422, "image validation failed (incomplete or corrupt upload); retry the push");
         goto resume_and_exit;
     }
 
     err = esp_ota_set_boot_partition(partition);
     if (err != ESP_OK) {
         bb_log_e(TAG, "esp_ota_set_boot_partition failed: %s", esp_err_to_name(err));
+        ota_push_err(req, 500, "set boot partition failed");
         goto resume_and_exit;
     }
 
@@ -323,22 +302,27 @@ static const bb_route_response_t s_ota_push_responses[] = {
       "{\"type\":\"object\","
       "\"properties\":{\"error\":{\"type\":\"string\"}},"
       "\"required\":[\"error\"]}",
-      "firmware board mismatch, invalid binary, or Content-Length <= 0" },
+      "firmware board mismatch or Content-Length <= 0" },
     { 408, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{\"error\":{\"type\":\"string\"}},"
       "\"required\":[\"error\"]}",
-      "upload timeout" },
+      "upload timeout or transfer too slow" },
     { 413, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{\"error\":{\"type\":\"string\"}},"
       "\"required\":[\"error\"]}",
       "payload exceeds CONFIG_BB_OTA_PUSH_MAX_SIZE (default 4 MB)" },
+    { 422, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"error\":{\"type\":\"string\"}},"
+      "\"required\":[\"error\"]}",
+      "image validation failed — incomplete or corrupt upload; retry the push" },
     { 500, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{\"error\":{\"type\":\"string\"}},"
       "\"required\":[\"error\"]}",
-      "OTA write or validation failed, allocation failure, or no OTA partition" },
+      "OTA write failed, set-boot-partition failed, allocation failure, or no OTA partition" },
     { 0 },
 };
 

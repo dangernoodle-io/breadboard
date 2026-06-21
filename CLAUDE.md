@@ -433,6 +433,8 @@ The guard checks `heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CA
 
 `POST /api/update/push` enforces a body size limit via `CONFIG_BB_OTA_PUSH_MAX_SIZE` (default 4 MB). Requests exceeding the limit return 413 before any flash write begins.
 
+**Error taxonomy (B1-307).** All failure paths return a JSON `{"error": "..."}` body with a distinct HTTP status; a closed connection is never the error signal. Status codes and their meanings: 400 = board mismatch or bad Content-Length; 408 = transfer too slow or timed out (retry with a better connection); 413 = payload too large; 422 = image received successfully but `esp_ota_end` SHA validation failed — incomplete or corrupt upload, safe to retry the push; 500 = internal failure (write error, malloc, no OTA partition, or set-boot-partition failed).
+
 ## GET /api/info memory regions
 
 `GET /api/info` includes three nested memory-region objects (additive; back-compat `free_heap` and `heap_minimum_ever` flat fields unchanged):
