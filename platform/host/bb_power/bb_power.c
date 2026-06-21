@@ -90,6 +90,12 @@ const char *bb_power_name(bb_power_handle_t h)
     return h->drv->name;
 }
 
+void *bb_power_handle_state(bb_power_handle_t h)
+{
+    if (!h) return NULL;
+    return h->state;
+}
+
 void bb_power_set_primary(bb_power_handle_t h) { s_primary = h; }
 bb_power_handle_t bb_power_primary(void)        { return s_primary; }
 

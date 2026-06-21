@@ -32,6 +32,11 @@ typedef struct {
 bb_err_t bb_power_handle_create(const bb_power_driver_t *drv, void *state,
                                  bb_power_handle_t *out);
 
+// Returns the driver-private state pointer stored in the handle.
+// Used by drivers that need to call back into their own state (e.g. recover()).
+// Returns NULL if h is NULL.
+void *bb_power_handle_state(bb_power_handle_t h);
+
 #ifdef __cplusplus
 }
 #endif
