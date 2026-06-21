@@ -43,3 +43,13 @@ bool bb_ota_pull_download_should_retry(int perform_err, bool data_complete);
 bool bb_ota_pull_heap_guard_passes(size_t largest_block, size_t contiguous_floor,
                                    size_t total_free, size_t total_floor,
                                    const char **out_dim);
+
+/**
+ * Test hook: exercise bb_ota_pull_heap_ready's predicate with synthetic heap
+ * values and caller-supplied floor constants. Use this from host unit tests
+ * since the real bb_ota_pull_heap_ready() is ESP-IDF-only (calls heap_caps_*).
+ *
+ * Available when BB_OTA_PULL_TESTING is defined.
+ */
+bool bb_ota_pull_heap_ready_for_test(size_t largest_block, size_t contiguous_floor,
+                                     size_t total_free, size_t total_floor);

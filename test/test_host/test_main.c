@@ -135,6 +135,12 @@ void test_heap_guard_passes_exactly_at_contiguous_floor(void);
 void test_heap_guard_passes_exactly_at_total_free_floor(void);
 void test_heap_guard_passes_total_free_only_floor_set(void);
 void test_heap_guard_passes_null_out_dim_does_not_crash(void);
+void test_heap_ready_passes_when_both_dims_above_floor(void);
+void test_heap_ready_fails_when_contiguous_below_floor(void);
+void test_heap_ready_fails_when_total_free_below_floor(void);
+void test_heap_ready_passes_at_exact_contiguous_boundary(void);
+void test_heap_ready_passes_at_exact_total_free_boundary(void);
+void test_heap_ready_passes_when_both_floors_disabled(void);
 
 // Forward declarations from test_bb_ota_pull_manifest.c
 void test_ota_pull_manifest_fetch_success(void);
@@ -2852,6 +2858,12 @@ int main(void) {
     RUN_TEST(test_heap_guard_passes_exactly_at_total_free_floor);
     RUN_TEST(test_heap_guard_passes_total_free_only_floor_set);
     RUN_TEST(test_heap_guard_passes_null_out_dim_does_not_crash);
+    RUN_TEST(test_heap_ready_passes_when_both_dims_above_floor);
+    RUN_TEST(test_heap_ready_fails_when_contiguous_below_floor);
+    RUN_TEST(test_heap_ready_fails_when_total_free_below_floor);
+    RUN_TEST(test_heap_ready_passes_at_exact_contiguous_boundary);
+    RUN_TEST(test_heap_ready_passes_at_exact_total_free_boundary);
+    RUN_TEST(test_heap_ready_passes_when_both_floors_disabled);
 
     // OTA pull — streaming manifest fetch
     RUN_TEST(test_ota_pull_manifest_fetch_success);

@@ -31,6 +31,7 @@ static const char k_info_schema_base[] =
     "\"app_size\":{\"type\":\"integer\"},"
     "\"reset_reason\":{\"type\":\"string\"},"
     "\"ota_validated\":{\"type\":\"boolean\"},"
+    "\"ota_ready\":{\"type\":\"boolean\"},"
     "\"heap_free_total\":{\"type\":\"integer\"},"
     "\"heap_free_internal\":{\"type\":\"integer\"},"
     "\"heap_minimum_ever\":{\"type\":\"integer\"},"
