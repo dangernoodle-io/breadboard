@@ -2249,6 +2249,10 @@ void test_bb_pub_tick_ok_when_source_registry_full(void);
 #if CONFIG_BB_PUB_BUFFER_ENABLE
 void test_bb_pub_buffer_ring_size_guard_reset_clears_latch(void);
 #endif
+void test_bb_pub_pause_then_tick_is_noop(void);
+void test_bb_pub_pause_resume_round_trip(void);
+void test_bb_pub_pause_blocks_until_in_flight_tick_completes(void);
+void test_bb_pub_pause_bounded_wait_returns_before_slow_sink_finishes(void);
 
 // Forward declarations from test_bb_sensors.c
 void bb_sensors_reset_for_test(void);
@@ -4947,6 +4951,10 @@ int main(void) {
 #if CONFIG_BB_PUB_BUFFER_ENABLE
     RUN_TEST(test_bb_pub_buffer_ring_size_guard_reset_clears_latch);
 #endif
+    RUN_TEST(test_bb_pub_pause_then_tick_is_noop);
+    RUN_TEST(test_bb_pub_pause_resume_round_trip);
+    RUN_TEST(test_bb_pub_pause_blocks_until_in_flight_tick_completes);
+    RUN_TEST(test_bb_pub_pause_bounded_wait_returns_before_slow_sink_finishes);
 
     // bb_section tests
     RUN_TEST(test_bb_section_register_ok);

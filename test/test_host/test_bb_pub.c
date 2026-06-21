@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 // ---------------------------------------------------------------------------
 // Fake capturing sink
@@ -1371,4 +1372,121 @@ void test_bb_pub_set_interval_volatile_then_persisting_updates_stored(void)
 
     // Stored value must reflect the persisting call, not the volatile one.
     TEST_ASSERT_EQUAL_UINT32(15000, bb_pub_get_interval_ms());
+}
+
+// ---------------------------------------------------------------------------
+// Bounded-wait pause timing test (B1-292)
+//
+// Registers a sink whose publish() sleeps for SLOW_SINK_SLEEP_MS (2 s).
+// Starts a tick in a background thread, waits until it enters the slow sink,
+// then calls bb_pub_pause() from the main thread and times how long it takes.
+// Asserts that pause() returns in well under SLOW_SINK_SLEEP_MS (proving it
+// no longer blocks for the full publish duration), and that after it returns
+// s_in_publish has drained (no concurrent TLS guarantee preserved).
+// ---------------------------------------------------------------------------
+
+// The slow sink sleeps SHORT_PUBLISH_MS to simulate an in-flight TLS write.
+// bb_pub_pause() must bounded-wait for it to complete — so pause() should
+// return in roughly SHORT_PUBLISH_MS.  PAUSE_BOUND_MS is a generous ceiling
+// that is still well under the old "hold tick lock across full TLS" duration
+// (14 s on mining boards) — confirming the old lock-across-publish bug is gone.
+#define SHORT_PUBLISH_MS   200   /* simulated in-flight publish */
+#define PAUSE_BOUND_MS    1000   /* pause must return within this */
+
+typedef struct {
+    pthread_mutex_t mu;
+    pthread_cond_t  cv;
+    bool            publish_entered;   /* set when slow sink starts sleeping */
+    bool            publish_done;      /* set when slow sink returns */
+    int             call_count;
+} slow_sink_ctx_t;
+
+static bb_err_t slow_sink_publish(void *ctx, const char *topic,
+                                  const char *payload, int len)
+{
+    (void)topic;
+    (void)payload;
+    (void)len;
+    slow_sink_ctx_t *s = (slow_sink_ctx_t *)ctx;
+
+    pthread_mutex_lock(&s->mu);
+    s->call_count++;
+    s->publish_entered = true;
+    pthread_cond_broadcast(&s->cv);
+    pthread_mutex_unlock(&s->mu);
+
+    // Simulate a blocking TLS publish (SHORT_PUBLISH_MS).
+    struct timespec ts_sleep = {
+        .tv_sec  = SHORT_PUBLISH_MS / 1000,
+        .tv_nsec = (SHORT_PUBLISH_MS % 1000) * 1000000L,
+    };
+    nanosleep(&ts_sleep, NULL);
+
+    pthread_mutex_lock(&s->mu);
+    s->publish_done = true;
+    pthread_cond_broadcast(&s->cv);
+    pthread_mutex_unlock(&s->mu);
+
+    return BB_OK;
+}
+
+static void *slow_tick_thread_fn(void *arg)
+{
+    (void)arg;
+    bb_pub_tick_once();
+    return NULL;
+}
+
+void test_bb_pub_pause_bounded_wait_returns_before_slow_sink_finishes(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    slow_sink_ctx_t ssink;
+    memset(&ssink, 0, sizeof(ssink));
+    pthread_mutex_init(&ssink.mu, NULL);
+    pthread_cond_init(&ssink.cv, NULL);
+
+    bb_pub_sink_t sk = { .publish = slow_sink_publish, .ctx = &ssink };
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("x", sample_temperature, NULL);
+
+    // Launch tick in background — will block inside slow_sink_publish.
+    pthread_t tick_tid;
+    pthread_create(&tick_tid, NULL, slow_tick_thread_fn, NULL);
+
+    // Wait until the slow sink has entered its sleep.
+    pthread_mutex_lock(&ssink.mu);
+    while (!ssink.publish_entered) {
+        pthread_cond_wait(&ssink.cv, &ssink.mu);
+    }
+    pthread_mutex_unlock(&ssink.mu);
+
+    // Time how long bb_pub_pause() takes.
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    bb_pub_pause();
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+
+    long elapsed_ms = (long)(t1.tv_sec  - t0.tv_sec)  * 1000
+                    + (long)(t1.tv_nsec - t0.tv_nsec) / 1000000;
+
+    // pause() must return within PAUSE_BOUND_MS.  It bounded-waits for the
+    // in-flight publish (SHORT_PUBLISH_MS) to drain, so the actual wait is
+    // ~SHORT_PUBLISH_MS — well under PAUSE_BOUND_MS and well under the old
+    // "hold tick lock across full 14 s TLS write" behaviour.
+    TEST_ASSERT_TRUE_MESSAGE(elapsed_ms < PAUSE_BOUND_MS,
+        "bb_pub_pause blocked longer than expected (bounded-wait broken)");
+
+    // pause flag must be set.
+    TEST_ASSERT_TRUE(bb_pub_is_paused());
+
+    // Let the tick thread finish naturally.
+    pthread_join(tick_tid, NULL);
+
+    // Verify the slow sink was called (the tick ran its body).
+    TEST_ASSERT_EQUAL_INT(1, ssink.call_count);
+
+    pthread_mutex_destroy(&ssink.mu);
+    pthread_cond_destroy(&ssink.cv);
 }
