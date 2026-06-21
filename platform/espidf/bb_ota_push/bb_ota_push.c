@@ -140,7 +140,9 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     buf = malloc(OTA_RECV_BUF_SIZE);
     if (!buf) {
         bb_log_e(TAG, "malloc failed for OTA receive buffer");
+        esp_ota_abort(ota_handle);
         ota_push_err(req, 500, "malloc failed");
+        bb_ota_emit_progress("push", BB_OTA_PHASE_FAIL, 0);
         bb_wdt_extend_end();
         if (s_paused) { bb_ota_resume(); }
         return BB_ERR_NO_SPACE;
@@ -252,6 +254,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     err = esp_ota_end(ota_handle);
     if (err != ESP_OK) {
         bb_log_e(TAG, "esp_ota_end failed: %s (0x%x)", esp_err_to_name(err), err);
+        esp_ota_abort(ota_handle);
         ota_push_err(req, 422, "image validation failed (incomplete or corrupt upload); retry the push");
         goto resume_and_exit;
     }
