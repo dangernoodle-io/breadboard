@@ -212,6 +212,41 @@ typedef struct {
 #endif /* ESP_PLATFORM */
 
 // ---------------------------------------------------------------------------
+// TPS546-specific status — fault bits + VIN-sag tracking.
+//
+// Populated by the periodic poll path (op_poll in the ESP-IDF glue) and
+// accessible via bb_power_tps546_read_status().  This struct is intentionally
+// separate from bb_power_snapshot_t so the generic power HAL stays
+// regulator-agnostic.
+//
+// Consumers must set cfg.protect.vin_uv_warn_v ≈ 4.6 V to arm the TPS546's
+// VIN-UV sticky latch.  When vin_uv_warn_v == 0 (default skip), the chip
+// never sets the STATUS_INPUT VIN-UV bit and sag_count stays 0.
+// ---------------------------------------------------------------------------
+typedef struct {
+    uint16_t fault_bits;    // OR of TPS546_FAULT_* bits from tps546_decode_fault_bits()
+    int      vin_min_mv;    // rolling minimum VIN seen since open/reset; INT_MAX = no reading yet
+    uint16_t sag_count;     // number of VIN-UV sag events recorded
+    int      last_sag_mv;   // VIN reading at last sag event; -1 if none
+    uint64_t last_sag_ms;   // bb_clock_now_ms() at last sag event; 0 if none
+} bb_power_tps546_status_t;
+
+#ifdef ESP_PLATFORM
+
+// Copy the cached TPS546 status into *out under the internal mutex.
+// Returns BB_ERR_INVALID_ARG if h or out is NULL.
+bb_err_t bb_power_tps546_read_status(bb_power_handle_t h,
+                                      bb_power_tps546_status_t *out);
+
+// Reset the VIN-sag tracking fields (vin_min_mv → INT_MAX, sag_count → 0,
+// last_sag_mv → -1, last_sag_ms → 0).  Does NOT clear fault_bits (those
+// reflect live STATUS register state read each poll).
+// Returns BB_ERR_INVALID_ARG if h is NULL.
+bb_err_t bb_power_tps546_reset_sag(bb_power_handle_t h);
+
+#endif /* ESP_PLATFORM */
+
+// ---------------------------------------------------------------------------
 // Build the ordered PMBus init program for a given config + VOUT_MODE exp.
 // Pure function — no I2C dependency, host-testable.
 // Returns the number of write entries placed in `out`, or -1 on overflow.

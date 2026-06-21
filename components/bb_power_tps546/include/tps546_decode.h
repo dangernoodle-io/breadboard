@@ -1,6 +1,7 @@
 // tps546_decode.h — pure PMBus ULINEAR16 / SLINEAR11 decode + encode helpers.
 // No ESP-IDF dependency; host-testable. Ported from TaipanMiner tps546_decode.h.
 #pragma once
+#include <stdbool.h>
 #include <stdint.h>
 #include <math.h>
 
@@ -121,6 +122,49 @@ static inline uint16_t tps546_int_2_slinear11(int value)
     if (i == 16) return 0;
 
     return (uint16_t)(((exponent << 11) & 0xF800u) | (uint16_t)mantissa);
+}
+
+// ---------------------------------------------------------------------------
+// STATUS register fault-bit helpers — pure / host-testable.
+// ---------------------------------------------------------------------------
+
+// Named fault-bit positions in the decoded fault mask returned by
+// tps546_decode_fault_bits().  Bits are assigned to a uint16_t bitmask;
+// the underlying PMBus register bits are noted beside each macro.
+#define TPS546_FAULT_IOUT_OC  (1u << 0)  // STATUS_IOUT  bit 4 (IOUT_OC_FAULT)
+#define TPS546_FAULT_OT       (1u << 1)  // STATUS_TEMPERATURE bit 7 (OT_FAULT)
+#define TPS546_FAULT_VIN_UV   (1u << 2)  // STATUS_INPUT bit 3 (VIN_UV_WARNING)
+#define TPS546_FAULT_VIN_OV   (1u << 3)  // STATUS_INPUT bit 5 (VIN_OV_FAULT)
+#define TPS546_FAULT_UNIT_OFF (1u << 4)  // STATUS_WORD  bit 6 (UNIT_IS_OFF)
+
+// Decode the four raw STATUS register values into a named-bit fault mask.
+//
+// Call order matters when CLEAR_FAULTS is issued elsewhere: read STATUS_IOUT
+// for OC classification BEFORE issuing CLEAR_FAULTS so the OC bit is captured
+// before it is cleared.  See op_poll() in bb_power_tps546.c for the sequencing
+// comment.
+//
+// Returns 0 when no named faults are set; OR of TPS546_FAULT_* otherwise.
+static inline uint16_t tps546_decode_fault_bits(uint16_t st_word,
+                                                 uint8_t  st_iout,
+                                                 uint8_t  st_temp,
+                                                 uint8_t  st_input)
+{
+    uint16_t bits = 0;
+    if (st_iout  & (1u << 4)) bits |= TPS546_FAULT_IOUT_OC;   // STATUS_IOUT b4
+    if (st_temp  & (1u << 7)) bits |= TPS546_FAULT_OT;         // STATUS_TEMP b7
+    if (st_input & (1u << 3)) bits |= TPS546_FAULT_VIN_UV;     // STATUS_INPUT b3
+    if (st_input & (1u << 5)) bits |= TPS546_FAULT_VIN_OV;     // STATUS_INPUT b5
+    if (st_word  & (1u << 6)) bits |= TPS546_FAULT_UNIT_OFF;   // STATUS_WORD b6
+    return bits;
+}
+
+// VIN sag comparator: returns true when vin_mv is a valid reading (≥0) and
+// below threshold_mv.  A negative vin_mv indicates an unavailable reading and
+// is never treated as a sag.
+static inline bool tps546_vin_sag(int vin_mv, int threshold_mv)
+{
+    return vin_mv >= 0 && vin_mv < threshold_mv;
 }
 
 // Encode a float voltage (in Volts) as ULINEAR16 using the VOUT_MODE

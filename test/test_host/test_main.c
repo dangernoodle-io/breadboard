@@ -1360,6 +1360,20 @@ void test_slinear11_to_c_int_negative_exp(void);
 void test_slinear11_to_c_int_neg_exp_neg_mantissa(void);
 void test_slinear11_to_ma_negative_exp(void);
 void test_slinear11_to_ma_neg_exp_neg_mantissa(void);
+void test_decode_fault_bits_clean(void);
+void test_decode_fault_bits_0x0840_unit_off(void);
+void test_decode_fault_bits_iout_oc(void);
+void test_decode_fault_bits_iout_oc_only(void);
+void test_decode_fault_bits_ot(void);
+void test_decode_fault_bits_vin_uv(void);
+void test_decode_fault_bits_vin_ov(void);
+void test_decode_fault_bits_unit_off(void);
+void test_decode_fault_bits_multiple(void);
+void test_vin_sag_below_threshold(void);
+void test_vin_sag_at_threshold(void);
+void test_vin_sag_above_threshold(void);
+void test_vin_sag_unavailable(void);
+void test_vin_sag_zero_vin(void);
 
 // Forward declarations from test_tps546_program.c
 void test_encode_float_slinear11_6v5(void);
@@ -4051,6 +4065,20 @@ int main(void) {
     RUN_TEST(test_slinear11_to_c_int_neg_exp_neg_mantissa);
     RUN_TEST(test_slinear11_to_ma_negative_exp);
     RUN_TEST(test_slinear11_to_ma_neg_exp_neg_mantissa);
+    RUN_TEST(test_decode_fault_bits_clean);
+    RUN_TEST(test_decode_fault_bits_0x0840_unit_off);
+    RUN_TEST(test_decode_fault_bits_iout_oc);
+    RUN_TEST(test_decode_fault_bits_iout_oc_only);
+    RUN_TEST(test_decode_fault_bits_ot);
+    RUN_TEST(test_decode_fault_bits_vin_uv);
+    RUN_TEST(test_decode_fault_bits_vin_ov);
+    RUN_TEST(test_decode_fault_bits_unit_off);
+    RUN_TEST(test_decode_fault_bits_multiple);
+    RUN_TEST(test_vin_sag_below_threshold);
+    RUN_TEST(test_vin_sag_at_threshold);
+    RUN_TEST(test_vin_sag_above_threshold);
+    RUN_TEST(test_vin_sag_unavailable);
+    RUN_TEST(test_vin_sag_zero_vin);
 
     // tps546 encoder + build_init_program tests
     RUN_TEST(test_encode_float_slinear11_6v5);
