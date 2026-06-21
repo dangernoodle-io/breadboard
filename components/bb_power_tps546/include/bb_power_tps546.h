@@ -158,6 +158,25 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
                                bb_power_handle_t *out);
 
 /**
+ * DEBUG/TEST ONLY: force the regulator output off to exercise vcore-collapse
+ * recovery.
+ *
+ * Writes OPERATION = OPERATION_OFF (0x00) to the TPS546 via the existing
+ * PMBus device on the handle — vcore drops to ~0 V; the input rail is
+ * untouched.  Does NOT run a recover cycle; the caller (or the vcore watchdog)
+ * is expected to call bb_power_tps546_recover() after observing the collapse.
+ *
+ * This function exists solely to inject a real ASIC vcore collapse for
+ * end-to-end watchdog validation (TA-318).  It MUST NOT be called in
+ * production firmware.  The TAIPANMINER_DEBUG gate on the HTTP endpoint that
+ * invokes it is the enforcement point.
+ *
+ * @param h  Handle returned by bb_power_tps546_open().
+ * @return   BB_OK on success, or a PMBus error code.
+ */
+bb_err_t bb_power_tps546_debug_force_off(bb_power_handle_t h);
+
+/**
  * Perform a clean PMBus soft-reset on an already-open TPS546 handle.
  *
  * Clears a latched TPS546 (e.g. after a vcore collapse that left the rail at

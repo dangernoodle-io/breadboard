@@ -331,6 +331,25 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
 }
 
 // ---------------------------------------------------------------------------
+// Public debug hook — force OPERATION_OFF to collapse vcore for WD testing.
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_power_tps546_debug_force_off(bb_power_handle_t h)
+{
+    if (!h) return BB_ERR_INVALID_ARG;
+
+    tps546_state_t *s = bb_power_handle_state(h);
+    if (!s) return BB_ERR_INVALID_STATE; // LCOV_EXCL_LINE
+
+    esp_err_t err = pmbus_write_byte(s->dev, BB_PMBUS_OPERATION, OPERATION_OFF);
+    if (err != ESP_OK) {
+        bb_log_e(TAG, "debug_force_off: OPERATION_OFF failed: %d", err);
+        return err;
+    }
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
 // Public recover — clears a latched TPS546 without an AC power-cycle.
 // ---------------------------------------------------------------------------
 
