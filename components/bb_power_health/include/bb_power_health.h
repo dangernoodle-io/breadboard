@@ -68,9 +68,10 @@ extern "C" {
  * Action returned by bb_vcore_wd_eval() on each call.
  */
 typedef enum {
-    BB_VCORE_WD_NONE    = 0,  // no action needed
-    BB_VCORE_WD_RECOVER = 1,  // caller should attempt a PMBus soft-recover
-    BB_VCORE_WD_BACKOFF = 2,  // burst limit reached; skip this cycle but keep evaluating
+    BB_VCORE_WD_NONE       = 0,  // no action needed
+    BB_VCORE_WD_RECOVER    = 1,  // caller should attempt a PMBus soft-recover
+    BB_VCORE_WD_BACKOFF    = 2,  // burst limit reached; skip this cycle but keep evaluating
+    BB_VCORE_WD_FAULT_HOLD = 3,  // OC fault latched; do NOT recover until explicitly cleared
 } bb_vcore_wd_action_t;
 
 // ---------------------------------------------------------------------------
@@ -84,6 +85,7 @@ typedef struct {
     int      vcore_mv;      // measured core voltage in millivolts
     bool     rail_enabled;  // true when the regulator output is enabled
     uint64_t uptime_ms;     // monotonic uptime in milliseconds
+    bool     oc_fault;      // true when an over-current fault has been detected (caller-decoded)
 } bb_vcore_wd_input_t;
 
 // ---------------------------------------------------------------------------
@@ -110,6 +112,12 @@ typedef struct {
     // to reset the burst counter.
     uint64_t healthy_since_ms;  // uptime when the current healthy streak began (0 = not healthy)
     bool     in_healthy_streak; // true while vcore has been continuously >= BB_VCORE_WD_OK_MV
+
+    // OC-fault latch: set when a collapse is attributed to an over-current fault.
+    // While true, eval returns BB_VCORE_WD_FAULT_HOLD and no recovery is attempted.
+    // Cleared only by an explicit bb_vcore_wd_clear_hold() call (consumer manages
+    // NVS persistence so the latch survives auto-reboots).
+    bool     fault_held;
 } bb_vcore_wd_state_t;
 
 // ---------------------------------------------------------------------------
@@ -138,6 +146,24 @@ typedef struct {
  */
 bb_vcore_wd_action_t bb_vcore_wd_eval(bb_vcore_wd_state_t *st,
                                         const bb_vcore_wd_input_t *in);
+
+// ---------------------------------------------------------------------------
+// Fault-hold accessors (consumer-side NVS persistence, not bb internals)
+// ---------------------------------------------------------------------------
+
+/**
+ * Return true when the OC-fault latch is active.
+ * While held, bb_vcore_wd_eval() always returns BB_VCORE_WD_FAULT_HOLD.
+ */
+bool bb_vcore_wd_is_held(const bb_vcore_wd_state_t *st);
+
+/**
+ * Clear the OC-fault latch and re-arm the watchdog so the next eval
+ * starts fresh (consec_low reset, healthy streak cleared).
+ * The consumer is responsible for also clearing the NVS-backed copy
+ * so the clear survives a subsequent reboot.
+ */
+void bb_vcore_wd_clear_hold(bb_vcore_wd_state_t *st);
 
 #ifdef __cplusplus
 }

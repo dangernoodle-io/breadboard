@@ -11,6 +11,13 @@
 //   - rail_disabled suppresses collapse action
 //   - no trigger when vcore is healthy
 //   - consec_low resets on healthy reading (after prior partial collapse count)
+//   FAULT_HOLD branches (Component 2 / TA-435):
+//   - collapse + oc_fault → fault_held latched, returns FAULT_HOLD
+//   - once held, a subsequent eval (even healthy reading) still returns FAULT_HOLD
+//   - bb_vcore_wd_clear_hold → next collapse (non-oc) returns RECOVER again
+//   - collapse WITHOUT oc_fault still returns RECOVER (regression guard)
+//   - is_held reflects fault_held state
+//   - fault_held already set at entry → immediate FAULT_HOLD (no eval needed)
 #include "unity.h"
 #include "bb_power_health.h"
 
@@ -305,4 +312,88 @@ void test_bb_vcore_wd_no_action_when_always_healthy(void)
         advance_ms(1000);
     }
     TEST_ASSERT_EQUAL_INT(0, s_st.burst_count);
+}
+
+// ---------------------------------------------------------------------------
+// FAULT_HOLD — OC-fault latch (Component 2 / TA-435)
+// ---------------------------------------------------------------------------
+
+// collapse + oc_fault → FAULT_HOLD and fault_held latches.
+void test_bb_vcore_wd_oc_fault_collapse_latches_fault_hold(void)
+{
+    reset();
+    s_in.oc_fault = true;
+    bb_vcore_wd_action_t act = feed_collapse(BB_VCORE_WD_COLLAPSE_POLLS);
+    TEST_ASSERT_EQUAL_INT(BB_VCORE_WD_FAULT_HOLD, act);
+    TEST_ASSERT_TRUE(s_st.fault_held);
+}
+
+// once held, even a healthy reading still returns FAULT_HOLD (latch persists).
+void test_bb_vcore_wd_fault_hold_persists_on_healthy_reading(void)
+{
+    reset();
+    s_in.oc_fault = true;
+    feed_collapse(BB_VCORE_WD_COLLAPSE_POLLS);
+    TEST_ASSERT_TRUE(s_st.fault_held);
+
+    // Feed a healthy reading — latch must not auto-clear.
+    s_in.vcore_mv = BB_VCORE_WD_OK_MV + 100;
+    s_in.oc_fault = false; // fault gone on the bus — but latch stays
+    bb_vcore_wd_action_t act = eval();
+    TEST_ASSERT_EQUAL_INT(BB_VCORE_WD_FAULT_HOLD, act);
+    TEST_ASSERT_TRUE(s_st.fault_held);
+}
+
+// fault_held already true at entry → FAULT_HOLD returned immediately (early-out branch).
+void test_bb_vcore_wd_fault_hold_early_out_when_already_held(void)
+{
+    reset();
+    // Seed fault_held directly (simulates NVS restore at boot).
+    s_st.fault_held = true;
+    // Even a warmup-era eval returns FAULT_HOLD (latch takes priority).
+    s_in.uptime_ms = 0;
+    s_in.vcore_mv  = BB_VCORE_WD_OK_MV + 100;
+    bb_vcore_wd_action_t act = eval();
+    TEST_ASSERT_EQUAL_INT(BB_VCORE_WD_FAULT_HOLD, act);
+}
+
+// bb_vcore_wd_clear_hold → next collapse (non-OC) returns RECOVER again.
+void test_bb_vcore_wd_clear_hold_rearms_recoverable_path(void)
+{
+    reset();
+    s_in.oc_fault = true;
+    feed_collapse(BB_VCORE_WD_COLLAPSE_POLLS);
+    TEST_ASSERT_TRUE(s_st.fault_held);
+
+    bb_vcore_wd_clear_hold(&s_st);
+    TEST_ASSERT_FALSE(s_st.fault_held);
+
+    // Next collapse without oc_fault should RECOVER.
+    s_in.oc_fault = false;
+    bb_vcore_wd_action_t act = feed_collapse(BB_VCORE_WD_COLLAPSE_POLLS);
+    TEST_ASSERT_EQUAL_INT(BB_VCORE_WD_RECOVER, act);
+}
+
+// collapse WITHOUT oc_fault still returns RECOVER — fault-aware must not break recoverable path.
+void test_bb_vcore_wd_no_oc_fault_collapse_still_recovers(void)
+{
+    reset();
+    s_in.oc_fault = false;
+    bb_vcore_wd_action_t act = feed_collapse(BB_VCORE_WD_COLLAPSE_POLLS);
+    TEST_ASSERT_EQUAL_INT(BB_VCORE_WD_RECOVER, act);
+    TEST_ASSERT_FALSE(s_st.fault_held);
+}
+
+// is_held reflects fault_held state.
+void test_bb_vcore_wd_is_held_reflects_state(void)
+{
+    reset();
+    TEST_ASSERT_FALSE(bb_vcore_wd_is_held(&s_st));
+
+    s_in.oc_fault = true;
+    feed_collapse(BB_VCORE_WD_COLLAPSE_POLLS);
+    TEST_ASSERT_TRUE(bb_vcore_wd_is_held(&s_st));
+
+    bb_vcore_wd_clear_hold(&s_st);
+    TEST_ASSERT_FALSE(bb_vcore_wd_is_held(&s_st));
 }

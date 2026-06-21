@@ -1208,6 +1208,12 @@ void test_bb_vcore_wd_burst_max_triggers_backoff(void);
 void test_bb_vcore_wd_backoff_persists_without_healthy(void);
 void test_bb_vcore_wd_burst_window_expiry_resets_and_recovers(void);
 void test_bb_vcore_wd_no_action_when_always_healthy(void);
+void test_bb_vcore_wd_oc_fault_collapse_latches_fault_hold(void);
+void test_bb_vcore_wd_fault_hold_persists_on_healthy_reading(void);
+void test_bb_vcore_wd_fault_hold_early_out_when_already_held(void);
+void test_bb_vcore_wd_clear_hold_rearms_recoverable_path(void);
+void test_bb_vcore_wd_no_oc_fault_collapse_still_recovers(void);
+void test_bb_vcore_wd_is_held_reflects_state(void);
 
 // Forward declarations from test_bb_display_info_event.c
 void test_bb_display_info_event_build_json_present_true(void);
@@ -3917,6 +3923,12 @@ int main(void) {
     RUN_TEST(test_bb_vcore_wd_backoff_persists_without_healthy);
     RUN_TEST(test_bb_vcore_wd_burst_window_expiry_resets_and_recovers);
     RUN_TEST(test_bb_vcore_wd_no_action_when_always_healthy);
+    RUN_TEST(test_bb_vcore_wd_oc_fault_collapse_latches_fault_hold);
+    RUN_TEST(test_bb_vcore_wd_fault_hold_persists_on_healthy_reading);
+    RUN_TEST(test_bb_vcore_wd_fault_hold_early_out_when_already_held);
+    RUN_TEST(test_bb_vcore_wd_clear_hold_rearms_recoverable_path);
+    RUN_TEST(test_bb_vcore_wd_no_oc_fault_collapse_still_recovers);
+    RUN_TEST(test_bb_vcore_wd_is_held_reflects_state);
 
     // bb_display_info_event tests (health.display event topic pure builder)
     RUN_TEST(test_bb_display_info_event_build_json_present_true);
