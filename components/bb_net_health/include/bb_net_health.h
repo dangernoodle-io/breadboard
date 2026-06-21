@@ -25,21 +25,46 @@ extern "C" {
 
 // ---------------------------------------------------------------------------
 // RSSI bucket thresholds (compile-time overridable).
+//
+// On ESP-IDF, Kconfig generates CONFIG_BB_NET_HEALTH_* symbols (different
+// names from the public BB_NET_HEALTH_* knobs).  Bridge them here so that
+// menuconfig changes actually take effect.  On the host build there is no
+// sdkconfig, so we fall straight through to the numeric fallbacks.
 // ---------------------------------------------------------------------------
 
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_NET_HEALTH_RSSI_GOOD
+#    define BB_NET_HEALTH_RSSI_GOOD CONFIG_BB_NET_HEALTH_RSSI_GOOD
+#  endif
+#endif
 #ifndef BB_NET_HEALTH_RSSI_GOOD
 #define BB_NET_HEALTH_RSSI_GOOD     (-67)  // rssi >= -67 → GOOD
 #endif
 
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_NET_HEALTH_RSSI_MARGINAL_LO
+#    define BB_NET_HEALTH_RSSI_MARGINAL_LO CONFIG_BB_NET_HEALTH_RSSI_MARGINAL_LO
+#  endif
+#endif
 #ifndef BB_NET_HEALTH_RSSI_MARGINAL_LO
 #define BB_NET_HEALTH_RSSI_MARGINAL_LO  (-75)  // -75 <= rssi <= -68 → MARGINAL
 #endif
 
 // Hysteresis sample counts
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_NET_HEALTH_HYST_DOWN
+#    define BB_NET_HEALTH_HYST_DOWN CONFIG_BB_NET_HEALTH_HYST_DOWN
+#  endif
+#endif
 #ifndef BB_NET_HEALTH_HYST_DOWN
 #define BB_NET_HEALTH_HYST_DOWN  3  // consecutive worse-bucket samples before downgrade
 #endif
 
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_NET_HEALTH_HYST_UP
+#    define BB_NET_HEALTH_HYST_UP CONFIG_BB_NET_HEALTH_HYST_UP
+#  endif
+#endif
 #ifndef BB_NET_HEALTH_HYST_UP
 #define BB_NET_HEALTH_HYST_UP    3  // consecutive better-bucket samples before upgrade
 #endif
