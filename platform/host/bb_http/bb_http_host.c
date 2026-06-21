@@ -112,7 +112,7 @@ bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
     switch (status_code) {
         case 200: case 201: case 202: case 204: case 302:
         case 400: case 401: case 403: case 404:
-        case 408: case 409: case 412:
+        case 408: case 409: case 412: case 422:
         case 500: case 503:
             break;
         default:

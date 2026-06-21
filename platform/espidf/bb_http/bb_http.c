@@ -471,6 +471,7 @@ bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
         case 408: status_str = "408 Request Timeout"; break;
         case 409: status_str = "409 Conflict"; break;
         case 412: status_str = "412 Precondition Failed"; break;
+        case 422: status_str = "422 Unprocessable Entity"; break;
         case 500: status_str = "500 Internal Server Error"; break;
         case 503: status_str = "503 Service Unavailable"; break;
         default:  return BB_ERR_INVALID_ARG;
