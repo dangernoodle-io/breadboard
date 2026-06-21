@@ -226,3 +226,128 @@ void test_slinear11_to_ma_neg_exp_neg_mantissa(void)
     int ma = tps546_slinear11_to_ma(0xFFFE);
     TEST_ASSERT_EQUAL_INT(-1001, ma);
 }
+
+// ---------------------------------------------------------------------------
+// tps546_decode_fault_bits
+// ---------------------------------------------------------------------------
+
+// Clean STATUS: STATUS_WORD=0x0800 (MFR_SPECIFIC bit only; no named-fault bits
+// from STATUS_WORD bit6), all sub-registers zero → no named fault bits.
+// The observed STATUS 0x0840 in the plan includes bit6 (UNIT_IS_OFF); using
+// 0x0800 isolates the "truly clean" vector where no named bit fires.
+void test_decode_fault_bits_clean(void)
+{
+    uint16_t bits = tps546_decode_fault_bits(0x0800, 0x00, 0x00, 0x00);
+    TEST_ASSERT_EQUAL_UINT16(0, bits);
+}
+
+// STATUS_WORD=0x0840 has bit6 (UNIT_IS_OFF) set → TPS546_FAULT_UNIT_OFF fires.
+// This is the actual STATUS seen during a VIN-UV-WARN-only event where the
+// unit happens to have reported itself as off.
+void test_decode_fault_bits_0x0840_unit_off(void)
+{
+    uint16_t bits = tps546_decode_fault_bits(0x0840, 0x00, 0x00, 0x00);
+    TEST_ASSERT_TRUE(bits & TPS546_FAULT_UNIT_OFF);
+}
+
+// Fault scenario from the .80/650 board failure:
+// STATUS_WORD=0x4851 has bit6 (UNIT_IS_OFF=0x40) set as well as OC bits.
+// STATUS_IOUT=0x10: bit4=IOUT_OC_FAULT.
+// Use 0x4851 to match the real-board STATUS_WORD; UNIT_OFF will also fire.
+void test_decode_fault_bits_iout_oc(void)
+{
+    // st_iout = 0x10: bit4 set → IOUT_OC_FAULT
+    // st_word = 0x4851: bit6 set → UNIT_OFF also fires
+    uint16_t bits = tps546_decode_fault_bits(0x4851, 0x10, 0x00, 0x00);
+    TEST_ASSERT_TRUE(bits & TPS546_FAULT_IOUT_OC);
+    TEST_ASSERT_TRUE(bits & TPS546_FAULT_UNIT_OFF);  // bit6 in 0x4851
+    // no OT, VIN_UV, or VIN_OV from these register values
+    TEST_ASSERT_FALSE(bits & TPS546_FAULT_OT);
+    TEST_ASSERT_FALSE(bits & TPS546_FAULT_VIN_UV);
+    TEST_ASSERT_FALSE(bits & TPS546_FAULT_VIN_OV);
+}
+
+// Isolated IOUT_OC with no other named bits: use st_word=0x0010 (no bit6).
+void test_decode_fault_bits_iout_oc_only(void)
+{
+    uint16_t bits = tps546_decode_fault_bits(0x0000, 0x10, 0x00, 0x00);
+    TEST_ASSERT_EQUAL_UINT16(TPS546_FAULT_IOUT_OC, bits);
+}
+
+// OT fault: STATUS_TEMPERATURE bit7 set
+void test_decode_fault_bits_ot(void)
+{
+    uint16_t bits = tps546_decode_fault_bits(0x0000, 0x00, 0x80, 0x00);
+    TEST_ASSERT_TRUE(bits & TPS546_FAULT_OT);
+    TEST_ASSERT_EQUAL_UINT16(TPS546_FAULT_OT, bits);
+}
+
+// VIN_UV: STATUS_INPUT bit3 set
+void test_decode_fault_bits_vin_uv(void)
+{
+    uint16_t bits = tps546_decode_fault_bits(0x0000, 0x00, 0x00, 0x08);
+    TEST_ASSERT_TRUE(bits & TPS546_FAULT_VIN_UV);
+    TEST_ASSERT_EQUAL_UINT16(TPS546_FAULT_VIN_UV, bits);
+}
+
+// VIN_OV: STATUS_INPUT bit5 set
+void test_decode_fault_bits_vin_ov(void)
+{
+    uint16_t bits = tps546_decode_fault_bits(0x0000, 0x00, 0x00, 0x20);
+    TEST_ASSERT_TRUE(bits & TPS546_FAULT_VIN_OV);
+    TEST_ASSERT_EQUAL_UINT16(TPS546_FAULT_VIN_OV, bits);
+}
+
+// UNIT_OFF: STATUS_WORD bit6 set
+void test_decode_fault_bits_unit_off(void)
+{
+    uint16_t bits = tps546_decode_fault_bits(0x0040, 0x00, 0x00, 0x00);
+    TEST_ASSERT_TRUE(bits & TPS546_FAULT_UNIT_OFF);
+    TEST_ASSERT_EQUAL_UINT16(TPS546_FAULT_UNIT_OFF, bits);
+}
+
+// Multiple faults OR'd together: IOUT_OC + OT + VIN_UV
+void test_decode_fault_bits_multiple(void)
+{
+    // st_iout bit4, st_temp bit7, st_input bit3
+    uint16_t bits = tps546_decode_fault_bits(0x0000, 0x10, 0x80, 0x08);
+    TEST_ASSERT_TRUE(bits & TPS546_FAULT_IOUT_OC);
+    TEST_ASSERT_TRUE(bits & TPS546_FAULT_OT);
+    TEST_ASSERT_TRUE(bits & TPS546_FAULT_VIN_UV);
+    TEST_ASSERT_FALSE(bits & TPS546_FAULT_VIN_OV);
+    TEST_ASSERT_FALSE(bits & TPS546_FAULT_UNIT_OFF);
+}
+
+// ---------------------------------------------------------------------------
+// tps546_vin_sag
+// ---------------------------------------------------------------------------
+
+// Below threshold: sag
+void test_vin_sag_below_threshold(void)
+{
+    TEST_ASSERT_TRUE(tps546_vin_sag(4500, 4600));
+}
+
+// At threshold: not a sag (strict less-than)
+void test_vin_sag_at_threshold(void)
+{
+    TEST_ASSERT_FALSE(tps546_vin_sag(4600, 4600));
+}
+
+// Above threshold: not a sag
+void test_vin_sag_above_threshold(void)
+{
+    TEST_ASSERT_FALSE(tps546_vin_sag(5000, 4600));
+}
+
+// Unavailable reading (vin_mv < 0): never a sag
+void test_vin_sag_unavailable(void)
+{
+    TEST_ASSERT_FALSE(tps546_vin_sag(-1, 4600));
+}
+
+// Zero vin with positive threshold: treated as sag (0 is a valid reading below threshold)
+void test_vin_sag_zero_vin(void)
+{
+    TEST_ASSERT_TRUE(tps546_vin_sag(0, 4600));
+}

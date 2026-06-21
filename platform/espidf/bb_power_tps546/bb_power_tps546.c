@@ -1,9 +1,12 @@
 #include "bb_power_tps546.h"
 #include "bb_power_driver.h"
 #include "tps546_decode.h"
+#include "bb_clock.h"
 #include "bb_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <limits.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -38,6 +41,16 @@ typedef struct {
     i2c_master_dev_handle_t dev;
     int8_t vout_n; // VOUT_MODE exponent (negative)
     uint16_t last_status_word; // last STATUS_WORD logged; 0xFFFF = sentinel (never logged)
+
+    // Fault + VIN-sag tracking (updated by op_poll; read by bb_power_tps546_read_status).
+    // Protected by status_lock — distinct from the bb_power parent mutex which guards
+    // bb_power_snapshot_t.  All fields zero-init except vin_min_mv (see open()).
+    pthread_mutex_t status_lock;
+    uint16_t fault_bits;   // latest OR of TPS546_FAULT_* from tps546_decode_fault_bits()
+    int      vin_min_mv;   // rolling minimum VIN (mv); INT_MAX = no reading yet
+    uint16_t sag_count;    // VIN-UV sag events since open / last reset
+    int      last_sag_mv;  // VIN at last sag; -1 if none
+    uint64_t last_sag_ms;  // bb_clock_now_ms() at last sag; 0 if none
 } tps546_state_t;
 
 // ---------------------------------------------------------------------------
@@ -152,7 +165,14 @@ static int op_read_vin_mv(void *state)
     tps546_state_t *s = state;
     uint16_t raw;
     if (pmbus_read_word(s->dev, BB_PMBUS_READ_VIN, &raw) != ESP_OK) return -1;
-    return tps546_slinear11_to_mv(raw);
+    int vin = tps546_slinear11_to_mv(raw);
+    // Track rolling minimum VIN for sag depth reporting.
+    if (vin >= 0) {
+        pthread_mutex_lock(&s->status_lock);
+        if (vin < s->vin_min_mv) s->vin_min_mv = vin;
+        pthread_mutex_unlock(&s->status_lock);
+    }
+    return vin;
 }
 
 static int op_read_temp_c(void *state)
@@ -173,32 +193,64 @@ static bb_err_t op_set_vout_mv(void *state, uint16_t mv)
     return BB_OK;
 }
 
-// Read STATUS registers and emit an edge-triggered warning when STATUS_WORD changes.
-// Best-effort: I2C errors are ignored. CLEAR_FAULTS is never issued here.
+// Read STATUS registers, update fault_bits + sag tracking, and emit an
+// edge-triggered warning when STATUS_WORD changes.  Best-effort: I2C errors
+// are ignored.  CLEAR_FAULTS is never issued here — see ordering note below.
+//
+// SEQUENCING CONSTRAINT (load-bearing):
+//   STATUS_IOUT must be read for OC classification BEFORE any future
+//   CLEAR_FAULTS call in this poll path.  CLEAR_FAULTS wipes the OC sticky
+//   bit in STATUS_IOUT, making it impossible to distinguish a genuine OC
+//   fault from a clean recoverable collapse after the clear.
+//   Today no CLEAR_FAULTS is issued from op_poll; if VIN-UV re-arm via
+//   CLEAR_FAULTS is added in the future (e.g. to re-arm the VIN-UV_WARN
+//   sticky latch after a sag event), the STATUS_IOUT read and the
+//   tps546_decode_fault_bits() call MUST precede it.
 static void op_poll(void *state)
 {
     tps546_state_t *s = state;
     uint16_t st_word = 0;
     if (pmbus_read_word(s->dev, BB_PMBUS_STATUS_WORD, &st_word) != ESP_OK) return;
 
-    // Only log when the value changes from what we last logged (edge-trigger).
-    // 0xFFFF sentinel ensures the first read always logs (even if STATUS_WORD == 0).
-    if (st_word == s->last_status_word) return;
-    s->last_status_word = st_word;
-
-    if (st_word == 0) {
-        // Fault cleared — log once so the "all clear" is visible in the log.
-        bb_log_w(TAG, "TPS546 STATUS (op): WORD=0x0000 (cleared)");
-        return;
-    }
-
+    // Read STATUS_IOUT for OC classification BEFORE any CLEAR_FAULTS (see
+    // sequencing constraint above).
     uint8_t st_vout = 0, st_iout = 0, st_in = 0, st_temp = 0;
     pmbus_read_byte(s->dev, BB_PMBUS_STATUS_VOUT,        &st_vout);
     pmbus_read_byte(s->dev, BB_PMBUS_STATUS_IOUT,        &st_iout);
     pmbus_read_byte(s->dev, BB_PMBUS_STATUS_INPUT,       &st_in);
     pmbus_read_byte(s->dev, BB_PMBUS_STATUS_TEMPERATURE, &st_temp);
-    bb_log_w(TAG, "TPS546 STATUS (op): WORD=0x%04X VOUT=0x%02X IOUT=0x%02X INPUT=0x%02X TEMP=0x%02X",
-             st_word, st_vout, st_iout, st_in, st_temp);
+
+    // Decode fault bits and update cached status (always, not just on edge).
+    uint16_t new_fault_bits = tps546_decode_fault_bits(st_word, st_iout, st_temp, st_in);
+
+    // If the VIN-UV sticky bit is set, record a sag event.
+    // NOTE: consumers must set cfg.protect.vin_uv_warn_v ≈ 4.6 V to arm the
+    // chip's VIN-UV_WARN latch; when vin_uv_warn_v == 0 (default skip) the
+    // STATUS_INPUT VIN-UV bit is never set by the chip and sag_count stays 0.
+    bool vin_uv_set = (new_fault_bits & TPS546_FAULT_VIN_UV) != 0;
+
+    pthread_mutex_lock(&s->status_lock);
+    s->fault_bits = new_fault_bits;
+    if (vin_uv_set) {
+        // Capture the current VIN as the sag depth.  vin_min_mv is updated in
+        // op_read_vin_mv (called earlier in the same bb_power_poll tick); use
+        // it as the sag level if available, otherwise -1.
+        s->last_sag_mv  = (s->vin_min_mv != INT_MAX) ? s->vin_min_mv : -1;
+        s->last_sag_ms  = (uint64_t)bb_clock_now_ms();
+        s->sag_count++;
+    }
+    pthread_mutex_unlock(&s->status_lock);
+
+    // Edge-triggered log: only emit when STATUS_WORD changes.
+    if (st_word == s->last_status_word) return;
+    s->last_status_word = st_word;
+
+    if (st_word == 0) {
+        bb_log_w(TAG, "TPS546 STATUS (op): WORD=0x0000 (cleared)");
+        return;
+    }
+    bb_log_w(TAG, "TPS546 STATUS (op): WORD=0x%04X VOUT=0x%02X IOUT=0x%02X INPUT=0x%02X TEMP=0x%02X fault_bits=0x%04X",
+             st_word, st_vout, st_iout, st_in, st_temp, new_fault_bits);
 }
 
 static const bb_power_driver_t s_tps546_vtable = {
@@ -274,6 +326,9 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
     tps546_state_t *s = calloc(1, sizeof *s); // LCOV_EXCL_BR_LINE
     if (!s) return BB_ERR_NO_SPACE;           // LCOV_EXCL_LINE
     s->last_status_word = 0xFFFF; // sentinel: force log on first poll read
+    s->vin_min_mv  = INT_MAX;     // sentinel: no reading yet
+    s->last_sag_mv = -1;
+    pthread_mutex_init(&s->status_lock, NULL);
 
     // Add device to I2C bus
     i2c_device_config_t dev_cfg = {
@@ -360,7 +415,7 @@ bb_err_t bb_power_tps546_recover(bb_power_handle_t h, const bb_power_tps546_cfg_
     tps546_state_t *s = bb_power_handle_state(h);
     if (!s) return BB_ERR_INVALID_STATE; // LCOV_EXCL_LINE
 
-    bb_log_i(TAG, "TPS546 soft-recover: OPERATION_OFF → reconfig → CLEAR_FAULTS → ON");
+    bb_log_i(TAG, "TPS546 soft-recover: OPERATION_OFF -> reconfig -> CLEAR_FAULTS -> ON");
 
     esp_err_t err = run_init_cycle(s, cfg);
     if (err != ESP_OK) {
@@ -368,5 +423,45 @@ bb_err_t bb_power_tps546_recover(bb_power_handle_t h, const bb_power_tps546_cfg_
         return err;
     }
     bb_log_i(TAG, "TPS546 recover complete at %u mV", cfg->target_mv);
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
+// TPS546-specific status accessors
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_power_tps546_read_status(bb_power_handle_t h,
+                                      bb_power_tps546_status_t *out)
+{
+    if (!h || !out) return BB_ERR_INVALID_ARG;
+
+    tps546_state_t *s = bb_power_handle_state(h);
+    if (!s) return BB_ERR_INVALID_STATE; // LCOV_EXCL_LINE
+
+    pthread_mutex_lock(&s->status_lock);
+    out->fault_bits   = s->fault_bits;
+    out->vin_min_mv   = s->vin_min_mv;
+    out->sag_count    = s->sag_count;
+    out->last_sag_mv  = s->last_sag_mv;
+    out->last_sag_ms  = s->last_sag_ms;
+    pthread_mutex_unlock(&s->status_lock);
+
+    return BB_OK;
+}
+
+bb_err_t bb_power_tps546_reset_sag(bb_power_handle_t h)
+{
+    if (!h) return BB_ERR_INVALID_ARG;
+
+    tps546_state_t *s = bb_power_handle_state(h);
+    if (!s) return BB_ERR_INVALID_STATE; // LCOV_EXCL_LINE
+
+    pthread_mutex_lock(&s->status_lock);
+    s->vin_min_mv  = INT_MAX;
+    s->sag_count   = 0;
+    s->last_sag_mv = -1;
+    s->last_sag_ms = 0;
+    pthread_mutex_unlock(&s->status_lock);
+
     return BB_OK;
 }
