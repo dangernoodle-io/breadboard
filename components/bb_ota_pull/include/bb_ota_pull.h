@@ -54,6 +54,20 @@ bool bb_ota_pull_heap_guard_passes(size_t largest_block, size_t contiguous_floor
 #include "bb_http.h"
 
 /**
+ * Sample internal-cap heap and return true when the pre-flight guard would
+ * pass — i.e. the board currently has enough contiguous internal RAM for the
+ * TLS handshake and enough total free internal RAM for the full OTA session.
+ *
+ * This is the same predicate used by the OTA download path (single source of
+ * truth). Call it before attempting an OTA to surface an early "ota_ready"
+ * signal without actually starting a download.
+ *
+ * Returns false on no-PSRAM boards whose heap is already fragmented below the
+ * guard floors; returns true on PSRAM boards or boards with ample internal RAM.
+ */
+bool bb_ota_pull_heap_ready(void);
+
+/**
  * Trigger an immediate OTA check (non-blocking).
  * Results can be queried via GET /api/ota/check.
  */

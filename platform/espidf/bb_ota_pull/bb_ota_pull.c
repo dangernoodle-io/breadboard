@@ -322,6 +322,16 @@ bb_err_t bb_ota_pull_fetch_manifest_for_test(char *out_tag, size_t tag_cap,
 {
     return ota_fetch_manifest(out_tag, tag_cap, out_url, url_cap);
 }
+
+// Test hook: exercise the bb_ota_pull_heap_ready guard with synthetic heap
+// values and caller-supplied floor constants (the real values are
+// ESP-IDF-only; this lets host tests verify the predicate boundary).
+bool bb_ota_pull_heap_ready_for_test(size_t largest_block, size_t contiguous_floor,
+                                     size_t total_free, size_t total_floor)
+{
+    return bb_ota_pull_heap_guard_passes(largest_block, contiguous_floor,
+                                        total_free, total_floor, NULL);
+}
 #endif
 
 #ifdef ESP_PLATFORM
@@ -349,23 +359,6 @@ static uint32_t ota_dl_backoff_ms(int attempt)
     return b > cap ? cap : b;
 }
 
-/**
- * ota_download_and_flash — generic download + flash core, runs on the CALLER's
- * task. Acquires the PM lock and extends the task WDT for the flash phase (both
- * restored on every exit). Does NOT pause/resume work, touch s_ota_in_progress,
- * manage task-WDT subscription, or reboot — the caller owns task lifecycle and
- * the post-success esp_restart(). Returns BB_OK when the new image is written
- * and ready to boot, else an error (status/last_error already set).
- *
- * Shared by ota_worker_task (spawn path) and bb_ota_pull_run_sync (boot-mode
- * full-heap path) so there is a single tested download path.
- */
-static bb_err_t ota_download_and_flash(const char *asset_url)
-{
-    bb_err_t ret = ESP_FAIL;
-
-    bb_wdt_extend_begin(CONFIG_BB_OTA_PULL_WDT_EXTENDED_S);
-
 // Pre-flight contiguous-heap floor for the OTA TLS handshake. Single source of
 // truth: the mbedTLS IN record buffer the handshake needs is
 // CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN; +~1 KB record overhead. Tuning SSL_IN moves
@@ -382,6 +375,32 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
 #else
 #  define BB_OTA_HEAP_FLOOR_BYTES 0
 #endif
+
+bool bb_ota_pull_heap_ready(void)
+{
+    size_t largest    = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return bb_ota_pull_heap_guard_passes(largest, BB_OTA_HEAP_FLOOR_BYTES,
+                                        total_free, CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES,
+                                        NULL);
+}
+
+/**
+ * ota_download_and_flash — generic download + flash core, runs on the CALLER's
+ * task. Acquires the PM lock and extends the task WDT for the flash phase (both
+ * restored on every exit). Does NOT pause/resume work, touch s_ota_in_progress,
+ * manage task-WDT subscription, or reboot — the caller owns task lifecycle and
+ * the post-success esp_restart(). Returns BB_OK when the new image is written
+ * and ready to boot, else an error (status/last_error already set).
+ *
+ * Shared by ota_worker_task (spawn path) and bb_ota_pull_run_sync (boot-mode
+ * full-heap path) so there is a single tested download path.
+ */
+static bb_err_t ota_download_and_flash(const char *asset_url)
+{
+    bb_err_t ret = ESP_FAIL;
+
+    bb_wdt_extend_begin(CONFIG_BB_OTA_PULL_WDT_EXTENDED_S);
 
 #if BB_OTA_HEAP_FLOOR_BYTES > 0 || CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES > 0
     // Pre-OTA heap guard: refuse cleanly before the TLS handshake if either

@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "bb_board.h"
+#include "bb_ota_pull.h"
 #include "bb_clock.h"
 #include "bb_http.h"
 #include "bb_json.h"
@@ -82,6 +83,7 @@ static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
     bb_json_obj_set_number(root, "app_size", (double)b->app_size);
     bb_json_obj_set_string(root, "reset_reason", b->reset_reason);
     bb_json_obj_set_bool(root, "ota_validated", b->ota_validated);
+    bb_json_obj_set_bool(root, "ota_ready", bb_ota_pull_heap_ready());
     bb_json_obj_set_number(root, "heap_free_total", (double)bb_board_heap_free_total());
     bb_json_obj_set_number(root, "heap_free_internal", (double)bb_board_heap_free_internal());
     bb_json_obj_set_number(root, "heap_minimum_ever", (double)bb_board_heap_minimum_ever());
