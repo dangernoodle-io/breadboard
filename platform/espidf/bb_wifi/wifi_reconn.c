@@ -43,6 +43,12 @@ static TaskHandle_t  s_task  = NULL;
 static QueueHandle_t s_queue = NULL;
 static volatile bool s_active = false;
 
+// Set before issuing a self-induced esp_wifi_disconnect() in the connect-timeout
+// path so the resulting WIFI_EVENT_STA_DISCONNECTED → EVT_DISCONNECT is
+// recognized as self-induced and absorbed (no fail-count bump, no second
+// esp_wifi_connect() call).
+static volatile bool s_self_disconnect = false;
+
 // Policy state. Manager task is single writer.
 static wifi_reconn_state_t s_state = {0};
 
@@ -154,6 +160,7 @@ static void reconn_task(void *arg)
             } else {
                 bb_log_w(TAG, "connect stalled %dms, re-attempting (generic=%d)",
                          WIFI_RECONN_CONNECTING_TIMEOUT_MS, s_state.generic_fail_count);
+                s_self_disconnect = true;  // absorb the DISCONNECTED event this triggers
                 esp_wifi_disconnect();
                 esp_wifi_connect();
                 // stay ST_CONNECTING
@@ -197,6 +204,16 @@ bool wifi_reconn_is_active(void)
 void wifi_reconn_on_disconnect(uint8_t reason)
 {
     if (!s_queue) return;
+    // Absorb disconnects that we triggered ourselves (connect-timeout re-attempt).
+    // esp_wifi_disconnect() emits WIFI_EVENT_STA_DISCONNECTED synchronously before
+    // returning, so by the time this function is called s_self_disconnect is already
+    // set. Clearing it here prevents a double generic_fail_count bump and a
+    // spurious second esp_wifi_connect() from handle_disconnect().
+    if (s_self_disconnect) {
+        s_self_disconnect = false;
+        bb_log_d(TAG, "absorbing self-induced disconnect (connect-timeout re-attempt)");
+        return;
+    }
     reconn_evt_t evt = { .type = EVT_DISCONNECT, .reason = reason };
     if (xQueueSend(s_queue, &evt, 0) != pdTRUE) {
         bb_log_w(TAG, "queue full, dropping disconnect event");
