@@ -29,13 +29,20 @@ config BB_HEALTH_STACK_POLL_MS
 
 config BB_HEALTH_STACK_LOW_BYTES
     int "Stack low-water threshold (bytes)"
-    default 512
+    default 256
     range 64 65536
     help
-        Free stack bytes below which a task is flagged as low. The monitor
-        posts a health.stack event on the first poll where a task crosses
-        below this threshold (transition into low), not on every poll, to
-        avoid spamming the event bus.
+        Free stack bytes below which a task is flagged as low. This is a
+        near-overflow danger threshold: a task within ~256 B (64 words) of
+        overflowing its stack. The old default of 512 B over-warned because
+        fixed-depth system tasks (ipc0, ipc1, bb_log_writer) normally run
+        at ~500 B high-water and are not in danger. 256 B fires only when
+        a task is genuinely close to overflow. Still tunable via
+        CONFIG_BB_HEALTH_STACK_LOW_BYTES.
+
+        The monitor posts a health.stack event on the first poll where a
+        task crosses below this threshold (transition into low), not on
+        every poll, to avoid spamming the event bus.
 
         uxTaskGetStackHighWaterMark returns words; the monitor multiplies
         by sizeof(StackType_t) (4 on Xtensa/RISC-V 32-bit) to get bytes.
