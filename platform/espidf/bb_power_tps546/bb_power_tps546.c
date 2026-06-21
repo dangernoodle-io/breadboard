@@ -2,6 +2,8 @@
 #include "bb_power_driver.h"
 #include "tps546_decode.h"
 #include "bb_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <stdlib.h>
 #include <string.h>
 
