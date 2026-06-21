@@ -5,6 +5,15 @@
 bb_vcore_wd_action_t bb_vcore_wd_eval(bb_vcore_wd_state_t *st,
                                         const bb_vcore_wd_input_t *in)
 {
+    // OC-fault latch: if fault_held is set, refuse recovery until the
+    // consumer explicitly calls bb_vcore_wd_clear_hold().  A healthy
+    // reading does NOT auto-clear the latch — clearing is explicit only,
+    // so the latch survives a power-cycle or auto-reboot (consumer seeds
+    // fault_held from NVS on boot before the first eval).
+    if (st->fault_held) {
+        return BB_VCORE_WD_FAULT_HOLD;
+    }
+
     // Warmup: suppress all actions during device boot.
     if (in->uptime_ms < BB_VCORE_WD_WARMUP_MS) {
         return BB_VCORE_WD_NONE;
@@ -50,7 +59,16 @@ bb_vcore_wd_action_t bb_vcore_wd_eval(bb_vcore_wd_state_t *st,
             return BB_VCORE_WD_NONE;
         }
 
-        // Enough consecutive low readings — decide whether to recover or back off.
+        // Enough consecutive low readings — classify the collapse.
+
+        // OC-fault: latch and hold.  Do NOT attempt recovery into a board
+        // with an active over-current condition.
+        if (in->oc_fault) {
+            st->fault_held = true;
+            return BB_VCORE_WD_FAULT_HOLD;
+        }
+
+        // Recoverable collapse (VIN sag, UNIT_OFF, etc.) — existing policy.
 
         // Check burst window: if the window has expired, reset the counter.
         if (st->burst_count > 0 &&
@@ -81,4 +99,18 @@ bb_vcore_wd_action_t bb_vcore_wd_eval(bb_vcore_wd_state_t *st,
     // Clear consec_low since we're not in a confirmed collapse.
     st->consec_low = 0;
     return BB_VCORE_WD_NONE;
+}
+
+bool bb_vcore_wd_is_held(const bb_vcore_wd_state_t *st)
+{
+    return st->fault_held;
+}
+
+void bb_vcore_wd_clear_hold(bb_vcore_wd_state_t *st)
+{
+    st->fault_held        = false;
+    // Re-arm: clear transient counters so the next eval starts fresh.
+    st->consec_low        = 0;
+    st->in_healthy_streak = false;
+    st->healthy_since_ms  = 0;
 }
