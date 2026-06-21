@@ -113,4 +113,9 @@ void bb_vcore_wd_clear_hold(bb_vcore_wd_state_t *st)
     st->consec_low        = 0;
     st->in_healthy_streak = false;
     st->healthy_since_ms  = 0;
+    // Reset burst tracking so the first collapse after hold-clear returns RECOVER,
+    // not BACKOFF.  Without this the stale burst_count (at/over BURST_MAX from the
+    // OC event) silently blocks recovery until the burst window expires on its own.
+    st->burst_count           = 0;
+    st->burst_window_start_ms = 0;
 }

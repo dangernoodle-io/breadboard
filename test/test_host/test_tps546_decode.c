@@ -252,13 +252,13 @@ void test_decode_fault_bits_0x0840_unit_off(void)
 
 // Fault scenario from the .80/650 board failure:
 // STATUS_WORD=0x4851 has bit6 (UNIT_IS_OFF=0x40) set as well as OC bits.
-// STATUS_IOUT=0x10: bit4=IOUT_OC_FAULT.
+// STATUS_IOUT=0x80: bit7=IOUT_OC_FAULT (PMBus 1.3 / TPS546D24A).
 // Use 0x4851 to match the real-board STATUS_WORD; UNIT_OFF will also fire.
 void test_decode_fault_bits_iout_oc(void)
 {
-    // st_iout = 0x10: bit4 set → IOUT_OC_FAULT
+    // st_iout = 0x80: bit7 set → IOUT_OC_FAULT
     // st_word = 0x4851: bit6 set → UNIT_OFF also fires
-    uint16_t bits = tps546_decode_fault_bits(0x4851, 0x10, 0x00, 0x00);
+    uint16_t bits = tps546_decode_fault_bits(0x4851, 0x80, 0x00, 0x00);
     TEST_ASSERT_TRUE(bits & TPS546_FAULT_IOUT_OC);
     TEST_ASSERT_TRUE(bits & TPS546_FAULT_UNIT_OFF);  // bit6 in 0x4851
     // no OT, VIN_UV, or VIN_OV from these register values
@@ -267,11 +267,32 @@ void test_decode_fault_bits_iout_oc(void)
     TEST_ASSERT_FALSE(bits & TPS546_FAULT_VIN_OV);
 }
 
-// Isolated IOUT_OC with no other named bits: use st_word=0x0010 (no bit6).
+// Isolated IOUT_OC with no other named bits: st_iout=0x80 (bit7 = IOUT_OC_FAULT).
 void test_decode_fault_bits_iout_oc_only(void)
 {
-    uint16_t bits = tps546_decode_fault_bits(0x0000, 0x10, 0x00, 0x00);
+    uint16_t bits = tps546_decode_fault_bits(0x0000, 0x80, 0x00, 0x00);
     TEST_ASSERT_EQUAL_UINT16(TPS546_FAULT_IOUT_OC, bits);
+}
+
+// Real incident value: STATUS_IOUT=0xA0 (bit7=IOUT_OC_FAULT, bit5=IOUT_OC_WARNING).
+// Both bit7 and bit5 set; only bit7 maps to TPS546_FAULT_IOUT_OC.
+void test_decode_fault_bits_iout_oc_incident_0xa0(void)
+{
+    uint16_t bits = tps546_decode_fault_bits(0x0000, 0xA0, 0x00, 0x00);
+    TEST_ASSERT_TRUE(bits & TPS546_FAULT_IOUT_OC);
+    TEST_ASSERT_FALSE(bits & TPS546_FAULT_OT);
+    TEST_ASSERT_FALSE(bits & TPS546_FAULT_VIN_UV);
+    TEST_ASSERT_FALSE(bits & TPS546_FAULT_VIN_OV);
+    TEST_ASSERT_FALSE(bits & TPS546_FAULT_UNIT_OFF);
+}
+
+// IOUT_UC (undercurrent): STATUS_IOUT=0x10 (bit4=IOUT_UC_FAULT on TPS546D24A).
+// Must NOT trigger IOUT_OC — bit4 is undercurrent, not overcurrent.
+void test_decode_fault_bits_iout_uc_does_not_trigger_oc(void)
+{
+    uint16_t bits = tps546_decode_fault_bits(0x0000, 0x10, 0x00, 0x00);
+    TEST_ASSERT_FALSE(bits & TPS546_FAULT_IOUT_OC);
+    TEST_ASSERT_EQUAL_UINT16(0, bits);
 }
 
 // OT fault: STATUS_TEMPERATURE bit7 set
@@ -309,8 +330,8 @@ void test_decode_fault_bits_unit_off(void)
 // Multiple faults OR'd together: IOUT_OC + OT + VIN_UV
 void test_decode_fault_bits_multiple(void)
 {
-    // st_iout bit4, st_temp bit7, st_input bit3
-    uint16_t bits = tps546_decode_fault_bits(0x0000, 0x10, 0x80, 0x08);
+    // st_iout bit7 (IOUT_OC_FAULT), st_temp bit7 (OT_FAULT), st_input bit3 (VIN_UV_WARNING)
+    uint16_t bits = tps546_decode_fault_bits(0x0000, 0x80, 0x80, 0x08);
     TEST_ASSERT_TRUE(bits & TPS546_FAULT_IOUT_OC);
     TEST_ASSERT_TRUE(bits & TPS546_FAULT_OT);
     TEST_ASSERT_TRUE(bits & TPS546_FAULT_VIN_UV);

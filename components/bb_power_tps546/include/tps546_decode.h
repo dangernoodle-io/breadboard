@@ -111,7 +111,7 @@ static inline uint16_t tps546_int_2_slinear11(int value)
 // Named fault-bit positions in the decoded fault mask returned by
 // tps546_decode_fault_bits().  Bits are assigned to a uint16_t bitmask;
 // the underlying PMBus register bits are noted beside each macro.
-#define TPS546_FAULT_IOUT_OC  (1u << 0)  // STATUS_IOUT  bit 4 (IOUT_OC_FAULT)
+#define TPS546_FAULT_IOUT_OC  (1u << 0)  // STATUS_IOUT  bit 7 (IOUT_OC_FAULT)
 #define TPS546_FAULT_OT       (1u << 1)  // STATUS_TEMPERATURE bit 7 (OT_FAULT)
 #define TPS546_FAULT_VIN_UV   (1u << 2)  // STATUS_INPUT bit 3 (VIN_UV_WARNING)
 #define TPS546_FAULT_VIN_OV   (1u << 3)  // STATUS_INPUT bit 5 (VIN_OV_FAULT)
@@ -131,7 +131,7 @@ static inline uint16_t tps546_decode_fault_bits(uint16_t st_word,
                                                  uint8_t  st_input)
 {
     uint16_t bits = 0;
-    if (st_iout  & (1u << 4)) bits |= TPS546_FAULT_IOUT_OC;   // STATUS_IOUT b4
+    if (st_iout  & (1u << 7)) bits |= TPS546_FAULT_IOUT_OC;   // STATUS_IOUT b7
     if (st_temp  & (1u << 7)) bits |= TPS546_FAULT_OT;         // STATUS_TEMP b7
     if (st_input & (1u << 3)) bits |= TPS546_FAULT_VIN_UV;     // STATUS_INPUT b3
     if (st_input & (1u << 5)) bits |= TPS546_FAULT_VIN_OV;     // STATUS_INPUT b5
