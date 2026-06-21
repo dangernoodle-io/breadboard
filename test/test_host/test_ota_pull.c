@@ -200,3 +200,62 @@ void test_heap_guard_passes_null_out_dim_does_not_crash(void)
     bool ok = bb_ota_pull_heap_guard_passes(8000, 16384, 50000, 0, NULL);
     TEST_ASSERT_FALSE(ok);
 }
+
+// ---------------------------------------------------------------------------
+// bb_ota_pull_heap_ready_for_test — guard predicate via the heap-ready hook
+//
+// Uses bb_ota_pull_heap_ready_for_test() to verify that the same underlying
+// predicate used by bb_ota_pull_heap_ready() on device correctly gates both
+// heap dimensions. Floor constants mirror representative real values:
+//   contiguous floor: 16384 + 1024 = 17408 (SSL_IN_CONTENT_LEN=16384 + 1 KB)
+//   total-free  floor: 30720 (~30 KB, typical CONFIG_BB_OTA_PULL_MIN_FREE_HEAP)
+// ---------------------------------------------------------------------------
+
+#define TEST_CONTIGUOUS_FLOOR 17408u   /* SSL_IN_CONTENT_LEN(16384) + 1024 */
+#define TEST_TOTAL_FREE_FLOOR 30720u   /* representative min-free-heap floor */
+
+void test_heap_ready_passes_when_both_dims_above_floor(void)
+{
+    // largest > contiguous floor AND total_free > total floor — ready
+    TEST_ASSERT_TRUE(
+        bb_ota_pull_heap_ready_for_test(TEST_CONTIGUOUS_FLOOR, TEST_CONTIGUOUS_FLOOR,
+                                        TEST_TOTAL_FREE_FLOOR, TEST_TOTAL_FREE_FLOOR));
+}
+
+void test_heap_ready_fails_when_contiguous_below_floor(void)
+{
+    // largest block one byte below contiguous floor — not ready
+    TEST_ASSERT_FALSE(
+        bb_ota_pull_heap_ready_for_test(TEST_CONTIGUOUS_FLOOR - 1, TEST_CONTIGUOUS_FLOOR,
+                                        TEST_TOTAL_FREE_FLOOR + 10000, TEST_TOTAL_FREE_FLOOR));
+}
+
+void test_heap_ready_fails_when_total_free_below_floor(void)
+{
+    // contiguous fine but total_free one byte below floor — not ready
+    TEST_ASSERT_FALSE(
+        bb_ota_pull_heap_ready_for_test(TEST_CONTIGUOUS_FLOOR + 10000, TEST_CONTIGUOUS_FLOOR,
+                                        TEST_TOTAL_FREE_FLOOR - 1, TEST_TOTAL_FREE_FLOOR));
+}
+
+void test_heap_ready_passes_at_exact_contiguous_boundary(void)
+{
+    // largest == contiguous floor exactly (>= boundary) — ready
+    TEST_ASSERT_TRUE(
+        bb_ota_pull_heap_ready_for_test(TEST_CONTIGUOUS_FLOOR, TEST_CONTIGUOUS_FLOOR,
+                                        TEST_TOTAL_FREE_FLOOR + 1, TEST_TOTAL_FREE_FLOOR));
+}
+
+void test_heap_ready_passes_at_exact_total_free_boundary(void)
+{
+    // total_free == total-free floor exactly (>= boundary) — ready
+    TEST_ASSERT_TRUE(
+        bb_ota_pull_heap_ready_for_test(TEST_CONTIGUOUS_FLOOR + 1, TEST_CONTIGUOUS_FLOOR,
+                                        TEST_TOTAL_FREE_FLOOR, TEST_TOTAL_FREE_FLOOR));
+}
+
+void test_heap_ready_passes_when_both_floors_disabled(void)
+{
+    // floors = 0 (guard disabled on PSRAM/ample-heap boards) — always ready
+    TEST_ASSERT_TRUE(bb_ota_pull_heap_ready_for_test(0, 0, 0, 0));
+}
