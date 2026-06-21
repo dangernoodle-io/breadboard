@@ -119,16 +119,42 @@ static void ensure_config_loaded(void)
 // Pause state
 // ---------------------------------------------------------------------------
 
-// s_paused is always read/written under s_tick_lock so no separate atomic is
-// needed; the lock itself provides the visibility guarantee.
+// s_paused is read/written under s_tick_lock.
+// s_in_publish counts ongoing sink fan-out passes (0 or 1 in practice).
+// bb_pub_pause() sets s_paused (stops new ticks) under s_tick_lock, then
+// waits on s_in_publish_cv for s_in_publish to reach zero — bounded by
+// CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS (or BB_PUB_PAUSE_TIMEOUT_MS_DEFAULT).
+// This allows the tick lock to be released before the blocking sink fan-out,
+// so bb_pub_pause() no longer stalls for the full TLS-publish duration.
+//
+// Lock ordering (must be obeyed to avoid deadlock):
+//   s_tick_lock is never acquired while s_in_publish_mu is held.
+//   s_in_publish_mu may be acquired while s_tick_lock is held (for the brief
+//   s_in_publish increment/decrement), but s_tick_lock is released before the
+//   bounded-wait on s_in_publish_cv.
 static bool s_paused = false;
 
-// Tick lock — held for the duration of bb_pub_tick_once's active body (the
-// sample → serialize → sink fan-out loop).  bb_pub_pause() sets s_paused then
-// acquires+releases this lock so it cannot return while a tick is in flight.
-// The lock is a plain (non-recursive) mutex; the worker holds it only for the
-// tick duration so there is no inversion risk with callers of bb_pub_pause().
+// Tick lock — held only for the sample → serialize phase of tick_once (NOT
+// across the blocking sk->publish / buffer_replay calls).  bb_pub_pause() sets
+// s_paused under this lock then waits on s_in_publish_cv instead of
+// barriering on this lock for the full publish duration.
 static pthread_mutex_t s_tick_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// In-publish flag: incremented just before the blocking sink fan-out begins,
+// decremented (and cv broadcast) just after it completes.
+// Protected by s_in_publish_mu.
+static pthread_mutex_t s_in_publish_mu  = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  s_in_publish_cv  = PTHREAD_COND_INITIALIZER;
+static int             s_in_publish     = 0;
+
+// Fallback pause-wait timeout for host builds where
+// CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS may not be defined.
+// Matches the Kconfig default (30 000 ms).
+#ifndef CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS
+#define BB_PUB_PAUSE_TIMEOUT_MS_DEFAULT 30000
+#else
+#define BB_PUB_PAUSE_TIMEOUT_MS_DEFAULT CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS
+#endif
 
 // ---------------------------------------------------------------------------
 // Status state
@@ -691,21 +717,53 @@ bb_err_t bb_pub_set_interval_volatile_ms(uint32_t ms)
 
 void bb_pub_pause(void)
 {
-    // Set the flag first so the worker skips the next tick body immediately.
-    // Then acquire+release the tick lock to block until any currently-executing
-    // tick completes.  When this function returns the caller is guaranteed that:
-    //   1. no bb_pub_tick_once body is running (lock was released by worker), AND
-    //   2. s_paused is true so no new tick will enter its active body.
-    s_paused = true;
+    // 1. Set s_paused under s_tick_lock so the next tick skips its body.
     pthread_mutex_lock(&s_tick_lock);
+    s_paused = true;
     pthread_mutex_unlock(&s_tick_lock);
+
+    // 2. Bounded-wait: if a publish is currently in flight (s_in_publish > 0),
+    //    wait on the condvar until it completes OR the timeout elapses.
+    //    This guarantees no concurrent TLS write when pause() returns in the
+    //    common case, without holding s_tick_lock across the blocking publish.
+    //
+    //    Timeout = CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS (default 30 000 ms).
+    //    On timeout we log once and proceed — the OTA TLS will not race an
+    //    already-completed publish; it may race a very slow one, but the
+    //    no-concurrent-TLS guarantee degrades gracefully rather than deadlocking.
+    pthread_mutex_lock(&s_in_publish_mu);
+    if (s_in_publish > 0) {
+        struct timespec abs_ts;
+        clock_gettime(CLOCK_REALTIME, &abs_ts);
+        long timeout_ms = BB_PUB_PAUSE_TIMEOUT_MS_DEFAULT;
+        abs_ts.tv_sec  += timeout_ms / 1000;
+        abs_ts.tv_nsec += (timeout_ms % 1000) * 1000000L;
+        if (abs_ts.tv_nsec >= 1000000000L) {
+            abs_ts.tv_sec++;
+            abs_ts.tv_nsec -= 1000000000L;
+        }
+        while (s_in_publish > 0) {
+            int rc = pthread_cond_timedwait(&s_in_publish_cv, &s_in_publish_mu,
+                                            &abs_ts);
+            if (rc != 0) {
+                // ETIMEDOUT or spurious error — log once and break.
+                bb_log_w(TAG,
+                         "pause: timed out waiting for in-flight publish "
+                         "(>%ld ms); proceeding (no-concurrent-tls guarantee "
+                         "degraded for this pause)", timeout_ms);
+                break;
+            }
+        }
+    }
+    pthread_mutex_unlock(&s_in_publish_mu);
 }
 
 void bb_pub_resume(void)
 {
-    // No lock needed: setting s_paused=false is fine outside the lock because
-    // the tick body only reads it under the lock at entry; once cleared the
-    // next tick will proceed normally.
+    // s_paused is only written under s_tick_lock for set (in pause()) and in
+    // bb_pub_test_reset().  Clearing it here without the lock is safe: the
+    // tick body checks it under the lock at entry, so the worst case is a
+    // one-tick delay before the resume takes effect.
     s_paused = false;
 }
 
@@ -718,10 +776,42 @@ bool bb_pub_is_paused(void)
 // Public API — tick
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Per-sink payload snapshot (used by bb_pub_tick_once to build payloads
+// under s_tick_lock before releasing it for the blocking publish phase).
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    char  topic[CONFIG_BB_PUB_SUBTOPIC_MAX + 128];
+    char *json[CONFIG_BB_PUB_MAX_SINKS];   /* heap-allocated; freed after publish */
+    int   json_len[CONFIG_BB_PUB_MAX_SINKS];
+    int   sink_count;
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    bool  buffer_enqueued[CONFIG_BB_PUB_MAX_SINKS]; /* true = captured into ring */
+#endif
+} tick_payload_t;
+
 bb_err_t bb_pub_tick_once(void)
 {
     ensure_config_loaded();
     if (!bb_pub_is_enabled()) return BB_OK;
+
+    // Fast pre-checks before taking the lock.
+    if (s_paused) return BB_OK;
+    if (s_sink_count == 0) return BB_OK;
+
+    // -----------------------------------------------------------------------
+    // Phase 1 — under s_tick_lock: check paused, run sources, serialize JSON.
+    // The lock is held only for CPU-bound work (no blocking I/O).
+    // -----------------------------------------------------------------------
+    pthread_mutex_lock(&s_tick_lock);
+
+    // Re-check under the lock: bb_pub_pause() may have set s_paused between
+    // the fast pre-check above and our lock acquisition.
+    if (s_paused) {
+        pthread_mutex_unlock(&s_tick_lock);
+        return BB_OK;
+    }
 
 #if CONFIG_BB_PUB_BUFFER_ENABLE
     // One-shot guard: warn when always-on ring is smaller than the per-tick
@@ -739,22 +829,6 @@ bb_err_t bb_pub_tick_once(void)
     }
 #endif
 
-    // Fast pre-check before taking the lock (avoids lock contention when the
-    // common case is not paused).  The check is repeated under the lock below.
-    if (s_paused) return BB_OK;
-    if (s_sink_count == 0) return BB_OK;
-
-    // Hold the tick lock for the entire active body so that bb_pub_pause() can
-    // block here waiting for an in-flight tick to finish before returning.
-    pthread_mutex_lock(&s_tick_lock);
-
-    // Re-check under the lock: bb_pub_pause() may have set s_paused between
-    // the pre-check above and our lock acquisition.
-    if (s_paused) {
-        pthread_mutex_unlock(&s_tick_lock);
-        return BB_OK;
-    }
-
     // Take ONE timestamp for the entire cycle.
     uint32_t ts_ms = bb_clock_now_ms();
 #if CONFIG_BB_PUB_BUFFER_ENABLE
@@ -767,14 +841,18 @@ bb_err_t bb_pub_tick_once(void)
         hostname = "device";
     }
 
-    // +prefix_len+1+hostname_len+1+subtopic_len+1 — using generous fixed size
-    // that covers CONFIG_BB_PUB_SUBTOPIC_MAX plus typical prefix/hostname.
-    char topic[CONFIG_BB_PUB_SUBTOPIC_MAX + 128];
+    // Build per-source payload snapshots under the lock.
+    // stack-allocate the array; source count is bounded by CONFIG_BB_PUB_MAX_SOURCES.
+    tick_payload_t payloads[CONFIG_BB_PUB_MAX_SOURCES];
+    int payload_count = 0;
 
-    // Track whether any source emitted during this tick and whether all
-    // sink calls succeeded.
-    bool tick_published = false;
-    bool tick_all_ok    = true;
+    // Snapshot current sink count and sinks (shallow copy; publish fn pointers
+    // are stable across the tick since registration only appends).
+    int            snap_sink_count = s_sink_count;
+    bb_pub_sink_t  snap_sinks[CONFIG_BB_PUB_MAX_SINKS];
+    for (int si = 0; si < snap_sink_count; si++) {
+        snap_sinks[si] = s_sinks[si];
+    }
 
     for (int i = 0; i < s_source_count; i++) {
         bb_pub_source_t *src = &s_sources[i];
@@ -785,8 +863,8 @@ bb_err_t bb_pub_tick_once(void)
             continue;
         }
 
-        bool publish = src->fn(obj, src->ctx);
-        if (!publish) {
+        bool do_publish = src->fn(obj, src->ctx);
+        if (!do_publish) {
             bb_json_free(obj);
             continue;
         }
@@ -804,18 +882,21 @@ bb_err_t bb_pub_tick_once(void)
                                        s_payload_extenders[pi].ctx);
         }
 
-        snprintf(topic, sizeof(topic), "%s/%s/%s",
+        tick_payload_t *p = &payloads[payload_count];
+        snprintf(p->topic, sizeof(p->topic), "%s/%s/%s",
                  CONFIG_BB_PUB_TOPIC_PREFIX, hostname, src->subtopic);
+        p->sink_count = snap_sink_count;
 
-        // Fan-out: deliver to every registered sink. Each sink gets its OWN
-        // serialized string so per-sink transport/tls fields can be stamped.
-        // A failing sink does not abort delivery to the remaining sinks.
-        for (int si = 0; si < s_sink_count; si++) {
-            const bb_pub_sink_t *sk = &s_sinks[si];
+        bool any_sink_ok = false;
+        for (int si = 0; si < snap_sink_count; si++) {
+            const bb_pub_sink_t *sk = &snap_sinks[si];
+            p->json[si]     = NULL;
+            p->json_len[si] = 0;
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+            p->buffer_enqueued[si] = false;
+#endif
 
             // Stamp per-sink metadata fields when transport is set.
-            // Use delete-before-set to avoid cJSON appending duplicate keys
-            // when multiple sinks share the same obj.
             if (sk->transport) {
                 bb_json_obj_delete_key(obj, "transport");
                 bb_json_obj_delete_key(obj, "tls");
@@ -827,68 +908,124 @@ bb_err_t bb_pub_tick_once(void)
             if (!json) {
                 bb_log_w(TAG, "tick: failed to serialize '%s' for sink[%d]",
                          src->subtopic, si);
-                tick_all_ok = false;
                 continue;
             }
-
             int json_len = (int)strlen(json);
 
 #if CONFIG_BB_PUB_BUFFER_ENABLE
-            // Always-on mode: prefer enqueuing into the ring so the entry is
-            // drained in order after the source loop.  If the entry is too
-            // large for a ring slot, buffer_capture returns false — fall
-            // through to a direct publish so the live data isn't lost (it just
-            // won't be buffered for replay).
+            // Always-on mode: enqueue into ring under the lock.
             if (si == 0 && buffer_always_on()) {
-                if (buffer_capture(topic, json, json_len)) {
+                if (buffer_capture(p->topic, json, json_len)) {
                     bb_json_free_str(json);
-                    continue;   /* enqueued; drained after the source loop */
+                    p->buffer_enqueued[si] = true;
+                    any_sink_ok = true;
+                    continue;   /* enqueued; drained outside the lock */
                 }
-                // Oversized: can't buffer it — publish directly so the live
-                // data isn't lost.  Falls through to sk->publish below.
-                // Note: last_publish_ok reflects ring-drain status, so this
-                // direct publish does not affect drained semantics.
-                bb_log_d(TAG, "buffer: oversized entry published directly (not buffered for replay)");
+                bb_log_d(TAG, "buffer: oversized entry will be published directly");
             }
 #endif
 
-            bb_err_t err = sk->publish(sk->ctx, topic, json, json_len);
-
-            if (err != BB_OK) {
-                bb_log_w(TAG, "sink[%d] publish failed for '%s': %d",
-                         si, src->subtopic, err);
-                tick_all_ok = false;
-#if CONFIG_BB_PUB_BUFFER_ENABLE
-                // On-failure mode: capture to ring on sink[0] failure only.
-                // Best-effort; ignore the bool return (oversized → silently skipped).
-                if (si == 0) {
-                    (void)buffer_capture(topic, json, json_len);
-                }
-#endif
-            }
-
-            bb_json_free_str(json);
+            p->json[si]     = json;   /* ownership transferred; freed after publish */
+            p->json_len[si] = json_len;
+            any_sink_ok = true;
         }
 
         bb_json_free(obj);
-        tick_published = true;
+        if (any_sink_ok) {
+            payload_count++;
+        }
+    }
+
+    // Release the tick lock before the blocking publish phase.
+    pthread_mutex_unlock(&s_tick_lock);
+
+    if (payload_count == 0) {
+        return BB_OK;
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 2 — outside s_tick_lock: blocking sink fan-out + buffer_replay.
+    // Signal s_in_publish so bb_pub_pause() can bounded-wait.
+    // -----------------------------------------------------------------------
+    pthread_mutex_lock(&s_in_publish_mu);
+    s_in_publish++;
+    pthread_mutex_unlock(&s_in_publish_mu);
+
+    bool tick_published = false;
+    bool tick_all_ok    = true;
+
+    for (int i = 0; i < payload_count; i++) {
+        tick_payload_t *p = &payloads[i];
+
+        for (int si = 0; si < p->sink_count; si++) {
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+            if (p->buffer_enqueued[si]) {
+                tick_published = true;
+                continue;   /* already captured into ring; drained below */
+            }
+#endif
+            if (!p->json[si]) continue;   /* serialization failed earlier */
+
+            bb_err_t err = snap_sinks[si].publish(snap_sinks[si].ctx,
+                                                   p->topic,
+                                                   p->json[si],
+                                                   p->json_len[si]);
+            if (err != BB_OK) {
+                bb_log_w(TAG, "sink[%d] publish failed for '%s': %d",
+                         si, p->topic, err);
+                tick_all_ok = false;
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+                // On-failure mode: capture on sink[0] failure only.
+                if (si == 0) {
+                    (void)buffer_capture(p->topic, p->json[si], p->json_len[si]);
+                }
+#endif
+            }
+
+            bb_json_free_str(p->json[si]);
+            p->json[si] = NULL;
+            tick_published = true;
+        }
     }
 
 #if CONFIG_BB_PUB_BUFFER_ENABLE
     uint32_t interval_ms = bb_pub_get_interval_ms();
 
     if (buffer_always_on()) {
-        // Always-on mode: drain ring every tick regardless of tick_all_ok.
-        // The ring was fed by the enqueue path above for every source.
-        // Drain happens after all sources so ordering is preserved.
-        if (s_sink_count > 0) {
-            // Delay threshold: 1.5 × interval.  Fresh entries (age ≈ 0) will
-            // not exceed this → no captured_ms on healthy same-tick points.
+        if (snap_sink_count > 0) {
             int64_t threshold_ms = (int64_t)interval_ms + (int64_t)interval_ms / 2;
-            buffer_replay(&s_sinks[0], tick_epoch_ms, threshold_ms);
+            buffer_replay(&snap_sinks[0], tick_epoch_ms, threshold_ms);
         }
-        // last_publish_ok = did the ring drain fully this tick?
-        // A full drain means s_buffer is empty after replay.
+    } else {
+        if (tick_all_ok && tick_published && snap_sink_count > 0) {
+            buffer_replay(&snap_sinks[0], tick_epoch_ms, 0);
+        }
+    }
+#endif
+
+    // Free any payloads that didn't get consumed (e.g. serialization error path).
+    for (int i = 0; i < payload_count; i++) {
+        for (int si = 0; si < payloads[i].sink_count; si++) {
+            if (payloads[i].json[si]) {
+                bb_json_free_str(payloads[i].json[si]);
+                payloads[i].json[si] = NULL;
+            }
+        }
+    }
+
+    // Signal that publish phase is complete.
+    pthread_mutex_lock(&s_in_publish_mu);
+    s_in_publish--;
+    pthread_cond_broadcast(&s_in_publish_cv);
+    pthread_mutex_unlock(&s_in_publish_mu);
+
+    // -----------------------------------------------------------------------
+    // Phase 3 — re-acquire s_tick_lock to write status fields, then release.
+    // -----------------------------------------------------------------------
+    pthread_mutex_lock(&s_tick_lock);
+
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    if (buffer_always_on()) {
         if (tick_published) {
             s_last_publish_ms = ts_ms;
             s_published_ever  = true;
@@ -896,24 +1033,13 @@ bb_err_t bb_pub_tick_once(void)
             s_last_publish_ok = drained;
         }
     } else {
-        // On-failure mode (default): update status first, then replay on
-        // success. Unchanged behavior.
         if (tick_published) {
             s_last_publish_ms  = ts_ms;
             s_published_ever   = true;
             s_last_publish_ok  = tick_all_ok;
         }
-        // Replay buffered entries when sink[0] succeeded this tick and the
-        // ring is non-empty.  Replay happens after all live sources so it
-        // does not interleave with the current tick's live data.
-        // Pass delay_threshold_ms=0: on-failure mode stamps any ts>0 entry
-        // unconditionally (every buffered entry is delayed by definition).
-        if (tick_all_ok && tick_published && s_sink_count > 0) {
-            buffer_replay(&s_sinks[0], tick_epoch_ms, 0);
-        }
     }
 #else
-    // Update status only when at least one source was published this tick.
     if (tick_published) {
         s_last_publish_ms  = ts_ms;
         s_published_ever   = true;
@@ -1002,8 +1128,14 @@ void bb_pub_test_reset(void)
     s_test_epoch_ms   = -1;
     s_buffer_always   = -1;   /* revert to compile-time default */
 #endif
-    // Re-initialise the tick lock so any lock state from a prior test is cleared.
+    // Re-initialise the tick lock and in-publish primitives so any lock state
+    // from a prior test is cleared.
     pthread_mutex_destroy(&s_tick_lock);
     pthread_mutex_init(&s_tick_lock, NULL);
+    pthread_mutex_destroy(&s_in_publish_mu);
+    pthread_mutex_init(&s_in_publish_mu, NULL);
+    pthread_cond_destroy(&s_in_publish_cv);
+    pthread_cond_init(&s_in_publish_cv, NULL);
+    s_in_publish = 0;
 }
 #endif
