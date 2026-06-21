@@ -405,8 +405,10 @@ static void metrics_emit_pub_health_prom(bb_http_request_t *req, const char *pre
     char host_escaped[128];
     metrics_escape_label_val(host ? host : "", host_escaped, sizeof(host_escaped));
 
+#if CONFIG_BB_PUB_BUFFER_ENABLE
     bb_pub_buffer_stats_t bstats = {0};
     bb_pub_buffer_stats(&bstats);
+#endif
 
     bb_pub_status_t st = {0};
     bb_pub_get_status(&st);
@@ -418,9 +420,11 @@ static void metrics_emit_pub_health_prom(bb_http_request_t *req, const char *pre
         double      value;
     } all_gauges[] = {
         { "pub_source_count",     (double)bb_pub_source_count()    },
+#if CONFIG_BB_PUB_BUFFER_ENABLE
         { "pub_buffer_count",     (double)bstats.count             },
         { "pub_buffer_dropped",   (double)bstats.dropped           },
         { "pub_ring_undersized",  bb_pub_ring_undersized() ? 1.0 : 0.0 },
+#endif
         { "pub_last_publish_age_ms", (double)age_ms                },
     };
 
@@ -446,8 +450,10 @@ static void metrics_emit_pub_health_json(bb_http_json_obj_stream_t *jstream,
     if (schema_only) return;
     (void)prefix;
 
+#if CONFIG_BB_PUB_BUFFER_ENABLE
     bb_pub_buffer_stats_t bstats = {0};
     bb_pub_buffer_stats(&bstats);
+#endif
 
     bb_pub_status_t st = {0};
     bb_pub_get_status(&st);
@@ -456,9 +462,11 @@ static void metrics_emit_pub_health_json(bb_http_json_obj_stream_t *jstream,
 
     bb_http_resp_json_obj_set_obj_begin(jstream, "publisher");
     bb_http_resp_json_obj_set_int(jstream, "source_count",     (int64_t)bb_pub_source_count());
+#if CONFIG_BB_PUB_BUFFER_ENABLE
     bb_http_resp_json_obj_set_int(jstream, "buffer_count",     (int64_t)bstats.count);
     bb_http_resp_json_obj_set_int(jstream, "buffer_dropped",   (int64_t)bstats.dropped);
     bb_http_resp_json_obj_set_bool(jstream, "ring_undersized", bb_pub_ring_undersized());
+#endif
     bb_http_resp_json_obj_set_int(jstream, "last_publish_age_ms", (int64_t)age_ms);
     bb_http_resp_json_obj_end(jstream);
 }
@@ -515,8 +523,12 @@ static bb_err_t metrics_handler(bb_http_request_t *req)
             bb_json_free(obj);
         }
         const char *pub_metrics[] = {
-            "pub_source_count", "pub_buffer_count", "pub_buffer_dropped",
-            "pub_ring_undersized", "pub_last_publish_age_ms"
+            "pub_source_count",
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+            "pub_buffer_count", "pub_buffer_dropped",
+            "pub_ring_undersized",
+#endif
+            "pub_last_publish_age_ms"
         };
         for (size_t pi = 0; pi < sizeof(pub_metrics)/sizeof(pub_metrics[0]); pi++) {
             char name[128];
