@@ -6,7 +6,7 @@ idf_component_register(
          "src/bb_http_api_dispatch.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_nv bb_log bb_json esp_http_server
+    PRIV_REQUIRES bb_nv bb_log bb_json esp_http_server esp_event
 )
 
 # LWIP_NETCONN_SEM_PER_THREAD is a lwip C-macro, NOT an ESP-IDF Kconfig
