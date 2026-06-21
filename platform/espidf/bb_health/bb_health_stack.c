@@ -28,7 +28,7 @@ static const char *TAG = "bb_health_stack";
 #endif
 
 #ifndef CONFIG_BB_HEALTH_STACK_LOW_BYTES
-#define CONFIG_BB_HEALTH_STACK_LOW_BYTES 512
+#define CONFIG_BB_HEALTH_STACK_LOW_BYTES 256
 #endif
 
 // ---------------------------------------------------------------------------
