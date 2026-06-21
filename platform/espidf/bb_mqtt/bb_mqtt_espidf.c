@@ -329,7 +329,22 @@ bb_err_t bb_mqtt_subscribe(bb_mqtt_t handle, const char *topic, int qos)
 {
     if (!handle || !topic) return BB_ERR_INVALID_ARG;
     bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)handle;
-    int msg_id = esp_mqtt_client_subscribe(h->client, topic, qos);
+
+    // Mirror the publish guard (B1-296): take the lock, check destroyed/client
+    // under it, capture a local pointer, then release BEFORE the blocking call.
+    // Holding the lock across esp_mqtt_client_subscribe would deadlock the
+    // event handler (which also acquires h->lock on MQTT events).
+    xSemaphoreTake(h->lock, portMAX_DELAY);
+    bool dead = h->destroyed || (h->client == NULL);
+    esp_mqtt_client_handle_t client = h->client;
+    xSemaphoreGive(h->lock);
+
+    if (dead) {
+        bb_log_w(TAG, "subscribe skipped: handle destroyed or client NULL");
+        return BB_ERR_INVALID_STATE;
+    }
+
+    int msg_id = esp_mqtt_client_subscribe(client, topic, qos);
     return (msg_id < 0) ? BB_ERR_INVALID_STATE : BB_OK;
 }
 

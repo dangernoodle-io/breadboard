@@ -73,8 +73,7 @@ bb_err_t bb_mqtt_publish(bb_mqtt_t handle, const char *topic,
 
 bb_err_t bb_mqtt_subscribe(bb_mqtt_t handle, const char *topic, int qos)
 {
-    (void)handle;
-    (void)topic;
+    if (!handle || !topic) return BB_ERR_INVALID_ARG;
     (void)qos;
     return BB_OK;
 }

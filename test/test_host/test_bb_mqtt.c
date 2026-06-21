@@ -481,3 +481,26 @@ void test_bb_mqtt_suspend_resume_cycle(void)
     bb_mqtt_stop_default();
 }
 
+// ---------------------------------------------------------------------------
+// bb_mqtt_subscribe tests
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_subscribe_null_handle_returns_invalid_arg(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_mqtt_subscribe(NULL, "t/#", 0));
+}
+
+void test_bb_mqtt_subscribe_null_topic_returns_invalid_arg(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_mqtt_subscribe(h, NULL, 0));
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_subscribe_happy_path_returns_ok(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_subscribe(h, "test/#", 0));
+    bb_mqtt_destroy(h);
+}
+
