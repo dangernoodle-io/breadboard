@@ -33,7 +33,11 @@ static const char *TAG = "bb_log_stream";
 
 #define LOG_STREAM_LINE_MAX      192
 #define LOG_WRITER_QUEUE_LEN     CONFIG_BB_LOG_STREAM_WRITER_QUEUE_LEN
+#ifdef CONFIG_BB_LOG_WRITER_TASK_STACK
+#define LOG_WRITER_TASK_STACK    CONFIG_BB_LOG_WRITER_TASK_STACK
+#else
 #define LOG_WRITER_TASK_STACK    2048
+#endif
 #define LOG_WRITER_TASK_PRIO     1   /* very low; never preempts mining */
 
 typedef struct {

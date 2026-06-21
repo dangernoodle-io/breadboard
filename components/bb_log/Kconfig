@@ -73,4 +73,13 @@ config BB_LOG_STREAM_WRITER_QUEUE_LEN
         cost of dropping log lines under burst logging. Default 16 keeps
         current behavior.
 
+config BB_LOG_WRITER_TASK_STACK
+    int "bb_log console-writer task stack size (bytes)"
+    default 2048
+    help
+        Stack (bytes) for the bb_log_stream console-writer task (bb_log_writer),
+        which drains the log queue to stdout. 2048 is sufficient for the
+        non-blocking fwrite/fflush path; raise only if a consumer's logging
+        path needs more. (B1-304)
+
 endmenu
