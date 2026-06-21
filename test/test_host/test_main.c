@@ -1948,6 +1948,9 @@ void test_bb_mqtt_resume_default_clears_suspended(void);
 void test_bb_mqtt_suspend_default_idempotent(void);
 void test_bb_mqtt_resume_default_idempotent(void);
 void test_bb_mqtt_suspend_resume_cycle(void);
+void test_bb_mqtt_subscribe_null_handle_returns_invalid_arg(void);
+void test_bb_mqtt_subscribe_null_topic_returns_invalid_arg(void);
+void test_bb_mqtt_subscribe_happy_path_returns_ok(void);
 
 // Forward declarations from test_bb_mqtt_info.c
 void test_bb_mqtt_health_no_handle_enabled_false(void);
@@ -4829,6 +4832,9 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_suspend_default_idempotent);
     RUN_TEST(test_bb_mqtt_resume_default_idempotent);
     RUN_TEST(test_bb_mqtt_suspend_resume_cycle);
+    RUN_TEST(test_bb_mqtt_subscribe_null_handle_returns_invalid_arg);
+    RUN_TEST(test_bb_mqtt_subscribe_null_topic_returns_invalid_arg);
+    RUN_TEST(test_bb_mqtt_subscribe_happy_path_returns_ok);
 
     // bb_mqtt_info tests
     RUN_TEST(test_bb_mqtt_health_no_handle_enabled_false);
