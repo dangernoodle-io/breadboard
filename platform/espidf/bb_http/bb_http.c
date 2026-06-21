@@ -2,6 +2,7 @@
 #include "bb_http_api_dispatch.h"
 #include "bb_json.h"
 #include "esp_http_server.h"
+#include "esp_event.h"
 #include "bb_log.h"
 #include "bb_nv.h"
 #include "freertos/task.h"
@@ -17,6 +18,19 @@ static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
 static int s_max_uri_handlers = 0;        // set by ensure_started
 static int s_registered_handlers = 0;     // incremented on every successful register
+
+/* No-op handler for ESP_HTTP_SERVER_EVENT (B1-306).
+ * esp_http_server posts ESP_HTTP_SERVER_EVENT to the default event loop on every
+ * HTTP event (connect, header, sent-data, etc.). Without a registered handler,
+ * esp_event logs "no handlers have been registered for event ESP_HTTP_SERVER_EVENT:N"
+ * at DEBUG. With /api/logs SSE open this self-amplifies: each streamed line
+ * triggers another SENT_DATA event → another DEBUG log → streamed again, causing
+ * thousands of log lines/sec. Registering this no-op suppresses that spam. */
+static void bb_http_noop_event_handler(void *arg, esp_event_base_t base,
+                                       int32_t id, void *data)
+{
+    (void)arg; (void)base; (void)id; (void)data;
+}
 
 /* Vestigial since /api dispatch; kept for ABI — PRE_HTTP companions still call
  * it but route count no longer drives max_uri_handlers. */
@@ -132,6 +146,17 @@ bb_err_t bb_http_server_ensure_started(void)
 
     esp_err_t err = httpd_start(&s_server, &config);
     if (err != ESP_OK) return err;
+
+    // Suppress esp_event "no handlers have been registered for event
+    // ESP_HTTP_SERVER_EVENT:N" DEBUG spam (B1-306). Without this, every HTTP
+    // event posts to the default loop with no consumer, flooding the log at
+    // DEBUG — especially when /api/logs SSE is open (self-amplifying loop).
+    esp_err_t evt_err = esp_event_handler_register(
+        ESP_HTTP_SERVER_EVENT, ESP_EVENT_ANY_ID, bb_http_noop_event_handler, NULL);
+    if (evt_err != ESP_OK) {
+        bb_log_d(TAG, "esp_event register noop failed: %s (non-fatal)",
+                 esp_err_to_name(evt_err));
+    }
 
     // Register a custom 405 error handler that distinguishes "real 405" (URI is
     // registered for a different method) from "URI not registered at all" (should
