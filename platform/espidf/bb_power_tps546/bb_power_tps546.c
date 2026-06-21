@@ -195,17 +195,15 @@ static bb_err_t op_set_vout_mv(void *state, uint16_t mv)
 
 // Read STATUS registers, update fault_bits + sag tracking, and emit an
 // edge-triggered warning when STATUS_WORD changes.  Best-effort: I2C errors
-// are ignored.  CLEAR_FAULTS is never issued here — see ordering note below.
+// are ignored.
 //
 // SEQUENCING CONSTRAINT (load-bearing):
-//   STATUS_IOUT must be read for OC classification BEFORE any future
-//   CLEAR_FAULTS call in this poll path.  CLEAR_FAULTS wipes the OC sticky
-//   bit in STATUS_IOUT, making it impossible to distinguish a genuine OC
-//   fault from a clean recoverable collapse after the clear.
-//   Today no CLEAR_FAULTS is issued from op_poll; if VIN-UV re-arm via
-//   CLEAR_FAULTS is added in the future (e.g. to re-arm the VIN-UV_WARN
-//   sticky latch after a sag event), the STATUS_IOUT read and the
-//   tps546_decode_fault_bits() call MUST precede it.
+//   STATUS_IOUT must be read for OC classification BEFORE any CLEAR_FAULTS
+//   call in this poll path.  CLEAR_FAULTS wipes the OC sticky bit in
+//   STATUS_IOUT, making it impossible to distinguish a genuine OC fault from
+//   a clean recoverable collapse after the clear.  The VIN-UV re-arm
+//   CLEAR_FAULTS (B1-308) is placed AFTER the STATUS_IOUT read and
+//   tps546_decode_fault_bits() call to preserve this invariant.
 static void op_poll(void *state)
 {
     tps546_state_t *s = state;
@@ -240,6 +238,16 @@ static void op_poll(void *state)
         s->sag_count++;
     }
     pthread_mutex_unlock(&s->status_lock);
+
+    // B1-308: Re-arm the VIN-UV sticky latch so repeated sags are detectable.
+    // CLEAR_FAULTS resets the STATUS_INPUT VIN-UV bit; the chip re-latches it
+    // on the next sag event, yielding one sag_count increment per distinct sag.
+    // Ordering invariant: STATUS_IOUT + tps546_decode_fault_bits() have already
+    // run above — the OC sticky bit is captured before this clear.
+    // No-op until a consumer arms the chip's VIN-UV_WARN threshold
+    // (cfg.protect.vin_uv_warn_v ≈ 4.6 V); without it the bit never sets.
+    if (vin_uv_set)
+        pmbus_send_byte(s->dev, BB_PMBUS_CLEAR_FAULTS);
 
     // Edge-triggered log: only emit when STATUS_WORD changes.
     if (st_word == s->last_status_word) return;
