@@ -303,7 +303,10 @@ static int64_t capture_epoch_ms(void)
 #endif /* BB_PUB_TESTING */
 
 // Push topic+payload into the ring.
-// Called under s_tick_lock.
+// Lock invariant: relies on the single-worker guarantee (bb_ring is not
+// internally locked).  In always-on mode this is called from Phase 1, under
+// s_tick_lock.  In on-failure mode this is called from Phase 2, with NO lock
+// held.  Either way only one worker thread ever calls it concurrently.
 // Returns true if the entry was successfully enqueued, false if it was rejected
 // (topic too long or entry too large for a ring slot).  Callers in always-on
 // mode use the return value to fall back to a direct publish on rejection so
@@ -375,9 +378,12 @@ static char *inject_captured_ms(const char *payload, int payload_len, int64_t ts
 }
 
 // Replay buffered entries to sink[0].
-// Called under s_tick_lock.  In on-failure mode (always_on=false) this is
-// called only after a successful live-publish tick.  In always-on mode it is
-// called unconditionally every tick.
+// Lock invariant: always called from Phase 2, with NO lock held (s_tick_lock
+// was released before Phase 2 begins; s_in_publish_mu is NOT held during the
+// body of Phase 2).  Relies on the single-worker guarantee (bb_ring is not
+// internally locked) — only one worker thread ever runs this concurrently.
+// In on-failure mode (always_on=false) this is called only after a successful
+// live-publish tick.  In always-on mode it is called unconditionally every tick.
 //
 // now_epoch_ms     — current wall-clock epoch in ms (0 if NTP not synced).
 // delay_threshold_ms — when > 0, captured_ms is injected ONLY if the entry's
@@ -396,8 +402,14 @@ static void buffer_replay(const bb_pub_sink_t *sink,
     bb_ring_t r = s_buffer;
     if (!r || bb_ring_count(r) == 0) return;
 
-    // Replay buffer: peek content size, alloc scratch, deliver, pop on success.
-    static char s_replay_buf[BB_PUB_BUFFER_ENTRY_MAX + 1];
+    // Replay buffer: peek content size, deliver, pop on success.
+    // Stack-allocated scratch (max 192+1+256+1 = 450 bytes; safe on the
+    // worker stack which is >= 4096 bytes even in plaintext-only builds).
+    // Previously declared static, but buffer_replay is now called from Phase 2
+    // with no lock held — the static would be safe only under the
+    // single-worker guarantee, but stack allocation is clearer about intent
+    // and avoids BSS waste.
+    char replay_buf[BB_PUB_BUFFER_ENTRY_MAX + 1];
 
     for (;;) {
         size_t   entry_len = 0;
@@ -405,7 +417,7 @@ static void buffer_replay(const bb_pub_sink_t *sink,
         uint32_t entry_id  = 0;
 
         bb_err_t err = bb_ring_peek_oldest(r,
-                                           s_replay_buf, sizeof(s_replay_buf) - 1,
+                                           replay_buf, sizeof(replay_buf) - 1,
                                            &entry_len, &entry_ts, &entry_id);
         if (err == BB_ERR_NOT_FOUND) break;  /* ring empty */
         if (err != BB_OK) {
@@ -413,12 +425,12 @@ static void buffer_replay(const bb_pub_sink_t *sink,
             break;
         }
 
-        // Parse topic (NUL-terminated at s_replay_buf[topic_len]).
-        s_replay_buf[entry_len] = '\0';
-        const char *topic   = s_replay_buf;
+        // Parse topic (NUL-terminated at replay_buf[topic_len]).
+        replay_buf[entry_len] = '\0';
+        const char *topic   = replay_buf;
         size_t topic_len    = strlen(topic);
         const char *payload = (topic_len + 1 < entry_len)
-                              ? s_replay_buf + topic_len + 1
+                              ? replay_buf + topic_len + 1
                               : "";
         int payload_len     = (int)(entry_len - topic_len - 1);
         if (payload_len < 0) payload_len = 0;
@@ -531,11 +543,18 @@ bb_err_t bb_pub_set_sink(const bb_pub_sink_t *sink)
 bb_err_t bb_pub_get_status(bb_pub_status_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
-    out->source_count     = s_source_count;
-    out->sink_count       = s_sink_count;
-    out->last_publish_ok  = s_last_publish_ok;
-    out->last_publish_ms  = s_last_publish_ms;
-    out->published_ever   = s_published_ever;
+    // s_source_count and s_sink_count are only mutated at registration time
+    // (before the worker starts); no lock needed for them.
+    out->source_count = s_source_count;
+    out->sink_count   = s_sink_count;
+    // s_last_publish_ok, s_last_publish_ms, and s_published_ever are written
+    // by Phase 3 of bb_pub_tick_once under s_tick_lock.  Acquire the lock for
+    // the read so callers get a coherent snapshot.
+    pthread_mutex_lock(&s_tick_lock);
+    out->last_publish_ok = s_last_publish_ok;
+    out->last_publish_ms = s_last_publish_ms;
+    out->published_ever  = s_published_ever;
+    pthread_mutex_unlock(&s_tick_lock);
     return BB_OK;
 }
 
@@ -834,6 +853,9 @@ bb_err_t bb_pub_tick_once(void)
 #if CONFIG_BB_PUB_BUFFER_ENABLE
     // Capture current wall-clock epoch once (0 if NTP not synced).
     int64_t tick_epoch_ms = capture_epoch_ms();
+    // Snapshot interval_ms here under s_tick_lock so Phase 2 (outside the
+    // lock) doesn't race with bb_pub_set_interval_ms() from an HTTP handler.
+    uint32_t snap_interval_ms = bb_pub_get_interval_ms();
 #endif
 
     const char *hostname = bb_nv_config_hostname();
@@ -989,11 +1011,10 @@ bb_err_t bb_pub_tick_once(void)
     }
 
 #if CONFIG_BB_PUB_BUFFER_ENABLE
-    uint32_t interval_ms = bb_pub_get_interval_ms();
-
     if (buffer_always_on()) {
         if (snap_sink_count > 0) {
-            int64_t threshold_ms = (int64_t)interval_ms + (int64_t)interval_ms / 2;
+            // snap_interval_ms was captured under s_tick_lock in Phase 1.
+            int64_t threshold_ms = (int64_t)snap_interval_ms + (int64_t)snap_interval_ms / 2;
             buffer_replay(&snap_sinks[0], tick_epoch_ms, threshold_ms);
         }
     } else {
