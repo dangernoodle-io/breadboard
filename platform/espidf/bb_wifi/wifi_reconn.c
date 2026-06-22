@@ -18,7 +18,10 @@
 static const char *TAG = "wifi_reconn";
 
 #define RECONN_QUEUE_LEN 8
-#define RECONN_TASK_STACK 4096
+// 6144 (not 4096): do_safeguard_reboot() opens NVS + writes the boot-fail count
+// (nvs_open/set/commit), which can consume ~1.5-2 KB of stack on top of the
+// reconn task's normal usage — 4096 left too little headroom (B1-330).
+#define RECONN_TASK_STACK 6144
 #define RECONN_TASK_PRIO 6
 #define RECONN_TASK_CORE 0
 
