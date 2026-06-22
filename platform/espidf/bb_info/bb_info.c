@@ -85,18 +85,12 @@ static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
     bb_json_obj_set_number(root, "cores", (double)b->cores);
     bb_json_obj_set_string(root, "mac", b->mac);
     bb_json_obj_set_number(root, "flash_size", (double)b->flash_size);
-    bb_json_obj_set_number(root, "total_heap", (double)b->total_heap);
-    bb_json_obj_set_number(root, "free_heap", (double)b->free_heap);
     bb_json_obj_set_number(root, "app_size", (double)b->app_size);
     bb_json_obj_set_string(root, "reset_reason", b->reset_reason);
     bb_json_obj_set_bool(root, "ota_validated", b->ota_validated);
 #if BB_INFO_EMIT_OTA_READY
     bb_json_obj_set_bool(root, "ota_ready", bb_ota_pull_heap_ready());
 #endif
-    bb_json_obj_set_number(root, "heap_free_total", (double)bb_board_heap_free_total());
-    bb_json_obj_set_number(root, "heap_free_internal", (double)bb_board_heap_free_internal());
-    bb_json_obj_set_number(root, "heap_minimum_ever", (double)bb_board_heap_minimum_ever());
-    bb_json_obj_set_number(root, "heap_largest_free_block", (double)bb_board_heap_largest_free_block());
     bb_json_obj_set_number(root, "chip_revision", (double)bb_board_chip_revision());
     bb_json_obj_set_number(root, "cpu_freq_mhz", (double)bb_board_cpu_freq_mhz());
 

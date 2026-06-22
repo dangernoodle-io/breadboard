@@ -104,16 +104,10 @@ static const char k_info_schema[] =
     "\"cores\":{\"type\":\"integer\"},"
     "\"mac\":{\"type\":\"string\"},"
     "\"flash_size\":{\"type\":\"integer\"},"
-    "\"total_heap\":{\"type\":\"integer\"},"
-    "\"free_heap\":{\"type\":\"integer\"},"
     "\"app_size\":{\"type\":\"integer\"},"
     "\"reset_reason\":{\"type\":\"string\"},"
     "\"ota_validated\":{\"type\":\"boolean\"},"
     "\"ota_ready\":{\"type\":\"boolean\"},"
-    "\"heap_free_total\":{\"type\":\"integer\"},"
-    "\"heap_free_internal\":{\"type\":\"integer\"},"
-    "\"heap_minimum_ever\":{\"type\":\"integer\"},"
-    "\"heap_largest_free_block\":{\"type\":\"integer\"},"
     "\"chip_revision\":{\"type\":\"integer\"},"
     "\"cpu_freq_mhz\":{\"type\":\"integer\"},"
     "\"heap_internal\":{\"type\":\"object\","
@@ -368,15 +362,9 @@ static bb_err_t h_info(bb_http_request_t *req)
     bb_http_resp_json_obj_set_num(&obj, "cores", (double)b.cores);
     bb_http_resp_json_obj_set_str(&obj, "mac", b.mac);
     bb_http_resp_json_obj_set_num(&obj, "flash_size", (double)b.flash_size);
-    bb_http_resp_json_obj_set_num(&obj, "total_heap", (double)b.total_heap);
-    bb_http_resp_json_obj_set_num(&obj, "free_heap", (double)b.free_heap);
     bb_http_resp_json_obj_set_num(&obj, "app_size", (double)b.app_size);
     bb_http_resp_json_obj_set_str(&obj, "reset_reason", b.reset_reason);
     bb_http_resp_json_obj_set_bool(&obj, "ota_validated", b.ota_validated);
-    bb_http_resp_json_obj_set_num(&obj, "heap_free_total", (double)bb_board_heap_free_total());
-    bb_http_resp_json_obj_set_num(&obj, "heap_free_internal", (double)bb_board_heap_free_internal());
-    bb_http_resp_json_obj_set_num(&obj, "heap_minimum_ever", (double)bb_board_heap_minimum_ever());
-    bb_http_resp_json_obj_set_num(&obj, "heap_largest_free_block", (double)bb_board_heap_largest_free_block());
     bb_http_resp_json_obj_set_num(&obj, "chip_revision", (double)bb_board_chip_revision());
     bb_http_resp_json_obj_set_num(&obj, "cpu_freq_mhz", (double)bb_board_cpu_freq_mhz());
     bb_http_resp_json_obj_set_obj_begin(&obj, "heap_internal");
@@ -1352,5 +1340,26 @@ void test_fidelity_info_boot_epoch_zero_when_not_synced(void)
     TEST_ASSERT_TRUE_MESSAGE(cJSON_IsNumber(field), "boot_epoch is not a number");
     TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(0.0, field->valuedouble,
         "boot_epoch should be 0 when time is not valid");
+    cJSON_Delete(doc);
+}
+
+// (I5) Flat heap fields must NOT be present in /api/info (B1-310: removed).
+// Re-adding them to the emitter must cause these tests to fail.
+void test_fidelity_info_flat_heap_fields_absent(void)
+{
+    cJSON *doc = invoke_h_info_and_parse();
+    TEST_ASSERT_NOT_NULL_MESSAGE(doc, "info body not valid JSON");
+    TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "total_heap"),
+        "total_heap must not be present in /api/info (B1-310)");
+    TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "free_heap"),
+        "free_heap must not be present in /api/info (B1-310)");
+    TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "heap_free_total"),
+        "heap_free_total must not be present in /api/info (B1-310)");
+    TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "heap_free_internal"),
+        "heap_free_internal must not be present in /api/info (B1-310)");
+    TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "heap_minimum_ever"),
+        "heap_minimum_ever must not be present in /api/info (B1-310)");
+    TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "heap_largest_free_block"),
+        "heap_largest_free_block must not be present in /api/info (B1-310)");
     cJSON_Delete(doc);
 }
