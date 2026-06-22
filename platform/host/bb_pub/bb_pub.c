@@ -330,8 +330,14 @@ static bool buffer_capture(const char *topic, const char *payload, int payload_l
         return false;
     }
 
-    // Stack-allocate entry (max 192+1+256 = 449 bytes; safe on any stack).
-    char entry[BB_PUB_BUFFER_ENTRY_MAX];
+    // Static scratch (NOT stack): BB_PUB_BUFFER_ENTRY_MAX = TOPIC_MAX + 1 +
+    // MAX_PAYLOAD_BYTES, which consumers raise well past the old 449 (e.g. 705
+    // at MAX_PAYLOAD_BYTES=512). A 705-byte frame overflows the bb_pub worker's
+    // CONFIG_BB_PUB_WORKER_STACK (4096 on heap-tight no-PSRAM boards),
+    // corrupting adjacent heap and crashing later in bb_ring_push. Safe as
+    // static: only the single bb_pub worker thread ever calls buffer_capture
+    // (see the lock invariant above).
+    static char entry[BB_PUB_BUFFER_ENTRY_MAX];
     memcpy(entry, topic, topic_len);
     entry[topic_len] = '\0';
     if (payload_len > 0) {

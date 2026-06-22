@@ -86,7 +86,7 @@ config BB_PUB_AUTOREGISTER
 config BB_PUB_WORKER_STACK
     int "bb_pub telemetry worker task stack (bytes)"
     default 8192 if (BB_MQTT_TLS_ENABLE || BB_HTTP_TLS_ENABLE)
-    default 4096
+    default 6144
     range 2048 16384
     help
         FreeRTOS task stack for the bb_pub periodic worker. The worker calls
@@ -96,11 +96,15 @@ config BB_PUB_WORKER_STACK
           - HTTP/TLS or MQTT/TLS sink: needs >= 8192 bytes to cover the mbedTLS
             handshake + cert-bundle parse. The default auto-sizes to 8192 when
             BB_MQTT_TLS_ENABLE or BB_HTTP_TLS_ENABLE is on.
-          - Plaintext MQTT or plaintext HTTP: 4096 is sufficient and saves ~4 KB
-            RAM. The default auto-sizes to 4096 when both TLS gates are OFF.
+          - Plaintext MQTT or plaintext HTTP: 6144. The worker ALSO serializes
+            every source's JSON each tick (cJSON + newlib dtoa for float fields,
+            a deep, ~2 KB stack chain that itself heap-allocates), independent of
+            the sink. 4096 covered the plaintext sink publish but NOT that
+            serialize path — a float field (e.g. soc_c) overflowed the stack into
+            the heap and crashed a later alloc (B1-349). 6144 covers both.
 
-        Gate-keyed defaults (B1-274): default 8192 with any TLS gate; 4096
-        without. Override in sdkconfig if your specific sink mix differs.
+        Gate-keyed defaults (B1-274 / B1-349): default 8192 with any TLS gate;
+        6144 without. Override in sdkconfig if your specific sink mix differs.
 
 config BB_PUB_BUFFER_ENABLE
     bool "Enable store-and-forward ring buffer (capture on sink error, replay on recovery)"
