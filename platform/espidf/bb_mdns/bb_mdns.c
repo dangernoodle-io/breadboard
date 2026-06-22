@@ -923,11 +923,23 @@ static void browse_refresh_timer_stop(void)
     s_browse_refresh_timer = NULL;
 }
 
+static bool mdns_lifecycle_lock(void)
+{
+    if (!s_lifecycle_mutex) return false;
+    xSemaphoreTake(s_lifecycle_mutex, portMAX_DELAY);
+    return true;
+}
+
+static void mdns_lifecycle_unlock(void)
+{
+    if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
+}
+
 static void bb_mdns_on_disconnect(void)
 {
-    if (s_lifecycle_mutex) xSemaphoreTake(s_lifecycle_mutex, portMAX_DELAY);
+    if (!mdns_lifecycle_lock()) return;
     if (!bb_mdns_lifecycle_is_started(&s_lc)) {
-        if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
+        mdns_lifecycle_unlock();
         return;
     }
     bb_log_i(TAG, "wifi disconnected — tearing down mdns");
@@ -942,14 +954,14 @@ static void bb_mdns_on_disconnect(void)
     if (res != BB_MDNS_LC_OK && res != BB_MDNS_LC_NOT_STARTED) {
         bb_log_w(TAG, "bb_mdns_on_disconnect: lifecycle stop returned %d", res);
     }
-    if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
+    mdns_lifecycle_unlock();
 }
 
 void bb_mdns_deinit(void)
 {
-    if (s_lifecycle_mutex) xSemaphoreTake(s_lifecycle_mutex, portMAX_DELAY);
+    if (!mdns_lifecycle_lock()) return;
     if (!bb_mdns_lifecycle_is_started(&s_lc)) {
-        if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
+        mdns_lifecycle_unlock();
         return;
     }
     if (s_announce_timer) {
@@ -963,7 +975,7 @@ void bb_mdns_deinit(void)
     if (res != BB_MDNS_LC_OK && res != BB_MDNS_LC_NOT_STARTED) {
         bb_log_w(TAG, "bb_mdns_deinit: lifecycle stop returned %d", res);
     }
-    if (s_lifecycle_mutex) xSemaphoreGive(s_lifecycle_mutex);
+    mdns_lifecycle_unlock();
 }
 
 static void bb_mdns_shutdown(void)
