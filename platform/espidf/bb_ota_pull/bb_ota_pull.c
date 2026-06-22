@@ -74,6 +74,12 @@ static const char *TAG = "bb_ota_pull";
 #define CONFIG_BB_OTA_PULL_APPLY_CACHE_FRESH_S 300
 #endif
 
+// Max wait (ms) for the IP stack to settle before the first OTA attempt.
+// Kconfig default 8000; 0 = no settle wait (fail fast if no IP).
+#ifndef CONFIG_BB_OTA_PULL_WIFI_SETTLE_MS
+#define CONFIG_BB_OTA_PULL_WIFI_SETTLE_MS 8000
+#endif
+
 // Timeout (ms) for bb_update_check_run_blocking() inside the apply handler.
 // Align with the HTTP client timeout to avoid hanging the httpd worker longer
 // than a regular fetch would.
@@ -446,14 +452,28 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
     }
 #endif
 
-    // WiFi IP pre-flight — catches OTA attempts fired during reconnect
-    // (stale DNS cache, no bound IP). One short retry then bail.
-    if (!bb_wifi_has_ip()) {
-        bb_log_w(TAG, "wifi has no IP — deferring OTA 2s and retrying");
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        if (!bb_wifi_has_ip()) {
-            ota_set_error("wifi not ready");
-            goto done;
+    // WiFi IP pre-flight — poll until the IP stack settles or we time out.
+    // Catches OTA attempts fired during reconnect or seconds after reboot,
+    // before DHCP has bound an address (esp32-c3 single-core path can take a
+    // few seconds). Poll in 500 ms steps up to CONFIG_BB_OTA_PULL_WIFI_SETTLE_MS;
+    // on a healthy board the first poll passes and there is no added delay.
+    {
+        const uint32_t step_ms  = 500;
+        const uint32_t limit_ms = CONFIG_BB_OTA_PULL_WIFI_SETTLE_MS;
+        uint32_t waited_ms = 0;
+        while (!bb_wifi_has_ip()) {
+            if (waited_ms >= limit_ms) {
+                bb_log_e(TAG, "wifi not ready after %u ms — aborting OTA", (unsigned)waited_ms);
+                ota_set_error("wifi not ready");
+                goto done;
+            }
+            bb_log_w(TAG, "wifi has no IP — waiting (elapsed %u/%u ms)",
+                     (unsigned)waited_ms, (unsigned)limit_ms);
+            vTaskDelay(pdMS_TO_TICKS(step_ms));
+            waited_ms += step_ms;
+        }
+        if (waited_ms > 0) {
+            bb_log_i(TAG, "wifi settled after %u ms", (unsigned)waited_ms);
         }
     }
 
