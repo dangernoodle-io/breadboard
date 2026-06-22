@@ -31,6 +31,16 @@ Public headers under `components/*/include/` follow these rules so that the same
 
 When extending an existing component: match the existing style even if older code predates these rules; a PR that flips 10 functions without migrating the rest is churn.
 
+## Avoiding audit-class regressions
+
+These three rules encode the recurring defect classes found in the v0.62.0→main audit; follow them so they don't recur.
+
+- **Kconfig knobs must bridge `CONFIG_`.** Every `CONFIG_BB_*` symbol must be consumed via the bridge pattern — `#ifdef ESP_PLATFORM` → `#include "sdkconfig.h"` → `#ifdef CONFIG_BB_X` `#define BB_X CONFIG_BB_X` `#endif`, then `#ifndef BB_X` `#define BB_X <default>` `#endif`. **Never** write a bare `#ifndef BB_X #define BB_X <lit>` alongside a `CONFIG_BB_X` Kconfig: the `#ifndef` shadows the generated symbol and the knob is silently inert (this shipped 3× — `bb_net_health`, `bb_power_health`, `bb_pub`). Reference: `bb_clock.h`, `bb_net_health.h`. C default and Kconfig default must match.
+- **Reuse-or-extract shared helpers — don't re-hand-roll an idiom.** Cross-cutting primitives live in `bb_core` (e.g. `bb_clock`, `bb_byte_order`, `bb_mem`); component-scoped helpers live in that component's `include/` header. Before hand-rolling a common shape (SPIRAM-preferred alloc, lock+capture, status/decode tables, recv-body, schema-assemble, internal-heap queries…), find the existing helper — `find_similar_code`/`semantic_code_search` (code-graph-mcp) or `grep components/*/include bb_core`. If a shape appears in ≥2 places, extract it (portable header + `platform/{espidf,host}` impls) rather than copy. The inventory is intentionally not listed here — discover it with the tools above so this rule never goes stale.
+- **Branch coverage on new conditional code.** A refactor adding a `switch`/decode/guard must have tests exercising **every** branch — Coveralls is a required check and blocks on an uncovered new branch. For error branches unreachable with the real allocator (malloc-fail), inject via a `*_set_malloc` hook guarded by `BB_<NAME>_TESTING` + `test/test_host/test_alloc_inject.h`.
+
+**Periodic idiom-duplication sweep.** A diff-scoped review misses cross-file duplication (it's how the SPIRAM/status/query/section/HAL dup shipped). Before cutting a release, run the whole-repo idiom sweep (workflow `idiom-sweep` / `.claude/workflows/idiom-sweep.md`): parallel finders over allocation, concurrency, http-serialization, and config/peripheral idioms, each reporting ≥2-site repeats with a proposed helper. The header/type-leak CI lint (B1-263) is the complementary enforcement for REQUIRES/portability hygiene.
+
 ## Logging
 
 Use `bb_log_{e,w,i,d,v}(tag, fmt, ...)` macros for all breadboard component code. On ESP-IDF these expand to `ESP_LOG{E,W,I,D,V}`; on host they map to `fprintf` (debug/verbose compile out to keep test output clean).
