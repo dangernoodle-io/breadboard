@@ -1,12 +1,11 @@
 #include "bb_log.h"
 #include "bb_http.h"
 #include "bb_registry.h"
+#include "bb_sse_writer.h"
 
-#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/socket.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -16,73 +15,37 @@ static const char *TAG = "bb_log_routes";
 static volatile TaskHandle_t s_sse_task_handle = NULL;
 static volatile int s_sse_client_type = 0;  // 0=none, 1=browser, 2=external
 
+// ---------------------------------------------------------------------------
+// SSE writer callbacks
+// ---------------------------------------------------------------------------
+
+static int log_wait_fn(void *ctx, char *buf, size_t buflen, uint32_t timeout_ms)
+{
+    (void)ctx;
+    char line[192];
+    size_t n = bb_log_stream_drain(line, sizeof(line), timeout_ms);
+    if (n == 0) return 0;  // idle timeout
+    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
+        line[--n] = '\0';
+    int flen = snprintf(buf, buflen, "data: %s\n\n", line);
+    return (flen > 0 && flen < (int)buflen) ? flen : -1;
+}
+
+static void log_cleanup_fn(void *ctx)
+{
+    (void)ctx;
+    s_sse_task_handle = NULL;
+    s_sse_client_type = 0;
+}
+
 static void sse_task(void *arg)
 {
     bb_http_request_t *req = (bb_http_request_t *)arg;
-
-    int fd = bb_http_req_sockfd(req);
-    struct timeval tv = { .tv_sec = 30, .tv_usec = 0 };
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-    bb_http_resp_set_type(req, "text/event-stream");
-    bb_http_resp_set_header(req, "Cache-Control", "no-cache");
-    bb_http_resp_set_header(req, "Connection", "keep-alive");
-    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
-    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
-
-    bb_err_t err = bb_http_resp_send_chunk(req, ": connected\n\n", -1);
-
-    char line[192];
-    char frame[220];
-    /* Send a comment-frame keepalive every CONFIG_BB_LOG_SSE_KEEPALIVE_MS of
-     * silence. EventSource ignores `:` lines, but the chunk write surfaces a
-     * dead peer immediately so the task can clean up — and the client can use
-     * the gap between keepalives to detect a stalled stream. */
-    const int idle_ticks_per_ping = CONFIG_BB_LOG_SSE_KEEPALIVE_MS / 500;
-    int idle_ticks = 0;
-    while (err == BB_OK) {
-        /* Peer-disconnect detection: peek the read side. recv()==0 means peer sent
-         * FIN; recv()==-1 with EAGAIN/EWOULDBLOCK means alive but quiet; recv()==-1
-         * with anything else (ECONNRESET, EBADF, ENOTCONN) means dead. We don't
-         * actually read any data — SSE is server→client only — but a peek catches
-         * the close window faster than waiting for the next keepalive write. */
-        char peek;
-        ssize_t prc = recv(fd, &peek, 1, MSG_DONTWAIT | MSG_PEEK);
-        if (prc == 0) {
-            err = BB_ERR_INVALID_STATE;  // peer FIN
-            break;
-        } else if (prc < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-            err = BB_ERR_INVALID_STATE;  // ECONNRESET / EBADF / etc
-            break;
-        }
-        size_t n = bb_log_stream_drain(line, sizeof(line), 500);
-        if (n == 0) {
-            if (++idle_ticks >= idle_ticks_per_ping) {
-                err = bb_http_resp_send_chunk(req, ": ping\n\n", -1);
-                idle_ticks = 0;
-            }
-            continue;
-        }
-        idle_ticks = 0;
-        while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
-            line[--n] = '\0';
-        int flen = snprintf(frame, sizeof(frame), "data: %s\n\n", line);
-        err = bb_http_resp_send_chunk(req, frame,
-                    (flen > 0 && flen < (int)sizeof(frame)) ? flen : -1);
-    }
-
-    /* If err != BB_OK the peer is already disconnected; sending another
-     * chunk on the dead fd races with httpd's select-loop cleanup of the
-     * same fd in call_end_selects, which has crashed in the field
-     * (LoadProhibited). Only send the closing chunk while the connection
-     * is believed alive. */
-    if (err == BB_OK) {
-        bb_http_resp_send_chunk(req, NULL, 0);
-    }
-    bb_http_req_async_handler_complete(req);
-    s_sse_task_handle = NULL;
-    s_sse_client_type = 0;
-    vTaskDelete(NULL);
+    bb_sse_writer_run(req, ": connected\n\n",
+                      log_wait_fn, log_cleanup_fn, NULL,
+                      500,
+                      CONFIG_BB_LOG_SSE_KEEPALIVE_MS);
+    // bb_sse_writer_run calls vTaskDelete(NULL) — never returns.
 }
 
 static bb_err_t logs_handler(bb_http_request_t *req)
