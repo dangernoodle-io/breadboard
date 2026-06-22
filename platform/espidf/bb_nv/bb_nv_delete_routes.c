@@ -31,6 +31,7 @@
 
 #include "bb_nv_delete_routes.h"
 #include "bb_http.h"
+#include "bb_http_body.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_nv.h"
@@ -80,25 +81,27 @@ static void send_500(bb_http_request_t *req, const char *msg)
 static bb_err_t nvs_delete_handler(bb_http_request_t *req)
 {
     /* Read body. */
-    int body_len = bb_http_req_body_len(req);
-    if (body_len <= 0 || body_len > BB_NV_DELETE_BODY_MAX) {
+    char *body = NULL;
+    int   n    = 0;
+    bb_err_t brc = bb_http_req_recv_body_alloc(req, BB_NV_DELETE_BODY_MAX, &body, &n);
+    if (brc == BB_ERR_INVALID_ARG) {
         send_400(req, "missing or oversized body");
-        return BB_ERR_INVALID_ARG;
+        return brc;
     }
-
-    char *body = malloc((size_t)body_len + 1);
-    if (!body) {
-        send_500(req, "out of memory");
-        return BB_ERR_NO_SPACE;
+    if (brc == BB_ERR_NO_SPACE) {
+        // body_len > max_bytes → 400; OOM → 500
+        int bl = bb_http_req_body_len(req);
+        if (bl > BB_NV_DELETE_BODY_MAX) {
+            send_400(req, "missing or oversized body");
+        } else {
+            send_500(req, "out of memory");
+        }
+        return brc;
     }
-
-    int n = bb_http_req_recv(req, body, (size_t)(body_len + 1));
-    if (n < 0) {
-        free(body);
+    if (brc != BB_OK) {
         send_400(req, "body read failed");
-        return BB_ERR_INVALID_ARG;
+        return brc;
     }
-    body[n] = '\0';
 
     bb_json_t parsed = bb_json_parse(body, (size_t)n);
     free(body);

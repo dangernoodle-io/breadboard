@@ -3,6 +3,7 @@ idf_component_register(
          "src/http_utils.c"
          "src/bb_http_status.c"
          "src/bb_http_query.c"
+         "src/bb_http_body.c"
          "src/route_registry.c"
          "src/bb_http_json_obj.c"
          "src/bb_http_api_dispatch.c"
