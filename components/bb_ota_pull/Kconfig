@@ -92,6 +92,18 @@ config BB_OTA_PULL_DL_MAX_ATTEMPTS
     help
         Max download attempts (outer retry loop + inner handshake retry).
 
+config BB_OTA_PULL_WIFI_SETTLE_MS
+    int "Max wait for WiFi/DNS to settle before first OTA attempt (ms)"
+    range 0 30000
+    default 8000
+    help
+        On single-core-lwIP boards (e.g. ESP32-C3) the TCP/DNS layer may not be
+        fully settled even after GOT_IP, so an OTA fired seconds after boot can
+        exhaust all download attempts before the stack is ready. bb_ota_pull
+        polls bb_wifi_has_ip() in 500 ms steps up to this total before starting
+        the download; on a healthy board the first poll passes and there is no
+        delay. Set to 0 to disable the settle wait (fail fast if no IP).
+
 config BB_OTA_PULL_DL_BACKOFF_BASE_MS
     int "Base retry backoff (ms)"
     range 0 60000
