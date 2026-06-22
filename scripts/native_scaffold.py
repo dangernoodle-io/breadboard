@@ -310,6 +310,13 @@ COMPONENT_MAP = {
         "sources":  ["components/bb_net_health/src/bb_net_health.c"],
         "depends":  ["bb_core", "bb_mqtt", "bb_health"],
     },
+    "bb_sse_writer": {
+        "includes": ["components/bb_sse_writer/include",
+                     "components/bb_sse_writer/src"],
+        "sources":  ["components/bb_sse_writer/src/bb_sse_idle.c",
+                     "platform/host/bb_sse_writer/bb_sse_writer_host.c"],
+        "depends":  ["bb_core"],
+    },
     "bb_led_gpio": {
         "includes": ["components/bb_led_gpio/include", "platform/host/bb_led_gpio"],
         "sources":  ["platform/host/bb_led_gpio/bb_led_gpio.c"],

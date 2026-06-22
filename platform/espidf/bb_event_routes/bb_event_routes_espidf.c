@@ -7,13 +7,11 @@
 #include "bb_http.h"
 #include "bb_log.h"
 #include "bb_registry.h"
+#include "bb_sse_writer.h"
 
-#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <netinet/tcp.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -80,77 +78,52 @@ bool bb_event_routes_port_event_wait(void *event, uint32_t timeout_ms)
 typedef struct {
     bb_http_request_t *req;
     bb_event_routes_client_t *client;
+    void *event;
+    bool has_more;  // drain one frame; more may be queued
 } sse_task_arg_t;
+
+// wait_fn: event-driven drain. Waits on the per-client signal up to timeout_ms,
+// then drains one frame. has_more=true skips the wait and drains directly so
+// all queued frames are flushed without counting spurious idle time.
+static int events_wait_fn(void *ctx, char *buf, size_t buflen, uint32_t timeout_ms)
+{
+    sse_task_arg_t *t = (sse_task_arg_t *)ctx;
+
+    if (t->has_more) {
+        size_t n = bb_event_routes_drain_frame(t->client, buf, buflen);
+        if (n > 0) return (int)n;
+        t->has_more = false;
+        // Queue exhausted — fall through to a real wait.
+    }
+
+    bool signaled = bb_event_routes_port_event_wait(t->event, timeout_ms);
+    if (!signaled) return 0;  // idle timeout
+
+    size_t n = bb_event_routes_drain_frame(t->client, buf, buflen);
+    if (n == 0) return 0;  // signaled but nothing queued
+    t->has_more = true;    // assume more frames; drain next call
+    return (int)n;
+}
+
+// cleanup_fn: release the client slot and free the arg struct.
+static void events_cleanup_fn(void *ctx)
+{
+    sse_task_arg_t *t = (sse_task_arg_t *)ctx;
+    bb_event_routes_client_release(t->client);
+    free(t);
+}
 
 static void sse_task(void *arg)
 {
     sse_task_arg_t *t = (sse_task_arg_t *)arg;
     bb_http_request_t *req = t->req;
-    bb_event_routes_client_t *client = t->client;
-    void *event = bb_event_routes_client_event(client);
-    free(t);
-
-    int fd = bb_http_req_sockfd(req);
-    struct timeval tv = { .tv_sec = 30, .tv_usec = 0 };
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    // Disable Nagle on this socket. SSE frames are small (<512 B) and meant
-    // to arrive promptly; with Nagle on the kernel could hold a frame for
-    // ~40-200ms waiting for more data, adding visible latency to events like
-    // the update.available badge transition.
-    int one = 1;
-    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-
-    bb_http_resp_set_type(req, "text/event-stream");
-    bb_http_resp_set_header(req, "Cache-Control", "no-cache");
-    bb_http_resp_set_header(req, "Connection", "keep-alive");
-    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
-    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
-
-    bb_err_t err = bb_http_resp_send_chunk(req, ": connected\nretry: 5000\n\n", -1);
-
-    char frame[CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY + 96];
+    t->event = bb_event_routes_client_event(t->client);
+    t->has_more = false;
     const uint32_t hb_ms = bb_event_routes_heartbeat_ms();
-
-    // Event-driven loop: wait on the per-client signal up to one heartbeat
-    // interval. Signaled → drain everything queued and send. Timeout → ping.
-    // No polling, no fixed 200ms latency tail.
-    while (err == BB_OK) {
-        // Peer-disconnect detection: peek the read side. recv()==0 means peer
-        // sent FIN; recv()==-1 with EAGAIN/EWOULDBLOCK means alive but quiet;
-        // recv()==-1 with anything else (ECONNRESET, EBADF, ENOTCONN) means
-        // dead. SSE is server→client only — we never actually read data — but
-        // a peek catches the close window faster than waiting for SO_RCVTIMEO
-        // or the next keepalive write, freeing the client slot promptly so a
-        // reconnecting browser doesn't double up on slots.
-        char peek;
-        ssize_t prc = recv(fd, &peek, 1, MSG_DONTWAIT | MSG_PEEK);
-        if (prc == 0) {
-            err = BB_ERR_INVALID_STATE;  // peer FIN
-            break;
-        } else if (prc < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-            err = BB_ERR_INVALID_STATE;
-            break;
-        }
-
-        bool signaled = bb_event_routes_port_event_wait(event, hb_ms);
-        if (signaled) {
-            for (;;) {
-                size_t n = bb_event_routes_drain_frame(client, frame, sizeof(frame));
-                if (n == 0) break;
-                err = bb_http_resp_send_chunk(req, frame, (int)n);
-                if (err != BB_OK) break;
-            }
-        } else {
-            err = bb_http_resp_send_chunk(req, ": ping\n\n", -1);
-        }
-    }
-
-    if (err == BB_OK) {
-        bb_http_resp_send_chunk(req, NULL, 0);
-    }
-    bb_event_routes_client_release(client);
-    bb_http_req_async_handler_complete(req);
-    vTaskDelete(NULL);
+    bb_sse_writer_run(req, ": connected\nretry: 5000\n\n",
+                      events_wait_fn, events_cleanup_fn, t,
+                      hb_ms, hb_ms);
+    // bb_sse_writer_run calls vTaskDelete(NULL) — never returns.
 }
 
 // ---------------------------------------------------------------------------

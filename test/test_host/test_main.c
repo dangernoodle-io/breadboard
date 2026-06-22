@@ -1221,6 +1221,14 @@ void test_bb_net_health_throttle_no_restore_while_poor(void);
 void test_bb_net_health_multi_trigger(void);
 void test_bb_net_health_sse_payload_fits_128_byte_ring_slot(void);
 
+// Forward declarations from test_bb_sse_writer.c
+void test_sse_idle_below_heartbeat(void);
+void test_sse_idle_exactly_heartbeat(void);
+void test_sse_idle_above_heartbeat(void);
+void test_sse_idle_resets_after_ping(void);
+void test_sse_idle_no_ping_multiple_steps(void);
+void test_sse_idle_accumulates_across_calls(void);
+
 // Forward declarations from test_bb_vcore_wd.c
 void test_bb_vcore_wd_warmup_suppresses_all(void);
 void test_bb_vcore_wd_warmup_boundary_exact_still_suppressed(void);
@@ -5443,6 +5451,14 @@ int main(void) {
     RUN_TEST(test_bb_metrics_schema_json_no_sources_key);
     RUN_TEST(test_bb_metrics_set_prefix_changes_emitted_names);
     RUN_TEST(test_bb_metrics_set_prefix_reflected_in_schema_json);
+
+    // bb_sse_writer: idle-accumulation pure helper
+    RUN_TEST(test_sse_idle_below_heartbeat);
+    RUN_TEST(test_sse_idle_exactly_heartbeat);
+    RUN_TEST(test_sse_idle_above_heartbeat);
+    RUN_TEST(test_sse_idle_resets_after_ping);
+    RUN_TEST(test_sse_idle_no_ping_multiple_steps);
+    RUN_TEST(test_sse_idle_accumulates_across_calls);
 
     return UNITY_END();
 }
