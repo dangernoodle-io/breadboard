@@ -7,7 +7,7 @@
 // Watchdog for ST_CONNECTING. If neither GOT_IP nor DISCONNECT arrives within
 // this window, the task treats it as a stalled association and re-attempts.
 // 30 s >> normal associate+DHCP (2–8 s), so false positives are rare.
-#define WIFI_RECONN_CONNECTING_TIMEOUT_MS 30000
+#define WIFI_RECONN_CONNECTING_TIMEOUT_MS CONFIG_BB_WIFI_RECONN_CONNECTING_TIMEOUT_MS
 
 // Start the reconnect manager task. Call once from wifi_connect_sta()
 // AFTER the initial blocking connect succeeds. Idempotent.

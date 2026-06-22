@@ -31,6 +31,10 @@ static const char *TAG = "bb_health_stack";
 #define CONFIG_BB_HEALTH_STACK_LOW_BYTES 256
 #endif
 
+#ifndef CONFIG_BB_HEALTH_STACK_MAX_TASKS
+#define CONFIG_BB_HEALTH_STACK_MAX_TASKS 32
+#endif
+
 // ---------------------------------------------------------------------------
 // Internal state
 // ---------------------------------------------------------------------------
@@ -44,7 +48,7 @@ static bb_event_topic_t s_topic = NULL;
 
 // Debounce table: track which tasks were already in low state last poll
 // so we only post on transition into low (not every poll).
-#define MAX_TRACKED_TASKS 32
+#define MAX_TRACKED_TASKS CONFIG_BB_HEALTH_STACK_MAX_TASKS
 
 typedef struct {
     char     name[configMAX_TASK_NAME_LEN + 1];

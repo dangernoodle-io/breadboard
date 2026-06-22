@@ -29,7 +29,7 @@
 static const char *TAG = "bb_net_health";
 
 #define BB_NET_HEALTH_TOPIC "net.health"
-#define BB_NET_HEALTH_EVAL_PERIOD_US (5ULL * 1000000ULL)  // 5 seconds
+#define BB_NET_HEALTH_EVAL_PERIOD_US ((uint64_t)CONFIG_BB_NET_HEALTH_EVAL_PERIOD_S * 1000000ULL)
 
 // ---------------------------------------------------------------------------
 // Module state
