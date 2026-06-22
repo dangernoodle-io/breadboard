@@ -110,7 +110,12 @@ bb_err_t bb_http_server_ensure_started(void)
         }
     }
     config.lru_purge_enable = true;
-    config.stack_size = 6144;
+    config.stack_size =
+#ifdef CONFIG_BB_HTTP_TASK_STACK_SIZE
+        CONFIG_BB_HTTP_TASK_STACK_SIZE;
+#else
+        6144;
+#endif
     config.recv_wait_timeout =
 #ifdef CONFIG_BB_HTTP_RECV_WAIT_TIMEOUT_S
         CONFIG_BB_HTTP_RECV_WAIT_TIMEOUT_S;
