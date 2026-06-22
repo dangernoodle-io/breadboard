@@ -134,6 +134,16 @@ config BB_OTA_PULL_HTTP_CHUNK_SIZE
         boot-mode boards (esp32-s2), which pull at full early-boot heap — both
         benefit from fewer round-trips. Must stay <= MBEDTLS_SSL_IN_CONTENT_LEN.
 
+config BB_OTA_PULL_TASK_STACK
+    int "OTA worker task stack size (bytes)"
+    range 8192 65536
+    default 12288
+    help
+        Stack size in bytes for the xTaskCreatePinnedToCore OTA worker task.
+        The task runs esp_https_ota (mbedTLS + esp_http_client) which needs at
+        least ~8 KB; 12 KB provides headroom for deeper call stacks on boards
+        with long pause-hook chains.
+
 config BB_OTA_PULL_APPLY_CACHE_FRESH_S
     int "POST /api/update/apply: cached check freshness window (seconds, 0=always refresh)"
     range 0 86400

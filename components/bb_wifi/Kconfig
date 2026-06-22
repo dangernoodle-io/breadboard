@@ -53,6 +53,28 @@ config BB_WIFI_PENDING_TRY_TIMEOUT_S
         discarded, the device reboots onto the prior live credentials, and
         boot_count is NOT incremented.
 
+config BB_WIFI_RECONN_CONNECTING_TIMEOUT_MS
+    int "WiFi ST_CONNECTING watchdog timeout (ms)"
+    range 5000 120000
+    default 30000
+    help
+        If neither GOT_IP nor DISCONNECT arrives within this window after
+        issuing esp_wifi_connect(), the reconnect manager treats the
+        association as stalled, re-issues esp_wifi_disconnect +
+        esp_wifi_connect, and stays in ST_CONNECTING. 30 s >> normal
+        associate+DHCP (2–8 s), so false positives are rare.
+
+config BB_WIFI_RECONN_PERSISTENT_FAIL_WINDOW_S
+    int "WiFi persistent-fail safeguard reboot window (seconds)"
+    range 60 3600
+    default 300
+    help
+        If the device keeps failing to connect for longer than this window
+        (measured from the first disconnect after boot), the reconnect
+        manager triggers a safeguard reboot. Default 300 s (5 minutes)
+        matches the legacy hard-coded value. On validated firmware the
+        reboot does not increment boot_count.
+
 choice BB_WIFI_POWER_SAVE
     prompt "WiFi power-save mode"
     default BB_WIFI_PS_MIN_MODEM

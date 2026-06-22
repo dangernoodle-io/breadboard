@@ -47,6 +47,17 @@ config BB_HEALTH_STACK_LOW_BYTES
         uxTaskGetStackHighWaterMark returns words; the monitor multiplies
         by sizeof(StackType_t) (4 on Xtensa/RISC-V 32-bit) to get bytes.
 
+config BB_HEALTH_STACK_MAX_TASKS
+    int "Max FreeRTOS tasks tracked in stack debounce table"
+    range 8 256
+    default 32
+    help
+        Maximum number of FreeRTOS tasks the stack high-water monitor can
+        track simultaneously in its per-task debounce table. Tasks seen
+        beyond this limit are silently skipped (no low-stack event will
+        fire for them). Default 32 covers typical breadboard firmware
+        configurations; raise on boards with many user tasks.
+
 config BB_HEALTH_AUTO_ATTACH
     bool "Auto-attach health.stack to /api/events"
     default y

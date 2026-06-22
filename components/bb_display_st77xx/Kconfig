@@ -43,4 +43,25 @@ config BB_DISPLAY_ST7735_SKIP_VENDOR_INIT
         correctly. Enable this option for ST7735 panels where the
         stock driver works on its own — skips the overlay entirely.
 
+config BB_DISPLAY_ST77XX_SPI_HOST
+    int "SPI host number for the ST77xx LCD bus"
+    range 0 2
+    default 1
+    help
+        SPI peripheral index passed to bb_display_spi_init_bus as the host.
+        Matches the spi_host_device_t enum values: 0=SPI1_HOST, 1=SPI2_HOST
+        (HSPI on classic ESP32), 2=SPI3_HOST (VSPI on classic ESP32).
+        Default 1 = SPI2_HOST, the factory default for LilyGo T-Dongle S3
+        and most ST77xx boards.
+
+config BB_DISPLAY_ST77XX_CLK_HZ
+    int "SPI clock frequency for the ST77xx LCD bus (Hz)"
+    range 1000000 80000000
+    default 20000000
+    help
+        Pixel clock in Hz for the SPI master driving the ST77xx panel.
+        Default 20 000 000 (20 MHz) works on the LilyGo T-Dongle S3 and
+        most ST77xx panels. Some panels tolerate up to 40 MHz; lower to
+        10 MHz if you see display corruption on longer cable runs.
+
 endmenu

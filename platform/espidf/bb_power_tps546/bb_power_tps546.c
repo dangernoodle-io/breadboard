@@ -297,7 +297,7 @@ static esp_err_t run_init_cycle(tps546_state_t *s, const bb_power_tps546_cfg_t *
     }
     // Short settle so the rail drains and regulator state stabilises before
     // we reprogram protection limits.
-    vTaskDelay(pdMS_TO_TICKS(5));
+    vTaskDelay(pdMS_TO_TICKS(CONFIG_BB_TPS546_OFF_SETTLE_MS));
 
     // Step 2: Reprogram the full protection/config sequence.
     bb_tps546_write_t prog[INIT_PROG_MAX];

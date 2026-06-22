@@ -32,6 +32,16 @@ config BB_NET_HEALTH_HYST_UP
         Number of consecutive better-bucket RSSI samples required before
         the published state is upgraded.
 
+config BB_NET_HEALTH_EVAL_PERIOD_S
+    int "Net-health evaluator period (seconds)"
+    range 1 3600
+    default 5
+    help
+        How often the net-health evaluator fires to sample RSSI and MQTT
+        state and potentially publish a new "net.health" SSE snapshot.
+        Default 5 s. Increasing this reduces CPU/WiFi polling; decreasing
+        makes health transitions more responsive.
+
 config BB_PUB_ADAPTIVE_BACKOFF
     bool "Adaptive bb_pub interval backoff on weak link"
     default n

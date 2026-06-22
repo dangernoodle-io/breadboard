@@ -14,8 +14,9 @@ esp_lcd_panel_handle_t    bb_display_st77xx_panel = NULL;
 
 static bool s_bus_initialized = false;
 
-#define LCD_SPI_HOST    SPI2_HOST
-#define LCD_PIXEL_CLK   20000000
+// SPI2_HOST = 1 in spi_host_device_t; CONFIG default 1 = SPI2_HOST.
+#define LCD_SPI_HOST    CONFIG_BB_DISPLAY_ST77XX_SPI_HOST
+#define LCD_PIXEL_CLK   CONFIG_BB_DISPLAY_ST77XX_CLK_HZ
 
 bb_err_t bb_display_st77xx_init_bus(void)
 {

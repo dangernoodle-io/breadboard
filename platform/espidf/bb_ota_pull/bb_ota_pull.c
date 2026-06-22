@@ -64,7 +64,7 @@ uint32_t bb_ota_pull_host_get_http_timeout_ms(void)
 
 static const char *TAG = "bb_ota_pull";
 
-#define OTA_TASK_STACK 12288
+#define OTA_TASK_STACK CONFIG_BB_OTA_PULL_TASK_STACK
 #define OTA_TASK_PRIO  3
 
 // Freshness window for the apply handler cache-first logic.

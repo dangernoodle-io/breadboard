@@ -1,0 +1,14 @@
+menu "breadboard: bb_power_tps546"
+
+config BB_TPS546_OFF_SETTLE_MS
+    int "OPERATION_OFF settle delay (ms)"
+    range 1 100
+    default 5
+    help
+        After writing OPERATION_OFF at the start of the TPS546 init/recover
+        cycle, the driver waits this many milliseconds for the output rail
+        to drain and the regulator latch state to stabilise before writing
+        the new config program. 5 ms is sufficient for typical inductor/cap
+        combinations; increase on boards with large output capacitance.
+
+endmenu
