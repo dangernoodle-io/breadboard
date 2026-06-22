@@ -645,6 +645,7 @@ void test_fidelity_info_has_uptime_ms(void);
 void test_fidelity_info_has_hostname(void);
 void test_fidelity_info_has_time_valid_false_on_host(void);
 void test_fidelity_info_boot_epoch_zero_when_not_synced(void);
+void test_fidelity_info_flat_heap_fields_absent(void);
 void test_register_described_route_rejects_null(void);
 void test_register_described_route_propagates_underlying_failure(void);
 void test_register_described_route_overflow_returns_no_space(void);
@@ -3407,6 +3408,7 @@ int main(void) {
     RUN_TEST(test_fidelity_info_has_hostname);
     RUN_TEST(test_fidelity_info_has_time_valid_false_on_host);
     RUN_TEST(test_fidelity_info_boot_epoch_zero_when_not_synced);
+    RUN_TEST(test_fidelity_info_flat_heap_fields_absent);
     RUN_TEST(test_register_described_route_rejects_null);
     RUN_TEST(test_register_described_route_propagates_underlying_failure);
     RUN_TEST(test_register_described_route_overflow_returns_no_space);
