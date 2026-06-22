@@ -350,6 +350,7 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
     esp_err_t err = i2c_master_bus_add_device(cfg->bus, &dev_cfg, &s->dev);
     if (err != ESP_OK) {
         bb_log_e(TAG, "i2c_master_bus_add_device failed: %d", err);
+        pthread_mutex_destroy(&s->status_lock);
         free(s);
         return err;
     }
@@ -359,6 +360,7 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
     err = pmbus_read_byte(s->dev, BB_PMBUS_VOUT_MODE, &vout_mode);
     if (err != ESP_OK) {
         bb_log_e(TAG, "VOUT_MODE read failed (chip not responding at 0x%02X): %d", cfg->addr, err);
+        pthread_mutex_destroy(&s->status_lock);
         free(s);
         return err;
     }
@@ -389,10 +391,10 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
 
     // Run the full OPERATION_OFF → reconfig → CLEAR_FAULTS → OPERATION_ON cycle.
     err = run_init_cycle(s, cfg);
-    if (err != ESP_OK) { free(s); return err; }
+    if (err != ESP_OK) { pthread_mutex_destroy(&s->status_lock); free(s); return err; }
 
     bb_err_t rc = bb_power_handle_create(&s_tps546_vtable, s, out);
-    if (rc != BB_OK) free(s); // LCOV_EXCL_LINE
+    if (rc != BB_OK) { pthread_mutex_destroy(&s->status_lock); free(s); } // LCOV_EXCL_LINE
     return rc;
 }
 
