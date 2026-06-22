@@ -56,8 +56,7 @@ void bb_health_reset_for_test(void)
 const char *bb_health_get_assembled_schema(void)
 {
     if (!s_assembled_schema) {
-        s_assembled_schema = bb_section_assemble_schema(
-            &s_health_reg, k_health_base, k_health_suffix);
+        s_assembled_schema = bb_section_freeze_and_assemble(&s_health_reg, k_health_base, k_health_suffix);
     }
     return s_assembled_schema;
 }

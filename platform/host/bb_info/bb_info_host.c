@@ -76,8 +76,7 @@ void bb_info_reset_for_test(void)
 const char *bb_info_get_assembled_schema(void)
 {
     if (!s_assembled_schema) {
-        s_assembled_schema = bb_section_assemble_schema(
-            &s_info_reg, k_info_schema_base, k_info_schema_suffix);
+        s_assembled_schema = bb_section_freeze_and_assemble(&s_info_reg, k_info_schema_base, k_info_schema_suffix);
     }
     return s_assembled_schema;
 }

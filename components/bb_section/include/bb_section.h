@@ -75,6 +75,16 @@ char *bb_section_assemble_schema(const bb_section_registry_t *reg,
                                  const char *base_prefix,
                                  const char *base_suffix);
 
+// Freeze the registry then assemble its schema in one call.
+// Logs a warning via bb_log_w if assembly returns NULL (OOM).
+// Returns the heap-allocated schema string (caller must free), or NULL on OOM.
+char *bb_section_freeze_and_assemble(bb_section_registry_t *reg, const char *base, const char *suffix);
+
+#ifdef BB_SECTION_TESTING
+// Override the malloc used by bb_section_assemble_schema (test-only).
+void bb_section_set_malloc(void *(*m)(size_t));
+#endif
+
 #ifdef __cplusplus
 }
 #endif

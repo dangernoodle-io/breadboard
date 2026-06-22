@@ -2342,6 +2342,10 @@ void test_bb_section_assemble_schema_mixed_null_and_props(void);
 void test_bb_info_diag_registers_before_freeze_succeeds(void);
 void test_bb_info_diag_registers_after_freeze_fails(void);
 
+// Forward declarations from test_bb_section_assemble.c
+void test_bb_section_freeze_and_assemble_non_null(void);
+void test_bb_section_freeze_and_assemble_null_on_oom(void);
+
 // Forward declarations from test_bb_telemetry.c
 void test_bb_telemetry_register_ok(void);
 void test_bb_telemetry_register_null_name_returns_invalid_arg(void);
@@ -5032,6 +5036,8 @@ int main(void) {
     RUN_TEST(test_bb_section_assemble_schema_mixed_null_and_props);
     RUN_TEST(test_bb_info_diag_registers_before_freeze_succeeds);
     RUN_TEST(test_bb_info_diag_registers_after_freeze_fails);
+    RUN_TEST(test_bb_section_freeze_and_assemble_non_null);
+    RUN_TEST(test_bb_section_freeze_and_assemble_null_on_oom);
 
     // bb_sensors tests
     RUN_TEST(test_bb_sensors_register_null_name_returns_err);

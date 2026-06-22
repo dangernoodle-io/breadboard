@@ -7,6 +7,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef BB_SECTION_TESTING
+static void *(*s_malloc_fn)(size_t) = NULL;
+void bb_section_set_malloc(void *(*m)(size_t)) { s_malloc_fn = m; }
+static void *section_malloc(size_t sz) { return s_malloc_fn ? s_malloc_fn(sz) : malloc(sz); }
+#else
+static void *section_malloc(size_t sz) { return malloc(sz); }
+#endif
+
 bb_err_t bb_section_register(bb_section_registry_t *reg,
                               const char *name,
                               bb_section_get_fn get,
@@ -109,8 +117,8 @@ char *bb_section_assemble_schema(const bb_section_registry_t *reg,
         }
     }
 
-    char *buf = malloc(len);
-    if (!buf) return NULL;  // LCOV_EXCL_LINE
+    char *buf = section_malloc(len);
+    if (!buf) return NULL;
 
     // True when the base already has object content (last char is not '{').
     // In that case every section needs a leading ',' — even the first one.
@@ -135,4 +143,14 @@ char *bb_section_assemble_schema(const bb_section_registry_t *reg,
     stpcpy(p, base_suffix);
 
     return buf;
+}
+
+char *bb_section_freeze_and_assemble(bb_section_registry_t *reg, const char *base, const char *suffix)
+{
+    bb_section_freeze(reg);
+    char *s = bb_section_assemble_schema(reg, base, suffix);
+    if (s == NULL) {
+        bb_log_w("bb_section", "schema assembly: malloc failed; schema will be NULL");
+    }
+    return s;
 }
