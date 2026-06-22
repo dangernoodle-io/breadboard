@@ -34,8 +34,12 @@ static const char *TAG = "bb_pub";
 
 // Worker task priority. Tunable via CONFIG_BB_PUB_WORKER_PRIORITY (Kconfig).
 // Default 1 (lowest app priority). Raise when competing with CPU-bound tasks.
-#ifndef CONFIG_BB_PUB_WORKER_PRIORITY
-#define CONFIG_BB_PUB_WORKER_PRIORITY 1
+#ifndef BB_PUB_WORKER_PRIORITY
+#  if defined(CONFIG_BB_PUB_WORKER_PRIORITY)
+#    define BB_PUB_WORKER_PRIORITY CONFIG_BB_PUB_WORKER_PRIORITY
+#  else
+#    define BB_PUB_WORKER_PRIORITY 1
+#  endif
 #endif
 
 // Worker task core affinity. Tunable via CONFIG_BB_PUB_WORKER_CORE (Kconfig).
@@ -88,7 +92,7 @@ static bb_err_t bb_pub_start(void)
 
     BaseType_t core = (BB_PUB_WORKER_CORE < 0) ? tskNO_AFFINITY : (BaseType_t)BB_PUB_WORKER_CORE;
     if (xTaskCreatePinnedToCore(worker_task, "bb_pub", BB_PUB_WORKER_STACK,
-                                NULL, CONFIG_BB_PUB_WORKER_PRIORITY, &s_worker,
+                                NULL, BB_PUB_WORKER_PRIORITY, &s_worker,
                                 core) != pdPASS) {
         vSemaphoreDelete(s_kick);
         s_kick = NULL;
