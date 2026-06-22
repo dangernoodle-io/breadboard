@@ -25,6 +25,7 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 #include "freertos/ringbuf.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
+#include <stdatomic.h>
 #if CONFIG_BB_LOG_UDP_SINK
 #include "lwip/sockets.h"
 #include "lwip/inet.h"
@@ -119,11 +120,11 @@ static void s_udp_task_fn(void *arg)
 #endif /* CONFIG_BB_LOG_UDP_SINK */
 
 // Optional tap installed by bb_diag (or any consumer) to observe every line
-static bb_log_stream_tap_fn s_tap;
+static _Atomic(bb_log_stream_tap_fn) s_tap;
 
 void bb_log_stream_set_tap(bb_log_stream_tap_fn fn)
 {
-    s_tap = fn;
+    atomic_store(&s_tap, fn);
 }
 
 static int s_log_vprintf(const char *fmt, va_list args)
@@ -151,7 +152,7 @@ static int s_log_vprintf(const char *fmt, va_list args)
     }
 
     /* 3. Notify the optional tap (e.g. bb_diag panic mirror) */
-    bb_log_stream_tap_fn tap = s_tap;
+    bb_log_stream_tap_fn tap = atomic_load(&s_tap);
     if (tap) tap(msg.line, msg.len);
 
 #if CONFIG_BB_LOG_UDP_SINK
