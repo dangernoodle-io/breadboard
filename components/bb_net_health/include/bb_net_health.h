@@ -145,6 +145,26 @@ void bb_net_health_eval(bb_net_health_state_t       *st,
 const char *bb_net_state_str(bb_net_state_t state);
 
 // ---------------------------------------------------------------------------
+// Live snapshot accessor (ESP-IDF) — current net-health bucket without
+// re-running eval. For telemetry (bb_pub_health) / diagnostics consumers.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bb_net_state_t state;                // classified bucket (GOOD/MARGINAL/POOR)
+    bool           early_warning;        // pre-failure warning latch
+    bool           throttled;            // adaptive backoff active
+    int            rssi;
+    uint32_t       mqtt_reconnect_count;
+    uint32_t       last_disconnect_reason;
+} bb_net_health_status_t;
+
+// Copy the live net-health snapshot (populated by the ESP-IDF evaluator) under
+// the cache lock. Returns BB_OK, or BB_ERR_INVALID_STATE before the evaluator
+// has initialized (then *out is left untouched). *out fields are otherwise the
+// last evaluated values (zero-init state=GOOD before the first eval).
+bb_err_t bb_net_health_get_status(bb_net_health_status_t *out);
+
+// ---------------------------------------------------------------------------
 // Adaptive-backoff throttle decision (pure, host-testable; used by commit 4)
 // ---------------------------------------------------------------------------
 

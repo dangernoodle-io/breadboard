@@ -143,6 +143,7 @@ static const char k_info_schema[] =
     "\"uptime_ms\":{\"type\":\"integer\"},"
     "\"boot_epoch\":{\"type\":\"integer\"},"
     "\"time_valid\":{\"type\":\"boolean\"},"
+    "\"time_source\":{\"type\":\"string\"},"
     "\"hostname\":{\"type\":[\"string\",\"null\"]},"
     "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}"
     "},"

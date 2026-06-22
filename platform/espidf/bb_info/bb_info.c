@@ -159,6 +159,8 @@ static bb_err_t info_handler(bb_http_request_t *req)
     }
     bb_json_obj_set_bool  (root, "time_valid",  time_valid);
     bb_json_obj_set_number(root, "boot_epoch",  (double)boot_epoch);
+    // time_source: parity with bb_pub_info telemetry (was published but absent here).
+    bb_json_obj_set_string(root, "time_source", time_valid ? "sntp" : "none");
 
     // Hostname — same value as /api/health.network.mdns.
     const char *hostname = bb_mdns_get_hostname();

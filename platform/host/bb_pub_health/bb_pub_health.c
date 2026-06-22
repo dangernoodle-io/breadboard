@@ -14,6 +14,9 @@
 #include "bb_pub.h"
 #include "bb_health.h"
 #include "bb_mqtt.h"
+#ifdef ESP_PLATFORM
+#include "bb_net_health.h"   // bb_net_health_get_status() — ESP_PLATFORM-only net state
+#endif
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_registry.h"
@@ -42,6 +45,28 @@ static bool health_sample(bb_json_t obj, void *ctx)
     bool mqtt_connected = mqtt_enabled && bb_mqtt_is_connected(h);
     bb_json_obj_set_bool(obj, "mqtt_enabled",   mqtt_enabled);
     bb_json_obj_set_bool(obj, "mqtt_connected", mqtt_connected);
+
+    // mqtt_reconnect_count: churn metric — only in /api/health (net section)
+    // before this; surface it to telemetry so MQTT-broker flap is alertable.
+    if (mqtt_enabled) {
+        bb_mqtt_stats_t st = {0};   // stays zero if the stats read fails
+        (void)bb_mqtt_get_stats(h, &st);
+        bb_json_obj_set_number(obj, "mqtt_reconnect_count", (double)st.reconnect_count);
+    }
+
+#ifdef ESP_PLATFORM
+    // net-health early-warning state (espidf-only, mirrors /api/health "net"
+    // section which is also espidf-only). The net.health SSE topic only fires on
+    // change; this puts a periodic value in the MQTT/HTTP publish for alerting.
+    {
+        bb_net_health_status_t ns;
+        if (bb_net_health_get_status(&ns) == BB_OK) {
+            bb_json_obj_set_string(obj, "net_state", bb_net_state_str(ns.state));
+            bb_json_obj_set_bool(obj, "net_early_warning", ns.early_warning);
+            bb_json_obj_set_bool(obj, "net_throttled", ns.throttled);
+        }
+    }
+#endif
 
     return true;
 }
