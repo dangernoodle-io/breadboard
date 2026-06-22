@@ -23,6 +23,9 @@
 #include "bb_pub.h"
 #endif
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
 #include <string.h>
 #include <stdio.h>
 
@@ -60,7 +63,8 @@ typedef struct {
     bool     throttled;
 } bb_net_health_cache_t;
 
-static bb_net_health_cache_t s_cache;  // zero-init; valid once attach_sse writes it
+static bb_net_health_cache_t s_cache;       // zero-init; valid once attach_sse writes it
+static SemaphoreHandle_t     s_cache_lock;  // protects s_cache against torn read/write
 
 // JSON-Schema for the "net" health section.
 static const char k_net_schema[] =
@@ -113,6 +117,8 @@ static void publish_snapshot(const bb_net_health_output_t *out,
                              bool throttled)
 {
     // Update cache — net_section_get reads this; it must not call eval itself.
+    // Lock only the field-by-field write so readers never see a half-updated struct.
+    xSemaphoreTake(s_cache_lock, portMAX_DELAY);
     s_cache.rssi                    = in->rssi;
     s_cache.mqtt_connected          = in->mqtt_connected;
     s_cache.mqtt_reconnect_count    = in->mqtt_reconnect_count;
@@ -121,6 +127,7 @@ static void publish_snapshot(const bb_net_health_output_t *out,
     s_cache.state                   = out->state;
     s_cache.early_warning           = out->early_warning;
     s_cache.throttled               = throttled;
+    xSemaphoreGive(s_cache_lock);
 
     if (!s_topic) return;
 
@@ -212,14 +219,22 @@ static void net_section_get(bb_json_t section, void *ctx)
     // Read from the cache written by eval_cb (and by the initial snapshot in
     // attach_sse).  Do NOT call bb_net_health_eval here — HTTP polls must not
     // inject samples into the hysteresis state.  Staleness is at most 5 s.
-    bb_json_obj_set_number(section, "rssi",                   (double)s_cache.rssi);
-    bb_json_obj_set_bool(section,   "mqtt_connected",         s_cache.mqtt_connected);
-    bb_json_obj_set_number(section, "mqtt_reconnect_count",   (double)s_cache.mqtt_reconnect_count);
-    bb_json_obj_set_number(section, "last_disconnect_reason", (double)s_cache.last_disconnect_reason);
-    bb_json_obj_set_number(section, "disc_age_s",             (double)s_cache.disc_age_s);
-    bb_json_obj_set_string(section, "state",                  bb_net_state_str(s_cache.state));
-    bb_json_obj_set_bool(section,   "early_warning",          s_cache.early_warning);
-    bb_json_obj_set_bool(section,   "throttled",              s_cache.throttled);
+    //
+    // Snapshot the struct under the lock, then serialize from the local copy so
+    // the lock is not held across any JSON/logging calls.
+    bb_net_health_cache_t snap;
+    xSemaphoreTake(s_cache_lock, portMAX_DELAY);
+    snap = s_cache;
+    xSemaphoreGive(s_cache_lock);
+
+    bb_json_obj_set_number(section, "rssi",                   (double)snap.rssi);
+    bb_json_obj_set_bool(section,   "mqtt_connected",         snap.mqtt_connected);
+    bb_json_obj_set_number(section, "mqtt_reconnect_count",   (double)snap.mqtt_reconnect_count);
+    bb_json_obj_set_number(section, "last_disconnect_reason", (double)snap.last_disconnect_reason);
+    bb_json_obj_set_number(section, "disc_age_s",             (double)snap.disc_age_s);
+    bb_json_obj_set_string(section, "state",                  bb_net_state_str(snap.state));
+    bb_json_obj_set_bool(section,   "early_warning",          snap.early_warning);
+    bb_json_obj_set_bool(section,   "throttled",              snap.throttled);
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +248,13 @@ void bb_net_health_register_health(void)
 
 bb_err_t bb_net_health_attach_sse(void)
 {
+    // Create the cache mutex before any path that reads or writes s_cache.
+    s_cache_lock = xSemaphoreCreateMutex();
+    if (!s_cache_lock) {
+        bb_log_e(TAG, "cache lock create failed");
+        return BB_ERR_NO_SPACE;
+    }
+
     // Register the event topic so bb_event_post can target it.
     bb_err_t err = bb_event_topic_register(BB_NET_HEALTH_TOPIC, &s_topic);
     if (err != BB_OK) {
