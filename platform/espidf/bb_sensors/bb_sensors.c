@@ -9,6 +9,7 @@
 #include "bb_power_routes.h"
 #include "bb_thermal.h"
 #include "bb_http.h"
+#include "bb_http_body.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_registry.h"
@@ -167,25 +168,27 @@ static bb_err_t sensors_get_handler(bb_http_request_t *req)
 
 static bb_err_t sensors_patch_handler(bb_http_request_t *req)
 {
-    int body_len = bb_http_req_body_len(req);
-    if (body_len <= 0 || body_len > CONFIG_BB_SENSORS_PATCH_BODY_MAX) {
-        send_json_error(req, 400, "missing or oversized body");
-        return BB_ERR_INVALID_ARG;
+    // Pre-check body size to preserve the original 400 vs 500 error-status
+    // distinction: oversized → 400, OOM → 500.
+    {
+        int bl = bb_http_req_body_len(req);
+        if (bl <= 0 || bl > CONFIG_BB_SENSORS_PATCH_BODY_MAX) {
+            send_json_error(req, 400, "missing or oversized body");
+            return BB_ERR_INVALID_ARG;
+        }
     }
-
-    char *body = malloc((size_t)body_len + 1);
-    if (!body) {
+    char *body = NULL;
+    int   n    = 0;
+    bb_err_t brc = bb_http_req_recv_body_alloc(req, CONFIG_BB_SENSORS_PATCH_BODY_MAX, &body, &n);
+    if (brc == BB_ERR_NO_SPACE) {
+        // Only reachable here if OOM (size check passed above).
         send_json_error(req, 500, "out of memory");
-        return BB_ERR_NO_SPACE;
+        return brc;
     }
-
-    int n = bb_http_req_recv(req, body, (size_t)body_len);
-    if (n < 0) {
-        free(body);
+    if (brc != BB_OK) {
         send_json_error(req, 400, "read failed");
-        return BB_ERR_INVALID_ARG;
+        return brc;
     }
-    body[n] = '\0';
 
     bb_json_t parsed = bb_json_parse(body, (size_t)n);
     free(body);

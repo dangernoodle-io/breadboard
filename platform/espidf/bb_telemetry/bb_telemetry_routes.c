@@ -9,6 +9,7 @@
 //       (B1-295). The metric name prefix comes from bb_pub_metrics_prefix().
 #include "bb_telemetry.h"
 #include "bb_http.h"
+#include "bb_http_body.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_registry.h"
@@ -74,25 +75,16 @@ static bb_err_t telemetry_get_handler(bb_http_request_t *req)
 
 static bb_err_t telemetry_patch_handler(bb_http_request_t *req)
 {
-    int body_len = bb_http_req_body_len(req);
-    if (body_len <= 0 || body_len > BB_TELEMETRY_BODY_MAX) {
+    char *body = NULL;
+    int   n    = 0;
+    bb_err_t brc = bb_http_req_recv_body_alloc(req, BB_TELEMETRY_BODY_MAX, &body, &n);
+    if (brc != BB_OK) {
+        // body_len <= 0 or > max  → BB_ERR_INVALID_ARG / BB_ERR_NO_SPACE: both 400
+        // OOM                     → BB_ERR_NO_SPACE: 400
+        // recv failure            → BB_ERR_INVALID_ARG: 400
         send_json_error(req, 400, "missing or oversized body");
-        return BB_ERR_INVALID_ARG;
+        return brc;
     }
-
-    char *body = malloc((size_t)body_len + 1);
-    if (!body) {
-        send_json_error(req, 400, "out of memory");
-        return BB_ERR_NO_SPACE;
-    }
-
-    int n = bb_http_req_recv(req, body, (size_t)(body_len + 1));
-    if (n < 0) {
-        free(body);
-        send_json_error(req, 400, "read failed");
-        return BB_ERR_INVALID_ARG;
-    }
-    body[n] = '\0';
 
     bb_json_t parsed = bb_json_parse(body, (size_t)n);
     free(body);

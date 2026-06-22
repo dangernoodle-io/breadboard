@@ -982,6 +982,13 @@ void test_bb_http_query_token_present_absent(void);
 void test_bb_http_query_token_present_prefix_not_whole_token(void);
 void test_bb_http_query_token_present_null_safe(void);
 
+// Forward declarations from test_bb_http_body.c
+void test_bb_http_body_happy_path(void);
+void test_bb_http_body_zero_len_returns_invalid_arg(void);
+void test_bb_http_body_over_max_returns_no_space(void);
+void test_bb_http_body_recv_fail_returns_invalid_arg(void);
+void test_bb_http_body_oom_returns_no_space(void);
+
 // Forward declarations from test_bb_mem.c
 void test_bb_mem_malloc_returns_usable_block(void);
 void test_bb_mem_calloc_zeroes(void);
@@ -2744,6 +2751,13 @@ int main(void) {
     RUN_TEST(test_bb_http_query_token_present_absent);
     RUN_TEST(test_bb_http_query_token_present_prefix_not_whole_token);
     RUN_TEST(test_bb_http_query_token_present_null_safe);
+
+    // bb_http_req_recv_body_alloc helper (B1-335)
+    RUN_TEST(test_bb_http_body_happy_path);
+    RUN_TEST(test_bb_http_body_zero_len_returns_invalid_arg);
+    RUN_TEST(test_bb_http_body_over_max_returns_no_space);
+    RUN_TEST(test_bb_http_body_recv_fail_returns_invalid_arg);
+    RUN_TEST(test_bb_http_body_oom_returns_no_space);
 
     // bb_mem SPIRAM-preferred alloc helper
     RUN_TEST(test_bb_mem_malloc_returns_usable_block);
