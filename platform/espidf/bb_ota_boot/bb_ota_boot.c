@@ -193,8 +193,17 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
     }
 #endif
 
-    if (xTaskCreate(status_check_task, "ota_status_chk",
-                    BB_HTTP_CLIENT_TASK_STACK, NULL, 1, NULL) != pdPASS) {
+    // On single-core (unicore) targets, core 1 does not exist and
+    // xTaskCreatePinnedToCore asserts; fall back to no affinity.
+    // Default core 1: mirrors bb_ota_pull's s_ota_task_core default, freeing
+    // Core 0 for the httpd worker on dual-core targets.
+    int status_task_core = 1;
+    if (status_task_core >= configNUMBER_OF_CORES) {
+        status_task_core = tskNO_AFFINITY;
+    }
+    if (xTaskCreatePinnedToCore(status_check_task, "ota_status_chk",
+                                BB_HTTP_CLIENT_TASK_STACK, NULL, 1, NULL,
+                                status_task_core) != pdPASS) {
         bb_log_e(TAG, "check: task create failed");
         bb_http_resp_set_status(req, 503);
         bb_http_json_obj_stream_t obj;
