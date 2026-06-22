@@ -971,6 +971,10 @@ void test_bb_registry_pre_http_init_reports_first_error_but_continues(void);
 void test_bb_registry_pre_http_clear_resets_count(void);
 void test_bb_registry_pre_http_no_double_init_via_init(void);
 
+// Forward declarations from test_bb_http_status.c
+void test_bb_http_status_reason_known_codes(void);
+void test_bb_http_status_reason_unknown_returns_null(void);
+
 // Forward declarations from test_bb_mem.c
 void test_bb_mem_malloc_returns_usable_block(void);
 void test_bb_mem_calloc_zeroes(void);
@@ -2718,6 +2722,10 @@ void tearDown(void) {}
 
 int main(void) {
     UNITY_BEGIN();
+
+    // bb_http status-code SSOT table
+    RUN_TEST(test_bb_http_status_reason_known_codes);
+    RUN_TEST(test_bb_http_status_reason_unknown_returns_null);
 
     // bb_mem SPIRAM-preferred alloc helper
     RUN_TEST(test_bb_mem_malloc_returns_usable_block);

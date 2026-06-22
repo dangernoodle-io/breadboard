@@ -1,5 +1,6 @@
 #include "bb_http.h"
 #include "bb_http_api_dispatch.h"
+#include "bb_http_status.h"
 #include "bb_json.h"
 #include "esp_http_server.h"
 #include "esp_event.h"
@@ -456,26 +457,9 @@ bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
     if (!http_req) return BB_ERR_INVALID_ARG;
 
     // httpd_resp_set_status stores the pointer (no copy), so the string must
-    // outlive the request. Map known codes to static literals.
-    const char *status_str = NULL;
-    switch (status_code) {
-        case 200: status_str = "200 OK"; break;
-        case 201: status_str = "201 Created"; break;
-        case 202: status_str = "202 Accepted"; break;
-        case 204: status_str = "204 No Content"; break;
-        case 302: status_str = "302 Found"; break;
-        case 400: status_str = "400 Bad Request"; break;
-        case 401: status_str = "401 Unauthorized"; break;
-        case 403: status_str = "403 Forbidden"; break;
-        case 404: status_str = "404 Not Found"; break;
-        case 408: status_str = "408 Request Timeout"; break;
-        case 409: status_str = "409 Conflict"; break;
-        case 412: status_str = "412 Precondition Failed"; break;
-        case 422: status_str = "422 Unprocessable Entity"; break;
-        case 500: status_str = "500 Internal Server Error"; break;
-        case 503: status_str = "503 Service Unavailable"; break;
-        default:  return BB_ERR_INVALID_ARG;
-    }
+    // outlive the request — bb_http_status_reason returns a static literal.
+    const char *status_str = bb_http_status_reason(status_code);
+    if (!status_str) return BB_ERR_INVALID_ARG;
     esp_err_t err = httpd_resp_set_status(http_req, status_str);
     return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
 }

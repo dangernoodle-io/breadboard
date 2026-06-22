@@ -9,6 +9,7 @@
 #include "bb_http.h"
 #include "bb_http_host.h"
 #include "bb_http_api_dispatch.h"
+#include "bb_http_status.h"
 #include "bb_json.h"
 #include <stdlib.h>
 #include <string.h>
@@ -104,19 +105,11 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
 
 bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
 {
-    // Mirror the espidf switch so unsupported status codes return
-    // BB_ERR_INVALID_ARG on host, matching device behaviour.  Without this
-    // guard a handler that calls set_status(412) on a device build that is
-    // missing the 412 case silently falls through to the default 200, but the
-    // host capture records 412 anyway — masking the bug in CI.
-    switch (status_code) {
-        case 200: case 201: case 202: case 204: case 302:
-        case 400: case 401: case 403: case 404:
-        case 408: case 409: case 412: case 422:
-        case 500: case 503:
-            break;
-        default:
-            return BB_ERR_INVALID_ARG;
+    // Validate against the same SSOT table the espidf backend uses, so an
+    // unsupported code returns BB_ERR_INVALID_ARG on host too — matching device
+    // behaviour and surfacing a missing-code bug in CI instead of masking it.
+    if (!bb_http_status_reason(status_code)) {
+        return BB_ERR_INVALID_ARG;
     }
 
     capture_slot_t *cap = capture_find(req);
