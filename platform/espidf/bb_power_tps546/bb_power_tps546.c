@@ -252,9 +252,15 @@ static void op_poll(void *state)
     if (vin_uv_set)
         pmbus_send_byte(s->dev, BB_PMBUS_CLEAR_FAULTS);
 
-    // Edge-triggered log: only emit when STATUS_WORD changes.
-    if (st_word == s->last_status_word) return;
-    s->last_status_word = st_word;
+    // Edge-triggered log: only emit when STATUS_WORD changes. last_status_word
+    // is shared with the diagnostics getters (which read it under status_lock),
+    // so do the compare-and-update under the lock to avoid a torn read on the
+    // other core; log outside the lock.
+    pthread_mutex_lock(&s->status_lock);
+    bool changed = (st_word != s->last_status_word);
+    if (changed) s->last_status_word = st_word;
+    pthread_mutex_unlock(&s->status_lock);
+    if (!changed) return;
 
     if (st_word == 0) {
         bb_log_w(TAG, "TPS546 STATUS (op): WORD=0x0000 (cleared)");
