@@ -40,6 +40,9 @@ static const char *TAG = "bb_power_tps546";
 typedef struct {
     i2c_master_dev_handle_t dev;
     int8_t vout_n; // VOUT_MODE exponent (negative)
+
+    // Poll-task-private: only written at open (before the handle is shared) and
+    // read/written by op_poll.  No cross-task access; no lock needed.
     uint16_t last_status_word; // last STATUS_WORD logged; 0xFFFF = sentinel (never logged)
 
     // Fault + VIN-sag tracking (updated by op_poll; read by bb_power_tps546_read_status).
