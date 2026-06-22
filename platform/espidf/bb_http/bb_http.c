@@ -1,6 +1,7 @@
 #include "bb_http.h"
 #include "bb_http_api_dispatch.h"
 #include "bb_http_status.h"
+#include "bb_http_query.h"
 #include "bb_json.h"
 #include "esp_http_server.h"
 #include "esp_event.h"
@@ -635,20 +636,7 @@ bool bb_http_req_query_has_key(bb_http_request_t *req, const char *key)
 
     bool found = false;
     if (httpd_req_get_url_query_str(http_req, query, qlen + 1) == ESP_OK) {
-        // Scan &-separated segments for `key` as a whole token (bare or key=...).
-        // httpd_query_key_value can't see bare keys (no '='), so do it ourselves.
-        size_t klen = strlen(key);
-        const char *p = query;
-        while (p && *p) {
-            const char *amp = strchr(p, '&');
-            size_t seg = amp ? (size_t)(amp - p) : strlen(p);
-            if (seg >= klen && strncmp(p, key, klen) == 0 &&
-                (seg == klen || p[klen] == '=')) {
-                found = true;
-                break;
-            }
-            p = amp ? amp + 1 : NULL;
-        }
+        found = bb_http_query_token_present(query, key);
     }
     free(query);
     return found;

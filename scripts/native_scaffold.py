@@ -99,6 +99,7 @@ COMPONENT_MAP = {
         "sources": [
             "components/bb_http/src/http_utils.c",
             "components/bb_http/src/bb_http_status.c",
+            "components/bb_http/src/bb_http_query.c",
             "components/bb_http/src/route_registry.c",
             "components/bb_http/src/bb_http_json_obj.c",
             "components/bb_http/src/bb_http_api_dispatch.c",

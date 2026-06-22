@@ -10,6 +10,7 @@
 #include "bb_http_host.h"
 #include "bb_http_api_dispatch.h"
 #include "bb_http_status.h"
+#include "bb_http_query.h"
 #include "bb_json.h"
 #include <stdlib.h>
 #include <string.h>
@@ -352,19 +353,8 @@ bool bb_http_req_query_has_key(bb_http_request_t *req, const char *key)
 {
     capture_slot_t *cap = capture_find(req);
     if (!cap || !key) return false;
-    size_t klen = strlen(key);
     if (cap->query_string) {
-        const char *p = cap->query_string;
-        while (p && *p) {
-            const char *amp = strchr(p, '&');
-            size_t seg = amp ? (size_t)(amp - p) : strlen(p);
-            if (seg >= klen && strncmp(p, key, klen) == 0 &&
-                (seg == klen || p[klen] == '=')) {
-                return true;
-            }
-            p = amp ? amp + 1 : NULL;
-        }
-        return false;
+        return bb_http_query_token_present(cap->query_string, key);
     }
     if (cap->query_key && strcmp(cap->query_key, key) == 0) return true;
     return false;
