@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 
 #include "mqtt_client.h"
 #include "freertos/FreeRTOS.h"
@@ -74,7 +75,7 @@ typedef struct {
 // immediately and skip the callback registration.
 // ---------------------------------------------------------------------------
 
-static bb_mqtt_handle_t *s_pending_start = NULL;   // handle waiting for got-IP
+static _Atomic(bb_mqtt_handle_t *) s_pending_start = NULL;  // handle waiting for got-IP
 
 static void mqtt_start_once(bb_mqtt_handle_t *h)
 {
@@ -95,9 +96,9 @@ static void mqtt_start_once(bb_mqtt_handle_t *h)
 
 static void on_got_ip_cb(void)
 {
-    bb_mqtt_handle_t *h = s_pending_start;
+    bb_mqtt_handle_t *h = atomic_load(&s_pending_start);
     if (h) {
-        s_pending_start = NULL;   // clear before start; idempotent if called again
+        atomic_store(&s_pending_start, NULL);  // clear before start; idempotent if called again
         mqtt_start_once(h);
     }
 }
@@ -281,7 +282,7 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
         // check above and now.  bb_wifi_register_on_got_ip fires the callback
         // synchronously when s_has_ip is already true; mqtt_start_once is
         // idempotent (h->started guard) so calling it from both paths is safe.
-        s_pending_start = h;
+        atomic_store(&s_pending_start, h);
         bb_wifi_register_on_got_ip(on_got_ip_cb);
         // If the immediate-fire path ran, h->started is already true and
         // we skip the deferred log to avoid the misleading message.
@@ -538,9 +539,9 @@ BB_REGISTRY_REGISTER_EARLY(bb_mqtt, bb_mqtt_autoregister_init);
 // Idempotent: safe to call when s_auto_client is already NULL.
 bb_err_t bb_mqtt_stop_default(void)
 {
-    if (s_pending_start != NULL &&
-        s_pending_start == (bb_mqtt_handle_t *)s_auto_client) {
-        s_pending_start = NULL;
+    bb_mqtt_handle_t *pending = atomic_load(&s_pending_start);
+    if (pending != NULL && pending == (bb_mqtt_handle_t *)s_auto_client) {
+        atomic_store(&s_pending_start, NULL);
     }
     return bb_mqtt_stop(&s_auto_client);
 }
@@ -576,9 +577,9 @@ bb_err_t bb_mqtt_suspend_default(void)
     if (s_auto_client) {
         // Clear the pending-start pointer if it still refers to this handle,
         // so the got-IP callback does not fire into the freed handle.
-        if (s_pending_start != NULL &&
-            s_pending_start == (bb_mqtt_handle_t *)s_auto_client) {
-            s_pending_start = NULL;
+        bb_mqtt_handle_t *pending = atomic_load(&s_pending_start);
+        if (pending != NULL && pending == (bb_mqtt_handle_t *)s_auto_client) {
+            atomic_store(&s_pending_start, NULL);
         }
         bb_mqtt_stop(&s_auto_client);  // destroys + NULLs s_auto_client
     }
