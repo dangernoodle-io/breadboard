@@ -101,8 +101,10 @@ static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
     bb_json_obj_set_number(root, "cpu_freq_mhz", (double)bb_board_cpu_freq_mhz());
 
     bb_json_t heap_internal = bb_json_obj_new();
-    bb_json_obj_set_number(heap_internal, "free",  (double)bb_board_heap_internal_free());
-    bb_json_obj_set_number(heap_internal, "total", (double)bb_board_heap_internal_total());
+    bb_json_obj_set_number(heap_internal, "free",          (double)bb_board_heap_internal_free());
+    bb_json_obj_set_number(heap_internal, "total",         (double)bb_board_heap_internal_total());
+    bb_json_obj_set_number(heap_internal, "min_free",      (double)bb_board_heap_minimum_ever());
+    bb_json_obj_set_number(heap_internal, "largest_block", (double)bb_board_heap_internal_largest_free_block());
     bb_json_obj_set_obj(root, "heap_internal", heap_internal);
 
     bb_json_t heap_psram = bb_json_obj_new();

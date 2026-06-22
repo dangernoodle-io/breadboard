@@ -119,7 +119,9 @@ static const char k_info_schema[] =
     "\"heap_internal\":{\"type\":\"object\","
     "\"properties\":{"
     "\"free\":{\"type\":\"integer\"},"
-    "\"total\":{\"type\":\"integer\"}}},"
+    "\"total\":{\"type\":\"integer\"},"
+    "\"min_free\":{\"type\":\"integer\"},"
+    "\"largest_block\":{\"type\":\"integer\"}}},"
     "\"heap_psram\":{\"type\":\"object\","
     "\"properties\":{"
     "\"free\":{\"type\":\"integer\"},"
@@ -378,8 +380,10 @@ static bb_err_t h_info(bb_http_request_t *req)
     bb_http_resp_json_obj_set_num(&obj, "chip_revision", (double)bb_board_chip_revision());
     bb_http_resp_json_obj_set_num(&obj, "cpu_freq_mhz", (double)bb_board_cpu_freq_mhz());
     bb_http_resp_json_obj_set_obj_begin(&obj, "heap_internal");
-    bb_http_resp_json_obj_set_num(&obj, "free",  (double)bb_board_heap_internal_free());
-    bb_http_resp_json_obj_set_num(&obj, "total", (double)bb_board_heap_internal_total());
+    bb_http_resp_json_obj_set_num(&obj, "free",          (double)bb_board_heap_internal_free());
+    bb_http_resp_json_obj_set_num(&obj, "total",         (double)bb_board_heap_internal_total());
+    bb_http_resp_json_obj_set_num(&obj, "min_free",      (double)bb_board_heap_minimum_ever());
+    bb_http_resp_json_obj_set_num(&obj, "largest_block", (double)bb_board_heap_internal_largest_free_block());
     bb_http_resp_json_obj_set_obj_end(&obj);
     bb_http_resp_json_obj_set_obj_begin(&obj, "heap_psram");
     bb_http_resp_json_obj_set_num(&obj, "free",  (double)bb_board_psram_free());
