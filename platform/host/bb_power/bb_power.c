@@ -4,6 +4,7 @@
 // PTHREAD_MUTEX_INITIALIZER works on both targets.
 #include "bb_power.h"
 #include "bb_power_driver.h"
+#include "bb_lock.h"
 #include <stdlib.h>
 #include <pthread.h>
 
@@ -52,9 +53,7 @@ bb_err_t bb_power_poll(bb_power_handle_t h)
         s.pout_mw = -1;
     }
 
-    pthread_mutex_lock(&h->lock);
-    h->cache = s;
-    pthread_mutex_unlock(&h->lock);
+    BB_LOCKED_COPY(&h->lock, h->cache, s);
 
     if (h->drv->poll) h->drv->poll(h->state);
 
@@ -72,9 +71,7 @@ void bb_power_snapshot(bb_power_handle_t h, bb_power_snapshot_t *out)
         out->temp_c  = -1;
         return;
     }
-    pthread_mutex_lock(&h->lock);
-    *out = h->cache;
-    pthread_mutex_unlock(&h->lock);
+    BB_LOCKED_COPY(&h->lock, *out, h->cache);
 }
 
 bb_err_t bb_power_set_vout_mv(bb_power_handle_t h, uint16_t mv)
