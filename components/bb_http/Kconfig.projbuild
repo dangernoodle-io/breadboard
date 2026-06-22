@@ -82,6 +82,17 @@ config BB_HTTP_TASK_CORE_ID
       loop on the same CPU (e.g. a SHA mining hot loop). Pin off the
       hot-loop core to keep HTTP responsive.
 
+config BB_HTTP_TASK_STACK_SIZE
+    int "HTTP server task stack size (bytes)"
+    default 6144
+    range 4096 16384
+    help
+      Stack for the esp_http_server worker task. 6144 is the breadboard
+      default — headroom over the IDF default (4096) for the JSON-assembling
+      /api handlers and response paths. Raise if a consumer's route handler
+      does deep work (large stack frames, nested JSON); lower only on RAM-tight
+      builds with shallow handlers.
+
 config BB_HTTP_LWIP_RESERVE
     int "Sockets reserved for non-httpd usage (stratum, mDNS, transient outbound)"
     default 3
