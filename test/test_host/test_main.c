@@ -975,6 +975,13 @@ void test_bb_registry_pre_http_no_double_init_via_init(void);
 void test_bb_http_status_reason_known_codes(void);
 void test_bb_http_status_reason_unknown_returns_null(void);
 
+// Forward declarations from test_bb_http_query.c
+void test_bb_http_query_token_present_bare(void);
+void test_bb_http_query_token_present_with_value(void);
+void test_bb_http_query_token_present_absent(void);
+void test_bb_http_query_token_present_prefix_not_whole_token(void);
+void test_bb_http_query_token_present_null_safe(void);
+
 // Forward declarations from test_bb_mem.c
 void test_bb_mem_malloc_returns_usable_block(void);
 void test_bb_mem_calloc_zeroes(void);
@@ -2726,6 +2733,13 @@ int main(void) {
     // bb_http status-code SSOT table
     RUN_TEST(test_bb_http_status_reason_known_codes);
     RUN_TEST(test_bb_http_status_reason_unknown_returns_null);
+
+    // bb_http query-token scan helper
+    RUN_TEST(test_bb_http_query_token_present_bare);
+    RUN_TEST(test_bb_http_query_token_present_with_value);
+    RUN_TEST(test_bb_http_query_token_present_absent);
+    RUN_TEST(test_bb_http_query_token_present_prefix_not_whole_token);
+    RUN_TEST(test_bb_http_query_token_present_null_safe);
 
     // bb_mem SPIRAM-preferred alloc helper
     RUN_TEST(test_bb_mem_malloc_returns_usable_block);
