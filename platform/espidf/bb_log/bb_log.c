@@ -1,4 +1,5 @@
 #include "bb_log.h"
+#include "bb_mem.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -202,10 +203,7 @@ bb_err_t bb_log_stream_init(void)
 
     // Allocate ringbuffer storage, preferring PSRAM with fallback to default heap
     size_t buf_bytes = CONFIG_BB_LOG_STREAM_BUF_BYTES;
-    s_rb_storage = heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!s_rb_storage) {
-        s_rb_storage = heap_caps_malloc(buf_bytes, MALLOC_CAP_DEFAULT);
-    }
+    s_rb_storage = bb_malloc_prefer_spiram(buf_bytes);
     if (!s_rb_storage) {
         bb_log_e(TAG, "ringbuffer storage allocation failed");
         return ESP_ERR_NO_MEM;
@@ -215,7 +213,7 @@ bb_err_t bb_log_stream_init(void)
     s_rb_static = heap_caps_malloc(sizeof(StaticRingbuffer_t), MALLOC_CAP_DEFAULT);
     if (!s_rb_static) {
         bb_log_e(TAG, "ringbuffer struct allocation failed");
-        heap_caps_free(s_rb_storage);
+        bb_mem_free(s_rb_storage);
         s_rb_storage = NULL;
         return ESP_ERR_NO_MEM;
     }
@@ -226,7 +224,7 @@ bb_err_t bb_log_stream_init(void)
     if (!s_rb) {
         bb_log_e(TAG, "ring buffer creation failed");
         heap_caps_free(s_rb_static);
-        heap_caps_free(s_rb_storage);
+        bb_mem_free(s_rb_storage);
         s_rb_static = NULL;
         s_rb_storage = NULL;
         return ESP_ERR_NO_MEM;
@@ -238,7 +236,7 @@ bb_err_t bb_log_stream_init(void)
         vRingbufferDelete(s_rb);
         s_rb = NULL;
         heap_caps_free(s_rb_static);
-        heap_caps_free(s_rb_storage);
+        bb_mem_free(s_rb_storage);
         s_rb_static = NULL;
         s_rb_storage = NULL;
         return ESP_ERR_NO_MEM;
@@ -252,7 +250,7 @@ bb_err_t bb_log_stream_init(void)
         vRingbufferDelete(s_rb);
         s_rb = NULL;
         heap_caps_free(s_rb_static);
-        heap_caps_free(s_rb_storage);
+        bb_mem_free(s_rb_storage);
         s_rb_static = NULL;
         s_rb_storage = NULL;
         return ESP_ERR_NO_MEM;

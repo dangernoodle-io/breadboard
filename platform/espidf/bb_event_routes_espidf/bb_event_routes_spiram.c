@@ -8,24 +8,9 @@
 // Called from bb_event_routes_register_routes_init before bb_event_routes_init
 // so the override is in place before any client slot is allocated.
 #include "bb_event_routes_internal.h"
-#include "esp_heap_caps.h"
-#include <stdlib.h>
-
-static void *spiram_calloc(size_t n, size_t sz)
-{
-    void *p = heap_caps_calloc(n, sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!p) {
-        p = heap_caps_calloc(n, sz, MALLOC_CAP_DEFAULT);
-    }
-    return p;
-}
-
-static void spiram_free(void *p)
-{
-    heap_caps_free(p);
-}
+#include "bb_mem.h"
 
 void bb_event_routes_spiram_init(void)
 {
-    bb_event_routes_set_allocator(spiram_calloc, spiram_free);
+    bb_event_routes_set_allocator(bb_calloc_prefer_spiram, bb_mem_free);
 }

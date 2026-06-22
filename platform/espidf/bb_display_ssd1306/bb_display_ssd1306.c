@@ -3,6 +3,7 @@
 #include "bb_display_autoregister.h"
 #include "bb_display_ssd1306.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "bb_hw.h"
 #include "sdkconfig.h"
 
@@ -70,7 +71,10 @@ static bb_err_t ssd1306_init(uint16_t *w, uint16_t *h)
     if (!bus) return BB_ERR_INVALID_STATE;
 
     if (!s_fb) {
-        s_fb = heap_caps_malloc(SSD1306_FB_SZ, MALLOC_CAP_8BIT);
+        // B1-321: prefer SPIRAM (fallback to internal) so PSRAM boards don't
+        // spend scarce internal heap on the framebuffer; no-PSRAM boards keep
+        // the internal allocation via the fallback.
+        s_fb = bb_malloc_prefer_spiram(SSD1306_FB_SZ);
         if (!s_fb) {
             bb_log_e(TAG, "framebuffer alloc failed (%u B)", (unsigned)SSD1306_FB_SZ);
             return BB_ERR_NO_SPACE;
