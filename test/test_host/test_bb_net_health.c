@@ -4,6 +4,7 @@
 //   - hysteresis downgrade (N consecutive worse samples required)
 //   - hysteresis upgrade (N consecutive better samples required)
 //   - early_warning on each trigger: sustained-poor, reconnect-increase, disconnect
+//   - warn_disc uses mqtt_disc_age_s (not wifi disc_age_s)
 //   - bb_net_state_str helper
 //   - bb_net_health_throttle_decision: throttle start + restore
 #include "unity.h"
@@ -26,11 +27,12 @@ static void reset(void)
     memset(&s_st,  0, sizeof(s_st));
     memset(&s_in,  0, sizeof(s_in));
     memset(&s_out, 0, sizeof(s_out));
-    // Default: strong signal, connected, no reconnects, no disc age.
+    // Default: strong signal, connected, no reconnects, no disc ages.
     s_in.rssi                 = -50;
     s_in.mqtt_connected       = true;
     s_in.mqtt_reconnect_count = 0;
     s_in.disc_age_s           = 0;
+    s_in.mqtt_disc_age_s      = 0;
 }
 
 static void eval(void)
@@ -280,10 +282,11 @@ void test_bb_net_health_early_warning_sustained_poor(void)
 void test_bb_net_health_no_early_warning_when_good(void)
 {
     reset();
-    s_in.rssi              = -50;
-    s_in.mqtt_connected    = true;
+    s_in.rssi                 = -50;
+    s_in.mqtt_connected       = true;
     s_in.mqtt_reconnect_count = 0;
-    s_in.disc_age_s        = 0;
+    s_in.disc_age_s           = 0;
+    s_in.mqtt_disc_age_s      = 0;
     eval();
     TEST_ASSERT_EQUAL_INT(BB_NET_STATE_GOOD, s_out.state);
     TEST_ASSERT_FALSE(s_out.early_warning);
@@ -322,25 +325,47 @@ void test_bb_net_health_no_warning_after_reconnect_stabilizes(void)
 }
 
 // ---------------------------------------------------------------------------
-// early_warning trigger: disconnect with small disc_age_s
+// early_warning trigger: MQTT disconnect with small mqtt_disc_age_s
+//
+// warn_disc uses mqtt_disc_age_s — the MQTT-specific disconnect age — so that
+// a broker refusal with WiFi still up (wifi disc_age_s == 0) still fires.
+// The wifi disc_age_s field is intentionally untouched in these tests.
 // ---------------------------------------------------------------------------
 
-void test_bb_net_health_early_warning_disconnect_recent(void)
+// Branch 1: !mqtt_connected AND mqtt_disc_age_s < 60 → warn
+void test_bb_net_health_early_warning_mqtt_disc_recent(void)
 {
     reset();
-    s_in.mqtt_connected = false;
-    s_in.disc_age_s     = 30;  // < 60 s → recent
+    s_in.mqtt_connected  = false;
+    s_in.disc_age_s      = 0;   // WiFi UP — no wifi disconnect
+    s_in.mqtt_disc_age_s = 30;  // MQTT disconnected 30 s ago (< 60) → warn
     eval();
     TEST_ASSERT_TRUE(s_out.early_warning);
 }
 
-void test_bb_net_health_no_early_warning_disconnect_old(void)
+// Branch 2: !mqtt_connected AND mqtt_disc_age_s >= 60 → no warn_disc
+void test_bb_net_health_no_early_warning_mqtt_disc_old(void)
 {
     reset();
-    s_in.mqtt_connected = false;
-    s_in.disc_age_s     = 120;  // >= 60 s → old
+    s_in.mqtt_connected  = false;
+    s_in.disc_age_s      = 0;    // WiFi UP
+    s_in.mqtt_disc_age_s = 120;  // MQTT disconnected 120 s ago (>= 60) → no warn
     eval();
     // Only warn_disc is suppressed; state is GOOD, no reconnect increase.
+    TEST_ASSERT_FALSE(s_out.early_warning);
+}
+
+// Confirm WiFi disc_age_s alone does NOT trigger warn_disc — the old behaviour
+// that conflated WiFi and MQTT disconnect age.
+void test_bb_net_health_wifi_disc_age_does_not_trigger_warn_disc(void)
+{
+    reset();
+    s_in.mqtt_connected  = false;
+    s_in.disc_age_s      = 30;  // WiFi disconnect age present, but classifier ignores it
+    s_in.mqtt_disc_age_s = 0;   // No MQTT disc time recorded yet → no warn
+    eval();
+    // warn_disc must be false: mqtt_disc_age_s == 0 means no MQTT disconnect
+    // recorded, even though mqtt_connected is false.
     TEST_ASSERT_FALSE(s_out.early_warning);
 }
 

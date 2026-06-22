@@ -77,10 +77,17 @@ void bb_net_health_eval(bb_net_health_state_t       *st,
     //  1. Classified state is POOR and has been sustained >= HYST_DOWN samples
     //     (i.e. state just became or remains POOR).
     //  2. mqtt_reconnect_count increased since last eval.
-    //  3. !mqtt_connected AND disc_age_s is small (< 60 s) — recent disconnect.
+    //  3. !mqtt_connected AND mqtt_disc_age_s is in (0, 60) s — a recent MQTT
+    //     disconnect has been recorded.  Uses the MQTT-specific disconnect age,
+    //     not the WiFi disc_age_s, so a broker refusal with WiFi still up
+    //     correctly trips the warning.  mqtt_disc_age_s == 0 means "no
+    //     disconnect observed yet" (e.g. fresh boot before first connect) and
+    //     does NOT trigger the warning.
     bool warn_poor      = (st->current_state == BB_NET_STATE_POOR);
     bool warn_reconnect = (in->mqtt_reconnect_count > st->last_reconnect_count);
-    bool warn_disc      = (!in->mqtt_connected && in->disc_age_s < 60U);
+    bool warn_disc      = (!in->mqtt_connected &&
+                           in->mqtt_disc_age_s > 0U &&
+                           in->mqtt_disc_age_s < 60U);
 
     out->state         = st->current_state;
     out->early_warning = warn_poor || warn_reconnect || warn_disc;

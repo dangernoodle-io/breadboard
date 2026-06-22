@@ -80,7 +80,8 @@ typedef struct {
     int8_t   rssi;                  // current WiFi RSSI (dBm)
     bool     mqtt_connected;        // true when MQTT broker is reachable
     uint32_t mqtt_reconnect_count;  // cumulative reconnect count
-    uint32_t disc_age_s;            // seconds since last MQTT disconnect (0 = connected)
+    uint32_t disc_age_s;            // seconds since last WiFi disconnect (0 = connected)
+    uint32_t mqtt_disc_age_s;       // seconds since last MQTT disconnect (0 = never / connected)
 } bb_net_health_input_t;
 
 /**

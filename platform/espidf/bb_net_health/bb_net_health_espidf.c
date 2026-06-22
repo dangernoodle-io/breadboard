@@ -44,6 +44,11 @@ static bb_net_state_t        s_last_published_state    = (bb_net_state_t)-1;
 static bool                  s_last_published_warn     = false;
 static bool                  s_last_published_throttled = false;
 static bb_periodic_timer_t   s_timer = NULL;
+// MQTT disconnect tracking: record the ms-timestamp when reconnect_count
+// increases (the moment we detect a new disconnect).  0 means "no disconnect
+// observed yet" (i.e. no reconnects have ever occurred).
+static uint64_t              s_mqtt_disc_time_ms = 0;   // bb_timer_now_us()/1000 at last disc
+static uint32_t              s_last_reconnect_count = 0; // glue-side mirror for disc detection
 #if CONFIG_BB_PUB_ADAPTIVE_BACKOFF
 static uint32_t              s_baseline_interval_ms = 0;  // captured before first throttle
 #endif
@@ -89,7 +94,7 @@ static void build_input(bb_net_health_input_t *in)
 
     bb_wifi_info_t wi;
     if (bb_wifi_get_info(&wi) == BB_OK) {
-        in->rssi     = wi.rssi;
+        in->rssi       = wi.rssi;
         in->disc_age_s = wi.disc_age_s;
     }
 
@@ -97,9 +102,32 @@ static void build_input(bb_net_health_input_t *in)
     if (mqtt) {
         bb_mqtt_stats_t stats;
         if (bb_mqtt_get_stats(mqtt, &stats) == BB_OK) {
-            in->mqtt_connected      = stats.connected;
+            in->mqtt_connected       = stats.connected;
             in->mqtt_reconnect_count = stats.reconnect_count;
+
+            // Detect a new MQTT disconnect by comparing reconnect_count.
+            // When the count increases, record the current time as the
+            // MQTT disconnect timestamp.  This is sampled every 5 s so the
+            // age resolution is ~5 s, which is fine for the 60 s threshold.
+            if (stats.reconnect_count > s_last_reconnect_count) {
+                s_mqtt_disc_time_ms    = bb_timer_now_us() / 1000U;
+                s_last_reconnect_count = stats.reconnect_count;
+            }
         }
+    }
+
+    // Compute MQTT disconnect age.  If no disconnect has been observed
+    // (s_mqtt_disc_time_ms == 0), leave mqtt_disc_age_s at 0 — the classifier
+    // treats 0 as "no recent disconnect" because 0 < 60 only fires when
+    // !mqtt_connected, and on a fresh boot the client will be connecting, not
+    // yet disconnected.  Populate a non-zero age only when we've actually seen
+    // a disconnect.
+    if (s_mqtt_disc_time_ms > 0) {
+        uint64_t now_ms    = bb_timer_now_us() / 1000U;
+        uint64_t elapsed   = (now_ms >= s_mqtt_disc_time_ms)
+                             ? (now_ms - s_mqtt_disc_time_ms)
+                             : 0;
+        in->mqtt_disc_age_s = (uint32_t)(elapsed / 1000U);
     }
 }
 
