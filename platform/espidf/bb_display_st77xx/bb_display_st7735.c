@@ -1,6 +1,7 @@
 #include "bb_display.h"
 #include "bb_display_backend.h"
 #include "bb_display_autoregister.h"
+#include "bb_display_st77xx_internal.h"
 #include "bb_log.h"
 #include "sdkconfig.h"
 #include "bb_hw.h"
@@ -10,14 +11,6 @@
 #include "driver/gpio.h"
 
 static const char *TAG = "st7735";
-
-extern esp_lcd_panel_io_handle_t bb_display_st77xx_panel_io;
-extern esp_lcd_panel_handle_t    bb_display_st77xx_panel;
-bb_err_t bb_display_st77xx_init_bus(void);
-void     bb_display_st77xx_clear(uint16_t);
-void     bb_display_st77xx_blit(int16_t, int16_t, uint16_t, uint16_t, const uint16_t *);
-void     bb_display_st77xx_off(void);
-void     bb_display_st77xx_on(void);
 
 static esp_err_t st7735_vendor_init(void)
 {
