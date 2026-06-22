@@ -971,6 +971,11 @@ void test_bb_registry_pre_http_init_reports_first_error_but_continues(void);
 void test_bb_registry_pre_http_clear_resets_count(void);
 void test_bb_registry_pre_http_no_double_init_via_init(void);
 
+// Forward declarations from test_bb_mem.c
+void test_bb_mem_malloc_returns_usable_block(void);
+void test_bb_mem_calloc_zeroes(void);
+void test_bb_mem_free_null_is_safe(void);
+
 // Forward declarations from test_bb_byte_order.c
 void test_bb_load_be32_constant(void);
 void test_bb_load_le32_constant(void);
@@ -2713,6 +2718,11 @@ void tearDown(void) {}
 
 int main(void) {
     UNITY_BEGIN();
+
+    // bb_mem SPIRAM-preferred alloc helper
+    RUN_TEST(test_bb_mem_malloc_returns_usable_block);
+    RUN_TEST(test_bb_mem_calloc_zeroes);
+    RUN_TEST(test_bb_mem_free_null_is_safe);
 
     // bb_log macro tests
     RUN_TEST(test_bb_log_error);

@@ -1,6 +1,7 @@
 #include "bb_event.h"
 #include "bb_event_port.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -72,12 +73,7 @@ bb_err_t bb_event_port_init(size_t queue_depth, size_t max_payload,
 
     // Allocate fixed-stride buffer pool, preferring PSRAM with fallback to default heap
     // (no DMA needed: payloads copied out before any DMA operation)
-    s_port.buffer_pool = heap_caps_calloc(queue_depth, s_port.slot_stride,
-                                          MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!s_port.buffer_pool) {
-        s_port.buffer_pool = heap_caps_calloc(queue_depth, s_port.slot_stride,
-                                              MALLOC_CAP_DEFAULT);
-    }
+    s_port.buffer_pool = bb_calloc_prefer_spiram(queue_depth, s_port.slot_stride);
     if (!s_port.buffer_pool) {
         bb_log_e(TAG, "failed to allocate buffer pool: %zu slots x %zu bytes",
                  queue_depth, s_port.slot_stride);
@@ -88,7 +84,7 @@ bb_err_t bb_event_port_init(size_t queue_depth, size_t max_payload,
     s_port.queue = xQueueCreate(queue_depth, sizeof(bb_event_queue_entry_t *));
     if (!s_port.queue) {
         bb_log_e(TAG, "failed to create dispatch queue");
-        heap_caps_free(s_port.buffer_pool);
+        bb_mem_free(s_port.buffer_pool);
         return BB_ERR_NO_SPACE;
     }
 
@@ -97,7 +93,7 @@ bb_err_t bb_event_port_init(size_t queue_depth, size_t max_payload,
     if (!s_port.free_list_queue) {
         bb_log_e(TAG, "failed to create free-list queue");
         vQueueDelete(s_port.queue);
-        heap_caps_free(s_port.buffer_pool);
+        bb_mem_free(s_port.buffer_pool);
         return BB_ERR_NO_SPACE;
     }
 
@@ -114,7 +110,7 @@ bb_err_t bb_event_port_init(size_t queue_depth, size_t max_payload,
         bb_log_e(TAG, "failed to create recursive mutex");
         vQueueDelete(s_port.queue);
         vQueueDelete(s_port.free_list_queue);
-        heap_caps_free(s_port.buffer_pool);
+        bb_mem_free(s_port.buffer_pool);
         return BB_ERR_NO_SPACE;
     }
 
@@ -127,7 +123,7 @@ bb_err_t bb_event_port_init(size_t queue_depth, size_t max_payload,
         vSemaphoreDelete(s_port.mutex);
         vQueueDelete(s_port.queue);
         vQueueDelete(s_port.free_list_queue);
-        heap_caps_free(s_port.buffer_pool);
+        bb_mem_free(s_port.buffer_pool);
         return BB_ERR_NO_SPACE;
     }
 

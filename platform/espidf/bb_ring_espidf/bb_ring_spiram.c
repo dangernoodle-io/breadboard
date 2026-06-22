@@ -9,27 +9,12 @@
 
 #include "bb_ring.h"
 #include "bb_core.h"
+#include "bb_mem.h"
 #include "bb_registry.h"
-#include "esp_heap_caps.h"
-#include <stdlib.h>
-
-static void *spiram_calloc(size_t n, size_t sz)
-{
-    void *p = heap_caps_calloc(n, sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!p) {
-        p = heap_caps_calloc(n, sz, MALLOC_CAP_DEFAULT);
-    }
-    return p;
-}
-
-static void spiram_free(void *p)
-{
-    heap_caps_free(p);
-}
 
 static bb_err_t bb_ring_spiram_early_init(void)
 {
-    bb_ring_set_allocator(spiram_calloc, spiram_free);
+    bb_ring_set_allocator(bb_calloc_prefer_spiram, bb_mem_free);
     return BB_OK;
 }
 

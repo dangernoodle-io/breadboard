@@ -56,7 +56,7 @@ BREADBOARD_ROOT = os.path.dirname(os.path.dirname(_SCRIPT_PATH))
 COMPONENT_MAP = {
     "bb_core": {
         "includes": ["components/bb_core/include"],
-        "sources":  [],
+        "sources":  ["platform/host/bb_core/bb_mem.c"],
         "depends":  [],
     },
     "bb_log": {
