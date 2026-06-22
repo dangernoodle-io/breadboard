@@ -24,7 +24,7 @@
 // CONFIG_BB_PUB_TOPIC_PREFIX, and CONFIG_BB_PUB_INTERVAL_MS are provided by
 // Kconfig on ESP-IDF; supply defaults for host builds.
 #ifndef CONFIG_BB_PUB_MAX_SOURCES
-#define CONFIG_BB_PUB_MAX_SOURCES 8
+#define CONFIG_BB_PUB_MAX_SOURCES 16
 #endif
 #ifndef CONFIG_BB_PUB_MAX_SINKS
 #define CONFIG_BB_PUB_MAX_SINKS 4

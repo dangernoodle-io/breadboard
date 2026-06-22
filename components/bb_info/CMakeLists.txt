@@ -2,6 +2,10 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_info/bb_info.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_nv bb_json bb_section
+    # bb_ota_pull provides bb_ota_pull_heap_ready() for the ota_ready field. The
+    # *emission* is gated in bb_info.c (BB_INFO_EMIT_OTA_READY) so --gc-sections
+    # drops bb_ota_pull on boards with no runtime OTA-TLS path. REQUIRES itself
+    # can't be CONFIG-conditional — ESP-IDF expands deps before config is loaded.
     PRIV_REQUIRES bb_http bb_board bb_wifi bb_registry bb_log bb_ntp bb_mdns esp_timer bb_ota_pull
 )
 
