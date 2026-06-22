@@ -296,6 +296,23 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
     return BB_OK;
 }
 
+// B1-296 destroy-safety guard, shared by publish and subscribe: take h->lock,
+// check destroyed/client under it, and capture the client pointer locally
+// BEFORE releasing the lock so a concurrent bb_mqtt_destroy can't free it
+// mid-use. Returns true (and writes *client_out, non-NULL) when the handle is
+// live; false when destroyed or client is NULL. Caller must release the lock-
+// free local immediately — never hold h->lock across a blocking esp-mqtt call
+// (the event handler also takes h->lock).
+static inline bool mqtt_acquire_client(bb_mqtt_handle_t *h,
+                                       esp_mqtt_client_handle_t *client_out)
+{
+    xSemaphoreTake(h->lock, portMAX_DELAY);
+    bool dead = h->destroyed || (h->client == NULL);
+    *client_out = h->client;
+    xSemaphoreGive(h->lock);
+    return !dead;
+}
+
 bb_err_t bb_mqtt_publish(bb_mqtt_t handle, const char *topic,
                           const char *payload, int len, int qos, bool retain)
 {
@@ -306,12 +323,8 @@ bb_err_t bb_mqtt_publish(bb_mqtt_t handle, const char *topic,
     // capture the client pointer locally, then release BEFORE the blocking publish
     // call.  Holding the lock across esp_mqtt_client_publish would deadlock the
     // event handler (which also acquires h->lock on MQTT events).
-    xSemaphoreTake(h->lock, portMAX_DELAY);
-    bool dead = h->destroyed || (h->client == NULL);
-    esp_mqtt_client_handle_t client = h->client;
-    xSemaphoreGive(h->lock);
-
-    if (dead) {
+    esp_mqtt_client_handle_t client;
+    if (!mqtt_acquire_client(h, &client)) {
         bb_log_w(TAG, "publish skipped: handle destroyed or client NULL");
         return BB_ERR_INVALID_STATE;
     }
@@ -334,12 +347,8 @@ bb_err_t bb_mqtt_subscribe(bb_mqtt_t handle, const char *topic, int qos)
     // under it, capture a local pointer, then release BEFORE the blocking call.
     // Holding the lock across esp_mqtt_client_subscribe would deadlock the
     // event handler (which also acquires h->lock on MQTT events).
-    xSemaphoreTake(h->lock, portMAX_DELAY);
-    bool dead = h->destroyed || (h->client == NULL);
-    esp_mqtt_client_handle_t client = h->client;
-    xSemaphoreGive(h->lock);
-
-    if (dead) {
+    esp_mqtt_client_handle_t client;
+    if (!mqtt_acquire_client(h, &client)) {
         bb_log_w(TAG, "subscribe skipped: handle destroyed or client NULL");
         return BB_ERR_INVALID_STATE;
     }
