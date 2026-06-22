@@ -10,6 +10,9 @@
 #include "bb_log.h"
 #include "bb_ntp.h"
 #include "bb_registry.h"
+#ifdef ESP_PLATFORM
+#include "bb_ota_pull.h"   // bb_ota_pull_heap_ready() — ESP_PLATFORM only
+#endif
 #include <stdbool.h>
 #include <string.h>
 #include <time.h>
@@ -90,6 +93,12 @@ static bool info_sample(bb_json_t obj, void *ctx)
         bool _validated = (bb_board_get_info(&_bi) == BB_OK) ? _bi.ota_validated : false;
         bb_json_obj_set_bool(obj, "ota_validated", _validated);
     }
+
+#ifdef ESP_PLATFORM
+    // ota_ready: heap-readiness for the OTA TLS handshake. ESP_PLATFORM-only,
+    // mirroring /api/info (bb_info.c) which also emits ota_ready only on device.
+    bb_json_obj_set_bool(obj, "ota_ready", bb_ota_pull_heap_ready());
+#endif
 
     // rtc_free: derived from rtc_total - rtc_used (RTC slow memory free bytes)
     size_t rtc_total = bb_board_rtc_total();

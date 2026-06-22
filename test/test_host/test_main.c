@@ -2626,6 +2626,7 @@ void test_bb_pub_health_mqtt_enabled_false_when_no_handle(void);
 void test_bb_pub_health_has_mqtt_connected_field(void);
 void test_bb_pub_health_mqtt_connected_false_when_no_handle(void);
 void test_bb_pub_health_mqtt_enabled_true_when_handle_set(void);
+void test_bb_pub_health_has_mqtt_reconnect_count_when_enabled(void);
 void test_bb_pub_health_mqtt_connected_reflects_state(void);
 void test_bb_pub_health_payload_has_ts_field(void);
 
@@ -5364,6 +5365,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_health_has_mqtt_connected_field);
     RUN_TEST(test_bb_pub_health_mqtt_connected_false_when_no_handle);
     RUN_TEST(test_bb_pub_health_mqtt_enabled_true_when_handle_set);
+    RUN_TEST(test_bb_pub_health_has_mqtt_reconnect_count_when_enabled);
     RUN_TEST(test_bb_pub_health_mqtt_connected_reflects_state);
     RUN_TEST(test_bb_pub_health_payload_has_ts_field);
 

@@ -139,6 +139,21 @@ static void build_input(bb_net_health_input_t *in)
 // value like 128 (e.g. TaipanMiner).  The full 8-field detail is always
 // available via GET /api/health "net" section (net_section_get below), which
 // reads from the cache that is updated unconditionally here.
+bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
+{
+    if (!out) return BB_ERR_INVALID_ARG;
+    if (!s_cache_lock) return BB_ERR_INVALID_STATE;  // evaluator not up yet
+    xSemaphoreTake(s_cache_lock, portMAX_DELAY);
+    out->state                  = s_cache.state;
+    out->early_warning          = s_cache.early_warning;
+    out->throttled              = s_cache.throttled;
+    out->rssi                   = s_cache.rssi;
+    out->mqtt_reconnect_count   = s_cache.mqtt_reconnect_count;
+    out->last_disconnect_reason = s_cache.last_disconnect_reason;
+    xSemaphoreGive(s_cache_lock);
+    return BB_OK;
+}
+
 static void publish_snapshot(const bb_net_health_output_t *out,
                              const bb_net_health_input_t  *in,
                              const bb_wifi_info_t         *wi,

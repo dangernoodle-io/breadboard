@@ -139,6 +139,22 @@ void test_bb_pub_health_mqtt_enabled_true_when_handle_set(void)
     bb_mqtt_destroy(h);
 }
 
+void test_bb_pub_health_has_mqtt_reconnect_count_when_enabled(void)
+{
+    setup();
+    bb_mqtt_t h = NULL;
+    bb_mqtt_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_init(&cfg, &h));
+    bb_mqtt_default_set(h);
+
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"mqtt_reconnect_count\""));
+
+    bb_mqtt_default_set(NULL);
+    bb_mqtt_destroy(h);
+}
+
 void test_bb_pub_health_mqtt_connected_reflects_state(void)
 {
     setup();
