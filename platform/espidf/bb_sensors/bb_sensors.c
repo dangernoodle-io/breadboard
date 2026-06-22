@@ -293,15 +293,7 @@ bb_err_t bb_sensors_init(bb_http_handle_t server)
     }
 
     // Freeze: no more section registrations after this point.
-    bb_section_freeze(&s_sensors_reg);
-
-    // Assemble and publish sensors schema.
-    char *schema = bb_section_assemble_schema(
-        &s_sensors_reg, k_sensors_base, k_sensors_suffix);
-    if (!schema) {
-        bb_log_w(TAG, "sensors schema assembly: malloc failed; schema will be NULL");
-    }
-    s_sensors_get_responses[0].schema = schema;
+    s_sensors_get_responses[0].schema = bb_section_freeze_and_assemble(&s_sensors_reg, k_sensors_base, k_sensors_suffix);
 
     // Register GET /api/sensors.
     static bb_route_t get_route;

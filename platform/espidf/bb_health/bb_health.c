@@ -108,15 +108,7 @@ static const bb_route_t s_health_route = {
 static bb_err_t bb_health_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
-    bb_section_freeze(&s_health_reg);
-
-    // Assemble and publish health schema.
-    char *health_schema = bb_section_assemble_schema(
-        &s_health_reg, k_health_base, k_health_suffix);
-    if (!health_schema) {
-        bb_log_w(TAG, "health schema assembly: malloc failed; schema will be NULL");
-    }
-    s_health_responses[0].schema = health_schema;
+    s_health_responses[0].schema = bb_section_freeze_and_assemble(&s_health_reg, k_health_base, k_health_suffix);
 
     bb_err_t err = bb_http_register_described_route(server, &s_health_route);
     if (err != BB_OK) return err;

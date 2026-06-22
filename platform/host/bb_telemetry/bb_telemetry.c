@@ -212,7 +212,7 @@ bool bb_telemetry_pending_reboot(void)
 char *bb_telemetry_assemble_get_schema(void)
 {
     // Returns a freshly allocated string — caller owns and must free.
-    return bb_section_assemble_schema(
+    return bb_section_freeze_and_assemble(
         &s_reg,
         "{\"type\":\"object\",\"properties\":{",
         "}}");

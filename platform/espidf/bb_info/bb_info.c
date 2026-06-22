@@ -222,14 +222,7 @@ static bb_err_t bb_info_freeze_init(bb_http_handle_t server)
 {
     (void)server;
     s_cap_frozen = true;
-    bb_section_freeze(&s_info_reg);
-
-    char *info_schema = bb_section_assemble_schema(
-        &s_info_reg, k_info_schema_base, k_info_schema_suffix);
-    if (!info_schema) {
-        bb_log_w(TAG, "info schema assembly: malloc failed; schema will be NULL");
-    }
-    s_info_responses[0].schema = info_schema;
+    s_info_responses[0].schema = bb_section_freeze_and_assemble(&s_info_reg, k_info_schema_base, k_info_schema_suffix);
     bb_log_i(TAG, "info registry frozen (%d sections)", s_info_reg.count);
     return BB_OK;
 }
