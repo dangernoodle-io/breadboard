@@ -5,6 +5,7 @@
 #include "bb_fan.h"
 #include "bb_fan_driver.h"
 #include "bb_log.h"
+#include "bb_lock.h"
 #include <stdlib.h>
 #include <math.h>
 #include <pthread.h>
@@ -199,9 +200,7 @@ bb_err_t bb_fan_poll(bb_fan_handle_t h)
     }
 #endif /* CONFIG_BB_FAN_AUTOFAN */
 
-    pthread_mutex_lock(&h->lock);
-    h->cache = s;
-    pthread_mutex_unlock(&h->lock);
+    BB_LOCKED_COPY(&h->lock, h->cache, s);
 
     return BB_OK;
 }
@@ -216,9 +215,7 @@ void bb_fan_snapshot(bb_fan_handle_t h, bb_fan_snapshot_t *out)
         out->board_c  = NAN;
         return;
     }
-    pthread_mutex_lock(&h->lock);
-    *out = h->cache;
-    pthread_mutex_unlock(&h->lock);
+    BB_LOCKED_COPY(&h->lock, *out, h->cache);
 }
 
 bb_err_t bb_fan_set_duty_pct(bb_fan_handle_t h, int pct)
@@ -232,9 +229,7 @@ int bb_fan_get_duty_pct(bb_fan_handle_t h)
 {
     if (!h || !h->drv) return -1;
     bb_fan_snapshot_t s;
-    pthread_mutex_lock(&h->lock);
-    s = h->cache;
-    pthread_mutex_unlock(&h->lock);
+    BB_LOCKED_COPY(&h->lock, s, h->cache);
     return s.duty_pct;
 }
 
@@ -266,9 +261,7 @@ bb_err_t bb_fan_set_autofan(bb_fan_handle_t h, const bb_fan_autofan_cfg_t *cfg)
 bb_err_t bb_fan_get_autofan_cfg(bb_fan_handle_t h, bb_fan_autofan_cfg_t *out)
 {
     if (!h || !out) return BB_ERR_INVALID_ARG;
-    pthread_mutex_lock(&h->lock);
-    *out = h->autofan_cfg;
-    pthread_mutex_unlock(&h->lock);
+    BB_LOCKED_COPY(&h->lock, *out, h->autofan_cfg);
     return BB_OK;
 }
 
@@ -287,9 +280,7 @@ void bb_fan_autofan_set_clock(bb_fan_handle_t h, unsigned long (*fn)(void))
 bb_err_t bb_fan_set_aux_temp(bb_fan_handle_t h, float aux_c)
 {
     if (!h) return BB_ERR_INVALID_ARG;
-    pthread_mutex_lock(&h->lock);
-    h->aux_temp_raw = aux_c;
-    pthread_mutex_unlock(&h->lock);
+    BB_LOCKED_COPY(&h->lock, h->aux_temp_raw, aux_c);
     return BB_OK;
 }
 
