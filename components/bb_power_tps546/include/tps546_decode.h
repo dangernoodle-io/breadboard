@@ -30,44 +30,24 @@ static inline int tps546_slinear11_decode(uint16_t raw, int *exp, int *mantissa)
     return 0;
 }
 
-static inline int tps546_slinear11_to_mv(uint16_t raw)
+// SLINEAR11 → integer, multiplied by `scale`. mV and mA use scale=1000;
+// °C uses scale=1. The mv/ma/c_int wrappers below are the only callers.
+static inline int tps546_slinear11_scaled(uint16_t raw, int scale)
 {
     int exp, mantissa;
     tps546_slinear11_decode(raw, &exp, &mantissa);
 
     if (exp >= 0) {
-        return mantissa * (1 << exp) * 1000;
+        return mantissa * (1 << exp) * scale;
     }
     int shift = -exp;
-    int64_t num = (int64_t)mantissa * 1000;
+    int64_t num = (int64_t)mantissa * scale;
     return (int)((num + (num >= 0 ? (1 << (shift - 1)) : -(1 << (shift - 1)))) >> shift);
 }
 
-static inline int tps546_slinear11_to_c_int(uint16_t raw)
-{
-    int exp, mantissa;
-    tps546_slinear11_decode(raw, &exp, &mantissa);
-
-    if (exp >= 0) {
-        return mantissa * (1 << exp);
-    }
-    int shift = -exp;
-    int64_t num = (int64_t)mantissa;
-    return (int)((num + (num >= 0 ? (1 << (shift - 1)) : -(1 << (shift - 1)))) >> shift);
-}
-
-static inline int tps546_slinear11_to_ma(uint16_t raw)
-{
-    int exp, mantissa;
-    tps546_slinear11_decode(raw, &exp, &mantissa);
-
-    if (exp >= 0) {
-        return mantissa * (1 << exp) * 1000;
-    }
-    int shift = -exp;
-    int64_t num = (int64_t)mantissa * 1000;
-    return (int)((num + (num >= 0 ? (1 << (shift - 1)) : -(1 << (shift - 1)))) >> shift);
-}
+static inline int tps546_slinear11_to_mv(uint16_t raw)    { return tps546_slinear11_scaled(raw, 1000); }
+static inline int tps546_slinear11_to_ma(uint16_t raw)    { return tps546_slinear11_scaled(raw, 1000); }
+static inline int tps546_slinear11_to_c_int(uint16_t raw) { return tps546_slinear11_scaled(raw, 1); }
 
 // ---------------------------------------------------------------------------
 // Encode helpers — ported from AxeOS TPS546.c (float_2_slinear11,
