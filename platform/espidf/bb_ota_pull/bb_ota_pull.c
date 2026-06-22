@@ -19,6 +19,7 @@
 #include "bb_registry.h"
 #include "bb_wifi.h"
 #include "bb_wdt.h"
+#include "bb_board.h"
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
 #include "esp_ota_ops.h"
@@ -378,7 +379,7 @@ static uint32_t ota_dl_backoff_ms(int attempt)
 
 bool bb_ota_pull_heap_ready(void)
 {
-    size_t largest    = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t largest    = bb_board_heap_internal_largest_free_block();
     size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     return bb_ota_pull_heap_guard_passes(largest, BB_OTA_HEAP_FLOOR_BYTES,
                                         total_free, CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES,
@@ -409,7 +410,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
     //   Dim-2 (total free): whole handshake transient (~20 KB) must fit;
     //     a board can clear dim-1 and still OOM (esp32-s2-mini: ~25 KB total).
     {
-        size_t largest    = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        size_t largest    = bb_board_heap_internal_largest_free_block();
         size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         const char *dim   = NULL;
         if (!bb_ota_pull_heap_guard_passes(largest, BB_OTA_HEAP_FLOOR_BYTES,

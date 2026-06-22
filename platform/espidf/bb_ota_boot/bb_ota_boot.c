@@ -72,6 +72,7 @@ bool bb_ota_boot_pending(void)
 
 #include "bb_ntp.h"
 #include "bb_wifi.h"
+#include "bb_board.h"
 #include "bb_ota_pull.h"
 #include "bb_update_check.h"
 #include "bb_http.h"
@@ -162,7 +163,7 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
     // is too low — contiguous block for the mbedTLS IN buffer, total free for
     // the whole handshake transient (~20 KB on esp32-s2-mini).
     {
-        size_t largest    = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        size_t largest    = bb_board_heap_internal_largest_free_block();
         size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         const char *dim   = NULL;
         if (!bb_ota_pull_heap_guard_passes(largest, BB_OTA_BOOT_STATUS_MIN_HEAP,
@@ -226,8 +227,8 @@ static void ota_boot_worker(void *arg)
 
 #if CONFIG_BB_OTA_BOOT_PROGRESS_HTTP
     bb_log_w(TAG, "boot-ota heap: largest_block=%u free_internal=%u",
-             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+             (unsigned)bb_board_heap_internal_largest_free_block(),
+             (unsigned)bb_board_heap_internal_free());
 #endif
 
     // Stand up bb_update_check synchronously — init + now() run on this stack,
@@ -259,8 +260,8 @@ static void ota_boot_worker(void *arg)
 
 #if CONFIG_BB_OTA_BOOT_PROGRESS_HTTP
     bb_log_w(TAG, "boot-ota heap pre-pull: largest_block=%u free_internal=%u",
-             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+             (unsigned)bb_board_heap_internal_largest_free_block(),
+             (unsigned)bb_board_heap_internal_free());
 #endif
 
     // run_sync drives START/PROGRESS/SUCCESS/FAIL through the forwarded cb.
@@ -341,8 +342,8 @@ static void boot_progress_server_start(void)
     }
 
     bb_log_w(TAG, "boot-ota heap: largest_block=%u free_internal=%u",
-             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+             (unsigned)bb_board_heap_internal_largest_free_block(),
+             (unsigned)bb_board_heap_internal_free());
 }
 #endif // CONFIG_BB_OTA_BOOT_PROGRESS_HTTP
 
