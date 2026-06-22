@@ -17,45 +17,89 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 // ---------------------------------------------------------------------------
-// Thresholds — compile-time overridable via -D or Kconfig
+// Thresholds — compile-time overridable via -D or Kconfig.
+//
+// On ESP-IDF, Kconfig generates CONFIG_BB_VCORE_WD_* symbols (different
+// names from the public BB_VCORE_WD_* knobs).  Bridge them here so that
+// menuconfig changes actually take effect.  On the host build there is no
+// sdkconfig, so we fall straight through to the numeric fallbacks.
 // ---------------------------------------------------------------------------
 
 // Warmup window: no action is taken during device boot.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_VCORE_WD_WARMUP_MS
+#    define BB_VCORE_WD_WARMUP_MS CONFIG_BB_VCORE_WD_WARMUP_MS
+#  endif
+#endif
 #ifndef BB_VCORE_WD_WARMUP_MS
 #define BB_VCORE_WD_WARMUP_MS      60000U
 #endif
 
 // A reading at or above this level is healthy.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_VCORE_WD_OK_MV
+#    define BB_VCORE_WD_OK_MV CONFIG_BB_VCORE_WD_OK_MV
+#  endif
+#endif
 #ifndef BB_VCORE_WD_OK_MV
 #define BB_VCORE_WD_OK_MV          800
 #endif
 
 // A reading below this level (with rail enabled) is a collapse.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_VCORE_WD_COLLAPSE_MV
+#    define BB_VCORE_WD_COLLAPSE_MV CONFIG_BB_VCORE_WD_COLLAPSE_MV
+#  endif
+#endif
 #ifndef BB_VCORE_WD_COLLAPSE_MV
 #define BB_VCORE_WD_COLLAPSE_MV    500
 #endif
 
 // Number of consecutive collapsed readings before acting.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_VCORE_WD_COLLAPSE_POLLS
+#    define BB_VCORE_WD_COLLAPSE_POLLS CONFIG_BB_VCORE_WD_COLLAPSE_POLLS
+#  endif
+#endif
 #ifndef BB_VCORE_WD_COLLAPSE_POLLS
 #define BB_VCORE_WD_COLLAPSE_POLLS 3
 #endif
 
 // After this many ms of healthy readings the reboot-burst counter resets.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_VCORE_WD_HEALTHY_RESET_MS
+#    define BB_VCORE_WD_HEALTHY_RESET_MS CONFIG_BB_VCORE_WD_HEALTHY_RESET_MS
+#  endif
+#endif
 #ifndef BB_VCORE_WD_HEALTHY_RESET_MS
 #define BB_VCORE_WD_HEALTHY_RESET_MS 300000U
 #endif
 
 // Maximum recover attempts within BB_VCORE_WD_WINDOW_MS before backing off.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_VCORE_WD_BURST_MAX
+#    define BB_VCORE_WD_BURST_MAX CONFIG_BB_VCORE_WD_BURST_MAX
+#  endif
+#endif
 #ifndef BB_VCORE_WD_BURST_MAX
 #define BB_VCORE_WD_BURST_MAX      3
 #endif
 
 // Window for counting reboot bursts.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_VCORE_WD_WINDOW_MS
+#    define BB_VCORE_WD_WINDOW_MS CONFIG_BB_VCORE_WD_WINDOW_MS
+#  endif
+#endif
 #ifndef BB_VCORE_WD_WINDOW_MS
 #define BB_VCORE_WD_WINDOW_MS      600000U
 #endif
