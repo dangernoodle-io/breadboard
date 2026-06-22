@@ -395,8 +395,103 @@ static void metrics_json_val_walk_cb(const char *key, bb_json_t child, void *ctx
 }
 
 // ---------------------------------------------------------------------------
-// Publisher health gauges (shared between prom and json)
+// Publisher health gauges — single descriptor table drives prom, json, schema.
+// Adding a new gauge: one row here; no other edits needed.
 // ---------------------------------------------------------------------------
+
+typedef struct {
+    const char *suffix;   // prom metric suffix: <prefix>_<suffix>; also used as schema name
+    const char *json_key; // JSON object key in the "publisher" section
+    bool        is_bool;  // true → prom value 0/1 and JSON bool; false → numeric
+} pub_gauge_desc_t;
+
+// Table of always-present gauges (no buffer-enable guard).
+static const pub_gauge_desc_t k_pub_gauges_base[] = {
+    { "pub_source_count",        "source_count",        false },
+    { "pub_last_publish_age_ms", "last_publish_age_ms", false },
+};
+
+// Table of buffer-enable-only gauges.
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+static const pub_gauge_desc_t k_pub_gauges_buf[] = {
+    { "pub_buffer_count",   "buffer_count",   false },
+    { "pub_buffer_dropped", "buffer_dropped", false },
+    { "pub_ring_undersized","ring_undersized", true  },
+};
+#endif
+
+// Runtime values snapshot: fill once per handler invocation; pass to emitters.
+typedef struct {
+    double source_count;
+    double age_ms;
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    double buf_count;
+    double buf_dropped;
+    double ring_undersized;
+#endif
+} pub_gauge_vals_t;
+
+// Map descriptor index → runtime value (base gauges start at 0).
+static double pub_gauge_val(const pub_gauge_vals_t *v, const pub_gauge_desc_t *d)
+{
+    if (strcmp(d->suffix, "pub_source_count")        == 0) return v->source_count;
+    if (strcmp(d->suffix, "pub_last_publish_age_ms") == 0) return v->age_ms;
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    if (strcmp(d->suffix, "pub_buffer_count")        == 0) return v->buf_count;
+    if (strcmp(d->suffix, "pub_buffer_dropped")      == 0) return v->buf_dropped;
+    if (strcmp(d->suffix, "pub_ring_undersized")     == 0) return v->ring_undersized;
+#endif
+    return 0.0;
+}
+
+static pub_gauge_vals_t pub_gauge_snapshot(void)
+{
+    pub_gauge_vals_t v = {0};
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    bb_pub_buffer_stats_t bstats = {0};
+    bb_pub_buffer_stats(&bstats);
+    v.buf_count       = (double)bstats.count;
+    v.buf_dropped     = (double)bstats.dropped;
+    v.ring_undersized = bb_pub_ring_undersized() ? 1.0 : 0.0;
+#endif
+    bb_pub_status_t st = {0};
+    bb_pub_get_status(&st);
+    uint32_t now_ms = bb_clock_now_ms();
+    v.source_count = (double)bb_pub_source_count();
+    v.age_ms       = (double)(st.last_publish_ms ? (now_ms - st.last_publish_ms) : 0);
+    return v;
+}
+
+// Emit one gauge to prom (TYPE line + optional value line).
+static void pub_gauge_emit_prom(bb_http_request_t *req, const char *prefix,
+                                const char *host_escaped,
+                                const pub_gauge_desc_t *d, double val,
+                                bool schema_only, bb_err_t *err)
+{
+    if (*err != BB_OK) return;
+    char name[128];
+    char sani[128];
+    snprintf(name, sizeof(name), "%s_%s", prefix, d->suffix);
+    metrics_sanitize_name(name, sani, sizeof(sani));
+    char line[256];
+    snprintf(line, sizeof(line), "# TYPE %s gauge\n", sani);
+    if (metrics_chunk(req, line) != BB_OK) { *err = BB_ERR_INVALID_STATE; return; }
+    if (!schema_only) {
+        snprintf(line, sizeof(line), "%s{host=\"%s\"} %.6g\n", sani, host_escaped, val);
+        if (metrics_chunk(req, line) != BB_OK) { *err = BB_ERR_INVALID_STATE; return; }
+    }
+}
+
+// Emit one gauge to a JSON object stream.
+static void pub_gauge_emit_json(bb_http_json_obj_stream_t *jstream,
+                                const pub_gauge_desc_t *d, double val)
+{
+    if (d->is_bool) {
+        bb_http_resp_json_obj_set_bool(jstream, d->json_key, val != 0.0);
+    } else {
+        bb_http_resp_json_obj_set_int(jstream, d->json_key, (int64_t)val);
+    }
+}
 
 static void metrics_emit_pub_health_prom(bb_http_request_t *req, const char *prefix,
                                           const char *host, bool schema_only, bb_err_t *err)
@@ -405,43 +500,20 @@ static void metrics_emit_pub_health_prom(bb_http_request_t *req, const char *pre
     char host_escaped[128];
     metrics_escape_label_val(host ? host : "", host_escaped, sizeof(host_escaped));
 
-#if CONFIG_BB_PUB_BUFFER_ENABLE
-    bb_pub_buffer_stats_t bstats = {0};
-    bb_pub_buffer_stats(&bstats);
-#endif
+    pub_gauge_vals_t v = pub_gauge_snapshot();
 
-    bb_pub_status_t st = {0};
-    bb_pub_get_status(&st);
-    uint32_t now_ms = bb_clock_now_ms();
-    uint32_t age_ms = st.last_publish_ms ? (now_ms - st.last_publish_ms) : 0;
-
-    struct {
-        const char *suffix;
-        double      value;
-    } all_gauges[] = {
-        { "pub_source_count",     (double)bb_pub_source_count()    },
-#if CONFIG_BB_PUB_BUFFER_ENABLE
-        { "pub_buffer_count",     (double)bstats.count             },
-        { "pub_buffer_dropped",   (double)bstats.dropped           },
-        { "pub_ring_undersized",  bb_pub_ring_undersized() ? 1.0 : 0.0 },
-#endif
-        { "pub_last_publish_age_ms", (double)age_ms                },
-    };
-
-    for (size_t i = 0; i < sizeof(all_gauges)/sizeof(all_gauges[0]); i++) {
-        char name[128];
-        char sani[128];
-        snprintf(name, sizeof(name), "%s_%s", prefix, all_gauges[i].suffix);
-        metrics_sanitize_name(name, sani, sizeof(sani));
-        char line[256];
-        snprintf(line, sizeof(line), "# TYPE %s gauge\n", sani);
-        if (metrics_chunk(req, line) != BB_OK) { *err = BB_ERR_INVALID_STATE; return; }
-        if (!schema_only) {
-            snprintf(line, sizeof(line), "%s{host=\"%s\"} %.6g\n",
-                     sani, host_escaped, all_gauges[i].value);
-            if (metrics_chunk(req, line) != BB_OK) { *err = BB_ERR_INVALID_STATE; return; }
-        }
+    for (size_t i = 0; i < sizeof(k_pub_gauges_base)/sizeof(k_pub_gauges_base[0]); i++) {
+        pub_gauge_emit_prom(req, prefix, host_escaped, &k_pub_gauges_base[i],
+                            pub_gauge_val(&v, &k_pub_gauges_base[i]),
+                            schema_only, err);
     }
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    for (size_t i = 0; i < sizeof(k_pub_gauges_buf)/sizeof(k_pub_gauges_buf[0]); i++) {
+        pub_gauge_emit_prom(req, prefix, host_escaped, &k_pub_gauges_buf[i],
+                            pub_gauge_val(&v, &k_pub_gauges_buf[i]),
+                            schema_only, err);
+    }
+#endif
 }
 
 static void metrics_emit_pub_health_json(bb_http_json_obj_stream_t *jstream,
@@ -450,24 +522,19 @@ static void metrics_emit_pub_health_json(bb_http_json_obj_stream_t *jstream,
     if (schema_only) return;
     (void)prefix;
 
-#if CONFIG_BB_PUB_BUFFER_ENABLE
-    bb_pub_buffer_stats_t bstats = {0};
-    bb_pub_buffer_stats(&bstats);
-#endif
-
-    bb_pub_status_t st = {0};
-    bb_pub_get_status(&st);
-    uint32_t now_ms = bb_clock_now_ms();
-    uint32_t age_ms = st.last_publish_ms ? (now_ms - st.last_publish_ms) : 0;
+    pub_gauge_vals_t v = pub_gauge_snapshot();
 
     bb_http_resp_json_obj_set_obj_begin(jstream, "publisher");
-    bb_http_resp_json_obj_set_int(jstream, "source_count",     (int64_t)bb_pub_source_count());
+    for (size_t i = 0; i < sizeof(k_pub_gauges_base)/sizeof(k_pub_gauges_base[0]); i++) {
+        pub_gauge_emit_json(jstream, &k_pub_gauges_base[i],
+                            pub_gauge_val(&v, &k_pub_gauges_base[i]));
+    }
 #if CONFIG_BB_PUB_BUFFER_ENABLE
-    bb_http_resp_json_obj_set_int(jstream, "buffer_count",     (int64_t)bstats.count);
-    bb_http_resp_json_obj_set_int(jstream, "buffer_dropped",   (int64_t)bstats.dropped);
-    bb_http_resp_json_obj_set_bool(jstream, "ring_undersized", bb_pub_ring_undersized());
+    for (size_t i = 0; i < sizeof(k_pub_gauges_buf)/sizeof(k_pub_gauges_buf[0]); i++) {
+        pub_gauge_emit_json(jstream, &k_pub_gauges_buf[i],
+                            pub_gauge_val(&v, &k_pub_gauges_buf[i]));
+    }
 #endif
-    bb_http_resp_json_obj_set_int(jstream, "last_publish_age_ms", (int64_t)age_ms);
     bb_http_resp_json_obj_end(jstream);
 }
 
@@ -522,33 +589,57 @@ static bb_err_t metrics_handler(bb_http_request_t *req)
             }
             bb_json_free(obj);
         }
-        const char *pub_metrics[] = {
-            "pub_source_count",
+        // Emit schema entries for publisher health gauges from the descriptor table.
+        {
+            // "metrics" array entries (fully-qualified sanitized name + type + source).
+            size_t nb = sizeof(k_pub_gauges_base)/sizeof(k_pub_gauges_base[0]);
+            for (size_t pi = 0; pi < nb; pi++) {
+                char name[128];
+                snprintf(name, sizeof(name), "%s_%s", prefix, k_pub_gauges_base[pi].suffix);
+                char sani[128];
+                metrics_sanitize_name(name, sani, sizeof(sani));
+                bb_http_resp_json_obj_set_obj_begin(&jstream, NULL);
+                bb_http_resp_json_obj_set_str(&jstream, "name", sani);
+                bb_http_resp_json_obj_set_str(&jstream, "type", "gauge");
+                bb_http_resp_json_obj_set_str(&jstream, "source", "publisher");
+                bb_http_resp_json_obj_set_obj_end(&jstream);
+            }
 #if CONFIG_BB_PUB_BUFFER_ENABLE
-            "pub_buffer_count", "pub_buffer_dropped",
-            "pub_ring_undersized",
+            size_t nbuf = sizeof(k_pub_gauges_buf)/sizeof(k_pub_gauges_buf[0]);
+            for (size_t pi = 0; pi < nbuf; pi++) {
+                char name[128];
+                snprintf(name, sizeof(name), "%s_%s", prefix, k_pub_gauges_buf[pi].suffix);
+                char sani[128];
+                metrics_sanitize_name(name, sani, sizeof(sani));
+                bb_http_resp_json_obj_set_obj_begin(&jstream, NULL);
+                bb_http_resp_json_obj_set_str(&jstream, "name", sani);
+                bb_http_resp_json_obj_set_str(&jstream, "type", "gauge");
+                bb_http_resp_json_obj_set_str(&jstream, "source", "publisher");
+                bb_http_resp_json_obj_set_obj_end(&jstream);
+            }
 #endif
-            "pub_last_publish_age_ms"
-        };
-        for (size_t pi = 0; pi < sizeof(pub_metrics)/sizeof(pub_metrics[0]); pi++) {
-            char name[128];
-            snprintf(name, sizeof(name), "%s_%s", prefix, pub_metrics[pi]);
-            char sani[128];
-            metrics_sanitize_name(name, sani, sizeof(sani));
-            bb_http_resp_json_obj_set_obj_begin(&jstream, NULL);
-            bb_http_resp_json_obj_set_str(&jstream, "name", sani);
-            bb_http_resp_json_obj_set_str(&jstream, "type", "gauge");
-            bb_http_resp_json_obj_set_str(&jstream, "source", "publisher");
-            bb_http_resp_json_obj_set_obj_end(&jstream);
         }
         bb_http_resp_json_obj_set_arr_end(&jstream);
 
         bb_http_resp_json_obj_set_arr_begin(&jstream, "publisher");
-        for (size_t pi = 0; pi < sizeof(pub_metrics)/sizeof(pub_metrics[0]); pi++) {
-            bb_http_resp_json_obj_set_obj_begin(&jstream, NULL);
-            bb_http_resp_json_obj_set_str(&jstream, "name", pub_metrics[pi]);
-            bb_http_resp_json_obj_set_str(&jstream, "type", "gauge");
-            bb_http_resp_json_obj_set_obj_end(&jstream);
+        {
+            // "publisher" array: bare suffix names + type.
+            size_t nb = sizeof(k_pub_gauges_base)/sizeof(k_pub_gauges_base[0]);
+            for (size_t pi = 0; pi < nb; pi++) {
+                bb_http_resp_json_obj_set_obj_begin(&jstream, NULL);
+                bb_http_resp_json_obj_set_str(&jstream, "name", k_pub_gauges_base[pi].suffix);
+                bb_http_resp_json_obj_set_str(&jstream, "type", "gauge");
+                bb_http_resp_json_obj_set_obj_end(&jstream);
+            }
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+            size_t nbuf = sizeof(k_pub_gauges_buf)/sizeof(k_pub_gauges_buf[0]);
+            for (size_t pi = 0; pi < nbuf; pi++) {
+                bb_http_resp_json_obj_set_obj_begin(&jstream, NULL);
+                bb_http_resp_json_obj_set_str(&jstream, "name", k_pub_gauges_buf[pi].suffix);
+                bb_http_resp_json_obj_set_str(&jstream, "type", "gauge");
+                bb_http_resp_json_obj_set_obj_end(&jstream);
+            }
+#endif
         }
         bb_http_resp_json_obj_set_arr_end(&jstream);
 
