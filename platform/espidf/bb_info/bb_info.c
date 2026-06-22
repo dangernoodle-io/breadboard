@@ -6,7 +6,14 @@
 #include <time.h>
 
 #include "bb_board.h"
+// ota_ready is emitted only on boards with a runtime heap-guarded OTA TLS path
+// (pull worker or boot-mode on-demand check); gated so boot-only boards don't
+// link bb_ota_pull just for this field. Keep in sync with bb_pub_info + CMakeLists.
+#if (defined(CONFIG_BB_OTA_PULL_AUTOREGISTER) && CONFIG_BB_OTA_PULL_AUTOREGISTER) || \
+    (defined(CONFIG_BB_OTA_BOOT_STATUS_HTTP) && CONFIG_BB_OTA_BOOT_STATUS_HTTP)
+#define BB_INFO_EMIT_OTA_READY 1
 #include "bb_ota_pull.h"
+#endif
 #include "bb_clock.h"
 #include "bb_http.h"
 #include "bb_json.h"
@@ -83,7 +90,9 @@ static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
     bb_json_obj_set_number(root, "app_size", (double)b->app_size);
     bb_json_obj_set_string(root, "reset_reason", b->reset_reason);
     bb_json_obj_set_bool(root, "ota_validated", b->ota_validated);
+#if BB_INFO_EMIT_OTA_READY
     bb_json_obj_set_bool(root, "ota_ready", bb_ota_pull_heap_ready());
+#endif
     bb_json_obj_set_number(root, "heap_free_total", (double)bb_board_heap_free_total());
     bb_json_obj_set_number(root, "heap_free_internal", (double)bb_board_heap_free_internal());
     bb_json_obj_set_number(root, "heap_minimum_ever", (double)bb_board_heap_minimum_ever());

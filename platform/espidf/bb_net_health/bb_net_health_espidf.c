@@ -19,9 +19,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_timer.h"
-#if CONFIG_BB_PUB_ADAPTIVE_BACKOFF
 #include "bb_pub.h"
-#endif
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -284,9 +282,31 @@ static void net_section_get(bb_json_t section, void *ctx)
 // Public API
 // ---------------------------------------------------------------------------
 
+// Telemetry source: publish the live net-health snapshot to bb_pub on the
+// "net_health" subtopic. Registered here (not pulled in by bb_pub_health) so it
+// exists ONLY when net_health is set up — bb_net_health already depends on
+// bb_pub (adaptive backoff), so this adds no new dependency anywhere.
+static bool net_health_pub_sample(bb_json_t obj, void *ctx)
+{
+    (void)ctx;
+    bb_net_health_status_t ns;
+    if (bb_net_health_get_status(&ns) != BB_OK) return false;  // not evaluated yet
+    bb_json_obj_set_string(obj, "state",                  bb_net_state_str(ns.state));
+    bb_json_obj_set_bool  (obj, "early_warning",          ns.early_warning);
+    bb_json_obj_set_bool  (obj, "throttled",              ns.throttled);
+    bb_json_obj_set_number(obj, "rssi",                   ns.rssi);
+    bb_json_obj_set_number(obj, "mqtt_reconnect_count",   (double)ns.mqtt_reconnect_count);
+    bb_json_obj_set_number(obj, "last_disconnect_reason", (double)ns.last_disconnect_reason);
+    return true;
+}
+
 void bb_net_health_register_health(void)
 {
     bb_health_register_section("net", net_section_get, NULL, k_net_schema);
+    bb_err_t perr = bb_pub_register_source("net_health", net_health_pub_sample, NULL);
+    if (perr != BB_OK && perr != BB_ERR_NO_SPACE) {
+        bb_log_w(TAG, "net_health pub source register failed: %d", (int)perr);
+    }
 }
 
 bb_err_t bb_net_health_attach_sse(void)

@@ -10,8 +10,16 @@
 #include "bb_log.h"
 #include "bb_ntp.h"
 #include "bb_registry.h"
-#ifdef ESP_PLATFORM
-#include "bb_ota_pull.h"   // bb_ota_pull_heap_ready() — ESP_PLATFORM only
+// ota_ready (heap-readiness for the OTA TLS handshake) is emitted only on boards
+// that run a heap-guarded OTA TLS path — the runtime pull worker
+// (BB_OTA_PULL_AUTOREGISTER) or the boot-mode on-demand check
+// (BB_OTA_BOOT_STATUS_HTTP). Gated so boot-only boards don't link bb_ota_pull
+// just for this field. Keep in sync with bb_info.c + both CMakeLists.
+#if defined(ESP_PLATFORM) && \
+    ((defined(CONFIG_BB_OTA_PULL_AUTOREGISTER) && CONFIG_BB_OTA_PULL_AUTOREGISTER) || \
+     (defined(CONFIG_BB_OTA_BOOT_STATUS_HTTP) && CONFIG_BB_OTA_BOOT_STATUS_HTTP))
+#define BB_PUB_INFO_EMIT_OTA_READY 1
+#include "bb_ota_pull.h"
 #endif
 #include <stdbool.h>
 #include <string.h>
@@ -94,9 +102,7 @@ static bool info_sample(bb_json_t obj, void *ctx)
         bb_json_obj_set_bool(obj, "ota_validated", _validated);
     }
 
-#ifdef ESP_PLATFORM
-    // ota_ready: heap-readiness for the OTA TLS handshake. ESP_PLATFORM-only,
-    // mirroring /api/info (bb_info.c) which also emits ota_ready only on device.
+#if BB_PUB_INFO_EMIT_OTA_READY
     bb_json_obj_set_bool(obj, "ota_ready", bb_ota_pull_heap_ready());
 #endif
 

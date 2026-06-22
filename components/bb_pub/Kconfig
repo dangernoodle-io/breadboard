@@ -2,12 +2,15 @@ menu "breadboard: bb_pub"
 
 config BB_PUB_MAX_SOURCES
     int "Maximum number of registered telemetry sources"
-    default 8
+    default 16
     range 1 64
     help
-        Capacity of the source registry. Attempting to register more sources
-        than this returns BB_ERR_NO_SPACE. A high-watermark warning is logged
-        when the registry reaches capacity minus one.
+        Capacity of the source registry (a fixed static array — no heap). Each
+        slot is ~50 B of BSS. Attempting to register more sources than this
+        returns BB_ERR_NO_SPACE (logged as "registry full ... dropped"); a
+        high-watermark warning is logged at capacity minus one. Default 16: a
+        full consumer registers ~8 sources today (wifi/thermal/rtos/power/info/
+        health/fan + net_health), so 8 left no headroom for future sources.
 
 config BB_PUB_MAX_SINKS
     int "Maximum number of concurrent telemetry sinks"
