@@ -386,6 +386,40 @@ bool bb_ota_pull_heap_ready(void)
                                         NULL);
 }
 
+#if BB_OTA_HEAP_FLOOR_BYTES > 0 || CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES > 0
+/*
+ * ota_heap_guard — sample both internal-heap dimensions and refuse cleanly if
+ * either is below floor, logging a clear reason and setting last_error.
+ *
+ * Best-effort: the heap can fragment between any two samples under concurrent
+ * httpd/SSE/wifi load, so this runs twice — "pre-flight" at entry and
+ * "pre-handshake" with the PM lock held — to narrow, not close, the race
+ * before esp_https_ota_begin().
+ *   Dim-1 (contiguous): largest free block must hold the mbedTLS IN buffer.
+ *   Dim-2 (total free): whole handshake transient (~20 KB) must fit; a board can
+ *     clear dim-1 and still OOM (esp32-s2-mini: ~25 KB total).
+ */
+static bb_err_t ota_heap_guard(const char *stage)
+{
+    size_t largest    = bb_board_heap_internal_largest_free_block();
+    size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const char *dim   = NULL;
+    if (!bb_ota_pull_heap_guard_passes(largest, BB_OTA_HEAP_FLOOR_BYTES,
+                                       total_free, CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES,
+                                       &dim)) {
+        bb_log_e(TAG, "OTA refused (%s): %s heap guard failed (largest=%u total_free=%u "
+                 "contiguous_floor=%u total_floor=%u)",
+                 stage, dim, (unsigned)largest, (unsigned)total_free,
+                 (unsigned)BB_OTA_HEAP_FLOOR_BYTES,
+                 (unsigned)CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES);
+        ota_set_error("insufficient heap for OTA (%s/%s guard): largest=%u total_free=%u",
+                      stage, dim, (unsigned)largest, (unsigned)total_free);
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+#endif
+
 /**
  * ota_download_and_flash — generic download + flash core, runs on the CALLER's
  * task. Acquires the PM lock and extends the task WDT for the flash phase (both
@@ -404,28 +438,11 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
     bb_wdt_extend_begin(CONFIG_BB_OTA_PULL_WDT_EXTENDED_S);
 
 #if BB_OTA_HEAP_FLOOR_BYTES > 0 || CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES > 0
-    // Pre-OTA heap guard: refuse cleanly before the TLS handshake if either
-    // heap dimension is too low — better a clear error than an OOM panic.
-    //   Dim-1 (contiguous): largest free block must hold the mbedTLS IN buffer.
-    //   Dim-2 (total free): whole handshake transient (~20 KB) must fit;
-    //     a board can clear dim-1 and still OOM (esp32-s2-mini: ~25 KB total).
+    // Pre-flight heap guard (before wifi check + PM-lock). Best-effort — see
+    // ota_heap_guard(); a second guard runs pre-handshake below.
     {
-        size_t largest    = bb_board_heap_internal_largest_free_block();
-        size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        const char *dim   = NULL;
-        if (!bb_ota_pull_heap_guard_passes(largest, BB_OTA_HEAP_FLOOR_BYTES,
-                                           total_free, CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES,
-                                           &dim)) {
-            bb_log_e(TAG, "OTA refused: %s heap guard failed (largest=%u total_free=%u "
-                     "contiguous_floor=%u total_floor=%u)",
-                     dim, (unsigned)largest, (unsigned)total_free,
-                     (unsigned)BB_OTA_HEAP_FLOOR_BYTES,
-                     (unsigned)CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES);
-            ota_set_error("insufficient heap for OTA (%s guard): largest=%u total_free=%u",
-                          dim, (unsigned)largest, (unsigned)total_free);
-            ret = ESP_ERR_NO_MEM;
-            goto done;
-        }
+        bb_err_t g = ota_heap_guard("pre-flight");
+        if (g != ESP_OK) { ret = g; goto done; }
     }
 #endif
 
@@ -500,6 +517,15 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
         goto done_release;
     }
     bb_log_i(TAG, "OTA target partition: %s", update_partition->label);
+
+#if BB_OTA_HEAP_FLOOR_BYTES > 0 || CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES > 0
+    // Second heap guard — PM lock held and wifi confirmed — re-checked right
+    // before the TLS handshake to catch fragmentation since pre-flight.
+    {
+        bb_err_t g = ota_heap_guard("pre-handshake");
+        if (g != ESP_OK) { ret = g; goto done_release; }
+    }
+#endif
 
     // Download retry loop — covers begin → get_img_desc → board check →
     // perform loop → completeness check as a single retryable unit.
