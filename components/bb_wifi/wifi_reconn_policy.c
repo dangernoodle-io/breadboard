@@ -110,6 +110,14 @@ wifi_reconn_action_t wifi_reconn_policy_on_connect_timeout(
         return WIFI_RECONN_ACTION_REBOOT;
     }
 
-    *backoff_ms_out = 0;
-    return WIFI_RECONN_ACTION_RECONNECT_NOW;
+    // Apply the same progressive backoff as on_disconnect's generic path.
+    // Pass distinct reason/handshake values to force the generic branch.
+    uint32_t backoff_ms = compute_backoff_ms(st, 0, 1);
+    *backoff_ms_out = backoff_ms;
+
+    if (backoff_ms == 0) {
+        return WIFI_RECONN_ACTION_RECONNECT_NOW;
+    }
+
+    return WIFI_RECONN_ACTION_SCHEDULE_BACKOFF;
 }

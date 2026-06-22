@@ -268,6 +268,37 @@ void test_wifi_reconn_connect_timeout_within_window(void)
     TEST_ASSERT_NOT_EQUAL(0, s_state.last_disconnect_us);
 }
 
+void test_wifi_reconn_connect_timeout_fast_retry_limit(void)
+{
+    uint32_t backoff_ms = 0;
+    wifi_reconn_action_t action;
+
+    // All GENERIC_FAST_RETRY_LIMIT calls should be RECONNECT_NOW with 0 backoff
+    for (int i = 0; i < WIFI_RECONN_GENERIC_FAST_RETRY_LIMIT; i++) {
+        action = wifi_reconn_policy_on_connect_timeout(&s_state, &adapter, &backoff_ms);
+        TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_RECONNECT_NOW, action);
+        TEST_ASSERT_EQUAL(0, backoff_ms);
+    }
+    TEST_ASSERT_EQUAL(WIFI_RECONN_GENERIC_FAST_RETRY_LIMIT, s_state.generic_fail_count);
+}
+
+void test_wifi_reconn_connect_timeout_backoff(void)
+{
+    uint32_t backoff_ms = 0;
+    wifi_reconn_action_t action;
+
+    // Build up to the fast-retry limit
+    for (int i = 0; i < WIFI_RECONN_GENERIC_FAST_RETRY_LIMIT; i++) {
+        wifi_reconn_policy_on_connect_timeout(&s_state, &adapter, &backoff_ms);
+    }
+
+    // Next timeout beyond the limit triggers progressive backoff
+    action = wifi_reconn_policy_on_connect_timeout(&s_state, &adapter, &backoff_ms);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_SCHEDULE_BACKOFF, action);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_GENERIC_BACKOFF_PAUSE_MS, backoff_ms);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_GENERIC_FAST_RETRY_LIMIT + 1, s_state.generic_fail_count);
+}
+
 void test_wifi_reconn_connect_timeout_past_window(void)
 {
     uint32_t backoff_ms = 0;

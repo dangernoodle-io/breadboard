@@ -1291,6 +1291,8 @@ void test_wifi_reconn_null_args_return_none(void);
 void test_wifi_reconn_histogram_saturates_at_uint16_max(void);
 void test_wifi_reconn_connect_timeout_null_args_return_none(void);
 void test_wifi_reconn_connect_timeout_within_window(void);
+void test_wifi_reconn_connect_timeout_fast_retry_limit(void);
+void test_wifi_reconn_connect_timeout_backoff(void);
 void test_wifi_reconn_connect_timeout_past_window(void);
 
 // Forward declarations from test_bb_mdns_lifecycle.c
@@ -4044,6 +4046,8 @@ int main(void) {
     RUN_TEST(test_wifi_reconn_histogram_saturates_at_uint16_max);
     RUN_TEST(test_wifi_reconn_connect_timeout_null_args_return_none);
     RUN_TEST(test_wifi_reconn_connect_timeout_within_window);
+    RUN_TEST(test_wifi_reconn_connect_timeout_fast_retry_limit);
+    RUN_TEST(test_wifi_reconn_connect_timeout_backoff);
     RUN_TEST(test_wifi_reconn_connect_timeout_past_window);
 
     // bb_mdns_lifecycle tests
