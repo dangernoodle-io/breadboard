@@ -155,6 +155,18 @@ The `bb_nv_config` component persists device configuration to NVS: WiFi credenti
 
 The `wifi_reconn` FSM (`platform/espidf/bb_wifi/wifi_reconn.c`) drives reconnect. ST_CONNECTING is bounded by `WIFI_RECONN_CONNECTING_TIMEOUT_MS` (30 s): if neither GOT_IP nor DISCONNECT arrives, the task calls `wifi_reconn_policy_on_connect_timeout`, re-issues `esp_wifi_disconnect` + `esp_wifi_connect`, and stays in ST_CONNECTING, escalating to the safeguard reboot (`do_safeguard_reboot`) after the 5-min persistent-fail window — same path used by disconnect-triggered reboots.
 
+## Satellite / extender opt-in convention
+
+A **satellite** is a small component that contributes a section to an existing endpoint (e.g. a named section on `/api/health` via `bb_health_register_section`, or on `/api/info` via `bb_info_register_section`) without owning the route itself. Three tiers exist:
+
+**Tier 1 — In-component Kconfig gate** (`CONFIG_BB_<X>_ROUTES_AUTOREGISTER`, default n): the extender exposes the owning component's own data and lives inside that component. No separate component. Examples: `bb_power_routes`, `bb_fan_routes`, `bb_log_routes`.
+
+**Tier 2 — Separate component + Kconfig auto-register** (`CONFIG_BB_<X>_AUTOREGISTER`, default n for health/info satellites; default y for infrastructure routes): the satellite lives in its own component directory, bridges two independent dep closures, and self-registers via `BB_REGISTRY_REGISTER[_N]` in the ESP-IDF `.c` file, gated by `#if CONFIG_BB_<X>_AUTOREGISTER`. The CMakeLists conditionally calls `bb_registry_force_register` under `if(CONFIG_BB_<X>_AUTOREGISTER)`. Examples after B1-347: `bb_temp`, `bb_mqtt_info`, `bb_led_info`. Pre-existing examples: `bb_net_health`, `bb_pub_*`.
+
+**Tier 3 — Manual register() — DEPRECATED for new satellites.** The three legacy satellites (`bb_temp`, `bb_mqtt_info`, `bb_led_info`) keep their manual fns (`bb_temp_register_info`, `bb_mqtt_register_health`, `bb_led_register_info`) as escape hatches for consumers with ordering constraints. **Use auto XOR manual** — enabling `AUTOREGISTER` while also calling the manual fn double-registers the section (second registration is warned and dropped; first-wins per route registry policy). Flipping these to `default y` and removing the manual calls from TaipanMiner is a cross-repo follow-up, not part of this change.
+
+**Naming split:** `CONFIG_BB_<NAME>_AUTOREGISTER` for core/infrastructure components and health/info satellites (this file); `CONFIG_BB_<NAME>_AUTO_ATTACH` for event-topic satellites that attach a `bb_event` topic to `bb_event_routes` (see Auto-attach convention below). `bb_display_info` uses `CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH` — the one legacy exception to the `_AUTOREGISTER` name on a satellite; do **not** rename it.
+
 ## Event bus (bb_event, bb_event_ring, bb_event_routes)
 
 `bb_event` is a portable callback-list publish/subscribe event bus. On ESP-IDF, subscribers receive events via a FreeRTOS dispatcher task; on Arduino, the app pumps events from `loop()` via `bb_event_pump()`. `bb_event_ring` is a sibling component providing a circular buffer with replay-on-subscribe — designed for fan-out scenarios (SSE/WebSocket subscribers, persistent event history). Both use the same `bb_event_t` opaque handle and dispatch model; `bb_event_ring` layers replay semantics on top of `bb_event` internally.

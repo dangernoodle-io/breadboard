@@ -3,6 +3,10 @@
 #include "bb_json.h"
 #include "bb_mqtt.h"
 
+#if defined(CONFIG_BB_MQTT_INFO_AUTOREGISTER) && CONFIG_BB_MQTT_INFO_AUTOREGISTER
+#include "bb_registry.h"
+#endif
+
 /* JSON-Schema value for the "mqtt" section contributed to the /api/health 200 schema. */
 static const char k_mqtt_schema[] =
     "{\"type\":\"object\",\"properties\":{"
@@ -23,3 +27,17 @@ void bb_mqtt_register_health(void)
 {
     bb_health_register_section("mqtt", mqtt_section_get, NULL, k_mqtt_schema);
 }
+
+#if defined(CONFIG_BB_MQTT_INFO_AUTOREGISTER) && CONFIG_BB_MQTT_INFO_AUTOREGISTER
+
+/* order 1: after bb_health PRE_HTTP init; mirrors manual-call sequencing. */
+static bb_err_t bb_mqtt_info_autoregister_init(bb_http_handle_t server)
+{
+    (void)server;
+    bb_mqtt_register_health();
+    return BB_OK;
+}
+
+BB_REGISTRY_REGISTER_N(bb_mqtt_info, bb_mqtt_info_autoregister_init, 1);
+
+#endif /* CONFIG_BB_MQTT_INFO_AUTOREGISTER */

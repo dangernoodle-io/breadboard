@@ -3,6 +3,10 @@
 #include "bb_json.h"
 #include "bb_system.h"
 
+#if defined(CONFIG_BB_TEMP_AUTOREGISTER) && CONFIG_BB_TEMP_AUTOREGISTER
+#include "bb_registry.h"
+#endif
+
 /* JSON-Schema value for the "temp" section contributed to the /api/health 200 schema. */
 static const char k_temp_schema[] =
     "{\"type\":\"object\",\"properties\":{"
@@ -35,3 +39,18 @@ void bb_temp_register_info(void)
 {
     bb_health_register_section("temp", temp_section_get, NULL, k_temp_schema);
 }
+
+#if defined(CONFIG_BB_TEMP_AUTOREGISTER) && CONFIG_BB_TEMP_AUTOREGISTER
+
+/* order 1: after bb_health PRE_HTTP init; section table is open until
+ * bb_info_freeze (order 20). Mirrors the sequencing of the manual call. */
+static bb_err_t bb_temp_autoregister_init(bb_http_handle_t server)
+{
+    (void)server;
+    bb_temp_register_info();
+    return BB_OK;
+}
+
+BB_REGISTRY_REGISTER_N(bb_temp, bb_temp_autoregister_init, 1);
+
+#endif /* CONFIG_BB_TEMP_AUTOREGISTER */
