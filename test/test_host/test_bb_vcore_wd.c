@@ -374,6 +374,38 @@ void test_bb_vcore_wd_clear_hold_rearms_recoverable_path(void)
     TEST_ASSERT_EQUAL_INT(BB_VCORE_WD_RECOVER, act);
 }
 
+// clear_hold resets burst tracking: after hold is cleared, the FIRST collapse must
+// return RECOVER (not BACKOFF) even if burst_count was at/over BURST_MAX when the
+// OC fault latched.
+void test_bb_vcore_wd_clear_hold_resets_burst_tracking(void)
+{
+    reset();
+
+    // Drive burst_count to BURST_MAX via non-OC collapses.
+    for (int i = 0; i < BB_VCORE_WD_BURST_MAX; i++) {
+        feed_collapse(BB_VCORE_WD_COLLAPSE_POLLS);
+        feed_healthy(1);
+    }
+    TEST_ASSERT_EQUAL_INT(BB_VCORE_WD_BURST_MAX, s_st.burst_count);
+
+    // Now an OC fault collapse latches fault_held (burst_count stays at BURST_MAX).
+    s_in.oc_fault = true;
+    feed_collapse(BB_VCORE_WD_COLLAPSE_POLLS);
+    TEST_ASSERT_TRUE(s_st.fault_held);
+    TEST_ASSERT_INT_WITHIN(1, BB_VCORE_WD_BURST_MAX, (int)s_st.burst_count);
+
+    // Clear the hold — must also reset burst tracking.
+    bb_vcore_wd_clear_hold(&s_st);
+    TEST_ASSERT_FALSE(s_st.fault_held);
+    TEST_ASSERT_EQUAL_INT(0, s_st.burst_count);
+    TEST_ASSERT_EQUAL_UINT64(0, s_st.burst_window_start_ms);
+
+    // First collapse after clear must return RECOVER, not BACKOFF.
+    s_in.oc_fault = false;
+    bb_vcore_wd_action_t act = feed_collapse(BB_VCORE_WD_COLLAPSE_POLLS);
+    TEST_ASSERT_EQUAL_INT(BB_VCORE_WD_RECOVER, act);
+}
+
 // collapse WITHOUT oc_fault still returns RECOVER — fault-aware must not break recoverable path.
 void test_bb_vcore_wd_no_oc_fault_collapse_still_recovers(void)
 {
