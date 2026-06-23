@@ -1,7 +1,6 @@
 #include "bb_fan_routes.h"
 #include "bb_fan.h"
 #include "bb_json.h"
-#include <math.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -36,57 +35,16 @@ void bb_fan_emit_section(bb_json_t obj)
 {
     bb_fan_handle_t h = bb_fan_primary();
     bool present = (h != NULL);
-
     bb_fan_snapshot_t snap;
     bb_fan_snapshot(h, &snap);
-
     bb_json_obj_set_bool(obj, "present", present);
-
-    if (present && snap.rpm >= 0) {
-        bb_json_obj_set_number(obj, "rpm", (double)snap.rpm);
-    } else {
-        bb_json_obj_set_null(obj, "rpm");
-    }
-
-    if (present && snap.duty_pct >= 0) {
-        bb_json_obj_set_number(obj, "duty_pct", (double)snap.duty_pct);
-    } else {
-        bb_json_obj_set_null(obj, "duty_pct");
-    }
-
-#ifdef CONFIG_BB_FAN_AUTOFAN
-    if (present && h) {
-        bb_fan_autofan_cfg_t cfg;
-        bb_fan_get_autofan_cfg(h, &cfg);
-        bb_json_obj_set_bool(obj,   "autofan",      cfg.enabled);
-        bb_json_obj_set_number(obj, "die_target_c", (double)cfg.die_target_c);
-        bb_json_obj_set_number(obj, "vr_target_c",  (double)cfg.aux_target_c);
-        bb_json_obj_set_number(obj, "manual_pct",   (double)cfg.manual_pct);
-        bb_json_obj_set_number(obj, "min_pct",      (double)cfg.min_pct);
-
-        bb_fan_autofan_telemetry_t tel;
-        bb_fan_get_autofan_telemetry(h, &tel);
-
-        if (tel.die_ema_c >= 0.0f) {
-            bb_json_obj_set_number(obj, "die_ema_c", (double)tel.die_ema_c);
-        } else {
-            bb_json_obj_set_null(obj, "die_ema_c");
-        }
-        if (tel.aux_ema_c >= 0.0f) {
-            bb_json_obj_set_number(obj, "vr_ema_c", (double)tel.aux_ema_c);
-        } else {
-            bb_json_obj_set_null(obj, "vr_ema_c");
-        }
-        if (tel.pid_input_c >= 0.0f) {
-            bb_json_obj_set_number(obj, "pid_input_c", (double)tel.pid_input_c);
-        } else {
-            bb_json_obj_set_null(obj, "pid_input_c");
-        }
-        const char *src = tel.pid_input_src ? tel.pid_input_src : "";
-        if (src[0] == 'a') src = "vr";
-        bb_json_obj_set_string(obj, "pid_input_src", src);
-    }
-#endif /* CONFIG_BB_FAN_AUTOFAN */
+#ifndef CONFIG_BB_FAN_AUTOFAN
+    bb_fan_emit(obj, &snap);
+#else
+    bb_fan_autofan_telemetry_t tel;
+    bb_fan_get_autofan_telemetry(h, &tel);
+    bb_fan_emit(obj, &snap, &tel);
+#endif
 }
 
 #ifdef BB_FAN_ROUTES_TESTING

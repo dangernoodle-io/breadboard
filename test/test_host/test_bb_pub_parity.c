@@ -1,18 +1,24 @@
 // Parity smoke test: bb_pub_register_source and bb_pub_register_source_ex
 // produce the same publishing behavior when no tags / no subscribe filter.
 // Also: bb_pub_power and bb_power_emit share the same builder (B1-352).
+// Also: bb_pub_fan and bb_fan_emit share the same builder (B1-352).
 #include "unity.h"
 #include "bb_pub.h"
 #include "bb_pub_power.h"
 #include "bb_power.h"
 #include "bb_power_driver.h"
 #include "bb_power_test.h"
+#include "bb_pub_fan.h"
+#include "bb_fan.h"
+#include "bb_fan_driver.h"
+#include "bb_fan_test.h"
 #include "bb_json.h"
 #include "bb_nv.h"
 
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
 // ---------------------------------------------------------------------------
 // Sample helpers
@@ -182,4 +188,101 @@ void test_bb_pub_power_parity_emit_matches_rest_core_fields(void)
     bb_json_free(direct);
     bb_json_free(pub);
     bb_power_test_reset();
+}
+
+// ---------------------------------------------------------------------------
+// B1-352 parity: bb_pub_fan and bb_fan_emit use the same builder.
+// ---------------------------------------------------------------------------
+
+typedef struct { int rpm, duty_pct; float die_c, board_c; } fan_parity_fake_t;
+static fan_parity_fake_t g_fan_parity_fake;
+static int fan_parity_rpm     (void *s) { return ((fan_parity_fake_t *)s)->rpm; }
+static int fan_parity_duty    (void *s) { return ((fan_parity_fake_t *)s)->duty_pct; }
+static bb_err_t fan_parity_die(void *s, float *out) { *out = ((fan_parity_fake_t *)s)->die_c; return BB_OK; }
+static bb_err_t fan_parity_board(void *s, float *out) { *out = ((fan_parity_fake_t *)s)->board_c; return BB_OK; }
+static const bb_fan_driver_t fan_parity_drv = {
+    .read_rpm          = fan_parity_rpm,
+    .get_duty_pct      = fan_parity_duty,
+    .read_die_temp_c   = fan_parity_die,
+    .read_board_temp_c = fan_parity_board,
+    .name              = "fan_parity_drv",
+};
+
+static char s_fan_parity_payload[512];
+static int  s_fan_parity_count;
+
+static bb_err_t fan_parity_capture(void *ctx, const char *topic,
+                                    const char *payload, int len)
+{
+    (void)ctx;
+    (void)topic;
+    (void)len;
+    s_fan_parity_count++;
+    strncpy(s_fan_parity_payload, payload, sizeof(s_fan_parity_payload) - 1);
+    return BB_OK;
+}
+
+void test_bb_pub_fan_parity_emit_matches_pub_source(void)
+{
+    g_fan_parity_fake.rpm      = 2400;
+    g_fan_parity_fake.duty_pct = 75;
+    g_fan_parity_fake.die_c    = 45.5f;
+    g_fan_parity_fake.board_c  = 32.0f;
+
+    bb_pub_test_reset();
+    bb_fan_test_reset();
+    bb_nv_config_set_hostname("fanparityhost");
+
+    bb_fan_handle_t fh = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fan_handle_create(&fan_parity_drv, &g_fan_parity_fake, &fh));
+    bb_fan_poll(fh);
+    bb_fan_set_primary(fh);
+
+    // --- Direct bb_fan_emit path ---
+    bb_fan_snapshot_t snap;
+    bb_fan_snapshot(fh, &snap);
+
+    bb_json_t direct_obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(direct_obj);
+#ifndef CONFIG_BB_FAN_AUTOFAN
+    bb_fan_emit(direct_obj, &snap);
+#else
+    bb_fan_autofan_telemetry_t tel;
+    bb_fan_get_autofan_telemetry(fh, &tel);
+    bb_fan_emit(direct_obj, &snap, &tel);
+#endif
+    char *direct_json = bb_json_serialize(direct_obj);
+    bb_json_free(direct_obj);
+    TEST_ASSERT_NOT_NULL(direct_json);
+    bb_json_t direct = bb_json_parse(direct_json, strlen(direct_json));
+    bb_json_free_str(direct_json);
+    TEST_ASSERT_NOT_NULL(direct);
+
+    // --- bb_pub_fan path (same builder under the hood) ---
+    memset(s_fan_parity_payload, 0, sizeof(s_fan_parity_payload));
+    s_fan_parity_count = 0;
+    bb_pub_sink_t sink = { .publish = fan_parity_capture, .ctx = NULL };
+    bb_pub_set_sink(&sink);
+    bb_pub_fan_register();
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_fan_parity_count);
+
+    bb_json_t pub = bb_json_parse(s_fan_parity_payload, strlen(s_fan_parity_payload));
+    TEST_ASSERT_NOT_NULL(pub);
+
+    // Both paths must emit the same 4 core field values.
+    const char *fields[] = { "rpm", "duty_pct", "die_c", "board_c" };
+    for (int i = 0; i < 4; i++) {
+        double dv = 0.0, pv = 0.0;
+        bool d_ok = bb_json_obj_get_number(direct, fields[i], &dv);
+        bool p_ok = bb_json_obj_get_number(pub,    fields[i], &pv);
+        TEST_ASSERT_EQUAL_MESSAGE(d_ok, p_ok, fields[i]);
+        if (d_ok) {
+            TEST_ASSERT_FLOAT_WITHIN_MESSAGE(0.1f, (float)dv, (float)pv, fields[i]);
+        }
+    }
+
+    bb_json_free(direct);
+    bb_json_free(pub);
+    bb_fan_test_reset();
 }

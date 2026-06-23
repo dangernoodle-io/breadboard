@@ -14,7 +14,7 @@ endif()
 idf_component_register(
     SRCS ${BB_FAN_SRCS}
     INCLUDE_DIRS "include"
-    REQUIRES bb_core
+    REQUIRES bb_core bb_json
     PRIV_REQUIRES ${BB_FAN_PRIV_REQUIRES})
 
 # include/ exposes bb_fan_driver.h (semi-private driver vtable interface).
