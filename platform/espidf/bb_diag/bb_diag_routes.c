@@ -31,6 +31,25 @@
 
 static const char *TAG = "bb_diag_routes";
 
+static bb_event_topic_t s_boot_topic = NULL;
+
+static void diag_boot_publish(void)
+{
+    if (s_boot_topic == NULL) return;
+    const char *rr = bb_system_reset_reason_str(bb_system_get_reset_reason());
+    uint32_t arc = bb_diag_abnormal_reset_count();
+    bool pa = bb_diag_panic_available();
+    bool pending_verify = !bb_ota_is_validated();
+    bool rolled_back = bb_ota_rolled_back();
+    char payload[192];
+    int n = bb_diag_boot_build_json(payload, sizeof(payload),
+                                    rr, arc, pa, pending_verify, rolled_back);
+    if (n > 0) {
+        size_t sz = (size_t)n < sizeof(payload) ? (size_t)n : sizeof(payload) - 1;
+        bb_event_post(s_boot_topic, 0, payload, sz);
+    }
+}
+
 static bb_err_t panic_get_handler(bb_http_request_t *req)
 {
     bool available     = bb_diag_panic_available();
@@ -135,6 +154,9 @@ static bb_err_t boot_get_handler(bb_http_request_t *req)
     }
     bb_http_resp_json_obj_set_obj_end(&obj);
 
+    bb_http_resp_json_obj_set_bool(&obj, "pending_verify", !bb_ota_is_validated());
+    bb_http_resp_json_obj_set_bool(&obj, "rolled_back", bb_ota_rolled_back());
+
     return bb_http_resp_json_obj_end(&obj);
 }
 
@@ -158,9 +180,11 @@ static const bb_route_response_t s_boot_get_responses[] = {
       "\"available\":{\"type\":\"boolean\"},"
       "\"boots_since\":{\"type\":\"integer\"},"
       "\"reset_reason\":{\"type\":\"string\"}},"
-      "\"required\":[\"available\"]}},"
-      "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\"]}",
-      "current boot reset reason, WDT-reset count, and panic availability summary" },
+      "\"required\":[\"available\"]},"
+      "\"pending_verify\":{\"type\":\"boolean\"},"
+      "\"rolled_back\":{\"type\":\"boolean\"}},"
+      "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\",\"pending_verify\",\"rolled_back\"]}",
+      "current boot reset reason, WDT-reset count, panic availability, and OTA state summary" },
     { 0 },
 };
 
@@ -807,8 +831,7 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 
     // Register retained diag.boot event topic and publish initial snapshot.
     {
-        bb_event_topic_t topic = NULL;
-        bb_err_t terr = bb_event_topic_register(BB_DIAG_BOOT_TOPIC, &topic);
+        bb_err_t terr = bb_event_topic_register(BB_DIAG_BOOT_TOPIC, &s_boot_topic);
         if (terr != BB_OK) {
             bb_log_w(TAG, "diag.boot topic register failed: %d", (int)terr);
         } else {
@@ -821,21 +844,10 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
                 }
             }
 #endif
-            // Publish initial retained snapshot: republish this boot's
-            // persisted state (RTC/NVS) so /api/events replays it for
-            // late-connecting SSE clients.
-            const char *rr = bb_system_reset_reason_str(bb_system_get_reset_reason());
-            uint32_t arc = bb_diag_abnormal_reset_count();
-            bool pa = bb_diag_panic_available();
-            // rolled_back: running partition is PENDING_VERIFY (unverified OTA image).
-            bool rb = !bb_ota_is_validated();
-            char payload[192];
-            int n = bb_diag_boot_build_json(payload, sizeof(payload),
-                                            rr, arc, pa, rb);
-            if (n > 0) {
-                size_t sz = (size_t)n < sizeof(payload) ? (size_t)n : sizeof(payload) - 1;
-                bb_event_post(topic, 0, payload, sz);
-            }
+            // Publish initial retained snapshot and wire the on_validated callback
+            // so the snapshot re-posts when the image self-validates.
+            diag_boot_publish();
+            bb_ota_validator_set_on_validated(diag_boot_publish);
         }
     }
 

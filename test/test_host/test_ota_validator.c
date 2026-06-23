@@ -43,3 +43,9 @@ void test_ota_validator_is_validated_consistent_on_host(void)
     TEST_ASSERT_FALSE(bb_ota_is_validated());
     TEST_ASSERT_FALSE(bb_ota_is_validated());
 }
+
+// On the host backend, bb_ota_rolled_back() always returns false (no OTA partitions).
+void test_ota_validator_rolled_back_false_on_host(void)
+{
+    TEST_ASSERT_FALSE(bb_ota_rolled_back());
+}

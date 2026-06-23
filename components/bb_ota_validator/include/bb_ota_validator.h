@@ -20,6 +20,21 @@ bool bb_ota_is_pending(void);
 // (unlike bb_ota_is_pending, which tracks in-process validation progress).
 bool bb_ota_is_validated(void);
 
+// True if the non-running OTA slot is in state ABORTED or INVALID — the bootloader's
+// rollback marker. ABORTED is set when a PENDING_VERIFY image timed out and was rolled
+// back by the bootloader. INVALID is set when the app explicitly called
+// esp_ota_mark_app_invalid_rollback_and_reboot. Both indicate a previous OTA attempt
+// was rolled back; either state means a rollback occurred.
+// Returns false on host/Arduino (no OTA partitions) and when the other slot is absent
+// or in any other state.
+bool bb_ota_rolled_back(void);
+
+// Register a callback to be invoked after bb_ota_mark_valid() succeeds.
+// Only one callback slot; last registration wins. Pass NULL to clear.
+// Called from mark_valid_internal — may be on the HTTP handler task or any caller's stack.
+// Must be set before bb_ota_mark_valid() is called (i.e., at component init time).
+void bb_ota_validator_set_on_validated(void (*cb)(void));
+
 #ifdef __cplusplus
 }
 #endif
