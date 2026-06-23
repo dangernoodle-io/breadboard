@@ -16,42 +16,10 @@ static const char *TAG __attribute__((unused)) = "bb_power_routes";
 void bb_power_emit_section(bb_json_t obj)
 {
     bb_power_handle_t h = bb_power_primary();
-    bool present = (h != NULL);
-
     bb_power_snapshot_t snap;
     bb_power_snapshot(h, &snap);
-
-    bb_json_obj_set_bool(obj, "present", present);
-
-    if (present && snap.vout_mv >= 0) {
-        bb_json_obj_set_number(obj, "vout_mv", (double)snap.vout_mv);
-    } else {
-        bb_json_obj_set_null(obj, "vout_mv");
-    }
-
-    if (present && snap.iout_ma >= 0) {
-        bb_json_obj_set_number(obj, "iout_ma", (double)snap.iout_ma);
-    } else {
-        bb_json_obj_set_null(obj, "iout_ma");
-    }
-
-    if (present && snap.pout_mw >= 0) {
-        bb_json_obj_set_number(obj, "pout_mw", (double)snap.pout_mw);
-    } else {
-        bb_json_obj_set_null(obj, "pout_mw");
-    }
-
-    if (present && snap.vin_mv >= 0) {
-        bb_json_obj_set_number(obj, "vin_mv", (double)snap.vin_mv);
-    } else {
-        bb_json_obj_set_null(obj, "vin_mv");
-    }
-
-    if (present && snap.temp_c >= 0) {
-        bb_json_obj_set_number(obj, "temp_c", (double)snap.temp_c);
-    } else {
-        bb_json_obj_set_null(obj, "temp_c");
-    }
+    bb_json_obj_set_bool(obj, "present", h != NULL);
+    bb_power_emit(obj, &snap);
 }
 
 // ---------------------------------------------------------------------------

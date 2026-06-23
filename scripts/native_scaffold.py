@@ -240,7 +240,7 @@ COMPONENT_MAP = {
     "bb_power": {
         "includes": ["components/bb_power/include"],
         "sources":  ["platform/host/bb_power/bb_power.c"],
-        "depends":  ["bb_core"],
+        "depends":  ["bb_core", "bb_json"],
     },
     "bb_power_tps546": {
         "includes": ["components/bb_power_tps546/include"],
