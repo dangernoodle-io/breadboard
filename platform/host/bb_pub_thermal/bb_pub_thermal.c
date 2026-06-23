@@ -2,14 +2,11 @@
 // Compiled on both host (tests) and ESP-IDF.
 #include "bb_pub_thermal.h"
 #include "bb_pub.h"
-#include "bb_fan.h"
-#include "bb_power.h"
-#include "bb_temp.h"
+#include "bb_thermal.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_registry.h"
 #include <stdbool.h>
-#include <math.h>
 
 #ifndef CONFIG_BB_PUB_THERMAL_AUTO_ATTACH
 #define CONFIG_BB_PUB_THERMAL_AUTO_ATTACH 0
@@ -25,25 +22,23 @@ static bool thermal_sample(bb_json_t obj, void *ctx)
 {
     (void)ctx;
 
+    bb_thermal_values_t v;
+    bb_thermal_collect(&v);
+
     bool any_present = false;
 
-    // SoC temperature (bb_temp)
-    float soc_c = 0.0f;
-    if (bb_temp_read_soc(&soc_c)) {
-        bb_json_obj_set_number(obj, "soc_c", (double)soc_c);
+    // SoC — always emit key; null when absent.
+    if (v.soc_present) {
+        bb_json_obj_set_number(obj, "soc_c", (double)v.soc_c);
         any_present = true;
     } else {
         bb_json_obj_set_null(obj, "soc_c");
     }
 
-    // VR temperature (bb_power) — omit when no primary (hardware absent).
-    // When primary exists: null if temp unavailable, number if valid.
-    bb_power_handle_t ph = bb_power_primary();
-    if (ph) {
-        bb_power_snapshot_t ps;
-        bb_power_snapshot(ph, &ps);
-        if (ps.temp_c >= 0) {
-            bb_json_obj_set_number(obj, "vr_c", (double)ps.temp_c);
+    // VR — omit key entirely when no hardware; null when hardware present but no reading.
+    if (v.vr_hw_present) {
+        if (v.vr_present) {
+            bb_json_obj_set_number(obj, "vr_c", (double)v.vr_c);
         } else {
             bb_json_obj_set_null(obj, "vr_c");
         }
@@ -51,19 +46,16 @@ static bool thermal_sample(bb_json_t obj, void *ctx)
     }
     // else: no power hardware — omit vr_c entirely.
 
-    // ASIC die + board temperature (bb_fan) — omit both when no primary (hardware absent).
-    // When primary exists: null if reading is NaN, number if valid.
-    bb_fan_handle_t fh = bb_fan_primary();
-    if (fh) {
-        bb_fan_snapshot_t fs;
-        bb_fan_snapshot(fh, &fs);
-        if (!isnan(fs.die_c)) {
-            bb_json_obj_set_number(obj, "asic_c", (double)fs.die_c);
+    // ASIC + board — omit both keys when no fan hardware; null per-channel when hardware
+    // present but no reading.
+    if (v.fan_hw_present) {
+        if (v.asic_present) {
+            bb_json_obj_set_number(obj, "asic_c", (double)v.asic_c);
         } else {
             bb_json_obj_set_null(obj, "asic_c");
         }
-        if (!isnan(fs.board_c)) {
-            bb_json_obj_set_number(obj, "board_c", (double)fs.board_c);
+        if (v.board_present) {
+            bb_json_obj_set_number(obj, "board_c", (double)v.board_c);
         } else {
             bb_json_obj_set_null(obj, "board_c");
         }
@@ -71,7 +63,6 @@ static bool thermal_sample(bb_json_t obj, void *ctx)
     }
     // else: no fan hardware — omit asic_c and board_c entirely.
 
-    // Skip when nothing is available.
     return any_present;
 }
 
