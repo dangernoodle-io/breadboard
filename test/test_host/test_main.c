@@ -110,6 +110,9 @@ void test_bb_diag_boot_build_json_zero_buf_sz_returns_neg1(void);
 void test_bb_diag_boot_build_json_null_reset_reason_returns_neg1(void);
 void test_bb_diag_boot_build_json_starts_with_brace(void);
 void test_bb_diag_boot_build_json_ends_with_brace(void);
+void test_bb_diag_boot_build_json_pending_verify_true(void);
+void test_bb_diag_boot_build_json_both_ota_flags_true(void);
+void test_bb_diag_boot_build_json_both_ota_flags_false(void);
 
 // Forward declarations from test_ota_pull.c
 void test_bb_ota_pull_set_http_timeout_ms_default_is_20000(void);
@@ -439,6 +442,9 @@ void test_ota_validator_is_pending_false_on_host(void);
 void test_ota_validator_mark_valid_returns_invalid_state_on_host(void);
 void test_ota_validator_mark_valid_null_reason_on_host(void);
 void test_ota_validator_mark_valid_idempotent_on_host(void);
+void test_ota_validator_is_validated_false_on_host(void);
+void test_ota_validator_is_validated_consistent_on_host(void);
+void test_ota_validator_rolled_back_false_on_host(void);
 
 // Forward declarations from test_bb_release_manifest.c
 void test_bb_release_manifest_parse_github_valid_manifest(void);
@@ -2881,6 +2887,9 @@ int main(void) {
     RUN_TEST(test_bb_diag_boot_build_json_null_reset_reason_returns_neg1);
     RUN_TEST(test_bb_diag_boot_build_json_starts_with_brace);
     RUN_TEST(test_bb_diag_boot_build_json_ends_with_brace);
+    RUN_TEST(test_bb_diag_boot_build_json_pending_verify_true);
+    RUN_TEST(test_bb_diag_boot_build_json_both_ota_flags_true);
+    RUN_TEST(test_bb_diag_boot_build_json_both_ota_flags_false);
 
     // bb_partition tests
     RUN_TEST(test_bb_partition_list_count);
@@ -3011,6 +3020,9 @@ int main(void) {
     RUN_TEST(test_ota_validator_mark_valid_returns_invalid_state_on_host);
     RUN_TEST(test_ota_validator_mark_valid_null_reason_on_host);
     RUN_TEST(test_ota_validator_mark_valid_idempotent_on_host);
+    RUN_TEST(test_ota_validator_is_validated_false_on_host);
+    RUN_TEST(test_ota_validator_is_validated_consistent_on_host);
+    RUN_TEST(test_ota_validator_rolled_back_false_on_host);
 
     // Release manifest tests
     RUN_TEST(test_bb_release_manifest_parse_github_valid_manifest);

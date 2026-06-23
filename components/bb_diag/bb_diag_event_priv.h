@@ -12,11 +12,14 @@
 #define BB_DIAG_BOOT_TOPIC "diag.boot"
 
 // Write JSON payload for a diag.boot event into buf[buf_sz].
-// Format: {"reset_reason":"<str>","wdt_resets":<n>,"panic_available":<bool>,"rolled_back":<bool>}
+// Format: {"reset_reason":"<str>","wdt_resets":<n>,"panic_available":<bool>,"pending_verify":<bool>,"rolled_back":<bool>}
 // reset_reason: short string (e.g. "poweron", "panic", "task_wdt"); must not be NULL.
+// pending_verify: true when the running partition is in PENDING_VERIFY OTA state (unverified OTA image).
+// rolled_back: true when the non-running slot is in ABORTED or INVALID OTA state (bootloader rolled back a previous attempt).
 // Returns number of chars that would have been written (like snprintf), -1 on bad args.
 int bb_diag_boot_build_json(char *buf, size_t buf_sz,
                              const char *reset_reason,
                              uint32_t abnormal_reset_count,
                              bool panic_available,
+                             bool pending_verify,
                              bool rolled_back);

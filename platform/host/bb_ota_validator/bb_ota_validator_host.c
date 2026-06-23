@@ -21,4 +21,14 @@ bool bb_ota_is_validated(void)
     return false;
 }
 
+bool bb_ota_rolled_back(void)
+{
+    return false;
+}
+
+void bb_ota_validator_set_on_validated(void (*cb)(void))
+{
+    (void)cb;
+}
+
 #endif /* !ESP_PLATFORM */

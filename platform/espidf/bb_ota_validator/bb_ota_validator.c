@@ -18,6 +18,7 @@ static const char *TAG = "bb_ota_val";
 
 static atomic_bool s_pending     = ATOMIC_VAR_INIT(false);
 static atomic_bool s_marked_valid = ATOMIC_VAR_INIT(false);
+static void (*s_on_validated_cb)(void) = NULL;
 
 static bool other_slot_has_valid_app(void)
 {
@@ -37,6 +38,24 @@ static void mark_valid_internal(const char *reason)
     esp_ota_mark_app_valid_cancel_rollback();
     bb_nv_config_reset_boot_count();
     bb_log_w(TAG, "firmware validated via %s", reason ? reason : "unknown");
+    void (*cb)(void) = s_on_validated_cb;
+    if (cb) cb();
+}
+
+void bb_ota_validator_set_on_validated(void (*cb)(void))
+{
+    s_on_validated_cb = cb;
+}
+
+bool bb_ota_rolled_back(void)
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (running == NULL) return false;
+    const esp_partition_t *other = esp_ota_get_next_update_partition(running);
+    if (other == NULL) return false;
+    esp_ota_img_states_t st;
+    if (esp_ota_get_state_partition(other, &st) != ESP_OK) return false;
+    return (st == ESP_OTA_IMG_ABORTED || st == ESP_OTA_IMG_INVALID);
 }
 
 bb_err_t bb_ota_mark_valid(const char *reason)
