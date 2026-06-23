@@ -1,0 +1,12 @@
+menu "breadboard: bb_pub_mem"
+
+config BB_PUB_MEM_AUTO_ATTACH
+    bool "Auto-register memory telemetry source with bb_pub"
+    default y
+    depends on BB_PUB_AUTOREGISTER
+    help
+        When enabled, bb_pub_mem self-registers at the PRE_HTTP tier (after
+        bb_pub) so live memory metrics are published on every bb_pub tick under
+        the "mem" subtopic. Disable to call bb_pub_mem_register() manually.
+
+endmenu

@@ -2616,6 +2616,16 @@ void test_bb_pub_power_pout_mw_computed(void);
 void test_bb_pub_power_skips_when_no_primary(void);
 void test_bb_pub_power_payload_has_ts_field(void);
 
+// Forward declarations from test_bb_pub_mem.c
+void test_bb_pub_mem_always_publishes(void);
+void test_bb_pub_mem_topic_is_correct(void);
+void test_bb_pub_mem_has_heap_internal_free(void);
+void test_bb_pub_mem_has_heap_internal_min_free(void);
+void test_bb_pub_mem_has_heap_internal_largest_block(void);
+void test_bb_pub_mem_has_uptime_ms(void);
+void test_bb_pub_mem_omits_psram_free_when_no_psram(void);
+void test_bb_pub_mem_payload_has_ts_field(void);
+
 // Forward declarations from test_bb_pub_thermal.c
 void test_bb_pub_thermal_publishes_soc_field(void);
 void test_bb_pub_thermal_publishes_vr_field(void);
@@ -5371,6 +5381,16 @@ int main(void) {
     RUN_TEST(test_bb_pub_power_pout_mw_computed);
     RUN_TEST(test_bb_pub_power_skips_when_no_primary);
     RUN_TEST(test_bb_pub_power_payload_has_ts_field);
+
+    // bb_pub_mem tests
+    RUN_TEST(test_bb_pub_mem_always_publishes);
+    RUN_TEST(test_bb_pub_mem_topic_is_correct);
+    RUN_TEST(test_bb_pub_mem_has_heap_internal_free);
+    RUN_TEST(test_bb_pub_mem_has_heap_internal_min_free);
+    RUN_TEST(test_bb_pub_mem_has_heap_internal_largest_block);
+    RUN_TEST(test_bb_pub_mem_has_uptime_ms);
+    RUN_TEST(test_bb_pub_mem_omits_psram_free_when_no_psram);
+    RUN_TEST(test_bb_pub_mem_payload_has_ts_field);
 
     // bb_pub_thermal tests
     RUN_TEST(test_bb_pub_thermal_publishes_soc_field);

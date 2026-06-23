@@ -465,6 +465,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_pub_power/bb_pub_power.c"],
         "depends":  ["bb_core", "bb_pub", "bb_power"],
     },
+    "bb_pub_mem": {
+        "includes": ["components/bb_pub_mem/include"],
+        "sources":  ["platform/host/bb_pub_mem/bb_pub_mem.c"],
+        "depends":  ["bb_core", "bb_pub", "bb_board"],
+    },
     "bb_pub_thermal": {
         "includes": ["components/bb_pub_thermal/include"],
         "sources":  ["platform/host/bb_pub_thermal/bb_pub_thermal.c"],
