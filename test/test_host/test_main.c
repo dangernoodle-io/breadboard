@@ -1700,6 +1700,9 @@ void test_bb_temp_health_extender_absent_by_default(void);
 void test_bb_temp_health_extender_present_with_value(void);
 void test_bb_temp_health_extender_value_rounds_to_one_decimal(void);
 void test_bb_temp_health_schema_fragment_present(void);
+void test_bb_temp_emit_section_absent(void);
+void test_bb_temp_emit_section_present_with_value(void);
+void test_bb_temp_emit_section_rounds_to_one_decimal(void);
 
 // Forward declarations from test_bb_led_gpio.c
 void test_gpio_open_close(void);
@@ -4505,6 +4508,9 @@ int main(void) {
     RUN_TEST(test_bb_temp_health_extender_present_with_value);
     RUN_TEST(test_bb_temp_health_extender_value_rounds_to_one_decimal);
     RUN_TEST(test_bb_temp_health_schema_fragment_present);
+    RUN_TEST(test_bb_temp_emit_section_absent);
+    RUN_TEST(test_bb_temp_emit_section_present_with_value);
+    RUN_TEST(test_bb_temp_emit_section_rounds_to_one_decimal);
 
     // bb_led_gpio tests
     RUN_TEST(test_gpio_open_close);

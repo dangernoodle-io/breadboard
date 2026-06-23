@@ -23,6 +23,7 @@ extern "C" {
  */
 
 #include <stdbool.h>
+#include "bb_json.h"
 
 /*
  * Read the SoC internal die temperature.
@@ -31,6 +32,16 @@ extern "C" {
  * *out_celsius is untouched on false.
  */
 bool bb_temp_read_soc(float *out_celsius);
+
+/*
+ * Emit the temp JSON section into obj.
+ * Calls bb_temp_read_soc() and writes:
+ *   { "present": true,  "soc_c": <rounded-1dp> }  when sensor available
+ *   { "present": false }                            when absent
+ * SSOT formatter — called by bb_temp_register_info's get_fn and by any
+ * future bb_pub source. Reads live; does NOT poll.
+ */
+void bb_temp_emit_section(bb_json_t obj);
 
 /*
  * Register a /api/health section named "temp" that emits:
