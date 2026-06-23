@@ -118,3 +118,56 @@ void test_bb_temp_health_schema_fragment_present(void)
     TEST_ASSERT_NOT_NULL(strstr(schema, "\"present\""));
     TEST_ASSERT_NOT_NULL(strstr(schema, "\"soc_c\""));
 }
+
+/* ---- bb_temp_emit_section ---- */
+
+void test_bb_temp_emit_section_absent(void)
+{
+    bb_temp_test_set_soc(false, 0.0f);
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_temp_emit_section(obj);
+
+    bool present = true;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(obj, "present", &present));
+    TEST_ASSERT_FALSE(present);
+
+    double soc_c = -999.0;
+    TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(obj, "soc_c", &soc_c),
+                              "soc_c should be absent when sensor absent");
+
+    bb_json_free(obj);
+}
+
+void test_bb_temp_emit_section_present_with_value(void)
+{
+    bb_temp_test_set_soc(true, 65.7f);
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_temp_emit_section(obj);
+
+    bool present = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(obj, "present", &present));
+    TEST_ASSERT_TRUE(present);
+
+    double soc_c = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "soc_c", &soc_c));
+    TEST_ASSERT_DOUBLE_WITHIN(0.05, 65.7, soc_c);
+
+    bb_json_free(obj);
+}
+
+void test_bb_temp_emit_section_rounds_to_one_decimal(void)
+{
+    /* 43.456 -> rounds to 43.5 */
+    bb_temp_test_set_soc(true, 43.456f);
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_temp_emit_section(obj);
+
+    double soc_c = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "soc_c", &soc_c));
+    TEST_ASSERT_DOUBLE_WITHIN(0.05, 43.5, soc_c);
+
+    bb_json_free(obj);
+}
