@@ -1286,6 +1286,7 @@ void test_bb_pub_parity_source_info_ex_null_tags_returns_zero(void);
 void test_bb_pub_parity_subscription_predicate_null_ctx_pass_all(void);
 void test_bb_pub_power_parity_emit_matches_rest_core_fields(void);
 void test_bb_pub_fan_parity_emit_matches_pub_source(void);
+void test_bb_pub_thermal_parity_collect_matches_rest_fields(void);
 
 // Forward declarations from test_bb_vcore_wd.c
 void test_bb_vcore_wd_warmup_suppresses_all(void);
@@ -2653,6 +2654,18 @@ void test_bb_pub_thermal_omits_vr_c_when_no_power_primary(void);
 void test_bb_pub_thermal_omits_asic_and_board_c_when_no_fan_primary(void);
 void test_bb_pub_thermal_vr_c_null_when_power_primary_present_but_no_reading(void);
 void test_bb_pub_thermal_asic_c_null_when_fan_primary_present_but_die_nan(void);
+
+// Forward declarations from test_bb_thermal_collect.c
+void test_bb_thermal_collect_all_absent(void);
+void test_bb_thermal_collect_soc_present(void);
+void test_bb_thermal_collect_soc_absent(void);
+void test_bb_thermal_collect_vr_present_with_reading(void);
+void test_bb_thermal_collect_vr_hw_present_no_reading(void);
+void test_bb_thermal_collect_asic_present(void);
+void test_bb_thermal_collect_board_present(void);
+void test_bb_thermal_collect_asic_absent_when_die_nan(void);
+void test_bb_thermal_collect_board_absent_when_board_nan(void);
+void test_bb_thermal_collect_all_present(void);
 
 // Forward declarations from test_bb_pub_wifi.c
 void test_bb_pub_wifi_skips_when_disconnected(void);
@@ -5418,6 +5431,18 @@ int main(void) {
     RUN_TEST(test_bb_pub_power_skips_when_no_primary);
     RUN_TEST(test_bb_pub_power_payload_has_ts_field);
 
+    // bb_thermal_collect unit tests (B1-352)
+    RUN_TEST(test_bb_thermal_collect_all_absent);
+    RUN_TEST(test_bb_thermal_collect_soc_present);
+    RUN_TEST(test_bb_thermal_collect_soc_absent);
+    RUN_TEST(test_bb_thermal_collect_vr_present_with_reading);
+    RUN_TEST(test_bb_thermal_collect_vr_hw_present_no_reading);
+    RUN_TEST(test_bb_thermal_collect_asic_present);
+    RUN_TEST(test_bb_thermal_collect_board_present);
+    RUN_TEST(test_bb_thermal_collect_asic_absent_when_die_nan);
+    RUN_TEST(test_bb_thermal_collect_board_absent_when_board_nan);
+    RUN_TEST(test_bb_thermal_collect_all_present);
+
     // bb_pub_thermal tests
     RUN_TEST(test_bb_pub_thermal_publishes_soc_field);
     RUN_TEST(test_bb_pub_thermal_publishes_vr_field);
@@ -5629,6 +5654,8 @@ int main(void) {
     RUN_TEST(test_bb_pub_power_parity_emit_matches_rest_core_fields);
     // B1-352: bb_pub_fan and bb_fan_emit share same builder
     RUN_TEST(test_bb_pub_fan_parity_emit_matches_pub_source);
+    // B1-352: bb_thermal_collect is SSOT for both REST and pub thermal values
+    RUN_TEST(test_bb_pub_thermal_parity_collect_matches_rest_fields);
 
     return UNITY_END();
 }

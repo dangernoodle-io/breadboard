@@ -9,7 +9,7 @@
 #include <stdbool.h>
 #include <string.h>
 
-// Host twin of the bb_thermal component — emit helper + testing hooks.
+// Host twin of the bb_thermal component — collect + emit helpers + testing hooks.
 // /api/thermal route deleted in B1-269 PR7; bb_thermal_emit_section remains for
 // /api/sensors thermal section (SSOT).
 
@@ -31,29 +31,44 @@ static void host_emit_source(bb_json_t root, const char *key, bool present, doub
 }
 
 // ---------------------------------------------------------------------------
+// Pure value collector — SSOT for which HAL each temperature comes from.
+// ---------------------------------------------------------------------------
+
+void bb_thermal_collect(bb_thermal_values_t *out)
+{
+    out->soc_c = 0.0f;
+    out->soc_present = bb_temp_read_soc(&out->soc_c);
+
+    bb_power_handle_t pwr = bb_power_primary();
+    out->vr_hw_present = (pwr != NULL);
+    bb_power_snapshot_t psnap;
+    bb_power_snapshot(pwr, &psnap);
+    out->vr_present = (out->vr_hw_present && psnap.temp_c >= 0);
+    out->vr_c = out->vr_present ? (float)psnap.temp_c : 0.0f;
+
+    bb_fan_handle_t fan = bb_fan_primary();
+    out->fan_hw_present = (fan != NULL);
+    bb_fan_snapshot_t fsnap;
+    bb_fan_snapshot(fan, &fsnap);
+    out->asic_present  = (out->fan_hw_present && !isnan(fsnap.die_c));
+    out->asic_c        = out->asic_present ? fsnap.die_c : 0.0f;
+    out->board_present = (out->fan_hw_present && !isnan(fsnap.board_c));
+    out->board_c       = out->board_present ? fsnap.board_c : 0.0f;
+}
+
+// ---------------------------------------------------------------------------
 // Shared emit helper — host implementation mirrors espidf (SSOT).
 // ---------------------------------------------------------------------------
 
 void bb_thermal_emit_section(bb_json_t obj)
 {
-    float soc_c = 0.0f;
-    bool soc_present = bb_temp_read_soc(&soc_c);
+    bb_thermal_values_t v;
+    bb_thermal_collect(&v);
 
-    bb_power_handle_t pwr = bb_power_primary();
-    bb_power_snapshot_t psnap;
-    bb_power_snapshot(pwr, &psnap);
-    bool vr_present = (pwr != NULL && psnap.temp_c >= 0);
-
-    bb_fan_handle_t fan = bb_fan_primary();
-    bb_fan_snapshot_t fsnap;
-    bb_fan_snapshot(fan, &fsnap);
-    bool asic_present  = (fan != NULL && !isnan(fsnap.die_c));
-    bool board_present = (fan != NULL && !isnan(fsnap.board_c));
-
-    host_emit_source(obj, "soc",   soc_present,  soc_present   ? (double)soc_c        : 0.0);
-    host_emit_source(obj, "vr",    vr_present,   vr_present    ? (double)psnap.temp_c  : 0.0);
-    host_emit_source(obj, "asic",  asic_present, asic_present  ? (double)fsnap.die_c   : 0.0);
-    host_emit_source(obj, "board", board_present,board_present ? (double)fsnap.board_c  : 0.0);
+    host_emit_source(obj, "soc",   v.soc_present,   v.soc_present   ? (double)v.soc_c   : 0.0);
+    host_emit_source(obj, "vr",    v.vr_present,    v.vr_present    ? (double)v.vr_c    : 0.0);
+    host_emit_source(obj, "asic",  v.asic_present,  v.asic_present  ? (double)v.asic_c  : 0.0);
+    host_emit_source(obj, "board", v.board_present, v.board_present ? (double)v.board_c : 0.0);
 }
 
 #ifdef BB_THERMAL_TESTING

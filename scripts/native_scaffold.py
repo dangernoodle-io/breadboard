@@ -468,7 +468,7 @@ COMPONENT_MAP = {
     "bb_pub_thermal": {
         "includes": ["components/bb_pub_thermal/include"],
         "sources":  ["platform/host/bb_pub_thermal/bb_pub_thermal.c"],
-        "depends":  ["bb_core", "bb_pub", "bb_fan", "bb_power", "bb_temp"],
+        "depends":  ["bb_core", "bb_pub", "bb_thermal"],
     },
     "bb_pub_info": {
         "includes": ["components/bb_pub_info/include"],

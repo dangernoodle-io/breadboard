@@ -2,6 +2,7 @@
 // produce the same publishing behavior when no tags / no subscribe filter.
 // Also: bb_pub_power and bb_power_emit share the same builder (B1-352).
 // Also: bb_pub_fan and bb_fan_emit share the same builder (B1-352).
+// Also: bb_pub_thermal and bb_thermal_collect share the same values (B1-352).
 #include "unity.h"
 #include "bb_pub.h"
 #include "bb_pub_power.h"
@@ -12,6 +13,10 @@
 #include "bb_fan.h"
 #include "bb_fan_driver.h"
 #include "bb_fan_test.h"
+#include "bb_pub_thermal.h"
+#include "bb_thermal.h"
+#include "bb_temp.h"
+#include "bb_temp_test.h"
 #include "bb_json.h"
 #include "bb_nv.h"
 
@@ -285,4 +290,94 @@ void test_bb_pub_fan_parity_emit_matches_pub_source(void)
     bb_json_free(direct);
     bb_json_free(pub);
     bb_fan_test_reset();
+}
+
+// ---------------------------------------------------------------------------
+// B1-352 parity: bb_thermal_collect is SSOT for both REST and pub thermal values.
+// ---------------------------------------------------------------------------
+
+static char s_thermal_parity_payload[512];
+static int  s_thermal_parity_count;
+
+static bb_err_t thermal_parity_capture(void *ctx, const char *topic,
+                                        const char *payload, int len)
+{
+    (void)ctx;
+    (void)topic;
+    (void)len;
+    s_thermal_parity_count++;
+    strncpy(s_thermal_parity_payload, payload, sizeof(s_thermal_parity_payload) - 1);
+    return BB_OK;
+}
+
+void test_bb_pub_thermal_parity_collect_matches_rest_fields(void)
+{
+    bb_pub_test_reset();
+    bb_fan_test_reset();
+    bb_power_test_reset();
+    bb_temp_test_set_soc(false, 0.0f);
+    bb_nv_config_set_hostname("thermalparityhost");
+
+    // Set up SoC.
+    bb_temp_test_set_soc(true, 72.0f);
+
+    // Set up power primary.
+    g_parity_fake.vout_mv = 1100;
+    g_parity_fake.iout_ma = 2000;
+    g_parity_fake.vin_mv  = 5000;
+    g_parity_fake.temp_c  = 65;
+    bb_power_handle_t ph = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_power_handle_create(&parity_drv, &g_parity_fake, &ph));
+    bb_power_poll(ph);
+    bb_power_set_primary(ph);
+
+    // Set up fan primary.
+    g_fan_parity_fake.rpm      = 2000;
+    g_fan_parity_fake.duty_pct = 60;
+    g_fan_parity_fake.die_c    = 68.5f;
+    g_fan_parity_fake.board_c  = 38.0f;
+    bb_fan_handle_t fh = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fan_handle_create(&fan_parity_drv, &g_fan_parity_fake, &fh));
+    bb_fan_poll(fh);
+    bb_fan_set_primary(fh);
+
+    // Collect values via bb_thermal_collect (the SSOT).
+    bb_thermal_values_t v;
+    bb_thermal_collect(&v);
+
+    TEST_ASSERT_TRUE(v.soc_present);
+    TEST_ASSERT_TRUE(v.vr_present);
+    TEST_ASSERT_TRUE(v.asic_present);
+    TEST_ASSERT_TRUE(v.board_present);
+
+    // Capture bb_pub_thermal output.
+    memset(s_thermal_parity_payload, 0, sizeof(s_thermal_parity_payload));
+    s_thermal_parity_count = 0;
+    bb_pub_sink_t sink = { .publish = thermal_parity_capture, .ctx = NULL };
+    bb_pub_set_sink(&sink);
+    bb_pub_thermal_register();
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_thermal_parity_count);
+
+    bb_json_t pub = bb_json_parse(s_thermal_parity_payload, strlen(s_thermal_parity_payload));
+    TEST_ASSERT_NOT_NULL(pub);
+
+    // Assert all four values match what bb_thermal_collect reported.
+    double pv = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(pub, "soc_c", &pv));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, v.soc_c, (float)pv);
+
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(pub, "vr_c", &pv));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, v.vr_c, (float)pv);
+
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(pub, "asic_c", &pv));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, v.asic_c, (float)pv);
+
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(pub, "board_c", &pv));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, v.board_c, (float)pv);
+
+    bb_json_free(pub);
+    bb_power_test_reset();
+    bb_fan_test_reset();
+    bb_temp_test_set_soc(false, 0.0f);
 }
