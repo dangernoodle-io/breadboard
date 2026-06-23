@@ -146,8 +146,10 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
     out->early_warning          = s_cache.early_warning;
     out->throttled              = s_cache.throttled;
     out->rssi                   = s_cache.rssi;
+    out->mqtt_connected         = s_cache.mqtt_connected;
     out->mqtt_reconnect_count   = s_cache.mqtt_reconnect_count;
     out->last_disconnect_reason = s_cache.last_disconnect_reason;
+    out->disc_age_s             = s_cache.disc_age_s;
     xSemaphoreGive(s_cache_lock);
     return BB_OK;
 }
@@ -175,12 +177,19 @@ static void publish_snapshot(const bb_net_health_output_t *out,
     bb_json_t root = bb_json_obj_new();
     if (!root) return;
 
-    // SSE wire format: 4 essential fields only (~62 B worst case).
+    // SSE wire format: compact 4-field payload only (~62 B worst case).
     // Full detail (8 fields) is in GET /api/health "net" section.
-    bb_json_obj_set_number(root, "rssi",          (double)in->rssi);
-    bb_json_obj_set_string(root, "state",         bb_net_state_str(out->state));
-    bb_json_obj_set_bool(root,   "early_warning", out->early_warning);
-    bb_json_obj_set_bool(root,   "throttled",     throttled);
+    bb_net_health_status_t snap = {
+        .state                  = out->state,
+        .early_warning          = out->early_warning,
+        .throttled              = throttled,
+        .rssi                   = in->rssi,
+        .mqtt_connected         = in->mqtt_connected,
+        .disc_age_s             = in->disc_age_s,
+        .mqtt_reconnect_count   = in->mqtt_reconnect_count,
+        .last_disconnect_reason = wi->disc_reason,
+    };
+    bb_net_health_emit(root, &snap, /*full=*/false);
 
     char *json = bb_json_serialize(root);
     bb_json_free(root);
@@ -268,14 +277,17 @@ static void net_section_get(bb_json_t section, void *ctx)
     snap = s_cache;
     xSemaphoreGive(s_cache_lock);
 
-    bb_json_obj_set_number(section, "rssi",                   (double)snap.rssi);
-    bb_json_obj_set_bool(section,   "mqtt_connected",         snap.mqtt_connected);
-    bb_json_obj_set_number(section, "mqtt_reconnect_count",   (double)snap.mqtt_reconnect_count);
-    bb_json_obj_set_number(section, "last_disconnect_reason", (double)snap.last_disconnect_reason);
-    bb_json_obj_set_number(section, "disc_age_s",             (double)snap.disc_age_s);
-    bb_json_obj_set_string(section, "state",                  bb_net_state_str(snap.state));
-    bb_json_obj_set_bool(section,   "early_warning",          snap.early_warning);
-    bb_json_obj_set_bool(section,   "throttled",              snap.throttled);
+    bb_net_health_status_t ns = {
+        .state                  = snap.state,
+        .early_warning          = snap.early_warning,
+        .throttled              = snap.throttled,
+        .rssi                   = snap.rssi,
+        .mqtt_connected         = snap.mqtt_connected,
+        .mqtt_reconnect_count   = snap.mqtt_reconnect_count,
+        .last_disconnect_reason = snap.last_disconnect_reason,
+        .disc_age_s             = snap.disc_age_s,
+    };
+    bb_net_health_emit(section, &ns, /*full=*/true);
 }
 
 // ---------------------------------------------------------------------------
@@ -291,12 +303,7 @@ static bool net_health_pub_sample(bb_json_t obj, void *ctx)
     (void)ctx;
     bb_net_health_status_t ns;
     if (bb_net_health_get_status(&ns) != BB_OK) return false;  // not evaluated yet
-    bb_json_obj_set_string(obj, "state",                  bb_net_state_str(ns.state));
-    bb_json_obj_set_bool  (obj, "early_warning",          ns.early_warning);
-    bb_json_obj_set_bool  (obj, "throttled",              ns.throttled);
-    bb_json_obj_set_number(obj, "rssi",                   ns.rssi);
-    bb_json_obj_set_number(obj, "mqtt_reconnect_count",   (double)ns.mqtt_reconnect_count);
-    bb_json_obj_set_number(obj, "last_disconnect_reason", (double)ns.last_disconnect_reason);
+    bb_net_health_emit(obj, &ns, /*full=*/true);
     return true;
 }
 

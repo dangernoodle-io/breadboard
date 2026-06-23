@@ -1228,6 +1228,11 @@ void test_bb_net_health_throttle_restores_on_marginal(void);
 void test_bb_net_health_throttle_no_restore_while_poor(void);
 void test_bb_net_health_multi_trigger(void);
 void test_bb_net_health_sse_payload_fits_128_byte_ring_slot(void);
+void test_bb_net_health_emit_compact_has_4_fields(void);
+void test_bb_net_health_emit_full_has_8_fields(void);
+void test_bb_net_health_emit_compact_false_branch(void);
+void test_bb_net_health_emit_full_true_branch(void);
+void test_bb_net_health_emit_full_is_superset_of_compact(void);
 
 // Forward declarations from test_bb_sse_writer.c
 void test_sse_idle_below_heartbeat(void);
@@ -4046,6 +4051,11 @@ int main(void) {
     RUN_TEST(test_bb_net_health_throttle_no_restore_while_poor);
     RUN_TEST(test_bb_net_health_multi_trigger);
     RUN_TEST(test_bb_net_health_sse_payload_fits_128_byte_ring_slot);
+    RUN_TEST(test_bb_net_health_emit_compact_has_4_fields);
+    RUN_TEST(test_bb_net_health_emit_full_has_8_fields);
+    RUN_TEST(test_bb_net_health_emit_compact_false_branch);
+    RUN_TEST(test_bb_net_health_emit_full_true_branch);
+    RUN_TEST(test_bb_net_health_emit_full_is_superset_of_compact);
 
     // bb_vcore_wd tests (pure vcore-collapse watchdog)
     RUN_TEST(test_bb_vcore_wd_warmup_suppresses_all);

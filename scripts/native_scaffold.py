@@ -308,7 +308,7 @@ COMPONENT_MAP = {
     "bb_net_health": {
         "includes": ["components/bb_net_health/include"],
         "sources":  ["components/bb_net_health/src/bb_net_health.c"],
-        "depends":  ["bb_core", "bb_mqtt", "bb_health"],
+        "depends":  ["bb_core", "bb_mqtt", "bb_health", "bb_json"],
     },
     "bb_sse_writer": {
         "includes": ["components/bb_sse_writer/include",
