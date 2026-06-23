@@ -377,11 +377,7 @@ bb_err_t bb_update_check_run_one(void)
         // up_to_date. Consumers polling last_check_ok will not hang.
         if (dl_url[0] == '\0') {
             bb_update_check_status_t snap;
-            bool was_available;
-            bool first_call;
             pthread_mutex_lock(&s_lock);
-            was_available = s_status.available;
-            first_call = !s_first_check_done;
             s_status.latest[0] = '\0';
             s_status.download_url[0] = '\0';
             s_status.available = false;
@@ -392,11 +388,7 @@ bb_err_t bb_update_check_run_one(void)
             snap = s_status;
             pthread_mutex_unlock(&s_lock);
             bb_log_i(TAG, "update check: no firmware asset for this board");
-            bool transition = (was_available != false);
-            bool initial_publish = first_call && s_cfg.post_initial;
-            if (transition || initial_publish) {
-                publish_state(&snap, "none");
-            }
+            publish_state(&snap, "none");
             return BB_OK;
         }
 
@@ -406,11 +398,7 @@ bb_err_t bb_update_check_run_one(void)
         bool new_available = (cmp != INT_MIN) && (cmp > 0);  // LCOV_EXCL_BR_LINE — INT_MIN path defensive
 
         bb_update_check_status_t snap;
-        bool was_available;
-        bool first_call;
         pthread_mutex_lock(&s_lock);
-        was_available = s_status.available;
-        first_call = !s_first_check_done;
         strncpy(s_status.latest, tag, sizeof(s_status.latest) - 1);
         s_status.latest[sizeof(s_status.latest) - 1] = '\0';
         strncpy(s_status.download_url, dl_url, sizeof(s_status.download_url) - 1);
@@ -423,11 +411,7 @@ bb_err_t bb_update_check_run_one(void)
         snap = s_status;
         pthread_mutex_unlock(&s_lock);
 
-        bool transition = (was_available != new_available);
-        bool initial_publish = first_call && s_cfg.post_initial;
-        if (transition || initial_publish) {
-            publish_state(&snap, new_available ? snap.latest : "none");
-        }
+        publish_state(&snap, new_available ? snap.latest : "none");
         return BB_OK;
 
     } else {
@@ -483,11 +467,7 @@ bb_err_t bb_update_check_run_one(void)
         // up_to_date. Consumers polling last_check_ok will not hang.
         if (dl_url[0] == '\0') {
             bb_update_check_status_t snap;
-            bool was_available;
-            bool first_call;
             pthread_mutex_lock(&s_lock);
-            was_available = s_status.available;
-            first_call = !s_first_check_done;
             s_status.latest[0] = '\0';
             s_status.download_url[0] = '\0';
             s_status.available = false;
@@ -498,11 +478,7 @@ bb_err_t bb_update_check_run_one(void)
             snap = s_status;
             pthread_mutex_unlock(&s_lock);
             bb_log_i(TAG, "update check: no firmware asset for this board");
-            bool transition = (was_available != false);
-            bool initial_publish = first_call && s_cfg.post_initial;
-            if (transition || initial_publish) {
-                publish_state(&snap, "none");
-            }
+            publish_state(&snap, "none");
             return BB_OK;
         }
 
@@ -510,11 +486,7 @@ bb_err_t bb_update_check_run_one(void)
         bool new_available = (cmp != INT_MIN) && (cmp > 0);  // LCOV_EXCL_BR_LINE
 
         bb_update_check_status_t snap;
-        bool was_available;
-        bool first_call;
         pthread_mutex_lock(&s_lock);
-        was_available = s_status.available;
-        first_call = !s_first_check_done;
         strncpy(s_status.latest, tag, sizeof(s_status.latest) - 1);
         s_status.latest[sizeof(s_status.latest) - 1] = '\0';
         strncpy(s_status.download_url, dl_url, sizeof(s_status.download_url) - 1);
@@ -527,11 +499,7 @@ bb_err_t bb_update_check_run_one(void)
         snap = s_status;
         pthread_mutex_unlock(&s_lock);
 
-        bool transition = (was_available != new_available);
-        bool initial_publish = first_call && s_cfg.post_initial;
-        if (transition || initial_publish) {
-            publish_state(&snap, new_available ? snap.latest : "none");
-        }
+        publish_state(&snap, new_available ? snap.latest : "none");
         return BB_OK;
     }
 }

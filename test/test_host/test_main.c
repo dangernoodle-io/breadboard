@@ -2204,6 +2204,10 @@ void test_bb_update_check_outcome_available_custom_parser(void);
 void test_bb_update_check_outcome_failed_custom_parser_error(void);
 void test_bb_update_check_mark_check_on_apply_sets_status(void);
 void test_bb_update_check_mark_check_on_apply_before_init_returns_invalid_state(void);
+void test_bb_update_check_retained_snapshot_current_after_available_check(void);
+void test_bb_update_check_retained_snapshot_current_after_repeated_check(void);
+void test_bb_update_check_retained_snapshot_current_custom_parser_available(void);
+void test_bb_update_check_retained_snapshot_current_after_repeated_custom_parser_check(void);
 
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
@@ -4823,6 +4827,10 @@ int main(void) {
     RUN_TEST(test_bb_update_check_outcome_failed_custom_parser_error);
     RUN_TEST(test_bb_update_check_mark_check_on_apply_sets_status);
     RUN_TEST(test_bb_update_check_mark_check_on_apply_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_update_check_retained_snapshot_current_after_available_check);
+    RUN_TEST(test_bb_update_check_retained_snapshot_current_after_repeated_check);
+    RUN_TEST(test_bb_update_check_retained_snapshot_current_custom_parser_available);
+    RUN_TEST(test_bb_update_check_retained_snapshot_current_after_repeated_custom_parser_check);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);
