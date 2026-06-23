@@ -16,6 +16,28 @@
 #include "bb_core.h"
 #include "bb_json.h"
 
+// ---------------------------------------------------------------------------
+// Per-source tags
+// ---------------------------------------------------------------------------
+
+/** Maximum tags per source (not Kconfig). */
+#define BB_PUB_MAX_TAGS_PER_SOURCE 8
+/** Maximum length of a single tag string (not including NUL). */
+#define BB_PUB_TAG_MAX 32
+
+// ---------------------------------------------------------------------------
+// Per-sink subscription filter
+// ---------------------------------------------------------------------------
+
+/**
+ * Optional subscription predicate on a sink.
+ * Returns true to receive this source's payload; false to skip it.
+ * NULL = receive ALL sources (default, back-compat).
+ */
+typedef bool (*bb_pub_subscribe_fn)(const char *subtopic,
+                                    const char *const *tags, int ntags,
+                                    void *ctx);
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -50,7 +72,44 @@ typedef struct {
      * reboot-to-switch semantics — the value is correct for the entire boot.
      */
     bool              tls;
+    bb_pub_subscribe_fn subscribe;     /**< Optional subscription filter; NULL = all. */
+    void               *subscribe_ctx; /**< Passed to subscribe(); may be NULL. */
 } bb_pub_sink_t;
+
+// ---------------------------------------------------------------------------
+// Subscription filter helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Allow-list filter for per-sink subscription.
+ * OR logic between subtopics and tags independently:
+ * - If subtopics is non-NULL: matches when subtopic is in the list.
+ * - If tags is non-NULL: matches when any source tag is in the list.
+ * - If both non-NULL: matches when EITHER condition is true.
+ * - If both NULL: always matches (pass-all).
+ */
+typedef struct {
+    const char *const *subtopics;  /**< Allow-list of subtopic names; NULL = any. */
+    int                nsubtopics;
+    const char *const *tags;       /**< Allow-list of tag strings; NULL = any. */
+    int                ntags;
+} bb_pub_subscription_t;
+
+/**
+ * Pure match function. Returns true when subtopic or any source tag matches
+ * the allow-list (OR logic per list; both NULL = match all).
+ */
+bool bb_pub_subscription_match(const bb_pub_subscription_t *sub,
+                                const char *subtopic,
+                                const char *const *tags, int ntags);
+
+/**
+ * Stateless predicate suitable for use as bb_pub_sink_t.subscribe.
+ * ctx must be a const bb_pub_subscription_t *.
+ */
+bool bb_pub_subscription_predicate(const char *subtopic,
+                                   const char *const *tags, int ntags,
+                                   void *ctx);
 
 // ---------------------------------------------------------------------------
 // Source interface
@@ -133,6 +192,14 @@ bb_err_t bb_pub_register_payload_extender(bb_pub_payload_fn fn, void *ctx);
  */
 bb_err_t bb_pub_register_source(const char *subtopic, bb_pub_sample_fn fn, void *ctx);
 
+/**
+ * Register a telemetry source with optional tags.
+ * Tags are copied (up to BB_PUB_MAX_TAGS_PER_SOURCE, each up to BB_PUB_TAG_MAX chars).
+ * NULL tags / 0 ntags = no tags (equivalent to bb_pub_register_source).
+ */
+bb_err_t bb_pub_register_source_ex(const char *subtopic, bb_pub_sample_fn fn, void *ctx,
+                                    const char *const *tags, int ntags);
+
 // ---------------------------------------------------------------------------
 // Source enumeration (used by bb_telemetry for GET /api/telemetry/metrics)
 // ---------------------------------------------------------------------------
@@ -149,6 +216,21 @@ int bb_pub_source_count(void);
  */
 bb_err_t bb_pub_source_info(int i, const char **subtopic, bb_pub_sample_fn *fn,
                              void **ctx, uint32_t *last_sample_ms, bool *sampled_ever);
+
+/**
+ * Extended source info; also returns tags and ntags. All out-params optional.
+ * tags points into internal storage (valid until reset).
+ */
+bb_err_t bb_pub_source_info_ex(int i, const char **subtopic, bb_pub_sample_fn *fn,
+                                void **ctx, uint32_t *last_sample_ms, bool *sampled_ever,
+                                const char *const **tags, int *ntags);
+
+/**
+ * Find the source registered under `subtopic`, call its sample_fn(obj, ctx),
+ * and return its bool. Returns false if no source matches.
+ * The caller owns `obj` and must free it — same contract as sample_fn.
+ */
+bool bb_pub_sample_into(const char *subtopic, bb_json_t obj);
 
 /**
  * True when always-on buffering is enabled and the ring entry cap is smaller

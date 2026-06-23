@@ -26,10 +26,12 @@ static bb_err_t mqtt_publish(void *ctx, const char *topic,
 bb_err_t bb_sink_mqtt(bb_mqtt_t h, bb_pub_sink_t *out)
 {
     if (!h || !out) return BB_ERR_INVALID_ARG;
-    out->publish   = mqtt_publish;
-    out->ctx       = h;
-    out->transport = "mqtt";
-    out->tls       = bb_mqtt_is_tls(h);
+    out->publish       = mqtt_publish;
+    out->ctx           = h;
+    out->transport     = "mqtt";
+    out->tls           = bb_mqtt_is_tls(h);
+    out->subscribe     = NULL;
+    out->subscribe_ctx = NULL;
     return BB_OK;
 }
 
@@ -54,12 +56,14 @@ static bb_err_t mqtt_publish_default(void *ctx, const char *topic,
 bb_err_t bb_sink_mqtt_default(bb_pub_sink_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
-    out->publish   = mqtt_publish_default;
-    out->ctx       = NULL;
-    out->transport = "mqtt";
+    out->publish       = mqtt_publish_default;
+    out->ctx           = NULL;
+    out->transport     = "mqtt";
     // Best-effort TLS detection at registration time; the flag is informational
     // and does not affect publish behaviour.
-    out->tls       = bb_mqtt_is_tls(bb_mqtt_default());
+    out->tls           = bb_mqtt_is_tls(bb_mqtt_default());
+    out->subscribe     = NULL;
+    out->subscribe_ctx = NULL;
     return BB_OK;
 }
 
