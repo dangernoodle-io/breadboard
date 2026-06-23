@@ -18,6 +18,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "bb_core.h"
+#include "bb_json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -154,8 +155,10 @@ typedef struct {
     bool           early_warning;        // pre-failure warning latch
     bool           throttled;            // adaptive backoff active
     int            rssi;
+    bool           mqtt_connected;       // true when MQTT broker is reachable
     uint32_t       mqtt_reconnect_count;
     uint32_t       last_disconnect_reason;
+    uint32_t       disc_age_s;           // seconds since last WiFi disconnect (0 = connected)
 } bb_net_health_status_t;
 
 // Copy the live net-health snapshot (populated by the ESP-IDF evaluator) under
@@ -163,6 +166,26 @@ typedef struct {
 // has initialized (then *out is left untouched). *out fields are otherwise the
 // last evaluated values (zero-init state=GOOD before the first eval).
 bb_err_t bb_net_health_get_status(bb_net_health_status_t *out);
+
+// ---------------------------------------------------------------------------
+// JSON serializer — single builder used by all three emitters (REST/SSE/pub).
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit net-health fields from snap into the JSON object obj.
+ *
+ * full=false (compact, 4 fields): rssi, state, early_warning, throttled.
+ * full=true  (full, 8 fields):    compact fields + mqtt_connected,
+ *                                  mqtt_reconnect_count, last_disconnect_reason,
+ *                                  disc_age_s.
+ *
+ * Field order for full=true: compact fields first (rssi, state, early_warning,
+ * throttled), then the four additional fields.  The full set is a strict
+ * superset of the compact set in consistent order.
+ *
+ * Pure, host-testable — no ESP-IDF dependencies.
+ */
+void bb_net_health_emit(bb_json_t obj, const bb_net_health_status_t *snap, bool full);
 
 // ---------------------------------------------------------------------------
 // Adaptive-backoff throttle decision (pure, host-testable; used by commit 4)
