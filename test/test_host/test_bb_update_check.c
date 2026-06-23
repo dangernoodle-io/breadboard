@@ -1828,3 +1828,178 @@ void test_bb_update_check_mark_check_on_apply_before_init_returns_invalid_state(
     reset_world();
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_update_check_mark_check_on_apply());
 }
+
+// ---------------------------------------------------------------------------
+// B1-351: retained snapshot always current after any successful check
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_retained_snapshot_current_after_available_check(void)
+{
+    // Streaming path, available=true. After run_one, subscribe with replay
+    // and verify the replayed payload contains "available":true and "v9.9.9".
+    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    reset_world();
+    s_snap_count = 0;
+    s_snap_size  = 0;
+    s_snap_payload[0] = '\0';
+
+    bb_event_topic_t topic = NULL;
+    bb_event_topic_register("update.available", &topic);
+
+    bb_event_ring_t ring = NULL;
+    bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_init(NULL));
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_publish_initial());
+    bb_event_pump(0);
+
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_event_pump(0);
+
+    // Subscribe with replay and capture the most recent retained entry.
+    bb_event_sub_t sub = NULL;
+    bb_event_ring_subscribe_with_replay(ring, snap_capture, NULL, &sub);
+
+    TEST_ASSERT_TRUE(s_snap_count >= 1);
+    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "\"available\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "v9.9.9"));
+
+    bb_event_unsubscribe(sub);
+    bb_event_ring_detach(ring);
+}
+
+void test_bb_update_check_retained_snapshot_current_after_repeated_check(void)
+{
+    // Streaming path, available=true on first check. Second check with same
+    // response — retained snapshot must still have available:true and ring
+    // count must grow (unconditional post fires on every successful check).
+    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    reset_world();
+    s_snap_count = 0;
+    s_snap_size  = 0;
+    s_snap_payload[0] = '\0';
+
+    bb_event_topic_t topic = NULL;
+    bb_event_topic_register("update.available", &topic);
+
+    bb_event_ring_t ring = NULL;
+    bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_init(NULL));
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_firmware_board("firmware");
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_publish_initial());
+    bb_event_pump(0);
+
+    // First check.
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_event_pump(0);
+    size_t count_after_first = bb_event_ring_count(ring);
+
+    // Second check with same response — no transition, but must still post.
+    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_event_pump(0);
+    size_t count_after_second = bb_event_ring_count(ring);
+
+    TEST_ASSERT_TRUE(count_after_second > count_after_first);
+
+    // Subscribe with replay to inspect latest retained payload.
+    bb_event_sub_t sub = NULL;
+    bb_event_ring_subscribe_with_replay(ring, snap_capture, NULL, &sub);
+
+    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "\"available\":true"));
+
+    bb_event_unsubscribe(sub);
+    bb_event_ring_detach(ring);
+}
+
+void test_bb_update_check_retained_snapshot_current_custom_parser_available(void)
+{
+    // Custom parser path, available=true. Verify the replayed payload has
+    // "available":true and "v9.9.9".
+    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    reset_world();
+    s_snap_count = 0;
+    s_snap_size  = 0;
+    s_snap_payload[0] = '\0';
+
+    bb_event_topic_t topic = NULL;
+    bb_event_topic_register("update.available", &topic);
+
+    bb_event_ring_t ring = NULL;
+    bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_init(NULL));
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(mock_parser);
+    bb_http_client_set_mock_response("anything", 8, 200);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_publish_initial());
+    bb_event_pump(0);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_event_pump(0);
+
+    bb_event_sub_t sub = NULL;
+    bb_event_ring_subscribe_with_replay(ring, snap_capture, NULL, &sub);
+
+    TEST_ASSERT_TRUE(s_snap_count >= 1);
+    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "\"available\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "v9.9.9"));
+
+    bb_event_unsubscribe(sub);
+    bb_event_ring_detach(ring);
+}
+
+void test_bb_update_check_retained_snapshot_current_after_repeated_custom_parser_check(void)
+{
+    // Custom parser path. Second run_one also posts (ring count grows).
+    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+    reset_world();
+    s_snap_count = 0;
+    s_snap_size  = 0;
+    s_snap_payload[0] = '\0';
+
+    bb_event_topic_t topic = NULL;
+    bb_event_topic_register("update.available", &topic);
+
+    bb_event_ring_t ring = NULL;
+    bb_event_ring_attach_ex(topic, 4, 512, true, &ring);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_init(NULL));
+    bb_update_check_set_releases_url("http://example.com/r.json");
+    bb_update_check_set_parser(mock_parser);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_publish_initial());
+    bb_event_pump(0);
+
+    // First check.
+    bb_http_client_set_mock_response("anything", 8, 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_event_pump(0);
+    size_t count_after_first = bb_event_ring_count(ring);
+
+    // Second check — no transition, but must still post.
+    bb_http_client_set_mock_response("anything", 8, 200);
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_run_one());
+    bb_event_pump(0);
+    size_t count_after_second = bb_event_ring_count(ring);
+
+    TEST_ASSERT_TRUE(count_after_second > count_after_first);
+
+    // Verify last payload is still available:true.
+    bb_event_sub_t sub = NULL;
+    bb_event_ring_subscribe_with_replay(ring, snap_capture, NULL, &sub);
+
+    TEST_ASSERT_NOT_NULL(strstr(s_snap_payload, "\"available\":true"));
+
+    bb_event_unsubscribe(sub);
+    bb_event_ring_detach(ring);
+}
