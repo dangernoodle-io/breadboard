@@ -1,0 +1,15 @@
+menu "breadboard: bb_sink_event"
+
+config BB_SINK_EVENT_MAX_TOPICS
+    int "Maximum number of subtopics registered with bb_sink_event"
+    default 16
+    range 1 32
+
+config BB_SINK_EVENT_AUTOREGISTER
+    bool "Auto-register bb_sink_event sink at boot"
+    default n
+    help
+        When enabled, bb_sink_event auto-registers at PRE_HTTP tier. Disable
+        (default) to register manually with explicit subscription.
+
+endmenu

@@ -450,6 +450,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_sink_mqtt/bb_sink_mqtt.c"],
         "depends":  ["bb_core", "bb_pub", "bb_mqtt"],
     },
+    "bb_sink_event": {
+        "includes": ["components/bb_sink_event/include"],
+        "sources":  ["platform/host/bb_sink_event/bb_sink_event.c"],
+        "depends":  ["bb_core", "bb_pub", "bb_event", "bb_event_routes", "bb_json", "bb_log"],
+    },
     "bb_pub_fan": {
         "includes": ["components/bb_pub_fan/include"],
         "sources":  ["platform/host/bb_pub_fan/bb_pub_fan.c"],
