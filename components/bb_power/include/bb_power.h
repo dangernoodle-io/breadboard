@@ -2,6 +2,7 @@
 #pragma once
 #include <stdint.h>
 #include "bb_core.h"
+#include "bb_json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,6 +39,20 @@ void bb_power_set_primary(bb_power_handle_t h);
 
 // Return the handle recorded by bb_power_set_primary(), or NULL if none set.
 bb_power_handle_t bb_power_primary(void);
+
+// ---------------------------------------------------------------------------
+// JSON serializer — single builder used by all emitters (REST + bb_pub).
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit power fields from snap into the JSON object obj.
+ *
+ * Emits: vout_mv, iout_ma, pout_mw, vin_mv, temp_c.
+ * Each field is a number when the value is >= 0, null when -1.
+ *
+ * Pure, host-testable — no ESP-IDF dependencies.
+ */
+void bb_power_emit(bb_json_t obj, const bb_power_snapshot_t *snap);
 
 #ifdef __cplusplus
 }

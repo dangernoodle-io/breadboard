@@ -1284,6 +1284,7 @@ void test_bb_pub_parity_register_source_ex_null_tags_same_behavior(void);
 void test_bb_pub_parity_source_and_source_ex_both_publish(void);
 void test_bb_pub_parity_source_info_ex_null_tags_returns_zero(void);
 void test_bb_pub_parity_subscription_predicate_null_ctx_pass_all(void);
+void test_bb_pub_power_parity_emit_matches_rest_core_fields(void);
 
 // Forward declarations from test_bb_vcore_wd.c
 void test_bb_vcore_wd_warmup_suppresses_all(void);
@@ -1437,6 +1438,15 @@ void test_bb_power_primary_null_before_set(void);
 void test_bb_power_set_primary_stores_handle(void);
 void test_bb_power_set_primary_null_clears(void);
 void test_bb_power_initial_snapshot_all_minus_one(void);
+
+// Forward declarations from test_bb_power_emit.c
+void test_bb_power_emit_all_fields_present(void);
+void test_bb_power_emit_vout_null_when_minus_one(void);
+void test_bb_power_emit_iout_null_when_minus_one(void);
+void test_bb_power_emit_pout_null_when_minus_one(void);
+void test_bb_power_emit_vin_null_when_minus_one(void);
+void test_bb_power_emit_temp_null_when_minus_one(void);
+void test_bb_power_emit_all_null_when_all_minus_one(void);
 
 // Forward declarations from test_tps546_decode.c
 void test_ulinear16_to_mv_negative_exp(void);
@@ -4210,6 +4220,15 @@ int main(void) {
     RUN_TEST(test_bb_power_set_primary_null_clears);
     RUN_TEST(test_bb_power_initial_snapshot_all_minus_one);
 
+    // bb_power_emit builder (B1-352)
+    RUN_TEST(test_bb_power_emit_all_fields_present);
+    RUN_TEST(test_bb_power_emit_vout_null_when_minus_one);
+    RUN_TEST(test_bb_power_emit_iout_null_when_minus_one);
+    RUN_TEST(test_bb_power_emit_pout_null_when_minus_one);
+    RUN_TEST(test_bb_power_emit_vin_null_when_minus_one);
+    RUN_TEST(test_bb_power_emit_temp_null_when_minus_one);
+    RUN_TEST(test_bb_power_emit_all_null_when_all_minus_one);
+
     // tps546_decode decode math tests
     RUN_TEST(test_ulinear16_to_mv_negative_exp);
     RUN_TEST(test_ulinear16_to_mv_rounding);
@@ -5579,6 +5598,8 @@ int main(void) {
     RUN_TEST(test_bb_pub_parity_source_and_source_ex_both_publish);
     RUN_TEST(test_bb_pub_parity_source_info_ex_null_tags_returns_zero);
     RUN_TEST(test_bb_pub_parity_subscription_predicate_null_ctx_pass_all);
+    // B1-352: bb_pub_power and bb_power_emit share same builder
+    RUN_TEST(test_bb_pub_power_parity_emit_matches_rest_core_fields);
 
     return UNITY_END();
 }

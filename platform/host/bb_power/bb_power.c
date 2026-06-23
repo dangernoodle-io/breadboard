@@ -4,6 +4,7 @@
 // PTHREAD_MUTEX_INITIALIZER works on both targets.
 #include "bb_power.h"
 #include "bb_power_driver.h"
+#include "bb_json.h"
 #include "bb_lock.h"
 #include <stdlib.h>
 #include <pthread.h>
@@ -95,6 +96,45 @@ void *bb_power_handle_state(bb_power_handle_t h)
 
 void bb_power_set_primary(bb_power_handle_t h) { s_primary = h; }
 bb_power_handle_t bb_power_primary(void)        { return s_primary; }
+
+// ---------------------------------------------------------------------------
+// JSON serializer — single builder shared by REST + bb_pub emitters.
+// ---------------------------------------------------------------------------
+
+void bb_power_emit(bb_json_t obj, const bb_power_snapshot_t *snap)
+{
+    if (!obj || !snap) return;
+
+    if (snap->vout_mv >= 0) {
+        bb_json_obj_set_number(obj, "vout_mv", (double)snap->vout_mv);
+    } else {
+        bb_json_obj_set_null(obj, "vout_mv");
+    }
+
+    if (snap->iout_ma >= 0) {
+        bb_json_obj_set_number(obj, "iout_ma", (double)snap->iout_ma);
+    } else {
+        bb_json_obj_set_null(obj, "iout_ma");
+    }
+
+    if (snap->pout_mw >= 0) {
+        bb_json_obj_set_number(obj, "pout_mw", (double)snap->pout_mw);
+    } else {
+        bb_json_obj_set_null(obj, "pout_mw");
+    }
+
+    if (snap->vin_mv >= 0) {
+        bb_json_obj_set_number(obj, "vin_mv", (double)snap->vin_mv);
+    } else {
+        bb_json_obj_set_null(obj, "vin_mv");
+    }
+
+    if (snap->temp_c >= 0) {
+        bb_json_obj_set_number(obj, "temp_c", (double)snap->temp_c);
+    } else {
+        bb_json_obj_set_null(obj, "temp_c");
+    }
+}
 
 #ifdef BB_POWER_TESTING
 #include "bb_power_test.h"

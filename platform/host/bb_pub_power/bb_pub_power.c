@@ -31,35 +31,7 @@ static bool power_sample(bb_json_t obj, void *ctx)
     bb_power_snapshot_t s;
     bb_power_snapshot(h, &s);
 
-    if (s.vout_mv >= 0) {
-        bb_json_obj_set_number(obj, "vout_mv", (double)s.vout_mv);
-    } else {
-        bb_json_obj_set_null(obj, "vout_mv");
-    }
-
-    if (s.iout_ma >= 0) {
-        bb_json_obj_set_number(obj, "iout_ma", (double)s.iout_ma);
-    } else {
-        bb_json_obj_set_null(obj, "iout_ma");
-    }
-
-    if (s.pout_mw >= 0) {
-        bb_json_obj_set_number(obj, "pout_mw", (double)s.pout_mw);
-    } else {
-        bb_json_obj_set_null(obj, "pout_mw");
-    }
-
-    if (s.vin_mv >= 0) {
-        bb_json_obj_set_number(obj, "vin_mv", (double)s.vin_mv);
-    } else {
-        bb_json_obj_set_null(obj, "vin_mv");
-    }
-
-    if (s.temp_c >= 0) {
-        bb_json_obj_set_number(obj, "temp_c", (double)s.temp_c);
-    } else {
-        bb_json_obj_set_null(obj, "temp_c");
-    }
+    bb_power_emit(obj, &s);
 
     return true;
 }
