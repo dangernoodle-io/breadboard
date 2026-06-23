@@ -69,6 +69,9 @@ typedef struct {
     void            *ctx;
     uint32_t        last_sample_ms;
     bool            sampled_ever;
+    char            tags[BB_PUB_MAX_TAGS_PER_SOURCE][BB_PUB_TAG_MAX + 1];
+    const char     *tag_ptrs[BB_PUB_MAX_TAGS_PER_SOURCE]; /* pointers into tags[][] */
+    int             ntags;
 } bb_pub_source_t;
 
 static bb_pub_source_t s_sources[CONFIG_BB_PUB_MAX_SOURCES];
@@ -586,6 +589,17 @@ bb_err_t bb_pub_source_info(int i, const char **subtopic, bb_pub_sample_fn *fn,
     return BB_OK;
 }
 
+bb_err_t bb_pub_source_info_ex(int i, const char **subtopic, bb_pub_sample_fn *fn,
+                                void **ctx, uint32_t *last_sample_ms, bool *sampled_ever,
+                                const char *const **tags, int *ntags)
+{
+    bb_err_t err = bb_pub_source_info(i, subtopic, fn, ctx, last_sample_ms, sampled_ever);
+    if (err != BB_OK) return err;
+    if (tags)  *tags  = s_sources[i].tag_ptrs;
+    if (ntags) *ntags = s_sources[i].ntags;
+    return BB_OK;
+}
+
 bool bb_pub_ring_undersized(void)
 {
 #if CONFIG_BB_PUB_BUFFER_ENABLE
@@ -642,6 +656,25 @@ bb_err_t bb_pub_register_source(const char *subtopic, bb_pub_sample_fn fn, void 
     src->ctx            = ctx;
     src->last_sample_ms = 0;
     src->sampled_ever   = false;
+    src->ntags          = 0;
+    memset(src->tags, 0, sizeof(src->tags));
+    memset(src->tag_ptrs, 0, sizeof(src->tag_ptrs));
+    return BB_OK;
+}
+
+bb_err_t bb_pub_register_source_ex(const char *subtopic, bb_pub_sample_fn fn, void *ctx,
+                                    const char *const *tags, int ntags)
+{
+    bb_err_t err = bb_pub_register_source(subtopic, fn, ctx);
+    if (err != BB_OK) return err;
+    bb_pub_source_t *src = &s_sources[s_source_count - 1];
+    int n = (ntags < BB_PUB_MAX_TAGS_PER_SOURCE) ? ntags : BB_PUB_MAX_TAGS_PER_SOURCE;
+    for (int t = 0; t < n; t++) {
+        strncpy(src->tags[t], tags[t], BB_PUB_TAG_MAX);
+        src->tags[t][BB_PUB_TAG_MAX] = '\0';
+        src->tag_ptrs[t] = src->tags[t];
+    }
+    src->ntags = n;
     return BB_OK;
 }
 
@@ -798,6 +831,57 @@ bool bb_pub_is_paused(void)
 }
 
 // ---------------------------------------------------------------------------
+// Subscription filter helpers
+// ---------------------------------------------------------------------------
+
+bool bb_pub_subscription_match(const bb_pub_subscription_t *sub,
+                                const char *subtopic,
+                                const char *const *tags, int ntags)
+{
+    if (!sub) return true;
+    if (!sub->subtopics && !sub->tags) return true;
+
+    if (sub->subtopics) {
+        for (int i = 0; i < sub->nsubtopics; i++) {
+            if (sub->subtopics[i] && strcmp(sub->subtopics[i], subtopic) == 0) return true;
+        }
+    }
+    if (sub->tags) {
+        for (int ti = 0; ti < ntags; ti++) {
+            for (int si = 0; si < sub->ntags; si++) {
+                if (sub->tags[si] && tags && tags[ti] &&
+                    strcmp(sub->tags[si], tags[ti]) == 0) return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool bb_pub_subscription_predicate(const char *subtopic,
+                                   const char *const *tags, int ntags,
+                                   void *ctx)
+{
+    return bb_pub_subscription_match((const bb_pub_subscription_t *)ctx,
+                                     subtopic, tags, ntags);
+}
+
+// ---------------------------------------------------------------------------
+// bb_pub_sample_into — call a single source's sample_fn by subtopic name
+// ---------------------------------------------------------------------------
+
+bool bb_pub_sample_into(const char *subtopic, bb_json_t obj)
+{
+    if (!subtopic || !obj) return false;
+    for (int i = 0; i < s_source_count; i++) {
+        if (strcmp(s_sources[i].subtopic, subtopic) == 0) {
+            return s_sources[i].fn(obj, s_sources[i].ctx);
+        }
+    }
+    bb_log_d(TAG, "sample_into: no source for '%s'", subtopic);
+    return false;
+}
+
+// ---------------------------------------------------------------------------
 // Public API — tick
 // ---------------------------------------------------------------------------
 
@@ -923,6 +1007,14 @@ bb_err_t bb_pub_tick_once(void)
 #if CONFIG_BB_PUB_BUFFER_ENABLE
             p->buffer_enqueued[si] = false;
 #endif
+
+            // Subscription filter: skip this (source, sink) pair if predicate rejects it.
+            if (sk->subscribe &&
+                !sk->subscribe(src->subtopic,
+                               src->tag_ptrs, src->ntags,
+                               sk->subscribe_ctx)) {
+                continue;
+            }
 
             // Stamp per-sink metadata fields when transport is set.
             if (sk->transport) {
@@ -1127,6 +1219,9 @@ void bb_pub_test_reset(void)
     for (int i = 0; i < s_source_count; i++) {
         s_sources[i].last_sample_ms = 0;
         s_sources[i].sampled_ever   = false;
+        s_sources[i].ntags          = 0;
+        memset(s_sources[i].tags, 0, sizeof(s_sources[i].tags));
+        memset(s_sources[i].tag_ptrs, 0, sizeof(s_sources[i].tag_ptrs));
     }
     s_source_count             = 0;
     s_hwm_warned               = false;

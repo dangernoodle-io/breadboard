@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "bb_pub.h"
+#include "bb_sink_event.h"
 #include "../../components/bb_log/src/bb_log_internal.h"
 #include "bb_nv.h"
 #include "bb_mdns_host_test_hooks.h"
@@ -1235,6 +1236,49 @@ void test_sse_idle_above_heartbeat(void);
 void test_sse_idle_resets_after_ping(void);
 void test_sse_idle_no_ping_multiple_steps(void);
 void test_sse_idle_accumulates_across_calls(void);
+
+// Forward declarations from test_bb_pub_subscription.c
+void test_bb_pub_subscription_match_null_sub_always_true(void);
+void test_bb_pub_subscription_match_both_null_lists_always_true(void);
+void test_bb_pub_subscription_match_subtopic_hit(void);
+void test_bb_pub_subscription_match_subtopic_miss(void);
+void test_bb_pub_subscription_match_tag_hit(void);
+void test_bb_pub_subscription_match_tag_miss(void);
+void test_bb_pub_subscription_match_or_logic_subtopic_matches(void);
+void test_bb_pub_subscription_match_or_logic_tag_matches(void);
+void test_bb_pub_subscription_match_or_logic_neither_matches(void);
+void test_bb_pub_register_source_ex_no_tags(void);
+void test_bb_pub_register_source_ex_with_tags(void);
+void test_bb_pub_register_source_ex_tags_capped(void);
+void test_bb_pub_source_info_ex_out_of_range(void);
+void test_bb_pub_subscribe_fn_null_receives_all(void);
+void test_bb_pub_subscribe_fn_filters_by_subtopic(void);
+void test_bb_pub_subscribe_fn_filters_by_tag(void);
+void test_bb_pub_subscribe_fn_all_filtered_no_publish(void);
+void test_bb_pub_sample_into_returns_false_no_source(void);
+void test_bb_pub_sample_into_calls_source(void);
+void test_bb_pub_sample_into_null_subtopic(void);
+void test_bb_pub_sample_into_null_obj(void);
+void test_bb_pub_tags_cleared_after_test_reset(void);
+
+// Forward declarations from test_bb_sink_event.c
+void test_bb_sink_event_null_out_returns_invalid_arg(void);
+void test_bb_sink_event_fills_sink(void);
+void test_bb_sink_event_register_topic_null_returns_invalid_arg(void);
+void test_bb_sink_event_register_topic_empty_returns_invalid_arg(void);
+void test_bb_sink_event_register_topic_ok(void);
+void test_bb_sink_event_tick_delivers_to_event_topic(void);
+void test_bb_sink_event_unregistered_subtopic_skipped(void);
+void test_bb_sink_event_sample_skip_not_delivered(void);
+void test_bb_sink_event_seed_all_posts_snapshot(void);
+void test_bb_sink_event_seed_all_no_source_skips(void);
+void test_bb_sink_event_max_topics_returns_no_space(void);
+
+// Forward declarations from test_bb_pub_parity.c
+void test_bb_pub_parity_register_source_ex_null_tags_same_behavior(void);
+void test_bb_pub_parity_source_and_source_ex_both_publish(void);
+void test_bb_pub_parity_source_info_ex_null_tags_returns_zero(void);
+void test_bb_pub_parity_subscription_predicate_null_ctx_pass_all(void);
 
 // Forward declarations from test_bb_vcore_wd.c
 void test_bb_vcore_wd_warmup_suppresses_all(void);
@@ -2754,6 +2798,7 @@ void setUp(void) {
     bb_health_stack_reset_for_test();
     bb_wdt_test_reset();
     bb_pub_test_reset();
+    bb_sink_event_reset_for_test();
 }
 void tearDown(void) {}
 
@@ -5473,6 +5518,49 @@ int main(void) {
     RUN_TEST(test_sse_idle_resets_after_ping);
     RUN_TEST(test_sse_idle_no_ping_multiple_steps);
     RUN_TEST(test_sse_idle_accumulates_across_calls);
+
+    // bb_pub subscription filter, tags, sample_into (B1 step 1)
+    RUN_TEST(test_bb_pub_subscription_match_null_sub_always_true);
+    RUN_TEST(test_bb_pub_subscription_match_both_null_lists_always_true);
+    RUN_TEST(test_bb_pub_subscription_match_subtopic_hit);
+    RUN_TEST(test_bb_pub_subscription_match_subtopic_miss);
+    RUN_TEST(test_bb_pub_subscription_match_tag_hit);
+    RUN_TEST(test_bb_pub_subscription_match_tag_miss);
+    RUN_TEST(test_bb_pub_subscription_match_or_logic_subtopic_matches);
+    RUN_TEST(test_bb_pub_subscription_match_or_logic_tag_matches);
+    RUN_TEST(test_bb_pub_subscription_match_or_logic_neither_matches);
+    RUN_TEST(test_bb_pub_register_source_ex_no_tags);
+    RUN_TEST(test_bb_pub_register_source_ex_with_tags);
+    RUN_TEST(test_bb_pub_register_source_ex_tags_capped);
+    RUN_TEST(test_bb_pub_source_info_ex_out_of_range);
+    RUN_TEST(test_bb_pub_subscribe_fn_null_receives_all);
+    RUN_TEST(test_bb_pub_subscribe_fn_filters_by_subtopic);
+    RUN_TEST(test_bb_pub_subscribe_fn_filters_by_tag);
+    RUN_TEST(test_bb_pub_subscribe_fn_all_filtered_no_publish);
+    RUN_TEST(test_bb_pub_sample_into_returns_false_no_source);
+    RUN_TEST(test_bb_pub_sample_into_calls_source);
+    RUN_TEST(test_bb_pub_sample_into_null_subtopic);
+    RUN_TEST(test_bb_pub_sample_into_null_obj);
+    RUN_TEST(test_bb_pub_tags_cleared_after_test_reset);
+
+    // bb_sink_event (B1 step 1)
+    RUN_TEST(test_bb_sink_event_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_sink_event_fills_sink);
+    RUN_TEST(test_bb_sink_event_register_topic_null_returns_invalid_arg);
+    RUN_TEST(test_bb_sink_event_register_topic_empty_returns_invalid_arg);
+    RUN_TEST(test_bb_sink_event_register_topic_ok);
+    RUN_TEST(test_bb_sink_event_tick_delivers_to_event_topic);
+    RUN_TEST(test_bb_sink_event_unregistered_subtopic_skipped);
+    RUN_TEST(test_bb_sink_event_sample_skip_not_delivered);
+    RUN_TEST(test_bb_sink_event_seed_all_posts_snapshot);
+    RUN_TEST(test_bb_sink_event_seed_all_no_source_skips);
+    RUN_TEST(test_bb_sink_event_max_topics_returns_no_space);
+
+    // bb_pub parity (B1 step 1)
+    RUN_TEST(test_bb_pub_parity_register_source_ex_null_tags_same_behavior);
+    RUN_TEST(test_bb_pub_parity_source_and_source_ex_both_publish);
+    RUN_TEST(test_bb_pub_parity_source_info_ex_null_tags_returns_zero);
+    RUN_TEST(test_bb_pub_parity_subscription_predicate_null_ctx_pass_all);
 
     return UNITY_END();
 }
