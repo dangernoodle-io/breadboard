@@ -7,6 +7,7 @@
 // with NTP synchronised wall-clock time, callers wanting epoch-ms should
 // include the wall-clock timestamp themselves inside their sample_fn.
 #include "bb_pub.h"
+#include "bb_claim.h"
 #include "bb_clock.h"
 #include "bb_json.h"
 #include "bb_log.h"
@@ -1171,37 +1172,19 @@ bb_err_t bb_pub_tick_once(void)
 }
 
 // ---------------------------------------------------------------------------
-// Exclusive-sink arbiter
+// Exclusive-sink arbiter (backed by bb_claim)
 // ---------------------------------------------------------------------------
 
-static const char *s_exclusive_holder = NULL;   /* NULL = slot free */
+static bb_claim_t s_sink_claim = BB_CLAIM_INIT;
 
 bb_err_t bb_pub_exclusive_acquire(const char *sink_id)
 {
-    if (!sink_id) return BB_ERR_INVALID_ARG;
-    if (s_exclusive_holder == NULL) {
-        s_exclusive_holder = sink_id;
-        return BB_OK;
-    }
-    /* Already held by this id (idempotent) */
-    if (s_exclusive_holder == sink_id ||
-        strcmp(s_exclusive_holder, sink_id) == 0) {
-        return BB_OK;
-    }
-    /* Held by a different id — conflict */
-    bb_log_w(TAG, "exclusive sink conflict: '%s' holds slot, '%s' rejected",
-             s_exclusive_holder, sink_id);
-    return BB_ERR_CONFLICT;
+    return bb_claim_acquire(&s_sink_claim, sink_id);
 }
 
 void bb_pub_exclusive_release(const char *sink_id)
 {
-    if (!sink_id) return;
-    if (s_exclusive_holder == NULL) return;
-    if (s_exclusive_holder == sink_id ||
-        strcmp(s_exclusive_holder, sink_id) == 0) {
-        s_exclusive_holder = NULL;
-    }
+    bb_claim_release(&s_sink_claim, sink_id);
 }
 
 // ---------------------------------------------------------------------------
@@ -1211,7 +1194,7 @@ void bb_pub_exclusive_release(const char *sink_id)
 #ifdef BB_PUB_TESTING
 void bb_pub_exclusive_reset(void)
 {
-    s_exclusive_holder = NULL;
+    bb_claim_reset(&s_sink_claim);
 }
 
 void bb_pub_test_reset(void)
@@ -1240,7 +1223,7 @@ void bb_pub_test_reset(void)
     s_enabled                  = 1;
     s_config_loaded            = true;   /* bypass NVS for tests */
     s_interval_apply_hook      = NULL;
-    s_exclusive_holder         = NULL;
+    bb_claim_reset(&s_sink_claim);
     strncpy(s_metrics_prefix, CONFIG_BB_METRICS_PREFIX, BB_METRICS_PREFIX_MAX - 1);
     s_metrics_prefix[BB_METRICS_PREFIX_MAX - 1] = '\0';
 #if CONFIG_BB_PUB_BUFFER_ENABLE
