@@ -1,0 +1,19 @@
+menu "breadboard: bb_sse_writer"
+
+config BB_SSE_SEND_TIMEOUT_MS
+    int "SSE-write send timeout (ms)"
+    default 3000
+    range 500 30000
+    help
+        SSE-write send timeout in ms; a stalled client send is abandoned after
+        this interval so the socket and async httpd session are reclaimed.
+
+config BB_SSE_RECV_TIMEOUT_MS
+    int "SSE-write receive timeout (ms)"
+    default 30000
+    range 1000 120000
+    help
+        SSE-write receive timeout in ms (SO_RCVTIMEO); surfaces dead peers on
+        the read path. Default 30000 (= 2x the 15 s heartbeat interval).
+
+endmenu

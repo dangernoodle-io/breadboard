@@ -11,6 +11,22 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#ifdef CONFIG_BB_SSE_SEND_TIMEOUT_MS
+#define BB_SSE_SEND_TIMEOUT_MS CONFIG_BB_SSE_SEND_TIMEOUT_MS
+#endif
+#ifdef CONFIG_BB_SSE_RECV_TIMEOUT_MS
+#define BB_SSE_RECV_TIMEOUT_MS CONFIG_BB_SSE_RECV_TIMEOUT_MS
+#endif
+#endif
+#ifndef BB_SSE_SEND_TIMEOUT_MS
+#define BB_SSE_SEND_TIMEOUT_MS 3000
+#endif
+#ifndef BB_SSE_RECV_TIMEOUT_MS
+#define BB_SSE_RECV_TIMEOUT_MS 30000
+#endif
+
 static const char *TAG = "bb_sse_writer";
 
 // Frame buffer size: must be large enough for the largest SSE frame any
@@ -28,9 +44,19 @@ void bb_sse_writer_run(bb_http_request_t *req,
 {
     int fd = bb_http_req_sockfd(req);
 
-    // 30 s receive timeout — surfaces dead peers via SO_RCVTIMEO.
-    struct timeval tv = { .tv_sec = 30, .tv_usec = 0 };
+    // Receive timeout — surfaces dead peers via SO_RCVTIMEO.
+    struct timeval tv = {
+        .tv_sec  = BB_SSE_RECV_TIMEOUT_MS / 1000,
+        .tv_usec = (BB_SSE_RECV_TIMEOUT_MS % 1000) * 1000,
+    };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    // Send timeout — abandon stalled client sends so the socket/session is reclaimed.
+    struct timeval tv_snd = {
+        .tv_sec  = BB_SSE_SEND_TIMEOUT_MS / 1000,
+        .tv_usec = (BB_SSE_SEND_TIMEOUT_MS % 1000) * 1000,
+    };
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv_snd, sizeof(tv_snd));
 
     // Disable Nagle: SSE frames are small and must arrive promptly.
     int one = 1;
