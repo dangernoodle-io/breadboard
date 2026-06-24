@@ -27,7 +27,7 @@ typedef struct bb_event_routes_client bb_event_routes_client_t;
 typedef struct {
     size_t max_clients;        // 0 -> CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS
     size_t per_client_queue;   // 0 -> CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH
-    size_t ring_capacity;      // 0 -> CONFIG_BB_EVENT_ROUTES_RING_CAPACITY
+    size_t ring_capacity;      // 0 -> CONFIG_BB_EVENT_ROUTES_RING_CAPACITY (non-retained topics)
     size_t ring_max_entry;     // 0 -> CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY
     uint32_t heartbeat_ms;     // 0 -> CONFIG_BB_EVENT_ROUTES_HEARTBEAT_MS
 } bb_event_routes_cfg_t;
@@ -40,9 +40,11 @@ bb_err_t bb_event_routes_init(const bb_event_routes_cfg_t *cfg);
 // registered via bb_event_topic_register. Idempotent per topic.
 // Returns BB_ERR_NOT_FOUND if the topic isn't registered, BB_ERR_NO_SPACE if
 // the per-attached-topic slot array is full.
-// When `retained` is true the underlying ring is created with retained=true
-// (see bb_event_ring_attach_ex). Use this for state topics where new SSE
-// clients should always receive the last known value on connect.
+// When `retained` is true the underlying ring is created with capacity
+// CONFIG_BB_EVENT_ROUTES_RETAINED_RING_CAPACITY (default 1) rather than the
+// configured ring_capacity. A retained topic only needs to replay its latest
+// value on connect, so capacity-1 bounds heap use on no-PSRAM boards where
+// many retained topics would otherwise exhaust internal RAM.
 // Preferred form for retained topics; bb_event_routes_attach is equivalent
 // to bb_event_routes_attach_ex(name, false).
 bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained);
