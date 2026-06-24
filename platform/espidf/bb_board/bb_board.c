@@ -285,3 +285,28 @@ size_t bb_board_rtc_total(void)
     return 0;
 #endif
 }
+
+/*
+ * Internal DRAM static usage: sum of the .data and .bss section spans.
+ * Linker symbols _data_start/_data_end and _bss_start/_bss_end are defined
+ * in ESP-IDF's sections.ld.in for most targets but are absent on some
+ * (e.g. ESP32-P4). Declared weak so the linker resolves them to NULL when
+ * the section is not present; guarded so UB-free arithmetic only runs when
+ * both bounds are non-NULL and end > start.
+ */
+size_t bb_board_dram_static_bytes(void)
+{
+    extern int _data_start __attribute__((weak));
+    extern int _data_end   __attribute__((weak));
+    extern int _bss_start  __attribute__((weak));
+    extern int _bss_end    __attribute__((weak));
+
+    size_t total = 0;
+    if (&_data_start && &_data_end && (uintptr_t)&_data_end > (uintptr_t)&_data_start) {
+        total += (size_t)((uintptr_t)&_data_end - (uintptr_t)&_data_start);
+    }
+    if (&_bss_start && &_bss_end && (uintptr_t)&_bss_end > (uintptr_t)&_bss_start) {
+        total += (size_t)((uintptr_t)&_bss_end - (uintptr_t)&_bss_start);
+    }
+    return total;
+}

@@ -58,6 +58,8 @@ static bool info_sample(bb_json_t obj, void *ctx)
                            (double)bb_board_rtc_used());
     bb_json_obj_set_number(obj, "rtc_total",
                            (double)bb_board_rtc_total());
+    bb_json_obj_set_number(obj, "dram_static_bytes",
+                           (double)bb_board_dram_static_bytes());
     bb_json_obj_set_number(obj, "flash_size",
                            (double)bb_board_get_flash_size());
     bb_json_obj_set_number(obj, "app_size",

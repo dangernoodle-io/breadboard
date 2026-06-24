@@ -80,3 +80,15 @@ void test_bb_board_heap_internal_minimum_ever_callable(void)
     size_t sz = bb_board_heap_internal_minimum_ever();
     TEST_ASSERT_EQUAL_INT(sz, sz);  // Sanity: no crash, returns size_t
 }
+
+void test_bb_board_dram_static_bytes_callable(void)
+{
+    size_t sz = bb_board_dram_static_bytes();
+    TEST_ASSERT_EQUAL_INT(sz, sz);  // Sanity: no crash, returns size_t
+}
+
+void test_bb_board_dram_static_bytes_returns_zero_on_host(void)
+{
+    // Host stub has no linker symbols — must return 0.
+    TEST_ASSERT_EQUAL_size_t(0, bb_board_dram_static_bytes());
+}

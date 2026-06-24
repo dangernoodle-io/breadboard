@@ -110,6 +110,10 @@ static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
     bb_json_obj_set_number(rtc, "used",  (double)bb_board_rtc_used());
     bb_json_obj_set_number(rtc, "total", (double)bb_board_rtc_total());
     bb_json_obj_set_obj(root, "rtc", rtc);
+
+    bb_json_t static_dram = bb_json_obj_new();
+    bb_json_obj_set_number(static_dram, "bytes", (double)bb_board_dram_static_bytes());
+    bb_json_obj_set_obj(root, "static_dram", static_dram);
 }
 
 static void add_network_object(bb_json_t root, const bb_wifi_info_t *w)
