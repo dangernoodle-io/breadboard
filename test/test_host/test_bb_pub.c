@@ -141,8 +141,8 @@ void test_bb_pub_payload_contains_ts_field(void)
     bb_pub_register_source("temp", sample_temperature, NULL);
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    // Payload must contain "ts" field injected by tick
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ts\""));
+    // Payload must contain "uptime_ms" field injected by tick
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"uptime_ms\""));
 }
 
 void test_bb_pub_multiple_sources_each_produce_publish(void)

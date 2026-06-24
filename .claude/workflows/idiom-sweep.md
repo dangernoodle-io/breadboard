@@ -33,6 +33,13 @@ Domains:
 4. **Config / peripheral** — the inert-knob anti-pattern (`#ifndef BB_X` shadowing
    `CONFIG_BB_X` — grep every component), PMBus/I2C primitive duplication vs
    `bb_i2c_dev_*`, decode-helper structure, Kconfig default-vs-literal drift.
+5. **Clock / timestamp** — flag any site that: (a) calls raw `esp_timer_get_time()`
+   or `bb_timer_now_us()/1000` outside `bb_clock.h`/`bb_timer.h` wrappers for an
+   exposed timestamp; (b) assigns a u32 `bb_clock_now_ms()` value into a u64
+   `*_ms` field (silent truncation, wrong at 49.7-day boundary); (c) exposes an
+   absolute time point without the `_age_ms`/`_age_s`/`_epoch_s` suffix convention;
+   (d) uses `bb_clock_now_ms()` (u32) as the source for any JSON/HTTP field that
+   should be no-wrap u64. Report file:line, field name, and whether a `bb_clock_now_ms64()` swap suffices.
 
 Then **adversarially verify** any P0/P1 finding (a second agent that tries to
 refute it) before acting — datasheet/bit-level or behavior claims especially.

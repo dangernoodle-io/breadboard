@@ -116,13 +116,13 @@ void test_bb_pub_wifi_rssi_value_correct(void)
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "-55"));
 }
 
-void test_bb_pub_wifi_payload_has_ts_field(void)
+void test_bb_pub_wifi_payload_has_uptime_ms_field(void)
 {
     setup();
     bb_pub_wifi_test_set_rssi(true, -60);
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ts\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"uptime_ms\""));
 }
 
 // ---------------------------------------------------------------------------

@@ -57,6 +57,7 @@
 #include "bb_event_ring.h"
 #include "bb_log.h"
 #include "bb_clock.h"
+#include "bb_timer.h"
 #include "bb_info.h"
 #include "bb_info_test.h"
 #include "bb_health.h"
@@ -137,7 +138,7 @@ static const char k_info_schema[] =
     ",\"http_handler_count\":{\"type\":\"integer\"},"
     "\"http_handler_cap\":{\"type\":\"integer\"},"
     "\"uptime_ms\":{\"type\":\"integer\"},"
-    "\"boot_epoch\":{\"type\":\"integer\"},"
+    "\"boot_epoch_s\":{\"type\":\"integer\"},"
     "\"time_valid\":{\"type\":\"boolean\"},"
     "\"time_source\":{\"type\":\"string\"},"
     "\"hostname\":{\"type\":[\"string\",\"null\"]},"
@@ -274,10 +275,10 @@ static const char k_diag_events_schema[] =
     "\"ring_capacity\":{\"type\":\"integer\"},"
     "\"ring_count\":{\"type\":\"integer\"},"
     "\"last_id\":{\"type\":\"integer\"},"
-    "\"last_post_us\":{\"type\":\"integer\"},"
+    "\"last_post_age_ms\":{\"type\":\"integer\"},"
     "\"last_size\":{\"type\":\"integer\"}},"
     "\"required\":[\"name\",\"ring_capacity\",\"ring_count\","
-    "\"last_id\",\"last_post_us\",\"last_size\"]}},"
+    "\"last_id\",\"last_post_age_ms\",\"last_size\"]}},"
     "\"max_clients\":{\"type\":\"integer\"},"
     "\"active_clients\":{\"type\":\"integer\"}},"
     "\"required\":[\"topics\",\"max_clients\",\"active_clients\"]}";
@@ -395,20 +396,20 @@ static bb_err_t h_info(bb_http_request_t *req)
                                   (double)bb_http_route_handler_count());
     bb_http_resp_json_obj_set_num(&obj, "http_handler_cap",
                                   (double)bb_http_route_handler_cap());
-    // uptime, boot_epoch, time_valid — same accessors as bb_pub_info (SSOT).
+    // uptime, boot_epoch_s, time_valid — same accessors as bb_pub_info (SSOT).
     int64_t uptime_ms = bb_clock_now_ms();
     bb_http_resp_json_obj_set_int(&obj, "uptime_ms", uptime_ms);
-    bool   time_valid  = false;
-    int64_t boot_epoch = 0;
+    bool   time_valid    = false;
+    int64_t boot_epoch_s = 0;
     if (bb_ntp_is_synced()) {
         time_t now = time(NULL);
         if (now >= (time_t)1704067200LL) {
-            time_valid  = true;
-            boot_epoch  = (int64_t)now - (uptime_ms / 1000);
+            time_valid    = true;
+            boot_epoch_s  = (int64_t)now - (uptime_ms / 1000);
         }
     }
-    bb_http_resp_json_obj_set_bool(&obj, "time_valid",  time_valid);
-    bb_http_resp_json_obj_set_int (&obj, "boot_epoch",  boot_epoch);
+    bb_http_resp_json_obj_set_bool(&obj, "time_valid",   time_valid);
+    bb_http_resp_json_obj_set_int (&obj, "boot_epoch_s", boot_epoch_s);
     // hostname — same value as /api/health.network.mdns.
     const char *hostname_val = bb_mdns_get_hostname();
     if (hostname_val) {
@@ -634,6 +635,9 @@ static bb_err_t h_diag_events(bb_http_request_t *req)
     bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
     if (err != BB_OK) return err;
 
+    // Capture now_us once for age computation across all topics.
+    int64_t now_us = (int64_t)bb_timer_now_us();
+
     bb_http_resp_json_obj_set_arr_begin(&obj, "topics");
     size_t n = bb_event_routes_topic_count();
     for (size_t i = 0; i < n; i++) {
@@ -652,20 +656,23 @@ static bb_err_t h_diag_events(bb_http_request_t *req)
             size_t   last_sz = 0;
             int64_t  last_us = 0;
             if (bb_event_ring_last_entry_info(ring, &last_id, &last_sz, &last_us) == BB_OK) {
-                bb_http_resp_json_obj_set_int(&obj, "last_id",      (int64_t)last_id);
-                bb_http_resp_json_obj_set_int(&obj, "last_post_us", last_us);
-                bb_http_resp_json_obj_set_int(&obj, "last_size",    (int64_t)last_sz);
+                int64_t age_ms = (last_us > 0 && now_us >= last_us)
+                                 ? (now_us - last_us) / 1000
+                                 : 0;
+                bb_http_resp_json_obj_set_int(&obj, "last_id",          (int64_t)last_id);
+                bb_http_resp_json_obj_set_int(&obj, "last_post_age_ms", age_ms);
+                bb_http_resp_json_obj_set_int(&obj, "last_size",        (int64_t)last_sz);
             } else {
-                bb_http_resp_json_obj_set_int(&obj, "last_id",      0);
-                bb_http_resp_json_obj_set_int(&obj, "last_post_us", 0);
-                bb_http_resp_json_obj_set_int(&obj, "last_size",    0);
+                bb_http_resp_json_obj_set_int(&obj, "last_id",          0);
+                bb_http_resp_json_obj_set_int(&obj, "last_post_age_ms", 0);
+                bb_http_resp_json_obj_set_int(&obj, "last_size",        0);
             }
         } else {
-            bb_http_resp_json_obj_set_int(&obj, "ring_capacity", 0);
-            bb_http_resp_json_obj_set_int(&obj, "ring_count",    0);
-            bb_http_resp_json_obj_set_int(&obj, "last_id",       0);
-            bb_http_resp_json_obj_set_int(&obj, "last_post_us",  0);
-            bb_http_resp_json_obj_set_int(&obj, "last_size",     0);
+            bb_http_resp_json_obj_set_int(&obj, "ring_capacity",    0);
+            bb_http_resp_json_obj_set_int(&obj, "ring_count",       0);
+            bb_http_resp_json_obj_set_int(&obj, "last_id",          0);
+            bb_http_resp_json_obj_set_int(&obj, "last_post_age_ms", 0);
+            bb_http_resp_json_obj_set_int(&obj, "last_size",        0);
         }
         bb_http_resp_json_obj_set_obj_end(&obj);
     }
@@ -970,6 +977,40 @@ void test_fidelity_diag_events(void)
     };
     bb_event_routes_init(&cfg);  /* idempotent */
 
+    const fidelity_entry_t e = {
+        "/api/diag/events", h_diag_events, 200,
+        "application/json", k_diag_events_schema,
+    };
+    run_fidelity(&e);
+}
+
+// Branch coverage for last_post_age_ms computation in h_diag_events:
+// attach a topic, post one event (ring gets a non-zero last_us timestamp),
+// then invoke the handler — exercises the positive-age branch.
+// The no-events branch is already covered by test_fidelity_diag_events above.
+void test_fidelity_diag_events_age_ms_branch(void)
+{
+    static const bb_event_routes_cfg_t cfg = {
+        .max_clients      = 1,
+        .per_client_queue = 2,
+        .ring_capacity    = 4,
+        .ring_max_entry   = 64,
+        .heartbeat_ms     = 1000,
+    };
+    bb_event_init(NULL);          /* idempotent */
+    bb_event_routes_init(&cfg);   /* idempotent */
+
+    bb_event_topic_t t;
+    bb_event_topic_register("age.test.topic", &t);
+    bb_event_routes_attach("age.test.topic");
+
+    // Post an event so the ring has a non-zero last_us timestamp.
+    const char *payload = "{\"v\":1}";
+    bb_event_post(t, 0, payload, strlen(payload));
+    bb_event_pump(0);
+
+    // h_diag_events should now hit the (last_us > 0 && now_us >= last_us) branch
+    // and emit a non-negative last_post_age_ms.
     const fidelity_entry_t e = {
         "/api/diag/events", h_diag_events, 200,
         "application/json", k_diag_events_schema,
@@ -1330,16 +1371,16 @@ void test_fidelity_info_has_time_valid_false_on_host(void)
     cJSON_Delete(doc);
 }
 
-// (I4) boot_epoch is present and 0 when time is not valid (host: ntp not synced).
+// (I4) boot_epoch_s is present and 0 when time is not valid (host: ntp not synced).
 void test_fidelity_info_boot_epoch_zero_when_not_synced(void)
 {
     cJSON *doc = invoke_h_info_and_parse();
     TEST_ASSERT_NOT_NULL_MESSAGE(doc, "info body not valid JSON");
-    cJSON *field = cJSON_GetObjectItemCaseSensitive(doc, "boot_epoch");
-    TEST_ASSERT_NOT_NULL_MESSAGE(field, "boot_epoch missing from /api/info body");
-    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsNumber(field), "boot_epoch is not a number");
+    cJSON *field = cJSON_GetObjectItemCaseSensitive(doc, "boot_epoch_s");
+    TEST_ASSERT_NOT_NULL_MESSAGE(field, "boot_epoch_s missing from /api/info body");
+    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsNumber(field), "boot_epoch_s is not a number");
     TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(0.0, field->valuedouble,
-        "boot_epoch should be 0 when time is not valid");
+        "boot_epoch_s should be 0 when time is not valid");
     cJSON_Delete(doc);
 }
 

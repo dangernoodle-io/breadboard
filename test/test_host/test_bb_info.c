@@ -238,8 +238,8 @@ void test_bb_info_schema_contains_boot_epoch(void)
     const char *schema = bb_info_get_assembled_schema();
     TEST_ASSERT_NOT_NULL(schema);
     TEST_ASSERT_NOT_NULL_MESSAGE(
-        strstr(schema, "\"boot_epoch\":{\"type\":\"integer\"}"),
-        "boot_epoch not found in assembled schema");
+        strstr(schema, "\"boot_epoch_s\":{\"type\":\"integer\"}"),
+        "boot_epoch_s not found in assembled schema");
 }
 
 // (U3) Schema contains time_valid boolean field.

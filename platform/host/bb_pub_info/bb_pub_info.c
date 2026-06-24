@@ -112,22 +112,24 @@ static bool info_sample(bb_json_t obj, void *ctx)
     size_t rtc_free  = (rtc_total >= rtc_used) ? (rtc_total - rtc_used) : 0;
     bb_json_obj_set_number(obj, "rtc_free", (double)rtc_free);
 
-    // RTC clock fields: time_valid, epoch_s, time_source
-    bool   time_valid  = false;
-    int64_t epoch_s    = 0;
+    // RTC clock fields: time_valid, boot_epoch_s, time_source
+    // boot_epoch_s = Unix seconds at boot time (0 if NTP not synced).
+    bool   time_valid    = false;
+    int64_t boot_epoch_s = 0;
     const char *time_source = "none";
     if (bb_ntp_is_synced()) {
         time_t now = time(NULL);
         // Sanity-check: year >= 2024 (unix epoch >= 1704067200)
         if (now >= (time_t)1704067200LL) {
-            time_valid  = true;
-            epoch_s     = (int64_t)now;
-            time_source = "sntp";
+            time_valid    = true;
+            int64_t uptime_s = (int64_t)bb_clock_now_ms() / 1000;
+            boot_epoch_s  = (int64_t)now - uptime_s;
+            time_source   = "sntp";
         }
     }
-    bb_json_obj_set_bool  (obj, "time_valid",   time_valid);
-    bb_json_obj_set_number(obj, "epoch_s",      (double)epoch_s);
-    bb_json_obj_set_string(obj, "time_source",  time_source);
+    bb_json_obj_set_bool  (obj, "time_valid",    time_valid);
+    bb_json_obj_set_number(obj, "boot_epoch_s",  (double)boot_epoch_s);
+    bb_json_obj_set_string(obj, "time_source",   time_source);
 
     // Always publish — provides a heartbeat even without hardware HALs.
     return true;

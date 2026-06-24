@@ -153,17 +153,17 @@ static bb_err_t info_handler(bb_http_request_t *req)
     bb_json_obj_set_number(root, "uptime_ms", (double)uptime_ms);
 
     bool   time_valid = false;
-    int64_t boot_epoch = 0;
+    int64_t boot_epoch_s = 0;
     if (bb_ntp_is_synced()) {
         time_t now = time(NULL);
         if (now >= (time_t)1704067200LL) {
             time_valid  = true;
             int64_t uptime_s = uptime_ms / 1000;
-            boot_epoch = (int64_t)now - uptime_s;
+            boot_epoch_s = (int64_t)now - uptime_s;
         }
     }
-    bb_json_obj_set_bool  (root, "time_valid",  time_valid);
-    bb_json_obj_set_number(root, "boot_epoch",  (double)boot_epoch);
+    bb_json_obj_set_bool  (root, "time_valid",   time_valid);
+    bb_json_obj_set_number(root, "boot_epoch_s", (double)boot_epoch_s);
     // time_source: parity with bb_pub_info telemetry (was published but absent here).
     bb_json_obj_set_string(root, "time_source", time_valid ? "sntp" : "none");
 

@@ -53,7 +53,7 @@ typedef struct {
     int      vin_min_mv;   // rolling minimum VIN (mv); INT_MAX = no reading yet
     uint16_t sag_count;    // VIN-UV sag events since open / last reset
     int      last_sag_mv;  // VIN at last sag; -1 if none
-    uint64_t last_sag_ms;  // bb_clock_now_ms() at last sag; 0 if none
+    uint64_t last_sag_ms;  // bb_clock_now_ms64() at last sag; 0 if none
 } tps546_state_t;
 
 // ---------------------------------------------------------------------------
@@ -237,7 +237,7 @@ static void op_poll(void *state)
         // op_read_vin_mv (called earlier in the same bb_power_poll tick); use
         // it as the sag level if available, otherwise -1.
         s->last_sag_mv  = (s->vin_min_mv != INT_MAX) ? s->vin_min_mv : -1;
-        s->last_sag_ms  = (uint64_t)bb_clock_now_ms();
+        s->last_sag_ms  = bb_clock_now_ms64();
         s->sag_count++;
     }
     pthread_mutex_unlock(&s->status_lock);

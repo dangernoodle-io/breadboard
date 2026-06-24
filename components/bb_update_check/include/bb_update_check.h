@@ -51,7 +51,7 @@ typedef struct {
     char    latest[24];
     char    download_url[256];
     char    board[64];         // effective board name used for the last check ("unknown" if unset)
-    int64_t last_check_us;     // 0 if never
+    int64_t last_check_us;     // epoch-us (gettimeofday), NOT monotonic; 0 if never
     bool    last_check_ok;     // false => sticky failure (FAILED outcome)
     bool    available;
     bool    enabled;           // mirrors bb_nv_config_update_check_enabled()

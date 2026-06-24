@@ -45,7 +45,7 @@ static bb_periodic_timer_t   s_timer = NULL;
 // MQTT disconnect tracking: record the ms-timestamp when reconnect_count
 // increases (the moment we detect a new disconnect).  0 means "no disconnect
 // observed yet" (i.e. no reconnects have ever occurred).
-static uint64_t              s_mqtt_disc_time_ms = 0;   // bb_timer_now_us()/1000 at last disc
+static uint64_t              s_mqtt_disc_time_ms = 0;   // bb_timer_now_us()/1000 at last disc; _ms name is intentional (derived to mqtt_disc_age_s)
 static uint32_t              s_last_reconnect_count = 0; // glue-side mirror for disc detection
 #if CONFIG_BB_PUB_ADAPTIVE_BACKOFF
 static uint32_t              s_baseline_interval_ms = 0;  // captured before first throttle

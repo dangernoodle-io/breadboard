@@ -8,6 +8,7 @@
 #include "bb_log.h"
 #include "bb_registry.h"
 #include "bb_sse_writer.h"
+#include "bb_timer.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -242,6 +243,9 @@ static bb_err_t diag_events_handler(bb_http_request_t *req)
     bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
     if (err != BB_OK) return err;
 
+    // Capture now_us once for age computation across all topics.
+    int64_t now_us = (int64_t)bb_timer_now_us();
+
     // "topics" array
     bb_http_resp_json_obj_set_arr_begin(&obj, "topics");
     size_t n = bb_event_routes_topic_count();
@@ -261,20 +265,23 @@ static bb_err_t diag_events_handler(bb_http_request_t *req)
             size_t   last_sz = 0;
             int64_t  last_us = 0;
             if (bb_event_ring_last_entry_info(ring, &last_id, &last_sz, &last_us) == BB_OK) {
-                bb_http_resp_json_obj_set_int(&obj, "last_id",      (int64_t)last_id);
-                bb_http_resp_json_obj_set_int(&obj, "last_post_us", last_us);
-                bb_http_resp_json_obj_set_int(&obj, "last_size",    (int64_t)last_sz);
+                int64_t age_ms = (last_us > 0 && now_us >= last_us)
+                                 ? (now_us - last_us) / 1000
+                                 : 0;
+                bb_http_resp_json_obj_set_int(&obj, "last_id",          (int64_t)last_id);
+                bb_http_resp_json_obj_set_int(&obj, "last_post_age_ms", age_ms);
+                bb_http_resp_json_obj_set_int(&obj, "last_size",        (int64_t)last_sz);
             } else {
-                bb_http_resp_json_obj_set_int(&obj, "last_id",      0);
-                bb_http_resp_json_obj_set_int(&obj, "last_post_us", 0);
-                bb_http_resp_json_obj_set_int(&obj, "last_size",    0);
+                bb_http_resp_json_obj_set_int(&obj, "last_id",          0);
+                bb_http_resp_json_obj_set_int(&obj, "last_post_age_ms", 0);
+                bb_http_resp_json_obj_set_int(&obj, "last_size",        0);
             }
         } else {
-            bb_http_resp_json_obj_set_int(&obj, "ring_capacity", 0);
-            bb_http_resp_json_obj_set_int(&obj, "ring_count",    0);
-            bb_http_resp_json_obj_set_int(&obj, "last_id",       0);
-            bb_http_resp_json_obj_set_int(&obj, "last_post_us",  0);
-            bb_http_resp_json_obj_set_int(&obj, "last_size",     0);
+            bb_http_resp_json_obj_set_int(&obj, "ring_capacity",    0);
+            bb_http_resp_json_obj_set_int(&obj, "ring_count",       0);
+            bb_http_resp_json_obj_set_int(&obj, "last_id",          0);
+            bb_http_resp_json_obj_set_int(&obj, "last_post_age_ms", 0);
+            bb_http_resp_json_obj_set_int(&obj, "last_size",        0);
         }
         bb_http_resp_json_obj_set_obj_end(&obj);
     }
@@ -297,15 +304,15 @@ static const bb_route_response_t s_diag_events_responses[] = {
       "\"ring_capacity\":{\"type\":\"integer\"},"
       "\"ring_count\":{\"type\":\"integer\"},"
       "\"last_id\":{\"type\":\"integer\"},"
-      "\"last_post_us\":{\"type\":\"integer\"},"
+      "\"last_post_age_ms\":{\"type\":\"integer\"},"
       "\"last_size\":{\"type\":\"integer\"}},"
       "\"required\":[\"name\",\"ring_capacity\",\"ring_count\","
-      "\"last_id\",\"last_post_us\",\"last_size\"]}},"
+      "\"last_id\",\"last_post_age_ms\",\"last_size\"]}},"
       "\"max_clients\":{\"type\":\"integer\"},"
       "\"active_clients\":{\"type\":\"integer\"}},"
       "\"required\":[\"topics\",\"max_clients\",\"active_clients\"]}",
       "topic discovery and ring-buffer diagnostics for /api/events — "
-      "ring_count=0 means no replay data; last_post_us=0 means no events captured yet" },
+      "ring_count=0 means no replay data; last_post_age_ms=0 means no events captured yet" },
     { 0 },
 };
 

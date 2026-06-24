@@ -2,6 +2,7 @@
 #include "wifi_reconn_policy.h"
 #include "bb_nv.h"
 #include "bb_ota_validator.h"
+#include "bb_timer.h"
 
 #include <stdio.h>
 
@@ -58,7 +59,7 @@ static wifi_reconn_state_t s_state = {0};
 // Adapter to provide current time to policy module.
 static int64_t reconn_now_us(void)
 {
-    return esp_timer_get_time();
+    return (int64_t)bb_timer_now_us();
 }
 
 static const wifi_reconn_adapter_t s_adapter = {
@@ -237,7 +238,7 @@ void wifi_reconn_get_disconnect(uint8_t *reason, int64_t *age_us)
     if (reason) *reason = s_state.last_reason;
     if (age_us) {
         int64_t t = s_state.last_disconnect_us;
-        *age_us = (t == 0) ? 0 : (esp_timer_get_time() - t);
+        *age_us = (t == 0) ? 0 : ((int64_t)bb_timer_now_us() - t);
     }
 }
 

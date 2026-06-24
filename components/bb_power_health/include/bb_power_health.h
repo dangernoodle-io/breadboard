@@ -9,7 +9,7 @@
 // Typical call site (periodic 1-second poll task):
 //   bb_vcore_wd_input_t in = { .vcore_mv = measured_mv,
 //                               .rail_enabled = true,
-//                               .uptime_ms = bb_clock_now_ms() };
+//                               .uptime_ms = bb_clock_now_ms64() };
 //   bb_vcore_wd_action_t act = bb_vcore_wd_eval(&s_wd, &in);
 //   if (act == BB_VCORE_WD_RECOVER) bb_power_tps546_recover(h, &cfg);
 #pragma once

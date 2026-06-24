@@ -267,7 +267,7 @@ static void metrics_prom_walk_cb(const char *key, bb_json_t child, void *ctx_)
     metrics_walk_ctx_t *ctx = (metrics_walk_ctx_t *)ctx_;
     if (ctx->err != BB_OK) return;
     if (!key) return;  // array element — skip
-    if (strcmp(key, "ts") == 0 || strcmp(key, "transport") == 0 ||
+    if (strcmp(key, "uptime_ms") == 0 || strcmp(key, "transport") == 0 ||
         strcmp(key, "tls") == 0) return;  // skip injected fields
 
     char name[128];
@@ -346,7 +346,7 @@ static void metrics_schema_json_walk_cb(const char *key, bb_json_t child, void *
     metrics_schema_json_ctx_t *ctx = (metrics_schema_json_ctx_t *)ctx_;
     if (ctx->err != BB_OK) return;
     if (!key) return;
-    if (strcmp(key, "ts") == 0 || strcmp(key, "transport") == 0 ||
+    if (strcmp(key, "uptime_ms") == 0 || strcmp(key, "transport") == 0 ||
         strcmp(key, "tls") == 0) return;
 
     char name[128];
@@ -368,7 +368,7 @@ static void metrics_json_val_walk_cb(const char *key, bb_json_t child, void *ctx
 {
     bb_http_json_obj_stream_t *jstream = (bb_http_json_obj_stream_t *)ctx_;
     if (!key) return;
-    if (strcmp(key, "ts") == 0 || strcmp(key, "transport") == 0 ||
+    if (strcmp(key, "uptime_ms") == 0 || strcmp(key, "transport") == 0 ||
         strcmp(key, "tls") == 0) return;
 
     if (bb_json_item_is_number(child)) {
@@ -647,7 +647,7 @@ static bb_err_t metrics_handler(bb_http_request_t *req)
         if (err != BB_OK) return err;
 
         bb_http_resp_json_obj_set_str(&jstream, "host", host);
-        bb_http_resp_json_obj_set_int(&jstream, "ts_ms", (int64_t)bb_clock_now_ms());
+        bb_http_resp_json_obj_set_int(&jstream, "uptime_ms", (int64_t)bb_clock_now_ms64());
 
         bb_http_resp_json_obj_set_obj_begin(&jstream, "sources");
         int n = bb_pub_source_count();

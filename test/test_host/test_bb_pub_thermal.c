@@ -348,7 +348,7 @@ void test_bb_pub_thermal_asic_null_when_die_nan(void)
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"asic_c\":null"));
 }
 
-void test_bb_pub_thermal_payload_has_ts_field(void)
+void test_bb_pub_thermal_payload_has_uptime_ms_field(void)
 {
     reset_all();
     bb_temp_test_set_soc(true, 35.0f);
@@ -359,5 +359,5 @@ void test_bb_pub_thermal_payload_has_ts_field(void)
 
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ts\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"uptime_ms\""));
 }

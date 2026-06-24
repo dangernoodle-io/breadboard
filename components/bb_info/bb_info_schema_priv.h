@@ -59,7 +59,7 @@ static const char k_info_schema_base[] =
     "\"http_handler_count\":{\"type\":\"integer\"},"
     "\"http_handler_cap\":{\"type\":\"integer\"},"
     "\"uptime_ms\":{\"type\":\"integer\"},"
-    "\"boot_epoch\":{\"type\":\"integer\"},"
+    "\"boot_epoch_s\":{\"type\":\"integer\"},"
     "\"time_valid\":{\"type\":\"boolean\"},"
     "\"time_source\":{\"type\":\"string\"},"
     "\"hostname\":{\"type\":[\"string\",\"null\"]},"
