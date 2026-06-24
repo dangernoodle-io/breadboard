@@ -30,7 +30,8 @@ typedef void (*bb_sse_cleanup_fn_t)(void *ctx);
 // ---------------------------------------------------------------------------
 //
 // Runs the full SSE server-push loop for one client connection:
-//   - Sets SO_RCVTIMEO (30 s) and TCP_NODELAY on the socket fd
+//   - Sets SO_RCVTIMEO (30 s), SO_SNDTIMEO (BB_SSE_SEND_TIMEOUT_MS, default 3 s),
+//     and TCP_NODELAY on the socket fd
 //   - Sends standard SSE response headers
 //   - Sends connected_line as the first SSE comment/event
 //   - Loops: peer-FIN probe, wait_fn call, frame send, heartbeat ping
