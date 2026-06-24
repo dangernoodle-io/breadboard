@@ -87,9 +87,9 @@ void test_bb_sink_mqtt_tick_forwards_to_mqtt_stub(void)
     // Topic must be "metrics/mqtthost/cpu"
     TEST_ASSERT_EQUAL_STRING("metrics/mqtthost/cpu", p->topic);
 
-    // Payload must contain the source field and ts
+    // Payload must contain the source field and uptime_ms
     TEST_ASSERT_NOT_NULL(strstr(p->payload, "\"val\""));
-    TEST_ASSERT_NOT_NULL(strstr(p->payload, "\"ts\""));
+    TEST_ASSERT_NOT_NULL(strstr(p->payload, "\"uptime_ms\""));
 
     // QoS and retain must use defaults (0, false)
     TEST_ASSERT_EQUAL_INT(0, p->qos);

@@ -522,7 +522,7 @@ void test_bb_pub_buffer_always_off_regression(void)
 
 // Source that emits a payload large enough to exceed BB_PUB_BUFFER_ENTRY_MAX.
 // We add a string field with 300 'x' characters; together with the topic and
-// the mandatory "ts" field the serialized entry will exceed the ring slot.
+// the mandatory "uptime_ms" field the serialized entry will exceed the ring slot.
 static bool oversized_source_fn(bb_json_t obj, void *ctx)
 {
     (void)ctx;

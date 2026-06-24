@@ -1,8 +1,8 @@
 // bb_pub core — transport-agnostic telemetry publisher.
 // Compiled on both host (tests) and ESP-IDF (linked alongside bb_pub_espidf.c).
 //
-// Timestamp note: bb_pub_tick_once injects a "ts" field using
-// bb_clock_now_ms(), which returns uptime-milliseconds on all platforms
+// Timestamp note: bb_pub_tick_once injects an "uptime_ms" field (uint64_t)
+// using bb_clock_now_ms64(), which returns monotonic ms on all platforms
 // (host: CLOCK_MONOTONIC, ESP-IDF: esp_timer_get_time()/1000). On devices
 // with NTP synchronised wall-clock time, callers wanting epoch-ms should
 // include the wall-clock timestamp themselves inside their sample_fn.
@@ -938,8 +938,8 @@ bb_err_t bb_pub_tick_once(void)
     }
 #endif
 
-    // Take ONE timestamp for the entire cycle.
-    uint32_t ts_ms = bb_clock_now_ms();
+    // Take ONE timestamp for the entire cycle (u64 — no 49.7-day wrap).
+    uint64_t ts_ms = bb_clock_now_ms64();
 #if CONFIG_BB_PUB_BUFFER_ENABLE
     // Capture current wall-clock epoch once (0 if NTP not synced).
     int64_t tick_epoch_ms = capture_epoch_ms();
@@ -985,8 +985,8 @@ bb_err_t bb_pub_tick_once(void)
         src->last_sample_ms = ts_ms;
         src->sampled_ever   = true;
 
-        // Inject shared timestamp field (uptime-ms; see file-level note above).
-        bb_json_obj_set_number(obj, "ts", (double)ts_ms);
+        // Inject shared timestamp field (uptime-ms u64; see file-level note above).
+        bb_json_obj_set_number(obj, "uptime_ms", (double)ts_ms);
 
         // Invoke payload extenders in registration order before serialize.
         for (int pi = 0; pi < s_payload_extender_count; pi++) {

@@ -228,7 +228,7 @@ typedef struct {
     int      vin_min_mv;    // rolling minimum VIN seen since open/reset; INT_MAX = no reading yet
     uint16_t sag_count;     // number of VIN-UV sag events recorded
     int      last_sag_mv;   // VIN reading at last sag event; -1 if none
-    uint64_t last_sag_ms;   // bb_clock_now_ms() at last sag event; 0 if none
+    uint64_t last_sag_ms;   // bb_clock_now_ms64() at last sag event; 0 if none
 } bb_power_tps546_status_t;
 
 #ifdef ESP_PLATFORM

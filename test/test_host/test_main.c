@@ -635,6 +635,7 @@ void test_fidelity_diag_partitions(void);
 void test_fidelity_update_status(void);
 void test_fidelity_update_config_get(void);
 void test_fidelity_diag_events(void);
+void test_fidelity_diag_events_age_ms_branch(void);
 void test_capture_cors_headers_recorded(void);
 void test_capture_cors_absent_by_default(void);
 void test_ota_progress_handler_emits_cors_headers(void);
@@ -2635,7 +2636,7 @@ void test_bb_pub_fan_rpm_null_when_minus_one(void);
 void test_bb_pub_fan_die_c_null_when_nan(void);
 void test_bb_pub_fan_board_c_null_when_nan(void);
 void test_bb_pub_fan_skips_when_no_primary(void);
-void test_bb_pub_fan_payload_has_ts_field(void);
+void test_bb_pub_fan_payload_has_uptime_ms_field(void);
 
 // Forward declarations from test_bb_pub_power.c
 void test_bb_pub_power_publishes_expected_fields(void);
@@ -2645,7 +2646,7 @@ void test_bb_pub_power_vout_null_when_minus_one(void);
 void test_bb_pub_power_temp_null_when_minus_one(void);
 void test_bb_pub_power_pout_mw_computed(void);
 void test_bb_pub_power_skips_when_no_primary(void);
-void test_bb_pub_power_payload_has_ts_field(void);
+void test_bb_pub_power_payload_has_uptime_ms_field(void);
 
 // Forward declarations from test_bb_pub_thermal.c
 void test_bb_pub_thermal_publishes_soc_field(void);
@@ -2655,7 +2656,7 @@ void test_bb_pub_thermal_topic_is_correct(void);
 void test_bb_pub_thermal_skips_when_all_absent(void);
 void test_bb_pub_thermal_vr_null_when_temp_minus_one(void);
 void test_bb_pub_thermal_asic_null_when_die_nan(void);
-void test_bb_pub_thermal_payload_has_ts_field(void);
+void test_bb_pub_thermal_payload_has_uptime_ms_field(void);
 void test_bb_pub_thermal_omits_vr_c_when_no_power_primary(void);
 void test_bb_pub_thermal_omits_asic_and_board_c_when_no_fan_primary(void);
 void test_bb_pub_thermal_vr_c_null_when_power_primary_present_but_no_reading(void);
@@ -2679,7 +2680,7 @@ void test_bb_pub_wifi_publishes_when_connected(void);
 void test_bb_pub_wifi_topic_is_correct(void);
 void test_bb_pub_wifi_has_rssi_field(void);
 void test_bb_pub_wifi_rssi_value_correct(void);
-void test_bb_pub_wifi_payload_has_ts_field(void);
+void test_bb_pub_wifi_payload_has_uptime_ms_field(void);
 void test_bb_pub_wifi_has_ssid_field(void);
 void test_bb_pub_wifi_ssid_value_correct(void);
 void test_bb_pub_wifi_has_bssid_field(void);
@@ -2707,7 +2708,7 @@ void test_bb_pub_info_has_rtc_total(void);
 void test_bb_pub_info_has_flash_size(void);
 void test_bb_pub_info_has_app_size(void);
 void test_bb_pub_info_has_wdt_resets(void);
-void test_bb_pub_info_payload_has_ts_field(void);
+void test_bb_pub_info_payload_has_uptime_ms_field(void);
 void test_bb_pub_info_has_reset_reason(void);
 void test_bb_pub_info_reset_reason_is_power_on_on_host(void);
 void test_bb_pub_info_has_ota_validated(void);
@@ -2739,7 +2740,7 @@ void test_bb_pub_health_mqtt_connected_false_when_no_handle(void);
 void test_bb_pub_health_mqtt_enabled_true_when_handle_set(void);
 void test_bb_pub_health_has_mqtt_reconnect_count_when_enabled(void);
 void test_bb_pub_health_mqtt_connected_reflects_state(void);
-void test_bb_pub_health_payload_has_ts_field(void);
+void test_bb_pub_health_payload_has_uptime_ms_field(void);
 
 // Forward declarations from test_bb_pub_rtos.c
 void test_bb_pub_rtos_always_publishes(void);
@@ -2756,7 +2757,7 @@ void test_bb_pub_rtos_has_stack_mqtt(void);
 void test_bb_pub_rtos_has_stack_ipc0(void);
 void test_bb_pub_rtos_has_stack_ipc1(void);
 void test_bb_pub_rtos_has_stack_main(void);
-void test_bb_pub_rtos_payload_has_ts_field(void);
+void test_bb_pub_rtos_payload_has_uptime_ms_field(void);
 void test_bb_pub_rtos_benign_task_filter(void);
 
 // Forward declarations from test_bb_tls_creds.c
@@ -3511,6 +3512,7 @@ int main(void) {
     RUN_TEST(test_fidelity_update_status);
     RUN_TEST(test_fidelity_update_config_get);
     RUN_TEST(test_fidelity_diag_events);
+    RUN_TEST(test_fidelity_diag_events_age_ms_branch);
     RUN_TEST(test_fidelity_info_with_extender);
     RUN_TEST(test_fidelity_info_schema_matches_assembled);
     RUN_TEST(test_fidelity_info_has_uptime_ms);
@@ -5431,7 +5433,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_fan_die_c_null_when_nan);
     RUN_TEST(test_bb_pub_fan_board_c_null_when_nan);
     RUN_TEST(test_bb_pub_fan_skips_when_no_primary);
-    RUN_TEST(test_bb_pub_fan_payload_has_ts_field);
+    RUN_TEST(test_bb_pub_fan_payload_has_uptime_ms_field);
 
     // bb_pub_power tests
     RUN_TEST(test_bb_pub_power_publishes_expected_fields);
@@ -5441,7 +5443,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_power_temp_null_when_minus_one);
     RUN_TEST(test_bb_pub_power_pout_mw_computed);
     RUN_TEST(test_bb_pub_power_skips_when_no_primary);
-    RUN_TEST(test_bb_pub_power_payload_has_ts_field);
+    RUN_TEST(test_bb_pub_power_payload_has_uptime_ms_field);
 
     // bb_thermal_collect unit tests (B1-352)
     RUN_TEST(test_bb_thermal_collect_all_absent);
@@ -5463,7 +5465,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_thermal_skips_when_all_absent);
     RUN_TEST(test_bb_pub_thermal_vr_null_when_temp_minus_one);
     RUN_TEST(test_bb_pub_thermal_asic_null_when_die_nan);
-    RUN_TEST(test_bb_pub_thermal_payload_has_ts_field);
+    RUN_TEST(test_bb_pub_thermal_payload_has_uptime_ms_field);
     RUN_TEST(test_bb_pub_thermal_omits_vr_c_when_no_power_primary);
     RUN_TEST(test_bb_pub_thermal_omits_asic_and_board_c_when_no_fan_primary);
     RUN_TEST(test_bb_pub_thermal_vr_c_null_when_power_primary_present_but_no_reading);
@@ -5475,7 +5477,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_wifi_topic_is_correct);
     RUN_TEST(test_bb_pub_wifi_has_rssi_field);
     RUN_TEST(test_bb_pub_wifi_rssi_value_correct);
-    RUN_TEST(test_bb_pub_wifi_payload_has_ts_field);
+    RUN_TEST(test_bb_pub_wifi_payload_has_uptime_ms_field);
     RUN_TEST(test_bb_pub_wifi_has_ssid_field);
     RUN_TEST(test_bb_pub_wifi_ssid_value_correct);
     RUN_TEST(test_bb_pub_wifi_has_bssid_field);
@@ -5503,7 +5505,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_info_has_flash_size);
     RUN_TEST(test_bb_pub_info_has_app_size);
     RUN_TEST(test_bb_pub_info_has_wdt_resets);
-    RUN_TEST(test_bb_pub_info_payload_has_ts_field);
+    RUN_TEST(test_bb_pub_info_payload_has_uptime_ms_field);
     RUN_TEST(test_bb_pub_info_has_reset_reason);
     RUN_TEST(test_bb_pub_info_reset_reason_is_power_on_on_host);
     RUN_TEST(test_bb_pub_info_has_ota_validated);
@@ -5535,7 +5537,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_health_mqtt_enabled_true_when_handle_set);
     RUN_TEST(test_bb_pub_health_has_mqtt_reconnect_count_when_enabled);
     RUN_TEST(test_bb_pub_health_mqtt_connected_reflects_state);
-    RUN_TEST(test_bb_pub_health_payload_has_ts_field);
+    RUN_TEST(test_bb_pub_health_payload_has_uptime_ms_field);
 
     // bb_pub_rtos tests
     RUN_TEST(test_bb_pub_rtos_always_publishes);
@@ -5552,7 +5554,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_rtos_has_stack_ipc0);
     RUN_TEST(test_bb_pub_rtos_has_stack_ipc1);
     RUN_TEST(test_bb_pub_rtos_has_stack_main);
-    RUN_TEST(test_bb_pub_rtos_payload_has_ts_field);
+    RUN_TEST(test_bb_pub_rtos_payload_has_uptime_ms_field);
     RUN_TEST(test_bb_pub_rtos_benign_task_filter);
 
     // bb_tls_creds tests

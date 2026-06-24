@@ -160,11 +160,11 @@ void test_bb_pub_info_has_wdt_resets(void)
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"wdt_resets\""));
 }
 
-void test_bb_pub_info_payload_has_ts_field(void)
+void test_bb_pub_info_payload_has_uptime_ms_field(void)
 {
     setup();
     bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ts\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"uptime_ms\""));
 }
 
 void test_bb_pub_info_has_reset_reason(void)
@@ -247,15 +247,15 @@ void test_bb_pub_info_has_epoch_s(void)
 {
     setup();
     bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"epoch_s\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"boot_epoch_s\""));
 }
 
 void test_bb_pub_info_epoch_s_is_zero_when_not_synced(void)
 {
     setup();
     bb_pub_tick_once();
-    // bb_ntp_is_synced() returns false on host → epoch_s=0.
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"epoch_s\":0"));
+    // bb_ntp_is_synced() returns false on host → boot_epoch_s=0.
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"boot_epoch_s\":0"));
 }
 
 void test_bb_pub_info_has_time_source(void)
