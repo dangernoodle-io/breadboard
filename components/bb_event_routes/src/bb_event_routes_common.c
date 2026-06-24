@@ -34,6 +34,9 @@ static const char *TAG = "bb_event_routes";
 #ifndef CONFIG_BB_EVENT_ROUTES_RING_CAPACITY
 #define CONFIG_BB_EVENT_ROUTES_RING_CAPACITY 16
 #endif
+#ifndef CONFIG_BB_EVENT_ROUTES_RETAINED_RING_CAPACITY
+#define CONFIG_BB_EVENT_ROUTES_RETAINED_RING_CAPACITY 1
+#endif
 #ifndef CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY
 #define CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY 256
 #endif
@@ -223,8 +226,11 @@ bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained)
         return err;
     }
 
+    size_t ring_cap = retained
+        ? CONFIG_BB_EVENT_ROUTES_RETAINED_RING_CAPACITY
+        : s_cfg.ring_capacity;
     bb_event_ring_t ring = NULL;
-    err = bb_event_ring_attach_ex(topic, s_cfg.ring_capacity, s_cfg.ring_max_entry,
+    err = bb_event_ring_attach_ex(topic, ring_cap, s_cfg.ring_max_entry,
                                   retained, &ring);
     if (err != BB_OK) {
         bb_event_routes_port_unlock(s_topics_lock);

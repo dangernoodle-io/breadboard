@@ -35,11 +35,23 @@ config BB_EVENT_ROUTES_QUEUE_DEPTH
         more heap can override in sdkconfig.
 
 config BB_EVENT_ROUTES_RING_CAPACITY
-    int "Per-attached-topic replay ring capacity"
+    int "Per-attached-topic replay ring capacity (non-retained)"
     default 16
     range 1 256
     help
-        bb_event_ring depth backing replay-on-connect for each attached topic.
+        bb_event_ring depth backing replay-on-connect for each non-retained
+        (discrete-event) attached topic.
+
+config BB_EVENT_ROUTES_RETAINED_RING_CAPACITY
+    int "Per-attached-topic replay ring capacity (retained)"
+    default 1
+    range 1 256
+    help
+        bb_event_ring depth backing replay-on-connect for each retained
+        (state) attached topic. A retained topic only ever needs to replay its
+        latest value on connect, so the default is 1. On no-PSRAM boards this
+        saves ~1 KB of internal heap per retained topic compared to the
+        non-retained capacity.
 
 config BB_EVENT_ROUTES_RING_MAX_ENTRY
     int "Per-attached-topic replay payload cap (bytes)"

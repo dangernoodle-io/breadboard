@@ -660,3 +660,79 @@ void test_bb_event_routes_client_acquire_ex_null_filter_subscribes_to_all(void)
 
     bb_event_routes_client_release(c);
 }
+
+// ---------------------------------------------------------------------------
+// retained ring capacity: B1-352
+// Retained topics must use capacity-1 rings; non-retained keeps ring_capacity.
+// ---------------------------------------------------------------------------
+
+/* Retained attach → ring capacity is 1. */
+void test_bb_event_routes_attach_ex_retained_uses_capacity_one_ring(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(&small_cfg);  /* small_cfg.ring_capacity = 4 */
+
+    bb_event_topic_t t;
+    bb_event_topic_register("cap1.retained", &t);
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_attach_ex("cap1.retained", true));
+
+    const char *name = NULL;
+    bb_event_ring_t ring = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_topic_info(0, &name, &ring));
+    TEST_ASSERT_NOT_NULL(ring);
+    TEST_ASSERT_EQUAL(1, bb_event_ring_capacity(ring));
+}
+
+/* Non-retained attach → ring capacity matches ring_capacity from cfg. */
+void test_bb_event_routes_attach_non_retained_uses_configured_capacity(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(&small_cfg);  /* small_cfg.ring_capacity = 4 */
+
+    bb_event_topic_t t;
+    bb_event_topic_register("cap4.discrete", &t);
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_attach_ex("cap4.discrete", false));
+
+    const char *name = NULL;
+    bb_event_ring_t ring = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_topic_info(0, &name, &ring));
+    TEST_ASSERT_NOT_NULL(ring);
+    TEST_ASSERT_EQUAL((size_t)small_cfg.ring_capacity, bb_event_ring_capacity(ring));
+}
+
+/* Post 3 values to a retained topic, then connect — client replays only the
+ * last value (capacity-1 ring evicted the first two). */
+void test_bb_event_routes_retained_replay_delivers_only_latest_value(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(&small_cfg);
+
+    bb_event_topic_t t;
+    bb_event_topic_register("cap1.replay", &t);
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_attach_ex("cap1.replay", true));
+
+    /* Post 3 values; capacity-1 ring keeps only the last. */
+    bb_event_post(t, 1, "{\"v\":1}", 7);
+    bb_event_pump(0);
+    bb_event_post(t, 2, "{\"v\":2}", 7);
+    bb_event_pump(0);
+    bb_event_post(t, 3, "{\"v\":3}", 7);
+    bb_event_pump(0);
+
+    /* Client connects after all posts; replay must deliver exactly 1 frame. */
+    bb_event_routes_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire(&c));
+
+    char frame[256];
+    size_t n = bb_event_routes_drain_frame(c, frame, sizeof(frame));
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_NOT_NULL(strstr(frame, "{\"v\":3}"));
+
+    /* No second frame — only one slot in ring. */
+    TEST_ASSERT_EQUAL(0, bb_event_routes_drain_frame(c, frame, sizeof(frame)));
+
+    bb_event_routes_client_release(c);
+}

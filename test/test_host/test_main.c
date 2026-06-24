@@ -2271,6 +2271,9 @@ void test_bb_event_routes_client_acquire_subscribe_failure_rolls_back(void);
 void test_bb_event_routes_attach_ex_retained_true(void);
 void test_bb_event_routes_client_acquire_ex_filters_to_matching_topic(void);
 void test_bb_event_routes_client_acquire_ex_null_filter_subscribes_to_all(void);
+void test_bb_event_routes_attach_ex_retained_uses_capacity_one_ring(void);
+void test_bb_event_routes_attach_non_retained_uses_configured_capacity(void);
+void test_bb_event_routes_retained_replay_delivers_only_latest_value(void);
 
 // Forward declarations from test_bb_event_routes_diag.c
 void test_bb_event_routes_topic_count_zero_before_attach(void);
@@ -4931,6 +4934,9 @@ int main(void) {
     RUN_TEST(test_bb_event_routes_attach_ex_retained_true);
     RUN_TEST(test_bb_event_routes_client_acquire_ex_filters_to_matching_topic);
     RUN_TEST(test_bb_event_routes_client_acquire_ex_null_filter_subscribes_to_all);
+    RUN_TEST(test_bb_event_routes_attach_ex_retained_uses_capacity_one_ring);
+    RUN_TEST(test_bb_event_routes_attach_non_retained_uses_configured_capacity);
+    RUN_TEST(test_bb_event_routes_retained_replay_delivers_only_latest_value);
 
     // bb_event_routes diag tests
     RUN_TEST(test_bb_event_routes_topic_count_zero_before_attach);
