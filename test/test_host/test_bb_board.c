@@ -74,3 +74,9 @@ void test_bb_board_rtc_total_callable(void)
     size_t sz = bb_board_rtc_total();
     TEST_ASSERT_EQUAL_INT(sz, sz);  // Sanity: no crash, returns size_t
 }
+
+void test_bb_board_heap_internal_minimum_ever_callable(void)
+{
+    size_t sz = bb_board_heap_internal_minimum_ever();
+    TEST_ASSERT_EQUAL_INT(sz, sz);  // Sanity: no crash, returns size_t
+}

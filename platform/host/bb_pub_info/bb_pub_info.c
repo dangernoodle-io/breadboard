@@ -46,7 +46,7 @@ static bool info_sample(bb_json_t obj, void *ctx)
     bb_json_obj_set_number(obj, "heap_internal_largest_block",
                            (double)bb_board_heap_internal_largest_free_block());
     bb_json_obj_set_number(obj, "heap_internal_min_free",
-                           (double)bb_board_heap_minimum_ever());
+                           (double)bb_board_heap_internal_minimum_ever());
     // psram_free / psram_total: omit both when no PSRAM hardware (total == 0).
     if (bb_board_psram_total() > 0) {
         bb_json_obj_set_number(obj, "psram_free",
