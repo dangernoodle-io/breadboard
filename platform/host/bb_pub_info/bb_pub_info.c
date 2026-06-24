@@ -64,8 +64,9 @@ static bool info_sample(bb_json_t obj, void *ctx)
                            (double)bb_board_get_app_size());
     bb_json_obj_set_number(obj, "wdt_resets",
                            (double)bb_diag_abnormal_reset_count());
-    bb_json_obj_set_number(obj, "uptime_ms",
-                           (double)bb_clock_now_ms());
+    // uptime_ms is injected into EVERY payload by bb_pub (bb_pub.c); emitting it
+    // here too duplicated the key in the info topic (B1-352 ts->uptime_ms rename).
+    // Rely on the injected one — same value (bb_clock at the same tick).
     bb_json_obj_set_string(obj, "version",
                            bb_system_get_version());
 
