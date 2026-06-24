@@ -313,3 +313,14 @@ void test_bb_pub_info_has_mac_field(void)
     bb_pub_tick_once();
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"mac\""));
 }
+
+// B1-heap-internal-min-fix: heap_internal_min_free must use MALLOC_CAP_INTERNAL,
+// not MALLOC_CAP_DEFAULT. On host both stubs return 0; verify the field is
+// present and numeric (not absent).
+void test_bb_pub_info_heap_internal_min_free_present(void)
+{
+    setup();
+    bb_pub_tick_once();
+    // Field must be present and carry a numeric value (0 on host stubs).
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"heap_internal_min_free\":0"));
+}

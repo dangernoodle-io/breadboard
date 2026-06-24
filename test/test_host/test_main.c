@@ -1152,6 +1152,7 @@ void test_bb_board_psram_free_callable(void);
 void test_bb_board_psram_total_callable(void);
 void test_bb_board_rtc_used_callable(void);
 void test_bb_board_rtc_total_callable(void);
+void test_bb_board_heap_internal_minimum_ever_callable(void);
 
 // Forward declarations from test_bb_health.c
 void test_bb_health_register_section_null_name_returns_err(void);
@@ -2727,6 +2728,7 @@ void test_bb_pub_info_board_is_host_on_host(void);
 void test_bb_pub_info_has_chip_model_field(void);
 void test_bb_pub_info_chip_model_is_host_on_host(void);
 void test_bb_pub_info_has_mac_field(void);
+void test_bb_pub_info_heap_internal_min_free_present(void);
 
 // Forward declarations from test_bb_pub_health.c
 void test_bb_pub_health_always_publishes(void);
@@ -4023,6 +4025,7 @@ int main(void) {
     RUN_TEST(test_bb_board_psram_total_callable);
     RUN_TEST(test_bb_board_rtc_used_callable);
     RUN_TEST(test_bb_board_rtc_total_callable);
+    RUN_TEST(test_bb_board_heap_internal_minimum_ever_callable);
 
     // bb_health tests
     RUN_TEST(test_bb_health_register_section_null_name_returns_err);
@@ -5524,6 +5527,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_info_has_chip_model_field);
     RUN_TEST(test_bb_pub_info_chip_model_is_host_on_host);
     RUN_TEST(test_bb_pub_info_has_mac_field);
+    RUN_TEST(test_bb_pub_info_heap_internal_min_free_present);
 
     // bb_pub_health tests
     RUN_TEST(test_bb_pub_health_always_publishes);
