@@ -102,6 +102,11 @@ void bb_websocket_host_async_reset(void);
 // broadcast_all to iterate).  Pass fd=-1 to clear all.
 void bb_websocket_host_set_client_active(int fd, bool active);
 
+// Set the fd that bb_websocket_req_fd() returns during bb_websocket_host_inject_frame.
+// Call before inject_frame to simulate a per-connection subscription update.
+// Pass -1 to clear (default).
+void bb_websocket_host_set_inject_fd(int fd);
+
 // ----- Force-fail hooks ---------------------------------------------------
 
 // Force bb_websocket_register_endpoint to return BB_ERR_INVALID_STATE.

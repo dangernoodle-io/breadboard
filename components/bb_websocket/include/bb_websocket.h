@@ -137,17 +137,24 @@ bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t server,
                                                   bb_websocket_handler_fn handler,
                                                   const bb_route_t *descriptor);
 
-// Max fd probed by broadcast_all.  Defined as a compile-time constant that
-// bridges the Kconfig symbol on ESP-IDF (CONFIG_HTTPD_MAX_SOCKETS) or defaults
-// to a conservative value on host.
+// Return the socket fd associated with a WebSocket request.
+// On ESP-IDF: wraps httpd_req_to_sockfd (returns -1 on error).
+// On host: returns the fd set by bb_websocket_host_set_inject_fd(), or -1 if
+// none was set before inject_frame (e.g. handler called without a fake fd).
+int bb_websocket_req_fd(bb_http_request_t *req);
+
+// Max fd probed by broadcast_all.  On ESP-IDF, LWIP socket fds are offset by
+// LWIP_SOCKET_OFFSET = FD_SETSIZE - CONFIG_LWIP_MAX_SOCKETS (typically 64-12=52),
+// so the scan upper bound must be FD_SETSIZE (64), NOT CONFIG_HTTPD_MAX_SOCKETS
+// (which is the max concurrent connection count, not the max fd number).
+// On host, 64 is a safe over-estimate (the host stub only iterates active fds).
 #ifdef ESP_PLATFORM
-#include "sdkconfig.h"
-#ifdef CONFIG_HTTPD_MAX_SOCKETS
-#define BB_WEBSOCKET_MAX_FD CONFIG_HTTPD_MAX_SOCKETS
-#endif
-#endif
+#include <sys/select.h>
+#define BB_WEBSOCKET_MAX_FD FD_SETSIZE
+#else
 #ifndef BB_WEBSOCKET_MAX_FD
-#define BB_WEBSOCKET_MAX_FD 13
+#define BB_WEBSOCKET_MAX_FD 64
+#endif
 #endif
 
 #ifdef __cplusplus

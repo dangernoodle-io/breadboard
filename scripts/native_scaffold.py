@@ -538,6 +538,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_pub_telemetry/bb_pub_telemetry_host.c"],
         "depends":  ["bb_pub", "bb_core", "bb_json", "bb_telemetry"],
     },
+    "bb_sink_ws": {
+        "includes": ["components/bb_sink_ws/include"],
+        "sources":  ["platform/host/bb_sink_ws/bb_sink_ws.c"],
+        "depends":  ["bb_core", "bb_pub", "bb_websocket", "bb_log"],
+    },
 }
 
 
