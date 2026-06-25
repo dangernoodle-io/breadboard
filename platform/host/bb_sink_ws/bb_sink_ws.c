@@ -203,6 +203,21 @@ static bb_err_t broadcast_filtered(const char *ch,
 }
 
 // ---------------------------------------------------------------------------
+// Host test helpers (forward decl for s_malloc_fn used in publish path)
+// ---------------------------------------------------------------------------
+
+#ifdef BB_SINK_WS_TESTING
+// Injectable malloc — defined in the test helpers section below; declared here
+// so sink_ws_publish can use it.
+static void *(*s_malloc_fn)(size_t) = NULL; // initialised to malloc at first use
+static inline void *_sink_malloc(size_t sz) {
+    return s_malloc_fn ? s_malloc_fn(sz) : malloc(sz);
+}
+#else
+static inline void *_sink_malloc(size_t sz) { return malloc(sz); }
+#endif
+
+// ---------------------------------------------------------------------------
 // Publish callback
 // ---------------------------------------------------------------------------
 
@@ -229,7 +244,7 @@ static bb_err_t sink_ws_publish(void *ctx, const char *topic,
     // overhead: {"ch":"(7) + subtopic + ","data":(9) + payload + }(1) + NUL(1) = 18
     size_t subtopic_len = strlen(subtopic);
     size_t envelope_len = subtopic_len + (size_t)len + 18;
-    char *buf = (char *)malloc(envelope_len);
+    char *buf = (char *)_sink_malloc(envelope_len);
     if (!buf) {
         bb_log_w(TAG, "publish: malloc failed for envelope");
         return BB_ERR_NO_SPACE;
@@ -280,10 +295,16 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
 
 #ifdef BB_SINK_WS_TESTING
 
+void bb_sink_ws_set_malloc(void *(*fn)(size_t))
+{
+    s_malloc_fn = fn; // NULL → falls back to libc malloc via _sink_malloc
+}
+
 void bb_sink_ws_reset_for_test(void)
 {
     memset(&s_ctx, 0, sizeof(s_ctx));
     memset(s_clients, 0, sizeof(s_clients));
+    s_malloc_fn = NULL;
 }
 
 // Inject a log line as if the logs pump had drained it — broadcasts
@@ -295,7 +316,7 @@ bb_err_t bb_sink_ws_host_inject_log_line(const char *line)
     // {"ch":"logs","data":"<line>"}
     // overhead: 20 + line + 2 quotes + NUL
     size_t buf_len = line_len + 24;
-    char *buf = (char *)malloc(buf_len);
+    char *buf = (char *)_sink_malloc(buf_len);
     if (!buf) return BB_ERR_NO_SPACE;
     int written = snprintf(buf, buf_len, "{\"ch\":\"logs\",\"data\":\"%s\"}", line);
     if (written < 0 || (size_t)written >= buf_len) {
