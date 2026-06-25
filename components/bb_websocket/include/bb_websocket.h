@@ -1,0 +1,155 @@
+#pragma once
+
+// Portable WebSocket SERVER transport — wraps ESP-IDF httpd's native WS
+// support the same way bb_http wraps esp_http_server for REST.
+//
+// Registration: bb_websocket_register_endpoint adds a GET route (with
+// is_websocket=true on ESP-IDF) to an already-started server.  The registered
+// handler receives every incoming DATA frame; control frames (PING/PONG/CLOSE)
+// are handled by httpd internally unless handle_ws_control_frames is requested.
+//
+// Sending from within the handler (sync): bb_websocket_send_frame.
+// Server-push from outside the handler (async): bb_websocket_broadcast_frame_async
+// or the convenience wrapper bb_websocket_broadcast_all.
+//
+// Portability: this header includes NO esp_* headers.  All ESP-IDF types are
+// hidden behind the opaque bb_http_handle_t / bb_http_request_t handles from
+// bb_core.h.  Platform implementations live in platform/espidf/bb_websocket/
+// and platform/host/bb_websocket/.
+
+#include "bb_core.h"
+#include "bb_http.h"
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// ---------------------------------------------------------------------------
+// Frame type enum — mirrors httpd_ws_type_t without the ESP-IDF header
+// ---------------------------------------------------------------------------
+
+typedef enum {
+    BB_WS_TYPE_CONTINUE = 0x00,
+    BB_WS_TYPE_TEXT     = 0x01,
+    BB_WS_TYPE_BINARY   = 0x02,
+    BB_WS_TYPE_CLOSE    = 0x08,
+    BB_WS_TYPE_PING     = 0x09,
+    BB_WS_TYPE_PONG     = 0x0A,
+} bb_websocket_frame_type_t;
+
+// ---------------------------------------------------------------------------
+// Frame descriptor — portable across all platforms
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bool                     final;    // FIN bit; false for fragmented messages
+    bb_websocket_frame_type_t type;
+    uint8_t                 *payload;  // caller-owned buffer (recv: pre-alloc; send: const)
+    size_t                   len;      // payload byte count
+} bb_websocket_frame_t;
+
+// ---------------------------------------------------------------------------
+// Handler type
+// ---------------------------------------------------------------------------
+
+// Called for each incoming data frame.  req is the opaque request handle;
+// frame carries the received frame.  Return BB_OK to continue, any error to
+// close the connection.
+typedef bb_err_t (*bb_websocket_handler_fn)(bb_http_request_t *req,
+                                            const bb_websocket_frame_t *frame);
+
+// ---------------------------------------------------------------------------
+// Async broadcast callback — fired after httpd_ws_send_frame_async completes
+// ---------------------------------------------------------------------------
+
+// Called by httpd's worker task after async send.  err: BB_OK on success.
+// fd: the socket fd the send was targeted at.  ctx: user context.
+typedef void (*bb_websocket_send_cb_t)(bb_err_t err, int fd, void *ctx);
+
+// ---------------------------------------------------------------------------
+// Core API
+// ---------------------------------------------------------------------------
+
+// Register a WebSocket endpoint at `path` on an already-started server.
+// On ESP-IDF registers an httpd_uri_t with is_websocket=true + HTTP_GET.
+// On host uses the capture harness (no-op registration, records the handler).
+// Returns BB_OK on success.
+bb_err_t bb_websocket_register_endpoint(bb_http_handle_t server,
+                                        const char *path,
+                                        bb_websocket_handler_fn handler);
+
+// Receive a frame from within the handler context.  Two-step pattern:
+//   1. Call with max_len=0 to probe frame length (populates frame->len).
+//   2. Allocate frame->payload of at least frame->len bytes.
+//   3. Call again with max_len=frame->len to receive the payload.
+// Returns BB_OK on success, BB_ERR_INVALID_ARG on NULL args.
+bb_err_t bb_websocket_recv_frame(bb_http_request_t *req,
+                                 bb_websocket_frame_t *frame,
+                                 size_t max_len);
+
+// Send a frame synchronously from within the handler context.
+// frame->payload must remain valid for the duration of the call.
+// Returns BB_OK on success.
+bb_err_t bb_websocket_send_frame(bb_http_request_t *req,
+                                 const bb_websocket_frame_t *frame);
+
+// Async server-push: queue a send to a specific client fd via httpd_queue_work.
+// cb (may be NULL) is called on completion.  ctx is passed through to cb.
+// Must NOT be called from within the handler (use send_frame for in-handler
+// sends).  Safe to call from any FreeRTOS task or from host test code.
+bb_err_t bb_websocket_broadcast_frame_async(bb_http_handle_t server,
+                                            int fd,
+                                            const bb_websocket_frame_t *frame,
+                                            bb_websocket_send_cb_t cb,
+                                            void *ctx);
+
+// Broadcast to all currently-active WS clients tracked by httpd.
+// Iterates fds 0..BB_WEBSOCKET_MAX_FD and sends to each active WS client.
+// cb and ctx are forwarded to each individual async send (may be NULL).
+bb_err_t bb_websocket_broadcast_all(bb_http_handle_t server,
+                                    const bb_websocket_frame_t *frame,
+                                    bb_websocket_send_cb_t cb,
+                                    void *ctx);
+
+// Return true if fd is an active WebSocket client on server.
+// On host, returns the value set by bb_websocket_host_set_client_active.
+bool bb_websocket_is_client(bb_http_handle_t server, int fd);
+
+// ---------------------------------------------------------------------------
+// OpenAPI descriptor registration helper
+// ---------------------------------------------------------------------------
+// WebSocket routes cannot be natively modelled in OpenAPI 3 (which is
+// REST/HTTP-centric).  We register the /ws endpoint as a GET route with a
+// custom x-protocol extension so it appears in the spec and the fidelity test
+// can find it, rather than silently omitting it.
+//
+// Usage: bb_websocket_register_described_endpoint(server, path, handler, &s_ws_route)
+// where s_ws_route is a static bb_route_t with method=BB_HTTP_GET and the
+// desired summary/tag.  The function calls bb_websocket_register_endpoint()
+// and then bb_http_register_route_descriptor_only() so the descriptor appears
+// in the registry for bb_openapi without double-registering a handler.
+bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t server,
+                                                  const char *path,
+                                                  bb_websocket_handler_fn handler,
+                                                  const bb_route_t *descriptor);
+
+// Max fd probed by broadcast_all.  Defined as a compile-time constant that
+// bridges the Kconfig symbol on ESP-IDF (CONFIG_HTTPD_MAX_SOCKETS) or defaults
+// to a conservative value on host.
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#ifdef CONFIG_HTTPD_MAX_SOCKETS
+#define BB_WEBSOCKET_MAX_FD CONFIG_HTTPD_MAX_SOCKETS
+#endif
+#endif
+#ifndef BB_WEBSOCKET_MAX_FD
+#define BB_WEBSOCKET_MAX_FD 13
+#endif
+
+#ifdef __cplusplus
+}
+#endif

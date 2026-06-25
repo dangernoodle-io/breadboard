@@ -2800,6 +2800,53 @@ void test_bb_pub_rtos_has_stack_main(void);
 void test_bb_pub_rtos_payload_has_uptime_ms_field(void);
 void test_bb_pub_rtos_benign_task_filter(void);
 
+// Forward declarations from test_bb_websocket.c
+void test_bb_websocket_register_endpoint_null_server_ok(void);
+void test_bb_websocket_register_endpoint_null_path(void);
+void test_bb_websocket_register_endpoint_null_handler(void);
+void test_bb_websocket_register_endpoint_force_fail(void);
+void test_bb_websocket_recv_frame_null_req(void);
+void test_bb_websocket_recv_frame_null_frame(void);
+void test_bb_websocket_recv_frame_probe(void);
+void test_bb_websocket_recv_frame_force_fail(void);
+void test_bb_websocket_recv_frame_with_payload(void);
+void test_bb_websocket_recv_frame_null_payload_buffer_zero_len(void);
+void test_bb_websocket_send_frame_null_req(void);
+void test_bb_websocket_send_frame_null_frame(void);
+void test_bb_websocket_send_frame_captures_payload(void);
+void test_bb_websocket_send_frame_force_fail(void);
+void test_bb_websocket_send_frame_empty_payload(void);
+void test_bb_websocket_capture_sent_frame_second_call_empty(void);
+void test_bb_websocket_capture_sent_frame_null(void);
+void test_bb_websocket_capture_free_null(void);
+void test_bb_websocket_echo_roundtrip_text(void);
+void test_bb_websocket_echo_roundtrip_binary(void);
+void test_bb_websocket_inject_frame_no_handler(void);
+void test_bb_websocket_inject_frame_null_req(void);
+void test_bb_websocket_inject_frame_null_frame(void);
+void test_bb_websocket_handler_returns_error(void);
+void test_bb_websocket_broadcast_frame_async_null_frame(void);
+void test_bb_websocket_broadcast_frame_async_captures(void);
+void test_bb_websocket_broadcast_frame_async_null_cb(void);
+void test_bb_websocket_broadcast_frame_async_empty_payload(void);
+void test_bb_websocket_broadcast_frame_async_force_alloc_fail(void);
+void test_bb_websocket_async_at_out_of_range(void);
+void test_bb_websocket_async_reset(void);
+void test_bb_websocket_is_client_false_by_default(void);
+void test_bb_websocket_is_client_after_set(void);
+void test_bb_websocket_is_client_negative_fd(void);
+void test_bb_websocket_is_client_fd_too_large(void);
+void test_bb_websocket_set_client_active_clear_all(void);
+void test_bb_websocket_broadcast_all_no_clients(void);
+void test_bb_websocket_broadcast_all_two_clients(void);
+void test_bb_websocket_broadcast_all_null_frame(void);
+void test_bb_websocket_register_described_endpoint_ok(void);
+void test_bb_websocket_register_described_endpoint_null_path(void);
+void test_bb_websocket_register_described_endpoint_null_handler(void);
+void test_bb_websocket_register_described_endpoint_null_descriptor(void);
+void test_bb_websocket_register_described_endpoint_propagates_register_fail(void);
+void test_bb_websocket_reset_captures_clears_state(void);
+
 // Forward declarations from test_bb_tls_creds.c
 void test_bb_tls_creds_override_ca_beats_nvs(void);
 void test_bb_tls_creds_override_all_fields(void);
@@ -5774,6 +5821,53 @@ int main(void) {
     RUN_TEST(test_bb_pub_fan_parity_emit_matches_pub_source);
     // B1-352: bb_thermal_collect is SSOT for both REST and pub thermal values
     RUN_TEST(test_bb_pub_thermal_parity_collect_matches_rest_fields);
+
+    // bb_websocket (B1-104)
+    RUN_TEST(test_bb_websocket_register_endpoint_null_server_ok);
+    RUN_TEST(test_bb_websocket_register_endpoint_null_path);
+    RUN_TEST(test_bb_websocket_register_endpoint_null_handler);
+    RUN_TEST(test_bb_websocket_register_endpoint_force_fail);
+    RUN_TEST(test_bb_websocket_recv_frame_null_req);
+    RUN_TEST(test_bb_websocket_recv_frame_null_frame);
+    RUN_TEST(test_bb_websocket_recv_frame_probe);
+    RUN_TEST(test_bb_websocket_recv_frame_force_fail);
+    RUN_TEST(test_bb_websocket_recv_frame_with_payload);
+    RUN_TEST(test_bb_websocket_recv_frame_null_payload_buffer_zero_len);
+    RUN_TEST(test_bb_websocket_send_frame_null_req);
+    RUN_TEST(test_bb_websocket_send_frame_null_frame);
+    RUN_TEST(test_bb_websocket_send_frame_captures_payload);
+    RUN_TEST(test_bb_websocket_send_frame_force_fail);
+    RUN_TEST(test_bb_websocket_send_frame_empty_payload);
+    RUN_TEST(test_bb_websocket_capture_sent_frame_second_call_empty);
+    RUN_TEST(test_bb_websocket_capture_sent_frame_null);
+    RUN_TEST(test_bb_websocket_capture_free_null);
+    RUN_TEST(test_bb_websocket_echo_roundtrip_text);
+    RUN_TEST(test_bb_websocket_echo_roundtrip_binary);
+    RUN_TEST(test_bb_websocket_inject_frame_no_handler);
+    RUN_TEST(test_bb_websocket_inject_frame_null_req);
+    RUN_TEST(test_bb_websocket_inject_frame_null_frame);
+    RUN_TEST(test_bb_websocket_handler_returns_error);
+    RUN_TEST(test_bb_websocket_broadcast_frame_async_null_frame);
+    RUN_TEST(test_bb_websocket_broadcast_frame_async_captures);
+    RUN_TEST(test_bb_websocket_broadcast_frame_async_null_cb);
+    RUN_TEST(test_bb_websocket_broadcast_frame_async_empty_payload);
+    RUN_TEST(test_bb_websocket_broadcast_frame_async_force_alloc_fail);
+    RUN_TEST(test_bb_websocket_async_at_out_of_range);
+    RUN_TEST(test_bb_websocket_async_reset);
+    RUN_TEST(test_bb_websocket_is_client_false_by_default);
+    RUN_TEST(test_bb_websocket_is_client_after_set);
+    RUN_TEST(test_bb_websocket_is_client_negative_fd);
+    RUN_TEST(test_bb_websocket_is_client_fd_too_large);
+    RUN_TEST(test_bb_websocket_set_client_active_clear_all);
+    RUN_TEST(test_bb_websocket_broadcast_all_no_clients);
+    RUN_TEST(test_bb_websocket_broadcast_all_two_clients);
+    RUN_TEST(test_bb_websocket_broadcast_all_null_frame);
+    RUN_TEST(test_bb_websocket_register_described_endpoint_ok);
+    RUN_TEST(test_bb_websocket_register_described_endpoint_null_path);
+    RUN_TEST(test_bb_websocket_register_described_endpoint_null_handler);
+    RUN_TEST(test_bb_websocket_register_described_endpoint_null_descriptor);
+    RUN_TEST(test_bb_websocket_register_described_endpoint_propagates_register_fail);
+    RUN_TEST(test_bb_websocket_reset_captures_clears_state);
 
     return UNITY_END();
 }

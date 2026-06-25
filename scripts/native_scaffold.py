@@ -192,6 +192,12 @@ COMPONENT_MAP = {
         "sources":  ["components/bb_manifest/src/bb_manifest_emit.c"],
         "depends":  ["bb_core", "bb_http", "bb_json"],
     },
+    "bb_websocket": {
+        "includes": ["components/bb_websocket/include",
+                     "platform/host/bb_websocket/include"],
+        "sources":  ["platform/host/bb_websocket/bb_websocket_host.c"],
+        "depends":  ["bb_core", "bb_http", "bb_log"],
+    },
     "bb_display": {
         "includes": ["components/bb_display/include"],
         "sources":  [
