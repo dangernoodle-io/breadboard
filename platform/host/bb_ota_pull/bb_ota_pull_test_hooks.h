@@ -29,6 +29,31 @@ bb_err_t bb_ota_pull_fetch_manifest_for_test(char *out_tag, size_t tag_cap,
 bool bb_ota_pull_download_should_retry(int perform_err, bool data_complete);
 
 /**
+ * Pure redirect-URL decision helper (portable, no ESP-IDF types).
+ *
+ * Given the original URL, the resolved URL from an HTTP redirect probe, and the
+ * probe's perform result, returns which URL the OTA download should use.
+ *
+ * Rules (in priority order):
+ *   1. If perform_err != 0 → use original; out_did_redirect = false.
+ *   2. If resolved_url is NULL or empty → use original; out_did_redirect = false.
+ *   3. If resolved_url == original_url → no redirect; use original.
+ *   4. Otherwise → redirect followed; use resolved_url; out_did_redirect = true.
+ *
+ * Never returns NULL.
+ *
+ * @param original_url     the initial asset URL (must not be NULL)
+ * @param resolved_url     URL after HTTP client performed (may be NULL)
+ * @param perform_err      0 on success, non-zero on failure
+ * @param out_did_redirect set to true when a cross-host redirect was followed
+ * @return the URL to use for the OTA download
+ */
+const char *bb_ota_pull_resolve_redirect_url(const char *original_url,
+                                             const char *resolved_url,
+                                             int perform_err,
+                                             bool *out_did_redirect);
+
+/**
  * Pure pre-flight heap guard predicate (portable, no ESP-IDF types).
  * Returns true when the guard passes (OTA/check may proceed), false when
  * either heap dimension is below its configured floor.

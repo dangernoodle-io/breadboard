@@ -162,6 +162,96 @@ static void ota_set_error(const char *fmt, ...)
     va_end(ap);
 }
 
+// Forward declaration — defined in the portable section below.
+const char *bb_ota_pull_resolve_redirect_url(const char *original_url,
+                                             const char *resolved_url,
+                                             int perform_err,
+                                             bool *out_did_redirect);
+
+/**
+ * Pre-resolve a GitHub asset URL through any HTTP redirect before handing
+ * it to esp_https_ota.
+ *
+ * GitHub release asset URLs (github.com/.../releases/download/...) 302-redirect
+ * to a CDN (objects.githubusercontent.com). The chunked Range-request path used
+ * by partial_http_download does not reliably follow cross-host redirects, so the
+ * download fails after the retry budget is exhausted. Pre-resolving the URL here
+ * (immediately before the download) hands esp_https_ota the final CDN URL,
+ * bypassing the redirect entirely.
+ *
+ * Uses a short-lived HEAD request with auto-redirect enabled.  If GitHub does not
+ * 302 on HEAD, a Range: bytes=0-0 GET is tried as a fallback.  On any failure the
+ * original URL is returned so the caller degrades gracefully — the probe must
+ * never make things worse.
+ *
+ * The CDN signed URL is time-limited (~5 min); this probe runs immediately before
+ * the download, so the URL is fresh.  Do NOT cache or reuse the result.
+ *
+ * @param original_url   the GitHub asset URL to probe (must not be NULL)
+ * @param out_buf        caller-supplied buffer for the resolved URL
+ * @param out_buf_size   size of out_buf
+ * @return the URL to use: out_buf when a redirect was followed, original_url otherwise
+ */
+static const char *ota_resolve_redirect(const char *original_url,
+                                        char *out_buf, size_t out_buf_size)
+{
+    esp_http_client_config_t cfg = {
+        .url                 = original_url,
+        .method              = HTTP_METHOD_HEAD,
+        .crt_bundle_attach   = esp_crt_bundle_attach,
+        .timeout_ms          = (int)s_http_timeout_ms,
+        .disable_auto_redirect = false,
+        .max_redirection_count = 5,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) {
+        bb_log_d(TAG, "redirect probe: client init failed, using original URL");
+        return original_url;
+    }
+
+    esp_err_t err = esp_http_client_perform(client);
+
+    // HEAD may return a non-200 status but still have followed the redirect.
+    // Some CDNs reject HEAD with 403; fall back to a single-byte GET in that case.
+    if (err == ESP_OK) {
+        int status = esp_http_client_get_status_code(client);
+        if (status == 403 || status == 405) {
+            bb_log_d(TAG, "redirect probe: HEAD returned %d, retrying with Range GET", status);
+            esp_http_client_set_method(client, HTTP_METHOD_GET);
+            esp_http_client_set_header(client, "Range", "bytes=0-0");
+            err = esp_http_client_perform(client);
+        }
+    }
+
+    // esp_http_client_get_url copies the resolved URL into our buffer.
+    // On failure or overflow it returns an error; treat as no-redirect.
+    const char *resolved = NULL;
+    if (err == ESP_OK) {
+        esp_err_t url_err = esp_http_client_get_url(client, out_buf, (int)out_buf_size);
+        if (url_err == ESP_OK) {
+            resolved = out_buf;
+        } else {
+            bb_log_d(TAG, "redirect probe: get_url failed (%s), using original URL",
+                     esp_err_to_name(url_err));
+        }
+    }
+
+    bool did_redirect = false;
+    const char *use_url = bb_ota_pull_resolve_redirect_url(original_url, resolved,
+                                                           (int)err, &did_redirect);
+
+    if (did_redirect) {
+        bb_log_d(TAG, "redirect probe: resolved to CDN URL");
+        esp_http_client_cleanup(client);
+        return out_buf;
+    }
+
+    bb_log_d(TAG, "redirect probe: no redirect detected, using original URL");
+    esp_http_client_cleanup(client);
+    return original_url;
+}
+
 typedef struct {
     char latest_tag[32];
     char asset_url[256];
@@ -326,6 +416,44 @@ bool bb_ota_pull_heap_guard_passes(size_t largest_block, size_t contiguous_floor
         return false;
     }
     return true;
+}
+
+/**
+ * Pure redirect-URL decision helper — no ESP-IDF dependencies.
+ *
+ * Given the original asset URL, the resolved URL returned by the redirect-probe
+ * HTTP client, and the perform result, decides which URL to use for the OTA
+ * download and whether a redirect was followed.
+ *
+ * Rules:
+ *   - If perform_err != 0 (probe failed) → use original; did_redirect = false.
+ *   - If resolved_url is NULL or empty → use original; did_redirect = false.
+ *   - If resolved_url equals original_url → no redirect; use original.
+ *   - Otherwise → redirect was followed; use resolved_url.
+ *
+ * Never returns NULL: always returns either original_url or resolved_url.
+ *
+ * @param original_url   the initial asset URL (must not be NULL)
+ * @param resolved_url   URL after HTTP client performed (may be NULL)
+ * @param perform_err    0 on success, non-zero on failure
+ * @param out_did_redirect  set to true when a cross-host redirect was followed
+ * @return the URL to use for the OTA download
+ */
+const char *bb_ota_pull_resolve_redirect_url(const char *original_url,
+                                             const char *resolved_url,
+                                             int perform_err,
+                                             bool *out_did_redirect)
+{
+    bool did = false;
+    const char *use = original_url;
+    if (perform_err == 0 && resolved_url != NULL && resolved_url[0] != '\0') {
+        if (strcmp(original_url, resolved_url) != 0) {
+            use = resolved_url;
+            did = true;
+        }
+    }
+    if (out_did_redirect) *out_did_redirect = did;
+    return use;
 }
 
 #ifdef BB_OTA_PULL_TESTING
@@ -498,8 +626,18 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
     taskEXIT_CRITICAL(&s_ota_status_mux);
     bb_ota_emit_progress("pull", BB_OTA_PHASE_START, 0);
 
+    // Pre-resolve any cross-host redirect (e.g. GitHub → CDN) before handing
+    // the URL to esp_https_ota.  The chunked Range-request path does not
+    // reliably follow 302s across hosts; resolving here gives esp_https_ota the
+    // final CDN URL directly.  Falls back to asset_url on any probe failure.
+    // (B1-354: regression introduced when partial_http_download was enabled)
+    char s_redirect_buf[512];
+    const char *download_url = ota_resolve_redirect(asset_url,
+                                                    s_redirect_buf,
+                                                    sizeof(s_redirect_buf));
+
     esp_http_client_config_t http_config = {
-        .url = asset_url,
+        .url = download_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         /* WDT exclusion (see ota_worker_task entry) lifts the coupling between
          * this timeout and CONFIG_ESP_TASK_WDT_TIMEOUT_S. A stalled socket now

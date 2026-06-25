@@ -146,6 +146,12 @@ void test_heap_ready_fails_when_total_free_below_floor(void);
 void test_heap_ready_passes_at_exact_contiguous_boundary(void);
 void test_heap_ready_passes_at_exact_total_free_boundary(void);
 void test_heap_ready_passes_when_both_floors_disabled(void);
+void test_resolve_redirect_url_redirect_uses_cdn(void);
+void test_resolve_redirect_url_no_redirect_uses_original(void);
+void test_resolve_redirect_url_probe_failed_uses_original(void);
+void test_resolve_redirect_url_null_resolved_uses_original(void);
+void test_resolve_redirect_url_empty_resolved_uses_original(void);
+void test_resolve_redirect_url_null_out_did_redirect_does_not_crash(void);
 
 // Forward declarations from test_bb_ota_pull_manifest.c
 void test_ota_pull_manifest_fetch_success(void);
@@ -3176,6 +3182,14 @@ int main(void) {
     RUN_TEST(test_heap_ready_passes_at_exact_contiguous_boundary);
     RUN_TEST(test_heap_ready_passes_at_exact_total_free_boundary);
     RUN_TEST(test_heap_ready_passes_when_both_floors_disabled);
+
+    // OTA pull — redirect URL resolution helper
+    RUN_TEST(test_resolve_redirect_url_redirect_uses_cdn);
+    RUN_TEST(test_resolve_redirect_url_no_redirect_uses_original);
+    RUN_TEST(test_resolve_redirect_url_probe_failed_uses_original);
+    RUN_TEST(test_resolve_redirect_url_null_resolved_uses_original);
+    RUN_TEST(test_resolve_redirect_url_empty_resolved_uses_original);
+    RUN_TEST(test_resolve_redirect_url_null_out_did_redirect_does_not_crash);
 
     // OTA pull — streaming manifest fetch
     RUN_TEST(test_ota_pull_manifest_fetch_success);

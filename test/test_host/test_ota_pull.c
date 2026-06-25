@@ -5,6 +5,7 @@
 #include "../../components/bb_update_check/src/bb_update_check_internal.h"
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 
 void test_bb_ota_pull_set_http_timeout_ms_default_is_20000(void)
 {
@@ -353,4 +354,63 @@ void test_ota_apply_claim_released_on_spawn_failure(void)
     // spawn failure path
     bb_update_check_ota_claim_release("ota_pull");
     TEST_ASSERT_NULL(bb_update_check_ota_claim_holder_for_test());
+}
+
+// ---------------------------------------------------------------------------
+// bb_ota_pull_resolve_redirect_url — pure redirect-URL decision helper
+// ---------------------------------------------------------------------------
+
+#define GITHUB_URL  "https://github.com/owner/repo/releases/download/v1.0.0/fw.bin"
+#define CDN_URL     "https://objects.githubusercontent.com/github-production-release-asset-ABCD/fw.bin"
+
+void test_resolve_redirect_url_redirect_uses_cdn(void)
+{
+    // Successful probe that followed a redirect → use CDN URL
+    bool did = false;
+    const char *result = bb_ota_pull_resolve_redirect_url(GITHUB_URL, CDN_URL, 0, &did);
+    TEST_ASSERT_EQUAL_STRING(CDN_URL, result);
+    TEST_ASSERT_TRUE(did);
+}
+
+void test_resolve_redirect_url_no_redirect_uses_original(void)
+{
+    // Probe succeeded but URL did not change → no redirect; use original
+    bool did = false;
+    const char *result = bb_ota_pull_resolve_redirect_url(GITHUB_URL, GITHUB_URL, 0, &did);
+    TEST_ASSERT_EQUAL_STRING(GITHUB_URL, result);
+    TEST_ASSERT_FALSE(did);
+}
+
+void test_resolve_redirect_url_probe_failed_uses_original(void)
+{
+    // Probe returned non-zero error → fall back to original regardless of resolved URL
+    bool did = false;
+    const char *result = bb_ota_pull_resolve_redirect_url(GITHUB_URL, CDN_URL, -1, &did);
+    TEST_ASSERT_EQUAL_STRING(GITHUB_URL, result);
+    TEST_ASSERT_FALSE(did);
+}
+
+void test_resolve_redirect_url_null_resolved_uses_original(void)
+{
+    // Probe returned NULL resolved URL → fall back to original
+    bool did = false;
+    const char *result = bb_ota_pull_resolve_redirect_url(GITHUB_URL, NULL, 0, &did);
+    TEST_ASSERT_EQUAL_STRING(GITHUB_URL, result);
+    TEST_ASSERT_FALSE(did);
+}
+
+void test_resolve_redirect_url_empty_resolved_uses_original(void)
+{
+    // Probe returned empty string → fall back to original
+    bool did = false;
+    const char *result = bb_ota_pull_resolve_redirect_url(GITHUB_URL, "", 0, &did);
+    TEST_ASSERT_EQUAL_STRING(GITHUB_URL, result);
+    TEST_ASSERT_FALSE(did);
+}
+
+void test_resolve_redirect_url_null_out_did_redirect_does_not_crash(void)
+{
+    // Caller may pass NULL for out_did_redirect — must not crash
+    const char *result = bb_ota_pull_resolve_redirect_url(GITHUB_URL, CDN_URL, 0, NULL);
+    TEST_ASSERT_EQUAL_STRING(CDN_URL, result);
 }
