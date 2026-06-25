@@ -155,3 +155,8 @@ size_t bb_board_rtc_total(void)
 {
     return 0;
 }
+
+size_t bb_board_dram_static_bytes(void)
+{
+    return 0;
+}

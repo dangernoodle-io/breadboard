@@ -139,6 +139,21 @@ void test_bb_pub_info_has_rtc_total(void)
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"rtc_total\""));
 }
 
+void test_bb_pub_info_has_dram_static_bytes(void)
+{
+    setup();
+    bb_pub_tick_once();
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"dram_static_bytes\""));
+}
+
+void test_bb_pub_info_dram_static_bytes_is_zero_on_host(void)
+{
+    setup();
+    bb_pub_tick_once();
+    // Host stub returns 0; payload must contain the field with value 0.
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"dram_static_bytes\":0"));
+}
+
 void test_bb_pub_info_has_flash_size(void)
 {
     setup();

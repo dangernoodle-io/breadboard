@@ -1163,6 +1163,8 @@ void test_bb_board_psram_total_callable(void);
 void test_bb_board_rtc_used_callable(void);
 void test_bb_board_rtc_total_callable(void);
 void test_bb_board_heap_internal_minimum_ever_callable(void);
+void test_bb_board_dram_static_bytes_callable(void);
+void test_bb_board_dram_static_bytes_returns_zero_on_host(void);
 
 // Forward declarations from test_bb_health.c
 void test_bb_health_register_section_null_name_returns_err(void);
@@ -2716,6 +2718,8 @@ void test_bb_pub_info_has_heap_internal_largest_block(void);
 void test_bb_pub_info_has_heap_internal_min_free(void);
 void test_bb_pub_info_has_rtc_used(void);
 void test_bb_pub_info_has_rtc_total(void);
+void test_bb_pub_info_has_dram_static_bytes(void);
+void test_bb_pub_info_dram_static_bytes_is_zero_on_host(void);
 void test_bb_pub_info_has_flash_size(void);
 void test_bb_pub_info_has_app_size(void);
 void test_bb_pub_info_has_wdt_resets(void);
@@ -4057,6 +4061,8 @@ int main(void) {
     RUN_TEST(test_bb_board_rtc_used_callable);
     RUN_TEST(test_bb_board_rtc_total_callable);
     RUN_TEST(test_bb_board_heap_internal_minimum_ever_callable);
+    RUN_TEST(test_bb_board_dram_static_bytes_callable);
+    RUN_TEST(test_bb_board_dram_static_bytes_returns_zero_on_host);
 
     // bb_health tests
     RUN_TEST(test_bb_health_register_section_null_name_returns_err);
@@ -5536,6 +5542,8 @@ int main(void) {
     RUN_TEST(test_bb_pub_info_has_heap_internal_min_free);
     RUN_TEST(test_bb_pub_info_has_rtc_used);
     RUN_TEST(test_bb_pub_info_has_rtc_total);
+    RUN_TEST(test_bb_pub_info_has_dram_static_bytes);
+    RUN_TEST(test_bb_pub_info_dram_static_bytes_is_zero_on_host);
     RUN_TEST(test_bb_pub_info_has_flash_size);
     RUN_TEST(test_bb_pub_info_has_app_size);
     RUN_TEST(test_bb_pub_info_has_wdt_resets);

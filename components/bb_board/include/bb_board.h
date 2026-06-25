@@ -73,6 +73,12 @@ size_t   bb_board_psram_total(void);
 size_t   bb_board_rtc_used(void);
 size_t   bb_board_rtc_total(void);
 
+// Internal DRAM static usage (.data + .bss sections combined).
+// Returns the total bytes occupied by statically-placed symbols in internal
+// SRAM at link time — the BSS cost of any static reservations is visible here.
+// Returns 0 on platforms where the linker symbols are not available (host).
+size_t   bb_board_dram_static_bytes(void);
+
 #ifdef ESP_PLATFORM
 #endif
 
