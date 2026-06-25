@@ -1003,6 +1003,16 @@ void test_bb_mem_malloc_returns_usable_block(void);
 void test_bb_mem_calloc_zeroes(void);
 void test_bb_mem_free_null_is_safe(void);
 
+// Forward declarations from test_claim.c
+void test_claim_acquire_free_returns_ok(void);
+void test_claim_acquire_same_id_is_idempotent(void);
+void test_claim_acquire_different_id_returns_conflict(void);
+void test_claim_release_by_holder_clears(void);
+void test_claim_release_by_non_holder_is_noop(void);
+void test_claim_holder_free_returns_null(void);
+void test_claim_reset_clears_holder(void);
+void test_claim_release_then_reacquire(void);
+
 // Forward declarations from test_bb_byte_order.c
 void test_bb_load_be32_constant(void);
 void test_bb_load_le32_constant(void);
@@ -2893,6 +2903,16 @@ int main(void) {
     RUN_TEST(test_bb_mem_malloc_returns_usable_block);
     RUN_TEST(test_bb_mem_calloc_zeroes);
     RUN_TEST(test_bb_mem_free_null_is_safe);
+
+    // bb_claim non-blocking exclusive-slot arbiter
+    RUN_TEST(test_claim_acquire_free_returns_ok);
+    RUN_TEST(test_claim_acquire_same_id_is_idempotent);
+    RUN_TEST(test_claim_acquire_different_id_returns_conflict);
+    RUN_TEST(test_claim_release_by_holder_clears);
+    RUN_TEST(test_claim_release_by_non_holder_is_noop);
+    RUN_TEST(test_claim_holder_free_returns_null);
+    RUN_TEST(test_claim_reset_clears_holder);
+    RUN_TEST(test_claim_release_then_reacquire);
 
     // bb_log macro tests
     RUN_TEST(test_bb_log_error);
