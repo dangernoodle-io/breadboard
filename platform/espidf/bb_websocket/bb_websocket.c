@@ -292,6 +292,16 @@ bb_err_t bb_websocket_broadcast_all(bb_http_handle_t server,
 }
 
 // ---------------------------------------------------------------------------
+// bb_websocket_req_fd
+// ---------------------------------------------------------------------------
+
+int bb_websocket_req_fd(bb_http_request_t *req)
+{
+    if (!req) return -1;
+    return httpd_req_to_sockfd((httpd_req_t *)req);
+}
+
+// ---------------------------------------------------------------------------
 // bb_websocket_register_described_endpoint
 // ---------------------------------------------------------------------------
 
@@ -339,6 +349,9 @@ bb_err_t bb_websocket_broadcast_all(bb_http_handle_t s,
 
 bool bb_websocket_is_client(bb_http_handle_t s, int fd)
 { (void)s; (void)fd; return false; }
+
+int bb_websocket_req_fd(bb_http_request_t *req)
+{ (void)req; return -1; }
 
 bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t s,
                                                   const char *p,

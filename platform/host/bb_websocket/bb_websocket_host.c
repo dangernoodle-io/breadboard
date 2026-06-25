@@ -48,6 +48,9 @@ static bool s_force_recv_fail      = false;
 static bool s_force_send_fail      = false;
 static bool s_force_async_alloc_fail = false;
 
+// Inject fd — set before inject_frame to simulate a per-client fd
+static int s_inject_fd = -1;
+
 // ---------------------------------------------------------------------------
 // Force-fail hooks
 // ---------------------------------------------------------------------------
@@ -70,6 +73,25 @@ void bb_websocket_host_force_send_fail(bool fail)
 void bb_websocket_host_force_async_alloc_fail(bool fail)
 {
     s_force_async_alloc_fail = fail;
+}
+
+// ---------------------------------------------------------------------------
+// bb_websocket_req_fd (host)
+// ---------------------------------------------------------------------------
+
+int bb_websocket_req_fd(bb_http_request_t *req)
+{
+    (void)req;
+    return s_inject_fd;
+}
+
+// ---------------------------------------------------------------------------
+// bb_websocket_host_set_inject_fd
+// ---------------------------------------------------------------------------
+
+void bb_websocket_host_set_inject_fd(int fd)
+{
+    s_inject_fd = fd;
 }
 
 // ---------------------------------------------------------------------------
@@ -357,6 +379,8 @@ void bb_websocket_host_reset_captures(void)
     s_force_recv_fail        = false;
     s_force_send_fail        = false;
     s_force_async_alloc_fail = false;
+
+    s_inject_fd = -1;
 }
 
 // ---------------------------------------------------------------------------

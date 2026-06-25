@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "bb_pub.h"
 #include "bb_sink_event.h"
+#include "bb_sink_ws.h"
 #include "../../components/bb_log/src/bb_log_internal.h"
 #include "bb_nv.h"
 #include "bb_mdns_host_test_hooks.h"
@@ -1292,6 +1293,30 @@ void test_bb_sink_event_sample_skip_not_delivered(void);
 void test_bb_sink_event_seed_all_posts_snapshot(void);
 void test_bb_sink_event_seed_all_no_source_skips(void);
 void test_bb_sink_event_max_topics_returns_no_space(void);
+
+// Forward declarations from test_bb_sink_ws.c
+void test_bb_sink_ws_init_null_out_returns_invalid_arg(void);
+void test_bb_sink_ws_init_fills_sink(void);
+void test_bb_sink_ws_publish_broadcast_on_tick(void);
+void test_bb_sink_ws_publish_skipped_source_not_broadcast(void);
+void test_bb_sink_ws_publish_no_clients_broadcast_all_ok(void);
+void test_bb_sink_ws_publish_multiple_sources(void);
+void test_bb_sink_ws_publish_multiple_clients(void);
+void test_bb_sink_ws_envelope_format(void);
+void test_bb_sink_ws_direct_publish_returns_ok(void);
+void test_bb_sink_ws_direct_publish_no_slash_topic(void);
+void test_bb_sink_ws_reset_clears_state(void);
+void test_bb_sink_ws_init_registers_ws_endpoint(void);
+void test_bb_sink_ws_init_register_fail_returns_error(void);
+void test_bb_sink_ws_handler_accepts_text_frame(void);
+void test_bb_sink_ws_handler_accepts_binary_frame(void);
+void test_bb_sink_ws_sub_telemetry_receives_telemetry_not_events_logs(void);
+void test_bb_sink_ws_sub_logs_receives_log_frame(void);
+void test_bb_sink_ws_unsubscribed_client_receives_nothing(void);
+void test_bb_sink_ws_malformed_sub_frame_ignored(void);
+void test_bb_sink_ws_sub_exact_subtopic_match(void);
+void test_bb_sink_ws_sub_events_group(void);
+void test_bb_sink_ws_sub_replace_on_resub(void);
 
 // Forward declarations from test_bb_pub_parity.c
 void test_bb_pub_parity_register_source_ex_null_tags_same_behavior(void);
@@ -5868,6 +5893,30 @@ int main(void) {
     RUN_TEST(test_bb_websocket_register_described_endpoint_null_descriptor);
     RUN_TEST(test_bb_websocket_register_described_endpoint_propagates_register_fail);
     RUN_TEST(test_bb_websocket_reset_captures_clears_state);
+
+    // bb_sink_ws
+    RUN_TEST(test_bb_sink_ws_init_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_sink_ws_init_fills_sink);
+    RUN_TEST(test_bb_sink_ws_publish_broadcast_on_tick);
+    RUN_TEST(test_bb_sink_ws_publish_skipped_source_not_broadcast);
+    RUN_TEST(test_bb_sink_ws_publish_no_clients_broadcast_all_ok);
+    RUN_TEST(test_bb_sink_ws_publish_multiple_sources);
+    RUN_TEST(test_bb_sink_ws_publish_multiple_clients);
+    RUN_TEST(test_bb_sink_ws_envelope_format);
+    RUN_TEST(test_bb_sink_ws_direct_publish_returns_ok);
+    RUN_TEST(test_bb_sink_ws_direct_publish_no_slash_topic);
+    RUN_TEST(test_bb_sink_ws_reset_clears_state);
+    RUN_TEST(test_bb_sink_ws_init_registers_ws_endpoint);
+    RUN_TEST(test_bb_sink_ws_init_register_fail_returns_error);
+    RUN_TEST(test_bb_sink_ws_handler_accepts_text_frame);
+    RUN_TEST(test_bb_sink_ws_handler_accepts_binary_frame);
+    RUN_TEST(test_bb_sink_ws_sub_telemetry_receives_telemetry_not_events_logs);
+    RUN_TEST(test_bb_sink_ws_sub_logs_receives_log_frame);
+    RUN_TEST(test_bb_sink_ws_unsubscribed_client_receives_nothing);
+    RUN_TEST(test_bb_sink_ws_malformed_sub_frame_ignored);
+    RUN_TEST(test_bb_sink_ws_sub_exact_subtopic_match);
+    RUN_TEST(test_bb_sink_ws_sub_events_group);
+    RUN_TEST(test_bb_sink_ws_sub_replace_on_resub);
 
     return UNITY_END();
 }
