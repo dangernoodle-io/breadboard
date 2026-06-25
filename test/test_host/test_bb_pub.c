@@ -1234,6 +1234,57 @@ void test_bb_pub_two_sinks_each_get_own_transport(void)
     TEST_ASSERT_NULL(strstr(ctx2.entries[0].payload, "\"mqtt\""));
 }
 
+// Three sinks: mqtt (transport set), event (transport=NULL), websocket
+// (transport set).  The NULL-transport sink must NOT inherit the previous
+// sink's transport/tls fields in its serialized payload.
+void test_bb_pub_three_sinks_no_transport_bleed(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    capture_ctx_t ctx_event = { .count = 0 };
+    memset(ctx_event.entries, 0, sizeof(ctx_event.entries));
+    capture_ctx_t ctx_ws = { .count = 0 };
+    memset(ctx_ws.entries, 0, sizeof(ctx_ws.entries));
+
+    // sink[0]: mqtt, transport="mqtt", tls=true — global capture
+    bb_pub_sink_t s_mqtt = { .publish = capture_publish,     .ctx = NULL,
+                             .transport = "mqtt",      .tls = true };
+    // sink[1]: event/SSE, transport=NULL — must NOT inherit mqtt's labels
+    bb_pub_sink_t s_event = { .publish = capture_publish_ctx, .ctx = &ctx_event,
+                              .transport = NULL,        .tls = false };
+    // sink[2]: websocket, transport="websocket", tls=false
+    bb_pub_sink_t s_ws   = { .publish = capture_publish_ctx, .ctx = &ctx_ws,
+                             .transport = "websocket", .tls = false };
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&s_mqtt));
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&s_event));
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&s_ws));
+
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_pub_tick_once();
+
+    // All three sinks received exactly one publish.
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_EQUAL_INT(1, ctx_event.count);
+    TEST_ASSERT_EQUAL_INT(1, ctx_ws.count);
+
+    // mqtt sink: transport=mqtt, tls=true
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload,      "\"transport\":\"mqtt\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload,      "\"tls\":true"));
+
+    // event/SSE sink (transport=NULL): must have NO transport or tls fields —
+    // i.e. must NOT bleed the previous sink's "mqtt"/true values.
+    TEST_ASSERT_NULL(strstr(ctx_event.entries[0].payload, "\"transport\""));
+    TEST_ASSERT_NULL(strstr(ctx_event.entries[0].payload, "\"tls\""));
+
+    // websocket sink: transport=websocket, tls=false — must NOT have mqtt label
+    TEST_ASSERT_NOT_NULL(strstr(ctx_ws.entries[0].payload,  "\"transport\":\"websocket\""));
+    TEST_ASSERT_NOT_NULL(strstr(ctx_ws.entries[0].payload,  "\"tls\":false"));
+    TEST_ASSERT_NULL(strstr(ctx_ws.entries[0].payload,      "\"mqtt\""));
+}
+
 // ---------------------------------------------------------------------------
 // Source-registry overflow guard tests (B1-298)
 // ---------------------------------------------------------------------------

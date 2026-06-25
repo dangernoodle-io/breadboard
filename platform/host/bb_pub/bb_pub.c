@@ -1017,10 +1017,11 @@ bb_err_t bb_pub_tick_once(void)
                 continue;
             }
 
-            // Stamp per-sink metadata fields when transport is set.
+            // Stamp per-sink transport/tls fields.  Always delete first so a
+            // previous sink's values don't bleed into a sink with transport=NULL.
+            bb_json_obj_delete_key(obj, "transport");
+            bb_json_obj_delete_key(obj, "tls");
             if (sk->transport) {
-                bb_json_obj_delete_key(obj, "transport");
-                bb_json_obj_delete_key(obj, "tls");
                 bb_json_obj_set_string(obj, "transport", sk->transport);
                 bb_json_obj_set_bool(obj, "tls", sk->tls);
             }
