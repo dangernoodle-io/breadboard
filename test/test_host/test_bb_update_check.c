@@ -2003,3 +2003,39 @@ void test_bb_update_check_retained_snapshot_current_after_repeated_custom_parser
     bb_event_unsubscribe(sub);
     bb_event_ring_detach(ring);
 }
+
+// ---------------------------------------------------------------------------
+// OTA claim arbiter tests
+// ---------------------------------------------------------------------------
+
+void test_bb_update_check_ota_claim_acquire_free_returns_ok(void)
+{
+    reset_world();
+    bb_update_check_ota_claim_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_ota_claim_acquire("ota_pull"));
+    TEST_ASSERT_EQUAL_STRING("ota_pull", bb_update_check_ota_claim_holder_for_test());
+    bb_update_check_ota_claim_release("ota_pull");
+}
+
+void test_bb_update_check_ota_claim_acquire_conflict_returns_err(void)
+{
+    reset_world();
+    bb_update_check_ota_claim_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_ota_claim_acquire("ota_pull"));
+    // Different id → conflict.
+    TEST_ASSERT_NOT_EQUAL(BB_OK, bb_update_check_ota_claim_acquire("upd_check"));
+    // Original holder unchanged.
+    TEST_ASSERT_EQUAL_STRING("ota_pull", bb_update_check_ota_claim_holder_for_test());
+    bb_update_check_ota_claim_release("ota_pull");
+}
+
+void test_bb_update_check_ota_claim_release_frees_slot(void)
+{
+    reset_world();
+    bb_update_check_ota_claim_reset();
+    bb_update_check_ota_claim_acquire("ota_pull");
+    bb_update_check_ota_claim_release("ota_pull");
+    // Slot free — second acquirer wins.
+    TEST_ASSERT_EQUAL(BB_OK, bb_update_check_ota_claim_acquire("upd_check"));
+    bb_update_check_ota_claim_release("upd_check");
+}

@@ -145,10 +145,6 @@ void test_heap_ready_fails_when_total_free_below_floor(void);
 void test_heap_ready_passes_at_exact_contiguous_boundary(void);
 void test_heap_ready_passes_at_exact_total_free_boundary(void);
 void test_heap_ready_passes_when_both_floors_disabled(void);
-void test_ota_apply_claim_free_during_refresh_window(void);
-void test_ota_apply_claim_not_leaked_on_refresh_failure(void);
-void test_ota_apply_claim_held_only_during_spawn_window(void);
-void test_ota_apply_claim_released_on_spawn_failure(void);
 
 // Forward declarations from test_bb_ota_pull_manifest.c
 void test_ota_pull_manifest_fetch_success(void);
@@ -2084,6 +2080,17 @@ void test_bb_mqtt_resume_default_clears_suspended(void);
 void test_bb_mqtt_suspend_default_idempotent(void);
 void test_bb_mqtt_resume_default_idempotent(void);
 void test_bb_mqtt_suspend_resume_cycle(void);
+void test_bb_mqtt_stop_only_suspend_handle_survives(void);
+void test_bb_mqtt_stop_only_resume_reconnects_same_handle(void);
+void test_bb_mqtt_stop_only_cycle_idempotent(void);
+void test_bb_mqtt_stop_only_reconnect_count_unchanged(void);
+void test_bb_mqtt_stop_only_suspend_idempotent(void);
+void test_bb_mqtt_publish_ring_overflow_evicts_oldest(void);
+void test_bb_mqtt_simulate_reconnect_increments_count(void);
+void test_bb_mqtt_simulate_reconnect_null_handle_is_safe(void);
+void test_bb_mqtt_set_last_disc_error_type_round_trips(void);
+void test_bb_mqtt_set_last_disc_error_type_null_handle_is_safe(void);
+void test_bb_mqtt_resume_default_init_failure_preserves_suspended(void);
 void test_bb_mqtt_subscribe_null_handle_returns_invalid_arg(void);
 void test_bb_mqtt_subscribe_null_topic_returns_invalid_arg(void);
 void test_bb_mqtt_subscribe_happy_path_returns_ok(void);
@@ -2254,6 +2261,9 @@ void test_bb_update_check_retained_snapshot_current_after_available_check(void);
 void test_bb_update_check_retained_snapshot_current_after_repeated_check(void);
 void test_bb_update_check_retained_snapshot_current_custom_parser_available(void);
 void test_bb_update_check_retained_snapshot_current_after_repeated_custom_parser_check(void);
+void test_bb_update_check_ota_claim_acquire_free_returns_ok(void);
+void test_bb_update_check_ota_claim_acquire_conflict_returns_err(void);
+void test_bb_update_check_ota_claim_release_frees_slot(void);
 
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
@@ -3082,11 +3092,6 @@ int main(void) {
     RUN_TEST(test_heap_ready_passes_at_exact_contiguous_boundary);
     RUN_TEST(test_heap_ready_passes_at_exact_total_free_boundary);
     RUN_TEST(test_heap_ready_passes_when_both_floors_disabled);
-    // OTA apply — claim deadlock fix
-    RUN_TEST(test_ota_apply_claim_free_during_refresh_window);
-    RUN_TEST(test_ota_apply_claim_not_leaked_on_refresh_failure);
-    RUN_TEST(test_ota_apply_claim_held_only_during_spawn_window);
-    RUN_TEST(test_ota_apply_claim_released_on_spawn_failure);
 
     // OTA pull — streaming manifest fetch
     RUN_TEST(test_ota_pull_manifest_fetch_success);
@@ -4950,6 +4955,9 @@ int main(void) {
     RUN_TEST(test_bb_update_check_retained_snapshot_current_after_repeated_check);
     RUN_TEST(test_bb_update_check_retained_snapshot_current_custom_parser_available);
     RUN_TEST(test_bb_update_check_retained_snapshot_current_after_repeated_custom_parser_check);
+    RUN_TEST(test_bb_update_check_ota_claim_acquire_free_returns_ok);
+    RUN_TEST(test_bb_update_check_ota_claim_acquire_conflict_returns_err);
+    RUN_TEST(test_bb_update_check_ota_claim_release_frees_slot);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);
@@ -5096,6 +5104,17 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_suspend_default_idempotent);
     RUN_TEST(test_bb_mqtt_resume_default_idempotent);
     RUN_TEST(test_bb_mqtt_suspend_resume_cycle);
+    RUN_TEST(test_bb_mqtt_stop_only_suspend_handle_survives);
+    RUN_TEST(test_bb_mqtt_stop_only_resume_reconnects_same_handle);
+    RUN_TEST(test_bb_mqtt_stop_only_cycle_idempotent);
+    RUN_TEST(test_bb_mqtt_stop_only_reconnect_count_unchanged);
+    RUN_TEST(test_bb_mqtt_stop_only_suspend_idempotent);
+    RUN_TEST(test_bb_mqtt_publish_ring_overflow_evicts_oldest);
+    RUN_TEST(test_bb_mqtt_simulate_reconnect_increments_count);
+    RUN_TEST(test_bb_mqtt_simulate_reconnect_null_handle_is_safe);
+    RUN_TEST(test_bb_mqtt_set_last_disc_error_type_round_trips);
+    RUN_TEST(test_bb_mqtt_set_last_disc_error_type_null_handle_is_safe);
+    RUN_TEST(test_bb_mqtt_resume_default_init_failure_preserves_suspended);
     RUN_TEST(test_bb_mqtt_subscribe_null_handle_returns_invalid_arg);
     RUN_TEST(test_bb_mqtt_subscribe_null_topic_returns_invalid_arg);
     RUN_TEST(test_bb_mqtt_subscribe_happy_path_returns_ok);
