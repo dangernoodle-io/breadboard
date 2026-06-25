@@ -1,0 +1,43 @@
+menu "BB WebSocket"
+
+    config BB_WEBSOCKET_MAX_CLIENTS
+        int "Maximum concurrent WebSocket clients"
+        default 2
+        range 1 7
+        help
+            Maximum number of concurrent WebSocket client connections.
+            WS shares the httpd socket pool with SSE and HTTP connections.
+            The httpd default pool is 7 sockets; keep this value conservative
+            (default 2) to leave headroom for HTTP and SSE connections.
+
+    config BB_WEBSOCKET_FRAME_MAX_PAYLOAD
+        int "Maximum WebSocket frame payload size (bytes)"
+        default 4096
+        range 64 65536
+        help
+            Maximum payload size for a single WebSocket frame, in bytes.
+            Used by the receive buffer in platform implementations.
+
+    config BB_WEBSOCKET_RECV_TIMEOUT_S
+        int "WebSocket receive timeout (seconds)"
+        default 10
+        range 1 120
+        help
+            Per-frame receive timeout in seconds.
+
+    config BB_WEBSOCKET_SEND_TIMEOUT_S
+        int "WebSocket send timeout (seconds)"
+        default 10
+        range 1 120
+        help
+            Per-frame send timeout in seconds.
+
+    config BB_WEBSOCKET_AUTOREGISTER
+        bool "Auto-register bb_websocket via bb_registry"
+        default n
+        help
+            When enabled, bb_websocket_init is called automatically during
+            bb_registry_init().  Disable (default) to register endpoints
+            manually in your own init function.
+
+endmenu
