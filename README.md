@@ -41,6 +41,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 | `bb_prov_default_form` | Opt-in default WiFi setup form asset (`bb_prov_default_form_get()`) for bare-minimum `bb_prov` bringup | ESP-IDF |
 | `bb_registry` | Handler-lifecycle registry: opt-in components self-register an init fn via `BB_REGISTRY_REGISTER`; the app calls `bb_registry_init(server)` once after `bb_http_server_start` to invoke them all | ESP-IDF, host |
 | `bb_system` | Device restart and system info; optional routes module (`CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER`, default-on) adds GET `/api/version`, GET `/api/ping`, POST `/api/reboot` | ESP-IDF |
+| `bb_heap_arena` | Boot-reserved contiguous mbedTLS handshake arena (`CONFIG_BB_HEAP_ARENA_BYTES`); installs a custom `mbedtls_platform_set_calloc_free` allocator that tries the static arena first and falls back to `heap_caps_calloc(INTERNAL\|8BIT)` — prevents mid-uptime heap fragmentation on no-PSRAM boards. No-op when `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC` is unset. | ESP-IDF, host |
 | `bb_wifi` | STA init, async scan, auto-reconnect, diagnostics and GET `/api/wifi`; optional routes module (`CONFIG_BB_WIFI_ROUTES_AUTOREGISTER`, default-on) gates HTTP routes | ESP-IDF |
 
 ## Use in an ESP-IDF project
