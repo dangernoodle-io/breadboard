@@ -2415,6 +2415,7 @@ void test_bb_pub_sink_transport_mqtt_tls_stamped(void);
 void test_bb_pub_sink_transport_http_no_tls_stamped(void);
 void test_bb_pub_sink_no_transport_fields_absent(void);
 void test_bb_pub_two_sinks_each_get_own_transport(void);
+void test_bb_pub_three_sinks_no_transport_bleed(void);
 void test_bb_pub_source_overflow_returns_no_space(void);
 void test_bb_pub_tick_ok_when_source_registry_full(void);
 #if CONFIG_BB_PUB_BUFFER_ENABLE
@@ -5267,6 +5268,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_sink_transport_http_no_tls_stamped);
     RUN_TEST(test_bb_pub_sink_no_transport_fields_absent);
     RUN_TEST(test_bb_pub_two_sinks_each_get_own_transport);
+    RUN_TEST(test_bb_pub_three_sinks_no_transport_bleed);
     RUN_TEST(test_bb_pub_source_overflow_returns_no_space);
     RUN_TEST(test_bb_pub_tick_ok_when_source_registry_full);
 #if CONFIG_BB_PUB_BUFFER_ENABLE
