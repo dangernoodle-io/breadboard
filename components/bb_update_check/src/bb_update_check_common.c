@@ -771,6 +771,38 @@ void bb_update_check_reset_for_test(void)
 }
 
 #ifndef ESP_PLATFORM
+// Host/Arduino stub for the OTA exclusive-slot claim.
+// On ESP-IDF the real implementation lives in bb_update_check_espidf.c (backed
+// by a bb_claim_t that the upd_check worker also acquires). On host there is no
+// upd_check worker task, so the stub provides the same arbiter semantics via a
+// portable bb_claim_t so host tests can verify claim acquire/release behaviour.
+#include "bb_claim.h"
+static bb_claim_t s_ota_claim_host = BB_CLAIM_INIT;
+
+bb_err_t bb_update_check_ota_claim_acquire(const char *id)
+{
+    return bb_claim_acquire(&s_ota_claim_host, id);
+}
+
+void bb_update_check_ota_claim_release(const char *id)
+{
+    bb_claim_release(&s_ota_claim_host, id);
+}
+
+#ifdef BB_UPDATE_CHECK_TESTING
+void bb_update_check_ota_claim_reset(void)
+{
+    bb_claim_reset(&s_ota_claim_host);
+}
+
+const char *bb_update_check_ota_claim_holder_for_test(void)
+{
+    return bb_claim_holder(&s_ota_claim_host);
+}
+#endif // BB_UPDATE_CHECK_TESTING
+#endif // !ESP_PLATFORM
+
+#ifndef ESP_PLATFORM
 // Inject the in-flight state for testing the concurrency guard on host.
 void bb_update_check_set_in_flight_for_test(bool in_flight)
 {

@@ -92,6 +92,7 @@ static const char *TAG = "bb_ota_boot";
 #define OTA_BOOT_UDP_PORT      9999
 #define OTA_BOOT_WORKER_STACK  12288
 
+
 // Resolve+pull params handed to the worker (single boot-mode run, statics safe).
 static const char *s_boot_url   = NULL;
 static const char *s_boot_board = NULL;

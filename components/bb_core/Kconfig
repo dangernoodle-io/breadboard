@@ -37,4 +37,18 @@ config BB_OTA_STRATEGY_NONE
 
 endchoice
 
+config BB_OTA_STATIC_STACK
+    bool "Use static (BSS) stacks for OTA PULL-strategy worker tasks"
+    default n
+    help
+        Reserve the OTA PULL-strategy worker task stacks (ota_pull, upd_check)
+        in static BSS at boot instead of allocating them from the heap on demand.
+        Enable on boards where high-uptime internal-heap fragmentation can make
+        those workers fail to spawn. Consumers enable it per-fleet (e.g.
+        TaipanMiner sets it in sdkconfig.defaults).
+
+        Boot-mode boards (BB_OTA_STRATEGY_BOOT) self-exempt via their
+        AUTOREGISTER=n; this option affects only the two PULL-strategy runtime
+        workers.
+
 endmenu

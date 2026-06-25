@@ -145,6 +145,10 @@ void test_heap_ready_fails_when_total_free_below_floor(void);
 void test_heap_ready_passes_at_exact_contiguous_boundary(void);
 void test_heap_ready_passes_at_exact_total_free_boundary(void);
 void test_heap_ready_passes_when_both_floors_disabled(void);
+void test_ota_apply_claim_free_during_refresh_window(void);
+void test_ota_apply_claim_not_leaked_on_refresh_failure(void);
+void test_ota_apply_claim_held_only_during_spawn_window(void);
+void test_ota_apply_claim_released_on_spawn_failure(void);
 
 // Forward declarations from test_bb_ota_pull_manifest.c
 void test_ota_pull_manifest_fetch_success(void);
@@ -3078,6 +3082,11 @@ int main(void) {
     RUN_TEST(test_heap_ready_passes_at_exact_contiguous_boundary);
     RUN_TEST(test_heap_ready_passes_at_exact_total_free_boundary);
     RUN_TEST(test_heap_ready_passes_when_both_floors_disabled);
+    // OTA apply — claim deadlock fix
+    RUN_TEST(test_ota_apply_claim_free_during_refresh_window);
+    RUN_TEST(test_ota_apply_claim_not_leaked_on_refresh_failure);
+    RUN_TEST(test_ota_apply_claim_held_only_during_spawn_window);
+    RUN_TEST(test_ota_apply_claim_released_on_spawn_failure);
 
     // OTA pull — streaming manifest fetch
     RUN_TEST(test_ota_pull_manifest_fetch_success);

@@ -165,6 +165,17 @@ bb_err_t bb_update_check_mark_check_on_apply(void);
 // coordinated consumer update.
 bb_err_t bb_update_check_emit_status_json(bb_http_request_t *req);
 
+// OTA operation exclusive-slot claim. Backed by bb_claim; at most one OTA-class
+// operation (ota_pull download or upd_check manifest fetch) runs at a time.
+// acquire → BB_OK (free or same id), BB_ERR_CONFLICT (different id).
+// release → no-op if not held by id.
+bb_err_t bb_update_check_ota_claim_acquire(const char *id);
+void     bb_update_check_ota_claim_release(const char *id);
+
+#ifdef BB_UPDATE_CHECK_TESTING
+void bb_update_check_ota_claim_reset(void);
+#endif
+
 #ifdef __cplusplus
 }
 #endif
