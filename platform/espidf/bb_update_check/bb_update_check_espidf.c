@@ -20,6 +20,7 @@
 #include "bb_log.h"
 #include "bb_registry.h"
 #include "bb_event_routes.h"
+#include "bb_claim.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -73,6 +74,16 @@ static int  s_task_priority = CONFIG_BB_UPDATE_CHECK_TASK_PRIORITY;
 // the race-safe gate so two concurrent timer fires / kicks cannot both proceed.
 static atomic_bool s_check_in_flight = false;
 
+#if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_UPDATE_CHECK_AUTOREGISTER
+static StaticTask_t s_upd_check_task_buf;
+static StackType_t  s_upd_check_stack[BB_HTTP_CLIENT_TASK_STACK / sizeof(StackType_t)];
+#endif
+
+// OTA operation exclusive-slot claim. ota_pull acquires "ota_pull" before
+// spawning the download worker; upd_check acquires "upd_check" before the
+// fetch. Only one OTA-class operation runs at a time.
+static bb_claim_t s_ota_claim = BB_CLAIM_INIT;
+
 // Compute next poll interval: CONFIG_BB_UPDATE_CHECK_INTERVAL_S ± jitter,
 // floored at BB_UPDATE_CHECK_FLOOR_S.  Uses esp_random() for uniform jitter.
 static uint64_t next_interval_us(void)
@@ -93,6 +104,7 @@ static void ondemand_task(void *arg)
 {
     (void)arg;
     bb_update_check_run_one();
+    bb_claim_release(&s_ota_claim, "upd_check");
     // Clear the in-flight guard before deleting so the next kick can spawn.
     atomic_store(&s_check_in_flight, false);
     vTaskDelete(NULL);
@@ -110,11 +122,28 @@ static bool try_spawn(void)
         return true;
     }
 
+    // Claim the OTA exclusive slot. If ota_pull is active, yield this spawn.
+    if (bb_claim_acquire(&s_ota_claim, "upd_check") != BB_OK) {
+        atomic_store(&s_check_in_flight, false);
+        bb_log_w(TAG, "upd_check: ota_pull holds OTA slot, skipping this interval");
+        return false;
+    }
+
     int task_core = s_task_core;
     if (task_core != tskNO_AFFINITY && task_core >= configNUMBER_OF_CORES) {
         task_core = tskNO_AFFINITY;
     }
 
+#if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_UPDATE_CHECK_AUTOREGISTER
+    TaskHandle_t upd_task = xTaskCreateStaticPinnedToCore(
+        ondemand_task, "upd_check", BB_HTTP_CLIENT_TASK_STACK / sizeof(StackType_t),
+        NULL, s_task_priority, s_upd_check_stack, &s_upd_check_task_buf, task_core);
+    if (!upd_task) {
+        atomic_store(&s_check_in_flight, false);
+        bb_log_w(TAG, "spawn failed; will retry next interval");
+        return false;
+    }
+#else
     BaseType_t rc = xTaskCreatePinnedToCore(
         ondemand_task, "upd_check", BB_HTTP_CLIENT_TASK_STACK,
         NULL, s_task_priority, NULL, task_core);
@@ -126,6 +155,7 @@ static bool try_spawn(void)
         bb_log_w(TAG, "spawn failed (low heap?); will retry next interval");
         return false;
     }
+#endif
 
     return true;
 }
@@ -300,6 +330,27 @@ void bb_update_check_set_in_flight_for_test(bool in_flight)
 bool bb_update_check_get_in_flight_for_test(void)
 {
     return atomic_load(&s_check_in_flight);
+}
+#endif
+
+// ---------------------------------------------------------------------------
+// Public OTA-claim accessors (used by bb_ota_pull)
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_update_check_ota_claim_acquire(const char *id)
+{
+    return bb_claim_acquire(&s_ota_claim, id);
+}
+
+void bb_update_check_ota_claim_release(const char *id)
+{
+    bb_claim_release(&s_ota_claim, id);
+}
+
+#ifdef BB_UPDATE_CHECK_TESTING
+void bb_update_check_ota_claim_reset(void)
+{
+    bb_claim_reset(&s_ota_claim);
 }
 #endif
 

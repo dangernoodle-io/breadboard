@@ -81,9 +81,9 @@ static const char *TAG = "bb_ota_pull";
 #endif
 
 // Timeout (ms) for bb_update_check_run_blocking() inside the apply handler.
-// Align with the HTTP client timeout to avoid hanging the httpd worker longer
-// than a regular fetch would.
-#define BB_OTA_APPLY_REFRESH_TIMEOUT_MS 15000
+// Must be long enough for a cold TLS handshake + manifest fetch under load;
+// 15 s was too tight and caused spurious refresh-failed 503s on congested links.
+#define BB_OTA_APPLY_REFRESH_TIMEOUT_MS 30000
 
 static volatile bool s_ota_in_progress = false;
 static int s_ota_task_core = 1;  // default: Core 1 (bitaxe-friendly, frees Core 0 for httpd/stratum)
@@ -166,6 +166,12 @@ typedef struct {
     char latest_tag[32];
     char asset_url[256];
 } ota_worker_arg_t;
+
+#if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_PULL_AUTOREGISTER
+static StaticTask_t  s_ota_pull_task_buf;
+static StackType_t   s_ota_pull_stack[OTA_TASK_STACK / sizeof(StackType_t)];
+static ota_worker_arg_t s_ota_worker_arg;
+#endif
 
 #endif // ESP_PLATFORM
 
@@ -353,6 +359,7 @@ bool bb_ota_pull_heap_ready_for_test(size_t largest_block, size_t contiguous_flo
  */
 static void ota_task_exit(void)
 {
+    bb_update_check_ota_claim_release("ota_pull");
     bb_wdt_extend_end();
     vTaskDelete(NULL);
 }
@@ -838,6 +845,10 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
 
     // Cache-first: trust the cached update-check result when fresh; otherwise
     // kick the worker and wait for a fresh check before deciding.
+    // NOTE: the OTA claim is NOT held here — bb_update_check_run_blocking()
+    // spawns an upd_check worker that acquires the same claim ("upd_check").
+    // Holding the claim before the refresh would deadlock: upd_check skips,
+    // refresh times out, apply returns "check_failed" and leaks the claim.
     bb_update_check_status_t uc_status;
     bb_err_t uc_err = bb_update_check_get_status(&uc_status);
     if (uc_err != BB_OK) {
@@ -900,6 +911,9 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
     }
 
     // Build a task argument from the cached check status.
+#if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_PULL_AUTOREGISTER
+    ota_worker_arg_t *task_arg = &s_ota_worker_arg;
+#else
     ota_worker_arg_t *task_arg = malloc(sizeof(ota_worker_arg_t));
     if (!task_arg) {
         taskENTER_CRITICAL(&s_ota_status_mux);
@@ -909,6 +923,26 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
         bb_http_resp_json_obj_set_str(&obj, "error", "allocation_failed");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_OK;
+    }
+#endif
+
+    // Claim the OTA exclusive slot immediately before spawning the worker.
+    // All early-return paths above (refresh, no-update-available, alloc) occur
+    // BEFORE this acquire, so they cannot leak the claim.
+    if (bb_update_check_ota_claim_acquire("ota_pull") != BB_OK) {
+        taskENTER_CRITICAL(&s_ota_status_mux);
+        s_ota_in_progress = false;
+        taskEXIT_CRITICAL(&s_ota_status_mux);
+#if !(CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_PULL_AUTOREGISTER)
+        free(task_arg);
+#endif
+        bb_log_w(TAG, "apply: ota_pull claim conflict (upd_check in flight)");
+        bb_http_resp_set_status(req, 409);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "ota_op_in_progress");
         bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
@@ -930,6 +964,30 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
     if (ota_task_core != tskNO_AFFINITY && ota_task_core >= configNUMBER_OF_CORES) {
         ota_task_core = tskNO_AFFINITY;
     }
+#if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_PULL_AUTOREGISTER
+    TaskHandle_t task_handle = xTaskCreateStaticPinnedToCore(
+        ota_worker_task,
+        "ota_pull",
+        OTA_TASK_STACK / sizeof(StackType_t),
+        task_arg,
+        s_ota_task_prio,
+        s_ota_pull_stack,
+        &s_ota_pull_task_buf,
+        ota_task_core
+    );
+    if (!task_handle) {
+        bb_update_check_ota_claim_release("ota_pull");
+        taskENTER_CRITICAL(&s_ota_status_mux);
+        s_ota_in_progress = false;
+        taskEXIT_CRITICAL(&s_ota_status_mux);
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "task_create_failed");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_OK;
+    }
+#else
     TaskHandle_t task_handle = NULL;
     BaseType_t task_result = xTaskCreatePinnedToCore(
         ota_worker_task,
@@ -942,6 +1000,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
     );
 
     if (task_result != pdPASS) {
+        bb_update_check_ota_claim_release("ota_pull");
         free(task_arg);
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
@@ -953,6 +1012,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
+#endif
 
     bb_http_resp_set_status(req, 202);
     bb_http_json_obj_stream_t obj;

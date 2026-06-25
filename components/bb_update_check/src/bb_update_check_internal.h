@@ -49,6 +49,12 @@ void bb_update_check_reset_for_test(void);
 // flag that the host kick() stub respects.
 void bb_update_check_set_in_flight_for_test(bool in_flight);
 bool bb_update_check_get_in_flight_for_test(void);
+
+#ifndef ESP_PLATFORM
+// Return the current holder of the host OTA claim stub (NULL = free).
+// Used by tests that verify claim acquire/release around the apply path.
+const char *bb_update_check_ota_claim_holder_for_test(void);
+#endif
 #endif
 
 #ifdef __cplusplus
