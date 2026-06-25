@@ -168,43 +168,58 @@ bb_mqtt_t bb_mqtt_default(void);
 bb_err_t bb_mqtt_stop_default(void);
 
 /**
- * Fully stop and destroy the auto-registered MQTT connection, freeing heap
- * headroom for a heap-heavy operation such as a TLS GitHub update-check
- * handshake on tight no-PSRAM boards (e.g. ESP32-S2).
+ * Quiesce the auto-registered MQTT connection to free heap headroom for a
+ * heap-heavy operation such as a TLS GitHub update-check handshake on tight
+ * no-PSRAM boards.
  *
- * Calls esp_mqtt_client_stop() followed by esp_mqtt_client_destroy() on the
- * underlying handle, then frees TLS credentials.  After this call the
- * auto-client pointer is NULL.  To re-establish the connection call
- * bb_mqtt_resume_default(), which re-initialises and restarts the client
- * from the NVS-persisted configuration.
+ * Two modes, controlled at compile time by CONFIG_BB_MQTT_SUSPEND_STOP_ONLY:
  *
- * Contrast with bb_mqtt_stop_default() (permanent teardown, no resume),
- * which is used when the MQTT sink loses the exclusive-sink slot at boot.
- * This function is for a transient pause-and-resume pattern where the
- * consumer intends to call bb_mqtt_resume_default() afterward.
+ *   Default (CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=n):
+ *     Full release — calls esp_mqtt_client_stop() + esp_mqtt_client_destroy(),
+ *     frees TLS credentials, and NULLs the auto-client pointer (~11 KB freed).
+ *     Resume recreates from NVS via auto_client_create_from_nvs().
  *
- * Idempotent: no-op + BB_OK if already suspended, if no auto-client exists,
- * or if the deferred-start has not yet fired (IP not yet acquired).
+ *   Stop-only (CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=y):
+ *     Calls esp_mqtt_client_stop() only.  Keeps the client handle, task, and
+ *     buffers resident (~11 KB residency).  The auto-client pointer remains
+ *     NON-NULL.  Resume calls esp_mqtt_client_start() on the same handle —
+ *     no destroy, no realloc, no NVS reload.  ONLY safe when bb_heap_arena
+ *     already reserves enough headroom for the TLS handshake.
+ *
+ * Contrast with bb_mqtt_stop_default() (permanent teardown, no resume).
+ * This function is for a transient pause-and-resume bracket.
+ *
+ * CALLER CONTRACT: bracket with bb_pub_pause() / bb_pub_resume() to avoid
+ * spurious publish attempts during the suspended window.
+ *
+ * Idempotent: no-op + BB_OK if already suspended, no auto-client exists,
+ * or if autoregister is compiled out.
  *
  * @return BB_OK on success or when already suspended; platform error on
- *         esp_mqtt_client_stop/destroy failure.
+ *         esp_mqtt_client_stop failure.
  */
 bb_err_t bb_mqtt_suspend_default(void);
 
 /**
  * Re-establish the auto-registered MQTT connection after a
- * bb_mqtt_suspend_default() call.  Calls esp_mqtt_client_start() to
- * reconnect; esp-mqtt's built-in reconnect logic handles subsequent drops.
+ * bb_mqtt_suspend_default() call.
  *
- * Only restarts if the deferred-start guard has already fired (i.e. the
- * station had an IP address when the client was first started).  Calling
- * resume before the initial IP is acquired is a safe no-op.
+ * Two modes, controlled at compile time by CONFIG_BB_MQTT_SUSPEND_STOP_ONLY:
+ *
+ *   Default (CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=n):
+ *     Recreates the client from NVS via auto_client_create_from_nvs() and
+ *     starts it.  Post-boot the station already has an IP so start is
+ *     immediate; if WiFi is down, falls back to the deferred got-IP path.
+ *
+ *   Stop-only (CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=y):
+ *     Calls esp_mqtt_client_start() on the resident handle.  No NVS read,
+ *     no realloc.  esp-mqtt reconnects from the existing config.
  *
  * Idempotent: no-op + BB_OK if not currently suspended, or if no auto-client
  * exists, or if autoregister is compiled out.
  *
  * @return BB_OK on success or when not suspended; platform error on
- *         esp_mqtt_client_start failure (suspended flag is re-armed).
+ *         esp_mqtt_client_start failure (suspended flag is preserved for retry).
  */
 bb_err_t bb_mqtt_resume_default(void);
 
@@ -254,6 +269,24 @@ void bb_mqtt_default_set(bb_mqtt_t h);
  * state without touching internals.  Returns false when no default is set.
  */
 bool bb_mqtt_host_is_suspended_default(void);
+
+/**
+ * Switch the host stub's suspend/resume behavior between full-release (false,
+ * default) and stop-only (true).  Mirrors CONFIG_BB_MQTT_SUSPEND_STOP_ONLY on
+ * device.  Must be called before bb_mqtt_suspend_default().
+ *
+ * stop-only=false (default): suspend destroys handle (NULLs s_default_handle);
+ *   resume recreates a fresh handle.
+ * stop-only=true: suspend keeps handle resident (s_default_handle NON-NULL),
+ *   marks connected=false; resume sets connected=true on same pointer.
+ */
+void bb_mqtt_host_set_stop_only(bool stop_only);
+
+/**
+ * Override the calloc function used by bb_mqtt_init (for alloc-failure testing).
+ * Pass NULL to restore the default libc calloc.
+ */
+void bb_mqtt_set_calloc(void *(*fn)(size_t, size_t));
 
 #endif /* BB_MQTT_TESTING */
 

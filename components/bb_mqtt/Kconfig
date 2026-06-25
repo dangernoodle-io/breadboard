@@ -30,4 +30,22 @@ config BB_MQTT_NETWORK_TIMEOUT_MS
         specified timeout") on a marginal link and forces a reconnect.
         30s tolerates a slow/weak link without churning.
 
+config BB_MQTT_SUSPEND_STOP_ONLY
+    bool "Suspend uses stop-only (keeps client resident, no destroy/recreate)"
+    default n
+    help
+        When y, bb_mqtt_suspend_default() calls esp_mqtt_client_stop() only
+        (keeps client handle, buffers, and task resident, ~11 KB) and
+        bb_mqtt_resume_default() calls esp_mqtt_client_start() only — no
+        destroy, no realloc, no NVS reload.
+
+        ONLY safe when bb_heap_arena covers the TLS handshake that follows
+        the suspend window.  The ~11 KB residency means the largest_free_block
+        improvement is smaller than the full destroy path; use this mode only
+        when the arena already reserves enough headroom.
+
+        Default n = full destroy+recreate (original behavior): suspend calls
+        bb_mqtt_stop() which destroys the client and frees all buffers; resume
+        calls auto_client_create_from_nvs() to recreate.
+
 endmenu

@@ -12,6 +12,16 @@
 
 #define BB_MQTT_HOST_PUB_CAP 32
 
+#ifdef BB_MQTT_TESTING
+static void *(*s_calloc_fn)(size_t, size_t) = NULL;
+static void *bb_mqtt_calloc(size_t n, size_t sz)
+{
+    return s_calloc_fn ? s_calloc_fn(n, sz) : calloc(n, sz);
+}
+#else
+#define bb_mqtt_calloc calloc
+#endif
+
 typedef struct {
     bb_mqtt_host_pub_t pubs[BB_MQTT_HOST_PUB_CAP];
     int                count;
@@ -26,7 +36,7 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
 {
     if (!cfg || !out) return BB_ERR_INVALID_ARG;
 
-    bb_mqtt_host_handle_t *h = calloc(1, sizeof(*h));
+    bb_mqtt_host_handle_t *h = bb_mqtt_calloc(1, sizeof(*h));
     if (!h) return BB_ERR_NO_SPACE;
 
     // Simulate "connected" by default so publish tests don't need to set flag.
@@ -134,16 +144,24 @@ bb_err_t bb_mqtt_stop_default(void)
 // ---------------------------------------------------------------------------
 // bb_mqtt_suspend_default / bb_mqtt_resume_default — host stubs
 //
-// Models the ESP-IDF full-release semantics:
-//  - suspend: DESTROYS the default handle (frees, NULLs s_default_handle),
-//    sets s_suspended flag.  Mirrors the ~11 KB free on device.
-//  - resume: RECREATES a fresh handle (connected=true, pub ring cleared),
-//    restores s_default_handle, clears s_suspended.
+// Models BOTH suspend paths:
+//
+//   Default (stop-only=false):
+//     - suspend: DESTROYS the handle (frees, NULLs s_default_handle).
+//     - resume:  RECREATES a fresh handle (connected=true, pub ring cleared).
+//
+//   Stop-only (stop-only=true, set via bb_mqtt_host_set_stop_only under
+//   BB_MQTT_TESTING):
+//     - suspend: marks the handle as "stopped" (connected=false) but does NOT
+//       free it; s_default_handle remains NON-NULL.
+//     - resume:  marks the handle as "started" again (connected=true); same
+//       handle pointer, no recreate.
 //
 // bb_mqtt_host_is_suspended_default() reports s_suspended for test assertions.
 // ---------------------------------------------------------------------------
 
-static bool s_suspended = false;
+static bool s_suspended  = false;
+static bool s_stop_only  = false;   // controlled by bb_mqtt_host_set_stop_only
 
 // NVS namespace/key constants (host: mirrored from espidf backend).
 #define BB_MQTT_NVS_NS  "bb_mqtt"
@@ -153,10 +171,19 @@ bb_err_t bb_mqtt_suspend_default(void)
 {
     if (s_suspended) return BB_OK;   // idempotent
 
-    // Destroy the current handle to model full release.
-    if (s_default_handle) {
-        bb_mqtt_destroy(s_default_handle);
-        s_default_handle = NULL;
+    if (s_stop_only) {
+        // Stop-only: keep handle resident, just mark it stopped/disconnected.
+        if (s_default_handle) {
+            bb_mqtt_host_handle_t *h = (bb_mqtt_host_handle_t *)s_default_handle;
+            h->connected = false;
+        }
+        // s_default_handle intentionally left NON-NULL.
+    } else {
+        // Full release: destroy the handle.
+        if (s_default_handle) {
+            bb_mqtt_destroy(s_default_handle);
+            s_default_handle = NULL;
+        }
     }
 
     s_suspended = true;
@@ -167,25 +194,30 @@ bb_err_t bb_mqtt_resume_default(void)
 {
     if (!s_suspended) return BB_OK;   // idempotent
 
-    // Recreate a fresh handle to model recreate-from-NVS.
-    // On host: read NVS uri (or use a fallback) and create a new handle.
-    char uri[BB_MQTT_URI_MAX] = {0};
-    bb_nv_get_str(BB_MQTT_NVS_NS, "uri", uri, sizeof(uri), "");
+    if (s_stop_only) {
+        // Stop-only: restart the resident handle (connected=true, same pointer).
+        if (s_default_handle) {
+            bb_mqtt_host_handle_t *h = (bb_mqtt_host_handle_t *)s_default_handle;
+            h->connected = true;
+        }
+    } else {
+        // Full release: recreate a fresh handle from NVS (or fallback uri).
+        char uri[BB_MQTT_URI_MAX] = {0};
+        bb_nv_get_str(BB_MQTT_NVS_NS, "uri", uri, sizeof(uri), "");
 
-    // If NVS has no uri (typical in unit tests), use a placeholder so init
-    // succeeds — the host stub ignores the uri value for any real network ops.
-    if (!uri[0]) {
-        strncpy(uri, "mqtt://localhost:1883", sizeof(uri) - 1);
-    }
+        if (!uri[0]) {
+            strncpy(uri, "mqtt://localhost:1883", sizeof(uri) - 1);
+        }
 
-    bb_mqtt_cfg_t cfg = {
-        .uri = uri,
-        .tls = false,
-    };
-    bb_err_t rc = bb_mqtt_init(&cfg, &s_default_handle);
-    if (rc != BB_OK) {
-        // Do NOT clear s_suspended — let caller retry.
-        return rc;
+        bb_mqtt_cfg_t cfg = {
+            .uri = uri,
+            .tls = false,
+        };
+        bb_err_t rc = bb_mqtt_init(&cfg, &s_default_handle);
+        if (rc != BB_OK) {
+            // Do NOT clear s_suspended — let caller retry.
+            return rc;
+        }
     }
 
     s_suspended = false;
@@ -253,6 +285,16 @@ void bb_mqtt_default_set(bb_mqtt_t h)
 bool bb_mqtt_host_is_suspended_default(void)
 {
     return s_suspended;
+}
+
+void bb_mqtt_host_set_stop_only(bool stop_only)
+{
+    s_stop_only = stop_only;
+}
+
+void bb_mqtt_set_calloc(void *(*fn)(size_t, size_t))
+{
+    s_calloc_fn = fn;
 }
 
 #endif /* BB_MQTT_TESTING */

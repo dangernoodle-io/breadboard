@@ -7,6 +7,7 @@
 #include "bb_mqtt.h"
 #include "bb_nv.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -478,6 +479,246 @@ void test_bb_mqtt_suspend_resume_cycle(void)
     TEST_ASSERT_FALSE(bb_mqtt_host_is_suspended_default());
     TEST_ASSERT_NOT_NULL(bb_mqtt_default());
 
+    bb_mqtt_stop_default();
+}
+
+// ---------------------------------------------------------------------------
+// bb_mqtt_suspend_default / bb_mqtt_resume_default — stop-only path tests
+//
+// These tests set bb_mqtt_host_set_stop_only(true) to model the
+// CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=y ESP-IDF behavior:
+//   - suspend keeps handle RESIDENT (s_default_handle NON-NULL, connected=false)
+//   - resume reconnects on the SAME handle (connected=true, no recreate)
+//   - reconnect_count is NOT incremented (no NVS reload / destroy)
+//
+// All tests restore stop_only=false at the end to avoid polluting other tests.
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_stop_only_suspend_handle_survives(void)
+{
+    // After suspend in stop-only mode the default handle must NOT be destroyed.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_default_set(h);
+    bb_mqtt_host_set_stop_only(true);
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    TEST_ASSERT_TRUE(bb_mqtt_host_is_suspended_default());
+    // Handle must still be non-NULL (resident).
+    TEST_ASSERT_NOT_NULL(bb_mqtt_default());
+    // Must be the same pointer (not a new allocation).
+    TEST_ASSERT_EQUAL_PTR(h, bb_mqtt_default());
+    // Connected must be false (stopped).
+    TEST_ASSERT_FALSE(bb_mqtt_is_connected(bb_mqtt_default()));
+
+    // Cleanup.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+    bb_mqtt_stop_default();
+    bb_mqtt_host_set_stop_only(false);
+}
+
+void test_bb_mqtt_stop_only_resume_reconnects_same_handle(void)
+{
+    // Resume in stop-only mode must reconnect on the SAME handle pointer.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_default_set(h);
+    bb_mqtt_host_set_stop_only(true);
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    bb_mqtt_t h_after_suspend = bb_mqtt_default();
+    TEST_ASSERT_EQUAL_PTR(h, h_after_suspend);  // resident
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+    TEST_ASSERT_FALSE(bb_mqtt_host_is_suspended_default());
+    // Must still be the original pointer (no recreate).
+    TEST_ASSERT_EQUAL_PTR(h, bb_mqtt_default());
+    // Must be connected again.
+    TEST_ASSERT_TRUE(bb_mqtt_is_connected(bb_mqtt_default()));
+
+    bb_mqtt_stop_default();
+    bb_mqtt_host_set_stop_only(false);
+}
+
+void test_bb_mqtt_stop_only_cycle_idempotent(void)
+{
+    // Two full stop-only suspend/resume cycles must both work cleanly.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_default_set(h);
+    bb_mqtt_host_set_stop_only(true);
+
+    // First cycle.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    TEST_ASSERT_EQUAL_PTR(h, bb_mqtt_default());  // resident
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+    TEST_ASSERT_EQUAL_PTR(h, bb_mqtt_default());  // same handle
+    TEST_ASSERT_TRUE(bb_mqtt_is_connected(bb_mqtt_default()));
+
+    // Second cycle.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    TEST_ASSERT_EQUAL_PTR(h, bb_mqtt_default());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+    TEST_ASSERT_EQUAL_PTR(h, bb_mqtt_default());
+    TEST_ASSERT_TRUE(bb_mqtt_is_connected(bb_mqtt_default()));
+
+    bb_mqtt_stop_default();
+    bb_mqtt_host_set_stop_only(false);
+}
+
+void test_bb_mqtt_stop_only_reconnect_count_unchanged(void)
+{
+    // Suspend/resume in stop-only mode must NOT increment reconnect_count
+    // (no destroy/recreate, no simulated reconnect event).
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_default_set(h);
+    bb_mqtt_host_set_stop_only(true);
+
+    bb_mqtt_stats_t stats_before;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(h, &stats_before));
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+
+    bb_mqtt_stats_t stats_after;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(bb_mqtt_default(), &stats_after));
+    // reconnect_count must not have changed (no NVS reload, no new handle).
+    TEST_ASSERT_EQUAL_UINT32(stats_before.reconnect_count, stats_after.reconnect_count);
+
+    bb_mqtt_stop_default();
+    bb_mqtt_host_set_stop_only(false);
+}
+
+void test_bb_mqtt_stop_only_suspend_idempotent(void)
+{
+    // double-suspend in stop-only mode must be a no-op and return BB_OK.
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_default_set(h);
+    bb_mqtt_host_set_stop_only(true);
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());  // no-op
+    TEST_ASSERT_TRUE(bb_mqtt_host_is_suspended_default());
+    TEST_ASSERT_EQUAL_PTR(h, bb_mqtt_default());
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
+    bb_mqtt_stop_default();
+    bb_mqtt_host_set_stop_only(false);
+}
+
+// ---------------------------------------------------------------------------
+// bb_mqtt_publish ring overflow tests
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_publish_ring_overflow_evicts_oldest(void)
+{
+    // Push BB_MQTT_HOST_PUB_CAP (32) + 1 publishes; the ring must shift out the
+    // oldest entry and the last captured pub must be the final one.
+    bb_mqtt_t h = make_client(NULL, NULL);
+
+    char topic[32];
+    char payload[32];
+    for (int i = 0; i < 33; i++) {
+        snprintf(topic,   sizeof(topic),   "t/%d", i);
+        snprintf(payload, sizeof(payload), "p%d",  i);
+        TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_publish(h, topic, payload, -1, 0, false));
+    }
+
+    // Ring is capped at 32; count must not exceed 32.
+    TEST_ASSERT_EQUAL_INT(32, bb_mqtt_host_pub_count(h));
+
+    // Last pub must be the 33rd message (index 32).
+    const bb_mqtt_host_pub_t *last = bb_mqtt_host_last_pub(h);
+    TEST_ASSERT_NOT_NULL(last);
+    TEST_ASSERT_EQUAL_STRING("t/32",  last->topic);
+    TEST_ASSERT_EQUAL_STRING("p32",   last->payload);
+
+    bb_mqtt_destroy(h);
+}
+
+// ---------------------------------------------------------------------------
+// bb_mqtt_host_simulate_reconnect tests
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_simulate_reconnect_increments_count(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+
+    bb_mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(h, &stats));
+    TEST_ASSERT_EQUAL_UINT32(0, stats.reconnect_count);
+
+    bb_mqtt_host_simulate_reconnect(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(h, &stats));
+    TEST_ASSERT_EQUAL_UINT32(1, stats.reconnect_count);
+
+    bb_mqtt_host_simulate_reconnect(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(h, &stats));
+    TEST_ASSERT_EQUAL_UINT32(2, stats.reconnect_count);
+
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_simulate_reconnect_null_handle_is_safe(void)
+{
+    // Must not crash on NULL handle.
+    bb_mqtt_host_simulate_reconnect(NULL);
+}
+
+// ---------------------------------------------------------------------------
+// bb_mqtt_host_set_last_disc_error_type tests
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_set_last_disc_error_type_round_trips(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+
+    bb_mqtt_host_set_last_disc_error_type(h, 0x05);
+
+    bb_mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(h, &stats));
+    TEST_ASSERT_EQUAL_UINT8(0x05, stats.last_disc_error_type);
+
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_set_last_disc_error_type_null_handle_is_safe(void)
+{
+    // Must not crash on NULL handle.
+    bb_mqtt_host_set_last_disc_error_type(NULL, 0xFF);
+}
+
+// ---------------------------------------------------------------------------
+// bb_mqtt_resume_default alloc-failure path
+// ---------------------------------------------------------------------------
+
+static void *failing_calloc(size_t n, size_t sz)
+{
+    (void)n; (void)sz;
+    return NULL;
+}
+
+void test_bb_mqtt_resume_default_init_failure_preserves_suspended(void)
+{
+    // When bb_mqtt_init fails inside resume_default (full-release mode),
+    // the suspended flag must remain set so the caller can retry.
+    bb_mqtt_default_set(NULL);                  // no prior client
+    bb_mqtt_host_set_stop_only(false);          // full-release mode
+
+    // Suspend with no handle — just sets the suspended flag.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_suspend_default());
+    TEST_ASSERT_TRUE(bb_mqtt_host_is_suspended_default());
+
+    // Make the next calloc inside bb_mqtt_init fail.
+    bb_mqtt_set_calloc(failing_calloc);
+    bb_err_t rc = bb_mqtt_resume_default();
+    bb_mqtt_set_calloc(NULL);   // restore before any assertion that might alloc
+
+    // resume must propagate the init error.
+    TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
+    // Suspended flag must still be set — caller can retry.
+    TEST_ASSERT_TRUE(bb_mqtt_host_is_suspended_default());
+    TEST_ASSERT_NULL(bb_mqtt_default());
+
+    // Clean up: restore suspended state and clear the recreated default handle.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_resume_default());
     bb_mqtt_stop_default();
 }
 

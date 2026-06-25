@@ -546,34 +546,55 @@ bb_err_t bb_mqtt_stop_default(void)
     return bb_mqtt_stop(&s_auto_client);
 }
 
-// bb_mqtt_suspend_default — fully release the auto-client to reclaim ~11 KB of
-// heap headroom (esp-mqtt task + send/receive buffers + TLS creds + handle
-// struct) during a heap-heavy TLS operation (e.g. a GitHub update-check
-// handshake on a heap-tight ESP32-S2 board).
+// bb_mqtt_suspend_default — quiesce the auto-client to free heap headroom for
+// a heap-heavy TLS operation (e.g. a GitHub update-check handshake on a
+// heap-tight ESP32-S2 board).
 //
-// FULL RELEASE: calls bb_mqtt_stop(&s_auto_client) which stops + DESTROYS the
-// client and NULLs the handle.  This frees the entire ~11 KB budget, leaving
-// the largest_free_block large enough for a concurrent TLS handshake (tested:
-// largest_free_block 21504 after suspend vs ~15 KB with stop-only).
+// Two modes controlled by CONFIG_BB_MQTT_SUSPEND_STOP_ONLY:
+//
+//   STOP-ONLY (CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=y):
+//     Calls esp_mqtt_client_stop() only.  Keeps the client handle, task, and
+//     buffers resident (~11 KB).  Resume calls esp_mqtt_client_start() on the
+//     same handle — no destroy, no realloc, no NVS reload.
+//     s_auto_client remains NON-NULL during the suspend window.
+//     ONLY safe when bb_heap_arena already reserves enough headroom for the
+//     TLS handshake without the full 11 KB free.
+//
+//   FULL RELEASE (CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=n, default):
+//     Calls bb_mqtt_stop(&s_auto_client) which stops + DESTROYS the client
+//     and NULLs the handle.  Frees the entire ~11 KB budget.
 //
 // Contrast with bb_mqtt_stop_default() which is a permanent disable (never
 // resumed).  suspend/resume is a transient bracket.
 //
 // CALLER CONTRACT: the caller MUST pause publishing (bb_pub_pause) before
 // calling suspend and resume publishing (bb_pub_resume) after resume, so that
-// no bb_pub tick fires while s_auto_client is NULL.  bb_sink_mqtt reads
-// bb_mqtt_default() at publish time, so it picks up NULL during the suspended
-// window and returns BB_ERR_INVALID_ARG — which bb_pub logs but does not fatal
-// on.  To avoid spurious errors and wasted tick work, callers MUST pause.
+// no bb_pub tick fires during the suspended window.  In full-release mode
+// s_auto_client is NULL so bb_sink_mqtt returns BB_ERR_INVALID_ARG cleanly;
+// in stop-only mode s_auto_client is non-NULL but the client is stopped so
+// publish attempts queue in esp-mqtt's outbox (may be dropped on queue-full).
 //
-// Idempotent: no-op + BB_OK if already suspended (s_auto_client already NULL
-// and s_suspended_flag set).
+// Idempotent: no-op + BB_OK if already suspended.
 static bool s_suspended = false;   // tracks whether we are in a suspend window
 
 bb_err_t bb_mqtt_suspend_default(void)
 {
     if (s_suspended) return BB_OK;   // idempotent
 
+#if CONFIG_BB_MQTT_SUSPEND_STOP_ONLY
+    // Stop-only: keep client resident, just halt the network activity.
+    if (s_auto_client) {
+        bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)s_auto_client;
+        xSemaphoreTake(h->lock, portMAX_DELAY);
+        h->suspended  = true;
+        h->connected  = false;
+        xSemaphoreGive(h->lock);
+        esp_mqtt_client_stop(h->client);
+        bb_log_i(TAG, "suspended (stop-only, client resident ~11KB)");
+    }
+    // s_auto_client intentionally left NON-NULL in stop-only mode.
+#else
+    // Full release: destroy + free everything (~11 KB freed).
     if (s_auto_client) {
         // Clear the pending-start pointer if it still refers to this handle,
         // so the got-IP callback does not fire into the freed handle.
@@ -583,36 +604,62 @@ bb_err_t bb_mqtt_suspend_default(void)
         }
         bb_mqtt_stop(&s_auto_client);  // destroys + NULLs s_auto_client
     }
+    bb_log_i(TAG, "suspended (full release ~11KB for heap-heavy TLS op)");
+#endif
 
     s_suspended = true;
-    bb_log_i(TAG, "suspended (full release ~11KB for heap-heavy TLS op)");
     return BB_OK;
 }
 
-// bb_mqtt_resume_default — recreate the auto-client from NVS and reconnect
-// immediately after a bb_mqtt_suspend_default().
+// bb_mqtt_resume_default — re-establish the auto-client after a
+// bb_mqtt_suspend_default() call.
 //
-// Post-boot the station already has an IP address, so we do NOT use the
-// deferred got-IP path.  Instead we call auto_client_create_from_nvs() (which
-// runs bb_mqtt_init — this sets up the client and starts it immediately when
-// bb_wifi_has_ip() is true, which it will be post-boot).  If for some reason
-// WiFi is down, bb_mqtt_init falls back to the deferred got-IP path so the
-// behaviour is still safe.
+// Two modes controlled by CONFIG_BB_MQTT_SUSPEND_STOP_ONLY:
+//
+//   STOP-ONLY (CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=y):
+//     Calls esp_mqtt_client_start() on the resident handle.  No NVS read,
+//     no realloc.  esp-mqtt reconnects from the existing config.
+//
+//   FULL RELEASE (CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=n, default):
+//     Calls auto_client_create_from_nvs() which re-initialises and restarts
+//     the client from NVS-persisted configuration.
+//
+// Post-boot the station already has an IP address for the full-release path;
+// if WiFi is down, bb_mqtt_init falls back to the deferred got-IP path.
 //
 // Idempotent: no-op + BB_OK if not suspended.
 bb_err_t bb_mqtt_resume_default(void)
 {
     if (!s_suspended) return BB_OK;   // idempotent
 
+#if CONFIG_BB_MQTT_SUSPEND_STOP_ONLY
+    // Stop-only: restart the resident client.
+    if (s_auto_client) {
+        bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)s_auto_client;
+        bb_err_t rc = esp_mqtt_client_start(h->client);
+        if (rc != BB_OK) {
+            bb_log_w(TAG, "resume (stop-only): esp_mqtt_client_start failed: %d", rc);
+            // Do NOT clear s_suspended — let the caller retry.
+            return rc;
+        }
+        xSemaphoreTake(h->lock, portMAX_DELAY);
+        h->suspended = false;
+        h->started   = true;
+        xSemaphoreGive(h->lock);
+        bb_log_i(TAG, "resumed (stop-only, same handle=%p)", s_auto_client);
+    }
+#else
+    // Full release: recreate from NVS.
     bb_err_t rc = auto_client_create_from_nvs();
     if (rc != BB_OK) {
         bb_log_w(TAG, "resume: auto_client_create_from_nvs failed: %d", rc);
         // Do NOT clear s_suspended — let the caller retry.
         return rc;
     }
+    bb_log_i(TAG, "resumed (client recreated from NVS, handle=%p)", s_auto_client);
+#endif
 
     s_suspended = false;
-    bb_log_i(TAG, "resumed (client recreated from NVS, handle=%p)", s_auto_client);
     return BB_OK;
 }
 
