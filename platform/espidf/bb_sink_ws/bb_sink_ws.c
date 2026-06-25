@@ -275,6 +275,8 @@ static bb_err_t sink_ws_publish(void *ctx, const char *topic,
 #define BB_SINK_WS_LOG_BUF_BYTES 256
 // Poll interval: drain bb_log_stream every 200 ms.
 #define BB_SINK_WS_LOG_POLL_MS   200
+// Backoff delay on alloc failure: yields to IDLE so WDT is not starved.
+#define BB_SINK_WS_LOG_BACKOFF_MS 250
 // Task stack size.
 #define BB_SINK_WS_LOG_STACK     3072
 // Task priority (below WiFi/MQTT, above idle).
@@ -303,6 +305,8 @@ static void log_pump_task(void *arg)
                 free(frame_buf);
             } else {
                 bb_log_w(TAG, "log_pump: malloc failed");
+                // Yield so IDLE can run and reset the task watchdog.
+                vTaskDelay(pdMS_TO_TICKS(BB_SINK_WS_LOG_BACKOFF_MS));
             }
         }
     }

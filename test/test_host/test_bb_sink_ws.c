@@ -6,6 +6,7 @@
 #include "bb_websocket.h"
 #include "bb_websocket_host.h"
 #include "bb_nv.h"
+#include "test_alloc_inject.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -482,6 +483,66 @@ void test_bb_sink_ws_unsubscribed_client_receives_nothing(void)
     bb_err_t err = bb_sink_ws_host_inject_log_line("line");
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// ---------------------------------------------------------------------------
+// Alloc-failure paths (host-reachable)
+// ---------------------------------------------------------------------------
+
+// log-inject malloc fail → returns BB_ERR_NO_SPACE, no broadcast.
+// On device this path immediately yields (vTaskDelay backoff) so WDT is safe.
+void test_bb_sink_ws_log_inject_malloc_fail_returns_no_space(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(9, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 9, "{\"sub\":[\"logs\"]}");
+
+    // Inject a failing malloc — inject_log_line must return BB_ERR_NO_SPACE.
+    bb_sink_ws_set_malloc(test_failing_malloc);
+    test_alloc_fail_at = 0;
+    test_alloc_reset();
+
+    bb_err_t err = bb_sink_ws_host_inject_log_line("pressure test");
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    // Nothing must have been broadcast.
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+
+    // Restore normal allocator.
+    bb_sink_ws_set_malloc(NULL);
+    test_alloc_fail_at = -1;
+}
+
+// publish malloc fail → returns BB_ERR_NO_SPACE, nothing broadcast.
+void test_bb_sink_ws_publish_malloc_fail_returns_no_space(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(0, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 0, "{\"sub\":[\"telemetry\"]}");
+
+    // Inject a failing malloc so sink_ws_publish returns BB_ERR_NO_SPACE.
+    bb_sink_ws_set_malloc(test_failing_malloc);
+    test_alloc_fail_at = 0;
+    test_alloc_reset();
+
+    bb_err_t err = s.publish(s.ctx, "m/h/power", "{\"v\":1}", 7);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+
+    // Restore normal allocator.
+    bb_sink_ws_set_malloc(NULL);
+    test_alloc_fail_at = -1;
 }
 
 // (d) malformed sub frame is ignored safely — state for the fd unchanged.

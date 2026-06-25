@@ -40,6 +40,13 @@ void bb_sink_ws_reset_for_test(void);
  * Compiled only when BB_SINK_WS_TESTING is defined (native test builds).
  */
 bb_err_t bb_sink_ws_host_inject_log_line(const char *line);
+
+/**
+ * Host-only: override the malloc function used by the log-injection path.
+ * Pass NULL to restore the default system malloc.
+ * Used to exercise the alloc-failure/backoff path in tests.
+ */
+void bb_sink_ws_set_malloc(void *(*fn)(size_t));
 #endif
 
 #ifdef __cplusplus
