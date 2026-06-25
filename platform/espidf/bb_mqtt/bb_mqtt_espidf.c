@@ -216,6 +216,10 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
         .network = {
             .timeout_ms = CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS,
         },
+        .buffer = {
+            .size     = CONFIG_BB_MQTT_RX_BUFFER_BYTES,
+            .out_size = CONFIG_BB_MQTT_TX_BUFFER_BYTES,
+        },
     };
 
     // Broker TLS verification certificate.
