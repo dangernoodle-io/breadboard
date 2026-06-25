@@ -21,6 +21,18 @@
 static const char *TAG = "bb_event_routes";
 
 // ---------------------------------------------------------------------------
+// Static task stacks (CONFIG_BB_EVENT_ROUTES_STATIC_POOL)
+// Pre-allocated per-slot FreeRTOS stacks + TCBs for xTaskCreateStatic.
+// Indexed by client slot to keep the association across connect/disconnect.
+// ---------------------------------------------------------------------------
+
+#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL
+#define SSE_TASK_STACK_WORDS (4096 / sizeof(StackType_t))
+static StackType_t  s_sse_stack[CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS][SSE_TASK_STACK_WORDS];
+static StaticTask_t s_sse_tcb[CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS];
+#endif
+
+// ---------------------------------------------------------------------------
 // Port: SemaphoreHandle_t recursive mutex per slot. notify() is unused on
 // ESP-IDF because the SSE task polls with a short timeout.
 // ---------------------------------------------------------------------------
@@ -179,12 +191,28 @@ static bb_err_t events_handler(bb_http_request_t *req)
     arg->req = async_req;
     arg->client = client;
 
+#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL
+    {
+        int slot = bb_event_routes_client_slot_index(client);
+        TaskHandle_t th = xTaskCreateStatic(sse_task, "sse_events",
+                                            SSE_TASK_STACK_WORDS, arg, 1,
+                                            s_sse_stack[slot],
+                                            &s_sse_tcb[slot]);
+        if (!th) {
+            free(arg);
+            bb_event_routes_client_release(client);
+            bb_http_req_async_handler_complete(async_req);
+            return BB_ERR_INVALID_STATE;
+        }
+    }
+#else
     if (xTaskCreate(sse_task, "sse_events", 4096, arg, 1, NULL) != pdPASS) {
         free(arg);
         bb_event_routes_client_release(client);
         bb_http_req_async_handler_complete(async_req);
         return BB_ERR_INVALID_STATE;
     }
+#endif
     return BB_OK;
 }
 

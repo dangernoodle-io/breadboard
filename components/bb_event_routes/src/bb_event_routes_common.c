@@ -6,6 +6,7 @@
 
 #include <stdatomic.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -97,6 +98,40 @@ struct bb_event_routes_client {
 };
 
 static bb_event_routes_client_t s_clients[CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS];
+
+// ---------------------------------------------------------------------------
+// Optional static pool (CONFIG_BB_EVENT_ROUTES_STATIC_POOL)
+// Pre-allocates per-client payload buffers and queue entry arrays at compile
+// time as BSS arrays, reused across connect/disconnect cycles instead of
+// malloc/free on each connection — zero fragmentation on no-PSRAM boards.
+// ---------------------------------------------------------------------------
+
+#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
+static uint8_t s_payload_pool[CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS][CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH * CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY];
+static queue_entry_t s_entry_pool[CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS][CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH];
+#endif
+
+#ifdef BB_EVENT_ROUTES_TESTING
+// Runtime flag that lets the host test suite exercise the static-pool path
+// without requiring a compile-time Kconfig change. Allows both dynamic and
+// static paths to be tested in the same test binary.
+static bool s_use_static_pool_for_test = false;
+void bb_event_routes_set_static_pool_for_test(bool use_static) {
+    s_use_static_pool_for_test = use_static;
+}
+#endif
+
+// Returns true when the static-pool path is active (either via Kconfig or
+// the test override).
+static bool use_static_pool(void) {
+#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL
+    return true;
+#elif defined(BB_EVENT_ROUTES_TESTING)
+    return s_use_static_pool_for_test;
+#else
+    return false;
+#endif
+}
 
 // ---------------------------------------------------------------------------
 // Config (resolved at init)
@@ -274,13 +309,38 @@ bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
             c->dropped = 0;
             c->next_emit_id = 1;
             c->num_subs = 0;
-            c->entries = (queue_entry_t *)s_calloc(c->queue_depth, sizeof(queue_entry_t));
-            c->payload_buf = (uint8_t *)s_calloc(c->queue_depth, c->max_entry);
+#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
+            if (use_static_pool()) {
+                // Validate that runtime cfg fits within the compile-time pool dimensions.
+                if (c->queue_depth > CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH ||
+                    c->max_entry > CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY) {
+                    atomic_store(&c->in_use, false);
+                    return BB_ERR_NO_SPACE;
+                }
+                // Assign from static pool — zero the slots since they're reused.
+                c->entries = s_entry_pool[i];
+                c->payload_buf = s_payload_pool[i];
+                memset(c->entries, 0, c->queue_depth * sizeof(queue_entry_t));
+                memset(c->payload_buf, 0, c->queue_depth * c->max_entry);
+            } else {
+#endif
+                c->entries = (queue_entry_t *)s_calloc(c->queue_depth, sizeof(queue_entry_t));
+                c->payload_buf = (uint8_t *)s_calloc(c->queue_depth, c->max_entry);
+#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
+            }
+#endif
             c->port_lock = bb_event_routes_port_lock_create();
             c->event = bb_event_routes_port_event_create();
             if (!c->entries || !c->payload_buf || !c->port_lock || !c->event) {  // LCOV_EXCL_BR_LINE — port_lock alloc covered by entries/payload paths
+#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
+                if (!use_static_pool()) {  // LCOV_EXCL_BR_LINE — static pool entries never NULL
+                    s_free(c->entries);
+                    s_free(c->payload_buf);
+                }
+#else
                 s_free(c->entries);
                 s_free(c->payload_buf);
+#endif
                 if (c->port_lock) bb_event_routes_port_lock_destroy(c->port_lock);  // LCOV_EXCL_BR_LINE
                 if (c->event) bb_event_routes_port_event_destroy(c->event);  // LCOV_EXCL_BR_LINE — paired with port_lock alloc-failure path
                 c->entries = NULL;
@@ -318,8 +378,15 @@ bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
                     for (size_t j = 0; j < c->num_subs; j++) {
                         bb_event_unsubscribe(c->subs[j]);
                     }
+#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
+                    if (!use_static_pool()) {
+                        s_free(c->entries);
+                        s_free(c->payload_buf);
+                    }
+#else
                     s_free(c->entries);
                     s_free(c->payload_buf);
+#endif
                     bb_event_routes_port_lock_destroy(c->port_lock);
                     bb_event_routes_port_event_destroy(c->event);
                     c->entries = NULL;
@@ -351,8 +418,15 @@ void bb_event_routes_client_release(bb_event_routes_client_t *c)
         bb_event_unsubscribe(c->subs[i]);
     }
     c->num_subs = 0;
+#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
+    if (!use_static_pool()) {
+        s_free(c->entries);
+        s_free(c->payload_buf);
+    }
+#else
     s_free(c->entries);
     s_free(c->payload_buf);
+#endif
     if (c->port_lock) bb_event_routes_port_lock_destroy(c->port_lock);  // LCOV_EXCL_BR_LINE — port_lock always set on release path
     if (c->event) bb_event_routes_port_event_destroy(c->event);  // LCOV_EXCL_BR_LINE — event always set on release path
     c->entries = NULL;
@@ -420,6 +494,14 @@ void *bb_event_routes_client_event(bb_event_routes_client_t *c)
     return c ? c->event : NULL;
 }
 
+int bb_event_routes_client_slot_index(const bb_event_routes_client_t *c)
+{
+    if (!c) return -1;
+    ptrdiff_t idx = c - s_clients;
+    if (idx < 0 || (size_t)idx >= CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS) return -1;
+    return (int)idx;
+}
+
 // ---------------------------------------------------------------------------
 // Diagnostics accessors (public, no ESP-IDF deps)
 // ---------------------------------------------------------------------------
@@ -476,6 +558,7 @@ void bb_event_routes_reset_for_test(void) {
         bb_event_routes_port_lock_destroy(s_topics_lock);
         s_topics_lock = NULL;
     }
+    s_use_static_pool_for_test = false;
 }
 
 size_t bb_event_routes_queued_for_test(bb_event_routes_client_t *c) {

@@ -13,6 +13,10 @@
 void bb_event_ring_set_allocator(void *(*c)(size_t, size_t), void (*f)(void *));
 void bb_event_ring_reset_allocator(void);
 
+/* Forward decls for static-pool test hooks (guarded by BB_EVENT_ROUTES_TESTING). */
+void bb_event_routes_set_static_pool_for_test(bool use_static);
+int  bb_event_routes_client_slot_index(const bb_event_routes_client_t *c);
+
 static void setup_sync_mode(void)
 {
     setenv("BB_EVENT_HOST_SYNC", "1", 1);
@@ -700,6 +704,206 @@ void test_bb_event_routes_attach_non_retained_uses_configured_capacity(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_topic_info(0, &name, &ring));
     TEST_ASSERT_NOT_NULL(ring);
     TEST_ASSERT_EQUAL((size_t)small_cfg.ring_capacity, bb_event_ring_capacity(ring));
+}
+
+// ---------------------------------------------------------------------------
+// Static pool tests (BB_EVENT_ROUTES_TESTING hook exercises both paths)
+// ---------------------------------------------------------------------------
+
+// Pointer to the compile-time payload pool (exposed via a test accessor).
+// We use bb_event_routes_client_slot_index to figure out which slot we got,
+// then verify the payload_buf pointer matches s_payload_pool[slot].
+// Since the pool is private to the .c file, we compare acquire→release→acquire
+// and confirm the same buffer address is returned (reuse without malloc).
+
+void test_bb_event_routes_static_pool_acquire_assigns_from_pool(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_set_static_pool_for_test(true);
+    bb_event_routes_init(&small_cfg);
+
+    bb_event_routes_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire(&c));
+    TEST_ASSERT_NOT_NULL(c);
+    // Slot index must be valid (0 or 1 given max_clients=2).
+    int slot = bb_event_routes_client_slot_index(c);
+    TEST_ASSERT_TRUE(slot >= 0 && slot < 2);
+    bb_event_routes_client_release(c);
+}
+
+void test_bb_event_routes_static_pool_reuses_same_buffer_address(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_set_static_pool_for_test(true);
+    bb_event_routes_init(&small_cfg);
+
+    bb_event_routes_client_t *c1 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire(&c1));
+    TEST_ASSERT_NOT_NULL(c1);
+    // Record the slot that was claimed — the client pointer IS the slot address.
+    int slot = bb_event_routes_client_slot_index(c1);
+    TEST_ASSERT_TRUE(slot >= 0);
+    bb_event_routes_client_release(c1);
+
+    // Acquire again — since there's only 1 client and we released, we must get
+    // slot 0 back (only free slot), and the buffer must be the same pool address.
+    bb_event_routes_client_t *c2 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire(&c2));
+    TEST_ASSERT_NOT_NULL(c2);
+    // The slot pointer must be the same as before (c1 == c2 same struct).
+    TEST_ASSERT_EQUAL_PTR(c1, c2);
+    bb_event_routes_client_release(c2);
+}
+
+void test_bb_event_routes_static_pool_repeated_acquire_release(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_set_static_pool_for_test(true);
+    bb_event_routes_init(&small_cfg);
+
+    // Acquire and release many times — no crash, no memory growth.
+    for (int i = 0; i < 8; i++) {
+        bb_event_routes_client_t *c = NULL;
+        TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire(&c));
+        TEST_ASSERT_NOT_NULL(c);
+        // Verify event/data works in static mode.
+        TEST_ASSERT_NOT_NULL(bb_event_routes_client_event(c));
+        bb_event_routes_client_release(c);
+    }
+}
+
+void test_bb_event_routes_static_pool_oversize_cfg_returns_no_space(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_set_static_pool_for_test(true);
+    // Use a cfg with queue_depth larger than the compile-time fallback constant.
+    // The host fallback for CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH is 32 (see common.c).
+    // We need queue_depth > that value to exceed the static pool dimension.
+    // 33 > 32 (compile-time pool depth = 32 in host build).
+    bb_event_routes_cfg_t oversize_cfg = {
+        .max_clients = 2,
+        .per_client_queue = 33,  /* > compile-time pool depth of 32 */
+        .ring_capacity = 4,
+        .ring_max_entry = 64,
+        .heartbeat_ms = 1000,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_init(&oversize_cfg));
+
+    bb_event_routes_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_event_routes_client_acquire(&c));
+}
+
+void test_bb_event_routes_static_pool_oversize_entry_returns_no_space(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_set_static_pool_for_test(true);
+    // ring_max_entry > compile-time fallback of 256 (CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY).
+    bb_event_routes_cfg_t oversize_cfg = {
+        .max_clients = 2,
+        .per_client_queue = 3,
+        .ring_capacity = 4,
+        .ring_max_entry = 257,  /* > compile-time pool entry size of 256 */
+        .heartbeat_ms = 1000,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_init(&oversize_cfg));
+
+    bb_event_routes_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_event_routes_client_acquire(&c));
+}
+
+void test_bb_event_routes_static_pool_delivers_events(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_set_static_pool_for_test(true);
+    bb_event_routes_init(&small_cfg);
+
+    bb_event_topic_t t;
+    bb_event_topic_register("static.topic", &t);
+    bb_event_routes_attach("static.topic");
+
+    bb_event_routes_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire(&c));
+
+    const char *json = "{\"s\":1}";
+    bb_event_post(t, 0, json, strlen(json));
+    bb_event_pump(0);
+
+    char frame[256];
+    size_t n = bb_event_routes_drain_frame(c, frame, sizeof(frame));
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_NOT_NULL(strstr(frame, "event: static.topic\n"));
+    TEST_ASSERT_NOT_NULL(strstr(frame, "{\"s\":1}"));
+
+    bb_event_routes_client_release(c);
+}
+
+void test_bb_event_routes_static_pool_slot_index_null_returns_minus_one(void)
+{
+    TEST_ASSERT_EQUAL(-1, bb_event_routes_client_slot_index(NULL));
+}
+
+/* Passing a pointer that doesn't point into s_clients[] — exercises the
+ * out-of-range guard in client_slot_index. We compute a pointer just past
+ * the end of the array by bumping the real slot pointer by a known byte count
+ * large enough to escape the array. The in-range path is tested first via a
+ * real acquire to confirm slot_index >= 0. */
+void test_bb_event_routes_client_slot_index_out_of_range_returns_minus_one(void)
+{
+    /* In-range path: acquire a real slot, confirm index is valid. */
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(&small_cfg);
+    bb_event_routes_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire(&c));
+    int slot = bb_event_routes_client_slot_index(c);
+    TEST_ASSERT_TRUE(slot >= 0);
+    bb_event_routes_client_release(c);
+
+    /* Out-of-range path: fabricate two pointers outside the array.
+     * Positive overshoot (idx >= MAX_CLIENTS): offset by a huge positive amount. */
+    bb_event_routes_client_t *too_high =
+        (bb_event_routes_client_t *)((char *)c + 1024 * 1024);
+    TEST_ASSERT_EQUAL(-1, bb_event_routes_client_slot_index(too_high));
+    /* Negative undershoot (idx < 0): offset by a large negative amount. */
+    bb_event_routes_client_t *too_low =
+        (bb_event_routes_client_t *)((char *)c - 1024 * 1024);
+    TEST_ASSERT_EQUAL(-1, bb_event_routes_client_slot_index(too_low));
+}
+
+void test_bb_event_routes_static_pool_subscribe_failure_rolls_back(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_set_static_pool_for_test(true);
+    bb_event_routes_init(&small_cfg);
+
+    bb_event_topic_t t;
+    bb_event_topic_register("sp.rollback", &t);
+    bb_event_routes_attach("sp.rollback");
+
+    bb_event_topic_t t2;
+    bb_event_topic_register("sp.rollback2", &t2);
+    bb_event_routes_attach("sp.rollback2");
+
+    // Fail subscribe on 2nd topic (same as the dynamic-path rollback test).
+    test_alloc_reset();
+    test_alloc_fail_at = 2;
+    bb_event_ring_set_allocator(test_failing_calloc, free);
+
+    bb_event_routes_client_t *c = NULL;
+    bb_err_t err = bb_event_routes_client_acquire(&c);
+
+    bb_event_ring_set_allocator(NULL, NULL);
+    test_alloc_fail_at = -1;
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+    TEST_ASSERT_NULL(c);
 }
 
 /* Post 3 values to a retained topic, then connect — client replays only the

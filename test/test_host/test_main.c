@@ -2302,6 +2302,15 @@ void test_bb_event_routes_client_acquire_ex_null_filter_subscribes_to_all(void);
 void test_bb_event_routes_attach_ex_retained_uses_capacity_one_ring(void);
 void test_bb_event_routes_attach_non_retained_uses_configured_capacity(void);
 void test_bb_event_routes_retained_replay_delivers_only_latest_value(void);
+void test_bb_event_routes_static_pool_acquire_assigns_from_pool(void);
+void test_bb_event_routes_static_pool_reuses_same_buffer_address(void);
+void test_bb_event_routes_static_pool_repeated_acquire_release(void);
+void test_bb_event_routes_static_pool_oversize_cfg_returns_no_space(void);
+void test_bb_event_routes_static_pool_oversize_entry_returns_no_space(void);
+void test_bb_event_routes_static_pool_delivers_events(void);
+void test_bb_event_routes_static_pool_slot_index_null_returns_minus_one(void);
+void test_bb_event_routes_static_pool_subscribe_failure_rolls_back(void);
+void test_bb_event_routes_client_slot_index_out_of_range_returns_minus_one(void);
 
 // Forward declarations from test_bb_event_routes_diag.c
 void test_bb_event_routes_topic_count_zero_before_attach(void);
@@ -4996,6 +5005,17 @@ int main(void) {
     RUN_TEST(test_bb_event_routes_attach_ex_retained_uses_capacity_one_ring);
     RUN_TEST(test_bb_event_routes_attach_non_retained_uses_configured_capacity);
     RUN_TEST(test_bb_event_routes_retained_replay_delivers_only_latest_value);
+
+    // bb_event_routes static pool tests
+    RUN_TEST(test_bb_event_routes_static_pool_acquire_assigns_from_pool);
+    RUN_TEST(test_bb_event_routes_static_pool_reuses_same_buffer_address);
+    RUN_TEST(test_bb_event_routes_static_pool_repeated_acquire_release);
+    RUN_TEST(test_bb_event_routes_static_pool_oversize_cfg_returns_no_space);
+    RUN_TEST(test_bb_event_routes_static_pool_oversize_entry_returns_no_space);
+    RUN_TEST(test_bb_event_routes_static_pool_delivers_events);
+    RUN_TEST(test_bb_event_routes_static_pool_slot_index_null_returns_minus_one);
+    RUN_TEST(test_bb_event_routes_static_pool_subscribe_failure_rolls_back);
+    RUN_TEST(test_bb_event_routes_client_slot_index_out_of_range_returns_minus_one);
 
     // bb_event_routes diag tests
     RUN_TEST(test_bb_event_routes_topic_count_zero_before_attach);

@@ -60,6 +60,28 @@ config BB_EVENT_ROUTES_RING_MAX_ENTRY
     help
         Maximum per-event payload size buffered for replay.
 
+config BB_EVENT_ROUTES_STATIC_POOL
+    bool "Pre-allocate static per-client payload buffers and SSE writer task stacks"
+    default n
+    depends on FREERTOS_SUPPORT_STATIC_ALLOCATION
+    help
+        When enabled, per-client payload buffers (s_payload_pool) and queue
+        entry arrays (s_entry_pool) are pre-allocated at compile time as static
+        BSS arrays and reused across connect/disconnect cycles. On ESP-IDF,
+        the SSE writer task is also created with xTaskCreateStatic using a
+        per-slot pre-allocated stack and TCB.
+
+        Trades fixed BSS for zero heap fragmentation on each connect/disconnect.
+        Intended for no-PSRAM boards (e.g. ESP32 WROOM-32) where repeated
+        malloc/free of ~3 KB payload buffers and 4 KB task stacks churn the
+        internal heap. PSRAM boards keep the SPIRAM-preferred dynamic path and
+        should leave this off (default n).
+
+        The static arrays are sized by the compile-time Kconfig values
+        (BB_EVENT_ROUTES_MAX_CLIENTS, BB_EVENT_ROUTES_QUEUE_DEPTH,
+        BB_EVENT_ROUTES_RING_MAX_ENTRY). If the runtime cfg overrides those
+        to larger values, acquire will return BB_ERR_NO_SPACE rather than crash.
+
 config BB_EVENT_ROUTES_HEARTBEAT_MS
     int "Idle heartbeat interval (ms)"
     default 15000

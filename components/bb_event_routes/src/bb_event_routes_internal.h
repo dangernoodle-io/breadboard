@@ -57,10 +57,18 @@ bool  bb_event_routes_port_event_wait(void *event, uint32_t timeout_ms);
 void     bb_event_routes_set_allocator(void *(*c)(size_t, size_t), void (*f)(void *));
 void     bb_event_routes_reset_allocator(void);
 
+// Returns the slot index (0..MAX_CLIENTS-1) for a client pointer. Used by the
+// ESP-IDF platform component to index into static task stacks.
+// Returns -1 if `c` is NULL or not a valid slot pointer.
+int      bb_event_routes_client_slot_index(const bb_event_routes_client_t *c);
+
 #ifdef BB_EVENT_ROUTES_TESTING
 void     bb_event_routes_reset_for_test(void);
 size_t   bb_event_routes_queued_for_test(bb_event_routes_client_t *c);
 uint64_t bb_event_routes_dropped_for_test(bb_event_routes_client_t *c);
+// Enable or disable the static pool code path at runtime for host testing.
+// Allows both dynamic and static paths to be covered in the same test binary.
+void     bb_event_routes_set_static_pool_for_test(bool use_static);
 #endif
 
 #ifdef __cplusplus
