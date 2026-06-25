@@ -2786,6 +2786,17 @@ void test_bb_tls_info_all_capabilities_registered(void);
 void test_bb_tls_info_dedup_via_direct_register(void);
 void test_bb_tls_info_leaves_room_for_more_capabilities(void);
 
+// Forward declarations from test_heap_arena.c
+void test_heap_arena_init_is_idempotent(void);
+void test_heap_arena_alloc_hit_returns_in_arena(void);
+void test_heap_arena_alloc_is_zeroed(void);
+void test_heap_arena_exhausted_falls_back_to_heap(void);
+void test_heap_arena_free_in_range_routes_to_arena(void);
+void test_heap_arena_free_out_of_range_routes_to_heap(void);
+void test_heap_arena_free_null_is_noop(void);
+void test_heap_arena_owns_null_is_false(void);
+void test_heap_arena_calloc_zero_returns_null(void);
+
 // Forward declarations from test_bb_telemetry.c (GET /api/telemetry/metrics, B1-295)
 void test_bb_pub_source_count_returns_registered(void);
 void test_bb_pub_source_info_out_of_range_returns_invalid_arg(void);
@@ -5584,6 +5595,17 @@ int main(void) {
     RUN_TEST(test_bb_tls_info_all_capabilities_registered);
     RUN_TEST(test_bb_tls_info_dedup_via_direct_register);
     RUN_TEST(test_bb_tls_info_leaves_room_for_more_capabilities);
+
+    // bb_heap_arena arena routing tests
+    RUN_TEST(test_heap_arena_init_is_idempotent);
+    RUN_TEST(test_heap_arena_alloc_hit_returns_in_arena);
+    RUN_TEST(test_heap_arena_alloc_is_zeroed);
+    RUN_TEST(test_heap_arena_exhausted_falls_back_to_heap);
+    RUN_TEST(test_heap_arena_free_in_range_routes_to_arena);
+    RUN_TEST(test_heap_arena_free_out_of_range_routes_to_heap);
+    RUN_TEST(test_heap_arena_free_null_is_noop);
+    RUN_TEST(test_heap_arena_owns_null_is_false);
+    RUN_TEST(test_heap_arena_calloc_zero_returns_null);
 
     // bb_pub accessor tests (B1-295)
     RUN_TEST(test_bb_pub_source_count_returns_registered);
