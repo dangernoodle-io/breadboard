@@ -107,6 +107,10 @@ int bb_http_client_session_open_count(void);
 // Returns false if session_open has not been called or cfg was NULL.
 bool bb_http_client_session_last_keep_alive(void);
 
+// Set the tls_error_code that the next session_post will carry in out->tls_error_code.
+// Default 0. Reset by bb_http_client_clear_mock().
+void bb_http_client_session_set_mock_tls_error_code(int code);
+
 #ifdef __cplusplus
 }
 #endif

@@ -60,6 +60,7 @@ typedef struct {
     int    status_code;        // HTTP status (200, 404, etc.); 0 if transport failed
     size_t body_len;            // bytes written to caller's body buffer
     bool   truncated;           // true if response exceeded body_cap (body still contains the prefix)
+    int    tls_error_code;     // raw mbedtls error (negative int); 0 when none. diagnostic/log-only.
 } bb_http_client_result_t;
 
 // Fetch `url` with method GET. Caller supplies `body` (capacity `body_cap`)

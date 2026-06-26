@@ -211,3 +211,31 @@ void test_bb_http_client_session_clear_mock_resets_record(void)
 
     bb_http_client_session_close(s);
 }
+
+void test_bb_http_client_session_post_tls_error_code_propagated(void)
+{
+    bb_http_client_session_t sess;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "https://example.com", &sess));
+    bb_http_client_session_set_mock_tls_error_code(-0x7200);
+    bb_http_client_session_set_mock_status(200);
+    bb_http_client_result_t res;
+    memset(&res, 0, sizeof(res));
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_post(sess, "https://example.com/path", NULL, 0, NULL, &res));
+    TEST_ASSERT_EQUAL_INT(-0x7200, res.tls_error_code);
+    bb_http_client_session_close(sess);
+    bb_http_client_clear_mock();
+}
+
+void test_bb_http_client_session_post_tls_error_code_zero_default(void)
+{
+    bb_http_client_session_t sess;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "https://example.com", &sess));
+    // No tls mock set — default is 0.
+    bb_http_client_session_set_mock_status(200);
+    bb_http_client_result_t res;
+    memset(&res, 0xff, sizeof(res));  // Fill with non-zero to detect if 0 is set
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_post(sess, "https://example.com/path", NULL, 0, NULL, &res));
+    TEST_ASSERT_EQUAL_INT(0, res.tls_error_code);
+    bb_http_client_session_close(sess);
+    bb_http_client_clear_mock();
+}

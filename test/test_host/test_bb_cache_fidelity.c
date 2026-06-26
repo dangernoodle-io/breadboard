@@ -85,6 +85,10 @@ static const bb_net_health_status_t s_net_health_initial = {
     .mqtt_disc_age_s        = 0,
     .mqtt_disc_reason       = 0,
     .mqtt_tls_fail          = 0,
+    .http_connected         = false,
+    .http_consec_failures   = 0,
+    .http_tls_fail          = 0,
+    .http_last_status       = 0,
 };
 
 static const bb_diag_boot_snap_t s_diag_boot_initial = {

@@ -62,6 +62,7 @@ bb_err_t bb_http_client_get(const char *url,
     out->status_code = 0;
     out->body_len = 0;
     out->truncated = false;
+    out->tls_error_code = 0;
 
     esp_http_client_config_t config = {
         .url = url,
@@ -150,6 +151,7 @@ bb_err_t bb_http_client_get_stream(const char *url,
     out->status_code = 0;
     out->body_len = 0;
     out->truncated = false;
+    out->tls_error_code = 0;
 
     esp_http_client_config_t config = {
         .url = url,
@@ -235,6 +237,7 @@ bb_err_t bb_http_client_post(const char *url,
     out->status_code = 0;
     out->body_len = 0;
     out->truncated = false;
+    out->tls_error_code = 0;
 
     // Use ca_cert_pem override when provided; otherwise fall back to bundle.
     const char *ca_pem = (cfg && cfg->ca_cert_pem) ? cfg->ca_cert_pem : NULL;
@@ -387,10 +390,13 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t sess,
     esp_err_t err = esp_http_client_perform(s->client);
     if (err != ESP_OK) {
         bb_log_w(TAG, "session POST %s: perform error %d — closing socket", url, err);
+        int tls_code = 0;
+        esp_http_client_get_and_clear_last_tls_error(s->client, &tls_code, NULL);
         esp_http_client_close(s->client);
-        out->status_code = 0;
-        out->body_len    = 0;
-        out->truncated   = false;
+        out->status_code  = 0;
+        out->body_len     = 0;
+        out->truncated    = false;
+        out->tls_error_code = tls_code;
         return BB_ERR_INVALID_STATE;
     }
 
@@ -398,6 +404,7 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t sess,
     out->status_code = status;
     out->body_len    = 0;
     out->truncated   = false;
+    out->tls_error_code = 0;
 
     if (status < 200 || status >= 300) {
         bb_log_w(TAG, "session POST %s: HTTP %d", url, status);
