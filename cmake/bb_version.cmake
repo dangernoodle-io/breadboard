@@ -1,10 +1,14 @@
-# bb_version.cmake — optional CMake helper that sets PROJECT_VER from the same
-# precedence logic used by scripts/bb_version.py.
+# bb_version.cmake — sets PROJECT_VER by delegating to scripts/bb_version.py.
 #
-# Precedence:
+# This file no longer reimplements version logic. It calls bb_version.py --emit
+# so there is ONE implementation (the Python script) and cmake consumers get the
+# same version format as PlatformIO consumers. (TA-462: the previous duplication
+# caused /api/info to show the stale old format after PR #560 updated the .py.)
+#
+# Precedence (enforced by bb_version.py):
 #   1. BB_FW_VERSION env var (non-empty)  → used verbatim
 #   2. Consumer repo has an exact git tag at HEAD  → use that tag
-#   3. dev default: dev-g<consumer_short_sha>[-dirty]-bb-g<bb_short_sha>[-dirty]
+#   3. dev default: dev-<tm-ref>-<bb-ref>
 #
 # Usage (in consumer CMakeLists.txt, before project()):
 #   include("<breadboard_root>/cmake/bb_version.cmake")
@@ -24,73 +28,32 @@ get_filename_component(_BB_ROOT "${_BB_CMAKE_DIR}/.." ABSOLUTE)
 # Consumer repo root = the directory that includes this file.
 set(_BB_CONSUMER_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# 1. BB_FW_VERSION env var override.
+# 1. BB_FW_VERSION env var override (fast path — skip Python invocation).
 if(DEFINED ENV{BB_FW_VERSION} AND NOT "$ENV{BB_FW_VERSION}" STREQUAL "")
     set(PROJECT_VER "$ENV{BB_FW_VERSION}")
     message(STATUS "bb_version: ${PROJECT_VER} (BB_FW_VERSION env override)")
     return()
 endif()
 
-# 2. Exact tag at consumer HEAD.
-execute_process(
-    COMMAND git describe --tags --exact-match HEAD
-    WORKING_DIRECTORY "${_BB_CONSUMER_DIR}"
-    OUTPUT_VARIABLE _BB_TAG
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-)
-if(_BB_TAG)
-    set(PROJECT_VER "${_BB_TAG}")
-    message(STATUS "bb_version: ${PROJECT_VER} (exact tag)")
-    return()
+# 2+3. Delegate to bb_version.py --emit for all other cases.
+# Prefer Python3_EXECUTABLE if the caller already found Python; fall back to
+# python3 on PATH.
+if(DEFINED Python3_EXECUTABLE)
+    set(_BB_PYTHON "${Python3_EXECUTABLE}")
+else()
+    set(_BB_PYTHON "python3")
 endif()
 
-# 3. Dev default.
 execute_process(
-    COMMAND git rev-parse --short=7 HEAD
-    WORKING_DIRECTORY "${_BB_CONSUMER_DIR}"
-    OUTPUT_VARIABLE _BB_CONSUMER_SHA
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-)
-execute_process(
-    COMMAND git status --porcelain
-    WORKING_DIRECTORY "${_BB_CONSUMER_DIR}"
-    OUTPUT_VARIABLE _BB_CONSUMER_DIRTY
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-)
-execute_process(
-    COMMAND git rev-parse --short=7 HEAD
-    WORKING_DIRECTORY "${_BB_ROOT}"
-    OUTPUT_VARIABLE _BB_SHA
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-)
-execute_process(
-    COMMAND git status --porcelain
-    WORKING_DIRECTORY "${_BB_ROOT}"
-    OUTPUT_VARIABLE _BB_DIRTY
+    COMMAND "${_BB_PYTHON}" "${_BB_ROOT}/scripts/bb_version.py"
+            --emit --consumer "${_BB_CONSUMER_DIR}"
+    OUTPUT_VARIABLE PROJECT_VER
     OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_QUIET
 )
 
-if(NOT _BB_CONSUMER_SHA)
-    set(_BB_CONSUMER_SHA "unknown")
-endif()
-if(NOT _BB_SHA)
-    set(_BB_SHA "unknown")
+if(NOT PROJECT_VER)
+    set(PROJECT_VER "dev-unknown")
 endif()
 
-set(_BB_CONSUMER_PART "g${_BB_CONSUMER_SHA}")
-if(_BB_CONSUMER_DIRTY)
-    string(APPEND _BB_CONSUMER_PART "-dirty")
-endif()
-
-set(_BB_BB_PART "g${_BB_SHA}")
-if(_BB_DIRTY)
-    string(APPEND _BB_BB_PART "-dirty")
-endif()
-
-set(PROJECT_VER "dev-${_BB_CONSUMER_PART}-bb-${_BB_BB_PART}")
 message(STATUS "bb_version: ${PROJECT_VER}")

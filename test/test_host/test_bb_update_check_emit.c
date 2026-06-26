@@ -12,6 +12,12 @@
 #include "bb_nv.h"
 #include <string.h>
 
+// TA-462: verify the version buffer is big enough for the longest dev format.
+// "dev-<7sha>+<4hash>-bb-<7sha>+<4hash>" is 36 chars; BB_UPDATE_CHECK_VERSION_BUF
+// must be > 36 to prevent truncation of /api/update/status `current` field.
+_Static_assert(BB_UPDATE_CHECK_VERSION_BUF > 36,
+    "BB_UPDATE_CHECK_VERSION_BUF too small for longest dev version format");
+
 // Known good body — v9.9.9 is newer than the host running version "0.0.0".
 static const char *VALID_BODY =
     "{\"tag_name\":\"v9.9.9\","

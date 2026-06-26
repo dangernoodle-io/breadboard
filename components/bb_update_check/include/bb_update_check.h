@@ -3,6 +3,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "bb_core.h"
+
+// Minimum buffer size for version strings in bb_update_check_status_t.
+// The longest dev format is "dev-<7sha>+<4hash>-bb-<7sha>+<4hash>" = 36 chars;
+// size to 48 to leave headroom. (TA-462: was 24, causing truncation.)
+#define BB_UPDATE_CHECK_VERSION_BUF 48
 #include "bb_release_manifest.h"
 
 #ifdef __cplusplus
@@ -47,8 +52,8 @@ typedef struct {
 } bb_update_check_cfg_t;
 
 typedef struct {
-    char    current[24];
-    char    latest[24];
+    char    current[BB_UPDATE_CHECK_VERSION_BUF];
+    char    latest[BB_UPDATE_CHECK_VERSION_BUF];
     char    download_url[256];
     char    board[64];         // effective board name used for the last check ("unknown" if unset)
     int64_t last_check_us;     // epoch-us (gettimeofday), NOT monotonic; 0 if never
