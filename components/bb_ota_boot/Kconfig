@@ -48,7 +48,7 @@ config BB_OTA_BOOT_STATUS_HTTP
                                    (auto-derived from
                                    CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN + ~1 KB,
                                    or overridden by
-                                   CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES) it
+                                   CONFIG_BB_TLS_HEAP_CONTIGUOUS_FLOOR) it
                                    returns 503 {"error":"insufficient_heap"}
                                    and leaves the cached result intact.
                                    Otherwise spawns a transient fat-stack task

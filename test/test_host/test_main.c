@@ -146,19 +146,25 @@ void test_resolve_redirect_url_null_resolved_uses_original(void);
 void test_resolve_redirect_url_empty_resolved_uses_original(void);
 void test_resolve_redirect_url_null_out_did_redirect_does_not_crash(void);
 
-// Forward declarations from test_bb_ota_tls_diag.c
-void test_bb_ota_tls_diag_symptom_code_returns_true(void);
-void test_bb_ota_tls_diag_symptom_code_contains_host(void);
-void test_bb_ota_tls_diag_symptom_code_contains_ssl_in_len(void);
-void test_bb_ota_tls_diag_symptom_code_contains_config_key(void);
-void test_bb_ota_tls_diag_non_symptom_code_returns_false(void);
-void test_bb_ota_tls_diag_non_symptom_code_non_empty(void);
-void test_bb_ota_tls_diag_non_symptom_code_contains_host(void);
-void test_bb_ota_tls_diag_null_out_does_not_crash(void);
-void test_bb_ota_tls_diag_null_out_non_symptom_does_not_crash(void);
-void test_bb_ota_tls_diag_short_buf_does_not_crash(void);
-void test_bb_ota_tls_diag_zero_out_len_does_not_crash(void);
-void test_bb_ota_tls_diag_null_host_does_not_crash(void);
+// Forward declarations from test_bb_tls.c
+void test_bb_tls_handshake_diag_symptom_code_returns_true(void);
+void test_bb_tls_handshake_diag_symptom_code_contains_host(void);
+void test_bb_tls_handshake_diag_symptom_code_contains_ssl_in_len(void);
+void test_bb_tls_handshake_diag_symptom_code_contains_config_key(void);
+void test_bb_tls_handshake_diag_non_symptom_code_returns_false(void);
+void test_bb_tls_handshake_diag_non_symptom_code_non_empty(void);
+void test_bb_tls_handshake_diag_non_symptom_code_contains_host(void);
+void test_bb_tls_handshake_diag_null_out_does_not_crash(void);
+void test_bb_tls_handshake_diag_null_out_non_symptom_does_not_crash(void);
+void test_bb_tls_handshake_diag_short_buf_does_not_crash(void);
+void test_bb_tls_handshake_diag_zero_out_len_does_not_crash(void);
+void test_bb_tls_handshake_diag_null_host_does_not_crash(void);
+void test_bb_tls_heap_guard_passes_both_clear(void);
+void test_bb_tls_heap_guard_contiguous_fail(void);
+void test_bb_tls_heap_guard_total_fail(void);
+void test_bb_tls_heap_guard_disabled_contiguous_floor(void);
+void test_bb_tls_heap_guard_disabled_total_floor(void);
+void test_bb_tls_heap_guard_null_out_dim_safe(void);
 
 // Forward declarations from test_bb_ota_pull_manifest.c
 void test_ota_pull_manifest_fetch_success(void);
@@ -3212,19 +3218,25 @@ int main(void) {
     RUN_TEST(test_resolve_redirect_url_empty_resolved_uses_original);
     RUN_TEST(test_resolve_redirect_url_null_out_did_redirect_does_not_crash);
 
-    // OTA pull — TLS handshake diagnostic (B1-358)
-    RUN_TEST(test_bb_ota_tls_diag_symptom_code_returns_true);
-    RUN_TEST(test_bb_ota_tls_diag_symptom_code_contains_host);
-    RUN_TEST(test_bb_ota_tls_diag_symptom_code_contains_ssl_in_len);
-    RUN_TEST(test_bb_ota_tls_diag_symptom_code_contains_config_key);
-    RUN_TEST(test_bb_ota_tls_diag_non_symptom_code_returns_false);
-    RUN_TEST(test_bb_ota_tls_diag_non_symptom_code_non_empty);
-    RUN_TEST(test_bb_ota_tls_diag_non_symptom_code_contains_host);
-    RUN_TEST(test_bb_ota_tls_diag_null_out_does_not_crash);
-    RUN_TEST(test_bb_ota_tls_diag_null_out_non_symptom_does_not_crash);
-    RUN_TEST(test_bb_ota_tls_diag_short_buf_does_not_crash);
-    RUN_TEST(test_bb_ota_tls_diag_zero_out_len_does_not_crash);
-    RUN_TEST(test_bb_ota_tls_diag_null_host_does_not_crash);
+    // bb_tls — shared TLS handshake diagnostic + heap guard (B1-361)
+    RUN_TEST(test_bb_tls_handshake_diag_symptom_code_returns_true);
+    RUN_TEST(test_bb_tls_handshake_diag_symptom_code_contains_host);
+    RUN_TEST(test_bb_tls_handshake_diag_symptom_code_contains_ssl_in_len);
+    RUN_TEST(test_bb_tls_handshake_diag_symptom_code_contains_config_key);
+    RUN_TEST(test_bb_tls_handshake_diag_non_symptom_code_returns_false);
+    RUN_TEST(test_bb_tls_handshake_diag_non_symptom_code_non_empty);
+    RUN_TEST(test_bb_tls_handshake_diag_non_symptom_code_contains_host);
+    RUN_TEST(test_bb_tls_handshake_diag_null_out_does_not_crash);
+    RUN_TEST(test_bb_tls_handshake_diag_null_out_non_symptom_does_not_crash);
+    RUN_TEST(test_bb_tls_handshake_diag_short_buf_does_not_crash);
+    RUN_TEST(test_bb_tls_handshake_diag_zero_out_len_does_not_crash);
+    RUN_TEST(test_bb_tls_handshake_diag_null_host_does_not_crash);
+    RUN_TEST(test_bb_tls_heap_guard_passes_both_clear);
+    RUN_TEST(test_bb_tls_heap_guard_contiguous_fail);
+    RUN_TEST(test_bb_tls_heap_guard_total_fail);
+    RUN_TEST(test_bb_tls_heap_guard_disabled_contiguous_floor);
+    RUN_TEST(test_bb_tls_heap_guard_disabled_total_floor);
+    RUN_TEST(test_bb_tls_heap_guard_null_out_dim_safe);
 
     // OTA pull — streaming manifest fetch
     RUN_TEST(test_ota_pull_manifest_fetch_success);

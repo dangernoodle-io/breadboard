@@ -444,17 +444,31 @@ There is no `/api/update/boot` verb — boot-mode arms via `/api/update/apply`. 
 
 **`check_on_apply` directive (heap-tight boot-mode boards).** When `CONFIG_BB_OTA_BOOT_STATUS_HTTP=y` and the on-demand `POST /api/update/check` fires but heap is below the TLS threshold, the default is 503 `{"error":"insufficient_heap"}`. Enabling `CONFIG_BB_OTA_CHECK_ON_APPLY_FALLBACK=y` (depends on `BB_OTA_BOOT_STATUS_HTTP`, default n) changes this: instead of the 503, the handler calls `bb_update_check_mark_check_on_apply()` and returns 200 `{"status":"check_on_apply"}`. `GET /api/update/status` then reflects `outcome:"check_on_apply"`, `available:false`. This signals consumers to skip the runtime check and go straight to `POST /api/update/apply` — boot-mode always performs the full manifest check at early-boot heap where contiguous RAM is plentiful. The heap-OK path (real check → 202 `{"status":"checking"}`) is unchanged.
 
-## OTA TLS pre-flight heap guard (bb_ota_pull)
+## bb_tls — shared TLS handshake-diag + heap-guard layer (B1-361)
+
+`bb_tls` is a pure portable component (no ESP-IDF headers in `bb_tls.h`) providing two functions compiled on host and device:
+
+- **`bb_tls_handshake_diag(mbedtls_err, host, ssl_in_len, out, out_len)`** — classifies a failed TLS handshake error and fills an actionable message. Returns `true` when the error matches the mbedtls record-size symptom (`-0x7200`), naming the endpoint HOST and `ssl_in_len` and suggesting `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` be increased.
+- **`bb_tls_heap_guard_passes(largest_block, contiguous_floor, total_free, total_floor, out_dim)`** — pure predicate returning `true` when both heap dimensions clear their floors.
+
+**Kconfig knobs (replacing per-component `BB_OTA_PULL_MIN_*` knobs — BREAKING in B1-361):**
+
+| Kconfig | Default | Notes |
+|---------|---------|-------|
+| `CONFIG_BB_TLS_HEAP_CONTIGUOUS_FLOOR` | 0 | 0 = auto-derive (`BB_TLS_SSL_IN_FLOOR = SSL_IN + 1024`); >0 = explicit byte floor; <0 = disabled. |
+| `CONFIG_BB_TLS_HEAP_TOTAL_FLOOR` | 0 | 0 = disabled; >0 = explicit byte floor for total-free check. |
+
+**`CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` is the single knob — the floor auto-derives from it.** Set `BB_TLS_HEAP_CONTIGUOUS_FLOOR=0` (default) and lower `SSL_IN_CONTENT_LEN`; the floor follows automatically everywhere — `bb_ota_pull` and `bb_ota_boot` both derive from `BB_TLS_SSL_IN_FLOOR`. Do not hand-sync a separate guard value.
+
+## OTA TLS pre-flight heap guard (bb_ota_pull, bb_ota_boot)
 
 The guard checks `heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)` before the TLS handshake and refuses the OTA with a clean error (`ESP_ERR_NO_MEM` / `check_on_apply`) if the largest contiguous internal block is below the floor — preventing an OOM crash mid-handshake on a fragmented or low-heap no-PSRAM board. Gates **both** the in-place pull (`bb_ota_pull`) and the boot-status `POST /api/update/check` (`bb_ota_boot`).
 
 **Best-effort, two-stage.** Inside `bb_ota_pull`, the shared `ota_heap_guard()` helper runs at two points: `pre-flight` (function entry, before the wifi check + PM lock) and `pre-handshake` (PM lock held, immediately before `esp_https_ota_begin`). The second sample narrows — but cannot close — the window in which concurrent httpd/SSE/wifi can fragment internal heap between the check and the handshake; the guard is a clean-refusal heuristic, not a hard guarantee. Both stages share one log/`last_error` format tagged with the stage name.
 
-**`CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` is the single knob — the floor auto-derives from it.** The handshake's dominant contiguous alloc is the mbedTLS IN record buffer (= `SSL_IN_CONTENT_LEN`), so the floor is `SSL_IN_CONTENT_LEN + ~1 KB` record overhead, computed in C. Lower `SSL_IN_CONTENT_LEN` (e.g. 8192→4096 to fit a fragmented no-PSRAM heap) and the floor follows automatically everywhere — do **not** hand-sync a separate guard value.
+`CONFIG_BB_TLS_HEAP_CONTIGUOUS_FLOOR` is the shared override: **0 (default) = auto-derive** from `SSL_IN_CONTENT_LEN`; a positive value pins an explicit byte floor; a negative value disables the guard. The guard is inert on boards with ample heap headroom (PSRAM boards, and pull-strategy boards after the OTA pause-hooks free the MQTT/ring heap).
 
-`CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES` is an optional override: **0 (default) = auto-derive** from `SSL_IN_CONTENT_LEN`; a positive value pins an explicit byte floor; a negative value disables the guard. The guard is inert on boards with ample heap headroom (PSRAM boards, and pull-strategy boards after the OTA pause-hooks free the MQTT/ring heap).
-
-**Runtime handshake diagnostic (B1-358).** When `esp_https_ota_begin()` fails after exhausting inner retries, `bb_ota_tls_diag()` (pure, no ESP-IDF deps) emits an actionable log message naming the endpoint HOST extracted from `download_url` and the current `BB_OTA_SSL_IN_LEN` (bridged from `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN`). The message is also captured into `last_error` via `ota_set_error()` and surfaced by `GET /api/update/progress`. `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` → cert chain relationship: GitHub requires ≥ 16384 (default); other endpoints (CDN, AWS IoT) may work with 4096. `bb_ota_pull` does NOT enforce a floor on `SSL_IN_CONTENT_LEN` — the consumer firmware owns that value.
+**Runtime handshake diagnostic (B1-358/B1-361).** When `esp_https_ota_begin()` fails after exhausting inner retries, `bb_tls_handshake_diag()` (pure, no ESP-IDF deps, in `bb_tls`) emits an actionable log message naming the endpoint HOST extracted from `download_url` and the current `BB_TLS_SSL_IN_LEN` (bridged from `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN`). The message is also captured into `last_error` via `ota_set_error()` and surfaced by `GET /api/update/progress`. `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` → cert chain relationship: GitHub requires ≥ 16384 (default); other endpoints (CDN, AWS IoT) may work with 4096. `bb_ota_pull` does NOT enforce a floor on `SSL_IN_CONTENT_LEN` — the consumer firmware owns that value.
 
 ## OTA push body cap
 

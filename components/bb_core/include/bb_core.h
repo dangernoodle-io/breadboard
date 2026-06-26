@@ -18,6 +18,9 @@ extern "C" {
 // values pass through unchanged. The constants below alias to ESP_OK /
 // ESP_ERR_* under ESP-IDF so esp_* return values compare correctly without
 // translation at component boundaries.
+//
+// BB_ERR_NO_SPACE: bounded buffer or registry is full (capacity exhaustion).
+// BB_ERR_NO_MEM: heap/memory allocation failed (malloc/OOM condition).
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
 typedef esp_err_t bb_err_t;
@@ -26,6 +29,7 @@ typedef esp_err_t bb_err_t;
 #define BB_ERR_NOT_FOUND        ESP_ERR_NOT_FOUND
 #define BB_ERR_NOT_INITIALIZED  ESP_ERR_NVS_NOT_INITIALIZED
 #define BB_ERR_NO_SPACE         ESP_ERR_NO_MEM
+#define BB_ERR_NO_MEM           ESP_ERR_NO_MEM
 #define BB_ERR_INVALID_STATE    ESP_ERR_INVALID_STATE
 #define BB_ERR_UNSUPPORTED      ESP_ERR_NOT_SUPPORTED
 #define BB_ERR_VALIDATION       (ESP_ERR_INVALID_ARG + 0x1000)
@@ -43,6 +47,7 @@ typedef int bb_err_t;
 #define BB_ERR_VALIDATION       7
 #define BB_ERR_TIMEOUT          8
 #define BB_ERR_CONFLICT         9
+#define BB_ERR_NO_MEM           10
 #endif
 
 // ---------------------------------------------------------------------------
