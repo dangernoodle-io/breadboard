@@ -143,10 +143,15 @@ COMPONENT_MAP = {
         ],
         "depends":  ["bb_core"],
     },
+    "bb_tls": {
+        "includes": ["components/bb_tls/include"],
+        "sources":  ["platform/host/bb_tls/bb_tls.c"],
+        "depends":  ["bb_core"],
+    },
     "bb_ota_pull": {
         "includes": ["components/bb_ota_pull/include", "platform/host/bb_ota_pull"],
         "sources":  ["platform/espidf/bb_ota_pull/bb_ota_pull.c"],
-        "depends":  ["bb_core", "bb_http", "bb_nv", "bb_log", "bb_json", "bb_release_manifest", "bb_http_client", "bb_ota_hooks"],
+        "depends":  ["bb_core", "bb_http", "bb_nv", "bb_log", "bb_json", "bb_release_manifest", "bb_http_client", "bb_ota_hooks", "bb_tls"],
     },
     "bb_ota_push": {
         "includes": ["components/bb_ota_push/include"],

@@ -93,6 +93,6 @@ config BB_HTTP_CLIENT_TASK_STACK_SIZE
         Note: the TLS handshake also requires a contiguous internal heap block
         of roughly CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN bytes at handshake time.
         On no-PSRAM pull-strategy boards, bb_ota_pull's pre-flight guard
-        (CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES) enforces this at runtime.
+        (CONFIG_BB_TLS_HEAP_CONTIGUOUS_FLOOR) enforces this at runtime.
 
 endmenu

@@ -5,12 +5,31 @@
 #include "bb_tls_creds.h"
 #include "bb_nv.h"
 #include "bb_log.h"
+#include "bb_tls.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef ESP_PLATFORM
+#include "bb_board.h"
+#include "esp_heap_caps.h"
+
+// Resolve the contiguous floor from BB_TLS_HEAP_CONTIGUOUS_FLOOR, matching
+// the same semantics bb_ota_pull uses (bridged via bb_tls.h):
+//   0 (default) = auto-derive: BB_TLS_SSL_IN_FLOOR (SSL_IN + 1024)
+//  >0            = explicit byte override
+//  <0            = guard disabled (floor = 0 disables contiguous check)
+#if BB_TLS_HEAP_CONTIGUOUS_FLOOR > 0
+#  define BB_SINK_HTTP_HEAP_FLOOR_BYTES ((size_t)BB_TLS_HEAP_CONTIGUOUS_FLOOR)
+#elif BB_TLS_HEAP_CONTIGUOUS_FLOOR < 0
+#  define BB_SINK_HTTP_HEAP_FLOOR_BYTES 0   /* guard disabled */
+#else
+#  define BB_SINK_HTTP_HEAP_FLOOR_BYTES BB_TLS_SSL_IN_FLOOR
+#endif
+#endif /* ESP_PLATFORM */
 
 // ---------------------------------------------------------------------------
 // Testing allocator injection (BB_SINK_HTTP_TESTING only).
@@ -526,6 +545,27 @@ static bb_err_t http_pub_publish(void *ctx,
         free(url);
         return BB_ERR_INVALID_ARG;
     }
+
+    // Pre-flight heap guard: refuse cleanly before the TLS handshake if heap
+    // is too fragmented, avoiding an OOM crash mid-handshake (closes B1-277).
+    // Compiled out on host — no ESP heap APIs available; the pure predicate
+    // is already host-tested via bb_tls tests (step 1).
+#ifdef ESP_PLATFORM
+    {
+        size_t largest    = bb_board_heap_internal_largest_free_block();
+        size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        const char *dim   = NULL;
+        if (!bb_tls_heap_guard_passes(largest, BB_SINK_HTTP_HEAP_FLOOR_BYTES,
+                                      total_free, (size_t)BB_TLS_HEAP_TOTAL_FLOOR,
+                                      &dim)) {
+            bb_log_w(TAG, "TLS publish skipped: %s heap guard failed "
+                     "(largest=%u total_free=%u)",
+                     dim, (unsigned)largest, (unsigned)total_free);
+            free(url);
+            return BB_ERR_NO_MEM;
+        }
+    }
+#endif /* ESP_PLATFORM */
 
     // Ensure one reusable session is open (lazy open, keep-alive).
     bb_err_t rc = session_ensure();

@@ -1,0 +1,38 @@
+menu "breadboard: bb_tls"
+
+config BB_TLS_HEAP_CONTIGUOUS_FLOOR
+    int "Pre-TLS minimum largest-free-block guard (bytes; 0=auto-derive, <0=disable)"
+    range -1 131072
+    default 0
+    help
+        Shared contiguous-heap pre-flight floor for TLS handshakes (OTA pull,
+        OTA boot status check, and future HTTP/MQTT TLS sinks).
+
+        The dominant contiguous alloc is the mbedTLS IN record buffer
+        (= CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN); the floor auto-derives as
+        SSL_IN_CONTENT_LEN + ~1 KB record overhead.
+
+        0 (default) = auto-derive: floor = BB_TLS_SSL_IN_FLOOR
+        (CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN + 1024). Lower SSL_IN and the
+        floor follows everywhere — one knob.
+
+        Positive value = explicit byte override; pin an exact floor when
+        the auto formula does not match your board's real handshake budget.
+
+        Negative value = disable the contiguous guard entirely.
+
+config BB_TLS_HEAP_TOTAL_FLOOR
+    int "Pre-TLS minimum total-free-heap guard (bytes; 0=disabled)"
+    range 0 262144
+    default 0
+    help
+        Shared total-free-heap pre-flight floor for TLS handshakes.
+
+        Companion to BB_TLS_HEAP_CONTIGUOUS_FLOOR: a board can clear the
+        contiguous bar yet still OOM-panic if total free is too low
+        (esp32-s2-mini: ~20 KB transient vs ~25 KB free). Set to ~30720
+        on heap-tight boot-strategy boards.
+
+        0 (default) = disabled; boards with ample heap are unaffected.
+
+endmenu

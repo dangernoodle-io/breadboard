@@ -1,4 +1,5 @@
 #include "bb_ota_pull.h"
+#include "bb_tls.h"
 #include "bb_ota_hooks.h"
 #include "bb_update_check.h"
 #include "bb_release_manifest.h"
@@ -403,20 +404,6 @@ bool bb_ota_pull_apply_cache_is_fresh(bool last_check_ok, int64_t last_check_us,
  * @param out_dim         on failure, set to "contiguous" or "total-free";
  *                        may be NULL if the caller does not need the label
  */
-bool bb_ota_pull_heap_guard_passes(size_t largest_block, size_t contiguous_floor,
-                                   size_t total_free, size_t total_floor,
-                                   const char **out_dim)
-{
-    if (contiguous_floor > 0 && largest_block < contiguous_floor) {
-        if (out_dim) *out_dim = "contiguous";
-        return false;
-    }
-    if (total_floor > 0 && total_free < total_floor) {
-        if (out_dim) *out_dim = "total-free";
-        return false;
-    }
-    return true;
-}
 
 /**
  * Pure redirect-URL decision helper — no ESP-IDF dependencies.
@@ -456,52 +443,6 @@ const char *bb_ota_pull_resolve_redirect_url(const char *original_url,
     return use;
 }
 
-// ---------------------------------------------------------------------------
-// B1-358: pure TLS handshake diagnostic helper — no ESP-IDF dependencies.
-// ---------------------------------------------------------------------------
-
-/* MBEDTLS_ERR_SSL_RECORD_TOO_BIG = -0x7200 */
-#define BB_OTA_TLS_RECORD_TOO_BIG (-0x7200)
-
-/**
- * Classify an mbedtls error from a failed OTA TLS handshake and fill a
- * caller-supplied buffer with an actionable human-readable message.
- *
- * When the error code matches the mbedtls record-size symptom (-0x7200),
- * the message names the endpoint HOST and the current SSL_IN_CONTENT_LEN
- * value and tells the operator to increase CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN.
- * For other codes a compact generic message is produced.
- *
- * @param mbedtls_err   mbedtls error code (negative int)
- * @param host          NUL-terminated hostname extracted from the OTA URL
- * @param ssl_in_len    current CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN value (bytes)
- * @param out           caller-supplied output buffer; may be NULL (no-op)
- * @param out_len       size of out; may be 0 (no-op)
- * @return true when mbedtls_err matches the record-size symptom, false otherwise
- *
- * No ESP-IDF headers; no stdlib beyond snprintf. Compiled on host and device.
- */
-bool bb_ota_tls_diag(int mbedtls_err, const char *host, int ssl_in_len,
-                     char *out, size_t out_len)
-{
-    if (!out || out_len == 0) {
-        return (mbedtls_err == BB_OTA_TLS_RECORD_TOO_BIG);
-    }
-    if (mbedtls_err == BB_OTA_TLS_RECORD_TOO_BIG) {
-        snprintf(out, out_len,
-                 "OTA handshake to %s failed (mbedtls -0x7200); "
-                 "SSL_IN_CONTENT_LEN (%d) may be too small for this endpoint's "
-                 "certificate chain. Try increasing "
-                 "CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN.",
-                 host ? host : "?", ssl_in_len);
-        return true;
-    }
-    snprintf(out, out_len,
-             "OTA handshake to %s failed (mbedtls 0x%04x)",
-             host ? host : "?", (unsigned int)(mbedtls_err & 0xffff));
-    return false;
-}
-
 #ifdef BB_OTA_PULL_TESTING
 // Test hook: run ota_fetch_manifest with the currently configured URL/board.
 bb_err_t bb_ota_pull_fetch_manifest_for_test(char *out_tag, size_t tag_cap,
@@ -516,8 +457,8 @@ bb_err_t bb_ota_pull_fetch_manifest_for_test(char *out_tag, size_t tag_cap,
 bool bb_ota_pull_heap_ready_for_test(size_t largest_block, size_t contiguous_floor,
                                      size_t total_free, size_t total_floor)
 {
-    return bb_ota_pull_heap_guard_passes(largest_block, contiguous_floor,
-                                        total_free, total_floor, NULL);
+    return bb_tls_heap_guard_passes(largest_block, contiguous_floor,
+                                    total_free, total_floor, NULL);
 }
 #endif
 
@@ -566,41 +507,29 @@ static const char *ota_url_host(const char *url, char *buf, size_t buf_len)
     return (i > 0) ? buf : "?";
 }
 
-// Pre-flight contiguous-heap floor for the OTA TLS handshake. Single source of
-// truth: the mbedTLS IN record buffer the handshake needs is
-// CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN; +~1 KB record overhead. Tuning SSL_IN moves
-// this automatically — one knob. The Kconfig override below is normally left at
-// its auto sentinel.
-//   CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES:  0 = auto-derive (default),
-//   >0 = explicit byte override, <0 = disable the guard.
-#if CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES > 0
-#  define BB_OTA_HEAP_FLOOR_BYTES CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
-#elif CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES < 0
+// Pre-flight contiguous-heap floor for the OTA TLS handshake. Derives from
+// the shared BB_TLS_HEAP_CONTIGUOUS_FLOOR knob (bridged in bb_tls.h):
+//   0 (default) = auto-derive: BB_TLS_SSL_IN_FLOOR (SSL_IN + 1024)
+//  >0            = explicit byte override
+//  <0            = guard disabled
+#if BB_TLS_HEAP_CONTIGUOUS_FLOOR > 0
+#  define BB_OTA_HEAP_FLOOR_BYTES ((size_t)BB_TLS_HEAP_CONTIGUOUS_FLOOR)
+#elif BB_TLS_HEAP_CONTIGUOUS_FLOOR < 0
 #  define BB_OTA_HEAP_FLOOR_BYTES 0   /* guard disabled */
-#elif defined(CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN)
-#  define BB_OTA_HEAP_FLOOR_BYTES (CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN + 1024)
 #else
-#  define BB_OTA_HEAP_FLOOR_BYTES 0
-#endif
-
-// B1-358: bridge CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN for use inside the
-// esp_https_ota_begin failure path (passed to bb_ota_tls_diag).
-#ifdef CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN
-#  define BB_OTA_SSL_IN_LEN CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN
-#else
-#  define BB_OTA_SSL_IN_LEN 4096  /* sane default when not configured */
+#  define BB_OTA_HEAP_FLOOR_BYTES BB_TLS_SSL_IN_FLOOR
 #endif
 
 bool bb_ota_pull_heap_ready(void)
 {
     size_t largest    = bb_board_heap_internal_largest_free_block();
     size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    return bb_ota_pull_heap_guard_passes(largest, BB_OTA_HEAP_FLOOR_BYTES,
-                                        total_free, CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES,
-                                        NULL);
+    return bb_tls_heap_guard_passes(largest, BB_OTA_HEAP_FLOOR_BYTES,
+                                    total_free, BB_TLS_HEAP_TOTAL_FLOOR,
+                                    NULL);
 }
 
-#if BB_OTA_HEAP_FLOOR_BYTES > 0 || CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES > 0
+#if BB_OTA_HEAP_FLOOR_BYTES > 0 || BB_TLS_HEAP_TOTAL_FLOOR > 0
 /*
  * ota_heap_guard — sample both internal-heap dimensions and refuse cleanly if
  * either is below floor, logging a clear reason and setting last_error.
@@ -618,14 +547,14 @@ static bb_err_t ota_heap_guard(const char *stage)
     size_t largest    = bb_board_heap_internal_largest_free_block();
     size_t total_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     const char *dim   = NULL;
-    if (!bb_ota_pull_heap_guard_passes(largest, BB_OTA_HEAP_FLOOR_BYTES,
-                                       total_free, CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES,
-                                       &dim)) {
+    if (!bb_tls_heap_guard_passes(largest, BB_OTA_HEAP_FLOOR_BYTES,
+                                   total_free, BB_TLS_HEAP_TOTAL_FLOOR,
+                                   &dim)) {
         bb_log_e(TAG, "OTA refused (%s): %s heap guard failed (largest=%u total_free=%u "
                  "contiguous_floor=%u total_floor=%u)",
                  stage, dim, (unsigned)largest, (unsigned)total_free,
                  (unsigned)BB_OTA_HEAP_FLOOR_BYTES,
-                 (unsigned)CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES);
+                 (unsigned)BB_TLS_HEAP_TOTAL_FLOOR);
         ota_set_error("insufficient heap for OTA (%s/%s guard): largest=%u total_free=%u",
                       stage, dim, (unsigned)largest, (unsigned)total_free);
         return ESP_ERR_NO_MEM;
@@ -651,7 +580,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
 
     bb_wdt_extend_begin(CONFIG_BB_OTA_PULL_WDT_EXTENDED_S);
 
-#if BB_OTA_HEAP_FLOOR_BYTES > 0 || CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES > 0
+#if BB_OTA_HEAP_FLOOR_BYTES > 0 || BB_TLS_HEAP_TOTAL_FLOOR > 0
     // Pre-flight heap guard (before wifi check + PM-lock). Best-effort — see
     // ota_heap_guard(); a second guard runs pre-handshake below.
     {
@@ -756,7 +685,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
     }
     bb_log_i(TAG, "OTA target partition: %s", update_partition->label);
 
-#if BB_OTA_HEAP_FLOOR_BYTES > 0 || CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES > 0
+#if BB_OTA_HEAP_FLOOR_BYTES > 0 || BB_TLS_HEAP_TOTAL_FLOOR > 0
     // Second heap guard — PM lock held and wifi confirmed — re-checked right
     // before the TLS handshake to catch fragmentation since pre-flight.
     {
@@ -823,7 +752,7 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
             // B1-358: emit TLS record-size diagnostic and capture into last_error.
             // esp_https_ota_begin does not expose the underlying mbedtls error
             // after failure (the tls handle is internal to the ota handle which is
-            // NULL on failure). Pass BB_OTA_TLS_RECORD_TOO_BIG as the assumed
+            // NULL on failure). Pass BB_TLS_RECORD_TOO_BIG as the assumed
             // code on any begin failure — the actionable SSL_IN hint fires for
             // every begin failure, which is the right default: the dominant
             // field-observed cause on no-PSRAM boards IS the record-size issue,
@@ -833,8 +762,8 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
                 const char *diag_host = ota_url_host(download_url, host_buf,
                                                      sizeof(host_buf));
                 char diag_buf[192];
-                bb_ota_tls_diag(BB_OTA_TLS_RECORD_TOO_BIG, diag_host,
-                                BB_OTA_SSL_IN_LEN, diag_buf, sizeof(diag_buf));
+                bb_tls_handshake_diag(BB_TLS_RECORD_TOO_BIG, diag_host,
+                                      BB_TLS_SSL_IN_LEN, diag_buf, sizeof(diag_buf));
                 bb_log_w(TAG, "%s", diag_buf);
                 ota_set_error("%s", diag_buf);
             }
