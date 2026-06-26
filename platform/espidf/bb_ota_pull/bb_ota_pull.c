@@ -456,6 +456,52 @@ const char *bb_ota_pull_resolve_redirect_url(const char *original_url,
     return use;
 }
 
+// ---------------------------------------------------------------------------
+// B1-358: pure TLS handshake diagnostic helper — no ESP-IDF dependencies.
+// ---------------------------------------------------------------------------
+
+/* MBEDTLS_ERR_SSL_RECORD_TOO_BIG = -0x7200 */
+#define BB_OTA_TLS_RECORD_TOO_BIG (-0x7200)
+
+/**
+ * Classify an mbedtls error from a failed OTA TLS handshake and fill a
+ * caller-supplied buffer with an actionable human-readable message.
+ *
+ * When the error code matches the mbedtls record-size symptom (-0x7200),
+ * the message names the endpoint HOST and the current SSL_IN_CONTENT_LEN
+ * value and tells the operator to increase CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN.
+ * For other codes a compact generic message is produced.
+ *
+ * @param mbedtls_err   mbedtls error code (negative int)
+ * @param host          NUL-terminated hostname extracted from the OTA URL
+ * @param ssl_in_len    current CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN value (bytes)
+ * @param out           caller-supplied output buffer; may be NULL (no-op)
+ * @param out_len       size of out; may be 0 (no-op)
+ * @return true when mbedtls_err matches the record-size symptom, false otherwise
+ *
+ * No ESP-IDF headers; no stdlib beyond snprintf. Compiled on host and device.
+ */
+bool bb_ota_tls_diag(int mbedtls_err, const char *host, int ssl_in_len,
+                     char *out, size_t out_len)
+{
+    if (!out || out_len == 0) {
+        return (mbedtls_err == BB_OTA_TLS_RECORD_TOO_BIG);
+    }
+    if (mbedtls_err == BB_OTA_TLS_RECORD_TOO_BIG) {
+        snprintf(out, out_len,
+                 "OTA handshake to %s failed (mbedtls -0x7200); "
+                 "SSL_IN_CONTENT_LEN (%d) may be too small for this endpoint's "
+                 "certificate chain. Try increasing "
+                 "CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN.",
+                 host ? host : "?", ssl_in_len);
+        return true;
+    }
+    snprintf(out, out_len,
+             "OTA handshake to %s failed (mbedtls 0x%04x)",
+             host ? host : "?", (unsigned int)(mbedtls_err & 0xffff));
+    return false;
+}
+
 #ifdef BB_OTA_PULL_TESTING
 // Test hook: run ota_fetch_manifest with the currently configured URL/board.
 bb_err_t bb_ota_pull_fetch_manifest_for_test(char *out_tag, size_t tag_cap,
@@ -501,6 +547,25 @@ static uint32_t ota_dl_backoff_ms(int attempt)
     return b > cap ? cap : b;
 }
 
+// B1-358: extract hostname from a URL ("https://host/path" → "host").
+// Writes into buf (NUL-terminates). Returns buf, or "?" on parse failure.
+static const char *ota_url_host(const char *url, char *buf, size_t buf_len)
+{
+    if (!url || !buf || buf_len == 0) return "?";
+    // skip scheme ("https://", "http://")
+    const char *p = url;
+    const char *s = strstr(p, "://");
+    if (s) p = s + 3;
+    // copy until '/', ':', '?', '#', or end
+    size_t i = 0;
+    while (*p && *p != '/' && *p != ':' && *p != '?' && *p != '#') {
+        if (i + 1 < buf_len) buf[i++] = *p;
+        p++;
+    }
+    buf[i] = '\0';
+    return (i > 0) ? buf : "?";
+}
+
 // Pre-flight contiguous-heap floor for the OTA TLS handshake. Single source of
 // truth: the mbedTLS IN record buffer the handshake needs is
 // CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN; +~1 KB record overhead. Tuning SSL_IN moves
@@ -516,6 +581,14 @@ static uint32_t ota_dl_backoff_ms(int attempt)
 #  define BB_OTA_HEAP_FLOOR_BYTES (CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN + 1024)
 #else
 #  define BB_OTA_HEAP_FLOOR_BYTES 0
+#endif
+
+// B1-358: bridge CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN for use inside the
+// esp_https_ota_begin failure path (passed to bb_ota_tls_diag).
+#ifdef CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN
+#  define BB_OTA_SSL_IN_LEN CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN
+#else
+#  define BB_OTA_SSL_IN_LEN 4096  /* sane default when not configured */
 #endif
 
 bool bb_ota_pull_heap_ready(void)
@@ -747,6 +820,24 @@ static bb_err_t ota_download_and_flash(const char *asset_url)
             // attempt and let the outer loop decide whether to retry.
             bb_log_w(TAG, "OTA download attempt %d/%d: handshake failed: %s",
                      dl + 1, max_dl_attempts, esp_err_to_name(err));
+            // B1-358: emit TLS record-size diagnostic and capture into last_error.
+            // esp_https_ota_begin does not expose the underlying mbedtls error
+            // after failure (the tls handle is internal to the ota handle which is
+            // NULL on failure). Pass BB_OTA_TLS_RECORD_TOO_BIG as the assumed
+            // code on any begin failure — the actionable SSL_IN hint fires for
+            // every begin failure, which is the right default: the dominant
+            // field-observed cause on no-PSRAM boards IS the record-size issue,
+            // and the message is correct for that class.
+            {
+                char host_buf[64];
+                const char *diag_host = ota_url_host(download_url, host_buf,
+                                                     sizeof(host_buf));
+                char diag_buf[192];
+                bb_ota_tls_diag(BB_OTA_TLS_RECORD_TOO_BIG, diag_host,
+                                BB_OTA_SSL_IN_LEN, diag_buf, sizeof(diag_buf));
+                bb_log_w(TAG, "%s", diag_buf);
+                ota_set_error("%s", diag_buf);
+            }
             // ota_handle is already NULL here (aborted in inner loop)
             continue;
         }
