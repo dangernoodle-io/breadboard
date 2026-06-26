@@ -232,9 +232,13 @@ COMPONENT_MAP = {
         "depends":  ["bb_core", "bb_nv"],
     },
     "bb_info": {
-        "includes": ["components/bb_info/include"],
-        "sources":  ["platform/host/bb_info/bb_info_host.c"],
-        "depends":  ["bb_core", "bb_http", "bb_json", "bb_board", "bb_wifi", "bb_section"],
+        "includes": ["components/bb_info/include", "components/bb_info/src"],
+        "sources":  [
+            "platform/host/bb_info/bb_info_host.c",
+            "components/bb_info/src/bb_info_build.c",
+        ],
+        "depends":  ["bb_core", "bb_http", "bb_json", "bb_board", "bb_wifi", "bb_section",
+                     "bb_system", "bb_cache"],
     },
     "bb_health": {
         "includes": ["components/bb_health/include", "components/bb_health"],

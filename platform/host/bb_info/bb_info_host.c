@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "../../components/bb_info/bb_info_schema_priv.h"
+#include "../../components/bb_info/src/bb_info_build_priv.h"
 
 // File-scope section registry for /api/info.
 static bb_section_registry_t s_info_reg = { .tag = "bb_info" };

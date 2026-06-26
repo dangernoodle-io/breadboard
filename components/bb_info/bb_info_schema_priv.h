@@ -13,25 +13,31 @@
 // NOTE: abnormal_reset_count and panic have been REMOVED from root.
 //       They live in the diag section: diag.{wdt_resets, panic?}.
 
-static const char k_info_schema_base[] =
-    "{\"type\":\"object\","
-    "\"properties\":{"
-    "\"board\":{\"type\":\"string\"},"
-    "\"project_name\":{\"type\":\"string\"},"
+// Schema for the nested "build" subsection (bb_cache "build" topic).
+// 13 fields: the 12 formerly at root level + app_sha256.
+static const char k_build_schema[] =
+    "{\"type\":\"object\",\"properties\":{"
     "\"version\":{\"type\":\"string\"},"
     "\"idf_version\":{\"type\":\"string\"},"
     "\"build_date\":{\"type\":\"string\"},"
     "\"build_time\":{\"type\":\"string\"},"
+    "\"project_name\":{\"type\":\"string\"},"
     "\"chip_model\":{\"type\":\"string\"},"
+    "\"chip_revision\":{\"type\":\"integer\"},"
     "\"cores\":{\"type\":\"integer\"},"
-    "\"mac\":{\"type\":\"string\"},"
+    "\"cpu_freq_mhz\":{\"type\":\"integer\"},"
     "\"flash_size\":{\"type\":\"integer\"},"
     "\"app_size\":{\"type\":\"integer\"},"
+    "\"board\":{\"type\":\"string\"},"
+    "\"app_sha256\":{\"type\":\"string\"}}}";
+
+static const char k_info_schema_base[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+    "\"mac\":{\"type\":\"string\"},"
     "\"reset_reason\":{\"type\":\"string\"},"
     "\"ota_validated\":{\"type\":\"boolean\"},"
     "\"ota_ready\":{\"type\":\"boolean\"},"
-    "\"chip_revision\":{\"type\":\"integer\"},"
-    "\"cpu_freq_mhz\":{\"type\":\"integer\"},"
     "\"heap_internal\":{\"type\":\"object\","
     "\"properties\":{"
     "\"free\":{\"type\":\"integer\"},"

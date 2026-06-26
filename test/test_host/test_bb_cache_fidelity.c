@@ -5,8 +5,8 @@
 // (bb_cache_serialize_into on another fresh obj) for every registered topic.
 //
 // Synthetic topic registered here; real topics (net.health, diag.boot,
-// update.available, health.display) wire in below in the TOPIC TABLE comment
-// with one entry each.
+// update.available, health.display, build) wire in below in the TOPIC TABLE
+// comment with one entry each.
 //
 // EXTENSION POINT: To add a real topic, add a row to the `s_topics[]` table
 // below following the bb_cache_fidelity_topic_t shape.
@@ -20,6 +20,7 @@
 #include "bb_log.h"
 #include "bb_net_health.h"
 #include "bb_update_check_internal.h"
+#include "../../components/bb_info/src/bb_info_build_priv.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -112,6 +113,22 @@ static const bb_update_snap_t s_update_initial = {
     .last_check_ts = 0,
 };
 
+static const bb_info_build_snap_t s_build_initial = {
+    .version      = "1.0.0",
+    .idf_version  = "v5.3.1",
+    .build_date   = "Jan  1 2025",
+    .build_time   = "12:00:00",
+    .project_name = "breadboard",
+    .chip_model   = "ESP32",
+    .chip_revision = 3,
+    .cores        = 2,
+    .cpu_freq_mhz = 240,
+    .flash_size   = 4194304,
+    .app_size     = 1200000,
+    .board        = "wroom32",
+    .app_sha256   = "deadbeef0",
+};
+
 static const bb_cache_fidelity_topic_t s_topics[] = {
     {
         .name         = "test.synth",
@@ -147,6 +164,13 @@ static const bb_cache_fidelity_topic_t s_topics[] = {
         .snap_size    = sizeof(bb_display_snap_t),
         .serialize    = bb_display_serialize,
         .initial_snap = &s_display_initial,
+    },
+    {
+        .name         = "build",
+        .snapshot     = NULL,
+        .snap_size    = sizeof(bb_info_build_snap_t),
+        .serialize    = bb_info_build_emit,
+        .initial_snap = &s_build_initial,
     },
 };
 

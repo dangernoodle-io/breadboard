@@ -5,6 +5,7 @@
 #include "esp_app_desc.h"
 #include "esp_system.h"
 #include "soc/soc_caps.h"
+#include <stdio.h>
 
 #if __has_include("bb_version_gen.h")
 #include "bb_version_gen.h"
@@ -133,6 +134,41 @@ const char *bb_system_get_idf_version(void)
 void bb_system_restart(void)
 {
     esp_restart();
+}
+
+// Number of hex chars in the app SHA256 prefix.
+// Bridge pattern (see CLAUDE.md "Kconfig knobs must bridge CONFIG_").
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#ifdef CONFIG_APP_RETRIEVE_LEN_ELF_SHA
+#define BB_APP_SHA_HEX_LEN CONFIG_APP_RETRIEVE_LEN_ELF_SHA
+#endif
+#endif
+#ifndef BB_APP_SHA_HEX_LEN
+#define BB_APP_SHA_HEX_LEN 9
+#endif
+
+bb_err_t bb_system_get_app_sha256(char *out, size_t out_size)
+{
+    if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
+    // Need BB_APP_SHA_HEX_LEN hex chars + NUL
+    if (out_size <= BB_APP_SHA_HEX_LEN) return BB_ERR_NO_SPACE;
+    const uint8_t *sha = esp_app_get_description()->app_elf_sha256;
+    // Each byte produces 2 hex chars; generate up to BB_APP_SHA_HEX_LEN chars.
+    size_t written = 0;
+    for (size_t i = 0; written < BB_APP_SHA_HEX_LEN; i++) {
+        char pair[3];
+        snprintf(pair, sizeof(pair), "%02x", sha[i]);
+        // pair[0] and pair[1] are the two hex chars for sha[i]
+        if (written < BB_APP_SHA_HEX_LEN) {
+            out[written++] = pair[0];
+        }
+        if (written < BB_APP_SHA_HEX_LEN) {
+            out[written++] = pair[1];
+        }
+    }
+    out[written] = '\0';
+    return BB_OK;
 }
 
 bb_err_t bb_system_read_temp_celsius(float *out)
