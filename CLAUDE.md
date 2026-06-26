@@ -91,7 +91,7 @@ If a new type would force an `#include <esp_…>` or `#include "cJSON.h"` into a
 ```sh
 grep -nE '#include <esp_|#include "esp_|cJSON|i2c_master|httpd_' components/<name>/include/*.h
 ```
-This should be empty (outside the LVGL exception). **TODO:** add this as a CI lint step — not currently enforced.
+This should be empty (outside the LVGL exception). The CI lint step (`make check`) enforces this automatically via `scripts/check_lint.sh` (B1-263).
 
 ### Tests must not reach into other components
 
