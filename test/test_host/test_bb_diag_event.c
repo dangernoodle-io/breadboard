@@ -1,161 +1,220 @@
-// Host unit tests for bb_diag diag.boot event topic:
-// - bb_diag_boot_build_json (pure JSON builder)
+// Host unit tests for bb_diag diag.boot serializer:
+// - bb_diag_boot_serialize (bb_cache serializer, nested shape)
 #include "unity.h"
 #include "bb_diag_event_priv.h"
+#include "bb_json.h"
+#include "bb_json_test_hooks.h"
 
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 
 // ---------------------------------------------------------------------------
-// bb_diag_boot_build_json — normal cases
+// Helper: build a JSON string from a snap via bb_diag_boot_serialize
 // ---------------------------------------------------------------------------
 
-void test_bb_diag_boot_build_json_poweron_clean(void)
+static char *serialize_snap(const bb_diag_boot_snap_t *snap)
 {
-    char buf[256];
-    int n = bb_diag_boot_build_json(buf, sizeof(buf), "poweron", 0, false, false, false);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"reset_reason\":\"poweron\""));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"wdt_resets\":0"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"panic_available\":false"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"pending_verify\":false"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"rolled_back\":false"));
-}
-
-void test_bb_diag_boot_build_json_panic_with_count(void)
-{
-    char buf[256];
-    int n = bb_diag_boot_build_json(buf, sizeof(buf), "panic", 3, true, false, false);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"reset_reason\":\"panic\""));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"wdt_resets\":3"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"panic_available\":true"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"pending_verify\":false"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"rolled_back\":false"));
-}
-
-void test_bb_diag_boot_build_json_task_wdt(void)
-{
-    char buf[256];
-    int n = bb_diag_boot_build_json(buf, sizeof(buf), "task_wdt", 7, true, false, false);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"reset_reason\":\"task_wdt\""));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"wdt_resets\":7"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"panic_available\":true"));
-}
-
-void test_bb_diag_boot_build_json_rolled_back_true(void)
-{
-    char buf[256];
-    int n = bb_diag_boot_build_json(buf, sizeof(buf), "software", 0, false, false, true);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"pending_verify\":false"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"rolled_back\":true"));
-}
-
-void test_bb_diag_boot_build_json_all_flags_true(void)
-{
-    char buf[256];
-    int n = bb_diag_boot_build_json(buf, sizeof(buf), "brownout", 42, true, true, true);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"reset_reason\":\"brownout\""));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"wdt_resets\":42"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"panic_available\":true"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"pending_verify\":true"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"rolled_back\":true"));
-}
-
-void test_bb_diag_boot_build_json_zero_count(void)
-{
-    char buf[256];
-    int n = bb_diag_boot_build_json(buf, sizeof(buf), "poweron", 0, false, false, false);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"wdt_resets\":0"));
-}
-
-void test_bb_diag_boot_build_json_large_count(void)
-{
-    char buf[256];
-    int n = bb_diag_boot_build_json(buf, sizeof(buf), "int_wdt", 4294967295U, false, false, false);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"reset_reason\":\"int_wdt\""));
-    // UINT32_MAX should be encoded correctly
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"wdt_resets\":4294967295"));
+    bb_json_t obj = bb_json_obj_new();
+    if (!obj) return NULL;
+    bb_diag_boot_serialize(obj, snap);
+    char *str = bb_json_serialize(obj);
+    bb_json_free(obj);
+    return str;
 }
 
 // ---------------------------------------------------------------------------
-// Defensive: bad args
+// Normal boot (no panic)
 // ---------------------------------------------------------------------------
 
-void test_bb_diag_boot_build_json_null_buf_returns_neg1(void)
+void test_bb_diag_boot_serialize_poweron_clean(void)
 {
-    int n = bb_diag_boot_build_json(NULL, 256, "poweron", 0, false, false, false);
-    TEST_ASSERT_EQUAL_INT(-1, n);
-}
-
-void test_bb_diag_boot_build_json_zero_buf_sz_returns_neg1(void)
-{
-    char buf[4];
-    int n = bb_diag_boot_build_json(buf, 0, "poweron", 0, false, false, false);
-    TEST_ASSERT_EQUAL_INT(-1, n);
-}
-
-void test_bb_diag_boot_build_json_null_reset_reason_returns_neg1(void)
-{
-    char buf[256];
-    int n = bb_diag_boot_build_json(buf, sizeof(buf), NULL, 0, false, false, false);
-    TEST_ASSERT_EQUAL_INT(-1, n);
-}
-
-// ---------------------------------------------------------------------------
-// Output is valid JSON structure (spot-check nesting)
-// ---------------------------------------------------------------------------
-
-void test_bb_diag_boot_build_json_starts_with_brace(void)
-{
-    char buf[256];
-    bb_diag_boot_build_json(buf, sizeof(buf), "poweron", 0, false, false, false);
-    TEST_ASSERT_EQUAL_CHAR('{', buf[0]);
-}
-
-void test_bb_diag_boot_build_json_ends_with_brace(void)
-{
-    char buf[256];
-    int n = bb_diag_boot_build_json(buf, sizeof(buf), "poweron", 0, false, false, false);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    // n <= sizeof(buf)-1 since snprintf wrote into buf
-    int len = (int)strlen(buf);
-    TEST_ASSERT_EQUAL_CHAR('}', buf[len - 1]);
+    bb_diag_boot_snap_t snap = {
+        .reset_reason    = "poweron",
+        .wdt_resets      = 0,
+        .panic_available = false,
+        .panic_boots_since = 0,
+        .pending_verify  = false,
+        .rolled_back     = false,
+    };
+    char *str = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"reset_reason\":\"poweron\""));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"wdt_resets\":0"));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"pending_verify\":false"));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"rolled_back\":false"));
+    // panic object always present
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"panic\":"));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"available\":false"));
+    // flat panic_available key must NOT appear
+    TEST_ASSERT_NULL(strstr(str, "\"panic_available\""));
+    bb_json_free_str(str);
 }
 
 // ---------------------------------------------------------------------------
-// OTA flag coverage: pending_verify + rolled_back independently
+// Panic available
 // ---------------------------------------------------------------------------
 
-void test_bb_diag_boot_build_json_pending_verify_true(void)
+void test_bb_diag_boot_serialize_panic_available(void)
 {
-    char buf[256];
-    int n = bb_diag_boot_build_json(buf, sizeof(buf), "software", 0, false, true, false);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"pending_verify\":true"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"rolled_back\":false"));
+    bb_diag_boot_snap_t snap = {
+        .reset_reason      = "panic",
+        .wdt_resets        = 3,
+        .panic_available   = true,
+        .panic_boots_since = 2,
+        .pending_verify    = false,
+        .rolled_back       = false,
+    };
+    char *str = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"reset_reason\":\"panic\""));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"wdt_resets\":3"));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"panic\":"));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"available\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"boots_since\":2"));
+    // flat panic_available key must NOT appear
+    TEST_ASSERT_NULL(strstr(str, "\"panic_available\""));
+    bb_json_free_str(str);
 }
 
-void test_bb_diag_boot_build_json_both_ota_flags_true(void)
+// ---------------------------------------------------------------------------
+// rolled_back=true
+// ---------------------------------------------------------------------------
+
+void test_bb_diag_boot_serialize_rolled_back(void)
 {
-    char buf[256];
-    int n = bb_diag_boot_build_json(buf, sizeof(buf), "panic", 1, true, true, true);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"pending_verify\":true"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"rolled_back\":true"));
+    bb_diag_boot_snap_t snap = {
+        .reset_reason    = "software",
+        .wdt_resets      = 0,
+        .panic_available = false,
+        .panic_boots_since = 0,
+        .pending_verify  = false,
+        .rolled_back     = true,
+    };
+    char *str = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"rolled_back\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"pending_verify\":false"));
+    bb_json_free_str(str);
 }
 
-void test_bb_diag_boot_build_json_both_ota_flags_false(void)
+// ---------------------------------------------------------------------------
+// pending_verify=true
+// ---------------------------------------------------------------------------
+
+void test_bb_diag_boot_serialize_pending_verify(void)
 {
-    char buf[256];
-    int n = bb_diag_boot_build_json(buf, sizeof(buf), "poweron", 0, false, false, false);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"pending_verify\":false"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"rolled_back\":false"));
+    bb_diag_boot_snap_t snap = {
+        .reset_reason    = "software",
+        .wdt_resets      = 0,
+        .panic_available = false,
+        .panic_boots_since = 0,
+        .pending_verify  = true,
+        .rolled_back     = false,
+    };
+    char *str = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"pending_verify\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"rolled_back\":false"));
+    bb_json_free_str(str);
+}
+
+// ---------------------------------------------------------------------------
+// panic object always present (available=false case has no boots_since)
+// ---------------------------------------------------------------------------
+
+void test_bb_diag_boot_serialize_panic_obj_always_present(void)
+{
+    bb_diag_boot_snap_t snap = {
+        .reset_reason    = "poweron",
+        .wdt_resets      = 0,
+        .panic_available = false,
+        .panic_boots_since = 0,
+        .pending_verify  = false,
+        .rolled_back     = false,
+    };
+    char *str = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(str);
+    // "panic":{...} must be present
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"panic\":"));
+    // available key must be present inside panic
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"available\":"));
+    // boots_since must NOT appear when panic unavailable
+    TEST_ASSERT_NULL(strstr(str, "\"boots_since\""));
+    bb_json_free_str(str);
+}
+
+// ---------------------------------------------------------------------------
+// Starts with '{' and ends with '}'
+// ---------------------------------------------------------------------------
+
+void test_bb_diag_boot_serialize_json_braces(void)
+{
+    bb_diag_boot_snap_t snap = {
+        .reset_reason    = "poweron",
+        .wdt_resets      = 0,
+        .panic_available = false,
+        .panic_boots_since = 0,
+        .pending_verify  = false,
+        .rolled_back     = false,
+    };
+    char *str = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_EQUAL_CHAR('{', str[0]);
+    TEST_ASSERT_EQUAL_CHAR('}', str[strlen(str) - 1]);
+    bb_json_free_str(str);
+}
+
+// ---------------------------------------------------------------------------
+// Large wdt_resets (UINT32_MAX)
+// ---------------------------------------------------------------------------
+
+void test_bb_diag_boot_serialize_large_wdt_resets(void)
+{
+    bb_diag_boot_snap_t snap = {
+        .reset_reason    = "task_wdt",
+        .wdt_resets      = 4294967295U,
+        .panic_available = false,
+        .panic_boots_since = 0,
+        .pending_verify  = false,
+        .rolled_back     = false,
+    };
+    char *str = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"reset_reason\":\"task_wdt\""));
+    TEST_ASSERT_NOT_NULL(strstr(str, "4294967295"));
+    bb_json_free_str(str);
+}
+
+// ---------------------------------------------------------------------------
+// OOM: bb_json_obj_new returns NULL for the inner panic object
+// Serializer must still emit all flat fields; panic key is absent.
+// ---------------------------------------------------------------------------
+
+void test_bb_diag_boot_serialize_panic_oom(void)
+{
+    bb_diag_boot_snap_t snap = {
+        .reset_reason    = "poweron",
+        .wdt_resets      = 1,
+        .panic_available = false,
+        .panic_boots_since = 0,
+        .pending_verify  = true,
+        .rolled_back     = false,
+    };
+
+    // Call 0: bb_json_obj_new() in serialize_snap (outer object) — succeeds.
+    // Call 1: bb_json_obj_new() for panic inside bb_diag_boot_serialize — fails.
+    bb_json_host_force_alloc_fail_after(1);
+    char *str = serialize_snap(&snap);
+    bb_json_host_force_alloc_fail_after(-1); // reset guard
+
+    TEST_ASSERT_NOT_NULL(str);
+    // flat fields must still be present
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"reset_reason\":\"poweron\""));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"wdt_resets\":1"));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"pending_verify\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"rolled_back\":false"));
+    // panic key must be absent when allocation failed
+    TEST_ASSERT_NULL(strstr(str, "\"panic\""));
+    bb_json_free_str(str);
 }

@@ -49,6 +49,13 @@ bb_err_t bb_event_routes_init(const bb_event_routes_cfg_t *cfg);
 // to bb_event_routes_attach_ex(name, false).
 bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained);
 
+// Extended form: same as bb_event_routes_attach_ex but allows a per-topic
+// max_entry override. Pass max_entry=0 to use the global configured value
+// (CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY). Use when a specific topic's payload
+// is larger than the global default — e.g. update.available (~430 B worst-case).
+bb_err_t bb_event_routes_attach_ex2(const char *topic_name, bool retained,
+                                    size_t max_entry);
+
 // Convenience wrapper: bb_event_routes_attach_ex(topic_name, false).
 bb_err_t bb_event_routes_attach(const char *topic_name);
 

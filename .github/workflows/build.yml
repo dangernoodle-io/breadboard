@@ -5,6 +5,12 @@ on:
   pull_request:
     branches: [main]
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Guard checks
+        run: make check
   test:
     uses: dangernoodle-io/.github/.github/workflows/pio-test.yml@main
     secrets: inherit
@@ -36,12 +42,12 @@ jobs:
         run: make smoke-${{ matrix.example }}
   summary:
     if: always()
-    needs: [test, smoke]
+    needs: [check, test, smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
         run: |
-          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.smoke.result }}" != "success" ]; then
-            echo "test=${{ needs.test.result }} smoke=${{ needs.smoke.result }}"
+          if [ "${{ needs.check.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.smoke.result }}" != "success" ]; then
+            echo "check=${{ needs.check.result }} test=${{ needs.test.result }} smoke=${{ needs.smoke.result }}"
             exit 1
           fi

@@ -7,7 +7,7 @@
 //   - warn_disc uses mqtt_disc_age_s (not wifi disc_age_s)
 //   - bb_net_state_str helper
 //   - bb_net_health_throttle_decision: throttle start + restore
-//   - bb_net_health_emit: compact (full=false) and full (full=true)
+//   - bb_net_health_emit: always emits all 8 fields
 #include "unity.h"
 #include "bb_net_health.h"
 #include "bb_json.h"
@@ -553,32 +553,43 @@ void test_bb_net_health_multi_trigger(void)
 // SSE payload size contract
 // ---------------------------------------------------------------------------
 
-// The net.health SSE topic uses a trimmed 4-field payload (rssi, state,
-// early_warning, throttled) so it fits in small ring slots.  Worst-case
-// input: rssi=-128, state="marginal" (longest), both bools true.
-// This test asserts the serialised length stays under 128 bytes, which is
-// TaipanMiner's CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY value.
-void test_bb_net_health_sse_payload_fits_128_byte_ring_slot(void)
+// The net.health SSE topic now emits the full 8-field payload via bb_cache.
+// Worst-case input: rssi=-128, state="marginal" (longest), all bools true,
+// large integer fields.  Assert the serialised length fits in a 256-byte ring
+// slot (CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY for boards with ample ring budget).
+void test_bb_net_health_sse_payload_fits_256_byte_ring_slot(void)
 {
-    // Manually construct the worst-case payload the trimmed publish_snapshot
-    // would emit: {"rssi":-128,"state":"marginal","early_warning":true,"throttled":true}
-    char buf[256];
-    int n = snprintf(buf, sizeof(buf),
-                     "{\"rssi\":-128,\"state\":\"%s\","
-                     "\"early_warning\":true,\"throttled\":true}",
-                     bb_net_state_str(BB_NET_STATE_MARGINAL));
-    TEST_ASSERT_TRUE(n > 0);
+    bb_net_health_status_t snap = {
+        .state                  = BB_NET_STATE_MARGINAL,
+        .early_warning          = true,
+        .throttled              = true,
+        .rssi                   = -128,
+        .mqtt_connected         = false,
+        .mqtt_reconnect_count   = 99,
+        .last_disconnect_reason = 99,
+        .disc_age_s             = 9999,
+    };
 
-    // Must fit comfortably in a 128-byte ring slot.
-    TEST_ASSERT_LESS_THAN(128, (size_t)n);
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit(obj, &snap);
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+
+    size_t n = strlen(json);
+    bb_json_free_str(json);
+
+    // Must fit comfortably in a 256-byte ring slot.
+    TEST_ASSERT_LESS_THAN(256, n);
 }
 
 // ---------------------------------------------------------------------------
-// bb_net_health_emit: compact (full=false) and full (full=true)
+// bb_net_health_emit: always emits 8 fields
 // ---------------------------------------------------------------------------
 
-// compact emit: 4 fields present, mqtt_connected absent
-void test_bb_net_health_emit_compact_has_4_fields(void)
+// emit: all 8 fields present
+void test_bb_net_health_emit_has_8_fields(void)
 {
     bb_net_health_status_t snap = {
         .state                  = BB_NET_STATE_GOOD,
@@ -593,7 +604,7 @@ void test_bb_net_health_emit_compact_has_4_fields(void)
 
     bb_json_t obj = bb_json_obj_new();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_net_health_emit(obj, &snap, /*full=*/false);
+    bb_net_health_emit(obj, &snap);
     char *json = bb_json_serialize(obj);
     bb_json_free(obj);
     TEST_ASSERT_NOT_NULL(json);
@@ -602,7 +613,6 @@ void test_bb_net_health_emit_compact_has_4_fields(void)
     bb_json_free_str(json);
     TEST_ASSERT_NOT_NULL(parsed);
 
-    // compact fields present
     double rssi_val = 0.0;
     TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "rssi", &rssi_val));
     TEST_ASSERT_EQUAL_INT(-55, (int)rssi_val);
@@ -619,13 +629,25 @@ void test_bb_net_health_emit_compact_has_4_fields(void)
     TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "throttled", &thr));
     TEST_ASSERT_FALSE(thr);
 
-    // full-only field must be absent
-    TEST_ASSERT_NULL(bb_json_obj_get_item(parsed, "mqtt_connected"));
+    // all 8 fields must be present
+    TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(parsed, "mqtt_connected"));
+
+    double rc = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "mqtt_reconnect_count", &rc));
+    TEST_ASSERT_EQUAL_INT(2, (int)rc);
+
+    double dr = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "last_disconnect_reason", &dr));
+    TEST_ASSERT_EQUAL_INT(3, (int)dr);
+
+    double da = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "disc_age_s", &da));
+    TEST_ASSERT_EQUAL_INT(10, (int)da);
 
     bb_json_free(parsed);
 }
 
-// full emit: all 8 fields present
+// emit with poor/all-true snapshot: all 8 fields present with correct values
 void test_bb_net_health_emit_full_has_8_fields(void)
 {
     bb_net_health_status_t snap = {
@@ -641,7 +663,7 @@ void test_bb_net_health_emit_full_has_8_fields(void)
 
     bb_json_t obj = bb_json_obj_new();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_net_health_emit(obj, &snap, /*full=*/true);
+    bb_net_health_emit(obj, &snap);
     char *json = bb_json_serialize(obj);
     bb_json_free(obj);
     TEST_ASSERT_NOT_NULL(json);
@@ -687,7 +709,7 @@ void test_bb_net_health_emit_full_has_8_fields(void)
     bb_json_free(parsed);
 }
 
-// compact emit with false bools
+// emit with false bools: verify false values serialized correctly
 void test_bb_net_health_emit_compact_false_branch(void)
 {
     bb_net_health_status_t snap = {
@@ -699,7 +721,7 @@ void test_bb_net_health_emit_compact_false_branch(void)
 
     bb_json_t obj = bb_json_obj_new();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_net_health_emit(obj, &snap, /*full=*/false);
+    bb_net_health_emit(obj, &snap);
     char *json = bb_json_serialize(obj);
     bb_json_free(obj);
     TEST_ASSERT_NOT_NULL(json);
@@ -723,7 +745,7 @@ void test_bb_net_health_emit_compact_false_branch(void)
     bb_json_free(parsed);
 }
 
-// full emit with all bools true
+// emit with all bools true: verify true values serialized correctly
 void test_bb_net_health_emit_full_true_branch(void)
 {
     bb_net_health_status_t snap = {
@@ -739,7 +761,7 @@ void test_bb_net_health_emit_full_true_branch(void)
 
     bb_json_t obj = bb_json_obj_new();
     TEST_ASSERT_NOT_NULL(obj);
-    bb_net_health_emit(obj, &snap, /*full=*/true);
+    bb_net_health_emit(obj, &snap);
     char *json = bb_json_serialize(obj);
     bb_json_free(obj);
     TEST_ASSERT_NOT_NULL(json);
@@ -763,8 +785,8 @@ void test_bb_net_health_emit_full_true_branch(void)
     bb_json_free(parsed);
 }
 
-// parity: all 4 compact fields appear in the full result with same values
-void test_bb_net_health_emit_full_is_superset_of_compact(void)
+// parity: two independent emit calls on the same snap produce byte-identical JSON
+void test_bb_net_health_emit_idempotent(void)
 {
     bb_net_health_status_t snap = {
         .state                  = BB_NET_STATE_MARGINAL,
@@ -777,56 +799,28 @@ void test_bb_net_health_emit_full_is_superset_of_compact(void)
         .disc_age_s             = 15,
     };
 
-    // emit compact
-    bb_json_t compact_obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(compact_obj);
-    bb_net_health_emit(compact_obj, &snap, /*full=*/false);
-    char *compact_json = bb_json_serialize(compact_obj);
-    bb_json_free(compact_obj);
-    TEST_ASSERT_NOT_NULL(compact_json);
-    bb_json_t compact = bb_json_parse(compact_json, strlen(compact_json));
-    bb_json_free_str(compact_json);
-    TEST_ASSERT_NOT_NULL(compact);
+    bb_json_t obj_a = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj_a);
+    bb_net_health_emit(obj_a, &snap);
+    char *json_a = bb_json_serialize(obj_a);
+    bb_json_free(obj_a);
+    TEST_ASSERT_NOT_NULL(json_a);
 
-    // emit full
-    bb_json_t full_obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(full_obj);
-    bb_net_health_emit(full_obj, &snap, /*full=*/true);
-    char *full_json = bb_json_serialize(full_obj);
-    bb_json_free(full_obj);
-    TEST_ASSERT_NOT_NULL(full_json);
-    bb_json_t full = bb_json_parse(full_json, strlen(full_json));
-    bb_json_free_str(full_json);
-    TEST_ASSERT_NOT_NULL(full);
+    bb_json_t obj_b = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj_b);
+    bb_net_health_emit(obj_b, &snap);
+    char *json_b = bb_json_serialize(obj_b);
+    bb_json_free(obj_b);
+    TEST_ASSERT_NOT_NULL(json_b);
 
-    // rssi matches
-    double c_rssi = 0.0, f_rssi = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(compact, "rssi", &c_rssi));
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(full, "rssi", &f_rssi));
-    TEST_ASSERT_EQUAL_INT((int)c_rssi, (int)f_rssi);
+    TEST_ASSERT_EQUAL_STRING(json_a, json_b);
 
-    // state matches
-    char c_state[32], f_state[32];
-    TEST_ASSERT_TRUE(bb_json_obj_get_string(compact, "state", c_state, sizeof(c_state)));
-    TEST_ASSERT_TRUE(bb_json_obj_get_string(full, "state", f_state, sizeof(f_state)));
-    TEST_ASSERT_EQUAL_STRING(c_state, f_state);
+    // mqtt_connected present in both
+    bb_json_t parsed = bb_json_parse(json_a, strlen(json_a));
+    TEST_ASSERT_NOT_NULL(parsed);
+    TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(parsed, "mqtt_connected"));
+    bb_json_free(parsed);
 
-    // early_warning matches
-    bool c_ew = false, f_ew = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(compact, "early_warning", &c_ew));
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(full, "early_warning", &f_ew));
-    TEST_ASSERT_EQUAL(c_ew, f_ew);
-
-    // throttled matches
-    bool c_thr = true, f_thr = true;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(compact, "throttled", &c_thr));
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(full, "throttled", &f_thr));
-    TEST_ASSERT_EQUAL(c_thr, f_thr);
-
-    // full has mqtt_connected, compact does not
-    TEST_ASSERT_NULL(bb_json_obj_get_item(compact, "mqtt_connected"));
-    TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(full, "mqtt_connected"));
-
-    bb_json_free(compact);
-    bb_json_free(full);
+    bb_json_free_str(json_a);
+    bb_json_free_str(json_b);
 }

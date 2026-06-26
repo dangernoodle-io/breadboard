@@ -1,27 +1,25 @@
-// Pure (host-testable) JSON builder for the bb_diag diag.boot retained
-// event topic. No FreeRTOS or ESP-IDF types here.
+// Pure (host-testable) serializer for the diag.boot bb_cache retained topic.
+// No FreeRTOS or ESP-IDF types here.
 #include "bb_diag_event_priv.h"
 
-#include <stdio.h>
-#include <inttypes.h>
+#include <string.h>
 
-int bb_diag_boot_build_json(char *buf, size_t buf_sz,
-                             const char *reset_reason,
-                             uint32_t abnormal_reset_count,
-                             bool panic_available,
-                             bool pending_verify,
-                             bool rolled_back)
+void bb_diag_boot_serialize(bb_json_t obj, const void *snap)
 {
-    if (!buf || buf_sz == 0 || !reset_reason) return -1;
-    return snprintf(buf, buf_sz,
-        "{\"reset_reason\":\"%s\","
-        "\"wdt_resets\":%" PRIu32 ","
-        "\"panic_available\":%s,"
-        "\"pending_verify\":%s,"
-        "\"rolled_back\":%s}",
-        reset_reason,
-        abnormal_reset_count,
-        panic_available ? "true" : "false",
-        pending_verify ? "true" : "false",
-        rolled_back ? "true" : "false");
+    const bb_diag_boot_snap_t *s = (const bb_diag_boot_snap_t *)snap;
+
+    bb_json_obj_set_string(obj, "reset_reason", s->reset_reason);
+    bb_json_obj_set_int   (obj, "wdt_resets",   (int64_t)s->wdt_resets);
+
+    bb_json_t panic = bb_json_obj_new();
+    if (panic) {
+        bb_json_obj_set_bool(panic, "available", s->panic_available);
+        if (s->panic_available) {
+            bb_json_obj_set_int(panic, "boots_since", (int64_t)s->panic_boots_since);
+        }
+        bb_json_obj_set_obj(obj, "panic", panic);
+    }
+
+    bb_json_obj_set_bool(obj, "pending_verify", s->pending_verify);
+    bb_json_obj_set_bool(obj, "rolled_back",    s->rolled_back);
 }

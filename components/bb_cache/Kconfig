@@ -1,0 +1,12 @@
+menu "bb_cache"
+
+config BB_CACHE_MAX_TOPICS
+    int "Maximum number of registered cache topics"
+    default 8
+    range 1 64
+    help
+        Fixed-size registry capacity. Each entry holds a topic name pointer,
+        optional owned struct buffer, serializer fn, and a mutex.
+        Increase if more than 8 state topics need caching.
+
+endmenu

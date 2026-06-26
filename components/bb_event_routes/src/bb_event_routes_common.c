@@ -230,7 +230,8 @@ bb_err_t bb_event_routes_init(const bb_event_routes_cfg_t *cfg)
     return BB_OK;
 }
 
-bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained)
+bb_err_t bb_event_routes_attach_ex2(const char *topic_name, bool retained,
+                                    size_t max_entry)
 {
     if (!topic_name) return BB_ERR_INVALID_ARG;
     if (!s_cfg.initialized) return BB_ERR_INVALID_STATE;
@@ -264,9 +265,9 @@ bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained)
     size_t ring_cap = retained
         ? CONFIG_BB_EVENT_ROUTES_RETAINED_RING_CAPACITY
         : s_cfg.ring_capacity;
+    size_t entry_size = max_entry ? max_entry : s_cfg.ring_max_entry;
     bb_event_ring_t ring = NULL;
-    err = bb_event_ring_attach_ex(topic, ring_cap, s_cfg.ring_max_entry,
-                                  retained, &ring);
+    err = bb_event_ring_attach_ex(topic, ring_cap, entry_size, retained, &ring);
     if (err != BB_OK) {
         bb_event_routes_port_unlock(s_topics_lock);
         bb_log_e(TAG, "ring attach failed for '%s': %d", topic_name, err);
@@ -280,8 +281,14 @@ bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained)
     t->ring = ring;
     bb_event_routes_port_unlock(s_topics_lock);
 
-    bb_log_d(TAG, "attached '%s' retained=%d", topic_name, (int)retained);
+    bb_log_d(TAG, "attached '%s' retained=%d max_entry=%zu", topic_name,
+             (int)retained, entry_size);
     return BB_OK;
+}
+
+bb_err_t bb_event_routes_attach_ex(const char *topic_name, bool retained)
+{
+    return bb_event_routes_attach_ex2(topic_name, retained, 0);
 }
 
 bb_err_t bb_event_routes_attach(const char *topic_name)

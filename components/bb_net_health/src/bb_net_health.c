@@ -123,17 +123,13 @@ bool bb_net_health_throttle_decision(bb_net_health_state_t *st, int threshold)
     return st->throttled;
 }
 
-void bb_net_health_emit(bb_json_t obj, const bb_net_health_status_t *snap, bool full)
+void bb_net_health_emit(bb_json_t obj, const void *snap_v)
 {
-    // Compact fields (4): emitted for both SSE and REST.
-    bb_json_obj_set_number(obj, "rssi",          (double)snap->rssi);
-    bb_json_obj_set_string(obj, "state",         bb_net_state_str(snap->state));
-    bb_json_obj_set_bool  (obj, "early_warning", snap->early_warning);
-    bb_json_obj_set_bool  (obj, "throttled",     snap->throttled);
-
-    if (!full) return;
-
-    // Additional fields (4): REST and pub only.
+    const bb_net_health_status_t *snap = (const bb_net_health_status_t *)snap_v;
+    bb_json_obj_set_number(obj, "rssi",                   (double)snap->rssi);
+    bb_json_obj_set_string(obj, "state",                  bb_net_state_str(snap->state));
+    bb_json_obj_set_bool  (obj, "early_warning",          snap->early_warning);
+    bb_json_obj_set_bool  (obj, "throttled",              snap->throttled);
     bb_json_obj_set_bool  (obj, "mqtt_connected",         snap->mqtt_connected);
     bb_json_obj_set_number(obj, "mqtt_reconnect_count",   (double)snap->mqtt_reconnect_count);
     bb_json_obj_set_number(obj, "last_disconnect_reason", (double)snap->last_disconnect_reason);
