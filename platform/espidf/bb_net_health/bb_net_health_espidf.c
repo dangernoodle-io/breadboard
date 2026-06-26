@@ -11,6 +11,7 @@
 // Note: bb_net_health_attach_sse must be called before the server starts
 // serving SSE clients so the initial snapshot populates the retained ring.
 #include "bb_net_health.h"
+#include "bb_cache.h"
 #include "bb_health.h"
 #include "bb_wifi.h"
 #include "bb_mqtt.h"
@@ -159,26 +160,6 @@ static void publish_snapshot(const bb_net_health_output_t *out,
                              const bb_wifi_info_t         *wi,
                              bool throttled)
 {
-    // Update cache — net_section_get reads this; it must not call eval itself.
-    // Lock only the field-by-field write so readers never see a half-updated struct.
-    xSemaphoreTake(s_cache_lock, portMAX_DELAY);
-    s_cache.rssi                    = in->rssi;
-    s_cache.mqtt_connected          = in->mqtt_connected;
-    s_cache.mqtt_reconnect_count    = in->mqtt_reconnect_count;
-    s_cache.last_disconnect_reason  = wi->disc_reason;
-    s_cache.disc_age_s              = in->disc_age_s;
-    s_cache.state                   = out->state;
-    s_cache.early_warning           = out->early_warning;
-    s_cache.throttled               = throttled;
-    xSemaphoreGive(s_cache_lock);
-
-    if (!s_topic) return;
-
-    bb_json_t root = bb_json_obj_new();
-    if (!root) return;
-
-    // SSE wire format: compact 4-field payload only (~62 B worst case).
-    // Full detail (8 fields) is in GET /api/health "net" section.
     bb_net_health_status_t snap = {
         .state                  = out->state,
         .early_warning          = out->early_warning,
@@ -189,15 +170,24 @@ static void publish_snapshot(const bb_net_health_output_t *out,
         .mqtt_reconnect_count   = in->mqtt_reconnect_count,
         .last_disconnect_reason = wi->disc_reason,
     };
-    bb_net_health_emit(root, &snap, /*full=*/false);
 
-    char *json = bb_json_serialize(root);
-    bb_json_free(root);
+    // Update s_cache so bb_net_health_get_status (used by the pub source) can
+    // read the latest snapshot without re-running eval.
+    xSemaphoreTake(s_cache_lock, portMAX_DELAY);
+    s_cache.rssi                    = snap.rssi;
+    s_cache.mqtt_connected          = snap.mqtt_connected;
+    s_cache.mqtt_reconnect_count    = snap.mqtt_reconnect_count;
+    s_cache.last_disconnect_reason  = snap.last_disconnect_reason;
+    s_cache.disc_age_s              = snap.disc_age_s;
+    s_cache.state                   = snap.state;
+    s_cache.early_warning           = snap.early_warning;
+    s_cache.throttled               = snap.throttled;
+    xSemaphoreGive(s_cache_lock);
 
-    if (json) {
-        bb_event_post(s_topic, (int32_t)out->state, json, strlen(json));
-        bb_json_free_str(json);
-    }
+    // Update bb_cache owned struct — SSE uses bb_cache_post, REST uses
+    // bb_cache_serialize_into; both serialize from the same snapshot.
+    bb_cache_update(BB_NET_HEALTH_TOPIC, &snap);
+    bb_cache_post(BB_NET_HEALTH_TOPIC);
 }
 
 // ---------------------------------------------------------------------------
@@ -265,29 +255,11 @@ static void eval_cb(void *arg)
 static void net_section_get(bb_json_t section, void *ctx)
 {
     (void)ctx;
-
-    // Read from the cache written by eval_cb (and by the initial snapshot in
-    // attach_sse).  Do NOT call bb_net_health_eval here — HTTP polls must not
-    // inject samples into the hysteresis state.  Staleness is at most 5 s.
-    //
-    // Snapshot the struct under the lock, then serialize from the local copy so
-    // the lock is not held across any JSON/logging calls.
-    bb_net_health_cache_t snap;
-    xSemaphoreTake(s_cache_lock, portMAX_DELAY);
-    snap = s_cache;
-    xSemaphoreGive(s_cache_lock);
-
-    bb_net_health_status_t ns = {
-        .state                  = snap.state,
-        .early_warning          = snap.early_warning,
-        .throttled              = snap.throttled,
-        .rssi                   = snap.rssi,
-        .mqtt_connected         = snap.mqtt_connected,
-        .mqtt_reconnect_count   = snap.mqtt_reconnect_count,
-        .last_disconnect_reason = snap.last_disconnect_reason,
-        .disc_age_s             = snap.disc_age_s,
-    };
-    bb_net_health_emit(section, &ns, /*full=*/true);
+    // Read from the bb_cache owned struct (updated by publish_snapshot via
+    // eval_cb and the initial snapshot in attach_sse).  Do NOT call
+    // bb_net_health_eval here — HTTP polls must not inject samples into the
+    // hysteresis state.  Staleness is at most 5 s.
+    bb_cache_serialize_into(BB_NET_HEALTH_TOPIC, section);
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +275,7 @@ static bool net_health_pub_sample(bb_json_t obj, void *ctx)
     (void)ctx;
     bb_net_health_status_t ns;
     if (bb_net_health_get_status(&ns) != BB_OK) return false;  // not evaluated yet
-    bb_net_health_emit(obj, &ns, /*full=*/true);
+    bb_net_health_emit(obj, &ns);
     return true;
 }
 
@@ -323,6 +295,15 @@ bb_err_t bb_net_health_attach_sse(void)
     if (!s_cache_lock) {
         bb_log_e(TAG, "cache lock create failed");
         return BB_ERR_NO_SPACE;
+    }
+
+    // Register net.health in bb_cache (owned-struct form).
+    bb_err_t cerr = bb_cache_register(BB_NET_HEALTH_TOPIC, NULL,
+                                      sizeof(bb_net_health_status_t),
+                                      bb_net_health_emit);
+    if (cerr != BB_OK) {
+        bb_log_w(TAG, "bb_cache_register failed: %d", (int)cerr);
+        return cerr;
     }
 
     // Register the event topic so bb_event_post can target it.

@@ -1,6 +1,7 @@
 #include "bb_update_check.h"
 #include "bb_update_check_internal.h"
 #include "bb_release_manifest.h"
+#include "bb_cache.h"
 #include "bb_http.h"
 #include "bb_http_client.h"
 #include "bb_event.h"
@@ -43,6 +44,7 @@ static bb_event_topic_t              s_topic = NULL;
 static pthread_mutex_t               s_lock = PTHREAD_MUTEX_INITIALIZER;
 static bb_update_check_pause_cb_t    s_pause_hook = NULL;
 static bb_update_check_resume_cb_t   s_resume_hook = NULL;
+static int64_t                       s_last_publish_ts = 0;  // wall-clock seconds of last publish_state call
 
 #ifndef ESP_PLATFORM
 // On host/Arduino there is no real FreeRTOS task; the in-flight flag is a
@@ -87,26 +89,56 @@ static int semver_compare(const char *a, const char *b)
 }
 
 // ---------------------------------------------------------------------------
-// mDNS publish + event post
+// Forward declaration — outcome_str is defined later in this file.
+// ---------------------------------------------------------------------------
+static const char *outcome_str(bb_update_check_outcome_t o);
+
+// ---------------------------------------------------------------------------
+// bb_cache serializer — canonical union shape for update.available
 // ---------------------------------------------------------------------------
 
-static void publish_state(const bb_update_check_status_t *snap, const char *txt_value)
+void bb_update_serialize(bb_json_t obj, const void *snap)
+{
+    const bb_update_snap_t *s = (const bb_update_snap_t *)snap;
+    bb_json_obj_set_string(obj, "current",       s->current);
+    bb_json_obj_set_string(obj, "latest",        s->latest);
+    bb_json_obj_set_string(obj, "download_url",  s->download_url);
+    bb_json_obj_set_bool  (obj, "available",     s->available);
+    bb_json_obj_set_int   (obj, "ts",            s->ts);
+    bb_json_obj_set_bool  (obj, "last_check_ok", s->last_check_ok);
+    bb_json_obj_set_bool  (obj, "enabled",       s->enabled);
+    bb_json_obj_set_string(obj, "outcome",       s->outcome);
+    if (s->last_check_ts != 0) {
+        bb_json_obj_set_int(obj, "last_check_ts", s->last_check_ts);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// mDNS publish + bb_cache update + SSE post
+// ---------------------------------------------------------------------------
+
+static void publish_state(const bb_update_check_status_t *st, const char *txt_value)
 {
     bb_mdns_set_txt("update", txt_value);
 
-    if (!s_topic) return;  // LCOV_EXCL_LINE — init always registers the topic
-    char payload[256];
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    int n = snprintf(payload, sizeof(payload),
-        "{\"current\":\"%s\",\"latest\":\"%s\",\"download_url\":\"%s\","
-        "\"available\":%s,\"ts\":%lld}",
-        snap->current, snap->latest, snap->download_url,
-        snap->available ? "true" : "false",
-        (long long)tv.tv_sec);
-    if (n <= 0) return;  // LCOV_EXCL_LINE — snprintf failure defensive
-    size_t sz = (size_t)n < sizeof(payload) ? (size_t)n : sizeof(payload) - 1;  // LCOV_EXCL_BR_LINE — payload bounded well under 512B
-    bb_event_post(s_topic, snap->available ? 1 : 0, payload, sz);
+    s_last_publish_ts = (int64_t)tv.tv_sec;
+
+    bb_update_snap_t snap;
+    memset(&snap, 0, sizeof(snap));
+    strncpy(snap.current,      st->current,      sizeof(snap.current) - 1);
+    strncpy(snap.latest,       st->latest,       sizeof(snap.latest) - 1);
+    strncpy(snap.download_url, st->download_url, sizeof(snap.download_url) - 1);
+    snap.available     = st->available;
+    snap.ts            = s_last_publish_ts;
+    snap.last_check_ok = st->last_check_ok;
+    snap.enabled       = bb_nv_config_update_check_enabled();
+    strncpy(snap.outcome, outcome_str(st->outcome), sizeof(snap.outcome) - 1);
+    snap.last_check_ts = (st->last_check_us != 0) ? (int64_t)(st->last_check_us / 1000000) : 0;
+
+    bb_cache_update(BB_UPDATE_CHECK_TOPIC, &snap);
+    bb_cache_post(BB_UPDATE_CHECK_TOPIC);
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +171,14 @@ bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
 
     bb_err_t err = bb_event_topic_register(BB_UPDATE_CHECK_TOPIC, &s_topic);
     // LCOV_EXCL_START — topic_register failure is defensive (NO_SPACE only)
+    if (err != BB_OK) {
+        return err;
+    }
+    // LCOV_EXCL_STOP
+
+    err = bb_cache_register(BB_UPDATE_CHECK_TOPIC, NULL, sizeof(bb_update_snap_t),
+                            bb_update_serialize);
+    // LCOV_EXCL_START — cache_register failure is defensive (NO_SPACE only)
     if (err != BB_OK) {
         return err;
     }
@@ -712,34 +752,61 @@ bb_err_t bb_update_check_emit_status_json(bb_http_request_t *req)
     bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
     bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
 
-    bb_update_check_status_t st;
-    bb_err_t err = bb_update_check_get_status(&st);
-    if (err != BB_OK) {
+    if (!s_initialized) {
         bb_http_resp_set_status(req, 503);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "not initialized");
-        bb_http_resp_json_obj_end(&obj);
+        bb_http_json_obj_stream_t err_obj;
+        bb_http_resp_json_obj_begin(req, &err_obj);
+        bb_http_resp_json_obj_set_str(&err_obj, "error", "not initialized");
+        bb_http_resp_json_obj_end(&err_obj);
         return BB_OK;
     }
 
-    bb_http_json_obj_stream_t obj;
-    err = bb_http_resp_json_obj_begin(req, &obj);
-    if (err != BB_OK) return err;
-    bb_http_resp_json_obj_set_str(&obj,  "current",       st.current);
-    bb_http_resp_json_obj_set_str(&obj,  "latest",        st.latest);
-    bb_http_resp_json_obj_set_str(&obj,  "download_url",  st.download_url);
-    bb_http_resp_json_obj_set_bool(&obj, "available",     st.available);
-    bb_http_resp_json_obj_set_bool(&obj, "last_check_ok", st.last_check_ok);
-    bb_http_resp_json_obj_set_bool(&obj, "enabled",       st.enabled);
-    bb_http_resp_json_obj_set_str(&obj,  "outcome",       outcome_str(st.outcome));
-    // Unix seconds when last_check_us is non-zero; omitted otherwise so the
-    // client can render "never checked" cleanly.
-    if (st.last_check_us != 0) {
-        bb_http_resp_json_obj_set_int(&obj, "last_check_ts",
-                                      (int64_t)(st.last_check_us / 1000000));
+    // Refresh the cache from live s_status so REST reflects the latest state
+    // (including mark_check_on_apply and runtime nv changes not yet published
+    // via publish_state). Preserves ts from the last SSE publish.
+    {
+        bb_update_check_status_t st;
+        bb_update_check_get_status(&st);
+        bb_update_snap_t snap;
+        memset(&snap, 0, sizeof(snap));
+        strncpy(snap.current,      st.current,      sizeof(snap.current) - 1);
+        strncpy(snap.latest,       st.latest,       sizeof(snap.latest) - 1);
+        strncpy(snap.download_url, st.download_url, sizeof(snap.download_url) - 1);
+        snap.available     = st.available;
+        snap.ts            = s_last_publish_ts;  // preserved from last publish_state
+        snap.last_check_ok = st.last_check_ok;
+        snap.enabled       = st.enabled;
+        strncpy(snap.outcome, outcome_str(st.outcome), sizeof(snap.outcome) - 1);
+        snap.last_check_ts = (st.last_check_us != 0)
+                             ? (int64_t)(st.last_check_us / 1000000) : 0;
+        bb_cache_update(BB_UPDATE_CHECK_TOPIC, &snap);
     }
-    return bb_http_resp_json_obj_end(&obj);
+
+    bb_json_t obj = bb_json_obj_new();
+    if (!obj) {  // LCOV_EXCL_START — OOM defensive
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t err_obj;
+        bb_http_resp_json_obj_begin(req, &err_obj);
+        bb_http_resp_json_obj_set_str(&err_obj, "error", "alloc failed");
+        bb_http_resp_json_obj_end(&err_obj);
+        return BB_ERR_NO_SPACE;
+    }  // LCOV_EXCL_STOP
+    bb_cache_serialize_into(BB_UPDATE_CHECK_TOPIC, obj);
+    char *str = bb_json_serialize(obj);
+    bb_json_free(obj);
+    if (!str) {  // LCOV_EXCL_START — OOM defensive
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t err_obj;
+        bb_http_resp_json_obj_begin(req, &err_obj);
+        bb_http_resp_json_obj_set_str(&err_obj, "error", "serialize failed");
+        bb_http_resp_json_obj_end(&err_obj);
+        return BB_ERR_NO_SPACE;
+    }  // LCOV_EXCL_STOP
+    bb_err_t err = bb_http_resp_set_type(req, "application/json");
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
+    bb_json_free_str(str);
+    return err;
 }
 
 // ---------------------------------------------------------------------------
@@ -761,6 +828,7 @@ void bb_update_check_reset_for_test(void)
     s_resume_hook = NULL;
     s_first_check_done = false;
     s_initialized = false;
+    s_last_publish_ts = 0;
     pthread_mutex_unlock(&s_lock);
     // Restore default: update check enabled (mirrors bb_nv_config_init default).
     bb_nv_config_set_update_check_enabled(true);

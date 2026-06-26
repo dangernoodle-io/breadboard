@@ -172,20 +172,15 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out);
 // ---------------------------------------------------------------------------
 
 /**
- * Emit net-health fields from snap into the JSON object obj.
+ * Emit all 8 net-health fields from snap into the JSON object obj.
  *
- * full=false (compact, 4 fields): rssi, state, early_warning, throttled.
- * full=true  (full, 8 fields):    compact fields + mqtt_connected,
- *                                  mqtt_reconnect_count, last_disconnect_reason,
- *                                  disc_age_s.
+ * Fields: rssi, state, early_warning, throttled, mqtt_connected,
+ *         mqtt_reconnect_count, last_disconnect_reason, disc_age_s.
  *
- * Field order for full=true: compact fields first (rssi, state, early_warning,
- * throttled), then the four additional fields.  The full set is a strict
- * superset of the compact set in consistent order.
- *
+ * Signature matches bb_cache_serialize_fn — pass directly to bb_cache_register.
  * Pure, host-testable — no ESP-IDF dependencies.
  */
-void bb_net_health_emit(bb_json_t obj, const bb_net_health_status_t *snap, bool full);
+void bb_net_health_emit(bb_json_t obj, const void *snap);
 
 // ---------------------------------------------------------------------------
 // Adaptive-backoff throttle decision (pure, host-testable; used by commit 4)

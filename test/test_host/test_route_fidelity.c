@@ -218,10 +218,9 @@ static const char k_boot_schema[] =
     "\"panic\":{\"type\":\"object\","
     "\"properties\":{"
     "\"available\":{\"type\":\"boolean\"},"
-    "\"boots_since\":{\"type\":\"integer\"},"
-    "\"reset_reason\":{\"type\":\"string\"}},"
+    "\"boots_since\":{\"type\":\"integer\"}},"
     "\"required\":[\"available\"]}},"
-    "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\"]}";
+    "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\",\"pending_verify\",\"rolled_back\"]}";
 
 // GET /api/diag/panic — platform/espidf/bb_diag/bb_diag_routes.c
 static const char k_panic_schema[] =
@@ -508,6 +507,8 @@ static bb_err_t h_boot_no_panic(bb_http_request_t *req)
     bb_http_resp_json_obj_set_obj_begin(&obj, "panic");
     bb_http_resp_json_obj_set_bool(&obj, "available", false);
     bb_http_resp_json_obj_set_obj_end(&obj);
+    bb_http_resp_json_obj_set_bool(&obj, "pending_verify", false);
+    bb_http_resp_json_obj_set_bool(&obj, "rolled_back", false);
     return bb_http_resp_json_obj_end(&obj);
 }
 
@@ -521,8 +522,9 @@ static bb_err_t h_boot_with_panic(bb_http_request_t *req)
     bb_http_resp_json_obj_set_obj_begin(&obj, "panic");
     bb_http_resp_json_obj_set_bool(&obj, "available", true);
     bb_http_resp_json_obj_set_int(&obj, "boots_since", 0);
-    bb_http_resp_json_obj_set_str(&obj, "reset_reason", "panic");
     bb_http_resp_json_obj_set_obj_end(&obj);
+    bb_http_resp_json_obj_set_bool(&obj, "pending_verify", false);
+    bb_http_resp_json_obj_set_bool(&obj, "rolled_back", false);
     return bb_http_resp_json_obj_end(&obj);
 }
 

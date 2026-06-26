@@ -438,6 +438,11 @@ COMPONENT_MAP = {
         ],
         "depends":  ["bb_core", "bb_event", "bb_event_ring", "bb_log"],
     },
+    "bb_cache": {
+        "includes": ["components/bb_cache/include"],
+        "sources":  ["platform/host/bb_cache/bb_cache_host.c"],
+        "depends":  ["bb_core", "bb_json", "bb_event", "bb_log"],
+    },
     "bb_update_check": {
         "includes": ["components/bb_update_check/include",
                      "components/bb_update_check/src"],

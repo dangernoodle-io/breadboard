@@ -100,21 +100,14 @@ void test_bb_diag_scrub_text_del_replaced(void);
 void test_bb_diag_scrub_text_all_printable_ascii(void);
 
 // Forward declarations from test_bb_diag_event.c
-void test_bb_diag_boot_build_json_poweron_clean(void);
-void test_bb_diag_boot_build_json_panic_with_count(void);
-void test_bb_diag_boot_build_json_task_wdt(void);
-void test_bb_diag_boot_build_json_rolled_back_true(void);
-void test_bb_diag_boot_build_json_all_flags_true(void);
-void test_bb_diag_boot_build_json_zero_count(void);
-void test_bb_diag_boot_build_json_large_count(void);
-void test_bb_diag_boot_build_json_null_buf_returns_neg1(void);
-void test_bb_diag_boot_build_json_zero_buf_sz_returns_neg1(void);
-void test_bb_diag_boot_build_json_null_reset_reason_returns_neg1(void);
-void test_bb_diag_boot_build_json_starts_with_brace(void);
-void test_bb_diag_boot_build_json_ends_with_brace(void);
-void test_bb_diag_boot_build_json_pending_verify_true(void);
-void test_bb_diag_boot_build_json_both_ota_flags_true(void);
-void test_bb_diag_boot_build_json_both_ota_flags_false(void);
+void test_bb_diag_boot_serialize_poweron_clean(void);
+void test_bb_diag_boot_serialize_panic_available(void);
+void test_bb_diag_boot_serialize_rolled_back(void);
+void test_bb_diag_boot_serialize_pending_verify(void);
+void test_bb_diag_boot_serialize_panic_obj_always_present(void);
+void test_bb_diag_boot_serialize_json_braces(void);
+void test_bb_diag_boot_serialize_large_wdt_resets(void);
+void test_bb_diag_boot_serialize_panic_oom(void);
 
 // Forward declarations from test_ota_pull.c
 void test_bb_ota_pull_set_http_timeout_ms_default_is_20000(void);
@@ -1248,12 +1241,12 @@ void test_bb_net_health_throttle_restores_on_good(void);
 void test_bb_net_health_throttle_restores_on_marginal(void);
 void test_bb_net_health_throttle_no_restore_while_poor(void);
 void test_bb_net_health_multi_trigger(void);
-void test_bb_net_health_sse_payload_fits_128_byte_ring_slot(void);
-void test_bb_net_health_emit_compact_has_4_fields(void);
+void test_bb_net_health_sse_payload_fits_256_byte_ring_slot(void);
+void test_bb_net_health_emit_has_8_fields(void);
 void test_bb_net_health_emit_full_has_8_fields(void);
 void test_bb_net_health_emit_compact_false_branch(void);
 void test_bb_net_health_emit_full_true_branch(void);
-void test_bb_net_health_emit_full_is_superset_of_compact(void);
+void test_bb_net_health_emit_idempotent(void);
 
 // Forward declarations from test_bb_sse_writer.c
 void test_sse_idle_below_heartbeat(void);
@@ -1360,14 +1353,11 @@ void test_bb_vcore_wd_no_oc_fault_collapse_still_recovers(void);
 void test_bb_vcore_wd_is_held_reflects_state(void);
 
 // Forward declarations from test_bb_display_info_event.c
-void test_bb_display_info_event_build_json_present_true(void);
-void test_bb_display_info_event_build_json_present_true_other_panel(void);
-void test_bb_display_info_event_build_json_present_false_with_reason(void);
-void test_bb_display_info_event_build_json_present_false_init_failed(void);
-void test_bb_display_info_event_build_json_present_false_no_reason(void);
-void test_bb_display_info_event_build_json_null_buf_returns_neg1(void);
-void test_bb_display_info_event_build_json_zero_buf_sz_returns_neg1(void);
-void test_bb_display_info_event_build_json_present_true_null_panel_returns_neg1(void);
+void test_bb_display_serialize_present_true_all_fields(void);
+void test_bb_display_serialize_present_false_only(void);
+void test_bb_display_serialize_panel_ssd1306(void);
+void test_bb_display_serialize_width_height(void);
+void test_bb_display_serialize_enabled_false(void);
 
 // Forward declarations from test_bb_info.c
 void test_bb_info_register_section_null_name_returns_err(void);
@@ -2335,6 +2325,7 @@ void test_bb_event_routes_client_acquire_ex_null_filter_subscribes_to_all(void);
 void test_bb_event_routes_attach_ex_retained_uses_capacity_one_ring(void);
 void test_bb_event_routes_attach_non_retained_uses_configured_capacity(void);
 void test_bb_event_routes_retained_replay_delivers_only_latest_value(void);
+void test_bb_event_routes_attach_ex2_per_topic_max_entry(void);
 void test_bb_event_routes_static_pool_acquire_assigns_from_pool(void);
 void test_bb_event_routes_static_pool_reuses_same_buffer_address(void);
 void test_bb_event_routes_static_pool_repeated_acquire_release(void);
@@ -2950,6 +2941,10 @@ void test_bb_metrics_set_prefix_reflected_in_schema_json(void);
 // (BB_THERMAL_TESTING); resets fan+power+temp HAL state for test isolation.
 void bb_thermal_reset_for_test(void);
 
+// bb_cache_reset_for_test: defined in platform/espidf/bb_cache/bb_cache_espidf.c
+// (BB_CACHE_TESTING); clears the global cache registry for test isolation.
+void bb_cache_reset_for_test(void);
+
 void setUp(void) {
     _bb_log_registry_reset();
     bb_nv_host_str_store_reset();
@@ -2977,6 +2972,7 @@ void setUp(void) {
     test_alloc_reset();
     bb_display_reset_for_testing();
     bb_display_test_reset_mock();
+    bb_cache_reset_for_test();
     bb_info_reset_for_test();
     bb_health_reset_for_test();
     bb_health_stack_reset_for_test();
@@ -2985,6 +2981,14 @@ void setUp(void) {
     bb_sink_event_reset_for_test();
 }
 void tearDown(void) {}
+
+// Forward declarations from test_bb_cache_fidelity.c
+void test_bb_cache_fidelity_all_topics(void);
+void test_bb_cache_register_idempotent(void);
+void test_bb_cache_update_reflected_in_serialize(void);
+void test_bb_cache_serialize_into_unknown_topic(void);
+void test_bb_cache_update_unknown_topic(void);
+void test_bb_cache_registry_full(void);
 
 int main(void) {
     UNITY_BEGIN();
@@ -3113,22 +3117,15 @@ int main(void) {
     RUN_TEST(test_bb_diag_scrub_text_del_replaced);
     RUN_TEST(test_bb_diag_scrub_text_all_printable_ascii);
 
-    // bb_diag_boot_build_json (diag.boot event topic pure builder)
-    RUN_TEST(test_bb_diag_boot_build_json_poweron_clean);
-    RUN_TEST(test_bb_diag_boot_build_json_panic_with_count);
-    RUN_TEST(test_bb_diag_boot_build_json_task_wdt);
-    RUN_TEST(test_bb_diag_boot_build_json_rolled_back_true);
-    RUN_TEST(test_bb_diag_boot_build_json_all_flags_true);
-    RUN_TEST(test_bb_diag_boot_build_json_zero_count);
-    RUN_TEST(test_bb_diag_boot_build_json_large_count);
-    RUN_TEST(test_bb_diag_boot_build_json_null_buf_returns_neg1);
-    RUN_TEST(test_bb_diag_boot_build_json_zero_buf_sz_returns_neg1);
-    RUN_TEST(test_bb_diag_boot_build_json_null_reset_reason_returns_neg1);
-    RUN_TEST(test_bb_diag_boot_build_json_starts_with_brace);
-    RUN_TEST(test_bb_diag_boot_build_json_ends_with_brace);
-    RUN_TEST(test_bb_diag_boot_build_json_pending_verify_true);
-    RUN_TEST(test_bb_diag_boot_build_json_both_ota_flags_true);
-    RUN_TEST(test_bb_diag_boot_build_json_both_ota_flags_false);
+    // bb_diag_boot_serialize (diag.boot bb_cache serializer, nested shape)
+    RUN_TEST(test_bb_diag_boot_serialize_poweron_clean);
+    RUN_TEST(test_bb_diag_boot_serialize_panic_available);
+    RUN_TEST(test_bb_diag_boot_serialize_rolled_back);
+    RUN_TEST(test_bb_diag_boot_serialize_pending_verify);
+    RUN_TEST(test_bb_diag_boot_serialize_panic_obj_always_present);
+    RUN_TEST(test_bb_diag_boot_serialize_json_braces);
+    RUN_TEST(test_bb_diag_boot_serialize_large_wdt_resets);
+    RUN_TEST(test_bb_diag_boot_serialize_panic_oom);
 
     // bb_partition tests
     RUN_TEST(test_bb_partition_list_count);
@@ -4251,12 +4248,12 @@ int main(void) {
     RUN_TEST(test_bb_net_health_throttle_restores_on_marginal);
     RUN_TEST(test_bb_net_health_throttle_no_restore_while_poor);
     RUN_TEST(test_bb_net_health_multi_trigger);
-    RUN_TEST(test_bb_net_health_sse_payload_fits_128_byte_ring_slot);
-    RUN_TEST(test_bb_net_health_emit_compact_has_4_fields);
+    RUN_TEST(test_bb_net_health_sse_payload_fits_256_byte_ring_slot);
+    RUN_TEST(test_bb_net_health_emit_has_8_fields);
     RUN_TEST(test_bb_net_health_emit_full_has_8_fields);
     RUN_TEST(test_bb_net_health_emit_compact_false_branch);
     RUN_TEST(test_bb_net_health_emit_full_true_branch);
-    RUN_TEST(test_bb_net_health_emit_full_is_superset_of_compact);
+    RUN_TEST(test_bb_net_health_emit_idempotent);
 
     // bb_vcore_wd tests (pure vcore-collapse watchdog)
     RUN_TEST(test_bb_vcore_wd_warmup_suppresses_all);
@@ -4282,15 +4279,12 @@ int main(void) {
     RUN_TEST(test_bb_vcore_wd_no_oc_fault_collapse_still_recovers);
     RUN_TEST(test_bb_vcore_wd_is_held_reflects_state);
 
-    // bb_display_info_event tests (health.display event topic pure builder)
-    RUN_TEST(test_bb_display_info_event_build_json_present_true);
-    RUN_TEST(test_bb_display_info_event_build_json_present_true_other_panel);
-    RUN_TEST(test_bb_display_info_event_build_json_present_false_with_reason);
-    RUN_TEST(test_bb_display_info_event_build_json_present_false_init_failed);
-    RUN_TEST(test_bb_display_info_event_build_json_present_false_no_reason);
-    RUN_TEST(test_bb_display_info_event_build_json_null_buf_returns_neg1);
-    RUN_TEST(test_bb_display_info_event_build_json_zero_buf_sz_returns_neg1);
-    RUN_TEST(test_bb_display_info_event_build_json_present_true_null_panel_returns_neg1);
+    // bb_display_info_event tests (health.display serializer)
+    RUN_TEST(test_bb_display_serialize_present_true_all_fields);
+    RUN_TEST(test_bb_display_serialize_present_false_only);
+    RUN_TEST(test_bb_display_serialize_panel_ssd1306);
+    RUN_TEST(test_bb_display_serialize_width_height);
+    RUN_TEST(test_bb_display_serialize_enabled_false);
 
     // bb_info tests
     RUN_TEST(test_bb_info_register_section_null_name_returns_err);
@@ -5094,6 +5088,7 @@ int main(void) {
     RUN_TEST(test_bb_event_routes_attach_ex_retained_uses_capacity_one_ring);
     RUN_TEST(test_bb_event_routes_attach_non_retained_uses_configured_capacity);
     RUN_TEST(test_bb_event_routes_retained_replay_delivers_only_latest_value);
+    RUN_TEST(test_bb_event_routes_attach_ex2_per_topic_max_entry);
 
     // bb_event_routes static pool tests
     RUN_TEST(test_bb_event_routes_static_pool_acquire_assigns_from_pool);
@@ -5935,6 +5930,14 @@ int main(void) {
     RUN_TEST(test_bb_sink_ws_sub_replace_on_resub);
     RUN_TEST(test_bb_sink_ws_log_inject_malloc_fail_returns_no_space);
     RUN_TEST(test_bb_sink_ws_publish_malloc_fail_returns_no_space);
+
+    // bb_cache
+    RUN_TEST(test_bb_cache_fidelity_all_topics);
+    RUN_TEST(test_bb_cache_register_idempotent);
+    RUN_TEST(test_bb_cache_update_reflected_in_serialize);
+    RUN_TEST(test_bb_cache_serialize_into_unknown_topic);
+    RUN_TEST(test_bb_cache_update_unknown_topic);
+    RUN_TEST(test_bb_cache_registry_full);
 
     return UNITY_END();
 }

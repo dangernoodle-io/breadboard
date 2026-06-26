@@ -940,3 +940,51 @@ void test_bb_event_routes_retained_replay_delivers_only_latest_value(void)
 
     bb_event_routes_client_release(c);
 }
+
+/* attach_ex2 per-topic max_entry override: 512-byte topic accepts >256 B payloads;
+ * global-default (256) topic drops them. */
+void test_bb_event_routes_attach_ex2_per_topic_max_entry(void)
+{
+    setup_sync_mode();
+    reset_world();
+
+    /* Use a cfg whose global ring_max_entry is 256 — the default on device. */
+    static const bb_event_routes_cfg_t cfg256 = {
+        .max_clients    = 2,
+        .per_client_queue = 3,
+        .ring_capacity  = 4,
+        .ring_max_entry = 256,
+        .heartbeat_ms   = 1000,
+    };
+    bb_event_routes_init(&cfg256);
+
+    bb_event_topic_t t_big, t_default;
+    bb_event_topic_register("ex2.big", &t_big);
+    bb_event_topic_register("ex2.default", &t_default);
+
+    /* Attach with explicit 512 B cap. */
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_attach_ex2("ex2.big", true, 512));
+    /* Attach with max_entry=0 → uses global 256. */
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_attach_ex2("ex2.default", true, 0));
+
+    /* Build a 300-byte payload (> 256, < 512). */
+    char big[301];
+    memset(big, 'x', 300);
+    big[300] = '\0';
+
+    bb_event_post(t_big,     0, big, 300);
+    bb_event_post(t_default, 0, big, 300);
+    bb_event_pump(0);
+
+    /* Retrieve ring handles. */
+    const char *name = NULL;
+    bb_event_ring_t ring_big = NULL, ring_default = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_topic_info(0, &name, &ring_big));
+    TEST_ASSERT_EQUAL_STRING("ex2.big", name);
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_topic_info(1, &name, &ring_default));
+    TEST_ASSERT_EQUAL_STRING("ex2.default", name);
+
+    /* 512-byte ring captured the payload; 256-byte ring dropped it. */
+    TEST_ASSERT_EQUAL(1, bb_event_ring_count(ring_big));
+    TEST_ASSERT_EQUAL(0, bb_event_ring_count(ring_default));
+}

@@ -4,11 +4,34 @@
 
 // Single source of truth for the update-check event topic name.
 #define BB_UPDATE_CHECK_TOPIC "update.available"
+#include "bb_cache.h"
 #include "bb_core.h"
+#include "bb_json.h"
 #include "bb_update_check.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+
+// ---------------------------------------------------------------------------
+// Canonical owned snapshot for the update.available bb_cache topic.
+// Shared between SSE (bb_update_check_common.c) and REST (bb_update_check_espidf.c).
+// Included by test/test_host/test_bb_cache_fidelity.c.
+// ---------------------------------------------------------------------------
+typedef struct {
+    char    current[24];       // matches bb_update_check_status_t.current
+    char    latest[24];        // matches bb_update_check_status_t.latest
+    char    download_url[256]; // URL_MAX
+    bool    available;
+    int64_t ts;                // wall-clock seconds at publish time
+    bool    last_check_ok;
+    bool    enabled;
+    char    outcome[24];       // outcome_str result; longest = "check_on_apply" (14)
+    int64_t last_check_ts;     // epoch-s from last_check_us; 0 = omit
+} bb_update_snap_t;
+
+// Serializer — signature matches bb_cache_serialize_fn.
+// Emits the canonical union shape for both SSE and REST.
+void bb_update_serialize(bb_json_t obj, const void *snap);
 
 #ifdef __cplusplus
 extern "C" {

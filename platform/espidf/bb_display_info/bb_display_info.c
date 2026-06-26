@@ -1,5 +1,6 @@
 #include "bb_display_info.h"
 #include "bb_display_info_event_priv.h"
+#include "bb_cache.h"
 #include "bb_display.h"
 #include "bb_event.h"
 #include "bb_event_routes.h"
@@ -11,6 +12,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <string.h>
 
 static const char *TAG = "bb_display_info";
 static bool s_registered = false;
@@ -25,24 +27,30 @@ static const char k_display_schema[] =
     "\"height\":{\"type\":\"integer\"},"
     "\"enabled\":{\"type\":\"boolean\"}}}";
 
+static bb_display_snap_t make_snap(void)
+{
+    bb_display_snap_t snap = {0};
+    const char *panel = bb_display_backend_name();
+    snap.present = (panel != NULL);
+    if (panel) {
+        strncpy(snap.panel, panel, sizeof(snap.panel) - 1);
+        snap.width   = bb_display_width();
+        snap.height  = bb_display_height();
+        snap.enabled = bb_nv_config_display_enabled();
+    }
+    return snap;
+}
+
 static void display_section_get(bb_json_t section, void *ctx)
 {
     (void)ctx;
-    const char *panel = bb_display_backend_name();
-
-    if (panel) {
-        bb_json_obj_set_bool(section, "present", true);
-        bb_json_obj_set_string(section, "panel", panel);
-        bb_json_obj_set_number(section, "width",  (double)bb_display_width());
-        bb_json_obj_set_number(section, "height", (double)bb_display_height());
-        bb_json_obj_set_bool(section, "enabled", bb_nv_config_display_enabled());
-    } else {
-        bb_json_obj_set_bool(section, "present", false);
-    }
+    bb_display_snap_t snap = make_snap();
+    bb_cache_update(BB_DISPLAY_INFO_TOPIC, &snap);
+    bb_cache_serialize_into(BB_DISPLAY_INFO_TOPIC, section);
 }
 
 // ---------------------------------------------------------------------------
-// bb_display_register_info: register /api/info section + health.display topic.
+// bb_display_register_info: register bb_cache + /api/info section + topic.
 //
 // Must be called before bb_info_init freezes the section table (i.e. before
 // the regular-tier walk). The bb_event_routes_attach_ex call is intentionally
@@ -54,11 +62,18 @@ static void display_section_get(bb_json_t section, void *ctx)
 
 void bb_display_register_info(void)
 {
+    // Register owned-struct cache entry first (REST path reads from it).
+    bb_err_t cerr = bb_cache_register(BB_DISPLAY_INFO_TOPIC, NULL,
+                                      sizeof(bb_display_snap_t),
+                                      bb_display_serialize);
+    if (cerr != BB_OK) {
+        bb_log_w(TAG, "bb_cache_register failed: %d", (int)cerr);
+        return;
+    }
+
     bb_info_register_section("display", display_section_get, NULL, k_display_schema);
 
-    // Register retained health.display event topic. Must happen early so that
-    // any runtime bb_event_post calls before the registry walk still have a
-    // valid topic handle.
+    // Register retained health.display event topic.
     bb_err_t err = bb_event_topic_register(BB_DISPLAY_INFO_TOPIC, &s_topic);
     if (err != BB_OK) {
         bb_log_w(TAG, "topic register failed: %d", (int)err);
@@ -72,8 +87,7 @@ void bb_display_register_info(void)
 // bb_display_info_register_init: deferred registry-tier init (order 4).
 //
 // Runs after bb_event_routes_init (order 0) so the attach succeeds.
-// Also publishes the initial retained snapshot here (not in
-// bb_display_register_info) so the ring exists before the first post.
+// Also seeds the initial cache snapshot and publishes via bb_cache_post.
 // ---------------------------------------------------------------------------
 
 #if defined(CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH) && CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH
@@ -89,21 +103,10 @@ static bb_err_t bb_display_info_register_init(bb_http_handle_t server)
                  (int)attach_err);
     }
 
-    // Publish initial retained snapshot now that the ring is attached.
-    const char *panel = bb_display_backend_name();
-    char payload[128];
-    int n;
-    if (panel) {
-        n = bb_display_info_event_build_json(payload, sizeof(payload),
-                                             true, panel, NULL);
-    } else {
-        n = bb_display_info_event_build_json(payload, sizeof(payload),
-                                             false, NULL, "no backend");
-    }
-    if (n > 0) {
-        size_t sz = (size_t)n < sizeof(payload) ? (size_t)n : sizeof(payload) - 1;
-        bb_event_post(s_topic, panel ? 1 : 0, payload, sz);
-    }
+    // Seed the cache with the initial snapshot then post to the event ring.
+    bb_display_snap_t snap = make_snap();
+    bb_cache_update(BB_DISPLAY_INFO_TOPIC, &snap);
+    bb_cache_post(BB_DISPLAY_INFO_TOPIC);
 
     return BB_OK;
 }

@@ -289,7 +289,9 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
     {
         // retained=true: update.available is a state topic — new SSE clients should
         // always receive the last known value even before the first periodic check fires.
-        bb_err_t attach_err = bb_event_routes_attach_ex(BB_UPDATE_CHECK_TOPIC, true);
+        // max_entry=512: union payload worst-cases ~430 B; global default (256) is too
+        // small, but only this topic needs the bump (+256 B, not the global ~4 KB cost).
+        bb_err_t attach_err = bb_event_routes_attach_ex2(BB_UPDATE_CHECK_TOPIC, true, 512);
         if (attach_err != BB_OK) {
             bb_log_w(TAG, "auto-attach failed for 'update.available': %d", attach_err);
         }

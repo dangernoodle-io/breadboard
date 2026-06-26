@@ -1,4 +1,5 @@
 #include "bb_diag.h"
+#include "bb_cache.h"
 #include "bb_diag_event_priv.h"
 #include "bb_event.h"
 #include "bb_event_routes.h"
@@ -36,18 +37,19 @@ static bb_event_topic_t s_boot_topic = NULL;
 static void diag_boot_publish(void)
 {
     if (s_boot_topic == NULL) return;
+    bb_diag_boot_snap_t snap;
     const char *rr = bb_system_reset_reason_str(bb_system_get_reset_reason());
-    uint32_t arc = bb_diag_abnormal_reset_count();
-    bool pa = bb_diag_panic_available();
-    bool pending_verify = !bb_ota_is_validated();
-    bool rolled_back = bb_ota_rolled_back();
-    char payload[192];
-    int n = bb_diag_boot_build_json(payload, sizeof(payload),
-                                    rr, arc, pa, pending_verify, rolled_back);
-    if (n > 0) {
-        size_t sz = (size_t)n < sizeof(payload) ? (size_t)n : sizeof(payload) - 1;
-        bb_event_post(s_boot_topic, 0, payload, sz);
-    }
+    size_t rr_len = strlen(rr);
+    if (rr_len >= sizeof(snap.reset_reason)) rr_len = sizeof(snap.reset_reason) - 1;
+    memcpy(snap.reset_reason, rr, rr_len);
+    snap.reset_reason[rr_len] = '\0';
+    snap.wdt_resets        = bb_diag_abnormal_reset_count();
+    snap.panic_available   = bb_diag_panic_available();
+    snap.panic_boots_since = snap.panic_available ? bb_diag_panic_boots_since() : 0;
+    snap.pending_verify    = !bb_ota_is_validated();
+    snap.rolled_back       = bb_ota_rolled_back();
+    bb_cache_update(BB_DIAG_BOOT_TOPIC, &snap);
+    bb_cache_post(BB_DIAG_BOOT_TOPIC);
 }
 
 static bb_err_t panic_get_handler(bb_http_request_t *req)
@@ -130,34 +132,34 @@ static const char *reset_reason_to_str(esp_reset_reason_t reason)
     }
 }
 
-// GET /api/diag/boot — compact boot-anomaly summary
+// GET /api/diag/boot — compact boot-anomaly summary (served from bb_cache)
 static bb_err_t boot_get_handler(bb_http_request_t *req)
 {
-    esp_reset_reason_t reason = esp_reset_reason();
-    const char *reason_str = reset_reason_to_str(reason);
-    bool panic_avail = bb_diag_panic_available();
-
-    bb_http_json_obj_stream_t obj;
-    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
-    if (err != BB_OK) return err;
-
-    bb_http_resp_json_obj_set_str(&obj, "reset_reason", reason_str);
-    bb_http_resp_json_obj_set_int(&obj, "wdt_resets",
-                                  (int64_t)bb_diag_abnormal_reset_count());
-
-    bb_http_resp_json_obj_set_obj_begin(&obj, "panic");
-    bb_http_resp_json_obj_set_bool(&obj, "available", panic_avail);
-    if (panic_avail) {
-        bb_http_resp_json_obj_set_int(&obj, "boots_since",
-                                      (int64_t)bb_diag_panic_boots_since());
-        bb_http_resp_json_obj_set_str(&obj, "reset_reason", reason_str);
+    bb_json_t obj = bb_json_obj_new();
+    if (!obj) {
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t err_obj;
+        bb_http_resp_json_obj_begin(req, &err_obj);
+        bb_http_resp_json_obj_set_str(&err_obj, "error", "alloc failed");
+        bb_http_resp_json_obj_end(&err_obj);
+        return BB_ERR_NO_SPACE;
     }
-    bb_http_resp_json_obj_set_obj_end(&obj);
-
-    bb_http_resp_json_obj_set_bool(&obj, "pending_verify", !bb_ota_is_validated());
-    bb_http_resp_json_obj_set_bool(&obj, "rolled_back", bb_ota_rolled_back());
-
-    return bb_http_resp_json_obj_end(&obj);
+    bb_cache_serialize_into(BB_DIAG_BOOT_TOPIC, obj);
+    char *str = bb_json_serialize(obj);
+    bb_json_free(obj);
+    if (!str) {
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t err_obj;
+        bb_http_resp_json_obj_begin(req, &err_obj);
+        bb_http_resp_json_obj_set_str(&err_obj, "error", "serialize failed");
+        bb_http_resp_json_obj_end(&err_obj);
+        return BB_ERR_NO_SPACE;
+    }
+    bb_err_t err = bb_http_resp_set_type(req, "application/json");
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
+    bb_json_free_str(str);
+    return err;
 }
 
 // DELETE /api/diag/boot — clear panic log + abnormal-reset counter
@@ -178,8 +180,7 @@ static const bb_route_response_t s_boot_get_responses[] = {
       "\"panic\":{\"type\":\"object\","
       "\"properties\":{"
       "\"available\":{\"type\":\"boolean\"},"
-      "\"boots_since\":{\"type\":\"integer\"},"
-      "\"reset_reason\":{\"type\":\"string\"}},"
+      "\"boots_since\":{\"type\":\"integer\"}},"
       "\"required\":[\"available\"]},"
       "\"pending_verify\":{\"type\":\"boolean\"},"
       "\"rolled_back\":{\"type\":\"boolean\"}},"
@@ -828,6 +829,16 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     if (err != BB_OK) return err;
 
     bb_info_register_section("diag", bb_diag_info_section_get, NULL, k_diag_section_schema);
+
+    // Register diag.boot in bb_cache (owned struct, serializer shared with SSE).
+    {
+        bb_err_t cerr = bb_cache_register(BB_DIAG_BOOT_TOPIC, NULL,
+                                          sizeof(bb_diag_boot_snap_t),
+                                          bb_diag_boot_serialize);
+        if (cerr != BB_OK) {
+            bb_log_w(TAG, "bb_cache_register diag.boot failed: %d", (int)cerr);
+        }
+    }
 
     // Register retained diag.boot event topic and publish initial snapshot.
     {

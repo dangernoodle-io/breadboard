@@ -1,90 +1,137 @@
-// Host unit tests for bb_display_info health.display event topic:
-// - bb_display_info_event_build_json (pure JSON builder)
+// Host unit tests for bb_display_info health.display serializer:
+// - bb_display_serialize (bb_cache serializer, replaces old pure builder)
 #include "unity.h"
+#include "bb_cache.h"
 #include "bb_display_info_event_priv.h"
+#include "bb_event.h"
+#include "bb_json.h"
 
 #include <string.h>
 #include <stdlib.h>
 
-// ---------------------------------------------------------------------------
-// bb_display_info_event_build_json — present=true with panel
-// ---------------------------------------------------------------------------
+// Test reset hook
+void bb_cache_reset_for_test(void);
 
-void test_bb_display_info_event_build_json_present_true(void)
+static void reset(void)
 {
-    char buf[256];
-    int n = bb_display_info_event_build_json(buf, sizeof(buf), true, "ek79007", NULL);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"present\":true"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"panel\":\"ek79007\""));
-    // reason must not appear when present=true
-    TEST_ASSERT_NULL(strstr(buf, "\"reason\""));
+    bb_cache_reset_for_test();
+    bb_event_init(NULL);
 }
 
-void test_bb_display_info_event_build_json_present_true_other_panel(void)
+// Helper: register topic, seed snap, serialize to JSON string (caller frees).
+static char *serialize_snap(const bb_display_snap_t *snap)
 {
-    char buf[256];
-    int n = bb_display_info_event_build_json(buf, sizeof(buf), true, "ssd1306", NULL);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"present\":true"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"panel\":\"ssd1306\""));
-}
-
-// ---------------------------------------------------------------------------
-// bb_display_info_event_build_json — present=false with reason
-// ---------------------------------------------------------------------------
-
-void test_bb_display_info_event_build_json_present_false_with_reason(void)
-{
-    char buf[256];
-    int n = bb_display_info_event_build_json(buf, sizeof(buf), false, NULL, "no backend");
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"present\":false"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"reason\":\"no backend\""));
-    // panel must not appear when present=false
-    TEST_ASSERT_NULL(strstr(buf, "\"panel\""));
-}
-
-void test_bb_display_info_event_build_json_present_false_init_failed(void)
-{
-    char buf[256];
-    int n = bb_display_info_event_build_json(buf, sizeof(buf), false, NULL, "init failed");
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"present\":false"));
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"reason\":\"init failed\""));
-}
-
-void test_bb_display_info_event_build_json_present_false_no_reason(void)
-{
-    // reason=NULL is allowed: emits {"present":false} without reason key
-    char buf[256];
-    int n = bb_display_info_event_build_json(buf, sizeof(buf), false, NULL, NULL);
-    TEST_ASSERT_GREATER_THAN(0, n);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "\"present\":false"));
-    TEST_ASSERT_NULL(strstr(buf, "\"reason\""));
+    reset();
+    bb_cache_register(BB_DISPLAY_INFO_TOPIC, NULL, sizeof(bb_display_snap_t),
+                      bb_display_serialize);
+    bb_cache_update(BB_DISPLAY_INFO_TOPIC, snap);
+    bb_json_t obj = bb_json_obj_new();
+    bb_cache_serialize_into(BB_DISPLAY_INFO_TOPIC, obj);
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    return json;
 }
 
 // ---------------------------------------------------------------------------
-// Defensive: bad args
+// present=true emits all 5 fields
 // ---------------------------------------------------------------------------
 
-void test_bb_display_info_event_build_json_null_buf_returns_neg1(void)
+void test_bb_display_serialize_present_true_all_fields(void)
 {
-    int n = bb_display_info_event_build_json(NULL, 256, true, "panel", NULL);
-    TEST_ASSERT_EQUAL_INT(-1, n);
+    bb_display_snap_t snap = {
+        .present = true,
+        .panel   = "ek79007",
+        .width   = 1024,
+        .height  = 600,
+        .enabled = true,
+    };
+    char *json = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(json);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"present\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"panel\":\"ek79007\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"width\":1024"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"height\":600"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"enabled\":true"));
+    bb_json_free_str(json);
 }
 
-void test_bb_display_info_event_build_json_zero_buf_sz_returns_neg1(void)
+// ---------------------------------------------------------------------------
+// present=false emits only present:false, no panel/width/height/enabled
+// ---------------------------------------------------------------------------
+
+void test_bb_display_serialize_present_false_only(void)
 {
-    char buf[4];
-    int n = bb_display_info_event_build_json(buf, 0, true, "panel", NULL);
-    TEST_ASSERT_EQUAL_INT(-1, n);
+    bb_display_snap_t snap = {
+        .present = false,
+        .panel   = "",
+        .width   = 0,
+        .height  = 0,
+        .enabled = false,
+    };
+    char *json = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(json);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"present\":false"));
+    TEST_ASSERT_NULL(strstr(json, "\"panel\""));
+    TEST_ASSERT_NULL(strstr(json, "\"width\""));
+    TEST_ASSERT_NULL(strstr(json, "\"height\""));
+    TEST_ASSERT_NULL(strstr(json, "\"enabled\""));
+    bb_json_free_str(json);
 }
 
-void test_bb_display_info_event_build_json_present_true_null_panel_returns_neg1(void)
+// ---------------------------------------------------------------------------
+// panel string appears correctly for another panel name
+// ---------------------------------------------------------------------------
+
+void test_bb_display_serialize_panel_ssd1306(void)
 {
-    // present=true but panel=NULL is an error
-    char buf[256];
-    int n = bb_display_info_event_build_json(buf, sizeof(buf), true, NULL, NULL);
-    TEST_ASSERT_EQUAL_INT(-1, n);
+    bb_display_snap_t snap = {
+        .present = true,
+        .panel   = "ssd1306",
+        .width   = 128,
+        .height  = 64,
+        .enabled = true,
+    };
+    char *json = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(json);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"panel\":\"ssd1306\""));
+    bb_json_free_str(json);
+}
+
+// ---------------------------------------------------------------------------
+// width/height appear correctly
+// ---------------------------------------------------------------------------
+
+void test_bb_display_serialize_width_height(void)
+{
+    bb_display_snap_t snap = {
+        .present = true,
+        .panel   = "mock",
+        .width   = 320,
+        .height  = 240,
+        .enabled = false,
+    };
+    char *json = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(json);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"width\":320"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"height\":240"));
+    bb_json_free_str(json);
+}
+
+// ---------------------------------------------------------------------------
+// enabled=false reflects correctly
+// ---------------------------------------------------------------------------
+
+void test_bb_display_serialize_enabled_false(void)
+{
+    bb_display_snap_t snap = {
+        .present = true,
+        .panel   = "mock",
+        .width   = 320,
+        .height  = 240,
+        .enabled = false,
+    };
+    char *json = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(json);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"enabled\":false"));
+    bb_json_free_str(json);
 }
