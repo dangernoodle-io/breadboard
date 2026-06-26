@@ -36,3 +36,10 @@ bool bb_tls_heap_guard_passes(size_t largest_block, size_t contiguous_floor,
     }
     return true;
 }
+
+bb_tls_fail_t bb_tls_classify(int mbedtls_err)
+{
+    if (mbedtls_err == 0)              return BB_TLS_FAIL_NONE;
+    if (mbedtls_err == BB_TLS_RECORD_TOO_BIG) return BB_TLS_FAIL_RECORD_TOO_BIG;
+    return BB_TLS_FAIL_OTHER;
+}

@@ -157,8 +157,11 @@ typedef struct {
     int            rssi;
     bool           mqtt_connected;       // true when MQTT broker is reachable
     uint32_t       mqtt_reconnect_count;
-    uint32_t       last_disconnect_reason;
+    uint32_t       last_disconnect_reason; // WiFi disconnect reason (wi->disc_reason)
     uint32_t       disc_age_s;           // seconds since last WiFi disconnect (0 = connected)
+    uint32_t       mqtt_disc_age_s;      // seconds since last MQTT disconnect (from evaluator)
+    uint32_t       mqtt_disc_reason;     // classified MQTT disconnect reason (bb_mqtt_disc_t)
+    uint32_t       mqtt_tls_fail;        // TLS handshake failure class (bb_tls_fail_t)
 } bb_net_health_status_t;
 
 // Copy the live net-health snapshot (populated by the ESP-IDF evaluator) under
@@ -172,10 +175,12 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out);
 // ---------------------------------------------------------------------------
 
 /**
- * Emit all 8 net-health fields from snap into the JSON object obj.
+ * Emit net-health fields from snap into the JSON object obj.
  *
- * Fields: rssi, state, early_warning, throttled, mqtt_connected,
- *         mqtt_reconnect_count, last_disconnect_reason, disc_age_s.
+ * Top-level fields: rssi, state, early_warning, throttled,
+ *   last_disconnect_reason (WiFi), disc_age_s.
+ * Nested object "mqtt": connected, reconnect_count, disc_age_s,
+ *   disc_reason, tls_fail.
  *
  * Signature matches bb_cache_serialize_fn — pass directly to bb_cache_register.
  * Pure, host-testable — no ESP-IDF dependencies.
@@ -212,9 +217,10 @@ bool bb_net_health_throttle_decision(bb_net_health_state_t *st, int threshold);
 
 /**
  * Register a /api/health section named "net" that emits:
- *   { "rssi": int, "mqtt_connected": bool, "mqtt_reconnect_count": uint,
- *     "last_disconnect_reason": uint, "disc_age_s": uint,
- *     "state": string, "early_warning": bool }
+ *   { "rssi": int, "state": string, "early_warning": bool, "throttled": bool,
+ *     "last_disconnect_reason": uint (WiFi), "disc_age_s": uint,
+ *     "mqtt": { "connected": bool, "reconnect_count": uint, "disc_age_s": uint,
+ *               "disc_reason": uint, "tls_fail": uint } }
  *
  * Must be called before bb_http_server_start (before the health section
  * table is frozen).

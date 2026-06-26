@@ -663,26 +663,95 @@ void test_bb_mqtt_simulate_reconnect_null_handle_is_safe(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_mqtt_host_set_last_disc_error_type tests
+// bb_mqtt_get_stats new fields (B1-362): disc_reason, tls_fail, tls_error_code
 // ---------------------------------------------------------------------------
 
-void test_bb_mqtt_set_last_disc_error_type_round_trips(void)
+void test_bb_mqtt_disc_reason_default_is_none(void)
 {
     bb_mqtt_t h = make_client(NULL, NULL);
-
-    bb_mqtt_host_set_last_disc_error_type(h, 0x05);
-
     bb_mqtt_stats_t stats;
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(h, &stats));
-    TEST_ASSERT_EQUAL_UINT8(0x05, stats.last_disc_error_type);
-
+    TEST_ASSERT_EQUAL_INT(BB_MQTT_DISC_NONE, stats.disc_reason);
     bb_mqtt_destroy(h);
 }
 
-void test_bb_mqtt_set_last_disc_error_type_null_handle_is_safe(void)
+void test_bb_mqtt_disc_reason_round_trips(void)
 {
-    // Must not crash on NULL handle.
-    bb_mqtt_host_set_last_disc_error_type(NULL, 0xFF);
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_set_disc_reason(h, BB_MQTT_DISC_TRANSPORT);
+    bb_mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(h, &stats));
+    TEST_ASSERT_EQUAL_INT(BB_MQTT_DISC_TRANSPORT, stats.disc_reason);
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_disc_reason_null_handle_is_safe(void)
+{
+    // must not crash
+    bb_mqtt_host_set_disc_reason(NULL, BB_MQTT_DISC_TRANSPORT);
+}
+
+void test_bb_mqtt_tls_fail_default_is_none(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(h, &stats));
+    TEST_ASSERT_EQUAL_INT(BB_TLS_FAIL_NONE, stats.tls_fail);
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_tls_fail_round_trips(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_set_tls_fail(h, BB_TLS_FAIL_RECORD_TOO_BIG);
+    bb_mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(h, &stats));
+    TEST_ASSERT_EQUAL_INT(BB_TLS_FAIL_RECORD_TOO_BIG, stats.tls_fail);
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_tls_fail_null_handle_is_safe(void)
+{
+    bb_mqtt_host_set_tls_fail(NULL, BB_TLS_FAIL_RECORD_TOO_BIG);
+}
+
+void test_bb_mqtt_tls_error_code_default_is_zero(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(h, &stats));
+    TEST_ASSERT_EQUAL_INT(0, stats.tls_error_code);
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_tls_error_code_round_trips(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_set_tls_error_code(h, -0x7200);
+    bb_mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(h, &stats));
+    TEST_ASSERT_EQUAL_INT(-0x7200, stats.tls_error_code);
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_tls_error_code_null_handle_is_safe(void)
+{
+    bb_mqtt_host_set_tls_error_code(NULL, -0x7200);
+}
+
+void test_bb_mqtt_host_reset_clears_new_fields(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_set_disc_reason(h, BB_MQTT_DISC_TRANSPORT);
+    bb_mqtt_host_set_tls_fail(h, BB_TLS_FAIL_RECORD_TOO_BIG);
+    bb_mqtt_host_set_tls_error_code(h, -0x7200);
+    bb_mqtt_host_reset(h);
+    bb_mqtt_stats_t stats;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_get_stats(h, &stats));
+    TEST_ASSERT_EQUAL_INT(BB_MQTT_DISC_NONE, stats.disc_reason);
+    TEST_ASSERT_EQUAL_INT(BB_TLS_FAIL_NONE, stats.tls_fail);
+    TEST_ASSERT_EQUAL_INT(0, stats.tls_error_code);
+    bb_mqtt_destroy(h);
 }
 
 // ---------------------------------------------------------------------------

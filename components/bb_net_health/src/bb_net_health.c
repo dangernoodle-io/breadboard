@@ -130,8 +130,16 @@ void bb_net_health_emit(bb_json_t obj, const void *snap_v)
     bb_json_obj_set_string(obj, "state",                  bb_net_state_str(snap->state));
     bb_json_obj_set_bool  (obj, "early_warning",          snap->early_warning);
     bb_json_obj_set_bool  (obj, "throttled",              snap->throttled);
-    bb_json_obj_set_bool  (obj, "mqtt_connected",         snap->mqtt_connected);
-    bb_json_obj_set_number(obj, "mqtt_reconnect_count",   (double)snap->mqtt_reconnect_count);
     bb_json_obj_set_number(obj, "last_disconnect_reason", (double)snap->last_disconnect_reason);
     bb_json_obj_set_number(obj, "disc_age_s",             (double)snap->disc_age_s);
+
+    bb_json_t mqtt = bb_json_obj_new();
+    if (mqtt) {
+        bb_json_obj_set_bool  (mqtt, "connected",       snap->mqtt_connected);
+        bb_json_obj_set_number(mqtt, "reconnect_count", (double)snap->mqtt_reconnect_count);
+        bb_json_obj_set_number(mqtt, "disc_age_s",      (double)snap->mqtt_disc_age_s);
+        bb_json_obj_set_number(mqtt, "disc_reason",     (double)snap->mqtt_disc_reason);
+        bb_json_obj_set_number(mqtt, "tls_fail",        (double)snap->mqtt_tls_fail);
+        bb_json_obj_set_obj(obj, "mqtt", mqtt);
+    }
 }

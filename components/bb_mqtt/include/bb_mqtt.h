@@ -12,6 +12,7 @@
 
 #include <stdbool.h>
 #include "bb_core.h"
+#include "bb_tls.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,19 +22,34 @@ extern "C" {
 typedef void *bb_mqtt_t;
 
 /**
+ * Coarse classification of the most recent MQTT disconnect cause.
+ * Portable — valid on espidf; NONE/0 on arduino/host (unless set via test hook).
+ * Mirrors esp_mqtt_error_type_t coarsely; host-safe.
+ */
+typedef enum {
+    BB_MQTT_DISC_NONE              = 0,  // no disconnect observed
+    BB_MQTT_DISC_TRANSPORT,              // MQTT_ERROR_TYPE_TCP_TRANSPORT
+    BB_MQTT_DISC_CONNECTION_REFUSED,     // MQTT_ERROR_TYPE_CONNECTION_REFUSED
+    BB_MQTT_DISC_OTHER,                  // any other error_type
+} bb_mqtt_disc_t;
+
+/**
  * Snapshot of MQTT connection statistics.
  *
- * reconnect_count       — number of reconnects since init (incremented on
- *                         MQTT_EVENT_DISCONNECTED when the client had previously
- *                         connected at least once).
- * last_disc_error_type  — error_type from the most recent MQTT_EVENT_ERROR,
- *                         cast to uint8_t; zero if no error has occurred.
- * connected             — current connected state (same as bb_mqtt_is_connected).
+ * reconnect_count — number of reconnects since init (incremented on
+ *                   MQTT_EVENT_DISCONNECTED when the client had previously
+ *                   connected at least once).
+ * connected       — current connected state (same as bb_mqtt_is_connected).
+ * disc_reason     — classified disconnect reason (B1-362).
+ * tls_fail        — portable TLS handshake failure classification (B1-362).
+ * tls_error_code  — raw mbedtls error code (diagnostic; 0 when none).
  */
 typedef struct {
-    uint32_t reconnect_count;
-    uint8_t  last_disc_error_type;
-    bool     connected;
+    uint32_t       reconnect_count;
+    bool           connected;
+    bb_mqtt_disc_t disc_reason;     // REPLACES last_disc_error_type
+    bb_tls_fail_t  tls_fail;        // portable TLS handshake classification
+    int            tls_error_code;  // raw mbedtls code (diagnostic; 0 when none)
 } bb_mqtt_stats_t;
 
 /**
@@ -257,8 +273,14 @@ void bb_mqtt_host_reset(bb_mqtt_t h);
  */
 void bb_mqtt_host_simulate_reconnect(bb_mqtt_t h);
 
-/** Set the last_disc_error_type field (mirrors MQTT_EVENT_ERROR path). */
-void bb_mqtt_host_set_last_disc_error_type(bb_mqtt_t h, uint8_t error_type);
+/** Set the disc_reason field (mirrors MQTT_EVENT_ERROR classification path). */
+void bb_mqtt_host_set_disc_reason(bb_mqtt_t h, bb_mqtt_disc_t reason);
+
+/** Set the tls_fail field for testing. */
+void bb_mqtt_host_set_tls_fail(bb_mqtt_t h, bb_tls_fail_t fail);
+
+/** Set the tls_error_code field for testing. */
+void bb_mqtt_host_set_tls_error_code(bb_mqtt_t h, int code);
 
 /** Override the handle returned by bb_mqtt_default() for testing. */
 void bb_mqtt_default_set(bb_mqtt_t h);

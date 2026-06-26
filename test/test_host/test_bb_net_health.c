@@ -7,10 +7,11 @@
 //   - warn_disc uses mqtt_disc_age_s (not wifi disc_age_s)
 //   - bb_net_state_str helper
 //   - bb_net_health_throttle_decision: throttle start + restore
-//   - bb_net_health_emit: always emits all 8 fields
+//   - bb_net_health_emit: nested mqtt sub-object; OOM branch coverage
 #include "unity.h"
 #include "bb_net_health.h"
 #include "bb_json.h"
+#include "bb_json_test_hooks.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -553,10 +554,10 @@ void test_bb_net_health_multi_trigger(void)
 // SSE payload size contract
 // ---------------------------------------------------------------------------
 
-// The net.health SSE topic now emits the full 8-field payload via bb_cache.
+// The net.health SSE topic now emits the full payload (nested mqtt) via bb_cache.
 // Worst-case input: rssi=-128, state="marginal" (longest), all bools true,
-// large integer fields.  Assert the serialised length fits in a 256-byte ring
-// slot (CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY for boards with ample ring budget).
+// large integer fields.  Assert the serialised length fits in a 512-byte ring
+// slot (nested mqtt adds ~80 bytes over the old flat layout).
 void test_bb_net_health_sse_payload_fits_256_byte_ring_slot(void)
 {
     bb_net_health_status_t snap = {
@@ -568,6 +569,9 @@ void test_bb_net_health_sse_payload_fits_256_byte_ring_slot(void)
         .mqtt_reconnect_count   = 99,
         .last_disconnect_reason = 99,
         .disc_age_s             = 9999,
+        .mqtt_disc_age_s        = 9999,
+        .mqtt_disc_reason       = 99,
+        .mqtt_tls_fail          = 99,
     };
 
     bb_json_t obj = bb_json_obj_new();
@@ -580,15 +584,15 @@ void test_bb_net_health_sse_payload_fits_256_byte_ring_slot(void)
     size_t n = strlen(json);
     bb_json_free_str(json);
 
-    // Must fit comfortably in a 256-byte ring slot.
-    TEST_ASSERT_LESS_THAN(256, n);
+    // Must fit in a 512-byte ring slot.
+    TEST_ASSERT_LESS_THAN(512, n);
 }
 
 // ---------------------------------------------------------------------------
 // bb_net_health_emit: always emits 8 fields
 // ---------------------------------------------------------------------------
 
-// emit: all 8 fields present
+// emit: top-level fields + nested mqtt sub-object
 void test_bb_net_health_emit_has_8_fields(void)
 {
     bb_net_health_status_t snap = {
@@ -600,6 +604,9 @@ void test_bb_net_health_emit_has_8_fields(void)
         .mqtt_reconnect_count   = 2,
         .last_disconnect_reason = 3,
         .disc_age_s             = 10,
+        .mqtt_disc_age_s        = 5,
+        .mqtt_disc_reason       = 1,
+        .mqtt_tls_fail          = 0,
     };
 
     bb_json_t obj = bb_json_obj_new();
@@ -613,6 +620,7 @@ void test_bb_net_health_emit_has_8_fields(void)
     bb_json_free_str(json);
     TEST_ASSERT_NOT_NULL(parsed);
 
+    // Top-level fields
     double rssi_val = 0.0;
     TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "rssi", &rssi_val));
     TEST_ASSERT_EQUAL_INT(-55, (int)rssi_val);
@@ -629,13 +637,6 @@ void test_bb_net_health_emit_has_8_fields(void)
     TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "throttled", &thr));
     TEST_ASSERT_FALSE(thr);
 
-    // all 8 fields must be present
-    TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(parsed, "mqtt_connected"));
-
-    double rc = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "mqtt_reconnect_count", &rc));
-    TEST_ASSERT_EQUAL_INT(2, (int)rc);
-
     double dr = 0.0;
     TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "last_disconnect_reason", &dr));
     TEST_ASSERT_EQUAL_INT(3, (int)dr);
@@ -644,10 +645,34 @@ void test_bb_net_health_emit_has_8_fields(void)
     TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "disc_age_s", &da));
     TEST_ASSERT_EQUAL_INT(10, (int)da);
 
+    // Nested mqtt sub-object
+    bb_json_t mqtt_obj = bb_json_obj_get_item(parsed, "mqtt");
+    TEST_ASSERT_NOT_NULL(mqtt_obj);
+
+    bool mc = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(mqtt_obj, "connected", &mc));
+    TEST_ASSERT_TRUE(mc);
+
+    double rc = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(mqtt_obj, "reconnect_count", &rc));
+    TEST_ASSERT_EQUAL_INT(2, (int)rc);
+
+    double mda = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(mqtt_obj, "disc_age_s", &mda));
+    TEST_ASSERT_EQUAL_INT(5, (int)mda);
+
+    double mdr = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(mqtt_obj, "disc_reason", &mdr));
+    TEST_ASSERT_EQUAL_INT(1, (int)mdr);
+
+    double tf = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(mqtt_obj, "tls_fail", &tf));
+    TEST_ASSERT_EQUAL_INT(0, (int)tf);
+
     bb_json_free(parsed);
 }
 
-// emit with poor/all-true snapshot: all 8 fields present with correct values
+// emit with poor/all-true snapshot: top-level + nested mqtt all correct
 void test_bb_net_health_emit_full_has_8_fields(void)
 {
     bb_net_health_status_t snap = {
@@ -659,6 +684,9 @@ void test_bb_net_health_emit_full_has_8_fields(void)
         .mqtt_reconnect_count   = 7,
         .last_disconnect_reason = 5,
         .disc_age_s             = 30,
+        .mqtt_disc_age_s        = 15,
+        .mqtt_disc_reason       = 1,
+        .mqtt_tls_fail          = 2,
     };
 
     bb_json_t obj = bb_json_obj_new();
@@ -672,7 +700,7 @@ void test_bb_net_health_emit_full_has_8_fields(void)
     bb_json_free_str(json);
     TEST_ASSERT_NOT_NULL(parsed);
 
-    // compact fields
+    // Top-level fields
     double rssi_val = 0.0;
     TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "rssi", &rssi_val));
     TEST_ASSERT_EQUAL_INT(-85, (int)rssi_val);
@@ -689,15 +717,6 @@ void test_bb_net_health_emit_full_has_8_fields(void)
     TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "throttled", &thr));
     TEST_ASSERT_TRUE(thr);
 
-    // full-only fields
-    bool mc = true;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "mqtt_connected", &mc));
-    TEST_ASSERT_FALSE(mc);
-
-    double rc = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "mqtt_reconnect_count", &rc));
-    TEST_ASSERT_EQUAL_INT(7, (int)rc);
-
     double dr = 0.0;
     TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "last_disconnect_reason", &dr));
     TEST_ASSERT_EQUAL_INT(5, (int)dr);
@@ -705,6 +724,30 @@ void test_bb_net_health_emit_full_has_8_fields(void)
     double da = 0.0;
     TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "disc_age_s", &da));
     TEST_ASSERT_EQUAL_INT(30, (int)da);
+
+    // Nested mqtt sub-object
+    bb_json_t mqtt_obj = bb_json_obj_get_item(parsed, "mqtt");
+    TEST_ASSERT_NOT_NULL(mqtt_obj);
+
+    bool mc = true;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(mqtt_obj, "connected", &mc));
+    TEST_ASSERT_FALSE(mc);
+
+    double rc = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(mqtt_obj, "reconnect_count", &rc));
+    TEST_ASSERT_EQUAL_INT(7, (int)rc);
+
+    double mda = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(mqtt_obj, "disc_age_s", &mda));
+    TEST_ASSERT_EQUAL_INT(15, (int)mda);
+
+    double mdr = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(mqtt_obj, "disc_reason", &mdr));
+    TEST_ASSERT_EQUAL_INT(1, (int)mdr);
+
+    double tf = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(mqtt_obj, "tls_fail", &tf));
+    TEST_ASSERT_EQUAL_INT(2, (int)tf);
 
     bb_json_free(parsed);
 }
@@ -745,7 +788,7 @@ void test_bb_net_health_emit_compact_false_branch(void)
     bb_json_free(parsed);
 }
 
-// emit with all bools true: verify true values serialized correctly
+// emit with all bools true: verify true values serialized correctly (nested mqtt)
 void test_bb_net_health_emit_full_true_branch(void)
 {
     bb_net_health_status_t snap = {
@@ -757,6 +800,9 @@ void test_bb_net_health_emit_full_true_branch(void)
         .mqtt_reconnect_count   = 1,
         .last_disconnect_reason = 0,
         .disc_age_s             = 0,
+        .mqtt_disc_age_s        = 0,
+        .mqtt_disc_reason       = 0,
+        .mqtt_tls_fail          = 0,
     };
 
     bb_json_t obj = bb_json_obj_new();
@@ -770,10 +816,6 @@ void test_bb_net_health_emit_full_true_branch(void)
     bb_json_free_str(json);
     TEST_ASSERT_NOT_NULL(parsed);
 
-    bool mc = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "mqtt_connected", &mc));
-    TEST_ASSERT_TRUE(mc);
-
     bool ew = false;
     TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "early_warning", &ew));
     TEST_ASSERT_TRUE(ew);
@@ -781,6 +823,13 @@ void test_bb_net_health_emit_full_true_branch(void)
     bool thr = false;
     TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "throttled", &thr));
     TEST_ASSERT_TRUE(thr);
+
+    // mqtt_connected is now nested
+    bb_json_t mqtt_obj = bb_json_obj_get_item(parsed, "mqtt");
+    TEST_ASSERT_NOT_NULL(mqtt_obj);
+    bool mc = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(mqtt_obj, "connected", &mc));
+    TEST_ASSERT_TRUE(mc);
 
     bb_json_free(parsed);
 }
@@ -797,6 +846,9 @@ void test_bb_net_health_emit_idempotent(void)
         .mqtt_reconnect_count   = 4,
         .last_disconnect_reason = 2,
         .disc_age_s             = 15,
+        .mqtt_disc_age_s        = 8,
+        .mqtt_disc_reason       = 1,
+        .mqtt_tls_fail          = 0,
     };
 
     bb_json_t obj_a = bb_json_obj_new();
@@ -815,12 +867,57 @@ void test_bb_net_health_emit_idempotent(void)
 
     TEST_ASSERT_EQUAL_STRING(json_a, json_b);
 
-    // mqtt_connected present in both
+    // mqtt nested object present in both
     bb_json_t parsed = bb_json_parse(json_a, strlen(json_a));
     TEST_ASSERT_NOT_NULL(parsed);
-    TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(parsed, "mqtt_connected"));
+    TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(parsed, "mqtt"));
     bb_json_free(parsed);
 
     bb_json_free_str(json_a);
     bb_json_free_str(json_b);
+}
+
+// OOM branch coverage: when bb_json_obj_new() for the mqtt sub-object fails,
+// top-level fields are still emitted and "mqtt" key is absent (no crash).
+void test_bb_net_health_emit_mqtt_alloc_fail(void)
+{
+    bb_net_health_status_t snap = {
+        .state                  = BB_NET_STATE_GOOD,
+        .early_warning          = false,
+        .throttled              = false,
+        .rssi                   = -60,
+        .mqtt_connected         = true,
+        .mqtt_reconnect_count   = 0,
+        .last_disconnect_reason = 0,
+        .disc_age_s             = 0,
+        .mqtt_disc_age_s        = 0,
+        .mqtt_disc_reason       = 0,
+        .mqtt_tls_fail          = 0,
+    };
+
+    // Call 0: outer bb_json_obj_new() — succeeds.
+    // Call 1: mqtt sub-object bb_json_obj_new() inside emit — fails.
+    // fail_after(1): 1 alloc succeeds, then the next fails.
+    bb_json_host_force_alloc_fail_after(1);
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit(obj, &snap);
+    bb_json_host_force_alloc_fail_after(-1);  // reset
+
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+
+    bb_json_t parsed = bb_json_parse(json, strlen(json));
+    bb_json_free_str(json);
+    TEST_ASSERT_NOT_NULL(parsed);
+
+    // Top-level fields must still be present.
+    double rssi_val = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "rssi", &rssi_val));
+
+    // mqtt key must be absent (alloc failed).
+    TEST_ASSERT_NULL(bb_json_obj_get_item(parsed, "mqtt"));
+
+    bb_json_free(parsed);
 }

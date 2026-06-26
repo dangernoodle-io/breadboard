@@ -15,6 +15,7 @@
 #include "bb_health.h"
 #include "bb_wifi.h"
 #include "bb_mqtt.h"
+#include "bb_tls.h"
 #include "bb_event.h"
 #include "bb_event_routes.h"
 #include "bb_json.h"
@@ -65,6 +66,9 @@ typedef struct {
     bb_net_state_t state;
     bool     early_warning;
     bool     throttled;
+    uint32_t mqtt_disc_age_s;
+    uint32_t mqtt_disc_reason;
+    uint32_t mqtt_tls_fail;
 } bb_net_health_cache_t;
 
 static bb_net_health_cache_t s_cache;       // zero-init; valid once attach_sse writes it
@@ -74,13 +78,18 @@ static SemaphoreHandle_t     s_cache_lock;  // protects s_cache against torn rea
 static const char k_net_schema[] =
     "{\"type\":\"object\",\"properties\":{"
     "\"rssi\":{\"type\":\"integer\"},"
-    "\"mqtt_connected\":{\"type\":\"boolean\"},"
-    "\"mqtt_reconnect_count\":{\"type\":\"integer\"},"
-    "\"last_disconnect_reason\":{\"type\":\"integer\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"state\":{\"type\":\"string\"},"
     "\"early_warning\":{\"type\":\"boolean\"},"
-    "\"throttled\":{\"type\":\"boolean\"}}}";
+    "\"throttled\":{\"type\":\"boolean\"},"
+    "\"last_disconnect_reason\":{\"type\":\"integer\"},"
+    "\"disc_age_s\":{\"type\":\"integer\"},"
+    "\"mqtt\":{\"type\":\"object\",\"properties\":{"
+    "\"connected\":{\"type\":\"boolean\"},"
+    "\"reconnect_count\":{\"type\":\"integer\"},"
+    "\"disc_age_s\":{\"type\":\"integer\"},"
+    "\"disc_reason\":{\"type\":\"integer\"},"
+    "\"tls_fail\":{\"type\":\"integer\"}"
+    "}}}}";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -151,6 +160,9 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
     out->mqtt_reconnect_count   = s_cache.mqtt_reconnect_count;
     out->last_disconnect_reason = s_cache.last_disconnect_reason;
     out->disc_age_s             = s_cache.disc_age_s;
+    out->mqtt_disc_age_s        = s_cache.mqtt_disc_age_s;
+    out->mqtt_disc_reason       = s_cache.mqtt_disc_reason;
+    out->mqtt_tls_fail          = s_cache.mqtt_tls_fail;
     xSemaphoreGive(s_cache_lock);
     return BB_OK;
 }
@@ -158,7 +170,9 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
 static void publish_snapshot(const bb_net_health_output_t *out,
                              const bb_net_health_input_t  *in,
                              const bb_wifi_info_t         *wi,
-                             bool throttled)
+                             bool throttled,
+                             bb_mqtt_disc_t mqtt_disc_reason,
+                             bb_tls_fail_t  mqtt_tls_fail)
 {
     bb_net_health_status_t snap = {
         .state                  = out->state,
@@ -168,7 +182,10 @@ static void publish_snapshot(const bb_net_health_output_t *out,
         .mqtt_connected         = in->mqtt_connected,
         .disc_age_s             = in->disc_age_s,
         .mqtt_reconnect_count   = in->mqtt_reconnect_count,
-        .last_disconnect_reason = wi->disc_reason,
+        .last_disconnect_reason = (uint32_t)wi->disc_reason,
+        .mqtt_disc_age_s        = in->mqtt_disc_age_s,
+        .mqtt_disc_reason       = (uint32_t)mqtt_disc_reason,
+        .mqtt_tls_fail          = (uint32_t)mqtt_tls_fail,
     };
 
     // Update s_cache so bb_net_health_get_status (used by the pub source) can
@@ -182,6 +199,9 @@ static void publish_snapshot(const bb_net_health_output_t *out,
     s_cache.state                   = snap.state;
     s_cache.early_warning           = snap.early_warning;
     s_cache.throttled               = snap.throttled;
+    s_cache.mqtt_disc_age_s         = snap.mqtt_disc_age_s;
+    s_cache.mqtt_disc_reason        = snap.mqtt_disc_reason;
+    s_cache.mqtt_tls_fail           = snap.mqtt_tls_fail;
     xSemaphoreGive(s_cache_lock);
 
     // Update bb_cache owned struct — SSE uses bb_cache_post, REST uses
@@ -207,6 +227,20 @@ static void eval_cb(void *arg)
 
     bb_net_health_output_t out;
     bb_net_health_eval(&s_state, &in, &out);
+
+    // B1-362: capture disc_reason + tls_fail separately for publish_snapshot
+    bb_mqtt_disc_t mqtt_disc_reason = BB_MQTT_DISC_NONE;
+    bb_tls_fail_t  mqtt_tls_fail   = BB_TLS_FAIL_NONE;
+    {
+        bb_mqtt_t mqtt = bb_mqtt_default();
+        if (mqtt) {
+            bb_mqtt_stats_t stats;
+            if (bb_mqtt_get_stats(mqtt, &stats) == BB_OK) {
+                mqtt_disc_reason = stats.disc_reason;
+                mqtt_tls_fail    = stats.tls_fail;
+            }
+        }
+    }
 
 #if CONFIG_BB_PUB_ADAPTIVE_BACKOFF
     bool was_throttled = s_state.throttled;
@@ -241,7 +275,7 @@ static void eval_cb(void *arg)
     if (out.state != s_last_published_state ||
         out.early_warning != s_last_published_warn ||
         currently_throttled != s_last_published_throttled) {
-        publish_snapshot(&out, &in, &wi, currently_throttled);
+        publish_snapshot(&out, &in, &wi, currently_throttled, mqtt_disc_reason, mqtt_tls_fail);
         s_last_published_state     = out.state;
         s_last_published_warn      = out.early_warning;
         s_last_published_throttled = currently_throttled;
@@ -332,7 +366,21 @@ bb_err_t bb_net_health_attach_sse(void)
         bb_net_health_output_t out;
         bb_net_health_eval(&s_state, &in, &out);
 
-        publish_snapshot(&out, &in, &wi, false);
+        // B1-362: capture disc_reason + tls_fail separately for publish_snapshot
+        bb_mqtt_disc_t mqtt_disc_reason = BB_MQTT_DISC_NONE;
+        bb_tls_fail_t  mqtt_tls_fail   = BB_TLS_FAIL_NONE;
+        {
+            bb_mqtt_t mqtt = bb_mqtt_default();
+            if (mqtt) {
+                bb_mqtt_stats_t stats;
+                if (bb_mqtt_get_stats(mqtt, &stats) == BB_OK) {
+                    mqtt_disc_reason = stats.disc_reason;
+                    mqtt_tls_fail    = stats.tls_fail;
+                }
+            }
+        }
+
+        publish_snapshot(&out, &in, &wi, false, mqtt_disc_reason, mqtt_tls_fail);
         s_last_published_state     = out.state;
         s_last_published_warn      = out.early_warning;
         s_last_published_throttled = false;
