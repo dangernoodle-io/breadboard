@@ -149,3 +149,22 @@ void test_bb_tls_heap_guard_null_out_dim_safe(void)
     bool r = bb_tls_heap_guard_passes(100, 5000, 100, 5000, NULL);
     TEST_ASSERT_FALSE(r);
 }
+
+// ---------------------------------------------------------------------------
+// bb_tls_classify — portable TLS failure classification (B1-362)
+// ---------------------------------------------------------------------------
+
+void test_bb_tls_classify_zero_returns_none(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_TLS_FAIL_NONE, bb_tls_classify(0));
+}
+
+void test_bb_tls_classify_record_too_big_returns_record_too_big(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_TLS_FAIL_RECORD_TOO_BIG, bb_tls_classify(BB_TLS_RECORD_TOO_BIG));
+}
+
+void test_bb_tls_classify_other_error_returns_other(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_TLS_FAIL_OTHER, bb_tls_classify(-0x0050));
+}

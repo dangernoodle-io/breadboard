@@ -29,7 +29,9 @@ typedef struct {
     bool               tls;             // captured from cfg.tls at init time
     bool               ever_connected;  // set when connected goes true for first time
     uint32_t           reconnect_count;
-    uint8_t            last_disc_error_type;
+    bb_mqtt_disc_t     disc_reason;
+    bb_tls_fail_t      tls_fail;
+    int                tls_error_code;
 } bb_mqtt_host_handle_t;
 
 bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
@@ -98,9 +100,11 @@ bb_err_t bb_mqtt_get_stats(bb_mqtt_t handle, bb_mqtt_stats_t *out)
 {
     if (!handle || !out) return BB_ERR_INVALID_ARG;
     bb_mqtt_host_handle_t *h = (bb_mqtt_host_handle_t *)handle;
-    out->reconnect_count      = h->reconnect_count;
-    out->last_disc_error_type = h->last_disc_error_type;
-    out->connected            = h->connected;
+    out->reconnect_count = h->reconnect_count;
+    out->connected       = h->connected;
+    out->disc_reason     = h->disc_reason;
+    out->tls_fail        = h->tls_fail;
+    out->tls_error_code  = h->tls_error_code;
     return BB_OK;
 }
 
@@ -258,7 +262,9 @@ void bb_mqtt_host_reset(bb_mqtt_t handle)
     h->connected             = true;
     h->ever_connected        = false;
     h->reconnect_count       = 0;
-    h->last_disc_error_type  = 0;
+    h->disc_reason           = BB_MQTT_DISC_NONE;
+    h->tls_fail              = BB_TLS_FAIL_NONE;
+    h->tls_error_code        = 0;
 }
 
 void bb_mqtt_host_simulate_reconnect(bb_mqtt_t handle)
@@ -271,10 +277,22 @@ void bb_mqtt_host_simulate_reconnect(bb_mqtt_t handle)
     h->reconnect_count++;
 }
 
-void bb_mqtt_host_set_last_disc_error_type(bb_mqtt_t handle, uint8_t error_type)
+void bb_mqtt_host_set_disc_reason(bb_mqtt_t handle, bb_mqtt_disc_t reason)
 {
     if (!handle) return;
-    ((bb_mqtt_host_handle_t *)handle)->last_disc_error_type = error_type;
+    ((bb_mqtt_host_handle_t *)handle)->disc_reason = reason;
+}
+
+void bb_mqtt_host_set_tls_fail(bb_mqtt_t handle, bb_tls_fail_t fail)
+{
+    if (!handle) return;
+    ((bb_mqtt_host_handle_t *)handle)->tls_fail = fail;
+}
+
+void bb_mqtt_host_set_tls_error_code(bb_mqtt_t handle, int code)
+{
+    if (!handle) return;
+    ((bb_mqtt_host_handle_t *)handle)->tls_error_code = code;
 }
 
 void bb_mqtt_default_set(bb_mqtt_t h)

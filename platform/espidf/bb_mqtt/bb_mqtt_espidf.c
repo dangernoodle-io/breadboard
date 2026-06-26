@@ -62,8 +62,10 @@ typedef struct {
     bool                     tls;       // captured from cfg.tls at init time
     bool                     suspended; // true while transiently quiesced via
                                         // bb_mqtt_suspend_default; cleared by resume
-    uint32_t                 reconnect_count;      // incremented on each reconnect
-    uint8_t                  last_disc_error_type; // last MQTT_EVENT_ERROR error_type
+    uint32_t                 reconnect_count;  // incremented on each reconnect
+    bb_mqtt_disc_t           disc_reason;      // classified disconnect reason (B1-362)
+    bb_tls_fail_t            tls_fail;         // TLS handshake failure class (B1-362)
+    int                      tls_error_code;   // raw mbedtls err (0 = none) (B1-362)
     char                     uri[256];             // copy of cfg->uri for diag
 } bb_mqtt_handle_t;
 
@@ -168,11 +170,26 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
         int tls_err = 0;
         xSemaphoreTake(h->lock, portMAX_DELAY);
         if (event->error_handle) {
-            h->last_disc_error_type = (uint8_t)event->error_handle->error_type;
-            if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT &&
-                event->error_handle->esp_tls_stack_err != 0) {
-                tls_err = event->error_handle->esp_tls_stack_err;
+            // Classify disconnect reason (B1-362)
+            switch (event->error_handle->error_type) {
+            case MQTT_ERROR_TYPE_NONE:
+                h->disc_reason = BB_MQTT_DISC_NONE;
+                break;
+            case MQTT_ERROR_TYPE_TCP_TRANSPORT:
+                h->disc_reason = BB_MQTT_DISC_TRANSPORT;
+                if (event->error_handle->esp_tls_stack_err != 0) {
+                    tls_err = event->error_handle->esp_tls_stack_err;
+                }
+                break;
+            case MQTT_ERROR_TYPE_CONNECTION_REFUSED:
+                h->disc_reason = BB_MQTT_DISC_CONNECTION_REFUSED;
+                break;
+            default:
+                h->disc_reason = BB_MQTT_DISC_OTHER;
+                break;
             }
+            h->tls_error_code = tls_err;
+            h->tls_fail       = bb_tls_classify(tls_err);
         }
         xSemaphoreGive(h->lock);
         bb_log_w(TAG, "mqtt error event");
@@ -415,9 +432,11 @@ bb_err_t bb_mqtt_get_stats(bb_mqtt_t handle, bb_mqtt_stats_t *out)
     if (!handle || !out) return BB_ERR_INVALID_ARG;
     bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)handle;
     xSemaphoreTake(h->lock, portMAX_DELAY);
-    out->reconnect_count      = h->reconnect_count;
-    out->last_disc_error_type = h->last_disc_error_type;
-    out->connected            = h->connected;
+    out->reconnect_count = h->reconnect_count;
+    out->connected       = h->connected;
+    out->disc_reason     = h->disc_reason;
+    out->tls_fail        = h->tls_fail;
+    out->tls_error_code  = h->tls_error_code;
     xSemaphoreGive(h->lock);
     return BB_OK;
 }

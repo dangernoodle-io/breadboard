@@ -44,6 +44,31 @@
 /* MBEDTLS_ERR_SSL_RECORD_TOO_BIG = -0x7200 */
 #define BB_TLS_RECORD_TOO_BIG (-0x7200)
 
+/* ---------------------------------------------------------------------------
+ * Portable TLS handshake failure classification (B1-362)
+ * --------------------------------------------------------------------------- */
+
+/**
+ * Coarse classification of a TLS handshake failure for diagnostic reporting.
+ * portable — valid on espidf and host; NONE/0 when no failure.
+ */
+typedef enum {
+    BB_TLS_FAIL_NONE         = 0,  // no failure / not yet classified
+    BB_TLS_FAIL_RECORD_TOO_BIG,   // MBEDTLS_ERR_SSL_RECORD_TOO_BIG (-0x7200)
+    BB_TLS_FAIL_OTHER,             // any other mbedtls handshake error
+} bb_tls_fail_t;
+
+/**
+ * Classify an mbedtls error code into a portable bb_tls_fail_t bucket.
+ *
+ * Pure — no ESP-IDF headers, no stdlib beyond the constant comparison.
+ * Compiled on host and device.
+ *
+ * @param mbedtls_err  mbedtls error code (0 → NONE; -0x7200 → RECORD_TOO_BIG; else OTHER)
+ * @return bb_tls_fail_t classification
+ */
+bb_tls_fail_t bb_tls_classify(int mbedtls_err);
+
 /**
  * Classify an mbedtls error from a failed TLS handshake and fill a
  * caller-supplied buffer with an actionable human-readable message.

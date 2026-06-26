@@ -165,6 +165,9 @@ void test_bb_tls_heap_guard_total_fail(void);
 void test_bb_tls_heap_guard_disabled_contiguous_floor(void);
 void test_bb_tls_heap_guard_disabled_total_floor(void);
 void test_bb_tls_heap_guard_null_out_dim_safe(void);
+void test_bb_tls_classify_zero_returns_none(void);
+void test_bb_tls_classify_record_too_big_returns_record_too_big(void);
+void test_bb_tls_classify_other_error_returns_other(void);
 
 // Forward declarations from test_bb_ota_pull_manifest.c
 void test_ota_pull_manifest_fetch_success(void);
@@ -1267,6 +1270,7 @@ void test_bb_net_health_emit_full_has_8_fields(void);
 void test_bb_net_health_emit_compact_false_branch(void);
 void test_bb_net_health_emit_full_true_branch(void);
 void test_bb_net_health_emit_idempotent(void);
+void test_bb_net_health_emit_mqtt_alloc_fail(void);
 
 // Forward declarations from test_bb_sse_writer.c
 void test_sse_idle_below_heartbeat(void);
@@ -2141,8 +2145,16 @@ void test_bb_mqtt_stop_only_suspend_idempotent(void);
 void test_bb_mqtt_publish_ring_overflow_evicts_oldest(void);
 void test_bb_mqtt_simulate_reconnect_increments_count(void);
 void test_bb_mqtt_simulate_reconnect_null_handle_is_safe(void);
-void test_bb_mqtt_set_last_disc_error_type_round_trips(void);
-void test_bb_mqtt_set_last_disc_error_type_null_handle_is_safe(void);
+void test_bb_mqtt_disc_reason_default_is_none(void);
+void test_bb_mqtt_disc_reason_round_trips(void);
+void test_bb_mqtt_disc_reason_null_handle_is_safe(void);
+void test_bb_mqtt_tls_fail_default_is_none(void);
+void test_bb_mqtt_tls_fail_round_trips(void);
+void test_bb_mqtt_tls_fail_null_handle_is_safe(void);
+void test_bb_mqtt_tls_error_code_default_is_zero(void);
+void test_bb_mqtt_tls_error_code_round_trips(void);
+void test_bb_mqtt_tls_error_code_null_handle_is_safe(void);
+void test_bb_mqtt_host_reset_clears_new_fields(void);
 void test_bb_mqtt_resume_default_init_failure_preserves_suspended(void);
 void test_bb_mqtt_subscribe_null_handle_returns_invalid_arg(void);
 void test_bb_mqtt_subscribe_null_topic_returns_invalid_arg(void);
@@ -3236,6 +3248,9 @@ int main(void) {
     RUN_TEST(test_bb_tls_heap_guard_disabled_contiguous_floor);
     RUN_TEST(test_bb_tls_heap_guard_disabled_total_floor);
     RUN_TEST(test_bb_tls_heap_guard_null_out_dim_safe);
+    RUN_TEST(test_bb_tls_classify_zero_returns_none);
+    RUN_TEST(test_bb_tls_classify_record_too_big_returns_record_too_big);
+    RUN_TEST(test_bb_tls_classify_other_error_returns_other);
 
     // OTA pull — streaming manifest fetch
     RUN_TEST(test_ota_pull_manifest_fetch_success);
@@ -4303,6 +4318,7 @@ int main(void) {
     RUN_TEST(test_bb_net_health_emit_compact_false_branch);
     RUN_TEST(test_bb_net_health_emit_full_true_branch);
     RUN_TEST(test_bb_net_health_emit_idempotent);
+    RUN_TEST(test_bb_net_health_emit_mqtt_alloc_fail);
 
     // bb_vcore_wd tests (pure vcore-collapse watchdog)
     RUN_TEST(test_bb_vcore_wd_warmup_suppresses_all);
@@ -5275,8 +5291,16 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_publish_ring_overflow_evicts_oldest);
     RUN_TEST(test_bb_mqtt_simulate_reconnect_increments_count);
     RUN_TEST(test_bb_mqtt_simulate_reconnect_null_handle_is_safe);
-    RUN_TEST(test_bb_mqtt_set_last_disc_error_type_round_trips);
-    RUN_TEST(test_bb_mqtt_set_last_disc_error_type_null_handle_is_safe);
+    RUN_TEST(test_bb_mqtt_disc_reason_default_is_none);
+    RUN_TEST(test_bb_mqtt_disc_reason_round_trips);
+    RUN_TEST(test_bb_mqtt_disc_reason_null_handle_is_safe);
+    RUN_TEST(test_bb_mqtt_tls_fail_default_is_none);
+    RUN_TEST(test_bb_mqtt_tls_fail_round_trips);
+    RUN_TEST(test_bb_mqtt_tls_fail_null_handle_is_safe);
+    RUN_TEST(test_bb_mqtt_tls_error_code_default_is_zero);
+    RUN_TEST(test_bb_mqtt_tls_error_code_round_trips);
+    RUN_TEST(test_bb_mqtt_tls_error_code_null_handle_is_safe);
+    RUN_TEST(test_bb_mqtt_host_reset_clears_new_fields);
     RUN_TEST(test_bb_mqtt_resume_default_init_failure_preserves_suspended);
     RUN_TEST(test_bb_mqtt_subscribe_null_handle_returns_invalid_arg);
     RUN_TEST(test_bb_mqtt_subscribe_null_topic_returns_invalid_arg);
