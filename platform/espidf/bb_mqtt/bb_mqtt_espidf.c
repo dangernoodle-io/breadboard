@@ -21,6 +21,7 @@
 // true and NULL h->client BEFORE calling esp_mqtt_client_destroy; the
 // event handler checks h->destroyed under h->lock and returns immediately.
 #include "bb_mqtt.h"
+#include "bb_tls.h"
 #include "bb_tls_creds.h"
 #include "bb_log.h"
 #include "bb_nv.h"
@@ -61,8 +62,9 @@ typedef struct {
     bool                     tls;       // captured from cfg.tls at init time
     bool                     suspended; // true while transiently quiesced via
                                         // bb_mqtt_suspend_default; cleared by resume
-    uint32_t                 reconnect_count;     // incremented on each reconnect
+    uint32_t                 reconnect_count;      // incremented on each reconnect
     uint8_t                  last_disc_error_type; // last MQTT_EVENT_ERROR error_type
+    char                     uri[256];             // copy of cfg->uri for diag
 } bb_mqtt_handle_t;
 
 // ---------------------------------------------------------------------------
@@ -104,6 +106,28 @@ static void on_got_ip_cb(void)
 }
 
 // ---------------------------------------------------------------------------
+// URL host extraction helper (for TLS diagnostics)
+// ---------------------------------------------------------------------------
+
+// Extract hostname from a URI string into buf.  Returns buf on success or "?"
+// when hostname cannot be determined.  Strips scheme (e.g. mqtts://), port,
+// path, query, and fragment — leaves only the bare hostname.
+static const char *mqtt_url_host(const char *url, char *buf, size_t buf_len)
+{
+    if (!url || !buf || buf_len == 0) return "?";
+    const char *p = url;
+    const char *s = strstr(p, "://");
+    if (s) p = s + 3;
+    size_t i = 0;
+    while (*p && *p != '/' && *p != ':' && *p != '?' && *p != '#') {
+        if (i + 1 < buf_len) buf[i++] = *p;
+        p++;
+    }
+    buf[i] = '\0';
+    return (i > 0) ? buf : "?";
+}
+
+// ---------------------------------------------------------------------------
 // Event handler
 // ---------------------------------------------------------------------------
 
@@ -141,12 +165,25 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
         break;
     case MQTT_EVENT_ERROR: {
         esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
+        int tls_err = 0;
         xSemaphoreTake(h->lock, portMAX_DELAY);
         if (event->error_handle) {
             h->last_disc_error_type = (uint8_t)event->error_handle->error_type;
+            if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT &&
+                event->error_handle->esp_tls_stack_err != 0) {
+                tls_err = event->error_handle->esp_tls_stack_err;
+            }
         }
         xSemaphoreGive(h->lock);
         bb_log_w(TAG, "mqtt error event");
+        if (tls_err != 0) {
+            char diag_buf[256];
+            char host_buf[128];
+            const char *host = mqtt_url_host(h->uri, host_buf, sizeof(host_buf));
+            bb_tls_handshake_diag(tls_err, host, BB_TLS_SSL_IN_LEN,
+                                   diag_buf, sizeof(diag_buf));
+            bb_log_w(TAG, "%s", diag_buf);
+        }
         break;
     }
     default:
@@ -296,6 +333,7 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
     }
 
     h->tls = cfg->tls;
+    snprintf(h->uri, sizeof(h->uri), "%s", cfg->uri ? cfg->uri : "");
     bb_log_i(TAG, "init: uri=%s tls=%d", cfg->uri, cfg->tls);
     *out = h;
     return BB_OK;
