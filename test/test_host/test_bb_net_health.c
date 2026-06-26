@@ -921,3 +921,114 @@ void test_bb_net_health_emit_mqtt_alloc_fail(void)
 
     bb_json_free(parsed);
 }
+
+// ---------------------------------------------------------------------------
+// bb_net_health_emit: nested http sub-object
+// ---------------------------------------------------------------------------
+
+void test_bb_net_health_emit_http_object_present(void)
+{
+    bb_net_health_status_t snap = {
+        .state                  = BB_NET_STATE_GOOD,
+        .early_warning          = false,
+        .throttled              = false,
+        .rssi                   = -55,
+        .mqtt_connected         = true,
+        .mqtt_reconnect_count   = 0,
+        .last_disconnect_reason = 0,
+        .disc_age_s             = 0,
+        .mqtt_disc_age_s        = 0,
+        .mqtt_disc_reason       = 0,
+        .mqtt_tls_fail          = 0,
+        .http_connected         = true,
+        .http_consec_failures   = 2,
+        .http_tls_fail          = 1,
+        .http_last_status       = 503,
+    };
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit(obj, &snap);
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+
+    bb_json_t parsed = bb_json_parse(json, strlen(json));
+    bb_json_free_str(json);
+    TEST_ASSERT_NOT_NULL(parsed);
+
+    bb_json_t http_obj = bb_json_obj_get_item(parsed, "http");
+    TEST_ASSERT_NOT_NULL(http_obj);
+
+    bool conn = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(http_obj, "connected", &conn));
+    TEST_ASSERT_TRUE(conn);
+
+    double cf = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(http_obj, "consec_failures", &cf));
+    TEST_ASSERT_EQUAL_INT(2, (int)cf);
+
+    double tf = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(http_obj, "tls_fail", &tf));
+    TEST_ASSERT_EQUAL_INT(1, (int)tf);
+
+    double ls = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(http_obj, "last_status", &ls));
+    TEST_ASSERT_EQUAL_INT(503, (int)ls);
+
+    // mqtt sub-object must still be present.
+    TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(parsed, "mqtt"));
+
+    bb_json_free(parsed);
+}
+
+void test_bb_net_health_emit_http_alloc_fail(void)
+{
+    bb_net_health_status_t snap = {
+        .state                  = BB_NET_STATE_GOOD,
+        .early_warning          = false,
+        .throttled              = false,
+        .rssi                   = -60,
+        .mqtt_connected         = true,
+        .mqtt_reconnect_count   = 0,
+        .last_disconnect_reason = 0,
+        .disc_age_s             = 0,
+        .mqtt_disc_age_s        = 0,
+        .mqtt_disc_reason       = 0,
+        .mqtt_tls_fail          = 0,
+        .http_connected         = false,
+        .http_consec_failures   = 0,
+        .http_tls_fail          = 0,
+        .http_last_status       = 0,
+    };
+
+    // Call 0: outer bb_json_obj_new() — succeeds.
+    // Call 1: mqtt sub-object — succeeds.
+    // Call 2: http sub-object — fails.
+    // fail_after(2): 2 allocs succeed, then the next fails.
+    bb_json_host_force_alloc_fail_after(2);
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit(obj, &snap);
+    bb_json_host_force_alloc_fail_after(-1);  // reset
+
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+
+    bb_json_t parsed = bb_json_parse(json, strlen(json));
+    bb_json_free_str(json);
+    TEST_ASSERT_NOT_NULL(parsed);
+
+    // Top-level fields must still be present.
+    double rssi_val = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "rssi", &rssi_val));
+
+    // mqtt must be present (its alloc succeeded).
+    TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(parsed, "mqtt"));
+
+    // http key must be absent (alloc failed).
+    TEST_ASSERT_NULL(bb_json_obj_get_item(parsed, "http"));
+
+    bb_json_free(parsed);
+}

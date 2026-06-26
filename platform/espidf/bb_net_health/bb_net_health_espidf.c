@@ -16,6 +16,7 @@
 #include "bb_wifi.h"
 #include "bb_mqtt.h"
 #include "bb_tls.h"
+#include "bb_sink_http.h"
 #include "bb_event.h"
 #include "bb_event_routes.h"
 #include "bb_json.h"
@@ -69,6 +70,10 @@ typedef struct {
     uint32_t mqtt_disc_age_s;
     uint32_t mqtt_disc_reason;
     uint32_t mqtt_tls_fail;
+    bool     http_connected;
+    int      http_consec_failures;
+    int      http_tls_fail;
+    int      http_last_status;
 } bb_net_health_cache_t;
 
 static bb_net_health_cache_t s_cache;       // zero-init; valid once attach_sse writes it
@@ -89,6 +94,12 @@ static const char k_net_schema[] =
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"disc_reason\":{\"type\":\"integer\"},"
     "\"tls_fail\":{\"type\":\"integer\"}"
+    "}},"
+    "\"http\":{\"type\":\"object\",\"properties\":{"
+    "\"connected\":{\"type\":\"boolean\"},"
+    "\"consec_failures\":{\"type\":\"integer\"},"
+    "\"tls_fail\":{\"type\":\"integer\"},"
+    "\"last_status\":{\"type\":\"integer\"}"
     "}}}}";
 
 // ---------------------------------------------------------------------------
@@ -163,6 +174,10 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
     out->mqtt_disc_age_s        = s_cache.mqtt_disc_age_s;
     out->mqtt_disc_reason       = s_cache.mqtt_disc_reason;
     out->mqtt_tls_fail          = s_cache.mqtt_tls_fail;
+    out->http_connected         = s_cache.http_connected;
+    out->http_consec_failures   = s_cache.http_consec_failures;
+    out->http_tls_fail          = s_cache.http_tls_fail;
+    out->http_last_status       = s_cache.http_last_status;
     xSemaphoreGive(s_cache_lock);
     return BB_OK;
 }
@@ -172,7 +187,8 @@ static void publish_snapshot(const bb_net_health_output_t *out,
                              const bb_wifi_info_t         *wi,
                              bool throttled,
                              bb_mqtt_disc_t mqtt_disc_reason,
-                             bb_tls_fail_t  mqtt_tls_fail)
+                             bb_tls_fail_t  mqtt_tls_fail,
+                             bb_sink_http_health_t http_h)
 {
     bb_net_health_status_t snap = {
         .state                  = out->state,
@@ -186,6 +202,10 @@ static void publish_snapshot(const bb_net_health_output_t *out,
         .mqtt_disc_age_s        = in->mqtt_disc_age_s,
         .mqtt_disc_reason       = (uint32_t)mqtt_disc_reason,
         .mqtt_tls_fail          = (uint32_t)mqtt_tls_fail,
+        .http_connected         = http_h.connected,
+        .http_consec_failures   = (uint32_t)http_h.consec_failures,
+        .http_tls_fail          = (uint32_t)http_h.tls_fail,
+        .http_last_status       = http_h.last_status,
     };
 
     // Update s_cache so bb_net_health_get_status (used by the pub source) can
@@ -202,6 +222,10 @@ static void publish_snapshot(const bb_net_health_output_t *out,
     s_cache.mqtt_disc_age_s         = snap.mqtt_disc_age_s;
     s_cache.mqtt_disc_reason        = snap.mqtt_disc_reason;
     s_cache.mqtt_tls_fail           = snap.mqtt_tls_fail;
+    s_cache.http_connected          = snap.http_connected;
+    s_cache.http_consec_failures    = snap.http_consec_failures;
+    s_cache.http_tls_fail           = snap.http_tls_fail;
+    s_cache.http_last_status        = snap.http_last_status;
     xSemaphoreGive(s_cache_lock);
 
     // Update bb_cache owned struct — SSE uses bb_cache_post, REST uses
@@ -272,10 +296,13 @@ static void eval_cb(void *arg)
     // the last published values.  This ensures:
     //  - A sustained throttle publishes ONCE on entry and ONCE on exit.
     //  - Every real state/warning transition is still captured.
+    bb_sink_http_health_t http_h = {0};
+    bb_sink_http_get_health(&http_h);
+
     if (out.state != s_last_published_state ||
         out.early_warning != s_last_published_warn ||
         currently_throttled != s_last_published_throttled) {
-        publish_snapshot(&out, &in, &wi, currently_throttled, mqtt_disc_reason, mqtt_tls_fail);
+        publish_snapshot(&out, &in, &wi, currently_throttled, mqtt_disc_reason, mqtt_tls_fail, http_h);
         s_last_published_state     = out.state;
         s_last_published_warn      = out.early_warning;
         s_last_published_throttled = currently_throttled;
@@ -380,7 +407,10 @@ bb_err_t bb_net_health_attach_sse(void)
             }
         }
 
-        publish_snapshot(&out, &in, &wi, false, mqtt_disc_reason, mqtt_tls_fail);
+        bb_sink_http_health_t http_h = {0};
+        bb_sink_http_get_health(&http_h);
+
+        publish_snapshot(&out, &in, &wi, false, mqtt_disc_reason, mqtt_tls_fail, http_h);
         s_last_published_state     = out.state;
         s_last_published_warn      = out.early_warning;
         s_last_published_throttled = false;

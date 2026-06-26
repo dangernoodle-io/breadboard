@@ -13,6 +13,7 @@
 #include "unity.h"
 #include "bb_sink_http.h"
 #include "bb_nv.h"
+#include "bb_tls.h"
 #include "../../platform/host/bb_http_client/bb_http_client_host.h"
 
 #include <stdio.h>
@@ -851,4 +852,69 @@ void test_bb_sink_http_init_nvs_hbuf_oom_graceful(void)
     bb_sink_http_cfg_t out;
     bb_sink_http_get_cfg(&out);
     TEST_ASSERT_EQUAL_INT(0, out.num_headers);
+}
+
+// ---------------------------------------------------------------------------
+// Health API tests (BB_SINK_HTTP_TESTING)
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_http_get_health_initial_state(void)
+{
+    reset_state();
+    bb_sink_http_test_reset_health();
+
+    bb_sink_http_health_t h;
+    bb_err_t rc = bb_sink_http_get_health(&h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_FALSE(h.connected);
+    TEST_ASSERT_EQUAL_INT(0, h.consec_failures);
+    TEST_ASSERT_EQUAL_INT(BB_TLS_FAIL_NONE, h.tls_fail);
+    TEST_ASSERT_EQUAL_INT(0, h.last_status);
+}
+
+void test_bb_sink_http_get_health_null_returns_invalid_arg(void)
+{
+    bb_err_t rc = bb_sink_http_get_health(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
+}
+
+void test_bb_sink_http_get_health_roundtrip(void)
+{
+    bb_sink_http_test_set_health(true, 2, BB_TLS_FAIL_RECORD_TOO_BIG, 503);
+
+    bb_sink_http_health_t h;
+    bb_err_t rc = bb_sink_http_get_health(&h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_TRUE(h.connected);
+    TEST_ASSERT_EQUAL_INT(2, h.consec_failures);
+    TEST_ASSERT_EQUAL_INT(BB_TLS_FAIL_RECORD_TOO_BIG, h.tls_fail);
+    TEST_ASSERT_EQUAL_INT(503, h.last_status);
+
+    bb_sink_http_test_reset_health();
+}
+
+void test_bb_sink_http_get_health_other_tls_fail(void)
+{
+    bb_sink_http_test_set_health(false, 1, BB_TLS_FAIL_OTHER, 0);
+
+    bb_sink_http_health_t h;
+    bb_err_t rc = bb_sink_http_get_health(&h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_FALSE(h.connected);
+    TEST_ASSERT_EQUAL_INT(BB_TLS_FAIL_OTHER, h.tls_fail);
+
+    bb_sink_http_test_reset_health();
+}
+
+void test_bb_sink_http_get_health_none_tls_fail(void)
+{
+    bb_sink_http_test_set_health(true, 0, BB_TLS_FAIL_NONE, 200);
+
+    bb_sink_http_health_t h;
+    bb_err_t rc = bb_sink_http_get_health(&h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+    TEST_ASSERT_EQUAL_INT(BB_TLS_FAIL_NONE, h.tls_fail);
+    TEST_ASSERT_EQUAL_INT(200, h.last_status);
+
+    bb_sink_http_test_reset_health();
 }

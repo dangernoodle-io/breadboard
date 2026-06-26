@@ -39,6 +39,7 @@ static bb_http_client_post_record_t s_last_post = { .called = false };
 typedef struct {
     int      canned_status;
     bb_err_t transport_result;
+    int      tls_error_code;
 } session_mock_state_t;
 
 static session_mock_state_t s_session_mock = {
@@ -86,6 +87,7 @@ void bb_http_client_clear_mock(void)
     s_last_post = (bb_http_client_post_record_t){ .called = false };
     s_session_mock.canned_status    = 200;
     s_session_mock.transport_result = BB_OK;
+    s_session_mock.tls_error_code   = 0;
     s_session_last = (bb_http_client_session_record_t){ .called = false };
     memset(s_headers, 0, sizeof(s_headers));
     s_header_count = 0;
@@ -99,6 +101,13 @@ void bb_http_client_session_set_mock_status(int status_code)
     pthread_mutex_lock(&s_mock_lock);
     s_session_mock.canned_status    = status_code;
     s_session_mock.transport_result = BB_OK;
+    pthread_mutex_unlock(&s_mock_lock);
+}
+
+void bb_http_client_session_set_mock_tls_error_code(int code)
+{
+    pthread_mutex_lock(&s_mock_lock);
+    s_session_mock.tls_error_code = code;
     pthread_mutex_unlock(&s_mock_lock);
 }
 
@@ -247,15 +256,17 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t s,
     pthread_mutex_unlock(&s_mock_lock);
 
     if (m.transport_result != BB_OK) {
-        out->status_code = 0;
-        out->body_len    = 0;
-        out->truncated   = false;
+        out->status_code  = 0;
+        out->body_len     = 0;
+        out->truncated    = false;
+        out->tls_error_code = 0;
         return m.transport_result;
     }
 
-    out->status_code = m.canned_status;
-    out->body_len    = 0;
-    out->truncated   = false;
+    out->status_code  = m.canned_status;
+    out->body_len     = 0;
+    out->truncated    = false;
+    out->tls_error_code = m.tls_error_code;
     return BB_OK;
 }
 
@@ -286,9 +297,10 @@ bb_err_t bb_http_client_get(const char *url,
     pthread_mutex_unlock(&s_mock_lock);
 
     if (m.transport_result != BB_OK) {
-        out->status_code = 0;
-        out->body_len = 0;
-        out->truncated = false;
+        out->status_code    = 0;
+        out->body_len       = 0;
+        out->truncated      = false;
+        out->tls_error_code = 0;
         return m.transport_result;
     }
 
@@ -303,9 +315,10 @@ bb_err_t bb_http_client_get(const char *url,
     }
     body[copy] = '\0';
 
-    out->status_code = m.status_code;
-    out->body_len = copy;
-    out->truncated = truncated;
+    out->status_code    = m.status_code;
+    out->body_len       = copy;
+    out->truncated      = truncated;
+    out->tls_error_code = 0;
     return BB_OK;
 }
 
@@ -322,9 +335,10 @@ bb_err_t bb_http_client_get_stream(const char *url,
     pthread_mutex_unlock(&s_mock_lock);
 
     if (m.transport_result != BB_OK) {
-        out->status_code = 0;
-        out->body_len = 0;
-        out->truncated = false;
+        out->status_code    = 0;
+        out->body_len       = 0;
+        out->truncated      = false;
+        out->tls_error_code = 0;
         return m.transport_result;
     }
 
@@ -342,9 +356,10 @@ bb_err_t bb_http_client_get_stream(const char *url,
         remaining -= n;
     }
 
-    out->status_code = m.status_code;
-    out->body_len    = total;
-    out->truncated   = (cb_err == BB_ERR_NO_SPACE);
+    out->status_code    = m.status_code;
+    out->body_len       = total;
+    out->truncated      = (cb_err == BB_ERR_NO_SPACE);
+    out->tls_error_code = 0;
     if (cb_err != BB_OK) return cb_err;
     return BB_OK;
 }
@@ -374,9 +389,10 @@ bb_err_t bb_http_client_post(const char *url,
     pthread_mutex_unlock(&s_mock_lock);
 
     if (m.transport_result != BB_OK) {
-        out->status_code = 0;
-        out->body_len    = 0;
-        out->truncated   = false;
+        out->status_code    = 0;
+        out->body_len       = 0;
+        out->truncated      = false;
+        out->tls_error_code = 0;
         return m.transport_result;
     }
 
@@ -391,8 +407,9 @@ bb_err_t bb_http_client_post(const char *url,
     }
     resp[copy] = '\0';
 
-    out->status_code = m.status_code;
-    out->body_len    = copy;
-    out->truncated   = truncated;
+    out->status_code    = m.status_code;
+    out->body_len       = copy;
+    out->truncated      = truncated;
+    out->tls_error_code = 0;
     return BB_OK;
 }

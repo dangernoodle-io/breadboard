@@ -1271,6 +1271,8 @@ void test_bb_net_health_emit_compact_false_branch(void);
 void test_bb_net_health_emit_full_true_branch(void);
 void test_bb_net_health_emit_idempotent(void);
 void test_bb_net_health_emit_mqtt_alloc_fail(void);
+void test_bb_net_health_emit_http_object_present(void);
+void test_bb_net_health_emit_http_alloc_fail(void);
 
 // Forward declarations from test_bb_sse_writer.c
 void test_sse_idle_below_heartbeat(void);
@@ -2209,6 +2211,11 @@ void test_bb_sink_http_keep_alive_cfg_threads_into_session_open(void);
 void test_bb_sink_http_parse_headers_oom_returns_zero(void);
 void test_bb_sink_http_publish_url_oom_returns_no_space(void);
 void test_bb_sink_http_init_nvs_hbuf_oom_graceful(void);
+void test_bb_sink_http_get_health_initial_state(void);
+void test_bb_sink_http_get_health_null_returns_invalid_arg(void);
+void test_bb_sink_http_get_health_roundtrip(void);
+void test_bb_sink_http_get_health_other_tls_fail(void);
+void test_bb_sink_http_get_health_none_tls_fail(void);
 
 // Forward declarations from test_bb_http_client_session.c
 void test_bb_http_client_session_open_null_url_base_returns_invalid_arg(void);
@@ -2223,6 +2230,8 @@ void test_bb_http_client_session_post_default_content_type_application_json(void
 void test_bb_http_client_session_post_transport_error_passthrough(void);
 void test_bb_http_client_session_post_2xx_returns_ok(void);
 void test_bb_http_client_session_clear_mock_resets_record(void);
+void test_bb_http_client_session_post_tls_error_code_propagated(void);
+void test_bb_http_client_session_post_tls_error_code_zero_default(void);
 
 // Forward declarations from test_bb_update_check.c
 void test_bb_update_check_init_idempotent(void);
@@ -4319,6 +4328,8 @@ int main(void) {
     RUN_TEST(test_bb_net_health_emit_full_true_branch);
     RUN_TEST(test_bb_net_health_emit_idempotent);
     RUN_TEST(test_bb_net_health_emit_mqtt_alloc_fail);
+    RUN_TEST(test_bb_net_health_emit_http_object_present);
+    RUN_TEST(test_bb_net_health_emit_http_alloc_fail);
 
     // bb_vcore_wd tests (pure vcore-collapse watchdog)
     RUN_TEST(test_bb_vcore_wd_warmup_suppresses_all);
@@ -5355,6 +5366,11 @@ int main(void) {
     RUN_TEST(test_bb_sink_http_parse_headers_oom_returns_zero);
     RUN_TEST(test_bb_sink_http_publish_url_oom_returns_no_space);
     RUN_TEST(test_bb_sink_http_init_nvs_hbuf_oom_graceful);
+    RUN_TEST(test_bb_sink_http_get_health_initial_state);
+    RUN_TEST(test_bb_sink_http_get_health_null_returns_invalid_arg);
+    RUN_TEST(test_bb_sink_http_get_health_roundtrip);
+    RUN_TEST(test_bb_sink_http_get_health_other_tls_fail);
+    RUN_TEST(test_bb_sink_http_get_health_none_tls_fail);
 
     // bb_http_client session tests
     RUN_TEST(test_bb_http_client_session_open_null_url_base_returns_invalid_arg);
@@ -5369,6 +5385,8 @@ int main(void) {
     RUN_TEST(test_bb_http_client_session_post_transport_error_passthrough);
     RUN_TEST(test_bb_http_client_session_post_2xx_returns_ok);
     RUN_TEST(test_bb_http_client_session_clear_mock_resets_record);
+    RUN_TEST(test_bb_http_client_session_post_tls_error_code_propagated);
+    RUN_TEST(test_bb_http_client_session_post_tls_error_code_zero_default);
 
     // bb_pub tests
     RUN_TEST(test_bb_pub_tick_no_sink_is_noop);

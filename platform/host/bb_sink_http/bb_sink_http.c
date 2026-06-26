@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #ifdef ESP_PLATFORM
 #include "bb_board.h"
@@ -73,6 +74,11 @@ static bool                      s_initialized = false;
 static bb_http_client_session_t  s_session      = NULL;
 static bb_tls_creds_t            s_creds;        // kept alive for session lifetime
 static int                       s_consec_failures = 0;  // consecutive transport failures
+
+static int           s_last_status   = 0;
+static bb_tls_fail_t s_tls_fail      = BB_TLS_FAIL_NONE;
+static bool          s_connected     = false;
+static pthread_mutex_t s_health_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // ---------------------------------------------------------------------------
 // Validation helpers (pure)
@@ -586,15 +592,68 @@ static bb_err_t http_pub_publish(void *ctx,
             session_close();
             s_consec_failures = 0;
         }
+        pthread_mutex_lock(&s_health_lock);
+        s_last_status = result.status_code;
+        s_connected   = false;
+        if (result.tls_error_code != 0) {
+            s_tls_fail = bb_tls_classify(result.tls_error_code);
+            char diag[128];
+            bb_tls_handshake_diag(result.tls_error_code, s_cfg.base, BB_TLS_SSL_IN_LEN, diag, sizeof(diag));
+            bb_log_w(TAG, "TLS handshake: %s", diag);
+        }
+        pthread_mutex_unlock(&s_health_lock);
         free(url);
         return rc;
     }
 
     s_consec_failures = 0;
+    pthread_mutex_lock(&s_health_lock);
+    s_last_status = result.status_code;
+    s_connected   = true;
+    s_tls_fail    = BB_TLS_FAIL_NONE;
+    pthread_mutex_unlock(&s_health_lock);
     bb_log_d(TAG, "published to %s -> %d", url, result.status_code);
     free(url);
     return BB_OK;
 }
+
+// ---------------------------------------------------------------------------
+// Health API
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_sink_http_get_health(bb_sink_http_health_t *out)
+{
+    if (!out) return BB_ERR_INVALID_ARG;
+    pthread_mutex_lock(&s_health_lock);
+    out->connected       = s_connected;
+    out->consec_failures = s_consec_failures;
+    out->tls_fail        = s_tls_fail;
+    out->last_status     = s_last_status;
+    pthread_mutex_unlock(&s_health_lock);
+    return BB_OK;
+}
+
+#ifdef BB_SINK_HTTP_TESTING
+void bb_sink_http_test_set_health(bool connected, int consec_failures, bb_tls_fail_t tls_fail, int last_status)
+{
+    pthread_mutex_lock(&s_health_lock);
+    s_connected       = connected;
+    s_consec_failures = consec_failures;
+    s_tls_fail        = tls_fail;
+    s_last_status     = last_status;
+    pthread_mutex_unlock(&s_health_lock);
+}
+
+void bb_sink_http_test_reset_health(void)
+{
+    pthread_mutex_lock(&s_health_lock);
+    s_connected       = false;
+    s_consec_failures = 0;
+    s_tls_fail        = BB_TLS_FAIL_NONE;
+    s_last_status     = 0;
+    pthread_mutex_unlock(&s_health_lock);
+}
+#endif /* BB_SINK_HTTP_TESTING */
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -602,6 +661,14 @@ static bb_err_t http_pub_publish(void *ctx,
 
 bb_err_t bb_sink_http_init(const bb_sink_http_cfg_t *over)
 {
+    // Reset health statics.
+    pthread_mutex_lock(&s_health_lock);
+    s_connected       = false;
+    s_tls_fail        = BB_TLS_FAIL_NONE;
+    s_last_status     = 0;
+    s_consec_failures = 0;
+    pthread_mutex_unlock(&s_health_lock);
+
     // Close any existing session — config may have changed.
     session_close();
 

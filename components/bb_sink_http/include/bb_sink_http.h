@@ -24,6 +24,7 @@
 #include <stddef.h>
 #include "bb_core.h"
 #include "bb_pub.h"
+#include "bb_tls.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,6 +62,23 @@ typedef struct {
     bb_sink_http_header_t headers[BB_SINK_HTTP_HEADERS_MAX];
     int  num_headers;
 } bb_sink_http_cfg_t;
+
+// ---------------------------------------------------------------------------
+// Health snapshot for /api/health net.http sub-block.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bool         connected;        // true when a session is currently open
+    int          consec_failures;  // consecutive transport failures
+    bb_tls_fail_t tls_fail;        // last classified TLS failure (NONE if none)
+    int          last_status;      // last HTTP status code (0 if no successful response)
+} bb_sink_http_health_t;
+
+/**
+ * Return a snapshot of the current HTTP sink health state.
+ * Thread-safe (reads under a mutex). Always returns BB_OK.
+ */
+bb_err_t bb_sink_http_get_health(bb_sink_http_health_t *out);
 
 // ---------------------------------------------------------------------------
 // Init / cfg
@@ -167,6 +185,9 @@ bool bb_sink_http_header_value_valid(const char *value);
 // Inject a custom malloc for heap-failure tests.
 void bb_sink_http_set_malloc(void *(*fn)(size_t));
 void bb_sink_http_reset_malloc(void);
+// Inject health state for testing (bypasses the real publish path).
+void bb_sink_http_test_set_health(bool connected, int consec_failures, bb_tls_fail_t tls_fail, int last_status);
+void bb_sink_http_test_reset_health(void);
 #endif /* BB_SINK_HTTP_TESTING */
 
 #ifdef __cplusplus

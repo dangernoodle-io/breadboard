@@ -162,6 +162,10 @@ typedef struct {
     uint32_t       mqtt_disc_age_s;      // seconds since last MQTT disconnect (from evaluator)
     uint32_t       mqtt_disc_reason;     // classified MQTT disconnect reason (bb_mqtt_disc_t)
     uint32_t       mqtt_tls_fail;        // TLS handshake failure class (bb_tls_fail_t)
+    bool          http_connected;       // true when HTTP sink session is open
+    uint32_t      http_consec_failures; // consecutive HTTP transport failures
+    uint32_t      http_tls_fail;        // TLS handshake failure class (bb_tls_fail_t)
+    int           http_last_status;     // last HTTP status code (0 if none)
 } bb_net_health_status_t;
 
 // Copy the live net-health snapshot (populated by the ESP-IDF evaluator) under
@@ -181,6 +185,7 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out);
  *   last_disconnect_reason (WiFi), disc_age_s.
  * Nested object "mqtt": connected, reconnect_count, disc_age_s,
  *   disc_reason, tls_fail.
+ * Nested object "http": connected, consec_failures, tls_fail, last_status.
  *
  * Signature matches bb_cache_serialize_fn — pass directly to bb_cache_register.
  * Pure, host-testable — no ESP-IDF dependencies.
