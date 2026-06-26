@@ -454,6 +454,8 @@ The guard checks `heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CA
 
 `CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES` is an optional override: **0 (default) = auto-derive** from `SSL_IN_CONTENT_LEN`; a positive value pins an explicit byte floor; a negative value disables the guard. The guard is inert on boards with ample heap headroom (PSRAM boards, and pull-strategy boards after the OTA pause-hooks free the MQTT/ring heap).
 
+**Runtime handshake diagnostic (B1-358).** When `esp_https_ota_begin()` fails after exhausting inner retries, `bb_ota_tls_diag()` (pure, no ESP-IDF deps) emits an actionable log message naming the endpoint HOST extracted from `download_url` and the current `BB_OTA_SSL_IN_LEN` (bridged from `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN`). The message is also captured into `last_error` via `ota_set_error()` and surfaced by `GET /api/update/progress`. `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN` → cert chain relationship: GitHub requires ≥ 16384 (default); other endpoints (CDN, AWS IoT) may work with 4096. `bb_ota_pull` does NOT enforce a floor on `SSL_IN_CONTENT_LEN` — the consumer firmware owns that value.
+
 ## OTA push body cap
 
 `POST /api/update/push` enforces a body size limit via `CONFIG_BB_OTA_PUSH_MAX_SIZE` (default 4 MB). Requests exceeding the limit return 413 before any flash write begins.

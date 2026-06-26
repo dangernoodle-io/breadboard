@@ -54,6 +54,16 @@ config BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES
         Gates both the bb_ota_pull pre-flight check and the boot-status
         POST /api/update/check heap guard (bb_ota_boot).
 
+        SSL_IN ↔ certificate chain relationship (B1-358):
+        CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN controls the TLS record input buffer
+        size. GitHub's certificate chain requires ≥ 16384 bytes (default).
+        Other endpoints (CDN, AWS IoT) may work with 4096 bytes. bb_ota_pull
+        does NOT enforce a floor on SSL_IN — the consumer firmware owns that
+        value in its sdkconfig. If an OTA TLS handshake fails, the runtime
+        diagnostic (bb_ota_tls_diag) logs the endpoint host, the current
+        SSL_IN_CONTENT_LEN, and a suggestion to increase it; the message is
+        also captured in last_error and surfaced by GET /api/update/progress.
+
 config BB_OTA_PULL_MIN_FREE_HEAP_BYTES
     int "Pre-OTA minimum total-free-heap guard (bytes; 0=disabled)"
     range 0 262144

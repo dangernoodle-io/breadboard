@@ -50,6 +50,29 @@ bool bb_ota_pull_heap_guard_passes(size_t largest_block, size_t contiguous_floor
                                    size_t total_free, size_t total_floor,
                                    const char **out_dim);
 
+/**
+ * Pure TLS handshake diagnostic helper — no ESP-IDF dependencies.
+ *
+ * Classifies an mbedtls error from a failed OTA TLS handshake and fills a
+ * caller-supplied buffer with an actionable human-readable message.
+ *
+ * When mbedtls_err matches the record-size symptom (-0x7200), the message
+ * names the endpoint HOST and the current SSL_IN_CONTENT_LEN value and
+ * suggests increasing CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN. For other codes a
+ * compact generic message is produced.
+ *
+ * @param mbedtls_err  mbedtls error code (negative int)
+ * @param host         NUL-terminated hostname extracted from the OTA URL
+ * @param ssl_in_len   current CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN value (bytes)
+ * @param out          caller-supplied output buffer; may be NULL (no-op)
+ * @param out_len      size of out; may be 0 (no-op)
+ * @return true when mbedtls_err matches the record-size symptom (-0x7200)
+ *
+ * No ESP-IDF headers. Compiled on host and device.
+ */
+bool bb_ota_tls_diag(int mbedtls_err, const char *host, int ssl_in_len,
+                     char *out, size_t out_len);
+
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
 
