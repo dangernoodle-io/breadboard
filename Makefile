@@ -1,18 +1,21 @@
 PIO ?= pio
 
-.PHONY: help check test coverage smoke clean
+.PHONY: help check check-test test coverage smoke clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-check: ## Static analysis (cppcheck) + guard checks
+check: ## Forbidden-pattern lint + static analysis (cppcheck)
+	bash scripts/check_lint.sh
 	@if command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --enable=all --suppress=missingIncludeSystem --suppress=unusedFunction --suppress=redundantAssignment components/; \
 	else \
 		echo "cppcheck not found, skipping static analysis"; \
 	fi
-	@sh scripts/check_state_topic_post.sh
+
+check-test: ## Self-test suite for check_lint.sh
+	bash scripts/check_lint_test.sh
 
 test: ## Run host unit tests
 	$(PIO) test -e native

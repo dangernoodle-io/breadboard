@@ -9,7 +9,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Guard checks
+      - name: Self-test lint script
+        run: make check-test
+      - name: Forbidden-pattern lint
         run: make check
   test:
     uses: dangernoodle-io/.github/.github/workflows/pio-test.yml@main
