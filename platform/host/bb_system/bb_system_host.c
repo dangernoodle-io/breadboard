@@ -90,6 +90,19 @@ void bb_system_restart(void)
     exit(0);
 }
 
+bb_err_t bb_system_get_app_sha256(char *out, size_t out_size)
+{
+    if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
+    // 9 hex chars + NUL
+    if (out_size <= 9) return BB_ERR_NO_SPACE;
+    // Fixed test value; matches the test expectation in test_bb_info_build.c
+    const char *test_sha = "deadbeef0";
+    size_t len = 9;
+    for (size_t i = 0; i < len; i++) out[i] = test_sha[i];
+    out[len] = '\0';
+    return BB_OK;
+}
+
 #ifdef BB_SYSTEM_TESTING
 static float    s_test_temp = 0.0f;
 static bb_err_t s_test_rc   = BB_ERR_UNSUPPORTED;

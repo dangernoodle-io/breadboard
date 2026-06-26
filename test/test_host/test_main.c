@@ -1381,6 +1381,16 @@ void test_bb_info_schema_contains_time_valid(void);
 void test_bb_info_schema_contains_hostname(void);
 void bb_info_reset_for_test(void);
 
+// Forward declarations from test_bb_info_build.c
+void test_bb_info_build_emit_all_keys(void);
+void test_bb_info_build_capture_fills_snap(void);
+void test_bb_info_build_capture_null_returns_err(void);
+void test_bb_info_build_section_registered_in_schema(void);
+void test_bb_info_schema_base_lacks_static_fields(void);
+void test_bb_info_build_schema_has_all_fields(void);
+void test_bb_info_build_cache_fidelity(void);
+void test_bb_info_build_section_in_info_output(void);
+
 // Forward declarations from test_wifi_reconn_policy.c
 void wifi_reconn_policy_test_reset(void);
 void test_wifi_reconn_tier1_handshake_fast_retry(void);
@@ -4306,6 +4316,16 @@ int main(void) {
     RUN_TEST(test_bb_info_schema_contains_boot_epoch);
     RUN_TEST(test_bb_info_schema_contains_time_valid);
     RUN_TEST(test_bb_info_schema_contains_hostname);
+
+    // bb_info_build tests
+    RUN_TEST(test_bb_info_build_emit_all_keys);
+    RUN_TEST(test_bb_info_build_capture_fills_snap);
+    RUN_TEST(test_bb_info_build_capture_null_returns_err);
+    RUN_TEST(test_bb_info_build_section_registered_in_schema);
+    RUN_TEST(test_bb_info_schema_base_lacks_static_fields);
+    RUN_TEST(test_bb_info_build_schema_has_all_fields);
+    RUN_TEST(test_bb_info_build_cache_fidelity);
+    RUN_TEST(test_bb_info_build_section_in_info_output);
 
     // wifi_reconn_policy tests
     RUN_TEST(test_wifi_reconn_tier1_handshake_fast_retry);

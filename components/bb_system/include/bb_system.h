@@ -92,6 +92,13 @@ void bb_system_restart(void);
 /// and on host/Arduino backends. *out is untouched on error.
 bb_err_t bb_system_read_temp_celsius(float *out);
 
+/// Writes the first N hex characters of the app ELF SHA256 into out.
+/// N is controlled by CONFIG_APP_RETRIEVE_LEN_ELF_SHA (default 9 on ESP-IDF).
+/// On host, writes "deadbeef0" (9 chars, fixed test value).
+/// out must be at least out_size bytes; returns BB_ERR_NO_SPACE if
+/// out_size is too small to hold N chars + NUL terminator.
+bb_err_t bb_system_get_app_sha256(char *out, size_t out_size);
+
 #ifdef __cplusplus
 }
 #endif

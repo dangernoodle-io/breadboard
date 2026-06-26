@@ -8,4 +8,12 @@ config BB_INFO_AUTOREGISTER
         Disable to keep the bb_info_register_extender API but skip the route
         entirely.
 
+config BB_INFO_BUILD_TOPIC
+    bool "Publish build info as retained MQTT/event topic"
+    default y
+    help
+        When enabled, build metadata is published as a retained 'build'
+        state topic via bb_cache. The topic is attached to bb_event_routes
+        so SSE clients receive the initial build snapshot on connect.
+
 endmenu

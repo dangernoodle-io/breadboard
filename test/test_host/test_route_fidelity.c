@@ -91,26 +91,15 @@ static const char k_reboot_schema[] =
 // GET /api/info — bb_info.c (espidf)
 // IMPORTANT: must match bb_info_get_assembled_schema() with no extenders registered.
 // (test_fidelity_info_schema_matches_assembled enforces this.)
-// Includes http_handler_count and http_handler_cap added in bb-periph-info.
+// Static build fields (board, version, idf_version, etc.) moved to nested
+// "build" subsection in B1-360; k_info_schema updated to match.
 static const char k_info_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
-    "\"board\":{\"type\":\"string\"},"
-    "\"project_name\":{\"type\":\"string\"},"
-    "\"version\":{\"type\":\"string\"},"
-    "\"idf_version\":{\"type\":\"string\"},"
-    "\"build_date\":{\"type\":\"string\"},"
-    "\"build_time\":{\"type\":\"string\"},"
-    "\"chip_model\":{\"type\":\"string\"},"
-    "\"cores\":{\"type\":\"integer\"},"
     "\"mac\":{\"type\":\"string\"},"
-    "\"flash_size\":{\"type\":\"integer\"},"
-    "\"app_size\":{\"type\":\"integer\"},"
     "\"reset_reason\":{\"type\":\"string\"},"
     "\"ota_validated\":{\"type\":\"boolean\"},"
     "\"ota_ready\":{\"type\":\"boolean\"},"
-    "\"chip_revision\":{\"type\":\"integer\"},"
-    "\"cpu_freq_mhz\":{\"type\":\"integer\"},"
     "\"heap_internal\":{\"type\":\"object\","
     "\"properties\":{"
     "\"free\":{\"type\":\"integer\"},"
