@@ -487,8 +487,11 @@ The header is only rewritten when the content changes, preventing spurious recom
 **Precedence (highest → lowest):**
 1. `BB_FW_VERSION` env var non-empty → used verbatim (override for CI/release pipelines)
 2. Consumer repo has an exact git tag at HEAD → use that tag (release builds)
-3. Dev default: `dev-g<consumer_short_sha>[-dirty]-bb-g<bb_short_sha>[-dirty]`
-   - consumer repo = `$PROJECT_DIR`; breadboard repo = resolved from the script's real path
+3. Dev default: `dev-<tm-ref>-<bb-ref>`
+   - `tm-ref`: `main` on the main branch, else the 7-char short sha; a `+<hash4>` suffix (hash of the uncommitted `git diff`) marks a dirty tree so two dirty checkouts at the same sha stay distinguishable.
+   - `bb-ref`: `bb-<pin>` when `.breadboard` is a pinned fetch (version derivable from the consumer commit's pin), or `bb-main`/`bb-<sha>[+hash4]` when `.breadboard` is a local symlink (floating dev checkout).
+   - examples: `dev-main-bb-0.70.3` · `dev-main-bb-main` · `dev-806bf94+a1b2-bb-main`
+   - consumer repo = `$PROJECT_DIR`; breadboard repo = resolved from the script's real path. Exact commit identity for crash decoding comes from the panic `app_sha256` + elf archive, not this human-readable string.
 
 **Wiring a consumer (PlatformIO):**
 ```ini
