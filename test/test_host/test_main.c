@@ -1172,6 +1172,21 @@ void test_bb_timer_oneshot_stop_prevents_fire(void);
 void test_bb_timer_oneshot_delete_frees(void);
 void test_bb_timer_oneshot_arg_passed_to_cb(void);
 
+// Forward declarations from test_bb_timer_deferred.c
+void test_deferred_periodic_coalesce_skips_second_enqueue(void);
+void test_deferred_periodic_no_coalesce_after_drain(void);
+void test_deferred_oneshot_fires_once_then_disarmed(void);
+void test_deferred_oneshot_rearm_fires_again(void);
+void test_deferred_periodic_fire_before_start_noop(void);
+void test_deferred_periodic_stop_prevents_fire(void);
+void test_deferred_periodic_delete_after_stop_safe(void);
+void test_deferred_periodic_create_malloc_fail(void);
+void test_deferred_oneshot_create_malloc_fail(void);
+void test_worker_fire_runs_work_fn(void);
+void test_worker_create_malloc_fail(void);
+void test_worker_default_cfg(void);
+void test_worker_delete_safe(void);
+
 // Forward declarations from test_bb_board.c
 void test_bb_board_heap_free_total_callable(void);
 void test_bb_board_heap_free_internal_callable(void);
@@ -4252,6 +4267,21 @@ int main(void) {
     RUN_TEST(test_bb_timer_oneshot_stop_prevents_fire);
     RUN_TEST(test_bb_timer_oneshot_delete_frees);
     RUN_TEST(test_bb_timer_oneshot_arg_passed_to_cb);
+
+    // bb_timer deferred API tests
+    RUN_TEST(test_deferred_periodic_coalesce_skips_second_enqueue);
+    RUN_TEST(test_deferred_periodic_no_coalesce_after_drain);
+    RUN_TEST(test_deferred_oneshot_fires_once_then_disarmed);
+    RUN_TEST(test_deferred_oneshot_rearm_fires_again);
+    RUN_TEST(test_deferred_periodic_fire_before_start_noop);
+    RUN_TEST(test_deferred_periodic_stop_prevents_fire);
+    RUN_TEST(test_deferred_periodic_delete_after_stop_safe);
+    RUN_TEST(test_deferred_periodic_create_malloc_fail);
+    RUN_TEST(test_deferred_oneshot_create_malloc_fail);
+    RUN_TEST(test_worker_fire_runs_work_fn);
+    RUN_TEST(test_worker_create_malloc_fail);
+    RUN_TEST(test_worker_default_cfg);
+    RUN_TEST(test_worker_delete_safe);
 
     // bb_board tests
     RUN_TEST(test_bb_board_heap_free_total_callable);

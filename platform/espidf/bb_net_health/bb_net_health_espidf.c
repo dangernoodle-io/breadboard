@@ -253,7 +253,7 @@ static void publish_snapshot(const bb_net_health_output_t *out,
 // Evaluator timer callback (fires every 5 s on ESP-IDF)
 // ---------------------------------------------------------------------------
 
-static void eval_cb(void *arg)
+static void eval_work_fn(void *arg)
 {
     (void)arg;
 
@@ -432,7 +432,7 @@ bb_err_t bb_net_health_attach_sse(void)
     }
 
     // Start the 5-second periodic evaluator.
-    err = bb_timer_periodic_create(eval_cb, NULL, "bb_net_health", &s_timer);
+    err = bb_timer_deferred_periodic_create(eval_work_fn, NULL, "bb_net_health", &s_timer);
     if (err != BB_OK) {
         bb_log_w(TAG, "timer create failed: %d", (int)err);
         return err;
