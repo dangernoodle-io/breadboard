@@ -1,0 +1,17 @@
+[lint]
+default_profile = "library"
+
+[lint.rules.deprecated-http-send]
+severity = "error"
+
+[lint.rules.public-header-leak]
+severity = "error"
+
+[lint.rules.state-topic-post]
+severity = "error"
+
+[lint.rules.public-requires-watchlist]
+severity = "error"
+
+[plugins]
+paths = []
