@@ -68,6 +68,40 @@ bb_err_t bb_timer_oneshot_stop(bb_oneshot_timer_t t);
 // Cancel and free. Handle invalid after this returns.
 bb_err_t bb_timer_oneshot_delete(bb_oneshot_timer_t t);
 
+// ---------------------------------------------------------------------------
+// MODE A: Deferred timer API — work_fn runs on shared bb_timer_disp task.
+// Signal-only esp_timer cb + coalescing queue. For light housekeeping work.
+// ---------------------------------------------------------------------------
+
+// Create a deferred periodic timer. work_fn(arg) runs on the shared
+// bb_timer_disp task (not the esp_timer service task). Coalesces: if a
+// previous invocation is still pending, the second signal is dropped.
+bb_err_t bb_timer_deferred_periodic_create(void (*work_fn)(void *arg), void *arg,
+                                           const char *name, bb_periodic_timer_t *out);
+
+// Create a deferred one-shot timer. work_fn(arg) runs on the shared
+// bb_timer_disp task. Arms and disarms like bb_timer_oneshot_start/stop.
+bb_err_t bb_timer_deferred_oneshot_create(void (*work_fn)(void *arg), void *arg,
+                                          const char *name, bb_oneshot_timer_t *out);
+
+// ---------------------------------------------------------------------------
+// MODE B: Worker timer API — work_fn runs on a dedicated per-timer task.
+// For heavy/hot/large-stack IO (TLS, mbedTLS handshake, etc.).
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    uint32_t stack;    // 0 = default (4096)
+    int      priority; // 0 = default (5)
+    int      core;     // -1 = no affinity
+} bb_timer_worker_cfg_t;
+
+// Create a periodic timer with a dedicated worker task. work_fn(arg) runs on
+// the dedicated task on each timer tick. cfg may be NULL for all defaults.
+bb_err_t bb_timer_worker_periodic_create(void (*work_fn)(void *arg), void *arg,
+                                         const char *name,
+                                         const bb_timer_worker_cfg_t *cfg,
+                                         bb_periodic_timer_t *out);
+
 #ifdef __cplusplus
 }
 #endif

@@ -655,6 +655,19 @@ Part of **`bb_telemetry`** (B1-295) — not a separate component. It shares `bb_
 
 Tagging is manual: `git tag -a vX.Y.Z -m 'chore: vX.Y.Z tag' && git push origin vX.Y.Z`. The `release.yml` workflow waits for CI then publishes a GitHub release with auto-generated notes categorized by PR label (`.github/release.yml`). PR labels are auto-applied from conventional-commit prefixes; `new-component` PRs need that label set manually.
 
+## Timer callback convention
+
+esp_timer/bb_timer callbacks are **signal-only** — no `portMAX_DELAY` locks,
+allocation, or IDF-subsystem calls in a timer callback. Two sanctioned deferral modes:
+
+- **Light/slow-cadence housekeeping** → `bb_timer_deferred_*` (shared `bb_timer_disp`
+  task; coalescing queue; caller-supplied `work_fn` runs off the esp_timer service task).
+- **Heavy/hot/large-stack IO** (e.g. TLS, mbedTLS handshake) → `bb_timer_worker_*`
+  (own task per timer; caller-sized `{stack, priority, core}` via `bb_timer_worker_cfg_t`).
+
+Never hand-roll a timer→task pattern; never call `esp_timer_create` outside
+`platform/espidf/bb_timer/bb_timer.c`.
+
 ## Workspace conventions
 
 Workspace-level conventions (git, testing, docs) live in `/Users/jae/Projects/dangernoodle/CLAUDE.md`.

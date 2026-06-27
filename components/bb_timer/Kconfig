@@ -1,0 +1,38 @@
+menu "breadboard: bb_timer"
+
+config BB_TIMER_DISP_STACK
+    int "Shared dispatcher task stack size (bytes)"
+    default 4096
+    range 2048 16384
+    help
+        Stack for the bb_timer_disp task that runs MODE A deferred
+        work functions. mdns/cache/cJSON are safe; TLS is not (use MODE B).
+
+config BB_TIMER_DISP_PRIORITY
+    int "Shared dispatcher task priority"
+    default 5
+    range 1 20
+    help
+        FreeRTOS priority for the bb_timer_disp task. Default 5: above
+        bb_pub worker (1) and bb_event_disp (5, equal), below the
+        esp_timer service task (~22).
+
+config BB_TIMER_DISP_CORE
+    int "Shared dispatcher task core affinity (-1 = no affinity)"
+    default 1
+    range -1 1
+    help
+        Core to pin the bb_timer_disp task to. Default 1 escapes core-0
+        esp_timer service task congestion. -1 = tskNO_AFFINITY.
+
+config BB_TIMER_DISP_QUEUE_DEPTH
+    int "Shared dispatcher coalescing queue depth"
+    default 16
+    range 4 64
+    help
+        Depth of the internal queue between signal-only timer callbacks
+        and the bb_timer_disp worker task. With coalescing, one slot per
+        timer is sufficient in practice; the queue is a safety net for
+        burst scenarios.
+
+endmenu
