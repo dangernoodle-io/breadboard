@@ -447,6 +447,11 @@ COMPONENT_MAP = {
         ],
         "depends":  ["bb_core", "bb_event", "bb_event_ring", "bb_log"],
     },
+    "bb_alert": {
+        "includes": ["components/bb_alert/include"],
+        "sources":  ["platform/host/bb_alert/bb_alert.c"],
+        "depends":  ["bb_core", "bb_json", "bb_event", "bb_log"],
+    },
     "bb_cache": {
         "includes": ["components/bb_cache/include"],
         "sources":  ["platform/host/bb_cache/bb_cache_host.c"],
@@ -458,7 +463,7 @@ COMPONENT_MAP = {
         "sources":  ["components/bb_update_check/src/bb_update_check_common.c"],
         "depends":  ["bb_core", "bb_http", "bb_json", "bb_nv",
                      "bb_release_manifest", "bb_http_client",
-                     "bb_event", "bb_log", "bb_mdns", "bb_system"],
+                     "bb_event", "bb_log", "bb_mdns", "bb_system", "bb_alert"],
     },
     "bb_release_manifest": {
         "includes": ["components/bb_release_manifest/include"],

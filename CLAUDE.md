@@ -170,6 +170,32 @@ A **satellite** is a small component that contributes a section to an existing e
 
 **Naming split:** `CONFIG_BB_<NAME>_AUTOREGISTER` for core/infrastructure components and health/info satellites (this file); `CONFIG_BB_<NAME>_AUTO_ATTACH` for event-topic satellites that attach a `bb_event` topic to `bb_event_routes` (see Auto-attach convention below). `bb_display_info` uses `CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH` — the one legacy exception to the `_AUTOREGISTER` name on a satellite; do **not** rename it.
 
+## bb_alert — one-shot alert event channel
+
+`bb_alert` is an opt-in component for emitting discrete, one-shot alert events on the `"alert"` `bb_event` topic (non-retained, non-replay). It is designed for transient failure or state-change signals; durable state belongs in retained `bb_cache` topics.
+
+**Opt-in:** `CONFIG_BB_ALERT_ENABLE` (default `n`). When disabled, `bb_alert_emit()` compiles to a safe `static inline` no-op at zero cost. Consumers can call `bb_alert_emit()` unconditionally without `#ifdef` guards.
+
+**Component location:** `components/bb_alert/` (header + Kconfig + CMakeLists). Shared implementation: `platform/host/bb_alert/bb_alert.c` (compiled host + espidf). ESP-IDF registry glue: `platform/espidf/bb_alert/bb_alert_espidf.c`.
+
+**Topic:** `"alert"` — non-retained. Registered and attached at regular-tier order 4 (after `bb_event_routes` at order 0) when `CONFIG_BB_ALERT_AUTOREGISTER=y` (depends on `BB_ALERT_ENABLE && BB_EVENT_ROUTES_AUTOREGISTER`).
+
+**API:**
+- `bb_alert_emit(type, sev, fill, ctx)` — emit a one-shot alert. `type` is a string label (e.g. `"wifi_lost_ip"`). `sev` is `BB_ALERT_INFO` / `BB_ALERT_WARNING` / `BB_ALERT_CRITICAL`. `fill` is an optional `bb_alert_fill_fn` callback that adds extra fields to the JSON object. `ctx` is passed through to `fill`.
+- `bb_alert_register()` — registers the `"alert"` topic; called automatically by the registry init or manually in test teardown.
+
+**Severity threshold:** `BB_ALERT_MIN_SEVERITY` (Kconfig default 0 = INFO, C default matches). Alerts below the threshold are silently dropped before any JSON allocation. In test builds, override with `bb_alert_set_min_severity_for_test(sev)`.
+
+**Envelope:** `{type: string, severity: int, uptime_ms: int, ...fill fields}`. The JSON is serialized with `bb_json` and posted via `bb_event_post`.
+
+**Consumers:**
+- `wifi_lost_ip` (BB_ALERT_WARNING) in `platform/espidf/bb_wifi/wifi_reconn.c`: fired in `wifi_reconn_on_lost_ip()` and in the `ST_IDLE` no-IP watchdog path. Extra fields: `count`, `reason` (99 = `WIFI_REASON_BB_LOST_IP` sentinel), `retry_count`.
+- `update_failure` (BB_ALERT_WARNING) in `components/bb_update_check/src/bb_update_check_common.c`: fired on fetch-failed and parse-failed paths (both streaming and custom parser). Extra fields: `current`, `latest`.
+- `update_available` (BB_ALERT_INFO, transition edge only): fired when `available` transitions from `false` → `true`. Extra fields: `current`, `latest`.
+- `update_applied` (BB_ALERT_INFO) in `bb_update_check_mark_check_on_apply()`: fired when boot-mode OTA marks status as `check_on_apply` (staged/pending-reboot). Extra fields: `current`, `latest`.
+
+**Convention:** durable state → retained `bb_cache` topics; discrete one-shot events → `bb_alert`.
+
 ## Event bus (bb_event, bb_event_ring, bb_event_routes)
 
 `bb_event` is a portable callback-list publish/subscribe event bus. On ESP-IDF, subscribers receive events via a FreeRTOS dispatcher task; on Arduino, the app pumps events from `loop()` via `bb_event_pump()`. `bb_event_ring` is a sibling component providing a circular buffer with replay-on-subscribe — designed for fan-out scenarios (SSE/WebSocket subscribers, persistent event history). Both use the same `bb_event_t` opaque handle and dispatch model; `bb_event_ring` layers replay semantics on top of `bb_event` internally.

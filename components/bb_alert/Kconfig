@@ -1,0 +1,39 @@
+menu "breadboard: bb_alert"
+
+config BB_ALERT_ENABLE
+    bool "Enable bb_alert one-shot alert event channel"
+    default n
+    help
+        When disabled, bb_alert_emit() compiles to a safe no-op and the
+        alert topic is not registered or attached. Callers can invoke
+        bb_alert_emit() unconditionally at zero cost.
+
+        When enabled, discrete alert events are surfaced on /api/events
+        under the "alert" topic (non-retained). Each event carries a JSON
+        envelope: {type, severity, uptime_ms, ...fill fields}.
+
+config BB_ALERT_AUTOREGISTER
+    bool "Auto-register alert topic via bb_registry"
+    default y
+    depends on BB_ALERT_ENABLE && BB_EVENT_ROUTES_AUTOREGISTER
+    help
+        When enabled, bb_alert registers the alert topic and attaches it
+        to /api/events automatically via the bb_registry regular tier
+        (order 4, after bb_event_routes at order 0).
+
+        Disable to register manually by calling bb_alert_register() and
+        bb_event_routes_attach_ex("alert", false) in your own init code.
+
+config BB_ALERT_MIN_SEVERITY
+    int "Minimum alert severity to emit (0=INFO, 1=WARNING, 2=CRITICAL)"
+    default 0
+    range 0 2
+    depends on BB_ALERT_ENABLE
+    help
+        Alerts with severity below this threshold are silently dropped.
+        0 = emit all (INFO and above). 1 = WARNING and above. 2 = CRITICAL only.
+
+        The C default and this Kconfig default both equal 0 so the bridge
+        is never silently inert.
+
+endmenu

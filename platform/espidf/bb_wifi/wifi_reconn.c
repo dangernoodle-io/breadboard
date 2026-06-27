@@ -4,6 +4,7 @@
 #include "bb_ota_validator.h"
 #include "bb_timer.h"
 #include "bb_wifi.h"
+#include "bb_alert.h"
 
 #include <stdio.h>
 
@@ -18,6 +19,22 @@
 #include "freertos/queue.h"
 
 static const char *TAG = "wifi_reconn";
+
+#if BB_ALERT_ENABLE
+typedef struct {
+    uint32_t count;
+    uint32_t reason;
+    uint32_t retry_count;
+} lost_ip_fill_ctx_t;
+
+static void fill_wifi_lost_ip(bb_json_t obj, void *ctx)
+{
+    const lost_ip_fill_ctx_t *c = (const lost_ip_fill_ctx_t *)ctx;
+    bb_json_obj_set_int(obj, "count",       (int64_t)c->count);
+    bb_json_obj_set_int(obj, "reason",      (int64_t)c->reason);
+    bb_json_obj_set_int(obj, "retry_count", (int64_t)c->retry_count);
+}
+#endif
 
 #define RECONN_QUEUE_LEN 8
 // 6144 (not 4096): do_safeguard_reboot() opens NVS + writes the boot-fail count
@@ -179,6 +196,16 @@ static void reconn_task(void *arg)
                 wifi_reconn_policy_on_lost_ip(&s_state, &s_adapter);
                 bb_log_w(TAG, "ST_IDLE watchdog: associated but no IP, forcing disconnect (lost_ip_count=%u)",
                          (unsigned)s_state.lost_ip_count);
+#if BB_ALERT_ENABLE
+                {
+                    lost_ip_fill_ctx_t alert_ctx = {
+                        .count       = s_state.lost_ip_count,
+                        .reason      = 99, // WIFI_REASON_BB_LOST_IP sentinel
+                        .retry_count = (uint32_t)(s_state.handshake_fail_count + s_state.generic_fail_count),
+                    };
+                    bb_alert_emit("wifi_lost_ip", BB_ALERT_WARNING, fill_wifi_lost_ip, &alert_ctx);
+                }
+#endif
                 esp_wifi_disconnect();
             }
         } else {
@@ -251,6 +278,16 @@ void wifi_reconn_on_lost_ip(void)
     wifi_reconn_policy_on_lost_ip(&s_state, &s_adapter);
     bb_log_w(TAG, "IP lost while associated → forcing reconnect (lost_ip_count=%u)",
              (unsigned)s_state.lost_ip_count);
+#if BB_ALERT_ENABLE
+    {
+        lost_ip_fill_ctx_t alert_ctx = {
+            .count       = s_state.lost_ip_count,
+            .reason      = 99, // WIFI_REASON_BB_LOST_IP sentinel
+            .retry_count = (uint32_t)(s_state.handshake_fail_count + s_state.generic_fail_count),
+        };
+        bb_alert_emit("wifi_lost_ip", BB_ALERT_WARNING, fill_wifi_lost_ip, &alert_ctx);
+    }
+#endif
     // Do NOT set s_self_disconnect — we WANT the resulting DISCONNECTED event
     // to flow into wifi_reconn_on_disconnect() and drive full recovery.
     esp_wifi_disconnect();
