@@ -117,7 +117,7 @@ COMPONENT_MAP = {
         "depends":  ["bb_core", "bb_http", "bb_nv"],
     },
     "bb_wifi": {
-        "includes": ["components/bb_wifi/include", "components/bb_wifi"],
+        "includes": ["components/bb_wifi/include", "components/bb_wifi", "platform/host/bb_wifi"],
         "sources": [
             "platform/host/bb_wifi/bb_wifi_host.c",
             "platform/host/bb_wifi/bb_wifi_emit.c",

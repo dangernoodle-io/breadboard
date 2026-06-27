@@ -9,28 +9,17 @@
 // 30 s >> normal associate+DHCP (2–8 s), so false positives are rare.
 #define WIFI_RECONN_CONNECTING_TIMEOUT_MS CONFIG_BB_WIFI_RECONN_CONNECTING_TIMEOUT_MS
 
-// No-IP watchdog: how often ST_IDLE polls for the zombie state (L2-associated
-// but no DHCP IP). Bridged from Kconfig; falls back to 60 s on host builds.
+// BB_WIFI_INACTIVE_TIME_ENABLE: bridge Kconfig opt-in; default 0 on host.
 #ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_WIFI_NO_IP_WATCHDOG_S
-#    define WIFI_RECONN_NO_IP_WATCHDOG_MS ((uint32_t)(CONFIG_BB_WIFI_NO_IP_WATCHDOG_S) * 1000U)
+#  ifdef CONFIG_BB_WIFI_INACTIVE_TIME_ENABLE
+#    define BB_WIFI_INACTIVE_TIME_ENABLE 1
 #  endif
 #endif
-#ifndef WIFI_RECONN_NO_IP_WATCHDOG_MS
-#define WIFI_RECONN_NO_IP_WATCHDOG_MS 60000U
+#ifndef BB_WIFI_INACTIVE_TIME_ENABLE
+#define BB_WIFI_INACTIVE_TIME_ENABLE 0
 #endif
 
-// BB_WIFI_NO_IP_WATCHDOG_ENABLE: bridge Kconfig opt-in; default 0 on host.
-#ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_WIFI_NO_IP_WATCHDOG_ENABLE
-#    define BB_WIFI_NO_IP_WATCHDOG_ENABLE 1
-#  endif
-#endif
-#ifndef BB_WIFI_NO_IP_WATCHDOG_ENABLE
-#define BB_WIFI_NO_IP_WATCHDOG_ENABLE 0
-#endif
-
-// BB_WIFI_INACTIVE_TIME_S: beacon-loss inactive time; bridged from Kconfig; falls back to 45 s.
+// BB_WIFI_INACTIVE_TIME_S: bridged from Kconfig; falls back to 45 s.
 #ifdef ESP_PLATFORM
 #  ifdef CONFIG_BB_WIFI_INACTIVE_TIME_S
 #    define BB_WIFI_INACTIVE_TIME_S CONFIG_BB_WIFI_INACTIVE_TIME_S
@@ -40,26 +29,14 @@
 #define BB_WIFI_INACTIVE_TIME_S 45U
 #endif
 
-// WIFI_RECONN_EGRESS_PROBE_MS: how often ST_IDLE pings the gateway for egress health.
-// Bridged from Kconfig; host/disabled fallback 30 s.
+// BB_WIFI_RECOVERY_COOLDOWN_S: bridged from Kconfig; falls back to 60 s.
 #ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_WIFI_EGRESS_PROBE_S
-#    define WIFI_RECONN_EGRESS_PROBE_MS ((uint32_t)(CONFIG_BB_WIFI_EGRESS_PROBE_S) * 1000U)
+#  ifdef CONFIG_BB_WIFI_RECOVERY_COOLDOWN_S
+#    define BB_WIFI_RECOVERY_COOLDOWN_S CONFIG_BB_WIFI_RECOVERY_COOLDOWN_S
 #  endif
 #endif
-#ifndef WIFI_RECONN_EGRESS_PROBE_MS
-#define WIFI_RECONN_EGRESS_PROBE_MS 30000U
-#endif
-
-// WIFI_RECONN_EGRESS_PROBE_FAILS: consecutive probe failures before recovery.
-// Bridged from Kconfig; host/disabled fallback 3.
-#ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_WIFI_EGRESS_PROBE_FAILS
-#    define WIFI_RECONN_EGRESS_PROBE_FAILS CONFIG_BB_WIFI_EGRESS_PROBE_FAILS
-#  endif
-#endif
-#ifndef WIFI_RECONN_EGRESS_PROBE_FAILS
-#define WIFI_RECONN_EGRESS_PROBE_FAILS 3
+#ifndef BB_WIFI_RECOVERY_COOLDOWN_S
+#define BB_WIFI_RECOVERY_COOLDOWN_S 60U
 #endif
 
 // Start the reconnect manager task. Call once from wifi_connect_sta()
@@ -99,3 +76,7 @@ void wifi_reconn_absorb_next_disconnect(void);
 // Diagnostic counter: times the egress probe declared the gateway unreachable
 // and called bb_wifi_restart_sta (lock-free read of manager-owned state).
 uint32_t wifi_reconn_get_egress_dead_count(void);
+
+// Signal the reconn task to run bb_wifi_restart_sta() from the task context.
+// Called by bb_wifi_request_recovery() after debounce check.
+void wifi_reconn_request_recovery(const char *reason);

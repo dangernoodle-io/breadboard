@@ -390,18 +390,44 @@ void bb_wifi_restart_sta(void)
     esp_wifi_stop();
     esp_wifi_start();
     // Re-apply saved config (inactive_time is not stored in flash; set again).
-#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
-    esp_wifi_set_inactive_time(WIFI_IF_STA, CONFIG_BB_WIFI_INACTIVE_TIME_S);
+#if BB_WIFI_INACTIVE_TIME_ENABLE
+    esp_wifi_set_inactive_time(WIFI_IF_STA, BB_WIFI_INACTIVE_TIME_S);
 #endif
     esp_wifi_set_config(WIFI_IF_STA, &s_sta_config);
     s_sta_restarting = false;
     esp_wifi_connect();
 }
 
+bb_err_t bb_wifi_request_recovery(const char *reason)
+{
+    // No-op if we don't have IP yet — FSM owns recovery in that state.
+    if (!bb_wifi_has_ip()) {
+        bb_log_d(TAG, "request_recovery(%s): no IP, FSM owns recovery", reason ? reason : "");
+        return BB_OK;
+    }
+
+    // Debounce: at most one recovery per cooldown window.
+    static int64_t s_last_recovery_us = 0;
+    int64_t now = (int64_t)esp_timer_get_time();
+    int64_t cooldown_us = (int64_t)BB_WIFI_RECOVERY_COOLDOWN_S * 1000000LL;
+    if (s_last_recovery_us != 0 && (now - s_last_recovery_us) < cooldown_us) {
+        bb_log_i(TAG, "request_recovery(%s): debounced (cooldown %us)",
+                 reason ? reason : "", (unsigned)BB_WIFI_RECOVERY_COOLDOWN_S);
+        return BB_OK;
+    }
+    s_last_recovery_us = now;
+
+    bb_log_i(TAG, "request_recovery: reason='%s', signaling reconn task", reason ? reason : "");
+    if (wifi_reconn_is_active()) {
+        wifi_reconn_request_recovery(reason);
+    }
+    return BB_OK;
+}
+
 void bb_wifi_force_reassociate(void)
 {
     bb_log_w(TAG, "forcing WiFi reassociation (zombie state recovery)");
-#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
+#if BB_WIFI_INACTIVE_TIME_ENABLE
     bb_wifi_restart_sta();
 #else
     esp_wifi_disconnect();
@@ -475,11 +501,11 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     memcpy(&s_sta_config, &wifi_config, sizeof(s_sta_config));
     ESP_ERROR_CHECK(esp_wifi_start());
-#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
+#if BB_WIFI_INACTIVE_TIME_ENABLE
     // Beacon-loss detection: driver emits WIFI_EVENT_STA_DISCONNECTED after this
     // many seconds without a beacon, flowing into the normal reconnect FSM path.
     // Must be called after esp_wifi_start(); minimum 3 for STA (ESP-IDF hard floor).
-    esp_wifi_set_inactive_time(WIFI_IF_STA, CONFIG_BB_WIFI_INACTIVE_TIME_S);
+    esp_wifi_set_inactive_time(WIFI_IF_STA, BB_WIFI_INACTIVE_TIME_S);
 #endif
 #if CONFIG_BB_WIFI_PS_NONE
     esp_wifi_set_ps(WIFI_PS_NONE);

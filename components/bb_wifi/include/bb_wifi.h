@@ -64,6 +64,15 @@ void bb_wifi_force_reassociate(void);
 // Only available on ESP-IDF platform.
 void bb_wifi_restart_sta(void);
 
+// App-driven WiFi recovery request.
+// Returns BB_OK immediately (non-blocking). If the STA already has no IP,
+// this is a no-op (BB_OK) — the FSM already owns recovery.
+// Debounced: at most one action per CONFIG_BB_WIFI_RECOVERY_COOLDOWN_S.
+// When triggered, signals the reconn task to call bb_wifi_restart_sta().
+// Bumps bb_wifi_get_egress_dead_count() and logs reason (never silent).
+// Always compiled; safe to call from any task context.
+bb_err_t bb_wifi_request_recovery(const char *reason);
+
 // ---------------------------------------------------------------------------
 // Hostname
 // ---------------------------------------------------------------------------
