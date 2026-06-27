@@ -9,10 +9,10 @@
 #if CONFIG_BB_NV_FACTORY_RESET
 
 #ifdef ESP_PLATFORM
-#include "esp_timer.h"
+#include "bb_timer.h"
 #include "esp_system.h"
 
-static void factory_reset_reboot_cb(void *arg)
+static void factory_reset_reboot_work_fn(void *arg)
 {
     (void)arg;
     esp_restart();
@@ -91,16 +91,13 @@ static bb_err_t factory_reset_handler(bb_http_request_t *req)
     bb_http_resp_json_obj_end(&obj);
 
 #ifdef ESP_PLATFORM
-    static esp_timer_handle_t s_reset_timer = NULL;
+    static bb_oneshot_timer_t s_reset_timer = NULL;
     if (!s_reset_timer) {
-        const esp_timer_create_args_t args = {
-            .callback = factory_reset_reboot_cb,
-            .name = "bb_nv_factory_reset",
-        };
-        esp_timer_create(&args, &s_reset_timer);
+        bb_timer_deferred_oneshot_create(factory_reset_reboot_work_fn, NULL,
+                                         "bb_nv_factory_reset", &s_reset_timer);
     }
-    esp_timer_stop(s_reset_timer);
-    esp_timer_start_once(s_reset_timer, 500 * 1000); /* 500 ms — lets HTTP 202 flush */
+    bb_timer_oneshot_stop(s_reset_timer);
+    bb_timer_oneshot_start(s_reset_timer, 500 * 1000); /* 500 ms — lets HTTP 202 flush */
 #endif /* ESP_PLATFORM */
 
     return BB_OK;

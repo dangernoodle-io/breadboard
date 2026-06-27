@@ -16,6 +16,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_timer.h"
+#include "bb_timer.h"
 #include "ping/ping_sock.h"
 #include "lwip/ip_addr.h"
 #include "bb_ota_validator.h"
@@ -31,7 +32,7 @@ static EventGroupHandle_t s_wifi_event_group = NULL;
 static atomic_int s_retry_count = 0;
 static esp_event_handler_instance_t s_wifi_handler = NULL;
 static esp_event_handler_instance_t s_ip_handler = NULL;
-static esp_timer_handle_t s_reconnect_timer = NULL;
+static bb_oneshot_timer_t s_reconnect_timer = NULL;
 static volatile bool s_has_ip = false;
 #if CONFIG_BB_WIFI_RECONFIGURE
 static volatile bool s_pending_try = false;
@@ -66,7 +67,7 @@ static portMUX_TYPE s_ap_mux = portMUX_INITIALIZER_UNLOCKED;
 static char s_cached_ssid[33] = {0};
 static uint8_t s_cached_bssid[6] = {0};
 static int8_t s_cached_rssi = 0;
-static esp_timer_handle_t s_rssi_refresh_timer = NULL;
+static bb_periodic_timer_t s_rssi_refresh_timer = NULL;
 
 // Lazy ping session for bb_wifi_gateway_reachable.
 // Created once on first use; reused across calls (esp_ping_start re-triggers).
@@ -75,7 +76,7 @@ static SemaphoreHandle_t    s_ping_mutex  = NULL;  // guards s_ping_handle creat
 static volatile bool        s_ping_success = false;
 static SemaphoreHandle_t    s_ping_done   = NULL;  // binary semaphore, given on result
 
-static void rssi_refresh_cb(void *arg)
+static void rssi_refresh_work_fn(void *arg)
 {
     (void)arg;
     if (!s_has_ip) return;
@@ -179,7 +180,7 @@ bool bb_wifi_gateway_reachable(uint32_t timeout_ms)
     return reachable;
 }
 
-static void reconnect_timer_cb(void *arg)
+static void reconnect_work_fn(void *arg)
 {
     (void)arg;
     esp_wifi_connect();
@@ -329,14 +330,11 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             bb_log_w(TAG, "max retries reached, delaying 5s before retry");
             atomic_store(&s_retry_count, 0);
             if (!s_reconnect_timer) {
-                const esp_timer_create_args_t args = {
-                    .callback = reconnect_timer_cb,
-                    .name = "wifi_reconn_boot",
-                };
-                esp_timer_create(&args, &s_reconnect_timer);
+                bb_timer_deferred_oneshot_create(reconnect_work_fn, NULL,
+                                                 "wifi_reconn_boot", &s_reconnect_timer);
             }
-            esp_timer_stop(s_reconnect_timer);
-            esp_timer_start_once(s_reconnect_timer, 5000000);
+            bb_timer_oneshot_stop(s_reconnect_timer);
+            bb_timer_oneshot_start(s_reconnect_timer, 5000000);
             return;
         }
         esp_wifi_connect();
@@ -517,15 +515,12 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
 
     // Initialize RSSI refresh timer
     if (!s_rssi_refresh_timer) {
-        const esp_timer_create_args_t args = {
-            .callback = rssi_refresh_cb,
-            .name = "bb_wifi_rssi",
-        };
-        esp_timer_create(&args, &s_rssi_refresh_timer);
+        bb_timer_deferred_periodic_create(rssi_refresh_work_fn, NULL,
+                                          "bb_wifi_rssi", &s_rssi_refresh_timer);
     }
     if (s_rssi_refresh_timer) {
-        esp_timer_stop(s_rssi_refresh_timer);
-        esp_timer_start_periodic(s_rssi_refresh_timer, 5 * 1000 * 1000);  // 5s
+        bb_timer_periodic_stop(s_rssi_refresh_timer);
+        bb_timer_periodic_start(s_rssi_refresh_timer, 5 * 1000 * 1000);  // 5s
     }
 
     bb_log_i(TAG, "connecting to %s", (char *)wifi_config.sta.ssid);
@@ -538,7 +533,7 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
 
         // Stop reconnect timer before deinit to prevent firing on dead driver
         if (s_reconnect_timer) {
-            esp_timer_stop(s_reconnect_timer);
+            bb_timer_oneshot_stop(s_reconnect_timer);
         }
 
         // Clean up WiFi so it can be reinitialized
@@ -706,7 +701,7 @@ bb_err_t bb_wifi_set_hostname(const char *hostname)
 }
 
 #if CONFIG_BB_WIFI_RECONFIGURE
-static void reconfig_reboot_timer_cb(void *arg)
+static void reconfig_reboot_work_fn(void *arg)
 {
     (void)arg;
     esp_restart();
@@ -720,16 +715,13 @@ bb_err_t bb_wifi_reconfigure(const char *ssid, const char *pass)
     err = bb_nv_config_set_wifi_pending(ssid, pass);
     if (err != BB_OK) return err;
 
-    static esp_timer_handle_t s_reconfig_timer = NULL;
+    static bb_oneshot_timer_t s_reconfig_timer = NULL;
     if (!s_reconfig_timer) {
-        const esp_timer_create_args_t args = {
-            .callback = reconfig_reboot_timer_cb,
-            .name = "bb_wifi_reconfig",
-        };
-        esp_timer_create(&args, &s_reconfig_timer);
+        bb_timer_deferred_oneshot_create(reconfig_reboot_work_fn, NULL,
+                                         "bb_wifi_reconfig", &s_reconfig_timer);
     }
-    esp_timer_stop(s_reconfig_timer);
-    esp_timer_start_once(s_reconfig_timer, 500 * 1000); // 500 ms — lets HTTP 202 flush
+    bb_timer_oneshot_stop(s_reconfig_timer);
+    bb_timer_oneshot_start(s_reconfig_timer, 500 * 1000); // 500 ms — lets HTTP 202 flush
     return BB_OK;
 }
 #else
