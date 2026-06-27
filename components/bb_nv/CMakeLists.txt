@@ -6,7 +6,7 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/bb_nv_wifi_pending.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_log bb_registry bb_manifest bb_http bb_json nvs_flash esp_timer
+    PRIV_REQUIRES bb_log bb_registry bb_manifest bb_http bb_json nvs_flash bb_timer
 )
 
 if(CONFIG_BB_NV_FLASH_AUTOREGISTER)
