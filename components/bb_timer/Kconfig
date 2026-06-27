@@ -19,11 +19,15 @@ config BB_TIMER_DISP_PRIORITY
 
 config BB_TIMER_DISP_CORE
     int "Shared dispatcher task core affinity (-1 = no affinity)"
-    default 1
+    default -1
     range -1 1
     help
-        Core to pin the bb_timer_disp task to. Default 1 escapes core-0
-        esp_timer service task congestion. -1 = tskNO_AFFINITY.
+        Core to pin the bb_timer_disp task to. Default -1 (no affinity) lets
+        the scheduler place it on whichever core has CPU. Without affinity,
+        the prio-5 dispatcher cannot be starved on boards where core 1 runs
+        a high-priority CPU-bound task (e.g. mining at prio 20). Boards that
+        specifically want it off the esp_timer service core (core 0) can still
+        pin it explicitly via CONFIG_BB_TIMER_DISP_CORE.
 
 config BB_TIMER_DISP_QUEUE_DEPTH
     int "Shared dispatcher coalescing queue depth"
