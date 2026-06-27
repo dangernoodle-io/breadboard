@@ -89,6 +89,8 @@ static const bb_net_health_status_t s_net_health_initial = {
     .http_consec_failures   = 0,
     .http_tls_fail          = 0,
     .http_last_status       = 0,
+    .lost_ip_recoveries     = 0,
+    .lost_ip_age_s          = 0,
 };
 
 static const bb_diag_boot_snap_t s_diag_boot_initial = {

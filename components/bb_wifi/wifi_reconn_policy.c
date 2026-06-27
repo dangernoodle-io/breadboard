@@ -88,6 +88,21 @@ void wifi_reconn_policy_on_got_ip(wifi_reconn_state_t *st)
     st->retry_count = 0;
 }
 
+bool wifi_reconn_should_reconnect_no_ip(bool associated, bool has_ip)
+{
+    return associated && !has_ip;
+}
+
+void wifi_reconn_policy_on_lost_ip(wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad)
+{
+    if (!st || !ad) return;
+    st->lost_ip_count++;
+    st->last_lost_ip_us = ad->now_us();
+    if (st->reason_histogram[WIFI_REASON_BB_LOST_IP] < UINT16_MAX) {
+        st->reason_histogram[WIFI_REASON_BB_LOST_IP]++;
+    }
+}
+
 wifi_reconn_action_t wifi_reconn_policy_on_connect_timeout(
     wifi_reconn_state_t *st, const wifi_reconn_adapter_t *a,
     uint32_t *backoff_ms_out)

@@ -318,3 +318,56 @@ void test_wifi_reconn_connect_timeout_past_window(void)
     TEST_ASSERT_EQUAL(2, s_state.generic_fail_count);
     TEST_ASSERT_EQUAL(2, s_state.retry_count);
 }
+
+// --- lost-IP policy tests ---
+
+void test_wifi_reconn_should_reconnect_no_ip_associated_no_ip(void)
+{
+    TEST_ASSERT_TRUE(wifi_reconn_should_reconnect_no_ip(true, false));
+}
+
+void test_wifi_reconn_should_reconnect_no_ip_associated_has_ip(void)
+{
+    TEST_ASSERT_FALSE(wifi_reconn_should_reconnect_no_ip(true, true));
+}
+
+void test_wifi_reconn_should_reconnect_no_ip_not_associated(void)
+{
+    TEST_ASSERT_FALSE(wifi_reconn_should_reconnect_no_ip(false, false));
+}
+
+void test_wifi_reconn_policy_on_lost_ip_increments(void)
+{
+    // Reset and use the module-level s_state and adapter
+    TEST_ASSERT_EQUAL(0, s_state.lost_ip_count);
+    TEST_ASSERT_EQUAL(0, s_state.last_lost_ip_us);
+    TEST_ASSERT_EQUAL(0, s_state.reason_histogram[WIFI_REASON_BB_LOST_IP]);
+
+    s_fake_now_us = 5000000;
+    wifi_reconn_policy_on_lost_ip(&s_state, &adapter);
+
+    TEST_ASSERT_EQUAL(1, s_state.lost_ip_count);
+    TEST_ASSERT_EQUAL_INT64(5000000, s_state.last_lost_ip_us);
+    TEST_ASSERT_EQUAL(1, s_state.reason_histogram[WIFI_REASON_BB_LOST_IP]);
+
+    // Second call
+    s_fake_now_us = 10000000;
+    wifi_reconn_policy_on_lost_ip(&s_state, &adapter);
+    TEST_ASSERT_EQUAL(2, s_state.lost_ip_count);
+    TEST_ASSERT_EQUAL_INT64(10000000, s_state.last_lost_ip_us);
+    TEST_ASSERT_EQUAL(2, s_state.reason_histogram[WIFI_REASON_BB_LOST_IP]);
+}
+
+void test_wifi_reconn_policy_on_lost_ip_null_args(void)
+{
+    // No crash on null args
+    wifi_reconn_policy_on_lost_ip(NULL, &adapter);
+    wifi_reconn_policy_on_lost_ip(&s_state, NULL);
+}
+
+void test_wifi_reconn_policy_on_lost_ip_histogram_saturates(void)
+{
+    s_state.reason_histogram[WIFI_REASON_BB_LOST_IP] = UINT16_MAX;
+    wifi_reconn_policy_on_lost_ip(&s_state, &adapter);
+    TEST_ASSERT_EQUAL(UINT16_MAX, s_state.reason_histogram[WIFI_REASON_BB_LOST_IP]);
+}

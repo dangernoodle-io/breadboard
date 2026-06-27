@@ -166,6 +166,8 @@ typedef struct {
     uint32_t      http_consec_failures; // consecutive HTTP transport failures
     uint32_t      http_tls_fail;        // TLS handshake failure class (bb_tls_fail_t)
     int           http_last_status;     // last HTTP status code (0 if none)
+    uint32_t lost_ip_recoveries; // times lost-IP recovery was triggered (bb_wifi_get_lost_ip_count)
+    uint32_t lost_ip_age_s;      // seconds since last lost-IP event (0 if never)
 } bb_net_health_status_t;
 
 // Copy the live net-health snapshot (populated by the ESP-IDF evaluator) under

@@ -124,6 +124,18 @@ bool bb_wifi_has_ip(void)
     return s_has_ip;
 }
 
+uint32_t bb_wifi_get_lost_ip_count(void)
+{
+    return wifi_reconn_is_active() ? wifi_reconn_get_lost_ip_count() : 0;
+}
+
+uint32_t bb_wifi_get_lost_ip_age_s(void)
+{
+    if (!wifi_reconn_is_active()) return 0;
+    int64_t age_us = wifi_reconn_get_lost_ip_age_us();
+    return (uint32_t)(age_us / 1000000);
+}
+
 bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)
 {
     if (!out) return ESP_FAIL;
@@ -241,6 +253,9 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         }
         s_has_ip = false;
         bb_log_w(TAG, "IP lost");
+        if (wifi_reconn_is_active()) {
+            wifi_reconn_on_lost_ip();
+        }
     }
 }
 
