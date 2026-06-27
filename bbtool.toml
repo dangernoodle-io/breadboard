@@ -13,5 +13,11 @@ severity = "error"
 [lint.rules.public-requires-watchlist]
 severity = "error"
 
+[lint.rules.raw-esp-timer]
+severity = "error"
+
+[lint.rules.timer-cb-heavy]
+severity = "error"
+
 [plugins]
 paths = []

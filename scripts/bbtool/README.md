@@ -34,10 +34,10 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 |---------|---------|----------------|
 | `deprecated-http-send` | all | Flags `bb_http_resp_send_json/err/send(` calls in `components/` — use `bb_http_resp_send_chunk` / `bb_http_resp_sendstr` instead |
 | `state-topic-post` | all | Flags `bb_event_post(` with a state topic outside `bb_cache/` or `test/` — state topics must flow through `bb_cache` |
+| `raw-esp-timer` | all | Flags `esp_timer_create` or `esp_timer_create_args_t` used outside `platform/espidf/bb_timer/` — use `bb_timer_deferred_*` / `bb_timer_worker_*` instead |
+| `timer-cb-heavy` | all | Flags heavy work (blocking locks, alloc, IDF-subsystem calls) inside a `bb_timer_(periodic\|oneshot)_create` callback body — use `bb_timer_deferred_*` instead |
 | `public-header-leak` | library | Flags `esp_*/driver//cJSON.h` includes in public component headers outside an `#ifdef ESP_PLATFORM` gate |
 | `public-requires-watchlist` | library | Flags high-risk ESP-IDF deps (`esp_driver_*`, `esp_lcd`, etc.) in `REQUIRES` when they should be `PRIV_REQUIRES` (allowlist exceptions documented in `check_lint.sh` comments) |
-
-`raw-esp-timer` and `timer-cb-heavy` (the B1-372 timer-convention guards) arrive in the next PR.
 
 ## `bbtool.toml` config schema
 
@@ -57,6 +57,12 @@ severity = "error"
 severity = "error"
 
 [lint.rules.public-requires-watchlist]
+severity = "error"
+
+[lint.rules.raw-esp-timer]
+severity = "error"
+
+[lint.rules.timer-cb-heavy]
 severity = "error"
 
 [plugins]

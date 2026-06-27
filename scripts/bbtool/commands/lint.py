@@ -184,6 +184,232 @@ def _check_public_requires_watchlist(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: raw-esp-timer
+# ---------------------------------------------------------------------------
+
+def _check_raw_esp_timer(ctx: Context) -> list:
+    """Rule: raw-esp-timer — flags esp_timer_create/_create_args_t outside bb_timer/."""
+    violations = []
+    pattern = re.compile(r'\besp_timer_create\b|\besp_timer_create_args_t\b')
+    root = Path(ctx.root)
+    bb_timer_dir = root / "platform" / "espidf" / "bb_timer"
+
+    for path in ctx.files(
+        ["platform/**/*.c", "platform/**/*.h",
+         "components/**/*.c", "components/**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        # Skip test fixtures
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+        # Exempt bb_timer directory
+        try:
+            path.relative_to(bb_timer_dir)
+            continue
+        except ValueError:
+            pass
+        content = ctx.read(path)
+        for i, line in enumerate(content.splitlines(), 1):
+            if pattern.search(line):
+                violations.append(ctx.violation(path, i))
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Rule: timer-cb-heavy
+# ---------------------------------------------------------------------------
+
+_TIMER_CB_KEYWORDS = frozenset({
+    "void", "int", "char", "const", "unsigned", "signed", "struct", "enum",
+    "typedef", "static", "inline", "extern", "return", "if", "else", "for",
+    "while", "do", "switch", "case", "break", "NULL", "true", "false",
+})
+
+_TIMER_REG_RE = re.compile(
+    r'\bbb_timer_(?:periodic|oneshot)_create\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)'
+)
+
+_HEAVY_PATTERNS = [
+    re.compile(r'\bxSemaphoreTake\s*\([^)]*portMAX_DELAY'),
+    re.compile(r'\bmalloc\b'),
+    re.compile(r'\bbb_json_'),
+    re.compile(r'\bbb_cache_'),
+    re.compile(r'\bmdns_'),
+    re.compile(r'\besp_wifi_'),
+    re.compile(r'\besp_restart\b'),
+    re.compile(r'\bxTaskCreate\b'),
+    re.compile(r'\bbb_event_post\b'),
+]
+
+
+def _strip_noise(src: str) -> str:
+    """Single-pass: blank string literals, char literals, // and /* */ comments.
+
+    Preserves all newlines and character offsets so line numbers stay accurate.
+    """
+    out = []
+    i = 0
+    n = len(src)
+    while i < n:
+        c = src[i]
+        # Line comment
+        if c == '/' and i + 1 < n and src[i + 1] == '/':
+            out.append(' ')
+            out.append(' ')
+            i += 2
+            while i < n and src[i] != '\n':
+                out.append(' ')
+                i += 1
+        # Block comment
+        elif c == '/' and i + 1 < n and src[i + 1] == '*':
+            out.append(' ')
+            out.append(' ')
+            i += 2
+            while i < n:
+                if src[i] == '*' and i + 1 < n and src[i + 1] == '/':
+                    out.append(' ')
+                    out.append(' ')
+                    i += 2
+                    break
+                out.append('\n' if src[i] == '\n' else ' ')
+                i += 1
+        # String literal
+        elif c == '"':
+            out.append(' ')
+            i += 1
+            while i < n and src[i] != '"':
+                if src[i] == '\\' and i + 1 < n:
+                    out.append(' ')
+                    out.append('\n' if src[i + 1] == '\n' else ' ')
+                    i += 2
+                else:
+                    out.append('\n' if src[i] == '\n' else ' ')
+                    i += 1
+            if i < n:
+                out.append(' ')
+                i += 1
+        # Char literal
+        elif c == "'":
+            out.append(' ')
+            i += 1
+            while i < n and src[i] != "'":
+                if src[i] == '\\' and i + 1 < n:
+                    out.append(' ')
+                    out.append('\n' if src[i + 1] == '\n' else ' ')
+                    i += 2
+                else:
+                    out.append('\n' if src[i] == '\n' else ' ')
+                    i += 1
+            if i < n:
+                out.append(' ')
+                i += 1
+        else:
+            out.append(c)
+            i += 1
+    return ''.join(out)
+
+
+def _walk_balanced(text: str, start: int, open_ch: str, close_ch: str) -> int:
+    """Starting AT the open_ch at text[start], walk to matching close_ch.
+    Returns index of the closing char, or -1 if not found.
+    """
+    assert text[start] == open_ch
+    depth = 0
+    i = start
+    n = len(text)
+    while i < n:
+        if text[i] == open_ch:
+            depth += 1
+        elif text[i] == close_ch:
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def _find_cb_body(stripped: str, cb_name: str) -> Optional[str]:
+    """Locate the DEFINITION of cb_name in stripped text.
+
+    A definition: cb_name as a word, followed (after optional ws/parens) by `{`.
+    Returns the body (between the braces, exclusive), or None if not found.
+    """
+    word_re = re.compile(r'\b' + re.escape(cb_name) + r'\b')
+    n = len(stripped)
+    for m in word_re.finditer(stripped):
+        pos = m.end()
+        # Skip whitespace
+        while pos < n and stripped[pos] in ' \t\r\n':
+            pos += 1
+        if pos >= n or stripped[pos] != '(':
+            continue
+        # Walk param list
+        close_paren = _walk_balanced(stripped, pos, '(', ')')
+        if close_paren < 0:
+            continue
+        pos = close_paren + 1
+        # Skip whitespace
+        while pos < n and stripped[pos] in ' \t\r\n':
+            pos += 1
+        if pos >= n or stripped[pos] != '{':
+            continue
+        # This is a definition — walk the body
+        close_brace = _walk_balanced(stripped, pos, '{', '}')
+        if close_brace < 0:
+            continue
+        return stripped[pos + 1:close_brace]
+    return None
+
+
+def _check_timer_cb_heavy(ctx: Context) -> list:
+    """Rule: timer-cb-heavy — flags heavy work in bb_timer_(periodic|oneshot)_create callbacks."""
+    violations = []
+    root = Path(ctx.root)
+
+    for path in ctx.files(
+        ["platform/**/*.c", "platform/**/*.h",
+         "components/**/*.c", "components/**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+
+        src = ctx.read(path)
+        stripped = _strip_noise(src)
+        lines = stripped.splitlines()
+
+        # Find all bb_timer_(periodic|oneshot)_create( first-arg-ident ) registrations
+        for m in _TIMER_REG_RE.finditer(stripped):
+            cb_name = m.group(1)
+            if cb_name in _TIMER_CB_KEYWORDS:
+                continue
+
+            # Line number of the registration
+            reg_line = stripped[:m.start()].count('\n') + 1
+
+            # Find callback definition body
+            body = _find_cb_body(stripped, cb_name)
+            if body is None:
+                # Callback defined elsewhere — accepted gap
+                continue
+
+            # Scan body for heavy tokens
+            for hp in _HEAVY_PATTERNS:
+                hm = hp.search(body)
+                if hm:
+                    token = body[hm.start():hm.end()].strip()
+                    violations.append(ctx.violation(
+                        path, reg_line,
+                        f"callback '{cb_name}' does heavy work: {token}",
+                    ))
+                    break  # one violation per registration
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule registry — register all 4 rules
 # ---------------------------------------------------------------------------
 
@@ -219,6 +445,20 @@ def _register_lint_rules() -> None:
             profiles={"library"},
             check=_check_public_requires_watchlist,
             hint="move watchlist deps to PRIV_REQUIRES",
+        ),
+        Rule(
+            id="raw-esp-timer",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_raw_esp_timer,
+            hint="use bb_timer_deferred_* / bb_timer_worker_* (never raw esp_timer_create)",
+        ),
+        Rule(
+            id="timer-cb-heavy",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_timer_cb_heavy,
+            hint="timer callback does heavy work — use bb_timer_deferred_*",
         ),
     ]
     for rule in rules:
