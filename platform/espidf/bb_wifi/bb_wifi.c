@@ -14,7 +14,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_timer.h"
+#include "ping/ping_sock.h"
+#include "lwip/ip_addr.h"
 #include "bb_ota_validator.h"
 
 static const char *TAG = "bb_wifi";
@@ -65,6 +68,13 @@ static uint8_t s_cached_bssid[6] = {0};
 static int8_t s_cached_rssi = 0;
 static esp_timer_handle_t s_rssi_refresh_timer = NULL;
 
+// Lazy ping session for bb_wifi_gateway_reachable.
+// Created once on first use; reused across calls (esp_ping_start re-triggers).
+static esp_ping_handle_t    s_ping_handle = NULL;
+static SemaphoreHandle_t    s_ping_mutex  = NULL;  // guards s_ping_handle create/use
+static volatile bool        s_ping_success = false;
+static SemaphoreHandle_t    s_ping_done   = NULL;  // binary semaphore, given on result
+
 static void rssi_refresh_cb(void *arg)
 {
     (void)arg;
@@ -75,6 +85,94 @@ static void rssi_refresh_cb(void *arg)
         s_cached_rssi = info.rssi;
         portEXIT_CRITICAL(&s_ap_mux);
     }
+}
+
+static void ping_on_success(esp_ping_handle_t hdl, void *args)
+{
+    (void)hdl;
+    (void)args;
+    s_ping_success = true;
+    BaseType_t hp = pdFALSE;
+    xSemaphoreGiveFromISR(s_ping_done, &hp);
+    if (hp) portYIELD_FROM_ISR();
+}
+
+static void ping_on_timeout(esp_ping_handle_t hdl, void *args)
+{
+    (void)hdl;
+    (void)args;
+    s_ping_success = false;
+    BaseType_t hp = pdFALSE;
+    xSemaphoreGiveFromISR(s_ping_done, &hp);
+    if (hp) portYIELD_FROM_ISR();
+}
+
+bb_err_t bb_wifi_ping(uint32_t target_addr, uint32_t timeout_ms, bool *out_reachable)
+{
+    if (!out_reachable) return BB_ERR_INVALID_ARG;
+
+    // Create mutex and done-semaphore lazily (once).
+    if (!s_ping_mutex) {
+        s_ping_mutex = xSemaphoreCreateMutex();
+        if (!s_ping_mutex) return BB_ERR_NO_MEM;
+    }
+    if (!s_ping_done) {
+        s_ping_done = xSemaphoreCreateBinary();
+        if (!s_ping_done) return BB_ERR_NO_MEM;
+    }
+
+    xSemaphoreTake(s_ping_mutex, portMAX_DELAY);
+
+    // Create session on first use.
+    if (!s_ping_handle) {
+        ip_addr_t ip_addr;
+        ip_addr.type = IPADDR_TYPE_V4;
+        ip_addr.u_addr.ip4.addr = target_addr;
+
+        esp_ping_config_t cfg = ESP_PING_DEFAULT_CONFIG();
+        cfg.count      = 1;
+        cfg.timeout_ms = timeout_ms;
+        cfg.target_addr = ip_addr;
+        cfg.task_stack_size = 3072;
+
+        esp_ping_callbacks_t cbs = {
+            .on_ping_success = ping_on_success,
+            .on_ping_timeout = ping_on_timeout,
+            .on_ping_end     = NULL,
+            .cb_args         = NULL,
+        };
+
+        esp_err_t err = esp_ping_new_session(&cfg, &cbs, &s_ping_handle);
+        if (err != ESP_OK) {
+            xSemaphoreGive(s_ping_mutex);
+            return err;
+        }
+    }
+
+    // Drain any leftover semaphore token from a previous run.
+    xSemaphoreTake(s_ping_done, 0);
+    s_ping_success = false;
+
+    esp_ping_start(s_ping_handle);
+    // Wait for result with a margin over timeout_ms.
+    TickType_t wait = pdMS_TO_TICKS(timeout_ms + 500);
+    bool got = (xSemaphoreTake(s_ping_done, wait) == pdTRUE);
+    *out_reachable = got && s_ping_success;
+
+    xSemaphoreGive(s_ping_mutex);
+    return BB_OK;
+}
+
+bool bb_wifi_gateway_reachable(uint32_t timeout_ms)
+{
+    if (!s_sta_netif) return false;
+    esp_netif_ip_info_t ip_info;
+    if (esp_netif_get_ip_info(s_sta_netif, &ip_info) != ESP_OK) return false;
+    if (ip_info.gw.addr == 0) return false;
+
+    bool reachable = false;
+    bb_wifi_ping(ip_info.gw.addr, timeout_ms, &reachable);
+    return reachable;
 }
 
 static void reconnect_timer_cb(void *arg)
@@ -143,6 +241,11 @@ uint32_t bb_wifi_get_lost_ip_age_s(void)
     if (!wifi_reconn_is_active()) return 0;
     int64_t age_us = wifi_reconn_get_lost_ip_age_us();
     return (uint32_t)(age_us / 1000000);
+}
+
+uint32_t bb_wifi_get_egress_dead_count(void)
+{
+    return wifi_reconn_is_active() ? wifi_reconn_get_egress_dead_count() : 0;
 }
 
 bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)

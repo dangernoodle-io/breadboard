@@ -76,6 +76,7 @@ typedef struct {
     int      http_last_status;
     uint32_t lost_ip_recoveries;
     uint32_t lost_ip_age_s;
+    uint32_t egress_dead_recoveries;
 } bb_net_health_cache_t;
 
 static bb_net_health_cache_t s_cache;       // zero-init; valid once attach_sse writes it
@@ -92,6 +93,7 @@ static const char k_net_schema[] =
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"lost_ip_recoveries\":{\"type\":\"integer\"},"
     "\"lost_ip_age_s\":{\"type\":\"integer\"},"
+    "\"egress_dead_recoveries\":{\"type\":\"integer\"},"
     "\"mqtt\":{\"type\":\"object\",\"properties\":{"
     "\"connected\":{\"type\":\"boolean\"},"
     "\"reconnect_count\":{\"type\":\"integer\"},"
@@ -182,8 +184,9 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
     out->http_consec_failures   = s_cache.http_consec_failures;
     out->http_tls_fail          = s_cache.http_tls_fail;
     out->http_last_status       = s_cache.http_last_status;
-    out->lost_ip_recoveries    = s_cache.lost_ip_recoveries;
-    out->lost_ip_age_s         = s_cache.lost_ip_age_s;
+    out->lost_ip_recoveries         = s_cache.lost_ip_recoveries;
+    out->lost_ip_age_s              = s_cache.lost_ip_age_s;
+    out->egress_dead_recoveries     = s_cache.egress_dead_recoveries;
     xSemaphoreGive(s_cache_lock);
     return BB_OK;
 }
@@ -214,6 +217,7 @@ static void publish_snapshot(const bb_net_health_output_t *out,
         .http_last_status       = http_h.last_status,
         .lost_ip_recoveries     = bb_wifi_get_lost_ip_count(),
         .lost_ip_age_s          = bb_wifi_get_lost_ip_age_s(),
+        .egress_dead_recoveries = bb_wifi_get_egress_dead_count(),
     };
 
     // Update s_cache so bb_net_health_get_status (used by the pub source) can
@@ -236,6 +240,7 @@ static void publish_snapshot(const bb_net_health_output_t *out,
     s_cache.http_last_status        = snap.http_last_status;
     s_cache.lost_ip_recoveries      = snap.lost_ip_recoveries;
     s_cache.lost_ip_age_s           = snap.lost_ip_age_s;
+    s_cache.egress_dead_recoveries  = snap.egress_dead_recoveries;
     xSemaphoreGive(s_cache_lock);
 
     // Update bb_cache owned struct — SSE uses bb_cache_post, REST uses

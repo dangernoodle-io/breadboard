@@ -40,6 +40,28 @@
 #define BB_WIFI_INACTIVE_TIME_S 45U
 #endif
 
+// WIFI_RECONN_EGRESS_PROBE_MS: how often ST_IDLE pings the gateway for egress health.
+// Bridged from Kconfig; host/disabled fallback 30 s.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_WIFI_EGRESS_PROBE_S
+#    define WIFI_RECONN_EGRESS_PROBE_MS ((uint32_t)(CONFIG_BB_WIFI_EGRESS_PROBE_S) * 1000U)
+#  endif
+#endif
+#ifndef WIFI_RECONN_EGRESS_PROBE_MS
+#define WIFI_RECONN_EGRESS_PROBE_MS 30000U
+#endif
+
+// WIFI_RECONN_EGRESS_PROBE_FAILS: consecutive probe failures before recovery.
+// Bridged from Kconfig; host/disabled fallback 3.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_WIFI_EGRESS_PROBE_FAILS
+#    define WIFI_RECONN_EGRESS_PROBE_FAILS CONFIG_BB_WIFI_EGRESS_PROBE_FAILS
+#  endif
+#endif
+#ifndef WIFI_RECONN_EGRESS_PROBE_FAILS
+#define WIFI_RECONN_EGRESS_PROBE_FAILS 3
+#endif
+
 // Start the reconnect manager task. Call once from wifi_connect_sta()
 // AFTER the initial blocking connect succeeds. Idempotent.
 void wifi_reconn_start(void);
@@ -73,3 +95,7 @@ int64_t  wifi_reconn_get_lost_ip_age_us(void);
 // without triggering the reconnect FSM. Call before esp_wifi_stop() in a
 // controlled restart to absorb the synthetic disconnect it generates.
 void wifi_reconn_absorb_next_disconnect(void);
+
+// Diagnostic counter: times the egress probe declared the gateway unreachable
+// and called bb_wifi_restart_sta (lock-free read of manager-owned state).
+uint32_t wifi_reconn_get_egress_dead_count(void);

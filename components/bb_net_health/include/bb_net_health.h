@@ -168,6 +168,7 @@ typedef struct {
     int           http_last_status;     // last HTTP status code (0 if none)
     uint32_t lost_ip_recoveries; // times lost-IP recovery was triggered (bb_wifi_get_lost_ip_count)
     uint32_t lost_ip_age_s;      // seconds since last lost-IP event (0 if never)
+    uint32_t egress_dead_recoveries; // times egress-dead recovery was triggered (bb_wifi_get_egress_dead_count)
 } bb_net_health_status_t;
 
 // Copy the live net-health snapshot (populated by the ESP-IDF evaluator) under
@@ -184,7 +185,8 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out);
  * Emit net-health fields from snap into the JSON object obj.
  *
  * Top-level fields: rssi, state, early_warning, throttled,
- *   last_disconnect_reason (WiFi), disc_age_s.
+ *   last_disconnect_reason (WiFi), disc_age_s, lost_ip_recoveries,
+ *   lost_ip_age_s, egress_dead_recoveries.
  * Nested object "mqtt": connected, reconnect_count, disc_age_s,
  *   disc_reason, tls_fail.
  * Nested object "http": connected, consec_failures, tls_fail, last_status.

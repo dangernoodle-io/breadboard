@@ -124,6 +124,25 @@ bb_err_t bb_wifi_get_info(bb_wifi_info_t *out);
 uint32_t bb_wifi_get_lost_ip_count(void);
 uint32_t bb_wifi_get_lost_ip_age_s(void);
 
+// Egress-dead recovery counter: times the active gateway-probe found the
+// gateway unreachable and triggered bb_wifi_restart_sta. Returns 0 if the
+// reconnect manager is not active or no egress-dead event has occurred.
+uint32_t bb_wifi_get_egress_dead_count(void);
+
+#ifdef ESP_PLATFORM
+// ICMP ping a target IPv4 address. target_addr is a raw IPv4 address in
+// esp_ip4_addr byte order (i.e. the same value as esp_ip4_addr_t.addr).
+// Sends a single echo-request and waits up to timeout_ms for an echo-reply.
+// Sets *out_reachable to true on reply, false on timeout. Always compiled
+// (reusable; CI validates the esp_ping symbol). Returns BB_OK or an error.
+bb_err_t bb_wifi_ping(uint32_t target_addr, uint32_t timeout_ms,
+                      bool *out_reachable);
+
+// Convenience wrapper: pings the current STA default gateway. Returns false
+// if no IP/gateway info is available or if the ICMP ping times out.
+bool bb_wifi_gateway_reachable(uint32_t timeout_ms);
+#endif /* ESP_PLATFORM */
+
 // Emit the canonical wifi section into a bb_json_t object.
 // Writes: ssid, bssid (colon-hex), rssi (integer), ip, connected,
 // disc_reason (integer), disc_age_s (integer), retry_count (integer).
