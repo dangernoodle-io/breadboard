@@ -113,6 +113,11 @@ bool bb_wifi_has_ip(void);
 // backend cannot supply are zeroed. Returns BB_ERR_INVALID_ARG on null.
 bb_err_t bb_wifi_get_info(bb_wifi_info_t *out);
 
+// Lost-IP-while-associated recovery counters.
+// Return 0 if the reconnect manager is not active or no lost-IP has occurred.
+uint32_t bb_wifi_get_lost_ip_count(void);
+uint32_t bb_wifi_get_lost_ip_age_s(void);
+
 // Emit the canonical wifi section into a bb_json_t object.
 // Writes: ssid, bssid (colon-hex), rssi (integer), ip, connected,
 // disc_reason (integer), disc_age_s (integer), retry_count (integer).

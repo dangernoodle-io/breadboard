@@ -3,6 +3,11 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+// Breadboard sentinel: reason code injected into reason_histogram when IP is lost
+// while still associated. 99 is free in esp_wifi_types.h (reasons: 1-24, 53-67,
+// 200-208) and fits in uint8_t (< 256, the histogram size).
+#define WIFI_REASON_BB_LOST_IP 99
+
 #define WIFI_RECONN_HANDSHAKE_BACKOFF_TIER2_MS 10000
 #define WIFI_RECONN_HANDSHAKE_BACKOFF_TIER3_MS 30000
 #define WIFI_RECONN_GENERIC_BACKOFF_PAUSE_MS   5000
@@ -22,6 +27,8 @@ typedef struct {
     uint8_t  last_reason;
     int64_t  last_disconnect_us;
     uint16_t reason_histogram[256];
+    uint32_t lost_ip_count;    // times lost IP while associated
+    int64_t  last_lost_ip_us;  // timestamp of last lost-IP event
 } wifi_reconn_state_t;
 
 typedef struct {
@@ -49,6 +56,13 @@ wifi_reconn_action_t wifi_reconn_policy_on_disconnect(
 
 // Reset counters on successful IP acquisition.
 void wifi_reconn_policy_on_got_ip(wifi_reconn_state_t *st);
+
+// Return true when the board is L2-associated but has no DHCP IP — the zombie state.
+bool wifi_reconn_should_reconnect_no_ip(bool associated, bool has_ip);
+
+// Record a lost-IP event in policy state (bumps lost_ip_count, last_lost_ip_us,
+// reason_histogram[WIFI_REASON_BB_LOST_IP]). Guards null args.
+void wifi_reconn_policy_on_lost_ip(wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad);
 
 // Policy decision when a connect attempt stalls (no GOT_IP or DISCONNECT
 // within the connecting watchdog window). Mirrors on_disconnect escalation:

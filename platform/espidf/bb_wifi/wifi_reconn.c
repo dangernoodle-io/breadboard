@@ -3,6 +3,7 @@
 #include "bb_nv.h"
 #include "bb_ota_validator.h"
 #include "bb_timer.h"
+#include "bb_wifi.h"
 
 #include <stdio.h>
 
@@ -134,7 +135,7 @@ static void reconn_task(void *arg)
             case ST_BACKOFF:    wait = pdMS_TO_TICKS(backoff_ms);                        break;
             case ST_CONNECTING: wait = pdMS_TO_TICKS(WIFI_RECONN_CONNECTING_TIMEOUT_MS); break;
             case ST_IDLE:
-            default:            wait = portMAX_DELAY;                                    break;
+            default:            wait = pdMS_TO_TICKS(WIFI_RECONN_NO_IP_WATCHDOG_MS);     break;
         }
 
         reconn_evt_t evt;
@@ -168,6 +169,17 @@ static void reconn_task(void *arg)
                 esp_wifi_disconnect();
                 esp_wifi_connect();
                 // stay ST_CONNECTING
+            }
+        } else if (state == ST_IDLE) {
+            // No-IP watchdog: check for zombie (L2-associated but no DHCP IP).
+            wifi_ap_record_t ap;
+            bool associated = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK);
+            bool has_ip     = bb_wifi_has_ip();
+            if (wifi_reconn_should_reconnect_no_ip(associated, has_ip)) {
+                wifi_reconn_policy_on_lost_ip(&s_state, &s_adapter);
+                bb_log_w(TAG, "ST_IDLE watchdog: associated but no IP, forcing disconnect (lost_ip_count=%u)",
+                         (unsigned)s_state.lost_ip_count);
+                esp_wifi_disconnect();
             }
         } else {
             // Backoff elapsed
@@ -231,6 +243,28 @@ void wifi_reconn_on_got_ip(void)
     if (xQueueSend(s_queue, &evt, 0) != pdTRUE) {
         bb_log_w(TAG, "queue full, dropping got-ip event");
     }
+}
+
+void wifi_reconn_on_lost_ip(void)
+{
+    if (!s_active) return;
+    wifi_reconn_policy_on_lost_ip(&s_state, &s_adapter);
+    bb_log_w(TAG, "IP lost while associated → forcing reconnect (lost_ip_count=%u)",
+             (unsigned)s_state.lost_ip_count);
+    // Do NOT set s_self_disconnect — we WANT the resulting DISCONNECTED event
+    // to flow into wifi_reconn_on_disconnect() and drive full recovery.
+    esp_wifi_disconnect();
+}
+
+uint32_t wifi_reconn_get_lost_ip_count(void)
+{
+    return s_state.lost_ip_count;
+}
+
+int64_t wifi_reconn_get_lost_ip_age_us(void)
+{
+    if (s_state.last_lost_ip_us == 0) return 0;
+    return (int64_t)bb_timer_now_us() - s_state.last_lost_ip_us;
 }
 
 void wifi_reconn_get_disconnect(uint8_t *reason, int64_t *age_us)

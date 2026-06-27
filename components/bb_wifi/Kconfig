@@ -91,4 +91,16 @@ choice BB_WIFI_POWER_SAVE
         bool "Maximum modem sleep"
 endchoice
 
+config BB_WIFI_NO_IP_WATCHDOG_S
+    int "No-IP watchdog interval for ST_IDLE (seconds)"
+    range 10 600
+    default 60
+    help
+        When the reconnect manager is in ST_IDLE (connected, not reconnecting),
+        this is the interval at which it checks whether the board is still L2-
+        associated but has lost its DHCP IP (zombie state). On detection it calls
+        esp_wifi_disconnect() to drop the stale association and trigger recovery.
+        60 s is the default — long enough to avoid false positives from DHCP
+        renewal races, short enough to recover quickly from a genuine zombie.
+
 endmenu

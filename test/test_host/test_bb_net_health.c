@@ -1032,3 +1032,80 @@ void test_bb_net_health_emit_http_alloc_fail(void)
 
     bb_json_free(parsed);
 }
+
+// --- lost-IP telemetry fields ---
+
+void test_bb_net_health_emit_lost_ip_fields(void)
+{
+    bb_net_health_status_t snap = {
+        .state                  = BB_NET_STATE_GOOD,
+        .early_warning          = false,
+        .throttled              = false,
+        .rssi                   = -55,
+        .mqtt_connected         = true,
+        .mqtt_reconnect_count   = 0,
+        .last_disconnect_reason = 0,
+        .disc_age_s             = 0,
+        .mqtt_disc_age_s        = 0,
+        .mqtt_disc_reason       = 0,
+        .mqtt_tls_fail          = 0,
+        .http_connected         = false,
+        .http_consec_failures   = 0,
+        .http_tls_fail          = 0,
+        .http_last_status       = 0,
+        .lost_ip_recoveries     = 3,
+        .lost_ip_age_s          = 120,
+    };
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit(obj, &snap);
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+
+    bb_json_t parsed = bb_json_parse(json, strlen(json));
+    bb_json_free_str(json);
+    TEST_ASSERT_NOT_NULL(parsed);
+
+    double lip = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "lost_ip_recoveries", &lip));
+    TEST_ASSERT_EQUAL_INT(3, (int)lip);
+
+    double lia = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "lost_ip_age_s", &lia));
+    TEST_ASSERT_EQUAL_INT(120, (int)lia);
+
+    bb_json_free(parsed);
+}
+
+void test_bb_net_health_emit_lost_ip_zero(void)
+{
+    bb_net_health_status_t snap = {
+        .state              = BB_NET_STATE_GOOD,
+        .rssi               = -55,
+        .lost_ip_recoveries = 0,
+        .lost_ip_age_s      = 0,
+    };
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit(obj, &snap);
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+
+    bb_json_t parsed = bb_json_parse(json, strlen(json));
+    bb_json_free_str(json);
+    TEST_ASSERT_NOT_NULL(parsed);
+
+    double lip = 99.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "lost_ip_recoveries", &lip));
+    TEST_ASSERT_EQUAL_INT(0, (int)lip);
+
+    double lia = 99.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "lost_ip_age_s", &lia));
+    TEST_ASSERT_EQUAL_INT(0, (int)lia);
+
+    bb_json_free(parsed);
+}

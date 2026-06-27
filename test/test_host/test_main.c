@@ -1273,6 +1273,8 @@ void test_bb_net_health_emit_idempotent(void);
 void test_bb_net_health_emit_mqtt_alloc_fail(void);
 void test_bb_net_health_emit_http_object_present(void);
 void test_bb_net_health_emit_http_alloc_fail(void);
+void test_bb_net_health_emit_lost_ip_fields(void);
+void test_bb_net_health_emit_lost_ip_zero(void);
 
 // Forward declarations from test_bb_sse_writer.c
 void test_sse_idle_below_heartbeat(void);
@@ -1435,6 +1437,12 @@ void test_wifi_reconn_connect_timeout_within_window(void);
 void test_wifi_reconn_connect_timeout_fast_retry_limit(void);
 void test_wifi_reconn_connect_timeout_backoff(void);
 void test_wifi_reconn_connect_timeout_past_window(void);
+void test_wifi_reconn_should_reconnect_no_ip_associated_no_ip(void);
+void test_wifi_reconn_should_reconnect_no_ip_associated_has_ip(void);
+void test_wifi_reconn_should_reconnect_no_ip_not_associated(void);
+void test_wifi_reconn_policy_on_lost_ip_increments(void);
+void test_wifi_reconn_policy_on_lost_ip_null_args(void);
+void test_wifi_reconn_policy_on_lost_ip_histogram_saturates(void);
 
 // Forward declarations from test_bb_mdns_lifecycle.c
 void bb_mdns_lifecycle_test_reset(void);
@@ -4330,6 +4338,8 @@ int main(void) {
     RUN_TEST(test_bb_net_health_emit_mqtt_alloc_fail);
     RUN_TEST(test_bb_net_health_emit_http_object_present);
     RUN_TEST(test_bb_net_health_emit_http_alloc_fail);
+    RUN_TEST(test_bb_net_health_emit_lost_ip_fields);
+    RUN_TEST(test_bb_net_health_emit_lost_ip_zero);
 
     // bb_vcore_wd tests (pure vcore-collapse watchdog)
     RUN_TEST(test_bb_vcore_wd_warmup_suppresses_all);
@@ -4410,6 +4420,12 @@ int main(void) {
     RUN_TEST(test_wifi_reconn_connect_timeout_fast_retry_limit);
     RUN_TEST(test_wifi_reconn_connect_timeout_backoff);
     RUN_TEST(test_wifi_reconn_connect_timeout_past_window);
+    RUN_TEST(test_wifi_reconn_should_reconnect_no_ip_associated_no_ip);
+    RUN_TEST(test_wifi_reconn_should_reconnect_no_ip_associated_has_ip);
+    RUN_TEST(test_wifi_reconn_should_reconnect_no_ip_not_associated);
+    RUN_TEST(test_wifi_reconn_policy_on_lost_ip_increments);
+    RUN_TEST(test_wifi_reconn_policy_on_lost_ip_null_args);
+    RUN_TEST(test_wifi_reconn_policy_on_lost_ip_histogram_saturates);
 
     // bb_mdns_lifecycle tests
     RUN_TEST(test_bb_mdns_lifecycle_start_when_not_started);
