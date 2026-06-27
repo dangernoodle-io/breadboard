@@ -1444,6 +1444,12 @@ void test_wifi_reconn_policy_on_lost_ip_increments(void);
 void test_wifi_reconn_policy_on_lost_ip_null_args(void);
 void test_wifi_reconn_policy_on_lost_ip_histogram_saturates(void);
 void test_wifi_reconn_policy_arms_first_fail_on_inactivity_disconnect(void);
+void test_wifi_reconn_on_egress_probe_reachable_resets_streak(void);
+void test_wifi_reconn_on_egress_probe_streak_below_threshold(void);
+void test_wifi_reconn_on_egress_probe_at_threshold_returns_recover(void);
+void test_wifi_reconn_on_egress_probe_null_args_safe(void);
+void test_wifi_reconn_on_egress_probe_histogram_saturates(void);
+void test_wifi_reconn_on_egress_probe_first_fail_already_armed(void);
 
 // Forward declarations from test_bb_mdns_lifecycle.c
 void bb_mdns_lifecycle_test_reset(void);
@@ -4437,6 +4443,12 @@ int main(void) {
     RUN_TEST(test_wifi_reconn_policy_on_lost_ip_null_args);
     RUN_TEST(test_wifi_reconn_policy_on_lost_ip_histogram_saturates);
     RUN_TEST(test_wifi_reconn_policy_arms_first_fail_on_inactivity_disconnect);
+    RUN_TEST(test_wifi_reconn_on_egress_probe_reachable_resets_streak);
+    RUN_TEST(test_wifi_reconn_on_egress_probe_streak_below_threshold);
+    RUN_TEST(test_wifi_reconn_on_egress_probe_at_threshold_returns_recover);
+    RUN_TEST(test_wifi_reconn_on_egress_probe_null_args_safe);
+    RUN_TEST(test_wifi_reconn_on_egress_probe_histogram_saturates);
+    RUN_TEST(test_wifi_reconn_on_egress_probe_first_fail_already_armed);
 
     // bb_mdns_lifecycle tests
     RUN_TEST(test_bb_mdns_lifecycle_start_when_not_started);

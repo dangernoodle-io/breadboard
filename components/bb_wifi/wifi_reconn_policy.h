@@ -8,6 +8,11 @@
 // 200-208) and fits in uint8_t (< 256, the histogram size).
 #define WIFI_REASON_BB_LOST_IP 99
 
+// Breadboard sentinel: reason code injected into reason_histogram when gateway is
+// unreachable (egress dead) while still IP-associated. 100 is free in
+// esp_wifi_types.h (reasons: 1-24, 53-67, 200-208) and fits uint8_t (< 256).
+#define WIFI_REASON_BB_EGRESS_DEAD 100
+
 #define WIFI_RECONN_HANDSHAKE_BACKOFF_TIER2_MS 10000
 #define WIFI_RECONN_HANDSHAKE_BACKOFF_TIER3_MS 30000
 #define WIFI_RECONN_GENERIC_BACKOFF_PAUSE_MS   5000
@@ -29,6 +34,9 @@ typedef struct {
     uint16_t reason_histogram[256];
     uint32_t lost_ip_count;    // times lost IP while associated
     int64_t  last_lost_ip_us;  // timestamp of last lost-IP event
+    uint8_t  egress_fail_streak; // consecutive egress-probe failures below threshold
+    uint32_t egress_dead_count;  // times egress declared dead (streak hit threshold)
+    int64_t  last_egress_dead_us; // timestamp of last egress-dead event
 } wifi_reconn_state_t;
 
 typedef struct {
@@ -63,6 +71,16 @@ bool wifi_reconn_should_reconnect_no_ip(bool associated, bool has_ip);
 // Record a lost-IP event in policy state (bumps lost_ip_count, last_lost_ip_us,
 // reason_histogram[WIFI_REASON_BB_LOST_IP]). Guards null args.
 void wifi_reconn_policy_on_lost_ip(wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad);
+
+// Policy decision when the egress probe finds the gateway unreachable.
+// If reachable: resets egress_fail_streak, returns WIFI_RECONN_ACTION_NONE.
+// If unreachable: increments egress_fail_streak; once >= fail_threshold bumps
+// egress_dead_count, arms first_fail_us, records last_egress_dead_us,
+// increments reason_histogram[WIFI_REASON_BB_EGRESS_DEAD], resets streak,
+// returns WIFI_RECONN_ACTION_RECONNECT_NOW. Guards null args.
+wifi_reconn_action_t wifi_reconn_policy_on_egress_probe(
+    wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad,
+    bool reachable, int fail_threshold);
 
 // Policy decision when a connect attempt stalls (no GOT_IP or DISCONNECT
 // within the connecting watchdog window). Mirrors on_disconnect escalation:

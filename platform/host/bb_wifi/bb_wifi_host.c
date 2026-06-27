@@ -126,4 +126,18 @@ void bb_conn_close(bb_conn_t *c)
     (void)c;
 }
 
+uint32_t bb_wifi_get_egress_dead_count(void)
+{
+    return 0;
+}
+
+#ifdef BB_WIFI_TESTING
+static bool s_test_gateway_reachable = true;
+
+void bb_wifi_host_set_gateway_reachable(bool reachable)
+{
+    s_test_gateway_reachable = reachable;
+}
+#endif /* BB_WIFI_TESTING */
+
 #endif /* !ESP_PLATFORM */

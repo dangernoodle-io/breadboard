@@ -9,6 +9,11 @@ void wifi_reconn_state_reset(wifi_reconn_state_t *st)
     st->retry_count = 0;
     st->last_reason = 0;
     st->last_disconnect_us = 0;
+    st->lost_ip_count = 0;
+    st->last_lost_ip_us = 0;
+    st->egress_fail_streak = 0;
+    st->egress_dead_count = 0;
+    st->last_egress_dead_us = 0;
     for (int i = 0; i < 256; i++) {
         st->reason_histogram[i] = 0;
     }
@@ -135,4 +140,31 @@ wifi_reconn_action_t wifi_reconn_policy_on_connect_timeout(
     }
 
     return WIFI_RECONN_ACTION_SCHEDULE_BACKOFF;
+}
+
+wifi_reconn_action_t wifi_reconn_policy_on_egress_probe(
+    wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad,
+    bool reachable, int fail_threshold)
+{
+    if (!st || !ad) return WIFI_RECONN_ACTION_NONE;
+
+    if (reachable) {
+        st->egress_fail_streak = 0;
+        return WIFI_RECONN_ACTION_NONE;
+    }
+
+    st->egress_fail_streak++;
+    if (st->egress_fail_streak >= (uint8_t)fail_threshold) {
+        st->egress_dead_count++;
+        st->last_egress_dead_us = ad->now_us();
+        if (st->reason_histogram[WIFI_REASON_BB_EGRESS_DEAD] < UINT16_MAX) {
+            st->reason_histogram[WIFI_REASON_BB_EGRESS_DEAD]++;
+        }
+        if (st->first_fail_us == 0) {
+            st->first_fail_us = ad->now_us();
+        }
+        st->egress_fail_streak = 0;
+        return WIFI_RECONN_ACTION_RECONNECT_NOW;
+    }
+    return WIFI_RECONN_ACTION_NONE;
 }

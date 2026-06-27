@@ -134,6 +134,7 @@ void bb_net_health_emit(bb_json_t obj, const void *snap_v)
     bb_json_obj_set_number(obj, "disc_age_s",             (double)snap->disc_age_s);
     bb_json_obj_set_number(obj, "lost_ip_recoveries",     (double)snap->lost_ip_recoveries);
     bb_json_obj_set_number(obj, "lost_ip_age_s",          (double)snap->lost_ip_age_s);
+    bb_json_obj_set_int(obj, "egress_dead_recoveries", (int64_t)snap->egress_dead_recoveries);
 
     bb_json_t mqtt = bb_json_obj_new();
     if (mqtt) {

@@ -387,3 +387,110 @@ void test_wifi_reconn_policy_arms_first_fail_on_inactivity_disconnect(void)
     TEST_ASSERT_NOT_EQUAL(WIFI_RECONN_ACTION_REBOOT, action);
     TEST_ASSERT_EQUAL(1, s_state.generic_fail_count);
 }
+
+// --- egress probe policy tests ---
+
+void test_wifi_reconn_on_egress_probe_reachable_resets_streak(void)
+{
+    // Pre-load a partial streak
+    s_state.egress_fail_streak = 2;
+    wifi_reconn_action_t action = wifi_reconn_policy_on_egress_probe(
+        &s_state, &adapter, /*reachable=*/true, 3);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_NONE, action);
+    TEST_ASSERT_EQUAL(0, s_state.egress_fail_streak);
+    TEST_ASSERT_EQUAL(0, s_state.egress_dead_count);
+}
+
+void test_wifi_reconn_on_egress_probe_streak_below_threshold(void)
+{
+    // Two failures below threshold of 3 → NONE
+    wifi_reconn_action_t a1 = wifi_reconn_policy_on_egress_probe(
+        &s_state, &adapter, /*reachable=*/false, 3);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_NONE, a1);
+    TEST_ASSERT_EQUAL(1, s_state.egress_fail_streak);
+    TEST_ASSERT_EQUAL(0, s_state.egress_dead_count);
+
+    wifi_reconn_action_t a2 = wifi_reconn_policy_on_egress_probe(
+        &s_state, &adapter, /*reachable=*/false, 3);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_NONE, a2);
+    TEST_ASSERT_EQUAL(2, s_state.egress_fail_streak);
+    TEST_ASSERT_EQUAL(0, s_state.egress_dead_count);
+}
+
+void test_wifi_reconn_on_egress_probe_at_threshold_returns_recover(void)
+{
+    s_fake_now_us = 7000000;
+
+    // Two below-threshold failures
+    wifi_reconn_policy_on_egress_probe(&s_state, &adapter, false, 3);
+    wifi_reconn_policy_on_egress_probe(&s_state, &adapter, false, 3);
+
+    // Third (= threshold) triggers recovery
+    wifi_reconn_action_t action = wifi_reconn_policy_on_egress_probe(
+        &s_state, &adapter, /*reachable=*/false, 3);
+
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_RECONNECT_NOW, action);
+    TEST_ASSERT_EQUAL(1, s_state.egress_dead_count);
+    TEST_ASSERT_EQUAL(0, s_state.egress_fail_streak);   // reset after threshold
+    TEST_ASSERT_EQUAL_INT64(7000000, s_state.last_egress_dead_us);
+    TEST_ASSERT_NOT_EQUAL(0, s_state.first_fail_us);
+    TEST_ASSERT_EQUAL(1, s_state.reason_histogram[WIFI_REASON_BB_EGRESS_DEAD]);
+}
+
+void test_wifi_reconn_on_egress_probe_null_args_safe(void)
+{
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_NONE,
+        wifi_reconn_policy_on_egress_probe(NULL, &adapter, false, 3));
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_NONE,
+        wifi_reconn_policy_on_egress_probe(&s_state, NULL, false, 3));
+}
+
+void test_wifi_reconn_on_egress_probe_histogram_saturates(void)
+{
+    // Set histogram to saturated (UINT16_MAX)
+    s_state.reason_histogram[WIFI_REASON_BB_EGRESS_DEAD] = UINT16_MAX;
+
+    // Drive THRESH-1 failures to reach just below threshold (streak = 2, threshold = 3)
+    wifi_reconn_action_t a1 = wifi_reconn_policy_on_egress_probe(
+        &s_state, &adapter, /*reachable=*/false, 3);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_NONE, a1);
+    TEST_ASSERT_EQUAL(1, s_state.egress_fail_streak);
+
+    wifi_reconn_action_t a2 = wifi_reconn_policy_on_egress_probe(
+        &s_state, &adapter, /*reachable=*/false, 3);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_NONE, a2);
+    TEST_ASSERT_EQUAL(2, s_state.egress_fail_streak);
+
+    // Third (= threshold) triggers recovery
+    wifi_reconn_action_t a3 = wifi_reconn_policy_on_egress_probe(
+        &s_state, &adapter, /*reachable=*/false, 3);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_RECONNECT_NOW, a3);
+
+    // Verify histogram stayed UINT16_MAX (line 160 false branch coverage)
+    TEST_ASSERT_EQUAL(UINT16_MAX, s_state.reason_histogram[WIFI_REASON_BB_EGRESS_DEAD]);
+}
+
+void test_wifi_reconn_on_egress_probe_first_fail_already_armed(void)
+{
+    // Pre-arm first_fail_us with a known value
+    s_state.first_fail_us = 12345;
+
+    // Drive THRESH-1 failures to reach just below threshold
+    wifi_reconn_action_t a1 = wifi_reconn_policy_on_egress_probe(
+        &s_state, &adapter, /*reachable=*/false, 3);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_NONE, a1);
+    TEST_ASSERT_EQUAL(1, s_state.egress_fail_streak);
+
+    wifi_reconn_action_t a2 = wifi_reconn_policy_on_egress_probe(
+        &s_state, &adapter, /*reachable=*/false, 3);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_NONE, a2);
+    TEST_ASSERT_EQUAL(2, s_state.egress_fail_streak);
+
+    // Third (= threshold) triggers recovery
+    wifi_reconn_action_t a3 = wifi_reconn_policy_on_egress_probe(
+        &s_state, &adapter, /*reachable=*/false, 3);
+    TEST_ASSERT_EQUAL(WIFI_RECONN_ACTION_RECONNECT_NOW, a3);
+
+    // Verify first_fail_us is UNCHANGED (line 163 false branch coverage)
+    TEST_ASSERT_EQUAL_INT64(12345, s_state.first_fail_us);
+}

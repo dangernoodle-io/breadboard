@@ -1055,6 +1055,7 @@ void test_bb_net_health_emit_lost_ip_fields(void)
         .http_last_status       = 0,
         .lost_ip_recoveries     = 3,
         .lost_ip_age_s          = 120,
+        .egress_dead_recoveries = 5,
     };
 
     bb_json_t obj = bb_json_obj_new();
@@ -1076,16 +1077,21 @@ void test_bb_net_health_emit_lost_ip_fields(void)
     TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "lost_ip_age_s", &lia));
     TEST_ASSERT_EQUAL_INT(120, (int)lia);
 
+    double val = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "egress_dead_recoveries", &val));
+    TEST_ASSERT_EQUAL_DOUBLE(5.0, val);
+
     bb_json_free(parsed);
 }
 
 void test_bb_net_health_emit_lost_ip_zero(void)
 {
     bb_net_health_status_t snap = {
-        .state              = BB_NET_STATE_GOOD,
-        .rssi               = -55,
-        .lost_ip_recoveries = 0,
-        .lost_ip_age_s      = 0,
+        .state                  = BB_NET_STATE_GOOD,
+        .rssi                   = -55,
+        .lost_ip_recoveries     = 0,
+        .lost_ip_age_s          = 0,
+        .egress_dead_recoveries = 0,
     };
 
     bb_json_t obj = bb_json_obj_new();
@@ -1106,6 +1112,10 @@ void test_bb_net_health_emit_lost_ip_zero(void)
     double lia = 99.0;
     TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "lost_ip_age_s", &lia));
     TEST_ASSERT_EQUAL_INT(0, (int)lia);
+
+    double val = 99.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "egress_dead_recoveries", &val));
+    TEST_ASSERT_EQUAL_DOUBLE(0.0, val);
 
     bb_json_free(parsed);
 }

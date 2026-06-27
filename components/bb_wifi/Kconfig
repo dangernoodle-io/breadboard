@@ -124,4 +124,29 @@ config BB_WIFI_INACTIVE_TIME_S
         Minimum 3 (ESP-IDF hard floor). 45 s gives enough margin above power-save
         beacon intervals while detecting stuck egress faster than the default 6 s.
 
+config BB_WIFI_EGRESS_PROBE_S
+    int "Egress probe interval for ST_IDLE (seconds)"
+    range 5 600
+    default 30
+    depends on BB_WIFI_NO_IP_WATCHDOG_ENABLE
+    help
+        When the reconnect manager is in ST_IDLE (connected, IP present),
+        this is the interval at which it pings the default gateway to detect
+        egress-dead zombie state (mode-b: board has IP+association but no
+        real egress). On N consecutive failures (BB_WIFI_EGRESS_PROBE_FAILS)
+        it calls bb_wifi_restart_sta() to recover. 30 s is a good default —
+        fast enough to detect egress death within ~90 s, slow enough to avoid
+        ICMP noise on a congested AP.
+
+config BB_WIFI_EGRESS_PROBE_FAILS
+    int "Consecutive egress probe failures before recovery"
+    range 1 20
+    default 3
+    depends on BB_WIFI_NO_IP_WATCHDOG_ENABLE
+    help
+        Number of consecutive failed gateway pings before the egress-dead
+        recovery path calls bb_wifi_restart_sta(). At the default 30 s probe
+        interval, 3 failures = ~90 s to declare egress dead. Lower for
+        faster reaction, higher to tolerate transient ICMP drops.
+
 endmenu

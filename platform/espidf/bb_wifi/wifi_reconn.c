@@ -154,7 +154,7 @@ static void reconn_task(void *arg)
             case ST_IDLE:
             default:
 #if BB_WIFI_NO_IP_WATCHDOG_ENABLE
-                wait = pdMS_TO_TICKS(WIFI_RECONN_NO_IP_WATCHDOG_MS);
+                wait = pdMS_TO_TICKS(WIFI_RECONN_EGRESS_PROBE_MS);
 #else
                 wait = portMAX_DELAY;
 #endif
@@ -218,6 +218,18 @@ static void reconn_task(void *arg)
                 }
 #endif
                 bb_wifi_restart_sta();
+            } else if (associated && has_ip) {
+                // Egress probe: ICMP gateway reachability check for mode-b
+                // egress-dead zombie (board has IP+association but no real egress).
+                bool gw_ok = bb_wifi_gateway_reachable(1500);
+                wifi_reconn_action_t eg_action = wifi_reconn_policy_on_egress_probe(
+                    &s_state, &s_adapter, gw_ok, WIFI_RECONN_EGRESS_PROBE_FAILS);
+                if (eg_action == WIFI_RECONN_ACTION_RECONNECT_NOW) {
+                    bb_log_w(TAG, "ST_IDLE egress probe: gateway unreachable %ux -> STA restart (egress_dead_count=%u)",
+                             (unsigned)WIFI_RECONN_EGRESS_PROBE_FAILS,
+                             (unsigned)s_state.egress_dead_count);
+                    bb_wifi_restart_sta();
+                }
             }
 #endif
         } else {
@@ -318,6 +330,11 @@ int64_t wifi_reconn_get_lost_ip_age_us(void)
 {
     if (s_state.last_lost_ip_us == 0) return 0;
     return (int64_t)bb_timer_now_us() - s_state.last_lost_ip_us;
+}
+
+uint32_t wifi_reconn_get_egress_dead_count(void)
+{
+    return s_state.egress_dead_count;
 }
 
 void wifi_reconn_get_disconnect(uint8_t *reason, int64_t *age_us)
