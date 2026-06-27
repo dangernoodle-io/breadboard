@@ -126,8 +126,12 @@ bb_err_t bb_wifi_ping(uint32_t target_addr, uint32_t timeout_ms, bool *out_reach
     // Create session on first use.
     if (!s_ping_handle) {
         ip_addr_t ip_addr;
+#if LWIP_IPV6
         ip_addr.type = IPADDR_TYPE_V4;
         ip_addr.u_addr.ip4.addr = target_addr;
+#else
+        ip_addr.addr = target_addr;
+#endif
 
         esp_ping_config_t cfg = ESP_PING_DEFAULT_CONFIG();
         cfg.count      = 1;
