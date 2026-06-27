@@ -34,7 +34,7 @@ def main() -> int:
     args = parser.parse_args()
 
     # Resolve root
-    root = os.path.abspath(args.root)
+    root = os.path.abspath(getattr(args, "root", None) or os.getcwd())
 
     # Load config
     config = load_config(args.config, root)

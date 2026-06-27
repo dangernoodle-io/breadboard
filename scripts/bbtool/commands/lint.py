@@ -785,7 +785,7 @@ _register_lint_rules()
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--root",
-        default=None,
+        default=os.getcwd(),
         help="repository root to lint (default: from top-level --root or cwd)",
     )
     parser.add_argument(
