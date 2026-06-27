@@ -1,8 +1,8 @@
 // bb_pub ESP-IDF timer + worker task implementation.
 //
-// The periodic timer fires every CONFIG_BB_PUB_INTERVAL_MS and gives a
-// semaphore to wake the worker. The worker calls bb_pub_tick_once(). This
-// keeps all JSON allocation and publish IO off the timer ISR context.
+// A dedicated worker timer fires every CONFIG_BB_PUB_INTERVAL_MS and calls
+// bb_pub_tick_once() on its own task via bb_timer_worker_periodic_create.
+// This keeps all JSON allocation and publish IO off the timer service task.
 //
 // Stack budget: see CONFIG_BB_PUB_WORKER_STACK (Kconfig, default 8192).
 // The worker calls each sink's publish() synchronously. An HTTP/TLS sink
@@ -13,10 +13,6 @@
 #include "bb_log.h"
 #include "bb_timer.h"
 #include "bb_registry.h"
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/semphr.h"
 
 #include <inttypes.h>
 
@@ -53,23 +49,12 @@ static const char *TAG = "bb_pub";
 #  endif
 #endif
 
-static bb_periodic_timer_t s_timer  = NULL;
-static SemaphoreHandle_t   s_kick   = NULL;
-static TaskHandle_t        s_worker = NULL;
+static bb_periodic_timer_t s_timer = NULL;
 
-static void worker_task(void *arg)
+static void pub_work_fn(void *arg)
 {
     (void)arg;
-    while (1) {
-        xSemaphoreTake(s_kick, portMAX_DELAY);
-        bb_pub_tick_once();
-    }
-}
-
-static void timer_cb(void *arg)
-{
-    (void)arg;
-    if (s_kick) xSemaphoreGive(s_kick);
+    bb_pub_tick_once();
 }
 
 // Hook called by bb_pub_set_interval_ms when a new interval is persisted.
@@ -87,21 +72,14 @@ static void interval_apply_hook(uint32_t ms)
 
 static bb_err_t bb_pub_start(void)
 {
-    s_kick = xSemaphoreCreateBinary();
-    if (!s_kick) return BB_ERR_NO_SPACE;
-
-    BaseType_t core = (BB_PUB_WORKER_CORE < 0) ? tskNO_AFFINITY : (BaseType_t)BB_PUB_WORKER_CORE;
-    if (xTaskCreatePinnedToCore(worker_task, "bb_pub", BB_PUB_WORKER_STACK,
-                                NULL, BB_PUB_WORKER_PRIORITY, &s_worker,
-                                core) != pdPASS) {
-        vSemaphoreDelete(s_kick);
-        s_kick = NULL;
-        return BB_ERR_INVALID_STATE;
-    }
-
-    bb_err_t err = bb_timer_periodic_create(timer_cb, NULL, "bb_pub", &s_timer);
+    bb_timer_worker_cfg_t cfg = {
+        .stack    = BB_PUB_WORKER_STACK,
+        .priority = BB_PUB_WORKER_PRIORITY,
+        .core     = BB_PUB_WORKER_CORE,
+    };
+    bb_err_t err = bb_timer_worker_periodic_create(pub_work_fn, NULL, "bb_pub", &cfg, &s_timer);
     if (err != BB_OK) {
-        bb_log_e(TAG, "failed to create periodic timer: %d", err);
+        bb_log_e(TAG, "failed to create pub worker timer: %d", err);
         return err;
     }
 
