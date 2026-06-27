@@ -156,6 +156,11 @@ uint32_t bb_wifi_get_egress_dead_count(void)
     return 0;
 }
 
+uint32_t bb_wifi_get_no_ip_count(void)
+{
+    return 0;
+}
+
 #ifdef BB_WIFI_TESTING
 static bool s_test_gateway_reachable = true;
 

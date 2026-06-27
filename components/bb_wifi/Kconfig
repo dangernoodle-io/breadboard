@@ -91,6 +91,30 @@ choice BB_WIFI_POWER_SAVE
         bool "Maximum modem sleep"
 endchoice
 
+config BB_WIFI_NO_IP_WATCHDOG_ENABLE
+    bool "Enable no-IP-while-associated watchdog"
+    default n
+    help
+        When enabled, the reconnect manager in ST_IDLE polls every
+        BB_WIFI_NO_IP_WATCHDOG_S seconds for the zombie state: L2-associated
+        but no DHCP IP. On detection it calls bb_wifi_restart_sta() to drop
+        the stale association and trigger full recovery. Distinct from
+        BB_WIFI_INACTIVE_TIME_ENABLE (beacon-loss) and the app-driven
+        recovery hook (BB_WIFI_RECOVERY_COOLDOWN_S).
+
+config BB_WIFI_NO_IP_WATCHDOG_S
+    int "No-IP watchdog interval for ST_IDLE (seconds)"
+    range 10 600
+    default 60
+    depends on BB_WIFI_NO_IP_WATCHDOG_ENABLE
+    help
+        When the reconnect manager is in ST_IDLE (connected, not reconnecting),
+        this is the interval at which it checks whether the board is still L2-
+        associated but has lost its DHCP IP (zombie state). On detection it calls
+        bb_wifi_restart_sta() to drop the stale association and trigger recovery.
+        60 s is the default — long enough to avoid false positives from DHCP
+        renewal races, short enough to recover quickly from a genuine zombie.
+
 config BB_WIFI_INACTIVE_TIME_ENABLE
     bool "Enable beacon-loss detection via esp_wifi_set_inactive_time"
     default n

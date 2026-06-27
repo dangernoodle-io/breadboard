@@ -9,6 +9,27 @@
 // 30 s >> normal associate+DHCP (2–8 s), so false positives are rare.
 #define WIFI_RECONN_CONNECTING_TIMEOUT_MS CONFIG_BB_WIFI_RECONN_CONNECTING_TIMEOUT_MS
 
+// BB_WIFI_NO_IP_WATCHDOG_ENABLE: bridge Kconfig opt-in; default 0 on host.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_WIFI_NO_IP_WATCHDOG_ENABLE
+#    define BB_WIFI_NO_IP_WATCHDOG_ENABLE 1
+#  endif
+#endif
+#ifndef BB_WIFI_NO_IP_WATCHDOG_ENABLE
+#define BB_WIFI_NO_IP_WATCHDOG_ENABLE 0
+#endif
+
+// WIFI_RECONN_NO_IP_WATCHDOG_MS: how often ST_IDLE polls for the zombie state.
+// Bridged from Kconfig; falls back to 60 s on host/disabled builds.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_WIFI_NO_IP_WATCHDOG_S
+#    define WIFI_RECONN_NO_IP_WATCHDOG_MS ((uint32_t)(CONFIG_BB_WIFI_NO_IP_WATCHDOG_S) * 1000U)
+#  endif
+#endif
+#ifndef WIFI_RECONN_NO_IP_WATCHDOG_MS
+#define WIFI_RECONN_NO_IP_WATCHDOG_MS 60000U
+#endif
+
 // BB_WIFI_INACTIVE_TIME_ENABLE: bridge Kconfig opt-in; default 0 on host.
 #ifdef ESP_PLATFORM
 #  ifdef CONFIG_BB_WIFI_INACTIVE_TIME_ENABLE
@@ -76,6 +97,10 @@ void wifi_reconn_absorb_next_disconnect(void);
 // Diagnostic counter: times the egress probe declared the gateway unreachable
 // and called bb_wifi_restart_sta (lock-free read of manager-owned state).
 uint32_t wifi_reconn_get_egress_dead_count(void);
+
+// Diagnostic counter: times the ST_IDLE no-IP watchdog detected associated-but-no-IP
+// and called bb_wifi_restart_sta (lock-free read of manager-owned state).
+uint32_t wifi_reconn_get_no_ip_count(void);
 
 // Signal the reconn task to run bb_wifi_restart_sta() from the task context.
 // Called by bb_wifi_request_recovery() after debounce check.

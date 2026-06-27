@@ -13,6 +13,12 @@
 // esp_wifi_types.h (reasons: 1-24, 53-67, 200-208) and fits uint8_t (< 256).
 #define WIFI_REASON_BB_EGRESS_DEAD 100
 
+// Breadboard sentinel: reason code injected into reason_histogram when ST_IDLE
+// watchdog detects associated-but-no-IP zombie state (distinct from LOST_IP
+// which fires via IP_EVENT_STA_LOST_IP). 101 is free in esp_wifi_types.h and
+// fits uint8_t (< 256).
+#define WIFI_REASON_BB_NO_IP_WATCHDOG 101
+
 #define WIFI_RECONN_HANDSHAKE_BACKOFF_TIER2_MS 10000
 #define WIFI_RECONN_HANDSHAKE_BACKOFF_TIER3_MS 30000
 #define WIFI_RECONN_GENERIC_BACKOFF_PAUSE_MS   5000
@@ -37,6 +43,8 @@ typedef struct {
     uint8_t  egress_fail_streak; // consecutive egress-probe failures below threshold
     uint32_t egress_dead_count;  // times egress declared dead (streak hit threshold)
     int64_t  last_egress_dead_us; // timestamp of last egress-dead event
+    uint32_t no_ip_count;         // times ST_IDLE watchdog detected associated-but-no-IP
+    int64_t  last_no_ip_us;       // timestamp of last no-IP watchdog event
 } wifi_reconn_state_t;
 
 typedef struct {
@@ -81,6 +89,12 @@ void wifi_reconn_policy_on_lost_ip(wifi_reconn_state_t *st, const wifi_reconn_ad
 wifi_reconn_action_t wifi_reconn_policy_on_egress_probe(
     wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad,
     bool reachable, int fail_threshold);
+
+// Record a no-IP-while-associated watchdog event (ST_IDLE watchdog path).
+// Bumps no_ip_count, last_no_ip_us, and reason_histogram[WIFI_REASON_BB_NO_IP_WATCHDOG].
+// Also arms first_fail_us (for the safeguard-reboot window) if not already set.
+// Guards null args. DISTINCT from on_lost_ip (which is event-driven via IP_EVENT_STA_LOST_IP).
+void wifi_reconn_policy_on_no_ip(wifi_reconn_state_t *st, const wifi_reconn_adapter_t *ad);
 
 // Policy decision when a connect attempt stalls (no GOT_IP or DISCONNECT
 // within the connecting watchdog window). Mirrors on_disconnect escalation:
