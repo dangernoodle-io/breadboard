@@ -40,6 +40,9 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 | `public-requires-watchlist` | library | Flags high-risk ESP-IDF deps (`esp_driver_*`, `esp_lcd`, etc.) in `REQUIRES` when they should be `PRIV_REQUIRES` (allowlist exceptions documented in `check_lint.sh` comments) |
 | `platform-error-in-public-struct` | library | Flags integer-typed struct fields in public headers (`components/*/include/*.h`) whose name or trailing comment matches a raw platform error pattern (`esp_err`, `mbedtls`, `tls_*_(err\|code\|fail)`, `disc_reason`, `err_code`, `_errno`) — use a portable `bb_*` enum or keep the field log/diagnostic-only (B1-366) |
 | `ticket-ref-in-log` | all | Flags ticket IDs (e.g. `B1-123`, `TA-456`) inside `bb_log_*` runtime string literals across `platform/` and `components/` — reference tickets in comments only, not in log output |
+| `bb-prefix` | library | Flags public symbols in `components/*/include/*.h` (function declarations and macros) whose name does not start with `bb_`/`BB_` — all public symbols must carry the library prefix (v0.1.0 convention); configurable allowlist via `[lint.rules.bb-prefix] allow=[...]` |
+| `pragma-once` | library | Flags public headers (`components/*/include/*.h`) that do not contain a `#pragma once` line — use `#pragma once` instead of `#ifndef`/`#define` include guards |
+| `no-arduino-string` | library | Flags Arduino `String` type usage in library sources (`.c`/`.cpp`/`.h` under `platform/` and `components/`, excluding `.pio`/`.claude`/`test/`) — use `const char*` + length instead |
 
 ## `bbtool.toml` config schema
 
@@ -75,6 +78,16 @@ allow = []                    # list of field names (or "path:line" strings) to 
 severity = "error"
 prefixes = ["B1", "TA"]       # ticket-ID prefixes to flag; override for your own tracker
 
+[lint.rules.bb-prefix]
+severity = "warn"             # fires on existing chip-register macros; set to "error" once clean
+allow = []                    # symbol names (function or macro) exempt from the prefix check
+
+[lint.rules.pragma-once]
+severity = "error"
+
+[lint.rules.no-arduino-string]
+severity = "error"
+
 [plugins]
 paths = []                    # list of .py plugin files (abs or relative to config)
 ```
@@ -94,6 +107,12 @@ paths = []                    # list of .py plugin files (abs or relative to con
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
 | `prefixes` | list of strings | `["B1", "TA"]` | Ticket-ID prefix(es) to flag inside `bb_log_*` string literals. Override with your own tracker prefixes (e.g. `["JIRA", "PROJ"]`). |
+
+**`bb-prefix`**
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `allow` | list of strings | `[]` | Symbol names (function or macro) that are intentional non-`bb_`/`BB_`-prefixed public symbols (e.g. chip-register macros that must match upstream naming). |
 
 ## Plugin-authoring contract
 

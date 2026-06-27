@@ -561,6 +561,129 @@ def _check_ticket_ref_in_log(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: bb-prefix
+# ---------------------------------------------------------------------------
+
+# Function declarations at column 0: return-type word(s) then a name not starting with bb_
+# Conservative: match only lowercase-starting bare identifiers (not ALL_CAPS macros here,
+# those are handled by the macro branch below).
+_BB_PREFIX_FN_RE = re.compile(
+    r'^([A-Za-z_]\w*(?:\s*\*)?(?:\s+\w+)*\s+)'  # return type (may include pointer/qualifier)
+    r'([a-z][a-zA-Z0-9_]*)'                       # function name (lowercase-start)
+    r'\s*\('                                       # opening paren
+)
+_BB_PREFIX_SKIP_KW = frozenset({
+    'static', 'inline', 'extern', 'typedef', 'struct', 'enum', 'union',
+    'if', 'while', 'for', 'return', 'const', 'volatile', 'register',
+})
+
+# Macros: #define NAME — uppercase-start, not starting with BB_, not a header guard
+_BB_PREFIX_MACRO_RE = re.compile(r'^#define\s+([A-Z][A-Z0-9_]*)\b')
+_BB_PREFIX_HGUARD_RE = re.compile(r'[A-Z0-9_]+_H(?:_)?$')
+
+
+def _check_bb_prefix(ctx: Context) -> list:
+    """Rule: bb-prefix — flags public symbols in components/*/include/*.h not prefixed bb_/BB_."""
+    violations = []
+    root = Path(ctx.root)
+    comp_root = root / "components"
+    if not comp_root.exists():
+        return violations
+
+    rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get("bb-prefix", {})
+    allowlist: set = set(rule_cfg.get("allow", []))
+
+    for path in sorted(comp_root.glob("*/include/*.h")):
+        parts = path.relative_to(comp_root).parts
+        if parts[0] == "bb_display_ek79007":
+            continue
+
+        content = ctx.read(path)
+        for i, line in enumerate(content.splitlines(), 1):
+            # --- function declarations ---
+            m = _BB_PREFIX_FN_RE.match(line)
+            if m:
+                prefix_words = m.group(1).split()
+                name = m.group(2)
+                # skip if any keyword present in return-type tokens
+                if not any(w in _BB_PREFIX_SKIP_KW for w in prefix_words):
+                    if not name.startswith('bb_') and name not in allowlist:
+                        violations.append(ctx.violation(path, i, f"function '{name}'"))
+                        continue  # don't double-report same line
+
+            # --- macro definitions ---
+            mm = _BB_PREFIX_MACRO_RE.match(line)
+            if mm:
+                name = mm.group(1)
+                if _BB_PREFIX_HGUARD_RE.search(name):
+                    continue  # skip header guards
+                if name.startswith('BB_'):
+                    continue
+                if name in allowlist:
+                    continue
+                violations.append(ctx.violation(path, i, f"macro '{name}'"))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Rule: pragma-once
+# ---------------------------------------------------------------------------
+
+def _check_pragma_once(ctx: Context) -> list:
+    """Rule: pragma-once — flags public headers lacking a #pragma once line."""
+    violations = []
+    root = Path(ctx.root)
+    comp_root = root / "components"
+    if not comp_root.exists():
+        return violations
+
+    pragma_re = re.compile(r'^\s*#\s*pragma\s+once\b')
+
+    for path in sorted(comp_root.glob("*/include/*.h")):
+        parts = path.relative_to(comp_root).parts
+        if parts[0] == "bb_display_ek79007":
+            continue
+
+        content = ctx.read(path)
+        has_pragma = any(pragma_re.match(line) for line in content.splitlines())
+        if not has_pragma:
+            violations.append(ctx.violation(path, 1, "missing #pragma once"))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Rule: no-arduino-string
+# ---------------------------------------------------------------------------
+
+_ARDUINO_STRING_RE = re.compile(r'\bString\b')
+
+
+def _check_no_arduino_string(ctx: Context) -> list:
+    """Rule: no-arduino-string — flags Arduino String type usage in library sources."""
+    violations = []
+    root = Path(ctx.root)
+
+    for path in ctx.files(
+        ["platform/**/*.c", "platform/**/*.cpp", "platform/**/*.h",
+         "components/**/*.c", "components/**/*.cpp", "components/**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+
+        src = ctx.read(path)
+        stripped = _strip_noise(src)
+        for i, line in enumerate(stripped.splitlines(), 1):
+            if _ARDUINO_STRING_RE.search(line):
+                violations.append(ctx.violation(path, i))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule registry — register all 4 rules
 # ---------------------------------------------------------------------------
 
@@ -625,6 +748,27 @@ def _register_lint_rules() -> None:
             profiles={"all"},
             check=_check_ticket_ref_in_log,
             hint="no ticket IDs in runtime log strings — reference tickets in comments only",
+        ),
+        Rule(
+            id="bb-prefix",
+            default_severity="warn",
+            profiles={"library"},
+            check=_check_bb_prefix,
+            hint="public symbols must be bb_-prefixed (v0.1.0 convention)",
+        ),
+        Rule(
+            id="pragma-once",
+            default_severity="error",
+            profiles={"library"},
+            check=_check_pragma_once,
+            hint="use #pragma once (not #ifndef include guards)",
+        ),
+        Rule(
+            id="no-arduino-string",
+            default_severity="error",
+            profiles={"library"},
+            check=_check_no_arduino_string,
+            hint="no Arduino String in library code — use const char* + length",
         ),
     ]
     for rule in rules:

@@ -19,6 +19,9 @@ from commands.lint import (
     _check_timer_cb_heavy,
     _check_platform_error_in_public_struct,
     _check_ticket_ref_in_log,
+    _check_bb_prefix,
+    _check_pragma_once,
+    _check_no_arduino_string,
     _strip_noise,
 )
 
@@ -541,6 +544,191 @@ class TestTicketRefInLog(unittest.TestCase):
                 '}\n')
             violations = _check_ticket_ref_in_log(self._ctx(td))
             self.assertTrue(violations, "ticket in platform/ log string must fire")
+
+
+class TestBbPrefix(unittest.TestCase):
+    def _make_header(self, tmpdir: str, comp: str, filename: str, content: str) -> str:
+        inc = os.path.join(tmpdir, "components", comp, "include")
+        os.makedirs(inc, exist_ok=True)
+        Path(os.path.join(inc, filename)).write_text(content)
+        return tmpdir
+
+    def _ctx(self, tmpdir: str, config: dict = None) -> Context:
+        return Context(root=tmpdir, config=config or {})
+
+    def test_fires_on_non_bb_function(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'void init_something(void);\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertTrue(violations, "non-bb_ function declaration must fire")
+            self.assertIn("init_something", violations[0]["detail"])
+
+    def test_fires_on_non_BB_macro(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                '#define CHIP_MAX_RETRIES 3\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertTrue(violations, "non-BB_ macro must fire")
+            self.assertIn("CHIP_MAX_RETRIES", violations[0]["detail"])
+
+    def test_no_fire_on_bb_function(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'bb_err_t bb_fake_init(void);\n'
+                'void bb_fake_deinit(void);\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertFalse(violations, "bb_-prefixed functions must NOT fire")
+
+    def test_no_fire_on_BB_macro(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                '#define BB_FAKE_MAX 10\n'
+                '#define BB_FAKE_FLAG (1u << 0)\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertFalse(violations, "BB_-prefixed macros must NOT fire")
+
+    def test_no_fire_on_header_guard(self):
+        """Header guards matching *_H pattern must be skipped."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#ifndef BB_FAKE_H\n'
+                '#define BB_FAKE_H\n'
+                '#endif\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            # BB_FAKE_H starts with BB_ so it won't fire; FAKE_H style would too be skipped by guard heuristic
+            self.assertFalse(violations, "header guards must NOT fire")
+
+    def test_no_fire_on_static_function(self):
+        """static functions are implementation detail — must NOT fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'static inline int helper_fn(void) { return 0; }\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertFalse(violations, "static/inline functions must NOT fire")
+
+    def test_allowlist_respected(self):
+        """A symbol name in the allowlist must be silenced."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                '#define CHIP_MAX_RETRIES 3\n')
+            config = {"lint": {"rules": {"bb-prefix": {"allow": ["CHIP_MAX_RETRIES"]}}}}
+            violations = _check_bb_prefix(self._ctx(td, config))
+            self.assertFalse(violations, "allowlisted symbol must NOT fire")
+
+    def test_bb_display_ek79007_exempt(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_display_ek79007", "bb_display_ek79007.h",
+                '#pragma once\n'
+                'void lvgl_init(void);\n'
+                '#define LVGL_PANEL_W 1024\n')
+            violations = _check_bb_prefix(self._ctx(td))
+            self.assertFalse(violations, "bb_display_ek79007 must be exempt")
+
+
+class TestPragmaOnce(unittest.TestCase):
+    def _make_header(self, tmpdir: str, comp: str, filename: str, content: str) -> str:
+        inc = os.path.join(tmpdir, "components", comp, "include")
+        os.makedirs(inc, exist_ok=True)
+        Path(os.path.join(inc, filename)).write_text(content)
+        return tmpdir
+
+    def test_fires_on_missing_pragma_once(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#ifndef BB_FAKE_H\n'
+                '#define BB_FAKE_H\n'
+                'void bb_fake_init(void);\n'
+                '#endif\n')
+            violations = _check_pragma_once(make_ctx(td))
+            self.assertTrue(violations, "header with #ifndef guard but no #pragma once must fire")
+
+    def test_no_fire_on_pragma_once(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'void bb_fake_init(void);\n')
+            violations = _check_pragma_once(make_ctx(td))
+            self.assertFalse(violations, "header with #pragma once must NOT fire")
+
+    def test_no_fire_on_feature_gate_ifdef(self):
+        """#ifdef ESP_PLATFORM feature gates must NOT be mistaken for include guards."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                '#ifdef ESP_PLATFORM\n'
+                '#include "esp_err.h"\n'
+                '#endif\n'
+                'void bb_fake_init(void);\n')
+            violations = _check_pragma_once(make_ctx(td))
+            self.assertFalse(violations, "feature-gate #ifdef must NOT cause false-positive")
+
+    def test_bb_display_ek79007_exempt(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_display_ek79007", "bb_display_ek79007.h",
+                '#ifndef BB_DISPLAY_EK79007_H\n'
+                '#define BB_DISPLAY_EK79007_H\n'
+                '#endif\n')
+            violations = _check_pragma_once(make_ctx(td))
+            self.assertFalse(violations, "bb_display_ek79007 must be exempt")
+
+
+class TestNoArduinoString(unittest.TestCase):
+    def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return tmpdir
+
+    def test_fires_on_String_variable(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.cpp",
+                '#include <Arduino.h>\n'
+                'void foo(void) {\n'
+                '    String x = "hello";\n'
+                '}\n')
+            violations = _check_no_arduino_string(make_ctx(td))
+            self.assertTrue(violations, "String variable declaration must fire")
+
+    def test_fires_on_String_ctor(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/arduino/bb_fake/bb_fake.cpp",
+                'void bar(String s) {}\n')
+            violations = _check_no_arduino_string(make_ctx(td))
+            self.assertTrue(violations, "String parameter type must fire")
+
+    def test_no_fire_on_c_code(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.c",
+                'void bb_fake_init(void) {\n'
+                '    const char *s = "hello";\n'
+                '}\n')
+            violations = _check_no_arduino_string(make_ctx(td))
+            self.assertFalse(violations, "plain C code with no String must NOT fire")
+
+    def test_no_fire_on_string_in_comment(self):
+        """'String' in a comment must not fire (stripped by _strip_noise)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.c",
+                'void bb_fake_init(void) {\n'
+                '    // String copy sub-state (COPY_STRING / SKIP_STRING)\n'
+                '    const char *s = "String not used here";\n'
+                '}\n')
+            violations = _check_no_arduino_string(make_ctx(td))
+            self.assertFalse(violations, "String only in comments/strings must NOT fire")
+
+    def test_no_fire_in_test_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/test/test_fake.cpp",
+                'String s = "test";\n')
+            violations = _check_no_arduino_string(make_ctx(td))
+            self.assertFalse(violations, "test/ directory must be excluded")
 
 
 class TestStripNoise(unittest.TestCase):
