@@ -3,12 +3,12 @@
 #include "bb_wifi.h"
 #include "bb_registry.h"
 #include "bb_http.h"
+#include "bb_timer.h"
 #include "mdns.h"
 #include "esp_app_desc.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_system.h"
-#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -130,7 +130,7 @@ typedef struct {
 #define BB_MDNS_TAG_BATCH(p) ((bb_mdns_evt_t *)((uintptr_t)(p) | BB_MDNS_BATCH_TAG))
 
 static bb_mdns_batch_t   s_batch;
-static esp_timer_handle_t s_flush_timer = NULL;
+static bb_oneshot_timer_t s_flush_timer = NULL;
 
 // Batch pool: single static slot — one flush in flight at a time is sufficient
 // because the dispatcher frees it before the next flush timer fires.
@@ -201,9 +201,9 @@ static bool batch_do_flush_locked(void)
     return ok;
 }
 
-// Flush timer callback: runs on esp_timer task (not mDNS task, not dispatch task).
+// Flush work function: runs on bb_timer_disp task (off the esp_timer service task).
 // Swaps the pending batch into a batch item and enqueues one pointer.
-static void flush_timer_cb(void *arg)
+static void flush_work_fn(void *arg)
 {
     (void)arg;
     xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY);
@@ -232,7 +232,7 @@ static void flush_timer_cb(void *arg)
             }
         } else {
             /* Events still pending — re-arm to avoid orphaning them. */
-            esp_timer_start_once(s_flush_timer, 50 * 1000);
+            bb_timer_oneshot_start(s_flush_timer, 50 * 1000);
         }
         return;
     }
@@ -243,15 +243,10 @@ static void flush_timer_cb(void *arg)
 static void flush_timer_ensure_created(void)
 {
     if (s_flush_timer) return;
-    esp_timer_create_args_t args = {
-        .callback        = flush_timer_cb,
-        .arg             = NULL,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name            = "bb_mdns_flush",
-    };
-    esp_err_t err = esp_timer_create(&args, &s_flush_timer);
-    if (err != ESP_OK) {
-        bb_log_w(TAG, "esp_timer_create(flush) failed: %s", esp_err_to_name(err));
+    bb_err_t err = bb_timer_deferred_oneshot_create(flush_work_fn, NULL,
+                                                     "bb_mdns_flush", &s_flush_timer);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "bb_timer_deferred_oneshot_create(flush) failed: %d", (int)err);
     }
 }
 
@@ -270,7 +265,7 @@ static bool batch_append_locked(const bb_mdns_evt_t *evt)
     if (s_batch.count >= BB_MDNS_BATCH_MAX) {
         /* Batch is full — flush synchronously before appending.
          * Cancel the pending timer first; the synchronous flush supersedes it. */
-        if (s_flush_timer) esp_timer_stop(s_flush_timer);  /* ignore if not running */
+        if (s_flush_timer) bb_timer_oneshot_stop(s_flush_timer);  /* ignore if not running */
 
         if (!batch_do_flush_locked()) {
             /* batch_do_flush_locked re-acquired the lock; check failure mode:
@@ -295,7 +290,7 @@ static bool batch_append_locked(const bb_mdns_evt_t *evt)
     }
     if (s_batch.count == 1 && s_flush_timer) {
         /* First event in a new batch — arm the one-shot 50 ms flush window. */
-        esp_timer_start_once(s_flush_timer, 50 * 1000);  /* 50 ms */
+        bb_timer_oneshot_start(s_flush_timer, 50 * 1000);  /* 50 ms */
     }
     return true;
 }
@@ -327,7 +322,7 @@ static bb_mdns_lifecycle_state_t s_lc = {0};
  * without it. Restarting the timer on each set_txt call is intentional: the
  * last-write-wins coalesce delays the announce until the burst settles. */
 #define BB_MDNS_ANNOUNCE_DELAY_US (100 * 1000)  /* 100 ms */
-static esp_timer_handle_t s_announce_timer = NULL;
+static bb_oneshot_timer_t s_announce_timer = NULL;
 
 /* Periodic browse-refresh timer. IDF's mdns_browse only fires the notify
  * callback on PTR state changes; same-TTL re-announces by an active
@@ -335,7 +330,7 @@ static esp_timer_handle_t s_announce_timer = NULL;
  * patching IDF, periodically delete + re-create each browse, which forces
  * a fresh PTR scan and produces a new add notification per responder.
  * See B1-87. */
-static esp_timer_handle_t s_browse_refresh_timer = NULL;
+static bb_periodic_timer_t s_browse_refresh_timer = NULL;
 
 static int apply_announce_locked(void)
 {
@@ -356,7 +351,7 @@ static int apply_announce_locked(void)
     return 0;
 }
 
-static void announce_timer_cb(void *arg)
+static void announce_work_fn(void *arg)
 {
     (void)arg;
     if (!bb_mdns_lifecycle_is_started(&s_lc)) return;
@@ -368,15 +363,10 @@ static void announce_timer_cb(void *arg)
 static void announce_timer_ensure_created(void)
 {
     if (s_announce_timer) return;
-    esp_timer_create_args_t args = {
-        .callback = announce_timer_cb,
-        .arg = NULL,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "bb_mdns_announce",
-    };
-    esp_err_t err = esp_timer_create(&args, &s_announce_timer);
-    if (err != ESP_OK) {
-        bb_log_w(TAG, "esp_timer_create(announce) failed: %s", esp_err_to_name(err));
+    bb_err_t err = bb_timer_deferred_oneshot_create(announce_work_fn, NULL,
+                                                     "bb_mdns_announce", &s_announce_timer);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "bb_timer_deferred_oneshot_create(announce) failed: %d", (int)err);
     }
 }
 
@@ -384,12 +374,12 @@ static void announce_arm(uint64_t delay_us)
 {
     if (!s_announce_timer) return;
     bb_mdns_lifecycle_mark_dirty(&s_lc);
-    /* esp_timer_start_once returns ESP_ERR_INVALID_STATE if already running;
-     * restart to implement last-write-wins coalescing. */
-    esp_timer_stop(s_announce_timer);  /* ignore error if not running */
-    esp_err_t err = esp_timer_start_once(s_announce_timer, delay_us);
-    if (err != ESP_OK) {
-        bb_log_w(TAG, "announce timer arm failed: %s", esp_err_to_name(err));
+    /* bb_timer_oneshot_start re-arms even if already pending, implementing
+     * last-write-wins coalescing. */
+    bb_timer_oneshot_stop(s_announce_timer);  /* ignore error if not running */
+    bb_err_t err = bb_timer_oneshot_start(s_announce_timer, delay_us);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "announce timer arm failed: %d", (int)err);
     }
 }
 
@@ -846,12 +836,13 @@ void bb_mdns_start(void)
     }
 }
 
-/* Refresh callback: walks s_subs[] and replays mdns_browse_delete +
- * mdns_browse_new for each in-use slot. Snapshots svc/proto under the
- * subs mutex, then drops the lock for the IDF calls (same pattern as
+/* Refresh work function: walks s_subs[] and replays mdns_browse_delete +
+ * mdns_browse_new for each in-use slot. Runs on bb_timer_disp task (off
+ * the esp_timer service task). Snapshots svc/proto under the subs mutex,
+ * then drops the lock for the IDF calls (same pattern as
  * bb_mdns_re_arm_browses) to avoid blocking the dispatch task while
  * the IDF mDNS task processes the delete/new. */
-static void browse_refresh_timer_cb(void *arg)
+static void browse_refresh_work_fn(void *arg)
 {
     (void)arg;
     if (!bb_mdns_lifecycle_is_started(&s_lc)) return;
@@ -891,25 +882,20 @@ static void browse_refresh_timer_start(void)
 {
 #if CONFIG_BB_MDNS_BROWSE_REFRESH_INTERVAL_S > 0
     if (s_browse_refresh_timer) return;
-    esp_timer_create_args_t args = {
-        .callback = browse_refresh_timer_cb,
-        .arg = NULL,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "bb_mdns_browse_refresh",
-    };
-    esp_err_t err = esp_timer_create(&args, &s_browse_refresh_timer);
-    if (err != ESP_OK) {
-        bb_log_w(TAG, "esp_timer_create(browse_refresh) failed: %s",
-                 esp_err_to_name(err));
+    bb_err_t err = bb_timer_deferred_periodic_create(browse_refresh_work_fn, NULL,
+                                                      "bb_mdns_browse_refresh",
+                                                      &s_browse_refresh_timer);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "bb_timer_deferred_periodic_create(browse_refresh) failed: %d",
+                 (int)err);
         s_browse_refresh_timer = NULL;
         return;
     }
     uint64_t period_us = (uint64_t)CONFIG_BB_MDNS_BROWSE_REFRESH_INTERVAL_S * 1000000ULL;
-    err = esp_timer_start_periodic(s_browse_refresh_timer, period_us);
-    if (err != ESP_OK) {
-        bb_log_w(TAG, "esp_timer_start_periodic(browse_refresh) failed: %s",
-                 esp_err_to_name(err));
-        esp_timer_delete(s_browse_refresh_timer);
+    err = bb_timer_periodic_start(s_browse_refresh_timer, period_us);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "bb_timer_periodic_start(browse_refresh) failed: %d", (int)err);
+        bb_timer_periodic_delete(s_browse_refresh_timer);
         s_browse_refresh_timer = NULL;
     }
 #endif
@@ -918,8 +904,8 @@ static void browse_refresh_timer_start(void)
 static void browse_refresh_timer_stop(void)
 {
     if (!s_browse_refresh_timer) return;
-    esp_timer_stop(s_browse_refresh_timer);
-    esp_timer_delete(s_browse_refresh_timer);
+    bb_timer_periodic_stop(s_browse_refresh_timer);
+    bb_timer_periodic_delete(s_browse_refresh_timer);
     s_browse_refresh_timer = NULL;
 }
 
@@ -944,8 +930,8 @@ static void bb_mdns_on_disconnect(void)
     }
     bb_log_i(TAG, "wifi disconnected — tearing down mdns");
     if (s_announce_timer) {
-        esp_timer_stop(s_announce_timer);
-        esp_timer_delete(s_announce_timer);
+        bb_timer_oneshot_stop(s_announce_timer);
+        bb_timer_oneshot_delete(s_announce_timer);
         s_announce_timer = NULL;
     }
     browse_refresh_timer_stop();
@@ -965,8 +951,8 @@ void bb_mdns_deinit(void)
         return;
     }
     if (s_announce_timer) {
-        esp_timer_stop(s_announce_timer);
-        esp_timer_delete(s_announce_timer);
+        bb_timer_oneshot_stop(s_announce_timer);
+        bb_timer_oneshot_delete(s_announce_timer);
         s_announce_timer = NULL;
     }
     browse_refresh_timer_stop();
