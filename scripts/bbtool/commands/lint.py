@@ -410,6 +410,157 @@ def _check_timer_cb_heavy(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: platform-error-in-public-struct (B1-366)
+# ---------------------------------------------------------------------------
+
+# Integer scalar types that constitute a "raw platform error code" when
+# paired with a suspicious field name / comment.
+_PLAT_ERR_INT_TYPE_RE = re.compile(
+    r'\b(?:int|unsigned|signed|short|long|'
+    r'int8_t|int16_t|int32_t|int64_t|'
+    r'uint8_t|uint16_t|uint32_t|uint64_t)\b'
+)
+
+# Field name or trailing comment matches any of these → suspicious
+_PLAT_ERR_NAME_RE = re.compile(
+    r'esp_err'
+    r'|mbedtls'
+    r'|\btls\b.{0,30}(?:err|code|fail)'
+    r'|err(?:or)?_?code'
+    r'|disc(?:onnect)?_?(?:reason|err)'
+    r'|_errno',
+    re.IGNORECASE,
+)
+
+# Struct opening patterns
+_STRUCT_TYPEDEF_OPEN = re.compile(r'^\s*typedef\s+struct\b')
+_STRUCT_NAMED_OPEN = re.compile(r'^\s*struct\s+\w+\s*\{')
+
+
+def _check_platform_error_in_public_struct(ctx: Context) -> list:
+    """Rule: platform-error-in-public-struct — flags integer struct fields that surface
+    raw platform error codes (esp_err, mbedtls, tls_error_code, disc_reason…)."""
+    violations = []
+    root = Path(ctx.root)
+    comp_root = root / "components"
+    if not comp_root.exists():
+        return violations
+
+    # Read allowlist from config
+    rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get(
+        "platform-error-in-public-struct", {}
+    )
+    allowlist: set = set(rule_cfg.get("allow", []))
+
+    for path in sorted(comp_root.glob("*/include/*.h")):
+        parts = path.relative_to(comp_root).parts
+        if parts[0] == "bb_display_ek79007":
+            continue
+
+        content = ctx.read(path)
+        lines = content.splitlines()
+        in_struct = False
+        brace_depth = 0
+
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+
+            # Detect struct opening
+            if not in_struct:
+                if _STRUCT_TYPEDEF_OPEN.match(line) or _STRUCT_NAMED_OPEN.match(line):
+                    in_struct = True
+                    brace_depth = line.count('{') - line.count('}')
+                    continue
+
+            if in_struct:
+                brace_depth += line.count('{') - line.count('}')
+                if brace_depth <= 0:
+                    in_struct = False
+                    brace_depth = 0
+                    continue
+
+                # Must be an integer-typed declaration
+                if not _PLAT_ERR_INT_TYPE_RE.search(stripped):
+                    continue
+
+                # Extract field name: last bare word before ; or [
+                field_name_m = re.search(r'\b(\w+)\s*(?:\[.*?\])?\s*;', stripped)
+                if field_name_m is None:
+                    continue
+                field_name = field_name_m.group(1)
+
+                # Extract trailing comment (// ... or /* ... */)
+                trail_m = re.search(r'(?://|/\*)(.+)', stripped)
+                trail = trail_m.group(1) if trail_m else ""
+
+                # Check field name or trailing comment
+                target = field_name + " " + trail
+                if _PLAT_ERR_NAME_RE.search(target):
+                    # Check allowlist
+                    key = f"{path}:{i}"
+                    if key in allowlist or field_name in allowlist:
+                        continue
+                    violations.append(ctx.violation(path, i, stripped))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Rule: ticket-ref-in-log
+# ---------------------------------------------------------------------------
+
+def _check_ticket_ref_in_log(ctx: Context) -> list:
+    """Rule: ticket-ref-in-log — flags ticket IDs inside bb_log_* string literals."""
+    violations = []
+    root = Path(ctx.root)
+
+    # Read configurable prefix list
+    rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get(
+        "ticket-ref-in-log", {}
+    )
+    prefixes = rule_cfg.get("prefixes", ["B1", "TA"])
+    prefix_alt = "|".join(re.escape(p) for p in prefixes)
+    ticket_re = re.compile(r'\b(?:' + prefix_alt + r')-\d+\b')
+
+    # Matches bb_log_<alpha>( — the call start
+    log_call_re = re.compile(r'\bbb_log_[a-z]+\s*\(')
+
+    for path in ctx.files(
+        ["platform/**/*.c", "platform/**/*.h",
+         "components/**/*.c", "components/**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+
+        src = ctx.read(path)
+        # Strip comments so we only see code + string literals
+        stripped = _strip_noise(src)
+        lines = stripped.splitlines()
+        orig_lines = src.splitlines()
+
+        for i, line in enumerate(lines, 1):
+            if not log_call_re.search(line):
+                continue
+            # The ticket must appear inside the string content of the log call.
+            # _strip_noise blanked all string content — so if ticket_re fires on
+            # the stripped line it's NOT in a string.  We check the original line.
+            orig = orig_lines[i - 1] if i - 1 < len(orig_lines) else ""
+            # Only flag if the original has a log call AND a ticket ref inside
+            # a double-quoted literal on the same line.
+            if not log_call_re.search(orig):
+                continue
+            # Find all double-quoted strings on the original line
+            for str_m in re.finditer(r'"([^"\\]*(?:\\.[^"\\]*)*)"', orig):
+                if ticket_re.search(str_m.group(1)):
+                    violations.append(ctx.violation(path, i, orig.strip()))
+                    break
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule registry — register all 4 rules
 # ---------------------------------------------------------------------------
 
@@ -459,6 +610,21 @@ def _register_lint_rules() -> None:
             profiles={"all"},
             check=_check_timer_cb_heavy,
             hint="timer callback does heavy work — use bb_timer_deferred_*",
+        ),
+        Rule(
+            id="platform-error-in-public-struct",
+            default_severity="warn",
+            profiles={"library"},
+            check=_check_platform_error_in_public_struct,
+            hint="public structs must not surface raw platform error codes as scalars"
+                 " — use a portable bb_* enum or keep diagnostic/log-only",
+        ),
+        Rule(
+            id="ticket-ref-in-log",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_ticket_ref_in_log,
+            hint="no ticket IDs in runtime log strings — reference tickets in comments only",
         ),
     ]
     for rule in rules:

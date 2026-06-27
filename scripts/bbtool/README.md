@@ -38,6 +38,8 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 | `timer-cb-heavy` | all | Flags heavy work (blocking locks, alloc, IDF-subsystem calls) inside a `bb_timer_(periodic\|oneshot)_create` callback body — use `bb_timer_deferred_*` instead |
 | `public-header-leak` | library | Flags `esp_*/driver//cJSON.h` includes in public component headers outside an `#ifdef ESP_PLATFORM` gate |
 | `public-requires-watchlist` | library | Flags high-risk ESP-IDF deps (`esp_driver_*`, `esp_lcd`, etc.) in `REQUIRES` when they should be `PRIV_REQUIRES` (allowlist exceptions documented in `check_lint.sh` comments) |
+| `platform-error-in-public-struct` | library | Flags integer-typed struct fields in public headers (`components/*/include/*.h`) whose name or trailing comment matches a raw platform error pattern (`esp_err`, `mbedtls`, `tls_*_(err\|code\|fail)`, `disc_reason`, `err_code`, `_errno`) — use a portable `bb_*` enum or keep the field log/diagnostic-only (B1-366) |
+| `ticket-ref-in-log` | all | Flags ticket IDs (e.g. `B1-123`, `TA-456`) inside `bb_log_*` runtime string literals across `platform/` and `components/` — reference tickets in comments only, not in log output |
 
 ## `bbtool.toml` config schema
 
@@ -65,11 +67,33 @@ severity = "error"
 [lint.rules.timer-cb-heavy]
 severity = "error"
 
+[lint.rules.platform-error-in-public-struct]
+severity = "warn"             # fires on existing code; set to "error" once clean
+allow = []                    # list of field names (or "path:line" strings) to suppress
+
+[lint.rules.ticket-ref-in-log]
+severity = "error"
+prefixes = ["B1", "TA"]       # ticket-ID prefixes to flag; override for your own tracker
+
 [plugins]
 paths = []                    # list of .py plugin files (abs or relative to config)
 ```
 
 `severity = "off"` suppresses the rule entirely. `"warn"` reports violations but exits 0.
+
+### Configurable rule keys
+
+**`platform-error-in-public-struct`**
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `allow` | list of strings | `[]` | Field names (or `"path:line"` strings) that are intentional diagnostic/log-only fields and should be suppressed. Example: `allow = ["tls_error_code"]`. |
+
+**`ticket-ref-in-log`**
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `prefixes` | list of strings | `["B1", "TA"]` | Ticket-ID prefix(es) to flag inside `bb_log_*` string literals. Override with your own tracker prefixes (e.g. `["JIRA", "PROJ"]`). |
 
 ## Plugin-authoring contract
 

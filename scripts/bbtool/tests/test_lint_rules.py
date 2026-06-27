@@ -17,6 +17,8 @@ from commands.lint import (
     _check_public_requires_watchlist,
     _check_raw_esp_timer,
     _check_timer_cb_heavy,
+    _check_platform_error_in_public_struct,
+    _check_ticket_ref_in_log,
     _strip_noise,
 )
 
@@ -358,6 +360,187 @@ class TestTimerCbHeavy(unittest.TestCase):
                 '}\n')
             violations = _check_timer_cb_heavy(make_ctx(td))
             self.assertTrue(violations, "callback defined below registration must be detected")
+
+
+class TestPlatformErrorInPublicStruct(unittest.TestCase):
+    def _make_header(self, tmpdir: str, comp: str, filename: str, content: str) -> str:
+        inc = os.path.join(tmpdir, "components", comp, "include")
+        os.makedirs(inc, exist_ok=True)
+        Path(os.path.join(inc, filename)).write_text(content)
+        return tmpdir
+
+    def _ctx(self, tmpdir: str, config: dict = None) -> Context:
+        return Context(root=tmpdir, config=config or {})
+
+    def test_fires_on_int_tls_error_code(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'typedef struct {\n'
+                '    int tls_error_code; // raw mbedtls code\n'
+                '} bb_fake_t;\n')
+            violations = _check_platform_error_in_public_struct(self._ctx(td))
+            self.assertTrue(violations, "tls_error_code integer field must fire")
+
+    def test_fires_on_uint_disc_reason(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'typedef struct {\n'
+                '    uint8_t disc_reason;\n'
+                '} bb_fake_t;\n')
+            violations = _check_platform_error_in_public_struct(self._ctx(td))
+            self.assertTrue(violations, "disc_reason uint8_t field must fire")
+
+    def test_fires_on_comment_match(self):
+        """Field name is neutral but trailing comment contains mbedtls."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'typedef struct {\n'
+                '    int diag_code; // raw mbedtls error\n'
+                '} bb_fake_t;\n')
+            violations = _check_platform_error_in_public_struct(self._ctx(td))
+            self.assertTrue(violations, "mbedtls in trailing comment must fire")
+
+    def test_no_fire_on_portable_enum_field(self):
+        """A field typed with a portable bb_* typedef must NOT fire (not an int scalar)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'typedef struct {\n'
+                '    bb_mqtt_disc_t disc_reason;\n'
+                '    bb_tls_fail_t  tls_fail;\n'
+                '} bb_fake_t;\n')
+            violations = _check_platform_error_in_public_struct(self._ctx(td))
+            self.assertFalse(violations, "portable bb_* enum fields must NOT fire")
+
+    def test_no_fire_outside_struct(self):
+        """Integer field names that match but are NOT inside a struct body must NOT fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'int disc_reason;\n'
+                'bb_err_t bb_fake_get(int *disc_reason);\n')
+            violations = _check_platform_error_in_public_struct(self._ctx(td))
+            self.assertFalse(violations, "top-level declarations outside struct must NOT fire")
+
+    def test_no_fire_bb_display_ek79007_exempt(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_display_ek79007", "bb_display_ek79007.h",
+                '#pragma once\n'
+                'typedef struct {\n'
+                '    int tls_error_code;\n'
+                '} bb_display_ek79007_t;\n')
+            violations = _check_platform_error_in_public_struct(self._ctx(td))
+            self.assertFalse(violations, "bb_display_ek79007 must be exempt")
+
+    def test_allowlist_field_name(self):
+        """A field name in the allowlist must be silenced."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'typedef struct {\n'
+                '    int tls_error_code; // raw mbedtls code\n'
+                '} bb_fake_t;\n')
+            config = {"lint": {"rules": {"platform-error-in-public-struct": {
+                "allow": ["tls_error_code"]
+            }}}}
+            violations = _check_platform_error_in_public_struct(self._ctx(td, config))
+            self.assertFalse(violations, "allowlisted field name must NOT fire")
+
+    def test_no_fire_non_integer_type(self):
+        """bool / float / pointer types must NOT fire even with suspicious names."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                'typedef struct {\n'
+                '    bool disc_reason;\n'
+                '    float err_code;\n'
+                '    void *errno_ptr;\n'
+                '} bb_fake_t;\n')
+            violations = _check_platform_error_in_public_struct(self._ctx(td))
+            self.assertFalse(violations, "non-integer types must NOT fire")
+
+
+class TestTicketRefInLog(unittest.TestCase):
+    def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return tmpdir
+
+    def _ctx(self, tmpdir: str, config: dict = None) -> Context:
+        return Context(root=tmpdir, config=config or {})
+
+    def test_fires_on_ticket_in_log_string(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.c",
+                'void foo(void) {\n'
+                '    bb_log_e(TAG, "error B1-123 occurred");\n'
+                '}\n')
+            violations = _check_ticket_ref_in_log(self._ctx(td))
+            self.assertTrue(violations, "B1-NNN in log string must fire")
+
+    def test_fires_on_ta_prefix(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.c",
+                'void foo(void) {\n'
+                '    bb_log_w(TAG, "see TA-456 for context");\n'
+                '}\n')
+            violations = _check_ticket_ref_in_log(self._ctx(td))
+            self.assertTrue(violations, "TA-NNN in log string must fire")
+
+    def test_no_fire_comment_only(self):
+        """Ticket ID in a comment (not in a string literal) must NOT fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.c",
+                'void foo(void) {\n'
+                '    // B1-123: deferred because of the issue\n'
+                '    bb_log_i(TAG, "normal message");\n'
+                '}\n')
+            violations = _check_ticket_ref_in_log(self._ctx(td))
+            self.assertFalse(violations, "comment-only ticket ref must NOT fire")
+
+    def test_no_fire_no_log_call(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.c",
+                'void foo(void) {\n'
+                '    const char *msg = "B1-999 see ticket";\n'
+                '}\n')
+            violations = _check_ticket_ref_in_log(self._ctx(td))
+            self.assertFalse(violations, "ticket in non-log string must NOT fire")
+
+    def test_configurable_prefix(self):
+        """Custom prefix list: only JIRA- fires; B1-/TA- do not."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.c",
+                'void foo(void) {\n'
+                '    bb_log_e(TAG, "JIRA-42 broke things");\n'
+                '    bb_log_w(TAG, "B1-100 unrelated");\n'
+                '}\n')
+            config = {"lint": {"rules": {"ticket-ref-in-log": {"prefixes": ["JIRA"]}}}}
+            violations = _check_ticket_ref_in_log(self._ctx(td, config))
+            self.assertEqual(len(violations), 1, "only JIRA- prefix should fire with custom config")
+            self.assertIn("JIRA-42", violations[0]["detail"])
+
+    def test_no_fire_test_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/test/test_fake.c",
+                'void test_foo(void) {\n'
+                '    bb_log_e(TAG, "B1-123 test case");\n'
+                '}\n')
+            violations = _check_ticket_ref_in_log(self._ctx(td))
+            self.assertFalse(violations, "test/ directory must be excluded")
+
+    def test_fires_on_platform_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'void foo(void) {\n'
+                '    bb_log_d(TAG, "debug B1-777");\n'
+                '}\n')
+            violations = _check_ticket_ref_in_log(self._ctx(td))
+            self.assertTrue(violations, "ticket in platform/ log string must fire")
 
 
 class TestStripNoise(unittest.TestCase):
