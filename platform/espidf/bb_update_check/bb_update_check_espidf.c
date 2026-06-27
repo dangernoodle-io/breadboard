@@ -28,8 +28,8 @@
 #include <stdatomic.h>
 #include <sys/time.h>
 
+#include "bb_timer.h"
 #include "esp_random.h"
-#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -46,7 +46,7 @@ static const char *TAG = "bb_update_check";
 #define BB_UPDATE_CHECK_JITTER_S CONFIG_BB_UPDATE_CHECK_JITTER_S
 #define BB_UPDATE_CHECK_FLOOR_S  CONFIG_BB_UPDATE_CHECK_FLOOR_S
 
-static esp_timer_handle_t s_timer = NULL;
+static bb_oneshot_timer_t s_timer = NULL;
 
 // Default core/priority from Kconfig — both fallback to 1 for host builds
 // that don't include Kconfig. Runtime setters override these values.
@@ -160,13 +160,13 @@ static bool try_spawn(void)
     return true;
 }
 
-static void timer_cb(void *arg)
+static void timer_work_fn(void *arg)
 {
     (void)arg;
     try_spawn();
     // Reschedule one-shot timer with jitter so a fleet that rebooted together
     // drifts apart over time.
-    esp_timer_start_once(s_timer, next_interval_us());
+    bb_timer_oneshot_start(s_timer, next_interval_us());
 }
 
 // ---------------------------------------------------------------------------
@@ -272,18 +272,14 @@ static bb_err_t bb_update_check_register_init(bb_http_handle_t server)
     err = bb_http_register_described_route(server, bb_update_check_config_post_route());
     if (err != BB_OK) return err;
 
-    // Create a one-shot timer; timer_cb reschedules it with ±10 min jitter
-    // each tick so a fleet that rebooted together drifts apart over time.
-    // No persistent worker task is created here — the one-shot worker is
-    // spawned dynamically by try_spawn() on each timer fire or kick.
-    esp_timer_create_args_t timer_args = {
-        .callback = timer_cb,
-        .arg      = NULL,
-        .name     = "upd_check",
-    };
-    err = esp_timer_create(&timer_args, &s_timer);
+    // Create a one-shot timer; timer_work_fn reschedules it with ±10 min
+    // jitter each tick so a fleet that rebooted together drifts apart over
+    // time.  No persistent worker task is created here — the one-shot worker
+    // is spawned dynamically by try_spawn() on each timer fire or kick.
+    err = bb_timer_deferred_oneshot_create(timer_work_fn, NULL, "upd_check",
+                                           &s_timer);
     if (err != BB_OK) return err;
-    esp_timer_start_once(s_timer, next_interval_us());
+    bb_timer_oneshot_start(s_timer, next_interval_us());
 
 #if defined(CONFIG_BB_UPDATE_CHECK_AUTO_ATTACH) && CONFIG_BB_UPDATE_CHECK_AUTO_ATTACH
     {

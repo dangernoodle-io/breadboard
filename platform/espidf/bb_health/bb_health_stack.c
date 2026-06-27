@@ -129,7 +129,7 @@ static void check_tasks(void)
     free(tasks);
 }
 
-static void poll_cb(void *arg)
+static void poll_work_fn(void *arg)
 {
     (void)arg;
     check_tasks();
@@ -139,8 +139,8 @@ static bb_periodic_timer_t s_timer = NULL;
 
 static bb_err_t start_monitor(void)
 {
-    bb_err_t err = bb_timer_periodic_create(poll_cb, NULL, "bb_health_stack",
-                                            &s_timer);
+    bb_err_t err = bb_timer_deferred_periodic_create(poll_work_fn, NULL, "bb_health_stack",
+                                                     &s_timer);
     if (err != BB_OK) return err;
     return bb_timer_periodic_start(s_timer,
         (uint64_t)CONFIG_BB_HEALTH_STACK_POLL_MS * 1000ULL);
