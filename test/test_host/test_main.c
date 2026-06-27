@@ -2345,6 +2345,7 @@ void test_bb_update_check_retained_snapshot_current_after_repeated_custom_parser
 void test_bb_update_check_ota_claim_acquire_free_returns_ok(void);
 void test_bb_update_check_ota_claim_acquire_conflict_returns_err(void);
 void test_bb_update_check_ota_claim_release_frees_slot(void);
+void test_bb_update_check_alert_fill_update_version(void);
 
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
@@ -3047,6 +3048,14 @@ void test_bb_cache_update_reflected_in_serialize(void);
 void test_bb_cache_serialize_into_unknown_topic(void);
 void test_bb_cache_update_unknown_topic(void);
 void test_bb_cache_registry_full(void);
+
+// Forward declarations from test_bb_alert.c
+void test_bb_alert_emit_no_topic_noop(void);
+void test_bb_alert_emit_below_threshold_dropped(void);
+void test_bb_alert_emit_at_threshold_emitted(void);
+void test_bb_alert_emit_envelope_format(void);
+void test_bb_alert_severity_filter_warning_threshold(void);
+void test_bb_alert_emit_serialize_oom(void);
 
 int main(void) {
     UNITY_BEGIN();
@@ -5152,6 +5161,7 @@ int main(void) {
     RUN_TEST(test_bb_update_check_ota_claim_acquire_free_returns_ok);
     RUN_TEST(test_bb_update_check_ota_claim_acquire_conflict_returns_err);
     RUN_TEST(test_bb_update_check_ota_claim_release_frees_slot);
+    RUN_TEST(test_bb_update_check_alert_fill_update_version);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);
@@ -6054,6 +6064,14 @@ int main(void) {
     RUN_TEST(test_bb_cache_serialize_into_unknown_topic);
     RUN_TEST(test_bb_cache_update_unknown_topic);
     RUN_TEST(test_bb_cache_registry_full);
+
+    // bb_alert
+    RUN_TEST(test_bb_alert_emit_no_topic_noop);
+    RUN_TEST(test_bb_alert_emit_below_threshold_dropped);
+    RUN_TEST(test_bb_alert_emit_at_threshold_emitted);
+    RUN_TEST(test_bb_alert_emit_envelope_format);
+    RUN_TEST(test_bb_alert_severity_filter_warning_threshold);
+    RUN_TEST(test_bb_alert_emit_serialize_oom);
 
     return UNITY_END();
 }
