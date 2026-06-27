@@ -20,6 +20,26 @@
 #define WIFI_RECONN_NO_IP_WATCHDOG_MS 60000U
 #endif
 
+// BB_WIFI_NO_IP_WATCHDOG_ENABLE: bridge Kconfig opt-in; default 0 on host.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_WIFI_NO_IP_WATCHDOG_ENABLE
+#    define BB_WIFI_NO_IP_WATCHDOG_ENABLE 1
+#  endif
+#endif
+#ifndef BB_WIFI_NO_IP_WATCHDOG_ENABLE
+#define BB_WIFI_NO_IP_WATCHDOG_ENABLE 0
+#endif
+
+// BB_WIFI_INACTIVE_TIME_S: beacon-loss inactive time; bridged from Kconfig; falls back to 45 s.
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_WIFI_INACTIVE_TIME_S
+#    define BB_WIFI_INACTIVE_TIME_S CONFIG_BB_WIFI_INACTIVE_TIME_S
+#  endif
+#endif
+#ifndef BB_WIFI_INACTIVE_TIME_S
+#define BB_WIFI_INACTIVE_TIME_S 45U
+#endif
+
 // Start the reconnect manager task. Call once from wifi_connect_sta()
 // AFTER the initial blocking connect succeeds. Idempotent.
 void wifi_reconn_start(void);
@@ -48,3 +68,8 @@ void wifi_reconn_on_lost_ip(void);
 // Diagnostic counters (lock-free reads of manager-owned state).
 uint32_t wifi_reconn_get_lost_ip_count(void);
 int64_t  wifi_reconn_get_lost_ip_age_us(void);
+
+// Set s_self_disconnect so the next WIFI_EVENT_STA_DISCONNECTED is absorbed
+// without triggering the reconnect FSM. Call before esp_wifi_stop() in a
+// controlled restart to absorb the synthetic disconnect it generates.
+void wifi_reconn_absorb_next_disconnect(void);

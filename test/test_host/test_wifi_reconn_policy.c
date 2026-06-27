@@ -371,3 +371,19 @@ void test_wifi_reconn_policy_on_lost_ip_histogram_saturates(void)
     wifi_reconn_policy_on_lost_ip(&s_state, &adapter);
     TEST_ASSERT_EQUAL(UINT16_MAX, s_state.reason_histogram[WIFI_REASON_BB_LOST_IP]);
 }
+
+void test_wifi_reconn_policy_arms_first_fail_on_inactivity_disconnect(void)
+{
+    // Simulates an inactivity (beacon timeout) DISCONNECT flowing into the policy.
+    // Reason 200 = generic disconnect (same path as inactive-time triggered disconnect).
+    uint32_t backoff_ms = 0;
+    TEST_ASSERT_EQUAL(0, s_state.first_fail_us);
+
+    wifi_reconn_action_t action = wifi_reconn_policy_on_disconnect(
+        &s_state, &adapter, 200, HANDSHAKE_REASON, &backoff_ms);
+
+    // First disconnect: arms first_fail_us; no reboot yet.
+    TEST_ASSERT_NOT_EQUAL(0, s_state.first_fail_us);
+    TEST_ASSERT_NOT_EQUAL(WIFI_RECONN_ACTION_REBOOT, action);
+    TEST_ASSERT_EQUAL(1, s_state.generic_fail_count);
+}

@@ -91,16 +91,37 @@ choice BB_WIFI_POWER_SAVE
         bool "Maximum modem sleep"
 endchoice
 
+config BB_WIFI_NO_IP_WATCHDOG_ENABLE
+    bool "Enable no-IP watchdog (mode-a) and inactive-time zombie recovery (mode-b)"
+    default n
+    help
+        Enable mode-a no-IP watchdog + mode-b inactive-time zombie recovery.
+        When disabled, ST_IDLE uses portMAX_DELAY (no periodic check) and
+        inactive-time is not configured.
+
 config BB_WIFI_NO_IP_WATCHDOG_S
     int "No-IP watchdog interval for ST_IDLE (seconds)"
     range 10 600
     default 60
+    depends on BB_WIFI_NO_IP_WATCHDOG_ENABLE
     help
         When the reconnect manager is in ST_IDLE (connected, not reconnecting),
         this is the interval at which it checks whether the board is still L2-
         associated but has lost its DHCP IP (zombie state). On detection it calls
-        esp_wifi_disconnect() to drop the stale association and trigger recovery.
+        bb_wifi_restart_sta() to drop the stale association and trigger recovery.
         60 s is the default — long enough to avoid false positives from DHCP
         renewal races, short enough to recover quickly from a genuine zombie.
+
+config BB_WIFI_INACTIVE_TIME_S
+    int "Inactive time for beacon-loss detection (seconds)"
+    range 3 600
+    default 45
+    depends on BB_WIFI_NO_IP_WATCHDOG_ENABLE
+    help
+        Configures the WiFi driver's inactive time via esp_wifi_set_inactive_time().
+        If the station receives no beacon from the AP within this window, the driver
+        emits WIFI_EVENT_STA_DISCONNECTED, which the reconnect FSM handles normally.
+        Minimum 3 (ESP-IDF hard floor). 45 s gives enough margin above power-save
+        beacon intervals while detecting stuck egress faster than the default 6 s.
 
 endmenu

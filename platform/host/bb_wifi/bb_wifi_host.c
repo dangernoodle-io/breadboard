@@ -76,6 +76,8 @@ bb_err_t bb_wifi_get_rssi(int8_t *out)
     return BB_OK;
 }
 
+void bb_wifi_restart_sta(void) {}
+
 void bb_wifi_scan_start_async(void) {}
 
 int bb_wifi_scan_get_cached(bb_wifi_ap_t *results, int max_results)

@@ -58,6 +58,12 @@ bb_err_t bb_wifi_init_sta(void);
 // a BB_OK no-op.
 void bb_wifi_force_reassociate(void);
 
+// Stop and restart the WiFi STA driver to clear wedged driver state.
+// Re-applies the saved STA config and inactive-time. Calls esp_wifi_connect()
+// explicitly; safe to call from the reconn task context.
+// Only available on ESP-IDF platform.
+void bb_wifi_restart_sta(void);
+
 // ---------------------------------------------------------------------------
 // Hostname
 // ---------------------------------------------------------------------------
