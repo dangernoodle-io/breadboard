@@ -152,7 +152,13 @@ static void reconn_task(void *arg)
             case ST_BACKOFF:    wait = pdMS_TO_TICKS(backoff_ms);                        break;
             case ST_CONNECTING: wait = pdMS_TO_TICKS(WIFI_RECONN_CONNECTING_TIMEOUT_MS); break;
             case ST_IDLE:
-            default:            wait = pdMS_TO_TICKS(WIFI_RECONN_NO_IP_WATCHDOG_MS);     break;
+            default:
+#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
+                wait = pdMS_TO_TICKS(WIFI_RECONN_NO_IP_WATCHDOG_MS);
+#else
+                wait = portMAX_DELAY;
+#endif
+                break;
         }
 
         reconn_evt_t evt;
@@ -164,7 +170,11 @@ static void reconn_task(void *arg)
                     if (backoff_ms == 0) {
                         // Immediate retry
                         bb_log_i(TAG, "immediate reconnect attempt");
+#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
+                        bb_wifi_restart_sta();
+#else
                         esp_wifi_connect();
+#endif
                         state = ST_CONNECTING;
                     }
                     break;
@@ -187,6 +197,7 @@ static void reconn_task(void *arg)
                 esp_wifi_connect();
                 // stay ST_CONNECTING
             }
+#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
         } else if (state == ST_IDLE) {
             // No-IP watchdog: check for zombie (L2-associated but no DHCP IP).
             wifi_ap_record_t ap;
@@ -194,7 +205,7 @@ static void reconn_task(void *arg)
             bool has_ip     = bb_wifi_has_ip();
             if (wifi_reconn_should_reconnect_no_ip(associated, has_ip)) {
                 wifi_reconn_policy_on_lost_ip(&s_state, &s_adapter);
-                bb_log_w(TAG, "ST_IDLE watchdog: associated but no IP, forcing disconnect (lost_ip_count=%u)",
+                bb_log_w(TAG, "ST_IDLE watchdog: associated but no IP, forcing restart (lost_ip_count=%u)",
                          (unsigned)s_state.lost_ip_count);
 #if BB_ALERT_ENABLE
                 {
@@ -206,12 +217,17 @@ static void reconn_task(void *arg)
                     bb_alert_emit("wifi_lost_ip", BB_ALERT_WARNING, fill_wifi_lost_ip, &alert_ctx);
                 }
 #endif
-                esp_wifi_disconnect();
+                bb_wifi_restart_sta();
             }
+#endif
         } else {
             // Backoff elapsed
             bb_log_i(TAG, "backoff elapsed, reconnecting");
+#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
+            bb_wifi_restart_sta();
+#else
             esp_wifi_connect();
+#endif
             state = ST_CONNECTING;
         }
     }
@@ -325,4 +341,9 @@ void wifi_reconn_get_histogram(uint16_t *out, size_t len)
     for (size_t i = 0; i < len; i++) {
         out[i] = s_state.reason_histogram[i];
     }
+}
+
+void wifi_reconn_absorb_next_disconnect(void)
+{
+    s_self_disconnect = true;
 }

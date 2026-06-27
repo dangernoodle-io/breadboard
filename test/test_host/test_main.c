@@ -1443,6 +1443,7 @@ void test_wifi_reconn_should_reconnect_no_ip_not_associated(void);
 void test_wifi_reconn_policy_on_lost_ip_increments(void);
 void test_wifi_reconn_policy_on_lost_ip_null_args(void);
 void test_wifi_reconn_policy_on_lost_ip_histogram_saturates(void);
+void test_wifi_reconn_policy_arms_first_fail_on_inactivity_disconnect(void);
 
 // Forward declarations from test_bb_mdns_lifecycle.c
 void bb_mdns_lifecycle_test_reset(void);
@@ -4435,6 +4436,7 @@ int main(void) {
     RUN_TEST(test_wifi_reconn_policy_on_lost_ip_increments);
     RUN_TEST(test_wifi_reconn_policy_on_lost_ip_null_args);
     RUN_TEST(test_wifi_reconn_policy_on_lost_ip_histogram_saturates);
+    RUN_TEST(test_wifi_reconn_policy_arms_first_fail_on_inactivity_disconnect);
 
     // bb_mdns_lifecycle tests
     RUN_TEST(test_bb_mdns_lifecycle_start_when_not_started);

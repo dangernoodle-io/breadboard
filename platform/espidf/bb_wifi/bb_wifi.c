@@ -34,6 +34,15 @@ static volatile bool s_has_ip = false;
 static volatile bool s_pending_try = false;
 #endif
 
+// Set while bb_wifi_restart_sta() is in progress so event_handler skips the
+// auto-connect on WIFI_EVENT_STA_START (the restart fn calls connect explicitly).
+// Also suppresses the DISCONNECTED event that esp_wifi_stop() generates internally.
+static volatile bool s_sta_restarting = false;
+
+// Cached STA config — stored at wifi_connect_sta_ex time so bb_wifi_restart_sta()
+// can re-apply it after stop/start without re-reading NVS.
+static wifi_config_t s_sta_config;
+
 // Got-IP callback
 static bb_wifi_on_got_ip_cb_t s_on_got_ip_cb = NULL;
 
@@ -179,7 +188,11 @@ static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
+        // Skip auto-connect during a controlled restart: bb_wifi_restart_sta() owns
+        // the connect call to avoid racing with the FSM's explicit esp_wifi_connect().
+        if (!s_sta_restarting) {
+            esp_wifi_connect();
+        }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_CONNECTED) {
         const wifi_event_sta_connected_t *e = (const wifi_event_sta_connected_t *)event_data;
         if (e) {
@@ -259,10 +272,33 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     }
 }
 
+void bb_wifi_restart_sta(void)
+{
+    bb_log_w(TAG, "STA restart: stop/start to clear wedged driver state");
+    // s_sta_restarting suppresses the auto-connect in STA_START event handler.
+    // wifi_reconn_absorb_next_disconnect suppresses the synthetic DISCONNECTED
+    // that esp_wifi_stop() generates internally (so the FSM doesn't double-count).
+    s_sta_restarting = true;
+    wifi_reconn_absorb_next_disconnect();
+    esp_wifi_stop();
+    esp_wifi_start();
+    // Re-apply saved config (inactive_time is not stored in flash; set again).
+#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
+    esp_wifi_set_inactive_time(WIFI_IF_STA, CONFIG_BB_WIFI_INACTIVE_TIME_S);
+#endif
+    esp_wifi_set_config(WIFI_IF_STA, &s_sta_config);
+    s_sta_restarting = false;
+    esp_wifi_connect();
+}
+
 void bb_wifi_force_reassociate(void)
 {
     bb_log_w(TAG, "forcing WiFi reassociation (zombie state recovery)");
+#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
+    bb_wifi_restart_sta();
+#else
     esp_wifi_disconnect();
+#endif
 }
 
 bb_err_t bb_wifi_ensure_netif(void)
@@ -330,7 +366,14 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
 #endif
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    memcpy(&s_sta_config, &wifi_config, sizeof(s_sta_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
+    // Beacon-loss detection: driver emits WIFI_EVENT_STA_DISCONNECTED after this
+    // many seconds without a beacon, flowing into the normal reconnect FSM path.
+    // Must be called after esp_wifi_start(); minimum 3 for STA (ESP-IDF hard floor).
+    esp_wifi_set_inactive_time(WIFI_IF_STA, CONFIG_BB_WIFI_INACTIVE_TIME_S);
+#endif
 #if CONFIG_BB_WIFI_PS_NONE
     esp_wifi_set_ps(WIFI_PS_NONE);
 #elif CONFIG_BB_WIFI_PS_MAX_MODEM
