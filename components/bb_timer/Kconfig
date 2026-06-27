@@ -35,4 +35,35 @@ config BB_TIMER_DISP_QUEUE_DEPTH
         timer is sufficient in practice; the queue is a safety net for
         burst scenarios.
 
+config BB_TIMER_DISP_WDT_ENABLE
+    bool "Subscribe bb_timer_disp to the Task Watchdog Timer"
+    default n
+    depends on ESP_TASK_WDT_EN
+    help
+        When enabled, the shared dispatcher task (bb_timer_disp) subscribes
+        to the global Task WDT at startup and feeds it on every idle timeout
+        and after each work_fn returns.
+
+        A work_fn that blocks longer than CONFIG_ESP_TASK_WDT_TIMEOUT_S
+        (the global Task WDT timeout) will trigger a TWDT panic and a clean
+        reboot with reset_reason task_wdt. This converts a silent WiFi-zombie
+        stall into an observable reboot.
+
+        The effective stall-to-reboot bound is CONFIG_ESP_TASK_WDT_TIMEOUT_S,
+        not BB_TIMER_DISP_WDT_FEED_MS. The feed interval only controls how
+        often the dispatcher feeds on idle (queue empty) ticks; it must be
+        shorter than the global WDT timeout.
+
+        Default n — opt-in; the default build is unchanged.
+
+config BB_TIMER_DISP_WDT_FEED_MS
+    int "Dispatcher WDT idle feed interval (ms)"
+    default 5000
+    range 1000 30000
+    depends on BB_TIMER_DISP_WDT_ENABLE
+    help
+        How often the bb_timer_disp task feeds the Task WDT when the
+        dispatch queue is empty (idle). Must be shorter than
+        CONFIG_ESP_TASK_WDT_TIMEOUT_S. Default 5000 ms.
+
 endmenu
