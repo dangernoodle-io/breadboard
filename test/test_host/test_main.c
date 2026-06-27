@@ -1468,6 +1468,11 @@ void test_wifi_reconn_on_egress_probe_at_threshold_returns_recover(void);
 void test_wifi_reconn_on_egress_probe_null_args_safe(void);
 void test_wifi_reconn_on_egress_probe_histogram_saturates(void);
 void test_wifi_reconn_on_egress_probe_first_fail_already_armed(void);
+void test_wifi_reconn_policy_on_no_ip_increments(void);
+void test_wifi_reconn_policy_on_no_ip_null_args(void);
+void test_wifi_reconn_policy_on_no_ip_arms_first_fail(void);
+void test_wifi_reconn_policy_on_no_ip_first_fail_already_armed(void);
+void test_wifi_reconn_policy_on_no_ip_histogram_saturates(void);
 
 // Forward declarations from test_bb_mdns_lifecycle.c
 void bb_mdns_lifecycle_test_reset(void);
@@ -2836,6 +2841,7 @@ void test_bb_pub_wifi_has_connected_field(void);
 void test_bb_pub_wifi_has_disc_reason_field(void);
 void test_bb_pub_wifi_has_disc_age_s_field(void);
 void test_bb_pub_wifi_has_retry_count_field(void);
+void test_bb_pub_wifi_has_no_ip_recoveries_field(void);
 void test_bb_pub_wifi_rssi_is_integer_not_float(void);
 
 // Forward declarations from test_bb_pub_info.c
@@ -4485,6 +4491,11 @@ int main(void) {
     RUN_TEST(test_wifi_reconn_on_egress_probe_null_args_safe);
     RUN_TEST(test_wifi_reconn_on_egress_probe_histogram_saturates);
     RUN_TEST(test_wifi_reconn_on_egress_probe_first_fail_already_armed);
+    RUN_TEST(test_wifi_reconn_policy_on_no_ip_increments);
+    RUN_TEST(test_wifi_reconn_policy_on_no_ip_null_args);
+    RUN_TEST(test_wifi_reconn_policy_on_no_ip_arms_first_fail);
+    RUN_TEST(test_wifi_reconn_policy_on_no_ip_first_fail_already_armed);
+    RUN_TEST(test_wifi_reconn_policy_on_no_ip_histogram_saturates);
 
     // bb_mdns_lifecycle tests
     RUN_TEST(test_bb_mdns_lifecycle_start_when_not_started);
@@ -5837,6 +5848,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_wifi_has_disc_reason_field);
     RUN_TEST(test_bb_pub_wifi_has_disc_age_s_field);
     RUN_TEST(test_bb_pub_wifi_has_retry_count_field);
+    RUN_TEST(test_bb_pub_wifi_has_no_ip_recoveries_field);
     RUN_TEST(test_bb_pub_wifi_rssi_is_integer_not_float);
 
     // bb_pub_info tests

@@ -19,11 +19,15 @@ config BB_TIMER_DISP_PRIORITY
 
 config BB_TIMER_DISP_CORE
     int "Shared dispatcher task core affinity (-1 = no affinity)"
-    default 1
+    default -1
     range -1 1
     help
-        Core to pin the bb_timer_disp task to. Default 1 escapes core-0
-        esp_timer service task congestion. -1 = tskNO_AFFINITY.
+        Core to pin the bb_timer_disp task to. Default -1 (no affinity) lets
+        the scheduler place it on whichever core has CPU. Without affinity,
+        the prio-5 dispatcher cannot be starved on boards where core 1 runs
+        a high-priority CPU-bound task (e.g. mining at prio 20). Boards that
+        specifically want it off the esp_timer service core (core 0) can still
+        pin it explicitly via CONFIG_BB_TIMER_DISP_CORE.
 
 config BB_TIMER_DISP_QUEUE_DEPTH
     int "Shared dispatcher coalescing queue depth"
@@ -34,5 +38,36 @@ config BB_TIMER_DISP_QUEUE_DEPTH
         and the bb_timer_disp worker task. With coalescing, one slot per
         timer is sufficient in practice; the queue is a safety net for
         burst scenarios.
+
+config BB_TIMER_DISP_WDT_ENABLE
+    bool "Subscribe bb_timer_disp to the Task Watchdog Timer"
+    default n
+    depends on ESP_TASK_WDT_EN
+    help
+        When enabled, the shared dispatcher task (bb_timer_disp) subscribes
+        to the global Task WDT at startup and feeds it on every idle timeout
+        and after each work_fn returns.
+
+        A work_fn that blocks longer than CONFIG_ESP_TASK_WDT_TIMEOUT_S
+        (the global Task WDT timeout) will trigger a TWDT panic and a clean
+        reboot with reset_reason task_wdt. This converts a silent WiFi-zombie
+        stall into an observable reboot.
+
+        The effective stall-to-reboot bound is CONFIG_ESP_TASK_WDT_TIMEOUT_S,
+        not BB_TIMER_DISP_WDT_FEED_MS. The feed interval only controls how
+        often the dispatcher feeds on idle (queue empty) ticks; it must be
+        shorter than the global WDT timeout.
+
+        Default n — opt-in; the default build is unchanged.
+
+config BB_TIMER_DISP_WDT_FEED_MS
+    int "Dispatcher WDT idle feed interval (ms)"
+    default 5000
+    range 1000 30000
+    depends on BB_TIMER_DISP_WDT_ENABLE
+    help
+        How often the bb_timer_disp task feeds the Task WDT when the
+        dispatch queue is empty (idle). Must be shorter than
+        CONFIG_ESP_TASK_WDT_TIMEOUT_S. Default 5000 ms.
 
 endmenu

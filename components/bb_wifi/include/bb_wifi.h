@@ -138,6 +138,11 @@ uint32_t bb_wifi_get_lost_ip_age_s(void);
 // reconnect manager is not active or no egress-dead event has occurred.
 uint32_t bb_wifi_get_egress_dead_count(void);
 
+// No-IP-while-associated watchdog recovery counter: times the ST_IDLE watchdog
+// detected associated-but-no-IP zombie state and triggered bb_wifi_restart_sta.
+// Returns 0 if the reconnect manager is not active or no no-IP event has occurred.
+uint32_t bb_wifi_get_no_ip_count(void);
+
 #ifdef ESP_PLATFORM
 // ICMP ping a target IPv4 address. target_addr is a raw IPv4 address in
 // esp_ip4_addr byte order (i.e. the same value as esp_ip4_addr_t.addr).

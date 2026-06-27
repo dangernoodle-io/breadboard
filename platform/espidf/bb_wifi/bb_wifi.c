@@ -253,6 +253,11 @@ uint32_t bb_wifi_get_egress_dead_count(void)
     return wifi_reconn_is_active() ? wifi_reconn_get_egress_dead_count() : 0;
 }
 
+uint32_t bb_wifi_get_no_ip_count(void)
+{
+    return wifi_reconn_is_active() ? wifi_reconn_get_no_ip_count() : 0;
+}
+
 bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)
 {
     if (!out) return ESP_FAIL;

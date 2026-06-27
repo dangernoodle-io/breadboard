@@ -155,7 +155,11 @@ static void reconn_task(void *arg)
             case ST_CONNECTING: wait = pdMS_TO_TICKS(WIFI_RECONN_CONNECTING_TIMEOUT_MS); break;
             case ST_IDLE:
             default:
+#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
+                wait = pdMS_TO_TICKS(WIFI_RECONN_NO_IP_WATCHDOG_MS);
+#else
                 wait = portMAX_DELAY;
+#endif
                 break;
         }
 
@@ -204,6 +208,29 @@ static void reconn_task(void *arg)
                 esp_wifi_connect();
                 // stay ST_CONNECTING
             }
+#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
+        } else if (state == ST_IDLE) {
+            // No-IP watchdog: check for zombie (L2-associated but no DHCP IP).
+            wifi_ap_record_t ap;
+            bool associated = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK);
+            bool has_ip     = bb_wifi_has_ip();
+            if (wifi_reconn_should_reconnect_no_ip(associated, has_ip)) {
+                wifi_reconn_policy_on_no_ip(&s_state, &s_adapter);
+                bb_log_w(TAG, "ST_IDLE watchdog: associated but no IP, forcing restart (no_ip_count=%u)",
+                         (unsigned)s_state.no_ip_count);
+#if BB_ALERT_ENABLE
+                {
+                    lost_ip_fill_ctx_t alert_ctx = {
+                        .count       = s_state.no_ip_count,
+                        .reason      = WIFI_REASON_BB_NO_IP_WATCHDOG,
+                        .retry_count = (uint32_t)(s_state.handshake_fail_count + s_state.generic_fail_count),
+                    };
+                    bb_alert_emit("wifi_no_ip", BB_ALERT_WARNING, fill_wifi_lost_ip, &alert_ctx);
+                }
+#endif
+                bb_wifi_restart_sta();
+            }
+#endif
         } else {
             // Backoff elapsed
             bb_log_i(TAG, "backoff elapsed, reconnecting");
@@ -307,6 +334,11 @@ int64_t wifi_reconn_get_lost_ip_age_us(void)
 uint32_t wifi_reconn_get_egress_dead_count(void)
 {
     return s_state.egress_dead_count;
+}
+
+uint32_t wifi_reconn_get_no_ip_count(void)
+{
+    return s_state.no_ip_count;
 }
 
 void wifi_reconn_get_disconnect(uint8_t *reason, int64_t *age_us)

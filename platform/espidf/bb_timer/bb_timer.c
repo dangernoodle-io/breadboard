@@ -10,6 +10,7 @@
 
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
+#include "bb_wdt.h"
 #ifdef CONFIG_BB_TIMER_DISP_STACK
 #define BB_TIMER_DISP_STACK CONFIG_BB_TIMER_DISP_STACK
 #endif
@@ -22,6 +23,13 @@
 #ifdef CONFIG_BB_TIMER_DISP_QUEUE_DEPTH
 #define BB_TIMER_DISP_QUEUE_DEPTH CONFIG_BB_TIMER_DISP_QUEUE_DEPTH
 #endif
+#ifdef CONFIG_BB_TIMER_DISP_WDT_FEED_MS
+#define BB_TIMER_DISP_WDT_FEED_MS CONFIG_BB_TIMER_DISP_WDT_FEED_MS
+#endif
+#endif
+
+#ifndef BB_TIMER_DISP_WDT_FEED_MS
+#define BB_TIMER_DISP_WDT_FEED_MS 5000
 #endif
 
 #ifndef BB_TIMER_DISP_STACK
@@ -57,11 +65,25 @@ static void disp_task_fn(void *unused)
 {
     (void)unused;
     bb_disp_msg_t msg;
+#if defined(ESP_PLATFORM) && defined(CONFIG_BB_TIMER_DISP_WDT_ENABLE)
+    bb_wdt_task_subscribe();
+    for (;;) {
+        if (xQueueReceive(s_disp_queue, &msg,
+                          pdMS_TO_TICKS(BB_TIMER_DISP_WDT_FEED_MS)) == pdTRUE) {
+            msg.work_fn(msg.arg);
+            bb_wdt_task_feed();
+        } else {
+            /* queue empty / idle timeout — feed to prove we are alive */
+            bb_wdt_task_feed();
+        }
+    }
+#else
     for (;;) {
         if (xQueueReceive(s_disp_queue, &msg, portMAX_DELAY) == pdTRUE) {
             msg.work_fn(msg.arg);
         }
     }
+#endif
 }
 
 static bb_err_t disp_ensure_started(void)
