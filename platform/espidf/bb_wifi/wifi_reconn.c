@@ -45,13 +45,15 @@ static void fill_wifi_lost_ip(bb_json_t obj, void *ctx)
 #define RECONN_TASK_CORE 0
 
 typedef enum {
-    EVT_DISCONNECT = 1,
-    EVT_GOT_IP     = 2,
+    EVT_DISCONNECT       = 1,
+    EVT_GOT_IP          = 2,
+    EVT_RECOVERY_REQUEST = 3,
 } reconn_evt_type_t;
 
 typedef struct {
     reconn_evt_type_t type;
     uint8_t reason;
+    char recovery_reason[48]; // for EVT_RECOVERY_REQUEST log
 } reconn_evt_t;
 
 typedef enum {
@@ -153,11 +155,7 @@ static void reconn_task(void *arg)
             case ST_CONNECTING: wait = pdMS_TO_TICKS(WIFI_RECONN_CONNECTING_TIMEOUT_MS); break;
             case ST_IDLE:
             default:
-#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
-                wait = pdMS_TO_TICKS(WIFI_RECONN_EGRESS_PROBE_MS);
-#else
                 wait = portMAX_DELAY;
-#endif
                 break;
         }
 
@@ -170,7 +168,7 @@ static void reconn_task(void *arg)
                     if (backoff_ms == 0) {
                         // Immediate retry
                         bb_log_i(TAG, "immediate reconnect attempt");
-#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
+#if BB_WIFI_INACTIVE_TIME_ENABLE
                         bb_wifi_restart_sta();
 #else
                         esp_wifi_connect();
@@ -180,6 +178,15 @@ static void reconn_task(void *arg)
                     break;
                 case EVT_GOT_IP:
                     handle_got_ip(&state, &backoff_ms);
+                    break;
+                case EVT_RECOVERY_REQUEST:
+                    bb_log_i(TAG, "recovery request: %s -> STA restart", evt.recovery_reason);
+                    bb_wifi_restart_sta();
+                    // arm persistent-fail window
+                    if (s_state.first_fail_us == 0) {
+                        s_state.first_fail_us = (int64_t)bb_timer_now_us();
+                    }
+                    s_state.egress_dead_count++;
                     break;
             }
         } else if (state == ST_CONNECTING) {
@@ -197,45 +204,10 @@ static void reconn_task(void *arg)
                 esp_wifi_connect();
                 // stay ST_CONNECTING
             }
-#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
-        } else if (state == ST_IDLE) {
-            // No-IP watchdog: check for zombie (L2-associated but no DHCP IP).
-            wifi_ap_record_t ap;
-            bool associated = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK);
-            bool has_ip     = bb_wifi_has_ip();
-            if (wifi_reconn_should_reconnect_no_ip(associated, has_ip)) {
-                wifi_reconn_policy_on_lost_ip(&s_state, &s_adapter);
-                bb_log_w(TAG, "ST_IDLE watchdog: associated but no IP, forcing restart (lost_ip_count=%u)",
-                         (unsigned)s_state.lost_ip_count);
-#if BB_ALERT_ENABLE
-                {
-                    lost_ip_fill_ctx_t alert_ctx = {
-                        .count       = s_state.lost_ip_count,
-                        .reason      = 99, // WIFI_REASON_BB_LOST_IP sentinel
-                        .retry_count = (uint32_t)(s_state.handshake_fail_count + s_state.generic_fail_count),
-                    };
-                    bb_alert_emit("wifi_lost_ip", BB_ALERT_WARNING, fill_wifi_lost_ip, &alert_ctx);
-                }
-#endif
-                bb_wifi_restart_sta();
-            } else if (associated && has_ip) {
-                // Egress probe: ICMP gateway reachability check for mode-b
-                // egress-dead zombie (board has IP+association but no real egress).
-                bool gw_ok = bb_wifi_gateway_reachable(1500);
-                wifi_reconn_action_t eg_action = wifi_reconn_policy_on_egress_probe(
-                    &s_state, &s_adapter, gw_ok, WIFI_RECONN_EGRESS_PROBE_FAILS);
-                if (eg_action == WIFI_RECONN_ACTION_RECONNECT_NOW) {
-                    bb_log_w(TAG, "ST_IDLE egress probe: gateway unreachable %ux -> STA restart (egress_dead_count=%u)",
-                             (unsigned)WIFI_RECONN_EGRESS_PROBE_FAILS,
-                             (unsigned)s_state.egress_dead_count);
-                    bb_wifi_restart_sta();
-                }
-            }
-#endif
         } else {
             // Backoff elapsed
             bb_log_i(TAG, "backoff elapsed, reconnecting");
-#if BB_WIFI_NO_IP_WATCHDOG_ENABLE
+#if BB_WIFI_INACTIVE_TIME_ENABLE
             bb_wifi_restart_sta();
 #else
             esp_wifi_connect();
@@ -363,4 +335,17 @@ void wifi_reconn_get_histogram(uint16_t *out, size_t len)
 void wifi_reconn_absorb_next_disconnect(void)
 {
     s_self_disconnect = true;
+}
+
+void wifi_reconn_request_recovery(const char *reason)
+{
+    if (!s_queue) return;
+    reconn_evt_t evt = { .type = EVT_RECOVERY_REQUEST, .reason = 0 };
+    if (reason) {
+        strncpy(evt.recovery_reason, reason, sizeof(evt.recovery_reason) - 1);
+        evt.recovery_reason[sizeof(evt.recovery_reason) - 1] = '\0';
+    }
+    if (xQueueSend(s_queue, &evt, 0) != pdTRUE) {
+        bb_log_w(TAG, "recovery request queue full, dropping");
+    }
 }

@@ -11,10 +11,35 @@
 #ifdef BB_WIFI_TESTING
 #include "bb_wifi_test.h"
 static bool s_test_has_ip = false;
+static int s_test_recovery_count = 0;
+static const char *s_test_last_recovery_reason = NULL;
+static bool s_test_recovery_blocked = false;
 
 void bb_wifi_test_set_has_ip(bool has_ip)
 {
     s_test_has_ip = has_ip;
+}
+
+void bb_wifi_test_set_recovery_blocked(bool blocked)
+{
+    s_test_recovery_blocked = blocked;
+}
+
+int bb_wifi_test_get_recovery_count(void)
+{
+    return s_test_recovery_count;
+}
+
+const char *bb_wifi_test_get_last_recovery_reason(void)
+{
+    return s_test_last_recovery_reason;
+}
+
+void bb_wifi_test_reset_recovery(void)
+{
+    s_test_recovery_count = 0;
+    s_test_last_recovery_reason = NULL;
+    s_test_recovery_blocked = false;
 }
 #endif /* BB_WIFI_TESTING */
 
@@ -139,5 +164,22 @@ void bb_wifi_host_set_gateway_reachable(bool reachable)
     s_test_gateway_reachable = reachable;
 }
 #endif /* BB_WIFI_TESTING */
+
+bb_err_t bb_wifi_request_recovery(const char *reason)
+{
+#ifdef BB_WIFI_TESTING
+    if (!s_test_has_ip) {
+        return BB_OK; // no-op: no IP, FSM owns recovery
+    }
+    if (!s_test_recovery_blocked) {
+        s_test_recovery_count++;
+        s_test_last_recovery_reason = reason;
+    }
+    return BB_OK;
+#else
+    (void)reason;
+    return BB_OK;
+#endif
+}
 
 #endif /* !ESP_PLATFORM */

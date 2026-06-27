@@ -727,6 +727,9 @@ void test_wildcard_query_string_stripped(void);
 void test_bb_wifi_set_hostname_null(void);
 void test_bb_wifi_set_hostname_empty(void);
 void test_bb_wifi_set_hostname_valid(void);
+void test_bb_wifi_request_recovery_no_ip_noop(void);
+void test_bb_wifi_request_recovery_triggers_restart(void);
+void test_bb_wifi_request_recovery_null_reason(void);
 
 // Forward declarations from test_manifest.c
 void test_manifest_empty_emits_empty_arrays(void);
@@ -3860,6 +3863,9 @@ int main(void) {
     RUN_TEST(test_bb_wifi_set_hostname_null);
     RUN_TEST(test_bb_wifi_set_hostname_empty);
     RUN_TEST(test_bb_wifi_set_hostname_valid);
+    RUN_TEST(test_bb_wifi_request_recovery_no_ip_noop);
+    RUN_TEST(test_bb_wifi_request_recovery_triggers_restart);
+    RUN_TEST(test_bb_wifi_request_recovery_null_reason);
 
     // bb_manifest tests
     RUN_TEST(test_manifest_empty_emits_empty_arrays);
