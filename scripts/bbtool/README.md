@@ -350,6 +350,8 @@ Implements four branches in priority order:
 
 Cold-start (clone-if-missing / symlink-if-BREADBOARD_LOCAL) is irreducible and must
 live in a consumer-side pre-script that runs before `bbtool` is importable.
+The cold-start handles a tag, branch, or full 40-char commit SHA (matching `bbtool fetch`'s
+`--version`); short SHAs are not supported.
 Everything after that first-time bootstrap delegates to `reconcile()`.
 
 The canonical consumer stub is `scripts/fetch_breadboard.py`:
@@ -368,10 +370,18 @@ DEST = os.path.join(env.subst("$PROJECT_DIR"), ".breadboard")
 LOCAL = os.environ.get("BREADBOARD_LOCAL")
 
 # Cold start: make a .breadboard exist so bbtool is importable. Minimal + irreducible.
+import re as _re
 if LOCAL and not os.path.exists(DEST):
     os.symlink(os.path.abspath(LOCAL), DEST)
 elif not LOCAL and not os.path.exists(DEST):
-    subprocess.check_call(["git", "clone", "--depth", "1", "--branch", VERSION, REPO, DEST])
+    if _re.fullmatch(r"[0-9a-f]{40}", VERSION):
+        os.makedirs(DEST)
+        subprocess.check_call(["git", "-C", DEST, "init", "-q"])
+        subprocess.check_call(["git", "-C", DEST, "remote", "add", "origin", REPO])
+        subprocess.check_call(["git", "-C", DEST, "fetch", "--depth", "1", "origin", VERSION])
+        subprocess.check_call(["git", "-C", DEST, "checkout", "-q", "FETCH_HEAD"])
+    else:
+        subprocess.check_call(["git", "clone", "--depth", "1", "--branch", VERSION, REPO, DEST])
 
 # Delegate the rest (stamp reconcile, stale refetch, symlink idempotency) to bbtool.
 sys.path.insert(0, os.path.join(DEST, "scripts", "bbtool"))
@@ -389,6 +399,10 @@ irreducible: it must run before `.breadboard/scripts/bbtool` is on `sys.path`.
 Once `bbtool` is importable, `reconcile()` handles all subsequent cases —
 idempotent up-to-date check, stale refetch, and symlink management — without
 duplicating logic in the stub.
+
+**Note:** on a cold start the stub fetches breadboard, then `reconcile()` (lacking a stamp
+from the cold clone) re-fetches once to write the `.version` stamp — a one-time extra
+shallow fetch on first bootstrap, harmless.
 
 ---
 
