@@ -303,6 +303,86 @@ Invoked at CMake configure time by `bb_embed_site()` (see **cmake bridge** below
 
 ---
 
+## `fetch` command
+
+Reconciles the `.breadboard` directory against a pinned version tag or a local
+checkout override.
+
+```
+python3 scripts/bbtool.py fetch --dest DEST --version VERSION [--repo REPO] [--local LOCAL]
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--dest DEST` | (required) | Path to the `.breadboard` directory |
+| `--version VERSION` | (required) | breadboard version tag to pin (e.g. `v0.70.0`) |
+| `--repo REPO` | `https://github.com/dangernoodle-io/breadboard.git` | Git remote to clone from |
+| `--local LOCAL` | `$BREADBOARD_LOCAL` | Local breadboard checkout to symlink; overrides clone |
+
+### `reconcile()` function
+
+```python
+from commands.fetch import reconcile
+
+reconcile(dest, version, repo=DEFAULT_REPO, local=None)
+```
+
+Implements four branches in priority order:
+
+1. **LOCAL set** → ensure `DEST` is a symlink to `abspath(LOCAL)`. Replaces any
+   existing directory or wrong-target symlink.
+2. **DEST is a symlink** (prior local build, no LOCAL override now) → leave as-is;
+   prints the real target.
+3. **DEST/components is a dir AND stamp matches VERSION** → up to date; noop.
+4. **Missing or stale** → delete `DEST` if present, then
+   `git clone --depth 1 --branch VERSION REPO DEST`; write a `.version` stamp file.
+
+### Standardized consumer bootstrap stub
+
+Cold-start (clone-if-missing / symlink-if-BREADBOARD_LOCAL) is irreducible and must
+live in a consumer-side pre-script that runs before `bbtool` is importable.
+Everything after that first-time bootstrap delegates to `reconcile()`.
+
+The canonical consumer stub is `scripts/fetch_breadboard.py`:
+
+```python
+"""Bootstrap breadboard at the pinned VERSION, then delegate reconcile to bbtool.
+Standardized stub — the only value to edit is VERSION (and REPO if you fork).
+Wire as: extra_scripts = pre:scripts/fetch_breadboard.py
+See breadboard scripts/bbtool/README.md."""
+Import("env")  # PlatformIO SCons pre-script
+import os, sys, subprocess
+
+VERSION = "v0.0.0"  # breadboard pin
+REPO = "https://github.com/dangernoodle-io/breadboard.git"
+DEST = os.path.join(env.subst("$PROJECT_DIR"), ".breadboard")
+LOCAL = os.environ.get("BREADBOARD_LOCAL")
+
+# Cold start: make a .breadboard exist so bbtool is importable. Minimal + irreducible.
+if LOCAL and not os.path.exists(DEST):
+    os.symlink(os.path.abspath(LOCAL), DEST)
+elif not LOCAL and not os.path.exists(DEST):
+    subprocess.check_call(["git", "clone", "--depth", "1", "--branch", VERSION, REPO, DEST])
+
+# Delegate the rest (stamp reconcile, stale refetch, symlink idempotency) to bbtool.
+sys.path.insert(0, os.path.join(DEST, "scripts", "bbtool"))
+from commands.fetch import reconcile
+reconcile(dest=DEST, version=VERSION, repo=REPO, local=LOCAL)
+```
+
+Wire it in your consumer `platformio.ini`:
+```ini
+extra_scripts = pre:scripts/fetch_breadboard.py
+```
+
+**Split rationale.** The cold-start bootstrap (first two `if/elif` lines) is
+irreducible: it must run before `.breadboard/scripts/bbtool` is on `sys.path`.
+Once `bbtool` is importable, `reconcile()` handles all subsequent cases —
+idempotent up-to-date check, stale refetch, and symlink management — without
+duplicating logic in the stub.
+
+---
+
 ## cmake bridge (`cmake/bbtool.cmake`)
 
 `cmake/bbtool.cmake` is the canonical CMake entry point for all bbtool functions. Include
