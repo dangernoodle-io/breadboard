@@ -319,23 +319,36 @@ void test_bb_cache_update_unknown_topic(void)
 }
 
 // Verify registry full returns BB_ERR_NO_SPACE.
-// Topic strings must be stable (string literals or heap-allocated) — the
-// registry stores the pointer directly without copying.
+// Topic strings are heap-allocated so they outlive the registration call.
+// BB_CACHE_MAX_TOPICS may be large (default 32), so we generate them
+// dynamically rather than using a literal array of fixed size.
 void test_bb_cache_registry_full(void)
 {
     reset_all();
-    // Stable string literals: one per slot.
-    static const char *const FILL_TOPICS[BB_CACHE_MAX_TOPICS] = {
-        "test.fill.0", "test.fill.1", "test.fill.2", "test.fill.3",
-        "test.fill.4", "test.fill.5", "test.fill.6", "test.fill.7",
-    };
+    char **topics = (char **)calloc((size_t)BB_CACHE_MAX_TOPICS, sizeof(char *));
+    TEST_ASSERT_NOT_NULL(topics);
+
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
-        bb_err_t err = bb_cache_register(FILL_TOPICS[i], NULL,
+        topics[i] = (char *)malloc(32);
+        TEST_ASSERT_NOT_NULL(topics[i]);
+        snprintf(topics[i], 32, "test.fill.%d", i);
+        bb_err_t err = bb_cache_register(topics[i], NULL,
                                          sizeof(synth_snap_t), synth_serialize);
-        TEST_ASSERT_EQUAL_INT(BB_OK, err);
+        if (err != BB_OK) {
+            // Free remaining before asserting
+            for (int j = i; j < BB_CACHE_MAX_TOPICS; j++) {
+                free(topics[j]);
+                topics[j] = NULL;
+            }
+            free(topics);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, err, "fill should succeed");
+            return;
+        }
     }
     // One more must fail
     bb_err_t err = bb_cache_register("test.fill.overflow", NULL,
                                      sizeof(synth_snap_t), synth_serialize);
+    for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) free(topics[i]);
+    free(topics);
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
 }

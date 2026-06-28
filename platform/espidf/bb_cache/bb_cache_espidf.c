@@ -26,8 +26,9 @@ typedef struct {
     void                *owned;           // heap buffer in owned mode; NULL in getter mode
     size_t               size;            // sizeof owned struct (owned mode only)
     bb_cache_serialize_fn fn;
-    bb_event_topic_t     event_topic;     // registered event topic handle
+    bb_event_topic_t     event_topic;     // registered event topic handle (NULL if no SSE)
     pthread_mutex_t      lock;
+    bb_cache_flags_t     flags;           // BB_CACHE_FLAG_* bitmask
 } bb_cache_entry_t;
 
 static bb_cache_entry_t s_entries[BB_CACHE_MAX_TOPICS];
@@ -89,10 +90,11 @@ static bb_err_t serialize_locked(bb_cache_entry_t *e, bb_json_t obj)
 // Public API
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_cache_register(const char *topic,
-                           const void *(*snapshot)(void),
-                           size_t snap_size,
-                           bb_cache_serialize_fn serialize)
+bb_err_t bb_cache_register_ex(const char *topic,
+                               const void *(*snapshot)(void),
+                               size_t snap_size,
+                               bb_cache_serialize_fn serialize,
+                               bb_cache_flags_t flags)
 {
     if (!topic || !serialize) return BB_ERR_INVALID_ARG;
 
@@ -135,9 +137,13 @@ bb_err_t bb_cache_register(const char *topic,
         }
     }
 
-    // Register event topic (best-effort — may not be initialized on host/test).
+    // Register event topic only when SSE flag is set.
+    // Sink-only topics (no SSE delivery) skip this — bb_cache_post returns
+    // BB_ERR_INVALID_STATE when event_topic is NULL, guarding against misuse.
     bb_event_topic_t ev_topic = NULL;
-    bb_event_topic_register(topic, &ev_topic);
+    if (flags & BB_CACHE_FLAG_SSE) {
+        bb_event_topic_register(topic, &ev_topic);
+    }
 
     // Init per-entry mutex (recursive so serialize_locked can be called
     // from within a locked section without deadlock in future use)
@@ -153,9 +159,19 @@ bb_err_t bb_cache_register(const char *topic,
     slot->size        = snap_size;
     slot->fn          = serialize;
     slot->event_topic = ev_topic;
+    slot->flags       = flags;
 
     pthread_mutex_unlock(&s_reg_lock);
     return BB_OK;
+}
+
+// Legacy wrapper: always registers with SSE (zero behaviour change for existing callers).
+bb_err_t bb_cache_register(const char *topic,
+                           const void *(*snapshot)(void),
+                           size_t snap_size,
+                           bb_cache_serialize_fn serialize)
+{
+    return bb_cache_register_ex(topic, snapshot, snap_size, serialize, BB_CACHE_FLAG_SSE);
 }
 
 bb_err_t bb_cache_update(const char *topic, const void *snap)
@@ -229,11 +245,12 @@ void bb_cache_reset_for_test(void)
         if (s_entries[i].topic) {
             pthread_mutex_destroy(&s_entries[i].lock);
             free(s_entries[i].owned);
-            s_entries[i].topic    = NULL;
-            s_entries[i].owned    = NULL;
-            s_entries[i].snapshot = NULL;
-            s_entries[i].fn       = NULL;
+            s_entries[i].topic       = NULL;
+            s_entries[i].owned       = NULL;
+            s_entries[i].snapshot    = NULL;
+            s_entries[i].fn          = NULL;
             s_entries[i].event_topic = NULL;
+            s_entries[i].flags       = BB_CACHE_FLAG_NONE;
         }
     }
     s_initialized = false;
