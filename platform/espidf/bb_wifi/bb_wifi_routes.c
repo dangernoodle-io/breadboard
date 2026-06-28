@@ -1,4 +1,5 @@
 #include "bb_wifi.h"
+#include "bb_cache.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -15,12 +16,31 @@
 #include "bb_nv_wifi_pending.h"
 #endif
 
+// Local buffer for the memoized /api/wifi payload copy-out.  The wifi section
+// has ~10 short fields plus ts_ms; 512 bytes is generous headroom.
+#define WIFI_INFO_BUF_BYTES 512
+
+// Serve the memoized telemetry snapshot from bb_cache (SSOT: no re-gather, no
+// re-serialize — these are the exact bytes SSE and sinks delivered).  The bytes
+// are COPIED out under the cache entry lock into a local buffer (UAF-safe vs a
+// concurrent sampler re-serialize).  Falls back to a live read on cache miss.
 static bb_err_t wifi_info_handler(bb_http_request_t *req)
 {
+    char   json[WIFI_INFO_BUF_BYTES];
+    size_t len = 0;
+    bb_err_t rc = bb_cache_get_serialized("wifi", json, sizeof(json), &len);
+    if (rc == BB_OK) {
+        bb_err_t err = bb_http_resp_set_type(req, "application/json");
+        if (err == BB_OK) err = bb_http_resp_send_chunk(req, json, (int)len);
+        if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
+        return err;
+    }
+
+    // Cache miss (pre-first-tick or not registered): fall back to live read.
+    bb_json_t root = bb_json_obj_new();
+    if (!root) return BB_ERR_NO_SPACE;
     bb_wifi_info_t info;
     bb_wifi_get_info(&info);
-
-    bb_json_t root = bb_json_obj_new();
     bb_wifi_emit_section(root, &info);
 
     char *str = bb_json_serialize(root);

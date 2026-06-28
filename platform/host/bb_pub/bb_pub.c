@@ -54,6 +54,11 @@
 #ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
 #define CONFIG_BB_PUB_TELEM_SNAP_MAX 256
 #endif
+// Worker-stack buffer for copying memoized serialized JSON out of bb_cache in
+// Phase 2b (UAF-safe copy-out — no caller holds the cache-owned pointer).
+#ifndef CONFIG_BB_PUB_TELEM_SERIALIZE_MAX
+#define CONFIG_BB_PUB_TELEM_SERIALIZE_MAX 512
+#endif
 
 // Interval bounds (must match Kconfig range).
 #define BB_PUB_INTERVAL_MS_MIN   1000UL
@@ -1338,57 +1343,48 @@ bb_err_t bb_pub_tick_once(void)
     }
 
     // Phase 2b: telem source fan-out — SSE and sink delivery.
-    // SSOT guarantee: serialize ONCE per telem topic, share the string for both
-    // SSE (via bb_cache_post_serialized) and sinks (via bb_pub_deliver_to_sinks).
+    // SSOT guarantee: serialize ONCE per telem topic (memoized in bb_cache),
+    // COPY it out once into a worker-stack buffer, then share that single copy
+    // with both SSE (bb_cache_post_serialized) and sinks (bb_pub_deliver_to_sinks).
+    char telem_buf[CONFIG_BB_PUB_TELEM_SERIALIZE_MAX];
     for (int ti = 0; ti < s_telem_count; ti++) {
         if (!telem_results[ti].fired) continue;
         bb_pub_telem_entry_t *te = &s_telem_sources[telem_results[ti].telem_idx];
 
-        bb_json_t obj = bb_json_obj_new();
-        if (!obj) {
-            bb_log_w(TAG, "telem Phase2b: alloc failed for '%s'", te->topic);
+        // Copy-out under the cache entry lock: the serializer ran (at most) once
+        // via the cache's dirty flag (set by bb_cache_update in Phase 1).  SSE,
+        // every sink, and any REST poll all receive these exact same bytes.  The
+        // timestamp and all other fields come from the snapshot's serializer (no
+        // post-inject), so REST == SSE == sink byte-for-byte.  Holding only our
+        // own copy makes the fan-out UAF-safe against a concurrent re-serialize.
+        size_t   S_len = 0;
+        bb_err_t ge = bb_cache_get_serialized(te->topic, telem_buf,
+                                              sizeof(telem_buf), &S_len);
+        if (ge != BB_OK) {
+            bb_log_d(TAG, "telem Phase2b: get_serialized failed for '%s': %d",
+                     te->topic, ge);
             continue;
         }
+        const char *S = telem_buf;
 
-        if (bb_cache_serialize_into(te->topic, obj) != BB_OK) {
-            bb_json_free(obj);
-            bb_log_d(TAG, "telem Phase2b: no snapshot for '%s', skipping", te->topic);
-            continue;
-        }
-
-        // Run payload extenders (same as the normal source path).
-        for (int pi = 0; pi < s_payload_extender_count; pi++) {
-            s_payload_extenders[pi].fn(obj, te->topic, s_payload_extenders[pi].ctx);
-        }
-
-        // ONE serialization — shared by both SSE and sink fan-out.
-        char *S = bb_json_serialize(obj);
-        bb_json_free(obj);
-        if (!S) {
-            bb_log_w(TAG, "telem Phase2b: serialize failed for '%s'", te->topic);
-            continue;
-        }
-        int S_len = (int)strlen(S);
-
-        // SSE: post the pre-serialized string (no re-serialization).
+        // SSE: post the copied string (no re-serialization).
         if (te->flags & BB_PUB_TELEM_SSE) {
-            bb_err_t e = bb_cache_post_serialized(te->topic, S, (size_t)S_len);
+            bb_err_t e = bb_cache_post_serialized(te->topic, S, S_len);
             if (e != BB_OK) {
                 bb_log_w(TAG, "telem Phase2b: SSE post failed for '%s': %d",
                          te->topic, e);
             }
         }
 
-        // SINKS: fan the same string to all subscribing sinks.
+        // SINKS: fan the same copied string to all subscribing sinks.
         if ((te->flags & BB_PUB_TELEM_SINKS) && snap_sink_count > 0) {
             char full_topic[CONFIG_BB_PUB_SUBTOPIC_MAX + 128];
             snprintf(full_topic, sizeof(full_topic), "%s/%s/%s",
                      CONFIG_BB_PUB_TOPIC_PREFIX, hostname, te->topic);
-            bb_pub_deliver_to_sinks(full_topic, te->topic, S, S_len,
+            bb_pub_deliver_to_sinks(full_topic, te->topic, S, (int)S_len,
                                     snap_sinks, snap_sink_count);
         }
 
-        bb_json_free_str(S);
         tick_published = true;
     }
 
