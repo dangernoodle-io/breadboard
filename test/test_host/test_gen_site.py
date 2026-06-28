@@ -1,4 +1,4 @@
-"""test_gen_site.py — host tests for scripts/gen_site.py.
+"""test_gen_site.py — host tests for the bbtool gen-site command.
 
 Run with:  python3 -m pytest test/test_host/test_gen_site.py -v
 from the breadboard repo root.
@@ -13,15 +13,15 @@ import tempfile
 import pytest
 
 # ---------------------------------------------------------------------------
-# Import gen_site from the scripts/ directory regardless of cwd.
+# Import gen_site from the bbtool package.
 # ---------------------------------------------------------------------------
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-_SCRIPTS   = os.path.join(_REPO_ROOT, "scripts")
+_BBTOOL_DIR = os.path.join(_REPO_ROOT, "scripts", "bbtool")
 
-if _SCRIPTS not in sys.path:
-    sys.path.insert(0, _SCRIPTS)
+if _BBTOOL_DIR not in sys.path:
+    sys.path.insert(0, _BBTOOL_DIR)
 
-import gen_site  # noqa: E402
+from commands import gen_site  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

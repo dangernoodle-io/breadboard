@@ -104,7 +104,10 @@ This should be empty (outside the LVGL exception). The CI lint step (`make check
 
 ## Embedding assets
 
-Use the CMake helper `bb_embed_assets()` in `cmake/bb_embed.cmake` to embed binary assets (HTML, fonts, images, etc.) into firmware. The helper wraps the raw `scripts/embed_html.py` CLI tool, which converts a file to a gzipped C byte-array source file: `python3 scripts/embed_html.py <input> <output.c> <symbol>`. Components include the helper with `include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_embed.cmake")` and call it before `idf_component_register` to populate `SRCS`. The helper avoids duplicating `add_custom_command` boilerplate across breadboard components and downstream consumers (TaipanMiner, snugfeather).
+Assets are embedded via `bb_embed_assets()` / `bb_embed_site()` cmake helpers in
+`cmake/bbtool.cmake`; consumers include it before `project()`. See
+`scripts/bbtool/README.md` for full usage, wiring, and the `flash_factory.py`
+post-script.
 
 ## Registry (handler-lifecycle)
 
@@ -528,34 +531,11 @@ New `bb_board` accessors: `bb_board_heap_internal_{free,total}()`, `bb_board_psr
 
 ## bb_version — build-time firmware version identifier
 
-`scripts/bb_version.py` is a PlatformIO pre-script that writes a generated C header at
-`<PROJECT_DIR>/.breadboard/gen/bb_version_gen.h` containing `#define BB_FW_VERSION_STR "<string>"`.
-`bb_system_get_version()` returns `BB_FW_VERSION_STR` when the header is present (via
-`#if __has_include("bb_version_gen.h")`), otherwise falls back to `esp_app_desc.version`.
-The header is only rewritten when the content changes, preventing spurious recompiles.
-
-**Precedence (highest → lowest):**
-1. `BB_FW_VERSION` env var non-empty → used verbatim (override for CI/release pipelines)
-2. Consumer repo has an exact git tag at HEAD → use that tag (release builds)
-3. Dev default: `dev-<tm-ref>-<bb-ref>`
-   - `tm-ref`: `main` on the main branch, else the 7-char short sha; a `+<hash4>` suffix (hash of the uncommitted `git diff`) marks a dirty tree so two dirty checkouts at the same sha stay distinguishable.
-   - `bb-ref`: `bb-<pin>` when `.breadboard` is a pinned fetch (version derivable from the consumer commit's pin), or `bb-main`/`bb-<sha>[+hash4]` when `.breadboard` is a local symlink (floating dev checkout).
-   - examples: `dev-main-bb-0.70.3` · `dev-main-bb-main` · `dev-806bf94+a1b2-bb-main`
-   - consumer repo = `$PROJECT_DIR`; breadboard repo = resolved from the script's real path. Exact commit identity for crash decoding comes from the panic `app_sha256` + elf archive, not this human-readable string.
-
-**Wiring a consumer (PlatformIO):**
-```ini
-extra_scripts = pre:.breadboard/scripts/bb_version.py
-```
-The script appends `.breadboard/gen` to `CPPPATH` automatically — no manual `build_flags` needed.
-
-**Build-time guarantee:** the script runs on every `pio run`, so the version always reflects
-the actual shas at build time even for incremental builds (not configure-time stale).
-
-**CMake consumers:** `include("<breadboard>/cmake/bb_version.cmake")` before `project()` to
-also set `PROJECT_VER` from the same logic (embeds into `esp_app_desc.version`).
-
-**Fail-soft:** if git is unavailable, emits `dev-unknown` rather than erroring the build.
+`bb_system_get_version()` returns `BB_FW_VERSION_STR` when the generated header is
+present (via `#if __has_include("bb_version_gen.h")`), otherwise falls back to
+`esp_app_desc.version`. The version string is generated at build time by breadboard's
+PlatformIO hook (`scripts/bbtool_pio.py`) or `cmake/bbtool.cmake`. See
+`scripts/bbtool/README.md` for the precedence ladder, wiring, and fail-soft behavior.
 
 ## Telemetry publisher (bb_mqtt, bb_pub, bb_sink_mqtt, satellites)
 

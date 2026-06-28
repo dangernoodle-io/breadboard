@@ -1,55 +1,44 @@
-"""gen_site.py — embed an entire built-SPA dist/ directory into firmware.
+"""gen_site command — embed an entire built-SPA dist/ directory into firmware.
 
 CLI contract:
-    python3 gen_site.py <dist_dir> <out_dir> <table_sym> [--url-prefix /]
+    bbtool gen-site <dist> <out> <table_sym> [--url-prefix /]
 
-    dist_dir    — path to the built SPA output directory (e.g. dist/)
-    out_dir     — directory where generated .c files are written (must exist)
+    dist        — path to the built SPA output directory (e.g. dist/)
+    out         — directory where generated .c files are written (must exist)
     table_sym   — C identifier prefix for the asset table and blobs
                   (e.g. "demo_site" → demo_site[], demo_site__assets_index_js[])
     --url-prefix — URL root to prepend to asset paths (default "/")
 
-For each regular file found under dist_dir:
-  - relpath   = POSIX path relative to dist_dir, e.g. "assets/index.js"
+For each regular file found under dist:
+  - relpath   = POSIX path relative to dist, e.g. "assets/index.js"
   - url       = "/" for dist-root index.html; otherwise "/<relpath>" (or
                 url_prefix + relpath when url_prefix != "/")
   - symbol    = <table_sym>__ + relpath sanitized to a C identifier
                 (non-alnum chars → "_"), e.g. demo_site__assets_index_js
   - mime      derived from file extension (see MIME_MAP)
-  - encoding  = "gzip" (all blobs are gzip-compressed via embed_html)
+  - encoding  = "gzip" (all blobs are gzip-compressed via embed)
 
 Writes:
-  <out_dir>/<symbol>.c          — one gzipped blob per file (via embed_html)
-  <out_dir>/<table_sym>_table.c — bb_http_asset_t[] table + lazy accessor
+  <out>/<symbol>.c          — one gzipped blob per file (via embed)
+  <out>/<table_sym>_table.c — bb_http_asset_t[] table + lazy accessor
 
-Accessor shape (printed in table .c header comment and chosen for c99 + ESP-IDF
-portability):
-
-    bb_http_asset_t <table_sym>[];           // mutable table (len filled at runtime)
-    const bb_http_asset_t *<table_sym>_get(size_t *n);
-
-The table is declared as a non-const mutable array so each entry's .data and
-.len can be filled from the extern blob symbols on first call without violating
-C99 const rules.  <table_sym>_get() is idempotent — subsequent calls just
-return the already-initialised table.  The pattern mirrors bb_prov_default_form.
-
-Prints the absolute path of every generated .c file to stdout (one per line,
+Emits the absolute path of every generated .c file to stdout (one per line,
 sorted) so that CMake execute_process(OUTPUT_VARIABLE …) can capture the list.
 """
+from __future__ import annotations
 
 import argparse
 import os
 import re
 import sys
 
-# Importable gzip+emit helper from embed_html.
-# We need the directory containing this script on sys.path so the import works
-# even when invoked from a different working directory (e.g. CMake's cwd).
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-if _SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPT_DIR)
+# Import embed_file from the embed command (same commands package).
+# When invoked via bbtool.py, scripts/bbtool/ is on sys.path so the
+# commands package is importable.
+from commands.embed import embed_file
 
-import embed_html  # noqa: E402 — must come after sys.path fixup
+NAME = "gen-site"
+HELP = "Embed a built-SPA dist/ directory into firmware as gzipped C blobs"
 
 # ---------------------------------------------------------------------------
 # MIME map — extension (lowercase, with dot) → MIME type
@@ -70,21 +59,41 @@ MIME_MAP = {
 _DEFAULT_MIME = "application/octet-stream"
 
 
-def _mime(path):
+def add_arguments(parser) -> None:
+    parser.add_argument("dist_dir", help="Path to the dist directory")
+    parser.add_argument("out_dir", help="Directory for generated .c files")
+    parser.add_argument("table_sym", help="C identifier prefix for the asset table")
+    parser.add_argument("--url-prefix", default="/",
+                        help="URL root prepended to asset paths (default '/')")
+
+
+def run(args) -> int:
+    generated = generate(args.dist_dir, args.out_dir, args.table_sym,
+                         url_prefix=args.url_prefix)
+    for path in generated:
+        print(path)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Implementation (importable by tests)
+# ---------------------------------------------------------------------------
+
+def _mime(path: str) -> str:
     _, ext = os.path.splitext(path)
     return MIME_MAP.get(ext.lower(), _DEFAULT_MIME)
 
 
-def _sanitize(name):
+def _sanitize(name: str) -> str:
     """Replace every non-alphanumeric character with '_'."""
     return re.sub(r"[^A-Za-z0-9]", "_", name)
 
 
-def _symbol(table_sym, relpath_posix):
+def _symbol(table_sym: str, relpath_posix: str) -> str:
     return table_sym + "__" + _sanitize(relpath_posix)
 
 
-def _url(relpath_posix, url_prefix):
+def _url(relpath_posix: str, url_prefix: str) -> str:
     # dist-root index.html → "/"
     if relpath_posix == "index.html":
         return "/"
@@ -94,7 +103,7 @@ def _url(relpath_posix, url_prefix):
     return url_prefix.rstrip("/") + "/" + relpath_posix
 
 
-def _collect_files(dist_dir):
+def _collect_files(dist_dir: str) -> list:
     """Return sorted list of (relpath_posix, abs_path) for every regular file."""
     entries = []
     for root, dirs, files in os.walk(dist_dir):
@@ -108,13 +117,14 @@ def _collect_files(dist_dir):
     return entries
 
 
-def _write_table(out_dir, table_sym, entries, url_prefix):
+def _write_table(out_dir: str, table_sym: str, entries: list,
+                 url_prefix: str) -> str:
     """Emit <table_sym>_table.c with extern decls, mutable table, and accessor."""
     table_c = os.path.join(out_dir, table_sym + "_table.c")
     n = len(entries)
 
     lines = [
-        "// Auto-generated by breadboard/scripts/gen_site.py — do not edit.",
+        "// Auto-generated by bbtool gen-site — do not edit.",
         "//",
         "// Accessor contract (c99-portable, ESP-IDF compatible):",
         "//",
@@ -177,7 +187,8 @@ def _write_table(out_dir, table_sym, entries, url_prefix):
     return table_c
 
 
-def generate(dist_dir, out_dir, table_sym, url_prefix="/"):
+def generate(dist_dir: str, out_dir: str, table_sym: str,
+             url_prefix: str = "/") -> list:
     """Main logic. Returns sorted list of generated absolute .c paths."""
     dist_dir = os.path.abspath(dist_dir)
     out_dir  = os.path.abspath(out_dir)
@@ -199,7 +210,7 @@ def generate(dist_dir, out_dir, table_sym, url_prefix="/"):
     for rel_posix, abs_path in entries:
         sym = _symbol(table_sym, rel_posix)
         out_c = os.path.join(out_dir, sym + ".c")
-        embed_html.embed_file(abs_path, out_c, sym)
+        embed_file(abs_path, out_c, sym)
         generated.append(os.path.abspath(out_c))
 
     # Emit table .c
@@ -207,26 +218,3 @@ def generate(dist_dir, out_dir, table_sym, url_prefix="/"):
     generated.append(os.path.abspath(table_c))
 
     return sorted(generated)
-
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Embed a built-SPA dist/ directory into firmware as gzipped C blobs."
-    )
-    parser.add_argument("dist_dir",  help="Path to the dist directory")
-    parser.add_argument("out_dir",   help="Directory for generated .c files")
-    parser.add_argument("table_sym", help="C identifier prefix for the asset table")
-    parser.add_argument("--url-prefix", default="/",
-                        help="URL root prepended to asset paths (default '/')")
-    args = parser.parse_args()
-
-    generated = generate(args.dist_dir, args.out_dir, args.table_sym,
-                         url_prefix=args.url_prefix)
-
-    # Print absolute paths to stdout — one per line — for CMake to capture.
-    for path in generated:
-        print(path)
-
-
-if __name__ == "__main__":
-    main()

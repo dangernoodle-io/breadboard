@@ -7,15 +7,15 @@ help: ## Show available targets
 		awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 check: ## Forbidden-pattern lint + static analysis (cppcheck)
-	bash scripts/check_lint.sh
+	python3 scripts/bbtool.py lint --root . --profile library
 	@if command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --enable=all --suppress=missingIncludeSystem --suppress=unusedFunction --suppress=redundantAssignment components/; \
 	else \
 		echo "cppcheck not found, skipping static analysis"; \
 	fi
 
-check-test: ## Self-test suite for check_lint.sh
-	bash scripts/check_lint_test.sh
+check-test: ## Self-test suite for bbtool lint rules
+	python3 -m unittest discover -s scripts/bbtool/tests
 
 test: ## Run host unit tests
 	$(PIO) test -e native

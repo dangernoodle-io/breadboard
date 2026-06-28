@@ -1,4 +1,4 @@
-include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_embed.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bbtool.cmake")
 
 bb_embed_assets(
     OUT_SRCS _embed_srcs

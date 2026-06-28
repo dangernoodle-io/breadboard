@@ -1,0 +1,47 @@
+[lint]
+default_profile = "library"
+
+[lint.rules.deprecated-http-send]
+severity = "error"
+
+[lint.rules.public-header-leak]
+severity = "error"
+
+[lint.rules.state-topic-post]
+severity = "error"
+
+[lint.rules.public-requires-watchlist]
+severity = "error"
+
+[lint.rules.raw-esp-timer]
+severity = "error"
+
+[lint.rules.timer-cb-heavy]
+severity = "error"
+
+[lint.rules.platform-error-in-public-struct]
+severity = "warn"
+# Allowlist: field names (or "path:line" keys) that are intentional diagnostic/log-only fields.
+# Example: allow = ["tls_error_code"]
+allow = []
+
+[lint.rules.ticket-ref-in-log]
+severity = "error"
+# Ticket ID prefixes to flag inside bb_log_* string literals.
+prefixes = ["B1", "TA"]
+
+[lint.rules.bb-prefix]
+severity = "warn"
+# Allowlist: symbol names (function or macro) that are intentional non-bb_ public symbols
+# (e.g. chip-specific register names that must match upstream naming).
+# Example: allow = ["WIFI_SCAN_MAX", "TPS546_FAULT_IOUT_OC"]
+allow = []
+
+[lint.rules.pragma-once]
+severity = "error"
+
+[lint.rules.no-arduino-string]
+severity = "error"
+
+[plugins]
+paths = []
