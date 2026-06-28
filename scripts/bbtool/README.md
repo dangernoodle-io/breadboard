@@ -184,8 +184,7 @@ paths = ["scripts/my_rules.py"]
 
 ## Consumer usage (e.g. TaipanMiner)
 
-Consumers that vendor breadboard at `.breadboard/` can run the CLI directly — no cmake
-wiring needed in this release.
+Consumers that vendor breadboard at `.breadboard/` can run the CLI directly.
 
 ```bash
 python3 .breadboard/scripts/bbtool.py lint \
@@ -217,13 +216,160 @@ paths = ["scripts/my_rules.py"]   # consumer-specific rules
 
 ### cmake convenience target
 
-A `bb_lint` cmake target (running `bbtool.py lint --root <consumer> --profile consumer`)
-lands with `cmake/bbtool.cmake` in a later PR. For now, call the CLI directly from your
-own `make check` or CI step.
+`cmake/bbtool.cmake` provides a `bb_lint` cmake target that runs
+`bbtool.py lint --root <consumer> --profile consumer`. See the **cmake bridge** section
+below for wiring.
+
+---
+
+## `version` command
+
+Generates the build-time firmware version string.
+
+```
+python3 scripts/bbtool.py version [--emit] [--consumer DIR]
+```
+
+**Precedence (highest → lowest):**
+
+1. `BB_FW_VERSION` env var non-empty → used verbatim (override for CI/release pipelines)
+2. Consumer repo has an exact git tag at HEAD → use that tag (release builds)
+3. Dev default: `dev-<tm-ref>-<bb-ref>`
+   - `tm-ref`: `main` on the main branch, else the 7-char short sha; a `+<hash4>` suffix (hash of `git diff`) marks a dirty tree so two dirty checkouts at the same sha stay distinguishable.
+   - `bb-ref`: `bb-<pin>` when `.breadboard` is a pinned fetch, or `bb-main`/`bb-<sha>[+hash4]` when `.breadboard` is a local symlink (floating dev checkout).
+   - Examples: `dev-main-bb-0.70.3` · `dev-main-bb-main` · `dev-806bf94+a1b2-bb-main`
+
+**Fail-soft:** if git is unavailable, emits `dev-unknown` rather than erroring the build.
+
+### PlatformIO wiring (`scripts/bbtool_pio.py`)
+
+`scripts/bbtool_pio.py` is the canonical breadboard PlatformIO pre-script hook. On each
+`pio run` it:
+- Calls `bbtool.commands.version` to compute the version string.
+- Writes `<PROJECT_DIR>/.breadboard/gen/bb_version_gen.h` containing
+  `#define BB_FW_VERSION_STR "<string>"` — only when content changes, preventing spurious
+  recompiles.
+- Appends `.breadboard/gen` to `CPPPATH` automatically — no manual `build_flags` needed.
+
+Wire in the consumer `platformio.ini`:
+```ini
+extra_scripts = pre:.breadboard/scripts/bbtool_pio.py
+```
+
+**Build-time guarantee:** the script runs on every `pio run`, so the version always
+reflects the actual shas at build time even for incremental builds (not configure-time stale).
+
+### CMake wiring
+
+`cmake/bbtool.cmake` sets `PROJECT_VER` from the same logic when included before
+`project()`:
+
+```cmake
+include("<breadboard>/cmake/bbtool.cmake")
+project(my_consumer)
+```
+
+This embeds the version into `esp_app_desc.version`.
+
+---
+
+## `embed` command
+
+Compresses a binary file and emits a C source file with a gzipped byte array.
+
+```
+python3 scripts/bbtool.py embed <input> <output.c> <symbol>
+```
+
+Invoked at CMake configure time by `bb_embed_assets()` (see **cmake bridge** below).
+Use directly for one-off asset embedding outside a cmake build.
+
+---
+
+## `gen-site` command
+
+Walks a built SPA `dist/` directory and generates embedded C sources for an HTTP asset
+server.
+
+```
+python3 scripts/bbtool.py gen-site <dist_dir> <out_dir> <table_sym> [--url-prefix PREFIX]
+```
+
+Produces:
+- One gzipped `.c` blob per file in `<dist_dir>`.
+- A `<table_sym>_table.c` containing a `bb_http_asset_t[]` table + lazy accessor.
+
+Invoked at CMake configure time by `bb_embed_site()` (see **cmake bridge** below).
+
+---
+
+## cmake bridge (`cmake/bbtool.cmake`)
+
+`cmake/bbtool.cmake` is the canonical CMake entry point for all bbtool functions. Include
+it **before** `project()`:
+
+```cmake
+include("<breadboard>/cmake/bbtool.cmake")
+project(my_consumer)
+```
+
+### `bb_embed_assets`
+
+Embeds one or more binary assets into firmware sources.
+
+```cmake
+bb_embed_assets(
+    OUT_SRCS my_asset_srcs
+    ASSETS
+        path/to/cert.der:cert_der
+        path/to/font.bin:font_bin
+)
+```
+
+Generates at configure time; populate `my_asset_srcs` into your `idf_component_register`
+`SRCS`.
+
+### `bb_embed_site`
+
+Embeds an entire SPA dist directory.
+
+```cmake
+bb_embed_site(
+    OUT_SRCS my_site_srcs
+    TABLE    site_assets
+    DIST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/dist
+    URL_PREFIX /app        # optional
+)
+```
+
+Generates at configure time; populate `my_site_srcs` into `idf_component_register`
+`SRCS`. The resulting `site_assets_table.c` provides the `bb_http_asset_t[]` table for
+`bb_http_serve_assets()`.
+
+### `bb_lint` target
+
+`cmake/bbtool.cmake` also registers a `bb_lint` build target equivalent to:
+```
+python3 .breadboard/scripts/bbtool.py lint --root <consumer> --profile consumer
+```
+
+---
+
+## `flash_factory.py` — factory flash post-script
+
+`scripts/flash_factory.py` is a breadboard-provided PlatformIO post-script that registers
+a `flash-factory` target. It erases flash and writes `firmware.factory.bin` at offset
+`0x0`.
+
+Wire in the consumer `platformio.ini`:
+```ini
+extra_scripts = post:.breadboard/scripts/flash_factory.py
+```
+
+---
 
 ## Extending bbtool
 
-The `cmake/bbtool.cmake` bridge is the canonical CMake entry point for all bbtool
-functions (`bb_embed_assets`, `bb_embed_site`). CMake consumers include it via
-`include("<breadboard>/cmake/bbtool.cmake")`. The plugin API (`api.add_command(name, module)`)
-supports registering additional commands from plugin files.
+The plugin API supports registering additional commands from plugin files via
+`api.add_command(name, module)`. Rules are registered via `api.add_rule(rule)` as shown
+in the Plugin-authoring contract section above.
