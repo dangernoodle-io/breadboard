@@ -151,6 +151,11 @@ void bb_conn_close(bb_conn_t *c)
     (void)c;
 }
 
+uint32_t bb_wifi_get_lost_ip_count(void)
+{
+    return 0;
+}
+
 uint32_t bb_wifi_get_egress_dead_count(void)
 {
     return 0;
