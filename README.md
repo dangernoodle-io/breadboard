@@ -26,7 +26,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 | `bb_update_check` | Periodic poll of a configurable release manifest URL; posts `update.available` `bb_event` topic and `update=<value>` mDNS TXT on state changes. Auto-registers `GET /api/update/status` | ESP-IDF (Arduino: stub) |
 | `bb_json` | Portable JSON builder + minimal parser; cJSON backend on ESP-IDF/host, ArduinoJson backend on Arduino. Opaque `bb_json_t` handle — no backend headers leak into public API. | ESP-IDF, Arduino |
 | `bb_http` | HTTP server wrapper with portable route registration API; optional `bb_route_t` descriptors carry OpenAPI metadata for `bb_openapi` consumption; Arduino backend routes/handlers with fixed-buffer response batching | ESP-IDF, Arduino |
-| `bb_log` | Ring-buffered log capture, runtime tag-level control, and `bb_log_{e,w,i,d,v}` macros for platform-abstract logging. Optional routes module (`CONFIG_BB_LOG_ROUTES`, default-on) adds SSE `/api/logs` stream, `GET /api/logs/status`, and log-level GET/POST | ESP-IDF, Arduino |
+| `bb_log` | Ring-buffered log capture, runtime tag-level control, and `bb_log_{e,w,i,d,v}` macros for platform-abstract logging. Optional routes module (`CONFIG_BB_LOG_ROUTES`, default-on) adds log-level GET/POST; structured log stream served at `GET /api/events?topic=log` (`CONFIG_BB_LOG_EVENT_AUTO_ATTACH`, default-on) | ESP-IDF, Arduino |
 | `bb_nv` | Typed NVS accessors plus generic `bb_nv_*` key/value helpers with caller-supplied namespace | ESP-IDF, Arduino |
 | `bb_ota_pull` | HTTP releases-feed poller with cJSON parse and A/B rollback | ESP-IDF |
 | `bb_ota_push` | HTTP firmware upload handler | ESP-IDF |

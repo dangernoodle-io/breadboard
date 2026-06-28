@@ -5,11 +5,7 @@
 // and test_bb_http_json_arr_stream.c (fake req cookie).
 //
 // SKIPPED ROUTES (with rationale):
-//   /api/logs              - SSE stream (text/event-stream); not JSON
 //   /api/events            - SSE stream (text/event-stream); not JSON
-//   /api/logs/status       - handler lives in platform/espidf/bb_log/bb_log_routes.c
-//                            (static fn) and calls bb_log_stream_dropped_lines()
-//                            which has no host implementation
 //   /api/scan              - bb_wifi_routes.c includes <esp_wifi.h> which cannot
 //                            link on host; scan uses esp_wifi_scan internally.
 //                            Follow-up: add a bb_wifi_scan host shim (B1-???).
@@ -31,6 +27,8 @@
 //   DELETE /api/diag/boot  - returns 204 No Content; no JSON body
 //   POST /api/log/level    - returns 204 No Content on success; JSON only on 400 errors
 // REMOVED ROUTES (no longer registered):
+//   /api/logs              - retired; use GET /api/events?topic=log (structured JSON)
+//   /api/logs/status       - retired with /api/logs
 //   /api/board             - dropped; superseded by /api/info
 //   /api/ping              - dropped; superseded by /api/health
 //   /api/version           - dropped; use GET /api/info for .version field

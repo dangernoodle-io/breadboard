@@ -68,6 +68,7 @@ COMPONENT_MAP = {
         "sources": [
             "platform/espidf/bb_log/bb_log.c",
             "platform/host/bb_log/bb_log_level.c",
+            "platform/host/bb_log/bb_log_event_parse.c",
             "components/bb_log/src/bb_log_level.c",
         ],
         "depends":  ["bb_core"],
