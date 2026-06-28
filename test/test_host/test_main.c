@@ -3072,6 +3072,17 @@ void setUp(void) {
 }
 void tearDown(void) {}
 
+// Forward declarations from test_bb_pub_telemetry_fidelity.c
+void test_bb_pub_telemetry_fidelity_serialize_once_per_tick_sinks(void);
+void test_bb_pub_telemetry_fidelity_serialize_once_per_tick_sse(void);
+void test_bb_pub_telemetry_fidelity_rest_read_no_regather(void);
+void test_bb_pub_telemetry_fidelity_no_gather_when_tick_not_fired(void);
+void test_bb_pub_telemetry_fidelity_payload_value_correct(void);
+void test_bb_pub_telemetry_fidelity_rest_equals_sink_bytes(void);
+void test_bb_pub_telemetry_fidelity_cache_serialize_once_per_generation(void);
+void test_bb_pub_telemetry_fidelity_cache_get_serialized_is_a_copy(void);
+void test_bb_pub_telemetry_fidelity_cache_get_serialized_no_space(void);
+
 // Forward declarations from test_bb_cache_fidelity.c
 void test_bb_cache_fidelity_all_topics(void);
 void test_bb_cache_register_idempotent(void);
@@ -6118,6 +6129,17 @@ int main(void) {
     RUN_TEST(test_bb_sink_ws_sub_replace_on_resub);
     RUN_TEST(test_bb_sink_ws_log_inject_malloc_fail_returns_no_space);
     RUN_TEST(test_bb_sink_ws_publish_malloc_fail_returns_no_space);
+
+    // bb_pub telemetry SSOT fidelity
+    RUN_TEST(test_bb_pub_telemetry_fidelity_serialize_once_per_tick_sinks);
+    RUN_TEST(test_bb_pub_telemetry_fidelity_serialize_once_per_tick_sse);
+    RUN_TEST(test_bb_pub_telemetry_fidelity_rest_read_no_regather);
+    RUN_TEST(test_bb_pub_telemetry_fidelity_no_gather_when_tick_not_fired);
+    RUN_TEST(test_bb_pub_telemetry_fidelity_payload_value_correct);
+    RUN_TEST(test_bb_pub_telemetry_fidelity_rest_equals_sink_bytes);
+    RUN_TEST(test_bb_pub_telemetry_fidelity_cache_serialize_once_per_generation);
+    RUN_TEST(test_bb_pub_telemetry_fidelity_cache_get_serialized_is_a_copy);
+    RUN_TEST(test_bb_pub_telemetry_fidelity_cache_get_serialized_no_space);
 
     // bb_cache
     RUN_TEST(test_bb_cache_fidelity_all_topics);

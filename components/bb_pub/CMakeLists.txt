@@ -3,7 +3,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_pub/bb_pub.c"
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_pub/bb_pub_espidf.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_json
+    REQUIRES bb_core bb_json bb_cache
     PRIV_REQUIRES bb_nv bb_log bb_ring bb_ntp bb_timer bb_registry)
 
 if(CONFIG_BB_PUB_AUTOREGISTER)

@@ -2,7 +2,7 @@ menu "bb_cache"
 
 config BB_CACHE_MAX_TOPICS
     int "Maximum number of registered cache topics"
-    default 8
+    default 32
     range 1 64
     help
         Fixed-size registry capacity. Each entry holds a topic name pointer,

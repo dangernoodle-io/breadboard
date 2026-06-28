@@ -184,4 +184,42 @@ config BB_PUB_BUFFER_ALWAYS
         When n (default), the ring stays lazy and is used only on sink failure
         (store-and-forward), with zero standing cost until an outage occurs.
 
+config BB_PUB_TELEM_SNAP_MAX
+    int "Maximum snapshot buffer size for telemetry sources (bytes)"
+    default 256
+    range 16 4096
+    help
+        Size of the single static scratch buffer used by the bb_pub worker to
+        gather telemetry snapshots before storing them in bb_cache. A single
+        buffer is safe because only the bb_pub worker calls gather() (single-
+        threaded) and the gather result is copied into bb_cache under s_tick_lock
+        before releasing it for the next source.
+        Increase if any telemetry source's snapshot struct exceeds 256 bytes.
+
+config BB_PUB_TELEM_SERIALIZE_MAX
+    int "Maximum serialized-JSON copy-out buffer for telemetry sources (bytes)"
+    default 512
+    range 64 8192
+    help
+        Size of the bb_pub worker's stack buffer used to copy the memoized
+        serialized JSON out of bb_cache (via bb_cache_get_serialized) in Phase 2b
+        before fanning it to SSE and all sinks. Copy-out under the cache entry
+        lock makes the fan-out UAF-safe: no caller holds the cache-owned pointer.
+        A telem topic whose serialized payload exceeds this cap is skipped for
+        that tick (logged). Raise if any telemetry topic's JSON exceeds 512 bytes
+        (wifi/meta are well under; large payloads like "info" use the legacy
+        bb_pub_register_source path, not the telem/cache path).
+
+config BB_PUB_LEGACY_TRANSPORT_INJECT
+    bool "Enable per-sink transport/tls field injection (legacy B1-388 behaviour)"
+    default n
+    help
+        When y, bb_pub_tick_once re-serializes each source's JSON once per sink
+        to stamp the sink's transport (e.g. "mqtt") and tls (bool) fields.  This
+        was the pre-B1-388 behaviour and causes N serializations per source per
+        tick (one per sink).
+        When n (default), each source is serialized ONCE and the same payload is
+        delivered to all sinks; transport/tls fields are omitted from payloads
+        but remain on the bb_pub_sink_t struct for use by /meta and /api/info.
+
 endmenu

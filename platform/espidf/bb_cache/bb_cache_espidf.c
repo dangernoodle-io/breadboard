@@ -26,8 +26,12 @@ typedef struct {
     void                *owned;           // heap buffer in owned mode; NULL in getter mode
     size_t               size;            // sizeof owned struct (owned mode only)
     bb_cache_serialize_fn fn;
-    bb_event_topic_t     event_topic;     // registered event topic handle
+    bb_event_topic_t     event_topic;     // registered event topic handle (NULL if no SSE)
     pthread_mutex_t      lock;
+    bb_cache_flags_t     flags;           // BB_CACHE_FLAG_* bitmask
+    char                *cached_json;     // memoized serialized bytes (NULL = none yet)
+    size_t               cached_len;      // strlen of cached_json
+    bool                 dirty;           // true = cached_json stale, re-serialize on next get
 } bb_cache_entry_t;
 
 static bb_cache_entry_t s_entries[BB_CACHE_MAX_TOPICS];
@@ -89,10 +93,11 @@ static bb_err_t serialize_locked(bb_cache_entry_t *e, bb_json_t obj)
 // Public API
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_cache_register(const char *topic,
-                           const void *(*snapshot)(void),
-                           size_t snap_size,
-                           bb_cache_serialize_fn serialize)
+bb_err_t bb_cache_register_ex(const char *topic,
+                               const void *(*snapshot)(void),
+                               size_t snap_size,
+                               bb_cache_serialize_fn serialize,
+                               bb_cache_flags_t flags)
 {
     if (!topic || !serialize) return BB_ERR_INVALID_ARG;
 
@@ -135,9 +140,13 @@ bb_err_t bb_cache_register(const char *topic,
         }
     }
 
-    // Register event topic (best-effort — may not be initialized on host/test).
+    // Register event topic only when SSE flag is set.
+    // Sink-only topics (no SSE delivery) skip this — bb_cache_post returns
+    // BB_ERR_INVALID_STATE when event_topic is NULL, guarding against misuse.
     bb_event_topic_t ev_topic = NULL;
-    bb_event_topic_register(topic, &ev_topic);
+    if (flags & BB_CACHE_FLAG_SSE) {
+        bb_event_topic_register(topic, &ev_topic);
+    }
 
     // Init per-entry mutex (recursive so serialize_locked can be called
     // from within a locked section without deadlock in future use)
@@ -153,9 +162,22 @@ bb_err_t bb_cache_register(const char *topic,
     slot->size        = snap_size;
     slot->fn          = serialize;
     slot->event_topic = ev_topic;
+    slot->flags       = flags;
+    slot->cached_json = NULL;
+    slot->cached_len  = 0;
+    slot->dirty       = true;   // no bytes cached yet
 
     pthread_mutex_unlock(&s_reg_lock);
     return BB_OK;
+}
+
+// Legacy wrapper: always registers with SSE (zero behaviour change for existing callers).
+bb_err_t bb_cache_register(const char *topic,
+                           const void *(*snapshot)(void),
+                           size_t snap_size,
+                           bb_cache_serialize_fn serialize)
+{
+    return bb_cache_register_ex(topic, snapshot, snap_size, serialize, BB_CACHE_FLAG_SSE);
 }
 
 bb_err_t bb_cache_update(const char *topic, const void *snap)
@@ -172,6 +194,7 @@ bb_err_t bb_cache_update(const char *topic, const void *snap)
 
     pthread_mutex_lock(&e->lock);
     memcpy(e->owned, snap, e->size);
+    e->dirty = true;   // invalidate memoized bytes; do NOT serialize here
     pthread_mutex_unlock(&e->lock);
     return BB_OK;
 }
@@ -217,6 +240,79 @@ bb_err_t bb_cache_serialize_into(const char *topic, bb_json_t obj)
     return serialize_locked(e, obj);
 }
 
+bb_err_t bb_cache_post_serialized(const char *topic, const char *json, size_t json_len)
+{
+    if (!topic || !json) return BB_ERR_INVALID_ARG;
+
+    ensure_init();
+
+    bb_cache_entry_t *e = find_entry(topic);
+    if (!e) return BB_ERR_NOT_FOUND;
+    if (!e->event_topic) return BB_ERR_INVALID_STATE;
+
+    return bb_event_post(e->event_topic, 0, json, json_len + 1);
+}
+
+bb_err_t bb_cache_get_serialized(const char *topic, char *buf, size_t cap, size_t *out_len)
+{
+    if (!topic || !buf || cap == 0) return BB_ERR_INVALID_ARG;
+
+    ensure_init();
+
+    bb_cache_entry_t *e = find_entry(topic);
+    if (!e) return BB_ERR_NOT_FOUND;
+
+    pthread_mutex_lock(&e->lock);
+
+    // Getter-mode topics have no dirty signal (data can change without an
+    // update), so always re-serialize. Owned-mode topics memoize via dirty.
+    bool need = e->dirty || e->cached_json == NULL || e->snapshot != NULL;
+    if (need) {
+        const void *snap = e->snapshot ? e->snapshot() : e->owned;
+        if (!snap) {
+            pthread_mutex_unlock(&e->lock);
+            bb_log_w(TAG, "topic '%s': no snapshot available", e->topic);
+            return BB_ERR_INVALID_STATE;
+        }
+
+        bb_json_t obj = bb_json_obj_new();
+        if (!obj) {
+            pthread_mutex_unlock(&e->lock);
+            return BB_ERR_NO_SPACE;
+        }
+
+        // The serializer runs exactly once per generation here.
+        e->fn(obj, snap);
+        char *s = bb_json_serialize(obj);
+        bb_json_free(obj);
+        if (!s) {
+            pthread_mutex_unlock(&e->lock);
+            return BB_ERR_NO_SPACE;
+        }
+
+        if (e->cached_json) bb_json_free_str(e->cached_json);
+        e->cached_json = s;
+        e->cached_len  = strlen(s);
+        e->dirty       = false;
+    }
+
+    // COPY OUT under the lock — the caller only ever touches its own buffer, so
+    // a later update + re-serialize (which frees e->cached_json) cannot corrupt
+    // an in-flight reader.  Refuse rather than truncate if the buffer is small.
+    if (e->cached_len + 1 > cap) {
+        size_t need_len = e->cached_len;
+        pthread_mutex_unlock(&e->lock);
+        bb_log_w(TAG, "topic '%s': buffer too small (need %zu, cap %zu)",
+                 topic, need_len + 1, cap);
+        return BB_ERR_NO_SPACE;
+    }
+    memcpy(buf, e->cached_json, e->cached_len + 1);  /* includes NUL */
+    if (out_len) *out_len = e->cached_len;
+
+    pthread_mutex_unlock(&e->lock);
+    return BB_OK;
+}
+
 // ---------------------------------------------------------------------------
 // Test reset (guarded by BB_CACHE_TESTING)
 // ---------------------------------------------------------------------------
@@ -229,11 +325,16 @@ void bb_cache_reset_for_test(void)
         if (s_entries[i].topic) {
             pthread_mutex_destroy(&s_entries[i].lock);
             free(s_entries[i].owned);
-            s_entries[i].topic    = NULL;
-            s_entries[i].owned    = NULL;
-            s_entries[i].snapshot = NULL;
-            s_entries[i].fn       = NULL;
+            if (s_entries[i].cached_json) bb_json_free_str(s_entries[i].cached_json);
+            s_entries[i].topic       = NULL;
+            s_entries[i].owned       = NULL;
+            s_entries[i].snapshot    = NULL;
+            s_entries[i].fn          = NULL;
             s_entries[i].event_topic = NULL;
+            s_entries[i].flags       = BB_CACHE_FLAG_NONE;
+            s_entries[i].cached_json = NULL;
+            s_entries[i].cached_len  = 0;
+            s_entries[i].dirty       = true;
         }
     }
     s_initialized = false;

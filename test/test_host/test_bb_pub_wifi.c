@@ -116,13 +116,19 @@ void test_bb_pub_wifi_rssi_value_correct(void)
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "-55"));
 }
 
+// Telem (cache) path stamps a sample-time ts_ms into the snapshot and emits it
+// from the serializer (replacing the legacy post-injected uptime_ms) so that
+// REST == SSE == sink bytes are identical. (Name kept for history continuity;
+// the timestamp field is now ts_ms, sourced from the snapshot.)
 void test_bb_pub_wifi_payload_has_uptime_ms_field(void)
 {
     setup();
     bb_pub_wifi_test_set_rssi(true, -60);
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"uptime_ms\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ts_ms\""));
+    // Legacy post-injected uptime_ms must NOT appear on the telem path.
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"uptime_ms\""));
 }
 
 // ---------------------------------------------------------------------------
