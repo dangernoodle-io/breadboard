@@ -533,6 +533,32 @@ static void metrics_emit_pub_health_json(bb_http_json_obj_stream_t *jstream,
 // ---------------------------------------------------------------------------
 // GET /api/telemetry/metrics handler
 // ---------------------------------------------------------------------------
+//
+// Source enumeration and the no-live-regather guarantee
+// -------------------------------------------------------
+// The three loops below enumerate sources via bb_pub_source_info(i, &subtopic,
+// &fn, &ctx, ...) and call fn(obj, ctx).
+//
+// For every source migrated to bb_pub_register_telemetry, fn is
+// _telem_adapter_sample (set internally by bb_pub).  That adapter calls
+// bb_cache_serialize_into(topic, obj), which reads the memoized snapshot from
+// bb_cache — it does NOT re-gather.  The snapshot was gathered ONCE during
+// the most recent bb_pub_tick_once (Phase 1) and stored in bb_cache under the
+// tick lock.  JSON is one encoding path; Prometheus is a second encoder over
+// the SAME frozen struct via the same adapter call.  No live re-gather occurs
+// on the metrics path for any migrated source.
+//
+// Publisher health gauges (bb_pub_get_status etc.) are status fields, not
+// telemetry sources; they are read live here.  That is correct and intentional
+// — they reflect real-time publisher state, not a memoized snapshot.
+//
+// The telemetry-rest-cache-read lint rule (scripts/bbtool/commands/lint.py)
+// flags route-handler files that call telemetry gather fns (bb_wifi_get_info,
+// bb_fan_snapshot, bb_power_snapshot, bb_temp_read_soc) directly AND do not
+// also call bb_cache_get_serialized / bb_cache_serialize_into.  This handler
+// does not call any of those gather fns directly; all per-source sampling goes
+// through fn(obj, ctx) == _telem_adapter_sample == bb_cache_serialize_into.
+// The rule is satisfied.
 
 static bb_err_t metrics_handler(bb_http_request_t *req)
 {
