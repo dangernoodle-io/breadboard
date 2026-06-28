@@ -643,6 +643,19 @@ bool bb_pub_ring_undersized(void)
 #endif
 }
 
+bb_err_t bb_pub_sink_info(int i, const char **out_transport, bool *out_tls)
+{
+    pthread_mutex_lock(&s_tick_lock);
+    if (i < 0 || i >= s_sink_count) {
+        pthread_mutex_unlock(&s_tick_lock);
+        return BB_ERR_INVALID_ARG;
+    }
+    if (out_transport) *out_transport = s_sinks[i].transport;
+    if (out_tls)       *out_tls       = s_sinks[i].tls;
+    pthread_mutex_unlock(&s_tick_lock);
+    return BB_OK;
+}
+
 // ---------------------------------------------------------------------------
 // Prometheus metric-name prefix
 // ---------------------------------------------------------------------------
@@ -683,15 +696,11 @@ bb_err_t bb_pub_register_source(const char *subtopic, bb_pub_sample_fn fn, void 
     }
 
     bb_pub_source_t *src = &s_sources[s_source_count++];
+    memset(src, 0, sizeof(*src));   /* zero ALL fields including telem_managed */
     strncpy(src->subtopic, subtopic, sizeof(src->subtopic) - 1);
     src->subtopic[sizeof(src->subtopic) - 1] = '\0';
-    src->fn             = fn;
-    src->ctx            = ctx;
-    src->last_sample_ms = 0;
-    src->sampled_ever   = false;
-    src->ntags          = 0;
-    memset(src->tags, 0, sizeof(src->tags));
-    memset(src->tag_ptrs, 0, sizeof(src->tag_ptrs));
+    src->fn  = fn;
+    src->ctx = ctx;
     return BB_OK;
 }
 
@@ -1471,13 +1480,7 @@ void bb_pub_exclusive_reset(void)
 
 void bb_pub_test_reset(void)
 {
-    for (int i = 0; i < s_source_count; i++) {
-        s_sources[i].last_sample_ms = 0;
-        s_sources[i].sampled_ever   = false;
-        s_sources[i].ntags          = 0;
-        memset(s_sources[i].tags, 0, sizeof(s_sources[i].tags));
-        memset(s_sources[i].tag_ptrs, 0, sizeof(s_sources[i].tag_ptrs));
-    }
+    memset(s_sources, 0, sizeof(s_sources));   /* zero ALL fields including telem_managed */
     s_source_count             = 0;
     s_telem_count              = 0;
     memset(s_telem_sources, 0, sizeof(s_telem_sources));

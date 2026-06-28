@@ -3,6 +3,7 @@
 #include "bb_pub_telemetry.h"
 #include "bb_pub.h"
 #include "bb_clock.h"
+#include "bb_info.h"
 #include "bb_json.h"
 #include "bb_telemetry.h"
 #include "bb_registry.h"
@@ -10,10 +11,14 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 // Kconfig defaults for host builds.
 #ifndef CONFIG_BB_PUB_TOPIC_PREFIX
 #define CONFIG_BB_PUB_TOPIC_PREFIX "metrics"
+#endif
+#ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
+#define CONFIG_BB_PUB_TELEM_SNAP_MAX 256
 #endif
 
 static const char *TAG = "bb_pub_telemetry";
@@ -22,9 +27,117 @@ static const char *TAG = "bb_pub_telemetry";
 #define BB_PUB_INTERVAL_MS_MIN   1000UL
 #define BB_PUB_INTERVAL_MS_MAX   3600000UL
 
+// Maximum sinks captured in the meta snapshot.  Kept at 4 so meta_snap_t
+// fits within CONFIG_BB_PUB_TELEM_SNAP_MAX=256 bytes even when MAX_SINKS=8.
+#define BB_PUB_META_MAX_SINKS 4
+
 // ---------------------------------------------------------------------------
-// Section get
+// /meta telem snapshot
 // ---------------------------------------------------------------------------
+
+typedef struct {
+    char  topic_prefix[48];
+    int   sink_count;
+    struct {
+        char  transport[28];   /* "" = no transport label */
+        bool  tls;
+    } sinks[BB_PUB_META_MAX_SINKS];
+} meta_snap_t;
+
+// Compile-time guard: meta_snap_t must fit in the scratch buffer.
+// A build failure here means the struct grew past the limit — reduce field sizes.
+typedef char _meta_snap_size_check[
+    sizeof(meta_snap_t) <= CONFIG_BB_PUB_TELEM_SNAP_MAX ? 1 : -1];
+
+static bool meta_gather(void *snap_buf, void *ctx)
+{
+    (void)ctx;
+    meta_snap_t *m = (meta_snap_t *)snap_buf;
+
+    strncpy(m->topic_prefix, CONFIG_BB_PUB_TOPIC_PREFIX, sizeof(m->topic_prefix) - 1);
+    m->topic_prefix[sizeof(m->topic_prefix) - 1] = '\0';
+
+    bb_pub_status_t st;
+    bb_pub_get_status(&st);
+    m->sink_count = st.sink_count;
+
+    int cap = st.sink_count < BB_PUB_META_MAX_SINKS ? st.sink_count : BB_PUB_META_MAX_SINKS;
+    for (int i = 0; i < cap; i++) {
+        const char *transport = NULL;
+        bool tls = false;
+        bb_pub_sink_info(i, &transport, &tls);
+        m->sinks[i].transport[0] = '\0';
+        if (transport) {
+            strncpy(m->sinks[i].transport, transport,
+                    sizeof(m->sinks[i].transport) - 1);
+            m->sinks[i].transport[sizeof(m->sinks[i].transport) - 1] = '\0';
+        }
+        m->sinks[i].tls = tls;
+    }
+
+    return true;   /* always publish provenance, even with zero sinks */
+}
+
+static void meta_serialize(bb_json_t obj, const void *snap)
+{
+    const meta_snap_t *m = (const meta_snap_t *)snap;
+
+    bb_json_obj_set_string(obj, "topic_prefix", m->topic_prefix);
+    bb_json_obj_set_int(obj, "sink_count", (int64_t)m->sink_count);
+
+    bb_json_t arr = bb_json_arr_new();
+    if (!arr) return;
+
+    int cap = m->sink_count < BB_PUB_META_MAX_SINKS ? m->sink_count : BB_PUB_META_MAX_SINKS;
+    for (int i = 0; i < cap; i++) {
+        bb_json_t sink_obj = bb_json_obj_new();
+        if (!sink_obj) continue;
+        if (m->sinks[i].transport[0] != '\0') {
+            bb_json_obj_set_string(sink_obj, "transport", m->sinks[i].transport);
+            bb_json_obj_set_bool  (sink_obj, "tls",       m->sinks[i].tls);
+        } else {
+            bb_json_obj_set_null(sink_obj, "transport");
+        }
+        bb_json_arr_append_obj(arr, sink_obj);
+        /* sink_obj ownership transferred to arr — do NOT free here */
+    }
+
+    bb_json_obj_set_arr(obj, "sinks", arr);
+    /* arr ownership transferred to obj — do NOT free here */
+}
+
+// ---------------------------------------------------------------------------
+// /api/telemetry publisher section — GET
+// ---------------------------------------------------------------------------
+
+static void pub_sinks_add(bb_json_t section)
+{
+    bb_pub_status_t st;
+    bb_pub_get_status(&st);
+
+    bb_json_t arr = bb_json_arr_new();
+    if (!arr) return;
+
+    int cap = st.sink_count < BB_PUB_META_MAX_SINKS ? st.sink_count : BB_PUB_META_MAX_SINKS;
+    for (int i = 0; i < cap; i++) {
+        const char *transport = NULL;
+        bool tls = false;
+        bb_pub_sink_info(i, &transport, &tls);
+        bb_json_t sink_obj = bb_json_obj_new();
+        if (!sink_obj) continue;
+        if (transport) {
+            bb_json_obj_set_string(sink_obj, "transport", transport);
+            bb_json_obj_set_bool  (sink_obj, "tls",       tls);
+        } else {
+            bb_json_obj_set_null(sink_obj, "transport");
+        }
+        bb_json_arr_append_obj(arr, sink_obj);
+        /* sink_obj ownership transferred to arr — do NOT free here */
+    }
+
+    bb_json_obj_set_arr(section, "sinks", arr);
+    /* arr ownership transferred to section — do NOT free here */
+}
 
 static void pub_section_get(bb_json_t section, void *ctx)
 {
@@ -52,10 +165,13 @@ static void pub_section_get(bb_json_t section, void *ctx)
     bb_pub_buffer_stats(&buf);
     bb_json_obj_set_number(section, "buffer_count",   (double)buf.count);
     bb_json_obj_set_number(section, "buffer_dropped", (double)buf.dropped);
+
+    // Provenance: sinks[] array (B1-388 — transport/tls removed from payloads).
+    pub_sinks_add(section);
 }
 
 // ---------------------------------------------------------------------------
-// Section patch
+// /api/telemetry publisher section — PATCH
 // ---------------------------------------------------------------------------
 
 static bb_err_t pub_section_patch(bb_json_t section_patch, void *ctx)
@@ -88,11 +204,29 @@ static bb_err_t pub_section_patch(bb_json_t section_patch, void *ctx)
 }
 
 // ---------------------------------------------------------------------------
+// /api/info "pub_sinks" section
+// ---------------------------------------------------------------------------
+
+static void info_pub_sinks_get(bb_json_t section, void *ctx)
+{
+    (void)ctx;
+
+    bb_pub_status_t st;
+    bb_pub_get_status(&st);
+    bb_json_obj_set_int(section, "sink_count", (int64_t)st.sink_count);
+    bb_json_obj_set_string(section, "topic_prefix", CONFIG_BB_PUB_TOPIC_PREFIX);
+
+    // sinks[] — provenance: which transports are active and whether TLS is on.
+    pub_sinks_add(section);
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
 bb_err_t bb_pub_telemetry_init(void)
 {
+    // Register /api/telemetry "publisher" section.
     static const char k_pub_schema_props[] =
         "{\"type\":\"object\","
         "\"properties\":{"
@@ -105,10 +239,39 @@ bb_err_t bb_pub_telemetry_init(void)
         "\"last_publish_age_ms\":{\"type\":\"number\"},"
         "\"published_ever\":{\"type\":\"boolean\"},"
         "\"buffer_count\":{\"type\":\"number\"},"
-        "\"buffer_dropped\":{\"type\":\"number\"}}}";
-    return bb_telemetry_register_section_ex("publisher", pub_section_get,
-                                             pub_section_patch, NULL,
-                                             k_pub_schema_props);
+        "\"buffer_dropped\":{\"type\":\"number\"},"
+        "\"sinks\":{\"type\":\"array\",\"items\":{\"type\":\"object\"}}}}";
+    bb_err_t err = bb_telemetry_register_section_ex("publisher", pub_section_get,
+                                                     pub_section_patch, NULL,
+                                                     k_pub_schema_props);
+    if (err != BB_OK) return err;
+
+    // Register /api/info "pub_sinks" section: provenance for who receives telemetry.
+    static const char k_info_schema[] =
+        "{\"type\":\"object\","
+        "\"properties\":{"
+        "\"sink_count\":{\"type\":\"integer\"},"
+        "\"topic_prefix\":{\"type\":\"string\"},"
+        "\"sinks\":{\"type\":\"array\",\"items\":{\"type\":\"object\"}}}}";
+    (void)bb_info_register_section("pub_sinks", info_pub_sinks_get, NULL, k_info_schema);
+
+    // Register "meta" MQTT topic: serializes once per tick via bb_pub_register_telemetry.
+    // BB_PUB_TELEM_SINKS only (no SSE — meta is a sink-delivery topic, not an event stream).
+    static const bb_pub_telemetry_cfg_t k_meta_cfg = {
+        .topic     = "meta",
+        .gather    = meta_gather,
+        .serialize = meta_serialize,
+        .snap_size = sizeof(meta_snap_t),
+        .flags     = BB_PUB_TELEM_SINKS,
+        .ctx       = NULL,
+    };
+    err = bb_pub_register_telemetry(&k_meta_cfg);
+    if (err != BB_OK) {
+        // Not fatal — meta is provenance; log but continue.
+        bb_log_w(TAG, "meta telem source registration failed: %d", err);
+    }
+
+    return BB_OK;
 }
 
 #if CONFIG_BB_PUB_TELEMETRY_AUTOREGISTER

@@ -271,6 +271,14 @@ bb_err_t bb_pub_source_info(int i, const char **subtopic, bb_pub_sample_fn *fn,
                              void **ctx, uint32_t *last_sample_ms, bool *sampled_ever);
 
 /**
+ * Return metadata for sink at index i.
+ * out_transport may be NULL (sink has no transport label).
+ * All out-params are optional (pass NULL to skip).
+ * Returns BB_ERR_INVALID_ARG if i is out of range [0, sink_count).
+ */
+bb_err_t bb_pub_sink_info(int i, const char **out_transport, bool *out_tls);
+
+/**
  * Extended source info; also returns tags and ntags. All out-params optional.
  * tags points into internal storage (valid until reset).
  */
