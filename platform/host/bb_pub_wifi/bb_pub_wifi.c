@@ -30,9 +30,11 @@ static const char *TAG = "bb_pub_wifi";
 // ---------------------------------------------------------------------------
 
 typedef struct {
-    bb_wifi_info_t info;     // ~62 bytes
+    bb_wifi_info_t info;             // ~62 bytes
     int            no_ip_count;
-    int64_t        ts_ms;    // sample-time monotonic ms (bb_clock_now_ms64)
+    int            egress_dead_count;
+    int            lost_ip_count;
+    int64_t        ts_ms;            // sample-time monotonic ms (bb_clock_now_ms64)
 } bb_wifi_snap_t;
 
 // ---------------------------------------------------------------------------
@@ -81,8 +83,10 @@ static bool wifi_gather(void *snap_buf, void *ctx)
     snap->info.disc_reason = s_test_info.disc_reason;
     snap->info.disc_age_s  = s_test_info.disc_age_s;
     snap->info.retry_count = s_test_info.retry_count;
-    snap->no_ip_count      = (int)bb_wifi_get_no_ip_count();
-    snap->ts_ms            = (int64_t)bb_clock_now_ms64();
+    snap->no_ip_count       = (int)bb_wifi_get_no_ip_count();
+    snap->egress_dead_count = (int)bb_wifi_get_egress_dead_count();
+    snap->lost_ip_count     = (int)bb_wifi_get_lost_ip_count();
+    snap->ts_ms             = (int64_t)bb_clock_now_ms64();
     return true;
 #else
     if (!bb_wifi_has_ip()) return false;
@@ -92,9 +96,11 @@ static bool wifi_gather(void *snap_buf, void *ctx)
     if (rc != BB_OK) return false;
 
     memset(snap, 0, sizeof(*snap));
-    snap->info        = info;
-    snap->no_ip_count = (int)bb_wifi_get_no_ip_count();
-    snap->ts_ms       = (int64_t)bb_clock_now_ms64();
+    snap->info              = info;
+    snap->no_ip_count       = (int)bb_wifi_get_no_ip_count();
+    snap->egress_dead_count = (int)bb_wifi_get_egress_dead_count();
+    snap->lost_ip_count     = (int)bb_wifi_get_lost_ip_count();
+    snap->ts_ms             = (int64_t)bb_clock_now_ms64();
     return true;
 #endif
 }
@@ -122,8 +128,14 @@ static void wifi_serialize(bb_json_t obj, const void *snap_raw)
     bb_json_obj_set_int   (obj, "disc_reason",      (int64_t)snap->info.disc_reason);
     bb_json_obj_set_int   (obj, "disc_age_s",       (int64_t)snap->info.disc_age_s);
     bb_json_obj_set_int   (obj, "retry_count",      (int64_t)snap->info.retry_count);
-    bb_json_obj_set_int   (obj, "no_ip_recoveries", (int64_t)snap->no_ip_count);
-    bb_json_obj_set_int   (obj, "ts_ms",            snap->ts_ms);
+    bb_json_obj_set_int   (obj, "no_ip_recoveries",  (int64_t)snap->no_ip_count);
+    bb_json_obj_set_int   (obj, "egress_dead_count", (int64_t)snap->egress_dead_count);
+    bb_json_obj_set_int   (obj, "lost_ip_count",     (int64_t)snap->lost_ip_count);
+    bb_json_obj_set_int   (obj, "recovery_count",
+                           (int64_t)(snap->no_ip_count +
+                                     snap->egress_dead_count +
+                                     snap->lost_ip_count));
+    bb_json_obj_set_int   (obj, "ts_ms",             snap->ts_ms);
 }
 
 // ---------------------------------------------------------------------------

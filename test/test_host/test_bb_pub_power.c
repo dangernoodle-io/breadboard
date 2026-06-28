@@ -171,5 +171,5 @@ void test_bb_pub_power_payload_has_uptime_ms_field(void)
     setup_with_power(1100, 4500, 11500, 42);
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"uptime_ms\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ts_ms\""));
 }

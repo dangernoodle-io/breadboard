@@ -16,14 +16,27 @@
 
 #include "unity.h"
 #include "bb_pub.h"
+#include "bb_pub_fan.h"
+#include "bb_pub_power.h"
+#include "bb_pub_thermal.h"
+#include "bb_pub_info.h"
 #include "bb_cache.h"
 #include "bb_json.h"
 #include "bb_nv.h"
+#include "bb_fan.h"
+#include "bb_fan_driver.h"
+#include "bb_fan_test.h"
+#include "bb_power.h"
+#include "bb_power_driver.h"
+#include "bb_power_test.h"
+#include "bb_thermal.h"
+#include "bb_wifi.h"
 
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <math.h>
 
 // ---------------------------------------------------------------------------
 // Shared state — reset before each test
@@ -340,4 +353,347 @@ void test_bb_pub_telemetry_fidelity_cache_get_serialized_no_space(void)
         "small buffer must return BB_ERR_NO_SPACE, not truncate");
     // Buffer left untouched on NO_SPACE.
     TEST_ASSERT_EQUAL_CHAR('Z', tiny[0]);
+}
+
+// ===========================================================================
+// Per-satellite SSOT fidelity: fan, power, thermal, info
+// Each test registers the satellite, ticks once, then verifies:
+//   - gather ran once
+//   - serialize ran once
+//   - sink received the payload
+//   - REST (bb_cache_get_serialized) returns the same bytes as the sink
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Common capture helpers for satellite tests
+// ---------------------------------------------------------------------------
+
+#define SAT_CAP 4
+static char    s_sat_payload[SAT_CAP][512];
+static int     s_sat_count;
+
+static bb_err_t sat_publish(void *ctx, const char *topic,
+                             const char *payload, int len)
+{
+    (void)ctx;
+    (void)topic;
+    (void)len;
+    if (s_sat_count >= SAT_CAP) return BB_ERR_NO_SPACE;
+    strncpy(s_sat_payload[s_sat_count++], payload,
+            sizeof(s_sat_payload[0]) - 1);
+    return BB_OK;
+}
+
+static void sat_reset(void)
+{
+    fid_reset();
+    bb_fan_test_reset();
+    bb_power_test_reset();
+    s_sat_count = 0;
+    memset(s_sat_payload, 0, sizeof(s_sat_payload));
+    bb_pub_sink_t sink = { .publish = sat_publish, .ctx = NULL };
+    bb_pub_set_sink(&sink);
+}
+
+// ---------------------------------------------------------------------------
+// Fake fan driver for satellite tests
+// ---------------------------------------------------------------------------
+
+static int s_sat_fan_rpm       = 3200;
+static int s_sat_fan_duty      = 75;
+static int sat_fan_read_rpm  (void *s) { (void)s; return s_sat_fan_rpm; }
+static int sat_fan_duty_pct  (void *s) { (void)s; return s_sat_fan_duty; }
+static bb_err_t sat_fan_die  (void *s, float *out) { (void)s; *out = 65.0f; return 0; }
+static bb_err_t sat_fan_board(void *s, float *out) { (void)s; *out = 45.0f; return 0; }
+static const bb_fan_driver_t k_sat_fan_drv = {
+    .read_rpm          = sat_fan_read_rpm,
+    .get_duty_pct      = sat_fan_duty_pct,
+    .read_die_temp_c   = sat_fan_die,
+    .read_board_temp_c = sat_fan_board,
+    .name              = "sat_fan",
+};
+
+// ---------------------------------------------------------------------------
+// Fake power driver for satellite tests
+// ---------------------------------------------------------------------------
+
+static int s_sat_vout = 1150, s_sat_iout = 2800, s_sat_vin = 4800, s_sat_temp = 58;
+static int sat_pow_vout(void *s) { (void)s; return s_sat_vout; }
+static int sat_pow_iout(void *s) { (void)s; return s_sat_iout; }
+static int sat_pow_vin (void *s) { (void)s; return s_sat_vin; }
+static int sat_pow_temp(void *s) { (void)s; return s_sat_temp; }
+static const bb_power_driver_t k_sat_pow_drv = {
+    .read_vout_mv = sat_pow_vout,
+    .read_iout_ma = sat_pow_iout,
+    .read_vin_mv  = sat_pow_vin,
+    .read_temp_c  = sat_pow_temp,
+    .name         = "sat_pow",
+};
+
+// ---------------------------------------------------------------------------
+// 10. bb_pub_fan: SSOT serialize-once, REST==sink bytes.
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_telem_fan_rest_equals_sink(void)
+{
+    sat_reset();
+
+    bb_fan_handle_t fh = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fan_handle_create(&k_sat_fan_drv, NULL, &fh));
+    bb_fan_poll(fh);
+    bb_fan_set_primary(fh);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_fan_register());
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, s_sat_count, "fan sink must receive one delivery");
+
+    char rest[512];
+    size_t rlen = 0;
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("fan", rest, sizeof(rest), &rlen));
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(rest, s_sat_payload[0],
+        "fan: REST bytes must equal sink bytes (SSOT)");
+    TEST_ASSERT_NOT_NULL(strstr(rest, "\"rpm\""));
+    TEST_ASSERT_NOT_NULL(strstr(rest, "\"ts_ms\""));
+}
+
+// 11. bb_pub_fan skips when no primary handle.
+void test_bb_pub_telem_fan_skips_without_primary(void)
+{
+    sat_reset();
+    bb_fan_set_primary(NULL);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_fan_register());
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, s_sat_count, "fan must skip when primary is NULL");
+}
+
+// ---------------------------------------------------------------------------
+// 12. bb_pub_power: SSOT serialize-once, REST==sink bytes.
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_telem_power_rest_equals_sink(void)
+{
+    sat_reset();
+
+    bb_power_handle_t ph = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_power_handle_create(&k_sat_pow_drv, NULL, &ph));
+    bb_power_poll(ph);
+    bb_power_set_primary(ph);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_power_register());
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, s_sat_count, "power sink must receive one delivery");
+
+    char rest[512];
+    size_t rlen = 0;
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("power", rest, sizeof(rest), &rlen));
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(rest, s_sat_payload[0],
+        "power: REST bytes must equal sink bytes (SSOT)");
+    TEST_ASSERT_NOT_NULL(strstr(rest, "\"vout_mv\""));
+    TEST_ASSERT_NOT_NULL(strstr(rest, "\"ts_ms\""));
+}
+
+// 13. bb_pub_power skips when no primary handle.
+void test_bb_pub_telem_power_skips_without_primary(void)
+{
+    sat_reset();
+    bb_power_set_primary(NULL);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_power_register());
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, s_sat_count, "power must skip when primary is NULL");
+}
+
+// ---------------------------------------------------------------------------
+// 14. bb_pub_thermal: SSOT serialize-once, REST==sink bytes.
+// Fan + power primaries needed for any fields.
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_telem_thermal_rest_equals_sink(void)
+{
+    sat_reset();
+
+    bb_fan_handle_t fh = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_fan_handle_create(&k_sat_fan_drv, NULL, &fh));
+    bb_fan_poll(fh);
+    bb_fan_set_primary(fh);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_thermal_register());
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, s_sat_count, "thermal sink must receive one delivery");
+
+    char rest[512];
+    size_t rlen = 0;
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("thermal", rest, sizeof(rest), &rlen));
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(rest, s_sat_payload[0],
+        "thermal: REST bytes must equal sink bytes (SSOT)");
+    TEST_ASSERT_NOT_NULL(strstr(rest, "\"soc_c\""));
+    TEST_ASSERT_NOT_NULL(strstr(rest, "\"ts_ms\""));
+}
+
+// 15. bb_pub_thermal skips when all sources absent.
+void test_bb_pub_telem_thermal_skips_when_all_absent(void)
+{
+    sat_reset();
+    bb_fan_set_primary(NULL);
+    bb_power_set_primary(NULL);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_thermal_register());
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, s_sat_count,
+        "thermal must skip when all HAL primaries are NULL");
+}
+
+// ---------------------------------------------------------------------------
+// 16. bb_pub_info: sinks-only (BB_PUB_TELEM_SINKS, no SSE).
+//     Always publishes; REST==sink bytes; ts_ms present.
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_telem_info_rest_equals_sink(void)
+{
+    sat_reset();
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_info_register());
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, s_sat_count, "info sink must receive one delivery");
+
+    char rest[1024];
+    size_t rlen = 0;
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("info", rest, sizeof(rest), &rlen));
+    TEST_ASSERT_EQUAL_STRING_MESSAGE(rest, s_sat_payload[0],
+        "info: REST bytes must equal sink bytes (SSOT)");
+    // Key fields must be present.
+    TEST_ASSERT_NOT_NULL(strstr(rest, "\"version\""));
+    TEST_ASSERT_NOT_NULL(strstr(rest, "\"wdt_resets\""));
+    TEST_ASSERT_NOT_NULL(strstr(rest, "\"ts_ms\""));
+}
+
+// 17. bb_pub_info: serialize-once-per-tick — two REST reads after one tick
+//     must not trigger a second serialize; second tick triggers exactly one more.
+void test_bb_pub_telem_info_serialize_once_per_tick(void)
+{
+    sat_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_info_register());
+
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_sat_count);
+
+    // REST reads (memoized — no re-serialize).
+    char j[1024];
+    size_t l = 0;
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("info", j, sizeof(j), &l));
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("info", j, sizeof(j), &l));
+    // Still one sink delivery from first tick.
+    TEST_ASSERT_EQUAL_INT(1, s_sat_count);
+
+    // Second tick — new generation, new delivery.
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(2, s_sat_count);
+}
+
+// ---------------------------------------------------------------------------
+// 18-20. bb_wifi_emit_section: the 3 new recovery fields are present.
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_emit_has_egress_dead_count(void)
+{
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+
+    // Use a zeroed info struct — just checking field presence.
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    bb_wifi_emit_section(obj, &info);
+
+    double val = -999.0;
+    TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(obj, "egress_dead_count", &val),
+        "egress_dead_count field must be present");
+    bb_json_free(obj);
+}
+
+void test_bb_wifi_emit_has_lost_ip_count(void)
+{
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    bb_wifi_emit_section(obj, &info);
+
+    double val = -999.0;
+    TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(obj, "lost_ip_count", &val),
+        "lost_ip_count field must be present");
+    bb_json_free(obj);
+}
+
+void test_bb_wifi_emit_has_recovery_count(void)
+{
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    bb_wifi_emit_section(obj, &info);
+
+    double val = -999.0;
+    TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(obj, "recovery_count", &val),
+        "recovery_count field must be present");
+    bb_json_free(obj);
+}
+
+// ===========================================================================
+// Cache-adapter no-re-gather: calling the registered sample_fn multiple times
+// after a tick does NOT invoke gather again — it reads from bb_cache.
+// This proves the metrics-path semantics: JSON and Prometheus are two encoders
+// over the SAME frozen snapshot (gather_count never exceeds tick count).
+//
+// Note: _telem_adapter_sample calls bb_cache_serialize_into (compose-into-obj
+// path), which re-runs the serializer to populate the caller's obj — that is
+// correct behavior for the metrics handler.  The no-re-gather guarantee is
+// specific: gather() does NOT re-run; the snapshot used for serialization is
+// always the one frozen at tick time.
+// ===========================================================================
+
+void test_bb_pub_telem_adapter_no_regather_on_repeated_sample(void)
+{
+    fid_reset();
+    fid_register_and_add_sink(BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS);
+
+    // One tick — gathers once, serializes once (sink + SSE share the same bytes).
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, s_gather_count,
+        "tick must gather exactly once");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, s_serialize_count,
+        "tick must serialize exactly once");
+
+    // Now call bb_pub_sample_into (the same path the metrics handler uses via
+    // fn(obj, ctx)) two more times on the same telem source.  The adapter calls
+    // bb_cache_serialize_into which reads the frozen snapshot — gather must NOT
+    // run again regardless of how many times the metrics path samples the source.
+    bb_json_t obj1 = bb_json_obj_new();
+    bb_json_t obj2 = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj1);
+    TEST_ASSERT_NOT_NULL(obj2);
+
+    bool r1 = bb_pub_sample_into("telem_fid", obj1);
+    bool r2 = bb_pub_sample_into("telem_fid", obj2);
+    TEST_ASSERT_TRUE_MESSAGE(r1, "first sample_into must succeed");
+    TEST_ASSERT_TRUE_MESSAGE(r2, "second sample_into must succeed");
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, s_gather_count,
+        "gather must NOT re-run on repeated sample_into (frozen snapshot)");
+
+    // Both objs must contain the gathered value (42) — the frozen snap is reused.
+    char *s1 = bb_json_serialize(obj1);
+    char *s2 = bb_json_serialize(obj2);
+    TEST_ASSERT_NOT_NULL(s1);
+    TEST_ASSERT_NOT_NULL(s2);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s1, "42"),
+        "first sample_into obj must contain gathered value (frozen snap)");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s2, "42"),
+        "second sample_into obj must contain gathered value (frozen snap)");
+    bb_json_free_str(s1);
+    bb_json_free_str(s2);
+    bb_json_free(obj1);
+    bb_json_free(obj2);
 }

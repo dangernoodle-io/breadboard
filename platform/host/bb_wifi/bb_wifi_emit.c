@@ -37,5 +37,11 @@ void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
     bb_json_obj_set_int   (obj, "disc_reason",      (int64_t)info->disc_reason);
     bb_json_obj_set_int   (obj, "disc_age_s",       (int64_t)info->disc_age_s);
     bb_json_obj_set_int   (obj, "retry_count",      (int64_t)info->retry_count);
-    bb_json_obj_set_int   (obj, "no_ip_recoveries", (int64_t)bb_wifi_get_no_ip_count());
+    bb_json_obj_set_int   (obj, "no_ip_recoveries",   (int64_t)bb_wifi_get_no_ip_count());
+    bb_json_obj_set_int   (obj, "egress_dead_count",  (int64_t)bb_wifi_get_egress_dead_count());
+    bb_json_obj_set_int   (obj, "lost_ip_count",      (int64_t)bb_wifi_get_lost_ip_count());
+    bb_json_obj_set_int   (obj, "recovery_count",
+                           (int64_t)(bb_wifi_get_no_ip_count() +
+                                     bb_wifi_get_egress_dead_count() +
+                                     bb_wifi_get_lost_ip_count()));
 }

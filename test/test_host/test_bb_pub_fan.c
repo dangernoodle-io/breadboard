@@ -192,5 +192,5 @@ void test_bb_pub_fan_payload_has_uptime_ms_field(void)
     setup_with_fan(1500, 55, 38.0f, 26.0f);
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"uptime_ms\""));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ts_ms\""));
 }

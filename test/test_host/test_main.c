@@ -2843,6 +2843,11 @@ void test_bb_pub_wifi_has_disc_age_s_field(void);
 void test_bb_pub_wifi_has_retry_count_field(void);
 void test_bb_pub_wifi_has_no_ip_recoveries_field(void);
 void test_bb_pub_wifi_rssi_is_integer_not_float(void);
+void test_bb_pub_wifi_rest_equals_sink_bytes(void);
+void test_bb_pub_wifi_has_egress_dead_count(void);
+void test_bb_pub_wifi_has_lost_ip_count(void);
+void test_bb_pub_wifi_has_recovery_count(void);
+void test_bb_pub_wifi_recovery_count_zero_when_all_counters_zero(void);
 
 // Forward declarations from test_bb_pub_info.c
 void test_bb_pub_info_always_publishes(void);
@@ -3082,6 +3087,21 @@ void test_bb_pub_telemetry_fidelity_rest_equals_sink_bytes(void);
 void test_bb_pub_telemetry_fidelity_cache_serialize_once_per_generation(void);
 void test_bb_pub_telemetry_fidelity_cache_get_serialized_is_a_copy(void);
 void test_bb_pub_telemetry_fidelity_cache_get_serialized_no_space(void);
+// satellite SSOT fidelity (fan, power, thermal, info)
+void test_bb_pub_telem_fan_rest_equals_sink(void);
+void test_bb_pub_telem_fan_skips_without_primary(void);
+void test_bb_pub_telem_power_rest_equals_sink(void);
+void test_bb_pub_telem_power_skips_without_primary(void);
+void test_bb_pub_telem_thermal_rest_equals_sink(void);
+void test_bb_pub_telem_thermal_skips_when_all_absent(void);
+void test_bb_pub_telem_info_rest_equals_sink(void);
+void test_bb_pub_telem_info_serialize_once_per_tick(void);
+// bb_wifi_emit 3 new recovery fields
+void test_bb_wifi_emit_has_egress_dead_count(void);
+void test_bb_wifi_emit_has_lost_ip_count(void);
+void test_bb_wifi_emit_has_recovery_count(void);
+// cache-adapter no-regather
+void test_bb_pub_telem_adapter_no_regather_on_repeated_sample(void);
 
 // Forward declarations from test_bb_cache_fidelity.c
 void test_bb_cache_fidelity_all_topics(void);
@@ -5861,6 +5881,11 @@ int main(void) {
     RUN_TEST(test_bb_pub_wifi_has_retry_count_field);
     RUN_TEST(test_bb_pub_wifi_has_no_ip_recoveries_field);
     RUN_TEST(test_bb_pub_wifi_rssi_is_integer_not_float);
+    RUN_TEST(test_bb_pub_wifi_rest_equals_sink_bytes);
+    RUN_TEST(test_bb_pub_wifi_has_egress_dead_count);
+    RUN_TEST(test_bb_pub_wifi_has_lost_ip_count);
+    RUN_TEST(test_bb_pub_wifi_has_recovery_count);
+    RUN_TEST(test_bb_pub_wifi_recovery_count_zero_when_all_counters_zero);
 
     // bb_pub_info tests
     RUN_TEST(test_bb_pub_info_always_publishes);
@@ -6140,6 +6165,20 @@ int main(void) {
     RUN_TEST(test_bb_pub_telemetry_fidelity_cache_serialize_once_per_generation);
     RUN_TEST(test_bb_pub_telemetry_fidelity_cache_get_serialized_is_a_copy);
     RUN_TEST(test_bb_pub_telemetry_fidelity_cache_get_serialized_no_space);
+    // satellite SSOT fidelity (fan, power, thermal, info)
+    RUN_TEST(test_bb_pub_telem_fan_rest_equals_sink);
+    RUN_TEST(test_bb_pub_telem_fan_skips_without_primary);
+    RUN_TEST(test_bb_pub_telem_power_rest_equals_sink);
+    RUN_TEST(test_bb_pub_telem_power_skips_without_primary);
+    RUN_TEST(test_bb_pub_telem_thermal_rest_equals_sink);
+    RUN_TEST(test_bb_pub_telem_thermal_skips_when_all_absent);
+    RUN_TEST(test_bb_pub_telem_info_rest_equals_sink);
+    RUN_TEST(test_bb_pub_telem_info_serialize_once_per_tick);
+    // bb_wifi_emit 3 new recovery fields
+    RUN_TEST(test_bb_wifi_emit_has_egress_dead_count);
+    RUN_TEST(test_bb_wifi_emit_has_lost_ip_count);
+    RUN_TEST(test_bb_wifi_emit_has_recovery_count);
+    RUN_TEST(test_bb_pub_telem_adapter_no_regather_on_repeated_sample);
 
     // bb_cache
     RUN_TEST(test_bb_cache_fidelity_all_topics);

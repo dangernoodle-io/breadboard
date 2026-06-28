@@ -186,7 +186,7 @@ config BB_PUB_BUFFER_ALWAYS
 
 config BB_PUB_TELEM_SNAP_MAX
     int "Maximum snapshot buffer size for telemetry sources (bytes)"
-    default 256
+    default 512
     range 16 4096
     help
         Size of the single static scratch buffer used by the bb_pub worker to
@@ -194,7 +194,8 @@ config BB_PUB_TELEM_SNAP_MAX
         buffer is safe because only the bb_pub worker calls gather() (single-
         threaded) and the gather result is copied into bb_cache under s_tick_lock
         before releasing it for the next source.
-        Increase if any telemetry source's snapshot struct exceeds 256 bytes.
+        Raised from 256 to 512: bb_pub_info's snapshot struct (bb_info_snap_t)
+        is ~360 bytes, requiring at least 512 bytes of scratch buffer.
 
 config BB_PUB_TELEM_SERIALIZE_MAX
     int "Maximum serialized-JSON copy-out buffer for telemetry sources (bytes)"
