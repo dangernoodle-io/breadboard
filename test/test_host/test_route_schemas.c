@@ -310,8 +310,6 @@ static const desc_audit_entry_t k_desc_audit[] = {
     // Tier 1: params added
     { "/api/diag/coredump", BB_HTTP_GET,
       { "consume", NULL }, false, 500, "application/json" },
-    { "/api/logs",          BB_HTTP_GET,
-      { "source", NULL },  false, 500, "application/json" },
     { "/api/diag/heap",     BB_HTTP_GET,
       { "check", NULL },   false,   0, NULL },
     // Tier 1: content-type fixes
@@ -363,33 +361,6 @@ static const bb_route_t s_coredump_route_fixture = {
     .tag              = "diag",
     .responses        = s_coredump_responses_fixture,
     .parameters       = s_coredump_params_fixture,
-    .parameters_count = 1,
-    .handler          = NULL,
-};
-
-// GET /api/logs fixture
-static const bb_route_param_t s_logs_params_fixture[] = {
-    { "source", "query", "browser or external client type", false, "string" },
-};
-static const bb_route_response_t s_logs_responses_fixture[] = {
-    { 200, "text/event-stream", NULL, "SSE stream" },
-    { 500, "application/json",
-      "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",
-      "async init failed" },
-    { 503, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{\"error\":{\"type\":\"string\",\"enum\":[\"busy\"]},"
-      "\"active_client\":{\"type\":\"string\",\"enum\":[\"browser\",\"external\"]}},"
-      "\"required\":[\"error\",\"active_client\"]}",
-      "busy" },
-    { 0 },
-};
-static const bb_route_t s_logs_route_fixture = {
-    .method           = BB_HTTP_GET,
-    .path             = "/api/logs",
-    .tag              = "logs",
-    .responses        = s_logs_responses_fixture,
-    .parameters       = s_logs_params_fixture,
     .parameters_count = 1,
     .handler          = NULL,
 };
@@ -623,7 +594,6 @@ static void seed_desc_audit_fixtures(void)
 {
     bb_http_route_registry_clear();
     bb_http_register_route_descriptor_only(&s_coredump_route_fixture);
-    bb_http_register_route_descriptor_only(&s_logs_route_fixture);
     bb_http_register_route_descriptor_only(&s_heap_route_fixture);
     bb_http_register_route_descriptor_only(&s_ota_push_route_fixture);
     bb_http_register_route_descriptor_only(&s_log_level_post_route_fixture);

@@ -1,13 +1,16 @@
 menu "breadboard: bb_log"
 
 config BB_LOG_ROUTES
-    bool "Build bb_log HTTP routes (SSE stream + log-level GET/POST)"
+    bool "Build bb_log HTTP routes (log-level GET/POST)"
     default y
     help
         When enabled, bb_log compiles the routes module that exposes
-        GET /api/logs (SSE stream), GET /api/logs/status, GET /api/log/level,
-        POST /api/log/level. Adds bb_http, bb_json, and bb_registry to
-        bb_log's PRIV_REQUIRES. Disable for headless logging-only consumers.
+        GET /api/log/level and POST /api/log/level. Adds bb_http, bb_json,
+        and bb_registry to bb_log's PRIV_REQUIRES. Disable for headless
+        logging-only consumers.
+
+        The structured log stream is served separately via bb_event at
+        GET /api/events?topic=log (see BB_LOG_EVENT_AUTO_ATTACH).
 
 config BB_LOG_SSE_KEEPALIVE_MS
     int "SSE keepalive interval (ms)"
@@ -15,10 +18,9 @@ config BB_LOG_SSE_KEEPALIVE_MS
     range 1000 60000
     depends on BB_LOG_ROUTES
     help
-        Interval at which /api/logs SSE emits a comment-frame keepalive
-        during silence. Lower values surface dead peers faster (so the
-        single SSE slot frees up sooner) but add chunk-write traffic on
-        idle connections. Rounded down to the nearest 500ms drain tick.
+        Vestigial — the /api/logs SSE route has been retired. This symbol
+        is kept to avoid build breakage on boards that still reference it
+        via sdkconfig. It is unused.
 
 config BB_LOG_STREAM_AUTOREGISTER
     bool "Auto-init bb_log_stream via bb_registry early tier"
@@ -81,5 +83,41 @@ config BB_LOG_WRITER_TASK_STACK
         which drains the log queue to stdout. 2048 is sufficient for the
         non-blocking fwrite/fflush path; raise only if a consumer's logging
         path needs more. (B1-304)
+
+config BB_LOG_EVENT_AUTO_ATTACH
+    bool "Auto-attach 'log' bb_event stream topic to /api/events"
+    default y
+    depends on BB_EVENT_ROUTES_AUTOREGISTER
+    help
+        When enabled (default), bb_log registers a non-retained "log" bb_event
+        stream topic and attaches it to /api/events at regular-tier order 4.
+        This is THE primary log transport — structured JSON served at
+        GET /api/events?topic=log; the legacy /api/logs raw-text SSE route
+        has been retired.
+
+        Each log line is forwarded as structured JSON:
+        {"ts":<ms>,"level":"I|W|E|D|V|?","tag":"<tag>","msg":"<text>"}
+
+        The forwarder feeds from a dedicated queue (see BB_LOG_EVENT_QUEUE_LEN)
+        inside s_log_vprintf so the hot logging path is never blocked.
+
+        Disable only if you want the log topic available to direct bb_event
+        subscribers without surfacing it on /api/events.
+
+config BB_LOG_EVENT_QUEUE_LEN
+    int "Log event forwarder queue depth"
+    default 48
+    range 8 256
+    depends on BB_LOG_EVENT_AUTO_ATTACH
+    help
+        Number of slots in the off-hot-path forwarder queue between
+        s_log_vprintf and the bb_log_event forwarder task. Each slot holds
+        one log line (~192 B), so 48 slots ≈ ~9 KB worst-case buffering.
+        Lines are dropped (with a counter) when the queue is full; the
+        dropped count is visible via bb_log_event_dropped().
+
+        The old /api/logs ringbuf was 6144 B (~32 lines at 192 B each).
+        48 slots provides ~50% more burst headroom. Raise on boards with
+        ample PSRAM; lower to 16–24 on heap-tight no-PSRAM boards.
 
 endmenu

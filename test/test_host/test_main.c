@@ -3119,6 +3119,25 @@ void test_bb_alert_emit_envelope_format(void);
 void test_bb_alert_severity_filter_warning_threshold(void);
 void test_bb_alert_emit_serialize_oom(void);
 
+// Forward declarations from test_bb_log_event.c
+void test_bb_log_event_parse_info(void);
+void test_bb_log_event_parse_warning(void);
+void test_bb_log_event_parse_error(void);
+void test_bb_log_event_parse_debug(void);
+void test_bb_log_event_parse_verbose(void);
+void test_bb_log_event_parse_ansi_prefix(void);
+void test_bb_log_event_parse_malformed_level(void);
+void test_bb_log_event_parse_no_paren(void);
+void test_bb_log_event_parse_no_colon_space(void);
+void test_bb_log_event_parse_empty_line(void);
+void test_bb_log_event_parse_null_line(void);
+void test_bb_log_event_parse_strips_newline(void);
+void test_bb_log_event_parse_strips_crlf(void);
+void test_bb_log_event_parse_msg_truncation(void);
+void test_bb_log_event_parse_tag_truncation(void);
+void test_bb_log_event_parse_colon_in_msg(void);
+void test_bb_log_event_parse_zero_cap(void);
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -6195,6 +6214,25 @@ int main(void) {
     RUN_TEST(test_bb_alert_emit_envelope_format);
     RUN_TEST(test_bb_alert_severity_filter_warning_threshold);
     RUN_TEST(test_bb_alert_emit_serialize_oom);
+
+    // bb_log_event parser
+    RUN_TEST(test_bb_log_event_parse_info);
+    RUN_TEST(test_bb_log_event_parse_warning);
+    RUN_TEST(test_bb_log_event_parse_error);
+    RUN_TEST(test_bb_log_event_parse_debug);
+    RUN_TEST(test_bb_log_event_parse_verbose);
+    RUN_TEST(test_bb_log_event_parse_ansi_prefix);
+    RUN_TEST(test_bb_log_event_parse_malformed_level);
+    RUN_TEST(test_bb_log_event_parse_no_paren);
+    RUN_TEST(test_bb_log_event_parse_no_colon_space);
+    RUN_TEST(test_bb_log_event_parse_empty_line);
+    RUN_TEST(test_bb_log_event_parse_null_line);
+    RUN_TEST(test_bb_log_event_parse_strips_newline);
+    RUN_TEST(test_bb_log_event_parse_strips_crlf);
+    RUN_TEST(test_bb_log_event_parse_msg_truncation);
+    RUN_TEST(test_bb_log_event_parse_tag_truncation);
+    RUN_TEST(test_bb_log_event_parse_colon_in_msg);
+    RUN_TEST(test_bb_log_event_parse_zero_cap);
 
     return UNITY_END();
 }

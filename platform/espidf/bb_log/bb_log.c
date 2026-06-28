@@ -127,6 +127,21 @@ void bb_log_stream_set_tap(bb_log_stream_tap_fn fn)
     atomic_store(&s_tap, fn);
 }
 
+// Event-forwarder queue — set by bb_log_event.c via bb_log_event_set_queue().
+// NULL until bb_log_event initializes; the s_log_vprintf step is a no-op until then.
+static volatile QueueHandle_t s_event_q = NULL;
+static volatile uint32_t s_event_dropped = 0;
+
+void bb_log_event_set_queue(QueueHandle_t q)
+{
+    s_event_q = q;
+}
+
+uint32_t bb_log_event_dropped(void)
+{
+    return s_event_dropped;
+}
+
 static int s_log_vprintf(const char *fmt, va_list args)
 {
     /* Format once into a stack-allocated message */
@@ -155,8 +170,16 @@ static int s_log_vprintf(const char *fmt, va_list args)
     bb_log_stream_tap_fn tap = atomic_load(&s_tap);
     if (tap) tap(msg.line, msg.len);
 
+    /* 4. Enqueue for bb_log_event forwarder — non-blocking, drop on full.
+     *    s_event_q is NULL until bb_log_event_set_queue() is called, so this
+     *    step is free until the forwarder is initialized. */
+    QueueHandle_t eq = s_event_q;
+    if (eq && xQueueSend(eq, &msg, 0) != pdTRUE) {
+        s_event_dropped++;
+    }
+
 #if CONFIG_BB_LOG_UDP_SINK
-    /* 4. Enqueue for the UDP mirror — non-blocking, drop on full. sendto runs
+    /* 5. Enqueue for the UDP mirror — non-blocking, drop on full. sendto runs
      *    on s_udp_task, never here inside the IDF log mutex. */
     if (s_udp_enabled && s_udp_q && xQueueSend(s_udp_q, &msg, 0) != pdTRUE) {
         s_udp_dropped++;

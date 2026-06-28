@@ -25,8 +25,8 @@ static int s_registered_handlers = 0;     // incremented on every successful reg
  * esp_http_server posts ESP_HTTP_SERVER_EVENT to the default event loop on every
  * HTTP event (connect, header, sent-data, etc.). Without a registered handler,
  * esp_event logs "no handlers have been registered for event ESP_HTTP_SERVER_EVENT:N"
- * at DEBUG. With /api/logs SSE open this self-amplifies: each streamed line
- * triggers another SENT_DATA event → another DEBUG log → streamed again, causing
+ * at DEBUG. With an SSE viewer (/api/events) open this self-amplifies: each streamed
+ * line triggers another SENT_DATA event → another DEBUG log → streamed again, causing
  * thousands of log lines/sec. Registering this no-op suppresses that spam. */
 static void bb_http_noop_event_handler(void *arg, esp_event_base_t base,
                                        int32_t id, void *data)
@@ -157,7 +157,7 @@ bb_err_t bb_http_server_ensure_started(void)
     // Suppress esp_event "no handlers have been registered for event
     // ESP_HTTP_SERVER_EVENT:N" DEBUG spam (B1-306). Without this, every HTTP
     // event posts to the default loop with no consumer, flooding the log at
-    // DEBUG — especially when /api/logs SSE is open (self-amplifying loop).
+    // DEBUG — especially when an SSE viewer (/api/events) is open (self-amplifying loop).
     esp_err_t evt_err = esp_event_handler_register(
         ESP_HTTP_SERVER_EVENT, ESP_EVENT_ANY_ID, bb_http_noop_event_handler, NULL);
     if (evt_err != ESP_OK) {
@@ -571,7 +571,7 @@ bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int le
     /* Short-circuit if the peer is already gone. Doesn't fully close the
      * race (RST can land between probe and lwip_send) but stops the long
      * tail of writing N more chunks into a dead socket — particularly
-     * relevant for SSE streamers (bb_log_routes, bb_event_routes) and the
+     * relevant for SSE streamers (bb_event_routes) and the
      * chunked fallback path in bb_http_resp_send_json. The zero-length
      * terminator (len==0) is allowed through so callers can finalize the
      * chunked response in their cleanup path without an extra branch. */
