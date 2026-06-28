@@ -1,12 +1,19 @@
 // bb_pub_thermal — telemetry source satellite: aggregate temperature readings.
 // Compiled on both host (tests) and ESP-IDF.
+//
+// Migration (telemetry-ssot): uses bb_pub_register_telemetry so the snapshot
+// is gathered into bb_cache once per tick; SSE, sinks, and REST all read the
+// SAME memoized serialization.  ts_ms is stamped at gather time.
 #include "bb_pub_thermal.h"
 #include "bb_pub.h"
 #include "bb_thermal.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_clock.h"
 #include "bb_registry.h"
 #include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
 
 #ifndef CONFIG_BB_PUB_THERMAL_AUTO_ATTACH
 #define CONFIG_BB_PUB_THERMAL_AUTO_ATTACH 0
@@ -15,55 +22,74 @@
 static const char *TAG = "bb_pub_thermal";
 
 // ---------------------------------------------------------------------------
-// Sample function — called by bb_pub_tick_once for the "thermal" subtopic.
+// Snapshot struct — ~44 bytes, well under 256-byte limit.
 // ---------------------------------------------------------------------------
 
-static bool thermal_sample(bb_json_t obj, void *ctx)
+typedef struct {
+    bb_thermal_values_t vals;  // bools + floats
+    int64_t             ts_ms;
+} bb_thermal_snap_t;
+
+// ---------------------------------------------------------------------------
+// Gather — fills snap; skips tick when all sources absent.
+// ---------------------------------------------------------------------------
+
+static bool thermal_gather(void *snap_buf, void *ctx)
 {
     (void)ctx;
 
-    bb_thermal_values_t v;
-    bb_thermal_collect(&v);
+    bb_thermal_snap_t *s = snap_buf;
+    memset(s, 0, sizeof(*s));
+    bb_thermal_collect(&s->vals);
 
-    bool any_present = false;
+    bool any_present = s->vals.soc_present || s->vals.vr_hw_present || s->vals.fan_hw_present;
+    if (!any_present) return false;
+
+    s->ts_ms = (int64_t)bb_clock_now_ms64();
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Serialize — replicates the flat-field emit from the original thermal_sample.
+// Uses same field names and null/omit semantics.
+// ---------------------------------------------------------------------------
+
+static void thermal_serialize(bb_json_t obj, const void *snap_raw)
+{
+    const bb_thermal_snap_t *s = snap_raw;
+    const bb_thermal_values_t *v = &s->vals;
 
     // SoC — always emit key; null when absent.
-    if (v.soc_present) {
-        bb_json_obj_set_number(obj, "soc_c", (double)v.soc_c);
-        any_present = true;
+    if (v->soc_present) {
+        bb_json_obj_set_number(obj, "soc_c", (double)v->soc_c);
     } else {
         bb_json_obj_set_null(obj, "soc_c");
     }
 
     // VR — omit key entirely when no hardware; null when hardware present but no reading.
-    if (v.vr_hw_present) {
-        if (v.vr_present) {
-            bb_json_obj_set_number(obj, "vr_c", (double)v.vr_c);
+    if (v->vr_hw_present) {
+        if (v->vr_present) {
+            bb_json_obj_set_number(obj, "vr_c", (double)v->vr_c);
         } else {
             bb_json_obj_set_null(obj, "vr_c");
         }
-        any_present = true;
     }
-    // else: no power hardware — omit vr_c entirely.
 
-    // ASIC + board — omit both keys when no fan hardware; null per-channel when hardware
-    // present but no reading.
-    if (v.fan_hw_present) {
-        if (v.asic_present) {
-            bb_json_obj_set_number(obj, "asic_c", (double)v.asic_c);
+    // ASIC + board — omit both keys when no fan hardware.
+    if (v->fan_hw_present) {
+        if (v->asic_present) {
+            bb_json_obj_set_number(obj, "asic_c", (double)v->asic_c);
         } else {
             bb_json_obj_set_null(obj, "asic_c");
         }
-        if (v.board_present) {
-            bb_json_obj_set_number(obj, "board_c", (double)v.board_c);
+        if (v->board_present) {
+            bb_json_obj_set_number(obj, "board_c", (double)v->board_c);
         } else {
             bb_json_obj_set_null(obj, "board_c");
         }
-        any_present = true;
     }
-    // else: no fan hardware — omit asic_c and board_c entirely.
 
-    return any_present;
+    bb_json_obj_set_int(obj, "ts_ms", s->ts_ms);
 }
 
 // ---------------------------------------------------------------------------
@@ -72,11 +98,20 @@ static bool thermal_sample(bb_json_t obj, void *ctx)
 
 bb_err_t bb_pub_thermal_register(void)
 {
-    bb_err_t err = bb_pub_register_source("thermal", thermal_sample, NULL);
+    bb_pub_telemetry_cfg_t cfg = {
+        .topic     = "thermal",
+        .gather    = thermal_gather,
+        .serialize = thermal_serialize,
+        .snap_size = sizeof(bb_thermal_snap_t),
+        .flags     = BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS,
+        .ctx       = NULL,
+    };
+
+    bb_err_t err = bb_pub_register_telemetry(&cfg);
     if (err == BB_OK) {
-        bb_log_i(TAG, "registered thermal source");
+        bb_log_i(TAG, "registered thermal telemetry source");
     } else if (err != BB_ERR_NO_SPACE) {
-        bb_log_w(TAG, "register_source failed: %d", err);
+        bb_log_w(TAG, "register_telemetry failed: %d", err);
     }
     return err;
 }

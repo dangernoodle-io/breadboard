@@ -22,6 +22,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_timer.h"
+#include "bb_clock.h"
 #include "bb_pub.h"
 
 #include "freertos/FreeRTOS.h"
@@ -346,21 +347,58 @@ static void net_section_get(bb_json_t section, void *ctx)
 // "net_health" subtopic. Registered here (not pulled in by bb_pub_health) so it
 // exists ONLY when net_health is set up — bb_net_health already depends on
 // bb_pub (adaptive backoff), so this adds no new dependency anywhere.
-static bool net_health_pub_sample(bb_json_t obj, void *ctx)
+//
+// Migration (telemetry-ssot): uses bb_pub_register_telemetry so the snapshot
+// is gathered into bb_cache once per tick; SSE and sinks all read the SAME
+// memoized serialization.  ts_ms is stamped at gather time.
+//
+// Topic name: "net_health" (distinct from the state topic "net.health" /
+// BB_NET_HEALTH_TOPIC — no collision).  The existing net.health bb_cache +
+// SSE path (bb_net_health_attach_sse) is 100% intact and unchanged.
+//
+// SSE routing: bb_pub_register_telemetry with BB_PUB_TELEM_SSE registers the
+// bb_cache event topic automatically (via BB_CACHE_FLAG_SSE).  Phase-2b of
+// bb_pub_tick_once calls bb_cache_post_serialized to post to that topic.  No
+// explicit bb_event_routes_attach call is needed — the same pattern used by
+// the "wifi" telem topic.
+
+typedef struct {
+    bb_net_health_status_t status;
+    int64_t                ts_ms;
+} bb_net_health_snap_t;
+
+static bool net_health_gather(void *snap_buf, void *ctx)
 {
     (void)ctx;
-    bb_net_health_status_t ns;
-    if (bb_net_health_get_status(&ns) != BB_OK) return false;  // not evaluated yet
-    bb_net_health_emit(obj, &ns);
+    bb_net_health_snap_t *s = snap_buf;
+    memset(s, 0, sizeof(*s));
+    if (bb_net_health_get_status(&s->status) != BB_OK) return false;  // not evaluated yet
+    s->ts_ms = (int64_t)bb_clock_now_ms64();
     return true;
+}
+
+static void net_health_serialize(bb_json_t obj, const void *snap_raw)
+{
+    const bb_net_health_snap_t *s = snap_raw;
+    bb_net_health_emit(obj, &s->status);
+    bb_json_obj_set_int(obj, "ts_ms", s->ts_ms);
 }
 
 void bb_net_health_register_health(void)
 {
     bb_health_register_section("net", net_section_get, NULL, k_net_schema);
-    bb_err_t perr = bb_pub_register_source("net_health", net_health_pub_sample, NULL);
+
+    bb_pub_telemetry_cfg_t cfg = {
+        .topic     = "net_health",
+        .gather    = net_health_gather,
+        .serialize = net_health_serialize,
+        .snap_size = sizeof(bb_net_health_snap_t),
+        .flags     = BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS,
+        .ctx       = NULL,
+    };
+    bb_err_t perr = bb_pub_register_telemetry(&cfg);
     if (perr != BB_OK && perr != BB_ERR_NO_SPACE) {
-        bb_log_w(TAG, "net_health pub source register failed: %d", (int)perr);
+        bb_log_w(TAG, "net_health register_telemetry failed: %d", (int)perr);
     }
 }
 
