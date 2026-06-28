@@ -1,9 +1,12 @@
 """
-bb_version.py — thin shim; delegates to bbtool.commands.version.
+bbtool_pio.py — breadboard's canonical PlatformIO pre-script hook.
 
-TaipanMiner and other consumers reference this path via:
-  extra_scripts = pre:.breadboard/scripts/bb_version.py
-This file MUST stay at this path. Logic lives in scripts/bbtool/commands/version.py.
+Handles firmware version header generation for breadboard consumers, delegating
+to bbtool.commands.version. Wire it up in your platformio.ini:
+
+  extra_scripts = pre:.breadboard/scripts/bbtool_pio.py
+
+Logic lives in scripts/bbtool/commands/version.py.
 """
 import inspect
 import os

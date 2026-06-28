@@ -223,7 +223,7 @@ own `make check` or CI step.
 
 ## Extending bbtool
 
-Future commands (`version`, `embed`, `gen-site`) and the `cmake/bbtool.cmake` bridge
-(which replaces `cmake/bb_version.cmake` + `cmake/bb_embed.cmake`) are coming in
-subsequent PRs. The plugin API (`api.add_command(name, module)`) already supports
-registering additional commands from plugin files.
+The `cmake/bbtool.cmake` bridge is the canonical CMake entry point for all bbtool
+functions (`bb_embed_assets`, `bb_embed_site`). CMake consumers include it via
+`include("<breadboard>/cmake/bbtool.cmake")`. The plugin API (`api.add_command(name, module)`)
+supports registering additional commands from plugin files.
