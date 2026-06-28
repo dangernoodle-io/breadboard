@@ -6,7 +6,7 @@ idf_component_register(
     # (BB_PUB_INFO_EMIT_OTA_READY) so --gc-sections drops it on boards with no
     # runtime OTA-TLS path. (bb_info already requires bb_ota_pull, so this adds no
     # new system-level dep.) REQUIRES can't be CONFIG-conditional in ESP-IDF.
-    PRIV_REQUIRES bb_json bb_log bb_registry bb_diag bb_ntp bb_ota_validator bb_ota_pull esp_timer)
+    PRIV_REQUIRES bb_json bb_log bb_registry bb_diag bb_ntp bb_ota_validator bb_ota_pull)
 
 if(CONFIG_BB_PUB_INFO_AUTO_ATTACH)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")

@@ -22,6 +22,7 @@ from commands.lint import (
     _check_bb_prefix,
     _check_pragma_once,
     _check_no_arduino_string,
+    _check_public_header_inline_platform_call,
     _strip_noise,
 )
 
@@ -747,6 +748,50 @@ class TestStripNoise(unittest.TestCase):
         src = 'int x = 1; // esp_timer_create\nint y = 2;\n'
         result = _strip_noise(src)
         self.assertNotIn("esp_timer_create", result)
+
+
+class TestPublicHeaderInlinePlatformCall(unittest.TestCase):
+    def _make_header(self, tmpdir: str, comp: str, filename: str, content: str) -> str:
+        inc = os.path.join(tmpdir, "components", comp, "include")
+        os.makedirs(inc, exist_ok=True)
+        Path(os.path.join(inc, filename)).write_text(content)
+        return tmpdir
+
+    def test_fires_on_inline_with_esp_call(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                '#include <stdint.h>\n'
+                'static inline uint32_t bb_fake_now(void) {\n'
+                '    return (uint32_t)(esp_timer_get_time() / 1000u);\n'
+                '}\n')
+            violations = _check_public_header_inline_platform_call(make_ctx(td))
+            self.assertTrue(violations,
+                "expected violation: inline body calls esp_timer_get_time()")
+
+    def test_no_fire_on_declaration_with_esp_mention(self):
+        """A plain declaration (no body) must not fire even if docs mention esp_*."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                '// Implemented via esp_timer_get_time() on ESP-IDF.\n'
+                'uint32_t bb_fake_now(void);\n')
+            violations = _check_public_header_inline_platform_call(make_ctx(td))
+            self.assertFalse(violations,
+                "plain declaration with esp_ in comment must NOT fire")
+
+    def test_no_fire_on_inline_without_platform_call(self):
+        """An inline function with no platform API call must not fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n'
+                '#include <stdint.h>\n'
+                'static inline uint32_t bb_fake_double(uint32_t x) {\n'
+                '    return x * 2u;\n'
+                '}\n')
+            violations = _check_public_header_inline_platform_call(make_ctx(td))
+            self.assertFalse(violations,
+                "inline with no platform call must NOT fire")
 
 
 if __name__ == "__main__":

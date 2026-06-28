@@ -684,6 +684,75 @@ def _check_no_arduino_string(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: public-header-inline-platform-call
+# ---------------------------------------------------------------------------
+
+_INLINE_DECL_RE = re.compile(r'\b(?:static\s+)?inline\b')
+_PLATFORM_CALL_RE = re.compile(r'\besp_[a-z0-9_]+\s*\(')
+
+
+def _check_public_header_inline_platform_call(ctx: Context) -> list:
+    """Rule: public-header-inline-platform-call — flags inline function bodies in public
+    headers that call platform APIs (esp_*).  They leak the dep into every consumer's TU."""
+    violations = []
+    root = Path(ctx.root)
+    comp_root = root / "components"
+    if not comp_root.exists():
+        return violations
+
+    for path in sorted(comp_root.glob("*/include/*.h")):
+        parts = path.relative_to(comp_root).parts
+        if parts[0] == "bb_display_ek79007":
+            continue
+
+        src = ctx.read(path)
+        stripped = _strip_noise(src)
+        n = len(stripped)
+
+        for m in _INLINE_DECL_RE.finditer(stripped):
+            pos = m.end()
+
+            # Scan forward to the first '(' (parameter list) — skip if we hit ';' first
+            while pos < n and stripped[pos] not in ('(', ';'):
+                pos += 1
+            if pos >= n or stripped[pos] == ';':
+                continue  # forward declaration, not a definition
+
+            # Walk parameter list
+            close_paren = _walk_balanced(stripped, pos, '(', ')')
+            if close_paren < 0:
+                continue
+
+            pos = close_paren + 1
+
+            # Skip whitespace
+            while pos < n and stripped[pos] in ' \t\r\n':
+                pos += 1
+
+            if pos >= n or stripped[pos] != '{':
+                continue  # not a function body (e.g. macro, or attribute list)
+
+            # Walk the body
+            close_brace = _walk_balanced(stripped, pos, '{', '}')
+            if close_brace < 0:
+                continue
+
+            body = stripped[pos + 1:close_brace]
+
+            pm = _PLATFORM_CALL_RE.search(body)
+            if pm:
+                line_no = stripped[:m.start()].count('\n') + 1
+                token = pm.group(0).rstrip('(').strip()
+                violations.append(ctx.violation(
+                    path, line_no,
+                    f"inline body calls platform API: {token}()"
+                    " — de-inline into the platform impl",
+                ))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule registry — register all 4 rules
 # ---------------------------------------------------------------------------
 
@@ -769,6 +838,14 @@ def _register_lint_rules() -> None:
             profiles={"library"},
             check=_check_no_arduino_string,
             hint="no Arduino String in library code — use const char* + length",
+        ),
+        Rule(
+            id="public-header-inline-platform-call",
+            default_severity="error",
+            profiles={"library"},
+            check=_check_public_header_inline_platform_call,
+            hint="public-header inline functions must not call platform APIs (esp_*, FreeRTOS, lwip)"
+                 " — they leak the dep into every consumer's TU; de-inline into the platform impl",
         ),
     ]
     for rule in rules:

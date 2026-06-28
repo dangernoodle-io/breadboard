@@ -43,5 +43,8 @@ severity = "error"
 [lint.rules.no-arduino-string]
 severity = "error"
 
+[lint.rules.public-header-inline-platform-call]
+severity = "error"
+
 [plugins]
 paths = []
