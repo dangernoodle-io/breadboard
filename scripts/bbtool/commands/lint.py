@@ -753,6 +753,62 @@ def _check_public_header_inline_platform_call(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: telemetry-rest-cache-read
+# ---------------------------------------------------------------------------
+
+# Gather functions that should NOT be called directly in HTTP route handlers;
+# REST handlers must read the SSOT snapshot via bb_cache_get_serialized
+# (whole-topic) or bb_cache_serialize_into (composed section).
+_TELEM_GATHER_FNS = re.compile(
+    r'\b(?:bb_wifi_get_info|bb_fan_snapshot|bb_power_snapshot|bb_temp_read_soc)\s*\('
+)
+# A file is considered a "route handler file" when it has at least one HTTP handler.
+_HTTP_HANDLER_SIG = re.compile(r'_handler\s*\(\s*bb_http_request_t')
+# A whole-topic handler reads memoized bytes via bb_cache_get_serialized; a
+# composed handler embeds a topic section via bb_cache_serialize_into. Either
+# counts as a cache-read (the gather-fn call is a documented live fallback).
+_CACHE_READ = re.compile(r'\bbb_cache_(?:serialize_into|get_serialized)\s*\(')
+
+
+def _check_telemetry_rest_cache_read(ctx: Context) -> list:
+    """Rule: telemetry-rest-cache-read — REST route handlers must read telemetry
+    from the SSOT cache (bb_cache_get_serialized for a whole topic, or
+    bb_cache_serialize_into for a composed section) rather than calling gather
+    fns (bb_wifi_get_info, bb_fan_snapshot, bb_power_snapshot, bb_temp_read_soc)
+    directly.
+
+    A file is flagged when it:
+      1. Contains an HTTP handler function signature (_handler(bb_http_request_t).
+      2. Calls a telemetry gather function directly.
+      3. Does NOT also call a cache-read (bb_cache_get_serialized /
+         bb_cache_serialize_into), i.e. has not migrated to the SSOT pattern.
+    """
+    violations = []
+    root = Path(ctx.root)
+
+    for path in ctx.files(
+        ["platform/**/*.c", "components/**/*.c"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+
+        src = ctx.read(path)
+        # Must be a route-handler file.
+        if not _HTTP_HANDLER_SIG.search(src):
+            continue
+        # Only flag if NOT already using cache-read (allows fallback pattern).
+        if _CACHE_READ.search(src):
+            continue
+        # Flag each line that calls a gather fn directly.
+        for i, line in enumerate(src.splitlines(), 1):
+            if _TELEM_GATHER_FNS.search(line):
+                violations.append(ctx.violation(path, i, line.strip()))
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule registry — register all 4 rules
 # ---------------------------------------------------------------------------
 
@@ -846,6 +902,15 @@ def _register_lint_rules() -> None:
             check=_check_public_header_inline_platform_call,
             hint="public-header inline functions must not call platform APIs (esp_*, FreeRTOS, lwip)"
                  " — they leak the dep into every consumer's TU; de-inline into the platform impl",
+        ),
+        Rule(
+            id="telemetry-rest-cache-read",
+            default_severity="warn",
+            profiles={"all"},
+            check=_check_telemetry_rest_cache_read,
+            hint="REST handlers must read telemetry from the SSOT cache"
+                 " (bb_cache_get_serialized / bb_cache_serialize_into)"
+                 " rather than calling gather fns directly",
         ),
     ]
     for rule in rules:
