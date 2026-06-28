@@ -9,6 +9,7 @@ Logic (4 branches in priority order):
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 
@@ -16,6 +17,11 @@ NAME = "fetch"
 HELP = "Reconcile .breadboard against a pinned version or local override"
 
 DEFAULT_REPO = "https://github.com/dangernoodle-io/breadboard.git"
+
+
+def _is_commit_sha(ref):
+    """Return True iff ref is a full 40-hex commit SHA. Short SHAs are not supported."""
+    return bool(re.fullmatch(r"[0-9a-f]{40}", ref))
 
 
 def _read_stamp(dest):
@@ -55,10 +61,20 @@ def reconcile(dest, version, repo=DEFAULT_REPO, local=None):
         if os.path.exists(dest):
             print(f"breadboard: .breadboard does not match {version}; refetching")
             shutil.rmtree(dest)
-        subprocess.check_call(["git", "clone", "--depth", "1", "--branch", version, repo, dest])
-        with open(stamp_file, "w") as fh:
-            fh.write(version + "\n")
-        print(f"breadboard: fetched {version}")
+        if _is_commit_sha(version):
+            os.makedirs(dest)
+            subprocess.check_call(["git", "-C", dest, "init", "-q"])
+            subprocess.check_call(["git", "-C", dest, "remote", "add", "origin", repo])
+            subprocess.check_call(["git", "-C", dest, "fetch", "--depth", "1", "origin", version])
+            subprocess.check_call(["git", "-C", dest, "checkout", "-q", "FETCH_HEAD"])
+            with open(stamp_file, "w") as fh:
+                fh.write(version + "\n")
+            print(f"breadboard: fetched {version} (commit pin)")
+        else:
+            subprocess.check_call(["git", "clone", "--depth", "1", "--branch", version, repo, dest])
+            with open(stamp_file, "w") as fh:
+                fh.write(version + "\n")
+            print(f"breadboard: fetched {version}")
 
 
 # ---------------------------------------------------------------------------

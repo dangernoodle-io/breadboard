@@ -315,9 +315,15 @@ python3 scripts/bbtool.py fetch --dest DEST --version VERSION [--repo REPO] [--l
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--dest DEST` | (required) | Path to the `.breadboard` directory |
-| `--version VERSION` | (required) | breadboard version tag to pin (e.g. `v0.70.0`) |
+| `--version VERSION` | (required) | breadboard version tag, branch name, or full 40-char commit SHA to pin (see below) |
 | `--repo REPO` | `https://github.com/dangernoodle-io/breadboard.git` | Git remote to clone from |
 | `--local LOCAL` | `$BREADBOARD_LOCAL` | Local breadboard checkout to symlink; overrides clone |
+
+**`--version` accepts a release tag, a branch name, or a full 40-character lowercase hex commit SHA.**
+Short SHAs are not supported.
+Tags and branches use a fast `git clone --depth 1 --branch` shallow clone.
+A full 40-char SHA uses a shallow fetch-by-commit (`git init` + `git fetch --depth 1 origin <sha>` + `git checkout FETCH_HEAD`), which requires the remote to allow fetching reachable SHAs — GitHub does.
+For releases, a tag is still preferred over a raw SHA.
 
 ### `reconcile()` function
 
@@ -334,8 +340,11 @@ Implements four branches in priority order:
 2. **DEST is a symlink** (prior local build, no LOCAL override now) → leave as-is;
    prints the real target.
 3. **DEST/components is a dir AND stamp matches VERSION** → up to date; noop.
-4. **Missing or stale** → delete `DEST` if present, then
-   `git clone --depth 1 --branch VERSION REPO DEST`; write a `.version` stamp file.
+4. **Missing or stale** → delete `DEST` if present, then fetch at VERSION:
+   - **tag / branch**: `git clone --depth 1 --branch VERSION REPO DEST`
+   - **full 40-char SHA**: `git init` + `git remote add origin REPO` + `git fetch --depth 1 origin SHA` + `git checkout FETCH_HEAD`
+
+   Write a `.version` stamp file in both cases.
 
 ### Standardized consumer bootstrap stub
 
