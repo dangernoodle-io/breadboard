@@ -97,6 +97,49 @@ bb_err_t bb_cache_post(const char *topic);
 // Returns BB_ERR_NOT_FOUND if the topic is not registered.
 bb_err_t bb_cache_serialize_into(const char *topic, bb_json_t obj);
 
+// Post a pre-serialized payload to the topic's SSE event channel.
+// Use this when the caller has ALREADY serialized the snapshot (e.g. the
+// bb_pub sampler serializes once for both SSE and sinks).  Avoids the
+// extra serialize call that bb_cache_post would perform.
+// Returns BB_ERR_INVALID_STATE when the topic has no SSE event topic.
+// Returns BB_ERR_NOT_FOUND if the topic is not registered.
+bb_err_t bb_cache_post_serialized(const char *topic, const char *json, size_t json_len);
+
+// Memoized serialization — the core of serialize-once, COPY-OUT under the lock.
+//
+// Copies the topic's last serialized JSON (NUL-terminated) into the caller's
+// buffer. The serializer runs AT MOST ONCE per bb_cache_update() generation:
+// the first reader after an update serializes and caches the bytes; subsequent
+// readers (SSE post, every sink, REST polls) get a COPY of the same cached
+// string without re-serializing.
+//
+// UAF-safe by construction: the copy happens under the entry lock, and the
+// caller only ever touches its own buffer. A concurrent bb_cache_update() +
+// re-serialize (which frees the entry's internal buffer) can never corrupt an
+// in-flight reader, because no caller holds the cache-owned pointer past the
+// lock. Size the buffer to the cache's max payload (e.g. the bb_pub worker
+// uses CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES); REST handlers use a comparable
+// stack/heap buffer.
+//
+// For getter-mode topics (registered with a non-NULL snapshot getter), the
+// cache has no dirty signal, so the serializer runs on every call (the data
+// may change underneath without an update). Owned-mode topics (snapshot==NULL)
+// get true memoization via the dirty flag.
+//
+// Use bb_cache_serialize_into instead when EMBEDDING a topic as a section in a
+// larger composed document (e.g. /api/health aggregating multiple topics).
+//
+//   topic    — registered topic name.
+//   buf      — caller-owned destination buffer (must be non-NULL).
+//   cap      — capacity of buf in bytes (must include room for the NUL).
+//   out_len  — optional; receives strlen of the copied JSON (excludes NUL).
+//
+// Returns BB_ERR_NOT_FOUND if the topic is not registered.
+// Returns BB_ERR_INVALID_STATE if no snapshot is available yet.
+// Returns BB_ERR_NO_SPACE on serialize allocation failure OR if cap is too
+// small to hold the serialized JSON plus its NUL terminator (buf untouched).
+bb_err_t bb_cache_get_serialized(const char *topic, char *buf, size_t cap, size_t *out_len);
+
 #ifdef __cplusplus
 }
 #endif

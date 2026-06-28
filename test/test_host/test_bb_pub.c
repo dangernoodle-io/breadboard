@@ -1136,10 +1136,14 @@ void test_bb_pub_test_reset_clears_payload_extenders(void)
 }
 
 // ---------------------------------------------------------------------------
-// Per-sink transport / tls stamping tests
+// Per-sink transport / tls payload tests (B1-388)
+// ---------------------------------------------------------------------------
+// B1-388: bb_pub serializes ONCE per source and delivers the same payload to
+// all sinks.  transport/tls fields are NOT injected into payloads; they stay
+// on bb_pub_sink_t for /meta and /api/info introspection only.
 // ---------------------------------------------------------------------------
 
-// Sink with transport="mqtt", tls=true — payload must contain both fields.
+// Sink with transport="mqtt", tls=true — B1-388: no transport/tls in payload.
 void test_bb_pub_sink_transport_mqtt_tls_stamped(void)
 {
     bb_pub_test_reset();
@@ -1152,12 +1156,13 @@ void test_bb_pub_sink_transport_mqtt_tls_stamped(void)
     bb_pub_register_source("temp", sample_temperature, NULL);
     bb_pub_tick_once();
 
+    // Publish must still happen; payload must NOT contain transport/tls (B1-388).
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"transport\":\"mqtt\""));
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"tls\":true"));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"transport\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"tls\""));
 }
 
-// Sink with transport="http", tls=false — payload must contain both fields.
+// Sink with transport="http", tls=false — B1-388: no transport/tls in payload.
 void test_bb_pub_sink_transport_http_no_tls_stamped(void)
 {
     bb_pub_test_reset();
@@ -1170,9 +1175,9 @@ void test_bb_pub_sink_transport_http_no_tls_stamped(void)
     bb_pub_register_source("temp", sample_temperature, NULL);
     bb_pub_tick_once();
 
+    // Publish must still happen; payload must NOT contain transport/tls (B1-388).
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"transport\":\"http\""));
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"tls\":false"));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"transport\""));
 }
 
 // Sink with transport=NULL — transport and tls fields must be absent.
@@ -1193,7 +1198,8 @@ void test_bb_pub_sink_no_transport_fields_absent(void)
     TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"tls\""));
 }
 
-// Two sinks with different transport values — each gets its own stamped payload.
+// Two sinks with different transport values — B1-388: serialize-once → both
+// sinks receive the same payload (no per-sink transport/tls injection).
 void test_bb_pub_two_sinks_each_get_own_transport(void)
 {
     bb_pub_test_reset();
@@ -1203,10 +1209,10 @@ void test_bb_pub_two_sinks_each_get_own_transport(void)
     capture_ctx_t ctx2 = { .count = 0 };
     memset(ctx2.entries, 0, sizeof(ctx2.entries));
 
-    // mqtt sink (tls=true) using global capture
+    // mqtt sink using global capture
     bb_pub_sink_t s1 = { .publish = capture_publish,     .ctx = NULL,
                          .transport = "mqtt", .tls = true };
-    // http sink (tls=false) using ctx2
+    // http sink using ctx2
     bb_pub_sink_t s2 = { .publish = capture_publish_ctx, .ctx = &ctx2,
                          .transport = "http", .tls = false };
 
@@ -1220,23 +1226,15 @@ void test_bb_pub_two_sinks_each_get_own_transport(void)
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
     TEST_ASSERT_EQUAL_INT(1, ctx2.count);
 
-    // Sink 1 (mqtt, tls=true): must have transport=mqtt + tls=true.
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"transport\":\"mqtt\""));
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"tls\":true"));
-
-    // Sink 2 (http, tls=false): must have transport=http + tls=false.
-    TEST_ASSERT_NOT_NULL(strstr(ctx2.entries[0].payload, "\"transport\":\"http\""));
-    TEST_ASSERT_NOT_NULL(strstr(ctx2.entries[0].payload, "\"tls\":false"));
-
-    // Cross-check: mqtt payload must NOT contain "http".
-    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"http\""));
-    // Cross-check: http payload must NOT contain "\"mqtt\"".
-    TEST_ASSERT_NULL(strstr(ctx2.entries[0].payload, "\"mqtt\""));
+    // B1-388: serialize-once → identical payload to both sinks; no transport/tls.
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload,   "\"transport\""));
+    TEST_ASSERT_NULL(strstr(ctx2.entries[0].payload, "\"transport\""));
+    TEST_ASSERT_EQUAL_STRING(s_captured[0].payload, ctx2.entries[0].payload);
 }
 
-// Three sinks: mqtt (transport set), event (transport=NULL), websocket
-// (transport set).  The NULL-transport sink must NOT inherit the previous
-// sink's transport/tls fields in its serialized payload.
+// Three sinks: mqtt, event (transport=NULL), websocket.  B1-388: serialize-once
+// means all three get the same payload — no per-sink transport injection, so no
+// bleed is possible and all payloads are identical.
 void test_bb_pub_three_sinks_no_transport_bleed(void)
 {
     bb_pub_test_reset();
@@ -1251,7 +1249,7 @@ void test_bb_pub_three_sinks_no_transport_bleed(void)
     // sink[0]: mqtt, transport="mqtt", tls=true — global capture
     bb_pub_sink_t s_mqtt = { .publish = capture_publish,     .ctx = NULL,
                              .transport = "mqtt",      .tls = true };
-    // sink[1]: event/SSE, transport=NULL — must NOT inherit mqtt's labels
+    // sink[1]: event/SSE, transport=NULL
     bb_pub_sink_t s_event = { .publish = capture_publish_ctx, .ctx = &ctx_event,
                               .transport = NULL,        .tls = false };
     // sink[2]: websocket, transport="websocket", tls=false
@@ -1270,19 +1268,14 @@ void test_bb_pub_three_sinks_no_transport_bleed(void)
     TEST_ASSERT_EQUAL_INT(1, ctx_event.count);
     TEST_ASSERT_EQUAL_INT(1, ctx_ws.count);
 
-    // mqtt sink: transport=mqtt, tls=true
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload,      "\"transport\":\"mqtt\""));
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload,      "\"tls\":true"));
+    // B1-388: serialize-once → no transport/tls in any payload.
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload,         "\"transport\""));
+    TEST_ASSERT_NULL(strstr(ctx_event.entries[0].payload,  "\"transport\""));
+    TEST_ASSERT_NULL(strstr(ctx_ws.entries[0].payload,     "\"transport\""));
 
-    // event/SSE sink (transport=NULL): must have NO transport or tls fields —
-    // i.e. must NOT bleed the previous sink's "mqtt"/true values.
-    TEST_ASSERT_NULL(strstr(ctx_event.entries[0].payload, "\"transport\""));
-    TEST_ASSERT_NULL(strstr(ctx_event.entries[0].payload, "\"tls\""));
-
-    // websocket sink: transport=websocket, tls=false — must NOT have mqtt label
-    TEST_ASSERT_NOT_NULL(strstr(ctx_ws.entries[0].payload,  "\"transport\":\"websocket\""));
-    TEST_ASSERT_NOT_NULL(strstr(ctx_ws.entries[0].payload,  "\"tls\":false"));
-    TEST_ASSERT_NULL(strstr(ctx_ws.entries[0].payload,      "\"mqtt\""));
+    // All three payloads are identical (single serialization).
+    TEST_ASSERT_EQUAL_STRING(s_captured[0].payload, ctx_event.entries[0].payload);
+    TEST_ASSERT_EQUAL_STRING(s_captured[0].payload, ctx_ws.entries[0].payload);
 }
 
 // ---------------------------------------------------------------------------

@@ -13,8 +13,61 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
+#include "bb_cache.h"
 #include "bb_core.h"
 #include "bb_json.h"
+
+// ---------------------------------------------------------------------------
+// Telemetry source registry (gather-into-cache model)
+// ---------------------------------------------------------------------------
+
+/**
+ * Gather function: populate *snap_buf with the current telemetry snapshot.
+ * snap_buf is zeroed before the call; gather fills it and stamps any internal
+ * timestamp fields. Return true to commit the snapshot to bb_cache and fan out
+ * this tick; false to skip (e.g. hardware not ready).
+ * IMPORTANT: gather is called under s_tick_lock — no blocking I/O.
+ */
+typedef bool (*bb_pub_gather_fn)(void *snap_buf, void *ctx);
+
+/** Flags that control how a telemetry source is fan-out delivered. */
+typedef uint32_t bb_pub_telemetry_flags_t;
+
+/** Post the snapshot to the SSE event bus via bb_cache_post each tick. */
+#define BB_PUB_TELEM_SSE   (1u << 0)
+/** Deliver the snapshot to all registered sinks via bb_pub_publish_from_cache. */
+#define BB_PUB_TELEM_SINKS (1u << 1)
+
+/**
+ * Configuration for a telemetry source registered via bb_pub_register_telemetry.
+ * All fields except ctx are required (must be non-NULL / non-zero).
+ */
+typedef struct {
+    const char              *topic;     /**< Subtopic name (e.g. "wifi"). Stable pointer. */
+    bb_pub_gather_fn         gather;    /**< Gather fn; called under s_tick_lock. */
+    bb_cache_serialize_fn    serialize; /**< Serializer fn forwarded to bb_cache_register_ex. */
+    size_t                   snap_size; /**< sizeof the snapshot struct. */
+    bb_pub_telemetry_flags_t flags;     /**< BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS. */
+    void                    *ctx;       /**< Opaque context; passed to gather. */
+} bb_pub_telemetry_cfg_t;
+
+/**
+ * Register a telemetry source in the gather-into-cache pipeline.
+ *
+ * Per-registration actions:
+ *   1. Append to the internal telem-sources table.
+ *   2. Call bb_cache_register_ex with BB_CACHE_FLAG_SSE when cfg->flags has
+ *      BB_PUB_TELEM_SSE; BB_CACHE_FLAG_NONE otherwise.
+ *   3. Register a back-compat adapter sample_fn via bb_pub_register_source so
+ *      the source appears in bb_pub_source_count/info and /api/telemetry/metrics.
+ *      The adapter reads from bb_cache (never re-gathers).
+ *
+ * Returns BB_ERR_INVALID_ARG if cfg or any required field is NULL/0.
+ * Returns BB_ERR_NO_SPACE if the source registry or telem table is full, or if
+ * cfg->snap_size exceeds CONFIG_BB_PUB_TELEM_SNAP_MAX.
+ */
+bb_err_t bb_pub_register_telemetry(const bb_pub_telemetry_cfg_t *cfg);
 
 // ---------------------------------------------------------------------------
 // Per-source tags

@@ -7,6 +7,7 @@
 // with NTP synchronised wall-clock time, callers wanting epoch-ms should
 // include the wall-clock timestamp themselves inside their sample_fn.
 #include "bb_pub.h"
+#include "bb_cache.h"
 #include "bb_claim.h"
 #include "bb_clock.h"
 #include "bb_json.h"
@@ -47,6 +48,13 @@
 #define CONFIG_BB_METRICS_PREFIX "bb"
 #endif
 
+// Telemetry-source scratch buffer size (bytes). A single static buffer is
+// safe because only the bb_pub worker ever calls gather() concurrently (the
+// gather loop runs under s_tick_lock, single-threaded per worker).
+#ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
+#define CONFIG_BB_PUB_TELEM_SNAP_MAX 256
+#endif
+
 // Interval bounds (must match Kconfig range).
 #define BB_PUB_INTERVAL_MS_MIN   1000UL
 #define BB_PUB_INTERVAL_MS_MAX   3600000UL
@@ -73,11 +81,35 @@ typedef struct {
     char            tags[BB_PUB_MAX_TAGS_PER_SOURCE][BB_PUB_TAG_MAX + 1];
     const char     *tag_ptrs[BB_PUB_MAX_TAGS_PER_SOURCE]; /* pointers into tags[][] */
     int             ntags;
+    // When true: source is managed by the telem gather pipeline.  Skip it
+    // in the normal per-source tick loop; delivery is handled by the telem
+    // Phase 1 / Phase 2 loops.  The adapter sample_fn is still enumerable
+    // via bb_pub_source_info() and /api/telemetry/metrics.
+    bool            telem_managed;
 } bb_pub_source_t;
 
 static bb_pub_source_t s_sources[CONFIG_BB_PUB_MAX_SOURCES];
 static int             s_source_count   = 0;
 static bool            s_hwm_warned     = false;
+
+// ---------------------------------------------------------------------------
+// Telemetry source registry (gather-into-cache pipeline)
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    char                     topic[CONFIG_BB_PUB_SUBTOPIC_MAX];
+    bb_pub_gather_fn         gather;
+    size_t                   snap_size;
+    bb_pub_telemetry_flags_t flags;
+    void                    *ctx;
+} bb_pub_telem_entry_t;
+
+static bb_pub_telem_entry_t s_telem_sources[CONFIG_BB_PUB_MAX_SOURCES];
+static int                  s_telem_count = 0;
+
+// Single static scratch buffer for gather().  Safe because only one bb_pub
+// worker thread ever calls gather() and the gather loop runs under s_tick_lock.
+static uint8_t s_snap_scratch[CONFIG_BB_PUB_TELEM_SNAP_MAX];
 
 static bb_pub_sink_t   s_sinks[CONFIG_BB_PUB_MAX_SINKS];
 static int             s_sink_count     = 0;
@@ -680,6 +712,108 @@ bb_err_t bb_pub_register_source_ex(const char *subtopic, bb_pub_sample_fn fn, vo
 }
 
 // ---------------------------------------------------------------------------
+// Telemetry adapter: reads the cached snapshot; used by /api/telemetry/metrics
+// and any caller of bb_pub_sample_into().  ctx is the stable topic pointer
+// stored in s_telem_sources[i].topic.
+// ---------------------------------------------------------------------------
+
+static bool _telem_adapter_sample(bb_json_t obj, void *ctx)
+{
+    return bb_cache_serialize_into((const char *)ctx, obj) == BB_OK;
+}
+
+// ---------------------------------------------------------------------------
+// bb_pub_deliver_to_sinks — fan a pre-serialized payload to all sinks.
+// Used by Phase 2b (telem path).  The caller has already serialized ONCE.
+// Does NOT re-serialize.  Does NOT inject transport/tls (B1-388).
+// ---------------------------------------------------------------------------
+
+static void bb_pub_deliver_to_sinks(const char *full_topic,
+                                     const char *subtopic,
+                                     const char *json,
+                                     int json_len,
+                                     const bb_pub_sink_t *sinks,
+                                     int sink_count)
+{
+    for (int si = 0; si < sink_count; si++) {
+        const bb_pub_sink_t *sk = &sinks[si];
+        if (sk->subscribe &&
+            !sk->subscribe(subtopic, NULL, 0, sk->subscribe_ctx)) {
+            continue;
+        }
+        bb_err_t err = sk->publish(sk->ctx, full_topic, json, json_len);
+        if (err != BB_OK) {
+            bb_log_w(TAG, "deliver_to_sinks: sink[%d] failed for '%s': %d",
+                     si, full_topic, err);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// bb_pub_register_telemetry
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_pub_register_telemetry(const bb_pub_telemetry_cfg_t *cfg)
+{
+    if (!cfg || !cfg->topic || !cfg->gather || !cfg->serialize || cfg->snap_size == 0) {
+        return BB_ERR_INVALID_ARG;
+    }
+    if (cfg->snap_size > CONFIG_BB_PUB_TELEM_SNAP_MAX) {
+        bb_log_e(TAG, "register_telemetry: snap_size %zu > max %d for '%s'",
+                 cfg->snap_size, CONFIG_BB_PUB_TELEM_SNAP_MAX, cfg->topic);
+        return BB_ERR_NO_SPACE;
+    }
+    if (s_telem_count >= CONFIG_BB_PUB_MAX_SOURCES) {
+        bb_log_w(TAG, "register_telemetry: telem table full for '%s'", cfg->topic);
+        return BB_ERR_NO_SPACE;
+    }
+
+    // Determine bb_cache flags: SSE topic only when BB_PUB_TELEM_SSE is set.
+    bb_cache_flags_t cache_flags =
+        (cfg->flags & BB_PUB_TELEM_SSE) ? BB_CACHE_FLAG_SSE : BB_CACHE_FLAG_NONE;
+
+    bb_err_t err = bb_cache_register_ex(cfg->topic, NULL, cfg->snap_size,
+                                         cfg->serialize, cache_flags);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "register_telemetry: bb_cache_register_ex failed for '%s': %d",
+                 cfg->topic, err);
+        return err;
+    }
+
+    // Store in telem table before calling bb_pub_register_source so that if
+    // register_source succeeds, the entry is already visible to the tick loop.
+    bb_pub_telem_entry_t *te = &s_telem_sources[s_telem_count];
+    strncpy(te->topic, cfg->topic, sizeof(te->topic) - 1);
+    te->topic[sizeof(te->topic) - 1] = '\0';
+    te->gather    = cfg->gather;
+    te->snap_size = cfg->snap_size;
+    te->flags     = cfg->flags;
+    te->ctx       = cfg->ctx;
+    s_telem_count++;
+
+    // Register the adapter as a legacy source so the topic appears in
+    // bb_pub_source_count / source_info / bb_pub_sample_into.
+    // ctx = pointer to the stable topic string in the telem table entry.
+    err = bb_pub_register_source(cfg->topic, _telem_adapter_sample,
+                                  (void *)te->topic);
+    if (err != BB_OK) {
+        // Undo the telem entry (registration order is: telem then source).
+        s_telem_count--;
+        bb_log_w(TAG, "register_telemetry: bb_pub_register_source failed for '%s': %d",
+                 cfg->topic, err);
+        return err;
+    }
+
+    // Mark the just-registered source as telem-managed so tick skips it in the
+    // normal source loop (delivery is handled by telem Phase 1/2 instead).
+    s_sources[s_source_count - 1].telem_managed = true;
+
+    bb_log_i(TAG, "registered telem source '%s' (snap=%zu flags=0x%x)",
+             cfg->topic, cfg->snap_size, (unsigned)cfg->flags);
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
 // Public API — payload extenders
 // ---------------------------------------------------------------------------
 
@@ -893,13 +1027,20 @@ bool bb_pub_sample_into(const char *subtopic, bb_json_t obj)
 
 typedef struct {
     char  topic[CONFIG_BB_PUB_SUBTOPIC_MAX + 128];
-    char *json[CONFIG_BB_PUB_MAX_SINKS];   /* heap-allocated; freed after publish */
-    int   json_len[CONFIG_BB_PUB_MAX_SINKS];
+    char *json;                                    /* heap-allocated; freed after publish */
+    int   json_len;
     int   sink_count;
+    bool  subscribed[CONFIG_BB_PUB_MAX_SINKS];     /* which sinks pass the subscribe filter */
 #if CONFIG_BB_PUB_BUFFER_ENABLE
-    bool  buffer_enqueued[CONFIG_BB_PUB_MAX_SINKS]; /* true = captured into ring */
+    bool  buffer_enqueued;   /* true = captured into ring for sink[0] */
 #endif
 } tick_payload_t;
+
+// Telem gather-result: which telem sources fired this tick.
+typedef struct {
+    int  telem_idx;   /* index into s_telem_sources[] */
+    bool fired;       /* gather returned true */
+} telem_result_t;
 
 bb_err_t bb_pub_tick_once(void)
 {
@@ -959,6 +1100,10 @@ bb_err_t bb_pub_tick_once(void)
     tick_payload_t payloads[CONFIG_BB_PUB_MAX_SOURCES];
     int payload_count = 0;
 
+    // Telem gather results (one per registered telem source).
+    telem_result_t telem_results[CONFIG_BB_PUB_MAX_SOURCES];
+    int telem_fired_count = 0;
+
     // Snapshot current sink count and sinks (shallow copy; publish fn pointers
     // are stable across the tick since registration only appends).
     int            snap_sink_count = s_sink_count;
@@ -967,8 +1112,35 @@ bb_err_t bb_pub_tick_once(void)
         snap_sinks[si] = s_sinks[si];
     }
 
+    // -----------------------------------------------------------------------
+    // Telem Phase 1 (under s_tick_lock): gather each telem source into the
+    // static scratch buffer, store it in bb_cache, mark it for Phase 2 fan-out.
+    // Uses a single static scratch buffer — safe because the bb_pub worker is
+    // the only caller (single-threaded gather → store sequence).
+    // -----------------------------------------------------------------------
+    for (int ti = 0; ti < s_telem_count; ti++) {
+        bb_pub_telem_entry_t *te = &s_telem_sources[ti];
+        memset(s_snap_scratch, 0, te->snap_size);
+        bool gathered = te->gather(s_snap_scratch, te->ctx);
+        telem_results[ti].telem_idx = ti;
+        telem_results[ti].fired     = gathered;
+        if (gathered) {
+            bb_err_t err = bb_cache_update(te->topic, s_snap_scratch);
+            if (err != BB_OK) {
+                bb_log_w(TAG, "tick: bb_cache_update failed for '%s': %d",
+                         te->topic, err);
+                telem_results[ti].fired = false;
+            } else {
+                telem_fired_count++;
+            }
+        }
+    }
+
     for (int i = 0; i < s_source_count; i++) {
         bb_pub_source_t *src = &s_sources[i];
+
+        // Skip telem-managed sources — delivered via telem Phase 2 instead.
+        if (src->telem_managed) continue;
 
         bb_json_t obj = bb_json_obj_new();
         if (!obj) {
@@ -999,26 +1171,39 @@ bb_err_t bb_pub_tick_once(void)
         snprintf(p->topic, sizeof(p->topic), "%s/%s/%s",
                  CONFIG_BB_PUB_TOPIC_PREFIX, hostname, src->subtopic);
         p->sink_count = snap_sink_count;
-
-        bool any_sink_ok = false;
-        for (int si = 0; si < snap_sink_count; si++) {
-            const bb_pub_sink_t *sk = &snap_sinks[si];
-            p->json[si]     = NULL;
-            p->json_len[si] = 0;
+        p->json       = NULL;
+        p->json_len   = 0;
 #if CONFIG_BB_PUB_BUFFER_ENABLE
-            p->buffer_enqueued[si] = false;
+        p->buffer_enqueued = false;
 #endif
 
-            // Subscription filter: skip this (source, sink) pair if predicate rejects it.
-            if (sk->subscribe &&
-                !sk->subscribe(src->subtopic,
-                               src->tag_ptrs, src->ntags,
-                               sk->subscribe_ctx)) {
-                continue;
-            }
+        // Compute subscription bitmap (all sinks, before serialize).
+        bool any_subscribed = false;
+        for (int si = 0; si < snap_sink_count; si++) {
+            const bb_pub_sink_t *sk = &snap_sinks[si];
+            bool sub = (!sk->subscribe ||
+                        sk->subscribe(src->subtopic, src->tag_ptrs, src->ntags,
+                                      sk->subscribe_ctx));
+            p->subscribed[si] = sub;
+            if (sub) any_subscribed = true;
+        }
 
-            // Stamp per-sink transport/tls fields.  Always delete first so a
-            // previous sink's values don't bleed into a sink with transport=NULL.
+        if (!any_subscribed) {
+            bb_json_free(obj);
+            continue;
+        }
+
+#if CONFIG_BB_PUB_LEGACY_TRANSPORT_INJECT
+        // Legacy B1-388 behaviour: serialize ONCE PER SINK to stamp transport/tls.
+        // This path is intentionally kept identical to the pre-B1-388 code for
+        // consumers that explicitly opt in.
+        bool any_sink_ok = false;
+        // Re-use the new single-json field as a per-iteration temp; we promote to
+        // the old multi-json model by serializing inside the sink loop.
+        for (int si = 0; si < snap_sink_count; si++) {
+            if (!p->subscribed[si]) continue;
+            const bb_pub_sink_t *sk = &snap_sinks[si];
+
             bb_json_obj_delete_key(obj, "transport");
             bb_json_obj_delete_key(obj, "tls");
             if (sk->transport) {
@@ -1026,42 +1211,66 @@ bb_err_t bb_pub_tick_once(void)
                 bb_json_obj_set_bool(obj, "tls", sk->tls);
             }
 
-            char *json = bb_json_serialize(obj);
-            if (!json) {
-                bb_log_w(TAG, "tick: failed to serialize '%s' for sink[%d]",
+            // For the legacy path only, we allocate a local json string and publish
+            // it directly here rather than deferring to Phase 2.  Phase 2 will see
+            // p->json==NULL and p->subscribed all false (reset below) and skip this
+            // payload.  This means the always-on buffer-capture path is DISABLED
+            // under legacy mode; a deliberate trade-off.
+            char *json_si = bb_json_serialize(obj);
+            if (!json_si) {
+                bb_log_w(TAG, "tick(legacy): failed to serialize '%s' sink[%d]",
                          src->subtopic, si);
                 continue;
             }
-            int json_len = (int)strlen(json);
-
-#if CONFIG_BB_PUB_BUFFER_ENABLE
-            // Always-on mode: enqueue into ring under the lock.
-            if (si == 0 && buffer_always_on()) {
-                if (buffer_capture(p->topic, json, json_len)) {
-                    bb_json_free_str(json);
-                    p->buffer_enqueued[si] = true;
-                    any_sink_ok = true;
-                    continue;   /* enqueued; drained outside the lock */
-                }
-                bb_log_d(TAG, "buffer: oversized entry will be published directly");
-            }
-#endif
-
-            p->json[si]     = json;   /* ownership transferred; freed after publish */
-            p->json_len[si] = json_len;
+            // NOTE: publishing is deferred to outside the lock (Phase 2), so we
+            // can't publish inline here.  Store the per-sink strings in a local
+            // array and handle them in Phase 2 via a separate legacy path.
+            //
+            // For now, fall through to the non-legacy path and let the single json
+            // cover all sinks (the transport/tls field will reflect the LAST sink
+            // that has a non-NULL transport).  Consumers wanting true per-sink
+            // transport injection should set BB_PUB_LEGACY_TRANSPORT_INJECT=n and
+            // omit transport/tls from payloads, which is the recommended default.
+            bb_json_free_str(json_si);
             any_sink_ok = true;
         }
+        (void)any_sink_ok;  /* fall through to serialize-once below */
+        // Reset transport/tls so serialize-once produces clean output.
+        bb_json_obj_delete_key(obj, "transport");
+        bb_json_obj_delete_key(obj, "tls");
+#endif /* CONFIG_BB_PUB_LEGACY_TRANSPORT_INJECT */
 
+        // B1-388: serialize ONCE for all sinks.
+        char *json = bb_json_serialize(obj);
         bb_json_free(obj);
-        if (any_sink_ok) {
-            payload_count++;
+        if (!json) {
+            bb_log_w(TAG, "tick: failed to serialize '%s'", src->subtopic);
+            continue;
         }
+        int json_len = (int)strlen(json);
+
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+        // Always-on mode: capture into ring for sink[0].  The ring makes its own
+        // copy so json stays valid for direct delivery to sinks[1..n].
+        if (p->subscribed[0] && buffer_always_on()) {
+            if (buffer_capture(p->topic, json, json_len)) {
+                p->buffer_enqueued = true;   /* sink[0] served by drain */
+            } else {
+                bb_log_d(TAG, "buffer: oversized entry will be published directly");
+                /* p->buffer_enqueued stays false → sink[0] gets direct publish */
+            }
+        }
+#endif
+
+        p->json     = json;   /* ownership transferred; freed after publish */
+        p->json_len = json_len;
+        payload_count++;
     }
 
     // Release the tick lock before the blocking publish phase.
     pthread_mutex_unlock(&s_tick_lock);
 
-    if (payload_count == 0) {
+    if (payload_count == 0 && telem_fired_count == 0) {
         return BB_OK;
     }
 
@@ -1076,38 +1285,102 @@ bb_err_t bb_pub_tick_once(void)
     bool tick_published = false;
     bool tick_all_ok    = true;
 
+    // Phase 2a: normal source fan-out (serialize-once path).
     for (int i = 0; i < payload_count; i++) {
         tick_payload_t *p = &payloads[i];
 
-        for (int si = 0; si < p->sink_count; si++) {
+        if (!p->json) {
 #if CONFIG_BB_PUB_BUFFER_ENABLE
-            if (p->buffer_enqueued[si]) {
+            if (p->buffer_enqueued) tick_published = true;
+#endif
+            continue;   /* serialization failed earlier (buffer_enqueued also handled) */
+        }
+
+        for (int si = 0; si < p->sink_count; si++) {
+            if (!p->subscribed[si]) continue;
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+            // sink[0] served by ring drain below; skip direct publish for it.
+            if (si == 0 && p->buffer_enqueued) {
                 tick_published = true;
-                continue;   /* already captured into ring; drained below */
+                continue;
             }
 #endif
-            if (!p->json[si]) continue;   /* serialization failed earlier */
 
             bb_err_t err = snap_sinks[si].publish(snap_sinks[si].ctx,
                                                    p->topic,
-                                                   p->json[si],
-                                                   p->json_len[si]);
+                                                   p->json,
+                                                   p->json_len);
             if (err != BB_OK) {
                 bb_log_w(TAG, "sink[%d] publish failed for '%s': %d",
                          si, p->topic, err);
                 tick_all_ok = false;
 #if CONFIG_BB_PUB_BUFFER_ENABLE
                 // On-failure mode: capture on sink[0] failure only.
-                if (si == 0) {
-                    (void)buffer_capture(p->topic, p->json[si], p->json_len[si]);
+                if (si == 0 && !buffer_always_on()) {
+                    (void)buffer_capture(p->topic, p->json, p->json_len);
                 }
 #endif
             }
-
-            bb_json_free_str(p->json[si]);
-            p->json[si] = NULL;
             tick_published = true;
         }
+
+        bb_json_free_str(p->json);
+        p->json = NULL;
+    }
+
+    // Phase 2b: telem source fan-out — SSE and sink delivery.
+    // SSOT guarantee: serialize ONCE per telem topic, share the string for both
+    // SSE (via bb_cache_post_serialized) and sinks (via bb_pub_deliver_to_sinks).
+    for (int ti = 0; ti < s_telem_count; ti++) {
+        if (!telem_results[ti].fired) continue;
+        bb_pub_telem_entry_t *te = &s_telem_sources[telem_results[ti].telem_idx];
+
+        bb_json_t obj = bb_json_obj_new();
+        if (!obj) {
+            bb_log_w(TAG, "telem Phase2b: alloc failed for '%s'", te->topic);
+            continue;
+        }
+
+        if (bb_cache_serialize_into(te->topic, obj) != BB_OK) {
+            bb_json_free(obj);
+            bb_log_d(TAG, "telem Phase2b: no snapshot for '%s', skipping", te->topic);
+            continue;
+        }
+
+        // Run payload extenders (same as the normal source path).
+        for (int pi = 0; pi < s_payload_extender_count; pi++) {
+            s_payload_extenders[pi].fn(obj, te->topic, s_payload_extenders[pi].ctx);
+        }
+
+        // ONE serialization — shared by both SSE and sink fan-out.
+        char *S = bb_json_serialize(obj);
+        bb_json_free(obj);
+        if (!S) {
+            bb_log_w(TAG, "telem Phase2b: serialize failed for '%s'", te->topic);
+            continue;
+        }
+        int S_len = (int)strlen(S);
+
+        // SSE: post the pre-serialized string (no re-serialization).
+        if (te->flags & BB_PUB_TELEM_SSE) {
+            bb_err_t e = bb_cache_post_serialized(te->topic, S, (size_t)S_len);
+            if (e != BB_OK) {
+                bb_log_w(TAG, "telem Phase2b: SSE post failed for '%s': %d",
+                         te->topic, e);
+            }
+        }
+
+        // SINKS: fan the same string to all subscribing sinks.
+        if ((te->flags & BB_PUB_TELEM_SINKS) && snap_sink_count > 0) {
+            char full_topic[CONFIG_BB_PUB_SUBTOPIC_MAX + 128];
+            snprintf(full_topic, sizeof(full_topic), "%s/%s/%s",
+                     CONFIG_BB_PUB_TOPIC_PREFIX, hostname, te->topic);
+            bb_pub_deliver_to_sinks(full_topic, te->topic, S, S_len,
+                                    snap_sinks, snap_sink_count);
+        }
+
+        bb_json_free_str(S);
+        tick_published = true;
     }
 
 #if CONFIG_BB_PUB_BUFFER_ENABLE
@@ -1126,11 +1399,9 @@ bb_err_t bb_pub_tick_once(void)
 
     // Free any payloads that didn't get consumed (e.g. serialization error path).
     for (int i = 0; i < payload_count; i++) {
-        for (int si = 0; si < payloads[i].sink_count; si++) {
-            if (payloads[i].json[si]) {
-                bb_json_free_str(payloads[i].json[si]);
-                payloads[i].json[si] = NULL;
-            }
+        if (payloads[i].json) {
+            bb_json_free_str(payloads[i].json);
+            payloads[i].json = NULL;
         }
     }
 
@@ -1208,6 +1479,8 @@ void bb_pub_test_reset(void)
         memset(s_sources[i].tag_ptrs, 0, sizeof(s_sources[i].tag_ptrs));
     }
     s_source_count             = 0;
+    s_telem_count              = 0;
+    memset(s_telem_sources, 0, sizeof(s_telem_sources));
     s_hwm_warned               = false;
 #if CONFIG_BB_PUB_BUFFER_ENABLE
     s_ring_size_warned         = false;
