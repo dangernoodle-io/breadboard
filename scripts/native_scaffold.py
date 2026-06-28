@@ -59,6 +59,7 @@ COMPONENT_MAP = {
         "sources":  [
             "platform/host/bb_core/bb_mem.c",
             "platform/host/bb_core/bb_claim.c",
+            "platform/host/bb_core/bb_clock.c",
         ],
         "depends":  [],
     },
