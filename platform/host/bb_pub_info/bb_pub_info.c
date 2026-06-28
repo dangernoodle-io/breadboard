@@ -1,5 +1,14 @@
 // bb_pub_info — telemetry source satellite: device info / system metrics.
 // Compiled on both host (tests) and ESP-IDF.
+//
+// Migration (telemetry-ssot): uses bb_pub_register_telemetry so the snapshot
+// is gathered into bb_cache once per tick; sinks-only (BB_PUB_TELEM_SINKS,
+// no SSE — info is a sink-only topic).  REST reads the SAME memoized
+// serialization via bb_cache_get_serialized.  The sample-time timestamp is
+// stamped into the snapshot at gather time.
+//
+// Snap size: ~360 bytes — exceeds the 256-byte default BB_PUB_TELEM_SNAP_MAX.
+// The Kconfig default has been raised to 512 in components/bb_pub/Kconfig.
 #include "bb_pub_info.h"
 #include "bb_pub.h"
 #include "bb_board.h"
@@ -32,110 +41,151 @@
 static const char *TAG = "bb_pub_info";
 
 // ---------------------------------------------------------------------------
-// Sample function — called by bb_pub_tick_once for the "info" subtopic.
+// Snapshot struct — captured once per tick under the tick lock.
+// Size: ~360 bytes — requires CONFIG_BB_PUB_TELEM_SNAP_MAX >= 512.
+// The Kconfig default has been raised to 512 in components/bb_pub/Kconfig.
 // ---------------------------------------------------------------------------
 
-static bool info_sample(bb_json_t obj, void *ctx)
-{
-    (void)ctx;
+typedef struct {
+    // Heap / memory metrics
+    size_t heap_internal_free;
+    size_t heap_internal_total;
+    size_t heap_internal_largest_block;
+    size_t heap_internal_min_free;
+    size_t psram_free;
+    size_t psram_total;
+    size_t rtc_used;
+    size_t rtc_total;
+    size_t rtc_free;
+    size_t dram_static_bytes;
+    size_t flash_size;
+    size_t app_size;
 
-    bb_json_obj_set_number(obj, "heap_internal_free",
-                           (double)bb_board_heap_internal_free());
-    bb_json_obj_set_number(obj, "heap_internal_total",
-                           (double)bb_board_heap_internal_total());
-    bb_json_obj_set_number(obj, "heap_internal_largest_block",
-                           (double)bb_board_heap_internal_largest_free_block());
-    bb_json_obj_set_number(obj, "heap_internal_min_free",
-                           (double)bb_board_heap_internal_minimum_ever());
-    // psram_free / psram_total: omit both when no PSRAM hardware (total == 0).
-    if (bb_board_psram_total() > 0) {
-        bb_json_obj_set_number(obj, "psram_free",
-                               (double)bb_board_psram_free());
-        bb_json_obj_set_number(obj, "psram_total",
-                               (double)bb_board_psram_total());
-    }
-    bb_json_obj_set_number(obj, "rtc_used",
-                           (double)bb_board_rtc_used());
-    bb_json_obj_set_number(obj, "rtc_total",
-                           (double)bb_board_rtc_total());
-    bb_json_obj_set_number(obj, "dram_static_bytes",
-                           (double)bb_board_dram_static_bytes());
-    bb_json_obj_set_number(obj, "flash_size",
-                           (double)bb_board_get_flash_size());
-    bb_json_obj_set_number(obj, "app_size",
-                           (double)bb_board_get_app_size());
-    bb_json_obj_set_number(obj, "wdt_resets",
-                           (double)bb_diag_abnormal_reset_count());
-    // uptime_ms is injected into EVERY payload by bb_pub (bb_pub.c); emitting it
-    // here too duplicated the key in the info topic (B1-352 ts->uptime_ms rename).
-    // Rely on the injected one — same value (bb_clock at the same tick).
-    bb_json_obj_set_string(obj, "version",
-                           bb_system_get_version());
+    // Health counters
+    uint32_t wdt_resets;
 
-    // Static identity fields: board, chip_model, mac (fleet identification).
+    // Identity strings
+    char version[32];
     char board[32];
     char chip_model[16];
     char mac[18];
-    board[0]      = '\0';
-    chip_model[0] = '\0';
-    mac[0]        = '\0';
+    char reset_reason[16];
+
+    // OTA / time
+    bool    ota_validated;
+#if BB_PUB_INFO_EMIT_OTA_READY
+    bool    ota_ready;
+#endif
+    bool    time_valid;
+    int64_t boot_epoch_s;
+    char    time_source[8]; // "sntp" or "none"
+
+    // has_psram: whether to emit psram fields
+    bool    has_psram;
+
+    // Sample-time timestamp
+    int64_t ts_ms;
+} bb_info_snap_t;
+
+// ---------------------------------------------------------------------------
+// Gather — fills snap from live system state; called under lock.
+// Always returns true (info is a heartbeat source).
+// ---------------------------------------------------------------------------
+
+static bool info_gather(void *snap_buf, void *ctx)
+{
+    (void)ctx;
+    bb_info_snap_t *s = snap_buf;
+    memset(s, 0, sizeof(*s));
+
+    s->heap_internal_free          = bb_board_heap_internal_free();
+    s->heap_internal_total         = bb_board_heap_internal_total();
+    s->heap_internal_largest_block = bb_board_heap_internal_largest_free_block();
+    s->heap_internal_min_free      = bb_board_heap_internal_minimum_ever();
+    s->psram_free                  = bb_board_psram_free();
+    s->psram_total                 = bb_board_psram_total();
+    s->rtc_used                    = bb_board_rtc_used();
+    s->rtc_total                   = bb_board_rtc_total();
+    s->dram_static_bytes           = bb_board_dram_static_bytes();
+    s->flash_size                  = bb_board_get_flash_size();
+    s->app_size                    = bb_board_get_app_size();
+    s->wdt_resets                  = (uint32_t)bb_diag_abnormal_reset_count();
+    s->has_psram                   = (s->psram_total > 0);
+    s->rtc_free = (s->rtc_total >= s->rtc_used) ? (s->rtc_total - s->rtc_used) : 0;
+
+    const char *ver = bb_system_get_version();
+    if (ver) strncpy(s->version, ver, sizeof(s->version) - 1);
+
     {
         bb_board_info_t bi;
         if (bb_board_get_info(&bi) == BB_OK) {
-            strncpy(board,      bi.board,      sizeof(board)      - 1);
-            strncpy(chip_model, bi.chip_model, sizeof(chip_model) - 1);
+            strncpy(s->board,      bi.board,      sizeof(s->board)      - 1);
+            strncpy(s->chip_model, bi.chip_model, sizeof(s->chip_model) - 1);
+            s->ota_validated = bi.ota_validated;
         }
     }
-    bb_board_get_mac(mac, sizeof(mac));
-    bb_json_obj_set_string(obj, "board",      board);
-    bb_json_obj_set_string(obj, "chip_model", chip_model);
-    bb_json_obj_set_string(obj, "mac",        mac);
 
-    // reset_reason: string boot cause ("power-on", "software", "panic", ...)
-    char reset_reason[16];
-    bb_board_get_reset_reason(reset_reason, sizeof(reset_reason));
-    bb_json_obj_set_string(obj, "reset_reason", reset_reason);
-
-    // ota_validated: read live from bb_board_get_info() — same source as
-    // /api/info and bb_health — uses the lenient != PENDING_VERIFY check and
-    // re-reads the OTA partition state each call (no stale boot-time cache).
-    {
-        bb_board_info_t _bi;
-        bool _validated = (bb_board_get_info(&_bi) == BB_OK) ? _bi.ota_validated : false;
-        bb_json_obj_set_bool(obj, "ota_validated", _validated);
-    }
+    bb_board_get_mac(s->mac, sizeof(s->mac));
+    bb_board_get_reset_reason(s->reset_reason, sizeof(s->reset_reason));
 
 #if BB_PUB_INFO_EMIT_OTA_READY
-    bb_json_obj_set_bool(obj, "ota_ready", bb_ota_pull_heap_ready());
+    s->ota_ready = bb_ota_pull_heap_ready();
 #endif
 
-    // rtc_free: derived from rtc_total - rtc_used (RTC slow memory free bytes)
-    size_t rtc_total = bb_board_rtc_total();
-    size_t rtc_used  = bb_board_rtc_used();
-    size_t rtc_free  = (rtc_total >= rtc_used) ? (rtc_total - rtc_used) : 0;
-    bb_json_obj_set_number(obj, "rtc_free", (double)rtc_free);
-
-    // RTC clock fields: time_valid, boot_epoch_s, time_source
-    // boot_epoch_s = Unix seconds at boot time (0 if NTP not synced).
-    bool   time_valid    = false;
-    int64_t boot_epoch_s = 0;
-    const char *time_source = "none";
+    s->time_valid    = false;
+    s->boot_epoch_s  = 0;
+    strncpy(s->time_source, "none", sizeof(s->time_source) - 1);
     if (bb_ntp_is_synced()) {
         time_t now = time(NULL);
-        // Sanity-check: year >= 2024 (unix epoch >= 1704067200)
         if (now >= (time_t)1704067200LL) {
-            time_valid    = true;
+            s->time_valid   = true;
             int64_t uptime_s = (int64_t)bb_clock_now_ms() / 1000;
-            boot_epoch_s  = (int64_t)now - uptime_s;
-            time_source   = "sntp";
+            s->boot_epoch_s = (int64_t)now - uptime_s;
+            strncpy(s->time_source, "sntp", sizeof(s->time_source) - 1);
         }
     }
-    bb_json_obj_set_bool  (obj, "time_valid",    time_valid);
-    bb_json_obj_set_number(obj, "boot_epoch_s",  (double)boot_epoch_s);
-    bb_json_obj_set_string(obj, "time_source",   time_source);
 
-    // Always publish — provides a heartbeat even without hardware HALs.
+    s->ts_ms = (int64_t)bb_clock_now_ms64();
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Serialize — called by bb_cache to build JSON from the frozen snapshot.
+// Mirrors info_sample logic but reads fully from snap (SSOT guarantee).
+// ---------------------------------------------------------------------------
+
+static void info_serialize(bb_json_t obj, const void *snap_raw)
+{
+    const bb_info_snap_t *s = snap_raw;
+
+    bb_json_obj_set_number(obj, "heap_internal_free",          (double)s->heap_internal_free);
+    bb_json_obj_set_number(obj, "heap_internal_total",         (double)s->heap_internal_total);
+    bb_json_obj_set_number(obj, "heap_internal_largest_block", (double)s->heap_internal_largest_block);
+    bb_json_obj_set_number(obj, "heap_internal_min_free",      (double)s->heap_internal_min_free);
+    if (s->has_psram) {
+        bb_json_obj_set_number(obj, "psram_free",  (double)s->psram_free);
+        bb_json_obj_set_number(obj, "psram_total", (double)s->psram_total);
+    }
+    bb_json_obj_set_number(obj, "rtc_used",          (double)s->rtc_used);
+    bb_json_obj_set_number(obj, "rtc_total",         (double)s->rtc_total);
+    bb_json_obj_set_number(obj, "dram_static_bytes", (double)s->dram_static_bytes);
+    bb_json_obj_set_number(obj, "flash_size",        (double)s->flash_size);
+    bb_json_obj_set_number(obj, "app_size",          (double)s->app_size);
+    bb_json_obj_set_number(obj, "wdt_resets",        (double)s->wdt_resets);
+    bb_json_obj_set_string(obj, "version",           s->version);
+    bb_json_obj_set_string(obj, "board",             s->board);
+    bb_json_obj_set_string(obj, "chip_model",        s->chip_model);
+    bb_json_obj_set_string(obj, "mac",               s->mac);
+    bb_json_obj_set_string(obj, "reset_reason",      s->reset_reason);
+    bb_json_obj_set_bool  (obj, "ota_validated",     s->ota_validated);
+#if BB_PUB_INFO_EMIT_OTA_READY
+    bb_json_obj_set_bool  (obj, "ota_ready",         s->ota_ready);
+#endif
+    bb_json_obj_set_bool  (obj, "time_valid",        s->time_valid);
+    bb_json_obj_set_number(obj, "boot_epoch_s",      (double)s->boot_epoch_s);
+    bb_json_obj_set_string(obj, "time_source",       s->time_source);
+    bb_json_obj_set_number(obj, "rtc_free",          (double)s->rtc_free);
+    bb_json_obj_set_int   (obj, "ts_ms",             s->ts_ms);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,11 +194,20 @@ static bool info_sample(bb_json_t obj, void *ctx)
 
 bb_err_t bb_pub_info_register(void)
 {
-    bb_err_t err = bb_pub_register_source("info", info_sample, NULL);
+    bb_pub_telemetry_cfg_t cfg = {
+        .topic     = "info",
+        .gather    = info_gather,
+        .serialize = info_serialize,
+        .snap_size = sizeof(bb_info_snap_t),
+        .flags     = BB_PUB_TELEM_SINKS,  // sinks-only: no SSE for info
+        .ctx       = NULL,
+    };
+
+    bb_err_t err = bb_pub_register_telemetry(&cfg);
     if (err == BB_OK) {
-        bb_log_i(TAG, "registered info source");
+        bb_log_i(TAG, "registered info telemetry source (snap_size=%zu)", sizeof(bb_info_snap_t));
     } else if (err != BB_ERR_NO_SPACE) {
-        bb_log_w(TAG, "register_source failed: %d", err);
+        bb_log_w(TAG, "register_telemetry failed: %d", err);
     }
     return err;
 }
