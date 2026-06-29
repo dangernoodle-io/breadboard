@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
-from commands.version import run, _compute_version, _write_if_changed
+from commands.version import run, _compute_version, _write_if_changed, _bb_ref
 
 
 class TestVersionOverride(unittest.TestCase):
@@ -93,6 +93,74 @@ class TestWriteIfChanged(unittest.TestCase):
             changed = _write_if_changed(str(path), "new\n")
             self.assertTrue(changed)
             self.assertEqual(path.read_text(), "new\n")
+
+
+class TestBbRefShatTruncation(unittest.TestCase):
+    """SHA truncation for pinned fetch (.version stamp)."""
+
+    def test_full_40_char_sha_truncated_to_7(self):
+        """Full 40-char lowercase hex SHA is truncated to 7 chars."""
+        with tempfile.TemporaryDirectory() as td:
+            # Create .breadboard dir with .version stamp
+            bb_dir = os.path.join(td, ".breadboard")
+            os.makedirs(bb_dir)
+            version_path = os.path.join(bb_dir, ".version")
+            with open(version_path, "w") as f:
+                f.write("596190b682827c8008b1df8a727f42c0b47fb4fb\n")
+            result = _bb_ref(td, td)
+            self.assertEqual(result, "bb-596190b")
+
+    def test_tag_version_unchanged(self):
+        """Tag/version pins (v0.70.3, 0.70.3) pass through unchanged."""
+        with tempfile.TemporaryDirectory() as td:
+            bb_dir = os.path.join(td, ".breadboard")
+            os.makedirs(bb_dir)
+            version_path = os.path.join(bb_dir, ".version")
+            with open(version_path, "w") as f:
+                f.write("v0.70.3\n")
+            result = _bb_ref(td, td)
+            self.assertEqual(result, "bb-0.70.3")
+
+    def test_tag_version_without_v_unchanged(self):
+        """Tag/version pins without leading v pass through unchanged."""
+        with tempfile.TemporaryDirectory() as td:
+            bb_dir = os.path.join(td, ".breadboard")
+            os.makedirs(bb_dir)
+            version_path = os.path.join(bb_dir, ".version")
+            with open(version_path, "w") as f:
+                f.write("0.70.3\n")
+            result = _bb_ref(td, td)
+            self.assertEqual(result, "bb-0.70.3")
+
+    def test_short_hash_7_chars_unchanged(self):
+        """Short 7-char hash is NOT shortened (it's already short)."""
+        with tempfile.TemporaryDirectory() as td:
+            bb_dir = os.path.join(td, ".breadboard")
+            os.makedirs(bb_dir)
+            version_path = os.path.join(bb_dir, ".version")
+            with open(version_path, "w") as f:
+                f.write("abc1234\n")
+            result = _bb_ref(td, td)
+            self.assertEqual(result, "bb-abc1234")
+
+    def test_branch_name_unchanged(self):
+        """Branch names pass through unchanged."""
+        with tempfile.TemporaryDirectory() as td:
+            bb_dir = os.path.join(td, ".breadboard")
+            os.makedirs(bb_dir)
+            version_path = os.path.join(bb_dir, ".version")
+            with open(version_path, "w") as f:
+                f.write("main\n")
+            result = _bb_ref(td, td)
+            self.assertEqual(result, "bb-main")
+
+    def test_missing_version_file_returns_unknown(self):
+        """Missing .version file returns unknown."""
+        with tempfile.TemporaryDirectory() as td:
+            bb_dir = os.path.join(td, ".breadboard")
+            os.makedirs(bb_dir)
+            result = _bb_ref(td, td)
+            self.assertEqual(result, "bb-unknown")
 
 
 if __name__ == "__main__":
