@@ -816,7 +816,7 @@ def _check_telemetry_rest_cache_read(ctx: Context) -> list:
 _ROUTE_INIT_RE = re.compile(r'\bbb_route_t\b[^;{}]*=\s*\{')
 
 _METHOD_MUTATING_RE = re.compile(
-    r'\.method\s*=\s*(BB_HTTP_POST|BB_HTTP_PATCH|BB_HTTP_PUT)\b'
+    r'\.method\s*=\s*(BB_HTTP_POST|BB_HTTP_PATCH|BB_HTTP_PUT|BB_HTTP_DELETE)\b'
 )
 _CT_BODIED_RE = re.compile(
     r'\.request_content_type\s*=\s*"([^"]*)"',
