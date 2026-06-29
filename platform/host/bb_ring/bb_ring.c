@@ -69,17 +69,25 @@ struct bb_ring {
     size_t count;   // live entry count
 
     size_t bytes_used;   // sum of entry lengths currently stored
-    size_t dropped;      // entries evicted due to ring-full
+    size_t dropped;      // entries dropped due to ring-full (evicted or rejected)
     size_t truncated;    // push() calls rejected (len > max_entry)
+
+    bb_ring_full_policy_t policy;  // BB_RING_EVICT_OLDEST or BB_RING_REJECT_NEW
+    char name[BB_RING_NAME_MAX];   // diagnostic label (bounded copy, never borrowed)
 };
 
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes, bb_ring_t *out)
+bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes,
+                        bb_ring_full_policy_t policy, const char *name,
+                        bb_ring_t *out)
 {
     if (!capacity_entries || !max_entry_bytes || !out) {
+        return BB_ERR_INVALID_ARG;
+    }
+    if (policy != BB_RING_EVICT_OLDEST && policy != BB_RING_REJECT_NEW) {
         return BB_ERR_INVALID_ARG;
     }
 
@@ -106,6 +114,7 @@ bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes, bb_ring
 
     r->capacity  = capacity_entries;
     r->max_entry = max_entry_bytes;
+    r->policy    = policy;
     r->head      = 0;
     r->tail      = 0;
     r->count     = 0;
@@ -113,7 +122,15 @@ bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes, bb_ring
     r->dropped     = 0;
     r->truncated   = 0;
 
-    bb_log_i(TAG, "created ring: capacity=%zu max_entry=%zu", capacity_entries, max_entry_bytes);
+    if (name) {
+        strncpy(r->name, name, BB_RING_NAME_MAX - 1);
+        r->name[BB_RING_NAME_MAX - 1] = '\0';
+    } else {
+        r->name[0] = '\0';
+    }
+
+    bb_log_i(TAG, "created ring '%s': capacity=%zu max_entry=%zu policy=%d",
+             r->name, capacity_entries, max_entry_bytes, (int)policy);
     *out = r;
     return BB_OK;
 }
@@ -121,10 +138,15 @@ bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes, bb_ring
 void bb_ring_destroy(bb_ring_t r)
 {
     if (!r) return;
+    bb_log_i(TAG, "destroyed ring '%s'", r->name);
     s_free(r->payload);
     s_free(r->entries);
     s_free(r);
-    bb_log_i(TAG, "destroyed ring");
+}
+
+const char *bb_ring_name(bb_ring_t r)
+{
+    return r ? r->name : "";
 }
 
 // ---------------------------------------------------------------------------
@@ -146,8 +168,14 @@ bb_err_t bb_ring_push(bb_ring_t r, const void *data, size_t len,
 
     size_t write_idx = r->head;
 
-    // Evict oldest if full
+    // Handle full ring according to policy
     if (r->count == r->capacity) {
+        if (r->policy == BB_RING_REJECT_NEW) {
+            r->dropped++;
+            bb_log_d(TAG, "push rejected: ring full (reject-new policy)");
+            return BB_ERR_NO_SPACE;
+        }
+        // BB_RING_EVICT_OLDEST: evict oldest before writing
         r->bytes_used -= r->entries[r->tail].len;
         r->tail = (r->tail + 1) % r->capacity;
         r->dropped++;
@@ -265,6 +293,6 @@ void bb_ring_clear(bb_ring_t r)
     r->tail      = 0;
     r->count     = 0;
     r->bytes_used  = 0;
-    r->dropped     = 0;
-    r->truncated   = 0;
+    // dropped and truncated are cumulative diagnostics — intentionally NOT
+    // reset here so callers can detect losses across clear boundaries.
 }

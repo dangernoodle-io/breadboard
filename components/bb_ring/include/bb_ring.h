@@ -11,8 +11,12 @@
 //   - payload buffer:  capacity × max_entry_bytes
 // (mirrors bb_event_ring's proven layout).
 //
-// Eviction: when full, push() silently evicts the oldest entry and increments
-// the dropped counter.
+// Full-ring policy (bb_ring_full_policy_t):
+//   BB_RING_EVICT_OLDEST: when full, push() silently evicts the oldest entry
+//     and increments the dropped counter. Returns BB_OK.
+//   BB_RING_REJECT_NEW: when full, push() does NOT write the new entry,
+//     increments the dropped counter, and returns BB_ERR_NO_SPACE. The oldest
+//     entry is preserved intact.
 //
 // Oversized push: payloads larger than max_entry_bytes are REJECTED (not
 // truncated). bb_ring_push() returns BB_ERR_INVALID_ARG and increments the
@@ -41,22 +45,56 @@ extern "C" {
 
 typedef struct bb_ring *bb_ring_t;
 
+// Maximum length (including NUL) of a ring's diagnostic name.
+// Names longer than BB_RING_NAME_MAX - 1 are silently truncated.
+#define BB_RING_NAME_MAX 24
+
+// ---------------------------------------------------------------------------
+// Full-ring policy
+// ---------------------------------------------------------------------------
+
+// bb_ring_full_policy_t — controls what happens when push() is called on a
+// full ring (count == capacity).
+//
+//   BB_RING_EVICT_OLDEST : (default) silently evict the oldest entry and write
+//     the new one. The dropped counter is incremented. Returns BB_OK.
+//   BB_RING_REJECT_NEW   : do NOT write the new entry; increment the dropped
+//     counter and return BB_ERR_NO_SPACE. The oldest entry is preserved intact.
+//
+// Oversized-payload behavior (len > max_entry_bytes) is identical for both
+// policies: BB_ERR_INVALID_ARG, truncated counter incremented, entry not written.
+typedef enum {
+    BB_RING_EVICT_OLDEST = 0,
+    BB_RING_REJECT_NEW,
+} bb_ring_full_policy_t;
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-// bb_ring_create — allocate a new ring.
+// bb_ring_create — allocate a new ring with an explicit full-ring policy and
+//   a diagnostic name.
 //
 //   capacity_entries : maximum number of entries the ring holds at once.
 //   max_entry_bytes  : maximum payload size for a single entry (inclusive).
+//   policy           : BB_RING_EVICT_OLDEST or BB_RING_REJECT_NEW.
+//   name             : short diagnostic label (copied internally, truncated to
+//                      BB_RING_NAME_MAX - 1 chars). NULL stores "".
 //   out              : receives the allocated handle on BB_OK.
 //
-// Returns BB_ERR_INVALID_ARG if any arg is zero or out is NULL.
+// Returns BB_ERR_INVALID_ARG if capacity_entries or max_entry_bytes is zero,
+//   out is NULL, or policy is not a recognised value.
 // Returns BB_ERR_NO_SPACE    if allocation fails.
-bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes, bb_ring_t *out);
+bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes,
+                        bb_ring_full_policy_t policy, const char *name,
+                        bb_ring_t *out);
 
 // bb_ring_destroy — free all resources. Safe to call with NULL (no-op).
 void bb_ring_destroy(bb_ring_t r);
+
+// bb_ring_name — return the diagnostic name stored at create time.
+// Returns "" when r is NULL.
+const char *bb_ring_name(bb_ring_t r);
 
 // ---------------------------------------------------------------------------
 // Write
@@ -70,9 +108,13 @@ void bb_ring_destroy(bb_ring_t r);
 //   id    : caller-supplied 32-bit identifier.
 //
 // If len > max_entry_bytes: returns BB_ERR_INVALID_ARG, increments truncated
-// counter. Entry is NOT written.
+// counter. Entry is NOT written (same for all policies).
 //
-// If ring is full: oldest entry is evicted before writing, dropped counter++.
+// If ring is full (BB_RING_EVICT_OLDEST): oldest entry is evicted before
+// writing, dropped counter incremented. Returns BB_OK.
+//
+// If ring is full (BB_RING_REJECT_NEW): entry is NOT written, dropped counter
+// incremented. Returns BB_ERR_NO_SPACE. The oldest entry is preserved intact.
 //
 // Returns BB_ERR_INVALID_ARG if r is NULL or (len > 0 && data is NULL).
 bb_err_t bb_ring_push(bb_ring_t r, const void *data, size_t len,
@@ -147,7 +189,12 @@ size_t bb_ring_truncated(bb_ring_t r);
 // Maintenance
 // ---------------------------------------------------------------------------
 
-// bb_ring_clear — discard all entries and reset stats. Does NOT free memory.
+// bb_ring_clear — discard all entries. Does NOT free memory.
+//
+// Resets structural state (head, tail, count, bytes_used) so the ring is
+// empty and ready for reuse. The dropped and truncated counters are
+// intentionally preserved — they are cumulative diagnostics and survive
+// clear boundaries so callers can detect losses across resets.
 void bb_ring_clear(bb_ring_t r);
 
 // ---------------------------------------------------------------------------

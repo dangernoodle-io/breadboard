@@ -287,6 +287,8 @@ static bb_ring_t buffer_get(void)
         bb_err_t err = bb_ring_create(
             (size_t)CONFIG_BB_PUB_BUFFER_MAX_ENTRIES,
             (size_t)BB_PUB_BUFFER_ENTRY_MAX,
+            BB_RING_EVICT_OLDEST,
+            "pub",
             &s_buffer);
         if (err != BB_OK || !s_buffer) {
             bb_log_w(TAG, "store-and-forward: ring create failed (%d)", err);
@@ -1501,7 +1503,14 @@ void bb_pub_test_reset(void)
     s_metrics_prefix[BB_METRICS_PREFIX_MAX - 1] = '\0';
 #if CONFIG_BB_PUB_BUFFER_ENABLE
     if (s_buffer) {
-        bb_ring_clear(s_buffer);
+        // Destroy and recreate so cumulative diagnostic counters (dropped,
+        // truncated) reset to zero — bb_ring_clear intentionally preserves
+        // them across clears for production use.
+        bb_ring_destroy(s_buffer);
+        s_buffer = NULL;
+        bb_ring_create((size_t)CONFIG_BB_PUB_BUFFER_MAX_ENTRIES,
+                       (size_t)BB_PUB_BUFFER_ENTRY_MAX,
+                       BB_RING_EVICT_OLDEST, "pub", &s_buffer);
     }
     s_test_epoch_ms   = -1;
     s_buffer_always   = -1;   /* revert to compile-time default */

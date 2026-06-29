@@ -989,3 +989,8 @@ void test_bb_event_dispatch_unsubscribe_during_walk_is_safe(void)
     // Cleanup: sub_b was already freed by unsubscribe; only sub_a remains.
     if (sub_a) bb_event_unsubscribe(sub_a);
 }
+
+void test_bb_event_topic_name_null_returns_empty(void)
+{
+    TEST_ASSERT_EQUAL_STRING("", bb_event_topic_name(NULL));
+}

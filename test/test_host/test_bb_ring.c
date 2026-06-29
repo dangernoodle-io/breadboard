@@ -15,7 +15,7 @@
 static bb_ring_t make_ring(size_t cap, size_t max_entry)
 {
     bb_ring_t r = NULL;
-    bb_err_t err = bb_ring_create(cap, max_entry, &r);
+    bb_err_t err = bb_ring_create(cap, max_entry, BB_RING_EVICT_OLDEST, "test", &r);
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_NOT_NULL(r);
     return r;
@@ -28,32 +28,36 @@ static bb_ring_t make_ring(size_t cap, size_t max_entry)
 void test_bb_ring_create_basic(void)
 {
     bb_ring_t r = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_ring_create(4, 64, &r));
+    TEST_ASSERT_EQUAL(BB_OK, bb_ring_create(4, 64, BB_RING_EVICT_OLDEST, "basic", &r));
     TEST_ASSERT_NOT_NULL(r);
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_count(r));
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_bytes_used(r));
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_dropped(r));
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_truncated(r));
+    TEST_ASSERT_EQUAL_STRING("basic", bb_ring_name(r));
     bb_ring_destroy(r);
 }
 
 void test_bb_ring_create_zero_capacity_returns_invalid_arg(void)
 {
     bb_ring_t r = NULL;
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_ring_create(0, 64, &r));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_ring_create(0, 64, BB_RING_EVICT_OLDEST, "t", &r));
     TEST_ASSERT_NULL(r);
 }
 
 void test_bb_ring_create_zero_max_entry_returns_invalid_arg(void)
 {
     bb_ring_t r = NULL;
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_ring_create(4, 0, &r));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_ring_create(4, 0, BB_RING_EVICT_OLDEST, "t", &r));
     TEST_ASSERT_NULL(r);
 }
 
 void test_bb_ring_create_null_out_returns_invalid_arg(void)
 {
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_ring_create(4, 64, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_ring_create(4, 64, BB_RING_EVICT_OLDEST, "t", NULL));
 }
 
 void test_bb_ring_destroy_null_noop(void)
@@ -71,7 +75,7 @@ void test_bb_ring_create_struct_alloc_fails(void)
     test_alloc_fail_at = 0;
 
     bb_ring_t r = NULL;
-    bb_err_t err = bb_ring_create(4, 64, &r);
+    bb_err_t err = bb_ring_create(4, 64, BB_RING_EVICT_OLDEST, "t", &r);
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
     TEST_ASSERT_NULL(r);
 
@@ -84,7 +88,7 @@ void test_bb_ring_create_entries_alloc_fails(void)
     test_alloc_fail_at = 1;
 
     bb_ring_t r = NULL;
-    bb_err_t err = bb_ring_create(4, 64, &r);
+    bb_err_t err = bb_ring_create(4, 64, BB_RING_EVICT_OLDEST, "t", &r);
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
     TEST_ASSERT_NULL(r);
 
@@ -97,7 +101,7 @@ void test_bb_ring_create_payload_alloc_fails(void)
     test_alloc_fail_at = 2;
 
     bb_ring_t r = NULL;
-    bb_err_t err = bb_ring_create(4, 64, &r);
+    bb_err_t err = bb_ring_create(4, 64, BB_RING_EVICT_OLDEST, "t", &r);
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
     TEST_ASSERT_NULL(r);
 
@@ -457,7 +461,7 @@ void test_bb_ring_peek_null_buf_probes_metadata(void)
 }
 
 // ---------------------------------------------------------------------------
-// clear() resets count and stats
+// clear() resets structural state; cumulative counters survive
 // ---------------------------------------------------------------------------
 
 void test_bb_ring_clear_resets_all(void)
@@ -473,21 +477,67 @@ void test_bb_ring_clear_resets_all(void)
     bb_ring_push(r, big, sizeof(big), 0, 99);
 
     TEST_ASSERT_EQUAL_size_t(3, bb_ring_count(r));
-    TEST_ASSERT_NOT_EQUAL(0, bb_ring_dropped(r));
-    TEST_ASSERT_EQUAL_size_t(1, bb_ring_truncated(r));
+    size_t dropped_before   = bb_ring_dropped(r);
+    size_t truncated_before = bb_ring_truncated(r);
+    TEST_ASSERT_NOT_EQUAL(0, dropped_before);
+    TEST_ASSERT_EQUAL_size_t(1, truncated_before);
 
     bb_ring_clear(r);
 
+    // Structural state reset
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_count(r));
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_bytes_used(r));
-    TEST_ASSERT_EQUAL_size_t(0, bb_ring_dropped(r));
-    TEST_ASSERT_EQUAL_size_t(0, bb_ring_truncated(r));
+
+    // Cumulative diagnostics survive clear
+    TEST_ASSERT_EQUAL_size_t(dropped_before,   bb_ring_dropped(r));
+    TEST_ASSERT_EQUAL_size_t(truncated_before, bb_ring_truncated(r));
 
     // Ring should be usable after clear
     TEST_ASSERT_EQUAL(BB_OK, bb_ring_push(r, "fresh", 5, 1, 1));
     TEST_ASSERT_EQUAL_size_t(1, bb_ring_count(r));
 
     bb_ring_destroy(r);
+}
+
+void test_bb_ring_clear_preserves_counters_after_evict_dropped(void)
+{
+    // Use REJECT_NEW so we can distinguish clear from create zeroing.
+    bb_ring_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_create(2, 16, BB_RING_REJECT_NEW, "clear_test", &r));
+
+    bb_ring_push(r, "a", 1, 0, 1);
+    bb_ring_push(r, "b", 1, 0, 2);
+    // Ring full — two rejects → dropped = 2
+    bb_ring_push(r, "c", 1, 0, 3);
+    bb_ring_push(r, "d", 1, 0, 4);
+    TEST_ASSERT_EQUAL_size_t(2, bb_ring_dropped(r));
+
+    bb_ring_clear(r);
+
+    // Structural state reset
+    TEST_ASSERT_EQUAL_size_t(0, bb_ring_count(r));
+    TEST_ASSERT_EQUAL_size_t(0, bb_ring_bytes_used(r));
+
+    // dropped counter must survive
+    TEST_ASSERT_EQUAL_size_t(2, bb_ring_dropped(r));
+    TEST_ASSERT_EQUAL_size_t(0, bb_ring_truncated(r));
+
+    // Ring fully usable after clear
+    TEST_ASSERT_EQUAL(BB_OK, bb_ring_push(r, "x", 1, 0, 10));
+    TEST_ASSERT_EQUAL_size_t(1, bb_ring_count(r));
+
+    bb_ring_destroy(r);
+}
+
+// ---------------------------------------------------------------------------
+// NULL-ring push under REJECT_NEW policy
+// ---------------------------------------------------------------------------
+
+void test_bb_ring_reject_new_null_ring_returns_invalid_arg(void)
+{
+    uint8_t data[] = {1, 2, 3};
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_ring_push(NULL, data, sizeof(data), 0, 0));
 }
 
 // ---------------------------------------------------------------------------
@@ -624,7 +674,7 @@ void test_bb_ring_set_allocator_null_args_falls_back_to_default(void)
     bb_ring_set_allocator(NULL, NULL);
 
     bb_ring_t r = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_ring_create(2, 8, &r));
+    TEST_ASSERT_EQUAL(BB_OK, bb_ring_create(2, 8, BB_RING_EVICT_OLDEST, "alloc_t", &r));
     TEST_ASSERT_NOT_NULL(r);
     TEST_ASSERT_EQUAL(BB_OK, bb_ring_push(r, "hi", 2, 0, 1));
     bb_ring_destroy(r);
@@ -894,5 +944,174 @@ void test_bb_ring_peek_at_null_buf_probes_metadata(void)
     TEST_ASSERT_EQUAL_INT64(999, out_ts);
     TEST_ASSERT_EQUAL_UINT32(77, out_id);
 
+    bb_ring_destroy(r);
+}
+
+// ---------------------------------------------------------------------------
+// BB_RING_REJECT_NEW policy (single named constructor)
+// ---------------------------------------------------------------------------
+
+void test_bb_ring_create_evict_oldest(void)
+{
+    // Verify EVICT_OLDEST policy works via the unified constructor.
+    bb_ring_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_create(4, 32, BB_RING_EVICT_OLDEST, "evict_test", &r));
+    TEST_ASSERT_NOT_NULL(r);
+    TEST_ASSERT_EQUAL_size_t(0, bb_ring_count(r));
+
+    // Overflow: should evict (not reject)
+    for (uint32_t i = 0; i < 6; i++) {
+        bb_ring_push(r, "x", 1, 0, i);
+    }
+    TEST_ASSERT_EQUAL_size_t(4, bb_ring_count(r));
+    TEST_ASSERT_EQUAL_size_t(2, bb_ring_dropped(r));
+
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_create_invalid_policy_returns_invalid_arg(void)
+{
+    bb_ring_t r = NULL;
+    // policy value 99 is not a recognised enum value
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_ring_create(4, 32, (bb_ring_full_policy_t)99, "t", &r));
+    TEST_ASSERT_NULL(r);
+}
+
+void test_bb_ring_reject_new_push_on_full_returns_no_space(void)
+{
+    bb_ring_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_create(3, 16, BB_RING_REJECT_NEW, "reject_full", &r));
+    TEST_ASSERT_NOT_NULL(r);
+
+    // Fill to capacity
+    TEST_ASSERT_EQUAL(BB_OK, bb_ring_push(r, "aaa", 3, 1, 1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_ring_push(r, "bbb", 3, 2, 2));
+    TEST_ASSERT_EQUAL(BB_OK, bb_ring_push(r, "ccc", 3, 3, 3));
+    TEST_ASSERT_EQUAL_size_t(3, bb_ring_count(r));
+    TEST_ASSERT_EQUAL_size_t(0, bb_ring_dropped(r));
+
+    // One more push must be rejected
+    bb_err_t err = bb_ring_push(r, "ddd", 3, 4, 4);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+
+    // Count must not change
+    TEST_ASSERT_EQUAL_size_t(3, bb_ring_count(r));
+
+    // Dropped counter must have incremented
+    TEST_ASSERT_EQUAL_size_t(1, bb_ring_dropped(r));
+
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_reject_new_oldest_entry_intact_after_reject(void)
+{
+    bb_ring_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_create(2, 32, BB_RING_REJECT_NEW, "reject_intact", &r));
+
+    bb_ring_push(r, "first", 5, 100, 10);
+    bb_ring_push(r, "second", 6, 200, 20);
+
+    // Ring is full — reject new entry
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_ring_push(r, "third", 5, 300, 30));
+
+    // Oldest entry (id=10, "first") must still be the oldest (not evicted)
+    char buf[32] = {0};
+    size_t out_len;
+    int64_t out_ts;
+    uint32_t out_id;
+
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_peek_oldest(r, buf, sizeof(buf), &out_len, &out_ts, &out_id));
+    TEST_ASSERT_EQUAL_UINT32(10, out_id);
+    TEST_ASSERT_EQUAL_INT64(100, out_ts);
+    TEST_ASSERT_EQUAL_size_t(5, out_len);
+    TEST_ASSERT_EQUAL_STRING("first", buf);
+
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_reject_new_multiple_rejects_accumulate_dropped(void)
+{
+    bb_ring_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_create(2, 16, BB_RING_REJECT_NEW, "reject_multi", &r));
+
+    bb_ring_push(r, "a", 1, 0, 1);
+    bb_ring_push(r, "b", 1, 0, 2);
+
+    // Five rejections
+    for (int i = 0; i < 5; i++) {
+        TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_ring_push(r, "x", 1, 0, (uint32_t)(10 + i)));
+    }
+
+    TEST_ASSERT_EQUAL_size_t(2, bb_ring_count(r));
+    TEST_ASSERT_EQUAL_size_t(5, bb_ring_dropped(r));
+
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_reject_new_pop_then_push_succeeds(void)
+{
+    bb_ring_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_create(2, 16, BB_RING_REJECT_NEW, "reject_pop", &r));
+
+    bb_ring_push(r, "a", 1, 0, 1);
+    bb_ring_push(r, "b", 1, 0, 2);
+
+    // Full — reject
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_ring_push(r, "c", 1, 0, 3));
+    TEST_ASSERT_EQUAL_size_t(1, bb_ring_dropped(r));
+
+    // Pop one slot free
+    TEST_ASSERT_EQUAL(BB_OK, bb_ring_pop_oldest(r));
+
+    // Now push should succeed
+    TEST_ASSERT_EQUAL(BB_OK, bb_ring_push(r, "c", 1, 0, 3));
+    TEST_ASSERT_EQUAL_size_t(2, bb_ring_count(r));
+
+    bb_ring_destroy(r);
+}
+
+// ---------------------------------------------------------------------------
+// bb_ring_name accessor
+// ---------------------------------------------------------------------------
+
+void test_bb_ring_name_returns_stored_name(void)
+{
+    bb_ring_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_create(4, 16, BB_RING_EVICT_OLDEST, "myring", &r));
+    TEST_ASSERT_EQUAL_STRING("myring", bb_ring_name(r));
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_name_null_ring_returns_empty(void)
+{
+    TEST_ASSERT_EQUAL_STRING("", bb_ring_name(NULL));
+}
+
+void test_bb_ring_name_null_name_stores_empty(void)
+{
+    bb_ring_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_create(4, 16, BB_RING_EVICT_OLDEST, NULL, &r));
+    TEST_ASSERT_EQUAL_STRING("", bb_ring_name(r));
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_name_truncated_at_limit(void)
+{
+    // Name longer than BB_RING_NAME_MAX - 1 must be silently truncated.
+    const char *long_name = "this_name_is_definitely_longer_than_24_chars";
+    bb_ring_t r = NULL;
+    TEST_ASSERT_EQUAL(BB_OK,
+                      bb_ring_create(2, 8, BB_RING_EVICT_OLDEST, long_name, &r));
+    // Stored name must be exactly BB_RING_NAME_MAX - 1 chars, NUL-terminated.
+    TEST_ASSERT_EQUAL_size_t(BB_RING_NAME_MAX - 1, strlen(bb_ring_name(r)));
     bb_ring_destroy(r);
 }

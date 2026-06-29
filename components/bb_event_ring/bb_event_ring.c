@@ -145,7 +145,10 @@ bb_err_t bb_event_ring_attach_ex(bb_event_topic_t topic, size_t capacity,
     // Create the shared ring primitive — allocates entries[] + payload[] via
     // the active bb_ring allocator (SPIRAM-preferred on ESP-IDF).
     // This consumes alloc indices 1 and 2 when a test failing allocator is set.
-    bb_err_t err = bb_ring_create(capacity, max_entry, &ring->ring);
+    // Name the ring after the topic so diagnostics (bb_ring_name, future
+    // telemetry registry B1-414) identify the owner without a separate map.
+    bb_err_t err = bb_ring_create(capacity, max_entry, BB_RING_EVICT_OLDEST,
+                                  bb_event_topic_name(topic), &ring->ring);
     if (err != BB_OK) {
         bb_log_e(TAG, "bb_ring_create failed: %d", (int)err);
         s_snap_free(ring);
