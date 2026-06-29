@@ -423,3 +423,13 @@ void bb_websocket_host_set_client_active(int fd, bool active)
         s_client_active[fd] = active;
     }
 }
+
+// ---------------------------------------------------------------------------
+// bb_websocket_close_client (host — no-op)
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_websocket_close_client(bb_http_handle_t server, int fd)
+{
+    (void)server; (void)fd;
+    return BB_OK;
+}

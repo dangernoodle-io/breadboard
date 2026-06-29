@@ -30,6 +30,19 @@ extern "C" {
  */
 bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out);
 
+/**
+ * Close all active /ws client sockets to reclaim heap during a TLS window.
+ * Clients will auto-reconnect after the window closes. Idempotent.
+ * No-op on host (no httpd sessions to close); sub tables are still cleared.
+ */
+bb_err_t bb_sink_ws_suspend(void);
+
+/**
+ * Re-enable /ws broadcast sends (clients reconnect on their own).
+ * Exists for API symmetry with bb_sink_ws_suspend().
+ */
+void bb_sink_ws_resume(void);
+
 #ifdef BB_SINK_WS_TESTING
 /** Reset internal state for test isolation. */
 void bb_sink_ws_reset_for_test(void);
