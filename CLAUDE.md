@@ -109,7 +109,8 @@ This should be empty (outside the LVGL exception). The CI lint step (`make check
 Assets are embedded via `bb_embed_assets()` / `bb_embed_site()` cmake helpers in
 `cmake/bbtool.cmake`; consumers include it before `project()`. See
 `scripts/bbtool/README.md` for full usage, wiring, and the `flash_factory.py`
-post-script.
+post-script. `bb_lint()` (same file) creates an opt-in linter target:
+`cmake --build build --target bb_lint` — never runs on a normal build.
 
 ## Registry (handler-lifecycle)
 
