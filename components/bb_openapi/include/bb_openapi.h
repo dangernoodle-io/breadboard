@@ -106,6 +106,47 @@ bb_err_t bb_openapi_validate(const char *schema_json,
                              bb_json_t value,
                              bb_openapi_validate_err_t *err);
 
+// ---------------------------------------------------------------------------
+// Schema component registry
+// ---------------------------------------------------------------------------
+// Maximum number of schema components that can be registered.
+// Default matches BB_EVENT_MAX_TOPICS default (8).
+#define BB_OPENAPI_SCHEMA_REGISTRY_CAP 8
+
+// Schema entry returned by bb_openapi_schema_get.
+typedef struct {
+    const char *component_name;  // key under components/schemas
+    const char *schema_literal;  // JSON Schema literal (static storage)
+    const char *sse_topic;       // bb_event topic name; NULL = REST-only
+} bb_openapi_schema_entry_t;
+
+// Register a named OpenAPI component schema.
+// component_name: key under components/schemas (e.g. "LogEvent")
+// schema_literal: complete JSON Schema literal (must be static storage; pointer stored)
+// sse_topic:      bb_event topic this schema describes; NULL for REST-only
+//
+// Returns BB_OK on success.
+// Returns BB_ERR_NO_SPACE if the registry is full (cap BB_OPENAPI_SCHEMA_REGISTRY_CAP).
+// Returns BB_ERR_INVALID_ARG if component_name or schema_literal is NULL.
+// Duplicate component_name: silently deduplicated (idempotent; first-wins).
+bb_err_t bb_openapi_register_schema(const char *component_name,
+                                    const char *schema_literal,
+                                    const char *sse_topic);
+
+// Convenience: bb_openapi_register_schema(component_name, schema_literal, topic_name).
+bb_err_t bb_openapi_register_topic_schema(const char *topic_name,
+                                          const char *schema_literal,
+                                          const char *component_name);
+
+// Clear the schema registry (test isolation).
+void bb_openapi_schema_registry_clear(void);
+
+// Number of registered schemas.
+size_t bb_openapi_schema_count(void);
+
+// Get a schema entry by index. Returns false if idx >= count or out is NULL.
+bool bb_openapi_schema_get(size_t idx, bb_openapi_schema_entry_t *out);
+
 #ifdef __cplusplus
 }
 #endif

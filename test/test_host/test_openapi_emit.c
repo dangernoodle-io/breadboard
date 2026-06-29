@@ -2141,3 +2141,79 @@ void test_openapi_emit_stream_handles_multiple_methods_per_path(void)
 
     bb_http_host_capture_free(&cap);
 }
+
+// ---------------------------------------------------------------------------
+// components/schemas — tree path
+// ---------------------------------------------------------------------------
+
+static const char k_component_schema[] =
+    "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"}}}";
+
+void test_openapi_emit_components_schemas_present(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_foo);
+    bb_openapi_register_schema("Foo", k_component_schema, NULL);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    bb_json_t components = bb_json_obj_get_item(doc, "components");
+    TEST_ASSERT_NOT_NULL(components);
+    bb_json_t schemas = bb_json_obj_get_item(components, "schemas");
+    TEST_ASSERT_NOT_NULL(schemas);
+    bb_json_t foo_schema = bb_json_obj_get_item(schemas, "Foo");
+    TEST_ASSERT_NOT_NULL(foo_schema);
+
+    bb_json_free(doc);
+}
+
+void test_openapi_emit_ref_literal_passthrough(void)
+{
+    bb_http_route_registry_clear();
+    // Route whose 200 schema is a $ref — verifies the literal flows through
+    // bb_json_obj_set_raw unchanged.
+    static const bb_route_response_t ref_responses[] = {
+        { .status = 200, .content_type = "application/json",
+          .schema = "{\"$ref\":\"#/components/schemas/Foo\"}",
+          .description = "foo ref" },
+        { .status = 0 },
+    };
+    static const bb_route_t ref_route = {
+        .method = BB_HTTP_GET, .path = "/api/ref-test", .tag = "ref",
+        .summary = "ref test", .responses = ref_responses,
+        .handler = stub_handler,
+    };
+    bb_http_register_described_route(NULL, &ref_route);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    char *s = bb_json_serialize(doc);
+    bb_json_free(doc);
+    TEST_ASSERT_NOT_NULL(s);
+    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/Foo\""));
+    bb_json_free_str(s);
+}
+
+void test_openapi_emit_oom_components_section(void)
+{
+    bb_http_route_registry_clear();
+    bb_http_register_described_route(NULL, &s_route_foo);
+    bb_openapi_register_schema("Foo", k_component_schema, NULL);
+
+    bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
+    // Allocations: root=0, info=1, paths_obj=2, path_item=3, op=4, tags=5,
+    // responses=6, resp_obj=7, resp_content=8, resp_media=9, resp_schema=10,
+    // components=11.  Failing at 11 → components NULL → graceful skip.
+    bb_json_host_force_alloc_fail_after(11);
+    bb_json_t doc = bb_openapi_emit(&meta);
+    TEST_ASSERT_NOT_NULL(doc);
+    // components section gracefully omitted
+    TEST_ASSERT_NULL(bb_json_obj_get_item(doc, "components"));
+    bb_json_host_force_alloc_fail_after(-1);
+    bb_json_free(doc);
+    bb_openapi_schema_registry_clear();
+}

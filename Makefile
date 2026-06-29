@@ -24,6 +24,8 @@ coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging
 	gcovr --root . --filter 'components/' \
 	    --exclude-throw-branches \
 	    --exclude-unreachable-branches \
+	    --exclude-directories '\.claude' \
+	    --merge-mode-functions=merge-use-line-max \
 	    --txt-metric branch \
 	    --print-summary \
 	    --coveralls gcovr-coveralls.json \

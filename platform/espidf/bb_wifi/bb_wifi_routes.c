@@ -8,6 +8,7 @@
 
 #include "bb_http.h"
 #include "bb_json.h"
+#include "bb_openapi.h"
 #include "bb_registry.h"
 
 #include "esp_wifi.h"
@@ -79,19 +80,22 @@ static bb_err_t scan_handler(bb_http_request_t *req)
 // Route descriptor
 // ---------------------------------------------------------------------------
 
+static const char k_wifi_info_schema[] =
+    "{\"title\":\"WifiInfo\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"ssid\":{\"type\":\"string\"},"
+    "\"bssid\":{\"type\":\"string\"},"
+    "\"rssi\":{\"type\":\"integer\"},"
+    "\"ip\":{\"type\":\"string\"},"
+    "\"connected\":{\"type\":\"boolean\"},"
+    "\"disc_reason\":{\"type\":\"integer\"},"
+    "\"disc_age_s\":{\"type\":\"integer\"},"
+    "\"retry_count\":{\"type\":\"integer\"}},"
+    "\"required\":[\"ssid\",\"connected\"]}";
+
 static const bb_route_response_t s_wifi_responses[] = {
     { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"ssid\":{\"type\":\"string\"},"
-      "\"bssid\":{\"type\":\"string\"},"
-      "\"rssi\":{\"type\":\"integer\"},"
-      "\"ip\":{\"type\":\"string\"},"
-      "\"connected\":{\"type\":\"boolean\"},"
-      "\"disc_reason\":{\"type\":\"integer\"},"
-      "\"disc_age_s\":{\"type\":\"integer\"},"
-      "\"retry_count\":{\"type\":\"integer\"}},"
-      "\"required\":[\"ssid\",\"connected\"]}",
+      "{\"$ref\":\"#/components/schemas/WifiInfo\"}",
       "current Wi-Fi connection info" },
     { 0 },
 };
@@ -238,6 +242,7 @@ static const bb_route_t s_wifi_patch_route = {
 static bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
+    bb_openapi_register_schema("WifiInfo", k_wifi_info_schema, NULL);
     bb_err_t rc;
     rc = bb_http_register_described_route(server, &s_wifi_route);
     if (rc != BB_OK) return rc;

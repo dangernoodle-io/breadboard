@@ -86,12 +86,67 @@ static const bb_route_t s_route_health = {
     .handler              = stub_handler,
 };
 
+// SSE fixture — text/event-stream + schema==NULL drives the oneOf synthesis
+// against SSE-tagged registry entries (LogEvent). Mirrors bb_event_routes'
+// GET /api/events so the emitted doc exercises the full $ref/oneOf pipeline.
+static const bb_route_response_t s_events_responses[] = {
+    {
+        .status       = 200,
+        .content_type = "text/event-stream",
+        .schema       = NULL,
+        .description  = "Server-Sent Events stream",
+    },
+    { .status = 0 },
+};
+
+static const bb_route_t s_route_events = {
+    .method               = BB_HTTP_GET,
+    .path                 = "/api/events",
+    .tag                  = "events",
+    .summary              = "Subscribe to the Server-Sent Events stream",
+    .operation_id         = NULL,
+    .request_content_type = NULL,
+    .request_schema       = NULL,
+    .responses            = s_events_responses,
+    .handler              = stub_handler,
+};
+
+// Schema literals duplicated minimally from the platform files (not linked into
+// this host tool): keep byte-identical to k_log_event_schema (bb_log_event.c)
+// and k_wifi_info_schema (bb_wifi_routes.c).
+static const char k_log_event_schema[] =
+    "{\"title\":\"LogEvent\",\"x-sse-topic\":\"log\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"ts\":{\"type\":\"integer\"},"
+    "\"level\":{\"type\":\"string\",\"enum\":[\"I\",\"W\",\"E\",\"D\",\"V\",\"?\"]},"
+    "\"tag\":{\"type\":\"string\"},"
+    "\"msg\":{\"type\":\"string\"}},"
+    "\"required\":[\"ts\",\"level\",\"tag\",\"msg\"]}";
+
+static const char k_wifi_info_schema[] =
+    "{\"title\":\"WifiInfo\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"ssid\":{\"type\":\"string\"},"
+    "\"bssid\":{\"type\":\"string\"},"
+    "\"rssi\":{\"type\":\"integer\"},"
+    "\"ip\":{\"type\":\"string\"},"
+    "\"connected\":{\"type\":\"boolean\"},"
+    "\"disc_reason\":{\"type\":\"integer\"},"
+    "\"disc_age_s\":{\"type\":\"integer\"},"
+    "\"retry_count\":{\"type\":\"integer\"}},"
+    "\"required\":[\"ssid\",\"connected\"]}";
+
 static void register_fixtures(void)
 {
     bb_http_route_registry_clear();
     bb_http_register_described_route(NULL, &s_route_stats);
     bb_http_register_described_route(NULL, &s_route_pool);
     bb_http_register_described_route(NULL, &s_route_health);
+    bb_http_register_described_route(NULL, &s_route_events);
+
+    bb_openapi_schema_registry_clear();
+    bb_openapi_register_topic_schema("log", k_log_event_schema, "LogEvent");
+    bb_openapi_register_schema("WifiInfo", k_wifi_info_schema, NULL);
 }
 
 #endif /* BB_OPENAPI_HARNESS_FIXTURES */
