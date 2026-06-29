@@ -320,6 +320,17 @@ bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t server,
     return bb_http_register_route_descriptor_only(descriptor);
 }
 
+// ---------------------------------------------------------------------------
+// bb_websocket_close_client
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_websocket_close_client(bb_http_handle_t server, int fd)
+{
+    if (!server || fd < 0) return BB_ERR_INVALID_ARG;
+    esp_err_t e = httpd_sess_trigger_close((httpd_handle_t)server, fd);
+    return (bb_err_t)e;
+}
+
 #else // !CONFIG_HTTPD_WS_SUPPORT
 
 // Stub implementations when WebSocket support is compiled out.
@@ -358,6 +369,9 @@ bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t s,
                                                   bb_websocket_handler_fn h,
                                                   const bb_route_t *d)
 { (void)s; (void)p; (void)h; (void)d; return BB_ERR_UNSUPPORTED; }
+
+bb_err_t bb_websocket_close_client(bb_http_handle_t s, int fd)
+{ (void)s; (void)fd; return BB_ERR_UNSUPPORTED; }
 
 #endif // CONFIG_HTTPD_WS_SUPPORT
 #endif // ESP_PLATFORM

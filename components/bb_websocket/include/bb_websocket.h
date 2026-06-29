@@ -143,6 +143,11 @@ bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t server,
 // none was set before inject_frame (e.g. handler called without a fake fd).
 int bb_websocket_req_fd(bb_http_request_t *req);
 
+// Close a single /ws client session to reclaim heap during a TLS window.
+// On ESP-IDF: calls httpd_sess_trigger_close; returns BB_OK on success.
+// On host: no-op, returns BB_OK.
+bb_err_t bb_websocket_close_client(bb_http_handle_t server, int fd);
+
 // Max fd probed by broadcast_all.  On ESP-IDF, LWIP socket fds are offset by
 // LWIP_SOCKET_OFFSET = FD_SETSIZE - CONFIG_LWIP_MAX_SOCKETS (typically 64-12=52),
 // so the scan upper bound must be FD_SETSIZE (64), NOT CONFIG_HTTPD_MAX_SOCKETS

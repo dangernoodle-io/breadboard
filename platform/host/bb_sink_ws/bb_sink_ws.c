@@ -50,6 +50,7 @@ typedef struct {
 } client_sub_t;
 
 static client_sub_t s_clients[BB_WEBSOCKET_MAX_FD];
+static bool s_suspended = false;
 
 // Clear all subscription state for a client slot.
 static void client_sub_clear(int fd)
@@ -184,6 +185,8 @@ static sink_ws_ctx_t s_ctx;
 static bb_err_t broadcast_filtered(const char *ch,
                                    const char *buf, size_t len)
 {
+    if (s_suspended) return BB_OK;
+
     bb_websocket_frame_t frame = {
         .final   = true,
         .type    = BB_WS_TYPE_TEXT,
@@ -268,6 +271,28 @@ static bb_err_t sink_ws_publish(void *ctx, const char *topic,
 }
 
 // ---------------------------------------------------------------------------
+// Suspend / resume
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_sink_ws_suspend(void)
+{
+    if (s_suspended) return BB_OK;
+    for (int fd = 0; fd < BB_WEBSOCKET_MAX_FD; fd++) {
+        if (bb_websocket_is_client(s_ctx.server, fd)) {
+            bb_websocket_close_client(s_ctx.server, fd);
+            client_sub_clear(fd);
+        }
+    }
+    s_suspended = true;
+    return BB_OK;
+}
+
+void bb_sink_ws_resume(void)
+{
+    s_suspended = false;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -305,6 +330,7 @@ void bb_sink_ws_reset_for_test(void)
     memset(&s_ctx, 0, sizeof(s_ctx));
     memset(s_clients, 0, sizeof(s_clients));
     s_malloc_fn = NULL;
+    s_suspended = false;
 }
 
 // Inject a log line as if the logs pump had drained it — broadcasts

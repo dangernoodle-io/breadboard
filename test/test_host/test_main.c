@@ -1364,6 +1364,9 @@ void test_bb_sink_ws_sub_events_group(void);
 void test_bb_sink_ws_sub_replace_on_resub(void);
 void test_bb_sink_ws_log_inject_malloc_fail_returns_no_space(void);
 void test_bb_sink_ws_publish_malloc_fail_returns_no_space(void);
+void test_sink_ws_suspend_clears_clients(void);
+void test_sink_ws_suspend_idempotent(void);
+void test_sink_ws_resume_clears_flag(void);
 
 // Forward declarations from test_bb_pub_parity.c
 void test_bb_pub_parity_register_source_ex_null_tags_same_behavior(void);
@@ -6199,6 +6202,9 @@ int main(void) {
     RUN_TEST(test_bb_sink_ws_sub_replace_on_resub);
     RUN_TEST(test_bb_sink_ws_log_inject_malloc_fail_returns_no_space);
     RUN_TEST(test_bb_sink_ws_publish_malloc_fail_returns_no_space);
+    RUN_TEST(test_sink_ws_suspend_clears_clients);
+    RUN_TEST(test_sink_ws_suspend_idempotent);
+    RUN_TEST(test_sink_ws_resume_clears_flag);
 
     // bb_pub telemetry SSOT fidelity
     RUN_TEST(test_bb_pub_telemetry_fidelity_serialize_once_per_tick_sinks);

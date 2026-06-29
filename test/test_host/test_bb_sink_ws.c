@@ -545,6 +545,72 @@ void test_bb_sink_ws_publish_malloc_fail_returns_no_space(void)
     test_alloc_fail_at = -1;
 }
 
+// ---------------------------------------------------------------------------
+// Suspend / resume tests
+// ---------------------------------------------------------------------------
+
+// suspend with active clients clears sub tables; subsequent broadcast delivers to none.
+void test_sink_ws_suspend_clears_clients(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(3, true);
+    bb_websocket_host_set_client_active(5, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 3, "{\"sub\":[\"telemetry\"]}");
+    inject_sub(req, 5, "{\"sub\":[\"telemetry\"]}");
+
+    // Pre-suspend: both clients receive.
+    bb_err_t err = s.publish(s.ctx, "m/h/power", "{\"v\":1}", 7);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(2, bb_websocket_host_async_count());
+    bb_websocket_host_async_reset();
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
+
+    // Post-suspend: no client receives.
+    err = s.publish(s.ctx, "m/h/power", "{\"v\":2}", 7);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// suspend is idempotent: second call returns BB_OK without crashing.
+void test_sink_ws_suspend_idempotent(void)
+{
+    ws_sink_setup();
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
+}
+
+// resume clears the suspended flag; broadcasts deliver again after re-subscribe.
+void test_sink_ws_resume_clears_flag(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(2, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
+    bb_sink_ws_resume();
+
+    // Re-inject subscription (suspend cleared sub table).
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 2, "{\"sub\":[\"telemetry\"]}");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/info", "{\"x\":1}", 7);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+}
+
 // (d) malformed sub frame is ignored safely — state for the fd unchanged.
 void test_bb_sink_ws_malformed_sub_frame_ignored(void)
 {

@@ -65,6 +65,7 @@ typedef struct {
 } client_sub_t;
 
 static client_sub_t s_clients[BB_WEBSOCKET_MAX_FD];
+static bool s_suspended = false;
 
 // Clear all subscription state for a client slot.
 static void client_sub_clear(int fd)
@@ -299,7 +300,7 @@ static void log_pump_task(void *arg)
                 int written = snprintf(frame_buf, frame_len,
                                        "{\"ch\":\"logs\",\"data\":\"%.*s\"}",
                                        (int)n, buf);
-                if (written > 0 && (size_t)written < frame_len) {
+                if (written > 0 && (size_t)written < frame_len && !s_suspended) {
                     broadcast_filtered("logs", frame_buf, (size_t)written);
                 }
                 free(frame_buf);
@@ -340,11 +341,30 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
     return BB_OK;
 }
 
+bb_err_t bb_sink_ws_suspend(void)
+{
+    if (s_suspended) return BB_OK;
+    for (int fd = 0; fd < BB_WEBSOCKET_MAX_FD; fd++) {
+        if (bb_websocket_is_client(s_ctx.server, fd)) {
+            bb_websocket_close_client(s_ctx.server, fd);
+            client_sub_clear(fd);
+        }
+    }
+    s_suspended = true;
+    return BB_OK;
+}
+
+void bb_sink_ws_resume(void)
+{
+    s_suspended = false;
+}
+
 #ifdef BB_SINK_WS_TESTING
 void bb_sink_ws_reset_for_test(void)
 {
     memset(&s_ctx, 0, sizeof(s_ctx));
     memset(s_clients, 0, sizeof(s_clients));
+    s_suspended = false;
 }
 #endif
 
