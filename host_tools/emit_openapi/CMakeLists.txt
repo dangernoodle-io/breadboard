@@ -19,7 +19,7 @@ if(NOT cJSON_FOUND)
     FetchContent_MakeAvailable(cjson)
     set(CJSON_TARGET cjson)
 else()
-    set(CJSON_TARGET cJSON::cJSON)
+    set(CJSON_TARGET cjson)
 endif()
 
 add_executable(emit_openapi
@@ -28,6 +28,9 @@ add_executable(emit_openapi
     "${BB_ROOT}/platform/espidf/bb_json/bb_json_cjson.c"
     "${BB_ROOT}/components/bb_http/src/route_registry.c"
     "${BB_ROOT}/components/bb_http/src/http_utils.c"
+    "${BB_ROOT}/components/bb_http/src/bb_http_query.c"
+    "${BB_ROOT}/components/bb_http/src/bb_http_status.c"
+    "${BB_ROOT}/components/bb_http/src/bb_http_api_dispatch.c"
     "${BB_ROOT}/platform/host/bb_http/bb_http_host.c"
 )
 
@@ -37,7 +40,18 @@ target_include_directories(emit_openapi PRIVATE
     "${BB_ROOT}/components/bb_json/include"
     "${BB_ROOT}/components/bb_log/include"
     "${BB_ROOT}/components/bb_nv/include"
+    "${BB_ROOT}/components/bb_core/include"
+    "${BB_ROOT}/platform/host/bb_json"
+    "${BB_ROOT}/platform/host/bb_http/include"
 )
+
+# cJSON header discovery: homebrew installs cJSON.h under <prefix>/cjson/,
+# which requires adding the cjson subdirectory explicitly.
+if(cJSON_FOUND)
+    foreach(_inc IN LISTS CJSON_INCLUDE_DIRS)
+        target_include_directories(emit_openapi PRIVATE "${_inc}" "${_inc}/cjson")
+    endforeach()
+endif()
 
 target_compile_definitions(emit_openapi PRIVATE
     BB_OPENAPI_HARNESS_FIXTURES

@@ -1,11 +1,69 @@
 #include "bb_openapi.h"
 #include "bb_log.h"
 
+#include <stdbool.h>
 #include <string.h>
 #include <ctype.h>
 #include <stdio.h>
 
 static const char *TAG = "bb_openapi_emit";
+
+// ---------------------------------------------------------------------------
+// Schema component registry
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    const char *component_name;
+    const char *schema_literal;
+    const char *sse_topic;
+} schema_entry_t;
+
+static schema_entry_t s_schema_registry[BB_OPENAPI_SCHEMA_REGISTRY_CAP];
+static size_t         s_schema_count = 0;
+
+bb_err_t bb_openapi_register_schema(const char *component_name,
+                                    const char *schema_literal,
+                                    const char *sse_topic)
+{
+    if (!component_name || !schema_literal) return BB_ERR_INVALID_ARG;
+    for (size_t i = 0; i < s_schema_count; i++) {
+        if (strcmp(s_schema_registry[i].component_name, component_name) == 0) {
+            return BB_OK;
+        }
+    }
+    if (s_schema_count >= BB_OPENAPI_SCHEMA_REGISTRY_CAP) return BB_ERR_NO_SPACE;
+    s_schema_registry[s_schema_count].component_name = component_name;
+    s_schema_registry[s_schema_count].schema_literal = schema_literal;
+    s_schema_registry[s_schema_count].sse_topic      = sse_topic;
+    s_schema_count++;
+    return BB_OK;
+}
+
+bb_err_t bb_openapi_register_topic_schema(const char *topic_name,
+                                          const char *schema_literal,
+                                          const char *component_name)
+{
+    return bb_openapi_register_schema(component_name, schema_literal, topic_name);
+}
+
+void bb_openapi_schema_registry_clear(void)
+{
+    s_schema_count = 0;
+}
+
+size_t bb_openapi_schema_count(void)
+{
+    return s_schema_count;
+}
+
+bool bb_openapi_schema_get(size_t idx, bb_openapi_schema_entry_t *out)
+{
+    if (idx >= s_schema_count || !out) return false;
+    out->component_name = s_schema_registry[idx].component_name;
+    out->schema_literal = s_schema_registry[idx].schema_literal;
+    out->sse_topic      = s_schema_registry[idx].sse_topic;
+    return true;
+}
 
 #define UNIQUE_PATH_CAP 64
 
@@ -232,6 +290,42 @@ static bb_json_t build_operation(const bb_route_t *route)
                     bb_json_free(content);
                     bb_json_free(media);
                 }
+            } else if (r->content_type &&
+                       strcmp(r->content_type, "text/event-stream") == 0) {
+                // SSE route with no schema: synthesize oneOf from registered SSE topics.
+                size_t sse_count = 0;
+                for (size_t k = 0; k < s_schema_count; k++) {
+                    if (s_schema_registry[k].sse_topic) sse_count++;
+                }
+                if (sse_count > 0) {
+                    bb_json_t content = bb_json_obj_new();
+                    bb_json_t media   = bb_json_obj_new();
+                    bb_json_t schema  = bb_json_obj_new();
+                    bb_json_t one_of  = bb_json_arr_new();
+                    if (content && media && schema && one_of) {
+                        for (size_t k = 0; k < s_schema_count; k++) {
+                            if (!s_schema_registry[k].sse_topic) continue;
+                            bb_json_t ref = bb_json_obj_new();
+                            if (ref) {
+                                char ref_val[80];
+                                snprintf(ref_val, sizeof(ref_val),
+                                         "#/components/schemas/%s",
+                                         s_schema_registry[k].component_name);
+                                bb_json_obj_set_string(ref, "$ref", ref_val);
+                                bb_json_arr_append_obj(one_of, ref);
+                            }
+                        }
+                        bb_json_obj_set_arr(schema, "oneOf", one_of);
+                        bb_json_obj_set_obj(media, "schema", schema);
+                        bb_json_obj_set_obj(content, "text/event-stream", media);
+                        bb_json_obj_set_obj(resp_obj, "content", content);
+                    } else {
+                        bb_json_free(content);
+                        bb_json_free(media);
+                        bb_json_free(schema);
+                        bb_json_free(one_of);
+                    }
+                }
             }
 
             bb_json_obj_set_obj(responses, status_key, resp_obj);
@@ -322,6 +416,24 @@ bb_json_t bb_openapi_emit(const bb_openapi_meta_t *meta)
     }
 
     bb_json_obj_set_obj(root, "paths", paths_obj);
+
+    // components/schemas section (if registry non-empty)
+    if (s_schema_count > 0) {
+        bb_json_t components = bb_json_obj_new();
+        bb_json_t schemas    = bb_json_obj_new();
+        if (components && schemas) {
+            for (size_t i = 0; i < s_schema_count; i++) {
+                bb_json_obj_set_raw(schemas,
+                                    s_schema_registry[i].component_name,
+                                    s_schema_registry[i].schema_literal);
+            }
+            bb_json_obj_set_obj(components, "schemas", schemas);
+            bb_json_obj_set_obj(root, "components", components);
+        } else {
+            bb_json_free(components);
+            bb_json_free(schemas);
+        }
+    }
 
     return root;
 }
@@ -464,5 +576,31 @@ bb_err_t bb_openapi_emit_stream(bb_http_request_t *req,
         if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE
     }
 
-    return bb_http_resp_send_chunk(req, "}}", -1);
+    // Close paths object.
+    bb_err_t ferr = bb_http_resp_send_chunk(req, "}", -1);
+    if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
+
+    // components/schemas section — one schema literal streamed at a time.
+    if (s_schema_count > 0) {
+        ferr = bb_http_resp_send_chunk(req, ",\"components\":{\"schemas\":{", -1);
+        if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
+        for (size_t i = 0; i < s_schema_count; i++) {
+            if (i > 0) {
+                ferr = bb_http_resp_send_chunk(req, ",", -1);
+                if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
+            }
+            ferr = bb_http_resp_send_chunk(req, "\"", -1);
+            if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
+            ferr = bb_http_resp_send_chunk(req, s_schema_registry[i].component_name, -1);
+            if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
+            ferr = bb_http_resp_send_chunk(req, "\":", -1);
+            if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
+            ferr = bb_http_resp_send_chunk(req, s_schema_registry[i].schema_literal, -1);
+            if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
+        }
+        ferr = bb_http_resp_send_chunk(req, "}}", -1);  // closes schemas + components
+        if (ferr != BB_OK) return ferr;  // LCOV_EXCL_BR_LINE
+    }
+
+    return bb_http_resp_send_chunk(req, "}", -1);  // closes root
 }

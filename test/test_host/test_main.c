@@ -1,4 +1,5 @@
 #include "unity.h"
+#include "bb_openapi.h"
 #include "bb_pub.h"
 #include "bb_sink_event.h"
 #include "bb_sink_ws.h"
@@ -838,6 +839,37 @@ void test_openapi_emit_stream_null_args_return_invalid_arg(void);
 void test_openapi_emit_stream_includes_servers_and_description(void);
 void test_openapi_emit_stream_applies_defaults_when_meta_fields_missing(void);
 void test_openapi_emit_stream_handles_multiple_methods_per_path(void);
+void test_openapi_emit_components_schemas_present(void);
+void test_openapi_emit_ref_literal_passthrough(void);
+void test_openapi_emit_oom_components_section(void);
+
+// Forward declarations from test_sse_schema_fidelity.c
+void test_sse_schema_registry_count_zero_initially(void);
+void test_sse_schema_registry_count_after_register(void);
+void test_sse_schema_registry_get_returns_entry(void);
+void test_sse_schema_registry_get_out_of_bounds_returns_false(void);
+void test_sse_schema_registry_dedup_first_wins(void);
+void test_sse_schema_registry_overflow_returns_no_space(void);
+void test_sse_schema_register_null_args_returns_invalid_arg(void);
+void test_sse_schema_register_topic_schema_convenience(void);
+void test_sse_schema_log_payload_valid(void);
+void test_sse_schema_log_payload_missing_required_fails(void);
+void test_sse_schema_log_payload_bad_level_enum_fails(void);
+void test_sse_schema_emit_has_components_schemas(void);
+void test_sse_schema_emit_no_schemas_no_components(void);
+void test_sse_schema_oneof_synthesized_in_events(void);
+void test_sse_schema_no_sse_topic_no_oneof(void);
+void test_sse_schema_stream_has_components_schemas(void);
+void test_sse_schema_stream_no_schemas_no_components(void);
+void test_sse_schema_registry_get_valid_idx_null_out_returns_false(void);
+void test_sse_schema_oneof_skips_non_sse_schema_in_registry(void);
+void test_sse_schema_stream_two_schemas_has_comma_separator(void);
+void test_sse_schema_oom_oneof_content_skips_block(void);
+void test_sse_schema_oom_oneof_media_skips_block(void);
+void test_sse_schema_oom_oneof_schema_obj_skips_block(void);
+void test_sse_schema_oom_oneof_arr_skips_block(void);
+void test_sse_schema_oom_oneof_ref_skips_entry(void);
+void test_sse_schema_oom_components_obj_skips_section(void);
 
 // Forward declarations from test_bb_openapi_validate.c
 void test_validate_null_schema_json_returns_invalid_arg(void);
@@ -3107,6 +3139,7 @@ void setUp(void) {
     bb_wdt_test_reset();
     bb_pub_test_reset();
     bb_sink_event_reset_for_test();
+    bb_openapi_schema_registry_clear();
 }
 void tearDown(void) {}
 
@@ -4063,6 +4096,37 @@ int main(void) {
     RUN_TEST(test_openapi_emit_stream_handles_multiple_methods_per_path);
     RUN_TEST(test_openapi_emit_oom_param_obj_skips_entry);
     RUN_TEST(test_openapi_emit_oom_schema_obj_skips_schema);
+    RUN_TEST(test_openapi_emit_components_schemas_present);
+    RUN_TEST(test_openapi_emit_ref_literal_passthrough);
+    RUN_TEST(test_openapi_emit_oom_components_section);
+
+    // test_sse_schema_fidelity tests
+    RUN_TEST(test_sse_schema_registry_count_zero_initially);
+    RUN_TEST(test_sse_schema_registry_count_after_register);
+    RUN_TEST(test_sse_schema_registry_get_returns_entry);
+    RUN_TEST(test_sse_schema_registry_get_out_of_bounds_returns_false);
+    RUN_TEST(test_sse_schema_registry_dedup_first_wins);
+    RUN_TEST(test_sse_schema_registry_overflow_returns_no_space);
+    RUN_TEST(test_sse_schema_register_null_args_returns_invalid_arg);
+    RUN_TEST(test_sse_schema_register_topic_schema_convenience);
+    RUN_TEST(test_sse_schema_log_payload_valid);
+    RUN_TEST(test_sse_schema_log_payload_missing_required_fails);
+    RUN_TEST(test_sse_schema_log_payload_bad_level_enum_fails);
+    RUN_TEST(test_sse_schema_emit_has_components_schemas);
+    RUN_TEST(test_sse_schema_emit_no_schemas_no_components);
+    RUN_TEST(test_sse_schema_oneof_synthesized_in_events);
+    RUN_TEST(test_sse_schema_no_sse_topic_no_oneof);
+    RUN_TEST(test_sse_schema_stream_has_components_schemas);
+    RUN_TEST(test_sse_schema_stream_no_schemas_no_components);
+    RUN_TEST(test_sse_schema_registry_get_valid_idx_null_out_returns_false);
+    RUN_TEST(test_sse_schema_oneof_skips_non_sse_schema_in_registry);
+    RUN_TEST(test_sse_schema_stream_two_schemas_has_comma_separator);
+    RUN_TEST(test_sse_schema_oom_oneof_content_skips_block);
+    RUN_TEST(test_sse_schema_oom_oneof_media_skips_block);
+    RUN_TEST(test_sse_schema_oom_oneof_schema_obj_skips_block);
+    RUN_TEST(test_sse_schema_oom_oneof_arr_skips_block);
+    RUN_TEST(test_sse_schema_oom_oneof_ref_skips_entry);
+    RUN_TEST(test_sse_schema_oom_components_obj_skips_section);
 
     // bb_openapi_validate tests
     RUN_TEST(test_validate_null_schema_json_returns_invalid_arg);

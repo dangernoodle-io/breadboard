@@ -17,6 +17,7 @@
 #include "bb_registry.h"
 #include "bb_json.h"
 #include "bb_clock.h"
+#include "bb_openapi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -96,6 +97,15 @@ static void s_forwarder_task(void *arg)
 
 #if defined(CONFIG_BB_LOG_EVENT_AUTO_ATTACH) && CONFIG_BB_LOG_EVENT_AUTO_ATTACH
 
+static const char k_log_event_schema[] =
+    "{\"title\":\"LogEvent\",\"x-sse-topic\":\"log\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"ts\":{\"type\":\"integer\"},"
+    "\"level\":{\"type\":\"string\",\"enum\":[\"I\",\"W\",\"E\",\"D\",\"V\",\"?\"]},"
+    "\"tag\":{\"type\":\"string\"},"
+    "\"msg\":{\"type\":\"string\"}},"
+    "\"required\":[\"ts\",\"level\",\"tag\",\"msg\"]}";
+
 static bb_err_t bb_log_event_init(bb_http_handle_t server)
 {
     (void)server;
@@ -105,6 +115,8 @@ static bb_err_t bb_log_event_init(bb_http_handle_t server)
         bb_log_e(TAG, "topic register failed: %d", err);
         return err;
     }
+
+    bb_openapi_register_topic_schema("log", k_log_event_schema, "LogEvent");
 
     err = bb_event_routes_attach_ex("log", /*retained=*/false);
     if (err != BB_OK) {
