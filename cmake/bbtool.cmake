@@ -3,12 +3,12 @@
 # On include() (before project()), sets PROJECT_VER by delegating to
 # scripts/bbtool.py version --emit so there is ONE implementation.
 #
-# Commit C delivers: version-on-include only.
-# Commit D adds: bb_embed_assets(), bb_embed_site(), bb_lint() target.
+# Delivers: version-on-include, bb_embed_assets(), bb_embed_site(), bb_lint().
 #
 # Usage (in consumer CMakeLists.txt, before project()):
 #   include("<breadboard_root>/cmake/bbtool.cmake")
 #   # PROJECT_VER is now set.
+#   bb_lint()  # opt-in: cmake --build build --target bb_lint
 
 cmake_minimum_required(VERSION 3.16)
 
@@ -185,4 +185,50 @@ function(bb_embed_site)
     file(GLOB_RECURSE _site_inputs CONFIGURE_DEPENDS "${_dist_abs}/*")
 
     set(${ARG_OUT_SRCS} ${_gen} PARENT_SCOPE)
+endfunction()
+
+# ---------------------------------------------------------------------------
+# bb_lint([ROOT <dir>] [PROFILE <consumer|library>] [TARGET <name>])
+#
+# Creates an opt-in custom target (NOT in ALL) that runs breadboard's
+# conventions linter via bbtool.py lint. Invoke with:
+#   cmake --build <build_dir> --target <TARGET>
+#
+# Defaults: ROOT=${CMAKE_SOURCE_DIR}, PROFILE=consumer, TARGET=bb_lint.
+# Guard: if the target already exists this call is a no-op, so multiple
+# include()s or nested projects won't double-define the target.
+# ---------------------------------------------------------------------------
+
+function(bb_lint)
+    cmake_parse_arguments(ARG "" "ROOT;PROFILE;TARGET" "" ${ARGN})
+
+    if(NOT ARG_ROOT)
+        set(ARG_ROOT "${CMAKE_SOURCE_DIR}")
+    endif()
+    if(NOT ARG_PROFILE)
+        set(ARG_PROFILE "consumer")
+    endif()
+    if(NOT ARG_TARGET)
+        set(ARG_TARGET "bb_lint")
+    endif()
+
+    if(TARGET ${ARG_TARGET})
+        return()
+    endif()
+
+    get_filename_component(_bb_cmake_dir "${CMAKE_CURRENT_FUNCTION_LIST_FILE}" DIRECTORY)
+    get_filename_component(_bb_root "${_bb_cmake_dir}/.." ABSOLUTE)
+    set(_script "${_bb_root}/scripts/bbtool.py")
+
+    if(DEFINED Python3_EXECUTABLE)
+        set(_py "${Python3_EXECUTABLE}")
+    else()
+        set(_py "python3")
+    endif()
+
+    add_custom_target(${ARG_TARGET}
+        COMMAND "${_py}" "${_script}" lint --root "${ARG_ROOT}" --profile "${ARG_PROFILE}"
+        COMMENT "bb_lint: checking ${ARG_ROOT} (profile=${ARG_PROFILE})"
+        USES_TERMINAL
+    )
 endfunction()

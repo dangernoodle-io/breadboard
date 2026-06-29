@@ -54,6 +54,15 @@ list(APPEND EXTRA_COMPONENT_DIRS "<path-to>/breadboard/components")
 
 Pick individual components in your app's `idf_component_register(... REQUIRES ...)` — you only pay build cost for what you use.
 
+To run breadboard's conventions linter against your consumer project, add one line to your `CMakeLists.txt` (after `include()`):
+
+```cmake
+include("<path-to>/breadboard/cmake/bbtool.cmake")
+bb_lint()  # opt-in: cmake --build build --target bb_lint
+```
+
+`bb_lint()` creates a non-default target; it never runs on a normal build. Invoke it explicitly: `cmake --build build --target bb_lint`. Optional args: `ROOT <dir>` (default `CMAKE_SOURCE_DIR`), `PROFILE <consumer|library>` (default `consumer`), `TARGET <name>` (default `bb_lint`).
+
 Components that register HTTP handlers (`bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_board`, `bb_manifest`, `bb_ota_validator`, `bb_openapi`, plus optional routes modules in `bb_log`, `bb_wifi`, and `bb_system`) self-register through `bb_registry`. After `bb_http_server_start`, call `bb_registry_init(server)` once and every linked component's routes get wired up — no per-component `register_handler` calls in your `app_main`. Components still have to be listed in your CMake `REQUIRES` so the linker pulls their archives and the constructors fire.
 
 ## Kconfig flags
