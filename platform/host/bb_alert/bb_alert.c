@@ -2,6 +2,7 @@
 // Pure serializer + emit, no platform-specific types.
 
 #include "bb_alert.h"
+#include "bb_openapi.h"
 
 #if BB_ALERT_ENABLE
 
@@ -51,8 +52,17 @@ void bb_alert_emit(const char *type, bb_alert_severity_t sev,
     bb_json_free_str(payload);
 }
 
+static const char k_alert_schema[] =
+    "{\"title\":\"Alert\",\"x-sse-topic\":\"alert\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"type\":{\"type\":\"string\"},"
+    "\"severity\":{\"type\":\"integer\"},"
+    "\"uptime_ms\":{\"type\":\"integer\"}},"
+    "\"required\":[\"type\",\"severity\",\"uptime_ms\"]}";
+
 bb_err_t bb_alert_register(void)
 {
+    bb_openapi_register_topic_schema("alert", k_alert_schema, "Alert");
     return bb_event_topic_register("alert", &s_topic);
 }
 

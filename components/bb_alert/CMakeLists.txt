@@ -4,7 +4,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_alert/bb_alert_espidf.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_json
-    PRIV_REQUIRES bb_event bb_event_routes bb_log bb_registry)
+    PRIV_REQUIRES bb_event bb_event_routes bb_log bb_openapi bb_registry)
 
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
 if(CONFIG_BB_ALERT_AUTOREGISTER)

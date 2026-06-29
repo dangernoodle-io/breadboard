@@ -6,6 +6,7 @@
 #ifdef ESP_PLATFORM
 #include "bb_event.h"
 #include "bb_event_routes.h"
+#include "bb_openapi.h"
 #include "bb_registry.h"
 #endif
 
@@ -128,11 +129,21 @@ void bb_ota_emit_progress(const char *via, bb_ota_phase_t phase, int pct)
 
 #ifdef ESP_PLATFORM
 
+static const char k_ota_progress_schema[] =
+    "{\"title\":\"OtaProgress\",\"x-sse-topic\":\"ota.progress\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"via\":{\"type\":\"string\"},"
+    "\"state\":{\"type\":\"string\","
+    "\"enum\":[\"start\",\"progress\",\"success\",\"fail\",\"unknown\"]},"
+    "\"pct\":{\"type\":\"integer\"}},"
+    "\"required\":[\"via\",\"state\",\"pct\"]}";
+
 static bb_err_t bb_ota_hooks_init(bb_http_handle_t server)
 {
     (void)server;
 #if defined(CONFIG_BB_OTA_HOOKS_AUTO_ATTACH) && CONFIG_BB_OTA_HOOKS_AUTO_ATTACH
     if (bb_event_topic_register("ota.progress", &s_ota_progress_topic) == BB_OK) {
+        bb_openapi_register_topic_schema("ota.progress", k_ota_progress_schema, "OtaProgress");
         bb_err_t ae = bb_event_routes_attach_ex("ota.progress", false); // non-retained
         if (ae != BB_OK) bb_log_w(TAG, "auto-attach failed for 'ota.progress': %d", ae);
     }

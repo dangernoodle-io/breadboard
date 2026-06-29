@@ -11,6 +11,7 @@
 #include "bb_event.h"
 #include "bb_event_routes.h"
 #include "bb_log.h"
+#include "bb_openapi.h"
 #include "bb_timer.h"
 
 #include <string.h>
@@ -160,6 +161,14 @@ static bb_err_t start_monitor(void)
 // Public init (called by bb_health_init after the HTTP server is up)
 // ---------------------------------------------------------------------------
 
+static const char k_health_stack_schema[] =
+    "{\"title\":\"HealthStack\",\"x-sse-topic\":\"health.stack\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"task\":{\"type\":\"string\"},"
+    "\"free_bytes\":{\"type\":\"integer\"},"
+    "\"low\":{\"type\":\"boolean\"}},"
+    "\"required\":[\"task\",\"free_bytes\",\"low\"]}";
+
 bb_err_t bb_health_stack_monitor_init(void)
 {
     bb_err_t err = bb_event_topic_register(BB_HEALTH_STACK_TOPIC, &s_topic);
@@ -167,6 +176,8 @@ bb_err_t bb_health_stack_monitor_init(void)
         bb_log_w(TAG, "topic register failed: %d", (int)err);
         return err;
     }
+
+    bb_openapi_register_topic_schema(BB_HEALTH_STACK_TOPIC, k_health_stack_schema, "HealthStack");
 
 #if defined(CONFIG_BB_HEALTH_AUTO_ATTACH) && CONFIG_BB_HEALTH_AUTO_ATTACH
     {

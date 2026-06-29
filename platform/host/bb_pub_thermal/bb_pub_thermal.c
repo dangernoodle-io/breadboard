@@ -10,6 +10,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_clock.h"
+#include "bb_openapi.h"
 #include "bb_registry.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -93,8 +94,18 @@ static void thermal_serialize(bb_json_t obj, const void *snap_raw)
 }
 
 // ---------------------------------------------------------------------------
-// Registration
+// Schema + Registration
 // ---------------------------------------------------------------------------
+
+static const char k_thermal_telemetry_schema[] =
+    "{\"title\":\"ThermalTelemetry\",\"x-sse-topic\":\"thermal\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"soc_c\":{\"type\":[\"number\",\"null\"]},"
+    "\"vr_c\":{\"type\":[\"number\",\"null\"]},"
+    "\"asic_c\":{\"type\":[\"number\",\"null\"]},"
+    "\"board_c\":{\"type\":[\"number\",\"null\"]},"
+    "\"ts_ms\":{\"type\":\"integer\"}},"
+    "\"required\":[\"soc_c\",\"ts_ms\"]}";
 
 bb_err_t bb_pub_thermal_register(void)
 {
@@ -106,6 +117,8 @@ bb_err_t bb_pub_thermal_register(void)
         .flags     = BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS,
         .ctx       = NULL,
     };
+
+    bb_openapi_register_topic_schema("thermal", k_thermal_telemetry_schema, "ThermalTelemetry");
 
     bb_err_t err = bb_pub_register_telemetry(&cfg);
     if (err == BB_OK) {

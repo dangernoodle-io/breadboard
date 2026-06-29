@@ -8,6 +8,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_nv.h"
+#include "bb_openapi.h"
 #include "bb_registry.h"
 
 #include <stdbool.h>
@@ -79,6 +80,8 @@ void bb_display_register_info(void)
         bb_log_w(TAG, "topic register failed: %d", (int)err);
         return;
     }
+
+    bb_openapi_register_topic_schema(BB_DISPLAY_INFO_TOPIC, k_display_schema, "DisplayInfo");
 
     s_registered = true;
 }
