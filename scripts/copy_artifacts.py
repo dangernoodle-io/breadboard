@@ -1,6 +1,6 @@
 """copy_artifacts.py — PlatformIO post: build-artifact staging hook.
 
-Pure glue: all logic lives in scripts/bbtool/commands/stage.py.
+Pure glue: translates SCons env → argv and execs `bbtool stage`.
 Wire up in platformio.ini:
   extra_scripts =
       pre:../../scripts/bbtool_pio.py
@@ -8,16 +8,11 @@ Wire up in platformio.ini:
 """
 import inspect
 import os
+import subprocess
 import sys
 
 _THIS_FILE = os.path.abspath(inspect.currentframe().f_code.co_filename)
-_THIS_DIR = os.path.dirname(os.path.realpath(_THIS_FILE))
-_BBTOOL_DIR = os.path.join(_THIS_DIR, "bbtool")
-
-if _BBTOOL_DIR not in sys.path:
-    sys.path.insert(0, _BBTOOL_DIR)
-
-from commands.stage import stage_artifacts  # noqa: E402
+_SCRIPTS_DIR = os.path.dirname(os.path.realpath(_THIS_FILE))
 
 
 def _run(source, target, env):
@@ -26,18 +21,19 @@ def _run(source, target, env):
         frameworks = [frameworks]
     if "espidf" not in frameworks:
         return
-    result = stage_artifacts(
-        build_dir=env.subst("$BUILD_DIR"),
-        pioenv=env.subst("$PIOENV"),
-        project_dir=env.subst("$PROJECT_DIR"),
+
+    bbtool_py = os.path.join(_SCRIPTS_DIR, "bbtool.py")
+    result = subprocess.run(
+        [
+            sys.executable, bbtool_py, "stage",
+            "--build-dir", env.subst("$BUILD_DIR"),
+            "--env", env.subst("$PIOENV"),
+            "--project-dir", env.subst("$PROJECT_DIR"),
+        ],
+        check=False,
     )
-    if result.get("skipped"):
-        print(f"[bbtool] stage skipped: {result.get('reason')}")
-    else:
-        for path in result.get("staged", []):
-            print(f"[bbtool] staged: {path}")
-        if result.get("archived"):
-            print(f"[bbtool] elf archived: {result['archived'][:16]}…")
+    if result.returncode != 0:
+        print(f"[bbtool] stage exited {result.returncode} (non-fatal)")
 
 
 try:
