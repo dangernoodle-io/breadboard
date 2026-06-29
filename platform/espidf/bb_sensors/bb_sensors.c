@@ -253,12 +253,14 @@ static const bb_route_t s_sensors_get_route = {
 };
 
 static const bb_route_t s_sensors_patch_route = {
-    .method    = BB_HTTP_PATCH,
-    .path      = "/api/sensors",
-    .tag       = "sensors",
-    .summary   = "Patch writable sensor sections (fan: duty_pct or autofan config)",
-    .responses = s_sensors_patch_responses,
-    .handler   = sensors_patch_handler,
+    .method               = BB_HTTP_PATCH,
+    .path                 = "/api/sensors",
+    .tag                  = "sensors",
+    .summary              = "Patch writable sensor sections (fan: duty_pct or autofan config)",
+    .request_content_type = "application/json",
+    .request_schema       = k_sensors_patch_request_schema,
+    .responses            = s_sensors_patch_responses,
+    .handler              = sensors_patch_handler,
 };
 
 // ---------------------------------------------------------------------------

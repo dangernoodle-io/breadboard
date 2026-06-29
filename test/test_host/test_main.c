@@ -636,6 +636,10 @@ void test_set_raw_writes_null_on_malformed_json(void);
 void test_set_raw_writes_parsed_object_on_valid_json(void);
 void test_wifi_patch_request_schema_requires_ssid(void);
 void test_wifi_patch_route_descriptor_has_request_schema(void);
+// B1-413 request body schemas
+void test_telemetry_patch_request_schema_has_properties(void);
+void test_sensors_patch_request_schema_has_properties(void);
+void test_mutating_route_bare_body_guard_trips(void);
 // B1-246 durable descriptor-fidelity guard
 void test_desc_audit_all_routes_registered(void);
 void test_desc_audit_query_params(void);
@@ -3820,6 +3824,10 @@ int main(void) {
     RUN_TEST(test_set_raw_writes_parsed_object_on_valid_json);
     RUN_TEST(test_wifi_patch_request_schema_requires_ssid);
     RUN_TEST(test_wifi_patch_route_descriptor_has_request_schema);
+    // B1-413 request body schemas
+    RUN_TEST(test_telemetry_patch_request_schema_has_properties);
+    RUN_TEST(test_sensors_patch_request_schema_has_properties);
+    RUN_TEST(test_mutating_route_bare_body_guard_trips);
     // B1-246 durable descriptor-fidelity guard
     RUN_TEST(test_desc_audit_all_routes_registered);
     RUN_TEST(test_desc_audit_query_params);
