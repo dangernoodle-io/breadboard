@@ -364,7 +364,9 @@ void bb_mdns_coalesce_queue_drain_for_test(void)
 }
 
 /* Internal: flush current batch to simulated queue.  Returns true on success,
- * false if queue is full (cap exceeded).  Dispatches callbacks on success. */
+ * false if queue is full (cap exceeded).  Dispatches callbacks on success.
+ * On failure the batch is left INTACT so the caller can retry — mirrors the
+ * ESP-IDF batch_do_flush_locked fix (ring-full leaves s_batch unchanged). */
 static bool coalesce_do_flush(void)
 {
     int n = s_coalesce.count;
@@ -373,8 +375,7 @@ static bool coalesce_do_flush(void)
     /* Check queue depth cap. */
     if (s_coalesce.queue_depth_cap > 0 &&
         s_coalesce.queue_depth >= s_coalesce.queue_depth_cap) {
-        /* Queue full — clear the batch (events are lost) and report failure. */
-        s_coalesce.count = 0;
+        /* Queue full — leave batch intact so the caller can retry. */
         return false;
     }
 
@@ -390,6 +391,7 @@ static bool coalesce_do_flush(void)
             bb_mdns_host_dispatch_peer(svc, proto, &s_coalesce.entries[i]);
         }
     }
+    /* Batch consumed successfully — clear it now. */
     s_coalesce.count = 0;
     /* Simulate dispatcher freeing the item immediately (no real task delay). */
     s_coalesce.queue_depth--;

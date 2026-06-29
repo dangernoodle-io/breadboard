@@ -4,6 +4,7 @@
 #include "bb_registry.h"
 #include "bb_http.h"
 #include "bb_timer.h"
+#include "bb_ring.h"
 #include "mdns.h"
 #include "esp_app_desc.h"
 #include "esp_mac.h"
@@ -11,10 +12,10 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "bb_hw.h"
 #include "bb_log.h"
+#include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -33,10 +34,9 @@ typedef struct {
 static bb_mdns_browse_sub_t s_subs[BB_MDNS_BROWSE_MAX];
 
 // Dispatch worker infrastructure
-#define BB_MDNS_EVT_QUEUE_DEPTH 16
-static QueueHandle_t    s_evt_queue     = NULL;
-static TaskHandle_t     s_dispatch_task = NULL;
-static SemaphoreHandle_t s_subs_mutex     = NULL;
+static SemaphoreHandle_t s_ring_sem      = NULL;  // binary — signals dispatch task
+static TaskHandle_t      s_dispatch_task = NULL;
+static SemaphoreHandle_t s_subs_mutex    = NULL;
 // Serializes lifecycle teardown across the wifi-disconnect callback and the
 // esp_register_shutdown_handler path. Both can fire during esp_restart and the
 // portable bb_mdns_lifecycle started→stopped transition is not atomic.
@@ -92,12 +92,23 @@ static SemaphoreHandle_t s_evt_pool_lock = NULL;
 // (reusing the existing mutex avoids introducing a second lock).
 //
 // BB_MDNS_BATCH_MAX — Kconfig-driven on ESP-IDF; host fallback for unit tests.
-// Sizes the two static coalescing arrays (s_batch and s_batch_item), each
-// bb_mdns_evt_t[BB_MDNS_BATCH_MAX] (~516 B each).  Default 16 → ~8.2 KB .bss.
+// Sizes the s_batch static array (bb_mdns_evt_t[BB_MDNS_BATCH_MAX], ~516 B/slot).
+// Default 16 → ~8.2 KB .bss.
 #ifdef CONFIG_BB_MDNS_BATCH_MAX
 #define BB_MDNS_BATCH_MAX CONFIG_BB_MDNS_BATCH_MAX
 #else
 #define BB_MDNS_BATCH_MAX 16
+#endif
+
+// BB_MDNS_BATCH_RING_DEPTH — capacity of the bb_ring dispatch queue.
+// Heap cost (SPIRAM-preferred on ESP-IDF):
+//   BB_MDNS_BATCH_RING_DEPTH × (bb_ring entry metadata (~24 B) + sizeof(bb_mdns_batch_item_t))
+// At defaults (depth=4, BATCH_MAX=16): 4 × (24 + sizeof(bb_mdns_batch_item_t)) ≈ 33 KB on SPIRAM.
+// On no-PSRAM boards the same bytes come from internal heap.
+#ifdef CONFIG_BB_MDNS_BATCH_RING_DEPTH
+#define BB_MDNS_BATCH_RING_DEPTH CONFIG_BB_MDNS_BATCH_RING_DEPTH
+#else
+#define BB_MDNS_BATCH_RING_DEPTH 4
 #endif
 
 // FreeRTOS priority for the dispatch + query tasks (Kconfig BB_MDNS_TASK_PRIORITY).
@@ -114,59 +125,47 @@ typedef struct {
     int           count;
 } bb_mdns_batch_t;
 
-// Batched queue item: a single allocation wrapping all pending peers.
-// Allocated from the event pool (one slot per flush), freed by dispatcher.
+// Batched queue item stored by value in the bb_ring dispatch ring.
+// Each flush serializes the pending coalescing batch into one of these
+// and pushes it into s_batch_ring; the dispatcher peek/pops from the ring.
 typedef struct {
     int           count;
     bb_mdns_evt_t entries[BB_MDNS_BATCH_MAX];
 } bb_mdns_batch_item_t;
 
-// Sentinel pointer value placed in s_evt_queue to distinguish batched items
-// from legacy single-event pointers.  Tag the LSB; aligned allocs always
-// have LSB==0 naturally.
-#define BB_MDNS_BATCH_TAG ((uintptr_t)1)
-#define BB_MDNS_IS_BATCH(p) (((uintptr_t)(p) & BB_MDNS_BATCH_TAG) != 0)
-#define BB_MDNS_BATCH_PTR(p) ((bb_mdns_batch_item_t *)((uintptr_t)(p) & ~BB_MDNS_BATCH_TAG))
-#define BB_MDNS_TAG_BATCH(p) ((bb_mdns_evt_t *)((uintptr_t)(p) | BB_MDNS_BATCH_TAG))
-
 static bb_mdns_batch_t   s_batch;
 static bb_oneshot_timer_t s_flush_timer = NULL;
 
-// Batch pool: single static slot — one flush in flight at a time is sufficient
-// because the dispatcher frees it before the next flush timer fires.
-static bb_mdns_batch_item_t s_batch_item;
-static bool                 s_batch_item_in_use = false;
+// bb_ring holding bb_mdns_batch_item_t values, created in bb_mdns_init.
+// BB_RING_REJECT_NEW policy: when the ring is full the flush timer re-arms
+// and retries on the next 50 ms tick; drop-new is correct here.
+static bb_ring_t s_batch_ring = NULL;
 
-static bb_mdns_batch_item_t *batch_item_alloc(void)
-{
-    if (s_batch_item_in_use) return NULL;
-    s_batch_item_in_use = true;
-    memset(&s_batch_item, 0, sizeof(s_batch_item));
-    return &s_batch_item;
-}
+// Heap-allocated scratch item used by batch_do_flush_locked and the dispatch
+// task.  Allocated once in bb_mdns_init; size is ~sizeof(bb_mdns_batch_item_t)
+// (~8260 B at BATCH_MAX=16).  Keeping it off any task's stack prevents stack
+// overflow on the dispatch task (4096 B budget) and on flush callers.
+// On no-PSRAM boards this lands in internal heap; on PSRAM boards bb_ring's
+// allocator path may redirect it to SPIRAM.
+static bb_mdns_batch_item_t *s_dispatch_item = NULL;
 
-static void batch_item_free(bb_mdns_batch_item_t *item)
-{
-    if (item == &s_batch_item) s_batch_item_in_use = false;
-}
+// Monotonic sequence counter for ring push metadata (diagnostic id field).
+static uint32_t s_push_seq = 0;
 
-// Flush the current batch synchronously. Called under s_evt_pool_lock; temporarily
-// releases the lock for the queue send, then re-acquires it before returning.
-// Returns true if the batch was enqueued successfully, false if the queue was full
-// or the batch item slot was unavailable (batch item still in flight).
+// Flush the current batch synchronously. Called under s_evt_pool_lock.
+// Serializes the pending coalescing batch into s_dispatch_item, txt-pointer-
+// relocates into the item's own payload copy, then pushes it by value into
+// s_batch_ring.
+// On BB_ERR_NO_SPACE (ring full): increments drop counter, logs, leaves
+// s_batch INTACT so the 50 ms retry timer genuinely re-attempts the SAME batch.
+// Releases + re-acquires s_evt_pool_lock around the ring push so the
+// dispatcher task can drain the ring while the lock is free.
 static bool batch_do_flush_locked(void)
 {
     if (s_batch.count == 0) return true;  /* empty — nothing to do */
 
-    bb_mdns_batch_item_t *item = batch_item_alloc();
-    if (!item) {
-        /* Batch item slot still held by dispatcher.  The timer will re-fire or
-         * the overflow path will retry — just leave the batch intact. */
-        return false;
-    }
-
-    item->count = s_batch.count;
-    memcpy(item->entries, s_batch.entries,
+    s_dispatch_item->count = s_batch.count;
+    memcpy(s_dispatch_item->entries, s_batch.entries,
            (size_t)s_batch.count * sizeof(bb_mdns_evt_t));
 
     /* The memcpy duplicated each entry's payload[] but left its txt[].key/value
@@ -175,34 +174,47 @@ static bool batch_do_flush_locked(void)
      * starved) dispatcher consumes this item — reading through the stale
      * pointers then yields another peer's TXT (cross-attributed worker/version,
      * or blanks). Relocate each pointer into the item's own payload copy. */
-    for (int e = 0; e < item->count; e++) {
-        intptr_t off = (intptr_t)item->entries[e].payload -
+    for (int e = 0; e < s_dispatch_item->count; e++) {
+        intptr_t off = (intptr_t)s_dispatch_item->entries[e].payload -
                        (intptr_t)s_batch.entries[e].payload;
-        for (size_t t = 0; t < item->entries[e].txt_count && t < BB_MDNS_EVT_TXT_MAX; t++) {
-            if (item->entries[e].txt[t].key)
-                item->entries[e].txt[t].key   = (char *)((intptr_t)item->entries[e].txt[t].key   + off);
-            if (item->entries[e].txt[t].value)
-                item->entries[e].txt[t].value = (char *)((intptr_t)item->entries[e].txt[t].value + off);
+        for (size_t t = 0; t < s_dispatch_item->entries[e].txt_count && t < BB_MDNS_EVT_TXT_MAX; t++) {
+            if (s_dispatch_item->entries[e].txt[t].key)
+                s_dispatch_item->entries[e].txt[t].key   = (char *)((intptr_t)s_dispatch_item->entries[e].txt[t].key   + off);
+            if (s_dispatch_item->entries[e].txt[t].value)
+                s_dispatch_item->entries[e].txt[t].value = (char *)((intptr_t)s_dispatch_item->entries[e].txt[t].value + off);
         }
     }
-    s_batch.count = 0;
 
-    /* Drop the lock for the queue send so the dispatcher task can run. */
+    /* Release the lock so the dispatcher can drain the ring while we push. */
     xSemaphoreGive(s_evt_pool_lock);
 
-    bb_mdns_evt_t *tagged = BB_MDNS_TAG_BATCH(item);
-    bool ok = (xQueueSend(s_evt_queue, &tagged, 0) == pdTRUE);
+    int64_t  ts  = (int64_t)bb_timer_now_us();
+    uint32_t seq = ++s_push_seq;
+    bb_err_t err = bb_ring_push(s_batch_ring, s_dispatch_item,
+                                sizeof(*s_dispatch_item), ts, seq);
 
     xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY);
 
-    if (!ok) {
-        batch_item_free(item);
+    if (err == BB_OK) {
+        /* Batch consumed — clear it now that the push succeeded. */
+        s_batch.count = 0;
+        /* Signal the dispatch task there is at least one item ready. */
+        xSemaphoreGive(s_ring_sem);
+        return true;
     }
-    return ok;
+
+    /* BB_ERR_NO_SPACE: ring full (drop-new policy).  Leave s_batch intact so
+     * the 50 ms retry timer re-attempts the SAME batch rather than silently
+     * dropping it.  Increment the drop counter for observability only. */
+    s_evt_drop_count++;
+    if ((s_evt_drop_count & 0x0F) == 1) {
+        bb_log_w(TAG, "flush: ring full, will retry in 50 ms (%" PRIu32 " drop events total)",
+                 s_evt_drop_count);
+    }
+    return false;
 }
 
 // Flush work function: runs on bb_timer_disp task (off the esp_timer service task).
-// Swaps the pending batch into a batch item and enqueues one pointer.
 static void flush_work_fn(void *arg)
 {
     (void)arg;
@@ -213,27 +225,12 @@ static void flush_work_fn(void *arg)
         return;
     }
 
-    bool items_remain = (s_batch.count > 0);  /* snapshot before flush attempt */
     if (!batch_do_flush_locked()) {
-        /* batch_do_flush_locked re-acquired the lock before returning.
-         * Two failure modes:
-         *   (a) batch item slot unavailable (dispatcher still holds it) →
-         *       s_batch.count > 0 (unchanged); re-arm so events aren't orphaned.
-         *   (b) dispatcher queue full → s_batch.count == 0 (batch was cleared
-         *       before the queue send failed); log the drop. */
-        (void)items_remain;
-        bool queue_full_drop = (s_batch.count == 0);
+        /* batch_do_flush_locked re-acquired the lock; ring was full.
+         * s_batch is INTACT (not cleared) — re-arm the 50 ms timer so the
+         * same batch is retried once the dispatcher drains at least one slot. */
         xSemaphoreGive(s_evt_pool_lock);
-        if (queue_full_drop) {
-            s_evt_drop_count++;
-            if ((s_evt_drop_count & 0x0F) == 1) {
-                bb_log_w(TAG, "flush: evt queue full, %lu events dropped",
-                         (unsigned long)s_evt_drop_count);
-            }
-        } else {
-            /* Events still pending — re-arm to avoid orphaning them. */
-            bb_timer_oneshot_start(s_flush_timer, 50 * 1000);
-        }
+        bb_timer_oneshot_start(s_flush_timer, 50 * 1000);
         return;
     }
 
@@ -268,9 +265,8 @@ static bool batch_append_locked(const bb_mdns_evt_t *evt)
         if (s_flush_timer) bb_timer_oneshot_stop(s_flush_timer);  /* ignore if not running */
 
         if (!batch_do_flush_locked()) {
-            /* batch_do_flush_locked re-acquired the lock; check failure mode:
-             *   (a) batch item unavailable (count still > 0) — queue+batch full
-             *   (b) queue rejected (count == 0) — queue+batch full */
+            /* Ring full — s_batch still holds the existing entries.  Cannot
+             * append the new event now: both the ring and batch are full. */
             return false;  /* caller logs the drop */
         }
         /* Flush succeeded; batch.count is now 0.  Fall through to append. */
@@ -567,25 +563,47 @@ static void dispatch_one(const bb_mdns_evt_t *evt)
     }
 }
 
-// Dispatch task: dequeues events and fires consumer callbacks.
-// Queue items are either a tagged bb_mdns_batch_item_t pointer (batched flush)
-// or a legacy single-event bb_mdns_evt_t pointer from the old path.  The
-// batch path is the hot path post-coalesce; the legacy path is retained only
-// for any remaining callers that bypass batch_append_locked.
+// Dispatch task: drains the bb_ring dispatch ring and fires consumer callbacks.
+// Woken by s_ring_sem; drains ALL items before blocking again so a coalesced
+// xSemaphoreGive is never lost.  dispatch_one (knot on_peer_discovered) runs
+// OUTSIDE s_evt_pool_lock to prevent lock inversion with the knot layer (B1-372).
+//
+// Peek/pop uses s_dispatch_item (heap-allocated in bb_mdns_init) rather than a
+// stack local.  sizeof(bb_mdns_batch_item_t) at BATCH_MAX=16 is ~8260 B — far
+// exceeding this task's 4096 B stack; a stack-local would cause overflow.
 static void bb_mdns_dispatch_task(void *arg)
 {
     (void)arg;
-    bb_mdns_evt_t *raw;
     for (;;) {
-        if (xQueueReceive(s_evt_queue, &raw, portMAX_DELAY) != pdTRUE) continue;
+        xSemaphoreTake(s_ring_sem, portMAX_DELAY);
 
-        // All queue items are batched flush pointers (tagged).
-        bb_mdns_batch_item_t *item = BB_MDNS_BATCH_PTR(raw);
-        for (int i = 0; i < item->count; i++) {
-            dispatch_one(&item->entries[i]);
-        }
         xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY);
-        batch_item_free(item);
+        while (bb_ring_count(s_batch_ring) > 0) {
+            size_t   out_len = 0;
+            int64_t  out_ts  = 0;
+            uint32_t out_id  = 0;
+            bb_err_t err = bb_ring_peek_oldest(s_batch_ring, s_dispatch_item,
+                                               sizeof(*s_dispatch_item),
+                                               &out_len, &out_ts, &out_id);
+            if (err != BB_OK) {
+                /* Unexpected — ring reported count > 0 but peek failed. */
+                bb_log_w(TAG, "dispatch: peek_oldest failed (%d), clearing", (int)err);
+                bb_ring_clear(s_batch_ring);
+                break;
+            }
+            bb_ring_pop_oldest(s_batch_ring);
+
+            /* Release lock while dispatching — dispatch_one may block (A-record
+             * lookup) and the knot on_peer_discovered callback must not run
+             * under s_evt_pool_lock (B1-372 lock-order constraint). */
+            xSemaphoreGive(s_evt_pool_lock);
+
+            for (int i = 0; i < s_dispatch_item->count; i++) {
+                dispatch_one(&s_dispatch_item->entries[i]);
+            }
+
+            xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY);
+        }
         xSemaphoreGive(s_evt_pool_lock);
     }
 }
@@ -668,8 +686,8 @@ static void internal_notifier(mdns_result_t *results)
              * flush_timer_cb for queue-full drops too). */
             s_evt_drop_count++;
             if ((s_evt_drop_count & 0x0F) == 1) {
-                bb_log_w(TAG, "notifier: queue+batch full, event dropped (%lu total)",
-                         (unsigned long)s_evt_drop_count);
+                bb_log_w(TAG, "notifier: queue+batch full, event dropped (%" PRIu32 " total)",
+                         s_evt_drop_count);
             }
         }
     }
@@ -981,8 +999,35 @@ void bb_mdns_init(void)
     if (!s_evt_pool_lock) {
         s_evt_pool_lock = xSemaphoreCreateMutex();
     }
-    if (!s_evt_queue) {
-        s_evt_queue = xQueueCreate(BB_MDNS_EVT_QUEUE_DEPTH, sizeof(bb_mdns_evt_t *));
+    if (!s_ring_sem) {
+        s_ring_sem = xSemaphoreCreateBinary();
+        if (!s_ring_sem) {
+            bb_log_e(TAG, "xSemaphoreCreateBinary(ring_sem) failed — aborting init");
+            return;
+        }
+    }
+    if (!s_batch_ring) {
+        bb_err_t err = bb_ring_create(BB_MDNS_BATCH_RING_DEPTH,
+                                      sizeof(bb_mdns_batch_item_t),
+                                      BB_RING_REJECT_NEW,
+                                      "mdns_batch",
+                                      &s_batch_ring);
+        if (err != BB_OK) {
+            bb_log_e(TAG, "bb_ring_create(mdns_batch) failed: %d — aborting init",
+                     (int)err);
+            return;
+        }
+    }
+    /* Allocate the shared scratch item used by batch_do_flush_locked and the
+     * dispatch task.  One allocation; lives for the lifetime of the firmware.
+     * Must succeed before the dispatch task or flush timer are created, since
+     * both paths dereference s_dispatch_item unconditionally. */
+    if (!s_dispatch_item) {
+        s_dispatch_item = (bb_mdns_batch_item_t *)calloc(1, sizeof(bb_mdns_batch_item_t));
+        if (!s_dispatch_item) {
+            bb_log_e(TAG, "calloc(dispatch_item) failed — aborting init");
+            return;
+        }
     }
     if (!s_dispatch_task) {
         xTaskCreate(bb_mdns_dispatch_task, "bb_mdns_disp", 4096, NULL, BB_MDNS_TASK_PRIO, &s_dispatch_task);
