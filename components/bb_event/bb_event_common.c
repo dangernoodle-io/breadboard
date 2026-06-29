@@ -145,6 +145,12 @@ bb_err_t bb_event_topic_register(const char *name, bb_event_topic_t *out)
     return BB_OK;
 }
 
+const char *bb_event_topic_name(bb_event_topic_t topic)
+{
+    if (!topic) return "";
+    return ((struct bb_event_topic *)topic)->entry.name;
+}
+
 bb_err_t bb_event_topic_lookup(const char *name, bb_event_topic_t *out)
 {
     if (!name || !out) return BB_ERR_INVALID_ARG;

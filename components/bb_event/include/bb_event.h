@@ -31,6 +31,9 @@ bb_err_t bb_event_topic_register(const char *name, bb_event_topic_t *out);
 // Look up a topic by name; returns BB_ERR_NOT_FOUND if absent.
 bb_err_t bb_event_topic_lookup(const char *name, bb_event_topic_t *out);
 
+// Return the name string the topic was registered with. Returns "" for NULL.
+const char *bb_event_topic_name(bb_event_topic_t topic);
+
 // Subscribe to a topic; handler fires on every post to that topic.
 bb_err_t bb_event_subscribe(bb_event_topic_t topic,
                             bb_event_handler_fn cb, void *user,
