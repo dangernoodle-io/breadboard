@@ -98,6 +98,31 @@ static bb_err_t bb_pub_start(void)
     // ring exists from boot (standing RAM cost accepted at config time).
     bb_pub_buffer_init_eager();
 
+    // B1-385: Advisory warning when always-on ring is used on a no-PSRAM board.
+    // The ring is allocated from internal heap (no SPIRAM available), consuming
+    // standing RAM every boot.  This is a deliberate opt-in — warn but do NOT
+    // abort; the configuration is valid and may be intentional.
+#if defined(CONFIG_BB_PUB_BUFFER_ALWAYS) && !defined(CONFIG_SPIRAM)
+    {
+        const int ring_bytes =
+            CONFIG_BB_PUB_BUFFER_MAX_ENTRIES *
+            (CONFIG_BB_PUB_BUFFER_TOPIC_MAX + 1 + CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES);
+        bb_log_w(TAG,
+                 "always-on ring on no-PSRAM board: ring consumes %d bytes "
+                 "(%d entries x (%d topic + 1 + %d payload)) of INTERNAL heap "
+                 "at boot — set BB_PUB_BUFFER_ALWAYS=n to avoid standing cost "
+                 "or move to a PSRAM-equipped board (advisory; not aborting)",
+                 ring_bytes,
+                 CONFIG_BB_PUB_BUFFER_MAX_ENTRIES,
+                 CONFIG_BB_PUB_BUFFER_TOPIC_MAX,
+                 CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES);
+    }
+#endif
+
+    // Mark the publisher as successfully started so bb_pub_get_status().available
+    // reflects actual registration state (B1-398).
+    bb_pub_mark_started();
+
     bb_log_i(TAG, "started; interval=%"PRIu32" ms", interval_ms);
     return BB_OK;
 }

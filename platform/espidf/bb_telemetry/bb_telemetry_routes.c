@@ -93,6 +93,20 @@ static bb_err_t telemetry_patch_handler(bb_http_request_t *req)
         return BB_ERR_INVALID_ARG;
     }
 
+    // B1-398: check whether the body is requesting publisher.enabled=true so we
+    // can detect the "compile-disabled" case BEFORE dispatch frees context.
+    // We read this now (pre-dispatch) to avoid re-parsing the JSON later.
+    bool body_enables_publisher = false;
+    {
+        bb_json_t pub_patch = bb_json_obj_get_item(parsed, "publisher");
+        if (pub_patch) {
+            bool want_enabled = false;
+            if (bb_json_obj_get_bool(pub_patch, "enabled", &want_enabled) && want_enabled) {
+                body_enables_publisher = true;
+            }
+        }
+    }
+
     bb_err_t rc = bb_telemetry_dispatch_patch(parsed);
     bb_json_free(parsed);
 
@@ -111,10 +125,32 @@ static bb_err_t telemetry_patch_handler(bb_http_request_t *req)
     }
 
     // B1-289: config persisted to NVS; reboot required to apply.
+    //
+    // B1-398 exception: if the body tried to enable the publisher
+    // (publisher.enabled=true) but the publisher is not available on this build
+    // (AUTOREGISTER=n or bb_pub_start failed), return reboot_required=false +
+    // publisher_unavailable=true so the client is not misled into rebooting when
+    // a reboot cannot start the publisher.  The NVS write still happened
+    // (harmless; will take effect if the board is rebuilt with AUTOREGISTER=y).
+    bool publisher_unavailable = false;
+    if (body_enables_publisher) {
+        bb_pub_status_t pub_st = {0};
+        bb_pub_get_status(&pub_st);
+        if (!pub_st.available) {
+            publisher_unavailable = true;
+            bb_log_w(TAG, "PATCH publisher.enabled=true but publisher is not "
+                          "available (AUTOREGISTER=n or start failed) — reboot "
+                          "will not start it");
+        }
+    }
+
     bb_http_resp_set_status(req, 200);
     bb_http_json_obj_stream_t obj;
     bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_bool(&obj, "reboot_required", true);
+    bb_http_resp_json_obj_set_bool(&obj, "reboot_required", !publisher_unavailable);
+    if (publisher_unavailable) {
+        bb_http_resp_json_obj_set_bool(&obj, "publisher_unavailable", true);
+    }
     bb_http_resp_json_obj_end(&obj);
     return BB_OK;
 }
@@ -133,9 +169,16 @@ static bb_route_response_t s_telemetry_get_responses[] = {
 static const bb_route_response_t s_telemetry_patch_responses[] = {
     { 200, "application/json",
       "{\"type\":\"object\","
-      "\"properties\":{\"reboot_required\":{\"type\":\"boolean\"}},"
+      "\"properties\":{"
+          "\"reboot_required\":{\"type\":\"boolean\"},"
+          "\"publisher_unavailable\":{\"type\":\"boolean\","
+              "\"description\":\"true when publisher.enabled=true was requested "
+              "but the publisher worker is not compiled in on this build "
+              "(AUTOREGISTER=n) — reboot will not start the publisher\"}"
+      "},"
       "\"required\":[\"reboot_required\"]}",
-      "settings persisted to NVS; reboot required to apply" },
+      "settings persisted to NVS; reboot_required indicates whether a reboot "
+      "will apply the change" },
     { 400, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{\"error\":{\"type\":\"string\"}},"

@@ -399,3 +399,103 @@ void test_bb_pub_telemetry_patch_partial_only_changes_present_fields(void)
     // enabled changed.
     TEST_ASSERT_FALSE(bb_pub_is_enabled());
 }
+
+// ---------------------------------------------------------------------------
+// B1-398: publisher.available field
+// ---------------------------------------------------------------------------
+
+// GET publisher section includes "available" field.
+void test_bb_pub_telemetry_get_has_available(void)
+{
+    reset_all();
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL_MESSAGE(body, "GET did not emit valid JSON");
+    cJSON *f = cJSON_GetObjectItemCaseSensitive(body, "available");
+    TEST_ASSERT_NOT_NULL_MESSAGE(f, "missing 'available' field");
+    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsBool(f), "'available' must be a boolean");
+    cJSON_Delete(body);
+}
+
+// available is false by default (publisher not started on host builds).
+void test_bb_pub_telemetry_get_available_false_by_default(void)
+{
+    reset_all();
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *f = cJSON_GetObjectItemCaseSensitive(body, "available");
+    TEST_ASSERT_NOT_NULL(f);
+    TEST_ASSERT_FALSE_MESSAGE(cJSON_IsTrue(f),
+                               "available must be false before mark_started");
+    cJSON_Delete(body);
+}
+
+// available becomes true after bb_pub_mark_started() is called.
+void test_bb_pub_telemetry_get_available_true_after_mark_started(void)
+{
+    reset_all();
+    bb_pub_mark_started();
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *f = cJSON_GetObjectItemCaseSensitive(body, "available");
+    TEST_ASSERT_NOT_NULL(f);
+    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsTrue(f),
+                              "available must be true after mark_started");
+    cJSON_Delete(body);
+}
+
+// PATCH enabled=true when publisher is not available still returns BB_OK
+// (the NVS write is harmless; the route handler generates honest response).
+void test_bb_pub_telemetry_patch_enabled_on_unavailable_publisher_returns_ok(void)
+{
+    reset_all();
+    // Publisher not started (s_started=false after reset).
+    bb_err_t err = run_patch_json("{\"enabled\":true}");
+    TEST_ASSERT_EQUAL_MESSAGE(BB_OK, err,
+        "section patch must return BB_OK even when publisher is unavailable");
+    // The NVS-persisted flag still reflects the requested value.
+    TEST_ASSERT_TRUE(bb_pub_is_enabled());
+}
+
+// PATCH enabled=true when publisher IS available also returns BB_OK.
+void test_bb_pub_telemetry_patch_enabled_on_available_publisher_returns_ok(void)
+{
+    reset_all();
+    bb_pub_mark_started();
+    bb_err_t err = run_patch_json("{\"enabled\":true}");
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_TRUE(bb_pub_is_enabled());
+}
+
+// bb_pub_get_status().available is false by default (no mark_started call).
+void test_bb_pub_get_status_available_false_by_default(void)
+{
+    reset_all();
+    bb_pub_status_t st = {0};
+    bb_pub_get_status(&st);
+    TEST_ASSERT_FALSE_MESSAGE(st.available,
+        "available must be false before mark_started");
+}
+
+// bb_pub_get_status().available is true after mark_started.
+void test_bb_pub_get_status_available_true_after_mark_started(void)
+{
+    reset_all();
+    bb_pub_mark_started();
+    bb_pub_status_t st = {0};
+    bb_pub_get_status(&st);
+    TEST_ASSERT_TRUE_MESSAGE(st.available,
+        "available must be true after mark_started");
+}
+
+// mark_started is cleared by test_reset so tests are isolated.
+void test_bb_pub_get_status_available_reset_clears_it(void)
+{
+    reset_all();
+    bb_pub_mark_started();
+    // Reset clears it.
+    bb_pub_telemetry_reset_for_test();
+    bb_pub_status_t st = {0};
+    bb_pub_get_status(&st);
+    TEST_ASSERT_FALSE_MESSAGE(st.available,
+        "available must be false after test_reset");
+}

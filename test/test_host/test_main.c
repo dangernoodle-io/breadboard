@@ -629,6 +629,7 @@ void test_route_registry_descriptor_fields_preserved(void);
 void test_route_registry_count_after_clear_and_readd(void);
 // Forward declarations from test_route_schemas.c
 void test_route_schemas_manifest_fixture_parses(void);
+void test_route_schemas_telemetry_patch_200_parses(void);
 void test_route_schemas_registry_all_valid(void);
 void test_route_schemas_walker_flags_malformed(void);
 void test_set_raw_writes_null_on_malformed_json(void);
@@ -2721,6 +2722,15 @@ void test_bb_pub_telemetry_patch_enabled_false_persists(void);
 void test_bb_pub_telemetry_patch_enabled_true_persists(void);
 void test_bb_pub_telemetry_patch_enabled_reflected_in_get(void);
 void test_bb_pub_telemetry_patch_partial_only_changes_present_fields(void);
+// B1-398: publisher.available
+void test_bb_pub_telemetry_get_has_available(void);
+void test_bb_pub_telemetry_get_available_false_by_default(void);
+void test_bb_pub_telemetry_get_available_true_after_mark_started(void);
+void test_bb_pub_telemetry_patch_enabled_on_unavailable_publisher_returns_ok(void);
+void test_bb_pub_telemetry_patch_enabled_on_available_publisher_returns_ok(void);
+void test_bb_pub_get_status_available_false_by_default(void);
+void test_bb_pub_get_status_available_true_after_mark_started(void);
+void test_bb_pub_get_status_available_reset_clears_it(void);
 
 // Forward declarations from test_bb_telemetry_coupling.c
 void test_couple_publisher_no_explicit_any_sink_true(void);
@@ -3803,6 +3813,7 @@ int main(void) {
     RUN_TEST(test_route_registry_descriptor_fields_preserved);
     RUN_TEST(test_route_registry_count_after_clear_and_readd);
     RUN_TEST(test_route_schemas_manifest_fixture_parses);
+    RUN_TEST(test_route_schemas_telemetry_patch_200_parses);
     RUN_TEST(test_route_schemas_registry_all_valid);
     RUN_TEST(test_route_schemas_walker_flags_malformed);
     RUN_TEST(test_set_raw_writes_null_on_malformed_json);
@@ -5791,6 +5802,15 @@ int main(void) {
     RUN_TEST(test_bb_pub_telemetry_patch_enabled_true_persists);
     RUN_TEST(test_bb_pub_telemetry_patch_enabled_reflected_in_get);
     RUN_TEST(test_bb_pub_telemetry_patch_partial_only_changes_present_fields);
+    // B1-398: publisher.available
+    RUN_TEST(test_bb_pub_telemetry_get_has_available);
+    RUN_TEST(test_bb_pub_telemetry_get_available_false_by_default);
+    RUN_TEST(test_bb_pub_telemetry_get_available_true_after_mark_started);
+    RUN_TEST(test_bb_pub_telemetry_patch_enabled_on_unavailable_publisher_returns_ok);
+    RUN_TEST(test_bb_pub_telemetry_patch_enabled_on_available_publisher_returns_ok);
+    RUN_TEST(test_bb_pub_get_status_available_false_by_default);
+    RUN_TEST(test_bb_pub_get_status_available_true_after_mark_started);
+    RUN_TEST(test_bb_pub_get_status_available_reset_clears_it);
 
     // publisher–sink coupling tests
     RUN_TEST(test_couple_publisher_no_explicit_any_sink_true);

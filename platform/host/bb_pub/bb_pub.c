@@ -205,6 +205,10 @@ static bool     s_last_publish_ok  = false;
 static uint32_t s_last_publish_ms  = 0;
 static bool     s_published_ever   = false;
 static bool     s_ring_size_warned = false;
+// True once bb_pub_mark_started() is called (set by the ESP-IDF platform after
+// bb_pub_start() succeeds). Remains false on host builds and AUTOREGISTER=n
+// builds — correctly signals that the periodic worker is not running.
+static bool     s_started          = false;
 
 // ---------------------------------------------------------------------------
 // Store-and-forward buffer (CONFIG_BB_PUB_BUFFER_ENABLE)
@@ -604,6 +608,8 @@ bb_err_t bb_pub_get_status(bb_pub_status_t *out)
     out->last_publish_ms = s_last_publish_ms;
     out->published_ever  = s_published_ever;
     pthread_mutex_unlock(&s_tick_lock);
+    // s_started is written once at startup (before any tick); no lock needed.
+    out->available = s_started;
     return BB_OK;
 }
 
@@ -904,6 +910,11 @@ bool bb_pub_is_enabled(void)
 void bb_pub_set_interval_apply_hook(void (*hook)(uint32_t ms))
 {
     s_interval_apply_hook = hook;
+}
+
+void bb_pub_mark_started(void)
+{
+    s_started = true;
 }
 
 bb_err_t bb_pub_set_interval_volatile_ms(uint32_t ms)
@@ -1490,6 +1501,7 @@ void bb_pub_test_reset(void)
     s_last_publish_ok          = false;
     s_last_publish_ms          = 0;
     s_published_ever           = false;
+    s_started                  = false;
     s_paused                   = false;
     s_payload_extender_count   = 0;
     s_payload_hwm_warned       = false;

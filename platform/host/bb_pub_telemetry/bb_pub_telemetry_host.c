@@ -154,6 +154,10 @@ static void pub_section_get(bb_json_t section, void *ctx)
 
     bb_json_obj_set_number(section, "interval_ms",         (double)bb_pub_get_interval_ms());
     bb_json_obj_set_bool  (section, "enabled",             bb_pub_is_enabled());
+    // available: true when the periodic worker was successfully started.
+    // False on AUTOREGISTER=n builds or when bb_pub_start failed — a reboot
+    // will NOT enable the publisher on such builds (B1-398).
+    bb_json_obj_set_bool  (section, "available",           st.available);
     bb_json_obj_set_string(section, "topic_prefix",        CONFIG_BB_PUB_TOPIC_PREFIX);
     bb_json_obj_set_number(section, "source_count",        (double)st.source_count);
     bb_json_obj_set_number(section, "sink_count",          (double)st.sink_count);
@@ -198,6 +202,11 @@ static bb_err_t pub_section_patch(bb_json_t section_patch, void *ctx)
     if (bb_json_obj_get_bool(section_patch, "enabled", &enabled_val)) {
         bb_err_t err = bb_pub_set_enabled(enabled_val);
         if (err != BB_OK) return err;
+        // Note (B1-398): if enabled_val=true but the publisher is not available
+        // (AUTOREGISTER=n build), we still persist the value (harmless; takes
+        // effect on a future build with AUTOREGISTER=y). The route handler
+        // checks bb_pub_get_status().available after dispatch and returns
+        // reboot_required=false + publisher_unavailable=true in that case.
     }
 
     return BB_OK;
@@ -232,6 +241,9 @@ bb_err_t bb_pub_telemetry_init(void)
         "\"properties\":{"
         "\"interval_ms\":{\"type\":\"number\"},"
         "\"enabled\":{\"type\":\"boolean\"},"
+        "\"available\":{\"type\":\"boolean\","
+            "\"description\":\"true when the publisher worker is running; "
+            "false on AUTOREGISTER=n builds where a reboot will not start it\"},"
         "\"topic_prefix\":{\"type\":\"string\"},"
         "\"source_count\":{\"type\":\"number\"},"
         "\"sink_count\":{\"type\":\"number\"},"
