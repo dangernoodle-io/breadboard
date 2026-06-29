@@ -10,6 +10,7 @@
 #include "bb_pub.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_openapi.h"
 #include "bb_registry.h"
 #include <stdbool.h>
 #include <string.h>
@@ -141,11 +142,29 @@ static bool rtos_sample(bb_json_t obj, void *ctx)
 #endif  // ESP_PLATFORM
 
 // ---------------------------------------------------------------------------
-// Registration
+// Schema + Registration
 // ---------------------------------------------------------------------------
+
+// RtosTelemetry uses bb_pub_register_source (not bb_pub_register_telemetry);
+// it has no SSE topic, so sse_topic=NULL.
+static const char k_rtos_telemetry_schema[] =
+    "{\"title\":\"RtosTelemetry\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"min_free_stack\":{\"type\":\"number\"},"
+    "\"min_free_stack_task\":{\"type\":\"string\"},"
+    "\"task_count\":{\"type\":\"number\"},"
+    "\"stack_bb_pub\":{\"type\":\"number\"},"
+    "\"stack_httpd\":{\"type\":\"number\"},"
+    "\"stack_mqtt\":{\"type\":\"number\"},"
+    "\"stack_ipc0\":{\"type\":\"number\"},"
+    "\"stack_ipc1\":{\"type\":\"number\"},"
+    "\"stack_main\":{\"type\":\"number\"}},"
+    "\"required\":[\"min_free_stack\",\"min_free_stack_task\",\"task_count\"]}";
 
 bb_err_t bb_pub_rtos_register(void)
 {
+    bb_openapi_register_schema("RtosTelemetry", k_rtos_telemetry_schema, NULL);
+
     bb_err_t err = bb_pub_register_source("rtos", rtos_sample, NULL);
     if (err == BB_OK) {
         bb_log_i(TAG, "registered rtos source");

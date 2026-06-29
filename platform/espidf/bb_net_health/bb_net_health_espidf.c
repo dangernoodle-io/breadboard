@@ -13,6 +13,7 @@
 #include "bb_net_health.h"
 #include "bb_cache.h"
 #include "bb_health.h"
+#include "bb_openapi.h"
 #include "bb_wifi.h"
 #include "bb_mqtt.h"
 #include "bb_tls.h"
@@ -419,6 +420,8 @@ bb_err_t bb_net_health_attach_sse(void)
         bb_log_w(TAG, "bb_cache_register failed: %d", (int)cerr);
         return cerr;
     }
+
+    bb_openapi_register_topic_schema(BB_NET_HEALTH_TOPIC, k_net_schema, "NetHealth");
 
     // Register the event topic so bb_event_post can target it.
     bb_err_t err = bb_event_topic_register(BB_NET_HEALTH_TOPIC, &s_topic);

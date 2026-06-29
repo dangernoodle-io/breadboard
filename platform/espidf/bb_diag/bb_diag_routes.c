@@ -7,6 +7,7 @@
 #include "bb_info.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_openapi.h"
 #include "bb_nv_delete_routes.h"
 #include "bb_ota_validator.h"
 #include "bb_partition.h"
@@ -842,10 +843,24 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 
     // Register retained diag.boot event topic and publish initial snapshot.
     {
+        static const char k_diag_boot_schema[] =
+            "{\"title\":\"DiagBoot\",\"x-sse-topic\":\"diag.boot\",\"type\":\"object\","
+            "\"properties\":{"
+            "\"reset_reason\":{\"type\":\"string\"},"
+            "\"wdt_resets\":{\"type\":\"integer\"},"
+            "\"panic\":{\"type\":\"object\",\"properties\":{"
+            "\"available\":{\"type\":\"boolean\"},"
+            "\"boots_since\":{\"type\":\"integer\"}}},"
+            "\"pending_verify\":{\"type\":\"boolean\"},"
+            "\"rolled_back\":{\"type\":\"boolean\"}},"
+            "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\","
+            "\"pending_verify\",\"rolled_back\"]}";
+
         bb_err_t terr = bb_event_topic_register(BB_DIAG_BOOT_TOPIC, &s_boot_topic);
         if (terr != BB_OK) {
             bb_log_w(TAG, "diag.boot topic register failed: %d", (int)terr);
         } else {
+            bb_openapi_register_topic_schema(BB_DIAG_BOOT_TOPIC, k_diag_boot_schema, "DiagBoot");
 #if defined(CONFIG_BB_DIAG_AUTO_ATTACH) && CONFIG_BB_DIAG_AUTO_ATTACH
             {
                 bb_err_t aerr = bb_event_routes_attach_ex(BB_DIAG_BOOT_TOPIC, true);

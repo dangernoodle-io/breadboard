@@ -18,6 +18,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_ntp.h"
+#include "bb_openapi.h"
 #include "bb_registry.h"
 // ota_ready (heap-readiness for the OTA TLS handshake) is emitted only on boards
 // that run a heap-guarded OTA TLS path — the runtime pull worker
@@ -189,8 +190,42 @@ static void info_serialize(bb_json_t obj, const void *snap_raw)
 }
 
 // ---------------------------------------------------------------------------
-// Registration
+// Schema + Registration
 // ---------------------------------------------------------------------------
+
+// InfoTelemetry is a sink-only topic (no SSE); sse_topic=NULL.
+static const char k_info_telemetry_schema[] =
+    "{\"title\":\"InfoTelemetry\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"heap_internal_free\":{\"type\":\"number\"},"
+    "\"heap_internal_total\":{\"type\":\"number\"},"
+    "\"heap_internal_largest_block\":{\"type\":\"number\"},"
+    "\"heap_internal_min_free\":{\"type\":\"number\"},"
+    "\"psram_free\":{\"type\":\"number\"},"
+    "\"psram_total\":{\"type\":\"number\"},"
+    "\"rtc_used\":{\"type\":\"number\"},"
+    "\"rtc_total\":{\"type\":\"number\"},"
+    "\"dram_static_bytes\":{\"type\":\"number\"},"
+    "\"flash_size\":{\"type\":\"number\"},"
+    "\"app_size\":{\"type\":\"number\"},"
+    "\"wdt_resets\":{\"type\":\"number\"},"
+    "\"version\":{\"type\":\"string\"},"
+    "\"board\":{\"type\":\"string\"},"
+    "\"chip_model\":{\"type\":\"string\"},"
+    "\"mac\":{\"type\":\"string\"},"
+    "\"reset_reason\":{\"type\":\"string\"},"
+    "\"ota_validated\":{\"type\":\"boolean\"},"
+    "\"time_valid\":{\"type\":\"boolean\"},"
+    "\"boot_epoch_s\":{\"type\":\"number\"},"
+    "\"time_source\":{\"type\":\"string\"},"
+    "\"rtc_free\":{\"type\":\"number\"},"
+    "\"ts_ms\":{\"type\":\"integer\"}},"
+    "\"required\":[\"heap_internal_free\",\"heap_internal_total\","
+    "\"heap_internal_largest_block\",\"heap_internal_min_free\","
+    "\"rtc_used\",\"rtc_total\",\"dram_static_bytes\",\"flash_size\","
+    "\"app_size\",\"wdt_resets\",\"version\",\"board\",\"chip_model\","
+    "\"mac\",\"reset_reason\",\"ota_validated\",\"time_valid\","
+    "\"boot_epoch_s\",\"time_source\",\"rtc_free\",\"ts_ms\"]}";
 
 bb_err_t bb_pub_info_register(void)
 {
@@ -202,6 +237,8 @@ bb_err_t bb_pub_info_register(void)
         .flags     = BB_PUB_TELEM_SINKS,  // sinks-only: no SSE for info
         .ctx       = NULL,
     };
+
+    bb_openapi_register_schema("InfoTelemetry", k_info_telemetry_schema, NULL);
 
     bb_err_t err = bb_pub_register_telemetry(&cfg);
     if (err == BB_OK) {

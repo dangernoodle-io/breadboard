@@ -2,7 +2,7 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_pub_wifi/bb_pub_wifi.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_pub bb_wifi
-    PRIV_REQUIRES bb_json bb_log bb_registry)
+    PRIV_REQUIRES bb_json bb_log bb_openapi bb_registry)
 
 if(CONFIG_BB_PUB_WIFI_AUTO_ATTACH)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")

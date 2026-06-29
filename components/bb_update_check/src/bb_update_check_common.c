@@ -9,6 +9,7 @@
 #include "bb_log.h"
 #include "bb_mdns.h"
 #include "bb_nv.h"
+#include "bb_openapi.h"
 #include "bb_system.h"
 #include "bb_alert.h"
 
@@ -21,6 +22,23 @@
 #include <sys/time.h>
 
 static const char *TAG = "bb_update_check";
+
+static const char k_update_available_schema[] =
+    "{\"title\":\"UpdateAvailable\",\"x-sse-topic\":\"update.available\","
+    "\"type\":\"object\","
+    "\"properties\":{"
+    "\"current\":{\"type\":\"string\"},"
+    "\"latest\":{\"type\":\"string\"},"
+    "\"download_url\":{\"type\":\"string\"},"
+    "\"available\":{\"type\":\"boolean\"},"
+    "\"ts\":{\"type\":\"integer\"},"
+    "\"last_check_ok\":{\"type\":\"boolean\"},"
+    "\"enabled\":{\"type\":\"boolean\"},"
+    "\"outcome\":{\"type\":\"string\"},"
+    "\"last_check_ts\":{\"type\":\"integer\"}},"
+    "\"required\":[\"current\",\"latest\",\"download_url\",\"available\","
+    "\"ts\",\"last_check_ok\",\"enabled\",\"outcome\"]}";
+
 
 // ---------------------------------------------------------------------------
 // bb_alert fill helpers — compiled only when bb_alert is enabled
@@ -201,6 +219,9 @@ bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
     // LCOV_EXCL_STOP
 
     bb_mdns_set_txt("update", "unknown");
+
+    bb_openapi_register_topic_schema(BB_UPDATE_CHECK_TOPIC, k_update_available_schema,
+                                     "UpdateAvailable");
 
     s_initialized = true;
 

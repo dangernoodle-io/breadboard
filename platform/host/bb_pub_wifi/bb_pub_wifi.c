@@ -12,6 +12,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_clock.h"
+#include "bb_openapi.h"
 #include "bb_registry.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -139,8 +140,26 @@ static void wifi_serialize(bb_json_t obj, const void *snap_raw)
 }
 
 // ---------------------------------------------------------------------------
-// Registration
+// Schema + Registration
 // ---------------------------------------------------------------------------
+
+static const char k_wifi_telemetry_schema[] =
+    "{\"title\":\"WifiTelemetry\",\"x-sse-topic\":\"wifi\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"ssid\":{\"type\":\"string\"},"
+    "\"bssid\":{\"type\":\"string\"},"
+    "\"rssi\":{\"type\":\"integer\"},"
+    "\"ip\":{\"type\":\"string\"},"
+    "\"connected\":{\"type\":\"boolean\"},"
+    "\"disc_reason\":{\"type\":\"integer\"},"
+    "\"disc_age_s\":{\"type\":\"integer\"},"
+    "\"retry_count\":{\"type\":\"integer\"},"
+    "\"no_ip_recoveries\":{\"type\":\"integer\"},"
+    "\"egress_dead_count\":{\"type\":\"integer\"},"
+    "\"lost_ip_count\":{\"type\":\"integer\"},"
+    "\"recovery_count\":{\"type\":\"integer\"},"
+    "\"ts_ms\":{\"type\":\"integer\"}},"
+    "\"required\":[\"ssid\",\"connected\",\"rssi\",\"ts_ms\"]}";
 
 bb_err_t bb_pub_wifi_register(void)
 {
@@ -152,6 +171,8 @@ bb_err_t bb_pub_wifi_register(void)
         .flags     = BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS,
         .ctx       = NULL,
     };
+
+    bb_openapi_register_topic_schema("wifi", k_wifi_telemetry_schema, "WifiTelemetry");
 
     bb_err_t err = bb_pub_register_telemetry(&cfg);
     if (err == BB_OK) {

@@ -10,6 +10,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_clock.h"
+#include "bb_openapi.h"
 #include "bb_registry.h"
 #include <math.h>
 #include <stdbool.h>
@@ -120,8 +121,22 @@ static void fan_serialize(bb_json_t obj, const void *snap_raw)
 }
 
 // ---------------------------------------------------------------------------
-// Registration
+// Schema + Registration
 // ---------------------------------------------------------------------------
+
+static const char k_fan_telemetry_schema[] =
+    "{\"title\":\"FanTelemetry\",\"x-sse-topic\":\"fan\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"rpm\":{\"type\":[\"integer\",\"null\"]},"
+    "\"duty_pct\":{\"type\":[\"integer\",\"null\"]},"
+    "\"die_c\":{\"type\":[\"number\",\"null\"]},"
+    "\"board_c\":{\"type\":[\"number\",\"null\"]},"
+    "\"die_ema_c\":{\"type\":[\"number\",\"null\"]},"
+    "\"vr_ema_c\":{\"type\":[\"number\",\"null\"]},"
+    "\"pid_input_c\":{\"type\":[\"number\",\"null\"]},"
+    "\"pid_input_src\":{\"type\":\"string\",\"enum\":[\"die\",\"vr\"]},"
+    "\"ts_ms\":{\"type\":\"integer\"}},"
+    "\"required\":[\"rpm\",\"duty_pct\",\"die_c\",\"board_c\",\"ts_ms\"]}";
 
 bb_err_t bb_pub_fan_register(void)
 {
@@ -133,6 +148,8 @@ bb_err_t bb_pub_fan_register(void)
         .flags     = BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS,
         .ctx       = NULL,
     };
+
+    bb_openapi_register_topic_schema("fan", k_fan_telemetry_schema, "FanTelemetry");
 
     bb_err_t err = bb_pub_register_telemetry(&cfg);
     if (err == BB_OK) {

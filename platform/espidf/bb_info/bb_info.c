@@ -23,6 +23,7 @@
 #include "bb_log.h"
 #include "bb_mdns.h"
 #include "bb_ntp.h"
+#include "bb_openapi.h"
 #include "bb_registry.h"
 #include "bb_section.h"
 #include "bb_wifi.h"
@@ -255,6 +256,26 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
         if (terr != BB_OK) {
             bb_log_w(TAG, "event_topic_register(build) failed: %d", (int)terr);
         } else {
+            static const char k_build_info_schema[] =
+                "{\"title\":\"BuildInfo\",\"x-sse-topic\":\"build\",\"type\":\"object\","
+                "\"properties\":{"
+                "\"version\":{\"type\":\"string\"},"
+                "\"idf_version\":{\"type\":\"string\"},"
+                "\"build_date\":{\"type\":\"string\"},"
+                "\"build_time\":{\"type\":\"string\"},"
+                "\"project_name\":{\"type\":\"string\"},"
+                "\"chip_model\":{\"type\":\"string\"},"
+                "\"chip_revision\":{\"type\":\"integer\"},"
+                "\"cores\":{\"type\":\"integer\"},"
+                "\"cpu_freq_mhz\":{\"type\":\"integer\"},"
+                "\"flash_size\":{\"type\":\"integer\"},"
+                "\"app_size\":{\"type\":\"integer\"},"
+                "\"board\":{\"type\":\"string\"},"
+                "\"app_sha256\":{\"type\":\"string\"}},"
+                "\"required\":[\"version\",\"idf_version\",\"build_date\",\"build_time\","
+                "\"project_name\",\"chip_model\",\"chip_revision\",\"cores\","
+                "\"cpu_freq_mhz\",\"flash_size\",\"app_size\",\"board\",\"app_sha256\"]}";
+            bb_openapi_register_topic_schema(BB_INFO_BUILD_TOPIC, k_build_info_schema, "BuildInfo");
 #if BB_INFO_BUILD_TOPIC_ENABLED
             // Build payload estimate: all 13 fields.
             // ~{"version":"0.0.0","idf_version":"v5.3.1","build_date":"Jan  1 2025",

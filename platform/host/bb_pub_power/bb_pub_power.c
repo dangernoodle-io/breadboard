@@ -10,6 +10,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_clock.h"
+#include "bb_openapi.h"
 #include "bb_registry.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -60,8 +61,19 @@ static void power_serialize(bb_json_t obj, const void *snap_raw)
 }
 
 // ---------------------------------------------------------------------------
-// Registration
+// Schema + Registration
 // ---------------------------------------------------------------------------
+
+static const char k_power_telemetry_schema[] =
+    "{\"title\":\"PowerTelemetry\",\"x-sse-topic\":\"power\",\"type\":\"object\","
+    "\"properties\":{"
+    "\"vout_mv\":{\"type\":[\"number\",\"null\"]},"
+    "\"iout_ma\":{\"type\":[\"number\",\"null\"]},"
+    "\"pout_mw\":{\"type\":[\"number\",\"null\"]},"
+    "\"vin_mv\":{\"type\":[\"number\",\"null\"]},"
+    "\"temp_c\":{\"type\":[\"number\",\"null\"]},"
+    "\"ts_ms\":{\"type\":\"integer\"}},"
+    "\"required\":[\"vout_mv\",\"iout_ma\",\"pout_mw\",\"vin_mv\",\"temp_c\",\"ts_ms\"]}";
 
 bb_err_t bb_pub_power_register(void)
 {
@@ -73,6 +85,8 @@ bb_err_t bb_pub_power_register(void)
         .flags     = BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS,
         .ctx       = NULL,
     };
+
+    bb_openapi_register_topic_schema("power", k_power_telemetry_schema, "PowerTelemetry");
 
     bb_err_t err = bb_pub_register_telemetry(&cfg);
     if (err == BB_OK) {

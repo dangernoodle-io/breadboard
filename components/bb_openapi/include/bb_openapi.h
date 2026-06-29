@@ -110,8 +110,8 @@ bb_err_t bb_openapi_validate(const char *schema_json,
 // Schema component registry
 // ---------------------------------------------------------------------------
 // Maximum number of schema components that can be registered.
-// Default matches BB_EVENT_MAX_TOPICS default (8).
-#define BB_OPENAPI_SCHEMA_REGISTRY_CAP 8
+// 16 topics registered (14 new in B1-413 + 2 from B1-413-PR2); 24 provides headroom.
+#define BB_OPENAPI_SCHEMA_REGISTRY_CAP 24
 
 // Schema entry returned by bb_openapi_schema_get.
 typedef struct {
