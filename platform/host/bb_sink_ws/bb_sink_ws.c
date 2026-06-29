@@ -1,9 +1,9 @@
 // bb_sink_ws — bb_pub sink that forwards telemetry payloads to WebSocket clients.
-// Host implementation: compiled for native tests; no FreeRTOS, no bb_log_stream.
+// Host implementation: compiled for native tests; no FreeRTOS.
 //
 // Subscription filtering
 // ----------------------
-// Clients send a TEXT frame: {"sub":["telemetry","events","logs",...]}
+// Clients send a TEXT frame: {"sub":["telemetry","events","log",...]}
 // This replaces the client's entire subscription set.  On the next publish
 // only channels matching the subscription are delivered.
 //
@@ -12,10 +12,11 @@
 //   2. Coarse group: client subscribed to "telemetry" → receives any ch
 //      that maps to a bb_pub telemetry subtopic (mining, pool, info, wifi,
 //      fan, power, thermal, …).  All bb_pub subtopics that are NOT "events"
-//      or "logs" are considered part of the "telemetry" group.
+//      or "log" are considered part of the "telemetry" group.
 //   3. "events" group: receives ch values that come from the events bus
 //      (subtopic == "events").
-//   4. "logs" group: receives ch="logs" frames.
+//   4. "log" channel: exact opt-in; clients subscribe with {"sub":["log"]}.
+//      Receives {"ch":"log","data":{...}} structured JSON from bb_log_event.
 //   5. If the client has NO subscriptions yet (e.g., just connected and has
 //      not sent a sub frame), it receives NOTHING (subscription required).
 //
@@ -27,6 +28,7 @@
 #include "bb_sink_ws.h"
 #include "bb_websocket.h"
 #include "bb_log.h"
+#include "bb_event.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -117,9 +119,9 @@ static bool parse_sub_frame(int fd, const char *payload, size_t len)
 //
 // Matching logic:
 //   - Exact name match: sub == ch
-//   - Coarse group "telemetry": matches any ch that is NOT "events" and NOT "logs"
+//   - Coarse group "telemetry": matches any ch that is NOT "events" and NOT "log"
 //   - Coarse group "events":    matches ch == "events"
-//   - Coarse group "logs":      matches ch == "logs"
+//   - "log" is exact opt-in only; not covered by any coarse group
 static bool client_subscribed(int fd, const char *ch)
 {
     if (fd < 0 || fd >= BB_WEBSOCKET_MAX_FD) return false;
@@ -130,14 +132,12 @@ static bool client_subscribed(int fd, const char *ch)
         const char *sub = slot->subs[i];
         // Exact match
         if (strcmp(sub, ch) == 0) return true;
-        // Coarse group: "telemetry" covers anything that is not events or logs
+        // Coarse group: "telemetry" covers anything that is not events or log
         if (strcmp(sub, "telemetry") == 0 &&
             strcmp(ch,  "events")    != 0 &&
-            strcmp(ch,  "logs")      != 0) return true;
+            strcmp(ch,  "log")       != 0) return true;
         // Coarse group: "events" covers ch="events"
         if (strcmp(sub, "events") == 0 && strcmp(ch, "events") == 0) return true;
-        // Coarse group: "logs" covers ch="logs"
-        if (strcmp(sub, "logs") == 0 && strcmp(ch, "logs") == 0) return true;
     }
     return false;
 }
@@ -293,6 +293,31 @@ void bb_sink_ws_resume(void)
 }
 
 // ---------------------------------------------------------------------------
+// Log bb_event subscriber
+// ---------------------------------------------------------------------------
+
+static void log_event_cb(bb_event_topic_t topic, int32_t id,
+                         const void *data, size_t size, void *user)
+{
+    (void)topic; (void)id; (void)user;
+    if (!data || size == 0) return;
+    size_t json_len = size - 1; // strip NUL posted by bb_log_event
+    // {"ch":"log","data":<json>}: "log"(3) + 18 overhead = 21
+    size_t envelope_len = json_len + 21;
+    char *buf = (char *)_sink_malloc(envelope_len);
+    if (!buf) {
+        bb_log_w(TAG, "log_event_cb: malloc failed");
+        return;
+    }
+    int written = snprintf(buf, envelope_len, "{\"ch\":\"log\",\"data\":%.*s}",
+                           (int)json_len, (const char *)data);
+    if (written > 0 && (size_t)written < envelope_len) {
+        broadcast_filtered("log", buf, (size_t)written);
+    }
+    free(buf);
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -304,6 +329,17 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
     if (reg_err != BB_OK) return reg_err;
 
     s_ctx.server = server;
+
+    // Subscribe to the "log" bb_event topic (registered by bb_log_event at order 4).
+    bb_event_topic_t lt;
+    if (bb_event_topic_lookup("log", &lt) == BB_OK) {
+        bb_err_t sub_err = bb_event_subscribe(lt, log_event_cb, NULL, NULL);
+        if (sub_err != BB_OK) {
+            bb_log_w(TAG, "log event subscribe failed: %d", (int)sub_err);
+        }
+    } else {
+        bb_log_d(TAG, "log topic not yet registered, skipping ws subscription");
+    }
 
     out->publish       = sink_ws_publish;
     out->ctx           = &s_ctx;
@@ -333,25 +369,25 @@ void bb_sink_ws_reset_for_test(void)
     s_suspended = false;
 }
 
-// Inject a log line as if the logs pump had drained it — broadcasts
-// {"ch":"logs","data":"<line>"} to all subscribed clients.
-bb_err_t bb_sink_ws_host_inject_log_line(const char *line)
+// Inject a structured log event as if the log bb_event had fired — broadcasts
+// {"ch":"log","data":<json>} to all clients subscribed to "log".
+void bb_sink_ws_host_inject_log_event(const char *json)
 {
-    if (!line) return BB_ERR_INVALID_ARG;
-    size_t line_len = strlen(line);
-    // {"ch":"logs","data":"<line>"}
-    // overhead: 20 + line + 2 quotes + NUL
-    size_t buf_len = line_len + 24;
-    char *buf = (char *)_sink_malloc(buf_len);
-    if (!buf) return BB_ERR_NO_SPACE;
-    int written = snprintf(buf, buf_len, "{\"ch\":\"logs\",\"data\":\"%s\"}", line);
-    if (written < 0 || (size_t)written >= buf_len) {
-        free(buf);
-        return BB_ERR_NO_SPACE;
+    if (!json) return;
+    size_t json_len = strlen(json);
+    // {"ch":"log","data":<json>}: "log"(3) + 18 overhead = 21
+    size_t envelope_len = json_len + 21;
+    char *buf = (char *)_sink_malloc(envelope_len);
+    if (!buf) {
+        bb_log_w(TAG, "inject_log_event: malloc failed");
+        return;
     }
-    bb_err_t err = broadcast_filtered("logs", buf, (size_t)written);
+    int written = snprintf(buf, envelope_len, "{\"ch\":\"log\",\"data\":%.*s}",
+                           (int)json_len, json);
+    if (written > 0 && (size_t)written < envelope_len) {
+        broadcast_filtered("log", buf, (size_t)written);
+    }
     free(buf);
-    return err;
 }
 
 #endif // BB_SINK_WS_TESTING

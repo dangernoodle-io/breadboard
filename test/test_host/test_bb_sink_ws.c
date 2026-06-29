@@ -428,15 +428,13 @@ void test_bb_sink_ws_sub_telemetry_receives_telemetry_not_events_logs(void)
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
 
-    // Inject a log line: should NOT arrive.
-    err = bb_sink_ws_host_inject_log_line("some log line");
-    TEST_ASSERT_EQUAL(BB_OK, err);
+    // Inject a structured log event: should NOT arrive for telemetry subscriber.
+    bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
     TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
 }
 
-// (b) client subscribed to ["logs"] receives a log-channel frame when a log
-//     line is injected via bb_sink_ws_host_inject_log_line.
-void test_bb_sink_ws_sub_logs_receives_log_frame(void)
+// (b) client subscribed to ["log"] receives structured log event.
+void test_bb_sink_ws_sub_log_receives_log_event(void)
 {
     ws_sink_setup();
     bb_websocket_host_set_client_active(6, true);
@@ -446,10 +444,9 @@ void test_bb_sink_ws_sub_logs_receives_log_frame(void)
 
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 6, "{\"sub\":[\"logs\"]}");
+    inject_sub(req, 6, "{\"sub\":[\"log\"]}");
 
-    bb_err_t err = bb_sink_ws_host_inject_log_line("hello from log");
-    TEST_ASSERT_EQUAL(BB_OK, err);
+    bb_sink_ws_host_inject_log_event("{\"ts\":123,\"level\":\"I\",\"tag\":\"foo\",\"msg\":\"bar\"}");
     TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
 
     const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
@@ -460,8 +457,83 @@ void test_bb_sink_ws_sub_logs_receives_log_frame(void)
     char msg[256];
     size_t cl = a->len < sizeof(msg) - 1 ? a->len : sizeof(msg) - 1;
     memcpy(msg, a->payload, cl); msg[cl] = '\0';
-    TEST_ASSERT_NOT_NULL(strstr(msg, "\"ch\":\"logs\""));
-    TEST_ASSERT_NOT_NULL(strstr(msg, "hello from log"));
+    TEST_ASSERT_NOT_NULL(strstr(msg, "\"ch\":\"log\""));
+    TEST_ASSERT_NOT_NULL(strstr(msg, "\"data\":"));
+    TEST_ASSERT_NOT_NULL(strstr(msg, "\"ts\":123"));
+    TEST_ASSERT_NOT_NULL(strstr(msg, "\"msg\":\"bar\""));
+}
+
+// (b2) client NOT subscribed to "log" receives nothing from inject_log_event.
+void test_bb_sink_ws_sub_log_unsubscribed_receives_nothing(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(7, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 7, "{\"sub\":[\"telemetry\"]}");
+
+    bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// (b3) suspended state blocks log event broadcast.
+void test_bb_sink_ws_sub_log_suspend_gates(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(5, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 5, "{\"sub\":[\"log\"]}");
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
+
+    bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// (b4) inject_log_event with no active clients is a no-op (no crash).
+void test_bb_sink_ws_log_event_inject_no_clients(void)
+{
+    ws_sink_setup();
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    // No clients active — should complete silently.
+    bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// (b5) inject_log_event malloc fail → no broadcast, no crash.
+void test_bb_sink_ws_log_event_inject_malloc_fail(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(9, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 9, "{\"sub\":[\"log\"]}");
+
+    bb_sink_ws_set_malloc(test_failing_malloc);
+    test_alloc_fail_at = 0;
+    test_alloc_reset();
+
+    bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+
+    bb_sink_ws_set_malloc(NULL);
+    test_alloc_fail_at = -1;
 }
 
 // (c) unsubscribed client (never sent a sub frame) receives nothing.
@@ -479,44 +551,14 @@ void test_bb_sink_ws_unsubscribed_client_receives_nothing(void)
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
 
-    // Log inject also delivers nothing.
-    bb_err_t err = bb_sink_ws_host_inject_log_line("line");
-    TEST_ASSERT_EQUAL(BB_OK, err);
+    // Log event inject also delivers nothing to unsubscribed client.
+    bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
     TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
 }
 
 // ---------------------------------------------------------------------------
 // Alloc-failure paths (host-reachable)
 // ---------------------------------------------------------------------------
-
-// log-inject malloc fail → returns BB_ERR_NO_SPACE, no broadcast.
-// On device this path immediately yields (vTaskDelay backoff) so WDT is safe.
-void test_bb_sink_ws_log_inject_malloc_fail_returns_no_space(void)
-{
-    ws_sink_setup();
-    bb_websocket_host_set_client_active(9, true);
-
-    bb_pub_sink_t s;
-    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
-
-    bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 9, "{\"sub\":[\"logs\"]}");
-
-    // Inject a failing malloc — inject_log_line must return BB_ERR_NO_SPACE.
-    bb_sink_ws_set_malloc(test_failing_malloc);
-    test_alloc_fail_at = 0;
-    test_alloc_reset();
-
-    bb_err_t err = bb_sink_ws_host_inject_log_line("pressure test");
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
-    // Nothing must have been broadcast.
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
-
-    // Restore normal allocator.
-    bb_sink_ws_set_malloc(NULL);
-    test_alloc_fail_at = -1;
-}
 
 // publish malloc fail → returns BB_ERR_NO_SPACE, nothing broadcast.
 void test_bb_sink_ws_publish_malloc_fail_returns_no_space(void)
@@ -740,15 +782,14 @@ void test_bb_sink_ws_sub_replace_on_resub(void)
     TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
     bb_websocket_host_async_reset();
 
-    // Re-sub to logs only — telemetry should no longer deliver.
-    inject_sub(req, 3, "{\"sub\":[\"logs\"]}");
+    // Re-sub to log only — telemetry should no longer deliver.
+    inject_sub(req, 3, "{\"sub\":[\"log\"]}");
 
     err = s.publish(s.ctx, "m/h/info", "{}", 2);
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
 
-    // But logs should now deliver.
-    err = bb_sink_ws_host_inject_log_line("after resub");
-    TEST_ASSERT_EQUAL(BB_OK, err);
+    // But log events should now deliver.
+    bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"after resub\"}");
     TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
 }
