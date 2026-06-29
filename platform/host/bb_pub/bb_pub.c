@@ -670,6 +670,37 @@ bb_err_t bb_pub_sink_info(int i, const char **out_transport, bool *out_tls)
 }
 
 // ---------------------------------------------------------------------------
+// Lock-free internal helpers — MUST be called with s_tick_lock held.
+// Used by meta_gather (telem Phase 1, under s_tick_lock) to avoid re-
+// acquiring the non-recursive mutex and self-deadlocking.
+// External callers must use bb_pub_get_status / bb_pub_sink_info instead.
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_pub_get_status_nolock(bb_pub_status_t *out)
+{
+    if (!out) return BB_ERR_INVALID_ARG;
+    // s_source_count and s_sink_count: registration-time only, safe without lock.
+    out->source_count    = s_source_count;
+    out->sink_count      = s_sink_count;
+    // s_last_publish_ok / _ms / _published_ever: caller holds s_tick_lock.
+    out->last_publish_ok = s_last_publish_ok;
+    out->last_publish_ms = s_last_publish_ms;
+    out->published_ever  = s_published_ever;
+    // s_started: written once at startup before any tick; safe without lock.
+    out->available       = s_started;
+    return BB_OK;
+}
+
+bb_err_t bb_pub_sink_info_nolock(int i, const char **out_transport, bool *out_tls)
+{
+    // s_sinks[] / s_sink_count: registration-time only; caller holds s_tick_lock.
+    if (i < 0 || i >= s_sink_count) return BB_ERR_INVALID_ARG;
+    if (out_transport) *out_transport = s_sinks[i].transport;
+    if (out_tls)       *out_tls       = s_sinks[i].tls;
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
 // Prometheus metric-name prefix
 // ---------------------------------------------------------------------------
 

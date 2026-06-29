@@ -2,6 +2,7 @@
 // Compiled on both host (test) and ESP-IDF (shared logic).
 #include "bb_pub_telemetry.h"
 #include "bb_pub.h"
+#include "../bb_pub/bb_pub_priv.h"
 #include "bb_clock.h"
 #include "bb_info.h"
 #include "bb_json.h"
@@ -49,6 +50,9 @@ typedef struct {
 typedef char _meta_snap_size_check[
     sizeof(meta_snap_t) <= CONFIG_BB_PUB_TELEM_SNAP_MAX ? 1 : -1];
 
+// meta_gather is called by bb_pub_tick_once from inside s_tick_lock (telem Phase 1).
+// It MUST NOT call bb_pub_get_status / bb_pub_sink_info which re-acquire that
+// non-recursive mutex → self-deadlock.  Use the nolock variants instead.
 static bool meta_gather(void *snap_buf, void *ctx)
 {
     (void)ctx;
@@ -58,14 +62,14 @@ static bool meta_gather(void *snap_buf, void *ctx)
     m->topic_prefix[sizeof(m->topic_prefix) - 1] = '\0';
 
     bb_pub_status_t st;
-    bb_pub_get_status(&st);
+    bb_pub_get_status_nolock(&st);   /* caller (tick) holds s_tick_lock */
     m->sink_count = st.sink_count;
 
     int cap = st.sink_count < BB_PUB_META_MAX_SINKS ? st.sink_count : BB_PUB_META_MAX_SINKS;
     for (int i = 0; i < cap; i++) {
         const char *transport = NULL;
         bool tls = false;
-        bb_pub_sink_info(i, &transport, &tls);
+        bb_pub_sink_info_nolock(i, &transport, &tls);   /* caller holds s_tick_lock */
         m->sinks[i].transport[0] = '\0';
         if (transport) {
             strncpy(m->sinks[i].transport, transport,
@@ -309,6 +313,23 @@ void bb_pub_telemetry_section_get_for_test(bb_json_t section, void *ctx)
 bb_err_t bb_pub_telemetry_section_patch_for_test(bb_json_t patch, void *ctx)
 {
     return pub_section_patch(patch, ctx);
+}
+
+// Expose meta_gather and meta_serialize so tests can register a telem source
+// that exercises the nolock code path via bb_pub_tick_once (deadlock check).
+bool bb_pub_telemetry_meta_gather_for_test(void *snap_buf, void *ctx)
+{
+    return meta_gather(snap_buf, ctx);
+}
+
+void bb_pub_telemetry_meta_serialize_for_test(bb_json_t obj, const void *snap)
+{
+    meta_serialize(obj, snap);
+}
+
+size_t bb_pub_telemetry_meta_snap_size_for_test(void)
+{
+    return sizeof(meta_snap_t);
 }
 
 #endif /* BB_PUB_TELEMETRY_TESTING */

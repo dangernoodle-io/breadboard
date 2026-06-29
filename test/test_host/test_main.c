@@ -2796,6 +2796,8 @@ void test_bb_pub_telemetry_patch_enabled_on_available_publisher_returns_ok(void)
 void test_bb_pub_get_status_available_false_by_default(void);
 void test_bb_pub_get_status_available_true_after_mark_started(void);
 void test_bb_pub_get_status_available_reset_clears_it(void);
+void test_bb_pub_telemetry_meta_gather_tick_no_deadlock(void);
+void test_bb_pub_telemetry_meta_gather_sink_count_parity(void);
 
 // Forward declarations from test_bb_telemetry_coupling.c
 void test_couple_publisher_no_explicit_any_sink_true(void);
@@ -5941,6 +5943,8 @@ int main(void) {
     RUN_TEST(test_bb_pub_get_status_available_false_by_default);
     RUN_TEST(test_bb_pub_get_status_available_true_after_mark_started);
     RUN_TEST(test_bb_pub_get_status_available_reset_clears_it);
+    RUN_TEST(test_bb_pub_telemetry_meta_gather_tick_no_deadlock);
+    RUN_TEST(test_bb_pub_telemetry_meta_gather_sink_count_parity);
 
     // publisher–sink coupling tests
     RUN_TEST(test_couple_publisher_no_explicit_any_sink_true);
