@@ -809,6 +809,182 @@ def _check_telemetry_rest_cache_read(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: mutating-route-needs-body-schema (B1-413)
+# ---------------------------------------------------------------------------
+
+# Matches bb_route_t variable initializer opening (not pointer/array declarations)
+_ROUTE_INIT_RE = re.compile(r'\bbb_route_t\b[^;{}]*=\s*\{')
+
+_METHOD_MUTATING_RE = re.compile(
+    r'\.method\s*=\s*(BB_HTTP_POST|BB_HTTP_PATCH|BB_HTTP_PUT)\b'
+)
+_CT_BODIED_RE = re.compile(
+    r'\.request_content_type\s*=\s*"([^"]*)"',
+    re.IGNORECASE,
+)
+_SCHEMA_FIELD_RE = re.compile(r'\.request_schema\s*=')
+_SCHEMA_NULL_RE = re.compile(r'\.request_schema\s*=\s*NULL\b')
+_SCHEMA_LITERAL_START_RE = re.compile(r'\.request_schema\s*=\s*"')
+_SCHEMA_VAR_RE = re.compile(r'\.request_schema\s*=\s*([A-Za-z_]\w*)\b')
+
+
+def _check_mutating_route_needs_body_schema(ctx: Context) -> list:
+    """Rule: mutating-route-needs-body-schema — flag POST/PATCH/PUT routes whose
+    request_content_type indicates a JSON/form body but whose request_schema is
+    absent, NULL, or a bare {"type":"object"} with no properties."""
+    violations = []
+    root = Path(ctx.root)
+
+    for path in ctx.files(
+        ["platform/**/*.c", "platform/**/*.h",
+         "components/**/*.c", "components/**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+
+        src = ctx.read(path)
+        stripped = _strip_noise(src)
+        n = len(stripped)
+
+        for m in _ROUTE_INIT_RE.finditer(stripped):
+            # Find the opening brace position
+            brace_pos = stripped.rfind('{', m.start(), m.end())
+            if brace_pos < 0:
+                continue
+            close = _walk_balanced(stripped, brace_pos, '{', '}')
+            if close < 0:
+                continue
+
+            block_stripped = stripped[brace_pos:close + 1]
+            block_orig = src[brace_pos:close + 1]
+
+            # Only flag mutating methods
+            if not _METHOD_MUTATING_RE.search(block_orig):
+                continue
+
+            # Only flag routes with a text body (JSON or form-urlencoded).
+            # Binary uploads (octet-stream) intentionally omit a JSON schema.
+            ct_m = _CT_BODIED_RE.search(block_orig)
+            if not ct_m:
+                continue  # no content_type = intentional bodyless action
+            ct = ct_m.group(1).lower()
+            if 'json' not in ct and 'urlencoded' not in ct:
+                continue  # binary or other — skip
+
+            line_no = src[:m.start()].count('\n') + 1
+
+            # Schema explicitly NULL
+            if _SCHEMA_NULL_RE.search(block_stripped):
+                violations.append(ctx.violation(
+                    path, line_no,
+                    "mutating route with body has .request_schema = NULL"))
+                continue
+
+            # Schema field absent entirely
+            if not _SCHEMA_FIELD_RE.search(block_stripped):
+                violations.append(ctx.violation(
+                    path, line_no,
+                    "mutating route with body is missing .request_schema field"))
+                continue
+
+            # Schema is a variable reference — trust it (can't inspect statically)
+            var_m = _SCHEMA_VAR_RE.search(block_orig)
+            if var_m and var_m.group(1) not in ('NULL',):
+                continue
+
+            # Schema is a string literal — check for "properties"
+            if _SCHEMA_LITERAL_START_RE.search(block_orig):
+                schema_field_m = re.search(r'\.request_schema\s*=\s*', block_orig)
+                if schema_field_m:
+                    rest = block_orig[schema_field_m.end():]
+                    # Schema value ends at next field assignment or closing brace
+                    next_field_m = re.search(r',\s*\.', rest)
+                    schema_val = rest[:next_field_m.start()] if next_field_m else rest
+                    if 'properties' not in schema_val:
+                        violations.append(ctx.violation(
+                            path, line_no,
+                            'mutating route schema is a bare {"type":"object"} with no properties'))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Rule: event-topic-needs-schema (B1-413)
+# ---------------------------------------------------------------------------
+
+# Matches bb_event_routes_attach / _attach_ex / _attach_ex2 — first arg
+_ATTACH_CALL_RE = re.compile(
+    r'\bbb_event_routes_attach(?:_ex2?)?\s*\(\s*'
+    r'("(?:[^"\\]|\\.)*"|[A-Z][A-Z0-9_]+)'  # string literal OR ALL_CAPS macro
+)
+
+# bb_openapi_register_topic_schema(topic, schema, component_name) — first arg is sse_topic
+_REGISTER_TOPIC_SCHEMA_RE = re.compile(
+    r'\bbb_openapi_register_topic_schema\s*\(\s*'
+    r'("(?:[^"\\]|\\.)*"|[A-Z][A-Z0-9_]+)'  # string literal OR ALL_CAPS macro
+)
+
+# bb_openapi_register_schema(component_name, schema, sse_topic) — third arg is sse_topic
+_REGISTER_SCHEMA_RE = re.compile(
+    r'\bbb_openapi_register_schema\s*\(\s*'
+    r'(?:"(?:[^"\\]|\\.)*"|[A-Za-z_]\w*)\s*,\s*'   # component_name (skip)
+    r'(?:"(?:[^"\\]|\\.)*"|[A-Za-z_]\w*)\s*,\s*'   # schema_literal (skip)
+    r'("(?:[^"\\]|\\.)*"|[A-Z][A-Z0-9_]+|NULL\b)'  # sse_topic (capture)
+)
+
+
+def _check_event_topic_needs_schema(ctx: Context) -> list:
+    """Rule: event-topic-needs-schema — every topic attached via
+    bb_event_routes_attach* must have a schema registered via
+    bb_openapi_register_topic_schema or bb_openapi_register_schema(sse_topic!=NULL).
+
+    Cross-file two-pass: collect attached topics and registered schema topics
+    across the entire scanned tree, then flag attached-but-unregistered."""
+    root = Path(ctx.root)
+
+    attached: list[tuple[str, object, int]] = []  # (token, path, line_no)
+    schema_tokens: set[str] = set()
+
+    for path in ctx.files(
+        ["platform/**/*.c", "platform/**/*.h",
+         "components/**/*.c", "components/**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+
+        src = ctx.read(path)
+        lines = src.splitlines()
+
+        # Collect attach calls (string literals or ALL_CAPS macros only)
+        for m in _ATTACH_CALL_RE.finditer(src):
+            token = m.group(1)
+            line_no = src[:m.start()].count('\n') + 1
+            attached.append((token, path, line_no))
+
+        # Collect topic schema registrations
+        for m in _REGISTER_TOPIC_SCHEMA_RE.finditer(src):
+            schema_tokens.add(m.group(1))
+
+        for m in _REGISTER_SCHEMA_RE.finditer(src):
+            tok = m.group(1)
+            if tok != 'NULL':
+                schema_tokens.add(tok)
+
+    violations = []
+    for token, path, line_no in attached:
+        if token not in schema_tokens:
+            violations.append(ctx.violation(
+                path, line_no,
+                f"SSE topic {token} has no bb_openapi schema registration"))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule registry — register all 4 rules
 # ---------------------------------------------------------------------------
 
@@ -911,6 +1087,23 @@ def _register_lint_rules() -> None:
             hint="REST handlers must read telemetry from the SSOT cache"
                  " (bb_cache_get_serialized / bb_cache_serialize_into)"
                  " rather than calling gather fns directly",
+        ),
+        Rule(
+            id="mutating-route-needs-body-schema",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_mutating_route_needs_body_schema,
+            hint="POST/PATCH/PUT routes with a JSON/form body must have a non-bare"
+                 " .request_schema with properties — prevents silent OpenAPI contract gaps",
+        ),
+        Rule(
+            id="event-topic-needs-schema",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_event_topic_needs_schema,
+            hint="every SSE topic attached via bb_event_routes_attach* must have a"
+                 " schema registered via bb_openapi_register_topic_schema or"
+                 " bb_openapi_register_schema(sse_topic!=NULL)",
         ),
     ]
     for rule in rules:

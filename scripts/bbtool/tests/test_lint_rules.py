@@ -23,6 +23,8 @@ from commands.lint import (
     _check_pragma_once,
     _check_no_arduino_string,
     _check_public_header_inline_platform_call,
+    _check_mutating_route_needs_body_schema,
+    _check_event_topic_needs_schema,
     _strip_noise,
 )
 
@@ -792,6 +794,235 @@ class TestPublicHeaderInlinePlatformCall(unittest.TestCase):
             violations = _check_public_header_inline_platform_call(make_ctx(td))
             self.assertFalse(violations,
                 "inline with no platform call must NOT fire")
+
+
+class TestMutatingRouteNeedsBodySchema(unittest.TestCase):
+    def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return tmpdir
+
+    def test_fires_on_patch_with_json_body_and_null_schema(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_PATCH,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = NULL,\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertTrue(violations, "PATCH with JSON body and NULL schema must fire")
+
+    def test_fires_on_post_with_bare_object_schema(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_POST,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = "{\\"type\\":\\"object\\"}",\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertTrue(violations, "POST with bare-object schema must fire")
+
+    def test_fires_on_patch_missing_schema_field(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_PATCH,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertTrue(violations, "PATCH with JSON body and no schema field must fire")
+
+    def test_no_fire_on_patch_with_properties_schema(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_PATCH,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = "{\\"type\\":\\"object\\",\\"properties\\":{\\"x\\":{\\"type\\":\\"string\\"}}}",\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertFalse(violations, "schema with properties must NOT fire")
+
+    def test_no_fire_on_post_bodyless_action(self):
+        """POST with no content_type and no schema = intentional bodyless action."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method    = BB_HTTP_POST,\n'
+                '    .path      = "/api/reboot",\n'
+                '    .responses = s_responses,\n'
+                '    .handler   = reboot_handler,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertFalse(violations, "bodyless POST action must NOT fire")
+
+    def test_no_fire_on_post_octet_stream(self):
+        """POST with octet-stream body (binary upload) must not fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_POST,\n'
+                '    .path                 = "/api/update/push",\n'
+                '    .request_content_type = "application/octet-stream",\n'
+                '    .request_schema       = NULL,\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertFalse(violations, "binary upload with NULL schema must NOT fire")
+
+    def test_no_fire_on_get_route(self):
+        """GET routes are never checked (not mutating)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method    = BB_HTTP_GET,\n'
+                '    .path      = "/api/fake",\n'
+                '    .responses = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertFalse(violations, "GET route must NOT fire")
+
+    def test_no_fire_on_variable_schema_reference(self):
+        """A schema variable reference (not NULL) is trusted."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_PATCH,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = k_fake_patch_schema,\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertFalse(violations, "variable schema reference must NOT fire")
+
+    def test_fires_on_put_with_bare_object_schema(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_PUT,\n'
+                '    .path                 = "/api/fake",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = "{\\"type\\":\\"object\\",\\"description\\":\\"body\\"}",\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertTrue(violations, "PUT with bare object schema must fire")
+
+
+class TestEventTopicNeedsSchema(unittest.TestCase):
+    def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return tmpdir
+
+    def test_fires_when_topic_attached_but_no_schema(self):
+        """Attaching a topic with no schema registration must fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'bb_err_t bb_fake_init(void) {\n'
+                '    bb_event_routes_attach_ex("my.topic", false);\n'
+                '    return BB_OK;\n'
+                '}\n')
+            violations = _check_event_topic_needs_schema(make_ctx(td))
+            self.assertTrue(violations, "attached topic with no schema must fire")
+            self.assertIn('"my.topic"', violations[0]["detail"])
+
+    def test_fires_when_macro_topic_attached_but_no_schema(self):
+        """Macro-named topic with no matching schema must fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'bb_err_t bb_fake_init(void) {\n'
+                '    bb_event_routes_attach_ex(MY_FAKE_TOPIC, false);\n'
+                '    return BB_OK;\n'
+                '}\n')
+            violations = _check_event_topic_needs_schema(make_ctx(td))
+            self.assertTrue(violations, "macro topic with no schema must fire")
+            self.assertIn("MY_FAKE_TOPIC", violations[0]["detail"])
+
+    def test_no_fire_when_topic_has_register_topic_schema(self):
+        """Topic with bb_openapi_register_topic_schema must NOT fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'bb_err_t bb_fake_init(void) {\n'
+                '    bb_openapi_register_topic_schema("my.topic", k_schema, "MyTopic");\n'
+                '    bb_event_routes_attach_ex("my.topic", false);\n'
+                '    return BB_OK;\n'
+                '}\n')
+            violations = _check_event_topic_needs_schema(make_ctx(td))
+            self.assertFalse(violations, "topic with schema must NOT fire")
+
+    def test_no_fire_cross_file_schema_in_other_file(self):
+        """Schema in file2 satisfies the attach in file1 (cross-file)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_attacher/bb_attacher.c",
+                'bb_err_t init(void) {\n'
+                '    bb_event_routes_attach_ex("cross.topic", false);\n'
+                '    return BB_OK;\n'
+                '}\n')
+            self._make_file(td, "platform/host/bb_schema/bb_schema.c",
+                'void register(void) {\n'
+                '    bb_openapi_register_topic_schema("cross.topic", k_s, "CrossTopic");\n'
+                '}\n')
+            violations = _check_event_topic_needs_schema(make_ctx(td))
+            self.assertFalse(violations, "cross-file schema coverage must NOT fire")
+
+    def test_no_fire_when_schema_via_register_schema_with_sse_topic(self):
+        """bb_openapi_register_schema with non-NULL sse_topic must satisfy the rule."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'bb_err_t bb_fake_init(void) {\n'
+                '    bb_openapi_register_schema("FakeTopic", k_schema, "my.topic2");\n'
+                '    bb_event_routes_attach_ex("my.topic2", false);\n'
+                '    return BB_OK;\n'
+                '}\n')
+            violations = _check_event_topic_needs_schema(make_ctx(td))
+            self.assertFalse(violations, "bb_openapi_register_schema with sse_topic must satisfy the rule")
+
+    def test_no_fire_when_register_schema_sse_topic_null(self):
+        """bb_openapi_register_schema with NULL sse_topic does NOT satisfy a different topic's attach."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'bb_err_t bb_fake_init(void) {\n'
+                '    bb_openapi_register_schema("WifiInfo", k_schema, NULL);\n'
+                '    bb_event_routes_attach_ex("wifi.info", false);\n'
+                '    return BB_OK;\n'
+                '}\n')
+            violations = _check_event_topic_needs_schema(make_ctx(td))
+            self.assertTrue(violations, "REST-only schema (NULL sse_topic) must not satisfy SSE attach")
+
+    def test_no_fire_variable_arg_in_attach_not_checked(self):
+        """A variable (lowercase) arg to attach is not checked by the rule."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/host/bb_sink_event/bb_sink_event.c",
+                'bb_err_t register_topic(const char *subtopic) {\n'
+                '    return bb_event_routes_attach_ex(subtopic, false);\n'
+                '}\n')
+            violations = _check_event_topic_needs_schema(make_ctx(td))
+            self.assertFalse(violations, "variable arg to attach must NOT fire (can't statically resolve)")
+
+    def test_fires_with_attach_variant(self):
+        """Plain bb_event_routes_attach (no _ex) must also be checked."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'bb_err_t bb_fake_init(void) {\n'
+                '    bb_event_routes_attach("orphan.topic");\n'
+                '    return BB_OK;\n'
+                '}\n')
+            violations = _check_event_topic_needs_schema(make_ctx(td))
+            self.assertTrue(violations, "plain bb_event_routes_attach with no schema must fire")
 
 
 if __name__ == "__main__":
