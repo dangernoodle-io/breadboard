@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import os
+import re
 import subprocess
 import sys
 
@@ -88,8 +89,9 @@ def _ref_label(cwd):
 
 def _bb_ref(consumer_dir, bb_dir):
     """breadboard identifier for a dev build. Pinned fetch (.breadboard is a real
-    dir with a .version stamp): show the pin version ("bb-0.70.3"). Local symlink
-    (floating dev checkout): show the ref label ("bb-main" / "bb-<sha>[+hash4]")."""
+    dir with a .version stamp): show the pin version ("bb-0.70.3" or "bb-596190b"
+    for a full 40-char SHA, truncated to 7 chars). Local symlink (floating dev
+    checkout): show the ref label ("bb-main" / "bb-<sha>[+hash4]")."""
     dest = os.path.join(consumer_dir, ".breadboard")
     if not os.path.islink(dest):
         try:
@@ -98,6 +100,9 @@ def _bb_ref(consumer_dir, bb_dir):
         except OSError:
             pin = ""
         pin = pin[1:] if pin.startswith("v") else pin
+        # Truncate full 40-char lowercase hex SHA to 7-char short form
+        if re.fullmatch(r"[0-9a-f]{40}", pin):
+            pin = pin[:7]
         return "bb-" + (pin or "unknown")
     return "bb-" + (_ref_label(bb_dir) or "unknown")
 
