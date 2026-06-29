@@ -210,7 +210,34 @@ static const bb_route_t s_telemetry_patch_route = {
     .request_schema       =
         "{\"type\":\"object\","
         "\"description\":\"Keys are section names (mqtt, http, publisher); "
-                         "values are section-specific patch objects\"}",
+                         "values are section-specific patch objects\","
+        "\"properties\":{"
+        "\"mqtt\":{\"type\":\"object\","
+            "\"properties\":{"
+            "\"uri\":{\"type\":\"string\"},"
+            "\"client_id\":{\"type\":\"string\"},"
+            "\"username\":{\"type\":\"string\"},"
+            "\"password\":{\"type\":\"string\"},"
+            "\"tls_ca\":{\"type\":\"string\"},"
+            "\"tls_cert\":{\"type\":\"string\"},"
+            "\"tls_key\":{\"type\":\"string\"},"
+            "\"tls\":{\"type\":\"boolean\"},"
+            "\"enabled\":{\"type\":\"boolean\"}}},"
+        "\"http\":{\"type\":\"object\","
+            "\"properties\":{"
+            "\"base\":{\"type\":\"string\"},"
+            "\"path_tmpl\":{\"type\":\"string\"},"
+            "\"client_id\":{\"type\":\"string\"},"
+            "\"qos\":{\"type\":\"integer\"},"
+            "\"tls_ca\":{\"type\":\"string\"},"
+            "\"tls_cert\":{\"type\":\"string\"},"
+            "\"tls_key\":{\"type\":\"string\"},"
+            "\"headers\":{\"type\":\"array\",\"items\":{\"type\":\"object\"}},"
+            "\"enabled\":{\"type\":\"boolean\"}}},"
+        "\"publisher\":{\"type\":\"object\","
+            "\"properties\":{"
+            "\"interval_ms\":{\"type\":\"integer\",\"minimum\":1000,\"maximum\":3600000},"
+            "\"enabled\":{\"type\":\"boolean\"}}}}}",
     .responses = s_telemetry_patch_responses,
     .handler   = telemetry_patch_handler,
 };

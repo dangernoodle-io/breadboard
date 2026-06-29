@@ -104,6 +104,82 @@ static const bb_route_t s_wifi_patch_route = {
     .handler              = NULL,
 };
 
+// Mirrors platform/espidf/bb_telemetry/bb_telemetry_routes.c (s_telemetry_patch_route.request_schema).
+// Copy-pasted intentionally: edits to the production literal must update this too.
+static const char k_telemetry_patch_request_schema[] =
+    "{\"type\":\"object\","
+    "\"description\":\"Keys are section names (mqtt, http, publisher); "
+                     "values are section-specific patch objects\","
+    "\"properties\":{"
+    "\"mqtt\":{\"type\":\"object\","
+        "\"properties\":{"
+        "\"uri\":{\"type\":\"string\"},"
+        "\"client_id\":{\"type\":\"string\"},"
+        "\"username\":{\"type\":\"string\"},"
+        "\"password\":{\"type\":\"string\"},"
+        "\"tls_ca\":{\"type\":\"string\"},"
+        "\"tls_cert\":{\"type\":\"string\"},"
+        "\"tls_key\":{\"type\":\"string\"},"
+        "\"tls\":{\"type\":\"boolean\"},"
+        "\"enabled\":{\"type\":\"boolean\"}}},"
+    "\"http\":{\"type\":\"object\","
+        "\"properties\":{"
+        "\"base\":{\"type\":\"string\"},"
+        "\"path_tmpl\":{\"type\":\"string\"},"
+        "\"client_id\":{\"type\":\"string\"},"
+        "\"qos\":{\"type\":\"integer\"},"
+        "\"tls_ca\":{\"type\":\"string\"},"
+        "\"tls_cert\":{\"type\":\"string\"},"
+        "\"tls_key\":{\"type\":\"string\"},"
+        "\"headers\":{\"type\":\"array\",\"items\":{\"type\":\"object\"}},"
+        "\"enabled\":{\"type\":\"boolean\"}}},"
+    "\"publisher\":{\"type\":\"object\","
+        "\"properties\":{"
+        "\"interval_ms\":{\"type\":\"integer\",\"minimum\":1000,\"maximum\":3600000},"
+        "\"enabled\":{\"type\":\"boolean\"}}}}}";
+
+// Mirrors components/bb_sensors/bb_sensors_schema_priv.h (k_sensors_patch_request_schema),
+// non-autofan variant. Copy-pasted intentionally.
+static const char k_sensors_patch_request_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+    "\"fan\":{\"type\":\"object\","
+        "\"properties\":{"
+        "\"duty_pct\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":100}},"
+        "\"required\":[\"duty_pct\"]}}}";
+
+// PATCH /api/telemetry fixture route — used by registry_all_valid and desc_audit tests.
+static const bb_route_response_t s_telemetry_patch_responses_fixture[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\",\"properties\":{\"reboot_required\":{\"type\":\"boolean\"}},\"required\":[\"reboot_required\"]}",
+      "patch applied" },
+    { 0 },
+};
+static const bb_route_t s_telemetry_patch_route_fixture = {
+    .method               = BB_HTTP_PATCH,
+    .path                 = "/api/telemetry",
+    .tag                  = "telemetry",
+    .request_content_type = "application/json",
+    .request_schema       = k_telemetry_patch_request_schema,
+    .responses            = s_telemetry_patch_responses_fixture,
+    .handler              = NULL,
+};
+
+// PATCH /api/sensors fixture route — used by registry_all_valid and desc_audit tests.
+static const bb_route_response_t s_sensors_patch_responses_fixture[] = {
+    { 204, NULL, NULL, "patch applied" },
+    { 0 },
+};
+static const bb_route_t s_sensors_patch_route_fixture = {
+    .method               = BB_HTTP_PATCH,
+    .path                 = "/api/sensors",
+    .tag                  = "sensors",
+    .request_content_type = "application/json",
+    .request_schema       = k_sensors_patch_request_schema,
+    .responses            = s_sensors_patch_responses_fixture,
+    .handler              = NULL,
+};
+
 // Mirrors platform/espidf/bb_telemetry/bb_telemetry_routes.c
 // (s_telemetry_patch_responses[0].schema). Copy-pasted intentionally so that
 // future edits to the production literal must also update this fixture.
@@ -126,7 +202,9 @@ static const char k_telemetry_patch_200_schema[] =
 typedef struct {
     int  total_schemas;
     int  failures;
+    int  mutating_bare_body;      // POST/PATCH/PUT with request_schema but no properties
     char first_failure[256];
+    char first_bare_body[128];
 } schema_check_ctx_t;
 
 static void check_schema_string(const char *path, const char *which,
@@ -148,6 +226,18 @@ static void check_schema_string(const char *path, const char *which,
     cJSON_Delete(parsed);
 }
 
+// Returns true iff the JSON-Schema string has a non-empty "properties" object.
+static bool check_request_schema_has_properties(const char *schema)
+{
+    if (!schema) return false;
+    cJSON *parsed = cJSON_Parse(schema);
+    if (!parsed) return false;
+    cJSON *props = cJSON_GetObjectItemCaseSensitive(parsed, "properties");
+    bool ok = props && cJSON_IsObject(props) && cJSON_GetArraySize(props) > 0;
+    cJSON_Delete(parsed);
+    return ok;
+}
+
 static void route_schema_walker(const bb_route_t *route, void *ctx_)
 {
     schema_check_ctx_t *ctx = (schema_check_ctx_t *)ctx_;
@@ -156,6 +246,20 @@ static void route_schema_walker(const bb_route_t *route, void *ctx_)
     if (route->responses) {
         for (const bb_route_response_t *r = route->responses; r->status != 0; r++) {
             check_schema_string(route->path, "response", r->schema, ctx);
+        }
+    }
+    // Guard: mutating routes with a request_schema must declare properties.
+    bool is_mutating = (route->method == BB_HTTP_POST ||
+                        route->method == BB_HTTP_PATCH ||
+                        route->method == BB_HTTP_PUT);
+    if (is_mutating && route->request_schema) {
+        if (!check_request_schema_has_properties(route->request_schema)) {
+            if (ctx->mutating_bare_body == 0) {
+                snprintf(ctx->first_bare_body, sizeof(ctx->first_bare_body),
+                         "%s (method %d): request_schema missing non-empty properties",
+                         route->path ? route->path : "(null)", (int)route->method);
+            }
+            ctx->mutating_bare_body++;
         }
     }
 }
@@ -204,6 +308,10 @@ void test_route_schemas_registry_all_valid(void)
     TEST_ASSERT_EQUAL(BB_OK, err);
     err = bb_http_register_route_descriptor_only(&s_wifi_patch_route);
     TEST_ASSERT_EQUAL(BB_OK, err);
+    err = bb_http_register_route_descriptor_only(&s_telemetry_patch_route_fixture);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    err = bb_http_register_route_descriptor_only(&s_sensors_patch_route_fixture);
+    TEST_ASSERT_EQUAL(BB_OK, err);
 
     schema_check_ctx_t ctx = { 0 };
     bb_http_route_registry_foreach(route_schema_walker, &ctx);
@@ -211,6 +319,9 @@ void test_route_schemas_registry_all_valid(void)
     TEST_ASSERT_GREATER_THAN_INT(0, ctx.total_schemas);
     if (ctx.failures > 0) {
         TEST_FAIL_MESSAGE(ctx.first_failure);
+    }
+    if (ctx.mutating_bare_body > 0) {
+        TEST_FAIL_MESSAGE(ctx.first_bare_body);
     }
 
     bb_http_route_registry_clear();
@@ -312,6 +423,50 @@ void test_wifi_patch_route_descriptor_has_request_schema(void)
         "PATCH /api/wifi route descriptor must set request_content_type");
 }
 
+// B1-413: PATCH /api/telemetry request_schema parses and has non-empty properties.
+void test_telemetry_patch_request_schema_has_properties(void)
+{
+    TEST_ASSERT_TRUE_MESSAGE(
+        check_request_schema_has_properties(k_telemetry_patch_request_schema),
+        "PATCH /api/telemetry request_schema must parse and declare non-empty properties");
+}
+
+// B1-413: PATCH /api/sensors request_schema parses and has non-empty properties.
+void test_sensors_patch_request_schema_has_properties(void)
+{
+    TEST_ASSERT_TRUE_MESSAGE(
+        check_request_schema_has_properties(k_sensors_patch_request_schema),
+        "PATCH /api/sensors request_schema must parse and declare non-empty properties");
+}
+
+// Guard: the bare-object regression — a PATCH route with request_schema but no properties
+// — trips the walker.
+void test_mutating_route_bare_body_guard_trips(void)
+{
+    static const bb_route_response_t bare_responses[] = {
+        { 204, NULL, NULL, "ok" },
+        { 0 },
+    };
+    static const bb_route_t bare_route = {
+        .method               = BB_HTTP_PATCH,
+        .path                 = "/api/bare-test",
+        .request_content_type = "application/json",
+        .request_schema       = "{\"type\":\"object\"}",  // no properties — bare object
+        .responses            = bare_responses,
+        .handler              = NULL,
+    };
+
+    bb_http_route_registry_clear();
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_register_route_descriptor_only(&bare_route));
+
+    schema_check_ctx_t ctx = { 0 };
+    bb_http_route_registry_foreach(route_schema_walker, &ctx);
+
+    TEST_ASSERT_EQUAL_INT(1, ctx.mutating_bare_body);
+
+    bb_http_route_registry_clear();
+}
+
 // ---------------------------------------------------------------------------
 // Durable descriptor-fidelity guard (B1-246)
 //
@@ -372,6 +527,11 @@ static const desc_audit_entry_t k_desc_audit[] = {
       { NULL },             false, 500, "application/json" },
     { "/api/manifest",      BB_HTTP_GET,
       { NULL },             false, 500, "application/json" },
+    // B1-413: request body schemas
+    { "/api/telemetry", BB_HTTP_PATCH,
+      { NULL },             true,    0, NULL },
+    { "/api/sensors",   BB_HTTP_PATCH,
+      { NULL },             true,    0, NULL },
     // Sentinel
     { NULL },
 };
@@ -589,6 +749,7 @@ static const bb_route_t s_manifest_with_500_route_fixture = {
     .handler   = NULL,
 };
 
+
 // ---------------------------------------------------------------------------
 // Walker helpers for descriptor-audit assertions
 // ---------------------------------------------------------------------------
@@ -642,6 +803,8 @@ static void seed_desc_audit_fixtures(void)
     bb_http_register_route_descriptor_only(&s_mark_valid_route_fixture);
     bb_http_register_route_descriptor_only(&s_tasks_route_fixture);
     bb_http_register_route_descriptor_only(&s_manifest_with_500_route_fixture);
+    bb_http_register_route_descriptor_only(&s_telemetry_patch_route_fixture);
+    bb_http_register_route_descriptor_only(&s_sensors_patch_route_fixture);
 }
 
 // ---------------------------------------------------------------------------

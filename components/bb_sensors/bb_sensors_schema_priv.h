@@ -62,6 +62,28 @@ static const char k_sensors_thermal_schema[] =
     "\"board\":{\"type\":\"object\",\"properties\":{\"present\":{\"type\":\"boolean\"},\"c\":{\"type\":[\"number\",\"null\"]}}}},"
     "\"required\":[\"soc\",\"vr\",\"asic\",\"board\"]}";
 
+// PATCH /api/sensors request body schema — fan section only (power/thermal are read-only).
+#ifdef CONFIG_BB_FAN_AUTOFAN
+static const char k_sensors_patch_request_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+    "\"fan\":{\"type\":\"object\","
+        "\"properties\":{"
+        "\"autofan\":{\"type\":\"boolean\"},"
+        "\"die_target_c\":{\"type\":\"number\",\"exclusiveMinimum\":0},"
+        "\"vr_target_c\":{\"type\":\"number\",\"exclusiveMinimum\":0},"
+        "\"manual_pct\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":100},"
+        "\"min_pct\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":100}}}}}";
+#else
+static const char k_sensors_patch_request_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+    "\"fan\":{\"type\":\"object\","
+        "\"properties\":{"
+        "\"duty_pct\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":100}},"
+        "\"required\":[\"duty_pct\"]}}}";
+#endif
+
 // Assembled-schema base/suffix: no root-level fields — sections only.
 static const char k_sensors_base[] =
     "{\"type\":\"object\","
