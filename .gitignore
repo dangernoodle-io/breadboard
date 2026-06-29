@@ -1,5 +1,6 @@
 # Build artifacts
 build/
+dist/
 .pio/
 managed_components/
 dependencies.lock

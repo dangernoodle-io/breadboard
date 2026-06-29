@@ -67,6 +67,11 @@ def add_arguments(parser) -> None:
                         help="URL root prepended to asset paths (default '/')")
 
 
+def register(api) -> None:
+    import sys
+    api.add_command(NAME, sys.modules[__name__])
+
+
 def run(args) -> int:
     generated = generate(args.dist_dir, args.out_dir, args.table_sym,
                          url_prefix=args.url_prefix)

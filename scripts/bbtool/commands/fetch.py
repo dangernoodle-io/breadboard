@@ -93,6 +93,11 @@ def add_arguments(parser):
                              "default: $BREADBOARD_LOCAL)")
 
 
+def register(api) -> None:
+    import sys
+    api.add_command(NAME, sys.modules[__name__])
+
+
 def run(args):
     """CLI entry: reconcile .breadboard, return 0 on success."""
     try:
