@@ -6,10 +6,35 @@ import sys
 
 from core import load_config, load_plugins
 from registry import COMMANDS, PluginAPI
-import commands  # registers built-in commands as a side-effect
+from commands import FIRST_PARTY
 
 
 def main() -> int:
+    # Pre-parse --root/--config before building subparsers so we can locate
+    # bbtool.toml (and thus external plugin paths) before argparse sees the
+    # subcommand.  parse_known_args() ignores unknown tokens (the subcommand
+    # and its flags) so --root after a subcommand is also handled correctly.
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--root", default=os.getcwd())
+    pre.add_argument("--config", default=None)
+    pre_args, _ = pre.parse_known_args()
+
+    root = os.path.abspath(pre_args.root)
+    config = load_config(pre_args.config, root)
+    config_dir = os.path.dirname(pre_args.config) if pre_args.config else root
+
+    api = PluginAPI()
+
+    # Load first-party commands (and lint rules) onto the bus first.
+    for mod in FIRST_PARTY:
+        if hasattr(mod, "register"):
+            mod.register(api)
+
+    # Load external plugins — they land in the same COMMANDS/RULES dicts.
+    plugin_paths = config.get("plugins", {}).get("paths", [])
+    load_plugins(plugin_paths, config_dir, api)
+
+    # COMMANDS is now fully populated; build the real parser.
     parser = argparse.ArgumentParser(
         prog="bbtool",
         description="breadboard tooling framework",
@@ -33,27 +58,16 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    # Resolve root
+    # Resolve root from the full parse.
     root = os.path.abspath(getattr(args, "root", None) or os.getcwd())
-
-    # Load config
-    config = load_config(args.config, root)
-
-    # Load plugins
-    plugin_paths = config.get("plugins", {}).get("paths", [])
-    config_dir = os.path.dirname(args.config) if args.config else root
-    api = PluginAPI()
-    load_plugins(plugin_paths, config_dir, api)
 
     if args.command is None:
         parser.print_help()
         return 1
 
-    # Inject root + config into args if not already set
     if not hasattr(args, "root") or args.root is None:
         args.root = root
     args._config_dict = config
     args._root_abs = root
 
-    mod = COMMANDS[args.command]
-    return mod.run(args)
+    return COMMANDS[args.command].run(args)

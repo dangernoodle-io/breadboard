@@ -152,6 +152,11 @@ def add_arguments(parser):
                         help="breadboard repo root (default: derived from this file's location)")
 
 
+def register(api) -> None:
+    import sys
+    api.add_command(NAME, sys.modules[__name__])
+
+
 def run(args):
     """CLI entry: print bare version string to stdout, return 0."""
     if args.bb_dir:

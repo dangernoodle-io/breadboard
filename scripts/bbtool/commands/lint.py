@@ -1114,6 +1114,18 @@ _register_lint_rules()
 
 
 # ---------------------------------------------------------------------------
+# Plugin bus registration
+# ---------------------------------------------------------------------------
+
+def register(api) -> None:
+    import sys
+    mod = sys.modules[__name__]
+    api.add_command(NAME, mod)
+    for rule in _LINT_RULES.values():
+        api.add_rule(rule)
+
+
+# ---------------------------------------------------------------------------
 # Command interface
 # ---------------------------------------------------------------------------
 
@@ -1159,7 +1171,9 @@ def run(args: argparse.Namespace) -> int:
 
     ctx = Context(root=root, config=config)
 
-    # Merge built-in rules with any plugin rules from RULES registry
+    # _LINT_RULES: built-in rules (always available, even in direct test calls).
+    # RULES: unified bus — built-in rules re-registered via register(api) plus
+    # any external plugin rules. RULES takes priority on collision.
     all_rules = dict(_LINT_RULES)
     all_rules.update(RULES)
 

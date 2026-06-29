@@ -36,6 +36,11 @@ def add_arguments(parser) -> None:
     parser.add_argument("symbol", help="C identifier for the byte-array and length")
 
 
+def register(api) -> None:
+    import sys
+    api.add_command(NAME, sys.modules[__name__])
+
+
 def run(args) -> int:
     _embed(args.input, args.output, args.symbol, _progress_to_stderr=False)
     return 0
