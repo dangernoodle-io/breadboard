@@ -334,6 +334,16 @@ typedef struct {
     uint32_t last_publish_ms;   /**< bb_clock_now_ms() at the last tick that
                                      published ≥1 source. 0 = never. */
     bool     published_ever;    /**< True once at least one tick published. */
+    /**
+     * True when the publisher worker was successfully started (bb_pub_start
+     * completed without error). False on builds where AUTOREGISTER=n and
+     * bb_pub_start was never called, or when bb_pub_start failed.
+     *
+     * Use this to distinguish "publisher running" from "publisher compiled in
+     * but not started". A reboot will NOT enable the publisher on a build where
+     * this is false due to AUTOREGISTER=n — it requires a firmware rebuild.
+     */
+    bool     available;
 } bb_pub_status_t;
 
 /**
@@ -521,6 +531,20 @@ void bb_pub_buffer_init_eager(void);
  * This symbol is always available (not gated on BB_PUB_TESTING).
  */
 void bb_pub_set_interval_apply_hook(void (*hook)(uint32_t ms));
+
+/**
+ * Mark the publisher as successfully started. Called by the ESP-IDF platform
+ * backend (bb_pub_espidf.c) after bb_pub_start() completes successfully so
+ * bb_pub_get_status().available reflects actual registration state.
+ *
+ * On host builds / AUTOREGISTER=n builds, this function is never called and
+ * available remains false — correctly indicating the periodic worker is absent.
+ * Consumers that start the publisher manually (AUTOREGISTER=n) must call this
+ * after a successful bb_pub_start() to keep the flag honest.
+ *
+ * This symbol is always available (not gated on BB_PUB_TESTING).
+ */
+void bb_pub_mark_started(void);
 
 /**
  * Volatile (RAM-only) interval override — re-arms the periodic timer to `ms`

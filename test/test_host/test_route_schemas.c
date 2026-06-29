@@ -104,6 +104,21 @@ static const bb_route_t s_wifi_patch_route = {
     .handler              = NULL,
 };
 
+// Mirrors platform/espidf/bb_telemetry/bb_telemetry_routes.c
+// (s_telemetry_patch_responses[0].schema). Copy-pasted intentionally so that
+// future edits to the production literal must also update this fixture.
+// Validates that the B1-398 publisher_unavailable addition is valid JSON.
+static const char k_telemetry_patch_200_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+        "\"reboot_required\":{\"type\":\"boolean\"},"
+        "\"publisher_unavailable\":{\"type\":\"boolean\","
+            "\"description\":\"true when publisher.enabled=true was requested "
+            "but the publisher worker is not compiled in on this build "
+            "(AUTOREGISTER=n) — reboot will not start the publisher\"}"
+    "},"
+    "\"required\":[\"reboot_required\"]}";
+
 // ---------------------------------------------------------------------------
 // Walker
 // ---------------------------------------------------------------------------
@@ -154,6 +169,31 @@ void test_route_schemas_manifest_fixture_parses(void)
     cJSON *parsed = cJSON_Parse(k_manifest_schema);
     TEST_ASSERT_NOT_NULL_MESSAGE(parsed,
         "bb_manifest schema literal must parse as valid JSON");
+    cJSON_Delete(parsed);
+}
+
+// B1-398: guard the telemetry PATCH 200 response schema (new publisher_unavailable field).
+void test_route_schemas_telemetry_patch_200_parses(void)
+{
+    cJSON *parsed = cJSON_Parse(k_telemetry_patch_200_schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(parsed,
+        "telemetry PATCH 200 schema (with publisher_unavailable) must parse as valid JSON");
+    // Verify reboot_required is in required[].
+    cJSON *props    = cJSON_GetObjectItemCaseSensitive(parsed, "properties");
+    cJSON *req_arr  = cJSON_GetObjectItemCaseSensitive(parsed, "required");
+    TEST_ASSERT_NOT_NULL_MESSAGE(props,   "schema must have 'properties'");
+    TEST_ASSERT_NOT_NULL_MESSAGE(req_arr, "schema must have 'required'");
+    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsArray(req_arr), "'required' must be array");
+    bool found_rr = false;
+    cJSON *item = NULL;
+    cJSON_ArrayForEach(item, req_arr) {
+        if (cJSON_IsString(item) && strcmp(item->valuestring, "reboot_required") == 0)
+            found_rr = true;
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found_rr, "reboot_required must be in required[]");
+    // publisher_unavailable must be a property (optional, not in required[]).
+    cJSON *pu = cJSON_GetObjectItemCaseSensitive(props, "publisher_unavailable");
+    TEST_ASSERT_NOT_NULL_MESSAGE(pu, "publisher_unavailable property must exist");
     cJSON_Delete(parsed);
 }
 
