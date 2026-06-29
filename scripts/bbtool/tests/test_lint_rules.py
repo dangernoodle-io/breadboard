@@ -920,6 +920,45 @@ class TestMutatingRouteNeedsBodySchema(unittest.TestCase):
             violations = _check_mutating_route_needs_body_schema(make_ctx(td))
             self.assertTrue(violations, "PUT with bare object schema must fire")
 
+    def test_fires_on_delete_with_json_body_and_null_schema(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_DELETE,\n'
+                '    .path                 = "/api/nvs",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = NULL,\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertTrue(violations, "DELETE with JSON body and NULL schema must fire")
+
+    def test_no_fire_on_delete_with_properties_schema(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method               = BB_HTTP_DELETE,\n'
+                '    .path                 = "/api/nvs",\n'
+                '    .request_content_type = "application/json",\n'
+                '    .request_schema       = "{\\"type\\":\\"object\\",\\"properties\\":{\\"key\\":{\\"type\\":\\"string\\"}}}",\n'
+                '    .responses            = s_responses,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertFalse(violations, "DELETE with schema having properties must NOT fire")
+
+    def test_no_fire_on_delete_bodyless_action(self):
+        """DELETE with no content_type and no schema = bodyless action (e.g., delete by path)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'static const bb_route_t k_route = {\n'
+                '    .method    = BB_HTTP_DELETE,\n'
+                '    .path      = "/api/cache/*",\n'
+                '    .responses = s_responses,\n'
+                '    .handler   = delete_handler,\n'
+                '};\n')
+            violations = _check_mutating_route_needs_body_schema(make_ctx(td))
+            self.assertFalse(violations, "bodyless DELETE action must NOT fire")
+
 
 class TestEventTopicNeedsSchema(unittest.TestCase):
     def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
