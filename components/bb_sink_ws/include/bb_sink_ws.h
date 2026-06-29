@@ -48,11 +48,11 @@ void bb_sink_ws_resume(void);
 void bb_sink_ws_reset_for_test(void);
 
 /**
- * Host-only: inject a log line as if the logs pump had drained it.
- * Broadcasts {"ch":"logs","data":"<line>"} to clients subscribed to "logs".
+ * Host-only: inject a structured log event as if the "log" bb_event had fired.
+ * Broadcasts {"ch":"log","data":<json>} to clients subscribed to "log".
  * Compiled only when BB_SINK_WS_TESTING is defined (native test builds).
  */
-bb_err_t bb_sink_ws_host_inject_log_line(const char *line);
+void bb_sink_ws_host_inject_log_event(const char *json);
 
 /**
  * Host-only: override the malloc function used by the log-injection path.

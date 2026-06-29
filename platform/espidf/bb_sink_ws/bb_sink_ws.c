@@ -1,12 +1,12 @@
 // bb_sink_ws — ESP-IDF implementation.
 // Forwards serialized telemetry payloads to subscribed WebSocket clients and
-// pumps bb_log_stream lines to clients subscribed to the "logs" channel.
+// fans the structured "log" bb_event topic to clients subscribed to "log".
 // Compiled only on ESP_PLATFORM; the host build uses
 // platform/host/bb_sink_ws/bb_sink_ws.c.
 //
 // Subscription filtering
 // ----------------------
-// Clients send a TEXT frame: {"sub":["telemetry","events","logs",...]}
+// Clients send a TEXT frame: {"sub":["telemetry","events","log",...]}
 // This replaces the client's entire subscription set.  On the next publish
 // only channels matching the subscription are delivered.
 //
@@ -15,10 +15,11 @@
 //   2. Coarse group: client subscribed to "telemetry" → receives any ch
 //      that maps to a bb_pub telemetry subtopic (mining, pool, info, wifi,
 //      fan, power, thermal, …).  All bb_pub subtopics that are NOT "events"
-//      or "logs" are considered part of the "telemetry" group.
+//      or "log" are considered part of the "telemetry" group.
 //   3. "events" group: receives ch values that come from the events bus
 //      (subtopic == "events").
-//   4. "logs" group: receives ch="logs" frames.
+//   4. "log" channel: exact opt-in; clients subscribe with {"sub":["log"]}.
+//      Receives {"ch":"log","data":{...}} structured JSON from bb_log_event.
 //   5. If the client has NO subscriptions yet (e.g., just connected and has
 //      not sent a sub frame), it receives NOTHING (subscription required).
 //
@@ -27,21 +28,20 @@
 // Keyed by socket fd (0..BB_WEBSOCKET_MAX_FD-1).  A fixed-size slot array
 // avoids dynamic allocation and survives connections/disconnections.
 //
-// Logs channel pump
-// -----------------
-// A FreeRTOS task ("ws_log_pump", 3072 B stack, prio 3) drains
-// bb_log_stream_drain() every 200 ms and broadcasts each line as
-//   {"ch":"logs","data":"<line>"}
-// to clients subscribed to "logs".  The task is spawned by bb_sink_ws_init
-// and runs until the component is reset.
+// Log channel
+// -----------
+// bb_sink_ws_init subscribes to the "log" bb_event topic (registered by
+// bb_log_event at order 4).  log_event_cb builds the
+//   {"ch":"log","data":{...}}
+// envelope and fans it to clients subscribed to "log".  s_suspended gate
+// is checked in log_event_cb to match the telemetry publish behaviour.
+// s_clients[] is read without a lock — same race tolerance as sink_ws_publish.
 #ifdef ESP_PLATFORM
 
 #include "bb_sink_ws.h"
 #include "bb_websocket.h"
 #include "bb_log.h"
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "bb_event.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -132,9 +132,9 @@ static bool parse_sub_frame(int fd, const char *payload, size_t len)
 //
 // Matching logic:
 //   - Exact name match: sub == ch
-//   - Coarse group "telemetry": matches any ch that is NOT "events" and NOT "logs"
+//   - Coarse group "telemetry": matches any ch that is NOT "events" and NOT "log"
 //   - Coarse group "events":    matches ch == "events"
-//   - Coarse group "logs":      matches ch == "logs"
+//   - "log" is exact opt-in only; not covered by any coarse group
 static bool client_subscribed(int fd, const char *ch)
 {
     if (fd < 0 || fd >= BB_WEBSOCKET_MAX_FD) return false;
@@ -145,14 +145,12 @@ static bool client_subscribed(int fd, const char *ch)
         const char *sub = slot->subs[i];
         // Exact match
         if (strcmp(sub, ch) == 0) return true;
-        // Coarse group: "telemetry" covers anything that is not events or logs
+        // Coarse group: "telemetry" covers anything that is not events or log
         if (strcmp(sub, "telemetry") == 0 &&
             strcmp(ch,  "events")    != 0 &&
-            strcmp(ch,  "logs")      != 0) return true;
+            strcmp(ch,  "log")       != 0) return true;
         // Coarse group: "events" covers ch="events"
         if (strcmp(sub, "events") == 0 && strcmp(ch, "events") == 0) return true;
-        // Coarse group: "logs" covers ch="logs"
-        if (strcmp(sub, "logs") == 0 && strcmp(ch, "logs") == 0) return true;
     }
     return false;
 }
@@ -269,48 +267,29 @@ static bb_err_t sink_ws_publish(void *ctx, const char *topic,
 }
 
 // ---------------------------------------------------------------------------
-// Logs channel pump (ESP-IDF only)
+// Log bb_event subscriber
 // ---------------------------------------------------------------------------
 
-// Drain buffer: sized to hold a typical log line.
-#define BB_SINK_WS_LOG_BUF_BYTES 256
-// Poll interval: drain bb_log_stream every 200 ms.
-#define BB_SINK_WS_LOG_POLL_MS   200
-// Backoff delay on alloc failure: yields to IDLE so WDT is not starved.
-#define BB_SINK_WS_LOG_BACKOFF_MS 250
-// Task stack size.
-#define BB_SINK_WS_LOG_STACK     3072
-// Task priority (below WiFi/MQTT, above idle).
-#define BB_SINK_WS_LOG_PRIO      3
-
-static void log_pump_task(void *arg)
+static void log_event_cb(bb_event_topic_t topic, int32_t id,
+                         const void *data, size_t size, void *user)
 {
-    (void)arg;
-    char buf[BB_SINK_WS_LOG_BUF_BYTES];
-
-    for (;;) {
-        size_t n = bb_log_stream_drain(buf, sizeof(buf) - 1, BB_SINK_WS_LOG_POLL_MS);
-        if (n > 0) {
-            buf[n] = '\0';
-            // Build {"ch":"logs","data":"<line>"}
-            // overhead: 20 + n + 2 quotes + NUL = n + 24
-            size_t frame_len = n + 24;
-            char *frame_buf = (char *)malloc(frame_len);
-            if (frame_buf) {
-                int written = snprintf(frame_buf, frame_len,
-                                       "{\"ch\":\"logs\",\"data\":\"%.*s\"}",
-                                       (int)n, buf);
-                if (written > 0 && (size_t)written < frame_len && !s_suspended) {
-                    broadcast_filtered("logs", frame_buf, (size_t)written);
-                }
-                free(frame_buf);
-            } else {
-                bb_log_w(TAG, "log_pump: malloc failed");
-                // Yield so IDLE can run and reset the task watchdog.
-                vTaskDelay(pdMS_TO_TICKS(BB_SINK_WS_LOG_BACKOFF_MS));
-            }
-        }
+    (void)topic; (void)id; (void)user;
+    if (s_suspended) return;
+    if (!data || size == 0) return;
+    size_t json_len = size - 1; // strip NUL posted by bb_log_event
+    // {"ch":"log","data":<json>}: "log"(3) + 18 overhead = 21
+    size_t envelope_len = json_len + 21;
+    char *buf = (char *)malloc(envelope_len);
+    if (!buf) {
+        bb_log_w(TAG, "log_event_cb: malloc failed");
+        return;
     }
+    int written = snprintf(buf, envelope_len, "{\"ch\":\"log\",\"data\":%.*s}",
+                           (int)json_len, (const char *)data);
+    if (written > 0 && (size_t)written < envelope_len) {
+        broadcast_filtered("log", buf, (size_t)written);
+    }
+    free(buf);
 }
 
 // ---------------------------------------------------------------------------
@@ -326,10 +305,15 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
 
     s_ctx.server = server;
 
-    // Spawn the log pump task if bb_log_stream was initialised.
-    if (bb_log_stream_ready()) {
-        xTaskCreate(log_pump_task, "ws_log_pump", BB_SINK_WS_LOG_STACK,
-                    NULL, BB_SINK_WS_LOG_PRIO, NULL);
+    // Subscribe to the "log" bb_event topic (registered by bb_log_event at order 4).
+    bb_event_topic_t lt;
+    if (bb_event_topic_lookup("log", &lt) == BB_OK) {
+        bb_err_t sub_err = bb_event_subscribe(lt, log_event_cb, NULL, NULL);
+        if (sub_err != BB_OK) {
+            bb_log_w(TAG, "log event subscribe failed: %d", (int)sub_err);
+        }
+    } else {
+        bb_log_d(TAG, "log topic not yet registered, skipping ws subscription");
     }
 
     out->publish       = sink_ws_publish;
