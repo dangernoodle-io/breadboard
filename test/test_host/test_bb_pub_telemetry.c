@@ -15,6 +15,9 @@
 // Test hook declarations from host twin.
 void bb_pub_telemetry_section_get_for_test(bb_json_t section, void *ctx);
 bb_err_t bb_pub_telemetry_section_patch_for_test(bb_json_t patch, void *ctx);
+bool   bb_pub_telemetry_meta_gather_for_test(void *snap_buf, void *ctx);
+void   bb_pub_telemetry_meta_serialize_for_test(bb_json_t obj, const void *snap);
+size_t bb_pub_telemetry_meta_snap_size_for_test(void);
 
 // ---------------------------------------------------------------------------
 // Sample + sink helpers
@@ -498,4 +501,72 @@ void test_bb_pub_get_status_available_reset_clears_it(void)
     bb_pub_get_status(&st);
     TEST_ASSERT_FALSE_MESSAGE(st.available,
         "available must be false after test_reset");
+}
+
+// ---------------------------------------------------------------------------
+// meta_gather nolock deadlock regression tests
+//
+// These tests exercise the code path where meta_gather is called by
+// bb_pub_tick_once under s_tick_lock.  Before the fix, meta_gather called
+// bb_pub_get_status / bb_pub_sink_info which re-acquired the non-recursive
+// mutex, causing a permanent self-deadlock.  The fix switches meta_gather to
+// the _nolock variants.  A hang here indicates a regression.
+// ---------------------------------------------------------------------------
+
+// Registers a telem source backed by the real meta_gather / meta_serialize,
+// fires one tick, and asserts the tick completes and the sink receives a
+// message.  A deadlock (pre-fix) would hang this test.
+void test_bb_pub_telemetry_meta_gather_tick_no_deadlock(void)
+{
+    reset_all();
+
+    // Wire the real meta gather/serialize as a telem source.
+    bb_pub_telemetry_cfg_t meta_cfg;
+    memset(&meta_cfg, 0, sizeof(meta_cfg));
+    meta_cfg.topic     = "meta";
+    meta_cfg.gather    = bb_pub_telemetry_meta_gather_for_test;
+    meta_cfg.serialize = bb_pub_telemetry_meta_serialize_for_test;
+    meta_cfg.snap_size = bb_pub_telemetry_meta_snap_size_for_test();
+    meta_cfg.flags     = BB_PUB_TELEM_SINKS;
+    meta_cfg.ctx       = NULL;
+
+    bb_err_t err = bb_pub_register_telemetry(&meta_cfg);
+    TEST_ASSERT_EQUAL_MESSAGE(BB_OK, err, "register_telemetry failed");
+
+    bb_pub_sink_t s = { .publish = cap_sink_fn, .ctx = NULL };
+    bb_pub_add_sink(&s);
+
+    // This must return (deadlock would hang the test process).
+    bb_pub_tick_once();
+
+    TEST_ASSERT_GREATER_THAN_MESSAGE(0, s_cap_count,
+        "sink must have received a message — meta_gather must have fired");
+}
+
+// After the tick the public bb_pub_get_status reflects sink_count = 1,
+// matching what meta_gather read via the nolock path.
+void test_bb_pub_telemetry_meta_gather_sink_count_parity(void)
+{
+    reset_all();
+
+    bb_pub_telemetry_cfg_t meta_cfg;
+    memset(&meta_cfg, 0, sizeof(meta_cfg));
+    meta_cfg.topic     = "meta";
+    meta_cfg.gather    = bb_pub_telemetry_meta_gather_for_test;
+    meta_cfg.serialize = bb_pub_telemetry_meta_serialize_for_test;
+    meta_cfg.snap_size = bb_pub_telemetry_meta_snap_size_for_test();
+    meta_cfg.flags     = BB_PUB_TELEM_SINKS;
+    meta_cfg.ctx       = NULL;
+
+    bb_pub_register_telemetry(&meta_cfg);
+    bb_pub_sink_t s = { .publish = cap_sink_fn, .ctx = NULL };
+    bb_pub_add_sink(&s);
+
+    bb_pub_tick_once();
+
+    // Public API must agree with what meta_gather sampled internally.
+    bb_pub_status_t st = {0};
+    bb_pub_get_status(&st);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, st.sink_count,
+        "public bb_pub_get_status sink_count must be 1 (parity with nolock path)");
 }
