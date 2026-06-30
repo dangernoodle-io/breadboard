@@ -10,6 +10,7 @@
 // Snap size: ~360 bytes — exceeds the 256-byte default BB_PUB_TELEM_SNAP_MAX.
 // The Kconfig default has been raised to 512 in components/bb_pub/Kconfig.
 #include "bb_pub_info.h"
+#include "bb_mem.h"
 #include "bb_pub.h"
 #include "bb_board.h"
 #include "bb_system.h"
@@ -84,6 +85,11 @@ typedef struct {
     // has_psram: whether to emit psram fields
     bool    has_psram;
 
+    // bb_mem facade accounting (zero when BB_MEM_STATS_ENABLE is off)
+    size_t   bb_mem_out;   // outstanding_bytes at gather time
+    size_t   bb_mem_peak;  // peak_outstanding ever
+    uint32_t bb_mem_fail;  // cumulative alloc_fail count
+
     // Sample-time timestamp
     int64_t ts_ms;
 } bb_info_snap_t;
@@ -146,6 +152,14 @@ static bool info_gather(void *snap_buf, void *ctx)
         }
     }
 
+    {
+        bb_mem_stats_t ms;
+        bb_mem_get_stats(&ms);
+        s->bb_mem_out  = ms.outstanding_bytes;
+        s->bb_mem_peak = ms.peak_outstanding;
+        s->bb_mem_fail = ms.alloc_fail;
+    }
+
     s->ts_ms = (int64_t)bb_clock_now_ms64();
     return true;
 }
@@ -186,6 +200,9 @@ static void info_serialize(bb_json_t obj, const void *snap_raw)
     bb_json_obj_set_number(obj, "boot_epoch_s",      (double)s->boot_epoch_s);
     bb_json_obj_set_string(obj, "time_source",       s->time_source);
     bb_json_obj_set_number(obj, "rtc_free",          (double)s->rtc_free);
+    bb_json_obj_set_number(obj, "bb_mem_out",        (double)s->bb_mem_out);
+    bb_json_obj_set_number(obj, "bb_mem_peak",       (double)s->bb_mem_peak);
+    bb_json_obj_set_number(obj, "bb_mem_fail",       (double)s->bb_mem_fail);
     bb_json_obj_set_int   (obj, "ts_ms",             s->ts_ms);
 }
 

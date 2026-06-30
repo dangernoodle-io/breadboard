@@ -80,4 +80,33 @@ config BB_PUB_ADAPTIVE_SAMPLES
         Number of consecutive POOR-state samples (at the 5s evaluator period)
         before bb_pub_set_interval_ms is called to slow publishing.
 
+config BB_NET_HEALTH_HEAP_LOW_BYTES
+    int "Free-heap LOW threshold (bytes)"
+    default 40000
+    range 1000 1000000
+    help
+        Total free heap bytes below which the heap state transitions to LOW.
+        Applies to bb_board_heap_free_total() (PSRAM + internal on boards with
+        PSRAM; internal-only on boards without). Tune down on boards with PSRAM
+        where total free can be hundreds of KB.
+
+config BB_NET_HEALTH_HEAP_CRITICAL_BYTES
+    int "Free-heap CRITICAL threshold (bytes)"
+    default 20000
+    range 1000 1000000
+    help
+        Total free heap bytes below which the heap state transitions to CRITICAL.
+        Must be less than BB_NET_HEALTH_HEAP_LOW_BYTES.
+
+config BB_NET_HEALTH_HEAP_TRACE
+    bool "Emit HEAPTRACE log line each eval cycle"
+    default n
+    help
+        When enabled, eval_work_fn emits one bb_log_i(TAG, "HEAPTRACE ...") line
+        every BB_NET_HEALTH_EVAL_PERIOD_S seconds with: uptime, global free/min/
+        largest block, heap state bucket, and bb_mem accounting counters.
+        Requires BB_MEM_STATS_ENABLE to populate the m_* fields; they will be
+        zero otherwise (stats still disabled independently).
+        Default OFF — zero runtime cost when disabled.
+
 endmenu

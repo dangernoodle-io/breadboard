@@ -339,3 +339,28 @@ void test_bb_pub_info_heap_internal_min_free_present(void)
     // Field must be present and carry a numeric value (0 on host stubs).
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"heap_internal_min_free\":0"));
 }
+
+// ---------------------------------------------------------------------------
+// bb_mem accounting fields (B1-heap-trace)
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_info_has_bb_mem_out(void)
+{
+    setup();
+    bb_pub_tick_once();
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"bb_mem_out\""));
+}
+
+void test_bb_pub_info_has_bb_mem_peak(void)
+{
+    setup();
+    bb_pub_tick_once();
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"bb_mem_peak\""));
+}
+
+void test_bb_pub_info_has_bb_mem_fail(void)
+{
+    setup();
+    bb_pub_tick_once();
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"bb_mem_fail\""));
+}
