@@ -562,8 +562,8 @@ void test_bb_pub_telem_info_rest_equals_sink(void)
     TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("info", rest, sizeof(rest), &rlen));
     TEST_ASSERT_EQUAL_STRING_MESSAGE(rest, s_sat_payload[0],
         "info: REST bytes must equal sink bytes (SSOT)");
-    // Key fields must be present.
-    TEST_ASSERT_NOT_NULL(strstr(rest, "\"version\""));
+    // Key dynamic fields must be present (static identity fields moved to meta, TA-505).
+    TEST_ASSERT_NOT_NULL(strstr(rest, "\"heap_internal_free\""));
     TEST_ASSERT_NOT_NULL(strstr(rest, "\"wdt_resets\""));
     TEST_ASSERT_NOT_NULL(strstr(rest, "\"ts_ms\""));
 }
