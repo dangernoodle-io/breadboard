@@ -291,14 +291,18 @@ static void eval_work_fn(void *arg)
     }
 
     // Heap state: always update the module-static (read by bb_net_health_heap_state).
+    // g_free is the only heap_caps walk on the unconditional path; g_min and
+    // g_largest are only needed for the HEAPTRACE log line, so they stay inside
+    // that block to avoid three concurrent heap_caps walks on every tick on
+    // single-core / low-RAM targets like the C3 (B1-433).
     {
-        size_t g_free    = bb_board_heap_free_total();
-        size_t g_min     = bb_board_heap_minimum_ever();
-        size_t g_largest = bb_board_heap_largest_free_block();
+        size_t g_free = bb_board_heap_free_total();
         bb_heap_state_t heap_st = bb_net_health_classify_heap(g_free);
         bb_net_health_set_heap_state(heap_st);
 
 #if BB_NET_HEALTH_HEAP_TRACE
+        size_t g_min     = bb_board_heap_minimum_ever();
+        size_t g_largest = bb_board_heap_largest_free_block();
         bb_mem_stats_t ms;
         bb_mem_get_stats(&ms);
         bb_log_i(TAG,
@@ -313,9 +317,6 @@ static void eval_work_fn(void *arg)
                  ms.outstanding_bytes, ms.peak_outstanding,
                  ms.alloc_count, ms.free_count, ms.alloc_fail,
                  ms.spiram_alloc_bytes, ms.internal_alloc_bytes);
-#else
-        (void)g_min;
-        (void)g_largest;
 #endif
     }
 
