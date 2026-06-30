@@ -1,12 +1,23 @@
 // bb_pub_info — telemetry source satellite for device info / system metrics.
 //
 // Registers a bb_pub source under the "info" subtopic. On each tick, emits:
-//   heap_internal_free    integer (bytes)
-//   heap_internal_total   integer (bytes)
-//   psram_free            integer (bytes; 0 on boards with no PSRAM)
-//   psram_total           integer (bytes; 0 on boards with no PSRAM)
-//   uptime_ms             integer (milliseconds since boot)
-//   version               string  (bb_system_get_version())
+//   heap_internal_free            integer (bytes)
+//   heap_internal_total           integer (bytes)
+//   heap_internal_largest_block   integer (bytes)
+//   heap_internal_min_free        integer (bytes)
+//   psram_free                    integer (bytes; omitted when no PSRAM)
+//   psram_total                   integer (bytes; omitted when no PSRAM)
+//   wdt_resets                    integer (abnormal-reset count)
+//   ota_validated                 boolean
+//   time_valid                    boolean
+//   bb_mem_out                    integer (outstanding bytes; 0 when BB_MEM_STATS_ENABLE off)
+//   bb_mem_peak                   integer (peak outstanding; 0 when BB_MEM_STATS_ENABLE off)
+//   bb_mem_fail                   integer (cumulative alloc failures; 0 when off)
+//   ts_ms                         integer (sample-time epoch ms)
+//
+// Note: static device-identity fields (version, board, chip_model, mac,
+// flash_size, app_size, dram_static_bytes, reset_reason, boot_epoch_s,
+// time_source, rtc_used, rtc_total) have moved to the meta topic (TA-505).
 //
 // This source always publishes (never skips), providing a heartbeat even
 // when no hardware HALs are present.
