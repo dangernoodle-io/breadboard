@@ -30,6 +30,12 @@ void bb_pub_telemetry_section_get_for_test(bb_json_t section, void *ctx);
 // Returns BB_OK on success, BB_ERR_INVALID_ARG on invalid values (bad interval).
 bb_err_t bb_pub_telemetry_section_patch_for_test(bb_json_t patch, void *ctx);
 
+// Expose meta gather/serialize/snap_size so tests can register a telem source
+// that exercises the nolock path via bb_pub_tick_once (deadlock check).
+bool   bb_pub_telemetry_meta_gather_for_test(void *snap_buf, void *ctx);
+void   bb_pub_telemetry_meta_serialize_for_test(bb_json_t obj, const void *snap);
+size_t bb_pub_telemetry_meta_snap_size_for_test(void);
+
 #endif /* BB_PUB_TELEMETRY_TESTING */
 
 #ifdef __cplusplus

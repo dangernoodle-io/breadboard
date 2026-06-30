@@ -44,6 +44,11 @@
 #define CONFIG_BB_PUB_INFO_AUTO_ATTACH 0
 #endif
 
+#ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
+// Matches the Kconfig default in components/bb_pub/Kconfig.
+#define CONFIG_BB_PUB_TELEM_SNAP_MAX 512
+#endif
+
 static const char *TAG = "bb_pub_info";
 
 // ---------------------------------------------------------------------------
@@ -82,6 +87,11 @@ typedef struct {
     // Sample-time timestamp
     int64_t ts_ms;
 } bb_info_snap_t;
+
+// Compile-time guard: info snap must fit within the static scratch buffer.
+// Mirrors the _meta_snap_size_check in bb_pub_telemetry_host.c.
+typedef char _info_snap_size_check[
+    sizeof(bb_info_snap_t) <= CONFIG_BB_PUB_TELEM_SNAP_MAX ? 1 : -1];
 
 // ---------------------------------------------------------------------------
 // Gather — fills snap from live system state; called under lock.
