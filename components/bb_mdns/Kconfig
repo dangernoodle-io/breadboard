@@ -89,7 +89,8 @@ config BB_MDNS_BATCH_MAX
 
 config BB_MDNS_BATCH_RING_DEPTH
     int "mDNS dispatch ring capacity (bb_ring drop-new)"
-    default 4
+    default 4 if SPIRAM
+    default 3
     range 1 32
     help
         Capacity of the bb_ring used to queue coalesced mDNS batch items for
@@ -103,13 +104,22 @@ config BB_MDNS_BATCH_RING_DEPTH
         on no-PSRAM boards the same bytes come from internal heap.
 
         Memory cost scales with BB_MDNS_BATCH_MAX — lower both together on
-        no-PSRAM boards (e.g. BATCH_MAX=4, RING_DEPTH=2).
+        no-PSRAM boards (e.g. BATCH_MAX=4, RING_DEPTH=3).
 
         The ring uses BB_RING_REJECT_NEW: when full the 50 ms flush timer
         re-arms and retries the SAME batch on the next tick (the batch is
         not cleared on a failed push).  Raise if your network produces more
         than BB_MDNS_BATCH_RING_DEPTH burst-separated refresh cycles before
         the dispatch task can drain.
+
+        PSRAM-axis DERIVE (B1-435): default 4 on SPIRAM boards (ring lives
+        in SPIRAM; large batches affordable), 3 on no-PSRAM boards (internal
+        heap is the bottleneck; aligns with TaipanMiner sdkconfig/no-psram).
+        BB_MDNS_BATCH_MAX is left at its flat default of 16 because it is
+        set for DIFFERENT reasons by both single-core and no-PSRAM fragments
+        in TaipanMiner — deriving it on the SPIRAM axis alone would miss the
+        single-core constraint.  RING_DEPTH is purely PSRAM-axis and safe to
+        derive here.
 
 config BB_MDNS_TXT_PENDING_MAX
     int "Maximum pending TXT key/value pairs before mDNS starts"

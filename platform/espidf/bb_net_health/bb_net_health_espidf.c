@@ -420,6 +420,11 @@ typedef struct {
     int64_t                ts_ms;
 } bb_net_health_snap_t;
 
+// Compile-time guard: net_health snap must fit in the scratch buffer (B1-434).
+// CONFIG_BB_PUB_TELEM_SNAP_MAX is always available here (ESP-IDF only file).
+typedef char _net_health_snap_size_check[
+    sizeof(bb_net_health_snap_t) <= CONFIG_BB_PUB_TELEM_SNAP_MAX ? 1 : -1];
+
 static bool net_health_gather(void *snap_buf, void *ctx)
 {
     (void)ctx;
