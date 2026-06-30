@@ -15,9 +15,9 @@
 // ---------------------------------------------------------------------------
 
 #ifdef BB_HTTP_BODY_TESTING
-static void *(*s_malloc_fn)(size_t) = malloc;
-void bb_http_body_set_malloc(void *(*fn)(size_t)) { s_malloc_fn = fn ? fn : malloc; }
-#define BODY_MALLOC(sz) s_malloc_fn(sz)
+static void *(*s_malloc_fn)(size_t) = NULL;
+void bb_http_body_set_malloc(void *(*fn)(size_t)) { s_malloc_fn = fn; }
+#define BODY_MALLOC(sz) (s_malloc_fn ? s_malloc_fn(sz) : bb_malloc_prefer_spiram(sz))
 #else
 #define BODY_MALLOC(sz) bb_malloc_prefer_spiram(sz)
 #endif
