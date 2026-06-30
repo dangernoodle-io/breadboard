@@ -190,7 +190,12 @@ def _check_public_requires_watchlist(ctx: Context) -> list:
 def _check_raw_allocator(ctx: Context) -> list:
     """Rule: raw-allocator — flags raw malloc/calloc/free outside the bb_mem facade."""
     violations = []
-    pattern = re.compile(r'\bmalloc\(|\bcalloc\(|\bfree\(')
+    pattern = re.compile(
+        r'\bmalloc\(|\bcalloc\(|\brealloc\(|\bfree\('
+        r'|\bheap_caps_malloc\(|\bheap_caps_calloc\('
+        r'|\bheap_caps_realloc\(|\bheap_caps_free\('
+        r'|\bheap_caps_aligned_alloc\('
+    )
     root = Path(ctx.root)
 
     rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get(

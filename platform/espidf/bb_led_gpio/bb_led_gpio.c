@@ -56,6 +56,6 @@ bb_err_t bb_led_gpio_open(const bb_led_gpio_cfg_t *cfg, bb_led_handle_t *out) {
     gpio_set_level(s->gpio, bb_led_gpio_level_for_on(s->active_low, false));
 
     bb_err_t rc = bb_led_handle_create(&s_drv, s, out);
-    if (rc != BB_OK) { bb_mem_free(s); gpio_reset_pin(s->gpio); }
+    if (rc != BB_OK) { gpio_reset_pin(s->gpio); bb_mem_free(s); }
     return rc;
 }

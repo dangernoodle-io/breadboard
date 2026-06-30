@@ -1146,6 +1146,50 @@ class TestRawAllocator(unittest.TestCase):
             violations = _check_raw_allocator(make_ctx(td))
             self.assertFalse(violations, "bb_mem_* calls must not fire (no bare word boundary)")
 
+    def test_fires_on_realloc(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_foo/bb_foo.c",
+                'p = realloc(p, new_size);\n')
+            violations = _check_raw_allocator(make_ctx(td))
+            self.assertTrue(violations, "expected violation for raw realloc(")
+
+    def test_fires_on_heap_caps_malloc(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_foo/bb_foo.c",
+                'void *p = heap_caps_malloc(64, MALLOC_CAP_DEFAULT);\n')
+            violations = _check_raw_allocator(make_ctx(td))
+            self.assertTrue(violations, "expected violation for raw heap_caps_malloc(")
+
+    def test_fires_on_heap_caps_free(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_foo/bb_foo.c",
+                'heap_caps_free(p);\n')
+            violations = _check_raw_allocator(make_ctx(td))
+            self.assertTrue(violations, "expected violation for raw heap_caps_free(")
+
+    def test_no_fire_on_heap_caps_introspection(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_foo/bb_foo.c",
+                'size_t f = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);\n'
+                'size_t b = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);\n'
+                'heap_caps_get_info(&info, MALLOC_CAP_8BIT);\n')
+            violations = _check_raw_allocator(make_ctx(td))
+            self.assertFalse(violations, "heap_caps introspection calls must NOT fire")
+
+    def test_path_line_allowlist(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_foo/bb_foo.c",
+                'void *a = malloc(8);\n'   # line 1 — allowlisted
+                'void *b = malloc(16);\n'  # line 2 — not allowlisted → violation
+            )
+            config = {"lint": {"rules": {"raw-allocator": {
+                "allow": ["platform/espidf/bb_foo/bb_foo.c:1"]
+            }}}}
+            ctx = Context(root=td, config=config)
+            violations = _check_raw_allocator(ctx)
+            self.assertEqual(len(violations), 1,
+                             "only line 2 must fire; line 1 is path:line allowlisted")
+
 
 if __name__ == "__main__":
     unittest.main()
