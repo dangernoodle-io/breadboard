@@ -2836,6 +2836,23 @@ void test_bb_pub_get_status_available_true_after_mark_started(void);
 void test_bb_pub_get_status_available_reset_clears_it(void);
 void test_bb_pub_telemetry_meta_gather_tick_no_deadlock(void);
 void test_bb_pub_telemetry_meta_gather_sink_count_parity(void);
+// TA-505 PR-2: meta identity field tests
+void test_bb_pub_telemetry_meta_has_version(void);
+void test_bb_pub_telemetry_meta_has_board(void);
+void test_bb_pub_telemetry_meta_board_is_host_on_host(void);
+void test_bb_pub_telemetry_meta_has_chip_model(void);
+void test_bb_pub_telemetry_meta_has_mac(void);
+void test_bb_pub_telemetry_meta_has_reset_reason(void);
+void test_bb_pub_telemetry_meta_reset_reason_is_power_on_on_host(void);
+void test_bb_pub_telemetry_meta_has_flash_size(void);
+void test_bb_pub_telemetry_meta_has_app_size(void);
+void test_bb_pub_telemetry_meta_has_dram_static_bytes(void);
+void test_bb_pub_telemetry_meta_has_rtc_used(void);
+void test_bb_pub_telemetry_meta_has_rtc_total(void);
+void test_bb_pub_telemetry_meta_has_boot_epoch_s(void);
+void test_bb_pub_telemetry_meta_boot_epoch_s_is_zero_when_not_synced(void);
+void test_bb_pub_telemetry_meta_has_time_source(void);
+void test_bb_pub_telemetry_meta_time_source_is_none_on_host(void);
 
 // Forward declarations from test_bb_telemetry_coupling.c
 void test_couple_publisher_no_explicit_any_sink_true(void);
@@ -2984,45 +3001,40 @@ void test_bb_pub_wifi_has_recovery_count(void);
 void test_bb_pub_wifi_recovery_count_zero_when_all_counters_zero(void);
 
 // Forward declarations from test_bb_pub_info.c
+// Dynamic runtime metrics (kept in info topic)
 void test_bb_pub_info_always_publishes(void);
 void test_bb_pub_info_topic_is_correct(void);
 void test_bb_pub_info_has_heap_internal_free(void);
 void test_bb_pub_info_has_heap_internal_total(void);
 void test_bb_pub_info_omits_psram_fields_when_no_psram(void);
 void test_bb_pub_info_has_uptime_ms(void);
-void test_bb_pub_info_has_version(void);
 void test_bb_pub_info_has_heap_internal_largest_block(void);
 void test_bb_pub_info_has_heap_internal_min_free(void);
-void test_bb_pub_info_has_rtc_used(void);
-void test_bb_pub_info_has_rtc_total(void);
-void test_bb_pub_info_has_dram_static_bytes(void);
-void test_bb_pub_info_dram_static_bytes_is_zero_on_host(void);
-void test_bb_pub_info_has_flash_size(void);
-void test_bb_pub_info_has_app_size(void);
 void test_bb_pub_info_has_wdt_resets(void);
 void test_bb_pub_info_payload_has_uptime_ms_field(void);
-void test_bb_pub_info_has_reset_reason(void);
-void test_bb_pub_info_reset_reason_is_power_on_on_host(void);
 void test_bb_pub_info_has_ota_validated(void);
 void test_bb_pub_info_ota_validated_is_false_on_host(void);
 void test_bb_pub_info_ota_validated_agrees_with_bb_board_after_mark_valid(void);
-void test_bb_pub_info_has_rtc_free(void);
-void test_bb_pub_info_rtc_free_is_zero_on_host(void);
 void test_bb_pub_info_has_time_valid(void);
 void test_bb_pub_info_time_valid_is_false_on_host(void);
-void test_bb_pub_info_has_epoch_s(void);
-void test_bb_pub_info_epoch_s_is_zero_when_not_synced(void);
-void test_bb_pub_info_has_time_source(void);
-void test_bb_pub_info_time_source_is_none_on_host(void);
-void test_bb_pub_info_has_board_field(void);
-void test_bb_pub_info_board_is_host_on_host(void);
-void test_bb_pub_info_has_chip_model_field(void);
-void test_bb_pub_info_chip_model_is_host_on_host(void);
-void test_bb_pub_info_has_mac_field(void);
 void test_bb_pub_info_heap_internal_min_free_present(void);
 void test_bb_pub_info_has_bb_mem_out(void);
 void test_bb_pub_info_has_bb_mem_peak(void);
 void test_bb_pub_info_has_bb_mem_fail(void);
+// TA-505 PR-2: static identity fields must be ABSENT from info (moved to meta)
+void test_bb_pub_info_does_not_emit_rtc_used(void);
+void test_bb_pub_info_does_not_emit_rtc_total(void);
+void test_bb_pub_info_does_not_emit_dram_static_bytes(void);
+void test_bb_pub_info_does_not_emit_flash_size(void);
+void test_bb_pub_info_does_not_emit_app_size(void);
+void test_bb_pub_info_does_not_emit_reset_reason(void);
+void test_bb_pub_info_does_not_emit_rtc_free(void);
+void test_bb_pub_info_does_not_emit_boot_epoch_s(void);
+void test_bb_pub_info_does_not_emit_time_source(void);
+void test_bb_pub_info_does_not_emit_board(void);
+void test_bb_pub_info_does_not_emit_chip_model(void);
+void test_bb_pub_info_does_not_emit_mac(void);
+void test_bb_pub_info_does_not_emit_version(void);
 
 // Forward declarations from test_bb_pub_health.c
 void test_bb_pub_health_always_publishes(void);
@@ -6022,6 +6034,23 @@ int main(void) {
     RUN_TEST(test_bb_pub_get_status_available_reset_clears_it);
     RUN_TEST(test_bb_pub_telemetry_meta_gather_tick_no_deadlock);
     RUN_TEST(test_bb_pub_telemetry_meta_gather_sink_count_parity);
+    // TA-505 PR-2: meta identity fields
+    RUN_TEST(test_bb_pub_telemetry_meta_has_version);
+    RUN_TEST(test_bb_pub_telemetry_meta_has_board);
+    RUN_TEST(test_bb_pub_telemetry_meta_board_is_host_on_host);
+    RUN_TEST(test_bb_pub_telemetry_meta_has_chip_model);
+    RUN_TEST(test_bb_pub_telemetry_meta_has_mac);
+    RUN_TEST(test_bb_pub_telemetry_meta_has_reset_reason);
+    RUN_TEST(test_bb_pub_telemetry_meta_reset_reason_is_power_on_on_host);
+    RUN_TEST(test_bb_pub_telemetry_meta_has_flash_size);
+    RUN_TEST(test_bb_pub_telemetry_meta_has_app_size);
+    RUN_TEST(test_bb_pub_telemetry_meta_has_dram_static_bytes);
+    RUN_TEST(test_bb_pub_telemetry_meta_has_rtc_used);
+    RUN_TEST(test_bb_pub_telemetry_meta_has_rtc_total);
+    RUN_TEST(test_bb_pub_telemetry_meta_has_boot_epoch_s);
+    RUN_TEST(test_bb_pub_telemetry_meta_boot_epoch_s_is_zero_when_not_synced);
+    RUN_TEST(test_bb_pub_telemetry_meta_has_time_source);
+    RUN_TEST(test_bb_pub_telemetry_meta_time_source_is_none_on_host);
 
     // publisher–sink coupling tests
     RUN_TEST(test_couple_publisher_no_explicit_any_sink_true);
@@ -6176,39 +6205,33 @@ int main(void) {
     RUN_TEST(test_bb_pub_info_has_heap_internal_total);
     RUN_TEST(test_bb_pub_info_omits_psram_fields_when_no_psram);
     RUN_TEST(test_bb_pub_info_has_uptime_ms);
-    RUN_TEST(test_bb_pub_info_has_version);
     RUN_TEST(test_bb_pub_info_has_heap_internal_largest_block);
     RUN_TEST(test_bb_pub_info_has_heap_internal_min_free);
-    RUN_TEST(test_bb_pub_info_has_rtc_used);
-    RUN_TEST(test_bb_pub_info_has_rtc_total);
-    RUN_TEST(test_bb_pub_info_has_dram_static_bytes);
-    RUN_TEST(test_bb_pub_info_dram_static_bytes_is_zero_on_host);
-    RUN_TEST(test_bb_pub_info_has_flash_size);
-    RUN_TEST(test_bb_pub_info_has_app_size);
     RUN_TEST(test_bb_pub_info_has_wdt_resets);
     RUN_TEST(test_bb_pub_info_payload_has_uptime_ms_field);
-    RUN_TEST(test_bb_pub_info_has_reset_reason);
-    RUN_TEST(test_bb_pub_info_reset_reason_is_power_on_on_host);
     RUN_TEST(test_bb_pub_info_has_ota_validated);
     RUN_TEST(test_bb_pub_info_ota_validated_is_false_on_host);
     RUN_TEST(test_bb_pub_info_ota_validated_agrees_with_bb_board_after_mark_valid);
-    RUN_TEST(test_bb_pub_info_has_rtc_free);
-    RUN_TEST(test_bb_pub_info_rtc_free_is_zero_on_host);
     RUN_TEST(test_bb_pub_info_has_time_valid);
     RUN_TEST(test_bb_pub_info_time_valid_is_false_on_host);
-    RUN_TEST(test_bb_pub_info_has_epoch_s);
-    RUN_TEST(test_bb_pub_info_epoch_s_is_zero_when_not_synced);
-    RUN_TEST(test_bb_pub_info_has_time_source);
-    RUN_TEST(test_bb_pub_info_time_source_is_none_on_host);
-    RUN_TEST(test_bb_pub_info_has_board_field);
-    RUN_TEST(test_bb_pub_info_board_is_host_on_host);
-    RUN_TEST(test_bb_pub_info_has_chip_model_field);
-    RUN_TEST(test_bb_pub_info_chip_model_is_host_on_host);
-    RUN_TEST(test_bb_pub_info_has_mac_field);
     RUN_TEST(test_bb_pub_info_heap_internal_min_free_present);
     RUN_TEST(test_bb_pub_info_has_bb_mem_out);
     RUN_TEST(test_bb_pub_info_has_bb_mem_peak);
     RUN_TEST(test_bb_pub_info_has_bb_mem_fail);
+    // TA-505 PR-2: static identity fields absent from info
+    RUN_TEST(test_bb_pub_info_does_not_emit_rtc_used);
+    RUN_TEST(test_bb_pub_info_does_not_emit_rtc_total);
+    RUN_TEST(test_bb_pub_info_does_not_emit_dram_static_bytes);
+    RUN_TEST(test_bb_pub_info_does_not_emit_flash_size);
+    RUN_TEST(test_bb_pub_info_does_not_emit_app_size);
+    RUN_TEST(test_bb_pub_info_does_not_emit_reset_reason);
+    RUN_TEST(test_bb_pub_info_does_not_emit_rtc_free);
+    RUN_TEST(test_bb_pub_info_does_not_emit_boot_epoch_s);
+    RUN_TEST(test_bb_pub_info_does_not_emit_time_source);
+    RUN_TEST(test_bb_pub_info_does_not_emit_board);
+    RUN_TEST(test_bb_pub_info_does_not_emit_chip_model);
+    RUN_TEST(test_bb_pub_info_does_not_emit_mac);
+    RUN_TEST(test_bb_pub_info_does_not_emit_version);
 
     // bb_pub_health tests
     RUN_TEST(test_bb_pub_health_always_publishes);

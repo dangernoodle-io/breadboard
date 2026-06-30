@@ -1,10 +1,16 @@
 // bb_pub_telemetry host twin — section get + patch logic + test hooks.
 // Compiled on both host (test) and ESP-IDF (shared logic).
+//
+// TA-505 (PR-2): meta snapshot extended with static device-identity fields
+// moved from the info topic.  SNAP_MAX raised to 512 (matches Kconfig default).
 #include "bb_pub_telemetry.h"
 #include "bb_pub.h"
 #include "../bb_pub/bb_pub_priv.h"
+#include "bb_board.h"
 #include "bb_clock.h"
 #include "bb_json.h"
+#include "bb_ntp.h"
+#include "bb_system.h"
 #include "bb_telemetry.h"
 #include "bb_registry.h"
 #include "bb_log.h"
@@ -12,13 +18,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <time.h>
 
 // Kconfig defaults for host builds.
 #ifndef CONFIG_BB_PUB_TOPIC_PREFIX
 #define CONFIG_BB_PUB_TOPIC_PREFIX "metrics"
 #endif
 #ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
-#define CONFIG_BB_PUB_TELEM_SNAP_MAX 256
+// Matches the Kconfig default raised in components/bb_pub/Kconfig (TA-505).
+// The meta snapshot now includes device-identity strings (~170 bytes extra).
+#define CONFIG_BB_PUB_TELEM_SNAP_MAX 512
 #endif
 
 static const char *TAG = "bb_pub_telemetry";
@@ -27,21 +36,38 @@ static const char *TAG = "bb_pub_telemetry";
 #define BB_PUB_INTERVAL_MS_MIN   1000UL
 #define BB_PUB_INTERVAL_MS_MAX   3600000UL
 
-// Maximum sinks captured in the meta snapshot.  Kept at 4 so meta_snap_t
-// fits within CONFIG_BB_PUB_TELEM_SNAP_MAX=256 bytes even when MAX_SINKS=8.
+// Maximum sinks captured in the meta snapshot.  Capped at 4; with the
+// identity fields added by TA-505, meta_snap_t is ~320 B on device and
+// ~336 B on host — both well within CONFIG_BB_PUB_TELEM_SNAP_MAX=512.
 #define BB_PUB_META_MAX_SINKS 4
 
 // ---------------------------------------------------------------------------
-// /meta telem snapshot
+// /meta telem snapshot — publisher provenance + static device identity
 // ---------------------------------------------------------------------------
 
 typedef struct {
+    // Publisher provenance
     char  topic_prefix[48];
     int   sink_count;
     struct {
         char  transport[28];   /* "" = no transport label */
         bool  tls;
     } sinks[BB_PUB_META_MAX_SINKS];
+
+    // Static device identity (moved from info topic, TA-505 PR-2).
+    // Numeric fields placed before char arrays to minimise struct padding.
+    int64_t  boot_epoch_s;       /* 0 when time not synced */
+    size_t   flash_size;
+    size_t   app_size;
+    size_t   dram_static_bytes;
+    size_t   rtc_used;
+    size_t   rtc_total;
+    char     version[32];
+    char     board[32];
+    char     chip_model[16];
+    char     mac[18];
+    char     reset_reason[16];
+    char     time_source[8];     /* "sntp" or "none" */
 } meta_snap_t;
 
 // Compile-time guard: meta_snap_t must fit in the scratch buffer.
@@ -52,11 +78,14 @@ typedef char _meta_snap_size_check[
 // meta_gather is called by bb_pub_tick_once from inside s_tick_lock (telem Phase 1).
 // It MUST NOT call bb_pub_get_status / bb_pub_sink_info which re-acquire that
 // non-recursive mutex → self-deadlock.  Use the nolock variants instead.
+// Board/system/ntp accessors do not touch bb_pub's lock and are safe here.
 static bool meta_gather(void *snap_buf, void *ctx)
 {
     (void)ctx;
     meta_snap_t *m = (meta_snap_t *)snap_buf;
+    memset(m, 0, sizeof(*m));
 
+    // --- Publisher provenance ---
     strncpy(m->topic_prefix, CONFIG_BB_PUB_TOPIC_PREFIX, sizeof(m->topic_prefix) - 1);
     m->topic_prefix[sizeof(m->topic_prefix) - 1] = '\0';
 
@@ -78,6 +107,45 @@ static bool meta_gather(void *snap_buf, void *ctx)
         m->sinks[i].tls = tls;
     }
 
+    // --- Static device identity (moved from info topic, TA-505 PR-2) ---
+    {
+        const char *ver = bb_system_get_version();
+        if (ver) {
+            strncpy(m->version, ver, sizeof(m->version) - 1);
+            m->version[sizeof(m->version) - 1] = '\0';
+        }
+    }
+    {
+        bb_board_info_t bi;
+        if (bb_board_get_info(&bi) == BB_OK) {
+            strncpy(m->board,      bi.board,      sizeof(m->board)      - 1);
+            m->board[sizeof(m->board) - 1] = '\0';
+            strncpy(m->chip_model, bi.chip_model, sizeof(m->chip_model) - 1);
+            m->chip_model[sizeof(m->chip_model) - 1] = '\0';
+        }
+    }
+    bb_board_get_mac(m->mac, sizeof(m->mac));
+    bb_board_get_reset_reason(m->reset_reason, sizeof(m->reset_reason));
+
+    m->flash_size        = (size_t)bb_board_get_flash_size();
+    m->app_size          = (size_t)bb_board_get_app_size();
+    m->dram_static_bytes = bb_board_dram_static_bytes();
+    m->rtc_used          = bb_board_rtc_used();
+    m->rtc_total         = bb_board_rtc_total();
+
+    // boot_epoch_s and time_source: static once synced (boot epoch never changes).
+    strncpy(m->time_source, "none", sizeof(m->time_source) - 1);
+    m->time_source[sizeof(m->time_source) - 1] = '\0';
+    if (bb_ntp_is_synced()) {
+        time_t now = time(NULL);
+        if (now >= (time_t)1704067200LL) {
+            int64_t uptime_s = (int64_t)bb_clock_now_ms() / 1000;
+            m->boot_epoch_s = (int64_t)now - uptime_s;
+            strncpy(m->time_source, "sntp", sizeof(m->time_source) - 1);
+            m->time_source[sizeof(m->time_source) - 1] = '\0';
+        }
+    }
+
     return true;   /* always publish provenance, even with zero sinks */
 }
 
@@ -85,8 +153,9 @@ static void meta_serialize(bb_json_t obj, const void *snap)
 {
     const meta_snap_t *m = (const meta_snap_t *)snap;
 
+    // Publisher provenance
     bb_json_obj_set_string(obj, "topic_prefix", m->topic_prefix);
-    bb_json_obj_set_int(obj, "sink_count", (int64_t)m->sink_count);
+    bb_json_obj_set_int   (obj, "sink_count",   (int64_t)m->sink_count);
 
     bb_json_t arr = bb_json_arr_new();
     if (!arr) return;
@@ -107,6 +176,20 @@ static void meta_serialize(bb_json_t obj, const void *snap)
 
     bb_json_obj_set_arr(obj, "sinks", arr);
     /* arr ownership transferred to obj — do NOT free here */
+
+    // Static device identity (moved from info topic, TA-505 PR-2)
+    bb_json_obj_set_string(obj, "version",          m->version);
+    bb_json_obj_set_string(obj, "board",            m->board);
+    bb_json_obj_set_string(obj, "chip_model",       m->chip_model);
+    bb_json_obj_set_string(obj, "mac",              m->mac);
+    bb_json_obj_set_string(obj, "reset_reason",     m->reset_reason);
+    bb_json_obj_set_string(obj, "time_source",      m->time_source);
+    bb_json_obj_set_number(obj, "flash_size",       (double)m->flash_size);
+    bb_json_obj_set_number(obj, "app_size",         (double)m->app_size);
+    bb_json_obj_set_number(obj, "dram_static_bytes",(double)m->dram_static_bytes);
+    bb_json_obj_set_number(obj, "rtc_used",         (double)m->rtc_used);
+    bb_json_obj_set_number(obj, "rtc_total",        (double)m->rtc_total);
+    bb_json_obj_set_number(obj, "boot_epoch_s",     (double)m->boot_epoch_s);
 }
 
 // ---------------------------------------------------------------------------

@@ -194,8 +194,9 @@ config BB_PUB_TELEM_SNAP_MAX
         buffer is safe because only the bb_pub worker calls gather() (single-
         threaded) and the gather result is copied into bb_cache under s_tick_lock
         before releasing it for the next source.
-        Raised from 256 to 512: bb_pub_info's snapshot struct (bb_info_snap_t)
-        is ~360 bytes, requiring at least 512 bytes of scratch buffer.
+        Raised from 256 to 512: the meta snapshot (meta_snap_t, TA-505) is
+        ~320 bytes and is now the binding constraint; a static_assert in
+        bb_pub_telemetry_host.c enforces sizeof(meta_snap_t) <= this value.
 
 config BB_PUB_TELEM_SERIALIZE_MAX
     int "Maximum serialized-JSON copy-out buffer for telemetry sources (bytes)"
