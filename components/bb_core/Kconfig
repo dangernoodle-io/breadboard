@@ -52,3 +52,22 @@ config BB_OTA_STATIC_STACK
         workers.
 
 endmenu
+
+menu "breadboard: bb_mem accounting"
+
+config BB_MEM_STATS_ENABLE
+    bool "Enable bb_mem allocation statistics"
+    default n
+    help
+        When enabled, tracks outstanding_bytes, peak_outstanding, alloc_count,
+        free_count, alloc_fail, spiram_alloc_count, spiram_alloc_bytes,
+        internal_alloc_count, and internal_alloc_bytes via C11 _Atomic counters.
+
+        Coverage caveat: only allocations through bb_malloc_prefer_spiram,
+        bb_calloc_prefer_spiram, and bb_mem_free are counted. lwIP, mbedTLS,
+        FreeRTOS, esp-mqtt, and direct malloc calls bypass this accounting.
+        outstanding_bytes is a LOWER BOUND on heap usage.
+
+        Default OFF — zero BSS and zero instrumentation cost when disabled.
+
+endmenu

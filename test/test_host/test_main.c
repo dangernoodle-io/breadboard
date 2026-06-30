@@ -1,4 +1,5 @@
 #include "unity.h"
+#include "bb_mem.h"
 #include "bb_openapi.h"
 #include "bb_pub.h"
 #include "bb_sink_event.h"
@@ -1094,6 +1095,10 @@ void test_bb_http_body_oom_returns_no_space(void);
 void test_bb_mem_malloc_returns_usable_block(void);
 void test_bb_mem_calloc_zeroes(void);
 void test_bb_mem_free_null_is_safe(void);
+void test_bb_mem_stats_alloc_tracks_outstanding(void);
+void test_bb_mem_stats_free_clears_outstanding(void);
+void test_bb_mem_stats_peak_tracks_high_watermark(void);
+void test_bb_mem_stats_null_fail_increments_alloc_fail(void);
 
 // Forward declarations from test_claim.c
 void test_claim_acquire_free_returns_ok(void);
@@ -2982,6 +2987,9 @@ void test_bb_pub_info_has_chip_model_field(void);
 void test_bb_pub_info_chip_model_is_host_on_host(void);
 void test_bb_pub_info_has_mac_field(void);
 void test_bb_pub_info_heap_internal_min_free_present(void);
+void test_bb_pub_info_has_bb_mem_out(void);
+void test_bb_pub_info_has_bb_mem_peak(void);
+void test_bb_pub_info_has_bb_mem_fail(void);
 
 // Forward declarations from test_bb_pub_health.c
 void test_bb_pub_health_always_publishes(void);
@@ -2996,6 +3004,7 @@ void test_bb_pub_health_mqtt_enabled_true_when_handle_set(void);
 void test_bb_pub_health_has_mqtt_reconnect_count_when_enabled(void);
 void test_bb_pub_health_mqtt_connected_reflects_state(void);
 void test_bb_pub_health_payload_has_uptime_ms_field(void);
+void test_bb_pub_health_has_heap_state(void);
 
 // Forward declarations from test_bb_pub_rtos.c
 void test_bb_pub_rtos_always_publishes(void);
@@ -3171,6 +3180,7 @@ void setUp(void) {
     bb_pub_test_reset();
     bb_sink_event_reset_for_test();
     bb_openapi_schema_registry_clear();
+    bb_mem_reset_stats();
 }
 void tearDown(void) {}
 
@@ -3260,6 +3270,10 @@ int main(void) {
     RUN_TEST(test_bb_mem_malloc_returns_usable_block);
     RUN_TEST(test_bb_mem_calloc_zeroes);
     RUN_TEST(test_bb_mem_free_null_is_safe);
+    RUN_TEST(test_bb_mem_stats_alloc_tracks_outstanding);
+    RUN_TEST(test_bb_mem_stats_free_clears_outstanding);
+    RUN_TEST(test_bb_mem_stats_peak_tracks_high_watermark);
+    RUN_TEST(test_bb_mem_stats_null_fail_increments_alloc_fail);
 
     // bb_claim non-blocking exclusive-slot arbiter
     RUN_TEST(test_claim_acquire_free_returns_ok);
@@ -6129,6 +6143,9 @@ int main(void) {
     RUN_TEST(test_bb_pub_info_chip_model_is_host_on_host);
     RUN_TEST(test_bb_pub_info_has_mac_field);
     RUN_TEST(test_bb_pub_info_heap_internal_min_free_present);
+    RUN_TEST(test_bb_pub_info_has_bb_mem_out);
+    RUN_TEST(test_bb_pub_info_has_bb_mem_peak);
+    RUN_TEST(test_bb_pub_info_has_bb_mem_fail);
 
     // bb_pub_health tests
     RUN_TEST(test_bb_pub_health_always_publishes);
@@ -6143,6 +6160,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_health_has_mqtt_reconnect_count_when_enabled);
     RUN_TEST(test_bb_pub_health_mqtt_connected_reflects_state);
     RUN_TEST(test_bb_pub_health_payload_has_uptime_ms_field);
+    RUN_TEST(test_bb_pub_health_has_heap_state);
 
     // bb_pub_rtos tests
     RUN_TEST(test_bb_pub_rtos_always_publishes);

@@ -71,6 +71,65 @@ extern "C" {
 #endif
 
 // ---------------------------------------------------------------------------
+// Heap state thresholds (compile-time overridable via Kconfig).
+// ---------------------------------------------------------------------------
+
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_NET_HEALTH_HEAP_LOW_BYTES
+#    define BB_NET_HEALTH_HEAP_LOW_BYTES CONFIG_BB_NET_HEALTH_HEAP_LOW_BYTES
+#  endif
+#  ifdef CONFIG_BB_NET_HEALTH_HEAP_CRITICAL_BYTES
+#    define BB_NET_HEALTH_HEAP_CRITICAL_BYTES CONFIG_BB_NET_HEALTH_HEAP_CRITICAL_BYTES
+#  endif
+#  ifdef CONFIG_BB_NET_HEALTH_HEAP_TRACE
+#    define BB_NET_HEALTH_HEAP_TRACE CONFIG_BB_NET_HEALTH_HEAP_TRACE
+#  endif
+#endif
+#ifndef BB_NET_HEALTH_HEAP_LOW_BYTES
+#define BB_NET_HEALTH_HEAP_LOW_BYTES      40000  // free heap bytes below which → LOW
+#endif
+#ifndef BB_NET_HEALTH_HEAP_CRITICAL_BYTES
+#define BB_NET_HEALTH_HEAP_CRITICAL_BYTES 20000  // free heap bytes below which → CRITICAL
+#endif
+#ifndef BB_NET_HEALTH_HEAP_TRACE
+#define BB_NET_HEALTH_HEAP_TRACE 0
+#endif
+
+// ---------------------------------------------------------------------------
+// Heap state
+// ---------------------------------------------------------------------------
+
+/**
+ * Coarse heap health bucket.  Zero-init is BB_HEAP_STATE_OK so host stubs and
+ * uninitialised-state callers always get a sane default.
+ */
+typedef enum {
+    BB_HEAP_STATE_OK       = 0,
+    BB_HEAP_STATE_LOW      = 1,
+    BB_HEAP_STATE_CRITICAL = 2,
+} bb_heap_state_t;
+
+/**
+ * Pure heap classifier: maps total free heap bytes to a bb_heap_state_t bucket
+ * against the BB_NET_HEALTH_HEAP_LOW_BYTES / BB_NET_HEALTH_HEAP_CRITICAL_BYTES
+ * thresholds.  No side-effects; host-testable.
+ */
+bb_heap_state_t bb_net_health_classify_heap(size_t free_bytes);
+
+/**
+ * Return the latest heap state computed by the evaluator.
+ * Thread-safe: reads a module-static set by the evaluator.
+ * Returns BB_HEAP_STATE_OK on host (evaluator never runs).
+ */
+bb_heap_state_t bb_net_health_heap_state(void);
+
+/**
+ * Return a static string for a bb_heap_state_t value.
+ * "ok", "low", or "critical".  Never returns NULL.
+ */
+const char *bb_heap_state_str(bb_heap_state_t state);
+
+// ---------------------------------------------------------------------------
 // Input / output / state types
 // ---------------------------------------------------------------------------
 

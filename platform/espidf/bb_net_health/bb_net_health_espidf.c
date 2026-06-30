@@ -11,8 +11,10 @@
 // Note: bb_net_health_attach_sse must be called before the server starts
 // serving SSE clients so the initial snapshot populates the retained ring.
 #include "bb_net_health.h"
+#include "bb_board.h"
 #include "bb_cache.h"
 #include "bb_health.h"
+#include "bb_mem.h"
 #include "bb_openapi.h"
 #include "bb_wifi.h"
 #include "bb_mqtt.h"
@@ -25,6 +27,11 @@
 #include "bb_timer.h"
 #include "bb_clock.h"
 #include "bb_pub.h"
+#include <inttypes.h>
+
+// Internal setter defined in components/bb_net_health/src/bb_net_health.c;
+// not part of the public header (espidf-only call site).
+extern void bb_net_health_set_heap_state(bb_heap_state_t state);
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -281,6 +288,35 @@ static void eval_work_fn(void *arg)
                 mqtt_tls_fail    = stats.tls_fail;
             }
         }
+    }
+
+    // Heap state: always update the module-static (read by bb_net_health_heap_state).
+    {
+        size_t g_free    = bb_board_heap_free_total();
+        size_t g_min     = bb_board_heap_minimum_ever();
+        size_t g_largest = bb_board_heap_largest_free_block();
+        bb_heap_state_t heap_st = bb_net_health_classify_heap(g_free);
+        bb_net_health_set_heap_state(heap_st);
+
+#if BB_NET_HEALTH_HEAP_TRACE
+        bb_mem_stats_t ms;
+        bb_mem_get_stats(&ms);
+        bb_log_i(TAG,
+                 "HEAPTRACE up=%" PRIu32
+                 " g_free=%zu g_min=%zu g_largest=%zu state=%s"
+                 " m_out=%zu m_peak=%zu"
+                 " m_allocs=%" PRIu32 " m_frees=%" PRIu32 " m_fail=%" PRIu32
+                 " m_sp=%zu m_int=%zu",
+                 bb_clock_now_ms(),
+                 g_free, g_min, g_largest,
+                 bb_heap_state_str(heap_st),
+                 ms.outstanding_bytes, ms.peak_outstanding,
+                 ms.alloc_count, ms.free_count, ms.alloc_fail,
+                 ms.spiram_alloc_bytes, ms.internal_alloc_bytes);
+#else
+        (void)g_min;
+        (void)g_largest;
+#endif
     }
 
 #if CONFIG_BB_PUB_ADAPTIVE_BACKOFF

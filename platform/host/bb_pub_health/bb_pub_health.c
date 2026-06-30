@@ -11,6 +11,7 @@
 //
 // Always publishes (returns true) to provide a continuous health heartbeat.
 #include "bb_pub_health.h"
+#include "bb_net_health.h"
 #include "bb_pub.h"
 #include "bb_health.h"
 #include "bb_mqtt.h"
@@ -50,6 +51,9 @@ static bool health_sample(bb_json_t obj, void *ctx)
         (void)bb_mqtt_get_stats(h, &st);
         bb_json_obj_set_number(obj, "mqtt_reconnect_count", (double)st.reconnect_count);
     }
+
+    // heap_state: coarse heap health bucket (ok/low/critical).
+    bb_json_obj_set_string(obj, "heap_state", bb_heap_state_str(bb_net_health_heap_state()));
 
     return true;
 }

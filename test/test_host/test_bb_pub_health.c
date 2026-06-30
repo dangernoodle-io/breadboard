@@ -179,3 +179,15 @@ void test_bb_pub_health_payload_has_uptime_ms_field(void)
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"uptime_ms\""));
 }
+
+// ---------------------------------------------------------------------------
+// heap_state field (B1-heap-trace)
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_health_has_heap_state(void)
+{
+    setup();
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"heap_state\""));
+}
