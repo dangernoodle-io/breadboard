@@ -1388,9 +1388,13 @@ bb_err_t bb_pub_tick_once(void)
 
     // Phase 2b: telem source fan-out — SSE and sink delivery.
     // SSOT guarantee: serialize ONCE per telem topic (memoized in bb_cache),
-    // COPY it out once into a worker-stack buffer, then share that single copy
+    // COPY it out once into a scratch buffer, then share that single copy
     // with both SSE (bb_cache_post_serialized) and sinks (bb_pub_deliver_to_sinks).
-    char telem_buf[CONFIG_BB_PUB_TELEM_SERIALIZE_MAX];
+    // Static is safe under the single-worker guarantee: bb_pub_tick_once is
+    // never called concurrently (see buffer_capture comment at ~L353).  Moving
+    // off the stack removes CONFIG_BB_PUB_TELEM_SERIALIZE_MAX (1024 B) from the
+    // bb_pub task stack, preventing overflow on C3/S3 tight-stack builds.
+    static char telem_buf[CONFIG_BB_PUB_TELEM_SERIALIZE_MAX];
     for (int ti = 0; ti < s_telem_count; ti++) {
         if (!telem_results[ti].fired) continue;
         bb_pub_telem_entry_t *te = &s_telem_sources[telem_results[ti].telem_idx];
