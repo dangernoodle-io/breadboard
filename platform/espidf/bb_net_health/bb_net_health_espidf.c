@@ -91,8 +91,23 @@ typedef struct {
 static bb_net_health_cache_t s_cache;       // zero-init; valid once attach_sse writes it
 static SemaphoreHandle_t     s_cache_lock;  // protects s_cache against torn read/write
 
-// JSON-Schema for the "net" health section.
+// JSON-Schema for the "net" health section — status bools/enums only (TA-505).
+// Numeric counters moved to GET /api/diag/net.
 static const char k_net_schema[] =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"state\":{\"type\":\"string\"},"
+    "\"early_warning\":{\"type\":\"boolean\"},"
+    "\"throttled\":{\"type\":\"boolean\"},"
+    "\"mqtt\":{\"type\":\"object\",\"properties\":{"
+    "\"connected\":{\"type\":\"boolean\"}"
+    "}},"
+    "\"http\":{\"type\":\"object\",\"properties\":{"
+    "\"connected\":{\"type\":\"boolean\"}"
+    "}}}}";
+
+// Full schema for the net.health SSE topic — matches bb_net_health_emit output.
+// (Status-only k_net_schema is used only for the /api/health "net" section.)
+static const char k_net_sse_schema[] =
     "{\"type\":\"object\",\"properties\":{"
     "\"rssi\":{\"type\":\"integer\"},"
     "\"state\":{\"type\":\"string\"},"
@@ -108,14 +123,12 @@ static const char k_net_schema[] =
     "\"reconnect_count\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"disc_reason\":{\"type\":\"integer\"},"
-    "\"tls_fail\":{\"type\":\"integer\"}"
-    "}},"
+    "\"tls_fail\":{\"type\":\"integer\"}}},"
     "\"http\":{\"type\":\"object\",\"properties\":{"
     "\"connected\":{\"type\":\"boolean\"},"
     "\"consec_failures\":{\"type\":\"integer\"},"
     "\"tls_fail\":{\"type\":\"integer\"},"
-    "\"last_status\":{\"type\":\"integer\"}"
-    "}}}}";
+    "\"last_status\":{\"type\":\"integer\"}}}}}";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -370,11 +383,13 @@ static void eval_work_fn(void *arg)
 static void net_section_get(bb_json_t section, void *ctx)
 {
     (void)ctx;
-    // Read from the bb_cache owned struct (updated by publish_snapshot via
-    // eval_cb and the initial snapshot in attach_sse).  Do NOT call
-    // bb_net_health_eval here — HTTP polls must not inject samples into the
-    // hysteresis state.  Staleness is at most 5 s.
-    bb_cache_serialize_into(BB_NET_HEALTH_TOPIC, section);
+    // Emit status-only (bools/enums) — numerics moved to /api/diag/net (TA-505).
+    // Read from the cached snapshot under lock; do NOT call bb_net_health_eval
+    // here — HTTP polls must not inject samples into the hysteresis state.
+    bb_net_health_status_t snap;
+    if (bb_net_health_get_status(&snap) == BB_OK) {
+        bb_net_health_emit_status(section, &snap);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -458,7 +473,7 @@ bb_err_t bb_net_health_attach_sse(void)
         return cerr;
     }
 
-    bb_openapi_register_topic_schema(BB_NET_HEALTH_TOPIC, k_net_schema, "NetHealth");
+    bb_openapi_register_topic_schema(BB_NET_HEALTH_TOPIC, k_net_sse_schema, "NetHealth");
 
     // Register the event topic so bb_event_post can target it.
     bb_err_t err = bb_event_topic_register(BB_NET_HEALTH_TOPIC, &s_topic);

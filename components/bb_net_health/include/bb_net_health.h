@@ -255,6 +255,18 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out);
  */
 void bb_net_health_emit(bb_json_t obj, const void *snap);
 
+/**
+ * Emit status-only (bools/enums) fields from snap into obj.
+ *
+ * Emits: state (string), early_warning (bool), throttled (bool),
+ *   mqtt.connected (bool), http.connected (bool).
+ *
+ * No numeric fields. Used by /api/health "net" section (TA-505); numeric
+ * counters are served by /api/diag/net via bb_net_health_emit.
+ * Pure, host-testable — no ESP-IDF dependencies.
+ */
+void bb_net_health_emit_status(bb_json_t obj, const bb_net_health_status_t *snap);
+
 // ---------------------------------------------------------------------------
 // Adaptive-backoff throttle decision (pure, host-testable; used by commit 4)
 // ---------------------------------------------------------------------------

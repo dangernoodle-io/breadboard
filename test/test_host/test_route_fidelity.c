@@ -73,6 +73,7 @@ const char *bb_mdns_get_hostname(void);
 #include <time.h>
 #include <inttypes.h>
 
+#include "bb_json.h"
 #include "cJSON.h"
 
 // ---------------------------------------------------------------------------
@@ -89,72 +90,35 @@ static const char k_reboot_schema[] =
 // GET /api/info — bb_info.c (espidf)
 // IMPORTANT: must match bb_info_get_assembled_schema() with no extenders registered.
 // (test_fidelity_info_schema_matches_assembled enforces this.)
-// Static build fields (board, version, idf_version, etc.) moved to nested
-// "build" subsection in B1-360; k_info_schema updated to match.
+// TA-505: identity/build/capability only; system numbers moved to /api/diag/net.
 static const char k_info_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
     "\"mac\":{\"type\":\"string\"},"
-    "\"reset_reason\":{\"type\":\"string\"},"
     "\"ota_validated\":{\"type\":\"boolean\"},"
     "\"ota_ready\":{\"type\":\"boolean\"},"
-    "\"heap_internal\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"free\":{\"type\":\"integer\"},"
-    "\"total\":{\"type\":\"integer\"},"
-    "\"min_free\":{\"type\":\"integer\"},"
-    "\"largest_block\":{\"type\":\"integer\"}}},"
-    "\"heap_psram\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"free\":{\"type\":\"integer\"},"
-    "\"total\":{\"type\":\"integer\"}}},"
-    "\"rtc\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"used\":{\"type\":\"integer\"},"
-    "\"total\":{\"type\":\"integer\"}}},"
-    "\"static_dram\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"bytes\":{\"type\":\"integer\"}}},"
-    "\"network\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"ssid\":{\"type\":\"string\"},"
-    "\"bssid\":{\"type\":\"string\"},"
-    "\"rssi\":{\"type\":\"integer\"},"
-    "\"ip\":{\"type\":\"string\"},"
-    "\"connected\":{\"type\":\"boolean\"},"
-    "\"disc_reason\":{\"type\":\"integer\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"retry_count\":{\"type\":\"integer\"}}}"
-    ",\"http_handler_count\":{\"type\":\"integer\"},"
-    "\"http_handler_cap\":{\"type\":\"integer\"},"
-    "\"uptime_ms\":{\"type\":\"integer\"},"
     "\"boot_epoch_s\":{\"type\":\"integer\"},"
     "\"time_valid\":{\"type\":\"boolean\"},"
     "\"time_source\":{\"type\":\"string\"},"
     "\"hostname\":{\"type\":[\"string\",\"null\"]},"
     "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}"
     "},"
-    "\"required\":[\"board\",\"version\",\"network\"]}";
+    "\"required\":[\"mac\",\"capabilities\"]}";
 
 // GET /api/health — bb_health.c (espidf)
-// network gains ssid/bssid/ip/disc_reason from bb_wifi_emit_section (additive).
-// mdns field KEPT (locked decision B1-269). ok drops mdns from gate.
+// TA-505: status bools/enums only. Numeric fields (rssi, disc_reason, etc.)
+// moved to /api/diag/net. mdns KEPT (locked decision B1-269).
 static const char k_health_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
     "\"ok\":{\"type\":\"boolean\"},"
-    "\"free_heap\":{\"type\":\"integer\"},"
     "\"validated\":{\"type\":\"boolean\"},"
     "\"network\":{\"type\":\"object\","
     "\"properties\":{"
     "\"ssid\":{\"type\":\"string\"},"
     "\"bssid\":{\"type\":\"string\"},"
-    "\"rssi\":{\"type\":\"integer\"},"
     "\"ip\":{\"type\":\"string\"},"
     "\"connected\":{\"type\":\"boolean\"},"
-    "\"disc_reason\":{\"type\":\"integer\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"retry_count\":{\"type\":\"integer\"},"
     "\"mdns\":{\"type\":[\"string\",\"null\"]}}}},"
     "\"required\":[\"ok\",\"network\"]}";
 
@@ -330,64 +294,17 @@ static bb_err_t h_reboot(bb_http_request_t *req)
 
 static bb_err_t h_info(bb_http_request_t *req)
 {
+    // TA-505: identity/build/capability only — no heap, network, reset_reason,
+    // http_handler_count/cap, or uptime_ms at root level.
     bb_board_info_t b;
-    bb_wifi_info_t  w;
     bb_board_get_info(&b);
-    bb_wifi_get_info(&w);
-
-    char bssid[18];
-    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
-             w.bssid[0], w.bssid[1], w.bssid[2],
-             w.bssid[3], w.bssid[4], w.bssid[5]);
 
     bb_http_json_obj_stream_t obj;
     bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "board", b.board);
-    bb_http_resp_json_obj_set_str(&obj, "project_name", b.project_name);
-    bb_http_resp_json_obj_set_str(&obj, "version", b.version);
-    bb_http_resp_json_obj_set_str(&obj, "idf_version", b.idf_version);
-    bb_http_resp_json_obj_set_str(&obj, "build_date", b.build_date);
-    bb_http_resp_json_obj_set_str(&obj, "build_time", b.build_time);
-    bb_http_resp_json_obj_set_str(&obj, "chip_model", b.chip_model);
-    bb_http_resp_json_obj_set_num(&obj, "cores", (double)b.cores);
     bb_http_resp_json_obj_set_str(&obj, "mac", b.mac);
-    bb_http_resp_json_obj_set_num(&obj, "flash_size", (double)b.flash_size);
-    bb_http_resp_json_obj_set_num(&obj, "app_size", (double)b.app_size);
-    bb_http_resp_json_obj_set_str(&obj, "reset_reason", b.reset_reason);
     bb_http_resp_json_obj_set_bool(&obj, "ota_validated", b.ota_validated);
-    bb_http_resp_json_obj_set_num(&obj, "chip_revision", (double)bb_board_chip_revision());
-    bb_http_resp_json_obj_set_num(&obj, "cpu_freq_mhz", (double)bb_board_cpu_freq_mhz());
-    bb_http_resp_json_obj_set_obj_begin(&obj, "heap_internal");
-    bb_http_resp_json_obj_set_num(&obj, "free",          (double)bb_board_heap_internal_free());
-    bb_http_resp_json_obj_set_num(&obj, "total",         (double)bb_board_heap_internal_total());
-    bb_http_resp_json_obj_set_num(&obj, "min_free",      (double)bb_board_heap_minimum_ever());
-    bb_http_resp_json_obj_set_num(&obj, "largest_block", (double)bb_board_heap_internal_largest_free_block());
-    bb_http_resp_json_obj_set_obj_end(&obj);
-    bb_http_resp_json_obj_set_obj_begin(&obj, "heap_psram");
-    bb_http_resp_json_obj_set_num(&obj, "free",  (double)bb_board_psram_free());
-    bb_http_resp_json_obj_set_num(&obj, "total", (double)bb_board_psram_total());
-    bb_http_resp_json_obj_set_obj_end(&obj);
-    bb_http_resp_json_obj_set_obj_begin(&obj, "rtc");
-    bb_http_resp_json_obj_set_num(&obj, "used",  (double)bb_board_rtc_used());
-    bb_http_resp_json_obj_set_num(&obj, "total", (double)bb_board_rtc_total());
-    bb_http_resp_json_obj_set_obj_end(&obj);
-    bb_http_resp_json_obj_set_obj_begin(&obj, "network");
-    bb_http_resp_json_obj_set_str(&obj, "ssid", w.ssid);
-    bb_http_resp_json_obj_set_str(&obj, "bssid", bssid);
-    bb_http_resp_json_obj_set_num(&obj, "rssi", (double)w.rssi);
-    bb_http_resp_json_obj_set_str(&obj, "ip", w.ip);
-    bb_http_resp_json_obj_set_bool(&obj, "connected", w.connected);
-    bb_http_resp_json_obj_set_num(&obj, "disc_reason", (double)w.disc_reason);
-    bb_http_resp_json_obj_set_num(&obj, "disc_age_s", (double)w.disc_age_s);
-    bb_http_resp_json_obj_set_num(&obj, "retry_count", (double)w.retry_count);
-    bb_http_resp_json_obj_set_obj_end(&obj);
-    bb_http_resp_json_obj_set_num(&obj, "http_handler_count",
-                                  (double)bb_http_route_handler_count());
-    bb_http_resp_json_obj_set_num(&obj, "http_handler_cap",
-                                  (double)bb_http_route_handler_cap());
-    // uptime, boot_epoch_s, time_valid — same accessors as bb_pub_info (SSOT).
+    // boot_epoch_s and time_valid — identity fields kept (TA-505).
     int64_t uptime_ms = bb_clock_now_ms();
-    bb_http_resp_json_obj_set_int(&obj, "uptime_ms", uptime_ms);
     bool   time_valid    = false;
     int64_t boot_epoch_s = 0;
     if (bb_ntp_is_synced()) {
@@ -414,39 +331,36 @@ static bb_err_t h_info(bb_http_request_t *req)
 
 static bb_err_t h_health(bb_http_request_t *req)
 {
+    // TA-505: status bools/enums only — no free_heap; numeric network fields
+    // moved to /api/diag/net.  Uses bb_wifi_emit_status (SSOT) so any future
+    // numeric addition to bb_wifi_emit_status would require an intentional API
+    // change, and test_fidelity_health_no_raw_numbers catches it at test time.
     bb_board_info_t b;
-    bb_wifi_info_t  w;
     bb_board_get_info(&b);
-    bb_wifi_get_info(&w);
 
     const char *hostname = bb_mdns_get_hostname();
 
-    char bssid[18];
-    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
-             w.bssid[0], w.bssid[1], w.bssid[2],
-             w.bssid[3], w.bssid[4], w.bssid[5]);
+    bb_json_t root = bb_json_obj_new();
+    bb_json_obj_set_bool(root, "ok", bb_health_compute_ok());
+    bb_json_obj_set_bool(root, "validated", b.ota_validated);
 
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_bool(&obj, "ok", bb_health_compute_ok());
-    bb_http_resp_json_obj_set_num(&obj, "free_heap", (double)b.free_heap);
-    bb_http_resp_json_obj_set_bool(&obj, "validated", b.ota_validated);
-    bb_http_resp_json_obj_set_obj_begin(&obj, "network");
-    bb_http_resp_json_obj_set_str(&obj, "ssid", w.ssid);
-    bb_http_resp_json_obj_set_str(&obj, "bssid", bssid);
-    bb_http_resp_json_obj_set_int(&obj, "rssi", (int64_t)w.rssi);
-    bb_http_resp_json_obj_set_str(&obj, "ip", w.ip);
-    bb_http_resp_json_obj_set_bool(&obj, "connected", w.connected);
-    bb_http_resp_json_obj_set_int(&obj, "disc_reason", (int64_t)w.disc_reason);
-    bb_http_resp_json_obj_set_num(&obj, "disc_age_s", (double)w.disc_age_s);
-    bb_http_resp_json_obj_set_num(&obj, "retry_count", (double)w.retry_count);
+    bb_json_t net = bb_json_obj_new();
+    bb_wifi_emit_status(net);
     if (hostname) {
-        bb_http_resp_json_obj_set_str(&obj, "mdns", hostname);
+        bb_json_obj_set_string(net, "mdns", hostname);
     } else {
-        bb_http_resp_json_obj_set_null(&obj, "mdns");
+        bb_json_obj_set_null(net, "mdns");
     }
-    bb_http_resp_json_obj_set_obj_end(&obj);
-    return bb_http_resp_json_obj_end(&obj);
+    bb_json_obj_set_obj(root, "network", net);
+
+    char *str = bb_json_serialize(root);
+    bb_json_free(root);
+    if (!str) return BB_ERR_NO_SPACE;
+    bb_http_resp_set_type(req, "application/json");
+    bb_err_t err = bb_http_resp_send_chunk(req, str, -1);
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
+    bb_json_free_str(str);
+    return err;
 }
 
 static bb_err_t h_wifi_info(bb_http_request_t *req)
@@ -1327,15 +1241,14 @@ static cJSON *invoke_h_info_and_parse(void)
     return parsed;
 }
 
-// (I1) uptime_ms is present and >= 0.
-void test_fidelity_info_has_uptime_ms(void)
+// (I1) uptime_ms must NOT be present in /api/info — moved to /api/diag/net (TA-505).
+void test_fidelity_info_lacks_uptime_ms(void)
 {
     cJSON *doc = invoke_h_info_and_parse();
     TEST_ASSERT_NOT_NULL_MESSAGE(doc, "info body not valid JSON");
-    cJSON *field = cJSON_GetObjectItemCaseSensitive(doc, "uptime_ms");
-    TEST_ASSERT_NOT_NULL_MESSAGE(field, "uptime_ms missing from /api/info body");
-    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsNumber(field), "uptime_ms is not a number");
-    TEST_ASSERT_TRUE_MESSAGE(field->valuedouble >= 0, "uptime_ms is negative");
+    TEST_ASSERT_FALSE_MESSAGE(
+        cJSON_HasObjectItem(doc, "uptime_ms"),
+        "uptime_ms must not be present in /api/info body (TA-505: moved to /api/diag/net)");
     cJSON_Delete(doc);
 }
 
@@ -1395,4 +1308,47 @@ void test_fidelity_info_flat_heap_fields_absent(void)
     TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "heap_largest_free_block"),
         "heap_largest_free_block must not be present in /api/info (B1-310)");
     cJSON_Delete(doc);
+}
+
+// ---------------------------------------------------------------------------
+// /api/health: no raw numeric values anywhere in the response (TA-505).
+// ---------------------------------------------------------------------------
+
+static void assert_no_numbers_recursive(cJSON *node, const char *path)
+{
+    if (!node) return;
+    if (cJSON_IsNumber(node)) {
+        char msg[512];
+        snprintf(msg, sizeof(msg),
+                 "/api/health: numeric value at '%s' (TA-505: health must carry "
+                 "no raw numbers; move them to /api/diag/net)", path);
+        TEST_FAIL_MESSAGE(msg);
+    }
+    cJSON *child = node->child;
+    char child_path[256];
+    while (child) {
+        if (child->string) {
+            snprintf(child_path, sizeof(child_path), "%s.%s", path, child->string);
+        } else {
+            snprintf(child_path, sizeof(child_path), "%s[]", path);
+        }
+        assert_no_numbers_recursive(child, child_path);
+        child = child->next;
+    }
+}
+
+void test_fidelity_health_no_raw_numbers(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    h_health(req);
+    bb_http_host_capture_t cap;
+    memset(&cap, 0, sizeof(cap));
+    bb_http_host_capture_end(req, &cap);
+    TEST_ASSERT_NOT_NULL_MESSAGE(cap.body, "health body is null");
+    cJSON *parsed = cJSON_Parse(cap.body);
+    TEST_ASSERT_NOT_NULL_MESSAGE(parsed, "health body is not valid JSON");
+    assert_no_numbers_recursive(parsed, "root");
+    cJSON_Delete(parsed);
+    bb_http_host_capture_free(&cap);
 }

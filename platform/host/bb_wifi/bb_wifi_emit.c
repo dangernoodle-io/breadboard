@@ -45,3 +45,21 @@ void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
                                      bb_wifi_get_egress_dead_count() +
                                      bb_wifi_get_lost_ip_count()));
 }
+
+// Emit status-only wifi fields — ssid/bssid/ip/connected.
+// No numeric fields; this is the SSOT for the /api/health "network" section (TA-505).
+void bb_wifi_emit_status(bb_json_t obj)
+{
+    bb_wifi_info_t info;
+    bb_wifi_get_info(&info);
+
+    char bssid[18];
+    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
+             info.bssid[0], info.bssid[1], info.bssid[2],
+             info.bssid[3], info.bssid[4], info.bssid[5]);
+
+    bb_json_obj_set_string(obj, "ssid",      info.ssid);
+    bb_json_obj_set_string(obj, "bssid",     bssid);
+    bb_json_obj_set_string(obj, "ip",        info.ip);
+    bb_json_obj_set_bool  (obj, "connected", info.connected);
+}

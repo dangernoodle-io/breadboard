@@ -1119,3 +1119,147 @@ void test_bb_net_health_emit_lost_ip_zero(void)
 
     bb_json_free(parsed);
 }
+
+// ---------------------------------------------------------------------------
+// bb_net_health_emit_status: status-only (bools/enums), no numeric counters
+// ---------------------------------------------------------------------------
+
+// emit_status emits state/early_warning/throttled + mqtt.connected + http.connected
+// and must NOT emit any numeric fields (rssi, disc_age_s, reconnect_count, etc.).
+void test_bb_net_health_emit_status_status_only(void)
+{
+    bb_net_health_status_t snap = {
+        .state                  = BB_NET_STATE_MARGINAL,
+        .early_warning          = true,
+        .throttled              = false,
+        .rssi                   = -70,
+        .mqtt_connected         = true,
+        .mqtt_reconnect_count   = 5,
+        .last_disconnect_reason = 3,
+        .disc_age_s             = 30,
+        .mqtt_disc_age_s        = 15,
+        .mqtt_disc_reason       = 1,
+        .mqtt_tls_fail          = 0,
+        .http_connected         = false,
+        .http_consec_failures   = 2,
+        .http_tls_fail          = 0,
+        .http_last_status       = 503,
+    };
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit_status(obj, &snap);
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+
+    bb_json_t parsed = bb_json_parse(json, strlen(json));
+    bb_json_free_str(json);
+    TEST_ASSERT_NOT_NULL(parsed);
+
+    // Status fields must be present.
+    char state_buf[32];
+    TEST_ASSERT_TRUE(bb_json_obj_get_string(parsed, "state", state_buf, sizeof(state_buf)));
+    TEST_ASSERT_EQUAL_STRING("marginal", state_buf);
+
+    bool ew = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "early_warning", &ew));
+    TEST_ASSERT_TRUE(ew);
+
+    bool thr = true;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "throttled", &thr));
+    TEST_ASSERT_FALSE(thr);
+
+    // mqtt sub-object: only connected (bool), no counters.
+    bb_json_t mqtt_obj = bb_json_obj_get_item(parsed, "mqtt");
+    TEST_ASSERT_NOT_NULL_MESSAGE(mqtt_obj, "mqtt sub-object missing from emit_status");
+    bool mc = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(mqtt_obj, "connected", &mc));
+    TEST_ASSERT_TRUE(mc);
+
+    // http sub-object: only connected (bool), no counters.
+    bb_json_t http_obj = bb_json_obj_get_item(parsed, "http");
+    TEST_ASSERT_NOT_NULL_MESSAGE(http_obj, "http sub-object missing from emit_status");
+    bool hc = true;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(http_obj, "connected", &hc));
+    TEST_ASSERT_FALSE(hc);
+
+    // Numeric counters must NOT be present at root.
+    double dummy = 0.0;
+    TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(parsed, "rssi", &dummy),
+        "rssi must not appear in emit_status output (TA-505)");
+    TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(parsed, "disc_age_s", &dummy),
+        "disc_age_s must not appear in emit_status output");
+    TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(parsed, "last_disconnect_reason", &dummy),
+        "last_disconnect_reason must not appear in emit_status output");
+
+    bb_json_free(parsed);
+}
+
+// OOM branch: mqtt sub-object alloc fails — top-level fields still emit, "mqtt" absent.
+void test_bb_net_health_emit_status_mqtt_alloc_fail(void)
+{
+    bb_net_health_status_t snap = {
+        .state          = BB_NET_STATE_GOOD,
+        .early_warning  = false,
+        .throttled      = false,
+        .mqtt_connected = true,
+        .http_connected = false,
+    };
+    // Call 0: outer bb_json_obj_new() — succeeds.
+    // Call 1: mqtt sub-object bb_json_obj_new() inside emit_status — fails.
+    bb_json_host_force_alloc_fail_after(1);
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit_status(obj, &snap);
+    bb_json_host_force_alloc_fail_after(-1);  // reset
+
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+    bb_json_t parsed = bb_json_parse(json, strlen(json));
+    bb_json_free_str(json);
+    TEST_ASSERT_NOT_NULL(parsed);
+
+    // Top-level state field must still be present.
+    char state_buf[32];
+    TEST_ASSERT_TRUE(bb_json_obj_get_string(parsed, "state", state_buf, sizeof(state_buf)));
+    // mqtt key must be absent (alloc failed).
+    TEST_ASSERT_NULL(bb_json_obj_get_item(parsed, "mqtt"));
+
+    bb_json_free(parsed);
+}
+
+// OOM branch: http sub-object alloc fails — mqtt is present, "http" absent.
+void test_bb_net_health_emit_status_http_alloc_fail(void)
+{
+    bb_net_health_status_t snap = {
+        .state          = BB_NET_STATE_GOOD,
+        .early_warning  = false,
+        .throttled      = false,
+        .mqtt_connected = true,
+        .http_connected = true,
+    };
+    // Call 0: outer obj — succeeds.
+    // Call 1: mqtt sub-object — succeeds.
+    // Call 2: http sub-object — fails.
+    bb_json_host_force_alloc_fail_after(2);
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit_status(obj, &snap);
+    bb_json_host_force_alloc_fail_after(-1);  // reset
+
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+    bb_json_t parsed = bb_json_parse(json, strlen(json));
+    bb_json_free_str(json);
+    TEST_ASSERT_NOT_NULL(parsed);
+
+    // mqtt must be present (its alloc succeeded).
+    TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(parsed, "mqtt"));
+    // http must be absent (alloc failed).
+    TEST_ASSERT_NULL(bb_json_obj_get_item(parsed, "http"));
+
+    bb_json_free(parsed);
+}

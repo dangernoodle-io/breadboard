@@ -164,6 +164,11 @@ bool bb_wifi_gateway_reachable(uint32_t timeout_ms);
 // Requires bb_json.h — callers that include bb_wifi.h must also link bb_json.
 void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info);
 
+// Emit status-only wifi fields into a bb_json_t object (TA-505).
+// Writes: ssid, bssid (colon-hex), ip, connected — no numeric fields.
+// Calls bb_wifi_get_info internally; no info parameter required.
+void bb_wifi_emit_status(bb_json_t obj);
+
 // ---------------------------------------------------------------------------
 // Runtime WiFi reconfigure (brick-safe pending-creds try)
 // ---------------------------------------------------------------------------

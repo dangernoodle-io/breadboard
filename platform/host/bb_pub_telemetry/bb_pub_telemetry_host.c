@@ -4,7 +4,6 @@
 #include "bb_pub.h"
 #include "../bb_pub/bb_pub_priv.h"
 #include "bb_clock.h"
-#include "bb_info.h"
 #include "bb_json.h"
 #include "bb_telemetry.h"
 #include "bb_registry.h"
@@ -217,23 +216,6 @@ static bb_err_t pub_section_patch(bb_json_t section_patch, void *ctx)
 }
 
 // ---------------------------------------------------------------------------
-// /api/info "pub_sinks" section
-// ---------------------------------------------------------------------------
-
-static void info_pub_sinks_get(bb_json_t section, void *ctx)
-{
-    (void)ctx;
-
-    bb_pub_status_t st;
-    bb_pub_get_status(&st);
-    bb_json_obj_set_int(section, "sink_count", (int64_t)st.sink_count);
-    bb_json_obj_set_string(section, "topic_prefix", CONFIG_BB_PUB_TOPIC_PREFIX);
-
-    // sinks[] — provenance: which transports are active and whether TLS is on.
-    pub_sinks_add(section);
-}
-
-// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
@@ -261,15 +243,6 @@ bb_err_t bb_pub_telemetry_init(void)
                                                      pub_section_patch, NULL,
                                                      k_pub_schema_props);
     if (err != BB_OK) return err;
-
-    // Register /api/info "pub_sinks" section: provenance for who receives telemetry.
-    static const char k_info_schema[] =
-        "{\"type\":\"object\","
-        "\"properties\":{"
-        "\"sink_count\":{\"type\":\"integer\"},"
-        "\"topic_prefix\":{\"type\":\"string\"},"
-        "\"sinks\":{\"type\":\"array\",\"items\":{\"type\":\"object\"}}}}";
-    (void)bb_info_register_section("pub_sinks", info_pub_sinks_get, NULL, k_info_schema);
 
     // Register "meta" MQTT topic: serializes once per tick via bb_pub_register_telemetry.
     // BB_PUB_TELEM_SINKS only (no SSE — meta is a sink-delivery topic, not an event stream).

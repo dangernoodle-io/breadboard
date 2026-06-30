@@ -200,12 +200,31 @@ void test_bb_health_schema_network_has_ip(void)
                                  "ip missing from health schema network");
 }
 
-void test_bb_health_schema_network_has_disc_reason(void)
+// disc_reason is a numeric field relocated to /api/diag/net (TA-505).
+void test_bb_health_schema_network_no_disc_reason(void)
 {
     const char *schema = bb_health_get_assembled_schema();
     TEST_ASSERT_NOT_NULL(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"disc_reason\""),
-                                 "disc_reason missing from health schema network");
+    TEST_ASSERT_NULL_MESSAGE(strstr(schema, "\"disc_reason\""),
+                             "disc_reason must not be in health schema (TA-505: moved to /api/diag/net)");
+}
+
+// free_heap is a numeric field relocated to /api/diag/net (TA-505).
+void test_bb_health_schema_no_free_heap(void)
+{
+    const char *schema = bb_health_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NULL_MESSAGE(strstr(schema, "\"free_heap\""),
+                             "free_heap must not be in health schema (TA-505: status bools only)");
+}
+
+// rssi is a numeric field relocated to /api/diag/net (TA-505).
+void test_bb_health_schema_network_no_rssi(void)
+{
+    const char *schema = bb_health_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NULL_MESSAGE(strstr(schema, "\"rssi\""),
+                             "rssi must not be in health schema (TA-505: moved to /api/diag/net)");
 }
 
 void test_bb_health_schema_network_has_mdns(void)

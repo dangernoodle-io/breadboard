@@ -1,12 +1,13 @@
 #include "bb_diag.h"
 #include "bb_cache.h"
+#include "bb_clock.h"
 #include "bb_diag_event_priv.h"
 #include "bb_event.h"
 #include "bb_event_routes.h"
 #include "bb_http.h"
-#include "bb_info.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_net_health.h"
 #include "bb_openapi.h"
 #include "bb_nv_delete_routes.h"
 #include "bb_ota_validator.h"
@@ -757,36 +758,82 @@ static const bb_route_t s_partitions_get_route = {
     .handler   = partitions_get_handler,
 };
 
-// /api/info diag section: emits wdt_resets and optional panic object
-// into the "diag" child section.
-// Note: abnormal_reset_count has been renamed to wdt_resets (B1-269 locked decision).
-// panic is always emitted (present: bool) so the shape is consistent.
+// GET /api/diag/net — network diagnostic counters (TA-505).
+// Sources: bb_net_health snapshot, bb_clock_now_ms, bb_http handler counts.
+extern size_t bb_http_route_handler_count(void);
+extern size_t bb_http_route_handler_cap(void);
 
-static const char k_diag_section_schema[] =
-    "{\"type\":\"object\",\"properties\":{"
-    "\"wdt_resets\":{\"type\":\"integer\"},"
-    "\"panic\":{\"type\":\"object\","
-    "\"properties\":{"
-    "\"available\":{\"type\":\"boolean\"},"
-    "\"coredump\":{\"type\":\"boolean\"},"
-    "\"boots_since\":{\"type\":\"integer\"}}}}}";
-
-static void bb_diag_info_section_get(bb_json_t section, void *ctx)
+static bb_err_t diag_net_handler(bb_http_request_t *req)
 {
-    (void)ctx;
-    bool avail = bb_diag_panic_available();
-    bool coredump = bb_diag_panic_coredump_available();
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
 
-    bb_json_obj_set_number(section, "wdt_resets", (double)bb_diag_abnormal_reset_count());
+    bb_http_resp_json_obj_set_int(&obj, "uptime_ms",           (int64_t)bb_clock_now_ms());
+    bb_http_resp_json_obj_set_int(&obj, "http_handler_count",  (int64_t)bb_http_route_handler_count());
+    bb_http_resp_json_obj_set_int(&obj, "http_handler_cap",    (int64_t)bb_http_route_handler_cap());
 
-    bb_json_t panic = bb_json_obj_new();
-    bb_json_obj_set_bool(panic, "available", avail);
-    bb_json_obj_set_bool(panic, "coredump", coredump);
-    if (avail || coredump) {
-        bb_json_obj_set_number(panic, "boots_since", (double)bb_diag_panic_boots_since());
+    bb_net_health_status_t snap;
+    if (bb_net_health_get_status(&snap) == BB_OK) {
+        bb_http_resp_json_obj_set_int(&obj, "rssi",                   (int64_t)snap.rssi);
+        bb_http_resp_json_obj_set_int(&obj, "disc_age_s",             (int64_t)snap.disc_age_s);
+        bb_http_resp_json_obj_set_int(&obj, "last_disconnect_reason", (int64_t)snap.last_disconnect_reason);
+        bb_http_resp_json_obj_set_int(&obj, "lost_ip_recoveries",     (int64_t)snap.lost_ip_recoveries);
+        bb_http_resp_json_obj_set_int(&obj, "lost_ip_age_s",          (int64_t)snap.lost_ip_age_s);
+        bb_http_resp_json_obj_set_int(&obj, "egress_dead_recoveries", (int64_t)snap.egress_dead_recoveries);
+
+        bb_http_resp_json_obj_set_obj_begin(&obj, "mqtt");
+        bb_http_resp_json_obj_set_int(&obj, "reconnect_count", (int64_t)snap.mqtt_reconnect_count);
+        bb_http_resp_json_obj_set_int(&obj, "disc_age_s",      (int64_t)snap.mqtt_disc_age_s);
+        bb_http_resp_json_obj_set_int(&obj, "disc_reason",     (int64_t)snap.mqtt_disc_reason);
+        bb_http_resp_json_obj_set_int(&obj, "tls_fail",        (int64_t)snap.mqtt_tls_fail);
+        bb_http_resp_json_obj_set_obj_end(&obj);
+
+        bb_http_resp_json_obj_set_obj_begin(&obj, "http");
+        bb_http_resp_json_obj_set_int(&obj, "consec_failures", (int64_t)snap.http_consec_failures);
+        bb_http_resp_json_obj_set_int(&obj, "tls_fail",        (int64_t)snap.http_tls_fail);
+        bb_http_resp_json_obj_set_int(&obj, "last_status",     (int64_t)snap.http_last_status);
+        bb_http_resp_json_obj_set_obj_end(&obj);
     }
-    bb_json_obj_set_obj(section, "panic", panic);
+
+    return bb_http_resp_json_obj_end(&obj);
 }
+
+static const bb_route_response_t s_diag_net_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"uptime_ms\":{\"type\":\"integer\"},"
+      "\"http_handler_count\":{\"type\":\"integer\"},"
+      "\"http_handler_cap\":{\"type\":\"integer\"},"
+      "\"rssi\":{\"type\":\"integer\"},"
+      "\"disc_age_s\":{\"type\":\"integer\"},"
+      "\"last_disconnect_reason\":{\"type\":\"integer\"},"
+      "\"lost_ip_recoveries\":{\"type\":\"integer\"},"
+      "\"lost_ip_age_s\":{\"type\":\"integer\"},"
+      "\"egress_dead_recoveries\":{\"type\":\"integer\"},"
+      "\"mqtt\":{\"type\":\"object\",\"properties\":{"
+      "\"reconnect_count\":{\"type\":\"integer\"},"
+      "\"disc_age_s\":{\"type\":\"integer\"},"
+      "\"disc_reason\":{\"type\":\"integer\"},"
+      "\"tls_fail\":{\"type\":\"integer\"}}},"
+      "\"http\":{\"type\":\"object\",\"properties\":{"
+      "\"consec_failures\":{\"type\":\"integer\"},"
+      "\"tls_fail\":{\"type\":\"integer\"},"
+      "\"last_status\":{\"type\":\"integer\"}}}},"
+      "\"required\":[\"uptime_ms\"]}",
+      "network diagnostic counters relocated from /api/info and /api/health" },
+    { 0 },
+};
+
+static const bb_route_t s_diag_net_route = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/diag/net",
+    .tag       = "diag",
+    .summary   = "Network diagnostic counters (uptime, rssi, reconnect counts, tls failures)",
+    .responses = s_diag_net_responses,
+    .handler   = diag_net_handler,
+};
 
 static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 {
@@ -826,11 +873,12 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     err = bb_http_register_described_route(server, &s_partitions_get_route);
     if (err != BB_OK) return err;
 
+    err = bb_http_register_described_route(server, &s_diag_net_route);
+    if (err != BB_OK) return err;
+
     /* B1-290: NVS delete route — single DELETE /api/nvs with JSON body. */
     err = bb_nv_delete_routes_init(server);
     if (err != BB_OK) return err;
-
-    bb_info_register_section("diag", bb_diag_info_section_get, NULL, k_diag_section_schema);
 
     // Register diag.boot in bb_cache (owned struct, serializer shared with SSE).
     {
@@ -878,7 +926,7 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
         }
     }
 
-    bb_log_i(TAG, "diag routes + info diag section registered");
+    bb_log_i(TAG, "diag routes registered");
     return BB_OK;
 }
 
@@ -886,8 +934,8 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 // in bb_diag_routes_init, used by the PRE_HTTP reserve companion below.
 // Keep each term adjacent to its corresponding #ifdef so an add/remove touches
 // both at once.
-//    7 always-on: boot GET, boot DELETE, panic GET, heap GET, sockets GET,
-//                 partitions GET, nvs DELETE (single body-based endpoint)
+//    8 always-on: boot GET, boot DELETE, panic GET, heap GET, sockets GET,
+//                 partitions GET, net GET, nvs DELETE (single body-based endpoint)
 //   +1 if CONFIG_BB_DIAG_PANIC_TRIGGER: panic/trigger POST
 //   +1 if CONFIG_BB_DIAG_PANIC_COREDUMP: coredump GET
 //   +1 if CONFIG_FREERTOS_USE_TRACE_FACILITY: tasks GET
@@ -906,7 +954,7 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 #else
 #  define BB_DIAG_N_TASKS 0
 #endif
-#define BB_DIAG_ROUTE_COUNT (7 + BB_DIAG_N_TRIGGER + BB_DIAG_N_COREDUMP + BB_DIAG_N_TASKS)
+#define BB_DIAG_ROUTE_COUNT (8 + BB_DIAG_N_TRIGGER + BB_DIAG_N_COREDUMP + BB_DIAG_N_TASKS)
 
 static bb_err_t bb_diag_routes_reserve(void)
 {

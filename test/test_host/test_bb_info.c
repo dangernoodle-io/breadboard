@@ -222,14 +222,44 @@ void test_bb_info_assembled_schema_contains_capabilities_array(void)
 // New field schema presence tests (uptime_ms, boot_epoch, time_valid, hostname)
 // ---------------------------------------------------------------------------
 
-// (U1) Schema contains uptime_ms integer field.
-void test_bb_info_schema_contains_uptime_ms(void)
+// (U1) Schema must NOT contain uptime_ms — moved to /api/diag/net (TA-505).
+void test_bb_info_schema_lacks_uptime_ms(void)
 {
     const char *schema = bb_info_get_assembled_schema();
     TEST_ASSERT_NOT_NULL(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(
-        strstr(schema, "\"uptime_ms\":{\"type\":\"integer\"}"),
-        "uptime_ms not found in assembled schema");
+    TEST_ASSERT_NULL_MESSAGE(
+        strstr(schema, "\"uptime_ms\""),
+        "uptime_ms must not be present in /api/info schema (TA-505)");
+}
+
+// (U5) Schema must NOT contain heap_internal (moved to /api/diag/heap, TA-505).
+void test_bb_info_schema_lacks_heap_internal(void)
+{
+    const char *schema = bb_info_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NULL_MESSAGE(
+        strstr(schema, "\"heap_internal\""),
+        "heap_internal must not be present in /api/info schema (TA-505)");
+}
+
+// (U6) Schema must NOT contain network object (moved to /api/diag/net, TA-505).
+void test_bb_info_schema_lacks_network(void)
+{
+    const char *schema = bb_info_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NULL_MESSAGE(
+        strstr(schema, "\"network\""),
+        "network must not be present in /api/info schema (TA-505)");
+}
+
+// (U7) Schema must NOT contain reset_reason (moved to /api/diag/boot, TA-505).
+void test_bb_info_schema_lacks_reset_reason(void)
+{
+    const char *schema = bb_info_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NULL_MESSAGE(
+        strstr(schema, "\"reset_reason\""),
+        "reset_reason must not be present in /api/info schema (TA-505)");
 }
 
 // (U2) Schema contains boot_epoch integer field.
