@@ -61,9 +61,9 @@ static bb_mdns_peer_t make_peer(const char *instance, const char *ip4, uint16_t 
 {
     bb_mdns_peer_t p;
     memset(&p, 0, sizeof(p));
-    strncpy(p.instance_name, instance, BB_MDNS_INSTANCE_NAME_MAX - 1);
-    strncpy(p.ip4, ip4 ? ip4 : "", BB_MDNS_IP4_MAX - 1);
-    p.port = port;
+    strncpy(p.id.instance_name, instance, BB_MDNS_INSTANCE_NAME_MAX - 1);
+    strncpy(p.id.ip4, ip4 ? ip4 : "", BB_MDNS_IP4_MAX - 1);
+    p.id.port = port;
     return p;
 }
 
@@ -105,8 +105,8 @@ void test_coalesce_n_peers_single_flush(void)
     for (int i = 0; i < 6; i++) {
         char expected[BB_MDNS_INSTANCE_NAME_MAX];
         snprintf(expected, sizeof(expected), "acme-device-%02d", i);
-        TEST_ASSERT_EQUAL_STRING(expected, s_captured[i].instance_name);
-        TEST_ASSERT_EQUAL((uint16_t)(4000 + i), s_captured[i].port);
+        TEST_ASSERT_EQUAL_STRING(expected, s_captured[i].id.instance_name);
+        TEST_ASSERT_EQUAL((uint16_t)(4000 + i), s_captured[i].id.port);
     }
 
     bb_mdns_browse_stop("_acme", "_tcp");
@@ -131,8 +131,8 @@ void test_coalesce_single_peer_flush_fires(void)
     TEST_ASSERT_EQUAL(1, bb_mdns_coalesce_queue_enqueue_count());
     TEST_ASSERT_EQUAL(1, dispatched);
     TEST_ASSERT_EQUAL(1, s_peer_fired);
-    TEST_ASSERT_EQUAL_STRING("solo-device", s_captured[0].instance_name);
-    TEST_ASSERT_EQUAL(9000, s_captured[0].port);
+    TEST_ASSERT_EQUAL_STRING("solo-device", s_captured[0].id.instance_name);
+    TEST_ASSERT_EQUAL(9000, s_captured[0].id.port);
 
     bb_mdns_browse_stop("_acme", "_tcp");
 }
@@ -258,8 +258,8 @@ void test_coalesce_overflow_flush_32_events_two_batches(void)
     for (int i = 0; i < 32; i++) {
         char expected[BB_MDNS_INSTANCE_NAME_MAX];
         snprintf(expected, sizeof(expected), "acme-flood-%02d", i);
-        TEST_ASSERT_EQUAL_STRING(expected, s_captured[i].instance_name);
-        TEST_ASSERT_EQUAL((uint16_t)(5000 + i), s_captured[i].port);
+        TEST_ASSERT_EQUAL_STRING(expected, s_captured[i].id.instance_name);
+        TEST_ASSERT_EQUAL((uint16_t)(5000 + i), s_captured[i].id.port);
     }
 
     bb_mdns_browse_stop("_acme", "_tcp");
@@ -383,7 +383,7 @@ void test_coalesce_queue_full_flush_drops_and_drain_recovers(void)
     for (int i = 0; i < 6; i++) {
         char expected[BB_MDNS_INSTANCE_NAME_MAX];
         snprintf(expected, sizeof(expected), "blocked-%02d", i);
-        TEST_ASSERT_EQUAL_STRING(expected, s_captured[i].instance_name);
+        TEST_ASSERT_EQUAL_STRING(expected, s_captured[i].id.instance_name);
     }
 
     bb_mdns_browse_stop("_acme", "_tcp");
@@ -442,7 +442,7 @@ void test_coalesce_queue_and_batch_full_drops_and_recovers(void)
     bb_mdns_coalesce_flush_for_test();
     TEST_ASSERT_EQUAL(2, bb_mdns_coalesce_queue_enqueue_count());
     TEST_ASSERT_EQUAL(17, s_peer_fired);
-    TEST_ASSERT_EQUAL_STRING("ok-peer", s_captured[16].instance_name);
+    TEST_ASSERT_EQUAL_STRING("ok-peer", s_captured[16].id.instance_name);
 
     bb_mdns_browse_stop("_acme", "_tcp");
 }

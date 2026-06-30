@@ -1,5 +1,28 @@
 menu "breadboard: bb_mdns"
 
+config BB_MDNS_INSTANCE_NAME_MAX
+    int "Maximum mDNS instance name length (bytes, including NUL)"
+    default 32
+    range 16 64
+    help
+        Governs BB_MDNS_INSTANCE_NAME_MAX in bb_mdns.h and sizes the
+        instance_name field inside bb_mdns_identity_t (and thus
+        bb_mdns_peer_t / bb_mdns_query_result_t).  Fleet instance names
+        are typically ≤18 chars (e.g. "TaipanMiner-abc123"); the default
+        of 32 provides headroom while saving ~32 B per struct slot vs the
+        old 64 B default.  Raise to 64 only if your instance names exceed
+        31 printable characters.
+
+config BB_MDNS_HOSTNAME_MAX
+    int "Maximum mDNS hostname length (bytes, including NUL)"
+    default 32
+    range 16 64
+    help
+        Governs BB_MDNS_HOSTNAME_MAX in bb_mdns.h and sizes the hostname
+        field inside bb_mdns_identity_t.  Fleet hostnames are typically
+        ≤17 chars (e.g. "tdongles3-1.local"); the default of 32 is
+        sufficient.  Raise to 64 only if your hostnames exceed 31 chars.
+
 config BB_MDNS_AUTOREGISTER
     bool "Auto-init bb_mdns via bb_registry"
     default y

@@ -47,7 +47,7 @@ static uint32_t         s_evt_drop_count = 0;
 #define BB_MDNS_QUERY_QUEUE_DEPTH 8
 
 typedef struct {
-    char instance_name[64];
+    char instance_name[BB_MDNS_INSTANCE_NAME_MAX];
     char service[32];
     char proto[8];
     uint32_t timeout_ms;
@@ -296,17 +296,17 @@ static void browse_refresh_timer_start(void);
 static void browse_refresh_timer_stop(void);
 
 // App-injected mDNS hostname
-static char s_mdns_hostname[64] = "bsp-device";
+static char s_mdns_hostname[BB_MDNS_HOSTNAME_MAX] = "bsp-device";
 static bool s_mdns_hostname_set = false;
 
 // Cached running hostname (set during init)
-static char s_running_hostname[64] = {0};
+static char s_running_hostname[BB_MDNS_HOSTNAME_MAX] = {0};
 static bool s_running_hostname_valid = false;
 
 // App-injected mDNS service type and instance name
 static char s_mdns_service_type[32] = "_bsp";
 static bool s_mdns_service_type_set = false;
-static char s_mdns_instance_name[64] = "BSP Device";
+static char s_mdns_instance_name[BB_MDNS_INSTANCE_NAME_MAX] = "BSP Device";
 static bool s_mdns_instance_name_set = false;
 
 // Lifecycle state machine
@@ -489,7 +489,7 @@ static void bb_mdns_query_task(void *arg)
             if (results->addr) {
                 for (mdns_ip_addr_t *a = results->addr; a; a = a->next) {
                     if (a->addr.type == ESP_IPADDR_TYPE_V4) {
-                        snprintf(out.ip4, sizeof(out.ip4), IPSTR,
+                        snprintf(out.id.ip4, sizeof(out.id.ip4), IPSTR,
                                  IP2STR(&a->addr.u_addr.ip4));
                         break;
                     }
@@ -501,12 +501,20 @@ static void bb_mdns_query_task(void *arg)
                 txt_view[i].value = (char *)results->txt[i].value;
             }
             if (results->instance_name) {
-                strncpy(out.instance_name, results->instance_name, sizeof(out.instance_name) - 1);
+                if (strlen(results->instance_name) >= sizeof(out.id.instance_name)) {
+                    bb_log_w(TAG, "query: instance_name truncated (src %zu > max %zu)",
+                             strlen(results->instance_name), sizeof(out.id.instance_name) - 1);
+                }
+                strncpy(out.id.instance_name, results->instance_name, sizeof(out.id.instance_name) - 1);
             }
             if (results->hostname) {
-                strncpy(out.hostname, results->hostname, sizeof(out.hostname) - 1);
+                if (strlen(results->hostname) >= sizeof(out.id.hostname)) {
+                    bb_log_w(TAG, "query: hostname truncated (src %zu > max %zu)",
+                             strlen(results->hostname), sizeof(out.id.hostname) - 1);
+                }
+                strncpy(out.id.hostname, results->hostname, sizeof(out.id.hostname) - 1);
             }
-            out.port      = results->port;
+            out.id.port   = results->port;
             out.txt       = n ? txt_view : NULL;
             out.txt_count = n;
         }
@@ -553,10 +561,10 @@ static void dispatch_one(const bb_mdns_evt_t *evt)
         if (on_removed) on_removed(evt->instance_name, ctx);
     } else if (on_peer) {
         bb_mdns_peer_t peer = {0};
-        strncpy(peer.instance_name, evt->instance_name, sizeof(peer.instance_name) - 1);
-        strncpy(peer.hostname,      evt->hostname,      sizeof(peer.hostname) - 1);
-        strncpy(peer.ip4,           ip4_resolved,       sizeof(peer.ip4) - 1);
-        peer.port      = evt->port;
+        strncpy(peer.id.instance_name, evt->instance_name, sizeof(peer.id.instance_name) - 1);
+        strncpy(peer.id.hostname,      evt->hostname,      sizeof(peer.id.hostname) - 1);
+        strncpy(peer.id.ip4,           ip4_resolved,       sizeof(peer.id.ip4) - 1);
+        peer.id.port   = evt->port;
         peer.txt       = evt->txt_count ? evt->txt : NULL;
         peer.txt_count = evt->txt_count;
         on_peer(&peer, ctx);
@@ -614,6 +622,10 @@ static void fill_evt_from_result(bb_mdns_evt_t *evt, const mdns_result_t *r)
     memset(evt, 0, sizeof(*evt));
     strncpy(evt->service, r->service_type ? r->service_type : "", sizeof(evt->service) - 1);
     strncpy(evt->proto,   r->proto        ? r->proto        : "", sizeof(evt->proto)   - 1);
+    if (r->instance_name && strlen(r->instance_name) >= sizeof(evt->instance_name)) {
+        bb_log_w(TAG, "notifier: instance_name truncated (src %zu > max %zu)",
+                 strlen(r->instance_name), sizeof(evt->instance_name) - 1);
+    }
     strncpy(evt->instance_name,
             r->instance_name ? r->instance_name : "",
             sizeof(evt->instance_name) - 1);
@@ -624,6 +636,10 @@ static void fill_evt_from_result(bb_mdns_evt_t *evt, const mdns_result_t *r)
     }
 
     evt->is_removal = false;
+    if (r->hostname && strlen(r->hostname) >= sizeof(evt->hostname)) {
+        bb_log_w(TAG, "notifier: hostname truncated (src %zu > max %zu)",
+                 strlen(r->hostname), sizeof(evt->hostname) - 1);
+    }
     strncpy(evt->hostname, r->hostname ? r->hostname : "", sizeof(evt->hostname) - 1);
     evt->port = r->port;
 
@@ -704,8 +720,8 @@ static void mdns_build_hostname(char *out, size_t out_size)
         snprintf(out, out_size, "bsp-device-%02x%02x", mac[4], mac[5]);
     }
 
-    /* mDNS label max 63 chars */
-    out[63] = '\0';
+    /* mDNS label max 63 chars; guard against out_size < 64 */
+    if (out_size > 0) out[out_size - 1] = '\0';
 }
 
 static void mdns_build_instance_name(char *out, size_t out_size)
@@ -723,7 +739,7 @@ static void mdns_build_instance_name(char *out, size_t out_size)
 
 static int mdns_init_impl(void)
 {
-    char hostname[64];
+    char hostname[BB_MDNS_HOSTNAME_MAX];
     mdns_build_hostname(hostname, sizeof(hostname));
 
     // Cache the running hostname for bb_mdns_get_hostname()
@@ -742,7 +758,7 @@ static int mdns_init_impl(void)
         bb_log_e(TAG, "mdns_hostname_set failed: %s", esp_err_to_name(err));
         return -1;
     }
-    char instance_name[64];
+    char instance_name[BB_MDNS_INSTANCE_NAME_MAX];
     mdns_build_instance_name(instance_name, sizeof(instance_name));
     err = mdns_instance_name_set(instance_name);
     if (err != ESP_OK) {
@@ -847,7 +863,7 @@ void bb_mdns_start(void)
 
     bb_mdns_start_internal();
     if (bb_mdns_lifecycle_is_started(&s_lc)) {
-        char instance_name[64];
+        char instance_name[BB_MDNS_INSTANCE_NAME_MAX];
         mdns_build_instance_name(instance_name, sizeof(instance_name));
         mdns_instance_name_set(instance_name);
         browse_refresh_timer_start();
@@ -1055,6 +1071,10 @@ void bb_mdns_set_hostname(const char *hostname)
         s_mdns_hostname_set = false;
         return;
     }
+    if (strlen(hostname) >= sizeof(s_mdns_hostname)) {
+        bb_log_w(TAG, "set_hostname: truncating (src %zu > max %zu)",
+                 strlen(hostname), sizeof(s_mdns_hostname) - 1);
+    }
     strncpy(s_mdns_hostname, hostname, sizeof(s_mdns_hostname) - 1);
     s_mdns_hostname[sizeof(s_mdns_hostname) - 1] = '\0';
     s_mdns_hostname_set = true;
@@ -1078,6 +1098,10 @@ void bb_mdns_set_instance_name(const char *instance_name)
         s_mdns_instance_name[0] = '\0';
         s_mdns_instance_name_set = false;
         return;
+    }
+    if (strlen(instance_name) >= sizeof(s_mdns_instance_name)) {
+        bb_log_w(TAG, "set_instance_name: truncating (src %zu > max %zu)",
+                 strlen(instance_name), sizeof(s_mdns_instance_name) - 1);
     }
     strncpy(s_mdns_instance_name, instance_name, sizeof(s_mdns_instance_name) - 1);
     s_mdns_instance_name[sizeof(s_mdns_instance_name) - 1] = '\0';
