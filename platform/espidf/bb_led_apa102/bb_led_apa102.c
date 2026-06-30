@@ -1,6 +1,7 @@
 #include "bb_led_apa102.h"
 #include "bb_led_driver.h"
 #include "bb_led_gamma.h"
+#include "bb_mem.h"
 #include "driver/gpio.h"
 #include <stdlib.h>
 #include <string.h>
@@ -108,13 +109,13 @@ static bb_err_t op_close(void *st) {
     state_t *s = st;
     gpio_set_level(s->pin_clk, 0);
     gpio_set_level(s->pin_din, 0);
-    free(s->rgb);
-    free(s->bri);
-    free(s->enabled);
-    free(s->level16);
-    free(s->level_set);
-    free(s->drv);
-    free(s);
+    bb_mem_free(s->rgb);
+    bb_mem_free(s->bri);
+    bb_mem_free(s->enabled);
+    bb_mem_free(s->level16);
+    bb_mem_free(s->level_set);
+    bb_mem_free(s->drv);
+    bb_mem_free(s);
     return BB_OK;
 }
 
@@ -129,27 +130,27 @@ bb_err_t bb_led_apa102_open(const bb_led_apa102_cfg_t *cfg, bb_led_handle_t *out
     gpio_set_level(cfg->pin_clk, 0);
     gpio_set_level(cfg->pin_din, 0);
 
-    state_t *s = calloc(1, sizeof *s);
+    state_t *s = bb_calloc_prefer_spiram(1, sizeof *s);
     if (!s) return BB_ERR_NO_SPACE;
     s->pin_clk = cfg->pin_clk;
     s->pin_din = cfg->pin_din;
     s->led_count = cfg->led_count;
-    s->rgb = calloc(cfg->led_count * 3, 1);
-    s->bri = calloc(cfg->led_count, 1);
-    s->enabled = calloc(cfg->led_count, sizeof(bool));
-    s->level16 = calloc(cfg->led_count, sizeof(uint16_t));
-    s->level_set = calloc(cfg->led_count, sizeof(bool));
+    s->rgb = bb_calloc_prefer_spiram(cfg->led_count * 3, 1);
+    s->bri = bb_calloc_prefer_spiram(cfg->led_count, 1);
+    s->enabled = bb_calloc_prefer_spiram(cfg->led_count, sizeof(bool));
+    s->level16 = bb_calloc_prefer_spiram(cfg->led_count, sizeof(uint16_t));
+    s->level_set = bb_calloc_prefer_spiram(cfg->led_count, sizeof(bool));
     if (!s->rgb || !s->bri || !s->enabled || !s->level16 || !s->level_set) {
-        free(s->rgb); free(s->bri); free(s->enabled);
-        free(s->level16); free(s->level_set); free(s);
+        bb_mem_free(s->rgb); bb_mem_free(s->bri); bb_mem_free(s->enabled);
+        bb_mem_free(s->level16); bb_mem_free(s->level_set); bb_mem_free(s);
         return BB_ERR_NO_SPACE;
     }
 
     // Initialize per-LED brightness to global default.
     for (uint16_t i = 0; i < cfg->led_count; i++) s->bri[i] = cfg->global_brightness_31;
 
-    bb_led_driver_t *drv = calloc(1, sizeof *drv);
-    if (!drv) { free(s->rgb); free(s->bri); free(s->enabled); free(s->level16); free(s->level_set); free(s); return BB_ERR_NO_SPACE; }
+    bb_led_driver_t *drv = bb_calloc_prefer_spiram(1, sizeof *drv);
+    if (!drv) { bb_mem_free(s->rgb); bb_mem_free(s->bri); bb_mem_free(s->enabled); bb_mem_free(s->level16); bb_mem_free(s->level_set); bb_mem_free(s); return BB_ERR_NO_SPACE; }
     *drv = (bb_led_driver_t){
         .set_on = op_set_on,
         .set_brightness = op_set_brightness,
@@ -166,6 +167,6 @@ bb_err_t bb_led_apa102_open(const bb_led_apa102_cfg_t *cfg, bb_led_handle_t *out
     do_flush(s);  // initial dark state to strip.
 
     bb_err_t rc = bb_led_handle_create(drv, s, out);
-    if (rc != BB_OK) { free(s->rgb); free(s->bri); free(s->enabled); free(s->level16); free(s->level_set); free(drv); free(s); }
+    if (rc != BB_OK) { bb_mem_free(s->rgb); bb_mem_free(s->bri); bb_mem_free(s->enabled); bb_mem_free(s->level16); bb_mem_free(s->level_set); bb_mem_free(drv); bb_mem_free(s); }
     return rc;
 }

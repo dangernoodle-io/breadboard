@@ -1,6 +1,7 @@
 #include "bb_registry.h"
 #include "bb_http.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,7 +33,7 @@ void bb_registry_add(const bb_registry_entry_t *entry)
 {
     if (!entry) return;
 
-    node_t *n = (node_t *)malloc(sizeof(node_t));
+    node_t *n = (node_t *)bb_malloc_prefer_spiram(sizeof(node_t));
     if (!n) return;
 
     n->entry = entry;
@@ -172,7 +173,7 @@ void bb_registry_clear(void)
     while (s_head) {
         node_t *tmp = s_head;
         s_head = s_head->next;
-        free(tmp);
+        bb_mem_free(tmp);
     }
 }
 
@@ -180,7 +181,7 @@ void bb_registry_add_early(const bb_registry_entry_early_t *entry)
 {
     if (!entry) return;
 
-    node_early_t *n = (node_early_t *)malloc(sizeof(node_early_t));
+    node_early_t *n = (node_early_t *)bb_malloc_prefer_spiram(sizeof(node_early_t));
     if (!n) return;
 
     n->entry = entry;
@@ -246,7 +247,7 @@ void bb_registry_clear_early(void)
     while (s_early_head) {
         node_early_t *tmp = s_early_head;
         s_early_head = s_early_head->next;
-        free(tmp);
+        bb_mem_free(tmp);
     }
 }
 
@@ -254,7 +255,7 @@ void bb_registry_add_pre_http(const bb_registry_entry_pre_http_t *entry)
 {
     if (!entry) return;
 
-    node_pre_http_t *n = (node_pre_http_t *)malloc(sizeof(node_pre_http_t));
+    node_pre_http_t *n = (node_pre_http_t *)bb_malloc_prefer_spiram(sizeof(node_pre_http_t));
     if (!n) return;
 
     n->entry = entry;
@@ -320,7 +321,7 @@ void bb_registry_clear_pre_http(void)
     while (s_pre_http_head) {
         node_pre_http_t *tmp = s_pre_http_head;
         s_pre_http_head = s_pre_http_head->next;
-        free(tmp);
+        bb_mem_free(tmp);
     }
     s_pre_http_walked = false;
 }

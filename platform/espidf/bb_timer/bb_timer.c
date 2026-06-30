@@ -1,5 +1,6 @@
 #include "bb_timer.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -135,7 +136,7 @@ bb_err_t bb_timer_create(const char *name, bb_timer_type_t type,
         return BB_ERR_INVALID_ARG;
     }
 
-    bb_timer_impl_t *impl = (bb_timer_impl_t *)malloc(sizeof(bb_timer_impl_t));
+    bb_timer_impl_t *impl = (bb_timer_impl_t *)bb_malloc_prefer_spiram(sizeof(bb_timer_impl_t));
     if (impl == NULL) {
         bb_log_e(TAG, "malloc failed");
         return BB_ERR_NO_SPACE;
@@ -155,7 +156,7 @@ bb_err_t bb_timer_create(const char *name, bb_timer_type_t type,
     bb_err_t err = esp_timer_create(&timer_args, &impl->et);
     if (err != BB_OK) {
         bb_log_e(TAG, "esp_timer_create failed: %d", err);
-        free(impl);
+        bb_mem_free(impl);
         return err;
     }
 
@@ -201,7 +202,7 @@ bb_err_t bb_timer_delete(bb_timer_handle_t h)
     bb_timer_impl_t *impl = (bb_timer_impl_t *)h;
     esp_timer_stop(impl->et);
     bb_err_t err = esp_timer_delete(impl->et);
-    free(impl);
+    bb_mem_free(impl);
     return err;
 }
 
@@ -296,7 +297,7 @@ bb_err_t bb_timer_periodic_create(void (*cb)(void *arg), void *arg,
     if (cb == NULL || out == NULL) return BB_ERR_INVALID_ARG;
 
     struct bb_periodic_timer *t =
-        (struct bb_periodic_timer *)malloc(sizeof(*t));
+        (struct bb_periodic_timer *)bb_malloc_prefer_spiram(sizeof(*t));
     if (t == NULL) return BB_ERR_NO_SPACE;
 
     t->cb             = cb;
@@ -318,7 +319,7 @@ bb_err_t bb_timer_periodic_create(void (*cb)(void *arg), void *arg,
 
     bb_err_t err = esp_timer_create(&args, &t->h);
     if (err != BB_OK) {
-        free(t);
+        bb_mem_free(t);
         return err;
     }
 
@@ -352,7 +353,7 @@ bb_err_t bb_timer_periodic_delete(bb_periodic_timer_t t)
         vTaskDelay(pdMS_TO_TICKS(10));
         vSemaphoreDelete(t->worker_sem);
     }
-    free(t);
+    bb_mem_free(t);
     return err;
 }
 
@@ -362,7 +363,7 @@ bb_err_t bb_timer_oneshot_create(void (*cb)(void *arg), void *arg,
     if (cb == NULL || out == NULL) return BB_ERR_INVALID_ARG;
 
     struct bb_oneshot_timer *t =
-        (struct bb_oneshot_timer *)malloc(sizeof(*t));
+        (struct bb_oneshot_timer *)bb_malloc_prefer_spiram(sizeof(*t));
     if (t == NULL) return BB_ERR_NO_SPACE;
 
     t->cb      = cb;
@@ -381,7 +382,7 @@ bb_err_t bb_timer_oneshot_create(void (*cb)(void *arg), void *arg,
 
     bb_err_t err = esp_timer_create(&args, &t->h);
     if (err != BB_OK) {
-        free(t);
+        bb_mem_free(t);
         return err;
     }
 
@@ -409,7 +410,7 @@ bb_err_t bb_timer_oneshot_delete(bb_oneshot_timer_t t)
     if (t == NULL) return BB_ERR_INVALID_ARG;
     esp_timer_stop(t->h);
     bb_err_t err = esp_timer_delete(t->h);
-    free(t);
+    bb_mem_free(t);
     return err;
 }
 
@@ -426,7 +427,7 @@ bb_err_t bb_timer_deferred_periodic_create(void (*work_fn)(void *arg), void *arg
     if (err != BB_OK) return err;
 
     struct bb_periodic_timer *t =
-        (struct bb_periodic_timer *)malloc(sizeof(*t));
+        (struct bb_periodic_timer *)bb_malloc_prefer_spiram(sizeof(*t));
     if (t == NULL) return BB_ERR_NO_SPACE;
 
     t->cb             = NULL;
@@ -448,7 +449,7 @@ bb_err_t bb_timer_deferred_periodic_create(void (*work_fn)(void *arg), void *arg
 
     err = esp_timer_create(&args, &t->h);
     if (err != BB_OK) {
-        free(t);
+        bb_mem_free(t);
         return err;
     }
 
@@ -465,7 +466,7 @@ bb_err_t bb_timer_deferred_oneshot_create(void (*work_fn)(void *arg), void *arg,
     if (err != BB_OK) return err;
 
     struct bb_oneshot_timer *t =
-        (struct bb_oneshot_timer *)malloc(sizeof(*t));
+        (struct bb_oneshot_timer *)bb_malloc_prefer_spiram(sizeof(*t));
     if (t == NULL) return BB_ERR_NO_SPACE;
 
     t->cb      = NULL;
@@ -484,7 +485,7 @@ bb_err_t bb_timer_deferred_oneshot_create(void (*work_fn)(void *arg), void *arg,
 
     err = esp_timer_create(&args, &t->h);
     if (err != BB_OK) {
-        free(t);
+        bb_mem_free(t);
         return err;
     }
 
@@ -508,7 +509,7 @@ bb_err_t bb_timer_worker_periodic_create(void (*work_fn)(void *arg), void *arg,
     int      core     = cfg                    ? cfg->core     : BB_TIMER_DISP_CORE;
 
     struct bb_periodic_timer *t =
-        (struct bb_periodic_timer *)malloc(sizeof(*t));
+        (struct bb_periodic_timer *)bb_malloc_prefer_spiram(sizeof(*t));
     if (t == NULL) return BB_ERR_NO_SPACE;
 
     t->cb             = NULL;
@@ -522,7 +523,7 @@ bb_err_t bb_timer_worker_periodic_create(void (*work_fn)(void *arg), void *arg,
 
     t->worker_sem = xSemaphoreCreateBinary();
     if (t->worker_sem == NULL) {
-        free(t);
+        bb_mem_free(t);
         return BB_ERR_NO_SPACE;
     }
 
@@ -537,7 +538,7 @@ bb_err_t bb_timer_worker_periodic_create(void (*work_fn)(void *arg), void *arg,
     }
     if (rc != pdPASS) {
         vSemaphoreDelete(t->worker_sem);
-        free(t);
+        bb_mem_free(t);
         return BB_ERR_NO_SPACE;
     }
 
@@ -554,7 +555,7 @@ bb_err_t bb_timer_worker_periodic_create(void (*work_fn)(void *arg), void *arg,
         xSemaphoreGive(t->worker_sem);
         vTaskDelay(pdMS_TO_TICKS(10));
         vSemaphoreDelete(t->worker_sem);
-        free(t);
+        bb_mem_free(t);
         return err;
     }
 

@@ -184,6 +184,54 @@ def _check_public_requires_watchlist(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: raw-allocator
+# ---------------------------------------------------------------------------
+
+def _check_raw_allocator(ctx: Context) -> list:
+    """Rule: raw-allocator — flags raw malloc/calloc/free outside the bb_mem facade."""
+    violations = []
+    pattern = re.compile(r'\bmalloc\(|\bcalloc\(|\bfree\(')
+    root = Path(ctx.root)
+
+    rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get(
+        "raw-allocator", {}
+    )
+    allowlist: set = set(rule_cfg.get("allow", []))
+
+    for path in ctx.files(
+        ["platform/espidf/**/*.c", "platform/espidf/**/*.h",
+         "components/**/*.c", "components/**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        # Skip test directories
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+        # Exempt bb_mem.c — the facade implementation
+        if path.name == "bb_mem.c":
+            continue
+        # Check path-level allowlist entry
+        rel = str(path.relative_to(root))
+        if rel in allowlist:
+            continue
+
+        content = ctx.read(path)
+        # Strip comments and string literals before scanning so we don't fire on
+        # "malloc(" in a log string or a // free(p) comment.
+        stripped = _strip_noise(content)
+
+        for i, line in enumerate(stripped.splitlines(), 1):
+            if not pattern.search(line):
+                continue
+            # Check path:line allowlist entry
+            key = f"{rel}:{i}"
+            if key in allowlist:
+                continue
+            violations.append(ctx.violation(path, i))
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule: raw-esp-timer
 # ---------------------------------------------------------------------------
 
@@ -1020,6 +1068,14 @@ def _register_lint_rules() -> None:
             profiles={"library"},
             check=_check_public_requires_watchlist,
             hint="move watchlist deps to PRIV_REQUIRES",
+        ),
+        Rule(
+            id="raw-allocator",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_raw_allocator,
+            hint="use bb_malloc_prefer_spiram/bb_calloc_prefer_spiram/bb_mem_free"
+                 " instead of raw malloc/calloc/free",
         ),
         Rule(
             id="raw-esp-timer",

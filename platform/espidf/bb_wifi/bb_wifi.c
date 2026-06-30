@@ -20,6 +20,7 @@
 #include "ping/ping_sock.h"
 #include "lwip/ip_addr.h"
 #include "bb_ota_validator.h"
+#include "bb_mem.h"
 
 static const char *TAG = "bb_wifi";
 #define WIFI_CONNECTED_BIT BIT0
@@ -605,7 +606,7 @@ int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results)
         count = max_results;
     }
 
-    wifi_ap_record_t *records = malloc(count * sizeof(wifi_ap_record_t));
+    wifi_ap_record_t *records = bb_malloc_prefer_spiram(count * sizeof(wifi_ap_record_t));
     if (!records) {
         return 0;
     }
@@ -637,7 +638,7 @@ int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results)
         }
     }
 
-    free(records);
+    bb_mem_free(records);
     return unique;
 }
 

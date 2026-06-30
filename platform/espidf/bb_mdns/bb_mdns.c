@@ -15,6 +15,7 @@
 #include "freertos/semphr.h"
 #include "bb_hw.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
@@ -1039,7 +1040,7 @@ void bb_mdns_init(void)
      * Must succeed before the dispatch task or flush timer are created, since
      * both paths dereference s_dispatch_item unconditionally. */
     if (!s_dispatch_item) {
-        s_dispatch_item = (bb_mdns_batch_item_t *)calloc(1, sizeof(bb_mdns_batch_item_t));
+        s_dispatch_item = (bb_mdns_batch_item_t *)bb_calloc_prefer_spiram(1, sizeof(bb_mdns_batch_item_t));
         if (!s_dispatch_item) {
             bb_log_e(TAG, "calloc(dispatch_item) failed — aborting init");
             return;

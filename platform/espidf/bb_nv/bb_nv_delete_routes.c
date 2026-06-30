@@ -34,6 +34,7 @@
 #include "bb_http_body.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "bb_nv.h"
 
 #include <stdlib.h>
@@ -104,7 +105,7 @@ static bb_err_t nvs_delete_handler(bb_http_request_t *req)
     }
 
     bb_json_t parsed = bb_json_parse(body, (size_t)n);
-    free(body);
+    bb_mem_free(body);
     if (!parsed) {
         send_400(req, "invalid JSON");
         return BB_ERR_INVALID_ARG;

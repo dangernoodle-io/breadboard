@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
 from commands.lint import run as lint_run
+from core import load_config
 
 REPO_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..")
@@ -17,12 +18,13 @@ REPO_ROOT = os.path.abspath(
 class TestRealRepoClean(unittest.TestCase):
     def test_real_repo_passes_at_library_profile(self):
         """make check equivalent: real repo must exit 0 at library profile."""
+        config = load_config(None, REPO_ROOT)
         args = argparse.Namespace(
             root=REPO_ROOT,
             profile="library",
             rules=None,
             list=False,
-            _config_dict={},
+            _config_dict=config,
             _root_abs=REPO_ROOT,
         )
         rc = lint_run(args)

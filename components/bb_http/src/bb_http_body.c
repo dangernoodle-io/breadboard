@@ -6,6 +6,7 @@
 
 #include "bb_http_body.h"
 #include "bb_http.h"
+#include "bb_mem.h"
 
 #include <stdlib.h>
 
@@ -18,7 +19,7 @@ static void *(*s_malloc_fn)(size_t) = malloc;
 void bb_http_body_set_malloc(void *(*fn)(size_t)) { s_malloc_fn = fn ? fn : malloc; }
 #define BODY_MALLOC(sz) s_malloc_fn(sz)
 #else
-#define BODY_MALLOC(sz) malloc(sz)
+#define BODY_MALLOC(sz) bb_malloc_prefer_spiram(sz)
 #endif
 
 // ---------------------------------------------------------------------------
@@ -45,7 +46,7 @@ bb_err_t bb_http_req_recv_body_alloc(bb_http_request_t *req,
 
     int n = bb_http_req_recv(req, buf, (size_t)(body_len + 1));
     if (n < 0) {
-        free(buf);
+        bb_mem_free(buf);
         return BB_ERR_INVALID_ARG;
     }
 

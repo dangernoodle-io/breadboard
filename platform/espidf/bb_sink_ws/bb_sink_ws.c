@@ -42,6 +42,7 @@
 #include "bb_websocket.h"
 #include "bb_log.h"
 #include "bb_event.h"
+#include "bb_mem.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -243,7 +244,7 @@ static bb_err_t sink_ws_publish(void *ctx, const char *topic,
     // overhead: {"ch":"(7) + subtopic + ","data":(9) + payload + }(1) + NUL(1) = 18
     size_t subtopic_len = strlen(subtopic);
     size_t envelope_len = subtopic_len + (size_t)len + 18;
-    char *buf = (char *)malloc(envelope_len);
+    char *buf = (char *)bb_malloc_prefer_spiram(envelope_len);
     if (!buf) {
         bb_log_w(TAG, "publish: malloc failed for envelope");
         return BB_ERR_NO_SPACE;
@@ -253,12 +254,12 @@ static bb_err_t sink_ws_publish(void *ctx, const char *topic,
                            subtopic, len, payload);
     if (written < 0 || (size_t)written >= envelope_len) {
         bb_log_w(TAG, "publish: snprintf truncated (written=%d cap=%zu)", written, envelope_len);
-        free(buf);
+        bb_mem_free(buf);
         return BB_ERR_NO_SPACE;
     }
 
     bb_err_t err = broadcast_filtered(subtopic, buf, (size_t)written);
-    free(buf);
+    bb_mem_free(buf);
 
     if (err != BB_OK) {
         bb_log_d(TAG, "broadcast_filtered '%s' returned %d", subtopic, (int)err);
@@ -279,7 +280,7 @@ static void log_event_cb(bb_event_topic_t topic, int32_t id,
     size_t json_len = size - 1; // strip NUL posted by bb_log_event
     // {"ch":"log","data":<json>}: "log"(3) + 18 overhead = 21
     size_t envelope_len = json_len + 21;
-    char *buf = (char *)malloc(envelope_len);
+    char *buf = (char *)bb_malloc_prefer_spiram(envelope_len);
     if (!buf) {
         bb_log_w(TAG, "log_event_cb: malloc failed");
         return;
@@ -289,7 +290,7 @@ static void log_event_cb(bb_event_topic_t topic, int32_t id,
     if (written > 0 && (size_t)written < envelope_len) {
         broadcast_filtered("log", buf, (size_t)written);
     }
-    free(buf);
+    bb_mem_free(buf);
 }
 
 // ---------------------------------------------------------------------------

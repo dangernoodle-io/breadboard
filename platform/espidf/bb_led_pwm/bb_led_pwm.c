@@ -2,6 +2,7 @@
 #include "bb_led_driver.h"
 #include "bb_led_gamma.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "driver/ledc.h"
 #include <stdlib.h>
 
@@ -56,7 +57,7 @@ static bb_err_t op_set_level(void *st, uint16_t idx, uint16_t level) {
 static bb_err_t op_close(void *st) {
     state_t *s = st;
     ledc_stop(LEDC_LOW_SPEED_MODE, s->channel, s->active_low ? 1 : 0);
-    free(s);
+    bb_mem_free(s);
     return BB_OK;
 }
 
@@ -97,7 +98,7 @@ bb_err_t bb_led_pwm_open(const bb_led_pwm_cfg_t *cfg, bb_led_handle_t *out) {
                  (unsigned long)cfg->freq_hz, (unsigned)cfg->resolution_bits);
     }
 
-    state_t *s = calloc(1, sizeof *s);
+    state_t *s = bb_calloc_prefer_spiram(1, sizeof *s);
     if (!s) return BB_ERR_NO_SPACE;
     s->gpio = cfg->gpio;
     s->active_low = cfg->active_low;
@@ -113,9 +114,9 @@ bb_err_t bb_led_pwm_open(const bb_led_pwm_cfg_t *cfg, bb_led_handle_t *out) {
         .duty = pct_to_duty(s, 0),
         .hpoint = 0,
     };
-    if (ledc_channel_config(&cc) != ESP_OK) { free(s); return BB_ERR_INVALID_STATE; }
+    if (ledc_channel_config(&cc) != ESP_OK) { bb_mem_free(s); return BB_ERR_INVALID_STATE; }
 
     bb_err_t rc = bb_led_handle_create(&s_drv, s, out);
-    if (rc != BB_OK) { ledc_stop(LEDC_LOW_SPEED_MODE, s->channel, 0); free(s); }
+    if (rc != BB_OK) { ledc_stop(LEDC_LOW_SPEED_MODE, s->channel, 0); bb_mem_free(s); }
     return rc;
 }

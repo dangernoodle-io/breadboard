@@ -7,6 +7,7 @@
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "bb_registry.h"
 #include "bb_wdt.h"
 #include "esp_ota_ops.h"
@@ -137,7 +138,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
              partition->label, partition->address);
 
     char *buf = NULL;
-    buf = malloc(OTA_RECV_BUF_SIZE);
+    buf = bb_malloc_prefer_spiram(OTA_RECV_BUF_SIZE);
     if (!buf) {
         bb_log_e(TAG, "malloc failed for OTA receive buffer");
         esp_ota_abort(ota_handle);
@@ -165,7 +166,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
                      (unsigned)(bb_clock_now_ms() - ota_start_ms), (unsigned)ota_deadline_ms);
             esp_ota_abort(ota_handle);
             ota_push_err(req, 408, "Upload too slow");
-            free(buf);
+            bb_mem_free(buf);
             goto resume_and_exit;
         }
 
@@ -177,7 +178,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
                 bb_log_e(TAG, "OTA upload timeout after %d retries", timeout_count);
                 esp_ota_abort(ota_handle);
                 ota_push_err(req, 408, "Upload timeout");
-                free(buf);
+                bb_mem_free(buf);
                 goto resume_and_exit;
             }
             continue;
@@ -188,7 +189,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
             bb_log_e(TAG, "OTA receive error at %d/%d", received, content_len);
             esp_ota_abort(ota_handle);
             ota_push_err(req, 500, "Receive failed");
-            free(buf);
+            bb_mem_free(buf);
             goto resume_and_exit;
         }
 
@@ -211,7 +212,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
                              incoming->project_name, running->project_name);
                     esp_ota_abort(ota_handle);
                     ota_push_err(req, 400, "Firmware board mismatch");
-                    free(buf);
+                    bb_mem_free(buf);
                     goto resume_and_exit;
                 }
             }
@@ -223,7 +224,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
             bb_log_e(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
             esp_ota_abort(ota_handle);
             ota_push_err(req, 500, "OTA write failed");
-            free(buf);
+            bb_mem_free(buf);
             goto resume_and_exit;
         }
 
@@ -249,7 +250,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     }
 
     bb_log_i(TAG, "OTA receive complete (%d bytes), validating", received);
-    free(buf);
+    bb_mem_free(buf);
 
     err = esp_ota_end(ota_handle);
     if (err != ESP_OK) {

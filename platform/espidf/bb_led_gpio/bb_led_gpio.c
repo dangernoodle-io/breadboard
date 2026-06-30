@@ -1,6 +1,7 @@
 #include "bb_led_gpio.h"
 #include "bb_led_driver.h"
 #include "../../../components/bb_led_gpio/bb_led_gpio_internal.h"
+#include "bb_mem.h"
 #include "driver/gpio.h"
 #include <stdlib.h>
 
@@ -18,7 +19,7 @@ static bb_err_t op_set_on(void *st, uint16_t idx, bool on) {
 static bb_err_t op_close(void *st) {
     state_t *s = st;
     gpio_reset_pin(s->gpio);
-    free(s);
+    bb_mem_free(s);
     return BB_OK;
 }
 
@@ -46,7 +47,7 @@ bb_err_t bb_led_gpio_open(const bb_led_gpio_cfg_t *cfg, bb_led_handle_t *out) {
     };
     if (gpio_config(&io) != ESP_OK) return BB_ERR_INVALID_STATE;
 
-    state_t *s = calloc(1, sizeof *s);
+    state_t *s = bb_calloc_prefer_spiram(1, sizeof *s);
     if (!s) return BB_ERR_NO_SPACE;
     s->gpio = cfg->gpio;
     s->active_low = cfg->active_low;
@@ -55,6 +56,6 @@ bb_err_t bb_led_gpio_open(const bb_led_gpio_cfg_t *cfg, bb_led_handle_t *out) {
     gpio_set_level(s->gpio, bb_led_gpio_level_for_on(s->active_low, false));
 
     bb_err_t rc = bb_led_handle_create(&s_drv, s, out);
-    if (rc != BB_OK) { free(s); gpio_reset_pin(s->gpio); }
+    if (rc != BB_OK) { bb_mem_free(s); gpio_reset_pin(s->gpio); }
     return rc;
 }

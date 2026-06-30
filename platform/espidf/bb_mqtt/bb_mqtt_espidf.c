@@ -24,6 +24,7 @@
 #include "bb_tls.h"
 #include "bb_tls_creds.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "bb_nv.h"
 #include "bb_registry.h"
 #include "bb_wifi.h"
@@ -217,12 +218,12 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
     if (!cfg || !out) return BB_ERR_INVALID_ARG;
     if (!cfg->uri || !cfg->uri[0]) return BB_ERR_INVALID_ARG;
 
-    bb_mqtt_handle_t *h = calloc(1, sizeof(*h));
+    bb_mqtt_handle_t *h = bb_calloc_prefer_spiram(1, sizeof(*h));
     if (!h) return BB_ERR_NO_SPACE;
 
     h->lock = xSemaphoreCreateMutex();
     if (!h->lock) {
-        free(h);
+        bb_mem_free(h);
         return BB_ERR_NO_SPACE;
     }
 
@@ -313,7 +314,7 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
         bb_log_e(TAG, "esp_mqtt_client_init failed");
         bb_tls_creds_free(&h->creds);
         vSemaphoreDelete(h->lock);
-        free(h);
+        bb_mem_free(h);
         return BB_ERR_INVALID_STATE;
     }
 
@@ -330,7 +331,7 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
             esp_mqtt_client_destroy(h->client);
             bb_tls_creds_free(&h->creds);
             vSemaphoreDelete(h->lock);
-            free(h);
+            bb_mem_free(h);
             return rc;
         }
         h->started = true;
@@ -475,7 +476,7 @@ bb_err_t bb_mqtt_destroy(bb_mqtt_t handle)
     if (h->lock) {
         vSemaphoreDelete(h->lock);
     }
-    free(h);
+    bb_mem_free(h);
     return BB_OK;
 }
 

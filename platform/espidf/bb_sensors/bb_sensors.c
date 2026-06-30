@@ -12,6 +12,7 @@
 #include "bb_http_body.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "bb_registry.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -128,7 +129,7 @@ static bb_err_t send_json_tree(bb_http_request_t *req, bb_json_t root)
     bb_err_t err = bb_http_resp_set_type(req, "application/json");
     if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
     if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
-    free(str);
+    bb_json_free_str(str);
     return err;
 }
 
@@ -143,7 +144,7 @@ static void send_json_error(bb_http_request_t *req, int status, const char *msg)
         bb_http_resp_set_type(req, "application/json");
         bb_http_resp_send_chunk(req, str, -1);
         bb_http_resp_send_chunk(req, NULL, 0);
-        free(str);
+        bb_json_free_str(str);
     } else {
         bb_http_resp_send_chunk(req, NULL, 0);
     }
@@ -191,7 +192,7 @@ static bb_err_t sensors_patch_handler(bb_http_request_t *req)
     }
 
     bb_json_t parsed = bb_json_parse(body, (size_t)n);
-    free(body);
+    bb_mem_free(body);
     if (!parsed) {
         send_json_error(req, 400, "invalid JSON");
         return BB_ERR_INVALID_ARG;

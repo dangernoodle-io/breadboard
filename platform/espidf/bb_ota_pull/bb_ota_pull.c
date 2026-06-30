@@ -17,6 +17,7 @@
 #ifdef ESP_PLATFORM
 #include "bb_http.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "bb_registry.h"
 #include "bb_wifi.h"
 #include "bb_wdt.h"
@@ -908,7 +909,7 @@ static void ota_worker_task(void *arg)
     ota_worker_arg_t result;
     if (arg) {
         memcpy(&result, arg, sizeof(ota_worker_arg_t));
-        free(arg);
+        bb_mem_free(arg);
     } else {
         ota_task_exit();
         return;
@@ -1072,7 +1073,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
 #if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_PULL_AUTOREGISTER
     ota_worker_arg_t *task_arg = &s_ota_worker_arg;
 #else
-    ota_worker_arg_t *task_arg = malloc(sizeof(ota_worker_arg_t));
+    ota_worker_arg_t *task_arg = bb_malloc_prefer_spiram(sizeof(ota_worker_arg_t));
     if (!task_arg) {
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
@@ -1094,7 +1095,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
 #if !(CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_PULL_AUTOREGISTER)
-        free(task_arg);
+        bb_mem_free(task_arg);
 #endif
         bb_log_w(TAG, "apply: ota_pull claim conflict (upd_check in flight)");
         bb_http_resp_set_status(req, 409);
@@ -1159,7 +1160,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
 
     if (task_result != pdPASS) {
         bb_update_check_ota_claim_release("ota_pull");
-        free(task_arg);
+        bb_mem_free(task_arg);
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);

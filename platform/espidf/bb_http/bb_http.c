@@ -3,6 +3,7 @@
 #include "bb_http_status.h"
 #include "bb_http_query.h"
 #include "bb_json.h"
+#include "bb_mem.h"
 #include "esp_http_server.h"
 #include "esp_event.h"
 #include "bb_log.h"
@@ -614,17 +615,17 @@ bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
     size_t qlen = httpd_req_get_url_query_len(http_req);
     if (qlen == 0) return BB_ERR_INVALID_ARG;
 
-    char *query = malloc(qlen + 1);
+    char *query = bb_malloc_prefer_spiram(qlen + 1);
     if (!query) return BB_ERR_NO_SPACE;
 
     esp_err_t err = httpd_req_get_url_query_str(http_req, query, qlen + 1);
     if (err != ESP_OK) {
-        free(query);
+        bb_mem_free(query);
         return BB_ERR_INVALID_ARG;
     }
 
     err = httpd_query_key_value(query, key, out, out_len);
-    free(query);
+    bb_mem_free(query);
     return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
 }
 
@@ -636,14 +637,14 @@ bool bb_http_req_query_has_key(bb_http_request_t *req, const char *key)
     size_t qlen = httpd_req_get_url_query_len(http_req);
     if (qlen == 0) return false;
 
-    char *query = malloc(qlen + 1);
+    char *query = bb_malloc_prefer_spiram(qlen + 1);
     if (!query) return false;
 
     bool found = false;
     if (httpd_req_get_url_query_str(http_req, query, qlen + 1) == ESP_OK) {
         found = bb_http_query_token_present(query, key);
     }
-    free(query);
+    bb_mem_free(query);
     return found;
 }
 

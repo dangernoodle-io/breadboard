@@ -3,6 +3,7 @@
 #include "tps546_decode.h"
 #include "bb_clock.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <limits.h>
@@ -340,7 +341,7 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
 
     bb_log_i(TAG, "opening TPS546 at addr=0x%02X target=%u mV", cfg->addr, cfg->target_mv);
 
-    tps546_state_t *s = calloc(1, sizeof *s); // LCOV_EXCL_BR_LINE
+    tps546_state_t *s = bb_calloc_prefer_spiram(1, sizeof *s); // LCOV_EXCL_BR_LINE
     if (!s) return BB_ERR_NO_SPACE;           // LCOV_EXCL_LINE
     s->last_status_word = 0xFFFF; // sentinel: force log on first poll read
     s->vin_min_mv  = INT_MAX;     // sentinel: no reading yet
@@ -357,7 +358,7 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
     if (err != ESP_OK) {
         bb_log_e(TAG, "i2c_master_bus_add_device failed: %d", err);
         pthread_mutex_destroy(&s->status_lock);
-        free(s);
+        bb_mem_free(s);
         return err;
     }
 
@@ -367,7 +368,7 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
     if (err != ESP_OK) {
         bb_log_e(TAG, "VOUT_MODE read failed (chip not responding at 0x%02X): %d", cfg->addr, err);
         pthread_mutex_destroy(&s->status_lock);
-        free(s);
+        bb_mem_free(s);
         return err;
     }
 
@@ -397,10 +398,10 @@ bb_err_t bb_power_tps546_open(const bb_power_tps546_cfg_t *cfg,
 
     // Run the full OPERATION_OFF → reconfig → CLEAR_FAULTS → OPERATION_ON cycle.
     err = run_init_cycle(s, cfg);
-    if (err != ESP_OK) { pthread_mutex_destroy(&s->status_lock); free(s); return err; }
+    if (err != ESP_OK) { pthread_mutex_destroy(&s->status_lock); bb_mem_free(s); return err; }
 
     bb_err_t rc = bb_power_handle_create(&s_tps546_vtable, s, out);
-    if (rc != BB_OK) { pthread_mutex_destroy(&s->status_lock); free(s); } // LCOV_EXCL_LINE
+    if (rc != BB_OK) { pthread_mutex_destroy(&s->status_lock); bb_mem_free(s); } // LCOV_EXCL_LINE
     return rc;
 }
 
