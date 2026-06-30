@@ -1,4 +1,5 @@
 #include "bb_heap_arena.h"
+#include "bb_mem.h"
 #include <string.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -41,7 +42,7 @@ static void *bb_heap_arena_calloc_impl(size_t n, size_t size)
     }
 #endif
     /* Fallback: internal 8-bit heap (matches ESP-IDF default in esp_mem.c) */
-    return heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return bb_calloc_internal(n, size);
 }
 
 static void bb_heap_arena_free_impl(void *ptr)
@@ -55,7 +56,7 @@ static void bb_heap_arena_free_impl(void *ptr)
         return;
     }
 #endif
-    heap_caps_free(ptr);
+    bb_mem_free(ptr);
 }
 
 void bb_heap_arena_init(void)

@@ -2,6 +2,7 @@
 #include "bb_led_driver.h"
 #include "bb_led_gamma.h"
 #include "bb_led_apa102_host.h"
+#include "bb_mem.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -24,7 +25,7 @@ const uint8_t *bb_led_apa102_host_last_buf(int slot, size_t *out_len) {
 
 void bb_led_apa102_host_reset(void) {
     for (int i = 0; i < BB_LED_APA102_HOST_MAX_SLOTS; i++) {
-        free(s_slots[i].buf);
+        bb_mem_free(s_slots[i].buf);
         s_slots[i].buf = NULL;
         s_slots[i].len = 0;
         s_slots[i].active = false;
@@ -44,7 +45,7 @@ typedef struct {
 
 // Append a byte to the slot buffer.
 static void buf_append(slot_t *slot, uint8_t b) {
-    uint8_t *new_buf = realloc(slot->buf, slot->len + 1);
+    uint8_t *new_buf = bb_realloc_prefer_spiram(slot->buf, slot->len + 1);
     if (new_buf) {
         slot->buf = new_buf;
         slot->buf[slot->len] = b;
@@ -59,7 +60,7 @@ static void tx_byte(slot_t *slot, uint8_t b) {
 static bb_err_t do_flush(state_t *s) {
     slot_t *slot = &s_slots[s->slot];
     // Clear previous buffer.
-    free(slot->buf);
+    bb_mem_free(slot->buf);
     slot->buf = NULL;
     slot->len = 0;
 
@@ -143,6 +144,10 @@ static bb_err_t op_flush(void *st) {
 static bb_err_t op_close(void *st) {
     state_t *s = st;
     s_slots[s->slot].active = false;
+    // These are plain-calloc state allocations (not SPIRAM-tracked); raw free()
+    // is correct here. The SPIRAM-tracked slot->buf is managed separately in
+    // buf_append (bb_realloc_prefer_spiram) and freed via bb_mem_free in
+    // bb_led_apa102_host_reset and do_flush — not here.
     free(s->rgb);
     free(s->bri);
     free(s->enabled);
