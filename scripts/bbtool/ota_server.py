@@ -27,7 +27,6 @@ import logging
 import os
 import pathlib
 import re
-import secrets
 import socket
 import socketserver
 import ssl
@@ -35,6 +34,8 @@ import struct
 import subprocess
 import threading
 from typing import Dict, List, Optional, Tuple
+
+from ota_providers import Provider, build_registry  # noqa: F401 – re-export Provider for tests
 
 logger = logging.getLogger(__name__)
 
@@ -143,67 +144,9 @@ def discover_bins(serve_dir: str) -> Dict[str, Tuple[str, str]]:
     return result
 
 
-# ---------------------------------------------------------------------------
-# Provider abstraction
-# ---------------------------------------------------------------------------
-
-class Provider:
-    """Base class for OTA provider topologies."""
-    head_status: int = 403
-
-    def manifest(
-        self,
-        board_map: Dict[str, Tuple[str, str]],
-        *,
-        tag: str,
-        advertise_base: str,
-    ) -> dict:
-        raise NotImplementedError
-
-    def asset_path(self, board: str, tag: str) -> str:
-        raise NotImplementedError
-
-    def cdn_path(self, board: str) -> str:
-        raise NotImplementedError
-
-
-class GitHubProvider(Provider):
-    """Mimics GitHub Releases + Fastly CDN topology.
-
-    - manifest:   {"tag_name": tag, "assets": [{"name": "<board>.bin",
-                   "browser_download_url": "<advertise_base><asset_path>"}]}
-    - asset_path: /local/firmware/releases/download/<tag>/<board>.bin
-    - cdn_path:   /cdn/<random_token>/<board>.bin  (stable per server instance)
-    """
-    head_status = 403
-
-    def __init__(self) -> None:
-        self._token = secrets.token_hex(16)
-
-    def manifest(
-        self,
-        board_map: Dict[str, Tuple[str, str]],
-        *,
-        tag: str,
-        advertise_base: str,
-    ) -> dict:
-        assets = [
-            {
-                "name": f"{board}.bin",
-                "browser_download_url": f"{advertise_base}{self.asset_path(board, tag)}",
-            }
-            for board in sorted(board_map.keys())
-        ]
-        return {"tag_name": tag, "assets": assets}
-
-    def asset_path(self, board: str, tag: str) -> str:
-        return f"/local/firmware/releases/download/{tag}/{board}.bin"
-
-    def cdn_path(self, board: str) -> str:
-        return f"/cdn/{self._token}/{board}.bin"
-
-
-PROVIDERS: Dict[str, type] = {"github": GitHubProvider}
+# Provider and GitHubProvider are now in ota_providers package.
+# Re-export GitHubProvider here for backwards-compat with existing tests/imports.
+from ota_providers.github import GitHubProvider  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +378,7 @@ class OtaTestServer:
         use_http: bool = False,
         no_redirect: bool = False,
         head_ok: bool = False,
+        registry=None,
     ) -> None:
         self._serve_dir = serve_dir
         self._host = host
@@ -450,6 +394,7 @@ class OtaTestServer:
         self._use_http = use_http
         self._no_redirect = no_redirect
         self._head_ok = head_ok
+        self._registry = registry
 
         self._server: Optional[_OTARawServer] = None
         self._thread: Optional[threading.Thread] = None
@@ -513,6 +458,7 @@ class OtaTestServer:
             use_http=self._use_http,
             no_redirect=self._no_redirect,
             head_ok=self._head_ok,
+            registry=self._registry,
         )
         self._server = self._info["server"]
         self._thread = threading.Thread(
@@ -566,8 +512,12 @@ def _build_server(
     use_http: bool,
     no_redirect: bool,
     head_ok: bool,
+    registry=None,
 ) -> dict:
     """Build and return the server info dict (does NOT start serving)."""
+    if registry is None:
+        registry = build_registry()
+
     board_map = discover_bins(serve_dir)
     if not board_map:
         raise ValueError(f"No valid firmware .bin files found in {serve_dir}")
@@ -577,9 +527,11 @@ def _build_server(
         if not board_map:
             raise ValueError(f"Board {board_filter!r} not found in {serve_dir}")
 
-    provider_cls = PROVIDERS.get(provider_name)
+    provider_cls = registry.get(provider_name)
     if provider_cls is None:
-        raise ValueError(f"Unknown provider {provider_name!r}; choices: {list(PROVIDERS)}")
+        raise ValueError(
+            f"Unknown provider {provider_name!r}; choices: {registry.names()}"
+        )
     provider = provider_cls()
 
     computed_tag = compute_tag(
@@ -656,6 +608,7 @@ def run_server(
     use_http: bool = False,
     no_redirect: bool = False,
     head_ok: bool = False,
+    registry=None,
 ) -> dict:
     """Discover bins, build server, optionally wrap TLS.
 
@@ -678,6 +631,7 @@ def run_server(
         use_http=use_http,
         no_redirect=no_redirect,
         head_ok=head_ok,
+        registry=registry,
     )
 
 

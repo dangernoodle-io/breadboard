@@ -359,5 +359,129 @@ class TestTLSServer(unittest.TestCase):
                 conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Provider registry tests
+# ---------------------------------------------------------------------------
+
+import ota_providers
+from ota_providers import ProviderRegistry, build_registry, load_external
+
+
+class TestProviderRegistry(unittest.TestCase):
+
+    def test_builtin_discovery_finds_github(self):
+        registry = build_registry()
+        self.assertIn("github", registry.names())
+
+    def test_registry_get_returns_class(self):
+        registry = build_registry()
+        cls = registry.get("github")
+        self.assertIsNotNone(cls)
+        # Instantiating should work and produce a Provider
+        provider = cls()
+        self.assertIsNotNone(provider)
+
+    def test_registry_get_unknown_returns_none(self):
+        registry = build_registry()
+        self.assertIsNone(registry.get("nonexistent"))
+
+    def test_registry_names_is_sorted(self):
+        registry = ProviderRegistry()
+        registry.register("zebra", object)
+        registry.register("alpha", object)
+        self.assertEqual(registry.names(), ["alpha", "zebra"])
+
+    def test_unknown_provider_error_lists_available(self):
+        """_build_server raises with registry.names() in the message."""
+        registry = build_registry()
+        with tempfile.TemporaryDirectory() as td:
+            write_fake_bin(td, "myboard.bin", "myboard", "v1.0.0")
+            with self.assertRaises(ValueError) as ctx:
+                ota_server.OtaTestServer(
+                    td,
+                    use_http=True,
+                    advertise_host="127.0.0.1",
+                    provider_name="nonexistent",
+                    registry=registry,
+                ).start()
+            self.assertIn("nonexistent", str(ctx.exception))
+            self.assertIn("github", str(ctx.exception))
+
+
+class TestExternalProviderDropIn(unittest.TestCase):
+    """Prove the drop-in external provider contract works end-to-end."""
+
+    def _write_dummy_provider(self, directory: str) -> str:
+        path = os.path.join(directory, "dummy_provider.py")
+        pathlib.Path(path).write_text(
+            "from ota_providers.base import Provider\n"
+            "\n"
+            "class DummyProvider(Provider):\n"
+            "    head_status = 200\n"
+            "    def manifest(self, board_map, *, tag, advertise_base):\n"
+            "        return {'tag_name': tag, 'assets': []}\n"
+            "    def asset_path(self, board, tag):\n"
+            "        return f'/dummy/{board}.bin'\n"
+            "    def cdn_path(self, board):\n"
+            "        return f'/dummy-cdn/{board}.bin'\n"
+            "\n"
+            "def register(registry):\n"
+            "    registry.register('dummy', DummyProvider)\n"
+        )
+        return path
+
+    def test_load_external_registers_dummy(self):
+        registry = ProviderRegistry()
+        with tempfile.TemporaryDirectory() as td:
+            plugin_path = self._write_dummy_provider(td)
+            load_external([plugin_path], td, registry)
+            self.assertIn("dummy", registry.names())
+            cls = registry.get("dummy")
+            self.assertIsNotNone(cls)
+            p = cls()
+            self.assertEqual(p.head_status, 200)
+
+    def test_build_registry_with_external_config(self):
+        with tempfile.TemporaryDirectory() as td:
+            plugin_path = self._write_dummy_provider(td)
+            plugin_filename = os.path.basename(plugin_path)
+            config = {"ota": {"providers": {"paths": [plugin_filename]}}}
+            registry = build_registry(config=config, config_dir=td)
+            self.assertIn("dummy", registry.names())
+            self.assertIn("github", registry.names())
+
+    def test_load_external_bad_path_warns_and_continues(self):
+        registry = ProviderRegistry()
+        # Non-existent path should not raise; should print warning
+        load_external(["/nonexistent/provider.py"], "/", registry)
+        # Registry should still be empty (no crash)
+        self.assertEqual(registry.names(), [])
+
+    def test_external_provider_serves_via_ota_server(self):
+        """External dummy provider can be used with OtaTestServer."""
+        with tempfile.TemporaryDirectory() as plugin_dir:
+            self._write_dummy_provider(plugin_dir)
+            config = {"ota": {"providers": {"paths": ["dummy_provider.py"]}}}
+            registry = build_registry(config=config, config_dir=plugin_dir)
+
+            with tempfile.TemporaryDirectory() as td:
+                write_fake_bin(td, "myboard.bin", "myboard", "v1.0.0")
+                with ota_server.OtaTestServer(
+                    td,
+                    use_http=True,
+                    advertise_host="127.0.0.1",
+                    provider_name="dummy",
+                    registry=registry,
+                ).start() as srv:
+                    conn = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=5)
+                    conn.request("GET", "/releases/latest")
+                    resp = conn.getresponse()
+                    data = json.loads(resp.read())
+                    self.assertEqual(resp.status, 200)
+                    # Dummy provider returns empty assets list
+                    self.assertEqual(data["assets"], [])
+                    conn.close()
+
+
 if __name__ == "__main__":
     unittest.main()

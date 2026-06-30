@@ -8,6 +8,11 @@ HELP = "Start a local OTA test server mimicking GitHub+Fastly TLS+redirect+Range
 
 
 def add_arguments(parser) -> None:
+    import ota_providers
+
+    registry = ota_providers.build_registry()
+    available = registry.names()
+
     parser.add_argument("--dir", default="dist/",
                         help="directory containing firmware .bin files (default: dist/)")
     parser.add_argument("--board", default=None,
@@ -18,8 +23,8 @@ def add_arguments(parser) -> None:
                         help="listen port (default: 8070)")
     parser.add_argument("--advertise-host", dest="advertise_host", default=None,
                         help="hostname/IP to advertise in URLs (default: auto LAN IP)")
-    parser.add_argument("--provider", default="github", choices=["github"],
-                        help="provider topology to emulate (default: github)")
+    parser.add_argument("--provider", default="github",
+                        help=f"provider topology to emulate (default: github; available: {', '.join(available)})")
     parser.add_argument("--manifest-path", dest="manifest_path",
                         default="/releases/latest",
                         help="manifest URL path (default: /releases/latest)")
@@ -44,7 +49,18 @@ def register(api) -> None:
 
 
 def run(args) -> int:
+    import ota_providers
     import ota_server
+
+    registry = ota_providers.build_registry()
+    available = registry.names()
+
+    if args.provider not in available:
+        print(
+            f"Error: unknown provider {args.provider!r}; available: {', '.join(available)}",
+            file=sys.stderr,
+        )
+        return 1
 
     try:
         srv = ota_server.OtaTestServer(
@@ -62,6 +78,7 @@ def run(args) -> int:
             use_http=args.use_http,
             no_redirect=args.no_redirect,
             head_ok=args.head_ok,
+            registry=registry,
         ).start()
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
