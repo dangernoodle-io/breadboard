@@ -234,7 +234,7 @@ bb_err_t bb_log_stream_init(void)
     }
 
     // Allocate static ringbuffer struct
-    s_rb_static = heap_caps_malloc(sizeof(StaticRingbuffer_t), MALLOC_CAP_DEFAULT);
+    s_rb_static = bb_malloc_internal(sizeof(StaticRingbuffer_t));
     if (!s_rb_static) {
         bb_log_e(TAG, "ringbuffer struct allocation failed");
         bb_mem_free(s_rb_storage);
@@ -247,7 +247,7 @@ bb_err_t bb_log_stream_init(void)
                                     s_rb_storage, s_rb_static);
     if (!s_rb) {
         bb_log_e(TAG, "ring buffer creation failed");
-        heap_caps_free(s_rb_static);
+        bb_mem_free(s_rb_static);
         bb_mem_free(s_rb_storage);
         s_rb_static = NULL;
         s_rb_storage = NULL;
@@ -259,7 +259,7 @@ bb_err_t bb_log_stream_init(void)
         bb_log_e(TAG, "writer queue creation failed");
         vRingbufferDelete(s_rb);
         s_rb = NULL;
-        heap_caps_free(s_rb_static);
+        bb_mem_free(s_rb_static);
         bb_mem_free(s_rb_storage);
         s_rb_static = NULL;
         s_rb_storage = NULL;
@@ -273,7 +273,7 @@ bb_err_t bb_log_stream_init(void)
         s_writer_q = NULL;
         vRingbufferDelete(s_rb);
         s_rb = NULL;
-        heap_caps_free(s_rb_static);
+        bb_mem_free(s_rb_static);
         bb_mem_free(s_rb_storage);
         s_rb_static = NULL;
         s_rb_storage = NULL;

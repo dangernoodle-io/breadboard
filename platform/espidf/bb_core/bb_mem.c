@@ -65,6 +65,57 @@ static void track_free(void *p)
     atomic_fetch_add_explicit(&s_free_count, 1u, memory_order_relaxed);
     atomic_fetch_sub_explicit(&s_outstanding, actual, memory_order_relaxed);
 }
+
+// Realloc accounting: adjust outstanding and per-heap-domain subtotals.
+//
+// old_size and old_is_spiram must be captured BEFORE the realloc call.
+// On NULL return (failure) the original block is still live — no outstanding
+// change (original tracking stays valid until freed).
+//
+// When heap_caps_realloc moves the block across heaps (e.g. internal→spiram),
+// the old domain's subtotal is decremented by old_size and the new domain's
+// subtotal is incremented by new_actual, keeping per-type bytes consistent
+// with the post-realloc reality.
+static void track_realloc(size_t old_size, bool old_is_spiram, void *new_ptr)
+{
+    atomic_fetch_add_explicit(&s_alloc_count, 1u, memory_order_relaxed);
+    if (!new_ptr) {
+        atomic_fetch_add_explicit(&s_alloc_fail, 1u, memory_order_relaxed);
+        return;
+    }
+    size_t new_actual  = heap_caps_get_allocated_size(new_ptr);
+    bool   new_spiram  = esp_ptr_external_ram(new_ptr);
+
+    // Subtract old contribution from outstanding and old heap-domain subtotal.
+    if (old_size > 0) {
+        atomic_fetch_sub_explicit(&s_outstanding, old_size, memory_order_relaxed);
+        if (old_is_spiram) {
+            atomic_fetch_sub_explicit(&s_spiram_bytes, old_size, memory_order_relaxed);
+        } else {
+            atomic_fetch_sub_explicit(&s_internal_bytes, old_size, memory_order_relaxed);
+        }
+    }
+    // Add new contribution to outstanding, update peak, and credit new domain.
+    if (new_actual > 0) {
+        size_t prev = atomic_fetch_add_explicit(&s_outstanding, new_actual, memory_order_relaxed);
+        size_t cur  = prev + new_actual;
+        size_t peak = atomic_load_explicit(&s_peak, memory_order_relaxed);
+        while (cur > peak) {
+            if (atomic_compare_exchange_weak_explicit(&s_peak, &peak, cur,
+                                                      memory_order_relaxed,
+                                                      memory_order_relaxed)) {
+                break;
+            }
+        }
+        if (new_spiram) {
+            atomic_fetch_add_explicit(&s_spiram_count, 1u, memory_order_relaxed);
+            atomic_fetch_add_explicit(&s_spiram_bytes, new_actual, memory_order_relaxed);
+        } else {
+            atomic_fetch_add_explicit(&s_internal_count, 1u, memory_order_relaxed);
+            atomic_fetch_add_explicit(&s_internal_bytes, new_actual, memory_order_relaxed);
+        }
+    }
+}
 #endif // BB_MEM_STATS_ENABLE
 
 // ---------------------------------------------------------------------------
@@ -95,6 +146,52 @@ void *bb_calloc_prefer_spiram(size_t n, size_t size)
     }
 #if BB_MEM_STATS_ENABLE
     track_alloc(p, spiram_ok);
+#endif
+    return p;
+}
+
+void *bb_realloc_prefer_spiram(void *ptr, size_t new_size)
+{
+#if BB_MEM_STATS_ENABLE
+    size_t old_size      = ptr ? heap_caps_get_allocated_size(ptr) : 0;
+    bool   old_is_spiram = ptr ? esp_ptr_external_ram(ptr) : false;
+#endif
+    void *p = heap_caps_realloc(ptr, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!p) {
+        p = heap_caps_realloc(ptr, new_size, MALLOC_CAP_DEFAULT);
+    }
+#if BB_MEM_STATS_ENABLE
+    track_realloc(old_size, old_is_spiram, p);
+#endif
+    return p;
+}
+
+void *bb_malloc_internal(size_t size)
+{
+    void *p = heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#if BB_MEM_STATS_ENABLE
+    track_alloc(p, /*is_spiram=*/false);
+#endif
+    return p;
+}
+
+void *bb_calloc_internal(size_t n, size_t size)
+{
+    void *p = heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#if BB_MEM_STATS_ENABLE
+    track_alloc(p, /*is_spiram=*/false);
+#endif
+    return p;
+}
+
+void *bb_malloc_dma(size_t size)
+{
+    // Hard fail — no fallback. PSRAM is not DMA-accessible on classic ESP32;
+    // falling back to a non-DMA heap would give the caller a pointer that the
+    // SPI DMA engine cannot use, causing silent data corruption.
+    void *p = heap_caps_malloc(size, MALLOC_CAP_DMA);
+#if BB_MEM_STATS_ENABLE
+    track_alloc(p, /*is_spiram=*/false);
 #endif
     return p;
 }

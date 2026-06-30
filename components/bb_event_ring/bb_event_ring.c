@@ -8,6 +8,7 @@
 #include "bb_event_ring.h"
 #include "bb_ring.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -52,8 +53,8 @@ static const char *TAG = "bb_event_ring";
 typedef void *(*bb_event_ring_calloc_fn)(size_t n, size_t sz);
 typedef void  (*bb_event_ring_free_fn)(void *p);
 
-static bb_event_ring_calloc_fn s_snap_calloc = calloc;
-static bb_event_ring_free_fn   s_snap_free   = free;
+static bb_event_ring_calloc_fn s_snap_calloc = bb_calloc_prefer_spiram;
+static bb_event_ring_free_fn   s_snap_free   = bb_mem_free;
 
 void bb_event_ring_set_allocator(bb_event_ring_calloc_fn c, bb_event_ring_free_fn f)
 {
@@ -65,8 +66,8 @@ void bb_event_ring_set_allocator(bb_event_ring_calloc_fn c, bb_event_ring_free_f
 
 void bb_event_ring_reset_allocator(void)
 {
-    s_snap_calloc = calloc;
-    s_snap_free   = free;
+    s_snap_calloc = bb_calloc_prefer_spiram;
+    s_snap_free   = bb_mem_free;
     bb_ring_reset_allocator();
 }
 

@@ -1,5 +1,6 @@
 #include "bb_display_spi_common.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "bb_hw.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_io.h"
@@ -42,10 +43,12 @@ void bb_display_st77xx_clear(uint16_t rgb565)
 {
     if (!bb_display_st77xx_panel) return;
 
-    /* Line-buffered approach: alloc one scanline, fill, blit repeatedly. */
-    uint16_t *line = malloc(LCD_WIDTH * sizeof(uint16_t));
+    /* Line-buffered approach: alloc one scanline in DMA-capable RAM, fill, blit
+     * repeatedly. Hard fail on NULL — non-DMA memory would cause silent data
+     * corruption on SPI DMA transfers. */
+    uint16_t *line = bb_malloc_dma(LCD_WIDTH * sizeof(uint16_t));
     if (!line) {
-        bb_log_w(TAG, "clear: malloc failed for scanline");
+        bb_log_w(TAG, "clear: DMA malloc failed for scanline");
         return;
     }
 
@@ -57,7 +60,7 @@ void bb_display_st77xx_clear(uint16_t rgb565)
         esp_lcd_panel_draw_bitmap(bb_display_st77xx_panel, 0, y, LCD_WIDTH, y + 1, line);
     }
 
-    free(line);
+    bb_mem_free(line);
 }
 
 void bb_display_st77xx_blit(int16_t x, int16_t y, uint16_t w, uint16_t h, const uint16_t *pixels)

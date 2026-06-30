@@ -12,6 +12,7 @@
 #include "bb_http_status.h"
 #include "bb_http_query.h"
 #include "bb_json.h"
+#include "bb_mem.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -259,7 +260,7 @@ bb_err_t bb_http_resp_send_chunk(bb_http_request_t *req, const char *buf, int le
     if (cap && buf) {
         size_t add = (len < 0) ? strlen(buf) : (size_t)len;
         if (add > 0) {
-            char *grown = realloc(cap->body, cap->body_len + add + 1);
+            char *grown = bb_realloc_prefer_spiram(cap->body, cap->body_len + add + 1);
             if (grown) {
                 cap->body = grown;
                 memcpy(cap->body + cap->body_len, buf, add);
@@ -465,7 +466,7 @@ bb_err_t bb_http_host_capture_end(bb_http_request_t *req,
 void bb_http_host_capture_free(bb_http_host_capture_t *cap)
 {
     if (!cap) return;
-    free(cap->body);
+    bb_mem_free(cap->body);
     cap->body     = NULL;
     cap->body_len = 0;
 }

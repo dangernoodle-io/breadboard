@@ -1106,6 +1106,23 @@ void test_bb_mem_stats_alloc_tracks_outstanding(void);
 void test_bb_mem_stats_free_clears_outstanding(void);
 void test_bb_mem_stats_peak_tracks_high_watermark(void);
 void test_bb_mem_stats_null_fail_increments_alloc_fail(void);
+// cap-variant happy-path
+void test_bb_mem_malloc_internal_usable(void);
+void test_bb_mem_calloc_internal_zeroes(void);
+void test_bb_mem_malloc_dma_usable(void);
+void test_bb_mem_realloc_prefer_spiram_grows(void);
+void test_bb_mem_realloc_prefer_spiram_shrinks(void);
+// cap-variant stats accounting
+void test_bb_mem_stats_internal_alloc_cycle(void);
+void test_bb_mem_stats_calloc_internal_counted(void);
+void test_bb_mem_stats_dma_alloc_cycle(void);
+void test_bb_mem_stats_realloc_grow_accounting(void);
+void test_bb_mem_stats_realloc_shrink_accounting(void);
+// cap-variant failure-path (hook)
+void test_bb_mem_stats_malloc_internal_null_fail(void);
+void test_bb_mem_stats_calloc_internal_null_fail(void);
+void test_bb_mem_stats_dma_null_fail(void);
+void test_bb_mem_stats_realloc_null_fail_outstanding_unchanged(void);
 
 // Forward declarations from test_claim.c
 void test_claim_acquire_free_returns_ok(void);
@@ -3281,6 +3298,20 @@ int main(void) {
     RUN_TEST(test_bb_mem_stats_free_clears_outstanding);
     RUN_TEST(test_bb_mem_stats_peak_tracks_high_watermark);
     RUN_TEST(test_bb_mem_stats_null_fail_increments_alloc_fail);
+    RUN_TEST(test_bb_mem_malloc_internal_usable);
+    RUN_TEST(test_bb_mem_calloc_internal_zeroes);
+    RUN_TEST(test_bb_mem_malloc_dma_usable);
+    RUN_TEST(test_bb_mem_realloc_prefer_spiram_grows);
+    RUN_TEST(test_bb_mem_realloc_prefer_spiram_shrinks);
+    RUN_TEST(test_bb_mem_stats_internal_alloc_cycle);
+    RUN_TEST(test_bb_mem_stats_calloc_internal_counted);
+    RUN_TEST(test_bb_mem_stats_dma_alloc_cycle);
+    RUN_TEST(test_bb_mem_stats_realloc_grow_accounting);
+    RUN_TEST(test_bb_mem_stats_realloc_shrink_accounting);
+    RUN_TEST(test_bb_mem_stats_malloc_internal_null_fail);
+    RUN_TEST(test_bb_mem_stats_calloc_internal_null_fail);
+    RUN_TEST(test_bb_mem_stats_dma_null_fail);
+    RUN_TEST(test_bb_mem_stats_realloc_null_fail_outstanding_unchanged);
 
     // bb_claim non-blocking exclusive-slot arbiter
     RUN_TEST(test_claim_acquire_free_returns_ok);
