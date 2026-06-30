@@ -5,6 +5,7 @@
 #include "bb_fan_driver.h"
 #include "emc2101_decode.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include <stdlib.h>
 
 static const char *TAG = "bb_fan_emc2101";
@@ -112,7 +113,7 @@ bb_err_t bb_fan_emc2101_open(const bb_fan_emc2101_cfg_t *cfg,
 {
     if (!cfg || !out) return BB_ERR_INVALID_ARG;
 
-    emc2101_state_t *s = calloc(1, sizeof *s); // LCOV_EXCL_BR_LINE
+    emc2101_state_t *s = bb_calloc_prefer_spiram(1, sizeof *s); // LCOV_EXCL_BR_LINE
     if (!s) return BB_ERR_NO_SPACE;            // LCOV_EXCL_LINE
 
     s->duty_pct = -1;
@@ -123,33 +124,33 @@ bb_err_t bb_fan_emc2101_open(const bb_fan_emc2101_cfg_t *cfg,
         .scl_speed_hz    = 400000,
     };
     esp_err_t err = i2c_master_bus_add_device(cfg->bus, &dev_cfg, &s->dev);
-    if (err != ESP_OK) { free(s); return err; }
+    if (err != ESP_OK) { bb_mem_free(s); return err; }
 
     // Enable external diode, disable auto-fan
     err = reg_write(s->dev, REG_CONFIG, 0x04);
-    if (err != ESP_OK) { free(s); return err; }
+    if (err != ESP_OK) { bb_mem_free(s); return err; }
 
     // Fan: direct PWM mode, enable driver, ~22.5kHz, 2 tach pulses/rev
     err = reg_write(s->dev, REG_FAN_CONFIG, 0x23);
-    if (err != ESP_OK) { free(s); return err; }
+    if (err != ESP_OK) { bb_mem_free(s); return err; }
 
     // Optional ideality/beta compensation (0 = skip, e.g. bitaxe-403)
     if (cfg->ideality) {
         err = reg_write(s->dev, REG_IDEALITY_FACTOR, cfg->ideality);
-        if (err != ESP_OK) { free(s); return err; }
+        if (err != ESP_OK) { bb_mem_free(s); return err; }
     }
     if (cfg->beta) {
         err = reg_write(s->dev, REG_BETA_COMPENSATION, cfg->beta);
-        if (err != ESP_OK) { free(s); return err; }
+        if (err != ESP_OK) { bb_mem_free(s); return err; }
     }
 
     // Fail-safe: start at 100% until telemetry loop adjusts
     err = op_set_duty_pct(s, 100);
-    if (err != ESP_OK) { free(s); return err; }
+    if (err != ESP_OK) { bb_mem_free(s); return err; }
 
     bb_log_i(TAG, "initialized at addr=0x%02X", cfg->addr);
 
     bb_err_t rc = bb_fan_handle_create(&s_emc2101_vtable, s, out);
-    if (rc != BB_OK) free(s); // LCOV_EXCL_LINE
+    if (rc != BB_OK) bb_mem_free(s); // LCOV_EXCL_LINE
     return rc;
 }

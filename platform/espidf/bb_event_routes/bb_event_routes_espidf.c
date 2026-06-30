@@ -6,6 +6,7 @@
 #include "bb_event_ring.h"
 #include "bb_http.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "bb_registry.h"
 #include "bb_sse_writer.h"
 #include "bb_timer.h"
@@ -123,7 +124,7 @@ static void events_cleanup_fn(void *ctx)
 {
     sse_task_arg_t *t = (sse_task_arg_t *)ctx;
     bb_event_routes_client_release(t->client);
-    free(t);
+    bb_mem_free(t);
 }
 
 static void sse_task(void *arg)
@@ -182,7 +183,7 @@ static bb_err_t events_handler(bb_http_request_t *req)
         return BB_ERR_INVALID_STATE;
     }
 
-    sse_task_arg_t *arg = (sse_task_arg_t *)malloc(sizeof(*arg));
+    sse_task_arg_t *arg = (sse_task_arg_t *)bb_malloc_prefer_spiram(sizeof(*arg));
     if (!arg) {
         bb_event_routes_client_release(client);
         bb_http_req_async_handler_complete(async_req);
@@ -199,7 +200,7 @@ static bb_err_t events_handler(bb_http_request_t *req)
                                             s_sse_stack[slot],
                                             &s_sse_tcb[slot]);
         if (!th) {
-            free(arg);
+            bb_mem_free(arg);
             bb_event_routes_client_release(client);
             bb_http_req_async_handler_complete(async_req);
             return BB_ERR_INVALID_STATE;
@@ -207,7 +208,7 @@ static bb_err_t events_handler(bb_http_request_t *req)
     }
 #else
     if (xTaskCreate(sse_task, "sse_events", 4096, arg, 1, NULL) != pdPASS) {
-        free(arg);
+        bb_mem_free(arg);
         bb_event_routes_client_release(client);
         bb_http_req_async_handler_complete(async_req);
         return BB_ERR_INVALID_STATE;

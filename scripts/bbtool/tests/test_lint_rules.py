@@ -15,6 +15,7 @@ from commands.lint import (
     _check_public_header_leak,
     _check_state_topic_post,
     _check_public_requires_watchlist,
+    _check_raw_allocator,
     _check_raw_esp_timer,
     _check_timer_cb_heavy,
     _check_platform_error_in_public_struct,
@@ -1062,6 +1063,88 @@ class TestEventTopicNeedsSchema(unittest.TestCase):
                 '}\n')
             violations = _check_event_topic_needs_schema(make_ctx(td))
             self.assertTrue(violations, "plain bb_event_routes_attach with no schema must fire")
+
+
+class TestRawAllocator(unittest.TestCase):
+    def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return tmpdir
+
+    def test_fires_on_malloc(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_foo/bb_foo.c",
+                'void *p = malloc(64);\n')
+            violations = _check_raw_allocator(make_ctx(td))
+            self.assertTrue(violations, "expected violation for raw malloc(")
+
+    def test_fires_on_calloc(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_foo/bb_foo.c",
+                'void *p = calloc(1, sizeof(*p));\n')
+            violations = _check_raw_allocator(make_ctx(td))
+            self.assertTrue(violations, "expected violation for raw calloc(")
+
+    def test_fires_on_free(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_foo/bb_foo.c",
+                'free(p);\n')
+            violations = _check_raw_allocator(make_ctx(td))
+            self.assertTrue(violations, "expected violation for raw free(")
+
+    def test_fires_in_components(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.c",
+                'void *buf = malloc(256);\n')
+            violations = _check_raw_allocator(make_ctx(td))
+            self.assertTrue(violations, "expected violation in components/")
+
+    def test_no_fire_in_bb_mem_c(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_core/bb_mem.c",
+                'void *p = malloc(size);\n'
+                'free(p);\n')
+            violations = _check_raw_allocator(make_ctx(td))
+            self.assertFalse(violations, "bb_mem.c must be exempt (facade impl)")
+
+    def test_no_fire_in_test_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/test/test_fake.c",
+                'void *p = malloc(64);\n')
+            violations = _check_raw_allocator(make_ctx(td))
+            self.assertFalse(violations, "test/ directories must be exempt")
+
+    def test_respects_allowlist(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_json/bb_json_cjson.c",
+                'buf = (char *)malloc(len + 1);\n'
+                'if (heap) free(buf);\n')
+            config = {"lint": {"rules": {"raw-allocator": {
+                "allow": ["platform/espidf/bb_json/bb_json_cjson.c"]
+            }}}}
+            ctx = Context(root=td, config=config)
+            violations = _check_raw_allocator(ctx)
+            self.assertFalse(violations, "allowlisted path must not fire")
+
+    def test_ignores_comments_and_strings(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_foo/bb_foo.c",
+                '// malloc(64) — old pattern, now use bb_malloc_prefer_spiram\n'
+                'const char *msg = "call free(ptr) to release";\n'
+                'void *p = bb_malloc_prefer_spiram(64);\n'
+                'bb_mem_free(p);\n')
+            violations = _check_raw_allocator(make_ctx(td))
+            self.assertFalse(violations, "comments and string literals must not fire")
+
+    def test_no_fire_on_bb_mem_free(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_foo/bb_foo.c",
+                'bb_mem_free(p);\n'
+                'bb_malloc_prefer_spiram(64);\n'
+                'bb_calloc_prefer_spiram(1, 64);\n')
+            violations = _check_raw_allocator(make_ctx(td))
+            self.assertFalse(violations, "bb_mem_* calls must not fire (no bare word boundary)")
 
 
 if __name__ == "__main__":

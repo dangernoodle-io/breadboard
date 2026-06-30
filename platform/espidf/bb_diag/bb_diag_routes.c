@@ -13,6 +13,7 @@
 #include "bb_partition.h"
 #include "bb_registry.h"
 #include "bb_system.h"
+#include "bb_mem.h"
 
 #include "esp_system.h"
 #include "esp_heap_caps.h"
@@ -287,7 +288,7 @@ static bb_err_t coredump_get_handler(bb_http_request_t *req)
     // Allocate in chunks to keep heap pressure manageable on a panicked device.
     // 4KB chunks; one buffer for the whole file would be ~64KB which we'd rather avoid.
     enum { CHUNK = 4096 };
-    uint8_t *chunk = malloc(CHUNK);
+    uint8_t *chunk = bb_malloc_prefer_spiram(CHUNK);
     if (!chunk) {
         bb_http_resp_set_status(req, 500);
         bb_http_json_obj_stream_t obj;
@@ -317,7 +318,7 @@ static bb_err_t coredump_get_handler(bb_http_request_t *req)
     const esp_partition_t *part = esp_partition_find_first(
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, NULL);
     if (!part) {
-        free(chunk);
+        bb_mem_free(chunk);
         bb_http_resp_set_status(req, 500);
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
@@ -327,7 +328,7 @@ static bb_err_t coredump_get_handler(bb_http_request_t *req)
     }
     size_t addr = 0, total = 0;
     if (esp_core_dump_image_get(&addr, &total) != ESP_OK) {
-        free(chunk);
+        bb_mem_free(chunk);
         bb_http_resp_set_status(req, 500);
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
@@ -353,7 +354,7 @@ static bb_err_t coredump_get_handler(bb_http_request_t *req)
     if (err == BB_OK) {
         err = bb_http_resp_send_chunk(req, NULL, 0);
     }
-    free(chunk);
+    bb_mem_free(chunk);
 
     /* Erase only after a fully successful stream — a dropped connection must not
      * silently discard the crash evidence. */
@@ -499,7 +500,7 @@ static const bb_route_t s_heap_get_route = {
 static bb_err_t tasks_get_handler(bb_http_request_t *req)
 {
     UBaseType_t n = uxTaskGetNumberOfTasks();
-    TaskStatus_t *arr = malloc(sizeof(TaskStatus_t) * n);
+    TaskStatus_t *arr = bb_malloc_prefer_spiram(sizeof(TaskStatus_t) * n);
     if (!arr) {
         bb_http_resp_set_status(req, 500);
         bb_http_json_obj_stream_t err_obj;
@@ -517,7 +518,7 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
     // we use bb_http_resp_json_arr_begin directly).
     bb_http_json_stream_t stream;
     bb_err_t err = bb_http_resp_json_arr_begin(req, &stream);
-    if (err != BB_OK) { free(arr); return err; }
+    if (err != BB_OK) { bb_mem_free(arr); return err; }
 
     for (UBaseType_t i = 0; i < got; i++) {
         const char *state_str = "?";
@@ -545,7 +546,7 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
         bb_http_resp_json_arr_emit(&stream, t);
         bb_json_free(t);
     }
-    free(arr);
+    bb_mem_free(arr);
     return bb_http_resp_json_arr_end(&stream);
 }
 
@@ -608,7 +609,7 @@ static bb_err_t sockets_get_handler(bb_http_request_t *req)
     // PCB snapshot: at most CONFIG_LWIP_MAX_SOCKETS entries.
     typedef struct { uint16_t local_port; uint16_t remote_port;
                      char remote_ip[40]; uint32_t state_idx; } pcb_snap_t;
-    pcb_snap_t *snaps = malloc(sizeof(pcb_snap_t) * (size_t)CONFIG_LWIP_MAX_SOCKETS);
+    pcb_snap_t *snaps = bb_malloc_prefer_spiram(sizeof(pcb_snap_t) * (size_t)CONFIG_LWIP_MAX_SOCKETS);
     size_t snap_count = 0;
 
     LOCK_TCPIP_CORE();
@@ -640,7 +641,7 @@ static bb_err_t sockets_get_handler(bb_http_request_t *req)
 
     bb_http_json_obj_stream_t obj;
     bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
-    if (err != BB_OK) { free(snaps); return err; }
+    if (err != BB_OK) { bb_mem_free(snaps); return err; }
 
     bb_http_resp_json_obj_set_int(&obj, "lwip_max_sockets", (int64_t)CONFIG_LWIP_MAX_SOCKETS);
     bb_http_resp_json_obj_set_int(&obj, "in_use",           (int64_t)in_use);
@@ -666,7 +667,7 @@ static bb_err_t sockets_get_handler(bb_http_request_t *req)
     }
     bb_http_resp_json_obj_set_arr_end(&obj);
 
-    free(snaps);
+    bb_mem_free(snaps);
     return bb_http_resp_json_obj_end(&obj);
 }
 

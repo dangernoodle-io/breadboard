@@ -11,6 +11,7 @@
 #include "bb_event.h"
 #include "bb_event_routes.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "bb_openapi.h"
 #include "bb_timer.h"
 
@@ -87,7 +88,7 @@ static void check_tasks(void)
     UBaseType_t n = uxTaskGetNumberOfTasks();
     if (n == 0) return;
 
-    TaskStatus_t *tasks = malloc(n * sizeof(TaskStatus_t));
+    TaskStatus_t *tasks = bb_malloc_prefer_spiram(n * sizeof(TaskStatus_t));
     if (!tasks) {
         bb_log_w(TAG, "malloc failed for task snapshot (n=%" PRIu32 ")",
                  (uint32_t)n);
@@ -127,7 +128,7 @@ static void check_tasks(void)
         entry->low = is_low;
     }
 
-    free(tasks);
+    bb_mem_free(tasks);
 }
 
 static void poll_work_fn(void *arg)

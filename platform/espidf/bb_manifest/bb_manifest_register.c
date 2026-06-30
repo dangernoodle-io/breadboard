@@ -35,7 +35,7 @@ static bb_err_t manifest_handler(bb_http_request_t *req)
     bb_err_t err = bb_http_resp_set_type(req, "application/json");
     if (err == BB_OK) err = bb_http_resp_send_chunk(req, str, -1);
     if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
-    free(str);
+    bb_json_free_str(str);
     return err;
 }
 

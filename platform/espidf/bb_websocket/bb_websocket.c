@@ -13,6 +13,7 @@
 
 #include "bb_websocket.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 
 #include "esp_http_server.h"
 #include "esp_err.h"
@@ -58,7 +59,7 @@ static esp_err_t ws_shim_handler(httpd_req_t *req)
     // Allocate payload buffer and receive full frame.
     uint8_t *buf = NULL;
     if (ws_pkt.len > 0) {
-        buf = calloc(1, ws_pkt.len + 1);
+        buf = bb_calloc_prefer_spiram(1, ws_pkt.len + 1);
         if (!buf) {
             bb_log_e(TAG, "ws recv alloc failed (%zu bytes)", ws_pkt.len);
             return ESP_ERR_NO_MEM;
@@ -67,7 +68,7 @@ static esp_err_t ws_shim_handler(httpd_req_t *req)
         err = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
         if (err != ESP_OK) {
             bb_log_w(TAG, "ws recv frame failed: %d", err);
-            free(buf);
+            bb_mem_free(buf);
             return err;
         }
     }
@@ -82,7 +83,7 @@ static esp_err_t ws_shim_handler(httpd_req_t *req)
 
     bb_err_t rc = ctx->handler((bb_http_request_t *)req, &frame);
 
-    free(buf);
+    bb_mem_free(buf);
     return (rc == BB_OK) ? ESP_OK : ESP_FAIL;
 }
 
@@ -102,7 +103,7 @@ bb_err_t bb_websocket_register_endpoint(bb_http_handle_t server,
 
     // ctx is never freed (httpd lifetime == server lifetime); acceptable for
     // the endpoint count (small; same pattern as bb_event_routes SSE ctx).
-    ws_endpoint_ctx_t *ctx = malloc(sizeof(ws_endpoint_ctx_t));
+    ws_endpoint_ctx_t *ctx = bb_malloc_prefer_spiram(sizeof(ws_endpoint_ctx_t));
     if (!ctx) {
         return BB_ERR_NO_SPACE;
     }
@@ -120,7 +121,7 @@ bb_err_t bb_websocket_register_endpoint(bb_http_handle_t server,
 
     esp_err_t err = httpd_register_uri_handler(h, &uri);
     if (err != ESP_OK) {
-        free(ctx);
+        bb_mem_free(ctx);
         bb_log_e(TAG, "register uri %s failed: %d", path, err);
         return err;
     }
@@ -207,8 +208,8 @@ static void async_send_worker(void *arg)
     if (a->cb) {
         a->cb((bb_err_t)err, a->fd, a->ctx);
     }
-    free(a->payload);
-    free(a);
+    bb_mem_free(a->payload);
+    bb_mem_free(a);
 }
 
 bb_err_t bb_websocket_broadcast_frame_async(bb_http_handle_t server,
@@ -224,16 +225,16 @@ bb_err_t bb_websocket_broadcast_frame_async(bb_http_handle_t server,
     // Copy payload so the caller can free their buffer before the worker runs.
     uint8_t *payload_copy = NULL;
     if (frame->len > 0) {
-        payload_copy = malloc(frame->len);
+        payload_copy = bb_malloc_prefer_spiram(frame->len);
         if (!payload_copy) {
             return BB_ERR_NO_SPACE;
         }
         memcpy(payload_copy, frame->payload, frame->len);
     }
 
-    async_send_ctx_t *a = malloc(sizeof(async_send_ctx_t));
+    async_send_ctx_t *a = bb_malloc_prefer_spiram(sizeof(async_send_ctx_t));
     if (!a) {
-        free(payload_copy);
+        bb_mem_free(payload_copy);
         return BB_ERR_NO_SPACE;
     }
     a->server  = (httpd_handle_t)server;
@@ -247,8 +248,8 @@ bb_err_t bb_websocket_broadcast_frame_async(bb_http_handle_t server,
 
     esp_err_t err = httpd_queue_work(a->server, async_send_worker, a);
     if (err != ESP_OK) {
-        free(payload_copy);
-        free(a);
+        bb_mem_free(payload_copy);
+        bb_mem_free(a);
         return (bb_err_t)err;
     }
     return BB_OK;

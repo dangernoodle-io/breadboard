@@ -12,6 +12,7 @@
 #include "bb_openapi.h"
 #include "bb_system.h"
 #include "bb_alert.h"
+#include "bb_mem.h"
 
 #include <limits.h>
 #include <pthread.h>
@@ -513,7 +514,7 @@ bb_err_t bb_update_check_run_one(void)
     } else {
         // Custom parser path: buffer into a local heap allocation.
         buf_ctx_t bc;
-        bc.buf = (char *)calloc(1, CUSTOM_PARSER_BUF_SIZE);
+        bc.buf = (char *)bb_calloc_prefer_spiram(1, CUSTOM_PARSER_BUF_SIZE);
         if (!bc.buf) {  // LCOV_EXCL_START — OOM defensive
             bb_log_w(TAG, "custom parser buf alloc failed");
             return BB_ERR_NO_SPACE;
@@ -524,7 +525,7 @@ bb_err_t bb_update_check_run_one(void)
 
         if (pause_local && !pause_local()) {
             bb_log_w(TAG, "pause hook refused; skipping fetch");
-            free(bc.buf);
+            bb_mem_free(bc.buf);
             return BB_ERR_INVALID_STATE;
         }
         err = bb_http_client_get_stream(url_local, buf_chunk_cb, &bc, NULL, &res);
@@ -541,7 +542,7 @@ bb_err_t bb_update_check_run_one(void)
             s_status.outcome = BB_UPDATE_OUTCOME_FAILED;
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "fetch failed: err=%d status=%d", err, res.status_code);
-            free(bc.buf);
+            bb_mem_free(bc.buf);
 #if BB_ALERT_ENABLE
             {
                 update_ver_ctx_t alert_ctx = { .current = s_status.current, .latest = "" };
@@ -553,7 +554,7 @@ bb_err_t bb_update_check_run_one(void)
 
         perr = parser_local(bc.buf, bc.len, board_name,
                             tag, sizeof(tag), dl_url, sizeof(dl_url));
-        free(bc.buf);
+        bb_mem_free(bc.buf);
         if (perr != BB_OK) {
             pthread_mutex_lock(&s_lock);
             s_status.last_check_us = now_us;

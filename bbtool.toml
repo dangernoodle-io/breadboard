@@ -13,6 +13,16 @@ severity = "error"
 [lint.rules.public-requires-watchlist]
 severity = "error"
 
+[lint.rules.raw-allocator]
+severity = "error"
+# Allowlist: path strings or "path:line" keys for intentional raw-allocator uses.
+# bb_json_cjson.c uses a stack-overflow-safe temp malloc inside the cJSON adapter layer;
+# these are not bb_mem allocations and must not be migrated.
+allow = [
+    "platform/espidf/bb_json/bb_json_cjson.c",
+    "platform/host/bb_json/bb_json_cjson.c",
+]
+
 [lint.rules.raw-esp-timer]
 severity = "error"
 

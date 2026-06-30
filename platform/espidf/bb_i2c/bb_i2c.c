@@ -1,6 +1,7 @@
 // bb_i2c ESP-IDF backend — wraps esp_driver_i2c (new master API).
 #include "bb_i2c.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 #include "driver/i2c_master.h"
 #include <stdlib.h>
 
@@ -30,7 +31,7 @@ bb_err_t bb_i2c_bus_create(const bb_i2c_bus_config_t *cfg, bb_i2c_bus_t *out)
 {
     if (!cfg || !out || cfg->clk_hz == 0) return BB_ERR_INVALID_ARG;
 
-    struct bb_i2c_bus_s *bus = calloc(1, sizeof *bus);
+    struct bb_i2c_bus_s *bus = bb_calloc_prefer_spiram(1, sizeof *bus);
     if (!bus) return BB_ERR_NO_SPACE; // LCOV_EXCL_LINE
 
     i2c_master_bus_config_t bus_cfg = {
@@ -45,7 +46,7 @@ bb_err_t bb_i2c_bus_create(const bb_i2c_bus_config_t *cfg, bb_i2c_bus_t *out)
     esp_err_t err = i2c_new_master_bus(&bus_cfg, &bus->handle);
     if (err != ESP_OK) {
         bb_log_e(TAG, "i2c_new_master_bus failed: %d", err);
-        free(bus);
+        bb_mem_free(bus);
         return err;
     }
 
@@ -58,7 +59,7 @@ void bb_i2c_bus_delete(bb_i2c_bus_t bus)
 {
     if (!bus) return;
     i2c_del_master_bus(bus->handle);
-    free(bus);
+    bb_mem_free(bus);
 }
 
 // ---------------------------------------------------------------------------
@@ -70,7 +71,7 @@ bb_err_t bb_i2c_dev_add(bb_i2c_bus_t bus, uint8_t addr7, uint32_t speed_hz,
 {
     if (!bus || !out) return BB_ERR_INVALID_ARG;
 
-    struct bb_i2c_dev_s *dev = calloc(1, sizeof *dev);
+    struct bb_i2c_dev_s *dev = bb_calloc_prefer_spiram(1, sizeof *dev);
     if (!dev) return BB_ERR_NO_SPACE; // LCOV_EXCL_LINE
 
     i2c_device_config_t dev_cfg = {
@@ -82,7 +83,7 @@ bb_err_t bb_i2c_dev_add(bb_i2c_bus_t bus, uint8_t addr7, uint32_t speed_hz,
     esp_err_t err = i2c_master_bus_add_device(bus->handle, &dev_cfg, &dev->handle);
     if (err != ESP_OK) {
         bb_log_e(TAG, "i2c_master_bus_add_device failed: %d", err);
-        free(dev);
+        bb_mem_free(dev);
         return err;
     }
 
@@ -94,7 +95,7 @@ void bb_i2c_dev_remove(bb_i2c_dev_t dev)
 {
     if (!dev) return;
     i2c_master_bus_rm_device(dev->handle);
-    free(dev);
+    bb_mem_free(dev);
 }
 
 // ---------------------------------------------------------------------------

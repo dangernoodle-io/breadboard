@@ -2,6 +2,7 @@
 // retry / TLS-bundle pattern proven in bb_ota_pull.
 #include "bb_http_client.h"
 #include "bb_log.h"
+#include "bb_mem.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -344,7 +345,7 @@ bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
     const char *ua      = (cfg && cfg->user_agent)   ? cfg->user_agent   : "bb_http_client/0.1";
     const char *ca_pem  = (cfg && cfg->ca_cert_pem)  ? cfg->ca_cert_pem  : NULL;
 
-    espidf_session_t *s = (espidf_session_t *)calloc(1, sizeof(espidf_session_t));
+    espidf_session_t *s = (espidf_session_t *)bb_calloc_prefer_spiram(1, sizeof(espidf_session_t));
     if (!s) return BB_ERR_NO_SPACE;
 
     bool keep_alive = (cfg && cfg->keep_alive);
@@ -364,7 +365,7 @@ bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
 
     s->client = esp_http_client_init(&config);
     if (!s->client) {
-        free(s);
+        bb_mem_free(s);
         return BB_ERR_INVALID_STATE;
     }
 
@@ -433,5 +434,5 @@ void bb_http_client_session_close(bb_http_client_session_t sess)
         esp_http_client_cleanup(s->client);
         s->client = NULL;
     }
-    free(s);
+    bb_mem_free(s);
 }

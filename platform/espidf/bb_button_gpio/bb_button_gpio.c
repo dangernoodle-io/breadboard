@@ -5,6 +5,7 @@
 // poll() is a no-op — dispatch happens on the service task.
 #include "bb_button_gpio.h"
 #include "bb_button_driver.h"
+#include "bb_mem.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -70,7 +71,7 @@ static bb_err_t op_close(void *st)
     if (s->task)   { vTaskDelete(s->task);   s->task   = NULL; }
     if (s->intr_q) { vQueueDelete(s->intr_q); s->intr_q = NULL; }
     gpio_reset_pin(s->gpio);
-    free(s);
+    bb_mem_free(s);
     return BB_OK;
 }
 
@@ -84,7 +85,7 @@ bb_err_t bb_button_gpio_open(const bb_button_gpio_cfg_t *cfg, bb_button_handle_t
         s_isr_service_installed = true;
     }
 
-    state_t *s = (state_t *)calloc(1, sizeof(state_t));
+    state_t *s = (state_t *)bb_calloc_prefer_spiram(1, sizeof(state_t));
     if (!s) return BB_ERR_NO_SPACE;
     s->gpio       = cfg->gpio;
     s->active_low = cfg->active_low;
@@ -95,7 +96,7 @@ bb_err_t bb_button_gpio_open(const bb_button_gpio_cfg_t *cfg, bb_button_handle_t
     s->drv.debounce_ms = cfg->debounce_ms ? cfg->debounce_ms : BB_BUTTON_DEBOUNCE_MS_DEFAULT;
 
     s->intr_q = xQueueCreate(4, sizeof(uint8_t));
-    if (!s->intr_q) { free(s); return BB_ERR_NO_SPACE; }
+    if (!s->intr_q) { bb_mem_free(s); return BB_ERR_NO_SPACE; }
 
     gpio_config_t io = {
         .pin_bit_mask = 1ULL << cfg->gpio,
@@ -106,7 +107,7 @@ bb_err_t bb_button_gpio_open(const bb_button_gpio_cfg_t *cfg, bb_button_handle_t
     };
     if (gpio_config(&io) != ESP_OK) {
         vQueueDelete(s->intr_q);
-        free(s);
+        bb_mem_free(s);
         return BB_ERR_INVALID_STATE;
     }
 
@@ -114,7 +115,7 @@ bb_err_t bb_button_gpio_open(const bb_button_gpio_cfg_t *cfg, bb_button_handle_t
     if (rc != BB_OK) {
         vQueueDelete(s->intr_q);
         gpio_reset_pin(cfg->gpio);
-        free(s);
+        bb_mem_free(s);
         return rc;
     }
     s->handle = *out;

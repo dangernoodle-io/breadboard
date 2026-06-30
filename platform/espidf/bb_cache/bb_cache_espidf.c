@@ -9,6 +9,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_core.h"
+#include "bb_mem.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -133,7 +134,7 @@ bb_err_t bb_cache_register_ex(const char *topic,
             pthread_mutex_unlock(&s_reg_lock);
             return BB_ERR_INVALID_ARG;
         }
-        owned = calloc(1, snap_size);
+        owned = bb_calloc_prefer_spiram(1, snap_size);
         if (!owned) {
             pthread_mutex_unlock(&s_reg_lock);
             return BB_ERR_NO_SPACE;
@@ -324,7 +325,7 @@ void bb_cache_reset_for_test(void)
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
         if (s_entries[i].topic) {
             pthread_mutex_destroy(&s_entries[i].lock);
-            free(s_entries[i].owned);
+            bb_mem_free(s_entries[i].owned);
             if (s_entries[i].cached_json) bb_json_free_str(s_entries[i].cached_json);
             s_entries[i].topic       = NULL;
             s_entries[i].owned       = NULL;
