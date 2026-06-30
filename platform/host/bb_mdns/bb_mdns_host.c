@@ -449,8 +449,8 @@ bb_err_t bb_mdns_coalesce_append_for_test(const char *service, const char *proto
     s_coalesce.service[i][sizeof(s_coalesce.service[i]) - 1] = '\0';
     strncpy(s_coalesce.proto[i], proto, sizeof(s_coalesce.proto[i]) - 1);
     s_coalesce.proto[i][sizeof(s_coalesce.proto[i]) - 1] = '\0';
-    if (peer && peer->instance_name[0] != '\0') {
-        strncpy(s_coalesce.instance_names[i], peer->instance_name,
+    if (peer && peer->id.instance_name[0] != '\0') {
+        strncpy(s_coalesce.instance_names[i], peer->id.instance_name,
                 sizeof(s_coalesce.instance_names[i]) - 1);
     }
     s_coalesce.count++;

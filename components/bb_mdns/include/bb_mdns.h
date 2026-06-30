@@ -61,27 +61,49 @@ typedef struct {
     char *value;
 } bb_mdns_txt_t;
 
-/* Bounds for inlined string fields below. Sized to match the underlying
- * mDNS event slot buffers; safe to copy by value. */
-#define BB_MDNS_INSTANCE_NAME_MAX 64
-#define BB_MDNS_HOSTNAME_MAX      64
-#define BB_MDNS_IP4_MAX           16
+/* Bounds for inlined string fields below. Tunable via Kconfig
+ * BB_MDNS_INSTANCE_NAME_MAX / BB_MDNS_HOSTNAME_MAX (default 32 each).
+ * Fleet usage: instance ≤18 chars ("TaipanMiner-abc123"),
+ * hostname ≤17 chars ("tdongles3-1.local"). */
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#ifdef CONFIG_BB_MDNS_INSTANCE_NAME_MAX
+#define BB_MDNS_INSTANCE_NAME_MAX CONFIG_BB_MDNS_INSTANCE_NAME_MAX
+#endif
+#ifdef CONFIG_BB_MDNS_HOSTNAME_MAX
+#define BB_MDNS_HOSTNAME_MAX CONFIG_BB_MDNS_HOSTNAME_MAX
+#endif
+#endif /* ESP_PLATFORM */
+#ifndef BB_MDNS_INSTANCE_NAME_MAX
+#define BB_MDNS_INSTANCE_NAME_MAX 32
+#endif
+#ifndef BB_MDNS_HOSTNAME_MAX
+#define BB_MDNS_HOSTNAME_MAX 32
+#endif
+#define BB_MDNS_IP4_MAX 16
 
+/* Shared identity fields embedded in bb_mdns_peer_t and
+ * bb_mdns_query_result_t.  All strings are inlined (copy-safe by value);
+ * empty fields are zero-length strings, never NULL. */
 typedef struct {
     char     instance_name[BB_MDNS_INSTANCE_NAME_MAX]; /* e.g. "TaipanMiner-abc123" */
     char     hostname[BB_MDNS_HOSTNAME_MAX];           /* e.g. "tdongles3-1.local", "" if unknown */
     char     ip4[BB_MDNS_IP4_MAX];                     /* dotted-quad, "" if v6-only / unresolved */
     uint16_t port;
+} bb_mdns_identity_t;
+
+typedef struct {
+    bb_mdns_identity_t   id;
     const bb_mdns_txt_t *txt;       /* TXT key/value pairs (read-only view, callback-scoped) */
-    size_t              txt_count;
+    size_t               txt_count;
 } bb_mdns_peer_t;
 
 /* Callbacks fire from the bb_mdns dispatch task (NOT the IDF mDNS task,
  * NOT the caller's task).
  *
- * Scalar string fields (instance_name, hostname, ip4) are inlined into the
- * struct, so a `bb_mdns_peer_t` copy is sufficient to retain them. Empty
- * fields are zero-length strings, never NULL.
+ * id fields (instance_name, hostname, ip4, port) are inlined into the
+ * struct via bb_mdns_identity_t, so a `bb_mdns_peer_t` copy is sufficient
+ * to retain them. Empty fields are zero-length strings, never NULL.
  *
  * The `txt` array view is owned by bb_mdns and remains valid ONLY for the
  * duration of the callback — consumers that need to retain TXT records
@@ -104,17 +126,15 @@ typedef void (*bb_mdns_peer_cb)(const bb_mdns_peer_t *peer, void *ctx);
 typedef void (*bb_mdns_peer_removed_cb)(const char *instance_name, void *ctx);
 
 /* Result of an async TXT query. Same field-ownership contract as
- * bb_mdns_peer_t: scalar strings are inlined and copy-safe; the `txt`
- * view is callback-scoped. err is BB_OK on success; on failure (timeout,
- * no response, IDF error) other fields are unspecified except err. */
+ * bb_mdns_peer_t: scalar strings are inlined in id and copy-safe; the
+ * `txt` view is callback-scoped. err is BB_OK on success; on failure
+ * (timeout, no response, IDF error) other fields are unspecified except
+ * err. */
 typedef struct {
-    bb_err_t err;
-    char     instance_name[BB_MDNS_INSTANCE_NAME_MAX];
-    char     hostname[BB_MDNS_HOSTNAME_MAX];
-    char     ip4[BB_MDNS_IP4_MAX];
-    uint16_t port;
+    bb_err_t           err;
+    bb_mdns_identity_t id;
     const bb_mdns_txt_t *txt;
-    size_t              txt_count;
+    size_t               txt_count;
 } bb_mdns_query_result_t;
 
 typedef void (*bb_mdns_query_cb)(const bb_mdns_query_result_t *result, void *ctx);

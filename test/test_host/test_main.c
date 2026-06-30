@@ -1039,6 +1039,13 @@ void test_txt_cache_survives_start(void);
 void test_txt_cache_survives_stop_and_restart(void);
 void test_txt_cache_write_through_while_up(void);
 void test_txt_cache_update_while_down_replays_on_next_start(void);
+// B1-420: bb_mdns_identity_t copy/truncation
+void test_identity_instance_name_31_chars_fits(void);
+void test_identity_instance_name_32_chars_truncates(void);
+void test_identity_instance_name_empty_ok(void);
+void test_identity_ip4_max_value_fits(void);
+void test_identity_peer_copy_preserves_id(void);
+void test_identity_query_result_copy_preserves_id(void);
 
 // Forward declarations from test_bb_mdns_coalesce.c
 void test_coalesce_n_peers_single_flush(void);
@@ -4333,6 +4340,13 @@ int main(void) {
     RUN_TEST(test_txt_cache_survives_stop_and_restart);
     RUN_TEST(test_txt_cache_write_through_while_up);
     RUN_TEST(test_txt_cache_update_while_down_replays_on_next_start);
+    // B1-420: bb_mdns_identity_t copy/truncation
+    RUN_TEST(test_identity_instance_name_31_chars_fits);
+    RUN_TEST(test_identity_instance_name_32_chars_truncates);
+    RUN_TEST(test_identity_instance_name_empty_ok);
+    RUN_TEST(test_identity_ip4_max_value_fits);
+    RUN_TEST(test_identity_peer_copy_preserves_id);
+    RUN_TEST(test_identity_query_result_copy_preserves_id);
 
     // bb_mdns coalescing tests
     RUN_TEST(test_coalesce_n_peers_single_flush);

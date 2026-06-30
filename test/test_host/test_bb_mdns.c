@@ -120,10 +120,10 @@ static void test_peer_cb(const bb_mdns_peer_t *peer, void *ctx)
 {
     (void)ctx;
     s_peer_fired++;
-    strncpy(s_last_instance, peer->instance_name ? peer->instance_name : "",
+    strncpy(s_last_instance, peer->id.instance_name,
             sizeof(s_last_instance) - 1);
     s_last_instance[sizeof(s_last_instance) - 1] = '\0';
-    s_last_port = peer->port;
+    s_last_port = peer->id.port;
 }
 
 static void test_removed_cb(const char *instance_name, void *ctx)
@@ -141,12 +141,14 @@ void test_bb_mdns_dispatch_peer_fires_callback(void)
     s_last_port  = 0;
     bb_mdns_browse_start("_acme", "_tcp", test_peer_cb, NULL, NULL);
     bb_mdns_peer_t peer = {
-        .instance_name = "acme-device-01",
-        .hostname      = "acme.local",
-        .ip4           = "192.168.1.10",
-        .port          = 4242,
-        .txt           = NULL,
-        .txt_count     = 0,
+        .id = {
+            .instance_name = "acme-device-01",
+            .hostname      = "acme.local",
+            .ip4           = "192.168.1.10",
+            .port          = 4242,
+        },
+        .txt       = NULL,
+        .txt_count = 0,
     };
     bb_err_t err = bb_mdns_host_dispatch_peer("_acme", "_tcp", &peer);
     TEST_ASSERT_EQUAL(BB_OK, err);
@@ -172,9 +174,9 @@ void test_bb_mdns_dispatch_peer_null_cb_no_crash(void)
 {
     bb_mdns_browse_start("_acme", "_tcp", NULL, NULL, NULL);
     bb_mdns_peer_t peer = {0};
-    strncpy(peer.instance_name, "acme-device-01", sizeof(peer.instance_name) - 1);
+    strncpy(peer.id.instance_name, "acme-device-01", sizeof(peer.id.instance_name) - 1);
     /* hostname / ip4 stay zero-length — the post-B1-86 sentinel for "missing". */
-    peer.port = 80;
+    peer.id.port = 80;
     bb_err_t err = bb_mdns_host_dispatch_peer("_acme", "_tcp", &peer);
     TEST_ASSERT_EQUAL(BB_OK, err);
     bb_mdns_browse_stop("_acme", "_tcp");
@@ -191,7 +193,7 @@ void test_bb_mdns_dispatch_removed_null_cb_no_crash(void)
 void test_bb_mdns_dispatch_no_subscription_returns_ok(void)
 {
     bb_mdns_peer_t peer = {0};
-    strncpy(peer.instance_name, "orphan-device", sizeof(peer.instance_name) - 1);
+    strncpy(peer.id.instance_name, "orphan-device", sizeof(peer.id.instance_name) - 1);
     bb_err_t err = bb_mdns_host_dispatch_peer("_nosub", "_tcp", &peer);
     TEST_ASSERT_EQUAL(BB_OK, err);
     err = bb_mdns_host_dispatch_removed("_nosub", "_tcp", "orphan-device");
@@ -219,15 +221,15 @@ void test_bb_mdns_dispatch_peer_with_empty_ip4_dispatches_anyway(void)
 
     bb_mdns_browse_start("_acme", "_tcp", capture_peer_cb, NULL, NULL);
     bb_mdns_peer_t peer = {0};
-    strncpy(peer.instance_name, "test-device-01",     sizeof(peer.instance_name) - 1);
-    strncpy(peer.hostname,      "test-device.local", sizeof(peer.hostname)      - 1);
-    /* peer.ip4 stays "" — the empty-ip4 contract under test. */
-    peer.port = 80;
+    strncpy(peer.id.instance_name, "test-device-01",     sizeof(peer.id.instance_name) - 1);
+    strncpy(peer.id.hostname,      "test-device.local", sizeof(peer.id.hostname)      - 1);
+    /* peer.id.ip4 stays "" — the empty-ip4 contract under test. */
+    peer.id.port = 80;
     bb_err_t err = bb_mdns_host_dispatch_peer("_acme", "_tcp", &peer);
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_NOT_NULL(s_last_peer_ptr);
-    TEST_ASSERT_EQUAL_STRING("",               s_last_peer_copy.ip4);
-    TEST_ASSERT_EQUAL_STRING("test-device-01", s_last_peer_copy.instance_name);
+    TEST_ASSERT_EQUAL_STRING("",               s_last_peer_copy.id.ip4);
+    TEST_ASSERT_EQUAL_STRING("test-device-01", s_last_peer_copy.id.instance_name);
     bb_mdns_browse_stop("_acme", "_tcp");
 }
 
@@ -257,7 +259,7 @@ static void test_query_cb(const bb_mdns_query_result_t *result, void *ctx)
     s_query_cb_fired++;
     s_query_cb_err = result->err;
     strncpy(s_query_cb_instance,
-            result->instance_name ? result->instance_name : "",
+            result->id.instance_name,
             sizeof(s_query_cb_instance) - 1);
     s_query_cb_instance[sizeof(s_query_cb_instance) - 1] = '\0';
 }
@@ -273,10 +275,10 @@ void test_bb_mdns_query_dispatch_invokes_cb_with_result(void)
     };
     bb_mdns_query_result_t result = {0};
     result.err = BB_OK;
-    strncpy(result.instance_name, "acme-miner-01",     sizeof(result.instance_name) - 1);
-    strncpy(result.hostname,      "acme-miner.local", sizeof(result.hostname)      - 1);
-    strncpy(result.ip4,           "192.168.1.42",     sizeof(result.ip4)           - 1);
-    result.port      = 4444;
+    strncpy(result.id.instance_name, "acme-miner-01",     sizeof(result.id.instance_name) - 1);
+    strncpy(result.id.hostname,      "acme-miner.local", sizeof(result.id.hostname)      - 1);
+    strncpy(result.id.ip4,           "192.168.1.42",     sizeof(result.id.ip4)           - 1);
+    result.id.port   = 4444;
     result.txt       = txt;
     result.txt_count = 1;
 
@@ -587,4 +589,92 @@ void test_txt_cache_update_while_down_replays_on_next_start(void)
     TEST_ASSERT_EQUAL(0, bb_mdns_txt_live_set_count());  /* no write-through while down */
     bb_mdns_simulate_start_for_test();
     TEST_ASSERT_EQUAL_STRING("miner-99", bb_mdns_txt_pending_get_value("worker"));
+}
+
+// ---------------------------------------------------------------------------
+// bb_mdns_identity_t copy and truncation tests (B1-420)
+// ---------------------------------------------------------------------------
+
+/* 31-char instance_name fits without truncation (MAX=32, last byte is NUL). */
+void test_identity_instance_name_31_chars_fits(void)
+{
+    bb_mdns_peer_t peer;
+    memset(&peer, 0, sizeof(peer));
+    char src31[32];
+    memset(src31, 'a', 31);
+    src31[31] = '\0';
+    strncpy(peer.id.instance_name, src31, sizeof(peer.id.instance_name) - 1);
+    peer.id.instance_name[sizeof(peer.id.instance_name) - 1] = '\0';
+    TEST_ASSERT_EQUAL(31, (int)strlen(peer.id.instance_name));
+    TEST_ASSERT_EQUAL_CHAR('a', peer.id.instance_name[30]);
+    TEST_ASSERT_EQUAL_CHAR('\0', peer.id.instance_name[31]);
+}
+
+/* 32-char source truncates to 31 chars and is NUL-terminated. */
+void test_identity_instance_name_32_chars_truncates(void)
+{
+    bb_mdns_peer_t peer;
+    memset(&peer, 0, sizeof(peer));
+    char src32[33];
+    memset(src32, 'b', 32);
+    src32[32] = '\0';
+    strncpy(peer.id.instance_name, src32, sizeof(peer.id.instance_name) - 1);
+    peer.id.instance_name[sizeof(peer.id.instance_name) - 1] = '\0';
+    TEST_ASSERT_EQUAL(31, (int)strlen(peer.id.instance_name));
+    TEST_ASSERT_EQUAL_CHAR('\0', peer.id.instance_name[31]);
+}
+
+/* Empty instance_name is valid (zero-length string). */
+void test_identity_instance_name_empty_ok(void)
+{
+    bb_mdns_peer_t peer;
+    memset(&peer, 0, sizeof(peer));
+    strncpy(peer.id.instance_name, "", sizeof(peer.id.instance_name) - 1);
+    peer.id.instance_name[sizeof(peer.id.instance_name) - 1] = '\0';
+    TEST_ASSERT_EQUAL_STRING("", peer.id.instance_name);
+}
+
+/* ip4 "255.255.255.255" (15 chars) fits in BB_MDNS_IP4_MAX=16. */
+void test_identity_ip4_max_value_fits(void)
+{
+    bb_mdns_peer_t peer;
+    memset(&peer, 0, sizeof(peer));
+    strncpy(peer.id.ip4, "255.255.255.255", sizeof(peer.id.ip4) - 1);
+    peer.id.ip4[sizeof(peer.id.ip4) - 1] = '\0';
+    TEST_ASSERT_EQUAL_STRING("255.255.255.255", peer.id.ip4);
+    TEST_ASSERT_EQUAL(15, (int)strlen(peer.id.ip4));
+}
+
+/* identity struct copy: value-copy of bb_mdns_peer_t preserves all id fields. */
+void test_identity_peer_copy_preserves_id(void)
+{
+    bb_mdns_peer_t src;
+    memset(&src, 0, sizeof(src));
+    strncpy(src.id.instance_name, "TaipanMiner-abc123", sizeof(src.id.instance_name) - 1);
+    strncpy(src.id.hostname,      "tdongles3-1.local", sizeof(src.id.hostname)      - 1);
+    strncpy(src.id.ip4,           "192.168.1.5",       sizeof(src.id.ip4)           - 1);
+    src.id.port = 3333;
+
+    bb_mdns_peer_t dst = src;
+    TEST_ASSERT_EQUAL_STRING("TaipanMiner-abc123", dst.id.instance_name);
+    TEST_ASSERT_EQUAL_STRING("tdongles3-1.local", dst.id.hostname);
+    TEST_ASSERT_EQUAL_STRING("192.168.1.5",        dst.id.ip4);
+    TEST_ASSERT_EQUAL(3333, (int)dst.id.port);
+}
+
+/* identity in query_result_t: same copy semantics. */
+void test_identity_query_result_copy_preserves_id(void)
+{
+    bb_mdns_query_result_t src;
+    memset(&src, 0, sizeof(src));
+    strncpy(src.id.instance_name, "acme-miner-01",    sizeof(src.id.instance_name) - 1);
+    strncpy(src.id.hostname,      "acme-miner.local", sizeof(src.id.hostname)      - 1);
+    strncpy(src.id.ip4,           "10.0.0.1",         sizeof(src.id.ip4)           - 1);
+    src.id.port = 9999;
+
+    bb_mdns_query_result_t dst = src;
+    TEST_ASSERT_EQUAL_STRING("acme-miner-01",    dst.id.instance_name);
+    TEST_ASSERT_EQUAL_STRING("acme-miner.local", dst.id.hostname);
+    TEST_ASSERT_EQUAL_STRING("10.0.0.1",          dst.id.ip4);
+    TEST_ASSERT_EQUAL(9999, (int)dst.id.port);
 }
