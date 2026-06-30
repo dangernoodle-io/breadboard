@@ -23,11 +23,17 @@
 #define CONFIG_BB_PUB_WIFI_AUTO_ATTACH 0
 #endif
 
+// Kconfig host fallback — matches the no-PSRAM Kconfig default.
+// On ESP-IDF the build system supplies the real CONFIG_ value via sdkconfig.h.
+#ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
+#define CONFIG_BB_PUB_TELEM_SNAP_MAX 512
+#endif
+
 static const char *TAG = "bb_pub_wifi";
 
 // ---------------------------------------------------------------------------
 // Snapshot struct — captured once per tick under the tick lock.
-// Must fit within CONFIG_BB_PUB_TELEM_SNAP_MAX (default 256 bytes).
+// Must fit within CONFIG_BB_PUB_TELEM_SNAP_MAX.
 // ---------------------------------------------------------------------------
 
 typedef struct {
@@ -37,6 +43,10 @@ typedef struct {
     int            lost_ip_count;
     int64_t        ts_ms;            // sample-time monotonic ms (bb_clock_now_ms64)
 } bb_wifi_snap_t;
+
+// Compile-time guard: wifi snap must fit in the scratch buffer (B1-434).
+typedef char _wifi_snap_size_check[
+    sizeof(bb_wifi_snap_t) <= CONFIG_BB_PUB_TELEM_SNAP_MAX ? 1 : -1];
 
 // ---------------------------------------------------------------------------
 // Host test stub state (only when BB_PUB_WIFI_TESTING is defined)

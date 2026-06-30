@@ -20,16 +20,26 @@
 #define CONFIG_BB_PUB_POWER_AUTO_ATTACH 0
 #endif
 
+// Kconfig host fallback — matches the no-PSRAM Kconfig default.
+// On ESP-IDF the build system supplies the real CONFIG_ value via sdkconfig.h.
+#ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
+#define CONFIG_BB_PUB_TELEM_SNAP_MAX 512
+#endif
+
 static const char *TAG = "bb_pub_power";
 
 // ---------------------------------------------------------------------------
-// Snapshot struct — ~28 bytes, well under 256-byte limit.
+// Snapshot struct — ~28 bytes, well under the SNAP_MAX limit.
 // ---------------------------------------------------------------------------
 
 typedef struct {
     bb_power_snapshot_t snap;  // 5 ints = 20 bytes
     int64_t             ts_ms;
 } bb_power_snap_t;
+
+// Compile-time guard: power snap must fit in the scratch buffer (B1-434).
+typedef char _power_snap_size_check[
+    sizeof(bb_power_snap_t) <= CONFIG_BB_PUB_TELEM_SNAP_MAX ? 1 : -1];
 
 // ---------------------------------------------------------------------------
 // Gather

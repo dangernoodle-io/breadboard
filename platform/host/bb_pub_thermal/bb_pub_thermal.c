@@ -20,16 +20,26 @@
 #define CONFIG_BB_PUB_THERMAL_AUTO_ATTACH 0
 #endif
 
+// Kconfig host fallback — matches the no-PSRAM Kconfig default.
+// On ESP-IDF the build system supplies the real CONFIG_ value via sdkconfig.h.
+#ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
+#define CONFIG_BB_PUB_TELEM_SNAP_MAX 512
+#endif
+
 static const char *TAG = "bb_pub_thermal";
 
 // ---------------------------------------------------------------------------
-// Snapshot struct — ~44 bytes, well under 256-byte limit.
+// Snapshot struct — ~44 bytes, well within the SNAP_MAX limit.
 // ---------------------------------------------------------------------------
 
 typedef struct {
     bb_thermal_values_t vals;  // bools + floats
     int64_t             ts_ms;
 } bb_thermal_snap_t;
+
+// Compile-time guard: thermal snap must fit in the scratch buffer (B1-434).
+typedef char _thermal_snap_size_check[
+    sizeof(bb_thermal_snap_t) <= CONFIG_BB_PUB_TELEM_SNAP_MAX ? 1 : -1];
 
 // ---------------------------------------------------------------------------
 // Gather — fills snap; skips tick when all sources absent.

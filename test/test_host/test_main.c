@@ -1394,6 +1394,15 @@ void test_bb_net_health_emit_lost_ip_zero(void);
 void test_bb_net_health_emit_status_status_only(void);
 void test_bb_net_health_emit_status_mqtt_alloc_fail(void);
 void test_bb_net_health_emit_status_http_alloc_fail(void);
+void test_bb_net_health_classify_heap_ok(void);
+void test_bb_net_health_classify_heap_low(void);
+void test_bb_net_health_classify_heap_critical(void);
+void test_bb_net_health_classify_heap_zero(void);
+void test_bb_heap_state_str_ok(void);
+void test_bb_heap_state_str_low(void);
+void test_bb_heap_state_str_critical(void);
+void test_bb_heap_state_str_unknown_returns_ok(void);
+void test_bb_net_health_set_heap_state_roundtrip(void);
 
 // Forward declarations from test_bb_sse_writer.c
 void test_sse_idle_below_heartbeat(void);
@@ -4696,6 +4705,15 @@ int main(void) {
     RUN_TEST(test_bb_net_health_emit_status_status_only);
     RUN_TEST(test_bb_net_health_emit_status_mqtt_alloc_fail);
     RUN_TEST(test_bb_net_health_emit_status_http_alloc_fail);
+    RUN_TEST(test_bb_net_health_classify_heap_ok);
+    RUN_TEST(test_bb_net_health_classify_heap_low);
+    RUN_TEST(test_bb_net_health_classify_heap_critical);
+    RUN_TEST(test_bb_net_health_classify_heap_zero);
+    RUN_TEST(test_bb_heap_state_str_ok);
+    RUN_TEST(test_bb_heap_state_str_low);
+    RUN_TEST(test_bb_heap_state_str_critical);
+    RUN_TEST(test_bb_heap_state_str_unknown_returns_ok);
+    RUN_TEST(test_bb_net_health_set_heap_state_roundtrip);
 
     // bb_vcore_wd tests (pure vcore-collapse watchdog)
     RUN_TEST(test_bb_vcore_wd_warmup_suppresses_all);

@@ -21,11 +21,17 @@
 #define CONFIG_BB_PUB_FAN_AUTO_ATTACH 0
 #endif
 
+// Kconfig host fallback — matches the no-PSRAM Kconfig default.
+// On ESP-IDF the build system supplies the real CONFIG_ value via sdkconfig.h.
+#ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
+#define CONFIG_BB_PUB_TELEM_SNAP_MAX 512
+#endif
+
 static const char *TAG = "bb_pub_fan";
 
 // ---------------------------------------------------------------------------
 // Snapshot struct — captured once per tick under the tick lock.
-// Must fit within CONFIG_BB_PUB_TELEM_SNAP_MAX (default 256 bytes).
+// Must fit within CONFIG_BB_PUB_TELEM_SNAP_MAX.
 // Plain: ~24 bytes; with autofan: ~40 bytes.
 // ---------------------------------------------------------------------------
 
@@ -39,6 +45,10 @@ typedef struct {
 #endif
     int64_t           ts_ms;
 } bb_fan_snap_t;
+
+// Compile-time guard: fan snap must fit in the scratch buffer (B1-434).
+typedef char _fan_snap_size_check[
+    sizeof(bb_fan_snap_t) <= CONFIG_BB_PUB_TELEM_SNAP_MAX ? 1 : -1];
 
 // ---------------------------------------------------------------------------
 // Gather — fills snap from live fan state; called under tick lock.

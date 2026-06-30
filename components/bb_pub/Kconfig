@@ -186,6 +186,7 @@ config BB_PUB_BUFFER_ALWAYS
 
 config BB_PUB_TELEM_SNAP_MAX
     int "Maximum snapshot buffer size for telemetry sources (bytes)"
+    default 1024 if SPIRAM
     default 512
     range 16 4096
     help
@@ -198,8 +199,16 @@ config BB_PUB_TELEM_SNAP_MAX
         ~320 bytes and is now the binding constraint; a static_assert in
         bb_pub_telemetry_host.c enforces sizeof(meta_snap_t) <= this value.
 
+        PSRAM-axis DERIVE (B1-435): default 1024 on SPIRAM boards (bitaxe),
+        512 on no-PSRAM boards.  Kconfig defaults are lowest precedence, so
+        explicit sdkconfig fragment values (e.g. TaipanMiner sdkconfig/no-psram
+        and sdkconfig.defaults) still win.  This derive ensures a board that
+        omits the explicit fragment gets the right value automatically — the
+        root cause of the TA-505 S2 silent-over-allocation.
+
 config BB_PUB_TELEM_SERIALIZE_MAX
     int "Maximum serialized-JSON copy-out buffer for telemetry sources (bytes)"
+    default 1024 if SPIRAM
     default 512
     range 64 8192
     help
@@ -211,6 +220,9 @@ config BB_PUB_TELEM_SERIALIZE_MAX
         that tick (logged). Raise if any telemetry topic's JSON exceeds 512 bytes
         (wifi/meta are well under; large payloads like "info" use the legacy
         bb_pub_register_source path, not the telem/cache path).
+
+        PSRAM-axis DERIVE (B1-435): default 1024 on SPIRAM boards, 512 on
+        no-PSRAM boards.  See BB_PUB_TELEM_SNAP_MAX for the full rationale.
 
 config BB_PUB_LEGACY_TRANSPORT_INJECT
     bool "Enable per-sink transport/tls field injection (legacy B1-388 behaviour)"
