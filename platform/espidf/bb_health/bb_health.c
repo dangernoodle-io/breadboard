@@ -55,21 +55,18 @@ static bb_err_t send_json_tree(bb_http_request_t *req, bb_json_t root)
 static bb_err_t health_handler(bb_http_request_t *req)
 {
     bb_board_info_t b;
-    bb_wifi_info_t w;
     bb_board_get_info(&b);
-    bb_wifi_get_info(&w);
 
     const char *hostname = bb_mdns_get_hostname();
 
     bb_json_t root = bb_json_obj_new();
     bb_json_obj_set_bool(root, "ok", bb_health_compute_ok());
-    bb_json_obj_set_number(root, "free_heap", (double)b.free_heap);
     bb_json_obj_set_bool(root, "validated", b.ota_validated);
 
-    // network: shared wifi section (ssid/bssid/rssi/ip/connected/disc_reason/
-    // disc_age_s/retry_count) plus mdns hostname (kept per locked decision).
+    // network: status bools/strings only (TA-505) — bb_wifi_emit_status emits
+    // only connected/ssid/bssid/ip; no numeric fields.
     bb_json_t net = bb_json_obj_new();
-    bb_wifi_emit_section(net, &w);
+    bb_wifi_emit_status(net);
     if (hostname) {
         bb_json_obj_set_string(net, "mdns", hostname);
     } else {

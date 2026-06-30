@@ -679,11 +679,12 @@ void test_capture_end_null_args_returns_err(void);
 void test_capture_no_active_slot_ignored(void);
 void test_fidelity_info_with_extender(void);
 void test_fidelity_info_schema_matches_assembled(void);
-void test_fidelity_info_has_uptime_ms(void);
+void test_fidelity_info_lacks_uptime_ms(void);
 void test_fidelity_info_has_hostname(void);
 void test_fidelity_info_has_time_valid_false_on_host(void);
 void test_fidelity_info_boot_epoch_zero_when_not_synced(void);
 void test_fidelity_info_flat_heap_fields_absent(void);
+void test_fidelity_health_no_raw_numbers(void);
 void test_register_described_route_rejects_null(void);
 void test_register_described_route_propagates_underlying_failure(void);
 void test_register_described_route_overflow_returns_no_space(void);
@@ -1320,7 +1321,9 @@ void test_bb_health_compute_ok_false_when_no_ip(void);
 void test_bb_health_schema_network_has_ssid(void);
 void test_bb_health_schema_network_has_bssid(void);
 void test_bb_health_schema_network_has_ip(void);
-void test_bb_health_schema_network_has_disc_reason(void);
+void test_bb_health_schema_network_no_disc_reason(void);
+void test_bb_health_schema_no_free_heap(void);
+void test_bb_health_schema_network_no_rssi(void);
 void test_bb_health_schema_network_has_mdns(void);
 void test_bb_health_section_get_fn_invoked(void);
 
@@ -1388,6 +1391,9 @@ void test_bb_net_health_emit_http_object_present(void);
 void test_bb_net_health_emit_http_alloc_fail(void);
 void test_bb_net_health_emit_lost_ip_fields(void);
 void test_bb_net_health_emit_lost_ip_zero(void);
+void test_bb_net_health_emit_status_status_only(void);
+void test_bb_net_health_emit_status_mqtt_alloc_fail(void);
+void test_bb_net_health_emit_status_http_alloc_fail(void);
 
 // Forward declarations from test_bb_sse_writer.c
 void test_sse_idle_below_heartbeat(void);
@@ -1522,7 +1528,10 @@ void test_bb_info_capabilities_empty_schema_present(void);
 void test_bb_info_capabilities_over_cap_drops_extra(void);
 void test_bb_info_capabilities_post_freeze_ignored(void);
 void test_bb_info_assembled_schema_contains_capabilities_array(void);
-void test_bb_info_schema_contains_uptime_ms(void);
+void test_bb_info_schema_lacks_uptime_ms(void);
+void test_bb_info_schema_lacks_heap_internal(void);
+void test_bb_info_schema_lacks_network(void);
+void test_bb_info_schema_lacks_reset_reason(void);
 void test_bb_info_schema_contains_boot_epoch(void);
 void test_bb_info_schema_contains_time_valid(void);
 void test_bb_info_schema_contains_hostname(void);
@@ -3986,11 +3995,12 @@ int main(void) {
     RUN_TEST(test_fidelity_diag_events_age_ms_branch);
     RUN_TEST(test_fidelity_info_with_extender);
     RUN_TEST(test_fidelity_info_schema_matches_assembled);
-    RUN_TEST(test_fidelity_info_has_uptime_ms);
+    RUN_TEST(test_fidelity_info_lacks_uptime_ms);
     RUN_TEST(test_fidelity_info_has_hostname);
     RUN_TEST(test_fidelity_info_has_time_valid_false_on_host);
     RUN_TEST(test_fidelity_info_boot_epoch_zero_when_not_synced);
     RUN_TEST(test_fidelity_info_flat_heap_fields_absent);
+    RUN_TEST(test_fidelity_health_no_raw_numbers);
     RUN_TEST(test_register_described_route_rejects_null);
     RUN_TEST(test_register_described_route_propagates_underlying_failure);
     RUN_TEST(test_register_described_route_overflow_returns_no_space);
@@ -4601,7 +4611,9 @@ int main(void) {
     RUN_TEST(test_bb_health_schema_network_has_ssid);
     RUN_TEST(test_bb_health_schema_network_has_bssid);
     RUN_TEST(test_bb_health_schema_network_has_ip);
-    RUN_TEST(test_bb_health_schema_network_has_disc_reason);
+    RUN_TEST(test_bb_health_schema_network_no_disc_reason);
+    RUN_TEST(test_bb_health_schema_no_free_heap);
+    RUN_TEST(test_bb_health_schema_network_no_rssi);
     RUN_TEST(test_bb_health_schema_network_has_mdns);
     RUN_TEST(test_bb_health_section_get_fn_invoked);
 
@@ -4669,6 +4681,9 @@ int main(void) {
     RUN_TEST(test_bb_net_health_emit_http_alloc_fail);
     RUN_TEST(test_bb_net_health_emit_lost_ip_fields);
     RUN_TEST(test_bb_net_health_emit_lost_ip_zero);
+    RUN_TEST(test_bb_net_health_emit_status_status_only);
+    RUN_TEST(test_bb_net_health_emit_status_mqtt_alloc_fail);
+    RUN_TEST(test_bb_net_health_emit_status_http_alloc_fail);
 
     // bb_vcore_wd tests (pure vcore-collapse watchdog)
     RUN_TEST(test_bb_vcore_wd_warmup_suppresses_all);
@@ -4717,7 +4732,10 @@ int main(void) {
     RUN_TEST(test_bb_info_capabilities_over_cap_drops_extra);
     RUN_TEST(test_bb_info_capabilities_post_freeze_ignored);
     RUN_TEST(test_bb_info_assembled_schema_contains_capabilities_array);
-    RUN_TEST(test_bb_info_schema_contains_uptime_ms);
+    RUN_TEST(test_bb_info_schema_lacks_uptime_ms);
+    RUN_TEST(test_bb_info_schema_lacks_heap_internal);
+    RUN_TEST(test_bb_info_schema_lacks_network);
+    RUN_TEST(test_bb_info_schema_lacks_reset_reason);
     RUN_TEST(test_bb_info_schema_contains_boot_epoch);
     RUN_TEST(test_bb_info_schema_contains_time_valid);
     RUN_TEST(test_bb_info_schema_contains_hostname);

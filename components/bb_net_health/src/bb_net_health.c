@@ -163,6 +163,25 @@ bool bb_net_health_throttle_decision(bb_net_health_state_t *st, int threshold)
     return st->throttled;
 }
 
+void bb_net_health_emit_status(bb_json_t obj, const bb_net_health_status_t *snap)
+{
+    bb_json_obj_set_string(obj, "state",         bb_net_state_str(snap->state));
+    bb_json_obj_set_bool  (obj, "early_warning", snap->early_warning);
+    bb_json_obj_set_bool  (obj, "throttled",     snap->throttled);
+
+    bb_json_t mqtt = bb_json_obj_new();
+    if (mqtt) {
+        bb_json_obj_set_bool(mqtt, "connected", snap->mqtt_connected);
+        bb_json_obj_set_obj(obj, "mqtt", mqtt);
+    }
+
+    bb_json_t http = bb_json_obj_new();
+    if (http) {
+        bb_json_obj_set_bool(http, "connected", snap->http_connected);
+        bb_json_obj_set_obj(obj, "http", http);
+    }
+}
+
 void bb_net_health_emit(bb_json_t obj, const void *snap_v)
 {
     const bb_net_health_status_t *snap = (const bb_net_health_status_t *)snap_v;

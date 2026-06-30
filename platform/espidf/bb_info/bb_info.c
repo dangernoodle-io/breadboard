@@ -26,7 +26,6 @@
 #include "bb_openapi.h"
 #include "bb_registry.h"
 #include "bb_section.h"
-#include "bb_wifi.h"
 
 #include "../../../components/bb_info/bb_info_schema_priv.h"
 #include "../../../components/bb_info/src/bb_info_build_priv.h"
@@ -95,42 +94,13 @@ void bb_info_register_capability(const char *name)
 
 static void add_board_fields(bb_json_t root, const bb_board_info_t *b)
 {
-    // Static build fields moved to the nested "build" subsection (B1-360).
-    // Only dynamic/runtime fields remain at the root level.
+    // Static build fields live in the nested "build" subsection (B1-360).
+    // Identity/capability fields only at root level (TA-505).
     bb_json_obj_set_string(root, "mac", b->mac);
-    bb_json_obj_set_string(root, "reset_reason", b->reset_reason);
     bb_json_obj_set_bool(root, "ota_validated", b->ota_validated);
 #if BB_INFO_EMIT_OTA_READY
     bb_json_obj_set_bool(root, "ota_ready", bb_ota_pull_heap_ready());
 #endif
-
-    bb_json_t heap_internal = bb_json_obj_new();
-    bb_json_obj_set_number(heap_internal, "free",          (double)bb_board_heap_internal_free());
-    bb_json_obj_set_number(heap_internal, "total",         (double)bb_board_heap_internal_total());
-    bb_json_obj_set_number(heap_internal, "min_free",      (double)bb_board_heap_minimum_ever());
-    bb_json_obj_set_number(heap_internal, "largest_block", (double)bb_board_heap_internal_largest_free_block());
-    bb_json_obj_set_obj(root, "heap_internal", heap_internal);
-
-    bb_json_t heap_psram = bb_json_obj_new();
-    bb_json_obj_set_number(heap_psram, "free",  (double)bb_board_psram_free());
-    bb_json_obj_set_number(heap_psram, "total", (double)bb_board_psram_total());
-    bb_json_obj_set_obj(root, "heap_psram", heap_psram);
-
-    bb_json_t rtc = bb_json_obj_new();
-    bb_json_obj_set_number(rtc, "used",  (double)bb_board_rtc_used());
-    bb_json_obj_set_number(rtc, "total", (double)bb_board_rtc_total());
-    bb_json_obj_set_obj(root, "rtc", rtc);
-
-    bb_json_t static_dram = bb_json_obj_new();
-    bb_json_obj_set_number(static_dram, "bytes", (double)bb_board_dram_static_bytes());
-    bb_json_obj_set_obj(root, "static_dram", static_dram);
-}
-
-static void add_network_object(bb_json_t root, const bb_wifi_info_t *w)
-{
-    bb_json_t net = bb_json_obj_new();
-    bb_wifi_emit_section(net, w);
-    bb_json_obj_set_obj(root, "network", net);
 }
 
 // REST callback for /api/info "build" section: reads from the bb_cache snapshot.
@@ -155,23 +125,14 @@ static bb_err_t send_json_tree(bb_http_request_t *req, bb_json_t root)
 static bb_err_t info_handler(bb_http_request_t *req)
 {
     bb_board_info_t b;
-    bb_wifi_info_t w;
     bb_board_get_info(&b);
-    bb_wifi_get_info(&w);
 
     bb_json_t root = bb_json_obj_new();
     add_board_fields(root, &b);
-    add_network_object(root, &w);
 
-    // Add HTTP handler telemetry
-    extern size_t bb_http_route_handler_count(void);
-    extern size_t bb_http_route_handler_cap(void);
-    bb_json_obj_set_number(root, "http_handler_count", (double)bb_http_route_handler_count());
-    bb_json_obj_set_number(root, "http_handler_cap", (double)bb_http_route_handler_cap());
-
-    // Uptime, boot epoch, time validity — same accessors as bb_pub_info (SSOT).
-    int64_t uptime_ms = bb_clock_now_ms();
-    bb_json_obj_set_number(root, "uptime_ms", (double)uptime_ms);
+    // Boot epoch and time validity — identity fields only (TA-505: uptime_ms
+    // and http_handler_count/cap moved to /api/diag/net).
+    int64_t now_ms = bb_clock_now_ms();
 
     bool   time_valid = false;
     int64_t boot_epoch_s = 0;
@@ -179,13 +140,13 @@ static bb_err_t info_handler(bb_http_request_t *req)
         time_t now = time(NULL);
         if (now >= (time_t)1704067200LL) {
             time_valid  = true;
-            int64_t uptime_s = uptime_ms / 1000;
+            int64_t uptime_s = now_ms / 1000;
             boot_epoch_s = (int64_t)now - uptime_s;
         }
     }
     bb_json_obj_set_bool  (root, "time_valid",   time_valid);
     bb_json_obj_set_number(root, "boot_epoch_s", (double)boot_epoch_s);
-    // time_source: parity with bb_pub_info telemetry (was published but absent here).
+    // time_source: parity with bb_pub_info telemetry.
     bb_json_obj_set_string(root, "time_source", time_valid ? "sntp" : "none");
 
     // Hostname — same value as /api/health.network.mdns.

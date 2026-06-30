@@ -17,18 +17,13 @@ static const char k_health_base[] =
     "{\"type\":\"object\","
     "\"properties\":{"
     "\"ok\":{\"type\":\"boolean\"},"
-    "\"free_heap\":{\"type\":\"integer\"},"
     "\"validated\":{\"type\":\"boolean\"},"
     "\"network\":{\"type\":\"object\","
     "\"properties\":{"
     "\"ssid\":{\"type\":\"string\"},"
     "\"bssid\":{\"type\":\"string\"},"
-    "\"rssi\":{\"type\":\"integer\"},"
     "\"ip\":{\"type\":\"string\"},"
     "\"connected\":{\"type\":\"boolean\"},"
-    "\"disc_reason\":{\"type\":\"integer\"},"
-    "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"retry_count\":{\"type\":\"integer\"},"
     "\"mdns\":{\"type\":[\"string\",\"null\"]}}}";
 
 // Suffix: section properties (mqtt, temp, ...) are inserted between base and suffix
