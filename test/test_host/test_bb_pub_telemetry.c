@@ -570,3 +570,158 @@ void test_bb_pub_telemetry_meta_gather_sink_count_parity(void)
     TEST_ASSERT_EQUAL_INT_MESSAGE(1, st.sink_count,
         "public bb_pub_get_status sink_count must be 1 (parity with nolock path)");
 }
+
+// ---------------------------------------------------------------------------
+// TA-505 PR-2: meta identity field tests
+//
+// meta_gather now fills device-identity fields moved from the info topic.
+// These tests fire one tick via the real meta_gather/meta_serialize hooks
+// and assert field presence and correctness in the captured payload.
+// ---------------------------------------------------------------------------
+
+static char s_meta_payload[1024];
+
+static bb_err_t meta_cap_sink(void *ctx, const char *topic,
+                               const char *payload, int len)
+{
+    (void)ctx; (void)topic; (void)len;
+    strncpy(s_meta_payload, payload, sizeof(s_meta_payload) - 1);
+    s_meta_payload[sizeof(s_meta_payload) - 1] = '\0';
+    return BB_OK;
+}
+
+static void meta_identity_setup(void)
+{
+    reset_all();
+    s_meta_payload[0] = '\0';
+
+    bb_pub_telemetry_cfg_t meta_cfg;
+    memset(&meta_cfg, 0, sizeof(meta_cfg));
+    meta_cfg.topic     = "meta";
+    meta_cfg.gather    = bb_pub_telemetry_meta_gather_for_test;
+    meta_cfg.serialize = bb_pub_telemetry_meta_serialize_for_test;
+    meta_cfg.snap_size = bb_pub_telemetry_meta_snap_size_for_test();
+    meta_cfg.flags     = BB_PUB_TELEM_SINKS;
+    meta_cfg.ctx       = NULL;
+    bb_pub_register_telemetry(&meta_cfg);
+
+    bb_pub_sink_t s = { .publish = meta_cap_sink, .ctx = NULL };
+    bb_pub_add_sink(&s);
+    bb_pub_tick_once();
+}
+
+void test_bb_pub_telemetry_meta_has_version(void)
+{
+    meta_identity_setup();
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"version\""),
+        "meta payload must contain 'version'");
+}
+
+void test_bb_pub_telemetry_meta_has_board(void)
+{
+    meta_identity_setup();
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"board\""),
+        "meta payload must contain 'board'");
+}
+
+void test_bb_pub_telemetry_meta_board_is_host_on_host(void)
+{
+    meta_identity_setup();
+    // Host stub for bb_board_get_info returns board = "host".
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"board\":\"host\""),
+        "meta.board must equal 'host' on host builds");
+}
+
+void test_bb_pub_telemetry_meta_has_chip_model(void)
+{
+    meta_identity_setup();
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"chip_model\""),
+        "meta payload must contain 'chip_model'");
+}
+
+void test_bb_pub_telemetry_meta_has_mac(void)
+{
+    meta_identity_setup();
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"mac\""),
+        "meta payload must contain 'mac'");
+}
+
+void test_bb_pub_telemetry_meta_has_reset_reason(void)
+{
+    meta_identity_setup();
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"reset_reason\""),
+        "meta payload must contain 'reset_reason'");
+}
+
+void test_bb_pub_telemetry_meta_reset_reason_is_power_on_on_host(void)
+{
+    meta_identity_setup();
+    // Host stub returns "power-on".
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"reset_reason\":\"power-on\""),
+        "meta.reset_reason must equal 'power-on' on host builds");
+}
+
+void test_bb_pub_telemetry_meta_has_flash_size(void)
+{
+    meta_identity_setup();
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"flash_size\""),
+        "meta payload must contain 'flash_size'");
+}
+
+void test_bb_pub_telemetry_meta_has_app_size(void)
+{
+    meta_identity_setup();
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"app_size\""),
+        "meta payload must contain 'app_size'");
+}
+
+void test_bb_pub_telemetry_meta_has_dram_static_bytes(void)
+{
+    meta_identity_setup();
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"dram_static_bytes\""),
+        "meta payload must contain 'dram_static_bytes'");
+}
+
+void test_bb_pub_telemetry_meta_has_rtc_used(void)
+{
+    meta_identity_setup();
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"rtc_used\""),
+        "meta payload must contain 'rtc_used'");
+}
+
+void test_bb_pub_telemetry_meta_has_rtc_total(void)
+{
+    meta_identity_setup();
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"rtc_total\""),
+        "meta payload must contain 'rtc_total'");
+}
+
+void test_bb_pub_telemetry_meta_has_boot_epoch_s(void)
+{
+    meta_identity_setup();
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"boot_epoch_s\""),
+        "meta payload must contain 'boot_epoch_s'");
+}
+
+void test_bb_pub_telemetry_meta_boot_epoch_s_is_zero_when_not_synced(void)
+{
+    meta_identity_setup();
+    // Host stub bb_ntp_is_synced() returns false → boot_epoch_s=0.
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"boot_epoch_s\":0"),
+        "meta.boot_epoch_s must be 0 when NTP not synced");
+}
+
+void test_bb_pub_telemetry_meta_has_time_source(void)
+{
+    meta_identity_setup();
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"time_source\""),
+        "meta payload must contain 'time_source'");
+}
+
+void test_bb_pub_telemetry_meta_time_source_is_none_on_host(void)
+{
+    meta_identity_setup();
+    // Host stub bb_ntp_is_synced() returns false → time_source="none".
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"time_source\":\"none\""),
+        "meta.time_source must equal 'none' when NTP not synced");
+}

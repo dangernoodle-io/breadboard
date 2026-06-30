@@ -1,7 +1,7 @@
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_pub_info/bb_pub_info.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_pub bb_board bb_system
+    REQUIRES bb_core bb_pub bb_board
     # bb_ota_pull is for the ota_ready field; emission is gated in bb_pub_info.c
     # (BB_PUB_INFO_EMIT_OTA_READY) so --gc-sections drops it on boards with no
     # runtime OTA-TLS path. (bb_info already requires bb_ota_pull, so this adds no

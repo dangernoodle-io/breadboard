@@ -104,13 +104,6 @@ void test_bb_pub_info_has_uptime_ms(void)
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ts_ms\""));
 }
 
-void test_bb_pub_info_has_version(void)
-{
-    setup();
-    bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"version\""));
-}
-
 void test_bb_pub_info_has_heap_internal_largest_block(void)
 {
     setup();
@@ -125,47 +118,42 @@ void test_bb_pub_info_has_heap_internal_min_free(void)
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"heap_internal_min_free\""));
 }
 
-void test_bb_pub_info_has_rtc_used(void)
+// TA-505: rtc_used, rtc_total, dram_static_bytes, flash_size, app_size are
+// static identity fields moved to the meta topic — must be ABSENT from info.
+
+void test_bb_pub_info_does_not_emit_rtc_used(void)
 {
     setup();
     bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"rtc_used\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"rtc_used\""));
 }
 
-void test_bb_pub_info_has_rtc_total(void)
+void test_bb_pub_info_does_not_emit_rtc_total(void)
 {
     setup();
     bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"rtc_total\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"rtc_total\""));
 }
 
-void test_bb_pub_info_has_dram_static_bytes(void)
+void test_bb_pub_info_does_not_emit_dram_static_bytes(void)
 {
     setup();
     bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"dram_static_bytes\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"dram_static_bytes\""));
 }
 
-void test_bb_pub_info_dram_static_bytes_is_zero_on_host(void)
+void test_bb_pub_info_does_not_emit_flash_size(void)
 {
     setup();
     bb_pub_tick_once();
-    // Host stub returns 0; payload must contain the field with value 0.
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"dram_static_bytes\":0"));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"flash_size\""));
 }
 
-void test_bb_pub_info_has_flash_size(void)
+void test_bb_pub_info_does_not_emit_app_size(void)
 {
     setup();
     bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"flash_size\""));
-}
-
-void test_bb_pub_info_has_app_size(void)
-{
-    setup();
-    bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"app_size\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"app_size\""));
 }
 
 void test_bb_pub_info_has_wdt_resets(void)
@@ -182,19 +170,12 @@ void test_bb_pub_info_payload_has_uptime_ms_field(void)
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ts_ms\""));
 }
 
-void test_bb_pub_info_has_reset_reason(void)
+// TA-505: reset_reason is a static identity field moved to the meta topic.
+void test_bb_pub_info_does_not_emit_reset_reason(void)
 {
     setup();
     bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"reset_reason\""));
-}
-
-void test_bb_pub_info_reset_reason_is_power_on_on_host(void)
-{
-    setup();
-    bb_pub_tick_once();
-    // Host stub for bb_board_get_reset_reason returns "power-on".
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"reset_reason\":\"power-on\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"reset_reason\""));
 }
 
 void test_bb_pub_info_has_ota_validated(void)
@@ -228,19 +209,13 @@ void test_bb_pub_info_ota_validated_agrees_with_bb_board_after_mark_valid(void)
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"ota_validated\":true"));
 }
 
-void test_bb_pub_info_has_rtc_free(void)
+// TA-505: rtc_free was a derived field (rtc_total - rtc_used); it has been
+// dropped entirely — neither info nor meta emit it.
+void test_bb_pub_info_does_not_emit_rtc_free(void)
 {
     setup();
     bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"rtc_free\""));
-}
-
-void test_bb_pub_info_rtc_free_is_zero_on_host(void)
-{
-    setup();
-    bb_pub_tick_once();
-    // Host stubs return rtc_total=0 and rtc_used=0, so rtc_free=0.
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"rtc_free\":0"));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"rtc_free\""));
 }
 
 void test_bb_pub_info_has_time_valid(void)
@@ -258,75 +233,49 @@ void test_bb_pub_info_time_valid_is_false_on_host(void)
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"time_valid\":false"));
 }
 
-void test_bb_pub_info_has_epoch_s(void)
+// TA-505: boot_epoch_s, time_source, board, chip_model, mac are static identity
+// fields moved to the meta topic — must be ABSENT from info.
+
+void test_bb_pub_info_does_not_emit_boot_epoch_s(void)
 {
     setup();
     bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"boot_epoch_s\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"boot_epoch_s\""));
 }
 
-void test_bb_pub_info_epoch_s_is_zero_when_not_synced(void)
+void test_bb_pub_info_does_not_emit_time_source(void)
 {
     setup();
     bb_pub_tick_once();
-    // bb_ntp_is_synced() returns false on host → boot_epoch_s=0.
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"boot_epoch_s\":0"));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"time_source\""));
 }
 
-void test_bb_pub_info_has_time_source(void)
+void test_bb_pub_info_does_not_emit_board(void)
 {
     setup();
     bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"time_source\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"board\""));
 }
 
-void test_bb_pub_info_time_source_is_none_on_host(void)
+void test_bb_pub_info_does_not_emit_chip_model(void)
 {
     setup();
     bb_pub_tick_once();
-    // bb_ntp_is_synced() returns false on host → time_source="none".
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"time_source\":\"none\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"chip_model\""));
 }
 
-// ---------------------------------------------------------------------------
-// Identity field tests (B1-287 parity gap)
-// ---------------------------------------------------------------------------
-
-void test_bb_pub_info_has_board_field(void)
+void test_bb_pub_info_does_not_emit_mac(void)
 {
     setup();
     bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"board\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"mac\""));
 }
 
-void test_bb_pub_info_board_is_host_on_host(void)
+void test_bb_pub_info_does_not_emit_version(void)
 {
     setup();
     bb_pub_tick_once();
-    // Host stub for bb_board_get_info returns board = "host".
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"board\":\"host\""));
-}
-
-void test_bb_pub_info_has_chip_model_field(void)
-{
-    setup();
-    bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"chip_model\""));
-}
-
-void test_bb_pub_info_chip_model_is_host_on_host(void)
-{
-    setup();
-    bb_pub_tick_once();
-    // Host stub for bb_board_get_info returns chip_model = "host".
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"chip_model\":\"host\""));
-}
-
-void test_bb_pub_info_has_mac_field(void)
-{
-    setup();
-    bb_pub_tick_once();
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"mac\""));
+    TEST_ASSERT_NULL(strstr(s_captured[0].payload, "\"version\""));
 }
 
 // B1-heap-internal-min-fix: heap_internal_min_free must use MALLOC_CAP_INTERNAL,
