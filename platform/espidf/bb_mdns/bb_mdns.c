@@ -389,7 +389,7 @@ static void announce_arm(uint64_t delay_us)
 #ifdef CONFIG_BB_MDNS_TXT_PENDING_MAX
 #define BB_MDNS_TXT_PENDING_MAX CONFIG_BB_MDNS_TXT_PENDING_MAX
 #else
-#define BB_MDNS_TXT_PENDING_MAX 8
+#define BB_MDNS_TXT_PENDING_MAX 4
 #endif
 typedef struct { char key[16]; char value[64]; bool in_use; } bb_mdns_txt_pending_t;
 static bb_mdns_txt_pending_t s_txt_pending[BB_MDNS_TXT_PENDING_MAX];

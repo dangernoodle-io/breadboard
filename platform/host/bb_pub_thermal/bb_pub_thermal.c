@@ -6,6 +6,7 @@
 // SAME memoized serialization.  ts_ms is stamped at gather time.
 #include "bb_pub_thermal.h"
 #include "bb_pub.h"
+#include "bb_pub_defaults.h"
 #include "bb_thermal.h"
 #include "bb_json.h"
 #include "bb_log.h"
@@ -18,12 +19,6 @@
 
 #ifndef CONFIG_BB_PUB_THERMAL_AUTO_ATTACH
 #define CONFIG_BB_PUB_THERMAL_AUTO_ATTACH 0
-#endif
-
-// Kconfig host fallback — matches the no-PSRAM Kconfig default.
-// On ESP-IDF the build system supplies the real CONFIG_ value via sdkconfig.h.
-#ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
-#define CONFIG_BB_PUB_TELEM_SNAP_MAX 512
 #endif
 
 static const char *TAG = "bb_pub_thermal";

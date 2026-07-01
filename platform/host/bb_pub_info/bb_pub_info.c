@@ -17,6 +17,7 @@
 #include "bb_pub_info.h"
 #include "bb_mem.h"
 #include "bb_pub.h"
+#include "bb_pub_defaults.h"
 #include "bb_board.h"
 #include "bb_clock.h"
 #include "bb_diag.h"
@@ -42,11 +43,6 @@
 
 #ifndef CONFIG_BB_PUB_INFO_AUTO_ATTACH
 #define CONFIG_BB_PUB_INFO_AUTO_ATTACH 0
-#endif
-
-#ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
-// Matches the Kconfig default in components/bb_pub/Kconfig.
-#define CONFIG_BB_PUB_TELEM_SNAP_MAX 512
 #endif
 
 static const char *TAG = "bb_pub_info";

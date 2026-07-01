@@ -40,7 +40,7 @@
 #define BB_TIMER_DISP_PRIORITY 5
 #endif
 #ifndef BB_TIMER_DISP_CORE
-#define BB_TIMER_DISP_CORE 1
+#define BB_TIMER_DISP_CORE -1
 #endif
 // On single-core targets core 1 does not exist; pinning the dispatcher there
 // will panic at xTaskCreatePinnedToCore time.  Guard: affinity > 0 is only

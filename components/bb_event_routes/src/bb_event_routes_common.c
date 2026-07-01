@@ -4,6 +4,7 @@
 #include "bb_log.h"
 #include "bb_event_routes_internal.h"
 #include "bb_event_topic_registry.h"
+#include "bb_event_routes_defaults.h"
 
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -27,12 +28,6 @@ void bb_event_routes_reset_allocator(void) {
 
 static const char *TAG = "bb_event_routes";
 
-#ifndef CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS
-#define CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS 4
-#endif
-#ifndef CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH
-#define CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH 32
-#endif
 #ifndef CONFIG_BB_EVENT_ROUTES_RING_CAPACITY
 #define CONFIG_BB_EVENT_ROUTES_RING_CAPACITY 16
 #endif
