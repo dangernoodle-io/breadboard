@@ -8,8 +8,10 @@
 #include "bb_clock.h"
 #include "bb_wdt.h"
 
+#include <inttypes.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <stddef.h>
 #include <string.h>
 
 /* Kconfig bridge: honour CONFIG_BB_TASK_REGISTRY_MAX from build flags; default 24. */
@@ -53,6 +55,17 @@ typedef struct {
     // are unaffected by the ~49.7-day wrap, so the ms64 absolute-timestamp
     // rule (bb_clock.h) does not apply to this field.
     _Atomic uint32_t last_feed_ms;
+
+    // Software watchdog (B1-458 PR-B). sw_wdt_timeout_ms is set once, at
+    // register() time, under s_task_reg_lock; miss_count/last_miss_ms/
+    // miss_active are written ONLY by bb_task_registry_sw_wdt_check()'s
+    // writeback phase (under s_task_reg_lock) and read under the same lock
+    // (snapshot phase / lookup) — single writer (the monitor), all access
+    // under lock, so these are plain fields (no atomics needed).
+    uint32_t sw_wdt_timeout_ms;
+    uint32_t miss_count;
+    uint32_t last_miss_ms;
+    bool     miss_active;
 } bb_task_entry_t;
 
 static bb_task_entry_t s_pool[BB_TASK_REGISTRY_MAX];
@@ -184,6 +197,10 @@ bb_err_t bb_task_registry_register(const char *name, uint32_t stack_budget_bytes
     entry->handle              = handle;
     entry->stack_budget_bytes  = stack_budget_bytes;
     entry->wdt_subscribed      = false;
+    entry->sw_wdt_timeout_ms   = opts ? opts->sw_wdt_timeout_ms : 0;
+    entry->miss_count          = 0;
+    entry->last_miss_ms        = 0;
+    entry->miss_active         = false;
     atomic_store_explicit(&entry->last_feed_ms, 0, memory_order_relaxed);
 
     // Order: pool slot confirmed BEFORE the hw_wdt_add call.
@@ -318,6 +335,176 @@ void bb_task_registry_feed(bb_task_registry_token_t token)
     }
 }
 
+// --- Software watchdog monitor (B1-458 PR-B) -------------------------------
+
+static bb_task_registry_sw_wdt_handler_t s_sw_wdt_handler     = NULL;
+static void                              *s_sw_wdt_handler_ctx = NULL;
+
+void bb_task_registry_set_sw_wdt_handler(bb_task_registry_sw_wdt_handler_t fn, void *ctx)
+{
+    s_sw_wdt_handler     = fn;
+    s_sw_wdt_handler_ctx = ctx;
+}
+
+// Snapshot row copied out under s_task_reg_lock in phase 1 of
+// bb_task_registry_sw_wdt_check(), consumed lock-free in phase 2, and used to
+// guard the phase-3 writeback against a slot deregistered/reused in between.
+typedef struct {
+    uint16_t index;
+    uint16_t generation;
+    char     name[BB_TASK_REGISTRY_NAME_MAX];
+    void    *handle;
+    uint32_t sw_wdt_timeout_ms;
+    uint32_t last_feed_ms;
+    uint32_t miss_count;
+    uint32_t last_miss_ms;
+    bool     miss_active;
+    bool     dirty;  // phase 2 staged a miss_count/last_miss_ms/miss_active change
+} sw_wdt_snapshot_row_t;
+
+typedef struct {
+    sw_wdt_snapshot_row_t *rows;
+    int                     n;
+    int                     max;
+} sw_wdt_snapshot_ctx_t;
+
+// Runs under s_task_reg_lock (via bb_registry_foreach) — copy only, no I/O,
+// no allocation, no handler invocation (mirrors bb_ring_diag's snapshot
+// callback contract).
+static void sw_wdt_snapshot_cb(const char *name, void *value, void *ctx)
+{
+    sw_wdt_snapshot_ctx_t *sc = (sw_wdt_snapshot_ctx_t *)ctx;
+    if (sc->n >= sc->max) {
+        // Defensive only, mirrors bb_ring_diag's identical guard: sc->max is
+        // BB_TASK_REGISTRY_MAX, the SAME constant that bounds the pool this
+        // foreach iterates, so sc->n cannot reach sc->max mid-iteration —
+        // not reachable/testable given the current 1:1 sizing.
+        return;
+    }
+    bb_task_entry_t *entry = (bb_task_entry_t *)value;
+    if (entry->sw_wdt_timeout_ms == 0) {
+        return;  // software watchdog off for this task
+    }
+    sw_wdt_snapshot_row_t *row = &sc->rows[sc->n];
+    row->index             = (uint16_t)(entry - s_pool);
+    row->generation         = atomic_load_explicit(&entry->generation, memory_order_relaxed);
+    // bb_registry never invokes foreach callbacks with a NULL name (only
+    // successfully-registered, non-NULL-keyed entries are iterated) — no
+    // defensive NULL check, matching foreach_trampoline's contract above.
+    strncpy(row->name, name, sizeof(row->name) - 1);
+    row->name[sizeof(row->name) - 1] = '\0';
+    row->handle             = entry->handle;
+    row->sw_wdt_timeout_ms  = entry->sw_wdt_timeout_ms;
+    row->last_feed_ms       = atomic_load_explicit(&entry->last_feed_ms, memory_order_relaxed);
+    row->miss_count         = entry->miss_count;
+    row->last_miss_ms       = entry->last_miss_ms;
+    row->miss_active        = entry->miss_active;
+    row->dirty              = false;
+    sc->n++;
+}
+
+// Snapshot buffer for bb_task_registry_sw_wdt_check(). File-static rather
+// than a stack local: BB_TASK_REGISTRY_MAX is an independent Kconfig (up to
+// 64) and a stack array of that size would make the monitor task's stack
+// budget (BB_TASK_REGISTRY_SW_WDT_STACK) couple to it, risking overflow at
+// high MAX. bb_task_registry_sw_wdt_check() has a SINGLE caller at runtime
+// (the sw-wdt monitor task, a singleton) and host tests invoke it
+// synchronously on one thread — it is NOT reentrant, so a shared static
+// buffer is safe. This moves ~BB_TASK_REGISTRY_MAX*sizeof(row) into BSS
+// (bounded, predictable) instead of the caller's stack, with no per-tick
+// heap use.
+static sw_wdt_snapshot_row_t s_sw_wdt_snapshot[BB_TASK_REGISTRY_MAX];
+
+void bb_task_registry_sw_wdt_check(uint32_t now_ms)
+{
+    // Phase 1 — snapshot under lock, static buffer (see s_sw_wdt_snapshot
+    // above), no I/O.
+    sw_wdt_snapshot_ctx_t sc = { .rows = s_sw_wdt_snapshot, .n = 0, .max = BB_TASK_REGISTRY_MAX };
+
+    pthread_mutex_lock(&s_task_reg_lock);
+    bb_registry_foreach(&s_task_registry, sw_wdt_snapshot_cb, &sc);
+    pthread_mutex_unlock(&s_task_reg_lock);
+
+    // Phase 2 — evaluate lock-free. The handler callback runs here, OUTSIDE
+    // the lock, per the header contract.
+    for (int i = 0; i < sc.n; i++) {
+        sw_wdt_snapshot_row_t *row = &s_sw_wdt_snapshot[i];
+        bool overdue = (uint32_t)(now_ms - row->last_feed_ms) > row->sw_wdt_timeout_ms;
+        if (overdue && !row->miss_active) {
+            uint32_t overrun_ms = (uint32_t)(now_ms - row->last_feed_ms) - row->sw_wdt_timeout_ms;
+            bb_log_w(TAG, "task '%s' missed software watchdog by %"PRIu32" ms", row->name, overrun_ms);
+            if (s_sw_wdt_handler) {
+                s_sw_wdt_handler(row->name, row->handle, overrun_ms, s_sw_wdt_handler_ctx);
+            }
+            row->miss_count += 1;
+            row->last_miss_ms = now_ms;
+            row->miss_active  = true;
+            row->dirty        = true;
+        } else if (!overdue && row->miss_active) {
+            row->miss_active = false;
+            row->dirty       = true;
+        }
+    }
+
+    // Phase 3 — writeback under lock, generation-guarded so a deregister
+    // that happened between phases 1 and 3 is a safe no-op rather than a
+    // stale/corrupting write into a reused slot.
+    pthread_mutex_lock(&s_task_reg_lock);
+    for (int i = 0; i < sc.n; i++) {
+        sw_wdt_snapshot_row_t *row = &s_sw_wdt_snapshot[i];
+        if (!row->dirty) {
+            continue;
+        }
+        bb_task_entry_t *entry = &s_pool[row->index];
+        uint16_t cur_generation = atomic_load_explicit(&entry->generation, memory_order_relaxed);
+        if (cur_generation != row->generation) {
+            continue;  // slot deregistered/reused since the snapshot — skip
+        }
+        entry->miss_count   = row->miss_count;
+        entry->last_miss_ms = row->last_miss_ms;
+        entry->miss_active  = row->miss_active;
+    }
+    pthread_mutex_unlock(&s_task_reg_lock);
+}
+
+bool bb_task_registry_lookup_sw_wdt(const char *name, uint32_t now_ms,
+                                     uint32_t *out_timeout_ms,
+                                     uint32_t *out_last_feed_age_ms,
+                                     uint32_t *out_last_miss_age_ms,
+                                     uint32_t *out_miss_count)
+{
+    if (!name) {
+        return false;
+    }
+
+    pthread_mutex_lock(&s_task_reg_lock);
+    void *value = bb_registry_lookup(&s_task_registry, name);
+    if (!value) {
+        pthread_mutex_unlock(&s_task_reg_lock);
+        return false;
+    }
+    const bb_task_entry_t *entry = (const bb_task_entry_t *)value;
+    if (entry->sw_wdt_timeout_ms == 0) {
+        pthread_mutex_unlock(&s_task_reg_lock);
+        return false;
+    }
+    if (out_timeout_ms) {
+        *out_timeout_ms = entry->sw_wdt_timeout_ms;
+    }
+    if (out_last_feed_age_ms) {
+        uint32_t last_feed_ms = atomic_load_explicit(&entry->last_feed_ms, memory_order_relaxed);
+        *out_last_feed_age_ms = (uint32_t)(now_ms - last_feed_ms);
+    }
+    if (out_last_miss_age_ms) {
+        *out_last_miss_age_ms = entry->miss_count > 0 ? (uint32_t)(now_ms - entry->last_miss_ms) : 0;
+    }
+    if (out_miss_count) {
+        *out_miss_count = entry->miss_count;
+    }
+    pthread_mutex_unlock(&s_task_reg_lock);
+    return true;
+}
+
 uint16_t bb_task_registry_count(void)
 {
     pthread_mutex_lock(&s_task_reg_lock);
@@ -383,6 +570,8 @@ void bb_task_registry_test_reset(void)
     pthread_mutex_lock(&s_task_reg_lock);
     bb_registry_reset(&s_task_registry);
     memset(s_pool, 0, sizeof(s_pool));
+    s_sw_wdt_handler     = NULL;
+    s_sw_wdt_handler_ctx = NULL;
     // memset zeroes generation too — restore the "never 0" invariant (see
     // pool_init_generations) so a zero-initialized token can never alias a
     // live slot 0 across test cases.
@@ -407,6 +596,10 @@ bb_err_t bb_task_registry_test_seed(const char *name, uint32_t stack_budget_byte
     entry->handle             = NULL;
     entry->stack_budget_bytes = stack_budget_bytes;
     entry->wdt_subscribed     = wdt_subscribed;
+    entry->sw_wdt_timeout_ms  = 0;
+    entry->miss_count         = 0;
+    entry->last_miss_ms       = 0;
+    entry->miss_active        = false;
     atomic_store_explicit(&entry->last_feed_ms, 0, memory_order_relaxed);
 
     bb_err_t err = bb_registry_register(&s_task_registry, name, entry);
@@ -426,5 +619,13 @@ bb_err_t bb_task_registry_test_seed(const char *name, uint32_t stack_budget_byte
         out_token->generation = generation;
     }
     return err;
+}
+
+void bb_task_registry_test_set_last_feed_ms(bb_task_registry_token_t token, uint32_t ms)
+{
+    if (token.index >= BB_TASK_REGISTRY_MAX) {
+        return;
+    }
+    atomic_store_explicit(&s_pool[token.index].last_feed_ms, ms, memory_order_relaxed);
 }
 #endif

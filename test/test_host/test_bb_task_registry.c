@@ -554,3 +554,392 @@ void test_bb_task_registry_register_rollback_unsubscribes_on_duplicate(void)
     TEST_ASSERT_EQUAL(3, bb_wdt_test_subscribe_count());
     TEST_ASSERT_EQUAL_UINT16(2, bb_task_registry_count());
 }
+
+// ---------------------------------------------------------------------------
+// B1-458 PR-B — software watchdog monitor (sw_wdt_check / lookup / handler)
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    int      calls;
+    char     last_name[BB_TASK_REGISTRY_NAME_MAX];
+    void    *last_handle;
+    uint32_t last_overrun_ms;
+} sw_wdt_handler_capture_t;
+
+static void sw_wdt_handler_capture_cb(const char *name, void *handle, uint32_t overrun_ms, void *ctx)
+{
+    sw_wdt_handler_capture_t *cap = (sw_wdt_handler_capture_t *)ctx;
+    cap->calls++;
+    strncpy(cap->last_name, name, sizeof(cap->last_name) - 1);
+    cap->last_name[sizeof(cap->last_name) - 1] = '\0';
+    cap->last_handle     = handle;
+    cap->last_overrun_ms = overrun_ms;
+}
+
+// (1) fed in time -> no miss.
+void test_bb_task_registry_sw_wdt_fed_in_time_no_miss(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .sw_wdt_timeout_ms = 500 };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("fed_ok", 2048, &dummy, &opts, &token));
+    bb_task_registry_test_set_last_feed_ms(token, 1000);
+
+    sw_wdt_handler_capture_t cap = { 0 };
+    bb_task_registry_set_sw_wdt_handler(sw_wdt_handler_capture_cb, &cap);
+
+    bb_task_registry_sw_wdt_check(1200);  // 200 ms elapsed <= 500 ms timeout
+
+    TEST_ASSERT_EQUAL(0, cap.calls);
+    uint32_t miss_count = 999;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_sw_wdt("fed_ok", 1200, NULL, NULL, NULL, &miss_count));
+    TEST_ASSERT_EQUAL_UINT32(0, miss_count);
+
+    bb_task_registry_set_sw_wdt_handler(NULL, NULL);
+}
+
+// (2) overdue -> miss_count=1 + handler called once with overrun.
+void test_bb_task_registry_sw_wdt_overdue_fires_handler_and_increments_miss_count(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .sw_wdt_timeout_ms = 500 };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("overdue1", 2048, &dummy, &opts, &token));
+    bb_task_registry_test_set_last_feed_ms(token, 1000);
+
+    sw_wdt_handler_capture_t cap = { 0 };
+    bb_task_registry_set_sw_wdt_handler(sw_wdt_handler_capture_cb, &cap);
+
+    bb_task_registry_sw_wdt_check(1700);  // 700 ms elapsed, 200 ms overrun
+
+    TEST_ASSERT_EQUAL(1, cap.calls);
+    TEST_ASSERT_EQUAL_STRING("overdue1", cap.last_name);
+    TEST_ASSERT_EQUAL_PTR(&dummy, cap.last_handle);
+    TEST_ASSERT_EQUAL_UINT32(200, cap.last_overrun_ms);
+
+    uint32_t miss_count = 0, miss_age = 999;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_sw_wdt("overdue1", 1700, NULL, NULL, &miss_age, &miss_count));
+    TEST_ASSERT_EQUAL_UINT32(1, miss_count);
+    TEST_ASSERT_EQUAL_UINT32(0, miss_age);  // just missed — now == last_miss_ms
+
+    bb_task_registry_set_sw_wdt_handler(NULL, NULL);
+}
+
+// (3) still overdue, no feed since -> debounced, no re-fire.
+void test_bb_task_registry_sw_wdt_overdue_no_refeed_does_not_refire(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .sw_wdt_timeout_ms = 500 };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("overdue2", 2048, &dummy, &opts, &token));
+    bb_task_registry_test_set_last_feed_ms(token, 1000);
+
+    sw_wdt_handler_capture_t cap = { 0 };
+    bb_task_registry_set_sw_wdt_handler(sw_wdt_handler_capture_cb, &cap);
+
+    bb_task_registry_sw_wdt_check(1700);  // first miss
+    TEST_ASSERT_EQUAL(1, cap.calls);
+
+    bb_task_registry_sw_wdt_check(1900);  // still overdue, same episode
+    TEST_ASSERT_EQUAL(1, cap.calls);
+
+    uint32_t miss_count = 0;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_sw_wdt("overdue2", 1900, NULL, NULL, NULL, &miss_count));
+    TEST_ASSERT_EQUAL_UINT32(1, miss_count);
+
+    bb_task_registry_set_sw_wdt_handler(NULL, NULL);
+}
+
+// (4) feed then recover -> miss_active cleared, no extra handler call.
+void test_bb_task_registry_sw_wdt_feed_after_miss_clears_active_no_extra_handler(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .sw_wdt_timeout_ms = 500 };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("recover1", 2048, &dummy, &opts, &token));
+    bb_task_registry_test_set_last_feed_ms(token, 1000);
+
+    sw_wdt_handler_capture_t cap = { 0 };
+    bb_task_registry_set_sw_wdt_handler(sw_wdt_handler_capture_cb, &cap);
+
+    bb_task_registry_sw_wdt_check(1700);  // miss
+    TEST_ASSERT_EQUAL(1, cap.calls);
+
+    bb_task_registry_test_set_last_feed_ms(token, 1750);  // recovered feed
+    bb_task_registry_sw_wdt_check(1800);                  // 50 ms elapsed <= 500
+
+    TEST_ASSERT_EQUAL(1, cap.calls);  // no extra handler call on recovery
+    uint32_t miss_count = 0;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_sw_wdt("recover1", 1800, NULL, NULL, NULL, &miss_count));
+    TEST_ASSERT_EQUAL_UINT32(1, miss_count);  // unchanged by recovery
+
+    bb_task_registry_set_sw_wdt_handler(NULL, NULL);
+}
+
+// (5) re-arm after recovery -> miss_count=2, handler fires again.
+void test_bb_task_registry_sw_wdt_rearm_after_recovery_fires_again(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .sw_wdt_timeout_ms = 500 };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("rearm1", 2048, &dummy, &opts, &token));
+    bb_task_registry_test_set_last_feed_ms(token, 1000);
+
+    sw_wdt_handler_capture_t cap = { 0 };
+    bb_task_registry_set_sw_wdt_handler(sw_wdt_handler_capture_cb, &cap);
+
+    bb_task_registry_sw_wdt_check(1700);  // miss #1
+    TEST_ASSERT_EQUAL(1, cap.calls);
+
+    bb_task_registry_test_set_last_feed_ms(token, 1750);  // recover
+    bb_task_registry_sw_wdt_check(1800);
+    TEST_ASSERT_EQUAL(1, cap.calls);
+
+    bb_task_registry_sw_wdt_check(2400);  // 650 ms since last feed (1750) -> overdue again
+
+    TEST_ASSERT_EQUAL(2, cap.calls);
+    uint32_t miss_count = 0;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_sw_wdt("rearm1", 2400, NULL, NULL, NULL, &miss_count));
+    TEST_ASSERT_EQUAL_UINT32(2, miss_count);
+
+    bb_task_registry_set_sw_wdt_handler(NULL, NULL);
+}
+
+// (6) timeout=0 never fires.
+void test_bb_task_registry_sw_wdt_zero_timeout_never_fires(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("no_sw_wdt", 2048, &dummy, NULL, &token));
+    bb_task_registry_test_set_last_feed_ms(token, 0);
+
+    sw_wdt_handler_capture_t cap = { 0 };
+    bb_task_registry_set_sw_wdt_handler(sw_wdt_handler_capture_cb, &cap);
+
+    bb_task_registry_sw_wdt_check(1000000);  // would be wildly overdue if timeout>0
+
+    TEST_ASSERT_EQUAL(0, cap.calls);
+    TEST_ASSERT_FALSE(bb_task_registry_lookup_sw_wdt("no_sw_wdt", 1000000, NULL, NULL, NULL, NULL));
+
+    bb_task_registry_set_sw_wdt_handler(NULL, NULL);
+}
+
+// (7) no handler registered -> miss_count still increments + warn logs, no crash.
+void test_bb_task_registry_sw_wdt_no_handler_still_increments_miss_count(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+    bb_task_registry_set_sw_wdt_handler(NULL, NULL);  // explicit: no handler registered
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .sw_wdt_timeout_ms = 500 };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("no_handler", 2048, &dummy, &opts, &token));
+    bb_task_registry_test_set_last_feed_ms(token, 1000);
+
+    bb_task_registry_sw_wdt_check(1600);  // overdue — must not crash without a handler
+
+    uint32_t miss_count = 0;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_sw_wdt("no_handler", 1600, NULL, NULL, NULL, &miss_count));
+    TEST_ASSERT_EQUAL_UINT32(1, miss_count);
+}
+
+// (8) multi-task isolation — only the overdue entry's miss stats change.
+void test_bb_task_registry_sw_wdt_multi_task_isolation(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int a = 0, b = 0;
+    bb_task_registry_opts_t opts_a = { .sw_wdt_timeout_ms = 500 };
+    bb_task_registry_opts_t opts_b = { .sw_wdt_timeout_ms = 500 };
+    bb_task_registry_token_t token_a = BB_TASK_REGISTRY_TOKEN_INVALID;
+    bb_task_registry_token_t token_b = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("iso_a", 2048, &a, &opts_a, &token_a));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("iso_b", 2048, &b, &opts_b, &token_b));
+
+    bb_task_registry_test_set_last_feed_ms(token_a, 1000);  // will be overdue
+    bb_task_registry_test_set_last_feed_ms(token_b, 1500);  // stays fed
+
+    sw_wdt_handler_capture_t cap = { 0 };
+    bb_task_registry_set_sw_wdt_handler(sw_wdt_handler_capture_cb, &cap);
+
+    bb_task_registry_sw_wdt_check(1600);  // a: 600 ms > 500 overdue; b: 100 ms ok
+
+    TEST_ASSERT_EQUAL(1, cap.calls);
+    TEST_ASSERT_EQUAL_STRING("iso_a", cap.last_name);
+
+    uint32_t miss_count = 999;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_sw_wdt("iso_a", 1600, NULL, NULL, NULL, &miss_count));
+    TEST_ASSERT_EQUAL_UINT32(1, miss_count);
+
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_sw_wdt("iso_b", 1600, NULL, NULL, NULL, &miss_count));
+    TEST_ASSERT_EQUAL_UINT32(0, miss_count);
+
+    bb_task_registry_set_sw_wdt_handler(NULL, NULL);
+}
+
+// (9) both hw_wdt_subscribe + sw timeout on one entry work independently.
+void test_bb_task_registry_sw_wdt_hw_and_sw_together(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .hw_wdt_subscribe = true, .sw_wdt_timeout_ms = 500 };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("hw_and_sw", 2048, &dummy, &opts, &token));
+    TEST_ASSERT_EQUAL(1, bb_wdt_test_subscribe_count());
+
+    bb_task_registry_feed(token);
+    TEST_ASSERT_EQUAL(1, bb_wdt_test_feed_count());
+
+    bool wdt = false;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_budget("hw_and_sw", NULL, &wdt));
+    TEST_ASSERT_TRUE(wdt);
+
+    bb_task_registry_test_set_last_feed_ms(token, 1000);
+    uint32_t timeout = 0;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_sw_wdt("hw_and_sw", 1100, &timeout, NULL, NULL, NULL));
+    TEST_ASSERT_EQUAL_UINT32(500, timeout);
+}
+
+// (10) deregister DURING the miss handler (which runs outside the lock, in
+// phase 2, before phase 3's writeback) — re-registering into the freed slot
+// must not see phase 3 clobber its miss stats with the stale entry's data;
+// the generation guard must skip the writeback.
+static void sw_wdt_dereg_and_reregister_cb(const char *name, void *handle, uint32_t overrun_ms, void *ctx)
+{
+    (void)name;
+    (void)overrun_ms;
+    bb_task_registry_token_t *out_token = (bb_task_registry_token_t *)ctx;
+    bb_task_registry_deregister(handle);
+    bb_task_registry_opts_t new_opts = { .sw_wdt_timeout_ms = 500 };
+    bb_task_registry_register("dereg_new", 2048, handle, &new_opts, out_token);
+}
+
+void test_bb_task_registry_sw_wdt_deregister_during_handler_writeback_is_safe(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .sw_wdt_timeout_ms = 500 };
+    bb_task_registry_token_t old_token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("dereg_race", 2048, &dummy, &opts, &old_token));
+    bb_task_registry_test_set_last_feed_ms(old_token, 1000);
+
+    bb_task_registry_token_t new_token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    bb_task_registry_set_sw_wdt_handler(sw_wdt_dereg_and_reregister_cb, &new_token);
+
+    bb_task_registry_sw_wdt_check(1600);  // 600 ms elapsed > 500 -> fires handler
+
+    // The new registration (reusing the same freed slot) must NOT inherit
+    // the stale writeback's miss_count from the deregistered "dereg_race"
+    // entry — the phase-3 generation guard must have skipped that write.
+    uint32_t miss_count = 999, miss_age = 999;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_sw_wdt("dereg_new", 1600, NULL, NULL, &miss_age, &miss_count));
+    TEST_ASSERT_EQUAL_UINT32(0, miss_count);
+    TEST_ASSERT_EQUAL_UINT32(0, miss_age);
+
+    bb_task_registry_set_sw_wdt_handler(NULL, NULL);
+}
+
+// (11) feed() on a stale/invalid token remains a safe no-op even when the
+// entry also carries a configured sw_wdt_timeout_ms (new field; guards
+// against a regression where sw-wdt bookkeeping is added to the hot path).
+void test_bb_task_registry_sw_wdt_feed_stale_token_noop_with_sw_wdt_configured(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .sw_wdt_timeout_ms = 500 };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("sw_stale", 2048, &dummy, &opts, &token));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_deregister(&dummy));
+
+    bb_task_registry_feed(token);  // stale — must not crash, no hw feed
+    TEST_ASSERT_EQUAL(0, bb_wdt_test_feed_count());
+}
+
+// ---------------------------------------------------------------------------
+// bb_task_registry_lookup_sw_wdt — direct coverage (the host-testable seam
+// consumed by GET /api/diag/tasks's additive sw_wdt_* fields)
+// ---------------------------------------------------------------------------
+
+void test_bb_task_registry_lookup_sw_wdt_hit_returns_fields(void)
+{
+    bb_task_registry_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .sw_wdt_timeout_ms = 750 };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("diag_task", 2048, &dummy, &opts, &token));
+    bb_task_registry_test_set_last_feed_ms(token, 1000);
+
+    uint32_t timeout = 0, feed_age = 0, miss_age = 999, miss_count = 999;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_sw_wdt("diag_task", 1500, &timeout, &feed_age, &miss_age, &miss_count));
+    TEST_ASSERT_EQUAL_UINT32(750, timeout);
+    TEST_ASSERT_EQUAL_UINT32(500, feed_age);
+    TEST_ASSERT_EQUAL_UINT32(0, miss_age);  // never missed
+    TEST_ASSERT_EQUAL_UINT32(0, miss_count);
+}
+
+void test_bb_task_registry_lookup_sw_wdt_false_when_timeout_zero(void)
+{
+    bb_task_registry_test_reset();
+    int dummy = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("no_sw", 2048, &dummy, NULL, NULL));
+    TEST_ASSERT_FALSE(bb_task_registry_lookup_sw_wdt("no_sw", 1000, NULL, NULL, NULL, NULL));
+}
+
+void test_bb_task_registry_lookup_sw_wdt_false_when_name_not_found(void)
+{
+    bb_task_registry_test_reset();
+    TEST_ASSERT_FALSE(bb_task_registry_lookup_sw_wdt("missing", 1000, NULL, NULL, NULL, NULL));
+}
+
+void test_bb_task_registry_lookup_sw_wdt_null_name_returns_false(void)
+{
+    bb_task_registry_test_reset();
+    TEST_ASSERT_FALSE(bb_task_registry_lookup_sw_wdt(NULL, 1000, NULL, NULL, NULL, NULL));
+}
+
+// test_set_last_feed_ms with an out-of-range token index — silent no-op,
+// no crash (mirrors feed()'s own out-of-range guard).
+void test_bb_task_registry_test_set_last_feed_ms_out_of_range_is_noop(void)
+{
+    bb_task_registry_test_reset();
+    bb_task_registry_test_set_last_feed_ms(BB_TASK_REGISTRY_TOKEN_INVALID, 1234);
+    // BB_TASK_REGISTRY_TOKEN_INVALID.index is UINT16_MAX — always out of
+    // range; nothing to assert beyond "did not crash".
+}
+
+void test_bb_task_registry_lookup_sw_wdt_out_params_optional(void)
+{
+    bb_task_registry_test_reset();
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .sw_wdt_timeout_ms = 200 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("opt_out_sw", 2048, &dummy, &opts, NULL));
+    // Passing NULL for all four out params must not crash.
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_sw_wdt("opt_out_sw", 1000, NULL, NULL, NULL, NULL));
+}

@@ -2268,6 +2268,23 @@ void test_bb_task_registry_register_rollback_unsubscribes_on_duplicate(void);
 void test_bb_task_registry_register_opts_non_null_subscribe_false(void);
 void test_bb_task_registry_feed_unsubscribed_token_skips_hw_feed(void);
 void test_bb_task_registry_test_seed_out_token_populated(void);
+void test_bb_task_registry_sw_wdt_fed_in_time_no_miss(void);
+void test_bb_task_registry_sw_wdt_overdue_fires_handler_and_increments_miss_count(void);
+void test_bb_task_registry_sw_wdt_overdue_no_refeed_does_not_refire(void);
+void test_bb_task_registry_sw_wdt_feed_after_miss_clears_active_no_extra_handler(void);
+void test_bb_task_registry_sw_wdt_rearm_after_recovery_fires_again(void);
+void test_bb_task_registry_sw_wdt_zero_timeout_never_fires(void);
+void test_bb_task_registry_sw_wdt_no_handler_still_increments_miss_count(void);
+void test_bb_task_registry_sw_wdt_multi_task_isolation(void);
+void test_bb_task_registry_sw_wdt_hw_and_sw_together(void);
+void test_bb_task_registry_sw_wdt_deregister_during_handler_writeback_is_safe(void);
+void test_bb_task_registry_sw_wdt_feed_stale_token_noop_with_sw_wdt_configured(void);
+void test_bb_task_registry_lookup_sw_wdt_hit_returns_fields(void);
+void test_bb_task_registry_lookup_sw_wdt_false_when_timeout_zero(void);
+void test_bb_task_registry_lookup_sw_wdt_false_when_name_not_found(void);
+void test_bb_task_registry_lookup_sw_wdt_null_name_returns_false(void);
+void test_bb_task_registry_test_set_last_feed_ms_out_of_range_is_noop(void);
+void test_bb_task_registry_lookup_sw_wdt_out_params_optional(void);
 
 // Forward declarations from test_bb_event_topic_registry.c
 void test_bb_event_topic_registry_register_and_count(void);
@@ -5622,6 +5639,23 @@ int main(void) {
     RUN_TEST(test_bb_task_registry_register_opts_non_null_subscribe_false);
     RUN_TEST(test_bb_task_registry_feed_unsubscribed_token_skips_hw_feed);
     RUN_TEST(test_bb_task_registry_test_seed_out_token_populated);
+    RUN_TEST(test_bb_task_registry_sw_wdt_fed_in_time_no_miss);
+    RUN_TEST(test_bb_task_registry_sw_wdt_overdue_fires_handler_and_increments_miss_count);
+    RUN_TEST(test_bb_task_registry_sw_wdt_overdue_no_refeed_does_not_refire);
+    RUN_TEST(test_bb_task_registry_sw_wdt_feed_after_miss_clears_active_no_extra_handler);
+    RUN_TEST(test_bb_task_registry_sw_wdt_rearm_after_recovery_fires_again);
+    RUN_TEST(test_bb_task_registry_sw_wdt_zero_timeout_never_fires);
+    RUN_TEST(test_bb_task_registry_sw_wdt_no_handler_still_increments_miss_count);
+    RUN_TEST(test_bb_task_registry_sw_wdt_multi_task_isolation);
+    RUN_TEST(test_bb_task_registry_sw_wdt_hw_and_sw_together);
+    RUN_TEST(test_bb_task_registry_sw_wdt_deregister_during_handler_writeback_is_safe);
+    RUN_TEST(test_bb_task_registry_sw_wdt_feed_stale_token_noop_with_sw_wdt_configured);
+    RUN_TEST(test_bb_task_registry_lookup_sw_wdt_hit_returns_fields);
+    RUN_TEST(test_bb_task_registry_lookup_sw_wdt_false_when_timeout_zero);
+    RUN_TEST(test_bb_task_registry_lookup_sw_wdt_false_when_name_not_found);
+    RUN_TEST(test_bb_task_registry_lookup_sw_wdt_null_name_returns_false);
+    RUN_TEST(test_bb_task_registry_test_set_last_feed_ms_out_of_range_is_noop);
+    RUN_TEST(test_bb_task_registry_lookup_sw_wdt_out_params_optional);
 
     // bb_event_topic_registry tests
     RUN_TEST(test_bb_event_topic_registry_register_and_count);

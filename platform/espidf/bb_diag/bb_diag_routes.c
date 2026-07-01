@@ -13,6 +13,7 @@
 #include "bb_system.h"
 #include "bb_mem.h"
 #include "bb_task_registry.h"
+#include "bb_clock.h"
 
 #include "esp_system.h"
 #include "esp_heap_caps.h"
@@ -553,6 +554,20 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
                 bb_json_obj_set_bool(t, "wdt_subscribed", reg_wdt);
             }
         }
+        // Additive enrichment (B1-458 PR-B): software-watchdog diagnostics,
+        // emitted only when the task self-registered a non-zero
+        // sw_wdt_timeout_ms. Existing fields above are byte-unchanged.
+        {
+            uint32_t sw_timeout_ms = 0, sw_feed_age_ms = 0, sw_miss_age_ms = 0, sw_miss_count = 0;
+            if (bb_task_registry_lookup_sw_wdt(arr[i].pcTaskName, bb_clock_now_ms(),
+                                                &sw_timeout_ms, &sw_feed_age_ms,
+                                                &sw_miss_age_ms, &sw_miss_count)) {
+                bb_json_obj_set_number(t, "sw_wdt_timeout_ms", (double)sw_timeout_ms);
+                bb_json_obj_set_number(t, "sw_wdt_last_feed_age_ms", (double)sw_feed_age_ms);
+                bb_json_obj_set_number(t, "sw_wdt_miss_count", (double)sw_miss_count);
+                bb_json_obj_set_number(t, "sw_wdt_last_miss_age_ms", (double)sw_miss_age_ms);
+            }
+        }
         bb_http_resp_json_arr_emit(&stream, t);
         bb_json_free(t);
     }
@@ -573,11 +588,16 @@ static const bb_route_response_t s_tasks_get_responses[] = {
       "\"core\":{\"type\":\"integer\"},"
       "\"runtime\":{\"type\":\"integer\"},"
       "\"stack_budget_bytes\":{\"type\":\"integer\"},"
-      "\"wdt_subscribed\":{\"type\":\"boolean\"}}}}",
+      "\"wdt_subscribed\":{\"type\":\"boolean\"},"
+      "\"sw_wdt_timeout_ms\":{\"type\":\"integer\"},"
+      "\"sw_wdt_last_feed_age_ms\":{\"type\":\"integer\"},"
+      "\"sw_wdt_miss_count\":{\"type\":\"integer\"},"
+      "\"sw_wdt_last_miss_age_ms\":{\"type\":\"integer\"}}}}",
       "task list; core requires CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
       "runtime requires CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS; "
       "stack_budget_bytes/wdt_subscribed present only for tasks self-registered "
-      "via bb_task_registry" },
+      "via bb_task_registry; sw_wdt_* present only when that task's "
+      "opts->sw_wdt_timeout_ms > 0" },
     { 500, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{\"error\":{\"type\":\"string\"}},"
