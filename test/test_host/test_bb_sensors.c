@@ -253,6 +253,12 @@ void test_bb_sensors_get_fan_section_present_true_with_primary(void)
     TEST_ASSERT_TRUE(bb_json_obj_get_number(fan, "rpm", &rpm));
     TEST_ASSERT_EQUAL_INT(1200, (int)rpm);
 
+    // die_c/board_c reads failed on this driver — expect JSON null (B1-462a:
+    // these keys are emitted by bb_fan_emit_section but were missing from
+    // k_sensors_fan_schema).
+    TEST_ASSERT_NOT_NULL_MESSAGE(bb_json_obj_get_item(fan, "die_c"),   "die_c missing from fan section");
+    TEST_ASSERT_NOT_NULL_MESSAGE(bb_json_obj_get_item(fan, "board_c"), "board_c missing from fan section");
+
     // duty_pct reflects what bb_fan_poll cached. When BB_FAN_AUTOFAN is compiled
     // in and autofan is disabled, poll applies manual_pct (default 100) not the
     // driver's initial value. Read back from g_fan.duty_pct (set via set_duty_pct
@@ -545,6 +551,17 @@ void test_bb_sensors_schema_contains_fan_section(void)
     TEST_ASSERT_NOT_NULL(schema);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"fan\""),     "fan missing from sensors schema");
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"present\""), "present missing from sensors schema");
+}
+
+// B1-462a: die_c/board_c are emitted by bb_fan_emit_section (shared by /api/fan
+// and the /api/sensors fan section) but were missing from k_sensors_fan_schema.
+void test_bb_sensors_schema_fan_section_declares_die_and_board_c(void)
+{
+    register_builtin_sections();
+    const char *schema = bb_sensors_get_assembled_schema();
+    TEST_ASSERT_NOT_NULL(schema);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"die_c\""),   "die_c missing from sensors fan schema");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"board_c\""), "board_c missing from sensors fan schema");
 }
 
 void test_bb_sensors_schema_contains_power_section(void)

@@ -46,6 +46,14 @@ typedef enum {
     BB_UPDATE_OUTCOME_CHECK_ON_APPLY, // heap-deferred: board checks during apply
 } bb_update_check_outcome_t;
 
+// JSON-Schema enum literal for the /api/update/status "outcome" field.
+// MUST stay byte-identical (values and order) to outcome_str() in
+// bb_update_check_common.c. Referenced by both /api/update/status schema
+// sites (bb_update_check_espidf.c and bb_ota_boot.c) so they cannot drift.
+#define BB_UPDATE_OUTCOME_ENUM_JSON \
+    "\"unknown\",\"up_to_date\",\"available\"," \
+    "\"no_asset\",\"check_failed\",\"check_on_apply\""
+
 typedef struct {
     uint32_t interval_s;     // 0 -> CONFIG_BB_UPDATE_CHECK_INTERVAL_S (21600 s = 6 h)
     bool     post_initial;   // post update.available on first successful check even if up to date

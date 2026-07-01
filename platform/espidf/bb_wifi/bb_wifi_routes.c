@@ -90,7 +90,19 @@ static const char k_wifi_info_schema[] =
     "\"connected\":{\"type\":\"boolean\"},"
     "\"disc_reason\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"retry_count\":{\"type\":\"integer\"}},"
+    "\"retry_count\":{\"type\":\"integer\"},"
+    "\"no_ip_recoveries\":{\"type\":\"integer\"},"
+    "\"egress_dead_count\":{\"type\":\"integer\"},"
+    "\"lost_ip_count\":{\"type\":\"integer\"},"
+    "\"recovery_count\":{\"type\":\"integer\"},"
+    "\"restart_sta_count\":{\"type\":\"integer\"},"
+    "\"disconnect_rssi\":{\"type\":\"integer\"},"
+    "\"reason_histogram\":{\"type\":\"object\",\"properties\":{"
+        "\"lost_ip\":{\"type\":\"integer\"},"
+        "\"egress_dead\":{\"type\":\"integer\"},"
+        "\"no_ip_watchdog\":{\"type\":\"integer\"},"
+        "\"top_reason_code\":{\"type\":\"integer\"},"
+        "\"top_reason_count\":{\"type\":\"integer\"}}}},"
     "\"required\":[\"ssid\",\"connected\"]}";
 
 static const bb_route_response_t s_wifi_responses[] = {

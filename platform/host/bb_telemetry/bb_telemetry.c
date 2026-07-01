@@ -211,9 +211,16 @@ bool bb_telemetry_pending_reboot(void)
 char *bb_telemetry_assemble_get_schema(void)
 {
     // Returns a freshly allocated string — caller owns and must free.
+    //
+    // pending_reboot is a root-level field appended by telemetry_get_handler
+    // after bb_telemetry_build_get(root) (see bb_telemetry_routes.c) — it is
+    // not a registered section, so it is declared directly in the base
+    // (following the k_info_schema_base root-field pattern) rather than via
+    // a section schema_props entry.
     return bb_response_freeze_and_assemble(
         &s_reg,
-        "{\"type\":\"object\",\"properties\":{",
+        "{\"type\":\"object\",\"properties\":{"
+        "\"pending_reboot\":{\"type\":\"boolean\"}",
         "}}");
 }
 

@@ -241,8 +241,7 @@ static const bb_route_response_t s_status_responses[] = {
          "\"last_check_ok\":{\"type\":\"boolean\"},"
          "\"enabled\":{\"type\":\"boolean\"},"
          "\"outcome\":{\"type\":\"string\","
-           "\"enum\":[\"unknown\",\"up_to_date\",\"available\","
-                     "\"no_asset\",\"check_failed\"]},"
+           "\"enum\":[" BB_UPDATE_OUTCOME_ENUM_JSON "]},"
          "\"last_check_ts\":{\"type\":\"integer\"}},"
        "\"required\":[\"current\",\"latest\",\"download_url\","
                      "\"available\",\"last_check_ok\",\"enabled\",\"outcome\"]}",

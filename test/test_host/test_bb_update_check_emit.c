@@ -291,6 +291,21 @@ void test_emit_status_check_on_apply(void)
 }
 
 // ---------------------------------------------------------------------------
+// BB_UPDATE_OUTCOME_ENUM_JSON (bb_update_check.h) must stay in sync with
+// outcome_str() (bb_update_check_common.c) — B1-462a hoist. Both /api/update/
+// status schema sites (bb_update_check_espidf.c, bb_ota_boot.c) reference this
+// one constant so they cannot drift independently.
+// ---------------------------------------------------------------------------
+
+void test_update_outcome_enum_json_matches_outcome_str_values(void)
+{
+    static const char expected[] =
+        "\"unknown\",\"up_to_date\",\"available\","
+        "\"no_asset\",\"check_failed\",\"check_on_apply\"";
+    TEST_ASSERT_EQUAL_STRING(expected, BB_UPDATE_OUTCOME_ENUM_JSON);
+}
+
+// ---------------------------------------------------------------------------
 // emit when bb_http_resp_json_obj_begin fails — propagates the error
 // ---------------------------------------------------------------------------
 

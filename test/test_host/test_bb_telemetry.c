@@ -228,9 +228,24 @@ void test_bb_telemetry_assemble_get_schema_no_props_section_omitted(void)
     bb_telemetry_register_section("publisher", stub_get, NULL, NULL);
     char *s = bb_telemetry_assemble_get_schema();
     TEST_ASSERT_NOT_NULL(s);
-    // Properties block should be empty.
+    // Properties block contains only the root-level pending_reboot field
+    // (B1-462a) — no sections, since "publisher" declared no schema_props.
     TEST_ASSERT_EQUAL_STRING(
-        "{\"type\":\"object\",\"properties\":{}}", s);
+        "{\"type\":\"object\",\"properties\":{"
+        "\"pending_reboot\":{\"type\":\"boolean\"}}}", s);
+    free(s);
+}
+
+// B1-462a: /api/telemetry emits a top-level pending_reboot field (see
+// telemetry_get_handler in bb_telemetry_routes.c) that is not a registered
+// section; the composed GET schema must declare it so schema==emit.
+void test_bb_telemetry_assemble_get_schema_declares_pending_reboot(void)
+{
+    reset_all();
+    char *s = bb_telemetry_assemble_get_schema();
+    TEST_ASSERT_NOT_NULL(s);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s, "\"pending_reboot\":{\"type\":\"boolean\"}"),
+        "assembled schema must declare pending_reboot");
     free(s);
 }
 
