@@ -3308,6 +3308,33 @@ void test_bb_cache_serialize_into_unknown_topic(void);
 void test_bb_cache_update_unknown_topic(void);
 void test_bb_cache_registry_full(void);
 
+// Forward declarations from test_bb_registry.c
+void test_bb_registry_register_null_name_returns_invalid_arg(void);
+void test_bb_registry_register_null_value_returns_invalid_arg(void);
+void test_bb_registry_register_basic(void);
+void test_bb_registry_register_duplicate_returns_invalid_state(void);
+void test_bb_registry_register_hwm_and_full(void);
+void test_bb_registry_register_after_freeze_returns_invalid_state(void);
+void test_bb_registry_freeze_idempotent(void);
+void test_bb_registry_deregister_null_name_returns_invalid_arg(void);
+void test_bb_registry_deregister_not_found_returns_not_found(void);
+void test_bb_registry_deregister_frozen_returns_invalid_state(void);
+void test_bb_registry_deregister_mid_table_compaction(void);
+void test_bb_registry_deregister_first_entry(void);
+void test_bb_registry_deregister_last_entry(void);
+void test_bb_registry_foreach_visits_all(void);
+void test_bb_registry_foreach_null_cb_is_noop(void);
+void test_bb_registry_foreach_empty_registry(void);
+void test_bb_registry_get_by_index_in_bounds(void);
+void test_bb_registry_get_by_index_out_of_bounds_returns_not_found(void);
+void test_bb_registry_get_by_index_null_out_returns_invalid_arg(void);
+void test_bb_registry_get_by_index_empty_returns_not_found(void);
+void test_bb_registry_lookup_found(void);
+void test_bb_registry_lookup_not_found_returns_null(void);
+void test_bb_registry_lookup_miss_in_nonempty_registry(void);
+void test_bb_registry_lookup_null_name_returns_null(void);
+void test_bb_registry_reset_clears_all(void);
+
 // Forward declarations from test_bb_alert.c
 void test_bb_alert_emit_no_topic_noop(void);
 void test_bb_alert_emit_below_threshold_dropped(void);
@@ -6582,6 +6609,33 @@ int main(void) {
     RUN_TEST(test_bb_wifi_emit_has_recovery_count);
     RUN_TEST(test_bb_wifi_emit_top_reason_injected);
     RUN_TEST(test_bb_pub_telem_adapter_no_regather_on_repeated_sample);
+
+    // bb_registry
+    RUN_TEST(test_bb_registry_register_null_name_returns_invalid_arg);
+    RUN_TEST(test_bb_registry_register_null_value_returns_invalid_arg);
+    RUN_TEST(test_bb_registry_register_basic);
+    RUN_TEST(test_bb_registry_register_duplicate_returns_invalid_state);
+    RUN_TEST(test_bb_registry_register_hwm_and_full);
+    RUN_TEST(test_bb_registry_register_after_freeze_returns_invalid_state);
+    RUN_TEST(test_bb_registry_freeze_idempotent);
+    RUN_TEST(test_bb_registry_deregister_null_name_returns_invalid_arg);
+    RUN_TEST(test_bb_registry_deregister_not_found_returns_not_found);
+    RUN_TEST(test_bb_registry_deregister_frozen_returns_invalid_state);
+    RUN_TEST(test_bb_registry_deregister_mid_table_compaction);
+    RUN_TEST(test_bb_registry_deregister_first_entry);
+    RUN_TEST(test_bb_registry_deregister_last_entry);
+    RUN_TEST(test_bb_registry_foreach_visits_all);
+    RUN_TEST(test_bb_registry_foreach_null_cb_is_noop);
+    RUN_TEST(test_bb_registry_foreach_empty_registry);
+    RUN_TEST(test_bb_registry_get_by_index_in_bounds);
+    RUN_TEST(test_bb_registry_get_by_index_out_of_bounds_returns_not_found);
+    RUN_TEST(test_bb_registry_get_by_index_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_registry_get_by_index_empty_returns_not_found);
+    RUN_TEST(test_bb_registry_lookup_found);
+    RUN_TEST(test_bb_registry_lookup_not_found_returns_null);
+    RUN_TEST(test_bb_registry_lookup_miss_in_nonempty_registry);
+    RUN_TEST(test_bb_registry_lookup_null_name_returns_null);
+    RUN_TEST(test_bb_registry_reset_clears_all);
 
     // bb_cache
     RUN_TEST(test_bb_cache_fidelity_all_topics);
