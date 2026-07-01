@@ -2005,6 +2005,16 @@ void test_ota_hooks_skip_check_returns_true(void);
 void test_ota_hooks_skip_check_returns_false(void);
 void test_ota_hooks_skip_check_null_returns_false(void);
 void test_ota_hooks_has_pause_hook_reflects_set(void);
+void test_ota_hooks_dual_registration_both_pause_and_resume_fire(void);
+void test_ota_hooks_pause_registration_order_preserved(void);
+void test_ota_hooks_pause_combine_true_if_any_true(void);
+void test_ota_hooks_pause_registration_overflow_dropped(void);
+void test_ota_hooks_progress_registration_overflow_dropped(void);
+void test_ota_hooks_dual_progress_both_fire(void);
+void test_ota_hooks_skip_check_registration_overflow_dropped(void);
+void test_ota_hooks_skip_check_combine_true_if_any_true(void);
+void test_ota_hooks_skip_check_combine_false_if_all_false(void);
+void test_ota_hooks_skip_check_all_hooks_fire_even_after_true(void);
 
 // Forward declarations from test_bb_led_rgb_pwm.c
 void bb_led_rgb_pwm_host_test_reset(void);
@@ -3710,6 +3720,16 @@ int main(void) {
     RUN_TEST(test_ota_hooks_skip_check_returns_false);
     RUN_TEST(test_ota_hooks_skip_check_null_returns_false);
     RUN_TEST(test_ota_hooks_has_pause_hook_reflects_set);
+    RUN_TEST(test_ota_hooks_dual_registration_both_pause_and_resume_fire);
+    RUN_TEST(test_ota_hooks_pause_registration_order_preserved);
+    RUN_TEST(test_ota_hooks_pause_combine_true_if_any_true);
+    RUN_TEST(test_ota_hooks_pause_registration_overflow_dropped);
+    RUN_TEST(test_ota_hooks_progress_registration_overflow_dropped);
+    RUN_TEST(test_ota_hooks_dual_progress_both_fire);
+    RUN_TEST(test_ota_hooks_skip_check_registration_overflow_dropped);
+    RUN_TEST(test_ota_hooks_skip_check_combine_true_if_any_true);
+    RUN_TEST(test_ota_hooks_skip_check_combine_false_if_all_false);
+    RUN_TEST(test_ota_hooks_skip_check_all_hooks_fire_even_after_true);
 
     // OTA validator tests
     RUN_TEST(test_ota_validator_is_pending_false_on_host);
