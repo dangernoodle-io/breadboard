@@ -42,6 +42,14 @@
 #ifndef BB_TIMER_DISP_CORE
 #define BB_TIMER_DISP_CORE 1
 #endif
+// On single-core targets core 1 does not exist; pinning the dispatcher there
+// will panic at xTaskCreatePinnedToCore time.  Guard: affinity > 0 is only
+// valid on dual-core builds.
+#if CONFIG_FREERTOS_UNICORE
+_Static_assert(BB_TIMER_DISP_CORE <= 0,
+    "BB_TIMER_DISP_CORE must be <= 0 on FREERTOS_UNICORE targets (core 1 does "
+    "not exist); set CONFIG_BB_TIMER_DISP_CORE to -1 (no affinity) or 0");
+#endif
 #ifndef BB_TIMER_DISP_QUEUE_DEPTH
 #define BB_TIMER_DISP_QUEUE_DEPTH 16
 #endif

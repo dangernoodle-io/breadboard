@@ -65,6 +65,16 @@ static const char *TAG = "bb_sink_http";
 // Maximum NVS buffer for all serialized headers.
 #define HEADERS_BUF_MAX CONFIG_BB_SINK_HTTP_HEADERS_BUF_BYTES
 
+// The NVS buffer must be large enough to hold all configured headers in their
+// serialized form.  Minimum = HEADERS_MAX * (NAME_MAX + VALUE_MAX + 4 bytes
+// for ": " separator, newline, and null).
+_Static_assert(CONFIG_BB_SINK_HTTP_HEADERS_BUF_BYTES >=
+                   BB_SINK_HTTP_HEADERS_MAX *
+                   (BB_SINK_HTTP_HEADER_NAME_MAX + BB_SINK_HTTP_HEADER_VALUE_MAX + 4),
+    "BB_SINK_HTTP_HEADERS_BUF_BYTES is too small: must be >= "
+    "BB_SINK_HTTP_HEADERS_MAX * (BB_SINK_HTTP_HEADER_NAME_MAX + "
+    "BB_SINK_HTTP_HEADER_VALUE_MAX + 4); raise CONFIG_BB_SINK_HTTP_HEADERS_BUF_BYTES");
+
 // ---------------------------------------------------------------------------
 // Module state
 // ---------------------------------------------------------------------------

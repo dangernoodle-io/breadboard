@@ -8,6 +8,16 @@
 #include "sdkconfig.h"
 #endif
 
+/* Guard: if arena bytes > 0 but MBEDTLS_CUSTOM_MEM_ALLOC is not set, the
+ * static arena buffer is never registered as an allocator — all those bytes
+ * sit unused in BSS forever.  Catch this misconfiguration at compile time. */
+#if defined(CONFIG_BB_HEAP_ARENA_BYTES) && (CONFIG_BB_HEAP_ARENA_BYTES > 0) && \
+    !defined(CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC)
+#  error "BB_HEAP_ARENA_BYTES > 0 requires CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y " \
+         "(arena allocated but mbedTLS will never use it — wasted BSS); " \
+         "set CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y or set CONFIG_BB_HEAP_ARENA_BYTES=0"
+#endif
+
 /* Only install when CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC is set.
  * When NOT set, esp_mem.c (ESP-IDF) handles the allocator; we install nothing. */
 #if defined(CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC)

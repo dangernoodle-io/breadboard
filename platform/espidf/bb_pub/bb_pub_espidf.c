@@ -28,6 +28,16 @@ static const char *TAG = "bb_pub";
 #  endif
 #endif
 
+// Guard: the worker needs >= 8192 bytes when any TLS sink is enabled so the
+// mbedTLS handshake and cert-bundle parse fit on the stack without overflow.
+// The Kconfig default auto-sizes to 8192 when either gate is ON; this assert
+// catches an explicit under-size via sdkconfig.
+#if CONFIG_BB_MQTT_TLS_ENABLE || CONFIG_BB_HTTP_TLS_ENABLE
+_Static_assert(BB_PUB_WORKER_STACK >= 8192,
+    "BB_PUB_WORKER_STACK must be >= 8192 when BB_MQTT_TLS_ENABLE or "
+    "BB_HTTP_TLS_ENABLE is on (raise CONFIG_BB_PUB_WORKER_STACK to >= 8192)");
+#endif
+
 // Worker task priority. Tunable via CONFIG_BB_PUB_WORKER_PRIORITY (Kconfig).
 // Default 1 (lowest app priority). Raise when competing with CPU-bound tasks.
 #ifndef BB_PUB_WORKER_PRIORITY
