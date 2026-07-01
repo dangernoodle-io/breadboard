@@ -7,6 +7,7 @@
 // empty/"0.0.0.0", matching the current /api/wifi behaviour.
 #include "bb_wifi.h"
 #include "bb_json.h"
+#include "wifi_hist_priv.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -59,14 +60,7 @@ void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
     bb_wifi_get_reason_histogram(hist, 256);
 
     uint16_t top_count = 0;
-    int      top_code  = 0;
-    for (int i = 0; i < 256; i++) {
-        if (i == 99 || i == 100 || i == 101) continue;
-        if (hist[i] > top_count) {
-            top_count = hist[i];
-            top_code  = i;
-        }
-    }
+    uint16_t top_code  = wifi_hist_top_reason(hist, &top_count);
 
     bb_json_t h = bb_json_obj_new();
     bb_json_obj_set_int(h, "lost_ip",          (int64_t)hist[99]);

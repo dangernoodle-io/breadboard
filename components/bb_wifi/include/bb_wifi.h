@@ -149,9 +149,9 @@ uint32_t bb_wifi_get_no_ip_count(void);
 uint32_t bb_wifi_get_restart_sta_count(void);
 
 // RSSI at the moment of the most recent WIFI_EVENT_STA_DISCONNECTED event.
-// Captured from the periodically-refreshed RSSI cache before the AP is torn
-// down, avoiding a stale/invalid read inside the disconnect handler.
-// Returns 0 if no disconnect has occurred since boot.
+// Captured from the periodically-refreshed RSSI cache (s_cached_rssi) before
+// the AP record is torn down, avoiding a stale/invalid read inside the handler.
+// Returns INT8_MIN if no disconnect has occurred since boot (sentinel = "no reading").
 int8_t bb_wifi_get_disconnect_rssi(void);
 
 // Copy the disconnect reason histogram into out[0..len-1].

@@ -741,10 +741,11 @@ void test_bb_wifi_request_recovery_null_reason(void);
 // B1-411: restart_sta_count, disconnect_rssi, reason_histogram
 void test_bb_wifi_restart_sta_count_default_zero(void);
 void test_bb_wifi_restart_sta_count_test_hook_roundtrip(void);
-void test_bb_wifi_disconnect_rssi_default_zero(void);
+void test_bb_wifi_disconnect_rssi_default_sentinel(void);
 void test_bb_wifi_disconnect_rssi_test_hook_roundtrip(void);
 void test_bb_wifi_reason_histogram_host_returns_zeros(void);
 void test_bb_wifi_reason_histogram_null_safe(void);
+void test_bb_wifi_reason_histogram_inject_top_reason(void);
 
 // Forward declarations from test_manifest.c
 void test_manifest_empty_emits_empty_arrays(void);
@@ -3027,6 +3028,7 @@ void test_bb_pub_wifi_has_disconnect_rssi(void);
 void test_bb_pub_wifi_has_reason_histogram(void);
 void test_bb_pub_wifi_reason_histogram_has_sentinel_keys(void);
 void test_bb_pub_wifi_reason_histogram_zeros_on_host(void);
+void test_bb_pub_wifi_reason_histogram_top_reason_injected(void);
 
 // Forward declarations from test_bb_pub_info.c
 // Dynamic runtime metrics (kept in info topic)
@@ -3276,10 +3278,11 @@ void test_bb_pub_telem_thermal_rest_equals_sink(void);
 void test_bb_pub_telem_thermal_skips_when_all_absent(void);
 void test_bb_pub_telem_info_rest_equals_sink(void);
 void test_bb_pub_telem_info_serialize_once_per_tick(void);
-// bb_wifi_emit 3 new recovery fields
+// bb_wifi_emit 3 new recovery fields + top-reason injection
 void test_bb_wifi_emit_has_egress_dead_count(void);
 void test_bb_wifi_emit_has_lost_ip_count(void);
 void test_bb_wifi_emit_has_recovery_count(void);
+void test_bb_wifi_emit_top_reason_injected(void);
 // cache-adapter no-regather
 void test_bb_pub_telem_adapter_no_regather_on_repeated_sample(void);
 
@@ -4128,10 +4131,11 @@ int main(void) {
     RUN_TEST(test_bb_wifi_request_recovery_null_reason);
     RUN_TEST(test_bb_wifi_restart_sta_count_default_zero);
     RUN_TEST(test_bb_wifi_restart_sta_count_test_hook_roundtrip);
-    RUN_TEST(test_bb_wifi_disconnect_rssi_default_zero);
+    RUN_TEST(test_bb_wifi_disconnect_rssi_default_sentinel);
     RUN_TEST(test_bb_wifi_disconnect_rssi_test_hook_roundtrip);
     RUN_TEST(test_bb_wifi_reason_histogram_host_returns_zeros);
     RUN_TEST(test_bb_wifi_reason_histogram_null_safe);
+    RUN_TEST(test_bb_wifi_reason_histogram_inject_top_reason);
 
     // bb_manifest tests
     RUN_TEST(test_manifest_empty_emits_empty_arrays);
@@ -6251,6 +6255,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_wifi_has_reason_histogram);
     RUN_TEST(test_bb_pub_wifi_reason_histogram_has_sentinel_keys);
     RUN_TEST(test_bb_pub_wifi_reason_histogram_zeros_on_host);
+    RUN_TEST(test_bb_pub_wifi_reason_histogram_top_reason_injected);
 
     // bb_pub_info tests
     RUN_TEST(test_bb_pub_info_always_publishes);
@@ -6543,10 +6548,11 @@ int main(void) {
     RUN_TEST(test_bb_pub_telem_thermal_skips_when_all_absent);
     RUN_TEST(test_bb_pub_telem_info_rest_equals_sink);
     RUN_TEST(test_bb_pub_telem_info_serialize_once_per_tick);
-    // bb_wifi_emit 3 new recovery fields
+    // bb_wifi_emit recovery fields + top-reason injection
     RUN_TEST(test_bb_wifi_emit_has_egress_dead_count);
     RUN_TEST(test_bb_wifi_emit_has_lost_ip_count);
     RUN_TEST(test_bb_wifi_emit_has_recovery_count);
+    RUN_TEST(test_bb_wifi_emit_top_reason_injected);
     RUN_TEST(test_bb_pub_telem_adapter_no_regather_on_repeated_sample);
 
     // bb_cache

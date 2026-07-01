@@ -86,10 +86,10 @@ void test_bb_wifi_restart_sta_count_test_hook_roundtrip(void)
 // B1-411: disconnect_rssi getter
 // ---------------------------------------------------------------------------
 
-// Host stub returns 0 by default.
-void test_bb_wifi_disconnect_rssi_default_zero(void)
+// Host stub returns INT8_MIN by default (no disconnect yet sentinel).
+void test_bb_wifi_disconnect_rssi_default_sentinel(void)
 {
-    TEST_ASSERT_EQUAL_INT8(0, bb_wifi_get_disconnect_rssi());
+    TEST_ASSERT_EQUAL_INT8(INT8_MIN, bb_wifi_get_disconnect_rssi());
 }
 
 // Test hook roundtrip: set a value, getter returns it.
@@ -98,7 +98,30 @@ void test_bb_wifi_disconnect_rssi_test_hook_roundtrip(void)
 #ifdef BB_WIFI_TESTING
     bb_wifi_test_set_disconnect_rssi(-78);
     TEST_ASSERT_EQUAL_INT8(-78, bb_wifi_get_disconnect_rssi());
-    bb_wifi_test_set_disconnect_rssi(0);
+    bb_wifi_test_set_disconnect_rssi(INT8_MIN);
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// B1-411: reason histogram host injection (BB_WIFI_TESTING)
+// ---------------------------------------------------------------------------
+
+// Inject a non-zero standard reason and verify top_reason via emit_section.
+void test_bb_wifi_reason_histogram_inject_top_reason(void)
+{
+#ifdef BB_WIFI_TESTING
+    uint16_t h[256];
+    memset(h, 0, sizeof(h));
+    h[3] = 5; // reason 3, count 5
+    bb_wifi_test_set_reason_histogram(h, 256);
+
+    uint16_t out[256];
+    bb_wifi_get_reason_histogram(out, 256);
+    TEST_ASSERT_EQUAL_UINT16(5, out[3]);
+    TEST_ASSERT_EQUAL_UINT16(0, out[99]);
+
+    // clean up
+    bb_wifi_test_set_reason_histogram(NULL, 0);
 #endif
 }
 

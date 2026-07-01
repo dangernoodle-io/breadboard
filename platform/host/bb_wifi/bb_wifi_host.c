@@ -15,7 +15,8 @@ static int s_test_recovery_count = 0;
 static const char *s_test_last_recovery_reason = NULL;
 static bool s_test_recovery_blocked = false;
 static uint32_t s_test_restart_sta_count = 0;
-static int8_t s_test_disconnect_rssi = 0;
+static int8_t s_test_disconnect_rssi = INT8_MIN;
+static uint16_t s_test_reason_histogram[256];
 
 void bb_wifi_test_set_has_ip(bool has_ip)
 {
@@ -42,6 +43,7 @@ void bb_wifi_test_reset_recovery(void)
     s_test_recovery_count = 0;
     s_test_last_recovery_reason = NULL;
     s_test_recovery_blocked = false;
+    memset(s_test_reason_histogram, 0, sizeof(s_test_reason_histogram));
 }
 
 void bb_wifi_test_set_restart_sta_count(uint32_t count)
@@ -52,6 +54,16 @@ void bb_wifi_test_set_restart_sta_count(uint32_t count)
 void bb_wifi_test_set_disconnect_rssi(int8_t rssi)
 {
     s_test_disconnect_rssi = rssi;
+}
+
+void bb_wifi_test_set_reason_histogram(const uint16_t *hist, size_t len)
+{
+    memset(s_test_reason_histogram, 0, sizeof(s_test_reason_histogram));
+    if (!hist) return;
+    size_t n = len < 256 ? len : 256;
+    for (size_t i = 0; i < n; i++) {
+        s_test_reason_histogram[i] = hist[i];
+    }
 }
 #endif /* BB_WIFI_TESTING */
 
@@ -192,7 +204,7 @@ int8_t bb_wifi_get_disconnect_rssi(void)
 #ifdef BB_WIFI_TESTING
     return s_test_disconnect_rssi;
 #else
-    return 0;
+    return INT8_MIN;
 #endif
 }
 
@@ -200,6 +212,12 @@ void bb_wifi_get_reason_histogram(uint16_t *out, size_t len)
 {
     if (!out || len == 0) return;
     memset(out, 0, len * sizeof(uint16_t));
+#ifdef BB_WIFI_TESTING
+    size_t n = len < 256 ? len : 256;
+    for (size_t i = 0; i < n; i++) {
+        out[i] = s_test_reason_histogram[i];
+    }
+#endif
 }
 
 #ifdef BB_WIFI_TESTING

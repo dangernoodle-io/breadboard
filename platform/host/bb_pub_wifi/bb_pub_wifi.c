@@ -14,6 +14,7 @@
 #include "bb_clock.h"
 #include "bb_openapi.h"
 #include "bb_registry.h"
+#include "../bb_wifi/wifi_hist_priv.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -94,15 +95,7 @@ static void gather_histogram(bb_wifi_snap_t *snap)
     snap->hist_lost_ip        = hist[99];
     snap->hist_egress_dead    = hist[100];
     snap->hist_no_ip_watchdog = hist[101];
-    snap->hist_top_code       = 0;
-    snap->hist_top_count      = 0;
-    for (int i = 0; i < 256; i++) {
-        if (i == 99 || i == 100 || i == 101) continue;
-        if (hist[i] > snap->hist_top_count) {
-            snap->hist_top_count = hist[i];
-            snap->hist_top_code  = (uint16_t)i;
-        }
-    }
+    snap->hist_top_code       = wifi_hist_top_reason(hist, &snap->hist_top_count);
 }
 
 static bool wifi_gather(void *snap_buf, void *ctx)

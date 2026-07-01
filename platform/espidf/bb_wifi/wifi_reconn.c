@@ -191,6 +191,9 @@ static void reconn_task(void *arg)
                         s_state.first_fail_us = (int64_t)bb_timer_now_us();
                     }
                     s_state.egress_dead_count++;
+                    if (s_state.reason_histogram[WIFI_REASON_BB_EGRESS_DEAD] < UINT16_MAX) {
+                        s_state.reason_histogram[WIFI_REASON_BB_EGRESS_DEAD]++;
+                    }
                     break;
             }
         } else if (state == ST_CONNECTING) {
