@@ -3226,6 +3226,7 @@ void test_bb_pub_rtos_has_stack_ipc0(void);
 void test_bb_pub_rtos_has_stack_ipc1(void);
 void test_bb_pub_rtos_has_stack_main(void);
 void test_bb_pub_rtos_payload_has_uptime_ms_field(void);
+void test_bb_pub_rtos_stack_bb_pub_appears_exactly_once(void);
 void test_bb_pub_rtos_benign_task_filter(void);
 void test_bb_pub_rtos_emits_one_stack_field_per_registered_entry(void);
 void test_bb_pub_rtos_emits_multiple_registered_entries(void);
@@ -6616,6 +6617,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_rtos_has_stack_ipc1);
     RUN_TEST(test_bb_pub_rtos_has_stack_main);
     RUN_TEST(test_bb_pub_rtos_payload_has_uptime_ms_field);
+    RUN_TEST(test_bb_pub_rtos_stack_bb_pub_appears_exactly_once);
     RUN_TEST(test_bb_pub_rtos_benign_task_filter);
     RUN_TEST(test_bb_pub_rtos_emits_one_stack_field_per_registered_entry);
     RUN_TEST(test_bb_pub_rtos_emits_multiple_registered_entries);

@@ -52,6 +52,13 @@ static void setup(void)
     rtos_capture_reset();
     bb_nv_config_set_hostname("testhost");
 
+    // Mirrors production: bb_pub's own worker task always self-registers
+    // into bb_task_registry under "bb_pub" (see the s_named[] comment in
+    // bb_pub_rtos.c) before this sample runs. The host stub no longer
+    // hardcodes "stack_bb_pub" (B1-450) — it is registry-sourced, so tests
+    // seed it here the same way production populates it.
+    bb_task_registry_test_seed("bb_pub", 2048, false, NULL);
+
     bb_pub_sink_t sink = { .publish = rtos_capture_publish, .ctx = NULL };
     bb_pub_set_sink(&sink);
     bb_pub_rtos_register();
@@ -198,8 +205,29 @@ void test_bb_pub_rtos_no_registered_entries_still_publishes(void)
     setup();
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    // Pre-existing hardcoded fields are untouched.
+    // "No registered entries" means no ADDITIONAL app-level entries beyond
+    // bb_pub's own self-registration, which setup() seeds unconditionally
+    // (mirrors production — bb_pub always registers itself). stack_bb_pub is
+    // registry-sourced (B1-450), not a hardcoded literal.
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"stack_bb_pub\""));
+}
+
+// B1-450: stack_bb_pub is registry-sourced only (removed from s_named[] on
+// ESP-IDF, and never hardcoded on host — see the comments above s_named[]
+// and in the host rtos_sample() stub in bb_pub_rtos.c). setup() seeds
+// "bb_pub" into bb_task_registry the same way bb_pub's worker self-registers
+// in production, so this test reproduces the defect class this fix
+// addresses: without the fix, a hardcoded literal PLUS the registry-driven
+// foreach would double-emit the key for a registered "bb_pub" entry. Assert
+// the field appears, and appears exactly once.
+void test_bb_pub_rtos_stack_bb_pub_appears_exactly_once(void)
+{
+    setup();
+    bb_pub_tick_once();
+    const char *first = strstr(s_captured[0].payload, "\"stack_bb_pub\"");
+    TEST_ASSERT_NOT_NULL(first);
+    const char *second = strstr(first + 1, "\"stack_bb_pub\"");
+    TEST_ASSERT_NULL(second);
 }
 
 void test_bb_pub_rtos_benign_task_filter(void)
