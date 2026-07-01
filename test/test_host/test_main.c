@@ -738,6 +738,13 @@ void test_bb_wifi_set_hostname_valid(void);
 void test_bb_wifi_request_recovery_no_ip_noop(void);
 void test_bb_wifi_request_recovery_triggers_restart(void);
 void test_bb_wifi_request_recovery_null_reason(void);
+// B1-411: restart_sta_count, disconnect_rssi, reason_histogram
+void test_bb_wifi_restart_sta_count_default_zero(void);
+void test_bb_wifi_restart_sta_count_test_hook_roundtrip(void);
+void test_bb_wifi_disconnect_rssi_default_zero(void);
+void test_bb_wifi_disconnect_rssi_test_hook_roundtrip(void);
+void test_bb_wifi_reason_histogram_host_returns_zeros(void);
+void test_bb_wifi_reason_histogram_null_safe(void);
 
 // Forward declarations from test_manifest.c
 void test_manifest_empty_emits_empty_arrays(void);
@@ -3008,6 +3015,12 @@ void test_bb_pub_wifi_has_egress_dead_count(void);
 void test_bb_pub_wifi_has_lost_ip_count(void);
 void test_bb_pub_wifi_has_recovery_count(void);
 void test_bb_pub_wifi_recovery_count_zero_when_all_counters_zero(void);
+// B1-411: restart_sta_count, disconnect_rssi, reason_histogram emit fields
+void test_bb_pub_wifi_has_restart_sta_count(void);
+void test_bb_pub_wifi_has_disconnect_rssi(void);
+void test_bb_pub_wifi_has_reason_histogram(void);
+void test_bb_pub_wifi_reason_histogram_has_sentinel_keys(void);
+void test_bb_pub_wifi_reason_histogram_zeros_on_host(void);
 
 // Forward declarations from test_bb_pub_info.c
 // Dynamic runtime metrics (kept in info topic)
@@ -4107,6 +4120,12 @@ int main(void) {
     RUN_TEST(test_bb_wifi_request_recovery_no_ip_noop);
     RUN_TEST(test_bb_wifi_request_recovery_triggers_restart);
     RUN_TEST(test_bb_wifi_request_recovery_null_reason);
+    RUN_TEST(test_bb_wifi_restart_sta_count_default_zero);
+    RUN_TEST(test_bb_wifi_restart_sta_count_test_hook_roundtrip);
+    RUN_TEST(test_bb_wifi_disconnect_rssi_default_zero);
+    RUN_TEST(test_bb_wifi_disconnect_rssi_test_hook_roundtrip);
+    RUN_TEST(test_bb_wifi_reason_histogram_host_returns_zeros);
+    RUN_TEST(test_bb_wifi_reason_histogram_null_safe);
 
     // bb_manifest tests
     RUN_TEST(test_manifest_empty_emits_empty_arrays);
@@ -6215,6 +6234,11 @@ int main(void) {
     RUN_TEST(test_bb_pub_wifi_has_lost_ip_count);
     RUN_TEST(test_bb_pub_wifi_has_recovery_count);
     RUN_TEST(test_bb_pub_wifi_recovery_count_zero_when_all_counters_zero);
+    RUN_TEST(test_bb_pub_wifi_has_restart_sta_count);
+    RUN_TEST(test_bb_pub_wifi_has_disconnect_rssi);
+    RUN_TEST(test_bb_pub_wifi_has_reason_histogram);
+    RUN_TEST(test_bb_pub_wifi_reason_histogram_has_sentinel_keys);
+    RUN_TEST(test_bb_pub_wifi_reason_histogram_zeros_on_host);
 
     // bb_pub_info tests
     RUN_TEST(test_bb_pub_info_always_publishes);

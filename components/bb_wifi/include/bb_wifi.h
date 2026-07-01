@@ -143,6 +143,24 @@ uint32_t bb_wifi_get_egress_dead_count(void);
 // Returns 0 if the reconnect manager is not active or no no-IP event has occurred.
 uint32_t bb_wifi_get_no_ip_count(void);
 
+// Times bb_wifi_restart_sta() has been called as part of any WiFi recovery path.
+// Incremented inside bb_wifi_restart_sta() only — callers must NOT increment it.
+// Returns 0 if bb_wifi_restart_sta() has never been invoked.
+uint32_t bb_wifi_get_restart_sta_count(void);
+
+// RSSI at the moment of the most recent WIFI_EVENT_STA_DISCONNECTED event.
+// Captured from the periodically-refreshed RSSI cache before the AP is torn
+// down, avoiding a stale/invalid read inside the disconnect handler.
+// Returns 0 if no disconnect has occurred since boot.
+int8_t bb_wifi_get_disconnect_rssi(void);
+
+// Copy the disconnect reason histogram into out[0..len-1].
+// Indexes 99/100/101 are breadboard sentinels (lost_ip / egress_dead /
+// no_ip_watchdog).  Standard esp_wifi reasons occupy the remaining slots.
+// If the reconnect manager is not active, out is zeroed.
+// Safe to call with NULL or len==0 (no-op).
+void bb_wifi_get_reason_histogram(uint16_t *out, size_t len);
+
 #ifdef ESP_PLATFORM
 // ICMP ping a target IPv4 address. target_addr is a raw IPv4 address in
 // esp_ip4_addr byte order (i.e. the same value as esp_ip4_addr_t.addr).

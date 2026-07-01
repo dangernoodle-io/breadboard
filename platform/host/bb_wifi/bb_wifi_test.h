@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 /**
  * Host-only test hooks for bb_wifi.
@@ -12,4 +13,8 @@ void bb_wifi_test_set_recovery_blocked(bool blocked);
 int  bb_wifi_test_get_recovery_count(void);
 const char *bb_wifi_test_get_last_recovery_reason(void);
 void bb_wifi_test_reset_recovery(void);
+
+// Setters for the three new recovery-telemetry fields.
+void bb_wifi_test_set_restart_sta_count(uint32_t count);
+void bb_wifi_test_set_disconnect_rssi(int8_t rssi);
 #endif

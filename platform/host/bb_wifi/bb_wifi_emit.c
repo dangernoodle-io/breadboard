@@ -22,6 +22,13 @@
 //   disc_age_s         (integer)
 //   retry_count        (integer)
 //   no_ip_recoveries   (integer, diagnostics — times no-IP watchdog triggered)
+//   egress_dead_count  (integer)
+//   lost_ip_count      (integer)
+//   recovery_count     (integer, sum of all three recovery counters)
+//   restart_sta_count  (integer, times bb_wifi_restart_sta was invoked)
+//   disconnect_rssi    (integer, RSSI at most recent disconnect)
+//   reason_histogram   (object, compact view: lost_ip/egress_dead/no_ip_watchdog
+//                        sentinels + top non-zero standard reason)
 void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
 {
     char bssid[18];
@@ -44,6 +51,30 @@ void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
                            (int64_t)(bb_wifi_get_no_ip_count() +
                                      bb_wifi_get_egress_dead_count() +
                                      bb_wifi_get_lost_ip_count()));
+    bb_json_obj_set_int   (obj, "restart_sta_count",  (int64_t)bb_wifi_get_restart_sta_count());
+    bb_json_obj_set_int   (obj, "disconnect_rssi",    (int64_t)bb_wifi_get_disconnect_rssi());
+
+    // Compact reason histogram: the three sentinel buckets + single top standard reason.
+    uint16_t hist[256];
+    bb_wifi_get_reason_histogram(hist, 256);
+
+    uint16_t top_count = 0;
+    int      top_code  = 0;
+    for (int i = 0; i < 256; i++) {
+        if (i == 99 || i == 100 || i == 101) continue;
+        if (hist[i] > top_count) {
+            top_count = hist[i];
+            top_code  = i;
+        }
+    }
+
+    bb_json_t h = bb_json_obj_new();
+    bb_json_obj_set_int(h, "lost_ip",          (int64_t)hist[99]);
+    bb_json_obj_set_int(h, "egress_dead",       (int64_t)hist[100]);
+    bb_json_obj_set_int(h, "no_ip_watchdog",    (int64_t)hist[101]);
+    bb_json_obj_set_int(h, "top_reason_code",   (int64_t)top_code);
+    bb_json_obj_set_int(h, "top_reason_count",  (int64_t)top_count);
+    bb_json_obj_set_obj(obj, "reason_histogram", h);
 }
 
 // Emit status-only wifi fields — ssid/bssid/ip/connected.
