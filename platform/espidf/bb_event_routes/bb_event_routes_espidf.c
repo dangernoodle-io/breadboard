@@ -10,6 +10,7 @@
 #include "bb_init.h"
 #include "bb_sse_writer.h"
 #include "bb_timer.h"
+#include "bb_task_registry.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -119,11 +120,15 @@ static int events_wait_fn(void *ctx, char *buf, size_t buflen, uint32_t timeout_
     return (int)n;
 }
 
-// cleanup_fn: release the client slot and free the arg struct.
+// cleanup_fn: release the client slot, deregister this task, and free the
+// arg struct. Runs on the SSE task itself, immediately before bb_sse_writer_run
+// calls vTaskDelete(NULL) — xTaskGetCurrentTaskHandle() is still valid here and
+// matches the handle registered at task-create time (per-client unique name).
 static void events_cleanup_fn(void *ctx)
 {
     sse_task_arg_t *t = (sse_task_arg_t *)ctx;
     bb_event_routes_client_release(t->client);
+    bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
     bb_mem_free(t);
 }
 
@@ -192,10 +197,18 @@ static bb_err_t events_handler(bb_http_request_t *req)
     arg->req = async_req;
     arg->client = client;
 
+    // Each concurrent SSE client gets a unique registry name keyed off its
+    // client slot index — a literal "sse_events" for every client would collide
+    // in the registry (dup-name rejection hides all but the first). Slot index
+    // is bounded 0..BB_EVENT_ROUTES_MAX_CLIENTS-1, so the name stays well under
+    // configMAX_TASK_NAME_LEN (typically 16).
+    char task_name[BB_TASK_REGISTRY_NAME_MAX];
+    int slot = bb_event_routes_client_slot_index(client);
+    snprintf(task_name, sizeof(task_name), "sse_events_%d", slot);
+
 #if CONFIG_BB_EVENT_ROUTES_STATIC_POOL
     {
-        int slot = bb_event_routes_client_slot_index(client);
-        TaskHandle_t th = xTaskCreateStatic(sse_task, "sse_events",
+        TaskHandle_t th = xTaskCreateStatic(sse_task, task_name,
                                             SSE_TASK_STACK_WORDS, arg, 1,
                                             s_sse_stack[slot],
                                             &s_sse_tcb[slot]);
@@ -205,13 +218,18 @@ static bb_err_t events_handler(bb_http_request_t *req)
             bb_http_req_async_handler_complete(async_req);
             return BB_ERR_INVALID_STATE;
         }
+        bb_task_registry_register(task_name, SSE_TASK_STACK_WORDS * sizeof(StackType_t), th);
     }
 #else
-    if (xTaskCreate(sse_task, "sse_events", 4096, arg, 1, NULL) != pdPASS) {
-        bb_mem_free(arg);
-        bb_event_routes_client_release(client);
-        bb_http_req_async_handler_complete(async_req);
-        return BB_ERR_INVALID_STATE;
+    {
+        TaskHandle_t th = NULL;
+        if (xTaskCreate(sse_task, task_name, 4096, arg, 1, &th) != pdPASS) {
+            bb_mem_free(arg);
+            bb_event_routes_client_release(client);
+            bb_http_req_async_handler_complete(async_req);
+            return BB_ERR_INVALID_STATE;
+        }
+        bb_task_registry_register(task_name, 4096, th);
     }
 #endif
     return BB_OK;

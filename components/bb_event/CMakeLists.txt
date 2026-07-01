@@ -3,7 +3,7 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "."
     REQUIRES bb_core
-    PRIV_REQUIRES freertos bb_log bb_init)
+    PRIV_REQUIRES freertos bb_log bb_init bb_task_registry)
 
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
 if(CONFIG_BB_EVENT_AUTOREGISTER)

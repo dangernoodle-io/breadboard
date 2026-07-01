@@ -14,6 +14,7 @@
 #include "bb_init.h"
 #include "bb_system.h"
 #include "bb_mem.h"
+#include "bb_task_registry.h"
 
 #include "esp_system.h"
 #include "esp_heap_caps.h"
@@ -543,6 +544,17 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
 #if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
         bb_json_obj_set_number(t, "runtime", (double)arr[i].ulRunTimeCounter);
 #endif
+        // Additive enrichment (B1-445): cross-reference bb_task_registry by
+        // name via the pure lookup fn. Omitted (not null) when the task did
+        // not self-register — existing fields above are byte-unchanged.
+        {
+            uint32_t reg_budget = 0;
+            bool     reg_wdt    = false;
+            if (bb_task_registry_lookup_budget(arr[i].pcTaskName, &reg_budget, &reg_wdt)) {
+                bb_json_obj_set_number(t, "stack_budget_bytes", (double)reg_budget);
+                bb_json_obj_set_bool(t, "wdt_subscribed", reg_wdt);
+            }
+        }
         bb_http_resp_json_arr_emit(&stream, t);
         bb_json_free(t);
     }
@@ -561,9 +573,13 @@ static const bb_route_response_t s_tasks_get_responses[] = {
       "\"stack_hwm\":{\"type\":\"integer\"},"
       "\"state\":{\"type\":\"string\"},"
       "\"core\":{\"type\":\"integer\"},"
-      "\"runtime\":{\"type\":\"integer\"}}}}",
+      "\"runtime\":{\"type\":\"integer\"},"
+      "\"stack_budget_bytes\":{\"type\":\"integer\"},"
+      "\"wdt_subscribed\":{\"type\":\"boolean\"}}}}",
       "task list; core requires CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
-      "runtime requires CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS" },
+      "runtime requires CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS; "
+      "stack_budget_bytes/wdt_subscribed present only for tasks self-registered "
+      "via bb_task_registry" },
     { 500, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{\"error\":{\"type\":\"string\"}},"

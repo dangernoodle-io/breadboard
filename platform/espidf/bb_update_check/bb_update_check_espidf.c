@@ -21,6 +21,7 @@
 #include "bb_init.h"
 #include "bb_event_routes.h"
 #include "bb_claim.h"
+#include "bb_task_registry.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -107,6 +108,7 @@ static void ondemand_task(void *arg)
     bb_claim_release(&s_ota_claim, "upd_check");
     // Clear the in-flight guard before deleting so the next kick can spawn.
     atomic_store(&s_check_in_flight, false);
+    bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
     vTaskDelete(NULL);
 }
 
@@ -144,9 +146,10 @@ static bool try_spawn(void)
         return false;
     }
 #else
+    TaskHandle_t upd_task = NULL;
     BaseType_t rc = xTaskCreatePinnedToCore(
         ondemand_task, "upd_check", BB_HTTP_CLIENT_TASK_STACK,
-        NULL, s_task_priority, NULL, task_core);
+        NULL, s_task_priority, &upd_task, task_core);
 
     if (rc != pdPASS) {
         // Heap too fragmented / low for the 8 KB stack at this moment.
@@ -156,6 +159,7 @@ static bool try_spawn(void)
         return false;
     }
 #endif
+    bb_task_registry_register("upd_check", BB_HTTP_CLIENT_TASK_STACK, upd_task);
 
     return true;
 }

@@ -79,6 +79,7 @@ bool bb_ota_boot_pending(void)
 #include "bb_http.h"
 #include "bb_init.h"
 #include "bb_http_client.h"
+#include "bb_task_registry.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -138,6 +139,7 @@ static void status_check_task(void *arg)
 {
     (void)arg;
     bb_update_check_now();
+    bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
     vTaskDelete(NULL);
 }
 
@@ -196,8 +198,9 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
     if (status_task_core >= configNUMBER_OF_CORES) {
         status_task_core = tskNO_AFFINITY;
     }
+    TaskHandle_t status_chk_task = NULL;
     if (xTaskCreatePinnedToCore(status_check_task, "ota_status_chk",
-                                BB_HTTP_CLIENT_TASK_STACK, NULL, 1, NULL,
+                                BB_HTTP_CLIENT_TASK_STACK, NULL, 1, &status_chk_task,
                                 status_task_core) != pdPASS) {
         bb_log_e(TAG, "check: task create failed");
         bb_http_resp_set_status(req, 503);
@@ -207,6 +210,7 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
+    bb_task_registry_register("ota_status_chk", BB_HTTP_CLIENT_TASK_STACK, status_chk_task);
 
     bb_http_resp_set_status(req, 202);
     bb_http_json_obj_stream_t obj;
@@ -416,12 +420,14 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
     // stack than the main task carries). This task then blocks; the worker always reboots.
     s_boot_url   = releases_url;
     s_boot_board = board;
-    if (xTaskCreate(ota_boot_worker, "ota_boot", OTA_BOOT_WORKER_STACK, NULL, 5, NULL) != pdPASS) {
+    TaskHandle_t boot_worker_task = NULL;
+    if (xTaskCreate(ota_boot_worker, "ota_boot", OTA_BOOT_WORKER_STACK, NULL, 5, &boot_worker_task) != pdPASS) {
         bb_log_e(TAG, "OTA boot-mode: worker create failed, rebooting normal");
         breadcrumb(0xE5);
         bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
         esp_restart();
     }
+    bb_task_registry_register("ota_boot", OTA_BOOT_WORKER_STACK, boot_worker_task);
     for (;;) {
         vTaskDelay(portMAX_DELAY);
     }
@@ -449,7 +455,10 @@ static bb_err_t ota_boot_handler(bb_http_request_t *req)
     bb_http_resp_json_obj_begin(req, &obj);
     bb_http_resp_json_obj_set_str(&obj, "status", "rebooting_for_boot_mode_ota");
     bb_http_resp_json_obj_end(&obj);
-    xTaskCreate(ota_boot_reboot_task, "ota_boot_rb", 2048, NULL, 5, NULL);
+    TaskHandle_t reboot_task = NULL;
+    if (xTaskCreate(ota_boot_reboot_task, "ota_boot_rb", 2048, NULL, 5, &reboot_task) == pdPASS) {
+        bb_task_registry_register("ota_boot_rb", 2048, reboot_task);
+    }
     return BB_OK;
 }
 

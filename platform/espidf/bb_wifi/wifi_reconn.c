@@ -5,6 +5,7 @@
 #include "bb_timer.h"
 #include "bb_wifi.h"
 #include "bb_alert.h"
+#include "bb_task_registry.h"
 
 #include <stdio.h>
 
@@ -266,6 +267,7 @@ void wifi_reconn_start(void)
         s_queue = NULL;
         return;
     }
+    bb_task_registry_register("wifi_reconn", RECONN_TASK_STACK, s_task);
     s_active = true;
 }
 

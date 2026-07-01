@@ -531,7 +531,12 @@ COMPONENT_MAP = {
     "bb_pub_rtos": {
         "includes": ["components/bb_pub_rtos/include"],
         "sources":  ["platform/host/bb_pub_rtos/bb_pub_rtos.c"],
-        "depends":  ["bb_core", "bb_pub", "bb_openapi"],
+        "depends":  ["bb_core", "bb_pub", "bb_openapi", "bb_task_registry"],
+    },
+    "bb_task_registry": {
+        "includes": ["components/bb_task_registry/include"],
+        "sources":  ["platform/host/bb_task_registry/bb_task_registry.c"],
+        "depends":  ["bb_core", "bb_registry"],
     },
     "bb_response": {
         "includes": ["components/bb_response/include"],

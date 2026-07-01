@@ -6,6 +6,7 @@
 #include "bb_button_gpio.h"
 #include "bb_button_driver.h"
 #include "bb_mem.h"
+#include "bb_task_registry.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -125,6 +126,7 @@ bb_err_t bb_button_gpio_open(const bb_button_gpio_cfg_t *cfg, bb_button_handle_t
         *out = NULL;
         return BB_ERR_NO_SPACE;
     }
+    bb_task_registry_register("bb_btn_gpio", 2048, s->task);
 
     gpio_isr_handler_add(cfg->gpio, isr_handler, s);
 

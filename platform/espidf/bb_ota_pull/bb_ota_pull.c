@@ -22,6 +22,7 @@
 #include "bb_wifi.h"
 #include "bb_wdt.h"
 #include "bb_board.h"
+#include "bb_task_registry.h"
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
 #include "esp_ota_ops.h"
@@ -485,6 +486,7 @@ static void ota_task_exit(void)
 {
     bb_update_check_ota_claim_release("ota_pull");
     bb_wdt_extend_end();
+    bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
     vTaskDelete(NULL);
 }
 
@@ -1180,6 +1182,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         return BB_OK;
     }
 #endif
+    bb_task_registry_register("ota_pull", OTA_TASK_STACK, task_handle);
 
     bb_http_resp_set_status(req, 202);
     bb_http_json_obj_stream_t obj;

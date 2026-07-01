@@ -18,6 +18,7 @@
 #include "bb_json.h"
 #include "bb_clock.h"
 #include "bb_openapi.h"
+#include "bb_task_registry.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -137,6 +138,7 @@ static bb_err_t bb_log_event_init(bb_http_handle_t server)
         bb_log_e(TAG, "task create failed");
         return ESP_ERR_NO_MEM;
     }
+    bb_task_registry_register("bb_log_evt", LOG_EVENT_TASK_STACK, s_task);
 
     bb_log_event_set_queue(s_q);
 
