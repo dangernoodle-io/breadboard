@@ -2220,6 +2220,20 @@ void test_bb_ring_registry_foreach_null_cb_is_noop(void);
 void test_bb_ring_registry_foreach_empty_registry(void);
 void test_bb_ring_registry_test_reset_clears_all(void);
 
+// Forward declarations from test_bb_event_topic_registry.c
+void test_bb_event_topic_registry_register_and_count(void);
+void test_bb_event_topic_registry_register_null_args_returns_invalid_arg(void);
+void test_bb_event_topic_registry_register_duplicate_name_returns_ok(void);
+void test_bb_event_topic_registry_register_overflow_returns_no_space(void);
+void test_bb_event_topic_registry_find_by_handle_hit(void);
+void test_bb_event_topic_registry_find_by_handle_miss(void);
+void test_bb_event_topic_registry_find_by_handle_null_args_returns_invalid_arg(void);
+void test_bb_event_topic_registry_get_by_index_hit(void);
+void test_bb_event_topic_registry_get_by_index_out_of_range_returns_not_found(void);
+void test_bb_event_topic_registry_get_by_index_null_out_returns_invalid_arg(void);
+void test_bb_event_topic_registry_get_by_index_huge_idx_returns_not_found(void);
+void test_bb_event_topic_registry_test_reset_clears_all(void);
+
 // Forward declarations from test_bb_event_ring_retained.c
 void test_bb_event_ring_attach_ex_retained_true_returns_ok(void);
 void test_bb_event_ring_attach_ex_retained_false_same_as_attach(void);
@@ -5502,6 +5516,20 @@ int main(void) {
     RUN_TEST(test_bb_ring_registry_foreach_null_cb_is_noop);
     RUN_TEST(test_bb_ring_registry_foreach_empty_registry);
     RUN_TEST(test_bb_ring_registry_test_reset_clears_all);
+
+    // bb_event_topic_registry tests
+    RUN_TEST(test_bb_event_topic_registry_register_and_count);
+    RUN_TEST(test_bb_event_topic_registry_register_null_args_returns_invalid_arg);
+    RUN_TEST(test_bb_event_topic_registry_register_duplicate_name_returns_ok);
+    RUN_TEST(test_bb_event_topic_registry_register_overflow_returns_no_space);
+    RUN_TEST(test_bb_event_topic_registry_find_by_handle_hit);
+    RUN_TEST(test_bb_event_topic_registry_find_by_handle_miss);
+    RUN_TEST(test_bb_event_topic_registry_find_by_handle_null_args_returns_invalid_arg);
+    RUN_TEST(test_bb_event_topic_registry_get_by_index_hit);
+    RUN_TEST(test_bb_event_topic_registry_get_by_index_out_of_range_returns_not_found);
+    RUN_TEST(test_bb_event_topic_registry_get_by_index_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_event_topic_registry_get_by_index_huge_idx_returns_not_found);
+    RUN_TEST(test_bb_event_topic_registry_test_reset_clears_all);
 
     RUN_TEST(test_bb_event_subscribe_with_prep_runs_prep_before_subscribe);
     RUN_TEST(test_bb_event_subscribe_with_prep_null_prep_subscribes);
