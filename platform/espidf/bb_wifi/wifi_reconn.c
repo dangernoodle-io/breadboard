@@ -228,7 +228,7 @@ static void reconn_task(void *arg)
                         .reason      = WIFI_REASON_BB_NO_IP_WATCHDOG,
                         .retry_count = (uint32_t)(s_state.handshake_fail_count + s_state.generic_fail_count),
                     };
-                    bb_alert_emit("wifi_no_ip", BB_ALERT_WARNING, fill_wifi_lost_ip, &alert_ctx);
+                    bb_alert_emit(BB_ALERT_TYPE_WIFI_NO_IP, BB_ALERT_WARNING, fill_wifi_lost_ip, &alert_ctx);
                 }
 #endif
                 bb_wifi_restart_sta();
@@ -315,7 +315,7 @@ void wifi_reconn_on_lost_ip(void)
             .reason      = 99, // WIFI_REASON_BB_LOST_IP sentinel
             .retry_count = (uint32_t)(s_state.handshake_fail_count + s_state.generic_fail_count),
         };
-        bb_alert_emit("wifi_lost_ip", BB_ALERT_WARNING, fill_wifi_lost_ip, &alert_ctx);
+        bb_alert_emit(BB_ALERT_TYPE_WIFI_LOST_IP, BB_ALERT_WARNING, fill_wifi_lost_ip, &alert_ctx);
     }
 #endif
     // Do NOT set s_self_disconnect — we WANT the resulting DISCONNECTED event

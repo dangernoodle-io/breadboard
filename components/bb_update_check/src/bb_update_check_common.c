@@ -439,7 +439,7 @@ bb_err_t bb_update_check_run_one(void)
 #if BB_ALERT_ENABLE
             {
                 update_ver_ctx_t alert_ctx = { .current = s_status.current, .latest = "" };
-                bb_alert_emit("update_failure", BB_ALERT_WARNING, fill_update_version, &alert_ctx);
+                bb_alert_emit(BB_ALERT_TYPE_UPDATE_FAILURE, BB_ALERT_WARNING, fill_update_version, &alert_ctx);
             }
 #endif
             return err == BB_OK ? BB_ERR_INVALID_STATE : err;
@@ -456,7 +456,7 @@ bb_err_t bb_update_check_run_one(void)
 #if BB_ALERT_ENABLE
             {
                 update_ver_ctx_t alert_ctx = { .current = s_status.current, .latest = "" };
-                bb_alert_emit("update_failure", BB_ALERT_WARNING, fill_update_version, &alert_ctx);
+                bb_alert_emit(BB_ALERT_TYPE_UPDATE_FAILURE, BB_ALERT_WARNING, fill_update_version, &alert_ctx);
             }
 #endif
             return perr;
@@ -506,7 +506,7 @@ bb_err_t bb_update_check_run_one(void)
 #if BB_ALERT_ENABLE
         if (new_available && !old_available) {
             update_ver_ctx_t alert_ctx = { .current = snap.current, .latest = snap.latest };
-            bb_alert_emit("update_available", BB_ALERT_INFO, fill_update_version, &alert_ctx);
+            bb_alert_emit(BB_ALERT_TYPE_UPDATE_AVAILABLE, BB_ALERT_INFO, fill_update_version, &alert_ctx);
         }
 #endif
         return BB_OK;
@@ -546,7 +546,7 @@ bb_err_t bb_update_check_run_one(void)
 #if BB_ALERT_ENABLE
             {
                 update_ver_ctx_t alert_ctx = { .current = s_status.current, .latest = "" };
-                bb_alert_emit("update_failure", BB_ALERT_WARNING, fill_update_version, &alert_ctx);
+                bb_alert_emit(BB_ALERT_TYPE_UPDATE_FAILURE, BB_ALERT_WARNING, fill_update_version, &alert_ctx);
             }
 #endif
             return err == BB_OK ? BB_ERR_INVALID_STATE : err;
@@ -565,7 +565,7 @@ bb_err_t bb_update_check_run_one(void)
 #if BB_ALERT_ENABLE
             {
                 update_ver_ctx_t alert_ctx = { .current = s_status.current, .latest = "" };
-                bb_alert_emit("update_failure", BB_ALERT_WARNING, fill_update_version, &alert_ctx);
+                bb_alert_emit(BB_ALERT_TYPE_UPDATE_FAILURE, BB_ALERT_WARNING, fill_update_version, &alert_ctx);
             }
 #endif
             return perr;
@@ -613,7 +613,7 @@ bb_err_t bb_update_check_run_one(void)
 #if BB_ALERT_ENABLE
         if (new_available && !old_available2) {
             update_ver_ctx_t alert_ctx = { .current = snap.current, .latest = snap.latest };
-            bb_alert_emit("update_available", BB_ALERT_INFO, fill_update_version, &alert_ctx);
+            bb_alert_emit(BB_ALERT_TYPE_UPDATE_AVAILABLE, BB_ALERT_INFO, fill_update_version, &alert_ctx);
         }
 #endif
         return BB_OK;
@@ -824,7 +824,7 @@ bb_err_t bb_update_check_mark_check_on_apply(void)
 #if BB_ALERT_ENABLE
     {
         update_ver_ctx_t alert_ctx = { .current = snap.current, .latest = snap.latest };
-        bb_alert_emit("update_applied", BB_ALERT_INFO, fill_update_version, &alert_ctx);
+        bb_alert_emit(BB_ALERT_TYPE_UPDATE_APPLIED, BB_ALERT_INFO, fill_update_version, &alert_ctx);
     }
 #endif
     return BB_OK;
