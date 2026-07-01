@@ -427,8 +427,9 @@ COMPONENT_MAP = {
     },
     "bb_ring": {
         "includes": ["components/bb_ring/include"],
-        "sources":  ["platform/host/bb_ring/bb_ring.c"],
-        "depends":  ["bb_core"],
+        "sources":  ["platform/host/bb_ring/bb_ring.c",
+                     "platform/host/bb_ring/bb_ring_registry.c"],
+        "depends":  ["bb_core", "bb_registry"],
     },
     "bb_event_ring": {
         "includes": ["components/bb_event_ring/include"],

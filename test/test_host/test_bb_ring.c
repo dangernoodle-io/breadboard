@@ -31,6 +31,7 @@ void test_bb_ring_create_basic(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_ring_create(4, 64, BB_RING_EVICT_OLDEST, "basic", &r));
     TEST_ASSERT_NOT_NULL(r);
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_count(r));
+    TEST_ASSERT_EQUAL_size_t(4, bb_ring_capacity(r));
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_bytes_used(r));
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_dropped(r));
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_truncated(r));
@@ -580,6 +581,7 @@ void test_bb_ring_head_tail_wrap(void)
 void test_bb_ring_introspection_null_returns_zero(void)
 {
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_count(NULL));
+    TEST_ASSERT_EQUAL_size_t(0, bb_ring_capacity(NULL));
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_bytes_used(NULL));
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_dropped(NULL));
     TEST_ASSERT_EQUAL_size_t(0, bb_ring_truncated(NULL));

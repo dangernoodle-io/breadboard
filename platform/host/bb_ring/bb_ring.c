@@ -15,6 +15,7 @@
 // Thread-safety: NONE. Caller serialises access.
 
 #include "bb_ring.h"
+#include "bb_ring_registry.h"
 #include "bb_log.h"
 #include <stdlib.h>
 #include <string.h>
@@ -131,6 +132,12 @@ bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes,
 
     bb_log_i(TAG, "created ring '%s': capacity=%zu max_entry=%zu policy=%d",
              r->name, capacity_entries, max_entry_bytes, (int)policy);
+
+    // Best-effort self-registration for GET /api/diag/rings — a full
+    // registry or a duplicate name is logged (inside bb_ring_registry) and
+    // does NOT fail ring creation.
+    bb_ring_registry_register(r->name, r);
+
     *out = r;
     return BB_OK;
 }
@@ -138,6 +145,7 @@ bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes,
 void bb_ring_destroy(bb_ring_t r)
 {
     if (!r) return;
+    bb_ring_registry_deregister(r);
     bb_log_i(TAG, "destroyed ring '%s'", r->name);
     s_free(r->payload);
     s_free(r->entries);
@@ -265,6 +273,11 @@ bb_err_t bb_ring_peek_at(bb_ring_t r, size_t index,
 size_t bb_ring_count(bb_ring_t r)
 {
     return r ? r->count : 0;
+}
+
+size_t bb_ring_capacity(bb_ring_t r)
+{
+    return r ? r->capacity : 0;
 }
 
 size_t bb_ring_bytes_used(bb_ring_t r)
