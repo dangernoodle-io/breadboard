@@ -1,9 +1,9 @@
 // bb_telemetry — section registry + build/dispatch helpers.
 // Compiled on both host (test) and ESP-IDF.
 //
-// Internally delegates to bb_section; public API is ABI-identical to before.
+// Internally delegates to bb_response; public API is ABI-identical to before.
 #include "bb_telemetry.h"
-#include "bb_section.h"
+#include "bb_response.h"
 #include "bb_log.h"
 #include "bb_nv.h"
 #include "bb_pub.h"
@@ -24,13 +24,14 @@ static const char *TAG = "bb_telemetry";
 #define CONFIG_BB_TELEMETRY_MAX_SECTIONS 4
 #endif
 
-// Verify that the configured section capacity fits in bb_section's registry.
-// Both constants default to ≤ BB_SECTION_MAX (4 ≤ 8), so this is a safety net.
-#if CONFIG_BB_TELEMETRY_MAX_SECTIONS > BB_SECTION_MAX
-#error "CONFIG_BB_TELEMETRY_MAX_SECTIONS exceeds BB_SECTION_MAX"
+// Verify that the configured section capacity fits in bb_response's registry.
+// Both constants default to ≤ BB_RESPONSE_MAX (4 ≤ 8), so this is a safety net.
+#if CONFIG_BB_TELEMETRY_MAX_SECTIONS > BB_RESPONSE_MAX
+#error "CONFIG_BB_TELEMETRY_MAX_SECTIONS exceeds BB_RESPONSE_MAX"
 #endif
 
-static bb_section_registry_t s_reg = { .tag = "bb_telemetry" };
+static bb_response_registry_t s_reg = { .tag = "bb_telemetry",
+                                         .cap = CONFIG_BB_TELEMETRY_MAX_SECTIONS };
 static bool  s_pending_reboot = false;
 
 bb_err_t bb_telemetry_register_section_ex(const char *name,
@@ -40,12 +41,9 @@ bb_err_t bb_telemetry_register_section_ex(const char *name,
                                            const char *schema_props)
 {
     if (!name || !get) return BB_ERR_INVALID_ARG;
-    if (s_reg.count >= CONFIG_BB_TELEMETRY_MAX_SECTIONS) {
-        bb_log_w(TAG, "register_section('%s'): registry full (max %d)", name,
-                 CONFIG_BB_TELEMETRY_MAX_SECTIONS);
-        return BB_ERR_NO_SPACE;
-    }
-    bb_err_t rc = bb_section_register(&s_reg, name, get, patch, ctx, schema_props);
+    // Capacity gate is in bb_response_register (s_reg.cap == CONFIG_BB_TELEMETRY_MAX_SECTIONS).
+    // The compile-time #error above already guarantees TELEMETRY_MAX <= BB_RESPONSE_MAX.
+    bb_err_t rc = bb_response_register(&s_reg, name, get, patch, ctx, schema_props);
     if (rc == BB_OK) {
         bb_log_d(TAG, "registered section '%s' (%s)", name, patch ? "rw" : "ro");
     }
@@ -62,12 +60,12 @@ bb_err_t bb_telemetry_register_section(const char *name,
 
 void bb_telemetry_freeze(void)
 {
-    bb_section_freeze(&s_reg);
+    bb_response_freeze(&s_reg);
 }
 
 void bb_telemetry_build_get(bb_json_t root)
 {
-    bb_section_build_get(&s_reg, root);
+    bb_response_build_get(&s_reg, root);
 }
 
 // ---------------------------------------------------------------------------
@@ -104,9 +102,9 @@ bb_err_t bb_telemetry_dispatch_patch(bb_json_t body)
     bb_nv_get_str(BB_TELEMETRY_HTTP_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
                   http_pre, sizeof(http_pre), "0");
 
-    // Delegate to bb_section_dispatch_patch for consistent pre-validation
+    // Delegate to bb_response_dispatch_patch for consistent pre-validation
     // (all-or-nothing: read-only section in body → reject before any apply).
-    bb_err_t rc = bb_section_dispatch_patch(&s_reg, body);
+    bb_err_t rc = bb_response_dispatch_patch(&s_reg, body);
     if (rc != BB_OK) {
         bb_log_w(TAG, "dispatch_patch failed: %d", (int)rc);
         return rc;
@@ -212,7 +210,7 @@ bool bb_telemetry_pending_reboot(void)
 char *bb_telemetry_assemble_get_schema(void)
 {
     // Returns a freshly allocated string — caller owns and must free.
-    return bb_section_freeze_and_assemble(
+    return bb_response_freeze_and_assemble(
         &s_reg,
         "{\"type\":\"object\",\"properties\":{",
         "}}");
@@ -224,6 +222,7 @@ void bb_telemetry_reset_for_test(void)
 {
     memset(&s_reg, 0, sizeof(s_reg));
     s_reg.tag        = "bb_telemetry";
+    s_reg.cap        = CONFIG_BB_TELEMETRY_MAX_SECTIONS;
     s_pending_reboot = false;
 }
 

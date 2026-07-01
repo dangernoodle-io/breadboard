@@ -29,7 +29,7 @@ bb_err_t bb_telemetry_register_section(const char *name,
                                         void *ctx);
 
 // Like bb_telemetry_register_section but also accepts a JSON schema properties
-// value for the section (used by bb_section_assemble_schema to build the real
+// value for the section (used by bb_response_assemble_schema to build the real
 // composed GET schema for /api/telemetry). Pass NULL for schema_props to skip.
 bb_err_t bb_telemetry_register_section_ex(const char *name,
                                            bb_telemetry_get_fn get,

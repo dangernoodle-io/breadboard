@@ -11,7 +11,7 @@ extern "C" {
 
 // Returns the assembled /api/info 200 response schema, lazily constructed on
 // first call from k_info_schema_base + registered section schemas +
-// k_info_schema_suffix via bb_section_assemble_schema. NULL if malloc fails.
+// k_info_schema_suffix via bb_response_assemble_schema. NULL if malloc fails.
 // Caller must NOT free the result.
 const char *bb_info_get_assembled_schema(void);
 

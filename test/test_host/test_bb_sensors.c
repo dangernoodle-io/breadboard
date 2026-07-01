@@ -17,7 +17,7 @@
 #include "bb_thermal.h"
 #include "bb_temp.h"
 #include "bb_temp_test.h"
-#include "bb_section.h"
+#include "bb_response.h"
 #include "bb_json.h"
 #include "cJSON.h"
 
@@ -191,7 +191,7 @@ void test_bb_sensors_register_ok(void)
 void test_bb_sensors_register_capacity(void)
 {
     static const char *k_names[] = { "s0","s1","s2","s3","s4","s5","s6","s7" };
-    for (int i = 0; i < BB_SECTION_MAX; i++) {
+    for (int i = 0; i < BB_RESPONSE_MAX; i++) {
         TEST_ASSERT_EQUAL_INT(BB_OK,
             bb_sensors_register_section(k_names[i], dummy_get, NULL, NULL, NULL));
     }

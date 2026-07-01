@@ -3,7 +3,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_info/bb_info.c"
         "${CMAKE_CURRENT_LIST_DIR}/src/bb_info_build.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_nv bb_json bb_section
+    REQUIRES bb_core bb_nv bb_json bb_response
     # bb_ota_pull provides bb_ota_pull_heap_ready() for the ota_ready field. The
     # *emission* is gated in bb_info.c (BB_INFO_EMIT_OTA_READY) so --gc-sections
     # drops bb_ota_pull on boards with no runtime OTA-TLS path. REQUIRES itself

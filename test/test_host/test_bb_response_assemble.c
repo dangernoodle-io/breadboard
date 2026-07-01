@@ -1,6 +1,6 @@
-// Tests for bb_section_freeze_and_assemble.
+// Tests for bb_response_freeze_and_assemble.
 #include "unity.h"
-#include "bb_section.h"
+#include "bb_response.h"
 #include "test_alloc_inject.h"
 
 #include <stdbool.h>
@@ -13,9 +13,9 @@
 
 static void stub_get(bb_json_t section, void *ctx) { (void)section; (void)ctx; }
 
-static bb_section_registry_t make_reg(void)
+static bb_response_registry_t make_reg(void)
 {
-    bb_section_registry_t r;
+    bb_response_registry_t r;
     memset(&r, 0, sizeof(r));
     r.tag = "test";
     return r;
@@ -25,12 +25,12 @@ static bb_section_registry_t make_reg(void)
 // Tests
 // ---------------------------------------------------------------------------
 
-void test_bb_section_freeze_and_assemble_non_null(void)
+void test_bb_response_freeze_and_assemble_non_null(void)
 {
-    bb_section_registry_t reg = make_reg();
-    bb_section_register(&reg, "foo", stub_get, NULL, NULL, "{\"type\":\"object\"}");
+    bb_response_registry_t reg = make_reg();
+    bb_response_register(&reg, "foo", stub_get, NULL, NULL, "{\"type\":\"object\"}");
 
-    char *s = bb_section_freeze_and_assemble(
+    char *s = bb_response_freeze_and_assemble(
         &reg,
         "{\"type\":\"object\",\"properties\":{",
         "}}");
@@ -42,23 +42,23 @@ void test_bb_section_freeze_and_assemble_non_null(void)
     free(s);
 }
 
-void test_bb_section_freeze_and_assemble_null_on_oom(void)
+void test_bb_response_freeze_and_assemble_null_on_oom(void)
 {
-    bb_section_registry_t reg = make_reg();
-    bb_section_register(&reg, "bar", stub_get, NULL, NULL, "{\"type\":\"string\"}");
+    bb_response_registry_t reg = make_reg();
+    bb_response_register(&reg, "bar", stub_get, NULL, NULL, "{\"type\":\"string\"}");
 
     // Inject failing malloc: fail on the first allocation (index 0).
     test_alloc_reset();
     test_alloc_fail_at = 0;
-    bb_section_set_malloc(test_failing_malloc);
+    bb_response_set_malloc(test_failing_malloc);
 
-    char *s = bb_section_freeze_and_assemble(
+    char *s = bb_response_freeze_and_assemble(
         &reg,
         "{\"type\":\"object\",\"properties\":{",
         "}}");
 
     // Restore real malloc before assertions to avoid side-effects.
-    bb_section_set_malloc(NULL);
+    bb_response_set_malloc(NULL);
     test_alloc_fail_at = -1;
 
     TEST_ASSERT_NULL(s);

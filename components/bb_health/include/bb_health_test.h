@@ -27,7 +27,7 @@ void bb_health_invoke_sections_for_test(bb_json_t root);
 
 // Returns the assembled /api/health 200 response schema, lazily constructed on
 // first call from k_health_base + registered section schemas +
-// k_health_suffix via bb_section_assemble_schema. NULL if malloc fails.
+// k_health_suffix via bb_response_assemble_schema. NULL if malloc fails.
 // Caller must NOT free the result.
 const char *bb_health_get_assembled_schema(void);
 

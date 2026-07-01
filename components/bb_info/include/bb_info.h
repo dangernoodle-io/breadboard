@@ -1,7 +1,7 @@
 #pragma once
 
 #include "bb_nv.h"
-#include "bb_section.h"
+#include "bb_response.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,7 +20,7 @@ extern "C" {
 // Returns BB_ERR_INVALID_STATE if called after the registry is frozen.
 // Returns BB_ERR_NO_SPACE if the section table is full.
 bb_err_t bb_info_register_section(const char *name,
-                                   bb_section_get_fn get,
+                                   bb_response_get_fn get,
                                    void *ctx,
                                    const char *schema_props);
 
