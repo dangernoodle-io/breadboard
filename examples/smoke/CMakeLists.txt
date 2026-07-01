@@ -30,3 +30,20 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(smoke)
 idf_build_set_property(COMPILE_OPTIONS "-I${CMAKE_CURRENT_SOURCE_DIR}/board" APPEND)
 idf_build_set_property(COMPILE_OPTIONS "-DBB_HW_BOARD_HEADER=\"${BB_BOARD_HEADER}\"" APPEND)
+
+# Apply -Werror to bb_* components only — not to ESP-IDF system components or
+# managed_components (espressif__mdns, etc.).  idf_component_get_property
+# returns the CMake library target; target_compile_options is PRIVATE so
+# downstream consumers are not infected.
+idf_build_get_property(build_components BUILD_COMPONENTS)
+foreach(comp ${build_components})
+    if("${comp}" MATCHES "^bb_")
+        idf_component_get_property(comp_lib "${comp}" COMPONENT_LIB)
+        if(comp_lib)
+            get_target_property(_bb_lib_type "${comp_lib}" TYPE)
+            if(NOT _bb_lib_type STREQUAL "INTERFACE_LIBRARY")
+                target_compile_options("${comp_lib}" PRIVATE -Werror)
+            endif()
+        endif()
+    endif()
+endforeach()

@@ -338,7 +338,7 @@ bb_err_t bb_led_anim_attach(const bb_led_anim_cfg_t *cfg, bb_led_anim_handle_t *
 #endif
 
     *out = h;
-    bb_log_i(TAG, "attached (tick=%"PRIu32"ms)", h->tick_period_ms);
+    bb_log_i(TAG, "attached (tick=%" PRIu32 "ms)", h->tick_period_ms);
     return BB_OK;
 }
 
