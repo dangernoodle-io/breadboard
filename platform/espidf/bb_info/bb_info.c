@@ -196,8 +196,8 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     // NOTE: freeze and schema assembly are deferred to bb_info_freeze_init (order 20)
-    // so that section registrants (e.g. bb_diag_routes at order BB_DIAG_ROUTE_COUNT)
-    // can call bb_info_register_section AFTER this init runs at order 2.
+    // so that section registrants (at order < 20) can call bb_info_register_section
+    // AFTER this init runs at order 2.
     bb_err_t err = bb_http_register_described_route(server, &s_info_route);
     if (err != BB_OK) return err;
 
@@ -264,8 +264,8 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
 }
 
 // Late init: freeze the section registry and assemble the schema.
-// Runs at order 20, AFTER all section registrants (display/led/ntp/diag at
-// BB_DIAG_ROUTE_COUNT ≈ 7) have called bb_info_register_section.
+// Runs at order 20, AFTER all section registrants (at order < 20) have called
+// bb_info_register_section.
 static bb_err_t bb_info_freeze_init(bb_http_handle_t server)
 {
     (void)server;
