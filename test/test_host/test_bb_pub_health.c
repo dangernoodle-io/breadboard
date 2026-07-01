@@ -24,10 +24,11 @@ static health_capture_entry_t s_captured[CAPTURE_CAP];
 static int                    s_capture_count;
 
 static bb_err_t capture_publish(void *ctx, const char *topic,
-                                 const char *payload, int len)
+                                 const char *payload, int len, bool retain)
 {
     (void)ctx;
     (void)len;
+    (void)retain;
     if (s_capture_count >= CAPTURE_CAP) return BB_ERR_NO_SPACE;
     health_capture_entry_t *e = &s_captured[s_capture_count++];
     strncpy(e->topic,   topic,   sizeof(e->topic)   - 1);

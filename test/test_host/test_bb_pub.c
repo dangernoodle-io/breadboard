@@ -25,10 +25,11 @@ static capture_entry_t s_captured[CAPTURE_CAP];
 static int             s_capture_count;
 
 static bb_err_t capture_publish(void *ctx, const char *topic,
-                                 const char *payload, int len)
+                                 const char *payload, int len, bool retain)
 {
     (void)ctx;
     (void)len;
+    (void)retain;
     if (s_capture_count >= CAPTURE_CAP) return BB_ERR_NO_SPACE;
     capture_entry_t *e = &s_captured[s_capture_count++];
     strncpy(e->topic,   topic,   sizeof(e->topic)   - 1);
@@ -253,9 +254,10 @@ typedef struct {
 } capture_ctx_t;
 
 static bb_err_t capture_publish_ctx(void *ctx, const char *topic,
-                                     const char *payload, int len)
+                                     const char *payload, int len, bool retain)
 {
     (void)len;
+    (void)retain;
     capture_ctx_t *c = (capture_ctx_t *)ctx;
     if (c->count >= CAPTURE_CAP) return BB_ERR_NO_SPACE;
     capture_entry_t *e = &c->entries[c->count++];
@@ -265,12 +267,13 @@ static bb_err_t capture_publish_ctx(void *ctx, const char *topic,
 }
 
 static bb_err_t failing_publish(void *ctx, const char *topic,
-                                 const char *payload, int len)
+                                 const char *payload, int len, bool retain)
 {
     (void)ctx;
     (void)topic;
     (void)payload;
     (void)len;
+    (void)retain;
     return BB_ERR_INVALID_STATE;  // always fails
 }
 
@@ -592,11 +595,12 @@ typedef struct {
 } blocking_sink_ctx_t;
 
 static bb_err_t blocking_publish(void *ctx, const char *topic,
-                                  const char *payload, int len)
+                                  const char *payload, int len, bool retain)
 {
     (void)topic;
     (void)payload;
     (void)len;
+    (void)retain;
     blocking_sink_ctx_t *b = (blocking_sink_ctx_t *)ctx;
     pthread_mutex_lock(&b->mu);
     b->call_count++;
@@ -1446,11 +1450,12 @@ typedef struct {
 } slow_sink_ctx_t;
 
 static bb_err_t slow_sink_publish(void *ctx, const char *topic,
-                                  const char *payload, int len)
+                                  const char *payload, int len, bool retain)
 {
     (void)topic;
     (void)payload;
     (void)len;
+    (void)retain;
     slow_sink_ctx_t *s = (slow_sink_ctx_t *)ctx;
 
     pthread_mutex_lock(&s->mu);
@@ -1533,4 +1538,269 @@ void test_bb_pub_pause_bounded_wait_returns_before_slow_sink_finishes(void)
 
     pthread_mutex_destroy(&ssink.mu);
     pthread_cond_destroy(&ssink.cv);
+}
+
+// ---------------------------------------------------------------------------
+// B1-436: per-source cadence + retain tests
+// ---------------------------------------------------------------------------
+
+typedef struct { unsigned int val; } cadence_snap_t;
+static unsigned int s_cadence_val = 0;
+
+static bool cadence_gather(void *snap_buf, void *ctx)
+{
+    (void)ctx;
+    ((cadence_snap_t *)snap_buf)->val = s_cadence_val;
+    return true;
+}
+
+static void cadence_serialize(bb_json_t obj, const void *snap)
+{
+    const cadence_snap_t *s = (const cadence_snap_t *)snap;
+    bb_json_obj_set_number(obj, "val", (double)s->val);
+}
+
+static int  s_cadence_count       = 0;
+static bool s_cadence_last_retain = false;
+
+static bb_err_t cadence_capture(void *ctx, const char *topic,
+                                 const char *payload, int len, bool retain)
+{
+    (void)ctx; (void)topic; (void)payload; (void)len;
+    s_cadence_count++;
+    s_cadence_last_retain = retain;
+    return BB_OK;
+}
+
+static void cadence_setup(bb_pub_cadence_t cadence, bool retain)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("cadencehost");
+    s_cadence_val         = 42;
+    s_cadence_count       = 0;
+    s_cadence_last_retain = false;
+
+    bb_pub_telemetry_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.topic     = "cadtest";
+    cfg.gather    = cadence_gather;
+    cfg.serialize = cadence_serialize;
+    cfg.snap_size = sizeof(cadence_snap_t);
+    cfg.flags     = BB_PUB_TELEM_SINKS;
+    cfg.retain    = retain;
+    cfg.cadence   = cadence;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_telemetry(&cfg));
+
+    bb_pub_sink_t sink = { .publish = cadence_capture };
+    bb_pub_add_sink(&sink);
+}
+
+void test_bb_pub_cadence_every_tick_publishes_each_tick(void)
+{
+    cadence_setup(BB_PUB_CADENCE_EVERY_TICK, false);
+    bb_pub_tick_once();
+    bb_pub_tick_once();
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(3, s_cadence_count);
+}
+
+void test_bb_pub_cadence_on_change_unchanged_suppresses(void)
+{
+    cadence_setup(BB_PUB_CADENCE_ON_CHANGE, false);
+    // First tick: publishes (hash transition from 0).
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+    // Same value: no change, must suppress.
+    bb_pub_tick_once();
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+}
+
+void test_bb_pub_cadence_on_change_changed_republishes(void)
+{
+    cadence_setup(BB_PUB_CADENCE_ON_CHANGE, false);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+    // Change value: must republish.
+    s_cadence_val = 99;
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(2, s_cadence_count);
+    // No change: suppress again.
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(2, s_cadence_count);
+}
+
+void test_bb_pub_cadence_once_publishes_exactly_once(void)
+{
+    cadence_setup(BB_PUB_CADENCE_ONCE, false);
+    bb_pub_tick_once();
+    bb_pub_tick_once();
+    bb_pub_tick_once();
+    bb_pub_tick_once();
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+}
+
+void test_bb_pub_cadence_retain_true_forwarded(void)
+{
+    cadence_setup(BB_PUB_CADENCE_EVERY_TICK, true);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+    TEST_ASSERT_TRUE(s_cadence_last_retain);
+}
+
+void test_bb_pub_cadence_retain_false_forwarded(void)
+{
+    cadence_setup(BB_PUB_CADENCE_EVERY_TICK, false);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+    TEST_ASSERT_FALSE(s_cadence_last_retain);
+}
+
+void test_bb_pub_cadence_reset_clears_on_change_state(void)
+{
+    cadence_setup(BB_PUB_CADENCE_ON_CHANGE, false);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+    // Suppress: no change.
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+
+    // Reset: cadence state zeroed, next tick must republish the same bytes.
+    bb_pub_test_reset();
+    s_cadence_count = 0;
+
+    bb_pub_telemetry_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.topic     = "cadtest";
+    cfg.gather    = cadence_gather;
+    cfg.serialize = cadence_serialize;
+    cfg.snap_size = sizeof(cadence_snap_t);
+    cfg.flags     = BB_PUB_TELEM_SINKS;
+    cfg.cadence   = BB_PUB_CADENCE_ON_CHANGE;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_telemetry(&cfg));
+
+    bb_pub_sink_t sink = { .publish = cadence_capture };
+    bb_pub_add_sink(&sink);
+
+    // Same data but hash state cleared → publishes again.
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+}
+
+void test_bb_pub_cadence_once_reset_allows_republish(void)
+{
+    cadence_setup(BB_PUB_CADENCE_ONCE, false);
+    bb_pub_tick_once();
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+
+    // Reset: published_once cleared → next registration can publish again.
+    bb_pub_test_reset();
+    s_cadence_count = 0;
+
+    bb_pub_telemetry_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.topic     = "cadtest";
+    cfg.gather    = cadence_gather;
+    cfg.serialize = cadence_serialize;
+    cfg.snap_size = sizeof(cadence_snap_t);
+    cfg.flags     = BB_PUB_TELEM_SINKS;
+    cfg.cadence   = BB_PUB_CADENCE_ONCE;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_telemetry(&cfg));
+
+    bb_pub_sink_t sink = { .publish = cadence_capture };
+    bb_pub_add_sink(&sink);
+
+    bb_pub_tick_once();
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+}
+
+// Failing sink: increments s_cadence_count (delivery was attempted) but
+// returns error so bb_pub_deliver_to_sinks sees failed > 0.
+static bb_err_t cadence_fail_publish(void *ctx, const char *topic,
+                                      const char *payload, int len, bool retain)
+{
+    (void)ctx; (void)topic; (void)payload; (void)len; (void)retain;
+    s_cadence_count++;
+    return BB_ERR_INVALID_STATE;
+}
+
+void test_bb_pub_cadence_on_change_failing_sink_leaves_state_uncommitted(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("cadencehost");
+    s_cadence_val   = 42;
+    s_cadence_count = 0;
+
+    bb_pub_telemetry_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.topic     = "cadtest";
+    cfg.gather    = cadence_gather;
+    cfg.serialize = cadence_serialize;
+    cfg.snap_size = sizeof(cadence_snap_t);
+    cfg.flags     = BB_PUB_TELEM_SINKS;
+    cfg.retain    = false;
+    cfg.cadence   = BB_PUB_CADENCE_ON_CHANGE;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_telemetry(&cfg));
+
+    bb_pub_sink_t fail_sink = { .publish = cadence_fail_publish };
+    bb_pub_add_sink(&fail_sink);
+
+    // Tick 1: content changed (hash 0 → h), delivery fails → hash NOT committed.
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+
+    // Switch to working sink; content unchanged.
+    bb_pub_clear_sinks();
+    bb_pub_sink_t ok_sink = { .publish = cadence_capture };
+    bb_pub_add_sink(&ok_sink);
+
+    // Tick 2: hash still uncommitted → publishes again and commits hash.
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(2, s_cadence_count);
+
+    // Tick 3: hash committed, no change → suppressed.
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(2, s_cadence_count);
+}
+
+void test_bb_pub_cadence_once_failing_sink_leaves_state_uncommitted(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("cadencehost");
+    s_cadence_val   = 42;
+    s_cadence_count = 0;
+
+    bb_pub_telemetry_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.topic     = "cadtest";
+    cfg.gather    = cadence_gather;
+    cfg.serialize = cadence_serialize;
+    cfg.snap_size = sizeof(cadence_snap_t);
+    cfg.flags     = BB_PUB_TELEM_SINKS;
+    cfg.retain    = false;
+    cfg.cadence   = BB_PUB_CADENCE_ONCE;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_telemetry(&cfg));
+
+    bb_pub_sink_t fail_sink = { .publish = cadence_fail_publish };
+    bb_pub_add_sink(&fail_sink);
+
+    // Tick 1: !published_once → delivery attempted, fails → published_once NOT set.
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+
+    // Switch to working sink.
+    bb_pub_clear_sinks();
+    bb_pub_sink_t ok_sink = { .publish = cadence_capture };
+    bb_pub_add_sink(&ok_sink);
+
+    // Tick 2: published_once still false → publishes and sets published_once.
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(2, s_cadence_count);
+
+    // Tick 3: published_once true → suppressed.
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(2, s_cadence_count);
 }

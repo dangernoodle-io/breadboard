@@ -31,17 +31,17 @@ static bool sample_temp(bb_json_t obj, void *ctx)
 }
 
 static bb_err_t failing_sink_fn(void *ctx, const char *topic,
-                                 const char *payload, int len)
+                                 const char *payload, int len, bool retain)
 {
-    (void)ctx; (void)topic; (void)payload; (void)len;
+    (void)ctx; (void)topic; (void)payload; (void)len; (void)retain;
     return BB_ERR_INVALID_STATE;
 }
 
 static int s_cap_count;
 static bb_err_t cap_sink_fn(void *ctx, const char *topic,
-                              const char *payload, int len)
+                              const char *payload, int len, bool retain)
 {
-    (void)ctx; (void)topic; (void)payload; (void)len;
+    (void)ctx; (void)topic; (void)payload; (void)len; (void)retain;
     s_cap_count++;
     return BB_OK;
 }
@@ -582,9 +582,9 @@ void test_bb_pub_telemetry_meta_gather_sink_count_parity(void)
 static char s_meta_payload[1024];
 
 static bb_err_t meta_cap_sink(void *ctx, const char *topic,
-                               const char *payload, int len)
+                               const char *payload, int len, bool retain)
 {
-    (void)ctx; (void)topic; (void)len;
+    (void)ctx; (void)topic; (void)len; (void)retain;
     strncpy(s_meta_payload, payload, sizeof(s_meta_payload) - 1);
     s_meta_payload[sizeof(s_meta_payload) - 1] = '\0';
     return BB_OK;
@@ -724,4 +724,50 @@ void test_bb_pub_telemetry_meta_time_source_is_none_on_host(void)
     // Host stub bb_ntp_is_synced() returns false → time_source="none".
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_meta_payload, "\"time_source\":\"none\""),
         "meta.time_source must equal 'none' when NTP not synced");
+}
+
+// ---------------------------------------------------------------------------
+// B1-436: meta source ON_CHANGE + retain integration
+// ---------------------------------------------------------------------------
+
+static int  s_meta_retain_count       = 0;
+static bool s_meta_retain_last_retain = false;
+
+static bb_err_t meta_retain_cap(void *ctx, const char *topic,
+                                 const char *payload, int len, bool retain)
+{
+    (void)ctx; (void)topic; (void)payload; (void)len;
+    s_meta_retain_count++;
+    s_meta_retain_last_retain = retain;
+    return BB_OK;
+}
+
+void test_bb_pub_telemetry_meta_on_change_retain_flags_set(void)
+{
+    reset_all();
+    s_meta_retain_count       = 0;
+    s_meta_retain_last_retain = false;
+
+    bb_pub_telemetry_cfg_t meta_cfg;
+    memset(&meta_cfg, 0, sizeof(meta_cfg));
+    meta_cfg.topic     = "meta";
+    meta_cfg.gather    = bb_pub_telemetry_meta_gather_for_test;
+    meta_cfg.serialize = bb_pub_telemetry_meta_serialize_for_test;
+    meta_cfg.snap_size = bb_pub_telemetry_meta_snap_size_for_test();
+    meta_cfg.flags     = BB_PUB_TELEM_SINKS;
+    meta_cfg.retain    = true;
+    meta_cfg.cadence   = BB_PUB_CADENCE_ON_CHANGE;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_telemetry(&meta_cfg));
+
+    bb_pub_sink_t s = { .publish = meta_retain_cap };
+    bb_pub_add_sink(&s);
+
+    // First tick: new hash → publish with retain=true.
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_meta_retain_count);
+    TEST_ASSERT_TRUE(s_meta_retain_last_retain);
+
+    // Second tick with identical snap: suppress.
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_meta_retain_count);
 }

@@ -31,6 +31,16 @@
  */
 typedef bool (*bb_pub_gather_fn)(void *snap_buf, void *ctx);
 
+/**
+ * Cadence policy for per-source MQTT/sink delivery.
+ * Zero-initialised = EVERY_TICK (current behaviour).
+ */
+typedef enum {
+    BB_PUB_CADENCE_EVERY_TICK = 0, /**< Publish to sinks on every tick (default). */
+    BB_PUB_CADENCE_ON_CHANGE,      /**< Publish only when serialized bytes differ from last publish. */
+    BB_PUB_CADENCE_ONCE,           /**< Publish exactly once; suppress on subsequent ticks. */
+} bb_pub_cadence_t;
+
 /** Flags that control how a telemetry source is fan-out delivered. */
 typedef uint32_t bb_pub_telemetry_flags_t;
 
@@ -50,6 +60,8 @@ typedef struct {
     size_t                   snap_size; /**< sizeof the snapshot struct. */
     bb_pub_telemetry_flags_t flags;     /**< BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS. */
     void                    *ctx;       /**< Opaque context; passed to gather. */
+    bool                     retain;    /**< Set MQTT retain on sink delivery. Zero-init = false. */
+    bb_pub_cadence_t         cadence;   /**< Sink publish cadence. Zero-init = EVERY_TICK. */
 } bb_pub_telemetry_cfg_t;
 
 /**
@@ -106,7 +118,8 @@ extern "C" {
  * tick cycle.
  */
 typedef bb_err_t (*bb_pub_publish_fn)(void *ctx, const char *topic,
-                                      const char *payload, int len);
+                                      const char *payload, int len,
+                                      bool retain);
 
 typedef struct {
     bb_pub_publish_fn publish;

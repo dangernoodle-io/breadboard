@@ -29,9 +29,10 @@ static int                s_count = 0;
 // ---------------------------------------------------------------------------
 
 static bb_err_t sink_event_publish(void *ctx, const char *topic,
-                                   const char *payload, int len)
+                                   const char *payload, int len, bool retain)
 {
     (void)ctx;
+    (void)retain;   /* event bus has no retain concept */
     // Extract subtopic: find the part after the 2nd '/' in the topic string.
     // Topic format: "<prefix>/<hostname>/<subtopic>"
     const char *p = topic;

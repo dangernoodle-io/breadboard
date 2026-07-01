@@ -336,6 +336,8 @@ bb_err_t bb_pub_telemetry_init(void)
         .snap_size = sizeof(meta_snap_t),
         .flags     = BB_PUB_TELEM_SINKS,
         .ctx       = NULL,
+        .retain    = true,
+        .cadence   = BB_PUB_CADENCE_ON_CHANGE,
     };
     err = bb_pub_register_telemetry(&k_meta_cfg);
     if (err != BB_OK) {

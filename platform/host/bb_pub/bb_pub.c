@@ -115,6 +115,13 @@ typedef struct {
     size_t                   snap_size;
     bb_pub_telemetry_flags_t flags;
     void                    *ctx;
+    bool                     retain;
+    bb_pub_cadence_t         cadence;
+    // Cadence state — read/written only in Phase 2b of bb_pub_tick_once, which
+    // runs on the single bb_pub worker task outside s_tick_lock.  No concurrent
+    // writer exists; no new lock is needed.
+    uint64_t                 last_pub_hash;
+    bool                     published_once;
 } bb_pub_telem_entry_t;
 
 static bb_pub_telem_entry_t s_telem_sources[CONFIG_BB_PUB_MAX_SOURCES];
@@ -548,7 +555,7 @@ static void buffer_replay(const bb_pub_sink_t *sink,
         const char *pub_payload = patched ? patched : payload;
         int         pub_len     = patched ? (int)strlen(patched) : payload_len;
 
-        bb_err_t deliver = sink->publish(sink->ctx, topic, pub_payload, pub_len);
+        bb_err_t deliver = sink->publish(sink->ctx, topic, pub_payload, pub_len, false);
         free(patched);   /* NULL-safe */
 
         if (deliver != BB_OK) {
@@ -815,30 +822,52 @@ static bool _telem_adapter_sample(bb_json_t obj, void *ctx)
 }
 
 // ---------------------------------------------------------------------------
+// FNV-1a 64-bit hash — used by the ON_CHANGE cadence gate in Phase 2b.
+// ---------------------------------------------------------------------------
+
+static uint64_t fnv1a64(const void *data, size_t len)
+{
+    const uint8_t *p = (const uint8_t *)data;
+    uint64_t h = UINT64_C(14695981039346656037);
+    for (size_t i = 0; i < len; i++) {
+        h ^= (uint64_t)p[i];
+        h *= UINT64_C(1099511628211);
+    }
+    return h;
+}
+
+// ---------------------------------------------------------------------------
 // bb_pub_deliver_to_sinks — fan a pre-serialized payload to all sinks.
 // Used by Phase 2b (telem path).  The caller has already serialized ONCE.
 // Does NOT re-serialize.  Does NOT inject transport/tls (B1-388).
+//
+// Returns count of subscribed sinks that failed delivery (0 = all succeeded).
+// Sinks skipped by their subscribe predicate are not counted as failures.
 // ---------------------------------------------------------------------------
 
-static void bb_pub_deliver_to_sinks(const char *full_topic,
-                                     const char *subtopic,
-                                     const char *json,
-                                     int json_len,
-                                     const bb_pub_sink_t *sinks,
-                                     int sink_count)
+static int bb_pub_deliver_to_sinks(const char *full_topic,
+                                    const char *subtopic,
+                                    const char *json,
+                                    int json_len,
+                                    bool retain,
+                                    const bb_pub_sink_t *sinks,
+                                    int sink_count)
 {
+    int failed = 0;
     for (int si = 0; si < sink_count; si++) {
         const bb_pub_sink_t *sk = &sinks[si];
         if (sk->subscribe &&
             !sk->subscribe(subtopic, NULL, 0, sk->subscribe_ctx)) {
             continue;
         }
-        bb_err_t err = sk->publish(sk->ctx, full_topic, json, json_len);
+        bb_err_t err = sk->publish(sk->ctx, full_topic, json, json_len, retain);
         if (err != BB_OK) {
             bb_log_w(TAG, "deliver_to_sinks: sink[%d] failed for '%s': %d",
                      si, full_topic, err);
+            failed++;
         }
     }
+    return failed;
 }
 
 // ---------------------------------------------------------------------------
@@ -877,10 +906,14 @@ bb_err_t bb_pub_register_telemetry(const bb_pub_telemetry_cfg_t *cfg)
     bb_pub_telem_entry_t *te = &s_telem_sources[s_telem_count];
     strncpy(te->topic, cfg->topic, sizeof(te->topic) - 1);
     te->topic[sizeof(te->topic) - 1] = '\0';
-    te->gather    = cfg->gather;
-    te->snap_size = cfg->snap_size;
-    te->flags     = cfg->flags;
-    te->ctx       = cfg->ctx;
+    te->gather         = cfg->gather;
+    te->snap_size      = cfg->snap_size;
+    te->flags          = cfg->flags;
+    te->ctx            = cfg->ctx;
+    te->retain         = cfg->retain;
+    te->cadence        = cfg->cadence;
+    te->last_pub_hash  = 0;
+    te->published_once = false;
     s_telem_count++;
 
     // Register the adapter as a legacy source so the topic appears in
@@ -1406,7 +1439,8 @@ bb_err_t bb_pub_tick_once(void)
             bb_err_t err = snap_sinks[si].publish(snap_sinks[si].ctx,
                                                    p->topic,
                                                    p->json,
-                                                   p->json_len);
+                                                   p->json_len,
+                                                   false);
             if (err != BB_OK) {
                 bb_log_w(TAG, "sink[%d] publish failed for '%s': %d",
                          si, p->topic, err);
@@ -1464,12 +1498,48 @@ bb_err_t bb_pub_tick_once(void)
         }
 
         // SINKS: fan the same copied string to all subscribing sinks.
+        // Cadence gate: EVERY_TICK always delivers; ON_CHANGE only when content
+        // changed; ONCE only on first publish.  SSE (above) is unconditional.
+        //
+        // Cadence state commits only on successful delivery to all subscribed
+        // sinks; a partial/total failure re-attempts next tick (retained/once
+        // values are idempotent).  A persistently-failing subscribed sink
+        // causes re-attempts each tick for ON_CHANGE/ONCE — bounded by the
+        // tick interval and correct for retain semantics.
         if ((te->flags & BB_PUB_TELEM_SINKS) && snap_sink_count > 0) {
             char full_topic[CONFIG_BB_PUB_SUBTOPIC_MAX + 128];
             snprintf(full_topic, sizeof(full_topic), "%s/%s/%s",
                      CONFIG_BB_PUB_TOPIC_PREFIX, hostname, te->topic);
-            bb_pub_deliver_to_sinks(full_topic, te->topic, S, (int)S_len,
-                                    snap_sinks, snap_sink_count);
+            switch (te->cadence) {
+            case BB_PUB_CADENCE_EVERY_TICK:
+                bb_pub_deliver_to_sinks(full_topic, te->topic, S, (int)S_len,
+                                        te->retain, snap_sinks, snap_sink_count);
+                break;
+            case BB_PUB_CADENCE_ON_CHANGE: {
+                uint64_t h = fnv1a64(S, S_len);
+                if (h != te->last_pub_hash) {
+                    int failed = bb_pub_deliver_to_sinks(full_topic, te->topic,
+                                                         S, (int)S_len,
+                                                         te->retain, snap_sinks,
+                                                         snap_sink_count);
+                    if (failed == 0) {
+                        te->last_pub_hash = h;
+                    }
+                }
+                break;
+            }
+            case BB_PUB_CADENCE_ONCE:
+                if (!te->published_once) {
+                    int failed = bb_pub_deliver_to_sinks(full_topic, te->topic,
+                                                         S, (int)S_len,
+                                                         te->retain, snap_sinks,
+                                                         snap_sink_count);
+                    if (failed == 0) {
+                        te->published_once = true;
+                    }
+                }
+                break;
+            }
         }
 
         tick_published = true;

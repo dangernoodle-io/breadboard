@@ -23,11 +23,13 @@ static bool sample_val(bb_json_t obj, void *ctx)
 static int s_publish_count = 0;
 static char s_last_subtopic[64];
 
-static bb_err_t spy_publish(void *ctx, const char *topic, const char *payload, int len)
+static bb_err_t spy_publish(void *ctx, const char *topic, const char *payload,
+                             int len, bool retain)
 {
     (void)ctx;
     (void)payload;
     (void)len;
+    (void)retain;
     s_publish_count++;
     // Extract subtopic (after 2nd slash).
     const char *p = topic;

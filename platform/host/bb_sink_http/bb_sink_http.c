@@ -533,9 +533,11 @@ static bb_err_t session_ensure(void)
 
 static bb_err_t http_pub_publish(void *ctx,
                                   const char *topic,
-                                  const char *payload, int len)
+                                  const char *payload, int len,
+                                  bool retain)
 {
     (void)ctx;
+    (void)retain;   /* HTTP has no retain concept */
 
     if (!s_initialized) {
         bb_log_e(TAG, "not initialized");

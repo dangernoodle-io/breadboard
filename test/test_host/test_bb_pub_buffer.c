@@ -30,8 +30,9 @@ typedef struct {
 } fake_sink_ctx_t;
 
 static bb_err_t fake_publish(void *ctx, const char *topic,
-                              const char *payload, int len)
+                              const char *payload, int len, bool retain)
 {
+    (void)retain;
     fake_sink_ctx_t *c = (fake_sink_ctx_t *)ctx;
     if (c->fail) return BB_ERR_TIMEOUT;
     if (c->count >= CAPS_MAX) return BB_ERR_NO_SPACE;

@@ -6,21 +6,18 @@
 #ifndef CONFIG_BB_SINK_MQTT_QOS
 #define CONFIG_BB_SINK_MQTT_QOS 0
 #endif
-#ifndef CONFIG_BB_SINK_MQTT_RETAIN
-#define CONFIG_BB_SINK_MQTT_RETAIN 0
-#endif
 
 // ---------------------------------------------------------------------------
 // bb_sink_mqtt — fixed-handle sink
 // ---------------------------------------------------------------------------
 
 static bb_err_t mqtt_publish(void *ctx, const char *topic,
-                              const char *payload, int len)
+                              const char *payload, int len, bool retain)
 {
     bb_mqtt_t h = (bb_mqtt_t)ctx;
     return bb_mqtt_publish(h, topic, payload, len,
                            CONFIG_BB_SINK_MQTT_QOS,
-                           (bool)CONFIG_BB_SINK_MQTT_RETAIN);
+                           retain);
 }
 
 bb_err_t bb_sink_mqtt(bb_mqtt_t h, bb_pub_sink_t *out)
@@ -44,13 +41,13 @@ bb_err_t bb_sink_mqtt(bb_mqtt_t h, bb_pub_sink_t *out)
 // If bb_mqtt_default() returns NULL (handle suspended during OTA), bb_mqtt_publish
 // returns BB_ERR_INVALID_ARG — a clean no-op, not a crash.
 static bb_err_t mqtt_publish_default(void *ctx, const char *topic,
-                                      const char *payload, int len)
+                                      const char *payload, int len, bool retain)
 {
     (void)ctx;
     bb_mqtt_t h = bb_mqtt_default();
     return bb_mqtt_publish(h, topic, payload, len,
                            CONFIG_BB_SINK_MQTT_QOS,
-                           (bool)CONFIG_BB_SINK_MQTT_RETAIN);
+                           retain);
 }
 
 bb_err_t bb_sink_mqtt_default(bb_pub_sink_t *out)
