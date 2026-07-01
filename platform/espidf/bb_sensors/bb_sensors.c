@@ -3,7 +3,7 @@
 // Compiled on both ESP-IDF and host (via platform/host/bb_sensors/ shim).
 // The route-registration path uses bb_http which is ESP-IDF + host-stub.
 #include "bb_sensors.h"
-#include "bb_section.h"
+#include "bb_response.h"
 #include "bb_fan_routes.h"
 #include "bb_fan.h"
 #include "bb_power_routes.h"
@@ -24,7 +24,7 @@
 static const char *TAG = "bb_sensors";
 
 // File-scope section registry for /api/sensors.
-static bb_section_registry_t s_sensors_reg = { .tag = "bb_sensors" };
+static bb_response_registry_t s_sensors_reg = { .tag = "bb_sensors" };
 
 // ---------------------------------------------------------------------------
 // Fan section: GET get_fn + PATCH patch_fn
@@ -110,12 +110,12 @@ static void thermal_section_get(bb_json_t section, void *ctx)
 // ---------------------------------------------------------------------------
 
 bb_err_t bb_sensors_register_section(const char *name,
-                                      bb_section_get_fn get,
-                                      bb_section_patch_fn patch,
+                                      bb_response_get_fn get,
+                                      bb_response_patch_fn patch,
                                       void *ctx,
                                       const char *schema_props)
 {
-    return bb_section_register(&s_sensors_reg, name, get, patch, ctx, schema_props);
+    return bb_response_register(&s_sensors_reg, name, get, patch, ctx, schema_props);
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ static void send_json_error(bb_http_request_t *req, int status, const char *msg)
 static bb_err_t sensors_get_handler(bb_http_request_t *req)
 {
     bb_json_t root = bb_json_obj_new();
-    bb_section_build_get(&s_sensors_reg, root);
+    bb_response_build_get(&s_sensors_reg, root);
     bb_err_t err = send_json_tree(req, root);
     bb_json_free(root);
     return err;
@@ -198,7 +198,7 @@ static bb_err_t sensors_patch_handler(bb_http_request_t *req)
         return BB_ERR_INVALID_ARG;
     }
 
-    bb_err_t rc = bb_section_dispatch_patch(&s_sensors_reg, parsed);
+    bb_err_t rc = bb_response_dispatch_patch(&s_sensors_reg, parsed);
     bb_json_free(parsed);
 
     if (rc == BB_ERR_INVALID_ARG) {
@@ -224,7 +224,7 @@ static bb_err_t sensors_patch_handler(bb_http_request_t *req)
 
 static bb_route_response_t s_sensors_get_responses[] = {
     { 200, "application/json",
-      NULL,  // filled by bb_section_assemble_schema() at init
+      NULL,  // filled by bb_response_assemble_schema() at init
       "sensor readings (fan/power/thermal sections)" },
     { 0 },
 };
@@ -274,7 +274,7 @@ bb_err_t bb_sensors_init(bb_http_handle_t server)
 
     // Register built-in sections (fan is PATCH-capable; power/thermal read-only).
     bb_err_t err;
-    err = bb_section_register(&s_sensors_reg, "fan",
+    err = bb_response_register(&s_sensors_reg, "fan",
                               fan_section_get, fan_section_patch, NULL,
                               k_sensors_fan_schema);
     if (err != BB_OK) {
@@ -282,7 +282,7 @@ bb_err_t bb_sensors_init(bb_http_handle_t server)
         return err;
     }
 
-    err = bb_section_register(&s_sensors_reg, "power",
+    err = bb_response_register(&s_sensors_reg, "power",
                               power_section_get, NULL, NULL,
                               k_sensors_power_schema);
     if (err != BB_OK) {
@@ -290,7 +290,7 @@ bb_err_t bb_sensors_init(bb_http_handle_t server)
         return err;
     }
 
-    err = bb_section_register(&s_sensors_reg, "thermal",
+    err = bb_response_register(&s_sensors_reg, "thermal",
                               thermal_section_get, NULL, NULL,
                               k_sensors_thermal_schema);
     if (err != BB_OK) {
@@ -299,7 +299,7 @@ bb_err_t bb_sensors_init(bb_http_handle_t server)
     }
 
     // Freeze: no more section registrations after this point.
-    s_sensors_get_responses[0].schema = bb_section_freeze_and_assemble(&s_sensors_reg, k_sensors_base, k_sensors_suffix);
+    s_sensors_get_responses[0].schema = bb_response_freeze_and_assemble(&s_sensors_reg, k_sensors_base, k_sensors_suffix);
 
     // Register GET /api/sensors.
     static bb_route_t get_route;

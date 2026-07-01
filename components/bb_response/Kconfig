@@ -1,11 +1,11 @@
-menu "breadboard: bb_section"
+menu "breadboard: bb_response"
 
-config BB_SECTION_MAX
+config BB_RESPONSE_MAX
     int "Maximum number of sections per registry"
     default 8
     range 1 32
     help
-        Fixed-array capacity for sections in a bb_section_registry_t.
+        Fixed-array capacity for sections in a bb_response_registry_t.
         Default 8 covers info (display+led+ntp+diag=4), sensors (3),
         telemetry (4), and health (2) with room to spare.
 

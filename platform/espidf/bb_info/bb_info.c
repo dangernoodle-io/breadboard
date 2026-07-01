@@ -25,7 +25,7 @@
 #include "bb_ntp.h"
 #include "bb_openapi.h"
 #include "bb_init.h"
-#include "bb_section.h"
+#include "bb_response.h"
 
 #include "../../../components/bb_info/bb_info_schema_priv.h"
 #include "../../../components/bb_info/src/bb_info_build_priv.h"
@@ -44,7 +44,7 @@
 static const char *TAG = "bb_info";
 
 // File-scope section registry for /api/info.
-static bb_section_registry_t s_info_reg = { .tag = "bb_info" };
+static bb_response_registry_t s_info_reg = { .tag = "bb_info" };
 
 // bb_cache "build" topic: retained event topic handle.
 #define BB_INFO_BUILD_TOPIC "build"
@@ -63,11 +63,11 @@ static bool        s_cap_frozen       = false;
 // ---------------------------------------------------------------------------
 
 bb_err_t bb_info_register_section(const char *name,
-                                   bb_section_get_fn get,
+                                   bb_response_get_fn get,
                                    void *ctx,
                                    const char *schema_props)
 {
-    return bb_section_register(&s_info_reg, name, get, NULL, ctx, schema_props);
+    return bb_response_register(&s_info_reg, name, get, NULL, ctx, schema_props);
 }
 
 void bb_info_register_capability(const char *name)
@@ -165,7 +165,7 @@ static bb_err_t info_handler(bb_http_request_t *req)
     bb_json_obj_set_arr(root, "capabilities", caps);
 
     // Emit named sections (display, led, ntp, diag, ...)
-    bb_section_build_get(&s_info_reg, root);
+    bb_response_build_get(&s_info_reg, root);
 
     bb_err_t err = send_json_tree(req, root);
     bb_json_free(root);
@@ -178,7 +178,7 @@ static bb_err_t info_handler(bb_http_request_t *req)
 
 static bb_route_response_t s_info_responses[] = {
     { 200, "application/json",
-      NULL,  // filled by bb_section_assemble_schema() at init
+      NULL,  // filled by bb_response_assemble_schema() at init
       "full device info including board and network" },
     { 0 },
 };
@@ -270,7 +270,7 @@ static bb_err_t bb_info_freeze_init(bb_http_handle_t server)
 {
     (void)server;
     s_cap_frozen = true;
-    s_info_responses[0].schema = bb_section_freeze_and_assemble(&s_info_reg, k_info_schema_base, k_info_schema_suffix);
+    s_info_responses[0].schema = bb_response_freeze_and_assemble(&s_info_reg, k_info_schema_base, k_info_schema_suffix);
     bb_log_i(TAG, "info registry frozen (%d sections)", s_info_reg.count);
     return BB_OK;
 }

@@ -43,8 +43,8 @@ void test_bb_health_register_section_ok(void)
 void test_bb_health_register_section_capacity(void)
 {
     static const char *k_names[] = { "s0","s1","s2","s3","s4","s5","s6","s7" };
-    // Fill the table completely (BB_SECTION_MAX = 8 by default).
-    for (int i = 0; i < BB_SECTION_MAX; i++) {
+    // Fill the table completely (BB_RESPONSE_MAX = 8 by default).
+    for (int i = 0; i < BB_RESPONSE_MAX; i++) {
         bb_err_t err = bb_health_register_section(k_names[i], test_section_get_fn, NULL, NULL);
         TEST_ASSERT_EQUAL_INT(BB_OK, err);
     }
@@ -113,7 +113,7 @@ void test_bb_health_assembled_schema_with_section_is_valid_json(void)
 void test_bb_health_assembled_schema_section_comma_is_valid_json(void)
 {
     // Root fields are in the base; a section after them must have a leading comma.
-    // bb_section_assemble_schema handles this automatically (base ends with non-'{').
+    // bb_response_assemble_schema handles this automatically (base ends with non-'{').
     static const char sec_schema[] =
         "{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"integer\"}}}";
     TEST_ASSERT_EQUAL_INT(BB_OK,

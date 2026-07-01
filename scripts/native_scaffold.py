@@ -244,7 +244,7 @@ COMPONENT_MAP = {
             "platform/host/bb_info/bb_info_host.c",
             "components/bb_info/src/bb_info_build.c",
         ],
-        "depends":  ["bb_core", "bb_http", "bb_json", "bb_board", "bb_wifi", "bb_section",
+        "depends":  ["bb_core", "bb_http", "bb_json", "bb_board", "bb_wifi", "bb_response",
                      "bb_system", "bb_cache"],
     },
     "bb_health": {
@@ -255,7 +255,7 @@ COMPONENT_MAP = {
             "platform/host/bb_health/bb_health_emit.c",
             "components/bb_health/bb_health_stack_common.c",
         ],
-        "depends":  ["bb_core", "bb_http", "bb_json", "bb_ota_validator", "bb_wifi", "bb_section"],
+        "depends":  ["bb_core", "bb_http", "bb_json", "bb_ota_validator", "bb_wifi", "bb_response"],
     },
     "bb_power": {
         "includes": ["components/bb_power/include"],
@@ -526,15 +526,15 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_pub_rtos/bb_pub_rtos.c"],
         "depends":  ["bb_core", "bb_pub", "bb_openapi"],
     },
-    "bb_section": {
-        "includes": ["components/bb_section/include"],
-        "sources":  ["platform/host/bb_section/bb_section.c"],
+    "bb_response": {
+        "includes": ["components/bb_response/include"],
+        "sources":  ["platform/host/bb_response/bb_response.c"],
         "depends":  ["bb_core", "bb_json", "bb_log"],
     },
     "bb_sensors": {
         "includes": ["components/bb_sensors/include", "components/bb_sensors"],
         "sources":  ["platform/host/bb_sensors/bb_sensors_host.c"],
-        "depends":  ["bb_core", "bb_json", "bb_section", "bb_fan_routes", "bb_power_routes", "bb_thermal", "bb_fan"],
+        "depends":  ["bb_core", "bb_json", "bb_response", "bb_fan_routes", "bb_power_routes", "bb_thermal", "bb_fan"],
     },
     "bb_telemetry": {
         "includes": ["components/bb_telemetry/include"],
@@ -542,7 +542,7 @@ COMPONENT_MAP = {
             "platform/host/bb_telemetry/bb_telemetry.c",
             "platform/espidf/bb_telemetry/bb_telemetry_routes.c",
         ],
-        "depends":  ["bb_core", "bb_json", "bb_log", "bb_section",
+        "depends":  ["bb_core", "bb_json", "bb_log", "bb_response",
                      "bb_http", "bb_pub", "bb_nv"],
     },
     "bb_mqtt_telemetry": {

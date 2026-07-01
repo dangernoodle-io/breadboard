@@ -1,6 +1,6 @@
-// Tests for bb_section named-section registry.
+// Tests for bb_response named-section registry.
 #include "unity.h"
-#include "bb_section.h"
+#include "bb_response.h"
 #include "bb_json.h"
 #include "bb_info.h"
 #include "bb_info_test.h"
@@ -38,81 +38,81 @@ static void reset_stub(void)
     s_patch_rc    = BB_OK;
 }
 
-static bb_section_registry_t make_reg(void)
+static bb_response_registry_t make_reg(void)
 {
-    bb_section_registry_t r;
+    bb_response_registry_t r;
     memset(&r, 0, sizeof(r));
     r.tag = "test";
     return r;
 }
 
 // ---------------------------------------------------------------------------
-// bb_section_register: basic / error cases
+// bb_response_register: basic / error cases
 // ---------------------------------------------------------------------------
 
-void test_bb_section_register_ok(void)
+void test_bb_response_register_ok(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_err_t rc = bb_section_register(&reg, "foo", stub_get, stub_patch, NULL, NULL);
+    bb_err_t rc = bb_response_register(&reg, "foo", stub_get, stub_patch, NULL, NULL);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(1, reg.count);
 }
 
-void test_bb_section_register_null_reg_returns_invalid_arg(void)
+void test_bb_response_register_null_reg_returns_invalid_arg(void)
 {
     reset_stub();
-    bb_err_t rc = bb_section_register(NULL, "foo", stub_get, NULL, NULL, NULL);
+    bb_err_t rc = bb_response_register(NULL, "foo", stub_get, NULL, NULL, NULL);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
 }
 
-void test_bb_section_register_null_name_returns_invalid_arg(void)
+void test_bb_response_register_null_name_returns_invalid_arg(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_err_t rc = bb_section_register(&reg, NULL, stub_get, NULL, NULL, NULL);
+    bb_err_t rc = bb_response_register(&reg, NULL, stub_get, NULL, NULL, NULL);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
 }
 
-void test_bb_section_register_null_get_returns_invalid_arg(void)
+void test_bb_response_register_null_get_returns_invalid_arg(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_err_t rc = bb_section_register(&reg, "foo", NULL, NULL, NULL, NULL);
+    bb_err_t rc = bb_response_register(&reg, "foo", NULL, NULL, NULL, NULL);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
 }
 
-void test_bb_section_register_readonly_null_patch_ok(void)
+void test_bb_response_register_readonly_null_patch_ok(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_err_t rc = bb_section_register(&reg, "ro", stub_get, NULL, NULL, NULL);
+    bb_err_t rc = bb_response_register(&reg, "ro", stub_get, NULL, NULL, NULL);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 }
 
-void test_bb_section_register_capacity_returns_no_space(void)
+void test_bb_response_register_capacity_returns_no_space(void)
 {
     static const char *k_names[] = { "s0","s1","s2","s3","s4","s5","s6","s7" };
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    for (int i = 0; i < BB_SECTION_MAX; i++) {
-        bb_err_t rc = bb_section_register(&reg, k_names[i], stub_get, NULL, NULL, NULL);
+    for (int i = 0; i < BB_RESPONSE_MAX; i++) {
+        bb_err_t rc = bb_response_register(&reg, k_names[i], stub_get, NULL, NULL, NULL);
         TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     }
-    bb_err_t rc = bb_section_register(&reg, "over", stub_get, NULL, NULL, NULL);
+    bb_err_t rc = bb_response_register(&reg, "over", stub_get, NULL, NULL, NULL);
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
 }
 
 // ---------------------------------------------------------------------------
-// bb_section_build_get: named children appear in root
+// bb_response_build_get: named children appear in root
 // ---------------------------------------------------------------------------
 
-void test_bb_section_build_get_empty_registry(void)
+void test_bb_response_build_get_empty_registry(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
     bb_json_t root = bb_json_obj_new();
-    bb_section_build_get(&reg, root);
+    bb_response_build_get(&reg, root);
     char *s = bb_json_serialize(root);
     TEST_ASSERT_NOT_NULL(s);
     TEST_ASSERT_EQUAL_STRING("{}", s);
@@ -120,14 +120,14 @@ void test_bb_section_build_get_empty_registry(void)
     bb_json_free(root);
 }
 
-void test_bb_section_build_get_one_section(void)
+void test_bb_response_build_get_one_section(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_section_register(&reg, "alpha", stub_get, NULL, NULL, NULL);
+    bb_response_register(&reg, "alpha", stub_get, NULL, NULL, NULL);
 
     bb_json_t root = bb_json_obj_new();
-    bb_section_build_get(&reg, root);
+    bb_response_build_get(&reg, root);
 
     TEST_ASSERT_EQUAL_INT(1, s_get_calls);
     bb_json_t alpha = bb_json_obj_get_item(root, "alpha");
@@ -139,15 +139,15 @@ void test_bb_section_build_get_one_section(void)
     bb_json_free(root);
 }
 
-void test_bb_section_build_get_two_sections(void)
+void test_bb_response_build_get_two_sections(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_section_register(&reg, "a", stub_get, NULL, NULL, NULL);
-    bb_section_register(&reg, "b", stub_get, NULL, NULL, NULL);
+    bb_response_register(&reg, "a", stub_get, NULL, NULL, NULL);
+    bb_response_register(&reg, "b", stub_get, NULL, NULL, NULL);
 
     bb_json_t root = bb_json_obj_new();
-    bb_section_build_get(&reg, root);
+    bb_response_build_get(&reg, root);
     TEST_ASSERT_EQUAL_INT(2, s_get_calls);
     TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(root, "a"));
     TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(root, "b"));
@@ -155,61 +155,61 @@ void test_bb_section_build_get_two_sections(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_section_dispatch_patch: patchable / read-only / unknown
+// bb_response_dispatch_patch: patchable / read-only / unknown
 // ---------------------------------------------------------------------------
 
-void test_bb_section_dispatch_patch_known_patchable(void)
+void test_bb_response_dispatch_patch_known_patchable(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_section_register(&reg, "s", stub_get, stub_patch, NULL, NULL);
+    bb_response_register(&reg, "s", stub_get, stub_patch, NULL, NULL);
 
     bb_json_t body = bb_json_parse("{\"s\":{\"x\":1}}", 0);
     TEST_ASSERT_NOT_NULL(body);
 
-    bb_err_t rc = bb_section_dispatch_patch(&reg, body);
+    bb_err_t rc = bb_response_dispatch_patch(&reg, body);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(1, s_patch_calls);
     bb_json_free(body);
 }
 
-void test_bb_section_dispatch_patch_readonly_returns_invalid_arg(void)
+void test_bb_response_dispatch_patch_readonly_returns_invalid_arg(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_section_register(&reg, "ro", stub_get, NULL /* read-only */, NULL, NULL);
+    bb_response_register(&reg, "ro", stub_get, NULL /* read-only */, NULL, NULL);
 
     bb_json_t body = bb_json_parse("{\"ro\":{\"x\":1}}", 0);
     TEST_ASSERT_NOT_NULL(body);
 
-    bb_err_t rc = bb_section_dispatch_patch(&reg, body);
+    bb_err_t rc = bb_response_dispatch_patch(&reg, body);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, rc);
     bb_json_free(body);
 }
 
-void test_bb_section_dispatch_patch_unknown_section_ignored(void)
+void test_bb_response_dispatch_patch_unknown_section_ignored(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_section_register(&reg, "s", stub_get, stub_patch, NULL, NULL);
+    bb_response_register(&reg, "s", stub_get, stub_patch, NULL, NULL);
 
     bb_json_t body = bb_json_parse("{\"unknown\":{\"x\":1}}", 0);
     TEST_ASSERT_NOT_NULL(body);
 
-    bb_err_t rc = bb_section_dispatch_patch(&reg, body);
+    bb_err_t rc = bb_response_dispatch_patch(&reg, body);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(0, s_patch_calls);
     bb_json_free(body);
 }
 
 // ---------------------------------------------------------------------------
-// bb_section_assemble_schema: output correctness
+// bb_response_assemble_schema: output correctness
 // ---------------------------------------------------------------------------
 
-void test_bb_section_assemble_schema_no_sections(void)
+void test_bb_response_assemble_schema_no_sections(void)
 {
-    bb_section_registry_t reg = make_reg();
-    char *s = bb_section_assemble_schema(&reg,
+    bb_response_registry_t reg = make_reg();
+    char *s = bb_response_assemble_schema(&reg,
         "{\"type\":\"object\",\"properties\":{",
         "}}");
     TEST_ASSERT_NOT_NULL(s);
@@ -217,13 +217,13 @@ void test_bb_section_assemble_schema_no_sections(void)
     free(s);
 }
 
-void test_bb_section_assemble_schema_one_section_with_props(void)
+void test_bb_response_assemble_schema_one_section_with_props(void)
 {
-    bb_section_registry_t reg = make_reg();
-    bb_section_register(&reg, "foo", stub_get, NULL, NULL,
+    bb_response_registry_t reg = make_reg();
+    bb_response_register(&reg, "foo", stub_get, NULL, NULL,
                          "{\"type\":\"object\"}");
 
-    char *s = bb_section_assemble_schema(&reg,
+    char *s = bb_response_assemble_schema(&reg,
         "{\"type\":\"object\",\"properties\":{",
         "}}");
     TEST_ASSERT_NOT_NULL(s);
@@ -231,13 +231,13 @@ void test_bb_section_assemble_schema_one_section_with_props(void)
     free(s);
 }
 
-void test_bb_section_assemble_schema_two_sections(void)
+void test_bb_response_assemble_schema_two_sections(void)
 {
-    bb_section_registry_t reg = make_reg();
-    bb_section_register(&reg, "a", stub_get, NULL, NULL, "{\"type\":\"string\"}");
-    bb_section_register(&reg, "b", stub_get, NULL, NULL, "{\"type\":\"number\"}");
+    bb_response_registry_t reg = make_reg();
+    bb_response_register(&reg, "a", stub_get, NULL, NULL, "{\"type\":\"string\"}");
+    bb_response_register(&reg, "b", stub_get, NULL, NULL, "{\"type\":\"number\"}");
 
-    char *s = bb_section_assemble_schema(&reg,
+    char *s = bb_response_assemble_schema(&reg,
         "{\"type\":\"object\",\"properties\":{",
         "}}");
     TEST_ASSERT_NOT_NULL(s);
@@ -246,13 +246,13 @@ void test_bb_section_assemble_schema_two_sections(void)
     free(s);
 }
 
-void test_bb_section_assemble_schema_null_schema_props_omitted(void)
+void test_bb_response_assemble_schema_null_schema_props_omitted(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     // No schema_props — section should not appear in assembled schema.
-    bb_section_register(&reg, "noprops", stub_get, NULL, NULL, NULL);
+    bb_response_register(&reg, "noprops", stub_get, NULL, NULL, NULL);
 
-    char *s = bb_section_assemble_schema(&reg,
+    char *s = bb_response_assemble_schema(&reg,
         "{\"type\":\"object\",\"properties\":{",
         "}}");
     TEST_ASSERT_NOT_NULL(s);
@@ -262,31 +262,31 @@ void test_bb_section_assemble_schema_null_schema_props_omitted(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_section_freeze: post-freeze register rejected
+// bb_response_freeze: post-freeze register rejected
 // ---------------------------------------------------------------------------
 
-void test_bb_section_freeze_rejects_register_after(void)
+void test_bb_response_freeze_rejects_register_after(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_section_register(&reg, "a", stub_get, NULL, NULL, NULL);
-    bb_section_freeze(&reg);
+    bb_response_register(&reg, "a", stub_get, NULL, NULL, NULL);
+    bb_response_freeze(&reg);
 
-    bb_err_t rc = bb_section_register(&reg, "b", stub_get, NULL, NULL, NULL);
+    bb_err_t rc = bb_response_register(&reg, "b", stub_get, NULL, NULL, NULL);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, rc);
     // First registration still accessible.
     TEST_ASSERT_EQUAL_INT(1, reg.count);
 }
 
-void test_bb_section_freeze_build_get_still_works(void)
+void test_bb_response_freeze_build_get_still_works(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_section_register(&reg, "x", stub_get, NULL, NULL, NULL);
-    bb_section_freeze(&reg);
+    bb_response_register(&reg, "x", stub_get, NULL, NULL, NULL);
+    bb_response_freeze(&reg);
 
     bb_json_t root = bb_json_obj_new();
-    bb_section_build_get(&reg, root);
+    bb_response_build_get(&reg, root);
     TEST_ASSERT_EQUAL_INT(1, s_get_calls);
     TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(root, "x"));
     bb_json_free(root);
@@ -296,27 +296,27 @@ void test_bb_section_freeze_build_get_still_works(void)
 // Duplicate-name detection (F-04)
 // ---------------------------------------------------------------------------
 
-void test_bb_section_register_dup_name_returns_invalid_state(void)
+void test_bb_response_register_dup_name_returns_invalid_state(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_err_t rc = bb_section_register(&reg, "foo", stub_get, NULL, NULL, NULL);
+    bb_err_t rc = bb_response_register(&reg, "foo", stub_get, NULL, NULL, NULL);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(1, reg.count);
 
     // Second registration with the same name must be rejected.
-    rc = bb_section_register(&reg, "foo", stub_get, NULL, NULL, NULL);
+    rc = bb_response_register(&reg, "foo", stub_get, NULL, NULL, NULL);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, rc);
     TEST_ASSERT_EQUAL_INT(1, reg.count);  // count unchanged
 }
 
-void test_bb_section_register_dup_name_different_case_allowed(void)
+void test_bb_response_register_dup_name_different_case_allowed(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
     // "Foo" and "foo" are different names — case-sensitive compare.
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_section_register(&reg, "Foo", stub_get, NULL, NULL, NULL));
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_section_register(&reg, "foo", stub_get, NULL, NULL, NULL));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_response_register(&reg, "Foo", stub_get, NULL, NULL, NULL));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_response_register(&reg, "foo", stub_get, NULL, NULL, NULL));
     TEST_ASSERT_EQUAL_INT(2, reg.count);
 }
 
@@ -326,19 +326,19 @@ void test_bb_section_register_dup_name_different_case_allowed(void)
 
 static bb_err_t patch_fan(bb_json_t p, void *ctx) { (void)p; (void)ctx; s_patch_calls++; return BB_OK; }
 
-void test_bb_section_dispatch_patch_multi_read_only_rejects_all(void)
+void test_bb_response_dispatch_patch_multi_read_only_rejects_all(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
     // "fan" is writable, "power" is read-only.
-    bb_section_register(&reg, "fan",   stub_get, patch_fan, NULL, NULL);
-    bb_section_register(&reg, "power", stub_get, NULL /* ro */, NULL, NULL);
+    bb_response_register(&reg, "fan",   stub_get, patch_fan, NULL, NULL);
+    bb_response_register(&reg, "power", stub_get, NULL /* ro */, NULL, NULL);
 
     // Body targets both fan (writable) and power (read-only).
     bb_json_t body = bb_json_parse("{\"fan\":{\"duty_pct\":50},\"power\":{\"vout_mv\":1200}}", 0);
     TEST_ASSERT_NOT_NULL(body);
 
-    bb_err_t rc = bb_section_dispatch_patch(&reg, body);
+    bb_err_t rc = bb_response_dispatch_patch(&reg, body);
     bb_json_free(body);
 
     // Must fail with INVALID_ARG (power is read-only).
@@ -347,18 +347,18 @@ void test_bb_section_dispatch_patch_multi_read_only_rejects_all(void)
     TEST_ASSERT_EQUAL_INT(0, s_patch_calls);
 }
 
-void test_bb_section_dispatch_patch_single_writable_applies(void)
+void test_bb_response_dispatch_patch_single_writable_applies(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     reset_stub();
-    bb_section_register(&reg, "fan",   stub_get, patch_fan, NULL, NULL);
-    bb_section_register(&reg, "power", stub_get, NULL /* ro */, NULL, NULL);
+    bb_response_register(&reg, "fan",   stub_get, patch_fan, NULL, NULL);
+    bb_response_register(&reg, "power", stub_get, NULL /* ro */, NULL, NULL);
 
     // Body targets only fan (writable) — should succeed.
     bb_json_t body = bb_json_parse("{\"fan\":{\"duty_pct\":50}}", 0);
     TEST_ASSERT_NOT_NULL(body);
 
-    bb_err_t rc = bb_section_dispatch_patch(&reg, body);
+    bb_err_t rc = bb_response_dispatch_patch(&reg, body);
     bb_json_free(body);
 
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
@@ -369,15 +369,15 @@ void test_bb_section_dispatch_patch_single_writable_applies(void)
 // assemble_schema: MIXED null + non-null schema_props (A F-09)
 // ---------------------------------------------------------------------------
 
-void test_bb_section_assemble_schema_mixed_null_and_props(void)
+void test_bb_response_assemble_schema_mixed_null_and_props(void)
 {
-    bb_section_registry_t reg = make_reg();
+    bb_response_registry_t reg = make_reg();
     // Register two sections: one with schema_props, one without.
-    bb_section_register(&reg, "diag",      stub_get, NULL, NULL, "{\"type\":\"object\"}");
-    bb_section_register(&reg, "noprops",   stub_get, NULL, NULL, NULL);
-    bb_section_register(&reg, "ntp",       stub_get, NULL, NULL, "{\"type\":\"object\",\"properties\":{\"synced\":{\"type\":\"boolean\"}}}");
+    bb_response_register(&reg, "diag",      stub_get, NULL, NULL, "{\"type\":\"object\"}");
+    bb_response_register(&reg, "noprops",   stub_get, NULL, NULL, NULL);
+    bb_response_register(&reg, "ntp",       stub_get, NULL, NULL, "{\"type\":\"object\",\"properties\":{\"synced\":{\"type\":\"boolean\"}}}");
 
-    char *s = bb_section_assemble_schema(&reg,
+    char *s = bb_response_assemble_schema(&reg,
         "{\"type\":\"object\",\"properties\":{",
         "}}");
     TEST_ASSERT_NOT_NULL(s);
@@ -453,4 +453,63 @@ void test_bb_info_diag_registers_after_freeze_fails(void)
     TEST_ASSERT_NULL_MESSAGE(bb_json_obj_get_item(root, "diag"),
         "diag present despite registering after freeze — unexpected");
     bb_json_free(root);
+}
+
+// ---------------------------------------------------------------------------
+// Per-instance capacity (cap field)
+// ---------------------------------------------------------------------------
+
+void test_bb_response_register_per_instance_cap(void)
+{
+    bb_response_registry_t reg;
+    memset(&reg, 0, sizeof(reg));
+    reg.tag = "test";
+    reg.cap = 2;  // tighter limit than BB_RESPONSE_MAX
+
+    reset_stub();
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_response_register(&reg, "a", stub_get, NULL, NULL, NULL));
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_response_register(&reg, "b", stub_get, NULL, NULL, NULL));
+
+    // One more entry must be refused even though BB_RESPONSE_MAX > 2.
+    bb_err_t rc = bb_response_register(&reg, "c", stub_get, NULL, NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL_INT(2, reg.count);
+}
+
+void test_bb_response_register_cap_zero_uses_default(void)
+{
+    // cap==0 means fall back to BB_RESPONSE_MAX (back-compat with zero-init registries).
+    bb_response_registry_t reg = make_reg();  // memset to 0, cap==0
+    reset_stub();
+
+    static const char *k_names[] = { "s0","s1","s2","s3","s4","s5","s6","s7" };
+    for (int i = 0; i < BB_RESPONSE_MAX; i++) {
+        TEST_ASSERT_EQUAL_INT(BB_OK,
+            bb_response_register(&reg, k_names[i], stub_get, NULL, NULL, NULL));
+    }
+    // Full at BB_RESPONSE_MAX.
+    bb_err_t rc = bb_response_register(&reg, "over", stub_get, NULL, NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+}
+
+void test_bb_response_register_cap_exceeds_max_clamped(void)
+{
+    // cap > BB_RESPONSE_MAX must be clamped to BB_RESPONSE_MAX — OOB write prevention.
+    bb_response_registry_t reg;
+    memset(&reg, 0, sizeof(reg));
+    reg.tag = "test";
+    reg.cap = 255;  // far exceeds BB_RESPONSE_MAX
+
+    reset_stub();
+    static const char *k_names[] = { "s0","s1","s2","s3","s4","s5","s6","s7" };
+    for (int i = 0; i < BB_RESPONSE_MAX; i++) {
+        TEST_ASSERT_EQUAL_INT(BB_OK,
+            bb_response_register(&reg, k_names[i], stub_get, NULL, NULL, NULL));
+    }
+    // Must cap at BB_RESPONSE_MAX, not at 255.
+    bb_err_t rc = bb_response_register(&reg, "over", stub_get, NULL, NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL_INT(BB_RESPONSE_MAX, reg.count);
 }

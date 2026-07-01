@@ -2725,36 +2725,39 @@ void test_bb_sensors_fan_patch_autofan_valid_boundary_100(void);
 void test_bb_sensors_fan_patch_autofan_atomicity_bad_second_field(void);
 #endif
 
-// Forward declarations from test_bb_section.c
-void test_bb_section_register_ok(void);
-void test_bb_section_register_null_reg_returns_invalid_arg(void);
-void test_bb_section_register_null_name_returns_invalid_arg(void);
-void test_bb_section_register_null_get_returns_invalid_arg(void);
-void test_bb_section_register_readonly_null_patch_ok(void);
-void test_bb_section_register_capacity_returns_no_space(void);
-void test_bb_section_build_get_empty_registry(void);
-void test_bb_section_build_get_one_section(void);
-void test_bb_section_build_get_two_sections(void);
-void test_bb_section_dispatch_patch_known_patchable(void);
-void test_bb_section_dispatch_patch_readonly_returns_invalid_arg(void);
-void test_bb_section_dispatch_patch_unknown_section_ignored(void);
-void test_bb_section_assemble_schema_no_sections(void);
-void test_bb_section_assemble_schema_one_section_with_props(void);
-void test_bb_section_assemble_schema_two_sections(void);
-void test_bb_section_assemble_schema_null_schema_props_omitted(void);
-void test_bb_section_freeze_rejects_register_after(void);
-void test_bb_section_freeze_build_get_still_works(void);
-void test_bb_section_register_dup_name_returns_invalid_state(void);
-void test_bb_section_register_dup_name_different_case_allowed(void);
-void test_bb_section_dispatch_patch_multi_read_only_rejects_all(void);
-void test_bb_section_dispatch_patch_single_writable_applies(void);
-void test_bb_section_assemble_schema_mixed_null_and_props(void);
+// Forward declarations from test_bb_response.c
+void test_bb_response_register_ok(void);
+void test_bb_response_register_null_reg_returns_invalid_arg(void);
+void test_bb_response_register_null_name_returns_invalid_arg(void);
+void test_bb_response_register_null_get_returns_invalid_arg(void);
+void test_bb_response_register_readonly_null_patch_ok(void);
+void test_bb_response_register_capacity_returns_no_space(void);
+void test_bb_response_build_get_empty_registry(void);
+void test_bb_response_build_get_one_section(void);
+void test_bb_response_build_get_two_sections(void);
+void test_bb_response_dispatch_patch_known_patchable(void);
+void test_bb_response_dispatch_patch_readonly_returns_invalid_arg(void);
+void test_bb_response_dispatch_patch_unknown_section_ignored(void);
+void test_bb_response_assemble_schema_no_sections(void);
+void test_bb_response_assemble_schema_one_section_with_props(void);
+void test_bb_response_assemble_schema_two_sections(void);
+void test_bb_response_assemble_schema_null_schema_props_omitted(void);
+void test_bb_response_freeze_rejects_register_after(void);
+void test_bb_response_freeze_build_get_still_works(void);
+void test_bb_response_register_dup_name_returns_invalid_state(void);
+void test_bb_response_register_dup_name_different_case_allowed(void);
+void test_bb_response_dispatch_patch_multi_read_only_rejects_all(void);
+void test_bb_response_dispatch_patch_single_writable_applies(void);
+void test_bb_response_assemble_schema_mixed_null_and_props(void);
 void test_bb_info_diag_registers_before_freeze_succeeds(void);
 void test_bb_info_diag_registers_after_freeze_fails(void);
+void test_bb_response_register_per_instance_cap(void);
+void test_bb_response_register_cap_zero_uses_default(void);
+void test_bb_response_register_cap_exceeds_max_clamped(void);
 
-// Forward declarations from test_bb_section_assemble.c
-void test_bb_section_freeze_and_assemble_non_null(void);
-void test_bb_section_freeze_and_assemble_null_on_oom(void);
+// Forward declarations from test_bb_response_assemble.c
+void test_bb_response_freeze_and_assemble_non_null(void);
+void test_bb_response_freeze_and_assemble_null_on_oom(void);
 
 // Forward declarations from test_bb_telemetry.c
 void test_bb_telemetry_register_ok(void);
@@ -5931,34 +5934,37 @@ int main(void) {
     RUN_TEST(test_bb_pub_cadence_on_change_failing_sink_leaves_state_uncommitted);
     RUN_TEST(test_bb_pub_cadence_once_failing_sink_leaves_state_uncommitted);
 
-    // bb_section tests
-    RUN_TEST(test_bb_section_register_ok);
-    RUN_TEST(test_bb_section_register_null_reg_returns_invalid_arg);
-    RUN_TEST(test_bb_section_register_null_name_returns_invalid_arg);
-    RUN_TEST(test_bb_section_register_null_get_returns_invalid_arg);
-    RUN_TEST(test_bb_section_register_readonly_null_patch_ok);
-    RUN_TEST(test_bb_section_register_capacity_returns_no_space);
-    RUN_TEST(test_bb_section_build_get_empty_registry);
-    RUN_TEST(test_bb_section_build_get_one_section);
-    RUN_TEST(test_bb_section_build_get_two_sections);
-    RUN_TEST(test_bb_section_dispatch_patch_known_patchable);
-    RUN_TEST(test_bb_section_dispatch_patch_readonly_returns_invalid_arg);
-    RUN_TEST(test_bb_section_dispatch_patch_unknown_section_ignored);
-    RUN_TEST(test_bb_section_assemble_schema_no_sections);
-    RUN_TEST(test_bb_section_assemble_schema_one_section_with_props);
-    RUN_TEST(test_bb_section_assemble_schema_two_sections);
-    RUN_TEST(test_bb_section_assemble_schema_null_schema_props_omitted);
-    RUN_TEST(test_bb_section_freeze_rejects_register_after);
-    RUN_TEST(test_bb_section_freeze_build_get_still_works);
-    RUN_TEST(test_bb_section_register_dup_name_returns_invalid_state);
-    RUN_TEST(test_bb_section_register_dup_name_different_case_allowed);
-    RUN_TEST(test_bb_section_dispatch_patch_multi_read_only_rejects_all);
-    RUN_TEST(test_bb_section_dispatch_patch_single_writable_applies);
-    RUN_TEST(test_bb_section_assemble_schema_mixed_null_and_props);
+    // bb_response tests
+    RUN_TEST(test_bb_response_register_ok);
+    RUN_TEST(test_bb_response_register_null_reg_returns_invalid_arg);
+    RUN_TEST(test_bb_response_register_null_name_returns_invalid_arg);
+    RUN_TEST(test_bb_response_register_null_get_returns_invalid_arg);
+    RUN_TEST(test_bb_response_register_readonly_null_patch_ok);
+    RUN_TEST(test_bb_response_register_capacity_returns_no_space);
+    RUN_TEST(test_bb_response_build_get_empty_registry);
+    RUN_TEST(test_bb_response_build_get_one_section);
+    RUN_TEST(test_bb_response_build_get_two_sections);
+    RUN_TEST(test_bb_response_dispatch_patch_known_patchable);
+    RUN_TEST(test_bb_response_dispatch_patch_readonly_returns_invalid_arg);
+    RUN_TEST(test_bb_response_dispatch_patch_unknown_section_ignored);
+    RUN_TEST(test_bb_response_assemble_schema_no_sections);
+    RUN_TEST(test_bb_response_assemble_schema_one_section_with_props);
+    RUN_TEST(test_bb_response_assemble_schema_two_sections);
+    RUN_TEST(test_bb_response_assemble_schema_null_schema_props_omitted);
+    RUN_TEST(test_bb_response_freeze_rejects_register_after);
+    RUN_TEST(test_bb_response_freeze_build_get_still_works);
+    RUN_TEST(test_bb_response_register_dup_name_returns_invalid_state);
+    RUN_TEST(test_bb_response_register_dup_name_different_case_allowed);
+    RUN_TEST(test_bb_response_dispatch_patch_multi_read_only_rejects_all);
+    RUN_TEST(test_bb_response_dispatch_patch_single_writable_applies);
+    RUN_TEST(test_bb_response_assemble_schema_mixed_null_and_props);
     RUN_TEST(test_bb_info_diag_registers_before_freeze_succeeds);
     RUN_TEST(test_bb_info_diag_registers_after_freeze_fails);
-    RUN_TEST(test_bb_section_freeze_and_assemble_non_null);
-    RUN_TEST(test_bb_section_freeze_and_assemble_null_on_oom);
+    RUN_TEST(test_bb_response_register_per_instance_cap);
+    RUN_TEST(test_bb_response_register_cap_zero_uses_default);
+    RUN_TEST(test_bb_response_register_cap_exceeds_max_clamped);
+    RUN_TEST(test_bb_response_freeze_and_assemble_non_null);
+    RUN_TEST(test_bb_response_freeze_and_assemble_null_on_oom);
 
     // bb_sensors tests
     RUN_TEST(test_bb_sensors_register_null_name_returns_err);

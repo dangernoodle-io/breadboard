@@ -2,12 +2,12 @@
 
 // Private: shared between platform/espidf and platform/host bb_info implementations.
 //
-// bb_section_assemble_schema(reg, k_info_schema_base, k_info_schema_suffix) builds the
+// bb_response_assemble_schema(reg, k_info_schema_base, k_info_schema_suffix) builds the
 // complete /api/info 200 JSON-Schema:
 //   k_info_schema_base + [,"<name>":<schema_props>]* + k_info_schema_suffix
 //
 // Root-level fields (board, network, capabilities, http_handler_*) live in base/suffix.
-// Named sections (display, led, ntp, diag) are emitted by bb_section_assemble_schema
+// Named sections (display, led, ntp, diag) are emitted by bb_response_assemble_schema
 // from each section's schema_props string.
 //
 // NOTE: abnormal_reset_count and panic have been REMOVED from root.
@@ -44,7 +44,7 @@ static const char k_info_schema_base[] =
     "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}";
 
 // Suffix: the section properties (display, led, ntp, diag, ...) are inserted
-// between base and suffix by bb_section_assemble_schema with commas.
+// between base and suffix by bb_response_assemble_schema with commas.
 // The suffix closes the properties object and adds the required array.
 static const char k_info_schema_suffix[] =
     "},"

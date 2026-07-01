@@ -1,13 +1,13 @@
 // bb_sensors — sectioned /api/sensors endpoint (fan/power/thermal).
 //
-// Owns a file-scope bb_section_registry_t; each breadboard section (fan,
+// Owns a file-scope bb_response_registry_t; each breadboard section (fan,
 // power, thermal) is registered at init. External consumers (e.g. TaipanMiner)
 // may register additional sections via bb_sensors_register_section before the
 // registry is frozen.
 //
 // Routes:
-//   GET  /api/sensors  — bb_section_build_get over all registered sections.
-//   PATCH /api/sensors — bb_section_dispatch_patch; fan section is PATCH-capable,
+//   GET  /api/sensors  — bb_response_build_get over all registered sections.
+//   PATCH /api/sensors — bb_response_dispatch_patch; fan section is PATCH-capable,
 //                        power and thermal sections are read-only.
 //
 // The old /api/fan, /api/power, and /api/thermal routes coexist in this PR;
@@ -17,7 +17,7 @@
 #pragma once
 #include "bb_core.h"
 #include "bb_json.h"
-#include "bb_section.h"
+#include "bb_response.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,8 +36,8 @@ extern "C" {
 // Returns BB_ERR_INVALID_STATE if called after the registry is frozen.
 // Returns BB_ERR_NO_SPACE if the section table is full.
 bb_err_t bb_sensors_register_section(const char *name,
-                                      bb_section_get_fn get,
-                                      bb_section_patch_fn patch,
+                                      bb_response_get_fn get,
+                                      bb_response_patch_fn patch,
                                       void *ctx,
                                       const char *schema_props);
 

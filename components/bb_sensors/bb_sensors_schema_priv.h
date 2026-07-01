@@ -2,14 +2,14 @@
 
 // Private: shared between platform/espidf and platform/host bb_sensors implementations.
 //
-// bb_section_assemble_schema(reg, k_sensors_base, k_sensors_suffix) builds the
+// bb_response_assemble_schema(reg, k_sensors_base, k_sensors_suffix) builds the
 // complete /api/sensors 200 JSON-Schema.
 //
 // Root has no fields — only named sections (fan, power, thermal, ...).
 // k_sensors_base opens the properties object with no root-level fields.
 // k_sensors_suffix closes it and lists required sections.
 //
-// NOTE: bb_section_assemble_schema detects that base ends with '{' (no content
+// NOTE: bb_response_assemble_schema detects that base ends with '{' (no content
 // yet) so the first section does NOT get a leading comma.
 
 // Fan section schema — PATCH-capable (duty_pct or autofan config).
