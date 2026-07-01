@@ -1,6 +1,7 @@
 #include "bb_timer.h"
 #include "bb_log.h"
 #include "bb_mem.h"
+#include "bb_task_registry.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -117,6 +118,7 @@ static bb_err_t disp_ensure_started(void)
         s_disp_queue = NULL;
         return BB_ERR_NO_SPACE;
     }
+    bb_task_registry_register("bb_timer_disp", BB_TIMER_DISP_STACK, s_disp_task);
     return BB_OK;
 }
 
@@ -277,6 +279,7 @@ static void worker_task_fn(void *arg)
             t->work_fn(t->arg);
         }
     }
+    bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
     vTaskDelete(NULL);
 }
 
@@ -549,6 +552,7 @@ bb_err_t bb_timer_worker_periodic_create(void (*work_fn)(void *arg), void *arg,
         bb_mem_free(t);
         return BB_ERR_NO_SPACE;
     }
+    bb_task_registry_register(name ? name : "bb_timer_worker", stack, t->worker_task);
 
     esp_timer_create_args_t args = {
         .callback        = periodic_dispatcher,

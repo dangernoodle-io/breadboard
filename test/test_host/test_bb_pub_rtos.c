@@ -4,6 +4,7 @@
 #include "bb_pub_rtos.h"
 #include "bb_pub.h"
 #include "bb_nv.h"
+#include "bb_task_registry.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -47,6 +48,7 @@ static void rtos_capture_reset(void)
 static void setup(void)
 {
     bb_pub_test_reset();
+    bb_task_registry_test_reset();
     rtos_capture_reset();
     bb_nv_config_set_hostname("testhost");
 
@@ -166,6 +168,38 @@ void test_bb_pub_rtos_payload_has_uptime_ms_field(void)
     setup();
     bb_pub_tick_once();
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"uptime_ms\""));
+}
+
+// ---------------------------------------------------------------------------
+// bb_task_registry-driven fields (B1-445) — additive, host-testable via
+// bb_task_registry_test_seed (no real TaskHandle_t on host).
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_rtos_emits_one_stack_field_per_registered_entry(void)
+{
+    setup();
+    bb_task_registry_test_seed("my_task", 7168, false);
+    bb_pub_tick_once();
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"stack_my_task\":7168"));
+}
+
+void test_bb_pub_rtos_emits_multiple_registered_entries(void)
+{
+    setup();
+    bb_task_registry_test_seed("task_one", 1024, false);
+    bb_task_registry_test_seed("task_two", 2048, true);
+    bb_pub_tick_once();
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"stack_task_one\":1024"));
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"stack_task_two\":2048"));
+}
+
+void test_bb_pub_rtos_no_registered_entries_still_publishes(void)
+{
+    setup();
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    // Pre-existing hardcoded fields are untouched.
+    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"stack_bb_pub\""));
 }
 
 void test_bb_pub_rtos_benign_task_filter(void)

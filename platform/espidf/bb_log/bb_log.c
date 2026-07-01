@@ -25,6 +25,7 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 #include "freertos/ringbuf.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
+#include "bb_task_registry.h"
 #include <stdatomic.h>
 #if CONFIG_BB_LOG_UDP_SINK
 #include "lwip/sockets.h"
@@ -207,6 +208,7 @@ void bb_log_udp_enable(uint32_t ip_be, uint16_t port)
             bb_log_e(TAG, "udp sink task create failed");
             return;
         }
+        bb_task_registry_register("bb_log_udp", LOG_UDP_TASK_STACK, s_udp_task);
     }
     s_udp_enabled = true;
     bb_log_i(TAG, "udp log sink enabled -> port %u", (unsigned)port);
@@ -279,6 +281,7 @@ bb_err_t bb_log_stream_init(void)
         s_rb_storage = NULL;
         return ESP_ERR_NO_MEM;
     }
+    bb_task_registry_register("bb_log_writer", LOG_WRITER_TASK_STACK, s_writer_task);
 
     s_orig_vprintf = esp_log_set_vprintf(s_log_vprintf);
     s_initialized = true;

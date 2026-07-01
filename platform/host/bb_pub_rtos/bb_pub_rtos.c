@@ -12,7 +12,9 @@
 #include "bb_log.h"
 #include "bb_openapi.h"
 #include "bb_init.h"
+#include "bb_task_registry.h"
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
 #ifndef CONFIG_BB_PUB_RTOS_AUTO_ATTACH
@@ -58,6 +60,56 @@ bool bb_pub_rtos_is_benign_task(const char *name)
 }
 
 // ---------------------------------------------------------------------------
+// bb_task_registry-driven fields (B1-445) — additive. Every task that
+// self-registers via bb_task_registry (see components/bb_task_registry) gets
+// its own "stack_<name>" field, on top of (not replacing) the hardcoded
+// s_named[] fields above. This is how new task-creation sites gain telemetry
+// coverage without hand-editing s_named[].
+// ---------------------------------------------------------------------------
+
+#define STACK_FIELD_MAX (6 + BB_TASK_REGISTRY_NAME_MAX + 1)  // "stack_" + name + '\0'
+
+// `name` always comes from a bb_task_registry_foreach callback, which never
+// passes NULL (registered names are non-NULL by construction) — no NULL
+// guard needed here.
+static void build_stack_field_name(char *out, size_t out_len, const char *name)
+{
+    snprintf(out, out_len, "stack_%s", name);
+}
+
+// Kconfig bridge: mirrors components/bb_task_registry/Kconfig's
+// BB_TASK_REGISTRY_MAX so the fixed on-stack snapshot array below is sized to
+// match the registry's real capacity (never truncates a live registry).
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#ifdef CONFIG_BB_TASK_REGISTRY_MAX
+#define BB_TASK_REGISTRY_MAX CONFIG_BB_TASK_REGISTRY_MAX
+#endif
+#endif
+#ifndef BB_TASK_REGISTRY_MAX
+#define BB_TASK_REGISTRY_MAX 24
+#endif
+
+// bb_task_registry_foreach holds the registry lock across the entire call
+// (see bb_task_registry.h foreach contract) and its callback MUST NOT
+// allocate. bb_json_obj_set_number allocates (cJSON), so the callbacks below
+// only snapshot {name, bytes} into a fixed on-stack array; the JSON fields
+// are built afterward, once the lock is released.
+typedef struct {
+    char     name[BB_TASK_REGISTRY_NAME_MAX];
+    uint32_t bytes;
+} registry_snapshot_entry_t;
+
+static void emit_registry_snapshot(bb_json_t obj, const registry_snapshot_entry_t *snap, int count)
+{
+    for (int i = 0; i < count; i++) {
+        char field[STACK_FIELD_MAX];
+        build_stack_field_name(field, sizeof(field), snap[i].name);
+        bb_json_obj_set_number(obj, field, (double)snap[i].bytes);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Sample function — called by bb_pub_tick_once for the "rtos" subtopic.
 // ---------------------------------------------------------------------------
 
@@ -68,6 +120,36 @@ bool bb_pub_rtos_is_benign_task(const char *name)
 
 // Max tasks to snapshot; stack-allocated so keep it modest.
 #define RTOS_MAX_TASKS 32
+
+// Registry-driven scan ctx + callback (B1-445) — see the comment above
+// build_stack_field_name(). File-scope (not nested) since C has no portable
+// nested-function support.
+typedef struct {
+    TaskStatus_t              *tasks;
+    UBaseType_t                count;
+    registry_snapshot_entry_t  snap[BB_TASK_REGISTRY_MAX];
+    int                         snap_count;
+} registry_scan_ctx_t;
+
+static void registry_field_cb(const char *name, uint32_t stack_budget_bytes,
+                               bool wdt_subscribed, void *cb_ctx)
+{
+    (void)stack_budget_bytes;
+    (void)wdt_subscribed;
+    registry_scan_ctx_t *sc = (registry_scan_ctx_t *)cb_ctx;
+    if (sc->snap_count >= BB_TASK_REGISTRY_MAX) return;
+    for (UBaseType_t i = 0; i < sc->count; i++) {
+        if (strncmp(sc->tasks[i].pcTaskName, name, configMAX_TASK_NAME_LEN) == 0) {
+            uint32_t bytes = (uint32_t)sc->tasks[i].usStackHighWaterMark
+                             * sizeof(StackType_t);
+            registry_snapshot_entry_t *e = &sc->snap[sc->snap_count++];
+            strncpy(e->name, name, sizeof(e->name) - 1);
+            e->name[sizeof(e->name) - 1] = '\0';
+            e->bytes = bytes;
+            break;
+        }
+    }
+}
 
 static bool rtos_sample(bb_json_t obj, void *ctx)
 {
@@ -114,10 +196,41 @@ static bool rtos_sample(bb_json_t obj, void *ctx)
         }
     }
 
+    // Additive: one "stack_<name>" field per bb_task_registry entry, driven
+    // by the registry rather than a hardcoded table (B1-445) — see the
+    // comment above build_stack_field_name(). Does not remove or alter any
+    // field emitted above. The foreach callback only snapshots name/bytes
+    // (no allocation while the registry lock is held); JSON fields are built
+    // from the snapshot after the lock is released.
+    registry_scan_ctx_t scan_ctx = { .tasks = tasks, .count = count, .snap_count = 0 };
+    bb_task_registry_foreach(registry_field_cb, &scan_ctx);
+    emit_registry_snapshot(obj, scan_ctx.snap, scan_ctx.snap_count);
+
     return true;
 }
 
 #else  // host stub or CONFIG_FREERTOS_USE_TRACE_FACILITY=n
+
+// Host has no real live HWM to read, so the registry-driven fields (below)
+// emit the registered stack_budget_bytes verbatim — deterministic and
+// host-testable (matches the value a test seeds via
+// bb_task_registry_test_seed()).
+typedef struct {
+    registry_snapshot_entry_t snap[BB_TASK_REGISTRY_MAX];
+    int                        count;
+} registry_scan_ctx_host_t;
+
+static void registry_field_cb_host(const char *name, uint32_t stack_budget_bytes,
+                                    bool wdt_subscribed, void *cb_ctx)
+{
+    (void)wdt_subscribed;
+    registry_scan_ctx_host_t *sc = (registry_scan_ctx_host_t *)cb_ctx;
+    if (sc->count >= BB_TASK_REGISTRY_MAX) return;
+    registry_snapshot_entry_t *e = &sc->snap[sc->count++];
+    strncpy(e->name, name, sizeof(e->name) - 1);
+    e->name[sizeof(e->name) - 1] = '\0';
+    e->bytes = stack_budget_bytes;
+}
 
 static bool rtos_sample(bb_json_t obj, void *ctx)
 {
@@ -135,6 +248,13 @@ static bool rtos_sample(bb_json_t obj, void *ctx)
     bb_json_obj_set_number(obj, "stack_ipc0",    2560.0);
     bb_json_obj_set_number(obj, "stack_ipc1",    2560.0);
     bb_json_obj_set_number(obj, "stack_main",    3584.0);
+
+    // Additive: one "stack_<name>" field per bb_task_registry entry (B1-445).
+    // Snapshot under the registry lock, emit JSON after release (see
+    // registry_scan_ctx_host_t / emit_registry_snapshot above).
+    registry_scan_ctx_host_t scan_ctx = { .count = 0 };
+    bb_task_registry_foreach(registry_field_cb_host, &scan_ctx);
+    emit_registry_snapshot(obj, scan_ctx.snap, scan_ctx.count);
 
     return true;
 }

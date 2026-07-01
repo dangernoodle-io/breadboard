@@ -2233,6 +2233,28 @@ void test_bb_ring_registry_foreach_null_cb_is_noop(void);
 void test_bb_ring_registry_foreach_empty_registry(void);
 void test_bb_ring_registry_test_reset_clears_all(void);
 
+// Forward declarations from test_bb_task_registry.c
+void test_bb_task_registry_register_deregister_roundtrip(void);
+void test_bb_task_registry_deregister_by_value_removes_correct_entry(void);
+void test_bb_task_registry_register_null_name_returns_invalid_arg(void);
+void test_bb_task_registry_register_null_handle_is_ok(void);
+void test_bb_task_registry_deregister_null_returns_invalid_arg(void);
+void test_bb_task_registry_deregister_unregistered_returns_not_found(void);
+void test_bb_task_registry_duplicate_name_returns_invalid_state(void);
+void test_bb_task_registry_overflow_returns_no_space(void);
+void test_bb_task_registry_foreach_visits_all_in_order(void);
+void test_bb_task_registry_foreach_null_cb_is_noop(void);
+void test_bb_task_registry_foreach_empty_registry(void);
+void test_bb_task_registry_lookup_budget_hit(void);
+void test_bb_task_registry_lookup_budget_miss(void);
+void test_bb_task_registry_lookup_budget_null_name(void);
+void test_bb_task_registry_lookup_budget_out_params_optional(void);
+void test_bb_task_registry_test_seed_sets_wdt_flag(void);
+void test_bb_task_registry_test_seed_null_name_returns_invalid_arg(void);
+void test_bb_task_registry_test_seed_overflow_returns_no_space(void);
+void test_bb_task_registry_test_seed_duplicate_name_returns_invalid_state(void);
+void test_bb_task_registry_test_reset_clears_all(void);
+
 // Forward declarations from test_bb_event_topic_registry.c
 void test_bb_event_topic_registry_register_and_count(void);
 void test_bb_event_topic_registry_register_null_args_returns_invalid_arg(void);
@@ -3156,6 +3178,9 @@ void test_bb_pub_rtos_has_stack_ipc1(void);
 void test_bb_pub_rtos_has_stack_main(void);
 void test_bb_pub_rtos_payload_has_uptime_ms_field(void);
 void test_bb_pub_rtos_benign_task_filter(void);
+void test_bb_pub_rtos_emits_one_stack_field_per_registered_entry(void);
+void test_bb_pub_rtos_emits_multiple_registered_entries(void);
+void test_bb_pub_rtos_no_registered_entries_still_publishes(void);
 
 // Forward declarations from test_bb_websocket.c
 void test_bb_websocket_register_endpoint_null_server_ok(void);
@@ -5548,6 +5573,28 @@ int main(void) {
     RUN_TEST(test_bb_ring_registry_foreach_empty_registry);
     RUN_TEST(test_bb_ring_registry_test_reset_clears_all);
 
+    // bb_task_registry tests
+    RUN_TEST(test_bb_task_registry_register_deregister_roundtrip);
+    RUN_TEST(test_bb_task_registry_deregister_by_value_removes_correct_entry);
+    RUN_TEST(test_bb_task_registry_register_null_name_returns_invalid_arg);
+    RUN_TEST(test_bb_task_registry_register_null_handle_is_ok);
+    RUN_TEST(test_bb_task_registry_deregister_null_returns_invalid_arg);
+    RUN_TEST(test_bb_task_registry_deregister_unregistered_returns_not_found);
+    RUN_TEST(test_bb_task_registry_duplicate_name_returns_invalid_state);
+    RUN_TEST(test_bb_task_registry_overflow_returns_no_space);
+    RUN_TEST(test_bb_task_registry_foreach_visits_all_in_order);
+    RUN_TEST(test_bb_task_registry_foreach_null_cb_is_noop);
+    RUN_TEST(test_bb_task_registry_foreach_empty_registry);
+    RUN_TEST(test_bb_task_registry_lookup_budget_hit);
+    RUN_TEST(test_bb_task_registry_lookup_budget_miss);
+    RUN_TEST(test_bb_task_registry_lookup_budget_null_name);
+    RUN_TEST(test_bb_task_registry_lookup_budget_out_params_optional);
+    RUN_TEST(test_bb_task_registry_test_seed_sets_wdt_flag);
+    RUN_TEST(test_bb_task_registry_test_seed_null_name_returns_invalid_arg);
+    RUN_TEST(test_bb_task_registry_test_seed_overflow_returns_no_space);
+    RUN_TEST(test_bb_task_registry_test_seed_duplicate_name_returns_invalid_state);
+    RUN_TEST(test_bb_task_registry_test_reset_clears_all);
+
     // bb_event_topic_registry tests
     RUN_TEST(test_bb_event_topic_registry_register_and_count);
     RUN_TEST(test_bb_event_topic_registry_register_null_args_returns_invalid_arg);
@@ -6472,6 +6519,9 @@ int main(void) {
     RUN_TEST(test_bb_pub_rtos_has_stack_main);
     RUN_TEST(test_bb_pub_rtos_payload_has_uptime_ms_field);
     RUN_TEST(test_bb_pub_rtos_benign_task_filter);
+    RUN_TEST(test_bb_pub_rtos_emits_one_stack_field_per_registered_entry);
+    RUN_TEST(test_bb_pub_rtos_emits_multiple_registered_entries);
+    RUN_TEST(test_bb_pub_rtos_no_registered_entries_still_publishes);
 
     // bb_tls_creds tests
     RUN_TEST(test_bb_tls_creds_override_ca_beats_nvs);
