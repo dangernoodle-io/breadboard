@@ -662,6 +662,7 @@ void test_fidelity_log_level_get(void);
 void test_fidelity_wifi_patch_202(void);
 void test_fidelity_wifi_patch_400(void);
 void test_fidelity_diag_partitions(void);
+void test_fidelity_diag_net(void);
 void test_fidelity_update_status(void);
 void test_fidelity_update_config_get(void);
 void test_fidelity_diag_events(void);
@@ -4157,6 +4158,7 @@ int main(void) {
     RUN_TEST(test_fidelity_wifi_patch_202);
     RUN_TEST(test_fidelity_wifi_patch_400);
     RUN_TEST(test_fidelity_diag_partitions);
+    RUN_TEST(test_fidelity_diag_net);
     RUN_TEST(test_fidelity_update_status);
     RUN_TEST(test_fidelity_update_config_get);
     RUN_TEST(test_fidelity_diag_events);
