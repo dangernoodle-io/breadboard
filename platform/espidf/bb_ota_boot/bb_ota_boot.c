@@ -505,8 +505,7 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
              "\"last_check_ok\":{\"type\":\"boolean\"},"
              "\"enabled\":{\"type\":\"boolean\"},"
              "\"outcome\":{\"type\":\"string\","
-               "\"enum\":[\"unknown\",\"up_to_date\",\"available\","
-                         "\"no_asset\",\"check_failed\",\"check_on_apply\"]},"
+               "\"enum\":[" BB_UPDATE_OUTCOME_ENUM_JSON "]},"
              "\"last_check_ts\":{\"type\":\"integer\"}},"
            "\"required\":[\"current\",\"latest\",\"download_url\","
                          "\"available\",\"last_check_ok\",\"enabled\",\"outcome\"]}",

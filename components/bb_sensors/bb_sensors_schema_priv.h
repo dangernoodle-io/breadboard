@@ -20,6 +20,8 @@ static const char k_sensors_fan_schema[] =
     "\"present\":{\"type\":\"boolean\"},"
     "\"rpm\":{\"type\":[\"integer\",\"null\"]},"
     "\"duty_pct\":{\"type\":[\"integer\",\"null\"]},"
+    "\"die_c\":{\"type\":[\"number\",\"null\"]},"
+    "\"board_c\":{\"type\":[\"number\",\"null\"]},"
     "\"autofan\":{\"type\":\"boolean\",\"description\":\"autofan enabled\"},"
     "\"die_target_c\":{\"type\":\"number\",\"description\":\"ASIC die target temperature\"},"
     "\"vr_target_c\":{\"type\":\"number\",\"description\":\"VR target temperature\"},"
@@ -36,7 +38,9 @@ static const char k_sensors_fan_schema[] =
     "\"properties\":{"
     "\"present\":{\"type\":\"boolean\"},"
     "\"rpm\":{\"type\":[\"integer\",\"null\"]},"
-    "\"duty_pct\":{\"type\":[\"integer\",\"null\"]}},"
+    "\"duty_pct\":{\"type\":[\"integer\",\"null\"]},"
+    "\"die_c\":{\"type\":[\"number\",\"null\"]},"
+    "\"board_c\":{\"type\":[\"number\",\"null\"]}},"
     "\"required\":[\"present\"]}";
 #endif
 

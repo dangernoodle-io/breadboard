@@ -226,7 +226,8 @@ static const bb_route_response_t s_panic_get_responses[] = {
       "\"exc_pc\":{\"type\":\"integer\"},"
       "\"exc_cause\":{\"type\":\"integer\"},"
       "\"backtrace\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}},"
-      "\"panic_reason\":{\"type\":\"string\"}},"
+      "\"panic_reason\":{\"type\":\"string\"},"
+      "\"app_sha256\":{\"type\":\"string\"}},"
       "\"required\":[\"available\"]}",
       "panic log status, log tail, coredump backtrace, and panic reason text (when available)" },
     { 0 },

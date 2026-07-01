@@ -135,7 +135,19 @@ static const char k_wifi_schema[] =
     "\"connected\":{\"type\":\"boolean\"},"
     "\"disc_reason\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"retry_count\":{\"type\":\"integer\"}},"
+    "\"retry_count\":{\"type\":\"integer\"},"
+    "\"no_ip_recoveries\":{\"type\":\"integer\"},"
+    "\"egress_dead_count\":{\"type\":\"integer\"},"
+    "\"lost_ip_count\":{\"type\":\"integer\"},"
+    "\"recovery_count\":{\"type\":\"integer\"},"
+    "\"restart_sta_count\":{\"type\":\"integer\"},"
+    "\"disconnect_rssi\":{\"type\":\"integer\"},"
+    "\"reason_histogram\":{\"type\":\"object\",\"properties\":{"
+        "\"lost_ip\":{\"type\":\"integer\"},"
+        "\"egress_dead\":{\"type\":\"integer\"},"
+        "\"no_ip_watchdog\":{\"type\":\"integer\"},"
+        "\"top_reason_code\":{\"type\":\"integer\"},"
+        "\"top_reason_count\":{\"type\":\"integer\"}}}},"
     "\"required\":[\"ssid\",\"connected\"]}";
 
 // GET /api/update/progress — bb_ota_pull.c (espidf)
@@ -186,10 +198,13 @@ static const char k_panic_schema[] =
     "\"exc_pc\":{\"type\":\"integer\"},"
     "\"exc_cause\":{\"type\":\"integer\"},"
     "\"backtrace\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}},"
-    "\"panic_reason\":{\"type\":\"string\"}},"
+    "\"panic_reason\":{\"type\":\"string\"},"
+    "\"app_sha256\":{\"type\":\"string\"}},"
     "\"required\":[\"available\"]}";
 
 // GET /api/update/status — platform/espidf/bb_update_check/bb_update_check_espidf.c
+// The enum literal mirrors BB_UPDATE_OUTCOME_ENUM_JSON (bb_update_check.h) —
+// keep byte-identical (B1-462a).
 static const char k_update_status_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{"
@@ -200,8 +215,7 @@ static const char k_update_status_schema[] =
     "\"last_check_ok\":{\"type\":\"boolean\"},"
     "\"enabled\":{\"type\":\"boolean\"},"
     "\"outcome\":{\"type\":\"string\","
-    "\"enum\":[\"unknown\",\"up_to_date\",\"available\","
-    "\"no_asset\",\"check_failed\"]},"
+    "\"enum\":[" BB_UPDATE_OUTCOME_ENUM_JSON "]},"
     "\"last_check_ts\":{\"type\":\"integer\"}},"
     "\"required\":[\"current\",\"latest\",\"download_url\","
     "\"available\",\"last_check_ok\",\"enabled\",\"outcome\"]}";
@@ -408,6 +422,22 @@ static bb_err_t h_wifi_info(bb_http_request_t *req)
     bb_http_resp_json_obj_set_num(&obj, "disc_reason", (double)info.disc_reason);
     bb_http_resp_json_obj_set_num(&obj, "disc_age_s", (double)info.disc_age_s);
     bb_http_resp_json_obj_set_num(&obj, "retry_count", (double)info.retry_count);
+    // B1-462a: no_ip_recoveries..reason_histogram mirror bb_wifi_emit_section
+    // (platform/host/bb_wifi/bb_wifi_emit.c) so this fidelity fixture matches
+    // the production route byte-for-byte.
+    bb_http_resp_json_obj_set_num(&obj, "no_ip_recoveries",  0);
+    bb_http_resp_json_obj_set_num(&obj, "egress_dead_count", 0);
+    bb_http_resp_json_obj_set_num(&obj, "lost_ip_count",     0);
+    bb_http_resp_json_obj_set_num(&obj, "recovery_count",    0);
+    bb_http_resp_json_obj_set_num(&obj, "restart_sta_count", 0);
+    bb_http_resp_json_obj_set_num(&obj, "disconnect_rssi",   0);
+    bb_http_resp_json_obj_set_obj_begin(&obj, "reason_histogram");
+    bb_http_resp_json_obj_set_num(&obj, "lost_ip",           0);
+    bb_http_resp_json_obj_set_num(&obj, "egress_dead",       0);
+    bb_http_resp_json_obj_set_num(&obj, "no_ip_watchdog",    0);
+    bb_http_resp_json_obj_set_num(&obj, "top_reason_code",   0);
+    bb_http_resp_json_obj_set_num(&obj, "top_reason_count",  0);
+    bb_http_resp_json_obj_set_obj_end(&obj);
     return bb_http_resp_json_obj_end(&obj);
 }
 
@@ -511,6 +541,7 @@ static bb_err_t h_update_status(bb_http_request_t *req)
         case BB_UPDATE_OUTCOME_AVAILABLE:  outcome = "available";   break;
         case BB_UPDATE_OUTCOME_NO_ASSET:   outcome = "no_asset";    break;
         case BB_UPDATE_OUTCOME_FAILED:     outcome = "check_failed";break;
+        case BB_UPDATE_OUTCOME_CHECK_ON_APPLY: outcome = "check_on_apply"; break;
         default:                           outcome = "unknown";     break;
     }
 

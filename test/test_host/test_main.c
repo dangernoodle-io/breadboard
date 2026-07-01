@@ -223,6 +223,7 @@ void test_emit_status_json_sets_cors_headers(void);
 void test_emit_status_json_enabled_reflects_nv_flag(void);
 void test_emit_status_json_obj_begin_fail_returns_err(void);
 void test_emit_status_check_on_apply(void);
+void test_update_outcome_enum_json_matches_outcome_str_values(void);
 
 // Forward declarations from test_http_utils.c
 void test_url_decode_basic(void);
@@ -2806,6 +2807,7 @@ void test_bb_sensors_thermal_patch_rejected(void);
 void test_bb_sensors_schema_no_sections_is_valid_json(void);
 void test_bb_sensors_schema_with_builtin_sections_is_valid_json(void);
 void test_bb_sensors_schema_contains_fan_section(void);
+void test_bb_sensors_schema_fan_section_declares_die_and_board_c(void);
 void test_bb_sensors_schema_contains_power_section(void);
 void test_bb_sensors_schema_contains_thermal_section(void);
 void test_bb_sensors_external_section_registered_ok(void);
@@ -2871,6 +2873,7 @@ void test_bb_telemetry_dispatch_patch_readonly_returns_invalid_arg(void);
 void test_bb_telemetry_assemble_get_schema_empty_is_object(void);
 void test_bb_telemetry_assemble_get_schema_section_with_props_appears(void);
 void test_bb_telemetry_assemble_get_schema_no_props_section_omitted(void);
+void test_bb_telemetry_assemble_get_schema_declares_pending_reboot(void);
 
 // Forward declarations from test_bb_mqtt_telemetry.c
 void test_bb_mqtt_telemetry_get_empty_nvs(void);
@@ -3757,6 +3760,7 @@ int main(void) {
     RUN_TEST(test_emit_status_json_enabled_reflects_nv_flag);
     RUN_TEST(test_emit_status_json_obj_begin_fail_returns_err);
     RUN_TEST(test_emit_status_check_on_apply);
+    RUN_TEST(test_update_outcome_enum_json_matches_outcome_str_values);
 
     // OTA hooks tests
     RUN_TEST(test_ota_hooks_json_push_start);
@@ -6214,6 +6218,7 @@ int main(void) {
     RUN_TEST(test_bb_sensors_schema_no_sections_is_valid_json);
     RUN_TEST(test_bb_sensors_schema_with_builtin_sections_is_valid_json);
     RUN_TEST(test_bb_sensors_schema_contains_fan_section);
+    RUN_TEST(test_bb_sensors_schema_fan_section_declares_die_and_board_c);
     RUN_TEST(test_bb_sensors_schema_contains_power_section);
     RUN_TEST(test_bb_sensors_schema_contains_thermal_section);
     RUN_TEST(test_bb_sensors_external_section_registered_ok);
@@ -6245,6 +6250,7 @@ int main(void) {
     RUN_TEST(test_bb_telemetry_assemble_get_schema_empty_is_object);
     RUN_TEST(test_bb_telemetry_assemble_get_schema_section_with_props_appears);
     RUN_TEST(test_bb_telemetry_assemble_get_schema_no_props_section_omitted);
+    RUN_TEST(test_bb_telemetry_assemble_get_schema_declares_pending_reboot);
 
     // bb_mqtt_telemetry tests
     RUN_TEST(test_bb_mqtt_telemetry_get_empty_nvs);
