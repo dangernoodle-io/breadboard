@@ -220,7 +220,7 @@ static const char k_wifi_telemetry_schema[] =
 bb_err_t bb_pub_wifi_register(void)
 {
     bb_pub_telemetry_cfg_t cfg = {
-        .topic     = "wifi",
+        .topic     = BB_TOPIC_WIFI,
         .gather    = wifi_gather,
         .serialize = wifi_serialize,
         .snap_size = sizeof(bb_wifi_snap_t),
@@ -228,7 +228,7 @@ bb_err_t bb_pub_wifi_register(void)
         .ctx       = NULL,
     };
 
-    bb_openapi_register_topic_schema("wifi", k_wifi_telemetry_schema, "WifiTelemetry");
+    bb_openapi_register_topic_schema(BB_TOPIC_WIFI, k_wifi_telemetry_schema, "WifiTelemetry");
 
     bb_err_t err = bb_pub_register_telemetry(&cfg);
     if (err == BB_OK) {

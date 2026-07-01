@@ -328,7 +328,7 @@ static void boot_progress_server_start(void)
 
     bb_http_handle_t server = bb_http_server_get_handle();
     rc = bb_http_register_route(server, BB_HTTP_GET,
-                                "/api/update/progress",
+                                BB_ROUTE_UPDATE_PROGRESS,
                                 ota_boot_progress_handler);
     if (rc != BB_OK) {
         bb_log_e(TAG, "boot-progress: register route failed (%d)", rc);
@@ -474,7 +474,7 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
     };
     static const bb_route_t s_route = {
         .method    = BB_HTTP_POST,
-        .path      = "/api/update/apply",
+        .path      = BB_ROUTE_UPDATE_APPLY,
         .tag       = "update",
         .summary   = "Apply update via OTA boot mode: arm + reboot (full-heap pull next boot)",
         .responses = s_responses,
@@ -515,7 +515,7 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
     };
     static const bb_route_t s_status_route = {
         .method    = BB_HTTP_GET,
-        .path      = "/api/update/status",
+        .path      = BB_ROUTE_UPDATE_STATUS,
         .tag       = "update",
         .summary   = "Latest known release-check state (boot-mode on-demand)",
         .responses = s_status_responses,
@@ -536,7 +536,7 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
     };
     static const bb_route_t s_check_route = {
         .method    = BB_HTTP_POST,
-        .path      = "/api/update/check",
+        .path      = BB_ROUTE_UPDATE_CHECK,
         .tag       = "update",
         .summary   = "Trigger an on-demand update check (boot-mode boards)",
         .responses = s_check_responses,

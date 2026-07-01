@@ -434,3 +434,12 @@ void test_bb_pub_wifi_reason_histogram_top_reason_injected(void)
     bb_wifi_test_set_reason_histogram(NULL, 0);
 #endif
 }
+
+// B1-461: guard the shared "wifi" cache/telemetry topic constant against
+// accidental drift. Externally-consumed as the bb_cache tag, bb_pub
+// subtopic, and openapi schema key — byte-identical to the pre-refactor
+// hand-typed literal.
+void test_bb_pub_wifi_topic_const_matches_legacy_literal(void)
+{
+    TEST_ASSERT_EQUAL_STRING("wifi", BB_TOPIC_WIFI);
+}

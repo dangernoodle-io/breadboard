@@ -14,6 +14,16 @@
 extern "C" {
 #endif
 
+// Shared /api/update/* route-path constants. Referenced by bb_ota_pull,
+// bb_ota_boot, and bb_update_check_espidf (all already depend on this
+// header) so the four paths cannot drift independently across route
+// registration sites. Values are the public HTTP contract — do not change
+// without a coordinated consumer update (taipan-cli, webui).
+#define BB_ROUTE_UPDATE_APPLY    "/api/update/apply"
+#define BB_ROUTE_UPDATE_CHECK    "/api/update/check"
+#define BB_ROUTE_UPDATE_PROGRESS "/api/update/progress"
+#define BB_ROUTE_UPDATE_STATUS   "/api/update/status"
+
 // bb_update_check — periodically poll a release manifest URL, compare semver
 // to the running firmware version, and on state change post a bb_event topic
 // `update.available` plus update an mDNS TXT key `update=<value>`.

@@ -11,6 +11,13 @@
 extern "C" {
 #endif
 
+// Shared "wifi" cache/telemetry topic constant. Referenced by bb_wifi_routes
+// (espidf) and bb_pub_wifi (host+espidf) — both already depend on this
+// header — so the bb_cache tag, bb_pub subtopic, and openapi schema name
+// cannot drift independently. Not the same topic as "net.health"
+// (bb_net_health) — that name is out of scope for this constant.
+#define BB_TOPIC_WIFI "wifi"
+
 // ---------------------------------------------------------------------------
 // Public types — usable on every backend.
 // ---------------------------------------------------------------------------
