@@ -2,7 +2,7 @@ menu "breadboard: bb_update_check"
 
 config BB_UPDATE_CHECK_AUTOREGISTER
     bool "Auto-register GET /api/update/status via bb_registry"
-    depends on !BB_OTA_STRATEGY_BOOT
+    default n if BB_OTA_STRATEGY_BOOT
     default y
     help
         When enabled, bb_update_check registers GET /api/update/status
@@ -10,13 +10,12 @@ config BB_UPDATE_CHECK_AUTOREGISTER
         starts. The polling timer is created at the same time but does not
         fire until bb_update_check_set_releases_url has been called.
 
-        ENFORCE (B1-config-coupling): not selectable when BB_OTA_STRATEGY_BOOT
-        is chosen (depends on !BB_OTA_STRATEGY_BOOT). Boot-mode boards run the
-        manifest check synchronously at full early-boot heap inside the
-        boot-mode worker; the recurring runtime task (~8 KB worker + HTTPS
-        timer) is dead weight and cannot complete a TLS handshake on
-        heap-tight boards. If a boot-mode board genuinely needs the runtime
-        status route, switch the strategy to BB_OTA_STRATEGY_PULL.
+        On boot-mode-OTA boards (BB_OTA_STRATEGY_BOOT) the update check runs
+        synchronously inside the boot-mode worker at full early-boot heap, not
+        as a recurring runtime task. Defaulting off avoids spawning the ~8 KB
+        worker task and periodic HTTPS timer on boards that cannot afford a
+        runtime TLS handshake. Override to y if a boot-mode board also needs
+        the runtime status route (e.g. for /api/update/status readouts).
 
 config BB_UPDATE_CHECK_INTERVAL_S
     int "Default polling interval (seconds)"
