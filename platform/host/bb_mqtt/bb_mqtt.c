@@ -167,8 +167,8 @@ bb_err_t bb_mqtt_stop_default(void)
 static bool s_suspended  = false;
 static bool s_stop_only  = false;   // controlled by bb_mqtt_host_set_stop_only
 
-// NVS namespace/key constants (host: mirrored from espidf backend).
-#define BB_MQTT_NVS_NS  "bb_mqtt"
+// NVS key constants (host: mirrored from espidf backend). BB_MQTT_NVS_NS is
+// the SSOT namespace constant from bb_mqtt.h.
 #define BB_MQTT_URI_MAX 128
 
 bb_err_t bb_mqtt_suspend_default(void)

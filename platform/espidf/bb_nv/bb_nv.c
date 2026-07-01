@@ -127,10 +127,6 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
     },
 };
 
-#ifndef BB_NV_CONFIG_NAMESPACE
-#define BB_NV_CONFIG_NAMESPACE "bb_cfg"
-#endif
-
 static struct {
     char wifi_ssid[32];
     char wifi_pass[64];
@@ -184,7 +180,7 @@ static void load_str(nvs_handle_t handle, const char *key, char *buf, size_t buf
 static bb_err_t nv_config_set_u8(const char *key, uint8_t val)
 {
     nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
     if (err != BB_OK) return err;
     err = nvs_set_u8(handle, key, val);
     if (err == BB_OK) err = nvs_commit(handle);
@@ -195,7 +191,7 @@ static bb_err_t nv_config_set_u8(const char *key, uint8_t val)
 static bb_err_t nv_config_set_str(const char *key, const char *val)
 {
     nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
     if (err != BB_OK) return err;
     err = nvs_set_str(handle, key, val);
     if (err == BB_OK) err = nvs_commit(handle);
@@ -210,7 +206,7 @@ bb_err_t bb_nv_config_init(void)
     bb_err_t flash_err = bb_nv_flash_init();
     if (flash_err != BB_OK) return flash_err;
     nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READONLY, &handle);
 
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         bb_log_i(TAG, "no config in NVS");
@@ -243,7 +239,7 @@ bb_err_t bb_nv_config_init(void)
             s_creds_mirror.ssid[0] != '\0') {
             nvs_close(handle);
             handle_open = false;
-            bb_err_t rw_err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+            bb_err_t rw_err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
             if (rw_err == BB_OK) {
                 handle_open = true;
                 copy_str(s_config.wifi_ssid, s_creds_mirror.ssid, sizeof(s_config.wifi_ssid));
@@ -302,7 +298,7 @@ bb_err_t bb_nv_config_init(void)
     {
         nvs_handle_t ph;
         memset(&s_pending, 0, sizeof(s_pending));
-        bb_err_t perr = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &ph);
+        bb_err_t perr = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READONLY, &ph);
         if (perr == BB_OK) {
             load_str(ph, BB_NV_KEY_WIFI_SSID_P, s_pending.ssid, sizeof(s_pending.ssid), "");
             load_str(ph, BB_NV_KEY_WIFI_PASS_P, s_pending.pass, sizeof(s_pending.pass), "");
@@ -323,7 +319,7 @@ bb_err_t bb_nv_config_init(void)
 
 bb_err_t bb_nv_config_manifest_init(void)
 {
-    return bb_manifest_register_nv(BB_NV_CONFIG_NAMESPACE, s_bb_cfg_keys,
+    return bb_manifest_register_nv(BB_NV_CONFIG_NVS_NS, s_bb_cfg_keys,
                                    sizeof(s_bb_cfg_keys) / sizeof(s_bb_cfg_keys[0]));
 }
 
@@ -343,7 +339,7 @@ bb_err_t bb_nv_flash_init(void)
 bool bb_nv_config_is_provisioned(void)
 {
     nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READONLY, &handle);
 
     if (err != ESP_OK) {
         return false;
@@ -363,7 +359,7 @@ bool bb_nv_config_is_provisioned(void)
 bb_err_t bb_nv_config_set_provisioned(void)
 {
     nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
 
     if (err != ESP_OK) {
         return err;
@@ -406,7 +402,7 @@ bb_err_t bb_nv_config_set_wifi_pending(const char *ssid, const char *pass)
 
     const char *p = pass ? pass : "";
     bb_nv_batch_t batch;
-    bb_err_t err = bb_nv_batch_begin(&batch, BB_NV_CONFIG_NAMESPACE);
+    bb_err_t err = bb_nv_batch_begin(&batch, BB_NV_CONFIG_NVS_NS);
     if (err != BB_OK) return err;
     bb_nv_batch_set_str(&batch, BB_NV_KEY_WIFI_SSID_P, ssid);
     bb_nv_batch_set_str(&batch, BB_NV_KEY_WIFI_PASS_P, p);
@@ -423,7 +419,7 @@ bool bb_nv_config_wifi_pending_active(void)
 {
     uint8_t try_flag = 0;
     nvs_handle_t h;
-    if (nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &h) == BB_OK) {
+    if (nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READONLY, &h) == BB_OK) {
         nvs_get_u8(h, BB_NV_KEY_WIFI_TRY, &try_flag);
         nvs_close(h);
     }
@@ -446,7 +442,7 @@ bb_err_t bb_nv_config_commit_wifi_pending(void)
 
     /* One batched transaction: promote pending -> live, erase pending keys. */
     nvs_handle_t h;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &h);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &h);
     if (err != BB_OK) return err;
 
     err = nvs_set_str(h, BB_NV_KEY_WIFI_SSID, s_pending.ssid);
@@ -488,7 +484,7 @@ bb_err_t bb_nv_config_commit_wifi_pending(void)
 bb_err_t bb_nv_config_clear_wifi_pending(void)
 {
     nvs_handle_t h;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &h);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &h);
     if (err != BB_OK) return err;
 
     bb_err_t e;
@@ -557,7 +553,7 @@ bb_err_t bb_nv_config_set_update_check_enabled(bool en)
 bb_err_t bb_nv_config_clear_provisioned(void)
 {
     nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
     if (err != BB_OK) return err;
     err = nvs_erase_key(handle, BB_NV_KEY_PROVISIONED);
     if (err == ESP_ERR_NVS_NOT_FOUND) err = BB_OK;
@@ -575,7 +571,7 @@ bb_err_t bb_nv_config_clear_provisioned(void)
 bb_err_t bb_nv_config_clear_wifi(void)
 {
     nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
     if (err != BB_OK) return err;
     err = nvs_erase_key(handle, "wifi_ssid");
     if (err == ESP_ERR_NVS_NOT_FOUND) err = BB_OK;
@@ -599,7 +595,7 @@ bb_err_t bb_nv_config_clear_wifi(void)
 uint8_t bb_nv_config_boot_count(void)
 {
     nvs_handle_t handle;
-    if (nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) return 0;
+    if (nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READONLY, &handle) != ESP_OK) return 0;
     uint8_t val = 0;
     nvs_get_u8(handle, "boot_cnt", &val);
     nvs_close(handle);
@@ -609,7 +605,7 @@ uint8_t bb_nv_config_boot_count(void)
 bb_err_t bb_nv_config_increment_boot_count(void)
 {
     nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
     if (err != BB_OK) return err;
     uint8_t val = 0;
     nvs_get_u8(handle, "boot_cnt", &val);
@@ -623,7 +619,7 @@ bb_err_t bb_nv_config_increment_boot_count(void)
 bb_err_t bb_nv_config_reset_boot_count(void)
 {
     nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
     if (err != BB_OK) return err;
     err = nvs_set_u8(handle, "boot_cnt", 0);
     if (err == BB_OK) err = nvs_commit(handle);
@@ -634,7 +630,7 @@ bb_err_t bb_nv_config_reset_boot_count(void)
 bool bb_nv_config_ota_skip_check(void)
 {
     nvs_handle_t handle;
-    if (nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READONLY, &handle) != BB_OK) return false;
+    if (nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READONLY, &handle) != BB_OK) return false;
     uint8_t val = 0;
     nvs_get_u8(handle, "ota_skip", &val);
     nvs_close(handle);
@@ -644,7 +640,7 @@ bool bb_nv_config_ota_skip_check(void)
 bb_err_t bb_nv_config_set_ota_skip_check(bool skip)
 {
     nvs_handle_t handle;
-    bb_err_t err = nvs_open(BB_NV_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
     if (err != BB_OK) return err;
     err = nvs_set_u8(handle, "ota_skip", skip ? 1 : 0);
     if (err == BB_OK) err = nvs_commit(handle);

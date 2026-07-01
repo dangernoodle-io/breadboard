@@ -9,7 +9,7 @@
 // Flag + breadcrumb live in the bb_cfg namespace (generic bb_nv API). The flag
 // is a one-shot mechanism marker, NOT a user config key — deliberately not in
 // the bb_nv_config manifest table.
-#define OTA_BOOT_NS         "bb_cfg"
+#define OTA_BOOT_NS         BB_NV_CONFIG_NVS_NS
 #define OTA_BOOT_FLAG_KEY   "ota_boot_mode"
 #define OTA_BOOT_STAGE_KEY  "ota_boot_stg"
 

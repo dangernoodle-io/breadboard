@@ -6,16 +6,17 @@
 #include "bb_response.h"
 #include "bb_log.h"
 #include "bb_nv.h"
+#include "bb_nv_namespaces.h"
 #include "bb_pub.h"
 #include "bb_json.h"
 
 #include <stddef.h>
 #include <string.h>
 
-// NVS namespace + key for each sink's enabled flag.
-// These mirror the constants in bb_mqtt_telemetry and bb_sink_http_telemetry.
-#define BB_TELEMETRY_MQTT_NVS_NS     "bb_mqtt"
-#define BB_TELEMETRY_HTTP_NVS_NS     "bb_sink_http"
+// Key for each sink's enabled flag. bb_telemetry deliberately does NOT
+// REQUIRES bb_mqtt / bb_sink_http (it only reads each sink's persisted
+// "enabled" flag via the generic bb_nv API); the namespace strings
+// themselves come from the SSOT header (bb_nv_namespaces.h) via bb_nv.
 #define BB_TELEMETRY_SINK_NVS_KEY    "enabled"
 
 static const char *TAG = "bb_telemetry";
@@ -97,9 +98,9 @@ bb_err_t bb_telemetry_dispatch_patch(bb_json_t body)
     // detect which sinks the body changed.
     char mqtt_pre[4] = "0";
     char http_pre[4] = "0";
-    bb_nv_get_str(BB_TELEMETRY_MQTT_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
+    bb_nv_get_str(BB_MQTT_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
                   mqtt_pre, sizeof(mqtt_pre), "0");
-    bb_nv_get_str(BB_TELEMETRY_HTTP_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
                   http_pre, sizeof(http_pre), "0");
 
     // Delegate to bb_response_dispatch_patch for consistent pre-validation
@@ -139,9 +140,9 @@ bb_err_t bb_telemetry_dispatch_patch(bb_json_t body)
         // Read post-patch sink enabled state from NVS.
         char mqtt_post[4] = "0";
         char http_post[4] = "0";
-        bb_nv_get_str(BB_TELEMETRY_MQTT_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
+        bb_nv_get_str(BB_MQTT_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
                       mqtt_post, sizeof(mqtt_post), "0");
-        bb_nv_get_str(BB_TELEMETRY_HTTP_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
+        bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_TELEMETRY_SINK_NVS_KEY,
                       http_post, sizeof(http_post), "0");
 
         // Coupling triggers when any sink enabled flag was written (changed or

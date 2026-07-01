@@ -21,7 +21,7 @@
 
 static const char *TAG = "bb_sink_http_telemetry";
 
-#define BB_SINK_HTTP_NVS_NS    "bb_sink_http"
+// BB_SINK_HTTP_NVS_NS is the SSOT namespace constant from bb_sink_http.h.
 #define BB_SINK_HTTP_BODY_MAX  4096
 #define HEADERS_NVS_KEY        "headers"
 #define HEADERS_BUF_MAX        2048
