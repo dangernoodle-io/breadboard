@@ -1038,7 +1038,167 @@ def _check_event_topic_needs_schema(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Rule registry — register all 4 rules
+# Rule: kconfig-default-mismatch (B1-459 regression guard)
+# ---------------------------------------------------------------------------
+
+_KCONFIG_BLOCK_START_RE = re.compile(r'^config\s+(\w+)\s*$', re.MULTILINE)
+_KCONFIG_INT_TYPE_RE = re.compile(r'^\s*int\b', re.MULTILINE)
+_KCONFIG_DEFAULT_RE = re.compile(
+    r'^\s*default\s+(-?\d+)(\s+if\s+[^\n]+)?\s*$', re.MULTILINE
+)
+_C_IFNDEF_BB_RE = re.compile(r'^\s*#ifndef\s+(BB_[A-Z0-9_]+)\s*$')
+
+
+def _parse_kconfig_int_defaults(text: str) -> dict:
+    """Return {config_name: base_default_int} for int-typed `config NAME`
+    blocks. The "base" default is the one WITHOUT an `if <gate>` condition —
+    gate-keyed defaults (e.g. `default 1024 if SPIRAM` / `default 512`) are
+    skipped in favor of the ungated fallback line. Real Kconfig semantics
+    mean the FIRST ungated default wins (top-to-bottom); if a (malformed)
+    block has more than one ungated default, later ones are ignored."""
+    result: dict[str, int] = {}
+    starts = list(_KCONFIG_BLOCK_START_RE.finditer(text))
+    for idx, m in enumerate(starts):
+        name = m.group(1)
+        block_start = m.end()
+        block_end = starts[idx + 1].start() if idx + 1 < len(starts) else len(text)
+        block = text[block_start:block_end]
+        if not _KCONFIG_INT_TYPE_RE.search(block):
+            continue
+        base = None
+        for val, cond in _KCONFIG_DEFAULT_RE.findall(block):
+            if not cond.strip():
+                base = int(val)
+                break
+        if base is not None:
+            result[name] = base
+    return result
+
+
+def _check_kconfig_default_mismatch(ctx: Context) -> list:
+    """Rule: kconfig-default-mismatch — for every `#ifndef BB_X` / `#define
+    BB_X <int>` C fallback bridge, flag when it doesn't match the base
+    (non-gated) default of the matching `config BB_X` Kconfig int entry.
+    Enforces B1-459 (Kconfig/C default alignment) so it can't silently
+    regress when either side is edited without the other."""
+    violations = []
+    root = Path(ctx.root)
+
+    rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get(
+        "kconfig-default-mismatch", {}
+    )
+    allowlist: set = set(rule_cfg.get("allow", []))
+
+    kconfig_defaults: dict[str, int] = {}
+    for path in ctx.files(
+        ["components/**/Kconfig", "platform/**/Kconfig"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        for name, base in _parse_kconfig_int_defaults(ctx.read(path)).items():
+            kconfig_defaults.setdefault(name, base)
+
+    if not kconfig_defaults:
+        return violations
+
+    for path in ctx.files(
+        ["components/**/*.c", "components/**/*.h",
+         "platform/**/*.c", "platform/**/*.h", "platform/**/*.cpp"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+
+        content = ctx.read(path)
+        lines = content.splitlines()
+        for i, line in enumerate(lines):
+            m = _C_IFNDEF_BB_RE.match(line)
+            if not m:
+                continue
+            name = m.group(1)
+            if name in allowlist or name not in kconfig_defaults:
+                continue
+            if i + 1 >= len(lines):
+                continue
+            def_m = re.match(
+                r'^\s*#define\s+' + re.escape(name) + r'\s+(-?\d+)\s*$',
+                lines[i + 1],
+            )
+            if not def_m:
+                continue
+            c_default = int(def_m.group(1))
+            k_default = kconfig_defaults[name]
+            if c_default != k_default:
+                key = f"{path.relative_to(root)}:{i + 2}"
+                if key in allowlist:
+                    continue
+                violations.append(ctx.violation(
+                    path, i + 2,
+                    f"C fallback default {name}={c_default} != Kconfig base"
+                    f" default {k_default}"))
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Rule: task-creation-without-registration (19/19 bb_task_registry coverage)
+# ---------------------------------------------------------------------------
+
+_TASK_CREATE_RE = re.compile(
+    r'\bxTaskCreate(?:StaticPinnedToCore|PinnedToCore|Static)?\s*\('
+)
+_TASK_REGISTRY_REGISTER_RE = re.compile(r'\bbb_task_registry_register\s*\(')
+
+
+def _check_task_creation_without_registration(ctx: Context) -> list:
+    """Rule: task-creation-without-registration — flags xTaskCreate/
+    xTaskCreatePinnedToCore/*Static variants in components/ or
+    platform/espidf/ that are not paired with a bb_task_registry_register(...)
+    call anywhere in the same file. Enforces 19/19 task-registry coverage —
+    every task created in breadboard's own tree must self-register so the
+    software watchdog / task list can see it. SDK/vendor tasks live outside
+    this tree and never trigger."""
+    violations = []
+    root = Path(ctx.root)
+
+    rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get(
+        "task-creation-without-registration", {}
+    )
+    allowlist: set = set(rule_cfg.get("allow", []))
+
+    for path in ctx.files(
+        ["components/**/*.c", "components/**/*.h",
+         "platform/espidf/**/*.c", "platform/espidf/**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+
+        rel = str(path.relative_to(root))
+        if rel in allowlist:
+            continue
+
+        src = ctx.read(path)
+        stripped = _strip_noise(src)
+
+        create_matches = list(_TASK_CREATE_RE.finditer(stripped))
+        if not create_matches:
+            continue
+
+        if _TASK_REGISTRY_REGISTER_RE.search(stripped):
+            continue
+
+        for m in create_matches:
+            line_no = stripped[:m.start()].count('\n') + 1
+            violations.append(ctx.violation(
+                path, line_no,
+                "task created without a paired bb_task_registry_register(...)"
+                " in this file"))
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Rule registry
 # ---------------------------------------------------------------------------
 
 _LINT_RULES: dict[str, Rule] = {}
@@ -1165,6 +1325,23 @@ def _register_lint_rules() -> None:
             hint="every SSE topic attached via bb_event_routes_attach* must have a"
                  " schema registered via bb_openapi_register_topic_schema or"
                  " bb_openapi_register_schema(sse_topic!=NULL)",
+        ),
+        Rule(
+            id="kconfig-default-mismatch",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_kconfig_default_mismatch,
+            hint="C `#ifndef BB_X #define BB_X <val>` fallback default must match"
+                 " the base (non-gated) `config BB_X` Kconfig default (B1-459)",
+        ),
+        Rule(
+            id="task-creation-without-registration",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_task_creation_without_registration,
+            hint="every xTaskCreate*/xTaskCreateStatic* in components/ or"
+                 " platform/espidf/ must pair with bb_task_registry_register(...)"
+                 " in the same file",
         ),
     ]
     for rule in rules:

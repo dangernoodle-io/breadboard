@@ -56,5 +56,17 @@ severity = "error"
 [lint.rules.public-header-inline-platform-call]
 severity = "error"
 
+[lint.rules.kconfig-default-mismatch]
+severity = "error"
+# Allowlist: Kconfig symbol names (e.g. "BB_LOG_EVENT_QUEUE_LEN") or
+# "path:line" keys for intentional C-fallback/Kconfig-default divergence.
+allow = []
+
+[lint.rules.task-creation-without-registration]
+severity = "error"
+# Allowlist: file paths (relative to repo root) for tasks that legitimately
+# skip bb_task_registry — e.g. vendored/SDK task-creation shims.
+allow = []
+
 [plugins]
 paths = []
