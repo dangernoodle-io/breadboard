@@ -126,7 +126,7 @@ bb_err_t bb_button_gpio_open(const bb_button_gpio_cfg_t *cfg, bb_button_handle_t
         *out = NULL;
         return BB_ERR_NO_SPACE;
     }
-    bb_task_registry_register("bb_btn_gpio", 2048, s->task);
+    bb_task_registry_register("bb_btn_gpio", 2048, s->task, NULL, NULL);
 
     gpio_isr_handler_add(cfg->gpio, isr_handler, s);
 

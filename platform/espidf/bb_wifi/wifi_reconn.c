@@ -267,7 +267,7 @@ void wifi_reconn_start(void)
         s_queue = NULL;
         return;
     }
-    bb_task_registry_register("wifi_reconn", RECONN_TASK_STACK, s_task);
+    bb_task_registry_register("wifi_reconn", RECONN_TASK_STACK, s_task, NULL, NULL);
     s_active = true;
 }
 

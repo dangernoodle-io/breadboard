@@ -178,7 +178,7 @@ void test_bb_pub_rtos_payload_has_uptime_ms_field(void)
 void test_bb_pub_rtos_emits_one_stack_field_per_registered_entry(void)
 {
     setup();
-    bb_task_registry_test_seed("my_task", 7168, false);
+    bb_task_registry_test_seed("my_task", 7168, false, NULL);
     bb_pub_tick_once();
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"stack_my_task\":7168"));
 }
@@ -186,8 +186,8 @@ void test_bb_pub_rtos_emits_one_stack_field_per_registered_entry(void)
 void test_bb_pub_rtos_emits_multiple_registered_entries(void)
 {
     setup();
-    bb_task_registry_test_seed("task_one", 1024, false);
-    bb_task_registry_test_seed("task_two", 2048, true);
+    bb_task_registry_test_seed("task_one", 1024, false, NULL);
+    bb_task_registry_test_seed("task_two", 2048, true, NULL);
     bb_pub_tick_once();
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"stack_task_one\":1024"));
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"stack_task_two\":2048"));

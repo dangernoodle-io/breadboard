@@ -719,7 +719,7 @@ void bb_wifi_scan_start_async(void)
         s_scan_in_progress = false;
         return;
     }
-    bb_task_registry_register("wifi_scan", 4096, scan_task);
+    bb_task_registry_register("wifi_scan", 4096, scan_task, NULL, NULL);
 }
 
 int bb_wifi_scan_get_cached(bb_wifi_ap_t *results, int max_results)

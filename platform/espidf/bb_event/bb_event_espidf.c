@@ -127,7 +127,7 @@ bb_err_t bb_event_port_init(size_t queue_depth, size_t max_payload,
         bb_mem_free(s_port.buffer_pool);
         return BB_ERR_NO_SPACE;
     }
-    bb_task_registry_register("bb_event_disp", stack_size, s_port.dispatcher_task);
+    bb_task_registry_register("bb_event_disp", stack_size, s_port.dispatcher_task, NULL, NULL);
 
     s_initialized = true;
     bb_log_i(TAG, "initialized: queue_depth=%zu max_payload=%zu stack=%zu prio=%d",

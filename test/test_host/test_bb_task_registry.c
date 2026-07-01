@@ -7,6 +7,7 @@
 
 #include "unity.h"
 #include "bb_task_registry.h"
+#include "bb_wdt_test.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -45,7 +46,7 @@ void test_bb_task_registry_register_deregister_roundtrip(void)
     int dummy = 0;
     void *fake = &dummy;
 
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("rt", 2048, fake));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("rt", 2048, fake, NULL, NULL));
     TEST_ASSERT_EQUAL_UINT16(1, bb_task_registry_count());
 
     TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_deregister(fake));
@@ -65,8 +66,8 @@ void test_bb_task_registry_deregister_by_value_removes_correct_entry(void)
     void *ha = &a;
     void *hb = &b;
 
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("task_a", 2048, ha));
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("task_b", 4096, hb));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("task_a", 2048, ha, NULL, NULL));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("task_b", 4096, hb, NULL, NULL));
     TEST_ASSERT_EQUAL_UINT16(2, bb_task_registry_count());
 
     TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_deregister(ha));
@@ -90,14 +91,14 @@ void test_bb_task_registry_register_null_name_returns_invalid_arg(void)
 {
     bb_task_registry_test_reset();
     int dummy = 0;
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_registry_register(NULL, 2048, &dummy));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_registry_register(NULL, 2048, &dummy, NULL, NULL));
 }
 
 // handle may be NULL — some sites do not retain one (see header).
 void test_bb_task_registry_register_null_handle_is_ok(void)
 {
     bb_task_registry_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("no_handle", 2048, NULL));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("no_handle", 2048, NULL, NULL, NULL));
     TEST_ASSERT_EQUAL_UINT16(1, bb_task_registry_count());
 }
 
@@ -124,8 +125,8 @@ void test_bb_task_registry_duplicate_name_returns_invalid_state(void)
     bb_task_registry_test_reset();
     int a = 0, b = 0;
 
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("dup", 2048, &a));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_task_registry_register("dup", 4096, &b));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("dup", 2048, &a, NULL, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_task_registry_register("dup", 4096, &b, NULL, NULL));
     TEST_ASSERT_EQUAL_UINT16(1, bb_task_registry_count());
 
     // The first registration's data is unchanged (no clobber-on-duplicate).
@@ -149,7 +150,7 @@ void test_bb_task_registry_overflow_returns_no_space(void)
     uint16_t registered = 0;
     for (int i = 0; i < 40; i++) {
         snprintf(names[i], sizeof names[i], "t%d", i);
-        err = bb_task_registry_register(names[i], 2048, &dummies[i]);
+        err = bb_task_registry_register(names[i], 2048, &dummies[i], NULL, NULL);
         if (err != BB_OK) {
             break;
         }
@@ -162,7 +163,7 @@ void test_bb_task_registry_overflow_returns_no_space(void)
 
     // A second overflowed attempt still fails cleanly (no state corruption).
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
-                       bb_task_registry_register("overflow2", 2048, &dummies[39]));
+                       bb_task_registry_register("overflow2", 2048, &dummies[39], NULL, NULL));
 }
 
 // ---------------------------------------------------------------------------
@@ -173,9 +174,9 @@ void test_bb_task_registry_foreach_visits_all_in_order(void)
 {
     bb_task_registry_test_reset();
     int a = 0, b = 0, c = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("first", 1024, &a));
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("second", 2048, &b));
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("third", 4096, &c));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("first", 1024, &a, NULL, NULL));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("second", 2048, &b, NULL, NULL));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("third", 4096, &c, NULL, NULL));
 
     // foreach_capture_cb records only the LAST visited entry; asserting the
     // call count plus the last entry's fields confirms all three were
@@ -191,7 +192,7 @@ void test_bb_task_registry_foreach_null_cb_is_noop(void)
 {
     bb_task_registry_test_reset();
     int dummy = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("noop", 2048, &dummy));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("noop", 2048, &dummy, NULL, NULL));
     // Should not crash.
     bb_task_registry_foreach(NULL, NULL);
 }
@@ -212,7 +213,7 @@ void test_bb_task_registry_lookup_budget_hit(void)
 {
     bb_task_registry_test_reset();
     int dummy = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("looked_up", 3072, &dummy));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("looked_up", 3072, &dummy, NULL, NULL));
 
     uint32_t budget = 0;
     bool wdt = true;  // sentinel — real handle never subscribes on host
@@ -237,7 +238,7 @@ void test_bb_task_registry_lookup_budget_out_params_optional(void)
 {
     bb_task_registry_test_reset();
     int dummy = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("opt_out", 512, &dummy));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("opt_out", 512, &dummy, NULL, NULL));
     // Passing NULL for both out params must not crash.
     TEST_ASSERT_TRUE(bb_task_registry_lookup_budget("opt_out", NULL, NULL));
 }
@@ -249,7 +250,7 @@ void test_bb_task_registry_lookup_budget_out_params_optional(void)
 void test_bb_task_registry_test_seed_sets_wdt_flag(void)
 {
     bb_task_registry_test_reset();
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_test_seed("seeded", 6144, true));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_test_seed("seeded", 6144, true, NULL));
 
     uint32_t budget = 0;
     bool wdt = false;
@@ -261,7 +262,7 @@ void test_bb_task_registry_test_seed_sets_wdt_flag(void)
 void test_bb_task_registry_test_seed_null_name_returns_invalid_arg(void)
 {
     bb_task_registry_test_reset();
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_registry_test_seed(NULL, 2048, false));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_registry_test_seed(NULL, 2048, false, NULL));
 }
 
 // test_seed shares the same pool + underlying bb_registry as register() —
@@ -275,7 +276,7 @@ void test_bb_task_registry_test_seed_overflow_returns_no_space(void)
     bb_err_t err = BB_OK;
     for (int i = 0; i < 40; i++) {
         snprintf(names[i], sizeof names[i], "s%d", i);
-        err = bb_task_registry_test_seed(names[i], 2048, false);
+        err = bb_task_registry_test_seed(names[i], 2048, false, NULL);
         if (err != BB_OK) {
             break;
         }
@@ -288,8 +289,8 @@ void test_bb_task_registry_test_seed_duplicate_name_returns_invalid_state(void)
 {
     bb_task_registry_test_reset();
 
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_test_seed("dup_seed", 2048, false));
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_task_registry_test_seed("dup_seed", 4096, true));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_test_seed("dup_seed", 2048, false, NULL));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_task_registry_test_seed("dup_seed", 4096, true, NULL));
     TEST_ASSERT_EQUAL_UINT16(1, bb_task_registry_count());
 }
 
@@ -301,10 +302,255 @@ void test_bb_task_registry_test_reset_clears_all(void)
 {
     bb_task_registry_test_reset();
     int dummy = 0;
-    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("reset", 2048, &dummy));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("reset", 2048, &dummy, NULL, NULL));
     TEST_ASSERT_EQUAL_UINT16(1, bb_task_registry_count());
 
     bb_task_registry_test_reset();
     TEST_ASSERT_EQUAL_UINT16(0, bb_task_registry_count());
     TEST_ASSERT_FALSE(bb_task_registry_lookup_budget("reset", NULL, NULL));
+}
+
+// ---------------------------------------------------------------------------
+// B1-458 PR-A — opts / token / feed plumbing
+// ---------------------------------------------------------------------------
+
+void test_bb_task_registry_register_opts_hw_wdt_subscribe_true(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .hw_wdt_subscribe = true };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("wdt_on", 2048, &dummy, &opts, &token));
+    TEST_ASSERT_EQUAL(1, bb_wdt_test_subscribe_count());
+
+    bool wdt = false;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_budget("wdt_on", NULL, &wdt));
+    TEST_ASSERT_TRUE(wdt);
+    TEST_ASSERT_NOT_EQUAL(BB_TASK_REGISTRY_TOKEN_INVALID.index, token.index);
+}
+
+void test_bb_task_registry_register_opts_null_no_subscribe(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("wdt_off", 2048, &dummy, NULL, NULL));
+    TEST_ASSERT_EQUAL(0, bb_wdt_test_subscribe_count());
+
+    bool wdt = true;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_budget("wdt_off", NULL, &wdt));
+    TEST_ASSERT_FALSE(wdt);
+}
+
+void test_bb_task_registry_deregister_subscribed_unsubscribes(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .hw_wdt_subscribe = true };
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("wdt_dereg", 2048, &dummy, &opts, NULL));
+    TEST_ASSERT_EQUAL(1, bb_wdt_test_subscribe_count());
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_deregister(&dummy));
+    TEST_ASSERT_EQUAL(1, bb_wdt_test_unsubscribe_count());
+
+    // second deregister of the same (now-gone) handle: BB_ERR_NOT_FOUND,
+    // and no extra unsubscribe call.
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_task_registry_deregister(&dummy));
+    TEST_ASSERT_EQUAL(1, bb_wdt_test_unsubscribe_count());
+}
+
+void test_bb_task_registry_feed_valid_token_feeds_and_advances(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .hw_wdt_subscribe = true };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("feed_me", 2048, &dummy, &opts, &token));
+
+    bb_task_registry_feed(token);
+    TEST_ASSERT_EQUAL(1, bb_wdt_test_feed_count());
+
+    bb_task_registry_feed(token);
+    TEST_ASSERT_EQUAL(2, bb_wdt_test_feed_count());
+}
+
+void test_bb_task_registry_feed_stale_token_is_noop(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .hw_wdt_subscribe = true };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("feed_stale", 2048, &dummy, &opts, &token));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_deregister(&dummy));
+
+    // token now stale (generation bumped by deregister) — no crash, no feed.
+    bb_task_registry_feed(token);
+    TEST_ASSERT_EQUAL(0, bb_wdt_test_feed_count());
+}
+
+void test_bb_task_registry_feed_invalid_token_is_noop(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    // No crash on the never-registered sentinel token.
+    bb_task_registry_feed(BB_TASK_REGISTRY_TOKEN_INVALID);
+    TEST_ASSERT_EQUAL(0, bb_wdt_test_feed_count());
+}
+
+void test_bb_task_registry_generation_reuse_invalidates_old_token(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int a = 0, b = 0;
+    bb_task_registry_opts_t opts = { .hw_wdt_subscribe = true };
+    bb_task_registry_token_t old_token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    bb_task_registry_token_t new_token = BB_TASK_REGISTRY_TOKEN_INVALID;
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("slot_a", 2048, &a, &opts, &old_token));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_deregister(&a));
+
+    // Re-register into the same freed slot.
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("slot_b", 2048, &b, &opts, &new_token));
+    TEST_ASSERT_EQUAL_UINT16(old_token.index, new_token.index);
+    TEST_ASSERT_NOT_EQUAL(old_token.generation, new_token.generation);
+
+    // Old token (for slot_a, now reused by slot_b) must not feed.
+    bb_task_registry_feed(old_token);
+    TEST_ASSERT_EQUAL(0, bb_wdt_test_feed_count());
+
+    // New token feeds normally.
+    bb_task_registry_feed(new_token);
+    TEST_ASSERT_EQUAL(1, bb_wdt_test_feed_count());
+}
+
+// opts non-NULL but hw_wdt_subscribe explicitly false — distinct branch from
+// opts == NULL (both result in no subscribe, but via different code paths).
+void test_bb_task_registry_register_opts_non_null_subscribe_false(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .hw_wdt_subscribe = false };
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("wdt_opts_false", 2048, &dummy, &opts, NULL));
+    TEST_ASSERT_EQUAL(0, bb_wdt_test_subscribe_count());
+}
+
+// Feeding a token for a registration that was never hw-wdt-subscribed still
+// advances last_feed bookkeeping but skips the hw feed call.
+void test_bb_task_registry_feed_unsubscribed_token_skips_hw_feed(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("no_wdt_feed", 2048, &dummy, NULL, &token));
+
+    bb_task_registry_feed(token);
+    TEST_ASSERT_EQUAL(0, bb_wdt_test_feed_count());
+}
+
+// test_seed with a non-NULL out_token on success — the seed-hook analog of
+// register()'s token-population branch.
+void test_bb_task_registry_test_seed_out_token_populated(void)
+{
+    bb_task_registry_test_reset();
+
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_test_seed("seed_token", 1024, false, &token));
+    TEST_ASSERT_NOT_EQUAL(BB_TASK_REGISTRY_TOKEN_INVALID.index, token.index);
+    TEST_ASSERT_NOT_EQUAL(0, token.generation);
+}
+
+// ---------------------------------------------------------------------------
+// zero-token vs live slot 0 (generation-never-0 invariant)
+// ---------------------------------------------------------------------------
+
+// A zero-initialized token ({index=0, generation=0}) must never alias a live
+// slot 0 — every slot's generation is initialized to (and reset to) 1, so
+// any token issued by a real registration always carries generation >= 1.
+void test_bb_task_registry_zero_token_does_not_alias_live_slot_zero(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int dummy = 0;
+    bb_task_registry_opts_t opts = { .hw_wdt_subscribe = true };
+    bb_task_registry_token_t token = BB_TASK_REGISTRY_TOKEN_INVALID;
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("slot0", 2048, &dummy, &opts, &token));
+    TEST_ASSERT_EQUAL_UINT16(0, token.index);
+    TEST_ASSERT_NOT_EQUAL(0, token.generation);
+
+    bb_task_registry_token_t zero_token = { .index = 0, .generation = 0 };
+    bb_task_registry_feed(zero_token);
+    TEST_ASSERT_EQUAL(0, bb_wdt_test_feed_count());
+
+    // The real token for slot 0 still feeds normally.
+    bb_task_registry_feed(token);
+    TEST_ASSERT_EQUAL(1, bb_wdt_test_feed_count());
+}
+
+// ---------------------------------------------------------------------------
+// NULL handle + hw_wdt_subscribe requested — warn + no-op, not a crash
+// ---------------------------------------------------------------------------
+
+void test_bb_task_registry_register_null_handle_with_subscribe_is_skipped(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    bb_task_registry_opts_t opts = { .hw_wdt_subscribe = true };
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("null_handle_wdt", 2048, NULL, &opts, NULL));
+    TEST_ASSERT_EQUAL(0, bb_wdt_test_subscribe_count());
+
+    bool wdt = true;
+    TEST_ASSERT_TRUE(bb_task_registry_lookup_budget("null_handle_wdt", NULL, &wdt));
+    TEST_ASSERT_FALSE(wdt);
+}
+
+// ---------------------------------------------------------------------------
+// Rollback: a successful hw-wdt subscribe must be undone if the underlying
+// bb_registry_register() call fails afterward (duplicate name / overflow).
+// ---------------------------------------------------------------------------
+
+void test_bb_task_registry_register_rollback_unsubscribes_on_duplicate(void)
+{
+    bb_task_registry_test_reset();
+    bb_wdt_test_reset();
+
+    int a = 0, b = 0;
+    bb_task_registry_opts_t opts = { .hw_wdt_subscribe = true };
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("rollback_dup", 2048, &a, &opts, NULL));
+    TEST_ASSERT_EQUAL(1, bb_wdt_test_subscribe_count());
+
+    // Second register with the same name subscribes (best-effort, before the
+    // duplicate check fails), then must roll back: unsubscribe + clear
+    // wdt_subscribed + free the pool slot.
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE,
+                       bb_task_registry_register("rollback_dup", 4096, &b, &opts, NULL));
+    TEST_ASSERT_EQUAL(1, bb_wdt_test_unsubscribe_count());
+    TEST_ASSERT_EQUAL_UINT16(1, bb_task_registry_count());
+
+    // The pool slot from the failed rollback attempt was freed and is
+    // available for reuse. This third register subscribes again (the
+    // rolled-back duplicate attempt's subscribe still counts historically).
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("rollback_dup2", 2048, &b, &opts, NULL));
+    TEST_ASSERT_EQUAL(3, bb_wdt_test_subscribe_count());
+    TEST_ASSERT_EQUAL_UINT16(2, bb_task_registry_count());
 }

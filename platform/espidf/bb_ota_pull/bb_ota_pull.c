@@ -1182,7 +1182,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         return BB_OK;
     }
 #endif
-    bb_task_registry_register("ota_pull", OTA_TASK_STACK, task_handle);
+    bb_task_registry_register("ota_pull", OTA_TASK_STACK, task_handle, NULL, NULL);
 
     bb_http_resp_set_status(req, 202);
     bb_http_json_obj_stream_t obj;
