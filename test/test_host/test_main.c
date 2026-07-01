@@ -2616,6 +2616,7 @@ void test_bb_update_check_ota_claim_acquire_free_returns_ok(void);
 void test_bb_update_check_ota_claim_acquire_conflict_returns_err(void);
 void test_bb_update_check_ota_claim_release_frees_slot(void);
 void test_bb_update_check_alert_fill_update_version(void);
+void test_bb_update_check_route_consts_match_legacy_literals(void);
 
 void test_bb_event_routes_init_idempotent(void);
 void test_bb_event_routes_init_null_cfg_uses_defaults(void);
@@ -3145,6 +3146,7 @@ void test_bb_pub_wifi_has_reason_histogram(void);
 void test_bb_pub_wifi_reason_histogram_has_sentinel_keys(void);
 void test_bb_pub_wifi_reason_histogram_zeros_on_host(void);
 void test_bb_pub_wifi_reason_histogram_top_reason_injected(void);
+void test_bb_pub_wifi_topic_const_matches_legacy_literal(void);
 
 // Forward declarations from test_bb_pub_info.c
 // Dynamic runtime metrics (kept in info topic)
@@ -5835,6 +5837,7 @@ int main(void) {
     RUN_TEST(test_bb_update_check_ota_claim_acquire_conflict_returns_err);
     RUN_TEST(test_bb_update_check_ota_claim_release_frees_slot);
     RUN_TEST(test_bb_update_check_alert_fill_update_version);
+    RUN_TEST(test_bb_update_check_route_consts_match_legacy_literals);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
     RUN_TEST(test_bb_event_routes_init_null_cfg_uses_defaults);
@@ -6523,6 +6526,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_wifi_reason_histogram_has_sentinel_keys);
     RUN_TEST(test_bb_pub_wifi_reason_histogram_zeros_on_host);
     RUN_TEST(test_bb_pub_wifi_reason_histogram_top_reason_injected);
+    RUN_TEST(test_bb_pub_wifi_topic_const_matches_legacy_literal);
 
     // bb_pub_info tests
     RUN_TEST(test_bb_pub_info_always_publishes);

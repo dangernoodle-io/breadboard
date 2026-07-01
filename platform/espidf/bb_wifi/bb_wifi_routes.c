@@ -29,7 +29,7 @@ static bb_err_t wifi_info_handler(bb_http_request_t *req)
 {
     char   json[WIFI_INFO_BUF_BYTES];
     size_t len = 0;
-    bb_err_t rc = bb_cache_get_serialized("wifi", json, sizeof(json), &len);
+    bb_err_t rc = bb_cache_get_serialized(BB_TOPIC_WIFI, json, sizeof(json), &len);
     if (rc == BB_OK) {
         bb_err_t err = bb_http_resp_set_type(req, "application/json");
         if (err == BB_OK) err = bb_http_resp_send_chunk(req, json, (int)len);
@@ -115,7 +115,7 @@ static const bb_route_response_t s_wifi_responses[] = {
 static const bb_route_t s_wifi_route = {
     .method   = BB_HTTP_GET,
     .path     = "/api/wifi",
-    .tag      = "wifi",
+    .tag      = BB_TOPIC_WIFI,
     .summary  = "Get Wi-Fi connection info",
     .responses = s_wifi_responses,
     .handler  = wifi_info_handler,
@@ -138,7 +138,7 @@ static const bb_route_response_t s_scan_responses[] = {
 static const bb_route_t s_scan_route = {
     .method   = BB_HTTP_POST,
     .path     = "/api/scan",
-    .tag      = "wifi",
+    .tag      = BB_TOPIC_WIFI,
     .summary  = "Trigger Wi-Fi network scan and return cached results",
     .responses = s_scan_responses,
     .handler  = scan_handler,
@@ -238,7 +238,7 @@ static const bb_route_response_t s_wifi_patch_responses[] = {
 static const bb_route_t s_wifi_patch_route = {
     .method               = BB_HTTP_PATCH,
     .path                 = "/api/wifi",
-    .tag                  = "wifi",
+    .tag                  = BB_TOPIC_WIFI,
     .summary              = "Stage new Wi-Fi credentials and arm deferred reboot",
     .request_content_type = "application/json",
     .request_schema       = "{\"type\":\"object\","

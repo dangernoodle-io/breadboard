@@ -2085,3 +2085,15 @@ void test_bb_update_check_alert_fill_update_version(void)
         bb_event_unsubscribe(alert_sub);
     }
 }
+
+// B1-461: guard the shared /api/update/* route-path constants against
+// accidental drift. These strings are the externally-consumed HTTP
+// contract (taipan-cli, webui) — byte-identical to their pre-refactor
+// hand-typed literals.
+void test_bb_update_check_route_consts_match_legacy_literals(void)
+{
+    TEST_ASSERT_EQUAL_STRING("/api/update/apply", BB_ROUTE_UPDATE_APPLY);
+    TEST_ASSERT_EQUAL_STRING("/api/update/check", BB_ROUTE_UPDATE_CHECK);
+    TEST_ASSERT_EQUAL_STRING("/api/update/progress", BB_ROUTE_UPDATE_PROGRESS);
+    TEST_ASSERT_EQUAL_STRING("/api/update/status", BB_ROUTE_UPDATE_STATUS);
+}

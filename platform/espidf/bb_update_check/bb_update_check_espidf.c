@@ -252,7 +252,7 @@ static const bb_route_response_t s_status_responses[] = {
 
 static const bb_route_t s_status_route = {
     .method   = BB_HTTP_GET,
-    .path     = "/api/update/status",
+    .path     = BB_ROUTE_UPDATE_STATUS,
     .tag      = "update",
     .summary  = "Latest known release-check state",
     .responses = s_status_responses,

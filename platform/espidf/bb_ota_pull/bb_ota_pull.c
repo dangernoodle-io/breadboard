@@ -1235,7 +1235,7 @@ static const bb_route_response_t s_ota_check_responses[] = {
 
 static const bb_route_t s_ota_check_route = {
     .method   = BB_HTTP_POST,
-    .path     = "/api/update/check",
+    .path     = BB_ROUTE_UPDATE_CHECK,
     .tag      = "update",
     .summary  = "Kick update check; poll GET /api/update/status for result",
     .responses = s_ota_check_responses,
@@ -1273,7 +1273,7 @@ static const bb_route_response_t s_ota_update_responses[] = {
 
 static const bb_route_t s_ota_update_route = {
     .method   = BB_HTTP_POST,
-    .path     = "/api/update/apply",
+    .path     = BB_ROUTE_UPDATE_APPLY,
     .tag      = "update",
     .summary  = "Apply firmware update (download + flash)",
     .responses = s_ota_update_responses,
@@ -1296,7 +1296,7 @@ static const bb_route_response_t s_ota_status_responses[] = {
 
 static const bb_route_t s_ota_status_route = {
     .method   = BB_HTTP_GET,
-    .path     = "/api/update/progress",
+    .path     = BB_ROUTE_UPDATE_PROGRESS,
     .tag      = "update",
     .summary  = "Get OTA download/flash progress",
     .responses = s_ota_status_responses,
