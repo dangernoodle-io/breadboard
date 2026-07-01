@@ -2,7 +2,7 @@
 #include "bb_nv.h"
 #include "bb_nv_wifi_pending.h"
 #include "wifi_reconn.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include <string.h>
 #include <stdatomic.h>
 #include "esp_wifi.h"
@@ -842,7 +842,7 @@ static bb_err_t bb_wifi_autoinit(void)
     }
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_EARLY(bb_wifi, bb_wifi_autoinit);
+BB_INIT_REGISTER_EARLY(bb_wifi, bb_wifi_autoinit);
 #endif
 
 // Transport stubs — ESP-IDF bb_http uses esp_http_server directly.

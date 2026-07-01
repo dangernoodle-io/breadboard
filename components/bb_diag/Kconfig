@@ -46,7 +46,7 @@ config BB_DIAG_ROUTES
     help
         When enabled, bb_diag registers GET/DELETE /api/diag/panic and
         adds an optional "panic" block to /api/info via
-        bb_info_register_extender. Adds bb_http, bb_json, bb_registry,
+        bb_info_register_extender. Adds bb_http, bb_json, bb_init,
         and bb_info to bb_diag's PRIV_REQUIRES.
 
 config BB_DIAG_PANIC_TRIGGER
@@ -61,7 +61,7 @@ config BB_DIAG_PANIC_TRIGGER
         production: any unauthenticated caller can crash the firmware.
 
 config BB_DIAG_AUTOREGISTER
-    bool "Auto-init bb_diag panic capture + routes via bb_registry"
+    bool "Auto-init bb_diag panic capture + routes via bb_init"
     default y
     depends on BB_DIAG_PANIC_CAPTURE
     help

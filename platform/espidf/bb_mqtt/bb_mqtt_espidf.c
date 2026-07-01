@@ -26,7 +26,7 @@
 #include "bb_log.h"
 #include "bb_mem.h"
 #include "bb_nv.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_wifi.h"
 
 #include <stdlib.h>
@@ -593,7 +593,7 @@ static bb_err_t bb_mqtt_autoregister_init(void)
     return BB_OK;  // non-fatal: EARLY walk continues
 }
 
-BB_REGISTRY_REGISTER_EARLY(bb_mqtt, bb_mqtt_autoregister_init);
+BB_INIT_REGISTER_EARLY(bb_mqtt, bb_mqtt_autoregister_init);
 
 // bb_mqtt_stop_default — stop and destroy the auto-registered client.
 // Called by bb_mqtt_telemetry_init when MQTT loses the exclusive-sink slot

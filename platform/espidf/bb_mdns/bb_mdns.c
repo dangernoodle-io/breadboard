@@ -1,7 +1,7 @@
 #include "bb_mdns.h"
 #include "bb_mdns_lifecycle.h"
 #include "bb_wifi.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_http.h"
 #include "bb_timer.h"
 #include "bb_ring.h"
@@ -1262,5 +1262,5 @@ static bb_err_t bb_mdns_registry_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_MDNS_AUTOREGISTER
-BB_REGISTRY_REGISTER_N(bb_mdns, bb_mdns_registry_init, 0);
+BB_INIT_REGISTER_N(bb_mdns, bb_mdns_registry_init, 0);
 #endif

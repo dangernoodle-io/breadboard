@@ -31,8 +31,8 @@ extern "C" {
  * draw_text (NULL = core rasterizes via the active font and blit).
  *
  * The constructor must be kept link-live by the
- * `bb_registry_force_register` CMake helper on PlatformIO builds
- * (which strip --whole-archive); see cmake/bb_registry.cmake for the
+ * `bb_init_force_register` CMake helper on PlatformIO builds
+ * (which strip --whole-archive); see cmake/bb_init.cmake for the
  * pattern (use a backend-specific symbol name, e.g.
  * bb_display_register__ek79007).
  */

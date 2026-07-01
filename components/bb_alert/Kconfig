@@ -13,12 +13,12 @@ config BB_ALERT_ENABLE
         envelope: {type, severity, uptime_ms, ...fill fields}.
 
 config BB_ALERT_AUTOREGISTER
-    bool "Auto-register alert topic via bb_registry"
+    bool "Auto-register alert topic via bb_init"
     default y
     depends on BB_ALERT_ENABLE && BB_EVENT_ROUTES_AUTOREGISTER
     help
         When enabled, bb_alert registers the alert topic and attaches it
-        to /api/events automatically via the bb_registry regular tier
+        to /api/events automatically via the bb_init regular tier
         (order 4, after bb_event_routes at order 0).
 
         Disable to register manually by calling bb_alert_register() and

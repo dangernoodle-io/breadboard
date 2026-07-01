@@ -347,7 +347,7 @@ size_t bb_http_route_handler_cap(void);
 
 // Reserve N additional handler slots beyond the auto-sized sum from the
 // registry. Used by imperative-route consumers (e.g. bb_prov) that register
-// routes outside the BB_REGISTRY_REGISTER_N path. Cumulative across calls.
+// routes outside the BB_INIT_REGISTER_N path. Cumulative across calls.
 // MUST be called before bb_http_server_ensure_started — once httpd_start
 // has run, the cap is fixed.
 void bb_http_reserve_routes(int n);

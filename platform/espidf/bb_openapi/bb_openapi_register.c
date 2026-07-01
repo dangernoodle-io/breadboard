@@ -2,7 +2,7 @@
 #include "bb_http.h"
 #include "bb_log.h"
 #include "bb_system.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 
 #include <string.h>
 
@@ -87,6 +87,6 @@ static bb_err_t bb_openapi_reserve_routes(void)
     bb_http_reserve_routes(1);  // GET /api/openapi.json
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_openapi, bb_openapi_reserve_routes);
-BB_REGISTRY_REGISTER_N(bb_openapi, bb_openapi_init, 1);
+BB_INIT_REGISTER_PRE_HTTP(bb_openapi, bb_openapi_reserve_routes);
+BB_INIT_REGISTER_N(bb_openapi, bb_openapi_init, 1);
 #endif

@@ -77,7 +77,7 @@ bool bb_ota_boot_pending(void)
 #include "bb_ota_pull.h"
 #include "bb_update_check.h"
 #include "bb_http.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_http_client.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -557,8 +557,8 @@ static bb_err_t bb_ota_boot_reserve_routes(void)
     bb_http_reserve_routes(1);  // POST /api/update/apply
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_ota_boot, bb_ota_boot_reserve_routes);
-BB_REGISTRY_REGISTER_N(bb_ota_boot, bb_ota_boot_init, 1);
+BB_INIT_REGISTER_PRE_HTTP(bb_ota_boot, bb_ota_boot_reserve_routes);
+BB_INIT_REGISTER_N(bb_ota_boot, bb_ota_boot_init, 1);
 #endif
 
 #endif // ESP_PLATFORM

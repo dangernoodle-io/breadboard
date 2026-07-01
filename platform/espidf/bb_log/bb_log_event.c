@@ -14,7 +14,7 @@
 #include "bb_log.h"
 #include "bb_event.h"
 #include "bb_event_routes.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_json.h"
 #include "bb_clock.h"
 #include "bb_openapi.h"
@@ -144,7 +144,7 @@ static bb_err_t bb_log_event_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-BB_REGISTRY_REGISTER_N(bb_log_event, bb_log_event_init, 4)
+BB_INIT_REGISTER_N(bb_log_event, bb_log_event_init, 4)
 
 #endif /* CONFIG_BB_LOG_EVENT_AUTO_ATTACH */
 

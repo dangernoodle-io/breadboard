@@ -12,7 +12,7 @@
 #include "bb_ntp.h"
 #include "bb_system.h"
 #include "bb_telemetry.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_log.h"
 
 #include <stdbool.h>
@@ -347,7 +347,7 @@ bb_err_t bb_pub_telemetry_init(void)
 }
 
 #if CONFIG_BB_PUB_TELEMETRY_AUTOREGISTER
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_pub_telemetry, bb_pub_telemetry_init);
+BB_INIT_REGISTER_PRE_HTTP(bb_pub_telemetry, bb_pub_telemetry_init);
 #endif
 
 // ---------------------------------------------------------------------------

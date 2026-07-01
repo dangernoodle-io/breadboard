@@ -24,11 +24,11 @@ config BB_MDNS_HOSTNAME_MAX
         sufficient.  Raise to 64 only if your hostnames exceed 31 chars.
 
 config BB_MDNS_AUTOREGISTER
-    bool "Auto-init bb_mdns via bb_registry"
+    bool "Auto-init bb_mdns via bb_init"
     default y
     help
-        When enabled, bb_mdns self-initializes through bb_registry at
-        bb_registry_init(server). Disable to skip the automatic init while
+        When enabled, bb_mdns self-initializes through bb_init at
+        bb_init_init(server). Disable to skip the automatic init while
         keeping the component's public C API (caller must invoke bb_mdns_init manually).
 
 config BB_MDNS_BROWSE_REFRESH_INTERVAL_S

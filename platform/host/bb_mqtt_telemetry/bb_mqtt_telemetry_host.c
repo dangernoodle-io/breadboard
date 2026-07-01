@@ -9,7 +9,7 @@
 #include "bb_nv.h"
 #include "bb_json.h"
 #include "bb_telemetry.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_pub.h"
 #include "bb_log.h"
 
@@ -202,7 +202,7 @@ bb_err_t bb_mqtt_telemetry_init(void)
 }
 
 #if CONFIG_BB_MQTT_TELEMETRY_AUTOREGISTER
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_mqtt_telemetry, bb_mqtt_telemetry_init);
+BB_INIT_REGISTER_PRE_HTTP(bb_mqtt_telemetry, bb_mqtt_telemetry_init);
 #endif
 
 // ---------------------------------------------------------------------------

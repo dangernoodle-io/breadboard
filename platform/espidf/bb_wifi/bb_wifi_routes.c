@@ -9,7 +9,7 @@
 #include "bb_http.h"
 #include "bb_json.h"
 #include "bb_openapi.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 
 #include "esp_wifi.h"
 
@@ -265,6 +265,6 @@ static bb_err_t bb_wifi_routes_reserve(void)
 #endif
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_wifi_routes, bb_wifi_routes_reserve);
-BB_REGISTRY_REGISTER_N(bb_wifi_routes, bb_wifi_routes_init, 2);
+BB_INIT_REGISTER_PRE_HTTP(bb_wifi_routes, bb_wifi_routes_reserve);
+BB_INIT_REGISTER_N(bb_wifi_routes, bb_wifi_routes_init, 2);
 #endif

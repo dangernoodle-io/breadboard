@@ -1,5 +1,5 @@
 set(_sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system.c")
-set(_sys_priv_reqs bb_log esp_app_format bb_http bb_registry esp_driver_tsens esp_system)
+set(_sys_priv_reqs bb_log esp_app_format bb_http bb_init esp_driver_tsens esp_system)
 
 if(CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER)
     list(APPEND _sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system_routes.c")
@@ -13,7 +13,7 @@ idf_component_register(
 )
 
 if(CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
-    bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_system_routes)
-    bb_registry_force_register(${COMPONENT_LIB} bb_system_routes)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
+    bb_init_force_register_pre_http(${COMPONENT_LIB} bb_system_routes)
+    bb_init_force_register(${COMPONENT_LIB} bb_system_routes)
 endif()

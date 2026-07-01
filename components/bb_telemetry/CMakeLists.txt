@@ -4,7 +4,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_telemetry/bb_telemetry_routes.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_json
-    PRIV_REQUIRES bb_section bb_http bb_registry bb_log bb_pub bb_nv)
+    PRIV_REQUIRES bb_section bb_http bb_init bb_log bb_pub bb_nv)
 
-include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
-bb_registry_force_register(${COMPONENT_LIB} bb_telemetry)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
+bb_init_force_register(${COMPONENT_LIB} bb_telemetry)

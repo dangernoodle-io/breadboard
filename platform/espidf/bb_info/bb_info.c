@@ -24,7 +24,7 @@
 #include "bb_mdns.h"
 #include "bb_ntp.h"
 #include "bb_openapi.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_section.h"
 
 #include "../../../components/bb_info/bb_info_schema_priv.h"
@@ -283,7 +283,7 @@ static bb_err_t bb_info_reserve_routes(void)
     bb_http_reserve_routes(1);  // GET /api/info
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_info, bb_info_reserve_routes);
-BB_REGISTRY_REGISTER_N(bb_info, bb_info_init, 2);
-BB_REGISTRY_REGISTER_N(bb_info_freeze, bb_info_freeze_init, 20);
+BB_INIT_REGISTER_PRE_HTTP(bb_info, bb_info_reserve_routes);
+BB_INIT_REGISTER_N(bb_info, bb_info_init, 2);
+BB_INIT_REGISTER_N(bb_info_freeze, bb_info_freeze_init, 20);
 #endif

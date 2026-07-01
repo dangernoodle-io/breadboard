@@ -114,32 +114,32 @@ post-script. `bb_lint()` (same file) creates an opt-in linter target:
 
 ## Registry (handler-lifecycle)
 
-`bb_registry` holds three ordered lists — EARLY → PRE_HTTP → REGULAR — driven by two app calls: `bb_registry_init_early()` then `bb_registry_init()`. `bb_registry_init()` walks PRE_HTTP, optionally autostarts the HTTP server (`CONFIG_BB_HTTP_AUTOSTART`, default y), then walks the regular tier. Components self-register at link time via a macro; disabling the corresponding `CONFIG_BB_<NAME>_AUTOREGISTER` Kconfig (default y) removes the registration without touching the public API.
+`bb_init` holds three ordered lists — EARLY → PRE_HTTP → REGULAR — driven by two app calls: `bb_init_init_early()` then `bb_init_init()`. `bb_init_init()` walks PRE_HTTP, optionally autostarts the HTTP server (`CONFIG_BB_HTTP_AUTOSTART`, default y), then walks the regular tier. Components self-register at link time via a macro; disabling the corresponding `CONFIG_BB_<NAME>_AUTOREGISTER` Kconfig (default y) removes the registration without touching the public API.
 
 **EARLY tier** — NVS, WiFi init, board bring-up (no server arg):
 ```c
-BB_REGISTRY_REGISTER_EARLY(bb_<comp>, bb_<comp>_init);  // bb_err_t fn(void)
+BB_INIT_REGISTER_EARLY(bb_<comp>, bb_<comp>_init);  // bb_err_t fn(void)
 ```
 
 **PRE_HTTP tier** — tasks that must run after EARLY but before the HTTP server (no server arg):
 ```c
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_<comp>, bb_<comp>_init);  // bb_err_t fn(void)
+BB_INIT_REGISTER_PRE_HTTP(bb_<comp>, bb_<comp>_init);  // bb_err_t fn(void)
 ```
 
 **Regular tier** — HTTP route registration (server arg):
 ```c
-BB_REGISTRY_REGISTER(bb_<comp>, bb_<comp>_init);        // order=0 (default)
-BB_REGISTRY_REGISTER_N(bb_<comp>, bb_<comp>_init, N);   // explicit order N
+BB_INIT_REGISTER(bb_<comp>, bb_<comp>_init);        // order=0 (default)
+BB_INIT_REGISTER_N(bb_<comp>, bb_<comp>_init, N);   // explicit order N
 ```
-`BB_REGISTRY_REGISTER_N` accepts an integer `order` as the third argument. The regular-tier walker sorts entries by `.order` ascending before invoking inits — lower numbers run first. Ties preserve registration (insertion) order, i.e. the sort is stable. `BB_REGISTRY_REGISTER` is shorthand for `BB_REGISTRY_REGISTER_N(..., 0)`. **N is a sort key only — not a route-count hint.** Example: `bb_event_routes` registers at order 0; `bb_update_check` registers at order 4 so `bb_event_routes_init` (which sets `s_cfg.initialized = true`) has already run before `bb_update_check` calls `bb_event_routes_attach`.
+`BB_INIT_REGISTER_N` accepts an integer `order` as the third argument. The regular-tier walker sorts entries by `.order` ascending before invoking inits — lower numbers run first. Ties preserve registration (insertion) order, i.e. the sort is stable. `BB_INIT_REGISTER` is shorthand for `BB_INIT_REGISTER_N(..., 0)`. **N is a sort key only — not a route-count hint.** Example: `bb_event_routes` registers at order 0; `bb_update_check` registers at order 4 so `bb_event_routes_init` (which sets `s_cfg.initialized = true`) has already run before `bb_update_check` calls `bb_event_routes_attach`.
 
-All three tiers require the matching CMake helper (in `cmake/bb_registry.cmake`) to prevent garbage-collection under PlatformIO:
+All three tiers require the matching CMake helper (in `cmake/bb_init.cmake`) to prevent garbage-collection under PlatformIO:
 
 ```cmake
-include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
-bb_registry_force_register(${COMPONENT_LIB} bb_<name>)           # regular
-bb_registry_force_register_early(${COMPONENT_LIB} bb_<name>)     # early
-bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_<name>)  # pre_http
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
+bb_init_force_register(${COMPONENT_LIB} bb_<name>)           # regular
+bb_init_force_register_early(${COMPONENT_LIB} bb_<name>)     # early
+bb_init_force_register_pre_http(${COMPONENT_LIB} bb_<name>)  # pre_http
 ```
 
 Today this pattern owns — regular: `bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_log` (routes), `bb_log_event` (log stream topic), `bb_manifest`, `bb_ota_validator`, `bb_wifi` (routes), `bb_system` (routes), `bb_openapi`, `bb_mdns`, `bb_event_routes`, `bb_update_check`, `bb_diag` (routes). Early: `bb_log_stream`, `bb_nv_flash`, `bb_nv_config`, `bb_wifi` (STA init via `CONFIG_BB_WIFI_AUTOREGISTER`), `bb_diag_panic`, `bb_event`. PRE_HTTP: `bb_http_reserve_routes(N)` is vestigial (see Route-sizing model below) but companion init functions may still call it harmlessly. HTTP server autostart is gated on `CONFIG_BB_HTTP_AUTOSTART` (default y); disable it if CORS or OpenAPI config must precede server start. Socket reservation for non-httpd usage (stratum TCP, mDNS UDP, transient outbound) is tunable via `CONFIG_BB_HTTP_LWIP_RESERVE` (default 3, range 1–6) — lower it to give httpd more headroom, raise it to preserve slots for outbound work.
@@ -148,7 +148,7 @@ Today this pattern owns — regular: `bb_ota_pull`, `bb_ota_push`, `bb_info`, `b
 
 **Route-sizing model.** All `/api/*` routes are served by per-method wildcard httpd handlers (`GET/POST/PUT/PATCH/DELETE /api/*`, registered at server start before any consumer asset `GET /*`) that dispatch internally via the `bb_api_dispatch` table (`BB_HTTP_API_DISPATCH_CAP`, default 64). A high-watermark `bb_log_w` fires once when count reaches `CAP-8`; overflow returns `BB_ERR_NO_SPACE` (non-fatal, logged). `/api/*` routes do **not** consume httpd handler slots. `max_uri_handlers` (`BB_HTTP_MAX_URI_HANDLERS`, default 12, constant) covers only the fixed wildcards (5 api + OPTIONS + GET asset) plus headroom for non-`/api` routes (`/save`, captive `/*`). `bb_http_reserve_routes()` is vestigial (ABI kept; body is a no-op on espidf; calls from existing PRE_HTTP companions are harmless). When adding a new `/api/` endpoint, no PRE_HTTP companion or reserve call is needed — just call `bb_http_register_route` in the regular tier. When adding a non-`/api` httpd route (e.g. a captive-portal path), raise `BB_HTTP_MAX_URI_HANDLERS` in your `sdkconfig` if headroom is exhausted.
 
-`bb_http_register_route` and related registration functions return `BB_ERR_NO_SPACE` when the route registry is full. Registry capacity is tunable via `CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP` (default 64). After the regular-tier walk, `bb_registry_init()` audits the registry count and panics if overflow occurred (`CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT`, default y) or emits a high-watermark warning at count >= CAP-8.
+`bb_http_register_route` and related registration functions return `BB_ERR_NO_SPACE` when the route registry is full. Registry capacity is tunable via `CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP` (default 64). After the regular-tier walk, `bb_init_init()` audits the registry count and panics if overflow occurred (`CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT`, default y) or emits a high-watermark warning at count >= CAP-8.
 
 Duplicate (method, path) registrations in the `/api/*` dispatch table are detected at `bb_api_dispatch_add` time: the second registration is warned (`bb_log_w`) and dropped (first-wins); callers receive `BB_ERR_INVALID_STATE`. Enable `CONFIG_BB_HTTP_ROUTE_DUP_STRICT` (default n) to escalate a duplicate to a hard `assert` — useful in CI/smoke builds to catch accidental route collisions early.
 
@@ -174,7 +174,7 @@ A **satellite** is a small component that contributes a section to an existing e
 
 **Tier 1 — In-component Kconfig gate** (`CONFIG_BB_<X>_ROUTES_AUTOREGISTER`, default n): the extender exposes the owning component's own data and lives inside that component. No separate component. Examples: `bb_power_routes`, `bb_fan_routes`, `bb_log_routes`.
 
-**Tier 2 — Separate component + Kconfig auto-register** (`CONFIG_BB_<X>_AUTOREGISTER`, default n for health/info satellites; default y for infrastructure routes): the satellite lives in its own component directory, bridges two independent dep closures, and self-registers via `BB_REGISTRY_REGISTER[_N]` in the ESP-IDF `.c` file, gated by `#if CONFIG_BB_<X>_AUTOREGISTER`. The CMakeLists conditionally calls `bb_registry_force_register` under `if(CONFIG_BB_<X>_AUTOREGISTER)`. Examples after B1-347: `bb_temp`, `bb_mqtt_info`, `bb_led_info`. Pre-existing examples: `bb_net_health`, `bb_pub_*`.
+**Tier 2 — Separate component + Kconfig auto-register** (`CONFIG_BB_<X>_AUTOREGISTER`, default n for health/info satellites; default y for infrastructure routes): the satellite lives in its own component directory, bridges two independent dep closures, and self-registers via `BB_INIT_REGISTER[_N]` in the ESP-IDF `.c` file, gated by `#if CONFIG_BB_<X>_AUTOREGISTER`. The CMakeLists conditionally calls `bb_init_force_register` under `if(CONFIG_BB_<X>_AUTOREGISTER)`. Examples after B1-347: `bb_temp`, `bb_mqtt_info`, `bb_led_info`. Pre-existing examples: `bb_net_health`, `bb_pub_*`.
 
 **Tier 3 — Manual register() — DEPRECATED for new satellites.** The three legacy satellites (`bb_temp`, `bb_mqtt_info`, `bb_led_info`) keep their manual fns (`bb_temp_register_info`, `bb_mqtt_register_health`, `bb_led_register_info`) as escape hatches for consumers with ordering constraints. **Use auto XOR manual** — enabling `AUTOREGISTER` while also calling the manual fn double-registers the section (second registration is warned and dropped; first-wins per route registry policy). Flipping these to `default y` and removing the manual calls from TaipanMiner is a cross-repo follow-up, not part of this change.
 
@@ -632,7 +632,7 @@ Part of **`bb_telemetry`** (B1-295) — not a separate component. It shares `bb_
 
 **Publisher health gauges:** Always emitted: `<prefix>_pub_source_count`, `<prefix>_pub_buffer_count`, `<prefix>_pub_buffer_dropped`, `<prefix>_pub_ring_undersized`, `<prefix>_pub_last_publish_age_ms`.
 
-**Auto-register:** registered by `bb_telemetry_init` at order 5 via `bb_registry` (`CONFIG_BB_TELEMETRY_AUTOREGISTER`, default y), alongside the `/api/telemetry` GET/PATCH routes.
+**Auto-register:** registered by `bb_telemetry_init` at order 5 via `bb_init` (`CONFIG_BB_TELEMETRY_AUTOREGISTER`, default y), alongside the `/api/telemetry` GET/PATCH routes.
 
 ## Releases
 

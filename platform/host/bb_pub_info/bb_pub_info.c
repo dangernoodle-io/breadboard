@@ -24,7 +24,7 @@
 #include "bb_log.h"
 #include "bb_ntp.h"
 #include "bb_openapi.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 // ota_ready (heap-readiness for the OTA TLS handshake) is emitted only on boards
 // that run a heap-guarded OTA TLS path — the runtime pull worker
 // (BB_OTA_PULL_AUTOREGISTER) or the boot-mode on-demand check
@@ -230,5 +230,5 @@ static bb_err_t bb_pub_info_init(void)
 }
 
 #if CONFIG_BB_PUB_INFO_AUTO_ATTACH
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_pub_info, bb_pub_info_init);
+BB_INIT_REGISTER_PRE_HTTP(bb_pub_info, bb_pub_info_init);
 #endif

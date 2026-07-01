@@ -287,10 +287,10 @@ bb_err_t bb_log_stream_init(void)
     return ESP_OK;
 }
 
-#include "bb_registry.h"
+#include "bb_init.h"
 
 #if CONFIG_BB_LOG_STREAM_AUTOREGISTER
-BB_REGISTRY_REGISTER_EARLY(bb_log_stream, bb_log_stream_init);
+BB_INIT_REGISTER_EARLY(bb_log_stream, bb_log_stream_init);
 #endif
 
 size_t bb_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t timeout_ms)

@@ -1,6 +1,6 @@
 #include "bb_log.h"
 #include "bb_http.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 
 #include <string.h>
 
@@ -174,5 +174,5 @@ static bb_err_t bb_log_register_routes_reserve(void)
     bb_http_reserve_routes(2);  // POST /api/log/level + GET /api/log/level
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_log_register_routes, bb_log_register_routes_reserve);
-BB_REGISTRY_REGISTER_N(bb_log_register_routes, bb_log_register_routes_init, 4);
+BB_INIT_REGISTER_PRE_HTTP(bb_log_register_routes, bb_log_register_routes_reserve);
+BB_INIT_REGISTER_N(bb_log_register_routes, bb_log_register_routes_init, 4);

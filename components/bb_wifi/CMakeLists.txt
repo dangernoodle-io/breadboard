@@ -7,16 +7,16 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "."
     REQUIRES bb_core bb_json esp_netif
-    PRIV_REQUIRES bb_alert bb_cache bb_http bb_registry bb_ota_validator bb_wdt esp_wifi esp_event esp_timer esp_system bb_log bb_nv lwip bb_timer bb_openapi
+    PRIV_REQUIRES bb_alert bb_cache bb_http bb_init bb_ota_validator bb_wdt esp_wifi esp_event esp_timer esp_system bb_log bb_nv lwip bb_timer bb_openapi
 )
 
-include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
 
 if(CONFIG_BB_WIFI_AUTOREGISTER)
-    bb_registry_force_register_early(${COMPONENT_LIB} bb_wifi)
+    bb_init_force_register_early(${COMPONENT_LIB} bb_wifi)
 endif()
 
 if(CONFIG_BB_WIFI_ROUTES_AUTOREGISTER)
-    bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_wifi_routes)
-    bb_registry_force_register(${COMPONENT_LIB} bb_wifi_routes)
+    bb_init_force_register_pre_http(${COMPONENT_LIB} bb_wifi_routes)
+    bb_init_force_register(${COMPONENT_LIB} bb_wifi_routes)
 endif()

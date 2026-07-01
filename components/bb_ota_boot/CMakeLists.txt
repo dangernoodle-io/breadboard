@@ -2,11 +2,11 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_ota_boot/bb_ota_boot.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_http
-    PRIV_REQUIRES bb_tls bb_log bb_registry bb_nv bb_ntp bb_wifi bb_board bb_ota_pull bb_ota_hooks bb_update_check bb_http_client esp_system heap freertos espressif__mdns
+    PRIV_REQUIRES bb_tls bb_log bb_init bb_nv bb_ntp bb_wifi bb_board bb_ota_pull bb_ota_hooks bb_update_check bb_http_client esp_system heap freertos espressif__mdns
 )
 
 if(CONFIG_BB_OTA_BOOT_AUTOREGISTER)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
-    bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_ota_boot)
-    bb_registry_force_register(${COMPONENT_LIB} bb_ota_boot)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
+    bb_init_force_register_pre_http(${COMPONENT_LIB} bb_ota_boot)
+    bb_init_force_register(${COMPONENT_LIB} bb_ota_boot)
 endif()

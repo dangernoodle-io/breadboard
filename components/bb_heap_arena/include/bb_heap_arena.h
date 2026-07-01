@@ -11,10 +11,10 @@ extern "C" {
  *
  * ORDERING CONTRACT (CRITICAL):
  *   Call bb_heap_arena_init() at the very top of app_main(), BEFORE
- *   bb_registry_init_early(). The mbedTLS allocator must be installed before
+ *   bb_init_init_early(). The mbedTLS allocator must be installed before
  *   any WiFi/WPA-supplicant mbedTLS use (which occurs during esp_wifi_connect
  *   inside the EARLY-tier bb_wifi init). Calling this function after
- *   bb_registry_init_early() is undefined behavior.
+ *   bb_init_init_early() is undefined behavior.
  *
  * When CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC is NOT set, this function is a no-op
  * and ESP-IDF's default mbedTLS allocator (esp_mem.c) handles all allocations.

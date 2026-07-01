@@ -33,11 +33,11 @@ menu "BB WebSocket"
             Per-frame send timeout in seconds.
 
     config BB_WEBSOCKET_AUTOREGISTER
-        bool "Auto-register bb_websocket via bb_registry"
+        bool "Auto-register bb_websocket via bb_init"
         default n
         help
             When enabled, bb_websocket_init is called automatically during
-            bb_registry_init().  Disable (default) to register endpoints
+            bb_init_init().  Disable (default) to register endpoints
             manually in your own init function.
 
 endmenu

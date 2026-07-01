@@ -95,13 +95,13 @@ bool bb_heap_arena_owns(const void *ptr)
 
 /* Optional EARLY-tier auto-register (convenience; explicit call is the safe contract). */
 #if defined(CONFIG_BB_HEAP_ARENA_AUTOREGISTER)
-#include "bb_registry.h"
+#include "bb_init.h"
 static bb_err_t bb_heap_arena_early_init(void)
 {
     bb_heap_arena_init();
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_EARLY(bb_heap_arena, bb_heap_arena_early_init)
+BB_INIT_REGISTER_EARLY(bb_heap_arena, bb_heap_arena_early_init)
 #endif
 
 #else /* !CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC */

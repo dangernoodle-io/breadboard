@@ -1,7 +1,7 @@
 #include "bb_event.h"
 #include "bb_event_port.h"
 #include "bb_log.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -274,7 +274,7 @@ size_t bb_event_pump(uint32_t budget)
 }
 
 // ---------------------------------------------------------------------------
-// Auto-register via bb_registry
+// Auto-register via bb_init
 // ---------------------------------------------------------------------------
 
 #if CONFIG_BB_EVENT_AUTOREGISTER
@@ -282,7 +282,7 @@ static bb_err_t bb_event_autoinit(void)
 {
     return bb_event_init(NULL);  // NULL = Kconfig defaults
 }
-BB_REGISTRY_REGISTER_EARLY(bb_event, bb_event_autoinit);
+BB_INIT_REGISTER_EARLY(bb_event, bb_event_autoinit);
 #endif
 
 // ---------------------------------------------------------------------------

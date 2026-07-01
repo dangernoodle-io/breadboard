@@ -12,7 +12,7 @@
 #include "bb_pub.h"
 #include "bb_log.h"
 #include "bb_timer.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 
 #include <inttypes.h>
 
@@ -138,5 +138,5 @@ static bb_err_t bb_pub_start(void)
 }
 
 #if CONFIG_BB_PUB_AUTOREGISTER
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_pub, bb_pub_start);
+BB_INIT_REGISTER_PRE_HTTP(bb_pub, bb_pub_start);
 #endif

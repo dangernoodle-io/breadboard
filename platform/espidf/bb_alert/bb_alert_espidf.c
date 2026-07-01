@@ -8,7 +8,7 @@
 #if BB_ALERT_ENABLE && defined(CONFIG_BB_ALERT_AUTOREGISTER) && CONFIG_BB_ALERT_AUTOREGISTER
 
 #include "bb_log.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_event_routes.h"
 
 static const char *TAG = "bb_alert";
@@ -30,7 +30,7 @@ static bb_err_t bb_alert_init(bb_http_handle_t server)
 }
 
 // Order 4 — same as bb_update_check; bb_event_routes_init runs at order 0.
-BB_REGISTRY_REGISTER_N(bb_alert, bb_alert_init, 4)
+BB_INIT_REGISTER_N(bb_alert, bb_alert_init, 4)
 
 #endif // BB_ALERT_ENABLE && CONFIG_BB_ALERT_AUTOREGISTER
 
