@@ -60,6 +60,13 @@
 #define CONFIG_BB_PUB_TELEM_SERIALIZE_MAX 512
 #endif
 
+// Compile-time coupling invariant: every pub source registers a bb_cache topic,
+// so the cache must be able to hold at least as many topics as there are sources.
+_Static_assert(BB_CACHE_MAX_TOPICS >= CONFIG_BB_PUB_MAX_SOURCES,
+    "BB_CACHE_MAX_TOPICS must be >= BB_PUB_MAX_SOURCES "
+    "(each telemetry source registers a cache topic at init; raise "
+    "CONFIG_BB_CACHE_MAX_TOPICS or lower CONFIG_BB_PUB_MAX_SOURCES)");
+
 // Interval bounds (must match Kconfig range).
 #define BB_PUB_INTERVAL_MS_MIN   1000UL
 #define BB_PUB_INTERVAL_MS_MAX   3600000UL

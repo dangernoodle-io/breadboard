@@ -65,6 +65,14 @@ uint32_t bb_ota_pull_host_get_http_timeout_ms(void)
 
 #ifdef ESP_PLATFORM
 
+// OTA chunk must fit inside a single TLS record; the TLS input buffer is
+// CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN bytes.  Violating this causes an esp-http
+// mbedTLS record-too-large error mid-download (observed as -0x7200).
+_Static_assert(CONFIG_BB_OTA_PULL_HTTP_CHUNK_SIZE <= CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN,
+    "BB_OTA_PULL_HTTP_CHUNK_SIZE must be <= MBEDTLS_SSL_IN_CONTENT_LEN "
+    "(lower CONFIG_BB_OTA_PULL_HTTP_CHUNK_SIZE or raise "
+    "CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN)");
+
 static const char *TAG = "bb_ota_pull";
 
 #define OTA_TASK_STACK CONFIG_BB_OTA_PULL_TASK_STACK

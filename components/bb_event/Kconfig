@@ -26,10 +26,18 @@ config BB_EVENT_QUEUE_DEPTH
 
 config BB_EVENT_MAX_PAYLOAD
     int "Maximum event payload size (bytes)"
-    default 256
+    default 1024 if SPIRAM
+    default 512
     range 0 4096
     help
         Maximum size of event payload data. Set to 0 if events
         contain only metadata.
+
+        PSRAM-axis DERIVE (TA-517): default 1024 on SPIRAM boards so the
+        event queue can carry a full BB_PUB_TELEM_SERIALIZE_MAX payload
+        (also 1024 on SPIRAM) without truncation.  On no-PSRAM boards the
+        default is 512, matching BB_PUB_TELEM_SERIALIZE_MAX on those boards.
+        A compile-time static_assert in bb_event_common.c enforces the
+        invariant: BB_EVENT_MAX_PAYLOAD >= BB_PUB_TELEM_SERIALIZE_MAX.
 
 endmenu

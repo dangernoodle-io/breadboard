@@ -17,6 +17,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/portmacro.h"
+
+// WDT window must outlast the max push duration so the clean abort+resume path
+// fires before the WDT expires.  This invariant is documented in the Kconfig
+// help text; the assert enforces it at compile time.
+_Static_assert(CONFIG_BB_OTA_PUSH_MAX_DURATION_S < CONFIG_BB_OTA_PUSH_WDT_EXTENDED_S,
+    "BB_OTA_PUSH_MAX_DURATION_S must be < BB_OTA_PUSH_WDT_EXTENDED_S "
+    "(lower CONFIG_BB_OTA_PUSH_MAX_DURATION_S or raise "
+    "CONFIG_BB_OTA_PUSH_WDT_EXTENDED_S)");
 #endif
 
 /**

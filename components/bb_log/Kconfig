@@ -106,7 +106,8 @@ config BB_LOG_EVENT_AUTO_ATTACH
 
 config BB_LOG_EVENT_QUEUE_LEN
     int "Log event forwarder queue depth"
-    default 48
+    default 48 if SPIRAM
+    default 24
     range 8 256
     depends on BB_LOG_EVENT_AUTO_ATTACH
     help
@@ -116,8 +117,9 @@ config BB_LOG_EVENT_QUEUE_LEN
         Lines are dropped (with a counter) when the queue is full; the
         dropped count is visible via bb_log_event_dropped().
 
-        The old /api/logs ringbuf was 6144 B (~32 lines at 192 B each).
-        48 slots provides ~50% more burst headroom. Raise on boards with
-        ample PSRAM; lower to 16–24 on heap-tight no-PSRAM boards.
+        PSRAM-axis DERIVE: default 48 on SPIRAM boards (ample heap); 24 on
+        no-PSRAM boards (~4.6 KB, lower than the prior 48-slot default that
+        allocated ~9 KB on heap-tight boards). Per-board sdkconfig fragments
+        (e.g. esp32-s2-mini at 8) override this derive and take precedence.
 
 endmenu

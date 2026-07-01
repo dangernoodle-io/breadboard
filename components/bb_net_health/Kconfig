@@ -55,12 +55,15 @@ config BB_PUB_ADAPTIVE_BACKOFF
 
 config BB_PUB_ADAPTIVE_RSSI_THRESH
     int "RSSI threshold for adaptive backoff (dBm)"
-    default -75
+    default BB_NET_HEALTH_RSSI_MARGINAL_LO
     range -100 0
     depends on BB_PUB_ADAPTIVE_BACKOFF
     help
         RSSI below this value is considered weak for the purpose of adaptive
-        backoff. Aligns with the POOR bucket lower bound by default.
+        backoff. DERIVE: defaults to BB_NET_HEALTH_RSSI_MARGINAL_LO so both
+        the POOR-bucket lower bound and the adaptive-backoff threshold share a
+        single source of truth (-75 dBm today). Override if you want backoff
+        to trigger at a different threshold than the POOR bucket boundary.
 
 config BB_PUB_ADAPTIVE_SLOW_MS
     int "Slowed publish interval during backoff (ms)"
