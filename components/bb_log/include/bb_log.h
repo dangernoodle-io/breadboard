@@ -22,6 +22,18 @@ typedef enum {
     BB_LOG_LEVEL_VERBOSE,
 } bb_log_level_t;
 
+// Single source of truth for bb_log_level_t <-> string mappings. X(level, name)
+// is invoked once per level, in wire-format order. Drives bb_log_level_to_str,
+// bb_log_level_from_str, and the GET /api/log/level level-name list — keeping
+// all three in lockstep instead of three independently hand-maintained tables.
+#define BB_LOG_LEVEL_LIST(X)          \
+    X(BB_LOG_LEVEL_NONE,    "none")    \
+    X(BB_LOG_LEVEL_ERROR,   "error")   \
+    X(BB_LOG_LEVEL_WARN,    "warn")    \
+    X(BB_LOG_LEVEL_INFO,    "info")    \
+    X(BB_LOG_LEVEL_DEBUG,   "debug")   \
+    X(BB_LOG_LEVEL_VERBOSE, "verbose")
+
 // Set log level for a tag. Use tag="*" to set the global default.
 // Registers the tag in the internal registry; on first registration applies default_level.
 // ESP-IDF: also calls esp_log_level_set. Arduino/host: no-op for backend, registry still works.

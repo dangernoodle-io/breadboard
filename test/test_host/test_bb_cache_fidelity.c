@@ -95,7 +95,7 @@ static const bb_net_health_status_t s_net_health_initial = {
 };
 
 static const bb_diag_boot_snap_t s_diag_boot_initial = {
-    .reset_reason    = "poweron",
+    .reset_reason    = "power-on",
     .wdt_resets      = 0,
     .panic_available = false,
     .panic_boots_since = 0,

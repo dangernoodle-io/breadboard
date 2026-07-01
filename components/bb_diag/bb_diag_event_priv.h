@@ -16,7 +16,7 @@
 
 // Owned snapshot struct for the diag.boot bb_cache entry.
 typedef struct {
-    char     reset_reason[16];  // e.g. "poweron", "panic", "task_wdt"
+    char     reset_reason[16];  // e.g. "power-on", "panic", "task_wdt"
     uint32_t wdt_resets;
     bool     panic_available;
     uint32_t panic_boots_since; // only meaningful when panic_available=true
