@@ -33,8 +33,24 @@ typedef struct {
     const char *names[4];        // candidate pcTaskName values
 } named_task_t;
 
+// stack_bb_pub is intentionally NOT in this table: bb_pub's own worker task
+// self-registers into bb_task_registry under the name "bb_pub" (see
+// bb_timer_worker_periodic_create in platform/espidf/bb_timer/bb_timer.c),
+// so the registry-driven foreach below (B1-445) already emits "stack_bb_pub"
+// from the live registry. A hardcoded entry here would duplicate the key in
+// the emitted JSON (B1-450).
+//
+// ACCEPTED tradeoff: bb_task_registry_register() is best-effort
+// (BB_TASK_REGISTRY_MAX, default 24) and silently drops (logs a warning)
+// when the registry is full — see bb_task_registry_register() in
+// platform/host/bb_task_registry/bb_task_registry.c. Previously the
+// hardcoded s_named[] entry sourced stack_bb_pub from the live FreeRTOS task
+// list, independent of registry capacity. Now, if the registry is at
+// capacity when bb_pub's worker tries to register, "stack_bb_pub" is simply
+// absent from this payload — same property as every other registry-sourced
+// stack_<name> field below (B1-445). ~19 known tasks << the 24-entry default
+// cap, so this is not expected to bite in practice.
 static const named_task_t s_named[] = {
-    { "stack_bb_pub",  { "bb_pub",       NULL, NULL, NULL } },
     { "stack_httpd",   { "httpd",        "httpd_dispatcher", NULL, NULL } },
     { "stack_mqtt",    { "mqtt_task",    "mqtt_client", "mqtt", NULL } },
     { "stack_ipc0",    { "ipc0",         NULL, NULL, NULL } },
@@ -241,8 +257,13 @@ static bool rtos_sample(bb_json_t obj, void *ctx)
     bb_json_obj_set_string(obj, "min_free_stack_task", "bb_pub");
     bb_json_obj_set_number(obj, "task_count",          8.0);
 
-    // Emit a representative subset of named fields.
-    bb_json_obj_set_number(obj, "stack_bb_pub",  2048.0);
+    // Emit a representative subset of named fields. stack_bb_pub is
+    // intentionally NOT emitted here (mirrors the ESP-IDF path, see the
+    // s_named[] comment above): bb_pub's worker self-registers into
+    // bb_task_registry under "bb_pub" in production, so on host the field is
+    // only present if a test seeds "bb_pub" via bb_task_registry_test_seed()
+    // — a hardcoded literal here would double-emit the key (B1-450) whenever
+    // a test seeds "bb_pub" itself.
     bb_json_obj_set_number(obj, "stack_httpd",   3072.0);
     bb_json_obj_set_number(obj, "stack_mqtt",    4096.0);
     bb_json_obj_set_number(obj, "stack_ipc0",    2560.0);
