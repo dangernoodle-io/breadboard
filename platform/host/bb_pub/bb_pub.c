@@ -16,6 +16,7 @@
 #include "bb_nv.h"
 #include "bb_ring.h"
 
+#include <inttypes.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -247,6 +248,10 @@ static bool     s_started          = false;
 #ifndef CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES
 #define CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES 256
 #endif
+// Idle-free threshold: C default matches Kconfig default (30 ticks).
+#ifndef CONFIG_BB_PUB_BUFFER_IDLE_FREE_TICKS
+#define CONFIG_BB_PUB_BUFFER_IDLE_FREE_TICKS 30
+#endif
 
 // Topic budget: tunable via CONFIG_BB_PUB_BUFFER_TOPIC_MAX (Kconfig).
 // Must accommodate CONFIG_BB_PUB_TOPIC_PREFIX + hostname + CONFIG_BB_PUB_SUBTOPIC_MAX + 2 seps + NUL.
@@ -259,6 +264,10 @@ static bool     s_started          = false;
     (BB_PUB_BUFFER_TOPIC_MAX + 1 + CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES)
 
 static bb_ring_t s_buffer = NULL;
+// Consecutive idle-tick counter for free-when-idle (on-failure mode only).
+// Counts publish ticks where the ring is non-NULL and empty. Reset to 0
+// whenever the ring gains entries. Protected by s_tick_lock (Phase 3).
+static uint32_t  s_buffer_idle_ticks = 0;
 
 // Runtime toggle for always-on mode (mirrors CONFIG_BB_PUB_BUFFER_ALWAYS).
 // Under BB_PUB_TESTING a test seam overrides the compile-time default so both
@@ -288,6 +297,28 @@ static bool buffer_always_on(void)
 #else
     return false;
 #endif
+}
+#endif /* BB_PUB_TESTING */
+
+// Idle-free threshold accessor (ticks; 0 = disabled).
+// Under BB_PUB_TESTING a test seam can lower the threshold for fast tests.
+#ifdef BB_PUB_TESTING
+static int s_idle_free_ticks_override = -1;   /* -1 = use compile-time default */
+
+void bb_pub_test_set_idle_free_ticks(int n)
+{
+    s_idle_free_ticks_override = n;
+}
+
+static uint32_t buffer_idle_free_ticks(void)
+{
+    if (s_idle_free_ticks_override >= 0) return (uint32_t)s_idle_free_ticks_override;
+    return (uint32_t)CONFIG_BB_PUB_BUFFER_IDLE_FREE_TICKS;
+}
+#else
+static uint32_t buffer_idle_free_ticks(void)
+{
+    return (uint32_t)CONFIG_BB_PUB_BUFFER_IDLE_FREE_TICKS;
 }
 #endif /* BB_PUB_TESTING */
 
@@ -537,6 +568,7 @@ static void buffer_replay(const bb_pub_sink_t *sink,
 #ifdef BB_PUB_TESTING
 void bb_pub_test_set_synced_epoch_ms(int64_t epoch_ms) { (void)epoch_ms; }
 void bb_pub_test_set_buffer_always(bool always_on)     { (void)always_on; }
+void bb_pub_test_set_idle_free_ticks(int n)            { (void)n; }
 #endif
 void bb_pub_buffer_init_eager(void) {}
 
@@ -1490,6 +1522,27 @@ bb_err_t bb_pub_tick_once(void)
             s_published_ever   = true;
             s_last_publish_ok  = tick_all_ok;
         }
+        // Free-when-idle (B1-419): once the ring is fully drained and stays
+        // empty for BB_PUB_BUFFER_IDLE_FREE_TICKS consecutive publish ticks,
+        // reclaim the allocation. The ring is re-created lazily on the next
+        // sink failure via buffer_get(). Protected by s_tick_lock.
+        // Only runs in on-failure mode (!buffer_always_on()) — always-on mode
+        // intentionally keeps the ring resident.
+        uint32_t idle_thresh = buffer_idle_free_ticks();
+        if (idle_thresh > 0 && s_buffer != NULL) {
+            if (bb_ring_count(s_buffer) == 0) {
+                s_buffer_idle_ticks++;
+                if (s_buffer_idle_ticks >= idle_thresh) {
+                    bb_log_i(TAG, "store-forward: ring freed after %" PRIu32
+                             " idle ticks", idle_thresh);
+                    bb_ring_destroy(s_buffer);
+                    s_buffer = NULL;
+                    s_buffer_idle_ticks = 0;
+                }
+            } else {
+                s_buffer_idle_ticks = 0;
+            }
+        }
     }
 #else
     if (tick_published) {
@@ -1566,8 +1619,10 @@ void bb_pub_test_reset(void)
                        (size_t)BB_PUB_BUFFER_ENTRY_MAX,
                        BB_RING_EVICT_OLDEST, "pub", &s_buffer);
     }
-    s_test_epoch_ms   = -1;
-    s_buffer_always   = -1;   /* revert to compile-time default */
+    s_test_epoch_ms            = -1;
+    s_buffer_always            = -1;   /* revert to compile-time default */
+    s_buffer_idle_ticks        = 0;
+    s_idle_free_ticks_override = -1;   /* revert to compile-time default */
 #endif
     // Re-initialise the tick lock and in-publish primitives so any lock state
     // from a prior test is cleared.

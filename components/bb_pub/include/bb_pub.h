@@ -512,6 +512,16 @@ void bb_pub_test_set_synced_epoch_ms(int64_t epoch_ms);
  */
 void bb_pub_test_set_buffer_always(bool always_on);
 
+/**
+ * Override the idle-free threshold at runtime for testing. Pass a small
+ * positive value (e.g. 2) to trigger the ring reclaim quickly without running
+ * 30 ticks. Pass 0 to disable reclaim in the test. Pass -1 (or call
+ * bb_pub_test_reset()) to revert to the compile-time default.
+ * Only meaningful when CONFIG_BB_PUB_BUFFER_ENABLE is 1 and
+ * CONFIG_BB_PUB_BUFFER_ALWAYS=n (on-failure mode).
+ */
+void bb_pub_test_set_idle_free_ticks(int n);
+
 #endif /* BB_PUB_TESTING */
 
 /**

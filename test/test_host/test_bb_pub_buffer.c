@@ -593,3 +593,192 @@ void test_bb_pub_buffer_always_normal_goes_through_ring(void)
     bb_pub_buffer_stats(&stats);
     TEST_ASSERT_EQUAL_size_t(0, stats.count);   /* ring empty */
 }
+
+// ---------------------------------------------------------------------------
+// Idle-free tests (B1-419) — free store-forward ring when idle
+// ---------------------------------------------------------------------------
+
+// (a) Ring is created on first failure (lazy allocation still works, pre-condition
+//     for the idle-free tests). Ring must be non-NULL after one failing tick.
+void test_bb_pub_buffer_idle_ring_created_on_first_failure(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(false);
+    bb_pub_test_set_idle_free_ticks(5);   /* threshold above 1 so ring survives */
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    bb_pub_tick_once();   /* sink fails → entry captured */
+
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(1, stats.count);   /* ring allocated and has an entry */
+}
+
+// (b) Ring is destroyed after N empty ticks post-drain.
+void test_bb_pub_buffer_idle_ring_freed_after_n_idle_ticks(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(false);
+    bb_pub_test_set_idle_free_ticks(3);
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    /* tick 1: capture an entry (sink fails) */
+    bb_pub_tick_once();
+
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(1, stats.count);   /* entry buffered */
+
+    /* recovery: sink succeeds → ring drains */
+    s_ctx.fail = false;
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();   /* tick 2: live + replay; ring now empty */
+
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);   /* ring empty but still allocated */
+
+    /* idle ticks 1 and 2: ring stays empty (below threshold=3) */
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();   /* idle tick 1 */
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();   /* idle tick 2 */
+
+    /* ring should still exist (only 2 idle ticks, threshold is 3) */
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
+
+    /* idle tick 3: counter reaches threshold → ring freed */
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();
+
+    /* after free, s_buffer is NULL → stats report count=0 */
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
+
+    /* confirm the ring is really gone: a new failure must re-allocate it */
+    ctx_reset(&s_ctx);
+    s_ctx.fail = true;
+    bb_pub_tick_once();   /* re-allocates ring and captures */
+
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(1, stats.count);   /* ring re-created with entry */
+}
+
+// (c) Ring is re-created on subsequent failure after being freed.
+void test_bb_pub_buffer_idle_ring_recreated_after_free(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(false);
+    bb_pub_test_set_idle_free_ticks(2);
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    /* capture → drain → 2 idle ticks → ring freed */
+    bb_pub_tick_once();            /* capture: entry buffered */
+    s_ctx.fail = false;
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();            /* drain: ring empty */
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();            /* idle tick 1 */
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();            /* idle tick 2 → ring freed */
+
+    /* confirm ring is freed: first stats call sees count=0 */
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
+
+    /* second outage → ring must be re-created */
+    ctx_reset(&s_ctx);
+    s_ctx.fail = true;
+    bb_pub_tick_once();
+
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(1, stats.count);   /* re-created and has entry */
+
+    /* recovery from second outage → ring drains again */
+    s_ctx.fail = false;
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL_INT(2, s_ctx.count);   /* live + replayed */
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
+}
+
+// (d) BUFFER_ALWAYS=y — ring must NOT be freed even after many idle ticks.
+void test_bb_pub_buffer_idle_always_on_not_freed(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(true);    /* always-on mode */
+    bb_pub_test_set_idle_free_ticks(2);     /* low threshold would trigger if logic wrong */
+
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    /* run more ticks than the idle threshold; sink always succeeds → ring
+     * drains every tick (always-on: enqueue→drain). */
+    for (int i = 0; i < 5; i++) {
+        ctx_reset(&s_ctx);
+        bb_pub_tick_once();
+    }
+
+    /* ring must remain allocated: stats return count=0 (drained), not absent */
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    /* in always-on mode the ring drains each tick → count 0, but NOT destroyed */
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
+
+    /* confirm: a subsequent tick still works (ring present → enqueue succeeds) */
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, s_ctx.count,
+        "always-on: ring must still be present after idle ticks");
+}
+
+// (e) IDLE_FREE_TICKS=0 disables the idle reclaim.
+void test_bb_pub_buffer_idle_zero_ticks_disables_reclaim(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(false);
+    bb_pub_test_set_idle_free_ticks(0);   /* 0 = disabled */
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    /* capture → drain → many idle ticks */
+    bb_pub_tick_once();
+    s_ctx.fail = false;
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();   /* drains */
+
+    /* run 10 idle ticks; ring must NOT be freed */
+    for (int i = 0; i < 10; i++) {
+        ctx_reset(&s_ctx);
+        bb_pub_tick_once();
+    }
+
+    /* ring still allocated: a new failure can capture immediately */
+    ctx_reset(&s_ctx);
+    s_ctx.fail = true;
+    bb_pub_tick_once();
+
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(1, stats.count);
+    TEST_ASSERT_EQUAL_size_t(0, stats.dropped);
+}
