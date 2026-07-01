@@ -218,7 +218,7 @@ static bb_err_t events_handler(bb_http_request_t *req)
             bb_http_req_async_handler_complete(async_req);
             return BB_ERR_INVALID_STATE;
         }
-        bb_task_registry_register(task_name, SSE_TASK_STACK_WORDS * sizeof(StackType_t), th);
+        bb_task_registry_register(task_name, SSE_TASK_STACK_WORDS * sizeof(StackType_t), th, NULL, NULL);
     }
 #else
     {
@@ -229,7 +229,7 @@ static bb_err_t events_handler(bb_http_request_t *req)
             bb_http_req_async_handler_complete(async_req);
             return BB_ERR_INVALID_STATE;
         }
-        bb_task_registry_register(task_name, 4096, th);
+        bb_task_registry_register(task_name, 4096, th, NULL, NULL);
     }
 #endif
     return BB_OK;

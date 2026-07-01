@@ -159,7 +159,7 @@ static bool try_spawn(void)
         return false;
     }
 #endif
-    bb_task_registry_register("upd_check", BB_HTTP_CLIENT_TASK_STACK, upd_task);
+    bb_task_registry_register("upd_check", BB_HTTP_CLIENT_TASK_STACK, upd_task, NULL, NULL);
 
     return true;
 }

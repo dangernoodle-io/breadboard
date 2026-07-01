@@ -11,4 +11,16 @@ config BB_TASK_REGISTRY_MAX
         full registry logs a warning and does NOT fail task creation. Must be
         <= BB_REGISTRY_SNAPSHOT_MAX (64).
 
+config BB_TASK_REGISTRY_WDT_SUPPORT
+    bool "Route per-task hardware Task WDT subscribe/feed through bb_task_registry"
+    default y
+    depends on ESP_TASK_WDT_EN
+    help
+        When enabled, bb_task_registry_register()'s opts->hw_wdt_subscribe
+        performs esp_task_wdt_add(handle) on the caller's behalf, and
+        bb_task_registry_deregister() performs the matching
+        esp_task_wdt_delete(handle). When disabled (or the Task WDT itself
+        is off), hw_wdt_subscribe is accepted but is a no-op — registration
+        always succeeds.
+
 endmenu

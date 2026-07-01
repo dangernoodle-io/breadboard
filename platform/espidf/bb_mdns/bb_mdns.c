@@ -1050,7 +1050,7 @@ void bb_mdns_init(void)
     if (!s_dispatch_task) {
         if (xTaskCreate(bb_mdns_dispatch_task, "bb_mdns_disp", 4096, NULL,
                          BB_MDNS_TASK_PRIO, &s_dispatch_task) == pdPASS) {
-            bb_task_registry_register("bb_mdns_disp", 4096, s_dispatch_task);
+            bb_task_registry_register("bb_mdns_disp", 4096, s_dispatch_task, NULL, NULL);
         }
     }
     if (!s_query_queue) {
@@ -1059,7 +1059,7 @@ void bb_mdns_init(void)
     if (!s_query_task) {
         if (xTaskCreate(bb_mdns_query_task, "bb_mdns_query", 4096, NULL,
                          BB_MDNS_TASK_PRIO, &s_query_task) == pdPASS) {
-            bb_task_registry_register("bb_mdns_query", 4096, s_query_task);
+            bb_task_registry_register("bb_mdns_query", 4096, s_query_task, NULL, NULL);
         }
     }
 

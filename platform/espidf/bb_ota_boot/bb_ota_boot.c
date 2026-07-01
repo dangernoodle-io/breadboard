@@ -210,7 +210,7 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
-    bb_task_registry_register("ota_status_chk", BB_HTTP_CLIENT_TASK_STACK, status_chk_task);
+    bb_task_registry_register("ota_status_chk", BB_HTTP_CLIENT_TASK_STACK, status_chk_task, NULL, NULL);
 
     bb_http_resp_set_status(req, 202);
     bb_http_json_obj_stream_t obj;
@@ -427,7 +427,7 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
         bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
         esp_restart();
     }
-    bb_task_registry_register("ota_boot", OTA_BOOT_WORKER_STACK, boot_worker_task);
+    bb_task_registry_register("ota_boot", OTA_BOOT_WORKER_STACK, boot_worker_task, NULL, NULL);
     for (;;) {
         vTaskDelay(portMAX_DELAY);
     }
@@ -457,7 +457,7 @@ static bb_err_t ota_boot_handler(bb_http_request_t *req)
     bb_http_resp_json_obj_end(&obj);
     TaskHandle_t reboot_task = NULL;
     if (xTaskCreate(ota_boot_reboot_task, "ota_boot_rb", 2048, NULL, 5, &reboot_task) == pdPASS) {
-        bb_task_registry_register("ota_boot_rb", 2048, reboot_task);
+        bb_task_registry_register("ota_boot_rb", 2048, reboot_task, NULL, NULL);
     }
     return BB_OK;
 }

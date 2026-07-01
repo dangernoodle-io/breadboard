@@ -5,10 +5,10 @@
 // surfacing at GET /api/diag/tasks (bb_diag) and the "rtos" bb_pub telemetry
 // source (bb_pub_rtos).
 //
-// OBSERVABILITY ONLY (B1-445). This component does NOT subscribe tasks to the
-// Task WDT, does NOT alter scheduling, and does NOT change stack sizes or
-// task priorities. Automatic WDT subscription is a separate, deferred
-// feature (B1-458) — do not add it here.
+// PLUMBING (B1-458 PR-A). This component owns per-task hardware Task-WDT
+// subscribe/feed wiring via `bb_task_registry_opts_t` + a generation-checked
+// token. It does NOT implement a software-watchdog monitor, miss policy, or
+// sw-side diagnostics — that is a separate, later PR.
 //
 // Call bb_task_registry_register() once, immediately after a successful
 // xTaskCreate*() at each task-creation site, passing the stack budget already
@@ -16,6 +16,8 @@
 // void* — TaskHandle_t on ESP-IDF). Best-effort: a full registry
 // (BB_TASK_REGISTRY_MAX) or a duplicate name is logged and does NOT fail
 // task creation. `handle` may be NULL when the site does not retain one.
+// Pass `opts` to request hardware Task-WDT subscription (NULL == no
+// subscription, matching legacy behavior).
 //
 // Call bb_task_registry_deregister() before a task's own vTaskDelete(NULL)
 // if the task self-deletes (e.g. a one-shot worker) so the registry does not
@@ -34,15 +36,45 @@ extern "C" {
 
 #define BB_TASK_REGISTRY_NAME_MAX 20
 
+// Per-registration options. sw_wdt_timeout_ms (software-watchdog monitor) is
+// intentionally deferred to a later PR — do not add it here.
+typedef struct {
+    bool hw_wdt_subscribe;  // true: register() calls esp_task_wdt_add(handle)
+} bb_task_registry_opts_t;
+
+// Opaque handle to a live registration, returned by register() and consumed
+// by bb_task_registry_feed(). `generation` invalidates a token once the slot
+// backing `index` has been deregistered and (possibly) reused by a later
+// registration.
+// `generation` is uint16_t under the assumption that registrations are
+// boot-once / long-lived infra tasks (the registry does not see high-churn
+// slot reuse). A future consumer with high-churn slot reuse (many
+// register/deregister cycles on the same slot within a boot) would need to
+// widen this to uint32_t to avoid wraparound aliasing an old token.
+typedef struct {
+    uint16_t index;
+    uint16_t generation;
+} bb_task_registry_token_t;
+
+#define BB_TASK_REGISTRY_TOKEN_INVALID ((bb_task_registry_token_t){ .index = UINT16_MAX, .generation = 0 })
+
 // Register a task under `name`, recording its stack budget (bytes) and
 // opaque handle. Best-effort — see file header.
+// `opts` may be NULL (equivalent to `{.hw_wdt_subscribe = false}`). When
+// `opts->hw_wdt_subscribe` is true and `handle` is non-NULL, register()
+// makes a best-effort attempt to subscribe `handle` to the hardware Task
+// WDT — a failure is logged but never fails registration.
+// `out_token` may be NULL; when non-NULL it receives a token usable with
+// bb_task_registry_feed() for the lifetime of this registration.
 // Returns BB_ERR_INVALID_ARG if name is NULL.
 // Returns BB_ERR_NO_SPACE if the registry is full.
 // Returns BB_ERR_INVALID_STATE on a duplicate name.
 // `name` must be <= configMAX_TASK_NAME_LEN (typically 16) to match the
 // kernel-truncated name reported by the /api/diag/tasks lookup; longer names
 // still register but will not correlate against a live TaskStatus_t entry.
-bb_err_t bb_task_registry_register(const char *name, uint32_t stack_budget_bytes, void *handle);
+bb_err_t bb_task_registry_register(const char *name, uint32_t stack_budget_bytes, void *handle,
+                                    const bb_task_registry_opts_t *opts,
+                                    bb_task_registry_token_t *out_token);
 
 // Deregister a previously-registered task by handle value. Resolves the
 // registered name internally (scans the registry for a matching handle) so
@@ -88,6 +120,29 @@ typedef void (*bb_task_registry_cb_t)(const char *name, uint32_t stack_budget_by
                                        bool wdt_subscribed, void *ctx);
 void bb_task_registry_foreach(bb_task_registry_cb_t cb, void *ctx);
 
+// Feed the hardware Task WDT for the registration identified by `token`.
+// LOCK-FREE hot path — safe to call at any rate, including from inside a
+// tight loop; MUST NOT take s_task_reg_lock.
+//
+// SELF-FEED ONLY. This MUST be called by the task that owns `token` (i.e.
+// the task that received `token` from its own bb_task_registry_register()
+// call). It is NOT a mechanism for feeding the hardware WDT on behalf of
+// another task — the underlying esp_task_wdt_reset() pass-through always
+// resets the CALLING task's Task-WDT entry, regardless of which slot
+// `token` refers to. `token` is merely an O(1) self-identifier into the
+// caller's own registry entry, not a cross-task feed handle. Calling this
+// from a different task than the owner will not feed the owner's hardware
+// WDT entry (a warning is logged on ESP-IDF; last_feed is still recorded).
+//
+// If `token` is stale (the slot has since been deregistered and possibly
+// reused by a different registration — detected via generation mismatch) or
+// out of range (e.g. BB_TASK_REGISTRY_TOKEN_INVALID), this is a silent
+// no-op. If the registration behind `token` was not subscribed to the
+// hardware WDT (opts was NULL or hw_wdt_subscribe was false), the WDT feed
+// is skipped, but the token's last-feed timestamp is still advanced — this
+// is intentional plumbing for a later software-watchdog monitor PR.
+void bb_task_registry_feed(bb_task_registry_token_t token);
+
 #ifdef BB_TASK_REGISTRY_TESTING
 // Reset the registry to its initial (empty) state. Test teardown only.
 void bb_task_registry_test_reset(void);
@@ -96,7 +151,10 @@ void bb_task_registry_test_reset(void);
 // without a real task handle. Host tests have no FreeRTOS TaskHandle_t to
 // pass, and wdt_subscribed cannot be queried from a real WDT on host — this
 // bypasses both, storing the caller-supplied wdt_subscribed value verbatim.
-bb_err_t bb_task_registry_test_seed(const char *name, uint32_t stack_budget_bytes, bool wdt_subscribed);
+// `out_token` may be NULL; when non-NULL it receives a token usable with
+// bb_task_registry_feed() for feed-count assertions in tests.
+bb_err_t bb_task_registry_test_seed(const char *name, uint32_t stack_budget_bytes, bool wdt_subscribed,
+                                     bb_task_registry_token_t *out_token);
 #endif
 
 #ifdef __cplusplus

@@ -267,7 +267,7 @@ bb_err_t bb_prov_start_ap(void)
         s_ap_netif = NULL;
         return ESP_FAIL;
     }
-    bb_task_registry_register("dns", 4096, s_dns_task_handle);
+    bb_task_registry_register("dns", 4096, s_dns_task_handle, NULL, NULL);
 
     bb_log_i(TAG, "AP started: SSID=%s, password=%s", ssid, s_ap_password);
 

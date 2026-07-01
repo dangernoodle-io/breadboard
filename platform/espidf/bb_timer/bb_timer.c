@@ -12,7 +12,6 @@
 
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
-#include "bb_wdt.h"
 #ifdef CONFIG_BB_TIMER_DISP_STACK
 #define BB_TIMER_DISP_STACK CONFIG_BB_TIMER_DISP_STACK
 #endif
@@ -70,21 +69,40 @@ typedef struct {
 
 static QueueHandle_t s_disp_queue = NULL;
 static TaskHandle_t  s_disp_task  = NULL;
+// bb_timer_disp's own registry token, obtained from the register() call in
+// disp_ensure_started (parent context). disp_task_fn may start running on a
+// different core (xTaskCreatePinnedToCore) before that call returns and
+// publishes the token, so the two halves are carried as independent atomics
+// with a release/acquire pairing on the generation half — mirrors the
+// release/acquire pairing bb_task_registry.c already uses internally for its
+// per-entry generation counter. Publish: store index (relaxed) then
+// generation (release). Consume: load generation (acquire) then index
+// (relaxed) — release/acquire on `generation` establishes happens-before, so
+// the consumer's index read is guaranteed to observe the publisher's index
+// store. A pre-publish read yields BB_TASK_REGISTRY_TOKEN_INVALID (the init
+// value below), which bb_task_registry_feed() treats as a harmless no-op —
+// so no ordering dependency is required for correctness, only for promptly
+// picking up the real token.
+static _Atomic uint16_t s_disp_token_index = UINT16_MAX; /* BB_TASK_REGISTRY_TOKEN_INVALID.index */
+static _Atomic uint16_t s_disp_token_gen   = 0;          /* BB_TASK_REGISTRY_TOKEN_INVALID.generation */
 
 static void disp_task_fn(void *unused)
 {
     (void)unused;
     bb_disp_msg_t msg;
 #if defined(ESP_PLATFORM) && defined(CONFIG_BB_TIMER_DISP_WDT_ENABLE)
-    bb_wdt_task_subscribe();
     for (;;) {
+        /* Acquire consume — see s_disp_token_index/_gen comment above. */
+        bb_task_registry_token_t token;
+        token.generation = atomic_load_explicit(&s_disp_token_gen, memory_order_acquire);
+        token.index      = atomic_load_explicit(&s_disp_token_index, memory_order_relaxed);
         if (xQueueReceive(s_disp_queue, &msg,
                           pdMS_TO_TICKS(BB_TIMER_DISP_WDT_FEED_MS)) == pdTRUE) {
             msg.work_fn(msg.arg);
-            bb_wdt_task_feed();
+            bb_task_registry_feed(token);
         } else {
             /* queue empty / idle timeout — feed to prove we are alive */
-            bb_wdt_task_feed();
+            bb_task_registry_feed(token);
         }
     }
 #else
@@ -118,7 +136,24 @@ static bb_err_t disp_ensure_started(void)
         s_disp_queue = NULL;
         return BB_ERR_NO_SPACE;
     }
-    bb_task_registry_register("bb_timer_disp", BB_TIMER_DISP_STACK, s_disp_task);
+    // Registry owns bb_timer_disp's hw WDT subscribe (parent context) —
+    // same runtime effect as the task's former self-subscribe, gated by the
+    // same Kconfig.
+    bb_task_registry_opts_t opts = {
+#if defined(ESP_PLATFORM) && defined(CONFIG_BB_TIMER_DISP_WDT_ENABLE)
+        .hw_wdt_subscribe = true,
+#else
+        .hw_wdt_subscribe = false,
+#endif
+    };
+    // Register into a local token, then publish via release stores — see the
+    // s_disp_token_index/_gen comment above for why disp_task_fn (which may
+    // already be running on the other core) must never see a torn/partial
+    // write of the token here.
+    bb_task_registry_token_t local_token = BB_TASK_REGISTRY_TOKEN_INVALID;
+    bb_task_registry_register("bb_timer_disp", BB_TIMER_DISP_STACK, s_disp_task, &opts, &local_token);
+    atomic_store_explicit(&s_disp_token_index, local_token.index, memory_order_relaxed);
+    atomic_store_explicit(&s_disp_token_gen, local_token.generation, memory_order_release);
     return BB_OK;
 }
 
@@ -552,7 +587,7 @@ bb_err_t bb_timer_worker_periodic_create(void (*work_fn)(void *arg), void *arg,
         bb_mem_free(t);
         return BB_ERR_NO_SPACE;
     }
-    bb_task_registry_register(name ? name : "bb_timer_worker", stack, t->worker_task);
+    bb_task_registry_register(name ? name : "bb_timer_worker", stack, t->worker_task, NULL, NULL);
 
     esp_timer_create_args_t args = {
         .callback        = periodic_dispatcher,

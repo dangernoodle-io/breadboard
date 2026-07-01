@@ -2255,6 +2255,19 @@ void test_bb_task_registry_test_seed_null_name_returns_invalid_arg(void);
 void test_bb_task_registry_test_seed_overflow_returns_no_space(void);
 void test_bb_task_registry_test_seed_duplicate_name_returns_invalid_state(void);
 void test_bb_task_registry_test_reset_clears_all(void);
+void test_bb_task_registry_register_opts_hw_wdt_subscribe_true(void);
+void test_bb_task_registry_register_opts_null_no_subscribe(void);
+void test_bb_task_registry_deregister_subscribed_unsubscribes(void);
+void test_bb_task_registry_feed_valid_token_feeds_and_advances(void);
+void test_bb_task_registry_feed_stale_token_is_noop(void);
+void test_bb_task_registry_feed_invalid_token_is_noop(void);
+void test_bb_task_registry_generation_reuse_invalidates_old_token(void);
+void test_bb_task_registry_zero_token_does_not_alias_live_slot_zero(void);
+void test_bb_task_registry_register_null_handle_with_subscribe_is_skipped(void);
+void test_bb_task_registry_register_rollback_unsubscribes_on_duplicate(void);
+void test_bb_task_registry_register_opts_non_null_subscribe_false(void);
+void test_bb_task_registry_feed_unsubscribed_token_skips_hw_feed(void);
+void test_bb_task_registry_test_seed_out_token_populated(void);
 
 // Forward declarations from test_bb_event_topic_registry.c
 void test_bb_event_topic_registry_register_and_count(void);
@@ -5596,6 +5609,19 @@ int main(void) {
     RUN_TEST(test_bb_task_registry_test_seed_overflow_returns_no_space);
     RUN_TEST(test_bb_task_registry_test_seed_duplicate_name_returns_invalid_state);
     RUN_TEST(test_bb_task_registry_test_reset_clears_all);
+    RUN_TEST(test_bb_task_registry_register_opts_hw_wdt_subscribe_true);
+    RUN_TEST(test_bb_task_registry_register_opts_null_no_subscribe);
+    RUN_TEST(test_bb_task_registry_deregister_subscribed_unsubscribes);
+    RUN_TEST(test_bb_task_registry_feed_valid_token_feeds_and_advances);
+    RUN_TEST(test_bb_task_registry_feed_stale_token_is_noop);
+    RUN_TEST(test_bb_task_registry_feed_invalid_token_is_noop);
+    RUN_TEST(test_bb_task_registry_generation_reuse_invalidates_old_token);
+    RUN_TEST(test_bb_task_registry_zero_token_does_not_alias_live_slot_zero);
+    RUN_TEST(test_bb_task_registry_register_null_handle_with_subscribe_is_skipped);
+    RUN_TEST(test_bb_task_registry_register_rollback_unsubscribes_on_duplicate);
+    RUN_TEST(test_bb_task_registry_register_opts_non_null_subscribe_false);
+    RUN_TEST(test_bb_task_registry_feed_unsubscribed_token_skips_hw_feed);
+    RUN_TEST(test_bb_task_registry_test_seed_out_token_populated);
 
     // bb_event_topic_registry tests
     RUN_TEST(test_bb_event_topic_registry_register_and_count);
