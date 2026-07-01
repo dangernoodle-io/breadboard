@@ -7,8 +7,17 @@
 //
 // PLUMBING (B1-458 PR-A). This component owns per-task hardware Task-WDT
 // subscribe/feed wiring via `bb_task_registry_opts_t` + a generation-checked
-// token. It does NOT implement a software-watchdog monitor, miss policy, or
-// sw-side diagnostics — that is a separate, later PR.
+// token.
+//
+// SOFTWARE WATCHDOG MONITOR (B1-458 PR-B). Built on top of PR-A's
+// self-feed/token plumbing: `opts->sw_wdt_timeout_ms` (0 = off) arms a
+// per-task software miss check, evaluated by `bb_task_registry_sw_wdt_check()`
+// — a pure, host-testable evaluator driven by a periodic monitor task
+// (`platform/espidf/bb_task_registry/bb_task_registry_monitor.c`, gated by
+// `CONFIG_BB_TASK_REGISTRY_SW_WDT`) on ESP-IDF. Miss episodes are reported
+// via an optional handler (`bb_task_registry_set_sw_wdt_handler`) and
+// surfaced diagnostically via `bb_task_registry_lookup_sw_wdt()`. This is
+// OBSERVE-ONLY — it never reboots or otherwise acts on a miss.
 //
 // Call bb_task_registry_register() once, immediately after a successful
 // xTaskCreate*() at each task-creation site, passing the stack budget already
@@ -36,10 +45,10 @@ extern "C" {
 
 #define BB_TASK_REGISTRY_NAME_MAX 20
 
-// Per-registration options. sw_wdt_timeout_ms (software-watchdog monitor) is
-// intentionally deferred to a later PR — do not add it here.
+// Per-registration options.
 typedef struct {
-    bool hw_wdt_subscribe;  // true: register() calls esp_task_wdt_add(handle)
+    bool hw_wdt_subscribe;       // true: register() calls esp_task_wdt_add(handle)
+    uint32_t sw_wdt_timeout_ms;  // 0 = software watchdog off for this task
 } bb_task_registry_opts_t;
 
 // Opaque handle to a live registration, returned by register() and consumed
@@ -143,6 +152,51 @@ void bb_task_registry_foreach(bb_task_registry_cb_t cb, void *ctx);
 // is intentional plumbing for a later software-watchdog monitor PR.
 void bb_task_registry_feed(bb_task_registry_token_t token);
 
+// --- Software watchdog monitor (B1-458 PR-B) ---------------------------
+
+// Miss handler, invoked once per miss EPISODE (debounced — not once per
+// check tick) from bb_task_registry_sw_wdt_check(), OUTSIDE the internal
+// lock. `name` and `handle` identify the offending task; `overrun_ms` is how
+// far past sw_wdt_timeout_ms the last feed is. Observe-only: this API never
+// reboots or otherwise acts on a miss — that policy is entirely the
+// consumer's.
+typedef void (*bb_task_registry_sw_wdt_handler_t)(const char *name, void *handle,
+                                                   uint32_t overrun_ms, void *ctx);
+
+// Register a miss handler (NULL to clear). Call once at startup, before the
+// monitor task (or bb_task_registry_sw_wdt_check()) starts running — not
+// synchronized against concurrent check() calls.
+void bb_task_registry_set_sw_wdt_handler(bb_task_registry_sw_wdt_handler_t fn, void *ctx);
+
+// Pure per-tick evaluator for the software watchdog — the host-testable seam
+// driving both the real monitor task (platform/espidf/bb_task_registry/
+// bb_task_registry_monitor.c) and host tests synchronously.
+//
+// 3-phase, snapshot-first (see bb_ring_diag.c for the general pattern this
+// mirrors): (1) copy every in-use entry with sw_wdt_timeout_ms > 0 into a
+// bounded stack snapshot under the internal lock, then unlock; (2) with NO
+// lock held, evaluate each snapshot entry for a wrap-safe overdue condition
+// `(uint32_t)(now_ms - last_feed_ms) > sw_wdt_timeout_ms`, firing the miss
+// handler (if any) at most once per miss episode (debounced via
+// miss_active) and staging the resulting miss_count/last_miss_ms/miss_active
+// update; (3) re-take the lock and commit each staged update ONLY if the
+// slot's current generation still matches the snapshot's generation
+// (otherwise the slot was deregistered/reused between phases 1 and 3 — skip
+// it). The handler callback always runs outside the lock.
+void bb_task_registry_sw_wdt_check(uint32_t now_ms);
+
+// Pure lookup for sw-watchdog diagnostics, mirrors lookup_budget. Returns
+// true and fills out params (any of which may be NULL) only when `name` is
+// registered AND its sw_wdt_timeout_ms > 0; returns false otherwise (out
+// params left untouched). Ages are computed against caller-supplied `now_ms`
+// using wrap-safe subtraction; `*out_last_miss_age_ms` is 0 when no miss has
+// ever been recorded (mirrors bb_event_ring's "0 if none yet" convention).
+bool bb_task_registry_lookup_sw_wdt(const char *name, uint32_t now_ms,
+                                     uint32_t *out_timeout_ms,
+                                     uint32_t *out_last_feed_age_ms,
+                                     uint32_t *out_last_miss_age_ms,
+                                     uint32_t *out_miss_count);
+
 #ifdef BB_TASK_REGISTRY_TESTING
 // Reset the registry to its initial (empty) state. Test teardown only.
 void bb_task_registry_test_reset(void);
@@ -155,6 +209,13 @@ void bb_task_registry_test_reset(void);
 // bb_task_registry_feed() for feed-count assertions in tests.
 bb_err_t bb_task_registry_test_seed(const char *name, uint32_t stack_budget_bytes, bool wdt_subscribed,
                                      bb_task_registry_token_t *out_token);
+
+// Test hook: directly set the last-feed timestamp for `token`'s slot,
+// bypassing the real bb_task_registry_feed() (which always stamps
+// bb_clock_now_ms()). Lets sw-watchdog tests drive
+// bb_task_registry_sw_wdt_check() deterministically without a real clock
+// mock. Silent no-op if `token.index` is out of range.
+void bb_task_registry_test_set_last_feed_ms(bb_task_registry_token_t token, uint32_t ms);
 #endif
 
 #ifdef __cplusplus

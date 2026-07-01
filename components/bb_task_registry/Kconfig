@@ -9,7 +9,10 @@ config BB_TASK_REGISTRY_MAX
         GET /api/diag/tasks and the "rtos" bb_pub telemetry source. Every
         self-registering task-creation site registers here (best-effort); a
         full registry logs a warning and does NOT fail task creation. Must be
-        <= BB_REGISTRY_SNAPSHOT_MAX (64).
+        <= BB_REGISTRY_SNAPSHOT_MAX (64). Also sizes the sw-watchdog
+        monitor's static snapshot buffer (BSS; see
+        bb_task_registry_sw_wdt_check()) when BB_TASK_REGISTRY_SW_WDT is
+        enabled.
 
 config BB_TASK_REGISTRY_WDT_SUPPORT
     bool "Route per-task hardware Task WDT subscribe/feed through bb_task_registry"
@@ -22,5 +25,55 @@ config BB_TASK_REGISTRY_WDT_SUPPORT
         esp_task_wdt_delete(handle). When disabled (or the Task WDT itself
         is off), hw_wdt_subscribe is accepted but is a no-op — registration
         always succeeds.
+
+config BB_TASK_REGISTRY_SW_WDT
+    bool "Enable software per-task watchdog monitor"
+    default n
+    help
+        Compiles in and auto-starts the sw-watchdog monitor task
+        (platform/espidf/bb_task_registry/bb_task_registry_monitor.c), which
+        periodically calls bb_task_registry_sw_wdt_check() and reports
+        overdue tasks (observe-only — never reboots). The
+        bb_task_registry_sw_wdt_check() API and per-task
+        opts->sw_wdt_timeout_ms field always compile in, on host and
+        ESP-IDF, regardless of this setting — this gate only controls
+        whether the monitor TASK is created. Per-task enablement is always
+        opts->sw_wdt_timeout_ms (0 = off); this Kconfig has no default-on
+        effect on any task.
+
+config BB_TASK_REGISTRY_SW_WDT_CHECK_MS
+    int "Software watchdog monitor check cadence (ms)"
+    default 1000
+    range 100 10000
+    depends on BB_TASK_REGISTRY_SW_WDT
+    help
+        How often the monitor task calls bb_task_registry_sw_wdt_check().
+
+config BB_TASK_REGISTRY_SW_WDT_STACK
+    int "Software watchdog monitor task stack (bytes)"
+    default 3072
+    range 2048 8192
+    depends on BB_TASK_REGISTRY_SW_WDT
+
+config BB_TASK_REGISTRY_SW_WDT_PRIORITY
+    int "Software watchdog monitor task priority"
+    default 2
+    range 1 20
+    depends on BB_TASK_REGISTRY_SW_WDT
+
+config BB_TASK_REGISTRY_SW_WDT_CORE
+    int "Software watchdog monitor task core affinity (-1 = no affinity)"
+    default -1
+    range -1 1
+    depends on BB_TASK_REGISTRY_SW_WDT
+
+config BB_TASK_REGISTRY_SW_WDT_HW_SUBSCRIBE
+    bool "Subscribe the software watchdog monitor task to the hardware Task WDT"
+    default y
+    depends on BB_TASK_REGISTRY_SW_WDT && ESP_TASK_WDT_EN
+    help
+        When enabled, the monitor task registers itself into
+        bb_task_registry with opts->hw_wdt_subscribe=true, so a dead monitor
+        (unable to feed itself) trips the global hardware Task WDT.
 
 endmenu
