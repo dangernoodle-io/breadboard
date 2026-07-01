@@ -1,11 +1,11 @@
 menu "breadboard: bb_mqtt_info"
 
 config BB_MQTT_INFO_AUTOREGISTER
-    bool "Auto-register /api/health \"mqtt\" section via bb_registry"
+    bool "Auto-register /api/health \"mqtt\" section via bb_init"
     default n
     help
         When enabled, bb_mqtt_info self-registers the "mqtt" health section
-        through bb_registry (regular tier, order 1). Consumers that call
+        through bb_init (regular tier, order 1). Consumers that call
         bb_mqtt_register_health() manually must leave this disabled; enabling
         both double-registers the section. Default n preserves backward-
         compatible manual-register behavior.

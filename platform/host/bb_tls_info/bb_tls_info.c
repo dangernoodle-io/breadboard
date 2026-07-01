@@ -28,7 +28,7 @@ void bb_tls_info_register(void)
 }
 
 #if CONFIG_BB_TLS_INFO_AUTOREGISTER
-#include "bb_registry.h"
+#include "bb_init.h"
 
 static bb_err_t tls_info_pre_http_init(void)
 {
@@ -36,5 +36,5 @@ static bb_err_t tls_info_pre_http_init(void)
     return BB_OK;
 }
 
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_tls_info, tls_info_pre_http_init);
+BB_INIT_REGISTER_PRE_HTTP(bb_tls_info, tls_info_pre_http_init);
 #endif /* CONFIG_BB_TLS_INFO_AUTOREGISTER */

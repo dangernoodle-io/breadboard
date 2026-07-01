@@ -11,7 +11,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_openapi.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include <stdbool.h>
 #include <string.h>
 
@@ -184,5 +184,5 @@ static bb_err_t bb_pub_rtos_init(void)
 }
 
 #if CONFIG_BB_PUB_RTOS_AUTO_ATTACH
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_pub_rtos, bb_pub_rtos_init);
+BB_INIT_REGISTER_PRE_HTTP(bb_pub_rtos, bb_pub_rtos_init);
 #endif

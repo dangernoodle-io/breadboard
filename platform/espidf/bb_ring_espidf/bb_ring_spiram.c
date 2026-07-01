@@ -10,7 +10,7 @@
 #include "bb_ring.h"
 #include "bb_core.h"
 #include "bb_mem.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 
 static bb_err_t bb_ring_spiram_early_init(void)
 {
@@ -18,4 +18,4 @@ static bb_err_t bb_ring_spiram_early_init(void)
     return BB_OK;
 }
 
-BB_REGISTRY_REGISTER_EARLY(bb_ring_spiram, bb_ring_spiram_early_init);
+BB_INIT_REGISTER_EARLY(bb_ring_spiram, bb_ring_spiram_early_init);

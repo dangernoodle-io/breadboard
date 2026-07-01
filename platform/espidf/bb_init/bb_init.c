@@ -1,4 +1,4 @@
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_http.h"
 #include "bb_log.h"
 #include "bb_mem.h"
@@ -7,20 +7,20 @@
 #include <stdlib.h>
 #include <assert.h>
 
-static const char *TAG = "bb_registry";
+static const char *TAG = "bb_init";
 
 typedef struct node {
-    const bb_registry_entry_t *entry;
+    const bb_init_entry_t *entry;
     struct node               *next;
 } node_t;
 
 typedef struct node_early {
-    const bb_registry_entry_early_t *entry;
+    const bb_init_entry_early_t *entry;
     struct node_early               *next;
 } node_early_t;
 
 typedef struct node_pre_http {
-    const bb_registry_entry_pre_http_t *entry;
+    const bb_init_entry_pre_http_t *entry;
     struct node_pre_http               *next;
 } node_pre_http_t;
 
@@ -29,7 +29,7 @@ static node_early_t *s_early_head = NULL;
 static node_pre_http_t *s_pre_http_head = NULL;
 static bool s_pre_http_walked = false;
 
-void bb_registry_add(const bb_registry_entry_t *entry)
+void bb_init_add(const bb_init_entry_t *entry)
 {
     if (!entry) return;
 
@@ -41,17 +41,17 @@ void bb_registry_add(const bb_registry_entry_t *entry)
     s_head   = n;
 }
 
-bb_err_t bb_registry_init(void)
+bb_err_t bb_init_init(void)
 {
     bb_err_t first_error = BB_OK;
 
     // 1. Walk PRE_HTTP entries (after EARLY, before server start)
     {
         if (s_pre_http_walked) {
-            printf("[bb_registry] pre_http init: already walked, skipping\n");
+            printf("[bb_init] pre_http init: already walked, skipping\n");
         } else {
-            size_t count = bb_registry_count_pre_http();
-            printf("[bb_registry] pre_http init: %zu entries\n", count);
+            size_t count = bb_init_count_pre_http();
+            printf("[bb_init] pre_http init: %zu entries\n", count);
 
             node_pre_http_t *nodes[256];
             size_t n = 0;
@@ -82,8 +82,8 @@ bb_err_t bb_registry_init(void)
     // 3. Walk regular entries (route registration — server must be up)
     {
         bb_http_handle_t server = bb_http_server_get_handle();
-        size_t count = bb_registry_count();
-        printf("[bb_registry] registry init: %zu entries\n", count);
+        size_t count = bb_init_count();
+        printf("[bb_init] registry init: %zu entries\n", count);
 
         // Walk from head to tail; since we prepend, this walks in reverse order
         // To visit in insertion order, we need to reverse the list or count from tail
@@ -142,7 +142,7 @@ bb_err_t bb_registry_init(void)
     return first_error;
 }
 
-size_t bb_registry_count(void)
+size_t bb_init_count(void)
 {
     size_t count = 0;
     for (node_t *p = s_head; p; p = p->next) {
@@ -151,7 +151,7 @@ size_t bb_registry_count(void)
     return count;
 }
 
-void bb_registry_foreach(void (*cb)(const bb_registry_entry_t *, void *), void *ctx)
+void bb_init_foreach(void (*cb)(const bb_init_entry_t *, void *), void *ctx)
 {
     if (!cb) return;
 
@@ -168,7 +168,7 @@ void bb_registry_foreach(void (*cb)(const bb_registry_entry_t *, void *), void *
     }
 }
 
-void bb_registry_clear(void)
+void bb_init_clear(void)
 {
     while (s_head) {
         node_t *tmp = s_head;
@@ -177,7 +177,7 @@ void bb_registry_clear(void)
     }
 }
 
-void bb_registry_add_early(const bb_registry_entry_early_t *entry)
+void bb_init_add_early(const bb_init_entry_early_t *entry)
 {
     if (!entry) return;
 
@@ -189,10 +189,10 @@ void bb_registry_add_early(const bb_registry_entry_early_t *entry)
     s_early_head   = n;
 }
 
-bb_err_t bb_registry_init_early(void)
+bb_err_t bb_init_init_early(void)
 {
-    size_t count = bb_registry_count_early();
-    printf("[bb_registry] early init: %zu entries\n", count);
+    size_t count = bb_init_count_early();
+    printf("[bb_init] early init: %zu entries\n", count);
 
     bb_err_t first_error = BB_OK;
 
@@ -216,7 +216,7 @@ bb_err_t bb_registry_init_early(void)
     return first_error;
 }
 
-size_t bb_registry_count_early(void)
+size_t bb_init_count_early(void)
 {
     size_t count = 0;
     for (node_early_t *p = s_early_head; p; p = p->next) {
@@ -225,7 +225,7 @@ size_t bb_registry_count_early(void)
     return count;
 }
 
-void bb_registry_foreach_early(void (*cb)(const bb_registry_entry_early_t *, void *), void *ctx)
+void bb_init_foreach_early(void (*cb)(const bb_init_entry_early_t *, void *), void *ctx)
 {
     if (!cb) return;
 
@@ -242,7 +242,7 @@ void bb_registry_foreach_early(void (*cb)(const bb_registry_entry_early_t *, voi
     }
 }
 
-void bb_registry_clear_early(void)
+void bb_init_clear_early(void)
 {
     while (s_early_head) {
         node_early_t *tmp = s_early_head;
@@ -251,7 +251,7 @@ void bb_registry_clear_early(void)
     }
 }
 
-void bb_registry_add_pre_http(const bb_registry_entry_pre_http_t *entry)
+void bb_init_add_pre_http(const bb_init_entry_pre_http_t *entry)
 {
     if (!entry) return;
 
@@ -263,15 +263,15 @@ void bb_registry_add_pre_http(const bb_registry_entry_pre_http_t *entry)
     s_pre_http_head = n;
 }
 
-bb_err_t bb_registry_init_pre_http(void)
+bb_err_t bb_init_init_pre_http(void)
 {
     if (s_pre_http_walked) {
-        printf("[bb_registry] pre_http init: already walked, skipping\n");
+        printf("[bb_init] pre_http init: already walked, skipping\n");
         return BB_OK;
     }
 
-    size_t count = bb_registry_count_pre_http();
-    printf("[bb_registry] pre_http init: %zu entries\n", count);
+    size_t count = bb_init_count_pre_http();
+    printf("[bb_init] pre_http init: %zu entries\n", count);
 
     bb_err_t first_error = BB_OK;
 
@@ -292,7 +292,7 @@ bb_err_t bb_registry_init_pre_http(void)
     return first_error;
 }
 
-size_t bb_registry_count_pre_http(void)
+size_t bb_init_count_pre_http(void)
 {
     size_t count = 0;
     for (node_pre_http_t *p = s_pre_http_head; p; p = p->next) {
@@ -301,7 +301,7 @@ size_t bb_registry_count_pre_http(void)
     return count;
 }
 
-void bb_registry_foreach_pre_http(void (*cb)(const bb_registry_entry_pre_http_t *, void *), void *ctx)
+void bb_init_foreach_pre_http(void (*cb)(const bb_init_entry_pre_http_t *, void *), void *ctx)
 {
     if (!cb) return;
 
@@ -316,7 +316,7 @@ void bb_registry_foreach_pre_http(void (*cb)(const bb_registry_entry_pre_http_t 
     }
 }
 
-void bb_registry_clear_pre_http(void)
+void bb_init_clear_pre_http(void)
 {
     while (s_pre_http_head) {
         node_pre_http_t *tmp = s_pre_http_head;

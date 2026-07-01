@@ -10,7 +10,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mdns.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_wifi.h"
 
 #include "../../../components/bb_health/bb_health_schema_priv.h"
@@ -127,6 +127,6 @@ static bb_err_t bb_health_reserve_routes(void)
     bb_http_reserve_routes(1);  // GET /api/health
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_health, bb_health_reserve_routes);
-BB_REGISTRY_REGISTER_N(bb_health, bb_health_init, 1);
+BB_INIT_REGISTER_PRE_HTTP(bb_health, bb_health_reserve_routes);
+BB_INIT_REGISTER_N(bb_health, bb_health_init, 1);
 #endif

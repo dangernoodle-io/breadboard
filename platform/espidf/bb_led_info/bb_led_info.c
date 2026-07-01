@@ -4,7 +4,7 @@
 #include "bb_json.h"
 
 #if defined(CONFIG_BB_LED_INFO_AUTOREGISTER) && CONFIG_BB_LED_INFO_AUTOREGISTER
-#include "bb_registry.h"
+#include "bb_init.h"
 #endif
 
 /* JSON-Schema value for the "led" section. */
@@ -42,7 +42,7 @@ void bb_led_register_info(void)
 
 /* order 1: bb_info registers at order 2 but its section table accepts
  * registrations at any regular-tier order before bb_info_freeze (order 20).
- * Mirrors the sequencing of the manual call (before bb_registry_init). */
+ * Mirrors the sequencing of the manual call (before bb_init_init). */
 static bb_err_t bb_led_info_autoregister_init(bb_http_handle_t server)
 {
     (void)server;
@@ -50,6 +50,6 @@ static bb_err_t bb_led_info_autoregister_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-BB_REGISTRY_REGISTER_N(bb_led_info, bb_led_info_autoregister_init, 1);
+BB_INIT_REGISTER_N(bb_led_info, bb_led_info_autoregister_init, 1);
 
 #endif /* CONFIG_BB_LED_INFO_AUTOREGISTER */

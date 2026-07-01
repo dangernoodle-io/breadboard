@@ -1,10 +1,10 @@
 menu "breadboard: bb_health"
 
 config BB_HEALTH_AUTOREGISTER
-    bool "Auto-register /api/health HTTP route via bb_registry"
+    bool "Auto-register /api/health HTTP route via bb_init"
     default y
     help
-        When enabled, bb_health self-registers GET /api/health through bb_registry.
+        When enabled, bb_health self-registers GET /api/health through bb_init.
         Disable to keep the bb_health_register_extender API but skip the route
         entirely.
 

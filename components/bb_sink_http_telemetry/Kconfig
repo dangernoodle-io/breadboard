@@ -1,7 +1,7 @@
 menu "breadboard: bb_sink_http_telemetry"
 
 config BB_SINK_HTTP_TELEMETRY_AUTOREGISTER
-    bool "Auto-register http publish telemetry section via bb_registry"
+    bool "Auto-register http publish telemetry section via bb_init"
     default y
     depends on BB_TELEMETRY_AUTOREGISTER
     help

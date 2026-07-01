@@ -4,7 +4,7 @@
 #include "bb_temp.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -83,5 +83,5 @@ bb_err_t bb_thermal_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_THERMAL_AUTOREGISTER
-BB_REGISTRY_REGISTER_N(bb_thermal, bb_thermal_init, 1);
+BB_INIT_REGISTER_N(bb_thermal, bb_thermal_init, 1);
 #endif

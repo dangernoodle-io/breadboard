@@ -8,7 +8,7 @@
 #include "bb_http.h"
 #include "bb_log.h"
 #include "bb_mem.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_wdt.h"
 #include "esp_ota_ops.h"
 #include "esp_image_format.h"
@@ -381,8 +381,8 @@ static bb_err_t bb_ota_push_reserve_routes(void)
     bb_http_reserve_routes(1);  // POST /api/update/push
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_ota_push, bb_ota_push_reserve_routes);
-BB_REGISTRY_REGISTER_N(bb_ota_push, bb_ota_push_init, 1);
+BB_INIT_REGISTER_PRE_HTTP(bb_ota_push, bb_ota_push_reserve_routes);
+BB_INIT_REGISTER_N(bb_ota_push, bb_ota_push_init, 1);
 #endif
 
 #endif // ESP_PLATFORM

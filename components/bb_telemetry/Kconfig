@@ -1,11 +1,11 @@
 menu "breadboard: bb_telemetry"
 
 config BB_TELEMETRY_AUTOREGISTER
-    bool "Auto-register /api/telemetry HTTP routes via bb_registry"
+    bool "Auto-register /api/telemetry HTTP routes via bb_init"
     default y
     help
         When enabled, bb_telemetry self-registers GET and PATCH /api/telemetry
-        through bb_registry at order 5. Disable to call bb_telemetry_init
+        through bb_init at order 5. Disable to call bb_telemetry_init
         manually.
 
 config BB_TELEMETRY_MAX_SECTIONS

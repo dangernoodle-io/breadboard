@@ -9,7 +9,7 @@
 #include "bb_log.h"
 #include "bb_nv.h"
 #include "bb_openapi.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -115,6 +115,6 @@ static bb_err_t bb_display_info_register_init(bb_http_handle_t server)
 }
 
 /* order 4: after bb_event_routes_init (order 0) — mirrors bb_update_check. */
-BB_REGISTRY_REGISTER_N(bb_display_info, bb_display_info_register_init, 4);
+BB_INIT_REGISTER_N(bb_display_info, bb_display_info_register_init, 4);
 
 #endif /* CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH */

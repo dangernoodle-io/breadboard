@@ -17,7 +17,7 @@
 #include "bb_mqtt.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include <stdbool.h>
 
 #ifndef CONFIG_BB_PUB_HEALTH_AUTO_ATTACH
@@ -83,5 +83,5 @@ static bb_err_t bb_pub_health_init(void)
 }
 
 #if CONFIG_BB_PUB_HEALTH_AUTO_ATTACH
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_pub_health, bb_pub_health_init);
+BB_INIT_REGISTER_PRE_HTTP(bb_pub_health, bb_pub_health_init);
 #endif

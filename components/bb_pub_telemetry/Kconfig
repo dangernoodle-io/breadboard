@@ -1,7 +1,7 @@
 menu "breadboard: bb_pub_telemetry"
 
 config BB_PUB_TELEMETRY_AUTOREGISTER
-    bool "Auto-register publisher telemetry section via bb_registry"
+    bool "Auto-register publisher telemetry section via bb_init"
     default y
     depends on BB_TELEMETRY_AUTOREGISTER
     help

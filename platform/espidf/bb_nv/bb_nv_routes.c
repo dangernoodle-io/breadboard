@@ -2,7 +2,7 @@
 #include "bb_http.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 
 #include <string.h>
 
@@ -143,7 +143,7 @@ static bb_err_t bb_nv_factory_reset_routes_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_NV_FACTORY_RESET_AUTOREGISTER
-BB_REGISTRY_REGISTER(bb_nv_factory_reset_routes, bb_nv_factory_reset_routes_init);
+BB_INIT_REGISTER(bb_nv_factory_reset_routes, bb_nv_factory_reset_routes_init);
 #endif
 
 #ifdef BB_NV_FACTORY_RESET_TESTING

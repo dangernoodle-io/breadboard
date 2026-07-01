@@ -13,7 +13,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mem.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -318,7 +318,7 @@ bb_err_t bb_sensors_init(bb_http_handle_t server)
 }
 
 #if CONFIG_BB_SENSORS_AUTOREGISTER
-BB_REGISTRY_REGISTER_N(bb_sensors, bb_sensors_init, 1);
+BB_INIT_REGISTER_N(bb_sensors, bb_sensors_init, 1);
 #endif
 
 

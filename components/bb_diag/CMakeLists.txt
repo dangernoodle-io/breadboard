@@ -14,7 +14,7 @@ idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include" "."
     REQUIRES bb_core bb_partition
-    PRIV_REQUIRES bb_log bb_registry bb_http bb_json bb_cache bb_net_health bb_nv bb_openapi bb_system bb_ota_validator bb_event bb_event_routes espcoredump lwip nvs_flash esp_partition esp_app_format
+    PRIV_REQUIRES bb_log bb_init bb_http bb_json bb_cache bb_net_health bb_nv bb_openapi bb_system bb_ota_validator bb_event bb_event_routes espcoredump lwip nvs_flash esp_partition esp_app_format
 )
 
 # bb_nv_delete_routes.h is a private header next to its implementation in bb_nv.
@@ -57,10 +57,10 @@ if(CONFIG_BB_DIAG_PANIC_COREDUMP)
 endif()
 
 if(CONFIG_BB_DIAG_AUTOREGISTER)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
-    bb_registry_force_register_early(${COMPONENT_LIB} bb_diag_panic)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
+    bb_init_force_register_early(${COMPONENT_LIB} bb_diag_panic)
     if(CONFIG_BB_DIAG_ROUTES)
-        bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_diag_routes)
-        bb_registry_force_register(${COMPONENT_LIB} bb_diag_routes)
+        bb_init_force_register_pre_http(${COMPONENT_LIB} bb_diag_routes)
+        bb_init_force_register(${COMPONENT_LIB} bb_diag_routes)
     endif()
 endif()

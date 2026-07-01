@@ -1,10 +1,10 @@
 menu "breadboard: bb_event"
 
 config BB_EVENT_AUTOREGISTER
-    bool "Auto-init bb_event via bb_registry"
+    bool "Auto-init bb_event via bb_init"
     default y
     help
-        When enabled, bb_event_init runs automatically via bb_registry.
+        When enabled, bb_event_init runs automatically via bb_init.
 
 config BB_EVENT_MAX_TOPICS
     int "Maximum number of event topics"

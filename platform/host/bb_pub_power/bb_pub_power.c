@@ -11,7 +11,7 @@
 #include "bb_log.h"
 #include "bb_clock.h"
 #include "bb_openapi.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -117,5 +117,5 @@ static bb_err_t bb_pub_power_init(void)
 }
 
 #if CONFIG_BB_PUB_POWER_AUTO_ATTACH
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_pub_power, bb_pub_power_init);
+BB_INIT_REGISTER_PRE_HTTP(bb_pub_power, bb_pub_power_init);
 #endif

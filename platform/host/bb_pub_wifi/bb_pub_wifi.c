@@ -13,7 +13,7 @@
 #include "bb_log.h"
 #include "bb_clock.h"
 #include "bb_openapi.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "../bb_wifi/wifi_hist_priv.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -249,5 +249,5 @@ static bb_err_t bb_pub_wifi_init(void)
 }
 
 #if CONFIG_BB_PUB_WIFI_AUTO_ATTACH
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_pub_wifi, bb_pub_wifi_init);
+BB_INIT_REGISTER_PRE_HTTP(bb_pub_wifi, bb_pub_wifi_init);
 #endif

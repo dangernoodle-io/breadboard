@@ -3,7 +3,7 @@
 #include "bb_log.h"
 #include "bb_nv.h"
 #include "bb_wifi.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "freertos/FreeRTOS.h"
@@ -329,9 +329,9 @@ bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
                        bb_prov_extra_routes_fn_t extra)
 {
     // Ensure the PRE_HTTP walk has run so all component route reservations are
-    // accumulated before ensure_started() sizes the handler table. bb_registry_init()
+    // accumulated before ensure_started() sizes the handler table. bb_init_init()
     // (called later) will skip the PRE_HTTP tier if it already walked (idempotent).
-    bb_registry_init_pre_http();
+    bb_init_init_pre_http();
 
     // Reserve handler slots for routes registered imperatively below
     // (must happen before ensure_started — once httpd_start runs, the cap
@@ -359,7 +359,7 @@ bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
 
     // Register all registry routes (system, wifi routes, info, etc.).
     // This includes /api/scan, /api/reboot, /api/info, /api/health and others.
-    bb_err_t rc = bb_registry_init();
+    bb_err_t rc = bb_init_init();
     if (rc != BB_OK) return rc;
 
     // Consumer's dynamic endpoints (e.g. advanced-UI backing routes).

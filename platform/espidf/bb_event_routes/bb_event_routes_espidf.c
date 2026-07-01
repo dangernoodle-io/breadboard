@@ -7,7 +7,7 @@
 #include "bb_http.h"
 #include "bb_log.h"
 #include "bb_mem.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_sse_writer.h"
 #include "bb_timer.h"
 
@@ -383,6 +383,6 @@ static bb_err_t bb_event_routes_reserve_routes(void)
     bb_http_reserve_routes(2);  // GET /api/events + GET /api/diag/events
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_event_routes, bb_event_routes_reserve_routes);
-BB_REGISTRY_REGISTER(bb_event_routes, bb_event_routes_register_routes_init);
+BB_INIT_REGISTER_PRE_HTTP(bb_event_routes, bb_event_routes_reserve_routes);
+BB_INIT_REGISTER(bb_event_routes, bb_event_routes_register_routes_init);
 #endif

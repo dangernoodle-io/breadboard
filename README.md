@@ -39,7 +39,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 | `bb_manifest` | Opt-in device manifest endpoint; consumer registers NVS keyspaces and mDNS TXT keys to expose `GET /api/manifest` with keyspace/enum descriptors for external tools (custom flashers, fleet provisioners) | ESP-IDF |
 | `bb_prov` | Provisioning state machine (SoftAP + captive-portal + HTTP `/save` handler) | ESP-IDF |
 | `bb_prov_default_form` | Opt-in default WiFi setup form asset (`bb_prov_default_form_get()`) for bare-minimum `bb_prov` bringup | ESP-IDF |
-| `bb_registry` | Handler-lifecycle registry: opt-in components self-register an init fn via `BB_REGISTRY_REGISTER`; the app calls `bb_registry_init(server)` once after `bb_http_server_start` to invoke them all | ESP-IDF, host |
+| `bb_init` | Handler-lifecycle registry: opt-in components self-register an init fn via `BB_INIT_REGISTER`; the app calls `bb_init_init(server)` once after `bb_http_server_start` to invoke them all | ESP-IDF, host |
 | `bb_system` | Device restart and system info; optional routes module (`CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER`, default-on) adds GET `/api/version`, GET `/api/ping`, POST `/api/reboot` | ESP-IDF |
 | `bb_heap_arena` | Boot-reserved contiguous mbedTLS handshake arena (`CONFIG_BB_HEAP_ARENA_BYTES`); installs a custom `mbedtls_platform_set_calloc_free` allocator that tries the static arena first and falls back to `heap_caps_calloc(INTERNAL\|8BIT)` — prevents mid-uptime heap fragmentation on no-PSRAM boards. No-op when `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC` is unset. | ESP-IDF, host |
 | `bb_wifi` | STA init, async scan, auto-reconnect, diagnostics and GET `/api/wifi`; optional routes module (`CONFIG_BB_WIFI_ROUTES_AUTOREGISTER`, default-on) gates HTTP routes | ESP-IDF |
@@ -63,7 +63,7 @@ bb_lint()  # opt-in: cmake --build build --target bb_lint
 
 `bb_lint()` creates a non-default target; it never runs on a normal build. Invoke it explicitly: `cmake --build build --target bb_lint`. Optional args: `ROOT <dir>` (default `CMAKE_SOURCE_DIR`), `PROFILE <consumer|library>` (default `consumer`), `TARGET <name>` (default `bb_lint`).
 
-Components that register HTTP handlers (`bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_board`, `bb_manifest`, `bb_ota_validator`, `bb_openapi`, plus optional routes modules in `bb_log`, `bb_wifi`, and `bb_system`) self-register through `bb_registry`. After `bb_http_server_start`, call `bb_registry_init(server)` once and every linked component's routes get wired up — no per-component `register_handler` calls in your `app_main`. Components still have to be listed in your CMake `REQUIRES` so the linker pulls their archives and the constructors fire.
+Components that register HTTP handlers (`bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_board`, `bb_manifest`, `bb_ota_validator`, `bb_openapi`, plus optional routes modules in `bb_log`, `bb_wifi`, and `bb_system`) self-register through `bb_init`. After `bb_http_server_start`, call `bb_init_init(server)` once and every linked component's routes get wired up — no per-component `register_handler` calls in your `app_main`. Components still have to be listed in your CMake `REQUIRES` so the linker pulls their archives and the constructors fire.
 
 ## Kconfig flags
 
@@ -74,15 +74,15 @@ Auto-registration is opt-out. Each registry-using component exposes a Kconfig fl
 | `CONFIG_BB_OTA_PULL_AUTOREGISTER` | OTA pull HTTP routes not registered; `bb_ota_pull` C API still callable |
 | `CONFIG_BB_OTA_PUSH_AUTOREGISTER` | OTA push HTTP route not registered |
 | `CONFIG_BB_INFO_AUTOREGISTER` | `/api/info` not registered; `bb_info_register_extender` still works |
-| `CONFIG_BB_LOG_ROUTES` | `bb_log` routes module dropped entirely — `bb_http`/`bb_json`/`bb_registry` no longer in `bb_log`'s PRIV_REQUIRES, useful for headless-logging consumers |
-| `CONFIG_BB_LOG_STREAM_AUTOREGISTER` | `bb_log_stream_init` not auto-called via `bb_registry_init_early()`; caller must invoke manually. Independent of `CONFIG_BB_LOG_ROUTES` (stream capture vs. HTTP routes) |
-| `CONFIG_BB_NV_FLASH_AUTOREGISTER` | `bb_nv_flash_init` not auto-called via `bb_registry_init_early()`; caller must invoke manually |
-| `CONFIG_BB_NV_CONFIG_AUTOREGISTER` | `bb_nv_config_init` not auto-called via `bb_registry_init_early()`; caller must invoke manually. Useful for consumers with custom NVS namespaces who want partition init but not typed config preload |
+| `CONFIG_BB_LOG_ROUTES` | `bb_log` routes module dropped entirely — `bb_http`/`bb_json`/`bb_init` no longer in `bb_log`'s PRIV_REQUIRES, useful for headless-logging consumers |
+| `CONFIG_BB_LOG_STREAM_AUTOREGISTER` | `bb_log_stream_init` not auto-called via `bb_init_init_early()`; caller must invoke manually. Independent of `CONFIG_BB_LOG_ROUTES` (stream capture vs. HTTP routes) |
+| `CONFIG_BB_NV_FLASH_AUTOREGISTER` | `bb_nv_flash_init` not auto-called via `bb_init_init_early()`; caller must invoke manually |
+| `CONFIG_BB_NV_CONFIG_AUTOREGISTER` | `bb_nv_config_init` not auto-called via `bb_init_init_early()`; caller must invoke manually. Useful for consumers with custom NVS namespaces who want partition init but not typed config preload |
 | `CONFIG_BB_BOARD_AUTOREGISTER` | `/api/board` not registered; `bb_board` accessor C API still callable |
 | `CONFIG_BB_MANIFEST_AUTOREGISTER` | `/api/manifest` not registered; `bb_manifest_register_nv` and `bb_manifest_register_mdns` still work |
 | `CONFIG_BB_OTA_VALIDATOR_AUTOREGISTER` | `POST /api/ota/mark-valid` not registered; `bb_ota_mark_valid` and `bb_ota_is_pending` still work |
 | `CONFIG_BB_WIFI_ROUTES_AUTOREGISTER` | `/api/wifi` and `/api/scan` not registered; wifi driver init APIs still work |
-| `CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER` | System routes module dropped entirely; `bb_http`/`bb_json`/`bb_registry`/`esp_timer` no longer in `bb_system`'s PRIV_REQUIRES |
+| `CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER` | System routes module dropped entirely; `bb_http`/`bb_json`/`bb_init`/`esp_timer` no longer in `bb_system`'s PRIV_REQUIRES |
 | `CONFIG_BB_OPENAPI_AUTOREGISTER` | `/api/openapi.json` not registered; `bb_openapi_emit` and `bb_openapi_set_meta` still work |
 | `CONFIG_BB_MDNS_AUTOREGISTER` | `bb_mdns_init` not auto-called via registry; caller must invoke it manually (setters still available) |
 | `CONFIG_BB_OTA_PUSH_MAX_SIZE` | Body size cap for `POST /api/ota/push` (default 4 MB); requests over the limit return 413 |

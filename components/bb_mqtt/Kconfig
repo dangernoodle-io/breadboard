@@ -1,7 +1,7 @@
 menu "breadboard: bb_mqtt"
 
 config BB_MQTT_AUTOREGISTER
-    bool "Auto-register MQTT client init via bb_registry (EARLY tier)"
+    bool "Auto-register MQTT client init via bb_init (EARLY tier)"
     default y
     help
         When enabled, bb_mqtt self-registers at the EARLY tier. On init it reads

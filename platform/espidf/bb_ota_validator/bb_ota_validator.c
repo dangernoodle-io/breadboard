@@ -12,7 +12,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_nv.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 
 static const char *TAG = "bb_ota_val";
 
@@ -308,8 +308,8 @@ static bb_err_t bb_ota_validator_reserve_routes(void)
     bb_http_reserve_routes(3);  // POST /api/update/mark-valid + GET /api/update/partitions + POST /api/update/recover
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_ota_validator, bb_ota_validator_reserve_routes);
-BB_REGISTRY_REGISTER_N(bb_ota_validator, bb_ota_validator_init, 1);
+BB_INIT_REGISTER_PRE_HTTP(bb_ota_validator, bb_ota_validator_reserve_routes);
+BB_INIT_REGISTER_N(bb_ota_validator, bb_ota_validator_init, 1);
 #endif
 
 #endif /* ESP_PLATFORM */

@@ -1,15 +1,15 @@
 menu "breadboard: bb_nv"
 
 config BB_NV_FLASH_AUTOREGISTER
-    bool "Auto-init NVS partition (nvs_flash_init) via bb_registry early tier"
+    bool "Auto-init NVS partition (nvs_flash_init) via bb_init early tier"
     default y
 
 config BB_NV_CONFIG_AUTOREGISTER
-    bool "Auto-load breadboard typed config (wifi creds, display flag) via bb_registry early tier"
+    bool "Auto-load breadboard typed config (wifi creds, display flag) via bb_init early tier"
     default y
 
 config BB_NV_CONFIG_MANIFEST_AUTOREGISTER
-    bool "Auto-register bb_cfg NVS keys with /api/manifest via bb_registry pre_http tier"
+    bool "Auto-register bb_cfg NVS keys with /api/manifest via bb_init pre_http tier"
     default y
     depends on BB_MANIFEST_AUTOREGISTER
 
@@ -32,7 +32,7 @@ config BB_NV_FACTORY_RESET
       because factory reset is a destructive operation that should be opt-in.
 
 config BB_NV_FACTORY_RESET_AUTOREGISTER
-    bool "Auto-register /api/factory-reset via bb_registry"
+    bool "Auto-register /api/factory-reset via bb_init"
     default y
     depends on BB_NV_FACTORY_RESET
 

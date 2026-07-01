@@ -4,7 +4,7 @@
 #include "bb_mqtt.h"
 
 #if defined(CONFIG_BB_MQTT_INFO_AUTOREGISTER) && CONFIG_BB_MQTT_INFO_AUTOREGISTER
-#include "bb_registry.h"
+#include "bb_init.h"
 #endif
 
 /* JSON-Schema value for the "mqtt" section contributed to the /api/health 200 schema. */
@@ -38,6 +38,6 @@ static bb_err_t bb_mqtt_info_autoregister_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-BB_REGISTRY_REGISTER_N(bb_mqtt_info, bb_mqtt_info_autoregister_init, 1);
+BB_INIT_REGISTER_N(bb_mqtt_info, bb_mqtt_info_autoregister_init, 1);
 
 #endif /* CONFIG_BB_MQTT_INFO_AUTOREGISTER */

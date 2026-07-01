@@ -17,7 +17,7 @@ Script appends:
 Transitive deps are auto-resolved: the COMPONENT_MAP entry for each component
 declares its required peers via a `depends` field, and the resolver walks the
 graph so consumers only list direct dependencies. e.g. listing `bb_nv` pulls
-in `bb_core` (for bb_err_t) and `bb_registry` (referenced by bb_nv.c) without
+in `bb_core` (for bb_err_t) and `bb_init` (referenced by bb_nv.c) without
 the consumer having to enumerate them. Closes B1-77.
 
 If bb_json is included, the consumer MUST add to platformio.ini:
@@ -92,7 +92,7 @@ COMPONENT_MAP = {
             "components/bb_nv/bb_nv_creds_mirror.c",
             "components/bb_nv/bb_nv_wifi_pending.c",
         ],
-        "depends":  ["bb_core", "bb_registry", "bb_http", "bb_json"],
+        "depends":  ["bb_core", "bb_init", "bb_http", "bb_json"],
     },
     "bb_json": {
         "includes": ["components/bb_json/include", "platform/host/bb_json"],
@@ -223,9 +223,9 @@ COMPONENT_MAP = {
         ],
         "depends":  ["bb_display", "bb_info", "bb_nv", "bb_json", "bb_core"],
     },
-    "bb_registry": {
-        "includes": ["components/bb_registry/include"],
-        "sources":  ["platform/host/bb_registry/bb_registry.c"],
+    "bb_init": {
+        "includes": ["components/bb_init/include"],
+        "sources":  ["platform/host/bb_init/bb_init.c"],
         "depends":  ["bb_core"],
     },
     "bb_timer": {

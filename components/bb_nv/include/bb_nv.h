@@ -20,7 +20,7 @@ bb_err_t bb_nv_config_factory_reset(void);
 
 // Register bb_cfg NVS keys with /api/manifest. Called automatically at
 // PRE_HTTP tier when CONFIG_BB_NV_CONFIG_MANIFEST_AUTOREGISTER=y (default).
-// Consumers may also call it directly before bb_registry_init() if needed.
+// Consumers may also call it directly before bb_init_init() if needed.
 bb_err_t bb_nv_config_manifest_init(void);
 
 /// Initialize the NV flash partition. Handles the

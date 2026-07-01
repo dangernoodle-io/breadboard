@@ -1,6 +1,6 @@
 #include "bb_http.h"
 #include "bb_system.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 
 
 static bb_err_t reboot_handler(bb_http_request_t *req)
@@ -51,6 +51,6 @@ static bb_err_t bb_system_routes_reserve(void)
     bb_http_reserve_routes(1);  // POST /api/reboot
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_system_routes, bb_system_routes_reserve);
-BB_REGISTRY_REGISTER_N(bb_system_routes, bb_system_routes_init, 3);
+BB_INIT_REGISTER_PRE_HTTP(bb_system_routes, bb_system_routes_reserve);
+BB_INIT_REGISTER_N(bb_system_routes, bb_system_routes_init, 3);
 #endif

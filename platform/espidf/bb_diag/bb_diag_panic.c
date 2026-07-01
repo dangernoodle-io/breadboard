@@ -255,8 +255,8 @@ static bb_err_t bb_diag_panic_init(void)
 }
 
 // Register in early tier so we detect panic logs before normal boot proceeds
-#include "bb_registry.h"
-BB_REGISTRY_REGISTER_EARLY(bb_diag_panic, bb_diag_panic_init);
+#include "bb_init.h"
+BB_INIT_REGISTER_EARLY(bb_diag_panic, bb_diag_panic_init);
 
 // Tap entry called from bb_log_stream's vprintf hook for every line
 void bb_diag_panic_capture_write(const char *data, size_t len)
@@ -460,8 +460,8 @@ static bb_err_t bb_diag_panic_init(void)
     return BB_OK;
 }
 
-#include "bb_registry.h"
-BB_REGISTRY_REGISTER_EARLY(bb_diag_panic, bb_diag_panic_init);
+#include "bb_init.h"
+BB_INIT_REGISTER_EARLY(bb_diag_panic, bb_diag_panic_init);
 
 bool bb_diag_panic_available(void)
 {

@@ -10,12 +10,12 @@ idf_component_register(
     # can't be CONFIG-conditional — ESP-IDF expands deps before config is loaded.
     # bb_cache/bb_event/bb_event_routes: PRIV_REQUIRES because they are not
     # exposed in any public header under components/bb_info/include/.
-    PRIV_REQUIRES bb_http bb_board bb_wifi bb_openapi bb_registry bb_log bb_ntp bb_mdns bb_ota_pull bb_cache bb_event bb_event_routes bb_system
+    PRIV_REQUIRES bb_http bb_board bb_wifi bb_openapi bb_init bb_log bb_ntp bb_mdns bb_ota_pull bb_cache bb_event bb_event_routes bb_system
 )
 
 if(CONFIG_BB_INFO_AUTOREGISTER)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
-    bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_info)
-    bb_registry_force_register(${COMPONENT_LIB} bb_info)
-    bb_registry_force_register(${COMPONENT_LIB} bb_info_freeze)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
+    bb_init_force_register_pre_http(${COMPONENT_LIB} bb_info)
+    bb_init_force_register(${COMPONENT_LIB} bb_info)
+    bb_init_force_register(${COMPONENT_LIB} bb_info_freeze)
 endif()

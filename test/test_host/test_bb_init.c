@@ -1,5 +1,5 @@
 #include "unity.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include <stdbool.h>
 #include <string.h>
 
@@ -52,7 +52,7 @@ typedef struct {
     size_t count;
 } foreach_ctx_t;
 
-static void collect_names(const bb_registry_entry_t *entry, void *ctx)
+static void collect_names(const bb_init_entry_t *entry, void *ctx)
 {
     foreach_ctx_t *fc = (foreach_ctx_t *)ctx;
     if (fc->count < 10) {
@@ -60,34 +60,34 @@ static void collect_names(const bb_registry_entry_t *entry, void *ctx)
     }
 }
 
-void test_bb_registry_starts_empty(void)
+void test_bb_init_starts_empty(void)
 {
-    bb_registry_clear();
-    TEST_ASSERT_EQUAL(0, bb_registry_count());
+    bb_init_clear();
+    TEST_ASSERT_EQUAL(0, bb_init_count());
 }
 
-void test_bb_registry_add_increments_count(void)
+void test_bb_init_add_increments_count(void)
 {
-    bb_registry_clear();
-    bb_registry_entry_t entry = { .name = "test1", .init = fake_init_1 };
-    bb_registry_add(&entry);
-    TEST_ASSERT_EQUAL(1, bb_registry_count());
+    bb_init_clear();
+    bb_init_entry_t entry = { .name = "test1", .init = fake_init_1 };
+    bb_init_add(&entry);
+    TEST_ASSERT_EQUAL(1, bb_init_count());
 }
 
-void test_bb_registry_foreach_visits_all_in_order(void)
+void test_bb_init_foreach_visits_all_in_order(void)
 {
-    bb_registry_clear();
+    bb_init_clear();
 
-    bb_registry_entry_t e1 = { .name = "first", .init = fake_init_1 };
-    bb_registry_entry_t e2 = { .name = "second", .init = fake_init_2 };
-    bb_registry_entry_t e3 = { .name = "third", .init = fake_init_4 };
+    bb_init_entry_t e1 = { .name = "first", .init = fake_init_1 };
+    bb_init_entry_t e2 = { .name = "second", .init = fake_init_2 };
+    bb_init_entry_t e3 = { .name = "third", .init = fake_init_4 };
 
-    bb_registry_add(&e1);
-    bb_registry_add(&e2);
-    bb_registry_add(&e3);
+    bb_init_add(&e1);
+    bb_init_add(&e2);
+    bb_init_add(&e3);
 
     foreach_ctx_t ctx = { 0 };
-    bb_registry_foreach(collect_names, &ctx);
+    bb_init_foreach(collect_names, &ctx);
 
     TEST_ASSERT_EQUAL(3, ctx.count);
     TEST_ASSERT_EQUAL_STRING("first", ctx.names[0]);
@@ -95,21 +95,21 @@ void test_bb_registry_foreach_visits_all_in_order(void)
     TEST_ASSERT_EQUAL_STRING("third", ctx.names[2]);
 }
 
-void test_bb_registry_init_calls_each_init_fn(void)
+void test_bb_init_init_calls_each_init_fn(void)
 {
-    bb_registry_clear();
+    bb_init_clear();
     memset(s_init_flags, 0, sizeof(s_init_flags));
     s_init_call_count = 0;
 
-    bb_registry_entry_t e1 = { .name = "e1", .init = fake_init_1 };
-    bb_registry_entry_t e2 = { .name = "e2", .init = fake_init_2 };
-    bb_registry_entry_t e3 = { .name = "e3", .init = fake_init_4 };
+    bb_init_entry_t e1 = { .name = "e1", .init = fake_init_1 };
+    bb_init_entry_t e2 = { .name = "e2", .init = fake_init_2 };
+    bb_init_entry_t e3 = { .name = "e3", .init = fake_init_4 };
 
-    bb_registry_add(&e1);
-    bb_registry_add(&e2);
-    bb_registry_add(&e3);
+    bb_init_add(&e1);
+    bb_init_add(&e2);
+    bb_init_add(&e3);
 
-    bb_err_t err = bb_registry_init();
+    bb_err_t err = bb_init_init();
 
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL(3, s_init_call_count);
@@ -118,21 +118,21 @@ void test_bb_registry_init_calls_each_init_fn(void)
     TEST_ASSERT_TRUE(s_init_flags[3]);
 }
 
-void test_bb_registry_init_reports_first_error_but_continues(void)
+void test_bb_init_init_reports_first_error_but_continues(void)
 {
-    bb_registry_clear();
+    bb_init_clear();
     memset(s_init_flags, 0, sizeof(s_init_flags));
     s_init_call_count = 0;
 
-    bb_registry_entry_t e1 = { .name = "e1", .init = fake_init_1 };
-    bb_registry_entry_t e2 = { .name = "e2", .init = fake_init_3_error };
-    bb_registry_entry_t e3 = { .name = "e3", .init = fake_init_4 };
+    bb_init_entry_t e1 = { .name = "e1", .init = fake_init_1 };
+    bb_init_entry_t e2 = { .name = "e2", .init = fake_init_3_error };
+    bb_init_entry_t e3 = { .name = "e3", .init = fake_init_4 };
 
-    bb_registry_add(&e1);
-    bb_registry_add(&e2);
-    bb_registry_add(&e3);
+    bb_init_add(&e1);
+    bb_init_add(&e2);
+    bb_init_add(&e3);
 
-    bb_err_t err = bb_registry_init();
+    bb_err_t err = bb_init_init();
 
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
     TEST_ASSERT_EQUAL(3, s_init_call_count);
@@ -141,15 +141,15 @@ void test_bb_registry_init_reports_first_error_but_continues(void)
     TEST_ASSERT_TRUE(s_init_flags[3]);
 }
 
-void test_bb_registry_clear_resets_count(void)
+void test_bb_init_clear_resets_count(void)
 {
-    bb_registry_clear();
-    bb_registry_entry_t entry = { .name = "test1", .init = fake_init_1 };
-    bb_registry_add(&entry);
-    TEST_ASSERT_EQUAL(1, bb_registry_count());
+    bb_init_clear();
+    bb_init_entry_t entry = { .name = "test1", .init = fake_init_1 };
+    bb_init_add(&entry);
+    TEST_ASSERT_EQUAL(1, bb_init_count());
 
-    bb_registry_clear();
-    TEST_ASSERT_EQUAL(0, bb_registry_count());
+    bb_init_clear();
+    TEST_ASSERT_EQUAL(0, bb_init_count());
 }
 
 // ============================================================================
@@ -189,18 +189,18 @@ static bb_err_t order_fn_d(bb_http_handle_t server)
 }
 
 // Two entries registered in order A(order=5) then B(order=1): B must run first.
-void test_bb_registry_init_honors_order_priority(void)
+void test_bb_init_init_honors_order_priority(void)
 {
-    bb_registry_clear();
+    bb_init_clear();
     s_order_seq_idx = 0;
 
-    bb_registry_entry_t eA = { .name = "A", .init = order_fn_a, .order = 5 };
-    bb_registry_entry_t eB = { .name = "B", .init = order_fn_b, .order = 1 };
+    bb_init_entry_t eA = { .name = "A", .init = order_fn_a, .order = 5 };
+    bb_init_entry_t eB = { .name = "B", .init = order_fn_b, .order = 1 };
 
-    bb_registry_add(&eA);
-    bb_registry_add(&eB);
+    bb_init_add(&eA);
+    bb_init_add(&eB);
 
-    bb_err_t err = bb_registry_init();
+    bb_err_t err = bb_init_init();
 
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL(2, s_order_seq_idx);
@@ -210,18 +210,18 @@ void test_bb_registry_init_honors_order_priority(void)
 }
 
 // Two entries with same order must run in registration (insertion) order — stable sort.
-void test_bb_registry_init_same_order_preserves_insertion_order(void)
+void test_bb_init_init_same_order_preserves_insertion_order(void)
 {
-    bb_registry_clear();
+    bb_init_clear();
     s_order_seq_idx = 0;
 
-    bb_registry_entry_t eC = { .name = "C", .init = order_fn_c, .order = 2 };
-    bb_registry_entry_t eD = { .name = "D", .init = order_fn_d, .order = 2 };
+    bb_init_entry_t eC = { .name = "C", .init = order_fn_c, .order = 2 };
+    bb_init_entry_t eD = { .name = "D", .init = order_fn_d, .order = 2 };
 
-    bb_registry_add(&eC);
-    bb_registry_add(&eD);
+    bb_init_add(&eC);
+    bb_init_add(&eD);
 
-    bb_err_t err = bb_registry_init();
+    bb_err_t err = bb_init_init();
 
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL(2, s_order_seq_idx);
@@ -231,24 +231,24 @@ void test_bb_registry_init_same_order_preserves_insertion_order(void)
 }
 
 // Mix: four entries, verify full ascending-order output with stable tie-breaking.
-void test_bb_registry_init_order_mixed(void)
+void test_bb_init_init_order_mixed(void)
 {
-    bb_registry_clear();
+    bb_init_clear();
     s_order_seq_idx = 0;
 
     // Register in this order: A(5), B(0), C(5), D(0)
     // Expected run order (ascending order, stable): B(0), D(0), A(5), C(5)
-    bb_registry_entry_t eA = { .name = "A", .init = order_fn_a, .order = 5 };
-    bb_registry_entry_t eB = { .name = "B", .init = order_fn_b, .order = 0 };
-    bb_registry_entry_t eC = { .name = "C", .init = order_fn_c, .order = 5 };
-    bb_registry_entry_t eD = { .name = "D", .init = order_fn_d, .order = 0 };
+    bb_init_entry_t eA = { .name = "A", .init = order_fn_a, .order = 5 };
+    bb_init_entry_t eB = { .name = "B", .init = order_fn_b, .order = 0 };
+    bb_init_entry_t eC = { .name = "C", .init = order_fn_c, .order = 5 };
+    bb_init_entry_t eD = { .name = "D", .init = order_fn_d, .order = 0 };
 
-    bb_registry_add(&eA);
-    bb_registry_add(&eB);
-    bb_registry_add(&eC);
-    bb_registry_add(&eD);
+    bb_init_add(&eA);
+    bb_init_add(&eB);
+    bb_init_add(&eC);
+    bb_init_add(&eD);
 
-    bb_err_t err = bb_registry_init();
+    bb_err_t err = bb_init_init();
 
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL(4, s_order_seq_idx);
@@ -291,7 +291,7 @@ typedef struct {
     size_t count;
 } pre_http_foreach_ctx_t;
 
-static void collect_pre_http_names(const bb_registry_entry_pre_http_t *entry, void *ctx)
+static void collect_pre_http_names(const bb_init_entry_pre_http_t *entry, void *ctx)
 {
     pre_http_foreach_ctx_t *fc = (pre_http_foreach_ctx_t *)ctx;
     if (fc->count < 10) {
@@ -299,52 +299,52 @@ static void collect_pre_http_names(const bb_registry_entry_pre_http_t *entry, vo
     }
 }
 
-void test_bb_registry_pre_http_starts_empty(void)
+void test_bb_init_pre_http_starts_empty(void)
 {
-    bb_registry_clear_pre_http();
-    TEST_ASSERT_EQUAL(0, bb_registry_count_pre_http());
+    bb_init_clear_pre_http();
+    TEST_ASSERT_EQUAL(0, bb_init_count_pre_http());
 }
 
-void test_bb_registry_pre_http_add_increments_count(void)
+void test_bb_init_pre_http_add_increments_count(void)
 {
-    bb_registry_clear_pre_http();
-    bb_registry_entry_pre_http_t e = { .name = "ph1", .init = pre_http_fn_1 };
-    bb_registry_add_pre_http(&e);
-    TEST_ASSERT_EQUAL(1, bb_registry_count_pre_http());
+    bb_init_clear_pre_http();
+    bb_init_entry_pre_http_t e = { .name = "ph1", .init = pre_http_fn_1 };
+    bb_init_add_pre_http(&e);
+    TEST_ASSERT_EQUAL(1, bb_init_count_pre_http());
 }
 
-void test_bb_registry_pre_http_foreach_visits_in_insertion_order(void)
+void test_bb_init_pre_http_foreach_visits_in_insertion_order(void)
 {
-    bb_registry_clear_pre_http();
+    bb_init_clear_pre_http();
 
-    bb_registry_entry_pre_http_t e1 = { .name = "first",  .init = pre_http_fn_1 };
-    bb_registry_entry_pre_http_t e2 = { .name = "second", .init = pre_http_fn_2 };
+    bb_init_entry_pre_http_t e1 = { .name = "first",  .init = pre_http_fn_1 };
+    bb_init_entry_pre_http_t e2 = { .name = "second", .init = pre_http_fn_2 };
 
-    bb_registry_add_pre_http(&e1);
-    bb_registry_add_pre_http(&e2);
+    bb_init_add_pre_http(&e1);
+    bb_init_add_pre_http(&e2);
 
     pre_http_foreach_ctx_t ctx = { 0 };
-    bb_registry_foreach_pre_http(collect_pre_http_names, &ctx);
+    bb_init_foreach_pre_http(collect_pre_http_names, &ctx);
 
     TEST_ASSERT_EQUAL(2, ctx.count);
     TEST_ASSERT_EQUAL_STRING("first",  ctx.names[0]);
     TEST_ASSERT_EQUAL_STRING("second", ctx.names[1]);
 }
 
-void test_bb_registry_pre_http_init_calls_each_fn(void)
+void test_bb_init_pre_http_init_calls_each_fn(void)
 {
-    bb_registry_clear_pre_http();
+    bb_init_clear_pre_http();
     memset(s_pre_http_flags, 0, sizeof(s_pre_http_flags));
     s_pre_http_call_count = 0;
     s_pre_http_order_idx = 0;
 
-    bb_registry_entry_pre_http_t e1 = { .name = "ph1", .init = pre_http_fn_1 };
-    bb_registry_entry_pre_http_t e2 = { .name = "ph2", .init = pre_http_fn_2 };
+    bb_init_entry_pre_http_t e1 = { .name = "ph1", .init = pre_http_fn_1 };
+    bb_init_entry_pre_http_t e2 = { .name = "ph2", .init = pre_http_fn_2 };
 
-    bb_registry_add_pre_http(&e1);
-    bb_registry_add_pre_http(&e2);
+    bb_init_add_pre_http(&e1);
+    bb_init_add_pre_http(&e2);
 
-    bb_err_t err = bb_registry_init_pre_http();
+    bb_err_t err = bb_init_init_pre_http();
 
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL(2, s_pre_http_call_count);
@@ -355,22 +355,22 @@ void test_bb_registry_pre_http_init_calls_each_fn(void)
     TEST_ASSERT_EQUAL(2, s_pre_http_order[1]);
 }
 
-void test_bb_registry_pre_http_init_reports_first_error_but_continues(void)
+void test_bb_init_pre_http_init_reports_first_error_but_continues(void)
 {
-    bb_registry_clear_pre_http();
+    bb_init_clear_pre_http();
     memset(s_pre_http_flags, 0, sizeof(s_pre_http_flags));
     s_pre_http_call_count = 0;
     s_pre_http_order_idx = 0;
 
-    bb_registry_entry_pre_http_t e1 = { .name = "ph1", .init = pre_http_fn_1   };
-    bb_registry_entry_pre_http_t e2 = { .name = "ph2", .init = pre_http_fn_3_error };
-    bb_registry_entry_pre_http_t e3 = { .name = "ph3", .init = pre_http_fn_2   };
+    bb_init_entry_pre_http_t e1 = { .name = "ph1", .init = pre_http_fn_1   };
+    bb_init_entry_pre_http_t e2 = { .name = "ph2", .init = pre_http_fn_3_error };
+    bb_init_entry_pre_http_t e3 = { .name = "ph3", .init = pre_http_fn_2   };
 
-    bb_registry_add_pre_http(&e1);
-    bb_registry_add_pre_http(&e2);
-    bb_registry_add_pre_http(&e3);
+    bb_init_add_pre_http(&e1);
+    bb_init_add_pre_http(&e2);
+    bb_init_add_pre_http(&e3);
 
-    bb_err_t err = bb_registry_init_pre_http();
+    bb_err_t err = bb_init_init_pre_http();
 
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
     TEST_ASSERT_EQUAL(3, s_pre_http_call_count);
@@ -379,39 +379,39 @@ void test_bb_registry_pre_http_init_reports_first_error_but_continues(void)
     TEST_ASSERT_TRUE(s_pre_http_flags[2]);
 }
 
-void test_bb_registry_pre_http_clear_resets_count(void)
+void test_bb_init_pre_http_clear_resets_count(void)
 {
-    bb_registry_clear_pre_http();
-    bb_registry_entry_pre_http_t e = { .name = "ph1", .init = pre_http_fn_1 };
-    bb_registry_add_pre_http(&e);
-    TEST_ASSERT_EQUAL(1, bb_registry_count_pre_http());
+    bb_init_clear_pre_http();
+    bb_init_entry_pre_http_t e = { .name = "ph1", .init = pre_http_fn_1 };
+    bb_init_add_pre_http(&e);
+    TEST_ASSERT_EQUAL(1, bb_init_count_pre_http());
 
-    bb_registry_clear_pre_http();
-    TEST_ASSERT_EQUAL(0, bb_registry_count_pre_http());
+    bb_init_clear_pre_http();
+    TEST_ASSERT_EQUAL(0, bb_init_count_pre_http());
 }
 
-// Idempotency guard: calling bb_registry_init_pre_http() then bb_registry_init()
+// Idempotency guard: calling bb_init_init_pre_http() then bb_init_init()
 // must not double-invoke PRE_HTTP inits — each entry runs exactly once.
-void test_bb_registry_pre_http_no_double_init_via_init(void)
+void test_bb_init_pre_http_no_double_init_via_init(void)
 {
-    bb_registry_clear_pre_http();
-    bb_registry_clear();
+    bb_init_clear_pre_http();
+    bb_init_clear();
     memset(s_pre_http_flags, 0, sizeof(s_pre_http_flags));
     s_pre_http_call_count = 0;
     s_pre_http_order_idx  = 0;
 
-    bb_registry_entry_pre_http_t e1 = { .name = "ph1", .init = pre_http_fn_1 };
-    bb_registry_entry_pre_http_t e2 = { .name = "ph2", .init = pre_http_fn_2 };
+    bb_init_entry_pre_http_t e1 = { .name = "ph1", .init = pre_http_fn_1 };
+    bb_init_entry_pre_http_t e2 = { .name = "ph2", .init = pre_http_fn_2 };
 
-    // Add a no-op regular entry so bb_registry_init()'s regular walker has n > 0.
-    bb_registry_entry_t reg = { .name = "noop", .init = fake_init_1, .order = 0 };
+    // Add a no-op regular entry so bb_init_init()'s regular walker has n > 0.
+    bb_init_entry_t reg = { .name = "noop", .init = fake_init_1, .order = 0 };
 
-    bb_registry_add_pre_http(&e1);
-    bb_registry_add_pre_http(&e2);
-    bb_registry_add(&reg);
+    bb_init_add_pre_http(&e1);
+    bb_init_add_pre_http(&e2);
+    bb_init_add(&reg);
 
     // Consumer calls init_pre_http() standalone first, then init() — latent footgun scenario.
-    bb_err_t err1 = bb_registry_init_pre_http();
+    bb_err_t err1 = bb_init_init_pre_http();
     TEST_ASSERT_EQUAL(BB_OK, err1);
     TEST_ASSERT_EQUAL(2, s_pre_http_call_count);
 
@@ -419,7 +419,7 @@ void test_bb_registry_pre_http_no_double_init_via_init(void)
     s_init_call_count = 0;
 
     // init() internally re-walks PRE_HTTP tier; guard must skip it.
-    bb_err_t err2 = bb_registry_init();
+    bb_err_t err2 = bb_init_init();
     TEST_ASSERT_EQUAL(BB_OK, err2);
 
     // Each PRE_HTTP init must have run exactly once total.

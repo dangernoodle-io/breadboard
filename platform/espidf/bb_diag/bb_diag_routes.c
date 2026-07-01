@@ -12,7 +12,7 @@
 #include "bb_nv_delete_routes.h"
 #include "bb_ota_validator.h"
 #include "bb_partition.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_system.h"
 #include "bb_mem.h"
 
@@ -961,5 +961,5 @@ static bb_err_t bb_diag_routes_reserve(void)
     bb_http_reserve_routes(BB_DIAG_ROUTE_COUNT);
     return BB_OK;
 }
-BB_REGISTRY_REGISTER_PRE_HTTP(bb_diag_routes, bb_diag_routes_reserve);
-BB_REGISTRY_REGISTER_N(bb_diag_routes, bb_diag_routes_init, BB_DIAG_ROUTE_COUNT);
+BB_INIT_REGISTER_PRE_HTTP(bb_diag_routes, bb_diag_routes_reserve);
+BB_INIT_REGISTER_N(bb_diag_routes, bb_diag_routes_init, BB_DIAG_ROUTE_COUNT);

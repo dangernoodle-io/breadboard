@@ -8,9 +8,9 @@ idf_component_register(
     # new system-level dep.) REQUIRES can't be CONFIG-conditional in ESP-IDF.
     # bb_board is PRIV: no bb_board types appear in bb_pub_info.h; it is used
     # only in bb_pub_info.c.
-    PRIV_REQUIRES bb_board bb_json bb_log bb_openapi bb_registry bb_diag bb_ntp bb_ota_validator bb_ota_pull)
+    PRIV_REQUIRES bb_board bb_json bb_log bb_openapi bb_init bb_diag bb_ntp bb_ota_validator bb_ota_pull)
 
 if(CONFIG_BB_PUB_INFO_AUTO_ATTACH)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
-    bb_registry_force_register_pre_http(${COMPONENT_LIB} bb_pub_info)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
+    bb_init_force_register_pre_http(${COMPONENT_LIB} bb_pub_info)
 endif()

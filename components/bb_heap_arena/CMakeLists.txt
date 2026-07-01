@@ -6,8 +6,8 @@ idf_component_register(
     PRIV_REQUIRES mbedtls heap
 )
 
-include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_registry.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
 
 if(CONFIG_BB_HEAP_ARENA_AUTOREGISTER)
-    bb_registry_force_register_early(${COMPONENT_LIB} bb_heap_arena)
+    bb_init_force_register_early(${COMPONENT_LIB} bb_heap_arena)
 endif()

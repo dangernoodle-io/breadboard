@@ -1,11 +1,11 @@
 menu "breadboard: bb_temp"
 
 config BB_TEMP_AUTOREGISTER
-    bool "Auto-register /api/health \"temp\" section via bb_registry"
+    bool "Auto-register /api/health \"temp\" section via bb_init"
     default n
     help
         When enabled, bb_temp self-registers the "temp" health section through
-        bb_registry (regular tier, order 1 — after bb_health PRE_HTTP init).
+        bb_init (regular tier, order 1 — after bb_health PRE_HTTP init).
         Consumers that call bb_temp_register_info() manually must leave this
         disabled; enabling both double-registers the section. Default n
         preserves backward-compatible manual-register behavior.

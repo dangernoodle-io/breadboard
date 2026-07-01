@@ -1071,23 +1071,23 @@ void test_coalesce_queue_full_flush_drops_and_drain_recovers(void);
 void test_coalesce_queue_and_batch_full_drops_and_recovers(void);
 void test_coalesce_txt_pointers_survive_source_clobber(void);
 
-// Forward declarations from test_bb_registry.c
-void test_bb_registry_starts_empty(void);
-void test_bb_registry_add_increments_count(void);
-void test_bb_registry_foreach_visits_all_in_order(void);
-void test_bb_registry_init_calls_each_init_fn(void);
-void test_bb_registry_init_reports_first_error_but_continues(void);
-void test_bb_registry_clear_resets_count(void);
-void test_bb_registry_init_honors_order_priority(void);
-void test_bb_registry_init_same_order_preserves_insertion_order(void);
-void test_bb_registry_init_order_mixed(void);
-void test_bb_registry_pre_http_starts_empty(void);
-void test_bb_registry_pre_http_add_increments_count(void);
-void test_bb_registry_pre_http_foreach_visits_in_insertion_order(void);
-void test_bb_registry_pre_http_init_calls_each_fn(void);
-void test_bb_registry_pre_http_init_reports_first_error_but_continues(void);
-void test_bb_registry_pre_http_clear_resets_count(void);
-void test_bb_registry_pre_http_no_double_init_via_init(void);
+// Forward declarations from test_bb_init.c
+void test_bb_init_starts_empty(void);
+void test_bb_init_add_increments_count(void);
+void test_bb_init_foreach_visits_all_in_order(void);
+void test_bb_init_init_calls_each_init_fn(void);
+void test_bb_init_init_reports_first_error_but_continues(void);
+void test_bb_init_clear_resets_count(void);
+void test_bb_init_init_honors_order_priority(void);
+void test_bb_init_init_same_order_preserves_insertion_order(void);
+void test_bb_init_init_order_mixed(void);
+void test_bb_init_pre_http_starts_empty(void);
+void test_bb_init_pre_http_add_increments_count(void);
+void test_bb_init_pre_http_foreach_visits_in_insertion_order(void);
+void test_bb_init_pre_http_init_calls_each_fn(void);
+void test_bb_init_pre_http_init_reports_first_error_but_continues(void);
+void test_bb_init_pre_http_clear_resets_count(void);
+void test_bb_init_pre_http_no_double_init_via_init(void);
 
 // Forward declarations from test_bb_http_status.c
 void test_bb_http_status_reason_known_codes(void);
@@ -4454,23 +4454,23 @@ int main(void) {
     RUN_TEST(test_coalesce_queue_and_batch_full_drops_and_recovers);
     RUN_TEST(test_coalesce_txt_pointers_survive_source_clobber);
 
-    // bb_registry tests
-    RUN_TEST(test_bb_registry_starts_empty);
-    RUN_TEST(test_bb_registry_add_increments_count);
-    RUN_TEST(test_bb_registry_foreach_visits_all_in_order);
-    RUN_TEST(test_bb_registry_init_calls_each_init_fn);
-    RUN_TEST(test_bb_registry_init_reports_first_error_but_continues);
-    RUN_TEST(test_bb_registry_clear_resets_count);
-    RUN_TEST(test_bb_registry_init_honors_order_priority);
-    RUN_TEST(test_bb_registry_init_same_order_preserves_insertion_order);
-    RUN_TEST(test_bb_registry_init_order_mixed);
-    RUN_TEST(test_bb_registry_pre_http_starts_empty);
-    RUN_TEST(test_bb_registry_pre_http_add_increments_count);
-    RUN_TEST(test_bb_registry_pre_http_foreach_visits_in_insertion_order);
-    RUN_TEST(test_bb_registry_pre_http_init_calls_each_fn);
-    RUN_TEST(test_bb_registry_pre_http_init_reports_first_error_but_continues);
-    RUN_TEST(test_bb_registry_pre_http_clear_resets_count);
-    RUN_TEST(test_bb_registry_pre_http_no_double_init_via_init);
+    // bb_init tests
+    RUN_TEST(test_bb_init_starts_empty);
+    RUN_TEST(test_bb_init_add_increments_count);
+    RUN_TEST(test_bb_init_foreach_visits_all_in_order);
+    RUN_TEST(test_bb_init_init_calls_each_init_fn);
+    RUN_TEST(test_bb_init_init_reports_first_error_but_continues);
+    RUN_TEST(test_bb_init_clear_resets_count);
+    RUN_TEST(test_bb_init_init_honors_order_priority);
+    RUN_TEST(test_bb_init_init_same_order_preserves_insertion_order);
+    RUN_TEST(test_bb_init_init_order_mixed);
+    RUN_TEST(test_bb_init_pre_http_starts_empty);
+    RUN_TEST(test_bb_init_pre_http_add_increments_count);
+    RUN_TEST(test_bb_init_pre_http_foreach_visits_in_insertion_order);
+    RUN_TEST(test_bb_init_pre_http_init_calls_each_fn);
+    RUN_TEST(test_bb_init_pre_http_init_reports_first_error_but_continues);
+    RUN_TEST(test_bb_init_pre_http_clear_resets_count);
+    RUN_TEST(test_bb_init_pre_http_no_double_init_via_init);
 
     // bb_display tests
     RUN_TEST(test_bb_display_not_ready_before_init);
