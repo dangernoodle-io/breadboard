@@ -24,7 +24,8 @@ static int s_set_txt_count  = 0;
 // ---------------------------------------------------------------------------
 #ifdef BB_MDNS_TESTING
 
-#define BB_MDNS_HOST_TXT_PENDING_MAX 8
+/* Must stay in sync with CONFIG_BB_MDNS_TXT_PENDING_MAX (Kconfig default 4). */
+#define BB_MDNS_HOST_TXT_PENDING_MAX 4
 typedef struct { char key[16]; char value[64]; bool in_use; } bb_mdns_host_txt_t;
 static bb_mdns_host_txt_t s_host_txt[BB_MDNS_HOST_TXT_PENDING_MAX];
 static bool s_host_mdns_up      = false;

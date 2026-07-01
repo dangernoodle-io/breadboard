@@ -53,6 +53,7 @@
 #include "bb_event.h"
 #include "bb_update_check.h"
 #include "bb_event_routes.h"
+#include "bb_event_routes_defaults.h"
 #include "bb_event_ring.h"
 #include "bb_log.h"
 #include "bb_clock.h"
@@ -641,11 +642,9 @@ static bb_err_t h_diag_events(bb_http_request_t *req)
     bb_http_resp_json_obj_set_arr_end(&obj);
 
     /* max_clients: mirrors CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS used by the
-     * production handler; fall back to the same default the component uses
-     * when building without sdkconfig (host test environment). */
-#ifndef CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS
-#define CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS 4
-#endif
+     * production handler; bb_event_routes_defaults.h supplies the same
+     * fallback the component uses when building without sdkconfig (host
+     * test environment). */
     bb_http_resp_json_obj_set_int(&obj, "max_clients",    (int64_t)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS);
     bb_http_resp_json_obj_set_int(&obj, "active_clients", (int64_t)bb_event_routes_active_client_count());
 

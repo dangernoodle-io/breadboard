@@ -22,11 +22,11 @@
 static const char *TAG = "bb_telemetry";
 
 #ifndef CONFIG_BB_TELEMETRY_MAX_SECTIONS
-#define CONFIG_BB_TELEMETRY_MAX_SECTIONS 4
+#define CONFIG_BB_TELEMETRY_MAX_SECTIONS 6
 #endif
 
 // Verify that the configured section capacity fits in bb_response's registry.
-// Both constants default to ≤ BB_RESPONSE_MAX (4 ≤ 8), so this is a safety net.
+// Both constants default to ≤ BB_RESPONSE_MAX (6 ≤ 8), so this is a safety net.
 #if CONFIG_BB_TELEMETRY_MAX_SECTIONS > BB_RESPONSE_MAX
 #error "CONFIG_BB_TELEMETRY_MAX_SECTIONS exceeds BB_RESPONSE_MAX"
 #endif

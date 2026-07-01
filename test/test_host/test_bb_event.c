@@ -367,37 +367,6 @@ void test_bb_event_topic_register_returns_ok_when_initialized(void)
     TEST_ASSERT_NOT_NULL(topic);
 }
 
-void test_bb_event_topic_register_exceeds_max_returns_no_space(void)
-{
-    setup_sync_mode();
-    bb_event_cfg_t cfg = {
-        .queue_depth = 4,
-        .max_payload = 64,
-    };
-    bb_event_init(&cfg);
-
-    // Attempt to exhaust the topic registry by registering many topics
-    // CONFIG_BB_EVENT_MAX_TOPICS = 16
-    bb_event_topic_t topic = NULL;
-    int successful = 0;
-    int failed = 0;
-
-    // Try to register more topics than the max
-    for (int i = 0; i < 25; i++) {
-        char name[40];
-        snprintf(name, sizeof(name), "regmax.%d", i);
-        bb_err_t err = bb_event_topic_register(name, &topic);
-        if (err == BB_OK) {
-            successful++;
-        } else if (err == BB_ERR_NO_SPACE) {
-            failed++;
-        }
-    }
-
-    // We should have at least hit no-space at some point (unless fewer topics pre-allocated)
-    TEST_ASSERT(failed > 0 || successful == 16);
-}
-
 void test_bb_event_topic_lookup_null_name_returns_invalid_arg(void)
 {
     setup_sync_mode();

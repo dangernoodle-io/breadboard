@@ -5,6 +5,7 @@
 // moved from the info topic.  SNAP_MAX raised to 512 (matches Kconfig default).
 #include "bb_pub_telemetry.h"
 #include "bb_pub.h"
+#include "bb_pub_defaults.h"
 #include "../bb_pub/bb_pub_priv.h"
 #include "bb_board.h"
 #include "bb_clock.h"
@@ -24,11 +25,9 @@
 #ifndef CONFIG_BB_PUB_TOPIC_PREFIX
 #define CONFIG_BB_PUB_TOPIC_PREFIX "metrics"
 #endif
-#ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
-// Matches the Kconfig default raised in components/bb_pub/Kconfig (TA-505).
-// The meta snapshot now includes device-identity strings (~170 bytes extra).
-#define CONFIG_BB_PUB_TELEM_SNAP_MAX 512
-#endif
+// CONFIG_BB_PUB_TELEM_SNAP_MAX host fallback lives in bb_pub_defaults.h.
+// The meta snapshot now includes device-identity strings (~170 bytes extra;
+// TA-505), still well within the 512-byte default.
 
 static const char *TAG = "bb_pub_telemetry";
 

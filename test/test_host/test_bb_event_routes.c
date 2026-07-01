@@ -781,12 +781,13 @@ void test_bb_event_routes_static_pool_oversize_cfg_returns_no_space(void)
     reset_world();
     bb_event_routes_set_static_pool_for_test(true);
     // Use a cfg with queue_depth larger than the compile-time fallback constant.
-    // The host fallback for CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH is 32 (see common.c).
-    // We need queue_depth > that value to exceed the static pool dimension.
-    // 33 > 32 (compile-time pool depth = 32 in host build).
+    // The host fallback for CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH is 8 (see common.c,
+    // matches the Kconfig default). We need queue_depth > that value to exceed
+    // the static pool dimension.
+    // 33 > 8 (compile-time pool depth = 8 in host build).
     bb_event_routes_cfg_t oversize_cfg = {
         .max_clients = 2,
-        .per_client_queue = 33,  /* > compile-time pool depth of 32 */
+        .per_client_queue = 33,  /* > compile-time pool depth of 8 */
         .ring_capacity = 4,
         .ring_max_entry = 64,
         .heartbeat_ms = 1000,

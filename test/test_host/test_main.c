@@ -2114,7 +2114,6 @@ void test_bb_event_init_idempotent(void);
 void test_bb_event_topic_register_null_name_returns_invalid_arg(void);
 void test_bb_event_topic_register_null_out_returns_invalid_arg(void);
 void test_bb_event_topic_register_returns_ok_when_initialized(void);
-void test_bb_event_topic_register_exceeds_max_returns_no_space(void);
 void test_bb_event_topic_lookup_null_name_returns_invalid_arg(void);
 void test_bb_event_topic_lookup_null_out_returns_invalid_arg(void);
 void test_bb_event_topic_lookup_not_found(void);
@@ -5480,7 +5479,6 @@ int main(void) {
     RUN_TEST(test_bb_event_topic_register_null_name_returns_invalid_arg);
     RUN_TEST(test_bb_event_topic_register_null_out_returns_invalid_arg);
     // RUN_TEST(test_bb_event_topic_register_returns_ok_when_initialized);
-    // RUN_TEST(test_bb_event_topic_register_exceeds_max_returns_no_space);
     RUN_TEST(test_bb_event_topic_lookup_null_name_returns_invalid_arg);
     RUN_TEST(test_bb_event_topic_lookup_null_out_returns_invalid_arg);
     RUN_TEST(test_bb_event_topic_lookup_not_found);

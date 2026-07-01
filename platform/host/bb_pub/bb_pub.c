@@ -7,6 +7,7 @@
 // with NTP synchronised wall-clock time, callers wanting epoch-ms should
 // include the wall-clock timestamp themselves inside their sample_fn.
 #include "bb_pub.h"
+#include "bb_pub_defaults.h"
 #include "bb_cache.h"
 #include "bb_claim.h"
 #include "bb_clock.h"
@@ -53,9 +54,7 @@
 // Telemetry-source scratch buffer size (bytes). A single static buffer is
 // safe because only the bb_pub worker ever calls gather() concurrently (the
 // gather loop runs under s_tick_lock, single-threaded per worker).
-#ifndef CONFIG_BB_PUB_TELEM_SNAP_MAX
-#define CONFIG_BB_PUB_TELEM_SNAP_MAX 256
-#endif
+// CONFIG_BB_PUB_TELEM_SNAP_MAX host fallback lives in bb_pub_defaults.h.
 // Worker-stack buffer for copying memoized serialized JSON out of bb_cache in
 // Phase 2b (UAF-safe copy-out — no caller holds the cache-owned pointer).
 #ifndef CONFIG_BB_PUB_TELEM_SERIALIZE_MAX
