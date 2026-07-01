@@ -1,0 +1,11 @@
+menu "breadboard: bb_ring_diag"
+
+config BB_RING_DIAG_AUTOREGISTER
+    bool "Auto-register /api/diag/rings route via bb_init"
+    default y
+    help
+        When enabled, bb_ring_diag registers GET /api/diag/rings automatically
+        via the bb_init regular tier after the HTTP server starts. Lists every
+        live bb_ring_t tracked by bb_ring_registry.
+
+endmenu

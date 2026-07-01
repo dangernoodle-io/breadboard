@@ -176,6 +176,10 @@ bb_err_t bb_ring_peek_at(bb_ring_t r, size_t index,
 // Current number of entries in the ring.
 size_t bb_ring_count(bb_ring_t r);
 
+// Maximum number of entries the ring holds (as passed to bb_ring_create).
+// Returns 0 if r is NULL.
+size_t bb_ring_capacity(bb_ring_t r);
+
 // Total bytes of payload data currently stored (sum of all entry lengths).
 size_t bb_ring_bytes_used(bb_ring_t r);
 
