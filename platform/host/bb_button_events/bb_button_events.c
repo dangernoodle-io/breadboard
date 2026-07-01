@@ -246,7 +246,7 @@ bb_err_t bb_button_events_attach(const bb_button_events_cfg_t *cfg,
     bb_button_set_callback(cfg->button, btn_raw_cb, h);
 
     *out = h;
-    bb_log_i(TAG, "attached (tick=%"PRIu16"ms)", h->tick_period_ms);
+    bb_log_i(TAG, "attached (tick=%" PRIu16 "ms)", h->tick_period_ms);
     return BB_OK;
 }
 

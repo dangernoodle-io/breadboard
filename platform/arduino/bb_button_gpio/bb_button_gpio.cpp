@@ -33,7 +33,7 @@ extern "C" {
 
 struct isr_slot_t {
     volatile uint8_t edge_count;
-    void *state_ptr; // state_t*
+    void *state_ptr; // bb_button_gpio_state_t*
     bool active;
 };
 
@@ -58,18 +58,18 @@ typedef struct {
     int isr_slot;       // -1 if polling-only
     bb_button_handle_t handle;
     bb_button_driver_t drv;
-} state_t;
+} bb_button_gpio_state_t;
 
 static bool op_is_pressed(void *st)
 {
-    state_t *s = (state_t *)st;
+    bb_button_gpio_state_t *s = (bb_button_gpio_state_t *)st;
     int level = digitalRead(s->gpio);
     return s->active_low ? (level == LOW) : (level == HIGH);
 }
 
 static bb_err_t op_poll(void *st)
 {
-    state_t *s = (state_t *)st;
+    bb_button_gpio_state_t *s = (bb_button_gpio_state_t *)st;
     uint32_t now = (uint32_t)millis();
 
     if (s->isr_slot >= 0) {
@@ -101,7 +101,7 @@ static bb_err_t op_poll(void *st)
 
 static bb_err_t op_close(void *st)
 {
-    state_t *s = (state_t *)st;
+    bb_button_gpio_state_t *s = (bb_button_gpio_state_t *)st;
     if (s->isr_slot >= 0) {
         detachInterrupt(digitalPinToInterrupt(s->gpio));
         s_isr_slots[s->isr_slot].active   = false;
@@ -117,7 +117,7 @@ bb_err_t bb_button_gpio_open(const bb_button_gpio_cfg_t *cfg, bb_button_handle_t
     if (!cfg || !out) return BB_ERR_INVALID_ARG;
     if (cfg->gpio < 0) return BB_ERR_INVALID_ARG;
 
-    state_t *s = (state_t *)calloc(1, sizeof(state_t));
+    bb_button_gpio_state_t *s = (bb_button_gpio_state_t *)calloc(1, sizeof(bb_button_gpio_state_t));
     if (!s) return BB_ERR_NO_SPACE;
     s->gpio       = cfg->gpio;
     s->active_low = cfg->active_low;

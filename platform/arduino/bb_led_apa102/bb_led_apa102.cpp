@@ -17,7 +17,7 @@ typedef struct {
     uint16_t *level16;        // per-LED fine brightness (set via set_level)
     bool *level_set;          // per-LED: use the level16 path instead of bri
     bb_led_driver_t *drv;     // self-ref for cleanup
-} state_t;
+} bb_led_apa102_state_t;
 
 static void tx_byte(int clk, int din, uint8_t b) {
     for (int i = 7; i >= 0; i--) {
@@ -27,7 +27,7 @@ static void tx_byte(int clk, int din, uint8_t b) {
     }
 }
 
-static bb_err_t do_flush(state_t *s) {
+static bb_err_t do_flush(bb_led_apa102_state_t *s) {
     // Start frame: 4 zero bytes.
     for (int i = 0; i < 4; i++) tx_byte(s->pin_clk, s->pin_din, 0);
 
@@ -64,27 +64,27 @@ static bb_err_t do_flush(state_t *s) {
 }
 
 static bb_err_t op_set_on(void *st, uint16_t idx, bool on) {
-    state_t *s = (state_t *)st;
+    bb_led_apa102_state_t *s = (bb_led_apa102_state_t *)st;
     s->enabled[idx] = on;
     return BB_OK;
 }
 
 static bb_err_t op_set_brightness(void *st, uint16_t idx, uint8_t pct) {
-    state_t *s = (state_t *)st;
+    bb_led_apa102_state_t *s = (bb_led_apa102_state_t *)st;
     s->bri[idx] = (uint8_t)(((uint32_t)pct * 31) / 100);
     s->level_set[idx] = false;  // revert to the coarse 5-bit global path
     return BB_OK;
 }
 
 static bb_err_t op_set_level(void *st, uint16_t idx, uint16_t level) {
-    state_t *s = (state_t *)st;
+    bb_led_apa102_state_t *s = (bb_led_apa102_state_t *)st;
     s->level16[idx] = level;
     s->level_set[idx] = true;   // scale base color by gamma(level) at flush
     return BB_OK;
 }
 
 static bb_err_t op_set_color(void *st, uint16_t idx, uint8_t r, uint8_t g, uint8_t b) {
-    state_t *s = (state_t *)st;
+    bb_led_apa102_state_t *s = (bb_led_apa102_state_t *)st;
     s->rgb[idx*3 + 0] = r;
     s->rgb[idx*3 + 1] = g;
     s->rgb[idx*3 + 2] = b;
@@ -92,11 +92,11 @@ static bb_err_t op_set_color(void *st, uint16_t idx, uint8_t r, uint8_t g, uint8
 }
 
 static bb_err_t op_flush(void *st) {
-    return do_flush((state_t *)st);
+    return do_flush((bb_led_apa102_state_t *)st);
 }
 
 static bb_err_t op_close(void *st) {
-    state_t *s = (state_t *)st;
+    bb_led_apa102_state_t *s = (bb_led_apa102_state_t *)st;
     digitalWrite(s->pin_clk, 0);
     digitalWrite(s->pin_din, 0);
     free(s->rgb);
@@ -120,7 +120,7 @@ bb_err_t bb_led_apa102_open(const bb_led_apa102_cfg_t *cfg, bb_led_handle_t *out
     digitalWrite(cfg->pin_clk, 0);
     digitalWrite(cfg->pin_din, 0);
 
-    state_t *s = (state_t *)calloc(1, sizeof *s);
+    bb_led_apa102_state_t *s = (bb_led_apa102_state_t *)calloc(1, sizeof *s);
     if (!s) return BB_ERR_NO_SPACE;
     s->pin_clk = cfg->pin_clk;
     s->pin_din = cfg->pin_din;

@@ -351,7 +351,8 @@ static void metrics_prom_walk_cb(const char *key, bb_json_t child, void *ctx_)
         (!bb_json_item_is_string(child) && !bb_json_item_is_null(child) &&
          !bb_json_item_is_array(child) && !bb_json_item_is_object(child))) {
         // Numeric / bool → gauge
-        char line[256];
+        // Worst case: name(127) + {host="(7) + host_escaped(127) + "} (3) + %.6g(20) + \n(1) = 285
+        char line[320];
         snprintf(line, sizeof(line), "# TYPE %s gauge\n", name);
         if (metrics_chunk(ctx->req, line) != BB_OK) { ctx->err = BB_ERR_INVALID_STATE; return; }
         if (!ctx->schema_only) {
@@ -364,7 +365,8 @@ static void metrics_prom_walk_cb(const char *key, bb_json_t child, void *ctx_)
         const char *sval = bb_json_item_get_string(child);
         char escaped_val[256];
         metrics_escape_label_val(sval ? sval : "", escaped_val, sizeof(escaped_val));
-        char label_frag[320];
+        // Worst case: ,(1) + label_key(63) + =" (2) + escaped_val(255) + "(1) = 322
+        char label_frag[384];
         char label_key[64];
         metrics_sanitize_name(key, label_key, sizeof(label_key));
         snprintf(label_frag, sizeof(label_frag), ",%s=\"%s\"", label_key, escaped_val);
