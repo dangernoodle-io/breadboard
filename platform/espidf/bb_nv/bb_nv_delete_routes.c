@@ -150,7 +150,7 @@ static bb_err_t nvs_delete_handler(bb_http_request_t *req)
     bool needs_wipe_wifi = false;
     if (ns_is_str) {
         const char *ns_val = bb_json_item_get_string(ns_item);
-        if (ns_val && strcmp(ns_val, "bb_cfg") == 0) {
+        if (ns_val && strcmp(ns_val, BB_NV_CONFIG_NVS_NS) == 0) {
             needs_wipe_wifi = true;
         }
     } else {
@@ -160,7 +160,7 @@ static bb_err_t nvs_delete_handler(bb_http_request_t *req)
             bb_json_t el = bb_json_arr_get_item(ns_item, i);
             if (el && bb_json_item_is_string(el)) {
                 const char *s = bb_json_item_get_string(el);
-                if (s && strcmp(s, "bb_cfg") == 0) {
+                if (s && strcmp(s, BB_NV_CONFIG_NVS_NS) == 0) {
                     needs_wipe_wifi = true;
                     break;
                 }

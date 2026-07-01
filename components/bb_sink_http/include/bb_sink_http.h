@@ -25,6 +25,7 @@
 #include "bb_core.h"
 #include "bb_pub.h"
 #include "bb_tls.h"
+#include "bb_nv_namespaces.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,7 +35,6 @@ extern "C" {
 // Configuration
 // ---------------------------------------------------------------------------
 
-#define BB_SINK_HTTP_NVS_NS       "bb_sink_http"
 #define BB_SINK_HTTP_BASE_MAX     128
 #define BB_SINK_HTTP_PATH_MAX     128
 #define BB_SINK_HTTP_PATH_DEFAULT "/topics/{topic}?qos={qos}"

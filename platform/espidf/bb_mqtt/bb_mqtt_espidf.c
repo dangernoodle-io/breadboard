@@ -41,7 +41,7 @@
 
 static const char *TAG = "bb_mqtt";
 
-#define BB_MQTT_NVS_NS        "bb_mqtt"
+// BB_MQTT_NVS_NS is the SSOT namespace constant from bb_mqtt.h.
 #define BB_MQTT_URI_MAX       128
 #define BB_MQTT_CLIENT_ID_MAX 64
 #define BB_MQTT_USER_MAX      64
