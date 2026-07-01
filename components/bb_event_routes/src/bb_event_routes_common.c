@@ -3,6 +3,7 @@
 #include "bb_event_ring.h"
 #include "bb_log.h"
 #include "bb_event_routes_internal.h"
+#include "bb_event_topic_registry.h"
 
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -48,21 +49,22 @@ static const char *TAG = "bb_event_routes";
 #define CONFIG_BB_EVENT_ROUTES_MAX_TOPICS 8
 #endif
 
-#define TOPIC_NAME_MAX 32
+#define TOPIC_NAME_MAX BB_EVENT_TOPIC_NAME_MAX
 
 // ---------------------------------------------------------------------------
 // Attached topics
+//
+// Storage is a fixed array, indexed identically to bb_event_topic_registry's
+// registration order (register-only, no deregister — see
+// bb_event_topic_registry.h). The registry (a thin consumer of the generic
+// bb_registry primitive on host/ESP-IDF; a plain array scan on Arduino)
+// replaces the old manual dedupe-scan + lookup-by-handle bookkeeping.
 // ---------------------------------------------------------------------------
 
-typedef struct {
-    char name[TOPIC_NAME_MAX];
-    bb_event_topic_t topic;
-    bb_event_ring_t ring;
-} attached_topic_t;
+typedef bb_event_attached_topic_t attached_topic_t;
 
 static attached_topic_t s_topics[CONFIG_BB_EVENT_ROUTES_MAX_TOPICS];
-static size_t s_num_topics = 0;
-static void *s_topics_lock = NULL;  // guards s_num_topics and s_topics[]
+static void *s_topics_lock = NULL;  // guards the compound attach_ex2 sequence below
 
 // ---------------------------------------------------------------------------
 // Client slots
@@ -156,18 +158,15 @@ static void capture_cb(bb_event_topic_t topic, int32_t id,
     bb_event_routes_client_t *c = (bb_event_routes_client_t *)user;
     if (!c || !atomic_load(&c->in_use)) return;  // LCOV_EXCL_BR_LINE — defensive
 
-    // Locate topic index under the topics lock to avoid racing attach_ex.
-    int topic_idx = -1;
-    bb_event_routes_port_lock(s_topics_lock);
-    size_t num_topics = s_num_topics;
-    for (size_t i = 0; i < num_topics; i++) {  // LCOV_EXCL_BR_LINE — capture only fires when a topic is attached
-        if (s_topics[i].topic == topic) {
-            topic_idx = (int)i;
-            break;
-        }
+    // Locate topic index via the registry. bb_event_topic_registry_register
+    // is only ever called (in attach_ex2) after the entry's topic/ring/name
+    // fields are fully populated, and the registry's own internal lock
+    // (host/ESP-IDF) establishes happens-before for that write — no need to
+    // also hold s_topics_lock here.
+    size_t topic_idx = 0;
+    if (bb_event_topic_registry_find_by_handle(topic, &topic_idx) != BB_OK) {  // LCOV_EXCL_BR_LINE — attach guarantees a match
+        return;  // LCOV_EXCL_LINE
     }
-    bb_event_routes_port_unlock(s_topics_lock);
-    if (topic_idx < 0) return;  // LCOV_EXCL_LINE — attach guarantees a match
 
     size_t copy = size > c->max_entry ? c->max_entry : size;
 
@@ -182,7 +181,7 @@ static void capture_cb(bb_event_topic_t topic, int32_t id,
 
     size_t w = c->head;
     queue_entry_t *e = &c->entries[w];
-    e->topic_idx = topic_idx;
+    e->topic_idx = (int)topic_idx;
     e->event_id = id;
     e->size = copy;
     e->payload = c->payload_buf + (w * c->max_entry);
@@ -240,19 +239,12 @@ bb_err_t bb_event_routes_attach_ex2(const char *topic_name, bool retained,
     // ops + commit.  bb_event_ring_attach_ex uses its own bb_event_lock (a
     // separate lock from s_topics_lock) so there is no deadlock risk.
     // Holding the lock across the whole operation prevents TOCTOU without
-    // requiring a re-check after re-acquire.
+    // requiring a re-check after re-acquire. (The registry also serialises
+    // its own ops internally on host/ESP-IDF, but that alone would not be
+    // enough here: the compound reserve-slot + ring-create + populate +
+    // commit sequence below must run as a single atomic unit, which only
+    // s_topics_lock — held across the whole function — guarantees.)
     bb_event_routes_port_lock(s_topics_lock);
-    for (size_t i = 0; i < s_num_topics; i++) {
-        if (strcmp(s_topics[i].name, topic_name) == 0) {
-            bb_event_routes_port_unlock(s_topics_lock);
-            return BB_OK;
-        }
-    }
-    if (s_num_topics >= CONFIG_BB_EVENT_ROUTES_MAX_TOPICS) {
-        bb_event_routes_port_unlock(s_topics_lock);
-        bb_log_e(TAG, "topic table full");
-        return BB_ERR_NO_SPACE;
-    }
 
     bb_event_topic_t topic = NULL;
     bb_err_t err = bb_event_topic_lookup(topic_name, &topic);
@@ -260,6 +252,18 @@ bb_err_t bb_event_routes_attach_ex2(const char *topic_name, bool retained,
         bb_event_routes_port_unlock(s_topics_lock);
         bb_log_e(TAG, "topic '%s' not registered", topic_name);
         return err;
+    }
+
+    size_t existing_idx;
+    if (bb_event_topic_registry_find_by_handle(topic, &existing_idx) == BB_OK) {
+        bb_event_routes_port_unlock(s_topics_lock);
+        return BB_OK;  // already attached — idempotent
+    }
+
+    if (bb_event_topic_registry_count() >= CONFIG_BB_EVENT_ROUTES_MAX_TOPICS) {
+        bb_event_routes_port_unlock(s_topics_lock);
+        bb_log_e(TAG, "topic table full");
+        return BB_ERR_NO_SPACE;
     }
 
     size_t ring_cap = retained
@@ -274,11 +278,24 @@ bb_err_t bb_event_routes_attach_ex2(const char *topic_name, bool retained,
         return err;
     }
 
-    attached_topic_t *t = &s_topics[s_num_topics++];
+    // Next free slot: safe to compute from the registry's count because
+    // s_topics_lock (held for this whole function) serialises every
+    // attach_ex2 call, and the registry is register-only (no deregister),
+    // so its count always equals the number of slots already committed.
+    attached_topic_t *t = &s_topics[bb_event_topic_registry_count()];
     strncpy(t->name, topic_name, TOPIC_NAME_MAX - 1);
     t->name[TOPIC_NAME_MAX - 1] = '\0';
     t->topic = topic;
     t->ring = ring;
+
+    err = bb_event_topic_registry_register(t->name, t);
+    if (err != BB_OK) {  // LCOV_EXCL_BR_LINE — count/dedupe checks above (find_by_handle miss + count < cap) make this unreachable in practice.
+        // LCOV_EXCL_START
+        bb_event_routes_port_unlock(s_topics_lock);
+        bb_log_e(TAG, "registry register failed for '%s': %d", topic_name, err);
+        return err;
+        // LCOV_EXCL_STOP
+    }
     bb_event_routes_port_unlock(s_topics_lock);
 
     bb_log_d(TAG, "attached '%s' retained=%d max_entry=%zu", topic_name,
@@ -364,7 +381,7 @@ bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
             topic_snap_t snaps[CONFIG_BB_EVENT_ROUTES_MAX_TOPICS];
             size_t snap_count;
             bb_event_routes_port_lock(s_topics_lock);
-            snap_count = s_num_topics;
+            snap_count = bb_event_topic_registry_count();
             for (size_t k = 0; k < snap_count; k++) {
                 snaps[k].ring = s_topics[k].ring;
                 memcpy(snaps[k].name, s_topics[k].name, TOPIC_NAME_MAX);
@@ -515,24 +532,20 @@ int bb_event_routes_client_slot_index(const bb_event_routes_client_t *c)
 
 size_t bb_event_routes_topic_count(void)
 {
-    bb_event_routes_port_lock(s_topics_lock);
-    size_t n = s_num_topics;
-    bb_event_routes_port_unlock(s_topics_lock);
-    return n;
+    return bb_event_topic_registry_count();
 }
 
 bb_err_t bb_event_routes_topic_info(size_t idx,
                                     const char **name,
                                     bb_event_ring_t *ring)
 {
-    bb_event_routes_port_lock(s_topics_lock);
-    if (idx >= s_num_topics) {
-        bb_event_routes_port_unlock(s_topics_lock);
-        return BB_ERR_NOT_FOUND;
+    attached_topic_t *t = NULL;
+    bb_err_t err = bb_event_topic_registry_get_by_index(idx, &t);
+    if (err != BB_OK) {
+        return err;
     }
-    if (name) *name = s_topics[idx].name;
-    if (ring) *ring = s_topics[idx].ring;
-    bb_event_routes_port_unlock(s_topics_lock);
+    if (name) *name = t->name;
+    if (ring) *ring = t->ring;
     return BB_OK;
 }
 
@@ -556,10 +569,14 @@ void bb_event_routes_reset_for_test(void) {
             bb_event_routes_client_release(&s_clients[i]);
         }
     }
-    for (size_t i = 0; i < s_num_topics; i++) {
-        if (s_topics[i].ring) bb_event_ring_detach(s_topics[i].ring);  // LCOV_EXCL_BR_LINE
+    size_t num_topics = bb_event_topic_registry_count();
+    for (size_t i = 0; i < num_topics; i++) {
+        attached_topic_t *t = NULL;
+        if (bb_event_topic_registry_get_by_index(i, &t) == BB_OK && t->ring) {  // LCOV_EXCL_BR_LINE
+            bb_event_ring_detach(t->ring);
+        }
     }
-    s_num_topics = 0;
+    bb_event_topic_registry_test_reset();
     memset(&s_cfg, 0, sizeof(s_cfg));
     if (s_topics_lock) {
         bb_event_routes_port_lock_destroy(s_topics_lock);
