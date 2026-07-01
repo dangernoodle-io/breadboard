@@ -1236,7 +1236,7 @@ static const bb_route_t s_ota_check_route = {
     .tag      = "update",
     .summary  = "Kick update check; poll GET /api/update/status for result",
     .responses = s_ota_check_responses,
-    .handler  = NULL,
+    .handler  = ota_check_handler,
 };
 
 static const bb_route_response_t s_ota_update_responses[] = {
@@ -1274,7 +1274,7 @@ static const bb_route_t s_ota_update_route = {
     .tag      = "update",
     .summary  = "Apply firmware update (download + flash)",
     .responses = s_ota_update_responses,
-    .handler  = NULL,
+    .handler  = ota_update_handler,
 };
 
 static const bb_route_response_t s_ota_status_responses[] = {
@@ -1297,7 +1297,7 @@ static const bb_route_t s_ota_status_route = {
     .tag      = "update",
     .summary  = "Get OTA download/flash progress",
     .responses = s_ota_status_responses,
-    .handler  = NULL,
+    .handler  = ota_status_handler,
 };
 
 /**
@@ -1309,39 +1309,22 @@ static bb_err_t bb_ota_pull_init(bb_http_handle_t server)
         return BB_ERR_INVALID_ARG;
     }
 
-    bb_err_t err = bb_http_register_route(server, BB_HTTP_POST,
-                                          "/api/update/check", ota_check_handler);
+    bb_err_t err = bb_http_register_described_route(server, &s_ota_check_route);
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to register /api/update/check handler");
         return err;
     }
 
-    err = bb_http_register_route(server, BB_HTTP_POST,
-                                 "/api/update/apply", ota_update_handler);
+    err = bb_http_register_described_route(server, &s_ota_update_route);
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to register /api/update/apply handler");
         return err;
     }
 
-    err = bb_http_register_route(server, BB_HTTP_GET,
-                                 "/api/update/progress", ota_status_handler);
+    err = bb_http_register_described_route(server, &s_ota_status_route);
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to register /api/update/progress handler");
         return err;
-    }
-
-    // Add descriptors to registry for OpenAPI spec emission.
-    bb_err_t desc_err = bb_http_register_route_descriptor_only(&s_ota_check_route);
-    if (desc_err != BB_OK) {
-        bb_log_e(TAG, "failed to register update-check descriptor: %d", desc_err);
-    }
-    desc_err = bb_http_register_route_descriptor_only(&s_ota_update_route);
-    if (desc_err != BB_OK) {
-        bb_log_e(TAG, "failed to register update-apply descriptor: %d", desc_err);
-    }
-    desc_err = bb_http_register_route_descriptor_only(&s_ota_status_route);
-    if (desc_err != BB_OK) {
-        bb_log_e(TAG, "failed to register update-progress descriptor: %d", desc_err);
     }
 
     bb_log_i(TAG, "OTA pull handlers registered");

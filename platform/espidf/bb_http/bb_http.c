@@ -300,6 +300,16 @@ static esp_err_t api_dispatch_handler(httpd_req_t *req)
     bb_api_dispatch_result_t res = bb_api_dispatch_lookup(method, uri, &handler);
 
     if (res == BB_API_DISPATCH_HIT) {
+        if (!handler) {
+            // Defensive: bb_api_dispatch_add is never fed a NULL handler (see
+            // bb_http_register_route / bb_http_register_described_route), so
+            // this should be unreachable. Guard anyway rather than risk a
+            // null-deref if that invariant is ever broken.
+            httpd_resp_set_status(req, "501 Not Implemented");
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_sendstr(req, "{\"error\":\"no handler registered\"}");
+            return ESP_OK;
+        }
         // Wrap httpd_req_t* as bb_http_request_t* — identical cast used by
         // bb_shim_handler. The fn(req) contract is the same for sync and async
         // (SSE/async) handlers.

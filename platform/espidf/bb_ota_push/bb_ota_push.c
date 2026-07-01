@@ -346,7 +346,7 @@ static const bb_route_t s_ota_push_route = {
     .request_content_type = "application/octet-stream",
     .request_schema       = NULL,  // raw binary .bin file
     .responses            = s_ota_push_responses,
-    .handler              = NULL,
+    .handler              = ota_push_handler,
 };
 
 /**
@@ -358,17 +358,10 @@ static bb_err_t bb_ota_push_init(bb_http_handle_t server)
         return BB_ERR_INVALID_ARG;
     }
 
-    bb_err_t err = bb_http_register_route(server, BB_HTTP_POST,
-                                          "/api/update/push", ota_push_handler);
+    bb_err_t err = bb_http_register_described_route(server, &s_ota_push_route);
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to register /api/update/push handler");
         return err;
-    }
-
-    // Add descriptor for OpenAPI spec emission.
-    bb_err_t desc_err = bb_http_register_route_descriptor_only(&s_ota_push_route);
-    if (desc_err != BB_OK) {
-        bb_log_e(TAG, "failed to register ota-push descriptor: %d", desc_err);
     }
 
     bb_log_i(TAG, "OTA push handler registered");
