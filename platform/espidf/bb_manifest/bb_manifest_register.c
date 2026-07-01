@@ -40,7 +40,8 @@ static bb_err_t manifest_handler(bb_http_request_t *req)
 }
 
 // ---------------------------------------------------------------------------
-// Route descriptor (self-describing; handler registered via bb_http_register_route)
+// Route descriptor (self-describing; single call registers both the httpd
+// handler and the OpenAPI-spec-emission descriptor)
 // ---------------------------------------------------------------------------
 
 static const bb_route_response_t s_manifest_responses[] = {
@@ -86,24 +87,17 @@ static const bb_route_t s_manifest_route = {
     .tag      = "manifest",
     .summary  = "Get NVS and mDNS key manifest",
     .responses = s_manifest_responses,
-    .handler  = NULL,
+    .handler  = manifest_handler,
 };
 
 static bb_err_t bb_manifest_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
-    bb_err_t err = bb_http_register_route(server, BB_HTTP_GET,
-                                          "/api/manifest", manifest_handler);
+    bb_err_t err = bb_http_register_described_route(server, &s_manifest_route);
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to register /api/manifest: %d", err);
         return err;
-    }
-
-    // Add descriptor for OpenAPI spec emission (self-describing).
-    bb_err_t desc_err = bb_http_register_route_descriptor_only(&s_manifest_route);
-    if (desc_err != BB_OK) {
-        bb_log_e(TAG, "failed to register manifest descriptor: %d", desc_err);
     }
 
     bb_log_i(TAG, "registered GET /api/manifest");

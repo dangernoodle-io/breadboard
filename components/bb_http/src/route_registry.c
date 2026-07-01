@@ -68,6 +68,11 @@ static bb_err_t registry_add(const bb_route_t *route)
 // Described route registration
 // ---------------------------------------------------------------------------
 
+// Equivalent to bb_http_register_described_route() with handler=NULL (schema-only
+// descriptor registration).  Retained as a distinct entry point only for bb_websocket,
+// whose handler type (bb_websocket_handler_fn) is incompatible with bb_route_t.handler.
+// New schema-only routes should prefer bb_http_register_described_route() with a NULL
+// handler.
 bb_err_t bb_http_register_route_descriptor_only(const bb_route_t *route)
 {
     if (!route) return BB_ERR_INVALID_ARG;
@@ -78,6 +83,16 @@ bb_err_t bb_http_register_described_route(bb_http_handle_t server,
                                           const bb_route_t *route)
 {
     if (!route) return BB_ERR_INVALID_ARG;
+
+    // route->handler == NULL means "schema-only": the request is served some
+    // other way (e.g. a handler with an incompatible signature registered
+    // directly, as bb_websocket does) or not served at all. Skip the httpd/
+    // dispatch wiring step entirely and just add the descriptor to the
+    // registry — equivalent to bb_http_register_route_descriptor_only, but
+    // reachable through the single unified entry point.
+    if (!route->handler) {
+        return registry_add(route);
+    }
 
     // Delegate to the existing imperative registration first.
     bb_err_t err = bb_http_register_route(server, route->method, route->path, route->handler);

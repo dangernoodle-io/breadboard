@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "bb_http.h"
+#include "bb_http_api_dispatch.h"
 #include <stddef.h>
 #include <stdio.h>
 
@@ -239,6 +240,69 @@ void test_register_described_route_overflow_returns_no_space(void)
     bb_err_t err = bb_http_register_described_route(NULL, &s_overflow_routes[64]);
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
     TEST_ASSERT_EQUAL(64, bb_http_route_registry_count());
+}
+
+// ---------------------------------------------------------------------------
+// bb_http_register_described_route with route->handler == NULL (B1-452):
+// schema-only registration — the descriptor is added to the registry but the
+// httpd/dispatch handler-registration step is skipped entirely.
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_null_handler_responses[] = {
+    { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
+    { .status = 0 },
+};
+
+static const bb_route_t s_route_null_handler = {
+    .method    = BB_HTTP_GET,
+    .path      = "/api/schema-only",
+    .tag       = "test",
+    .summary   = "schema-only route",
+    .responses = s_null_handler_responses,
+    .handler   = NULL,
+};
+
+void test_register_described_route_null_handler_adds_descriptor(void)
+{
+    bb_http_route_registry_clear();
+    bb_err_t err = bb_http_register_described_route(NULL, &s_route_null_handler);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(1, bb_http_route_registry_count());
+
+    walk_ctx_t ctx = { .count = 0 };
+    bb_http_route_registry_foreach(collect_walker, &ctx);
+    TEST_ASSERT_EQUAL(1, ctx.count);
+    TEST_ASSERT_EQUAL_PTR(&s_route_null_handler, ctx.visited[0]);
+    TEST_ASSERT_NULL(ctx.visited[0]->handler);
+}
+
+void test_register_described_route_null_handler_skips_dispatch(void)
+{
+    bb_http_route_registry_clear();
+    bb_api_dispatch_reset();
+
+    bb_err_t err = bb_http_register_described_route(NULL, &s_route_null_handler);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    // No handler was wired: a lookup for this path must miss the dispatch
+    // table even though the descriptor is present in the OpenAPI registry.
+    bb_http_handler_fn handler = NULL;
+    bb_api_dispatch_result_t res =
+        bb_api_dispatch_lookup(BB_HTTP_GET, "/api/schema-only", &handler);
+    TEST_ASSERT_EQUAL(BB_API_DISPATCH_MISS, res);
+    TEST_ASSERT_NULL(handler);
+}
+
+void test_register_described_route_null_handler_ignores_force_register_fail(void)
+{
+    // The NULL-handler branch never calls bb_http_register_route, so the
+    // "force underlying registration to fail" test hook must have no effect.
+    bb_http_route_registry_clear();
+    bb_http_host_force_register_fail(true);
+    bb_err_t err = bb_http_register_described_route(NULL, &s_route_null_handler);
+    bb_http_host_force_register_fail(false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL(1, bb_http_route_registry_count());
 }
 
 // ---------------------------------------------------------------------------
