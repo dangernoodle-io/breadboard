@@ -26,7 +26,10 @@ from commands.lint import (
     _check_public_header_inline_platform_call,
     _check_mutating_route_needs_body_schema,
     _check_event_topic_needs_schema,
+    _check_kconfig_default_mismatch,
+    _check_task_creation_without_registration,
     _strip_noise,
+    _parse_kconfig_int_defaults,
 )
 
 
@@ -1189,6 +1192,230 @@ class TestRawAllocator(unittest.TestCase):
             violations = _check_raw_allocator(ctx)
             self.assertEqual(len(violations), 1,
                              "only line 2 must fire; line 1 is path:line allowlisted")
+
+
+class TestKconfigDefaultMismatch(unittest.TestCase):
+    def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return tmpdir
+
+    def test_fires_on_mismatched_default(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_LEN\n'
+                '    int "Fake length"\n'
+                '    default 24\n'
+                '    range 8 256\n')
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '#ifdef ESP_PLATFORM\n'
+                '#include "sdkconfig.h"\n'
+                '#ifdef CONFIG_BB_FAKE_LEN\n'
+                '#define BB_FAKE_LEN CONFIG_BB_FAKE_LEN\n'
+                '#endif\n'
+                '#endif\n'
+                '#ifndef BB_FAKE_LEN\n'
+                '#define BB_FAKE_LEN 48\n'
+                '#endif\n')
+            violations = _check_kconfig_default_mismatch(make_ctx(td))
+            self.assertTrue(violations, "mismatched C fallback vs Kconfig base default must fire")
+            self.assertIn("BB_FAKE_LEN", violations[0]["detail"])
+
+    def test_no_fire_on_matching_default(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_LEN\n'
+                '    int "Fake length"\n'
+                '    default 24\n'
+                '    range 8 256\n')
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '#ifndef BB_FAKE_LEN\n'
+                '#define BB_FAKE_LEN 24\n'
+                '#endif\n')
+            violations = _check_kconfig_default_mismatch(make_ctx(td))
+            self.assertFalse(violations, "matching C fallback default must NOT fire")
+
+    def test_no_false_positive_on_gate_keyed_default(self):
+        """Base (non-gated) default must be used — the SPIRAM-gated default is ignored."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_LEN\n'
+                '    int "Fake length"\n'
+                '    default 48 if SPIRAM\n'
+                '    default 24\n'
+                '    range 8 256\n')
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '#ifndef BB_FAKE_LEN\n'
+                '#define BB_FAKE_LEN 24\n'
+                '#endif\n')
+            violations = _check_kconfig_default_mismatch(make_ctx(td))
+            self.assertFalse(violations, "must match against base default (24), not gated default (48)")
+
+    def test_no_fire_on_non_int_kconfig(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_ENABLE\n'
+                '    bool "Enable fake"\n'
+                '    default n\n')
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '#ifndef BB_FAKE_ENABLE\n'
+                '#define BB_FAKE_ENABLE 1\n'
+                '#endif\n')
+            violations = _check_kconfig_default_mismatch(make_ctx(td))
+            self.assertFalse(violations, "bool-typed Kconfig entries must NOT be compared")
+
+    def test_no_fire_on_unrelated_c_default(self):
+        """A #ifndef BB_X with no matching Kconfig config must NOT fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_OTHER\n'
+                '    int "Other"\n'
+                '    default 1\n')
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '#ifndef BB_UNRELATED\n'
+                '#define BB_UNRELATED 999\n'
+                '#endif\n')
+            violations = _check_kconfig_default_mismatch(make_ctx(td))
+            self.assertFalse(violations, "C default with no matching Kconfig entry must NOT fire")
+
+    def test_allowlist_by_name(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_LEN\n'
+                '    int "Fake length"\n'
+                '    default 24\n')
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '#ifndef BB_FAKE_LEN\n'
+                '#define BB_FAKE_LEN 48\n'
+                '#endif\n')
+            config = {"lint": {"rules": {"kconfig-default-mismatch": {
+                "allow": ["BB_FAKE_LEN"]
+            }}}}
+            ctx = Context(root=td, config=config)
+            violations = _check_kconfig_default_mismatch(ctx)
+            self.assertFalse(violations, "allowlisted symbol name must NOT fire")
+
+    def test_allowlist_by_path_line(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_LEN\n'
+                '    int "Fake length"\n'
+                '    default 24\n')
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '#ifndef BB_FAKE_LEN\n'
+                '#define BB_FAKE_LEN 48\n'
+                '#endif\n')
+            key = "platform/espidf/bb_fake/bb_fake.c:2"
+            config = {"lint": {"rules": {"kconfig-default-mismatch": {
+                "allow": [key]
+            }}}}
+            ctx = Context(root=td, config=config)
+            violations = _check_kconfig_default_mismatch(ctx)
+            self.assertFalse(violations, "allowlisted path:line key must NOT fire")
+
+    def test_first_ungated_default_wins(self):
+        text = (
+            'config BB_X\n'
+            '    int "Fake"\n'
+            '    default 24\n'
+            '    default 99\n'
+        )
+        result = _parse_kconfig_int_defaults(text)
+        self.assertEqual(result["BB_X"], 24, "first ungated default must win")
+
+
+class TestTaskCreationWithoutRegistration(unittest.TestCase):
+    def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return tmpdir
+
+    def test_fires_on_unregistered_xtaskcreate(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'void start(void) {\n'
+                '    xTaskCreate(worker, "fake", 2048, NULL, 5, &h);\n'
+                '}\n')
+            violations = _check_task_creation_without_registration(make_ctx(td))
+            self.assertTrue(violations, "xTaskCreate with no registration in file must fire")
+
+    def test_no_fire_when_registered_same_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'void start(void) {\n'
+                '    xTaskCreate(worker, "fake", 2048, NULL, 5, &h);\n'
+                '    bb_task_registry_register("fake", 2048, h, NULL, NULL);\n'
+                '}\n')
+            violations = _check_task_creation_without_registration(make_ctx(td))
+            self.assertFalse(violations, "xTaskCreate paired with registration must NOT fire")
+
+    def test_fires_on_pinned_to_core_variant(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'void start(void) {\n'
+                '    xTaskCreatePinnedToCore(worker, "fake", 2048, NULL, 5, &h, 0);\n'
+                '}\n')
+            violations = _check_task_creation_without_registration(make_ctx(td))
+            self.assertTrue(violations, "xTaskCreatePinnedToCore with no registration must fire")
+
+    def test_no_fire_on_static_variant_with_registration(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'void start(void) {\n'
+                '    TaskHandle_t h = xTaskCreateStatic(worker, "fake", 512, NULL, 5,\n'
+                '                                        stack, &tcb);\n'
+                '    bb_task_registry_register("fake", 512, h, NULL, NULL);\n'
+                '}\n')
+            violations = _check_task_creation_without_registration(make_ctx(td))
+            self.assertFalse(violations, "xTaskCreateStatic paired with registration must NOT fire")
+
+    def test_no_fire_on_comment_mention(self):
+        """A bare mention in a comment (no real call) must NOT fire."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '// xTaskCreatePinnedToCore asserts on unicore targets.\n'
+                'void start(void) {}\n')
+            violations = _check_task_creation_without_registration(make_ctx(td))
+            self.assertFalse(violations, "comment-only mention must NOT fire")
+
+    def test_no_fire_outside_scanned_dirs(self):
+        """xTaskCreate outside components/ and platform/espidf/ (e.g. platform/host) is out of scope."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/host/bb_fake/bb_fake.c",
+                'void start(void) {\n'
+                '    xTaskCreate(worker, "fake", 2048, NULL, 5, &h);\n'
+                '}\n')
+            violations = _check_task_creation_without_registration(make_ctx(td))
+            self.assertFalse(violations, "platform/host is out of scope for this rule")
+
+    def test_allowlist_by_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'void start(void) {\n'
+                '    xTaskCreate(worker, "fake", 2048, NULL, 5, &h);\n'
+                '}\n')
+            config = {"lint": {"rules": {"task-creation-without-registration": {
+                "allow": ["platform/espidf/bb_fake/bb_fake.c"]
+            }}}}
+            ctx = Context(root=td, config=config)
+            violations = _check_task_creation_without_registration(ctx)
+            self.assertFalse(violations, "allowlisted file path must NOT fire")
+
+    def test_two_creates_one_register_file_scope_no_violation(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                'void start(void) {\n'
+                '    xTaskCreate(worker, "fake1", 2048, NULL, 5, &h1);\n'
+                '    xTaskCreate(worker2, "fake2", 2048, NULL, 5, &h2);\n'
+                '    bb_task_registry_register("fake1", 2048, h1, NULL, NULL);\n'
+                '}\n')
+            violations = _check_task_creation_without_registration(make_ctx(td))
+            # Pins the documented file-scope heuristic: 1 register satisfies N
+            # creates in the same file. A future call-site-precise rule would
+            # flip this to a violation — see B1-466 follow-up.
+            self.assertFalse(violations, "1 register satisfies N creates in the same file")
 
 
 if __name__ == "__main__":

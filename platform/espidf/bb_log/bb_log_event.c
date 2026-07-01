@@ -33,7 +33,7 @@
 #endif
 #endif
 #ifndef BB_LOG_EVENT_QUEUE_LEN
-#define BB_LOG_EVENT_QUEUE_LEN 48
+#define BB_LOG_EVENT_QUEUE_LEN 24
 #endif
 
 #define LOG_EVENT_TASK_STACK   3072
