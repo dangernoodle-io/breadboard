@@ -34,6 +34,10 @@ static const char *chip_model_str(esp_chip_model_t m)
     }
 }
 
+// Intentionally separate from bb_system's BB_RESET_REASON_LIST X-macro: this is
+// a raw esp_reset_reason_t mapping with narrower coverage (ext/int_wdt/sdio fall
+// through to "unknown"). Unifying it would change those output values — a
+// behavior change out of scope for B1-463's value-preserving pass. Follow-up.
 static const char *reset_reason_str(esp_reset_reason_t r)
 {
     switch (r) {

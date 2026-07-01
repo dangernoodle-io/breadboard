@@ -533,7 +533,7 @@ void test_validate_smoke_boot_schema(void)
 
     // panic not available
     cJSON *clean = cJSON_CreateObject();
-    cJSON_AddStringToObject(clean, "reset_reason", "poweron");
+    cJSON_AddStringToObject(clean, "reset_reason", "power-on");
     cJSON_AddNumberToObject(clean, "wdt_resets", 0);
     cJSON *panic_obj = cJSON_CreateObject();
     cJSON_AddFalseToObject(panic_obj, "available");

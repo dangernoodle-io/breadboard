@@ -30,7 +30,7 @@ static char *serialize_snap(const bb_diag_boot_snap_t *snap)
 void test_bb_diag_boot_serialize_poweron_clean(void)
 {
     bb_diag_boot_snap_t snap = {
-        .reset_reason    = "poweron",
+        .reset_reason    = "power-on",
         .wdt_resets      = 0,
         .panic_available = false,
         .panic_boots_since = 0,
@@ -39,7 +39,7 @@ void test_bb_diag_boot_serialize_poweron_clean(void)
     };
     char *str = serialize_snap(&snap);
     TEST_ASSERT_NOT_NULL(str);
-    TEST_ASSERT_NOT_NULL(strstr(str, "\"reset_reason\":\"poweron\""));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"reset_reason\":\"power-on\""));
     TEST_ASSERT_NOT_NULL(strstr(str, "\"wdt_resets\":0"));
     TEST_ASSERT_NOT_NULL(strstr(str, "\"pending_verify\":false"));
     TEST_ASSERT_NOT_NULL(strstr(str, "\"rolled_back\":false"));
@@ -126,7 +126,7 @@ void test_bb_diag_boot_serialize_pending_verify(void)
 void test_bb_diag_boot_serialize_panic_obj_always_present(void)
 {
     bb_diag_boot_snap_t snap = {
-        .reset_reason    = "poweron",
+        .reset_reason    = "power-on",
         .wdt_resets      = 0,
         .panic_available = false,
         .panic_boots_since = 0,
@@ -151,7 +151,7 @@ void test_bb_diag_boot_serialize_panic_obj_always_present(void)
 void test_bb_diag_boot_serialize_json_braces(void)
 {
     bb_diag_boot_snap_t snap = {
-        .reset_reason    = "poweron",
+        .reset_reason    = "power-on",
         .wdt_resets      = 0,
         .panic_available = false,
         .panic_boots_since = 0,
@@ -194,7 +194,7 @@ void test_bb_diag_boot_serialize_large_wdt_resets(void)
 void test_bb_diag_boot_serialize_panic_oom(void)
 {
     bb_diag_boot_snap_t snap = {
-        .reset_reason    = "poweron",
+        .reset_reason    = "power-on",
         .wdt_resets      = 1,
         .panic_available = false,
         .panic_boots_since = 0,
@@ -210,7 +210,7 @@ void test_bb_diag_boot_serialize_panic_oom(void)
 
     TEST_ASSERT_NOT_NULL(str);
     // flat fields must still be present
-    TEST_ASSERT_NOT_NULL(strstr(str, "\"reset_reason\":\"poweron\""));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"reset_reason\":\"power-on\""));
     TEST_ASSERT_NOT_NULL(strstr(str, "\"wdt_resets\":1"));
     TEST_ASSERT_NOT_NULL(strstr(str, "\"pending_verify\":true"));
     TEST_ASSERT_NOT_NULL(strstr(str, "\"rolled_back\":false"));

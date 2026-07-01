@@ -83,3 +83,66 @@ void test_bb_system_read_temp_injected_error(void)
     TEST_ASSERT_EQUAL_INT(BB_ERR_UNSUPPORTED, rc);
     TEST_ASSERT_EQUAL_FLOAT(-1.0f, f);  // *out untouched on error
 }
+
+// Byte-identical value guard (B1-463): bb_system_reset_reason_str is driven by
+// the shared BB_RESET_REASON_LIST X-macro across espidf/host/arduino. These
+// assertions pin the exact wire strings so the X-macro can never silently drift.
+void test_bb_system_reset_reason_str_poweron(void)
+{
+    TEST_ASSERT_EQUAL_STRING("power-on", bb_system_reset_reason_str(BB_RESET_REASON_POWERON));
+}
+
+void test_bb_system_reset_reason_str_ext(void)
+{
+    TEST_ASSERT_EQUAL_STRING("ext", bb_system_reset_reason_str(BB_RESET_REASON_EXT));
+}
+
+void test_bb_system_reset_reason_str_sw(void)
+{
+    TEST_ASSERT_EQUAL_STRING("software", bb_system_reset_reason_str(BB_RESET_REASON_SW));
+}
+
+void test_bb_system_reset_reason_str_panic(void)
+{
+    TEST_ASSERT_EQUAL_STRING("panic", bb_system_reset_reason_str(BB_RESET_REASON_PANIC));
+}
+
+void test_bb_system_reset_reason_str_int_wdt(void)
+{
+    TEST_ASSERT_EQUAL_STRING("int_wdt", bb_system_reset_reason_str(BB_RESET_REASON_INT_WDT));
+}
+
+void test_bb_system_reset_reason_str_task_wdt(void)
+{
+    TEST_ASSERT_EQUAL_STRING("task_wdt", bb_system_reset_reason_str(BB_RESET_REASON_TASK_WDT));
+}
+
+void test_bb_system_reset_reason_str_wdt(void)
+{
+    TEST_ASSERT_EQUAL_STRING("wdt", bb_system_reset_reason_str(BB_RESET_REASON_WDT));
+}
+
+void test_bb_system_reset_reason_str_deepsleep(void)
+{
+    TEST_ASSERT_EQUAL_STRING("deep_sleep", bb_system_reset_reason_str(BB_RESET_REASON_DEEPSLEEP));
+}
+
+void test_bb_system_reset_reason_str_brownout(void)
+{
+    TEST_ASSERT_EQUAL_STRING("brownout", bb_system_reset_reason_str(BB_RESET_REASON_BROWNOUT));
+}
+
+void test_bb_system_reset_reason_str_sdio(void)
+{
+    TEST_ASSERT_EQUAL_STRING("sdio", bb_system_reset_reason_str(BB_RESET_REASON_SDIO));
+}
+
+void test_bb_system_reset_reason_str_unknown(void)
+{
+    TEST_ASSERT_EQUAL_STRING("unknown", bb_system_reset_reason_str(BB_RESET_REASON_UNKNOWN));
+}
+
+void test_bb_system_reset_reason_str_out_of_range(void)
+{
+    TEST_ASSERT_EQUAL_STRING("unknown", bb_system_reset_reason_str((bb_reset_reason_t)999));
+}

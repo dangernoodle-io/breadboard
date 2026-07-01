@@ -66,7 +66,9 @@ static bb_err_t log_level_get_handler(bb_http_request_t *req)
 {
     // Streaming JSON: {"levels":[...], "tags":[...]}
     static const char *s_level_names[] = {
-        "none", "error", "warn", "info", "debug", "verbose",
+#define X(v, s) s,
+        BB_LOG_LEVEL_LIST(X)
+#undef X
     };
 
     bb_http_json_obj_stream_t obj;

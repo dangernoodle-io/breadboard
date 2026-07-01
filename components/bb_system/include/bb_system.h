@@ -37,7 +37,25 @@ typedef enum {
     BB_RESET_REASON_DEEPSLEEP,
     BB_RESET_REASON_BROWNOUT,
     BB_RESET_REASON_SDIO,
+    BB_RESET_REASON_COUNT,      // sentinel — not a real reason, must stay last
 } bb_reset_reason_t;
+
+// Single source of truth for bb_reset_reason_t -> string mappings. X(reason, name)
+// is invoked once per non-UNKNOWN reason. BB_RESET_REASON_UNKNOWN is intentionally
+// excluded — every platform impl of bb_system_reset_reason_str() maps it (and any
+// unrecognised value) to the "unknown" default case. Drives the three identical
+// platform switches (espidf/host/arduino) so they collapse to one source of truth.
+#define BB_RESET_REASON_LIST(X)              \
+    X(BB_RESET_REASON_POWERON,   "power-on")  \
+    X(BB_RESET_REASON_EXT,       "ext")       \
+    X(BB_RESET_REASON_SW,        "software")  \
+    X(BB_RESET_REASON_PANIC,     "panic")     \
+    X(BB_RESET_REASON_INT_WDT,   "int_wdt")   \
+    X(BB_RESET_REASON_TASK_WDT,  "task_wdt")  \
+    X(BB_RESET_REASON_WDT,       "wdt")       \
+    X(BB_RESET_REASON_DEEPSLEEP, "deep_sleep")\
+    X(BB_RESET_REASON_BROWNOUT,  "brownout")  \
+    X(BB_RESET_REASON_SDIO,      "sdio")
 
 /// Reset reason for the current boot.
 bb_reset_reason_t bb_system_get_reset_reason(void);

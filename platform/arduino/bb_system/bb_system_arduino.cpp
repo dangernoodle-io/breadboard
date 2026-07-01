@@ -16,26 +16,9 @@ bb_reset_reason_t bb_system_get_reset_reason(void)
 const char *bb_system_reset_reason_str(bb_reset_reason_t r)
 {
     switch (r) {
-        case BB_RESET_REASON_POWERON:
-            return "power-on";
-        case BB_RESET_REASON_EXT:
-            return "ext";
-        case BB_RESET_REASON_SW:
-            return "software";
-        case BB_RESET_REASON_PANIC:
-            return "panic";
-        case BB_RESET_REASON_INT_WDT:
-            return "int_wdt";
-        case BB_RESET_REASON_TASK_WDT:
-            return "task_wdt";
-        case BB_RESET_REASON_WDT:
-            return "wdt";
-        case BB_RESET_REASON_DEEPSLEEP:
-            return "deep_sleep";
-        case BB_RESET_REASON_BROWNOUT:
-            return "brownout";
-        case BB_RESET_REASON_SDIO:
-            return "sdio";
+#define X(v, s) case v: return s;
+        BB_RESET_REASON_LIST(X)
+#undef X
         case BB_RESET_REASON_UNKNOWN:
         default:
             return "unknown";

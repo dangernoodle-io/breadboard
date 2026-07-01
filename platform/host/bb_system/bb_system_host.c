@@ -11,6 +11,16 @@
 
 static const char *TAG = "bb_system";
 
+// Compile-time guard: BB_RESET_REASON_LIST must have exactly one X() entry per
+// mapped bb_reset_reason_t value (every enumerator except the UNKNOWN
+// default-case sentinel and the trailing COUNT sentinel). Catches drift
+// between the enum and the X-macro at build time instead of silently falling
+// through to "unknown" for a real reason.
+#define BB_RESET_REASON_LIST_COUNT_ONE(v, s) +1
+_Static_assert((0 BB_RESET_REASON_LIST(BB_RESET_REASON_LIST_COUNT_ONE)) == (BB_RESET_REASON_COUNT - 1),
+               "BB_RESET_REASON_LIST entry count must match bb_reset_reason_t cardinality (excluding UNKNOWN)");
+#undef BB_RESET_REASON_LIST_COUNT_ONE
+
 bb_reset_reason_t bb_system_get_reset_reason(void)
 {
     return BB_RESET_REASON_POWERON;
@@ -19,26 +29,9 @@ bb_reset_reason_t bb_system_get_reset_reason(void)
 const char *bb_system_reset_reason_str(bb_reset_reason_t r)
 {
     switch (r) {
-        case BB_RESET_REASON_POWERON:
-            return "power-on";
-        case BB_RESET_REASON_EXT:
-            return "ext";
-        case BB_RESET_REASON_SW:
-            return "software";
-        case BB_RESET_REASON_PANIC:
-            return "panic";
-        case BB_RESET_REASON_INT_WDT:
-            return "int_wdt";
-        case BB_RESET_REASON_TASK_WDT:
-            return "task_wdt";
-        case BB_RESET_REASON_WDT:
-            return "wdt";
-        case BB_RESET_REASON_DEEPSLEEP:
-            return "deep_sleep";
-        case BB_RESET_REASON_BROWNOUT:
-            return "brownout";
-        case BB_RESET_REASON_SDIO:
-            return "sdio";
+#define X(v, s) case v: return s;
+        BB_RESET_REASON_LIST(X)
+#undef X
         case BB_RESET_REASON_UNKNOWN:
         default:
             return "unknown";

@@ -458,7 +458,7 @@ static bb_err_t h_boot_no_panic(bb_http_request_t *req)
 {
     bb_http_json_obj_stream_t obj;
     bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "reset_reason", "poweron");
+    bb_http_resp_json_obj_set_str(&obj, "reset_reason", "power-on");
     bb_http_resp_json_obj_set_int(&obj, "wdt_resets", 0);
     bb_http_resp_json_obj_set_obj_begin(&obj, "panic");
     bb_http_resp_json_obj_set_bool(&obj, "available", false);

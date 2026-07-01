@@ -1002,6 +1002,18 @@ void test_bb_system_read_temp_default_unsupported(void);
 void test_bb_system_read_temp_null_out(void);
 void test_bb_system_read_temp_injected_ok(void);
 void test_bb_system_read_temp_injected_error(void);
+void test_bb_system_reset_reason_str_poweron(void);
+void test_bb_system_reset_reason_str_ext(void);
+void test_bb_system_reset_reason_str_sw(void);
+void test_bb_system_reset_reason_str_panic(void);
+void test_bb_system_reset_reason_str_int_wdt(void);
+void test_bb_system_reset_reason_str_task_wdt(void);
+void test_bb_system_reset_reason_str_wdt(void);
+void test_bb_system_reset_reason_str_deepsleep(void);
+void test_bb_system_reset_reason_str_brownout(void);
+void test_bb_system_reset_reason_str_sdio(void);
+void test_bb_system_reset_reason_str_unknown(void);
+void test_bb_system_reset_reason_str_out_of_range(void);
 
 // Forward declarations from test_bb_mdns.c
 void test_bb_mdns_browse_start_null_service(void);
@@ -4546,6 +4558,18 @@ int main(void) {
     RUN_TEST(test_bb_system_read_temp_null_out);
     RUN_TEST(test_bb_system_read_temp_injected_ok);
     RUN_TEST(test_bb_system_read_temp_injected_error);
+    RUN_TEST(test_bb_system_reset_reason_str_poweron);
+    RUN_TEST(test_bb_system_reset_reason_str_ext);
+    RUN_TEST(test_bb_system_reset_reason_str_sw);
+    RUN_TEST(test_bb_system_reset_reason_str_panic);
+    RUN_TEST(test_bb_system_reset_reason_str_int_wdt);
+    RUN_TEST(test_bb_system_reset_reason_str_task_wdt);
+    RUN_TEST(test_bb_system_reset_reason_str_wdt);
+    RUN_TEST(test_bb_system_reset_reason_str_deepsleep);
+    RUN_TEST(test_bb_system_reset_reason_str_brownout);
+    RUN_TEST(test_bb_system_reset_reason_str_sdio);
+    RUN_TEST(test_bb_system_reset_reason_str_unknown);
+    RUN_TEST(test_bb_system_reset_reason_str_out_of_range);
 
     // bb_mdns tests
     RUN_TEST(test_bb_mdns_browse_start_null_service);

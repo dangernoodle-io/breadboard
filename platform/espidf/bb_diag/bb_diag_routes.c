@@ -116,24 +116,6 @@ static bb_err_t panic_get_handler(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
-// Helper: map esp_reset_reason_t to a short string
-static const char *reset_reason_to_str(esp_reset_reason_t reason)
-{
-    switch (reason) {
-        case ESP_RST_POWERON:  return "poweron";
-        case ESP_RST_EXT:      return "ext";
-        case ESP_RST_SW:       return "software";
-        case ESP_RST_PANIC:    return "panic";
-        case ESP_RST_INT_WDT:  return "int_wdt";
-        case ESP_RST_TASK_WDT: return "task_wdt";
-        case ESP_RST_WDT:      return "wdt";
-        case ESP_RST_DEEPSLEEP:return "deepsleep";
-        case ESP_RST_BROWNOUT: return "brownout";
-        case ESP_RST_SDIO:     return "sdio";
-        default:               return "unknown";
-    }
-}
-
 // GET /api/diag/boot — compact boot-anomaly summary (served from bb_cache)
 static bb_err_t boot_get_handler(bb_http_request_t *req)
 {

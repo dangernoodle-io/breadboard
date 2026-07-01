@@ -10,6 +10,15 @@
 #define BB_LOG_REGISTRY_MAX 32
 #endif
 
+// Compile-time guard: BB_LOG_LEVEL_LIST must have exactly one X() entry per
+// bb_log_level_t enumerator (contiguous 0..BB_LOG_LEVEL_VERBOSE). Catches
+// drift between the enum and the X-macro at build time instead of silently
+// mis-mapping a level string.
+#define BB_LOG_LEVEL_LIST_COUNT_ONE(v, s) +1
+_Static_assert((0 BB_LOG_LEVEL_LIST(BB_LOG_LEVEL_LIST_COUNT_ONE)) == (BB_LOG_LEVEL_VERBOSE + 1),
+               "BB_LOG_LEVEL_LIST entry count must match bb_log_level_t cardinality");
+#undef BB_LOG_LEVEL_LIST_COUNT_ONE
+
 typedef struct {
     char tag[32];
     bb_log_level_t level;
@@ -29,29 +38,20 @@ bool bb_log_level_from_str(const char *s, bb_log_level_t *out)
     }
     buf[i] = '\0';
 
-    if (strcmp(buf, "none") == 0) {
-        *out = BB_LOG_LEVEL_NONE;
-        return true;
-    }
-    if (strcmp(buf, "error") == 0) {
-        *out = BB_LOG_LEVEL_ERROR;
-        return true;
-    }
-    if (strcmp(buf, "warn") == 0) {
-        *out = BB_LOG_LEVEL_WARN;
-        return true;
-    }
-    if (strcmp(buf, "info") == 0) {
-        *out = BB_LOG_LEVEL_INFO;
-        return true;
-    }
-    if (strcmp(buf, "debug") == 0) {
-        *out = BB_LOG_LEVEL_DEBUG;
-        return true;
-    }
-    if (strcmp(buf, "verbose") == 0) {
-        *out = BB_LOG_LEVEL_VERBOSE;
-        return true;
+    static const struct {
+        bb_log_level_t level;
+        const char *name;
+    } s_levels[] = {
+#define X(v, s) { v, s },
+        BB_LOG_LEVEL_LIST(X)
+#undef X
+    };
+
+    for (size_t j = 0; j < sizeof(s_levels) / sizeof(s_levels[0]); j++) {
+        if (strcmp(buf, s_levels[j].name) == 0) {
+            *out = s_levels[j].level;
+            return true;
+        }
     }
 
     return false;
@@ -60,13 +60,10 @@ bool bb_log_level_from_str(const char *s, bb_log_level_t *out)
 const char *bb_log_level_to_str(bb_log_level_t level)
 {
     switch (level) {
-        case BB_LOG_LEVEL_NONE:    return "none";
-        case BB_LOG_LEVEL_ERROR:   return "error";
-        case BB_LOG_LEVEL_WARN:    return "warn";
-        case BB_LOG_LEVEL_INFO:    return "info";
-        case BB_LOG_LEVEL_DEBUG:   return "debug";
-        case BB_LOG_LEVEL_VERBOSE: return "verbose";
-        default:                   return "unknown";
+#define X(v, s) case v: return s;
+        BB_LOG_LEVEL_LIST(X)
+#undef X
+        default: return "unknown";
     }
 }
 
