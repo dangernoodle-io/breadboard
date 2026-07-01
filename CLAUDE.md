@@ -191,7 +191,7 @@ A **satellite** is a small component that contributes a section to an existing e
 **Topic:** `"alert"` — non-retained. Registered and attached at regular-tier order 4 (after `bb_event_routes` at order 0) when `CONFIG_BB_ALERT_AUTOREGISTER=y` (depends on `BB_ALERT_ENABLE && BB_EVENT_ROUTES_AUTOREGISTER`).
 
 **API:**
-- `bb_alert_emit(type, sev, fill, ctx)` — emit a one-shot alert. `type` is a string label (e.g. `"wifi_lost_ip"`). `sev` is `BB_ALERT_INFO` / `BB_ALERT_WARNING` / `BB_ALERT_CRITICAL`. `fill` is an optional `bb_alert_fill_fn` callback that adds extra fields to the JSON object. `ctx` is passed through to `fill`.
+- `bb_alert_emit(type, sev, fill, ctx)` — emit a one-shot alert. `type` is a string label (e.g. `BB_ALERT_TYPE_WIFI_LOST_IP`). `sev` is `BB_ALERT_INFO` / `BB_ALERT_WARNING` / `BB_ALERT_CRITICAL`. `fill` is an optional `bb_alert_fill_fn` callback that adds extra fields to the JSON object. `ctx` is passed through to `fill`.
 - `bb_alert_register()` — registers the `"alert"` topic; called automatically by the registry init or manually in test teardown.
 
 **Severity threshold:** `BB_ALERT_MIN_SEVERITY` (Kconfig default 0 = INFO, C default matches). Alerts below the threshold are silently dropped before any JSON allocation. In test builds, override with `bb_alert_set_min_severity_for_test(sev)`.

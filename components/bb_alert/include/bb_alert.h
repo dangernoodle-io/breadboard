@@ -33,6 +33,16 @@ typedef enum {
 // Called synchronously from bb_alert_emit while holding no locks.
 typedef void (*bb_alert_fill_fn)(bb_json_t obj, void *ctx);
 
+// SSOT for alert "type" string literals (B1-447). Values MUST NOT change —
+// they appear in the "alert" bb_event/SSE topic JSON and external clients
+// (TM, dashboards) match on them.
+#define BB_ALERT_TYPE_WIFI_NO_IP       "wifi_no_ip"
+#define BB_ALERT_TYPE_WIFI_LOST_IP     "wifi_lost_ip"
+
+#define BB_ALERT_TYPE_UPDATE_FAILURE   "update_failure"
+#define BB_ALERT_TYPE_UPDATE_AVAILABLE "update_available"
+#define BB_ALERT_TYPE_UPDATE_APPLIED   "update_applied"
+
 #if BB_ALERT_ENABLE
 void bb_alert_emit(const char *type, bb_alert_severity_t sev,
                    bb_alert_fill_fn fill, void *ctx);
