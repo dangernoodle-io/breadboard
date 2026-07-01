@@ -234,9 +234,10 @@ static const char *extract_subtopic(const char *topic)
 }
 
 static bb_err_t sink_ws_publish(void *ctx, const char *topic,
-                                const char *payload, int len)
+                                const char *payload, int len, bool retain)
 {
     (void)ctx;
+    (void)retain;   /* WebSocket has no retain concept */
 
     const char *subtopic = extract_subtopic(topic);
 

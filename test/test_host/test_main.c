@@ -2678,6 +2678,16 @@ void test_bb_pub_pause_then_tick_is_noop(void);
 void test_bb_pub_pause_resume_round_trip(void);
 void test_bb_pub_pause_blocks_until_in_flight_tick_completes(void);
 void test_bb_pub_pause_bounded_wait_returns_before_slow_sink_finishes(void);
+void test_bb_pub_cadence_every_tick_publishes_each_tick(void);
+void test_bb_pub_cadence_on_change_unchanged_suppresses(void);
+void test_bb_pub_cadence_on_change_changed_republishes(void);
+void test_bb_pub_cadence_once_publishes_exactly_once(void);
+void test_bb_pub_cadence_retain_true_forwarded(void);
+void test_bb_pub_cadence_retain_false_forwarded(void);
+void test_bb_pub_cadence_reset_clears_on_change_state(void);
+void test_bb_pub_cadence_once_reset_allows_republish(void);
+void test_bb_pub_cadence_on_change_failing_sink_leaves_state_uncommitted(void);
+void test_bb_pub_cadence_once_failing_sink_leaves_state_uncommitted(void);
 
 // Forward declarations from test_bb_sensors.c
 void bb_sensors_reset_for_test(void);
@@ -2870,6 +2880,7 @@ void test_bb_pub_telemetry_meta_has_boot_epoch_s(void);
 void test_bb_pub_telemetry_meta_boot_epoch_s_is_zero_when_not_synced(void);
 void test_bb_pub_telemetry_meta_has_time_source(void);
 void test_bb_pub_telemetry_meta_time_source_is_none_on_host(void);
+void test_bb_pub_telemetry_meta_on_change_retain_flags_set(void);
 
 // Forward declarations from test_bb_telemetry_coupling.c
 void test_couple_publisher_no_explicit_any_sink_true(void);
@@ -5909,6 +5920,16 @@ int main(void) {
     RUN_TEST(test_bb_pub_pause_resume_round_trip);
     RUN_TEST(test_bb_pub_pause_blocks_until_in_flight_tick_completes);
     RUN_TEST(test_bb_pub_pause_bounded_wait_returns_before_slow_sink_finishes);
+    RUN_TEST(test_bb_pub_cadence_every_tick_publishes_each_tick);
+    RUN_TEST(test_bb_pub_cadence_on_change_unchanged_suppresses);
+    RUN_TEST(test_bb_pub_cadence_on_change_changed_republishes);
+    RUN_TEST(test_bb_pub_cadence_once_publishes_exactly_once);
+    RUN_TEST(test_bb_pub_cadence_retain_true_forwarded);
+    RUN_TEST(test_bb_pub_cadence_retain_false_forwarded);
+    RUN_TEST(test_bb_pub_cadence_reset_clears_on_change_state);
+    RUN_TEST(test_bb_pub_cadence_once_reset_allows_republish);
+    RUN_TEST(test_bb_pub_cadence_on_change_failing_sink_leaves_state_uncommitted);
+    RUN_TEST(test_bb_pub_cadence_once_failing_sink_leaves_state_uncommitted);
 
     // bb_section tests
     RUN_TEST(test_bb_section_register_ok);
@@ -6098,6 +6119,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_telemetry_meta_boot_epoch_s_is_zero_when_not_synced);
     RUN_TEST(test_bb_pub_telemetry_meta_has_time_source);
     RUN_TEST(test_bb_pub_telemetry_meta_time_source_is_none_on_host);
+    RUN_TEST(test_bb_pub_telemetry_meta_on_change_retain_flags_set);
 
     // publisher–sink coupling tests
     RUN_TEST(test_couple_publisher_no_explicit_any_sink_true);

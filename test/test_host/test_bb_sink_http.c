@@ -119,7 +119,7 @@ void test_bb_sink_http_builds_url_with_default_template(void)
 
     const char *topic   = "sensors/acme-corp/temp";
     const char *payload = "{\"v\":42}";
-    rc = sink.publish(sink.ctx, topic, payload, (int)strlen(payload));
+    rc = sink.publish(sink.ctx, topic, payload, (int)strlen(payload), false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     // Verify via session record (not one-shot post record).
@@ -156,7 +156,7 @@ void test_bb_sink_http_custom_path_template(void)
 
     const char *topic   = "test/data";
     const char *payload = "{\"x\":1}";
-    bb_err_t rc = sink.publish(sink.ctx, topic, payload, (int)strlen(payload));
+    bb_err_t rc = sink.publish(sink.ctx, topic, payload, (int)strlen(payload), false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     bb_http_client_session_record_t rec = bb_http_client_session_last_post();
@@ -184,7 +184,7 @@ void test_bb_sink_http_disabled_no_post(void)
     memset(&sink, 0, sizeof(sink));
     bb_sink_http(&sink);
 
-    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     bb_http_client_session_record_t rec = bb_http_client_session_last_post();
@@ -219,14 +219,14 @@ void test_bb_sink_http_session_reused_across_publishes(void)
     bb_sink_http(&sink);
 
     // Two separate publishes — both must succeed via the same session.
-    bb_err_t rc = sink.publish(sink.ctx, "t/one", "{\"n\":1}", 6);
+    bb_err_t rc = sink.publish(sink.ctx, "t/one", "{\"n\":1}", 6, false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     bb_http_client_session_record_t rec1 = bb_http_client_session_last_post();
     TEST_ASSERT_TRUE(rec1.called);
     TEST_ASSERT_NOT_NULL(strstr(rec1.url, "t%2Fone"));
 
-    rc = sink.publish(sink.ctx, "t/two", "{\"n\":2}", 6);
+    rc = sink.publish(sink.ctx, "t/two", "{\"n\":2}", 6, false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     bb_http_client_session_record_t rec2 = bb_http_client_session_last_post();
@@ -259,7 +259,7 @@ void test_bb_sink_http_session_invalidated_on_set_cfg(void)
     bb_sink_http(&sink);
 
     // First publish opens the session.
-    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     // Change config — session must close and reopen on next publish.
@@ -270,7 +270,7 @@ void test_bb_sink_http_session_invalidated_on_set_cfg(void)
     cfg2.enabled = true;
     bb_sink_http_set_cfg(&cfg2);
 
-    rc = sink.publish(sink.ctx, "t/y", "{}", 2);
+    rc = sink.publish(sink.ctx, "t/y", "{}", 2, false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     bb_http_client_session_record_t rec = bb_http_client_session_last_post();
@@ -625,7 +625,7 @@ void test_bb_sink_http_session_applies_client_id_from_cfg(void)
     memset(&sink, 0, sizeof(sink));
     bb_sink_http(&sink);
 
-    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     // X-Client-Id header must be set to the configured value.
@@ -659,7 +659,7 @@ void test_bb_sink_http_session_applies_configured_headers(void)
     memset(&sink, 0, sizeof(sink));
     bb_sink_http(&sink);
 
-    bb_err_t rc = sink.publish(sink.ctx, "t/y", "{}", 2);
+    bb_err_t rc = sink.publish(sink.ctx, "t/y", "{}", 2, false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     bb_http_client_header_record_t h0 = bb_http_client_session_find_header("X-Trace-Id");
@@ -692,21 +692,21 @@ void test_bb_sink_http_session_reset_after_3_consec_failures(void)
 
     // First publish succeeds to open the session (open_count == 1).
     bb_http_client_session_set_mock_status(200);
-    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(1, bb_http_client_session_open_count());
 
     // Now inject 3 consecutive transport errors.
     for (int i = 0; i < 3; i++) {
         bb_http_client_session_set_mock_transport_error(BB_ERR_INVALID_STATE);
-        rc = sink.publish(sink.ctx, "t/err", "{}", 2);
+        rc = sink.publish(sink.ctx, "t/err", "{}", 2, false);
         TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
     }
 
     // After the 3rd failure, session_close() should have been called and the
     // next publish must re-open the session (open_count == 2).
     bb_http_client_session_set_mock_status(200);
-    rc = sink.publish(sink.ctx, "t/recover", "{}", 2);
+    rc = sink.publish(sink.ctx, "t/recover", "{}", 2, false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(2, bb_http_client_session_open_count());
 }
@@ -733,7 +733,7 @@ void test_bb_sink_http_keep_alive_cfg_threads_into_session_open(void)
     bb_sink_http(&sink);
 
     // Trigger session open via first publish.
-    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
     TEST_ASSERT_EQUAL_INT(1, bb_http_client_session_open_count());
 
@@ -760,7 +760,7 @@ void test_bb_sink_http_headers_reapplied_after_set_cfg(void)
     memset(&sink, 0, sizeof(sink));
     bb_sink_http(&sink);
 
-    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     bb_http_client_header_record_t h1 = bb_http_client_session_find_header("X-Client-Id");
@@ -779,7 +779,7 @@ void test_bb_sink_http_headers_reapplied_after_set_cfg(void)
     bb_sink_http_set_cfg(&cfg2);
 
     // Next publish must re-open session + re-apply new headers.
-    rc = sink.publish(sink.ctx, "t/y", "{}", 2);
+    rc = sink.publish(sink.ctx, "t/y", "{}", 2, false);
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     bb_http_client_header_record_t h2 = bb_http_client_session_find_header("X-Client-Id");
@@ -822,7 +822,7 @@ void test_bb_sink_http_publish_url_oom_returns_no_space(void)
     bb_sink_http(&sink);
 
     bb_sink_http_set_malloc(failing_malloc);
-    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2);
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
     bb_sink_http_reset_malloc();
 
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);

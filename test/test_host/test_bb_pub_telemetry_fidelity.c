@@ -86,10 +86,11 @@ typedef struct { char topic[128]; char payload[256]; } fid_entry_t;
 static fid_entry_t s_fid_captured[FID_CAPTURE_CAP];
 
 static bb_err_t fid_publish(void *ctx, const char *topic,
-                             const char *payload, int len)
+                             const char *payload, int len, bool retain)
 {
     (void)ctx;
     (void)len;
+    (void)retain;
     if (s_sink_count >= FID_CAPTURE_CAP) return BB_ERR_NO_SPACE;
     fid_entry_t *e = &s_fid_captured[s_sink_count++];
     strncpy(e->topic,   topic,   sizeof(e->topic)   - 1);
@@ -377,11 +378,12 @@ static char    s_sat_payload[SAT_CAP][512];
 static int     s_sat_count;
 
 static bb_err_t sat_publish(void *ctx, const char *topic,
-                             const char *payload, int len)
+                             const char *payload, int len, bool retain)
 {
     (void)ctx;
     (void)topic;
     (void)len;
+    (void)retain;
     if (s_sat_count >= SAT_CAP) return BB_ERR_NO_SPACE;
     strncpy(s_sat_payload[s_sat_count++], payload,
             sizeof(s_sat_payload[0]) - 1);

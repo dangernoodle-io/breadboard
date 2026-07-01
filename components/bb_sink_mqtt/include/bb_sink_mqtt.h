@@ -21,11 +21,10 @@ extern "C" {
 
 /**
  * Fill `out` with a sink whose publish() calls:
- *   bb_mqtt_publish(h, topic, payload, len, qos=0, retain=false)
+ *   bb_mqtt_publish(h, topic, payload, len, qos, retain)
  *
- * QoS and retain defaults can be overridden at compile time via:
- *   CONFIG_BB_SINK_MQTT_QOS    (default 0)
- *   CONFIG_BB_SINK_MQTT_RETAIN (default 0 / false)
+ * QoS can be overridden at compile time via CONFIG_BB_SINK_MQTT_QOS (default 0).
+ * The retain flag is forwarded from bb_pub per-source cfg (bb_pub_telemetry_cfg_t.retain).
  *
  * Sets out->transport = "mqtt" and out->tls = bb_mqtt_is_tls(h) at wire time
  * so each published payload carries device-reported transport metadata.

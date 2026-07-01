@@ -42,12 +42,14 @@ static bool sample_a(bb_json_t obj, void *ctx)
 
 static int s_publish_count = 0;
 
-static bb_err_t count_publish(void *ctx, const char *topic, const char *payload, int len)
+static bb_err_t count_publish(void *ctx, const char *topic, const char *payload,
+                               int len, bool retain)
 {
     (void)ctx;
     (void)topic;
     (void)payload;
     (void)len;
+    (void)retain;
     s_publish_count++;
     return BB_OK;
 }
@@ -111,11 +113,12 @@ static char s_parity_payload[512];
 static int  s_parity_count;
 
 static bb_err_t parity_capture(void *ctx, const char *topic,
-                                const char *payload, int len)
+                                const char *payload, int len, bool retain)
 {
     (void)ctx;
     (void)topic;
     (void)len;
+    (void)retain;
     s_parity_count++;
     strncpy(s_parity_payload, payload, sizeof(s_parity_payload) - 1);
     return BB_OK;
@@ -217,11 +220,12 @@ static char s_fan_parity_payload[512];
 static int  s_fan_parity_count;
 
 static bb_err_t fan_parity_capture(void *ctx, const char *topic,
-                                    const char *payload, int len)
+                                    const char *payload, int len, bool retain)
 {
     (void)ctx;
     (void)topic;
     (void)len;
+    (void)retain;
     s_fan_parity_count++;
     strncpy(s_fan_parity_payload, payload, sizeof(s_fan_parity_payload) - 1);
     return BB_OK;
@@ -300,11 +304,12 @@ static char s_thermal_parity_payload[512];
 static int  s_thermal_parity_count;
 
 static bb_err_t thermal_parity_capture(void *ctx, const char *topic,
-                                        const char *payload, int len)
+                                        const char *payload, int len, bool retain)
 {
     (void)ctx;
     (void)topic;
     (void)len;
+    (void)retain;
     s_thermal_parity_count++;
     strncpy(s_thermal_parity_payload, payload, sizeof(s_thermal_parity_payload) - 1);
     return BB_OK;

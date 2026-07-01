@@ -210,7 +210,7 @@ void test_bb_sink_mqtt_default_suspend_is_safe_noop(void)
     bb_mqtt_default_set(NULL);
 
     // Direct publish call during suspend window must be a safe no-op.
-    bb_err_t rc = s.publish(s.ctx, "metrics/mqtthost/test", "{\"val\":1}", 9);
+    bb_err_t rc = s.publish(s.ctx, "metrics/mqtthost/test", "{\"val\":1}", 9, false);
     // bb_mqtt_publish(NULL, ...) returns BB_ERR_INVALID_ARG — non-zero, no crash.
     TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
 }
