@@ -3,6 +3,8 @@
 // No ESP-IDF dependencies; compiles on host and device.
 // See bb_net_health.h for threshold and hysteresis constants.
 #include "bb_net_health.h"
+#include "bb_json.h"
+#include <stddef.h>
 
 // Heap threshold sanity: CRITICAL must be below LOW or the CRITICAL bucket is
 // unreachable (classify_heap would return LOW before CRITICAL).
@@ -10,8 +12,6 @@ _Static_assert(BB_NET_HEALTH_HEAP_CRITICAL_BYTES < BB_NET_HEALTH_HEAP_LOW_BYTES,
     "BB_NET_HEALTH_HEAP_CRITICAL_BYTES must be < BB_NET_HEALTH_HEAP_LOW_BYTES "
     "(lower CONFIG_BB_NET_HEALTH_HEAP_CRITICAL_BYTES or raise "
     "CONFIG_BB_NET_HEALTH_HEAP_LOW_BYTES)");
-#include "bb_json.h"
-#include <stddef.h>
 
 // ---------------------------------------------------------------------------
 // Heap state (module static; zero-init = BB_HEAP_STATE_OK)
