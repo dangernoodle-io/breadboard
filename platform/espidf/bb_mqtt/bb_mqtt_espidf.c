@@ -26,6 +26,7 @@
 #include "bb_log.h"
 #include "bb_mem.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include "bb_init.h"
 #include "bb_wifi.h"
 
@@ -554,7 +555,7 @@ static bb_err_t auto_client_create_from_nvs(void)
     char tls_str[4]                       = "0";
 
     bb_nv_get_str(BB_MQTT_NVS_NS, "uri",       uri,       sizeof(uri),       "");
-    bb_nv_get_str(BB_MQTT_NVS_NS, "client_id", client_id, sizeof(client_id), "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, BB_NV_KEY_CLIENT_ID, client_id, sizeof(client_id), "");
     bb_nv_get_str(BB_MQTT_NVS_NS, "username",  username,  sizeof(username),  "");
     bb_nv_get_str(BB_MQTT_NVS_NS, "password",  password,  sizeof(password),  "");
     bb_nv_get_str(BB_MQTT_NVS_NS, "tls",       tls_str,   sizeof(tls_str),   "0");

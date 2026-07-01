@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include <string.h>
 
 // bb_nv_set_u8 tests
@@ -351,9 +352,9 @@ void test_nv_exists_long_value_gt8_returns_true(void)
 {
     bb_nv_host_str_store_reset();
     /* Value longer than the old 8-byte probe — the key that triggered the bug */
-    bb_nv_set_str("test_ns", "tls_ca",
+    bb_nv_set_str("test_ns", BB_NV_KEY_TLS_CA,
                   "-----BEGIN CERTIFICATE-----\nlong_pem_content_here\n-----END CERTIFICATE-----\n");
-    TEST_ASSERT_TRUE(bb_nv_exists("test_ns", "tls_ca"));
+    TEST_ASSERT_TRUE(bb_nv_exists("test_ns", BB_NV_KEY_TLS_CA));
 }
 
 void test_nv_exists_null_ns_returns_false(void)
@@ -364,4 +365,32 @@ void test_nv_exists_null_ns_returns_false(void)
 void test_nv_exists_null_key_returns_false(void)
 {
     TEST_ASSERT_FALSE(bb_nv_exists("ns", NULL));
+}
+
+// ---------------------------------------------------------------------------
+// Byte-identical guard (B1-460): every SSOT namespace/key constant MUST keep
+// its exact legacy string value — these values are persisted on deployed
+// boards, and changing any one strands existing NVS data. If this test ever
+// fails, do NOT "fix" the assertion — the constant's value changed and that
+// change must be reverted.
+// ---------------------------------------------------------------------------
+
+void test_nv_ssot_namespace_values_are_byte_identical(void)
+{
+    TEST_ASSERT_EQUAL_STRING("bb_cfg",       BB_NV_CONFIG_NVS_NS);
+    TEST_ASSERT_EQUAL_STRING("bb_mqtt",      BB_MQTT_NVS_NS);
+    TEST_ASSERT_EQUAL_STRING("bb_sink_http", BB_SINK_HTTP_NVS_NS);
+    TEST_ASSERT_EQUAL_STRING("bb_pub",       BB_PUB_NVS_NS);
+}
+
+void test_nv_ssot_key_values_are_byte_identical(void)
+{
+    TEST_ASSERT_EQUAL_STRING("headers",     BB_NV_KEY_HEADERS);
+    TEST_ASSERT_EQUAL_STRING("path_tmpl",   BB_NV_KEY_PATH_TMPL);
+    TEST_ASSERT_EQUAL_STRING("client_id",   BB_NV_KEY_CLIENT_ID);
+    TEST_ASSERT_EQUAL_STRING("tls_ca",      BB_NV_KEY_TLS_CA);
+    TEST_ASSERT_EQUAL_STRING("tls_cert",    BB_NV_KEY_TLS_CERT);
+    TEST_ASSERT_EQUAL_STRING("tls_key",     BB_NV_KEY_TLS_KEY);
+    TEST_ASSERT_EQUAL_STRING("interval_ms", BB_PUB_NVS_KEY_INTERVAL);
+    TEST_ASSERT_EQUAL_STRING("enabled",     BB_PUB_NVS_KEY_ENABLED);
 }

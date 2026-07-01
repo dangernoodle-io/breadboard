@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "bb_tls_creds.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -12,7 +13,7 @@
 void test_bb_tls_creds_override_ca_beats_nvs(void)
 {
     /* Store something in NVS — override should win */
-    bb_nv_set_str("test_ns", "tls_ca", "-----BEGIN CERTIFICATE-----\nnvs_ca\n-----END CERTIFICATE-----\n");
+    bb_nv_set_str("test_ns", BB_NV_KEY_TLS_CA, "-----BEGIN CERTIFICATE-----\nnvs_ca\n-----END CERTIFICATE-----\n");
 
     bb_tls_creds_cfg_t over = {
         .ca_pem          = "-----BEGIN CERTIFICATE-----\noverride_ca\n-----END CERTIFICATE-----\n",
@@ -56,9 +57,9 @@ void test_bb_tls_creds_override_all_fields(void)
 
 void test_bb_tls_creds_nvs_used_when_no_override(void)
 {
-    bb_nv_set_str("mqtt_ns", "tls_ca",   "ca_from_nvs");
-    bb_nv_set_str("mqtt_ns", "tls_cert", "cert_from_nvs");
-    bb_nv_set_str("mqtt_ns", "tls_key",  "key_from_nvs");
+    bb_nv_set_str("mqtt_ns", BB_NV_KEY_TLS_CA,   "ca_from_nvs");
+    bb_nv_set_str("mqtt_ns", BB_NV_KEY_TLS_CERT, "cert_from_nvs");
+    bb_nv_set_str("mqtt_ns", BB_NV_KEY_TLS_KEY,  "key_from_nvs");
 
     bb_tls_creds_t creds = {0};
     bb_err_t rc = bb_tls_creds_resolve("mqtt_ns", NULL, &creds);
@@ -74,7 +75,7 @@ void test_bb_tls_creds_nvs_used_when_no_override(void)
 
 void test_bb_tls_creds_nvs_partial_only_ca(void)
 {
-    bb_nv_set_str("partial_ns", "tls_ca", "only_ca");
+    bb_nv_set_str("partial_ns", BB_NV_KEY_TLS_CA, "only_ca");
 
     bb_tls_creds_t creds = {0};
     bb_err_t rc = bb_tls_creds_resolve("partial_ns", NULL, &creds);
@@ -165,7 +166,7 @@ void test_bb_tls_creds_free_double_free_safe(void)
 void test_bb_tls_creds_buffers_are_independent_copies(void)
 {
     /* Write to NVS, resolve, then overwrite NVS — resolved buffer must be unaffected */
-    bb_nv_set_str("copy_ns", "tls_ca", "original_ca");
+    bb_nv_set_str("copy_ns", BB_NV_KEY_TLS_CA, "original_ca");
 
     bb_tls_creds_t creds = {0};
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_tls_creds_resolve("copy_ns", NULL, &creds));
@@ -173,7 +174,7 @@ void test_bb_tls_creds_buffers_are_independent_copies(void)
     TEST_ASSERT_EQUAL_STRING("original_ca", creds.ca);
 
     /* Overwrite NVS entry — creds.ca must still hold the original copy */
-    bb_nv_set_str("copy_ns", "tls_ca", "replaced_ca");
+    bb_nv_set_str("copy_ns", BB_NV_KEY_TLS_CA, "replaced_ca");
     TEST_ASSERT_EQUAL_STRING("original_ca", creds.ca);
 
     bb_tls_creds_free(&creds);
@@ -215,7 +216,7 @@ void test_bb_tls_creds_override_len_includes_nul(void)
 void test_bb_tls_creds_nvs_len_includes_nul(void)
 {
     const char *pem = "-----BEGIN CERTIFICATE-----\nNVS\n-----END CERTIFICATE-----\n";
-    bb_nv_set_str("nvs_ns", "tls_ca", pem);
+    bb_nv_set_str("nvs_ns", BB_NV_KEY_TLS_CA, pem);
 
     bb_tls_creds_t creds = {0};
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_tls_creds_resolve("nvs_ns", NULL, &creds));
@@ -235,7 +236,7 @@ static void *failing_malloc(size_t sz) { (void)sz; return NULL; }
 
 void test_bb_tls_creds_nvs_buf_alloc_fails_returns_no_space(void)
 {
-    bb_nv_set_str("alloc_fail_ns", "tls_ca", "some_ca_pem");
+    bb_nv_set_str("alloc_fail_ns", BB_NV_KEY_TLS_CA, "some_ca_pem");
 
     bb_tls_creds_set_malloc(failing_malloc);
     bb_tls_creds_t creds = {0};

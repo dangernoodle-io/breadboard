@@ -4,6 +4,7 @@
 #include "bb_http_client.h"
 #include "bb_tls_creds.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include "bb_log.h"
 #include "bb_tls.h"
 
@@ -60,8 +61,7 @@ static const char *TAG = "bb_sink_http";
     (BB_SINK_HTTP_HEADERS_MAX * (BB_SINK_HTTP_HEADER_NAME_MAX + BB_SINK_HTTP_HEADER_VALUE_MAX + 4) + 4)
 #endif
 
-// NVS key for the delimited headers string.
-#define HEADERS_NVS_KEY "headers"
+// NVS key for the delimited headers string: BB_NV_KEY_HEADERS (bb_nv_keys.h).
 // Maximum NVS buffer for all serialized headers.
 #define HEADERS_BUF_MAX CONFIG_BB_SINK_HTTP_HEADERS_BUF_BYTES
 
@@ -305,7 +305,7 @@ static void load_from_nvs(bb_sink_http_cfg_t *out)
     memset(out, 0, sizeof(*out));
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "base",
                   out->base, sizeof(out->base), "");
-    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "path_tmpl",
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_PATH_TMPL,
                   out->path_tmpl, sizeof(out->path_tmpl), "");
 
     char qos_str[8] = "1";
@@ -318,7 +318,7 @@ static void load_from_nvs(bb_sink_http_cfg_t *out)
                   enabled_str, sizeof(enabled_str), "0");
     out->enabled = (enabled_str[0] == '1');
 
-    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "client_id",
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_CLIENT_ID,
                   out->client_id, sizeof(out->client_id), "");
 
     // Heap-allocate the NVS read buffer: HEADERS_BUF_MAX (~2596 bytes) on the
@@ -330,7 +330,7 @@ static void load_from_nvs(bb_sink_http_cfg_t *out)
         return;
     }
     hbuf[0] = '\0';
-    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf, HEADERS_BUF_MAX, "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, hbuf, HEADERS_BUF_MAX, "");
     out->num_headers = bb_sink_http_parse_headers(hbuf, out->headers, BB_SINK_HTTP_HEADERS_MAX);
     free(hbuf);
 }
@@ -338,8 +338,8 @@ static void load_from_nvs(bb_sink_http_cfg_t *out)
 static void save_to_nvs(const bb_sink_http_cfg_t *cfg)
 {
     bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "base",      cfg->base);
-    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "path_tmpl", cfg->path_tmpl);
-    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "client_id", cfg->client_id);
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_PATH_TMPL, cfg->path_tmpl);
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_CLIENT_ID, cfg->client_id);
 
     char qos_str[4] = {0};
     qos_str[0] = (char)('0' + cfg->qos);
@@ -355,7 +355,7 @@ static void save_to_nvs(const bb_sink_http_cfg_t *cfg)
     }
     hbuf[0] = '\0';
     bb_sink_http_serialize_headers(cfg->headers, cfg->num_headers, hbuf, HEADERS_BUF_MAX);
-    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf);
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, hbuf);
     free(hbuf);
 }
 
