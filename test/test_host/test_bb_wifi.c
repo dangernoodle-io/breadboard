@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "bb_wifi.h"
+#include <string.h>
 
 #ifdef BB_WIFI_TESTING
 #include "bb_wifi_test.h"
@@ -59,4 +60,70 @@ void test_bb_wifi_request_recovery_null_reason(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
     TEST_ASSERT_EQUAL_INT(1, bb_wifi_test_get_recovery_count());
 #endif
+}
+
+// ---------------------------------------------------------------------------
+// B1-411: restart_sta_count getter
+// ---------------------------------------------------------------------------
+
+// Host stub returns 0 by default.
+void test_bb_wifi_restart_sta_count_default_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wifi_get_restart_sta_count());
+}
+
+// Test hook roundtrip: set a value, getter returns it.
+void test_bb_wifi_restart_sta_count_test_hook_roundtrip(void)
+{
+#ifdef BB_WIFI_TESTING
+    bb_wifi_test_set_restart_sta_count(7);
+    TEST_ASSERT_EQUAL_UINT32(7, bb_wifi_get_restart_sta_count());
+    bb_wifi_test_set_restart_sta_count(0);
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// B1-411: disconnect_rssi getter
+// ---------------------------------------------------------------------------
+
+// Host stub returns 0 by default.
+void test_bb_wifi_disconnect_rssi_default_zero(void)
+{
+    TEST_ASSERT_EQUAL_INT8(0, bb_wifi_get_disconnect_rssi());
+}
+
+// Test hook roundtrip: set a value, getter returns it.
+void test_bb_wifi_disconnect_rssi_test_hook_roundtrip(void)
+{
+#ifdef BB_WIFI_TESTING
+    bb_wifi_test_set_disconnect_rssi(-78);
+    TEST_ASSERT_EQUAL_INT8(-78, bb_wifi_get_disconnect_rssi());
+    bb_wifi_test_set_disconnect_rssi(0);
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// B1-411: reason histogram getter
+// ---------------------------------------------------------------------------
+
+// Host stub zeroes all buckets.
+void test_bb_wifi_reason_histogram_host_returns_zeros(void)
+{
+    uint16_t hist[256];
+    memset(hist, 0xFF, sizeof(hist));
+    bb_wifi_get_reason_histogram(hist, 256);
+    for (int i = 0; i < 256; i++) {
+        TEST_ASSERT_EQUAL_UINT16(0, hist[i]);
+    }
+}
+
+// NULL/zero-len calls must not crash.
+void test_bb_wifi_reason_histogram_null_safe(void)
+{
+    bb_wifi_get_reason_histogram(NULL, 256);
+    bb_wifi_get_reason_histogram(NULL, 0);
+    uint16_t buf[4];
+    bb_wifi_get_reason_histogram(buf, 0);
+    // reaching here without crash is success
+    TEST_PASS();
 }

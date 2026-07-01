@@ -340,3 +340,67 @@ void test_bb_pub_wifi_recovery_count_zero_when_all_counters_zero(void)
     TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("wifi", rest, sizeof(rest), &rlen));
     TEST_ASSERT_EQUAL_STRING(rest, s_captured[0].payload);
 }
+
+// ---------------------------------------------------------------------------
+// B1-411: restart_sta_count, disconnect_rssi, reason_histogram in emit
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_wifi_has_restart_sta_count(void)
+{
+    setup();
+    bb_pub_wifi_test_set_rssi(true, -60);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"restart_sta_count\""),
+        "wifi telem must contain restart_sta_count");
+}
+
+void test_bb_pub_wifi_has_disconnect_rssi(void)
+{
+    setup();
+    bb_pub_wifi_test_set_rssi(true, -60);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"disconnect_rssi\""),
+        "wifi telem must contain disconnect_rssi");
+}
+
+void test_bb_pub_wifi_has_reason_histogram(void)
+{
+    setup();
+    bb_pub_wifi_test_set_rssi(true, -60);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"reason_histogram\""),
+        "wifi telem must contain reason_histogram object");
+}
+
+// reason_histogram must include all five compact keys.
+void test_bb_pub_wifi_reason_histogram_has_sentinel_keys(void)
+{
+    setup();
+    bb_pub_wifi_test_set_rssi(true, -60);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"lost_ip\""),
+        "reason_histogram must contain lost_ip");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"egress_dead\""),
+        "reason_histogram must contain egress_dead");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"no_ip_watchdog\""),
+        "reason_histogram must contain no_ip_watchdog");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"top_reason_code\""),
+        "reason_histogram must contain top_reason_code");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"top_reason_count\""),
+        "reason_histogram must contain top_reason_count");
+}
+
+// On host all histogram buckets are 0; top_reason_code and top_reason_count must be 0.
+void test_bb_pub_wifi_reason_histogram_zeros_on_host(void)
+{
+    setup();
+    bb_pub_wifi_test_set_rssi(true, -60);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"top_reason_count\":0"),
+        "top_reason_count must be 0 when all histogram buckets are zero");
+}

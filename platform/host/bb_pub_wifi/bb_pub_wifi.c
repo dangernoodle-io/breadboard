@@ -42,6 +42,15 @@ typedef struct {
     int            egress_dead_count;
     int            lost_ip_count;
     int64_t        ts_ms;            // sample-time monotonic ms (bb_clock_now_ms64)
+    // B1-411: new recovery-telemetry fields
+    uint32_t       restart_sta_count;
+    int8_t         disconnect_rssi;
+    // Compact reason-histogram (sentinel buckets + top standard reason).
+    uint16_t       hist_lost_ip;       // bucket 99
+    uint16_t       hist_egress_dead;   // bucket 100
+    uint16_t       hist_no_ip_watchdog;// bucket 101
+    uint16_t       hist_top_code;      // highest non-zero standard reason code
+    uint16_t       hist_top_count;     // count for hist_top_code
 } bb_wifi_snap_t;
 
 // Compile-time guard: wifi snap must fit in the scratch buffer (B1-434).
@@ -77,6 +86,25 @@ void bb_pub_wifi_test_set_rssi(bool connected, int8_t rssi)
 // Returns false to skip this tick (e.g. WiFi not connected).
 // ---------------------------------------------------------------------------
 
+// Compute the compact histogram view into a snap from a 256-entry histogram.
+static void gather_histogram(bb_wifi_snap_t *snap)
+{
+    uint16_t hist[256];
+    bb_wifi_get_reason_histogram(hist, 256);
+    snap->hist_lost_ip        = hist[99];
+    snap->hist_egress_dead    = hist[100];
+    snap->hist_no_ip_watchdog = hist[101];
+    snap->hist_top_code       = 0;
+    snap->hist_top_count      = 0;
+    for (int i = 0; i < 256; i++) {
+        if (i == 99 || i == 100 || i == 101) continue;
+        if (hist[i] > snap->hist_top_count) {
+            snap->hist_top_count = hist[i];
+            snap->hist_top_code  = (uint16_t)i;
+        }
+    }
+}
+
 static bool wifi_gather(void *snap_buf, void *ctx)
 {
     (void)ctx;
@@ -91,13 +119,16 @@ static bool wifi_gather(void *snap_buf, void *ctx)
     strncpy(snap->info.ssid, s_test_info.ssid, sizeof(snap->info.ssid) - 1);
     memcpy(snap->info.bssid, s_test_info.bssid, sizeof(snap->info.bssid));
     strncpy(snap->info.ip, s_test_info.ip, sizeof(snap->info.ip) - 1);
-    snap->info.disc_reason = s_test_info.disc_reason;
-    snap->info.disc_age_s  = s_test_info.disc_age_s;
-    snap->info.retry_count = s_test_info.retry_count;
+    snap->info.disc_reason  = s_test_info.disc_reason;
+    snap->info.disc_age_s   = s_test_info.disc_age_s;
+    snap->info.retry_count  = s_test_info.retry_count;
     snap->no_ip_count       = (int)bb_wifi_get_no_ip_count();
     snap->egress_dead_count = (int)bb_wifi_get_egress_dead_count();
     snap->lost_ip_count     = (int)bb_wifi_get_lost_ip_count();
     snap->ts_ms             = (int64_t)bb_clock_now_ms64();
+    snap->restart_sta_count = bb_wifi_get_restart_sta_count();
+    snap->disconnect_rssi   = bb_wifi_get_disconnect_rssi();
+    gather_histogram(snap);
     return true;
 #else
     if (!bb_wifi_has_ip()) return false;
@@ -112,6 +143,9 @@ static bool wifi_gather(void *snap_buf, void *ctx)
     snap->egress_dead_count = (int)bb_wifi_get_egress_dead_count();
     snap->lost_ip_count     = (int)bb_wifi_get_lost_ip_count();
     snap->ts_ms             = (int64_t)bb_clock_now_ms64();
+    snap->restart_sta_count = bb_wifi_get_restart_sta_count();
+    snap->disconnect_rssi   = bb_wifi_get_disconnect_rssi();
+    gather_histogram(snap);
     return true;
 #endif
 }
@@ -146,7 +180,17 @@ static void wifi_serialize(bb_json_t obj, const void *snap_raw)
                            (int64_t)(snap->no_ip_count +
                                      snap->egress_dead_count +
                                      snap->lost_ip_count));
-    bb_json_obj_set_int   (obj, "ts_ms",             snap->ts_ms);
+    bb_json_obj_set_int   (obj, "ts_ms",              snap->ts_ms);
+    bb_json_obj_set_int   (obj, "restart_sta_count",  (int64_t)snap->restart_sta_count);
+    bb_json_obj_set_int   (obj, "disconnect_rssi",    (int64_t)snap->disconnect_rssi);
+
+    bb_json_t h = bb_json_obj_new();
+    bb_json_obj_set_int(h, "lost_ip",          (int64_t)snap->hist_lost_ip);
+    bb_json_obj_set_int(h, "egress_dead",       (int64_t)snap->hist_egress_dead);
+    bb_json_obj_set_int(h, "no_ip_watchdog",    (int64_t)snap->hist_no_ip_watchdog);
+    bb_json_obj_set_int(h, "top_reason_code",   (int64_t)snap->hist_top_code);
+    bb_json_obj_set_int(h, "top_reason_count",  (int64_t)snap->hist_top_count);
+    bb_json_obj_set_obj(obj, "reason_histogram", h);
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +212,16 @@ static const char k_wifi_telemetry_schema[] =
     "\"egress_dead_count\":{\"type\":\"integer\"},"
     "\"lost_ip_count\":{\"type\":\"integer\"},"
     "\"recovery_count\":{\"type\":\"integer\"},"
-    "\"ts_ms\":{\"type\":\"integer\"}},"
+    "\"ts_ms\":{\"type\":\"integer\"},"
+    "\"restart_sta_count\":{\"type\":\"integer\"},"
+    "\"disconnect_rssi\":{\"type\":\"integer\"},"
+    "\"reason_histogram\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"lost_ip\":{\"type\":\"integer\"},"
+      "\"egress_dead\":{\"type\":\"integer\"},"
+      "\"no_ip_watchdog\":{\"type\":\"integer\"},"
+      "\"top_reason_code\":{\"type\":\"integer\"},"
+      "\"top_reason_count\":{\"type\":\"integer\"}}}},"
     "\"required\":[\"ssid\",\"connected\",\"rssi\",\"ts_ms\"]}";
 
 bb_err_t bb_pub_wifi_register(void)

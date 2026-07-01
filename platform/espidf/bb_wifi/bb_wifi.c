@@ -44,6 +44,16 @@ static volatile bool s_pending_try = false;
 // Also suppresses the DISCONNECTED event that esp_wifi_stop() generates internally.
 static volatile bool s_sta_restarting = false;
 
+// Incremented only inside bb_wifi_restart_sta() — single canonical site.
+static uint32_t s_restart_sta_count = 0;
+
+// Last-good RSSI captured during the periodic rssi_refresh_work_fn tick.
+// Snapshotted to s_disconnect_rssi on WIFI_EVENT_STA_DISCONNECTED so we have
+// a valid RSSI reading before the AP record is torn down.
+// Both are protected by s_ap_mux.
+static int8_t s_last_rssi = 0;
+static int8_t s_disconnect_rssi = 0;
+
 // Cached STA config — stored at wifi_connect_sta_ex time so bb_wifi_restart_sta()
 // can re-apply it after stop/start without re-reading NVS.
 static wifi_config_t s_sta_config;
@@ -85,6 +95,7 @@ static void rssi_refresh_work_fn(void *arg)
     if (esp_wifi_sta_get_ap_info(&info) == ESP_OK) {
         portENTER_CRITICAL(&s_ap_mux);
         s_cached_rssi = info.rssi;
+        s_last_rssi   = info.rssi;
         portEXIT_CRITICAL(&s_ap_mux);
     }
 }
@@ -259,6 +270,28 @@ uint32_t bb_wifi_get_no_ip_count(void)
     return wifi_reconn_is_active() ? wifi_reconn_get_no_ip_count() : 0;
 }
 
+uint32_t bb_wifi_get_restart_sta_count(void)
+{
+    return s_restart_sta_count;
+}
+
+int8_t bb_wifi_get_disconnect_rssi(void)
+{
+    portENTER_CRITICAL(&s_ap_mux);
+    int8_t v = s_disconnect_rssi;
+    portEXIT_CRITICAL(&s_ap_mux);
+    return v;
+}
+
+void bb_wifi_get_reason_histogram(uint16_t *out, size_t len)
+{
+    if (!out || len == 0) return;
+    memset(out, 0, len * sizeof(uint16_t));
+    if (wifi_reconn_is_active()) {
+        wifi_reconn_get_histogram(out, len);
+    }
+}
+
 bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)
 {
     if (!out) return ESP_FAIL;
@@ -320,6 +353,12 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *disc = (wifi_event_sta_disconnected_t *)event_data;
         s_has_ip = false;
+
+        // Snapshot last-good RSSI before the AP record is torn down.
+        // Do NOT call esp_wifi_sta_get_ap_info() here — AP already gone.
+        portENTER_CRITICAL(&s_ap_mux);
+        s_disconnect_rssi = s_last_rssi;
+        portEXIT_CRITICAL(&s_ap_mux);
 
         if (s_on_disconnect_cb) {
             s_on_disconnect_cb();
@@ -385,6 +424,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 
 void bb_wifi_restart_sta(void)
 {
+    s_restart_sta_count++;
     bb_log_w(TAG, "STA restart: stop/start to clear wedged driver state");
     // s_sta_restarting suppresses the auto-connect in STA_START event handler.
     // wifi_reconn_absorb_next_disconnect suppresses the synthetic DISCONNECTED
