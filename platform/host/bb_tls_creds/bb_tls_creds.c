@@ -5,6 +5,7 @@
  */
 #include "bb_tls_creds.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include "bb_log.h"
 #include <stdlib.h>
 #include <string.h>
@@ -120,7 +121,7 @@ bb_err_t bb_tls_creds_resolve(const char *ns, const bb_tls_creds_cfg_t *over,
 
     bb_err_t rc;
 
-    rc = resolve_one(ov_ca, ns, "tls_ca",
+    rc = resolve_one(ov_ca, ns, BB_NV_KEY_TLS_CA,
                      bb_tls_creds_embedded_ca, bb_tls_creds_embedded_ca_len,
                      &out->ca, &out->ca_len);
     if (rc != BB_OK) {
@@ -133,7 +134,7 @@ bb_err_t bb_tls_creds_resolve(const char *ns, const bb_tls_creds_cfg_t *over,
     // When the gate is OFF the fields stay NULL/0 (zeroed by memset above),
     // saving NVS lookups and heap allocation on plaintext / CA-only builds.
 #if CONFIG_BB_TLS_MUTUAL_ENABLE
-    rc = resolve_one(ov_cert, ns, "tls_cert",
+    rc = resolve_one(ov_cert, ns, BB_NV_KEY_TLS_CERT,
                      bb_tls_creds_embedded_cert, bb_tls_creds_embedded_cert_len,
                      &out->cert, &out->cert_len);
     if (rc != BB_OK) {
@@ -142,7 +143,7 @@ bb_err_t bb_tls_creds_resolve(const char *ns, const bb_tls_creds_cfg_t *over,
         return rc;
     }
 
-    rc = resolve_one(ov_key, ns, "tls_key",
+    rc = resolve_one(ov_key, ns, BB_NV_KEY_TLS_KEY,
                      bb_tls_creds_embedded_key, bb_tls_creds_embedded_key_len,
                      &out->key, &out->key_len);
     if (rc != BB_OK) {

@@ -13,6 +13,7 @@
 #include "unity.h"
 #include "bb_sink_http.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include "bb_tls.h"
 #include "../../platform/host/bb_http_client/bb_http_client_host.h"
 
@@ -835,7 +836,7 @@ void test_bb_sink_http_init_nvs_hbuf_oom_graceful(void)
     reset_state();
 
     // Store a header string in NVS so load_from_nvs would normally read it.
-    bb_nv_set_str("bb_sink_http", "headers", "X-A: v1\n");
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, "X-A: v1\n");
 
     // Inject OOM after init is called (malloc will fail for the hbuf).
     bb_sink_http_set_malloc(failing_malloc);

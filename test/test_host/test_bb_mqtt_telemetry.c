@@ -6,6 +6,7 @@
 #include "bb_mqtt.h"
 #include "bb_mqtt_telemetry.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include "bb_json.h"
 #include "cJSON.h"
 
@@ -109,7 +110,7 @@ void test_bb_mqtt_telemetry_get_password_empty_when_not_set(void)
 void test_bb_mqtt_telemetry_get_ca_set_true_when_nvs_has_ca(void)
 {
     bb_mqtt_telemetry_reset_for_test();
-    bb_nv_set_str("bb_mqtt", "tls_ca",
+    bb_nv_set_str(BB_MQTT_NVS_NS, BB_NV_KEY_TLS_CA,
                   "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n");
 
     cJSON *body = run_get();
@@ -138,9 +139,9 @@ void test_bb_mqtt_telemetry_get_ca_set_false_when_not_in_nvs(void)
 void test_bb_mqtt_telemetry_get_cert_set_and_key_set_flags(void)
 {
     bb_mqtt_telemetry_reset_for_test();
-    bb_nv_set_str("bb_mqtt", "tls_cert",
+    bb_nv_set_str(BB_MQTT_NVS_NS, BB_NV_KEY_TLS_CERT,
                   "-----BEGIN CERTIFICATE-----\nfake_cert\n-----END CERTIFICATE-----\n");
-    bb_nv_set_str("bb_mqtt", "tls_key",
+    bb_nv_set_str(BB_MQTT_NVS_NS, BB_NV_KEY_TLS_KEY,
                   "-----BEGIN PRIVATE KEY-----\nfake_key\n-----END PRIVATE KEY-----\n");
 
     cJSON *body = run_get();
@@ -267,7 +268,7 @@ void test_bb_mqtt_telemetry_patch_persists_client_id(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     char buf[64] = {0};
-    bb_nv_get_str("bb_mqtt", "client_id", buf, sizeof(buf), "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, BB_NV_KEY_CLIENT_ID, buf, sizeof(buf), "");
     TEST_ASSERT_EQUAL_STRING("my-sensor-01", buf);
 }
 
@@ -301,7 +302,7 @@ void test_bb_mqtt_telemetry_patch_persists_tls_ca(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     char buf[256] = {0};
-    bb_nv_get_str("bb_mqtt", "tls_ca", buf, sizeof(buf), "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, BB_NV_KEY_TLS_CA, buf, sizeof(buf), "");
     TEST_ASSERT_TRUE(strlen(buf) > 0);
 }
 
@@ -339,7 +340,7 @@ void test_bb_mqtt_telemetry_patch_partial_update_leaves_others(void)
     TEST_ASSERT_EQUAL_STRING("mqtt://original.example.com:1883", buf);
 
     char id_buf[64] = {0};
-    bb_nv_get_str("bb_mqtt", "client_id", id_buf, sizeof(id_buf), "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, BB_NV_KEY_CLIENT_ID, id_buf, sizeof(id_buf), "");
     TEST_ASSERT_EQUAL_STRING("new-id", id_buf);
 }
 
@@ -423,7 +424,7 @@ void test_bb_mqtt_telemetry_patch_large_tls_ca_stored_via_heap(void)
     // Verify the value was persisted — use a buffer large enough for the PEM.
     char *stored = malloc(sizeof(cert_pem));
     TEST_ASSERT_NOT_NULL(stored);
-    bb_nv_get_str("bb_mqtt", "tls_ca", stored, sizeof(cert_pem), "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, BB_NV_KEY_TLS_CA, stored, sizeof(cert_pem), "");
     TEST_ASSERT_TRUE_MESSAGE(strlen(stored) > 1024,
                              "stored tls_ca must be >1 KB");
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(stored, "BEGIN CERTIFICATE"),

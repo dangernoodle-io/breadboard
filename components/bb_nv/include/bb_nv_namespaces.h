@@ -8,3 +8,4 @@
 #define BB_NV_CONFIG_NVS_NS   "bb_cfg"
 #define BB_MQTT_NVS_NS        "bb_mqtt"
 #define BB_SINK_HTTP_NVS_NS   "bb_sink_http"
+#define BB_PUB_NVS_NS         "bb_pub"

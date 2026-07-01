@@ -14,6 +14,7 @@
 #include "bb_log.h"
 #include "bb_ntp.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include "bb_ring.h"
 
 #include <inttypes.h>
@@ -74,10 +75,8 @@ _Static_assert(BB_CACHE_MAX_TOPICS >= CONFIG_BB_PUB_MAX_SOURCES,
 
 #define BB_METRICS_PREFIX_MAX 64
 
-// NVS namespace and keys used by bb_pub for its own persistent config.
-#define BB_PUB_NVS_NS           "bb_pub"
-#define BB_PUB_NVS_KEY_INTERVAL "interval_ms"
-#define BB_PUB_NVS_KEY_ENABLED  "enabled"
+// NVS namespace (bb_nv_namespaces.h) and keys (bb_nv_keys.h) used by bb_pub
+// for its own persistent config are the SSOT shared constants included above.
 
 static const char *TAG = "bb_pub";
 

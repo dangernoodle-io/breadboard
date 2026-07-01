@@ -7,6 +7,7 @@
 #include "bb_sink_http_telemetry.h"
 #include "bb_sink_http.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include "bb_json.h"
 #include "cJSON.h"
 
@@ -138,7 +139,7 @@ void test_bb_sink_http_telemetry_get_tls_false_when_no_base(void)
 void test_bb_sink_http_telemetry_get_ca_set_true_when_nvs_has_ca(void)
 {
     bb_sink_http_telemetry_reset_for_test();
-    bb_nv_set_str("bb_sink_http", "tls_ca",
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_CA,
                   "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n");
 
     cJSON *body = run_get();
@@ -169,9 +170,9 @@ void test_bb_sink_http_telemetry_get_ca_set_false_when_not_in_nvs(void)
 void test_bb_sink_http_telemetry_get_cert_set_and_key_set_flags(void)
 {
     bb_sink_http_telemetry_reset_for_test();
-    bb_nv_set_str("bb_sink_http", "tls_cert",
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_CERT,
                   "-----BEGIN CERTIFICATE-----\nfake_cert\n-----END CERTIFICATE-----\n");
-    bb_nv_set_str("bb_sink_http", "tls_key",
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_KEY,
                   "-----BEGIN PRIVATE KEY-----\nfake_key\n-----END PRIVATE KEY-----\n");
 
     cJSON *body = run_get();
@@ -211,7 +212,7 @@ void test_bb_sink_http_telemetry_patch_persists_path_tmpl(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     char buf[128] = {0};
-    bb_nv_get_str("bb_sink_http", "path_tmpl", buf, sizeof(buf), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_PATH_TMPL, buf, sizeof(buf), "");
     TEST_ASSERT_EQUAL_STRING("/v1/{topic}?qos={qos}", buf);
 }
 
@@ -223,7 +224,7 @@ void test_bb_sink_http_telemetry_patch_persists_tls_ca(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     char buf[256] = {0};
-    bb_nv_get_str("bb_sink_http", "tls_ca", buf, sizeof(buf), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_CA, buf, sizeof(buf), "");
     TEST_ASSERT_TRUE(strlen(buf) > 0);
 }
 
@@ -235,7 +236,7 @@ void test_bb_sink_http_telemetry_patch_persists_tls_cert(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     char buf[256] = {0};
-    bb_nv_get_str("bb_sink_http", "tls_cert", buf, sizeof(buf), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_CERT, buf, sizeof(buf), "");
     TEST_ASSERT_TRUE(strlen(buf) > 0);
 }
 
@@ -247,7 +248,7 @@ void test_bb_sink_http_telemetry_patch_persists_tls_key(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     char buf[256] = {0};
-    bb_nv_get_str("bb_sink_http", "tls_key", buf, sizeof(buf), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_KEY, buf, sizeof(buf), "");
     TEST_ASSERT_TRUE(strlen(buf) > 0);
 }
 
@@ -306,7 +307,7 @@ void test_bb_sink_http_telemetry_get_client_id_empty_by_default(void)
 void test_bb_sink_http_telemetry_get_client_id_reflects_nvs(void)
 {
     bb_sink_http_telemetry_reset_for_test();
-    bb_nv_set_str("bb_sink_http", "client_id", "acme-device-01");
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_CLIENT_ID, "acme-device-01");
 
     cJSON *body = run_get();
     TEST_ASSERT_NOT_NULL(body);
@@ -329,7 +330,7 @@ void test_bb_sink_http_telemetry_patch_persists_client_id(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     char buf[64] = {0};
-    bb_nv_get_str("bb_sink_http", "client_id", buf, sizeof(buf), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_CLIENT_ID, buf, sizeof(buf), "");
     TEST_ASSERT_EQUAL_STRING("my-device-42", buf);
 }
 
@@ -355,7 +356,7 @@ void test_bb_sink_http_telemetry_get_headers_non_secret_includes_value(void)
 {
     bb_sink_http_telemetry_reset_for_test();
     // Store a non-secret header via NVS directly (no '*' prefix).
-    bb_nv_set_str("bb_sink_http", "headers", "X-Trace: abc123");
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, "X-Trace: abc123");
 
     cJSON *body = run_get();
     TEST_ASSERT_NOT_NULL(body);
@@ -384,7 +385,7 @@ void test_bb_sink_http_telemetry_get_headers_secret_omits_value_has_set(void)
 {
     bb_sink_http_telemetry_reset_for_test();
     // Store a secret header via NVS ('*' prefix).
-    bb_nv_set_str("bb_sink_http", "headers", "*Authorization: Bearer xyz");
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, "*Authorization: Bearer xyz");
 
     cJSON *body = run_get();
     TEST_ASSERT_NOT_NULL(body);
@@ -427,7 +428,7 @@ void test_bb_sink_http_telemetry_patch_headers_add_non_secret(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     char buf[512] = {0};
-    bb_nv_get_str("bb_sink_http", "headers", buf, sizeof(buf), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, buf, sizeof(buf), "");
     TEST_ASSERT_NOT_NULL(strstr(buf, "X-Trace: abc"));
     // No '*' prefix.
     TEST_ASSERT_NULL(strstr(buf, "*X-Trace"));
@@ -441,7 +442,7 @@ void test_bb_sink_http_telemetry_patch_headers_add_secret_stores_value(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     char buf[512] = {0};
-    bb_nv_get_str("bb_sink_http", "headers", buf, sizeof(buf), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, buf, sizeof(buf), "");
     // Must be stored with '*' prefix.
     TEST_ASSERT_NOT_NULL(strstr(buf, "*Authorization: Bearer tok"));
 }
@@ -450,7 +451,7 @@ void test_bb_sink_http_telemetry_patch_headers_secret_blank_preserves_existing(v
 {
     bb_sink_http_telemetry_reset_for_test();
     // Pre-populate NVS with a stored secret value.
-    bb_nv_set_str("bb_sink_http", "headers", "*Authorization: Bearer original");
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, "*Authorization: Bearer original");
 
     // PATCH: send Authorization with secret=true but no value → preserve.
     bb_err_t rc = run_patch(
@@ -458,7 +459,7 @@ void test_bb_sink_http_telemetry_patch_headers_secret_blank_preserves_existing(v
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     char buf[512] = {0};
-    bb_nv_get_str("bb_sink_http", "headers", buf, sizeof(buf), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, buf, sizeof(buf), "");
     // Original value must still be there.
     TEST_ASSERT_NOT_NULL(strstr(buf, "*Authorization: Bearer original"));
 }
@@ -467,7 +468,7 @@ void test_bb_sink_http_telemetry_patch_headers_omitted_name_removed(void)
 {
     bb_sink_http_telemetry_reset_for_test();
     // Pre-populate with two headers.
-    bb_nv_set_str("bb_sink_http", "headers", "X-A: va\nX-B: vb");
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, "X-A: va\nX-B: vb");
 
     // PATCH: only send X-A → X-B removed.
     bb_err_t rc = run_patch(
@@ -475,7 +476,7 @@ void test_bb_sink_http_telemetry_patch_headers_omitted_name_removed(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     char buf[512] = {0};
-    bb_nv_get_str("bb_sink_http", "headers", buf, sizeof(buf), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, buf, sizeof(buf), "");
     TEST_ASSERT_NOT_NULL(strstr(buf, "X-A: new-va"));
     TEST_ASSERT_NULL(strstr(buf, "X-B"));
 }
@@ -484,7 +485,7 @@ void test_bb_sink_http_telemetry_patch_headers_independent_edit(void)
 {
     bb_sink_http_telemetry_reset_for_test();
     // Pre-populate with secret auth + non-secret trace.
-    bb_nv_set_str("bb_sink_http", "headers",
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS,
                   "*Authorization: Bearer old\nX-Trace: old-trace");
 
     // PATCH: update X-Trace, leave Authorization blank (preserve).
@@ -496,7 +497,7 @@ void test_bb_sink_http_telemetry_patch_headers_independent_edit(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, rc);
 
     char buf[512] = {0};
-    bb_nv_get_str("bb_sink_http", "headers", buf, sizeof(buf), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, buf, sizeof(buf), "");
     // Secret must be preserved.
     TEST_ASSERT_NOT_NULL(strstr(buf, "*Authorization: Bearer old"));
     // Non-secret must be updated.
@@ -556,7 +557,7 @@ void test_bb_sink_http_telemetry_patch_large_tls_ca_stored_via_heap(void)
     // Verify the value was persisted — use a buffer large enough for the PEM.
     char *stored = malloc(sizeof(cert_pem));
     TEST_ASSERT_NOT_NULL(stored);
-    bb_nv_get_str("bb_sink_http", "tls_ca", stored, sizeof(cert_pem), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_CA, stored, sizeof(cert_pem), "");
     TEST_ASSERT_TRUE_MESSAGE(strlen(stored) > 1024,
                              "stored tls_ca must be >1 KB");
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(stored, "BEGIN CERTIFICATE"),

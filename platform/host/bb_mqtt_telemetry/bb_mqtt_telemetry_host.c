@@ -7,6 +7,7 @@
 #include "bb_mqtt.h"
 #include "bb_sink_mqtt.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include "bb_json.h"
 #include "bb_telemetry.h"
 #include "bb_init.h"
@@ -49,15 +50,15 @@ static void mqtt_section_get(bb_json_t section, void *ctx)
     char tls_str[4]                 = "0";
 
     bb_nv_get_str(BB_MQTT_NVS_NS, "uri",       uri,         sizeof(uri),         "");
-    bb_nv_get_str(BB_MQTT_NVS_NS, "client_id", client_id,   sizeof(client_id),   "");
+    bb_nv_get_str(BB_MQTT_NVS_NS, BB_NV_KEY_CLIENT_ID, client_id,   sizeof(client_id),   "");
     bb_nv_get_str(BB_MQTT_NVS_NS, "username",  username,    sizeof(username),    "");
     bb_nv_get_str(BB_MQTT_NVS_NS, "password",  password,    sizeof(password),    "");
     bb_nv_get_str(BB_MQTT_NVS_NS, "enabled",   enabled_str, sizeof(enabled_str), "0");
     bb_nv_get_str(BB_MQTT_NVS_NS, "tls",       tls_str,     sizeof(tls_str),     "0");
 
-    bool ca_set   = bb_nv_exists(BB_MQTT_NVS_NS, "tls_ca");
-    bool cert_set = bb_nv_exists(BB_MQTT_NVS_NS, "tls_cert");
-    bool key_set  = bb_nv_exists(BB_MQTT_NVS_NS, "tls_key");
+    bool ca_set   = bb_nv_exists(BB_MQTT_NVS_NS, BB_NV_KEY_TLS_CA);
+    bool cert_set = bb_nv_exists(BB_MQTT_NVS_NS, BB_NV_KEY_TLS_CERT);
+    bool key_set  = bb_nv_exists(BB_MQTT_NVS_NS, BB_NV_KEY_TLS_KEY);
     bool tls_on   = (tls_str[0] == '1');
     bool enabled  = (enabled_str[0] == '1');
 
@@ -99,7 +100,7 @@ static bb_err_t mqtt_section_patch(bb_json_t patch, void *ctx)
         bb_nv_set_str(BB_MQTT_NVS_NS, "uri", tmp);
     }
     if (bb_json_obj_get_string(patch, "client_id", tmp, BB_MQTT_BODY_MAX + 1)) {
-        bb_nv_set_str(BB_MQTT_NVS_NS, "client_id", tmp);
+        bb_nv_set_str(BB_MQTT_NVS_NS, BB_NV_KEY_CLIENT_ID, tmp);
     }
     if (bb_json_obj_get_string(patch, "username",  tmp, BB_MQTT_BODY_MAX + 1)) {
         bb_nv_set_str(BB_MQTT_NVS_NS, "username", tmp);
@@ -108,13 +109,13 @@ static bb_err_t mqtt_section_patch(bb_json_t patch, void *ctx)
         bb_nv_set_str(BB_MQTT_NVS_NS, "password", tmp);
     }
     if (bb_json_obj_get_string(patch, "tls_ca",   tmp, BB_MQTT_BODY_MAX + 1)) {
-        bb_nv_set_str(BB_MQTT_NVS_NS, "tls_ca", tmp);
+        bb_nv_set_str(BB_MQTT_NVS_NS, BB_NV_KEY_TLS_CA, tmp);
     }
     if (bb_json_obj_get_string(patch, "tls_cert", tmp, BB_MQTT_BODY_MAX + 1)) {
-        bb_nv_set_str(BB_MQTT_NVS_NS, "tls_cert", tmp);
+        bb_nv_set_str(BB_MQTT_NVS_NS, BB_NV_KEY_TLS_CERT, tmp);
     }
     if (bb_json_obj_get_string(patch, "tls_key",  tmp, BB_MQTT_BODY_MAX + 1)) {
-        bb_nv_set_str(BB_MQTT_NVS_NS, "tls_key", tmp);
+        bb_nv_set_str(BB_MQTT_NVS_NS, BB_NV_KEY_TLS_KEY, tmp);
     }
 
     bool b;

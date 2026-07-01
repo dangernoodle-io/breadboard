@@ -6,6 +6,7 @@
 #include "bb_sink_http_telemetry.h"
 #include "bb_sink_http.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include "bb_json.h"
 #include "bb_telemetry.h"
 #include "bb_init.h"
@@ -22,8 +23,8 @@
 static const char *TAG = "bb_sink_http_telemetry";
 
 // BB_SINK_HTTP_NVS_NS is the SSOT namespace constant from bb_sink_http.h.
+// BB_NV_KEY_HEADERS is the SSOT key constant from bb_nv_keys.h.
 #define BB_SINK_HTTP_BODY_MAX  4096
-#define HEADERS_NVS_KEY        "headers"
 #define HEADERS_BUF_MAX        2048
 
 // ---------------------------------------------------------------------------
@@ -41,14 +42,14 @@ static void httppub_section_get(bb_json_t section, void *ctx)
     char enabled_str[4]                          = "0";
 
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "base",      base,      sizeof(base),      "");
-    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "path_tmpl", path_tmpl, sizeof(path_tmpl), "");
-    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "client_id", client_id, sizeof(client_id), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_PATH_TMPL, path_tmpl, sizeof(path_tmpl), "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_CLIENT_ID, client_id, sizeof(client_id), "");
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "qos",       qos_str,   sizeof(qos_str),   "1");
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "enabled",   enabled_str, sizeof(enabled_str), "0");
 
-    bool ca_set   = bb_nv_exists(BB_SINK_HTTP_NVS_NS, "tls_ca");
-    bool cert_set = bb_nv_exists(BB_SINK_HTTP_NVS_NS, "tls_cert");
-    bool key_set  = bb_nv_exists(BB_SINK_HTTP_NVS_NS, "tls_key");
+    bool ca_set   = bb_nv_exists(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_CA);
+    bool cert_set = bb_nv_exists(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_CERT);
+    bool key_set  = bb_nv_exists(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_KEY);
     bool enabled  = (enabled_str[0] == '1');
     bool tls_on   = (strncmp(base, "https://", 8) == 0);
     int  qos      = (int)(qos_str[0] - '0');
@@ -72,7 +73,7 @@ static void httppub_section_get(bb_json_t section, void *ctx)
         bb_json_obj_set_arr(section, "headers", bb_json_arr_new());
         return;
     }
-    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf, HEADERS_BUF_MAX, "");
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, hbuf, HEADERS_BUF_MAX, "");
     bb_sink_http_header_t *stored = calloc(BB_SINK_HTTP_HEADERS_MAX, sizeof(*stored));
     if (!stored) {
         free(hbuf);
@@ -113,19 +114,19 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
         bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "base", tmp);
     }
     if (bb_json_obj_get_string(patch, "path_tmpl", tmp, BB_SINK_HTTP_BODY_MAX + 1)) {
-        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "path_tmpl", tmp);
+        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_PATH_TMPL, tmp);
     }
     if (bb_json_obj_get_string(patch, "client_id", tmp, BB_SINK_HTTP_BODY_MAX + 1)) {
-        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "client_id", tmp);
+        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_CLIENT_ID, tmp);
     }
     if (bb_json_obj_get_string(patch, "tls_ca",   tmp, BB_SINK_HTTP_BODY_MAX + 1)) {
-        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "tls_ca", tmp);
+        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_CA, tmp);
     }
     if (bb_json_obj_get_string(patch, "tls_cert", tmp, BB_SINK_HTTP_BODY_MAX + 1)) {
-        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "tls_cert", tmp);
+        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_CERT, tmp);
     }
     if (bb_json_obj_get_string(patch, "tls_key",  tmp, BB_SINK_HTTP_BODY_MAX + 1)) {
-        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "tls_key", tmp);
+        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_TLS_KEY, tmp);
     }
 
     double qos_d;
@@ -204,7 +205,7 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
             free(tmp);
             return BB_ERR_NO_SPACE;
         }
-        bb_nv_get_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, hbuf, HEADERS_BUF_MAX, "");
+        bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, hbuf, HEADERS_BUF_MAX, "");
         bb_sink_http_header_t *existing =
             calloc(BB_SINK_HTTP_HEADERS_MAX, sizeof(*existing));
         if (!existing) {
@@ -241,7 +242,7 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
         }
         bb_sink_http_serialize_headers(merged, merged_count, out_buf, HEADERS_BUF_MAX);
         free(merged);
-        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, HEADERS_NVS_KEY, out_buf);
+        bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, out_buf);
         free(out_buf);
     }
 

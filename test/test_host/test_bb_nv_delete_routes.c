@@ -15,6 +15,7 @@
 
 #include "unity.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include "bb_nv_delete_routes.h"
 #include "bb_http.h"
 #include "bb_http_host.h"
@@ -215,10 +216,10 @@ void test_nvs_delete_ns_array_clears_each_returns_200(void)
     bb_nv_host_str_store_reset();
     bb_nv_set_str("bb_mqtt",      "broker",  "mqtt://example.com");
     bb_nv_set_str("bb_sink_http", "base",    "https://example.com");
-    bb_nv_set_str("bb_pub",       "enabled", "1");
+    bb_nv_set_str(BB_PUB_NVS_NS,  BB_PUB_NVS_KEY_ENABLED, "1");
     TEST_ASSERT_TRUE(bb_nv_exists("bb_mqtt",      "broker"));
     TEST_ASSERT_TRUE(bb_nv_exists("bb_sink_http", "base"));
-    TEST_ASSERT_TRUE(bb_nv_exists("bb_pub",        "enabled"));
+    TEST_ASSERT_TRUE(bb_nv_exists(BB_PUB_NVS_NS,   BB_PUB_NVS_KEY_ENABLED));
 
     bb_http_host_capture_t cap = run_handler_body(
         "{\"namespace\":[\"bb_mqtt\",\"bb_sink_http\",\"bb_pub\"],\"confirm\":true}");
@@ -235,7 +236,7 @@ void test_nvs_delete_ns_array_clears_each_returns_200(void)
 
     TEST_ASSERT_FALSE(bb_nv_exists("bb_mqtt",      "broker"));
     TEST_ASSERT_FALSE(bb_nv_exists("bb_sink_http", "base"));
-    TEST_ASSERT_FALSE(bb_nv_exists("bb_pub",        "enabled"));
+    TEST_ASSERT_FALSE(bb_nv_exists(BB_PUB_NVS_NS,   BB_PUB_NVS_KEY_ENABLED));
     bb_http_host_capture_free(&cap);
 }
 
