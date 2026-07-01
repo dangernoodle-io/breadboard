@@ -403,43 +403,28 @@ static bb_err_t h_health(bb_http_request_t *req)
     return err;
 }
 
+// B1-467: calls the real production emitter (bb_wifi_emit_section,
+// platform/host/bb_wifi/bb_wifi_emit.c) instead of hand-copying its fields,
+// so this fidelity fixture exercises the SSOT directly.  Mirrors the
+// live-read fallback path in wifi_info_handler
+// (platform/espidf/bb_wifi/bb_wifi_routes.c).
 static bb_err_t h_wifi_info(bb_http_request_t *req)
 {
     bb_wifi_info_t info;
     bb_wifi_get_info(&info);
 
-    char bssid[18];
-    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
-             info.bssid[0], info.bssid[1], info.bssid[2],
-             info.bssid[3], info.bssid[4], info.bssid[5]);
+    bb_json_t root = bb_json_obj_new();
+    if (!root) return BB_ERR_NO_SPACE;
+    bb_wifi_emit_section(root, &info);
 
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "ssid", info.ssid);
-    bb_http_resp_json_obj_set_str(&obj, "bssid", bssid);
-    bb_http_resp_json_obj_set_num(&obj, "rssi", (double)info.rssi);
-    bb_http_resp_json_obj_set_str(&obj, "ip", info.ip);
-    bb_http_resp_json_obj_set_bool(&obj, "connected", info.connected);
-    bb_http_resp_json_obj_set_num(&obj, "disc_reason", (double)info.disc_reason);
-    bb_http_resp_json_obj_set_num(&obj, "disc_age_s", (double)info.disc_age_s);
-    bb_http_resp_json_obj_set_num(&obj, "retry_count", (double)info.retry_count);
-    // B1-462a: no_ip_recoveries..reason_histogram mirror bb_wifi_emit_section
-    // (platform/host/bb_wifi/bb_wifi_emit.c) so this fidelity fixture matches
-    // the production route byte-for-byte.
-    bb_http_resp_json_obj_set_num(&obj, "no_ip_recoveries",  0);
-    bb_http_resp_json_obj_set_num(&obj, "egress_dead_count", 0);
-    bb_http_resp_json_obj_set_num(&obj, "lost_ip_count",     0);
-    bb_http_resp_json_obj_set_num(&obj, "recovery_count",    0);
-    bb_http_resp_json_obj_set_num(&obj, "restart_sta_count", 0);
-    bb_http_resp_json_obj_set_num(&obj, "disconnect_rssi",   0);
-    bb_http_resp_json_obj_set_obj_begin(&obj, "reason_histogram");
-    bb_http_resp_json_obj_set_num(&obj, "lost_ip",           0);
-    bb_http_resp_json_obj_set_num(&obj, "egress_dead",       0);
-    bb_http_resp_json_obj_set_num(&obj, "no_ip_watchdog",    0);
-    bb_http_resp_json_obj_set_num(&obj, "top_reason_code",   0);
-    bb_http_resp_json_obj_set_num(&obj, "top_reason_count",  0);
-    bb_http_resp_json_obj_set_obj_end(&obj);
-    return bb_http_resp_json_obj_end(&obj);
+    char *str = bb_json_serialize(root);
+    bb_json_free(root);
+    if (!str) return BB_ERR_NO_SPACE;
+    bb_http_resp_set_type(req, "application/json");
+    bb_err_t err = bb_http_resp_send_chunk(req, str, -1);
+    if (err == BB_OK) err = bb_http_resp_send_chunk(req, NULL, 0);
+    bb_json_free_str(str);
+    return err;
 }
 
 // OTA status: mirrors ota_status_handler idle-state path.
