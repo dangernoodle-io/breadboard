@@ -40,4 +40,12 @@ menu "BB WebSocket"
             bb_init_init().  Disable (default) to register endpoints
             manually in your own init function.
 
+    config BB_WEBSOCKET_DIAG_AUTOREGISTER
+        bool "Auto-register GET /api/diag/websocket"
+        default y
+        help
+            When enabled, registers GET /api/diag/websocket at boot,
+            reporting the current open WebSocket connection count
+            (bb_websocket_open_count()). Infrastructure route; default on.
+
 endmenu

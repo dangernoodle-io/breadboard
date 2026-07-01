@@ -17,11 +17,47 @@
 
 #include "esp_http_server.h"
 #include "esp_err.h"
+#include "esp_idf_version.h"
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 
 static const char *TAG = "bb_ws";
+
+// The open-connection counter (below) depends on httpd invoking this uri
+// handler once with req->method == HTTP_GET immediately after completing the
+// WS handshake. ESP-IDF 6.0.1 removes that invocation (migration guide:
+// "websocket handler no longer called during handshake" -> use
+// ws_post_handshake_cb instead). We are on 5.5.x today; do not carry
+// untested 6.0 code. Fail the build loudly instead of silently zeroing the
+// counter if this component is ever compiled against >=6.0.
+_Static_assert(ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0),
+               "bb_websocket open-connection counter relies on the pre-6.0 "
+               "handshake handler invocation (req->method==HTTP_GET). "
+               "ESP-IDF >=6.0.1 no longer calls the handler during the "
+               "handshake -- reimplement the connect hook via "
+               "ws_post_handshake_cb before bumping IDF.");
+
+// ---------------------------------------------------------------------------
+// Open-connection counter (B1-443)
+// ---------------------------------------------------------------------------
+// Incremented once per WS session at handshake completion, decremented when
+// httpd tears the session down. httpd calls free_ctx exactly once per session
+// when it frees req->sess_ctx (socket close, timeout, or server shutdown),
+// giving a reliable disconnect hook without polling the fd table per read.
+static atomic_size_t s_ws_open_count = 0;
+
+static void ws_session_free_ctx(void *ctx)
+{
+    (void)ctx;
+    atomic_fetch_sub(&s_ws_open_count, 1);
+}
+
+size_t bb_websocket_open_count(void)
+{
+    return atomic_load(&s_ws_open_count);
+}
 
 // ---------------------------------------------------------------------------
 // Internal shim — bridges httpd_uri_t handler to bb_websocket_handler_fn
@@ -41,9 +77,21 @@ static esp_err_t ws_shim_handler(httpd_req_t *req)
 
     // httpd handles the HTTP→WS upgrade internally on the first GET that
     // triggers is_websocket.  Subsequent calls carry actual frame data.
+    // Why this works (pre-6.0 only, see _Static_assert above): after the WS
+    // handshake completes, httpd falls through and invokes this uri->handler
+    // exactly once more with req->method == HTTP_GET to let the app do
+    // connect-time setup; real data frames are then delivered via the
+    // is_websocket fast-path with method 0 / HTTP_DELETE, never HTTP_GET.
     if (req->method == HTTP_GET) {
-        // Upgrade request — httpd has completed the handshake at this point;
-        // nothing to do in the handler.
+        // Upgrade request — httpd has completed the handshake at this point.
+        // sess_ctx is NULL on the first (and only) HTTP_GET call for this
+        // session; use it as the connect signal and arm free_ctx as the
+        // matching disconnect signal.
+        if (req->sess_ctx == NULL) {
+            atomic_fetch_add(&s_ws_open_count, 1);
+            req->sess_ctx = (void *)1;  // non-NULL marker, not dereferenced
+            req->free_ctx = ws_session_free_ctx;
+        }
         return ESP_OK;
     }
 
@@ -373,6 +421,9 @@ bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t s,
 
 bb_err_t bb_websocket_close_client(bb_http_handle_t s, int fd)
 { (void)s; (void)fd; return BB_ERR_UNSUPPORTED; }
+
+size_t bb_websocket_open_count(void)
+{ return 0; }
 
 #endif // CONFIG_HTTPD_WS_SUPPORT
 #endif // ESP_PLATFORM

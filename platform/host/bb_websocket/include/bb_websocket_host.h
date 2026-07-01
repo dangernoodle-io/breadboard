@@ -121,6 +121,15 @@ void bb_websocket_host_force_send_fail(bool fail);
 // Force bb_websocket_broadcast_frame_async malloc to fail.
 void bb_websocket_host_force_async_alloc_fail(bool fail);
 
+// ----- Open-connection counter stub ---------------------------------------
+
+// Simulate a WS session opening: bb_websocket_open_count() increments by 1.
+void bb_websocket_host_simulate_open(void);
+
+// Simulate a WS session closing: bb_websocket_open_count() decrements by 1
+// (clamped at 0; a spurious close never underflows).
+void bb_websocket_host_simulate_close(void);
+
 #ifdef __cplusplus
 }
 #endif
