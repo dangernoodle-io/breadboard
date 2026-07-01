@@ -867,39 +867,6 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-// BB_DIAG_ROUTE_COUNT: exact count of bb_http_register_described_route() calls
-// in bb_diag_routes_init, used by the PRE_HTTP reserve companion below.
-// Keep each term adjacent to its corresponding #ifdef so an add/remove touches
-// both at once.
-//    7 always-on: boot GET, boot DELETE, panic GET, heap GET, sockets GET,
-//                 net GET, nvs DELETE (single body-based endpoint)
-//   +1 if CONFIG_BB_DIAG_PANIC_TRIGGER: panic/trigger POST
-//   +1 if CONFIG_BB_DIAG_PANIC_COREDUMP: coredump GET
-//   +1 if CONFIG_FREERTOS_USE_TRACE_FACILITY: tasks GET
-// NOTE: partitions GET moved to bb_partition's own self-registration
-// (platform/espidf/bb_partition/bb_partition_routes.c, B1-456) — no longer
-// counted here.
-#ifdef CONFIG_BB_DIAG_PANIC_TRIGGER
-#  define BB_DIAG_N_TRIGGER 1
-#else
-#  define BB_DIAG_N_TRIGGER 0
-#endif
-#ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
-#  define BB_DIAG_N_COREDUMP 1
-#else
-#  define BB_DIAG_N_COREDUMP 0
-#endif
-#if CONFIG_FREERTOS_USE_TRACE_FACILITY
-#  define BB_DIAG_N_TASKS 1
-#else
-#  define BB_DIAG_N_TASKS 0
-#endif
-#define BB_DIAG_ROUTE_COUNT (7 + BB_DIAG_N_TRIGGER + BB_DIAG_N_COREDUMP + BB_DIAG_N_TASKS)
-
-static bb_err_t bb_diag_routes_reserve(void)
-{
-    bb_http_reserve_routes(BB_DIAG_ROUTE_COUNT);
-    return BB_OK;
-}
-BB_INIT_REGISTER_PRE_HTTP(bb_diag_routes, bb_diag_routes_reserve);
-BB_INIT_REGISTER_N(bb_diag_routes, bb_diag_routes_init, BB_DIAG_ROUTE_COUNT);
+// bb_diag routes have no ordering dependency on other components' inits, so
+// register at the default order (0).
+BB_INIT_REGISTER(bb_diag_routes, bb_diag_routes_init);
