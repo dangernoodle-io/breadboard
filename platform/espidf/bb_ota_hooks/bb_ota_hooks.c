@@ -14,10 +14,23 @@
 // File statics
 // ---------------------------------------------------------------------------
 
-static bb_http_pause_cb_t       s_pause_cb;
-static bb_http_resume_cb_t      s_resume_cb;
-static bb_ota_skip_check_cb_t   s_skip_check_cb;
-static bb_ota_progress_cb_t     s_progress_cb;
+// Pause/resume are registered as a pair (one bb_ota_set_hooks() call = one
+// registrant); dispatched in registration order for both pause and resume so
+// resume iterates the same set pause used.
+typedef struct {
+    bb_http_pause_cb_t  pause;
+    bb_http_resume_cb_t resume;
+} bb_ota_hook_pair_t;
+
+static bb_ota_hook_pair_t     s_pairs[BB_OTA_HOOKS_MAX];
+static size_t                 s_pair_count;
+
+static bb_ota_progress_cb_t   s_progress_cbs[BB_OTA_HOOKS_MAX];
+static size_t                 s_progress_count;
+
+static bb_ota_skip_check_cb_t s_skip_cbs[BB_OTA_HOOKS_MAX];
+static size_t                 s_skip_count;
+
 static bb_ota_phase_t           s_last_phase = BB_OTA_PHASE_FAIL;
 static int                      s_last_pct;
 
@@ -28,47 +41,115 @@ static bb_event_topic_t s_ota_progress_topic = NULL;
 static const char *TAG = "bb_ota";
 
 // ---------------------------------------------------------------------------
-// Setters
+// Setters (append semantics — a 2nd registrant is added to the list, not
+// swapped in over the 1st)
 // ---------------------------------------------------------------------------
 
 void bb_ota_set_hooks(bb_http_pause_cb_t pause, bb_http_resume_cb_t resume)
 {
-    s_pause_cb  = pause;
-    s_resume_cb = resume;
+    if (s_pair_count >= BB_OTA_HOOKS_MAX) {
+        bb_log_w(TAG, "pause/resume hook registry full (cap %d); dropping registrant",
+                 BB_OTA_HOOKS_MAX);
+        return;
+    }
+    if (s_pair_count == BB_OTA_HOOKS_MAX - 1) {
+        bb_log_w(TAG, "pause/resume hook registry at high-watermark (%d/%d)",
+                 (int)s_pair_count + 1, BB_OTA_HOOKS_MAX);
+    }
+    s_pairs[s_pair_count].pause  = pause;
+    s_pairs[s_pair_count].resume = resume;
+    s_pair_count++;
 }
 
 void bb_ota_set_progress_cb(bb_ota_progress_cb_t cb)
 {
-    s_progress_cb = cb;
+    if (s_progress_count >= BB_OTA_HOOKS_MAX) {
+        bb_log_w(TAG, "progress hook registry full (cap %d); dropping registrant",
+                 BB_OTA_HOOKS_MAX);
+        return;
+    }
+    if (s_progress_count == BB_OTA_HOOKS_MAX - 1) {
+        bb_log_w(TAG, "progress hook registry at high-watermark (%d/%d)",
+                 (int)s_progress_count + 1, BB_OTA_HOOKS_MAX);
+    }
+    s_progress_cbs[s_progress_count++] = cb;
 }
 
 void bb_ota_set_skip_check_cb(bb_ota_skip_check_cb_t cb)
 {
-    s_skip_check_cb = cb;
+    if (s_skip_count >= BB_OTA_HOOKS_MAX) {
+        bb_log_w(TAG, "skip-check hook registry full (cap %d); dropping registrant",
+                 BB_OTA_HOOKS_MAX);
+        return;
+    }
+    if (s_skip_count == BB_OTA_HOOKS_MAX - 1) {
+        bb_log_w(TAG, "skip-check hook registry at high-watermark (%d/%d)",
+                 (int)s_skip_count + 1, BB_OTA_HOOKS_MAX);
+    }
+    s_skip_cbs[s_skip_count++] = cb;
+}
+
+// ---------------------------------------------------------------------------
+// Observability
+// ---------------------------------------------------------------------------
+
+size_t bb_ota_hooks_pause_count(void)
+{
+    return s_pair_count;
+}
+
+size_t bb_ota_hooks_progress_count(void)
+{
+    return s_progress_count;
+}
+
+size_t bb_ota_hooks_skip_check_count(void)
+{
+    return s_skip_count;
 }
 
 // ---------------------------------------------------------------------------
 // Invokers
 // ---------------------------------------------------------------------------
 
+// Combine semantics: OR — pause is considered engaged if ANY registered pause
+// hook returns true (at least one consumer needs the OTA to wait for it).
 bool bb_ota_pause(void)
 {
-    return s_pause_cb ? s_pause_cb() : false;
+    bool paused = false;
+    for (size_t i = 0; i < s_pair_count; i++) {
+        if (s_pairs[i].pause && s_pairs[i].pause()) paused = true;
+    }
+    return paused;
 }
 
 bool bb_ota_has_pause_hook(void)
 {
-    return s_pause_cb != NULL;
+    for (size_t i = 0; i < s_pair_count; i++) {
+        if (s_pairs[i].pause) return true;
+    }
+    return false;
 }
 
+// Resume iterates the same set (registration order) that pause used, so a
+// 2nd registrant's resume always runs after its own pause fired.
 void bb_ota_resume(void)
 {
-    if (s_resume_cb) s_resume_cb();
+    for (size_t i = 0; i < s_pair_count; i++) {
+        if (s_pairs[i].resume) s_pairs[i].resume();
+    }
 }
 
+// Combine semantics: OR — skip if ANY registered skip-check hook returns true.
+// Every registered hook is invoked exactly once (mirrors bb_ota_pause) so a
+// later registrant's side effects are never dropped by an earlier true result.
 bool bb_ota_skip_check(void)
 {
-    return s_skip_check_cb && s_skip_check_cb();
+    bool skip = false;
+    for (size_t i = 0; i < s_skip_count; i++) {
+        if (s_skip_cbs[i]) skip = s_skip_cbs[i]() || skip;
+    }
+    return skip;
 }
 
 void bb_ota_last_progress(bb_ota_phase_t *phase, int *pct)
@@ -97,7 +178,9 @@ int bb_ota_progress_json(char *buf, size_t sz, const char *via, int state, int p
 
 void bb_ota_emit_progress(const char *via, bb_ota_phase_t phase, int pct)
 {
-    if (s_progress_cb) s_progress_cb(phase, pct);
+    for (size_t i = 0; i < s_progress_count; i++) {
+        if (s_progress_cbs[i]) s_progress_cbs[i](phase, pct);
+    }
 
     switch (phase) {
         case BB_OTA_PHASE_START:    bb_log_i(TAG, "OTA %s: starting", via);  break;
@@ -122,6 +205,21 @@ void bb_ota_emit_progress(const char *via, bb_ota_phase_t phase, int pct)
     }
 #endif
 }
+
+// ---------------------------------------------------------------------------
+// Testing hooks
+// ---------------------------------------------------------------------------
+
+#ifdef BB_OTA_HOOKS_TESTING
+void bb_ota_hooks_test_reset(void)
+{
+    s_pair_count     = 0;
+    s_progress_count = 0;
+    s_skip_count     = 0;
+    s_last_phase     = BB_OTA_PHASE_FAIL;
+    s_last_pct       = 0;
+}
+#endif
 
 // ---------------------------------------------------------------------------
 // ESP-IDF regular-tier init — attach ota.progress topic
