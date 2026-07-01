@@ -32,6 +32,10 @@
 #include "bb_thermal.h"
 #include "bb_wifi.h"
 
+#ifdef BB_WIFI_TESTING
+#include "bb_wifi_test.h"
+#endif
+
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -639,6 +643,37 @@ void test_bb_wifi_emit_has_recovery_count(void)
     TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(obj, "recovery_count", &val),
         "recovery_count field must be present");
     bb_json_free(obj);
+}
+
+// Inject a non-zero standard reason; verify bb_wifi_emit_section emits
+// top_reason_code:3 and top_reason_count:5 in reason_histogram.
+void test_bb_wifi_emit_top_reason_injected(void)
+{
+#ifdef BB_WIFI_TESTING
+    uint16_t h[256];
+    memset(h, 0, sizeof(h));
+    h[3] = 5; // reason 3, count 5
+    bb_wifi_test_set_reason_histogram(h, 256);
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    bb_wifi_emit_section(obj, &info);
+
+    bb_json_t hist_obj = bb_json_obj_get_item(obj, "reason_histogram");
+    TEST_ASSERT_NOT_NULL_MESSAGE(hist_obj, "reason_histogram must be present");
+
+    double code  = -1.0;
+    double count = -1.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(hist_obj, "top_reason_code",  &code));
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(hist_obj, "top_reason_count", &count));
+    TEST_ASSERT_EQUAL_INT(3, (int)code);
+    TEST_ASSERT_EQUAL_INT(5, (int)count);
+
+    bb_json_free(obj);
+    bb_wifi_test_set_reason_histogram(NULL, 0);
+#endif
 }
 
 // ===========================================================================

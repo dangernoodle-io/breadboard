@@ -4,6 +4,11 @@
 #include "bb_pub.h"
 #include "bb_cache.h"
 #include "bb_nv.h"
+#include "bb_wifi.h"
+
+#ifdef BB_WIFI_TESTING
+#include "bb_wifi_test.h"
+#endif
 
 #include <string.h>
 #include <stdio.h>
@@ -403,4 +408,28 @@ void test_bb_pub_wifi_reason_histogram_zeros_on_host(void)
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"top_reason_count\":0"),
         "top_reason_count must be 0 when all histogram buckets are zero");
+}
+
+// Inject a non-zero standard reason; verify gather_histogram + wifi_serialize
+// emit top_reason_code:3 and top_reason_count:5.
+void test_bb_pub_wifi_reason_histogram_top_reason_injected(void)
+{
+#ifdef BB_WIFI_TESTING
+    setup();
+    bb_pub_wifi_test_set_rssi(true, -60);
+
+    uint16_t h[256];
+    memset(h, 0, sizeof(h));
+    h[3] = 5; // reason 3, count 5
+    bb_wifi_test_set_reason_histogram(h, 256);
+
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"top_reason_code\":3"),
+        "top_reason_code must be 3 when reason 3 has count 5");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"top_reason_count\":5"),
+        "top_reason_count must be 5 when reason 3 has count 5");
+
+    bb_wifi_test_set_reason_histogram(NULL, 0);
+#endif
 }

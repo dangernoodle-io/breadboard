@@ -47,12 +47,12 @@ static volatile bool s_sta_restarting = false;
 // Incremented only inside bb_wifi_restart_sta() — single canonical site.
 static uint32_t s_restart_sta_count = 0;
 
-// Last-good RSSI captured during the periodic rssi_refresh_work_fn tick.
-// Snapshotted to s_disconnect_rssi on WIFI_EVENT_STA_DISCONNECTED so we have
-// a valid RSSI reading before the AP record is torn down.
-// Both are protected by s_ap_mux.
-static int8_t s_last_rssi = 0;
-static int8_t s_disconnect_rssi = 0;
+// RSSI snapshot at the last WIFI_EVENT_STA_DISCONNECTED event.
+// Captured from s_cached_rssi (updated by periodic refresh) before the AP
+// record is torn down.  Initialised to INT8_MIN so callers can detect
+// "no disconnect yet" vs. a genuine 0 dBm reading.
+// Protected by s_ap_mux.
+static int8_t s_disconnect_rssi = INT8_MIN;
 
 // Cached STA config — stored at wifi_connect_sta_ex time so bb_wifi_restart_sta()
 // can re-apply it after stop/start without re-reading NVS.
@@ -95,7 +95,6 @@ static void rssi_refresh_work_fn(void *arg)
     if (esp_wifi_sta_get_ap_info(&info) == ESP_OK) {
         portENTER_CRITICAL(&s_ap_mux);
         s_cached_rssi = info.rssi;
-        s_last_rssi   = info.rssi;
         portEXIT_CRITICAL(&s_ap_mux);
     }
 }
@@ -354,10 +353,10 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         wifi_event_sta_disconnected_t *disc = (wifi_event_sta_disconnected_t *)event_data;
         s_has_ip = false;
 
-        // Snapshot last-good RSSI before the AP record is torn down.
+        // Snapshot cached RSSI before the AP record is torn down.
         // Do NOT call esp_wifi_sta_get_ap_info() here — AP already gone.
         portENTER_CRITICAL(&s_ap_mux);
-        s_disconnect_rssi = s_last_rssi;
+        s_disconnect_rssi = s_cached_rssi;
         portEXIT_CRITICAL(&s_ap_mux);
 
         if (s_on_disconnect_cb) {
