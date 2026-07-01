@@ -11,7 +11,6 @@
 #include "bb_openapi.h"
 #include "bb_nv_delete_routes.h"
 #include "bb_ota_validator.h"
-#include "bb_partition.h"
 #include "bb_init.h"
 #include "bb_system.h"
 #include "bb_mem.h"
@@ -699,65 +698,6 @@ static const bb_route_t s_sockets_get_route = {
     .handler   = sockets_get_handler,
 };
 
-// --- partitions ---
-
-// GET /api/diag/partitions — full partition table with running/next-OTA flags
-static bb_err_t partitions_get_handler(bb_http_request_t *req)
-{
-    bb_partition_info_t parts[16];
-    size_t count = 0;
-    bb_partition_list(parts, sizeof(parts) / sizeof(parts[0]), &count);
-    if (count > sizeof(parts) / sizeof(parts[0])) {
-        count = sizeof(parts) / sizeof(parts[0]);
-    }
-
-    bb_http_json_stream_t arr;
-    bb_err_t rc = bb_http_resp_json_arr_begin(req, &arr);
-    if (rc != BB_OK) return rc;
-
-    for (size_t i = 0; i < count; i++) {
-        bb_json_t item = bb_json_obj_new();
-        if (item) {
-            bb_json_obj_set_string(item, "label",    parts[i].label);
-            bb_json_obj_set_string(item, "type",     parts[i].type);
-            bb_json_obj_set_string(item, "subtype",  parts[i].subtype);
-            bb_json_obj_set_number(item, "offset",   (double)parts[i].offset);
-            bb_json_obj_set_number(item, "size",     (double)parts[i].size);
-            bb_json_obj_set_bool  (item, "running",  parts[i].running);
-            bb_json_obj_set_bool  (item, "next_ota", parts[i].next_ota);
-            bb_http_resp_json_arr_emit(&arr, item);
-            bb_json_free(item);
-        }
-    }
-    return bb_http_resp_json_arr_end(&arr);
-}
-
-static const bb_route_response_t s_partitions_get_responses[] = {
-    { 200, "application/json",
-      "{\"type\":\"array\","
-      "\"items\":{\"type\":\"object\","
-      "\"properties\":{"
-      "\"label\":{\"type\":\"string\"},"
-      "\"type\":{\"type\":\"string\"},"
-      "\"subtype\":{\"type\":\"string\"},"
-      "\"offset\":{\"type\":\"integer\"},"
-      "\"size\":{\"type\":\"integer\"},"
-      "\"running\":{\"type\":\"boolean\"},"
-      "\"next_ota\":{\"type\":\"boolean\"}},"
-      "\"required\":[\"label\",\"type\",\"offset\",\"size\"]}}",
-      "partition table: label/type/subtype/offset/size + running and next-OTA flags" },
-    { 0 },
-};
-
-static const bb_route_t s_partitions_get_route = {
-    .method    = BB_HTTP_GET,
-    .path      = "/api/diag/partitions",
-    .tag       = "diag",
-    .summary   = "Partition table: label/type/subtype/offset/size + running and next-OTA flags",
-    .responses = s_partitions_get_responses,
-    .handler   = partitions_get_handler,
-};
-
 // GET /api/diag/net — network diagnostic counters (TA-505).
 // Sources: bb_net_health snapshot, bb_clock_now_ms, bb_http handler counts.
 extern size_t bb_http_route_handler_count(void);
@@ -870,9 +810,6 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     err = bb_http_register_described_route(server, &s_sockets_get_route);
     if (err != BB_OK) return err;
 
-    err = bb_http_register_described_route(server, &s_partitions_get_route);
-    if (err != BB_OK) return err;
-
     err = bb_http_register_described_route(server, &s_diag_net_route);
     if (err != BB_OK) return err;
 
@@ -934,11 +871,14 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 // in bb_diag_routes_init, used by the PRE_HTTP reserve companion below.
 // Keep each term adjacent to its corresponding #ifdef so an add/remove touches
 // both at once.
-//    8 always-on: boot GET, boot DELETE, panic GET, heap GET, sockets GET,
-//                 partitions GET, net GET, nvs DELETE (single body-based endpoint)
+//    7 always-on: boot GET, boot DELETE, panic GET, heap GET, sockets GET,
+//                 net GET, nvs DELETE (single body-based endpoint)
 //   +1 if CONFIG_BB_DIAG_PANIC_TRIGGER: panic/trigger POST
 //   +1 if CONFIG_BB_DIAG_PANIC_COREDUMP: coredump GET
 //   +1 if CONFIG_FREERTOS_USE_TRACE_FACILITY: tasks GET
+// NOTE: partitions GET moved to bb_partition's own self-registration
+// (platform/espidf/bb_partition/bb_partition_routes.c, B1-456) — no longer
+// counted here.
 #ifdef CONFIG_BB_DIAG_PANIC_TRIGGER
 #  define BB_DIAG_N_TRIGGER 1
 #else
@@ -954,7 +894,7 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 #else
 #  define BB_DIAG_N_TASKS 0
 #endif
-#define BB_DIAG_ROUTE_COUNT (8 + BB_DIAG_N_TRIGGER + BB_DIAG_N_COREDUMP + BB_DIAG_N_TASKS)
+#define BB_DIAG_ROUTE_COUNT (7 + BB_DIAG_N_TRIGGER + BB_DIAG_N_COREDUMP + BB_DIAG_N_TASKS)
 
 static bb_err_t bb_diag_routes_reserve(void)
 {
