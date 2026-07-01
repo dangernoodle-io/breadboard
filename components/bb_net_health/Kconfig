@@ -1,5 +1,13 @@
 menu "breadboard: bb_net_health"
 
+config BB_NET_HEALTH_ROUTES_AUTOREGISTER
+    bool "Auto-register /api/diag/net route via bb_init"
+    default y
+    help
+        When enabled, bb_net_health registers GET /api/diag/net
+        automatically via the bb_init regular tier after the HTTP server
+        starts.
+
 config BB_NET_HEALTH_RSSI_GOOD
     int "RSSI threshold for GOOD bucket (dBm)"
     default -67

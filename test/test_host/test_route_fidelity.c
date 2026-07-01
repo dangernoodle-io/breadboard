@@ -49,6 +49,7 @@
 #include "bb_mdns.h"
 #include "bb_diag.h"
 #include "bb_partition.h"
+#include "bb_net_health.h"
 #include "bb_event.h"
 #include "bb_update_check.h"
 #include "bb_event_routes.h"
@@ -261,6 +262,30 @@ static const char k_partitions_schema[] =
     "\"running\":{\"type\":\"boolean\"},"
     "\"next_ota\":{\"type\":\"boolean\"}},"
     "\"required\":[\"label\",\"type\",\"offset\",\"size\"]}}";
+
+// GET /api/diag/net — platform/espidf/bb_net_health/bb_net_health_routes.c (B1-456)
+static const char k_diag_net_schema[] =
+    "{\"type\":\"object\","
+    "\"properties\":{"
+    "\"uptime_ms\":{\"type\":\"integer\"},"
+    "\"http_handler_count\":{\"type\":\"integer\"},"
+    "\"http_handler_cap\":{\"type\":\"integer\"},"
+    "\"rssi\":{\"type\":\"integer\"},"
+    "\"disc_age_s\":{\"type\":\"integer\"},"
+    "\"last_disconnect_reason\":{\"type\":\"integer\"},"
+    "\"lost_ip_recoveries\":{\"type\":\"integer\"},"
+    "\"lost_ip_age_s\":{\"type\":\"integer\"},"
+    "\"egress_dead_recoveries\":{\"type\":\"integer\"},"
+    "\"mqtt\":{\"type\":\"object\",\"properties\":{"
+    "\"reconnect_count\":{\"type\":\"integer\"},"
+    "\"disc_age_s\":{\"type\":\"integer\"},"
+    "\"disc_reason\":{\"type\":\"integer\"},"
+    "\"tls_fail\":{\"type\":\"integer\"}}},"
+    "\"http\":{\"type\":\"object\",\"properties\":{"
+    "\"consec_failures\":{\"type\":\"integer\"},"
+    "\"tls_fail\":{\"type\":\"integer\"},"
+    "\"last_status\":{\"type\":\"integer\"}}}},"
+    "\"required\":[\"uptime_ms\"]}";
 
 // GET /api/log/level — platform/espidf/bb_log/bb_log_http.c
 static const char k_log_level_schema[] =
@@ -660,6 +685,60 @@ static bb_err_t h_diag_partitions(bb_http_request_t *req)
     return bb_http_resp_json_arr_end(&arr);
 }
 
+// GET /api/diag/net — canned bb_net_health_status_t response.
+// Does NOT call the real diag_net_handler (static in
+// platform/espidf/bb_net_health/bb_net_health_routes.c, whose only
+// ESP-IDF-only dependency is bb_net_health_get_status); mirrors its emit
+// pattern field-for-field to verify schema fidelity (B1-456).
+static bb_err_t h_diag_net(bb_http_request_t *req)
+{
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
+    if (err != BB_OK) return err;
+
+    bb_http_resp_json_obj_set_int(&obj, "uptime_ms",           1000);
+    bb_http_resp_json_obj_set_int(&obj, "http_handler_count",  4);
+    bb_http_resp_json_obj_set_int(&obj, "http_handler_cap",    64);
+
+    bb_net_health_status_t snap;
+    memset(&snap, 0, sizeof(snap));
+    snap.rssi                   = -60;
+    snap.disc_age_s             = 0;
+    snap.last_disconnect_reason = 0;
+    snap.lost_ip_recoveries     = 1;
+    snap.lost_ip_age_s          = 30;
+    snap.egress_dead_recoveries = 0;
+    snap.mqtt_reconnect_count   = 2;
+    snap.mqtt_disc_age_s        = 5;
+    snap.mqtt_disc_reason       = 0;
+    snap.mqtt_tls_fail          = 0;
+    snap.http_consec_failures   = 0;
+    snap.http_tls_fail          = 0;
+    snap.http_last_status       = 200;
+
+    bb_http_resp_json_obj_set_int(&obj, "rssi",                   (int64_t)snap.rssi);
+    bb_http_resp_json_obj_set_int(&obj, "disc_age_s",             (int64_t)snap.disc_age_s);
+    bb_http_resp_json_obj_set_int(&obj, "last_disconnect_reason", (int64_t)snap.last_disconnect_reason);
+    bb_http_resp_json_obj_set_int(&obj, "lost_ip_recoveries",     (int64_t)snap.lost_ip_recoveries);
+    bb_http_resp_json_obj_set_int(&obj, "lost_ip_age_s",          (int64_t)snap.lost_ip_age_s);
+    bb_http_resp_json_obj_set_int(&obj, "egress_dead_recoveries", (int64_t)snap.egress_dead_recoveries);
+
+    bb_http_resp_json_obj_set_obj_begin(&obj, "mqtt");
+    bb_http_resp_json_obj_set_int(&obj, "reconnect_count", (int64_t)snap.mqtt_reconnect_count);
+    bb_http_resp_json_obj_set_int(&obj, "disc_age_s",      (int64_t)snap.mqtt_disc_age_s);
+    bb_http_resp_json_obj_set_int(&obj, "disc_reason",     (int64_t)snap.mqtt_disc_reason);
+    bb_http_resp_json_obj_set_int(&obj, "tls_fail",        (int64_t)snap.mqtt_tls_fail);
+    bb_http_resp_json_obj_set_obj_end(&obj);
+
+    bb_http_resp_json_obj_set_obj_begin(&obj, "http");
+    bb_http_resp_json_obj_set_int(&obj, "consec_failures", (int64_t)snap.http_consec_failures);
+    bb_http_resp_json_obj_set_int(&obj, "tls_fail",        (int64_t)snap.http_tls_fail);
+    bb_http_resp_json_obj_set_int(&obj, "last_status",     (int64_t)snap.http_last_status);
+    bb_http_resp_json_obj_set_obj_end(&obj);
+
+    return bb_http_resp_json_obj_end(&obj);
+}
+
 // PATCH /api/wifi 202 — mirrors wifi_patch_handler success path.
 static bb_err_t h_wifi_patch_202(bb_http_request_t *req)
 {
@@ -712,6 +791,7 @@ static const fidelity_entry_t k_audit[] = {
     { "PATCH /api/wifi 202",         h_wifi_patch_202,    202, "application/json", k_wifi_patch_202_schema  },
     { "PATCH /api/wifi 400",         h_wifi_patch_400,    400, "application/json", k_wifi_patch_400_schema  },
     { "/api/diag/partitions",        h_diag_partitions,   200, "application/json", k_partitions_schema      },
+    { "/api/diag/net",               h_diag_net,          200, "application/json", k_diag_net_schema        },
     { NULL, NULL, 0, NULL, NULL },
 };
 
@@ -841,6 +921,11 @@ void test_fidelity_wifi_patch_400(void)
 void test_fidelity_diag_partitions(void)
 {
     run_fidelity(&k_audit[13]);
+}
+
+void test_fidelity_diag_net(void)
+{
+    run_fidelity(&k_audit[14]);
 }
 
 // Routes that require subsystem state setup are tested individually below.
