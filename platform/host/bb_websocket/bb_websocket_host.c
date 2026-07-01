@@ -42,6 +42,11 @@ static int s_async_count = 0;
 // Client active flags (fd index 0..BB_WEBSOCKET_MAX_FD-1)
 static bool s_client_active[BB_WEBSOCKET_MAX_FD];
 
+// Open-connection counter, driven by bb_websocket_host_simulate_open/close
+// (the espidf connect/disconnect hooks have no host-testable seam — they
+// depend on httpd_req_t->sess_ctx/free_ctx, so this is a plain counter).
+static size_t s_open_count = 0;
+
 // Force-fail flags
 static bool s_force_register_fail  = false;
 static bool s_force_recv_fail      = false;
@@ -374,6 +379,7 @@ void bb_websocket_host_reset_captures(void)
     bb_websocket_host_async_reset();
 
     memset(s_client_active, 0, sizeof(s_client_active));
+    s_open_count = 0;
 
     s_force_register_fail    = false;
     s_force_recv_fail        = false;
@@ -432,4 +438,25 @@ bb_err_t bb_websocket_close_client(bb_http_handle_t server, int fd)
 {
     (void)server; (void)fd;
     return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
+// bb_websocket_open_count (host)
+// ---------------------------------------------------------------------------
+
+size_t bb_websocket_open_count(void)
+{
+    return s_open_count;
+}
+
+void bb_websocket_host_simulate_open(void)
+{
+    s_open_count++;
+}
+
+void bb_websocket_host_simulate_close(void)
+{
+    if (s_open_count > 0) {
+        s_open_count--;
+    }
 }

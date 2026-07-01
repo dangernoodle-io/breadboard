@@ -713,3 +713,48 @@ void test_bb_websocket_reset_captures_clears_state(void)
     bb_err_t rc = bb_websocket_host_inject_frame(req, &in);
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, rc);
 }
+
+// ---------------------------------------------------------------------------
+// Open-connection counter (B1-443)
+// ---------------------------------------------------------------------------
+
+void test_bb_websocket_open_count_zero_by_default(void)
+{
+    ws_test_setup();
+    TEST_ASSERT_EQUAL(0, bb_websocket_open_count());
+}
+
+void test_bb_websocket_open_count_increments_on_simulated_open(void)
+{
+    ws_test_setup();
+    bb_websocket_host_simulate_open();
+    TEST_ASSERT_EQUAL(1, bb_websocket_open_count());
+    bb_websocket_host_simulate_open();
+    TEST_ASSERT_EQUAL(2, bb_websocket_open_count());
+}
+
+void test_bb_websocket_open_count_decrements_on_simulated_close(void)
+{
+    ws_test_setup();
+    bb_websocket_host_simulate_open();
+    bb_websocket_host_simulate_open();
+    bb_websocket_host_simulate_close();
+    TEST_ASSERT_EQUAL(1, bb_websocket_open_count());
+    bb_websocket_host_simulate_close();
+    TEST_ASSERT_EQUAL(0, bb_websocket_open_count());
+}
+
+void test_bb_websocket_open_count_close_clamps_at_zero(void)
+{
+    ws_test_setup();
+    bb_websocket_host_simulate_close();
+    TEST_ASSERT_EQUAL(0, bb_websocket_open_count());
+}
+
+void test_bb_websocket_open_count_reset_by_reset_captures(void)
+{
+    ws_test_setup();
+    bb_websocket_host_simulate_open();
+    bb_websocket_host_reset_captures();
+    TEST_ASSERT_EQUAL(0, bb_websocket_open_count());
+}

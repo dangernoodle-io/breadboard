@@ -148,6 +148,15 @@ int bb_websocket_req_fd(bb_http_request_t *req);
 // On host: no-op, returns BB_OK.
 bb_err_t bb_websocket_close_client(bb_http_handle_t server, int fd);
 
+// Return the number of currently-open WebSocket connections across all
+// endpoints registered via bb_websocket_register_endpoint.
+// On ESP-IDF: a session counter incremented at WS handshake completion and
+// decremented when httpd tears the session down (req->sess_ctx/free_ctx),
+// so it stays correct without polling httpd's internal fd table.
+// On host: returns a value driven by bb_websocket_host_simulate_open/close
+// (see bb_websocket_host.h); 0 until simulated.
+size_t bb_websocket_open_count(void);
+
 // Max fd probed by broadcast_all.  On ESP-IDF, LWIP socket fds are offset by
 // LWIP_SOCKET_OFFSET = FD_SETSIZE - CONFIG_LWIP_MAX_SOCKETS (typically 64-12=52),
 // so the scan upper bound must be FD_SETSIZE (64), NOT CONFIG_HTTPD_MAX_SOCKETS

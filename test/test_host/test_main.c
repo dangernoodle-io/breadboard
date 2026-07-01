@@ -3193,6 +3193,11 @@ void test_bb_websocket_register_described_endpoint_null_handler(void);
 void test_bb_websocket_register_described_endpoint_null_descriptor(void);
 void test_bb_websocket_register_described_endpoint_propagates_register_fail(void);
 void test_bb_websocket_reset_captures_clears_state(void);
+void test_bb_websocket_open_count_zero_by_default(void);
+void test_bb_websocket_open_count_increments_on_simulated_open(void);
+void test_bb_websocket_open_count_decrements_on_simulated_close(void);
+void test_bb_websocket_open_count_close_clamps_at_zero(void);
+void test_bb_websocket_open_count_reset_by_reset_captures(void);
 
 // Forward declarations from test_bb_tls_creds.c
 void test_bb_tls_creds_override_ca_beats_nvs(void);
@@ -6619,6 +6624,11 @@ int main(void) {
     RUN_TEST(test_bb_websocket_register_described_endpoint_null_descriptor);
     RUN_TEST(test_bb_websocket_register_described_endpoint_propagates_register_fail);
     RUN_TEST(test_bb_websocket_reset_captures_clears_state);
+    RUN_TEST(test_bb_websocket_open_count_zero_by_default);
+    RUN_TEST(test_bb_websocket_open_count_increments_on_simulated_open);
+    RUN_TEST(test_bb_websocket_open_count_decrements_on_simulated_close);
+    RUN_TEST(test_bb_websocket_open_count_close_clamps_at_zero);
+    RUN_TEST(test_bb_websocket_open_count_reset_by_reset_captures);
 
     // bb_sink_ws
     RUN_TEST(test_bb_sink_ws_init_null_out_returns_invalid_arg);
