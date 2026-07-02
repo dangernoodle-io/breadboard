@@ -96,6 +96,25 @@ extern "C" {
 #endif
 
 // ---------------------------------------------------------------------------
+// SSE ring sizing (B1-472)
+//
+// The retained "net.health" SSE ring is attached with this explicit
+// max_entry via bb_event_routes_attach_ex2 (see bb_net_health_attach_sse in
+// platform/espidf/bb_net_health/bb_net_health_espidf.c), above the
+// bb_event_routes global default (CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY,
+// 256) — the serialized snapshot (nested mqtt/http objects) measures ~352 B
+// in the host test's synthetic worst-case (a real HW snapshot with narrower
+// field values measured ~341 B; the difference is digit-width in a few
+// integer fields, not a real discrepancy). Same shape as the
+// update.available / info.build precedent (#616, B1-434/435/439). Shared
+// here (not local to the espidf glue) so the host test's ring-size
+// assertions reference the same symbol the production call site uses.
+// ---------------------------------------------------------------------------
+#ifndef BB_NET_HEALTH_SSE_MAX_ENTRY
+#define BB_NET_HEALTH_SSE_MAX_ENTRY 512
+#endif
+
+// ---------------------------------------------------------------------------
 // Heap state
 // ---------------------------------------------------------------------------
 
