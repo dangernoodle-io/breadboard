@@ -10,7 +10,7 @@
 // bb_http_client_get, bb_http_client_get_stream, or bb_http_client_post.
 // Covers the mbedTLS handshake + cert-bundle parse path. Pass to xTaskCreate
 // so the budget stays consistent across consumers (bb_ota_pull,
-// bb_update_check, ...). Override via CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE.
+// bb_ota_check, ...). Override via CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE.
 #ifndef BB_HTTP_CLIENT_TASK_STACK
 #  if defined(CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE)
 #    define BB_HTTP_CLIENT_TASK_STACK CONFIG_BB_HTTP_CLIENT_TASK_STACK_SIZE

@@ -82,10 +82,10 @@ config BB_HTTP_CLIENT_TASK_STACK_SIZE
 
         NOTE (B1-274): this default is intentionally NOT gate-keyed on
         BB_HTTP_TLS_ENABLE / BB_MQTT_TLS_ENABLE.  The OTA/update-check HTTPS
-        path (esp_http_client + crt-bundle via bb_update_check / bb_ota_pull)
+        path (esp_http_client + crt-bundle via bb_ota_check / bb_ota_pull)
         is always compiled in regardless of the sink TLS gates and requires
         >= 8 KiB of task stack for the GitHub TLS handshake.  Lowering this
-        below 8192 on any build that includes bb_update_check or bb_ota_pull
+        below 8192 on any build that includes bb_ota_check or bb_ota_pull
         risks a stack overflow at update-check time even when the sink TLS
         gates are OFF.  Keep at 8192 unless you have explicitly excluded both
         update-check and OTA-pull from your build.

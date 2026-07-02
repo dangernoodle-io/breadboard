@@ -62,7 +62,7 @@ typedef void *bb_http_handle_t;
 typedef void *bb_http_request_t;
 
 // ---------------------------------------------------------------------------
-// Pause/resume callback types (shared by bb_ota_pull, bb_update_check, etc.)
+// Pause/resume callback types (shared by bb_ota_pull, bb_ota_check, etc.)
 // ---------------------------------------------------------------------------
 // pause_cb: called before an outbound HTTP fetch; return true to allow,
 //           false to skip the fetch (resume will NOT be called on false).

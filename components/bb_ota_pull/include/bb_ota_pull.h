@@ -70,7 +70,7 @@ void bb_ota_pull_set_task_core(int core);
  * On single-core targets the worker must outrank a CPU-bound consumer task
  * (e.g. a software-mining hot loop) so it can preempt and invoke the pause hook;
  * otherwise the sustained download starves the idle task and trips the task WDT.
- * Mirrors bb_update_check_set_task_priority.
+ * Mirrors bb_ota_check_set_task_priority.
  */
 void bb_ota_pull_set_task_priority(int priority);
 

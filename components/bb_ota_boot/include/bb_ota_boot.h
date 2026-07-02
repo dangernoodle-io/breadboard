@@ -26,7 +26,7 @@ extern "C" {
  * Runtime cost on a tight board is a single lean route (gated by
  * CONFIG_BB_OTA_BOOT_AUTOREGISTER) — no download worker until boot. The manifest
  * resolve + download run in boot mode, so the runtime can leave
- * CONFIG_BB_UPDATE_CHECK_AUTOREGISTER and CONFIG_BB_OTA_PULL_AUTOREGISTER off.
+ * CONFIG_BB_OTA_CHECK_AUTOREGISTER and CONFIG_BB_OTA_PULL_AUTOREGISTER off.
  */
 
 /*
@@ -75,7 +75,7 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server);
  * latest asset and pull it at full heap (on a fat-stack worker), then reboot
  * into the new image — NEVER returns. If not armed: returns immediately. Call
  * after WiFi STA init, before other subsystems. releases_url/board are the
- * values you would pass to bb_update_check (e.g. ".../releases/latest" and
+ * values you would pass to bb_ota_check (e.g. ".../releases/latest" and
  * "taipanminer-<board>").
  */
 void bb_ota_boot_run_if_pending(const char *releases_url, const char *board);

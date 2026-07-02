@@ -21,9 +21,9 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 | `bb_event` | Generic app-level event bus on a portable callback list. Multi-subscriber publish/subscribe with queued dispatch; ESP-IDF uses a FreeRTOS dispatcher task, Arduino requires `bb_event_pump()` from `loop()`. | ESP-IDF, Arduino |
 | `bb_event_ring` | Circular buffer variant of `bb_event` with replay-on-subscribe — for SSE/WebSocket fan-out and event history. | ESP-IDF, Arduino |
 | `bb_event_routes` | Surfaces attached `bb_event` topics on `GET /api/events` as Server-Sent Events. Multi-client with per-topic replay; payload contract is "producer posts valid JSON, route emits raw". | ESP-IDF (Arduino: 503 stub) |
-| `bb_http_client` | Portable outbound HTTP GET wrapper used by `bb_update_check` (and migrating `bb_ota_pull`) so consumers don't reach into `esp_http_client` directly. Host build ships a mock-response hook for tests | ESP-IDF, host (Arduino: stub) |
+| `bb_http_client` | Portable outbound HTTP GET wrapper used by `bb_ota_check` (and migrating `bb_ota_pull`) so consumers don't reach into `esp_http_client` directly. Host build ships a mock-response hook for tests | ESP-IDF, host (Arduino: stub) |
 | `bb_release_manifest` | Provider-pluggable release-manifest parser: typedef for a `bb_release_manifest_parse_fn` plus built-in `bb_release_manifest_parse_github`. Consumers wanting GitLab/Jenkins/S3 register their own parser | ESP-IDF, host, Arduino |
-| `bb_update_check` | Periodic poll of a configurable release manifest URL; posts `update.available` `bb_event` topic and `update=<value>` mDNS TXT on state changes. Auto-registers `GET /api/update/status` | ESP-IDF (Arduino: stub) |
+| `bb_ota_check` | Periodic poll of a configurable release manifest URL; posts `update.available` `bb_event` topic and `update=<value>` mDNS TXT on state changes. Auto-registers `GET /api/update/status` | ESP-IDF (Arduino: stub) |
 | `bb_json` | Portable JSON builder + minimal parser; cJSON backend on ESP-IDF/host, ArduinoJson backend on Arduino. Opaque `bb_json_t` handle — no backend headers leak into public API. | ESP-IDF, Arduino |
 | `bb_http` | HTTP server wrapper with portable route registration API; optional `bb_route_t` descriptors carry OpenAPI metadata for `bb_openapi` consumption; Arduino backend routes/handlers with fixed-buffer response batching | ESP-IDF, Arduino |
 | `bb_log` | Ring-buffered log capture, runtime tag-level control, and `bb_log_{e,w,i,d,v}` macros for platform-abstract logging. Optional routes module (`CONFIG_BB_LOG_ROUTES`, default-on) adds log-level GET/POST; structured log stream served at `GET /api/events?topic=log` (`CONFIG_BB_LOG_EVENT_AUTO_ATTACH`, default-on) | ESP-IDF, Arduino |
@@ -91,7 +91,7 @@ Auto-registration is opt-out. Each registry-using component exposes a Kconfig fl
 | `CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP` | Max registered HTTP routes (default 64); `bb_http_register_*` returns `BB_ERR_NO_SPACE` when full |
 | `CONFIG_BB_LOG_TAG_REGISTRY_MAX` | Max log tag entries (default 24) |
 | `CONFIG_BB_MDNS_TXT_PENDING_MAX` | Max pending mDNS TXT updates (default 4) |
-| `CONFIG_BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES` | Heap buffer for custom manifest parsers (default 8192 bytes) |
+| `CONFIG_BB_OTA_CHECK_CUSTOM_PARSER_BUF_BYTES` | Heap buffer for custom manifest parsers (default 8192 bytes) |
 
 Tagged source archives will be published on the [releases page](https://github.com/dangernoodle-io/breadboard/releases) once the API stabilizes.
 

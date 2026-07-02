@@ -1,5 +1,5 @@
-#include "bb_update_check.h"
-#include "bb_update_check_internal.h"
+#include "bb_ota_check.h"
+#include "bb_ota_check_internal.h"
 #include "bb_release_manifest.h"
 #include "bb_cache.h"
 #include "bb_http.h"
@@ -22,7 +22,7 @@
 #include <string.h>
 #include <sys/time.h>
 
-static const char *TAG = "bb_update_check";
+static const char *TAG = "bb_ota_check";
 
 static const char k_update_available_schema[] =
     "{\"title\":\"UpdateAvailable\",\"x-sse-topic\":\"update.available\","
@@ -56,8 +56,8 @@ static void fill_update_version(bb_json_t obj, void *ctx)
 }
 #endif
 
-#ifndef CONFIG_BB_UPDATE_CHECK_INTERVAL_S
-#define CONFIG_BB_UPDATE_CHECK_INTERVAL_S 21600
+#ifndef CONFIG_BB_OTA_CHECK_INTERVAL_S
+#define CONFIG_BB_OTA_CHECK_INTERVAL_S 21600
 #endif
 
 #define URL_MAX        256
@@ -69,16 +69,16 @@ static void fill_update_version(bb_json_t obj, void *ctx)
 // ---------------------------------------------------------------------------
 
 static bool                          s_initialized = false;
-static bb_update_check_cfg_t         s_cfg;
+static bb_ota_check_cfg_t s_cfg;
 static char                          s_url[URL_MAX];
 static char                          s_firmware_board[BOARD_MAX];
 static bb_release_manifest_parse_fn  s_parser = bb_release_manifest_parse_github;
-static bb_update_check_status_t      s_status;
+static bb_ota_check_status_t s_status;
 static bool                          s_first_check_done = false;
 static bb_event_topic_t              s_topic = NULL;
 static pthread_mutex_t               s_lock = PTHREAD_MUTEX_INITIALIZER;
-static bb_update_check_pause_cb_t    s_pause_hook = NULL;
-static bb_update_check_resume_cb_t   s_resume_hook = NULL;
+static bb_ota_check_pause_cb_t s_pause_hook = NULL;
+static bb_ota_check_resume_cb_t s_resume_hook = NULL;
 static int64_t                       s_last_publish_ts = 0;  // wall-clock seconds of last publish_state call
 
 #ifndef ESP_PLATFORM
@@ -126,15 +126,15 @@ static int semver_compare(const char *a, const char *b)
 // ---------------------------------------------------------------------------
 // Forward declaration — outcome_str is defined later in this file.
 // ---------------------------------------------------------------------------
-static const char *outcome_str(bb_update_check_outcome_t o);
+static const char *outcome_str(bb_ota_check_outcome_t o);
 
 // ---------------------------------------------------------------------------
 // bb_cache serializer — canonical union shape for update.available
 // ---------------------------------------------------------------------------
 
-void bb_update_serialize(bb_json_t obj, const void *snap)
+void bb_ota_check_serialize(bb_json_t obj, const void *snap)
 {
-    const bb_update_snap_t *s = (const bb_update_snap_t *)snap;
+    const bb_ota_check_snap_t *s = (const bb_ota_check_snap_t *)snap;
     bb_json_obj_set_string(obj, "current",       s->current);
     bb_json_obj_set_string(obj, "latest",        s->latest);
     bb_json_obj_set_string(obj, "download_url",  s->download_url);
@@ -152,7 +152,7 @@ void bb_update_serialize(bb_json_t obj, const void *snap)
 // mDNS publish + bb_cache update + SSE post
 // ---------------------------------------------------------------------------
 
-static void publish_state(const bb_update_check_status_t *st, const char *txt_value)
+static void publish_state(const bb_ota_check_status_t *st, const char *txt_value)
 {
     bb_mdns_set_txt("update", txt_value);
 
@@ -160,7 +160,7 @@ static void publish_state(const bb_update_check_status_t *st, const char *txt_va
     gettimeofday(&tv, NULL);
     s_last_publish_ts = (int64_t)tv.tv_sec;
 
-    bb_update_snap_t snap;
+    bb_ota_check_snap_t snap;
     memset(&snap, 0, sizeof(snap));
     strncpy(snap.current,      st->current,      sizeof(snap.current) - 1);
     strncpy(snap.latest,       st->latest,       sizeof(snap.latest) - 1);
@@ -172,19 +172,19 @@ static void publish_state(const bb_update_check_status_t *st, const char *txt_va
     strncpy(snap.outcome, outcome_str(st->outcome), sizeof(snap.outcome) - 1);
     snap.last_check_ts = (st->last_check_us != 0) ? (int64_t)(st->last_check_us / 1000000) : 0;
 
-    bb_cache_update(BB_UPDATE_CHECK_TOPIC, &snap);
-    bb_cache_post(BB_UPDATE_CHECK_TOPIC);
+    bb_cache_update(BB_OTA_CHECK_TOPIC, &snap);
+    bb_cache_post(BB_OTA_CHECK_TOPIC);
 }
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
+bb_err_t bb_ota_check_init(const bb_ota_check_cfg_t *cfg)
 {
     if (s_initialized) return BB_OK;
 
-    s_cfg.interval_s   = (cfg && cfg->interval_s) ? cfg->interval_s : CONFIG_BB_UPDATE_CHECK_INTERVAL_S;  // LCOV_EXCL_BR_LINE — cfg permutations covered above
+    s_cfg.interval_s   = (cfg && cfg->interval_s) ? cfg->interval_s : CONFIG_BB_OTA_CHECK_INTERVAL_S;  // LCOV_EXCL_BR_LINE — cfg permutations covered above
     s_cfg.post_initial = (cfg && cfg->post_initial);  // LCOV_EXCL_BR_LINE
 
     memset(&s_status, 0, sizeof(s_status));
@@ -198,21 +198,21 @@ bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
     s_status.last_check_us = 0;
     s_status.last_check_ok = false;
     s_status.available = false;
-    s_status.outcome = BB_UPDATE_OUTCOME_UNKNOWN;
+    s_status.outcome = BB_OTA_CHECK_OUTCOME_UNKNOWN;
     s_first_check_done = false;
     s_url[0] = '\0';
     s_firmware_board[0] = '\0';
     s_parser = bb_release_manifest_parse_github;
 
-    bb_err_t err = bb_event_topic_register(BB_UPDATE_CHECK_TOPIC, &s_topic);
+    bb_err_t err = bb_event_topic_register(BB_OTA_CHECK_TOPIC, &s_topic);
     // LCOV_EXCL_START — topic_register failure is defensive (NO_SPACE only)
     if (err != BB_OK) {
         return err;
     }
     // LCOV_EXCL_STOP
 
-    err = bb_cache_register(BB_UPDATE_CHECK_TOPIC, NULL, sizeof(bb_update_snap_t),
-                            bb_update_serialize);
+    err = bb_cache_register(BB_OTA_CHECK_TOPIC, NULL, sizeof(bb_ota_check_snap_t),
+                            bb_ota_check_serialize);
     // LCOV_EXCL_START — cache_register failure is defensive (NO_SPACE only)
     if (err != BB_OK) {
         return err;
@@ -221,7 +221,7 @@ bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
 
     bb_mdns_set_txt("update", "unknown");
 
-    bb_openapi_register_topic_schema(BB_UPDATE_CHECK_TOPIC, k_update_available_schema,
+    bb_openapi_register_topic_schema(BB_OTA_CHECK_TOPIC, k_update_available_schema,
                                      "UpdateAvailable");
 
     s_initialized = true;
@@ -230,17 +230,17 @@ bb_err_t bb_update_check_init(const bb_update_check_cfg_t *cfg)
     return BB_OK;
 }
 
-bb_err_t bb_update_check_publish_initial(void)
+bb_err_t bb_ota_check_publish_initial(void)
 {
     if (!s_initialized) return BB_ERR_INVALID_STATE;
     pthread_mutex_lock(&s_lock);
-    bb_update_check_status_t snap = s_status;
+    bb_ota_check_status_t snap = s_status;
     pthread_mutex_unlock(&s_lock);
     publish_state(&snap, "unknown");
     return BB_OK;
 }
 
-bb_err_t bb_update_check_set_releases_url(const char *url)
+bb_err_t bb_ota_check_set_releases_url(const char *url)
 {
     if (!url) return BB_ERR_INVALID_ARG;
     if (!s_initialized) return BB_ERR_INVALID_STATE;
@@ -253,7 +253,7 @@ bb_err_t bb_update_check_set_releases_url(const char *url)
     return BB_OK;
 }
 
-bb_err_t bb_update_check_set_parser(bb_release_manifest_parse_fn fn)
+bb_err_t bb_ota_check_set_parser(bb_release_manifest_parse_fn fn)
 {
     if (!s_initialized) return BB_ERR_INVALID_STATE;
     pthread_mutex_lock(&s_lock);
@@ -262,7 +262,7 @@ bb_err_t bb_update_check_set_parser(bb_release_manifest_parse_fn fn)
     return BB_OK;
 }
 
-bb_err_t bb_update_check_set_firmware_board(const char *board)
+bb_err_t bb_ota_check_set_firmware_board(const char *board)
 {
     if (!s_initialized) return BB_ERR_INVALID_STATE;
     // NULL/empty clears to default; non-empty must fit the internal buffer.
@@ -278,10 +278,10 @@ bb_err_t bb_update_check_set_firmware_board(const char *board)
     return BB_OK;
 }
 
-bb_err_t bb_update_check_set_hooks(bb_update_check_pause_cb_t pause,
-                                   bb_update_check_resume_cb_t resume)
+bb_err_t bb_ota_check_set_hooks(bb_ota_check_pause_cb_t pause,
+                                   bb_ota_check_resume_cb_t resume)
 {
-    // Order-independent: boot-strategy boards lazily init bb_update_check
+    // Order-independent: boot-strategy boards lazily init bb_ota_check
     // (via bb_ota_boot) AFTER the consumer wires hooks in app_main. Store the
     // hooks regardless of init so they survive the later init (which does not
     // clear them) and are present when run_one fires. Pre-init there is no
@@ -299,7 +299,7 @@ bb_err_t bb_update_check_set_hooks(bb_update_check_pause_cb_t pause,
     return BB_OK;
 }
 
-bb_err_t bb_update_check_get_status(bb_update_check_status_t *out)
+bb_err_t bb_ota_check_get_status(bb_ota_check_status_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
     if (!s_initialized) return BB_ERR_INVALID_STATE;
@@ -337,8 +337,8 @@ static bb_err_t chunk_cb(void *cv, const char *data, size_t len)
 // Streaming chunk callback context for custom (buffered) parsers
 // ---------------------------------------------------------------------------
 
-#ifdef CONFIG_BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES
-#define CUSTOM_PARSER_BUF_SIZE CONFIG_BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES
+#ifdef CONFIG_BB_OTA_CHECK_CUSTOM_PARSER_BUF_BYTES
+#define CUSTOM_PARSER_BUF_SIZE CONFIG_BB_OTA_CHECK_CUSTOM_PARSER_BUF_BYTES
 #else
 #define CUSTOM_PARSER_BUF_SIZE 8192
 #endif
@@ -362,7 +362,7 @@ static bb_err_t buf_chunk_cb(void *cv, const char *data, size_t n)
     }
     if (n > avail) {
         bc->overflow = true;
-        bb_log_w(TAG, "custom parser buffer overflow: response truncated at %zu bytes; raise CONFIG_BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES", bc->cap);
+        bb_log_w(TAG, "custom parser buffer overflow: response truncated at %zu bytes; raise CONFIG_BB_OTA_CHECK_CUSTOM_PARSER_BUF_BYTES", bc->cap);
     }
     return BB_OK;
 }
@@ -371,7 +371,7 @@ static bb_err_t buf_chunk_cb(void *cv, const char *data, size_t n)
 // Synchronous one-shot check
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_update_check_run_one(void)
+bb_err_t bb_ota_check_run_one(void)
 {
     if (!s_initialized) return BB_ERR_INVALID_ARG;
 
@@ -383,8 +383,8 @@ bb_err_t bb_update_check_run_one(void)
     char url_local[URL_MAX];
     char board_local[BOARD_MAX];
     bb_release_manifest_parse_fn parser_local;
-    bb_update_check_pause_cb_t  pause_local;
-    bb_update_check_resume_cb_t resume_local;
+    bb_ota_check_pause_cb_t  pause_local;
+    bb_ota_check_resume_cb_t resume_local;
     pthread_mutex_lock(&s_lock);
     strncpy(url_local, s_url, sizeof(url_local));
     url_local[sizeof(url_local) - 1] = '\0';
@@ -433,7 +433,7 @@ bb_err_t bb_update_check_run_one(void)
             pthread_mutex_lock(&s_lock);
             s_status.last_check_us = now_us;
             s_status.last_check_ok = false;
-            s_status.outcome = BB_UPDATE_OUTCOME_FAILED;
+            s_status.outcome = BB_OTA_CHECK_OUTCOME_FAILED;
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "fetch failed: err=%d status=%d", err, res.status_code);
 #if BB_ALERT_ENABLE
@@ -450,7 +450,7 @@ bb_err_t bb_update_check_run_one(void)
             pthread_mutex_lock(&s_lock);
             s_status.last_check_us = now_us;
             s_status.last_check_ok = false;
-            s_status.outcome = BB_UPDATE_OUTCOME_FAILED;
+            s_status.outcome = BB_OTA_CHECK_OUTCOME_FAILED;
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "parse failed: %d", perr);
 #if BB_ALERT_ENABLE
@@ -466,14 +466,14 @@ bb_err_t bb_update_check_run_one(void)
         // This is a success outcome (last_check_ok=true) — distinguishable from
         // up_to_date. Consumers polling last_check_ok will not hang.
         if (dl_url[0] == '\0') {
-            bb_update_check_status_t snap;
+            bb_ota_check_status_t snap;
             pthread_mutex_lock(&s_lock);
             s_status.latest[0] = '\0';
             s_status.download_url[0] = '\0';
             s_status.available = false;
             s_status.last_check_us = now_us;
             s_status.last_check_ok = true;
-            s_status.outcome = BB_UPDATE_OUTCOME_NO_ASSET;
+            s_status.outcome = BB_OTA_CHECK_OUTCOME_NO_ASSET;
             s_first_check_done = true;
             snap = s_status;
             pthread_mutex_unlock(&s_lock);
@@ -487,7 +487,7 @@ bb_err_t bb_update_check_run_one(void)
         int cmp = semver_compare(tag, s_status.current);
         bool new_available = (cmp != INT_MIN) && (cmp > 0);  // LCOV_EXCL_BR_LINE — INT_MIN path defensive
 
-        bb_update_check_status_t snap;
+        bb_ota_check_status_t snap;
         pthread_mutex_lock(&s_lock);
         bool old_available = s_status.available;
         strncpy(s_status.latest, tag, sizeof(s_status.latest) - 1);
@@ -497,7 +497,7 @@ bb_err_t bb_update_check_run_one(void)
         s_status.available = new_available;
         s_status.last_check_us = now_us;
         s_status.last_check_ok = true;
-        s_status.outcome = new_available ? BB_UPDATE_OUTCOME_AVAILABLE : BB_UPDATE_OUTCOME_UP_TO_DATE;
+        s_status.outcome = new_available ? BB_OTA_CHECK_OUTCOME_AVAILABLE : BB_OTA_CHECK_OUTCOME_UP_TO_DATE;
         s_first_check_done = true;
         snap = s_status;
         pthread_mutex_unlock(&s_lock);
@@ -539,7 +539,7 @@ bb_err_t bb_update_check_run_one(void)
             pthread_mutex_lock(&s_lock);
             s_status.last_check_us = now_us;
             s_status.last_check_ok = false;
-            s_status.outcome = BB_UPDATE_OUTCOME_FAILED;
+            s_status.outcome = BB_OTA_CHECK_OUTCOME_FAILED;
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "fetch failed: err=%d status=%d", err, res.status_code);
             bb_mem_free(bc.buf);
@@ -559,7 +559,7 @@ bb_err_t bb_update_check_run_one(void)
             pthread_mutex_lock(&s_lock);
             s_status.last_check_us = now_us;
             s_status.last_check_ok = false;
-            s_status.outcome = BB_UPDATE_OUTCOME_FAILED;
+            s_status.outcome = BB_OTA_CHECK_OUTCOME_FAILED;
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "parse failed: %d", perr);
 #if BB_ALERT_ENABLE
@@ -575,14 +575,14 @@ bb_err_t bb_update_check_run_one(void)
         // This is a success outcome (last_check_ok=true) — distinguishable from
         // up_to_date. Consumers polling last_check_ok will not hang.
         if (dl_url[0] == '\0') {
-            bb_update_check_status_t snap;
+            bb_ota_check_status_t snap;
             pthread_mutex_lock(&s_lock);
             s_status.latest[0] = '\0';
             s_status.download_url[0] = '\0';
             s_status.available = false;
             s_status.last_check_us = now_us;
             s_status.last_check_ok = true;
-            s_status.outcome = BB_UPDATE_OUTCOME_NO_ASSET;
+            s_status.outcome = BB_OTA_CHECK_OUTCOME_NO_ASSET;
             s_first_check_done = true;
             snap = s_status;
             pthread_mutex_unlock(&s_lock);
@@ -594,7 +594,7 @@ bb_err_t bb_update_check_run_one(void)
         int cmp = semver_compare(tag, s_status.current);
         bool new_available = (cmp != INT_MIN) && (cmp > 0);  // LCOV_EXCL_BR_LINE
 
-        bb_update_check_status_t snap;
+        bb_ota_check_status_t snap;
         pthread_mutex_lock(&s_lock);
         bool old_available2 = s_status.available;
         strncpy(s_status.latest, tag, sizeof(s_status.latest) - 1);
@@ -604,7 +604,7 @@ bb_err_t bb_update_check_run_one(void)
         s_status.available = new_available;
         s_status.last_check_us = now_us;
         s_status.last_check_ok = true;
-        s_status.outcome = new_available ? BB_UPDATE_OUTCOME_AVAILABLE : BB_UPDATE_OUTCOME_UP_TO_DATE;
+        s_status.outcome = new_available ? BB_OTA_CHECK_OUTCOME_AVAILABLE : BB_OTA_CHECK_OUTCOME_UP_TO_DATE;
         s_first_check_done = true;
         snap = s_status;
         pthread_mutex_unlock(&s_lock);
@@ -620,17 +620,17 @@ bb_err_t bb_update_check_run_one(void)
     }
 }
 
-bb_err_t bb_update_check_now(void)
+bb_err_t bb_ota_check_now(void)
 {
     if (!s_initialized) return BB_ERR_INVALID_ARG;
     if (s_url[0] == '\0') return BB_ERR_INVALID_STATE;
-    return bb_update_check_run_one();
+    return bb_ota_check_run_one();
 }
 
 #ifndef ESP_PLATFORM
 // Host/Arduino stub: no real FreeRTOS task; kick() is synchronous but
 // respects the in-flight guard so tests can verify the no-duplicate-spawn path.
-bb_err_t bb_update_check_kick(void)
+bb_err_t bb_ota_check_kick(void)
 {
     // Atomically try to claim the in-flight slot.  If already set, a check is
     // "in flight" — skip (mirrors the ESP-IDF on-demand guard behaviour).
@@ -639,27 +639,27 @@ bb_err_t bb_update_check_kick(void)
         bb_log_d(TAG, "kick: check already in flight, skipping");
         return BB_OK;
     }
-    bb_err_t err = bb_update_check_now();
+    bb_err_t err = bb_ota_check_now();
     atomic_store(&s_in_flight, false);
     return err;
 }
 
 // Host/Arduino stub: no worker task, so run_blocking is synchronous like now().
-bb_err_t bb_update_check_run_blocking(uint32_t timeout_ms)
+bb_err_t bb_ota_check_run_blocking(uint32_t timeout_ms)
 {
     (void)timeout_ms;
     if (!s_initialized) return BB_ERR_INVALID_STATE;
-    return bb_update_check_now();
+    return bb_ota_check_now();
 }
 
 // Host/Arduino stub: no worker task to pin, no-op.
-void bb_update_check_set_task_core(int core)
+void bb_ota_check_set_task_core(int core)
 {
     (void)core;
 }
 
 // Host/Arduino stub: no worker task to prioritize, no-op.
-void bb_update_check_set_task_priority(int priority)
+void bb_ota_check_set_task_priority(int priority)
 {
     (void)priority;
 }
@@ -668,13 +668,13 @@ void bb_update_check_set_task_priority(int priority)
 // ---------------------------------------------------------------------------
 // GET /api/update/config  — read the runtime opt-out flag
 // POST /api/update/config — write the runtime opt-out flag
-// Defined here (not in bb_update_check_espidf.c) so host tests can reach them.
+// Defined here (not in bb_ota_check_espidf.c) so host tests can reach them.
 // Route registration is performed by the platform port.
 // ---------------------------------------------------------------------------
 
-#define BB_UPDATE_CHECK_CONFIG_BODY_MAX 64
+#define BB_OTA_CHECK_CONFIG_BODY_MAX 64
 
-bb_err_t bb_update_check_config_get_handler(bb_http_request_t *req)
+bb_err_t bb_ota_check_config_get_handler(bb_http_request_t *req)
 {
     bool enabled = bb_nv_config_update_check_enabled();
     bb_http_json_obj_stream_t obj;
@@ -684,10 +684,10 @@ bb_err_t bb_update_check_config_get_handler(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
-bb_err_t bb_update_check_config_post_handler(bb_http_request_t *req)
+bb_err_t bb_ota_check_config_post_handler(bb_http_request_t *req)
 {
     int body_len = bb_http_req_body_len(req);
-    if (body_len <= 0 || body_len > BB_UPDATE_CHECK_CONFIG_BODY_MAX) {  // LCOV_EXCL_BR_LINE — both sub-branches exercised but gcov counts as separate
+    if (body_len <= 0 || body_len > BB_OTA_CHECK_CONFIG_BODY_MAX) {  // LCOV_EXCL_BR_LINE — both sub-branches exercised but gcov counts as separate
         bb_http_resp_set_status(req, 400);
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);  // LCOV_EXCL_BR_LINE — send_chunk never fails on host
@@ -696,7 +696,7 @@ bb_err_t bb_update_check_config_post_handler(bb_http_request_t *req)
         return BB_OK;
     }
 
-    char body[BB_UPDATE_CHECK_CONFIG_BODY_MAX + 1];
+    char body[BB_OTA_CHECK_CONFIG_BODY_MAX + 1];
     int n = bb_http_req_recv(req, body, sizeof(body) - 1);
     if (n < 0) {  // LCOV_EXCL_BR_LINE — recv failure path; both branches covered but gcov misattributes inner begin() arc
         bb_http_resp_set_status(req, 400);
@@ -762,7 +762,7 @@ static const bb_route_t s_config_get_route = {
     .tag      = "update",
     .summary  = "Get update-check enabled flag",
     .responses = s_config_get_responses,
-    .handler  = bb_update_check_config_get_handler,
+    .handler  = bb_ota_check_config_get_handler,
 };
 
 static const bb_route_response_t s_config_post_responses[] = {
@@ -787,39 +787,39 @@ static const bb_route_t s_config_post_route = {
          "\"properties\":{\"enabled\":{\"type\":\"boolean\"}},"
          "\"required\":[\"enabled\"]}",
     .responses = s_config_post_responses,
-    .handler  = bb_update_check_config_post_handler,
+    .handler  = bb_ota_check_config_post_handler,
 };
 
-const bb_route_t *bb_update_check_config_get_route(void)  { return &s_config_get_route; }
-const bb_route_t *bb_update_check_config_post_route(void) { return &s_config_post_route; }
+const bb_route_t *bb_ota_check_config_get_route(void)  { return &s_config_get_route; }
+const bb_route_t *bb_ota_check_config_post_route(void) { return &s_config_post_route; }
 
 // ---------------------------------------------------------------------------
-// bb_update_check_emit_status_json — shared HTTP response emitter
+// bb_ota_check_emit_status_json — shared HTTP response emitter
 // ---------------------------------------------------------------------------
 
 // Map outcome enum to the JSON string value for /api/update/status.
 // These exact strings are part of the public API consumed by TaipanMiner webui
 // and taipan-cli. Do not rename without a coordinated consumer update.
-static const char *outcome_str(bb_update_check_outcome_t o)
+static const char *outcome_str(bb_ota_check_outcome_t o)
 {
     switch (o) {
-        case BB_UPDATE_OUTCOME_UP_TO_DATE:    return "up_to_date";
-        case BB_UPDATE_OUTCOME_AVAILABLE:     return "available";
-        case BB_UPDATE_OUTCOME_NO_ASSET:      return "no_asset";
-        case BB_UPDATE_OUTCOME_FAILED:        return "check_failed";
-        case BB_UPDATE_OUTCOME_CHECK_ON_APPLY: return "check_on_apply";
+        case BB_OTA_CHECK_OUTCOME_UP_TO_DATE:    return "up_to_date";
+        case BB_OTA_CHECK_OUTCOME_AVAILABLE:     return "available";
+        case BB_OTA_CHECK_OUTCOME_NO_ASSET:      return "no_asset";
+        case BB_OTA_CHECK_OUTCOME_FAILED:        return "check_failed";
+        case BB_OTA_CHECK_OUTCOME_CHECK_ON_APPLY: return "check_on_apply";
         default:                              return "unknown";
     }
 }
 
-bb_err_t bb_update_check_mark_check_on_apply(void)
+bb_err_t bb_ota_check_mark_check_on_apply(void)
 {
     if (!s_initialized) return BB_ERR_INVALID_STATE;
     pthread_mutex_lock(&s_lock);
-    s_status.outcome       = BB_UPDATE_OUTCOME_CHECK_ON_APPLY;
+    s_status.outcome       = BB_OTA_CHECK_OUTCOME_CHECK_ON_APPLY;
     s_status.available     = false;
     s_status.last_check_ok = false;
-    bb_update_check_status_t snap = s_status;
+    bb_ota_check_status_t snap = s_status;
     pthread_mutex_unlock(&s_lock);
 #if BB_ALERT_ENABLE
     {
@@ -830,7 +830,7 @@ bb_err_t bb_update_check_mark_check_on_apply(void)
     return BB_OK;
 }
 
-bb_err_t bb_update_check_emit_status_json(bb_http_request_t *req)
+bb_err_t bb_ota_check_emit_status_json(bb_http_request_t *req)
 {
     bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
     bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
@@ -848,9 +848,9 @@ bb_err_t bb_update_check_emit_status_json(bb_http_request_t *req)
     // (including mark_check_on_apply and runtime nv changes not yet published
     // via publish_state). Preserves ts from the last SSE publish.
     {
-        bb_update_check_status_t st;
-        bb_update_check_get_status(&st);
-        bb_update_snap_t snap;
+        bb_ota_check_status_t st;
+        bb_ota_check_get_status(&st);
+        bb_ota_check_snap_t snap;
         memset(&snap, 0, sizeof(snap));
         strncpy(snap.current,      st.current,      sizeof(snap.current) - 1);
         strncpy(snap.latest,       st.latest,       sizeof(snap.latest) - 1);
@@ -862,7 +862,7 @@ bb_err_t bb_update_check_emit_status_json(bb_http_request_t *req)
         strncpy(snap.outcome, outcome_str(st.outcome), sizeof(snap.outcome) - 1);
         snap.last_check_ts = (st.last_check_us != 0)
                              ? (int64_t)(st.last_check_us / 1000000) : 0;
-        bb_cache_update(BB_UPDATE_CHECK_TOPIC, &snap);
+        bb_cache_update(BB_OTA_CHECK_TOPIC, &snap);
     }
 
     bb_json_t obj = bb_json_obj_new();
@@ -874,7 +874,7 @@ bb_err_t bb_update_check_emit_status_json(bb_http_request_t *req)
         bb_http_resp_json_obj_end(&err_obj);
         return BB_ERR_NO_SPACE;
     }  // LCOV_EXCL_STOP
-    bb_cache_serialize_into(BB_UPDATE_CHECK_TOPIC, obj);
+    bb_cache_serialize_into(BB_OTA_CHECK_TOPIC, obj);
     char *str = bb_json_serialize(obj);
     bb_json_free(obj);
     if (!str) {  // LCOV_EXCL_START — OOM defensive
@@ -896,12 +896,12 @@ bb_err_t bb_update_check_emit_status_json(bb_http_request_t *req)
 // Test hooks
 // ---------------------------------------------------------------------------
 
-#ifdef BB_UPDATE_CHECK_TESTING
-void bb_update_check_reset_for_test(void)
+#ifdef BB_OTA_CHECK_TESTING
+void bb_ota_check_reset_for_test(void)
 {
     pthread_mutex_lock(&s_lock);
     memset(&s_status, 0, sizeof(s_status));
-    s_status.outcome = BB_UPDATE_OUTCOME_UNKNOWN;
+    s_status.outcome = BB_OTA_CHECK_OUTCOME_UNKNOWN;
     memset(&s_cfg, 0, sizeof(s_cfg));
     s_url[0] = '\0';
     s_firmware_board[0] = '\0';
@@ -923,51 +923,51 @@ void bb_update_check_reset_for_test(void)
 
 #ifndef ESP_PLATFORM
 // Host/Arduino stub for the OTA exclusive-slot claim.
-// On ESP-IDF the real implementation lives in bb_update_check_espidf.c (backed
+// On ESP-IDF the real implementation lives in bb_ota_check_espidf.c (backed
 // by a bb_claim_t that the upd_check worker also acquires). On host there is no
 // upd_check worker task, so the stub provides the same arbiter semantics via a
 // portable bb_claim_t so host tests can verify claim acquire/release behaviour.
 #include "bb_claim.h"
 static bb_claim_t s_ota_claim_host = BB_CLAIM_INIT;
 
-bb_err_t bb_update_check_ota_claim_acquire(const char *id)
+bb_err_t bb_ota_check_ota_claim_acquire(const char *id)
 {
     return bb_claim_acquire(&s_ota_claim_host, id);
 }
 
-void bb_update_check_ota_claim_release(const char *id)
+void bb_ota_check_ota_claim_release(const char *id)
 {
     bb_claim_release(&s_ota_claim_host, id);
 }
 
-#ifdef BB_UPDATE_CHECK_TESTING
-void bb_update_check_ota_claim_reset(void)
+#ifdef BB_OTA_CHECK_TESTING
+void bb_ota_check_ota_claim_reset(void)
 {
     bb_claim_reset(&s_ota_claim_host);
 }
 
-const char *bb_update_check_ota_claim_holder_for_test(void)
+const char *bb_ota_check_ota_claim_holder_for_test(void)
 {
     return bb_claim_holder(&s_ota_claim_host);
 }
-#endif // BB_UPDATE_CHECK_TESTING
+#endif // BB_OTA_CHECK_TESTING
 #endif // !ESP_PLATFORM
 
 #ifndef ESP_PLATFORM
 // Inject the in-flight state for testing the concurrency guard on host.
-void bb_update_check_set_in_flight_for_test(bool in_flight)
+void bb_ota_check_set_in_flight_for_test(bool in_flight)
 {
     atomic_store(&s_in_flight, in_flight);
 }
 
-bool bb_update_check_get_in_flight_for_test(void)
+bool bb_ota_check_get_in_flight_for_test(void)
 {
     return atomic_load(&s_in_flight);
 }
 #else
-// On ESP-IDF, the in-flight flag lives in bb_update_check_espidf.c.
+// On ESP-IDF, the in-flight flag lives in bb_ota_check_espidf.c.
 // Provide forward declarations (defined there) so the internal header compiles.
-void bb_update_check_set_in_flight_for_test(bool in_flight);
-bool bb_update_check_get_in_flight_for_test(void);
+void bb_ota_check_set_in_flight_for_test(bool in_flight);
+bool bb_ota_check_get_in_flight_for_test(void);
 #endif
 #endif

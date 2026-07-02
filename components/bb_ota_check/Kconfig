@@ -1,14 +1,14 @@
-menu "breadboard: bb_update_check"
+menu "breadboard: bb_ota_check"
 
-config BB_UPDATE_CHECK_AUTOREGISTER
+config BB_OTA_CHECK_AUTOREGISTER
     bool "Auto-register GET /api/update/status via bb_init"
     default n if BB_OTA_STRATEGY_BOOT
     default y
     help
-        When enabled, bb_update_check registers GET /api/update/status
+        When enabled, bb_ota_check registers GET /api/update/status
         automatically via the bb_init regular tier after the HTTP server
         starts. The polling timer is created at the same time but does not
-        fire until bb_update_check_set_releases_url has been called.
+        fire until bb_ota_check_set_releases_url has been called.
 
         On boot-mode-OTA boards (BB_OTA_STRATEGY_BOOT) the update check runs
         synchronously inside the boot-mode worker at full early-boot heap, not
@@ -17,7 +17,7 @@ config BB_UPDATE_CHECK_AUTOREGISTER
         runtime TLS handshake. Override to y if a boot-mode board also needs
         the runtime status route (e.g. for /api/update/status readouts).
 
-config BB_UPDATE_CHECK_INTERVAL_S
+config BB_OTA_CHECK_INTERVAL_S
     int "Default polling interval (seconds)"
     default 21600
     range 60 604800
@@ -29,41 +29,41 @@ config BB_UPDATE_CHECK_INTERVAL_S
         jitter (±600 s, floored at 60 s) to desynchronize fleets that
         reboot together.
 
-config BB_UPDATE_CHECK_AUTO_ATTACH
+config BB_OTA_CHECK_AUTO_ATTACH
     bool "Auto-attach update.available to /api/events"
     default y
     depends on BB_EVENT_ROUTES_AUTOREGISTER
     help
-        When enabled, bb_update_check's init attaches "update.available"
+        When enabled, bb_ota_check's init attaches "update.available"
         to the bb_event_routes SSE stream so /api/events surfaces it
         without an explicit consumer call. Disable if a consumer wants
         the bb_event topic for internal logic only.
 
-config BB_UPDATE_CHECK_CUSTOM_PARSER_BUF_BYTES
+config BB_OTA_CHECK_CUSTOM_PARSER_BUF_BYTES
     int "Custom parser response buffer size (bytes)"
     default 8192
     range 1024 65536
     help
         Size of the heap buffer allocated per fetch when a custom parser
-        is registered via bb_update_check_set_parser(). The default GitHub
+        is registered via bb_ota_check_set_parser(). The default GitHub
         parser is fully streaming and does not use this buffer. Custom
         parsers receive the complete response body here; if the response
         exceeds this limit, it is truncated and a warning is logged.
         Default 8192 saves 8 KB heap vs the old hardcoded 16384.
         Raise if your custom parser needs to process larger responses.
 
-config BB_UPDATE_CHECK_JITTER_S
+config BB_OTA_CHECK_JITTER_S
     int "Per-tick jitter half-range applied to the poll interval (seconds)"
     default 600
     range 0 3600
     help
         Each timer reschedule adds a uniform random offset in the range
         [-JITTER_S, +JITTER_S] to the base interval, floored at
-        BB_UPDATE_CHECK_FLOOR_S. Setting to 0 disables jitter (every
+        BB_OTA_CHECK_FLOOR_S. Setting to 0 disables jitter (every
         device fires at a fixed interval). Default 600 s (±10 minutes)
         matches the prior hardcoded value (no behavior change).
 
-config BB_UPDATE_CHECK_FLOOR_S
+config BB_OTA_CHECK_FLOOR_S
     int "Minimum permitted poll interval after jitter application (seconds)"
     default 60
     range 10 300
@@ -72,7 +72,7 @@ config BB_UPDATE_CHECK_FLOOR_S
         the jitter from scheduling a check sooner than this many seconds.
         Default 60 matches the prior hardcoded value (no behavior change).
 
-config BB_UPDATE_CHECK_TASK_CORE
+config BB_OTA_CHECK_TASK_CORE
     int "CPU core affinity for the on-demand update-check worker task"
     default 1
     range 0 1
@@ -81,19 +81,19 @@ config BB_UPDATE_CHECK_TASK_CORE
         Core 0 carries lwip/wifi/httpd; the mbedTLS handshake (200-600 ms)
         would starve IDLE0 on that core. Default 1 matches the prior
         hardcoded value (no behavior change). Set to tskNO_AFFINITY (-1)
-        via bb_update_check_set_task_core() at runtime for no pinning.
+        via bb_ota_check_set_task_core() at runtime for no pinning.
 
-config BB_UPDATE_CHECK_TASK_PRIORITY
+config BB_OTA_CHECK_TASK_PRIORITY
     int "FreeRTOS priority for the on-demand update-check worker task"
     default 1
     range 1 24
     help
         FreeRTOS priority for the short-lived on-demand worker task that
-        runs bb_update_check_run_one(). On boards running a CPU-bound task
+        runs bb_ota_check_run_one(). On boards running a CPU-bound task
         at a high priority (e.g. mining at priority 20), raise this above
         that task to avoid starvation during the mbedTLS handshake. Default
         1 (lowest app priority) matches the prior hardcoded value (no
         behavior change). Override at runtime via
-        bb_update_check_set_task_priority().
+        bb_ota_check_set_task_priority().
 
 endmenu
