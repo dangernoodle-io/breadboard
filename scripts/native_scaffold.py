@@ -372,6 +372,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_arena/bb_arena.c"],
         "depends":  ["bb_core"],
     },
+    "bb_pool": {
+        "includes": ["components/bb_pool/include"],
+        "sources":  ["platform/host/bb_pool/bb_pool.c"],
+        "depends":  ["bb_core", "bb_arena", "bb_log"],
+    },
     "bb_tls_creds": {
         "includes": ["components/bb_tls_creds/include"],
         "sources":  ["platform/host/bb_tls_creds/bb_tls_creds.c"],

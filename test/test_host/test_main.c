@@ -3357,6 +3357,47 @@ void test_arena_alloc_returns_max_align_t_aligned_pointer(void);
 void test_arena_alloc_exact_fit_succeeds(void);
 void test_arena_destroy_caller_buffer_does_not_touch_bb_mem(void);
 
+// Forward declarations from test_pool.c (B1-478 PR C)
+void test_pool_arena_size_needed_null_cfg_is_zero(void);
+void test_pool_arena_size_needed_transient_nonzero(void);
+void test_pool_arena_size_needed_retained_zero_capacity_is_zero(void);
+void test_pool_arena_size_needed_retained_zero_slot_bytes_is_zero(void);
+void test_pool_arena_size_needed_unrecognised_mode_is_zero(void);
+void test_pool_arena_size_needed_grows_with_capacity(void);
+void test_pool_arena_size_needed_overflow_capacity_rejected(void);
+void test_pool_arena_size_needed_overflow_fifo_header_add_rejected(void);
+void test_pool_arena_size_needed_retained_align_up_wrap_overflow(void);
+void test_pool_arena_size_needed_slots_align_up_wrap_overflow(void);
+void test_pool_transient_alloc_free_reset(void);
+void test_pool_transient_null_pool_is_safe(void);
+void test_pool_transient_owned_without_reserve_has_zero_capacity(void);
+void test_pool_transient_owned_with_reserve_bytes_usable(void);
+void test_pool_retained_update_and_get_recycle(void);
+void test_pool_retained_update_out_of_range_slot(void);
+void test_pool_retained_ops_on_non_retained_pool_return_invalid_state(void);
+void test_pool_fifo_push_peek_pop_order(void);
+void test_pool_fifo_reject_new_when_full(void);
+void test_pool_fifo_evict_oldest_when_full(void);
+void test_pool_fifo_peek_pop_empty_returns_not_found(void);
+void test_pool_fifo_push_oversized_returns_invalid_arg(void);
+void test_pool_fifo_count_dropped_on_non_fifo_pool_are_zero(void);
+void test_pool_slots_acquire_exhaust_release_reacquire(void);
+void test_pool_slots_release_foreign_pointer_returns_invalid_arg(void);
+void test_pool_slots_double_release_returns_invalid_state(void);
+void test_pool_slots_release_one_twice_does_not_corrupt_free_list(void);
+void test_pool_slots_ops_on_non_slots_pool(void);
+void test_pool_create_null_args_return_invalid_arg(void);
+void test_pool_create_invalid_mode_returns_invalid_arg(void);
+void test_pool_create_overflow_sizes_returns_invalid_arg_no_oob(void);
+void test_pool_create_exhausted_arena_returns_no_space(void);
+void test_pool_create_owned_heap_use_destroy_frees(void);
+void test_pool_create_owned_spiram_use_destroy_frees(void);
+void test_pool_create_owned_exhaustion_via_tiny_capacity_still_works(void);
+void test_pool_create_owned_null_args_return_invalid_arg(void);
+void test_pool_create_owned_invalid_cfg_returns_invalid_arg(void);
+void test_pool_destroy_does_not_free_caller_supplied_arena(void);
+void test_pool_get_stats_null_args_is_noop(void);
+
 // Forward declarations from test_bb_telemetry.c (GET /api/telemetry/metrics, B1-295)
 void test_bb_pub_source_count_returns_registered(void);
 void test_bb_pub_source_info_out_of_range_returns_invalid_arg(void);
@@ -6733,6 +6774,47 @@ int main(void) {
     RUN_TEST(test_arena_alloc_returns_max_align_t_aligned_pointer);
     RUN_TEST(test_arena_alloc_exact_fit_succeeds);
     RUN_TEST(test_arena_destroy_caller_buffer_does_not_touch_bb_mem);
+
+    // bb_pool generic pool primitive tests (B1-478 PR C)
+    RUN_TEST(test_pool_arena_size_needed_null_cfg_is_zero);
+    RUN_TEST(test_pool_arena_size_needed_transient_nonzero);
+    RUN_TEST(test_pool_arena_size_needed_retained_zero_capacity_is_zero);
+    RUN_TEST(test_pool_arena_size_needed_retained_zero_slot_bytes_is_zero);
+    RUN_TEST(test_pool_arena_size_needed_unrecognised_mode_is_zero);
+    RUN_TEST(test_pool_arena_size_needed_grows_with_capacity);
+    RUN_TEST(test_pool_arena_size_needed_overflow_capacity_rejected);
+    RUN_TEST(test_pool_arena_size_needed_overflow_fifo_header_add_rejected);
+    RUN_TEST(test_pool_arena_size_needed_retained_align_up_wrap_overflow);
+    RUN_TEST(test_pool_arena_size_needed_slots_align_up_wrap_overflow);
+    RUN_TEST(test_pool_transient_alloc_free_reset);
+    RUN_TEST(test_pool_transient_null_pool_is_safe);
+    RUN_TEST(test_pool_transient_owned_without_reserve_has_zero_capacity);
+    RUN_TEST(test_pool_transient_owned_with_reserve_bytes_usable);
+    RUN_TEST(test_pool_retained_update_and_get_recycle);
+    RUN_TEST(test_pool_retained_update_out_of_range_slot);
+    RUN_TEST(test_pool_retained_ops_on_non_retained_pool_return_invalid_state);
+    RUN_TEST(test_pool_fifo_push_peek_pop_order);
+    RUN_TEST(test_pool_fifo_reject_new_when_full);
+    RUN_TEST(test_pool_fifo_evict_oldest_when_full);
+    RUN_TEST(test_pool_fifo_peek_pop_empty_returns_not_found);
+    RUN_TEST(test_pool_fifo_push_oversized_returns_invalid_arg);
+    RUN_TEST(test_pool_fifo_count_dropped_on_non_fifo_pool_are_zero);
+    RUN_TEST(test_pool_slots_acquire_exhaust_release_reacquire);
+    RUN_TEST(test_pool_slots_release_foreign_pointer_returns_invalid_arg);
+    RUN_TEST(test_pool_slots_double_release_returns_invalid_state);
+    RUN_TEST(test_pool_slots_release_one_twice_does_not_corrupt_free_list);
+    RUN_TEST(test_pool_slots_ops_on_non_slots_pool);
+    RUN_TEST(test_pool_create_null_args_return_invalid_arg);
+    RUN_TEST(test_pool_create_invalid_mode_returns_invalid_arg);
+    RUN_TEST(test_pool_create_overflow_sizes_returns_invalid_arg_no_oob);
+    RUN_TEST(test_pool_create_exhausted_arena_returns_no_space);
+    RUN_TEST(test_pool_create_owned_heap_use_destroy_frees);
+    RUN_TEST(test_pool_create_owned_spiram_use_destroy_frees);
+    RUN_TEST(test_pool_create_owned_exhaustion_via_tiny_capacity_still_works);
+    RUN_TEST(test_pool_create_owned_null_args_return_invalid_arg);
+    RUN_TEST(test_pool_create_owned_invalid_cfg_returns_invalid_arg);
+    RUN_TEST(test_pool_destroy_does_not_free_caller_supplied_arena);
+    RUN_TEST(test_pool_get_stats_null_args_is_noop);
 
     // bb_pub accessor tests (B1-295)
     RUN_TEST(test_bb_pub_source_count_returns_registered);

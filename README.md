@@ -43,6 +43,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 | `bb_system` | Device restart and system info; optional routes module (`CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER`, default-on) adds GET `/api/version`, GET `/api/ping`, POST `/api/reboot` | ESP-IDF |
 | `bb_arena_tls` | Boot-reserved contiguous mbedTLS handshake arena (`CONFIG_BB_ARENA_TLS_BYTES`), built on the generic `bb_arena` primitive; installs a custom `mbedtls_platform_set_calloc_free` allocator that tries the static arena first and falls back to the internal-heap facade (`bb_calloc_internal`/`bb_mem_free`) — prevents mid-uptime heap fragmentation on no-PSRAM boards. No-op when `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC` is unset. | ESP-IDF, host |
 | `bb_arena` | Generic, multi-instance contiguous-buffer bump allocator (caller-supplied or `bb_mem`-backed) | ESP-IDF, host |
+| `bb_pool` | Generic object/memory pool carved from a `bb_arena` — RETAINED (recycle-on-update slots), FIFO (arena-carved ring), TRANSIENT (bump/reset), SLOTS (fixed-slot acquire/release free-list). Arena-optional: `bb_pool_create` uses a caller-supplied arena, `bb_pool_create_owned` allocates and owns a right-sized one | ESP-IDF, host |
 | `bb_wifi` | STA init, async scan, auto-reconnect, diagnostics and GET `/api/wifi`; optional routes module (`CONFIG_BB_WIFI_ROUTES_AUTOREGISTER`, default-on) gates HTTP routes | ESP-IDF |
 
 ## Use in an ESP-IDF project
