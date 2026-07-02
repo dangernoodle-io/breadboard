@@ -604,6 +604,14 @@ COMPONENT_MAP = {
         "sources":  ["components/bb_udp_frame/src/bb_udp_frame.c"],
         "depends":  ["bb_core"],
     },
+    "bb_sink_udp": {
+        "includes": ["components/bb_sink_udp/include", "components/bb_sink_udp/src"],
+        "sources":  [
+            "components/bb_sink_udp/src/bb_sink_udp_common.c",
+            "platform/host/bb_sink_udp/bb_sink_udp.c",
+        ],
+        "depends":  ["bb_core", "bb_pub", "bb_udp_frame", "bb_nv", "bb_log", "bb_init"],
+    },
 }
 
 
