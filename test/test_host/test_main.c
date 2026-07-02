@@ -3566,6 +3566,36 @@ void test_bb_cache_update_unknown_topic(void);
 void test_bb_cache_registry_full(void);
 void test_bb_ota_check_topic_value_is_update_available(void);
 
+// Forward declarations from test_bb_sub.c
+void test_bb_sub_route_registers_and_cache_reflects_payload(void);
+void test_bb_sub_route_second_call_updates_same_topic(void);
+void test_bb_sub_route_multiple_distinct_topics(void);
+void test_bb_sub_route_overflow_drops_and_counts(void);
+void test_bb_sub_route_oversized_payload_returns_no_space(void);
+void test_bb_sub_route_bb_cache_registry_full_returns_error(void);
+void test_bb_sub_route_oversized_topic_returns_invalid_arg(void);
+void test_bb_sub_route_zero_length_payload_stored_as_empty(void);
+void test_bb_sub_route_snap_alloc_failure_returns_no_mem(void);
+void test_bb_sub_route_aggregate_topic_register_failure_still_routes(void);
+void test_bb_sub_route_malformed_json_payload_serializes_empty(void);
+void test_bb_sub_route_non_object_json_payload_serializes_empty(void);
+void test_bb_sub_subscribe_aggregate_topic_register_failure_returns_invalid_state(void);
+void test_bb_sub_route_null_topic_returns_invalid_arg(void);
+void test_bb_sub_route_empty_topic_returns_invalid_arg(void);
+void test_bb_sub_route_null_payload_returns_invalid_arg(void);
+void test_bb_sub_route_emits_aggregate_event(void);
+void test_bb_sub_subscribe_before_any_route_call(void);
+void test_bb_sub_route_dropped_message_does_not_emit_aggregate_event(void);
+void test_bb_sub_subscribe_null_cb_returns_invalid_arg(void);
+void test_bb_sub_subscribe_null_out_returns_invalid_arg(void);
+
+// Forward declarations from test_bb_mqtt_on_message.c
+void test_bb_mqtt_on_message_receives_injected_message(void);
+void test_bb_mqtt_on_message_passes_ctx(void);
+void test_bb_mqtt_on_message_multiple_injections(void);
+void test_bb_mqtt_on_message_replaces_previous_callback(void);
+void test_bb_mqtt_on_message_no_callback_registered_is_safe(void);
+
 // Forward declarations from test_bb_registry.c
 void test_bb_registry_register_null_name_returns_invalid_arg(void);
 void test_bb_registry_register_null_value_returns_invalid_arg(void);
@@ -7157,6 +7187,36 @@ int main(void) {
     RUN_TEST(test_bb_cache_update_unknown_topic);
     RUN_TEST(test_bb_cache_registry_full);
     RUN_TEST(test_bb_ota_check_topic_value_is_update_available);
+
+    // bb_sub
+    RUN_TEST(test_bb_sub_route_registers_and_cache_reflects_payload);
+    RUN_TEST(test_bb_sub_route_second_call_updates_same_topic);
+    RUN_TEST(test_bb_sub_route_multiple_distinct_topics);
+    RUN_TEST(test_bb_sub_route_overflow_drops_and_counts);
+    RUN_TEST(test_bb_sub_route_oversized_payload_returns_no_space);
+    RUN_TEST(test_bb_sub_route_bb_cache_registry_full_returns_error);
+    RUN_TEST(test_bb_sub_route_oversized_topic_returns_invalid_arg);
+    RUN_TEST(test_bb_sub_route_zero_length_payload_stored_as_empty);
+    RUN_TEST(test_bb_sub_route_snap_alloc_failure_returns_no_mem);
+    RUN_TEST(test_bb_sub_route_aggregate_topic_register_failure_still_routes);
+    RUN_TEST(test_bb_sub_route_malformed_json_payload_serializes_empty);
+    RUN_TEST(test_bb_sub_route_non_object_json_payload_serializes_empty);
+    RUN_TEST(test_bb_sub_route_null_topic_returns_invalid_arg);
+    RUN_TEST(test_bb_sub_route_empty_topic_returns_invalid_arg);
+    RUN_TEST(test_bb_sub_route_null_payload_returns_invalid_arg);
+    RUN_TEST(test_bb_sub_route_emits_aggregate_event);
+    RUN_TEST(test_bb_sub_subscribe_before_any_route_call);
+    RUN_TEST(test_bb_sub_route_dropped_message_does_not_emit_aggregate_event);
+    RUN_TEST(test_bb_sub_subscribe_null_cb_returns_invalid_arg);
+    RUN_TEST(test_bb_sub_subscribe_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_sub_subscribe_aggregate_topic_register_failure_returns_invalid_state);
+
+    // bb_mqtt_on_message
+    RUN_TEST(test_bb_mqtt_on_message_receives_injected_message);
+    RUN_TEST(test_bb_mqtt_on_message_passes_ctx);
+    RUN_TEST(test_bb_mqtt_on_message_multiple_injections);
+    RUN_TEST(test_bb_mqtt_on_message_replaces_previous_callback);
+    RUN_TEST(test_bb_mqtt_on_message_no_callback_registered_is_safe);
 
     // bb_alert
     RUN_TEST(test_bb_alert_emit_no_topic_noop);
