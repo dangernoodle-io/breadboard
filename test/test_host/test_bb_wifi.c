@@ -265,3 +265,24 @@ void test_bb_wifi_roam_count_test_hook_roundtrip(void)
     bb_wifi_test_set_roam_age_s(0);
 #endif
 }
+
+// ---------------------------------------------------------------------------
+// wifi-netmode PR: bb_wifi_is_associated accessor
+// ---------------------------------------------------------------------------
+
+// Host stub returns false by default.
+void test_bb_wifi_is_associated_default_false(void)
+{
+    TEST_ASSERT_FALSE(bb_wifi_is_associated());
+}
+
+// Test hook roundtrip: set true/false, getter reflects it.
+void test_bb_wifi_is_associated_test_hook_roundtrip(void)
+{
+#ifdef BB_WIFI_TESTING
+    bb_wifi_test_set_associated(true);
+    TEST_ASSERT_TRUE(bb_wifi_is_associated());
+    bb_wifi_test_set_associated(false);
+    TEST_ASSERT_FALSE(bb_wifi_is_associated());
+#endif
+}

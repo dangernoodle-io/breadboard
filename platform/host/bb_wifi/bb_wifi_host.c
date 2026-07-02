@@ -11,6 +11,7 @@
 #ifdef BB_WIFI_TESTING
 #include "bb_wifi_test.h"
 static bool s_test_has_ip = false;
+static bool s_test_associated = false;
 static int s_test_recovery_count = 0;
 static const char *s_test_last_recovery_reason = NULL;
 static bool s_test_recovery_blocked = false;
@@ -23,6 +24,11 @@ static uint32_t s_test_roam_age_s = 0;
 void bb_wifi_test_set_has_ip(bool has_ip)
 {
     s_test_has_ip = has_ip;
+}
+
+void bb_wifi_test_set_associated(bool associated)
+{
+    s_test_associated = associated;
 }
 
 void bb_wifi_test_set_recovery_blocked(bool blocked)
@@ -117,6 +123,15 @@ bool bb_wifi_has_ip(void)
 {
 #ifdef BB_WIFI_TESTING
     return s_test_has_ip;
+#else
+    return false;
+#endif
+}
+
+bool bb_wifi_is_associated(void)
+{
+#ifdef BB_WIFI_TESTING
+    return s_test_associated;
 #else
     return false;
 #endif

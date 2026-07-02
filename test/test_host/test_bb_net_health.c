@@ -1378,6 +1378,113 @@ void test_bb_net_health_retained_ring_captures_full_snapshot(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_net_health_classify_mode — pure WiFi discrimination classifier
+// (wifi-netmode PR, observe-only).
+// ---------------------------------------------------------------------------
+
+void test_bb_net_health_classify_mode_ok(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_NET_MODE_OK, bb_net_health_classify_mode(true, true));
+}
+
+void test_bb_net_health_classify_mode_no_ip(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_NET_MODE_NO_IP, bb_net_health_classify_mode(true, false));
+}
+
+void test_bb_net_health_classify_mode_not_associated(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_NET_MODE_NOT_ASSOCIATED, bb_net_health_classify_mode(false, false));
+}
+
+// Not-associated dominates has_ip=true (an inconsistent/impossible input on
+// real hardware, but the classifier must still resolve deterministically).
+void test_bb_net_health_classify_mode_not_associated_dominates_has_ip(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_NET_MODE_NOT_ASSOCIATED, bb_net_health_classify_mode(false, true));
+}
+
+void test_bb_net_mode_str_ok(void)
+{
+    TEST_ASSERT_EQUAL_STRING("ok", bb_net_mode_str(BB_NET_MODE_OK));
+}
+
+void test_bb_net_mode_str_no_ip(void)
+{
+    TEST_ASSERT_EQUAL_STRING("no_ip", bb_net_mode_str(BB_NET_MODE_NO_IP));
+}
+
+void test_bb_net_mode_str_not_associated(void)
+{
+    TEST_ASSERT_EQUAL_STRING("not_associated", bb_net_mode_str(BB_NET_MODE_NOT_ASSOCIATED));
+}
+
+void test_bb_net_mode_str_unknown_returns_not_associated(void)
+{
+    const char *s = bb_net_mode_str((bb_net_mode_t)99);
+    TEST_ASSERT_EQUAL_STRING("not_associated", s);
+}
+
+// ---------------------------------------------------------------------------
+// bb_net_health_emit: net_mode/associated/has_ip + the no_ip_recoveries/roam
+// serialization-gap fix (they were captured in the status struct but never
+// emitted to the net.health payload).
+// ---------------------------------------------------------------------------
+
+void test_bb_net_health_emit_has_net_mode_and_discriminator_fields(void)
+{
+    bb_net_health_status_t snap = {
+        .state           = BB_NET_STATE_GOOD,
+        .rssi            = -55,
+        .no_ip_recoveries = 3,
+        .roam_count       = 2,
+        .roam_age_s       = 45,
+        .net_mode         = BB_NET_MODE_NO_IP,
+        .associated       = true,
+        .has_ip           = false,
+    };
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit(obj, &snap);
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+
+    bb_json_t parsed = bb_json_parse(json, strlen(json));
+    bb_json_free_str(json);
+    TEST_ASSERT_NOT_NULL(parsed);
+
+    double nir = 0.0;
+    TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(parsed, "no_ip_recoveries", &nir),
+        "no_ip_recoveries must be serialized to net.health (previously a serialization gap)");
+    TEST_ASSERT_EQUAL_INT(3, (int)nir);
+
+    double rc = 0.0;
+    TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(parsed, "roam_count", &rc),
+        "roam_count must be serialized to net.health (previously a serialization gap)");
+    TEST_ASSERT_EQUAL_INT(2, (int)rc);
+
+    double ra = 0.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "roam_age_s", &ra));
+    TEST_ASSERT_EQUAL_INT(45, (int)ra);
+
+    char mode_buf[32];
+    TEST_ASSERT_TRUE(bb_json_obj_get_string(parsed, "net_mode", mode_buf, sizeof(mode_buf)));
+    TEST_ASSERT_EQUAL_STRING("no_ip", mode_buf);
+
+    bool associated = false;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "associated", &associated));
+    TEST_ASSERT_TRUE(associated);
+
+    bool has_ip = true;
+    TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "has_ip", &has_ip));
+    TEST_ASSERT_FALSE(has_ip);
+
+    bb_json_free(parsed);
+}
+
+// ---------------------------------------------------------------------------
 // bb_net_health_classify_heap — pure bucket classifier (B1-439)
 // ---------------------------------------------------------------------------
 

@@ -56,6 +56,12 @@ static bb_err_t diag_net_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_int(&obj, "roam_count", (int64_t)snap.roam_count);
         bb_http_resp_json_obj_set_int(&obj, "roam_age_s", (int64_t)snap.roam_age_s);
 
+        // WiFi discrimination mode (OBSERVE-ONLY, no recovery action wired):
+        // distinguishes no-IP-while-associated from not-associated-at-all.
+        bb_http_resp_json_obj_set_str (&obj, "net_mode",   bb_net_mode_str(snap.net_mode));
+        bb_http_resp_json_obj_set_bool(&obj, "associated", snap.associated);
+        bb_http_resp_json_obj_set_bool(&obj, "has_ip",     snap.has_ip);
+
         bb_http_resp_json_obj_set_obj_begin(&obj, "mqtt");
         bb_http_resp_json_obj_set_int(&obj, "reconnect_count", (int64_t)snap.mqtt_reconnect_count);
         bb_http_resp_json_obj_set_int(&obj, "disc_age_s",      (int64_t)snap.mqtt_disc_age_s);
@@ -106,6 +112,9 @@ static const bb_route_response_t s_diag_net_responses[] = {
       "\"recovery_count\":{\"type\":\"integer\"},"
       "\"roam_count\":{\"type\":\"integer\"},"
       "\"roam_age_s\":{\"type\":\"integer\"},"
+      "\"net_mode\":{\"type\":\"string\"},"
+      "\"associated\":{\"type\":\"boolean\"},"
+      "\"has_ip\":{\"type\":\"boolean\"},"
       "\"mqtt\":{\"type\":\"object\",\"properties\":{"
       "\"reconnect_count\":{\"type\":\"integer\"},"
       "\"disc_age_s\":{\"type\":\"integer\"},"

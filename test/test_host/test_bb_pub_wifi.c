@@ -361,11 +361,12 @@ void test_bb_pub_wifi_has_disconnect_rssi(void)
 }
 
 // ---------------------------------------------------------------------------
-// B1-497: roam_count / roam_age_s in the wifi telemetry topic (observe-only
-// mirror of the restart_sta_count-class counters).
+// wifi-netmode PR: roam_count/roam_age_s (B1-497) are consolidated onto the
+// /api/diag/net + net.health discriminator surface only — the "wifi"
+// telemetry topic (backing GET /api/wifi) must NOT re-emit them.
 // ---------------------------------------------------------------------------
 
-void test_bb_pub_wifi_has_roam_count(void)
+void test_bb_pub_wifi_no_longer_has_roam_count(void)
 {
     setup();
 #ifdef BB_WIFI_TESTING
@@ -375,10 +376,10 @@ void test_bb_pub_wifi_has_roam_count(void)
     bb_pub_wifi_test_set_rssi(true, -60);
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"roam_count\":3"),
-        "wifi telem must contain roam_count with the injected value");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"roam_age_s\":42"),
-        "wifi telem must contain roam_age_s with the injected value");
+    TEST_ASSERT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"roam_count\""),
+        "wifi telem topic must not contain roam_count (consolidated onto /api/diag/net)");
+    TEST_ASSERT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"roam_age_s\""),
+        "wifi telem topic must not contain roam_age_s (consolidated onto /api/diag/net)");
 #ifdef BB_WIFI_TESTING
     bb_wifi_test_set_roam_count(0);
     bb_wifi_test_set_roam_age_s(0);

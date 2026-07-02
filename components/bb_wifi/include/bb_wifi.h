@@ -131,6 +131,13 @@ bb_err_t bb_wifi_get_ip_str(char *out, size_t out_len);
 bb_err_t bb_wifi_get_rssi(int8_t *out);
 bool bb_wifi_has_ip(void);
 
+// True iff the STA is L2-associated to an AP (regardless of IP state).
+// Boot-safe: wraps esp_wifi_sta_get_ap_info() == ESP_OK, the same check the
+// no-IP watchdog in wifi_reconn.c uses — safe to call before the wifi driver
+// is fully up (returns false, not an error). Host stub is test-injectable
+// via bb_wifi_test_set_associated() (BB_WIFI_TESTING).
+bool bb_wifi_is_associated(void);
+
 // Populate out with a snapshot of the current STA state. Fields the
 // backend cannot supply are zeroed. Returns BB_ERR_INVALID_ARG on null.
 bb_err_t bb_wifi_get_info(bb_wifi_info_t *out);

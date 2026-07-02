@@ -138,9 +138,7 @@ static const char k_wifi_schema[] =
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"retry_count\":{\"type\":\"integer\"},"
     "\"restart_sta_count\":{\"type\":\"integer\"},"
-    "\"disconnect_rssi\":{\"type\":\"integer\"},"
-    "\"roam_count\":{\"type\":\"integer\"},"
-    "\"roam_age_s\":{\"type\":\"integer\"}},"
+    "\"disconnect_rssi\":{\"type\":\"integer\"}},"
     "\"required\":[\"ssid\",\"connected\"]}";
 
 // GET /api/update/progress — bb_ota_pull.c (espidf)
@@ -287,6 +285,9 @@ static const char k_diag_net_schema[] =
     "\"recovery_count\":{\"type\":\"integer\"},"
     "\"roam_count\":{\"type\":\"integer\"},"
     "\"roam_age_s\":{\"type\":\"integer\"},"
+    "\"net_mode\":{\"type\":\"string\"},"
+    "\"associated\":{\"type\":\"boolean\"},"
+    "\"has_ip\":{\"type\":\"boolean\"},"
     "\"mqtt\":{\"type\":\"object\",\"properties\":{"
     "\"reconnect_count\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
@@ -732,6 +733,9 @@ static bb_err_t h_diag_net(bb_http_request_t *req)
     snap.no_ip_recoveries       = 3;
     snap.roam_count             = 2;  // B1-497: observe-only, exercised with a non-zero value
     snap.roam_age_s             = 45;
+    snap.associated             = true;
+    snap.has_ip                 = true;
+    snap.net_mode               = bb_net_health_classify_mode(snap.associated, snap.has_ip);
     snap.mqtt_reconnect_count   = 2;
     snap.mqtt_disc_age_s        = 5;
     snap.mqtt_disc_reason       = 0;
@@ -751,6 +755,9 @@ static bb_err_t h_diag_net(bb_http_request_t *req)
         (int64_t)(snap.no_ip_recoveries + snap.lost_ip_recoveries + snap.egress_dead_recoveries));
     bb_http_resp_json_obj_set_int(&obj, "roam_count", (int64_t)snap.roam_count);
     bb_http_resp_json_obj_set_int(&obj, "roam_age_s", (int64_t)snap.roam_age_s);
+    bb_http_resp_json_obj_set_str (&obj, "net_mode",   bb_net_mode_str(snap.net_mode));
+    bb_http_resp_json_obj_set_bool(&obj, "associated", snap.associated);
+    bb_http_resp_json_obj_set_bool(&obj, "has_ip",     snap.has_ip);
 
     bb_http_resp_json_obj_set_obj_begin(&obj, "mqtt");
     bb_http_resp_json_obj_set_int(&obj, "reconnect_count", (int64_t)snap.mqtt_reconnect_count);

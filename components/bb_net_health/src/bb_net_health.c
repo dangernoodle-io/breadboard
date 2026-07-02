@@ -53,6 +53,28 @@ const char *bb_heap_state_str(bb_heap_state_t state)
 }
 
 // ---------------------------------------------------------------------------
+// WiFi discrimination mode — pure classifier (OBSERVE-ONLY)
+// ---------------------------------------------------------------------------
+
+bb_net_mode_t bb_net_health_classify_mode(bool associated, bool has_ip)
+{
+    if (!associated) {
+        return BB_NET_MODE_NOT_ASSOCIATED;
+    }
+    return has_ip ? BB_NET_MODE_OK : BB_NET_MODE_NO_IP;
+}
+
+const char *bb_net_mode_str(bb_net_mode_t mode)
+{
+    switch (mode) {
+    case BB_NET_MODE_OK:             return "ok";
+    case BB_NET_MODE_NO_IP:          return "no_ip";
+    case BB_NET_MODE_NOT_ASSOCIATED: return "not_associated";
+    default:                         return "not_associated";
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -201,6 +223,14 @@ void bb_net_health_emit(bb_json_t obj, const void *snap_v)
     bb_json_obj_set_number(obj, "lost_ip_recoveries",     (double)snap->lost_ip_recoveries);
     bb_json_obj_set_number(obj, "lost_ip_age_s",          (double)snap->lost_ip_age_s);
     bb_json_obj_set_int(obj, "egress_dead_recoveries", (int64_t)snap->egress_dead_recoveries);
+    // B1-486 fix: no_ip_recoveries was captured in the status struct but never
+    // serialized to net.health — add it alongside the roam/net_mode discriminators.
+    bb_json_obj_set_int(obj, "no_ip_recoveries",       (int64_t)snap->no_ip_recoveries);
+    bb_json_obj_set_int(obj, "roam_count",             (int64_t)snap->roam_count);
+    bb_json_obj_set_int(obj, "roam_age_s",             (int64_t)snap->roam_age_s);
+    bb_json_obj_set_string(obj, "net_mode",            bb_net_mode_str(snap->net_mode));
+    bb_json_obj_set_bool  (obj, "associated",          snap->associated);
+    bb_json_obj_set_bool  (obj, "has_ip",              snap->has_ip);
 
     bb_json_t mqtt = bb_json_obj_new();
     if (mqtt) {

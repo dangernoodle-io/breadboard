@@ -89,6 +89,9 @@ typedef struct {
     uint32_t no_ip_recoveries; // B1-486 finding #4: captured alongside lost_ip/egress_dead
     uint32_t roam_count;       // B1-497: observe-only, captured alongside the recovery counters
     uint32_t roam_age_s;
+    bb_net_mode_t net_mode;    // WiFi discrimination mode (observe-only)
+    bool     associated;
+    bool     has_ip;
 } bb_net_health_cache_t;
 
 static bb_net_health_cache_t s_cache;       // zero-init; valid once attach_sse writes it
@@ -131,7 +134,13 @@ static const char k_net_sse_schema[] =
     "\"connected\":{\"type\":\"boolean\"},"
     "\"consec_failures\":{\"type\":\"integer\"},"
     "\"tls_fail\":{\"type\":\"integer\"},"
-    "\"last_status\":{\"type\":\"integer\"}}}}}";
+    "\"last_status\":{\"type\":\"integer\"}}},"
+    "\"no_ip_recoveries\":{\"type\":\"integer\"},"
+    "\"roam_count\":{\"type\":\"integer\"},"
+    "\"roam_age_s\":{\"type\":\"integer\"},"
+    "\"net_mode\":{\"type\":\"string\"},"
+    "\"associated\":{\"type\":\"boolean\"},"
+    "\"has_ip\":{\"type\":\"boolean\"}}}";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -215,6 +224,9 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
     out->no_ip_recoveries           = s_cache.no_ip_recoveries;
     out->roam_count                 = s_cache.roam_count;
     out->roam_age_s                 = s_cache.roam_age_s;
+    out->net_mode                   = s_cache.net_mode;
+    out->associated                 = s_cache.associated;
+    out->has_ip                     = s_cache.has_ip;
     xSemaphoreGive(s_cache_lock);
     return BB_OK;
 }
@@ -227,6 +239,9 @@ static void publish_snapshot(const bb_net_health_output_t *out,
                              bb_tls_fail_t  mqtt_tls_fail,
                              bb_sink_http_health_t http_h)
 {
+    bool associated = bb_wifi_is_associated();
+    bool has_ip     = bb_wifi_has_ip();
+
     bb_net_health_status_t snap = {
         .state                  = out->state,
         .early_warning          = out->early_warning,
@@ -249,6 +264,9 @@ static void publish_snapshot(const bb_net_health_output_t *out,
         .no_ip_recoveries       = bb_wifi_get_no_ip_count(),
         .roam_count             = bb_wifi_get_roam_count(),
         .roam_age_s             = bb_wifi_get_roam_age_s(),
+        .net_mode               = bb_net_health_classify_mode(associated, has_ip),
+        .associated             = associated,
+        .has_ip                 = has_ip,
     };
 
     // Update s_cache so bb_net_health_get_status (used by the pub source) can
@@ -275,6 +293,9 @@ static void publish_snapshot(const bb_net_health_output_t *out,
     s_cache.no_ip_recoveries        = snap.no_ip_recoveries;
     s_cache.roam_count              = snap.roam_count;
     s_cache.roam_age_s              = snap.roam_age_s;
+    s_cache.net_mode                = snap.net_mode;
+    s_cache.associated              = snap.associated;
+    s_cache.has_ip                  = snap.has_ip;
     xSemaphoreGive(s_cache_lock);
 
     // Update bb_cache owned struct — SSE uses bb_cache_post, REST uses

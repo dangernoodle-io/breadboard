@@ -257,6 +257,15 @@ bool bb_wifi_has_ip(void)
     return s_has_ip;
 }
 
+// Boot-safe: esp_wifi_sta_get_ap_info() returns non-ESP_OK when the STA is
+// not associated (including before the wifi driver is up), matching the
+// pattern used by the ST_IDLE no-IP watchdog above.
+bool bb_wifi_is_associated(void)
+{
+    wifi_ap_record_t ap;
+    return esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
+}
+
 uint32_t bb_wifi_get_lost_ip_count(void)
 {
     return wifi_reconn_is_active() ? wifi_reconn_get_lost_ip_count() : 0;
