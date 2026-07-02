@@ -3686,6 +3686,17 @@ void test_bb_udp_frame_encode_decode_empty_payload(void);
 void test_bb_udp_frame_encode_decode_empty_topic(void);
 void test_bb_udp_frame_encode_little_endian_layout(void);
 
+// Forward declarations from test_bb_sink_udp.c
+void test_bb_sink_udp_before_init_returns_invalid_state(void);
+void test_bb_sink_udp_null_out_returns_invalid_arg(void);
+void test_bb_sink_udp_publish_builds_telemetry_frame(void);
+void test_bb_sink_udp_publish_null_topic_and_negative_len(void);
+void test_bb_sink_udp_seq_increments_across_publishes(void);
+void test_bb_sink_udp_oversized_frame_dropped(void);
+void test_bb_sink_udp_init_null_loads_defaults(void);
+void test_bb_sink_udp_init_persists_and_reloads(void);
+void test_bb_sink_udp_init_host_too_long_returns_invalid_arg(void);
+
 // Forward declarations from test_bb_registry.c
 void test_bb_registry_register_null_name_returns_invalid_arg(void);
 void test_bb_registry_register_null_value_returns_invalid_arg(void);
@@ -7395,6 +7406,17 @@ int main(void) {
     RUN_TEST(test_bb_udp_frame_encode_decode_empty_payload);
     RUN_TEST(test_bb_udp_frame_encode_decode_empty_topic);
     RUN_TEST(test_bb_udp_frame_encode_little_endian_layout);
+
+    // bb_sink_udp
+    RUN_TEST(test_bb_sink_udp_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_sink_udp_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_sink_udp_publish_builds_telemetry_frame);
+    RUN_TEST(test_bb_sink_udp_publish_null_topic_and_negative_len);
+    RUN_TEST(test_bb_sink_udp_seq_increments_across_publishes);
+    RUN_TEST(test_bb_sink_udp_oversized_frame_dropped);
+    RUN_TEST(test_bb_sink_udp_init_null_loads_defaults);
+    RUN_TEST(test_bb_sink_udp_init_persists_and_reloads);
+    RUN_TEST(test_bb_sink_udp_init_host_too_long_returns_invalid_arg);
 
     // bb_alert
     RUN_TEST(test_bb_alert_emit_no_topic_noop);
