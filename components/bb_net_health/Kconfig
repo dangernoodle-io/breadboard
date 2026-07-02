@@ -1,5 +1,13 @@
 menu "breadboard: bb_net_health"
 
+config BB_NET_HEALTH_AUTOSTART
+    bool "Auto-start the net-health evaluator at PRE_HTTP"
+    default y
+    help
+        When enabled, bb_net_health_start (cache mutex + evaluator timer)
+        self-registers at the bb_init PRE_HTTP tier. Disable to call
+        bb_net_health_start manually before bb_net_health_attach_sse.
+
 config BB_NET_HEALTH_ROUTES_AUTOREGISTER
     bool "Auto-register /api/diag/net route via bb_init"
     default y

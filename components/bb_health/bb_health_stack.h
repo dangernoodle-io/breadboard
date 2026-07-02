@@ -10,6 +10,8 @@
 #include <stdbool.h>
 #include <inttypes.h>
 
+#include "bb_core.h"
+
 #define BB_HEALTH_STACK_TOPIC "health.stack"
 
 // Returns true if free_bytes is below threshold (stack is low).
@@ -23,6 +25,13 @@ int bb_health_stack_build_json(char *buf, size_t buf_sz,
                                const char *task_name,
                                uint32_t free_bytes,
                                bool low);
+
+// PRE_HTTP: starts the periodic stack high-water monitor timer. No topic/
+// event/openapi side effects. No-op (BB_OK) when
+// CONFIG_FREERTOS_USE_TRACE_FACILITY=n. Implemented in
+// platform/espidf/bb_health/bb_health_stack.c; self-registers at PRE_HTTP
+// when CONFIG_BB_HEALTH_STACK_AUTOSTART=y.
+bb_err_t bb_health_stack_monitor_start(void);
 
 // ---------------------------------------------------------------------------
 // Test hook (BB_HEALTH_TESTING only)

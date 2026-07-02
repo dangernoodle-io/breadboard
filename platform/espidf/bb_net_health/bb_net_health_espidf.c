@@ -2,6 +2,7 @@
 //
 // Call order:
 //   bb_net_health_register_health() — before bb_http_server_start
+//   bb_net_health_start()           — at PRE_HTTP tier
 //   bb_net_health_attach_sse()      — in regular-tier init (after bb_event_routes)
 //
 // The 5-second evaluator reads bb_wifi_get_info() and bb_mqtt_get_stats(), runs
@@ -27,6 +28,7 @@
 #include "bb_timer.h"
 #include "bb_clock.h"
 #include "bb_pub.h"
+#include "bb_init.h"
 #include <inttypes.h>
 
 // Internal setter defined in components/bb_net_health/src/bb_net_health.c;
@@ -559,12 +561,10 @@ void bb_net_health_register_health(void)
 
 bb_err_t bb_net_health_attach_sse(void)
 {
-    // Create the cache mutex before any path that reads or writes s_cache.
-    s_cache_lock = xSemaphoreCreateMutex();
-    if (!s_cache_lock) {
-        bb_log_e(TAG, "cache lock create failed");
-        return BB_ERR_NO_SPACE;
-    }
+    // The evaluator (state + mutex + timer) must already be up — bb_net_health_start
+    // (PRE_HTTP tier) creates s_cache_lock before the timer is armed. publish_snapshot
+    // below does an unguarded xSemaphoreTake, so attach_sse must never run first.
+    if (!s_cache_lock) return BB_ERR_INVALID_STATE;
 
     // Register net.health in bb_cache (owned-struct form).
     bb_err_t cerr = bb_cache_register(BB_NET_HEALTH_TOPIC, NULL,
@@ -650,18 +650,43 @@ bb_err_t bb_net_health_attach_sse(void)
         }
     }
 
-    // Start the 5-second periodic evaluator.
-    err = bb_timer_deferred_periodic_create(eval_work_fn, NULL, "bb_net_health", &s_timer);
+    bb_log_i(TAG, "SSE attached (retained)");
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
+// PRE_HTTP lifecycle entry point
+// ---------------------------------------------------------------------------
+
+// Starts the background evaluator: cache mutex + deferred periodic timer.
+// No HTTP/cache/openapi/event-topic side effects — those stay in attach_sse
+// (regular tier, after bb_event_routes is up). The mutex MUST be created
+// before the timer is armed: publish_snapshot (called from eval_work_fn on
+// the timer) does an unguarded xSemaphoreTake on s_cache_lock, so an armed
+// timer racing ahead of mutex creation is a NULL-handle take -> hard fault.
+bb_err_t bb_net_health_start(void)
+{
+    s_cache_lock = xSemaphoreCreateMutex();
+    if (!s_cache_lock) {
+        bb_log_e(TAG, "cache lock create failed");
+        return BB_ERR_NO_SPACE;
+    }
+
+    bb_err_t err = bb_timer_deferred_periodic_create(eval_work_fn, NULL, "bb_net_health", &s_timer);
     if (err != BB_OK) {
-        bb_log_w(TAG, "timer create failed: %d", (int)err);
+        bb_log_e(TAG, "timer create failed: %d", (int)err);
         return err;
     }
     err = bb_timer_periodic_start(s_timer, BB_NET_HEALTH_EVAL_PERIOD_US);
     if (err != BB_OK) {
-        bb_log_w(TAG, "timer start failed: %d", (int)err);
+        bb_log_e(TAG, "timer start failed: %d", (int)err);
         return err;
     }
 
-    bb_log_i(TAG, "SSE attached (retained), evaluator started");
+    bb_log_i(TAG, "evaluator started");
     return BB_OK;
 }
+
+#if CONFIG_BB_NET_HEALTH_AUTOSTART
+BB_INIT_REGISTER_PRE_HTTP(bb_net_health, bb_net_health_start);
+#endif
