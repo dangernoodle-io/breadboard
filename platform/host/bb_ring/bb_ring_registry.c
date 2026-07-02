@@ -7,7 +7,7 @@
 
 #include <pthread.h>
 
-/* Kconfig bridge: honour CONFIG_BB_RING_REGISTRY_MAX from build flags; default 12. */
+/* Kconfig bridge: honour CONFIG_BB_RING_REGISTRY_MAX from build flags; default 16. */
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -15,7 +15,7 @@
 #define BB_RING_REGISTRY_MAX CONFIG_BB_RING_REGISTRY_MAX
 #endif
 #ifndef BB_RING_REGISTRY_MAX
-#define BB_RING_REGISTRY_MAX 12
+#define BB_RING_REGISTRY_MAX 16
 #endif
 
 static const char *TAG = "bb_ring_registry";

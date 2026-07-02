@@ -2,7 +2,7 @@ menu "breadboard: bb_ring"
 
 config BB_RING_REGISTRY_MAX
     int "Ring registry capacity (max concurrently-tracked bb_ring_t handles)"
-    default 12
+    default 16
     range 1 32
     help
         Capacity of the diagnostic ring registry consumed by
