@@ -70,6 +70,20 @@ typedef struct {
 
 static bb_task_entry_t s_pool[BB_TASK_REGISTRY_MAX];
 
+// Overflow observability (B1-471). s_dropped counts every register()/
+// test_seed() call rejected because the pool was full. s_hwm_warned fires
+// the warning once, mirroring bb_registry_register's own fire-once HWM idiom
+// (components/bb_registry) and bb_api_dispatch_add's CAP-margin idiom
+// (components/bb_http/src/bb_http_api_dispatch.c).
+static uint32_t s_dropped;
+static bool     s_hwm_warned;
+
+// Headroom (slots remaining) at which the one-shot HWM warning fires. Kept
+// small and margin-based (rather than a fixed absolute count) because
+// BB_TASK_REGISTRY_MAX ranges 1..64 (Kconfig) — an absolute threshold like
+// CAP-8 could exceed capacity on a small pool.
+#define BB_TASK_REGISTRY_HWM_MARGIN 2
+
 // Zero-token safety: BB_TASK_REGISTRY_TOKEN_INVALID / a zero-initialized
 // bb_task_registry_token_t carries {index=0, generation=0}. Every slot's
 // generation is initialized to 1 (never 0) so a live slot 0 can never be
@@ -100,14 +114,50 @@ BB_REGISTRY_DEFINE_TAGGED(s_task_registry, BB_TASK_REGISTRY_MAX, "tasks");
 // there is no lock-order inversion.
 static pthread_mutex_t s_task_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 
+// Single source of truth for "slots occupied": scan s_pool.in_use. Always
+// called under s_task_reg_lock. This replaces a formerly-independent
+// s_pool_count shadow counter (B1-471 follow-up) — both the public
+// bb_task_registry_count() and the HWM threshold check below read this same
+// function, so there is exactly one place that knows the occupancy count.
+// BB_TASK_REGISTRY_MAX is at most 64 (Kconfig-bounded), so an O(n) scan
+// under the lock is cheap relative to the mutex itself.
+static uint16_t count_locked(void)
+{
+    uint16_t count = 0;
+    for (int i = 0; i < BB_TASK_REGISTRY_MAX; i++) {
+        if (s_pool[i].in_use) {
+            count++;
+        }
+    }
+    return count;
+}
+
 static int pool_alloc_locked(void)
 {
     for (int i = 0; i < BB_TASK_REGISTRY_MAX; i++) {
         if (!s_pool[i].in_use) {
             s_pool[i].in_use = true;
+
+            // High-watermark warn: fire once when the pool crosses within
+            // BB_TASK_REGISTRY_HWM_MARGIN slots of capacity. This fires on
+            // the raw slot allocation (before the caller's bb_registry_
+            // register() dup-name check, if any, resolves) — a duplicate-
+            // name rollback right at the margin is a rare, purely cosmetic
+            // early fire and is preferable to deferring the check until
+            // after bb_registry_register() resolves.
+            uint16_t occupied = count_locked();
+            uint16_t threshold = (BB_TASK_REGISTRY_MAX > BB_TASK_REGISTRY_HWM_MARGIN)
+                                  ? (uint16_t)(BB_TASK_REGISTRY_MAX - BB_TASK_REGISTRY_HWM_MARGIN)
+                                  : (uint16_t)BB_TASK_REGISTRY_MAX;
+            if (!s_hwm_warned && occupied >= threshold) {
+                s_hwm_warned = true;
+                bb_log_w(TAG, "high-watermark: %"PRIu16"/%d tasks registered",
+                         occupied, BB_TASK_REGISTRY_MAX);
+            }
             return i;
         }
     }
+    s_dropped++;
     return -1;
 }
 
@@ -508,9 +558,22 @@ bool bb_task_registry_lookup_sw_wdt(const char *name, uint32_t now_ms,
 uint16_t bb_task_registry_count(void)
 {
     pthread_mutex_lock(&s_task_reg_lock);
-    uint16_t count = bb_registry_count(&s_task_registry);
+    uint16_t count = count_locked();
     pthread_mutex_unlock(&s_task_reg_lock);
     return count;
+}
+
+uint16_t bb_task_registry_capacity(void)
+{
+    return BB_TASK_REGISTRY_MAX;
+}
+
+uint32_t bb_task_registry_dropped(void)
+{
+    pthread_mutex_lock(&s_task_reg_lock);
+    uint32_t dropped = s_dropped;
+    pthread_mutex_unlock(&s_task_reg_lock);
+    return dropped;
 }
 
 bool bb_task_registry_lookup_budget(const char *name, uint32_t *out_budget, bool *out_wdt)
@@ -570,6 +633,8 @@ void bb_task_registry_test_reset(void)
     pthread_mutex_lock(&s_task_reg_lock);
     bb_registry_reset(&s_task_registry);
     memset(s_pool, 0, sizeof(s_pool));
+    s_dropped     = 0;
+    s_hwm_warned  = false;
     s_sw_wdt_handler     = NULL;
     s_sw_wdt_handler_ctx = NULL;
     // memset zeroes generation too — restore the "never 0" invariant (see

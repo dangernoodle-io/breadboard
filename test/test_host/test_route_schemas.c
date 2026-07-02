@@ -710,15 +710,23 @@ static const bb_route_t s_mark_valid_route_fixture = {
     .handler   = NULL,
 };
 
-// GET /api/diag/tasks fixture
+// GET /api/diag/tasks fixture (B1-471: object root wraps the task array
+// with registry occupancy — keep in sync with production, see file header)
 static const bb_route_response_t s_tasks_responses_fixture[] = {
     { 200, "application/json",
-      "{\"type\":\"array\","
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"tasks\":{\"type\":\"array\","
       "\"items\":{\"type\":\"object\","
       "\"properties\":{"
       "\"name\":{\"type\":\"string\"},"
       "\"prio\":{\"type\":\"integer\"},"
-      "\"state\":{\"type\":\"string\"}}}}",
+      "\"state\":{\"type\":\"string\"}}}},"
+      "\"registry\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"count\":{\"type\":\"integer\"},"
+      "\"capacity\":{\"type\":\"integer\"},"
+      "\"dropped\":{\"type\":\"integer\"}}}}}",
       "task list" },
     { 500, "application/json",
       "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}},\"required\":[\"error\"]}",

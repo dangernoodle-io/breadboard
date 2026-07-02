@@ -167,6 +167,138 @@ void test_bb_task_registry_overflow_returns_no_space(void)
 }
 
 // ---------------------------------------------------------------------------
+// B1-471 — overflow observability: dropped counter, capacity, HWM warn
+// ---------------------------------------------------------------------------
+
+void test_bb_task_registry_capacity_matches_pool_size(void)
+{
+    bb_task_registry_test_reset();
+
+    // Fill the registry to capacity and confirm the observed count equals
+    // the advertised capacity — the two must never disagree.
+    static int dummies[80];
+    static char names[80][16];
+    uint16_t cap = bb_task_registry_capacity();
+    TEST_ASSERT_TRUE(cap > 0);
+    TEST_ASSERT_TRUE((size_t)cap <= (sizeof(dummies) / sizeof(dummies[0])));
+
+    for (uint16_t i = 0; i < cap; i++) {
+        snprintf(names[i], sizeof names[i], "cap%u", (unsigned)i);
+        TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register(names[i], 2048, &dummies[i], NULL, NULL));
+    }
+    TEST_ASSERT_EQUAL_UINT16(cap, bb_task_registry_count());
+}
+
+void test_bb_task_registry_dropped_zero_initially(void)
+{
+    bb_task_registry_test_reset();
+    TEST_ASSERT_EQUAL_UINT32(0, bb_task_registry_dropped());
+}
+
+void test_bb_task_registry_dropped_increments_on_overflow(void)
+{
+    bb_task_registry_test_reset();
+
+    static int dummies[80];
+    static char names[80][16];
+    uint16_t cap = bb_task_registry_capacity();
+
+    for (uint16_t i = 0; i < cap; i++) {
+        snprintf(names[i], sizeof names[i], "d%u", (unsigned)i);
+        TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register(names[i], 2048, &dummies[i], NULL, NULL));
+    }
+    TEST_ASSERT_EQUAL_UINT16(cap, bb_task_registry_count());
+    TEST_ASSERT_EQUAL_UINT32(0, bb_task_registry_dropped());
+
+    // One more registration overflows the pool: count stays at cap, dropped increments.
+    int extra = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_task_registry_register("overflow", 2048, &extra, NULL, NULL));
+    TEST_ASSERT_EQUAL_UINT16(cap, bb_task_registry_count());
+    TEST_ASSERT_EQUAL_UINT32(1, bb_task_registry_dropped());
+
+    // A second overflow keeps incrementing (monotonic, never resets except
+    // via test_reset).
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_task_registry_register("overflow2", 2048, &extra, NULL, NULL));
+    TEST_ASSERT_EQUAL_UINT32(2, bb_task_registry_dropped());
+}
+
+// test_seed shares pool_alloc_locked with register() — its overflow path
+// must also increment the shared dropped counter (single point of truth,
+// not a register()-only special case).
+void test_bb_task_registry_dropped_increments_on_test_seed_overflow(void)
+{
+    bb_task_registry_test_reset();
+
+    static char names[80][16];
+    uint16_t cap = bb_task_registry_capacity();
+
+    for (uint16_t i = 0; i < cap; i++) {
+        snprintf(names[i], sizeof names[i], "s%u", (unsigned)i);
+        TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_test_seed(names[i], 2048, false, NULL));
+    }
+    TEST_ASSERT_EQUAL_UINT32(0, bb_task_registry_dropped());
+
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_task_registry_test_seed("seed_overflow", 2048, false, NULL));
+    TEST_ASSERT_EQUAL_UINT32(1, bb_task_registry_dropped());
+}
+
+// High-watermark warning has no host-side log-capture seam (bb_log has none
+// today) — this test exercises the threshold branch (registering into the
+// margin and past it) for coverage and asserts the only externally
+// observable effect: no crash, and count/dropped stay consistent. The
+// warning itself is a one-shot bb_log_w verified by inspection /
+// on-device log tail (see verification notes).
+void test_bb_task_registry_hwm_threshold_crossed_no_crash(void)
+{
+    bb_task_registry_test_reset();
+
+    static int dummies[80];
+    static char names[80][16];
+    uint16_t cap = bb_task_registry_capacity();
+
+    for (uint16_t i = 0; i < cap; i++) {
+        snprintf(names[i], sizeof names[i], "h%u", (unsigned)i);
+        TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register(names[i], 2048, &dummies[i], NULL, NULL));
+        // Registering the last few slots crosses the HWM margin; must not
+        // crash or corrupt count bookkeeping.
+        TEST_ASSERT_EQUAL_UINT16((uint16_t)(i + 1), bb_task_registry_count());
+    }
+    TEST_ASSERT_EQUAL_UINT16(cap, bb_task_registry_count());
+}
+
+// A duplicate-name rollback right at (or past) the HWM margin must not
+// corrupt s_pool_count — the freed slot from the rollback must be reusable.
+void test_bb_task_registry_hwm_rollback_on_duplicate_keeps_pool_count_consistent(void)
+{
+    bb_task_registry_test_reset();
+
+    static int dummies[80];
+    static char names[80][16];
+    uint16_t cap = bb_task_registry_capacity();
+
+    // Fill to one below capacity.
+    for (uint16_t i = 0; i < (uint16_t)(cap - 1); i++) {
+        snprintf(names[i], sizeof names[i], "r%u", (unsigned)i);
+        TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register(names[i], 2048, &dummies[i], NULL, NULL));
+    }
+    TEST_ASSERT_EQUAL_UINT16((uint16_t)(cap - 1), bb_task_registry_count());
+
+    // Duplicate name at the margin: pool_alloc_locked succeeds (possibly
+    // crossing the HWM threshold), then bb_registry_register rejects the
+    // dup and the slot is rolled back — count must return to cap-1, not
+    // leak a phantom slot.
+    int dup_dummy = 0;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE,
+                       bb_task_registry_register(names[0], 4096, &dup_dummy, NULL, NULL));
+    TEST_ASSERT_EQUAL_UINT16((uint16_t)(cap - 1), bb_task_registry_count());
+
+    // The rolled-back slot is still usable for a fresh registration.
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_registry_register("fresh_after_rollback", 2048, &dup_dummy, NULL, NULL));
+    TEST_ASSERT_EQUAL_UINT16(cap, bb_task_registry_count());
+    TEST_ASSERT_EQUAL_UINT32(0, bb_task_registry_dropped());
+}
+
+// ---------------------------------------------------------------------------
 // foreach — ordering + fields
 // ---------------------------------------------------------------------------
 

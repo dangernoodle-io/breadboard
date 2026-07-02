@@ -496,13 +496,17 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
     uint32_t total_runtime = 0;
     UBaseType_t got = uxTaskGetSystemState(arr, n, &total_runtime);
 
-    // Emit as a top-level JSON array via the obj stream (array-at-root pattern:
-    // use arr_begin with a wrapping object field is not applicable here; instead
-    // we use bb_http_resp_json_arr_begin directly).
-    bb_http_json_stream_t stream;
-    bb_err_t err = bb_http_resp_json_arr_begin(req, &stream);
+    // Top-level object: {"tasks":[...], "registry":{...}} (B1-471 — the
+    // registry occupancy object requires an object root, so the "tasks"
+    // array moved from array-at-root into a named field). Streamed via the
+    // obj-stream API (mirrors sockets_get_handler's nested "pcbs" array) so
+    // the per-task objects still stream true chunks — same memory profile
+    // as the prior bb_http_resp_json_arr_* form.
+    bb_http_json_obj_stream_t obj;
+    bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
     if (err != BB_OK) { bb_mem_free(arr); return err; }
 
+    bb_http_resp_json_obj_set_arr_begin(&obj, "tasks");
     for (UBaseType_t i = 0; i < got; i++) {
         const char *state_str = "?";
         switch (arr[i].eCurrentState) {
@@ -514,17 +518,17 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
             case eInvalid:   state_str = "invalid";   break;
             default: break;
         }
-        bb_json_t t = bb_json_obj_new();
-        bb_json_obj_set_string(t, "name",      arr[i].pcTaskName);
-        bb_json_obj_set_number(t, "prio",      (double)arr[i].uxCurrentPriority);
-        bb_json_obj_set_number(t, "base_prio", (double)arr[i].uxBasePriority);
-        bb_json_obj_set_number(t, "stack_hwm", (double)arr[i].usStackHighWaterMark);
-        bb_json_obj_set_string(t, "state",     state_str);
+        bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
+        bb_http_resp_json_obj_set_str(&obj, "name",      arr[i].pcTaskName);
+        bb_http_resp_json_obj_set_int(&obj, "prio",      (int64_t)arr[i].uxCurrentPriority);
+        bb_http_resp_json_obj_set_int(&obj, "base_prio", (int64_t)arr[i].uxBasePriority);
+        bb_http_resp_json_obj_set_int(&obj, "stack_hwm", (int64_t)arr[i].usStackHighWaterMark);
+        bb_http_resp_json_obj_set_str(&obj, "state",     state_str);
 #if CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID
-        bb_json_obj_set_number(t, "core",    (double)arr[i].xCoreID);
+        bb_http_resp_json_obj_set_int(&obj, "core",    (int64_t)arr[i].xCoreID);
 #endif
 #if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
-        bb_json_obj_set_number(t, "runtime", (double)arr[i].ulRunTimeCounter);
+        bb_http_resp_json_obj_set_int(&obj, "runtime", (int64_t)arr[i].ulRunTimeCounter);
 #endif
         // Additive enrichment (B1-445): cross-reference bb_task_registry by
         // name via the pure lookup fn. Omitted (not null) when the task did
@@ -533,8 +537,8 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
             uint32_t reg_budget = 0;
             bool     reg_wdt    = false;
             if (bb_task_registry_lookup_budget(arr[i].pcTaskName, &reg_budget, &reg_wdt)) {
-                bb_json_obj_set_number(t, "stack_budget_bytes", (double)reg_budget);
-                bb_json_obj_set_bool(t, "wdt_subscribed", reg_wdt);
+                bb_http_resp_json_obj_set_int(&obj, "stack_budget_bytes", (int64_t)reg_budget);
+                bb_http_resp_json_obj_set_bool(&obj, "wdt_subscribed", reg_wdt);
             }
         }
         // Additive enrichment (B1-458 PR-B): software-watchdog diagnostics,
@@ -545,22 +549,35 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
             if (bb_task_registry_lookup_sw_wdt(arr[i].pcTaskName, bb_clock_now_ms(),
                                                 &sw_timeout_ms, &sw_feed_age_ms,
                                                 &sw_miss_age_ms, &sw_miss_count)) {
-                bb_json_obj_set_number(t, "sw_wdt_timeout_ms", (double)sw_timeout_ms);
-                bb_json_obj_set_number(t, "sw_wdt_last_feed_age_ms", (double)sw_feed_age_ms);
-                bb_json_obj_set_number(t, "sw_wdt_miss_count", (double)sw_miss_count);
-                bb_json_obj_set_number(t, "sw_wdt_last_miss_age_ms", (double)sw_miss_age_ms);
+                bb_http_resp_json_obj_set_int(&obj, "sw_wdt_timeout_ms", (int64_t)sw_timeout_ms);
+                bb_http_resp_json_obj_set_int(&obj, "sw_wdt_last_feed_age_ms", (int64_t)sw_feed_age_ms);
+                bb_http_resp_json_obj_set_int(&obj, "sw_wdt_miss_count", (int64_t)sw_miss_count);
+                bb_http_resp_json_obj_set_int(&obj, "sw_wdt_last_miss_age_ms", (int64_t)sw_miss_age_ms);
             }
         }
-        bb_http_resp_json_arr_emit(&stream, t);
-        bb_json_free(t);
+        bb_http_resp_json_obj_set_obj_end(&obj);
     }
+    bb_http_resp_json_obj_set_arr_end(&obj);
     bb_mem_free(arr);
-    return bb_http_resp_json_arr_end(&stream);
+
+    // Registry occupancy (B1-471): observability for bb_task_registry's own
+    // fixed-capacity pool, independent of the live FreeRTOS task list above
+    // (a task can be registered without a matching TaskStatus_t entry, e.g.
+    // a name mismatch, and vice versa for tasks that never self-registered).
+    bb_http_resp_json_obj_set_obj_begin(&obj, "registry");
+    bb_http_resp_json_obj_set_int(&obj, "count",    (int64_t)bb_task_registry_count());
+    bb_http_resp_json_obj_set_int(&obj, "capacity", (int64_t)bb_task_registry_capacity());
+    bb_http_resp_json_obj_set_int(&obj, "dropped",  (int64_t)bb_task_registry_dropped());
+    bb_http_resp_json_obj_set_obj_end(&obj);
+
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static const bb_route_response_t s_tasks_get_responses[] = {
     { 200, "application/json",
-      "{\"type\":\"array\","
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"tasks\":{\"type\":\"array\","
       "\"items\":{\"type\":\"object\","
       "\"properties\":{"
       "\"name\":{\"type\":\"string\"},"
@@ -575,12 +592,23 @@ static const bb_route_response_t s_tasks_get_responses[] = {
       "\"sw_wdt_timeout_ms\":{\"type\":\"integer\"},"
       "\"sw_wdt_last_feed_age_ms\":{\"type\":\"integer\"},"
       "\"sw_wdt_miss_count\":{\"type\":\"integer\"},"
-      "\"sw_wdt_last_miss_age_ms\":{\"type\":\"integer\"}}}}",
-      "task list; core requires CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
+      "\"sw_wdt_last_miss_age_ms\":{\"type\":\"integer\"}}}},"
+      "\"registry\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"count\":{\"type\":\"integer\"},"
+      "\"capacity\":{\"type\":\"integer\"},"
+      "\"dropped\":{\"type\":\"integer\"}},"
+      "\"required\":[\"count\",\"capacity\",\"dropped\"]}},"
+      "\"required\":[\"tasks\",\"registry\"]}",
+      "task list + bb_task_registry occupancy (BREAKING B1-471: response root "
+      "changed from a bare array to an object with a \\\"tasks\\\" array field); "
+      "core requires CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
       "runtime requires CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS; "
       "stack_budget_bytes/wdt_subscribed present only for tasks self-registered "
       "via bb_task_registry; sw_wdt_* present only when that task's "
-      "opts->sw_wdt_timeout_ms > 0" },
+      "opts->sw_wdt_timeout_ms > 0; registry.{count,capacity,dropped} come from "
+      "bb_task_registry_{count,capacity,dropped}() and are independent of the "
+      "live FreeRTOS task list above" },
     { 500, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{\"error\":{\"type\":\"string\"}},"
@@ -593,7 +621,8 @@ static const bb_route_t s_tasks_get_route = {
     .method    = BB_HTTP_GET,
     .path      = "/api/diag/tasks",
     .tag       = "diag",
-    .summary   = "List all FreeRTOS tasks with state, priority, and stack high-water mark "
+    .summary   = "List all FreeRTOS tasks with state, priority, and stack high-water mark, "
+                 "plus bb_task_registry occupancy "
                  "(requires CONFIG_FREERTOS_USE_TRACE_FACILITY=y; "
                  "core field: CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
                  "runtime field: CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS)",
