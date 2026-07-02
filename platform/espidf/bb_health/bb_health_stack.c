@@ -10,6 +10,7 @@
 
 #include "bb_event.h"
 #include "bb_event_routes.h"
+#include "bb_init.h"
 #include "bb_log.h"
 #include "bb_mem.h"
 #include "bb_openapi.h"
@@ -159,6 +160,23 @@ static bb_err_t start_monitor(void)
 #endif /* CONFIG_FREERTOS_USE_TRACE_FACILITY */
 
 // ---------------------------------------------------------------------------
+// PRE_HTTP lifecycle entry point
+// ---------------------------------------------------------------------------
+
+// Starts the periodic stack-monitor timer. No topic/openapi/event side
+// effects — those stay in bb_health_stack_monitor_init (regular tier, called
+// from bb_health_init). No-op (returns BB_OK) when
+// CONFIG_FREERTOS_USE_TRACE_FACILITY=n (see the stub start_monitor above).
+bb_err_t bb_health_stack_monitor_start(void)
+{
+    return start_monitor();
+}
+
+#if CONFIG_BB_HEALTH_STACK_AUTOSTART
+BB_INIT_REGISTER_PRE_HTTP(bb_health_stack, bb_health_stack_monitor_start);
+#endif
+
+// ---------------------------------------------------------------------------
 // Public init (called by bb_health_init after the HTTP server is up)
 // ---------------------------------------------------------------------------
 
@@ -202,5 +220,5 @@ bb_err_t bb_health_stack_monitor_init(void)
         }
     }
 
-    return start_monitor();
+    return BB_OK;
 }

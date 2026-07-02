@@ -466,14 +466,21 @@ bool bb_net_health_throttle_decision(bb_net_health_state_t *st, int threshold);
 void bb_net_health_register_health(void);
 
 /**
- * Attach the "net.health" retained SSE topic and start the 5-second
- * evaluation timer.
+ * Attach the "net.health" retained SSE topic and publish an initial
+ * snapshot immediately so SSE clients connecting before the first
+ * evaluator tick receive current state.
  *
- * Must be called in the regular-tier init (after bb_event_routes_init).
- * Publishes an initial snapshot immediately so SSE clients connecting
- * before the first tick receive current state.
+ * Must be called in the regular-tier init (after bb_event_routes_init) and
+ * AFTER bb_net_health_start() has already created the evaluator's cache
+ * mutex — returns BB_ERR_INVALID_STATE otherwise.
  */
 bb_err_t bb_net_health_attach_sse(void);
+
+/**
+ * PRE_HTTP: starts the evaluator (state+timer). No HTTP side effects.
+ * Autostarts when CONFIG_BB_NET_HEALTH_AUTOSTART=y.
+ */
+bb_err_t bb_net_health_start(void);
 
 #endif /* ESP_PLATFORM */
 
