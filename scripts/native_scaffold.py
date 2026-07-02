@@ -459,7 +459,8 @@ COMPONENT_MAP = {
             "platform/host/bb_event_routes/bb_event_routes_host.c",
             "platform/host/bb_event_routes/bb_event_topic_registry.c",
         ],
-        "depends":  ["bb_core", "bb_event", "bb_event_ring", "bb_log", "bb_registry"],
+        "depends":  ["bb_core", "bb_event", "bb_event_ring", "bb_log", "bb_registry",
+                     "bb_arena"],
     },
     "bb_alert": {
         "includes": ["components/bb_alert/include"],

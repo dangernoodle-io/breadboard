@@ -11,7 +11,9 @@
 #include "bb_sse_writer.h"
 #include "bb_timer.h"
 #include "bb_task_registry.h"
+#include "bb_arena.h"
 
+#include <assert.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
@@ -23,15 +25,70 @@
 static const char *TAG = "bb_event_routes";
 
 // ---------------------------------------------------------------------------
-// Static task stacks (CONFIG_BB_EVENT_ROUTES_STATIC_POOL)
-// Pre-allocated per-slot FreeRTOS stacks + TCBs for xTaskCreateStatic.
-// Indexed by client slot to keep the association across connect/disconnect.
+// Static task stacks (CONFIG_BB_EVENT_ROUTES_STATIC_POOL) — B1-478 PR E
+// (redesigned post-review: index-addressed bb_arena array, no bb_pool)
+//
+// Pre-allocated per-client bundle {stack, TCB} for xTaskCreateStatic, as a
+// fixed array carved once from an ESP-IDF-only, SSE-private bb_arena
+// (separate from the portable payload/entry array in
+// bb_event_routes_common.c — StackType_t/StaticTask_t are FreeRTOS types
+// and cannot appear in that portable, host-compiled file). Client slot i
+// (the same index the CAS client-slot loop in bb_event_routes_common.c
+// assigns atomically, recovered here via bb_event_routes_client_slot_index)
+// deterministically owns s_sse_task_bundles[i] for the arena's lifetime —
+// no acquire/release, no free-list. Same fixed BSS reservation as the
+// previous bespoke s_sse_stack/s_sse_tcb arrays.
 // ---------------------------------------------------------------------------
 
 #if CONFIG_BB_EVENT_ROUTES_STATIC_POOL
 #define SSE_TASK_STACK_WORDS (4096 / sizeof(StackType_t))
-static StackType_t  s_sse_stack[CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS][SSE_TASK_STACK_WORDS];
-static StaticTask_t s_sse_tcb[CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS];
+
+typedef struct {
+    StackType_t  stack[SSE_TASK_STACK_WORDS];
+    StaticTask_t tcb;
+} sse_task_bundle_t;
+
+// xTaskCreateStatic requires the stack buffer and TCB to be at least
+// naturally aligned for their respective types; bb_arena_alloc() returns
+// _Alignof(max_align_t)-aligned storage, which is >= both — verify that
+// assumption holds on this target rather than relying on it silently.
+_Static_assert(_Alignof(max_align_t) >= _Alignof(StackType_t) &&
+               _Alignof(max_align_t) >= _Alignof(StaticTask_t),
+               "bb_arena alignment insufficient for FreeRTOS static task storage");
+
+// Documented flat allowance covering bb_arena's internal header struct
+// (private to bb_arena.c) plus max_align_t rounding of the single
+// bb_arena_alloc() call below — see the matching comment in
+// bb_event_routes_common.c. Not a magic constant: the bulk of the buffer is
+// computed from MAX_CLIENTS * sizeof(sse_task_bundle_t).
+#define SSE_TASK_ARENA_HDR_ALLOWANCE_BYTES 128u
+#define SSE_TASK_BUNDLES_BYTES \
+    ((size_t)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS * sizeof(sse_task_bundle_t))
+
+_Static_assert(CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS == 0 ||
+               (SSE_TASK_BUNDLES_BYTES / CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS) == sizeof(sse_task_bundle_t),
+               "SSE task bundle byte count overflowed size_t");
+
+static uint8_t s_sse_task_arena_buf[
+    SSE_TASK_BUNDLES_BYTES + SSE_TASK_ARENA_HDR_ALLOWANCE_BYTES
+] __attribute__((aligned(_Alignof(max_align_t))));
+static bb_arena_t s_sse_task_arena;
+static sse_task_bundle_t *s_sse_task_bundles;  // [MAX_CLIENTS], index == client slot
+
+// Eagerly creates the SSE-private task-bundle arena + fixed bundle array.
+// Called once from bb_event_routes_register_routes_init. The backing buffer
+// is compile-time sized to always fit (see the static asserts above), so
+// both calls are provably unreachable-on-failure — assert() rather than a
+// branch + return, so there is no uncovered error branch to test.
+static void sse_task_bundles_init(void)
+{
+    bb_err_t err = bb_arena_init(&s_sse_task_arena, s_sse_task_arena_buf,
+                                  sizeof(s_sse_task_arena_buf));
+    assert(err == BB_OK);
+    (void)err;  // avoid unused-variable warning when NDEBUG compiles the assert out
+    s_sse_task_bundles = (sse_task_bundle_t *)bb_arena_alloc(s_sse_task_arena, SSE_TASK_BUNDLES_BYTES);
+    assert(s_sse_task_bundles != NULL);
+}
 #endif
 
 // ---------------------------------------------------------------------------
@@ -138,6 +195,10 @@ static void events_cleanup_fn(void *ctx)
         // call failed. Debug-level only; not actionable at runtime.
         bb_log_d(TAG, "sse task deregister: %d", drc);
     }
+    // Static-pool task bundles (stack + TCB) are index-owned by the client
+    // slot (see sse_task_bundles_init doc comment above) — nothing to
+    // release here; freeing the client slot below is what makes the slot
+    // (and its bundle) reusable by the next connection on that index.
     bb_event_routes_client_release(t->client);
     bb_mem_free(t);
 }
@@ -228,10 +289,17 @@ static bb_err_t events_handler(bb_http_request_t *req)
 
 #if CONFIG_BB_EVENT_ROUTES_STATIC_POOL
     {
+        // Index-addressed: client slot `slot` deterministically owns
+        // s_sse_task_bundles[slot] for the arena's lifetime (see
+        // sse_task_bundles_init doc comment above) — no acquire/release, no
+        // free-list. `slot` is bounded 0..MAX_CLIENTS-1 by the CAS
+        // client-slot claim in bb_event_routes_client_acquire_ex, so the
+        // index is always valid here.
+        sse_task_bundle_t *bundle = &s_sse_task_bundles[slot];
         TaskHandle_t th = xTaskCreateStatic(sse_task, task_name,
                                             SSE_TASK_STACK_WORDS, arg, 1,
-                                            s_sse_stack[slot],
-                                            &s_sse_tcb[slot]);
+                                            bundle->stack,
+                                            &bundle->tcb);
         if (!th) {
             bb_mem_free(arg);
             bb_event_routes_client_release(client);
@@ -401,6 +469,9 @@ static bb_err_t bb_event_routes_register_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     bb_event_routes_spiram_init();
+#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL
+    sse_task_bundles_init();
+#endif
     bb_err_t err = bb_event_routes_init(NULL);
     if (err != BB_OK) return err;
     err = bb_http_register_described_route(server, &s_events_route);

@@ -4,4 +4,4 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES bb_event bb_event_ring bb_core
-    PRIV_REQUIRES bb_log bb_registry)
+    PRIV_REQUIRES bb_log bb_registry bb_arena)
