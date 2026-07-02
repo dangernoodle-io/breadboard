@@ -59,7 +59,7 @@ config BB_MQTT_SUSPEND_STOP_ONLY
         bb_mqtt_resume_default() calls esp_mqtt_client_start() only — no
         destroy, no realloc, no NVS reload.
 
-        ONLY safe when bb_heap_arena covers the TLS handshake that follows
+        ONLY safe when bb_arena_tls covers the TLS handshake that follows
         the suspend window.  The ~11 KB residency means the largest_free_block
         improvement is smaller than the full destroy path; use this mode only
         when the arena already reserves enough headroom.
