@@ -134,15 +134,6 @@ static void status_check_ensure_init(void)
     s_status_check_initialized = true;
 }
 
-// Transient fat-stack task: runs one on-demand manifest check then exits.
-static void status_check_task(void *arg)
-{
-    (void)arg;
-    bb_ota_check_now();
-    bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
-    vTaskDelete(NULL);
-}
-
 // GET /api/update/status — delegates to the shared emitter.
 static bb_err_t ota_boot_status_handler(bb_http_request_t *req)
 {
@@ -190,32 +181,26 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
     }
 #endif
 
-    // On single-core (unicore) targets, core 1 does not exist and
-    // xTaskCreatePinnedToCore asserts; fall back to no affinity.
-    // Default core 1: mirrors bb_ota_pull's s_ota_task_core default, freeing
-    // Core 0 for the httpd worker on dual-core targets.
-    int status_task_core = 1;
-    if (status_task_core >= configNUMBER_OF_CORES) {
-        status_task_core = tskNO_AFFINITY;
-    }
-    TaskHandle_t status_chk_task = NULL;
-    if (xTaskCreatePinnedToCore(status_check_task, "ota_status_chk",
-                                BB_HTTP_CLIENT_TASK_STACK, NULL, 1, &status_chk_task,
-                                status_task_core) != pdPASS) {
-        bb_log_e(TAG, "check: task create failed");
-        bb_http_resp_set_status(req, 503);
+    // Delegate to the shared on-demand worker (bb_ota_check_espidf.c) instead
+    // of spawning a dedicated task here — that worker already carries a
+    // correctly sized/prioritized stack (consumer-tunable via
+    // bb_ota_check_set_task_core/priority), avoiding the hardcoded prio-1/
+    // core-1 starvation bug this handler previously had on non-PSRAM boards
+    // where core 1 also hosts other CPU-bound work.
+    if (bb_ota_check_kick() == BB_OK) {
+        bb_http_resp_set_status(req, 202);
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "task_create_failed");
+        bb_http_resp_json_obj_set_str(&obj, "status", "checking");
         bb_http_resp_json_obj_end(&obj);
         return BB_OK;
     }
-    bb_task_registry_register("ota_status_chk", BB_HTTP_CLIENT_TASK_STACK, status_chk_task, NULL, NULL);
 
-    bb_http_resp_set_status(req, 202);
+    bb_log_e(TAG, "check: kick unavailable");
+    bb_http_resp_set_status(req, 503);
     bb_http_json_obj_stream_t obj;
     bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "status", "checking");
+    bb_http_resp_json_obj_set_str(&obj, "error", "check_unavailable");
     bb_http_resp_json_obj_end(&obj);
     return BB_OK;
 }
@@ -531,7 +516,8 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
           "check triggered; poll GET /api/update/status for result" },
         { 503, "application/json",
           "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"}}}",
-          "insufficient heap or task creation failed" },
+          "insufficient heap for the TLS handshake, or check unavailable (bb_ota_check not "
+          "initialized, or a manifest check is already in flight)" },
         { 0 },
     };
     static const bb_route_t s_check_route = {
