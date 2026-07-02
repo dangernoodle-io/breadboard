@@ -252,6 +252,13 @@ typedef struct {
                                  // (B1-486 finding #4) so GET /api/diag/net's recovery_count sums
                                  // point-in-time-consistent operands. Not currently serialized by
                                  // bb_net_health_emit (net.health SSE topic keeps its existing schema).
+    uint32_t roam_count;   // times STA roamed to a different BSSID (bb_wifi_get_roam_count);
+                            // OBSERVE-ONLY (B1-497) — no recovery action is associated with this
+                            // counter. Captured in the same evaluator snapshot as the other
+                            // recovery counters. Not serialized by bb_net_health_emit (net.health
+                            // SSE topic keeps its existing schema) — same precedent as
+                            // no_ip_recoveries; exposed via GET /api/diag/net instead.
+    uint32_t roam_age_s;   // seconds since the last roam event (bb_wifi_get_roam_age_s); 0 if never
 } bb_net_health_status_t;
 
 // Copy the live net-health snapshot (populated by the ESP-IDF evaluator) under

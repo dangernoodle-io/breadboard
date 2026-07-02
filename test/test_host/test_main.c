@@ -756,6 +756,13 @@ void test_bb_wifi_reason_histogram_inject_top_reason(void);
 void test_bb_wifi_reason_histogram_top_injected(void);
 void test_bb_wifi_reason_histogram_top_all_zero(void);
 void test_bb_wifi_reason_histogram_top_null_safe(void);
+// B1-497: roam / BSSID-change counter (observe-only)
+void test_bb_wifi_is_roam_bssid_changed(void);
+void test_bb_wifi_is_roam_same_bssid(void);
+void test_bb_wifi_is_roam_first_connect_not_roam(void);
+void test_bb_wifi_is_roam_null_safe(void);
+void test_bb_wifi_roam_count_default_zero(void);
+void test_bb_wifi_roam_count_test_hook_roundtrip(void);
 
 // Forward declarations from test_manifest.c
 void test_manifest_empty_emits_empty_arrays(void);
@@ -3210,6 +3217,8 @@ void test_bb_pub_wifi_no_longer_has_recovery_count(void);
 // B1-411: restart_sta_count, disconnect_rssi emit fields
 void test_bb_pub_wifi_has_restart_sta_count(void);
 void test_bb_pub_wifi_has_disconnect_rssi(void);
+// B1-497: roam_count / roam_age_s emit field (observe-only)
+void test_bb_pub_wifi_has_roam_count(void);
 // B1-486: reason_histogram moved to /api/diag/net
 void test_bb_pub_wifi_no_longer_has_reason_histogram(void);
 void test_bb_pub_wifi_topic_const_matches_legacy_literal(void);
@@ -4508,6 +4517,12 @@ int main(void) {
     RUN_TEST(test_bb_wifi_reason_histogram_top_injected);
     RUN_TEST(test_bb_wifi_reason_histogram_top_all_zero);
     RUN_TEST(test_bb_wifi_reason_histogram_top_null_safe);
+    RUN_TEST(test_bb_wifi_is_roam_bssid_changed);
+    RUN_TEST(test_bb_wifi_is_roam_same_bssid);
+    RUN_TEST(test_bb_wifi_is_roam_first_connect_not_roam);
+    RUN_TEST(test_bb_wifi_is_roam_null_safe);
+    RUN_TEST(test_bb_wifi_roam_count_default_zero);
+    RUN_TEST(test_bb_wifi_roam_count_test_hook_roundtrip);
 
     // bb_manifest tests
     RUN_TEST(test_manifest_empty_emits_empty_arrays);
@@ -6787,6 +6802,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_wifi_no_longer_has_recovery_count);
     RUN_TEST(test_bb_pub_wifi_has_restart_sta_count);
     RUN_TEST(test_bb_pub_wifi_has_disconnect_rssi);
+    RUN_TEST(test_bb_pub_wifi_has_roam_count);
     RUN_TEST(test_bb_pub_wifi_no_longer_has_reason_histogram);
     RUN_TEST(test_bb_pub_wifi_topic_const_matches_legacy_literal);
 

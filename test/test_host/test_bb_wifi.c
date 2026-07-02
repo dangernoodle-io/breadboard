@@ -202,3 +202,66 @@ void test_bb_wifi_reason_histogram_top_null_safe(void)
     // reaching here without crash is success
     TEST_PASS();
 }
+
+// ---------------------------------------------------------------------------
+// B1-497: bb_wifi_is_roam pure predicate — OBSERVE-ONLY roam/BSSID-change
+// detection. Exercises all three branches of the production STA_CONNECTED
+// handler's roam decision without needing an ESP-IDF event loop.
+// ---------------------------------------------------------------------------
+
+// (a) BSSID changes while associated -> roam.
+void test_bb_wifi_is_roam_bssid_changed(void)
+{
+    uint8_t prior[6] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55};
+    uint8_t next[6]  = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+    TEST_ASSERT_TRUE(bb_wifi_is_roam(prior, next));
+}
+
+// (b) same BSSID reconnect -> not a roam.
+void test_bb_wifi_is_roam_same_bssid(void)
+{
+    uint8_t prior[6] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55};
+    uint8_t next[6]  = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55};
+    TEST_ASSERT_FALSE(bb_wifi_is_roam(prior, next));
+}
+
+// (c) first connect since boot (all-zero prior BSSID) -> not a roam.
+void test_bb_wifi_is_roam_first_connect_not_roam(void)
+{
+    uint8_t prior[6] = {0, 0, 0, 0, 0, 0};
+    uint8_t next[6]  = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+    TEST_ASSERT_FALSE(bb_wifi_is_roam(prior, next));
+}
+
+// NULL pointers must not crash and must report "not a roam".
+void test_bb_wifi_is_roam_null_safe(void)
+{
+    uint8_t bssid[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+    TEST_ASSERT_FALSE(bb_wifi_is_roam(NULL, bssid));
+    TEST_ASSERT_FALSE(bb_wifi_is_roam(bssid, NULL));
+    TEST_ASSERT_FALSE(bb_wifi_is_roam(NULL, NULL));
+}
+
+// ---------------------------------------------------------------------------
+// B1-497: roam_count / roam_age_s getters
+// ---------------------------------------------------------------------------
+
+// Host stub returns 0 by default (no roam yet).
+void test_bb_wifi_roam_count_default_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wifi_get_roam_count());
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wifi_get_roam_age_s());
+}
+
+// Test hook roundtrip: set values, getters return them.
+void test_bb_wifi_roam_count_test_hook_roundtrip(void)
+{
+#ifdef BB_WIFI_TESTING
+    bb_wifi_test_set_roam_count(4);
+    bb_wifi_test_set_roam_age_s(120);
+    TEST_ASSERT_EQUAL_UINT32(4, bb_wifi_get_roam_count());
+    TEST_ASSERT_EQUAL_UINT32(120, bb_wifi_get_roam_age_s());
+    bb_wifi_test_set_roam_count(0);
+    bb_wifi_test_set_roam_age_s(0);
+#endif
+}

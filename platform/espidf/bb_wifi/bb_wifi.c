@@ -81,6 +81,15 @@ static uint8_t s_cached_bssid[6] = {0};
 static int8_t s_cached_rssi = 0;
 static bb_periodic_timer_t s_rssi_refresh_timer = NULL;
 
+// Roam / BSSID-change counter (B1-497) — OBSERVE-ONLY telemetry. Incremented
+// in the STA_CONNECTED handler when the AP's BSSID differs from the
+// previously cached one (roam within the same SSID, or reassociation to a
+// different AP). NOT wired to any recovery action — pure signal for
+// /api/diag/net observability. Protected by s_ap_mux (written alongside
+// s_cached_bssid, read via the accessors below).
+static uint32_t s_roam_count = 0;
+static int64_t  s_last_roam_us = 0;  // 0 = no roam yet (sentinel)
+
 // Lazy ping session for bb_wifi_gateway_reachable.
 // Created once on first use; reused across calls (esp_ping_start re-triggers).
 static esp_ping_handle_t    s_ping_handle = NULL;
@@ -283,6 +292,25 @@ int8_t bb_wifi_get_disconnect_rssi(void)
     return v;
 }
 
+uint32_t bb_wifi_get_roam_count(void)
+{
+    portENTER_CRITICAL(&s_ap_mux);
+    uint32_t v = s_roam_count;
+    portEXIT_CRITICAL(&s_ap_mux);
+    return v;
+}
+
+uint32_t bb_wifi_get_roam_age_s(void)
+{
+    portENTER_CRITICAL(&s_ap_mux);
+    int64_t t = s_last_roam_us;
+    portEXIT_CRITICAL(&s_ap_mux);
+    if (t == 0) return 0;
+    int64_t age_us = (int64_t)bb_timer_now_us() - t;
+    if (age_us < 0) age_us = 0;
+    return (uint32_t)(age_us / 1000000);
+}
+
 void bb_wifi_get_reason_histogram(uint16_t *out, size_t len)
 {
     if (!out || len == 0) return;
@@ -345,6 +373,13 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         if (e) {
             size_t n = e->ssid_len < sizeof(s_cached_ssid) - 1 ? e->ssid_len : sizeof(s_cached_ssid) - 1;
             portENTER_CRITICAL(&s_ap_mux);
+            // Roam detection (B1-497, OBSERVE-ONLY) — must run before the
+            // cached BSSID is overwritten below. Detection only; NO recovery
+            // action is triggered here.
+            if (bb_wifi_is_roam(s_cached_bssid, e->bssid)) {
+                s_roam_count++;
+                s_last_roam_us = (int64_t)bb_timer_now_us();
+            }
             memcpy(s_cached_ssid, e->ssid, n);
             s_cached_ssid[n] = '\0';
             memcpy(s_cached_bssid, e->bssid, sizeof(s_cached_bssid));

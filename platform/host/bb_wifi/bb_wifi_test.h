@@ -18,6 +18,10 @@ void bb_wifi_test_reset_recovery(void);
 void bb_wifi_test_set_restart_sta_count(uint32_t count);
 void bb_wifi_test_set_disconnect_rssi(int8_t rssi);
 
+// Setters for the roam/BSSID-change counter (B1-497, observe-only).
+void bb_wifi_test_set_roam_count(uint32_t count);
+void bb_wifi_test_set_roam_age_s(uint32_t age_s);
+
 // Inject a full 256-entry reason histogram (host only).
 // len entries are copied; remaining buckets are zeroed.
 void bb_wifi_test_set_reason_histogram(const uint16_t *hist, size_t len);
