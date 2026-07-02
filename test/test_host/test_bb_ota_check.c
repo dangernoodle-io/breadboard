@@ -111,6 +111,14 @@ void test_bb_ota_check_init_with_cfg_uses_overrides(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(&cfg));
 }
 
+void test_bb_ota_check_is_initialized_reflects_init_state(void)
+{
+    reset_world();
+    TEST_ASSERT_FALSE(bb_ota_check_is_initialized());
+    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
+    TEST_ASSERT_TRUE(bb_ota_check_is_initialized());
+}
+
 void test_bb_ota_check_get_status_before_init_returns_invalid_state(void)
 {
     reset_world();

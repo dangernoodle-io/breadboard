@@ -42,6 +42,11 @@ extern "C" {
 // twice).
 // Already in the public header.
 
+// True once bb_ota_check_init() has completed successfully. Backs the
+// on-demand kick() / run_blocking() entry guards on ESP-IDF, decoupling them
+// from the (autoregister-gated) periodic timer's s_timer handle.
+bool bb_ota_check_is_initialized(void);
+
 // Synchronous one-shot check. Called by the worker task / bb_timer callback,
 // AND directly by host tests. Performs:
 //   bb_http_client_get -> parser -> semver compare -> publish on transition.

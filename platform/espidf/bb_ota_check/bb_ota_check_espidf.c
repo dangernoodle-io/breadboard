@@ -179,7 +179,7 @@ static void timer_work_fn(void *arg)
 
 bb_err_t bb_ota_check_kick(void)
 {
-    if (!s_timer) return BB_ERR_INVALID_STATE;
+    if (!bb_ota_check_is_initialized()) return BB_ERR_INVALID_STATE;
     try_spawn();
     return BB_OK;
 }
@@ -193,7 +193,7 @@ bb_err_t bb_ota_check_kick(void)
 
 bb_err_t bb_ota_check_run_blocking(uint32_t timeout_ms)
 {
-    if (!s_timer) return BB_ERR_INVALID_STATE;
+    if (!bb_ota_check_is_initialized()) return BB_ERR_INVALID_STATE;
 
     // Sample last_check_us before the kick so we can detect the worker
     // completing by observing it advance (the one-shot task always writes a

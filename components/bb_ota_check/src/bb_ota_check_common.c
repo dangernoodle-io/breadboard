@@ -620,6 +620,11 @@ bb_err_t bb_ota_check_run_one(void)
     }
 }
 
+bool bb_ota_check_is_initialized(void)
+{
+    return s_initialized;
+}
+
 bb_err_t bb_ota_check_now(void)
 {
     if (!s_initialized) return BB_ERR_INVALID_ARG;

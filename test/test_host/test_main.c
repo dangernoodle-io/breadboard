@@ -2538,6 +2538,7 @@ void test_bb_http_client_session_post_tls_error_code_zero_default(void);
 // Forward declarations from test_bb_ota_check.c
 void test_bb_ota_check_init_idempotent(void);
 void test_bb_ota_check_init_with_cfg_uses_overrides(void);
+void test_bb_ota_check_is_initialized_reflects_init_state(void);
 void test_bb_ota_check_get_status_before_init_returns_invalid_state(void);
 void test_bb_ota_check_get_status_null_out_returns_invalid_arg(void);
 void test_bb_ota_check_set_releases_url_validates(void);
@@ -5870,6 +5871,7 @@ int main(void) {
     // bb_ota_check tests
     RUN_TEST(test_bb_ota_check_init_idempotent);
     RUN_TEST(test_bb_ota_check_init_with_cfg_uses_overrides);
+    RUN_TEST(test_bb_ota_check_is_initialized_reflects_init_state);
     RUN_TEST(test_bb_ota_check_get_status_before_init_returns_invalid_state);
     RUN_TEST(test_bb_ota_check_get_status_null_out_returns_invalid_arg);
     RUN_TEST(test_bb_ota_check_set_releases_url_validates);
