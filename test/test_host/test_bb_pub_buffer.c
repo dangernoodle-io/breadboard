@@ -4,6 +4,8 @@
 #include "bb_pub.h"
 #include "bb_nv.h"
 #include "bb_core.h"
+#include "bb_pool.h"
+#include "bb_arena.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -782,4 +784,62 @@ void test_bb_pub_buffer_idle_zero_ticks_disables_reclaim(void)
     bb_pub_buffer_stats(&stats);
     TEST_ASSERT_EQUAL_size_t(1, stats.count);
     TEST_ASSERT_EQUAL_size_t(0, stats.dropped);
+}
+
+// ---------------------------------------------------------------------------
+// Sizing-drift guard (B1-478 PR D review) — bb_pub.c's BB_PUB_RING_POOL_ARENA_BYTES
+// macro hand-rolls the static-BSS arena budget for the ring pool with magic
+// numbers (512 + 64/entry) that duplicate bb_pool's real FIFO layout. If a
+// future bb_pool layout change grows past this hand-rolled bound,
+// bb_pool_create() fails soft on-device (ring_pool_get() returns NULL,
+// store-and-forward silently disabled) with only a log line. This test
+// reconstructs bb_pub's exact ring bb_pool_cfg_t (mirrors bb_pub.c — keep in
+// sync if bb_pub.c's ring sizing ever changes) and asserts the hand-rolled
+// budget still covers bb_pool's actual requirement, so a layout change trips
+// CI instead of shipping silently.
+
+// Mirrors bb_pub.c: BB_PUB_BUFFER_TOPIC_MAX default (no CONFIG override in
+// this test env) and BB_PUB_BUFFER_ENTRY_MAX derivation.
+#define TEST_BB_PUB_BUFFER_TOPIC_MAX 192
+#define TEST_BB_PUB_BUFFER_ENTRY_MAX \
+    (TEST_BB_PUB_BUFFER_TOPIC_MAX + 1 + CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES)
+
+// Mirrors bb_pub.c's BB_PUB_RING_POOL_ARENA_BYTES exactly (512 B pool/arena
+// struct headroom + 64 B per-entry header/alignment overhead + capacity *
+// entry payload). Keep in sync with bb_pub.c if that formula changes.
+#define TEST_BB_PUB_RING_POOL_ARENA_BYTES \
+    (512u + \
+     (size_t)(CONFIG_BB_PUB_BUFFER_MAX_ENTRIES) * 64u + \
+     (size_t)(CONFIG_BB_PUB_BUFFER_MAX_ENTRIES) * (size_t)(TEST_BB_PUB_BUFFER_ENTRY_MAX))
+
+// Scratch buffer mirrors bb_pub.c's real static-BSS s_ring_arena_buf: same
+// size and alignment. bb_arena_init carves BB_ARENA_HDR_SZ off the front, so
+// the bytes actually available to bb_pool_create are less than sizeof(scratch).
+static uint8_t s_scratch[TEST_BB_PUB_RING_POOL_ARENA_BYTES]
+    __attribute__((aligned(_Alignof(max_align_t))));
+
+void test_bb_pub_buffer_ring_arena_budget_covers_pool_requirement(void)
+{
+    bb_pool_cfg_t cfg = {
+        .mode           = BB_POOL_MODE_FIFO,
+        .capacity       = (size_t)CONFIG_BB_PUB_BUFFER_MAX_ENTRIES,
+        .max_slot_bytes = (size_t)TEST_BB_PUB_BUFFER_ENTRY_MAX,
+        .full_policy    = BB_POOL_FULL_EVICT_OLDEST,
+        .name           = "pub",
+    };
+
+    size_t needed = bb_pool_arena_size_needed(&cfg);
+    TEST_ASSERT_GREATER_THAN_size_t(0, needed);
+
+    bb_arena_t arena = NULL;
+    bb_err_t rc = bb_arena_init(&arena, s_scratch, sizeof(s_scratch));
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+
+    size_t available = bb_arena_free_bytes(arena);
+    TEST_ASSERT_TRUE_MESSAGE(available >= needed,
+        "bb_pub's hand-rolled BB_PUB_RING_POOL_ARENA_BYTES budget no longer "
+        "covers bb_pool's actual arena requirement (post header-carve) for "
+        "the ring FIFO cfg — update the sizing constants in bb_pub.c");
+
+    bb_arena_destroy(arena);   /* no-op for caller-supplied buffer; explicit for clarity */
 }
