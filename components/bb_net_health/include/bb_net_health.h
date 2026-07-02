@@ -125,16 +125,15 @@ extern "C" {
 // sink) so a no-route/zombie board that cannot serve HTTP/MQTT still
 // reports its full diagnostic state. OBSERVE-ONLY — neither helper triggers
 // any recovery action.
+//
+// The heartbeat is always compiled in (a few hundred bytes flash, zero
+// heap) — there is no compile-time on/off gate. It is controlled purely at
+// runtime via the dedicated "net_state" log tag's level (emitted from the
+// ESP-IDF evaluator with bb_log_i, distinct from bb_net_health's own TAG so
+// an operator can raise/lower just the heartbeat via
+// esp_log_level_set("net_state", ...) without touching other bb_net_health
+// logs). No reflash is required to toggle it.
 // ---------------------------------------------------------------------------
-
-#ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_NET_HEALTH_LOG_ENABLE
-#    define BB_NET_HEALTH_LOG_ENABLE CONFIG_BB_NET_HEALTH_LOG_ENABLE
-#  endif
-#endif
-#ifndef BB_NET_HEALTH_LOG_ENABLE
-#define BB_NET_HEALTH_LOG_ENABLE 1
-#endif
 
 #ifdef ESP_PLATFORM
 #  ifdef CONFIG_BB_NET_HEALTH_LOG_INTERVAL_S
