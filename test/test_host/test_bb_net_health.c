@@ -1485,6 +1485,89 @@ void test_bb_net_health_emit_has_net_mode_and_discriminator_fields(void)
 }
 
 // ---------------------------------------------------------------------------
+// wifi-drop-log PR: last_session_s serialization (route-fidelity)
+// ---------------------------------------------------------------------------
+
+// Non-zero last_session_s must round-trip through bb_net_health_emit.
+void test_bb_net_health_emit_last_session_s_nonzero(void)
+{
+    bb_net_health_status_t snap = {
+        .state           = BB_NET_STATE_GOOD,
+        .rssi            = -55,
+        .last_session_s  = 3661, // 1h 1m 1s
+    };
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit(obj, &snap);
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+
+    bb_json_t parsed = bb_json_parse(json, strlen(json));
+    bb_json_free_str(json);
+    TEST_ASSERT_NOT_NULL(parsed);
+
+    double lss = 0.0;
+    TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(parsed, "last_session_s", &lss),
+        "last_session_s must be serialized to net.health / GET /api/diag/net");
+    TEST_ASSERT_EQUAL_INT(3661, (int)lss);
+
+    bb_json_free(parsed);
+}
+
+// Zero sentinel (no session has ended yet) must still serialize the field.
+void test_bb_net_health_emit_last_session_s_zero_sentinel(void)
+{
+    bb_net_health_status_t snap = {
+        .state          = BB_NET_STATE_GOOD,
+        .rssi           = -55,
+        .last_session_s = 0,
+    };
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit(obj, &snap);
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+
+    bb_json_t parsed = bb_json_parse(json, strlen(json));
+    bb_json_free_str(json);
+    TEST_ASSERT_NOT_NULL(parsed);
+
+    double lss = 99.0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "last_session_s", &lss));
+    TEST_ASSERT_EQUAL_INT(0, (int)lss);
+
+    bb_json_free(parsed);
+}
+
+// bb_net_health_emit_status (status-only) must NOT emit last_session_s.
+void test_bb_net_health_emit_status_no_last_session_s(void)
+{
+    bb_net_health_status_t snap = {
+        .state          = BB_NET_STATE_GOOD,
+        .last_session_s = 42,
+    };
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit_status(obj, &snap);
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+
+    bb_json_t parsed = bb_json_parse(json, strlen(json));
+    bb_json_free_str(json);
+    TEST_ASSERT_NOT_NULL(parsed);
+
+    TEST_ASSERT_NULL(bb_json_obj_get_item(parsed, "last_session_s"));
+
+    bb_json_free(parsed);
+}
+
+// ---------------------------------------------------------------------------
 // bb_net_health_classify_heap — pure bucket classifier (B1-439)
 // ---------------------------------------------------------------------------
 

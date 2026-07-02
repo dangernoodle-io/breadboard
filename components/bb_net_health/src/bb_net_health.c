@@ -228,6 +228,7 @@ void bb_net_health_emit(bb_json_t obj, const void *snap_v)
     bb_json_obj_set_int(obj, "no_ip_recoveries",       (int64_t)snap->no_ip_recoveries);
     bb_json_obj_set_int(obj, "roam_count",             (int64_t)snap->roam_count);
     bb_json_obj_set_int(obj, "roam_age_s",             (int64_t)snap->roam_age_s);
+    bb_json_obj_set_int(obj, "last_session_s",         (int64_t)snap->last_session_s);
     bb_json_obj_set_string(obj, "net_mode",            bb_net_mode_str(snap->net_mode));
     bb_json_obj_set_bool  (obj, "associated",          snap->associated);
     bb_json_obj_set_bool  (obj, "has_ip",              snap->has_ip);

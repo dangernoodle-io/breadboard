@@ -91,6 +91,36 @@ bool bb_wifi_is_roam(const uint8_t prior_bssid[6], const uint8_t new_bssid[6])
     return memcmp(prior_bssid, new_bssid, 6) != 0;
 }
 
+// Human-readable name for a WiFi disconnect reason code (pure, host +
+// device). Covers the standard esp_wifi reason codes most commonly seen in
+// the field plus the three breadboard sentinels. Deliberately does NOT
+// #include esp_wifi_types.h (this file compiles on host too) — the numeric
+// literals below are the standard esp_wifi WIFI_REASON_* values, called out
+// by name in each comment. Fully reentrant/thread-safe — every branch
+// returns a static string literal (no shared mutable buffer); the numeric
+// reason code is already shown by every caller via `reason=%u`, so the
+// unmapped-code branch returns the fixed literal "other" rather than
+// formatting the code into a string.
+const char *bb_wifi_disc_reason_str(uint8_t reason)
+{
+    switch (reason) {
+    case 0:   return "unknown";
+    case 2:   return "auth_expire";              // WIFI_REASON_AUTH_EXPIRE
+    case 3:   return "auth_leave";                // WIFI_REASON_AUTH_LEAVE
+    case 4:   return "disassoc_inactivity";       // WIFI_REASON_DISASSOC_DUE_TO_INACTIVITY
+    case 15:  return "4way_handshake_timeout";    // WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT
+    case 200: return "beacon_timeout";            // WIFI_REASON_BEACON_TIMEOUT
+    case 201: return "no_ap_found";               // WIFI_REASON_NO_AP_FOUND
+    case 203: return "assoc_fail";                // WIFI_REASON_ASSOC_FAIL
+    case 204: return "handshake_timeout";         // WIFI_REASON_HANDSHAKE_TIMEOUT
+    case 205: return "connection_fail";           // WIFI_REASON_CONNECTION_FAIL
+    case BB_WIFI_REASON_BB_LOST_IP:        return "bb_lost_ip";
+    case BB_WIFI_REASON_BB_EGRESS_DEAD:    return "bb_egress_dead";
+    case BB_WIFI_REASON_BB_NO_IP_WATCHDOG: return "bb_no_ip_watchdog";
+    default:  return "other";
+    }
+}
+
 // Emit status-only wifi fields — ssid/bssid/ip/connected.
 // No numeric fields; this is the SSOT for the /api/health "network" section (TA-505).
 void bb_wifi_emit_status(bb_json_t obj)

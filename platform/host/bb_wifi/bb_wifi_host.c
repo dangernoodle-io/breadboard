@@ -20,6 +20,7 @@ static int8_t s_test_disconnect_rssi = INT8_MIN;
 static uint16_t s_test_reason_histogram[256];
 static uint32_t s_test_roam_count = 0;
 static uint32_t s_test_roam_age_s = 0;
+static uint32_t s_test_last_session_s = 0;
 
 void bb_wifi_test_set_has_ip(bool has_ip)
 {
@@ -72,6 +73,11 @@ void bb_wifi_test_set_roam_count(uint32_t count)
 void bb_wifi_test_set_roam_age_s(uint32_t age_s)
 {
     s_test_roam_age_s = age_s;
+}
+
+void bb_wifi_test_set_last_session_s(uint32_t session_s)
+{
+    s_test_last_session_s = session_s;
 }
 
 void bb_wifi_test_set_reason_histogram(const uint16_t *hist, size_t len)
@@ -248,6 +254,15 @@ uint32_t bb_wifi_get_roam_age_s(void)
 {
 #ifdef BB_WIFI_TESTING
     return s_test_roam_age_s;
+#else
+    return 0;
+#endif
+}
+
+uint32_t bb_wifi_get_last_session_s(void)
+{
+#ifdef BB_WIFI_TESTING
+    return s_test_last_session_s;
 #else
     return 0;
 #endif
