@@ -5,6 +5,8 @@
 #include "bb_net_health.h"
 #include "bb_json.h"
 #include <stddef.h>
+#include <stdio.h>
+#include <inttypes.h>
 
 // Heap threshold sanity: CRITICAL must be below LOW or the CRITICAL bucket is
 // unreachable (classify_heap would return LOW before CRITICAL).
@@ -251,4 +253,63 @@ void bb_net_health_emit(bb_json_t obj, const void *snap_v)
         bb_json_obj_set_number(http, "last_status",     (double)snap->http_last_status);
         bb_json_obj_set_obj(obj, "http", http);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic-state log heartbeat helpers (KB#556) — pure, host-testable.
+// ---------------------------------------------------------------------------
+
+bool bb_net_health_should_log(int64_t now_us, int64_t last_log_us,
+                               bb_net_mode_t mode, bb_net_mode_t last_mode,
+                               uint32_t interval_s)
+{
+    // Edge: any net_mode transition logs immediately, regardless of interval.
+    if (mode != last_mode) {
+        return true;
+    }
+
+    // Periodic heartbeat: log once interval_s has elapsed since the last log
+    // line, so a sustained (unchanging) state keeps announcing itself.
+    int64_t elapsed_us = now_us - last_log_us;
+    if (elapsed_us < 0) {
+        elapsed_us = 0; // guard against a non-monotonic clock source
+    }
+    int64_t interval_us = (int64_t)interval_s * 1000000LL;
+    return elapsed_us >= interval_us;
+}
+
+int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap)
+{
+    if (!s || !buf || cap <= 0) {
+        return 0;
+    }
+
+    // Critical-first ordering: nm/ip/ip_ok/assoc/rssi (the fields needed to
+    // diagnose a zombie board) come first so truncation degrades gracefully
+    // — a truncated line always keeps net_mode + ip. The trailing counters
+    // are also available on GET /api/diag/net, so losing them to truncation
+    // is acceptable.
+    int n = snprintf(buf, (size_t)cap,
+        "nm=%s ip=%s ip_ok=%d assoc=%d rssi=%d sess=%" PRIu32
+        " dr=%" PRIu32 " roam=%" PRIu32 " no_ip=%" PRIu32 " lost_ip=%" PRIu32
+        " egress=%" PRIu32 " retry=%d restart=%" PRIu32 " up=%" PRIu32,
+        bb_net_mode_str(s->net_mode),
+        s->ip,
+        (int)s->has_ip,
+        (int)s->associated,
+        (int)s->rssi,
+        s->last_session_s,
+        s->last_disconnect_reason,
+        s->roam_count,
+        s->no_ip_recoveries,
+        s->lost_ip_recoveries,
+        s->egress_dead_recoveries,
+        s->retry_count,
+        s->restart_sta_count,
+        s->uptime_s);
+
+    // snprintf truncates safely on its own (never writes past cap) and always
+    // null-terminates when cap > 0; n may exceed cap-1 (the "would have
+    // written" length) — that is expected snprintf semantics, not a bug.
+    return n;
 }

@@ -1655,3 +1655,184 @@ void test_bb_net_health_set_heap_state_roundtrip(void)
     bb_net_health_set_heap_state(BB_HEAP_STATE_OK);
     TEST_ASSERT_EQUAL_INT(BB_HEAP_STATE_OK, bb_net_health_heap_state());
 }
+
+// ---------------------------------------------------------------------------
+// bb_net_health_should_log — diagnostic-state log heartbeat rate limiter
+// (KB#556). Pure; every arm covered.
+// ---------------------------------------------------------------------------
+
+// mode changed -> log immediately, even if interval has not elapsed.
+void test_bb_net_health_should_log_mode_changed(void)
+{
+    bool r = bb_net_health_should_log(/*now_us=*/1000, /*last_log_us=*/999,
+                                       BB_NET_MODE_NO_IP, BB_NET_MODE_OK,
+                                       /*interval_s=*/60);
+    TEST_ASSERT_TRUE(r);
+}
+
+// mode unchanged, interval elapsed -> log.
+void test_bb_net_health_should_log_interval_elapsed(void)
+{
+    int64_t interval_us = 60LL * 1000000LL;
+    bool r = bb_net_health_should_log(/*now_us=*/interval_us, /*last_log_us=*/0,
+                                       BB_NET_MODE_OK, BB_NET_MODE_OK,
+                                       /*interval_s=*/60);
+    TEST_ASSERT_TRUE(r);
+}
+
+// mode unchanged, interval not yet elapsed -> do not log.
+void test_bb_net_health_should_log_neither(void)
+{
+    bool r = bb_net_health_should_log(/*now_us=*/1000000, /*last_log_us=*/0,
+                                       BB_NET_MODE_OK, BB_NET_MODE_OK,
+                                       /*interval_s=*/60);
+    TEST_ASSERT_FALSE(r);
+}
+
+// mode changed AND interval elapsed -> still log (edge wins, no double logic).
+void test_bb_net_health_should_log_both(void)
+{
+    int64_t interval_us = 60LL * 1000000LL;
+    bool r = bb_net_health_should_log(/*now_us=*/interval_us + 5, /*last_log_us=*/0,
+                                       BB_NET_MODE_NOT_ASSOCIATED, BB_NET_MODE_OK,
+                                       /*interval_s=*/60);
+    TEST_ASSERT_TRUE(r);
+}
+
+// Non-monotonic clock guard: now_us < last_log_us on an unchanged mode must
+// not log (elapsed clamped to 0, never negative-elapsed >= interval).
+void test_bb_net_health_should_log_clock_went_backwards(void)
+{
+    bool r = bb_net_health_should_log(/*now_us=*/0, /*last_log_us=*/5000,
+                                       BB_NET_MODE_OK, BB_NET_MODE_OK,
+                                       /*interval_s=*/60);
+    TEST_ASSERT_FALSE(r);
+}
+
+// ---------------------------------------------------------------------------
+// bb_net_health_format_log — compact key=val diagnostic-state line.
+// ---------------------------------------------------------------------------
+
+static bb_net_health_status_t sample_status_for_log(void)
+{
+    bb_net_health_status_t s;
+    memset(&s, 0, sizeof(s));
+    s.net_mode                = BB_NET_MODE_NO_IP;
+    s.associated               = true;
+    s.has_ip                   = false;
+    s.rssi                     = -72;
+    s.last_disconnect_reason   = 8; // esp_wifi WIFI_REASON_ASSOC_LEAVE-ish
+    s.last_session_s           = 1234;
+    s.roam_count                = 3;
+    s.no_ip_recoveries          = 2;
+    s.lost_ip_recoveries        = 1;
+    s.egress_dead_recoveries    = 0;
+    s.retry_count                = 5;
+    s.restart_sta_count          = 4;
+    s.uptime_s                   = 9999;
+    strncpy(s.ip, "192.168.1.42", sizeof(s.ip) - 1);
+    return s;
+}
+
+// NULL / zero-cap safety.
+void test_bb_net_health_format_log_null_status(void)
+{
+    char buf[64];
+    TEST_ASSERT_EQUAL_INT(0, bb_net_health_format_log(NULL, buf, sizeof(buf)));
+}
+
+void test_bb_net_health_format_log_null_buf(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    TEST_ASSERT_EQUAL_INT(0, bb_net_health_format_log(&s, NULL, 64));
+}
+
+void test_bb_net_health_format_log_zero_cap(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    char buf[64];
+    TEST_ASSERT_EQUAL_INT(0, bb_net_health_format_log(&s, buf, 0));
+}
+
+// Representative status -> key fields present and correct.
+void test_bb_net_health_format_log_fields_present(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    char buf[256];
+    int n = bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_GREATER_THAN_INT(0, n);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "nm=no_ip") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "assoc=1") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "ip_ok=0") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "rssi=-72") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "dr=8") != NULL, buf);
+    // Reason NAME must NOT appear — heartbeat carries only the code; the
+    // per-drop event carries the human-readable name.
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "dr=8(") == NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "sess=1234") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "roam=3") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "no_ip=2") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "lost_ip=1") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "egress=0") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "retry=5") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "restart=4") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "up=9999") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "ip=192.168.1.42") != NULL, buf);
+}
+
+// net_mode string correct across all three buckets.
+void test_bb_net_health_format_log_net_mode_ok(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.net_mode = BB_NET_MODE_OK;
+    char buf[256];
+    bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "nm=ok") != NULL, buf);
+}
+
+void test_bb_net_health_format_log_net_mode_not_associated(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.net_mode = BB_NET_MODE_NOT_ASSOCIATED;
+    char buf[256];
+    bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "nm=not_associated") != NULL, buf);
+}
+
+// Truncation safety: a tiny cap must never overflow buf and must still
+// null-terminate.
+void test_bb_net_health_format_log_truncation_safe(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    char buf[8];
+    memset(buf, 0x7F, sizeof(buf)); // sentinel fill to detect any overrun
+    int n = bb_net_health_format_log(&s, buf, sizeof(buf));
+    // snprintf "would have written" length exceeds the tiny cap.
+    TEST_ASSERT_GREATER_OR_EQUAL_INT((int)sizeof(buf), n);
+    // Always null-terminated within cap (snprintf guarantee) — no overrun of
+    // the caller-supplied buffer regardless of the "would have written"
+    // length reported above.
+    TEST_ASSERT_EQUAL_INT(0, buf[sizeof(buf) - 1]);
+}
+
+// Critical-first ordering: nm/ip/ip_ok/assoc/rssi must precede the trailing
+// counters so a truncated line (cap between the two) still carries net_mode
+// and ip — the fields needed to diagnose a zombie board over the log
+// channel.
+void test_bb_net_health_format_log_critical_first_order(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    char buf[256];
+    bb_net_health_format_log(&s, buf, sizeof(buf));
+    const char *p_nm    = strstr(buf, "nm=");
+    const char *p_ip    = strstr(buf, "ip=");
+    const char *p_roam  = strstr(buf, "roam=");
+    const char *p_up    = strstr(buf, "up=");
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_nm, buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_ip, buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_roam, buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_up, buf);
+    TEST_ASSERT_TRUE_MESSAGE(p_nm < p_ip, buf);
+    TEST_ASSERT_TRUE_MESSAGE(p_ip < p_roam, buf);
+    TEST_ASSERT_TRUE_MESSAGE(p_roam < p_up, buf);
+}

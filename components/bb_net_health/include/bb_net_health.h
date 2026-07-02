@@ -115,6 +115,37 @@ extern "C" {
 #endif
 
 // ---------------------------------------------------------------------------
+// Diagnostic-state log heartbeat (observe-only telemetry-over-logs, KB#556).
+//
+// bb_net_health_should_log / bb_net_health_format_log back a structured
+// bb_log_i() line emitted from the ESP-IDF evaluator (platform/espidf/
+// bb_net_health/bb_net_health_espidf.c) each cycle where net_mode changes
+// (immediate) or the periodic interval elapses (throttled heartbeat). The
+// line rides the existing "log" bb_event topic (serial + future UDP log
+// sink) so a no-route/zombie board that cannot serve HTTP/MQTT still
+// reports its full diagnostic state. OBSERVE-ONLY — neither helper triggers
+// any recovery action.
+// ---------------------------------------------------------------------------
+
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_NET_HEALTH_LOG_ENABLE
+#    define BB_NET_HEALTH_LOG_ENABLE CONFIG_BB_NET_HEALTH_LOG_ENABLE
+#  endif
+#endif
+#ifndef BB_NET_HEALTH_LOG_ENABLE
+#define BB_NET_HEALTH_LOG_ENABLE 1
+#endif
+
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_NET_HEALTH_LOG_INTERVAL_S
+#    define BB_NET_HEALTH_LOG_INTERVAL_S CONFIG_BB_NET_HEALTH_LOG_INTERVAL_S
+#  endif
+#endif
+#ifndef BB_NET_HEALTH_LOG_INTERVAL_S
+#define BB_NET_HEALTH_LOG_INTERVAL_S 60
+#endif
+
+// ---------------------------------------------------------------------------
 // Heap state
 // ---------------------------------------------------------------------------
 
@@ -299,6 +330,15 @@ typedef struct {
     bb_net_mode_t net_mode; // WiFi discrimination mode (bb_net_health_classify_mode); OBSERVE-ONLY
     bool     associated;    // true iff STA is L2-associated (bb_wifi_is_associated)
     bool     has_ip;        // true iff STA has an IP (bb_wifi_has_ip)
+    // --- Log-heartbeat-only fields (KB#556) — sourced from data the
+    // evaluator already fetches each cycle (bb_wifi_info_t / bb_wifi
+    // counters); NOT serialized by bb_net_health_emit (net.health SSE
+    // topic keeps its existing schema), consumed only by
+    // bb_net_health_format_log. ---
+    char     ip[16];             // dotted-quad IPv4 (bb_wifi_info_t.ip), "0.0.0.0" if no IP.
+    int      retry_count;        // STA retry attempts since last connect (bb_wifi_info_t.retry_count).
+    uint32_t restart_sta_count;  // bb_wifi_get_restart_sta_count() — cumulative recovery restarts.
+    uint32_t uptime_s;           // bb_clock_now_ms64()/1000 at evaluator snapshot time.
 } bb_net_health_status_t;
 
 // Copy the live net-health snapshot (populated by the ESP-IDF evaluator) under
@@ -306,6 +346,54 @@ typedef struct {
 // has initialized (then *out is left untouched). *out fields are otherwise the
 // last evaluated values (zero-init state=GOOD before the first eval).
 bb_err_t bb_net_health_get_status(bb_net_health_status_t *out);
+
+// ---------------------------------------------------------------------------
+// Diagnostic-state log heartbeat helpers — pure, host-testable (KB#556).
+// ---------------------------------------------------------------------------
+
+/**
+ * Decide whether the evaluator should emit a heartbeat log line this cycle.
+ *
+ * Returns true when EITHER:
+ *  - mode != last_mode (a net_mode transition — logged immediately, ignoring
+ *    interval_s), OR
+ *  - now_us - last_log_us >= interval_s (periodic heartbeat, so a sustained
+ *    zombie state keeps announcing itself).
+ *
+ * Pure — no side effects, no I/O. Caller owns and updates last_log_us /
+ * last_mode across calls.
+ */
+bool bb_net_health_should_log(int64_t now_us, int64_t last_log_us,
+                               bb_net_mode_t mode, bb_net_mode_t last_mode,
+                               uint32_t interval_s);
+
+/**
+ * Format a compact key=val diagnostic-state line from a net-health snapshot
+ * into buf. Fields are ordered critical-first (nm, ip, ip_ok, assoc, rssi,
+ * sess, dr) so the line degrades gracefully under truncation against the
+ * shared log pipeline caps (LOG_STREAM_LINE_MAX=192; the "log" bb_event
+ * forwarder msgbuf=168, platform/espidf/bb_log/bb_log_event.c). Worst case
+ * (max-length "255.255.255.255" ip, max uint32 counters) is ~212 bytes —
+ * still exceeds both caps, but only the trailing counters (roam= onward)
+ * are at risk: the critical-first prefix (nm/ip/ip_ok/assoc/rssi/sess/dr)
+ * is ~92 bytes worst case, comfortably under the 168-byte forwarder cap, so
+ * a truncated line always retains net_mode + ip — the fields needed to
+ * diagnose a zombie board. The trailing counters are also available on
+ * GET /api/diag/net, so losing them to truncation is acceptable. Always
+ * null-terminates when cap > 0; truncates safely (never overflows buf)
+ * when the formatted line would exceed cap.
+ *
+ * Fields (in emitted order): net_mode, ip, has_ip, associated, rssi,
+ * session_s (last_session_s), disc_reason (code only — the per-drop log
+ * event carries the human-readable name via bb_wifi_disc_reason_str),
+ * roam_count, no_ip_recoveries, lost_ip_recoveries, egress_dead_recoveries,
+ * retry_count, restart_sta_count, uptime_s. gateway_reachable is
+ * intentionally omitted (not yet sampled by the evaluator).
+ *
+ * Pure — no ESP-IDF dependency. Returns the number of bytes that would have
+ * been written (snprintf semantics), or 0 if s or buf is NULL or cap <= 0.
+ */
+int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap);
 
 // ---------------------------------------------------------------------------
 // JSON serializer — single builder used by all three emitters (REST/SSE/pub).
