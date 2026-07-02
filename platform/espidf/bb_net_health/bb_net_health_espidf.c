@@ -41,6 +41,13 @@ extern void bb_net_health_set_heap_state(bb_heap_state_t state);
 
 static const char *TAG = "bb_net_health";
 
+// Dedicated tag for the diagnostic-state log heartbeat (KB#556), distinct
+// from TAG above, so an operator can raise/lower just the heartbeat via
+// esp_log_level_set("net_state", ...) without touching other bb_net_health
+// logs. The heartbeat is always compiled in; runtime level is the only
+// on/off control (default INFO = visible).
+static const char *LOG_TAG_NETSTATE = "net_state";
+
 #define BB_NET_HEALTH_TOPIC "net.health"
 #define BB_NET_HEALTH_EVAL_PERIOD_US ((uint64_t)CONFIG_BB_NET_HEALTH_EVAL_PERIOD_S * 1000000ULL)
 
@@ -442,24 +449,28 @@ static void eval_work_fn(void *arg)
         s_last_published_throttled = currently_throttled;
     }
 
-#if BB_NET_HEALTH_LOG_ENABLE
     // Diagnostic-state log heartbeat (KB#556, observe-only): emit a
     // structured line on every net_mode transition (immediate) or every
     // BB_NET_HEALTH_LOG_INTERVAL_S seconds (throttled periodic heartbeat),
     // independent of whether the SSE snapshot above published. Rides the
     // "log" bb_event topic (serial + future UDP log sink) so a no-route/
     // zombie board that cannot serve HTTP/MQTT still reports full state.
+    // Always compiled in; runtime-controlled via the "net_state" tag's log
+    // level. esp_log_level_get() gates the format_log snprintf work so a
+    // suppressed heartbeat (tag level below INFO) costs ~nothing beyond the
+    // should_log rate-limit check.
     int64_t now_us = bb_timer_now_us();
     if (bb_net_health_should_log(now_us, s_last_log_us, snap.net_mode,
                                   s_last_logged_mode,
                                   (uint32_t)BB_NET_HEALTH_LOG_INTERVAL_S)) {
-        char line[224];
-        bb_net_health_format_log(&snap, line, sizeof(line));
-        bb_log_i(TAG, "%s", line);
         s_last_log_us      = now_us;
         s_last_logged_mode = snap.net_mode;
+        if (esp_log_level_get(LOG_TAG_NETSTATE) >= ESP_LOG_INFO) {
+            char line[224];
+            bb_net_health_format_log(&snap, line, sizeof(line));
+            bb_log_i(LOG_TAG_NETSTATE, "%s", line);
+        }
     }
-#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -624,17 +635,19 @@ bb_err_t bb_net_health_attach_sse(void)
         s_last_published_warn      = out.early_warning;
         s_last_published_throttled = false;
 
-#if BB_NET_HEALTH_LOG_ENABLE
         // Initial heartbeat: sentinel s_last_logged_mode guarantees this
         // always logs (mode transition from "never logged"), so a
-        // no-route/zombie board reports diagnostic state from T=0.
+        // no-route/zombie board reports diagnostic state from T=0. Always
+        // compiled in; runtime-controlled via the "net_state" tag's log
+        // level (see eval_work_fn for the gating rationale).
         int64_t now_us = bb_timer_now_us();
-        char line[224];
-        bb_net_health_format_log(&snap, line, sizeof(line));
-        bb_log_i(TAG, "%s", line);
         s_last_log_us      = now_us;
         s_last_logged_mode = snap.net_mode;
-#endif
+        if (esp_log_level_get(LOG_TAG_NETSTATE) >= ESP_LOG_INFO) {
+            char line[224];
+            bb_net_health_format_log(&snap, line, sizeof(line));
+            bb_log_i(LOG_TAG_NETSTATE, "%s", line);
+        }
     }
 
     // Start the 5-second periodic evaluator.
