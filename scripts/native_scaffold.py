@@ -599,6 +599,11 @@ COMPONENT_MAP = {
         "sources":  ["components/bb_sub_mqtt/src/bb_sub_mqtt.c"],
         "depends":  ["bb_core", "bb_sub", "bb_mqtt", "bb_nv", "bb_log", "bb_init"],
     },
+    "bb_udp_frame": {
+        "includes": ["components/bb_udp_frame/include"],
+        "sources":  ["components/bb_udp_frame/src/bb_udp_frame.c"],
+        "depends":  ["bb_core"],
+    },
 }
 
 
