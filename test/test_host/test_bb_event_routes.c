@@ -475,7 +475,8 @@ void test_bb_event_routes_drain_truncated_falls_back_to_safe_frame(void)
     bb_event_routes_client_release(c);
 }
 
-/* Calloc-fail injection: first calloc inside client_acquire fails. */
+/* Calloc-fail injection for the lazy-heap SSE pool (B1-491): the pool is
+ * created via a single s_calloc call on the FIRST client acquire. */
 static int s_route_calloc_fail_at = -1;
 static int s_route_calloc_calls = 0;
 static void *route_failing_calloc(size_t n, size_t sz)
@@ -484,7 +485,24 @@ static void *route_failing_calloc(size_t n, size_t sz)
     return calloc(n, sz);
 }
 
-void test_bb_event_routes_client_acquire_entries_calloc_fails(void)
+/* Lazy-heap pool: not created until the first client acquire. */
+void test_bb_event_routes_pool_not_created_until_first_acquire(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(&small_cfg);
+
+    TEST_ASSERT_FALSE(bb_event_routes_pool_created_for_test());
+
+    bb_event_routes_client_t *c = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire(&c));
+    TEST_ASSERT_TRUE(bb_event_routes_pool_created_for_test());
+
+    bb_event_routes_client_release(c);
+}
+
+/* Lazy-heap pool alloc failure: fail-soft, retryable on next connect. */
+void test_bb_event_routes_pool_alloc_fails_returns_no_space(void)
 {
     setup_sync_mode();
     reset_world();
@@ -496,26 +514,43 @@ void test_bb_event_routes_client_acquire_entries_calloc_fails(void)
 
     bb_event_routes_client_t *c = NULL;
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_event_routes_client_acquire(&c));
+    TEST_ASSERT_FALSE(bb_event_routes_pool_created_for_test());
 
     bb_event_routes_set_allocator(NULL, NULL);
     s_route_calloc_fail_at = -1;
+
+    /* Retry after the transient failure clears — no crash, pool now created. */
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire(&c));
+    TEST_ASSERT_TRUE(bb_event_routes_pool_created_for_test());
+    bb_event_routes_client_release(c);
 }
 
-void test_bb_event_routes_client_acquire_payload_calloc_fails(void)
+/* Mutex-guarded idempotency (B1-492): repeated acquire/release cycles must
+ * still create the SSE pool exactly once. True concurrent racing on the new
+ * s_sse_pool_mtx isn't host-testable (single-threaded host suite), but this
+ * confirms the guarded ensure() still returns the same pool and never
+ * re-allocates across many sequential "connect" calls. */
+void test_bb_event_routes_pool_ensure_idempotent_across_repeated_acquires(void)
 {
     setup_sync_mode();
     reset_world();
     bb_event_routes_init(&small_cfg);
 
-    s_route_calloc_fail_at = 1;  /* second alloc */
     s_route_calloc_calls = 0;
     bb_event_routes_set_allocator(route_failing_calloc, free);
 
-    bb_event_routes_client_t *c = NULL;
-    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_event_routes_client_acquire(&c));
+    for (int i = 0; i < 5; i++) {
+        bb_event_routes_client_t *c = NULL;
+        TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_client_acquire(&c));
+        TEST_ASSERT_TRUE(bb_event_routes_pool_created_for_test());
+        bb_event_routes_client_release(c);
+    }
+
+    /* Exactly one calloc call total (the first-ever ensure): the pool arena
+     * block, allocated once, never re-allocated by subsequent acquires. */
+    TEST_ASSERT_EQUAL(1, s_route_calloc_calls);
 
     bb_event_routes_set_allocator(NULL, NULL);
-    s_route_calloc_fail_at = -1;
 }
 
 /* Ring attach failure: leverage bb_event_ring's allocator to fail. */

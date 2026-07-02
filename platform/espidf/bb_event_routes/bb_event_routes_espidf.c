@@ -15,6 +15,7 @@
 
 #include <assert.h>
 #include <inttypes.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -25,8 +26,7 @@
 static const char *TAG = "bb_event_routes";
 
 // ---------------------------------------------------------------------------
-// Static task stacks (CONFIG_BB_EVENT_ROUTES_STATIC_POOL) — B1-478 PR E
-// (redesigned post-review: index-addressed bb_arena array, no bb_pool)
+// SSE writer task stacks (B1-478 PR E, heap-backed-by-default per B1-491)
 //
 // Pre-allocated per-client bundle {stack, TCB} for xTaskCreateStatic, as a
 // fixed array carved once from an ESP-IDF-only, SSE-private bb_arena
@@ -36,11 +36,25 @@ static const char *TAG = "bb_event_routes";
 // (the same index the CAS client-slot loop in bb_event_routes_common.c
 // assigns atomically, recovered here via bb_event_routes_client_slot_index)
 // deterministically owns s_sse_task_bundles[i] for the arena's lifetime —
-// no acquire/release, no free-list. Same fixed BSS reservation as the
-// previous bespoke s_sse_stack/s_sse_tcb arrays.
+// no acquire/release, no free-list.
+//
+// CONFIG_BB_EVENT_ROUTES_POOL_STATIC selects the arena's *backing* (see the
+// matching comment in bb_event_routes_common.c):
+//   n (default) — sse_task_bundles_ensure() lazily allocates a heap arena
+//     (bb_arena_init_heap, SPIRAM-preferred) on the FIRST SSE client
+//     connect. A failed allocation fails soft — the connection is rejected
+//     (same 500 path the pre-existing xTaskCreateStatic-failure branch
+//     already returns) and retried on the next connect; no crash. The
+//     block is never freed once allocated: a live SSE task can own a stack
+//     in this arena at any time, and freeing a stack out from under a task
+//     that has not finished exiting is a use-after-free (B1-484 /
+//     PR-E-CRITICAL) — one standing heap allocation for the process
+//     lifetime is the safe trade, not idle-reclaim.
+//   y — the arena is carved eagerly from a permanent static-BSS buffer at
+//     bb_event_routes_register_routes_init() time (unchanged PR E
+//     behavior).
 // ---------------------------------------------------------------------------
 
-#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL
 #define SSE_TASK_STACK_WORDS (4096 / sizeof(StackType_t))
 
 typedef struct {
@@ -69,27 +83,82 @@ _Static_assert(CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS == 0 ||
                (SSE_TASK_BUNDLES_BYTES / CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS) == sizeof(sse_task_bundle_t),
                "SSE task bundle byte count overflowed size_t");
 
+// Static-BSS backing buffer — only used for the POOL_STATIC=y path.
+#if CONFIG_BB_EVENT_ROUTES_POOL_STATIC
 static uint8_t s_sse_task_arena_buf[
     SSE_TASK_BUNDLES_BYTES + SSE_TASK_ARENA_HDR_ALLOWANCE_BYTES
 ] __attribute__((aligned(_Alignof(max_align_t))));
-static bb_arena_t s_sse_task_arena;
-static sse_task_bundle_t *s_sse_task_bundles;  // [MAX_CLIENTS], index == client slot
+#endif
 
-// Eagerly creates the SSE-private task-bundle arena + fixed bundle array.
-// Called once from bb_event_routes_register_routes_init. The backing buffer
-// is compile-time sized to always fit (see the static asserts above), so
-// both calls are provably unreachable-on-failure — assert() rather than a
-// branch + return, so there is no uncovered error branch to test.
-static void sse_task_bundles_init(void)
+static bb_arena_t s_sse_task_arena;
+static sse_task_bundle_t *s_sse_task_bundles;  // [MAX_CLIENTS], index == client slot; NULL until created
+
+// Dedicated leaf mutex guarding ONLY the sse_task_bundles_ensure()
+// first-alloc critical section below (portable POSIX pthread — ESP-IDF
+// ships a pthread layer; mirrors bb_arena_tls's s_arena_mtx pattern and the
+// sibling s_sse_pool_mtx in bb_event_routes_common.c). Separate mutex from
+// s_sse_pool_mtx: distinct global state (s_sse_task_bundles vs
+// s_sse_bundles), distinct translation units, no ordering interaction
+// between them. sse_task_bundles_ensure() is called only from
+// events_handler() (before any bb_event_routes lock is taken — the client
+// has already been fully acquired via bb_event_routes_client_acquire_ex(),
+// which releases s_topics_lock before returning) and from
+// bb_event_routes_register_routes_init() before the HTTP server accepts
+// requests — so this mutex is always the innermost (and only) lock held
+// during its critical section. Keep it that way: do not call anything from
+// inside the locked section that could re-enter this function or take
+// another bb_event_routes lock.
+static pthread_mutex_t s_sse_task_pool_mtx = PTHREAD_MUTEX_INITIALIZER;
+
+// Create the SSE-private task-bundle arena + fixed bundle array on demand.
+// Idempotent — returns BB_OK immediately once s_sse_task_bundles is set.
+//
+// STATIC path: called eagerly, once, from
+// bb_event_routes_register_routes_init. The backing buffer is compile-time
+// sized to always fit (see the static asserts above), so both calls are
+// provably unreachable-on-failure — assert() rather than a branch + return,
+// so there is no uncovered error branch to test.
+//
+// Lazy-heap path (default): called from events_handler on the first SSE
+// connect. See the file-header comment above for the fail-soft and
+// no-idle-reclaim rationale.
+static bb_err_t sse_task_bundles_ensure(void)
 {
+    pthread_mutex_lock(&s_sse_task_pool_mtx);
+
+    if (s_sse_task_bundles) {
+        pthread_mutex_unlock(&s_sse_task_pool_mtx);
+        return BB_OK;
+    }
+
+#if CONFIG_BB_EVENT_ROUTES_POOL_STATIC
     bb_err_t err = bb_arena_init(&s_sse_task_arena, s_sse_task_arena_buf,
                                   sizeof(s_sse_task_arena_buf));
     assert(err == BB_OK);
     (void)err;  // avoid unused-variable warning when NDEBUG compiles the assert out
     s_sse_task_bundles = (sse_task_bundle_t *)bb_arena_alloc(s_sse_task_arena, SSE_TASK_BUNDLES_BYTES);
     assert(s_sse_task_bundles != NULL);
-}
+    pthread_mutex_unlock(&s_sse_task_pool_mtx);
+    return BB_OK;
+#else
+    bb_err_t err = bb_arena_init_heap(&s_sse_task_arena,
+                                       SSE_TASK_BUNDLES_BYTES + SSE_TASK_ARENA_HDR_ALLOWANCE_BYTES);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "SSE task pool: heap arena alloc failed (%d); connection rejected, retrying next connect", err);
+        pthread_mutex_unlock(&s_sse_task_pool_mtx);
+        return BB_ERR_NO_SPACE;
+    }
+    s_sse_task_bundles = (sse_task_bundle_t *)bb_arena_alloc(s_sse_task_arena, SSE_TASK_BUNDLES_BYTES);
+    if (!s_sse_task_bundles) {
+        bb_arena_destroy(s_sse_task_arena);
+        s_sse_task_arena = NULL;
+        pthread_mutex_unlock(&s_sse_task_pool_mtx);
+        return BB_ERR_NO_SPACE;
+    }
+    pthread_mutex_unlock(&s_sse_task_pool_mtx);
+    return BB_OK;
 #endif
+}
 
 // ---------------------------------------------------------------------------
 // Port: SemaphoreHandle_t recursive mutex per slot. notify() is unused on
@@ -195,8 +264,8 @@ static void events_cleanup_fn(void *ctx)
         // call failed. Debug-level only; not actionable at runtime.
         bb_log_d(TAG, "sse task deregister: %d", drc);
     }
-    // Static-pool task bundles (stack + TCB) are index-owned by the client
-    // slot (see sse_task_bundles_init doc comment above) — nothing to
+    // Pool task bundles (stack + TCB) are index-owned by the client slot
+    // (see sse_task_bundles_ensure() doc comment above) — nothing to
     // release here; freeing the client slot below is what makes the slot
     // (and its bundle) reusable by the next connection on that index.
     bb_event_routes_client_release(t->client);
@@ -287,14 +356,25 @@ static bb_err_t events_handler(bb_http_request_t *req)
     int slot = bb_event_routes_client_slot_index(client);
     snprintf(task_name, sizeof(task_name), "sse_events_%d", slot);
 
-#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL
     {
+        // Lazy-heap default: create the task-bundle pool on the first-ever
+        // SSE connect. No-op once created (either backing) — see
+        // sse_task_bundles_ensure(). A failed heap allocation fails soft:
+        // the connection is rejected and retried on the next connect, same
+        // as the xTaskCreateStatic-failure branch below.
+        bb_err_t pool_err = sse_task_bundles_ensure();
+        if (pool_err != BB_OK) {
+            bb_mem_free(arg);
+            bb_event_routes_client_release(client);
+            bb_http_req_async_handler_complete(async_req);
+            return pool_err;
+        }
+
         // Index-addressed: client slot `slot` deterministically owns
-        // s_sse_task_bundles[slot] for the arena's lifetime (see
-        // sse_task_bundles_init doc comment above) — no acquire/release, no
-        // free-list. `slot` is bounded 0..MAX_CLIENTS-1 by the CAS
-        // client-slot claim in bb_event_routes_client_acquire_ex, so the
-        // index is always valid here.
+        // s_sse_task_bundles[slot] for the pool's lifetime — no
+        // acquire/release, no free-list. `slot` is bounded 0..MAX_CLIENTS-1
+        // by the CAS client-slot claim in bb_event_routes_client_acquire_ex,
+        // so the index is always valid here.
         sse_task_bundle_t *bundle = &s_sse_task_bundles[slot];
         TaskHandle_t th = xTaskCreateStatic(sse_task, task_name,
                                             SSE_TASK_STACK_WORDS, arg, 1,
@@ -308,18 +388,6 @@ static bb_err_t events_handler(bb_http_request_t *req)
         }
         sse_task_registry_register_or_warn(task_name, SSE_TASK_STACK_WORDS * sizeof(StackType_t), th);
     }
-#else
-    {
-        TaskHandle_t th = NULL;
-        if (xTaskCreate(sse_task, task_name, 4096, arg, 1, &th) != pdPASS) {
-            bb_mem_free(arg);
-            bb_event_routes_client_release(client);
-            bb_http_req_async_handler_complete(async_req);
-            return BB_ERR_INVALID_STATE;
-        }
-        sse_task_registry_register_or_warn(task_name, 4096, th);
-    }
-#endif
     return BB_OK;
 }
 
@@ -469,8 +537,15 @@ static bb_err_t bb_event_routes_register_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     bb_event_routes_spiram_init();
-#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL
-    sse_task_bundles_init();
+#if CONFIG_BB_EVENT_ROUTES_POOL_STATIC
+    {
+        // Eager, deterministic pool from boot — unchanged PR E behavior. The
+        // lazy-heap default backing is created later, on the first SSE
+        // connect (see sse_task_bundles_ensure()).
+        bb_err_t pool_err = sse_task_bundles_ensure();
+        assert(pool_err == BB_OK);  // static backing is provably unreachable-on-failure, see sse_task_bundles_ensure()
+        (void)pool_err;  // avoid unused-variable warning when NDEBUG compiles the assert out
+    }
 #endif
     bb_err_t err = bb_event_routes_init(NULL);
     if (err != BB_OK) return err;
