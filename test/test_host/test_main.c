@@ -763,6 +763,8 @@ void test_bb_wifi_is_roam_first_connect_not_roam(void);
 void test_bb_wifi_is_roam_null_safe(void);
 void test_bb_wifi_roam_count_default_zero(void);
 void test_bb_wifi_roam_count_test_hook_roundtrip(void);
+void test_bb_wifi_is_associated_default_false(void);
+void test_bb_wifi_is_associated_test_hook_roundtrip(void);
 
 // Forward declarations from test_manifest.c
 void test_manifest_empty_emits_empty_arrays(void);
@@ -1440,6 +1442,15 @@ void test_bb_net_health_emit_lost_ip_zero(void);
 void test_bb_net_health_emit_status_status_only(void);
 void test_bb_net_health_emit_status_mqtt_alloc_fail(void);
 void test_bb_net_health_emit_status_http_alloc_fail(void);
+void test_bb_net_health_classify_mode_ok(void);
+void test_bb_net_health_classify_mode_no_ip(void);
+void test_bb_net_health_classify_mode_not_associated(void);
+void test_bb_net_health_classify_mode_not_associated_dominates_has_ip(void);
+void test_bb_net_mode_str_ok(void);
+void test_bb_net_mode_str_no_ip(void);
+void test_bb_net_mode_str_not_associated(void);
+void test_bb_net_mode_str_unknown_returns_not_associated(void);
+void test_bb_net_health_emit_has_net_mode_and_discriminator_fields(void);
 void test_bb_net_health_classify_heap_ok(void);
 void test_bb_net_health_classify_heap_low(void);
 void test_bb_net_health_classify_heap_critical(void);
@@ -3218,7 +3229,7 @@ void test_bb_pub_wifi_no_longer_has_recovery_count(void);
 void test_bb_pub_wifi_has_restart_sta_count(void);
 void test_bb_pub_wifi_has_disconnect_rssi(void);
 // B1-497: roam_count / roam_age_s emit field (observe-only)
-void test_bb_pub_wifi_has_roam_count(void);
+void test_bb_pub_wifi_no_longer_has_roam_count(void);
 // B1-486: reason_histogram moved to /api/diag/net
 void test_bb_pub_wifi_no_longer_has_reason_histogram(void);
 void test_bb_pub_wifi_topic_const_matches_legacy_literal(void);
@@ -4523,6 +4534,8 @@ int main(void) {
     RUN_TEST(test_bb_wifi_is_roam_null_safe);
     RUN_TEST(test_bb_wifi_roam_count_default_zero);
     RUN_TEST(test_bb_wifi_roam_count_test_hook_roundtrip);
+    RUN_TEST(test_bb_wifi_is_associated_default_false);
+    RUN_TEST(test_bb_wifi_is_associated_test_hook_roundtrip);
 
     // bb_manifest tests
     RUN_TEST(test_manifest_empty_emits_empty_arrays);
@@ -5141,6 +5154,15 @@ int main(void) {
     RUN_TEST(test_bb_net_health_emit_status_status_only);
     RUN_TEST(test_bb_net_health_emit_status_mqtt_alloc_fail);
     RUN_TEST(test_bb_net_health_emit_status_http_alloc_fail);
+    RUN_TEST(test_bb_net_health_classify_mode_ok);
+    RUN_TEST(test_bb_net_health_classify_mode_no_ip);
+    RUN_TEST(test_bb_net_health_classify_mode_not_associated);
+    RUN_TEST(test_bb_net_health_classify_mode_not_associated_dominates_has_ip);
+    RUN_TEST(test_bb_net_mode_str_ok);
+    RUN_TEST(test_bb_net_mode_str_no_ip);
+    RUN_TEST(test_bb_net_mode_str_not_associated);
+    RUN_TEST(test_bb_net_mode_str_unknown_returns_not_associated);
+    RUN_TEST(test_bb_net_health_emit_has_net_mode_and_discriminator_fields);
     RUN_TEST(test_bb_net_health_classify_heap_ok);
     RUN_TEST(test_bb_net_health_classify_heap_low);
     RUN_TEST(test_bb_net_health_classify_heap_critical);
@@ -6802,7 +6824,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_wifi_no_longer_has_recovery_count);
     RUN_TEST(test_bb_pub_wifi_has_restart_sta_count);
     RUN_TEST(test_bb_pub_wifi_has_disconnect_rssi);
-    RUN_TEST(test_bb_pub_wifi_has_roam_count);
+    RUN_TEST(test_bb_pub_wifi_no_longer_has_roam_count);
     RUN_TEST(test_bb_pub_wifi_no_longer_has_reason_histogram);
     RUN_TEST(test_bb_pub_wifi_topic_const_matches_legacy_literal);
 

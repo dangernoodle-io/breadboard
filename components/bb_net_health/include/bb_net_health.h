@@ -149,6 +149,36 @@ bb_heap_state_t bb_net_health_heap_state(void);
 const char *bb_heap_state_str(bb_heap_state_t state);
 
 // ---------------------------------------------------------------------------
+// WiFi discrimination mode — pure classifier over (associated, has_ip).
+// ---------------------------------------------------------------------------
+
+/**
+ * Coarse WiFi connectivity discriminator, distinguishing "no IP while
+ * associated" (zombie/DHCP failure) from "not associated at all" (out of
+ * range, wrong creds, AP down). OBSERVE-ONLY — no recovery action is wired
+ * to this classification; it exists purely for /api/diag/net and net.health
+ * observability.
+ */
+typedef enum {
+    BB_NET_MODE_OK             = 0, // associated && has_ip
+    BB_NET_MODE_NO_IP          = 1, // associated && !has_ip
+    BB_NET_MODE_NOT_ASSOCIATED = 2, // !associated
+} bb_net_mode_t;
+
+/**
+ * Pure classifier: derives a bb_net_mode_t from the current association and
+ * IP-acquisition state. No side-effects; host-testable. Inputs are sourced
+ * from bb_wifi_is_associated() / bb_wifi_has_ip() by the ESP-IDF evaluator.
+ */
+bb_net_mode_t bb_net_health_classify_mode(bool associated, bool has_ip);
+
+/**
+ * Return a static string for a bb_net_mode_t value.
+ * "ok", "no_ip", or "not_associated". Never returns NULL.
+ */
+const char *bb_net_mode_str(bb_net_mode_t mode);
+
+// ---------------------------------------------------------------------------
 // Input / output / state types
 // ---------------------------------------------------------------------------
 
@@ -259,6 +289,9 @@ typedef struct {
                             // SSE topic keeps its existing schema) — same precedent as
                             // no_ip_recoveries; exposed via GET /api/diag/net instead.
     uint32_t roam_age_s;   // seconds since the last roam event (bb_wifi_get_roam_age_s); 0 if never
+    bb_net_mode_t net_mode; // WiFi discrimination mode (bb_net_health_classify_mode); OBSERVE-ONLY
+    bool     associated;    // true iff STA is L2-associated (bb_wifi_is_associated)
+    bool     has_ip;        // true iff STA has an IP (bb_wifi_has_ip)
 } bb_net_health_status_t;
 
 // Copy the live net-health snapshot (populated by the ESP-IDF evaluator) under

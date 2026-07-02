@@ -11,6 +11,10 @@
 // GET /api/diag/net (bb_net_health) — that is now the single source of truth
 // for recovery counters. /api/wifi keeps only connection-state fields plus
 // restart_sta_count/disconnect_rssi (not recovery-count duplicates).
+//
+// roam_count/roam_age_s (B1-497) are likewise consolidated onto the
+// /api/diag/net + net.health discriminator surface only — no longer
+// duplicated here (net-health SSOT, wifi-netmode PR).
 #include "bb_wifi.h"
 #include "bb_json.h"
 
@@ -29,8 +33,6 @@
 //   retry_count        (integer)
 //   restart_sta_count  (integer, times bb_wifi_restart_sta was invoked)
 //   disconnect_rssi    (integer, RSSI at most recent disconnect)
-//   roam_count         (integer, times STA roamed to a different BSSID; observe-only)
-//   roam_age_s         (integer, seconds since last roam event, 0 if never)
 void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
 {
     char bssid[18];
@@ -48,8 +50,6 @@ void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
     bb_json_obj_set_int   (obj, "retry_count",      (int64_t)info->retry_count);
     bb_json_obj_set_int   (obj, "restart_sta_count",  (int64_t)bb_wifi_get_restart_sta_count());
     bb_json_obj_set_int   (obj, "disconnect_rssi",    (int64_t)bb_wifi_get_disconnect_rssi());
-    bb_json_obj_set_int   (obj, "roam_count",         (int64_t)bb_wifi_get_roam_count());
-    bb_json_obj_set_int   (obj, "roam_age_s",         (int64_t)bb_wifi_get_roam_age_s());
 }
 
 // Find the top standard (non-sentinel) reason in a 256-entry disconnect

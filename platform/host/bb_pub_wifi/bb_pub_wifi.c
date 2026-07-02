@@ -13,6 +13,10 @@
 // GET /api/diag/net (bb_net_health) — the single source of truth for
 // wifi recovery counters. This topic keeps only connection-state fields plus
 // restart_sta_count/disconnect_rssi.
+//
+// roam_count/roam_age_s (B1-497) are likewise consolidated onto the
+// /api/diag/net + net.health discriminator surface only — no longer
+// duplicated here (net-health SSOT, wifi-netmode PR).
 #include "bb_pub_wifi.h"
 #include "bb_pub.h"
 #include "bb_pub_defaults.h"
@@ -44,9 +48,6 @@ typedef struct {
     // B1-411: new recovery-telemetry fields
     uint32_t       restart_sta_count;
     int8_t         disconnect_rssi;
-    // B1-497: observe-only roam/BSSID-change counter (no recovery action)
-    uint32_t       roam_count;
-    uint32_t       roam_age_s;
 } bb_wifi_snap_t;
 
 // Compile-time guard: wifi snap must fit in the scratch buffer (B1-434).
@@ -102,8 +103,6 @@ static bool wifi_gather(void *snap_buf, void *ctx)
     snap->ts_ms             = (int64_t)bb_clock_now_ms64();
     snap->restart_sta_count = bb_wifi_get_restart_sta_count();
     snap->disconnect_rssi   = bb_wifi_get_disconnect_rssi();
-    snap->roam_count        = bb_wifi_get_roam_count();
-    snap->roam_age_s        = bb_wifi_get_roam_age_s();
     return true;
 #else
     if (!bb_wifi_has_ip()) return false;
@@ -117,8 +116,6 @@ static bool wifi_gather(void *snap_buf, void *ctx)
     snap->ts_ms             = (int64_t)bb_clock_now_ms64();
     snap->restart_sta_count = bb_wifi_get_restart_sta_count();
     snap->disconnect_rssi   = bb_wifi_get_disconnect_rssi();
-    snap->roam_count        = bb_wifi_get_roam_count();
-    snap->roam_age_s        = bb_wifi_get_roam_age_s();
     return true;
 #endif
 }
@@ -149,8 +146,6 @@ static void wifi_serialize(bb_json_t obj, const void *snap_raw)
     bb_json_obj_set_int   (obj, "ts_ms",              snap->ts_ms);
     bb_json_obj_set_int   (obj, "restart_sta_count",  (int64_t)snap->restart_sta_count);
     bb_json_obj_set_int   (obj, "disconnect_rssi",    (int64_t)snap->disconnect_rssi);
-    bb_json_obj_set_int   (obj, "roam_count",         (int64_t)snap->roam_count);
-    bb_json_obj_set_int   (obj, "roam_age_s",         (int64_t)snap->roam_age_s);
 }
 
 // ---------------------------------------------------------------------------
@@ -170,9 +165,7 @@ static const char k_wifi_telemetry_schema[] =
     "\"retry_count\":{\"type\":\"integer\"},"
     "\"ts_ms\":{\"type\":\"integer\"},"
     "\"restart_sta_count\":{\"type\":\"integer\"},"
-    "\"disconnect_rssi\":{\"type\":\"integer\"},"
-    "\"roam_count\":{\"type\":\"integer\"},"
-    "\"roam_age_s\":{\"type\":\"integer\"}},"
+    "\"disconnect_rssi\":{\"type\":\"integer\"}},"
     "\"required\":[\"ssid\",\"connected\",\"rssi\",\"ts_ms\"]}";
 
 bb_err_t bb_pub_wifi_register(void)
