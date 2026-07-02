@@ -6,6 +6,8 @@
 #include "bb_core.h"
 #include "bb_pool.h"
 #include "bb_arena.h"
+#include "bb_mem.h"
+#include "bb_mem_test.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -77,6 +79,9 @@ static void buf_reset(void)
     // Default to on-failure mode for tests that don't explicitly set always-on.
     // Always-on tests call bb_pub_test_set_buffer_always(true) after buf_reset.
     bb_pub_test_set_buffer_always(false);
+    // Default to lazy heap-backed mode (B1-489). Static-arena tests call
+    // bb_pub_test_set_buffer_static(true) after buf_reset.
+    bb_pub_test_set_buffer_static(false);
     ctx_reset(&s_ctx);
 }
 
@@ -842,4 +847,230 @@ void test_bb_pub_buffer_ring_arena_budget_covers_pool_requirement(void)
         "the ring FIFO cfg — update the sizing constants in bb_pub.c");
 
     bb_arena_destroy(arena);   /* no-op for caller-supplied buffer; explicit for clarity */
+}
+
+// ---------------------------------------------------------------------------
+// Lazy heap-backed ring vs static-BSS ring (B1-489)
+// ---------------------------------------------------------------------------
+
+// 19. Default (lazy heap) mode: healthy operation (no outage ever) leaves
+//     bb_mem outstanding_bytes unchanged — the ring is never allocated.
+void test_bb_pub_buffer_lazy_heap_zero_standing_cost_when_healthy(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_static(false);
+
+    bb_mem_stats_t before;
+    bb_mem_get_stats(&before);
+
+    bb_pub_sink_t sk = make_sink(&s_ctx);   /* s_ctx.fail = false */
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    for (int i = 0; i < 5; i++) {
+        bb_pub_tick_once();   /* sink always succeeds → ring never touched */
+    }
+
+    bb_mem_stats_t after;
+    bb_mem_get_stats(&after);
+    TEST_ASSERT_EQUAL_size_t(before.outstanding_bytes, after.outstanding_bytes);
+}
+
+// 20. Default (lazy heap) mode: an outage allocates heap for the ring
+//     (outstanding_bytes rises), and idle-free reclaim actually returns that
+//     memory to the heap (outstanding_bytes falls back to baseline).
+void test_bb_pub_buffer_lazy_heap_alloc_and_reclaim_moves_heap_stats(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_static(false);
+    bb_pub_test_set_idle_free_ticks(2);
+
+    bb_mem_stats_t baseline;
+    bb_mem_get_stats(&baseline);
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    bb_pub_tick_once();   /* outage: ring heap-allocated, entry captured */
+
+    bb_mem_stats_t during;
+    bb_mem_get_stats(&during);
+    TEST_ASSERT_GREATER_THAN_size_t(baseline.outstanding_bytes,
+                                     during.outstanding_bytes);
+
+    /* recovery: drain, then run several empty ticks — comfortably past the
+     * idle_free_ticks(2) threshold regardless of exactly which tick the
+     * drain itself counts towards, so the reclaim is guaranteed to fire. */
+    s_ctx.fail = false;
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();   /* drains */
+    for (int i = 0; i < 5; i++) {
+        ctx_reset(&s_ctx);
+        bb_pub_tick_once();   /* idle ticks -> threshold reached -> pool destroyed */
+    }
+
+    bb_mem_stats_t reclaimed;
+    bb_mem_get_stats(&reclaimed);
+    TEST_ASSERT_EQUAL_size_t(baseline.outstanding_bytes, reclaimed.outstanding_bytes);
+
+    /* stats API still reports a clean, empty ring after reclaim */
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
+}
+
+#ifdef BB_MEM_TESTING
+// Fail-injection hook: always returns NULL (simulates a fragmented/exhausted
+// heap that cannot satisfy the ring's contiguous arena allocation).
+static void *s_null_alloc_hook(size_t n)
+{
+    (void)n;
+    return NULL;
+}
+#endif
+
+// 21. Default (lazy heap) mode: a heap allocation failure at ring-create time
+//     is fail-soft — no crash, entry simply isn't buffered this cycle, and a
+//     subsequent successful allocation recovers store-and-forward normally.
+void test_bb_pub_buffer_lazy_heap_alloc_failure_is_fail_soft(void)
+{
+#ifdef BB_MEM_TESTING
+    buf_reset();
+    bb_pub_test_set_buffer_static(false);
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    bb_mem_set_alloc_hook(s_null_alloc_hook);
+    bb_pub_tick_once();   /* ring create fails; must not crash */
+    bb_mem_set_alloc_hook(NULL);
+
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);   /* nothing buffered this cycle */
+
+    /* allocator restored: next outage tick buffers normally. ctx_reset()
+     * zeroes the whole fake_sink_ctx_t (including `fail`), so re-arm the
+     * failure flag afterwards to keep the sink refusing this tick too. */
+    ctx_reset(&s_ctx);
+    s_ctx.fail = true;
+    bb_pub_tick_once();
+
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(1, stats.count);
+#else
+    TEST_IGNORE_MESSAGE("BB_MEM_TESTING not defined; skip alloc-fail injection test");
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// STATIC=y mode (CONFIG_BB_PUB_BUFFER_STATIC): the pre-B1-489 static-BSS
+// arena behaviour still passes under the same test seams.
+// ---------------------------------------------------------------------------
+
+// 22. Static mode: failing sink enqueues, recovery replays oldest-first —
+//     baseline store-and-forward semantics unchanged.
+void test_bb_pub_buffer_static_mode_replay_oldest_first(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_static(true);
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("topicA", source_fn, NULL);
+    bb_pub_register_source("topicB", source_fn, NULL);
+
+    bb_pub_tick_once();   /* both fail -> 2 buffered */
+
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(2, stats.count);
+
+    s_ctx.fail = false;
+    bb_pub_tick_once();   /* live 2 + replay 2 = 4 */
+
+    TEST_ASSERT_EQUAL_INT(4, s_ctx.count);
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
+}
+
+// 23. Static mode: overflow drops oldest and increments dropped counter.
+void test_bb_pub_buffer_static_mode_overflow_drops_oldest(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_static(true);
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    bb_pub_buffer_stats_t stats;
+    for (int i = 0; i < 20; i++) {
+        bb_pub_tick_once();
+    }
+
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(16, stats.count);
+    TEST_ASSERT_EQUAL_size_t(4, stats.dropped);
+}
+
+// 24. Static mode: idle-free reclaim is a documented no-op — the ring stays
+//     present (and usable) even past the idle threshold, unlike lazy-heap
+//     mode. This is the STATIC=y contract: no heap allocation, ever.
+void test_bb_pub_buffer_static_mode_idle_ticks_do_not_destroy_ring(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_static(true);
+    bb_pub_test_set_idle_free_ticks(2);
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    bb_pub_tick_once();            /* capture */
+    s_ctx.fail = false;
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();            /* drain */
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();            /* idle tick 1 */
+    ctx_reset(&s_ctx);
+    bb_pub_tick_once();            /* idle tick 2 -> threshold reached, no-op in static mode */
+
+    /* ring still usable immediately (no re-create latency/log) */
+    ctx_reset(&s_ctx);
+    s_ctx.fail = true;
+    bb_pub_tick_once();
+
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(1, stats.count);
+}
+
+// 25. Static mode does not touch bb_mem heap accounting at all (no
+//     bb_calloc_prefer_spiram call is ever made for the ring in this mode).
+void test_bb_pub_buffer_static_mode_no_heap_accounting(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_static(true);
+
+    bb_mem_stats_t before;
+    bb_mem_get_stats(&before);
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    bb_pub_tick_once();   /* forces ring creation in static mode */
+
+    bb_mem_stats_t after;
+    bb_mem_get_stats(&after);
+    TEST_ASSERT_EQUAL_size_t(before.outstanding_bytes, after.outstanding_bytes);
 }

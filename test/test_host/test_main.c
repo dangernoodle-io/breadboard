@@ -3050,6 +3050,14 @@ void test_bb_pub_buffer_idle_ring_recreated_after_free(void);
 void test_bb_pub_buffer_idle_always_on_not_freed(void);
 void test_bb_pub_buffer_idle_zero_ticks_disables_reclaim(void);
 void test_bb_pub_buffer_ring_arena_budget_covers_pool_requirement(void);
+// lazy heap-backed vs static-BSS ring (B1-489)
+void test_bb_pub_buffer_lazy_heap_zero_standing_cost_when_healthy(void);
+void test_bb_pub_buffer_lazy_heap_alloc_and_reclaim_moves_heap_stats(void);
+void test_bb_pub_buffer_lazy_heap_alloc_failure_is_fail_soft(void);
+void test_bb_pub_buffer_static_mode_replay_oldest_first(void);
+void test_bb_pub_buffer_static_mode_overflow_drops_oldest(void);
+void test_bb_pub_buffer_static_mode_idle_ticks_do_not_destroy_ring(void);
+void test_bb_pub_buffer_static_mode_no_heap_accounting(void);
 
 // Forward declarations from test_bb_pub_sink_mutex.c
 void test_arbiter_acquire_free_slot_ok(void);
@@ -6523,6 +6531,13 @@ int main(void) {
     RUN_TEST(test_bb_pub_buffer_idle_always_on_not_freed);
     RUN_TEST(test_bb_pub_buffer_idle_zero_ticks_disables_reclaim);
     RUN_TEST(test_bb_pub_buffer_ring_arena_budget_covers_pool_requirement);
+    RUN_TEST(test_bb_pub_buffer_lazy_heap_zero_standing_cost_when_healthy);
+    RUN_TEST(test_bb_pub_buffer_lazy_heap_alloc_and_reclaim_moves_heap_stats);
+    RUN_TEST(test_bb_pub_buffer_lazy_heap_alloc_failure_is_fail_soft);
+    RUN_TEST(test_bb_pub_buffer_static_mode_replay_oldest_first);
+    RUN_TEST(test_bb_pub_buffer_static_mode_overflow_drops_oldest);
+    RUN_TEST(test_bb_pub_buffer_static_mode_idle_ticks_do_not_destroy_ring);
+    RUN_TEST(test_bb_pub_buffer_static_mode_no_heap_accounting);
 
     // bb_pub_sink_mutex tests — exclusive-sink arbiter + mutual-exclusion invariant
     RUN_TEST(test_arbiter_acquire_free_slot_ok);

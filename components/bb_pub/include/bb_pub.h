@@ -535,6 +535,15 @@ void bb_pub_test_set_buffer_always(bool always_on);
  */
 void bb_pub_test_set_idle_free_ticks(int n);
 
+/**
+ * Override the ring backing mode at runtime for testing. When true, forces
+ * the static-BSS arena path regardless of CONFIG_BB_PUB_BUFFER_STATIC; when
+ * false, forces the lazy HEAP-backed path (bb_pool_create_owned). Call
+ * bb_pub_test_reset() to revert to the compile-time default (-1).
+ * Only meaningful when CONFIG_BB_PUB_BUFFER_ENABLE is 1.
+ */
+void bb_pub_test_set_buffer_static(bool is_static);
+
 #endif /* BB_PUB_TESTING */
 
 /**
