@@ -120,16 +120,36 @@ static int events_wait_fn(void *ctx, char *buf, size_t buflen, uint32_t timeout_
     return (int)n;
 }
 
-// cleanup_fn: release the client slot, deregister this task, and free the
+// cleanup_fn: deregister this task, release the client slot, and free the
 // arg struct. Runs on the SSE task itself, immediately before bb_sse_writer_run
 // calls vTaskDelete(NULL) — xTaskGetCurrentTaskHandle() is still valid here and
 // matches the handle registered at task-create time (per-client unique name).
+// Deregister MUST happen before client_release: release() sets the client
+// slot's in_use=false, which makes the slot (and its "sse_events_<slot>" name)
+// immediately reusable by a concurrent acquire on the other core. Releasing
+// first would let that new connection's task register the same name while
+// this task's stale registry entry still exists — BB_ERR_DUPLICATE races.
 static void events_cleanup_fn(void *ctx)
 {
     sse_task_arg_t *t = (sse_task_arg_t *)ctx;
+    bb_err_t drc = bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
+    if (drc != BB_OK) {
+        // Benign/expected — e.g. BB_ERR_NOT_FOUND when the earlier register
+        // call failed. Debug-level only; not actionable at runtime.
+        bb_log_d(TAG, "sse task deregister: %d", drc);
+    }
     bb_event_routes_client_release(t->client);
-    bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
     bb_mem_free(t);
+}
+
+// Registers the newly-created SSE task in the task registry. Failure is
+// non-fatal (the task still serves the client) but logged for diagnosability.
+static void sse_task_registry_register_or_warn(const char *name, uint32_t stack_bytes, TaskHandle_t th)
+{
+    bb_err_t rc = bb_task_registry_register(name, stack_bytes, th, NULL, NULL);
+    if (rc != BB_OK) {
+        bb_log_w(TAG, "sse task registry register failed: %d", rc);
+    }
 }
 
 static void sse_task(void *arg)
@@ -218,7 +238,7 @@ static bb_err_t events_handler(bb_http_request_t *req)
             bb_http_req_async_handler_complete(async_req);
             return BB_ERR_INVALID_STATE;
         }
-        bb_task_registry_register(task_name, SSE_TASK_STACK_WORDS * sizeof(StackType_t), th, NULL, NULL);
+        sse_task_registry_register_or_warn(task_name, SSE_TASK_STACK_WORDS * sizeof(StackType_t), th);
     }
 #else
     {
@@ -229,7 +249,7 @@ static bb_err_t events_handler(bb_http_request_t *req)
             bb_http_req_async_handler_complete(async_req);
             return BB_ERR_INVALID_STATE;
         }
-        bb_task_registry_register(task_name, 4096, th, NULL, NULL);
+        sse_task_registry_register_or_warn(task_name, 4096, th);
     }
 #endif
     return BB_OK;
