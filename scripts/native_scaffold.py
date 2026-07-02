@@ -594,6 +594,11 @@ COMPONENT_MAP = {
         "sources":  ["components/bb_sub/src/bb_sub.c"],
         "depends":  ["bb_core", "bb_event", "bb_cache", "bb_json", "bb_log"],
     },
+    "bb_sub_mqtt": {
+        "includes": ["components/bb_sub_mqtt/include"],
+        "sources":  ["components/bb_sub_mqtt/src/bb_sub_mqtt.c"],
+        "depends":  ["bb_core", "bb_sub", "bb_mqtt", "bb_nv", "bb_log", "bb_init"],
+    },
 }
 
 
