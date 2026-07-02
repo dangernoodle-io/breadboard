@@ -114,7 +114,7 @@ config BB_OTA_PULL_APPLY_CACHE_FRESH_S
     default 300
     help
         When POST /api/update/apply is called, bb_ota_pull trusts the
-        bb_update_check cached result if it is younger than this many seconds
+        bb_ota_check cached result if it is younger than this many seconds
         (cache-first). If the cache is stale or empty, bb_ota_pull kicks the
         update-check worker and waits up to ~15 s for a fresh result before
         deciding.

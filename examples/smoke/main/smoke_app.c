@@ -20,7 +20,7 @@
 #include "bb_event.h"
 #ifdef ESP_PLATFORM
 #include "bb_event_routes.h"
-#include "bb_update_check.h"
+#include "bb_ota_check.h"
 #include "bb_temp.h"
 #include "bb_websocket.h"
 
@@ -363,11 +363,11 @@ void smoke_app_setup(void) {
     // and the endpoint emits { "temp": { "present": false } }.
     bb_temp_register_info();
 
-    // bb_update_check: link-load only. No URL set, so polling stays idle and
-    // bb_update_check_now() returns BB_ERR_INVALID_STATE cleanly. Consumers
-    // (TaipanMiner, snugfeather) call bb_update_check_set_releases_url(...).
-    if (bb_update_check_init(NULL) != BB_OK) {
-        bb_log_w(TAG, "bb_update_check: init failed");
+    // bb_ota_check: link-load only. No URL set, so polling stays idle and
+    // bb_ota_check_now() returns BB_ERR_INVALID_STATE cleanly. Consumers
+    // (TaipanMiner, snugfeather) call bb_ota_check_set_releases_url(...).
+    if (bb_ota_check_init(NULL) != BB_OK) {
+        bb_log_w(TAG, "bb_ota_check: init failed");
     }
 
     // bb_websocket: /ws echo + /api/wsbcast broadcast demo.

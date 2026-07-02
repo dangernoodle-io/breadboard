@@ -51,7 +51,7 @@
 #include "bb_partition.h"
 #include "bb_net_health.h"
 #include "bb_event.h"
-#include "bb_update_check.h"
+#include "bb_ota_check.h"
 #include "bb_event_routes.h"
 #include "bb_event_routes_defaults.h"
 #include "bb_event_ring.h"
@@ -193,8 +193,8 @@ static const char k_panic_schema[] =
     "\"app_sha256\":{\"type\":\"string\"}},"
     "\"required\":[\"available\"]}";
 
-// GET /api/update/status — platform/espidf/bb_update_check/bb_update_check_espidf.c
-// The enum literal mirrors BB_UPDATE_OUTCOME_ENUM_JSON (bb_update_check.h) —
+// GET /api/update/status — platform/espidf/bb_ota_check/bb_ota_check_espidf.c
+// The enum literal mirrors BB_OTA_CHECK_OUTCOME_ENUM_JSON (bb_ota_check.h) —
 // keep byte-identical (B1-462a).
 static const char k_update_status_schema[] =
     "{\"type\":\"object\","
@@ -206,12 +206,12 @@ static const char k_update_status_schema[] =
     "\"last_check_ok\":{\"type\":\"boolean\"},"
     "\"enabled\":{\"type\":\"boolean\"},"
     "\"outcome\":{\"type\":\"string\","
-    "\"enum\":[" BB_UPDATE_OUTCOME_ENUM_JSON "]},"
+    "\"enum\":[" BB_OTA_CHECK_OUTCOME_ENUM_JSON "]},"
     "\"last_check_ts\":{\"type\":\"integer\"}},"
     "\"required\":[\"current\",\"latest\",\"download_url\","
     "\"available\",\"last_check_ok\",\"enabled\",\"outcome\"]}";
 
-// GET /api/update/config — components/bb_update_check/src/bb_update_check_common.c
+// GET /api/update/config — components/bb_ota_check/src/bb_ota_check_common.c
 static const char k_update_config_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{\"enabled\":{\"type\":\"boolean\"}},"
@@ -500,15 +500,15 @@ static bb_err_t h_diag_panic(bb_http_request_t *req)
 }
 
 // GET /api/update/status — idle state (mirrors status_handler in
-// platform/espidf/bb_update_check/bb_update_check_espidf.c).
-// Requires bb_update_check_init() to have been called.
+// platform/espidf/bb_ota_check/bb_ota_check_espidf.c).
+// Requires bb_ota_check_init() to have been called.
 static bb_err_t h_update_status(bb_http_request_t *req)
 {
     bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
     bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
 
-    bb_update_check_status_t st;
-    bb_err_t err = bb_update_check_get_status(&st);
+    bb_ota_check_status_t st;
+    bb_err_t err = bb_ota_check_get_status(&st);
     if (err != BB_OK) {
         bb_http_resp_set_status(req, 503);
         bb_http_json_obj_stream_t obj;
@@ -521,11 +521,11 @@ static bb_err_t h_update_status(bb_http_request_t *req)
     /* Map outcome enum to string (mirrors outcome_str() in production handler). */
     const char *outcome;
     switch (st.outcome) {
-        case BB_UPDATE_OUTCOME_UP_TO_DATE: outcome = "up_to_date";  break;
-        case BB_UPDATE_OUTCOME_AVAILABLE:  outcome = "available";   break;
-        case BB_UPDATE_OUTCOME_NO_ASSET:   outcome = "no_asset";    break;
-        case BB_UPDATE_OUTCOME_FAILED:     outcome = "check_failed";break;
-        case BB_UPDATE_OUTCOME_CHECK_ON_APPLY: outcome = "check_on_apply"; break;
+        case BB_OTA_CHECK_OUTCOME_UP_TO_DATE: outcome = "up_to_date";  break;
+        case BB_OTA_CHECK_OUTCOME_AVAILABLE:  outcome = "available";   break;
+        case BB_OTA_CHECK_OUTCOME_NO_ASSET:   outcome = "no_asset";    break;
+        case BB_OTA_CHECK_OUTCOME_FAILED:     outcome = "check_failed";break;
+        case BB_OTA_CHECK_OUTCOME_CHECK_ON_APPLY: outcome = "check_on_apply"; break;
         default:                           outcome = "unknown";     break;
     }
 
@@ -546,8 +546,8 @@ static bb_err_t h_update_status(bb_http_request_t *req)
     return bb_http_resp_json_obj_end(&obj);
 }
 
-// GET /api/update/config — mirrors bb_update_check_config_get_handler in
-// components/bb_update_check/src/bb_update_check_common.c.
+// GET /api/update/config — mirrors bb_ota_check_config_get_handler in
+// components/bb_ota_check/src/bb_ota_check_common.c.
 static bb_err_t h_update_config_get(bb_http_request_t *req)
 {
     bool enabled = bb_nv_config_update_check_enabled();
@@ -813,7 +813,7 @@ typedef struct {
 } fidelity_entry_t;
 
 // Table of all audited (route, handler, status, content-type, schema) tuples.
-// Entries that require subsystem state setup (bb_update_check_init,
+// Entries that require subsystem state setup (bb_ota_check_init,
 // bb_event_routes_init) are NOT listed here; their test functions below do
 // their own setup and call run_fidelity with a stack-allocated entry.
 static const fidelity_entry_t k_audit[] = {
@@ -971,13 +971,13 @@ void test_fidelity_diag_net(void)
 
 // Routes that require subsystem state setup are tested individually below.
 
-// GET /api/update/status: requires bb_update_check_init().
-// Also ensures bb_event_init() has run (bb_update_check_init calls
+// GET /api/update/status: requires bb_ota_check_init().
+// Also ensures bb_event_init() has run (bb_ota_check_init calls
 // bb_event_topic_register which requires an initialized event bus).
 void test_fidelity_update_status(void)
 {
     bb_event_init(NULL);          /* idempotent; ensures topic registry ready */
-    bb_update_check_init(NULL);   /* idempotent; uses Kconfig defaults */
+    bb_ota_check_init(NULL);   /* idempotent; uses Kconfig defaults */
 
     const fidelity_entry_t e = {
         "/api/update/status", h_update_status, 200,
@@ -1055,7 +1055,7 @@ void test_fidelity_diag_events_age_ms_branch(void)
 //
 // CORS headers are set per-route, not globally. The three OTA routes that
 // lacked ACAO/ACAPN now set them explicitly at the top of their handlers:
-//   - GET  /api/update/status   (bb_update_check_espidf.c: status_handler)
+//   - GET  /api/update/status   (bb_ota_check_espidf.c: status_handler)
 //   - POST /api/update/apply    (bb_ota_pull.c: ota_update_handler)
 //   - GET  /api/update/progress (bb_ota_pull.c: ota_status_handler)
 //

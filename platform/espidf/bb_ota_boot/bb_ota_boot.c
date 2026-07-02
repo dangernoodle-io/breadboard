@@ -75,7 +75,7 @@ bool bb_ota_boot_pending(void)
 #include "bb_wifi.h"
 #include "bb_board.h"
 #include "bb_ota_pull.h"
-#include "bb_update_check.h"
+#include "bb_ota_check.h"
 #include "bb_http.h"
 #include "bb_init.h"
 #include "bb_http_client.h"
@@ -99,7 +99,7 @@ static const char *TAG = "bb_ota_boot";
 static const char *s_boot_url   = NULL;
 static const char *s_boot_board = NULL;
 
-// Stashed releases_url/board so STATUS_HTTP routes can init bb_update_check
+// Stashed releases_url/board so STATUS_HTTP routes can init bb_ota_check
 // even when nothing is pending (set in bb_ota_boot_run_if_pending).
 #if CONFIG_BB_OTA_BOOT_STATUS_HTTP
 #define OTA_BOOT_STATUS_URL_MAX   256
@@ -122,15 +122,15 @@ static bool s_status_check_initialized                 = false;
 #endif
 #define BB_OTA_BOOT_STATUS_MIN_HEAP BB_OTA_HEAP_FLOOR_BYTES
 
-// Ensure bb_update_check is ready for the on-demand routes. Called at init
+// Ensure bb_ota_check is ready for the on-demand routes. Called at init
 // (route-registration time) and from run_if_pending after stashing url/board.
 static void status_check_ensure_init(void)
 {
     if (s_status_check_initialized) return;
     if (s_status_url[0] == '\0') return;  // url not stashed yet
-    if (bb_update_check_init(NULL) != BB_OK) return;
-    bb_update_check_set_releases_url(s_status_url);
-    bb_update_check_set_firmware_board(s_status_board[0] ? s_status_board : NULL);
+    if (bb_ota_check_init(NULL) != BB_OK) return;
+    bb_ota_check_set_releases_url(s_status_url);
+    bb_ota_check_set_firmware_board(s_status_board[0] ? s_status_board : NULL);
     s_status_check_initialized = true;
 }
 
@@ -138,7 +138,7 @@ static void status_check_ensure_init(void)
 static void status_check_task(void *arg)
 {
     (void)arg;
-    bb_update_check_now();
+    bb_ota_check_now();
     bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
     vTaskDelete(NULL);
 }
@@ -146,7 +146,7 @@ static void status_check_task(void *arg)
 // GET /api/update/status — delegates to the shared emitter.
 static bb_err_t ota_boot_status_handler(bb_http_request_t *req)
 {
-    return bb_update_check_emit_status_json(req);
+    return bb_ota_check_emit_status_json(req);
 }
 
 // POST /api/update/check — on-demand heap-guarded one-shot check.
@@ -170,7 +170,7 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
             bb_log_w(TAG, "check: %s heap guard failed (largest=%u total_free=%u), "
                      "returning check_on_apply directive",
                      dim, (unsigned)largest, (unsigned)total_free);
-            bb_update_check_mark_check_on_apply();
+            bb_ota_check_mark_check_on_apply();
             bb_http_json_obj_stream_t obj;
             bb_http_resp_json_obj_begin(req, &obj);
             bb_http_resp_json_obj_set_str(&obj, "status", "check_on_apply");
@@ -227,7 +227,7 @@ static void breadcrumb(uint8_t stage)
 }
 
 // Boot-mode worker: resolve the latest asset + pull it, both at full heap. Runs
-// on a fat stack (the mbedTLS handshake in bb_update_check_now needs >=8 KB, more
+// on a fat stack (the mbedTLS handshake in bb_ota_check_now needs >=8 KB, more
 // than the main task carries). NEVER returns — always reboots.
 static void ota_boot_worker(void *arg)
 {
@@ -239,20 +239,20 @@ static void ota_boot_worker(void *arg)
              (unsigned)bb_board_heap_internal_free());
 #endif
 
-    // Stand up bb_update_check synchronously — init + now() run on this stack,
+    // Stand up bb_ota_check synchronously — init + now() run on this stack,
     // no persistent worker spawned, so the runtime can keep it autoregister-off.
-    if (bb_update_check_init(NULL) != BB_OK ||
-        bb_update_check_set_releases_url(s_boot_url) != BB_OK ||
-        bb_update_check_set_firmware_board(s_boot_board) != BB_OK) {
+    if (bb_ota_check_init(NULL) != BB_OK ||
+        bb_ota_check_set_releases_url(s_boot_url) != BB_OK ||
+        bb_ota_check_set_firmware_board(s_boot_board) != BB_OK) {
         bb_log_e(TAG, "boot-mode: update_check setup failed, rebooting normal");
         breadcrumb(0xE2);
         bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
         esp_restart();
     }
 
-    bb_update_check_status_t st;
-    if (bb_update_check_now() != BB_OK ||
-        bb_update_check_get_status(&st) != BB_OK || !st.last_check_ok) {
+    bb_ota_check_status_t st;
+    if (bb_ota_check_now() != BB_OK ||
+        bb_ota_check_get_status(&st) != BB_OK || !st.last_check_ok) {
         bb_log_e(TAG, "boot-mode: manifest check failed, rebooting normal");
         breadcrumb(0xE2);
         bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
@@ -369,7 +369,7 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
         strncpy(s_status_board, board, OTA_BOOT_STATUS_BOARD_MAX - 1);
         s_status_board[OTA_BOOT_STATUS_BOARD_MAX - 1] = '\0';
     }
-    // Init bb_update_check now that we have the url/board (idempotent if
+    // Init bb_ota_check now that we have the url/board (idempotent if
     // already done at route-registration time with a previously stashed url).
     s_status_check_initialized = false;  // force re-init with fresh url/board
     status_check_ensure_init();
@@ -489,7 +489,7 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
     bb_log_i(TAG, "OTA boot-mode apply route registered");
 
 #if CONFIG_BB_OTA_BOOT_STATUS_HTTP
-    // Attempt early init of bb_update_check in case run_if_pending was already
+    // Attempt early init of bb_ota_check in case run_if_pending was already
     // called (url/board stashed). If not yet called, init will complete once
     // run_if_pending stashes the url/board.
     status_check_ensure_init();
@@ -505,12 +505,12 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
              "\"last_check_ok\":{\"type\":\"boolean\"},"
              "\"enabled\":{\"type\":\"boolean\"},"
              "\"outcome\":{\"type\":\"string\","
-               "\"enum\":[" BB_UPDATE_OUTCOME_ENUM_JSON "]},"
+               "\"enum\":[" BB_OTA_CHECK_OUTCOME_ENUM_JSON "]},"
              "\"last_check_ts\":{\"type\":\"integer\"}},"
            "\"required\":[\"current\",\"latest\",\"download_url\","
                          "\"available\",\"last_check_ok\",\"enabled\",\"outcome\"]}",
           "current status of the update poller" },
-        { 503, "application/json", NULL, "bb_update_check not initialized" },
+        { 503, "application/json", NULL, "bb_ota_check not initialized" },
         { 0 },
     };
     static const bb_route_t s_status_route = {

@@ -1,7 +1,7 @@
 #include "bb_ota_pull.h"
 #include "bb_tls.h"
 #include "bb_ota_hooks.h"
-#include "bb_update_check.h"
+#include "bb_ota_check.h"
 #include "bb_release_manifest.h"
 #include "bb_http_client.h"
 #include <inttypes.h>
@@ -91,7 +91,7 @@ static const char *TAG = "bb_ota_pull";
 #define CONFIG_BB_OTA_PULL_WIFI_SETTLE_MS 8000
 #endif
 
-// Timeout (ms) for bb_update_check_run_blocking() inside the apply handler.
+// Timeout (ms) for bb_ota_check_run_blocking() inside the apply handler.
 // Must be long enough for a cold TLS handshake + manifest fetch under load;
 // 15 s was too tight and caused spurious refresh-failed 503s on congested links.
 #define BB_OTA_APPLY_REFRESH_TIMEOUT_MS 30000
@@ -101,7 +101,7 @@ static int s_ota_task_core = 1;  // default: Core 1 (bitaxe-friendly, frees Core
 // Worker priority. On single-core targets the worker must outrank a CPU-bound
 // consumer task (e.g. a SW-mining hot loop) so it can preempt and call the pause
 // hook; otherwise the download starves the idle task and trips the WDT. Consumers
-// raise this via bb_ota_pull_set_task_priority (mirrors bb_update_check).
+// raise this via bb_ota_pull_set_task_priority (mirrors bb_ota_check).
 static int s_ota_task_prio = OTA_TASK_PRIO;
 
 #ifdef CONFIG_PM_ENABLE
@@ -301,7 +301,7 @@ static bb_err_t ota_manifest_chunk_cb(void *cv, const char *data, size_t len)
  * Fetch and stream-parse the release manifest.
  *
  * Fills out_tag and out_url on success. The board name used for asset
- * matching is taken from bb_update_check_get_status() — the single source
+ * matching is taken from bb_ota_check_get_status() — the single source
  * of truth for the configured board name.
  *
  * Returns BB_OK, BB_ERR_INVALID_STATE (transport/HTTP error), or
@@ -310,8 +310,8 @@ static bb_err_t ota_manifest_chunk_cb(void *cv, const char *data, size_t len)
 static bb_err_t ota_fetch_manifest(char *out_tag, size_t tag_cap,
                                    char *out_url, size_t url_cap)
 {
-    bb_update_check_status_t uc_status;
-    bb_err_t status_err = bb_update_check_get_status(&uc_status);
+    bb_ota_check_status_t uc_status;
+    bb_err_t status_err = bb_ota_check_get_status(&uc_status);
     const char *board = (status_err == BB_OK && uc_status.board[0] != '\0')
                         ? uc_status.board : "unknown";
 
@@ -484,7 +484,7 @@ bool bb_ota_pull_heap_ready_for_test(size_t largest_block, size_t contiguous_flo
  */
 static void ota_task_exit(void)
 {
-    bb_update_check_ota_claim_release("ota_pull");
+    bb_ota_check_ota_claim_release("ota_pull");
     bb_wdt_extend_end();
     bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
     vTaskDelete(NULL);
@@ -967,9 +967,9 @@ bb_err_t bb_ota_pull_run_sync(const char *asset_url)
 }
 
 /**
- * POST /api/update/check - Kick the bb_update_check worker and return immediately.
+ * POST /api/update/check - Kick the bb_ota_check worker and return immediately.
  *
- * bb_update_check owns the single persistent 8 KB worker (s_worker). Delegating
+ * bb_ota_check owns the single persistent 8 KB worker (s_worker). Delegating
  * here eliminates the duplicate per-call 12 KB ota_check_worker_task that
  * previously caused OOM under fragmented heap on bitaxe-650 (TA-378). Callers
  * poll GET /api/update/status for the result; the response shape is unchanged
@@ -977,7 +977,7 @@ bb_err_t bb_ota_pull_run_sync(const char *asset_url)
  */
 static bb_err_t ota_check_handler(bb_http_request_t *req)
 {
-    bb_update_check_kick();  // truly non-blocking; ignore return (no URL set is OK)
+    bb_ota_check_kick();  // truly non-blocking; ignore return (no URL set is OK)
 
     bb_http_json_obj_stream_t obj;
     bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
@@ -989,7 +989,7 @@ static bb_err_t ota_check_handler(bb_http_request_t *req)
 /**
  * POST /api/update/apply - Trigger firmware update
  *
- * Reads bb_update_check's cached status instead of maintaining a parallel
+ * Reads bb_ota_check's cached status instead of maintaining a parallel
  * cache. Returns 503 if no successful check has run yet, 409 if the check
  * reports no update available or an OTA is already in progress.
  */
@@ -1014,12 +1014,12 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
 
     // Cache-first: trust the cached update-check result when fresh; otherwise
     // kick the worker and wait for a fresh check before deciding.
-    // NOTE: the OTA claim is NOT held here — bb_update_check_run_blocking()
+    // NOTE: the OTA claim is NOT held here — bb_ota_check_run_blocking()
     // spawns an upd_check worker that acquires the same claim ("upd_check").
     // Holding the claim before the refresh would deadlock: upd_check skips,
     // refresh times out, apply returns "check_failed" and leaks the claim.
-    bb_update_check_status_t uc_status;
-    bb_err_t uc_err = bb_update_check_get_status(&uc_status);
+    bb_ota_check_status_t uc_status;
+    bb_err_t uc_err = bb_ota_check_get_status(&uc_status);
     if (uc_err != BB_OK) {
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
@@ -1040,7 +1040,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
     if (!fresh) {
         bb_log_i(TAG, "apply: cache stale (last_check_us=%" PRId64 "); refreshing",
                  uc_status.last_check_us);
-        bb_err_t block_err = bb_update_check_run_blocking(BB_OTA_APPLY_REFRESH_TIMEOUT_MS);
+        bb_err_t block_err = bb_ota_check_run_blocking(BB_OTA_APPLY_REFRESH_TIMEOUT_MS);
         if (block_err != BB_OK) {
             taskENTER_CRITICAL(&s_ota_status_mux);
             s_ota_in_progress = false;
@@ -1054,7 +1054,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
             return BB_OK;
         }
         // Re-read the now-fresh status.
-        uc_err = bb_update_check_get_status(&uc_status);
+        uc_err = bb_ota_check_get_status(&uc_status);
         if (uc_err != BB_OK || !uc_status.last_check_ok) {
             taskENTER_CRITICAL(&s_ota_status_mux);
             s_ota_in_progress = false;
@@ -1100,7 +1100,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
     // Claim the OTA exclusive slot immediately before spawning the worker.
     // All early-return paths above (refresh, no-update-available, alloc) occur
     // BEFORE this acquire, so they cannot leak the claim.
-    if (bb_update_check_ota_claim_acquire("ota_pull") != BB_OK) {
+    if (bb_ota_check_ota_claim_acquire("ota_pull") != BB_OK) {
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
@@ -1145,7 +1145,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         ota_task_core
     );
     if (!task_handle) {
-        bb_update_check_ota_claim_release("ota_pull");
+        bb_ota_check_ota_claim_release("ota_pull");
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
         taskEXIT_CRITICAL(&s_ota_status_mux);
@@ -1169,7 +1169,7 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
     );
 
     if (task_result != pdPASS) {
-        bb_update_check_ota_claim_release("ota_pull");
+        bb_ota_check_ota_claim_release("ota_pull");
         bb_mem_free(task_arg);
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
@@ -1346,12 +1346,12 @@ BB_INIT_REGISTER_N(bb_ota_pull, bb_ota_pull_init, 3);
 
 /**
  * Trigger an immediate OTA check (non-blocking).
- * Delegates to bb_update_check_now() — the single source of truth for
- * manifest fetches. bb_update_check owns the persistent 8 KB worker.
+ * Delegates to bb_ota_check_now() — the single source of truth for
+ * manifest fetches. bb_ota_check owns the persistent 8 KB worker.
  */
 bb_err_t bb_ota_pull_check_now(void)
 {
-    return bb_update_check_now();
+    return bb_ota_check_now();
 }
 
 void bb_ota_pull_set_task_core(int core)

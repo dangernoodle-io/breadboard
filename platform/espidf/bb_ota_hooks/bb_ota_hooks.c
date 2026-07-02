@@ -251,7 +251,7 @@ static bb_err_t bb_ota_hooks_init(bb_http_handle_t server)
 
 #if CONFIG_BB_OTA_HOOKS_AUTOREGISTER
 /* order 4: after bb_event_routes_init (order 0) sets s_cfg.initialized so the
- * attach succeeds — mirrors bb_update_check. */
+ * attach succeeds — mirrors bb_ota_check. */
 BB_INIT_REGISTER_N(bb_ota_hooks, bb_ota_hooks_init, 4);
 #endif
 

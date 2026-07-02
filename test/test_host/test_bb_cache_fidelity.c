@@ -19,7 +19,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_net_health.h"
-#include "bb_update_check_internal.h"
+#include "bb_ota_check_internal.h"
 #include "../../components/bb_info/src/bb_info_build_priv.h"
 
 #include <string.h>
@@ -111,7 +111,7 @@ static const bb_display_snap_t s_display_initial = {
     .enabled = true,
 };
 
-static const bb_update_snap_t s_update_initial = {
+static const bb_ota_check_snap_t s_update_initial = {
     .current       = "",
     .latest        = "",
     .download_url  = "",
@@ -162,10 +162,10 @@ static const bb_cache_fidelity_topic_t s_topics[] = {
         .initial_snap = &s_diag_boot_initial,
     },
     {
-        .name         = BB_UPDATE_CHECK_TOPIC,
+        .name         = BB_OTA_CHECK_TOPIC,
         .snapshot     = NULL,
-        .snap_size    = sizeof(bb_update_snap_t),
-        .serialize    = bb_update_serialize,
+        .snap_size    = sizeof(bb_ota_check_snap_t),
+        .serialize    = bb_ota_check_serialize,
         .initial_snap = &s_update_initial,
     },
     {
@@ -351,4 +351,12 @@ void test_bb_cache_registry_full(void)
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) free(topics[i]);
     free(topics);
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
+}
+
+// Pins BB_OTA_CHECK_TOPIC's string VALUE to "update.available" so a future
+// bb_ota_check refactor cannot silently drift the SSE/cache topic name (the
+// macro is free to be renamed; the wire value is the public contract).
+void test_bb_ota_check_topic_value_is_update_available(void)
+{
+    TEST_ASSERT_EQUAL_STRING("update.available", BB_OTA_CHECK_TOPIC);
 }

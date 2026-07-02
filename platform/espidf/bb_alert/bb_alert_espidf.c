@@ -29,7 +29,7 @@ static bb_err_t bb_alert_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-// Order 4 — same as bb_update_check; bb_event_routes_init runs at order 0.
+// Order 4 — same as bb_ota_check; bb_event_routes_init runs at order 0.
 BB_INIT_REGISTER_N(bb_alert, bb_alert_init, 4)
 
 #endif // BB_ALERT_ENABLE && CONFIG_BB_ALERT_AUTOREGISTER

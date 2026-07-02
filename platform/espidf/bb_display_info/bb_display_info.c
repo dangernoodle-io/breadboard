@@ -114,7 +114,7 @@ static bb_err_t bb_display_info_register_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-/* order 4: after bb_event_routes_init (order 0) — mirrors bb_update_check. */
+/* order 4: after bb_event_routes_init (order 0) — mirrors bb_ota_check. */
 BB_INIT_REGISTER_N(bb_display_info, bb_display_info_register_init, 4);
 
 #endif /* CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH */

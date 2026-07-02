@@ -497,7 +497,7 @@ bb_err_t bb_net_health_attach_sse(void)
     // synthetic worst-ish case — the gap is digit-width in a few integer
     // fields, not a real discrepancy), above the bb_event_routes global
     // default (256) — same precedent as update.available / info.build
-    // (#616, B1-434/435/439; see bb_update_check_espidf.c / bb_info.c).
+    // (#616, B1-434/435/439; see bb_ota_check_espidf.c / bb_info.c).
     // B1-472.
     err = bb_event_routes_attach_ex2(BB_NET_HEALTH_TOPIC, /*retained=*/true,
                                       BB_NET_HEALTH_SSE_MAX_ENTRY);

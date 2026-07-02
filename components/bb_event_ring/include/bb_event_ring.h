@@ -15,7 +15,7 @@ typedef struct bb_event_ring *bb_event_ring_t;
 // When `retained` is true the ring is marked as a retained-state topic: the flag documents
 // intent at the call site and reserves API surface for future drain semantics. Callers that
 // set retained=true should also publish an initial snapshot at component init so the ring
-// is non-empty from T=0 (see bb_update_check for the canonical pattern).
+// is non-empty from T=0 (see bb_ota_check for the canonical pattern).
 // Preferred form; use bb_event_ring_attach for non-retained topics.
 bb_err_t bb_event_ring_attach_ex(bb_event_topic_t topic, size_t capacity,
                                  size_t max_entry, bool retained,

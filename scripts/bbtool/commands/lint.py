@@ -90,7 +90,7 @@ def _check_state_topic_post(ctx: Context) -> list:
     root = Path(ctx.root)
 
     topic_pattern = re.compile(
-        r'BB_NET_HEALTH_TOPIC|BB_DIAG_BOOT_TOPIC|BB_UPDATE_CHECK_TOPIC|BB_DISPLAY_INFO_TOPIC'
+        r'BB_NET_HEALTH_TOPIC|BB_DIAG_BOOT_TOPIC|BB_OTA_CHECK_TOPIC|BB_DISPLAY_INFO_TOPIC'
         r'|"net\.health"|"diag\.boot"|"update\.available"|"health\.display"'
     )
     post_pattern = re.compile(r'bb_event_post\(')

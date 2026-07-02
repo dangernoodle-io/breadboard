@@ -477,10 +477,10 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_registry/bb_registry.c"],
         "depends":  ["bb_core", "bb_log"],
     },
-    "bb_update_check": {
-        "includes": ["components/bb_update_check/include",
-                     "components/bb_update_check/src"],
-        "sources":  ["components/bb_update_check/src/bb_update_check_common.c"],
+    "bb_ota_check": {
+        "includes": ["components/bb_ota_check/include",
+                     "components/bb_ota_check/src"],
+        "sources":  ["components/bb_ota_check/src/bb_ota_check_common.c"],
         "depends":  ["bb_core", "bb_http", "bb_json", "bb_nv",
                      "bb_release_manifest", "bb_http_client",
                      "bb_event", "bb_log", "bb_mdns", "bb_system", "bb_alert",
