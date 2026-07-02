@@ -54,6 +54,13 @@ static bb_net_state_t        s_last_published_state    = (bb_net_state_t)-1;
 static bool                  s_last_published_warn     = false;
 static bool                  s_last_published_throttled = false;
 static bb_periodic_timer_t   s_timer = NULL;
+// Diagnostic-state log heartbeat (KB#556): tracks the last time a heartbeat
+// line was logged and the net_mode it was logged for, so bb_net_health_should_log
+// can decide "immediate on transition, throttled otherwise". Sentinel -1
+// mode guarantees the very first eval cycle always logs (mode transition
+// from "never logged" to whatever the real mode is).
+static int64_t                s_last_log_us   = 0;
+static bb_net_mode_t          s_last_logged_mode = (bb_net_mode_t)-1;
 // MQTT disconnect tracking: record the ms-timestamp when reconnect_count
 // increases (the moment we detect a new disconnect).  0 means "no disconnect
 // observed yet" (i.e. no reconnects have ever occurred).
@@ -234,13 +241,18 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
     return BB_OK;
 }
 
-static void publish_snapshot(const bb_net_health_output_t *out,
-                             const bb_net_health_input_t  *in,
-                             const bb_wifi_info_t         *wi,
-                             bool throttled,
-                             bb_mqtt_disc_t mqtt_disc_reason,
-                             bb_tls_fail_t  mqtt_tls_fail,
-                             bb_sink_http_health_t http_h)
+// Build a full status snapshot from the current evaluation inputs/outputs.
+// Pure construction — no cache writes, no SSE/bb_cache posts. Called once per
+// eval_work_fn cycle so both the SSE-publish path (on state/warning/throttle
+// change) and the log-heartbeat path (on net_mode change or interval
+// elapsed) observe the exact same point-in-time snapshot.
+static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
+                                             const bb_net_health_input_t  *in,
+                                             const bb_wifi_info_t         *wi,
+                                             bool throttled,
+                                             bb_mqtt_disc_t mqtt_disc_reason,
+                                             bb_tls_fail_t  mqtt_tls_fail,
+                                             bb_sink_http_health_t http_h)
 {
     bool associated = bb_wifi_is_associated();
     bool has_ip     = bb_wifi_has_ip();
@@ -271,41 +283,52 @@ static void publish_snapshot(const bb_net_health_output_t *out,
         .net_mode               = bb_net_health_classify_mode(associated, has_ip),
         .associated             = associated,
         .has_ip                 = has_ip,
+        .retry_count            = wi->retry_count,
+        .restart_sta_count      = bb_wifi_get_restart_sta_count(),
+        .uptime_s               = (uint32_t)(bb_clock_now_ms64() / 1000ULL),
     };
+    strncpy(snap.ip, wi->ip, sizeof(snap.ip) - 1);
+    snap.ip[sizeof(snap.ip) - 1] = '\0';
 
+    return snap;
+}
+
+// Update s_cache + bb_cache/SSE from an already-built snapshot.
+static void publish_snapshot(const bb_net_health_status_t *snap)
+{
     // Update s_cache so bb_net_health_get_status (used by the pub source) can
     // read the latest snapshot without re-running eval.
     xSemaphoreTake(s_cache_lock, portMAX_DELAY);
-    s_cache.rssi                    = snap.rssi;
-    s_cache.mqtt_connected          = snap.mqtt_connected;
-    s_cache.mqtt_reconnect_count    = snap.mqtt_reconnect_count;
-    s_cache.last_disconnect_reason  = snap.last_disconnect_reason;
-    s_cache.disc_age_s              = snap.disc_age_s;
-    s_cache.state                   = snap.state;
-    s_cache.early_warning           = snap.early_warning;
-    s_cache.throttled               = snap.throttled;
-    s_cache.mqtt_disc_age_s         = snap.mqtt_disc_age_s;
-    s_cache.mqtt_disc_reason        = snap.mqtt_disc_reason;
-    s_cache.mqtt_tls_fail           = snap.mqtt_tls_fail;
-    s_cache.http_connected          = snap.http_connected;
-    s_cache.http_consec_failures    = snap.http_consec_failures;
-    s_cache.http_tls_fail           = snap.http_tls_fail;
-    s_cache.http_last_status        = snap.http_last_status;
-    s_cache.lost_ip_recoveries      = snap.lost_ip_recoveries;
-    s_cache.lost_ip_age_s           = snap.lost_ip_age_s;
-    s_cache.egress_dead_recoveries  = snap.egress_dead_recoveries;
-    s_cache.no_ip_recoveries        = snap.no_ip_recoveries;
-    s_cache.roam_count              = snap.roam_count;
-    s_cache.roam_age_s              = snap.roam_age_s;
-    s_cache.last_session_s          = snap.last_session_s;
-    s_cache.net_mode                = snap.net_mode;
-    s_cache.associated              = snap.associated;
-    s_cache.has_ip                  = snap.has_ip;
+    s_cache.rssi                    = snap->rssi;
+    s_cache.mqtt_connected          = snap->mqtt_connected;
+    s_cache.mqtt_reconnect_count    = snap->mqtt_reconnect_count;
+    s_cache.last_disconnect_reason  = snap->last_disconnect_reason;
+    s_cache.disc_age_s              = snap->disc_age_s;
+    s_cache.state                   = snap->state;
+    s_cache.early_warning           = snap->early_warning;
+    s_cache.throttled               = snap->throttled;
+    s_cache.mqtt_disc_age_s         = snap->mqtt_disc_age_s;
+    s_cache.mqtt_disc_reason        = snap->mqtt_disc_reason;
+    s_cache.mqtt_tls_fail           = snap->mqtt_tls_fail;
+    s_cache.http_connected          = snap->http_connected;
+    s_cache.http_consec_failures    = snap->http_consec_failures;
+    s_cache.http_tls_fail           = snap->http_tls_fail;
+    s_cache.http_last_status        = snap->http_last_status;
+    s_cache.lost_ip_recoveries      = snap->lost_ip_recoveries;
+    s_cache.lost_ip_age_s           = snap->lost_ip_age_s;
+    s_cache.egress_dead_recoveries  = snap->egress_dead_recoveries;
+    s_cache.no_ip_recoveries        = snap->no_ip_recoveries;
+    s_cache.roam_count              = snap->roam_count;
+    s_cache.roam_age_s              = snap->roam_age_s;
+    s_cache.last_session_s          = snap->last_session_s;
+    s_cache.net_mode                = snap->net_mode;
+    s_cache.associated              = snap->associated;
+    s_cache.has_ip                  = snap->has_ip;
     xSemaphoreGive(s_cache_lock);
 
     // Update bb_cache owned struct — SSE uses bb_cache_post, REST uses
     // bb_cache_serialize_into; both serialize from the same snapshot.
-    bb_cache_update(BB_NET_HEALTH_TOPIC, &snap);
+    bb_cache_update(BB_NET_HEALTH_TOPIC, snap);
     bb_cache_post(BB_NET_HEALTH_TOPIC);
 }
 
@@ -397,21 +420,46 @@ static void eval_work_fn(void *arg)
     bool currently_throttled = false;
 #endif
 
+    bb_sink_http_health_t http_h = {0};
+    bb_sink_http_get_health(&http_h);
+
+    // Build the full snapshot once per cycle: both the SSE-publish decision
+    // below and the log-heartbeat decision (KB#556) observe the same
+    // point-in-time snapshot.
+    bb_net_health_status_t snap = build_snapshot(&out, &in, &wi, currently_throttled,
+                                                  mqtt_disc_reason, mqtt_tls_fail, http_h);
+
     // Publish only when state, early_warning, OR throttled flag differs from
     // the last published values.  This ensures:
     //  - A sustained throttle publishes ONCE on entry and ONCE on exit.
     //  - Every real state/warning transition is still captured.
-    bb_sink_http_health_t http_h = {0};
-    bb_sink_http_get_health(&http_h);
-
     if (out.state != s_last_published_state ||
         out.early_warning != s_last_published_warn ||
         currently_throttled != s_last_published_throttled) {
-        publish_snapshot(&out, &in, &wi, currently_throttled, mqtt_disc_reason, mqtt_tls_fail, http_h);
+        publish_snapshot(&snap);
         s_last_published_state     = out.state;
         s_last_published_warn      = out.early_warning;
         s_last_published_throttled = currently_throttled;
     }
+
+#if BB_NET_HEALTH_LOG_ENABLE
+    // Diagnostic-state log heartbeat (KB#556, observe-only): emit a
+    // structured line on every net_mode transition (immediate) or every
+    // BB_NET_HEALTH_LOG_INTERVAL_S seconds (throttled periodic heartbeat),
+    // independent of whether the SSE snapshot above published. Rides the
+    // "log" bb_event topic (serial + future UDP log sink) so a no-route/
+    // zombie board that cannot serve HTTP/MQTT still reports full state.
+    int64_t now_us = bb_timer_now_us();
+    if (bb_net_health_should_log(now_us, s_last_log_us, snap.net_mode,
+                                  s_last_logged_mode,
+                                  (uint32_t)BB_NET_HEALTH_LOG_INTERVAL_S)) {
+        char line[224];
+        bb_net_health_format_log(&snap, line, sizeof(line));
+        bb_log_i(TAG, "%s", line);
+        s_last_log_us      = now_us;
+        s_last_logged_mode = snap.net_mode;
+    }
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -569,10 +617,24 @@ bb_err_t bb_net_health_attach_sse(void)
         bb_sink_http_health_t http_h = {0};
         bb_sink_http_get_health(&http_h);
 
-        publish_snapshot(&out, &in, &wi, false, mqtt_disc_reason, mqtt_tls_fail, http_h);
+        bb_net_health_status_t snap = build_snapshot(&out, &in, &wi, false,
+                                                      mqtt_disc_reason, mqtt_tls_fail, http_h);
+        publish_snapshot(&snap);
         s_last_published_state     = out.state;
         s_last_published_warn      = out.early_warning;
         s_last_published_throttled = false;
+
+#if BB_NET_HEALTH_LOG_ENABLE
+        // Initial heartbeat: sentinel s_last_logged_mode guarantees this
+        // always logs (mode transition from "never logged"), so a
+        // no-route/zombie board reports diagnostic state from T=0.
+        int64_t now_us = bb_timer_now_us();
+        char line[224];
+        bb_net_health_format_log(&snap, line, sizeof(line));
+        bb_log_i(TAG, "%s", line);
+        s_last_log_us      = now_us;
+        s_last_logged_mode = snap.net_mode;
+#endif
     }
 
     // Start the 5-second periodic evaluator.

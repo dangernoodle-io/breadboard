@@ -1479,6 +1479,19 @@ void test_bb_heap_state_str_low(void);
 void test_bb_heap_state_str_critical(void);
 void test_bb_heap_state_str_unknown_returns_ok(void);
 void test_bb_net_health_set_heap_state_roundtrip(void);
+void test_bb_net_health_should_log_mode_changed(void);
+void test_bb_net_health_should_log_interval_elapsed(void);
+void test_bb_net_health_should_log_neither(void);
+void test_bb_net_health_should_log_both(void);
+void test_bb_net_health_should_log_clock_went_backwards(void);
+void test_bb_net_health_format_log_null_status(void);
+void test_bb_net_health_format_log_null_buf(void);
+void test_bb_net_health_format_log_zero_cap(void);
+void test_bb_net_health_format_log_fields_present(void);
+void test_bb_net_health_format_log_net_mode_ok(void);
+void test_bb_net_health_format_log_net_mode_not_associated(void);
+void test_bb_net_health_format_log_truncation_safe(void);
+void test_bb_net_health_format_log_critical_first_order(void);
 
 // Forward declarations from test_bb_sse_writer.c
 void test_sse_idle_below_heartbeat(void);
@@ -5225,6 +5238,19 @@ int main(void) {
     RUN_TEST(test_bb_heap_state_str_critical);
     RUN_TEST(test_bb_heap_state_str_unknown_returns_ok);
     RUN_TEST(test_bb_net_health_set_heap_state_roundtrip);
+    RUN_TEST(test_bb_net_health_should_log_mode_changed);
+    RUN_TEST(test_bb_net_health_should_log_interval_elapsed);
+    RUN_TEST(test_bb_net_health_should_log_neither);
+    RUN_TEST(test_bb_net_health_should_log_both);
+    RUN_TEST(test_bb_net_health_should_log_clock_went_backwards);
+    RUN_TEST(test_bb_net_health_format_log_null_status);
+    RUN_TEST(test_bb_net_health_format_log_null_buf);
+    RUN_TEST(test_bb_net_health_format_log_zero_cap);
+    RUN_TEST(test_bb_net_health_format_log_fields_present);
+    RUN_TEST(test_bb_net_health_format_log_net_mode_ok);
+    RUN_TEST(test_bb_net_health_format_log_net_mode_not_associated);
+    RUN_TEST(test_bb_net_health_format_log_truncation_safe);
+    RUN_TEST(test_bb_net_health_format_log_critical_first_order);
 
     // bb_vcore_wd tests (pure vcore-collapse watchdog)
     RUN_TEST(test_bb_vcore_wd_warmup_suppresses_all);

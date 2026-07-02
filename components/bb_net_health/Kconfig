@@ -120,4 +120,27 @@ config BB_NET_HEALTH_HEAP_TRACE
         zero otherwise (stats still disabled independently).
         Default OFF — zero runtime cost when disabled.
 
+config BB_NET_HEALTH_LOG_ENABLE
+    bool "Emit diagnostic-state heartbeat log line"
+    default y
+    help
+        When enabled, the net-health evaluator emits one structured
+        bb_log_i(TAG, "nm=... assoc=... ...") line each cycle where net_mode
+        changes (immediate) or BB_NET_HEALTH_LOG_INTERVAL_S elapses
+        (periodic heartbeat). The line rides the existing "log" bb_event
+        topic (serial + future UDP log sink) so a no-route/zombie board that
+        cannot serve HTTP/MQTT still reports its full diagnostic state
+        (telemetry-over-logs). OBSERVE-ONLY — no recovery action is
+        triggered. Default ON — low runtime cost, high diagnostic value.
+
+config BB_NET_HEALTH_LOG_INTERVAL_S
+    int "Diagnostic heartbeat log interval (seconds)"
+    default 60
+    range 5 3600
+    depends on BB_NET_HEALTH_LOG_ENABLE
+    help
+        Minimum interval between periodic heartbeat log lines when net_mode
+        is unchanged (e.g. "still no_ip after 5min"). A net_mode transition
+        always logs immediately regardless of this interval.
+
 endmenu
