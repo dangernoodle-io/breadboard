@@ -309,3 +309,14 @@ bb_err_t bb_display_set_rotation(uint16_t deg)
     }
     return err;
 }
+
+bb_err_t bb_display_set_mirror(bool mirror_x, bool mirror_y)
+{
+    /* Snapshot s_active once: concurrent bb_display_off() on another task may NULL
+     * the global after the ready check but before the dereference. */
+    const bb_display_backend_t *a = s_active;
+    if (!s_ready || !a) return BB_ERR_INVALID_STATE;
+    if (!a->set_mirror) return BB_ERR_UNSUPPORTED;
+
+    return a->set_mirror(mirror_x, mirror_y);
+}

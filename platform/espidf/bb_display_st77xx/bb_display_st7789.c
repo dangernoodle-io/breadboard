@@ -108,6 +108,19 @@ static bb_err_t st7789_set_rotation(uint16_t deg, uint16_t *w, uint16_t *h)
     return BB_OK;
 }
 
+static bb_err_t st7789_set_mirror(bool mirror_x, bool mirror_y)
+{
+    if (!bb_display_st77xx_panel) return BB_ERR_INVALID_STATE;
+    esp_err_t rc = esp_lcd_panel_mirror(bb_display_st77xx_panel, mirror_x, mirror_y);
+    if (rc == ESP_ERR_NOT_SUPPORTED) {
+        return BB_ERR_UNSUPPORTED;
+    }
+    if (rc != ESP_OK) {
+        return BB_ERR_INVALID_STATE;
+    }
+    return BB_OK;
+}
+
 static const bb_display_backend_t s_backend = {
     .name         = "st7789",
     .probe        = NULL,
@@ -119,6 +132,7 @@ static const bb_display_backend_t s_backend = {
     .on           = bb_display_st77xx_on,
     .draw_text    = NULL,
     .set_rotation = st7789_set_rotation,
+    .set_mirror   = st7789_set_mirror,
 };
 
 BB_DISPLAY_AUTOREGISTER(st7789, CONFIG_BB_DISPLAY_ST7789_AUTOREGISTER, &s_backend)

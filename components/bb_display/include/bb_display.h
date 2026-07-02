@@ -141,3 +141,24 @@ void bb_display_set_default_font(const bb_display_font_t *font);
  * angle, or BB_ERR_INVALID_ARG for non-cardinal values. */
 bb_err_t bb_display_set_rotation(uint16_t deg);
 
+/* Mirror the display about the X and/or Y axis, independent of rotation.
+ *
+ * Ordering contract: call bb_display_set_mirror() AFTER
+ * bb_display_set_rotation(). Each backend's set_rotation recomputes
+ * mirror_x/mirror_y from its cardinal-angle table and overwrites the
+ * panel mirror register, so a later bb_display_set_rotation() call
+ * silently resets the mirror to that rotation's cardinal default and
+ * discards any prior bb_display_set_mirror() override. If the override
+ * is still wanted after a rotation change, call bb_display_set_mirror()
+ * again.
+ *
+ * bb_display_set_mirror() applies an additional panel mirror on top of
+ * the current rotation, for panel orientations that
+ * bb_display_set_rotation() alone cannot express (e.g. swap_xy + both
+ * mirror axes).
+ *
+ * Returns BB_ERR_UNSUPPORTED if the active backend doesn't implement
+ * mirror control -- distinct from bb_display_set_rotation()'s legacy
+ * BB_ERR_INVALID_STATE for the same "unsupported" condition. */
+bb_err_t bb_display_set_mirror(bool mirror_x, bool mirror_y);
+

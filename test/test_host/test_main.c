@@ -1200,6 +1200,8 @@ void test_bb_display_no_dispatch_before_init(void);
 void test_bb_display_set_rotation_no_backend_returns_err(void);
 void test_bb_display_set_rotation_invalid_angle(void);
 void test_bb_display_set_rotation_no_support_returns_err(void);
+void test_bb_display_set_mirror_no_backend_returns_err(void);
+void test_bb_display_set_mirror_no_support_returns_err(void);
 void test_rgb565_byteswap_forms_equivalent(void);
 void test_rgb565_byteswap_round_trip(void);
 void test_bounce_rows_narrow_image(void);
@@ -1212,6 +1214,9 @@ void test_bb_display_flush_no_flush_fn_is_noop(void);
 void test_bb_display_set_rotation_succeeds(void);
 void test_bb_display_set_rotation_updates_dimensions(void);
 void test_bb_display_set_rotation_propagates_error(void);
+void test_bb_display_set_mirror_succeeds(void);
+void test_bb_display_set_mirror_propagates_error(void);
+void test_bb_display_set_mirror_after_off_is_noop(void);
 void test_bb_display_register_null_is_ignored(void);
 void test_bb_display_backend_with_null_init_is_skipped(void);
 void test_bb_display_registry_full_drops_excess(void);
@@ -1271,6 +1276,9 @@ void test_bb_display_clear_after_off_is_noop(void);
 void test_bb_display_blit_after_off_is_noop(void);
 void test_bb_display_flush_after_off_is_noop(void);
 void test_bb_display_set_rotation_after_off_is_noop(void);
+void test_bb_display_set_mirror_after_off_is_noop(void);
+void test_bb_display_set_mirror_single_axis_order(void);
+void test_bb_display_set_rotation_after_set_mirror_resets_mirror(void);
 void test_bb_display_draw_ops_noop_when_active_null_mid_race(void);
 
 // Forward declarations from test_bb_timer.c
@@ -4787,6 +4795,8 @@ int main(void) {
     RUN_TEST(test_bb_display_set_rotation_no_backend_returns_err);
     RUN_TEST(test_bb_display_set_rotation_invalid_angle);
     RUN_TEST(test_bb_display_set_rotation_no_support_returns_err);
+    RUN_TEST(test_bb_display_set_mirror_no_backend_returns_err);
+    RUN_TEST(test_bb_display_set_mirror_no_support_returns_err);
     RUN_TEST(test_rgb565_byteswap_forms_equivalent);
     RUN_TEST(test_rgb565_byteswap_round_trip);
     RUN_TEST(test_bounce_rows_narrow_image);
@@ -4799,6 +4809,8 @@ int main(void) {
     RUN_TEST(test_bb_display_set_rotation_succeeds);
     RUN_TEST(test_bb_display_set_rotation_updates_dimensions);
     RUN_TEST(test_bb_display_set_rotation_propagates_error);
+    RUN_TEST(test_bb_display_set_mirror_succeeds);
+    RUN_TEST(test_bb_display_set_mirror_propagates_error);
     RUN_TEST(test_bb_display_register_null_is_ignored);
     RUN_TEST(test_bb_display_backend_with_null_init_is_skipped);
     RUN_TEST(test_bb_display_registry_full_drops_excess);
@@ -4862,6 +4874,9 @@ int main(void) {
     RUN_TEST(test_bb_display_blit_after_off_is_noop);
     RUN_TEST(test_bb_display_flush_after_off_is_noop);
     RUN_TEST(test_bb_display_set_rotation_after_off_is_noop);
+    RUN_TEST(test_bb_display_set_mirror_after_off_is_noop);
+    RUN_TEST(test_bb_display_set_mirror_single_axis_order);
+    RUN_TEST(test_bb_display_set_rotation_after_set_mirror_resets_mirror);
     RUN_TEST(test_bb_display_draw_ops_noop_when_active_null_mid_race);
 
     // bb_byte_order tests

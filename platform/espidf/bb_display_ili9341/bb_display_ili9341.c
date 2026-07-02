@@ -211,6 +211,19 @@ static bb_err_t ili9341_set_rotation(uint16_t deg, uint16_t *w, uint16_t *h)
     return BB_OK;
 }
 
+static bb_err_t ili9341_set_mirror(bool mirror_x, bool mirror_y)
+{
+    if (!s_panel) return BB_ERR_INVALID_STATE;
+    esp_err_t rc = esp_lcd_panel_mirror(s_panel, mirror_x, mirror_y);
+    if (rc == ESP_ERR_NOT_SUPPORTED) {
+        return BB_ERR_UNSUPPORTED;
+    }
+    if (rc != ESP_OK) {
+        return BB_ERR_INVALID_STATE;
+    }
+    return BB_OK;
+}
+
 static const bb_display_backend_t s_backend = {
     .name         = "ili9341",
 #if !CONFIG_BB_DISPLAY_ILI9341_SKIP_PROBE
@@ -224,6 +237,7 @@ static const bb_display_backend_t s_backend = {
     .on           = ili9341_on,
     .draw_text    = NULL,
     .set_rotation = ili9341_set_rotation,
+    .set_mirror   = ili9341_set_mirror,
 };
 
 BB_DISPLAY_AUTOREGISTER(ili9341, CONFIG_BB_DISPLAY_ILI9341_AUTOREGISTER, &s_backend)
