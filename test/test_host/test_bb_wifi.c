@@ -286,3 +286,101 @@ void test_bb_wifi_is_associated_test_hook_roundtrip(void)
     TEST_ASSERT_FALSE(bb_wifi_is_associated());
 #endif
 }
+
+// ---------------------------------------------------------------------------
+// wifi-drop-log PR: bb_wifi_get_last_session_s getter
+// ---------------------------------------------------------------------------
+
+// Host stub returns 0 by default (no session has ended yet).
+void test_bb_wifi_last_session_s_default_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0, bb_wifi_get_last_session_s());
+}
+
+// Test hook roundtrip: set a value, getter returns it.
+void test_bb_wifi_last_session_s_test_hook_roundtrip(void)
+{
+#ifdef BB_WIFI_TESTING
+    bb_wifi_test_set_last_session_s(137);
+    TEST_ASSERT_EQUAL_UINT32(137, bb_wifi_get_last_session_s());
+    bb_wifi_test_set_last_session_s(0);
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// wifi-drop-log PR: bb_wifi_disc_reason_str — every mapped reason + default.
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_disc_reason_str_unknown_zero(void)
+{
+    TEST_ASSERT_EQUAL_STRING("unknown", bb_wifi_disc_reason_str(0));
+}
+
+void test_bb_wifi_disc_reason_str_auth_expire(void)
+{
+    TEST_ASSERT_EQUAL_STRING("auth_expire", bb_wifi_disc_reason_str(2));
+}
+
+void test_bb_wifi_disc_reason_str_auth_leave(void)
+{
+    TEST_ASSERT_EQUAL_STRING("auth_leave", bb_wifi_disc_reason_str(3));
+}
+
+void test_bb_wifi_disc_reason_str_disassoc_inactivity(void)
+{
+    TEST_ASSERT_EQUAL_STRING("disassoc_inactivity", bb_wifi_disc_reason_str(4));
+}
+
+void test_bb_wifi_disc_reason_str_4way_handshake_timeout(void)
+{
+    TEST_ASSERT_EQUAL_STRING("4way_handshake_timeout", bb_wifi_disc_reason_str(15));
+}
+
+void test_bb_wifi_disc_reason_str_beacon_timeout(void)
+{
+    TEST_ASSERT_EQUAL_STRING("beacon_timeout", bb_wifi_disc_reason_str(200));
+}
+
+void test_bb_wifi_disc_reason_str_no_ap_found(void)
+{
+    TEST_ASSERT_EQUAL_STRING("no_ap_found", bb_wifi_disc_reason_str(201));
+}
+
+void test_bb_wifi_disc_reason_str_assoc_fail(void)
+{
+    TEST_ASSERT_EQUAL_STRING("assoc_fail", bb_wifi_disc_reason_str(203));
+}
+
+void test_bb_wifi_disc_reason_str_handshake_timeout(void)
+{
+    TEST_ASSERT_EQUAL_STRING("handshake_timeout", bb_wifi_disc_reason_str(204));
+}
+
+void test_bb_wifi_disc_reason_str_connection_fail(void)
+{
+    TEST_ASSERT_EQUAL_STRING("connection_fail", bb_wifi_disc_reason_str(205));
+}
+
+void test_bb_wifi_disc_reason_str_bb_lost_ip(void)
+{
+    TEST_ASSERT_EQUAL_STRING("bb_lost_ip", bb_wifi_disc_reason_str(BB_WIFI_REASON_BB_LOST_IP));
+}
+
+void test_bb_wifi_disc_reason_str_bb_egress_dead(void)
+{
+    TEST_ASSERT_EQUAL_STRING("bb_egress_dead", bb_wifi_disc_reason_str(BB_WIFI_REASON_BB_EGRESS_DEAD));
+}
+
+void test_bb_wifi_disc_reason_str_bb_no_ip_watchdog(void)
+{
+    TEST_ASSERT_EQUAL_STRING("bb_no_ip_watchdog", bb_wifi_disc_reason_str(BB_WIFI_REASON_BB_NO_IP_WATCHDOG));
+}
+
+// Unmapped reason code falls through to the default "other" arm — the
+// numeric code is already shown by every caller via reason=%u, so the
+// string need not carry it (also makes the function reentrant: every
+// return is a static literal, no shared mutable buffer).
+void test_bb_wifi_disc_reason_str_default_unmapped(void)
+{
+    TEST_ASSERT_EQUAL_STRING("other", bb_wifi_disc_reason_str(207));
+}

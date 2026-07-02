@@ -188,6 +188,25 @@ bool bb_wifi_is_roam(const uint8_t prior_bssid[6], const uint8_t new_bssid[6]);
 // Returns INT8_MIN if no disconnect has occurred since boot (sentinel = "no reading").
 int8_t bb_wifi_get_disconnect_rssi(void);
 
+// Duration in seconds of the STA's most recently ENDED connected session
+// (elapsed time between the WIFI_EVENT_STA_CONNECTED that started it and
+// the following WIFI_EVENT_STA_DISCONNECTED that ended it). OBSERVE-ONLY
+// telemetry — captured at disconnect time, no recovery action attached.
+// Returns 0 if no session has ended since boot (sentinel — matches
+// bb_wifi_get_lost_ip_age_s()/bb_wifi_get_roam_age_s()). The value is frozen
+// at the last disconnect; it does not update live while connected.
+uint32_t bb_wifi_get_last_session_s(void);
+
+// Human-readable name for a WiFi disconnect reason code: covers the common
+// esp_wifi standard reasons (AUTH_EXPIRE, AUTH_LEAVE,
+// DISASSOC_DUE_TO_INACTIVITY, 4WAY_HANDSHAKE_TIMEOUT, BEACON_TIMEOUT,
+// NO_AP_FOUND, ASSOC_FAIL, HANDSHAKE_TIMEOUT, CONNECTION_FAIL) plus the three
+// breadboard sentinels (BB_WIFI_REASON_BB_LOST_IP/_EGRESS_DEAD/_NO_IP_WATCHDOG).
+// Unmapped codes return "other"; reason 0 returns "unknown". Never returns
+// NULL. Pure, host-testable, fully reentrant (every branch returns a static
+// string literal) — no ESP-IDF dependency.
+const char *bb_wifi_disc_reason_str(uint8_t reason);
+
 // Breadboard sentinel disconnect-reason codes injected into the histogram
 // returned by bb_wifi_get_reason_histogram. esp_wifi standard reasons occupy
 // 1-24/53-67/200-208; these three values are free and fit uint8_t (< 256).

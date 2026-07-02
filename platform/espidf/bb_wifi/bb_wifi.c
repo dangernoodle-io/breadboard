@@ -55,6 +55,14 @@ static uint32_t s_restart_sta_count = 0;
 // Protected by s_ap_mux.
 static int8_t s_disconnect_rssi = INT8_MIN;
 
+// Connected-session tracking (OBSERVE-ONLY telemetry). s_connected_since_us
+// is set on WIFI_EVENT_STA_CONNECTED and consumed on the following
+// WIFI_EVENT_STA_DISCONNECTED to compute the just-ended session duration
+// into s_last_session_s (seconds; 0 sentinel = "no session has ended yet").
+// Both protected by s_ap_mux (declared below, alongside s_cached_bssid).
+static uint64_t s_connected_since_us = 0;
+static uint32_t s_last_session_s = 0;
+
 // Cached STA config — stored at wifi_connect_sta_ex time so bb_wifi_restart_sta()
 // can re-apply it after stop/start without re-reading NVS.
 static wifi_config_t s_sta_config;
@@ -301,6 +309,14 @@ int8_t bb_wifi_get_disconnect_rssi(void)
     return v;
 }
 
+uint32_t bb_wifi_get_last_session_s(void)
+{
+    portENTER_CRITICAL(&s_ap_mux);
+    uint32_t v = s_last_session_s;
+    portEXIT_CRITICAL(&s_ap_mux);
+    return v;
+}
+
 uint32_t bb_wifi_get_roam_count(void)
 {
     portENTER_CRITICAL(&s_ap_mux);
@@ -392,6 +408,8 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             memcpy(s_cached_ssid, e->ssid, n);
             s_cached_ssid[n] = '\0';
             memcpy(s_cached_bssid, e->bssid, sizeof(s_cached_bssid));
+            // Connected-session tracking (OBSERVE-ONLY) — association start.
+            s_connected_since_us = bb_timer_now_us();
             portEXIT_CRITICAL(&s_ap_mux);
         }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
@@ -400,9 +418,37 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 
         // Snapshot cached RSSI before the AP record is torn down.
         // Do NOT call esp_wifi_sta_get_ap_info() here — AP already gone.
+        // Also compute the just-ended connected-session duration
+        // (OBSERVE-ONLY) and snapshot the BSSID for the structured drop log
+        // below, all under the same critical section — BEFORE s_cached_bssid
+        // would be cleared (it currently isn't, but this ordering keeps the
+        // invariant even if that changes later).
         portENTER_CRITICAL(&s_ap_mux);
         s_disconnect_rssi = s_cached_rssi;
+        uint32_t session_s = 0;
+        if (s_connected_since_us != 0) {
+            int64_t elapsed_us = (int64_t)bb_timer_now_us() - (int64_t)s_connected_since_us;
+            if (elapsed_us < 0) elapsed_us = 0;
+            session_s = (uint32_t)(elapsed_us / 1000000);
+        }
+        s_last_session_s = session_s;
+        s_connected_since_us = 0;
+        uint8_t bssid_snapshot[6];
+        memcpy(bssid_snapshot, s_cached_bssid, sizeof(bssid_snapshot));
         portEXIT_CRITICAL(&s_ap_mux);
+
+        // Structured per-drop log event (OBSERVE-ONLY — log/telemetry only,
+        // no recovery action). Flows to serial + the "log" bb_event topic
+        // (UDP log sink ships it) for free.
+        {
+            uint8_t drop_reason = disc ? disc->reason : 0;
+            bb_log_w(TAG,
+                     "wifi drop: reason=%u(%s) rssi=%d connected=%us bssid=%02x:%02x:%02x:%02x:%02x:%02x",
+                     (unsigned)drop_reason, bb_wifi_disc_reason_str(drop_reason),
+                     (int)s_disconnect_rssi, (unsigned)session_s,
+                     bssid_snapshot[0], bssid_snapshot[1], bssid_snapshot[2],
+                     bssid_snapshot[3], bssid_snapshot[4], bssid_snapshot[5]);
+        }
 
         if (s_on_disconnect_cb) {
             s_on_disconnect_cb();

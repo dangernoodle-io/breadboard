@@ -765,6 +765,22 @@ void test_bb_wifi_roam_count_default_zero(void);
 void test_bb_wifi_roam_count_test_hook_roundtrip(void);
 void test_bb_wifi_is_associated_default_false(void);
 void test_bb_wifi_is_associated_test_hook_roundtrip(void);
+void test_bb_wifi_last_session_s_default_zero(void);
+void test_bb_wifi_last_session_s_test_hook_roundtrip(void);
+void test_bb_wifi_disc_reason_str_unknown_zero(void);
+void test_bb_wifi_disc_reason_str_auth_expire(void);
+void test_bb_wifi_disc_reason_str_auth_leave(void);
+void test_bb_wifi_disc_reason_str_disassoc_inactivity(void);
+void test_bb_wifi_disc_reason_str_4way_handshake_timeout(void);
+void test_bb_wifi_disc_reason_str_beacon_timeout(void);
+void test_bb_wifi_disc_reason_str_no_ap_found(void);
+void test_bb_wifi_disc_reason_str_assoc_fail(void);
+void test_bb_wifi_disc_reason_str_handshake_timeout(void);
+void test_bb_wifi_disc_reason_str_connection_fail(void);
+void test_bb_wifi_disc_reason_str_bb_lost_ip(void);
+void test_bb_wifi_disc_reason_str_bb_egress_dead(void);
+void test_bb_wifi_disc_reason_str_bb_no_ip_watchdog(void);
+void test_bb_wifi_disc_reason_str_default_unmapped(void);
 
 // Forward declarations from test_manifest.c
 void test_manifest_empty_emits_empty_arrays(void);
@@ -1451,6 +1467,9 @@ void test_bb_net_mode_str_no_ip(void);
 void test_bb_net_mode_str_not_associated(void);
 void test_bb_net_mode_str_unknown_returns_not_associated(void);
 void test_bb_net_health_emit_has_net_mode_and_discriminator_fields(void);
+void test_bb_net_health_emit_last_session_s_nonzero(void);
+void test_bb_net_health_emit_last_session_s_zero_sentinel(void);
+void test_bb_net_health_emit_status_no_last_session_s(void);
 void test_bb_net_health_classify_heap_ok(void);
 void test_bb_net_health_classify_heap_low(void);
 void test_bb_net_health_classify_heap_critical(void);
@@ -4551,6 +4570,22 @@ int main(void) {
     RUN_TEST(test_bb_wifi_roam_count_test_hook_roundtrip);
     RUN_TEST(test_bb_wifi_is_associated_default_false);
     RUN_TEST(test_bb_wifi_is_associated_test_hook_roundtrip);
+    RUN_TEST(test_bb_wifi_last_session_s_default_zero);
+    RUN_TEST(test_bb_wifi_last_session_s_test_hook_roundtrip);
+    RUN_TEST(test_bb_wifi_disc_reason_str_unknown_zero);
+    RUN_TEST(test_bb_wifi_disc_reason_str_auth_expire);
+    RUN_TEST(test_bb_wifi_disc_reason_str_auth_leave);
+    RUN_TEST(test_bb_wifi_disc_reason_str_disassoc_inactivity);
+    RUN_TEST(test_bb_wifi_disc_reason_str_4way_handshake_timeout);
+    RUN_TEST(test_bb_wifi_disc_reason_str_beacon_timeout);
+    RUN_TEST(test_bb_wifi_disc_reason_str_no_ap_found);
+    RUN_TEST(test_bb_wifi_disc_reason_str_assoc_fail);
+    RUN_TEST(test_bb_wifi_disc_reason_str_handshake_timeout);
+    RUN_TEST(test_bb_wifi_disc_reason_str_connection_fail);
+    RUN_TEST(test_bb_wifi_disc_reason_str_bb_lost_ip);
+    RUN_TEST(test_bb_wifi_disc_reason_str_bb_egress_dead);
+    RUN_TEST(test_bb_wifi_disc_reason_str_bb_no_ip_watchdog);
+    RUN_TEST(test_bb_wifi_disc_reason_str_default_unmapped);
 
     // bb_manifest tests
     RUN_TEST(test_manifest_empty_emits_empty_arrays);
@@ -5178,6 +5213,9 @@ int main(void) {
     RUN_TEST(test_bb_net_mode_str_not_associated);
     RUN_TEST(test_bb_net_mode_str_unknown_returns_not_associated);
     RUN_TEST(test_bb_net_health_emit_has_net_mode_and_discriminator_fields);
+    RUN_TEST(test_bb_net_health_emit_last_session_s_nonzero);
+    RUN_TEST(test_bb_net_health_emit_last_session_s_zero_sentinel);
+    RUN_TEST(test_bb_net_health_emit_status_no_last_session_s);
     RUN_TEST(test_bb_net_health_classify_heap_ok);
     RUN_TEST(test_bb_net_health_classify_heap_low);
     RUN_TEST(test_bb_net_health_classify_heap_critical);

@@ -289,6 +289,13 @@ typedef struct {
                             // SSE topic keeps its existing schema) — same precedent as
                             // no_ip_recoveries; exposed via GET /api/diag/net instead.
     uint32_t roam_age_s;   // seconds since the last roam event (bb_wifi_get_roam_age_s); 0 if never
+    uint32_t last_session_s; // duration of the most recently ENDED connected session, in
+                              // seconds (bb_wifi_get_last_session_s); 0 if no session has
+                              // ended yet since boot. OBSERVE-ONLY — captured in the same
+                              // evaluator snapshot as the other recovery/discriminator
+                              // counters. Serialized by bb_net_health_emit (GET /api/diag/net
+                              // + net.health SSE) so drop cadence is visible without parsing
+                              // logs.
     bb_net_mode_t net_mode; // WiFi discrimination mode (bb_net_health_classify_mode); OBSERVE-ONLY
     bool     associated;    // true iff STA is L2-associated (bb_wifi_is_associated)
     bool     has_ip;        // true iff STA has an IP (bb_wifi_has_ip)
@@ -309,7 +316,7 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out);
  *
  * Top-level fields: rssi, state, early_warning, throttled,
  *   last_disconnect_reason (WiFi), disc_age_s, lost_ip_recoveries,
- *   lost_ip_age_s, egress_dead_recoveries.
+ *   lost_ip_age_s, egress_dead_recoveries, last_session_s.
  * Nested object "mqtt": connected, reconnect_count, disc_age_s,
  *   disc_reason, tls_fail.
  * Nested object "http": connected, consec_failures, tls_fail, last_status.
