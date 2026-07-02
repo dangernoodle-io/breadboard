@@ -271,36 +271,103 @@ static bool     s_started          = false;
 #define BB_PUB_BUFFER_ENTRY_MAX \
     (BB_PUB_BUFFER_TOPIC_MAX + 1 + CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES)
 
-// Ring storage (B1-419 / B1-478 PR D): a bb_pool FIFO carved from a bb_pub-
-// private static-BSS bb_arena, replacing the previously lazily
-// heap-allocated bb_ring_t (which was never returned to the heap — B1-419).
-// The arena struct and all ring storage live in s_ring_arena_buf; no global
-// heap call is made for this ring, ever.
+// Ring storage (B1-489): two backing modes selected by
+// CONFIG_BB_PUB_BUFFER_STATIC.
 //
-// Arena sizing: pool-struct + FIFO-ring overhead is conservatively bounded
-// (512 B pool/arena struct headroom + 64 B per-entry header/alignment
-// overhead), then capacity * entry payload.  bb_pool_create() validates the
-// arena has enough free space at creation time and logs + fails soft
-// (ring_pool_get() returns NULL) if this bound is ever wrong for a given
-// platform's struct layout.
+//   STATIC=n (default) — LAZY HEAP-BACKED. The ring is a bb_pool FIFO that
+//     owns a right-sized heap arena (bb_pool_create_owned, BB_POOL_BACKING_
+//     HEAP), created on first use and destroyed (bb_pool_destroy, freeing the
+//     owned arena) after BB_PUB_BUFFER_IDLE_FREE_TICKS idle ticks post-drain
+//     — ~0 standing RAM cost when the sink is healthy. A failed allocation
+//     (fragmented heap) fails soft: the ring is unavailable for that cycle
+//     and retried on the next outage.
+//
+//   STATIC=y — permanent static-BSS bb_arena (the B1-478 PR D shape),
+//     carved once and never freed; deterministic standing cost, no heap
+//     allocation ever, no idle-free reclaim (nothing to reclaim).
+//
+// Arena sizing (STATIC path only): pool-struct + FIFO-ring overhead is
+// conservatively bounded (512 B pool/arena struct headroom + 64 B per-entry
+// header/alignment overhead), then capacity * entry payload.  bb_pool_create()
+// validates the arena has enough free space at creation time and logs + fails
+// soft (ring_pool_get() returns NULL) if this bound is ever wrong for a given
+// platform's struct layout. The lazy-heap path does not need this macro —
+// bb_pool_create_owned() sizes its own arena via bb_pool_arena_size_needed().
 #define BB_PUB_RING_POOL_ARENA_BYTES \
     (512u + \
      (size_t)(CONFIG_BB_PUB_BUFFER_MAX_ENTRIES) * 64u + \
      (size_t)(CONFIG_BB_PUB_BUFFER_MAX_ENTRIES) * (size_t)(BB_PUB_BUFFER_ENTRY_MAX))
 
+// The static-BSS arena is compiled in whenever it might be exercised: always
+// under CONFIG_BB_PUB_BUFFER_STATIC=y, and also under BB_PUB_TESTING so host
+// tests can flip between both backing modes in the same binary via
+// bb_pub_test_set_buffer_static().
+#if CONFIG_BB_PUB_BUFFER_STATIC || defined(BB_PUB_TESTING)
 static uint8_t    s_ring_arena_buf[BB_PUB_RING_POOL_ARENA_BYTES]
     __attribute__((aligned(_Alignof(max_align_t))));
 static bb_arena_t s_ring_arena = NULL;
+#endif
 static bb_pool_t  s_ring_pool  = NULL;
 
-// Consecutive idle-tick counter (on-failure mode only, diagnostic only post
-// B1-478 PR D). Counts publish ticks where the ring pool is non-NULL and
-// empty. Reset to 0 whenever the ring gains entries. Protected by
-// s_tick_lock (Phase 3). The ring's storage is now a permanent static-BSS
-// arena carve — there is nothing to reclaim once the idle threshold is
-// reached (unlike the pre-migration heap ring), so reaching the threshold no
-// longer destroys/recreates storage. bb_pub_buffer_stats() is unaffected
-// either way (count/dropped are sourced straight from the pool).
+// Tracks the ACTUAL backing of the current s_ring_pool object (true = carved
+// from s_ring_arena via bb_pool_create; false = owns a heap arena via
+// bb_pool_create_owned). This is deliberately separate from
+// buffer_static_mode()'s runtime-overridable answer: under BB_PUB_TESTING,
+// bb_pub_test_reset() is called both by Unity's global setUp() (before every
+// test) and again by each test's own buf_reset() helper, and the test-seam
+// override is reset to "-1 = compile default" partway through that sequence.
+// Deciding *cleanup* behaviour by re-evaluating buffer_static_mode() at each
+// reset point can therefore disagree with which backing the CURRENT pool
+// object actually has (e.g. destroying a shared-arena pool via
+// bb_pool_destroy(), or skipping the arena rewind a shared-arena pool needs
+// before its single-use arena can be reused). Always consult this flag —
+// set alongside pool creation — instead of re-deriving the mode when
+// deciding how to tear the current pool down.
+static bool       s_ring_pool_is_static = false;
+
+// Runtime toggle for the static-BSS vs lazy-heap ring backing (mirrors
+// CONFIG_BB_PUB_BUFFER_STATIC). Under BB_PUB_TESTING a test seam overrides
+// the compile-time default so both modes can be exercised in the same binary.
+#ifdef BB_PUB_TESTING
+static int s_buffer_static_override = -1;   /* -1 = use compile-time default */
+
+void bb_pub_test_set_buffer_static(bool is_static)
+{
+    s_buffer_static_override = is_static ? 1 : 0;
+}
+
+static bool buffer_static_mode(void)
+{
+    if (s_buffer_static_override >= 0) return s_buffer_static_override != 0;
+#if CONFIG_BB_PUB_BUFFER_STATIC
+    return true;
+#else
+    return false;
+#endif
+}
+#else
+static bool buffer_static_mode(void)
+{
+#if CONFIG_BB_PUB_BUFFER_STATIC
+    return true;
+#else
+    return false;
+#endif
+}
+#endif /* BB_PUB_TESTING */
+
+// Set once when a lazy-heap allocation attempt fails, so a sustained outage
+// logs the warning once instead of every tick; cleared on the next
+// successful create. Only meaningful in lazy-heap mode.
+static bool s_ring_alloc_fail_logged = false;
+
+// Consecutive idle-tick counter (on-failure mode only). Counts publish ticks
+// where the ring pool is non-NULL and empty. Reset to 0 whenever the ring
+// gains entries. Protected by s_tick_lock (Phase 3). In lazy-heap mode,
+// reaching the threshold destroys the pool (bb_pool_destroy) and frees its
+// owned heap arena. In static mode there is nothing to reclaim, so reaching
+// the threshold is a no-op. bb_pub_buffer_stats() is unaffected either way
+// (count/dropped are sourced straight from the pool).
 static uint32_t  s_buffer_idle_ticks = 0;
 
 // Runtime toggle for always-on mode (mirrors CONFIG_BB_PUB_BUFFER_ALWAYS).
@@ -356,21 +423,21 @@ static uint32_t buffer_idle_free_ticks(void)
 }
 #endif /* BB_PUB_TESTING */
 
-// Lazily create the ring pool on first enqueue (arena struct lives in
-// s_ring_arena_buf, not heap; after bb_pub_test_reset() s_ring_pool is NULL
-// but s_ring_arena may still be valid — in that case skip bb_arena_init and
-// just re-create the pool from the already-reset arena).
+// Lazily create the ring pool on first enqueue.
+//
+// STATIC mode: arena struct lives in s_ring_arena_buf, not heap; after
+// bb_pub_test_reset() s_ring_pool is NULL but s_ring_arena may still be
+// valid — in that case skip bb_arena_init and just re-create the pool from
+// the already-reset arena.
+//
+// Lazy-heap mode (default): bb_pool_create_owned() allocates a right-sized
+// heap arena and the pool struct in one shot; a failed allocation (e.g.
+// fragmented no-PSRAM heap) fails soft — the ring is unavailable this cycle
+// and ring_pool_get() is retried on the next outage.
 static bb_pool_t ring_pool_get(void)
 {
     if (s_ring_pool) return s_ring_pool;
-    if (!s_ring_arena) {
-        bb_err_t e = bb_arena_init(&s_ring_arena, s_ring_arena_buf,
-                                    sizeof(s_ring_arena_buf));
-        if (e != BB_OK) {
-            bb_log_w(TAG, "store-and-forward: arena init failed (%d)", e);
-            return NULL;
-        }
-    }
+
     bb_pool_cfg_t cfg = {
         .mode           = BB_POOL_MODE_FIFO,
         .capacity       = (size_t)CONFIG_BB_PUB_BUFFER_MAX_ENTRIES,
@@ -378,10 +445,39 @@ static bb_pool_t ring_pool_get(void)
         .full_policy    = BB_POOL_FULL_EVICT_OLDEST,
         .name           = "pub",
     };
-    bb_err_t e = bb_pool_create(&cfg, s_ring_arena, &s_ring_pool);
+
+    if (buffer_static_mode()) {
+#if CONFIG_BB_PUB_BUFFER_STATIC || defined(BB_PUB_TESTING)
+        if (!s_ring_arena) {
+            bb_err_t ae = bb_arena_init(&s_ring_arena, s_ring_arena_buf,
+                                         sizeof(s_ring_arena_buf));
+            if (ae != BB_OK) {
+                bb_log_w(TAG, "store-and-forward: arena init failed (%d)", ae);
+                return NULL;
+            }
+        }
+        bb_err_t e = bb_pool_create(&cfg, s_ring_arena, &s_ring_pool);
+        if (e != BB_OK) {
+            bb_log_w(TAG, "store-and-forward: pool create failed (%d)", e);
+            s_ring_pool = NULL;
+        } else {
+            s_ring_pool_is_static = true;
+        }
+#endif
+        return s_ring_pool;
+    }
+
+    bb_err_t e = bb_pool_create_owned(&cfg, BB_POOL_BACKING_HEAP, &s_ring_pool);
     if (e != BB_OK) {
-        bb_log_w(TAG, "store-and-forward: pool create failed (%d)", e);
         s_ring_pool = NULL;
+        if (!s_ring_alloc_fail_logged) {
+            bb_log_w(TAG, "store-and-forward: heap alloc failed (%d); "
+                          "ring unavailable this cycle, retrying next outage", e);
+            s_ring_alloc_fail_logged = true;
+        }
+    } else {
+        s_ring_alloc_fail_logged = false;
+        s_ring_pool_is_static    = false;
     }
     return s_ring_pool;
 }
@@ -389,7 +485,10 @@ static bb_pool_t ring_pool_get(void)
 // Eagerly allocate the ring pool for always-on mode.
 // Called once at init (espidf start) when CONFIG_BB_PUB_BUFFER_ALWAYS=y so
 // the pool exists from boot.  Idempotent (ring_pool_get() is safe to call
-// multiple times).
+// multiple times). In lazy-heap mode the pool stays allocated for the life
+// of the process once always-on is enqueuing every tick (no idle window to
+// reclaim it); this trades ~0-BSS for one standing heap allocation instead
+// of a permanent static-BSS carve.
 void bb_pub_buffer_init_eager(void)
 {
     if (buffer_always_on()) {
@@ -1633,12 +1732,13 @@ bb_err_t bb_pub_tick_once(void)
             s_published_ever   = true;
             s_last_publish_ok  = tick_all_ok;
         }
-        // Idle-tick bookkeeping (B1-419 pre-migration: freed the heap ring
-        // after BB_PUB_BUFFER_IDLE_FREE_TICKS consecutive empty ticks). Since
-        // the ring migrated onto a bb_pool FIFO backed by a permanent
-        // static-BSS arena (B1-478 PR D), there is no heap allocation left to
-        // reclaim — reaching the idle threshold no longer destroys/recreates
-        // the pool. The counter is retained purely so the
+        // Idle-tick bookkeeping (B1-419 / B1-489): after BB_PUB_BUFFER_
+        // IDLE_FREE_TICKS consecutive empty publish ticks post-drain, reclaim
+        // the ring. In the default lazy-heap mode this actually destroys the
+        // pool (bb_pool_destroy frees its owned heap arena), restoring ~0
+        // standing RAM cost until the next outage recreates it via
+        // ring_pool_get(). In static mode there is no heap allocation to
+        // reclaim, so this is a no-op — the counter is retained purely so the
         // bb_pub_test_set_idle_free_ticks() test hook and its API contract
         // stay intact; bb_pub_buffer_stats() is unaffected either way
         // (count/dropped are sourced straight from the pool).
@@ -1648,6 +1748,10 @@ bb_err_t bb_pub_tick_once(void)
                 s_buffer_idle_ticks++;
                 if (s_buffer_idle_ticks >= idle_thresh) {
                     s_buffer_idle_ticks = 0;
+                    if (!s_ring_pool_is_static) {
+                        bb_pool_destroy(s_ring_pool);
+                        s_ring_pool = NULL;
+                    }
                 }
             } else {
                 s_buffer_idle_ticks = 0;
@@ -1719,23 +1823,38 @@ void bb_pub_test_reset(void)
     strncpy(s_metrics_prefix, CONFIG_BB_METRICS_PREFIX, BB_METRICS_PREFIX_MAX - 1);
     s_metrics_prefix[BB_METRICS_PREFIX_MAX - 1] = '\0';
 #if CONFIG_BB_PUB_BUFFER_ENABLE
-    if (s_ring_arena) {
-        // Reset the backing arena (rewinds the bump offset; the static-BSS
-        // buffer itself is not zeroed/freed — bb_arena_reset semantics) and
-        // recreate the pool at offset 0 so cumulative diagnostic counters
-        // (dropped) reset to zero, matching the pre-migration destroy+
-        // recreate semantics without touching the global heap. Gated on
-        // s_ring_arena (not s_ring_pool) so a partial init (arena inited but
-        // bb_pool_create failed, leaving s_ring_pool NULL) still gets its
-        // bump offset rewound between test runs.
+    // Decide cleanup by the ACTUAL backing of the current s_ring_pool
+    // (s_ring_pool_is_static), NOT by re-evaluating buffer_static_mode() here.
+    // bb_pub_test_reset() is called twice per test under BB_PUB_TESTING —
+    // once by Unity's global setUp() and again by each test's own buf_reset()
+    // helper — and the test-seam override is reset to "-1 = compile default"
+    // by the first call. A mode re-derived at the second call can therefore
+    // disagree with which backing the live pool object actually has, causing
+    // e.g. bb_pool_destroy() on a shared-arena pool (wrong — arena pools are
+    // never owned by bb_pool) or skipping the arena rewind a shared-arena
+    // pool needs before its single-use arena can back a second pool.
+    //
+    // The pool is intentionally NOT eagerly recreated here — it is left NULL
+    // (with the static arena's bump offset rewound, if applicable) and
+    // recreated lazily on next use via ring_pool_get(), which re-derives the
+    // mode fresh from whatever the upcoming test explicitly sets. This also
+    // resets cumulative diagnostic counters (dropped) to zero between tests
+    // without touching the global heap in static mode.
+    if (s_ring_pool_is_static) {
+        if (s_ring_arena) {
+            bb_arena_reset(s_ring_arena);
+        }
         s_ring_pool = NULL;
-        bb_arena_reset(s_ring_arena);
-        ring_pool_get();
+    } else if (s_ring_pool) {
+        bb_pool_destroy(s_ring_pool);
+        s_ring_pool = NULL;
     }
     s_test_epoch_ms            = -1;
     s_buffer_always            = -1;   /* revert to compile-time default */
     s_buffer_idle_ticks        = 0;
     s_idle_free_ticks_override = -1;   /* revert to compile-time default */
+    s_buffer_static_override   = -1;   /* revert to compile-time default */
+    s_ring_alloc_fail_logged   = false;
 #endif
     // Re-initialise the tick lock and in-publish primitives so any lock state
     // from a prior test is cleared.
