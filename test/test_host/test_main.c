@@ -3639,6 +3639,21 @@ void test_bb_sub_mqtt_empty_hostname_fails_open_and_routes(void);
 void test_bb_sub_mqtt_init_subscribe_failure_warns_and_continues(void);
 void test_bb_sub_mqtt_multi_topic_config_parses_and_subscribes_all(void);
 
+// Forward declarations from test_bb_udp_frame.c
+void test_bb_udp_frame_round_trip_telemetry(void);
+void test_bb_udp_frame_round_trip_log_batch(void);
+void test_bb_udp_frame_encode_header_wont_fit_returns_neg1(void);
+void test_bb_udp_frame_encode_topic_payload_overflow_returns_neg1(void);
+void test_bb_udp_frame_decode_short_header_returns_validation(void);
+void test_bb_udp_frame_decode_bad_magic_returns_validation(void);
+void test_bb_udp_frame_decode_bad_version_returns_validation(void);
+void test_bb_udp_frame_decode_bad_kind_returns_validation(void);
+void test_bb_udp_frame_decode_topic_len_overruns_dgram_returns_validation(void);
+void test_bb_udp_frame_encode_decode_exact_buffer_fit(void);
+void test_bb_udp_frame_encode_decode_empty_payload(void);
+void test_bb_udp_frame_encode_decode_empty_topic(void);
+void test_bb_udp_frame_encode_little_endian_layout(void);
+
 // Forward declarations from test_bb_registry.c
 void test_bb_registry_register_null_name_returns_invalid_arg(void);
 void test_bb_registry_register_null_value_returns_invalid_arg(void);
@@ -7301,6 +7316,21 @@ int main(void) {
     RUN_TEST(test_bb_sub_mqtt_empty_hostname_fails_open_and_routes);
     RUN_TEST(test_bb_sub_mqtt_init_subscribe_failure_warns_and_continues);
     RUN_TEST(test_bb_sub_mqtt_multi_topic_config_parses_and_subscribes_all);
+
+    // bb_udp_frame
+    RUN_TEST(test_bb_udp_frame_round_trip_telemetry);
+    RUN_TEST(test_bb_udp_frame_round_trip_log_batch);
+    RUN_TEST(test_bb_udp_frame_encode_header_wont_fit_returns_neg1);
+    RUN_TEST(test_bb_udp_frame_encode_topic_payload_overflow_returns_neg1);
+    RUN_TEST(test_bb_udp_frame_decode_short_header_returns_validation);
+    RUN_TEST(test_bb_udp_frame_decode_bad_magic_returns_validation);
+    RUN_TEST(test_bb_udp_frame_decode_bad_version_returns_validation);
+    RUN_TEST(test_bb_udp_frame_decode_bad_kind_returns_validation);
+    RUN_TEST(test_bb_udp_frame_decode_topic_len_overruns_dgram_returns_validation);
+    RUN_TEST(test_bb_udp_frame_encode_decode_exact_buffer_fit);
+    RUN_TEST(test_bb_udp_frame_encode_decode_empty_payload);
+    RUN_TEST(test_bb_udp_frame_encode_decode_empty_topic);
+    RUN_TEST(test_bb_udp_frame_encode_little_endian_layout);
 
     // bb_alert
     RUN_TEST(test_bb_alert_emit_no_topic_noop);
