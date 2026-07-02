@@ -8,6 +8,7 @@
 // include the wall-clock timestamp themselves inside their sample_fn.
 #include "bb_pub.h"
 #include "bb_pub_defaults.h"
+#include "bb_arena.h"
 #include "bb_cache.h"
 #include "bb_claim.h"
 #include "bb_clock.h"
@@ -16,10 +17,12 @@
 #include "bb_ntp.h"
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
-#include "bb_ring.h"
+#include "bb_pool.h"
 
 #include <inttypes.h>
 #include <pthread.h>
+#include <stdalign.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -227,14 +230,14 @@ static bool     s_started          = false;
 // Store-and-forward buffer (CONFIG_BB_PUB_BUFFER_ENABLE)
 // ---------------------------------------------------------------------------
 //
-// Entry wire format (packed into a single bb_ring push):
+// Entry wire format (packed into a single bb_pool FIFO push):
 //   [topic bytes (NUL-terminated)] [NUL separator] [payload bytes]
 //
-// The ring max_entry_bytes =
+// The ring max_slot_bytes =
 //   BB_PUB_BUFFER_TOPIC_MAX (192) + 1 (NUL sep) + CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES
 //
 // ring entry `ts`  = capture epoch-ms when NTP-synced, else 0 (uptime-ms
-//                    not used here because bb_ring ts is int64 and uptime-ms
+//                    not used here because bb_pool ts is int64 and uptime-ms
 //                    would be ambiguous at replay; 0 signals "unknown epoch").
 // ring entry `id`  = 0 (unused; reserved for future sequencing).
 //
@@ -268,10 +271,36 @@ static bool     s_started          = false;
 #define BB_PUB_BUFFER_ENTRY_MAX \
     (BB_PUB_BUFFER_TOPIC_MAX + 1 + CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES)
 
-static bb_ring_t s_buffer = NULL;
-// Consecutive idle-tick counter for free-when-idle (on-failure mode only).
-// Counts publish ticks where the ring is non-NULL and empty. Reset to 0
-// whenever the ring gains entries. Protected by s_tick_lock (Phase 3).
+// Ring storage (B1-419 / B1-478 PR D): a bb_pool FIFO carved from a bb_pub-
+// private static-BSS bb_arena, replacing the previously lazily
+// heap-allocated bb_ring_t (which was never returned to the heap — B1-419).
+// The arena struct and all ring storage live in s_ring_arena_buf; no global
+// heap call is made for this ring, ever.
+//
+// Arena sizing: pool-struct + FIFO-ring overhead is conservatively bounded
+// (512 B pool/arena struct headroom + 64 B per-entry header/alignment
+// overhead), then capacity * entry payload.  bb_pool_create() validates the
+// arena has enough free space at creation time and logs + fails soft
+// (ring_pool_get() returns NULL) if this bound is ever wrong for a given
+// platform's struct layout.
+#define BB_PUB_RING_POOL_ARENA_BYTES \
+    (512u + \
+     (size_t)(CONFIG_BB_PUB_BUFFER_MAX_ENTRIES) * 64u + \
+     (size_t)(CONFIG_BB_PUB_BUFFER_MAX_ENTRIES) * (size_t)(BB_PUB_BUFFER_ENTRY_MAX))
+
+static uint8_t    s_ring_arena_buf[BB_PUB_RING_POOL_ARENA_BYTES]
+    __attribute__((aligned(_Alignof(max_align_t))));
+static bb_arena_t s_ring_arena = NULL;
+static bb_pool_t  s_ring_pool  = NULL;
+
+// Consecutive idle-tick counter (on-failure mode only, diagnostic only post
+// B1-478 PR D). Counts publish ticks where the ring pool is non-NULL and
+// empty. Reset to 0 whenever the ring gains entries. Protected by
+// s_tick_lock (Phase 3). The ring's storage is now a permanent static-BSS
+// arena carve — there is nothing to reclaim once the idle threshold is
+// reached (unlike the pre-migration heap ring), so reaching the threshold no
+// longer destroys/recreates storage. bb_pub_buffer_stats() is unaffected
+// either way (count/dropped are sourced straight from the pool).
 static uint32_t  s_buffer_idle_ticks = 0;
 
 // Runtime toggle for always-on mode (mirrors CONFIG_BB_PUB_BUFFER_ALWAYS).
@@ -327,33 +356,44 @@ static uint32_t buffer_idle_free_ticks(void)
 }
 #endif /* BB_PUB_TESTING */
 
-// Lazily create the ring on first enqueue.
-static bb_ring_t buffer_get(void)
+// Lazily create the ring pool on first enqueue (arena struct lives in
+// s_ring_arena_buf, not heap; after bb_pub_test_reset() s_ring_pool is NULL
+// but s_ring_arena may still be valid — in that case skip bb_arena_init and
+// just re-create the pool from the already-reset arena).
+static bb_pool_t ring_pool_get(void)
 {
-    if (!s_buffer) {
-        bb_err_t err = bb_ring_create(
-            (size_t)CONFIG_BB_PUB_BUFFER_MAX_ENTRIES,
-            (size_t)BB_PUB_BUFFER_ENTRY_MAX,
-            BB_RING_EVICT_OLDEST,
-            "pub",
-            &s_buffer);
-        if (err != BB_OK || !s_buffer) {
-            bb_log_w(TAG, "store-and-forward: ring create failed (%d)", err);
-            s_buffer = NULL;
+    if (s_ring_pool) return s_ring_pool;
+    if (!s_ring_arena) {
+        bb_err_t e = bb_arena_init(&s_ring_arena, s_ring_arena_buf,
+                                    sizeof(s_ring_arena_buf));
+        if (e != BB_OK) {
+            bb_log_w(TAG, "store-and-forward: arena init failed (%d)", e);
+            return NULL;
         }
     }
-    return s_buffer;
+    bb_pool_cfg_t cfg = {
+        .mode           = BB_POOL_MODE_FIFO,
+        .capacity       = (size_t)CONFIG_BB_PUB_BUFFER_MAX_ENTRIES,
+        .max_slot_bytes = (size_t)BB_PUB_BUFFER_ENTRY_MAX,
+        .full_policy    = BB_POOL_FULL_EVICT_OLDEST,
+        .name           = "pub",
+    };
+    bb_err_t e = bb_pool_create(&cfg, s_ring_arena, &s_ring_pool);
+    if (e != BB_OK) {
+        bb_log_w(TAG, "store-and-forward: pool create failed (%d)", e);
+        s_ring_pool = NULL;
+    }
+    return s_ring_pool;
 }
 
-// Eagerly allocate the ring for always-on mode.
+// Eagerly allocate the ring pool for always-on mode.
 // Called once at init (espidf start) when CONFIG_BB_PUB_BUFFER_ALWAYS=y so
-// the ring exists from boot.  Idempotent if the ring already exists.
-// In tests the ring is also lazily created by buffer_capture, so this is
-// only strictly needed on device to satisfy the standing-cost guarantee.
+// the pool exists from boot.  Idempotent (ring_pool_get() is safe to call
+// multiple times).
 void bb_pub_buffer_init_eager(void)
 {
     if (buffer_always_on()) {
-        buffer_get();   /* allocate now; logs warning on failure */
+        ring_pool_get();   /* allocate now; logs warning on failure */
     }
 }
 
@@ -393,7 +433,7 @@ static int64_t capture_epoch_ms(void)
 #endif /* BB_PUB_TESTING */
 
 // Push topic+payload into the ring.
-// Lock invariant: relies on the single-worker guarantee (bb_ring is not
+// Lock invariant: relies on the single-worker guarantee (bb_pool is not
 // internally locked).  In always-on mode this is called from Phase 1, under
 // s_tick_lock.  In on-failure mode this is called from Phase 2, with NO lock
 // held.  Either way only one worker thread ever calls it concurrently.
@@ -403,8 +443,8 @@ static int64_t capture_epoch_ms(void)
 // oversized entries are not silently dropped.
 static bool buffer_capture(const char *topic, const char *payload, int payload_len)
 {
-    bb_ring_t r = buffer_get();
-    if (!r) return false;
+    bb_pool_t pool = ring_pool_get();
+    if (!pool) return false;
 
     size_t topic_len = strlen(topic);
     if (topic_len >= BB_PUB_BUFFER_TOPIC_MAX) {
@@ -424,7 +464,7 @@ static bool buffer_capture(const char *topic, const char *payload, int payload_l
     // MAX_PAYLOAD_BYTES, which consumers raise well past the old 449 (e.g. 705
     // at MAX_PAYLOAD_BYTES=512). A 705-byte frame overflows the bb_pub worker's
     // CONFIG_BB_PUB_WORKER_STACK (4096 on heap-tight no-PSRAM boards),
-    // corrupting adjacent heap and crashing later in bb_ring_push. Safe as
+    // corrupting adjacent heap and crashing later in bb_pool_push. Safe as
     // static: only the single bb_pub worker thread ever calls buffer_capture
     // (see the lock invariant above).
     static char entry[BB_PUB_BUFFER_ENTRY_MAX];
@@ -435,12 +475,12 @@ static bool buffer_capture(const char *topic, const char *payload, int payload_l
     }
 
     int64_t ts = capture_epoch_ms();
-    bb_err_t err = bb_ring_push(r, entry, entry_len, ts, 0);
+    bb_err_t err = bb_pool_push(pool, entry, entry_len, ts, 0);
     if (err != BB_OK) {
         bb_log_w(TAG, "buffer: ring push failed (%d)", err);
     } else {
         bb_log_d(TAG, "buffer: captured '%s' (epoch_ms=%lld, ring=%zu)",
-                 topic, (long long)ts, bb_ring_count(r));
+                 topic, (long long)ts, bb_pool_count(pool));
     }
     return true;
 }
@@ -476,7 +516,7 @@ static char *inject_captured_ms(const char *payload, int payload_len, int64_t ts
 // Replay buffered entries to sink[0].
 // Lock invariant: always called from Phase 2, with NO lock held (s_tick_lock
 // was released before Phase 2 begins; s_in_publish_mu is NOT held during the
-// body of Phase 2).  Relies on the single-worker guarantee (bb_ring is not
+// body of Phase 2).  Relies on the single-worker guarantee (bb_pool is not
 // internally locked) — only one worker thread ever runs this concurrently.
 // In on-failure mode (always_on=false) this is called only after a successful
 // live-publish tick.  In always-on mode it is called unconditionally every tick.
@@ -495,8 +535,8 @@ static char *inject_captured_ms(const char *payload, int payload_len, int64_t ts
 static void buffer_replay(const bb_pub_sink_t *sink,
                           int64_t now_epoch_ms, int64_t delay_threshold_ms)
 {
-    bb_ring_t r = s_buffer;
-    if (!r || bb_ring_count(r) == 0) return;
+    bb_pool_t pool = s_ring_pool;
+    if (!pool || bb_pool_count(pool) == 0) return;
 
     // Replay buffer: peek content size, deliver, pop on success.
     // Stack-allocated scratch (max 192+1+256+1 = 450 bytes; safe on the
@@ -512,7 +552,7 @@ static void buffer_replay(const bb_pub_sink_t *sink,
         int64_t  entry_ts  = 0;
         uint32_t entry_id  = 0;
 
-        bb_err_t err = bb_ring_peek_oldest(r,
+        bb_err_t err = bb_pool_peek_oldest(pool,
                                            replay_buf, sizeof(replay_buf) - 1,
                                            &entry_len, &entry_ts, &entry_id);
         if (err == BB_ERR_NOT_FOUND) break;  /* ring empty */
@@ -563,7 +603,7 @@ static void buffer_replay(const bb_pub_sink_t *sink,
 
         bb_log_d(TAG, "buffer: replayed '%s' (epoch_ms=%lld, inject_ts=%lld)",
                  topic, (long long)entry_ts, (long long)inject_ts);
-        bb_ring_pop_oldest(r);
+        bb_pool_pop_oldest(pool);
     }
 }
 
@@ -587,11 +627,14 @@ void bb_pub_buffer_stats(bb_pub_buffer_stats_t *out)
 {
     if (!out) return;
 #if CONFIG_BB_PUB_BUFFER_ENABLE
-    bb_ring_t r = s_buffer;
-    if (r) {
-        out->count     = bb_ring_count(r);
-        out->dropped   = bb_ring_dropped(r);
-        out->truncated = bb_ring_truncated(r);
+    bb_pool_t pool = s_ring_pool;
+    if (pool) {
+        out->count     = bb_pool_count(pool);
+        out->dropped   = bb_pool_dropped(pool);
+        out->truncated = 0;  /* bb_pool has no truncation counter; oversized
+                                 entries are already rejected by
+                                 buffer_capture's length pre-check, so this
+                                 was always 0 even pre-migration */
     } else {
         out->count     = 0;
         out->dropped   = 0;
@@ -1581,7 +1624,7 @@ bb_err_t bb_pub_tick_once(void)
         if (tick_published) {
             s_last_publish_ms = ts_ms;
             s_published_ever  = true;
-            bool drained = (s_buffer == NULL || bb_ring_count(s_buffer) == 0);
+            bool drained = (s_ring_pool == NULL || bb_pool_count(s_ring_pool) == 0);
             s_last_publish_ok = drained;
         }
     } else {
@@ -1590,21 +1633,20 @@ bb_err_t bb_pub_tick_once(void)
             s_published_ever   = true;
             s_last_publish_ok  = tick_all_ok;
         }
-        // Free-when-idle (B1-419): once the ring is fully drained and stays
-        // empty for BB_PUB_BUFFER_IDLE_FREE_TICKS consecutive publish ticks,
-        // reclaim the allocation. The ring is re-created lazily on the next
-        // sink failure via buffer_get(). Protected by s_tick_lock.
-        // Only runs in on-failure mode (!buffer_always_on()) — always-on mode
-        // intentionally keeps the ring resident.
+        // Idle-tick bookkeeping (B1-419 pre-migration: freed the heap ring
+        // after BB_PUB_BUFFER_IDLE_FREE_TICKS consecutive empty ticks). Since
+        // the ring migrated onto a bb_pool FIFO backed by a permanent
+        // static-BSS arena (B1-478 PR D), there is no heap allocation left to
+        // reclaim — reaching the idle threshold no longer destroys/recreates
+        // the pool. The counter is retained purely so the
+        // bb_pub_test_set_idle_free_ticks() test hook and its API contract
+        // stay intact; bb_pub_buffer_stats() is unaffected either way
+        // (count/dropped are sourced straight from the pool).
         uint32_t idle_thresh = buffer_idle_free_ticks();
-        if (idle_thresh > 0 && s_buffer != NULL) {
-            if (bb_ring_count(s_buffer) == 0) {
+        if (idle_thresh > 0 && s_ring_pool != NULL) {
+            if (bb_pool_count(s_ring_pool) == 0) {
                 s_buffer_idle_ticks++;
                 if (s_buffer_idle_ticks >= idle_thresh) {
-                    bb_log_i(TAG, "store-forward: ring freed after %" PRIu32
-                             " idle ticks", idle_thresh);
-                    bb_ring_destroy(s_buffer);
-                    s_buffer = NULL;
                     s_buffer_idle_ticks = 0;
                 }
             } else {
@@ -1677,15 +1719,18 @@ void bb_pub_test_reset(void)
     strncpy(s_metrics_prefix, CONFIG_BB_METRICS_PREFIX, BB_METRICS_PREFIX_MAX - 1);
     s_metrics_prefix[BB_METRICS_PREFIX_MAX - 1] = '\0';
 #if CONFIG_BB_PUB_BUFFER_ENABLE
-    if (s_buffer) {
-        // Destroy and recreate so cumulative diagnostic counters (dropped,
-        // truncated) reset to zero — bb_ring_clear intentionally preserves
-        // them across clears for production use.
-        bb_ring_destroy(s_buffer);
-        s_buffer = NULL;
-        bb_ring_create((size_t)CONFIG_BB_PUB_BUFFER_MAX_ENTRIES,
-                       (size_t)BB_PUB_BUFFER_ENTRY_MAX,
-                       BB_RING_EVICT_OLDEST, "pub", &s_buffer);
+    if (s_ring_arena) {
+        // Reset the backing arena (rewinds the bump offset; the static-BSS
+        // buffer itself is not zeroed/freed — bb_arena_reset semantics) and
+        // recreate the pool at offset 0 so cumulative diagnostic counters
+        // (dropped) reset to zero, matching the pre-migration destroy+
+        // recreate semantics without touching the global heap. Gated on
+        // s_ring_arena (not s_ring_pool) so a partial init (arena inited but
+        // bb_pool_create failed, leaving s_ring_pool NULL) still gets its
+        // bump offset rewound between test runs.
+        s_ring_pool = NULL;
+        bb_arena_reset(s_ring_arena);
+        ring_pool_get();
     }
     s_test_epoch_ms            = -1;
     s_buffer_always            = -1;   /* revert to compile-time default */

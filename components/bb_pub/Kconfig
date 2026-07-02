@@ -114,9 +114,10 @@ config BB_PUB_BUFFER_ENABLE
     default n
     help
         When enabled, bb_pub captures serialized topic+payload entries into a
-        bb_ring when the first sink returns non-BB_OK. On the next tick where
-        the sink succeeds, buffered entries are replayed oldest-first. Requires
-        bb_ring. The entire feature compiles out when this is disabled.
+        bb_pool FIFO ring (carved from a private static-BSS arena; B1-478 PR D)
+        when the first sink returns non-BB_OK. On the next tick where the sink
+        succeeds, buffered entries are replayed oldest-first. The entire
+        feature compiles out when this is disabled.
 
 config BB_PUB_BUFFER_MAX_ENTRIES
     int "Store-and-forward ring capacity (entries)"
@@ -171,37 +172,41 @@ config BB_PUB_BUFFER_ALWAYS
         each tick (enqueue → drain), providing a uniform ordered queue even
         during healthy operation. Sinks[1..] keep the existing direct fan-out.
 
-        The ring is allocated eagerly at init (not lazily on first failure),
-        so this mode carries a standing RAM cost of approximately
-        MAX_ENTRIES × (TOPIC_MAX + 1 + MAX_PAYLOAD_BYTES) bytes. Recommended
-        only on PSRAM boards where the ring can be allocated in SPIRAM.
+        The ring pool's static-BSS arena is sized for MAX_ENTRIES ×
+        (TOPIC_MAX + 1 + MAX_PAYLOAD_BYTES) bytes regardless of mode (B1-478
+        PR D moved the ring off the heap entirely, fixing the B1-419
+        never-freed heap allocation); this mode simply keeps that ring
+        continuously busy (enqueue → drain every tick) rather than only on
+        sink failure. Recommended only on PSRAM boards with headroom to
+        spare, since the arena is a standing cost once BB_PUB_BUFFER_ENABLE=y.
 
         captured_ms is injected ONLY when an entry was genuinely delayed across
         ticks: inject iff (now_epoch_ms − capture_epoch_ms) > 1.5 × interval_ms.
         Entries drained the same tick they were enqueued are considered "fresh"
         and carry no captured_ms field, keeping healthy points clean.
 
-        When n (default), the ring stays lazy and is used only on sink failure
-        (store-and-forward), with zero standing cost until an outage occurs.
+        When n (default), the ring pool is created lazily on first sink
+        failure (store-and-forward) and stays essentially idle until an
+        outage occurs, but its static-BSS arena is reserved at link time
+        either way.
 
 config BB_PUB_BUFFER_IDLE_FREE_TICKS
-    int "Free the store-forward ring after this many consecutive idle ticks (0 = never)"
+    int "Idle-tick threshold for the store-forward ring (0 = never; diagnostic only)"
     default 30
     range 0 3600
     depends on BB_PUB_BUFFER_ENABLE
     help
         When BB_PUB_BUFFER_ALWAYS=n (on-failure mode), bb_pub tracks how many
         consecutive publish ticks the ring has been fully empty (i.e., has
-        been drained after an outage and stayed empty). After this many idle
-        ticks, bb_ring_destroy is called and s_buffer is set to NULL, returning
-        the ~5.6 KB ring allocation to the heap. The next sink failure will
-        re-allocate via the existing lazy buffer_get() path.
-
-        Set to 0 to disable the idle-reclaim entirely, preserving the
-        pre-B1-419 behaviour where the ring persists for the device lifetime
-        once allocated. At the default BB_PUB_INTERVAL_MS of 10 s, the
-        default of 30 ticks equals approximately 5 minutes of idle time after
-        outage recovery. Has no effect when BB_PUB_BUFFER_ALWAYS=y.
+        been drained after an outage and stayed empty). Pre-B1-478-PR-D, once
+        this threshold was reached the heap-backed ring was destroyed and
+        re-allocated lazily on the next sink failure, returning its ~5.6 KB
+        allocation to the heap. Since the ring migrated onto a bb_pool FIFO
+        backed by a permanent static-BSS arena, there is no heap allocation
+        left to reclaim, so reaching this threshold is now a no-op — the
+        knob is retained only so the bb_pub_test_set_idle_free_ticks() test
+        hook keeps a stable API surface. bb_pub_buffer_stats() output is
+        unaffected either way.
 
 config BB_PUB_TELEM_SNAP_MAX
     int "Maximum snapshot buffer size for telemetry sources (bytes)"
