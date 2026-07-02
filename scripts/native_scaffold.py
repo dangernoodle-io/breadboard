@@ -589,6 +589,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_sink_ws/bb_sink_ws.c"],
         "depends":  ["bb_core", "bb_pub", "bb_websocket", "bb_log"],
     },
+    "bb_sub": {
+        "includes": ["components/bb_sub/include"],
+        "sources":  ["components/bb_sub/src/bb_sub.c"],
+        "depends":  ["bb_core", "bb_event", "bb_cache", "bb_json", "bb_log"],
+    },
 }
 
 

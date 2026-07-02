@@ -1,0 +1,14 @@
+menu "breadboard: bb_sub"
+
+config BB_SUB_MAX_PAYLOAD_BYTES
+    int "Max payload size bb_sub caches per topic (bytes)"
+    default 1024
+    range 128 4096
+    help
+        Per-topic owned-buffer cap used by bb_sub_route(). Payloads larger
+        than this are DROPPED (BB_ERR_NO_SPACE), not truncated. Should be
+        >= the ingress transport's own reassembly cap (e.g.
+        CONFIG_BB_MQTT_RX_BUFFER_BYTES) so no message that reaches bb_sub
+        is silently lost at this layer.
+
+endmenu
