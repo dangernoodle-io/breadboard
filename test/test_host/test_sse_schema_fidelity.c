@@ -542,10 +542,6 @@ static const char k_wifi_telemetry_schema[] =
     "\"disc_reason\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"retry_count\":{\"type\":\"integer\"},"
-    "\"no_ip_recoveries\":{\"type\":\"integer\"},"
-    "\"egress_dead_count\":{\"type\":\"integer\"},"
-    "\"lost_ip_count\":{\"type\":\"integer\"},"
-    "\"recovery_count\":{\"type\":\"integer\"},"
     "\"ts_ms\":{\"type\":\"integer\"}},"
     "\"required\":[\"ssid\",\"connected\",\"rssi\",\"ts_ms\"]}";
 
@@ -561,10 +557,6 @@ void test_sse_schema_wifi_telemetry_payload_valid(void)
     bb_json_obj_set_int   (obj, "disc_reason",      0);
     bb_json_obj_set_int   (obj, "disc_age_s",       0);
     bb_json_obj_set_int   (obj, "retry_count",      0);
-    bb_json_obj_set_int   (obj, "no_ip_recoveries", 0);
-    bb_json_obj_set_int   (obj, "egress_dead_count",0);
-    bb_json_obj_set_int   (obj, "lost_ip_count",    0);
-    bb_json_obj_set_int   (obj, "recovery_count",   0);
     bb_json_obj_set_int   (obj, "ts_ms",            12345678LL);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_wifi_telemetry_schema, obj, NULL));
     bb_json_free(obj);

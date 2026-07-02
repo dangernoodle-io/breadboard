@@ -5,9 +5,14 @@
 //
 // When disconnected all numeric fields are 0/false and string fields are
 // empty/"0.0.0.0", matching the current /api/wifi behaviour.
+//
+// B1-486: the recovery counters (no_ip_recoveries, egress_dead_count,
+// lost_ip_count, recovery_count) and reason_histogram have moved to
+// GET /api/diag/net (bb_net_health) — that is now the single source of truth
+// for recovery counters. /api/wifi keeps only connection-state fields plus
+// restart_sta_count/disconnect_rssi (not recovery-count duplicates).
 #include "bb_wifi.h"
 #include "bb_json.h"
-#include "wifi_hist_priv.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -22,14 +27,8 @@
 //   disc_reason        (integer)
 //   disc_age_s         (integer)
 //   retry_count        (integer)
-//   no_ip_recoveries   (integer, diagnostics — times no-IP watchdog triggered)
-//   egress_dead_count  (integer)
-//   lost_ip_count      (integer)
-//   recovery_count     (integer, sum of all three recovery counters)
 //   restart_sta_count  (integer, times bb_wifi_restart_sta was invoked)
 //   disconnect_rssi    (integer, RSSI at most recent disconnect)
-//   reason_histogram   (object, compact view: lost_ip/egress_dead/no_ip_watchdog
-//                        sentinels + top non-zero standard reason)
 void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
 {
     char bssid[18];
@@ -45,30 +44,34 @@ void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
     bb_json_obj_set_int   (obj, "disc_reason",      (int64_t)info->disc_reason);
     bb_json_obj_set_int   (obj, "disc_age_s",       (int64_t)info->disc_age_s);
     bb_json_obj_set_int   (obj, "retry_count",      (int64_t)info->retry_count);
-    bb_json_obj_set_int   (obj, "no_ip_recoveries",   (int64_t)bb_wifi_get_no_ip_count());
-    bb_json_obj_set_int   (obj, "egress_dead_count",  (int64_t)bb_wifi_get_egress_dead_count());
-    bb_json_obj_set_int   (obj, "lost_ip_count",      (int64_t)bb_wifi_get_lost_ip_count());
-    bb_json_obj_set_int   (obj, "recovery_count",
-                           (int64_t)(bb_wifi_get_no_ip_count() +
-                                     bb_wifi_get_egress_dead_count() +
-                                     bb_wifi_get_lost_ip_count()));
     bb_json_obj_set_int   (obj, "restart_sta_count",  (int64_t)bb_wifi_get_restart_sta_count());
     bb_json_obj_set_int   (obj, "disconnect_rssi",    (int64_t)bb_wifi_get_disconnect_rssi());
+}
 
-    // Compact reason histogram: the three sentinel buckets + single top standard reason.
-    uint16_t hist[256];
-    bb_wifi_get_reason_histogram(hist, 256);
-
+// Find the top standard (non-sentinel) reason in a 256-entry disconnect
+// histogram. Pure; single implementation shared by /api/diag/net
+// (platform/espidf/bb_net_health/bb_net_health_routes.c) and host tests
+// (B1-486 finding #1/#2 — previously a static-inline copy reached into
+// bb_wifi's private wifi_hist_priv.h from bb_net_health).
+uint8_t bb_wifi_reason_histogram_top(const uint16_t *hist, uint16_t *out_count)
+{
     uint16_t top_count = 0;
-    uint16_t top_code  = wifi_hist_top_reason(hist, &top_count);
-
-    bb_json_t h = bb_json_obj_new();
-    bb_json_obj_set_int(h, "lost_ip",          (int64_t)hist[99]);
-    bb_json_obj_set_int(h, "egress_dead",       (int64_t)hist[100]);
-    bb_json_obj_set_int(h, "no_ip_watchdog",    (int64_t)hist[101]);
-    bb_json_obj_set_int(h, "top_reason_code",   (int64_t)top_code);
-    bb_json_obj_set_int(h, "top_reason_count",  (int64_t)top_count);
-    bb_json_obj_set_obj(obj, "reason_histogram", h);
+    uint8_t  top_code  = 0;
+    if (hist) {
+        for (int i = 0; i < 256; i++) {
+            if (i == BB_WIFI_REASON_BB_LOST_IP ||
+                i == BB_WIFI_REASON_BB_EGRESS_DEAD ||
+                i == BB_WIFI_REASON_BB_NO_IP_WATCHDOG) {
+                continue;
+            }
+            if (hist[i] > top_count) {
+                top_count = hist[i];
+                top_code  = (uint8_t)i;
+            }
+        }
+    }
+    if (out_count) *out_count = top_count;
+    return top_code;
 }
 
 // Emit status-only wifi fields — ssid/bssid/ip/connected.

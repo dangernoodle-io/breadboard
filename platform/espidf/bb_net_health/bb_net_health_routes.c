@@ -5,11 +5,23 @@
 //
 // Sources: bb_net_health snapshot, bb_clock_now_ms, bb_http handler counts
 // (TA-505; relocated from bb_diag_routes.c under B1-456).
+//
+// B1-486: /api/diag/net is the single source of truth for wifi recovery
+// counters. no_ip_recoveries, recovery_count (sum of no_ip/lost_ip/egress_dead),
+// and reason_histogram were previously duplicated on GET /api/wifi and the
+// "wifi" telemetry topic; no_ip_recoveries is folded into the same 5s
+// evaluator snapshot as lost_ip_recoveries/egress_dead_recoveries (via
+// bb_net_health_status_t) so recovery_count sums point-in-time-consistent
+// operands, and top_reason is computed via bb_wifi's public
+// bb_wifi_reason_histogram_top() (this component already PRIV_REQUIRES
+// bb_wifi) so /api/diag/net is a strict superset of what /api/wifi used to
+// expose.
 #include "bb_net_health.h"
 #include "bb_http.h"
 #include "bb_clock.h"
 #include "bb_init.h"
 #include "bb_log.h"
+#include "bb_wifi.h"
 
 static const char *TAG = "bb_net_health_routes";
 
@@ -26,12 +38,19 @@ static bb_err_t diag_net_handler(bb_http_request_t *req)
 
     bb_net_health_status_t snap;
     if (bb_net_health_get_status(&snap) == BB_OK) {
+        // B1-486 finding #4: no_ip_recoveries is folded into the same 5s
+        // evaluator snapshot as lost_ip_recoveries/egress_dead_recoveries
+        // (rather than a separate live bb_wifi_get_no_ip_count() call) so
+        // recovery_count sums point-in-time-consistent operands.
+        bb_http_resp_json_obj_set_int(&obj, "no_ip_recoveries",       (int64_t)snap.no_ip_recoveries);
         bb_http_resp_json_obj_set_int(&obj, "rssi",                   (int64_t)snap.rssi);
         bb_http_resp_json_obj_set_int(&obj, "disc_age_s",             (int64_t)snap.disc_age_s);
         bb_http_resp_json_obj_set_int(&obj, "last_disconnect_reason", (int64_t)snap.last_disconnect_reason);
         bb_http_resp_json_obj_set_int(&obj, "lost_ip_recoveries",     (int64_t)snap.lost_ip_recoveries);
         bb_http_resp_json_obj_set_int(&obj, "lost_ip_age_s",          (int64_t)snap.lost_ip_age_s);
         bb_http_resp_json_obj_set_int(&obj, "egress_dead_recoveries", (int64_t)snap.egress_dead_recoveries);
+        bb_http_resp_json_obj_set_int(&obj, "recovery_count",
+            (int64_t)(snap.no_ip_recoveries + snap.lost_ip_recoveries + snap.egress_dead_recoveries));
 
         bb_http_resp_json_obj_set_obj_begin(&obj, "mqtt");
         bb_http_resp_json_obj_set_int(&obj, "reconnect_count", (int64_t)snap.mqtt_reconnect_count);
@@ -47,6 +66,22 @@ static bb_err_t diag_net_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_obj_end(&obj);
     }
 
+    // Compact reason histogram: the three breadboard sentinel buckets + top
+    // non-sentinel standard reason. Superset of the reason_histogram removed
+    // from /api/wifi and the "wifi" telemetry topic.
+    uint16_t hist[256];
+    bb_wifi_get_reason_histogram(hist, 256);
+    uint16_t top_count = 0;
+    uint8_t  top_code  = bb_wifi_reason_histogram_top(hist, &top_count);
+
+    bb_http_resp_json_obj_set_obj_begin(&obj, "reason_histogram");
+    bb_http_resp_json_obj_set_int(&obj, "lost_ip",         (int64_t)hist[BB_WIFI_REASON_BB_LOST_IP]);
+    bb_http_resp_json_obj_set_int(&obj, "egress_dead",     (int64_t)hist[BB_WIFI_REASON_BB_EGRESS_DEAD]);
+    bb_http_resp_json_obj_set_int(&obj, "no_ip_watchdog",  (int64_t)hist[BB_WIFI_REASON_BB_NO_IP_WATCHDOG]);
+    bb_http_resp_json_obj_set_int(&obj, "top_reason_code", (int64_t)top_code);
+    bb_http_resp_json_obj_set_int(&obj, "top_reason_count",(int64_t)top_count);
+    bb_http_resp_json_obj_set_obj_end(&obj);
+
     return bb_http_resp_json_obj_end(&obj);
 }
 
@@ -57,12 +92,14 @@ static const bb_route_response_t s_diag_net_responses[] = {
       "\"uptime_ms\":{\"type\":\"integer\"},"
       "\"http_handler_count\":{\"type\":\"integer\"},"
       "\"http_handler_cap\":{\"type\":\"integer\"},"
+      "\"no_ip_recoveries\":{\"type\":\"integer\"},"
       "\"rssi\":{\"type\":\"integer\"},"
       "\"disc_age_s\":{\"type\":\"integer\"},"
       "\"last_disconnect_reason\":{\"type\":\"integer\"},"
       "\"lost_ip_recoveries\":{\"type\":\"integer\"},"
       "\"lost_ip_age_s\":{\"type\":\"integer\"},"
       "\"egress_dead_recoveries\":{\"type\":\"integer\"},"
+      "\"recovery_count\":{\"type\":\"integer\"},"
       "\"mqtt\":{\"type\":\"object\",\"properties\":{"
       "\"reconnect_count\":{\"type\":\"integer\"},"
       "\"disc_age_s\":{\"type\":\"integer\"},"
@@ -71,7 +108,13 @@ static const bb_route_response_t s_diag_net_responses[] = {
       "\"http\":{\"type\":\"object\",\"properties\":{"
       "\"consec_failures\":{\"type\":\"integer\"},"
       "\"tls_fail\":{\"type\":\"integer\"},"
-      "\"last_status\":{\"type\":\"integer\"}}}},"
+      "\"last_status\":{\"type\":\"integer\"}}},"
+      "\"reason_histogram\":{\"type\":\"object\",\"properties\":{"
+      "\"lost_ip\":{\"type\":\"integer\"},"
+      "\"egress_dead\":{\"type\":\"integer\"},"
+      "\"no_ip_watchdog\":{\"type\":\"integer\"},"
+      "\"top_reason_code\":{\"type\":\"integer\"},"
+      "\"top_reason_count\":{\"type\":\"integer\"}}}},"
       "\"required\":[\"uptime_ms\"]}",
       "network diagnostic counters relocated from /api/info and /api/health" },
     { 0 },
