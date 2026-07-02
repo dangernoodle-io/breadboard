@@ -3320,6 +3320,41 @@ void test_heap_arena_free_null_is_noop(void);
 void test_heap_arena_owns_null_is_false(void);
 void test_heap_arena_calloc_zero_returns_null(void);
 
+// Forward declarations from test_arena.c
+void test_arena_init_from_buffer_succeeds(void);
+void test_arena_init_null_out_returns_invalid_arg(void);
+void test_arena_init_null_buf_returns_invalid_arg(void);
+void test_arena_init_too_small_returns_invalid_arg(void);
+void test_arena_alloc_owns_reset_roundtrip(void);
+void test_arena_free_bytes_accounting(void);
+void test_arena_alloc_exhaustion_returns_null(void);
+void test_arena_alloc_zero_bytes_returns_null(void);
+void test_arena_alloc_null_arena_returns_null(void);
+void test_arena_free_null_arena_is_noop(void);
+void test_arena_free_null_ptr_is_noop(void);
+void test_arena_free_updates_stats(void);
+void test_arena_reset_null_arena_is_noop(void);
+void test_arena_owns_null_arena_is_false(void);
+void test_arena_owns_null_ptr_is_false(void);
+void test_arena_owns_out_of_range_ptr_is_false(void);
+void test_arena_free_bytes_null_arena_is_zero(void);
+void test_arena_get_stats_null_args_is_noop(void);
+void test_arena_destroy_null_is_noop(void);
+void test_arena_init_heap_succeeds_and_destroy_frees(void);
+void test_arena_init_spiram_succeeds_and_destroy_frees(void);
+void test_arena_init_heap_null_out_returns_invalid_arg(void);
+void test_arena_init_heap_zero_size_returns_invalid_arg(void);
+void test_arena_init_spiram_null_out_returns_invalid_arg(void);
+void test_arena_init_spiram_zero_size_returns_invalid_arg(void);
+void test_arena_init_heap_alloc_failure_returns_no_mem(void);
+void test_arena_init_spiram_alloc_failure_returns_no_mem(void);
+void test_arena_alloc_huge_bytes_returns_no_space_not_bogus_ptr(void);
+void test_arena_init_heap_size_overflow_returns_invalid_arg(void);
+void test_arena_double_destroy_caller_buffer_is_safe(void);
+void test_arena_alloc_returns_max_align_t_aligned_pointer(void);
+void test_arena_alloc_exact_fit_succeeds(void);
+void test_arena_destroy_caller_buffer_does_not_touch_bb_mem(void);
+
 // Forward declarations from test_bb_telemetry.c (GET /api/telemetry/metrics, B1-295)
 void test_bb_pub_source_count_returns_registered(void);
 void test_bb_pub_source_info_out_of_range_returns_invalid_arg(void);
@@ -6659,6 +6694,41 @@ int main(void) {
     RUN_TEST(test_heap_arena_free_null_is_noop);
     RUN_TEST(test_heap_arena_owns_null_is_false);
     RUN_TEST(test_heap_arena_calloc_zero_returns_null);
+
+    // bb_arena generic primitive tests (B1-478 PR A)
+    RUN_TEST(test_arena_init_from_buffer_succeeds);
+    RUN_TEST(test_arena_init_null_out_returns_invalid_arg);
+    RUN_TEST(test_arena_init_null_buf_returns_invalid_arg);
+    RUN_TEST(test_arena_init_too_small_returns_invalid_arg);
+    RUN_TEST(test_arena_alloc_owns_reset_roundtrip);
+    RUN_TEST(test_arena_free_bytes_accounting);
+    RUN_TEST(test_arena_alloc_exhaustion_returns_null);
+    RUN_TEST(test_arena_alloc_zero_bytes_returns_null);
+    RUN_TEST(test_arena_alloc_null_arena_returns_null);
+    RUN_TEST(test_arena_free_null_arena_is_noop);
+    RUN_TEST(test_arena_free_null_ptr_is_noop);
+    RUN_TEST(test_arena_free_updates_stats);
+    RUN_TEST(test_arena_reset_null_arena_is_noop);
+    RUN_TEST(test_arena_owns_null_arena_is_false);
+    RUN_TEST(test_arena_owns_null_ptr_is_false);
+    RUN_TEST(test_arena_owns_out_of_range_ptr_is_false);
+    RUN_TEST(test_arena_free_bytes_null_arena_is_zero);
+    RUN_TEST(test_arena_get_stats_null_args_is_noop);
+    RUN_TEST(test_arena_destroy_null_is_noop);
+    RUN_TEST(test_arena_init_heap_succeeds_and_destroy_frees);
+    RUN_TEST(test_arena_init_spiram_succeeds_and_destroy_frees);
+    RUN_TEST(test_arena_init_heap_null_out_returns_invalid_arg);
+    RUN_TEST(test_arena_init_heap_zero_size_returns_invalid_arg);
+    RUN_TEST(test_arena_init_spiram_null_out_returns_invalid_arg);
+    RUN_TEST(test_arena_init_spiram_zero_size_returns_invalid_arg);
+    RUN_TEST(test_arena_init_heap_alloc_failure_returns_no_mem);
+    RUN_TEST(test_arena_init_spiram_alloc_failure_returns_no_mem);
+    RUN_TEST(test_arena_alloc_huge_bytes_returns_no_space_not_bogus_ptr);
+    RUN_TEST(test_arena_init_heap_size_overflow_returns_invalid_arg);
+    RUN_TEST(test_arena_double_destroy_caller_buffer_is_safe);
+    RUN_TEST(test_arena_alloc_returns_max_align_t_aligned_pointer);
+    RUN_TEST(test_arena_alloc_exact_fit_succeeds);
+    RUN_TEST(test_arena_destroy_caller_buffer_does_not_touch_bb_mem);
 
     // bb_pub accessor tests (B1-295)
     RUN_TEST(test_bb_pub_source_count_returns_registered);
