@@ -29,6 +29,7 @@
 #include "bb_nv_keys.h"
 #include "bb_init.h"
 #include "bb_wifi.h"
+#include "bb_mqtt_reassemble.h"  // PRIV_INCLUDE_DIRS "src" (bb_mqtt component)
 
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +48,17 @@ static const char *TAG = "bb_mqtt";
 #define BB_MQTT_CLIENT_ID_MAX 64
 #define BB_MQTT_USER_MAX      64
 #define BB_MQTT_PASS_MAX      64
+
+// B1-487: per-handle subscription-filter tracking, so MQTT_EVENT_CONNECTED
+// can re-issue every subscribe after a reconnect (a fresh broker session
+// does not always preserve subscriptions across a dropped TCP connection).
+#define BB_MQTT_SUB_MAX      4
+#define BB_MQTT_SUB_TOPIC_MAX 128
+
+typedef struct {
+    char topic[BB_MQTT_SUB_TOPIC_MAX];
+    int  qos;
+} bb_mqtt_sub_entry_t;
 
 // ---------------------------------------------------------------------------
 // Internal handle
@@ -69,7 +81,49 @@ typedef struct {
     bb_tls_fail_t            tls_fail;         // TLS handshake failure class (B1-362)
     int                      tls_error_code;   // raw mbedtls err (0 = none) (B1-362)
     char                     uri[256];             // copy of cfg->uri for diag
+    bb_mqtt_sub_entry_t      subs[BB_MQTT_SUB_MAX]; // B1-487: tracked filters
+    int                      sub_count;
+    bb_mqtt_msg_cb           msg_cb;    // B1-487: per-handle receive callback
+    void                    *msg_ctx;
+    bb_mqtt_reasm_state_t    reasm;     // per-handle reassembly state; reasm.buf
+                                         // lazily allocated on first on_message(cb!=NULL)
 } bb_mqtt_handle_t;
+
+// ---------------------------------------------------------------------------
+// B1-487: inbound message reassembly. Reassembly state (rx buffer, cursor,
+// callback+ctx) lives on the handle (bb_mqtt_handle_t.reasm / .msg_cb /
+// .msg_ctx) — NOT in process-wide statics — so two independently-created
+// handles (e.g. a telemetry client and a separate ingress client, both
+// possible in this codebase) can never splice bytes across each other's
+// messages. The actual fragment-accumulation state machine is the pure,
+// host-testable bb_mqtt_reasm_step (components/bb_mqtt/src/bb_mqtt_reassemble.c)
+// — this file supplies only the esp_mqtt_event_handle_t field extraction.
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_mqtt_on_message(bb_mqtt_t handle, bb_mqtt_msg_cb cb, void *ctx)
+{
+    if (!handle) return BB_ERR_INVALID_ARG;
+    bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)handle;
+
+    xSemaphoreTake(h->lock, portMAX_DELAY);
+    if (cb && !h->reasm.buf) {
+        // Lazy heap allocation (SPIRAM-preferred): boards that only publish
+        // and never call bb_mqtt_on_message pay zero BSS/heap for this.
+        h->reasm.buf = bb_calloc_prefer_spiram(1, CONFIG_BB_MQTT_RX_BUFFER_BYTES);
+        if (!h->reasm.buf) {
+            xSemaphoreGive(h->lock);
+            bb_log_w(TAG, "on_message: rx buffer alloc failed (%u bytes)",
+                     (unsigned)CONFIG_BB_MQTT_RX_BUFFER_BYTES);
+            return BB_ERR_NO_SPACE;
+        }
+        h->reasm.buf_cap = CONFIG_BB_MQTT_RX_BUFFER_BYTES;
+        bb_mqtt_reasm_reset(&h->reasm);
+    }
+    h->msg_cb  = cb;
+    h->msg_ctx = ctx;
+    xSemaphoreGive(h->lock);
+    return BB_OK;
+}
 
 // ---------------------------------------------------------------------------
 // Deferred-start support
@@ -151,13 +205,32 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
     if (dead) return;
 
     switch ((esp_mqtt_event_id_t)event_id) {
-    case MQTT_EVENT_CONNECTED:
+    case MQTT_EVENT_CONNECTED: {
+        // B1-487: snapshot tracked subs under the lock, then re-issue every
+        // subscribe AFTER releasing the lock (esp_mqtt_client_subscribe must
+        // not run while h->lock is held — the event handler itself takes
+        // h->lock elsewhere, and esp-mqtt calls back into this handler from
+        // the same task, so holding the lock here risks self-deadlock on a
+        // reentrant dispatch).
+        bb_mqtt_sub_entry_t local[BB_MQTT_SUB_MAX];
+        int n;
         xSemaphoreTake(h->lock, portMAX_DELAY);
         h->connected = true;
         h->ever_connected = true;
+        n = h->sub_count;
+        memcpy(local, h->subs, sizeof(bb_mqtt_sub_entry_t) * (size_t)n);
         xSemaphoreGive(h->lock);
         bb_log_i(TAG, "connected");
+        for (int i = 0; i < n; i++) {
+            int msg_id = esp_mqtt_client_subscribe(h->client, local[i].topic, local[i].qos);
+            if (msg_id < 0) {
+                bb_log_w(TAG, "re-subscribe '%s' failed", local[i].topic);
+            } else {
+                bb_log_i(TAG, "re-subscribed '%s' (qos=%d)", local[i].topic, local[i].qos);
+            }
+        }
         break;
+    }
     case MQTT_EVENT_DISCONNECTED:
         xSemaphoreTake(h->lock, portMAX_DELAY);
         if (h->ever_connected) {
@@ -167,6 +240,39 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
         xSemaphoreGive(h->lock);
         bb_log_i(TAG, "disconnected (reconnect_count=%u)", h->reconnect_count);
         break;
+    case MQTT_EVENT_DATA: {
+        // B1-487: reassemble fragmented payload via the shared pure state
+        // machine, then invoke the per-handle callback OUTSIDE the lock —
+        // cb may call back into bb_mqtt_publish/subscribe on this same
+        // handle, which would deadlock on a non-recursive mutex if we held
+        // h->lock across the call. h->reasm.buf/topic are exclusively
+        // written by this event task (esp-mqtt dispatches serially), so
+        // reading them here after unlocking is safe.
+        esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
+        bb_mqtt_msg_cb local_cb  = NULL;
+        void          *local_ctx = NULL;
+        size_t         local_len = 0;
+
+        xSemaphoreTake(h->lock, portMAX_DELAY);
+        if (h->msg_cb && h->reasm.buf) {
+            bool complete = bb_mqtt_reasm_step(
+                &h->reasm,
+                event->topic, (size_t)event->topic_len,
+                (size_t)event->total_data_len, (size_t)event->current_data_offset,
+                event->data, (size_t)event->data_len);
+            if (complete) {
+                local_cb  = h->msg_cb;
+                local_ctx = h->msg_ctx;
+                local_len = h->reasm.len;
+            }
+        }
+        xSemaphoreGive(h->lock);
+
+        if (local_cb) {
+            local_cb(h->reasm.topic, h->reasm.buf, local_len, local_ctx);
+        }
+        break;
+    }
     case MQTT_EVENT_ERROR: {
         esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
         int tls_err = 0;
@@ -415,6 +521,37 @@ bb_err_t bb_mqtt_subscribe(bb_mqtt_t handle, const char *topic, int qos)
         return BB_ERR_INVALID_STATE;
     }
 
+    // B1-487: track the filter so MQTT_EVENT_CONNECTED can re-subscribe it
+    // on every (re)connect. Update qos in-place if the filter is already
+    // tracked; otherwise append if there is room. Compare against the
+    // truncated form (mirrors what would actually be stored) rather than a
+    // raw strncmp bound to sizeof(topic) — a bare strncmp of the incoming
+    // (possibly longer) topic against an already-truncated stored entry is
+    // not a well-defined equality check for topics >= BB_MQTT_SUB_TOPIC_MAX.
+    char topic_trunc[BB_MQTT_SUB_TOPIC_MAX];
+    snprintf(topic_trunc, sizeof(topic_trunc), "%s", topic);
+
+    xSemaphoreTake(h->lock, portMAX_DELAY);
+    bool tracked = false;
+    for (int i = 0; i < h->sub_count; i++) {
+        if (strcmp(h->subs[i].topic, topic_trunc) == 0) {
+            h->subs[i].qos = qos;
+            tracked = true;
+            break;
+        }
+    }
+    if (!tracked) {
+        if (h->sub_count < BB_MQTT_SUB_MAX) {
+            snprintf(h->subs[h->sub_count].topic, sizeof(h->subs[h->sub_count].topic), "%s", topic_trunc);
+            h->subs[h->sub_count].qos = qos;
+            h->sub_count++;
+        } else {
+            bb_log_w(TAG, "subscribe: filter registry full (max %d); '%s' will not be "
+                          "re-subscribed on reconnect", BB_MQTT_SUB_MAX, topic);
+        }
+    }
+    xSemaphoreGive(h->lock);
+
     int msg_id = esp_mqtt_client_subscribe(client, topic, qos);
     return (msg_id < 0) ? BB_ERR_INVALID_STATE : BB_OK;
 }
@@ -474,6 +611,10 @@ bb_err_t bb_mqtt_destroy(bb_mqtt_t handle)
     }
     // Free TLS creds AFTER destroying the client (client holds pointers to them).
     bb_tls_creds_free(&h->creds);
+    if (h->reasm.buf) {
+        bb_mem_free(h->reasm.buf);
+        h->reasm.buf = NULL;
+    }
     if (h->lock) {
         vSemaphoreDelete(h->lock);
     }

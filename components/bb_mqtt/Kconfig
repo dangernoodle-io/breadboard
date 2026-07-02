@@ -32,15 +32,19 @@ config BB_MQTT_NETWORK_TIMEOUT_MS
 
 config BB_MQTT_RX_BUFFER_BYTES
     int "MQTT receive buffer size (bytes)"
-    default 256
+    default 1024
     range 64 4096
     help
         Receive buffer for the bb_mqtt client (maps to
         esp_mqtt_client_config_t.buffer.size), overriding the global
-        CONFIG_MQTT_BUFFER_SIZE. Default 256 suits publish-only/non-subscribing
-        clients (the telemetry auto-client never subscribes — RX only sees ≤10B
-        protocol frames); raise it if your client SUBSCRIBES to topics with
-        larger payloads.
+        CONFIG_MQTT_BUFFER_SIZE. ALSO sizes the app-level reassembly buffer
+        used by bb_mqtt_on_message() (B1-487) to accumulate a message across
+        multiple MQTT_EVENT_DATA fragments — a message whose total size
+        exceeds this value is dropped (logged) rather than delivered.
+        Default 1024 covers real meta/stats-shaped subscribe payloads
+        (the 256-byte legacy default only fit publish-only/non-subscribing
+        clients whose RX only ever sees short protocol ACK frames); raise it
+        further if your client subscribes to topics with larger payloads.
 
 config BB_MQTT_TX_BUFFER_BYTES
     int "MQTT transmit buffer size (bytes)"
