@@ -247,6 +247,11 @@ typedef struct {
     uint32_t lost_ip_recoveries; // times lost-IP recovery was triggered (bb_wifi_get_lost_ip_count)
     uint32_t lost_ip_age_s;      // seconds since last lost-IP event (0 if never)
     uint32_t egress_dead_recoveries; // times egress-dead recovery was triggered (bb_wifi_get_egress_dead_count)
+    uint32_t no_ip_recoveries;   // times no-IP watchdog recovery was triggered (bb_wifi_get_no_ip_count);
+                                 // captured in the same evaluator snapshot as lost_ip/egress_dead_recoveries
+                                 // (B1-486 finding #4) so GET /api/diag/net's recovery_count sums
+                                 // point-in-time-consistent operands. Not currently serialized by
+                                 // bb_net_health_emit (net.health SSE topic keeps its existing schema).
 } bb_net_health_status_t;
 
 // Copy the live net-health snapshot (populated by the ESP-IDF evaluator) under

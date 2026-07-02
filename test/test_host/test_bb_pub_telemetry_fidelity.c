@@ -598,41 +598,28 @@ void test_bb_pub_telem_info_serialize_once_per_tick(void)
 }
 
 // ---------------------------------------------------------------------------
-// 18-20. bb_wifi_emit_section: the 3 new recovery fields are present.
+// B1-486: egress_dead_count, lost_ip_count, recovery_count, reason_histogram
+// moved to GET /api/diag/net (bb_net_health) — bb_wifi_emit_section (the
+// /api/wifi fallback SSOT) must NOT emit them anymore.
 // ---------------------------------------------------------------------------
 
-void test_bb_wifi_emit_has_egress_dead_count(void)
+void test_bb_wifi_emit_no_longer_has_egress_dead_count(void)
 {
     bb_json_t obj = bb_json_obj_new();
     TEST_ASSERT_NOT_NULL(obj);
 
-    // Use a zeroed info struct — just checking field presence.
+    // Use a zeroed info struct — just checking field absence.
     bb_wifi_info_t info;
     memset(&info, 0, sizeof(info));
     bb_wifi_emit_section(obj, &info);
 
     double val = -999.0;
-    TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(obj, "egress_dead_count", &val),
-        "egress_dead_count field must be present");
+    TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(obj, "egress_dead_count", &val),
+        "egress_dead_count must not be emitted (B1-486: moved to /api/diag/net)");
     bb_json_free(obj);
 }
 
-void test_bb_wifi_emit_has_lost_ip_count(void)
-{
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-
-    bb_wifi_info_t info;
-    memset(&info, 0, sizeof(info));
-    bb_wifi_emit_section(obj, &info);
-
-    double val = -999.0;
-    TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(obj, "lost_ip_count", &val),
-        "lost_ip_count field must be present");
-    bb_json_free(obj);
-}
-
-void test_bb_wifi_emit_has_recovery_count(void)
+void test_bb_wifi_emit_no_longer_has_lost_ip_count(void)
 {
     bb_json_t obj = bb_json_obj_new();
     TEST_ASSERT_NOT_NULL(obj);
@@ -642,40 +629,40 @@ void test_bb_wifi_emit_has_recovery_count(void)
     bb_wifi_emit_section(obj, &info);
 
     double val = -999.0;
-    TEST_ASSERT_TRUE_MESSAGE(bb_json_obj_get_number(obj, "recovery_count", &val),
-        "recovery_count field must be present");
+    TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(obj, "lost_ip_count", &val),
+        "lost_ip_count must not be emitted (B1-486: moved to /api/diag/net)");
     bb_json_free(obj);
 }
 
-// Inject a non-zero standard reason; verify bb_wifi_emit_section emits
-// top_reason_code:3 and top_reason_count:5 in reason_histogram.
-void test_bb_wifi_emit_top_reason_injected(void)
+void test_bb_wifi_emit_no_longer_has_recovery_count(void)
 {
-#ifdef BB_WIFI_TESTING
-    uint16_t h[256];
-    memset(h, 0, sizeof(h));
-    h[3] = 5; // reason 3, count 5
-    bb_wifi_test_set_reason_histogram(h, 256);
-
     bb_json_t obj = bb_json_obj_new();
     TEST_ASSERT_NOT_NULL(obj);
+
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    bb_wifi_emit_section(obj, &info);
+
+    double val = -999.0;
+    TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(obj, "recovery_count", &val),
+        "recovery_count must not be emitted (B1-486: moved to /api/diag/net)");
+    bb_json_free(obj);
+}
+
+void test_bb_wifi_emit_no_longer_has_reason_histogram(void)
+{
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+
     bb_wifi_info_t info;
     memset(&info, 0, sizeof(info));
     bb_wifi_emit_section(obj, &info);
 
     bb_json_t hist_obj = bb_json_obj_get_item(obj, "reason_histogram");
-    TEST_ASSERT_NOT_NULL_MESSAGE(hist_obj, "reason_histogram must be present");
-
-    double code  = -1.0;
-    double count = -1.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(hist_obj, "top_reason_code",  &code));
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(hist_obj, "top_reason_count", &count));
-    TEST_ASSERT_EQUAL_INT(3, (int)code);
-    TEST_ASSERT_EQUAL_INT(5, (int)count);
+    TEST_ASSERT_NULL_MESSAGE(hist_obj,
+        "reason_histogram must not be emitted (B1-486: moved to /api/diag/net)");
 
     bb_json_free(obj);
-    bb_wifi_test_set_reason_histogram(NULL, 0);
-#endif
 }
 
 // ===========================================================================

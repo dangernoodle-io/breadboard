@@ -150,3 +150,55 @@ void test_bb_wifi_reason_histogram_null_safe(void)
     // reaching here without crash is success
     TEST_PASS();
 }
+
+// ---------------------------------------------------------------------------
+// B1-486: bb_wifi_reason_histogram_top (promoted from bb_net_health's
+// private wifi_hist_priv.h to bb_wifi's public API, finding #1/#2)
+// ---------------------------------------------------------------------------
+
+// Inject a non-zero standard reason alongside non-zero sentinel buckets;
+// the sentinels must be skipped and the standard reason reported as top.
+void test_bb_wifi_reason_histogram_top_injected(void)
+{
+    uint16_t hist[256];
+    memset(hist, 0, sizeof(hist));
+    hist[3]                                   = 5;   // standard reason, top
+    hist[BB_WIFI_REASON_BB_LOST_IP]           = 100; // sentinel — skipped
+    hist[BB_WIFI_REASON_BB_EGRESS_DEAD]       = 200; // sentinel — skipped
+    hist[BB_WIFI_REASON_BB_NO_IP_WATCHDOG]    = 300; // sentinel — skipped
+
+    uint16_t top_count = 0;
+    uint8_t  top_code  = bb_wifi_reason_histogram_top(hist, &top_count);
+    TEST_ASSERT_EQUAL_UINT8(3, top_code);
+    TEST_ASSERT_EQUAL_UINT16(5, top_count);
+}
+
+// All-zero histogram reports code 0 / count 0.
+void test_bb_wifi_reason_histogram_top_all_zero(void)
+{
+    uint16_t hist[256];
+    memset(hist, 0, sizeof(hist));
+
+    uint16_t top_count = 1; // non-zero sentinel to prove it gets reset
+    uint8_t  top_code  = bb_wifi_reason_histogram_top(hist, &top_count);
+    TEST_ASSERT_EQUAL_UINT8(0, top_code);
+    TEST_ASSERT_EQUAL_UINT16(0, top_count);
+}
+
+// NULL hist and/or NULL out_count must not crash.
+void test_bb_wifi_reason_histogram_top_null_safe(void)
+{
+    uint16_t top_count = 99;
+    uint8_t  top_code  = bb_wifi_reason_histogram_top(NULL, &top_count);
+    TEST_ASSERT_EQUAL_UINT8(0, top_code);
+    TEST_ASSERT_EQUAL_UINT16(0, top_count);
+
+    uint16_t hist[256];
+    memset(hist, 0, sizeof(hist));
+    hist[5] = 1;
+    top_code = bb_wifi_reason_histogram_top(hist, NULL);
+    TEST_ASSERT_EQUAL_UINT8(5, top_code);
+
+    // reaching here without crash is success
+    TEST_PASS();
+}
