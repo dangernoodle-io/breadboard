@@ -27,6 +27,9 @@ static int g_flush_calls;
 static int g_draw_text_calls;
 static int g_set_rotation_calls;
 static int g_set_rotation_result;   /* BB_OK or error */
+static int g_set_mirror_calls;
+static int g_set_mirror_result;     /* BB_OK or error */
+static bool g_last_mirror_x, g_last_mirror_y;
 static int g_probe_result;   /* BB_OK or error */
 static bool g_init_succeed;
 static uint16_t g_last_clear_color;
@@ -44,6 +47,9 @@ static void reset_mock(void)
     g_draw_text_calls = 0;
     g_set_rotation_calls = 0;
     g_set_rotation_result = BB_OK;
+    g_set_mirror_calls = 0;
+    g_set_mirror_result = BB_OK;
+    g_last_mirror_x = g_last_mirror_y = false;
     g_probe_result  = BB_OK;
     g_init_succeed  = true;
     g_last_clear_color = 0;
@@ -104,10 +110,26 @@ static void mock_draw_text(int16_t x, int16_t y, const char *text,
 
 static bb_err_t mock_set_rotation(uint16_t deg, uint16_t *w, uint16_t *h)
 {
-    (void)deg;
     g_set_rotation_calls++;
+    /* Mirrors the real backends' cardinal-angle table: set_rotation
+     * recomputes mirror_x/mirror_y from `deg` and overwrites them,
+     * discarding any prior set_mirror() override. */
+    switch (deg) {
+        case 90:  g_last_mirror_x = true;  g_last_mirror_y = false; break;
+        case 180: g_last_mirror_x = true;  g_last_mirror_y = true;  break;
+        case 270: g_last_mirror_x = false; g_last_mirror_y = true;  break;
+        default:  g_last_mirror_x = false; g_last_mirror_y = false; break;
+    }
     *w = 320; *h = 240;
     return (bb_err_t)g_set_rotation_result;
+}
+
+static bb_err_t mock_set_mirror(bool mirror_x, bool mirror_y)
+{
+    g_set_mirror_calls++;
+    g_last_mirror_x = mirror_x;
+    g_last_mirror_y = mirror_y;
+    return (bb_err_t)g_set_mirror_result;
 }
 
 static const bb_display_backend_t s_mock = {
@@ -121,6 +143,7 @@ static const bb_display_backend_t s_mock = {
     .on           = mock_on,
     .draw_text    = NULL,
     .set_rotation = NULL,
+    .set_mirror   = NULL,
 };
 
 static bb_display_backend_t make_mock(bool with_probe)
@@ -137,6 +160,21 @@ static bb_display_backend_t make_full_mock(bool with_flush, bool with_draw_text,
     b.flush        = with_flush        ? mock_flush        : NULL;
     b.draw_text    = with_draw_text    ? mock_draw_text    : NULL;
     b.set_rotation = with_set_rotation ? mock_set_rotation : NULL;
+    return b;
+}
+
+static bb_display_backend_t make_mirror_mock(bool with_set_mirror)
+{
+    bb_display_backend_t b = s_mock;
+    b.set_mirror = with_set_mirror ? mock_set_mirror : NULL;
+    return b;
+}
+
+static bb_display_backend_t make_rotation_and_mirror_mock(void)
+{
+    bb_display_backend_t b = s_mock;
+    b.set_rotation = mock_set_rotation;
+    b.set_mirror   = mock_set_mirror;
     return b;
 }
 
@@ -504,6 +542,90 @@ void test_bb_display_set_rotation_propagates_error(void)
     bb_display_register_backend(&b);
     bb_display_init();
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_display_set_rotation(90));
+}
+
+/* ---------------------------------------------------------------------------
+ * Tests: set_mirror
+ * --------------------------------------------------------------------------- */
+
+void test_bb_display_set_mirror_no_backend_returns_err(void)
+{
+    /* Not inited */
+    TEST_ASSERT_NOT_EQUAL(BB_OK, bb_display_set_mirror(true, true));
+}
+
+void test_bb_display_set_mirror_no_support_returns_err(void)
+{
+    bb_display_backend_t b = make_mirror_mock(false);
+    bb_display_register_backend(&b);
+    bb_display_init();
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_display_set_mirror(true, true));
+}
+
+void test_bb_display_set_mirror_succeeds(void)
+{
+    bb_display_backend_t b = make_mirror_mock(true);
+    bb_display_register_backend(&b);
+    bb_display_init();
+    TEST_ASSERT_EQUAL(BB_OK, bb_display_set_mirror(true, true));
+    TEST_ASSERT_EQUAL_INT(1, g_set_mirror_calls);
+    TEST_ASSERT_TRUE(g_last_mirror_x);
+    TEST_ASSERT_TRUE(g_last_mirror_y);
+}
+
+void test_bb_display_set_mirror_propagates_error(void)
+{
+    g_set_mirror_result = BB_ERR_INVALID_STATE;
+    bb_display_backend_t b = make_mirror_mock(true);
+    bb_display_register_backend(&b);
+    bb_display_init();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_display_set_mirror(true, false));
+}
+
+void test_bb_display_set_mirror_after_off_is_noop(void)
+{
+    bb_display_backend_t b = make_mirror_mock(true);
+    bb_display_register_backend(&b);
+    bb_display_init();
+    bb_display_off();
+    /* s_active is NULL after off → returns at the null-guard, never derefs
+     * a->set_mirror. */
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_display_set_mirror(true, true));
+    TEST_ASSERT_EQUAL_INT(0, g_set_mirror_calls);
+}
+
+void test_bb_display_set_mirror_single_axis_order(void)
+{
+    /* Locks in argument order: mirror_x and mirror_y are recorded
+     * independently, not swapped or coalesced. */
+    bb_display_backend_t b = make_mirror_mock(true);
+    bb_display_register_backend(&b);
+    bb_display_init();
+    TEST_ASSERT_EQUAL(BB_OK, bb_display_set_mirror(false, true));
+    TEST_ASSERT_EQUAL_INT(1, g_set_mirror_calls);
+    TEST_ASSERT_FALSE(g_last_mirror_x);
+    TEST_ASSERT_TRUE(g_last_mirror_y);
+}
+
+void test_bb_display_set_rotation_after_set_mirror_resets_mirror(void)
+{
+    /* Documents/locks the HIGH-finding clobber behavior: set_rotation()
+     * recomputes mirror_x/mirror_y from its cardinal-angle table and
+     * overwrites whatever set_mirror() previously set. */
+    bb_display_backend_t b = make_rotation_and_mirror_mock();
+    bb_display_register_backend(&b);
+    bb_display_init();
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_display_set_mirror(true, true));
+    TEST_ASSERT_TRUE(g_last_mirror_x);
+    TEST_ASSERT_TRUE(g_last_mirror_y);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_display_set_rotation(90));
+    /* mock_set_rotation's cardinal table for 90 deg is (mirror_x=true,
+     * mirror_y=false) -- the rotation's own values, not the set_mirror
+     * override. */
+    TEST_ASSERT_TRUE(g_last_mirror_x);
+    TEST_ASSERT_FALSE(g_last_mirror_y);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1085,6 +1207,7 @@ void bb_display_test_clear_active(void);
 void test_bb_display_draw_ops_noop_when_active_null_mid_race(void)
 {
     bb_display_backend_t b = make_full_mock(true, true, true);
+    b.set_mirror = mock_set_mirror;
     bb_display_register_backend(&b);
     bb_display_init();
     TEST_ASSERT_TRUE(bb_display_ready());
@@ -1095,11 +1218,13 @@ void test_bb_display_draw_ops_noop_when_active_null_mid_race(void)
     bb_display_flush();                                                /* !a */
     bb_display_draw_text(0, 0, "X", &bb_display_font_8x16, 0xFFFF, 0); /* !a */
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_display_set_rotation(90)); /* !a */
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_display_set_mirror(true, true)); /* !a */
     TEST_ASSERT_EQUAL_INT(0, g_clear_calls);
     TEST_ASSERT_EQUAL_INT(0, g_blit_calls);
     TEST_ASSERT_EQUAL_INT(0, g_flush_calls);
     TEST_ASSERT_EQUAL_INT(0, g_draw_text_calls);
     TEST_ASSERT_EQUAL_INT(0, g_set_rotation_calls);
+    TEST_ASSERT_EQUAL_INT(0, g_set_mirror_calls);
 }
 
 /* ---------------------------------------------------------------------------
