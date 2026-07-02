@@ -161,12 +161,33 @@ uint32_t bb_wifi_get_restart_sta_count(void);
 // Returns INT8_MIN if no disconnect has occurred since boot (sentinel = "no reading").
 int8_t bb_wifi_get_disconnect_rssi(void);
 
+// Breadboard sentinel disconnect-reason codes injected into the histogram
+// returned by bb_wifi_get_reason_histogram. esp_wifi standard reasons occupy
+// 1-24/53-67/200-208; these three values are free and fit uint8_t (< 256).
+// Do NOT change these numeric values — they are wire-visible in
+// reason_histogram (GET /api/diag/net). Single source of truth: the private
+// WIFI_REASON_BB_* macros in components/bb_wifi/wifi_reconn_policy.h (the
+// production writer) alias these public constants.
+#define BB_WIFI_REASON_BB_LOST_IP        99
+#define BB_WIFI_REASON_BB_EGRESS_DEAD    100
+#define BB_WIFI_REASON_BB_NO_IP_WATCHDOG 101
+
 // Copy the disconnect reason histogram into out[0..len-1].
-// Indexes 99/100/101 are breadboard sentinels (lost_ip / egress_dead /
-// no_ip_watchdog).  Standard esp_wifi reasons occupy the remaining slots.
-// If the reconnect manager is not active, out is zeroed.
+// Indexes BB_WIFI_REASON_BB_LOST_IP/_EGRESS_DEAD/_NO_IP_WATCHDOG (99/100/101)
+// are breadboard sentinels. Standard esp_wifi reasons occupy the remaining
+// slots. If the reconnect manager is not active, out is zeroed.
 // Safe to call with NULL or len==0 (no-op).
 void bb_wifi_get_reason_histogram(uint16_t *out, size_t len);
+
+// Find the top standard (non-sentinel) disconnect reason in a 256-entry
+// histogram as returned by bb_wifi_get_reason_histogram. Skips the three
+// breadboard sentinel buckets (BB_WIFI_REASON_BB_LOST_IP / _EGRESS_DEAD /
+// _NO_IP_WATCHDOG). Sets *out_count to the highest non-sentinel count found
+// (0 if all zero, or hist is NULL); returns the bucket index (reason code)
+// for that count, or 0 if all are zero. hist must point to at least 256
+// entries. Pure, no side effects; safe to call with hist==NULL or
+// out_count==NULL.
+uint8_t bb_wifi_reason_histogram_top(const uint16_t *hist, uint16_t *out_count);
 
 #ifdef ESP_PLATFORM
 // ICMP ping a target IPv4 address. target_addr is a raw IPv4 address in

@@ -246,13 +246,16 @@ void test_bb_pub_wifi_has_retry_count_field(void)
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"retry_count\""));
 }
 
-void test_bb_pub_wifi_has_no_ip_recoveries_field(void)
+// B1-486: no_ip_recoveries moved to GET /api/diag/net (bb_net_health) — the
+// "wifi" telemetry topic (backing GET /api/wifi) must NOT re-emit it.
+void test_bb_pub_wifi_no_longer_has_no_ip_recoveries_field(void)
 {
     setup();
     bb_pub_wifi_test_set_rssi(true, -65);
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"no_ip_recoveries\""));
+    TEST_ASSERT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"no_ip_recoveries\""),
+        "no_ip_recoveries must not be in the wifi telemetry payload (B1-486: moved to /api/diag/net)");
 }
 
 void test_bb_pub_wifi_rssi_is_integer_not_float(void)
@@ -293,54 +296,40 @@ void test_bb_pub_wifi_rest_equals_sink_bytes(void)
 }
 
 // ---------------------------------------------------------------------------
-// Recovery observability: egress_dead_count, lost_ip_count, recovery_count
-// present in the wifi telemetry topic serializer (bb_pub_wifi.c).
-// On host stubs all three getters return 0; assert field presence + sum.
+// B1-486: egress_dead_count, lost_ip_count, recovery_count moved to
+// GET /api/diag/net (bb_net_health) — the wifi telemetry topic serializer
+// (bb_pub_wifi.c) must NOT re-emit them.
 // ---------------------------------------------------------------------------
 
-void test_bb_pub_wifi_has_egress_dead_count(void)
+void test_bb_pub_wifi_no_longer_has_egress_dead_count(void)
 {
     setup();
     bb_pub_wifi_test_set_rssi(true, -60);
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"egress_dead_count\""),
-        "wifi telem topic must contain egress_dead_count");
+    TEST_ASSERT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"egress_dead_count\""),
+        "wifi telem topic must not contain egress_dead_count (B1-486: moved to /api/diag/net)");
 }
 
-void test_bb_pub_wifi_has_lost_ip_count(void)
+void test_bb_pub_wifi_no_longer_has_lost_ip_count(void)
 {
     setup();
     bb_pub_wifi_test_set_rssi(true, -60);
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"lost_ip_count\""),
-        "wifi telem topic must contain lost_ip_count");
+    TEST_ASSERT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"lost_ip_count\""),
+        "wifi telem topic must not contain lost_ip_count (B1-486: moved to /api/diag/net)");
 }
 
-void test_bb_pub_wifi_has_recovery_count(void)
+void test_bb_pub_wifi_no_longer_has_recovery_count(void)
 {
     setup();
     bb_pub_wifi_test_set_rssi(true, -60);
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"recovery_count\""),
-        "wifi telem topic must contain recovery_count");
-}
-
-// recovery_count == no_ip + egress_dead + lost_ip.  Host stubs return 0 for
-// all three getters, so recovery_count must be 0.
-void test_bb_pub_wifi_recovery_count_zero_when_all_counters_zero(void)
-{
-    setup();
-    bb_pub_wifi_test_set_rssi(true, -60);
-    bb_pub_tick_once();
-    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    // All host-stub counters are 0 → recovery_count must be 0 in the payload.
-    // Simple check: the payload contains "recovery_count":0 (no negative, no large value).
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"recovery_count\""),
-        "recovery_count field must be present");
-    // Verify REST==sink bytes still hold with new fields.
+    TEST_ASSERT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"recovery_count\""),
+        "wifi telem topic must not contain recovery_count (B1-486: moved to /api/diag/net)");
+    // REST==sink bytes must still hold after field removal.
     char rest[512];
     size_t rlen = 0;
     TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("wifi", rest, sizeof(rest), &rlen));
@@ -371,68 +360,16 @@ void test_bb_pub_wifi_has_disconnect_rssi(void)
         "wifi telem must contain disconnect_rssi");
 }
 
-void test_bb_pub_wifi_has_reason_histogram(void)
+// B1-486: reason_histogram moved to GET /api/diag/net (bb_net_health) — the
+// wifi telemetry topic serializer must NOT re-emit it.
+void test_bb_pub_wifi_no_longer_has_reason_histogram(void)
 {
     setup();
     bb_pub_wifi_test_set_rssi(true, -60);
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"reason_histogram\""),
-        "wifi telem must contain reason_histogram object");
-}
-
-// reason_histogram must include all five compact keys.
-void test_bb_pub_wifi_reason_histogram_has_sentinel_keys(void)
-{
-    setup();
-    bb_pub_wifi_test_set_rssi(true, -60);
-    bb_pub_tick_once();
-    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"lost_ip\""),
-        "reason_histogram must contain lost_ip");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"egress_dead\""),
-        "reason_histogram must contain egress_dead");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"no_ip_watchdog\""),
-        "reason_histogram must contain no_ip_watchdog");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"top_reason_code\""),
-        "reason_histogram must contain top_reason_code");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"top_reason_count\""),
-        "reason_histogram must contain top_reason_count");
-}
-
-// On host all histogram buckets are 0; top_reason_code and top_reason_count must be 0.
-void test_bb_pub_wifi_reason_histogram_zeros_on_host(void)
-{
-    setup();
-    bb_pub_wifi_test_set_rssi(true, -60);
-    bb_pub_tick_once();
-    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"top_reason_count\":0"),
-        "top_reason_count must be 0 when all histogram buckets are zero");
-}
-
-// Inject a non-zero standard reason; verify gather_histogram + wifi_serialize
-// emit top_reason_code:3 and top_reason_count:5.
-void test_bb_pub_wifi_reason_histogram_top_reason_injected(void)
-{
-#ifdef BB_WIFI_TESTING
-    setup();
-    bb_pub_wifi_test_set_rssi(true, -60);
-
-    uint16_t h[256];
-    memset(h, 0, sizeof(h));
-    h[3] = 5; // reason 3, count 5
-    bb_wifi_test_set_reason_histogram(h, 256);
-
-    bb_pub_tick_once();
-    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"top_reason_code\":3"),
-        "top_reason_code must be 3 when reason 3 has count 5");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"top_reason_count\":5"),
-        "top_reason_count must be 5 when reason 3 has count 5");
-
-    bb_wifi_test_set_reason_histogram(NULL, 0);
-#endif
+    TEST_ASSERT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"reason_histogram\""),
+        "wifi telem must not contain reason_histogram (B1-486: moved to /api/diag/net)");
 }
 
 // B1-461: guard the shared "wifi" cache/telemetry topic constant against

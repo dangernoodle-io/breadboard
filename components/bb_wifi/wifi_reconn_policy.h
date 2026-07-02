@@ -3,21 +3,16 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-// Breadboard sentinel: reason code injected into reason_histogram when IP is lost
-// while still associated. 99 is free in esp_wifi_types.h (reasons: 1-24, 53-67,
-// 200-208) and fits in uint8_t (< 256, the histogram size).
-#define WIFI_REASON_BB_LOST_IP 99
+#include "bb_wifi.h"
 
-// Breadboard sentinel: reason code injected into reason_histogram when gateway is
-// unreachable (egress dead) while still IP-associated. 100 is free in
-// esp_wifi_types.h (reasons: 1-24, 53-67, 200-208) and fits uint8_t (< 256).
-#define WIFI_REASON_BB_EGRESS_DEAD 100
-
-// Breadboard sentinel: reason code injected into reason_histogram when ST_IDLE
-// watchdog detects associated-but-no-IP zombie state (distinct from LOST_IP
-// which fires via IP_EVENT_STA_LOST_IP). 101 is free in esp_wifi_types.h and
-// fits uint8_t (< 256).
-#define WIFI_REASON_BB_NO_IP_WATCHDOG 101
+// Breadboard sentinel reason codes injected into reason_histogram — aliases
+// of the public BB_WIFI_REASON_BB_* constants (bb_wifi.h) so the numeric
+// values (wire-visible in GET /api/diag/net) have a single source of truth.
+// 99/100/101 are free in esp_wifi_types.h (reasons: 1-24, 53-67, 200-208)
+// and fit in uint8_t (< 256, the histogram size).
+#define WIFI_REASON_BB_LOST_IP        BB_WIFI_REASON_BB_LOST_IP
+#define WIFI_REASON_BB_EGRESS_DEAD    BB_WIFI_REASON_BB_EGRESS_DEAD
+#define WIFI_REASON_BB_NO_IP_WATCHDOG BB_WIFI_REASON_BB_NO_IP_WATCHDOG
 
 #define WIFI_RECONN_HANDSHAKE_BACKOFF_TIER2_MS 10000
 #define WIFI_RECONN_HANDSHAKE_BACKOFF_TIER3_MS 30000

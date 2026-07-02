@@ -137,18 +137,8 @@ static const char k_wifi_schema[] =
     "\"disc_reason\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"retry_count\":{\"type\":\"integer\"},"
-    "\"no_ip_recoveries\":{\"type\":\"integer\"},"
-    "\"egress_dead_count\":{\"type\":\"integer\"},"
-    "\"lost_ip_count\":{\"type\":\"integer\"},"
-    "\"recovery_count\":{\"type\":\"integer\"},"
     "\"restart_sta_count\":{\"type\":\"integer\"},"
-    "\"disconnect_rssi\":{\"type\":\"integer\"},"
-    "\"reason_histogram\":{\"type\":\"object\",\"properties\":{"
-        "\"lost_ip\":{\"type\":\"integer\"},"
-        "\"egress_dead\":{\"type\":\"integer\"},"
-        "\"no_ip_watchdog\":{\"type\":\"integer\"},"
-        "\"top_reason_code\":{\"type\":\"integer\"},"
-        "\"top_reason_count\":{\"type\":\"integer\"}}}},"
+    "\"disconnect_rssi\":{\"type\":\"integer\"}},"
     "\"required\":[\"ssid\",\"connected\"]}";
 
 // GET /api/update/progress — bb_ota_pull.c (espidf)
@@ -285,12 +275,14 @@ static const char k_diag_net_schema[] =
     "\"uptime_ms\":{\"type\":\"integer\"},"
     "\"http_handler_count\":{\"type\":\"integer\"},"
     "\"http_handler_cap\":{\"type\":\"integer\"},"
+    "\"no_ip_recoveries\":{\"type\":\"integer\"},"
     "\"rssi\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"last_disconnect_reason\":{\"type\":\"integer\"},"
     "\"lost_ip_recoveries\":{\"type\":\"integer\"},"
     "\"lost_ip_age_s\":{\"type\":\"integer\"},"
     "\"egress_dead_recoveries\":{\"type\":\"integer\"},"
+    "\"recovery_count\":{\"type\":\"integer\"},"
     "\"mqtt\":{\"type\":\"object\",\"properties\":{"
     "\"reconnect_count\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
@@ -299,7 +291,13 @@ static const char k_diag_net_schema[] =
     "\"http\":{\"type\":\"object\",\"properties\":{"
     "\"consec_failures\":{\"type\":\"integer\"},"
     "\"tls_fail\":{\"type\":\"integer\"},"
-    "\"last_status\":{\"type\":\"integer\"}}}},"
+    "\"last_status\":{\"type\":\"integer\"}}},"
+    "\"reason_histogram\":{\"type\":\"object\",\"properties\":{"
+    "\"lost_ip\":{\"type\":\"integer\"},"
+    "\"egress_dead\":{\"type\":\"integer\"},"
+    "\"no_ip_watchdog\":{\"type\":\"integer\"},"
+    "\"top_reason_code\":{\"type\":\"integer\"},"
+    "\"top_reason_count\":{\"type\":\"integer\"}}}},"
     "\"required\":[\"uptime_ms\"]}";
 
 // GET /api/log/level — platform/espidf/bb_log/bb_log_http.c
@@ -715,6 +713,10 @@ static bb_err_t h_diag_net(bb_http_request_t *req)
     bb_http_resp_json_obj_set_int(&obj, "http_handler_count",  4);
     bb_http_resp_json_obj_set_int(&obj, "http_handler_cap",    64);
 
+    // B1-486 finding #4: no_ip_recoveries is folded into the same evaluator
+    // snapshot as lost_ip/egress_dead_recoveries (non-zero, injected) so
+    // recovery_count is exercised with real point-in-time-consistent
+    // operands rather than canned zeros.
     bb_net_health_status_t snap;
     memset(&snap, 0, sizeof(snap));
     snap.rssi                   = -60;
@@ -722,7 +724,8 @@ static bb_err_t h_diag_net(bb_http_request_t *req)
     snap.last_disconnect_reason = 0;
     snap.lost_ip_recoveries     = 1;
     snap.lost_ip_age_s          = 30;
-    snap.egress_dead_recoveries = 0;
+    snap.egress_dead_recoveries = 4;
+    snap.no_ip_recoveries       = 3;
     snap.mqtt_reconnect_count   = 2;
     snap.mqtt_disc_age_s        = 5;
     snap.mqtt_disc_reason       = 0;
@@ -731,12 +734,15 @@ static bb_err_t h_diag_net(bb_http_request_t *req)
     snap.http_tls_fail          = 0;
     snap.http_last_status       = 200;
 
+    bb_http_resp_json_obj_set_int(&obj, "no_ip_recoveries",       (int64_t)snap.no_ip_recoveries);
     bb_http_resp_json_obj_set_int(&obj, "rssi",                   (int64_t)snap.rssi);
     bb_http_resp_json_obj_set_int(&obj, "disc_age_s",             (int64_t)snap.disc_age_s);
     bb_http_resp_json_obj_set_int(&obj, "last_disconnect_reason", (int64_t)snap.last_disconnect_reason);
     bb_http_resp_json_obj_set_int(&obj, "lost_ip_recoveries",     (int64_t)snap.lost_ip_recoveries);
     bb_http_resp_json_obj_set_int(&obj, "lost_ip_age_s",          (int64_t)snap.lost_ip_age_s);
     bb_http_resp_json_obj_set_int(&obj, "egress_dead_recoveries", (int64_t)snap.egress_dead_recoveries);
+    bb_http_resp_json_obj_set_int(&obj, "recovery_count",
+        (int64_t)(snap.no_ip_recoveries + snap.lost_ip_recoveries + snap.egress_dead_recoveries));
 
     bb_http_resp_json_obj_set_obj_begin(&obj, "mqtt");
     bb_http_resp_json_obj_set_int(&obj, "reconnect_count", (int64_t)snap.mqtt_reconnect_count);
@@ -749,6 +755,26 @@ static bb_err_t h_diag_net(bb_http_request_t *req)
     bb_http_resp_json_obj_set_int(&obj, "consec_failures", (int64_t)snap.http_consec_failures);
     bb_http_resp_json_obj_set_int(&obj, "tls_fail",        (int64_t)snap.http_tls_fail);
     bb_http_resp_json_obj_set_int(&obj, "last_status",     (int64_t)snap.http_last_status);
+    bb_http_resp_json_obj_set_obj_end(&obj);
+
+    // B1-486 finding #2: inject a non-zero standard reason (and non-zero
+    // sentinel buckets) and run the real bb_wifi_reason_histogram_top logic
+    // rather than canned zeros, so the top-reason branch has host coverage.
+    uint16_t hist[256];
+    memset(hist, 0, sizeof(hist));
+    hist[BB_WIFI_REASON_BB_LOST_IP]        = 1;
+    hist[BB_WIFI_REASON_BB_EGRESS_DEAD]    = 4;
+    hist[BB_WIFI_REASON_BB_NO_IP_WATCHDOG] = 3;
+    hist[4] = 7; // standard reason 4, top non-sentinel count
+    uint16_t top_count = 0;
+    uint8_t  top_code  = bb_wifi_reason_histogram_top(hist, &top_count);
+
+    bb_http_resp_json_obj_set_obj_begin(&obj, "reason_histogram");
+    bb_http_resp_json_obj_set_int(&obj, "lost_ip",         (int64_t)hist[BB_WIFI_REASON_BB_LOST_IP]);
+    bb_http_resp_json_obj_set_int(&obj, "egress_dead",     (int64_t)hist[BB_WIFI_REASON_BB_EGRESS_DEAD]);
+    bb_http_resp_json_obj_set_int(&obj, "no_ip_watchdog",  (int64_t)hist[BB_WIFI_REASON_BB_NO_IP_WATCHDOG]);
+    bb_http_resp_json_obj_set_int(&obj, "top_reason_code", (int64_t)top_code);
+    bb_http_resp_json_obj_set_int(&obj, "top_reason_count",(int64_t)top_count);
     bb_http_resp_json_obj_set_obj_end(&obj);
 
     return bb_http_resp_json_obj_end(&obj);
