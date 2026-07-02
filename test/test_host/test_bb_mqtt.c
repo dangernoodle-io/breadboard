@@ -814,4 +814,23 @@ void test_bb_mqtt_subscribe_happy_path_returns_ok(void)
     bb_mqtt_destroy(h);
 }
 
+// bb_mqtt_host_set_subscribe_fail (B1-487): lets a later consumer (bb_sub_mqtt)
+// cover its subscribe-failure branch without a real broker.
+void test_bb_mqtt_host_set_subscribe_fail_forces_error(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_set_subscribe_fail(h, true);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, bb_mqtt_subscribe(h, "test/#", 0));
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_mqtt_host_set_subscribe_fail_can_be_cleared(void)
+{
+    bb_mqtt_t h = make_client(NULL, NULL);
+    bb_mqtt_host_set_subscribe_fail(h, true);
+    bb_mqtt_host_set_subscribe_fail(h, false);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_subscribe(h, "test/#", 0));
+    bb_mqtt_destroy(h);
+}
+
 

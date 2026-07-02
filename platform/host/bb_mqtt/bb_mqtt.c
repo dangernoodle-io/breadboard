@@ -6,11 +6,18 @@
 // All operations return BB_OK; no real network IO occurs.
 #include "bb_mqtt.h"
 #include "bb_nv.h"
+#include "bb_mqtt_reassemble.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define BB_MQTT_HOST_PUB_CAP 32
+
+// Host stub has no CONFIG_BB_MQTT_RX_BUFFER_BYTES bridge (espidf-only
+// Kconfig); mirror the Kconfig default so host-injected fragments behave
+// the same as the on-device buffer sizing.
+#define BB_MQTT_HOST_RX_BUFFER_BYTES 1024
 
 #ifdef BB_MQTT_TESTING
 static void *(*s_calloc_fn)(size_t, size_t) = NULL;
@@ -32,6 +39,12 @@ typedef struct {
     bb_mqtt_disc_t     disc_reason;
     bb_tls_fail_t      tls_fail;
     int                tls_error_code;
+    bb_mqtt_msg_cb        msg_cb;    // B1-487: per-handle receive callback
+    void                 *msg_ctx;
+    bb_mqtt_reasm_state_t reasm;     // per-handle reassembly state (mirrors espidf)
+#ifdef BB_MQTT_TESTING
+    bool               test_subscribe_fail;  // forces bb_mqtt_subscribe to fail once set
+#endif
 } bb_mqtt_host_handle_t;
 
 bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
@@ -87,6 +100,31 @@ bb_err_t bb_mqtt_subscribe(bb_mqtt_t handle, const char *topic, int qos)
 {
     if (!handle || !topic) return BB_ERR_INVALID_ARG;
     (void)qos;
+#ifdef BB_MQTT_TESTING
+    bb_mqtt_host_handle_t *h = (bb_mqtt_host_handle_t *)handle;
+    if (h->test_subscribe_fail) return BB_ERR_INVALID_STATE;
+#endif
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
+// bb_mqtt_on_message / host inject (B1-487) — per-handle callback + reassembly
+// state, mirroring the espidf backend (HIGH-2: no process-wide shared state).
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_mqtt_on_message(bb_mqtt_t handle, bb_mqtt_msg_cb cb, void *ctx)
+{
+    if (!handle) return BB_ERR_INVALID_ARG;
+    bb_mqtt_host_handle_t *h = (bb_mqtt_host_handle_t *)handle;
+
+    if (cb && !h->reasm.buf) {
+        h->reasm.buf = bb_mqtt_calloc(1, BB_MQTT_HOST_RX_BUFFER_BYTES);
+        if (!h->reasm.buf) return BB_ERR_NO_SPACE;
+        h->reasm.buf_cap = BB_MQTT_HOST_RX_BUFFER_BYTES;
+        bb_mqtt_reasm_reset(&h->reasm);
+    }
+    h->msg_cb  = cb;
+    h->msg_ctx = ctx;
     return BB_OK;
 }
 
@@ -111,6 +149,8 @@ bb_err_t bb_mqtt_get_stats(bb_mqtt_t handle, bb_mqtt_stats_t *out)
 bb_err_t bb_mqtt_destroy(bb_mqtt_t handle)
 {
     if (!handle) return BB_OK;
+    bb_mqtt_host_handle_t *h = (bb_mqtt_host_handle_t *)handle;
+    free(h->reasm.buf);
     free(handle);
     return BB_OK;
 }
@@ -313,6 +353,40 @@ void bb_mqtt_host_set_stop_only(bool stop_only)
 void bb_mqtt_set_calloc(void *(*fn)(size_t, size_t))
 {
     s_calloc_fn = fn;
+}
+
+void bb_mqtt_host_inject_message(bb_mqtt_t handle, const char *topic,
+                                  const void *payload, size_t len)
+{
+    bb_mqtt_host_inject_fragment(handle, topic, len, 0, payload, len);
+}
+
+void bb_mqtt_host_inject_fragment(bb_mqtt_t handle, const char *topic,
+                                   size_t total_len, size_t offset,
+                                   const void *data, size_t data_len)
+{
+    if (!handle || !topic) return;
+    bb_mqtt_host_handle_t *h = (bb_mqtt_host_handle_t *)handle;
+    if (!h->msg_cb || !h->reasm.buf) return;
+
+    // Bound-copy the topic through a fixed buffer mirroring
+    // BB_MQTT_SUB_TOPIC_MAX-style truncation, for host/device parity — the
+    // caller's topic pointer is otherwise unbounded (LOW fix).
+    char topic_bounded[BB_MQTT_REASM_TOPIC_MAX];
+    snprintf(topic_bounded, sizeof(topic_bounded), "%s", topic);
+
+    bool complete = bb_mqtt_reasm_step(&h->reasm, topic_bounded,
+                                        strlen(topic_bounded),
+                                        total_len, offset, data, data_len);
+    if (complete) {
+        h->msg_cb(h->reasm.topic, h->reasm.buf, h->reasm.len, h->msg_ctx);
+    }
+}
+
+void bb_mqtt_host_set_subscribe_fail(bb_mqtt_t handle, bool fail)
+{
+    if (!handle) return;
+    ((bb_mqtt_host_handle_t *)handle)->test_subscribe_fail = fail;
 }
 
 #endif /* BB_MQTT_TESTING */

@@ -2471,6 +2471,32 @@ void test_bb_mqtt_resume_default_init_failure_preserves_suspended(void);
 void test_bb_mqtt_subscribe_null_handle_returns_invalid_arg(void);
 void test_bb_mqtt_subscribe_null_topic_returns_invalid_arg(void);
 void test_bb_mqtt_subscribe_happy_path_returns_ok(void);
+void test_bb_mqtt_host_set_subscribe_fail_forces_error(void);
+void test_bb_mqtt_host_set_subscribe_fail_can_be_cleared(void);
+// Forward declarations from test_bb_mqtt_on_message.c
+void test_bb_mqtt_on_message_receives_injected_message(void);
+void test_bb_mqtt_on_message_passes_ctx(void);
+void test_bb_mqtt_on_message_multiple_injections(void);
+void test_bb_mqtt_on_message_replaces_previous_callback(void);
+void test_bb_mqtt_on_message_no_callback_registered_is_safe(void);
+void test_bb_mqtt_on_message_null_handle_returns_invalid_arg(void);
+void test_bb_mqtt_on_message_two_handles_do_not_cross_talk(void);
+// Forward declarations from test_bb_mqtt_reassemble.c
+void test_bb_mqtt_reasm_single_shot_completes_immediately(void);
+void test_bb_mqtt_reasm_three_fragment_concat(void);
+void test_bb_mqtt_reasm_total_exceeds_buffer_is_dropped(void);
+void test_bb_mqtt_reasm_zero_length_payload_completes(void);
+void test_bb_mqtt_reasm_mid_message_overflow_is_dropped(void);
+void test_bb_mqtt_reasm_no_buffer_is_safe_noop(void);
+void test_bb_mqtt_reasm_second_message_reuses_state_cleanly(void);
+void test_bb_mqtt_reasm_reset_null_is_safe_noop(void);
+void test_bb_mqtt_reasm_null_state_is_safe_noop(void);
+void test_bb_mqtt_reasm_zero_cap_with_buffer_is_safe_noop(void);
+void test_bb_mqtt_reasm_null_topic_at_offset_zero_yields_empty_topic(void);
+void test_bb_mqtt_reasm_zero_length_topic_yields_empty_topic(void);
+void test_bb_mqtt_reasm_topic_truncated_at_max(void);
+void test_bb_mqtt_reasm_buf_cap_exceeded_mid_message_is_dropped(void);
+void test_bb_mqtt_reasm_zero_length_continuation_fragment_skips_copy(void);
 // Forward declarations from test_bb_mqtt_info.c
 void test_bb_mqtt_health_no_handle_enabled_false(void);
 void test_bb_mqtt_health_no_handle_connected_false(void);
@@ -6171,6 +6197,32 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_subscribe_null_handle_returns_invalid_arg);
     RUN_TEST(test_bb_mqtt_subscribe_null_topic_returns_invalid_arg);
     RUN_TEST(test_bb_mqtt_subscribe_happy_path_returns_ok);
+    RUN_TEST(test_bb_mqtt_host_set_subscribe_fail_forces_error);
+    RUN_TEST(test_bb_mqtt_host_set_subscribe_fail_can_be_cleared);
+    // bb_mqtt_on_message tests
+    RUN_TEST(test_bb_mqtt_on_message_receives_injected_message);
+    RUN_TEST(test_bb_mqtt_on_message_passes_ctx);
+    RUN_TEST(test_bb_mqtt_on_message_multiple_injections);
+    RUN_TEST(test_bb_mqtt_on_message_replaces_previous_callback);
+    RUN_TEST(test_bb_mqtt_on_message_no_callback_registered_is_safe);
+    RUN_TEST(test_bb_mqtt_on_message_null_handle_returns_invalid_arg);
+    RUN_TEST(test_bb_mqtt_on_message_two_handles_do_not_cross_talk);
+    // bb_mqtt_reasm (pure reassembly state machine) tests
+    RUN_TEST(test_bb_mqtt_reasm_single_shot_completes_immediately);
+    RUN_TEST(test_bb_mqtt_reasm_three_fragment_concat);
+    RUN_TEST(test_bb_mqtt_reasm_total_exceeds_buffer_is_dropped);
+    RUN_TEST(test_bb_mqtt_reasm_zero_length_payload_completes);
+    RUN_TEST(test_bb_mqtt_reasm_mid_message_overflow_is_dropped);
+    RUN_TEST(test_bb_mqtt_reasm_no_buffer_is_safe_noop);
+    RUN_TEST(test_bb_mqtt_reasm_second_message_reuses_state_cleanly);
+    RUN_TEST(test_bb_mqtt_reasm_reset_null_is_safe_noop);
+    RUN_TEST(test_bb_mqtt_reasm_null_state_is_safe_noop);
+    RUN_TEST(test_bb_mqtt_reasm_zero_cap_with_buffer_is_safe_noop);
+    RUN_TEST(test_bb_mqtt_reasm_null_topic_at_offset_zero_yields_empty_topic);
+    RUN_TEST(test_bb_mqtt_reasm_zero_length_topic_yields_empty_topic);
+    RUN_TEST(test_bb_mqtt_reasm_topic_truncated_at_max);
+    RUN_TEST(test_bb_mqtt_reasm_buf_cap_exceeded_mid_message_is_dropped);
+    RUN_TEST(test_bb_mqtt_reasm_zero_length_continuation_fragment_skips_copy);
     // bb_mqtt_info tests
     RUN_TEST(test_bb_mqtt_health_no_handle_enabled_false);
     RUN_TEST(test_bb_mqtt_health_no_handle_connected_false);

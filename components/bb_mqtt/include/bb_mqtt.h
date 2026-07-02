@@ -11,6 +11,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include "bb_core.h"
 #include "bb_tls.h"
 #include "bb_nv_namespaces.h"
@@ -103,10 +104,64 @@ bb_err_t bb_mqtt_publish(bb_mqtt_t h, const char *topic, const char *payload,
                           int len, int qos, bool retain);
 
 /**
- * Subscribe to a topic.  Reserved for closed-loop consumers.
- * Only guaranteed on the espidf backend today; host stub returns BB_OK.
+ * Subscribe to a topic (B1-487: closed-loop / ingress consumers).
+ *
+ * On the espidf backend the filter is remembered on the handle and
+ * RE-subscribed automatically on every MQTT_EVENT_CONNECTED (reconnect-safe
+ * — some brokers/sessions do not preserve subscriptions across a dropped
+ * TCP session). Capacity is a small fixed per-handle list; once full,
+ * additional distinct filters are logged and NOT tracked for re-subscribe
+ * (the immediate esp_mqtt_client_subscribe call still fires once).
+ *
+ * Host stub returns BB_OK and performs no tracking.
  */
 bb_err_t bb_mqtt_subscribe(bb_mqtt_t h, const char *topic, int qos);
+
+/**
+ * Callback invoked with a fully-reassembled inbound message for a
+ * subscribed topic.
+ *
+ * topic and payload point into a transient buffer valid ONLY for the
+ * duration of the callback — copy out anything needed beyond that.
+ *
+ * CONTRACT: cb executes synchronously on the esp-mqtt event task (the same
+ * task that drives reconnects/keepalive). It must return quickly and must
+ * not perform blocking IO or take a lock that could be held elsewhere —
+ * blocking here risks starving keepalive and tripping the broker's
+ * connection timeout. Defer heavy work (e.g. via bb_timer_deferred) if the
+ * consumer needs to do more than a bounded copy/dispatch.
+ *
+ * @param topic    NUL-terminated topic string.
+ * @param payload  Message bytes. NOT NUL-terminated by esp-mqtt; treat as
+ *                 opaque bytes of length len.
+ * @param len      Payload length in bytes.
+ * @param ctx      Opaque context passed to bb_mqtt_on_message.
+ */
+typedef void (*bb_mqtt_msg_cb)(const char *topic, const void *payload,
+                               size_t len, void *ctx);
+
+/**
+ * Register the receive callback for incoming subscribed messages on this
+ * handle (B1-487). One callback slot per handle — registering a new
+ * callback replaces any previously registered one on the same handle. Pass
+ * cb=NULL to clear (does not free the lazily-allocated rx buffer).
+ *
+ * On ESP-IDF, esp-mqtt delivers large payloads across multiple
+ * MQTT_EVENT_DATA fragments (event->total_data_len / current_data_offset).
+ * The backend reassembles fragments internally into a per-handle buffer
+ * sized CONFIG_BB_MQTT_RX_BUFFER_BYTES, lazily heap-allocated (SPIRAM
+ * preferred) the first time cb is non-NULL, and invokes cb once with the
+ * full payload. A message whose total size exceeds that buffer is dropped
+ * (logged) and never reaches cb.
+ *
+ * @param h    Handle from bb_mqtt_init.
+ * @param cb   Callback to register, or NULL to clear.
+ * @param ctx  Opaque context passed through to cb.
+ * @return BB_OK on success; BB_ERR_INVALID_ARG if h is NULL;
+ *         BB_ERR_NO_SPACE if the lazy rx-buffer allocation fails (cb is not
+ *         registered in that case — callers may retry).
+ */
+bb_err_t bb_mqtt_on_message(bb_mqtt_t h, bb_mqtt_msg_cb cb, void *ctx);
 
 /** Returns true when the client is currently connected to the broker. */
 bool bb_mqtt_is_connected(bb_mqtt_t h);
@@ -310,6 +365,40 @@ void bb_mqtt_host_set_stop_only(bool stop_only);
  * Pass NULL to restore the default libc calloc.
  */
 void bb_mqtt_set_calloc(void *(*fn)(size_t, size_t));
+
+/**
+ * Simulate a fully-reassembled inbound message hitting the callback
+ * registered via bb_mqtt_on_message (B1-487) on this handle. No real
+ * network IO and no fragmentation — mirrors what the espidf backend
+ * delivers to cb after reassembling all MQTT_EVENT_DATA fragments (routed
+ * through the same bb_mqtt_reasm_step used on device). No-op if no
+ * callback is registered on h, or if h is NULL.
+ */
+void bb_mqtt_host_inject_message(bb_mqtt_t h, const char *topic,
+                                  const void *payload, size_t len);
+
+/**
+ * Simulate a single MQTT_EVENT_DATA-shaped fragment hitting the reassembly
+ * state machine for this handle, WITHOUT necessarily completing the
+ * message — lets tests exercise multi-fragment concat, oversized-total
+ * drop, and mid-message overflow the same way the espidf glue does.
+ * Invokes the registered callback if this fragment completes the message.
+ * No-op if no callback is registered on h, or if h is NULL.
+ *
+ * @param total_len  Declared total message size (esp-mqtt's total_data_len).
+ * @param offset     This fragment's offset (esp-mqtt's current_data_offset).
+ */
+void bb_mqtt_host_inject_fragment(bb_mqtt_t h, const char *topic,
+                                   size_t total_len, size_t offset,
+                                   const void *data, size_t data_len);
+
+/**
+ * Force the next bb_mqtt_subscribe(h, ...) call on this handle to fail
+ * (returns BB_ERR_INVALID_STATE) without attempting anything. Sticky until
+ * cleared with fail=false. Used to cover a consumer's subscribe-failure
+ * branch (e.g. bb_sub_mqtt) without a real broker.
+ */
+void bb_mqtt_host_set_subscribe_fail(bb_mqtt_t h, bool fail);
 
 #endif /* BB_MQTT_TESTING */
 

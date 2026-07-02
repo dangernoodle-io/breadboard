@@ -388,9 +388,10 @@ COMPONENT_MAP = {
         "depends":  ["bb_info", "bb_core"],
     },
     "bb_mqtt": {
-        "includes": ["components/bb_mqtt/include"],
-        "sources":  ["platform/host/bb_mqtt/bb_mqtt.c"],
-        "depends":  ["bb_core", "bb_nv", "bb_tls_creds"],
+        "includes": ["components/bb_mqtt/include", "components/bb_mqtt/src"],
+        "sources":  ["platform/host/bb_mqtt/bb_mqtt.c",
+                     "components/bb_mqtt/src/bb_mqtt_reassemble.c"],
+        "depends":  ["bb_core", "bb_log", "bb_nv", "bb_tls_creds"],
     },
     "bb_sink_http": {
         "includes": ["components/bb_sink_http/include"],
