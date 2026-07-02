@@ -104,6 +104,17 @@ bb_err_t bb_task_registry_deregister(void *handle);
 // Current registered task count.
 uint16_t bb_task_registry_count(void);
 
+// Registry capacity (BB_TASK_REGISTRY_MAX, bridged from CONFIG_BB_TASK_REGISTRY_MAX).
+// Constant for the life of the process — no lock needed.
+uint16_t bb_task_registry_capacity(void);
+
+// Monotonic count of register() calls rejected because the pool was full
+// (BB_ERR_NO_SPACE). Never resets except via bb_task_registry_test_reset().
+// Surfaced at GET /api/diag/tasks (bb_diag) as "registry.dropped" so an
+// overflowing registry is observable on-device instead of only a one-line
+// bb_log_w at the moment of the drop (B1-471).
+uint32_t bb_task_registry_dropped(void);
+
 // Pure lookup — the host-testable seam consumed by the /api/diag/tasks
 // handler (bb_diag) and the "rtos" bb_pub telemetry source (bb_pub_rtos).
 // Returns true and fills *out_budget (if non-NULL) and *out_wdt (if
