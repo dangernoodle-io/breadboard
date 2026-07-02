@@ -3309,16 +3309,18 @@ void test_bb_tls_info_all_capabilities_registered(void);
 void test_bb_tls_info_dedup_via_direct_register(void);
 void test_bb_tls_info_leaves_room_for_more_capabilities(void);
 
-// Forward declarations from test_heap_arena.c
-void test_heap_arena_init_is_idempotent(void);
-void test_heap_arena_alloc_hit_returns_in_arena(void);
-void test_heap_arena_alloc_is_zeroed(void);
-void test_heap_arena_exhausted_falls_back_to_heap(void);
-void test_heap_arena_free_in_range_routes_to_arena(void);
-void test_heap_arena_free_out_of_range_routes_to_heap(void);
-void test_heap_arena_free_null_is_noop(void);
-void test_heap_arena_owns_null_is_false(void);
-void test_heap_arena_calloc_zero_returns_null(void);
+// Forward declarations from test_arena_tls.c
+void test_arena_tls_init_is_idempotent(void);
+void test_arena_tls_alloc_hit_returns_in_arena(void);
+void test_arena_tls_alloc_is_zeroed(void);
+void test_arena_tls_exhausted_falls_back_to_heap(void);
+void test_arena_tls_free_in_range_routes_to_arena(void);
+void test_arena_tls_free_out_of_range_routes_to_heap(void);
+void test_arena_tls_free_null_is_noop(void);
+void test_arena_tls_owns_null_is_false(void);
+void test_arena_tls_calloc_zero_returns_null(void);
+void test_arena_tls_reuse_after_free_all(void);
+void test_arena_tls_double_free_does_not_underflow(void);
 
 // Forward declarations from test_arena.c
 void test_arena_init_from_buffer_succeeds(void);
@@ -6684,16 +6686,18 @@ int main(void) {
     RUN_TEST(test_bb_tls_info_dedup_via_direct_register);
     RUN_TEST(test_bb_tls_info_leaves_room_for_more_capabilities);
 
-    // bb_heap_arena arena routing tests
-    RUN_TEST(test_heap_arena_init_is_idempotent);
-    RUN_TEST(test_heap_arena_alloc_hit_returns_in_arena);
-    RUN_TEST(test_heap_arena_alloc_is_zeroed);
-    RUN_TEST(test_heap_arena_exhausted_falls_back_to_heap);
-    RUN_TEST(test_heap_arena_free_in_range_routes_to_arena);
-    RUN_TEST(test_heap_arena_free_out_of_range_routes_to_heap);
-    RUN_TEST(test_heap_arena_free_null_is_noop);
-    RUN_TEST(test_heap_arena_owns_null_is_false);
-    RUN_TEST(test_heap_arena_calloc_zero_returns_null);
+    // bb_arena_tls arena routing tests
+    RUN_TEST(test_arena_tls_init_is_idempotent);
+    RUN_TEST(test_arena_tls_alloc_hit_returns_in_arena);
+    RUN_TEST(test_arena_tls_alloc_is_zeroed);
+    RUN_TEST(test_arena_tls_exhausted_falls_back_to_heap);
+    RUN_TEST(test_arena_tls_free_in_range_routes_to_arena);
+    RUN_TEST(test_arena_tls_free_out_of_range_routes_to_heap);
+    RUN_TEST(test_arena_tls_free_null_is_noop);
+    RUN_TEST(test_arena_tls_owns_null_is_false);
+    RUN_TEST(test_arena_tls_calloc_zero_returns_null);
+    RUN_TEST(test_arena_tls_reuse_after_free_all);
+    RUN_TEST(test_arena_tls_double_free_does_not_underflow);
 
     // bb_arena generic primitive tests (B1-478 PR A)
     RUN_TEST(test_arena_init_from_buffer_succeeds);

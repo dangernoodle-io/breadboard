@@ -1,0 +1,66 @@
+menu "breadboard: bb_arena_tls"
+
+config BB_ARENA_TLS_BYTES
+    int "mbedTLS arena size (bytes; 0 = disabled, use heap fallback only)"
+    range 0 65536
+    default 0
+    help
+        Size in bytes of the static boot-reserved contiguous arena for mbedTLS
+        allocations. When > 0 and CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y, a
+        static uint8_t buffer of this size backs a bb_arena instance
+        (components/bb_arena) at boot. mbedTLS allocations are tried
+        arena-first; if the arena is exhausted, the allocator falls back to
+        the internal-heap facade (bb_calloc_internal() / bb_mem_free()).
+
+        IMPORTANT: bb_arena is a bump allocator — bb_arena_free() does NOT
+        reclaim space mid-handshake; freed bytes stay consumed until the
+        arena is reset. bb_arena_tls resets the arena automatically once
+        every outstanding arena allocation has been freed (the arena fully
+        drains between handshakes), so one arena is reused across many
+        sequential handshakes over device uptime. Size this value for the
+        CUMULATIVE allocation of ONE handshake (every allocation mbedTLS
+        makes during that handshake, summed) — not just the peak
+        concurrently-live bytes — because the bump pointer only rewinds on
+        full drain, not on each individual free. If any allocation from a
+        handshake is never freed, or the arena is exhausted mid-handshake,
+        the outstanding count never reaches zero, the arena never resets,
+        and subsequent allocations fall back to the internal heap until it
+        does — a safe degradation, not a crash.
+
+        0 (default) = no arena buffer; all mbedTLS allocations go directly to
+        bb_calloc_internal() / bb_mem_free() (the ESP-IDF internal 8-bit pool).
+
+        CONCURRENCY: the calloc/free hooks are the process-wide mbedTLS
+        allocator and are guarded by a single mutex, so they are safe to call
+        from multiple concurrent TLS handshakes (e.g. telemetry sink +
+        OTA/update-check, WPA-supplicant). Concurrent callers are serialized,
+        not parallelized — there is one shared arena, not one per caller.
+        Size this value for the CUMULATIVE allocation across every handshake
+        that may be concurrently in flight, not just a single handshake, and
+        remember the arena reclaims (resets) only once ALL outstanding
+        allocations across ALL callers have fully drained — a slow or stuck
+        concurrent caller holding even one allocation blocks reclaim for
+        everyone.
+
+        Requires CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y to have any effect.
+        For no-PSRAM wroom32/c3/tdongle boards: set to 14336 (14 KB) to cover
+        the manifest check TLS handshake's cumulative allocation (IN buffer +
+        ssl_context + handshake).
+
+config BB_ARENA_TLS_AUTOREGISTER
+    bool "Auto-register bb_arena_tls at EARLY tier"
+    default n
+    depends on MBEDTLS_CUSTOM_MEM_ALLOC
+    help
+        When enabled, bb_arena_tls registers itself at the EARLY tier via
+        bb_init, calling bb_arena_tls_init() during bb_init_init_early().
+
+        WARNING: This may race with bb_wifi's WPA-supplicant mbedTLS use.
+        The SAFE contract is to call bb_arena_tls_init() explicitly at the TOP
+        of app_main(), BEFORE bb_init_init_early(). Only enable this if
+        you are certain no mbedTLS use occurs before EARLY-tier init and
+        bb_arena_tls is registered at a lower order than bb_wifi.
+
+        Default: n (use explicit bb_arena_tls_init() instead).
+
+endmenu

@@ -362,10 +362,10 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_i2c/bb_i2c.c"],
         "depends":  ["bb_core", "bb_log"],
     },
-    "bb_heap_arena": {
-        "includes": ["components/bb_heap_arena/include"],
-        "sources":  ["platform/host/bb_heap_arena/bb_heap_arena.c"],
-        "depends":  ["bb_core"],
+    "bb_arena_tls": {
+        "includes": ["components/bb_arena_tls/include"],
+        "sources":  ["platform/host/bb_arena_tls/bb_arena_tls.c"],
+        "depends":  ["bb_core", "bb_arena"],
     },
     "bb_arena": {
         "includes": ["components/bb_arena/include"],
