@@ -1,4 +1,7 @@
 #include "bb_event_routes.h"
+#ifndef ARDUINO
+#include "bb_arena.h"
+#endif
 #include "bb_event.h"
 #include "bb_event_ring.h"
 #include "bb_log.h"
@@ -7,6 +10,9 @@
 #include "bb_event_routes_defaults.h"
 
 #include <assert.h>
+#ifndef ARDUINO
+#include <pthread.h>
+#endif
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -97,24 +103,33 @@ struct bb_event_routes_client {
 
 static bb_event_routes_client_t s_clients[CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS];
 
+// The index-addressed bb_arena pool below (SSE_pool) needs bb_arena/pthread,
+// neither of which is on the Arduino build's include path — /api/events is
+// a 503 stub there (CC3000 RAM constraints; see breadboard CLAUDE.md), so
+// the pool is compiled out and bb_event_routes_client_acquire_ex falls back
+// to the pre-pool per-client s_calloc allocation (see the #else branches
+// below) purely to keep this shared file compiling on that backend.
+#ifndef ARDUINO
+
 // ---------------------------------------------------------------------------
-// Optional static pool (CONFIG_BB_EVENT_ROUTES_STATIC_POOL) — B1-478 PR E
-// (redesigned post-review: index-addressed bb_arena array, no bb_pool)
+// SSE pool (B1-478 PR E, heap-backed-by-default per B1-491)
 //
 // Pre-allocates a per-client bundle (queue entry array + payload buffer) as
 // a fixed array carved once from an SSE-private bb_arena. Client slot i
 // (the index the existing CAS client-slot loop in
 // bb_event_routes_client_acquire_ex assigns atomically) deterministically
 // owns s_sse_bundles[i] for the arena's lifetime — no acquire/release, no
-// free-list, no shared mutable pool state. The old bb_pool SLOTS design let
-// any freed slot go to any acquirer (non-atomic w.r.t. the client-slot CAS),
-// which is unsafe for this index-stable ownership model; a bb_pool free-list
-// is the wrong primitive here. Same fixed BSS reservation as the previous
-// bespoke s_payload_pool/s_entry_pool arrays.
+// free-list, no shared mutable pool state, no per-connect malloc/free churn.
+//
+// CONFIG_BB_EVENT_ROUTES_POOL_STATIC selects the arena's *backing*, not
+// whether pooling happens:
+//   n (default) — sse_pool_ensure() lazily creates a heap arena on the FIRST
+//     client acquire (bb_event_routes_client_acquire_ex), via the same
+//     (possibly SPIRAM-preferred / test-injected) allocator used elsewhere
+//     in this file. Never freed once created (see sse_pool_ensure() doc).
+//   y — the arena is carved eagerly from a permanent static-BSS buffer at
+//     bb_event_routes_init() time (unchanged PR E behavior).
 // ---------------------------------------------------------------------------
-
-#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
-#include "bb_arena.h"
 
 typedef struct {
     queue_entry_t entries[CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH];
@@ -136,12 +151,35 @@ _Static_assert(CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS == 0 ||
                (SSE_BUNDLES_BYTES / CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS) == sizeof(sse_bundle_t),
                "SSE bundle byte count overflowed size_t");
 
+// Static-BSS backing buffer — only used for the POOL_STATIC=y path. Also
+// compiled under BB_EVENT_ROUTES_TESTING so the host suite can flip between
+// the static and lazy-heap backings in the same binary via
+// bb_event_routes_set_static_pool_for_test().
+#if CONFIG_BB_EVENT_ROUTES_POOL_STATIC || defined(BB_EVENT_ROUTES_TESTING)
 static uint8_t s_sse_arena_buf[
     SSE_BUNDLES_BYTES + SSE_ARENA_HDR_ALLOWANCE_BYTES
 ] __attribute__((aligned(_Alignof(max_align_t))));
-static bb_arena_t s_sse_arena;
-static sse_bundle_t *s_sse_bundles;  // [CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS], index == client slot
 #endif
+
+static bb_arena_t    s_sse_arena;      // NULL until sse_pool_ensure() creates it
+static sse_bundle_t *s_sse_bundles;    // [MAX_CLIENTS], index == client slot; NULL until created
+static bool          s_sse_pool_is_static;  // backing actually used by s_sse_arena (mirrors bb_pub's *_is_static flag)
+
+// Dedicated leaf mutex guarding ONLY the sse_pool_ensure() first-alloc
+// critical section below (portable POSIX pthread, host + ESP-IDF — mirrors
+// bb_arena_tls's s_arena_mtx pattern). esp_http_server dispatches requests
+// on a single task today, so the unguarded check-then-allocate-then-publish
+// sequence was safe in practice, but this exact TOCTOU shape has shipped
+// twice before on this component (PR E CRITICALs) — harden rather than
+// document. Never taken while holding any other bb_event_routes lock
+// (s_topics_lock / per-client port_lock): sse_pool_ensure() is called only
+// from bb_event_routes_client_acquire_ex() before any other lock in this
+// file is acquired, and from bb_event_routes_init()/register_routes_init()
+// before init completes — so this mutex is always the innermost (and only)
+// lock held during its critical section. Keep it that way: do not call
+// anything from inside the locked section that could re-enter
+// sse_pool_ensure() or take s_topics_lock.
+static pthread_mutex_t s_sse_pool_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 #ifdef BB_EVENT_ROUTES_TESTING
 // Runtime flag that lets the host test suite exercise the static-pool path
@@ -151,12 +189,19 @@ static bool s_use_static_pool_for_test = false;
 void bb_event_routes_set_static_pool_for_test(bool use_static) {
     s_use_static_pool_for_test = use_static;
 }
+
+// Test accessor: true once sse_pool_ensure() has created the pool (either
+// backing). Used to assert the lazy-heap pool stays uncreated until the
+// first client acquire.
+bool bb_event_routes_pool_created_for_test(void) {
+    return s_sse_bundles != NULL;
+}
 #endif
 
 // Returns true when the static-pool path is active (either via Kconfig or
 // the test override).
 static bool use_static_pool(void) {
-#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL
+#if CONFIG_BB_EVENT_ROUTES_POOL_STATIC
     return true;
 #elif defined(BB_EVENT_ROUTES_TESTING)
     return s_use_static_pool_for_test;
@@ -164,6 +209,84 @@ static bool use_static_pool(void) {
     return false;
 #endif
 }
+
+// Create the SSE bundle pool on demand. Idempotent — returns BB_OK
+// immediately once s_sse_bundles is set (either backing).
+//
+// STATIC path: the backing buffer is compile-time sized to always fit (see
+// the static asserts above), so both calls are provably unreachable-on-
+// failure — assert() rather than a branch + return, so there is no
+// uncovered error branch to test. Called eagerly from bb_event_routes_init
+// (unchanged PR E behavior — deterministic pool from boot).
+//
+// Lazy-heap path (default): called on the FIRST client acquire
+// (bb_event_routes_client_acquire_ex). Allocates one contiguous block via
+// the current allocator (s_calloc — SPIRAM-preferred on ESP-IDF via
+// bb_event_routes_spiram_init, test-injectable via
+// bb_event_routes_set_allocator) and carves the arena from it. A failed
+// allocation (fragmented/low heap) fails soft: returns BB_ERR_NO_SPACE, the
+// same code the caller already returns for pool exhaustion, so the
+// connection is cleanly rejected and retried on the next connect — no
+// crash, no unchecked NULL. The block is never freed once allocated (no
+// idle-reclaim of this arena — see the CONFIG_BB_EVENT_ROUTES_POOL_STATIC
+// Kconfig help and the breadboard CLAUDE.md for the UAF-safety argument);
+// one standing allocation for the process lifetime, not a permanent BSS
+// reservation.
+static bb_err_t sse_pool_ensure(void)
+{
+    pthread_mutex_lock(&s_sse_pool_mtx);
+
+    if (s_sse_bundles) {
+        pthread_mutex_unlock(&s_sse_pool_mtx);
+        return BB_OK;
+    }
+
+    if (use_static_pool()) {
+#if CONFIG_BB_EVENT_ROUTES_POOL_STATIC || defined(BB_EVENT_ROUTES_TESTING)
+        bb_err_t arena_err = bb_arena_init(&s_sse_arena, s_sse_arena_buf, sizeof(s_sse_arena_buf));
+        assert(arena_err == BB_OK);  // LCOV_EXCL_BR_LINE — buffer is compile-time sized to fit, see static asserts above
+        (void)arena_err;  // avoid unused-variable warning when NDEBUG compiles the assert out
+        s_sse_bundles = (sse_bundle_t *)bb_arena_alloc(s_sse_arena, SSE_BUNDLES_BYTES);
+        assert(s_sse_bundles != NULL);  // LCOV_EXCL_BR_LINE — arena sized generously above, see static asserts above
+        s_sse_pool_is_static = true;
+        pthread_mutex_unlock(&s_sse_pool_mtx);
+        return BB_OK;
+#else
+        pthread_mutex_unlock(&s_sse_pool_mtx);  // LCOV_EXCL_LINE — unreachable: use_static_pool() only true when the branch above compiles
+        return BB_ERR_INVALID_STATE;  // LCOV_EXCL_LINE — unreachable: use_static_pool() only true when the branch above compiles
+#endif
+    }
+
+    size_t total = SSE_BUNDLES_BYTES + SSE_ARENA_HDR_ALLOWANCE_BYTES;
+    void *block = s_calloc(1, total);
+    if (!block) {
+        bb_log_w(TAG, "SSE pool: heap alloc failed (%zu bytes); connection rejected, retrying next connect", total);
+        pthread_mutex_unlock(&s_sse_pool_mtx);
+        return BB_ERR_NO_SPACE;
+    }
+    bb_err_t err = bb_arena_init(&s_sse_arena, block, total);
+    if (err != BB_OK) {  // LCOV_EXCL_BR_LINE — total is compile-time sized to fit (same computation as the static path above)
+        // LCOV_EXCL_START
+        s_free(block);
+        pthread_mutex_unlock(&s_sse_pool_mtx);
+        return BB_ERR_NO_SPACE;
+        // LCOV_EXCL_STOP
+    }
+    s_sse_bundles = (sse_bundle_t *)bb_arena_alloc(s_sse_arena, SSE_BUNDLES_BYTES);
+    if (!s_sse_bundles) {  // LCOV_EXCL_BR_LINE — arena sized exactly for this one alloc above
+        // LCOV_EXCL_START
+        s_free(block);
+        s_sse_arena = NULL;
+        pthread_mutex_unlock(&s_sse_pool_mtx);
+        return BB_ERR_NO_SPACE;
+        // LCOV_EXCL_STOP
+    }
+    s_sse_pool_is_static = false;
+    pthread_mutex_unlock(&s_sse_pool_mtx);
+    return BB_OK;
+}
+
+#endif // !ARDUINO — SSE pool (bb_arena/pthread)
 
 // ---------------------------------------------------------------------------
 // Config (resolved at init)
@@ -252,21 +375,16 @@ bb_err_t bb_event_routes_init(const bb_event_routes_cfg_t *cfg)
         atomic_store(&s_clients[i].in_use, false);
     }
 
-#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
-    {
-        // Eager, one-shot: bb_arena_init + a single bb_arena_alloc for the
-        // whole fixed bundle array. The backing buffer is compile-time sized
-        // (SSE_BUNDLES_BYTES + SSE_ARENA_HDR_ALLOWANCE_BYTES, see the static
-        // assert above) to always fit, so both calls are provably
-        // unreachable-on-failure — assert() rather than branch + return,
-        // so there is no uncovered error branch to test.
-        bb_err_t arena_err = bb_arena_init(&s_sse_arena, s_sse_arena_buf, sizeof(s_sse_arena_buf));
-        assert(arena_err == BB_OK);  // LCOV_EXCL_BR_LINE — buffer is compile-time sized to fit, see static asserts above
-        (void)arena_err;  // avoid unused-variable warning when NDEBUG compiles the assert out
-        s_sse_bundles = (sse_bundle_t *)bb_arena_alloc(s_sse_arena, SSE_BUNDLES_BYTES);
-        assert(s_sse_bundles != NULL);  // LCOV_EXCL_BR_LINE — arena sized generously above, see static asserts above
+#ifndef ARDUINO
+    // STATIC backing is eager (deterministic pool from boot, unchanged PR E
+    // behavior); the lazy-heap default backing is created later, on the
+    // first client acquire (see sse_pool_ensure()).
+    if (use_static_pool()) {
+        bb_err_t pool_err = sse_pool_ensure();
+        assert(pool_err == BB_OK);  // LCOV_EXCL_BR_LINE — static backing is provably unreachable-on-failure, see sse_pool_ensure()
+        (void)pool_err;  // avoid unused-variable warning when NDEBUG compiles the assert out
     }
-#endif
+#endif // !ARDUINO
 
     s_cfg.initialized = true;
     bb_log_i(TAG, "initialized: max_clients=%zu queue_depth=%zu ring=%zu/%zu hb=%ums",
@@ -369,6 +487,15 @@ bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
     if (!out) return BB_ERR_INVALID_ARG;
     if (!s_cfg.initialized) return BB_ERR_INVALID_STATE;
 
+#ifndef ARDUINO
+    // Lazy-heap default: create the pool on the first-ever acquire. No-op
+    // once created (either backing) — see sse_pool_ensure(). A failed heap
+    // allocation here fails soft, exactly like the pool-exhaustion return
+    // below: the connection is rejected and retried on the next connect.
+    bb_err_t pool_err = sse_pool_ensure();
+    if (pool_err != BB_OK) return pool_err;
+#endif
+
     for (size_t i = 0; i < s_cfg.max_clients; i++) {
         bool expected = false;
         if (atomic_compare_exchange_strong(&s_clients[i].in_use, &expected, true)) {
@@ -379,58 +506,67 @@ bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
             c->dropped = 0;
             c->next_emit_id = 1;
             c->num_subs = 0;
-#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
-            if (use_static_pool()) {
-                // Validate that runtime cfg fits within the compile-time pool dimensions.
-                if (c->queue_depth > CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH ||
-                    c->max_entry > CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY) {
-                    atomic_store(&c->in_use, false);
-                    return BB_ERR_NO_SPACE;
-                }
-                // Index-addressed: client slot i (this loop's index)
-                // deterministically owns s_sse_bundles[i] for the arena's
-                // lifetime. The CAS claim above already serialises ownership
-                // of index i — no acquire/release, no free-list, no shared
-                // mutable pool state. i < s_cfg.max_clients <= MAX_CLIENTS
-                // (checked at init), so the index is always valid.
-                sse_bundle_t *bundle = &s_sse_bundles[i];
-                c->entries = bundle->entries;
-                c->payload_buf = bundle->payload;
-                memset(c->entries, 0, c->queue_depth * sizeof(queue_entry_t));
-                memset(c->payload_buf, 0, c->queue_depth * c->max_entry);
-            } else {
-#endif
-                c->entries = (queue_entry_t *)s_calloc(c->queue_depth, sizeof(queue_entry_t));
-                c->payload_buf = (uint8_t *)s_calloc(c->queue_depth, c->max_entry);
-#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
+
+            // Validate that runtime cfg fits within the compile-time pool dimensions.
+            if (c->queue_depth > CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH ||
+                c->max_entry > CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY) {
+                atomic_store(&c->in_use, false);
+                return BB_ERR_NO_SPACE;
             }
+#ifndef ARDUINO
+            // Index-addressed: client slot i (this loop's index)
+            // deterministically owns s_sse_bundles[i] for the pool's
+            // lifetime. The CAS claim above already serialises ownership
+            // of index i — no acquire/release, no free-list, no shared
+            // mutable pool state. i < s_cfg.max_clients <= MAX_CLIENTS
+            // (checked at init), so the index is always valid.
+            sse_bundle_t *bundle = &s_sse_bundles[i];
+            c->entries = bundle->entries;
+            c->payload_buf = bundle->payload;
+            memset(c->entries, 0, c->queue_depth * sizeof(queue_entry_t));
+            memset(c->payload_buf, 0, c->queue_depth * c->max_entry);
+#else
+            // No SSE pool on Arduino (see the #ifndef ARDUINO guard around
+            // the pool machinery above) — fall back to the pre-pool
+            // per-client heap allocation. Unreachable in practice: /api/events
+            // is a 503 stub on Arduino, so no route handler ever calls this.
+            c->entries = (queue_entry_t *)s_calloc(c->queue_depth, sizeof(queue_entry_t));
+            c->payload_buf = (uint8_t *)s_calloc(c->queue_depth, c->max_entry);
 #endif
+
             c->port_lock = bb_event_routes_port_lock_create();
             c->event = bb_event_routes_port_event_create();
-            if (!c->entries || !c->payload_buf || !c->port_lock || !c->event) {  // LCOV_EXCL_BR_LINE — port_lock alloc covered by entries/payload paths
-#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
-                // Index-owned static-pool bundles are never released — they
-                // belong to slot i for the arena's lifetime; only the
-                // dynamic (malloc) path has anything to free here. The
-                // static-pool branch is unreachable: entries/payload_buf are
-                // never NULL under the static pool (see outer guard above),
-                // so this block is only ever entered on the dynamic path.
-                if (!use_static_pool()) {  // LCOV_EXCL_BR_LINE — static-pool entries never NULL here (see outer guard)
-                    s_free(c->entries);
-                    s_free(c->payload_buf);
-                }
-#else
-                s_free(c->entries);
-                s_free(c->payload_buf);
-#endif
-                if (c->port_lock) bb_event_routes_port_lock_destroy(c->port_lock);  // LCOV_EXCL_BR_LINE
-                if (c->event) bb_event_routes_port_event_destroy(c->event);  // LCOV_EXCL_BR_LINE — paired with port_lock alloc-failure path
+#ifndef ARDUINO
+            // port_lock/event allocate via a raw platform malloc (pthread
+            // mutex on host), not the overridable s_calloc/bb_mem facades
+            // used elsewhere in this file — there is no allocator-injection
+            // seam for this path, so it is unreachable in the host test
+            // suite (real OOM only). entries/payload_buf are index-owned
+            // pool bundles and can never be NULL here.
+            if (!c->port_lock || !c->event) {  // LCOV_EXCL_BR_LINE — see comment above
+                // LCOV_EXCL_START
+                if (c->port_lock) bb_event_routes_port_lock_destroy(c->port_lock);
+                if (c->event) bb_event_routes_port_event_destroy(c->event);
                 c->entries = NULL;
                 c->payload_buf = NULL;
                 c->port_lock = NULL;
                 c->event = NULL;
                 atomic_store(&c->in_use, false);
                 return BB_ERR_NO_SPACE;
+                // LCOV_EXCL_STOP
+#else
+            if (!c->entries || !c->payload_buf || !c->port_lock || !c->event) {
+                s_free(c->entries);
+                s_free(c->payload_buf);
+                if (c->port_lock) bb_event_routes_port_lock_destroy(c->port_lock);
+                if (c->event) bb_event_routes_port_event_destroy(c->event);
+                c->entries = NULL;
+                c->payload_buf = NULL;
+                c->port_lock = NULL;
+                c->event = NULL;
+                atomic_store(&c->in_use, false);
+                return BB_ERR_NO_SPACE;
+#endif
             }
 
             // Snapshot the topic table under the lock so concurrent attach_ex
@@ -457,18 +593,11 @@ bb_err_t bb_event_routes_client_acquire_ex(bb_event_routes_client_t **out,
                     snaps[k].ring, capture_cb, c, &sub);
                 if (err != BB_OK) {
                     // Roll back: unsubscribe what we already did, release.
+                    // Pool bundles (entries/payload_buf) are index-owned —
+                    // nothing to free there.
                     for (size_t j = 0; j < c->num_subs; j++) {
                         bb_event_unsubscribe(c->subs[j]);
                     }
-#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
-                    if (!use_static_pool()) {
-                        s_free(c->entries);
-                        s_free(c->payload_buf);
-                    }
-#else
-                    s_free(c->entries);
-                    s_free(c->payload_buf);
-#endif
                     bb_event_routes_port_lock_destroy(c->port_lock);
                     bb_event_routes_port_event_destroy(c->event);
                     c->entries = NULL;
@@ -500,16 +629,15 @@ void bb_event_routes_client_release(bb_event_routes_client_t *c)
         bb_event_unsubscribe(c->subs[i]);
     }
     c->num_subs = 0;
-#if CONFIG_BB_EVENT_ROUTES_STATIC_POOL || defined(BB_EVENT_ROUTES_TESTING)
-    // Index-owned static-pool bundles are never released — the client slot
-    // (freed just below via in_use=false) is what makes slot i reusable,
-    // and the next acquire on that slot deterministically gets the same
-    // s_sse_bundles[i]. Only the dynamic (malloc) path frees here.
-    if (!use_static_pool()) {
-        s_free(c->entries);
-        s_free(c->payload_buf);
-    }
+#ifndef ARDUINO
+    // Index-owned pool bundles (entries/payload_buf) are never released
+    // here — the client slot (freed just below via in_use=false) is what
+    // makes slot i reusable, and the next acquire on that slot
+    // deterministically gets the same s_sse_bundles[i], regardless of
+    // backing (static or lazy-heap).
 #else
+    // Arduino fallback path allocates per-client (no SSE pool available;
+    // see the #ifndef ARDUINO guard around the pool machinery above).
     s_free(c->entries);
     s_free(c->payload_buf);
 #endif
@@ -644,6 +772,18 @@ void bb_event_routes_reset_for_test(void) {
         bb_event_routes_port_lock_destroy(s_topics_lock);
         s_topics_lock = NULL;
     }
+    // Tear down the SSE pool so the next test's chosen backing (static vs
+    // lazy-heap, via bb_event_routes_set_static_pool_for_test) takes effect
+    // cleanly, and so lazy-creation-on-first-acquire can be re-exercised.
+    // s_sse_arena and the heap block s_calloc returned are the same pointer
+    // (bb_arena carves its header from the front of the caller-supplied
+    // block) — freeing s_sse_arena directly is correct, not a mismatch.
+    if (s_sse_arena && !s_sse_pool_is_static) {
+        s_free((void *)s_sse_arena);
+    }
+    s_sse_arena = NULL;
+    s_sse_bundles = NULL;
+    s_sse_pool_is_static = false;
     s_use_static_pool_for_test = false;
 }
 

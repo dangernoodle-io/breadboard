@@ -60,27 +60,45 @@ config BB_EVENT_ROUTES_RING_MAX_ENTRY
     help
         Maximum per-event payload size buffered for replay.
 
-config BB_EVENT_ROUTES_STATIC_POOL
-    bool "Pre-allocate static per-client payload buffers and SSE writer task stacks"
+config BB_EVENT_ROUTES_POOL_STATIC
+    bool "Permanent static-BSS SSE pool (default: lazy heap-backed instead)"
     default n
-    depends on FREERTOS_SUPPORT_STATIC_ALLOCATION
     help
-        When enabled, per-client payload buffers (s_payload_pool) and queue
-        entry arrays (s_entry_pool) are pre-allocated at compile time as static
-        BSS arrays and reused across connect/disconnect cycles. On ESP-IDF,
-        the SSE writer task is also created with xTaskCreateStatic using a
-        per-slot pre-allocated stack and TCB.
+        The SSE per-client pool (queue entries + payload buffers, and on
+        ESP-IDF the writer task stack + TCB) is always index-addressed —
+        client slot i deterministically owns pool bundle i for the pool's
+        lifetime (B1-478 PR E; no shared free-list, no per-connect
+        malloc/free churn). This knob selects the pool's *backing*:
 
-        Trades fixed BSS for zero heap fragmentation on each connect/disconnect.
-        Intended for no-PSRAM boards (e.g. ESP32 WROOM-32) where repeated
-        malloc/free of ~3 KB payload buffers and 4 KB task stacks churn the
-        internal heap. PSRAM boards keep the SPIRAM-preferred dynamic path and
-        should leave this off (default n).
+        n (default) — LAZY HEAP-BACKED (B1-491). The pool arena(s) are
+        allocated via a single contiguous heap allocation (SPIRAM-preferred
+        on ESP-IDF) on the FIRST SSE client connect, not at boot — a board
+        that never gets an SSE client (no dashboard attached) pays ~0
+        standing RAM. A failed allocation (fragmented/low heap) fails soft:
+        the connection is rejected and retried on the next connect attempt,
+        never a crash or unchecked NULL. The heap allocation is never freed
+        once created (no idle-reclaim) — the per-client bundle includes a
+        live FreeRTOS task stack, and freeing a stack out from under a task
+        that has not finished exiting is a use-after-free (see B1-484 /
+        PR-E-CRITICAL); one standing allocation for the process lifetime is
+        the safe trade, and it still fully avoids permanent BSS.
 
-        The static arrays are sized by the compile-time Kconfig values
+        y — the pre-B1-491 permanent static-BSS arena: fixed BSS reservation
+        carved once at boot, sized by the compile-time Kconfig values below,
+        never allocated or freed at runtime. Use this on boards that need a
+        fully deterministic, zero-heap SSE pool and can afford the fixed
+        ~13.5 KB BSS cost at default MAX_CLIENTS/QUEUE_DEPTH/RING_MAX_ENTRY
+        (the tightest no-PSRAM boards, e.g. ESP32-C3, generally cannot).
+
+        Both backings are sized by the compile-time Kconfig values
         (BB_EVENT_ROUTES_MAX_CLIENTS, BB_EVENT_ROUTES_QUEUE_DEPTH,
         BB_EVENT_ROUTES_RING_MAX_ENTRY). If the runtime cfg overrides those
-        to larger values, acquire will return BB_ERR_NO_SPACE rather than crash.
+        to larger values, acquire returns BB_ERR_NO_SPACE rather than crash.
+
+        In both modes, the writer task is always created with
+        xTaskCreateStatic against the pool's stack+TCB bundle, regardless of
+        this setting — static allocation is always available on modern
+        ESP-IDF (>= 4.3), so this does not depend on any separate Kconfig.
 
 config BB_EVENT_ROUTES_HEARTBEAT_MS
     int "Idle heartbeat interval (ms)"
