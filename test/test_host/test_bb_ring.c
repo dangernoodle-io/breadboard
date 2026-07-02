@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "bb_ring.h"
+#include "bb_ring_test.h"
 #include "test_alloc_inject.h"
 #include <string.h>
 #include <stdint.h>
@@ -361,6 +362,54 @@ void test_bb_ring_bytes_used_decrements_on_eviction(void)
     // Push a third entry — evicts entry 1 (len=2), adds entry 3 (len=1)
     bb_ring_push(r, "x", 1, 0, 3);
     TEST_ASSERT_EQUAL_size_t(5, bb_ring_bytes_used(r));
+
+    bb_ring_destroy(r);
+}
+
+// B1-473: bytes_used must never wrap on pop/evict, even under accounting
+// drift. push()/pop_oldest() keep bytes_used symmetric by construction (every
+// push adds len exactly once; every pop/evict subtracts the removed entry's
+// len exactly once), so these tests inject drift via the BB_RING_TESTING
+// hook to force the underflow-guard branch (bb_ring_bytes_used_sub's
+// clamp-to-0 path) to actually execute.
+
+void test_bb_ring_bytes_used_empty_ring_is_zero(void)
+{
+    bb_ring_t r = make_ring(4, 32);
+    TEST_ASSERT_EQUAL_size_t(0, bb_ring_bytes_used(r));
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_bytes_used_clamps_on_pop_underflow(void)
+{
+    bb_ring_t r = make_ring(4, 32);
+
+    bb_ring_push(r, "hi", 2, 0, 1);
+    // Force drift: bytes_used (1) is now less than the entry's real len (2).
+    bb_ring_test_force_bytes_used(r, 1);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_ring_pop_oldest(r));
+    // Clamped to 0, never wraps to SIZE_MAX.
+    TEST_ASSERT_EQUAL_size_t(0, bb_ring_bytes_used(r));
+
+    bb_ring_destroy(r);
+}
+
+void test_bb_ring_bytes_used_clamps_on_evict_underflow(void)
+{
+    bb_ring_t r = make_ring(2, 16);
+
+    bb_ring_push(r, "ab", 2, 0, 1);
+    bb_ring_push(r, "cdef", 4, 0, 2);
+    // Force drift: bytes_used (1) is less than the oldest entry's len (2)
+    // that eviction is about to subtract.
+    bb_ring_test_force_bytes_used(r, 1);
+
+    // Ring is full (count==capacity==2); this push evicts entry 1 (len=2).
+    TEST_ASSERT_EQUAL(BB_OK, bb_ring_push(r, "x", 1, 0, 3));
+
+    // Clamp fires on the evict subtract (1 - 2 -> 0), then push adds 1.
+    TEST_ASSERT_EQUAL_size_t(1, bb_ring_bytes_used(r));
 
     bb_ring_destroy(r);
 }

@@ -22,6 +22,16 @@
 
 static const char *TAG = "bb_ring";
 
+// Subtracts `len` from `*bytes_used`, clamping at 0 instead of wrapping.
+// bytes_used is decremented on every pop/evict; push/pop accounting is kept
+// symmetric by construction, but this guards against any future accounting
+// drift (or a malformed entry) surfacing as a ~4.29e9 (u32-narrowed) value
+// on /api/diag/rings instead of a clean 0.
+static void bb_ring_bytes_used_sub(size_t *bytes_used, size_t len)
+{
+    *bytes_used = (*bytes_used >= len) ? (*bytes_used - len) : 0;
+}
+
 // ---------------------------------------------------------------------------
 // Allocator state (overridable for SPIRAM + test injection)
 // ---------------------------------------------------------------------------
@@ -184,7 +194,7 @@ bb_err_t bb_ring_push(bb_ring_t r, const void *data, size_t len,
             return BB_ERR_NO_SPACE;
         }
         // BB_RING_EVICT_OLDEST: evict oldest before writing
-        r->bytes_used -= r->entries[r->tail].len;
+        bb_ring_bytes_used_sub(&r->bytes_used, r->entries[r->tail].len);
         r->tail = (r->tail + 1) % r->capacity;
         r->dropped++;
     } else {
@@ -237,7 +247,7 @@ bb_err_t bb_ring_pop_oldest(bb_ring_t r)
     if (!r) return BB_ERR_INVALID_ARG;
     if (r->count == 0) return BB_ERR_NOT_FOUND;
 
-    r->bytes_used -= r->entries[r->tail].len;
+    bb_ring_bytes_used_sub(&r->bytes_used, r->entries[r->tail].len);
     r->tail = (r->tail + 1) % r->capacity;
     r->count--;
     return BB_OK;
@@ -309,3 +319,17 @@ void bb_ring_clear(bb_ring_t r)
     // dropped and truncated are cumulative diagnostics — intentionally NOT
     // reset here so callers can detect losses across clear boundaries.
 }
+
+// ---------------------------------------------------------------------------
+// Test hooks (BB_RING_TESTING)
+// ---------------------------------------------------------------------------
+
+#ifdef BB_RING_TESTING
+#include "bb_ring_test.h"
+
+void bb_ring_test_force_bytes_used(bb_ring_t r, size_t value)
+{
+    if (!r) return;
+    r->bytes_used = value;
+}
+#endif
