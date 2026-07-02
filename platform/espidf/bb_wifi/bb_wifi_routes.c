@@ -92,7 +92,9 @@ static const char k_wifi_info_schema[] =
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"retry_count\":{\"type\":\"integer\"},"
     "\"restart_sta_count\":{\"type\":\"integer\"},"
-    "\"disconnect_rssi\":{\"type\":\"integer\"}},"
+    "\"disconnect_rssi\":{\"type\":\"integer\"},"
+    "\"roam_count\":{\"type\":\"integer\"},"
+    "\"roam_age_s\":{\"type\":\"integer\"}},"
     "\"required\":[\"ssid\",\"connected\"]}";
 
 static const bb_route_response_t s_wifi_responses[] = {

@@ -155,6 +155,26 @@ uint32_t bb_wifi_get_no_ip_count(void);
 // Returns 0 if bb_wifi_restart_sta() has never been invoked.
 uint32_t bb_wifi_get_restart_sta_count(void);
 
+// Roam / BSSID-change counter (B1-497) — OBSERVE-ONLY telemetry, wired to NO
+// recovery action. Incremented in the STA_CONNECTED event handler when the
+// newly-associated BSSID differs from the previously cached one (a roam
+// within the same SSID, or reassociation to a different AP). The first
+// connect since boot (no prior cached BSSID) does NOT count as a roam.
+// Returns 0 if no roam has occurred since boot.
+uint32_t bb_wifi_get_roam_count(void);
+
+// Seconds since the most recent roam event (see bb_wifi_get_roam_count).
+// Returns 0 if no roam has occurred since boot (sentinel — matches
+// bb_wifi_get_lost_ip_age_s()).
+uint32_t bb_wifi_get_roam_age_s(void);
+
+// Pure roam-detection predicate (B1-497): true iff prior_bssid is non-zero
+// (i.e. this is not the first connect since boot) and differs from
+// new_bssid. Host-testable; the sole production caller is the ESP-IDF
+// STA_CONNECTED handler in bb_wifi.c. Safe to call with NULL pointers
+// (returns false).
+bool bb_wifi_is_roam(const uint8_t prior_bssid[6], const uint8_t new_bssid[6]);
+
 // RSSI at the moment of the most recent WIFI_EVENT_STA_DISCONNECTED event.
 // Captured from the periodically-refreshed RSSI cache (s_cached_rssi) before
 // the AP record is torn down, avoiding a stale/invalid read inside the handler.

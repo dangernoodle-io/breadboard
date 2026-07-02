@@ -29,6 +29,8 @@
 //   retry_count        (integer)
 //   restart_sta_count  (integer, times bb_wifi_restart_sta was invoked)
 //   disconnect_rssi    (integer, RSSI at most recent disconnect)
+//   roam_count         (integer, times STA roamed to a different BSSID; observe-only)
+//   roam_age_s         (integer, seconds since last roam event, 0 if never)
 void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
 {
     char bssid[18];
@@ -46,6 +48,8 @@ void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
     bb_json_obj_set_int   (obj, "retry_count",      (int64_t)info->retry_count);
     bb_json_obj_set_int   (obj, "restart_sta_count",  (int64_t)bb_wifi_get_restart_sta_count());
     bb_json_obj_set_int   (obj, "disconnect_rssi",    (int64_t)bb_wifi_get_disconnect_rssi());
+    bb_json_obj_set_int   (obj, "roam_count",         (int64_t)bb_wifi_get_roam_count());
+    bb_json_obj_set_int   (obj, "roam_age_s",         (int64_t)bb_wifi_get_roam_age_s());
 }
 
 // Find the top standard (non-sentinel) reason in a 256-entry disconnect
@@ -72,6 +76,19 @@ uint8_t bb_wifi_reason_histogram_top(const uint16_t *hist, uint16_t *out_count)
     }
     if (out_count) *out_count = top_count;
     return top_code;
+}
+
+// Pure roam-detection predicate (B1-497, observe-only): true iff a prior
+// BSSID was cached (non-zero) and the new BSSID differs from it. The first
+// connect since boot (all-zero prior BSSID) is never a roam. Host-testable;
+// the ESP-IDF STA_CONNECTED handler (bb_wifi.c) is the sole caller in
+// production. NOT wired to any recovery action — detection only.
+bool bb_wifi_is_roam(const uint8_t prior_bssid[6], const uint8_t new_bssid[6])
+{
+    static const uint8_t zero_bssid[6] = {0};
+    if (!prior_bssid || !new_bssid) return false;
+    if (memcmp(prior_bssid, zero_bssid, 6) == 0) return false; // first connect
+    return memcmp(prior_bssid, new_bssid, 6) != 0;
 }
 
 // Emit status-only wifi fields — ssid/bssid/ip/connected.

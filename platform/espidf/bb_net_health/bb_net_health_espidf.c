@@ -87,6 +87,8 @@ typedef struct {
     uint32_t lost_ip_age_s;
     uint32_t egress_dead_recoveries;
     uint32_t no_ip_recoveries; // B1-486 finding #4: captured alongside lost_ip/egress_dead
+    uint32_t roam_count;       // B1-497: observe-only, captured alongside the recovery counters
+    uint32_t roam_age_s;
 } bb_net_health_cache_t;
 
 static bb_net_health_cache_t s_cache;       // zero-init; valid once attach_sse writes it
@@ -211,6 +213,8 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
     out->lost_ip_age_s              = s_cache.lost_ip_age_s;
     out->egress_dead_recoveries     = s_cache.egress_dead_recoveries;
     out->no_ip_recoveries           = s_cache.no_ip_recoveries;
+    out->roam_count                 = s_cache.roam_count;
+    out->roam_age_s                 = s_cache.roam_age_s;
     xSemaphoreGive(s_cache_lock);
     return BB_OK;
 }
@@ -243,6 +247,8 @@ static void publish_snapshot(const bb_net_health_output_t *out,
         .lost_ip_age_s          = bb_wifi_get_lost_ip_age_s(),
         .egress_dead_recoveries = bb_wifi_get_egress_dead_count(),
         .no_ip_recoveries       = bb_wifi_get_no_ip_count(),
+        .roam_count             = bb_wifi_get_roam_count(),
+        .roam_age_s             = bb_wifi_get_roam_age_s(),
     };
 
     // Update s_cache so bb_net_health_get_status (used by the pub source) can
@@ -267,6 +273,8 @@ static void publish_snapshot(const bb_net_health_output_t *out,
     s_cache.lost_ip_age_s           = snap.lost_ip_age_s;
     s_cache.egress_dead_recoveries  = snap.egress_dead_recoveries;
     s_cache.no_ip_recoveries        = snap.no_ip_recoveries;
+    s_cache.roam_count              = snap.roam_count;
+    s_cache.roam_age_s              = snap.roam_age_s;
     xSemaphoreGive(s_cache_lock);
 
     // Update bb_cache owned struct — SSE uses bb_cache_post, REST uses

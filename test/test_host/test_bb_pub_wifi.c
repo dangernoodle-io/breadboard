@@ -360,6 +360,31 @@ void test_bb_pub_wifi_has_disconnect_rssi(void)
         "wifi telem must contain disconnect_rssi");
 }
 
+// ---------------------------------------------------------------------------
+// B1-497: roam_count / roam_age_s in the wifi telemetry topic (observe-only
+// mirror of the restart_sta_count-class counters).
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_wifi_has_roam_count(void)
+{
+    setup();
+#ifdef BB_WIFI_TESTING
+    bb_wifi_test_set_roam_count(3);
+    bb_wifi_test_set_roam_age_s(42);
+#endif
+    bb_pub_wifi_test_set_rssi(true, -60);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"roam_count\":3"),
+        "wifi telem must contain roam_count with the injected value");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(s_captured[0].payload, "\"roam_age_s\":42"),
+        "wifi telem must contain roam_age_s with the injected value");
+#ifdef BB_WIFI_TESTING
+    bb_wifi_test_set_roam_count(0);
+    bb_wifi_test_set_roam_age_s(0);
+#endif
+}
+
 // B1-486: reason_histogram moved to GET /api/diag/net (bb_net_health) — the
 // wifi telemetry topic serializer must NOT re-emit it.
 void test_bb_pub_wifi_no_longer_has_reason_histogram(void)

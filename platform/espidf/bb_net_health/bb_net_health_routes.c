@@ -51,6 +51,10 @@ static bb_err_t diag_net_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_int(&obj, "egress_dead_recoveries", (int64_t)snap.egress_dead_recoveries);
         bb_http_resp_json_obj_set_int(&obj, "recovery_count",
             (int64_t)(snap.no_ip_recoveries + snap.lost_ip_recoveries + snap.egress_dead_recoveries));
+        // B1-497: OBSERVE-ONLY roam/BSSID-change counter — not summed into
+        // recovery_count (no recovery action is associated with a roam).
+        bb_http_resp_json_obj_set_int(&obj, "roam_count", (int64_t)snap.roam_count);
+        bb_http_resp_json_obj_set_int(&obj, "roam_age_s", (int64_t)snap.roam_age_s);
 
         bb_http_resp_json_obj_set_obj_begin(&obj, "mqtt");
         bb_http_resp_json_obj_set_int(&obj, "reconnect_count", (int64_t)snap.mqtt_reconnect_count);
@@ -100,6 +104,8 @@ static const bb_route_response_t s_diag_net_responses[] = {
       "\"lost_ip_age_s\":{\"type\":\"integer\"},"
       "\"egress_dead_recoveries\":{\"type\":\"integer\"},"
       "\"recovery_count\":{\"type\":\"integer\"},"
+      "\"roam_count\":{\"type\":\"integer\"},"
+      "\"roam_age_s\":{\"type\":\"integer\"},"
       "\"mqtt\":{\"type\":\"object\",\"properties\":{"
       "\"reconnect_count\":{\"type\":\"integer\"},"
       "\"disc_age_s\":{\"type\":\"integer\"},"
