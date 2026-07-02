@@ -487,10 +487,18 @@ bb_err_t bb_net_health_attach_sse(void)
         return err;
     }
 
-    // Attach as a retained SSE topic.
-    err = bb_event_routes_attach_ex(BB_NET_HEALTH_TOPIC, /*retained=*/true);
+    // Attach as a retained SSE topic. max_entry=BB_NET_HEALTH_SSE_MAX_ENTRY
+    // (512, defined in bb_net_health.h): the serialized snapshot (nested
+    // mqtt/http objects) measures ~341 B on HW (~352 B in the host test's
+    // synthetic worst-ish case — the gap is digit-width in a few integer
+    // fields, not a real discrepancy), above the bb_event_routes global
+    // default (256) — same precedent as update.available / info.build
+    // (#616, B1-434/435/439; see bb_update_check_espidf.c / bb_info.c).
+    // B1-472.
+    err = bb_event_routes_attach_ex2(BB_NET_HEALTH_TOPIC, /*retained=*/true,
+                                      BB_NET_HEALTH_SSE_MAX_ENTRY);
     if (err != BB_OK) {
-        bb_log_w(TAG, "attach_ex failed: %d", (int)err);
+        bb_log_w(TAG, "attach_ex2 failed: %d", (int)err);
         return err;
     }
 

@@ -12,10 +12,13 @@
 #include "bb_net_health.h"
 #include "bb_json.h"
 #include "bb_json_test_hooks.h"
+#include "bb_event.h"
+#include "bb_event_ring.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1262,6 +1265,116 @@ void test_bb_net_health_emit_status_http_alloc_fail(void)
     TEST_ASSERT_NULL(bb_json_obj_get_item(parsed, "http"));
 
     bb_json_free(parsed);
+}
+
+// ---------------------------------------------------------------------------
+// B1-472: retained net.health ring must actually capture the full snapshot.
+//
+// On HW the serialized net.health snapshot (nested mqtt/http objects) came in
+// at ~341 B — above the bb_event_routes global default ring max_entry (256),
+// so the retained push was rejected (bb_ring: "push rejected: len=341 >
+// max_entry=256") and SSE clients connecting to ?topic=net.health saw empty
+// state until the next periodic re-publish. The fix attaches net.health with
+// an explicit max_entry (BB_NET_HEALTH_SSE_MAX_ENTRY, 512, defined in
+// bb_net_health.h and used directly at the bb_event_routes_attach_ex2 call
+// site in bb_net_health_espidf.c), mirroring the update.available /
+// info.build precedent (#616, B1-434/435/439). This test measures the
+// synthetic snapshot below at ~352 B — a few bytes above the 341 B HW figure
+// purely from wider digit-width field values (e.g. disc_age_s=130 vs a
+// smaller HW value), not a real discrepancy. Referencing
+// BB_NET_HEALTH_SSE_MAX_ENTRY here (rather than a bare 512 literal) means a
+// future change to the production value is forced to touch this test too.
+// This test exercises the same bb_event_ring seam the ESP-IDF glue uses,
+// with a realistic full snapshot (nested mqtt + http, non-zero counters),
+// and asserts:
+//   1. the serialized payload size (measure, printed via TEST_MESSAGE)
+//   2. a ring sized at the old global default (256) DROPS the push (regression)
+//   3. a ring sized at BB_NET_HEALTH_SSE_MAX_ENTRY (the fix) CAPTURES it (count == 1)
+// bb_net_health_attach_sse() itself is ESP-IDF-only (not reachable from this
+// host harness), so this shared constant is the accepted mitigation per
+// review — a regression to a different literal at the call site, or a
+// revert to the 2-arg bb_event_routes_attach_ex, would desync the value used
+// here from production and fail this test the next time the snapshot grows.
+// ---------------------------------------------------------------------------
+
+static void bb_net_health_test_setup_sync_mode(void)
+{
+    setenv("BB_EVENT_HOST_SYNC", "1", 1);
+}
+
+void test_bb_net_health_retained_ring_captures_full_snapshot(void)
+{
+    bb_net_health_test_setup_sync_mode();
+    bb_event_cfg_t cfg = { .queue_depth = 8, .max_payload = 512 };
+    bb_event_init(&cfg);
+
+    // Realistic full snapshot: nested mqtt + http objects, non-zero counters
+    // (mirrors what bb_net_health_espidf.c's publish_snapshot builds on device).
+    bb_net_health_status_t snap = {
+        .state                  = BB_NET_STATE_MARGINAL,
+        .early_warning          = true,
+        .throttled              = false,
+        .rssi                   = -72,
+        .mqtt_connected         = true,
+        .mqtt_reconnect_count   = 4,
+        .last_disconnect_reason = 8,
+        .disc_age_s             = 130,
+        .mqtt_disc_age_s        = 45,
+        .mqtt_disc_reason       = 2,
+        .mqtt_tls_fail          = 1,
+        .http_connected         = true,
+        .http_consec_failures   = 3,
+        .http_tls_fail          = 1,
+        .http_last_status       = 503,
+        .lost_ip_recoveries     = 2,
+        .lost_ip_age_s          = 600,
+        .egress_dead_recoveries = 1,
+    };
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_net_health_emit(obj, &snap);
+    char *json = bb_json_serialize(obj);
+    bb_json_free(obj);
+    TEST_ASSERT_NOT_NULL(json);
+
+    size_t len = strlen(json);
+    char msg[64];
+    snprintf(msg, sizeof(msg), "net.health snapshot serialized len=%zu", len);
+    TEST_MESSAGE(msg);
+
+    // Must exceed the old global default (256) — this is what caused the
+    // production drop — and fit comfortably within BB_NET_HEALTH_SSE_MAX_ENTRY,
+    // the same constant bb_net_health_attach_sse() passes to
+    // bb_event_routes_attach_ex2 on device. Bounding against the shared
+    // symbol (not a bare 512 literal) means the headroom tracked here moves
+    // in lockstep with the production value.
+    TEST_ASSERT_GREATER_THAN_size_t(256, len);
+    TEST_ASSERT_LESS_THAN_size_t(BB_NET_HEALTH_SSE_MAX_ENTRY, len);
+
+    // Regression: a ring sized at the old global default (256) drops the push.
+    bb_event_topic_t topic_old = NULL;
+    bb_event_topic_register("net.health.test.old", &topic_old);
+    bb_event_ring_t ring_old = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_ring_attach_ex(topic_old, 1, 256, true, &ring_old));
+    bb_event_post(topic_old, 1, json, len);
+    bb_event_pump(0);
+    TEST_ASSERT_EQUAL_size_t(0, bb_event_ring_count(ring_old));
+    bb_event_ring_detach(ring_old);
+
+    // Fix: a ring sized at BB_NET_HEALTH_SSE_MAX_ENTRY (the production value)
+    // captures it.
+    bb_event_topic_t topic_new = NULL;
+    bb_event_topic_register("net.health.test.new", &topic_new);
+    bb_event_ring_t ring_new = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_ring_attach_ex(
+        topic_new, 1, BB_NET_HEALTH_SSE_MAX_ENTRY, true, &ring_new));
+    bb_event_post(topic_new, 1, json, len);
+    bb_event_pump(0);
+    TEST_ASSERT_EQUAL_size_t(1, bb_event_ring_count(ring_new));
+    bb_event_ring_detach(ring_new);
+
+    bb_json_free_str(json);
 }
 
 // ---------------------------------------------------------------------------
