@@ -8,5 +8,6 @@ idf_component_register(
 include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/bb_init.cmake")
 if(CONFIG_BB_EVENT_ROUTES_AUTOREGISTER)
     bb_init_force_register_pre_http(${COMPONENT_LIB} bb_event_routes)
+    bb_init_force_register_pre_http(${COMPONENT_LIB} bb_event_routes_start)
     bb_init_force_register(${COMPONENT_LIB} bb_event_routes)
 endif()

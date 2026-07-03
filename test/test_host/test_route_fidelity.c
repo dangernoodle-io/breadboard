@@ -239,8 +239,9 @@ static const char k_diag_events_schema[] =
     "\"required\":[\"name\",\"ring_capacity\",\"ring_count\","
     "\"last_id\",\"last_post_age_ms\",\"last_size\"]}},"
     "\"max_clients\":{\"type\":\"integer\"},"
-    "\"active_clients\":{\"type\":\"integer\"}},"
-    "\"required\":[\"topics\",\"max_clients\",\"active_clients\"]}";
+    "\"active_clients\":{\"type\":\"integer\"},"
+    "\"slot_reuse_deferred\":{\"type\":\"integer\"}},"
+    "\"required\":[\"topics\",\"max_clients\",\"active_clients\",\"slot_reuse_deferred\"]}";
 
 // PATCH /api/wifi 202 — platform/espidf/bb_wifi/bb_wifi_routes.c (CONFIG_BB_WIFI_RECONFIGURE)
 static const char k_wifi_patch_202_schema[] =
@@ -640,6 +641,8 @@ static bb_err_t h_diag_events(bb_http_request_t *req)
      * test environment). */
     bb_http_resp_json_obj_set_int(&obj, "max_clients",    (int64_t)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS);
     bb_http_resp_json_obj_set_int(&obj, "active_clients", (int64_t)bb_event_routes_active_client_count());
+    bb_http_resp_json_obj_set_int(&obj, "slot_reuse_deferred",
+                                   (int64_t)bb_event_routes_slot_reuse_deferred_count());
 
     return bb_http_resp_json_obj_end(&obj);
 }

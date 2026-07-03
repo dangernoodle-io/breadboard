@@ -223,6 +223,10 @@ size_t bb_pool_arena_size_needed(const bb_pool_cfg_t *cfg)
     }
 }
 
+// Forward declaration — defined in the SLOTS path section below;
+// bb_pool_destroy() (Lifecycle section) needs it for the on_destroy walk.
+static void *slots_ptr_at(struct bb_pool *pool, size_t idx);
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
@@ -398,6 +402,18 @@ bb_err_t bb_pool_create_owned(const bb_pool_cfg_t *cfg,
 void bb_pool_destroy(bb_pool_t pool)
 {
     if (!pool) return;
+
+    if (pool->cfg.mode == BB_POOL_MODE_SLOTS && pool->cfg.on_destroy) {
+        // Iterate ALL capacity slots by index — not just the free-list or
+        // pending set — since a slot sitting on the free-list, or held
+        // pending-reap, may still hold a lazily-created per-slot resource
+        // (e.g. an OS handle stashed on first acquire). Must run before the
+        // arena (and therefore this slot storage) is freed below.
+        for (size_t idx = 0; idx < pool->cfg.capacity; idx++) {
+            pool->cfg.on_destroy(pool->cfg.cb_ctx, slots_ptr_at(pool, idx));
+        }
+    }
+
     if (pool->owns_arena) {
         /* Frees the single bb_mem allocation backing the arena, which also
          * contains the pool struct and all mode-specific storage — pool
@@ -669,4 +685,45 @@ bb_err_t bb_pool_release(bb_pool_t pool, void *ptr)
     pool->slots.free_list[pool->slots.free_top] = ptr;
     pool->slots.free_top++;
     return BB_OK;
+}
+
+size_t bb_pool_slots_reap_ready(bb_pool_t pool)
+{
+    if (!pool || pool->cfg.mode != BB_POOL_MODE_SLOTS || !pool->cfg.slot_reusable) return 0;
+
+    size_t reaped = 0;
+    for (size_t idx = 0; idx < pool->cfg.capacity; idx++) {
+        if (!bitmap_test(pool->slots.pending_bitmap, idx)) continue;
+        void *cand = slots_ptr_at(pool, idx);
+        if (!pool->cfg.slot_reusable(pool->cfg.cb_ctx, cand)) continue;
+
+        bitmap_clear(pool->slots.pending_bitmap, idx);
+        if (pool->cfg.slot_reap) pool->cfg.slot_reap(pool->cfg.cb_ctx, cand);
+        pool->slots.free_list[pool->slots.free_top] = cand;
+        pool->slots.free_top++;
+        reaped++;
+    }
+    return reaped;
+}
+
+size_t bb_pool_slots_pending_count(bb_pool_t pool)
+{
+    if (!pool || pool->cfg.mode != BB_POOL_MODE_SLOTS) return 0;
+
+    size_t n = 0;
+    for (size_t idx = 0; idx < pool->cfg.capacity; idx++) {
+        if (bitmap_test(pool->slots.pending_bitmap, idx)) n++;
+    }
+    return n;
+}
+
+size_t bb_pool_slots_acquired_count(bb_pool_t pool)
+{
+    if (!pool || pool->cfg.mode != BB_POOL_MODE_SLOTS) return 0;
+
+    size_t n = 0;
+    for (size_t idx = 0; idx < pool->cfg.capacity; idx++) {
+        if (bitmap_test(pool->slots.acquired_bitmap, idx)) n++;
+    }
+    return n;
 }

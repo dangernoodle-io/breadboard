@@ -698,6 +698,7 @@ typedef struct {
     void *last_acquire_slot;
     void *last_release_slot;
     bool  reusable_return;   /* what slot_reusable() should answer next call */
+    void *ready_ptr;         /* if set, spy_slot_reusable_selective returns true only for this slot */
     int   reusable_calls;
     int   reap_calls;
     void *last_reap_slot;
@@ -730,6 +731,16 @@ static void spy_slot_reap(void *ctx, void *slot)
     cb_spy_t *s = (cb_spy_t *)ctx;
     s->reap_calls++;
     s->last_reap_slot = slot;
+}
+
+// Differentiates readiness per-slot (by pointer identity) rather than a
+// single global flag — needed to exercise bb_pool_slots_reap_ready() reaping
+// exactly one of several pending slots while leaving the others pending.
+static bool spy_slot_reusable_selective(void *ctx, void *slot)
+{
+    cb_spy_t *s = (cb_spy_t *)ctx;
+    s->reusable_calls++;
+    return slot == s->ready_ptr;
 }
 
 void test_pool_slots_on_acquire_on_release_fire(void)
@@ -900,6 +911,349 @@ void test_pool_slots_double_release_rejected_with_reusable_configured(void)
     TEST_ASSERT_NOT_NULL(s1);
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_pool_release(p, s1));
+
+    bb_arena_destroy(a);
+}
+
+// ---------------------------------------------------------------------------
+// SLOTS mode — idle-reclaim garbage-collection pass (B1-492)
+// ---------------------------------------------------------------------------
+
+void test_pool_slots_pending_count_zero_on_fresh_pool(void)
+{
+    cb_spy_t spy = {0};
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 2,
+        .max_slot_bytes = sizeof(int),
+        .cb_ctx = &spy,
+        .slot_reusable = spy_slot_reusable_selective,
+        .slot_reap = spy_slot_reap,
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_pending_count(p));
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_pending_count_zero_without_slot_reusable(void)
+{
+    // No slot_reusable configured: released slots go straight to the
+    // free-list, never pending — bb_pool_slots_pending_count() stays 0
+    // regardless of how many acquire/release cycles run.
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 1,
+        .max_slot_bytes = sizeof(int),
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    TEST_ASSERT_NOT_NULL(s1);
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_pending_count(p));
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_pending_count_reflects_released_pending_slots(void)
+{
+    cb_spy_t spy = {0};
+    spy.reusable_return = false;
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 2,
+        .max_slot_bytes = sizeof(int),
+        .cb_ctx = &spy,
+        .slot_reusable = spy_slot_reusable_selective, // ready_ptr NULL -> never ready
+        .slot_reap = spy_slot_reap,
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    void *s2 = bb_pool_acquire(p);
+    TEST_ASSERT_NOT_NULL(s1);
+    TEST_ASSERT_NOT_NULL(s2);
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
+    TEST_ASSERT_EQUAL_UINT(1, bb_pool_slots_pending_count(p));
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s2));
+    TEST_ASSERT_EQUAL_UINT(2, bb_pool_slots_pending_count(p));
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_reap_ready_moves_ready_slot_to_free_list(void)
+{
+    cb_spy_t spy = {0};
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 2,
+        .max_slot_bytes = sizeof(int),
+        .cb_ctx = &spy,
+        .slot_reusable = spy_slot_reusable_selective,
+        .slot_reap = spy_slot_reap,
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    void *s2 = bb_pool_acquire(p);
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s2));
+    TEST_ASSERT_EQUAL_UINT(2, bb_pool_slots_pending_count(p));
+
+    // Only s1 is "ready" — the reap pass must reap exactly that one, leaving
+    // s2 pending untouched (no acquire/reissue happens for either).
+    spy.ready_ptr = s1;
+    TEST_ASSERT_EQUAL_UINT(1, bb_pool_slots_reap_ready(p));
+    TEST_ASSERT_EQUAL_INT(1, spy.reap_calls);
+    TEST_ASSERT_EQUAL_PTR(s1, spy.last_reap_slot);
+    TEST_ASSERT_EQUAL_UINT(1, bb_pool_slots_pending_count(p));
+
+    // s1 is now back on the free-list — a fresh acquire returns it directly,
+    // without ever consulting slot_reusable again (free-list priority).
+    int reusable_calls_before = spy.reusable_calls;
+    void *s3 = bb_pool_acquire(p);
+    TEST_ASSERT_EQUAL_PTR(s1, s3);
+    TEST_ASSERT_EQUAL_INT(reusable_calls_before, spy.reusable_calls);
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_reap_ready_leaves_not_ready_slots_pending(void)
+{
+    cb_spy_t spy = {0};
+    spy.reusable_return = false;
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 1,
+        .max_slot_bytes = sizeof(int),
+        .cb_ctx = &spy,
+        .slot_reusable = spy_slot_reusable_selective, // ready_ptr NULL -> never ready
+        .slot_reap = spy_slot_reap,
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_reap_ready(p));
+    TEST_ASSERT_EQUAL_INT(0, spy.reap_calls);
+    TEST_ASSERT_EQUAL_UINT(1, bb_pool_slots_pending_count(p));
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_reap_ready_noop_without_slot_reusable(void)
+{
+    // No slot_reusable configured at all: reap_ready must be a pure no-op
+    // (0 reaped) even though a slot has been released — there is no pending
+    // state to scan.
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 1,
+        .max_slot_bytes = sizeof(int),
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_reap_ready(p));
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_reap_ready_and_pending_count_null_pool_is_noop(void)
+{
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_reap_ready(NULL));
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_pending_count(NULL));
+}
+
+void test_pool_slots_reap_ready_and_pending_count_non_slots_mode_is_noop(void)
+{
+    bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_TRANSIENT };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_reap_ready(p));
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_pending_count(p));
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_acquired_count_tracks_loan_state(void)
+{
+    // No slot_reusable needed here — acquired_count tracks the on-loan
+    // bitmap directly, independent of the pending-reap path.
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 2,
+        .max_slot_bytes = sizeof(int),
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_acquired_count(p));
+
+    void *s1 = bb_pool_acquire(p);
+    TEST_ASSERT_EQUAL_UINT(1, bb_pool_slots_acquired_count(p));
+
+    void *s2 = bb_pool_acquire(p);
+    TEST_ASSERT_EQUAL_UINT(2, bb_pool_slots_acquired_count(p));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
+    TEST_ASSERT_EQUAL_UINT(1, bb_pool_slots_acquired_count(p));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s2));
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_acquired_count(p));
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_acquired_count_stays_set_while_pending_reap(void)
+{
+    // With slot_reusable configured and never returning true, a released
+    // slot moves from acquired -> pending, never lingering "acquired" — this
+    // proves acquired_count and pending_count are mutually exclusive views
+    // of the same slot's lifecycle, not double-counting the same state.
+    cb_spy_t spy = {0};
+    spy.reusable_return = false;
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 1,
+        .max_slot_bytes = sizeof(int),
+        .cb_ctx = &spy,
+        .slot_reusable = spy_slot_reusable_selective,
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    TEST_ASSERT_EQUAL_UINT(1, bb_pool_slots_acquired_count(p));
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_pending_count(p));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_acquired_count(p));
+    TEST_ASSERT_EQUAL_UINT(1, bb_pool_slots_pending_count(p));
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_acquired_count_null_and_non_slots_mode_is_noop(void)
+{
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_acquired_count(NULL));
+
+    bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_TRANSIENT };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_acquired_count(p));
+
+    bb_arena_destroy(a);
+}
+
+// ---------------------------------------------------------------------------
+// SLOTS mode — on_destroy per-slot finalizer (firmware-review finding, PR-B)
+// ---------------------------------------------------------------------------
+
+static int s_destroy_calls;
+static void spy_on_destroy(void *ctx, void *slot)
+{
+    (void)slot;
+    int *n = (int *)ctx;
+    (*n)++;
+}
+
+void test_pool_slots_on_destroy_fires_once_per_slot_including_never_acquired(void)
+{
+    // capacity=4, only 2 ever acquired (one released, one left on loan) —
+    // on_destroy must still fire for ALL 4 slots: the two never touched, the
+    // one released back to the free-list, and the one still acquired.
+    s_destroy_calls = 0;
+    bb_pool_cfg_t cfg = {
+        .mode           = BB_POOL_MODE_SLOTS,
+        .capacity       = 4,
+        .max_slot_bytes = sizeof(int),
+        .cb_ctx         = &s_destroy_calls,
+        .on_destroy     = spy_on_destroy,
+    };
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create_owned(&cfg, BB_POOL_BACKING_HEAP, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    void *s2 = bb_pool_acquire(p);
+    TEST_ASSERT_NOT_NULL(s1);
+    TEST_ASSERT_NOT_NULL(s2);
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1)); /* s1 -> free-list */
+    /* s2 stays on loan; s3/s4 never touched */
+
+    bb_pool_destroy(p); /* frees the owned arena */
+
+    TEST_ASSERT_EQUAL_INT(4, s_destroy_calls);
+}
+
+void test_pool_slots_on_destroy_null_is_safe_noop(void)
+{
+    // No on_destroy configured: bb_pool_destroy must behave exactly as
+    // before (backward-compat for every existing SLOTS consumer, e.g.
+    // bb_pub's ring pool).
+    bb_pool_cfg_t cfg = {
+        .mode           = BB_POOL_MODE_SLOTS,
+        .capacity       = 2,
+        .max_slot_bytes = sizeof(int),
+    };
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create_owned(&cfg, BB_POOL_BACKING_HEAP, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    TEST_ASSERT_NOT_NULL(s1);
+
+    bb_pool_destroy(p); /* must not crash with on_destroy == NULL */
+}
+
+void test_pool_slots_on_destroy_not_called_for_non_slots_mode(void)
+{
+    // on_destroy is documented as SLOTS-mode only; a TRANSIENT pool's
+    // (unused) cfg.on_destroy field must never be invoked.
+    s_destroy_calls = 0;
+    bb_pool_cfg_t cfg = {
+        .mode       = BB_POOL_MODE_TRANSIENT,
+        .cb_ctx     = &s_destroy_calls,
+        .on_destroy = spy_on_destroy,
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    bb_pool_destroy(p); /* caller-owned arena: no-op, and no on_destroy call */
+    TEST_ASSERT_EQUAL_INT(0, s_destroy_calls);
 
     bb_arena_destroy(a);
 }

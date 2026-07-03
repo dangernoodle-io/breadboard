@@ -36,6 +36,22 @@ typedef struct {
 // cfg=NULL uses Kconfig defaults.
 bb_err_t bb_event_routes_init(const bb_event_routes_cfg_t *cfg);
 
+// B1-492: start the SSE task-bundle pool's idle-reclaim tick. ESP-IDF-only
+// background work — self-registers at PRE_HTTP tier (mirrors bb_pub_start())
+// so route-attach init (bb_event_routes_register_routes_init, REGULAR tier)
+// stays pure httpd with no timer/task creation. Does state-init +
+// timer-create + timer-arm only; the reclaim tick itself never gates SSE
+// reuse (bb_pool_acquire's own reap-gate owns that) — it only tears the pool
+// down to 0 bytes once fully idle (0 active clients, 0 pending corpses),
+// lazily recreated on the next connect. No-op under
+// CONFIG_BB_EVENT_ROUTES_POOL_STATIC=y (eager-BSS pool, nothing to reclaim).
+// Declared here for documentation/API-surface visibility; ESP-IDF is the
+// only platform that defines it today — Arduino/host builds do not link
+// this symbol (mirrors bb_pub_start()'s platform-only shape).
+#ifdef ESP_PLATFORM
+bb_err_t bb_event_routes_start(void);
+#endif
+
 // Attach a topic to the /api/events stream. The topic must already be
 // registered via bb_event_topic_register. Idempotent per topic.
 // Returns BB_ERR_NOT_FOUND if the topic isn't registered, BB_ERR_NO_SPACE if
@@ -72,6 +88,17 @@ bb_err_t bb_event_routes_topic_info(size_t idx,
 
 // Diagnostics: number of client slots currently in use.
 size_t bb_event_routes_active_client_count(void);
+
+// Diagnostics (B1-492): count of SSE connect attempts fast-rejected with 503
+// because the requested task-bundle slot's prior occupant had not yet been
+// confirmed eSuspended (the B1-484 non-blocking reap-gate) — as opposed to a
+// 503 from max_clients exhaustion. A steady non-zero rate under churn is
+// expected transient reuse pressure (EventSource auto-retries); a
+// permanently-stuck non-zero rate would indicate the reap-gate is never
+// clearing, which the idle-reclaim tick (bb_event_routes_start()) also
+// guards against by proactively draining ready corpses. ESP-IDF only —
+// always 0 on Arduino/host (no reap-gate exists there).
+size_t bb_event_routes_slot_reuse_deferred_count(void);
 
 // Acquire a new SSE client slot and subscribe to topics.
 // Like bb_event_routes_client_acquire, but accepts an optional topic_filter.

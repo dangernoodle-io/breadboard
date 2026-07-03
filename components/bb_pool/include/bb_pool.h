@@ -98,6 +98,18 @@ typedef enum {
 //                             reissue, the moment slot_reusable() first
 //                             returns true for that slot. Ignored if
 //                             slot_reusable is NULL.
+//   on_destroy(ctx, slot)   — invoked by bb_pool_destroy() over EVERY slot
+//                             (regardless of free/acquired/pending state)
+//                             before the backing arena is freed, so callers
+//                             can release per-slot resources created lazily
+//                             during the pool's life (e.g. a lazily-created
+//                             OS handle stashed on first acquire). Iterates
+//                             all `capacity` slots by index, not just the
+//                             free-list or pending set — a slot sitting on
+//                             the free-list or held pending-reap may still
+//                             hold such a resource. Optional; NULL (the
+//                             default) is a safe no-op — existing callers
+//                             see no behavior change.
 //
 // bb_pool_acquire() never blocks and never retries internally: if the
 // free-list is empty and no pending slot's slot_reusable() currently returns
@@ -110,6 +122,7 @@ typedef void (*bb_pool_on_acquire_fn)(void *ctx, void *slot);
 typedef void (*bb_pool_on_release_fn)(void *ctx, void *slot);
 typedef bool (*bb_pool_slot_reusable_fn)(void *ctx, void *slot);
 typedef void (*bb_pool_slot_reap_fn)(void *ctx, void *slot);
+typedef void (*bb_pool_on_destroy_fn)(void *ctx, void *slot);
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -144,6 +157,15 @@ typedef struct {
     bb_pool_on_release_fn    on_release;
     bb_pool_slot_reusable_fn slot_reusable;
     bb_pool_slot_reap_fn     slot_reap;
+
+    /**
+     * SLOTS mode only: optional per-slot finalizer invoked by
+     * bb_pool_destroy() over EVERY slot (regardless of free/acquired/pending
+     * state) before the backing arena is freed — see the documentation block
+     * above. NULL (the default) is a safe no-op; backward-compatible with
+     * every existing SLOTS-mode consumer.
+     */
+    bb_pool_on_destroy_fn    on_destroy;
 } bb_pool_cfg_t;
 
 // ---------------------------------------------------------------------------
@@ -199,10 +221,13 @@ bb_err_t bb_pool_create_owned(const bb_pool_cfg_t *cfg,
                                bb_pool_backing_t backing, bb_pool_t *out);
 
 /**
- * Destroy a pool. For a bb_pool_create_owned() pool, frees the owned arena
- * (and therefore all pool storage, including the pool struct itself). For a
- * bb_pool_create() pool, frees nothing — the caller-supplied arena's
- * lifetime is untouched. Safe to call with NULL.
+ * Destroy a pool. If cfg.on_destroy is non-NULL (SLOTS mode only), it is
+ * invoked once per slot over ALL `capacity` slots — regardless of
+ * free/acquired/pending state — before any arena storage is freed. For a
+ * bb_pool_create_owned() pool, frees the owned arena (and therefore all pool
+ * storage, including the pool struct itself). For a bb_pool_create() pool,
+ * frees nothing — the caller-supplied arena's lifetime is untouched. Safe to
+ * call with NULL.
  *
  * After this call returns, `pool` is invalid for all creation forms and
  * MUST NOT be re-destroyed, reused, or dereferenced — a second
@@ -339,6 +364,52 @@ void *bb_pool_acquire(bb_pool_t pool);
  * slot).
  */
 bb_err_t bb_pool_release(bb_pool_t pool, void *ptr);
+
+/**
+ * B1-492: proactive garbage-collection pass over SLOTS-mode pending
+ * (released-but-not-yet-reusable) slots, WITHOUT acquiring/handing any of
+ * them out. For every slot currently in the pending state, calls
+ * cfg.slot_reusable(ctx, slot) once; each slot for which it returns true has
+ * cfg.slot_reap(ctx, slot) invoked exactly once (same finalizer bb_pool_acquire
+ * would have called on reissue) and is then moved onto the free-list — NOT
+ * returned to the caller. Slots for which slot_reusable returns false are
+ * left pending, untouched.
+ *
+ * This is the idle-reclaim counterpart to bb_pool_acquire()'s inline
+ * single-slot reap: a consumer with no pending acquire request (e.g. a
+ * periodic housekeeping tick checking whether a pool has gone fully idle)
+ * uses this to drain every corpse that has become ready, then inspects
+ * bb_pool_slots_pending_count() to see whether any are still outstanding
+ * before deciding whether the pool itself can be torn down.
+ *
+ * No-op (returns 0) for NULL pool, non-SLOTS mode, or a SLOTS pool created
+ * without cfg.slot_reusable (nothing is ever pending in that configuration).
+ * Never blocks.
+ *
+ * Returns the number of slots reaped and moved to the free-list.
+ */
+size_t bb_pool_slots_reap_ready(bb_pool_t pool);
+
+/**
+ * Count of SLOTS-mode slots currently pending (released, but not yet
+ * confirmed reusable by cfg.slot_reusable). Always 0 for NULL pool,
+ * non-SLOTS mode, or a SLOTS pool created without cfg.slot_reusable.
+ */
+size_t bb_pool_slots_pending_count(bb_pool_t pool);
+
+/**
+ * B1-492: count of SLOTS-mode slots currently acquired (on loan — handed out
+ * by bb_pool_acquire() and not yet returned via bb_pool_release()). A
+ * consumer deciding whether an entire SLOTS pool has gone idle enough to
+ * bb_pool_destroy() MUST check this is 0 in addition to
+ * bb_pool_slots_pending_count() == 0: a slot mid-loan (its owner has not yet
+ * called bb_pool_release, e.g. still mid-teardown) is neither on the
+ * free-list nor pending — destroying the pool's backing arena while such a
+ * slot is still in live use elsewhere (e.g. a FreeRTOS task still executing
+ * on its stack) is a use-after-free. Always 0 for NULL pool or non-SLOTS
+ * mode.
+ */
+size_t bb_pool_slots_acquired_count(bb_pool_t pool);
 
 #ifdef __cplusplus
 }
