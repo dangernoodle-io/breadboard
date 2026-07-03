@@ -2116,3 +2116,154 @@ void test_bb_net_health_format_log_truncation_drops_txfail_first(void)
     // NUL-terminated within cap (snprintf guarantee).
     TEST_ASSERT_EQUAL_INT(0, buf[sizeof(buf) - 1]);
 }
+
+// ---------------------------------------------------------------------------
+// bb_net_health_format_log egr token (B1-518 PR3, OBSERVE-ONLY) —
+// egress_state branch coverage. Mirrors the gw_available/tx_available tests
+// above; egr is the LEAST critical field (dropped first under truncation).
+// ---------------------------------------------------------------------------
+
+// egress_state == BB_EGRESS_STATE_OK (default from sample_status_for_log/
+// memset): no "egr=" token appears at all — healthy heartbeat stays short.
+void test_bb_net_health_format_log_egr_omitted_when_ok(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.egress_state = BB_EGRESS_STATE_OK;
+    char buf[256];
+    int n = bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_GREATER_THAN_INT(0, n);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "egr=") == NULL, buf);
+    // Unaffected trailing field is still the last token.
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "up=9999") != NULL, buf);
+}
+
+// egress_state != OK: egr=<str> appears LAST — after up= AND after gw= AND
+// after txfail= (when all three are present) — the least-critical-field-last
+// ordering (egr drops before txfail/gw under truncation).
+void test_bb_net_health_format_log_egr_present_and_last(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.gw_available   = true;
+    s.gw_reachable   = true;
+    s.gw_dead_count  = 0;
+    s.tx_available   = true;
+    s.tx_failing     = 1;
+    s.tx_enabled     = 2;
+    s.egress_state   = BB_EGRESS_STATE_ENDPOINT_DOWN;
+    char buf[256];
+    int n = bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_GREATER_THAN_INT(0, n);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "egr=endpoint_down") != NULL, buf);
+
+    const char *p_gw  = strstr(buf, "gw=1");
+    const char *p_tx  = strstr(buf, "txfail=1/2");
+    const char *p_egr = strstr(buf, "egr=endpoint_down");
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_gw, buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_tx, buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_egr, buf);
+    TEST_ASSERT_TRUE_MESSAGE(p_gw < p_tx, buf);
+    TEST_ASSERT_TRUE_MESSAGE(p_tx < p_egr, buf); // egr comes after txfail (drops first)
+}
+
+// bb_egress_state_str value round-trips for the remaining non-OK buckets.
+void test_bb_net_health_format_log_egr_all_states(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+
+    s.egress_state = BB_EGRESS_STATE_GW_UNREACHABLE;
+    char buf1[256];
+    bb_net_health_format_log(&s, buf1, sizeof(buf1));
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf1, "egr=gw_unreachable") != NULL, buf1);
+
+    s.egress_state = BB_EGRESS_STATE_ALL_DEAD;
+    char buf2[256];
+    bb_net_health_format_log(&s, buf2, sizeof(buf2));
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf2, "egr=all_dead") != NULL, buf2);
+}
+
+// Truncation drops egr first: with gw + txfail + egr all present, a cap
+// sized to end exactly at the " egr=..." boundary must drop egr entirely
+// while gw and txfail survive intact. Cap is computed dynamically from the
+// full-length line so this test does not hand-count bytes.
+void test_bb_net_health_format_log_truncation_drops_egr_first(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.gw_available   = true;
+    s.gw_reachable   = false;
+    s.gw_fail_streak = 2;
+    s.gw_dead_count  = 7;
+    s.tx_available   = true;
+    s.tx_failing     = 1;
+    s.tx_enabled     = 2;
+    s.egress_state   = BB_EGRESS_STATE_GW_UNREACHABLE;
+
+    char full[256];
+    int n_full = bb_net_health_format_log(&s, full, sizeof(full));
+    TEST_ASSERT_GREATER_THAN_INT(0, n_full);
+
+    const char *p_egr = strstr(full, " egr=gw_unreachable");
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_egr, full);
+    int cap = (int)(p_egr - full) + 1; // budget for the NUL terminator only
+
+    char buf[256];
+    memset(buf, 0x7F, sizeof(buf)); // sentinel fill to detect any overrun
+    int n = bb_net_health_format_log(&s, buf, cap);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(cap, n); // full line exceeds cap
+
+    // egr suffix dropped entirely — not even a partial "egr=" token survives.
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "egr=") == NULL, buf);
+
+    // gw + txfail (higher priority than egr) survive intact.
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "gw=0") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "gwdead=7") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "txfail=1/2") != NULL, buf);
+
+    // Preceding fields present and not truncated mid-token.
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "up=9999") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "restart=4") != NULL, buf);
+
+    // NUL-terminated within cap (snprintf guarantee).
+    TEST_ASSERT_EQUAL_INT(0, buf[cap - 1]);
+}
+
+// ---------------------------------------------------------------------------
+// bb_net_health_would_recover_edge (B1-518 PR3, OBSERVE-ONLY) — pure
+// edge-check predicate backing the evaluator's "would recover" log line.
+// ---------------------------------------------------------------------------
+
+void test_bb_net_health_would_recover_edge_transition_into_gw_unreachable(void)
+{
+    TEST_ASSERT_TRUE(bb_net_health_would_recover_edge(BB_EGRESS_STATE_OK,
+                                                        BB_EGRESS_STATE_GW_UNREACHABLE));
+}
+
+void test_bb_net_health_would_recover_edge_endpoint_down_into_gw_unreachable(void)
+{
+    TEST_ASSERT_TRUE(bb_net_health_would_recover_edge(BB_EGRESS_STATE_ENDPOINT_DOWN,
+                                                        BB_EGRESS_STATE_GW_UNREACHABLE));
+}
+
+// Sustained GW_UNREACHABLE across ticks does not re-log every cycle.
+void test_bb_net_health_would_recover_edge_sustained_no_relog(void)
+{
+    TEST_ASSERT_FALSE(bb_net_health_would_recover_edge(BB_EGRESS_STATE_GW_UNREACHABLE,
+                                                         BB_EGRESS_STATE_GW_UNREACHABLE));
+}
+
+void test_bb_net_health_would_recover_edge_transition_out_is_false(void)
+{
+    TEST_ASSERT_FALSE(bb_net_health_would_recover_edge(BB_EGRESS_STATE_GW_UNREACHABLE,
+                                                         BB_EGRESS_STATE_OK));
+}
+
+void test_bb_net_health_would_recover_edge_ok_to_ok_is_false(void)
+{
+    TEST_ASSERT_FALSE(bb_net_health_would_recover_edge(BB_EGRESS_STATE_OK,
+                                                         BB_EGRESS_STATE_OK));
+}
+
+void test_bb_net_health_would_recover_edge_ok_to_endpoint_down_is_false(void)
+{
+    TEST_ASSERT_FALSE(bb_net_health_would_recover_edge(BB_EGRESS_STATE_OK,
+                                                         BB_EGRESS_STATE_ENDPOINT_DOWN));
+}

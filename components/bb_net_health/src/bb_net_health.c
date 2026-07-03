@@ -127,6 +127,11 @@ bb_egress_state_t bb_net_health_classify_egress(bb_net_mode_t wifi_mode,
     return BB_EGRESS_STATE_OK;
 }
 
+bool bb_net_health_would_recover_edge(bb_egress_state_t prev, bb_egress_state_t cur)
+{
+    return cur == BB_EGRESS_STATE_GW_UNREACHABLE && prev != BB_EGRESS_STATE_GW_UNREACHABLE;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -357,6 +362,16 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
                  s->tx_failing, s->tx_enabled);
     }
 
+    // Egress-recovery SSOT verdict (B1-518 PR3, OBSERVE-ONLY) — the LEAST
+    // critical field on this line (appended after tx_suffix), so it drops
+    // first under the ~168-byte forwarder cap. Empty string (no-op) when the
+    // egress state is OK, keeping the healthy heartbeat line short.
+    char egr_suffix[24] = "";
+    if (s->egress_state != BB_EGRESS_STATE_OK) {
+        snprintf(egr_suffix, sizeof(egr_suffix), " egr=%s",
+                 bb_egress_state_str(s->egress_state));
+    }
+
     // Critical-first ordering: nm/ip/ip_ok/assoc/rssi (the fields needed to
     // diagnose a zombie board) come first so truncation degrades gracefully
     // — a truncated line always keeps net_mode + ip. The trailing counters
@@ -366,7 +381,7 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
         "nm=%s ip=%s ip_ok=%d assoc=%d rssi=%d sess=%" PRIu32
         " dr=%" PRIu32 " roam=%" PRIu32 " no_ip=%" PRIu32 " lost_ip=%" PRIu32
         " egress=%" PRIu32 " retry=%d restart=%" PRIu32 " up=%" PRIu32
-        "%s%s",
+        "%s%s%s",
         bb_net_mode_str(s->net_mode),
         s->ip,
         (int)s->has_ip,
@@ -382,7 +397,8 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
         s->restart_sta_count,
         s->uptime_s,
         gw_suffix,
-        tx_suffix);
+        tx_suffix,
+        egr_suffix);
 
     // snprintf truncates safely on its own (never writes past cap) and always
     // null-terminates when cap > 0; n may exceed cap-1 (the "would have

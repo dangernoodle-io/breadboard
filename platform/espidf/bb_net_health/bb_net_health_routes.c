@@ -99,6 +99,12 @@ static bb_err_t diag_net_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_bool(&obj, "associated", snap.associated);
         bb_http_resp_json_obj_set_bool(&obj, "has_ip",     snap.has_ip);
 
+        // Egress-recovery SSOT verdict (B1-518 PR3, OBSERVE-ONLY): derived
+        // from net_mode + gw-probe + transport-health each evaluator cycle
+        // (bb_net_health_classify_egress). No recovery action is wired to
+        // this field.
+        bb_http_resp_json_obj_set_str(&obj, "egress_state", bb_egress_state_str(snap.egress_state));
+
         bb_http_resp_json_obj_set_obj_begin(&obj, "mqtt");
         bb_http_resp_json_obj_set_int(&obj, "reconnect_count", (int64_t)snap.mqtt_reconnect_count);
         bb_http_resp_json_obj_set_int(&obj, "disc_age_s",      (int64_t)snap.mqtt_disc_age_s);
@@ -181,6 +187,7 @@ static const bb_route_response_t s_diag_net_responses[] = {
       "\"net_mode\":{\"type\":\"string\"},"
       "\"associated\":{\"type\":\"boolean\"},"
       "\"has_ip\":{\"type\":\"boolean\"},"
+      "\"egress_state\":{\"type\":\"string\"},"
       "\"mqtt\":{\"type\":\"object\",\"properties\":{"
       "\"reconnect_count\":{\"type\":\"integer\"},"
       "\"disc_age_s\":{\"type\":\"integer\"},"

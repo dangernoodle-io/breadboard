@@ -54,6 +54,17 @@ static const char *LOG_TAG_NETSTATE = "net_state";
 #define BB_NET_HEALTH_TOPIC "net.health"
 #define BB_NET_HEALTH_EVAL_PERIOD_US ((uint64_t)CONFIG_BB_NET_HEALTH_EVAL_PERIOD_S * 1000000ULL)
 
+// Kconfig bridge (B1-518 PR3): mirrors the identical bridge in
+// platform/espidf/bb_wifi/bb_wifi_gw_probe.c so this file uses the SAME
+// consecutive-failure threshold the gw-probe worker itself arms
+// gw_dead_count with — never a bare #ifndef alongside the CONFIG_ symbol.
+#ifdef CONFIG_BB_WIFI_GW_PROBE_FAILS
+#define BB_WIFI_GW_PROBE_FAILS CONFIG_BB_WIFI_GW_PROBE_FAILS
+#endif
+#ifndef BB_WIFI_GW_PROBE_FAILS
+#define BB_WIFI_GW_PROBE_FAILS 3
+#endif
+
 // ---------------------------------------------------------------------------
 // Module state
 // ---------------------------------------------------------------------------
@@ -76,6 +87,11 @@ static bb_net_mode_t          s_last_logged_mode = (bb_net_mode_t)-1;
 // observed yet" (i.e. no reconnects have ever occurred).
 static uint64_t              s_mqtt_disc_time_ms = 0;   // bb_timer_now_us()/1000 at last disc; _ms name is intentional (derived to mqtt_disc_age_s)
 static uint32_t              s_last_reconnect_count = 0; // glue-side mirror for disc detection
+// Egress-recovery SSOT (B1-518 PR3, OBSERVE-ONLY): last evaluator-cycle
+// egress_state, used only to edge-trigger the "would recover" log line via
+// bb_net_health_would_recover_edge. Zero-init = BB_EGRESS_STATE_OK, which is
+// correct — no probe has run yet at boot.
+static bb_egress_state_t     s_prev_egress_state = BB_EGRESS_STATE_OK;
 #if CONFIG_BB_PUB_ADAPTIVE_BACKOFF
 static uint32_t              s_baseline_interval_ms = 0;  // captured before first throttle
 #endif
@@ -118,6 +134,7 @@ typedef struct {
     bool     tx_available;    // B1-518 PR2: bb_transport_health cached counts (observe-only)
     int      tx_enabled;
     int      tx_failing;
+    bb_egress_state_t egress_state; // B1-518 PR3: arbiter verdict (observe-only)
 } bb_net_health_cache_t;
 
 static bb_net_health_cache_t s_cache;       // zero-init; valid once attach_sse writes it
@@ -292,6 +309,7 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
     out->tx_available               = s_cache.tx_available;
     out->tx_enabled                 = s_cache.tx_enabled;
     out->tx_failing                 = s_cache.tx_failing;
+    out->egress_state               = s_cache.egress_state;
     xSemaphoreGive(s_cache_lock);
     return BB_OK;
 }
@@ -312,7 +330,8 @@ static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
                                              const bb_wifi_gw_status_t *gw,
                                              bool tx_available,
                                              int tx_enabled,
-                                             int tx_failing)
+                                             int tx_failing,
+                                             bb_egress_state_t egress_state)
 {
     bool associated = bb_wifi_is_associated();
     bool has_ip     = bb_wifi_has_ip();
@@ -354,6 +373,7 @@ static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
         .tx_available           = tx_available,
         .tx_enabled             = tx_enabled,
         .tx_failing             = tx_failing,
+        .egress_state           = egress_state,
     };
     strncpy(snap.ip, wi->ip, sizeof(snap.ip) - 1);
     snap.ip[sizeof(snap.ip) - 1] = '\0';
@@ -400,6 +420,7 @@ static void publish_snapshot(const bb_net_health_status_t *snap)
     s_cache.tx_available            = snap->tx_available;
     s_cache.tx_enabled              = snap->tx_enabled;
     s_cache.tx_failing              = snap->tx_failing;
+    s_cache.egress_state            = snap->egress_state;
     xSemaphoreGive(s_cache_lock);
 
     // Update bb_cache owned struct — SSE uses bb_cache_post, REST uses
@@ -507,13 +528,34 @@ static void eval_work_fn(void *arg)
     int  tx_enabled, tx_failing;
     pull_tx_status(&tx_available, &tx_enabled, &tx_failing);
 
+    // Egress-recovery SSOT (B1-518 PR3, OBSERVE-ONLY): net_mode is computed
+    // here (not read back from the snapshot below) so the classify_egress
+    // call and build_snapshot's internal net_mode recompute observe the
+    // same live bb_wifi_is_associated()/bb_wifi_has_ip() read pair.
+    bb_net_mode_t egress_wifi_mode =
+        bb_net_health_classify_mode(bb_wifi_is_associated(), bb_wifi_has_ip());
+    bb_egress_state_t egress_state =
+        bb_net_health_classify_egress(egress_wifi_mode, gw_available, gw.gw_reachable,
+                                       gw.gw_fail_streak, (uint8_t)BB_WIFI_GW_PROBE_FAILS,
+                                       tx_enabled, tx_failing);
+
     // Build the full snapshot once per cycle: both the SSE-publish decision
     // below and the log-heartbeat decision (KB#556) observe the same
     // point-in-time snapshot.
     bb_net_health_status_t snap = build_snapshot(&out, &in, &wi, currently_throttled,
                                                   mqtt_disc_reason, mqtt_tls_fail, http_h,
                                                   gw_available, &gw,
-                                                  tx_available, tx_enabled, tx_failing);
+                                                  tx_available, tx_enabled, tx_failing,
+                                                  egress_state);
+
+    // Would-recover log (B1-518 PR3, observe-only, edge-triggered): fires
+    // once when egress_state transitions INTO GW_UNREACHABLE — the only
+    // state that would trigger a WiFi restart under a future act gate.  No
+    // recovery action is taken here; this is a diagnostic breadcrumb only.
+    if (bb_net_health_would_recover_edge(s_prev_egress_state, egress_state)) {
+        bb_log_w(TAG, "would recover: egress failing + gateway unreachable (act disabled)");
+    }
+    s_prev_egress_state = egress_state;
 
     // Publish only when state, early_warning, OR throttled flag differs from
     // the last published values.  This ensures:
@@ -713,10 +755,24 @@ bb_err_t bb_net_health_attach_sse(void)
         int  tx_enabled, tx_failing;
         pull_tx_status(&tx_available, &tx_enabled, &tx_failing);
 
+        // B1-518 PR3, OBSERVE-ONLY: classify the initial snapshot too, so
+        // /api/diag/net and the T=0 log heartbeat report a real verdict
+        // instead of a stale default. s_prev_egress_state is intentionally
+        // left untouched here — the would-recover edge log is owned by
+        // eval_work_fn only (the gw-probe worker has not run yet this early
+        // in boot, so gw_available is false and this classifies to OK).
+        bb_net_mode_t egress_wifi_mode =
+            bb_net_health_classify_mode(bb_wifi_is_associated(), bb_wifi_has_ip());
+        bb_egress_state_t egress_state =
+            bb_net_health_classify_egress(egress_wifi_mode, gw_available, gw.gw_reachable,
+                                           gw.gw_fail_streak, (uint8_t)BB_WIFI_GW_PROBE_FAILS,
+                                           tx_enabled, tx_failing);
+
         bb_net_health_status_t snap = build_snapshot(&out, &in, &wi, false,
                                                       mqtt_disc_reason, mqtt_tls_fail, http_h,
                                                       gw_available, &gw,
-                                                      tx_available, tx_enabled, tx_failing);
+                                                      tx_available, tx_enabled, tx_failing,
+                                                      egress_state);
         publish_snapshot(&snap);
         s_last_published_state     = out.state;
         s_last_published_warn      = out.early_warning;
