@@ -23,7 +23,7 @@ void test_bb_transport_health_register_inferred(void)
 {
     reset_world();
     bb_transport_handle_t h = BB_TRANSPORT_HANDLE_INVALID;
-    bb_err_t rc = bb_transport_health_register("stratum", BB_TRANSPORT_INFERRED, &h);
+    bb_err_t rc = bb_transport_health_register("subscriber", BB_TRANSPORT_INFERRED, &h);
     TEST_ASSERT_EQUAL(BB_OK, rc);
     TEST_ASSERT_NOT_EQUAL(BB_TRANSPORT_HANDLE_INVALID, h);
 }
@@ -102,7 +102,7 @@ void test_bb_transport_health_report_wrong_class_rejected(void)
 {
     reset_world();
     bb_transport_handle_t h;
-    bb_transport_health_register("stratum", BB_TRANSPORT_INFERRED, &h);
+    bb_transport_health_register("subscriber", BB_TRANSPORT_INFERRED, &h);
     bb_err_t rc = bb_transport_health_report(h, true);
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, rc);
 }
@@ -122,7 +122,7 @@ void test_bb_transport_health_mark_activity_bumps_rx_count(void)
 {
     reset_world();
     bb_transport_handle_t h;
-    bb_transport_health_register("stratum", BB_TRANSPORT_INFERRED, &h);
+    bb_transport_health_register("subscriber", BB_TRANSPORT_INFERRED, &h);
     TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_mark_activity(h));
     TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_mark_activity(h));
 
@@ -189,7 +189,7 @@ void test_bb_transport_health_authoritative_counts_never_counts_inferred(void)
 {
     reset_world();
     bb_transport_handle_t inferred;
-    bb_transport_health_register("stratum", BB_TRANSPORT_INFERRED, &inferred);
+    bb_transport_health_register("subscriber", BB_TRANSPORT_INFERRED, &inferred);
     // No activity ever marked — this slot is maximally "stale".
 
     int enabled = -1, failing = -1;
@@ -227,7 +227,7 @@ void test_bb_transport_health_snapshot_all_inferred_failing_via_staleness(void)
 {
     reset_world();
     bb_transport_handle_t h;
-    bb_transport_health_register("stratum", BB_TRANSPORT_INFERRED, &h);
+    bb_transport_health_register("subscriber", BB_TRANSPORT_INFERRED, &h);
     // Never marked active -> last_rx_ms stays 0, so vs any now_ms > threshold
     // it reads as stale/failing at snapshot time.
     bb_transport_health_snapshot_t snap[1];

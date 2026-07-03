@@ -27,6 +27,7 @@
 #include "bb_init.h"
 #include "bb_log.h"
 #include "bb_wifi.h"
+#include "bb_transport_health.h"
 
 static const char *TAG = "bb_net_health_routes";
 
@@ -40,6 +41,34 @@ static bb_err_t diag_net_handler(bb_http_request_t *req)
     bb_http_resp_json_obj_set_int(&obj, "uptime_ms",           (int64_t)bb_clock_now_ms());
     bb_http_resp_json_obj_set_int(&obj, "http_handler_count",  (int64_t)bb_http_route_handler_count());
     bb_http_resp_json_obj_set_int(&obj, "http_handler_cap",    (int64_t)bb_http_route_handler_cap());
+
+    // bb_transport_health LIVE snapshot (B1-518 PR2, OBSERVE-ONLY): built at
+    // request time, not cached in bb_net_health_status_t — variable-length,
+    // so it does not go through the fixed-size evaluator snapshot/cache path
+    // the other fields above use. Always emitted, even when empty (an empty
+    // array is meaningful: "nothing registered yet"), unlike the "gw" object
+    // below which is omitted entirely when the probe is disabled.
+    {
+        bb_transport_health_snapshot_t th[BB_TRANSPORT_HEALTH_MAX_SLOTS];
+        size_t th_n = bb_transport_health_snapshot_all(th, BB_TRANSPORT_HEALTH_MAX_SLOTS);
+        bb_http_resp_json_obj_set_arr_begin(&obj, "transports");
+        for (size_t i = 0; i < th_n; i++) {
+            bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
+            bb_http_resp_json_obj_set_str (&obj, "name", th[i].name);
+            bb_http_resp_json_obj_set_str (&obj, "cls",
+                th[i].cls == BB_TRANSPORT_AUTHORITATIVE ? "authoritative" : "inferred");
+            bb_http_resp_json_obj_set_bool(&obj, "enabled",    th[i].enabled);
+            bb_http_resp_json_obj_set_bool(&obj, "failing",    th[i].failing);
+            bb_http_resp_json_obj_set_int (&obj, "last_ok_ms", (int64_t)th[i].last_ok_ms);
+            bb_http_resp_json_obj_set_int (&obj, "fail_count", (int64_t)th[i].fail_count);
+            if (th[i].cls == BB_TRANSPORT_INFERRED) {
+                bb_http_resp_json_obj_set_int(&obj, "last_rx_ms", (int64_t)th[i].last_rx_ms);
+                bb_http_resp_json_obj_set_int(&obj, "rx_count",   (int64_t)th[i].rx_count);
+            }
+            bb_http_resp_json_obj_set_obj_end(&obj);
+        }
+        bb_http_resp_json_obj_set_arr_end(&obj);
+    }
 
     bb_net_health_status_t snap;
     if (bb_net_health_get_status(&snap) == BB_OK) {
@@ -127,6 +156,17 @@ static const bb_route_response_t s_diag_net_responses[] = {
       "\"uptime_ms\":{\"type\":\"integer\"},"
       "\"http_handler_count\":{\"type\":\"integer\"},"
       "\"http_handler_cap\":{\"type\":\"integer\"},"
+      "\"transports\":{\"type\":\"array\",\"items\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"name\":{\"type\":\"string\"},"
+      "\"cls\":{\"type\":\"string\"},"
+      "\"enabled\":{\"type\":\"boolean\"},"
+      "\"failing\":{\"type\":\"boolean\"},"
+      "\"last_ok_ms\":{\"type\":\"integer\"},"
+      "\"fail_count\":{\"type\":\"integer\"},"
+      "\"last_rx_ms\":{\"type\":\"integer\"},"
+      "\"rx_count\":{\"type\":\"integer\"}},"
+      "\"required\":[\"name\",\"cls\",\"enabled\",\"failing\"]}},"
       "\"no_ip_recoveries\":{\"type\":\"integer\"},"
       "\"rssi\":{\"type\":\"integer\"},"
       "\"disc_age_s\":{\"type\":\"integer\"},"

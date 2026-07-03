@@ -667,6 +667,7 @@ void test_fidelity_wifi_patch_400(void);
 void test_fidelity_diag_partitions(void);
 void test_fidelity_diag_net(void);
 void test_fidelity_diag_net_gw(void);
+void test_fidelity_diag_net_transports(void);
 void test_fidelity_update_status(void);
 void test_fidelity_update_config_get(void);
 void test_fidelity_diag_events(void);
@@ -1514,6 +1515,10 @@ void test_bb_net_health_format_log_gw_omitted_when_unavailable(void);
 void test_bb_net_health_format_log_gw_fields_present_and_last(void);
 void test_bb_net_health_format_log_gw_reachable_true(void);
 void test_bb_net_health_format_log_truncation_drops_gw_first(void);
+void test_bb_net_health_format_log_txfail_omitted_when_unavailable(void);
+void test_bb_net_health_format_log_txfail_present_and_last(void);
+void test_bb_net_health_format_log_txfail_zero_counts(void);
+void test_bb_net_health_format_log_truncation_drops_txfail_first(void);
 
 // Forward declarations from test_bb_sse_writer.c
 void test_sse_idle_below_heartbeat(void);
@@ -2635,6 +2640,10 @@ void test_bb_sink_http_get_health_null_returns_invalid_arg(void);
 void test_bb_sink_http_get_health_roundtrip(void);
 void test_bb_sink_http_get_health_other_tls_fail(void);
 void test_bb_sink_http_get_health_none_tls_fail(void);
+void test_bb_sink_http_publish_success_reports_transport_health(void);
+void test_bb_sink_http_publish_failure_reports_transport_health(void);
+void test_bb_sink_http_publish_registers_transport_health_once(void);
+void test_bb_sink_http_publish_survives_transport_health_slot_exhaustion(void);
 
 // Forward declarations from test_bb_http_client_session.c
 void test_bb_http_client_session_open_null_url_base_returns_invalid_arg(void);
@@ -3223,6 +3232,10 @@ void test_bb_sink_mqtt_default_returns_ok(void);
 void test_bb_sink_mqtt_default_routes_to_live_handle(void);
 void test_bb_sink_mqtt_default_suspend_is_safe_noop(void);
 void test_bb_sink_mqtt_default_resume_routes_to_new_handle(void);
+void test_bb_sink_mqtt_publish_success_reports_transport_health(void);
+void test_bb_sink_mqtt_default_publish_failure_reports_transport_health(void);
+void test_bb_sink_mqtt_publish_registers_transport_health_once(void);
+void test_bb_sink_mqtt_publish_survives_transport_health_slot_exhaustion(void);
 
 // Forward declarations from test_bb_pub_fan.c
 void test_bb_pub_fan_publishes_expected_fields(void);
@@ -4573,6 +4586,7 @@ int main(void) {
     RUN_TEST(test_fidelity_diag_partitions);
     RUN_TEST(test_fidelity_diag_net);
     RUN_TEST(test_fidelity_diag_net_gw);
+    RUN_TEST(test_fidelity_diag_net_transports);
     RUN_TEST(test_fidelity_update_status);
     RUN_TEST(test_fidelity_update_config_get);
     RUN_TEST(test_fidelity_diag_events);
@@ -5380,6 +5394,10 @@ int main(void) {
     RUN_TEST(test_bb_net_health_format_log_gw_fields_present_and_last);
     RUN_TEST(test_bb_net_health_format_log_gw_reachable_true);
     RUN_TEST(test_bb_net_health_format_log_truncation_drops_gw_first);
+    RUN_TEST(test_bb_net_health_format_log_txfail_omitted_when_unavailable);
+    RUN_TEST(test_bb_net_health_format_log_txfail_present_and_last);
+    RUN_TEST(test_bb_net_health_format_log_txfail_zero_counts);
+    RUN_TEST(test_bb_net_health_format_log_truncation_drops_txfail_first);
 
     // bb_vcore_wd tests (pure vcore-collapse watchdog)
     RUN_TEST(test_bb_vcore_wd_warmup_suppresses_all);
@@ -6579,6 +6597,10 @@ int main(void) {
     RUN_TEST(test_bb_sink_http_get_health_roundtrip);
     RUN_TEST(test_bb_sink_http_get_health_other_tls_fail);
     RUN_TEST(test_bb_sink_http_get_health_none_tls_fail);
+    RUN_TEST(test_bb_sink_http_publish_success_reports_transport_health);
+    RUN_TEST(test_bb_sink_http_publish_failure_reports_transport_health);
+    RUN_TEST(test_bb_sink_http_publish_registers_transport_health_once);
+    RUN_TEST(test_bb_sink_http_publish_survives_transport_health_slot_exhaustion);
 
     // bb_http_client session tests
     RUN_TEST(test_bb_http_client_session_open_null_url_base_returns_invalid_arg);
@@ -6963,6 +6985,10 @@ int main(void) {
     RUN_TEST(test_bb_sink_mqtt_default_routes_to_live_handle);
     RUN_TEST(test_bb_sink_mqtt_default_suspend_is_safe_noop);
     RUN_TEST(test_bb_sink_mqtt_default_resume_routes_to_new_handle);
+    RUN_TEST(test_bb_sink_mqtt_publish_success_reports_transport_health);
+    RUN_TEST(test_bb_sink_mqtt_default_publish_failure_reports_transport_health);
+    RUN_TEST(test_bb_sink_mqtt_publish_registers_transport_health_once);
+    RUN_TEST(test_bb_sink_mqtt_publish_survives_transport_health_slot_exhaustion);
 
     // bb_pub_fan tests
     RUN_TEST(test_bb_pub_fan_publishes_expected_fields);

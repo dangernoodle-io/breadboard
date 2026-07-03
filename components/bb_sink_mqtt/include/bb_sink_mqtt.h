@@ -56,6 +56,15 @@ bb_err_t bb_sink_mqtt(bb_mqtt_t h, bb_pub_sink_t *out);
  */
 bb_err_t bb_sink_mqtt_default(bb_pub_sink_t *out);
 
+// ---------------------------------------------------------------------------
+// Testing hooks (BB_SINK_MQTT_TESTING only)
+// ---------------------------------------------------------------------------
+#ifdef BB_SINK_MQTT_TESTING
+// Reset the lazily-registered bb_transport_health handle so tests that also
+// call bb_transport_health_reset_for_test() don't leave the sink holding a
+// stale (now-unused) slot index.
+void bb_sink_mqtt_reset_transport_health_for_test(void);
+#endif /* BB_SINK_MQTT_TESTING */
 
 #ifdef __cplusplus
 }

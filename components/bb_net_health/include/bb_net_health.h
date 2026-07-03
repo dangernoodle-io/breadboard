@@ -405,6 +405,15 @@ typedef struct {
     uint8_t  gw_fail_streak; // consecutive probe failures (observe-owned, separate from live FSM)
     uint32_t gw_dead_count;  // cumulative times the observe-only classifier would have tripped recovery
     uint64_t last_gw_probe_ms; // bb_clock_now_ms64() at the last probe, 0 = never run
+    // bb_transport_health cached counts (B1-518 PR2, OBSERVE-ONLY): pulled
+    // each evaluator cycle from bb_transport_health_authoritative_counts().
+    // tx_available is false when the call fails (e.g. host build without the
+    // registry initialized) OR when no AUTHORITATIVE transport is currently
+    // enabled — in both cases tx_enabled/tx_failing must not be treated as
+    // real data. No recovery action is wired to these fields.
+    bool     tx_available;   // true iff the counts call succeeded and enabled > 0
+    int      tx_enabled;     // count of enabled AUTHORITATIVE transports
+    int      tx_failing;     // count of those currently failing
     // --- Log-heartbeat-only fields (KB#556) — sourced from data the
     // evaluator already fetches each cycle (bb_wifi_info_t / bb_wifi
     // counters); NOT serialized by bb_net_health_emit (net.health SSE
@@ -463,11 +472,14 @@ bool bb_net_health_should_log(int64_t now_us, int64_t last_log_us,
  * event carries the human-readable name via bb_wifi_disc_reason_str),
  * roam_count, no_ip_recoveries, lost_ip_recoveries, egress_dead_recoveries,
  * retry_count, restart_sta_count, uptime_s, then — ONLY when
- * s->gw_available — gw (gw_reachable) and gwdead (gw_dead_count), appended
- * last (least-critical) so a truncated line drops them before any of the
- * fields above. Omitted entirely (no trailing space) when gw_available is
- * false, so boards without CONFIG_BB_WIFI_GW_PROBE_ENABLE see an unchanged
- * heartbeat line.
+ * s->gw_available — gw (gw_reachable) and gwdead (gw_dead_count), and
+ * finally — ONLY when s->tx_available — txfail (tx_failing/tx_enabled from
+ * bb_transport_health), appended in that order (gw before txfail) so a
+ * truncated line drops the LEAST critical field (txfail) first, then gw,
+ * before any of the fields above. Each suffix is omitted entirely (no
+ * trailing space) when its availability flag is false, so boards without
+ * CONFIG_BB_WIFI_GW_PROBE_ENABLE or without any registered
+ * bb_transport_health transport see an unchanged heartbeat line.
  *
  * Pure — no ESP-IDF dependency. Returns the number of bytes that would have
  * been written (snprintf semantics), or 0 if s or buf is NULL or cap <= 0.

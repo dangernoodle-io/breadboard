@@ -7,6 +7,7 @@
 #include "bb_nv_keys.h"
 #include "bb_log.h"
 #include "bb_tls.h"
+#include "bb_transport_health.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -89,6 +90,23 @@ static int           s_last_status   = 0;
 static bb_tls_fail_t s_tls_fail      = BB_TLS_FAIL_NONE;
 static bool          s_connected     = false;
 static pthread_mutex_t s_health_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// bb_transport_health registration (observe-only): registered lazily on the
+// first publish attempt, since bb_sink_http_init runs before the arbiter has
+// decided this sink is the active one — only the active sink ever publishes,
+// so only the active sink ever registers.
+// Single-writer: sink->publish() is only called from the bb_pub worker task,
+// so the lazy check-then-register on s_th_handle needs no lock
+// (bb_transport_health's own ops are internally locked).
+static bb_transport_handle_t s_th_handle = BB_TRANSPORT_HANDLE_INVALID;
+
+static void report_transport_health(bool ok)
+{
+    if (s_th_handle == BB_TRANSPORT_HANDLE_INVALID) {
+        bb_transport_health_register("http", BB_TRANSPORT_AUTHORITATIVE, &s_th_handle);
+    }
+    bb_transport_health_report(s_th_handle, ok);
+}
 
 // ---------------------------------------------------------------------------
 // Validation helpers (pure)
@@ -580,6 +598,7 @@ static bb_err_t http_pub_publish(void *ctx,
                      "(largest=%u total_free=%u)",
                      dim, (unsigned)largest, (unsigned)total_free);
             free(url);
+            report_transport_health(false);
             return BB_ERR_NO_MEM;
         }
     }
@@ -589,6 +608,7 @@ static bb_err_t http_pub_publish(void *ctx,
     bb_err_t rc = session_ensure();
     if (rc != BB_OK) {
         free(url);
+        report_transport_health(false);
         return rc;
     }
 
@@ -615,6 +635,7 @@ static bb_err_t http_pub_publish(void *ctx,
         }
         pthread_mutex_unlock(&s_health_lock);
         free(url);
+        report_transport_health(false);
         return rc;
     }
 
@@ -626,6 +647,7 @@ static bb_err_t http_pub_publish(void *ctx,
     pthread_mutex_unlock(&s_health_lock);
     bb_log_d(TAG, "published to %s -> %d", url, result.status_code);
     free(url);
+    report_transport_health(true);
     return BB_OK;
 }
 
@@ -664,6 +686,11 @@ void bb_sink_http_test_reset_health(void)
     s_tls_fail        = BB_TLS_FAIL_NONE;
     s_last_status     = 0;
     pthread_mutex_unlock(&s_health_lock);
+}
+
+void bb_sink_http_reset_transport_health_for_test(void)
+{
+    s_th_handle = BB_TRANSPORT_HANDLE_INVALID;
 }
 #endif /* BB_SINK_HTTP_TESTING */
 
