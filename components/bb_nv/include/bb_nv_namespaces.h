@@ -10,3 +10,4 @@
 #define BB_SINK_HTTP_NVS_NS   "bb_sink_http"
 #define BB_PUB_NVS_NS         "bb_pub"
 #define BB_NET_HEALTH_EGRESS_ACT_NVS_NS "bb_egress_act"
+#define BB_REBOOT_NVS_NS      "bb_reboot"

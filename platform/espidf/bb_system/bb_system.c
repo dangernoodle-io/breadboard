@@ -1,11 +1,18 @@
 #include "bb_system.h"
 
 #include "bb_log.h"
+#include "bb_nv.h"
+#include "bb_nv_namespaces.h"
+#include "bb_nv_keys.h"
+#include "bb_ntp.h"
+#include "bb_clock.h"
 
 #include "esp_app_desc.h"
 #include "esp_system.h"
 #include "soc/soc_caps.h"
 #include <stdio.h>
+#include <string.h>
+#include <time.h>
 
 #if __has_include("bb_version_gen.h")
 #include "bb_version_gen.h"
@@ -116,6 +123,40 @@ const char *bb_system_get_idf_version(void)
 
 void bb_system_restart(void)
 {
+    esp_restart();
+}
+
+void bb_system_restart_reason(bb_reset_source_t src, const char *detail)
+{
+    bb_reboot_record_t rec;
+    memset(&rec, 0, sizeof(rec));
+    rec.src        = (uint8_t)src;
+    rec.uptime_s   = (uint32_t)(bb_clock_now_ms64() / 1000ULL);
+
+    if (detail) {
+        strncpy(rec.detail, detail, sizeof(rec.detail) - 1);
+        rec.detail[sizeof(rec.detail) - 1] = '\0';
+    }
+
+    rec.epoch_s = 0;
+    if (bb_ntp_is_synced()) {
+        time_t now = time(NULL);
+        if (now >= (time_t)1704067200LL) {
+            rec.epoch_s = (uint32_t)now;
+        }
+    }
+
+    char buf[BB_REBOOT_RECORD_STR_MAX];
+    if (bb_reboot_record_encode(&rec, buf, sizeof(buf))) {
+        bb_err_t err = bb_nv_set_str(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_LAST, buf);
+        if (err != BB_OK) {
+            bb_log_w(TAG, "restart_reason: NVS persist failed: %d", (int)err);
+        }
+    } else {
+        bb_log_w(TAG, "restart_reason: record encode failed, rebooting without reason");
+    }
+
+    bb_log_i(TAG, "restart_reason: src=%s", bb_reset_source_str(src));
     esp_restart();
 }
 

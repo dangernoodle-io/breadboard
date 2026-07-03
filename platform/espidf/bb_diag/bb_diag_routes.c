@@ -7,7 +7,11 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_openapi.h"
+#include "bb_nv.h"
+#include "bb_nv_namespaces.h"
+#include "bb_nv_keys.h"
 #include "bb_nv_delete_routes.h"
+#include "bb_ntp.h"
 #include "bb_ota_validator.h"
 #include "bb_init.h"
 #include "bb_system.h"
@@ -26,6 +30,7 @@
 #include "esp_partition.h"
 #include <stdio.h>
 #endif
+#include <time.h>
 
 #include "lwip/tcpip.h"
 #include "lwip/tcp.h"
@@ -36,20 +41,86 @@ static const char *TAG = "bb_diag_routes";
 
 static bb_event_topic_t s_boot_topic = NULL;
 
+// Reboot-reason SSOT (B1-527 PR-A) — latched once at boot by load_reboot_record().
+static bb_reset_source_t s_reboot_src        = BB_RESET_SRC_UNKNOWN;
+static char              s_reboot_detail[49] = {0};
+static uint32_t          s_reboot_epoch_s    = 0;
+static uint32_t          s_reboot_uptime_s   = 0;
+
+// Read+decode+erase the clear-on-read reboot record. Only trusted when this
+// boot's reset reason is software (BB_RESET_REASON_SW) — a record left over
+// from a stale/aborted write (e.g. a subsequent panic before the intended
+// reboot completed) must not be misattributed to a different reset class.
+static void load_reboot_record(void)
+{
+    char buf[BB_REBOOT_RECORD_STR_MAX] = {0};
+    bb_err_t rc = bb_nv_get_str(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_LAST, buf, sizeof(buf), "");
+
+    // Only decode when the NVS read actually succeeded — on a non-NOT_FOUND
+    // error (corruption/foreign entry), bb_nv_get_str may leave buf
+    // untouched, and buf is zero-initialized above so decode would just
+    // fail cleanly on "" rather than reading anything meaningful anyway.
+    bb_reboot_record_t rec;
+    bool have_rec = (rc == BB_OK) && bb_reboot_record_decode(buf, &rec);
+
+    // Clear-on-read regardless of decode outcome (including the NVS-error
+    // path above) — a malformed/stale record must not linger and get
+    // misread on a future boot.
+    bb_nv_erase(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_LAST);
+
+    bool sw_reset = (bb_system_get_reset_reason() == BB_RESET_REASON_SW);
+    if (have_rec && sw_reset) {
+        s_reboot_src = (bb_reset_source_t)rec.src;
+        strncpy(s_reboot_detail, rec.detail, sizeof(s_reboot_detail) - 1);
+        s_reboot_detail[sizeof(s_reboot_detail) - 1] = '\0';
+        s_reboot_epoch_s  = rec.epoch_s;
+        s_reboot_uptime_s = rec.uptime_s;
+    } else {
+        s_reboot_src         = BB_RESET_SRC_UNKNOWN;
+        s_reboot_detail[0]   = '\0';
+        s_reboot_epoch_s     = 0;
+        s_reboot_uptime_s    = 0;
+    }
+}
+
+// Build a fresh diag.boot snapshot. Called both at publish time (init +
+// on_validated) and at GET-request time so "now" (used for reboot_reason.age_s)
+// always reflects the current wall clock, not a stale publish-time value.
+static void build_boot_snap(bb_diag_boot_snap_t *snap)
+{
+    const char *rr = bb_system_reset_reason_str(bb_system_get_reset_reason());
+    size_t rr_len = strlen(rr);
+    if (rr_len >= sizeof(snap->reset_reason)) rr_len = sizeof(snap->reset_reason) - 1;
+    memcpy(snap->reset_reason, rr, rr_len);
+    snap->reset_reason[rr_len] = '\0';
+    snap->wdt_resets        = bb_diag_abnormal_reset_count();
+    snap->panic_available   = bb_diag_panic_available();
+    snap->panic_boots_since = snap->panic_available ? bb_diag_panic_boots_since() : 0;
+    snap->pending_verify    = !bb_ota_is_validated();
+    snap->rolled_back       = bb_ota_rolled_back();
+
+    snap->reboot_src = (uint8_t)s_reboot_src;
+    strncpy(snap->reboot_detail, s_reboot_detail, sizeof(snap->reboot_detail) - 1);
+    snap->reboot_detail[sizeof(snap->reboot_detail) - 1] = '\0';
+    snap->reboot_epoch_s  = s_reboot_epoch_s;
+    snap->reboot_uptime_s = s_reboot_uptime_s;
+
+    snap->now_epoch_valid = false;
+    snap->now_epoch_s     = 0;
+    if (bb_ntp_is_synced()) {
+        time_t now = time(NULL);
+        if (now >= (time_t)1704067200LL) {
+            snap->now_epoch_valid = true;
+            snap->now_epoch_s     = (uint32_t)now;
+        }
+    }
+}
+
 static void diag_boot_publish(void)
 {
     if (s_boot_topic == NULL) return;
     bb_diag_boot_snap_t snap;
-    const char *rr = bb_system_reset_reason_str(bb_system_get_reset_reason());
-    size_t rr_len = strlen(rr);
-    if (rr_len >= sizeof(snap.reset_reason)) rr_len = sizeof(snap.reset_reason) - 1;
-    memcpy(snap.reset_reason, rr, rr_len);
-    snap.reset_reason[rr_len] = '\0';
-    snap.wdt_resets        = bb_diag_abnormal_reset_count();
-    snap.panic_available   = bb_diag_panic_available();
-    snap.panic_boots_since = snap.panic_available ? bb_diag_panic_boots_since() : 0;
-    snap.pending_verify    = !bb_ota_is_validated();
-    snap.rolled_back       = bb_ota_rolled_back();
+    build_boot_snap(&snap);
     bb_cache_update(BB_DIAG_BOOT_TOPIC, &snap);
     bb_cache_post(BB_DIAG_BOOT_TOPIC);
 }
@@ -128,6 +199,15 @@ static bb_err_t boot_get_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_end(&err_obj);
         return BB_ERR_NO_SPACE;
     }
+    // Refresh the cache entry with a fresh "now" so reboot_reason.age_s (and
+    // any future request-time-relative field) reflects this GET, not the
+    // last publish. bb_cache_update on an owned-mode topic is a cheap memcpy
+    // (no SSE post) — the retained SSE snapshot is unaffected.
+    {
+        bb_diag_boot_snap_t fresh;
+        build_boot_snap(&fresh);
+        bb_cache_update(BB_DIAG_BOOT_TOPIC, &fresh);
+    }
     bb_cache_serialize_into(BB_DIAG_BOOT_TOPIC, obj);
     char *str = bb_json_serialize(obj);
     bb_json_free(obj);
@@ -167,9 +247,22 @@ static const bb_route_response_t s_boot_get_responses[] = {
       "\"boots_since\":{\"type\":\"integer\"}},"
       "\"required\":[\"available\"]},"
       "\"pending_verify\":{\"type\":\"boolean\"},"
-      "\"rolled_back\":{\"type\":\"boolean\"}},"
-      "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\",\"pending_verify\",\"rolled_back\"]}",
-      "current boot reset reason, WDT-reset count, panic availability, and OTA state summary" },
+      "\"rolled_back\":{\"type\":\"boolean\"},"
+      "\"reboot_reason\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"source\":{\"type\":\"string\"},"
+      "\"detail\":{\"type\":\"string\"},"
+      "\"uptime_s\":{\"type\":\"integer\"},"
+      "\"epoch_s\":{\"type\":\"integer\"},"
+      "\"age_s\":{\"type\":\"integer\"}},"
+      "\"required\":[\"source\",\"uptime_s\",\"epoch_s\"]}},"
+      "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\",\"pending_verify\",\"rolled_back\",\"reboot_reason\"]}",
+      "current boot reset reason, WDT-reset count, panic availability, OTA state summary, "
+      "and the semantic reboot_reason SSOT (may disagree with hardware reset_reason — e.g. "
+      "an app-requested reboot still reports reset_reason=\\\"software\\\" at the hardware "
+      "level while reboot_reason.source names the app-level cause; source=\\\"unknown\\\" when "
+      "no semantic record was captured for this boot). age_s is omitted when epoch_s is 0 "
+      "or the current wall clock is not NTP-synced." },
     { 0 },
 };
 
@@ -783,6 +876,9 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     err = bb_nv_delete_routes_init(server);
     if (err != BB_OK) return err;
 
+    // Latch the reboot-reason SSOT once, before the first diag_boot_publish().
+    load_reboot_record();
+
     // Register diag.boot in bb_cache (owned struct, serializer shared with SSE).
     {
         bb_err_t cerr = bb_cache_register(BB_DIAG_BOOT_TOPIC, NULL,
@@ -804,9 +900,15 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
             "\"available\":{\"type\":\"boolean\"},"
             "\"boots_since\":{\"type\":\"integer\"}}},"
             "\"pending_verify\":{\"type\":\"boolean\"},"
-            "\"rolled_back\":{\"type\":\"boolean\"}},"
+            "\"rolled_back\":{\"type\":\"boolean\"},"
+            "\"reboot_reason\":{\"type\":\"object\",\"properties\":{"
+            "\"source\":{\"type\":\"string\"},"
+            "\"detail\":{\"type\":\"string\"},"
+            "\"uptime_s\":{\"type\":\"integer\"},"
+            "\"epoch_s\":{\"type\":\"integer\"},"
+            "\"age_s\":{\"type\":\"integer\"}}}},"
             "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\","
-            "\"pending_verify\",\"rolled_back\"]}";
+            "\"pending_verify\",\"rolled_back\",\"reboot_reason\"]}";
 
         bb_err_t terr = bb_event_topic_register(BB_DIAG_BOOT_TOPIC, &s_boot_topic);
         if (terr != BB_OK) {

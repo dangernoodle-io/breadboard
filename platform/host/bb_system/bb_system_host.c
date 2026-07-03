@@ -83,6 +83,13 @@ void bb_system_restart(void)
     exit(0);
 }
 
+void bb_system_restart_reason(bb_reset_source_t src, const char *detail)
+{
+    fprintf(stderr, "bb_system_restart_reason: host stub — src=%s detail=%s — exiting\n",
+            bb_reset_source_str(src), detail ? detail : "");
+    exit(0);
+}
+
 bb_err_t bb_system_get_app_sha256(char *out, size_t out_size)
 {
     if (!out || out_size == 0) return BB_ERR_INVALID_ARG;

@@ -81,7 +81,7 @@ COMPONENT_MAP = {
             "components/bb_diag/bb_diag_event_common.c",
             "platform/host/bb_diag/bb_diag_panic.c",
         ],
-        "depends":  ["bb_core"],
+        "depends":  ["bb_core", "bb_system"],
     },
     "bb_nv": {
         "includes": ["components/bb_nv/include", "platform/espidf/bb_nv"],
@@ -134,7 +134,10 @@ COMPONENT_MAP = {
     },
     "bb_system": {
         "includes": ["components/bb_system/include", "platform/host/bb_system"],
-        "sources":  ["platform/host/bb_system/bb_system_host.c"],
+        "sources":  [
+            "platform/host/bb_system/bb_system_host.c",
+            "components/bb_system/src/bb_reboot_record.c",
+        ],
         "depends":  ["bb_core"],
     },
     "bb_wdt": {
