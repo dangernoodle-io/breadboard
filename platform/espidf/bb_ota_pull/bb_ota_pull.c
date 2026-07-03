@@ -23,6 +23,7 @@
 #include "bb_wdt.h"
 #include "bb_board.h"
 #include "bb_task_registry.h"
+#include "bb_system.h"
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
 #include "esp_ota_ops.h"
@@ -942,7 +943,7 @@ static void ota_worker_task(void *arg)
     if (err == BB_OK) {
         bb_log_i(TAG, "OTA complete, rebooting to %s", result.latest_tag);
         vTaskDelay(pdMS_TO_TICKS(500));
-        esp_restart();
+        bb_system_restart_reason(BB_RESET_SRC_OTA_PULL_APPLIED, NULL);
     }
 
     s_ota_in_progress = false;

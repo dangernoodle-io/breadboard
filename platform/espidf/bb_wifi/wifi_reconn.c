@@ -6,6 +6,7 @@
 #include "bb_wifi.h"
 #include "bb_alert.h"
 #include "bb_task_registry.h"
+#include "bb_system.h"
 
 #include <stdio.h>
 
@@ -102,12 +103,12 @@ static void do_safeguard_reboot(const char *ctx)
     if (bb_ota_is_validated()) {
         bb_log_w(TAG, "%s (handshake=%d, generic=%d) on validated firmware: safeguard reboot, boot_count not incremented",
                  ctx, s_state.handshake_fail_count, s_state.generic_fail_count);
-        esp_restart();
+        bb_system_restart_reason(BB_RESET_SRC_WIFI_SAFEGUARD, "persistent disconnect");
     } else {
         bb_log_e(TAG, "%s (handshake=%d, generic=%d) for >5min, rebooting",
                  ctx, s_state.handshake_fail_count, s_state.generic_fail_count);
         bb_nv_config_increment_boot_count();
-        esp_restart();
+        bb_system_restart_reason(BB_RESET_SRC_WIFI_SAFEGUARD, "persistent disconnect");
     }
 #else
     bb_log_w(TAG, "%s (handshake=%d, generic=%d) for >5min: safeguard reboot deferred to egress tier-3",

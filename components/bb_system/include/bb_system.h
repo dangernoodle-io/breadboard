@@ -122,6 +122,7 @@ typedef enum {
     BB_RESET_SRC_OTA_PUSH_APPLIED,
     BB_RESET_SRC_OTA_BOOT_APPLY,
     BB_RESET_SRC_OTA_BOOT_DONE,
+    BB_RESET_SRC_OTA_BOOT_ABORT,
     BB_RESET_SRC__COUNT,  // sentinel — not a real reason, must stay last
 } bb_reset_source_t;
 
@@ -140,7 +141,8 @@ typedef enum {
     X(BB_RESET_SRC_OTA_PULL_APPLIED,    "ota_pull_applied")             \
     X(BB_RESET_SRC_OTA_PUSH_APPLIED,    "ota_push_applied")             \
     X(BB_RESET_SRC_OTA_BOOT_APPLY,      "ota_boot_apply")               \
-    X(BB_RESET_SRC_OTA_BOOT_DONE,       "ota_boot_done")
+    X(BB_RESET_SRC_OTA_BOOT_DONE,       "ota_boot_done")                \
+    X(BB_RESET_SRC_OTA_BOOT_ABORT,      "ota_boot_abort")
 
 /// Wire string for a reset-source enum value. Never NULL. Out-of-range values
 /// (including BB_RESET_SRC_UNKNOWN) map to "unknown". Pure — no platform deps.

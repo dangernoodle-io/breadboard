@@ -22,6 +22,7 @@
 #include "lwip/ip_addr.h"
 #include "bb_ota_validator.h"
 #include "bb_mem.h"
+#include "bb_system.h"
 
 static const char *TAG = "bb_wifi";
 #define WIFI_CONNECTED_BIT BIT0
@@ -689,7 +690,7 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
             }
             bb_log_e(TAG, "WiFi connection timeout after 60s, restarting");
             bb_nv_config_increment_boot_count();
-            esp_restart();
+            bb_system_restart_reason(BB_RESET_SRC_WIFI_COLD_TIMEOUT, "cold connect timeout");
         } else {
             bb_log_e(TAG, "WiFi connection timeout after %us", (unsigned)(timeout_ms / 1000));
             return ESP_ERR_TIMEOUT;
@@ -844,7 +845,7 @@ bb_err_t bb_wifi_set_hostname(const char *hostname)
 static void reconfig_reboot_work_fn(void *arg)
 {
     (void)arg;
-    esp_restart();
+    bb_system_restart_reason(BB_RESET_SRC_WIFI_RECONFIGURE, NULL);
 }
 
 bb_err_t bb_wifi_reconfigure(const char *ssid, const char *pass)
@@ -902,8 +903,8 @@ static bb_err_t bb_wifi_autoinit(void)
         s_pending_try = false;
         bb_nv_config_clear_wifi_pending();
         bb_log_w(TAG, "pending wifi try failed; reverting to saved network and rebooting");
-        esp_restart();
-        // unreachable — esp_restart does not return
+        bb_system_restart_reason(BB_RESET_SRC_WIFI_PENDING_REVERT, NULL);
+        // unreachable — bb_system_restart_reason does not return
     }
 #endif
 

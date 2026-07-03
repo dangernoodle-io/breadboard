@@ -6,12 +6,11 @@
 
 #include <string.h>
 
-// Flag + breadcrumb live in the bb_cfg namespace (generic bb_nv API). The flag
-// is a one-shot mechanism marker, NOT a user config key — deliberately not in
+// Flag lives in the bb_cfg namespace (generic bb_nv API). The flag is a
+// one-shot mechanism marker, NOT a user config key — deliberately not in
 // the bb_nv_config manifest table.
 #define OTA_BOOT_NS         BB_NV_CONFIG_NVS_NS
 #define OTA_BOOT_FLAG_KEY   "ota_boot_mode"
-#define OTA_BOOT_STAGE_KEY  "ota_boot_stg"
 
 // Maximum string lengths for set_mdns_service args (hostname/service/proto).
 #define OTA_BOOT_MDNS_STR_MAX  64
@@ -80,6 +79,7 @@ bool bb_ota_boot_pending(void)
 #include "bb_init.h"
 #include "bb_http_client.h"
 #include "bb_task_registry.h"
+#include "bb_system.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -206,11 +206,6 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
 }
 #endif // CONFIG_BB_OTA_BOOT_STATUS_HTTP
 
-static void breadcrumb(uint8_t stage)
-{
-    bb_nv_set_u8(OTA_BOOT_NS, OTA_BOOT_STAGE_KEY, stage);
-}
-
 // Boot-mode worker: resolve the latest asset + pull it, both at full heap. Runs
 // on a fat stack (the mbedTLS handshake in bb_ota_check_now needs >=8 KB, more
 // than the main task carries). NEVER returns — always reboots.
@@ -230,26 +225,22 @@ static void ota_boot_worker(void *arg)
         bb_ota_check_set_releases_url(s_boot_url) != BB_OK ||
         bb_ota_check_set_firmware_board(s_boot_board) != BB_OK) {
         bb_log_e(TAG, "boot-mode: update_check setup failed, rebooting normal");
-        breadcrumb(0xE2);
         bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
-        esp_restart();
+        bb_system_restart_reason(BB_RESET_SRC_OTA_BOOT_ABORT, "init_fail");
     }
 
     bb_ota_check_status_t st;
     if (bb_ota_check_now() != BB_OK ||
         bb_ota_check_get_status(&st) != BB_OK || !st.last_check_ok) {
         bb_log_e(TAG, "boot-mode: manifest check failed, rebooting normal");
-        breadcrumb(0xE2);
         bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
-        esp_restart();
+        bb_system_restart_reason(BB_RESET_SRC_OTA_BOOT_ABORT, "manifest_fail");
     }
     if (!st.available || st.download_url[0] == '\0') {
         bb_log_w(TAG, "boot-mode: no update available, rebooting normal");
-        breadcrumb(0xE3);
         bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
-        esp_restart();
+        bb_system_restart_reason(BB_RESET_SRC_OTA_BOOT_ABORT, "no_update");
     }
-    breadcrumb(4);
 
 #if CONFIG_BB_OTA_BOOT_PROGRESS_HTTP
     bb_log_w(TAG, "boot-ota heap pre-pull: largest_block=%u free_internal=%u",
@@ -261,15 +252,13 @@ static void ota_boot_worker(void *arg)
     bb_log_w(TAG, "boot-mode: pulling %s", st.download_url);
     bb_err_t err = bb_ota_pull_run_sync(st.download_url);
     if (err == BB_OK) {
-        breadcrumb(8);
         bb_log_w(TAG, "boot-mode: image written, rebooting to new image");
         vTaskDelay(pdMS_TO_TICKS(500));
-        esp_restart();
+        bb_system_restart_reason(BB_RESET_SRC_OTA_BOOT_DONE, NULL);
     }
 
     bb_log_e(TAG, "boot-mode: pull failed (%s), rebooting normal", esp_err_to_name(err));
-    breadcrumb(0xE4);
-    esp_restart();
+    bb_system_restart_reason(BB_RESET_SRC_OTA_BOOT_ABORT, "pull_fail");
 }
 
 #if CONFIG_BB_OTA_BOOT_PROGRESS_HTTP
@@ -366,7 +355,6 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
     // Clear the one-shot flag FIRST so a failed pull falls back to a normal boot
     // on the next reset (no boot loop).
     bb_nv_set_u8(OTA_BOOT_NS, OTA_BOOT_FLAG_KEY, 0);
-    breadcrumb(1);
     bb_ota_emit_progress("boot", BB_OTA_PHASE_START, 0);
     bb_log_w(TAG, "OTA boot-mode: pulling firmware at full heap");
 
@@ -376,11 +364,9 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
     }
     if (!bb_wifi_has_ip()) {
         bb_log_e(TAG, "OTA boot-mode: no wifi, rebooting normal");
-        breadcrumb(0xE1);
         bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
-        esp_restart();
+        bb_system_restart_reason(BB_RESET_SRC_OTA_BOOT_ABORT, "no_wifi");
     }
-    breadcrumb(2);
 
 #if CONFIG_BB_LOG_UDP_SINK
     // Broadcast the boot-mode log trace (serial-less boards). 0xFFFFFFFF =
@@ -395,7 +381,6 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
     if (!bb_ntp_wait_synced(15000)) {
         bb_log_w(TAG, "OTA boot-mode: SNTP timeout, proceeding (TLS may fail)");
     }
-    breadcrumb(3);
 
 #if CONFIG_BB_OTA_BOOT_PROGRESS_HTTP
     boot_progress_server_start();
@@ -408,9 +393,8 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
     TaskHandle_t boot_worker_task = NULL;
     if (xTaskCreate(ota_boot_worker, "ota_boot", OTA_BOOT_WORKER_STACK, NULL, 5, &boot_worker_task) != pdPASS) {
         bb_log_e(TAG, "OTA boot-mode: worker create failed, rebooting normal");
-        breadcrumb(0xE5);
         bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
-        esp_restart();
+        bb_system_restart_reason(BB_RESET_SRC_OTA_BOOT_ABORT, "task_fail");
     }
     bb_task_registry_register("ota_boot", OTA_BOOT_WORKER_STACK, boot_worker_task, NULL, NULL);
     for (;;) {
@@ -423,7 +407,7 @@ static void ota_boot_reboot_task(void *arg)
 {
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(1000));
-    esp_restart();
+    bb_system_restart_reason(BB_RESET_SRC_OTA_BOOT_APPLY, NULL);
 }
 
 // POST /api/update/apply — arm boot mode and reboot. The lean trigger: one route,

@@ -15,6 +15,9 @@
 static void factory_reset_reboot_work_fn(void *arg)
 {
     (void)arg;
+    // TODO(B1-527): source stays unknown here — bb_nv is below bb_system in
+    // the layer graph; tagging needs the reset-source types moved to bb_core
+    // (follow-up).
     esp_restart();
 }
 #endif /* ESP_PLATFORM */
