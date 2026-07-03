@@ -137,8 +137,9 @@ COMPONENT_MAP = {
         "sources":  [
             "platform/host/bb_system/bb_system_host.c",
             "components/bb_system/src/bb_reboot_record.c",
+            "components/bb_system/src/bb_system_reboot_parse.c",
         ],
-        "depends":  ["bb_core"],
+        "depends":  ["bb_core", "bb_json"],
     },
     "bb_wdt": {
         "includes": ["components/bb_wdt/include", "platform/host/bb_wdt"],

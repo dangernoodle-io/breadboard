@@ -126,7 +126,16 @@ void bb_system_restart(void)
     esp_restart();
 }
 
+// Sanity floor for a recorded epoch: 2024-01-01T00:00:00Z. Values below this
+// (device or caller-supplied) are treated as invalid/unset.
+#define BB_REBOOT_EPOCH_FLOOR_S 1704067200U
+
 void bb_system_restart_reason(bb_reset_source_t src, const char *detail)
+{
+    bb_system_restart_reason_at(src, detail, 0);
+}
+
+void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint32_t caller_epoch_s)
 {
     bb_reboot_record_t rec;
     memset(&rec, 0, sizeof(rec));
@@ -138,13 +147,9 @@ void bb_system_restart_reason(bb_reset_source_t src, const char *detail)
         rec.detail[sizeof(rec.detail) - 1] = '\0';
     }
 
-    rec.epoch_s = 0;
-    if (bb_ntp_is_synced()) {
-        time_t now = time(NULL);
-        if (now >= (time_t)1704067200LL) {
-            rec.epoch_s = (uint32_t)now;
-        }
-    }
+    bool ntp_synced = bb_ntp_is_synced();
+    uint32_t device_epoch_s = ntp_synced ? (uint32_t)time(NULL) : 0U;
+    rec.epoch_s = bb_reboot_pick_epoch(ntp_synced, device_epoch_s, caller_epoch_s, BB_REBOOT_EPOCH_FLOOR_S);
 
     char buf[BB_REBOOT_RECORD_STR_MAX];
     if (bb_reboot_record_encode(&rec, buf, sizeof(buf))) {

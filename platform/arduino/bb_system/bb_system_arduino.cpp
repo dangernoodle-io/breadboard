@@ -2,6 +2,7 @@
 
 #include "bb_log.h"
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -75,7 +76,12 @@ void bb_system_restart(void)
 
 void bb_system_restart_reason(bb_reset_source_t src, const char *detail)
 {
-    fprintf(stderr, "bb_system_restart_reason: arduino stub — src=%s detail=%s — exiting\n",
-            bb_reset_source_str(src), detail ? detail : "");
+    bb_system_restart_reason_at(src, detail, 0);
+}
+
+void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint32_t caller_epoch_s)
+{
+    fprintf(stderr, "bb_system_restart_reason_at: arduino stub — src=%s detail=%s caller_epoch_s=%" PRIu32 " — exiting\n",
+            bb_reset_source_str(src), detail ? detail : "", caller_epoch_s);
     exit(0);
 }

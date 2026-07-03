@@ -156,6 +156,33 @@ const char *bb_reset_source_str(bb_reset_source_t src);
 /// bb_system_restart().
 void bb_system_restart_reason(bb_reset_source_t src, const char *detail);
 
+/// Same as bb_system_restart_reason, but accepts a caller-supplied epoch
+/// (e.g. from a client's clock) to record when the device has no NTP sync
+/// of its own. See bb_reboot_pick_epoch for the selection rule: device NTP
+/// time always wins when synced+valid; caller_epoch_s is the fallback;
+/// otherwise 0. Pass caller_epoch_s=0 when the caller has no timestamp —
+/// bb_system_restart_reason is exactly this call with caller_epoch_s=0.
+void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint32_t caller_epoch_s);
+
+/// Pure parse of POST /api/reboot's optional JSON body: {"ts": <epoch_s>,
+/// "detail": "<string, up to 48 chars>"} — both fields optional. body may be
+/// NULL/empty/non-JSON/oversized; on any parse failure out_ts=0 and
+/// out_detail falls back per the precedence below. No platform deps beyond
+/// bb_json (host-testable; compiled on host/ESP-IDF/Arduino).
+///
+/// ts: parsed from body["ts"] and clamped to (0, UINT32_MAX] before casting
+/// (negative, zero, NaN/Inf, or >UINT32_MAX all yield out_ts=0).
+///
+/// detail precedence: body["detail"] (non-empty) > ua_or_null (non-NULL,
+/// non-empty) > "". ua_or_null is the already-resolved caller identity
+/// (e.g. a request's User-Agent header) — this function does not read any
+/// header itself, keeping it request-independent and host-testable.
+///
+/// out_ts and out_detail must be non-NULL; out_detail is bounded to
+/// out_detail_len (NUL-terminated, truncated if longer).
+void bb_system_reboot_parse_body(const char *body, int body_len, const char *ua_or_null,
+                                 uint32_t *out_ts, char *out_detail, size_t out_detail_len);
+
 // ---------------------------------------------------------------------------
 // Reboot record — pure pack/unpack (host-testable, compiled on all platforms)
 // ---------------------------------------------------------------------------
@@ -187,6 +214,14 @@ bool bb_reboot_record_encode(const bb_reboot_record_t *r, char *buf, size_t buf_
 /// src field) and leaves *out untouched — callers should zero-init their own
 /// struct as the safe fallback before calling this.
 bool bb_reboot_record_decode(const char *str, bb_reboot_record_t *out);
+
+/// Pick the epoch to record on a reboot. Pure — no platform deps.
+/// Device NTP wins when ntp_synced && device_epoch_s >= floor_s; otherwise
+/// caller_epoch_s is used when it is >= floor_s; otherwise 0. floor_s is a
+/// sanity floor (e.g. 1704067200 = 2024-01-01 UTC) below which a value is
+/// treated as invalid/unset.
+uint32_t bb_reboot_pick_epoch(bool ntp_synced, uint32_t device_epoch_s,
+                               uint32_t caller_epoch_s, uint32_t floor_s);
 
 // ---------------------------------------------------------------------------
 // Reboot history — rolling ring of the last N reboots (host-testable, pure

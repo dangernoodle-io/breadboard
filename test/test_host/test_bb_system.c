@@ -378,6 +378,221 @@ void test_bb_reboot_record_decode_truncates_oversized_detail(void)
     TEST_ASSERT_EQUAL_INT(48, (int)strlen(out.detail));
 }
 
+// ---------------------------------------------------------------------------
+// bb_reboot_pick_epoch — pure epoch-selection helper (B1-527 follow-up).
+// ---------------------------------------------------------------------------
+
+#define TEST_EPOCH_FLOOR 1704067200U  // 2024-01-01T00:00:00Z
+
+void test_bb_reboot_pick_epoch_ntp_wins_over_caller(void)
+{
+    // NTP synced and above the floor wins even when a caller epoch is also
+    // supplied.
+    uint32_t got = bb_reboot_pick_epoch(true, TEST_EPOCH_FLOOR + 1000U,
+                                         TEST_EPOCH_FLOOR + 1U, TEST_EPOCH_FLOOR);
+    TEST_ASSERT_EQUAL_UINT32(TEST_EPOCH_FLOOR + 1000U, got);
+}
+
+void test_bb_reboot_pick_epoch_ntp_synced_but_below_floor_falls_to_caller(void)
+{
+    // ntp_synced=true but the device epoch itself is below the sanity
+    // floor (e.g. RTC not yet set) — falls through to the caller epoch.
+    uint32_t got = bb_reboot_pick_epoch(true, TEST_EPOCH_FLOOR - 1U,
+                                         TEST_EPOCH_FLOOR + 5U, TEST_EPOCH_FLOOR);
+    TEST_ASSERT_EQUAL_UINT32(TEST_EPOCH_FLOOR + 5U, got);
+}
+
+void test_bb_reboot_pick_epoch_caller_only(void)
+{
+    // No NTP sync at all — caller epoch (valid) is used.
+    uint32_t got = bb_reboot_pick_epoch(false, 0U, TEST_EPOCH_FLOOR + 42U, TEST_EPOCH_FLOOR);
+    TEST_ASSERT_EQUAL_UINT32(TEST_EPOCH_FLOOR + 42U, got);
+}
+
+void test_bb_reboot_pick_epoch_both_absent_returns_zero(void)
+{
+    uint32_t got = bb_reboot_pick_epoch(false, 0U, 0U, TEST_EPOCH_FLOOR);
+    TEST_ASSERT_EQUAL_UINT32(0U, got);
+}
+
+void test_bb_reboot_pick_epoch_caller_below_floor_returns_zero(void)
+{
+    // NTP not synced and the caller-supplied epoch is below the sanity
+    // floor (e.g. a client with its own unset clock) — neither is usable.
+    uint32_t got = bb_reboot_pick_epoch(false, 0U, TEST_EPOCH_FLOOR - 1U, TEST_EPOCH_FLOOR);
+    TEST_ASSERT_EQUAL_UINT32(0U, got);
+}
+
+// ---------------------------------------------------------------------------
+// bb_system_reboot_parse_body — pure parse of POST /api/reboot's optional
+// JSON body (B1-527 follow-up).
+// ---------------------------------------------------------------------------
+
+void test_bb_system_reboot_parse_body_null_body(void)
+{
+    uint32_t ts = 999;
+    char detail[49] = "unset";
+    bb_system_reboot_parse_body(NULL, 0, NULL, &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_UINT32(0U, ts);
+    TEST_ASSERT_EQUAL_STRING("", detail);
+}
+
+void test_bb_system_reboot_parse_body_empty_body(void)
+{
+    uint32_t ts = 999;
+    char detail[49] = "unset";
+    bb_system_reboot_parse_body("", 0, NULL, &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_UINT32(0U, ts);
+    TEST_ASSERT_EQUAL_STRING("", detail);
+}
+
+void test_bb_system_reboot_parse_body_non_json(void)
+{
+    uint32_t ts = 999;
+    char detail[49] = "unset";
+    const char *body = "not json";
+    bb_system_reboot_parse_body(body, (int)strlen(body), NULL, &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_UINT32(0U, ts);
+    TEST_ASSERT_EQUAL_STRING("", detail);
+}
+
+void test_bb_system_reboot_parse_body_oversized_garbage(void)
+{
+    // A large non-JSON blob — tolerated like any other parse failure.
+    char body[512];
+    memset(body, 'x', sizeof(body) - 1);
+    body[sizeof(body) - 1] = '\0';
+
+    uint32_t ts = 999;
+    char detail[49] = "unset";
+    bb_system_reboot_parse_body(body, (int)strlen(body), NULL, &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_UINT32(0U, ts);
+    TEST_ASSERT_EQUAL_STRING("", detail);
+}
+
+void test_bb_system_reboot_parse_body_detail_used(void)
+{
+    const char *body = "{\"detail\":\"manual restart\"}";
+    uint32_t ts = 999;
+    char detail[49] = "unset";
+    bb_system_reboot_parse_body(body, (int)strlen(body), "some-ua", &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_UINT32(0U, ts);
+    TEST_ASSERT_EQUAL_STRING("manual restart", detail);
+}
+
+void test_bb_system_reboot_parse_body_empty_detail_falls_back_to_ua(void)
+{
+    const char *body = "{\"detail\":\"\"}";
+    uint32_t ts = 999;
+    char detail[49] = "unset";
+    bb_system_reboot_parse_body(body, (int)strlen(body), "curl/8.0", &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_STRING("curl/8.0", detail);
+}
+
+void test_bb_system_reboot_parse_body_no_detail_uses_ua(void)
+{
+    uint32_t ts = 999;
+    char detail[49] = "unset";
+    bb_system_reboot_parse_body(NULL, 0, "curl/8.0", &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_STRING("curl/8.0", detail);
+}
+
+void test_bb_system_reboot_parse_body_no_detail_no_ua_empty(void)
+{
+    uint32_t ts = 999;
+    char detail[49] = "unset";
+    bb_system_reboot_parse_body(NULL, 0, NULL, &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_STRING("", detail);
+}
+
+void test_bb_system_reboot_parse_body_ts_negative_zero(void)
+{
+    const char *body = "{\"ts\":-5}";
+    uint32_t ts = 999;
+    char detail[49];
+    bb_system_reboot_parse_body(body, (int)strlen(body), NULL, &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_UINT32(0U, ts);
+}
+
+void test_bb_system_reboot_parse_body_ts_zero_stays_zero(void)
+{
+    const char *body = "{\"ts\":0}";
+    uint32_t ts = 999;
+    char detail[49];
+    bb_system_reboot_parse_body(body, (int)strlen(body), NULL, &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_UINT32(0U, ts);
+}
+
+void test_bb_system_reboot_parse_body_ts_huge_returns_zero(void)
+{
+    const char *body = "{\"ts\":1e300}";
+    uint32_t ts = 999;
+    char detail[49];
+    bb_system_reboot_parse_body(body, (int)strlen(body), NULL, &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_UINT32(0U, ts);
+}
+
+void test_bb_system_reboot_parse_body_ts_over_uint32_max_returns_zero(void)
+{
+    const char *body = "{\"ts\":4294967296}";  // UINT32_MAX + 1
+    uint32_t ts = 999;
+    char detail[49];
+    bb_system_reboot_parse_body(body, (int)strlen(body), NULL, &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_UINT32(0U, ts);
+}
+
+void test_bb_system_reboot_parse_body_ts_valid(void)
+{
+    const char *body = "{\"ts\":1735689600}";
+    uint32_t ts = 999;
+    char detail[49];
+    bb_system_reboot_parse_body(body, (int)strlen(body), NULL, &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_UINT32(1735689600U, ts);
+}
+
+void test_bb_system_reboot_parse_body_ua_truncated_to_out_len(void)
+{
+    uint32_t ts = 999;
+    char detail[8];
+    bb_system_reboot_parse_body(NULL, 0, "a-very-long-user-agent-string", &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_STRING("a-very-", detail);  // 7 chars + NUL
+}
+
+void test_bb_system_reboot_parse_body_empty_ua_stays_empty(void)
+{
+    // ua_or_null is non-NULL but empty ("") — with no body detail either,
+    // exercises the ua_or_null[0] sub-branch of the precedence check
+    // (distinct from the ua_or_null==NULL case covered above).
+    uint32_t ts = 999;
+    char detail[49] = "unset";
+    bb_system_reboot_parse_body(NULL, 0, "", &ts, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_STRING("", detail);
+}
+
+void test_bb_system_reboot_parse_body_guard_out_detail_len_zero_is_safe_noop(void)
+{
+    uint32_t ts = 999;
+    char detail[8] = "unset";
+    // Must not underflow/OOB-write; out_ts/out_detail are left untouched.
+    bb_system_reboot_parse_body(NULL, 0, "curl/8.0", &ts, detail, 0);
+    TEST_ASSERT_EQUAL_UINT32(999U, ts);
+    TEST_ASSERT_EQUAL_STRING("unset", detail);
+}
+
+void test_bb_system_reboot_parse_body_guard_out_detail_null_is_safe_noop(void)
+{
+    uint32_t ts = 999;
+    bb_system_reboot_parse_body(NULL, 0, "curl/8.0", &ts, NULL, 8);
+    TEST_ASSERT_EQUAL_UINT32(999U, ts);
+}
+
+void test_bb_system_reboot_parse_body_guard_out_ts_null_is_safe_noop(void)
+{
+    char detail[8] = "unset";
+    bb_system_reboot_parse_body(NULL, 0, "curl/8.0", NULL, detail, sizeof(detail));
+    TEST_ASSERT_EQUAL_STRING("unset", detail);
+}
+
 void test_bb_reboot_record_decode_leaves_out_untouched_on_failure(void)
 {
     bb_reboot_record_t out;

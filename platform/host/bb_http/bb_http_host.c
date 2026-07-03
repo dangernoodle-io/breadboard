@@ -172,6 +172,33 @@ int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size)
     return 0;
 }
 
+// Test hook: single-slot injected request header (name/value), consulted by
+// bb_http_req_get_header. Not owned — caller ensures lifetime for the test.
+static const char *s_req_header_name  = NULL;
+static const char *s_req_header_value = NULL;
+
+void bb_http_host_set_req_header(const char *name, const char *value)
+{
+    s_req_header_name  = name;
+    s_req_header_value = value;
+}
+
+bb_err_t bb_http_req_get_header(bb_http_request_t *req, const char *name,
+                                char *out, size_t out_len)
+{
+    (void)req;
+    if (!name || !out || out_len == 0U) return BB_ERR_INVALID_ARG;
+    out[0] = '\0';
+    if (!s_req_header_name || !s_req_header_value || strcmp(s_req_header_name, name) != 0) {
+        return BB_ERR_NOT_FOUND;
+    }
+    // Present (even if the value must be truncated to fit out_len) is BB_OK —
+    // matches the ESP-IDF backend's ESP_ERR_HTTPD_RESULT_TRUNC handling.
+    strncpy(out, s_req_header_value, out_len - 1);
+    out[out_len - 1] = '\0';
+    return BB_OK;
+}
+
 void bb_http_set_cors_methods(const char *methods)   { (void)methods; }
 void bb_http_set_cors_headers(const char *headers)   { (void)headers; }
 
