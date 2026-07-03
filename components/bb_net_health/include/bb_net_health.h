@@ -271,6 +271,20 @@ bb_egress_state_t bb_net_health_classify_egress(bb_net_mode_t wifi_mode,
                                                  int           enabled_egress_count,
                                                  int           failing_egress_count);
 
+/**
+ * Pure edge-check predicate for the evaluator's "would recover" log
+ * (B1-518 PR3, OBSERVE-ONLY): true only on the transition INTO
+ * BB_EGRESS_STATE_GW_UNREACHABLE — the only egress_state that would trigger
+ * a WiFi restart under a future act gate (egress failing AND gateway
+ * unreachable). Sustained GW_UNREACHABLE across ticks does not re-log
+ * (prev == cur == GW_UNREACHABLE returns false); a departure and later
+ * re-entry logs again. No side effects; host-testable.
+ *
+ * @param prev  egress_state observed on the previous evaluator cycle.
+ * @param cur   egress_state observed on the current evaluator cycle.
+ */
+bool bb_net_health_would_recover_edge(bb_egress_state_t prev, bb_egress_state_t cur);
+
 // ---------------------------------------------------------------------------
 // Input / output / state types
 // ---------------------------------------------------------------------------
@@ -414,6 +428,15 @@ typedef struct {
     bool     tx_available;   // true iff the counts call succeeded and enabled > 0
     int      tx_enabled;     // count of enabled AUTHORITATIVE transports
     int      tx_failing;     // count of those currently failing
+    // Egress-recovery SSOT classification (B1-518 PR3, OBSERVE-ONLY): derived
+    // each evaluator cycle from bb_net_health_classify_egress(net_mode,
+    // gw_available, gw_reachable, gw_fail_streak, BB_WIFI_GW_PROBE_FAILS,
+    // tx_enabled, tx_failing). No recovery action is wired to this field; it
+    // exists purely for /api/diag/net and the net_state log heartbeat
+    // ("egr=" token, emitted only when != BB_EGRESS_STATE_OK). Not currently
+    // serialized by bb_net_health_emit (net.health SSE topic keeps its
+    // existing schema) — same precedent as gw_available/tx_available.
+    bb_egress_state_t egress_state;
     // --- Log-heartbeat-only fields (KB#556) — sourced from data the
     // evaluator already fetches each cycle (bb_wifi_info_t / bb_wifi
     // counters); NOT serialized by bb_net_health_emit (net.health SSE
@@ -473,13 +496,16 @@ bool bb_net_health_should_log(int64_t now_us, int64_t last_log_us,
  * roam_count, no_ip_recoveries, lost_ip_recoveries, egress_dead_recoveries,
  * retry_count, restart_sta_count, uptime_s, then — ONLY when
  * s->gw_available — gw (gw_reachable) and gwdead (gw_dead_count), and
- * finally — ONLY when s->tx_available — txfail (tx_failing/tx_enabled from
- * bb_transport_health), appended in that order (gw before txfail) so a
- * truncated line drops the LEAST critical field (txfail) first, then gw,
- * before any of the fields above. Each suffix is omitted entirely (no
- * trailing space) when its availability flag is false, so boards without
- * CONFIG_BB_WIFI_GW_PROBE_ENABLE or without any registered
- * bb_transport_health transport see an unchanged heartbeat line.
+ * then — ONLY when s->tx_available — txfail (tx_failing/tx_enabled from
+ * bb_transport_health), and finally — ONLY when s->egress_state !=
+ * BB_EGRESS_STATE_OK — egr (bb_egress_state_str(s->egress_state)), appended
+ * in that order (gw, then txfail, then egr) so a truncated line drops the
+ * LEAST critical field (egr) first, then txfail, then gw, before any of the
+ * fields above. Each suffix is omitted entirely (no trailing space) when its
+ * availability flag is false / condition unmet, so boards without
+ * CONFIG_BB_WIFI_GW_PROBE_ENABLE, without any registered bb_transport_health
+ * transport, or with a healthy (OK) egress_state see an unchanged heartbeat
+ * line.
  *
  * Pure — no ESP-IDF dependency. Returns the number of bytes that would have
  * been written (snprintf semantics), or 0 if s or buf is NULL or cap <= 0.

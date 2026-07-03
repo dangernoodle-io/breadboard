@@ -1519,6 +1519,16 @@ void test_bb_net_health_format_log_txfail_omitted_when_unavailable(void);
 void test_bb_net_health_format_log_txfail_present_and_last(void);
 void test_bb_net_health_format_log_txfail_zero_counts(void);
 void test_bb_net_health_format_log_truncation_drops_txfail_first(void);
+void test_bb_net_health_format_log_egr_omitted_when_ok(void);
+void test_bb_net_health_format_log_egr_present_and_last(void);
+void test_bb_net_health_format_log_egr_all_states(void);
+void test_bb_net_health_format_log_truncation_drops_egr_first(void);
+void test_bb_net_health_would_recover_edge_transition_into_gw_unreachable(void);
+void test_bb_net_health_would_recover_edge_endpoint_down_into_gw_unreachable(void);
+void test_bb_net_health_would_recover_edge_sustained_no_relog(void);
+void test_bb_net_health_would_recover_edge_transition_out_is_false(void);
+void test_bb_net_health_would_recover_edge_ok_to_ok_is_false(void);
+void test_bb_net_health_would_recover_edge_ok_to_endpoint_down_is_false(void);
 
 // Forward declarations from test_bb_sse_writer.c
 void test_sse_idle_below_heartbeat(void);
@@ -5398,6 +5408,16 @@ int main(void) {
     RUN_TEST(test_bb_net_health_format_log_txfail_present_and_last);
     RUN_TEST(test_bb_net_health_format_log_txfail_zero_counts);
     RUN_TEST(test_bb_net_health_format_log_truncation_drops_txfail_first);
+    RUN_TEST(test_bb_net_health_format_log_egr_omitted_when_ok);
+    RUN_TEST(test_bb_net_health_format_log_egr_present_and_last);
+    RUN_TEST(test_bb_net_health_format_log_egr_all_states);
+    RUN_TEST(test_bb_net_health_format_log_truncation_drops_egr_first);
+    RUN_TEST(test_bb_net_health_would_recover_edge_transition_into_gw_unreachable);
+    RUN_TEST(test_bb_net_health_would_recover_edge_endpoint_down_into_gw_unreachable);
+    RUN_TEST(test_bb_net_health_would_recover_edge_sustained_no_relog);
+    RUN_TEST(test_bb_net_health_would_recover_edge_transition_out_is_false);
+    RUN_TEST(test_bb_net_health_would_recover_edge_ok_to_ok_is_false);
+    RUN_TEST(test_bb_net_health_would_recover_edge_ok_to_endpoint_down_is_false);
 
     // bb_vcore_wd tests (pure vcore-collapse watchdog)
     RUN_TEST(test_bb_vcore_wd_warmup_suppresses_all);

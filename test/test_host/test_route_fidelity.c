@@ -301,6 +301,7 @@ static const char k_diag_net_schema[] =
     "\"net_mode\":{\"type\":\"string\"},"
     "\"associated\":{\"type\":\"boolean\"},"
     "\"has_ip\":{\"type\":\"boolean\"},"
+    "\"egress_state\":{\"type\":\"string\"},"
     "\"mqtt\":{\"type\":\"object\",\"properties\":{"
     "\"reconnect_count\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
@@ -812,6 +813,8 @@ static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool wi
     snap.gw_fail_streak         = 2;
     snap.gw_dead_count          = 1;
     snap.last_gw_probe_ms       = gw_available ? (bb_clock_now_ms64() - 5000ULL) : 0ULL;
+    snap.egress_state           = bb_net_health_classify_egress(snap.net_mode, snap.gw_available,
+                                       snap.gw_reachable, snap.gw_fail_streak, 3, 2, 0);
 
     bb_http_resp_json_obj_set_int(&obj, "no_ip_recoveries",       (int64_t)snap.no_ip_recoveries);
     bb_http_resp_json_obj_set_int(&obj, "rssi",                   (int64_t)snap.rssi);
@@ -827,6 +830,7 @@ static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool wi
     bb_http_resp_json_obj_set_str (&obj, "net_mode",   bb_net_mode_str(snap.net_mode));
     bb_http_resp_json_obj_set_bool(&obj, "associated", snap.associated);
     bb_http_resp_json_obj_set_bool(&obj, "has_ip",     snap.has_ip);
+    bb_http_resp_json_obj_set_str (&obj, "egress_state", bb_egress_state_str(snap.egress_state));
 
     bb_http_resp_json_obj_set_obj_begin(&obj, "mqtt");
     bb_http_resp_json_obj_set_int(&obj, "reconnect_count", (int64_t)snap.mqtt_reconnect_count);
