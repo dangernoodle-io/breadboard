@@ -110,6 +110,14 @@ int bb_sub_mqtt_test_topic_count(void);
  * (same boot-time-only contract as bb_sub_mqtt_add_topic()).
  */
 void bb_sub_mqtt_test_set_topics_cfg(const char *cfg);
+
+/**
+ * Reset the lazily-registered bb_transport_health "mqtt_sub" INFERRED slot
+ * handle back to BB_TRANSPORT_HANDLE_INVALID — test isolation. Does NOT
+ * reset bb_transport_health's own state; call
+ * bb_transport_health_reset_for_test() separately.
+ */
+void bb_sub_mqtt_reset_transport_health_for_test(void);
 #endif
 
 #ifdef __cplusplus

@@ -3762,6 +3762,11 @@ void test_bb_sub_mqtt_ignore_self_two_segment_topic_no_trailing_slash(void);
 void test_bb_sub_mqtt_empty_hostname_fails_open_and_routes(void);
 void test_bb_sub_mqtt_init_subscribe_failure_warns_and_continues(void);
 void test_bb_sub_mqtt_multi_topic_config_parses_and_subscribes_all(void);
+void test_bb_sub_mqtt_genuine_message_marks_ingress_activity(void);
+void test_bb_sub_mqtt_genuine_messages_register_transport_health_once(void);
+void test_bb_sub_mqtt_self_filtered_message_does_not_mark_activity(void);
+void test_bb_sub_mqtt_transport_health_excluded_from_authoritative_counts(void);
+void test_bb_sub_mqtt_exhausted_transport_health_degrades_gracefully(void);
 
 // Forward declarations from test_bb_udp_frame.c
 void test_bb_udp_frame_round_trip_telemetry(void);
@@ -3836,6 +3841,7 @@ void test_bb_transport_health_report_wrong_class_rejected(void);
 void test_bb_transport_health_report_invalid_handle(void);
 void test_bb_transport_health_mark_activity_bumps_rx_count(void);
 void test_bb_transport_health_mark_activity_wrong_class_rejected(void);
+void test_bb_transport_health_mark_activity_invalid_handle_rejected(void);
 void test_bb_transport_health_set_enabled_excludes_from_counts(void);
 void test_bb_transport_health_set_enabled_invalid_handle(void);
 void test_bb_transport_health_authoritative_counts_basic(void);
@@ -7606,6 +7612,11 @@ int main(void) {
     RUN_TEST(test_bb_sub_mqtt_empty_hostname_fails_open_and_routes);
     RUN_TEST(test_bb_sub_mqtt_init_subscribe_failure_warns_and_continues);
     RUN_TEST(test_bb_sub_mqtt_multi_topic_config_parses_and_subscribes_all);
+    RUN_TEST(test_bb_sub_mqtt_genuine_message_marks_ingress_activity);
+    RUN_TEST(test_bb_sub_mqtt_genuine_messages_register_transport_health_once);
+    RUN_TEST(test_bb_sub_mqtt_self_filtered_message_does_not_mark_activity);
+    RUN_TEST(test_bb_sub_mqtt_transport_health_excluded_from_authoritative_counts);
+    RUN_TEST(test_bb_sub_mqtt_exhausted_transport_health_degrades_gracefully);
 
     // bb_udp_frame
     RUN_TEST(test_bb_udp_frame_round_trip_telemetry);
@@ -7653,6 +7664,7 @@ int main(void) {
     RUN_TEST(test_bb_transport_health_report_invalid_handle);
     RUN_TEST(test_bb_transport_health_mark_activity_bumps_rx_count);
     RUN_TEST(test_bb_transport_health_mark_activity_wrong_class_rejected);
+    RUN_TEST(test_bb_transport_health_mark_activity_invalid_handle_rejected);
     RUN_TEST(test_bb_transport_health_set_enabled_excludes_from_counts);
     RUN_TEST(test_bb_transport_health_set_enabled_invalid_handle);
     RUN_TEST(test_bb_transport_health_authoritative_counts_basic);

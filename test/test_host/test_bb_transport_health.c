@@ -140,6 +140,13 @@ void test_bb_transport_health_mark_activity_wrong_class_rejected(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, rc);
 }
 
+void test_bb_transport_health_mark_activity_invalid_handle_rejected(void)
+{
+    reset_world();
+    bb_err_t rc = bb_transport_health_mark_activity(BB_TRANSPORT_HANDLE_INVALID);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, rc);
+}
+
 // ---------------------------------------------------------------------------
 // set_enabled()
 // ---------------------------------------------------------------------------
