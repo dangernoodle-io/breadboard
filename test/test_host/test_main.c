@@ -781,6 +781,9 @@ void test_bb_wifi_disc_reason_str_bb_lost_ip(void);
 void test_bb_wifi_disc_reason_str_bb_egress_dead(void);
 void test_bb_wifi_disc_reason_str_bb_no_ip_watchdog(void);
 void test_bb_wifi_disc_reason_str_default_unmapped(void);
+void test_bb_wifi_get_gateway_status_null_arg(void);
+void test_bb_wifi_get_gateway_status_default_zeroed(void);
+void test_bb_wifi_get_gateway_status_test_hook_roundtrip(void);
 
 // Forward declarations from test_manifest.c
 void test_manifest_empty_emits_empty_arrays(void);
@@ -4635,6 +4638,9 @@ int main(void) {
     RUN_TEST(test_bb_wifi_disc_reason_str_bb_egress_dead);
     RUN_TEST(test_bb_wifi_disc_reason_str_bb_no_ip_watchdog);
     RUN_TEST(test_bb_wifi_disc_reason_str_default_unmapped);
+    RUN_TEST(test_bb_wifi_get_gateway_status_null_arg);
+    RUN_TEST(test_bb_wifi_get_gateway_status_default_zeroed);
+    RUN_TEST(test_bb_wifi_get_gateway_status_test_hook_roundtrip);
 
     // bb_manifest tests
     RUN_TEST(test_manifest_empty_emits_empty_arrays);

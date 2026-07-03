@@ -289,6 +289,39 @@ void bb_wifi_host_set_gateway_reachable(bool reachable)
 }
 #endif /* BB_WIFI_TESTING */
 
+#ifdef BB_WIFI_TESTING
+static bb_wifi_gw_status_t s_test_gw_status;
+static bool s_test_gw_status_set = false;
+
+void bb_wifi_host_set_gateway_status(const bb_wifi_gw_status_t *status)
+{
+    if (!status) {
+        s_test_gw_status_set = false;
+        memset(&s_test_gw_status, 0, sizeof(s_test_gw_status));
+        return;
+    }
+    s_test_gw_status = *status;
+    s_test_gw_status_set = true;
+}
+#endif /* BB_WIFI_TESTING */
+
+// Host stub: always BB_OK with a zeroed status (gw_reachable=false) unless a
+// test has driven bb_wifi_host_set_gateway_status(). No probe worker runs on
+// host — this differs from the ESP-IDF accessor's BB_ERR_INVALID_STATE
+// "never ran" branch, matching the rest of this file's stub convention
+// (host callers get harmless zeroed data, not an error).
+bb_err_t bb_wifi_get_gateway_status(bb_wifi_gw_status_t *out)
+{
+    if (!out) return BB_ERR_INVALID_ARG;
+    memset(out, 0, sizeof(*out));
+#ifdef BB_WIFI_TESTING
+    if (s_test_gw_status_set) {
+        *out = s_test_gw_status;
+    }
+#endif
+    return BB_OK;
+}
+
 bb_err_t bb_wifi_request_recovery(const char *reason)
 {
 #ifdef BB_WIFI_TESTING

@@ -249,6 +249,36 @@ bb_err_t bb_wifi_ping(uint32_t target_addr, uint32_t timeout_ms,
 bool bb_wifi_gateway_reachable(uint32_t timeout_ms);
 #endif /* ESP_PLATFORM */
 
+// ---------------------------------------------------------------------------
+// Gateway-reachability probe (observe-only, B1-518 PR2)
+// ---------------------------------------------------------------------------
+// Runs on a dedicated worker task (see platform/espidf/bb_wifi/bb_wifi_gw_probe.c),
+// gated by CONFIG_BB_WIFI_GW_PROBE_ENABLE. OBSERVE-ONLY: the worker's policy
+// decision is always discarded — this signal never triggers recovery on its
+// own (#578). bb_net_health (a later PR) pulls this status for correlation.
+
+// Snapshot of the gateway-probe worker's last observed state. Populated by
+// bb_wifi_get_gateway_status.
+typedef struct {
+    bool     gw_reachable;      // result of the most recent gateway ping
+    uint8_t  gw_fail_streak;    // consecutive probe failures (observe-owned state,
+                                 // SEPARATE from the live reconnect FSM's streak)
+    uint32_t gw_probe_count;    // cumulative probes run since boot
+    uint32_t gw_fail_count;     // cumulative probe failures since boot
+    uint32_t gw_dead_count;     // cumulative times the observe-only classifier
+                                 // would have tripped WIFI_RECONN_ACTION_RECONNECT_NOW
+                                 // (action is DISCARDED, never acted on)
+    uint64_t last_gw_probe_ms;  // bb_clock_now_ms64() at the last probe, 0 = never run
+} bb_wifi_gw_status_t;
+
+// Populate out with the gateway-probe worker's last observed state.
+// Returns BB_ERR_INVALID_ARG on NULL out. On ESP-IDF, returns
+// BB_ERR_INVALID_STATE if the probe worker has never started (e.g.
+// CONFIG_BB_WIFI_GW_PROBE_ENABLE=n). Host stub always returns BB_OK with a
+// zeroed status (gw_reachable=false) unless overridden via
+// bb_wifi_host_set_gateway_status (BB_WIFI_TESTING).
+bb_err_t bb_wifi_get_gateway_status(bb_wifi_gw_status_t *out);
+
 // Emit the canonical wifi section into a bb_json_t object.
 // Writes: ssid, bssid (colon-hex), rssi (integer), ip, connected,
 // disc_reason (integer), disc_age_s (integer), retry_count (integer).

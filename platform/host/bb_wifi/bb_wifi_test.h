@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "bb_wifi.h"
+
 /**
  * Host-only test hooks for bb_wifi.
  * Only available when BB_WIFI_TESTING is defined.
@@ -29,4 +31,8 @@ void bb_wifi_test_set_last_session_s(uint32_t session_s);
 // Inject a full 256-entry reason histogram (host only).
 // len entries are copied; remaining buckets are zeroed.
 void bb_wifi_test_set_reason_histogram(const uint16_t *hist, size_t len);
+
+// Drive bb_wifi_get_gateway_status() on host (B1-518 PR2, observe-only
+// gateway probe). Pass NULL to clear back to the default zeroed status.
+void bb_wifi_host_set_gateway_status(const bb_wifi_gw_status_t *status);
 #endif

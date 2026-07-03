@@ -384,3 +384,67 @@ void test_bb_wifi_disc_reason_str_default_unmapped(void)
 {
     TEST_ASSERT_EQUAL_STRING("other", bb_wifi_disc_reason_str(207));
 }
+
+// ---------------------------------------------------------------------------
+// B1-518 PR2: bb_wifi_get_gateway_status accessor (observe-only gateway
+// probe). Host stub always returns BB_OK; the "never ran" BB_ERR_INVALID_STATE
+// branch is ESP-IDF-only (before bb_wifi_gw_probe_start runs) and is not
+// reachable from the host build.
+// ---------------------------------------------------------------------------
+
+// NULL out -> BB_ERR_INVALID_ARG.
+void test_bb_wifi_get_gateway_status_null_arg(void)
+{
+    bb_err_t err = bb_wifi_get_gateway_status(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+// Default (no test hook driven): BB_OK, zeroed status, gw_reachable=false.
+void test_bb_wifi_get_gateway_status_default_zeroed(void)
+{
+#ifdef BB_WIFI_TESTING
+    bb_wifi_host_set_gateway_status(NULL); // ensure clean default
+#endif
+    bb_wifi_gw_status_t st;
+    memset(&st, 0xAA, sizeof(st)); // poison to prove the accessor overwrites it
+    bb_err_t err = bb_wifi_get_gateway_status(&st);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_FALSE(st.gw_reachable);
+    TEST_ASSERT_EQUAL_UINT8(0, st.gw_fail_streak);
+    TEST_ASSERT_EQUAL_UINT32(0, st.gw_probe_count);
+    TEST_ASSERT_EQUAL_UINT32(0, st.gw_fail_count);
+    TEST_ASSERT_EQUAL_UINT32(0, st.gw_dead_count);
+    TEST_ASSERT_EQUAL_UINT64(0, st.last_gw_probe_ms);
+}
+
+// bb_wifi_host_set_gateway_status hook roundtrip: set a status, getter
+// returns it verbatim; NULL clears back to the default zeroed status.
+void test_bb_wifi_get_gateway_status_test_hook_roundtrip(void)
+{
+#ifdef BB_WIFI_TESTING
+    bb_wifi_gw_status_t in = {
+        .gw_reachable = true,
+        .gw_fail_streak = 2,
+        .gw_probe_count = 42,
+        .gw_fail_count = 5,
+        .gw_dead_count = 3,
+        .last_gw_probe_ms = 123456789ULL,
+    };
+    bb_wifi_host_set_gateway_status(&in);
+
+    bb_wifi_gw_status_t out;
+    bb_err_t err = bb_wifi_get_gateway_status(&out);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_TRUE(out.gw_reachable);
+    TEST_ASSERT_EQUAL_UINT8(2, out.gw_fail_streak);
+    TEST_ASSERT_EQUAL_UINT32(42, out.gw_probe_count);
+    TEST_ASSERT_EQUAL_UINT32(5, out.gw_fail_count);
+    TEST_ASSERT_EQUAL_UINT32(3, out.gw_dead_count);
+    TEST_ASSERT_EQUAL_UINT64(123456789ULL, out.last_gw_probe_ms);
+
+    bb_wifi_host_set_gateway_status(NULL);
+    err = bb_wifi_get_gateway_status(&out);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_FALSE(out.gw_reachable);
+#endif
+}
