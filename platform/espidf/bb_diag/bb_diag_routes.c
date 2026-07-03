@@ -987,6 +987,8 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-// bb_diag routes have no ordering dependency on other components' inits, so
-// register at the default order (0).
-BB_INIT_REGISTER(bb_diag_routes, bb_diag_routes_init);
+// bb_diag_routes' optional diag.boot auto-attach (CONFIG_BB_DIAG_AUTO_ATTACH)
+// calls bb_event_routes_attach_ex(), which requires bb_event_routes_init
+// (order 0) to have already run and set s_cfg.initialized = true. Register at
+// explicit order 4, mirroring bb_ota_check (order 4, same rationale).
+BB_INIT_REGISTER_N(bb_diag_routes, bb_diag_routes_init, 4);
