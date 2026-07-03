@@ -43,6 +43,7 @@ void bb_sse_writer_run(bb_http_request_t *req,
                        const char *connected_line,
                        bb_sse_wait_fn_t wait_fn,
                        bb_sse_cleanup_fn_t cleanup_fn,
+                       bb_sse_done_fn_t done_fn,
                        void *ctx,
                        uint32_t wait_timeout_ms,
                        uint32_t heartbeat_ms)
@@ -155,6 +156,13 @@ void bb_sse_writer_run(bb_http_request_t *req,
         bb_http_req_async_abort(req);
     } else {
         bb_http_req_async_handler_complete(req);
+    }
+
+    if (done_fn) {
+        // Caller owns the task-exit tail (e.g. give a completion signal then
+        // vTaskSuspend(NULL) — never self-delete; see bb_sse_done_fn_t doc).
+        // Contract: done_fn never returns.
+        done_fn(ctx);
     }
     vTaskDelete(NULL);
 }

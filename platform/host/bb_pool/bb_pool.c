@@ -91,6 +91,11 @@ typedef struct {
     uint8_t *acquired_bitmap; /* ceil(capacity/8) bytes; bit set iff slot idx
                                * is currently out on loan (acquired and not
                                * yet released). Detects double-release. */
+    uint8_t *pending_bitmap; /* ceil(capacity/8) bytes; bit set iff slot idx
+                              * was released while cfg.slot_reusable is set
+                              * and has not yet passed its reusable check
+                              * (see bb_pool_acquire). Only ever non-zero when
+                              * cfg.slot_reusable != NULL. */
 } bb_pool_slots_t;
 
 // ---------------------------------------------------------------------------
@@ -205,6 +210,11 @@ size_t bb_pool_arena_size_needed(const bb_pool_cfg_t *cfg)
         bitmap_bytes = align_up(bitmap_bytes);
         if (add_ovf(total, bitmap_bytes, &total)) return 0;
 
+        /* pending_bitmap: same size as acquired_bitmap. Allocated
+         * unconditionally (even when cfg.slot_reusable is NULL) so an
+         * existing pool cannot be resized later just by adding callbacks. */
+        if (add_ovf(total, bitmap_bytes, &total)) return 0;
+
         return total;
     }
 
@@ -301,6 +311,13 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_arena_t arena,
             bb_log_e(TAG, "'%s': arena exhausted allocating slot storage (%zu B)", p->name, storage_bytes);
             return BB_ERR_NO_SPACE;
         }
+        // Zero the whole slot region up front (not just on release/reacquire)
+        // so a slot's very first bb_pool_acquire() hands the caller
+        // well-defined zeroed memory rather than whatever the backing arena
+        // previously held. This lets a lifecycle-callback consumer (e.g.
+        // on_acquire) use a zero-valued field as a reliable "never
+        // initialized yet" sentinel on a slot's first-ever acquire.
+        memset(p->slots.storage, 0, storage_bytes);
         p->slots.free_list = (void **)bb_arena_alloc(arena, cfg->capacity * sizeof(void *));
         if (!p->slots.free_list) {
             bb_log_e(TAG, "'%s': arena exhausted allocating slot free-list", p->name);
@@ -314,6 +331,29 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_arena_t arena,
             return BB_ERR_NO_SPACE;
         }
         memset(p->slots.acquired_bitmap, 0, bitmap_bytes); /* all slots start free */
+
+        p->slots.pending_bitmap = (uint8_t *)bb_arena_alloc(arena, bitmap_bytes);
+        if (!p->slots.pending_bitmap) {  // LCOV_EXCL_BR_LINE — see comment below
+            // Provably unreachable given a correctly-implemented
+            // bb_pool_arena_size_needed(): the front-loaded
+            // `bb_arena_free_bytes(arena) < need` gate a few lines above
+            // computes `need` as the exact sum of every bb_arena_alloc()
+            // call this function goes on to make for this cfg (pool struct
+            // + storage + free-list + acquired_bitmap + pending_bitmap, each
+            // rounded to the same BB_POOL_ALIGN used internally by
+            // bb_arena_alloc). Passing that gate therefore guarantees every
+            // subsequent allocation in this sequence — including this one —
+            // succeeds; empirically confirmed (an arena sized to exactly
+            // `need - 1` bytes is rejected by the top gate, never reaching
+            // this line). Kept as defensive dead-code (not an assert) in
+            // case a future change to either sizing function breaks that
+            // invariant — see the analogous LCOV_EXCL_BR_LINE asserts in
+            // bb_event_routes_espidf.c's STATIC pool path for the same
+            // provably-unreachable rationale.
+            bb_log_e(TAG, "'%s': arena exhausted allocating slot pending-bitmap", p->name);
+            return BB_ERR_NO_SPACE;
+        }
+        memset(p->slots.pending_bitmap, 0, bitmap_bytes); /* nothing pending at create */
 
         p->slots.slot_stride = slot_stride;
         for (size_t i = 0; i < cfg->capacity; i++) {
@@ -545,16 +585,44 @@ static size_t slots_index_of(struct bb_pool *pool, const void *ptr)
     return idx;
 }
 
+static void *slots_ptr_at(struct bb_pool *pool, size_t idx)
+{
+    return pool->slots.storage + idx * pool->slots.slot_stride;
+}
+
 void *bb_pool_acquire(bb_pool_t pool)
 {
     if (!pool || pool->cfg.mode != BB_POOL_MODE_SLOTS) return NULL;
-    if (pool->slots.free_top == 0) return NULL;
 
-    pool->slots.free_top--;
-    void *ptr = pool->slots.free_list[pool->slots.free_top];
+    void *ptr = NULL;
+
+    if (pool->slots.free_top > 0) {
+        pool->slots.free_top--;
+        ptr = pool->slots.free_list[pool->slots.free_top];
+    } else if (pool->cfg.slot_reusable) {
+        // Free-list exhausted: make one non-blocking pass over slots
+        // released-but-pending-reap, testing each with slot_reusable().
+        // No internal retry/loop/timeout — the first slot found reusable is
+        // reaped and reissued; if none are reusable yet, acquire fails
+        // exactly like today's pool-exhausted case (the caller decides
+        // whether/how to retry, e.g. via a 503 fast-reject).
+        for (size_t idx = 0; idx < pool->cfg.capacity; idx++) {
+            if (!bitmap_test(pool->slots.pending_bitmap, idx)) continue;
+            void *cand = slots_ptr_at(pool, idx);
+            if (pool->cfg.slot_reusable(pool->cfg.cb_ctx, cand)) {
+                bitmap_clear(pool->slots.pending_bitmap, idx);
+                if (pool->cfg.slot_reap) pool->cfg.slot_reap(pool->cfg.cb_ctx, cand);
+                ptr = cand;
+                break;
+            }
+        }
+    }
+
+    if (!ptr) return NULL;
 
     size_t idx = slots_index_of(pool, ptr);
     if (idx != SIZE_MAX) bitmap_set(pool->slots.acquired_bitmap, idx);
+    if (pool->cfg.on_acquire) pool->cfg.on_acquire(pool->cfg.cb_ctx, ptr);
     return ptr;
 }
 
@@ -567,16 +635,37 @@ bb_err_t bb_pool_release(bb_pool_t pool, void *ptr)
     if (idx == SIZE_MAX) return BB_ERR_INVALID_ARG;
 
     // Detects double-release (and release of a never-acquired-in-bounds
-    // pointer): a slot not currently marked acquired must not be pushed
-    // back onto the free-list a second time — that would hand the same
-    // memory to two concurrent acquirers.
+    // pointer): a slot not currently marked acquired must not be released a
+    // second time — that would hand the same memory to two concurrent
+    // acquirers (immediately via the free-list, or later via the pending
+    // path).
     if (!bitmap_test(pool->slots.acquired_bitmap, idx)) {
         bb_log_e(TAG, "'%s': double release (or release of unacquired slot) at idx %zu", pool->name, idx);
         return BB_ERR_INVALID_STATE;
     }
 
-    if (pool->slots.free_top >= pool->cfg.capacity) return BB_ERR_INVALID_STATE;
+    // Corruption guard MUST run before any mutation below (bitmap_clear /
+    // on_release) so a corrupted free_top fails atomically with zero side
+    // effects — this used to run after the mutation/callback, letting the
+    // caller's teardown and the acquired-bitmap clear happen before the
+    // error was ever detected. Only relevant to the immediate free-list
+    // path (no slot_reusable configured); the pending-bitmap path below
+    // never touches free_top.
+    if (!pool->cfg.slot_reusable && pool->slots.free_top >= pool->cfg.capacity) {
+        return BB_ERR_INVALID_STATE;  // LCOV_EXCL_LINE — free_top is pool-internal and only ever advances in lockstep with acquire/release; unreachable without external memory corruption
+    }
+
     bitmap_clear(pool->slots.acquired_bitmap, idx);
+    if (pool->cfg.on_release) pool->cfg.on_release(pool->cfg.cb_ctx, ptr);
+
+    if (pool->cfg.slot_reusable) {
+        // Async reuse-readiness gate configured: hold the slot pending
+        // rather than making it immediately reissuable. A future
+        // bb_pool_acquire() call decides when (if ever) it becomes eligible.
+        bitmap_set(pool->slots.pending_bitmap, idx);
+        return BB_OK;
+    }
+
     pool->slots.free_list[pool->slots.free_top] = ptr;
     pool->slots.free_top++;
     return BB_OK;

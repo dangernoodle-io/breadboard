@@ -470,6 +470,31 @@ void test_pool_slots_release_one_twice_does_not_corrupt_free_list(void)
     bb_arena_destroy(a);
 }
 
+void test_pool_slots_storage_is_zero_initialized(void)
+{
+    /* Fill the backing buffer with a non-zero pattern before create() so a
+     * pass just reflects leftover arena content instead of accidental
+     * zeroing elsewhere. */
+    memset(s_buf, 0xA5, sizeof(s_buf));
+
+    bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_SLOTS, .capacity = 2, .max_slot_bytes = sizeof(int) * 4 };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    void *s2 = bb_pool_acquire(p);
+    TEST_ASSERT_NOT_NULL(s1);
+    TEST_ASSERT_NOT_NULL(s2);
+
+    static const uint8_t zeros[sizeof(int) * 4] = {0};
+    TEST_ASSERT_EQUAL_MEMORY(zeros, s1, sizeof(zeros));
+    TEST_ASSERT_EQUAL_MEMORY(zeros, s2, sizeof(zeros));
+
+    bb_arena_destroy(a);
+}
+
 void test_pool_slots_ops_on_non_slots_pool(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_TRANSIENT };
@@ -660,5 +685,221 @@ void test_pool_get_stats_null_args_is_noop(void)
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
     bb_pool_get_stats(p, NULL); /* must not crash */
+    bb_arena_destroy(a);
+}
+
+// ---------------------------------------------------------------------------
+// SLOTS mode — optional per-slot lifecycle callbacks (B1-479 / B1-492)
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    int  acquire_calls;
+    int  release_calls;
+    void *last_acquire_slot;
+    void *last_release_slot;
+    bool  reusable_return;   /* what slot_reusable() should answer next call */
+    int   reusable_calls;
+    int   reap_calls;
+    void *last_reap_slot;
+} cb_spy_t;
+
+static void spy_on_acquire(void *ctx, void *slot)
+{
+    cb_spy_t *s = (cb_spy_t *)ctx;
+    s->acquire_calls++;
+    s->last_acquire_slot = slot;
+}
+
+static void spy_on_release(void *ctx, void *slot)
+{
+    cb_spy_t *s = (cb_spy_t *)ctx;
+    s->release_calls++;
+    s->last_release_slot = slot;
+}
+
+static bool spy_slot_reusable(void *ctx, void *slot)
+{
+    (void)slot;
+    cb_spy_t *s = (cb_spy_t *)ctx;
+    s->reusable_calls++;
+    return s->reusable_return;
+}
+
+static void spy_slot_reap(void *ctx, void *slot)
+{
+    cb_spy_t *s = (cb_spy_t *)ctx;
+    s->reap_calls++;
+    s->last_reap_slot = slot;
+}
+
+void test_pool_slots_on_acquire_on_release_fire(void)
+{
+    cb_spy_t spy = {0};
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 2,
+        .max_slot_bytes = sizeof(int),
+        .cb_ctx = &spy,
+        .on_acquire = spy_on_acquire,
+        .on_release = spy_on_release,
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    TEST_ASSERT_NOT_NULL(s1);
+    TEST_ASSERT_EQUAL_INT(1, spy.acquire_calls);
+    TEST_ASSERT_EQUAL_PTR(s1, spy.last_acquire_slot);
+    TEST_ASSERT_EQUAL_INT(0, spy.release_calls);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
+    TEST_ASSERT_EQUAL_INT(1, spy.release_calls);
+    TEST_ASSERT_EQUAL_PTR(s1, spy.last_release_slot);
+
+    /* No slot_reusable configured: released slot is immediately reissuable
+     * (today's synchronous behavior), and on_acquire fires again. */
+    void *s2 = bb_pool_acquire(p);
+    TEST_ASSERT_EQUAL_PTR(s1, s2);
+    TEST_ASSERT_EQUAL_INT(2, spy.acquire_calls);
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_not_reusable_blocks_reissue(void)
+{
+    cb_spy_t spy = {0};
+    spy.reusable_return = false;
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 1,
+        .max_slot_bytes = sizeof(int),
+        .cb_ctx = &spy,
+        .slot_reusable = spy_slot_reusable,
+        .slot_reap = spy_slot_reap,
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    TEST_ASSERT_NOT_NULL(s1);
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
+
+    /* Not yet reusable: acquire must return NULL (no reissue), and reap must
+     * never be invoked for a slot that hasn't cleared the reusable check. */
+    TEST_ASSERT_NULL(bb_pool_acquire(p));
+    TEST_ASSERT_TRUE(spy.reusable_calls >= 1);
+    TEST_ASSERT_EQUAL_INT(0, spy.reap_calls);
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_reusable_true_reaps_then_reissues(void)
+{
+    cb_spy_t spy = {0};
+    spy.reusable_return = false;
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 1,
+        .max_slot_bytes = sizeof(int),
+        .cb_ctx = &spy,
+        .on_acquire = spy_on_acquire,
+        .slot_reusable = spy_slot_reusable,
+        .slot_reap = spy_slot_reap,
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    TEST_ASSERT_NOT_NULL(s1);
+    int acquire_calls_after_first = spy.acquire_calls;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
+
+    /* Still not reusable: acquire fails, no reap. */
+    TEST_ASSERT_NULL(bb_pool_acquire(p));
+    TEST_ASSERT_EQUAL_INT(0, spy.reap_calls);
+
+    /* Now becomes reusable: acquire reaps once then reissues the same
+     * pointer, firing on_acquire again. */
+    spy.reusable_return = true;
+    void *s2 = bb_pool_acquire(p);
+    TEST_ASSERT_EQUAL_PTR(s1, s2);
+    TEST_ASSERT_EQUAL_INT(1, spy.reap_calls);
+    TEST_ASSERT_EQUAL_PTR(s1, spy.last_reap_slot);
+    TEST_ASSERT_EQUAL_INT(acquire_calls_after_first + 1, spy.acquire_calls);
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_pending_slot_ignored_while_free_list_nonempty(void)
+{
+    /* capacity=3, only s1/s2 ever acquired: slot index 2 is never touched
+     * and stays on the free-list from pool creation (bb_pool_create seeds
+     * the free-list with every slot up front). Release s1 (with
+     * slot_reusable configured, every release goes "pending" — there is no
+     * path back onto the free-list once a slot has been acquired at least
+     * once). A subsequent acquire must return the untouched free-list slot
+     * directly, WITHOUT ever consulting slot_reusable (bb_pool_acquire
+     * checks the free-list before scanning pending slots) — proving
+     * free-list priority, not just pool exhaustion. */
+    cb_spy_t spy = {0};
+    spy.reusable_return = false;
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 3,
+        .max_slot_bytes = sizeof(int),
+        .cb_ctx = &spy,
+        .slot_reusable = spy_slot_reusable,
+        .slot_reap = spy_slot_reap,
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    void *s2 = bb_pool_acquire(p);
+    TEST_ASSERT_NOT_NULL(s1);
+    TEST_ASSERT_NOT_NULL(s2);
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1)); /* pending, never reusable */
+
+    int reusable_calls_before = spy.reusable_calls;
+
+    /* free-list still holds the never-acquired third slot — acquire must
+     * return it directly without ever calling slot_reusable, even though a
+     * pending slot (s1) exists. */
+    void *s3 = bb_pool_acquire(p);
+    TEST_ASSERT_NOT_NULL(s3);
+    TEST_ASSERT_TRUE(s3 != s1 && s3 != s2);
+    TEST_ASSERT_EQUAL_INT(reusable_calls_before, spy.reusable_calls);
+
+    bb_arena_destroy(a);
+}
+
+void test_pool_slots_double_release_rejected_with_reusable_configured(void)
+{
+    cb_spy_t spy = {0};
+    bb_pool_cfg_t cfg = {
+        .mode = BB_POOL_MODE_SLOTS,
+        .capacity = 1,
+        .max_slot_bytes = sizeof(int),
+        .cb_ctx = &spy,
+        .slot_reusable = spy_slot_reusable,
+    };
+    bb_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_pool_t p = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
+
+    void *s1 = bb_pool_acquire(p);
+    TEST_ASSERT_NOT_NULL(s1);
+    TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_pool_release(p, s1));
+
     bb_arena_destroy(a);
 }

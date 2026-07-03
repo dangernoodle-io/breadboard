@@ -69,6 +69,49 @@ typedef enum {
 } bb_pool_backing_t;
 
 // ---------------------------------------------------------------------------
+// SLOTS mode — optional per-slot lifecycle callbacks (B1-479)
+//
+// All four are optional (NULL = today's behavior, fully backward-compatible)
+// and apply to SLOTS mode only. bb_pool stays portable — these are plain
+// function pointers the caller supplies; any FreeRTOS/platform-specific work
+// (e.g. eTaskGetState, vTaskDelete) belongs in the caller's callback bodies,
+// never inside bb_pool itself.
+//
+//   on_acquire(ctx, slot)   — called synchronously, once, immediately before
+//                             bb_pool_acquire() returns `slot` to the caller
+//                             (reset-on-handout).
+//   on_release(ctx, slot)   — called synchronously, once, inside
+//                             bb_pool_release(), before the slot is either
+//                             returned to the free-list (no slot_reusable) or
+//                             marked pending-reap (slot_reusable set)
+//                             (teardown-on-return).
+//   slot_reusable(ctx, slot)— async reuse-readiness predicate. If NULL, a
+//                             released slot is immediately eligible for
+//                             reissue (today's synchronous behavior). If
+//                             non-NULL, a released slot is held
+//                             pending-reap instead of going onto the
+//                             free-list; bb_pool_acquire(), once the
+//                             free-list is empty, calls this once per
+//                             pending slot (no internal loop/retry/timeout)
+//                             to test whether it may be reissued.
+//   slot_reap(ctx, slot)    — finalizer invoked exactly once, right before
+//                             reissue, the moment slot_reusable() first
+//                             returns true for that slot. Ignored if
+//                             slot_reusable is NULL.
+//
+// bb_pool_acquire() never blocks and never retries internally: if the
+// free-list is empty and no pending slot's slot_reusable() currently returns
+// true, it returns NULL immediately (same contract as today's
+// pool-exhausted case) — callers needing a wait/retry loop implement it
+// themselves outside bb_pool.
+// ---------------------------------------------------------------------------
+
+typedef void (*bb_pool_on_acquire_fn)(void *ctx, void *slot);
+typedef void (*bb_pool_on_release_fn)(void *ctx, void *slot);
+typedef bool (*bb_pool_slot_reusable_fn)(void *ctx, void *slot);
+typedef void (*bb_pool_slot_reap_fn)(void *ctx, void *slot);
+
+// ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
@@ -89,6 +132,18 @@ typedef struct {
      * available bump space there).
      */
     size_t                transient_reserve_bytes;
+
+    /**
+     * SLOTS mode only: optional per-slot lifecycle callbacks — see the
+     * documentation block above. All NULL (the zero value) reproduces
+     * today's behavior exactly. Ignored by every other mode. `cb_ctx` is
+     * passed through unchanged as the first argument to every callback.
+     */
+    void                    *cb_ctx;
+    bb_pool_on_acquire_fn    on_acquire;
+    bb_pool_on_release_fn    on_release;
+    bb_pool_slot_reusable_fn slot_reusable;
+    bb_pool_slot_reap_fn     slot_reap;
 } bb_pool_cfg_t;
 
 // ---------------------------------------------------------------------------
@@ -252,16 +307,36 @@ size_t bb_pool_dropped(bb_pool_t pool);
  * _Alignof(max_align_t) and is at least cfg.max_slot_bytes bytes — the
  * caller casts it to whatever object type it needs and owns
  * init/teardown of that object.
- * Returns NULL when the pool is exhausted (all capacity slots acquired),
- * when pool is NULL, or when pool was not created in SLOTS mode.
+ *
+ * If cfg.slot_reusable was NULL at create time, this only ever draws from
+ * the free-list (today's behavior). If cfg.slot_reusable was supplied and
+ * the free-list is empty, this additionally makes one non-blocking pass
+ * over slots released-but-not-yet-reusable, calling slot_reusable(ctx,
+ * slot) once per slot; the first slot for which it returns true has
+ * slot_reap(ctx, slot) invoked and is reissued.
+ *
+ * If cfg.on_acquire was supplied, it is called on the returned slot
+ * immediately before this function returns (after slot_reap, when taken).
+ *
+ * Returns NULL when no slot is currently available (all capacity slots
+ * acquired, or released slots not yet reusable), when pool is NULL, or when
+ * pool was not created in SLOTS mode. Never blocks.
  */
 void *bb_pool_acquire(bb_pool_t pool);
 
 /**
- * Return a slot previously returned by bb_pool_acquire to the free-list.
+ * Return a slot previously returned by bb_pool_acquire. If cfg.on_release
+ * was supplied, it is called first (teardown-on-return). If
+ * cfg.slot_reusable was NOT supplied, the slot is then placed on the
+ * free-list immediately (today's behavior). If cfg.slot_reusable WAS
+ * supplied, the slot is instead held pending — not reissuable — until a
+ * future bb_pool_acquire() call finds slot_reusable(ctx, slot) true.
+ *
  * Returns BB_ERR_INVALID_ARG if ptr does not belong to this pool's slot
  * storage, or if pool/ptr is NULL.
- * Returns BB_ERR_INVALID_STATE if pool was not created in SLOTS mode.
+ * Returns BB_ERR_INVALID_STATE if pool was not created in SLOTS mode, or if
+ * ptr is not currently on loan (double-release / release of an unacquired
+ * slot).
  */
 bb_err_t bb_pool_release(bb_pool_t pool, void *ptr);
 
