@@ -207,6 +207,11 @@ void test_bb_reset_source_str_ota_boot_done(void)
     TEST_ASSERT_EQUAL_STRING("ota_boot_done", bb_reset_source_str(BB_RESET_SRC_OTA_BOOT_DONE));
 }
 
+void test_bb_reset_source_str_ota_boot_abort(void)
+{
+    TEST_ASSERT_EQUAL_STRING("ota_boot_abort", bb_reset_source_str(BB_RESET_SRC_OTA_BOOT_ABORT));
+}
+
 void test_bb_reset_source_str_unknown(void)
 {
     TEST_ASSERT_EQUAL_STRING("unknown", bb_reset_source_str(BB_RESET_SRC_UNKNOWN));

@@ -1070,6 +1070,7 @@ void test_bb_reset_source_str_ota_pull_applied(void);
 void test_bb_reset_source_str_ota_push_applied(void);
 void test_bb_reset_source_str_ota_boot_apply(void);
 void test_bb_reset_source_str_ota_boot_done(void);
+void test_bb_reset_source_str_ota_boot_abort(void);
 void test_bb_reset_source_str_unknown(void);
 void test_bb_reset_source_str_out_of_range(void);
 void test_bb_reboot_record_encode_null_args(void);
@@ -5112,6 +5113,7 @@ int main(void) {
     RUN_TEST(test_bb_reset_source_str_ota_push_applied);
     RUN_TEST(test_bb_reset_source_str_ota_boot_apply);
     RUN_TEST(test_bb_reset_source_str_ota_boot_done);
+    RUN_TEST(test_bb_reset_source_str_ota_boot_abort);
     RUN_TEST(test_bb_reset_source_str_unknown);
     RUN_TEST(test_bb_reset_source_str_out_of_range);
     RUN_TEST(test_bb_reboot_record_encode_null_args);

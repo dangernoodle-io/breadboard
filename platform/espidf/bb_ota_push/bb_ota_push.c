@@ -10,6 +10,7 @@
 #include "bb_mem.h"
 #include "bb_init.h"
 #include "bb_wdt.h"
+#include "bb_system.h"
 #include "esp_ota_ops.h"
 #include "esp_image_format.h"
 #include "esp_app_desc.h"
@@ -290,7 +291,7 @@ static bb_err_t ota_push_handler(bb_http_request_t *req)
     // CPU/heat and competing with the reboot path for resources. The
     // failure path (resume_and_exit below) still resumes correctly.
     vTaskDelay(pdMS_TO_TICKS(500));
-    esp_restart();
+    bb_system_restart_reason(BB_RESET_SRC_OTA_PUSH_APPLIED, NULL);
     return BB_OK;  // unreachable
 
 resume_and_exit:
