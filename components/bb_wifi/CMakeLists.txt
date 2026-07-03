@@ -2,6 +2,7 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_wifi/bb_wifi.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_wifi/wifi_reconn.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_wifi/bb_wifi_routes.c"
+         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_wifi/bb_wifi_gw_probe.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_wifi/bb_wifi_emit.c"
          "${CMAKE_CURRENT_LIST_DIR}/wifi_reconn_policy.c"
     INCLUDE_DIRS "include"
@@ -19,4 +20,8 @@ endif()
 if(CONFIG_BB_WIFI_ROUTES_AUTOREGISTER)
     bb_init_force_register_pre_http(${COMPONENT_LIB} bb_wifi_routes)
     bb_init_force_register(${COMPONENT_LIB} bb_wifi_routes)
+endif()
+
+if(CONFIG_BB_WIFI_GW_PROBE_ENABLE)
+    bb_init_force_register_pre_http(${COMPONENT_LIB} bb_wifi_gw_probe)
 endif()
