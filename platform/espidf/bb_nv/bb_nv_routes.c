@@ -3,6 +3,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_init.h"
+#include "bb_clock.h"
 
 #include <string.h>
 
@@ -12,12 +13,21 @@
 #include "bb_timer.h"
 #include "esp_system.h"
 
+static const char *TAG = "bb_nv_routes";
+
 static void factory_reset_reboot_work_fn(void *arg)
 {
     (void)arg;
-    // TODO(B1-527): source stays unknown here — bb_nv is below bb_system in
-    // the layer graph; tagging needs the reset-source types moved to bb_core
-    // (follow-up).
+    uint32_t uptime_s = (uint32_t)(bb_clock_now_ms64() / 1000ULL);
+    /* epoch_s=0: bb_nv has no bb_ntp dependency (would create an unwanted
+     * edge); the boot-side reader treats epoch_s=0 as "unknown/unsynced"
+     * per the record contract. */
+    bb_err_t rc = bb_nv_reboot_record_save(BB_RESET_SRC_FACTORY_RESET, NULL, 0, uptime_s);
+    if (rc == BB_ERR_INVALID_ARG) {
+        bb_log_w(TAG, "factory_reset: record encode failed, rebooting without reason");
+    } else if (rc != BB_OK) {
+        bb_log_w(TAG, "factory_reset: NVS persist failed: %d", (int)rc);
+    }
     esp_restart();
 }
 #endif /* ESP_PLATFORM */
