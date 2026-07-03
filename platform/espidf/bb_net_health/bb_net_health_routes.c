@@ -16,6 +16,11 @@
 // bb_wifi_reason_histogram_top() (this component already PRIV_REQUIRES
 // bb_wifi) so /api/diag/net is a strict superset of what /api/wifi used to
 // expose.
+//
+// B1-518 PR3: a "gw" object (gw_reachable, gw_fail_streak, gw_dead_count,
+// gw_probe_age_s) is emitted ONLY when the gateway-probe worker
+// (CONFIG_BB_WIFI_GW_PROBE_ENABLE) has completed at least one probe. OBSERVE
+// ONLY — no recovery/classifier logic; see bb_wifi_get_gateway_status().
 #include "bb_net_health.h"
 #include "bb_http.h"
 #include "bb_clock.h"
@@ -77,6 +82,23 @@ static bb_err_t diag_net_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_int(&obj, "tls_fail",        (int64_t)snap.http_tls_fail);
         bb_http_resp_json_obj_set_int(&obj, "last_status",     (int64_t)snap.http_last_status);
         bb_http_resp_json_obj_set_obj_end(&obj);
+
+        // Gateway-probe status (B1-518 PR3, OBSERVE-ONLY): omitted entirely
+        // when the probe worker has never completed a probe (disabled via
+        // CONFIG_BB_WIFI_GW_PROBE_ENABLE=n, or not yet started) so consumers
+        // never see fabricated zero values.
+        if (snap.gw_available) {
+            uint64_t now_ms = bb_clock_now_ms64();
+            uint32_t age_s = (snap.last_gw_probe_ms > 0 && now_ms >= snap.last_gw_probe_ms)
+                ? (uint32_t)((now_ms - snap.last_gw_probe_ms) / 1000ULL)
+                : 0;
+            bb_http_resp_json_obj_set_obj_begin(&obj, "gw");
+            bb_http_resp_json_obj_set_bool(&obj, "gw_reachable",   snap.gw_reachable);
+            bb_http_resp_json_obj_set_int (&obj, "gw_fail_streak", (int64_t)snap.gw_fail_streak);
+            bb_http_resp_json_obj_set_int (&obj, "gw_dead_count",  (int64_t)snap.gw_dead_count);
+            bb_http_resp_json_obj_set_int (&obj, "gw_probe_age_s", (int64_t)age_s);
+            bb_http_resp_json_obj_set_obj_end(&obj);
+        }
     }
 
     // Compact reason histogram: the three breadboard sentinel buckets + top
@@ -128,6 +150,11 @@ static const bb_route_response_t s_diag_net_responses[] = {
       "\"consec_failures\":{\"type\":\"integer\"},"
       "\"tls_fail\":{\"type\":\"integer\"},"
       "\"last_status\":{\"type\":\"integer\"}}},"
+      "\"gw\":{\"type\":\"object\",\"properties\":{"
+      "\"gw_reachable\":{\"type\":\"boolean\"},"
+      "\"gw_fail_streak\":{\"type\":\"integer\"},"
+      "\"gw_dead_count\":{\"type\":\"integer\"},"
+      "\"gw_probe_age_s\":{\"type\":\"integer\"}}},"
       "\"reason_histogram\":{\"type\":\"object\",\"properties\":{"
       "\"lost_ip\":{\"type\":\"integer\"},"
       "\"egress_dead\":{\"type\":\"integer\"},"

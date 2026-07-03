@@ -666,6 +666,7 @@ void test_fidelity_wifi_patch_202(void);
 void test_fidelity_wifi_patch_400(void);
 void test_fidelity_diag_partitions(void);
 void test_fidelity_diag_net(void);
+void test_fidelity_diag_net_gw(void);
 void test_fidelity_update_status(void);
 void test_fidelity_update_config_get(void);
 void test_fidelity_diag_events(void);
@@ -1509,6 +1510,10 @@ void test_bb_net_health_format_log_net_mode_ok(void);
 void test_bb_net_health_format_log_net_mode_not_associated(void);
 void test_bb_net_health_format_log_truncation_safe(void);
 void test_bb_net_health_format_log_critical_first_order(void);
+void test_bb_net_health_format_log_gw_omitted_when_unavailable(void);
+void test_bb_net_health_format_log_gw_fields_present_and_last(void);
+void test_bb_net_health_format_log_gw_reachable_true(void);
+void test_bb_net_health_format_log_truncation_drops_gw_first(void);
 
 // Forward declarations from test_bb_sse_writer.c
 void test_sse_idle_below_heartbeat(void);
@@ -4504,6 +4509,7 @@ int main(void) {
     RUN_TEST(test_fidelity_wifi_patch_400);
     RUN_TEST(test_fidelity_diag_partitions);
     RUN_TEST(test_fidelity_diag_net);
+    RUN_TEST(test_fidelity_diag_net_gw);
     RUN_TEST(test_fidelity_update_status);
     RUN_TEST(test_fidelity_update_config_get);
     RUN_TEST(test_fidelity_diag_events);
@@ -5307,6 +5313,10 @@ int main(void) {
     RUN_TEST(test_bb_net_health_format_log_net_mode_not_associated);
     RUN_TEST(test_bb_net_health_format_log_truncation_safe);
     RUN_TEST(test_bb_net_health_format_log_critical_first_order);
+    RUN_TEST(test_bb_net_health_format_log_gw_omitted_when_unavailable);
+    RUN_TEST(test_bb_net_health_format_log_gw_fields_present_and_last);
+    RUN_TEST(test_bb_net_health_format_log_gw_reachable_true);
+    RUN_TEST(test_bb_net_health_format_log_truncation_drops_gw_first);
 
     // bb_vcore_wd tests (pure vcore-collapse watchdog)
     RUN_TEST(test_bb_vcore_wd_warmup_suppresses_all);

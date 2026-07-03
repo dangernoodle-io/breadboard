@@ -297,6 +297,11 @@ static const char k_diag_net_schema[] =
     "\"consec_failures\":{\"type\":\"integer\"},"
     "\"tls_fail\":{\"type\":\"integer\"},"
     "\"last_status\":{\"type\":\"integer\"}}},"
+    "\"gw\":{\"type\":\"object\",\"properties\":{"
+    "\"gw_reachable\":{\"type\":\"boolean\"},"
+    "\"gw_fail_streak\":{\"type\":\"integer\"},"
+    "\"gw_dead_count\":{\"type\":\"integer\"},"
+    "\"gw_probe_age_s\":{\"type\":\"integer\"}}},"
     "\"reason_histogram\":{\"type\":\"object\",\"properties\":{"
     "\"lost_ip\":{\"type\":\"integer\"},"
     "\"egress_dead\":{\"type\":\"integer\"},"
@@ -708,7 +713,13 @@ static bb_err_t h_diag_partitions(bb_http_request_t *req)
 // platform/espidf/bb_net_health/bb_net_health_routes.c, whose only
 // ESP-IDF-only dependency is bb_net_health_get_status); mirrors its emit
 // pattern field-for-field to verify schema fidelity (B1-456).
-static bb_err_t h_diag_net(bb_http_request_t *req)
+//
+// B1-518 PR3: the real handler emits a nested "gw" object only when
+// snap.gw_available is true (omitted entirely otherwise). h_diag_net below
+// exercises the gw_available=false (omit) branch; h_diag_net_gw exercises
+// the gw_available=true (present) branch — both validate against the same
+// k_diag_net_schema since "gw" is an optional (non-required) property.
+static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available)
 {
     bb_http_json_obj_stream_t obj;
     bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
@@ -743,6 +754,11 @@ static bb_err_t h_diag_net(bb_http_request_t *req)
     snap.http_consec_failures   = 0;
     snap.http_tls_fail          = 0;
     snap.http_last_status       = 200;
+    snap.gw_available           = gw_available;
+    snap.gw_reachable           = true;
+    snap.gw_fail_streak         = 2;
+    snap.gw_dead_count          = 1;
+    snap.last_gw_probe_ms       = gw_available ? (bb_clock_now_ms64() - 5000ULL) : 0ULL;
 
     bb_http_resp_json_obj_set_int(&obj, "no_ip_recoveries",       (int64_t)snap.no_ip_recoveries);
     bb_http_resp_json_obj_set_int(&obj, "rssi",                   (int64_t)snap.rssi);
@@ -772,6 +788,22 @@ static bb_err_t h_diag_net(bb_http_request_t *req)
     bb_http_resp_json_obj_set_int(&obj, "last_status",     (int64_t)snap.http_last_status);
     bb_http_resp_json_obj_set_obj_end(&obj);
 
+    // Gateway-probe status (B1-518 PR3, OBSERVE-ONLY): omitted entirely when
+    // the probe worker has never completed a probe, mirroring the real
+    // handler's if (snap.gw_available) gate.
+    if (snap.gw_available) {
+        uint64_t now_ms = bb_clock_now_ms64();
+        uint32_t age_s = (snap.last_gw_probe_ms > 0 && now_ms >= snap.last_gw_probe_ms)
+            ? (uint32_t)((now_ms - snap.last_gw_probe_ms) / 1000ULL)
+            : 0;
+        bb_http_resp_json_obj_set_obj_begin(&obj, "gw");
+        bb_http_resp_json_obj_set_bool(&obj, "gw_reachable",   snap.gw_reachable);
+        bb_http_resp_json_obj_set_int (&obj, "gw_fail_streak", (int64_t)snap.gw_fail_streak);
+        bb_http_resp_json_obj_set_int (&obj, "gw_dead_count",  (int64_t)snap.gw_dead_count);
+        bb_http_resp_json_obj_set_int (&obj, "gw_probe_age_s", (int64_t)age_s);
+        bb_http_resp_json_obj_set_obj_end(&obj);
+    }
+
     // B1-486 finding #2: inject a non-zero standard reason (and non-zero
     // sentinel buckets) and run the real bb_wifi_reason_histogram_top logic
     // rather than canned zeros, so the top-reason branch has host coverage.
@@ -793,6 +825,18 @@ static bb_err_t h_diag_net(bb_http_request_t *req)
     bb_http_resp_json_obj_set_obj_end(&obj);
 
     return bb_http_resp_json_obj_end(&obj);
+}
+
+// gw_available=false — the omit-when-unavailable branch.
+static bb_err_t h_diag_net(bb_http_request_t *req)
+{
+    return diag_net_emit(req, false);
+}
+
+// gw_available=true — the "gw" object present branch.
+static bb_err_t h_diag_net_gw(bb_http_request_t *req)
+{
+    return diag_net_emit(req, true);
 }
 
 // PATCH /api/wifi 202 — mirrors wifi_patch_handler success path.
@@ -848,6 +892,7 @@ static const fidelity_entry_t k_audit[] = {
     { "PATCH /api/wifi 400",         h_wifi_patch_400,    400, "application/json", k_wifi_patch_400_schema  },
     { "/api/diag/partitions",        h_diag_partitions,   200, "application/json", k_partitions_schema      },
     { "/api/diag/net",               h_diag_net,          200, "application/json", k_diag_net_schema        },
+    { "/api/diag/net (gw)",          h_diag_net_gw,       200, "application/json", k_diag_net_schema        },
     { NULL, NULL, 0, NULL, NULL },
 };
 
@@ -982,6 +1027,12 @@ void test_fidelity_diag_partitions(void)
 void test_fidelity_diag_net(void)
 {
     run_fidelity(&k_audit[14]);
+}
+
+// B1-518 PR3: gw_available=true — "gw" object present with correct fields.
+void test_fidelity_diag_net_gw(void)
+{
+    run_fidelity(&k_audit[15]);
 }
 
 // Routes that require subsystem state setup are tested individually below.
