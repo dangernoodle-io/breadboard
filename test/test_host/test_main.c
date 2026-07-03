@@ -3776,6 +3776,33 @@ void test_bb_alert_emit_envelope_format(void);
 void test_bb_alert_severity_filter_warning_threshold(void);
 void test_bb_alert_emit_serialize_oom(void);
 
+// Forward declarations from test_bb_transport_health.c
+void test_bb_transport_health_register_authoritative(void);
+void test_bb_transport_health_register_inferred(void);
+void test_bb_transport_health_register_capacity_exhausted(void);
+void test_bb_transport_health_register_invalid_class_rejected(void);
+void test_bb_transport_health_register_null_args(void);
+void test_bb_transport_health_report_ok_clears_failing(void);
+void test_bb_transport_health_report_fail_sets_failing_and_bumps_count(void);
+void test_bb_transport_health_report_wrong_class_rejected(void);
+void test_bb_transport_health_report_invalid_handle(void);
+void test_bb_transport_health_mark_activity_bumps_rx_count(void);
+void test_bb_transport_health_mark_activity_wrong_class_rejected(void);
+void test_bb_transport_health_set_enabled_excludes_from_counts(void);
+void test_bb_transport_health_set_enabled_invalid_handle(void);
+void test_bb_transport_health_authoritative_counts_basic(void);
+void test_bb_transport_health_authoritative_counts_never_counts_inferred(void);
+void test_bb_transport_health_authoritative_counts_null_args(void);
+void test_bb_transport_health_snapshot_all_cap_truncation(void);
+void test_bb_transport_health_snapshot_all_inferred_failing_via_staleness(void);
+void test_bb_transport_health_snapshot_all_null_or_zero_max(void);
+void test_bb_transport_health_is_stale_below_threshold(void);
+void test_bb_transport_health_is_stale_at_threshold(void);
+void test_bb_transport_health_is_stale_above_threshold(void);
+void test_bb_transport_health_is_stale_now_before_last_rx(void);
+void test_bb_transport_health_is_stale_zero_threshold_same_ms(void);
+void test_bb_transport_health_is_stale_zero_threshold_one_ms_elapsed(void);
+
 // Forward declarations from test_bb_log_event.c
 void test_bb_log_event_parse_info(void);
 void test_bb_log_event_parse_warning(void);
@@ -7515,6 +7542,33 @@ int main(void) {
     RUN_TEST(test_bb_alert_emit_envelope_format);
     RUN_TEST(test_bb_alert_severity_filter_warning_threshold);
     RUN_TEST(test_bb_alert_emit_serialize_oom);
+
+    // bb_transport_health
+    RUN_TEST(test_bb_transport_health_register_authoritative);
+    RUN_TEST(test_bb_transport_health_register_inferred);
+    RUN_TEST(test_bb_transport_health_register_capacity_exhausted);
+    RUN_TEST(test_bb_transport_health_register_invalid_class_rejected);
+    RUN_TEST(test_bb_transport_health_register_null_args);
+    RUN_TEST(test_bb_transport_health_report_ok_clears_failing);
+    RUN_TEST(test_bb_transport_health_report_fail_sets_failing_and_bumps_count);
+    RUN_TEST(test_bb_transport_health_report_wrong_class_rejected);
+    RUN_TEST(test_bb_transport_health_report_invalid_handle);
+    RUN_TEST(test_bb_transport_health_mark_activity_bumps_rx_count);
+    RUN_TEST(test_bb_transport_health_mark_activity_wrong_class_rejected);
+    RUN_TEST(test_bb_transport_health_set_enabled_excludes_from_counts);
+    RUN_TEST(test_bb_transport_health_set_enabled_invalid_handle);
+    RUN_TEST(test_bb_transport_health_authoritative_counts_basic);
+    RUN_TEST(test_bb_transport_health_authoritative_counts_never_counts_inferred);
+    RUN_TEST(test_bb_transport_health_authoritative_counts_null_args);
+    RUN_TEST(test_bb_transport_health_snapshot_all_cap_truncation);
+    RUN_TEST(test_bb_transport_health_snapshot_all_inferred_failing_via_staleness);
+    RUN_TEST(test_bb_transport_health_snapshot_all_null_or_zero_max);
+    RUN_TEST(test_bb_transport_health_is_stale_below_threshold);
+    RUN_TEST(test_bb_transport_health_is_stale_at_threshold);
+    RUN_TEST(test_bb_transport_health_is_stale_above_threshold);
+    RUN_TEST(test_bb_transport_health_is_stale_now_before_last_rx);
+    RUN_TEST(test_bb_transport_health_is_stale_zero_threshold_same_ms);
+    RUN_TEST(test_bb_transport_health_is_stale_zero_threshold_one_ms_elapsed);
 
     // bb_log_event parser
     RUN_TEST(test_bb_log_event_parse_info);
