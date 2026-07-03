@@ -98,3 +98,64 @@ void test_sse_idle_accumulates_across_calls(void)
     TEST_ASSERT_TRUE(should_ping);
     TEST_ASSERT_EQUAL_UINT32(0, acc);
 }
+
+// ---------------------------------------------------------------------------
+// 7. Abort-poll slicing: remaining exceeds abort_poll_ms — clamp to poll interval
+// ---------------------------------------------------------------------------
+void test_sse_abort_poll_slice_clamps_to_poll_interval(void)
+{
+    uint32_t slice = bb_sse_abort_poll_slice_ms(15000, 1000);
+    TEST_ASSERT_EQUAL_UINT32(1000, slice);
+}
+
+// ---------------------------------------------------------------------------
+// 8. Abort-poll slicing: remaining below abort_poll_ms — use remaining as-is
+// ---------------------------------------------------------------------------
+void test_sse_abort_poll_slice_uses_remaining_when_smaller(void)
+{
+    uint32_t slice = bb_sse_abort_poll_slice_ms(400, 1000);
+    TEST_ASSERT_EQUAL_UINT32(400, slice);
+}
+
+// ---------------------------------------------------------------------------
+// 9. Abort-poll slicing: remaining exactly equals abort_poll_ms
+// ---------------------------------------------------------------------------
+void test_sse_abort_poll_slice_exact_match(void)
+{
+    uint32_t slice = bb_sse_abort_poll_slice_ms(1000, 1000);
+    TEST_ASSERT_EQUAL_UINT32(1000, slice);
+}
+
+// ---------------------------------------------------------------------------
+// 10. Abort-poll slicing: remaining == 0 — single-shot-timeout semantics
+// ---------------------------------------------------------------------------
+void test_sse_abort_poll_slice_zero_remaining(void)
+{
+    uint32_t slice = bb_sse_abort_poll_slice_ms(0, 1000);
+    TEST_ASSERT_EQUAL_UINT32(0, slice);
+}
+
+// ---------------------------------------------------------------------------
+// 11. Abort-poll slicing: summed across calls reproduces the original
+// wait_timeout_ms exactly (heartbeat cadence must be unaffected).
+// ---------------------------------------------------------------------------
+void test_sse_abort_poll_slice_sums_to_wait_timeout(void)
+{
+    uint32_t wait_timeout_ms = 15000;
+    uint32_t abort_poll_ms = 1000;
+    uint32_t remaining = wait_timeout_ms;
+    uint32_t total = 0;
+    int iterations = 0;
+
+    while (remaining > 0) {
+        uint32_t slice = bb_sse_abort_poll_slice_ms(remaining, abort_poll_ms);
+        TEST_ASSERT_TRUE(slice > 0);
+        remaining -= slice;
+        total += slice;
+        iterations++;
+        TEST_ASSERT_TRUE(iterations <= 20);  // guard against infinite loop
+    }
+
+    TEST_ASSERT_EQUAL_UINT32(wait_timeout_ms, total);
+    TEST_ASSERT_EQUAL_INT(15, iterations);
+}

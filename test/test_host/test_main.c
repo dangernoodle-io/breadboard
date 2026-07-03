@@ -1514,6 +1514,17 @@ void test_sse_idle_above_heartbeat(void);
 void test_sse_idle_resets_after_ping(void);
 void test_sse_idle_no_ping_multiple_steps(void);
 void test_sse_idle_accumulates_across_calls(void);
+void test_sse_abort_poll_slice_clamps_to_poll_interval(void);
+void test_sse_abort_poll_slice_uses_remaining_when_smaller(void);
+void test_sse_abort_poll_slice_exact_match(void);
+void test_sse_abort_poll_slice_zero_remaining(void);
+void test_sse_abort_poll_slice_sums_to_wait_timeout(void);
+
+// Forward declarations from test_bb_http_async.c
+void test_bb_http_req_peer_alive_host_stub_always_true(void);
+void test_bb_http_req_async_abort_host_stub_returns_invalid_state(void);
+void test_bb_http_req_async_handler_begin_host_stub_returns_invalid_state(void);
+void test_bb_http_req_async_handler_complete_host_stub_returns_invalid_state(void);
 
 // Forward declarations from test_bb_pub_subscription.c
 void test_bb_pub_subscription_match_null_sub_always_true(void);
@@ -7171,6 +7182,19 @@ int main(void) {
     RUN_TEST(test_sse_idle_resets_after_ping);
     RUN_TEST(test_sse_idle_no_ping_multiple_steps);
     RUN_TEST(test_sse_idle_accumulates_across_calls);
+
+    // bb_sse_writer: abort-poll cadence pure helper (B1-517)
+    RUN_TEST(test_sse_abort_poll_slice_clamps_to_poll_interval);
+    RUN_TEST(test_sse_abort_poll_slice_uses_remaining_when_smaller);
+    RUN_TEST(test_sse_abort_poll_slice_exact_match);
+    RUN_TEST(test_sse_abort_poll_slice_zero_remaining);
+    RUN_TEST(test_sse_abort_poll_slice_sums_to_wait_timeout);
+
+    // bb_http: async-handler / peer-liveness host stub contracts (B1-517)
+    RUN_TEST(test_bb_http_req_peer_alive_host_stub_always_true);
+    RUN_TEST(test_bb_http_req_async_abort_host_stub_returns_invalid_state);
+    RUN_TEST(test_bb_http_req_async_handler_begin_host_stub_returns_invalid_state);
+    RUN_TEST(test_bb_http_req_async_handler_complete_host_stub_returns_invalid_state);
 
     // bb_pub subscription filter, tags, sample_into (B1 step 1)
     RUN_TEST(test_bb_pub_subscription_match_null_sub_always_true);

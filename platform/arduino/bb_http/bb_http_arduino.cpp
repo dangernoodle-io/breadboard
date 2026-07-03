@@ -287,6 +287,16 @@ bb_err_t bb_http_req_async_handler_complete(bb_http_request_t *async_req) {
     return BB_ERR_INVALID_STATE;
 }
 
+bb_err_t bb_http_req_async_abort(bb_http_request_t *async_req) {
+    (void)async_req;
+    return BB_ERR_INVALID_STATE;
+}
+
+bool bb_http_req_peer_alive(bb_http_request_t *req) {
+    (void)req;
+    return true;
+}
+
 bb_err_t bb_http_unregister_route(bb_http_handle_t server,
                                   bb_http_method_t method,
                                   const char *path) {
