@@ -188,6 +188,10 @@ void bb_sink_http_reset_malloc(void);
 // Inject health state for testing (bypasses the real publish path).
 void bb_sink_http_test_set_health(bool connected, int consec_failures, bb_tls_fail_t tls_fail, int last_status);
 void bb_sink_http_test_reset_health(void);
+// Reset the lazily-registered bb_transport_health handle so tests that also
+// call bb_transport_health_reset_for_test() don't leave the sink holding a
+// stale (now-unused) slot index.
+void bb_sink_http_reset_transport_health_for_test(void);
 #endif /* BB_SINK_HTTP_TESTING */
 
 #ifdef __cplusplus

@@ -347,6 +347,16 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
                  (int)s->gw_reachable, s->gw_dead_count);
     }
 
+    // bb_transport_health token (B1-518 PR2, OBSERVE-ONLY) — the LEAST
+    // critical field on this line (appended after gw_suffix), so it drops
+    // first under the ~168-byte forwarder cap. Empty string (no-op) when
+    // tx_available is false (no AUTHORITATIVE transport registered yet).
+    char tx_suffix[24] = "";
+    if (s->tx_available) {
+        snprintf(tx_suffix, sizeof(tx_suffix), " txfail=%d/%d",
+                 s->tx_failing, s->tx_enabled);
+    }
+
     // Critical-first ordering: nm/ip/ip_ok/assoc/rssi (the fields needed to
     // diagnose a zombie board) come first so truncation degrades gracefully
     // — a truncated line always keeps net_mode + ip. The trailing counters
@@ -356,7 +366,7 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
         "nm=%s ip=%s ip_ok=%d assoc=%d rssi=%d sess=%" PRIu32
         " dr=%" PRIu32 " roam=%" PRIu32 " no_ip=%" PRIu32 " lost_ip=%" PRIu32
         " egress=%" PRIu32 " retry=%d restart=%" PRIu32 " up=%" PRIu32
-        "%s",
+        "%s%s",
         bb_net_mode_str(s->net_mode),
         s->ip,
         (int)s->has_ip,
@@ -371,7 +381,8 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
         s->retry_count,
         s->restart_sta_count,
         s->uptime_s,
-        gw_suffix);
+        gw_suffix,
+        tx_suffix);
 
     // snprintf truncates safely on its own (never writes past cap) and always
     // null-terminates when cap > 0; n may exceed cap-1 (the "would have

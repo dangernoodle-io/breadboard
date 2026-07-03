@@ -29,6 +29,7 @@
 #include "bb_clock.h"
 #include "bb_pub.h"
 #include "bb_init.h"
+#include "bb_transport_health.h"
 #include <inttypes.h>
 
 // Internal setter defined in components/bb_net_health/src/bb_net_health.c;
@@ -114,6 +115,9 @@ typedef struct {
     uint8_t  gw_fail_streak;
     uint32_t gw_dead_count;
     uint64_t last_gw_probe_ms;
+    bool     tx_available;    // B1-518 PR2: bb_transport_health cached counts (observe-only)
+    int      tx_enabled;
+    int      tx_failing;
 } bb_net_health_cache_t;
 
 static bb_net_health_cache_t s_cache;       // zero-init; valid once attach_sse writes it
@@ -227,6 +231,21 @@ static void pull_gw_status(bool *out_available, bb_wifi_gw_status_t *out_gw)
                       (out_gw->last_gw_probe_ms > 0);
 }
 
+// Pull the bb_transport_health cached AUTHORITATIVE counts (B1-518 PR2,
+// OBSERVE-ONLY). *out_available is true only when the call succeeds AND at
+// least one AUTHORITATIVE transport is currently enabled — mirrors
+// pull_gw_status's "never fabricate a false reading" contract: a board with
+// no registered transport (or the exclusive-sink arbiter having disabled
+// them all) reports tx_available=false rather than a misleading 0/0.
+static void pull_tx_status(bool *out_available, int *out_enabled, int *out_failing)
+{
+    int enabled = 0, failing = 0;
+    bb_err_t rc = bb_transport_health_authoritative_counts(&enabled, &failing);
+    *out_available = (rc == BB_OK) && (enabled > 0);
+    *out_enabled   = enabled;
+    *out_failing   = failing;
+}
+
 // Publish a net.health payload to the SSE topic and update the module cache.
 //
 // The SSE payload carries only the 4 essential fields (rssi, state,
@@ -270,6 +289,9 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
     out->gw_fail_streak             = s_cache.gw_fail_streak;
     out->gw_dead_count              = s_cache.gw_dead_count;
     out->last_gw_probe_ms           = s_cache.last_gw_probe_ms;
+    out->tx_available               = s_cache.tx_available;
+    out->tx_enabled                 = s_cache.tx_enabled;
+    out->tx_failing                 = s_cache.tx_failing;
     xSemaphoreGive(s_cache_lock);
     return BB_OK;
 }
@@ -287,7 +309,10 @@ static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
                                              bb_tls_fail_t  mqtt_tls_fail,
                                              bb_sink_http_health_t http_h,
                                              bool gw_available,
-                                             const bb_wifi_gw_status_t *gw)
+                                             const bb_wifi_gw_status_t *gw,
+                                             bool tx_available,
+                                             int tx_enabled,
+                                             int tx_failing)
 {
     bool associated = bb_wifi_is_associated();
     bool has_ip     = bb_wifi_has_ip();
@@ -326,6 +351,9 @@ static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
         .gw_fail_streak         = gw->gw_fail_streak,
         .gw_dead_count          = gw->gw_dead_count,
         .last_gw_probe_ms       = gw->last_gw_probe_ms,
+        .tx_available           = tx_available,
+        .tx_enabled             = tx_enabled,
+        .tx_failing             = tx_failing,
     };
     strncpy(snap.ip, wi->ip, sizeof(snap.ip) - 1);
     snap.ip[sizeof(snap.ip) - 1] = '\0';
@@ -369,6 +397,9 @@ static void publish_snapshot(const bb_net_health_status_t *snap)
     s_cache.gw_fail_streak          = snap->gw_fail_streak;
     s_cache.gw_dead_count           = snap->gw_dead_count;
     s_cache.last_gw_probe_ms        = snap->last_gw_probe_ms;
+    s_cache.tx_available            = snap->tx_available;
+    s_cache.tx_enabled              = snap->tx_enabled;
+    s_cache.tx_failing              = snap->tx_failing;
     xSemaphoreGive(s_cache_lock);
 
     // Update bb_cache owned struct — SSE uses bb_cache_post, REST uses
@@ -472,12 +503,17 @@ static void eval_work_fn(void *arg)
     bb_wifi_gw_status_t gw;
     pull_gw_status(&gw_available, &gw);
 
+    bool tx_available;
+    int  tx_enabled, tx_failing;
+    pull_tx_status(&tx_available, &tx_enabled, &tx_failing);
+
     // Build the full snapshot once per cycle: both the SSE-publish decision
     // below and the log-heartbeat decision (KB#556) observe the same
     // point-in-time snapshot.
     bb_net_health_status_t snap = build_snapshot(&out, &in, &wi, currently_throttled,
                                                   mqtt_disc_reason, mqtt_tls_fail, http_h,
-                                                  gw_available, &gw);
+                                                  gw_available, &gw,
+                                                  tx_available, tx_enabled, tx_failing);
 
     // Publish only when state, early_warning, OR throttled flag differs from
     // the last published values.  This ensures:
@@ -673,9 +709,14 @@ bb_err_t bb_net_health_attach_sse(void)
         bb_wifi_gw_status_t gw;
         pull_gw_status(&gw_available, &gw);
 
+        bool tx_available;
+        int  tx_enabled, tx_failing;
+        pull_tx_status(&tx_available, &tx_enabled, &tx_failing);
+
         bb_net_health_status_t snap = build_snapshot(&out, &in, &wi, false,
                                                       mqtt_disc_reason, mqtt_tls_fail, http_h,
-                                                      gw_available, &gw);
+                                                      gw_available, &gw,
+                                                      tx_available, tx_enabled, tx_failing);
         publish_snapshot(&snap);
         s_last_published_state     = out.state;
         s_last_published_warn      = out.early_warning;

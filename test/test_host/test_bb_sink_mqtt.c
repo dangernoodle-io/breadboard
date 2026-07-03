@@ -4,6 +4,7 @@
 #include "bb_sink_mqtt.h"
 #include "bb_mqtt.h"
 #include "bb_nv.h"
+#include "bb_transport_health.h"
 
 #include <string.h>
 
@@ -215,6 +216,57 @@ void test_bb_sink_mqtt_default_suspend_is_safe_noop(void)
     TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
 }
 
+// ---------------------------------------------------------------------------
+// bb_transport_health register + report wiring (B1-518 PR2, OBSERVE-ONLY)
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_mqtt_publish_success_reports_transport_health(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("mqtthost");
+    bb_transport_health_reset_for_test();
+    bb_sink_mqtt_reset_transport_health_for_test();
+
+    bb_mqtt_t h;
+    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_mqtt_init(&cfg, &h));
+    bb_mqtt_host_reset(h);
+
+    bb_pub_sink_t s;
+    bb_sink_mqtt(h, &s);
+    bb_err_t rc = s.publish(s.ctx, "metrics/mqtthost/x", "{}", 2, false);
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+
+    int enabled = -1, failing = -1;
+    TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
+    TEST_ASSERT_EQUAL(1, enabled);
+    TEST_ASSERT_EQUAL(0, failing);
+
+    bb_mqtt_destroy(h);
+}
+
+void test_bb_sink_mqtt_default_publish_failure_reports_transport_health(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("mqtthost");
+    bb_transport_health_reset_for_test();
+    bb_sink_mqtt_reset_transport_health_for_test();
+
+    // No default handle set — bb_mqtt_default() returns NULL, so
+    // bb_mqtt_publish(NULL, ...) fails with BB_ERR_INVALID_ARG.
+    bb_mqtt_default_set(NULL);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_mqtt_default(&s));
+    bb_err_t rc = s.publish(s.ctx, "metrics/mqtthost/x", "{}", 2, false);
+    TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
+
+    int enabled = -1, failing = -1;
+    TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
+    TEST_ASSERT_EQUAL(1, enabled);
+    TEST_ASSERT_EQUAL(1, failing);
+}
+
 void test_bb_sink_mqtt_default_resume_routes_to_new_handle(void)
 {
     // After resume, the dynamic sink must route to the NEW handle, never the old.
@@ -254,5 +306,82 @@ void test_bb_sink_mqtt_default_resume_routes_to_new_handle(void)
 
     bb_mqtt_default_set(NULL);
     bb_mqtt_destroy(new_h);
+}
+
+// Lazy register-once: publish() N times must register exactly once, not
+// once per call (enabled count stays 1 across repeated publishes).
+void test_bb_sink_mqtt_publish_registers_transport_health_once(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("mqtthost");
+    bb_transport_health_reset_for_test();
+    bb_sink_mqtt_reset_transport_health_for_test();
+
+    bb_mqtt_t h;
+    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_mqtt_init(&cfg, &h));
+    bb_mqtt_host_reset(h);
+
+    bb_pub_sink_t s;
+    bb_sink_mqtt(h, &s);
+
+    bb_err_t rc = s.publish(s.ctx, "metrics/mqtthost/x", "{}", 2, false);
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+
+    int enabled = -1, failing = -1;
+    TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
+    TEST_ASSERT_EQUAL(1, enabled);
+
+    rc = s.publish(s.ctx, "metrics/mqtthost/y", "{}", 2, false);
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+
+    enabled = -1;
+    failing = -1;
+    TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
+    TEST_ASSERT_EQUAL(1, enabled);
+
+    bb_mqtt_destroy(h);
+}
+
+// Slot-exhaustion degrade: when bb_transport_health has no free slots, the
+// lazy register-on-publish call fails, but the sink's own publish() outcome
+// must still reflect the real transport result — never BB_ERR_NO_SPACE.
+void test_bb_sink_mqtt_publish_survives_transport_health_slot_exhaustion(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("mqtthost");
+    bb_transport_health_reset_for_test();
+    bb_sink_mqtt_reset_transport_health_for_test();
+
+    // Fill every slot directly so the sink's lazy register() call fails.
+    bb_transport_handle_t th;
+    for (int i = 0; i < BB_TRANSPORT_HEALTH_MAX_SLOTS; i++) {
+        TEST_ASSERT_EQUAL(BB_OK, bb_transport_health_register("filler", BB_TRANSPORT_AUTHORITATIVE, &th));
+    }
+
+    bb_mqtt_t h;
+    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    TEST_ASSERT_EQUAL(BB_OK, bb_mqtt_init(&cfg, &h));
+    bb_mqtt_host_reset(h);
+
+    bb_pub_sink_t s;
+    bb_sink_mqtt(h, &s);
+
+    // Success path: table is full, but the real transport outcome (BB_OK) wins.
+    bb_err_t rc = s.publish(s.ctx, "metrics/mqtthost/x", "{}", 2, false);
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_NOT_EQUAL(BB_ERR_NO_SPACE, rc);
+
+    bb_mqtt_destroy(h);
+
+    // Failure path: real transport error wins, not BB_ERR_NO_SPACE.
+    // bb_sink_mqtt_default() with no default handle set fails at bb_mqtt_publish
+    // with BB_ERR_INVALID_ARG (mirrors test_bb_sink_mqtt_default_publish_failure_reports_transport_health).
+    bb_mqtt_default_set(NULL);
+    bb_pub_sink_t sdef;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_mqtt_default(&sdef));
+    rc = sdef.publish(sdef.ctx, "metrics/mqtthost/y", "{}", 2, false);
+    TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_NOT_EQUAL(BB_ERR_NO_SPACE, rc);
 }
 

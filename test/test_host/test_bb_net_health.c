@@ -2017,3 +2017,102 @@ void test_bb_net_health_format_log_truncation_drops_gw_first(void)
     // NUL-terminated within cap (snprintf guarantee).
     TEST_ASSERT_EQUAL_INT(0, buf[sizeof(buf) - 1]);
 }
+
+// ---------------------------------------------------------------------------
+// bb_net_health_format_log txfail token (B1-518 PR2, OBSERVE-ONLY) —
+// tx_available branch coverage. Mirrors the gw_available tests above.
+// ---------------------------------------------------------------------------
+
+// tx_available == false (default from sample_status_for_log/memset): no
+// "txfail=" token appears at all — heartbeat unchanged for boards with no
+// registered bb_transport_health transport.
+void test_bb_net_health_format_log_txfail_omitted_when_unavailable(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.tx_available = false;
+    char buf[256];
+    int n = bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_GREATER_THAN_INT(0, n);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "txfail=") == NULL, buf);
+    // Unaffected trailing field is still the last token.
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "up=9999") != NULL, buf);
+}
+
+// tx_available == true: txfail=<failing>/<enabled> appears LAST — after
+// up= AND after gw= (when both gw and tx are available) — reflecting the
+// least-critical-field-last ordering (txfail drops before gw under
+// truncation).
+void test_bb_net_health_format_log_txfail_present_and_last(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.gw_available   = true;
+    s.gw_reachable   = true;
+    s.gw_dead_count  = 0;
+    s.tx_available   = true;
+    s.tx_failing     = 1;
+    s.tx_enabled     = 2;
+    char buf[256];
+    int n = bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_GREATER_THAN_INT(0, n);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "txfail=1/2") != NULL, buf);
+
+    const char *p_up = strstr(buf, "up=9999");
+    const char *p_gw = strstr(buf, "gw=1");
+    const char *p_tx = strstr(buf, "txfail=1/2");
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_up, buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_gw, buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_tx, buf);
+    TEST_ASSERT_TRUE_MESSAGE(p_up < p_gw, buf);
+    TEST_ASSERT_TRUE_MESSAGE(p_gw < p_tx, buf); // txfail comes after gw (drops first)
+}
+
+// txfail with tx_failing == tx_enabled == 0 renders "txfail=0/0" (a healthy,
+// zero-failure transport still reports its presence).
+void test_bb_net_health_format_log_txfail_zero_counts(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.tx_available = true;
+    s.tx_failing   = 0;
+    s.tx_enabled   = 0;
+    char buf[256];
+    bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "txfail=0/0") != NULL, buf);
+}
+
+// Truncation drops txfail first, keeping gw intact: gw_available=true AND
+// tx_available=true, but the buffer cap is sized JUST past the base+gw
+// fields (139 bytes: 124 base + 14 gw suffix + 1 NUL) — below the full
+// base+gw+tx line (149 bytes: 124 + 14 + 11 txfail-suffix ("txfail=1/2") +
+// 1 NUL). snprintf's single format string appends gw_suffix before
+// tx_suffix, so a cap at exactly base+gw-length+1 truncates the txfail
+// token cleanly (no partial "txfail=" token) while leaving gw AND every
+// preceding field intact and NUL-terminated within cap.
+void test_bb_net_health_format_log_truncation_drops_txfail_first(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.gw_available   = true;
+    s.gw_reachable   = false;
+    s.gw_fail_streak = 2;
+    s.gw_dead_count  = 7;
+    s.tx_available   = true;
+    s.tx_failing     = 1;
+    s.tx_enabled     = 2;
+    char buf[139];
+    memset(buf, 0x7F, sizeof(buf)); // sentinel fill to detect any overrun
+    int n = bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_GREATER_OR_EQUAL_INT((int)sizeof(buf), n); // full line exceeds cap
+
+    // txfail suffix dropped entirely — not even a partial "txfail=" token survives.
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "txfail=") == NULL, buf);
+
+    // gw suffix (higher priority than txfail) survives intact.
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "gw=0") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "gwdead=7") != NULL, buf);
+
+    // Preceding fields present and not truncated mid-token.
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "up=9999") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "restart=4") != NULL, buf);
+
+    // NUL-terminated within cap (snprintf guarantee).
+    TEST_ASSERT_EQUAL_INT(0, buf[sizeof(buf) - 1]);
+}

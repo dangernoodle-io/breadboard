@@ -15,6 +15,7 @@
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
 #include "bb_tls.h"
+#include "bb_transport_health.h"
 #include "../../platform/host/bb_http_client/bb_http_client_host.h"
 
 #include <stdio.h>
@@ -918,4 +919,136 @@ void test_bb_sink_http_get_health_none_tls_fail(void)
     TEST_ASSERT_EQUAL_INT(200, h.last_status);
 
     bb_sink_http_test_reset_health();
+}
+
+// ---------------------------------------------------------------------------
+// bb_transport_health register + report wiring (B1-518 PR2, OBSERVE-ONLY)
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_http_publish_success_reports_transport_health(void)
+{
+    reset_state();
+    set_mock_200();
+    bb_transport_health_reset_for_test();
+    bb_sink_http_reset_transport_health_for_test();
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com:8443", sizeof(cfg.base) - 1);
+    cfg.qos     = 1;
+    cfg.enabled = true;
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    int enabled = -1, failing = -1;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
+    TEST_ASSERT_EQUAL_INT(1, enabled);
+    TEST_ASSERT_EQUAL_INT(0, failing);
+}
+
+void test_bb_sink_http_publish_failure_reports_transport_health(void)
+{
+    reset_state();
+    bb_transport_health_reset_for_test();
+    bb_sink_http_reset_transport_health_for_test();
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com:8443", sizeof(cfg.base) - 1);
+    cfg.qos     = 1;
+    cfg.enabled = true;
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    bb_http_client_session_set_mock_transport_error(BB_ERR_INVALID_STATE);
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
+    TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
+
+    int enabled = -1, failing = -1;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
+    TEST_ASSERT_EQUAL_INT(1, enabled);
+    TEST_ASSERT_EQUAL_INT(1, failing);
+}
+
+// Lazy register-once: publish() N times must register exactly once, not
+// once per call (enabled count stays 1 across repeated publishes).
+void test_bb_sink_http_publish_registers_transport_health_once(void)
+{
+    reset_state();
+    set_mock_200();
+    bb_transport_health_reset_for_test();
+    bb_sink_http_reset_transport_health_for_test();
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com:8443", sizeof(cfg.base) - 1);
+    cfg.qos     = 1;
+    cfg.enabled = true;
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    int enabled = -1, failing = -1;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
+    TEST_ASSERT_EQUAL_INT(1, enabled);
+
+    rc = sink.publish(sink.ctx, "t/y", "{}", 2, false);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    enabled = -1;
+    failing = -1;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
+    TEST_ASSERT_EQUAL_INT(1, enabled);
+}
+
+// Slot-exhaustion degrade: when bb_transport_health has no free slots, the
+// lazy register-on-publish call fails, but the sink's own publish() outcome
+// must still reflect the real transport result — never BB_ERR_NO_SPACE.
+void test_bb_sink_http_publish_survives_transport_health_slot_exhaustion(void)
+{
+    reset_state();
+    set_mock_200();
+    bb_transport_health_reset_for_test();
+    bb_sink_http_reset_transport_health_for_test();
+
+    // Fill every slot directly so the sink's lazy register() call fails.
+    bb_transport_handle_t h;
+    for (int i = 0; i < BB_TRANSPORT_HEALTH_MAX_SLOTS; i++) {
+        TEST_ASSERT_EQUAL_INT(BB_OK, bb_transport_health_register("filler", BB_TRANSPORT_AUTHORITATIVE, &h));
+    }
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com:8443", sizeof(cfg.base) - 1);
+    cfg.qos     = 1;
+    cfg.enabled = true;
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    // Success path: table is full, but the real transport outcome (BB_OK) wins.
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    // Failure path: real transport error wins, not BB_ERR_NO_SPACE.
+    bb_http_client_session_set_mock_transport_error(BB_ERR_INVALID_STATE);
+    rc = sink.publish(sink.ctx, "t/y", "{}", 2, false);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, rc);
+    TEST_ASSERT_NOT_EQUAL(BB_ERR_NO_SPACE, rc);
 }
