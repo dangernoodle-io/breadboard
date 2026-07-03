@@ -16,6 +16,11 @@
 #include <stdbool.h>
 #include <sys/socket.h>
 #include "lwip/sockets.h"
+#include "sdkconfig.h"
+
+#if !CONFIG_LWIP_SO_LINGER
+#warning "bb_http_req_async_abort's SO_LINGER setsockopt is inert without CONFIG_LWIP_SO_LINGER=y — SSE peer-abort teardown falls back to graceful FIN close instead of an immediate RST. Set CONFIG_LWIP_SO_LINGER=y to get RST-based abort teardown."
+#endif
 
 static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
@@ -674,6 +679,48 @@ bb_err_t bb_http_req_async_handler_complete(bb_http_request_t *async_req)
 {
     httpd_req_t *http_req = (httpd_req_t *)async_req;
     if (!http_req) return BB_ERR_INVALID_ARG;
+    esp_err_t err = httpd_req_async_handler_complete(http_req);
+    return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
+}
+
+bool bb_http_req_peer_alive(bb_http_request_t *req)
+{
+    httpd_req_t *http_req = (httpd_req_t *)req;
+    if (!http_req) return false;
+    int fd = bb_http_req_sockfd(req);
+    if (fd < 0) return false;
+
+    // Peek without consuming. recv()==0 means peer sent FIN; recv()==-1 with
+    // EAGAIN/EWOULDBLOCK means alive but quiet; recv()==-1 with anything else
+    // (ECONNRESET, EBADF, ENOTCONN) is dead.
+    char peek;
+    ssize_t n = recv(fd, &peek, 1, MSG_PEEK | MSG_DONTWAIT);
+    if (n == 0) return false;
+    if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) return false;
+    return true;
+}
+
+bb_err_t bb_http_req_async_abort(bb_http_request_t *async_req)
+{
+    httpd_req_t *http_req = (httpd_req_t *)async_req;
+    if (!http_req) return BB_ERR_INVALID_ARG;
+
+    // Arm SO_LINGER{on,0} before releasing the async request so the socket's
+    // eventual close (below, and any close httpd performs afterward) triggers
+    // a RST on httpd's next session-cleanup pass (typically sub-second)
+    // instead of a graceful FIN exchange that would otherwise park the PCB in
+    // CLOSE_WAIT until this side later closes it (B1-517). Requires
+    // CONFIG_LWIP_SO_LINGER=y; if disabled, the setsockopt fails harmlessly
+    // and we fall back to the pre-existing graceful-close behavior — logged
+    // (bb_log_w), non-fatal.
+    int fd = bb_http_req_sockfd(async_req);
+    if (fd >= 0) {
+        struct linger lg = { .l_onoff = 1, .l_linger = 0 };
+        if (setsockopt(fd, SOL_SOCKET, SO_LINGER, &lg, sizeof(lg)) != 0) {
+            bb_log_w(TAG, "async_abort: SO_LINGER set failed on fd=%d errno=%d", fd, errno);
+        }
+    }
+
     esp_err_t err = httpd_req_async_handler_complete(http_req);
     return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
 }

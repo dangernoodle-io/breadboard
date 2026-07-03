@@ -36,7 +36,8 @@ typedef void (*bb_sse_cleanup_fn_t)(void *ctx);
 //   - Sends connected_line as the first SSE comment/event
 //   - Loops: peer-FIN probe, wait_fn call, frame send, heartbeat ping
 //   - Calls cleanup_fn(ctx) when the loop exits (if non-NULL)
-//   - Calls bb_http_req_async_handler_complete(req)
+//   - Calls bb_http_req_async_abort(req) if the peer was found dead (or the
+//     fd is doomed), otherwise bb_http_req_async_handler_complete(req)
 //   - Calls vTaskDelete(NULL) — does NOT return
 //
 // Parameters:

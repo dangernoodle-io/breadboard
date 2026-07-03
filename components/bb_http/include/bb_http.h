@@ -296,6 +296,34 @@ bb_err_t bb_http_req_async_handler_begin(bb_http_request_t *req,
                                          bb_http_request_t **out_async_req);
 bb_err_t bb_http_req_async_handler_complete(bb_http_request_t *async_req);
 
+// Returns true if the peer connection is still alive, false if the peer has
+// closed (FIN) or the socket is otherwise dead (ECONNRESET/EBADF/ENOTCONN).
+// Non-blocking; a quiet-but-alive peer (EAGAIN/EWOULDBLOCK) is "alive". Used
+// by long-lived async handlers (e.g. SSE) to probe for peer abort without
+// touching the raw fd themselves — socket-lifecycle SSOT stays in bb_http.
+bool bb_http_req_peer_alive(bb_http_request_t *req);
+
+// Force-teardown variant of bb_http_req_async_handler_complete for a peer
+// known to be dead (e.g. an SSE client that sent FIN/RST without a graceful
+// unsubscribe). Arms SO_LINGER{on,0} on the socket before releasing the async
+// request so the socket's eventual close triggers a RST on httpd's next
+// session-cleanup pass (typically sub-second) instead of lingering in
+// CLOSE_WAIT through a graceful FIN exchange, then calls
+// bb_http_req_async_handler_complete as usual. Socket-lifecycle SSOT stays in
+// bb_http; callers (e.g. bb_sse_writer) never touch the fd directly.
+// Never call this on a live/graceful-exit peer — only on a confirmed abort.
+//
+// REQUIRES CONFIG_LWIP_SO_LINGER=y. This is enforced at compile time too:
+// consumers building bb_http under -Werror (the smoke build and typical
+// consumers) without this Kconfig set get a hard build error, because the
+// #warning guard in bb_http.c is fatal under -Werror. Without -Werror, a
+// missing CONFIG_LWIP_SO_LINGER only warns and the setsockopt call fails
+// at runtime (logged, non-fatal); this degrades to the same graceful-close
+// behavior as bb_http_req_async_handler_complete — only the faster
+// peer-abort detection (bb_http_req_peer_alive polling) is still active,
+// not the RST-based teardown.
+bb_err_t bb_http_req_async_abort(bb_http_request_t *async_req);
+
 // Unregister a previously-registered route handler.
 bb_err_t bb_http_unregister_route(bb_http_handle_t server,
                                   bb_http_method_t method,
