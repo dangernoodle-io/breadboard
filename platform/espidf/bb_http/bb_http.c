@@ -519,6 +519,30 @@ int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size)
     return httpd_req_recv(http_req, buf, buf_size);
 }
 
+bb_err_t bb_http_req_get_header(bb_http_request_t *req, const char *name,
+                                char *out, size_t out_len)
+{
+    httpd_req_t *http_req = (httpd_req_t*)req;
+    if (!http_req || !name || !out || out_len == 0U) return BB_ERR_INVALID_ARG;
+
+    out[0] = '\0';
+
+    size_t hdr_len = httpd_req_get_hdr_value_len(http_req, name);
+    if (hdr_len == 0U) return BB_ERR_NOT_FOUND;
+
+    esp_err_t err = httpd_req_get_hdr_value_str(http_req, name, out, out_len);
+    if (err == ESP_OK) return BB_OK;
+    if (err == ESP_ERR_HTTPD_RESULT_TRUNC) {
+        // Header present but longer than out_len-1: value copied is still
+        // usable (bounded, truncated) — that is BB_OK for our callers (e.g.
+        // a truncated User-Agent is fine). Ensure explicit NUL-termination.
+        out[out_len - 1] = '\0';
+        return BB_OK;
+    }
+    out[0] = '\0';
+    return BB_ERR_NOT_FOUND;
+}
+
 bb_err_t bb_http_register_assets(bb_http_handle_t server,
                                  const bb_http_asset_t *assets,
                                  size_t n)

@@ -67,6 +67,12 @@ void bb_http_host_capture_free(bb_http_host_capture_t *cap);
 // Reset to false after the test.
 void bb_http_host_force_recv_fail(bool fail);
 
+// Test hook: inject a single request header (name/value) consulted by
+// bb_http_req_get_header. Strings are referenced (not copied) — both must
+// remain valid until after the handler/assertion runs. Pass NULL name to
+// clear (bb_http_req_get_header then returns BB_ERR_NOT_FOUND for any name).
+void bb_http_host_set_req_header(const char *name, const char *value);
+
 // Test hook: force bb_http_resp_set_type to return BB_ERR_INVALID_STATE.
 // Reset to false after the test.
 void bb_http_host_force_set_type_fail(bool fail);

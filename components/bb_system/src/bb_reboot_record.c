@@ -53,6 +53,14 @@ bool bb_reboot_record_encode(const bb_reboot_record_t *r, char *buf, size_t buf_
     return true;
 }
 
+uint32_t bb_reboot_pick_epoch(bool ntp_synced, uint32_t device_epoch_s,
+                               uint32_t caller_epoch_s, uint32_t floor_s)
+{
+    if (ntp_synced && device_epoch_s >= floor_s) return device_epoch_s;
+    if (caller_epoch_s >= floor_s) return caller_epoch_s;
+    return 0;
+}
+
 bool bb_reboot_record_decode(const char *str, bb_reboot_record_t *out)
 {
     if (!str || !out) return false;

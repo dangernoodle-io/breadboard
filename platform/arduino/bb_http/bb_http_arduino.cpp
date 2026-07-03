@@ -270,6 +270,12 @@ bb_err_t bb_http_resp_no_content(bb_http_request_t *req) {
 
 int bb_http_req_sockfd(bb_http_request_t *req) { (void)req; return -1; }
 
+bb_err_t bb_http_req_get_header(bb_http_request_t *req, const char *name,
+                                char *out, size_t out_len) {
+    (void)req; (void)name; (void)out; (void)out_len;
+    return BB_ERR_NOT_FOUND;
+}
+
 bb_err_t bb_http_req_query_key_value(bb_http_request_t *req, const char *key,
                                      char *out, size_t out_len) {
     (void)req; (void)key; (void)out; (void)out_len;

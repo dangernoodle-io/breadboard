@@ -149,3 +149,100 @@ void test_bb_http_body_oom_returns_no_space(void)
 
     end_cap(req);
 }
+
+// ---------------------------------------------------------------------------
+// bb_http_req_get_header — host test-hook-backed request header accessor.
+// ---------------------------------------------------------------------------
+
+void test_bb_http_req_get_header_found(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_set_req_header("User-Agent", "curl/8.0");
+
+    char out[64] = {0};
+    bb_err_t rc = bb_http_req_get_header(req, "User-Agent", out, sizeof(out));
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL_STRING("curl/8.0", out);
+
+    bb_http_host_set_req_header(NULL, NULL);
+    end_cap(req);
+}
+
+void test_bb_http_req_get_header_not_found(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_set_req_header(NULL, NULL);
+
+    char out[64] = {0};
+    bb_err_t rc = bb_http_req_get_header(req, "User-Agent", out, sizeof(out));
+
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, rc);
+
+    end_cap(req);
+}
+
+void test_bb_http_req_get_header_name_set_value_null_not_found(void)
+{
+    // Exercises the s_req_header_value==NULL sub-branch independently of
+    // s_req_header_name==NULL (distinct from the both-null case above).
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_set_req_header("User-Agent", NULL);
+
+    char out[64] = {0};
+    bb_err_t rc = bb_http_req_get_header(req, "User-Agent", out, sizeof(out));
+
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, rc);
+
+    bb_http_host_set_req_header(NULL, NULL);
+    end_cap(req);
+}
+
+void test_bb_http_req_get_header_wrong_name_not_found(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_set_req_header("X-Client-Id", "board-1");
+
+    char out[64] = {0};
+    bb_err_t rc = bb_http_req_get_header(req, "User-Agent", out, sizeof(out));
+
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, rc);
+
+    bb_http_host_set_req_header(NULL, NULL);
+    end_cap(req);
+}
+
+void test_bb_http_req_get_header_null_args(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_set_req_header("User-Agent", "curl/8.0");
+
+    char out[64] = {0};
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_http_req_get_header(req, NULL, out, sizeof(out)));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_http_req_get_header(req, "User-Agent", NULL, sizeof(out)));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_http_req_get_header(req, "User-Agent", out, 0));
+
+    bb_http_host_set_req_header(NULL, NULL);
+    end_cap(req);
+}
+
+void test_bb_http_req_get_header_truncates_to_out_len(void)
+{
+    bb_http_request_t *req = NULL;
+    bb_http_host_capture_begin(&req);
+    bb_http_host_set_req_header("User-Agent", "a-very-long-user-agent-string");
+
+    char out[6] = {0};
+    bb_err_t rc = bb_http_req_get_header(req, "User-Agent", out, sizeof(out));
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL_STRING("a-ver", out);  // 5 chars + NUL
+
+    bb_http_host_set_req_header(NULL, NULL);
+    end_cap(req);
+}

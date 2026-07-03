@@ -277,6 +277,14 @@ bb_err_t bb_http_resp_json_obj_end(bb_http_json_obj_stream_t *stream);
 int bb_http_req_body_len(bb_http_request_t *req);
 int bb_http_req_recv(bb_http_request_t *req, char *buf, size_t buf_size);
 
+// Read a request header value into out. BB_OK when present (value copied,
+// NUL-terminated, truncated to out_len-1 if longer); BB_ERR_NOT_FOUND when
+// absent (out set to ""); BB_ERR_INVALID_ARG on null/zero args. Arduino's
+// bb_http backend does not support request headers and always returns
+// BB_ERR_NOT_FOUND.
+bb_err_t bb_http_req_get_header(bb_http_request_t *req, const char *name,
+                                char *out, size_t out_len);
+
 // Return the underlying socket fd for the request (ESP-IDF only; used for SSE eviction).
 int bb_http_req_sockfd(bb_http_request_t *req);
 
