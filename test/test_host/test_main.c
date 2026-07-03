@@ -2821,6 +2821,9 @@ void test_bb_event_routes_topic_info_ring_reflects_posts(void);
 void test_bb_event_routes_active_client_count_zero_before_acquire(void);
 void test_bb_event_routes_active_client_count_increments_on_acquire(void);
 void test_bb_event_routes_active_client_count_at_max(void);
+void test_bb_event_routes_slot_reuse_deferred_count_zero_by_default(void);
+void test_bb_event_routes_slot_reuse_deferred_count_increments(void);
+void test_bb_event_routes_slot_reuse_deferred_count_zero_after_reset(void);
 void test_bb_event_routes_client_event_null_for_null_client(void);
 void test_bb_event_routes_client_event_returns_non_null_after_acquire(void);
 void test_bb_event_routes_diag_full_round_trip(void);
@@ -3543,10 +3546,32 @@ void test_pool_slots_pending_slot_ignored_while_free_list_nonempty(void);
 void test_pool_slots_double_release_rejected_with_reusable_configured(void);
 void test_pool_slots_storage_is_zero_initialized(void);
 
+// Forward declarations: bb_pool SLOTS idle-reclaim GC pass (B1-492)
+void test_pool_slots_pending_count_zero_on_fresh_pool(void);
+void test_pool_slots_pending_count_zero_without_slot_reusable(void);
+void test_pool_slots_pending_count_reflects_released_pending_slots(void);
+void test_pool_slots_reap_ready_moves_ready_slot_to_free_list(void);
+void test_pool_slots_reap_ready_leaves_not_ready_slots_pending(void);
+void test_pool_slots_reap_ready_noop_without_slot_reusable(void);
+void test_pool_slots_reap_ready_and_pending_count_null_pool_is_noop(void);
+void test_pool_slots_reap_ready_and_pending_count_non_slots_mode_is_noop(void);
+void test_pool_slots_acquired_count_tracks_loan_state(void);
+void test_pool_slots_acquired_count_stays_set_while_pending_reap(void);
+void test_pool_slots_acquired_count_null_and_non_slots_mode_is_noop(void);
+void test_pool_slots_on_destroy_fires_once_per_slot_including_never_acquired(void);
+void test_pool_slots_on_destroy_null_is_safe_noop(void);
+void test_pool_slots_on_destroy_not_called_for_non_slots_mode(void);
+
 // Forward declarations from test_sse_bundle_decision.c (B1-484 finding 3)
 void test_sse_bundle_decide_none_returns_issue(void);
 void test_sse_bundle_decide_running_returns_not_yet(void);
 void test_sse_bundle_decide_suspended_returns_reap_then_issue(void);
+
+// Forward declarations from test_sse_pool_reclaim_decision.c (B1-492)
+void test_sse_pool_reclaim_decide_active_nonzero_keeps(void);
+void test_sse_pool_reclaim_decide_acquired_nonzero_keeps(void);
+void test_sse_pool_reclaim_decide_pending_nonzero_keeps(void);
+void test_sse_pool_reclaim_decide_all_zero_destroys(void);
 
 // Forward declarations from test_bb_telemetry.c (GET /api/telemetry/metrics, B1-295)
 void test_bb_pub_source_count_returns_registered(void);
@@ -6353,6 +6378,9 @@ int main(void) {
     RUN_TEST(test_bb_event_routes_active_client_count_zero_before_acquire);
     RUN_TEST(test_bb_event_routes_active_client_count_increments_on_acquire);
     RUN_TEST(test_bb_event_routes_active_client_count_at_max);
+    RUN_TEST(test_bb_event_routes_slot_reuse_deferred_count_zero_by_default);
+    RUN_TEST(test_bb_event_routes_slot_reuse_deferred_count_increments);
+    RUN_TEST(test_bb_event_routes_slot_reuse_deferred_count_zero_after_reset);
     RUN_TEST(test_bb_event_routes_client_event_null_for_null_client);
     RUN_TEST(test_bb_event_routes_client_event_returns_non_null_after_acquire);
     RUN_TEST(test_bb_event_routes_diag_full_round_trip);
@@ -7202,10 +7230,34 @@ int main(void) {
     RUN_TEST(test_pool_slots_double_release_rejected_with_reusable_configured);
     RUN_TEST(test_pool_slots_storage_is_zero_initialized);
 
+    // bb_pool SLOTS idle-reclaim GC pass tests (B1-492)
+    RUN_TEST(test_pool_slots_pending_count_zero_on_fresh_pool);
+    RUN_TEST(test_pool_slots_pending_count_zero_without_slot_reusable);
+    RUN_TEST(test_pool_slots_pending_count_reflects_released_pending_slots);
+    RUN_TEST(test_pool_slots_reap_ready_moves_ready_slot_to_free_list);
+    RUN_TEST(test_pool_slots_reap_ready_leaves_not_ready_slots_pending);
+    RUN_TEST(test_pool_slots_reap_ready_noop_without_slot_reusable);
+    RUN_TEST(test_pool_slots_reap_ready_and_pending_count_null_pool_is_noop);
+    RUN_TEST(test_pool_slots_reap_ready_and_pending_count_non_slots_mode_is_noop);
+    RUN_TEST(test_pool_slots_acquired_count_tracks_loan_state);
+    RUN_TEST(test_pool_slots_acquired_count_stays_set_while_pending_reap);
+    RUN_TEST(test_pool_slots_acquired_count_null_and_non_slots_mode_is_noop);
+
+    // bb_pool SLOTS on_destroy per-slot finalizer tests (firmware-review PR-B)
+    RUN_TEST(test_pool_slots_on_destroy_fires_once_per_slot_including_never_acquired);
+    RUN_TEST(test_pool_slots_on_destroy_null_is_safe_noop);
+    RUN_TEST(test_pool_slots_on_destroy_not_called_for_non_slots_mode);
+
     // sse_bundle_decision tests (B1-484 finding 3)
     RUN_TEST(test_sse_bundle_decide_none_returns_issue);
     RUN_TEST(test_sse_bundle_decide_running_returns_not_yet);
     RUN_TEST(test_sse_bundle_decide_suspended_returns_reap_then_issue);
+
+    // sse_pool_reclaim_decision tests (B1-492)
+    RUN_TEST(test_sse_pool_reclaim_decide_active_nonzero_keeps);
+    RUN_TEST(test_sse_pool_reclaim_decide_acquired_nonzero_keeps);
+    RUN_TEST(test_sse_pool_reclaim_decide_pending_nonzero_keeps);
+    RUN_TEST(test_sse_pool_reclaim_decide_all_zero_destroys);
 
     // bb_pub accessor tests (B1-295)
     RUN_TEST(test_bb_pub_source_count_returns_registered);

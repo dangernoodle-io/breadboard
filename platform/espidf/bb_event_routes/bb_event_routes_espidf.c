@@ -14,6 +14,7 @@
 #include "bb_arena.h"
 #include "bb_pool.h"
 #include "sse_bundle_decision.h"
+#include "sse_pool_reclaim_decision.h"
 
 #include <assert.h>
 #include <inttypes.h>
@@ -75,11 +76,16 @@ static const char *TAG = "bb_event_routes";
 //     via bb_arena's own allocator) on the FIRST SSE client connect. A
 //     failed allocation fails soft — the connection is rejected (same 500
 //     path the pre-existing xTaskCreateStatic-failure branch already
-//     returns) and retried on the next connect; no crash. Never destroyed
-//     once created — same one-standing-allocation rationale as before.
+//     returns) and retried on the next connect; no crash. B1-492:
+//     bb_event_routes_start()'s idle-reclaim tick (below) destroys this pool
+//     once it goes fully idle (0 active clients, 0 acquired bundles, 0
+//     pending corpses), returning to 0 standing bytes; it is recreated
+//     lazily on the next connect, same as the very first one.
 //   y — the pool is created eagerly at
 //     bb_event_routes_register_routes_init() time over a permanent
-//     static-BSS arena (unchanged PR E behavior).
+//     static-BSS arena (unchanged PR E behavior) and is never destroyed —
+//     the idle-reclaim tick is not created at all in this mode (nothing to
+//     reclaim).
 // ---------------------------------------------------------------------------
 
 #define SSE_TASK_STACK_WORDS (4096 / sizeof(StackType_t))
@@ -182,14 +188,18 @@ static bb_arena_t s_sse_task_arena;
 // bb_event_routes_register_routes_init() before the HTTP server accepts
 // requests. events_cleanup_fn calls sse_pool_release() after it has already
 // deregistered the task and released the client slot (no bb_event_routes
-// lock held at that point either). This mutex is therefore always the
-// innermost (and only) lock held during any of its critical sections — a
-// non-recursive pthread_mutex is safe. Keep it that way: never call
-// sse_pool_acquire()/sse_pool_release()/sse_task_bundles_ensure() from
-// inside another critical section already holding this same mutex (it is
-// not recursive — re-entering it self-deadlocks), and do not call anything
-// from inside a locked section that could re-enter this mutex or take
-// another bb_event_routes lock.
+// lock held at that point either). B1-492's sse_pool_reclaim_work_fn (below)
+// also takes this mutex directly (not via the sse_pool_* wrappers, since it
+// needs bb_pool_slots_reap_ready/pending_count/acquired_count rather than
+// acquire/release) — it runs on the shared bb_timer_disp task, holding no
+// other lock beforehand. This mutex is therefore always the innermost (and
+// only) lock held during any of its critical sections — a non-recursive
+// pthread_mutex is safe. Keep it that way: never call
+// sse_pool_acquire()/sse_pool_release()/sse_task_bundles_ensure()/
+// sse_pool_reclaim_work_fn's body from inside another critical section
+// already holding this same mutex (it is not recursive — re-entering it
+// self-deadlocks), and do not call anything from inside a locked section
+// that could re-enter this mutex or take another bb_event_routes lock.
 static pthread_mutex_t s_sse_task_pool_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 // Locked wrappers — the only call sites permitted to touch s_sse_task_pool
@@ -274,6 +284,28 @@ static void sse_bundle_reap(void *ctx, void *slot)
     b->handle = NULL;
 }
 
+// on_destroy: invoked by bb_pool_destroy() over EVERY slot (free, acquired,
+// or pending) right before the backing arena — and therefore this
+// sse_task_bundle_t storage itself — is freed. Releases the done_sem lazily
+// created by sse_bundle_on_acquire() (B1-479); nothing ever deleted it
+// before, so every idle-reclaim destroy cycle leaked one binary semaphore
+// per pool slot. Safe to call unconditionally on a never-acquired slot
+// (done_sem == NULL, since bb_pool zero-inits SLOTS storage at create time).
+// No double-delete risk: the whole pool (and this slot's storage) is
+// destroyed immediately after this call and recreated fresh — with a fresh
+// zero-inited done_sem — on the next connect; the freed handle is never
+// reachable again.
+static void sse_bundle_on_destroy(void *ctx, void *slot)
+{
+    (void)ctx;
+    sse_task_bundle_t *b = (sse_task_bundle_t *)slot;
+    if (b->done_sem) {
+        vSemaphoreDelete(b->done_sem);
+        b->done_sem = NULL;
+    }
+    b->handle = NULL;
+}
+
 // Create the SSE-private task-bundle pool on demand. Idempotent — returns
 // BB_OK immediately once s_sse_task_pool is set.
 //
@@ -309,6 +341,7 @@ static bb_err_t sse_task_bundles_ensure(void)
         .on_acquire     = sse_bundle_on_acquire,
         .slot_reusable  = sse_bundle_reusable,
         .slot_reap      = sse_bundle_reap,
+        .on_destroy     = sse_bundle_on_destroy,
     };
 
 #if CONFIG_BB_EVENT_ROUTES_POOL_STATIC
@@ -337,6 +370,121 @@ static bb_err_t sse_task_bundles_ensure(void)
         return BB_ERR_NO_SPACE;
     }
     pthread_mutex_unlock(&s_sse_task_pool_mtx);
+    return BB_OK;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Idle-reclaim tick (B1-492) — lazy-heap path only. Compiled out entirely
+// under CONFIG_BB_EVENT_ROUTES_POOL_STATIC=y: that pool is a permanent
+// eager-BSS arena created once at boot and never destroyed — there is
+// nothing to reclaim, so no timer is created (see bb_event_routes_start()).
+//
+// Timer-callback-signal-only convention: bb_pool_destroy() frees memory
+// (bb_arena_destroy -> bb_mem_free), which must never run on the esp_timer
+// service task. bb_event_routes_start() therefore arms this work_fn via
+// bb_timer_deferred_periodic_create(), NOT bb_timer_periodic_create() — the
+// shared bb_timer_disp task runs work_fn in real task context (its own
+// stack, preemptible, free to lock/allocate/free), off the esp_timer
+// service task entirely.
+// ---------------------------------------------------------------------------
+#if !CONFIG_BB_EVENT_ROUTES_POOL_STATIC
+
+// Kconfig-bridged interval — this file is ESP-IDF-only (platform/espidf/),
+// so CONFIG_BB_EVENT_ROUTES_IDLE_RECLAIM_MS is always available via
+// sdkconfig.h (already transitively included via bb_core/bb_http); no
+// host-fallback bridge needed here (contrast bb_clock.h, which is shared
+// with host builds and does need one).
+#define SSE_POOL_RECLAIM_INTERVAL_MS ((uint32_t)CONFIG_BB_EVENT_ROUTES_IDLE_RECLAIM_MS)
+
+static bb_periodic_timer_t s_sse_reclaim_timer = NULL;
+
+// Runs on the shared bb_timer_disp task (see the file-header comment above),
+// never on the esp_timer service task. Locked for its entire body — the
+// critical section is bounded: bb_pool_slots_reap_ready() only performs
+// eTaskGetState()/vTaskDelete() per pending slot (same bound already
+// documented for s_sse_task_pool_mtx above), and bb_pool_destroy() on the
+// lazy-heap path is a single bb_mem_free() call, not a blocking IDF call.
+static void sse_pool_reclaim_work_fn(void *arg)
+{
+    (void)arg;
+    pthread_mutex_lock(&s_sse_task_pool_mtx);
+
+    if (!s_sse_task_pool) {
+        // Never connected yet, or already reclaimed by a prior tick —
+        // nothing to do until the next SSE connect lazily recreates it.
+        pthread_mutex_unlock(&s_sse_task_pool_mtx);
+        return;
+    }
+
+    // Drain every corpse that has already reached eSuspended, independent
+    // of whether any connect attempt is currently pending on this pool —
+    // this is what lets a corpse get reaped even if nobody reconnects.
+    bb_pool_slots_reap_ready(s_sse_task_pool);
+
+    // acquired_count closes a race active_clients + pending_count alone
+    // cannot see: events_cleanup_fn calls bb_event_routes_client_release()
+    // (decrementing active_clients) BEFORE sse_pool_release() (which is what
+    // actually moves the bundle out of the "acquired" bitmap and into
+    // "pending"). Between those two calls the exiting task is still
+    // executing on this exact bundle's stack — acquired_count catches that
+    // in-flight window even though it is neither an active client nor yet a
+    // pending corpse.
+    size_t pending  = bb_pool_slots_pending_count(s_sse_task_pool);
+    size_t acquired = bb_pool_slots_acquired_count(s_sse_task_pool);
+    size_t active   = bb_event_routes_active_client_count();
+
+    if (sse_pool_reclaim_decide(active, acquired, pending) == SSE_POOL_RECLAIM_DESTROY) {
+        // Take the handle and null the global before dropping the lock so a
+        // concurrent events_handler on the httpd task either sees NULL
+        // (recreates lazily via sse_task_bundles_ensure()) or never observes
+        // a half-destroyed pool — sse_pool_acquire()/sse_pool_release() and
+        // sse_task_bundles_ensure() all take this same mutex.
+        bb_pool_t victim = s_sse_task_pool;
+        s_sse_task_pool = NULL;
+        pthread_mutex_unlock(&s_sse_task_pool_mtx);
+        bb_pool_destroy(victim);
+        bb_log_i(TAG, "idle-reclaim: SSE task pool destroyed (0 active clients, 0 acquired, 0 pending corpses)");
+        return;
+    }
+
+    pthread_mutex_unlock(&s_sse_task_pool_mtx);
+}
+
+#endif // !CONFIG_BB_EVENT_ROUTES_POOL_STATIC
+
+// B1-492: self-registers at PRE_HTTP tier (mirrors bb_pub_start()) so
+// bb_event_routes_register_routes_init (REGULAR tier, below) stays pure
+// httpd route-attach with no timer/task creation. State-init + timer-create
+// + timer-arm only — see the file-header comment above for why the timer
+// itself must defer its work off the esp_timer service task.
+bb_err_t bb_event_routes_start(void)
+{
+#if CONFIG_BB_EVENT_ROUTES_POOL_STATIC
+    // Eager-BSS pool: nothing to reclaim, ever. Deliberate no-op — do not
+    // create a timer that would just spin doing nothing every tick.
+    return BB_OK;
+#else
+    // Idempotent: unlike bb_pub_start()'s fully-static, single-caller
+    // pattern, this is a public function an external caller could invoke
+    // more than once. A second call while the reclaim timer is already
+    // armed must not create/arm a duplicate timer.
+    if (s_sse_reclaim_timer != NULL) {
+        return BB_OK;
+    }
+    bb_err_t err = bb_timer_deferred_periodic_create(sse_pool_reclaim_work_fn, NULL,
+                                                     "sse_reclaim", &s_sse_reclaim_timer);
+    if (err != BB_OK) {
+        bb_log_e(TAG, "idle-reclaim: failed to create timer: %d", err);
+        return err;
+    }
+    err = bb_timer_periodic_start(s_sse_reclaim_timer,
+                                  (uint64_t)SSE_POOL_RECLAIM_INTERVAL_MS * 1000ULL);
+    if (err != BB_OK) {
+        bb_log_e(TAG, "idle-reclaim: failed to start timer: %d", err);
+        return err;
+    }
+    bb_log_i(TAG, "idle-reclaim tick armed (%" PRIu32 " ms)", SSE_POOL_RECLAIM_INTERVAL_MS);
     return BB_OK;
 #endif
 }
@@ -561,6 +709,11 @@ static bb_err_t events_handler(bb_http_request_t *req)
     // succeeds.
     sse_task_bundle_t *bundle = sse_pool_acquire();
     if (!bundle) {
+        // B1-492: this specific 503 (reap-gate deferral, not max_clients
+        // exhaustion) is separately counted so boot-contention reuse
+        // pressure stays observable now that it manifests as transient
+        // 503-retries instead of B1-484's permanent strand.
+        bb_event_routes_note_slot_reuse_deferred();
         bb_event_routes_client_release(client);
         bb_http_resp_set_status(req, 503);
         bb_http_json_obj_stream_t obj;
@@ -721,6 +874,8 @@ static bb_err_t diag_events_handler(bb_http_request_t *req)
 
     bb_http_resp_json_obj_set_int(&obj, "max_clients",    (int64_t)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS);
     bb_http_resp_json_obj_set_int(&obj, "active_clients", (int64_t)bb_event_routes_active_client_count());
+    bb_http_resp_json_obj_set_int(&obj, "slot_reuse_deferred",
+                                   (int64_t)bb_event_routes_slot_reuse_deferred_count());
 
     return bb_http_resp_json_obj_end(&obj);
 }
@@ -741,10 +896,13 @@ static const bb_route_response_t s_diag_events_responses[] = {
       "\"required\":[\"name\",\"ring_capacity\",\"ring_count\","
       "\"last_id\",\"last_post_age_ms\",\"last_size\"]}},"
       "\"max_clients\":{\"type\":\"integer\"},"
-      "\"active_clients\":{\"type\":\"integer\"}},"
-      "\"required\":[\"topics\",\"max_clients\",\"active_clients\"]}",
+      "\"active_clients\":{\"type\":\"integer\"},"
+      "\"slot_reuse_deferred\":{\"type\":\"integer\"}},"
+      "\"required\":[\"topics\",\"max_clients\",\"active_clients\",\"slot_reuse_deferred\"]}",
       "topic discovery and ring-buffer diagnostics for /api/events — "
-      "ring_count=0 means no replay data; last_post_age_ms=0 means no events captured yet" },
+      "ring_count=0 means no replay data; last_post_age_ms=0 means no events captured yet; "
+      "slot_reuse_deferred (B1-492) counts transient reap-gate 503s (task-bundle reuse pending), "
+      "distinct from max_clients-exhaustion 503s" },
     { 0 },
 };
 
@@ -793,5 +951,6 @@ static bb_err_t bb_event_routes_reserve_routes(void)
     return BB_OK;
 }
 BB_INIT_REGISTER_PRE_HTTP(bb_event_routes, bb_event_routes_reserve_routes);
+BB_INIT_REGISTER_PRE_HTTP(bb_event_routes_start, bb_event_routes_start);
 BB_INIT_REGISTER(bb_event_routes, bb_event_routes_register_routes_init);
 #endif

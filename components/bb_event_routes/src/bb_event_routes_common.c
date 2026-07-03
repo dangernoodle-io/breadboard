@@ -748,6 +748,21 @@ size_t bb_event_routes_active_client_count(void)
     return active;
 }
 
+// B1-492: reuse-deferred 503 counter. Incremented only from the ESP-IDF
+// platform component's events_handler() (single httpd task — no concurrent
+// writers), read from anywhere via the public getter.
+static size_t s_slot_reuse_deferred_count;
+
+void bb_event_routes_note_slot_reuse_deferred(void)
+{
+    s_slot_reuse_deferred_count++;
+}
+
+size_t bb_event_routes_slot_reuse_deferred_count(void)
+{
+    return s_slot_reuse_deferred_count;
+}
+
 // ---------------------------------------------------------------------------
 // Test hooks
 // ---------------------------------------------------------------------------
@@ -785,6 +800,7 @@ void bb_event_routes_reset_for_test(void) {
     s_sse_bundles = NULL;
     s_sse_pool_is_static = false;
     s_use_static_pool_for_test = false;
+    s_slot_reuse_deferred_count = 0;
 }
 
 size_t bb_event_routes_queued_for_test(bb_event_routes_client_t *c) {

@@ -100,6 +100,24 @@ config BB_EVENT_ROUTES_POOL_STATIC
         this setting — static allocation is always available on modern
         ESP-IDF (>= 4.3), so this does not depend on any separate Kconfig.
 
+config BB_EVENT_ROUTES_IDLE_RECLAIM_MS
+    int "SSE task-bundle pool idle-reclaim tick interval (ms)"
+    default 20000
+    range 5000 300000
+    depends on !BB_EVENT_ROUTES_POOL_STATIC
+    help
+        How often (ms) the PRE_HTTP idle-reclaim tick (bb_event_routes_start,
+        B1-492) checks the lazy heap-backed SSE task-bundle pool: it
+        proactively reaps any corpse tasks that have reached eSuspended, and
+        once 0 clients are connected and 0 corpses remain, destroys the pool
+        entirely (bb_pool_destroy) to return to 0 standing bytes. The pool is
+        recreated lazily on the next SSE connect. Never gates SSE reuse
+        itself — bb_pool_acquire's own non-blocking reap-gate owns that; this
+        tick only reclaims the pool's standing allocation once fully idle.
+        Not shown (and the reclaim tick is not created) when
+        BB_EVENT_ROUTES_POOL_STATIC=y — the eager-BSS pool has nothing to
+        reclaim.
+
 config BB_EVENT_ROUTES_HEARTBEAT_MS
     int "Idle heartbeat interval (ms)"
     default 15000
