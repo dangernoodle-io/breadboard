@@ -15,6 +15,7 @@
 #include "bb_nv.h"
 #include "bb_cache.h"
 #include "bb_json.h"
+#include "bb_transport_health.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -355,6 +356,140 @@ void test_bb_sub_mqtt_multi_topic_config_parses_and_subscribes_all(void)
         bb_cache_get_serialized("metrics/otherhost/meta", buf, sizeof(buf), &len));
     TEST_ASSERT_EQUAL_INT(BB_OK,
         bb_cache_get_serialized("status/otherhost/online", buf, sizeof(buf), &len));
+
+    bb_mqtt_destroy(h);
+}
+
+// ---------------------------------------------------------------------------
+// bb_transport_health register + mark_activity wiring (INFERRED, OBSERVE-ONLY)
+// ---------------------------------------------------------------------------
+
+void test_bb_sub_mqtt_genuine_message_marks_ingress_activity(void)
+{
+    reset_all();
+    bb_transport_health_reset_for_test();
+    bb_sub_mqtt_reset_transport_health_for_test();
+    bb_mqtt_t h = make_default_client();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_sub_mqtt_init());
+
+    bb_mqtt_host_inject_message(h, "metrics/otherhost/meta", "{\"x\":1}", 7);
+
+    bb_transport_health_snapshot_t snaps[BB_TRANSPORT_HEALTH_MAX_SLOTS];
+    size_t n = bb_transport_health_snapshot_all(snaps, BB_TRANSPORT_HEALTH_MAX_SLOTS);
+    bool found = false;
+    for (size_t i = 0; i < n; i++) {
+        if (strcmp(snaps[i].name, "mqtt_sub") == 0) {
+            found = true;
+            TEST_ASSERT_EQUAL_INT(BB_TRANSPORT_INFERRED, snaps[i].cls);
+            TEST_ASSERT_EQUAL_UINT32(1, snaps[i].rx_count);
+            TEST_ASSERT_TRUE(snaps[i].last_rx_ms > 0);
+        }
+    }
+    TEST_ASSERT_TRUE(found);
+
+    bb_mqtt_destroy(h);
+}
+
+// Lazy register-once: two genuine inbound frames must register exactly one
+// "mqtt_sub" slot, not one per message.
+void test_bb_sub_mqtt_genuine_messages_register_transport_health_once(void)
+{
+    reset_all();
+    bb_transport_health_reset_for_test();
+    bb_sub_mqtt_reset_transport_health_for_test();
+    bb_mqtt_t h = make_default_client();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_sub_mqtt_init());
+
+    bb_mqtt_host_inject_message(h, "metrics/otherhost/meta", "{\"x\":1}", 7);
+    bb_mqtt_host_inject_message(h, "metrics/otherhost/meta", "{\"x\":2}", 7);
+
+    bb_transport_health_snapshot_t snaps[BB_TRANSPORT_HEALTH_MAX_SLOTS];
+    size_t n = bb_transport_health_snapshot_all(snaps, BB_TRANSPORT_HEALTH_MAX_SLOTS);
+    int mqtt_sub_slots = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (strcmp(snaps[i].name, "mqtt_sub") == 0) {
+            mqtt_sub_slots++;
+            TEST_ASSERT_EQUAL_UINT32(2, snaps[i].rx_count);
+        }
+    }
+    TEST_ASSERT_EQUAL_INT(1, mqtt_sub_slots);
+
+    bb_mqtt_destroy(h);
+}
+
+// A self-filtered (own-hostname) message never reaches on_mqtt_message's
+// mark_activity call — rx_count must stay unchanged (no slot even created).
+void test_bb_sub_mqtt_self_filtered_message_does_not_mark_activity(void)
+{
+    reset_all();
+    bb_transport_health_reset_for_test();
+    bb_sub_mqtt_reset_transport_health_for_test();
+    bb_mqtt_t h = make_default_client();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_sub_mqtt_init());
+
+    // hostname == "myhost" (set in reset_all) -> self-filtered, dropped
+    // before the mark_activity call.
+    bb_mqtt_host_inject_message(h, "metrics/myhost/meta", "{\"x\":1}", 7);
+
+    bb_transport_health_snapshot_t snaps[BB_TRANSPORT_HEALTH_MAX_SLOTS];
+    size_t n = bb_transport_health_snapshot_all(snaps, BB_TRANSPORT_HEALTH_MAX_SLOTS);
+    for (size_t i = 0; i < n; i++) {
+        TEST_ASSERT_TRUE(strcmp(snaps[i].name, "mqtt_sub") != 0);
+    }
+
+    bb_mqtt_destroy(h);
+}
+
+// INFERRED slots must never contribute to authoritative_counts() — the
+// observe-only guarantee.
+void test_bb_sub_mqtt_transport_health_excluded_from_authoritative_counts(void)
+{
+    reset_all();
+    bb_transport_health_reset_for_test();
+    bb_sub_mqtt_reset_transport_health_for_test();
+    bb_mqtt_t h = make_default_client();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_sub_mqtt_init());
+
+    bb_mqtt_host_inject_message(h, "metrics/otherhost/meta", "{\"x\":1}", 7);
+
+    int enabled = -1, failing = -1;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_transport_health_authoritative_counts(&enabled, &failing));
+    TEST_ASSERT_EQUAL_INT(0, enabled);
+    TEST_ASSERT_EQUAL_INT(0, failing);
+
+    bb_mqtt_destroy(h);
+}
+
+// When the bb_transport_health slot pool is exhausted, the lazy register
+// inside on_mqtt_message must fail gracefully: the message still routes
+// normally (bb_cache updated), but no "mqtt_sub" slot is created.
+void test_bb_sub_mqtt_exhausted_transport_health_degrades_gracefully(void)
+{
+    reset_all();
+    bb_transport_health_reset_for_test();
+    bb_sub_mqtt_reset_transport_health_for_test();
+
+    bb_transport_handle_t dummy;
+    for (int i = 0; i < BB_TRANSPORT_HEALTH_MAX_SLOTS; i++) {
+        TEST_ASSERT_EQUAL_INT(BB_OK,
+            bb_transport_health_register("filler", BB_TRANSPORT_AUTHORITATIVE, &dummy));
+    }
+
+    bb_mqtt_t h = make_default_client();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_sub_mqtt_init());
+
+    bb_mqtt_host_inject_message(h, "metrics/otherhost/meta", "{\"v\":7}", 7);
+
+    char buf[64];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_get_serialized("metrics/otherhost/meta", buf, sizeof(buf), &len));
+
+    bb_transport_health_snapshot_t snaps[BB_TRANSPORT_HEALTH_MAX_SLOTS];
+    size_t n = bb_transport_health_snapshot_all(snaps, BB_TRANSPORT_HEALTH_MAX_SLOTS);
+    for (size_t i = 0; i < n; i++) {
+        TEST_ASSERT_TRUE(strcmp(snaps[i].name, "mqtt_sub") != 0);
+    }
 
     bb_mqtt_destroy(h);
 }

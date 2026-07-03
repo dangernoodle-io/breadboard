@@ -4,6 +4,7 @@
 #include "bb_nv.h"
 #include "bb_log.h"
 #include "bb_init.h"
+#include "bb_transport_health.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -30,6 +31,17 @@ static bool s_shape_warned     = false;
 #ifdef BB_SUB_MQTT_TESTING
 static const char *s_topics_cfg_override = NULL;
 #endif
+
+// bb_transport_health registration (observe-only, INFERRED): registered
+// lazily on the first inbound message rather than at bb_sub_mqtt_init() to
+// avoid init-order questions (mirrors bb_sink_mqtt's lazy register-once
+// idiom, see platform/host/bb_sink_mqtt/bb_sink_mqtt.c). Named "mqtt_sub" —
+// deliberately distinct from the egress sink's "mqtt" slot so the two never
+// collide in bb_transport_health_snapshot_all().
+// Single-writer: on_mqtt_message() only ever runs on the bb_mqtt event task,
+// so the lazy check-then-register on s_th_handle needs no lock
+// (bb_transport_health's own ops are internally locked).
+static bb_transport_handle_t s_th_handle = BB_TRANSPORT_HANDLE_INVALID;
 
 // ---------------------------------------------------------------------------
 // Topic filter registration
@@ -129,6 +141,14 @@ static void on_mqtt_message(const char *topic, const void *payload, size_t len, 
         return;
     }
 
+    // Genuine fleet telemetry (self-filtered frames never reach here) — mark
+    // ingress activity so staleness means "no real inbound traffic in N s",
+    // not "including our own looped-back publish".
+    if (s_th_handle == BB_TRANSPORT_HANDLE_INVALID) {
+        bb_transport_health_register("mqtt_sub", BB_TRANSPORT_INFERRED, &s_th_handle);
+    }
+    bb_transport_health_mark_activity(s_th_handle);
+
     bb_sub_route(topic, (const char *)payload, len);
 }
 
@@ -198,5 +218,10 @@ int bb_sub_mqtt_test_topic_count(void)
 void bb_sub_mqtt_test_set_topics_cfg(const char *cfg)
 {
     s_topics_cfg_override = cfg;
+}
+
+void bb_sub_mqtt_reset_transport_health_for_test(void)
+{
+    s_th_handle = BB_TRANSPORT_HANDLE_INVALID;
 }
 #endif
