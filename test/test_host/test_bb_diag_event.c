@@ -327,3 +327,154 @@ void test_bb_diag_boot_serialize_reboot_reason_oom(void)
     TEST_ASSERT_NULL(strstr(str, "\"reboot_reason\""));
     bb_json_free_str(str);
 }
+
+// ---------------------------------------------------------------------------
+// reboot_history (B1-527 PR-B) — always present as an array; newest-first
+// ordering, empty-when-count-0, and OOM branches.
+// ---------------------------------------------------------------------------
+
+void test_bb_diag_boot_serialize_reboot_history_empty_when_count_zero(void)
+{
+    bb_diag_boot_snap_t snap = {
+        .reset_reason = "power-on",
+    };
+    char *str = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"reboot_history\":[]"));
+    bb_json_free_str(str);
+}
+
+void test_bb_diag_boot_serialize_reboot_history_newest_first_no_wrap(void)
+{
+    // Ring not yet full: head==0, count==2. entries[0]=oldest, entries[1]=newest.
+    bb_diag_boot_snap_t snap = {
+        .reset_reason = "software",
+    };
+    snap.reboot_history.head  = 0;
+    snap.reboot_history.count = 2;
+    snap.reboot_history.entries[0] = (bb_reboot_hist_entry_t){
+        .src = (uint8_t)BB_RESET_SRC_API_REBOOT, .epoch_s = 100, .uptime_s = 10,
+    };
+    snap.reboot_history.entries[1] = (bb_reboot_hist_entry_t){
+        .src = (uint8_t)BB_RESET_SRC_EGRESS_TIER3, .epoch_s = 200, .uptime_s = 20,
+    };
+
+    char *str = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(str);
+    // newest (entries[1]) must appear before oldest (entries[0]).
+    const char *newest = strstr(str, "\"egress_tier3\"");
+    const char *oldest = strstr(str, "\"api_reboot\"");
+    TEST_ASSERT_NOT_NULL(newest);
+    TEST_ASSERT_NOT_NULL(oldest);
+    TEST_ASSERT_TRUE(newest < oldest);
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"epoch_s\":200"));
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"uptime_s\":20"));
+    bb_json_free_str(str);
+}
+
+void test_bb_diag_boot_serialize_reboot_history_newest_first_after_wrap(void)
+{
+    // Ring at capacity and wrapped: head==3 (oldest slot), count==CAP.
+    // Newest push landed at slot (head + count - 1) % CAP == (3+8-1)%8 == 2.
+    bb_diag_boot_snap_t snap = {
+        .reset_reason = "software",
+    };
+    snap.reboot_history.head  = 3;
+    snap.reboot_history.count = BB_REBOOT_HISTORY_CAP;
+    for (uint8_t i = 0; i < BB_REBOOT_HISTORY_CAP; i++) {
+        snap.reboot_history.entries[i] = (bb_reboot_hist_entry_t){
+            .src = (uint8_t)BB_RESET_SRC_API_REBOOT, .epoch_s = 1000U + i, .uptime_s = i,
+        };
+    }
+    // Mark the newest slot (index 2) distinctly.
+    snap.reboot_history.entries[2].src = (uint8_t)BB_RESET_SRC_OTA_BOOT_DONE;
+    // Mark the oldest slot (index 3 == head) distinctly.
+    snap.reboot_history.entries[3].src = (uint8_t)BB_RESET_SRC_WIFI_SAFEGUARD;
+
+    char *str = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(str);
+    const char *newest = strstr(str, "\"ota_boot_done\"");
+    const char *oldest = strstr(str, "\"wifi_safeguard\"");
+    TEST_ASSERT_NOT_NULL(newest);
+    TEST_ASSERT_NOT_NULL(oldest);
+    TEST_ASSERT_TRUE(newest < oldest);
+    bb_json_free_str(str);
+}
+
+void test_bb_diag_boot_serialize_reboot_history_array_oom(void)
+{
+    bb_diag_boot_snap_t snap = {
+        .reset_reason = "power-on",
+    };
+    snap.reboot_history.head  = 0;
+    snap.reboot_history.count = 1;
+    snap.reboot_history.entries[0] = (bb_reboot_hist_entry_t){
+        .src = (uint8_t)BB_RESET_SRC_API_REBOOT, .epoch_s = 1, .uptime_s = 1,
+    };
+
+    // Call 0: outer object. Call 1: panic object. Call 2: reboot_reason
+    // object. Call 3: reboot_history array — fails.
+    bb_json_host_force_alloc_fail_after(3);
+    char *str = serialize_snap(&snap);
+    bb_json_host_force_alloc_fail_after(-1); // reset guard
+
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NULL(strstr(str, "\"reboot_history\""));
+    bb_json_free_str(str);
+}
+
+void test_bb_diag_boot_serialize_reboot_history_count_clamped_when_out_of_range(void)
+{
+    // Defensive clamp against a corrupted/hand-crafted count field wider
+    // than BB_REBOOT_HISTORY_CAP — the entries[] array only has CAP slots,
+    // so serialize must never iterate past that regardless of count.
+    bb_diag_boot_snap_t snap = {
+        .reset_reason = "power-on",
+    };
+    snap.reboot_history.head  = 0;
+    snap.reboot_history.count = 200; // out-of-range on purpose
+    for (uint8_t i = 0; i < BB_REBOOT_HISTORY_CAP; i++) {
+        snap.reboot_history.entries[i] = (bb_reboot_hist_entry_t){
+            .src = (uint8_t)BB_RESET_SRC_API_REBOOT, .epoch_s = i, .uptime_s = i,
+        };
+    }
+
+    char *str = serialize_snap(&snap);
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"reboot_history\":["));
+    // Exactly BB_REBOOT_HISTORY_CAP "source" entries, not 200.
+    int count = 0;
+    const char *p = str;
+    while ((p = strstr(p, "\"source\":\"api_reboot\"")) != NULL) {
+        count++;
+        p += 1;
+    }
+    TEST_ASSERT_EQUAL_INT(BB_REBOOT_HISTORY_CAP, count);
+    bb_json_free_str(str);
+}
+
+void test_bb_diag_boot_serialize_reboot_history_item_oom_yields_partial_array(void)
+{
+    bb_diag_boot_snap_t snap = {
+        .reset_reason = "power-on",
+    };
+    snap.reboot_history.head  = 0;
+    snap.reboot_history.count = 2;
+    snap.reboot_history.entries[0] = (bb_reboot_hist_entry_t){
+        .src = (uint8_t)BB_RESET_SRC_API_REBOOT, .epoch_s = 1, .uptime_s = 1,
+    };
+    snap.reboot_history.entries[1] = (bb_reboot_hist_entry_t){
+        .src = (uint8_t)BB_RESET_SRC_EGRESS_TIER3, .epoch_s = 2, .uptime_s = 2,
+    };
+
+    // Call 0: outer object. Call 1: panic object. Call 2: reboot_reason
+    // object. Call 3: reboot_history array — succeeds. Call 4: first item
+    // object — fails, so the loop breaks with an empty array still set.
+    bb_json_host_force_alloc_fail_after(4);
+    char *str = serialize_snap(&snap);
+    bb_json_host_force_alloc_fail_after(-1); // reset guard
+
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NOT_NULL(strstr(str, "\"reboot_history\":[]"));
+    bb_json_free_str(str);
+}

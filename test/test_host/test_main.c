@@ -116,6 +116,12 @@ void test_bb_diag_boot_serialize_reboot_reason_epoch_no_age_when_now_invalid(voi
 void test_bb_diag_boot_serialize_reboot_reason_age_present_when_both_valid(void);
 void test_bb_diag_boot_serialize_reboot_reason_no_age_on_clock_skew(void);
 void test_bb_diag_boot_serialize_reboot_reason_oom(void);
+void test_bb_diag_boot_serialize_reboot_history_empty_when_count_zero(void);
+void test_bb_diag_boot_serialize_reboot_history_newest_first_no_wrap(void);
+void test_bb_diag_boot_serialize_reboot_history_newest_first_after_wrap(void);
+void test_bb_diag_boot_serialize_reboot_history_array_oom(void);
+void test_bb_diag_boot_serialize_reboot_history_count_clamped_when_out_of_range(void);
+void test_bb_diag_boot_serialize_reboot_history_item_oom_yields_partial_array(void);
 
 // Forward declarations from test_ota_pull.c
 void test_bb_ota_pull_set_http_timeout_ms_default_is_20000(void);
@@ -1080,6 +1086,26 @@ void test_bb_reboot_record_decode_rejects_leading_sign(void);
 void test_bb_reboot_record_decode_out_of_range_src(void);
 void test_bb_reboot_record_decode_truncates_oversized_detail(void);
 void test_bb_reboot_record_decode_leaves_out_untouched_on_failure(void);
+void test_bb_reboot_history_push_null_args(void);
+void test_bb_reboot_history_push_appends_below_capacity(void);
+void test_bb_reboot_history_push_evicts_oldest_at_capacity(void);
+void test_bb_reboot_history_encode_null_args(void);
+void test_bb_reboot_history_encode_decode_roundtrip_partial(void);
+void test_bb_reboot_history_encode_decode_roundtrip_full_wrapped(void);
+void test_bb_reboot_history_encode_decode_empty_ring(void);
+void test_bb_reboot_history_encode_buffer_too_small(void);
+void test_bb_reboot_history_decode_null_args(void);
+void test_bb_reboot_history_decode_malformed(void);
+void test_bb_reboot_history_decode_rejects_missing_trailing_pipe(void);
+void test_bb_reboot_history_decode_rejects_leading_sign(void);
+void test_bb_reboot_history_decode_out_of_range_head(void);
+void test_bb_reboot_history_decode_out_of_range_count(void);
+void test_bb_reboot_history_decode_out_of_range_entry_src(void);
+void test_bb_reboot_history_decode_bad_entry_delimiter(void);
+void test_bb_reboot_history_encode_buffer_too_small_mid_loop(void);
+void test_bb_reboot_history_decode_header_field_count_mismatch(void);
+void test_bb_reboot_history_decode_entry_field_mismatch(void);
+void test_bb_reboot_history_decode_leaves_out_untouched_on_failure(void);
 
 // Forward declarations from test_bb_mdns.c
 void test_bb_mdns_browse_start_null_service(void);
@@ -4107,6 +4133,12 @@ int main(void) {
     RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_age_present_when_both_valid);
     RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_no_age_on_clock_skew);
     RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_oom);
+    RUN_TEST(test_bb_diag_boot_serialize_reboot_history_empty_when_count_zero);
+    RUN_TEST(test_bb_diag_boot_serialize_reboot_history_newest_first_no_wrap);
+    RUN_TEST(test_bb_diag_boot_serialize_reboot_history_newest_first_after_wrap);
+    RUN_TEST(test_bb_diag_boot_serialize_reboot_history_array_oom);
+    RUN_TEST(test_bb_diag_boot_serialize_reboot_history_count_clamped_when_out_of_range);
+    RUN_TEST(test_bb_diag_boot_serialize_reboot_history_item_oom_yields_partial_array);
 
     // bb_partition tests
     RUN_TEST(test_bb_partition_list_count);
@@ -5096,6 +5128,26 @@ int main(void) {
     RUN_TEST(test_bb_reboot_record_decode_out_of_range_src);
     RUN_TEST(test_bb_reboot_record_decode_truncates_oversized_detail);
     RUN_TEST(test_bb_reboot_record_decode_leaves_out_untouched_on_failure);
+    RUN_TEST(test_bb_reboot_history_push_null_args);
+    RUN_TEST(test_bb_reboot_history_push_appends_below_capacity);
+    RUN_TEST(test_bb_reboot_history_push_evicts_oldest_at_capacity);
+    RUN_TEST(test_bb_reboot_history_encode_null_args);
+    RUN_TEST(test_bb_reboot_history_encode_decode_roundtrip_partial);
+    RUN_TEST(test_bb_reboot_history_encode_decode_roundtrip_full_wrapped);
+    RUN_TEST(test_bb_reboot_history_encode_decode_empty_ring);
+    RUN_TEST(test_bb_reboot_history_encode_buffer_too_small);
+    RUN_TEST(test_bb_reboot_history_decode_null_args);
+    RUN_TEST(test_bb_reboot_history_decode_malformed);
+    RUN_TEST(test_bb_reboot_history_decode_rejects_missing_trailing_pipe);
+    RUN_TEST(test_bb_reboot_history_decode_rejects_leading_sign);
+    RUN_TEST(test_bb_reboot_history_decode_out_of_range_head);
+    RUN_TEST(test_bb_reboot_history_decode_out_of_range_count);
+    RUN_TEST(test_bb_reboot_history_decode_out_of_range_entry_src);
+    RUN_TEST(test_bb_reboot_history_decode_bad_entry_delimiter);
+    RUN_TEST(test_bb_reboot_history_encode_buffer_too_small_mid_loop);
+    RUN_TEST(test_bb_reboot_history_decode_header_field_count_mismatch);
+    RUN_TEST(test_bb_reboot_history_decode_entry_field_mismatch);
+    RUN_TEST(test_bb_reboot_history_decode_leaves_out_untouched_on_failure);
 
     // bb_mdns tests
     RUN_TEST(test_bb_mdns_browse_start_null_service);

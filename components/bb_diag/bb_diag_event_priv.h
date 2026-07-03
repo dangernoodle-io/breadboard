@@ -8,6 +8,7 @@
 
 #include "bb_cache.h"
 #include "bb_json.h"
+#include "bb_system.h"
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -30,6 +31,13 @@ typedef struct {
     char     reboot_detail[49];    // may be empty
     uint32_t reboot_epoch_s;       // 0 = unknown/unsynced at reboot time
     uint32_t reboot_uptime_s;      // prior-session uptime (seconds) at reboot
+
+    // Rolling reboot history ring (B1-527 PR-B). Latched once at boot
+    // alongside reboot_src/reboot_detail/etc (see load_reboot_record in
+    // bb_diag_routes.c). Unlike the fields above, this ring is NOT
+    // cleared-on-read — it accumulates across boots, including untagged /
+    // hardware resets (recorded as src=BB_RESET_SRC_UNKNOWN).
+    bb_reboot_history_t reboot_history;
 
     // Current wall clock, refreshed fresh on every publish/serialize call
     // (see build_boot_snap in bb_diag_routes.c) so age_s reflects "now",

@@ -47,6 +47,10 @@ static char              s_reboot_detail[49] = {0};
 static uint32_t          s_reboot_epoch_s    = 0;
 static uint32_t          s_reboot_uptime_s   = 0;
 
+// Rolling reboot history ring (B1-527 PR-B) — latched once at boot alongside
+// the fields above, by load_reboot_record(). NOT cleared-on-read.
+static bb_reboot_history_t s_reboot_history = {0};
+
 // Read+decode+erase the clear-on-read reboot record. Only trusted when this
 // boot's reset reason is software (BB_RESET_REASON_SW) — a record left over
 // from a stale/aborted write (e.g. a subsequent panic before the intended
@@ -81,6 +85,39 @@ static void load_reboot_record(void)
         s_reboot_epoch_s     = 0;
         s_reboot_uptime_s    = 0;
     }
+
+    // Append this boot to the rolling history ring (B1-527 PR-B). Unlike the
+    // record above, the ring is NOT cleared-on-read — it accumulates across
+    // boots, including untagged/hardware resets (pushed as src=unknown,
+    // epoch_s=0, uptime_s=0 — mirrors the effective reboot_reason computed
+    // above exactly).
+    {
+        char hist_buf[BB_REBOOT_HISTORY_STR_MAX] = {0};
+        bb_err_t hrc = bb_nv_get_str(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_HISTORY,
+                                      hist_buf, sizeof(hist_buf), "");
+        bb_reboot_history_t hist;
+        memset(&hist, 0, sizeof(hist));
+        if (hrc == BB_OK) {
+            bb_reboot_history_decode(hist_buf, &hist);
+            // On decode failure, hist stays zero-initialized (fresh ring) —
+            // the safe fallback for corrupted/foreign NVS data.
+        }
+
+        bb_reboot_hist_entry_t entry = {
+            .src      = (uint8_t)s_reboot_src,
+            .epoch_s  = s_reboot_epoch_s,
+            .uptime_s = s_reboot_uptime_s,
+        };
+        bb_reboot_history_push(&hist, &entry);
+        s_reboot_history = hist;
+
+        if (bb_reboot_history_encode(&hist, hist_buf, sizeof(hist_buf))) {
+            bb_err_t werr = bb_nv_set_str(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_HISTORY, hist_buf);
+            if (werr != BB_OK) {
+                bb_log_w(TAG, "failed to persist reboot history: %d", (int)werr);
+            }
+        }
+    }
 }
 
 // Build a fresh diag.boot snapshot. Called both at publish time (init +
@@ -104,6 +141,8 @@ static void build_boot_snap(bb_diag_boot_snap_t *snap)
     snap->reboot_detail[sizeof(snap->reboot_detail) - 1] = '\0';
     snap->reboot_epoch_s  = s_reboot_epoch_s;
     snap->reboot_uptime_s = s_reboot_uptime_s;
+
+    snap->reboot_history = s_reboot_history;
 
     snap->now_epoch_valid = false;
     snap->now_epoch_s     = 0;
@@ -255,14 +294,23 @@ static const bb_route_response_t s_boot_get_responses[] = {
       "\"uptime_s\":{\"type\":\"integer\"},"
       "\"epoch_s\":{\"type\":\"integer\"},"
       "\"age_s\":{\"type\":\"integer\"}},"
-      "\"required\":[\"source\",\"uptime_s\",\"epoch_s\"]}},"
-      "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\",\"pending_verify\",\"rolled_back\",\"reboot_reason\"]}",
+      "\"required\":[\"source\",\"uptime_s\",\"epoch_s\"]},"
+      "\"reboot_history\":{\"type\":\"array\",\"items\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"source\":{\"type\":\"string\"},"
+      "\"epoch_s\":{\"type\":\"integer\"},"
+      "\"uptime_s\":{\"type\":\"integer\"}},"
+      "\"required\":[\"source\",\"epoch_s\",\"uptime_s\"]}}},"
+      "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\",\"pending_verify\",\"rolled_back\","
+      "\"reboot_reason\",\"reboot_history\"]}",
       "current boot reset reason, WDT-reset count, panic availability, OTA state summary, "
-      "and the semantic reboot_reason SSOT (may disagree with hardware reset_reason — e.g. "
+      "the semantic reboot_reason SSOT (may disagree with hardware reset_reason — e.g. "
       "an app-requested reboot still reports reset_reason=\\\"software\\\" at the hardware "
       "level while reboot_reason.source names the app-level cause; source=\\\"unknown\\\" when "
       "no semantic record was captured for this boot). age_s is omitted when epoch_s is 0 "
-      "or the current wall clock is not NTP-synced." },
+      "or the current wall clock is not NTP-synced. reboot_history is a rolling ring of the "
+      "last 8 reboots, newest-first, including untagged/hardware resets (source=\\\"unknown\\\"); "
+      "unlike reboot_reason it is NOT cleared on read." },
     { 0 },
 };
 
@@ -906,9 +954,13 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
             "\"detail\":{\"type\":\"string\"},"
             "\"uptime_s\":{\"type\":\"integer\"},"
             "\"epoch_s\":{\"type\":\"integer\"},"
-            "\"age_s\":{\"type\":\"integer\"}}}},"
+            "\"age_s\":{\"type\":\"integer\"}}},"
+            "\"reboot_history\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{"
+            "\"source\":{\"type\":\"string\"},"
+            "\"epoch_s\":{\"type\":\"integer\"},"
+            "\"uptime_s\":{\"type\":\"integer\"}}}}},"
             "\"required\":[\"reset_reason\",\"wdt_resets\",\"panic\","
-            "\"pending_verify\",\"rolled_back\",\"reboot_reason\"]}";
+            "\"pending_verify\",\"rolled_back\",\"reboot_reason\",\"reboot_history\"]}";
 
         bb_err_t terr = bb_event_topic_register(BB_DIAG_BOOT_TOPIC, &s_boot_topic);
         if (terr != BB_OK) {

@@ -384,3 +384,242 @@ void test_bb_reboot_record_decode_leaves_out_untouched_on_failure(void)
         TEST_ASSERT_EQUAL_UINT8(0x5A, bytes[i]);
     }
 }
+
+// ---------------------------------------------------------------------------
+// bb_reboot_history_push / _encode / _decode — rolling ring (B1-527 PR-B).
+// ---------------------------------------------------------------------------
+
+void test_bb_reboot_history_push_null_args(void)
+{
+    bb_reboot_history_t h = {0};
+    bb_reboot_hist_entry_t e = {0};
+    bb_reboot_history_push(NULL, &e);  // no-op, must not crash
+    bb_reboot_history_push(&h, NULL);  // no-op, must not crash
+    TEST_ASSERT_EQUAL_UINT8(0, h.count);
+}
+
+void test_bb_reboot_history_push_appends_below_capacity(void)
+{
+    bb_reboot_history_t h = {0};
+    bb_reboot_hist_entry_t e1 = { .src = (uint8_t)BB_RESET_SRC_API_REBOOT, .epoch_s = 100, .uptime_s = 10 };
+    bb_reboot_hist_entry_t e2 = { .src = (uint8_t)BB_RESET_SRC_EGRESS_TIER3, .epoch_s = 200, .uptime_s = 20 };
+
+    bb_reboot_history_push(&h, &e1);
+    TEST_ASSERT_EQUAL_UINT8(1, h.count);
+    TEST_ASSERT_EQUAL_UINT8(0, h.head);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)BB_RESET_SRC_API_REBOOT, h.entries[0].src);
+
+    bb_reboot_history_push(&h, &e2);
+    TEST_ASSERT_EQUAL_UINT8(2, h.count);
+    TEST_ASSERT_EQUAL_UINT8(0, h.head);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)BB_RESET_SRC_EGRESS_TIER3, h.entries[1].src);
+}
+
+void test_bb_reboot_history_push_evicts_oldest_at_capacity(void)
+{
+    bb_reboot_history_t h = {0};
+    for (uint8_t i = 0; i < BB_REBOOT_HISTORY_CAP; i++) {
+        bb_reboot_hist_entry_t e = { .src = (uint8_t)BB_RESET_SRC_API_REBOOT, .epoch_s = i, .uptime_s = i };
+        bb_reboot_history_push(&h, &e);
+    }
+    TEST_ASSERT_EQUAL_UINT8(BB_REBOOT_HISTORY_CAP, h.count);
+    TEST_ASSERT_EQUAL_UINT8(0, h.head);
+
+    // One more push must evict the oldest (epoch_s==0) and advance head.
+    bb_reboot_hist_entry_t newest = { .src = (uint8_t)BB_RESET_SRC_OTA_BOOT_DONE, .epoch_s = 999, .uptime_s = 99 };
+    bb_reboot_history_push(&h, &newest);
+
+    TEST_ASSERT_EQUAL_UINT8(BB_REBOOT_HISTORY_CAP, h.count);
+    TEST_ASSERT_EQUAL_UINT8(1, h.head); // oldest slot advanced
+    // The evicted slot (index 0) now holds the newest entry.
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)BB_RESET_SRC_OTA_BOOT_DONE, h.entries[0].src);
+    TEST_ASSERT_EQUAL_UINT32(999U, h.entries[0].epoch_s);
+    // The new oldest (index 1, epoch_s==1) is unchanged.
+    TEST_ASSERT_EQUAL_UINT32(1U, h.entries[1].epoch_s);
+}
+
+void test_bb_reboot_history_encode_null_args(void)
+{
+    char buf[BB_REBOOT_HISTORY_STR_MAX];
+    bb_reboot_history_t h = {0};
+    TEST_ASSERT_FALSE(bb_reboot_history_encode(NULL, buf, sizeof(buf)));
+    TEST_ASSERT_FALSE(bb_reboot_history_encode(&h, NULL, sizeof(buf)));
+    TEST_ASSERT_FALSE(bb_reboot_history_encode(&h, buf, 0));
+}
+
+void test_bb_reboot_history_encode_decode_roundtrip_partial(void)
+{
+    bb_reboot_history_t h = {0};
+    bb_reboot_hist_entry_t e1 = { .src = (uint8_t)BB_RESET_SRC_API_REBOOT, .epoch_s = 1735689600U, .uptime_s = 3600 };
+    bb_reboot_hist_entry_t e2 = { .src = (uint8_t)BB_RESET_SRC_EGRESS_TIER3, .epoch_s = 1735693200U, .uptime_s = 60 };
+    bb_reboot_history_push(&h, &e1);
+    bb_reboot_history_push(&h, &e2);
+
+    char buf[BB_REBOOT_HISTORY_STR_MAX];
+    TEST_ASSERT_TRUE(bb_reboot_history_encode(&h, buf, sizeof(buf)));
+
+    bb_reboot_history_t out;
+    memset(&out, 0xAA, sizeof(out));
+    TEST_ASSERT_TRUE(bb_reboot_history_decode(buf, &out));
+    TEST_ASSERT_EQUAL_UINT8(h.head,  out.head);
+    TEST_ASSERT_EQUAL_UINT8(h.count, out.count);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)BB_RESET_SRC_API_REBOOT, out.entries[0].src);
+    TEST_ASSERT_EQUAL_UINT32(1735689600U, out.entries[0].epoch_s);
+    TEST_ASSERT_EQUAL_UINT32(3600U, out.entries[0].uptime_s);
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)BB_RESET_SRC_EGRESS_TIER3, out.entries[1].src);
+    TEST_ASSERT_EQUAL_UINT32(1735693200U, out.entries[1].epoch_s);
+    TEST_ASSERT_EQUAL_UINT32(60U, out.entries[1].uptime_s);
+}
+
+void test_bb_reboot_history_encode_decode_roundtrip_full_wrapped(void)
+{
+    bb_reboot_history_t h = {0};
+    for (uint8_t i = 0; i < BB_REBOOT_HISTORY_CAP + 3; i++) {
+        bb_reboot_hist_entry_t e = { .src = (uint8_t)BB_RESET_SRC_API_REBOOT, .epoch_s = i, .uptime_s = i };
+        bb_reboot_history_push(&h, &e);
+    }
+    TEST_ASSERT_EQUAL_UINT8(BB_REBOOT_HISTORY_CAP, h.count);
+    TEST_ASSERT_EQUAL_UINT8(3, h.head);
+
+    char buf[BB_REBOOT_HISTORY_STR_MAX];
+    TEST_ASSERT_TRUE(bb_reboot_history_encode(&h, buf, sizeof(buf)));
+
+    bb_reboot_history_t out;
+    TEST_ASSERT_TRUE(bb_reboot_history_decode(buf, &out));
+    TEST_ASSERT_EQUAL_UINT8(3, out.head);
+    TEST_ASSERT_EQUAL_UINT8(BB_REBOOT_HISTORY_CAP, out.count);
+    for (uint8_t i = 0; i < BB_REBOOT_HISTORY_CAP; i++) {
+        TEST_ASSERT_EQUAL_UINT32(h.entries[i].epoch_s, out.entries[i].epoch_s);
+    }
+}
+
+void test_bb_reboot_history_encode_decode_empty_ring(void)
+{
+    bb_reboot_history_t h = {0};
+
+    char buf[BB_REBOOT_HISTORY_STR_MAX];
+    TEST_ASSERT_TRUE(bb_reboot_history_encode(&h, buf, sizeof(buf)));
+
+    bb_reboot_history_t out;
+    TEST_ASSERT_TRUE(bb_reboot_history_decode(buf, &out));
+    TEST_ASSERT_EQUAL_UINT8(0, out.head);
+    TEST_ASSERT_EQUAL_UINT8(0, out.count);
+}
+
+void test_bb_reboot_history_encode_buffer_too_small(void)
+{
+    bb_reboot_history_t h = {0};
+    bb_reboot_hist_entry_t e = { .src = (uint8_t)BB_RESET_SRC_API_REBOOT, .epoch_s = 1, .uptime_s = 1 };
+    bb_reboot_history_push(&h, &e);
+
+    char tiny[4];
+    TEST_ASSERT_FALSE(bb_reboot_history_encode(&h, tiny, sizeof(tiny)));
+}
+
+void test_bb_reboot_history_decode_null_args(void)
+{
+    bb_reboot_history_t out;
+    TEST_ASSERT_FALSE(bb_reboot_history_decode(NULL, &out));
+    TEST_ASSERT_FALSE(bb_reboot_history_decode("0|0|", NULL));
+}
+
+void test_bb_reboot_history_decode_malformed(void)
+{
+    bb_reboot_history_t out;
+    TEST_ASSERT_FALSE(bb_reboot_history_decode("", &out));
+    TEST_ASSERT_FALSE(bb_reboot_history_decode("not-a-ring", &out));
+    TEST_ASSERT_FALSE(bb_reboot_history_decode("1|2", &out));
+}
+
+void test_bb_reboot_history_decode_rejects_missing_trailing_pipe(void)
+{
+    // Two numeric fields with no trailing '|' satisfy both %u conversions
+    // but never reach the %n — consumed stays 0 and decode must reject
+    // rather than reading uninitialized/garbage entry data.
+    bb_reboot_history_t out;
+    TEST_ASSERT_FALSE(bb_reboot_history_decode("0|0", &out));
+}
+
+void test_bb_reboot_history_decode_rejects_leading_sign(void)
+{
+    bb_reboot_history_t out;
+    TEST_ASSERT_FALSE(bb_reboot_history_decode("-1|0|", &out));
+}
+
+void test_bb_reboot_history_decode_out_of_range_head(void)
+{
+    bb_reboot_history_t out;
+    TEST_ASSERT_FALSE(bb_reboot_history_decode("99|0|", &out));
+}
+
+void test_bb_reboot_history_decode_out_of_range_count(void)
+{
+    bb_reboot_history_t out;
+    TEST_ASSERT_FALSE(bb_reboot_history_decode("0|99|", &out));
+}
+
+void test_bb_reboot_history_decode_out_of_range_entry_src(void)
+{
+    // Hand-crafted string: valid header, first entry has src=999.
+    char str[BB_REBOOT_HISTORY_STR_MAX];
+    int off = snprintf(str, sizeof(str), "0|0|");
+    for (uint8_t i = 0; i < BB_REBOOT_HISTORY_CAP; i++) {
+        off += snprintf(str + off, sizeof(str) - (size_t)off, "%s%u,0,0",
+                         (i == 0) ? "" : ";", (i == 0) ? 999U : 0U);
+    }
+    bb_reboot_history_t out;
+    TEST_ASSERT_FALSE(bb_reboot_history_decode(str, &out));
+}
+
+void test_bb_reboot_history_decode_bad_entry_delimiter(void)
+{
+    // Valid header + first entry, but a comma instead of ';' between entries.
+    char str[BB_REBOOT_HISTORY_STR_MAX];
+    int off = snprintf(str, sizeof(str), "0|0|0,0,0,0,0,0");
+    (void)off;
+    bb_reboot_history_t out;
+    TEST_ASSERT_FALSE(bb_reboot_history_decode(str, &out));
+}
+
+void test_bb_reboot_history_encode_buffer_too_small_mid_loop(void)
+{
+    // Buffer fits the header + first entry, but not the second — exercises
+    // the loop-internal (size_t)n >= remaining check, distinct from the
+    // header-only "too small" case above.
+    bb_reboot_history_t h = {0};
+    bb_reboot_hist_entry_t e1 = { .src = 0, .epoch_s = 0, .uptime_s = 0 };
+    bb_reboot_hist_entry_t e2 = { .src = 0, .epoch_s = 0, .uptime_s = 0 };
+    bb_reboot_history_push(&h, &e1);
+    bb_reboot_history_push(&h, &e2);
+
+    char buf[10];
+    TEST_ASSERT_FALSE(bb_reboot_history_encode(&h, buf, sizeof(buf)));
+}
+
+void test_bb_reboot_history_decode_header_field_count_mismatch(void)
+{
+    // "5|" — first %u matches, second %u has nothing to consume, so sscanf
+    // returns 1 (not 2). Distinct from the consumed==0 (missing trailing
+    // pipe) branch tested above.
+    bb_reboot_history_t out;
+    TEST_ASSERT_FALSE(bb_reboot_history_decode("5|", &out));
+}
+
+void test_bb_reboot_history_decode_entry_field_mismatch(void)
+{
+    // Valid header, but the first entry's fields don't start with a digit —
+    // the per-entry sscanf returns 0 (not 3).
+    bb_reboot_history_t out;
+    TEST_ASSERT_FALSE(bb_reboot_history_decode("0|0|bad", &out));
+}
+
+void test_bb_reboot_history_decode_leaves_out_untouched_on_failure(void)
+{
+    bb_reboot_history_t out;
+    memset(&out, 0x5A, sizeof(out));
+    TEST_ASSERT_FALSE(bb_reboot_history_decode("bad", &out));
+    const uint8_t *bytes = (const uint8_t *)&out;
+    for (size_t i = 0; i < sizeof(out); i++) {
+        TEST_ASSERT_EQUAL_UINT8(0x5A, bytes[i]);
+    }
+}
