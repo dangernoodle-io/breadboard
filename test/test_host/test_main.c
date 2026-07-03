@@ -110,6 +110,12 @@ void test_bb_diag_boot_serialize_panic_obj_always_present(void);
 void test_bb_diag_boot_serialize_json_braces(void);
 void test_bb_diag_boot_serialize_large_wdt_resets(void);
 void test_bb_diag_boot_serialize_panic_oom(void);
+void test_bb_diag_boot_serialize_reboot_reason_unknown_default(void);
+void test_bb_diag_boot_serialize_reboot_reason_known_source_with_detail(void);
+void test_bb_diag_boot_serialize_reboot_reason_epoch_no_age_when_now_invalid(void);
+void test_bb_diag_boot_serialize_reboot_reason_age_present_when_both_valid(void);
+void test_bb_diag_boot_serialize_reboot_reason_no_age_on_clock_skew(void);
+void test_bb_diag_boot_serialize_reboot_reason_oom(void);
 
 // Forward declarations from test_ota_pull.c
 void test_bb_ota_pull_set_http_timeout_ms_default_is_20000(void);
@@ -1047,6 +1053,33 @@ void test_bb_system_reset_reason_str_brownout(void);
 void test_bb_system_reset_reason_str_sdio(void);
 void test_bb_system_reset_reason_str_unknown(void);
 void test_bb_system_reset_reason_str_out_of_range(void);
+void test_bb_reset_source_str_api_reboot(void);
+void test_bb_reset_source_str_factory_reset(void);
+void test_bb_reset_source_str_wifi_safeguard(void);
+void test_bb_reset_source_str_wifi_cold_timeout(void);
+void test_bb_reset_source_str_wifi_pending_revert(void);
+void test_bb_reset_source_str_wifi_reconfigure(void);
+void test_bb_reset_source_str_egress_tier3(void);
+void test_bb_reset_source_str_ota_pull_applied(void);
+void test_bb_reset_source_str_ota_push_applied(void);
+void test_bb_reset_source_str_ota_boot_apply(void);
+void test_bb_reset_source_str_ota_boot_done(void);
+void test_bb_reset_source_str_unknown(void);
+void test_bb_reset_source_str_out_of_range(void);
+void test_bb_reboot_record_encode_null_args(void);
+void test_bb_reboot_record_encode_decode_roundtrip(void);
+void test_bb_reboot_record_encode_decode_empty_detail(void);
+void test_bb_reboot_record_encode_truncates_detail_at_pipe(void);
+void test_bb_reboot_record_encode_truncates_detail_over_48_chars(void);
+void test_bb_reboot_record_encode_unterminated_detail(void);
+void test_bb_reboot_record_encode_buffer_too_small(void);
+void test_bb_reboot_record_decode_null_args(void);
+void test_bb_reboot_record_decode_malformed(void);
+void test_bb_reboot_record_decode_rejects_missing_trailing_pipe(void);
+void test_bb_reboot_record_decode_rejects_leading_sign(void);
+void test_bb_reboot_record_decode_out_of_range_src(void);
+void test_bb_reboot_record_decode_truncates_oversized_detail(void);
+void test_bb_reboot_record_decode_leaves_out_untouched_on_failure(void);
 
 // Forward declarations from test_bb_mdns.c
 void test_bb_mdns_browse_start_null_service(void);
@@ -4068,6 +4101,12 @@ int main(void) {
     RUN_TEST(test_bb_diag_boot_serialize_json_braces);
     RUN_TEST(test_bb_diag_boot_serialize_large_wdt_resets);
     RUN_TEST(test_bb_diag_boot_serialize_panic_oom);
+    RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_unknown_default);
+    RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_known_source_with_detail);
+    RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_epoch_no_age_when_now_invalid);
+    RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_age_present_when_both_valid);
+    RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_no_age_on_clock_skew);
+    RUN_TEST(test_bb_diag_boot_serialize_reboot_reason_oom);
 
     // bb_partition tests
     RUN_TEST(test_bb_partition_list_count);
@@ -5030,6 +5069,33 @@ int main(void) {
     RUN_TEST(test_bb_system_reset_reason_str_sdio);
     RUN_TEST(test_bb_system_reset_reason_str_unknown);
     RUN_TEST(test_bb_system_reset_reason_str_out_of_range);
+    RUN_TEST(test_bb_reset_source_str_api_reboot);
+    RUN_TEST(test_bb_reset_source_str_factory_reset);
+    RUN_TEST(test_bb_reset_source_str_wifi_safeguard);
+    RUN_TEST(test_bb_reset_source_str_wifi_cold_timeout);
+    RUN_TEST(test_bb_reset_source_str_wifi_pending_revert);
+    RUN_TEST(test_bb_reset_source_str_wifi_reconfigure);
+    RUN_TEST(test_bb_reset_source_str_egress_tier3);
+    RUN_TEST(test_bb_reset_source_str_ota_pull_applied);
+    RUN_TEST(test_bb_reset_source_str_ota_push_applied);
+    RUN_TEST(test_bb_reset_source_str_ota_boot_apply);
+    RUN_TEST(test_bb_reset_source_str_ota_boot_done);
+    RUN_TEST(test_bb_reset_source_str_unknown);
+    RUN_TEST(test_bb_reset_source_str_out_of_range);
+    RUN_TEST(test_bb_reboot_record_encode_null_args);
+    RUN_TEST(test_bb_reboot_record_encode_decode_roundtrip);
+    RUN_TEST(test_bb_reboot_record_encode_decode_empty_detail);
+    RUN_TEST(test_bb_reboot_record_encode_truncates_detail_at_pipe);
+    RUN_TEST(test_bb_reboot_record_encode_truncates_detail_over_48_chars);
+    RUN_TEST(test_bb_reboot_record_encode_unterminated_detail);
+    RUN_TEST(test_bb_reboot_record_encode_buffer_too_small);
+    RUN_TEST(test_bb_reboot_record_decode_null_args);
+    RUN_TEST(test_bb_reboot_record_decode_malformed);
+    RUN_TEST(test_bb_reboot_record_decode_rejects_missing_trailing_pipe);
+    RUN_TEST(test_bb_reboot_record_decode_rejects_leading_sign);
+    RUN_TEST(test_bb_reboot_record_decode_out_of_range_src);
+    RUN_TEST(test_bb_reboot_record_decode_truncates_oversized_detail);
+    RUN_TEST(test_bb_reboot_record_decode_leaves_out_untouched_on_failure);
 
     // bb_mdns tests
     RUN_TEST(test_bb_mdns_browse_start_null_service);

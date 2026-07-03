@@ -102,6 +102,90 @@ const char *bb_system_get_idf_version(void);
 /// On host: prints a diagnostic to stderr and exits with code 0.
 void bb_system_restart(void);
 
+// ---------------------------------------------------------------------------
+// Reboot-reason SSOT (B1-527 PR-A)
+// ---------------------------------------------------------------------------
+
+/// Semantic reason a reboot was requested. Closed enum — any new site that
+/// intentionally reboots the device adds a value here rather than calling
+/// bb_system_restart() / esp_restart() directly.
+typedef enum {
+    BB_RESET_SRC_UNKNOWN = 0,
+    BB_RESET_SRC_API_REBOOT,
+    BB_RESET_SRC_FACTORY_RESET,
+    BB_RESET_SRC_WIFI_SAFEGUARD,
+    BB_RESET_SRC_WIFI_COLD_TIMEOUT,
+    BB_RESET_SRC_WIFI_PENDING_REVERT,
+    BB_RESET_SRC_WIFI_RECONFIGURE,
+    BB_RESET_SRC_EGRESS_TIER3,
+    BB_RESET_SRC_OTA_PULL_APPLIED,
+    BB_RESET_SRC_OTA_PUSH_APPLIED,
+    BB_RESET_SRC_OTA_BOOT_APPLY,
+    BB_RESET_SRC_OTA_BOOT_DONE,
+    BB_RESET_SRC__COUNT,  // sentinel — not a real reason, must stay last
+} bb_reset_source_t;
+
+// Single source of truth for bb_reset_source_t -> wire-string mappings. X(src, name)
+// is invoked once per non-UNKNOWN source. BB_RESET_SRC_UNKNOWN is intentionally
+// excluded — bb_reset_source_str() maps it (and any unrecognised value) to the
+// "unknown" default case. Wire tokens are stable JSON values consumed by clients.
+#define BB_RESET_SRC_LIST(X)                                            \
+    X(BB_RESET_SRC_API_REBOOT,          "api_reboot")                   \
+    X(BB_RESET_SRC_FACTORY_RESET,       "factory_reset")                \
+    X(BB_RESET_SRC_WIFI_SAFEGUARD,      "wifi_safeguard")                \
+    X(BB_RESET_SRC_WIFI_COLD_TIMEOUT,   "wifi_cold_timeout")            \
+    X(BB_RESET_SRC_WIFI_PENDING_REVERT, "wifi_pending_revert")          \
+    X(BB_RESET_SRC_WIFI_RECONFIGURE,    "wifi_reconfigure")             \
+    X(BB_RESET_SRC_EGRESS_TIER3,        "egress_tier3")                 \
+    X(BB_RESET_SRC_OTA_PULL_APPLIED,    "ota_pull_applied")             \
+    X(BB_RESET_SRC_OTA_PUSH_APPLIED,    "ota_push_applied")             \
+    X(BB_RESET_SRC_OTA_BOOT_APPLY,      "ota_boot_apply")               \
+    X(BB_RESET_SRC_OTA_BOOT_DONE,       "ota_boot_done")
+
+/// Wire string for a reset-source enum value. Never NULL. Out-of-range values
+/// (including BB_RESET_SRC_UNKNOWN) map to "unknown". Pure — no platform deps.
+const char *bb_reset_source_str(bb_reset_source_t src);
+
+/// Persist a semantic reboot reason to NVS then restart. detail may be NULL;
+/// non-NULL values are bounded to 48 chars (truncated at the first '|', if
+/// any — see bb_reboot_record_encode).
+/// On ESP-IDF: writes the record, then calls esp_restart() (does not return).
+/// On host: prints a diagnostic to stderr and exits with code 0, mirroring
+/// bb_system_restart().
+void bb_system_restart_reason(bb_reset_source_t src, const char *detail);
+
+// ---------------------------------------------------------------------------
+// Reboot record — pure pack/unpack (host-testable, compiled on all platforms)
+// ---------------------------------------------------------------------------
+
+/// Single last-reboot record persisted under BB_REBOOT_NVS_NS/BB_REBOOT_KEY_LAST.
+/// Cleared on read (single record, not a history ring — see B1-527 PR-A).
+typedef struct {
+    uint8_t  src;           ///< bb_reset_source_t
+    char     detail[49];    ///< NUL-terminated, <=48 chars, never contains '|'
+    uint32_t epoch_s;       ///< wall-clock seconds at reboot; 0 if unknown/unsynced
+    uint32_t uptime_s;      ///< prior-session uptime (seconds) at reboot
+} bb_reboot_record_t;
+
+/// Maximum encoded length (including NUL) of bb_reboot_record_encode's output.
+/// "<src 0-255>|<epoch_s>|<uptime_s>|<detail up to 48 chars>" + NUL.
+#define BB_REBOOT_RECORD_STR_MAX 96
+
+/// Encode a reboot record into a single delimited string:
+///   "<src>|<epoch_s>|<uptime_s>|<detail>"
+/// detail is freeform and placed last; any '|' inside detail is truncated at
+/// (the delimiter and everything after it is dropped) so the fixed-field
+/// parse in bb_reboot_record_decode stays unambiguous. Returns false on NULL
+/// args, a zero-length buffer, or if the encoded string would not fit in
+/// buf_len (buf is left in an unspecified but NUL-safe state in that case).
+bool bb_reboot_record_encode(const bb_reboot_record_t *r, char *buf, size_t buf_len);
+
+/// Decode a string produced by bb_reboot_record_encode back into *out.
+/// Returns false on NULL args or malformed input (including an out-of-range
+/// src field) and leaves *out untouched — callers should zero-init their own
+/// struct as the safe fallback before calling this.
+bool bb_reboot_record_decode(const char *str, bb_reboot_record_t *out);
+
 /// Reads the SoC internal die-temperature sensor.
 /// Returns BB_OK and writes *out (degrees Celsius) on silicon that has the
 /// modern temperature_sensor peripheral (esp32s2/s3/c3/c6/h2/...).

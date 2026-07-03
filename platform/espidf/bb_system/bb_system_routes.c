@@ -10,7 +10,7 @@ static bb_err_t reboot_handler(bb_http_request_t *req)
     if (rc != BB_OK) return rc;
     bb_http_resp_json_obj_set_str(&obj, "status", "rebooting");
     rc = bb_http_resp_json_obj_end(&obj);
-    bb_system_restart();
+    bb_system_restart_reason(BB_RESET_SRC_API_REBOOT, NULL);
     return rc;
 }
 

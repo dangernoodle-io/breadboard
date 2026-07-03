@@ -31,3 +31,8 @@
 // scalar field (was: last_reboot_s + ring_head + ring_count + 10 ring_N
 // entries = 13 commits per persist).
 #define BB_NET_HEALTH_EGRESS_ACT_KEY_STATE       "state"
+
+// bb_system reboot-reason SSOT (components/bb_system, B1-527; namespace
+// BB_REBOOT_NVS_NS). Single last-reboot record, cleared on read by bb_diag
+// at boot. One bb_reboot_record_encode/_decode delimited string = one key.
+#define BB_REBOOT_KEY_LAST    "last"

@@ -37,7 +37,7 @@
 #include "bb_nv_namespaces.h"
 #include "bb_nv_keys.h"
 #include "bb_ntp.h"
-#include "esp_system.h"
+#include "bb_system.h"
 #include <time.h>
 #endif
 
@@ -685,7 +685,7 @@ static void eval_work_fn(void *arg)
                          (uint32_t)CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_S,
                          (unsigned)count24h,
                          (unsigned)CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_DAILY_CAP);
-                esp_restart();
+                bb_system_restart_reason(BB_RESET_SRC_EGRESS_TIER3, "gw unreachable");
             }
         }
     }
