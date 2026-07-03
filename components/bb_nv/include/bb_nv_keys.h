@@ -36,3 +36,9 @@
 // BB_REBOOT_NVS_NS). Single last-reboot record, cleared on read by bb_diag
 // at boot. One bb_reboot_record_encode/_decode delimited string = one key.
 #define BB_REBOOT_KEY_LAST    "last"
+
+// bb_system reboot history ring (components/bb_system, B1-527 PR-B; same
+// namespace BB_REBOOT_NVS_NS as BB_REBOOT_KEY_LAST). Rolling last-8 ring,
+// NOT cleared on read — accumulates across boots. One
+// bb_reboot_history_encode/_decode delimited string = one key.
+#define BB_REBOOT_KEY_HISTORY "history"

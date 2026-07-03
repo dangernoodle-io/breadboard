@@ -43,4 +43,26 @@ void bb_diag_boot_serialize(bb_json_t obj, const void *snap)
         }
         bb_json_obj_set_obj(obj, "reboot_reason", rr);
     }
+
+    // Rolling reboot history (B1-527 PR-B) — newest-first, minimal fields
+    // (no detail, no age_s; consumer computes age from epoch_s if needed).
+    // Distinct from reboot_reason above: this ring is NOT cleared-on-read
+    // and captures every boot including untagged/hardware resets.
+    bb_json_t hist = bb_json_arr_new();
+    if (hist) {
+        uint8_t n = s->reboot_history.count;
+        if (n > BB_REBOOT_HISTORY_CAP) n = BB_REBOOT_HISTORY_CAP;
+        for (uint8_t i = 0; i < n; i++) {
+            // newest-first: walk backwards from the most recently pushed slot.
+            uint8_t idx = (uint8_t)((s->reboot_history.head + (n - 1U - i)) % BB_REBOOT_HISTORY_CAP);
+            const bb_reboot_hist_entry_t *e = &s->reboot_history.entries[idx];
+            bb_json_t item = bb_json_obj_new();
+            if (!item) break;
+            bb_json_obj_set_string(item, "source", bb_reset_source_str((bb_reset_source_t)e->src));
+            bb_json_obj_set_int(item, "epoch_s",  (int64_t)e->epoch_s);
+            bb_json_obj_set_int(item, "uptime_s", (int64_t)e->uptime_s);
+            bb_json_arr_append_obj(hist, item);
+        }
+        bb_json_obj_set_arr(obj, "reboot_history", hist);
+    }
 }
