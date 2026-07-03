@@ -457,6 +457,7 @@ COMPONENT_MAP = {
         "includes": ["components/bb_event_routes/include", "components/bb_event_routes/src"],
         "sources":  [
             "components/bb_event_routes/src/bb_event_routes_common.c",
+            "components/bb_event_routes/src/sse_bundle_decision.c",
             "platform/host/bb_event_routes/bb_event_routes_host.c",
             "platform/host/bb_event_routes/bb_event_topic_registry.c",
         ],

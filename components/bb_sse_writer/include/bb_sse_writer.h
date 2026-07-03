@@ -25,6 +25,20 @@ typedef int (*bb_sse_wait_fn_t)(void *ctx, char *buf, size_t buflen,
 // May be NULL. Responsible for releasing ctx resources.
 typedef void (*bb_sse_cleanup_fn_t)(void *ctx);
 
+// done_fn: called as the task's absolute last act, after
+// bb_http_req_async_handler_complete(req), INSTEAD OF the default
+// vTaskDelete(NULL) self-delete. May be NULL, in which case
+// bb_sse_writer_run falls back to vTaskDelete(NULL) (legacy behavior,
+// unchanged for any caller not supplying one).
+//
+// A caller that needs to guarantee its task's static TCB/stack are never
+// reused while it is still mid-unwind (B1-484/B1-492) supplies a done_fn
+// that gives a per-slot completion signal and then calls vTaskSuspend(NULL)
+// — never self-deletes. This function therefore never returns when a
+// non-NULL done_fn is supplied and that done_fn itself never returns
+// (matches the ESP-IDF vTaskDelete(NULL) contract it replaces).
+typedef void (*bb_sse_done_fn_t)(void *ctx);
+
 // ---------------------------------------------------------------------------
 // SSE writer main loop
 // ---------------------------------------------------------------------------
@@ -38,20 +52,24 @@ typedef void (*bb_sse_cleanup_fn_t)(void *ctx);
 //   - Calls cleanup_fn(ctx) when the loop exits (if non-NULL)
 //   - Calls bb_http_req_async_abort(req) if the peer was found dead (or the
 //     fd is doomed), otherwise bb_http_req_async_handler_complete(req)
-//   - Calls vTaskDelete(NULL) — does NOT return
+//   - Calls done_fn(ctx) if non-NULL, else vTaskDelete(NULL) — does NOT
+//     return either way
 //
 // Parameters:
 //   req              - async HTTP request handle
 //   connected_line   - first SSE comment/event (e.g. ": connected\n\n")
 //   wait_fn          - callback to produce one SSE frame per iteration
 //   cleanup_fn       - optional cleanup called after loop exits (may be NULL)
-//   ctx              - passed to wait_fn and cleanup_fn
+//   done_fn          - optional task-exit tail replacing vTaskDelete(NULL)
+//                      (may be NULL; see bb_sse_done_fn_t doc above)
+//   ctx              - passed to wait_fn, cleanup_fn, and done_fn
 //   wait_timeout_ms  - per-call timeout passed to wait_fn
 //   heartbeat_ms     - accumulated idle threshold before sending ": ping\n\n"
 void bb_sse_writer_run(bb_http_request_t *req,
                        const char *connected_line,
                        bb_sse_wait_fn_t wait_fn,
                        bb_sse_cleanup_fn_t cleanup_fn,
+                       bb_sse_done_fn_t done_fn,
                        void *ctx,
                        uint32_t wait_timeout_ms,
                        uint32_t heartbeat_ms);

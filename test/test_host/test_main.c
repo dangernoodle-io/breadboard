@@ -3536,6 +3536,17 @@ void test_pool_create_owned_null_args_return_invalid_arg(void);
 void test_pool_create_owned_invalid_cfg_returns_invalid_arg(void);
 void test_pool_destroy_does_not_free_caller_supplied_arena(void);
 void test_pool_get_stats_null_args_is_noop(void);
+void test_pool_slots_on_acquire_on_release_fire(void);
+void test_pool_slots_not_reusable_blocks_reissue(void);
+void test_pool_slots_reusable_true_reaps_then_reissues(void);
+void test_pool_slots_pending_slot_ignored_while_free_list_nonempty(void);
+void test_pool_slots_double_release_rejected_with_reusable_configured(void);
+void test_pool_slots_storage_is_zero_initialized(void);
+
+// Forward declarations from test_sse_bundle_decision.c (B1-484 finding 3)
+void test_sse_bundle_decide_none_returns_issue(void);
+void test_sse_bundle_decide_running_returns_not_yet(void);
+void test_sse_bundle_decide_suspended_returns_reap_then_issue(void);
 
 // Forward declarations from test_bb_telemetry.c (GET /api/telemetry/metrics, B1-295)
 void test_bb_pub_source_count_returns_registered(void);
@@ -7157,6 +7168,17 @@ int main(void) {
     RUN_TEST(test_pool_create_owned_invalid_cfg_returns_invalid_arg);
     RUN_TEST(test_pool_destroy_does_not_free_caller_supplied_arena);
     RUN_TEST(test_pool_get_stats_null_args_is_noop);
+    RUN_TEST(test_pool_slots_on_acquire_on_release_fire);
+    RUN_TEST(test_pool_slots_not_reusable_blocks_reissue);
+    RUN_TEST(test_pool_slots_reusable_true_reaps_then_reissues);
+    RUN_TEST(test_pool_slots_pending_slot_ignored_while_free_list_nonempty);
+    RUN_TEST(test_pool_slots_double_release_rejected_with_reusable_configured);
+    RUN_TEST(test_pool_slots_storage_is_zero_initialized);
+
+    // sse_bundle_decision tests (B1-484 finding 3)
+    RUN_TEST(test_sse_bundle_decide_none_returns_issue);
+    RUN_TEST(test_sse_bundle_decide_running_returns_not_yet);
+    RUN_TEST(test_sse_bundle_decide_suspended_returns_reap_then_issue);
 
     // bb_pub accessor tests (B1-295)
     RUN_TEST(test_bb_pub_source_count_returns_registered);

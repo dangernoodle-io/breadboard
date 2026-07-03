@@ -12,6 +12,8 @@
 #include "bb_timer.h"
 #include "bb_task_registry.h"
 #include "bb_arena.h"
+#include "bb_pool.h"
+#include "sse_bundle_decision.h"
 
 #include <assert.h>
 #include <inttypes.h>
@@ -26,40 +28,67 @@
 static const char *TAG = "bb_event_routes";
 
 // ---------------------------------------------------------------------------
-// SSE writer task stacks (B1-478 PR E, heap-backed-by-default per B1-491)
+// SSE writer task-bundle pool (B1-478 PR E baseline; B1-484/B1-492 fix)
 //
-// Pre-allocated per-client bundle {stack, TCB} for xTaskCreateStatic, as a
-// fixed array carved once from an ESP-IDF-only, SSE-private bb_arena
-// (separate from the portable payload/entry array in
-// bb_event_routes_common.c — StackType_t/StaticTask_t are FreeRTOS types
-// and cannot appear in that portable, host-compiled file). Client slot i
-// (the same index the CAS client-slot loop in bb_event_routes_common.c
-// assigns atomically, recovered here via bb_event_routes_client_slot_index)
-// deterministically owns s_sse_task_bundles[i] for the arena's lifetime —
-// no acquire/release, no free-list.
+// Per-client bundle {stack, TCB} for xTaskCreateStatic, drawn from a
+// bb_pool_t in SLOTS mode (an ESP-IDF-only pool — StackType_t/StaticTask_t
+// are FreeRTOS types and cannot appear in the portable, host-compiled
+// bb_event_routes_common.c). Unlike the pre-B1-492 shape, a client's task
+// bundle is NOT index-addressed to that client's s_clients[] slot: it is an
+// independent bb_pool_acquire()/bb_pool_release() lease, decoupled from
+// bb_event_routes_client_acquire_ex()'s CAS slot claim.
 //
-// CONFIG_BB_EVENT_ROUTES_POOL_STATIC selects the arena's *backing* (see the
-// matching comment in bb_event_routes_common.c):
-//   n (default) — sse_task_bundles_ensure() lazily allocates a heap arena
-//     (bb_arena_init_heap, SPIRAM-preferred) on the FIRST SSE client
-//     connect. A failed allocation fails soft — the connection is rejected
-//     (same 500 path the pre-existing xTaskCreateStatic-failure branch
-//     already returns) and retried on the next connect; no crash. The
-//     block is never freed once allocated: a live SSE task can own a stack
-//     in this arena at any time, and freeing a stack out from under a task
-//     that has not finished exiting is a use-after-free (B1-484 /
-//     PR-E-CRITICAL) — one standing heap allocation for the process
-//     lifetime is the safe trade, not idle-reclaim.
-//   y — the arena is carved eagerly from a permanent static-BSS buffer at
-//     bb_event_routes_register_routes_init() time (unchanged PR E
-//     behavior).
+// B1-484: xTaskCreateStatic() re-initializes a bundle's stack/TCB in place.
+// The exiting SSE task that most recently owned a bundle does not finish
+// tearing down synchronously with the HTTP handler that frees its client
+// slot — reissuing that bundle's stack/TCB to a brand-new task before the
+// old task has actually stopped running on it corrupts a live stack/TCB.
+// bb_pool's optional SLOTS callbacks (B1-479) close this gap:
+//   - slot_reusable (sse_bundle_reusable): single non-blocking
+//     eTaskGetState(handle)==eSuspended check — no loop, no timeout. A
+//     released-but-still-running task's bundle is simply not reissued yet.
+//   - slot_reap (sse_bundle_reap): external vTaskDelete(handle) the moment
+//     slot_reusable first confirms eSuspended, immediately before reissue.
+//   - on_acquire (sse_bundle_on_acquire): lazily creates the bundle's
+//     completion semaphore on its first-ever acquire (relies on bb_pool
+//     zero-initializing SLOTS storage so `done_sem == NULL` reliably means
+//     "never created" only once, not on every reacquire).
+// The exiting task itself (see sse_task_done, "Exiting-task tail" below)
+// NEVER self-deletes: as its absolute last act it gives the bundle's
+// completion semaphore and calls vTaskSuspend(NULL), leaving a suspended
+// "corpse" occupying its static slot — safe to poll (eTaskGetState) or
+// externally vTaskDelete indefinitely, since a statically/arena-backed
+// TCB is never returned to a general allocator.
+//
+// bb_event_routes_espidf.c's events_handler() acquire path
+// (bb_pool_acquire) never blocks: if the prior occupant's task hasn't yet
+// reached eSuspended, acquire returns NULL and events_handler fast-rejects
+// with the existing 503 max_clients path (EventSource auto-retries) — no
+// vTaskDelay, no loop, no deadline, no permanently stranded slot (contrast
+// with the abandoned jae/bb-sse-reaper design, which gated reuse on a fixed
+// timeout and could permanently strand every slot under boot contention).
+//
+// CONFIG_BB_EVENT_ROUTES_POOL_STATIC selects the pool's backing arena (see
+// the matching comment in bb_event_routes_common.c):
+//   n (default) — sse_task_bundles_ensure() lazily creates a heap-backed
+//     pool (bb_pool_create_owned, BB_POOL_BACKING_HEAP; SPIRAM-preferred
+//     via bb_arena's own allocator) on the FIRST SSE client connect. A
+//     failed allocation fails soft — the connection is rejected (same 500
+//     path the pre-existing xTaskCreateStatic-failure branch already
+//     returns) and retried on the next connect; no crash. Never destroyed
+//     once created — same one-standing-allocation rationale as before.
+//   y — the pool is created eagerly at
+//     bb_event_routes_register_routes_init() time over a permanent
+//     static-BSS arena (unchanged PR E behavior).
 // ---------------------------------------------------------------------------
 
 #define SSE_TASK_STACK_WORDS (4096 / sizeof(StackType_t))
 
 typedef struct {
-    StackType_t  stack[SSE_TASK_STACK_WORDS];
-    StaticTask_t tcb;
+    StackType_t       stack[SSE_TASK_STACK_WORDS];
+    StaticTask_t      tcb;
+    TaskHandle_t      handle;    // set by events_handler right after xTaskCreateStatic; NULL = never used (or reaped)
+    SemaphoreHandle_t done_sem;  // completion signal, created once on first acquire (see sse_bundle_on_acquire), reused across reissues
 } sse_task_bundle_t;
 
 // xTaskCreateStatic requires the stack buffer and TCB to be at least
@@ -70,54 +99,195 @@ _Static_assert(_Alignof(max_align_t) >= _Alignof(StackType_t) &&
                _Alignof(max_align_t) >= _Alignof(StaticTask_t),
                "bb_arena alignment insufficient for FreeRTOS static task storage");
 
-// Documented flat allowance covering bb_arena's internal header struct
-// (private to bb_arena.c) plus max_align_t rounding of the single
-// bb_arena_alloc() call below — see the matching comment in
-// bb_event_routes_common.c. Not a magic constant: the bulk of the buffer is
-// computed from MAX_CLIENTS * sizeof(sse_task_bundle_t).
-#define SSE_TASK_ARENA_HDR_ALLOWANCE_BYTES 128u
+static bb_pool_t s_sse_task_pool;  // NULL until sse_task_bundles_ensure() creates it
+
+// Static arena sizing for the POOL_STATIC=y path — mirrors bb_pool's own
+// SLOTS-mode math (bb_pool_arena_size_needed() in
+// platform/host/bb_pool/bb_pool.c) rather than a single flat byte count.
+//
+// Only bb_arena's internal header struct (private to bb_arena.c) and
+// bb_pool's own control struct (private to bb_pool.c) are truly
+// capacity-independent — SSE_TASK_ARENA_HDR_ALLOWANCE_BYTES covers those
+// two only, generously rounded. Everything else scales linearly with
+// CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS (Kconfig range 1..32): the per-slot
+// bundle storage, the free-list (one void* per slot), and TWO bitmaps
+// (acquired + pending, the pending bitmap added by B1-479) each
+// ceil(capacity/8) bytes. The prior flat 256-byte allowance covered all of
+// this with a single capacity-independent constant, so it silently
+// overflowed above whatever capacity happened to fit in 256 bytes —
+// exactly at the boundary at the Kconfig default of 2. This formula tracks
+// bb_pool's real per-slot cost instead, and sse_task_bundles_ensure() below
+// cross-checks it at runtime against bb_pool_arena_size_needed() itself.
+#define SSE_TASK_ARENA_HDR_ALLOWANCE_BYTES 192u
+
+#define SSE_TASK_ALIGN_UP(n) \
+    (((size_t)(n) + (_Alignof(max_align_t) - 1u)) & ~(size_t)(_Alignof(max_align_t) - 1u))
+
+#define SSE_TASK_SLOT_STRIDE SSE_TASK_ALIGN_UP(sizeof(sse_task_bundle_t))
 #define SSE_TASK_BUNDLES_BYTES \
-    ((size_t)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS * sizeof(sse_task_bundle_t))
+    ((size_t)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS * SSE_TASK_SLOT_STRIDE)
+#define SSE_TASK_FREE_LIST_BYTES \
+    SSE_TASK_ALIGN_UP((size_t)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS * sizeof(void *))
+#define SSE_TASK_BITMAP_BYTES \
+    SSE_TASK_ALIGN_UP(((size_t)CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS + 7u) / 8u)
+
+// Two bitmaps (acquired + pending) — see the comment block above.
+#define SSE_TASK_ARENA_TOTAL_BYTES \
+    (SSE_TASK_ARENA_HDR_ALLOWANCE_BYTES + SSE_TASK_BUNDLES_BYTES + \
+     SSE_TASK_FREE_LIST_BYTES + 2u * SSE_TASK_BITMAP_BYTES)
 
 _Static_assert(CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS == 0 ||
-               (SSE_TASK_BUNDLES_BYTES / CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS) == sizeof(sse_task_bundle_t),
+               (SSE_TASK_BUNDLES_BYTES / CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS) == SSE_TASK_SLOT_STRIDE,
                "SSE task bundle byte count overflowed size_t");
 
-// Static-BSS backing buffer — only used for the POOL_STATIC=y path.
+// Static-BSS backing buffer — only used for the POOL_STATIC=y path. Sized
+// from the capacity-scaling formula above, not a flat constant — this is
+// the compile-time enforcement of the "unreachable on failure" claim in
+// sse_task_bundles_ensure(): the buffer is provably large enough for
+// whatever CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS the Kconfig range (1..32)
+// permits, rather than silently overflowing above a hardcoded threshold.
 #if CONFIG_BB_EVENT_ROUTES_POOL_STATIC
-static uint8_t s_sse_task_arena_buf[
-    SSE_TASK_BUNDLES_BYTES + SSE_TASK_ARENA_HDR_ALLOWANCE_BYTES
-] __attribute__((aligned(_Alignof(max_align_t))));
+static uint8_t s_sse_task_arena_buf[SSE_TASK_ARENA_TOTAL_BYTES]
+    __attribute__((aligned(_Alignof(max_align_t))));
+static bb_arena_t s_sse_task_arena;
 #endif
 
-static bb_arena_t s_sse_task_arena;
-static sse_task_bundle_t *s_sse_task_bundles;  // [MAX_CLIENTS], index == client slot; NULL until created
-
-// Dedicated leaf mutex guarding ONLY the sse_task_bundles_ensure()
-// first-alloc critical section below (portable POSIX pthread — ESP-IDF
-// ships a pthread layer; mirrors bb_arena_tls's s_arena_mtx pattern and the
-// sibling s_sse_pool_mtx in bb_event_routes_common.c). Separate mutex from
-// s_sse_pool_mtx: distinct global state (s_sse_task_bundles vs
-// s_sse_bundles), distinct translation units, no ordering interaction
-// between them. sse_task_bundles_ensure() is called only from
+// Dedicated leaf mutex guarding the ENTIRE s_sse_task_pool lifetime
+// (portable POSIX pthread — ESP-IDF ships a pthread layer; mirrors
+// bb_arena_tls's s_arena_mtx pattern and the sibling s_sse_pool_mtx in
+// bb_event_routes_common.c). Separate mutex from s_sse_pool_mtx: distinct
+// global state (s_sse_task_pool vs s_sse_bundles), distinct translation
+// units, no ordering interaction between them.
+//
+// B1-484: bb_pool is not internally thread-safe (see bb_pool.h). Every
+// bb_pool_acquire()/bb_pool_release() call against s_sse_task_pool MUST run
+// under this mutex, not just the lazy sse_task_bundles_ensure() first-create
+// section — bb_pool_release() (events_cleanup_fn, on the exiting SSE task)
+// and bb_pool_acquire() (events_handler, on the httpd task) race across
+// tasks with no other synchronization between them. Use the sse_pool_*()
+// wrappers below rather than calling bb_pool_acquire/bb_pool_release on
+// s_sse_task_pool directly, so every call site is covered.
+//
+// Bounded critical section: bb_pool_acquire/release never block (SLOTS mode
+// is a bump/bitmap data structure, not a queue) — the callbacks run inside
+// them (sse_bundle_reusable/sse_bundle_reap/sse_bundle_on_acquire) do only
+// eTaskGetState()/vTaskDelete()/xSemaphoreCreateBinary(), none of which
+// block or take another lock. Do not add a blocking call to any of those
+// callbacks or to the sections below without re-auditing this bound.
+//
+// Lock ordering: sse_task_bundles_ensure() is called only from
 // events_handler() (before any bb_event_routes lock is taken — the client
 // has already been fully acquired via bb_event_routes_client_acquire_ex(),
 // which releases s_topics_lock before returning) and from
 // bb_event_routes_register_routes_init() before the HTTP server accepts
-// requests — so this mutex is always the innermost (and only) lock held
-// during its critical section. Keep it that way: do not call anything from
-// inside the locked section that could re-enter this function or take
+// requests. events_cleanup_fn calls sse_pool_release() after it has already
+// deregistered the task and released the client slot (no bb_event_routes
+// lock held at that point either). This mutex is therefore always the
+// innermost (and only) lock held during any of its critical sections — a
+// non-recursive pthread_mutex is safe. Keep it that way: never call
+// sse_pool_acquire()/sse_pool_release()/sse_task_bundles_ensure() from
+// inside another critical section already holding this same mutex (it is
+// not recursive — re-entering it self-deadlocks), and do not call anything
+// from inside a locked section that could re-enter this mutex or take
 // another bb_event_routes lock.
 static pthread_mutex_t s_sse_task_pool_mtx = PTHREAD_MUTEX_INITIALIZER;
 
-// Create the SSE-private task-bundle arena + fixed bundle array on demand.
-// Idempotent — returns BB_OK immediately once s_sse_task_bundles is set.
+// Locked wrappers — the only call sites permitted to touch s_sse_task_pool
+// via bb_pool_acquire()/bb_pool_release() (see the mutex comment above).
+static sse_task_bundle_t *sse_pool_acquire(void)
+{
+    pthread_mutex_lock(&s_sse_task_pool_mtx);
+    sse_task_bundle_t *b = (sse_task_bundle_t *)bb_pool_acquire(s_sse_task_pool);
+    pthread_mutex_unlock(&s_sse_task_pool_mtx);
+    return b;
+}
+
+static void sse_pool_release(sse_task_bundle_t *b)
+{
+    pthread_mutex_lock(&s_sse_task_pool_mtx);
+    bb_pool_release(s_sse_task_pool, b);
+    pthread_mutex_unlock(&s_sse_task_pool_mtx);
+}
+
+// on_acquire: lazily create the bundle's completion semaphore on its
+// first-ever acquire. bb_pool zero-initializes SLOTS storage at pool
+// creation (see bb_pool.c), so `done_sem == NULL` reliably distinguishes
+// "never created" from "already created" across repeated reissues of the
+// same bundle — a semaphore, once created, is reused for the bundle's
+// lifetime rather than recreated per connection.
+static void sse_bundle_on_acquire(void *ctx, void *slot)
+{
+    (void)ctx;
+    sse_task_bundle_t *b = (sse_task_bundle_t *)slot;
+    if (!b->done_sem) {
+        b->done_sem = xSemaphoreCreateBinary();
+        if (!b->done_sem) {
+            bb_log_w(TAG, "SSE task bundle: xSemaphoreCreateBinary failed (heap pressure)");
+        }
+    }
+    // Belt-and-suspenders: sse_bundle_reap() already clears handle on reap,
+    // and a fresh slot is zero-inited by bb_pool — this assignment is
+    // redundant but cheap, and keeps this function correct even if a future
+    // caller path acquires a slot without going through reap first.
+    b->handle = NULL;  // set by events_handler immediately after xTaskCreateStatic
+}
+
+// slot_reusable: single non-blocking check, no loop, no timeout — see the
+// file-header comment above. NULL handle means the bundle has never been
+// assigned a task (fresh from the free-list; bb_pool_acquire() only
+// consults this callback once the free-list is empty, but a defensive NULL
+// check keeps this function safe to call unconditionally). The actual
+// state->action decision is delegated to the pure, host-tested
+// sse_bundle_decide() (sse_bundle_decision.h) — only the FreeRTOS
+// eTaskGetState() call itself stays here.
+static bool sse_bundle_reusable(void *ctx, void *slot)
+{
+    (void)ctx;
+    sse_task_bundle_t *b = (sse_task_bundle_t *)slot;
+    sse_bundle_task_state_t state = !b->handle
+        ? SSE_BUNDLE_TASK_NONE
+        : (eTaskGetState(b->handle) == eSuspended ? SSE_BUNDLE_TASK_SUSPENDED
+                                                   : SSE_BUNDLE_TASK_RUNNING);
+    return sse_bundle_decide(state) != SSE_BUNDLE_ACTION_NOT_YET;
+}
+
+// slot_reap: external vTaskDelete of a confirmed-eSuspended corpse,
+// invoked exactly once immediately before reissue. The completion
+// semaphore is taken non-blocking purely as a diagnostic cross-check (the
+// exiting task's tail always gives it strictly before calling
+// vTaskSuspend(NULL), so this should never actually block or miss) — it is
+// NOT part of the reuse gate itself, which is slot_reusable's
+// eTaskGetState() check above. Gated on b->handle != NULL: a bundle whose
+// task was never actually created (slot_reusable's NULL-handle fast path
+// above) has no completion signal to observe — warning here would be a
+// spurious log, not a real diagnostic.
+static void sse_bundle_reap(void *ctx, void *slot)
+{
+    (void)ctx;
+    sse_task_bundle_t *b = (sse_task_bundle_t *)slot;
+    if (b->handle && b->done_sem && xSemaphoreTake(b->done_sem, 0) != pdTRUE) {
+        bb_log_w(TAG, "SSE task bundle reaped as eSuspended but its completion signal was never observed");
+    }
+    if (b->handle) {
+        vTaskDelete(b->handle);
+    }
+    b->handle = NULL;
+}
+
+// Create the SSE-private task-bundle pool on demand. Idempotent — returns
+// BB_OK immediately once s_sse_task_pool is set.
 //
 // STATIC path: called eagerly, once, from
-// bb_event_routes_register_routes_init. The backing buffer is compile-time
-// sized to always fit (see the static asserts above), so both calls are
-// provably unreachable-on-failure — assert() rather than a branch + return,
-// so there is no uncovered error branch to test.
+// bb_event_routes_register_routes_init. The backing buffer is sized by the
+// SSE_TASK_ARENA_TOTAL_BYTES formula above, which mirrors bb_pool's own
+// SLOTS-mode sizing math and scales with CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS
+// — so failure here should be unreachable across the full Kconfig capacity
+// range (1..32). That claim is cross-checked below against
+// bb_pool_arena_size_needed(), the actual runtime authority for the
+// capacity-scaling portion of the math, before bb_arena_init() ever runs —
+// catching any future drift (e.g. bb_pool.c's private struct growing, or a
+// third bitmap being added) instead of silently overflowing the arena the
+// way the old flat 256-byte allowance did.
 //
 // Lazy-heap path (default): called from events_handler on the first SSE
 // connect. See the file-header comment above for the fail-soft and
@@ -126,32 +296,43 @@ static bb_err_t sse_task_bundles_ensure(void)
 {
     pthread_mutex_lock(&s_sse_task_pool_mtx);
 
-    if (s_sse_task_bundles) {
+    if (s_sse_task_pool) {
         pthread_mutex_unlock(&s_sse_task_pool_mtx);
         return BB_OK;
     }
 
+    bb_pool_cfg_t cfg = {
+        .mode           = BB_POOL_MODE_SLOTS,
+        .capacity       = CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS,
+        .max_slot_bytes = sizeof(sse_task_bundle_t),
+        .name           = "sse_task",
+        .on_acquire     = sse_bundle_on_acquire,
+        .slot_reusable  = sse_bundle_reusable,
+        .slot_reap      = sse_bundle_reap,
+    };
+
 #if CONFIG_BB_EVENT_ROUTES_POOL_STATIC
+    // Runtime cross-check against bb_pool's own sizing authority — see the
+    // function-header comment above. Not "provably unreachable" purely by
+    // construction (bb_pool's private struct size isn't visible here at
+    // compile time), but validated against the real formula every time this
+    // runs, rather than only hoping the hand-mirrored macro above stays in
+    // sync with bb_pool.c forever.
+    size_t pool_need = bb_pool_arena_size_needed(&cfg);
+    assert(pool_need > 0 && pool_need <= sizeof(s_sse_task_arena_buf));  // LCOV_EXCL_BR_LINE — buffer is sized to fit the full Kconfig capacity range
     bb_err_t err = bb_arena_init(&s_sse_task_arena, s_sse_task_arena_buf,
                                   sizeof(s_sse_task_arena_buf));
-    assert(err == BB_OK);
+    assert(err == BB_OK);  // LCOV_EXCL_BR_LINE — buffer is compile-time sized to fit
+    err = bb_pool_create(&cfg, s_sse_task_arena, &s_sse_task_pool);
+    assert(err == BB_OK);  // LCOV_EXCL_BR_LINE — see above
     (void)err;  // avoid unused-variable warning when NDEBUG compiles the assert out
-    s_sse_task_bundles = (sse_task_bundle_t *)bb_arena_alloc(s_sse_task_arena, SSE_TASK_BUNDLES_BYTES);
-    assert(s_sse_task_bundles != NULL);
+    (void)pool_need;
     pthread_mutex_unlock(&s_sse_task_pool_mtx);
     return BB_OK;
 #else
-    bb_err_t err = bb_arena_init_heap(&s_sse_task_arena,
-                                       SSE_TASK_BUNDLES_BYTES + SSE_TASK_ARENA_HDR_ALLOWANCE_BYTES);
+    bb_err_t err = bb_pool_create_owned(&cfg, BB_POOL_BACKING_HEAP, &s_sse_task_pool);
     if (err != BB_OK) {
-        bb_log_w(TAG, "SSE task pool: heap arena alloc failed (%d); connection rejected, retrying next connect", err);
-        pthread_mutex_unlock(&s_sse_task_pool_mtx);
-        return BB_ERR_NO_SPACE;
-    }
-    s_sse_task_bundles = (sse_task_bundle_t *)bb_arena_alloc(s_sse_task_arena, SSE_TASK_BUNDLES_BYTES);
-    if (!s_sse_task_bundles) {
-        bb_arena_destroy(s_sse_task_arena);
-        s_sse_task_arena = NULL;
+        bb_log_w(TAG, "SSE task pool: heap alloc failed (%d); connection rejected, retrying next connect", err);
         pthread_mutex_unlock(&s_sse_task_pool_mtx);
         return BB_ERR_NO_SPACE;
     }
@@ -219,6 +400,7 @@ bool bb_event_routes_port_event_wait(void *event, uint32_t timeout_ms)
 typedef struct {
     bb_http_request_t *req;
     bb_event_routes_client_t *client;
+    sse_task_bundle_t *bundle;  // this task's own leased bundle — needed by the exit tail (sse_task_done)
     void *event;
     bool has_more;  // drain one frame; more may be queued
 } sse_task_arg_t;
@@ -246,15 +428,23 @@ static int events_wait_fn(void *ctx, char *buf, size_t buflen, uint32_t timeout_
     return (int)n;
 }
 
-// cleanup_fn: deregister this task, release the client slot, and free the
-// arg struct. Runs on the SSE task itself, immediately before bb_sse_writer_run
-// calls vTaskDelete(NULL) — xTaskGetCurrentTaskHandle() is still valid here and
-// matches the handle registered at task-create time (per-client unique name).
+// cleanup_fn: deregister this task, release the client slot, release this
+// task's bundle lease back to the pool, and free the arg struct. Runs on
+// the SSE task itself, before bb_sse_writer_run's done_fn tail
+// (sse_task_done, below) actually suspends the task.
+//
 // Deregister MUST happen before client_release: release() sets the client
-// slot's in_use=false, which makes the slot (and its "sse_events_<slot>" name)
-// immediately reusable by a concurrent acquire on the other core. Releasing
-// first would let that new connection's task register the same name while
-// this task's stale registry entry still exists — BB_ERR_DUPLICATE races.
+// slot's in_use=false, which makes that slot immediately reusable by a
+// concurrent acquire on the other core.
+//
+// sse_pool_release(t->bundle) marks this bundle
+// pending-reap (its slot_reusable/slot_reap were configured in
+// sse_task_bundles_ensure()) rather than immediately reissuable — a future
+// bb_pool_acquire() will not hand this bundle out until slot_reusable
+// confirms eTaskGetState(handle)==eSuspended, which cannot happen until
+// AFTER this very task calls vTaskSuspend(NULL) in sse_task_done() below.
+// It is therefore safe to release the bundle here, before this task has
+// actually suspended: the bundle cannot be reissued in the meantime.
 static void events_cleanup_fn(void *ctx)
 {
     sse_task_arg_t *t = (sse_task_arg_t *)ctx;
@@ -264,12 +454,30 @@ static void events_cleanup_fn(void *ctx)
         // call failed. Debug-level only; not actionable at runtime.
         bb_log_d(TAG, "sse task deregister: %d", drc);
     }
-    // Pool task bundles (stack + TCB) are index-owned by the client slot
-    // (see sse_task_bundles_ensure() doc comment above) — nothing to
-    // release here; freeing the client slot below is what makes the slot
-    // (and its bundle) reusable by the next connection on that index.
     bb_event_routes_client_release(t->client);
+    if (t->bundle) {
+        sse_pool_release(t->bundle);
+    }
+    // NOTE: `t` itself is freed by sse_task_done(), not here — done_fn runs
+    // after this function returns and still needs t->bundle/t->done_sem.
+}
+
+// done_fn (replaces the default vTaskDelete(NULL) self-delete): as this
+// task's absolute last act, give the bundle's completion semaphore, free
+// the arg struct, then vTaskSuspend(NULL) — never self-delete. The task
+// becomes a suspended "corpse" occupying its bundle's static stack/TCB;
+// sse_bundle_reusable polls eTaskGetState() to detect this, and
+// sse_bundle_reap() performs the external vTaskDelete() once a future
+// connection wants to reuse the bundle. See the SSE task-bundle pool
+// file-header comment for the full B1-484/B1-492 rationale. Never returns.
+static void sse_task_done(void *ctx)
+{
+    sse_task_arg_t *t = (sse_task_arg_t *)ctx;
+    if (t->bundle && t->bundle->done_sem) {
+        xSemaphoreGive(t->bundle->done_sem);
+    }
     bb_mem_free(t);
+    vTaskSuspend(NULL);
 }
 
 // Registers the newly-created SSE task in the task registry. Failure is
@@ -290,9 +498,9 @@ static void sse_task(void *arg)
     t->has_more = false;
     const uint32_t hb_ms = bb_event_routes_heartbeat_ms();
     bb_sse_writer_run(req, ": connected\nretry: 5000\n\n",
-                      events_wait_fn, events_cleanup_fn, t,
+                      events_wait_fn, events_cleanup_fn, sse_task_done, t,
                       hb_ms, hb_ms);
-    // bb_sse_writer_run calls vTaskDelete(NULL) — never returns.
+    // sse_task_done() calls vTaskSuspend(NULL) — never returns.
 }
 
 // ---------------------------------------------------------------------------
@@ -327,8 +535,44 @@ static bb_err_t events_handler(bb_http_request_t *req)
         return err;
     }
 
+    // Lazy-heap default: create the task-bundle pool on the first-ever SSE
+    // connect. No-op once created (either backing) — see
+    // sse_task_bundles_ensure(). A failed heap allocation fails soft: the
+    // connection is rejected and retried on the next connect.
+    bb_err_t pool_err = sse_task_bundles_ensure();
+    if (pool_err != BB_OK) {
+        bb_event_routes_client_release(client);
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "event routes not initialized");
+        bb_http_resp_json_obj_end(&obj);
+        return pool_err;
+    }
+
+    // B1-484/B1-492 reap gate: this bb_pool_acquire() call is the
+    // non-blocking, single-shot reuse check on the one esp_http_server
+    // task. If a slot's prior occupant task hasn't yet been confirmed
+    // eSuspended (sse_bundle_reusable), bb_pool_acquire() returns NULL here
+    // immediately — no wait, no loop, no deadline — and this handler
+    // fast-rejects with the same 503 idiom used for max_clients exhaustion
+    // (EventSource clients auto-retry). This can never permanently strand a
+    // slot: the corpse eventually reaches eSuspended and a later connect
+    // succeeds.
+    sse_task_bundle_t *bundle = sse_pool_acquire();
+    if (!bundle) {
+        bb_event_routes_client_release(client);
+        bb_http_resp_set_status(req, 503);
+        bb_http_json_obj_stream_t obj;
+        bb_http_resp_json_obj_begin(req, &obj);
+        bb_http_resp_json_obj_set_str(&obj, "error", "max_clients");
+        bb_http_resp_json_obj_end(&obj);
+        return BB_OK;
+    }
+
     bb_http_request_t *async_req = NULL;
     if (bb_http_req_async_handler_begin(req, &async_req) != BB_OK) {
+        sse_pool_release(bundle);
         bb_event_routes_client_release(client);
         bb_http_resp_set_status(req, 500);
         bb_http_json_obj_stream_t obj;
@@ -340,54 +584,39 @@ static bb_err_t events_handler(bb_http_request_t *req)
 
     sse_task_arg_t *arg = (sse_task_arg_t *)bb_malloc_prefer_spiram(sizeof(*arg));
     if (!arg) {
+        sse_pool_release(bundle);
         bb_event_routes_client_release(client);
         bb_http_req_async_handler_complete(async_req);
         return BB_ERR_NO_SPACE;
     }
     arg->req = async_req;
     arg->client = client;
+    arg->bundle = bundle;
 
-    // Each concurrent SSE client gets a unique registry name keyed off its
-    // client slot index — a literal "sse_events" for every client would collide
-    // in the registry (dup-name rejection hides all but the first). Slot index
-    // is bounded 0..BB_EVENT_ROUTES_MAX_CLIENTS-1, so the name stays well under
-    // configMAX_TASK_NAME_LEN (typically 16).
+    // Each concurrent SSE task gets a unique registry name — a literal
+    // "sse_events" for every task would collide in the registry (dup-name
+    // rejection hides all but the first). events_handler runs exclusively
+    // on the single esp_http_server task (no worker pool — see breadboard
+    // CLAUDE.md), so this monotonic counter needs no atomic/lock. Bundle
+    // leases are no longer index-addressed to a client slot (B1-492), so
+    // naming is decoupled from client slot index entirely.
+    static uint32_t s_sse_task_seq;
     char task_name[BB_TASK_REGISTRY_NAME_MAX];
-    int slot = bb_event_routes_client_slot_index(client);
-    snprintf(task_name, sizeof(task_name), "sse_events_%d", slot);
+    snprintf(task_name, sizeof(task_name), "sse_%" PRIu32, s_sse_task_seq++);
 
-    {
-        // Lazy-heap default: create the task-bundle pool on the first-ever
-        // SSE connect. No-op once created (either backing) — see
-        // sse_task_bundles_ensure(). A failed heap allocation fails soft:
-        // the connection is rejected and retried on the next connect, same
-        // as the xTaskCreateStatic-failure branch below.
-        bb_err_t pool_err = sse_task_bundles_ensure();
-        if (pool_err != BB_OK) {
-            bb_mem_free(arg);
-            bb_event_routes_client_release(client);
-            bb_http_req_async_handler_complete(async_req);
-            return pool_err;
-        }
-
-        // Index-addressed: client slot `slot` deterministically owns
-        // s_sse_task_bundles[slot] for the pool's lifetime — no
-        // acquire/release, no free-list. `slot` is bounded 0..MAX_CLIENTS-1
-        // by the CAS client-slot claim in bb_event_routes_client_acquire_ex,
-        // so the index is always valid here.
-        sse_task_bundle_t *bundle = &s_sse_task_bundles[slot];
-        TaskHandle_t th = xTaskCreateStatic(sse_task, task_name,
-                                            SSE_TASK_STACK_WORDS, arg, 1,
-                                            bundle->stack,
-                                            &bundle->tcb);
-        if (!th) {
-            bb_mem_free(arg);
-            bb_event_routes_client_release(client);
-            bb_http_req_async_handler_complete(async_req);
-            return BB_ERR_INVALID_STATE;
-        }
-        sse_task_registry_register_or_warn(task_name, SSE_TASK_STACK_WORDS * sizeof(StackType_t), th);
+    TaskHandle_t th = xTaskCreateStatic(sse_task, task_name,
+                                        SSE_TASK_STACK_WORDS, arg, 1,
+                                        bundle->stack,
+                                        &bundle->tcb);
+    if (!th) {
+        bb_mem_free(arg);
+        sse_pool_release(bundle);
+        bb_event_routes_client_release(client);
+        bb_http_req_async_handler_complete(async_req);
+        return BB_ERR_INVALID_STATE;
     }
+    bundle->handle = th;
+    sse_task_registry_register_or_warn(task_name, SSE_TASK_STACK_WORDS * sizeof(StackType_t), th);
     return BB_OK;
 }
 
