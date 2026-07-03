@@ -35,3 +35,7 @@ CONFIG_LWIP_SO_LINGER=y
 # Exercise the opt-in gateway-probe worker in CI so it keeps compiling+linking
 # (default n, see components/bb_wifi/Kconfig).
 CONFIG_BB_WIFI_GW_PROBE_ENABLE=y
+# Exercise the opt-in egress-recovery ACT gate in CI so the tier-2/tier-3
+# reboot + NVS path and the do_safeguard_reboot #else branch keep
+# compiling+linking (default n, see components/bb_net_health/Kconfig).
+CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE=y

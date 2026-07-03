@@ -2267,3 +2267,395 @@ void test_bb_net_health_would_recover_edge_ok_to_endpoint_down_is_false(void)
     TEST_ASSERT_FALSE(bb_net_health_would_recover_edge(BB_EGRESS_STATE_OK,
                                                          BB_EGRESS_STATE_ENDPOINT_DOWN));
 }
+
+// ---------------------------------------------------------------------------
+// bb_net_health_should_request_recovery (B1-518 PR4, tier-2) — pure
+// predicate. act_enabled x edge/no-edge/sustained.
+// ---------------------------------------------------------------------------
+
+void test_bb_net_health_should_request_recovery_act_off_is_always_false(void)
+{
+    TEST_ASSERT_FALSE(bb_net_health_should_request_recovery(BB_EGRESS_STATE_OK,
+                                                              BB_EGRESS_STATE_GW_UNREACHABLE,
+                                                              false));
+}
+
+void test_bb_net_health_should_request_recovery_act_on_edge_is_true(void)
+{
+    TEST_ASSERT_TRUE(bb_net_health_should_request_recovery(BB_EGRESS_STATE_OK,
+                                                             BB_EGRESS_STATE_GW_UNREACHABLE,
+                                                             true));
+}
+
+void test_bb_net_health_should_request_recovery_act_on_no_edge_is_false(void)
+{
+    TEST_ASSERT_FALSE(bb_net_health_should_request_recovery(BB_EGRESS_STATE_OK,
+                                                              BB_EGRESS_STATE_OK,
+                                                              true));
+}
+
+// Sustained GW_UNREACHABLE (prev == cur) is not an edge — no repeated request.
+void test_bb_net_health_should_request_recovery_sustained_is_false(void)
+{
+    TEST_ASSERT_FALSE(bb_net_health_should_request_recovery(BB_EGRESS_STATE_GW_UNREACHABLE,
+                                                              BB_EGRESS_STATE_GW_UNREACHABLE,
+                                                              true));
+}
+
+// ---------------------------------------------------------------------------
+// bb_net_health_should_reboot (B1-518 PR4, tier-3) — pure predicate.
+// unhealthy-not-armed / below-T / within-min-interval / daily-cap-exhausted /
+// all-met-true / clock-skew-no-underflow.
+// ---------------------------------------------------------------------------
+
+static bb_net_health_reboot_state_t s_reboot_st;
+
+static void reboot_st_reset(void)
+{
+    memset(&s_reboot_st, 0, sizeof(s_reboot_st));
+}
+
+void test_bb_net_health_should_reboot_not_unhealthy_is_false(void)
+{
+    reboot_st_reset();
+    TEST_ASSERT_FALSE(bb_net_health_should_reboot(0, 1000, 480, 1800, 4, &s_reboot_st));
+}
+
+void test_bb_net_health_should_reboot_below_threshold_is_false(void)
+{
+    reboot_st_reset();
+    // unhealthy since t=1000, now=1400 -> 400s elapsed, threshold 480 -> not yet.
+    TEST_ASSERT_FALSE(bb_net_health_should_reboot(1000, 1400, 480, 1800, 4, &s_reboot_st));
+}
+
+void test_bb_net_health_should_reboot_at_threshold_is_true(void)
+{
+    reboot_st_reset();
+    // unhealthy since t=1000, now=1480 -> exactly 480s elapsed.
+    TEST_ASSERT_TRUE(bb_net_health_should_reboot(1000, 1480, 480, 1800, 4, &s_reboot_st));
+}
+
+void test_bb_net_health_should_reboot_within_min_interval_is_false(void)
+{
+    reboot_st_reset();
+    s_reboot_st.last_reboot_s = 1000;
+    // unhealthy long enough (>=480s), but last reboot only 100s ago (< 1800s min interval).
+    TEST_ASSERT_FALSE(bb_net_health_should_reboot(500, 1100, 480, 1800, 4, &s_reboot_st));
+}
+
+void test_bb_net_health_should_reboot_min_interval_elapsed_is_true(void)
+{
+    reboot_st_reset();
+    s_reboot_st.last_reboot_s = 1000;
+    // last reboot 1800s ago -> min interval satisfied.
+    TEST_ASSERT_TRUE(bb_net_health_should_reboot(500, 2800, 480, 1800, 4, &s_reboot_st));
+}
+
+// last_reboot_s == 0 (never rebooted) bypasses the min-interval check.
+void test_bb_net_health_should_reboot_never_rebooted_bypasses_min_interval(void)
+{
+    reboot_st_reset();
+    TEST_ASSERT_TRUE(bb_net_health_should_reboot(500, 1000, 480, 1800, 4, &s_reboot_st));
+}
+
+void test_bb_net_health_should_reboot_daily_cap_exhausted_is_false(void)
+{
+    reboot_st_reset();
+    uint32_t now_s = 100000;
+    // Fill the ring with 4 entries, all within the trailing 24h AND spaced so
+    // the last (most recent) entry still clears the 1800s min-interval check
+    // on its own — isolating the daily-cap branch as the sole blocker.
+    for (int i = 3; i >= 0; i--) {
+        bb_net_health_reboot_state_record(&s_reboot_st, now_s - (uint32_t)(2000 * i) - 2000U);
+    }
+    TEST_ASSERT_EQUAL_UINT8(4, s_reboot_st.ring_count);
+    // unhealthy long enough, min-interval elapsed, but daily cap (4) reached.
+    TEST_ASSERT_FALSE(bb_net_health_should_reboot(now_s - 1000, now_s, 480, 1800, 4, &s_reboot_st));
+}
+
+// A ring entry older than 24h does not count toward the daily cap.
+void test_bb_net_health_should_reboot_daily_cap_excludes_stale_entries(void)
+{
+    reboot_st_reset();
+    uint32_t now_s = 200000;
+    // 3 entries older than 24h (86400s) -> all excluded from the 24h window,
+    // so a daily cap of 4 is not reached (count24h == 0). The last recorded
+    // timestamp also clears the 1800s min-interval check.
+    for (int i = 0; i < 3; i++) {
+        bb_net_health_reboot_state_record(&s_reboot_st, now_s - 90000U - (uint32_t)i);
+    }
+    TEST_ASSERT_TRUE(bb_net_health_should_reboot(now_s - 1000, now_s, 480, 1800, 4, &s_reboot_st));
+}
+
+// All conditions met -> true.
+void test_bb_net_health_should_reboot_all_met_true(void)
+{
+    reboot_st_reset();
+    TEST_ASSERT_TRUE(bb_net_health_should_reboot(1000, 100000, 480, 1800, 4, &s_reboot_st));
+}
+
+// st->ring_count corrupted/out-of-range (> CAP_MAX) is clamped to CAP_MAX
+// rather than walking past the end of reboot_s_ring[]. Reachable directly
+// via the struct field (e.g. a caller-loaded/corrupted state), independent
+// of encode/decode's own ring_count_field validation.
+void test_bb_net_health_should_reboot_ring_count_over_cap_is_clamped(void)
+{
+    reboot_st_reset();
+    for (int i = 0; i < BB_NET_HEALTH_REBOOT_CAP_MAX; i++) {
+        s_reboot_st.reboot_s_ring[i] = 100000U - 1000U - (uint32_t)i; // all within 24h
+    }
+    s_reboot_st.ring_count = (uint8_t)(BB_NET_HEALTH_REBOOT_CAP_MAX + 3); // corrupted/out-of-range
+    // count24h reaches CAP_MAX (10) entries even though ring_count claims more;
+    // daily_cap=CAP_MAX means the clamp (not an over-read) determines the count.
+    TEST_ASSERT_FALSE(bb_net_health_should_reboot(1000, 100000, 480, 1800,
+                                                    BB_NET_HEALTH_REBOOT_CAP_MAX, &s_reboot_st));
+}
+
+// A ring entry timestamped after "now" (per-entry clock skew, distinct from
+// the top-level unhealthy_since_s/last_reboot_s skew guards) is excluded
+// from the 24h daily-cap count rather than underflowing (now_s - ts).
+void test_bb_net_health_should_reboot_ring_entry_future_timestamp_excluded(void)
+{
+    reboot_st_reset();
+    uint32_t now_s = 100000;
+    // Populate the ring entry directly (not via record(), which would also
+    // set last_reboot_s to the same future value and trip the min-interval
+    // guard first) so the future-timestamp skew is isolated to the ring scan.
+    s_reboot_st.reboot_s_ring[0] = now_s + 500U; // future: per-entry clock skew
+    s_reboot_st.ring_count = 1;
+    s_reboot_st.ring_head  = 1;
+    // last_reboot_s stays 0 -> bypasses the min-interval check entirely.
+    // With the single (excluded) entry not counted, daily cap of 1 is not
+    // reached -> should_reboot proceeds to true.
+    TEST_ASSERT_TRUE(bb_net_health_should_reboot(now_s - 1000, now_s, 480, 1800, 1, &s_reboot_st));
+}
+
+// Clock skew: now_s before unhealthy_since_s must never underflow-wrap to a
+// huge elapsed value — treated as 0 elapsed, so should_reboot is false.
+void test_bb_net_health_should_reboot_clock_skew_unhealthy_since_no_underflow(void)
+{
+    reboot_st_reset();
+    TEST_ASSERT_FALSE(bb_net_health_should_reboot(5000, 100, 480, 1800, 4, &s_reboot_st));
+}
+
+// Clock skew: now_s before last_reboot_s must not underflow either — treated
+// as 0 elapsed (min-interval not satisfied) -> should_reboot is false.
+void test_bb_net_health_should_reboot_clock_skew_last_reboot_no_underflow(void)
+{
+    reboot_st_reset();
+    s_reboot_st.last_reboot_s = 5000;
+    TEST_ASSERT_FALSE(bb_net_health_should_reboot(50, 100, 480, 1800, 4, &s_reboot_st));
+}
+
+// NULL state pointer is handled safely (false, no crash).
+void test_bb_net_health_should_reboot_null_state_is_false(void)
+{
+    TEST_ASSERT_FALSE(bb_net_health_should_reboot(1000, 100000, 480, 1800, 4, NULL));
+}
+
+// ---------------------------------------------------------------------------
+// bb_net_health_reboot_state_record — ring append, wrap at CAP, and 24h-old
+// exclusion from a later should_reboot count.
+// ---------------------------------------------------------------------------
+
+void test_bb_net_health_reboot_state_record_appends(void)
+{
+    reboot_st_reset();
+    bb_net_health_reboot_state_record(&s_reboot_st, 1000);
+    TEST_ASSERT_EQUAL_UINT32(1000, s_reboot_st.last_reboot_s);
+    TEST_ASSERT_EQUAL_UINT8(1, s_reboot_st.ring_count);
+    TEST_ASSERT_EQUAL_UINT8(1, s_reboot_st.ring_head);
+    TEST_ASSERT_EQUAL_UINT32(1000, s_reboot_st.reboot_s_ring[0]);
+}
+
+// NULL state pointer is handled safely (no-op, no crash).
+void test_bb_net_health_reboot_state_record_null_state_is_safe(void)
+{
+    bb_net_health_reboot_state_record(NULL, 1000);
+}
+
+void test_bb_net_health_reboot_state_record_wraps_at_cap(void)
+{
+    reboot_st_reset();
+    // Record CAP_MAX + 2 entries; ring_count saturates at CAP_MAX and the
+    // head wraps, overwriting the oldest two entries.
+    for (uint32_t i = 0; i < (uint32_t)BB_NET_HEALTH_REBOOT_CAP_MAX + 2; i++) {
+        bb_net_health_reboot_state_record(&s_reboot_st, 1000 + i);
+    }
+    TEST_ASSERT_EQUAL_UINT8(BB_NET_HEALTH_REBOOT_CAP_MAX, s_reboot_st.ring_count);
+    TEST_ASSERT_EQUAL_UINT8(2, s_reboot_st.ring_head);
+    // Slot 0 and 1 were overwritten by the wrap (originally 1000, 1001; now
+    // hold the last two written values: 1000+CAP_MAX, 1000+CAP_MAX+1).
+    TEST_ASSERT_EQUAL_UINT32(1000U + BB_NET_HEALTH_REBOOT_CAP_MAX,     s_reboot_st.reboot_s_ring[0]);
+    TEST_ASSERT_EQUAL_UINT32(1000U + BB_NET_HEALTH_REBOOT_CAP_MAX + 1, s_reboot_st.reboot_s_ring[1]);
+    TEST_ASSERT_EQUAL_UINT32(1000U + BB_NET_HEALTH_REBOOT_CAP_MAX + 1, s_reboot_st.last_reboot_s);
+}
+
+// A ring entry recorded >24h before "now" is excluded from should_reboot's
+// daily-cap count, letting a new reboot proceed even with a full ring of
+// stale entries.
+void test_bb_net_health_reboot_state_record_24h_old_excluded_from_count(void)
+{
+    reboot_st_reset();
+    uint32_t old_ts = 1000;
+    bb_net_health_reboot_state_record(&s_reboot_st, old_ts);
+    uint32_t now_s = old_ts + 86400U + 1U; // just over 24h later
+    TEST_ASSERT_TRUE(bb_net_health_should_reboot(now_s - 1000, now_s, 480, 1800, 1, &s_reboot_st));
+}
+
+// ---------------------------------------------------------------------------
+// bb_net_health_reboot_state_encode / _decode — single-key NVS packing
+// (B1-518 PR4 MED finding). Pure round-trip; no NVS involved.
+// ---------------------------------------------------------------------------
+
+void test_bb_net_health_reboot_state_encode_decode_round_trip_zero_state(void)
+{
+    reboot_st_reset();
+    char buf[BB_NET_HEALTH_REBOOT_STATE_STR_MAX];
+    TEST_ASSERT_TRUE(bb_net_health_reboot_state_encode(&s_reboot_st, buf, sizeof(buf)));
+
+    bb_net_health_reboot_state_t decoded;
+    memset(&decoded, 0xAA, sizeof(decoded)); // poison to prove decode fully overwrites
+    TEST_ASSERT_TRUE(bb_net_health_reboot_state_decode(buf, &decoded));
+    TEST_ASSERT_EQUAL_UINT32(s_reboot_st.last_reboot_s, decoded.last_reboot_s);
+    TEST_ASSERT_EQUAL_UINT8(s_reboot_st.ring_head, decoded.ring_head);
+    TEST_ASSERT_EQUAL_UINT8(s_reboot_st.ring_count, decoded.ring_count);
+    for (int i = 0; i < BB_NET_HEALTH_REBOOT_CAP_MAX; i++) {
+        TEST_ASSERT_EQUAL_UINT32(s_reboot_st.reboot_s_ring[i], decoded.reboot_s_ring[i]);
+    }
+}
+
+void test_bb_net_health_reboot_state_encode_decode_round_trip_partial_ring(void)
+{
+    reboot_st_reset();
+    bb_net_health_reboot_state_record(&s_reboot_st, 1000);
+    bb_net_health_reboot_state_record(&s_reboot_st, 2000);
+    bb_net_health_reboot_state_record(&s_reboot_st, 3000);
+
+    char buf[BB_NET_HEALTH_REBOOT_STATE_STR_MAX];
+    TEST_ASSERT_TRUE(bb_net_health_reboot_state_encode(&s_reboot_st, buf, sizeof(buf)));
+
+    bb_net_health_reboot_state_t decoded;
+    memset(&decoded, 0, sizeof(decoded));
+    TEST_ASSERT_TRUE(bb_net_health_reboot_state_decode(buf, &decoded));
+    TEST_ASSERT_EQUAL_UINT32(3000, decoded.last_reboot_s);
+    TEST_ASSERT_EQUAL_UINT8(3, decoded.ring_head);
+    TEST_ASSERT_EQUAL_UINT8(3, decoded.ring_count);
+    TEST_ASSERT_EQUAL_UINT32(1000, decoded.reboot_s_ring[0]);
+    TEST_ASSERT_EQUAL_UINT32(2000, decoded.reboot_s_ring[1]);
+    TEST_ASSERT_EQUAL_UINT32(3000, decoded.reboot_s_ring[2]);
+}
+
+// Ring-wrap case: encode/decode must preserve the exact post-wrap slot
+// contents and head/count, not just the logical reboot history.
+void test_bb_net_health_reboot_state_encode_decode_round_trip_ring_wrap(void)
+{
+    reboot_st_reset();
+    for (uint32_t i = 0; i < (uint32_t)BB_NET_HEALTH_REBOOT_CAP_MAX + 3; i++) {
+        bb_net_health_reboot_state_record(&s_reboot_st, 5000 + i);
+    }
+
+    char buf[BB_NET_HEALTH_REBOOT_STATE_STR_MAX];
+    TEST_ASSERT_TRUE(bb_net_health_reboot_state_encode(&s_reboot_st, buf, sizeof(buf)));
+
+    bb_net_health_reboot_state_t decoded;
+    memset(&decoded, 0, sizeof(decoded));
+    TEST_ASSERT_TRUE(bb_net_health_reboot_state_decode(buf, &decoded));
+    TEST_ASSERT_EQUAL_UINT32(s_reboot_st.last_reboot_s, decoded.last_reboot_s);
+    TEST_ASSERT_EQUAL_UINT8(s_reboot_st.ring_head, decoded.ring_head);
+    TEST_ASSERT_EQUAL_UINT8(BB_NET_HEALTH_REBOOT_CAP_MAX, decoded.ring_count);
+    for (int i = 0; i < BB_NET_HEALTH_REBOOT_CAP_MAX; i++) {
+        TEST_ASSERT_EQUAL_UINT32(s_reboot_st.reboot_s_ring[i], decoded.reboot_s_ring[i]);
+    }
+}
+
+void test_bb_net_health_reboot_state_encode_null_state_is_false(void)
+{
+    char buf[BB_NET_HEALTH_REBOOT_STATE_STR_MAX];
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_encode(NULL, buf, sizeof(buf)));
+}
+
+void test_bb_net_health_reboot_state_encode_null_buf_is_false(void)
+{
+    reboot_st_reset();
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_encode(&s_reboot_st, NULL, 64));
+}
+
+void test_bb_net_health_reboot_state_encode_buf_too_small_is_false(void)
+{
+    reboot_st_reset();
+    bb_net_health_reboot_state_record(&s_reboot_st, 1234567890U);
+    char tiny[4];
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_encode(&s_reboot_st, tiny, sizeof(tiny)));
+}
+
+void test_bb_net_health_reboot_state_encode_zero_buf_len_is_false(void)
+{
+    reboot_st_reset();
+    char buf[BB_NET_HEALTH_REBOOT_STATE_STR_MAX];
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_encode(&s_reboot_st, buf, 0));
+}
+
+// Header snprintf fits (buf_len=10 covers "0|0|0" = 5 bytes), but the ring
+// loop runs out of room partway through — distinct from
+// encode_buf_too_small_is_false, which fails at the header itself.
+void test_bb_net_health_reboot_state_encode_buf_too_small_mid_ring_is_false(void)
+{
+    reboot_st_reset();
+    char buf[10];
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_encode(&s_reboot_st, buf, sizeof(buf)));
+}
+
+void test_bb_net_health_reboot_state_decode_null_str_is_false(void)
+{
+    bb_net_health_reboot_state_t out;
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_decode(NULL, &out));
+}
+
+void test_bb_net_health_reboot_state_decode_empty_str_is_false(void)
+{
+    bb_net_health_reboot_state_t out;
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_decode("", &out));
+}
+
+void test_bb_net_health_reboot_state_decode_null_out_is_false(void)
+{
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_decode("0|0|0|0,0,0,0,0,0,0,0,0,0", NULL));
+}
+
+void test_bb_net_health_reboot_state_decode_malformed_is_false(void)
+{
+    bb_net_health_reboot_state_t out;
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_decode("not a valid encoded state", &out));
+}
+
+void test_bb_net_health_reboot_state_decode_wrong_ring_length_is_false(void)
+{
+    bb_net_health_reboot_state_t out;
+    // Only 3 ring values instead of the required BB_NET_HEALTH_REBOOT_CAP_MAX.
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_decode("0|0|0|1,2,3", &out));
+}
+
+void test_bb_net_health_reboot_state_decode_ring_head_out_of_range_is_false(void)
+{
+    bb_net_health_reboot_state_t out;
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_decode(
+        "0|99|0|0,0,0,0,0,0,0,0,0,0", &out));
+}
+
+void test_bb_net_health_reboot_state_decode_ring_count_out_of_range_is_false(void)
+{
+    bb_net_health_reboot_state_t out;
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_decode(
+        "0|0|99|0,0,0,0,0,0,0,0,0,0", &out));
+}
+
+// A non-numeric ring entry token fails the per-entry sscanf parse (distinct
+// from decode_wrong_ring_length_is_false, which fails the *(p)!=',' comma
+// check after running out of entries, never reaching this sscanf failure).
+void test_bb_net_health_reboot_state_decode_malformed_ring_entry_is_false(void)
+{
+    bb_net_health_reboot_state_t out;
+    TEST_ASSERT_FALSE(bb_net_health_reboot_state_decode(
+        "0|0|0|1,2,x,4,5,6,7,8,9,0", &out));
+}

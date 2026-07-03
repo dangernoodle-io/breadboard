@@ -128,6 +128,55 @@ config BB_NET_HEALTH_HEAP_TRACE
         zero otherwise (stats still disabled independently).
         Default OFF — zero runtime cost when disabled.
 
+config BB_NET_HEALTH_EGRESS_ACT_ENABLE
+    bool "Enable egress-recovery ACT gate (tier-2 request_recovery + tier-3 reboot)"
+    default n
+    help
+        When enabled, the evaluator ACTS on the egress-recovery SSOT
+        classification instead of only logging it (B1-518 PR4):
+          - tier-2: bb_wifi_request_recovery() is called on the edge
+            transition into BB_EGRESS_STATE_GW_UNREACHABLE.
+          - tier-3: if the gateway stays unreachable for
+            BB_NET_HEALTH_EGRESS_ACT_REBOOT_S seconds, esp_restart() is
+            called, rate-limited by BB_NET_HEALTH_EGRESS_ACT_REBOOT_MIN_INTERVAL_S
+            and BB_NET_HEALTH_EGRESS_ACT_REBOOT_DAILY_CAP, persisted across
+            reboots in NVS as real epoch seconds (time(NULL), never a
+            boot-relative uptime — the rate limits must survive a reboot).
+            Tier-3 is gated on bb_ntp_is_synced(): while the clock has never
+            synced, tier-3 is log-only (no reboot, no NVS write) — tier-2
+            is unaffected by this gate.
+        Also retires the wifi_reconn safeguard-reboot escalation (the actual
+        esp_restart() call) when enabled — see wifi_reconn.c.
+        Default OFF — zero behavioral change; the whole act path compiles
+        out. Gate: #if CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE.
+
+config BB_NET_HEALTH_EGRESS_ACT_REBOOT_S
+    int "Seconds of sustained GW_UNREACHABLE before tier-3 reboot"
+    default 480
+    range 60 3600
+    depends on BB_NET_HEALTH_EGRESS_ACT_ENABLE
+    help
+        How long the gateway must stay unreachable (continuously) before
+        the evaluator escalates to esp_restart().
+
+config BB_NET_HEALTH_EGRESS_ACT_REBOOT_MIN_INTERVAL_S
+    int "Minimum seconds between tier-3 reboots"
+    default 1800
+    range 300 86400
+    depends on BB_NET_HEALTH_EGRESS_ACT_ENABLE
+    help
+        Rate-limit: at most one tier-3 reboot per this many seconds,
+        persisted across reboots in NVS.
+
+config BB_NET_HEALTH_EGRESS_ACT_REBOOT_DAILY_CAP
+    int "Maximum tier-3 reboots per rolling 24h"
+    default 4
+    range 1 10
+    depends on BB_NET_HEALTH_EGRESS_ACT_ENABLE
+    help
+        Hard cap on tier-3 reboots within a rolling 24h window, persisted
+        across reboots in NVS (ring buffer of reboot timestamps).
+
 config BB_NET_HEALTH_LOG_INTERVAL_S
     int "Diagnostic heartbeat log interval (seconds)"
     default 60
