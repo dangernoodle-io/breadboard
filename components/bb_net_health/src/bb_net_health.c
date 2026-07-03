@@ -77,6 +77,57 @@ const char *bb_net_mode_str(bb_net_mode_t mode)
 }
 
 // ---------------------------------------------------------------------------
+// Egress-recovery SSOT (B1-518) — Phase 1 pure classifier (OBSERVE-ONLY)
+// ---------------------------------------------------------------------------
+
+const char *bb_egress_state_str(bb_egress_state_t s)
+{
+    switch (s) {
+    case BB_EGRESS_STATE_OK:             return "ok";
+    case BB_EGRESS_STATE_ENDPOINT_DOWN:  return "endpoint_down";
+    case BB_EGRESS_STATE_GW_UNREACHABLE: return "gw_unreachable";
+    case BB_EGRESS_STATE_ALL_DEAD:       return "all_dead";
+    default:                             return "ok";
+    }
+}
+
+bb_egress_state_t bb_net_health_classify_egress(bb_net_mode_t wifi_mode,
+                                                 bool          gw_probed,
+                                                 bool          gw_reachable,
+                                                 uint8_t       gw_fail_streak,
+                                                 uint8_t       gw_fail_threshold,
+                                                 int           enabled_egress_count,
+                                                 int           failing_egress_count)
+{
+    // NOT_ASSOCIATED/NO_IP are owned by the wifi FSM / no-IP watchdog; the
+    // egress classifier is only meaningful when associated+has_ip.
+    if (wifi_mode != BB_NET_MODE_OK) {
+        return BB_EGRESS_STATE_OK;
+    }
+
+    if (!gw_probed) {
+        return BB_EGRESS_STATE_OK; // no probe data yet
+    }
+
+    if (!gw_reachable) {
+        return (gw_fail_streak >= gw_fail_threshold)
+            ? BB_EGRESS_STATE_GW_UNREACHABLE
+            : BB_EGRESS_STATE_OK; // transient miss, not yet counted
+    }
+
+    // Gateway reachable: it is the tiebreaker distinguishing an
+    // upstream/application-layer failure (endpoint/pool down) from a
+    // WiFi-layer failure — never escalate to GW_UNREACHABLE/ALL_DEAD here.
+    if (enabled_egress_count > 0 && failing_egress_count >= enabled_egress_count) {
+        return BB_EGRESS_STATE_ALL_DEAD;
+    }
+    if (failing_egress_count > 0) {
+        return BB_EGRESS_STATE_ENDPOINT_DOWN;
+    }
+    return BB_EGRESS_STATE_OK;
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 

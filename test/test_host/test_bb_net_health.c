@@ -1404,6 +1404,101 @@ void test_bb_net_health_classify_mode_not_associated_dominates_has_ip(void)
     TEST_ASSERT_EQUAL_INT(BB_NET_MODE_NOT_ASSOCIATED, bb_net_health_classify_mode(false, true));
 }
 
+// ---------------------------------------------------------------------------
+// bb_net_health_classify_egress — pure egress-state classifier
+// (egress-recovery SSOT, B1-518, Phase 1, OBSERVE-ONLY).
+// ---------------------------------------------------------------------------
+
+// wifi_mode != OK short-circuits to OK regardless of any other input.
+void test_bb_net_health_classify_egress_no_ip_mode_is_ok(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_OK,
+        bb_net_health_classify_egress(BB_NET_MODE_NO_IP, true, false, 5, 3, 2, 2));
+}
+
+void test_bb_net_health_classify_egress_not_associated_mode_is_ok(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_OK,
+        bb_net_health_classify_egress(BB_NET_MODE_NOT_ASSOCIATED, true, false, 5, 3, 2, 2));
+}
+
+// No probe data yet → OK.
+void test_bb_net_health_classify_egress_not_probed_is_ok(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_OK,
+        bb_net_health_classify_egress(BB_NET_MODE_OK, false, false, 0, 3, 2, 2));
+}
+
+// !gw_reachable, streak below threshold → transient miss, still OK.
+void test_bb_net_health_classify_egress_gw_unreachable_below_threshold_is_ok(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_OK,
+        bb_net_health_classify_egress(BB_NET_MODE_OK, true, false, 2, 3, 0, 0));
+}
+
+// !gw_reachable, streak == threshold → GW_UNREACHABLE.
+void test_bb_net_health_classify_egress_gw_unreachable_at_threshold(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_GW_UNREACHABLE,
+        bb_net_health_classify_egress(BB_NET_MODE_OK, true, false, 3, 3, 0, 0));
+}
+
+// gw_reachable, failing == 0 → OK.
+void test_bb_net_health_classify_egress_gw_reachable_none_failing(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_OK,
+        bb_net_health_classify_egress(BB_NET_MODE_OK, true, true, 0, 3, 2, 0));
+}
+
+// gw_reachable, 0 < failing < enabled → ENDPOINT_DOWN. This is the whole
+// point of the gateway-probe-as-tiebreaker: gw up + one endpoint down (e.g.
+// mining pool) must NOT classify as a WiFi fault.
+void test_bb_net_health_classify_egress_gw_reachable_one_endpoint_down(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_ENDPOINT_DOWN,
+        bb_net_health_classify_egress(BB_NET_MODE_OK, true, true, 0, 3, 2, 1));
+}
+
+// gw_reachable, failing == enabled (> 0) → ALL_DEAD.
+void test_bb_net_health_classify_egress_gw_reachable_all_endpoints_down(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_ALL_DEAD,
+        bb_net_health_classify_egress(BB_NET_MODE_OK, true, true, 0, 3, 2, 2));
+}
+
+// gw_reachable, enabled == 0 → OK (no egress clients configured at all).
+void test_bb_net_health_classify_egress_gw_reachable_no_egress_clients(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_EGRESS_STATE_OK,
+        bb_net_health_classify_egress(BB_NET_MODE_OK, true, true, 0, 3, 0, 0));
+}
+
+void test_bb_egress_state_str_ok(void)
+{
+    TEST_ASSERT_EQUAL_STRING("ok", bb_egress_state_str(BB_EGRESS_STATE_OK));
+}
+
+void test_bb_egress_state_str_endpoint_down(void)
+{
+    TEST_ASSERT_EQUAL_STRING("endpoint_down", bb_egress_state_str(BB_EGRESS_STATE_ENDPOINT_DOWN));
+}
+
+void test_bb_egress_state_str_gw_unreachable(void)
+{
+    TEST_ASSERT_EQUAL_STRING("gw_unreachable", bb_egress_state_str(BB_EGRESS_STATE_GW_UNREACHABLE));
+}
+
+void test_bb_egress_state_str_all_dead(void)
+{
+    TEST_ASSERT_EQUAL_STRING("all_dead", bb_egress_state_str(BB_EGRESS_STATE_ALL_DEAD));
+}
+
+void test_bb_egress_state_str_unknown_returns_nonnull(void)
+{
+    const char *s = bb_egress_state_str((bb_egress_state_t)99);
+    TEST_ASSERT_NOT_NULL(s);
+}
+
 void test_bb_net_mode_str_ok(void)
 {
     TEST_ASSERT_EQUAL_STRING("ok", bb_net_mode_str(BB_NET_MODE_OK));

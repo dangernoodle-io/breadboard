@@ -209,6 +209,69 @@ bb_net_mode_t bb_net_health_classify_mode(bool associated, bool has_ip);
 const char *bb_net_mode_str(bb_net_mode_t mode);
 
 // ---------------------------------------------------------------------------
+// Egress-recovery SSOT (B1-518) — Phase 1 pure classifier.
+//
+// OBSERVE-ONLY: this classifier drives logging/counters only; no recovery
+// action is wired to it (that is Phase 3 of B1-518). It distinguishes three
+// distinct failure shapes so a future recovery action can target the right
+// layer instead of always restarting the WiFi stack:
+//   - GW_UNREACHABLE: the WiFi link itself cannot reach the gateway — a
+//     WiFi-layer problem.
+//   - ENDPOINT_DOWN / ALL_DEAD: the gateway is reachable but one or all
+//     egress clients (e.g. MQTT broker, mining pool) are failing — an
+//     upstream/application-layer problem, NOT a WiFi fault.
+// ---------------------------------------------------------------------------
+
+/**
+ * Egress health state, derived from wifi_mode plus a gateway reachability
+ * probe and egress-client failure counts.
+ */
+typedef enum {
+    BB_EGRESS_STATE_OK             = 0, // gw reachable, or not enough data / not applicable
+    BB_EGRESS_STATE_ENDPOINT_DOWN  = 1, // gw reachable but >=1 (not all) egress clients failing
+    BB_EGRESS_STATE_GW_UNREACHABLE = 2, // gw probe failed >= threshold consecutive times
+    BB_EGRESS_STATE_ALL_DEAD       = 3, // gw reachable but ALL enabled egress clients failing
+} bb_egress_state_t;
+
+/**
+ * Return a static string for a bb_egress_state_t value.
+ * "ok", "endpoint_down", "gw_unreachable", or "all_dead". Never returns NULL.
+ */
+const char *bb_egress_state_str(bb_egress_state_t s);
+
+/**
+ * Pure classifier: derives a bb_egress_state_t from the current WiFi
+ * discrimination mode, gateway-probe results, and egress-client failure
+ * counts. No side-effects; host-testable.
+ *
+ * The gateway probe is the tiebreaker between a WiFi-layer fault and an
+ * upstream/application-layer fault: when the gateway IS reachable but an
+ * egress client (e.g. the mining pool) is down, that must classify as
+ * ENDPOINT_DOWN — never GW_UNREACHABLE/ALL_DEAD — so a future recovery
+ * action does not restart WiFi to fix a problem WiFi cannot fix.
+ *
+ * @param wifi_mode          Current bb_net_health_classify_mode() result.
+ *                            Only BB_NET_MODE_OK is evaluated further — the
+ *                            NOT_ASSOCIATED/NO_IP cases are owned by the
+ *                            wifi FSM / no-IP watchdog, not this classifier.
+ * @param gw_probed           True once at least one gateway probe attempt
+ *                            has completed (false = no probe data yet).
+ * @param gw_reachable        Result of the most recent gateway probe.
+ * @param gw_fail_streak      Consecutive gateway-probe failures.
+ * @param gw_fail_threshold   Consecutive-failure count required to declare
+ *                            the gateway unreachable.
+ * @param enabled_egress_count Number of egress clients currently enabled.
+ * @param failing_egress_count Number of those clients currently failing.
+ */
+bb_egress_state_t bb_net_health_classify_egress(bb_net_mode_t wifi_mode,
+                                                 bool          gw_probed,
+                                                 bool          gw_reachable,
+                                                 uint8_t       gw_fail_streak,
+                                                 uint8_t       gw_fail_threshold,
+                                                 int           enabled_egress_count,
+                                                 int           failing_egress_count);
+
+// ---------------------------------------------------------------------------
 // Input / output / state types
 // ---------------------------------------------------------------------------
 
