@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
+#include "bb_nv_namespaces.h"
 #include <string.h>
 
 // bb_nv_set_u8 tests
@@ -393,4 +394,50 @@ void test_nv_ssot_key_values_are_byte_identical(void)
     TEST_ASSERT_EQUAL_STRING("tls_key",     BB_NV_KEY_TLS_KEY);
     TEST_ASSERT_EQUAL_STRING("interval_ms", BB_PUB_NVS_KEY_INTERVAL);
     TEST_ASSERT_EQUAL_STRING("enabled",     BB_PUB_NVS_KEY_ENABLED);
+}
+
+// ---------------------------------------------------------------------------
+// bb_nv_reboot_record_save (B1-532 PR1) — persists via bb_reboot_record_encode
+// + bb_nv_set_str; round-trip through bb_nv_get_str + bb_reboot_record_decode
+// confirms the encode/persist path is wired correctly.
+// ---------------------------------------------------------------------------
+
+void test_nv_reboot_record_save_round_trips_via_get_str(void)
+{
+    bb_nv_host_str_store_reset();
+
+    bb_err_t err = bb_nv_reboot_record_save(BB_RESET_SRC_OTA_PULL_APPLIED, "v1.2.3",
+                                             1704067200U + 42U, 99U);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+
+    char buf[BB_REBOOT_RECORD_STR_MAX];
+    err = bb_nv_get_str(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_LAST, buf, sizeof(buf), NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+
+    bb_reboot_record_t out;
+    memset(&out, 0, sizeof(out));
+    TEST_ASSERT_TRUE(bb_reboot_record_decode(buf, &out));
+    TEST_ASSERT_EQUAL_UINT8(BB_RESET_SRC_OTA_PULL_APPLIED, out.src);
+    TEST_ASSERT_EQUAL_STRING("v1.2.3", out.detail);
+    TEST_ASSERT_EQUAL_UINT32(1704067200U + 42U, out.epoch_s);
+    TEST_ASSERT_EQUAL_UINT32(99U, out.uptime_s);
+}
+
+void test_nv_reboot_record_save_null_detail(void)
+{
+    bb_nv_host_str_store_reset();
+
+    bb_err_t err = bb_nv_reboot_record_save(BB_RESET_SRC_FACTORY_RESET, NULL, 0U, 5U);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+
+    char buf[BB_REBOOT_RECORD_STR_MAX];
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_nv_get_str(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_LAST, buf, sizeof(buf), NULL));
+
+    bb_reboot_record_t out;
+    memset(&out, 0, sizeof(out));
+    TEST_ASSERT_TRUE(bb_reboot_record_decode(buf, &out));
+    TEST_ASSERT_EQUAL_UINT8(BB_RESET_SRC_FACTORY_RESET, out.src);
+    TEST_ASSERT_EQUAL_STRING("", out.detail);
+    TEST_ASSERT_EQUAL_UINT32(0U, out.epoch_s);
+    TEST_ASSERT_EQUAL_UINT32(5U, out.uptime_s);
 }

@@ -1,7 +1,7 @@
 // Pure (host-testable) serializer for the diag.boot bb_cache retained topic.
 // No FreeRTOS or ESP-IDF types here.
 #include "bb_diag_event_priv.h"
-#include "bb_system.h"
+#include "bb_reboot_reason.h"
 
 #include <string.h>
 

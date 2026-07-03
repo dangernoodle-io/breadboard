@@ -15,6 +15,7 @@
 #include "bb_ota_validator.h"
 #include "bb_init.h"
 #include "bb_system.h"
+#include "bb_reboot_reason.h"
 #include "bb_mem.h"
 #include "bb_task_registry.h"
 #include "bb_clock.h"

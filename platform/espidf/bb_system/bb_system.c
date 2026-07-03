@@ -2,8 +2,6 @@
 
 #include "bb_log.h"
 #include "bb_nv.h"
-#include "bb_nv_namespaces.h"
-#include "bb_nv_keys.h"
 #include "bb_ntp.h"
 #include "bb_clock.h"
 
@@ -126,10 +124,6 @@ void bb_system_restart(void)
     esp_restart();
 }
 
-// Sanity floor for a recorded epoch: 2024-01-01T00:00:00Z. Values below this
-// (device or caller-supplied) are treated as invalid/unset.
-#define BB_REBOOT_EPOCH_FLOOR_S 1704067200U
-
 void bb_system_restart_reason(bb_reset_source_t src, const char *detail)
 {
     bb_system_restart_reason_at(src, detail, 0);
@@ -137,28 +131,17 @@ void bb_system_restart_reason(bb_reset_source_t src, const char *detail)
 
 void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint32_t caller_epoch_s)
 {
-    bb_reboot_record_t rec;
-    memset(&rec, 0, sizeof(rec));
-    rec.src        = (uint8_t)src;
-    rec.uptime_s   = (uint32_t)(bb_clock_now_ms64() / 1000ULL);
-
-    if (detail) {
-        strncpy(rec.detail, detail, sizeof(rec.detail) - 1);
-        rec.detail[sizeof(rec.detail) - 1] = '\0';
-    }
+    uint32_t uptime_s = (uint32_t)(bb_clock_now_ms64() / 1000ULL);
 
     bool ntp_synced = bb_ntp_is_synced();
     uint32_t device_epoch_s = ntp_synced ? (uint32_t)time(NULL) : 0U;
-    rec.epoch_s = bb_reboot_pick_epoch(ntp_synced, device_epoch_s, caller_epoch_s, BB_REBOOT_EPOCH_FLOOR_S);
+    uint32_t epoch_s = bb_reboot_pick_epoch(ntp_synced, device_epoch_s, caller_epoch_s, BB_REBOOT_EPOCH_FLOOR_S);
 
-    char buf[BB_REBOOT_RECORD_STR_MAX];
-    if (bb_reboot_record_encode(&rec, buf, sizeof(buf))) {
-        bb_err_t err = bb_nv_set_str(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_LAST, buf);
-        if (err != BB_OK) {
-            bb_log_w(TAG, "restart_reason: NVS persist failed: %d", (int)err);
-        }
-    } else {
+    bb_err_t err = bb_nv_reboot_record_save(src, detail, epoch_s, uptime_s);
+    if (err == BB_ERR_INVALID_ARG) {
         bb_log_w(TAG, "restart_reason: record encode failed, rebooting without reason");
+    } else if (err != BB_OK) {
+        bb_log_w(TAG, "restart_reason: NVS persist failed: %d", (int)err);
     }
 
     bb_log_i(TAG, "restart_reason: src=%s", bb_reset_source_str(src));

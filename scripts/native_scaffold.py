@@ -60,6 +60,7 @@ COMPONENT_MAP = {
             "platform/host/bb_core/bb_mem.c",
             "platform/host/bb_core/bb_claim.c",
             "platform/host/bb_core/bb_clock.c",
+            "components/bb_core/src/bb_reboot_reason.c",
         ],
         "depends":  [],
     },
@@ -91,6 +92,7 @@ COMPONENT_MAP = {
             "platform/espidf/bb_nv/bb_nv_delete_routes.c",
             "components/bb_nv/bb_nv_creds_mirror.c",
             "components/bb_nv/bb_nv_wifi_pending.c",
+            "components/bb_nv/bb_nv_reboot.c",
         ],
         "depends":  ["bb_core", "bb_init", "bb_http", "bb_json"],
     },
@@ -136,7 +138,6 @@ COMPONENT_MAP = {
         "includes": ["components/bb_system/include", "platform/host/bb_system"],
         "sources":  [
             "platform/host/bb_system/bb_system_host.c",
-            "components/bb_system/src/bb_reboot_record.c",
             "components/bb_system/src/bb_system_reboot_parse.c",
         ],
         "depends":  ["bb_core", "bb_json"],

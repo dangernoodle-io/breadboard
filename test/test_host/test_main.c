@@ -600,6 +600,8 @@ void test_nv_exists_null_ns_returns_false(void);
 void test_nv_exists_null_key_returns_false(void);
 void test_nv_ssot_namespace_values_are_byte_identical(void);
 void test_nv_ssot_key_values_are_byte_identical(void);
+void test_nv_reboot_record_save_round_trips_via_get_str(void);
+void test_nv_reboot_record_save_null_detail(void);
 
 // Forward declarations from test_bb_json.c
 void test_bb_json_obj_string_roundtrip(void);
@@ -4687,6 +4689,8 @@ int main(void) {
     RUN_TEST(test_nv_exists_null_key_returns_false);
     RUN_TEST(test_nv_ssot_namespace_values_are_byte_identical);
     RUN_TEST(test_nv_ssot_key_values_are_byte_identical);
+    RUN_TEST(test_nv_reboot_record_save_round_trips_via_get_str);
+    RUN_TEST(test_nv_reboot_record_save_null_detail);
 
     // Route registry tests
     RUN_TEST(test_route_registry_count_starts_at_zero);
