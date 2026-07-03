@@ -1,6 +1,6 @@
 // Pure (host-testable) reboot-reason record pack/unpack + wire-string mapping.
 // No ESP-IDF or FreeRTOS types here — compiled on host, ESP-IDF, and Arduino.
-#include "bb_system.h"
+#include "bb_reboot_reason.h"
 
 #include <inttypes.h>
 #include <stdio.h>

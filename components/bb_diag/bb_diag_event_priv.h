@@ -8,7 +8,7 @@
 
 #include "bb_cache.h"
 #include "bb_json.h"
-#include "bb_system.h"
+#include "bb_reboot_reason.h"
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
