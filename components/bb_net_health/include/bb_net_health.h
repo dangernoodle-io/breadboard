@@ -286,6 +286,155 @@ bb_egress_state_t bb_net_health_classify_egress(bb_net_mode_t wifi_mode,
 bool bb_net_health_would_recover_edge(bb_egress_state_t prev, bb_egress_state_t cur);
 
 // ---------------------------------------------------------------------------
+// Egress-recovery ACT gate (B1-518 PR4) — pure predicates, ALWAYS compiled
+// (host-testable). The device-side call sites that invoke esp_restart() /
+// bb_wifi_request_recovery() are gated behind
+// #if CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE in
+// platform/espidf/bb_net_health/bb_net_health_espidf.c — these predicates
+// have no ESP-IDF dependency and no side effects.
+//
+// All time values are epoch-SECONDS (uint32_t) sourced from time(NULL) —
+// NEVER a monotonic/uptime-derived clock. An uptime-derived "now_s" resets
+// to 0 across esp_restart(), which would silently defeat the persisted
+// daily-cap / min-interval rate limits below and reopen a reboot-loop risk;
+// epoch time survives the restart because it is re-synced from NTP.
+//
+// The device-side call site (platform/espidf/bb_net_health/bb_net_health_espidf.c)
+// gates the ENTIRE tier-3 (reboot) path on bb_ntp_is_synced(): when the
+// clock has never been synchronized, tier-3 is LOG-ONLY — no esp_restart(),
+// no NVS persist, no ring update. A board that never syncs NTP simply never
+// tier-3-reboots, which is the safe direction (never a spurious reboot from
+// bogus epoch-0 arithmetic). Tier-2 (bb_wifi_request_recovery) is UNGATED —
+// it is edge-triggered off egress_state transitions and needs no epoch time.
+//
+// Callers must still guard against clock *skew* (e.g. an NTP step-back)
+// themselves via the elapsed-time semantics documented on
+// bb_net_health_should_reboot below; these functions never wrap on
+// underflow.
+// ---------------------------------------------------------------------------
+
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_S
+#    define BB_NET_HEALTH_EGRESS_ACT_REBOOT_S CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_S
+#  endif
+#endif
+#ifndef BB_NET_HEALTH_EGRESS_ACT_REBOOT_S
+#define BB_NET_HEALTH_EGRESS_ACT_REBOOT_S 480  // seconds of sustained GW_UNREACHABLE before tier-3 reboot
+#endif
+
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_MIN_INTERVAL_S
+#    define BB_NET_HEALTH_EGRESS_ACT_REBOOT_MIN_INTERVAL_S CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_MIN_INTERVAL_S
+#  endif
+#endif
+#ifndef BB_NET_HEALTH_EGRESS_ACT_REBOOT_MIN_INTERVAL_S
+#define BB_NET_HEALTH_EGRESS_ACT_REBOOT_MIN_INTERVAL_S 1800  // seconds
+#endif
+
+#ifdef ESP_PLATFORM
+#  ifdef CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_DAILY_CAP
+#    define BB_NET_HEALTH_EGRESS_ACT_REBOOT_DAILY_CAP CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_DAILY_CAP
+#  endif
+#endif
+#ifndef BB_NET_HEALTH_EGRESS_ACT_REBOOT_DAILY_CAP
+#define BB_NET_HEALTH_EGRESS_ACT_REBOOT_DAILY_CAP 4
+#endif
+
+// Maximum ring capacity for reboot-timestamp persistence — must be >= the
+// Kconfig BB_NET_HEALTH_EGRESS_ACT_REBOOT_DAILY_CAP range max (10).
+#define BB_NET_HEALTH_REBOOT_CAP_MAX 10
+
+/**
+ * Rolling tier-3 reboot history, persisted across reboots (NVS namespace
+ * bb_egress_act). Zero-init is valid (no reboots recorded yet).
+ */
+typedef struct {
+    uint32_t last_reboot_s;                              // epoch-s of most recent tier-3 reboot, 0 = never
+    uint32_t reboot_s_ring[BB_NET_HEALTH_REBOOT_CAP_MAX]; // ring of past reboot timestamps (epoch-s)
+    uint8_t  ring_head;                                   // next write index
+    uint8_t  ring_count;                                  // valid entries in the ring (saturates at CAP_MAX)
+} bb_net_health_reboot_state_t;
+
+/**
+ * Tier-2 predicate: should the evaluator call bb_wifi_request_recovery()
+ * this cycle? True iff act_enabled AND the egress_state transitioned INTO
+ * BB_EGRESS_STATE_GW_UNREACHABLE this cycle (bb_net_health_would_recover_edge).
+ * No side effects; host-testable.
+ */
+bool bb_net_health_should_request_recovery(bb_egress_state_t prev,
+                                            bb_egress_state_t cur,
+                                            bool               act_enabled);
+
+/**
+ * Tier-3 predicate: should the evaluator escalate to esp_restart() this
+ * cycle? True iff ALL of:
+ *  - unhealthy_since_s != 0 (currently in a sustained-unhealthy window), AND
+ *  - now_s - unhealthy_since_s >= t_reboot_s (sustained long enough), AND
+ *  - st->last_reboot_s == 0 OR now_s - st->last_reboot_s >= min_interval_s
+ *    (rate-limit satisfied), AND
+ *  - fewer than daily_cap entries in st->reboot_s_ring fall within the
+ *    trailing 86400 s of now_s (daily cap not exhausted).
+ *
+ * Clock-skew safety: every elapsed-time computation clamps to 0 when
+ * now_s is before the stored timestamp (e.g. an uptime-derived "now_s"
+ * reset by a reboot) rather than wrapping via unsigned underflow — an
+ * elapsed time of 0 never satisfies a ">= threshold" check, so a skewed
+ * clock can only make this function MORE conservative (fewer reboots),
+ * never trigger a spurious one. The daily-cap ring count similarly
+ * excludes (does not count) any ring entry whose timestamp appears to be
+ * after now_s.
+ *
+ * No side effects (does not update st); host-testable.
+ */
+bool bb_net_health_should_reboot(uint32_t                            unhealthy_since_s,
+                                  uint32_t                            now_s,
+                                  uint32_t                            t_reboot_s,
+                                  uint32_t                            min_interval_s,
+                                  uint32_t                            daily_cap,
+                                  const bb_net_health_reboot_state_t *st);
+
+/**
+ * Record a tier-3 reboot into st: appends now_s to the ring (overwriting
+ * the oldest entry once full), advances ring_head, bumps ring_count
+ * (saturating at BB_NET_HEALTH_REBOOT_CAP_MAX), and sets last_reboot_s.
+ * No side effects beyond mutating *st; host-testable.
+ */
+void bb_net_health_reboot_state_record(bb_net_health_reboot_state_t *st, uint32_t now_s);
+
+// Maximum encoded length (including NUL) of bb_net_health_reboot_state_encode's
+// output: "last_reboot_s|ring_head|ring_count|ts0,ts1,...,ts9" with every
+// field at its worst-case (max uint32 / uint8) digit width. Sized generously
+// so callers can size a fixed stack buffer without recomputing the math.
+#define BB_NET_HEALTH_REBOOT_STATE_STR_MAX 192
+
+/**
+ * Encode the reboot-rate-limit state as a single delimited string:
+ * "<last_reboot_s>|<ring_head>|<ring_count>|<ts0>,<ts1>,...,<tsN-1>" where N
+ * is always BB_NET_HEALTH_REBOOT_CAP_MAX (every ring slot is encoded,
+ * regardless of ring_count, so decode never needs to guess trailing zeros).
+ * Collapses the reboot-state persistence to a single bb_nv_set_str key/commit
+ * instead of one commit per scalar field.
+ *
+ * Returns true and NUL-terminates buf on success; false (buf left untouched
+ * beyond buf[0] on truncation risk) if st or buf is NULL, buf_len is too
+ * small for the worst case, or snprintf would have truncated. No side
+ * effects; host-testable.
+ */
+bool bb_net_health_reboot_state_encode(const bb_net_health_reboot_state_t *st,
+                                        char *buf, size_t buf_len);
+
+/**
+ * Decode a string produced by bb_net_health_reboot_state_encode back into
+ * *out. Returns true on a well-formed round-trip; false (and *out left
+ * untouched) on a NULL argument or malformed input (wrong field count, a
+ * ring_head/ring_count out of range, or a non-numeric token) — the caller's
+ * existing zero-init *st is the safe fallback for "never persisted" /
+ * corrupt-NVS cases. No side effects; host-testable.
+ */
+bool bb_net_health_reboot_state_decode(const char *str,
+                                        bb_net_health_reboot_state_t *out);
+
+// ---------------------------------------------------------------------------
 // Input / output / state types
 // ---------------------------------------------------------------------------
 

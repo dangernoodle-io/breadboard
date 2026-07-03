@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <inttypes.h>
+#include <string.h>
 
 // Heap threshold sanity: CRITICAL must be below LOW or the CRITICAL bucket is
 // unreachable (classify_heap would return LOW before CRITICAL).
@@ -130,6 +131,144 @@ bb_egress_state_t bb_net_health_classify_egress(bb_net_mode_t wifi_mode,
 bool bb_net_health_would_recover_edge(bb_egress_state_t prev, bb_egress_state_t cur)
 {
     return cur == BB_EGRESS_STATE_GW_UNREACHABLE && prev != BB_EGRESS_STATE_GW_UNREACHABLE;
+}
+
+// ---------------------------------------------------------------------------
+// Egress-recovery ACT gate (B1-518 PR4) — pure predicates (OBSERVE-ONLY
+// classification is above; these decide whether to ACT on it).
+// ---------------------------------------------------------------------------
+
+bool bb_net_health_should_request_recovery(bb_egress_state_t prev,
+                                            bb_egress_state_t cur,
+                                            bool               act_enabled)
+{
+    return act_enabled && bb_net_health_would_recover_edge(prev, cur);
+}
+
+// Elapsed-time helper guarding against unsigned-subtraction wrap when now_s
+// is before since_s (clock skew — e.g. an uptime-derived clock reset by a
+// reboot). Returns 0 in that case rather than a huge wrapped value.
+static uint32_t egress_act_elapsed_s(uint32_t now_s, uint32_t since_s)
+{
+    return (now_s >= since_s) ? (now_s - since_s) : 0U;
+}
+
+bool bb_net_health_should_reboot(uint32_t                            unhealthy_since_s,
+                                  uint32_t                            now_s,
+                                  uint32_t                            t_reboot_s,
+                                  uint32_t                            min_interval_s,
+                                  uint32_t                            daily_cap,
+                                  const bb_net_health_reboot_state_t *st)
+{
+    if (!st) return false;
+
+    if (unhealthy_since_s == 0U) {
+        return false; // not currently in a sustained-unhealthy window
+    }
+    if (egress_act_elapsed_s(now_s, unhealthy_since_s) < t_reboot_s) {
+        return false; // not sustained long enough yet
+    }
+
+    if (st->last_reboot_s != 0U &&
+        egress_act_elapsed_s(now_s, st->last_reboot_s) < min_interval_s) {
+        return false; // rate-limit window not elapsed
+    }
+
+    uint8_t n = st->ring_count;
+    if (n > BB_NET_HEALTH_REBOOT_CAP_MAX) n = BB_NET_HEALTH_REBOOT_CAP_MAX;
+    uint32_t count24h = 0;
+    for (uint8_t i = 0; i < n; i++) {
+        uint32_t ts = st->reboot_s_ring[i];
+        if (now_s < ts) continue; // clock skew: exclude from the window
+        if ((now_s - ts) < 86400U) count24h++;
+    }
+    if (count24h >= daily_cap) {
+        return false; // daily cap exhausted
+    }
+
+    return true;
+}
+
+void bb_net_health_reboot_state_record(bb_net_health_reboot_state_t *st, uint32_t now_s)
+{
+    if (!st) return;
+
+    st->reboot_s_ring[st->ring_head] = now_s;
+    st->ring_head = (uint8_t)((st->ring_head + 1U) % BB_NET_HEALTH_REBOOT_CAP_MAX);
+    if (st->ring_count < BB_NET_HEALTH_REBOOT_CAP_MAX) {
+        st->ring_count++;
+    }
+    st->last_reboot_s = now_s;
+}
+
+bool bb_net_health_reboot_state_encode(const bb_net_health_reboot_state_t *st,
+                                        char *buf, size_t buf_len)
+{
+    if (!st || !buf || buf_len == 0U) return false;
+
+    int off = snprintf(buf, buf_len, "%" PRIu32 "|%u|%u",
+                        st->last_reboot_s,
+                        (unsigned)st->ring_head,
+                        (unsigned)st->ring_count);
+    if (off < 0) return false;  // LCOV_EXCL_BR_LINE — snprintf of a numeric-only format never returns <0
+    if ((size_t)off >= buf_len) return false;
+
+    for (uint8_t i = 0; i < BB_NET_HEALTH_REBOOT_CAP_MAX; i++) {
+        int n = snprintf(buf + off, buf_len - (size_t)off, "%s%" PRIu32,
+                          (i == 0) ? "|" : ",", st->reboot_s_ring[i]);
+        if (n < 0) return false;  // LCOV_EXCL_BR_LINE — snprintf of a numeric-only format never returns <0
+        if ((size_t)n >= buf_len - (size_t)off) return false;
+        off += n;
+    }
+
+    return true;
+}
+
+bool bb_net_health_reboot_state_decode(const char *str,
+                                        bb_net_health_reboot_state_t *out)
+{
+    if (!str || !out) return false;
+
+    bb_net_health_reboot_state_t decoded;
+    memset(&decoded, 0, sizeof(decoded));
+
+    unsigned last_reboot_field = 0, ring_head_field = 0, ring_count_field = 0;
+    int consumed = 0;
+    // Note: last_reboot_s is parsed as unsigned into a wider temp because
+    // scanf's %u has no direct uint32_t specifier portable across libc; the
+    // valid epoch-seconds range fits comfortably in unsigned on every target
+    // this project builds for.
+    if (sscanf(str, "%u|%u|%u|%n", &last_reboot_field, &ring_head_field,
+               &ring_count_field, &consumed) != 3) {
+        return false;
+    }
+    if (consumed == 0) return false;  // LCOV_EXCL_BR_LINE — %n after a 3-field match always advances
+    if (ring_head_field >= BB_NET_HEALTH_REBOOT_CAP_MAX ||
+        ring_count_field > BB_NET_HEALTH_REBOOT_CAP_MAX) {
+        return false;
+    }
+    decoded.last_reboot_s = (uint32_t)last_reboot_field;
+    decoded.ring_head     = (uint8_t)ring_head_field;
+    decoded.ring_count    = (uint8_t)ring_count_field;
+
+    const char *p = str + consumed;
+    for (uint8_t i = 0; i < BB_NET_HEALTH_REBOOT_CAP_MAX; i++) {
+        unsigned ts_field = 0;
+        int n = 0;
+        if (sscanf(p, "%u%n", &ts_field, &n) != 1) {
+            return false;
+        }
+        if (n == 0) return false;  // LCOV_EXCL_BR_LINE — %n after a %u match always advances
+        decoded.reboot_s_ring[i] = (uint32_t)ts_field;
+        p += n;
+        if (i < (uint8_t)(BB_NET_HEALTH_REBOOT_CAP_MAX - 1)) {
+            if (*p != ',') return false;
+            p += 1;
+        }
+    }
+
+    *out = decoded;
+    return true;
 }
 
 // ---------------------------------------------------------------------------

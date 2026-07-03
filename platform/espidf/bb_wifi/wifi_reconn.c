@@ -87,8 +87,18 @@ static const wifi_reconn_adapter_t s_adapter = {
     .now_us = reconn_now_us,
 };
 
+// The actual esp_restart() escalation below is retired when the bb_net_health
+// egress-recovery ACT gate is enabled (B1-518 PR4) — that gate owns the
+// rate-limited tier-3 reboot decision instead. This reads the GLOBAL Kconfig
+// symbol directly from sdkconfig.h; bb_wifi does NOT gain a bb_net_health
+// REQUIRES for this (that would be a component-dependency cycle, since
+// bb_net_health already REQUIRES bb_wifi). first_fail_us tracking and all
+// other FSM state above/below are UNCHANGED — only the reboot call is gated.
+// With CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE=n (the default), this function
+// behaves EXACTLY as before — no regression for the existing fleet.
 static void do_safeguard_reboot(const char *ctx)
 {
+#if !CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
     if (bb_ota_is_validated()) {
         bb_log_w(TAG, "%s (handshake=%d, generic=%d) on validated firmware: safeguard reboot, boot_count not incremented",
                  ctx, s_state.handshake_fail_count, s_state.generic_fail_count);
@@ -99,6 +109,10 @@ static void do_safeguard_reboot(const char *ctx)
         bb_nv_config_increment_boot_count();
         esp_restart();
     }
+#else
+    bb_log_w(TAG, "%s (handshake=%d, generic=%d) for >5min: safeguard reboot deferred to egress tier-3",
+             ctx, s_state.handshake_fail_count, s_state.generic_fail_count);
+#endif
 }
 
 static void handle_disconnect(uint8_t reason, reconn_state_t *state, uint32_t *backoff_ms)

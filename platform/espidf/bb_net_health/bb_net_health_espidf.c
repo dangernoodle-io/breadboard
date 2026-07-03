@@ -32,6 +32,15 @@
 #include "bb_transport_health.h"
 #include <inttypes.h>
 
+#if CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
+#include "bb_nv.h"
+#include "bb_nv_namespaces.h"
+#include "bb_nv_keys.h"
+#include "bb_ntp.h"
+#include "esp_system.h"
+#include <time.h>
+#endif
+
 // Internal setter defined in components/bb_net_health/src/bb_net_health.c;
 // not part of the public header (espidf-only call site).
 extern void bb_net_health_set_heap_state(bb_heap_state_t state);
@@ -92,6 +101,57 @@ static uint32_t              s_last_reconnect_count = 0; // glue-side mirror for
 // bb_net_health_would_recover_edge. Zero-init = BB_EGRESS_STATE_OK, which is
 // correct — no probe has run yet at boot.
 static bb_egress_state_t     s_prev_egress_state = BB_EGRESS_STATE_OK;
+
+#if CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
+// Egress-recovery ACT gate (B1-518 PR4). Single-writer via eval_work_fn (the
+// evaluator timer callback) — same threading model as s_prev_egress_state
+// above, no lock needed.
+static uint32_t                     s_unhealthy_since_s   = 0;     // epoch-s; 0 = healthy
+static bb_net_health_reboot_state_t s_reboot_state        = {0};   // zero-init valid
+static bool                         s_reboot_state_loaded = false;
+
+// Load persisted reboot-rate-limit state from NVS. Idempotent; called once
+// from bb_net_health_start() before the evaluator timer is armed, so
+// eval_work_fn never races the load. Single-key packed string (B1-518 PR4
+// finding MED) — one bb_nv_get_str call, decoded via
+// bb_net_health_reboot_state_decode. A missing key, first-boot empty
+// fallback, or malformed/corrupt value all decode-fail safely into the
+// existing zero-init s_reboot_state (no reboots recorded yet).
+static void egress_act_load_state(void)
+{
+    if (s_reboot_state_loaded) {
+        return;
+    }
+    memset(&s_reboot_state, 0, sizeof(s_reboot_state));
+
+    char buf[BB_NET_HEALTH_REBOOT_STATE_STR_MAX];
+    bb_err_t err = bb_nv_get_str(BB_NET_HEALTH_EGRESS_ACT_NVS_NS, BB_NET_HEALTH_EGRESS_ACT_KEY_STATE,
+                                  buf, sizeof(buf), "");
+    if (err == BB_OK && buf[0] != '\0') {
+        if (!bb_net_health_reboot_state_decode(buf, &s_reboot_state)) {
+            bb_log_w(TAG, "egress ACT: corrupt persisted reboot state, resetting");
+            memset(&s_reboot_state, 0, sizeof(s_reboot_state));
+        }
+    }
+
+    s_reboot_state_loaded = true;
+}
+
+// Persist the current reboot-rate-limit state to NVS as a single packed
+// string key (B1-518 PR4 finding MED — collapses ~13 sequential NVS commits
+// down to 1). Called just before esp_restart() so the ring/last_reboot_s
+// survive the reboot.
+static void egress_act_persist_state(void)
+{
+    char buf[BB_NET_HEALTH_REBOOT_STATE_STR_MAX];
+    if (!bb_net_health_reboot_state_encode(&s_reboot_state, buf, sizeof(buf))) {
+        bb_log_w(TAG, "egress ACT: reboot state encode failed, not persisted");
+        return;
+    }
+    bb_nv_set_str(BB_NET_HEALTH_EGRESS_ACT_NVS_NS, BB_NET_HEALTH_EGRESS_ACT_KEY_STATE, buf);
+}
+#endif // CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
+
 #if CONFIG_BB_PUB_ADAPTIVE_BACKOFF
 static uint32_t              s_baseline_interval_ms = 0;  // captured before first throttle
 #endif
@@ -555,6 +615,82 @@ static void eval_work_fn(void *arg)
     if (bb_net_health_would_recover_edge(s_prev_egress_state, egress_state)) {
         bb_log_w(TAG, "would recover: egress failing + gateway unreachable (act disabled)");
     }
+
+#if CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
+    // Egress-recovery ACT gate (B1-518 PR4): tier-2 app-driven recovery
+    // request (UNGATED — edge-triggered, needs no epoch time) + tier-3
+    // rate-limited reboot escalation (GATED on NTP sync — see below). All
+    // state here is single-writer (this evaluator timer callback);
+    // esp_restart() and NVS access are confined entirely to this #if block.
+    {
+        // Tier-2: request app-driven WiFi recovery on the edge into
+        // GW_UNREACHABLE. act_enabled is always true here — the whole block
+        // is compile-gated — but the predicate is still called (not
+        // inlined) so the decision logic is centralized and host-tested.
+        // Deliberately OUTSIDE the sync gate below: it is edge-triggered off
+        // egress_state transitions and never touches now_s/epoch time.
+        if (bb_net_health_should_request_recovery(s_prev_egress_state, egress_state, true)) {
+            bb_wifi_request_recovery("egress: gw unreachable");
+        }
+
+        // Tier-3: gated on a valid wall clock. now_s MUST be epoch seconds
+        // (time(NULL)), never a boot-relative monotonic uptime — an
+        // uptime-derived value resets to 0 across esp_restart() and would
+        // silently defeat the persisted 24h daily-cap / min-interval rate
+        // limits, reopening a reboot-loop risk (the bug this gate fixes).
+        // When the clock has never synced, tier-3 is LOG-ONLY: no
+        // esp_restart(), no NVS persist, no ring update — a never-synced
+        // board simply never tier-3-reboots, the safe direction.
+        bool synced = bb_ntp_is_synced();
+        uint32_t now_s = synced ? (uint32_t)time(NULL) : 0U;
+
+        // Track the sustained-unhealthy window: arm on the transition INTO
+        // GW_UNREACHABLE (only once the clock is synced — an unsynced arm
+        // would record a bogus epoch-0-relative "since"), clear on
+        // transition OUT. If we're already in GW_UNREACHABLE when the clock
+        // becomes synced (unhealthy_since_s still 0), arm it now so the
+        // T_reboot window starts counting from the first synced tick rather
+        // than never arming until the next fresh transition.
+        if (egress_state == BB_EGRESS_STATE_GW_UNREACHABLE) {
+            if (synced && s_unhealthy_since_s == 0) {
+                s_unhealthy_since_s = now_s;
+            }
+            if (!synced && s_prev_egress_state != BB_EGRESS_STATE_GW_UNREACHABLE) {
+                bb_log_w(TAG, "egress ACT: tier-3 deferred: clock not synced");
+            }
+        } else {
+            s_unhealthy_since_s = 0;
+        }
+
+        if (synced) {
+            // Tier-3: rate-limited reboot escalation.
+            if (bb_net_health_should_reboot(s_unhealthy_since_s, now_s,
+                                             (uint32_t)CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_S,
+                                             (uint32_t)CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_MIN_INTERVAL_S,
+                                             (uint32_t)CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_DAILY_CAP,
+                                             &s_reboot_state)) {
+                bb_net_health_reboot_state_record(&s_reboot_state, now_s);
+                egress_act_persist_state();
+
+                uint8_t count24h = 0;
+                uint8_t n = s_reboot_state.ring_count;
+                if (n > BB_NET_HEALTH_REBOOT_CAP_MAX) n = BB_NET_HEALTH_REBOOT_CAP_MAX;
+                for (uint8_t i = 0; i < n; i++) {
+                    uint32_t ts = s_reboot_state.reboot_s_ring[i];
+                    if (now_s >= ts && (now_s - ts) < 86400U) count24h++;
+                }
+
+                bb_log_w(TAG, "egress ACT: sustained gw_unreachable >= %" PRIu32
+                              "s, reboot %u/%u in 24h - restarting",
+                         (uint32_t)CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_S,
+                         (unsigned)count24h,
+                         (unsigned)CONFIG_BB_NET_HEALTH_EGRESS_ACT_REBOOT_DAILY_CAP);
+                esp_restart();
+            }
+        }
+    }
+#endif // CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
+
     s_prev_egress_state = egress_state;
 
     // Publish only when state, early_warning, OR throttled flag differs from
@@ -814,6 +950,12 @@ bb_err_t bb_net_health_start(void)
         bb_log_e(TAG, "cache lock create failed");
         return BB_ERR_NO_SPACE;
     }
+
+#if CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
+    // Load persisted reboot-rate-limit state before the evaluator timer is
+    // armed, so eval_work_fn never races the load.
+    egress_act_load_state();
+#endif
 
     bb_err_t err = bb_timer_deferred_periodic_create(eval_work_fn, NULL, "bb_net_health", &s_timer);
     if (err != BB_OK) {
