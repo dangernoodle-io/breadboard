@@ -150,6 +150,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_tls/bb_tls.c"],
         "depends":  ["bb_core"],
     },
+    "bb_transport_health": {
+        "includes": ["components/bb_transport_health/include"],
+        "sources":  ["platform/host/bb_transport_health/bb_transport_health.c"],
+        "depends":  ["bb_core"],
+    },
     "bb_ota_pull": {
         "includes": ["components/bb_ota_pull/include", "platform/host/bb_ota_pull"],
         "sources":  ["platform/espidf/bb_ota_pull/bb_ota_pull.c"],
