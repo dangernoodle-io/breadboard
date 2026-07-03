@@ -1931,3 +1931,89 @@ void test_bb_net_health_format_log_critical_first_order(void)
     TEST_ASSERT_TRUE_MESSAGE(p_ip < p_roam, buf);
     TEST_ASSERT_TRUE_MESSAGE(p_roam < p_up, buf);
 }
+
+// ---------------------------------------------------------------------------
+// bb_net_health_format_log gw fields (B1-518 PR3, OBSERVE-ONLY) — gw_available
+// branch coverage.
+// ---------------------------------------------------------------------------
+
+// gw_available == false (default from sample_status_for_log/memset): no "gw="
+// token appears at all — heartbeat unchanged for boards without the probe.
+void test_bb_net_health_format_log_gw_omitted_when_unavailable(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.gw_available = false;
+    char buf[256];
+    int n = bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_GREATER_THAN_INT(0, n);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "gw=") == NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "gwdead=") == NULL, buf);
+    // Unaffected trailing field is still the last token.
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "up=9999") != NULL, buf);
+}
+
+// gw_available == true: gw + gwdead appear, LAST (after up=), reflecting the
+// snapshot's gw_reachable/gw_dead_count values.
+void test_bb_net_health_format_log_gw_fields_present_and_last(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.gw_available   = true;
+    s.gw_reachable   = false;
+    s.gw_fail_streak = 2;
+    s.gw_dead_count  = 7;
+    char buf[256];
+    int n = bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_GREATER_THAN_INT(0, n);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "gw=0") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "gwdead=7") != NULL, buf);
+
+    const char *p_up = strstr(buf, "up=9999");
+    const char *p_gw = strstr(buf, "gw=0");
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_up, buf);
+    TEST_ASSERT_NOT_NULL_MESSAGE(p_gw, buf);
+    TEST_ASSERT_TRUE_MESSAGE(p_up < p_gw, buf); // gw fields come after everything else
+}
+
+// gw_reachable == true renders "gw=1".
+void test_bb_net_health_format_log_gw_reachable_true(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.gw_available = true;
+    s.gw_reachable  = true;
+    s.gw_dead_count = 0;
+    char buf[256];
+    bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "gw=1") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "gwdead=0") != NULL, buf);
+}
+
+// Truncation drops gw first: gw_available=true but the buffer cap is sized
+// JUST past the non-gw fields (124 bytes for sample_status_for_log's values
+// + 1 for NUL = 125) and well below the full gw-suffixed line (138 bytes +
+// NUL = 139). snprintf's single format string appends gw_suffix last, so a
+// cap at exactly non-gw-length+1 truncates the gw tokens cleanly (no
+// partial "gw=" token) while leaving every preceding field (nm=/ip=/.../up=)
+// intact and NUL-terminated within cap.
+void test_bb_net_health_format_log_truncation_drops_gw_first(void)
+{
+    bb_net_health_status_t s = sample_status_for_log();
+    s.gw_available   = true;
+    s.gw_reachable   = false;
+    s.gw_fail_streak = 2;
+    s.gw_dead_count  = 7;
+    char buf[125];
+    memset(buf, 0x7F, sizeof(buf)); // sentinel fill to detect any overrun
+    int n = bb_net_health_format_log(&s, buf, sizeof(buf));
+    TEST_ASSERT_GREATER_OR_EQUAL_INT((int)sizeof(buf), n); // full line exceeds cap
+
+    // gw suffix dropped entirely — not even a partial "gw=" token survives.
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "gw=") == NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "gwdead=") == NULL, buf);
+
+    // Preceding fields present and not truncated mid-token.
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "up=9999") != NULL, buf);
+    TEST_ASSERT_TRUE_MESSAGE(strstr(buf, "restart=4") != NULL, buf);
+
+    // NUL-terminated within cap (snprintf guarantee).
+    TEST_ASSERT_EQUAL_INT(0, buf[sizeof(buf) - 1]);
+}

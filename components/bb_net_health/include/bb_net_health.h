@@ -392,6 +392,19 @@ typedef struct {
     bb_net_mode_t net_mode; // WiFi discrimination mode (bb_net_health_classify_mode); OBSERVE-ONLY
     bool     associated;    // true iff STA is L2-associated (bb_wifi_is_associated)
     bool     has_ip;        // true iff STA has an IP (bb_wifi_has_ip)
+    // Gateway-probe status (B1-518 PR3, OBSERVE-ONLY): pulled each evaluator
+    // cycle from bb_wifi_get_gateway_status(). gw_available is false when the
+    // probe worker has never started (CONFIG_BB_WIFI_GW_PROBE_ENABLE=n, or
+    // BB_ERR_INVALID_STATE) OR has started but not yet completed a probe
+    // (last_gw_probe_ms == 0) — in both cases the remaining gw_* fields are
+    // zeroed and must not be treated as real data. No recovery action is
+    // wired to these fields; they exist purely for /api/diag/net and the
+    // net_state log heartbeat.
+    bool     gw_available;   // true iff at least one gateway probe has completed
+    bool     gw_reachable;   // result of the most recent gateway ping
+    uint8_t  gw_fail_streak; // consecutive probe failures (observe-owned, separate from live FSM)
+    uint32_t gw_dead_count;  // cumulative times the observe-only classifier would have tripped recovery
+    uint64_t last_gw_probe_ms; // bb_clock_now_ms64() at the last probe, 0 = never run
     // --- Log-heartbeat-only fields (KB#556) — sourced from data the
     // evaluator already fetches each cycle (bb_wifi_info_t / bb_wifi
     // counters); NOT serialized by bb_net_health_emit (net.health SSE
@@ -449,8 +462,12 @@ bool bb_net_health_should_log(int64_t now_us, int64_t last_log_us,
  * session_s (last_session_s), disc_reason (code only — the per-drop log
  * event carries the human-readable name via bb_wifi_disc_reason_str),
  * roam_count, no_ip_recoveries, lost_ip_recoveries, egress_dead_recoveries,
- * retry_count, restart_sta_count, uptime_s. gateway_reachable is
- * intentionally omitted (not yet sampled by the evaluator).
+ * retry_count, restart_sta_count, uptime_s, then — ONLY when
+ * s->gw_available — gw (gw_reachable) and gwdead (gw_dead_count), appended
+ * last (least-critical) so a truncated line drops them before any of the
+ * fields above. Omitted entirely (no trailing space) when gw_available is
+ * false, so boards without CONFIG_BB_WIFI_GW_PROBE_ENABLE see an unchanged
+ * heartbeat line.
  *
  * Pure — no ESP-IDF dependency. Returns the number of bytes that would have
  * been written (snprintf semantics), or 0 if s or buf is NULL or cap <= 0.

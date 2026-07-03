@@ -335,6 +335,18 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
         return 0;
     }
 
+    // Gateway-probe fields (B1-518 PR3, OBSERVE-ONLY) are the LEAST critical
+    // fields on this line — built into a suffix first, then appended after
+    // the existing counters, so truncation always drops them before any
+    // field above. Empty string (no-op) when gw_available is false, e.g. on
+    // a board with CONFIG_BB_WIFI_GW_PROBE_ENABLE=n — the heartbeat line is
+    // byte-for-byte unchanged for those boards.
+    char gw_suffix[40] = "";
+    if (s->gw_available) {
+        snprintf(gw_suffix, sizeof(gw_suffix), " gw=%d gwdead=%" PRIu32,
+                 (int)s->gw_reachable, s->gw_dead_count);
+    }
+
     // Critical-first ordering: nm/ip/ip_ok/assoc/rssi (the fields needed to
     // diagnose a zombie board) come first so truncation degrades gracefully
     // — a truncated line always keeps net_mode + ip. The trailing counters
@@ -343,7 +355,8 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
     int n = snprintf(buf, (size_t)cap,
         "nm=%s ip=%s ip_ok=%d assoc=%d rssi=%d sess=%" PRIu32
         " dr=%" PRIu32 " roam=%" PRIu32 " no_ip=%" PRIu32 " lost_ip=%" PRIu32
-        " egress=%" PRIu32 " retry=%d restart=%" PRIu32 " up=%" PRIu32,
+        " egress=%" PRIu32 " retry=%d restart=%" PRIu32 " up=%" PRIu32
+        "%s",
         bb_net_mode_str(s->net_mode),
         s->ip,
         (int)s->has_ip,
@@ -357,7 +370,8 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
         s->egress_dead_recoveries,
         s->retry_count,
         s->restart_sta_count,
-        s->uptime_s);
+        s->uptime_s,
+        gw_suffix);
 
     // snprintf truncates safely on its own (never writes past cap) and always
     // null-terminates when cap > 0; n may exceed cap-1 (the "would have

@@ -109,6 +109,11 @@ typedef struct {
     bb_net_mode_t net_mode;    // WiFi discrimination mode (observe-only)
     bool     associated;
     bool     has_ip;
+    bool     gw_available;    // B1-518 PR3: gateway-probe status (observe-only)
+    bool     gw_reachable;
+    uint8_t  gw_fail_streak;
+    uint32_t gw_dead_count;
+    uint64_t last_gw_probe_ms;
 } bb_net_health_cache_t;
 
 static bb_net_health_cache_t s_cache;       // zero-init; valid once attach_sse writes it
@@ -208,6 +213,20 @@ static void build_input(bb_net_health_input_t *in)
     }
 }
 
+// Pull the gateway-probe worker's last observed state (B1-518 PR3,
+// OBSERVE-ONLY). *out_available is true only once at least one probe has
+// actually completed: bb_wifi_get_gateway_status returns BB_ERR_INVALID_STATE
+// when the worker never started (CONFIG_BB_WIFI_GW_PROBE_ENABLE=n), but a
+// BB_OK zeroed status (last_gw_probe_ms == 0) is also possible in the window
+// between worker start and the first probe firing — treat both as
+// unavailable so callers never fabricate a false "gw reachable" reading.
+static void pull_gw_status(bool *out_available, bb_wifi_gw_status_t *out_gw)
+{
+    memset(out_gw, 0, sizeof(*out_gw));
+    *out_available = (bb_wifi_get_gateway_status(out_gw) == BB_OK) &&
+                      (out_gw->last_gw_probe_ms > 0);
+}
+
 // Publish a net.health payload to the SSE topic and update the module cache.
 //
 // The SSE payload carries only the 4 essential fields (rssi, state,
@@ -246,6 +265,11 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
     out->net_mode                   = s_cache.net_mode;
     out->associated                 = s_cache.associated;
     out->has_ip                     = s_cache.has_ip;
+    out->gw_available               = s_cache.gw_available;
+    out->gw_reachable               = s_cache.gw_reachable;
+    out->gw_fail_streak             = s_cache.gw_fail_streak;
+    out->gw_dead_count              = s_cache.gw_dead_count;
+    out->last_gw_probe_ms           = s_cache.last_gw_probe_ms;
     xSemaphoreGive(s_cache_lock);
     return BB_OK;
 }
@@ -261,7 +285,9 @@ static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
                                              bool throttled,
                                              bb_mqtt_disc_t mqtt_disc_reason,
                                              bb_tls_fail_t  mqtt_tls_fail,
-                                             bb_sink_http_health_t http_h)
+                                             bb_sink_http_health_t http_h,
+                                             bool gw_available,
+                                             const bb_wifi_gw_status_t *gw)
 {
     bool associated = bb_wifi_is_associated();
     bool has_ip     = bb_wifi_has_ip();
@@ -295,6 +321,11 @@ static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
         .retry_count            = wi->retry_count,
         .restart_sta_count      = bb_wifi_get_restart_sta_count(),
         .uptime_s               = (uint32_t)(bb_clock_now_ms64() / 1000ULL),
+        .gw_available           = gw_available,
+        .gw_reachable           = gw->gw_reachable,
+        .gw_fail_streak         = gw->gw_fail_streak,
+        .gw_dead_count          = gw->gw_dead_count,
+        .last_gw_probe_ms       = gw->last_gw_probe_ms,
     };
     strncpy(snap.ip, wi->ip, sizeof(snap.ip) - 1);
     snap.ip[sizeof(snap.ip) - 1] = '\0';
@@ -333,6 +364,11 @@ static void publish_snapshot(const bb_net_health_status_t *snap)
     s_cache.net_mode                = snap->net_mode;
     s_cache.associated              = snap->associated;
     s_cache.has_ip                  = snap->has_ip;
+    s_cache.gw_available            = snap->gw_available;
+    s_cache.gw_reachable            = snap->gw_reachable;
+    s_cache.gw_fail_streak          = snap->gw_fail_streak;
+    s_cache.gw_dead_count           = snap->gw_dead_count;
+    s_cache.last_gw_probe_ms        = snap->last_gw_probe_ms;
     xSemaphoreGive(s_cache_lock);
 
     // Update bb_cache owned struct — SSE uses bb_cache_post, REST uses
@@ -432,11 +468,16 @@ static void eval_work_fn(void *arg)
     bb_sink_http_health_t http_h = {0};
     bb_sink_http_get_health(&http_h);
 
+    bool gw_available;
+    bb_wifi_gw_status_t gw;
+    pull_gw_status(&gw_available, &gw);
+
     // Build the full snapshot once per cycle: both the SSE-publish decision
     // below and the log-heartbeat decision (KB#556) observe the same
     // point-in-time snapshot.
     bb_net_health_status_t snap = build_snapshot(&out, &in, &wi, currently_throttled,
-                                                  mqtt_disc_reason, mqtt_tls_fail, http_h);
+                                                  mqtt_disc_reason, mqtt_tls_fail, http_h,
+                                                  gw_available, &gw);
 
     // Publish only when state, early_warning, OR throttled flag differs from
     // the last published values.  This ensures:
@@ -628,8 +669,13 @@ bb_err_t bb_net_health_attach_sse(void)
         bb_sink_http_health_t http_h = {0};
         bb_sink_http_get_health(&http_h);
 
+        bool gw_available;
+        bb_wifi_gw_status_t gw;
+        pull_gw_status(&gw_available, &gw);
+
         bb_net_health_status_t snap = build_snapshot(&out, &in, &wi, false,
-                                                      mqtt_disc_reason, mqtt_tls_fail, http_h);
+                                                      mqtt_disc_reason, mqtt_tls_fail, http_h,
+                                                      gw_available, &gw);
         publish_snapshot(&snap);
         s_last_published_state     = out.state;
         s_last_published_warn      = out.early_warning;
