@@ -66,6 +66,20 @@ static bb_cache_entry_t *find_entry(const char *topic)
     return NULL;
 }
 
+// Runtime lookup helper: takes s_reg_lock for the scan, releases it before
+// returning. Entries are add-only at runtime (destroyed only by
+// bb_cache_reset_for_test), so a returned pointer stays valid after the lock
+// is released -- no use-after-free. Callers must NOT already hold s_reg_lock
+// (non-recursive) or any entry's e->lock (lock ordering: s_reg_lock is always
+// acquired/released before an entry's own lock, never nested inside it).
+static bb_cache_entry_t *find_entry_locked(const char *topic)
+{
+    pthread_mutex_lock(&s_reg_lock);
+    bb_cache_entry_t *e = find_entry(topic);
+    pthread_mutex_unlock(&s_reg_lock);
+    return e;
+}
+
 // Serialize entry contents into obj under the entry's lock.
 // Entry must not be NULL. Caller holds no lock before calling.
 static bb_err_t serialize_locked(bb_cache_entry_t *e, bb_json_t obj)
@@ -187,7 +201,7 @@ bb_err_t bb_cache_update(const char *topic, const void *snap)
 
     ensure_init();
 
-    bb_cache_entry_t *e = find_entry(topic);
+    bb_cache_entry_t *e = find_entry_locked(topic);
     if (!e) return BB_ERR_NOT_FOUND;
 
     // Getter-mode: caller owns the struct; update is a no-op
@@ -206,7 +220,7 @@ bb_err_t bb_cache_post(const char *topic)
 
     ensure_init();
 
-    bb_cache_entry_t *e = find_entry(topic);
+    bb_cache_entry_t *e = find_entry_locked(topic);
     if (!e) return BB_ERR_NOT_FOUND;
     if (!e->event_topic) return BB_ERR_INVALID_STATE;
 
@@ -235,7 +249,7 @@ bb_err_t bb_cache_serialize_into(const char *topic, bb_json_t obj)
 
     ensure_init();
 
-    bb_cache_entry_t *e = find_entry(topic);
+    bb_cache_entry_t *e = find_entry_locked(topic);
     if (!e) return BB_ERR_NOT_FOUND;
 
     return serialize_locked(e, obj);
@@ -247,7 +261,7 @@ bb_err_t bb_cache_post_serialized(const char *topic, const char *json, size_t js
 
     ensure_init();
 
-    bb_cache_entry_t *e = find_entry(topic);
+    bb_cache_entry_t *e = find_entry_locked(topic);
     if (!e) return BB_ERR_NOT_FOUND;
     if (!e->event_topic) return BB_ERR_INVALID_STATE;
 
@@ -260,7 +274,7 @@ bb_err_t bb_cache_get_serialized(const char *topic, char *buf, size_t cap, size_
 
     ensure_init();
 
-    bb_cache_entry_t *e = find_entry(topic);
+    bb_cache_entry_t *e = find_entry_locked(topic);
     if (!e) return BB_ERR_NOT_FOUND;
 
     pthread_mutex_lock(&e->lock);
@@ -375,10 +389,7 @@ bb_err_t bb_cache_get_raw(const char *topic, void *buf, size_t cap)
 
     ensure_init();
 
-    pthread_mutex_lock(&s_reg_lock);
-    bb_cache_entry_t *e = find_entry(topic);
-    pthread_mutex_unlock(&s_reg_lock);
-
+    bb_cache_entry_t *e = find_entry_locked(topic);
     if (!e) return BB_ERR_NOT_FOUND;
 
     pthread_mutex_lock(&e->lock);
