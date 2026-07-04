@@ -140,6 +140,37 @@ bb_err_t bb_cache_post_serialized(const char *topic, const char *json, size_t js
 // small to hold the serialized JSON plus its NUL terminator (buf untouched).
 bb_err_t bb_cache_get_serialized(const char *topic, char *buf, size_t cap, size_t *out_len);
 
+// ---------------------------------------------------------------------------
+// Keyed enumeration + compact struct-read accessor
+// ---------------------------------------------------------------------------
+
+// Number of currently registered (non-NULL topic) entries in the registry.
+size_t bb_cache_count(void);
+
+// Look up the topic name at a raw registry slot index.
+//   index     — raw slot index, [0, BB_CACHE_MAX_TOPICS).
+//   out_topic — receives s_entries[index].topic; may be NULL for a free slot.
+// Returns BB_ERR_INVALID_ARG if out_topic is NULL.
+// Returns BB_ERR_NOT_FOUND if index >= BB_CACHE_MAX_TOPICS.
+bb_err_t bb_cache_key_at(size_t index, const char **out_topic);
+
+// Invoke cb once per registered topic. The topic set is snapshotted under the
+// registry lock and cb is invoked with the lock released, so cb may safely
+// call bb_cache_* (lock not held during cb).
+bb_err_t bb_cache_foreach(void (*cb)(const char *topic, void *ctx), void *ctx);
+
+// Compact read of an owned-mode topic's raw struct bytes.
+//   buf — caller-owned destination buffer (must be non-NULL).
+//   cap — capacity of buf in bytes (must be non-zero).
+// Copies the full owned struct into buf; refuses and does NOT copy if
+// cap < topic's registered size. Parity with bb_cache_get_serialized:
+// refuses rather than truncates on undersized buffer.
+// Returns BB_ERR_NOT_FOUND if the topic is not registered.
+// Returns BB_ERR_INVALID_STATE for getter-mode topics (no owned struct).
+// Returns BB_ERR_INVALID_ARG on null args or cap == 0.
+// Returns BB_ERR_NO_SPACE if cap < the stored struct size (buf untouched).
+bb_err_t bb_cache_get_raw(const char *topic, void *buf, size_t cap);
+
 #ifdef __cplusplus
 }
 #endif

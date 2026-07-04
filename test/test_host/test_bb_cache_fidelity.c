@@ -360,3 +360,166 @@ void test_bb_ota_check_topic_value_is_update_available(void)
 {
     TEST_ASSERT_EQUAL_STRING("update.available", BB_OTA_CHECK_TOPIC);
 }
+
+// ---------------------------------------------------------------------------
+// Keyed enumeration + get_raw tests
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    bool seen_a, seen_b, seen_c;
+    int  seen_count;
+} foreach_visit_ctx_t;
+
+static void foreach_visit_cb(const char *topic, void *ctx)
+{
+    foreach_visit_ctx_t *c = (foreach_visit_ctx_t *)ctx;
+    c->seen_count++;
+    if (strcmp(topic, "test.enum.a") == 0) c->seen_a = true;
+    if (strcmp(topic, "test.enum.b") == 0) c->seen_b = true;
+    if (strcmp(topic, "test.enum.c") == 0) c->seen_c = true;
+}
+
+// Verify bb_cache_count/foreach/key_at over a populated registry.
+void test_bb_cache_count_and_foreach_visit_all_registered_topics(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_UINT(0, bb_cache_count());
+
+    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
+    bb_cache_register("test.enum.a", NULL, sizeof(synth_snap_t), synth_serialize);
+    bb_cache_update("test.enum.a", &s);
+    bb_cache_register("test.enum.b", NULL, sizeof(synth_snap_t), synth_serialize);
+    bb_cache_update("test.enum.b", &s);
+    bb_cache_register("test.enum.c", NULL, sizeof(synth_snap_t), synth_serialize);
+    bb_cache_update("test.enum.c", &s);
+
+    TEST_ASSERT_EQUAL_UINT(3, bb_cache_count());
+
+    foreach_visit_ctx_t ctx = {0};
+    bb_err_t err = bb_cache_foreach(foreach_visit_cb, &ctx);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(3, ctx.seen_count);
+    TEST_ASSERT_TRUE(ctx.seen_a);
+    TEST_ASSERT_TRUE(ctx.seen_b);
+    TEST_ASSERT_TRUE(ctx.seen_c);
+}
+
+// Verify bb_cache_key_at returns the registered topics and handles free/OOB
+// slots correctly.
+void test_bb_cache_key_at_free_and_oob_slots(void)
+{
+    reset_all();
+    bb_cache_register("test.enum.only", NULL, sizeof(synth_snap_t), synth_serialize);
+
+    bool found_registered = false;
+    for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
+        const char *topic = (const char *)0x1; // sentinel to detect no-write
+        bb_err_t err = bb_cache_key_at((size_t)i, &topic);
+        TEST_ASSERT_EQUAL_INT(BB_OK, err);
+        if (topic != NULL) {
+            TEST_ASSERT_EQUAL_STRING("test.enum.only", topic);
+            found_registered = true;
+        }
+    }
+    TEST_ASSERT_TRUE(found_registered);
+
+    // OOB index
+    const char *out = NULL;
+    bb_err_t err = bb_cache_key_at((size_t)BB_CACHE_MAX_TOPICS, &out);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
+}
+
+// Verify bb_cache_key_at rejects a NULL out pointer.
+void test_bb_cache_key_at_null_out_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_err_t err = bb_cache_key_at(0, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+// Verify bb_cache_foreach rejects a NULL callback.
+void test_bb_cache_foreach_null_cb_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_err_t err = bb_cache_foreach(NULL, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+// Verify bb_cache_get_raw round-trips an owned-mode struct and refuses
+// when cap < size (does not copy on NO_SPACE).
+void test_bb_cache_get_raw_round_trip_and_refuses_undersized(void)
+{
+    reset_all();
+    bb_cache_register("test.raw", NULL, sizeof(synth_snap_t), synth_serialize);
+
+    synth_snap_t in = {.value = 7, .flag = true, .ratio = 2.5};
+    bb_err_t err = bb_cache_update("test.raw", &in);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+
+    // Exact-size round-trip: cap == size succeeds.
+    synth_snap_t out = {0};
+    err = bb_cache_get_raw("test.raw", &out, sizeof(out));
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(in.value, out.value);
+    TEST_ASSERT_EQUAL(in.flag, out.flag);
+    TEST_ASSERT_EQUAL_FLOAT(in.ratio, out.ratio);
+
+    // Undersized buffer: cap < size refuses without copying.
+    unsigned char partial[sizeof(int)];
+    memset(partial, 0xAA, sizeof(partial));  // pre-fill with sentinel
+    err = bb_cache_get_raw("test.raw", partial, sizeof(int));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
+    // Buffer should be untouched (still sentinel).
+    TEST_ASSERT_EQUAL_UINT8(0xAA, partial[0]);
+    TEST_ASSERT_EQUAL_UINT8(0xAA, partial[1]);
+    TEST_ASSERT_EQUAL_UINT8(0xAA, partial[2]);
+    TEST_ASSERT_EQUAL_UINT8(0xAA, partial[3]);
+
+    // Oversized buffer: cap > size succeeds, copies full size.
+    unsigned char oversized[sizeof(synth_snap_t) + 16];
+    memset(oversized, 0xBB, sizeof(oversized));
+    err = bb_cache_get_raw("test.raw", oversized, sizeof(oversized));
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    synth_snap_t oversized_out;
+    memcpy(&oversized_out, oversized, sizeof(oversized_out));
+    TEST_ASSERT_EQUAL_INT(in.value, oversized_out.value);
+    // Bytes after the struct should still be untouched.
+    TEST_ASSERT_EQUAL_UINT8(0xBB, oversized[sizeof(synth_snap_t)]);
+}
+
+static synth_snap_t s_getter_backing = {.value = 5, .flag = true, .ratio = 1.0};
+static const void *get_raw_test_getter(void) { return &s_getter_backing; }
+
+// Verify bb_cache_get_raw on a getter-mode topic returns BB_ERR_INVALID_STATE.
+void test_bb_cache_get_raw_getter_mode_returns_invalid_state(void)
+{
+    reset_all();
+    bb_cache_register("test.raw.getter", get_raw_test_getter, 0, synth_serialize);
+
+    unsigned char buf[sizeof(synth_snap_t)];
+    bb_err_t err = bb_cache_get_raw("test.raw.getter", buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, err);
+}
+
+// Verify bb_cache_get_raw on an absent topic returns BB_ERR_NOT_FOUND.
+void test_bb_cache_get_raw_absent_topic_returns_not_found(void)
+{
+    reset_all();
+    unsigned char buf[16];
+    bb_err_t err = bb_cache_get_raw("no.such.raw.topic", buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
+}
+
+// Verify bb_cache_get_raw rejects null args / cap == 0.
+void test_bb_cache_get_raw_null_args_return_invalid_arg(void)
+{
+    reset_all();
+    bb_cache_register("test.raw.args", NULL, sizeof(synth_snap_t), synth_serialize);
+    synth_snap_t s = {0};
+    bb_cache_update("test.raw.args", &s);
+
+    unsigned char buf[sizeof(synth_snap_t)];
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_get_raw(NULL, buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_get_raw("test.raw.args", NULL, sizeof(buf)));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_get_raw("test.raw.args", buf, 0));
+}

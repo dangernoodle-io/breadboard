@@ -315,6 +315,88 @@ bb_err_t bb_cache_get_serialized(const char *topic, char *buf, size_t cap, size_
 }
 
 // ---------------------------------------------------------------------------
+// Keyed enumeration + compact struct-read accessor
+// ---------------------------------------------------------------------------
+
+size_t bb_cache_count(void)
+{
+    ensure_init();
+
+    size_t count = 0;
+    pthread_mutex_lock(&s_reg_lock);
+    for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
+        if (s_entries[i].topic) count++;
+    }
+    pthread_mutex_unlock(&s_reg_lock);
+    return count;
+}
+
+bb_err_t bb_cache_key_at(size_t index, const char **out_topic)
+{
+    if (!out_topic) return BB_ERR_INVALID_ARG;
+    if (index >= (size_t)BB_CACHE_MAX_TOPICS) return BB_ERR_NOT_FOUND;
+
+    ensure_init();
+
+    pthread_mutex_lock(&s_reg_lock);
+    *out_topic = s_entries[index].topic;
+    pthread_mutex_unlock(&s_reg_lock);
+    return BB_OK;
+}
+
+bb_err_t bb_cache_foreach(void (*cb)(const char *topic, void *ctx), void *ctx)
+{
+    if (!cb) return BB_ERR_INVALID_ARG;
+
+    ensure_init();
+
+    // Snapshot topic pointers under the registry lock, then release before
+    // invoking cb — avoids reentrancy deadlock if cb calls back into
+    // bb_cache. Pointers stay valid: bb_cache has no unregister, topics only
+    // get added.
+    const char *keys[BB_CACHE_MAX_TOPICS];
+    int n = 0;
+
+    pthread_mutex_lock(&s_reg_lock);
+    for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
+        if (s_entries[i].topic) keys[n++] = s_entries[i].topic;
+    }
+    pthread_mutex_unlock(&s_reg_lock);
+
+    for (int i = 0; i < n; i++) {
+        cb(keys[i], ctx);
+    }
+    return BB_OK;
+}
+
+bb_err_t bb_cache_get_raw(const char *topic, void *buf, size_t cap)
+{
+    if (!topic || !buf || cap == 0) return BB_ERR_INVALID_ARG;
+
+    ensure_init();
+
+    pthread_mutex_lock(&s_reg_lock);
+    bb_cache_entry_t *e = find_entry(topic);
+    pthread_mutex_unlock(&s_reg_lock);
+
+    if (!e) return BB_ERR_NOT_FOUND;
+
+    pthread_mutex_lock(&e->lock);
+    if (!e->owned) {
+        pthread_mutex_unlock(&e->lock);
+        return BB_ERR_INVALID_STATE;
+    }
+    if (cap < e->size) {
+        pthread_mutex_unlock(&e->lock);
+        bb_log_w(TAG, "get_raw '%s': buf too small (%zu < %zu)", topic, cap, e->size);
+        return BB_ERR_NO_SPACE;
+    }
+    memcpy(buf, e->owned, e->size);
+    pthread_mutex_unlock(&e->lock);
+    return BB_OK;
+}
+
+// ---------------------------------------------------------------------------
 // Test reset (guarded by BB_CACHE_TESTING)
 // ---------------------------------------------------------------------------
 
