@@ -6,11 +6,29 @@
 // REST handler payloads are identical by construction: both call the same
 // bb_cache_serialize_fn against the same canonical struct.
 //
-// Ownership model:
-//   snapshot == NULL  — bb_cache owns the struct; caller copies in via
-//                       bb_cache_update(); snap_size = sizeof(struct).
-//   snapshot != NULL  — key owns the struct; bb_cache reads through the
-//                       getter; snap_size is ignored; bb_cache_update is no-op.
+// Ownership model (tri-state, keyed off snapshot/snap_size):
+//   snapshot == NULL, snap_size >  0  — OWNED. bb_cache owns the struct;
+//                       caller copies in via bb_cache_update().
+//   snapshot != NULL, snap_size == 0  — GETTER. key owns the struct; bb_cache
+//                       reads through the getter on every read; snap_size is
+//                       ignored; bb_cache_update is a no-op.
+//   snapshot != NULL, snap_size >  0  — OWNED+FALLBACK (cold-start seed,
+//                       PR-4a-0). Behaves exactly like OWNED (bb_cache_update
+//                       writes it, memoized/dirty-gated reads) EXCEPT: while
+//                       the entry is unpopulated (no bb_cache_update(_ex) call
+//                       has landed yet), a read/serialize invokes snapshot()
+//                       ONCE to seed the owned buffer so the endpoint is never
+//                       empty at cold start. Strict boot-race bridge: no
+//                       expiry, and it never re-runs once a real write lands
+//                       (bb_cache_update_ex's has_value/changed semantics are
+//                       driven only by real writes -- the seed does not set
+//                       has_value, so the first real write still reports
+//                       changed=true unconditionally, exactly like plain
+//                       OWNED mode). Only meaningful for keys that have a
+//                       writer -- never register a getter-only (writerless)
+//                       key with a non-zero snap_size expecting this
+//                       behavior; that is simply GETTER mode with a wasted
+//                       allocation.
 //
 // Envelope contract (B1-570 PR-3, BREAKING wire change).
 // bb_cache_get_serialized() and bb_cache_post() wrap the serializer's output
@@ -81,10 +99,15 @@ typedef void (*bb_cache_serialize_fn)(bb_json_t obj, const void *snap);
 //                past the bb_cache_register() call. Becomes the wire SSE
 //                event topic only when flags has BB_CACHE_FLAG_SSE.
 //   snapshot   — nullable getter fn: returns a pointer to the canonical
-//                struct. Pass NULL to have bb_cache own the struct (copy in
-//                via bb_cache_update()).
-//   snap_size  — sizeof the owned struct; required when snapshot == NULL,
-//                ignored when snapshot != NULL.
+//                struct. Pass NULL for plain OWNED mode (bb_cache owns the
+//                struct; copy in via bb_cache_update()). Pass non-NULL with
+//                snap_size == 0 for plain GETTER mode. Pass non-NULL with
+//                snap_size > 0 for OWNED+FALLBACK (cold-start seed) -- see
+//                the tri-state ownership model above.
+//   snap_size  — sizeof the owned struct. Required (> 0) whenever bb_cache
+//                should own a buffer for this key -- i.e. snapshot == NULL
+//                (plain OWNED, mandatory) or snapshot != NULL (OWNED+FALLBACK,
+//                optional). Ignored (may be 0) for plain GETTER mode.
 //   serialize  — serializer fn invoked by both post and serialize_into.
 //   flags      — BB_CACHE_FLAG_* bitmask. Use BB_CACHE_FLAG_SSE to also
 //                register an event topic for SSE fan-out via bb_cache_post.
@@ -112,21 +135,29 @@ typedef struct {
 bb_err_t bb_cache_register(const bb_cache_config_t *cfg);
 
 // Copy *snap into the owned struct under the per-entry lock.
-// No-op (returns BB_OK) when the key was registered with a getter.
+// No-op (returns BB_OK) when the key was registered as plain GETTER mode
+// (snapshot != NULL, no owned buffer). Works for both plain OWNED and
+// OWNED+FALLBACK (any key with an owned buffer) -- a real write always
+// takes precedence over the cold-start seed.
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
 bb_err_t bb_cache_update(const char *key, const void *snap);
 
 // Like bb_cache_update, but additionally reports whether the copied-in value
 // changed. out_changed is nullable.
 //
-// Owned mode: *out_changed is set true when *snap differs (memcmp) from the
-// previously stored bytes, OR this is the first update since the key was
-// registered (no false negative against a zero-initialized owned buffer).
-// The comparison happens BEFORE the copy-in; the copy, ts_ms stamp, and
+// Owned / owned+fallback mode (key has an owned buffer): *out_changed is set
+// true when *snap differs (memcmp) from the previously stored bytes, OR this
+// is the first REAL write since the key was registered (no false negative
+// against a zero-initialized owned buffer). This holds even when a
+// OWNED+FALLBACK cold-start seed already populated the buffer via a prior
+// read -- the seed never sets the has_value flag this check relies on, so
+// the first real write still reports changed=true unconditionally,
+// regardless of whether *snap happens to match the seeded bytes. The
+// comparison happens BEFORE the copy-in; the copy, ts_ms stamp, and
 // dirty-invalidation behave identically to bb_cache_update.
 //
-// Getter mode: *out_changed is always set false (bb_cache has no owned bytes
-// to diff against for a getter-mode key); behavior is otherwise identical to
+// Getter mode (no owned buffer): *out_changed is always set false (bb_cache
+// has no owned bytes to diff against); behavior is otherwise identical to
 // bb_cache_update (no-op, returns BB_OK).
 //
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
@@ -224,7 +255,9 @@ bb_err_t bb_cache_foreach(void (*cb)(const char *key, void *ctx), void *ctx);
 //   cap — capacity of buf in bytes (must be non-zero).
 // Copies the full owned struct into buf; refuses and does NOT copy if
 // cap < key's registered size. Parity with bb_cache_get_serialized:
-// refuses rather than truncates on undersized buffer.
+// refuses rather than truncates on undersized buffer. Owned+fallback keys
+// (snapshot != NULL, snap_size > 0) succeed and trigger the cold-start
+// snapshot() seed on first call, same as the JSON read paths.
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
 // Returns BB_ERR_INVALID_STATE for getter-mode keys (no owned struct).
 // Returns BB_ERR_INVALID_ARG on null args or cap == 0.

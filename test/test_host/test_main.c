@@ -3937,6 +3937,17 @@ void test_bb_cache_update_ex_null_args_returns_invalid_arg(void);
 void test_bb_cache_update_wrapper_still_behaves_identically(void);
 void test_bb_cache_exists_registered_and_unregistered(void);
 void test_bb_cache_exists_null_key_returns_false(void);
+void test_bb_cache_owned_fallback_seeds_on_first_read(void);
+void test_bb_cache_owned_fallback_seed_invoked_once_across_reads(void);
+void test_bb_cache_owned_fallback_serialize_into_seed_not_reinvoked_without_dirty_gate(void);
+void test_bb_cache_getter_mode_serialize_into_and_post_pull_through(void);
+void test_bb_cache_owned_fallback_seed_does_not_fire_sse_observer(void);
+void test_bb_cache_owned_fallback_real_write_wins_and_stops_seeding(void);
+void test_bb_cache_owned_fallback_first_real_write_reports_changed_even_matching_seed(void);
+void test_bb_cache_owned_fallback_snapshot_returns_null_leaves_zero_value(void);
+void test_bb_cache_owned_fallback_get_raw_seeds_when_unpopulated(void);
+void test_bb_cache_owned_fallback_serialize_into_seeds(void);
+void test_bb_cache_register_owned_mode_requires_snap_size(void);
 
 // Forward declarations from test_bb_sub.c
 void test_bb_sub_route_registers_and_cache_reflects_payload(void);
@@ -8015,6 +8026,17 @@ int main(void) {
     RUN_TEST(test_bb_cache_update_wrapper_still_behaves_identically);
     RUN_TEST(test_bb_cache_exists_registered_and_unregistered);
     RUN_TEST(test_bb_cache_exists_null_key_returns_false);
+    RUN_TEST(test_bb_cache_owned_fallback_seeds_on_first_read);
+    RUN_TEST(test_bb_cache_owned_fallback_seed_invoked_once_across_reads);
+    RUN_TEST(test_bb_cache_owned_fallback_serialize_into_seed_not_reinvoked_without_dirty_gate);
+    RUN_TEST(test_bb_cache_getter_mode_serialize_into_and_post_pull_through);
+    RUN_TEST(test_bb_cache_owned_fallback_seed_does_not_fire_sse_observer);
+    RUN_TEST(test_bb_cache_owned_fallback_real_write_wins_and_stops_seeding);
+    RUN_TEST(test_bb_cache_owned_fallback_first_real_write_reports_changed_even_matching_seed);
+    RUN_TEST(test_bb_cache_owned_fallback_snapshot_returns_null_leaves_zero_value);
+    RUN_TEST(test_bb_cache_owned_fallback_get_raw_seeds_when_unpopulated);
+    RUN_TEST(test_bb_cache_owned_fallback_serialize_into_seeds);
+    RUN_TEST(test_bb_cache_register_owned_mode_requires_snap_size);
     RUN_TEST(test_bb_ota_check_topic_value_is_update_available);
 
     // bb_sub
