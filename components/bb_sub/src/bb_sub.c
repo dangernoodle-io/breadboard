@@ -23,8 +23,8 @@ static const char *TAG = "bb_sub";
 
 // ---------------------------------------------------------------------------
 // Owned cache snapshot — the raw JSON payload, exactly as received. Sized to
-// BB_SUB_MAX_PAYLOAD_BYTES (Kconfig-bridged); bb_cache_register_ex copies
-// this whole struct byte-for-byte via bb_cache_update().
+// BB_SUB_MAX_PAYLOAD_BYTES (Kconfig-bridged); bb_cache copies this whole
+// struct byte-for-byte via bb_cache_update().
 // ---------------------------------------------------------------------------
 
 typedef struct {
@@ -33,14 +33,17 @@ typedef struct {
 } bb_sub_snap_t;
 
 // ---------------------------------------------------------------------------
-// Seen-topics registry (persistent storage for topic name pointers handed
-// to bb_cache_register_ex — see bb_sub.h "Topic string lifetime").
+// Seen-topics registry — bb_sub's own bookkeeping of ingress topics it has
+// routed at least once. bb_cache copies the key it is given (see bb_cache.h),
+// so this registry is no longer needed for pointer-lifetime reasons; it
+// remains for the cache_registered dedup flag below and bb_sub's own
+// BB_SUB_MAX_TOPICS-capped drop accounting (bb_sub_dropped_count()).
 // ---------------------------------------------------------------------------
 
 typedef struct {
     char topic[BB_SUB_TOPIC_MAX];
     bool used;
-    // Set once bb_cache_register_ex() has succeeded for this topic, so
+    // Set once bb_cache_register() has succeeded for this topic, so
     // route() can skip the redundant idempotent re-register (global lock +
     // O(N) scan inside bb_cache) on every subsequent message. Cleared by
     // bb_sub_reset_for_test() along with the rest of the entry — see that
@@ -160,8 +163,14 @@ bb_err_t bb_sub_route(const char *topic, const char *payload, size_t len)
     pthread_mutex_unlock(&s_lock);
 
     if (need_register) {
-        bb_err_t rc = bb_cache_register_ex(entry->topic, NULL, sizeof(bb_sub_snap_t),
-                                            sub_passthrough_serialize, BB_CACHE_FLAG_SSE);
+        bb_cache_config_t cache_cfg = {
+            .key       = entry->topic,
+            .snapshot  = NULL,
+            .snap_size = sizeof(bb_sub_snap_t),
+            .serialize = sub_passthrough_serialize,
+            .flags     = BB_CACHE_FLAG_SSE,
+        };
+        bb_err_t rc = bb_cache_register(&cache_cfg);
         if (rc != BB_OK) {
             // bb_cache's own registry (a separate cap from bb_sub's local
             // seen-topics registry above) is full.

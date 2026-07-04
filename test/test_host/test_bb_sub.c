@@ -205,23 +205,24 @@ void test_bb_sub_route_bb_cache_registry_full_returns_error(void)
     // Fill bb_cache's own registry directly (BB_CACHE_MAX_TOPICS=32 in the
     // native test env) with topics bb_sub never sees, so bb_sub's local
     // seen-topics registry is still empty when bb_sub_route runs below.
-    // Each topic string must outlive the registry (bb_cache stores the
-    // pointer, not a copy — see bb_cache.h) so each gets its own heap
-    // buffer, not a reused stack buffer.
-    char *topics[BB_CACHE_MAX_TOPICS];
+    // bb_cache_register() copies the key, so a reused stack buffer is fine.
+    char topic_buf[32];
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
-        topics[i] = (char *)malloc(32);
-        TEST_ASSERT_NOT_NULL(topics[i]);
-        snprintf(topics[i], 32, "cachefill.%d", i);
-        bb_err_t rc = bb_cache_register(topics[i], NULL, 8, dummy_cache_serialize);
-        TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, rc, topics[i]);
+        snprintf(topic_buf, sizeof(topic_buf), "cachefill.%d", i);
+        bb_cache_config_t cfg = {
+            .key       = topic_buf,
+            .snapshot  = NULL,
+            .snap_size = 8,
+            .serialize = dummy_cache_serialize,
+            .flags     = BB_CACHE_FLAG_SSE,
+        };
+        bb_err_t rc = bb_cache_register(&cfg);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, rc, topic_buf);
     }
 
     bb_err_t rc = bb_sub_route("new.topic.not.in.cache", "{}", strlen("{}"));
     TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
     TEST_ASSERT_EQUAL_UINT32(1, bb_sub_dropped_count());
-
-    for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) free(topics[i]);
 }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +276,7 @@ void test_bb_sub_route_zero_length_payload_stored_as_empty(void)
 // Fail-injection hook: always returns NULL. Scoped tightly around the single
 // bb_sub_route() call below — bb_sub's only bb_mem allocation for a message
 // on a topic that is already bb_cache-registered is the per-message snapshot
-// (bb_cache_register_ex / bb_cache itself never call through bb_mem), so this
+// (bb_cache_register / bb_cache itself never call through bb_mem), so this
 // cannot spuriously fail an unrelated allocation in the same test.
 static void *s_always_fail_malloc(size_t sz)
 {

@@ -22,8 +22,14 @@ static void reset(void)
 static char *serialize_snap(const bb_display_snap_t *snap)
 {
     reset();
-    bb_cache_register(BB_DISPLAY_INFO_TOPIC, NULL, sizeof(bb_display_snap_t),
-                      bb_display_serialize);
+    bb_cache_config_t cfg = {
+        .key       = BB_DISPLAY_INFO_TOPIC,
+        .snapshot  = NULL,
+        .snap_size = sizeof(bb_display_snap_t),
+        .serialize = bb_display_serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    bb_cache_register(&cfg);
     bb_cache_update(BB_DISPLAY_INFO_TOPIC, snap);
     bb_json_t obj = bb_json_obj_new();
     bb_cache_serialize_into(BB_DISPLAY_INFO_TOPIC, obj);

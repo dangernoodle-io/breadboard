@@ -22,7 +22,7 @@ static const char *TAG = "bb_cache";
 // ---------------------------------------------------------------------------
 
 typedef struct {
-    const char          *topic;           // NULL = slot free
+    char                 key[BB_CACHE_KEY_MAX]; // key[0] == '\0' = slot free
     const void         *(*snapshot)(void); // NULL = owned mode
     void                *owned;           // heap buffer in owned mode; NULL in getter mode
     size_t               size;            // sizeof owned struct (owned mode only)
@@ -49,17 +49,17 @@ static void ensure_init(void)
     pthread_mutex_lock(&s_reg_lock);
     if (!s_initialized) {
         for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
-            s_entries[i].topic = NULL;
+            s_entries[i].key[0] = '\0';
         }
         s_initialized = true;
     }
     pthread_mutex_unlock(&s_reg_lock);
 }
 
-static bb_cache_entry_t *find_entry(const char *topic)
+static bb_cache_entry_t *find_entry(const char *key)
 {
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
-        if (s_entries[i].topic && strcmp(s_entries[i].topic, topic) == 0) {
+        if (s_entries[i].key[0] != '\0' && strcmp(s_entries[i].key, key) == 0) {
             return &s_entries[i];
         }
     }
@@ -72,10 +72,10 @@ static bb_cache_entry_t *find_entry(const char *topic)
 // is released -- no use-after-free. Callers must NOT already hold s_reg_lock
 // (non-recursive) or any entry's e->lock (lock ordering: s_reg_lock is always
 // acquired/released before an entry's own lock, never nested inside it).
-static bb_cache_entry_t *find_entry_locked(const char *topic)
+static bb_cache_entry_t *find_entry_locked(const char *key)
 {
     pthread_mutex_lock(&s_reg_lock);
-    bb_cache_entry_t *e = find_entry(topic);
+    bb_cache_entry_t *e = find_entry(key);
     pthread_mutex_unlock(&s_reg_lock);
     return e;
 }
@@ -95,7 +95,7 @@ static bb_err_t serialize_locked(bb_cache_entry_t *e, bb_json_t obj)
 
     if (!snap) {
         pthread_mutex_unlock(&e->lock);
-        bb_log_w(TAG, "topic '%s': no snapshot available", e->topic);
+        bb_log_w(TAG, "key '%s': no snapshot available", e->key);
         return BB_ERR_INVALID_STATE;
     }
 
@@ -108,20 +108,20 @@ static bb_err_t serialize_locked(bb_cache_entry_t *e, bb_json_t obj)
 // Public API
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_cache_register_ex(const char *topic,
-                               const void *(*snapshot)(void),
-                               size_t snap_size,
-                               bb_cache_serialize_fn serialize,
-                               bb_cache_flags_t flags)
+bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
 {
-    if (!topic || !serialize) return BB_ERR_INVALID_ARG;
+    if (!cfg || !cfg->key || !cfg->serialize) return BB_ERR_INVALID_ARG;
+    if (strlen(cfg->key) >= BB_CACHE_KEY_MAX) {
+        bb_log_e(TAG, "key '%s' too long (max %d chars)", cfg->key, BB_CACHE_KEY_MAX - 1);
+        return BB_ERR_INVALID_ARG;
+    }
 
     ensure_init();
 
     pthread_mutex_lock(&s_reg_lock);
 
     // Idempotent: already registered?
-    if (find_entry(topic)) {
+    if (find_entry(cfg->key)) {
         pthread_mutex_unlock(&s_reg_lock);
         return BB_OK;
     }
@@ -129,7 +129,7 @@ bb_err_t bb_cache_register_ex(const char *topic,
     // Find a free slot
     bb_cache_entry_t *slot = NULL;
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
-        if (!s_entries[i].topic) {
+        if (s_entries[i].key[0] == '\0') {
             slot = &s_entries[i];
             break;
         }
@@ -143,12 +143,12 @@ bb_err_t bb_cache_register_ex(const char *topic,
 
     // Owned mode: allocate struct buffer
     void *owned = NULL;
-    if (!snapshot) {
-        if (snap_size == 0) {
+    if (!cfg->snapshot) {
+        if (cfg->snap_size == 0) {
             pthread_mutex_unlock(&s_reg_lock);
             return BB_ERR_INVALID_ARG;
         }
-        owned = bb_calloc_prefer_spiram(1, snap_size);
+        owned = bb_calloc_prefer_spiram(1, cfg->snap_size);
         if (!owned) {
             pthread_mutex_unlock(&s_reg_lock);
             return BB_ERR_NO_SPACE;
@@ -156,11 +156,11 @@ bb_err_t bb_cache_register_ex(const char *topic,
     }
 
     // Register event topic only when SSE flag is set.
-    // Sink-only topics (no SSE delivery) skip this — bb_cache_post returns
+    // Sink-only entries (no SSE delivery) skip this — bb_cache_post returns
     // BB_ERR_INVALID_STATE when event_topic is NULL, guarding against misuse.
     bb_event_topic_t ev_topic = NULL;
-    if (flags & BB_CACHE_FLAG_SSE) {
-        bb_event_topic_register(topic, &ev_topic);
+    if (cfg->flags & BB_CACHE_FLAG_SSE) {
+        bb_event_topic_register(cfg->key, &ev_topic);
     }
 
     // Init per-entry mutex (recursive so serialize_locked can be called
@@ -171,13 +171,14 @@ bb_err_t bb_cache_register_ex(const char *topic,
     pthread_mutex_init(&slot->lock, &attr);
     pthread_mutexattr_destroy(&attr);
 
-    slot->topic       = topic;
-    slot->snapshot    = snapshot;
+    strncpy(slot->key, cfg->key, sizeof(slot->key) - 1);
+    slot->key[sizeof(slot->key) - 1] = '\0';
+    slot->snapshot    = cfg->snapshot;
     slot->owned       = owned;
-    slot->size        = snap_size;
-    slot->fn          = serialize;
+    slot->size        = cfg->snap_size;
+    slot->fn          = cfg->serialize;
     slot->event_topic = ev_topic;
-    slot->flags       = flags;
+    slot->flags       = cfg->flags;
     slot->cached_json = NULL;
     slot->cached_len  = 0;
     slot->dirty       = true;   // no bytes cached yet
@@ -186,22 +187,13 @@ bb_err_t bb_cache_register_ex(const char *topic,
     return BB_OK;
 }
 
-// Legacy wrapper: always registers with SSE (zero behaviour change for existing callers).
-bb_err_t bb_cache_register(const char *topic,
-                           const void *(*snapshot)(void),
-                           size_t snap_size,
-                           bb_cache_serialize_fn serialize)
+bb_err_t bb_cache_update(const char *key, const void *snap)
 {
-    return bb_cache_register_ex(topic, snapshot, snap_size, serialize, BB_CACHE_FLAG_SSE);
-}
-
-bb_err_t bb_cache_update(const char *topic, const void *snap)
-{
-    if (!topic || !snap) return BB_ERR_INVALID_ARG;
+    if (!key || !snap) return BB_ERR_INVALID_ARG;
 
     ensure_init();
 
-    bb_cache_entry_t *e = find_entry_locked(topic);
+    bb_cache_entry_t *e = find_entry_locked(key);
     if (!e) return BB_ERR_NOT_FOUND;
 
     // Getter-mode: caller owns the struct; update is a no-op
@@ -214,13 +206,13 @@ bb_err_t bb_cache_update(const char *topic, const void *snap)
     return BB_OK;
 }
 
-bb_err_t bb_cache_post(const char *topic)
+bb_err_t bb_cache_post(const char *key)
 {
-    if (!topic) return BB_ERR_INVALID_ARG;
+    if (!key) return BB_ERR_INVALID_ARG;
 
     ensure_init();
 
-    bb_cache_entry_t *e = find_entry_locked(topic);
+    bb_cache_entry_t *e = find_entry_locked(key);
     if (!e) return BB_ERR_NOT_FOUND;
     if (!e->event_topic) return BB_ERR_INVALID_STATE;
 
@@ -243,50 +235,50 @@ bb_err_t bb_cache_post(const char *topic)
     return err;
 }
 
-bb_err_t bb_cache_serialize_into(const char *topic, bb_json_t obj)
+bb_err_t bb_cache_serialize_into(const char *key, bb_json_t obj)
 {
-    if (!topic || !obj) return BB_ERR_INVALID_ARG;
+    if (!key || !obj) return BB_ERR_INVALID_ARG;
 
     ensure_init();
 
-    bb_cache_entry_t *e = find_entry_locked(topic);
+    bb_cache_entry_t *e = find_entry_locked(key);
     if (!e) return BB_ERR_NOT_FOUND;
 
     return serialize_locked(e, obj);
 }
 
-bb_err_t bb_cache_post_serialized(const char *topic, const char *json, size_t json_len)
+bb_err_t bb_cache_post_serialized(const char *key, const char *json, size_t json_len)
 {
-    if (!topic || !json) return BB_ERR_INVALID_ARG;
+    if (!key || !json) return BB_ERR_INVALID_ARG;
 
     ensure_init();
 
-    bb_cache_entry_t *e = find_entry_locked(topic);
+    bb_cache_entry_t *e = find_entry_locked(key);
     if (!e) return BB_ERR_NOT_FOUND;
     if (!e->event_topic) return BB_ERR_INVALID_STATE;
 
     return bb_event_post(e->event_topic, 0, json, json_len + 1);
 }
 
-bb_err_t bb_cache_get_serialized(const char *topic, char *buf, size_t cap, size_t *out_len)
+bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t *out_len)
 {
-    if (!topic || !buf || cap == 0) return BB_ERR_INVALID_ARG;
+    if (!key || !buf || cap == 0) return BB_ERR_INVALID_ARG;
 
     ensure_init();
 
-    bb_cache_entry_t *e = find_entry_locked(topic);
+    bb_cache_entry_t *e = find_entry_locked(key);
     if (!e) return BB_ERR_NOT_FOUND;
 
     pthread_mutex_lock(&e->lock);
 
-    // Getter-mode topics have no dirty signal (data can change without an
-    // update), so always re-serialize. Owned-mode topics memoize via dirty.
+    // Getter-mode entries have no dirty signal (data can change without an
+    // update), so always re-serialize. Owned-mode entries memoize via dirty.
     bool need = e->dirty || e->cached_json == NULL || e->snapshot != NULL;
     if (need) {
         const void *snap = e->snapshot ? e->snapshot() : e->owned;
         if (!snap) {
             pthread_mutex_unlock(&e->lock);
-            bb_log_w(TAG, "topic '%s': no snapshot available", e->topic);
+            bb_log_w(TAG, "key '%s': no snapshot available", e->key);
             return BB_ERR_INVALID_STATE;
         }
 
@@ -317,8 +309,8 @@ bb_err_t bb_cache_get_serialized(const char *topic, char *buf, size_t cap, size_
     if (e->cached_len + 1 > cap) {
         size_t need_len = e->cached_len;
         pthread_mutex_unlock(&e->lock);
-        bb_log_w(TAG, "topic '%s': buffer too small (need %zu, cap %zu)",
-                 topic, need_len + 1, cap);
+        bb_log_w(TAG, "key '%s': buffer too small (need %zu, cap %zu)",
+                 key, need_len + 1, cap);
         return BB_ERR_NO_SPACE;
     }
     memcpy(buf, e->cached_json, e->cached_len + 1);  /* includes NUL */
@@ -339,41 +331,41 @@ size_t bb_cache_count(void)
     size_t count = 0;
     pthread_mutex_lock(&s_reg_lock);
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
-        if (s_entries[i].topic) count++;
+        if (s_entries[i].key[0] != '\0') count++;
     }
     pthread_mutex_unlock(&s_reg_lock);
     return count;
 }
 
-bb_err_t bb_cache_key_at(size_t index, const char **out_topic)
+bb_err_t bb_cache_key_at(size_t index, const char **out_key)
 {
-    if (!out_topic) return BB_ERR_INVALID_ARG;
+    if (!out_key) return BB_ERR_INVALID_ARG;
     if (index >= (size_t)BB_CACHE_MAX_TOPICS) return BB_ERR_NOT_FOUND;
 
     ensure_init();
 
     pthread_mutex_lock(&s_reg_lock);
-    *out_topic = s_entries[index].topic;
+    *out_key = (s_entries[index].key[0] != '\0') ? s_entries[index].key : NULL;
     pthread_mutex_unlock(&s_reg_lock);
     return BB_OK;
 }
 
-bb_err_t bb_cache_foreach(void (*cb)(const char *topic, void *ctx), void *ctx)
+bb_err_t bb_cache_foreach(void (*cb)(const char *key, void *ctx), void *ctx)
 {
     if (!cb) return BB_ERR_INVALID_ARG;
 
     ensure_init();
 
-    // Snapshot topic pointers under the registry lock, then release before
+    // Snapshot key pointers under the registry lock, then release before
     // invoking cb — avoids reentrancy deadlock if cb calls back into
-    // bb_cache. Pointers stay valid: bb_cache has no unregister, topics only
+    // bb_cache. Pointers stay valid: bb_cache has no unregister, keys only
     // get added.
     const char *keys[BB_CACHE_MAX_TOPICS];
     int n = 0;
 
     pthread_mutex_lock(&s_reg_lock);
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
-        if (s_entries[i].topic) keys[n++] = s_entries[i].topic;
+        if (s_entries[i].key[0] != '\0') keys[n++] = s_entries[i].key;
     }
     pthread_mutex_unlock(&s_reg_lock);
 
@@ -383,13 +375,13 @@ bb_err_t bb_cache_foreach(void (*cb)(const char *topic, void *ctx), void *ctx)
     return BB_OK;
 }
 
-bb_err_t bb_cache_get_raw(const char *topic, void *buf, size_t cap)
+bb_err_t bb_cache_get_raw(const char *key, void *buf, size_t cap)
 {
-    if (!topic || !buf || cap == 0) return BB_ERR_INVALID_ARG;
+    if (!key || !buf || cap == 0) return BB_ERR_INVALID_ARG;
 
     ensure_init();
 
-    bb_cache_entry_t *e = find_entry_locked(topic);
+    bb_cache_entry_t *e = find_entry_locked(key);
     if (!e) return BB_ERR_NOT_FOUND;
 
     pthread_mutex_lock(&e->lock);
@@ -399,7 +391,7 @@ bb_err_t bb_cache_get_raw(const char *topic, void *buf, size_t cap)
     }
     if (cap < e->size) {
         pthread_mutex_unlock(&e->lock);
-        bb_log_w(TAG, "get_raw '%s': buf too small (%zu < %zu)", topic, cap, e->size);
+        bb_log_w(TAG, "get_raw '%s': buf too small (%zu < %zu)", key, cap, e->size);
         return BB_ERR_NO_SPACE;
     }
     memcpy(buf, e->owned, e->size);
@@ -416,11 +408,11 @@ void bb_cache_reset_for_test(void)
 {
     pthread_mutex_lock(&s_reg_lock);
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
-        if (s_entries[i].topic) {
+        if (s_entries[i].key[0] != '\0') {
             pthread_mutex_destroy(&s_entries[i].lock);
             bb_mem_free(s_entries[i].owned);
             if (s_entries[i].cached_json) bb_json_free_str(s_entries[i].cached_json);
-            s_entries[i].topic       = NULL;
+            s_entries[i].key[0]      = '\0';
             s_entries[i].owned       = NULL;
             s_entries[i].snapshot    = NULL;
             s_entries[i].fn          = NULL;

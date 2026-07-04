@@ -56,7 +56,7 @@ typedef uint32_t bb_pub_telemetry_flags_t;
 typedef struct {
     const char              *topic;     /**< Subtopic name (e.g. "wifi"). Stable pointer. */
     bb_pub_gather_fn         gather;    /**< Gather fn; called under s_tick_lock. */
-    bb_cache_serialize_fn    serialize; /**< Serializer fn forwarded to bb_cache_register_ex. */
+    bb_cache_serialize_fn    serialize; /**< Serializer fn forwarded to bb_cache_register. */
     size_t                   snap_size; /**< sizeof the snapshot struct. */
     bb_pub_telemetry_flags_t flags;     /**< BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS. */
     void                    *ctx;       /**< Opaque context; passed to gather. */
@@ -69,7 +69,7 @@ typedef struct {
  *
  * Per-registration actions:
  *   1. Append to the internal telem-sources table.
- *   2. Call bb_cache_register_ex with BB_CACHE_FLAG_SSE when cfg->flags has
+ *   2. Call bb_cache_register with flags=BB_CACHE_FLAG_SSE when cfg->flags has
  *      BB_PUB_TELEM_SSE; BB_CACHE_FLAG_NONE otherwise.
  *   3. Register a back-compat adapter sample_fn via bb_pub_register_source so
  *      the source appears in bb_pub_source_count/info and /api/telemetry/metrics.

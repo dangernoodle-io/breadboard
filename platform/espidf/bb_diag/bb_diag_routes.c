@@ -930,9 +930,14 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 
     // Register diag.boot in bb_cache (owned struct, serializer shared with SSE).
     {
-        bb_err_t cerr = bb_cache_register(BB_DIAG_BOOT_TOPIC, NULL,
-                                          sizeof(bb_diag_boot_snap_t),
-                                          bb_diag_boot_serialize);
+        bb_cache_config_t cache_cfg = {
+            .key       = BB_DIAG_BOOT_TOPIC,
+            .snapshot  = NULL,
+            .snap_size = sizeof(bb_diag_boot_snap_t),
+            .serialize = bb_diag_boot_serialize,
+            .flags     = BB_CACHE_FLAG_SSE,
+        };
+        bb_err_t cerr = bb_cache_register(&cache_cfg);
         if (cerr != BB_OK) {
             bb_log_w(TAG, "bb_cache_register diag.boot failed: %d", (int)cerr);
         }

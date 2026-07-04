@@ -64,9 +64,14 @@ static void display_section_get(bb_json_t section, void *ctx)
 void bb_display_register_info(void)
 {
     // Register owned-struct cache entry first (REST path reads from it).
-    bb_err_t cerr = bb_cache_register(BB_DISPLAY_INFO_TOPIC, NULL,
-                                      sizeof(bb_display_snap_t),
-                                      bb_display_serialize);
+    bb_cache_config_t cache_cfg = {
+        .key       = BB_DISPLAY_INFO_TOPIC,
+        .snapshot  = NULL,
+        .snap_size = sizeof(bb_display_snap_t),
+        .serialize = bb_display_serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    bb_err_t cerr = bb_cache_register(&cache_cfg);
     if (cerr != BB_OK) {
         bb_log_w(TAG, "bb_cache_register failed: %d", (int)cerr);
         return;

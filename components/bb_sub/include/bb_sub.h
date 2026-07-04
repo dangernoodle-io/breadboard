@@ -18,16 +18,16 @@
 // consumer wanting SSE delivery for a SPECIFIC routed topic attaches it
 // explicitly, using the same topic name bb_cache registered.
 //
-// Topic string lifetime: bb_cache_register_ex stores the topic pointer it
-// is given WITHOUT copying it ("must outlive the registry" — see
-// bb_cache.h). Inbound topics (e.g. from an MQTT callback) are transient
-// stack buffers, so bb_sub keeps its own small persistent-storage registry
-// of "seen" topic names and passes bb_cache a pointer INTO that storage,
-// never the caller's transient pointer. This registry is capped at
-// BB_SUB_MAX_TOPICS (mirrors bb_cache's own BB_CACHE_MAX_TOPICS by
-// default) — once full, bb_sub_route() on a NEW topic name is dropped
-// (already-seen topics keep routing normally) and bb_sub_dropped_count()
-// is bumped.
+// Topic bookkeeping: bb_cache_register() copies the key it is given (see
+// bb_cache.h), so a caller's transient topic buffer no longer needs to
+// outlive registration. bb_sub still keeps its own small persistent-storage
+// registry of "seen" topic names — it backs the cache_registered dedup flag
+// (skip the redundant idempotent re-register call on every message) and
+// bb_sub's own drop accounting, independent of bb_cache's internals. This
+// registry is capped at BB_SUB_MAX_TOPICS (mirrors bb_cache's own
+// BB_CACHE_MAX_TOPICS by default) — once full, bb_sub_route() on a NEW
+// topic name is dropped (already-seen topics keep routing normally) and
+// bb_sub_dropped_count() is bumped.
 //
 // Aggregate change notification: every successful bb_sub_route() call also
 // posts to a single small bb_event topic (BB_SUB_EVENT_TOPIC) carrying the
@@ -144,7 +144,7 @@ bb_err_t bb_sub_subscribe(bb_event_handler_fn cb, void *user, bb_event_sub_t *ou
  *
  * ORDERING REQUIREMENT: if the test also resets bb_cache, it MUST call
  * bb_cache_reset_for_test() BEFORE this function. bb_sub_route() skips a
- * redundant bb_cache_register_ex() once an entry's cache_registered flag is
+ * redundant bb_cache_register() once an entry's cache_registered flag is
  * set; if bb_cache's registry is cleared out from under a still-"seen"
  * bb_sub entry (this function not yet called, or called first), the next
  * bb_sub_route() for that topic will skip re-registering it in bb_cache —

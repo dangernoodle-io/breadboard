@@ -831,9 +831,14 @@ bb_err_t bb_net_health_attach_sse(void)
     if (!s_cache_lock) return BB_ERR_INVALID_STATE;
 
     // Register net.health in bb_cache (owned-struct form).
-    bb_err_t cerr = bb_cache_register(BB_NET_HEALTH_TOPIC, NULL,
-                                      sizeof(bb_net_health_status_t),
-                                      bb_net_health_emit);
+    bb_cache_config_t cache_cfg = {
+        .key       = BB_NET_HEALTH_TOPIC,
+        .snapshot  = NULL,
+        .snap_size = sizeof(bb_net_health_status_t),
+        .serialize = bb_net_health_emit,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    bb_err_t cerr = bb_cache_register(&cache_cfg);
     if (cerr != BB_OK) {
         bb_log_w(TAG, "bb_cache_register failed: %d", (int)cerr);
         return cerr;

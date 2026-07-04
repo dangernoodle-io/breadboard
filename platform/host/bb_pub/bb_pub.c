@@ -1033,10 +1033,16 @@ bb_err_t bb_pub_register_telemetry(const bb_pub_telemetry_cfg_t *cfg)
     bb_cache_flags_t cache_flags =
         (cfg->flags & BB_PUB_TELEM_SSE) ? BB_CACHE_FLAG_SSE : BB_CACHE_FLAG_NONE;
 
-    bb_err_t err = bb_cache_register_ex(cfg->topic, NULL, cfg->snap_size,
-                                         cfg->serialize, cache_flags);
+    bb_cache_config_t cache_cfg = {
+        .key       = cfg->topic,
+        .snapshot  = NULL,
+        .snap_size = cfg->snap_size,
+        .serialize = cfg->serialize,
+        .flags     = cache_flags,
+    };
+    bb_err_t err = bb_cache_register(&cache_cfg);
     if (err != BB_OK) {
-        bb_log_w(TAG, "register_telemetry: bb_cache_register_ex failed for '%s': %d",
+        bb_log_w(TAG, "register_telemetry: bb_cache_register failed for '%s': %d",
                  cfg->topic, err);
         return err;
     }

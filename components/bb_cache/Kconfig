@@ -5,8 +5,22 @@ config BB_CACHE_MAX_TOPICS
     default 32
     range 1 64
     help
-        Fixed-size registry capacity. Each entry holds a topic name pointer,
-        optional owned struct buffer, serializer fn, and a mutex.
+        Fixed-size registry capacity. Each entry holds a fixed-size key
+        buffer, optional owned struct buffer, serializer fn, and a mutex.
         Increase if more than 8 state topics need caching.
+
+config BB_CACHE_KEY_MAX
+    int "Maximum length of a registered cache key (bytes, incl. NUL)"
+    default 96
+    range 8 256
+    help
+        Fixed-size per-entry key buffer. bb_cache_register() copies the
+        caller's key into this buffer (the caller no longer needs to keep
+        the string alive) and rejects keys of length >= this value with
+        BB_ERR_INVALID_ARG. The default (96) matches bb_sub's own ingress
+        topic cap (BB_SUB_TOPIC_MAX) so every dynamically-routed MQTT topic
+        bb_sub registers fits; static breadboard keys (e.g.
+        "update.available") are far shorter. Standing cost is
+        BB_CACHE_KEY_MAX * BB_CACHE_MAX_TOPICS bytes.
 
 endmenu

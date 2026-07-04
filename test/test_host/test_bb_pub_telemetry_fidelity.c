@@ -271,9 +271,14 @@ void test_bb_pub_telemetry_fidelity_rest_equals_sink_bytes(void)
 void test_bb_pub_telemetry_fidelity_cache_serialize_once_per_generation(void)
 {
     fid_reset();
-    bb_err_t rc = bb_cache_register_ex("telem_fid_cache", NULL,
-                                       sizeof(fid_snap_t), fid_serialize,
-                                       BB_CACHE_FLAG_NONE);
+    bb_cache_config_t cfg = {
+        .key       = "telem_fid_cache",
+        .snapshot  = NULL,
+        .snap_size = sizeof(fid_snap_t),
+        .serialize = fid_serialize,
+        .flags     = BB_CACHE_FLAG_NONE,
+    };
+    bb_err_t rc = bb_cache_register(&cfg);
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     fid_snap_t s = { .value = 7 };
@@ -312,9 +317,14 @@ void test_bb_pub_telemetry_fidelity_cache_serialize_once_per_generation(void)
 void test_bb_pub_telemetry_fidelity_cache_get_serialized_is_a_copy(void)
 {
     fid_reset();
-    TEST_ASSERT_EQUAL_INT(0, bb_cache_register_ex("telem_fid_cache", NULL,
-                                                  sizeof(fid_snap_t), fid_serialize,
-                                                  BB_CACHE_FLAG_NONE));
+    bb_cache_config_t cfg = {
+        .key       = "telem_fid_cache",
+        .snapshot  = NULL,
+        .snap_size = sizeof(fid_snap_t),
+        .serialize = fid_serialize,
+        .flags     = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_register(&cfg));
 
     fid_snap_t s = { .value = 111 };
     TEST_ASSERT_EQUAL_INT(0, bb_cache_update("telem_fid_cache", &s));
@@ -345,9 +355,14 @@ void test_bb_pub_telemetry_fidelity_cache_get_serialized_is_a_copy(void)
 void test_bb_pub_telemetry_fidelity_cache_get_serialized_no_space(void)
 {
     fid_reset();
-    TEST_ASSERT_EQUAL_INT(0, bb_cache_register_ex("telem_fid_cache", NULL,
-                                                  sizeof(fid_snap_t), fid_serialize,
-                                                  BB_CACHE_FLAG_NONE));
+    bb_cache_config_t cfg = {
+        .key       = "telem_fid_cache",
+        .snapshot  = NULL,
+        .snap_size = sizeof(fid_snap_t),
+        .serialize = fid_serialize,
+        .flags     = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_register(&cfg));
     fid_snap_t s = { .value = 1234567 };
     TEST_ASSERT_EQUAL_INT(0, bb_cache_update("telem_fid_cache", &s));
 
