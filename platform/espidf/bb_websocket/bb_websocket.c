@@ -21,6 +21,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdatomic.h>
 
 static const char *TAG = "bb_ws";
@@ -48,10 +49,31 @@ _Static_assert(ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0),
 // giving a reliable disconnect hook without polling the fd table per read.
 static atomic_size_t s_ws_open_count = 0;
 
+// ---------------------------------------------------------------------------
+// Disconnect notification (B1-hardening: WS-egress subscription-state clear
+// on disconnect, not just suspend)
+// ---------------------------------------------------------------------------
+// Reuses the same req->sess_ctx/free_ctx hook as the open-connection counter
+// above: sess_ctx is set to (fd + 1) (a non-NULL marker that also carries the
+// fd) at handshake completion, and decoded back out in ws_session_free_ctx so
+// the disconnect callback knows which fd went away without any extra
+// per-session state.
+static bb_websocket_disconnect_cb_t s_disconnect_cb  = NULL;
+static void                        *s_disconnect_ctx = NULL;
+
+void bb_websocket_set_disconnect_cb(bb_websocket_disconnect_cb_t cb, void *ctx)
+{
+    s_disconnect_cb  = cb;
+    s_disconnect_ctx = ctx;
+}
+
 static void ws_session_free_ctx(void *ctx)
 {
-    (void)ctx;
     atomic_fetch_sub(&s_ws_open_count, 1);
+    int fd = (int)((intptr_t)ctx - 1);
+    if (s_disconnect_cb) {
+        s_disconnect_cb(fd, s_disconnect_ctx);
+    }
 }
 
 size_t bb_websocket_open_count(void)
@@ -88,8 +110,20 @@ static esp_err_t ws_shim_handler(httpd_req_t *req)
         // session; use it as the connect signal and arm free_ctx as the
         // matching disconnect signal.
         if (req->sess_ctx == NULL) {
+            int fd = httpd_req_to_sockfd(req);
+            if (fd < 0) {
+                // (fd + 1) would encode to NULL here, colliding with the
+                // "unset/fresh-handshake" sentinel above -- a later teardown
+                // would then decode fd=-1 and client_sub_clear(-1) would be a
+                // silent no-op, leaking the subscription slot (the fd-reuse
+                // bleed this hook exists to prevent). Fail loud instead.
+                bb_log_e(TAG, "httpd_req_to_sockfd failed at handshake");
+                return ESP_FAIL;
+            }
             atomic_fetch_add(&s_ws_open_count, 1);
-            req->sess_ctx = (void *)1;  // non-NULL marker, not dereferenced
+            // (fd + 1) as a non-NULL marker: also carries fd through to
+            // ws_session_free_ctx for the disconnect callback above.
+            req->sess_ctx = (void *)(intptr_t)(fd + 1);
             req->free_ctx = ws_session_free_ctx;
         }
         return ESP_OK;
@@ -153,6 +187,7 @@ bb_err_t bb_websocket_register_endpoint(bb_http_handle_t server,
     // the endpoint count (small; same pattern as bb_event_routes SSE ctx).
     ws_endpoint_ctx_t *ctx = bb_malloc_prefer_spiram(sizeof(ws_endpoint_ctx_t));
     if (!ctx) {
+        bb_log_e(TAG, "ctx alloc failed for %s", path);
         return BB_ERR_NO_SPACE;
     }
     ctx->handler = handler;
@@ -244,6 +279,29 @@ typedef struct {
 static void async_send_worker(void *arg)
 {
     async_send_ctx_t *a = (async_send_ctx_t *)arg;
+
+    // TOCTOU re-check (B1-hardening): fds are snapshotted by the caller
+    // (e.g. bb_sink_ws's broadcast_filtered) under its own lock, then this
+    // work item is queued and runs later on httpd's async-send worker task.
+    // If the fd closed in the meantime, httpd_ws_send_frame_async would send
+    // into a dead socket; re-validating here with httpd_ws_get_fd_info
+    // (via bb_websocket_is_client) closes that window. It does NOT close the
+    // narrower window where the same fd number was already reused by a NEW
+    // WS client before this worker runs -- get_fd_info reports WEBSOCKET for
+    // that new client too, so it looks "live" either way. That residual case
+    // delivers at most one stray broadcast telemetry frame (broadcast-public
+    // data, bounded by this worker-queue's latency) to the wrong client; it
+    // is accepted and tracked as a follow-up, not fixed with a generation
+    // counter here.
+    if (!bb_websocket_is_client((bb_http_handle_t)a->server, a->fd)) {
+        bb_log_d(TAG, "async send skipped: fd %d no longer a live WS client", a->fd);
+        if (a->cb) {
+            a->cb((bb_err_t)ESP_ERR_INVALID_STATE, a->fd, a->ctx);
+        }
+        bb_mem_free(a->payload);
+        bb_mem_free(a);
+        return;
+    }
 
     httpd_ws_frame_t ws_pkt = {
         .final   = a->final,
@@ -424,6 +482,9 @@ bb_err_t bb_websocket_close_client(bb_http_handle_t s, int fd)
 
 size_t bb_websocket_open_count(void)
 { return 0; }
+
+void bb_websocket_set_disconnect_cb(bb_websocket_disconnect_cb_t cb, void *ctx)
+{ (void)cb; (void)ctx; }
 
 #endif // CONFIG_HTTPD_WS_SUPPORT
 #endif // ESP_PLATFORM

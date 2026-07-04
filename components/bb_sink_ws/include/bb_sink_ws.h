@@ -19,9 +19,14 @@ extern "C" {
 /**
  * Register the /ws WebSocket endpoint on `server` and fill `out` with a
  * bb_pub_sink_t that, on each publish, wraps the payload as
- *   {"ch":"<subtopic>","data":<original_json>}
- * and broadcasts the JSON text frame to all currently-active WebSocket clients
- * on `server` via bb_websocket_broadcast_all.
+ *   {"type":"push","topic":"<subtopic>","data":<original_json>}
+ * and broadcasts the JSON text frame to WebSocket clients subscribed to that
+ * topic (see the subscription-filtering rules in the implementation).
+ *
+ * Inbound frames are demuxed by envelope "type":
+ *   {"type":"sub","topic":[...]}  -> replaces the client's subscription set.
+ *   any other "type" (e.g. "cmd") -> RESERVED, ignored (no command path yet).
+ *   legacy {"sub":[...]} (no "type") is still accepted for back-compat.
  *
  * `bb_sink_ws_init` registers the /ws WebSocket endpoint on `server` and wires
  * a real handler. Pass the already-started server handle.

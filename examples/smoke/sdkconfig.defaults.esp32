@@ -39,3 +39,7 @@ CONFIG_BB_WIFI_GW_PROBE_ENABLE=y
 # reboot + NVS path and the do_safeguard_reboot #else branch keep
 # compiling+linking (default n, see components/bb_net_health/Kconfig).
 CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE=y
+# Enable ESP-IDF httpd WebSocket support so bb_websocket/bb_sink_ws compile
+# their real (non-stub) implementation instead of the BB_ERR_UNSUPPORTED
+# stubs used when this is unset.
+CONFIG_HTTPD_WS_SUPPORT=y

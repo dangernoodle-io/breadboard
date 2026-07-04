@@ -47,6 +47,10 @@ static bool s_client_active[BB_WEBSOCKET_MAX_FD];
 // depend on httpd_req_t->sess_ctx/free_ctx, so this is a plain counter).
 static size_t s_open_count = 0;
 
+// Disconnect callback registration, mirrors the espidf backend.
+static bb_websocket_disconnect_cb_t s_disconnect_cb  = NULL;
+static void                        *s_disconnect_ctx = NULL;
+
 // Force-fail flags
 static bool s_force_register_fail  = false;
 static bool s_force_recv_fail      = false;
@@ -381,6 +385,9 @@ void bb_websocket_host_reset_captures(void)
     memset(s_client_active, 0, sizeof(s_client_active));
     s_open_count = 0;
 
+    s_disconnect_cb  = NULL;
+    s_disconnect_ctx = NULL;
+
     s_force_register_fail    = false;
     s_force_recv_fail        = false;
     s_force_send_fail        = false;
@@ -458,5 +465,22 @@ void bb_websocket_host_simulate_close(void)
 {
     if (s_open_count > 0) {
         s_open_count--;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// bb_websocket_set_disconnect_cb / simulate_disconnect (host)
+// ---------------------------------------------------------------------------
+
+void bb_websocket_set_disconnect_cb(bb_websocket_disconnect_cb_t cb, void *ctx)
+{
+    s_disconnect_cb  = cb;
+    s_disconnect_ctx = ctx;
+}
+
+void bb_websocket_host_simulate_disconnect(int fd)
+{
+    if (s_disconnect_cb) {
+        s_disconnect_cb(fd, s_disconnect_ctx);
     }
 }
