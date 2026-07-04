@@ -32,6 +32,12 @@ typedef struct {
     bool                 has_value;       // owned mode: true once bb_cache_update_ex has
                                            // copied in a value at least once (guards a
                                            // false-negative memcmp against a zero-init buf)
+    bool                 fallback_seeded; // owned+fallback (PR-4a-0) only: true once the
+                                           // cold-start snapshot() seed has run. Deliberately
+                                           // separate from has_value -- has_value stays false
+                                           // across a seed so the first REAL write still
+                                           // reports changed=true unconditionally (see
+                                           // maybe_seed_fallback()).
     bb_cache_serialize_fn fn;
     bb_event_topic_t     event_topic;     // registered event topic handle (NULL if no SSE)
     pthread_mutex_t      lock;
@@ -54,6 +60,8 @@ static bool             s_initialized = false;
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+static inline bool is_plain_getter(const bb_cache_entry_t *e) { return e->snapshot && !e->owned; }
 
 static void ensure_init(void)
 {
@@ -92,6 +100,40 @@ static bb_cache_entry_t *find_entry_locked(const char *key)
     return e;
 }
 
+// Owned+fallback cold-start seed (PR-4a-0). Called under e->lock from every
+// read/serialize path that is about to hand out e->owned bytes.
+//
+// If the entry has BOTH an owned buffer (e->owned != NULL) AND a fallback
+// getter (e->snapshot != NULL) -- the owned+fallback tri-state -- and no real
+// write has landed yet (e->has_value == false), invoke snapshot() ONCE and
+// copy its bytes into the owned buffer so a reader never sees an empty/zero
+// cold-start value. `fallback_seeded` guards against invoking snapshot()
+// again on a subsequent read while still unpopulated.
+//
+// Deliberately does NOT set has_value: that flag is reserved for
+// bb_cache_update_ex's memcmp change-detect guard, so the entry's first REAL
+// write still reports changed=true unconditionally (identical to plain
+// owned mode), never comparing against these seeded bytes. The seed is a
+// boot-race bridge, not a "change" -- it must never look like a write to the
+// change-detection or (future PR-4b) observer-notify machinery.
+//
+// No-op for plain owned mode (e->snapshot == NULL). Every call site only
+// invokes this function when e->owned != NULL (the "not a plain getter"
+// branch) -- plain getter mode (owned == NULL) never reaches here -- so
+// e->snapshot != NULL at this point unambiguously means owned+fallback.
+static void maybe_seed_fallback(bb_cache_entry_t *e)
+{
+    if (!e->snapshot) return;   // plain owned mode, not owned+fallback
+    if (e->has_value || e->fallback_seeded) return;  // already real or seeded
+
+    const void *snap = e->snapshot();
+    if (snap) {
+        memcpy(e->owned, snap, e->size);
+        e->ts_ms = (int64_t)bb_clock_now_ms64();  // seed IS a sample
+    }
+    e->fallback_seeded = true;  // never retry, even if snapshot() returned NULL
+}
+
 // Serialize entry contents into obj under the entry's lock.
 // Entry must not be NULL. Caller holds no lock before calling.
 // out_ts_ms, when non-NULL, receives the entry's envelope sample-time: for
@@ -102,10 +144,13 @@ static bb_err_t serialize_locked(bb_cache_entry_t *e, bb_json_t obj, int64_t *ou
     pthread_mutex_lock(&e->lock);
 
     const void *snap;
-    if (e->snapshot) {
+    if (is_plain_getter(e)) {
+        // Plain getter mode: no owned buffer, always pull through.
         snap = e->snapshot();
         e->ts_ms = (int64_t)bb_clock_now_ms64();
     } else {
+        // Plain owned mode, or owned+fallback (seed if still unpopulated).
+        maybe_seed_fallback(e);
         snap = e->owned;
     }
 
@@ -158,18 +203,22 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
         return BB_ERR_NO_SPACE;
     }
 
-    // Owned mode: allocate struct buffer
+    // Tri-state ownership (see bb_cache.h): snap_size > 0 allocates an owned
+    // buffer regardless of snapshot -- covers both plain OWNED (snapshot ==
+    // NULL, size mandatory) and OWNED+FALLBACK (snapshot != NULL, size
+    // opts in the cold-start seed). snap_size == 0 with snapshot == NULL is
+    // invalid (owned mode needs a size); snap_size == 0 with snapshot !=
+    // NULL is plain GETTER mode (no owned buffer).
     void *owned = NULL;
-    if (!cfg->snapshot) {
-        if (cfg->snap_size == 0) {
-            pthread_mutex_unlock(&s_reg_lock);
-            return BB_ERR_INVALID_ARG;
-        }
+    if (cfg->snap_size > 0) {
         owned = bb_calloc_prefer_spiram(1, cfg->snap_size);
         if (!owned) {
             pthread_mutex_unlock(&s_reg_lock);
             return BB_ERR_NO_SPACE;
         }
+    } else if (!cfg->snapshot) {
+        pthread_mutex_unlock(&s_reg_lock);
+        return BB_ERR_INVALID_ARG;
     }
 
     // Register event topic only when SSE flag is set.
@@ -194,6 +243,7 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
     slot->owned       = owned;
     slot->size        = cfg->snap_size;
     slot->has_value   = false;
+    slot->fallback_seeded = false;
     slot->fn          = cfg->serialize;
     slot->event_topic = ev_topic;
     slot->flags       = cfg->flags;
@@ -215,9 +265,11 @@ bb_err_t bb_cache_update_ex(const char *key, const void *snap, bool *out_changed
     bb_cache_entry_t *e = find_entry_locked(key);
     if (!e) return BB_ERR_NOT_FOUND;
 
-    // Getter-mode: caller owns the struct; update is a no-op. No owned bytes
-    // to diff against, so changed is always reported false.
-    if (e->snapshot) {
+    // Plain getter-mode (no owned buffer): caller owns the struct; update is
+    // a no-op. No owned bytes to diff against, so changed is always reported
+    // false. Gated on e->owned (not e->snapshot) so owned+fallback entries
+    // (which have BOTH set) fall through to the real write path below.
+    if (!e->owned) {
         if (out_changed) *out_changed = false;
         return BB_OK;
     }
@@ -330,15 +382,17 @@ bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t 
 
     pthread_mutex_lock(&e->lock);
 
-    // Getter-mode entries have no dirty signal (data can change without an
-    // update), so always re-serialize. Owned-mode entries memoize via dirty.
-    bool need = e->dirty || e->cached_json == NULL || e->snapshot != NULL;
+    // Plain getter-mode entries (no owned buffer) have no dirty signal (data
+    // can change without an update), so always re-serialize. Owned-mode and
+    // owned+fallback entries (both have an owned buffer) memoize via dirty.
+    bool need = e->dirty || e->cached_json == NULL || is_plain_getter(e);
     if (need) {
         const void *snap;
-        if (e->snapshot) {
+        if (is_plain_getter(e)) {
             snap = e->snapshot();
             e->ts_ms = (int64_t)bb_clock_now_ms64();  // getter mode: read IS the sample
         } else {
+            maybe_seed_fallback(e);  // owned+fallback: seed if still unpopulated
             snap = e->owned;
         }
         if (!snap) {
@@ -469,6 +523,7 @@ bb_err_t bb_cache_get_raw(const char *key, void *buf, size_t cap)
         bb_log_w(TAG, "get_raw '%s': buf too small (%zu < %zu)", key, cap, e->size);
         return BB_ERR_NO_SPACE;
     }
+    maybe_seed_fallback(e);  // owned+fallback: seed if still unpopulated
     memcpy(buf, e->owned, e->size);
     pthread_mutex_unlock(&e->lock);
     return BB_OK;
@@ -490,6 +545,7 @@ void bb_cache_reset_for_test(void)
             s_entries[i].key[0]      = '\0';
             s_entries[i].owned       = NULL;
             s_entries[i].has_value   = false;
+            s_entries[i].fallback_seeded = false;
             s_entries[i].snapshot    = NULL;
             s_entries[i].fn          = NULL;
             s_entries[i].event_topic = NULL;

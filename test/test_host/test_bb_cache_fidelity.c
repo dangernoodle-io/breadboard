@@ -1246,3 +1246,311 @@ void test_bb_cache_envelope_get_serialized_undersized_buffer_untouched(void)
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
     TEST_ASSERT_EQUAL_CHAR('Z', small[0]);  // buffer untouched
 }
+
+// ---------------------------------------------------------------------------
+// PR-4a-0: owned+fallback cold-start seed (bb_cache.h tri-state, third combo:
+// snapshot != NULL AND snap_size > 0). Covers: seed-on-first-read, seed
+// invoked at most once, a real write always wins and never re-triggers the
+// seed, the seed does NOT count toward bb_cache_update_ex's has_value/changed
+// guard, a fallback getter returning NULL leaves the owned buffer untouched
+// (zero-initialized) without retrying, and every read/serialize entry point
+// (bb_cache_get_serialized, bb_cache_serialize_into, bb_cache_get_raw) seeds
+// consistently. Note: bb_cache core (PR-4a) has no observer/notify machinery
+// yet (that lands in PR-4b) -- "the seed does not fire observers" is
+// trivially true today; there is nothing to subscribe to.
+// ---------------------------------------------------------------------------
+
+static synth_snap_t s_cs_fallback_val = {.value = 77, .flag = true, .ratio = 4.25};
+static int  s_cs_snapshot_calls;
+static bool s_cs_snapshot_return_null;
+
+static const void *cs_fallback_snapshot(void)
+{
+    s_cs_snapshot_calls++;
+    if (s_cs_snapshot_return_null) return NULL;
+    return &s_cs_fallback_val;
+}
+
+static void cs_reset(void)
+{
+    s_cs_snapshot_calls = 0;
+    s_cs_snapshot_return_null = false;
+}
+
+// First read while unpopulated seeds the owned buffer from the fallback
+// getter -- the endpoint is never empty at cold start.
+void test_bb_cache_owned_fallback_seeds_on_first_read(void)
+{
+    reset_all();
+    cs_reset();
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        reg("test.cs.seed", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize));
+
+    char buf[256];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_get_serialized("test.cs.seed", buf, sizeof(buf), &len));
+
+    bb_json_t root = bb_json_parse(buf, len);
+    TEST_ASSERT_NOT_NULL(root);
+    bb_json_t data = bb_json_obj_get_item(root, "data");
+    TEST_ASSERT_NOT_NULL(data);
+    double value = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "value", &value));
+    TEST_ASSERT_EQUAL_INT(77, (int)value);
+    bb_json_free(root);
+
+    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
+}
+
+// The seed fires at most ONCE while unpopulated -- repeated reads before any
+// real write must not re-invoke the fallback getter. Uses
+// bb_cache_get_serialized, which additionally memoizes via the dirty flag
+// (a second, independent reason the getter isn't re-invoked on reads 2/3).
+void test_bb_cache_owned_fallback_seed_invoked_once_across_reads(void)
+{
+    reset_all();
+    cs_reset();
+
+    reg("test.cs.once", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
+
+    char buf[256];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.cs.once", buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.cs.once", buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.cs.once", buf, sizeof(buf), &len));
+
+    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
+}
+
+// maybe_seed_fallback's OWN idempotency guard (fallback_seeded), isolated
+// from bb_cache_get_serialized's separate dirty-flag memoization:
+// bb_cache_serialize_into has no dirty gate at all -- it calls
+// serialize_locked (and therefore maybe_seed_fallback) on EVERY call. Two
+// back-to-back calls on an unpopulated owned+fallback entry must still only
+// invoke the fallback getter once -- the second call observes
+// fallback_seeded==true (while has_value is still false, no real write yet)
+// and skips re-invoking it.
+void test_bb_cache_owned_fallback_serialize_into_seed_not_reinvoked_without_dirty_gate(void)
+{
+    reset_all();
+    cs_reset();
+
+    reg("test.cs.reinvoke", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
+
+    bb_json_t obj1 = bb_json_obj_new();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.cs.reinvoke", obj1));
+    bb_json_free(obj1);
+    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
+
+    bb_json_t obj2 = bb_json_obj_new();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.cs.reinvoke", obj2));
+    double value = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj2, "value", &value));
+    TEST_ASSERT_EQUAL_INT(77, (int)value);  // still the seeded value
+    bb_json_free(obj2);
+
+    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
+}
+
+// Plain GETTER mode (owned == NULL) reached via bb_cache_serialize_into and
+// bb_cache_post -- the two entry points that share serialize_locked with the
+// owned+fallback path above. Exercises the "e->snapshot && !e->owned" TRUE
+// branch (pure pull-through, no owned buffer, no seeding) in serialize_locked
+// specifically, as distinct from bb_cache_get_serialized's own copy of that
+// same branch (covered elsewhere in this file).
+void test_bb_cache_getter_mode_serialize_into_and_post_pull_through(void)
+{
+    reset_all();
+    bb_event_init(NULL);
+
+    bb_cache_config_t cfg = {
+        .key       = "test.cs.getterpost",
+        .snapshot  = env_getter_snapshot,
+        .snap_size = 0,
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.cs.getterpost", obj));
+    double value = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "value", &value));
+    TEST_ASSERT_EQUAL_INT(3, (int)value);  // s_env_getter_val.value
+    bb_json_free(obj);
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_post("test.cs.getterpost"));
+}
+
+// The cold-start seed is a read-side effect only -- it must never fire an
+// SSE observer/event. Subscribes to the owned+fallback key's event topic,
+// triggers the seed via a plain read (bb_cache_get_serialized), and asserts
+// the subscriber callback never runs. (bb_cache core has no reactive/notify
+// layer yet -- PR-4b -- so this pins the only observer-like mechanism that
+// exists today: BB_CACHE_FLAG_SSE's bb_event topic, which only bb_cache_post
+// ever posts to.)
+void test_bb_cache_owned_fallback_seed_does_not_fire_sse_observer(void)
+{
+    reset_all();
+    s_env_sse_calls = 0;
+
+    bb_cache_config_t cfg = {
+        .key       = "test.cs.noobserve",
+        .snapshot  = cs_fallback_snapshot,
+        .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    cs_reset();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+
+    bb_event_topic_t topic = NULL;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_event_topic_lookup("test.cs.noobserve", &topic));
+    bb_event_sub_t sub = NULL;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_event_subscribe(topic, env_sse_capture_cb, NULL, &sub));
+
+    char buf[256];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_get_serialized("test.cs.noobserve", buf, sizeof(buf), &len));  // seeds
+    bb_event_pump(0);
+
+    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
+    TEST_ASSERT_EQUAL_INT(0, s_env_sse_calls);  // the seed never posted an event
+
+    bb_event_unsubscribe(sub);
+}
+
+// A real bb_cache_update always wins and permanently stops the seed path
+// (strict boot bridge -- no expiry, never re-runs after a real write).
+void test_bb_cache_owned_fallback_real_write_wins_and_stops_seeding(void)
+{
+    reset_all();
+    cs_reset();
+
+    reg("test.cs.write", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
+
+    // Trigger the seed via a read before any real write.
+    char buf[256];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.cs.write", buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
+
+    synth_snap_t written = {.value = 123, .flag = false, .ratio = 9.5};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update("test.cs.write", &written));
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.cs.write", buf, sizeof(buf), &len));
+    bb_json_t root = bb_json_parse(buf, len);
+    bb_json_t data = bb_json_obj_get_item(root, "data");
+    double value = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "value", &value));
+    TEST_ASSERT_EQUAL_INT(123, (int)value);
+    bb_json_free(root);
+
+    // The real write (and the read that followed it) must never re-invoke
+    // the fallback getter.
+    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
+}
+
+// The seed does NOT set has_value -- bb_cache_update_ex's change-detection
+// guard is unaffected by it, so the entry's first REAL write still reports
+// changed=true unconditionally, even when the written bytes are byte-
+// identical to the seeded value.
+void test_bb_cache_owned_fallback_first_real_write_reports_changed_even_matching_seed(void)
+{
+    reset_all();
+    cs_reset();
+
+    reg("test.cs.changed", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
+
+    char buf[256];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_get_serialized("test.cs.changed", buf, sizeof(buf), &len));  // seeds
+
+    bool changed = false;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_update_ex("test.cs.changed", &s_cs_fallback_val, &changed));
+    TEST_ASSERT_TRUE_MESSAGE(changed,
+        "first REAL write must report changed=true even if it matches the cold-start seed");
+}
+
+// A fallback getter returning NULL leaves the owned buffer untouched (still
+// zero-initialized from register) and must not be retried on a later read.
+void test_bb_cache_owned_fallback_snapshot_returns_null_leaves_zero_value(void)
+{
+    reset_all();
+    cs_reset();
+    s_cs_snapshot_return_null = true;
+
+    reg("test.cs.nullsnap", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
+
+    char buf[256];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_get_serialized("test.cs.nullsnap", buf, sizeof(buf), &len));
+    bb_json_t root = bb_json_parse(buf, len);
+    bb_json_t data = bb_json_obj_get_item(root, "data");
+    double value = -1;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "value", &value));
+    TEST_ASSERT_EQUAL_INT(0, (int)value);  // owned buffer stayed zero-initialized
+    bb_json_free(root);
+    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
+
+    // Second read must not retry the failed seed.
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_get_serialized("test.cs.nullsnap", buf, sizeof(buf), &len));
+    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
+}
+
+// bb_cache_get_raw (the compact struct-read path) also seeds when
+// unpopulated -- consistent with the JSON read paths above.
+void test_bb_cache_owned_fallback_get_raw_seeds_when_unpopulated(void)
+{
+    reset_all();
+    cs_reset();
+
+    reg("test.cs.raw", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
+
+    synth_snap_t out = {0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_raw("test.cs.raw", &out, sizeof(out)));
+    TEST_ASSERT_EQUAL_INT(77, out.value);
+    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
+}
+
+// bb_cache_serialize_into (the embed-a-section path) also seeds when
+// unpopulated -- consistent with the enveloped read paths above.
+void test_bb_cache_owned_fallback_serialize_into_seeds(void)
+{
+    reset_all();
+    cs_reset();
+
+    reg("test.cs.serinto", cs_fallback_snapshot, sizeof(synth_snap_t), synth_serialize);
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.cs.serinto", obj));
+    double value = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "value", &value));
+    TEST_ASSERT_EQUAL_INT(77, (int)value);
+    bb_json_free(obj);
+    TEST_ASSERT_EQUAL_INT(1, s_cs_snapshot_calls);
+}
+
+// Plain OWNED mode still requires a non-zero snap_size (snapshot == NULL,
+// snap_size == 0 is invalid) -- unaffected by the tri-state register()
+// refactor.
+void test_bb_cache_register_owned_mode_requires_snap_size(void)
+{
+    reset_all();
+    bb_cache_config_t cfg = {
+        .key       = "test.cs.needsize",
+        .snapshot  = NULL,
+        .snap_size = 0,
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_register(&cfg));
+    TEST_ASSERT_FALSE(bb_cache_exists("test.cs.needsize"));
+}
