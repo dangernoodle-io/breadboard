@@ -33,6 +33,22 @@
 // ---------------------------------------------------------------------------
 void bb_cache_reset_for_test(void);
 
+// Test helper: mirrors the pre-config-struct bb_cache_register() shape for
+// tests that don't care about flags (defaults to BB_CACHE_FLAG_SSE, matching
+// the old legacy-form behaviour these tests were written against).
+static bb_err_t reg(const char *key, const void *(*snapshot)(void),
+                     size_t snap_size, bb_cache_serialize_fn serialize)
+{
+    bb_cache_config_t cfg = {
+        .key       = key,
+        .snapshot  = snapshot,
+        .snap_size = snap_size,
+        .serialize = serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    return bb_cache_register(&cfg);
+}
+
 // ---------------------------------------------------------------------------
 // Synthetic test topic definition
 // ---------------------------------------------------------------------------
@@ -207,7 +223,14 @@ static void assert_fidelity(const bb_cache_fidelity_topic_t *t)
 {
     bb_err_t err;
 
-    err = bb_cache_register(t->name, t->snapshot, t->snap_size, t->serialize);
+    bb_cache_config_t cfg = {
+        .key       = t->name,
+        .snapshot  = t->snapshot,
+        .snap_size = t->snap_size,
+        .serialize = t->serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    err = bb_cache_register(&cfg);
     TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, err, t->name);
 
     // Seed owned-mode entries; getter-mode entries provide their own data.
@@ -259,9 +282,9 @@ void test_bb_cache_register_idempotent(void)
 {
     reset_all();
     bb_err_t err;
-    err = bb_cache_register("test.synth", NULL, sizeof(synth_snap_t), synth_serialize);
+    err = reg("test.synth", NULL, sizeof(synth_snap_t), synth_serialize);
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    err = bb_cache_register("test.synth", NULL, sizeof(synth_snap_t), synth_serialize);
+    err = reg("test.synth", NULL, sizeof(synth_snap_t), synth_serialize);
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 }
 
@@ -269,7 +292,7 @@ void test_bb_cache_register_idempotent(void)
 void test_bb_cache_update_reflected_in_serialize(void)
 {
     reset_all();
-    bb_cache_register("test.synth", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.synth", NULL, sizeof(synth_snap_t), synth_serialize);
 
     synth_snap_t s1 = {.value = 1, .flag = false, .ratio = 0.1};
     bb_cache_update("test.synth", &s1);
@@ -320,37 +343,20 @@ void test_bb_cache_update_unknown_topic(void)
 }
 
 // Verify registry full returns BB_ERR_NO_SPACE.
-// Topic strings are heap-allocated so they outlive the registration call.
-// BB_CACHE_MAX_TOPICS may be large (default 32), so we generate them
-// dynamically rather than using a literal array of fixed size.
+// bb_cache_register() copies the key, so a reused stack buffer is fine.
 void test_bb_cache_registry_full(void)
 {
     reset_all();
-    char **topics = (char **)calloc((size_t)BB_CACHE_MAX_TOPICS, sizeof(char *));
-    TEST_ASSERT_NOT_NULL(topics);
+    char key_buf[32];
 
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
-        topics[i] = (char *)malloc(32);
-        TEST_ASSERT_NOT_NULL(topics[i]);
-        snprintf(topics[i], 32, "test.fill.%d", i);
-        bb_err_t err = bb_cache_register(topics[i], NULL,
-                                         sizeof(synth_snap_t), synth_serialize);
-        if (err != BB_OK) {
-            // Free remaining before asserting
-            for (int j = i; j < BB_CACHE_MAX_TOPICS; j++) {
-                free(topics[j]);
-                topics[j] = NULL;
-            }
-            free(topics);
-            TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, err, "fill should succeed");
-            return;
-        }
+        snprintf(key_buf, sizeof(key_buf), "test.fill.%d", i);
+        bb_err_t err = reg(key_buf, NULL, sizeof(synth_snap_t), synth_serialize);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, err, "fill should succeed");
     }
     // One more must fail
-    bb_err_t err = bb_cache_register("test.fill.overflow", NULL,
-                                     sizeof(synth_snap_t), synth_serialize);
-    for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) free(topics[i]);
-    free(topics);
+    bb_err_t err = reg("test.fill.overflow", NULL,
+                       sizeof(synth_snap_t), synth_serialize);
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
 }
 
@@ -387,11 +393,11 @@ void test_bb_cache_count_and_foreach_visit_all_registered_topics(void)
     TEST_ASSERT_EQUAL_UINT(0, bb_cache_count());
 
     synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
-    bb_cache_register("test.enum.a", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.enum.a", NULL, sizeof(synth_snap_t), synth_serialize);
     bb_cache_update("test.enum.a", &s);
-    bb_cache_register("test.enum.b", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.enum.b", NULL, sizeof(synth_snap_t), synth_serialize);
     bb_cache_update("test.enum.b", &s);
-    bb_cache_register("test.enum.c", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.enum.c", NULL, sizeof(synth_snap_t), synth_serialize);
     bb_cache_update("test.enum.c", &s);
 
     TEST_ASSERT_EQUAL_UINT(3, bb_cache_count());
@@ -410,7 +416,7 @@ void test_bb_cache_count_and_foreach_visit_all_registered_topics(void)
 void test_bb_cache_key_at_free_and_oob_slots(void)
 {
     reset_all();
-    bb_cache_register("test.enum.only", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.enum.only", NULL, sizeof(synth_snap_t), synth_serialize);
 
     bool found_registered = false;
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
@@ -451,7 +457,7 @@ void test_bb_cache_foreach_null_cb_returns_invalid_arg(void)
 void test_bb_cache_get_raw_round_trip_and_refuses_undersized(void)
 {
     reset_all();
-    bb_cache_register("test.raw", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.raw", NULL, sizeof(synth_snap_t), synth_serialize);
 
     synth_snap_t in = {.value = 7, .flag = true, .ratio = 2.5};
     bb_err_t err = bb_cache_update("test.raw", &in);
@@ -495,7 +501,7 @@ static const void *get_raw_test_getter(void) { return &s_getter_backing; }
 void test_bb_cache_get_raw_getter_mode_returns_invalid_state(void)
 {
     reset_all();
-    bb_cache_register("test.raw.getter", get_raw_test_getter, 0, synth_serialize);
+    reg("test.raw.getter", get_raw_test_getter, 0, synth_serialize);
 
     unsigned char buf[sizeof(synth_snap_t)];
     bb_err_t err = bb_cache_get_raw("test.raw.getter", buf, sizeof(buf));
@@ -515,7 +521,7 @@ void test_bb_cache_get_raw_absent_topic_returns_not_found(void)
 void test_bb_cache_get_raw_null_args_return_invalid_arg(void)
 {
     reset_all();
-    bb_cache_register("test.raw.args", NULL, sizeof(synth_snap_t), synth_serialize);
+    reg("test.raw.args", NULL, sizeof(synth_snap_t), synth_serialize);
     synth_snap_t s = {0};
     bb_cache_update("test.raw.args", &s);
 
@@ -531,7 +537,7 @@ void test_bb_cache_get_raw_null_args_return_invalid_arg(void)
 //
 // Regression test for a torn-read race: bb_cache_update/post/serialize_into/
 // post_serialized/get_serialized used to scan s_entries[] via a raw,
-// unlocked find_entry() while bb_cache_register_ex() concurrently wrote new
+// unlocked find_entry() while bb_cache_register() concurrently wrote new
 // slot fields under s_reg_lock. This test hammers a stable, already-
 // registered topic with lookups (bb_cache_get_serialized) from one thread
 // while a second thread concurrently registers a burst of new topics --
@@ -561,21 +567,17 @@ typedef struct {
     int lookup_bad_content_count;
 } b1_568_result_t;
 
-// bb_cache_register stores the caller's topic pointer verbatim (no internal
-// copy) and never releases it -- entries are add-only at runtime, cleared
-// only by bb_cache_reset_for_test() (which does not touch the string, only
-// the slot bookkeeping). So a registered topic pointer must remain valid for
-// as long as the process might still dereference a stale s_entries[] slot
-// from a *different* test's perspective, i.e. effectively forever within
-// this test binary -- static storage, never freed, same as string-literal
-// topics used elsewhere in this file.
+// bb_cache_register() copies the key it is given, so this static storage is
+// not required for pointer-lifetime reasons -- kept as static (rather than a
+// per-thread stack buffer) purely so both worker threads can format their
+// names once, up front, before the concurrent register/lookup burst begins.
 static char s_b1_568_names[B1_568_BURST_TOPICS][32];
 
 static void *b1_568_writer_fn(void *arg)
 {
     b1_568_result_t *res = (b1_568_result_t *)arg;
     for (int i = 0; i < B1_568_BURST_TOPICS; i++) {
-        bb_err_t err = bb_cache_register(s_b1_568_names[i], NULL, sizeof(synth_snap_t), synth_serialize);
+        bb_err_t err = reg(s_b1_568_names[i], NULL, sizeof(synth_snap_t), synth_serialize);
         if (err != BB_OK) {
             res->register_fail_count++;
             continue;
@@ -610,7 +612,7 @@ void test_bb_cache_find_entry_locked_survives_concurrent_registration(void)
 
     // Pre-existing stable entry, looked up by the reader thread throughout
     // the writer thread's registration burst.
-    bb_err_t err = bb_cache_register("test.b1568.stable", NULL, sizeof(synth_snap_t), synth_serialize);
+    bb_err_t err = reg("test.b1568.stable", NULL, sizeof(synth_snap_t), synth_serialize);
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
     synth_snap_t stable = {.value = 42, .flag = true, .ratio = 1.0};
     err = bb_cache_update("test.b1568.stable", &stable);
@@ -636,4 +638,189 @@ void test_bb_cache_find_entry_locked_survives_concurrent_registration(void)
 
     // stable + burst topics all present.
     TEST_ASSERT_EQUAL_UINT((unsigned)(1 + B1_568_BURST_TOPICS), bb_cache_count());
+}
+
+// ---------------------------------------------------------------------------
+// B1-576: config-struct API + key-copy + CONFIG_BB_CACHE_KEY_MAX
+// ---------------------------------------------------------------------------
+
+// Verify the bb_cache_config_t struct form registers and round-trips exactly
+// like the reg() helper's equivalent positional call.
+void test_bb_cache_register_config_struct_basic(void)
+{
+    reset_all();
+    bb_cache_config_t cfg = {
+        .key       = "test.cfg.basic",
+        .snapshot  = NULL,
+        .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_NONE,
+    };
+    bb_err_t err = bb_cache_register(&cfg);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+
+    synth_snap_t s = {.value = 5, .flag = true, .ratio = 1.5};
+    err = bb_cache_update("test.cfg.basic", &s);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+
+    bb_json_t obj = bb_json_obj_new();
+    err = bb_cache_serialize_into("test.cfg.basic", obj);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    char *json = bb_json_serialize(obj);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"value\":5"));
+    bb_json_free_str(json);
+    bb_json_free(obj);
+}
+
+// Verify bb_cache_register rejects a NULL cfg, NULL cfg->key, and NULL
+// cfg->serialize.
+void test_bb_cache_register_config_struct_null_args(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_register(NULL));
+
+    bb_cache_config_t no_key = {
+        .key = NULL, .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize, .flags = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_register(&no_key));
+
+    bb_cache_config_t no_serialize = {
+        .key = "test.cfg.nokey", .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
+        .serialize = NULL, .flags = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_register(&no_serialize));
+}
+
+// Key-copy UAF test: the caller's key buffer is freed/overwritten immediately
+// after bb_cache_register() returns. A later lookup by the ORIGINAL key value
+// must still succeed, proving bb_cache copied the key rather than storing the
+// caller's pointer (the pre-B1-576 footgun).
+void test_bb_cache_register_key_is_copied_no_uaf(void)
+{
+    reset_all();
+
+    char *key = (char *)malloc(32);
+    TEST_ASSERT_NOT_NULL(key);
+    strcpy(key, "test.uaf.key");
+
+    bb_cache_config_t cfg = {
+        .key       = key,
+        .snapshot  = NULL,
+        .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_NONE,
+    };
+    bb_err_t err = bb_cache_register(&cfg);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+
+    // Free the caller's key buffer immediately — bb_cache must have copied it.
+    memset(key, 0xAA, 32);
+    free(key);
+    key = NULL;
+
+    synth_snap_t s = {.value = 9, .flag = false, .ratio = 0.0};
+    err = bb_cache_update("test.uaf.key", &s);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, err, "lookup by original key value must survive freeing the caller's buffer");
+
+    bb_json_t obj = bb_json_obj_new();
+    err = bb_cache_serialize_into("test.uaf.key", obj);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    char *json = bb_json_serialize(obj);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"value\":9"));
+    bb_json_free_str(json);
+    bb_json_free(obj);
+}
+
+// Over-length key rejected with BB_ERR_INVALID_ARG, never silently truncated.
+void test_bb_cache_register_overlength_key_rejected(void)
+{
+    reset_all();
+
+    char long_key[BB_CACHE_KEY_MAX + 16];
+    memset(long_key, 'k', sizeof(long_key) - 1);
+    long_key[sizeof(long_key) - 1] = '\0';
+    TEST_ASSERT_EQUAL_UINT(sizeof(long_key) - 1, strlen(long_key));
+    TEST_ASSERT_TRUE(strlen(long_key) >= BB_CACHE_KEY_MAX);
+
+    bb_cache_config_t cfg = {
+        .key       = long_key,
+        .snapshot  = NULL,
+        .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_NONE,
+    };
+    bb_err_t err = bb_cache_register(&cfg);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+    TEST_ASSERT_EQUAL_UINT(0, bb_cache_count());
+}
+
+// A key at exactly BB_CACHE_KEY_MAX-1 chars (the longest that fits with the
+// NUL) must succeed — the rejection boundary is strlen(key) >= KEY_MAX, not
+// KEY_MAX itself.
+void test_bb_cache_register_key_at_max_length_boundary_succeeds(void)
+{
+    reset_all();
+
+    char max_key[BB_CACHE_KEY_MAX];
+    memset(max_key, 'k', sizeof(max_key) - 1);
+    max_key[sizeof(max_key) - 1] = '\0';
+    TEST_ASSERT_EQUAL_UINT((size_t)(BB_CACHE_KEY_MAX - 1), strlen(max_key));
+
+    bb_cache_config_t cfg = {
+        .key       = max_key,
+        .snapshot  = NULL,
+        .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_NONE,
+    };
+    bb_err_t err = bb_cache_register(&cfg);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_EQUAL_UINT(1, bb_cache_count());
+}
+
+// SSE-flag default preservation: a config struct with flags left at
+// BB_CACHE_FLAG_NONE (zero-init, matching a caller that forgets to migrate
+// the old always-SSE legacy default) must NOT get an SSE event topic —
+// bb_cache_post returns BB_ERR_INVALID_STATE, not BB_OK.
+void test_bb_cache_register_zero_flags_has_no_sse(void)
+{
+    reset_all();
+    bb_cache_config_t cfg = {
+        .key       = "test.cfg.noflags",
+        .snapshot  = NULL,
+        .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize,
+        .flags     = 0, // BB_CACHE_FLAG_NONE, explicit zero-init
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+
+    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update("test.cfg.noflags", &s));
+
+    bb_err_t err = bb_cache_post("test.cfg.noflags");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, err);
+}
+
+// SSE-flag default preservation: a migrated caller that explicitly sets
+// .flags = BB_CACHE_FLAG_SSE gets identical behaviour to the old always-SSE
+// legacy bb_cache_register() — bb_cache_post succeeds.
+void test_bb_cache_register_explicit_sse_flag_preserves_legacy_behavior(void)
+{
+    reset_all();
+    bb_event_init(NULL);
+    bb_cache_config_t cfg = {
+        .key       = "test.cfg.sseflag",
+        .snapshot  = NULL,
+        .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+
+    synth_snap_t s = {.value = 2, .flag = true, .ratio = 0.5};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update("test.cfg.sseflag", &s));
+
+    bb_err_t err = bb_cache_post("test.cfg.sseflag");
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
 }

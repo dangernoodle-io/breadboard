@@ -211,8 +211,14 @@ bb_err_t bb_ota_check_init(const bb_ota_check_cfg_t *cfg)
     }
     // LCOV_EXCL_STOP
 
-    err = bb_cache_register(BB_OTA_CHECK_TOPIC, NULL, sizeof(bb_ota_check_snap_t),
-                            bb_ota_check_serialize);
+    bb_cache_config_t cache_cfg = {
+        .key       = BB_OTA_CHECK_TOPIC,
+        .snapshot  = NULL,
+        .snap_size = sizeof(bb_ota_check_snap_t),
+        .serialize = bb_ota_check_serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    err = bb_cache_register(&cache_cfg);
     // LCOV_EXCL_START — cache_register failure is defensive (NO_SPACE only)
     if (err != BB_OK) {
         return err;

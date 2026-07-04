@@ -188,8 +188,14 @@ void test_bb_info_build_cache_fidelity(void)
     reset_all();
 
     // Register + seed
-    bb_err_t err = bb_cache_register("build", NULL, sizeof(bb_info_build_snap_t),
-                                     bb_info_build_emit);
+    bb_cache_config_t cfg = {
+        .key       = "build",
+        .snapshot  = NULL,
+        .snap_size = sizeof(bb_info_build_snap_t),
+        .serialize = bb_info_build_emit,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    bb_err_t err = bb_cache_register(&cfg);
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 
     bb_info_build_snap_t snap;
@@ -228,7 +234,14 @@ void test_bb_info_build_section_in_info_output(void)
     reset_all();
 
     // Register build section (the REST path reads from bb_cache)
-    bb_cache_register("build", NULL, sizeof(bb_info_build_snap_t), bb_info_build_emit);
+    bb_cache_config_t cfg = {
+        .key       = "build",
+        .snapshot  = NULL,
+        .snap_size = sizeof(bb_info_build_snap_t),
+        .serialize = bb_info_build_emit,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    bb_cache_register(&cfg);
     bb_info_build_snap_t snap;
     bb_info_build_capture(&snap);
     bb_cache_update("build", &snap);

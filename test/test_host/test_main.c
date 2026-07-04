@@ -3888,6 +3888,13 @@ void test_bb_cache_get_raw_getter_mode_returns_invalid_state(void);
 void test_bb_cache_get_raw_absent_topic_returns_not_found(void);
 void test_bb_cache_get_raw_null_args_return_invalid_arg(void);
 void test_bb_cache_find_entry_locked_survives_concurrent_registration(void);
+void test_bb_cache_register_config_struct_basic(void);
+void test_bb_cache_register_config_struct_null_args(void);
+void test_bb_cache_register_key_is_copied_no_uaf(void);
+void test_bb_cache_register_overlength_key_rejected(void);
+void test_bb_cache_register_key_at_max_length_boundary_succeeds(void);
+void test_bb_cache_register_zero_flags_has_no_sse(void);
+void test_bb_cache_register_explicit_sse_flag_preserves_legacy_behavior(void);
 
 // Forward declarations from test_bb_sub.c
 void test_bb_sub_route_registers_and_cache_reflects_payload(void);
@@ -7916,6 +7923,13 @@ int main(void) {
     RUN_TEST(test_bb_cache_get_raw_absent_topic_returns_not_found);
     RUN_TEST(test_bb_cache_get_raw_null_args_return_invalid_arg);
     RUN_TEST(test_bb_cache_find_entry_locked_survives_concurrent_registration);
+    RUN_TEST(test_bb_cache_register_config_struct_basic);
+    RUN_TEST(test_bb_cache_register_config_struct_null_args);
+    RUN_TEST(test_bb_cache_register_key_is_copied_no_uaf);
+    RUN_TEST(test_bb_cache_register_overlength_key_rejected);
+    RUN_TEST(test_bb_cache_register_key_at_max_length_boundary_succeeds);
+    RUN_TEST(test_bb_cache_register_zero_flags_has_no_sse);
+    RUN_TEST(test_bb_cache_register_explicit_sse_flag_preserves_legacy_behavior);
     RUN_TEST(test_bb_ota_check_topic_value_is_update_available);
 
     // bb_sub

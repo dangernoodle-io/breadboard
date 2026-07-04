@@ -189,17 +189,23 @@ A **satellite** is a small component that contributes a section to an existing e
 
 **Naming split:** `CONFIG_BB_<NAME>_AUTOREGISTER` for core/infrastructure components and health/info satellites (this file); `CONFIG_BB_<NAME>_AUTO_ATTACH` for event-topic satellites that attach a `bb_event` topic to `bb_event_routes` (see Auto-attach convention below). `bb_display_info` uses `CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH` — the one legacy exception to the `_AUTOREGISTER` name on a satellite; do **not** rename it.
 
-## bb_cache — canonical state-topic cache
+## bb_cache — canonical state-key cache
 
-`bb_cache` is the canonical state-topic cache + shared serializer: one registered serializer per topic guarantees SSE event payloads and REST handler payloads are byte-identical by construction. Two ownership modes: owned (`snapshot == NULL`, caller copies in via `bb_cache_update`) and getter (`snapshot != NULL`, bb_cache reads through the caller's accessor).
+`bb_cache` is the canonical state-key cache + shared serializer: one registered serializer per key guarantees SSE event payloads and REST handler payloads are byte-identical by construction. Two ownership modes: owned (`snapshot == NULL`, caller copies in via `bb_cache_update`) and getter (`snapshot != NULL`, bb_cache reads through the caller's accessor).
+
+**`bb_cache_register(const bb_cache_config_t *cfg)` (B1-576, config-struct API — collapsed `bb_cache_register`/`_ex`).** `cfg->key` is registry identity — it is **copied** into a fixed `CONFIG_BB_CACHE_KEY_MAX`-byte buffer (default 96, sized to cover `bb_sub`'s dynamic ingress keys), so the caller does not need to keep the string alive past the call; `strlen(cfg->key) >= CONFIG_BB_CACHE_KEY_MAX` is rejected loudly with `BB_ERR_INVALID_ARG`, never silently truncated. **Zero-initializing `cfg->flags` means `BB_CACHE_FLAG_NONE`** — callers that need SSE fan-out MUST set `.flags = BB_CACHE_FLAG_SSE` explicitly (the retired positional `bb_cache_register` defaulted to SSE; the struct form does not).
+
+**Topic vs key naming.** `key` is bb_cache's registry-identity field. `topic` is reserved for the wire/pub-sub name: the SSE event topic a key's `BB_CACHE_FLAG_SSE` binds to, `?topic=` on `GET /api/events`, and MQTT topics — these are often the *same string* as a key (e.g. `BB_OTA_CHECK_TOPIC "update.available"` names both the cache key and the SSE topic it's bound to), but the two concepts are named differently based on which role a given call site is playing.
 
 **Keyed enumeration + compact read (additive, backward-compatible):**
-- `bb_cache_count()` — number of currently registered topics.
-- `bb_cache_key_at(index, &out_topic)` — raw registry-slot lookup, `[0, BB_CACHE_MAX_TOPICS)`; `out_topic` may come back NULL for a free slot.
-- `bb_cache_foreach(cb, ctx)` — invokes `cb` once per registered topic. The topic set is snapshotted under the registry lock and released before invoking `cb`, so `cb` may safely call back into `bb_cache_*`.
-- `bb_cache_get_raw(topic, buf, cap)` — **owned-mode only**: copies `min(registered size, cap)` raw struct bytes into `buf`. Returns `BB_ERR_INVALID_STATE` for getter-mode topics (no owned struct to read).
+- `bb_cache_count()` — number of currently registered keys.
+- `bb_cache_key_at(index, &out_key)` — raw registry-slot lookup, `[0, BB_CACHE_MAX_TOPICS)`; `out_key` may come back NULL for a free slot.
+- `bb_cache_foreach(cb, ctx)` — invokes `cb` once per registered key. The key set is snapshotted under the registry lock and released before invoking `cb`, so `cb` may safely call back into `bb_cache_*`.
+- `bb_cache_get_raw(key, buf, cap)` — **owned-mode only**: copies `min(registered size, cap)` raw struct bytes into `buf`. Returns `BB_ERR_INVALID_STATE` for getter-mode keys (no owned struct to read).
 
 These four are the enumerable/compact read path for consumers (e.g. the brood fleet store) that want to walk the registry by key and read a struct's raw bytes without going through JSON serialization.
+
+**Convention: config-struct registration.** `bb_*_register` functions take a single config struct (`bb_*_config_t`) by pointer, not positional args — features extend by adding struct fields, never breaking signatures; retires the `foo`/`foo_ex` positional-expansion pattern (see `bb_cache_register` above).
 
 ## bb_sub — ingress router (bb_cache passthrough)
 

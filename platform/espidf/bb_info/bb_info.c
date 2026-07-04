@@ -201,10 +201,15 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
     bb_err_t err = bb_http_register_described_route(server, &s_info_route);
     if (err != BB_OK) return err;
 
-    // Register the bb_cache "build" topic and seed it with current build data.
-    bb_err_t cerr = bb_cache_register(BB_INFO_BUILD_TOPIC, NULL,
-                                      sizeof(bb_info_build_snap_t),
-                                      bb_info_build_emit);
+    // Register the bb_cache "build" key and seed it with current build data.
+    bb_cache_config_t cache_cfg = {
+        .key       = BB_INFO_BUILD_TOPIC,
+        .snapshot  = NULL,
+        .snap_size = sizeof(bb_info_build_snap_t),
+        .serialize = bb_info_build_emit,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    bb_err_t cerr = bb_cache_register(&cache_cfg);
     if (cerr != BB_OK) {
         bb_log_w(TAG, "bb_cache_register(build) failed: %d", (int)cerr);
     } else {
