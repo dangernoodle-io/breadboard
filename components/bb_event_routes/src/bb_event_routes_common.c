@@ -36,7 +36,7 @@ void bb_event_routes_reset_allocator(void) {
 static const char *TAG = "bb_event_routes";
 
 #ifndef CONFIG_BB_EVENT_ROUTES_RING_CAPACITY
-#define CONFIG_BB_EVENT_ROUTES_RING_CAPACITY 16
+#define CONFIG_BB_EVENT_ROUTES_RING_CAPACITY 8
 #endif
 #ifndef CONFIG_BB_EVENT_ROUTES_RETAINED_RING_CAPACITY
 #define CONFIG_BB_EVENT_ROUTES_RETAINED_RING_CAPACITY 1

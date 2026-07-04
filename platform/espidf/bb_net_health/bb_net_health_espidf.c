@@ -816,6 +816,15 @@ void bb_net_health_register_health(void)
 
 bb_err_t bb_net_health_attach_sse(void)
 {
+#if !CONFIG_BB_NET_HEALTH_SSE_AUTO_ATTACH
+    // Gate disabled (B1-546): safe no-op. Consumers (e.g. TM) call this
+    // unconditionally; with the gate off the "net.health" SSE topic is never
+    // attached and the retained-ring heap it would otherwise consume is
+    // never allocated. Gated inside the function body (rather than at the
+    // call site) so disabling the Kconfig requires no consumer code change.
+    bb_log_d(TAG, "attach_sse: BB_NET_HEALTH_SSE_AUTO_ATTACH disabled, no-op");
+    return BB_OK;
+#else
     // The evaluator (state + mutex + timer) must already be up — bb_net_health_start
     // (PRE_HTTP tier) creates s_cache_lock before the timer is armed. publish_snapshot
     // below does an unguarded xSemaphoreTake, so attach_sse must never run first.
@@ -931,6 +940,7 @@ bb_err_t bb_net_health_attach_sse(void)
 
     bb_log_i(TAG, "SSE attached (retained)");
     return BB_OK;
+#endif // CONFIG_BB_NET_HEALTH_SSE_AUTO_ATTACH
 }
 
 // ---------------------------------------------------------------------------

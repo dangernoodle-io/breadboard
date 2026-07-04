@@ -16,6 +16,19 @@ config BB_NET_HEALTH_ROUTES_AUTOREGISTER
         automatically via the bb_init regular tier after the HTTP server
         starts.
 
+config BB_NET_HEALTH_SSE_AUTO_ATTACH
+    bool "Auto-attach 'net.health' retained SSE topic to /api/events"
+    default y
+    depends on BB_EVENT_ROUTES_AUTOREGISTER
+    help
+        When enabled (default), bb_net_health_attach_sse() attaches the
+        retained "net.health" bb_event topic to /api/events, publishes an
+        initial snapshot, and starts the periodic evaluator that re-publishes
+        on state or early_warning change. Default y preserves the existing
+        behavior for callers of bb_net_health_attach_sse() (B1-546); disable
+        to make the call a no-op (e.g. when a board wants /api/health only,
+        without the SSE topic).
+
 config BB_NET_HEALTH_RSSI_GOOD
     int "RSSI threshold for GOOD bucket (dBm)"
     default -67

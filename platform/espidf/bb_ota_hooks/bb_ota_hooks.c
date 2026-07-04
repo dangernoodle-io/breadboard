@@ -242,7 +242,7 @@ static bb_err_t bb_ota_hooks_init(bb_http_handle_t server)
 #if defined(CONFIG_BB_OTA_HOOKS_AUTO_ATTACH) && CONFIG_BB_OTA_HOOKS_AUTO_ATTACH
     if (bb_event_topic_register("ota.progress", &s_ota_progress_topic) == BB_OK) {
         bb_openapi_register_topic_schema("ota.progress", k_ota_progress_schema, "OtaProgress");
-        bb_err_t ae = bb_event_routes_attach_ex("ota.progress", false); // non-retained
+        bb_err_t ae = bb_event_routes_attach_ex("ota.progress", true); // retained (B1-546)
         if (ae != BB_OK) bb_log_w(TAG, "auto-attach failed for 'ota.progress': %d", ae);
     }
 #endif

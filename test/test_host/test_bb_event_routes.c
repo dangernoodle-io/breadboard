@@ -741,6 +741,27 @@ void test_bb_event_routes_attach_non_retained_uses_configured_capacity(void)
     TEST_ASSERT_EQUAL((size_t)small_cfg.ring_capacity, bb_event_ring_capacity(ring));
 }
 
+/* Default (NULL cfg) non-retained ring capacity is the B1-546 right-sized
+ * default of 8 (was 16). Guards against a regression re-inflating the
+ * per-topic replay ring on the compiled-in CONFIG_BB_EVENT_ROUTES_RING_CAPACITY
+ * fallback in bb_event_routes_common.c. */
+void test_bb_event_routes_default_non_retained_ring_capacity_is_8(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(NULL);  /* defaults */
+
+    bb_event_topic_t t;
+    bb_event_topic_register("cap.default.discrete", &t);
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_attach_ex("cap.default.discrete", false));
+
+    const char *name = NULL;
+    bb_event_ring_t ring = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_routes_topic_info(0, &name, &ring));
+    TEST_ASSERT_NOT_NULL(ring);
+    TEST_ASSERT_EQUAL(8, bb_event_ring_capacity(ring));
+}
+
 // ---------------------------------------------------------------------------
 // Static pool tests (BB_EVENT_ROUTES_TESTING hook exercises both paths)
 // ---------------------------------------------------------------------------
