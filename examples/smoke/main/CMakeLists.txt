@@ -6,7 +6,7 @@ bb_embed_site(
     DIST_DIR "${CMAKE_CURRENT_LIST_DIR}/demo_site"
 )
 
-set(SMOKE_REQUIRES bb_nv bb_log bb_wifi bb_http bb_mdns bb_init bb_ota_pull bb_ota_push bb_ota_boot bb_info bb_board bb_manifest bb_ota_validator bb_system bb_openapi bb_led bb_led_info bb_ntp bb_ntp_info bb_led_gpio bb_led_pwm bb_led_apa102 bb_led_anim bb_button bb_button_gpio bb_button_events bb_event bb_event_ring bb_event_ring_espidf bb_event_routes bb_event_routes_espidf bb_ring_espidf bb_ring_diag bb_http_client bb_release_manifest bb_ota_check bb_temp bb_power bb_fan bb_sensors bb_tls_creds bb_mqtt bb_pub bb_sink_mqtt bb_pub_fan bb_pub_power bb_pub_thermal bb_pub_info bb_pub_wifi bb_pub_rtos bb_websocket bb_sink_ws bb_registry bb_partition bb_task_registry bb_net_health bb_arena bb_pool bb_udp_frame bb_sink_udp)
+set(SMOKE_REQUIRES bb_nv bb_log bb_wifi bb_http bb_mdns bb_init bb_ota_pull bb_ota_push bb_ota_boot bb_info bb_board bb_manifest bb_ota_validator bb_system bb_openapi bb_led bb_led_info bb_ntp bb_ntp_info bb_led_gpio bb_led_pwm bb_led_apa102 bb_led_anim bb_button bb_button_gpio bb_button_events bb_event bb_event_ring bb_event_ring_espidf bb_event_routes bb_event_routes_espidf bb_ring_espidf bb_ring_diag bb_http_client bb_release_manifest bb_ota_check bb_temp bb_power bb_fan bb_sensors bb_tls_creds bb_mqtt bb_pub bb_sink_mqtt bb_pub_fan bb_pub_power bb_pub_thermal bb_pub_info bb_pub_wifi bb_pub_rtos bb_websocket bb_sink_ws bb_registry bb_partition bb_task_registry bb_net_health bb_arena bb_pool bb_udp_frame bb_sink_udp bb_dispatch_cmd)
 
 if(FIRMWARE_BOARD STREQUAL "elecrow_p4_hmi7")
     list(APPEND SMOKE_REQUIRES bb_display bb_display_ek79007 bb_display_info)

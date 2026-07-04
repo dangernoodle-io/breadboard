@@ -31,6 +31,9 @@ typedef enum {
 void bb_dispatch_api_reset(void);
 
 /* Append a route.
+ * path must have static/registry-lifetime storage duration — the table
+ * stores the raw pointer, not a copy (safe for the intended
+ * string-literal-at-init usage).
  * Returns BB_OK on success, or BB_ERR_NO_SPACE when the table is full.
  * Caller should log the overflow — it is non-fatal. */
 bb_err_t bb_dispatch_api_add(bb_http_method_t method, const char *path,

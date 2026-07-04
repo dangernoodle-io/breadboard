@@ -32,9 +32,21 @@ typedef esp_err_t bb_err_t;
 #define BB_ERR_NO_MEM           ESP_ERR_NO_MEM
 #define BB_ERR_INVALID_STATE    ESP_ERR_INVALID_STATE
 #define BB_ERR_UNSUPPORTED      ESP_ERR_NOT_SUPPORTED
-#define BB_ERR_VALIDATION       (ESP_ERR_INVALID_ARG + 0x1000)
 #define BB_ERR_TIMEOUT          ESP_ERR_TIMEOUT
-#define BB_ERR_CONFLICT         (ESP_ERR_INVALID_ARG + 0x1001)
+// BB_ERR_BASE: breadboard-custom codes with no ESP-IDF component behind them
+// (no matching esp_err_to_name() entry). Every ESP-IDF component range is
+// documented and stays below 0x10000 (NVS 0x1100, ULP 0x1200, OTA 0x1500,
+// WIFI 0x3000, MESH 0x4000, FLASH 0x6000, HW_CRYPTO 0xc000, MEMPROT 0xd000)
+// — 0x10000 is chosen to sit clear of all of them so a bb_* code can never
+// numerically alias a real ESP_ERR_* value. Previously these were encoded as
+// ESP_ERR_INVALID_ARG + 0x1000/0x1001/0x1002, which landed inside NVS's
+// reserved 0x1100+ range (BB_ERR_VALIDATION == ESP_ERR_NVS_NOT_FOUND,
+// BB_ERR_CONFLICT == ESP_ERR_NVS_TYPE_MISMATCH) — do not reintroduce a base
+// inside any documented ESP-IDF component range above.
+#define BB_ERR_BASE             0x10000
+#define BB_ERR_VALIDATION       (BB_ERR_BASE + 1)
+#define BB_ERR_CONFLICT         (BB_ERR_BASE + 2)
+#define BB_ERR_UNAUTHORIZED     (BB_ERR_BASE + 3)
 #else
 typedef int bb_err_t;
 #define BB_OK                   0
@@ -48,6 +60,7 @@ typedef int bb_err_t;
 #define BB_ERR_TIMEOUT          8
 #define BB_ERR_CONFLICT         9
 #define BB_ERR_NO_MEM           10
+#define BB_ERR_UNAUTHORIZED     11
 #endif
 
 // ---------------------------------------------------------------------------
