@@ -1,0 +1,8 @@
+# Third-party deps for the bbdevice device-HTTP/WS client layer (installed into the harness venv).
+# Third-party runtime deps for the bbdevice CLI (device HTTP/WS test-and-ops).
+# Install into your venv:  python3 -m pip install -r scripts/bbdevice/requirements.txt
+websockets>=13,<14
+zeroconf>=0.132,<1
+jsonschema>=4,<5
+pyyaml>=6,<7
+paho-mqtt>=2,<3
