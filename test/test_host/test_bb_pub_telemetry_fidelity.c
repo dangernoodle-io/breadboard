@@ -282,7 +282,7 @@ void test_bb_pub_telemetry_fidelity_cache_serialize_once_per_generation(void)
     TEST_ASSERT_EQUAL_INT(0, rc);
 
     fid_snap_t s = { .value = 7 };
-    TEST_ASSERT_EQUAL_INT(0, bb_cache_update("telem_fid_cache", &s));
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_update(&(bb_cache_update_t){ .key = "telem_fid_cache", .snap = &s }));
 
     char   j1[256];
     size_t l1 = 0;
@@ -300,7 +300,7 @@ void test_bb_pub_telemetry_fidelity_cache_serialize_once_per_generation(void)
 
     // New generation: update bumps the next read to exactly two.
     s.value = 9;
-    TEST_ASSERT_EQUAL_INT(0, bb_cache_update("telem_fid_cache", &s));
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_update(&(bb_cache_update_t){ .key = "telem_fid_cache", .snap = &s }));
     char   j3[256];
     size_t l3 = 0;
     TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("telem_fid_cache", j3, sizeof(j3), &l3));
@@ -327,7 +327,7 @@ void test_bb_pub_telemetry_fidelity_cache_get_serialized_is_a_copy(void)
     TEST_ASSERT_EQUAL_INT(0, bb_cache_register(&cfg));
 
     fid_snap_t s = { .value = 111 };
-    TEST_ASSERT_EQUAL_INT(0, bb_cache_update("telem_fid_cache", &s));
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_update(&(bb_cache_update_t){ .key = "telem_fid_cache", .snap = &s }));
 
     char   buf_a[256];
     size_t la = 0;
@@ -336,7 +336,7 @@ void test_bb_pub_telemetry_fidelity_cache_get_serialized_is_a_copy(void)
 
     // New generation — re-serialize frees + replaces the entry's internal buffer.
     s.value = 222;
-    TEST_ASSERT_EQUAL_INT(0, bb_cache_update("telem_fid_cache", &s));
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_update(&(bb_cache_update_t){ .key = "telem_fid_cache", .snap = &s }));
     char   buf_b[256];
     size_t lb = 0;
     TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("telem_fid_cache", buf_b, sizeof(buf_b), &lb));
@@ -364,7 +364,7 @@ void test_bb_pub_telemetry_fidelity_cache_get_serialized_no_space(void)
     };
     TEST_ASSERT_EQUAL_INT(0, bb_cache_register(&cfg));
     fid_snap_t s = { .value = 1234567 };
-    TEST_ASSERT_EQUAL_INT(0, bb_cache_update("telem_fid_cache", &s));
+    TEST_ASSERT_EQUAL_INT(0, bb_cache_update(&(bb_cache_update_t){ .key = "telem_fid_cache", .snap = &s }));
 
     char   tiny[4] = { 'Z', 'Z', 'Z', 'Z' };
     size_t l = 99;

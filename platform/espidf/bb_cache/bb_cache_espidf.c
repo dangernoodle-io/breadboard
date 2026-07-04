@@ -29,7 +29,7 @@ typedef struct {
     const void         *(*snapshot)(void); // NULL = owned mode
     void                *owned;           // heap buffer in owned mode; NULL in getter mode
     size_t               size;            // sizeof owned struct (owned mode only)
-    bool                 has_value;       // owned mode: true once bb_cache_update_ex has
+    bool                 has_value;       // owned mode: true once bb_cache_update has
                                            // copied in a value at least once (guards a
                                            // false-negative memcmp against a zero-init buf)
     bool                 fallback_seeded; // owned+fallback (PR-4a-0) only: true once the
@@ -111,7 +111,7 @@ static bb_cache_entry_t *find_entry_locked(const char *key)
 // again on a subsequent read while still unpopulated.
 //
 // Deliberately does NOT set has_value: that flag is reserved for
-// bb_cache_update_ex's memcmp change-detect guard, so the entry's first REAL
+// bb_cache_update's memcmp change-detect guard, so the entry's first REAL
 // write still reports changed=true unconditionally (identical to plain
 // owned mode), never comparing against these seeded bytes. The seed is a
 // boot-race bridge, not a "change" -- it must never look like a write to the
@@ -256,13 +256,13 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
     return BB_OK;
 }
 
-bb_err_t bb_cache_update_ex(const char *key, const void *snap, bool *out_changed)
+bb_err_t bb_cache_update(const bb_cache_update_t *req)
 {
-    if (!key || !snap) return BB_ERR_INVALID_ARG;
+    if (!req || !req->key || !req->snap) return BB_ERR_INVALID_ARG;
 
     ensure_init();
 
-    bb_cache_entry_t *e = find_entry_locked(key);
+    bb_cache_entry_t *e = find_entry_locked(req->key);
     if (!e) return BB_ERR_NOT_FOUND;
 
     // Plain getter-mode (no owned buffer): caller owns the struct; update is
@@ -270,7 +270,7 @@ bb_err_t bb_cache_update_ex(const char *key, const void *snap, bool *out_changed
     // false. Gated on e->owned (not e->snapshot) so owned+fallback entries
     // (which have BOTH set) fall through to the real write path below.
     if (!e->owned) {
-        if (out_changed) *out_changed = false;
+        if (req->out_changed) *req->out_changed = false;
         return BB_OK;
     }
 
@@ -278,20 +278,18 @@ bb_err_t bb_cache_update_ex(const char *key, const void *snap, bool *out_changed
     // Compute change BEFORE the copy-in: first write since register is always
     // a change (guards the false negative where memcmp against a
     // zero-initialized owned buffer would otherwise report unchanged).
-    bool changed = (!e->has_value) || (memcmp(snap, e->owned, e->size) != 0);
-    memcpy(e->owned, snap, e->size);
+    bool changed = (!e->has_value) || (memcmp(req->snap, e->owned, e->size) != 0);
+    memcpy(e->owned, req->snap, e->size);
     e->has_value = true;
-    e->ts_ms = (int64_t)bb_clock_now_ms64();  // envelope sample-time (owned mode)
+    // Envelope sample-time (owned mode): default to now; req->ts_ms overrides
+    // when the caller supplies its own sample time (e.g. ingress/self-emit
+    // source timestamp).
+    e->ts_ms = req->ts_ms != 0 ? req->ts_ms : (int64_t)bb_clock_now_ms64();
     e->dirty = true;   // invalidate memoized bytes; do NOT serialize here
     pthread_mutex_unlock(&e->lock);
 
-    if (out_changed) *out_changed = changed;
+    if (req->out_changed) *req->out_changed = changed;
     return BB_OK;
-}
-
-bb_err_t bb_cache_update(const char *key, const void *snap)
-{
-    return bb_cache_update_ex(key, snap, NULL);
 }
 
 bool bb_cache_exists(const char *key)

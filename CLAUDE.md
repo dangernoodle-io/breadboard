@@ -207,6 +207,8 @@ These four are the enumerable/compact read path for consumers (e.g. the brood fl
 
 **Convention: config-struct registration.** `bb_*_register` functions take a single config struct (`bb_*_config_t`) by pointer, not positional args — features extend by adding struct fields, never breaking signatures; retires the `foo`/`foo_ex` positional-expansion pattern (see `bb_cache_register` above).
 
+**Convention: API variant naming.** A mutating/registering call with optional or growing parameters takes a **single params-struct as its sole argument** — never `_ex`/`_exN`, never a base+variant split. Genuinely-distinct *behavior* gets a capability name (`_into`, `_locked`, `_from`), not a suffix ladder. Instances: `bb_cache_register`, `bb_event_subscribe`, `bb_cache_update` (B1-600, collapsed `bb_cache_update`/`_ex` into `bb_cache_update(const bb_cache_update_t *req)`, which also added a `ts_ms` override field for ingress/self-emit sources that need to stamp a non-"now" sample time).
+
 ## bb_sub — ingress router (bb_cache passthrough)
 
 `bb_sub` is the single entry point for ingress data (MQTT-subscribed messages, or any external push) landing in `bb_cache`. `bb_sub_route(topic, payload, len)` registers the topic in `bb_cache` on first use (getter-mode, backed by `bb_sub`'s own fixed-size raw-JSON buffer) and updates it on every call thereafter — a thin passthrough, not a transform.

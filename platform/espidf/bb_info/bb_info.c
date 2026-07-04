@@ -215,7 +215,7 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
     } else {
         bb_info_build_snap_t snap;
         bb_info_build_capture(&snap);
-        bb_cache_update(BB_INFO_BUILD_TOPIC, &snap);
+        bb_cache_update(&(bb_cache_update_t){ .key = BB_INFO_BUILD_TOPIC, .snap = &snap });
 
         // Register the event topic for SSE fan-out.
         bb_err_t terr = bb_event_topic_register(BB_INFO_BUILD_TOPIC, &s_build_topic);
