@@ -136,6 +136,12 @@ void bb_websocket_host_simulate_close(void);
 // any) with the given fd, simulating a WS session teardown notification.
 void bb_websocket_host_simulate_disconnect(int fd);
 
+// ----- Connect callback stub -----------------------------------------------
+
+// Invoke the callback registered via bb_websocket_set_connect_cb() (if any)
+// with the given server/fd, simulating a WS handshake-completion notification.
+void bb_websocket_host_simulate_connect(bb_http_handle_t server, int fd);
+
 #ifdef __cplusplus
 }
 #endif

@@ -159,6 +159,23 @@ typedef void (*bb_websocket_disconnect_cb_t)(int fd, void *ctx);
 // On host: invoked synchronously by bb_websocket_host_simulate_disconnect().
 void bb_websocket_set_disconnect_cb(bb_websocket_disconnect_cb_t cb, void *ctx);
 
+// ---------------------------------------------------------------------------
+// Connect notification
+// ---------------------------------------------------------------------------
+
+// Called once per WS session establishment (handshake completion), with the
+// server handle and the fd of the newly-connected client.
+typedef void (*bb_websocket_connect_cb_t)(bb_http_handle_t server, int fd, void *ctx);
+
+// Register a callback invoked when a new WS session completes its handshake.
+// Global — one registration per process; a later call replaces the previous
+// one. Pass cb=NULL to unregister. ctx is passed through to cb unchanged.
+// On ESP-IDF: fires from the same connect-signal branch (req->sess_ctx ==
+// NULL on the first HTTP_GET call for a session) that arms the disconnect
+// hook above -- BEFORE any data frame has been received from the client.
+// On host: invoked synchronously by bb_websocket_host_simulate_connect().
+void bb_websocket_set_connect_cb(bb_websocket_connect_cb_t cb, void *ctx);
+
 // Close a single /ws client session to reclaim heap during a TLS window.
 // On ESP-IDF: calls httpd_sess_trigger_close; returns BB_OK on success.
 // On host: no-op, returns BB_OK.

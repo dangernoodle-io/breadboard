@@ -1792,6 +1792,16 @@ void test_sink_ws_resume_clears_flag(void);
 void test_bb_sink_ws_legacy_sub_frame_back_compat(void);
 void test_bb_sink_ws_reserved_type_ignored(void);
 void test_bb_sink_ws_client_pool_exhaustion_drops_extra_sub(void);
+void test_bb_sink_ws_reactive_delta_broadcasts_on_cache_change(void);
+void test_bb_sink_ws_reactive_delta_unchanged_rewrite_not_broadcast(void);
+void test_bb_sink_ws_reactive_delta_suspended_no_broadcast(void);
+void test_bb_sink_ws_reactive_delta_malloc_fail_no_broadcast(void);
+void test_bb_sink_ws_snapshot_on_connect_sends_current_state(void);
+void test_bb_sink_ws_snapshot_on_connect_multiple_keys_all_sent(void);
+void test_bb_sink_ws_snapshot_on_connect_no_keys_no_captures(void);
+void test_bb_sink_ws_snapshot_on_connect_suspended_skips(void);
+void test_bb_sink_ws_snapshot_on_connect_get_serialized_failure_skipped(void);
+void test_bb_sink_ws_snapshot_on_connect_malloc_fail_skipped(void);
 
 // Forward declarations from test_bb_pub_parity.c
 void test_bb_pub_parity_register_source_ex_null_tags_same_behavior(void);
@@ -3951,6 +3961,29 @@ void test_bb_cache_owned_fallback_snapshot_returns_null_leaves_zero_value(void);
 void test_bb_cache_owned_fallback_get_raw_seeds_when_unpopulated(void);
 void test_bb_cache_owned_fallback_serialize_into_seeds(void);
 void test_bb_cache_register_owned_mode_requires_snap_size(void);
+
+// Forward declarations from test_bb_cache_reactive.c
+void test_bb_cache_reactive_observe_null_cfg_returns_invalid_arg(void);
+void test_bb_cache_reactive_observe_overlength_key_returns_invalid_arg(void);
+void test_bb_cache_reactive_observe_pool_full_returns_no_space(void);
+void test_bb_cache_reactive_update_fires_on_change_only_when_changed(void);
+void test_bb_cache_reactive_update_key_filter_specific_key(void);
+void test_bb_cache_reactive_update_observe_all_matches_every_key(void);
+void test_bb_cache_reactive_update_no_observers_is_plain_passthrough(void);
+void test_bb_cache_reactive_update_respects_caller_out_changed(void);
+void test_bb_cache_reactive_update_null_req_returns_invalid_arg(void);
+void test_bb_cache_reactive_update_unknown_key_propagates_error_no_fire(void);
+void test_bb_cache_reactive_on_register_and_on_remove_never_invoked(void);
+void test_bb_cache_reactive_observer_without_on_change_is_skipped(void);
+void test_bb_cache_reactive_on_change_callback_reentrant_no_deadlock(void);
+void test_bb_cache_reactive_fire_on_change_oversized_envelope_no_fire(void);
+void test_bb_cache_reactive_fire_on_change_malformed_envelope_no_fire(void);
+
+// Forward declarations from test_bb_cache_reactive_off.c (LOW-3: runtime
+// exercise of the BB_CACHE_REACTIVE_ENABLE=0 static-inline path).
+void test_bb_cache_reactive_off_observe_returns_unsupported(void);
+void test_bb_cache_reactive_off_update_matches_bb_cache_update(void);
+void test_bb_cache_reactive_off_update_null_req_returns_invalid_arg(void);
 
 // Forward declarations from test_bb_sub.c
 void test_bb_sub_route_registers_and_cache_reflects_payload(void);
@@ -7934,6 +7967,16 @@ int main(void) {
     RUN_TEST(test_bb_sink_ws_legacy_sub_frame_back_compat);
     RUN_TEST(test_bb_sink_ws_reserved_type_ignored);
     RUN_TEST(test_bb_sink_ws_client_pool_exhaustion_drops_extra_sub);
+    RUN_TEST(test_bb_sink_ws_reactive_delta_broadcasts_on_cache_change);
+    RUN_TEST(test_bb_sink_ws_reactive_delta_unchanged_rewrite_not_broadcast);
+    RUN_TEST(test_bb_sink_ws_reactive_delta_suspended_no_broadcast);
+    RUN_TEST(test_bb_sink_ws_reactive_delta_malloc_fail_no_broadcast);
+    RUN_TEST(test_bb_sink_ws_snapshot_on_connect_sends_current_state);
+    RUN_TEST(test_bb_sink_ws_snapshot_on_connect_multiple_keys_all_sent);
+    RUN_TEST(test_bb_sink_ws_snapshot_on_connect_no_keys_no_captures);
+    RUN_TEST(test_bb_sink_ws_snapshot_on_connect_suspended_skips);
+    RUN_TEST(test_bb_sink_ws_snapshot_on_connect_get_serialized_failure_skipped);
+    RUN_TEST(test_bb_sink_ws_snapshot_on_connect_malloc_fail_skipped);
 
     // bb_pub telemetry SSOT fidelity
     RUN_TEST(test_bb_pub_telemetry_fidelity_serialize_once_per_tick_sinks);
@@ -8043,6 +8086,27 @@ int main(void) {
     RUN_TEST(test_bb_cache_owned_fallback_get_raw_seeds_when_unpopulated);
     RUN_TEST(test_bb_cache_owned_fallback_serialize_into_seeds);
     RUN_TEST(test_bb_cache_register_owned_mode_requires_snap_size);
+
+    // bb_cache_reactive
+    RUN_TEST(test_bb_cache_reactive_observe_null_cfg_returns_invalid_arg);
+    RUN_TEST(test_bb_cache_reactive_observe_overlength_key_returns_invalid_arg);
+    RUN_TEST(test_bb_cache_reactive_observe_pool_full_returns_no_space);
+    RUN_TEST(test_bb_cache_reactive_update_fires_on_change_only_when_changed);
+    RUN_TEST(test_bb_cache_reactive_update_key_filter_specific_key);
+    RUN_TEST(test_bb_cache_reactive_update_observe_all_matches_every_key);
+    RUN_TEST(test_bb_cache_reactive_update_no_observers_is_plain_passthrough);
+    RUN_TEST(test_bb_cache_reactive_update_respects_caller_out_changed);
+    RUN_TEST(test_bb_cache_reactive_update_null_req_returns_invalid_arg);
+    RUN_TEST(test_bb_cache_reactive_update_unknown_key_propagates_error_no_fire);
+    RUN_TEST(test_bb_cache_reactive_on_register_and_on_remove_never_invoked);
+    RUN_TEST(test_bb_cache_reactive_observer_without_on_change_is_skipped);
+    RUN_TEST(test_bb_cache_reactive_on_change_callback_reentrant_no_deadlock);
+    RUN_TEST(test_bb_cache_reactive_fire_on_change_oversized_envelope_no_fire);
+    RUN_TEST(test_bb_cache_reactive_fire_on_change_malformed_envelope_no_fire);
+    RUN_TEST(test_bb_cache_reactive_off_observe_returns_unsupported);
+    RUN_TEST(test_bb_cache_reactive_off_update_matches_bb_cache_update);
+    RUN_TEST(test_bb_cache_reactive_off_update_null_req_returns_invalid_arg);
+
     RUN_TEST(test_bb_ota_check_topic_value_is_update_available);
 
     // bb_sub

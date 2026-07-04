@@ -67,6 +67,20 @@ void bb_websocket_set_disconnect_cb(bb_websocket_disconnect_cb_t cb, void *ctx)
     s_disconnect_ctx = ctx;
 }
 
+// ---------------------------------------------------------------------------
+// Connect notification -- fires from the same connect-signal branch
+// (req->sess_ctx == NULL) that arms the disconnect hook above, before any
+// data frame has been received from the new client.
+// ---------------------------------------------------------------------------
+static bb_websocket_connect_cb_t s_connect_cb  = NULL;
+static void                     *s_connect_ctx = NULL;
+
+void bb_websocket_set_connect_cb(bb_websocket_connect_cb_t cb, void *ctx)
+{
+    s_connect_cb  = cb;
+    s_connect_ctx = ctx;
+}
+
 static void ws_session_free_ctx(void *ctx)
 {
     atomic_fetch_sub(&s_ws_open_count, 1);
@@ -125,6 +139,9 @@ static esp_err_t ws_shim_handler(httpd_req_t *req)
             // ws_session_free_ctx for the disconnect callback above.
             req->sess_ctx = (void *)(intptr_t)(fd + 1);
             req->free_ctx = ws_session_free_ctx;
+            if (s_connect_cb) {
+                s_connect_cb((bb_http_handle_t)req->handle, fd, s_connect_ctx);
+            }
         }
         return ESP_OK;
     }

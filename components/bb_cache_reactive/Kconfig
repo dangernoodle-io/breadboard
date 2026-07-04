@@ -1,0 +1,41 @@
+menu "breadboard: bb_cache_reactive"
+
+config BB_CACHE_REACTIVE_ENABLE
+    bool "Enable bb_cache_reactive change-driven observers"
+    default n
+    help
+        When disabled, bb_cache_reactive_observe() compiles to a safe
+        no-op (BB_ERR_UNSUPPORTED) and bb_cache_reactive_update() compiles
+        to a direct passthrough to bb_cache_update() -- callers can invoke
+        either unconditionally at zero cost. Disable on tight boards (e.g.
+        ESP32-C3) that do not need change-driven push delivery.
+
+        When enabled, observers registered via bb_cache_reactive_observe()
+        are fired synchronously (on the writer's thread, after the
+        internal observer-lock is released) whenever
+        bb_cache_reactive_update() reports a changed value.
+
+config BB_CACHE_REACTIVE_MAX_OBSERVERS
+    int "Maximum number of registered reactive observers"
+    default 8
+    range 1 32
+    depends on BB_CACHE_REACTIVE_ENABLE
+    help
+        Fixed-size observer pool. Each slot holds a key buffer
+        (BB_CACHE_KEY_MAX bytes) plus three callback pointers and a ctx
+        pointer -- cheap; raise only if more than 8 concurrent observers
+        (e.g. WS delta sink + display + brood aggregator) are needed.
+
+config BB_CACHE_REACTIVE_PAYLOAD_MAX
+    int "Max serialized {ts_ms,data} envelope bytes fetched per on_change fire"
+    default 512
+    range 64 4096
+    depends on BB_CACHE_REACTIVE_ENABLE
+    help
+        Stack buffer size used to fetch a changed key's serialized envelope
+        via bb_cache_get_serialized() before firing on_change. Must be large
+        enough to hold the largest observed key's envelope (512 matches the
+        bb_net_health "net.health" precedent) or fire_on_change silently
+        drops the notification (logged) for that key.
+
+endmenu
