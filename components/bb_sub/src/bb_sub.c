@@ -218,7 +218,7 @@ bb_err_t bb_sub_route(const char *topic, const char *payload, size_t len)
     // the bb_sub-specific case. bb_cache_post_serialized (raw passthrough,
     // no envelope) remains correct for platform/host/bb_pub/bb_pub.c's
     // already-enveloped legacy sink-delivery path — do not use it here.
-    bb_cache_update(entry->topic, snap);
+    bb_cache_update(&(bb_cache_update_t){ .key = entry->topic, .snap = snap });
     bb_cache_post(entry->topic);
     bb_mem_free(snap);
 

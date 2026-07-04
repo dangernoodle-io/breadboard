@@ -200,7 +200,7 @@ void test_bb_info_build_cache_fidelity(void)
 
     bb_info_build_snap_t snap;
     bb_info_build_capture(&snap);
-    err = bb_cache_update("build", &snap);
+    err = bb_cache_update(&(bb_cache_update_t){ .key = "build", .snap = &snap });
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 
     // Two independent serializations must be byte-identical
@@ -244,7 +244,7 @@ void test_bb_info_build_section_in_info_output(void)
     bb_cache_register(&cfg);
     bb_info_build_snap_t snap;
     bb_info_build_capture(&snap);
-    bb_cache_update("build", &snap);
+    bb_cache_update(&(bb_cache_update_t){ .key = "build", .snap = &snap });
 
     bb_info_register_section("build", build_section_get_for_test, NULL, k_build_schema);
     bb_info_freeze_for_test();

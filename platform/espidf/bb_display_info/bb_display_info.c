@@ -46,7 +46,7 @@ static void display_section_get(bb_json_t section, void *ctx)
 {
     (void)ctx;
     bb_display_snap_t snap = make_snap();
-    bb_cache_update(BB_DISPLAY_INFO_TOPIC, &snap);
+    bb_cache_update(&(bb_cache_update_t){ .key = BB_DISPLAY_INFO_TOPIC, .snap = &snap });
     bb_cache_serialize_into(BB_DISPLAY_INFO_TOPIC, section);
 }
 
@@ -113,7 +113,7 @@ static bb_err_t bb_display_info_register_init(bb_http_handle_t server)
 
     // Seed the cache with the initial snapshot then post to the event ring.
     bb_display_snap_t snap = make_snap();
-    bb_cache_update(BB_DISPLAY_INFO_TOPIC, &snap);
+    bb_cache_update(&(bb_cache_update_t){ .key = BB_DISPLAY_INFO_TOPIC, .snap = &snap });
     bb_cache_post(BB_DISPLAY_INFO_TOPIC);
 
     return BB_OK;

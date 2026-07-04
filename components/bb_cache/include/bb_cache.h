@@ -15,12 +15,12 @@
 //   snapshot != NULL, snap_size >  0  — OWNED+FALLBACK (cold-start seed,
 //                       PR-4a-0). Behaves exactly like OWNED (bb_cache_update
 //                       writes it, memoized/dirty-gated reads) EXCEPT: while
-//                       the entry is unpopulated (no bb_cache_update(_ex) call
+//                       the entry is unpopulated (no bb_cache_update() call
 //                       has landed yet), a read/serialize invokes snapshot()
 //                       ONCE to seed the owned buffer so the endpoint is never
 //                       empty at cold start. Strict boot-race bridge: no
 //                       expiry, and it never re-runs once a real write lands
-//                       (bb_cache_update_ex's has_value/changed semantics are
+//                       (bb_cache_update()'s has_value/changed semantics are
 //                       driven only by real writes -- the seed does not set
 //                       has_value, so the first real write still reports
 //                       changed=true unconditionally, exactly like plain
@@ -35,8 +35,9 @@
 // as {"ts_ms": <sample-time-ms>, "data": {...}} -- "data" is exactly what
 // cfg->serialize wrote (producers do NOT emit their own ts_ms field anymore).
 // bb_cache owns the timestamp: owned-mode keys are stamped at
-// bb_cache_update() (right after the copy-in); getter-mode keys are stamped
-// each time the snapshot() getter is invoked (the read IS the sample).
+// bb_cache_update() (right after the copy-in, or overridden via
+// bb_cache_update_t.ts_ms); getter-mode keys are stamped each time the
+// snapshot() getter is invoked (the read IS the sample).
 // bb_cache_serialize_into() does NOT apply the envelope -- it is the
 // embed-a-key-as-a-section primitive (see its own doc comment) and emits raw
 // "data" fields only.
@@ -134,34 +135,44 @@ typedef struct {
 // creating a duplicate entry.
 bb_err_t bb_cache_register(const bb_cache_config_t *cfg);
 
-// Copy *snap into the owned struct under the per-entry lock.
-// No-op (returns BB_OK) when the key was registered as plain GETTER mode
-// (snapshot != NULL, no owned buffer). Works for both plain OWNED and
-// OWNED+FALLBACK (any key with an owned buffer) -- a real write always
-// takes precedence over the cold-start seed.
-// Returns BB_ERR_NOT_FOUND if the key is not registered.
-bb_err_t bb_cache_update(const char *key, const void *snap);
+// Configuration for a bb_cache_update() call.
+//
+//   key          — registered key (required).
+//   snap         — pointer to the struct to copy in (required).
+//   out_changed  — optional (NULL ok). Owned / owned+fallback mode (key has
+//                  an owned buffer): set true when *snap differs (memcmp)
+//                  from the previously stored bytes, OR this is the first
+//                  REAL write since the key was registered (no false
+//                  negative against a zero-initialized owned buffer). This
+//                  holds even when a OWNED+FALLBACK cold-start seed already
+//                  populated the buffer via a prior read -- the seed never
+//                  sets the has_value flag this check relies on, so the
+//                  first real write still reports changed=true
+//                  unconditionally, regardless of whether *snap happens to
+//                  match the seeded bytes. The comparison happens BEFORE the
+//                  copy-in. Getter mode (no owned buffer): always set false
+//                  (bb_cache has no owned bytes to diff against).
+//   ts_ms        — 0 (default) stamps the envelope sample-time as now
+//                  (bb_clock_now_ms64()); nonzero overrides the stamp with a
+//                  caller-supplied sample time (e.g. an ingress source's own
+//                  timestamp, or a self-emit source's capture time).
+typedef struct {
+    const char *key;
+    const void *snap;
+    bool       *out_changed;
+    int64_t     ts_ms;
+} bb_cache_update_t;
 
-// Like bb_cache_update, but additionally reports whether the copied-in value
-// changed. out_changed is nullable.
-//
-// Owned / owned+fallback mode (key has an owned buffer): *out_changed is set
-// true when *snap differs (memcmp) from the previously stored bytes, OR this
-// is the first REAL write since the key was registered (no false negative
-// against a zero-initialized owned buffer). This holds even when a
-// OWNED+FALLBACK cold-start seed already populated the buffer via a prior
-// read -- the seed never sets the has_value flag this check relies on, so
-// the first real write still reports changed=true unconditionally,
-// regardless of whether *snap happens to match the seeded bytes. The
-// comparison happens BEFORE the copy-in; the copy, ts_ms stamp, and
-// dirty-invalidation behave identically to bb_cache_update.
-//
-// Getter mode (no owned buffer): *out_changed is always set false (bb_cache
-// has no owned bytes to diff against); behavior is otherwise identical to
-// bb_cache_update (no-op, returns BB_OK).
-//
+// Copy req->snap into the owned struct under the per-entry lock.
+// No-op (returns BB_OK) when the key was registered as plain GETTER mode
+// (snapshot != NULL, no owned buffer) -- out_changed is set false in that
+// case. Works for both plain OWNED and OWNED+FALLBACK (any key with an
+// owned buffer) -- a real write always takes precedence over the cold-start
+// seed. The copy, ts_ms stamp, and dirty-invalidation happen atomically
+// under the entry lock.
+// Returns BB_ERR_INVALID_ARG if req, req->key, or req->snap is NULL.
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
-bb_err_t bb_cache_update_ex(const char *key, const void *snap, bool *out_changed);
+bb_err_t bb_cache_update(const bb_cache_update_t *req);
 
 // Returns true if key is currently registered, false otherwise (including
 // when bb_cache has not yet been initialized).

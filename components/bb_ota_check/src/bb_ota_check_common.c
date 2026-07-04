@@ -172,7 +172,7 @@ static void publish_state(const bb_ota_check_status_t *st, const char *txt_value
     strncpy(snap.outcome, outcome_str(st->outcome), sizeof(snap.outcome) - 1);
     snap.last_check_ts = (st->last_check_us != 0) ? (int64_t)(st->last_check_us / 1000000) : 0;
 
-    bb_cache_update(BB_OTA_CHECK_TOPIC, &snap);
+    bb_cache_update(&(bb_cache_update_t){ .key = BB_OTA_CHECK_TOPIC, .snap = &snap });
     bb_cache_post(BB_OTA_CHECK_TOPIC);
 }
 
@@ -873,7 +873,7 @@ bb_err_t bb_ota_check_emit_status_json(bb_http_request_t *req)
         strncpy(snap.outcome, outcome_str(st.outcome), sizeof(snap.outcome) - 1);
         snap.last_check_ts = (st.last_check_us != 0)
                              ? (int64_t)(st.last_check_us / 1000000) : 0;
-        bb_cache_update(BB_OTA_CHECK_TOPIC, &snap);
+        bb_cache_update(&(bb_cache_update_t){ .key = BB_OTA_CHECK_TOPIC, .snap = &snap });
     }
 
     bb_json_t obj = bb_json_obj_new();

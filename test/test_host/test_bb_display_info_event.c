@@ -30,7 +30,7 @@ static char *serialize_snap(const bb_display_snap_t *snap)
         .flags     = BB_CACHE_FLAG_SSE,
     };
     bb_cache_register(&cfg);
-    bb_cache_update(BB_DISPLAY_INFO_TOPIC, snap);
+    bb_cache_update(&(bb_cache_update_t){ .key = BB_DISPLAY_INFO_TOPIC, .snap = snap });
     bb_json_t obj = bb_json_obj_new();
     bb_cache_serialize_into(BB_DISPLAY_INFO_TOPIC, obj);
     char *json = bb_json_serialize(obj);

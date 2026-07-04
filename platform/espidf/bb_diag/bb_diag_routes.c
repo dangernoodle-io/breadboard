@@ -161,7 +161,7 @@ static void diag_boot_publish(void)
     if (s_boot_topic == NULL) return;
     bb_diag_boot_snap_t snap;
     build_boot_snap(&snap);
-    bb_cache_update(BB_DIAG_BOOT_TOPIC, &snap);
+    bb_cache_update(&(bb_cache_update_t){ .key = BB_DIAG_BOOT_TOPIC, .snap = &snap });
     bb_cache_post(BB_DIAG_BOOT_TOPIC);
 }
 
@@ -246,7 +246,7 @@ static bb_err_t boot_get_handler(bb_http_request_t *req)
     {
         bb_diag_boot_snap_t fresh;
         build_boot_snap(&fresh);
-        bb_cache_update(BB_DIAG_BOOT_TOPIC, &fresh);
+        bb_cache_update(&(bb_cache_update_t){ .key = BB_DIAG_BOOT_TOPIC, .snap = &fresh });
     }
     bb_cache_serialize_into(BB_DIAG_BOOT_TOPIC, obj);
     char *str = bb_json_serialize(obj);

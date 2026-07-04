@@ -1401,7 +1401,7 @@ bb_err_t bb_pub_tick_once(void)
         telem_results[ti].telem_idx = ti;
         telem_results[ti].fired     = gathered;
         if (gathered) {
-            bb_err_t err = bb_cache_update(te->topic, s_snap_scratch);
+            bb_err_t err = bb_cache_update(&(bb_cache_update_t){ .key = te->topic, .snap = s_snap_scratch });
             if (err != BB_OK) {
                 bb_log_w(TAG, "tick: bb_cache_update failed for '%s': %d",
                          te->topic, err);

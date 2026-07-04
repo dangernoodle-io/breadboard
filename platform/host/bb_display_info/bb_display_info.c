@@ -38,7 +38,7 @@ static void display_section_get(bb_json_t section, void *ctx)
 {
     (void)ctx;
     bb_display_snap_t snap = make_snap();
-    bb_cache_update(BB_DISPLAY_INFO_TOPIC, &snap);
+    bb_cache_update(&(bb_cache_update_t){ .key = BB_DISPLAY_INFO_TOPIC, .snap = &snap });
     bb_cache_serialize_into(BB_DISPLAY_INFO_TOPIC, section);
 }
 

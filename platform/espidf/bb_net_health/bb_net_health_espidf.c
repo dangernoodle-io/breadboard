@@ -485,7 +485,7 @@ static void publish_snapshot(const bb_net_health_status_t *snap)
 
     // Update bb_cache owned struct — SSE uses bb_cache_post, REST uses
     // bb_cache_serialize_into; both serialize from the same snapshot.
-    bb_cache_update(BB_NET_HEALTH_TOPIC, snap);
+    bb_cache_update(&(bb_cache_update_t){ .key = BB_NET_HEALTH_TOPIC, .snap = snap });
     bb_cache_post(BB_NET_HEALTH_TOPIC);
 }
 
