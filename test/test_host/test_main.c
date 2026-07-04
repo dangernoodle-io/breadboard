@@ -3879,6 +3879,14 @@ void test_bb_cache_serialize_into_unknown_topic(void);
 void test_bb_cache_update_unknown_topic(void);
 void test_bb_cache_registry_full(void);
 void test_bb_ota_check_topic_value_is_update_available(void);
+void test_bb_cache_count_and_foreach_visit_all_registered_topics(void);
+void test_bb_cache_key_at_free_and_oob_slots(void);
+void test_bb_cache_key_at_null_out_returns_invalid_arg(void);
+void test_bb_cache_foreach_null_cb_returns_invalid_arg(void);
+void test_bb_cache_get_raw_round_trip_and_refuses_undersized(void);
+void test_bb_cache_get_raw_getter_mode_returns_invalid_state(void);
+void test_bb_cache_get_raw_absent_topic_returns_not_found(void);
+void test_bb_cache_get_raw_null_args_return_invalid_arg(void);
 
 // Forward declarations from test_bb_sub.c
 void test_bb_sub_route_registers_and_cache_reflects_payload(void);
@@ -7898,6 +7906,14 @@ int main(void) {
     RUN_TEST(test_bb_cache_serialize_into_unknown_topic);
     RUN_TEST(test_bb_cache_update_unknown_topic);
     RUN_TEST(test_bb_cache_registry_full);
+    RUN_TEST(test_bb_cache_count_and_foreach_visit_all_registered_topics);
+    RUN_TEST(test_bb_cache_key_at_free_and_oob_slots);
+    RUN_TEST(test_bb_cache_key_at_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_cache_foreach_null_cb_returns_invalid_arg);
+    RUN_TEST(test_bb_cache_get_raw_round_trip_and_refuses_undersized);
+    RUN_TEST(test_bb_cache_get_raw_getter_mode_returns_invalid_state);
+    RUN_TEST(test_bb_cache_get_raw_absent_topic_returns_not_found);
+    RUN_TEST(test_bb_cache_get_raw_null_args_return_invalid_arg);
     RUN_TEST(test_bb_ota_check_topic_value_is_update_available);
 
     // bb_sub

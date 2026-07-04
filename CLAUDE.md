@@ -189,6 +189,26 @@ A **satellite** is a small component that contributes a section to an existing e
 
 **Naming split:** `CONFIG_BB_<NAME>_AUTOREGISTER` for core/infrastructure components and health/info satellites (this file); `CONFIG_BB_<NAME>_AUTO_ATTACH` for event-topic satellites that attach a `bb_event` topic to `bb_event_routes` (see Auto-attach convention below). `bb_display_info` uses `CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH` — the one legacy exception to the `_AUTOREGISTER` name on a satellite; do **not** rename it.
 
+## bb_cache — canonical state-topic cache
+
+`bb_cache` is the canonical state-topic cache + shared serializer: one registered serializer per topic guarantees SSE event payloads and REST handler payloads are byte-identical by construction. Two ownership modes: owned (`snapshot == NULL`, caller copies in via `bb_cache_update`) and getter (`snapshot != NULL`, bb_cache reads through the caller's accessor).
+
+**Keyed enumeration + compact read (additive, backward-compatible):**
+- `bb_cache_count()` — number of currently registered topics.
+- `bb_cache_key_at(index, &out_topic)` — raw registry-slot lookup, `[0, BB_CACHE_MAX_TOPICS)`; `out_topic` may come back NULL for a free slot.
+- `bb_cache_foreach(cb, ctx)` — invokes `cb` once per registered topic. The topic set is snapshotted under the registry lock and released before invoking `cb`, so `cb` may safely call back into `bb_cache_*`.
+- `bb_cache_get_raw(topic, buf, cap)` — **owned-mode only**: copies `min(registered size, cap)` raw struct bytes into `buf`. Returns `BB_ERR_INVALID_STATE` for getter-mode topics (no owned struct to read).
+
+These four are the enumerable/compact read path for consumers (e.g. the brood fleet store) that want to walk the registry by key and read a struct's raw bytes without going through JSON serialization.
+
+## bb_sub — ingress router (bb_cache passthrough)
+
+`bb_sub` is the single entry point for ingress data (MQTT-subscribed messages, or any external push) landing in `bb_cache`. `bb_sub_route(topic, payload, len)` registers the topic in `bb_cache` on first use (getter-mode, backed by `bb_sub`'s own fixed-size raw-JSON buffer) and updates it on every call thereafter — a thin passthrough, not a transform.
+
+**Note the contrast with `bb_cache`'s owned-mode topics:** `bb_sub` stores the **raw JSON payload bytes** per topic in a fixed-size buffer (`BB_SUB_MAX_PAYLOAD_BYTES`, default 1024) — it is NOT compact/struct-shaped like an owned-mode `bb_cache` entry; `bb_cache_get_raw()` (owned-mode only) does not apply to `bb_sub`-routed topics.
+
+**Aggregate event.** Every successful `bb_sub_route()` call also posts to the `"bb_sub.updated"` `bb_event` topic (`BB_SUB_EVENT_TOPIC`) carrying the routed topic name — a single small fan-out point for "something changed" notifications, independent of the per-topic `bb_cache` state itself.
+
 ## bb_alert — one-shot alert event channel
 
 `bb_alert` is an opt-in component for emitting discrete, one-shot alert events on the `"alert"` `bb_event` topic (non-retained, non-replay). It is designed for transient failure or state-change signals; durable state belongs in retained `bb_cache` topics.
