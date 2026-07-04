@@ -192,6 +192,7 @@ COMPONENT_MAP = {
             "platform/host/bb_mdns/bb_mdns_host.c",
             "components/bb_mdns/bb_mdns_lifecycle.c",
             "components/bb_mdns/bb_mdns_util.c",
+            "components/bb_mdns/bb_mdns_refresh_decision.c",
         ],
         "depends":  ["bb_core", "bb_nv"],
         # components/bb_mdns/ already in includes above, which also resolves bb_mdns_test.h
