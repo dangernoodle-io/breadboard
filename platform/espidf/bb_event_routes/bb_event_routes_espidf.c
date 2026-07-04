@@ -15,6 +15,7 @@
 #include "bb_pool.h"
 #include "sse_bundle_decision.h"
 #include "sse_pool_reclaim_decision.h"
+#include "sse_connect_error_decision.h"
 
 #include <assert.h>
 #include <inttypes.h>
@@ -666,36 +667,54 @@ static bb_err_t events_handler(bb_http_request_t *req)
 
     bb_event_routes_client_t *client = NULL;
     bb_err_t err = bb_event_routes_client_acquire_ex(&client, topic_filter);
-    if (err == BB_ERR_NO_SPACE) {
-        bb_http_resp_set_status(req, 503);
-        bb_http_json_obj_stream_t obj;
-        bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "max_clients");
-        bb_http_resp_json_obj_end(&obj);
-        return BB_OK;
-    }
     if (err != BB_OK) {
-        bb_http_resp_set_status(req, 500);
+        // B1-561: unified through sse_connect_error_status() — same
+        // BB_ERR_NO_SPACE-vs-other mapping as the task-pool-ensure branch
+        // below, no behavior change from the prior explicit NO_SPACE/other
+        // split.
+        int status = sse_connect_error_status(err);
+        bb_http_resp_set_status(req, status);
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "event routes not initialized");
+        if (status == 503) {
+            bb_http_resp_json_obj_set_str(&obj, "error", "max_clients");
+        } else {
+            bb_http_resp_json_obj_set_str(&obj, "error", "event routes not initialized");
+        }
         bb_http_resp_json_obj_end(&obj);
-        return err;
+        return (status == 503) ? BB_OK : err;
     }
 
     // Lazy-heap default: create the task-bundle pool on the first-ever SSE
     // connect. No-op once created (either backing) — see
     // sse_task_bundles_ensure(). A failed heap allocation fails soft: the
-    // connection is rejected and retried on the next connect.
+    // connection is rejected and retried on the next connect. B1-561: a
+    // transient BB_ERR_NO_SPACE (heap pressure) maps to the same retryable
+    // 503 idiom as the sibling payload-pool and max_clients acquire
+    // failures below (EventSource auto-retries); any other error is a
+    // genuine failure and stays a hard 500. sse_connect_error_status() is
+    // the pure, host-testable status decision — see
+    // sse_connect_error_decision.h.
     bb_err_t pool_err = sse_task_bundles_ensure();
     if (pool_err != BB_OK) {
         bb_event_routes_client_release(client);
-        bb_http_resp_set_status(req, 500);
+        int status = sse_connect_error_status(pool_err);
+        bb_http_resp_set_status(req, status);
         bb_http_json_obj_stream_t obj;
         bb_http_resp_json_obj_begin(req, &obj);
-        bb_http_resp_json_obj_set_str(&obj, "error", "event routes not initialized");
+        if (status == 503) {
+            // B1-561: distinct body value ("busy") from the genuine
+            // max_clients path — this 503 is transient heap pressure at the
+            // lazy first-connect pool allocation, not exhaustion of the
+            // client-slot pool. Separately counted (below) so the two
+            // causes stay observable even though both retry the same way.
+            bb_event_routes_note_pool_ensure_deferred();
+            bb_http_resp_json_obj_set_str(&obj, "error", "busy");
+        } else {
+            bb_http_resp_json_obj_set_str(&obj, "error", "event routes not initialized");
+        }
         bb_http_resp_json_obj_end(&obj);
-        return pool_err;
+        return (status == 503) ? BB_OK : pool_err;
     }
 
     // B1-484/B1-492 reap gate: this bb_pool_acquire() call is the
@@ -790,9 +809,11 @@ static const bb_route_response_t s_events_responses[] = {
       "event routes not initialized, or async handler init failed" },
     { 503, "application/json",
       "{\"type\":\"object\","
-      "\"properties\":{\"error\":{\"type\":\"string\",\"enum\":[\"max_clients\"]}},"
+      "\"properties\":{\"error\":{\"type\":\"string\",\"enum\":[\"max_clients\",\"busy\"]}},"
       "\"required\":[\"error\"]}",
-      "maximum concurrent clients reached" },
+      "maximum concurrent clients reached (\"max_clients\"), or transient "
+      "heap pressure at connect (\"busy\", B1-561; see pool_ensure_deferred "
+      "on GET /api/diag/events) — both retryable" },
     { 0 },
 };
 
@@ -876,6 +897,8 @@ static bb_err_t diag_events_handler(bb_http_request_t *req)
     bb_http_resp_json_obj_set_int(&obj, "active_clients", (int64_t)bb_event_routes_active_client_count());
     bb_http_resp_json_obj_set_int(&obj, "slot_reuse_deferred",
                                    (int64_t)bb_event_routes_slot_reuse_deferred_count());
+    bb_http_resp_json_obj_set_int(&obj, "pool_ensure_deferred",
+                                   (int64_t)bb_event_routes_pool_ensure_deferred_count());
 
     return bb_http_resp_json_obj_end(&obj);
 }
@@ -897,12 +920,15 @@ static const bb_route_response_t s_diag_events_responses[] = {
       "\"last_id\",\"last_post_age_ms\",\"last_size\"]}},"
       "\"max_clients\":{\"type\":\"integer\"},"
       "\"active_clients\":{\"type\":\"integer\"},"
-      "\"slot_reuse_deferred\":{\"type\":\"integer\"}},"
-      "\"required\":[\"topics\",\"max_clients\",\"active_clients\",\"slot_reuse_deferred\"]}",
+      "\"slot_reuse_deferred\":{\"type\":\"integer\"},"
+      "\"pool_ensure_deferred\":{\"type\":\"integer\"}},"
+      "\"required\":[\"topics\",\"max_clients\",\"active_clients\",\"slot_reuse_deferred\","
+      "\"pool_ensure_deferred\"]}",
       "topic discovery and ring-buffer diagnostics for /api/events — "
       "ring_count=0 means no replay data; last_post_age_ms=0 means no events captured yet; "
-      "slot_reuse_deferred (B1-492) counts transient reap-gate 503s (task-bundle reuse pending), "
-      "distinct from max_clients-exhaustion 503s" },
+      "slot_reuse_deferred (B1-492) counts transient reap-gate 503s (task-bundle reuse pending); "
+      "pool_ensure_deferred (B1-561) counts transient heap-pressure 503s at the lazy first-connect "
+      "pool allocation; both are distinct from max_clients-exhaustion 503s" },
     { 0 },
 };
 

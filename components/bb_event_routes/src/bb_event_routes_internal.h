@@ -70,6 +70,15 @@ int      bb_event_routes_client_slot_index(const bb_event_routes_client_t *c);
 // is exposed via the public header without exposing FreeRTOS types.
 void     bb_event_routes_note_slot_reuse_deferred(void);
 
+// B1-561: record one SSE connect attempt fast-rejected with 503 because
+// sse_task_bundles_ensure() failed its lazy first-connect heap allocation
+// (transient heap pressure) — as opposed to a 503 from max_clients
+// exhaustion or the slot_reuse_deferred reap-gate above. Called only from
+// the ESP-IDF platform component's events_handler(); the counter itself
+// lives here (portable) so bb_event_routes_pool_ensure_deferred_count() is
+// exposed via the public header without exposing FreeRTOS types.
+void     bb_event_routes_note_pool_ensure_deferred(void);
+
 #ifdef BB_EVENT_ROUTES_TESTING
 void     bb_event_routes_reset_for_test(void);
 size_t   bb_event_routes_queued_for_test(bb_event_routes_client_t *c);
