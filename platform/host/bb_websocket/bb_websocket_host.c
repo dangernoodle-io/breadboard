@@ -51,6 +51,10 @@ static size_t s_open_count = 0;
 static bb_websocket_disconnect_cb_t s_disconnect_cb  = NULL;
 static void                        *s_disconnect_ctx = NULL;
 
+// Connect callback registration, mirrors the espidf backend.
+static bb_websocket_connect_cb_t s_connect_cb  = NULL;
+static void                     *s_connect_ctx = NULL;
+
 // Force-fail flags
 static bool s_force_register_fail  = false;
 static bool s_force_recv_fail      = false;
@@ -388,6 +392,9 @@ void bb_websocket_host_reset_captures(void)
     s_disconnect_cb  = NULL;
     s_disconnect_ctx = NULL;
 
+    s_connect_cb  = NULL;
+    s_connect_ctx = NULL;
+
     s_force_register_fail    = false;
     s_force_recv_fail        = false;
     s_force_send_fail        = false;
@@ -482,5 +489,22 @@ void bb_websocket_host_simulate_disconnect(int fd)
 {
     if (s_disconnect_cb) {
         s_disconnect_cb(fd, s_disconnect_ctx);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// bb_websocket_set_connect_cb / simulate_connect (host)
+// ---------------------------------------------------------------------------
+
+void bb_websocket_set_connect_cb(bb_websocket_connect_cb_t cb, void *ctx)
+{
+    s_connect_cb  = cb;
+    s_connect_ctx = ctx;
+}
+
+void bb_websocket_host_simulate_connect(bb_http_handle_t server, int fd)
+{
+    if (s_connect_cb) {
+        s_connect_cb(server, fd, s_connect_ctx);
     }
 }

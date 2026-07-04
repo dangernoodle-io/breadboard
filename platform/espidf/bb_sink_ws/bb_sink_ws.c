@@ -80,6 +80,8 @@
 #include "bb_event.h"
 #include "bb_json.h"
 #include "bb_mem.h"
+#include "bb_cache.h"
+#include "bb_cache_reactive.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -87,6 +89,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <inttypes.h>
+#include <stdatomic.h>
 
 #include "sdkconfig.h"
 
@@ -355,7 +359,12 @@ typedef struct {
 } sink_ws_ctx_t;
 
 static sink_ws_ctx_t s_ctx;
-static bool s_suspended = false;
+// Read from three threads (bb_pub-tick reader, reactive on_change on the
+// writer thread, ws_connect_cb on httpd). Not a tear risk (aligned bool),
+// but a plain bool leaves the cross-thread read/write undocumented --
+// _Atomic makes the accepted staleness (same shape as the broadcast_filtered
+// TOCTOU note above) explicit rather than relying on aligned-word luck.
+static _Atomic bool s_suspended = false;
 
 // ---------------------------------------------------------------------------
 // Filtered broadcast
@@ -504,6 +513,134 @@ static void log_event_cb(bb_event_topic_t topic, int32_t id,
 }
 
 // ---------------------------------------------------------------------------
+// bb_cache_reactive change-driven deltas (B1-589 PR-4b)
+//
+// In addition to (never instead of) the periodic bb_pub tick push above,
+// bb_sink_ws registers a bb_cache_reactive observer for ALL keys so a
+// bb_cache_reactive_update() that actually changed a value fans out an
+// immediate low-latency delta to subscribed WS clients, using the SAME
+// hoisted {type,topic,ts_ms,data} frame shape as sink_ws_publish. When
+// CONFIG_BB_CACHE_REACTIVE_ENABLE=n, bb_cache_reactive_observe() is a
+// static-inline no-op (BB_ERR_UNSUPPORTED) and WS falls back to
+// periodic-only push -- a supported configuration, not an error.
+// ---------------------------------------------------------------------------
+
+// Format {"type":"push","topic":"<topic>","ts_ms":<n>,"data":<data>} into a
+// freshly allocated buffer. Caller must bb_mem_free() the result.
+// Returns NULL on alloc/format failure (logged by the caller).
+static char *format_push_frame(const char *topic, int64_t ts_ms,
+                                const char *data, size_t data_len, size_t *out_len)
+{
+    size_t topic_len = strlen(topic);
+    // overhead: {"type":"push","topic":"(25) + topic + "","ts_ms":(10) +
+    // up to 20 ts digits (int64 incl. sign) + ,"data":(8) + data + }(1) +
+    // NUL(1) = 65, rounded up from the sink_ws_publish precedent's 44 to
+    // cover a full int64 (vs. that call site's pass-through string ts).
+    size_t envelope_len = topic_len + 20 + data_len + 65;
+    char *buf = (char *)bb_malloc_prefer_spiram(envelope_len);
+    if (!buf) return NULL;
+
+    int written = snprintf(buf, envelope_len,
+                           "{\"type\":\"push\",\"topic\":\"%s\",\"ts_ms\":%" PRId64 ",\"data\":%.*s}",
+                           topic, ts_ms, (int)data_len, data);
+    if (written < 0 || (size_t)written >= envelope_len) {
+        bb_mem_free(buf);
+        return NULL;
+    }
+    if (out_len) *out_len = (size_t)written;
+    return buf;
+}
+
+static void reactive_on_change(const char *key, const char *json, size_t len,
+                               int64_t ts_ms, void *ctx)
+{
+    (void)ctx;
+    if (s_suspended) return;
+
+    size_t out_len = 0;
+    char *buf = format_push_frame(key, ts_ms, json, len, &out_len);
+    if (!buf) {
+        bb_log_w(TAG, "reactive_on_change: format failed for '%s'", key);
+        return;
+    }
+    broadcast_filtered(key, buf, out_len);
+    bb_mem_free(buf);
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot-on-connect (B1-589 PR-4b)
+//
+// When a new WS client connects (bb_websocket connect hook, fires before any
+// data frame -- see bb_websocket.h), walk the bb_cache registry (#708
+// enumeration: bb_cache_foreach) and send each currently-cached key's
+// current value to THAT client only (unicast via
+// bb_websocket_broadcast_frame_async(server, fd, ...) -- never a broadcast),
+// so a fresh dashboard sees full current state immediately instead of
+// waiting for the next periodic tick or the next per-key change.
+// ---------------------------------------------------------------------------
+
+// Fixed snapshot-fetch buffer, matching the bb_net_health "net.health"
+// precedent (largest observed single-key envelope in the fleet). A key whose
+// serialized envelope exceeds this is skipped (logged) for the snapshot
+// only -- normal delta/periodic delivery for that key is unaffected.
+#define BB_SINK_WS_SNAPSHOT_BUF_MAX 512
+
+typedef struct {
+    bb_http_handle_t server;
+    int               fd;
+} snapshot_ctx_t;
+
+static void snapshot_key_to_fd(const char *key, void *ctx_v)
+{
+    snapshot_ctx_t *sc = (snapshot_ctx_t *)ctx_v;
+
+    char envbuf[BB_SINK_WS_SNAPSHOT_BUF_MAX];
+    size_t env_len = 0;
+    if (bb_cache_get_serialized(key, envbuf, sizeof(envbuf), &env_len) != BB_OK) {
+        bb_log_d(TAG, "snapshot: get_serialized('%s') unavailable, skipping", key);
+        return;
+    }
+
+    const char *ts_start = NULL, *data_start = NULL;
+    size_t ts_len = 0, data_len = 0;
+    if (!bb_json_envelope_split(envbuf, (int)env_len, &ts_start, &ts_len, &data_start, &data_len)) {
+        bb_log_w(TAG, "snapshot: envelope split failed for '%s'", key);
+        return;
+    }
+
+    char ts_buf[24];
+    memcpy(ts_buf, ts_start, ts_len);
+    ts_buf[ts_len] = '\0';
+    int64_t ts_ms = (int64_t)strtoll(ts_buf, NULL, 10);
+
+    size_t out_len = 0;
+    char *buf = format_push_frame(key, ts_ms, data_start, data_len, &out_len);
+    if (!buf) {
+        bb_log_w(TAG, "snapshot: format failed for '%s'", key);
+        return;
+    }
+
+    bb_websocket_frame_t frame = {
+        .final   = true,
+        .type    = BB_WS_TYPE_TEXT,
+        .payload = (uint8_t *)buf,
+        .len     = out_len,
+    };
+    // Unicast: broadcast_frame_async targets a single fd despite the name.
+    bb_websocket_broadcast_frame_async(sc->server, sc->fd, &frame, NULL, NULL);
+    bb_mem_free(buf);
+}
+
+static void ws_connect_cb(bb_http_handle_t server, int fd, void *ctx)
+{
+    (void)ctx;
+    if (s_suspended) return;
+
+    snapshot_ctx_t sc = { .server = server, .fd = fd };
+    bb_cache_foreach(snapshot_key_to_fd, &sc);
+}
+
+// ---------------------------------------------------------------------------
 // Disconnect notification (fixes stale subscription state surviving an fd
 // reuse — an LWIP fd freed on disconnect can be reissued to a brand new
 // connection before bb_sink_ws_suspend() ever runs, otherwise bleeding the
@@ -552,6 +689,22 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
     } else {
         bb_log_d(TAG, "log topic not yet registered, skipping ws subscription");
     }
+
+    // Change-driven WS deltas (B1-589 PR-4b): observe-all so any changed
+    // bb_cache key fans out an immediate delta. BB_ERR_UNSUPPORTED (Kconfig
+    // BB_CACHE_REACTIVE_ENABLE=n) is expected/benign -- periodic-only push.
+    bb_cache_reactive_observer_t rx_obs = {
+        .key = NULL, .on_change = reactive_on_change, .ctx = NULL,
+    };
+    bb_err_t rx_err = bb_cache_reactive_observe(&rx_obs);
+    if (rx_err != BB_OK) {
+        bb_log_d(TAG, "reactive observe unavailable (%d), periodic-only push", (int)rx_err);
+    }
+
+    // Snapshot-on-connect (B1-589 PR-4b): unicast full current state to a
+    // newly-connected client so a fresh dashboard doesn't wait for the next
+    // tick/delta.
+    bb_websocket_set_connect_cb(ws_connect_cb, NULL);
 
     out->publish       = sink_ws_publish;
     out->ctx           = &s_ctx;

@@ -6,10 +6,15 @@
 #include "bb_websocket.h"
 #include "bb_websocket_host.h"
 #include "bb_nv.h"
+#include "bb_cache.h"
+#include "bb_cache_reactive.h"
 #include "test_alloc_inject.h"
 
 #include <string.h>
 #include <stdlib.h>
+
+// Test reset hook (BB_CACHE_TESTING).
+void bb_cache_reset_for_test(void);
 
 // ---------------------------------------------------------------------------
 // Sample helpers
@@ -30,6 +35,49 @@ static bool sample_skip(bb_json_t obj, void *ctx)
 }
 
 // ---------------------------------------------------------------------------
+// bb_cache test topic helpers (reactive delta + snapshot-on-connect tests)
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    int value;
+} ws_cache_snap_t;
+
+static void ws_cache_serialize(bb_json_t obj, const void *snap)
+{
+    const ws_cache_snap_t *s = (const ws_cache_snap_t *)snap;
+    bb_json_obj_set_int(obj, "value", s->value);
+}
+
+static bb_err_t ws_cache_reg_owned(const char *key)
+{
+    bb_cache_config_t cfg = {
+        .key       = key,
+        .snapshot  = NULL,
+        .snap_size = sizeof(ws_cache_snap_t),
+        .serialize = ws_cache_serialize,
+        .flags     = BB_CACHE_FLAG_NONE,
+    };
+    return bb_cache_register(&cfg);
+}
+
+// Getter-mode key with no snapshot data available (getter always returns
+// NULL) -- bb_cache_get_serialized returns BB_ERR_INVALID_STATE for it,
+// exercising the "no snapshot available" skip branch in snapshot_key_to_fd.
+static const void *ws_cache_getter_null(void) { return NULL; }
+
+static bb_err_t ws_cache_reg_getter_null(const char *key)
+{
+    bb_cache_config_t cfg = {
+        .key       = key,
+        .snapshot  = ws_cache_getter_null,
+        .snap_size = 0,
+        .serialize = ws_cache_serialize,
+        .flags     = BB_CACHE_FLAG_NONE,
+    };
+    return bb_cache_register(&cfg);
+}
+
+// ---------------------------------------------------------------------------
 // Per-test reset helper
 // ---------------------------------------------------------------------------
 
@@ -39,6 +87,8 @@ static void ws_sink_setup(void)
     bb_websocket_host_reset_captures();
     bb_sink_ws_reset_for_test();
     bb_nv_config_set_hostname("testhost");
+    bb_cache_reset_for_test();
+    bb_cache_reactive_reset_for_test();
 }
 
 // ---------------------------------------------------------------------------
@@ -1026,4 +1076,220 @@ void test_bb_sink_ws_client_pool_exhaustion_drops_extra_sub(void)
     TEST_ASSERT_EQUAL(BB_OK, err);
     // Only the first 5 (pool capacity) actually got a subscription slot.
     TEST_ASSERT_EQUAL_INT(5, bb_websocket_host_async_count());
+}
+
+// ---------------------------------------------------------------------------
+// bb_cache_reactive change-driven deltas (B1-589 PR-4b)
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_ws_reactive_delta_broadcasts_on_cache_change(void)
+{
+    ws_sink_setup();
+    TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.a"));
+    bb_websocket_host_set_client_active(3, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
+
+    ws_cache_snap_t snap = { .value = 1 };
+    bb_cache_update_t update = { .key = "rx.a", .snap = &snap };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&update));
+
+    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
+    TEST_ASSERT_NOT_NULL(a);
+    TEST_ASSERT_EQUAL(3, a->fd);
+
+    char msg[256];
+    size_t copy_len = a->len < sizeof(msg) - 1 ? a->len : sizeof(msg) - 1;
+    memcpy(msg, a->payload, copy_len);
+    msg[copy_len] = '\0';
+    TEST_ASSERT_NOT_NULL(strstr(msg, "\"topic\":\"rx.a\""));
+    TEST_ASSERT_NOT_NULL(strstr(msg, "\"value\":1"));
+}
+
+void test_bb_sink_ws_reactive_delta_unchanged_rewrite_not_broadcast(void)
+{
+    ws_sink_setup();
+    TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.a"));
+    bb_websocket_host_set_client_active(3, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
+
+    ws_cache_snap_t snap = { .value = 1 };
+    bb_cache_update_t update = { .key = "rx.a", .snap = &snap };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&update));
+    bb_websocket_host_async_reset();
+
+    // Identical rewrite: no change -> no additional delta.
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&update));
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+void test_bb_sink_ws_reactive_delta_suspended_no_broadcast(void)
+{
+    ws_sink_setup();
+    TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.a"));
+    bb_websocket_host_set_client_active(3, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
+    bb_websocket_host_async_reset();
+
+    ws_cache_snap_t snap = { .value = 1 };
+    bb_cache_update_t update = { .key = "rx.a", .snap = &snap };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&update));
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+void test_bb_sink_ws_reactive_delta_malloc_fail_no_broadcast(void)
+{
+    ws_sink_setup();
+    TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.a"));
+    bb_websocket_host_set_client_active(3, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
+
+    bb_sink_ws_set_malloc(test_failing_malloc);
+    test_alloc_fail_at = 0;
+    ws_cache_snap_t snap = { .value = 1 };
+    bb_cache_update_t update = { .key = "rx.a", .snap = &snap };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&update));
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    bb_sink_ws_set_malloc(NULL);
+    test_alloc_fail_at = -1;
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot-on-connect (B1-589 PR-4b)
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_ws_snapshot_on_connect_sends_current_state(void)
+{
+    ws_sink_setup();
+    TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.a"));
+    ws_cache_snap_t snap = { .value = 42 };
+    bb_cache_update_t update = { .key = "rx.a", .snap = &snap };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_update(&update));
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_websocket_host_simulate_connect(NULL, 7);
+
+    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
+    TEST_ASSERT_NOT_NULL(a);
+    TEST_ASSERT_EQUAL(7, a->fd); // unicast to the connecting fd only
+
+    char msg[256];
+    size_t copy_len = a->len < sizeof(msg) - 1 ? a->len : sizeof(msg) - 1;
+    memcpy(msg, a->payload, copy_len);
+    msg[copy_len] = '\0';
+    TEST_ASSERT_NOT_NULL(strstr(msg, "\"topic\":\"rx.a\""));
+    TEST_ASSERT_NOT_NULL(strstr(msg, "\"value\":42"));
+}
+
+void test_bb_sink_ws_snapshot_on_connect_multiple_keys_all_sent(void)
+{
+    ws_sink_setup();
+    TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.a"));
+    TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.b"));
+    ws_cache_snap_t snap = { .value = 1 };
+    bb_cache_update_t ua = { .key = "rx.a", .snap = &snap };
+    bb_cache_update_t ub = { .key = "rx.b", .snap = &snap };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_update(&ua));
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_update(&ub));
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_websocket_host_simulate_connect(NULL, 9);
+
+    TEST_ASSERT_EQUAL_INT(2, bb_websocket_host_async_count());
+    const bb_websocket_host_async_capture_t *a0 = bb_websocket_host_async_at(0);
+    const bb_websocket_host_async_capture_t *a1 = bb_websocket_host_async_at(1);
+    TEST_ASSERT_EQUAL(9, a0->fd);
+    TEST_ASSERT_EQUAL(9, a1->fd);
+}
+
+void test_bb_sink_ws_snapshot_on_connect_no_keys_no_captures(void)
+{
+    ws_sink_setup();
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_websocket_host_simulate_connect(NULL, 7);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+void test_bb_sink_ws_snapshot_on_connect_suspended_skips(void)
+{
+    ws_sink_setup();
+    TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.a"));
+    ws_cache_snap_t snap = { .value = 1 };
+    bb_cache_update_t update = { .key = "rx.a", .snap = &snap };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_update(&update));
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
+    bb_websocket_host_async_reset();
+
+    bb_websocket_host_simulate_connect(NULL, 7);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+void test_bb_sink_ws_snapshot_on_connect_get_serialized_failure_skipped(void)
+{
+    ws_sink_setup();
+    // Getter-mode key whose getter always returns NULL -> get_serialized
+    // returns BB_ERR_INVALID_STATE; snapshot must skip it without crashing.
+    TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_getter_null("rx.empty"));
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_websocket_host_simulate_connect(NULL, 7);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+void test_bb_sink_ws_snapshot_on_connect_malloc_fail_skipped(void)
+{
+    ws_sink_setup();
+    TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.a"));
+    ws_cache_snap_t snap = { .value = 1 };
+    bb_cache_update_t update = { .key = "rx.a", .snap = &snap };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_update(&update));
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_sink_ws_set_malloc(test_failing_malloc);
+    test_alloc_fail_at = 0;
+    bb_websocket_host_simulate_connect(NULL, 7);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    bb_sink_ws_set_malloc(NULL);
+    test_alloc_fail_at = -1;
 }

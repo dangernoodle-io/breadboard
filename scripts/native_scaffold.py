@@ -493,6 +493,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_cache/bb_cache_host.c"],
         "depends":  ["bb_core", "bb_json", "bb_event", "bb_log"],
     },
+    "bb_cache_reactive": {
+        "includes": ["components/bb_cache_reactive/include"],
+        "sources":  ["platform/host/bb_cache_reactive/bb_cache_reactive.c"],
+        "depends":  ["bb_core", "bb_cache", "bb_json", "bb_log"],
+    },
     "bb_registry": {
         "includes": ["components/bb_registry/include"],
         "sources":  ["platform/host/bb_registry/bb_registry.c"],
@@ -607,7 +612,8 @@ COMPONENT_MAP = {
     "bb_sink_ws": {
         "includes": ["components/bb_sink_ws/include"],
         "sources":  ["platform/host/bb_sink_ws/bb_sink_ws.c"],
-        "depends":  ["bb_core", "bb_pub", "bb_websocket", "bb_log", "bb_json"],
+        "depends":  ["bb_core", "bb_pub", "bb_websocket", "bb_log", "bb_json",
+                     "bb_cache", "bb_cache_reactive"],
     },
     "bb_sub": {
         "includes": ["components/bb_sub/include"],

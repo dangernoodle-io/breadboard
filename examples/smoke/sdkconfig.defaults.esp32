@@ -43,3 +43,6 @@ CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE=y
 # their real (non-stub) implementation instead of the BB_ERR_UNSUPPORTED
 # stubs used when this is unset.
 CONFIG_HTTPD_WS_SUPPORT=y
+# Exercise bb_cache_reactive change-driven WS deltas + snapshot-on-connect
+# (B1-589 PR-4b) on this board (default n -- see components/bb_cache_reactive/Kconfig).
+CONFIG_BB_CACHE_REACTIVE_ENABLE=y

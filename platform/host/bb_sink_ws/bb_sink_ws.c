@@ -53,10 +53,14 @@
 #include "bb_log.h"
 #include "bb_event.h"
 #include "bb_json.h"
+#include "bb_cache.h"
+#include "bb_cache_reactive.h"
 
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <inttypes.h>
+#include <stdatomic.h>
 
 #ifndef BB_SINK_WS_MAX_CLIENTS
 #define BB_SINK_WS_MAX_CLIENTS 5
@@ -83,7 +87,11 @@ typedef struct {
 } client_sub_t;
 
 static client_sub_t s_clients[BB_SINK_WS_MAX_CLIENTS];
-static bool s_suspended = false;
+// Read from three call paths (bb_pub-tick reader, reactive on_change on the
+// writer, connect callback) -- host tests are single-threaded, but mirrors
+// the espidf copy's _Atomic to document the accepted-staleness contract
+// consistently across both platform copies (see the espidf file's comment).
+static _Atomic bool s_suspended = false;
 
 // ---------------------------------------------------------------------------
 // fd -> slot map
@@ -451,6 +459,103 @@ static void log_event_cb(bb_event_topic_t topic, int32_t id,
 }
 
 // ---------------------------------------------------------------------------
+// bb_cache_reactive change-driven deltas + snapshot-on-connect (B1-589
+// PR-4b) — mirrors the ESP-IDF impl; see that file's header comment for the
+// full rationale.
+// ---------------------------------------------------------------------------
+
+static char *format_push_frame(const char *topic, int64_t ts_ms,
+                                const char *data, size_t data_len, size_t *out_len)
+{
+    size_t topic_len = strlen(topic);
+    size_t envelope_len = topic_len + 20 + data_len + 65;
+    char *buf = (char *)_sink_malloc(envelope_len);
+    if (!buf) return NULL;
+
+    int written = snprintf(buf, envelope_len,
+                           "{\"type\":\"push\",\"topic\":\"%s\",\"ts_ms\":%" PRId64 ",\"data\":%.*s}",
+                           topic, ts_ms, (int)data_len, data);
+    if (written < 0 || (size_t)written >= envelope_len) {
+        free(buf);
+        return NULL;
+    }
+    if (out_len) *out_len = (size_t)written;
+    return buf;
+}
+
+static void reactive_on_change(const char *key, const char *json, size_t len,
+                               int64_t ts_ms, void *ctx)
+{
+    (void)ctx;
+    if (s_suspended) return;
+
+    size_t out_len = 0;
+    char *buf = format_push_frame(key, ts_ms, json, len, &out_len);
+    if (!buf) {
+        bb_log_w(TAG, "reactive_on_change: format failed for '%s'", key);
+        return;
+    }
+    broadcast_filtered(key, buf, out_len);
+    free(buf);
+}
+
+#define BB_SINK_WS_SNAPSHOT_BUF_MAX 512
+
+typedef struct {
+    bb_http_handle_t server;
+    int               fd;
+} snapshot_ctx_t;
+
+static void snapshot_key_to_fd(const char *key, void *ctx_v)
+{
+    snapshot_ctx_t *sc = (snapshot_ctx_t *)ctx_v;
+
+    char envbuf[BB_SINK_WS_SNAPSHOT_BUF_MAX];
+    size_t env_len = 0;
+    if (bb_cache_get_serialized(key, envbuf, sizeof(envbuf), &env_len) != BB_OK) {
+        bb_log_d(TAG, "snapshot: get_serialized('%s') unavailable, skipping", key);
+        return;
+    }
+
+    const char *ts_start = NULL, *data_start = NULL;
+    size_t ts_len = 0, data_len = 0;
+    if (!bb_json_envelope_split(envbuf, (int)env_len, &ts_start, &ts_len, &data_start, &data_len)) {
+        bb_log_w(TAG, "snapshot: envelope split failed for '%s'", key);
+        return;
+    }
+
+    char ts_buf[24];
+    memcpy(ts_buf, ts_start, ts_len);
+    ts_buf[ts_len] = '\0';
+    int64_t ts_ms = (int64_t)strtoll(ts_buf, NULL, 10);
+
+    size_t out_len = 0;
+    char *buf = format_push_frame(key, ts_ms, data_start, data_len, &out_len);
+    if (!buf) {
+        bb_log_w(TAG, "snapshot: format failed for '%s'", key);
+        return;
+    }
+
+    bb_websocket_frame_t frame = {
+        .final   = true,
+        .type    = BB_WS_TYPE_TEXT,
+        .payload = (uint8_t *)buf,
+        .len     = out_len,
+    };
+    bb_websocket_broadcast_frame_async(sc->server, sc->fd, &frame, NULL, NULL);
+    free(buf);
+}
+
+static void ws_connect_cb(bb_http_handle_t server, int fd, void *ctx)
+{
+    (void)ctx;
+    if (s_suspended) return;
+
+    snapshot_ctx_t sc = { .server = server, .fd = fd };
+    bb_cache_foreach(snapshot_key_to_fd, &sc);
+}
+
+// ---------------------------------------------------------------------------
 // Disconnect notification (mirrors the ESP-IDF impl's fix for stale
 // subscription state surviving an fd reuse — see that file's header comment).
 // ---------------------------------------------------------------------------
@@ -486,6 +591,22 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
     } else {
         bb_log_d(TAG, "log topic not yet registered, skipping ws subscription");
     }
+
+    // Change-driven WS deltas (B1-589 PR-4b): observe-all so any changed
+    // bb_cache key fans out an immediate delta. BB_ERR_UNSUPPORTED (Kconfig
+    // BB_CACHE_REACTIVE_ENABLE=n) is expected/benign -- periodic-only push.
+    bb_cache_reactive_observer_t rx_obs = {
+        .key = NULL, .on_change = reactive_on_change, .ctx = NULL,
+    };
+    bb_err_t rx_err = bb_cache_reactive_observe(&rx_obs);
+    if (rx_err != BB_OK) {
+        bb_log_d(TAG, "reactive observe unavailable (%d), periodic-only push", (int)rx_err);
+    }
+
+    // Snapshot-on-connect (B1-589 PR-4b): unicast full current state to a
+    // newly-connected client so a fresh dashboard doesn't wait for the next
+    // tick/delta.
+    bb_websocket_set_connect_cb(ws_connect_cb, NULL);
 
     out->publish       = sink_ws_publish;
     out->ctx           = &s_ctx;
