@@ -1740,12 +1740,17 @@ void test_bb_sink_ws_log_event_inject_malloc_fail(void);
 void test_bb_sink_ws_unsubscribed_client_receives_nothing(void);
 void test_bb_sink_ws_malformed_sub_frame_ignored(void);
 void test_bb_sink_ws_sub_exact_subtopic_match(void);
+void test_bb_sink_ws_sub_whitespace_tolerant_parse(void);
 void test_bb_sink_ws_sub_events_group(void);
 void test_bb_sink_ws_sub_replace_on_resub(void);
 void test_bb_sink_ws_publish_malloc_fail_returns_no_space(void);
 void test_sink_ws_suspend_clears_clients(void);
+void test_sink_ws_disconnect_clears_client_sub_state(void);
 void test_sink_ws_suspend_idempotent(void);
 void test_sink_ws_resume_clears_flag(void);
+void test_bb_sink_ws_legacy_sub_frame_back_compat(void);
+void test_bb_sink_ws_reserved_type_ignored(void);
+void test_bb_sink_ws_client_pool_exhaustion_drops_extra_sub(void);
 
 // Forward declarations from test_bb_pub_parity.c
 void test_bb_pub_parity_register_source_ex_null_tags_same_behavior(void);
@@ -3583,6 +3588,9 @@ void test_bb_websocket_open_count_increments_on_simulated_open(void);
 void test_bb_websocket_open_count_decrements_on_simulated_close(void);
 void test_bb_websocket_open_count_close_clamps_at_zero(void);
 void test_bb_websocket_open_count_reset_by_reset_captures(void);
+void test_bb_websocket_disconnect_cb_invoked_with_fd_and_ctx(void);
+void test_bb_websocket_disconnect_cb_null_is_noop(void);
+void test_bb_websocket_disconnect_cb_cleared_by_reset_captures(void);
 
 // Forward declarations from test_bb_tls_creds.c
 void test_bb_tls_creds_override_ca_beats_nvs(void);
@@ -7735,6 +7743,9 @@ int main(void) {
     RUN_TEST(test_bb_websocket_open_count_decrements_on_simulated_close);
     RUN_TEST(test_bb_websocket_open_count_close_clamps_at_zero);
     RUN_TEST(test_bb_websocket_open_count_reset_by_reset_captures);
+    RUN_TEST(test_bb_websocket_disconnect_cb_invoked_with_fd_and_ctx);
+    RUN_TEST(test_bb_websocket_disconnect_cb_null_is_noop);
+    RUN_TEST(test_bb_websocket_disconnect_cb_cleared_by_reset_captures);
 
     // bb_sink_ws
     RUN_TEST(test_bb_sink_ws_init_null_out_returns_invalid_arg);
@@ -7761,12 +7772,17 @@ int main(void) {
     RUN_TEST(test_bb_sink_ws_unsubscribed_client_receives_nothing);
     RUN_TEST(test_bb_sink_ws_malformed_sub_frame_ignored);
     RUN_TEST(test_bb_sink_ws_sub_exact_subtopic_match);
+    RUN_TEST(test_bb_sink_ws_sub_whitespace_tolerant_parse);
     RUN_TEST(test_bb_sink_ws_sub_events_group);
     RUN_TEST(test_bb_sink_ws_sub_replace_on_resub);
     RUN_TEST(test_bb_sink_ws_publish_malloc_fail_returns_no_space);
     RUN_TEST(test_sink_ws_suspend_clears_clients);
+    RUN_TEST(test_sink_ws_disconnect_clears_client_sub_state);
     RUN_TEST(test_sink_ws_suspend_idempotent);
     RUN_TEST(test_sink_ws_resume_clears_flag);
+    RUN_TEST(test_bb_sink_ws_legacy_sub_frame_back_compat);
+    RUN_TEST(test_bb_sink_ws_reserved_type_ignored);
+    RUN_TEST(test_bb_sink_ws_client_pool_exhaustion_drops_extra_sub);
 
     // bb_pub telemetry SSOT fidelity
     RUN_TEST(test_bb_pub_telemetry_fidelity_serialize_once_per_tick_sinks);

@@ -130,6 +130,12 @@ void bb_websocket_host_simulate_open(void);
 // (clamped at 0; a spurious close never underflows).
 void bb_websocket_host_simulate_close(void);
 
+// ----- Disconnect callback stub -------------------------------------------
+
+// Invoke the callback registered via bb_websocket_set_disconnect_cb() (if
+// any) with the given fd, simulating a WS session teardown notification.
+void bb_websocket_host_simulate_disconnect(int fd);
+
 #ifdef __cplusplus
 }
 #endif

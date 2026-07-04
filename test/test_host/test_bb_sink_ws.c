@@ -109,7 +109,7 @@ void test_bb_sink_ws_publish_broadcast_on_tick(void)
     // Inject subscription for fd=3.
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 3, "{\"sub\":[\"telemetry\"]}");
+    inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_pub_tick_once();
 
@@ -128,7 +128,7 @@ void test_bb_sink_ws_publish_broadcast_on_tick(void)
     size_t copy_len = a->len < sizeof(msg) - 1 ? a->len : sizeof(msg) - 1;
     memcpy(msg, a->payload, copy_len);
     msg[copy_len] = '\0';
-    TEST_ASSERT_NOT_NULL(strstr(msg, "\"ch\":\"power\""));
+    TEST_ASSERT_NOT_NULL(strstr(msg, "\"topic\":\"power\""));
     TEST_ASSERT_NOT_NULL(strstr(msg, "\"data\":"));
     TEST_ASSERT_NOT_NULL(strstr(msg, "vout_mv"));
 }
@@ -146,7 +146,7 @@ void test_bb_sink_ws_publish_skipped_source_not_broadcast(void)
     // Subscribe fd=1 to telemetry — sample_skip still returns false.
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 1, "{\"sub\":[\"telemetry\"]}");
+    inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_pub_tick_once();
 
@@ -184,7 +184,7 @@ void test_bb_sink_ws_publish_multiple_sources(void)
     // Subscribe fd=0 to telemetry so both subtopics deliver.
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 0, "{\"sub\":[\"telemetry\"]}");
+    inject_sub(req, 0, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_pub_tick_once();
 
@@ -203,8 +203,8 @@ void test_bb_sink_ws_publish_multiple_sources(void)
     memcpy(msg1, a1->payload, l1); msg1[l1] = '\0';
 
     // Each must carry its subtopic in "ch".
-    TEST_ASSERT_NOT_NULL(strstr(msg0, "\"ch\":\"a\""));
-    TEST_ASSERT_NOT_NULL(strstr(msg1, "\"ch\":\"b\""));
+    TEST_ASSERT_NOT_NULL(strstr(msg0, "\"topic\":\"a\""));
+    TEST_ASSERT_NOT_NULL(strstr(msg1, "\"topic\":\"b\""));
 }
 
 void test_bb_sink_ws_publish_multiple_clients(void)
@@ -221,8 +221,8 @@ void test_bb_sink_ws_publish_multiple_clients(void)
     // Subscribe both fds to telemetry.
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 2, "{\"sub\":[\"telemetry\"]}");
-    inject_sub(req, 5, "{\"sub\":[\"telemetry\"]}");
+    inject_sub(req, 2, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
+    inject_sub(req, 5, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_pub_tick_once();
 
@@ -247,19 +247,25 @@ void test_bb_sink_ws_envelope_format(void)
     // Subscribe fd=0 — "telemetry" group matches subtopic "telemetry" exactly.
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 0, "{\"sub\":[\"telemetry\"]}");
+    inject_sub(req, 0, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_pub_tick_once();
 
     const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
     TEST_ASSERT_NOT_NULL(a);
 
-    // Must start with {"ch":"telemetry","data":
-    char expected_prefix[] = "{\"ch\":\"telemetry\",\"data\":";
+    // Must start with {"type":"push","topic":"telemetry","data":
+    char expected_prefix[] = "{\"type\":\"push\",\"topic\":\"telemetry\",\"data\":";
     TEST_ASSERT_EQUAL_INT(0,
         strncmp((const char *)a->payload, expected_prefix, strlen(expected_prefix)));
     // Must end with }
     TEST_ASSERT_EQUAL('}', ((const char *)a->payload)[a->len - 1]);
+
+    // "type" field must be present and equal "push".
+    char msg[256];
+    size_t cl = a->len < sizeof(msg) - 1 ? a->len : sizeof(msg) - 1;
+    memcpy(msg, a->payload, cl); msg[cl] = '\0';
+    TEST_ASSERT_NOT_NULL(strstr(msg, "\"type\":\"push\""));
 }
 
 // ---------------------------------------------------------------------------
@@ -277,7 +283,7 @@ void test_bb_sink_ws_direct_publish_returns_ok(void)
     // Subscribe fd=1 to "power" exactly.
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 1, "{\"sub\":[\"power\"]}");
+    inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"power\"]}");
 
     // Simulate what bb_pub does: topic has prefix/hostname/subtopic form.
     bb_err_t err = s.publish(s.ctx, "metrics/testhost/power", "{\"v\":1}", 7, false);
@@ -286,7 +292,7 @@ void test_bb_sink_ws_direct_publish_returns_ok(void)
     TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
     const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
     TEST_ASSERT_NOT_NULL(a);
-    TEST_ASSERT_NOT_NULL(strstr((const char *)a->payload, "\"ch\":\"power\""));
+    TEST_ASSERT_NOT_NULL(strstr((const char *)a->payload, "\"topic\":\"power\""));
 }
 
 void test_bb_sink_ws_direct_publish_no_slash_topic(void)
@@ -408,7 +414,7 @@ void test_bb_sink_ws_sub_telemetry_receives_telemetry_not_events_logs(void)
 
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 4, "{\"sub\":[\"telemetry\"]}");
+    inject_sub(req, 4, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     // Publish a telemetry subtopic: should arrive.
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"hr\":1}", 7, false);
@@ -419,7 +425,7 @@ void test_bb_sink_ws_sub_telemetry_receives_telemetry_not_events_logs(void)
     const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
     size_t cl = a->len < sizeof(msg) - 1 ? a->len : sizeof(msg) - 1;
     memcpy(msg, a->payload, cl); msg[cl] = '\0';
-    TEST_ASSERT_NOT_NULL(strstr(msg, "\"ch\":\"mining\""));
+    TEST_ASSERT_NOT_NULL(strstr(msg, "\"topic\":\"mining\""));
 
     bb_websocket_host_async_reset();
 
@@ -444,7 +450,7 @@ void test_bb_sink_ws_sub_log_receives_log_event(void)
 
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 6, "{\"sub\":[\"log\"]}");
+    inject_sub(req, 6, "{\"type\":\"sub\",\"topic\":[\"log\"]}");
 
     bb_sink_ws_host_inject_log_event("{\"ts\":123,\"level\":\"I\",\"tag\":\"foo\",\"msg\":\"bar\"}");
     TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
@@ -457,7 +463,7 @@ void test_bb_sink_ws_sub_log_receives_log_event(void)
     char msg[256];
     size_t cl = a->len < sizeof(msg) - 1 ? a->len : sizeof(msg) - 1;
     memcpy(msg, a->payload, cl); msg[cl] = '\0';
-    TEST_ASSERT_NOT_NULL(strstr(msg, "\"ch\":\"log\""));
+    TEST_ASSERT_NOT_NULL(strstr(msg, "\"topic\":\"log\""));
     TEST_ASSERT_NOT_NULL(strstr(msg, "\"data\":"));
     TEST_ASSERT_NOT_NULL(strstr(msg, "\"ts\":123"));
     TEST_ASSERT_NOT_NULL(strstr(msg, "\"msg\":\"bar\""));
@@ -474,7 +480,7 @@ void test_bb_sink_ws_sub_log_unsubscribed_receives_nothing(void)
 
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 7, "{\"sub\":[\"telemetry\"]}");
+    inject_sub(req, 7, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
     TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
@@ -491,7 +497,7 @@ void test_bb_sink_ws_sub_log_suspend_gates(void)
 
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 5, "{\"sub\":[\"log\"]}");
+    inject_sub(req, 5, "{\"type\":\"sub\",\"topic\":[\"log\"]}");
 
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
 
@@ -523,7 +529,7 @@ void test_bb_sink_ws_log_event_inject_malloc_fail(void)
 
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 9, "{\"sub\":[\"log\"]}");
+    inject_sub(req, 9, "{\"type\":\"sub\",\"topic\":[\"log\"]}");
 
     bb_sink_ws_set_malloc(test_failing_malloc);
     test_alloc_fail_at = 0;
@@ -571,7 +577,7 @@ void test_bb_sink_ws_publish_malloc_fail_returns_no_space(void)
 
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 0, "{\"sub\":[\"telemetry\"]}");
+    inject_sub(req, 0, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     // Inject a failing malloc so sink_ws_publish returns BB_ERR_NO_SPACE.
     bb_sink_ws_set_malloc(test_failing_malloc);
@@ -603,8 +609,8 @@ void test_sink_ws_suspend_clears_clients(void)
 
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 3, "{\"sub\":[\"telemetry\"]}");
-    inject_sub(req, 5, "{\"sub\":[\"telemetry\"]}");
+    inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
+    inject_sub(req, 5, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     // Pre-suspend: both clients receive.
     bb_err_t err = s.publish(s.ctx, "m/h/power", "{\"v\":1}", 7, false);
@@ -615,6 +621,40 @@ void test_sink_ws_suspend_clears_clients(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
 
     // Post-suspend: no client receives.
+    err = s.publish(s.ctx, "m/h/power", "{\"v\":2}", 7, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// disconnect notification clears subscription state for that fd — an fd
+// reused by a new connection (LWIP fd reuse) never inherits the prior
+// client's subscription filter (HIGH #2 fix: previously only suspend cleared
+// subs, not a plain socket disconnect).
+void test_sink_ws_disconnect_clears_client_sub_state(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(3, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
+
+    // Pre-disconnect: fd=3 receives.
+    bb_err_t err = s.publish(s.ctx, "m/h/power", "{\"v\":1}", 7, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    bb_websocket_host_async_reset();
+
+    // Simulate the socket disconnecting (fd=3 goes away) without a suspend.
+    bb_websocket_host_simulate_disconnect(3);
+    bb_websocket_host_set_client_active(3, false);
+
+    // A new connection reuses fd=3 (LWIP fd reuse) but never re-subscribes —
+    // it must NOT inherit the old subscription.
+    bb_websocket_host_set_client_active(3, true);
     err = s.publish(s.ctx, "m/h/power", "{\"v\":2}", 7, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
     TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
@@ -646,7 +686,7 @@ void test_sink_ws_resume_clears_flag(void)
     // Re-inject subscription (suspend cleared sub table).
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 2, "{\"sub\":[\"telemetry\"]}");
+    inject_sub(req, 2, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_err_t err = s.publish(s.ctx, "m/h/info", "{\"x\":1}", 7, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
@@ -712,9 +752,9 @@ void test_bb_sink_ws_sub_exact_subtopic_match(void)
     bb_websocket_host_capture_begin(&req);
 
     // fd=0 subscribed to exact "mining" subtopic only.
-    inject_sub(req, 0, "{\"sub\":[\"mining\"]}");
+    inject_sub(req, 0, "{\"type\":\"sub\",\"topic\":[\"mining\"]}");
     // fd=1 subscribed to "pool" only.
-    inject_sub(req, 1, "{\"sub\":[\"pool\"]}");
+    inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"pool\"]}");
 
     // Publish "mining": only fd=0 should receive.
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"hr\":1}", 7, false);
@@ -731,6 +771,43 @@ void test_bb_sink_ws_sub_exact_subtopic_match(void)
 }
 
 // ---------------------------------------------------------------------------
+// Subscription: whitespace-tolerant envelope parse
+// ---------------------------------------------------------------------------
+
+// A pretty-printed sub frame (e.g. Python's json.dumps default ": "/", "
+// separators, plus embedded newlines/indentation) must subscribe the client
+// exactly like the compact form.
+void test_bb_sink_ws_sub_whitespace_tolerant_parse(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(4, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 4,
+        "{\n"
+        "  \"type\": \"sub\",\n"
+        "  \"topic\": [\n"
+        "    \"telemetry\",\n"
+        "    \"log\"\n"
+        "  ]\n"
+        "}");
+
+    // Telemetry subtopic should arrive via the "telemetry" coarse group.
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"hr\":1}", 7, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    bb_websocket_host_async_reset();
+
+    // "log" exact opt-in should also arrive.
+    bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
+    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+}
+
+// ---------------------------------------------------------------------------
 // Subscription: coarse "events" group
 // ---------------------------------------------------------------------------
 
@@ -744,7 +821,7 @@ void test_bb_sink_ws_sub_events_group(void)
 
     bb_http_request_t *req = NULL;
     bb_websocket_host_capture_begin(&req);
-    inject_sub(req, 2, "{\"sub\":[\"events\"]}");
+    inject_sub(req, 2, "{\"type\":\"sub\",\"topic\":[\"events\"]}");
 
     // "events" subtopic should arrive.
     bb_err_t err = s.publish(s.ctx, "m/h/events", "{\"type\":\"share\"}", 15, false);
@@ -774,7 +851,7 @@ void test_bb_sink_ws_sub_replace_on_resub(void)
     bb_websocket_host_capture_begin(&req);
 
     // First sub: telemetry.
-    inject_sub(req, 3, "{\"sub\":[\"telemetry\"]}");
+    inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     // Confirm telemetry delivers.
     bb_err_t err = s.publish(s.ctx, "m/h/info", "{}", 2, false);
@@ -783,7 +860,7 @@ void test_bb_sink_ws_sub_replace_on_resub(void)
     bb_websocket_host_async_reset();
 
     // Re-sub to log only — telemetry should no longer deliver.
-    inject_sub(req, 3, "{\"sub\":[\"log\"]}");
+    inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"log\"]}");
 
     err = s.publish(s.ctx, "m/h/info", "{}", 2, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
@@ -792,4 +869,74 @@ void test_bb_sink_ws_sub_replace_on_resub(void)
     // But log events should now deliver.
     bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"after resub\"}");
     TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+}
+
+// ---------------------------------------------------------------------------
+// Inbound envelope demux: legacy back-compat, reserved types, pool sizing
+// ---------------------------------------------------------------------------
+
+// Legacy {"sub":[...]} (no "type" envelope) is still accepted.
+void test_bb_sink_ws_legacy_sub_frame_back_compat(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(2, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    // Legacy frame, no "type" key.
+    inject_sub(req, 2, "{\"sub\":[\"telemetry\"]}");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"hr\":1}", 7, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+}
+
+// An envelope with a "type" other than "sub" (e.g. "cmd") is RESERVED —
+// ignored-with-log, no subscription change, no crash.
+void test_bb_sink_ws_reserved_type_ignored(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(3, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 3, "{\"type\":\"cmd\",\"topic\":[\"telemetry\"]}");
+
+    // No subscription was created for fd=3 — publish delivers nothing.
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"hr\":1}", 7, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// BB_SINK_WS_MAX_CLIENTS (right-sized to CONFIG_BB_HTTP_MAX_OPEN_SOCKETS,
+// C default 5 on host) bounds the fd->slot map. A subscription beyond the
+// cap is dropped (logged), never a crash or out-of-bounds write; earlier
+// clients keep working normally.
+void test_bb_sink_ws_client_pool_exhaustion_drops_extra_sub(void)
+{
+    ws_sink_setup();
+    const int fds[] = {10, 20, 30, 40, 50, 60}; // 6 clients > default cap of 5
+    for (size_t i = 0; i < sizeof(fds) / sizeof(fds[0]); i++) {
+        bb_websocket_host_set_client_active(fds[i], true);
+    }
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    for (size_t i = 0; i < sizeof(fds) / sizeof(fds[0]); i++) {
+        inject_sub(req, fds[i], "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
+    }
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"hr\":1}", 7, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    // Only the first 5 (pool capacity) actually got a subscription slot.
+    TEST_ASSERT_EQUAL_INT(5, bb_websocket_host_async_count());
 }

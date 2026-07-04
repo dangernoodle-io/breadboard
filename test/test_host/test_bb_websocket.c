@@ -758,3 +758,51 @@ void test_bb_websocket_open_count_reset_by_reset_captures(void)
     bb_websocket_host_reset_captures();
     TEST_ASSERT_EQUAL(0, bb_websocket_open_count());
 }
+
+// ---------------------------------------------------------------------------
+// Disconnect notification
+// ---------------------------------------------------------------------------
+
+static int  s_disc_fd_seen  = -1;
+static void *s_disc_ctx_seen = NULL;
+static int  s_disc_call_count = 0;
+
+static void disc_cb(int fd, void *ctx)
+{
+    s_disc_fd_seen    = fd;
+    s_disc_ctx_seen   = ctx;
+    s_disc_call_count++;
+}
+
+void test_bb_websocket_disconnect_cb_invoked_with_fd_and_ctx(void)
+{
+    ws_test_setup();
+    s_disc_fd_seen = -1;
+    s_disc_ctx_seen = NULL;
+    s_disc_call_count = 0;
+
+    int marker;
+    bb_websocket_set_disconnect_cb(disc_cb, &marker);
+    bb_websocket_host_simulate_disconnect(7);
+
+    TEST_ASSERT_EQUAL(1, s_disc_call_count);
+    TEST_ASSERT_EQUAL(7, s_disc_fd_seen);
+    TEST_ASSERT_EQUAL_PTR(&marker, s_disc_ctx_seen);
+}
+
+void test_bb_websocket_disconnect_cb_null_is_noop(void)
+{
+    ws_test_setup();
+    // No callback registered — must not crash.
+    bb_websocket_host_simulate_disconnect(3);
+}
+
+void test_bb_websocket_disconnect_cb_cleared_by_reset_captures(void)
+{
+    ws_test_setup();
+    s_disc_call_count = 0;
+    bb_websocket_set_disconnect_cb(disc_cb, NULL);
+    bb_websocket_host_reset_captures();
+    bb_websocket_host_simulate_disconnect(1);
+    TEST_ASSERT_EQUAL(0, s_disc_call_count);
+}

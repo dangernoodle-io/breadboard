@@ -4,38 +4,68 @@
 // Compiled only on ESP_PLATFORM; the host build uses
 // platform/host/bb_sink_ws/bb_sink_ws.c.
 //
-// Subscription filtering
-// ----------------------
-// Clients send a TEXT frame: {"sub":["telemetry","events","log",...]}
-// This replaces the client's entire subscription set.  On the next publish
-// only channels matching the subscription are delivered.
+// Bidirectional envelope
+// -----------------------
+// Outbound (server -> client), both the telemetry publish path and the log
+// path: {"type":"push","topic":"<subtopic>","data":<payload>}
+//
+// Inbound (client -> server), demuxed by "type" from the start:
+//   {"type":"sub","topic":["telemetry","events","log",...]}
+//     -> replaces the client's entire subscription set.
+//   any other "type" (e.g. "cmd")
+//     -> RESERVED, ignored-with-log. No command execution path exists yet;
+//        this keeps bb_sink_ws egress-pure and reserves the inbound command
+//        channel for a future component.
+//   no "type" key at all
+//     -> legacy back-compat: {"sub":["telemetry",...]} is still accepted.
 //
 // Matching rules (checked in order):
-//   1. Exact match:  client subscribed to "power"  → receives ch="power"
-//   2. Coarse group: client subscribed to "telemetry" → receives any ch
+//   1. Exact match:  client subscribed to "power"  → receives topic="power"
+//   2. Coarse group: client subscribed to "telemetry" → receives any topic
 //      that maps to a bb_pub telemetry subtopic (mining, pool, info, wifi,
 //      fan, power, thermal, …).  All bb_pub subtopics that are NOT "events"
 //      or "log" are considered part of the "telemetry" group.
-//   3. "events" group: receives ch values that come from the events bus
+//   3. "events" group: receives topic values that come from the events bus
 //      (subtopic == "events").
-//   4. "log" channel: exact opt-in; clients subscribe with {"sub":["log"]}.
-//      Receives {"ch":"log","data":{...}} structured JSON from bb_log_event.
+//   4. "log" channel: exact opt-in; clients subscribe with
+//      {"type":"sub","topic":["log"]}.
+//      Receives {"type":"push","topic":"log","data":{...}} from bb_log_event.
 //   5. If the client has NO subscriptions yet (e.g., just connected and has
 //      not sent a sub frame), it receives NOTHING (subscription required).
 //
 // Per-client subscription state
 // -----------------------------
-// Keyed by socket fd (0..BB_WEBSOCKET_MAX_FD-1).  A fixed-size slot array
-// avoids dynamic allocation and survives connections/disconnections.
+// Right-sized to BB_SINK_WS_MAX_CLIENTS (bridged from
+// CONFIG_BB_HTTP_MAX_OPEN_SOCKETS — no more than that many fds can ever be
+// live WS clients, since WS shares the httpd socket pool with HTTP/SSE).
+// Slots are keyed by fd via a small linear-scan map, NOT by direct fd
+// indexing: LWIP socket fds are offset (LWIP_SOCKET_OFFSET =
+// FD_SETSIZE - CONFIG_LWIP_MAX_SOCKETS), so live fd values commonly land in
+// the FD_SETSIZE-CONFIG_LWIP_MAX_SOCKETS..FD_SETSIZE-1 range — far above
+// BB_SINK_WS_MAX_CLIENTS. Indexing s_clients[fd] directly would need an
+// array sized to BB_WEBSOCKET_MAX_FD (FD_SETSIZE, 64) regardless of how few
+// concurrent clients are allowed; the fd->slot map avoids that while still
+// bounding memory to the real concurrency cap.
 //
 // Log channel
 // -----------
 // bb_sink_ws_init subscribes to the "log" bb_event topic (registered by
 // bb_log_event at order 4).  log_event_cb builds the
-//   {"ch":"log","data":{...}}
+//   {"type":"push","topic":"log","data":{...}}
 // envelope and fans it to clients subscribed to "log".  s_suspended gate
 // is checked in log_event_cb to match the telemetry publish behaviour.
-// s_clients[] is read without a lock — same race tolerance as sink_ws_publish.
+//
+// Locking
+// -------
+// s_clients[] (the fd->slot map and per-client subscription state) is
+// read/written from multiple tasks: the httpd worker task(s) delivering
+// inbound WS frames and disconnect notifications, and the bb_pub worker task
+// driving the periodic broadcast tick. s_clients_lock (a FreeRTOS mutex,
+// same idiom as bb_net_health's s_cache_lock) guards every access. Critical
+// sections are kept tight: broadcast_filtered takes the lock only to build a
+// snapshot of matching fds, then releases it before calling
+// bb_websocket_broadcast_frame_async — the actual httpd send never runs
+// under the lock.
 #ifdef ESP_PLATFORM
 
 #include "bb_sink_ws.h"
@@ -44,9 +74,21 @@
 #include "bb_event.h"
 #include "bb_mem.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+
+#include "sdkconfig.h"
+
+#ifdef CONFIG_BB_HTTP_MAX_OPEN_SOCKETS
+#define BB_SINK_WS_MAX_CLIENTS CONFIG_BB_HTTP_MAX_OPEN_SOCKETS
+#endif
+#ifndef BB_SINK_WS_MAX_CLIENTS
+#define BB_SINK_WS_MAX_CLIENTS 5
+#endif
 
 static const char *TAG = "bb_sink_ws";
 
@@ -58,59 +100,103 @@ static const char *TAG = "bb_sink_ws";
 #define BB_SINK_WS_MAX_SUBS 8
 // Max length of a single subscription string (channel name).
 #define BB_SINK_WS_SUB_MAX_LEN 32
+// Max length of the inbound envelope "type" value.
+#define BB_SINK_WS_TYPE_MAX_LEN 16
 
 typedef struct {
     bool active;                                 // slot is in use
+    int  fd;                                      // owning fd; -1 when free
     char subs[BB_SINK_WS_MAX_SUBS][BB_SINK_WS_SUB_MAX_LEN];
     int  sub_count;
 } client_sub_t;
 
-static client_sub_t s_clients[BB_WEBSOCKET_MAX_FD];
-static bool s_suspended = false;
+static client_sub_t s_clients[BB_SINK_WS_MAX_CLIENTS];
 
-// Clear all subscription state for a client slot.
-static void client_sub_clear(int fd)
+// Guards all access to s_clients[]. Created in bb_sink_ws_init.
+static SemaphoreHandle_t s_clients_lock;
+
+// ---------------------------------------------------------------------------
+// fd -> slot map
+//
+// client_slot_find / client_slot_acquire are internal helpers called ONLY
+// from within a section already holding s_clients_lock (parse_topic_array,
+// client_sub_clear, client_subscribed via broadcast_filtered) — they do NOT
+// take the lock themselves, since s_clients_lock is a plain (non-recursive)
+// FreeRTOS mutex.
+// ---------------------------------------------------------------------------
+
+// Find the slot currently owned by fd, or -1 if none.
+static int client_slot_find(int fd)
 {
-    if (fd < 0 || fd >= BB_WEBSOCKET_MAX_FD) return;
-    memset(&s_clients[fd], 0, sizeof(s_clients[fd]));
+    if (fd < 0) return -1;
+    for (int i = 0; i < BB_SINK_WS_MAX_CLIENTS; i++) {
+        if (s_clients[i].active && s_clients[i].fd == fd) return i;
+    }
+    return -1;
 }
 
-// Parse {"sub":["a","b",...]} and populate the client slot.
-// Returns true if parsed successfully (even if array is empty).
-// Returns false and leaves state unchanged on parse failure.
-static bool parse_sub_frame(int fd, const char *payload, size_t len)
+// Find (or allocate) the slot for fd. Returns -1 if fd is invalid or the
+// pool is exhausted (should not happen in practice: BB_SINK_WS_MAX_CLIENTS
+// tracks CONFIG_BB_HTTP_MAX_OPEN_SOCKETS, the hard cap on concurrent
+// sockets across the whole httpd server).
+static int client_slot_acquire(int fd)
 {
-    if (fd < 0 || fd >= BB_WEBSOCKET_MAX_FD) return false;
-
-    // Must start with {"sub":[
-    const char *NEEDLE = "\"sub\":[";
-    const char *p = payload ? (const char *)payload : "";
-    const char *end = p + len;
-
-    // Find "sub":[
-    while (p < end && *p != '"') p++;
-    const char *found = NULL;
-    size_t needle_len = strlen(NEEDLE);
-    for (const char *q = p; q + needle_len <= end; q++) {
-        if (memcmp(q, NEEDLE, needle_len) == 0) {
-            found = q + needle_len;
-            break;
+    if (fd < 0) return -1;
+    int existing = client_slot_find(fd);
+    if (existing >= 0) return existing;
+    for (int i = 0; i < BB_SINK_WS_MAX_CLIENTS; i++) {
+        if (!s_clients[i].active) {
+            memset(&s_clients[i], 0, sizeof(s_clients[i]));
+            s_clients[i].active = true;
+            s_clients[i].fd     = fd;
+            return i;
         }
     }
-    if (!found) return false;
+    bb_log_w(TAG, "client slot pool exhausted (cap=%d), dropping sub for fd=%d",
+             BB_SINK_WS_MAX_CLIENTS, fd);
+    return -1;
+}
 
-    // Parse quoted strings until ']'
+// Clear all subscription state for a client (by fd). Takes s_clients_lock.
+static void client_sub_clear(int fd)
+{
+    xSemaphoreTake(s_clients_lock, portMAX_DELAY);
+    int slot = client_slot_find(fd);
+    if (slot >= 0) {
+        memset(&s_clients[slot], 0, sizeof(s_clients[slot]));
+        s_clients[slot].fd = -1;
+    }
+    xSemaphoreGive(s_clients_lock);
+}
+
+// Parse a JSON string array starting at `arr_start` (first char after the
+// opening '[') into a client's subscription slot, replacing its prior set.
+// Returns true if parsed successfully (even if array is empty).
+// Takes s_clients_lock for the full parse+commit (bounded, non-blocking work
+// only — no I/O under the lock).
+static bool parse_topic_array(int fd, const char *arr_start, const char *end)
+{
+    xSemaphoreTake(s_clients_lock, portMAX_DELAY);
+
+    int slot = client_slot_acquire(fd);
+    if (slot < 0) {
+        xSemaphoreGive(s_clients_lock);
+        return false;
+    }
+
     char new_subs[BB_SINK_WS_MAX_SUBS][BB_SINK_WS_SUB_MAX_LEN];
     int  new_count = 0;
-    const char *r = found;
+    const char *r = arr_start;
     while (r < end && *r != ']' && new_count < BB_SINK_WS_MAX_SUBS) {
-        // Advance to '"'
         while (r < end && *r != '"' && *r != ']') r++;
         if (r >= end || *r == ']') break;
         r++; // skip opening '"'
         const char *str_start = r;
         while (r < end && *r != '"') r++;
-        if (r >= end) return false; // unterminated string
+        if (r >= end) {
+            xSemaphoreGive(s_clients_lock);
+            return false; // unterminated string
+        }
         size_t str_len = (size_t)(r - str_start);
         if (str_len >= BB_SINK_WS_SUB_MAX_LEN) str_len = BB_SINK_WS_SUB_MAX_LEN - 1;
         memcpy(new_subs[new_count], str_start, str_len);
@@ -119,39 +205,112 @@ static bool parse_sub_frame(int fd, const char *payload, size_t len)
         r++; // skip closing '"'
     }
 
-    // Commit parsed state
-    client_sub_t *slot = &s_clients[fd];
-    slot->active    = true;
-    slot->sub_count = new_count;
+    client_sub_t *cs = &s_clients[slot];
+    cs->sub_count = new_count;
     for (int i = 0; i < new_count; i++) {
-        memcpy(slot->subs[i], new_subs[i], BB_SINK_WS_SUB_MAX_LEN);
+        memcpy(cs->subs[i], new_subs[i], BB_SINK_WS_SUB_MAX_LEN);
     }
+    xSemaphoreGive(s_clients_lock);
     return true;
 }
 
-// Check if a client (fd) is subscribed to a given channel (ch).
+// Locate `"key":` in payload and return a pointer to the value that follows,
+// with any whitespace between the colon and the value already skipped.
+// Tolerates pretty-printed JSON (e.g. Python's json.dumps default ": "
+// separator) — NULL if the key is absent.
+static const char *find_key_value(const char *payload, const char *end, const char *key)
+{
+    size_t key_len = strlen(key);
+    for (const char *q = payload; q + key_len <= end; q++) {
+        if (memcmp(q, key, key_len) == 0) {
+            const char *v = q + key_len;
+            while (v < end && (*v == ' ' || *v == '\t' || *v == '\n' || *v == '\r')) v++;
+            return v;
+        }
+    }
+    return NULL;
+}
+
+// Locate the byte range right after `"key":[` in payload (whitespace-tolerant
+// around the colon), or NULL if absent or not an array.
+static const char *find_array_start(const char *payload, const char *end, const char *key)
+{
+    const char *v = find_key_value(payload, end, key);
+    if (!v || v >= end || *v != '[') return NULL;
+    return v + 1;
+}
+
+// Extract the envelope "type" value into out (NUL-terminated). Returns false
+// if no "type" key is present in payload.
+static bool extract_type(const char *payload, size_t len, char *out, size_t out_cap)
+{
+    const char *end = payload + len;
+    const char *v = find_key_value(payload, end, "\"type\":");
+    if (!v || v >= end || *v != '"') return false;
+    v++; // skip opening quote
+    const char *v_end = v;
+    while (v_end < end && *v_end != '"') v_end++;
+    if (v_end >= end) return false;
+    size_t vlen = (size_t)(v_end - v);
+    if (vlen >= out_cap) vlen = out_cap - 1;
+    memcpy(out, v, vlen);
+    out[vlen] = '\0';
+    return true;
+}
+
+// Demux an inbound TEXT frame by envelope "type" and dispatch:
+//   "sub"      -> parse "topic":[...] into the client's subscription slot.
+//   other      -> RESERVED (e.g. "cmd"); ignored-with-log, no execution path.
+//   (no type)  -> legacy back-compat {"sub":[...]}.
+static bool dispatch_inbound_frame(int fd, const char *payload, size_t len)
+{
+    const char *end = payload + len;
+    char type_buf[BB_SINK_WS_TYPE_MAX_LEN];
+
+    if (extract_type(payload, len, type_buf, sizeof(type_buf))) {
+        if (strcmp(type_buf, "sub") == 0) {
+            const char *arr = find_array_start(payload, end, "\"topic\":");
+            if (!arr) return false;
+            return parse_topic_array(fd, arr, end);
+        }
+        // RESERVED: command/other envelope types have no execution path yet.
+        bb_log_d(TAG, "ws: ignoring inbound frame type '%s' (reserved)", type_buf);
+        return true;
+    }
+
+    // Legacy back-compat: {"sub":[...]} with no envelope "type".
+    const char *arr = find_array_start(payload, end, "\"sub\":");
+    if (!arr) return false;
+    return parse_topic_array(fd, arr, end);
+}
+
+// Check if a client (fd) is subscribed to a given topic.
+// Internal helper — called ONLY from within a section already holding
+// s_clients_lock (broadcast_filtered's scan phase below); does not lock
+// itself, since s_clients_lock is a plain (non-recursive) FreeRTOS mutex.
 //
 // Matching logic:
-//   - Exact name match: sub == ch
-//   - Coarse group "telemetry": matches any ch that is NOT "events" and NOT "log"
-//   - Coarse group "events":    matches ch == "events"
+//   - Exact name match: sub == topic
+//   - Coarse group "telemetry": matches any topic that is NOT "events" and NOT "log"
+//   - Coarse group "events":    matches topic == "events"
 //   - "log" is exact opt-in only; not covered by any coarse group
-static bool client_subscribed(int fd, const char *ch)
+static bool client_subscribed(int fd, const char *topic)
 {
-    if (fd < 0 || fd >= BB_WEBSOCKET_MAX_FD) return false;
-    const client_sub_t *slot = &s_clients[fd];
-    if (!slot->active || slot->sub_count == 0) return false;
+    int slot = client_slot_find(fd);
+    if (slot < 0) return false;
+    const client_sub_t *cs = &s_clients[slot];
+    if (cs->sub_count == 0) return false;
 
-    for (int i = 0; i < slot->sub_count; i++) {
-        const char *sub = slot->subs[i];
+    for (int i = 0; i < cs->sub_count; i++) {
+        const char *sub = cs->subs[i];
         // Exact match
-        if (strcmp(sub, ch) == 0) return true;
+        if (strcmp(sub, topic) == 0) return true;
         // Coarse group: "telemetry" covers anything that is not events or log
         if (strcmp(sub, "telemetry") == 0 &&
-            strcmp(ch,  "events")    != 0 &&
-            strcmp(ch,  "log")       != 0) return true;
-        // Coarse group: "events" covers ch="events"
-        if (strcmp(sub, "events") == 0 && strcmp(ch, "events") == 0) return true;
+            strcmp(topic, "events")  != 0 &&
+            strcmp(topic, "log")     != 0) return true;
+        // Coarse group: "events" covers topic="events"
+        if (strcmp(sub, "events") == 0 && strcmp(topic, "events") == 0) return true;
     }
     return false;
 }
@@ -162,14 +321,14 @@ static bool client_subscribed(int fd, const char *ch)
 
 static bb_err_t ws_handler(bb_http_request_t *req, const bb_websocket_frame_t *frame)
 {
-    // Only process TEXT frames carrying subscription commands.
+    // Only process TEXT frames carrying envelope commands.
     if (!frame || frame->type != BB_WS_TYPE_TEXT || !frame->payload || frame->len == 0) {
         return BB_OK;
     }
 
     int fd = bb_websocket_req_fd(req);
-    // Attempt to parse {"sub":[...]}; ignore malformed frames silently.
-    parse_sub_frame(fd, (const char *)frame->payload, frame->len);
+    // Attempt to demux and dispatch; ignore malformed frames silently.
+    dispatch_inbound_frame(fd, (const char *)frame->payload, frame->len);
     return BB_OK;
 }
 
@@ -189,14 +348,30 @@ typedef struct {
 } sink_ws_ctx_t;
 
 static sink_ws_ctx_t s_ctx;
+static bool s_suspended = false;
 
 // ---------------------------------------------------------------------------
 // Filtered broadcast
 // ---------------------------------------------------------------------------
 
-// Broadcast `buf` (len bytes, ch = channel name) only to clients subscribed
-// to that channel.
-static bb_err_t broadcast_filtered(const char *ch,
+// Broadcast `buf` (len bytes, topic = channel name) only to clients
+// subscribed to that topic.
+//
+// Two-phase to keep the critical section tight: scan+match under
+// s_clients_lock into a bounded fd snapshot, release the lock, then fire the
+// (potentially slower) async sends outside it — bb_websocket_broadcast_frame_async
+// must never run while s_clients_lock is held.
+//
+// TOCTOU note: the fd snapshot is taken here, but the actual
+// httpd_ws_send_frame_async fires later from a deferred httpd_queue_work
+// item (bb_websocket.c's async_send_worker). That worker re-validates each
+// fd is still a live WS client immediately before sending, closing the
+// common closed-fd race. It does NOT close the narrower window where the
+// same fd number was reused by a NEW WS client in between — that residual
+// case delivers at most one stray broadcast telemetry frame (broadcast-
+// public data, bounded by the worker-queue latency) to the wrong client and
+// is accepted/tracked as a follow-up, not a generation-counter fix here.
+static bb_err_t broadcast_filtered(const char *topic,
                                    const char *buf, size_t len)
 {
     bb_websocket_frame_t frame = {
@@ -206,12 +381,23 @@ static bb_err_t broadcast_filtered(const char *ch,
         .len     = len,
     };
 
-    bb_err_t last_err = BB_OK;
+    int matched_fds[BB_SINK_WS_MAX_CLIENTS];
+    int matched_count = 0;
+
+    xSemaphoreTake(s_clients_lock, portMAX_DELAY);
     for (int fd = 0; fd < BB_WEBSOCKET_MAX_FD; fd++) {
         if (!bb_websocket_is_client(s_ctx.server, fd)) continue;
-        if (!client_subscribed(fd, ch)) continue;
+        if (!client_subscribed(fd, topic)) continue;
+        if (matched_count < BB_SINK_WS_MAX_CLIENTS) {
+            matched_fds[matched_count++] = fd;
+        }
+    }
+    xSemaphoreGive(s_clients_lock);
+
+    bb_err_t last_err = BB_OK;
+    for (int i = 0; i < matched_count; i++) {
         bb_err_t err = bb_websocket_broadcast_frame_async(
-            s_ctx.server, fd, &frame, NULL, NULL);
+            s_ctx.server, matched_fds[i], &frame, NULL, NULL);
         if (err != BB_OK) last_err = err;
     }
     return last_err;
@@ -241,17 +427,19 @@ static bb_err_t sink_ws_publish(void *ctx, const char *topic,
 
     const char *subtopic = extract_subtopic(topic);
 
-    // Build {"ch":"<subtopic>","data":<payload>}
-    // overhead: {"ch":"(7) + subtopic + ","data":(9) + payload + }(1) + NUL(1) = 18
+    // Build {"type":"push","topic":"<subtopic>","data":<payload>}
+    // overhead: {"type":"push","topic":"(24) + subtopic + "","data":(9) +
+    // payload + }(1) + NUL(1) = 35
     size_t subtopic_len = strlen(subtopic);
-    size_t envelope_len = subtopic_len + (size_t)len + 18;
+    size_t envelope_len = subtopic_len + (size_t)len + 35;
     char *buf = (char *)bb_malloc_prefer_spiram(envelope_len);
     if (!buf) {
         bb_log_w(TAG, "publish: malloc failed for envelope");
         return BB_ERR_NO_SPACE;
     }
 
-    int written = snprintf(buf, envelope_len, "{\"ch\":\"%s\",\"data\":%.*s}",
+    int written = snprintf(buf, envelope_len,
+                           "{\"type\":\"push\",\"topic\":\"%s\",\"data\":%.*s}",
                            subtopic, len, payload);
     if (written < 0 || (size_t)written >= envelope_len) {
         bb_log_w(TAG, "publish: snprintf truncated (written=%d cap=%zu)", written, envelope_len);
@@ -279,19 +467,34 @@ static void log_event_cb(bb_event_topic_t topic, int32_t id,
     if (s_suspended) return;
     if (!data || size == 0) return;
     size_t json_len = size - 1; // strip NUL posted by bb_log_event
-    // {"ch":"log","data":<json>}: "log"(3) + 18 overhead = 21
-    size_t envelope_len = json_len + 21;
+    // {"type":"push","topic":"log","data":<json>}: fixed(24) + "log"(3) +
+    // "","data":(9) + }(1) + NUL(1) = 38
+    size_t envelope_len = json_len + 38;
     char *buf = (char *)bb_malloc_prefer_spiram(envelope_len);
     if (!buf) {
         bb_log_w(TAG, "log_event_cb: malloc failed");
         return;
     }
-    int written = snprintf(buf, envelope_len, "{\"ch\":\"log\",\"data\":%.*s}",
+    int written = snprintf(buf, envelope_len,
+                           "{\"type\":\"push\",\"topic\":\"log\",\"data\":%.*s}",
                            (int)json_len, (const char *)data);
     if (written > 0 && (size_t)written < envelope_len) {
         broadcast_filtered("log", buf, (size_t)written);
     }
     bb_mem_free(buf);
+}
+
+// ---------------------------------------------------------------------------
+// Disconnect notification (fixes stale subscription state surviving an fd
+// reuse — an LWIP fd freed on disconnect can be reissued to a brand new
+// connection before bb_sink_ws_suspend() ever runs, otherwise bleeding the
+// prior client's subscription filter onto the new one).
+// ---------------------------------------------------------------------------
+
+static void ws_disconnect_cb(int fd, void *ctx)
+{
+    (void)ctx;
+    client_sub_clear(fd);
 }
 
 // ---------------------------------------------------------------------------
@@ -302,8 +505,21 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
 
+    if (!s_clients_lock) {
+        s_clients_lock = xSemaphoreCreateMutex();
+        if (!s_clients_lock) {
+            bb_log_e(TAG, "clients lock create failed");
+            return BB_ERR_NO_SPACE;
+        }
+    }
+
     bb_err_t reg_err = bb_websocket_register_described_endpoint(server, "/ws", ws_handler, &s_ws_route);
-    if (reg_err != BB_OK) return reg_err;
+    if (reg_err != BB_OK) {
+        bb_log_e(TAG, "register /ws failed: %d", (int)reg_err);
+        return reg_err;
+    }
+
+    bb_websocket_set_disconnect_cb(ws_disconnect_cb, NULL);
 
     s_ctx.server = server;
 
@@ -350,6 +566,7 @@ void bb_sink_ws_reset_for_test(void)
 {
     memset(&s_ctx, 0, sizeof(s_ctx));
     memset(s_clients, 0, sizeof(s_clients));
+    for (int i = 0; i < BB_SINK_WS_MAX_CLIENTS; i++) s_clients[i].fd = -1;
     s_suspended = false;
 }
 #endif

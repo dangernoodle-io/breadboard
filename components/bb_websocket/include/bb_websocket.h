@@ -143,6 +143,22 @@ bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t server,
 // none was set before inject_frame (e.g. handler called without a fake fd).
 int bb_websocket_req_fd(bb_http_request_t *req);
 
+// ---------------------------------------------------------------------------
+// Disconnect notification
+// ---------------------------------------------------------------------------
+
+// Called once per WS session teardown (socket close, timeout, or server
+// shutdown) with the fd that was associated with the closed session.
+typedef void (*bb_websocket_disconnect_cb_t)(int fd, void *ctx);
+
+// Register a callback invoked on WS session teardown. Global — one
+// registration per process; a later call replaces the previous one. Pass
+// cb=NULL to unregister. ctx is passed through to cb unchanged.
+// On ESP-IDF: piggybacks on the same req->sess_ctx/free_ctx hook that backs
+// bb_websocket_open_count(), so no extra per-session bookkeeping is added.
+// On host: invoked synchronously by bb_websocket_host_simulate_disconnect().
+void bb_websocket_set_disconnect_cb(bb_websocket_disconnect_cb_t cb, void *ctx);
+
 // Close a single /ws client session to reclaim heap during a TLS window.
 // On ESP-IDF: calls httpd_sess_trigger_close; returns BB_OK on success.
 // On host: no-op, returns BB_OK.
