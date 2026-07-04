@@ -4,7 +4,62 @@
 #include "driver/spi_master.h"
 #include "esp_lcd_panel_io.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
 static const char *TAG = "bb_display_spi";
+
+/*
+ * esp_lcd_panel_draw_bitmap() is asynchronous — it queues the SPI/DMA
+ * transaction and returns before the transfer completes (panel IO is
+ * created with trans_queue_depth=10). bb_display_blit_spi() reuses a
+ * single shared s_bounce buffer across chunks/glyphs; refilling it before
+ * the prior DMA transfer has drained corrupts the in-flight transfer's
+ * source data. s_color_trans_done_sem is signaled from the panel IO's
+ * on_color_trans_done callback and taken after every draw_bitmap call so
+ * s_bounce is never touched while a transfer against it is still in
+ * flight. This assumes bb_display_blit_spi/bb_display_clear_spi are only
+ * ever called from bb_display's single drawing task/context — the
+ * semaphore here gates DMA completion, not cross-task synchronization. */
+static SemaphoreHandle_t s_color_trans_done_sem = NULL;
+
+static bool IRAM_ATTR on_color_trans_done(esp_lcd_panel_io_handle_t io,
+                                           esp_lcd_panel_io_event_data_t *edata,
+                                           void *user_ctx)
+{
+    (void)io;
+    (void)edata;
+    (void)user_ctx;
+    BaseType_t woken = pdFALSE;
+    if (s_color_trans_done_sem) {
+        xSemaphoreGiveFromISR(s_color_trans_done_sem, &woken);
+    }
+    return woken == pdTRUE;
+}
+
+/* Block until the most recent draw_bitmap transfer has completed. Called
+ * after every chunk so the bounce buffer is safe to refill/reuse. */
+static void wait_color_trans_done(void)
+{
+    if (s_color_trans_done_sem) {
+        xSemaphoreTake(s_color_trans_done_sem, portMAX_DELAY);
+    }
+}
+
+/* Lazily create the completion semaphore the first time a panel IO is
+ * created. Only one SPI display backend is ever active at a time (the
+ * ordered probe-and-select-first-success walk in bb_display_init), so a
+ * single shared semaphore — like the shared s_bounce buffer below — is
+ * sufficient. */
+static void ensure_color_trans_done_sem(void)
+{
+    if (!s_color_trans_done_sem) {
+        s_color_trans_done_sem = xSemaphoreCreateBinary();
+        if (!s_color_trans_done_sem) {
+            bb_log_e(TAG, "color-trans-done sem alloc failed; SPI blit DMA-sync disabled (display may corrupt)");
+        }
+    }
+}
 
 bb_err_t bb_display_spi_init_bus_only(int pin_mosi, int pin_miso, int pin_clk,
                                        int max_transfer_sz, int host)
@@ -28,14 +83,17 @@ bb_err_t bb_display_spi_init_bus_only(int pin_mosi, int pin_miso, int pin_clk,
 bb_err_t bb_display_spi_new_panel_io(int host, int pclk_hz, int pin_cs, int pin_dc,
                                       esp_lcd_panel_io_handle_t *out_io)
 {
+    ensure_color_trans_done_sem();
+
     esp_lcd_panel_io_spi_config_t io_cfg = {
-        .cs_gpio_num       = pin_cs,
-        .dc_gpio_num       = pin_dc,
-        .spi_mode          = 0,
-        .pclk_hz           = pclk_hz,
-        .trans_queue_depth = 10,
-        .lcd_cmd_bits      = 8,
-        .lcd_param_bits    = 8,
+        .cs_gpio_num          = pin_cs,
+        .dc_gpio_num          = pin_dc,
+        .spi_mode             = 0,
+        .pclk_hz              = pclk_hz,
+        .trans_queue_depth    = 10,
+        .lcd_cmd_bits         = 8,
+        .lcd_param_bits       = 8,
+        .on_color_trans_done  = on_color_trans_done,
     };
     esp_err_t err = esp_lcd_new_panel_io_spi(
         (esp_lcd_spi_bus_handle_t)(intptr_t)host, &io_cfg, out_io);
@@ -81,6 +139,9 @@ void bb_display_blit_spi(esp_lcd_panel_handle_t panel,
             s_bounce[i] = (uint16_t)((c >> 8) | (c << 8));
         }
         esp_lcd_panel_draw_bitmap(panel, x, y + row, x + w, y + row + (int16_t)rows_this_pass, s_bounce);
+        /* Wait for this chunk's DMA transfer to complete before the next
+         * loop iteration (or the caller's next blit) refills s_bounce. */
+        wait_color_trans_done();
         row += (int16_t)rows_this_pass;
     }
 }
@@ -99,4 +160,9 @@ void bb_display_clear_spi(esp_lcd_panel_handle_t panel,
     for (uint16_t row = 0; row < h; row++) {
         esp_lcd_panel_draw_bitmap(panel, x, y + row, x + w, y + row + 1, s_bounce);
     }
+    /* All rows use identical bounce content, so wait once after the loop
+     * completes rather than per-row. This allows rows to pipeline through the
+     * DMA queue while still protecting the bounce buffer from refill before the
+     * final transfer drains. */
+    wait_color_trans_done();
 }
