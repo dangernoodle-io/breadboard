@@ -2,14 +2,15 @@
 import subprocess
 import sys
 import os
+import unittest
 from pathlib import Path
 
 
-class TestBBToolCLI:
+class TestBBToolCLI(unittest.TestCase):
     """Test bbtool CLI via subprocess invocations from the repo root."""
 
     @classmethod
-    def setup_class(cls):
+    def setUpClass(cls):
         """Set up test environment."""
         cls.repo_root = Path(__file__).resolve().parent.parent.parent.parent
         cls.bbtool_script = cls.repo_root / "scripts" / "bbtool.py"
