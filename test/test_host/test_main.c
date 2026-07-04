@@ -3927,6 +3927,16 @@ void test_bb_cache_envelope_post_sse_shape(void);
 void test_bb_cache_envelope_rest_equals_sse_within_interval(void);
 void test_bb_cache_envelope_serialize_into_not_enveloped(void);
 void test_bb_cache_envelope_get_serialized_undersized_buffer_untouched(void);
+void test_bb_cache_update_ex_first_write_all_zero_reports_changed(void);
+void test_bb_cache_update_ex_identical_rewrite_reports_unchanged(void);
+void test_bb_cache_update_ex_different_value_reports_changed(void);
+void test_bb_cache_update_ex_null_out_changed_does_not_crash(void);
+void test_bb_cache_update_ex_getter_mode_reports_unchanged(void);
+void test_bb_cache_update_ex_getter_mode_null_out_changed_does_not_crash(void);
+void test_bb_cache_update_ex_null_args_returns_invalid_arg(void);
+void test_bb_cache_update_wrapper_still_behaves_identically(void);
+void test_bb_cache_exists_registered_and_unregistered(void);
+void test_bb_cache_exists_null_key_returns_false(void);
 
 // Forward declarations from test_bb_sub.c
 void test_bb_sub_route_registers_and_cache_reflects_payload(void);
@@ -7995,6 +8005,16 @@ int main(void) {
     RUN_TEST(test_bb_cache_envelope_rest_equals_sse_within_interval);
     RUN_TEST(test_bb_cache_envelope_serialize_into_not_enveloped);
     RUN_TEST(test_bb_cache_envelope_get_serialized_undersized_buffer_untouched);
+    RUN_TEST(test_bb_cache_update_ex_first_write_all_zero_reports_changed);
+    RUN_TEST(test_bb_cache_update_ex_identical_rewrite_reports_unchanged);
+    RUN_TEST(test_bb_cache_update_ex_different_value_reports_changed);
+    RUN_TEST(test_bb_cache_update_ex_null_out_changed_does_not_crash);
+    RUN_TEST(test_bb_cache_update_ex_getter_mode_reports_unchanged);
+    RUN_TEST(test_bb_cache_update_ex_getter_mode_null_out_changed_does_not_crash);
+    RUN_TEST(test_bb_cache_update_ex_null_args_returns_invalid_arg);
+    RUN_TEST(test_bb_cache_update_wrapper_still_behaves_identically);
+    RUN_TEST(test_bb_cache_exists_registered_and_unregistered);
+    RUN_TEST(test_bb_cache_exists_null_key_returns_false);
     RUN_TEST(test_bb_ota_check_topic_value_is_update_available);
 
     // bb_sub

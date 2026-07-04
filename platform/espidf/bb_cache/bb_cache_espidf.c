@@ -29,6 +29,9 @@ typedef struct {
     const void         *(*snapshot)(void); // NULL = owned mode
     void                *owned;           // heap buffer in owned mode; NULL in getter mode
     size_t               size;            // sizeof owned struct (owned mode only)
+    bool                 has_value;       // owned mode: true once bb_cache_update_ex has
+                                           // copied in a value at least once (guards a
+                                           // false-negative memcmp against a zero-init buf)
     bb_cache_serialize_fn fn;
     bb_event_topic_t     event_topic;     // registered event topic handle (NULL if no SSE)
     pthread_mutex_t      lock;
@@ -190,6 +193,7 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
     slot->snapshot    = cfg->snapshot;
     slot->owned       = owned;
     slot->size        = cfg->snap_size;
+    slot->has_value   = false;
     slot->fn          = cfg->serialize;
     slot->event_topic = ev_topic;
     slot->flags       = cfg->flags;
@@ -202,7 +206,7 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
     return BB_OK;
 }
 
-bb_err_t bb_cache_update(const char *key, const void *snap)
+bb_err_t bb_cache_update_ex(const char *key, const void *snap, bool *out_changed)
 {
     if (!key || !snap) return BB_ERR_INVALID_ARG;
 
@@ -211,15 +215,40 @@ bb_err_t bb_cache_update(const char *key, const void *snap)
     bb_cache_entry_t *e = find_entry_locked(key);
     if (!e) return BB_ERR_NOT_FOUND;
 
-    // Getter-mode: caller owns the struct; update is a no-op
-    if (e->snapshot) return BB_OK;
+    // Getter-mode: caller owns the struct; update is a no-op. No owned bytes
+    // to diff against, so changed is always reported false.
+    if (e->snapshot) {
+        if (out_changed) *out_changed = false;
+        return BB_OK;
+    }
 
     pthread_mutex_lock(&e->lock);
+    // Compute change BEFORE the copy-in: first write since register is always
+    // a change (guards the false negative where memcmp against a
+    // zero-initialized owned buffer would otherwise report unchanged).
+    bool changed = (!e->has_value) || (memcmp(snap, e->owned, e->size) != 0);
     memcpy(e->owned, snap, e->size);
+    e->has_value = true;
     e->ts_ms = (int64_t)bb_clock_now_ms64();  // envelope sample-time (owned mode)
     e->dirty = true;   // invalidate memoized bytes; do NOT serialize here
     pthread_mutex_unlock(&e->lock);
+
+    if (out_changed) *out_changed = changed;
     return BB_OK;
+}
+
+bb_err_t bb_cache_update(const char *key, const void *snap)
+{
+    return bb_cache_update_ex(key, snap, NULL);
+}
+
+bool bb_cache_exists(const char *key)
+{
+    if (!key) return false;
+
+    ensure_init();
+
+    return find_entry_locked(key) != NULL;
 }
 
 bb_err_t bb_cache_post(const char *key)
@@ -460,6 +489,7 @@ void bb_cache_reset_for_test(void)
             if (s_entries[i].cached_json) bb_json_free_str(s_entries[i].cached_json);
             s_entries[i].key[0]      = '\0';
             s_entries[i].owned       = NULL;
+            s_entries[i].has_value   = false;
             s_entries[i].snapshot    = NULL;
             s_entries[i].fn          = NULL;
             s_entries[i].event_topic = NULL;
