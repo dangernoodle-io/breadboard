@@ -3,14 +3,14 @@
 //
 // Migration (telemetry-ssot): uses bb_pub_register_telemetry so the snapshot
 // is gathered into bb_cache once per tick; SSE, sinks, and REST all read the
-// SAME memoized serialization.  ts_ms is stamped at gather time.
+// SAME memoized serialization.  bb_cache owns the envelope's ts_ms
+// (B1-570 PR-3) — this source no longer stamps or emits its own timestamp.
 #include "bb_pub_power.h"
 #include "bb_pub.h"
 #include "bb_pub_defaults.h"
 #include "bb_power.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_clock.h"
 #include "bb_openapi.h"
 #include "bb_init.h"
 #include <stdbool.h>
@@ -29,7 +29,6 @@ static const char *TAG = "bb_pub_power";
 
 typedef struct {
     bb_power_snapshot_t snap;  // 5 ints = 20 bytes
-    int64_t             ts_ms;
 } bb_power_snap_t;
 
 // Compile-time guard: power snap must fit in the scratch buffer (B1-434).
@@ -50,7 +49,6 @@ static bool power_gather(void *snap_buf, void *ctx)
     bb_power_snap_t *s = snap_buf;
     memset(s, 0, sizeof(*s));
     bb_power_snapshot(h, &s->snap);
-    s->ts_ms = (int64_t)bb_clock_now_ms64();
     return true;
 }
 
@@ -62,7 +60,6 @@ static void power_serialize(bb_json_t obj, const void *snap_raw)
 {
     const bb_power_snap_t *s = snap_raw;
     bb_power_emit(obj, &s->snap);
-    bb_json_obj_set_int(obj, "ts_ms", s->ts_ms);
 }
 
 // ---------------------------------------------------------------------------
@@ -76,9 +73,8 @@ static const char k_power_telemetry_schema[] =
     "\"iout_ma\":{\"type\":[\"number\",\"null\"]},"
     "\"pout_mw\":{\"type\":[\"number\",\"null\"]},"
     "\"vin_mv\":{\"type\":[\"number\",\"null\"]},"
-    "\"temp_c\":{\"type\":[\"number\",\"null\"]},"
-    "\"ts_ms\":{\"type\":\"integer\"}},"
-    "\"required\":[\"vout_mv\",\"iout_ma\",\"pout_mw\",\"vin_mv\",\"temp_c\",\"ts_ms\"]}";
+    "\"temp_c\":{\"type\":[\"number\",\"null\"]}},"
+    "\"required\":[\"vout_mv\",\"iout_ma\",\"pout_mw\",\"vin_mv\",\"temp_c\"]}";
 
 bb_err_t bb_pub_power_register(void)
 {

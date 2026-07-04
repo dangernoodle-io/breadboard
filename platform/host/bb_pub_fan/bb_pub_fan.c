@@ -3,14 +3,14 @@
 //
 // Migration (telemetry-ssot): uses bb_pub_register_telemetry so the snapshot
 // is gathered into bb_cache once per tick; SSE, sinks, and REST all read the
-// SAME memoized serialization.  ts_ms is stamped at gather time.
+// SAME memoized serialization.  bb_cache owns the envelope's ts_ms
+// (B1-570 PR-3) — this source no longer stamps or emits its own timestamp.
 #include "bb_pub_fan.h"
 #include "bb_pub.h"
 #include "bb_pub_defaults.h"
 #include "bb_fan.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_clock.h"
 #include "bb_openapi.h"
 #include "bb_init.h"
 #include <math.h>
@@ -38,7 +38,6 @@ typedef struct {
     float             pid_input_c;
     bool              pid_is_vr;  // true="vr", false="die" (avoids pointer in snap)
 #endif
-    int64_t           ts_ms;
 } bb_fan_snap_t;
 
 // Compile-time guard: fan snap must fit in the scratch buffer (B1-434).
@@ -70,7 +69,6 @@ static bool fan_gather(void *snap_buf, void *ctx)
     s->pid_is_vr   = (tel.pid_input_src && tel.pid_input_src[0] == 'a');
 #endif
 
-    s->ts_ms = (int64_t)bb_clock_now_ms64();
     return true;
 }
 
@@ -121,8 +119,6 @@ static void fan_serialize(bb_json_t obj, const void *snap_raw)
     }
     bb_json_obj_set_string(obj, "pid_input_src", s->pid_is_vr ? "vr" : "die");
 #endif
-
-    bb_json_obj_set_int(obj, "ts_ms", s->ts_ms);
 }
 
 // ---------------------------------------------------------------------------
@@ -139,9 +135,8 @@ static const char k_fan_telemetry_schema[] =
     "\"die_ema_c\":{\"type\":[\"number\",\"null\"]},"
     "\"vr_ema_c\":{\"type\":[\"number\",\"null\"]},"
     "\"pid_input_c\":{\"type\":[\"number\",\"null\"]},"
-    "\"pid_input_src\":{\"type\":\"string\",\"enum\":[\"die\",\"vr\"]},"
-    "\"ts_ms\":{\"type\":\"integer\"}},"
-    "\"required\":[\"rpm\",\"duty_pct\",\"die_c\",\"board_c\",\"ts_ms\"]}";
+    "\"pid_input_src\":{\"type\":\"string\",\"enum\":[\"die\",\"vr\"]}},"
+    "\"required\":[\"rpm\",\"duty_pct\",\"die_c\",\"board_c\"]}";
 
 bb_err_t bb_pub_fan_register(void)
 {

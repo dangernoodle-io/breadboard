@@ -1517,8 +1517,26 @@ bb_err_t bb_pub_tick_once(void)
 #endif /* CONFIG_BB_PUB_LEGACY_TRANSPORT_INJECT */
 
         // B1-388: serialize ONCE for all sinks.
-        char *json = bb_json_serialize(obj);
-        bb_json_free(obj);
+        //
+        // Envelope (B1-570 PR-3): this legacy bb_pub_register_source path
+        // delivers to sinks directly, bypassing bb_cache — so unlike the
+        // telem/cache path (which gets its envelope from
+        // bb_cache_get_serialized/bb_cache_post), the wire contract has to be
+        // built here explicitly to keep every sink-delivered topic uniform:
+        // {"ts_ms":<sample-time>,"data":{...}}. ts_ms reuses the single
+        // per-cycle timestamp captured above (the same value already injected
+        // as the "uptime_ms" data field) — this source's sample time.
+        bb_json_t envelope = bb_json_obj_new();
+        if (!envelope) {
+            bb_log_w(TAG, "tick: failed to allocate envelope for '%s'", src->subtopic);
+            bb_json_free(obj);
+            continue;
+        }
+        bb_json_obj_set_int(envelope, "ts_ms", (int64_t)ts_ms);
+        bb_json_obj_set_obj(envelope, "data", obj);  /* ownership of obj transfers */
+
+        char *json = bb_json_serialize(envelope);
+        bb_json_free(envelope);
         if (!json) {
             bb_log_w(TAG, "tick: failed to serialize '%s'", src->subtopic);
             continue;
@@ -1620,10 +1638,11 @@ bb_err_t bb_pub_tick_once(void)
 
         // Copy-out under the cache entry lock: the serializer ran (at most) once
         // via the cache's dirty flag (set by bb_cache_update in Phase 1).  SSE,
-        // every sink, and any REST poll all receive these exact same bytes.  The
-        // timestamp and all other fields come from the snapshot's serializer (no
-        // post-inject), so REST == SSE == sink byte-for-byte.  Holding only our
-        // own copy makes the fan-out UAF-safe against a concurrent re-serialize.
+        // every sink, and any REST poll all receive these exact same enveloped
+        // bytes ({"ts_ms":N,"data":{...}}, B1-570 PR-3) — bb_cache freezes
+        // ts_ms + the memoized "data" bytes between updates, so REST == SSE ==
+        // sink byte-for-byte.  Holding only our own copy makes the fan-out
+        // UAF-safe against a concurrent re-serialize.
         size_t   S_len = 0;
         bb_err_t ge = bb_cache_get_serialized(te->topic, telem_buf,
                                               sizeof(telem_buf), &S_len);

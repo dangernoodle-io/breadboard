@@ -757,7 +757,8 @@ static void net_section_get(bb_json_t section, void *ctx)
 //
 // Migration (telemetry-ssot): uses bb_pub_register_telemetry so the snapshot
 // is gathered into bb_cache once per tick; SSE and sinks all read the SAME
-// memoized serialization.  ts_ms is stamped at gather time.
+// memoized serialization.  bb_cache owns the envelope's ts_ms (B1-570 PR-3)
+// — this source no longer stamps or emits its own timestamp.
 //
 // Topic name: "net_health" (distinct from the state topic "net.health" /
 // BB_NET_HEALTH_TOPIC — no collision).  The existing net.health bb_cache +
@@ -771,7 +772,6 @@ static void net_section_get(bb_json_t section, void *ctx)
 
 typedef struct {
     bb_net_health_status_t status;
-    int64_t                ts_ms;
 } bb_net_health_snap_t;
 
 // Compile-time guard: net_health snap must fit in the scratch buffer (B1-434).
@@ -785,7 +785,6 @@ static bool net_health_gather(void *snap_buf, void *ctx)
     bb_net_health_snap_t *s = snap_buf;
     memset(s, 0, sizeof(*s));
     if (bb_net_health_get_status(&s->status) != BB_OK) return false;  // not evaluated yet
-    s->ts_ms = (int64_t)bb_clock_now_ms64();
     return true;
 }
 
@@ -793,7 +792,6 @@ static void net_health_serialize(bb_json_t obj, const void *snap_raw)
 {
     const bb_net_health_snap_t *s = snap_raw;
     bb_net_health_emit(obj, &s->status);
-    bb_json_obj_set_int(obj, "ts_ms", s->ts_ms);
 }
 
 void bb_net_health_register_health(void)

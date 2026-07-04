@@ -13,7 +13,10 @@
 //   bb_mem_out                    integer (outstanding bytes; 0 when BB_MEM_STATS_ENABLE off)
 //   bb_mem_peak                   integer (peak outstanding; 0 when BB_MEM_STATS_ENABLE off)
 //   bb_mem_fail                   integer (cumulative alloc failures; 0 when off)
-//   ts_ms                         integer (sample-time epoch ms)
+//
+// Note: ts_ms (sample-time epoch ms) is no longer emitted here — bb_cache
+// owns it and applies it as the wire envelope ({"ts_ms":N,"data":{...}})
+// at the two serialize points (B1-570 PR-3).
 //
 // Note: static device-identity fields (version, board, chip_model, mac,
 // flash_size, app_size, dram_static_bytes, reset_reason, boot_epoch_s,

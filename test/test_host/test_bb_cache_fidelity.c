@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <pthread.h>
+#include <unistd.h>
 
 // ---------------------------------------------------------------------------
 // Test reset hook — declared in bb_cache_espidf.c (BB_CACHE_TESTING)
@@ -823,4 +824,282 @@ void test_bb_cache_register_explicit_sse_flag_preserves_legacy_behavior(void)
 
     bb_err_t err = bb_cache_post("test.cfg.sseflag");
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
+}
+
+// ---------------------------------------------------------------------------
+// Envelope contract (B1-570 PR-3): bb_cache_get_serialized/bb_cache_post wrap
+// the serializer's output as {"ts_ms":<n>,"data":{...}}. bb_cache_serialize_into
+// stays raw (embed-a-section primitive, no envelope).
+// ---------------------------------------------------------------------------
+
+// Small SSE capture helper — subscribes to a key's event topic, posts, drains
+// synchronously (BB_EVENT_HOST_SYNC), and hands back the raw payload bytes.
+static char   s_env_sse_payload[512];
+static size_t s_env_sse_len;
+static int    s_env_sse_calls;
+
+static void env_sse_capture_cb(bb_event_topic_t topic, int32_t id,
+                                const void *data, size_t size, void *user)
+{
+    (void)topic; (void)id; (void)user;
+    s_env_sse_calls++;
+    if (data && size > 0) {
+        size_t n = size - 1;  // strip NUL posted by bb_cache_post
+        if (n >= sizeof(s_env_sse_payload)) n = sizeof(s_env_sse_payload) - 1;
+        memcpy(s_env_sse_payload, data, n);
+        s_env_sse_payload[n] = '\0';
+        s_env_sse_len = n;
+    }
+}
+
+void test_bb_cache_envelope_get_serialized_owned_mode_shape(void)
+{
+    reset_all();
+
+    synth_snap_t s = {.value = 7, .flag = true, .ratio = 1.5};
+    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.env.owned", NULL, sizeof(s), synth_serialize));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update("test.env.owned", &s));
+
+    char buf[256];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.owned", buf, sizeof(buf), &len));
+
+    bb_json_t root = bb_json_parse(buf, len);
+    TEST_ASSERT_NOT_NULL(root);
+
+    double ts = -1;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(root, "ts_ms", &ts));
+    TEST_ASSERT_TRUE(ts > 0);
+
+    bb_json_t data = bb_json_obj_get_item(root, "data");
+    TEST_ASSERT_NOT_NULL(data);
+    double value = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "value", &value));
+    TEST_ASSERT_EQUAL_INT(7, (int)value);
+
+    // "value" must NOT also be at the envelope root (no flat/nested dup).
+    double flat = 0;
+    TEST_ASSERT_FALSE(bb_json_obj_get_number(root, "value", &flat));
+
+    bb_json_free(root);
+}
+
+void test_bb_cache_envelope_owned_mode_ts_frozen_between_reads(void)
+{
+    reset_all();
+
+    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.env.frozen", NULL, sizeof(s), synth_serialize));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update("test.env.frozen", &s));
+
+    char buf1[256], buf2[256];
+    size_t len1 = 0, len2 = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.frozen", buf1, sizeof(buf1), &len1));
+    usleep(2000);  // clear any clock-resolution ambiguity
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.frozen", buf2, sizeof(buf2), &len2));
+
+    // Owned mode: ts_ms is stamped at bb_cache_update(), not at read time —
+    // two reads with no update in between must be byte-identical.
+    TEST_ASSERT_EQUAL_UINT(len1, len2);
+    TEST_ASSERT_EQUAL_STRING(buf1, buf2);
+}
+
+void test_bb_cache_envelope_owned_mode_ts_advances_on_update(void)
+{
+    reset_all();
+
+    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.env.advance", NULL, sizeof(s), synth_serialize));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update("test.env.advance", &s));
+
+    char buf1[256];
+    size_t len1 = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.advance", buf1, sizeof(buf1), &len1));
+    bb_json_t root1 = bb_json_parse(buf1, len1);
+    double ts1 = -1;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(root1, "ts_ms", &ts1));
+    bb_json_free(root1);
+
+    usleep(2000);
+    s.value = 2;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update("test.env.advance", &s));
+
+    char buf2[256];
+    size_t len2 = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.advance", buf2, sizeof(buf2), &len2));
+    bb_json_t root2 = bb_json_parse(buf2, len2);
+    double ts2 = -1;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(root2, "ts_ms", &ts2));
+    bb_json_free(root2);
+
+    TEST_ASSERT_TRUE(ts2 >= ts1);
+}
+
+static synth_snap_t s_env_getter_val = {.value = 3, .flag = true, .ratio = 2.0};
+
+static const void *env_getter_snapshot(void)
+{
+    return &s_env_getter_val;
+}
+
+void test_bb_cache_envelope_getter_mode_ts_advances_each_read(void)
+{
+    reset_all();
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        reg("test.env.getter", env_getter_snapshot, 0, synth_serialize));
+
+    char buf1[256];
+    size_t len1 = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.getter", buf1, sizeof(buf1), &len1));
+    bb_json_t root1 = bb_json_parse(buf1, len1);
+    double ts1 = -1;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(root1, "ts_ms", &ts1));
+    bb_json_free(root1);
+
+    usleep(2000);
+
+    char buf2[256];
+    size_t len2 = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("test.env.getter", buf2, sizeof(buf2), &len2));
+    bb_json_t root2 = bb_json_parse(buf2, len2);
+    double ts2 = -1;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(root2, "ts_ms", &ts2));
+    bb_json_free(root2);
+
+    // Getter mode: every call re-samples snapshot() AND re-stamps ts_ms
+    // (the read IS the sample) — the second read must be no earlier.
+    TEST_ASSERT_TRUE(ts2 >= ts1);
+}
+
+void test_bb_cache_envelope_post_sse_shape(void)
+{
+    reset_all();
+    s_env_sse_calls = 0;
+    s_env_sse_len   = 0;
+    s_env_sse_payload[0] = '\0';
+
+    synth_snap_t s = {.value = 9, .flag = false, .ratio = 0.25};
+    bb_cache_config_t cfg = {
+        .key       = "test.env.post",
+        .snapshot  = NULL,
+        .snap_size = sizeof(s),
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update("test.env.post", &s));
+
+    bb_event_topic_t topic = NULL;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_event_topic_lookup("test.env.post", &topic));
+    bb_event_sub_t sub = NULL;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_event_subscribe(topic, env_sse_capture_cb, NULL, &sub));
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_post("test.env.post"));
+    bb_event_pump(0);
+    TEST_ASSERT_EQUAL_INT(1, s_env_sse_calls);
+
+    bb_json_t root = bb_json_parse(s_env_sse_payload, s_env_sse_len);
+    TEST_ASSERT_NOT_NULL(root);
+    double ts = -1;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(root, "ts_ms", &ts));
+    bb_json_t data = bb_json_obj_get_item(root, "data");
+    TEST_ASSERT_NOT_NULL(data);
+    double value = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "value", &value));
+    TEST_ASSERT_EQUAL_INT(9, (int)value);
+
+    bb_json_free(root);
+    bb_event_unsubscribe(sub);
+}
+
+void test_bb_cache_envelope_rest_equals_sse_within_interval(void)
+{
+    // REST (bb_cache_get_serialized) and SSE (bb_cache_post) must produce the
+    // SAME {"ts_ms":n,"data":{...}} bytes when no update() lands in between —
+    // both are owned-mode reads of the same frozen (struct, ts_ms) pair.
+    reset_all();
+    s_env_sse_calls = 0;
+    s_env_sse_len   = 0;
+    s_env_sse_payload[0] = '\0';
+
+    synth_snap_t s = {.value = 11, .flag = true, .ratio = 3.5};
+    bb_cache_config_t cfg = {
+        .key       = "test.env.parity",
+        .snapshot  = NULL,
+        .snap_size = sizeof(s),
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update("test.env.parity", &s));
+
+    bb_event_topic_t topic = NULL;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_event_topic_lookup("test.env.parity", &topic));
+    bb_event_sub_t sub = NULL;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_event_subscribe(topic, env_sse_capture_cb, NULL, &sub));
+
+    char rest_buf[256];
+    size_t rest_len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_get_serialized("test.env.parity", rest_buf, sizeof(rest_buf), &rest_len));
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_post("test.env.parity"));
+    bb_event_pump(0);
+    TEST_ASSERT_EQUAL_INT(1, s_env_sse_calls);
+
+    TEST_ASSERT_EQUAL_UINT(rest_len, s_env_sse_len);
+    TEST_ASSERT_EQUAL_STRING(rest_buf, s_env_sse_payload);
+
+    bb_event_unsubscribe(sub);
+}
+
+void test_bb_cache_envelope_serialize_into_not_enveloped(void)
+{
+    // bb_cache_serialize_into is the embed-a-section primitive — it must
+    // NEVER apply the {"ts_ms","data"} wrapper (that would double-nest a
+    // composed document, e.g. /api/health aggregating multiple keys).
+    reset_all();
+
+    synth_snap_t s = {.value = 5, .flag = true, .ratio = 1.0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.env.raw", NULL, sizeof(s), synth_serialize));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update("test.env.raw", &s));
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.env.raw", obj));
+
+    double value = 0, flat_ts = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "value", &value));
+    TEST_ASSERT_EQUAL_INT(5, (int)value);
+    TEST_ASSERT_FALSE(bb_json_obj_get_number(obj, "ts_ms", &flat_ts));
+    TEST_ASSERT_NULL(bb_json_obj_get_item(obj, "data"));
+
+    bb_json_free(obj);
+}
+
+void test_bb_cache_envelope_get_serialized_undersized_buffer_untouched(void)
+{
+    // Buffer sizing: the envelope adds fixed overhead on top of the memoized
+    // "data" bytes. A cap that fits "data" alone but not the full envelope
+    // must be refused (BB_ERR_NO_SPACE) WITHOUT a partial write.
+    reset_all();
+
+    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.env.undersized", NULL, sizeof(s), synth_serialize));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update("test.env.undersized", &s));
+
+    // First, learn the raw "data" length via a big-enough buffer.
+    char big[256];
+    size_t big_len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_get_serialized("test.env.undersized", big, sizeof(big), &big_len));
+
+    // A cap 1 byte short of the full envelope must fail cleanly.
+    char small[256];
+    memset(small, 'Z', sizeof(small));
+    size_t small_cap = big_len;  // < needed (needed == big_len + 1 for the NUL)
+    bb_err_t err = bb_cache_get_serialized("test.env.undersized", small, small_cap, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
+    TEST_ASSERT_EQUAL_CHAR('Z', small[0]);  // buffer untouched
 }

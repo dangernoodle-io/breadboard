@@ -1804,3 +1804,65 @@ void test_bb_pub_cadence_once_failing_sink_leaves_state_uncommitted(void)
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(2, s_cadence_count);
 }
+
+// ---------------------------------------------------------------------------
+// Legacy source path envelope (B1-570 PR-3)
+//
+// bb_pub_register_source's tick path delivers to sinks BYPASSING bb_cache
+// (unlike bb_pub_register_telemetry, which gets its envelope from
+// bb_cache_get_serialized/bb_cache_post). This path must build the SAME
+// {"ts_ms":<n>,"data":{...}} wire contract explicitly so every sink-delivered
+// topic is uniform regardless of which registration API produced it.
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_legacy_source_payload_is_enveloped(void)
+{
+    setup_with_sink();
+    bb_pub_register_source("power", sample_voltage, NULL);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+
+    bb_json_t root = bb_json_parse(s_captured[0].payload, strlen(s_captured[0].payload));
+    TEST_ASSERT_NOT_NULL(root);
+
+    double ts = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(root, "ts_ms", &ts));
+
+    bb_json_t data = bb_json_obj_get_item(root, "data");
+    TEST_ASSERT_NOT_NULL(data);
+    double mv = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "mv", &mv));
+    TEST_ASSERT_EQUAL_INT(3300, (int)mv);
+
+    // "mv" must NOT also appear at the envelope root (no flat/nested duplication).
+    double flat_mv = 0;
+    TEST_ASSERT_FALSE(bb_json_obj_get_number(root, "mv", &flat_mv));
+
+    bb_json_free(root);
+}
+
+void test_bb_pub_legacy_source_envelope_ts_matches_uptime_ms(void)
+{
+    // ts_ms at the envelope root is the SAME per-cycle sample-time value
+    // injected into "data.uptime_ms" (both come from the single timestamp
+    // captured once per tick) — not two independently-sampled clocks.
+    setup_with_sink();
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+
+    bb_json_t root = bb_json_parse(s_captured[0].payload, strlen(s_captured[0].payload));
+    TEST_ASSERT_NOT_NULL(root);
+
+    double ts = -1;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(root, "ts_ms", &ts));
+
+    bb_json_t data = bb_json_obj_get_item(root, "data");
+    TEST_ASSERT_NOT_NULL(data);
+    double uptime = -1;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "uptime_ms", &uptime));
+
+    TEST_ASSERT_EQUAL_INT((int)ts, (int)uptime);
+
+    bb_json_free(root);
+}

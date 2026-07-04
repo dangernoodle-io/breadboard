@@ -175,8 +175,12 @@ void test_bb_sub_mqtt_init_routes_injected_message_into_cache(void)
     TEST_ASSERT_EQUAL_INT(BB_OK,
         bb_cache_get_serialized("metrics/otherhost/meta", buf, sizeof(buf), &len));
     bb_json_t obj = bb_json_parse(buf, len);
+    TEST_ASSERT_NOT_NULL(obj);
+    // bb_cache_get_serialized now wraps every read in the {"ts_ms":N,"data":
+    // {...}} envelope (B1-570 PR-3) — the routed fields live under "data".
+    bb_json_t data = bb_json_obj_get_item(obj, "data");
     double v = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "v", &v));
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "v", &v));
     TEST_ASSERT_EQUAL_INT(7, (int)v);
     bb_json_free(obj);
 

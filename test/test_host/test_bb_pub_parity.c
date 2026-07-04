@@ -178,7 +178,11 @@ void test_bb_pub_power_parity_emit_matches_rest_core_fields(void)
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_parity_count);
 
-    bb_json_t pub = bb_json_parse(s_parity_payload, strlen(s_parity_payload));
+    // Sink payloads are enveloped ({"ts_ms":N,"data":{...}}, B1-570 PR-3) —
+    // compare against the "data" child.
+    bb_json_t pub_root = bb_json_parse(s_parity_payload, strlen(s_parity_payload));
+    TEST_ASSERT_NOT_NULL(pub_root);
+    bb_json_t pub = bb_json_obj_get_item(pub_root, "data");
     TEST_ASSERT_NOT_NULL(pub);
 
     // Both paths must emit the same 5 field values.
@@ -194,7 +198,7 @@ void test_bb_pub_power_parity_emit_matches_rest_core_fields(void)
     }
 
     bb_json_free(direct);
-    bb_json_free(pub);
+    bb_json_free(pub_root);
     bb_power_test_reset();
 }
 
@@ -276,7 +280,11 @@ void test_bb_pub_fan_parity_emit_matches_pub_source(void)
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_fan_parity_count);
 
-    bb_json_t pub = bb_json_parse(s_fan_parity_payload, strlen(s_fan_parity_payload));
+    // Sink payloads are enveloped ({"ts_ms":N,"data":{...}}, B1-570 PR-3) —
+    // compare against the "data" child.
+    bb_json_t pub_root = bb_json_parse(s_fan_parity_payload, strlen(s_fan_parity_payload));
+    TEST_ASSERT_NOT_NULL(pub_root);
+    bb_json_t pub = bb_json_obj_get_item(pub_root, "data");
     TEST_ASSERT_NOT_NULL(pub);
 
     // Both paths must emit the same 4 core field values.
@@ -292,7 +300,7 @@ void test_bb_pub_fan_parity_emit_matches_pub_source(void)
     }
 
     bb_json_free(direct);
-    bb_json_free(pub);
+    bb_json_free(pub_root);
     bb_fan_test_reset();
 }
 
@@ -364,7 +372,11 @@ void test_bb_pub_thermal_parity_collect_matches_rest_fields(void)
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_thermal_parity_count);
 
-    bb_json_t pub = bb_json_parse(s_thermal_parity_payload, strlen(s_thermal_parity_payload));
+    // Sink payloads are enveloped ({"ts_ms":N,"data":{...}}, B1-570 PR-3) —
+    // compare against the "data" child.
+    bb_json_t pub_root = bb_json_parse(s_thermal_parity_payload, strlen(s_thermal_parity_payload));
+    TEST_ASSERT_NOT_NULL(pub_root);
+    bb_json_t pub = bb_json_obj_get_item(pub_root, "data");
     TEST_ASSERT_NOT_NULL(pub);
 
     // Assert all four values match what bb_thermal_collect reported.
@@ -381,7 +393,7 @@ void test_bb_pub_thermal_parity_collect_matches_rest_fields(void)
     TEST_ASSERT_TRUE(bb_json_obj_get_number(pub, "board_c", &pv));
     TEST_ASSERT_FLOAT_WITHIN(0.01f, v.board_c, (float)pv);
 
-    bb_json_free(pub);
+    bb_json_free(pub_root);
     bb_power_test_reset();
     bb_fan_test_reset();
     bb_temp_test_set_soc(false, 0.0f);

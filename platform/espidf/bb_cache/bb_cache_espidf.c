@@ -10,7 +10,10 @@
 #include "bb_log.h"
 #include "bb_core.h"
 #include "bb_mem.h"
+#include "bb_clock.h"
 
+#include <inttypes.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <pthread.h>
@@ -30,9 +33,15 @@ typedef struct {
     bb_event_topic_t     event_topic;     // registered event topic handle (NULL if no SSE)
     pthread_mutex_t      lock;
     bb_cache_flags_t     flags;           // BB_CACHE_FLAG_* bitmask
-    char                *cached_json;     // memoized serialized bytes (NULL = none yet)
+    char                *cached_json;     // memoized serialized "data" bytes (NULL = none yet)
     size_t               cached_len;      // strlen of cached_json
     bool                 dirty;           // true = cached_json stale, re-serialize on next get
+    // Envelope sample-time (B1-570 PR-3): owned mode is stamped in
+    // bb_cache_update() right after the memcpy; getter mode is stamped each
+    // time snapshot() is invoked (serialize_locked / bb_cache_get_serialized).
+    // Producers no longer emit their own ts_ms — bb_cache owns it and wraps
+    // every serialize point ({"ts_ms":N,"data":{...}}).
+    int64_t              ts_ms;
 } bb_cache_entry_t;
 
 static bb_cache_entry_t s_entries[BB_CACHE_MAX_TOPICS];
@@ -82,13 +91,17 @@ static bb_cache_entry_t *find_entry_locked(const char *key)
 
 // Serialize entry contents into obj under the entry's lock.
 // Entry must not be NULL. Caller holds no lock before calling.
-static bb_err_t serialize_locked(bb_cache_entry_t *e, bb_json_t obj)
+// out_ts_ms, when non-NULL, receives the entry's envelope sample-time: for
+// getter-mode entries this call stamps ts_ms = now (the read IS the sample);
+// for owned-mode entries ts_ms was already stamped by the last bb_cache_update.
+static bb_err_t serialize_locked(bb_cache_entry_t *e, bb_json_t obj, int64_t *out_ts_ms)
 {
     pthread_mutex_lock(&e->lock);
 
     const void *snap;
     if (e->snapshot) {
         snap = e->snapshot();
+        e->ts_ms = (int64_t)bb_clock_now_ms64();
     } else {
         snap = e->owned;
     }
@@ -100,6 +113,7 @@ static bb_err_t serialize_locked(bb_cache_entry_t *e, bb_json_t obj)
     }
 
     e->fn(obj, snap);
+    if (out_ts_ms) *out_ts_ms = e->ts_ms;
     pthread_mutex_unlock(&e->lock);
     return BB_OK;
 }
@@ -182,6 +196,7 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
     slot->cached_json = NULL;
     slot->cached_len  = 0;
     slot->dirty       = true;   // no bytes cached yet
+    slot->ts_ms       = 0;      // stamped on first update()/snapshot() read
 
     pthread_mutex_unlock(&s_reg_lock);
     return BB_OK;
@@ -201,6 +216,7 @@ bb_err_t bb_cache_update(const char *key, const void *snap)
 
     pthread_mutex_lock(&e->lock);
     memcpy(e->owned, snap, e->size);
+    e->ts_ms = (int64_t)bb_clock_now_ms64();  // envelope sample-time (owned mode)
     e->dirty = true;   // invalidate memoized bytes; do NOT serialize here
     pthread_mutex_unlock(&e->lock);
     return BB_OK;
@@ -216,17 +232,29 @@ bb_err_t bb_cache_post(const char *key)
     if (!e) return BB_ERR_NOT_FOUND;
     if (!e->event_topic) return BB_ERR_INVALID_STATE;
 
-    bb_json_t obj = bb_json_obj_new();
-    if (!obj) return BB_ERR_NO_SPACE;
+    // Envelope (B1-570 PR-3): {"ts_ms":N,"data":{...}}. Serialize the
+    // producer's fields into a nested "data" object rather than round-tripping
+    // through a string, then attach ts_ms + data to the envelope root.
+    bb_json_t data = bb_json_obj_new();
+    if (!data) return BB_ERR_NO_SPACE;
 
-    bb_err_t err = serialize_locked(e, obj);
+    int64_t ts_ms = 0;
+    bb_err_t err = serialize_locked(e, data, &ts_ms);
     if (err != BB_OK) {
-        bb_json_free(obj);
+        bb_json_free(data);
         return err;
     }
 
-    char *payload = bb_json_serialize(obj);
-    bb_json_free(obj);
+    bb_json_t root = bb_json_obj_new();
+    if (!root) {
+        bb_json_free(data);
+        return BB_ERR_NO_SPACE;
+    }
+    bb_json_obj_set_int(root, "ts_ms", ts_ms);
+    bb_json_obj_set_obj(root, "data", data);  // ownership of data transfers to root
+
+    char *payload = bb_json_serialize(root);
+    bb_json_free(root);
     if (!payload) return BB_ERR_NO_SPACE;
 
     size_t len = strlen(payload);
@@ -244,7 +272,9 @@ bb_err_t bb_cache_serialize_into(const char *key, bb_json_t obj)
     bb_cache_entry_t *e = find_entry_locked(key);
     if (!e) return BB_ERR_NOT_FOUND;
 
-    return serialize_locked(e, obj);
+    // No envelope here by design — this call embeds the key's fields directly
+    // as a section of a larger composed document (see header comment).
+    return serialize_locked(e, obj, NULL);
 }
 
 bb_err_t bb_cache_post_serialized(const char *key, const char *json, size_t json_len)
@@ -275,7 +305,13 @@ bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t 
     // update), so always re-serialize. Owned-mode entries memoize via dirty.
     bool need = e->dirty || e->cached_json == NULL || e->snapshot != NULL;
     if (need) {
-        const void *snap = e->snapshot ? e->snapshot() : e->owned;
+        const void *snap;
+        if (e->snapshot) {
+            snap = e->snapshot();
+            e->ts_ms = (int64_t)bb_clock_now_ms64();  // getter mode: read IS the sample
+        } else {
+            snap = e->owned;
+        }
         if (!snap) {
             pthread_mutex_unlock(&e->lock);
             bb_log_w(TAG, "key '%s': no snapshot available", e->key);
@@ -288,7 +324,11 @@ bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t 
             return BB_ERR_NO_SPACE;
         }
 
-        // The serializer runs exactly once per generation here.
+        // The serializer runs exactly once per generation here. cached_json
+        // holds only the inner "data" bytes -- the envelope ({"ts_ms":N,
+        // "data":...}) is applied below, around the memoized string, on every
+        // read (owned mode: ts_ms is frozen between updates, so the envelope
+        // bytes stay byte-identical across reads within an interval).
         e->fn(obj, snap);
         char *s = bb_json_serialize(obj);
         bb_json_free(obj);
@@ -303,18 +343,24 @@ bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t 
         e->dirty       = false;
     }
 
-    // COPY OUT under the lock — the caller only ever touches its own buffer, so
-    // a later update + re-serialize (which frees e->cached_json) cannot corrupt
-    // an in-flight reader.  Refuse rather than truncate if the buffer is small.
-    if (e->cached_len + 1 > cap) {
-        size_t need_len = e->cached_len;
+    // Wrap the memoized "data" bytes in the envelope and copy out under the
+    // lock. Compute the required length first (snprintf(NULL,0,...)) so an
+    // undersized buffer is refused WITHOUT a partial write, matching the
+    // pre-envelope contract ("buf untouched" on BB_ERR_NO_SPACE).
+    int need_len = snprintf(NULL, 0, "{\"ts_ms\":%" PRId64 ",\"data\":%s}",
+                             e->ts_ms, e->cached_json);
+    if (need_len < 0) {
         pthread_mutex_unlock(&e->lock);
-        bb_log_w(TAG, "key '%s': buffer too small (need %zu, cap %zu)",
+        return BB_ERR_NO_SPACE;
+    }
+    if ((size_t)need_len + 1 > cap) {
+        pthread_mutex_unlock(&e->lock);
+        bb_log_w(TAG, "key '%s': buffer too small (need %d, cap %zu)",
                  key, need_len + 1, cap);
         return BB_ERR_NO_SPACE;
     }
-    memcpy(buf, e->cached_json, e->cached_len + 1);  /* includes NUL */
-    if (out_len) *out_len = e->cached_len;
+    snprintf(buf, cap, "{\"ts_ms\":%" PRId64 ",\"data\":%s}", e->ts_ms, e->cached_json);
+    if (out_len) *out_len = (size_t)need_len;
 
     pthread_mutex_unlock(&e->lock);
     return BB_OK;
@@ -421,6 +467,7 @@ void bb_cache_reset_for_test(void)
             s_entries[i].cached_json = NULL;
             s_entries[i].cached_len  = 0;
             s_entries[i].dirty       = true;
+            s_entries[i].ts_ms       = 0;
         }
     }
     s_initialized = false;

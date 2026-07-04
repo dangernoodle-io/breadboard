@@ -3,9 +3,10 @@
 //
 // Migration (telemetry-ssot): uses bb_pub_register_telemetry so the snapshot
 // is gathered into bb_cache once per tick; SSE, sinks, and REST all read the
-// SAME memoized serialization via bb_cache_get_serialized.  The sample-time
-// timestamp (ts_ms) is stamped into the snapshot at gather time and emitted by
-// the serializer, so REST == SSE == sink bytes are byte-for-byte identical.
+// SAME memoized serialization via bb_cache_get_serialized.  bb_cache owns the
+// envelope's ts_ms (B1-570 PR-3) — this source no longer stamps or emits its
+// own timestamp; REST == SSE == sink bytes stay byte-for-byte identical
+// because bb_cache freezes ts_ms + the memoized "data" bytes between updates.
 //
 // B1-486: this is the live producer behind GET /api/wifi's bb_cache entry
 // (topic "wifi"). The recovery counters (no_ip_recoveries, egress_dead_count,
@@ -23,7 +24,6 @@
 #include "bb_wifi.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_clock.h"
 #include "bb_openapi.h"
 #include "bb_init.h"
 #include <stdbool.h>
@@ -44,7 +44,6 @@ static const char *TAG = "bb_pub_wifi";
 
 typedef struct {
     bb_wifi_info_t info;             // ~62 bytes
-    int64_t        ts_ms;            // sample-time monotonic ms (bb_clock_now_ms64)
     // B1-411: new recovery-telemetry fields
     uint32_t       restart_sta_count;
     int8_t         disconnect_rssi;
@@ -100,7 +99,6 @@ static bool wifi_gather(void *snap_buf, void *ctx)
     snap->info.disc_reason  = s_test_info.disc_reason;
     snap->info.disc_age_s   = s_test_info.disc_age_s;
     snap->info.retry_count  = s_test_info.retry_count;
-    snap->ts_ms             = (int64_t)bb_clock_now_ms64();
     snap->restart_sta_count = bb_wifi_get_restart_sta_count();
     snap->disconnect_rssi   = bb_wifi_get_disconnect_rssi();
     return true;
@@ -113,7 +111,6 @@ static bool wifi_gather(void *snap_buf, void *ctx)
 
     memset(snap, 0, sizeof(*snap));
     snap->info              = info;
-    snap->ts_ms             = (int64_t)bb_clock_now_ms64();
     snap->restart_sta_count = bb_wifi_get_restart_sta_count();
     snap->disconnect_rssi   = bb_wifi_get_disconnect_rssi();
     return true;
@@ -122,8 +119,8 @@ static bool wifi_gather(void *snap_buf, void *ctx)
 
 // ---------------------------------------------------------------------------
 // Serialize — called by bb_cache (via bb_cache_get_serialized for the push path
-// and REST) to build the JSON from the frozen snapshot.  Emits ts_ms from the
-// snapshot so the memoized bytes are identical across REST/SSE/sink.
+// and REST) to build the JSON from the frozen snapshot.  ts_ms is applied by
+// bb_cache's envelope wrap, not emitted here (B1-570 PR-3).
 // Mirrors bb_wifi_emit_section but reads fully from snap (SSOT guarantee).
 // ---------------------------------------------------------------------------
 
@@ -143,7 +140,6 @@ static void wifi_serialize(bb_json_t obj, const void *snap_raw)
     bb_json_obj_set_int   (obj, "disc_reason",      (int64_t)snap->info.disc_reason);
     bb_json_obj_set_int   (obj, "disc_age_s",       (int64_t)snap->info.disc_age_s);
     bb_json_obj_set_int   (obj, "retry_count",      (int64_t)snap->info.retry_count);
-    bb_json_obj_set_int   (obj, "ts_ms",              snap->ts_ms);
     bb_json_obj_set_int   (obj, "restart_sta_count",  (int64_t)snap->restart_sta_count);
     bb_json_obj_set_int   (obj, "disconnect_rssi",    (int64_t)snap->disconnect_rssi);
 }
@@ -163,10 +159,9 @@ static const char k_wifi_telemetry_schema[] =
     "\"disc_reason\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"retry_count\":{\"type\":\"integer\"},"
-    "\"ts_ms\":{\"type\":\"integer\"},"
     "\"restart_sta_count\":{\"type\":\"integer\"},"
     "\"disconnect_rssi\":{\"type\":\"integer\"}},"
-    "\"required\":[\"ssid\",\"connected\",\"rssi\",\"ts_ms\"]}";
+    "\"required\":[\"ssid\",\"connected\",\"rssi\"]}";
 
 bb_err_t bb_pub_wifi_register(void)
 {

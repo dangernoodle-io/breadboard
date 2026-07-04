@@ -653,6 +653,24 @@ void test_bb_json_item_null_handle_is_safe(void);
 void test_bb_json_arr_append_string_n_basic(void);
 void test_bb_json_arr_append_string_n_null_arr_is_safe(void);
 void test_bb_json_arr_append_string_n_null_str_is_safe(void);
+void test_bb_json_envelope_split_basic_shape(void);
+void test_bb_json_envelope_split_negative_ts_is_valid(void);
+void test_bb_json_envelope_split_missing_ts_ms_returns_false(void);
+void test_bb_json_envelope_split_non_numeric_ts_ms_returns_false(void);
+void test_bb_json_envelope_split_bare_minus_ts_ms_returns_false(void);
+void test_bb_json_envelope_split_missing_data_returns_false(void);
+void test_bb_json_envelope_split_data_not_object_returns_false(void);
+void test_bb_json_envelope_split_unbalanced_data_braces_returns_false(void);
+void test_bb_json_envelope_split_brace_in_string_value_is_ignored(void);
+void test_bb_json_envelope_split_escaped_quote_before_brace_is_ignored(void);
+void test_bb_json_envelope_split_space_before_ts_value_is_skipped(void);
+void test_bb_json_envelope_split_tab_before_ts_value_is_skipped(void);
+void test_bb_json_envelope_split_newline_before_ts_value_is_skipped(void);
+void test_bb_json_envelope_split_cr_before_ts_value_is_skipped(void);
+void test_bb_json_envelope_split_ts_ms_value_at_buffer_end_returns_false(void);
+void test_bb_json_envelope_split_data_value_at_buffer_end_returns_false(void);
+void test_bb_json_envelope_split_nested_data_object_is_balanced(void);
+void test_bb_json_envelope_split_null_args_return_false(void);
 
 // Forward declarations from test_route_registry.c
 void test_route_registry_count_starts_at_zero(void);
@@ -1745,6 +1763,10 @@ void test_bb_sink_ws_publish_multiple_clients(void);
 void test_bb_sink_ws_envelope_format(void);
 void test_bb_sink_ws_direct_publish_returns_ok(void);
 void test_bb_sink_ws_direct_publish_no_slash_topic(void);
+void test_bb_sink_ws_publish_brace_in_string_broadcasts_intact_object(void);
+void test_bb_sink_ws_publish_missing_envelope_returns_invalid_arg(void);
+void test_bb_sink_ws_publish_non_numeric_ts_ms_returns_invalid_arg(void);
+void test_bb_sink_ws_publish_unbalanced_data_braces_returns_invalid_arg(void);
 void test_bb_sink_ws_reset_clears_state(void);
 void test_bb_sink_ws_init_registers_ws_endpoint(void);
 void test_bb_sink_ws_init_register_fail_returns_error(void);
@@ -3116,6 +3138,8 @@ void test_bb_pub_cadence_reset_clears_on_change_state(void);
 void test_bb_pub_cadence_once_reset_allows_republish(void);
 void test_bb_pub_cadence_on_change_failing_sink_leaves_state_uncommitted(void);
 void test_bb_pub_cadence_once_failing_sink_leaves_state_uncommitted(void);
+void test_bb_pub_legacy_source_payload_is_enveloped(void);
+void test_bb_pub_legacy_source_envelope_ts_matches_uptime_ms(void);
 
 // Forward declarations from test_bb_sensors.c
 void bb_sensors_reset_for_test(void);
@@ -3895,6 +3919,14 @@ void test_bb_cache_register_overlength_key_rejected(void);
 void test_bb_cache_register_key_at_max_length_boundary_succeeds(void);
 void test_bb_cache_register_zero_flags_has_no_sse(void);
 void test_bb_cache_register_explicit_sse_flag_preserves_legacy_behavior(void);
+void test_bb_cache_envelope_get_serialized_owned_mode_shape(void);
+void test_bb_cache_envelope_owned_mode_ts_frozen_between_reads(void);
+void test_bb_cache_envelope_owned_mode_ts_advances_on_update(void);
+void test_bb_cache_envelope_getter_mode_ts_advances_each_read(void);
+void test_bb_cache_envelope_post_sse_shape(void);
+void test_bb_cache_envelope_rest_equals_sse_within_interval(void);
+void test_bb_cache_envelope_serialize_into_not_enveloped(void);
+void test_bb_cache_envelope_get_serialized_undersized_buffer_untouched(void);
 
 // Forward declarations from test_bb_sub.c
 void test_bb_sub_route_registers_and_cache_reflects_payload(void);
@@ -3910,6 +3942,7 @@ void test_bb_sub_route_aggregate_topic_register_failure_still_routes(void);
 void test_bb_sub_route_malformed_json_payload_serializes_empty(void);
 void test_bb_sub_route_non_object_json_payload_serializes_empty(void);
 void test_bb_sub_subscribe_aggregate_topic_register_failure_returns_invalid_state(void);
+void test_bb_sub_route_sse_matches_cache_get_serialized(void);
 void test_bb_sub_route_null_topic_returns_invalid_arg(void);
 void test_bb_sub_route_empty_topic_returns_invalid_arg(void);
 void test_bb_sub_route_null_payload_returns_invalid_arg(void);
@@ -4903,6 +4936,24 @@ int main(void) {
     RUN_TEST(test_bb_json_arr_append_string_n_basic);
     RUN_TEST(test_bb_json_arr_append_string_n_null_arr_is_safe);
     RUN_TEST(test_bb_json_arr_append_string_n_null_str_is_safe);
+    RUN_TEST(test_bb_json_envelope_split_basic_shape);
+    RUN_TEST(test_bb_json_envelope_split_negative_ts_is_valid);
+    RUN_TEST(test_bb_json_envelope_split_missing_ts_ms_returns_false);
+    RUN_TEST(test_bb_json_envelope_split_non_numeric_ts_ms_returns_false);
+    RUN_TEST(test_bb_json_envelope_split_bare_minus_ts_ms_returns_false);
+    RUN_TEST(test_bb_json_envelope_split_missing_data_returns_false);
+    RUN_TEST(test_bb_json_envelope_split_data_not_object_returns_false);
+    RUN_TEST(test_bb_json_envelope_split_unbalanced_data_braces_returns_false);
+    RUN_TEST(test_bb_json_envelope_split_brace_in_string_value_is_ignored);
+    RUN_TEST(test_bb_json_envelope_split_escaped_quote_before_brace_is_ignored);
+    RUN_TEST(test_bb_json_envelope_split_space_before_ts_value_is_skipped);
+    RUN_TEST(test_bb_json_envelope_split_tab_before_ts_value_is_skipped);
+    RUN_TEST(test_bb_json_envelope_split_newline_before_ts_value_is_skipped);
+    RUN_TEST(test_bb_json_envelope_split_cr_before_ts_value_is_skipped);
+    RUN_TEST(test_bb_json_envelope_split_ts_ms_value_at_buffer_end_returns_false);
+    RUN_TEST(test_bb_json_envelope_split_data_value_at_buffer_end_returns_false);
+    RUN_TEST(test_bb_json_envelope_split_nested_data_object_is_balanced);
+    RUN_TEST(test_bb_json_envelope_split_null_args_return_false);
 
     // bb_wifi tests
     RUN_TEST(test_bb_wifi_set_hostname_null);
@@ -7071,6 +7122,8 @@ int main(void) {
     RUN_TEST(test_bb_pub_cadence_once_reset_allows_republish);
     RUN_TEST(test_bb_pub_cadence_on_change_failing_sink_leaves_state_uncommitted);
     RUN_TEST(test_bb_pub_cadence_once_failing_sink_leaves_state_uncommitted);
+    RUN_TEST(test_bb_pub_legacy_source_payload_is_enveloped);
+    RUN_TEST(test_bb_pub_legacy_source_envelope_ts_matches_uptime_ms);
 
     // bb_response tests
     RUN_TEST(test_bb_response_register_ok);
@@ -7828,6 +7881,10 @@ int main(void) {
     RUN_TEST(test_bb_sink_ws_envelope_format);
     RUN_TEST(test_bb_sink_ws_direct_publish_returns_ok);
     RUN_TEST(test_bb_sink_ws_direct_publish_no_slash_topic);
+    RUN_TEST(test_bb_sink_ws_publish_brace_in_string_broadcasts_intact_object);
+    RUN_TEST(test_bb_sink_ws_publish_missing_envelope_returns_invalid_arg);
+    RUN_TEST(test_bb_sink_ws_publish_non_numeric_ts_ms_returns_invalid_arg);
+    RUN_TEST(test_bb_sink_ws_publish_unbalanced_data_braces_returns_invalid_arg);
     RUN_TEST(test_bb_sink_ws_reset_clears_state);
     RUN_TEST(test_bb_sink_ws_init_registers_ws_endpoint);
     RUN_TEST(test_bb_sink_ws_init_register_fail_returns_error);
@@ -7930,6 +7987,14 @@ int main(void) {
     RUN_TEST(test_bb_cache_register_key_at_max_length_boundary_succeeds);
     RUN_TEST(test_bb_cache_register_zero_flags_has_no_sse);
     RUN_TEST(test_bb_cache_register_explicit_sse_flag_preserves_legacy_behavior);
+    RUN_TEST(test_bb_cache_envelope_get_serialized_owned_mode_shape);
+    RUN_TEST(test_bb_cache_envelope_owned_mode_ts_frozen_between_reads);
+    RUN_TEST(test_bb_cache_envelope_owned_mode_ts_advances_on_update);
+    RUN_TEST(test_bb_cache_envelope_getter_mode_ts_advances_each_read);
+    RUN_TEST(test_bb_cache_envelope_post_sse_shape);
+    RUN_TEST(test_bb_cache_envelope_rest_equals_sse_within_interval);
+    RUN_TEST(test_bb_cache_envelope_serialize_into_not_enveloped);
+    RUN_TEST(test_bb_cache_envelope_get_serialized_undersized_buffer_untouched);
     RUN_TEST(test_bb_ota_check_topic_value_is_update_available);
 
     // bb_sub
@@ -7954,6 +8019,7 @@ int main(void) {
     RUN_TEST(test_bb_sub_subscribe_null_cb_returns_invalid_arg);
     RUN_TEST(test_bb_sub_subscribe_null_out_returns_invalid_arg);
     RUN_TEST(test_bb_sub_subscribe_aggregate_topic_register_failure_returns_invalid_state);
+    RUN_TEST(test_bb_sub_route_sse_matches_cache_get_serialized);
 
     // bb_mqtt_on_message
     RUN_TEST(test_bb_mqtt_on_message_receives_injected_message);

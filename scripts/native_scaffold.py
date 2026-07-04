@@ -98,7 +98,8 @@ COMPONENT_MAP = {
     },
     "bb_json": {
         "includes": ["components/bb_json/include", "platform/host/bb_json"],
-        "sources":  ["platform/espidf/bb_json/bb_json_cjson.c"],
+        "sources":  ["platform/espidf/bb_json/bb_json_cjson.c",
+                     "components/bb_json/src/bb_json.c"],
         "depends":  ["bb_core"],
     },
     "bb_http": {
@@ -606,7 +607,7 @@ COMPONENT_MAP = {
     "bb_sink_ws": {
         "includes": ["components/bb_sink_ws/include"],
         "sources":  ["platform/host/bb_sink_ws/bb_sink_ws.c"],
-        "depends":  ["bb_core", "bb_pub", "bb_websocket", "bb_log"],
+        "depends":  ["bb_core", "bb_pub", "bb_websocket", "bb_log", "bb_json"],
     },
     "bb_sub": {
         "includes": ["components/bb_sub/include"],

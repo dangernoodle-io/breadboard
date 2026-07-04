@@ -11,6 +11,17 @@
 //                       bb_cache_update(); snap_size = sizeof(struct).
 //   snapshot != NULL  — key owns the struct; bb_cache reads through the
 //                       getter; snap_size is ignored; bb_cache_update is no-op.
+//
+// Envelope contract (B1-570 PR-3, BREAKING wire change).
+// bb_cache_get_serialized() and bb_cache_post() wrap the serializer's output
+// as {"ts_ms": <sample-time-ms>, "data": {...}} -- "data" is exactly what
+// cfg->serialize wrote (producers do NOT emit their own ts_ms field anymore).
+// bb_cache owns the timestamp: owned-mode keys are stamped at
+// bb_cache_update() (right after the copy-in); getter-mode keys are stamped
+// each time the snapshot() getter is invoked (the read IS the sample).
+// bb_cache_serialize_into() does NOT apply the envelope -- it is the
+// embed-a-key-as-a-section primitive (see its own doc comment) and emits raw
+// "data" fields only.
 
 #include "bb_core.h"
 #include "bb_json.h"
@@ -105,16 +116,21 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg);
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
 bb_err_t bb_cache_update(const char *key, const void *snap);
 
-// Serialize the cached struct into a fresh bb_json obj and post it via
-// bb_event_post to the registered event topic. Does NOT touch any ring —
-// ring attachment is the caller's responsibility.
+// Serialize the cached struct into a fresh bb_json obj, wrap it in the
+// envelope ({"ts_ms":N,"data":{...}} — see the header-level comment above),
+// and post the resulting JSON via bb_event_post to the registered event
+// topic. Does NOT touch any ring — ring attachment is the caller's
+// responsibility.
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
 // Returns BB_ERR_INVALID_STATE if the key has no SSE event topic
 // (registered with BB_CACHE_FLAG_NONE).
 bb_err_t bb_cache_post(const char *key);
 
-// Serialize the cached struct into a caller-supplied bb_json obj.
-// Identical output to what bb_cache_post would emit — this is the REST path.
+// Serialize the cached struct's raw fields into a caller-supplied bb_json
+// obj — NOT enveloped (no ts_ms/data wrapper). Use this to embed a key as a
+// section of a larger composed document (e.g. /api/health aggregating
+// multiple keys); use bb_cache_get_serialized/bb_cache_post for the
+// standalone wire contract.
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
 bb_err_t bb_cache_serialize_into(const char *key, bb_json_t obj);
 
@@ -128,11 +144,14 @@ bb_err_t bb_cache_post_serialized(const char *key, const char *json, size_t json
 
 // Memoized serialization — the core of serialize-once, COPY-OUT under the lock.
 //
-// Copies the key's last serialized JSON (NUL-terminated) into the caller's
-// buffer. The serializer runs AT MOST ONCE per bb_cache_update() generation:
-// the first reader after an update serializes and caches the bytes; subsequent
-// readers (SSE post, every sink, REST polls) get a COPY of the same cached
-// string without re-serializing.
+// Copies the key's last serialized JSON, WRAPPED in the envelope
+// ({"ts_ms":N,"data":{...}} — see the header-level comment above), into the
+// caller's buffer. The serializer runs AT MOST ONCE per bb_cache_update()
+// generation and its output ("data") is memoized; the envelope's ts_ms is
+// applied around the memoized bytes on every call, so owned-mode reads stay
+// byte-identical between updates (ts_ms frozen) while getter-mode reads pick
+// up a fresh ts_ms each call. Subsequent readers (SSE post, every sink, REST
+// polls) get a COPY of the same wrapped bytes without re-serializing "data".
 //
 // UAF-safe by construction: the copy happens under the entry lock, and the
 // caller only ever touches its own buffer. A concurrent bb_cache_update() +

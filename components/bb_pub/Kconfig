@@ -269,6 +269,11 @@ config BB_PUB_TELEM_SERIALIZE_MAX
         (wifi/meta are well under; large payloads like "info" use the legacy
         bb_pub_register_source path, not the telem/cache path).
 
+        B1-570 PR-3: bb_cache_get_serialized wraps the memoized "data" bytes in
+        the envelope ({"ts_ms":<n>,"data":{...}}) — this adds ~30 bytes of fixed
+        overhead per payload copied into this buffer. Factored into the margin
+        above; no default change required.
+
         PSRAM-axis DERIVE (B1-435): default 1024 on SPIRAM boards, 512 on
         no-PSRAM boards.  See BB_PUB_TELEM_SNAP_MAX for the full rationale.
 
