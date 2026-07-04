@@ -4,8 +4,9 @@
 // Migration (telemetry-ssot): uses bb_pub_register_telemetry so the snapshot
 // is gathered into bb_cache once per tick; sinks-only (BB_PUB_TELEM_SINKS,
 // no SSE — info is a sink-only topic).  REST reads the SAME memoized
-// serialization via bb_cache_get_serialized.  The sample-time timestamp is
-// stamped into the snapshot at gather time.
+// serialization via bb_cache_get_serialized.  bb_cache owns the envelope's
+// ts_ms (B1-570 PR-3) — this source no longer stamps or emits its own
+// timestamp.
 //
 // TA-505 (PR-2): static device-identity fields (version, board, chip_model,
 // mac, flash_size, app_size, dram_static_bytes, reset_reason, boot_epoch_s,
@@ -19,7 +20,6 @@
 #include "bb_pub.h"
 #include "bb_pub_defaults.h"
 #include "bb_board.h"
-#include "bb_clock.h"
 #include "bb_diag.h"
 #include "bb_json.h"
 #include "bb_log.h"
@@ -79,9 +79,6 @@ typedef struct {
     size_t   bb_mem_out;   // outstanding_bytes at gather time
     size_t   bb_mem_peak;  // peak_outstanding ever
     uint32_t bb_mem_fail;  // cumulative alloc_fail count
-
-    // Sample-time timestamp
-    int64_t ts_ms;
 } bb_info_snap_t;
 
 // Compile-time guard: info snap must fit within the static scratch buffer.
@@ -137,7 +134,6 @@ static bool info_gather(void *snap_buf, void *ctx)
         s->bb_mem_fail = ms.alloc_fail;
     }
 
-    s->ts_ms = (int64_t)bb_clock_now_ms64();
     return true;
 }
 
@@ -167,7 +163,6 @@ static void info_serialize(bb_json_t obj, const void *snap_raw)
     bb_json_obj_set_number(obj, "bb_mem_out",    (double)s->bb_mem_out);
     bb_json_obj_set_number(obj, "bb_mem_peak",   (double)s->bb_mem_peak);
     bb_json_obj_set_number(obj, "bb_mem_fail",   (double)s->bb_mem_fail);
-    bb_json_obj_set_int   (obj, "ts_ms",         s->ts_ms);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,11 +183,10 @@ static const char k_info_telemetry_schema[] =
     "\"psram_total\":{\"type\":\"number\"},"
     "\"wdt_resets\":{\"type\":\"number\"},"
     "\"ota_validated\":{\"type\":\"boolean\"},"
-    "\"time_valid\":{\"type\":\"boolean\"},"
-    "\"ts_ms\":{\"type\":\"integer\"}},"
+    "\"time_valid\":{\"type\":\"boolean\"}},"
     "\"required\":[\"heap_internal_free\",\"heap_internal_total\","
     "\"heap_internal_largest_block\",\"heap_internal_min_free\","
-    "\"wdt_resets\",\"ota_validated\",\"time_valid\",\"ts_ms\"]}";
+    "\"wdt_resets\",\"ota_validated\",\"time_valid\"]}";
 
 bb_err_t bb_pub_info_register(void)
 {

@@ -205,12 +205,21 @@ bb_err_t bb_sub_route(const char *topic, const char *payload, size_t len)
     snap->len = len;
 
     // bb_cache_update makes the routed data visible to later pull reads
-    // (bb_cache_get_serialized / bb_cache_serialize_into); post_serialized
-    // additionally delivers the SAME raw bytes immediately to any direct
-    // bb_event subscriber of the per-topic event (no per-topic SSE ring —
-    // that's a separate, opt-in attach step by the consumer).
+    // (bb_cache_get_serialized / bb_cache_serialize_into); bb_cache_post
+    // additionally delivers the SAME {"ts_ms":N,"data":{...}} envelope
+    // immediately to any direct bb_event subscriber of the per-topic event
+    // (no per-topic SSE ring — that's a separate, opt-in attach step by the
+    // consumer). bb_cache_post re-runs the passthrough serializer against
+    // the just-updated snap and wraps it with the ts_ms bb_cache_update just
+    // stamped, so SSE-delivered bytes are byte-identical to a REST read of
+    // the same topic within the same update interval — see
+    // bb_cache_envelope_rest_equals_sse_within_interval for the general
+    // proof and test_bb_sub_route_sse_matches_cache_get_serialized below for
+    // the bb_sub-specific case. bb_cache_post_serialized (raw passthrough,
+    // no envelope) remains correct for platform/host/bb_pub/bb_pub.c's
+    // already-enveloped legacy sink-delivery path — do not use it here.
     bb_cache_update(entry->topic, snap);
-    bb_cache_post_serialized(entry->topic, payload, len);
+    bb_cache_post(entry->topic);
     bb_mem_free(snap);
 
     if (s_event_topic) {

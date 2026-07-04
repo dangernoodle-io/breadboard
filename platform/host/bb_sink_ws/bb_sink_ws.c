@@ -3,8 +3,14 @@
 //
 // Bidirectional envelope
 // -----------------------
-// Outbound (server -> client), both the telemetry publish path and the log
-// path: {"type":"push","topic":"<subtopic>","data":<payload>}
+// Outbound (server -> client):
+//   telemetry publish path: {"type":"push","topic":"<subtopic>","ts_ms":<n>,"data":{...}}
+//     (B1-570 PR-3: every payload delivered to a bb_pub sink is now enveloped
+//     as {"ts_ms":n,"data":{...}} — sink_ws_publish HOISTS ts_ms/data to the
+//     frame level instead of nesting the whole envelope under "data", so the
+//     dashboard reads a uniform {ts_ms,data} shape across REST/SSE/WS.)
+//   log path (raw bb_event, not enveloped by bb_cache):
+//     {"type":"push","topic":"log","data":{...}}
 //
 // Inbound (client -> server), demuxed by "type" from the start:
 //   {"type":"sub","topic":["telemetry","events","log",...]}
@@ -46,6 +52,7 @@
 #include "bb_websocket.h"
 #include "bb_log.h"
 #include "bb_event.h"
+#include "bb_json.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -353,11 +360,23 @@ static bb_err_t sink_ws_publish(void *ctx, const char *topic,
 
     const char *subtopic = extract_subtopic(topic);
 
-    // Build {"type":"push","topic":"<subtopic>","data":<payload>}
-    // overhead: {"type":"push","topic":"(24) + subtopic + "","data":(9) +
-    // payload + }(1) + NUL(1) = 35
+    // Split the {"ts_ms":<n>,"data":{...}} envelope (B1-570 PR-3 — every
+    // payload bb_pub delivers to a sink is enveloped this way, telem/cache-
+    // backed AND legacy sources alike) via the shared bb_json helper, so
+    // sink_ws_publish can hoist ts_ms/data to the WS frame level instead of
+    // nesting the whole envelope under "data".
+    const char *ts_start = NULL, *data_start = NULL;
+    size_t ts_len = 0, data_len = 0;
+    if (!bb_json_envelope_split(payload, len, &ts_start, &ts_len, &data_start, &data_len)) {
+        bb_log_w(TAG, "publish: '%s' payload missing {ts_ms,data} envelope", subtopic);
+        return BB_ERR_INVALID_ARG;
+    }
+
+    // Hoisted frame: {"type":"push","topic":"<subtopic>","ts_ms":<n>,"data":{...}}
+    // overhead: {"type":"push","topic":"(25) + subtopic + "","ts_ms":(10) +
+    // ts_digits + ,"data":(8) + data_bytes + }(1) + NUL(1) = 44
     size_t subtopic_len = strlen(subtopic);
-    size_t envelope_len = subtopic_len + (size_t)len + 35;
+    size_t envelope_len = subtopic_len + ts_len + data_len + 44;
     char *buf = (char *)_sink_malloc(envelope_len);
     if (!buf) {
         bb_log_w(TAG, "publish: malloc failed for envelope");
@@ -365,8 +384,8 @@ static bb_err_t sink_ws_publish(void *ctx, const char *topic,
     }
 
     int written = snprintf(buf, envelope_len,
-                           "{\"type\":\"push\",\"topic\":\"%s\",\"data\":%.*s}",
-                           subtopic, len, payload);
+                           "{\"type\":\"push\",\"topic\":\"%s\",\"ts_ms\":%.*s,\"data\":%.*s}",
+                           subtopic, (int)ts_len, ts_start, (int)data_len, data_start);
     if (written < 0 || (size_t)written >= envelope_len) {
         bb_log_w(TAG, "publish: snprintf truncated (written=%d cap=%zu)", written, envelope_len);
         free(buf);

@@ -37,6 +37,19 @@ static void reset_all(void)
     bb_event_init(NULL);
 }
 
+// bb_cache_get_serialized now wraps every read in the {"ts_ms":N,"data":{...}}
+// envelope (B1-570 PR-3). Helper: parse the envelope and hand back the "data"
+// child (caller must bb_json_free the returned root's OWNER — see call sites,
+// which free the root obj, not the returned child per bb_json_obj_get_item's
+// "do not free" contract).
+static bb_json_t envelope_data(const char *buf, size_t len, bb_json_t *out_root)
+{
+    bb_json_t root = bb_json_parse(buf, len);
+    *out_root = root;
+    if (!root) return NULL;
+    return bb_json_obj_get_item(root, "data");
+}
+
 // ---------------------------------------------------------------------------
 // Dynamic registration + round-trip
 // ---------------------------------------------------------------------------
@@ -54,15 +67,16 @@ void test_bb_sub_route_registers_and_cache_reflects_payload(void)
         bb_cache_get_serialized("metrics/host1/meta", buf, sizeof(buf), &len));
     TEST_ASSERT_TRUE(len > 0);
 
-    bb_json_t obj = bb_json_parse(buf, len);
-    TEST_ASSERT_NOT_NULL(obj);
+    bb_json_t root = NULL;
+    bb_json_t data = envelope_data(buf, len, &root);
+    TEST_ASSERT_NOT_NULL(data);
     double a = 0;
     char bstr[16] = {0};
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "a", &a));
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "a", &a));
     TEST_ASSERT_EQUAL_INT(1, (int)a);
-    TEST_ASSERT_TRUE(bb_json_obj_get_string(obj, "b", bstr, sizeof(bstr)));
+    TEST_ASSERT_TRUE(bb_json_obj_get_string(data, "b", bstr, sizeof(bstr)));
     TEST_ASSERT_EQUAL_STRING("x", bstr);
-    bb_json_free(obj);
+    bb_json_free(root);
 }
 
 void test_bb_sub_route_second_call_updates_same_topic(void)
@@ -76,12 +90,13 @@ void test_bb_sub_route_second_call_updates_same_topic(void)
     size_t len = 0;
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("t1", buf, sizeof(buf), &len));
 
-    bb_json_t obj = bb_json_parse(buf, len);
-    TEST_ASSERT_NOT_NULL(obj);
+    bb_json_t root = NULL;
+    bb_json_t data = envelope_data(buf, len, &root);
+    TEST_ASSERT_NOT_NULL(data);
     double n = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "n", &n));
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "n", &n));
     TEST_ASSERT_EQUAL_INT(2, (int)n);
-    bb_json_free(obj);
+    bb_json_free(root);
 }
 
 void test_bb_sub_route_multiple_distinct_topics(void)
@@ -96,15 +111,16 @@ void test_bb_sub_route_multiple_distinct_topics(void)
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("topic/a", buf_a, sizeof(buf_a), &len_a));
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("topic/b", buf_b, sizeof(buf_b), &len_b));
 
-    bb_json_t oa = bb_json_parse(buf_a, len_a);
-    bb_json_t ob = bb_json_parse(buf_b, len_b);
+    bb_json_t root_a = NULL, root_b = NULL;
+    bb_json_t da = envelope_data(buf_a, len_a, &root_a);
+    bb_json_t db = envelope_data(buf_b, len_b, &root_b);
     char va[8] = {0}, vb[8] = {0};
-    TEST_ASSERT_TRUE(bb_json_obj_get_string(oa, "v", va, sizeof(va)));
-    TEST_ASSERT_TRUE(bb_json_obj_get_string(ob, "v", vb, sizeof(vb)));
+    TEST_ASSERT_TRUE(bb_json_obj_get_string(da, "v", va, sizeof(va)));
+    TEST_ASSERT_TRUE(bb_json_obj_get_string(db, "v", vb, sizeof(vb)));
     TEST_ASSERT_EQUAL_STRING("aa", va);
     TEST_ASSERT_EQUAL_STRING("bb", vb);
-    bb_json_free(oa);
-    bb_json_free(ob);
+    bb_json_free(root_a);
+    bb_json_free(root_b);
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +188,7 @@ void test_bb_sub_route_malformed_json_payload_serializes_empty(void)
     char buf[64];
     size_t len = 0;
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("bad.json", buf, sizeof(buf), &len));
-    TEST_ASSERT_EQUAL_STRING("{}", buf);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"data\":{}"));
 }
 
 void test_bb_sub_route_non_object_json_payload_serializes_empty(void)
@@ -185,7 +201,7 @@ void test_bb_sub_route_non_object_json_payload_serializes_empty(void)
     char buf[64];
     size_t len = 0;
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("array.payload", buf, sizeof(buf), &len));
-    TEST_ASSERT_EQUAL_STRING("{}", buf);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"data\":{}"));
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +281,7 @@ void test_bb_sub_route_zero_length_payload_stored_as_empty(void)
     char buf[64];
     size_t len = 0;
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_get_serialized("empty.payload", buf, sizeof(buf), &len));
-    TEST_ASSERT_EQUAL_STRING("{}", buf);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"data\":{}"));
 }
 
 // ---------------------------------------------------------------------------
@@ -459,4 +475,92 @@ void test_bb_sub_subscribe_aggregate_topic_register_failure_returns_invalid_stat
     bb_event_sub_t sub = NULL;
     bb_err_t rc = bb_sub_subscribe(agg_handler, NULL, &sub);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, rc);
+}
+
+// ---------------------------------------------------------------------------
+// SSE envelope parity (HIGH finding): bb_sub_route's per-topic bb_cache SSE
+// push must deliver the SAME {"ts_ms":N,"data":{...}} envelope shape as a
+// REST read of the same topic (bb_cache_get_serialized), not the raw ingress
+// payload bytes — mirrors
+// test_bb_cache_fidelity.c:test_bb_cache_envelope_rest_equals_sse_within_interval
+// but exercised through bb_sub_route's own bb_cache-registered topic (the
+// passthrough serializer), which that generic test does not cover.
+// ---------------------------------------------------------------------------
+
+static char   s_sub_sse_payload[512];
+static size_t s_sub_sse_len;
+static int    s_sub_sse_calls;
+
+static void sub_sse_capture_cb(bb_event_topic_t topic, int32_t id,
+                                const void *data, size_t size, void *user)
+{
+    (void)topic; (void)id; (void)user;
+    s_sub_sse_calls++;
+    if (data && size > 0) {
+        size_t n = size - 1;  // strip NUL posted by bb_cache_post
+        if (n >= sizeof(s_sub_sse_payload)) n = sizeof(s_sub_sse_payload) - 1;
+        memcpy(s_sub_sse_payload, data, n);
+        s_sub_sse_payload[n] = '\0';
+        s_sub_sse_len = n;
+    }
+}
+
+void test_bb_sub_route_sse_matches_cache_get_serialized(void)
+{
+    reset_all();
+    s_sub_sse_calls = 0;
+    s_sub_sse_len   = 0;
+    s_sub_sse_payload[0] = '\0';
+
+    // First route call registers the topic in bb_cache (with SSE) so we can
+    // subscribe to its event topic before the second call, whose SSE push we
+    // capture and compare against a REST read. Drain the queue immediately
+    // after (0 subscribers at this point, so it's a no-op) — bb_event
+    // resolves subscribers at DRAIN time, not enqueue time, so leaving this
+    // first post queued would let it double-deliver to the subscriber added
+    // below once a later bb_event_pump() drains both posts together.
+    const char *payload = "{\"a\":1,\"b\":\"x\"}";
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_sub_route("metrics/host3/meta", payload, strlen(payload)));
+    bb_event_pump(0);
+
+    bb_event_topic_t topic = NULL;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_event_topic_lookup("metrics/host3/meta", &topic));
+    bb_event_sub_t sub = NULL;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_event_subscribe(topic, sub_sse_capture_cb, NULL, &sub));
+
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_sub_route("metrics/host3/meta", payload, strlen(payload)));
+    bb_event_pump(0);
+    TEST_ASSERT_EQUAL_INT(1, s_sub_sse_calls);
+
+    char rest_buf[256];
+    size_t rest_len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_get_serialized("metrics/host3/meta", rest_buf, sizeof(rest_buf), &rest_len));
+
+    // Byte-identical: same envelope, same frozen ts_ms (no update() landed
+    // between the SSE push and this REST read).
+    TEST_ASSERT_EQUAL_UINT(rest_len, s_sub_sse_len);
+    TEST_ASSERT_EQUAL_STRING(rest_buf, s_sub_sse_payload);
+
+    // And the SSE payload itself carries the enveloped shape, not the raw
+    // ingress bytes (which would have no top-level "ts_ms"/"data" wrapper).
+    bb_json_t root = bb_json_parse(s_sub_sse_payload, s_sub_sse_len);
+    TEST_ASSERT_NOT_NULL(root);
+    double ts = -1;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(root, "ts_ms", &ts));
+    bb_json_t data = bb_json_obj_get_item(root, "data");
+    TEST_ASSERT_NOT_NULL(data);
+    double a = 0;
+    char bstr[16] = {0};
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(data, "a", &a));
+    TEST_ASSERT_EQUAL_INT(1, (int)a);
+    TEST_ASSERT_TRUE(bb_json_obj_get_string(data, "b", bstr, sizeof(bstr)));
+    TEST_ASSERT_EQUAL_STRING("x", bstr);
+    bb_json_free(root);
+
+    bb_event_unsubscribe(sub);
 }

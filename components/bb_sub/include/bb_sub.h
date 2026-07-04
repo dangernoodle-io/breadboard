@@ -8,10 +8,12 @@
 // PASSTHROUGH serializer, since the payload is already serialized JSON:
 // bb_sub reproduces it field-for-field via bb_json_parse + a generic
 // key-copy walk rather than a per-topic struct/serializer pair — then
-// posts the raw payload via bb_cache_post_serialized() AND stores it into
-// the topic's owned bb_cache buffer via bb_cache_update() so later pull
-// reads (bb_cache_get_serialized / bb_cache_serialize_into, e.g. from a
-// REST handler) reflect the same data, not a stale/empty snapshot.
+// stores it into the topic's owned bb_cache buffer via bb_cache_update()
+// (so later pull reads, e.g. bb_cache_get_serialized / bb_cache_serialize_into
+// from a REST handler, reflect the same data, not a stale/empty snapshot)
+// and delivers the enveloped {"ts_ms":N,"data":{...}} shape immediately to
+// any direct bb_event subscriber of the topic via bb_cache_post() — see
+// bb_sub.c:207-220 for the full rationale (SSE/REST byte-identical delivery).
 //
 // CACHE-ONLY: bb_sub never attaches a per-topic bb_event_ring / SSE fan-out
 // (that would cost heap per topic — see bb_event_routes_attach_ex). A
@@ -89,10 +91,10 @@ extern "C" {
  * Route one inbound (topic, payload) message into bb_cache.
  *
  * payload must be a JSON object — bb_sub's passthrough serializer copies
- * top-level object keys. Non-object payloads are stored (still delivered
- * raw via bb_cache_post_serialized to any direct bb_event subscriber of the
- * topic) but read back as an empty object through
- * bb_cache_serialize_into() / bb_cache_get_serialized().
+ * top-level object keys. Non-object payloads are stored (still delivered as
+ * the enveloped {"ts_ms":N,"data":{...}} shape via bb_cache_post() to any
+ * direct bb_event subscriber of the topic) but read back as an empty object
+ * through bb_cache_serialize_into() / bb_cache_get_serialized().
  *
  * @param topic    NUL-terminated topic string; does NOT need to outlive the
  *                 call (bb_sub copies it into its own seen-topics storage).
@@ -148,8 +150,8 @@ bb_err_t bb_sub_subscribe(bb_event_handler_fn cb, void *user, bb_event_sub_t *ou
  * set; if bb_cache's registry is cleared out from under a still-"seen"
  * bb_sub entry (this function not yet called, or called first), the next
  * bb_sub_route() for that topic will skip re-registering it in bb_cache —
- * bb_cache_update()/bb_cache_post_serialized() then fail with
- * BB_ERR_NOT_FOUND for a topic bb_sub still believes is registered.
+ * bb_cache_update()/bb_cache_post() then fail with BB_ERR_NOT_FOUND for a
+ * topic bb_sub still believes is registered.
  */
 void bb_sub_reset_for_test(void);
 #endif

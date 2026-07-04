@@ -3,14 +3,14 @@
 //
 // Migration (telemetry-ssot): uses bb_pub_register_telemetry so the snapshot
 // is gathered into bb_cache once per tick; SSE, sinks, and REST all read the
-// SAME memoized serialization.  ts_ms is stamped at gather time.
+// SAME memoized serialization.  bb_cache owns the envelope's ts_ms
+// (B1-570 PR-3) — this source no longer stamps or emits its own timestamp.
 #include "bb_pub_thermal.h"
 #include "bb_pub.h"
 #include "bb_pub_defaults.h"
 #include "bb_thermal.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_clock.h"
 #include "bb_openapi.h"
 #include "bb_init.h"
 #include <stdbool.h>
@@ -29,7 +29,6 @@ static const char *TAG = "bb_pub_thermal";
 
 typedef struct {
     bb_thermal_values_t vals;  // bools + floats
-    int64_t             ts_ms;
 } bb_thermal_snap_t;
 
 // Compile-time guard: thermal snap must fit in the scratch buffer (B1-434).
@@ -51,7 +50,6 @@ static bool thermal_gather(void *snap_buf, void *ctx)
     bool any_present = s->vals.soc_present || s->vals.vr_hw_present || s->vals.fan_hw_present;
     if (!any_present) return false;
 
-    s->ts_ms = (int64_t)bb_clock_now_ms64();
     return true;
 }
 
@@ -94,8 +92,6 @@ static void thermal_serialize(bb_json_t obj, const void *snap_raw)
             bb_json_obj_set_null(obj, "board_c");
         }
     }
-
-    bb_json_obj_set_int(obj, "ts_ms", s->ts_ms);
 }
 
 // ---------------------------------------------------------------------------
@@ -108,9 +104,8 @@ static const char k_thermal_telemetry_schema[] =
     "\"soc_c\":{\"type\":[\"number\",\"null\"]},"
     "\"vr_c\":{\"type\":[\"number\",\"null\"]},"
     "\"asic_c\":{\"type\":[\"number\",\"null\"]},"
-    "\"board_c\":{\"type\":[\"number\",\"null\"]},"
-    "\"ts_ms\":{\"type\":\"integer\"}},"
-    "\"required\":[\"soc_c\",\"ts_ms\"]}";
+    "\"board_c\":{\"type\":[\"number\",\"null\"]}},"
+    "\"required\":[\"soc_c\"]}";
 
 bb_err_t bb_pub_thermal_register(void)
 {
