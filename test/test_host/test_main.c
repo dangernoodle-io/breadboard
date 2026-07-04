@@ -1871,6 +1871,11 @@ void test_bb_mdns_lifecycle_announce_when_stopped_marks_dirty(void);
 void test_bb_mdns_lifecycle_restart_cycle(void);
 void test_bb_mdns_lifecycle_invalid_args(void);
 
+// Forward declarations from test_bb_mdns_refresh_decision.c (B1-539)
+void test_bb_mdns_refresh_should_recreate_ok_returns_true(void);
+void test_bb_mdns_refresh_should_recreate_other_returns_true(void);
+void test_bb_mdns_refresh_should_recreate_no_mem_returns_false(void);
+
 // Forward declarations from test_bb_i2c.c
 void test_bb_i2c_bus_create_null_cfg(void);
 void test_bb_i2c_bus_create_null_out(void);
@@ -5796,6 +5801,11 @@ int main(void) {
     RUN_TEST(test_bb_mdns_lifecycle_announce_when_stopped_marks_dirty);
     RUN_TEST(test_bb_mdns_lifecycle_restart_cycle);
     RUN_TEST(test_bb_mdns_lifecycle_invalid_args);
+
+    // bb_mdns_refresh_decision tests (B1-539)
+    RUN_TEST(test_bb_mdns_refresh_should_recreate_ok_returns_true);
+    RUN_TEST(test_bb_mdns_refresh_should_recreate_other_returns_true);
+    RUN_TEST(test_bb_mdns_refresh_should_recreate_no_mem_returns_false);
 
     // bb_i2c tests
     RUN_TEST(test_bb_i2c_bus_create_null_cfg);

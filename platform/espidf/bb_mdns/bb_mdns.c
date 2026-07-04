@@ -1,5 +1,6 @@
 #include "bb_mdns.h"
 #include "bb_mdns_lifecycle.h"
+#include "bb_mdns_refresh_decision.h"
 #include "bb_wifi.h"
 #include "bb_init.h"
 #include "bb_http.h"
@@ -44,6 +45,10 @@ static SemaphoreHandle_t s_subs_mutex    = NULL;
 // portable bb_mdns_lifecycle started→stopped transition is not atomic.
 static SemaphoreHandle_t s_lifecycle_mutex = NULL;
 static uint32_t         s_evt_drop_count = 0;
+// B1-539: browse refresh cycles skipped because mdns_browse_delete's enqueue
+// failed (queue full / no memory) — recreate is deferred to the next tick to
+// avoid issuing mdns_browse_new against a not-yet-torn-down browse.
+static uint32_t         s_refresh_skip_count = 0;
 
 // Async TXT query infrastructure
 #define BB_MDNS_QUERY_QUEUE_DEPTH 8
@@ -900,8 +905,31 @@ static void browse_refresh_work_fn(void *arg)
 
         /* Best-effort delete; ignore "not found" — a concurrent stop or
          * prior refresh failure would have left the slot bookkeeping out
-         * of sync with IDF, and we still want to seed a fresh browser. */
-        mdns_browse_delete(svc, proto);
+         * of sync with IDF, and we still want to seed a fresh browser.
+         * B1-539: under mDNS action-queue pressure the delete's ENQUEUE
+         * can fail (ESP_ERR_NO_MEM) while the existing browse is still
+         * live; recreating unconditionally in that case would issue
+         * mdns_browse_new against a browse that was never torn down,
+         * orphaning the old handle. Map the esp_err_t to the pure
+         * decision enum and only recreate when it says it's safe. */
+        esp_err_t del_err = mdns_browse_delete(svc, proto);
+        bb_mdns_refresh_delete_rc_t del_rc =
+            (del_err == ESP_OK)      ? BB_MDNS_REFRESH_DELETE_OK :
+            (del_err == ESP_ERR_NO_MEM) ? BB_MDNS_REFRESH_DELETE_NO_MEM :
+                                          BB_MDNS_REFRESH_DELETE_OTHER;
+
+        if (!bb_mdns_refresh_should_recreate(del_rc)) {
+            s_refresh_skip_count++;
+            if ((s_refresh_skip_count & 0x0F) == 1) {
+                bb_log_w(TAG,
+                         "browse refresh: delete enqueue failed for %s.%s, "
+                         "skipping recreate this cycle (%" PRIu32
+                         " skip events total)",
+                         svc, proto, s_refresh_skip_count);
+            }
+            continue;
+        }
+
         mdns_browse_t *handle = mdns_browse_new(svc, proto, internal_notifier);
         if (!handle) {
             bb_log_w(TAG, "browse refresh failed: %s.%s", svc, proto);
