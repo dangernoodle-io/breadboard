@@ -8,7 +8,7 @@
 // Only one slot is active at a time (host tests are single-threaded).
 #include "bb_http.h"
 #include "bb_http_host.h"
-#include "bb_http_api_dispatch.h"
+#include "bb_dispatch_api.h"
 #include "bb_http_status.h"
 #include "bb_http_query.h"
 #include "bb_json.h"
@@ -94,9 +94,9 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
         return BB_ERR_INVALID_STATE;
     }
     // Mirror espidf split: /api/ routes feed the dispatch table so host tests
-    // can exercise bb_api_dispatch_lookup on the same table as the device.
+    // can exercise bb_dispatch_api_lookup on the same table as the device.
     if (path && strncmp(path, "/api/", 5) == 0) {
-        bb_api_dispatch_add(method, path, handler);
+        bb_dispatch_api_add(method, path, handler);
         return BB_OK;
     }
     (void)method;

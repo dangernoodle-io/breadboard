@@ -1,6 +1,6 @@
 #include "unity.h"
 #include "bb_http.h"
-#include "bb_http_api_dispatch.h"
+#include "bb_dispatch_api.h"
 #include <stddef.h>
 #include <stdio.h>
 
@@ -279,7 +279,7 @@ void test_register_described_route_null_handler_adds_descriptor(void)
 void test_register_described_route_null_handler_skips_dispatch(void)
 {
     bb_http_route_registry_clear();
-    bb_api_dispatch_reset();
+    bb_dispatch_api_reset();
 
     bb_err_t err = bb_http_register_described_route(NULL, &s_route_null_handler);
     TEST_ASSERT_EQUAL(BB_OK, err);
@@ -287,9 +287,9 @@ void test_register_described_route_null_handler_skips_dispatch(void)
     // No handler was wired: a lookup for this path must miss the dispatch
     // table even though the descriptor is present in the OpenAPI registry.
     bb_http_handler_fn handler = NULL;
-    bb_api_dispatch_result_t res =
-        bb_api_dispatch_lookup(BB_HTTP_GET, "/api/schema-only", &handler);
-    TEST_ASSERT_EQUAL(BB_API_DISPATCH_MISS, res);
+    bb_dispatch_api_result_t res =
+        bb_dispatch_api_lookup(BB_HTTP_GET, "/api/schema-only", &handler);
+    TEST_ASSERT_EQUAL(BB_DISPATCH_API_MISS, res);
     TEST_ASSERT_NULL(handler);
 }
 

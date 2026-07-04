@@ -5,7 +5,7 @@
 #include "bb_nv.h"
 #include "bb_pub.h"
 #include "bb_http.h"
-#include "bb_http_api_dispatch.h"
+#include "bb_dispatch_api.h"
 #include "../../platform/host/bb_http/include/bb_http_host.h"
 #include "bb_json.h"
 
@@ -307,10 +307,10 @@ static void m_cap_free(m_cap_t *c) { free(c->body); c->body = NULL; }
 static void m_run_handler_qs(const char *query_string, m_cap_t *out)
 {
     bb_http_handler_fn handler = NULL;
-    bb_api_dispatch_lookup(BB_HTTP_GET, "/api/telemetry/metrics", &handler);
+    bb_dispatch_api_lookup(BB_HTTP_GET, "/api/telemetry/metrics", &handler);
     if (!handler) {
         bb_telemetry_init(NULL);
-        bb_api_dispatch_lookup(BB_HTTP_GET, "/api/telemetry/metrics", &handler);
+        bb_dispatch_api_lookup(BB_HTTP_GET, "/api/telemetry/metrics", &handler);
     }
     TEST_ASSERT_NOT_NULL_MESSAGE(handler, "metrics handler not registered");
 

@@ -30,7 +30,7 @@ add_executable(emit_openapi
     "${BB_ROOT}/components/bb_http/src/http_utils.c"
     "${BB_ROOT}/components/bb_http/src/bb_http_query.c"
     "${BB_ROOT}/components/bb_http/src/bb_http_status.c"
-    "${BB_ROOT}/components/bb_http/src/bb_http_api_dispatch.c"
+    "${BB_ROOT}/components/bb_http/src/bb_dispatch_api.c"
     "${BB_ROOT}/platform/host/bb_http/bb_http_host.c"
 )
 
