@@ -428,25 +428,25 @@ void test_nvs_delete_bb_cfg_with_wipe_wifi_returns_200(void);
 void test_nvs_delete_array_with_bb_cfg_no_wipe_wifi_returns_412(void);
 void test_nvs_delete_key_with_array_ns_returns_400(void);
 
-// Forward declarations from test_api_dispatch.c
-void test_api_dispatch_add_and_lookup_hit(void);
-void test_api_dispatch_lookup_miss_unknown_path(void);
-void test_api_dispatch_method_mismatch(void);
-void test_api_dispatch_method_discrimination(void);
-void test_api_dispatch_query_string_stripped(void);
-void test_api_dispatch_exact_not_prefix_longer_uri(void);
-void test_api_dispatch_exact_not_prefix_shorter_uri(void);
-void test_api_dispatch_non_api_uri_miss(void);
-void test_api_dispatch_overflow_returns_no_space(void);
-void test_api_dispatch_reset_clears(void);
-void test_api_dispatch_null_uri_returns_miss(void);
-void test_api_dispatch_null_out_handler_returns_miss(void);
-void test_api_dispatch_null_path_entry_skipped(void);
-void test_api_dispatch_high_watermark_warn(void);
-void test_api_dispatch_dup_same_method_and_path_dropped(void);
-void test_api_dispatch_dup_different_method_same_path_both_kept(void);
-void test_api_dispatch_dup_null_path_not_dup_detected(void);
-void test_api_dispatch_dup_scan_skips_null_path_existing_entry(void);
+// Forward declarations from test_dispatch_api.c
+void test_dispatch_api_add_and_lookup_hit(void);
+void test_dispatch_api_lookup_miss_unknown_path(void);
+void test_dispatch_api_method_mismatch(void);
+void test_dispatch_api_method_discrimination(void);
+void test_dispatch_api_query_string_stripped(void);
+void test_dispatch_api_exact_not_prefix_longer_uri(void);
+void test_dispatch_api_exact_not_prefix_shorter_uri(void);
+void test_dispatch_api_non_api_uri_miss(void);
+void test_dispatch_api_overflow_returns_no_space(void);
+void test_dispatch_api_reset_clears(void);
+void test_dispatch_api_null_uri_returns_miss(void);
+void test_dispatch_api_null_out_handler_returns_miss(void);
+void test_dispatch_api_null_path_entry_skipped(void);
+void test_dispatch_api_high_watermark_warn(void);
+void test_dispatch_api_dup_same_method_and_path_dropped(void);
+void test_dispatch_api_dup_different_method_same_path_both_kept(void);
+void test_dispatch_api_dup_null_path_not_dup_detected(void);
+void test_dispatch_api_dup_scan_skips_null_path_existing_entry(void);
 
 // Forward declarations from test_nv_creds_mirror.c
 void test_nv_creds_mirror_pack_valid_roundtrip(void);
@@ -6743,25 +6743,25 @@ int main(void) {
     RUN_TEST(test_anim_auto_start_timer_fires);
     RUN_TEST(test_anim_no_auto_start_timer_does_not_fire);
 
-    // bb_http_api_dispatch pure-function tests
-    RUN_TEST(test_api_dispatch_add_and_lookup_hit);
-    RUN_TEST(test_api_dispatch_lookup_miss_unknown_path);
-    RUN_TEST(test_api_dispatch_method_mismatch);
-    RUN_TEST(test_api_dispatch_method_discrimination);
-    RUN_TEST(test_api_dispatch_query_string_stripped);
-    RUN_TEST(test_api_dispatch_exact_not_prefix_longer_uri);
-    RUN_TEST(test_api_dispatch_exact_not_prefix_shorter_uri);
-    RUN_TEST(test_api_dispatch_non_api_uri_miss);
-    RUN_TEST(test_api_dispatch_overflow_returns_no_space);
-    RUN_TEST(test_api_dispatch_reset_clears);
-    RUN_TEST(test_api_dispatch_null_uri_returns_miss);
-    RUN_TEST(test_api_dispatch_null_out_handler_returns_miss);
-    RUN_TEST(test_api_dispatch_null_path_entry_skipped);
-    RUN_TEST(test_api_dispatch_high_watermark_warn);
-    RUN_TEST(test_api_dispatch_dup_same_method_and_path_dropped);
-    RUN_TEST(test_api_dispatch_dup_different_method_same_path_both_kept);
-    RUN_TEST(test_api_dispatch_dup_null_path_not_dup_detected);
-    RUN_TEST(test_api_dispatch_dup_scan_skips_null_path_existing_entry);
+    // bb_dispatch_api pure-function tests
+    RUN_TEST(test_dispatch_api_add_and_lookup_hit);
+    RUN_TEST(test_dispatch_api_lookup_miss_unknown_path);
+    RUN_TEST(test_dispatch_api_method_mismatch);
+    RUN_TEST(test_dispatch_api_method_discrimination);
+    RUN_TEST(test_dispatch_api_query_string_stripped);
+    RUN_TEST(test_dispatch_api_exact_not_prefix_longer_uri);
+    RUN_TEST(test_dispatch_api_exact_not_prefix_shorter_uri);
+    RUN_TEST(test_dispatch_api_non_api_uri_miss);
+    RUN_TEST(test_dispatch_api_overflow_returns_no_space);
+    RUN_TEST(test_dispatch_api_reset_clears);
+    RUN_TEST(test_dispatch_api_null_uri_returns_miss);
+    RUN_TEST(test_dispatch_api_null_out_handler_returns_miss);
+    RUN_TEST(test_dispatch_api_null_path_entry_skipped);
+    RUN_TEST(test_dispatch_api_high_watermark_warn);
+    RUN_TEST(test_dispatch_api_dup_same_method_and_path_dropped);
+    RUN_TEST(test_dispatch_api_dup_different_method_same_path_both_kept);
+    RUN_TEST(test_dispatch_api_dup_null_path_not_dup_detected);
+    RUN_TEST(test_dispatch_api_dup_scan_skips_null_path_existing_entry);
 
     // bb_wdt tests
     RUN_TEST(test_bb_wdt_park_wait_resume_unsubscribes_and_resubscribes);

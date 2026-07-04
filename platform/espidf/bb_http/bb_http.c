@@ -1,5 +1,5 @@
 #include "bb_http.h"
-#include "bb_http_api_dispatch.h"
+#include "bb_dispatch_api.h"
 #include "bb_http_status.h"
 #include "bb_http_query.h"
 #include "bb_json.h"
@@ -143,7 +143,7 @@ bb_err_t bb_http_server_ensure_started(void)
 
     // max_uri_handlers is now a single constant knob (BB_HTTP_MAX_URI_HANDLERS,
     // default 12). /api/* routes do NOT consume httpd handler slots — they are
-    // dispatched via the bb_api_dispatch table instead. The 12-slot default
+    // dispatched via the bb_dispatch_api table instead. The 12-slot default
     // covers: GET/POST/PUT/PATCH/DELETE /api/* (5) + OPTIONS /* (1) + GET /* (1)
     // + headroom for non-/api routes (/save, captive /*) registered by consumers.
     // bb_http_reserve_routes() is now vestigial; route count no longer drives
@@ -198,7 +198,7 @@ bb_err_t bb_http_server_ensure_started(void)
         bb_log_e(TAG, "register route failed (OPTIONS /*): %s", esp_err_to_name(err));
     }
 
-    // Register per-method /api/* wildcards that dispatch via bb_api_dispatch.
+    // Register per-method /api/* wildcards that dispatch via bb_dispatch_api.
     // INVARIANT: these must be registered before the asset GET /* wildcard
     // (bb_http_register_assets), because esp_http_server uses first-registered-
     // first-matched semantics for wildcard URIs. ensure_started() runs before
@@ -274,7 +274,7 @@ static esp_err_t method_not_allowed_err_handler(httpd_req_t *req,
 
 // Wildcard handler for GET/POST/PUT/PATCH/DELETE /api/*.
 // Maps the httpd method integer back to bb_http_method_t, strips the query
-// string from req->uri, then looks up in bb_api_dispatch.
+// string from req->uri, then looks up in bb_dispatch_api.
 //   HIT             → wrap req as bb_http_request_t* and call the handler.
 //   METHOD_MISMATCH → 405 with JSON body.
 //   MISS            → 404 with JSON body.
@@ -302,11 +302,11 @@ static esp_err_t api_dispatch_handler(httpd_req_t *req)
     const char *uri = req->uri;
 
     bb_http_handler_fn handler = NULL;
-    bb_api_dispatch_result_t res = bb_api_dispatch_lookup(method, uri, &handler);
+    bb_dispatch_api_result_t res = bb_dispatch_api_lookup(method, uri, &handler);
 
-    if (res == BB_API_DISPATCH_HIT) {
+    if (res == BB_DISPATCH_API_HIT) {
         if (!handler) {
-            // Defensive: bb_api_dispatch_add is never fed a NULL handler (see
+            // Defensive: bb_dispatch_api_add is never fed a NULL handler (see
             // bb_http_register_route / bb_http_register_described_route), so
             // this should be unreachable. Guard anyway rather than risk a
             // null-deref if that invariant is ever broken.
@@ -322,7 +322,7 @@ static esp_err_t api_dispatch_handler(httpd_req_t *req)
         return herr == BB_OK ? ESP_OK : ESP_FAIL;
     }
 
-    if (res == BB_API_DISPATCH_METHOD_MISMATCH) {
+    if (res == BB_DISPATCH_API_METHOD_MISMATCH) {
         httpd_resp_set_status(req, "405 Method Not Allowed");
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(req, "{\"error\":\"method not allowed\"}");
@@ -432,9 +432,9 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
     if (!h || !handler) return BB_ERR_INVALID_ARG;
 
     // /api/* routes are served by per-method wildcard handlers that dispatch
-    // through bb_api_dispatch — they do NOT occupy httpd handler slots.
+    // through bb_dispatch_api — they do NOT occupy httpd handler slots.
     if (path && strncmp(path, "/api/", 5) == 0) {
-        bb_err_t derr = bb_api_dispatch_add(method, path, handler);
+        bb_err_t derr = bb_dispatch_api_add(method, path, handler);
         if (derr != BB_OK) {
             bb_log_e(TAG, "api dispatch table full, dropping %s %s",
                      bb_http_method_str(method), path);

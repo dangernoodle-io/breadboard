@@ -28,14 +28,14 @@ config BB_HTTP_MAX_URI_HANDLERS
         Fixed httpd handler-table size: the /api/* wildcards (5) + OPTIONS /* +
         asset GET /* + headroom for non-/api routes (/save, captive portal /*,
         etc.). /api endpoints do NOT consume these slots — they use the dispatch
-        table (BB_HTTP_API_DISPATCH_CAP instead).
+        table (BB_DISPATCH_API_CAP instead).
 
-config BB_HTTP_API_DISPATCH_CAP
+config BB_DISPATCH_API_CAP
     int "API dispatch table capacity"
     default 64
     help
         Maximum number of /api/* route entries in the static dispatch table.
-        Each entry costs sizeof(bb_api_dispatch_entry_t) (~12 bytes on 32-bit).
+        Each entry costs sizeof(bb_dispatch_api_entry_t) (~12 bytes on 32-bit).
         A high-watermark warning fires once when count reaches CAP-8.
         Does not affect httpd's handler-table (BB_HTTP_MAX_URI_HANDLERS).
 
@@ -148,7 +148,7 @@ config BB_HTTP_ROUTE_DUP_STRICT
     default n
     help
       When a route with the same HTTP method and path is registered more than
-      once, bb_api_dispatch_add always warns and drops the duplicate (first
+      once, bb_dispatch_api_add always warns and drops the duplicate (first
       registration wins). When this option is enabled, a duplicate additionally
       triggers an assert (fatal), surfacing accidental collisions in CI and
       smoke builds. Disable (default) in production firmware where the
