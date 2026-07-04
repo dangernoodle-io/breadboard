@@ -115,6 +115,11 @@ COMPONENT_MAP = {
         ],
         "depends":  ["bb_core", "bb_log"],
     },
+    "bb_dispatch_cmd": {
+        "includes": ["components/bb_dispatch_cmd/include"],
+        "sources":  ["platform/host/bb_dispatch_cmd/bb_dispatch_cmd.c"],
+        "depends":  ["bb_core", "bb_json", "bb_log"],
+    },
     "bb_prov": {
         "includes": ["components/bb_prov/include"],
         "sources":  ["components/bb_prov/src/bb_prov_parse.c"],

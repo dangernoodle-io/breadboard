@@ -1,0 +1,12 @@
+menu "breadboard: bb_dispatch_cmd"
+
+config BB_DISPATCH_CMD_CAP
+    int "Command dispatch table capacity"
+    default 32
+    help
+        Maximum number of registered actions in the static dispatch table.
+        Each entry costs sizeof(bb_dispatch_cmd_entry_t) (a function pointer
+        + context pointer + action string pointer). Registering more actions
+        than this returns BB_ERR_NO_SPACE (logged, non-fatal).
+
+endmenu

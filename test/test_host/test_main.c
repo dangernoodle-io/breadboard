@@ -448,6 +448,25 @@ void test_dispatch_api_dup_different_method_same_path_both_kept(void);
 void test_dispatch_api_dup_null_path_not_dup_detected(void);
 void test_dispatch_api_dup_scan_skips_null_path_existing_entry(void);
 
+// Forward declarations from test_bb_dispatch_cmd.c
+void test_bb_dispatch_cmd_register_ok(void);
+void test_bb_dispatch_cmd_register_dup_rejected(void);
+void test_bb_dispatch_cmd_register_null_action_returns_invalid_arg(void);
+void test_bb_dispatch_cmd_register_null_handler_returns_invalid_arg(void);
+void test_bb_dispatch_cmd_register_overflow_returns_no_space(void);
+void test_bb_dispatch_cmd_call_ok_result_filled(void);
+void test_bb_dispatch_cmd_call_same_length_different_action_dispatches_correct_handler(void);
+void test_bb_dispatch_cmd_call_propagates_handler_error(void);
+void test_bb_dispatch_cmd_call_unknown_action_not_found(void);
+void test_bb_dispatch_cmd_call_null_action_returns_invalid_arg(void);
+void test_bb_dispatch_cmd_call_null_result_out_returns_invalid_arg(void);
+void test_bb_dispatch_cmd_no_authorizer_allows_all(void);
+void test_bb_dispatch_cmd_authorizer_allows_call(void);
+void test_bb_dispatch_cmd_authorizer_rejects_call(void);
+void test_bb_dispatch_cmd_authorizer_reject_distinct_from_handler_invalid_state(void);
+void test_bb_dispatch_cmd_set_authorizer_null_clears_to_allow_all(void);
+void test_bb_dispatch_cmd_test_reset_clears_state(void);
+
 // Forward declarations from test_nv_creds_mirror.c
 void test_nv_creds_mirror_pack_valid_roundtrip(void);
 void test_nv_creds_mirror_flip_ssid_invalidates(void);
@@ -6762,6 +6781,24 @@ int main(void) {
     RUN_TEST(test_dispatch_api_dup_different_method_same_path_both_kept);
     RUN_TEST(test_dispatch_api_dup_null_path_not_dup_detected);
     RUN_TEST(test_dispatch_api_dup_scan_skips_null_path_existing_entry);
+
+    RUN_TEST(test_bb_dispatch_cmd_register_ok);
+    RUN_TEST(test_bb_dispatch_cmd_register_dup_rejected);
+    RUN_TEST(test_bb_dispatch_cmd_register_null_action_returns_invalid_arg);
+    RUN_TEST(test_bb_dispatch_cmd_register_null_handler_returns_invalid_arg);
+    RUN_TEST(test_bb_dispatch_cmd_register_overflow_returns_no_space);
+    RUN_TEST(test_bb_dispatch_cmd_call_ok_result_filled);
+    RUN_TEST(test_bb_dispatch_cmd_call_same_length_different_action_dispatches_correct_handler);
+    RUN_TEST(test_bb_dispatch_cmd_call_propagates_handler_error);
+    RUN_TEST(test_bb_dispatch_cmd_call_unknown_action_not_found);
+    RUN_TEST(test_bb_dispatch_cmd_call_null_action_returns_invalid_arg);
+    RUN_TEST(test_bb_dispatch_cmd_call_null_result_out_returns_invalid_arg);
+    RUN_TEST(test_bb_dispatch_cmd_no_authorizer_allows_all);
+    RUN_TEST(test_bb_dispatch_cmd_authorizer_allows_call);
+    RUN_TEST(test_bb_dispatch_cmd_authorizer_rejects_call);
+    RUN_TEST(test_bb_dispatch_cmd_authorizer_reject_distinct_from_handler_invalid_state);
+    RUN_TEST(test_bb_dispatch_cmd_set_authorizer_null_clears_to_allow_all);
+    RUN_TEST(test_bb_dispatch_cmd_test_reset_clears_state);
 
     // bb_wdt tests
     RUN_TEST(test_bb_wdt_park_wait_resume_unsubscribes_and_resubscribes);
