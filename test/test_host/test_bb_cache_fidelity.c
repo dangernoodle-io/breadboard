@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <pthread.h>
 
 // ---------------------------------------------------------------------------
 // Test reset hook — declared in bb_cache_espidf.c (BB_CACHE_TESTING)
@@ -522,4 +523,117 @@ void test_bb_cache_get_raw_null_args_return_invalid_arg(void)
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_get_raw(NULL, buf, sizeof(buf)));
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_get_raw("test.raw.args", NULL, sizeof(buf)));
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_get_raw("test.raw.args", buf, 0));
+}
+
+// ---------------------------------------------------------------------------
+// B1-568: find_entry() lock safety under concurrent registration
+// ---------------------------------------------------------------------------
+//
+// Regression test for a torn-read race: bb_cache_update/post/serialize_into/
+// post_serialized/get_serialized used to scan s_entries[] via a raw,
+// unlocked find_entry() while bb_cache_register_ex() concurrently wrote new
+// slot fields under s_reg_lock. This test hammers a stable, already-
+// registered topic with lookups (bb_cache_get_serialized) from one thread
+// while a second thread concurrently registers a burst of new topics --
+// exercising exactly the interleaving the fix (find_entry_locked) guards
+// against.
+//
+// NOT A HARD REGRESSION GUARD without a race detector: this test asserts
+// observable outcomes (lookups never fail, content is always well-formed,
+// final registry state is correct) but cannot deterministically prove the
+// absence of a torn read on a given run -- a data race is schedule-dependent
+// and this plain host build has no ASan/TSan instrumentation to catch one
+// even if it occurred. A sanitizer-enabled native test variant is tracked as
+// a follow-up; until then, this test's value is in exercising the exact
+// interleaving shape the fix targets, not in guaranteeing detection.
+
+// Kept well below BB_CACHE_MAX_TOPICS (default 32) -- +1 for the stable
+// entry registered outside the burst.
+#define B1_568_BURST_TOPICS 20
+
+// Unity's TEST_ASSERT_* macros longjmp on failure and are not safe to call
+// from any thread but the one running the test runner -- worker threads
+// record results into this shared struct instead; all assertions happen
+// back on the main test thread after both threads are joined.
+typedef struct {
+    int register_fail_count;
+    int lookup_fail_count;
+    int lookup_bad_content_count;
+} b1_568_result_t;
+
+// bb_cache_register stores the caller's topic pointer verbatim (no internal
+// copy) and never releases it -- entries are add-only at runtime, cleared
+// only by bb_cache_reset_for_test() (which does not touch the string, only
+// the slot bookkeeping). So a registered topic pointer must remain valid for
+// as long as the process might still dereference a stale s_entries[] slot
+// from a *different* test's perspective, i.e. effectively forever within
+// this test binary -- static storage, never freed, same as string-literal
+// topics used elsewhere in this file.
+static char s_b1_568_names[B1_568_BURST_TOPICS][32];
+
+static void *b1_568_writer_fn(void *arg)
+{
+    b1_568_result_t *res = (b1_568_result_t *)arg;
+    for (int i = 0; i < B1_568_BURST_TOPICS; i++) {
+        bb_err_t err = bb_cache_register(s_b1_568_names[i], NULL, sizeof(synth_snap_t), synth_serialize);
+        if (err != BB_OK) {
+            res->register_fail_count++;
+            continue;
+        }
+        synth_snap_t s = {.value = i, .flag = (i % 2 == 0), .ratio = (float)i};
+        bb_cache_update(s_b1_568_names[i], &s);
+    }
+    return NULL;
+}
+
+static void *b1_568_reader_fn(void *arg)
+{
+    b1_568_result_t *res = (b1_568_result_t *)arg;
+    char buf[256];
+    for (int i = 0; i < B1_568_BURST_TOPICS; i++) {
+        size_t out_len = 0;
+        bb_err_t err = bb_cache_get_serialized("test.b1568.stable", buf, sizeof(buf), &out_len);
+        if (err != BB_OK) {
+            res->lookup_fail_count++;
+            continue;
+        }
+        if (out_len == 0 || strstr(buf, "\"value\":42") == NULL) {
+            res->lookup_bad_content_count++;
+        }
+    }
+    return NULL;
+}
+
+void test_bb_cache_find_entry_locked_survives_concurrent_registration(void)
+{
+    reset_all();
+
+    // Pre-existing stable entry, looked up by the reader thread throughout
+    // the writer thread's registration burst.
+    bb_err_t err = bb_cache_register("test.b1568.stable", NULL, sizeof(synth_snap_t), synth_serialize);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    synth_snap_t stable = {.value = 42, .flag = true, .ratio = 1.0};
+    err = bb_cache_update("test.b1568.stable", &stable);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+
+    for (int i = 0; i < B1_568_BURST_TOPICS; i++) {
+        snprintf(s_b1_568_names[i], sizeof(s_b1_568_names[i]), "test.b1568.%d", i);
+    }
+
+    b1_568_result_t writer_res = {0};
+    b1_568_result_t reader_res = {0};
+
+    pthread_t writer_tid, reader_tid;
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&writer_tid, NULL, b1_568_writer_fn, &writer_res));
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&reader_tid, NULL, b1_568_reader_fn, &reader_res));
+
+    pthread_join(writer_tid, NULL);
+    pthread_join(reader_tid, NULL);
+
+    TEST_ASSERT_EQUAL_INT(0, writer_res.register_fail_count);
+    TEST_ASSERT_EQUAL_INT(0, reader_res.lookup_fail_count);
+    TEST_ASSERT_EQUAL_INT(0, reader_res.lookup_bad_content_count);
+
+    // stable + burst topics all present.
+    TEST_ASSERT_EQUAL_UINT((unsigned)(1 + B1_568_BURST_TOPICS), bb_cache_count());
 }
