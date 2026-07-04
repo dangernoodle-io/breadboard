@@ -116,6 +116,26 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg);
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
 bb_err_t bb_cache_update(const char *key, const void *snap);
 
+// Like bb_cache_update, but additionally reports whether the copied-in value
+// changed. out_changed is nullable.
+//
+// Owned mode: *out_changed is set true when *snap differs (memcmp) from the
+// previously stored bytes, OR this is the first update since the key was
+// registered (no false negative against a zero-initialized owned buffer).
+// The comparison happens BEFORE the copy-in; the copy, ts_ms stamp, and
+// dirty-invalidation behave identically to bb_cache_update.
+//
+// Getter mode: *out_changed is always set false (bb_cache has no owned bytes
+// to diff against for a getter-mode key); behavior is otherwise identical to
+// bb_cache_update (no-op, returns BB_OK).
+//
+// Returns BB_ERR_NOT_FOUND if the key is not registered.
+bb_err_t bb_cache_update_ex(const char *key, const void *snap, bool *out_changed);
+
+// Returns true if key is currently registered, false otherwise (including
+// when bb_cache has not yet been initialized).
+bool bb_cache_exists(const char *key);
+
 // Serialize the cached struct into a fresh bb_json obj, wrap it in the
 // envelope ({"ts_ms":N,"data":{...}} — see the header-level comment above),
 // and post the resulting JSON via bb_event_post to the registered event

@@ -1078,6 +1078,149 @@ void test_bb_cache_envelope_serialize_into_not_enveloped(void)
     bb_json_free(obj);
 }
 
+// ---------------------------------------------------------------------------
+// B1-... PR-4a: bb_cache_update_ex change-detection + bb_cache_exists
+// ---------------------------------------------------------------------------
+
+// First write since register must report changed=true, even against a
+// zero-initialized owned buffer (has_value guard, no false negative).
+void test_bb_cache_update_ex_first_write_all_zero_reports_changed(void)
+{
+    reset_all();
+    reg("test.ex.firstzero", NULL, sizeof(synth_snap_t), synth_serialize);
+
+    synth_snap_t zero = {0};
+    bool changed = false;
+    bb_err_t err = bb_cache_update_ex("test.ex.firstzero", &zero, &changed);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_TRUE(changed);
+}
+
+// Identical rewrite (same bytes) must report changed=false.
+void test_bb_cache_update_ex_identical_rewrite_reports_unchanged(void)
+{
+    reset_all();
+    reg("test.ex.identical", NULL, sizeof(synth_snap_t), synth_serialize);
+
+    synth_snap_t s = {.value = 1, .flag = true, .ratio = 0.5};
+    bool changed = true;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update_ex("test.ex.identical", &s, &changed));
+    TEST_ASSERT_TRUE(changed);  // first write
+
+    changed = true;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update_ex("test.ex.identical", &s, &changed));
+    TEST_ASSERT_FALSE(changed);  // same bytes rewritten
+}
+
+// A different value on a subsequent write must report changed=true.
+void test_bb_cache_update_ex_different_value_reports_changed(void)
+{
+    reset_all();
+    reg("test.ex.diff", NULL, sizeof(synth_snap_t), synth_serialize);
+
+    synth_snap_t s1 = {.value = 1, .flag = false, .ratio = 0.0};
+    bool changed = false;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update_ex("test.ex.diff", &s1, &changed));
+    TEST_ASSERT_TRUE(changed);
+
+    synth_snap_t s2 = {.value = 2, .flag = false, .ratio = 0.0};
+    changed = false;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update_ex("test.ex.diff", &s2, &changed));
+    TEST_ASSERT_TRUE(changed);
+}
+
+// out_changed == NULL must not crash and must still copy in the value.
+void test_bb_cache_update_ex_null_out_changed_does_not_crash(void)
+{
+    reset_all();
+    reg("test.ex.nullout", NULL, sizeof(synth_snap_t), synth_serialize);
+
+    synth_snap_t s = {.value = 3, .flag = true, .ratio = 1.0};
+    bb_err_t err = bb_cache_update_ex("test.ex.nullout", &s, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.ex.nullout", obj));
+    double value = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "value", &value));
+    TEST_ASSERT_EQUAL_INT(3, (int)value);
+    bb_json_free(obj);
+}
+
+// Getter-mode keys report changed=false always (no owned bytes to diff).
+void test_bb_cache_update_ex_getter_mode_reports_unchanged(void)
+{
+    reset_all();
+    reg("test.ex.getter", env_getter_snapshot, 0, synth_serialize);
+
+    synth_snap_t s = {.value = 4, .flag = false, .ratio = 0.0};
+    bool changed = true;
+    bb_err_t err = bb_cache_update_ex("test.ex.getter", &s, &changed);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_FALSE(changed);
+}
+
+// Getter-mode with out_changed == NULL must not crash (the getter-mode branch
+// also guards the out_changed pointer independently of owned mode).
+void test_bb_cache_update_ex_getter_mode_null_out_changed_does_not_crash(void)
+{
+    reset_all();
+    reg("test.ex.getter.nullout", env_getter_snapshot, 0, synth_serialize);
+
+    synth_snap_t s = {.value = 4, .flag = false, .ratio = 0.0};
+    bb_err_t err = bb_cache_update_ex("test.ex.getter.nullout", &s, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+}
+
+// NULL key and NULL snap both independently return BB_ERR_INVALID_ARG.
+void test_bb_cache_update_ex_null_args_returns_invalid_arg(void)
+{
+    reset_all();
+    synth_snap_t s = {0};
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_update_ex(NULL, &s, NULL));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_update_ex("test.ex.nullargs", NULL, NULL));
+}
+
+// bb_cache_exists rejects a NULL key.
+void test_bb_cache_exists_null_key_returns_false(void)
+{
+    reset_all();
+    TEST_ASSERT_FALSE(bb_cache_exists(NULL));
+}
+
+// bb_cache_update (the retired-name wrapper) must behave identically to
+// pre-refactor behavior: succeeds, copies in the value, unknown key ->
+// BB_ERR_NOT_FOUND.
+void test_bb_cache_update_wrapper_still_behaves_identically(void)
+{
+    reset_all();
+    reg("test.ex.wrapper", NULL, sizeof(synth_snap_t), synth_serialize);
+
+    synth_snap_t s = {.value = 6, .flag = true, .ratio = 2.0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update("test.ex.wrapper", &s));
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_serialize_into("test.ex.wrapper", obj));
+    double value = 0;
+    TEST_ASSERT_TRUE(bb_json_obj_get_number(obj, "value", &value));
+    TEST_ASSERT_EQUAL_INT(6, (int)value);
+    bb_json_free(obj);
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, bb_cache_update("no.such.ex.topic", &s));
+}
+
+// bb_cache_exists: true for a registered key, false for an unregistered key.
+void test_bb_cache_exists_registered_and_unregistered(void)
+{
+    reset_all();
+    TEST_ASSERT_FALSE(bb_cache_exists("test.ex.exists"));
+
+    reg("test.ex.exists", NULL, sizeof(synth_snap_t), synth_serialize);
+    TEST_ASSERT_TRUE(bb_cache_exists("test.ex.exists"));
+
+    TEST_ASSERT_FALSE(bb_cache_exists("no.such.ex.exists.topic"));
+}
+
 void test_bb_cache_envelope_get_serialized_undersized_buffer_untouched(void)
 {
     // Buffer sizing: the envelope adds fixed overhead on top of the memoized
