@@ -1,6 +1,6 @@
 PIO ?= pio
 
-.PHONY: help check check-test test coverage smoke clean
+.PHONY: help check test-py test coverage smoke clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
@@ -14,8 +14,9 @@ check: ## Forbidden-pattern lint + static analysis (cppcheck)
 		echo "cppcheck not found, skipping static analysis"; \
 	fi
 
-check-test: ## Self-test suite for bbtool lint rules
+test-py: ## Python tooling tests (bbtool + bbdevice)
 	python3 -m unittest discover -s scripts/bbtool/tests
+	python3 -m unittest discover -s scripts/bbdevice/tests -t scripts
 
 test: ## Run host unit tests
 	$(PIO) test -e native
