@@ -2983,6 +2983,9 @@ void test_bb_event_routes_active_client_count_at_max(void);
 void test_bb_event_routes_slot_reuse_deferred_count_zero_by_default(void);
 void test_bb_event_routes_slot_reuse_deferred_count_increments(void);
 void test_bb_event_routes_slot_reuse_deferred_count_zero_after_reset(void);
+void test_bb_event_routes_pool_ensure_deferred_count_zero_by_default(void);
+void test_bb_event_routes_pool_ensure_deferred_count_increments(void);
+void test_bb_event_routes_pool_ensure_deferred_count_zero_after_reset(void);
 void test_bb_event_routes_client_event_null_for_null_client(void);
 void test_bb_event_routes_client_event_returns_non_null_after_acquire(void);
 void test_bb_event_routes_diag_full_round_trip(void);
@@ -3738,6 +3741,11 @@ void test_sse_pool_reclaim_decide_active_nonzero_keeps(void);
 void test_sse_pool_reclaim_decide_acquired_nonzero_keeps(void);
 void test_sse_pool_reclaim_decide_pending_nonzero_keeps(void);
 void test_sse_pool_reclaim_decide_all_zero_destroys(void);
+
+// Forward declarations from test_sse_connect_error_decision.c (B1-561)
+void test_sse_connect_error_status_no_space_returns_503(void);
+void test_sse_connect_error_status_other_returns_500(void);
+void test_sse_connect_error_status_ok_returns_500(void);
 
 // Forward declarations from test_bb_telemetry.c (GET /api/telemetry/metrics, B1-295)
 void test_bb_pub_source_count_returns_registered(void);
@@ -6705,6 +6713,9 @@ int main(void) {
     RUN_TEST(test_bb_event_routes_slot_reuse_deferred_count_zero_by_default);
     RUN_TEST(test_bb_event_routes_slot_reuse_deferred_count_increments);
     RUN_TEST(test_bb_event_routes_slot_reuse_deferred_count_zero_after_reset);
+    RUN_TEST(test_bb_event_routes_pool_ensure_deferred_count_zero_by_default);
+    RUN_TEST(test_bb_event_routes_pool_ensure_deferred_count_increments);
+    RUN_TEST(test_bb_event_routes_pool_ensure_deferred_count_zero_after_reset);
     RUN_TEST(test_bb_event_routes_client_event_null_for_null_client);
     RUN_TEST(test_bb_event_routes_client_event_returns_non_null_after_acquire);
     RUN_TEST(test_bb_event_routes_diag_full_round_trip);
@@ -7590,6 +7601,10 @@ int main(void) {
     RUN_TEST(test_sse_pool_reclaim_decide_acquired_nonzero_keeps);
     RUN_TEST(test_sse_pool_reclaim_decide_pending_nonzero_keeps);
     RUN_TEST(test_sse_pool_reclaim_decide_all_zero_destroys);
+
+    RUN_TEST(test_sse_connect_error_status_no_space_returns_503);
+    RUN_TEST(test_sse_connect_error_status_other_returns_500);
+    RUN_TEST(test_sse_connect_error_status_ok_returns_500);
 
     // bb_pub accessor tests (B1-295)
     RUN_TEST(test_bb_pub_source_count_returns_registered);

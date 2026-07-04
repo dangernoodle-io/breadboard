@@ -258,6 +258,46 @@ void test_bb_event_routes_slot_reuse_deferred_count_zero_after_reset(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_event_routes_pool_ensure_deferred_count (B1-561)
+// ---------------------------------------------------------------------------
+
+void test_bb_event_routes_pool_ensure_deferred_count_zero_by_default(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(&small_cfg);
+
+    TEST_ASSERT_EQUAL(0, bb_event_routes_pool_ensure_deferred_count());
+}
+
+void test_bb_event_routes_pool_ensure_deferred_count_increments(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(&small_cfg);
+
+    bb_event_routes_note_pool_ensure_deferred();
+    TEST_ASSERT_EQUAL(1, bb_event_routes_pool_ensure_deferred_count());
+
+    bb_event_routes_note_pool_ensure_deferred();
+    bb_event_routes_note_pool_ensure_deferred();
+    TEST_ASSERT_EQUAL(3, bb_event_routes_pool_ensure_deferred_count());
+}
+
+void test_bb_event_routes_pool_ensure_deferred_count_zero_after_reset(void)
+{
+    setup_sync_mode();
+    reset_world();
+    bb_event_routes_init(&small_cfg);
+
+    bb_event_routes_note_pool_ensure_deferred();
+    TEST_ASSERT_EQUAL(1, bb_event_routes_pool_ensure_deferred_count());
+
+    reset_world();
+    TEST_ASSERT_EQUAL(0, bb_event_routes_pool_ensure_deferred_count());
+}
+
+// ---------------------------------------------------------------------------
 // bb_event_routes_client_event accessor + port_event signal/wait
 // ---------------------------------------------------------------------------
 

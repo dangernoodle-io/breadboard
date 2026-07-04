@@ -100,6 +100,18 @@ size_t bb_event_routes_active_client_count(void);
 // always 0 on Arduino/host (no reap-gate exists there).
 size_t bb_event_routes_slot_reuse_deferred_count(void);
 
+// Diagnostics (B1-561): count of SSE connect attempts fast-rejected with 503
+// because sse_task_bundles_ensure() (lazy first-connect heap allocation of the
+// task-bundle pool) returned BB_ERR_NO_SPACE due to transient heap pressure —
+// as opposed to a 503 from genuine max_clients exhaustion or the
+// slot_reuse_deferred reap-gate above. A steady non-zero rate under memory
+// pressure is expected transient behavior (EventSource auto-retries); it is
+// not distinguishable from those other two 503 causes by body alone (the
+// body is a generic "busy" value), so this counter is the way to attribute a
+// 503 spike to heap pressure specifically. ESP-IDF only — always 0 on
+// Arduino/host.
+size_t bb_event_routes_pool_ensure_deferred_count(void);
+
 // Acquire a new SSE client slot and subscribe to topics.
 // Like bb_event_routes_client_acquire, but accepts an optional topic_filter.
 // Pass NULL to subscribe to all attached topics (same as bb_event_routes_client_acquire).
