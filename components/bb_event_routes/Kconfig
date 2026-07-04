@@ -36,7 +36,7 @@ config BB_EVENT_ROUTES_QUEUE_DEPTH
 
 config BB_EVENT_ROUTES_RING_CAPACITY
     int "Per-attached-topic replay ring capacity (non-retained)"
-    default 16
+    default 8
     range 1 256
     help
         bb_event_ring depth backing replay-on-connect for each non-retained

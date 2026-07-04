@@ -9,7 +9,9 @@ config BB_OTA_HOOKS_AUTO_ATTACH
     default y
     depends on BB_EVENT_ROUTES_AUTOREGISTER
     help
-        Surface OTA progress as the non-retained 'ota.progress' SSE topic on /api/events
-        ({"via":...,"state":...,"pct":N}) for push, pull, and boot uniformly.
+        Surface OTA progress as the retained 'ota.progress' SSE topic on /api/events
+        ({"via":...,"state":...,"pct":N}) for push, pull, and boot uniformly. Retained
+        (B1-546) so a client connecting mid-update replays the latest progress entry
+        instead of empty state; the ring holds only the single most recent update.
 
 endmenu
