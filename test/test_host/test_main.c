@@ -2327,6 +2327,23 @@ void test_bb_ntp_info_schema_in_assembled_schema(void);
 void test_bb_ntp_info_extender_synced_false_last_sync_zero(void);
 void test_bb_ntp_info_extender_ntp_key_always_present(void);
 
+// Forward declarations from test_bb_ntp_timezone.c
+void test_nv_timezone_default_is_empty(void);
+void test_nv_set_timezone_stores_and_reads_back(void);
+void test_nv_set_timezone_null_clears(void);
+void test_nv_set_timezone_empty_string_clears(void);
+void test_nv_set_timezone_too_long_returns_invalid_arg(void);
+void test_nv_set_timezone_max_len_succeeds(void);
+void test_nv_factory_reset_clears_timezone(void);
+void test_ntp_apply_saved_timezone_defaults_to_utc(void);
+void test_ntp_set_timezone_persists_to_nv(void);
+void test_ntp_set_timezone_applies_immediately(void);
+void test_ntp_set_timezone_null_clears_to_utc(void);
+void test_ntp_set_timezone_empty_string_clears_to_utc(void);
+void test_ntp_dst_winter_is_est(void);
+void test_ntp_dst_summer_is_edt(void);
+void test_ntp_apply_saved_timezone_reads_stored_value(void);
+
 // Forward declarations from test_bb_temp.c
 void test_bb_temp_read_soc_default_absent(void);
 void test_bb_temp_read_soc_injected_present(void);
@@ -6593,6 +6610,23 @@ int main(void) {
     RUN_TEST(test_bb_ntp_info_schema_in_assembled_schema);
     RUN_TEST(test_bb_ntp_info_extender_synced_false_last_sync_zero);
     RUN_TEST(test_bb_ntp_info_extender_ntp_key_always_present);
+
+    // bb_ntp_timezone satellite tests
+    RUN_TEST(test_nv_timezone_default_is_empty);
+    RUN_TEST(test_nv_set_timezone_stores_and_reads_back);
+    RUN_TEST(test_nv_set_timezone_null_clears);
+    RUN_TEST(test_nv_set_timezone_empty_string_clears);
+    RUN_TEST(test_nv_set_timezone_too_long_returns_invalid_arg);
+    RUN_TEST(test_nv_set_timezone_max_len_succeeds);
+    RUN_TEST(test_nv_factory_reset_clears_timezone);
+    RUN_TEST(test_ntp_apply_saved_timezone_defaults_to_utc);
+    RUN_TEST(test_ntp_set_timezone_persists_to_nv);
+    RUN_TEST(test_ntp_set_timezone_applies_immediately);
+    RUN_TEST(test_ntp_set_timezone_null_clears_to_utc);
+    RUN_TEST(test_ntp_set_timezone_empty_string_clears_to_utc);
+    RUN_TEST(test_ntp_dst_winter_is_est);
+    RUN_TEST(test_ntp_dst_summer_is_edt);
+    RUN_TEST(test_ntp_apply_saved_timezone_reads_stored_value);
 
     // bb_temp satellite tests
     RUN_TEST(test_bb_temp_read_soc_default_absent);
