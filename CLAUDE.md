@@ -6,6 +6,23 @@ Standalone ESP-IDF bootstrap component library. Reusable wifi provisioning, NVS,
 
 All public C symbols use prefix `bb_`.
 
+## Component discovery
+
+Component inventory and per-component docs live in `components/<name>/README.md` (and `components/README.md` index once it exists), not here.
+
+- discover component internals via the component's own README plus code-graph tools (call graph, module overview, semantic search)
+- component behavior is NOT documented in CLAUDE.md — don't grep this file for it
+### Documentation routing
+
+Route new content by kind; don't default to CLAUDE.md:
+- component behavior/API/knobs → the component's own `components/<name>/README.md`
+- authoritative symbol reference → the C API reference site (Doxygen+MkDocs, future, B1-348)
+- deep knowledge / worked examples / multi-component layering → the wiki
+- internal rationale/process/decisions → ouroboros KB
+- orchestration / cross-cutting rules / build+test / model-tiers → CLAUDE.md
+- NEW components ship with a README from birth (author it in the component's own PR)
+- do NOT add component-specific prose to CLAUDE.md — it goes in the component README
+
 ## Portability discipline
 
 Public headers must not include `esp_*.h` or `freertos/*.h` outside `#ifdef ESP_PLATFORM`. This is enforced so non-ESP-IDF platform backends (e.g. Arduino) can coexist without breaking consumers.
