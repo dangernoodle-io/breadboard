@@ -112,6 +112,9 @@ void bb_registry_freeze(bb_registry_t *r);
 // register/deregister from within cb (stale snapshot — newly registered
 // entries are not visited this pass; deregistered entries are still visited
 // via the snapshot).
+// WARNING: on a pointer-keyed instance (see below) `name` is an opaque
+// identity pointer, NOT a valid C string — do not %s/strcmp/strlen it.
+// Use bb_registry_foreach_ptr on pointer-keyed instances instead.
 void bb_registry_foreach(bb_registry_t *r,
                          void (*cb)(const char *name, void *value, void *ctx),
                          void *ctx);
@@ -122,6 +125,8 @@ uint16_t bb_registry_count(bb_registry_t *r);
 // Copy the entry at index idx into *out (lock-guarded).
 // Returns BB_ERR_INVALID_ARG if out is NULL.
 // Returns BB_ERR_NOT_FOUND if idx >= count.
+// WARNING: on a pointer-keyed instance (see below) out->name is an opaque
+// identity pointer, NOT a valid C string — do not %s/strcmp/strlen it.
 bb_err_t bb_registry_get_by_index(bb_registry_t *r, uint16_t idx,
                                    bb_registry_entry_t *out);
 
@@ -130,6 +135,45 @@ bb_err_t bb_registry_get_by_index(bb_registry_t *r, uint16_t idx,
 // for ensuring the value lifetime outlasts use of the returned pointer.
 // Prefer foreach for churn consumers.
 void *bb_registry_lookup(bb_registry_t *r, const char *name);
+
+// ---------------------------------------------------------------------------
+// Pointer-keyed variant
+//
+// A bb_registry_t instance is EITHER name-keyed (bb_registry_register/
+// _deregister/_lookup/_foreach, comparing .name via strcmp) OR pointer-keyed
+// (bb_registry_register_ptr/_deregister_ptr/_lookup_ptr/_foreach_ptr,
+// comparing .name via == as an opaque identity pointer) — NEVER BOTH. The
+// .name field is reinterpreted as a `void *` identity key for this variant;
+// callers must not mix the two families of calls on the same instance.
+// Storage, lock, capacity, and HWM plumbing are shared unchanged; use
+// bb_registry_foreach_ptr (not bb_registry_foreach) to iterate a
+// pointer-keyed instance so the key is never misread as a C string.
+// ---------------------------------------------------------------------------
+
+// Register a key->value pair, keyed by pointer identity (== comparison).
+// Returns BB_ERR_INVALID_ARG if key or value is NULL.
+// Returns BB_ERR_INVALID_STATE if the registry is frozen or key is duplicate.
+// Returns BB_ERR_NO_SPACE if count == capacity.
+// Emits the same one-time HWM bb_log_w as bb_registry_register.
+bb_err_t bb_registry_register_ptr(bb_registry_t *r, void *key, void *value);
+
+// Remove the entry with the given pointer key (compact left, no tombstones).
+// Returns BB_ERR_INVALID_ARG if key is NULL.
+// Returns BB_ERR_NOT_FOUND if the key is not present.
+// Returns BB_ERR_INVALID_STATE if the registry is frozen.
+bb_err_t bb_registry_deregister_ptr(bb_registry_t *r, const void *key);
+
+// Return the value for key, or NULL if not found (lock-guarded).
+void *bb_registry_lookup_ptr(bb_registry_t *r, const void *key);
+
+// Iterate all entries of a pointer-keyed registry. Same copy-out/lock
+// semantics as bb_registry_foreach, but cb's first parameter is typed
+// `void *key` (the identity pointer) instead of `const char *name` — use
+// this on pointer-keyed instances so callers get compiler help and never
+// mistake the key for a C string.
+void bb_registry_foreach_ptr(bb_registry_t *r,
+                             void (*cb)(void *key, void *value, void *ctx),
+                             void *ctx);
 
 // ---------------------------------------------------------------------------
 // Test hook (gated by BB_REGISTRY_TESTING)
