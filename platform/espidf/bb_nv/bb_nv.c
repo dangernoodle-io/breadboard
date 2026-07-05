@@ -3,6 +3,7 @@
 #include "bb_manifest.h"
 #include "bb_init.h"
 #include "bb_nv_wifi_pending.h"
+#include "bb_str.h"
 #include <stdbool.h>
 #include <string.h>
 
@@ -26,16 +27,6 @@
 #define BB_NV_KEY_WIFI_TRY          "wifi_try"
 
 #define BB_NV_TIMEZONE_MAX_LEN 65  /* 64 chars + NUL */
-
-/* strlcpy isn't standard C — newlib exposes it under feature flags, but
- * the warning we hit under TaipanMiner's build profile is real. Roll a
- * tiny helper so the file is self-contained. */
-static inline void copy_str(char *dst, const char *src, size_t size)
-{
-    if (size == 0) return;
-    strncpy(dst, src, size - 1);
-    dst[size - 1] = '\0';
-}
 
 static const char *TAG_NV = "bb_nv";
 
@@ -173,7 +164,7 @@ static void load_str(nvs_handle_t handle, const char *key, char *buf, size_t buf
 {
     size_t len = buf_size;
     if (nvs_get_str(handle, key, buf, &len) != ESP_OK) {
-        copy_str(buf, fallback, buf_size);
+        bb_strlcpy(buf, fallback, buf_size);
     }
 }
 
@@ -242,8 +233,8 @@ bb_err_t bb_nv_config_init(void)
             bb_err_t rw_err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READWRITE, &handle);
             if (rw_err == BB_OK) {
                 handle_open = true;
-                copy_str(s_config.wifi_ssid, s_creds_mirror.ssid, sizeof(s_config.wifi_ssid));
-                copy_str(s_config.wifi_pass, s_creds_mirror.pass, sizeof(s_config.wifi_pass));
+                bb_strlcpy(s_config.wifi_ssid, s_creds_mirror.ssid, sizeof(s_config.wifi_ssid));
+                bb_strlcpy(s_config.wifi_pass, s_creds_mirror.pass, sizeof(s_config.wifi_pass));
                 nvs_set_str(handle, BB_NV_KEY_WIFI_SSID, s_config.wifi_ssid);
                 nvs_set_str(handle, BB_NV_KEY_WIFI_PASS, s_config.wifi_pass);
                 if (s_creds_mirror.provisioned) {
@@ -252,8 +243,8 @@ bb_err_t bb_nv_config_init(void)
                 nvs_commit(handle);
             } else {
                 /* Reopen failed — apply creds in-memory; NVS heals on next write. */
-                copy_str(s_config.wifi_ssid, s_creds_mirror.ssid, sizeof(s_config.wifi_ssid));
-                copy_str(s_config.wifi_pass, s_creds_mirror.pass, sizeof(s_config.wifi_pass));
+                bb_strlcpy(s_config.wifi_ssid, s_creds_mirror.ssid, sizeof(s_config.wifi_ssid));
+                bb_strlcpy(s_config.wifi_pass, s_creds_mirror.pass, sizeof(s_config.wifi_pass));
             }
             s_creds_restored = true;
             bb_log_w(TAG, "creds restored from RTC backup");
@@ -385,8 +376,8 @@ bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass)
     bb_err_t err = nv_config_set_str(BB_NV_KEY_WIFI_SSID, ssid);
     if (err == BB_OK) err = nv_config_set_str(BB_NV_KEY_WIFI_PASS, pass);
     if (err == BB_OK) {
-        copy_str(s_config.wifi_ssid, ssid, sizeof(s_config.wifi_ssid));
-        copy_str(s_config.wifi_pass, pass, sizeof(s_config.wifi_pass));
+        bb_strlcpy(s_config.wifi_ssid, ssid, sizeof(s_config.wifi_ssid));
+        bb_strlcpy(s_config.wifi_pass, pass, sizeof(s_config.wifi_pass));
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
         uint8_t prov = bb_nv_config_is_provisioned() ? 1 : 0;
         bb_nv_creds_mirror_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, prov);
@@ -409,8 +400,8 @@ bb_err_t bb_nv_config_set_wifi_pending(const char *ssid, const char *pass)
     bb_nv_batch_set_u8(&batch, BB_NV_KEY_WIFI_TRY, 1);
     err = bb_nv_batch_commit(&batch);
     if (err == BB_OK) {
-        copy_str(s_pending.ssid, ssid, sizeof(s_pending.ssid));
-        copy_str(s_pending.pass, p,    sizeof(s_pending.pass));
+        bb_strlcpy(s_pending.ssid, ssid, sizeof(s_pending.ssid));
+        bb_strlcpy(s_pending.pass, p,    sizeof(s_pending.pass));
     }
     return err;
 }
@@ -470,8 +461,8 @@ bb_err_t bb_nv_config_commit_wifi_pending(void)
     nvs_close(h);
 
     if (err == BB_OK) {
-        copy_str(s_config.wifi_ssid, s_pending.ssid, sizeof(s_config.wifi_ssid));
-        copy_str(s_config.wifi_pass, s_pending.pass, sizeof(s_config.wifi_pass));
+        bb_strlcpy(s_config.wifi_ssid, s_pending.ssid, sizeof(s_config.wifi_ssid));
+        bb_strlcpy(s_config.wifi_pass, s_pending.pass, sizeof(s_config.wifi_pass));
         memset(&s_pending, 0, sizeof(s_pending));
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
         uint8_t prov = bb_nv_config_is_provisioned() ? 1 : 0;
@@ -516,7 +507,7 @@ bb_err_t bb_nv_config_set_hostname(const char *hostname)
     if (!hostname) return BB_ERR_INVALID_ARG;
     if (!nv_valid_hostname(hostname)) return BB_ERR_INVALID_ARG;
     bb_err_t err = nv_config_set_str(BB_NV_KEY_HOSTNAME, hostname);
-    if (err == BB_OK) copy_str(s_config.hostname, hostname, sizeof(s_config.hostname));
+    if (err == BB_OK) bb_strlcpy(s_config.hostname, hostname, sizeof(s_config.hostname));
     return err;
 }
 
@@ -525,7 +516,7 @@ bb_err_t bb_nv_config_set_timezone(const char *tz)
     const char *t = (tz && tz[0] != '\0') ? tz : "";
     if (strlen(t) >= BB_NV_TIMEZONE_MAX_LEN) return BB_ERR_INVALID_ARG;
     bb_err_t err = nv_config_set_str(BB_NV_KEY_TIMEZONE, t);
-    if (err == BB_OK) copy_str(s_config.timezone, t, sizeof(s_config.timezone));
+    if (err == BB_OK) bb_strlcpy(s_config.timezone, t, sizeof(s_config.timezone));
     return err;
 }
 
@@ -854,7 +845,7 @@ bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, c
         if (fallback == NULL) {
             buf[0] = '\0';
         } else {
-            copy_str(buf, fallback, len);
+            bb_strlcpy(buf, fallback, len);
         }
         return BB_OK;
     }
@@ -871,7 +862,7 @@ bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, c
         if (fallback == NULL) {
             buf[0] = '\0';
         } else {
-            copy_str(buf, fallback, len);
+            bb_strlcpy(buf, fallback, len);
         }
         return BB_OK;
     }
@@ -948,7 +939,7 @@ bb_err_t bb_nv_batch_begin(bb_nv_batch_t *batch, const char *ns)
     batch->_impl = 0;
     batch->_err = BB_OK;
     batch->_open = 0;
-    copy_str(batch->_ns, ns, sizeof(batch->_ns));
+    bb_strlcpy(batch->_ns, ns, sizeof(batch->_ns));
     nvs_handle_t handle;
     bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
     if (err != BB_OK) {
@@ -1145,9 +1136,9 @@ bb_err_t bb_nv_set_str(const char *ns, const char *key, const char *value)
         }
     }
     if (!e) return BB_ERR_NO_SPACE; /* store full */
-    copy_str(e->ns,  ns,  sizeof(e->ns));
-    copy_str(e->key, key, sizeof(e->key));
-    copy_str(e->val, value, sizeof(e->val));
+    bb_strlcpy(e->ns,  ns,  sizeof(e->ns));
+    bb_strlcpy(e->key, key, sizeof(e->key));
+    bb_strlcpy(e->val, value, sizeof(e->val));
     e->used = true;
     return BB_OK;
 }
@@ -1186,13 +1177,13 @@ bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, c
     }
     const bb_nv_host_str_entry_t *e = str_store_find(ns, key);
     if (e) {
-        copy_str(buf, e->val, len);
+        bb_strlcpy(buf, e->val, len);
         return BB_OK;
     }
     if (fallback == NULL) {
         buf[0] = '\0';
     } else {
-        copy_str(buf, fallback, len);
+        bb_strlcpy(buf, fallback, len);
     }
     return BB_OK;
 }
@@ -1238,7 +1229,7 @@ bb_err_t bb_nv_batch_begin(bb_nv_batch_t *batch, const char *ns)
     batch->_impl = 0;
     batch->_err = BB_OK;
     batch->_open = 1;
-    copy_str(batch->_ns, ns, sizeof(batch->_ns));
+    bb_strlcpy(batch->_ns, ns, sizeof(batch->_ns));
     return BB_OK;
 }
 
@@ -1278,7 +1269,7 @@ bb_err_t bb_nv_config_set_hostname(const char *hostname)
 {
     if (!hostname) return BB_ERR_INVALID_ARG;
     if (!nv_valid_hostname(hostname)) return BB_ERR_INVALID_ARG;
-    copy_str(s_config.hostname, hostname, sizeof(s_config.hostname));
+    bb_strlcpy(s_config.hostname, hostname, sizeof(s_config.hostname));
     return BB_OK;
 }
 
@@ -1292,7 +1283,7 @@ bb_err_t bb_nv_config_set_timezone(const char *tz)
 {
     const char *t = (tz && tz[0] != '\0') ? tz : "";
     if (strlen(t) >= BB_NV_TIMEZONE_MAX_LEN) return BB_ERR_INVALID_ARG;
-    copy_str(s_config.timezone, t, sizeof(s_config.timezone));
+    bb_strlcpy(s_config.timezone, t, sizeof(s_config.timezone));
     return BB_OK;
 }
 

@@ -7,7 +7,7 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/bb_nv_reboot.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_log bb_init bb_manifest bb_http bb_json nvs_flash bb_timer
+    PRIV_REQUIRES bb_log bb_init bb_manifest bb_http bb_json nvs_flash bb_timer bb_str
 )
 
 if(CONFIG_BB_NV_FLASH_AUTOREGISTER)
