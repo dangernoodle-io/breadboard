@@ -1,0 +1,180 @@
+#pragma once
+// bb_task — SSOT task-creation primitive (task-registry unification, PR2b).
+//
+// Collapses the 2x2 xTaskCreate variant matrix (dynamic/static backing x
+// plain/pinned-to-core affinity) behind a single config-struct call, and
+// owns the two axes every call site otherwise hand-rolls: the unicore
+// core-affinity clamp and the stack bytes->words conversion.
+//
+// A pointer-keyed base registry (bb_registry, keyed by the opaque task
+// handle) records one entry per task created through bb_task_create() --
+// name, stack budget, the wdt_arm data flag, and a mark-and-sweep
+// `seen_tick` slot for a later periodic reconciliation pass.
+//
+// DORMANT IN THIS PR: no in-tree consumer calls bb_task_create() yet. A
+// later PR (task-registry unification PR3) migrates existing xTaskCreate*
+// call sites onto this API and wires the periodic sweep scan that drives
+// bb_task_base_sweep_apply(). This PR ships the primitive + pure evaluator
+// + host tests only.
+//
+// Portable: no FreeRTOS types appear in this header. `bb_task_entry_fn_t`
+// matches FreeRTOS's TaskFunction_t signature (`void (*)(void *)`) without
+// requiring a FreeRTOS include; task handles and the STATIC backing's
+// stack/TCB buffers are carried as opaque `void *` (TaskHandle_t is itself
+// an opaque `void *` on FreeRTOS, and StackType_t*/StaticTask_t* are only
+// dereferenced inside the espidf platform shell) -- see CLAUDE.md "Header
+// visibility and component coupling".
+
+#include <stdbool.h>
+#include <stdint.h>
+#include "bb_core.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+// Matches FreeRTOS's TaskFunction_t signature (`void (*)(void *)`).
+typedef void (*bb_task_entry_fn_t)(void *arg);
+
+// Core affinity. BB_TASK_CORE_ANY maps to tskNO_AFFINITY in the espidf
+// shell (plain xTaskCreate[Static]); 0/1 request xTaskCreate[Static]
+// PinnedToCore, clamped to BB_TASK_CORE_ANY by bb_task_resolve() when the
+// target has fewer cores than requested (unicore targets).
+#define BB_TASK_CORE_ANY (-1)
+
+typedef enum {
+    BB_TASK_BACKING_DYNAMIC = 0,  // xTaskCreate[PinnedToCore]
+    BB_TASK_BACKING_STATIC  = 1,  // xTaskCreateStatic[PinnedToCore]
+} bb_task_backing_t;
+
+// Task-creation config. Designated-initializer only -- no positional
+// construction is supported, so new fields are additive/non-breaking.
+typedef struct {
+    bb_task_entry_fn_t entry;        // required
+    const char        *name;         // task name; required
+    void              *arg;          // passed through to entry
+    uint32_t           stack_bytes;  // converted to words once, inside bb_task
+    uint32_t           priority;     // UBaseType_t on the espidf side
+    int                core;         // BB_TASK_CORE_ANY / 0 / 1
+
+    bb_task_backing_t  backing;
+    // STATIC only -- opaque StackType_t*/StaticTask_t* buffers, required
+    // when backing == BB_TASK_BACKING_STATIC (validated by bb_task_resolve).
+    void              *stack_buf;
+    void              *tcb_buf;
+
+    // Data flag only -- recorded on the base registry entry for later
+    // diagnostic surfacing. bb_task does NOT arm any watchdog itself (no
+    // bb_wdt dependency here); a later consumer may act on this flag.
+    bool                wdt_arm;
+} bb_task_config_t;
+
+// Resolved/validated result of bb_task_resolve() -- what the espidf shell
+// hands to the matching xTaskCreate* variant.
+typedef struct {
+    int                core;         // post-clamp
+    uint32_t           stack_bytes;  // passthrough of cfg->stack_bytes -- the
+                                      // portable resolver does not know the
+                                      // platform's StackType_t size; the
+                                      // bytes -> xTaskCreate* depth
+                                      // conversion (/ sizeof(StackType_t))
+                                      // happens in the espidf shell.
+    bb_task_backing_t  backing;
+} bb_task_resolved_t;
+
+// Pure resolver -- no FreeRTOS types, no task creation. Validates `cfg` and
+// fills `*out` on success.
+// `num_cores` is the caller-supplied core count (configNUMBER_OF_CORES on
+// the espidf shell; any value on host tests) so the unicore clamp stays
+// host-testable without a FreeRTOS dependency.
+// Returns BB_ERR_INVALID_ARG when cfg or out is NULL, cfg->entry is NULL,
+// cfg->stack_bytes is 0, or cfg->backing == BB_TASK_BACKING_STATIC and
+// cfg->stack_buf/cfg->tcb_buf is NULL.
+bb_err_t bb_task_resolve(const bb_task_config_t *cfg, int num_cores,
+                          bb_task_resolved_t *out);
+
+// ---------------------------------------------------------------------------
+// Base registry -- pointer-keyed (opaque task handle, TaskHandle_t on
+// ESP-IDF), one entry per task created via bb_task_create(). Sized by
+// CONFIG_BB_TASK_BASE_MAX (bridged to BB_TASK_BASE_MAX, C default 24).
+// ---------------------------------------------------------------------------
+
+#define BB_TASK_NAME_MAX 20
+
+typedef struct {
+    bool      in_use;
+    void     *handle;
+    char      name[BB_TASK_NAME_MAX];
+    uint32_t  stack_bytes;
+    bool      wdt_arm;
+    uint32_t  seen_tick;
+} bb_task_base_entry_t;
+
+// Create-if-absent, update-if-present. Tolerates re-invocation on the same
+// handle (pool-recycle reuse, e.g. sse_N-style task-slot churn) -- never
+// double-inserts.
+// Returns BB_ERR_INVALID_ARG if handle or name is NULL.
+// Returns BB_ERR_NO_SPACE if the base registry is full and handle is new.
+bb_err_t bb_task_base_upsert(void *handle, const char *name,
+                              uint32_t stack_bytes, bool wdt_arm);
+
+// Remove the base entry for `handle`.
+// Returns BB_ERR_INVALID_ARG if handle is NULL.
+// Returns BB_ERR_NOT_FOUND if handle was never upserted.
+bb_err_t bb_task_base_remove(void *handle);
+
+typedef void (*bb_task_base_cb_t)(void *handle, const bb_task_base_entry_t *entry, void *ctx);
+
+// Iterate every base entry (snapshot-then-notify semantics, via
+// bb_registry_foreach_ptr). Safe to call from multiple threads; do not call
+// bb_task_base_upsert/_remove from within cb (same stale-snapshot caveat as
+// bb_registry_foreach_ptr).
+void bb_task_base_foreach(bb_task_base_cb_t cb, void *ctx);
+
+// Pure mark-and-sweep evaluator over a caller-supplied entries array -- NO
+// FreeRTOS types, no access to the internal base registry above. An entry
+// with `seen_tick == now_tick` is treated as seen (alive) this scan and
+// left untouched. Grace window: an entry survives exactly one missed scan
+// (tolerates a transient uxTaskGetSystemState omission -- same rationale as
+// bb_health_stack's mark/sweep table); it is freed (in_use cleared, entry
+// zeroed) only once it has been missed for MORE than one consecutive scan.
+// Returns the count of entries freed.
+//
+// This is the pure decision function only -- the periodic scan that marks
+// entries (by re-upserting seen_tick) and reconciles freed entries back
+// into the live base registry (via bb_task_base_remove) is wired in a
+// later PR, not here.
+int bb_task_base_sweep_apply(bb_task_base_entry_t *entries, int n, uint32_t now_tick);
+
+// ---------------------------------------------------------------------------
+// Create/deregister -- the SSOT task-creation primitive. DORMANT in this
+// PR: no in-tree caller yet.
+// ---------------------------------------------------------------------------
+
+// Resolve + validate cfg, create the task via the matching xTaskCreate*
+// variant, then upsert a base registry entry. `out_handle` may be NULL;
+// when non-NULL it is always set (to NULL on failure, to the new task
+// handle on success).
+// Returns whatever bb_task_resolve() would return on a validation failure.
+// Returns BB_ERR_NO_MEM if task creation itself fails.
+bb_err_t bb_task_create(const bb_task_config_t *cfg, void **out_handle);
+
+// Remove the base registry entry for a task created via bb_task_create().
+// Does NOT delete the FreeRTOS task itself -- callers still own their own
+// vTaskDelete/self-delete lifecycle (mirrors bb_task_registry_deregister).
+// Returns BB_ERR_INVALID_ARG if handle is NULL, BB_ERR_NOT_FOUND if handle
+// was never registered.
+bb_err_t bb_task_deregister(void *handle);
+
+#ifdef BB_TASK_TESTING
+// Reset the base registry to its initial (empty) state. Test teardown only.
+void bb_task_base_test_reset(void);
+#endif
+
+#ifdef __cplusplus
+}
+#endif

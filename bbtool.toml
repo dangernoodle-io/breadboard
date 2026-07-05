@@ -66,7 +66,14 @@ allow = []
 severity = "error"
 # Allowlist: file paths (relative to repo root) for tasks that legitimately
 # skip bb_task_registry — e.g. vendored/SDK task-creation shims.
-allow = []
+#
+# platform/espidf/bb_task/bb_task_espidf.c: bb_task is the SSOT
+# task-creation primitive introduced by the task-registry unification
+# effort (PR2b) and is deliberately independent of bb_task_registry (no
+# cycle) -- it records every task it creates in its own pointer-keyed base
+# registry (bb_task_base_upsert) instead. A later PR migrates existing
+# bb_task_registry callers onto bb_task; until then both coexist.
+allow = ["platform/espidf/bb_task/bb_task_espidf.c"]
 
 [plugins]
 paths = []
