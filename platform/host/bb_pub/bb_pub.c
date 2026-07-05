@@ -896,8 +896,7 @@ static char s_metrics_prefix[BB_METRICS_PREFIX_MAX] = CONFIG_BB_METRICS_PREFIX;
 void bb_pub_set_metrics_prefix(const char *prefix)
 {
     if (!prefix) return;
-    strncpy(s_metrics_prefix, prefix, BB_METRICS_PREFIX_MAX - 1);
-    s_metrics_prefix[BB_METRICS_PREFIX_MAX - 1] = '\0';
+    bb_strlcpy(s_metrics_prefix, prefix, sizeof(s_metrics_prefix));
 }
 
 const char *bb_pub_metrics_prefix(void)
@@ -942,8 +941,7 @@ bb_err_t bb_pub_register_source_ex(const char *subtopic, bb_pub_sample_fn fn, vo
     bb_pub_source_t *src = &s_sources[s_source_count - 1];
     int n = (ntags < BB_PUB_MAX_TAGS_PER_SOURCE) ? ntags : BB_PUB_MAX_TAGS_PER_SOURCE;
     for (int t = 0; t < n; t++) {
-        strncpy(src->tags[t], tags[t], BB_PUB_TAG_MAX);
-        src->tags[t][BB_PUB_TAG_MAX] = '\0';
+        bb_strlcpy(src->tags[t], tags[t], sizeof(src->tags[t]));
         src->tag_ptrs[t] = src->tags[t];
     }
     src->ntags = n;
@@ -1844,8 +1842,7 @@ void bb_pub_test_reset(void)
     s_config_loaded            = true;   /* bypass NVS for tests */
     s_interval_apply_hook      = NULL;
     bb_claim_reset(&s_sink_claim);
-    strncpy(s_metrics_prefix, CONFIG_BB_METRICS_PREFIX, BB_METRICS_PREFIX_MAX - 1);
-    s_metrics_prefix[BB_METRICS_PREFIX_MAX - 1] = '\0';
+    bb_strlcpy(s_metrics_prefix, CONFIG_BB_METRICS_PREFIX, sizeof(s_metrics_prefix));
 #if CONFIG_BB_PUB_BUFFER_ENABLE
     // Decide cleanup by the ACTUAL backing of the current s_ring_pool
     // (s_ring_pool_is_static), NOT by re-evaluating buffer_static_mode() here.

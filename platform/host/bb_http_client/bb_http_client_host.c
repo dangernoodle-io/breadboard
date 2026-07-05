@@ -218,18 +218,15 @@ bb_err_t bb_http_client_session_set_header(bb_http_client_session_t s,
     // Update existing entry if name already present.
     for (int i = 0; i < s_header_count; i++) {
         if (strcmp(s_headers[i].name, name) == 0) {
-            strncpy(s_headers[i].value, value, BB_HTTP_CLIENT_HOST_HEADER_VALUE_MAX - 1);
-            s_headers[i].value[BB_HTTP_CLIENT_HOST_HEADER_VALUE_MAX - 1] = '\0';
+            bb_strlcpy(s_headers[i].value, value, sizeof(s_headers[i].value));
             pthread_mutex_unlock(&s_mock_lock);
             return BB_OK;
         }
     }
     // Append new entry.
     if (s_header_count < BB_HTTP_CLIENT_HOST_MAX_HEADERS) {
-        strncpy(s_headers[s_header_count].name,  name,  BB_HTTP_CLIENT_HOST_HEADER_NAME_MAX  - 1);
-        strncpy(s_headers[s_header_count].value, value, BB_HTTP_CLIENT_HOST_HEADER_VALUE_MAX - 1);
-        s_headers[s_header_count].name[BB_HTTP_CLIENT_HOST_HEADER_NAME_MAX   - 1] = '\0';
-        s_headers[s_header_count].value[BB_HTTP_CLIENT_HOST_HEADER_VALUE_MAX - 1] = '\0';
+        bb_strlcpy(s_headers[s_header_count].name,  name,  sizeof(s_headers[s_header_count].name));
+        bb_strlcpy(s_headers[s_header_count].value, value, sizeof(s_headers[s_header_count].value));
         s_header_count++;
     }
     pthread_mutex_unlock(&s_mock_lock);
@@ -248,8 +245,7 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t s,
     session_mock_state_t m = s_session_mock;
 
     s_session_last.called       = true;
-    strncpy(s_session_last.url, url, BB_HTTP_CLIENT_SESSION_URL_MAX - 1);
-    s_session_last.url[BB_HTTP_CLIENT_SESSION_URL_MAX - 1] = '\0';
+    bb_strlcpy(s_session_last.url, url, sizeof(s_session_last.url));
     s_session_last.body         = body;
     s_session_last.body_len     = body_len;
     s_session_last.content_type = content_type ? content_type : "application/json";

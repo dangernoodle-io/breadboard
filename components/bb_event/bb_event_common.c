@@ -2,6 +2,7 @@
 #include "bb_event_port.h"
 #include "bb_log.h"
 #include "bb_init.h"
+#include "bb_str.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -145,8 +146,7 @@ bb_err_t bb_event_topic_register(const char *name, bb_event_topic_t *out)
     }
 
     int idx = s_num_topics++;
-    strncpy(s_topic_registry[idx].entry.name, name, BB_EVENT_TOPIC_NAME_MAX - 1);
-    s_topic_registry[idx].entry.name[BB_EVENT_TOPIC_NAME_MAX - 1] = '\0';
+    bb_strlcpy(s_topic_registry[idx].entry.name, name, sizeof(s_topic_registry[idx].entry.name));
     s_topic_registry[idx].entry.sub_head = NULL;
     s_topic_registry[idx].entry.generation = 0;
 

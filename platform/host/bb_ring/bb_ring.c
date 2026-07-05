@@ -17,6 +17,7 @@
 #include "bb_ring.h"
 #include "bb_ring_registry.h"
 #include "bb_log.h"
+#include "bb_str.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -134,8 +135,7 @@ bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes,
     r->truncated   = 0;
 
     if (name) {
-        strncpy(r->name, name, BB_RING_NAME_MAX - 1);
-        r->name[BB_RING_NAME_MAX - 1] = '\0';
+        bb_strlcpy(r->name, name, sizeof(r->name));
     } else {
         r->name[0] = '\0';
     }

@@ -3,4 +3,4 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_ring/bb_ring_registry.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_log bb_registry)
+    PRIV_REQUIRES bb_log bb_registry bb_str)

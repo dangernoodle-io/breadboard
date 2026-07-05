@@ -3,6 +3,7 @@
 #include "bb_ota_hooks.h"
 #include "bb_log.h"
 #include "bb_nv.h"
+#include "bb_str.h"
 
 #include <string.h>
 
@@ -46,12 +47,9 @@ bb_err_t bb_ota_boot_set_mdns_service(const char *hostname,
         strlen(proto) >= OTA_BOOT_MDNS_STR_MAX) {
         return BB_ERR_INVALID_ARG;
     }
-    strncpy(s_mdns_hostname, hostname, OTA_BOOT_MDNS_STR_MAX - 1);
-    s_mdns_hostname[OTA_BOOT_MDNS_STR_MAX - 1] = '\0';
-    strncpy(s_mdns_service_type, service_type, OTA_BOOT_MDNS_STR_MAX - 1);
-    s_mdns_service_type[OTA_BOOT_MDNS_STR_MAX - 1] = '\0';
-    strncpy(s_mdns_proto, proto, OTA_BOOT_MDNS_STR_MAX - 1);
-    s_mdns_proto[OTA_BOOT_MDNS_STR_MAX - 1] = '\0';
+    bb_strlcpy(s_mdns_hostname, hostname, sizeof(s_mdns_hostname));
+    bb_strlcpy(s_mdns_service_type, service_type, sizeof(s_mdns_service_type));
+    bb_strlcpy(s_mdns_proto, proto, sizeof(s_mdns_proto));
     s_mdns_port = port;
     return BB_OK;
 }
@@ -336,12 +334,10 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
     // is pending. Do this unconditionally before the pending check so status
     // routes work even on a normal (non-pending) boot.
     if (releases_url && releases_url[0] != '\0') {
-        strncpy(s_status_url, releases_url, OTA_BOOT_STATUS_URL_MAX - 1);
-        s_status_url[OTA_BOOT_STATUS_URL_MAX - 1] = '\0';
+        bb_strlcpy(s_status_url, releases_url, sizeof(s_status_url));
     }
     if (board && board[0] != '\0') {
-        strncpy(s_status_board, board, OTA_BOOT_STATUS_BOARD_MAX - 1);
-        s_status_board[OTA_BOOT_STATUS_BOARD_MAX - 1] = '\0';
+        bb_strlcpy(s_status_board, board, sizeof(s_status_board));
     }
     // Init bb_ota_check now that we have the url/board (idempotent if
     // already done at route-registration time with a previously stashed url).
