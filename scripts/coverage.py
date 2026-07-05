@@ -1,6 +1,6 @@
 Import("env")
 
 env.Append(
-    CCFLAGS=["--coverage"],
+    CCFLAGS=["--coverage", "-fprofile-update=prefer-atomic"],
     LINKFLAGS=["--coverage"]
 )

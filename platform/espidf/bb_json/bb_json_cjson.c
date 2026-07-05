@@ -43,6 +43,25 @@ static bool should_fail_alloc(void)
     return false;
 }
 
+static int s_serialize_fail_after = -1;  // -1 = disabled
+
+void bb_json_host_force_serialize_fail_after(int n)
+{
+    s_serialize_fail_after = n;
+}
+
+// Returns true if this serialize call should be forced to fail.
+static bool should_fail_serialize(void)
+{
+    if (s_serialize_fail_after < 0) return false;
+    if (s_serialize_fail_after == 0) {
+        s_serialize_fail_after = -1;  // auto-reset after one failure
+        return true;
+    }
+    s_serialize_fail_after--;
+    return false;
+}
+
 #endif  // !ESP_PLATFORM
 
 // ---------------------------------------------------------------------------
@@ -169,6 +188,9 @@ void bb_json_arr_append_obj(bb_json_t arr, bb_json_t child)
 char *bb_json_serialize(bb_json_t root)
 {
     if (!root) return NULL;
+#ifndef ESP_PLATFORM
+    if (should_fail_serialize()) return NULL;
+#endif
     return cJSON_PrintUnformatted((cJSON *)root);
 }
 

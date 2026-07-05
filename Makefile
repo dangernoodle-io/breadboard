@@ -29,6 +29,8 @@ test: ## Run host unit tests
 
 coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging when Coveralls flags drops
 	gcovr --root . --filter 'components/' \
+	    --filter 'platform/espidf/bb_cache/' \
+	    --filter 'platform/host/bb_cache/' \
 	    --exclude-throw-branches \
 	    --exclude-unreachable-branches \
 	    --exclude-directories '\.claude' \

@@ -22,6 +22,8 @@
 #include "bb_net_health.h"
 #include "bb_ota_check_internal.h"
 #include "../../components/bb_info/src/bb_info_build_priv.h"
+#include "bb_mem_test.h"
+#include "bb_json_test_hooks.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -422,28 +424,53 @@ void test_bb_cache_key_at_free_and_oob_slots(void)
 
     bool found_registered = false;
     for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
-        const char *topic = (const char *)0x1; // sentinel to detect no-write
-        bb_err_t err = bb_cache_key_at((size_t)i, &topic);
+        char buf[BB_CACHE_KEY_MAX];
+        memset(buf, 0xAA, sizeof(buf)); // sentinel to detect no-write
+        bb_err_t err = bb_cache_key_at((size_t)i, buf, sizeof(buf));
         TEST_ASSERT_EQUAL_INT(BB_OK, err);
-        if (topic != NULL) {
-            TEST_ASSERT_EQUAL_STRING("test.enum.only", topic);
+        if (buf[0] != '\0') {
+            TEST_ASSERT_EQUAL_STRING("test.enum.only", buf);
             found_registered = true;
         }
     }
     TEST_ASSERT_TRUE(found_registered);
 
     // OOB index
-    const char *out = NULL;
-    bb_err_t err = bb_cache_key_at((size_t)BB_CACHE_MAX_TOPICS, &out);
+    char out[BB_CACHE_KEY_MAX];
+    bb_err_t err = bb_cache_key_at((size_t)BB_CACHE_MAX_TOPICS, out, sizeof(out));
     TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
 }
 
-// Verify bb_cache_key_at rejects a NULL out pointer.
+// Verify bb_cache_key_at rejects a NULL buf or cap == 0.
 void test_bb_cache_key_at_null_out_returns_invalid_arg(void)
 {
     reset_all();
-    bb_err_t err = bb_cache_key_at(0, NULL);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+    char buf[BB_CACHE_KEY_MAX];
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_key_at(0, NULL, sizeof(buf)));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_key_at(0, buf, 0));
+}
+
+// Verify bb_cache_key_at refuses (without copying) when cap is too small to
+// hold the key plus its NUL terminator.
+void test_bb_cache_key_at_undersized_buf_returns_no_space(void)
+{
+    reset_all();
+    reg("test.enum.longkey", NULL, sizeof(synth_snap_t), synth_serialize);
+
+    bool saw_no_space = false;
+    for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
+        char tiny[4];
+        memset(tiny, 0xBB, sizeof(tiny));
+        bb_err_t err = bb_cache_key_at((size_t)i, tiny, sizeof(tiny));
+        if (err == BB_ERR_NO_SPACE) {
+            saw_no_space = true;
+            // Buffer must be untouched on refusal.
+            TEST_ASSERT_EQUAL_UINT8(0xBB, (uint8_t)tiny[0]);
+        } else {
+            TEST_ASSERT_EQUAL_INT(BB_OK, err);
+        }
+    }
+    TEST_ASSERT_TRUE(saw_no_space);
 }
 
 // Verify bb_cache_foreach rejects a NULL callback.
@@ -1613,4 +1640,840 @@ void test_bb_cache_register_owned_mode_requires_snap_size(void)
     };
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_register(&cfg));
     TEST_ASSERT_FALSE(bb_cache_exists("test.cs.needsize"));
+}
+
+// ---------------------------------------------------------------------------
+// B1-592 PR-A1: bb_cache_delete (runtime eviction primitive)
+// ---------------------------------------------------------------------------
+
+// Deleting an existing key removes it from the registry: exists() flips to
+// false and get_serialized returns BB_ERR_NOT_FOUND.
+void test_bb_cache_delete_existing_removes_entry(void)
+{
+    reset_all();
+    reg("test.del.basic", NULL, sizeof(synth_snap_t), synth_serialize);
+    synth_snap_t s = {.value = 1, .flag = true, .ratio = 0.5};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.del.basic", .snap = &s }));
+    TEST_ASSERT_TRUE(bb_cache_exists("test.del.basic"));
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_delete("test.del.basic"));
+
+    TEST_ASSERT_FALSE(bb_cache_exists("test.del.basic"));
+    char buf[64];
+    size_t len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND,
+        bb_cache_get_serialized("test.del.basic", buf, sizeof(buf), &len));
+}
+
+// Deleting a key that was never registered returns BB_ERR_NOT_FOUND.
+void test_bb_cache_delete_missing_returns_not_found(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, bb_cache_delete("no.such.key"));
+}
+
+// NULL key returns BB_ERR_INVALID_ARG.
+void test_bb_cache_delete_null_key_returns_invalid_arg(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_delete(NULL));
+}
+
+// Deleting a key and re-registering it under the SAME name must produce a
+// fresh, never-used slot: has_value=false (no stale change-detect memory) and
+// no leftover cached_json from the deleted incarnation. Compared bytewise
+// against a topic that was registered fresh and never touched.
+void test_bb_cache_delete_then_reregister_same_key_is_fresh(void)
+{
+    reset_all();
+
+    // Register, write, and force a memoized serialize on the FIRST incarnation.
+    reg("test.del.reuse", NULL, sizeof(synth_snap_t), synth_serialize);
+    synth_snap_t s1 = {.value = 111, .flag = true, .ratio = 9.5};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.del.reuse", .snap = &s1 }));
+    char scratch[256];
+    size_t scratch_len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_get_serialized("test.del.reuse", scratch, sizeof(scratch), &scratch_len));
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_delete("test.del.reuse"));
+
+    // Re-register the SAME key -- second incarnation.
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        reg("test.del.reuse", NULL, sizeof(synth_snap_t), synth_serialize));
+
+    // A control topic, registered fresh and never touched, for the bytewise
+    // comparison below.
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        reg("test.del.control", NULL, sizeof(synth_snap_t), synth_serialize));
+
+    // Both the reused and control keys must report the same out_changed
+    // first-write semantics (has_value reset to false by the delete).
+    synth_snap_t zero = {0};
+    bool reused_changed = false, control_changed = false;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){
+        .key = "test.del.reuse", .snap = &zero, .out_changed = &reused_changed }));
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){
+        .key = "test.del.control", .snap = &zero, .out_changed = &control_changed }));
+    TEST_ASSERT_TRUE(reused_changed);
+    TEST_ASSERT_TRUE(control_changed);
+    TEST_ASSERT_EQUAL(control_changed, reused_changed);
+
+    // Serialized output must match the control topic bytewise -- no stale
+    // cached_json bleeding through from the deleted first incarnation.
+    char reused_buf[256], control_buf[256];
+    size_t reused_len = 0, control_len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_get_serialized("test.del.reuse", reused_buf, sizeof(reused_buf), &reused_len));
+    TEST_ASSERT_EQUAL_INT(BB_OK,
+        bb_cache_get_serialized("test.del.control", control_buf, sizeof(control_buf), &control_len));
+
+    // Strip the ts_ms envelope field (timestamps may legitimately differ by a
+    // tick) and compare only the "data" payload bytes.
+    bb_json_t reused_root = bb_json_parse(reused_buf, reused_len);
+    bb_json_t control_root = bb_json_parse(control_buf, control_len);
+    TEST_ASSERT_NOT_NULL(reused_root);
+    TEST_ASSERT_NOT_NULL(control_root);
+    char *reused_data = bb_json_serialize(bb_json_obj_get_item(reused_root, "data"));
+    char *control_data = bb_json_serialize(bb_json_obj_get_item(control_root, "data"));
+    TEST_ASSERT_EQUAL_STRING(control_data, reused_data);
+
+    bb_json_free_str(reused_data);
+    bb_json_free_str(control_data);
+    bb_json_free(reused_root);
+    bb_json_free(control_root);
+}
+
+// bb_cache_foreach snapshots keys BY VALUE -- a delete that races the
+// lock-released window (between the snapshot and cb invocation) must not
+// corrupt an in-flight cb's key pointer. This test doesn't need real
+// concurrency to prove the copy-by-value contract: it deletes a key from
+// INSIDE the foreach callback itself (the callback runs with s_reg_lock
+// released, per the header contract, so this is legal) and asserts the
+// callback's own key argument is still intact afterward -- if foreach handed
+// out a raw pointer into s_entries[].key, the delete would have zeroed the
+// first byte of the very string cb is holding.
+static char s_foreach_del_seen_key[BB_CACHE_KEY_MAX];
+static bool s_foreach_del_deleted_ok;
+
+static void foreach_delete_cb(const char *key, void *ctx)
+{
+    (void)ctx;
+    if (strcmp(key, "test.del.foreach.victim") == 0) {
+        // Delete the very key cb was just handed -- if foreach snapshotted a
+        // raw pointer, this would mutate key's backing bytes mid-callback.
+        s_foreach_del_deleted_ok = (bb_cache_delete("test.del.foreach.victim") == BB_OK);
+        strncpy(s_foreach_del_seen_key, key, sizeof(s_foreach_del_seen_key) - 1);
+        s_foreach_del_seen_key[sizeof(s_foreach_del_seen_key) - 1] = '\0';
+    }
+}
+
+void test_bb_cache_foreach_copy_by_value_survives_delete_during_callback(void)
+{
+    reset_all();
+    s_foreach_del_seen_key[0] = '\0';
+    s_foreach_del_deleted_ok = false;
+
+    reg("test.del.foreach.victim", NULL, sizeof(synth_snap_t), synth_serialize);
+
+    bb_err_t err = bb_cache_foreach(foreach_delete_cb, NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_TRUE(s_foreach_del_deleted_ok);
+    // The key string cb held must be unaffected by the delete that happened
+    // while cb was executing -- proves the copy was on foreach's own stack,
+    // not a pointer into the now-freed/reused registry slot.
+    TEST_ASSERT_EQUAL_STRING("test.del.foreach.victim", s_foreach_del_seen_key);
+    TEST_ASSERT_FALSE(bb_cache_exists("test.del.foreach.victim"));
+}
+
+// Table-full still returns BB_ERR_NO_SPACE after a delete-and-refill cycle --
+// confirms bb_cache_register's existing full-table guard (already present,
+// verified) is untouched by the delete primitive: filling the table, then
+// deleting one slot and refilling it, then attempting one more registration
+// must still fail with NO_SPACE.
+void test_bb_cache_delete_table_full_guard_still_returns_no_space(void)
+{
+    reset_all();
+    char key_buf[32];
+
+    for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
+        snprintf(key_buf, sizeof(key_buf), "test.del.fill.%d", i);
+        TEST_ASSERT_EQUAL_INT(BB_OK, reg(key_buf, NULL, sizeof(synth_snap_t), synth_serialize));
+    }
+
+    // Delete one slot, then refill it -- table is full again.
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_delete("test.del.fill.0"));
+    TEST_ASSERT_EQUAL_INT(BB_OK, reg("test.del.fill.0", NULL, sizeof(synth_snap_t), synth_serialize));
+
+    bb_err_t err = reg("test.del.fill.overflow", NULL, sizeof(synth_snap_t), synth_serialize);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
+}
+
+// Deleting a getter-mode entry (owned == NULL) must be a clean no-crash path
+// through free_entry_locked's bb_mem_free(e->owned) call -- bb_mem_free(NULL)
+// is required to be a safe no-op, and getter-mode entries never allocate an
+// owned buffer.
+void test_bb_cache_delete_getter_mode_entry_no_crash(void)
+{
+    reset_all();
+    reg("test.del.getter", get_raw_test_getter, 0, synth_serialize);
+    TEST_ASSERT_TRUE(bb_cache_exists("test.del.getter"));
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_delete("test.del.getter"));
+    TEST_ASSERT_FALSE(bb_cache_exists("test.del.getter"));
+}
+
+// ---------------------------------------------------------------------------
+// B1-592 firmware-review coverage gate: bb_cache platform impl newly gated at
+// 100% branch (Makefile filter now includes platform/{espidf,host}/bb_cache).
+// These deterministic (non-MT) tests close simple arg-validation and OOM-
+// injection branches that were always compiled but previously invisible to
+// the coverage report.
+// ---------------------------------------------------------------------------
+
+static void *fail_alloc(size_t sz) { (void)sz; return NULL; }
+
+// Owned-mode registration's bb_calloc_prefer_spiram failure path.
+void test_bb_cache_register_owned_alloc_failure_returns_no_space(void)
+{
+    reset_all();
+    bb_mem_set_alloc_hook(fail_alloc);
+    bb_cache_config_t cfg = {
+        .key       = "test.cs.allocfail",
+        .snapshot  = NULL,
+        .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_NONE,
+    };
+    bb_err_t err = bb_cache_register(&cfg);
+    bb_mem_set_alloc_hook(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
+    TEST_ASSERT_FALSE(bb_cache_exists("test.cs.allocfail"));
+}
+
+void test_bb_cache_post_null_key_returns_invalid_arg(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_post(NULL));
+}
+
+void test_bb_cache_post_unknown_key_returns_not_found(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, bb_cache_post("no.such.post.key"));
+}
+
+// serialize_locked returning non-BB_OK from inside bb_cache_post: a getter
+// with no snapshot data available yields BB_ERR_INVALID_STATE.
+static const void *post_null_getter(void) { return NULL; }
+
+void test_bb_cache_post_serialize_locked_error_propagates(void)
+{
+    reset_all();
+    bb_event_init(NULL);
+    bb_cache_config_t cfg = {
+        .key       = "test.post.nosnap",
+        .snapshot  = post_null_getter,
+        .snap_size = 0,
+        .serialize = synth_serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, bb_cache_post("test.post.nosnap"));
+}
+
+// bb_cache_post's "data" bb_json_obj_new() failure.
+void test_bb_cache_post_data_obj_alloc_failure_returns_no_space(void)
+{
+    reset_all();
+    bb_event_init(NULL);
+    bb_cache_config_t cfg = {
+        .key = "test.post.dataoom", .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize, .flags = BB_CACHE_FLAG_SSE,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.post.dataoom", .snap = &s }));
+
+    bb_json_host_force_alloc_fail_after(0);  // 1st bb_json_obj_new() call -- "data"
+    bb_err_t err = bb_cache_post("test.post.dataoom");
+    bb_json_host_force_alloc_fail_after(-1);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
+}
+
+// bb_cache_post's "root" bb_json_obj_new() failure (data succeeds, root fails).
+void test_bb_cache_post_root_obj_alloc_failure_returns_no_space(void)
+{
+    reset_all();
+    bb_event_init(NULL);
+    bb_cache_config_t cfg = {
+        .key = "test.post.rootoom", .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize, .flags = BB_CACHE_FLAG_SSE,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.post.rootoom", .snap = &s }));
+
+    bb_json_host_force_alloc_fail_after(1);  // 2nd bb_json_obj_new() call -- "root"
+    bb_err_t err = bb_cache_post("test.post.rootoom");
+    bb_json_host_force_alloc_fail_after(-1);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
+}
+
+// bb_cache_post's final bb_json_serialize(root) failure.
+void test_bb_cache_post_serialize_failure_returns_no_space(void)
+{
+    reset_all();
+    bb_event_init(NULL);
+    bb_cache_config_t cfg = {
+        .key = "test.post.serfail", .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize, .flags = BB_CACHE_FLAG_SSE,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.post.serfail", .snap = &s }));
+
+    bb_json_host_force_serialize_fail_after(0);
+    bb_err_t err = bb_cache_post("test.post.serfail");
+    bb_json_host_force_serialize_fail_after(-1);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
+}
+
+void test_bb_cache_serialize_into_null_args_return_invalid_arg(void)
+{
+    reset_all();
+    reg("test.si.args", NULL, sizeof(synth_snap_t), synth_serialize);
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_serialize_into(NULL, obj));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_serialize_into("test.si.args", NULL));
+    bb_json_free(obj);
+}
+
+void test_bb_cache_post_serialized_null_args_return_invalid_arg(void)
+{
+    reset_all();
+    reg("test.ps.args", NULL, sizeof(synth_snap_t), synth_serialize);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_post_serialized(NULL, "{}", 2));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_post_serialized("test.ps.args", NULL, 0));
+}
+
+void test_bb_cache_post_serialized_unknown_key_returns_not_found(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, bb_cache_post_serialized("no.such.ps.key", "{}", 2));
+}
+
+// bb_cache_post_serialized on a key registered WITHOUT SSE returns
+// BB_ERR_INVALID_STATE (event_topic read under the lock is NULL).
+void test_bb_cache_post_serialized_no_sse_returns_invalid_state(void)
+{
+    reset_all();
+    bb_cache_config_t cfg = {
+        .key = "test.ps.nosse", .snapshot = NULL, .snap_size = sizeof(synth_snap_t),
+        .serialize = synth_serialize, .flags = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_register(&cfg));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE,
+        bb_cache_post_serialized("test.ps.nosse", "{}", 2));
+}
+
+void test_bb_cache_get_serialized_null_args_return_invalid_arg(void)
+{
+    reset_all();
+    reg("test.gs.args", NULL, sizeof(synth_snap_t), synth_serialize);
+    char buf[64];
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_get_serialized(NULL, buf, sizeof(buf), NULL));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_get_serialized("test.gs.args", NULL, sizeof(buf), NULL));
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_cache_get_serialized("test.gs.args", buf, 0, NULL));
+}
+
+// bb_cache_get_serialized's fresh-serialize bb_json_obj_new() failure.
+void test_bb_cache_get_serialized_obj_alloc_failure_returns_no_space(void)
+{
+    reset_all();
+    reg("test.gs.objoom", NULL, sizeof(synth_snap_t), synth_serialize);
+    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.gs.objoom", .snap = &s }));
+
+    char buf[128];
+    bb_json_host_force_alloc_fail_after(0);
+    bb_err_t err = bb_cache_get_serialized("test.gs.objoom", buf, sizeof(buf), NULL);
+    bb_json_host_force_alloc_fail_after(-1);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
+}
+
+// bb_cache_get_serialized's fresh-serialize bb_json_serialize() failure.
+void test_bb_cache_get_serialized_serialize_failure_returns_no_space(void)
+{
+    reset_all();
+    reg("test.gs.serfail", NULL, sizeof(synth_snap_t), synth_serialize);
+    synth_snap_t s = {.value = 1, .flag = false, .ratio = 0.0};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.gs.serfail", .snap = &s }));
+
+    char buf[128];
+    bb_json_host_force_serialize_fail_after(0);
+    bb_err_t err = bb_cache_get_serialized("test.gs.serfail", buf, sizeof(buf), NULL);
+    bb_json_host_force_serialize_fail_after(-1);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, err);
+}
+
+// bb_cache_get_serialized's out_len==NULL on the SUCCESS path (distinct from
+// the undersized-buffer failure path, which also passes NULL but returns
+// before reaching the out_len write).
+void test_bb_cache_get_serialized_null_out_len_on_success(void)
+{
+    reset_all();
+    reg("test.gs.nooutlen", NULL, sizeof(synth_snap_t), synth_serialize);
+    synth_snap_t s = {.value = 3, .flag = true, .ratio = 0.5};
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_update(&(bb_cache_update_t){ .key = "test.gs.nooutlen", .snap = &s }));
+
+    char buf[128];
+    bb_err_t err = bb_cache_get_serialized("test.gs.nooutlen", buf, sizeof(buf), NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"value\":3"));
+}
+
+// ---------------------------------------------------------------------------
+// B1-592 firmware-review fix: reader-vs-delete TOCTOU/UAF closed by the
+// tombstone + generation-guard invariant (see find_entry_locked_ref()'s doc
+// comment in bb_cache_espidf.c). Every reader (bb_cache_update/post/
+// serialize_into/post_serialized/get_serialized/get_raw) captures an
+// (entry, generation) pair under s_reg_lock, then re-validates BOTH key and
+// generation immediately after acquiring the entry's own lock -- so a
+// concurrent bb_cache_delete() (which never destroys the mutex, only bumps
+// generation and frees the slot) can never be observed as a destroyed-mutex
+// UB or as another key's bytes under this key's name.
+//
+// This test hammers bb_cache_get_serialized + bb_cache_get_raw on a single
+// churning slot from one thread while a second thread repeatedly deletes and
+// re-registers it -- alternating between the SAME key (same-incarnation
+// reuse) and a DIFFERENT key (cross-key slot reuse, the more dangerous case:
+// a reader must never observe the other key's bytes under its own key name).
+//
+// NOT A HARD REGRESSION GUARD without a race detector -- same caveat as the
+// B1-568 test above: schedule-dependent, no ASan/TSan on this host build.
+// Its value is in exercising the exact interleaving the fix targets (many
+// iterations, no artificial synchronization slowing the race window) rather
+// than guaranteeing detection on every run.
+// ---------------------------------------------------------------------------
+
+#define B1_592_MT_ITERS 6000
+
+typedef struct { int value; } mt_churn_snap_t;
+
+static void mt_churn_serialize(bb_json_t obj, const void *snap)
+{
+    const mt_churn_snap_t *s = (const mt_churn_snap_t *)snap;
+    bb_json_obj_set_int(obj, "value", s->value);
+}
+
+typedef struct {
+    int unexpected_err_count; // any error other than BB_OK/BB_ERR_NOT_FOUND
+    int poisoned_count;       // observed a value that belongs to the OTHER key
+} mt_churn_result_t;
+
+// Registers key with SSE so every reader entry point (including
+// bb_cache_post/post_serialized) can be exercised against the churning slot.
+static bb_err_t mt_churn_register(const char *key)
+{
+    bb_cache_config_t cfg = {
+        .key       = key,
+        .snapshot  = NULL,
+        .snap_size = sizeof(mt_churn_snap_t),
+        .serialize = mt_churn_serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    return bb_cache_register(&cfg);
+}
+
+static void *b1_592_deleter_fn(void *arg)
+{
+    (void)arg;
+    // 3-slot cycle: churn, churn, churnB -- unconditionally deletes BOTH
+    // possible occupants every iteration before re-registering, guaranteeing
+    // a single-occupant invariant so the slot is genuinely reused every
+    // iteration. The repeated "churn" entries exercise SAME-key
+    // delete+reregister (same incarnation-vs-incarnation identity check);
+    // the churn->churnB and churnB->churn transitions exercise cross-key
+    // slot reuse (the more dangerous case).
+    static const char *pattern[3] = {
+        "test.mt.churn", "test.mt.churn", "test.mt.churnB"
+    };
+    for (int i = 0; i < B1_592_MT_ITERS; i++) {
+        const char *cur = pattern[i % 3];
+        int expected = (cur[strlen(cur) - 1] == 'B') ? 222 : 111;
+
+        bb_cache_delete("test.mt.churn");
+        bb_cache_delete("test.mt.churnB");
+        mt_churn_register(cur);
+        mt_churn_snap_t s = { .value = expected };
+        bb_cache_update(&(bb_cache_update_t){ .key = cur, .snap = &s });
+    }
+
+    // Leave a final, stable incarnation of "test.mt.churn" so a post-join
+    // sanity check has something deterministic to see.
+    bb_cache_delete("test.mt.churn");
+    bb_cache_delete("test.mt.churnB");
+    mt_churn_register("test.mt.churn");
+    mt_churn_snap_t s = { .value = 111 };
+    bb_cache_update(&(bb_cache_update_t){ .key = "test.mt.churn", .snap = &s });
+    return NULL;
+}
+
+// Exercises every reader entry point that captures (entry, generation) via
+// find_entry_locked_ref() and re-validates under e->lock: get_serialized,
+// get_raw, update, serialize_into, post, post_serialized. Any return other
+// than BB_OK/BB_ERR_NOT_FOUND/BB_ERR_INVALID_STATE (the last only possible
+// for post/post_serialized before the SSE topic exists) is unexpected;
+// observing the OTHER key's value under this key's name is poisoning.
+static void mt_churn_check_one(const char *key, int expected, mt_churn_result_t *res)
+{
+    char buf[128];
+    size_t len = 0;
+    bb_err_t err = bb_cache_get_serialized(key, buf, sizeof(buf), &len);
+    if (err == BB_OK) {
+        bb_json_t root = bb_json_parse(buf, len);
+        if (root) {
+            bb_json_t data = bb_json_obj_get_item(root, "data");
+            double v = -1;
+            // 0 is a legitimate transient (register succeeded, update
+            // hasn't landed under this key's incarnation yet) -- only a
+            // non-zero value that belongs to the OTHER key is poisoning.
+            if (data && bb_json_obj_get_number(data, "value", &v) &&
+                (int)v != 0 && (int)v != expected) {
+                res->poisoned_count++;
+            }
+            bb_json_free(root);
+        }
+    } else if (err != BB_ERR_NOT_FOUND) {
+        res->unexpected_err_count++;
+    }
+
+    mt_churn_snap_t raw = {0};
+    bb_err_t rerr = bb_cache_get_raw(key, &raw, sizeof(raw));
+    if (rerr == BB_OK) {
+        if (raw.value != 0 && raw.value != expected) res->poisoned_count++;
+    } else if (rerr != BB_ERR_NOT_FOUND) {
+        res->unexpected_err_count++;
+    }
+
+    bool changed = false;
+    mt_churn_snap_t upd = { .value = expected };
+    bb_err_t uerr = bb_cache_update(&(bb_cache_update_t){
+        .key = key, .snap = &upd, .out_changed = &changed });
+    if (uerr != BB_OK && uerr != BB_ERR_NOT_FOUND) res->unexpected_err_count++;
+
+    bb_json_t obj = bb_json_obj_new();
+    if (obj) {
+        bb_err_t serr = bb_cache_serialize_into(key, obj);
+        if (serr == BB_OK) {
+            double v = -1;
+            if (bb_json_obj_get_number(obj, "value", &v) &&
+                (int)v != 0 && (int)v != expected) {
+                res->poisoned_count++;
+            }
+        } else if (serr != BB_ERR_NOT_FOUND) {
+            res->unexpected_err_count++;
+        }
+        bb_json_free(obj);
+    }
+    // bb_cache_post/bb_cache_post_serialized are deliberately NOT exercised
+    // in this hot loop: both funnel through bb_event_post's small bounded
+    // queue (CONFIG_BB_EVENT_QUEUE_DEPTH, default 16) with no pump in this
+    // loop to drain it, so a sustained flood would legitimately return
+    // BB_ERR_NO_SPACE (queue full) at a rate that swamps any real signal --
+    // that is a queue-capacity artifact of this test's shape, not a bug.
+    // serialize_locked's entry_matches_locked check (shared by both
+    // bb_cache_post and bb_cache_serialize_into) is already exercised above
+    // via serialize_into; bb_cache_post_serialized's own inline check is
+    // covered by the low-volume, pump-per-call race test below.
+}
+
+static void *b1_592_reader_fn(void *arg)
+{
+    mt_churn_result_t *res = (mt_churn_result_t *)arg;
+    for (int i = 0; i < B1_592_MT_ITERS; i++) {
+        mt_churn_check_one("test.mt.churn", 111, res);
+        mt_churn_check_one("test.mt.churnB", 222, res);
+    }
+    return NULL;
+}
+
+void test_bb_cache_delete_reader_race_never_poisons_or_crashes(void)
+{
+    reset_all();
+    bb_event_init(NULL);
+
+    mt_churn_result_t reader_res_a = {0};
+    mt_churn_result_t reader_res_b = {0};
+
+    // Two reader threads (not just one) to widen the race window further.
+    pthread_t deleter_tid, reader_tid_a, reader_tid_b;
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&deleter_tid, NULL, b1_592_deleter_fn, NULL));
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&reader_tid_a, NULL, b1_592_reader_fn, &reader_res_a));
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&reader_tid_b, NULL, b1_592_reader_fn, &reader_res_b));
+
+    pthread_join(deleter_tid, NULL);
+    pthread_join(reader_tid_a, NULL);
+    pthread_join(reader_tid_b, NULL);
+
+    TEST_ASSERT_EQUAL_INT(0, reader_res_a.unexpected_err_count);
+    TEST_ASSERT_EQUAL_INT(0, reader_res_a.poisoned_count);
+    TEST_ASSERT_EQUAL_INT(0, reader_res_b.unexpected_err_count);
+    TEST_ASSERT_EQUAL_INT(0, reader_res_b.poisoned_count);
+
+    // Sanity: the deleter's final state left "test.mt.churn" registered with
+    // its own value, "test.mt.churnB" deleted.
+    TEST_ASSERT_TRUE(bb_cache_exists("test.mt.churn"));
+    TEST_ASSERT_FALSE(bb_cache_exists("test.mt.churnB"));
+}
+
+// ---------------------------------------------------------------------------
+// bb_cache_post_serialized's own inline entry_matches_locked re-validation
+// (distinct call site from serialize_locked, which bb_cache_post and
+// bb_cache_serialize_into share and which the race test above already
+// exercises via serialize_into). Deliberately LOW volume with an immediate
+// bb_event_pump(0) after every post -- bb_event_post funnels into a small
+// bounded queue (CONFIG_BB_EVENT_QUEUE_DEPTH, default 16); pumping after
+// every call keeps it drained so this test measures the delete-race
+// behavior, not queue capacity.
+// ---------------------------------------------------------------------------
+
+#define B1_592_POST_ITERS 60000
+
+typedef struct {
+    int unexpected_err_count; // anything other than OK/NOT_FOUND/NO_SPACE
+} post_race_result_t;
+
+static void *b1_592_post_deleter_fn(void *arg)
+{
+    (void)arg;
+    static const char *pattern[3] = {
+        "test.mt.pchurn", "test.mt.pchurn", "test.mt.pchurnB"
+    };
+    for (int i = 0; i < B1_592_POST_ITERS; i++) {
+        const char *cur = pattern[i % 3];
+        bb_cache_delete("test.mt.pchurn");
+        bb_cache_delete("test.mt.pchurnB");
+        mt_churn_register(cur);
+        // A THIRD registry mutation per iteration (matching the "busier
+        // deleter" shape of the get_serialized/get_raw race test above,
+        // which reliably hits its own mismatch branches) -- widens the
+        // window in which a reader's find-then-lock gap spans a full
+        // incarnation change.
+        mt_churn_snap_t s = { .value = 1 };
+        bb_cache_update(&(bb_cache_update_t){ .key = cur, .snap = &s });
+    }
+    bb_cache_delete("test.mt.pchurn");
+    bb_cache_delete("test.mt.pchurnB");
+    mt_churn_register("test.mt.pchurn");
+    return NULL;
+}
+
+static void *b1_592_post_reader_fn(void *arg)
+{
+    post_race_result_t *res = (post_race_result_t *)arg;
+    for (int i = 0; i < B1_592_POST_ITERS; i++) {
+        bb_err_t err = bb_cache_post_serialized("test.mt.pchurn", "{\"value\":0}", 11);
+        bb_event_pump(0);
+        if (err != BB_OK && err != BB_ERR_NOT_FOUND && err != BB_ERR_NO_SPACE) {
+            res->unexpected_err_count++;
+        }
+
+        err = bb_cache_post_serialized("test.mt.pchurnB", "{\"value\":0}", 11);
+        bb_event_pump(0);
+        if (err != BB_OK && err != BB_ERR_NOT_FOUND && err != BB_ERR_NO_SPACE) {
+            res->unexpected_err_count++;
+        }
+    }
+    return NULL;
+}
+
+void test_bb_cache_post_serialized_delete_race_never_crashes(void)
+{
+    reset_all();
+    bb_event_init(NULL);
+
+    post_race_result_t res_a = {0};
+    post_race_result_t res_b = {0};
+
+    pthread_t deleter_tid, reader_tid_a, reader_tid_b;
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&deleter_tid, NULL, b1_592_post_deleter_fn, NULL));
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&reader_tid_a, NULL, b1_592_post_reader_fn, &res_a));
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&reader_tid_b, NULL, b1_592_post_reader_fn, &res_b));
+
+    pthread_join(deleter_tid, NULL);
+    pthread_join(reader_tid_a, NULL);
+    pthread_join(reader_tid_b, NULL);
+
+    TEST_ASSERT_EQUAL_INT(0, res_a.unexpected_err_count);
+    TEST_ASSERT_EQUAL_INT(0, res_b.unexpected_err_count);
+    TEST_ASSERT_TRUE(bb_cache_exists("test.mt.pchurn"));
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic tombstone/generation-mismatch coverage (line-coverage
+// follow-up to the B1-592 firmware-review fix above). The multi-threaded race
+// test above is schedule-dependent -- it reliably hits these mismatch
+// branches on some hosts but not others within a bounded iteration count
+// (observed: hit on macOS, missed on the Linux CI runner, which is what
+// tripped Coveralls' patch-line gate on the four call sites below despite
+// 100% branch coverage). bb_cache_test_set_race_hook() (BB_CACHE_TESTING)
+// lets these tests deterministically, single-threadedly reproduce the exact
+// interleaving the guard exists to close: delete-and-re-register the SAME
+// key between find_entry_locked_ref()'s capture and the entry's own lock
+// acquisition, guaranteeing a generation mismatch on the very next check.
+// ---------------------------------------------------------------------------
+void bb_cache_test_set_race_hook(void (*hook)(const char *key));
+
+typedef struct { int value; } race_snap_t;
+
+static void race_serialize(bb_json_t obj, const void *snap)
+{
+    const race_snap_t *s = (const race_snap_t *)snap;
+    bb_json_obj_set_int(obj, "value", s->value);
+}
+
+static bb_err_t race_register(const char *key)
+{
+    bb_cache_config_t cfg = {
+        .key       = key,
+        .snapshot  = NULL,
+        .snap_size = sizeof(race_snap_t),
+        .serialize = race_serialize,
+        .flags     = BB_CACHE_FLAG_SSE,
+    };
+    return bb_cache_register(&cfg);
+}
+
+// Fires once (one-shot, see fire_test_race_hook()) inside the target
+// function, between its find_entry_locked_ref() capture and its
+// pthread_mutex_lock(&e->lock) -- deletes and re-registers the same key so
+// the generation the caller captured is now stale.
+static void race_delete_and_reregister(const char *key)
+{
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_delete(key));
+    TEST_ASSERT_EQUAL_INT(BB_OK, race_register(key));
+}
+
+// Fires once, deletes the key WITHOUT re-registering it -- distinct from
+// race_delete_and_reregister above. entry_matches_locked's first (short-
+// circuiting) condition, e->key[0] != '\0', is what actually catches this
+// case: bb_cache_delete() clears key[0] as its last step, so a reader that
+// takes e->lock after a bare delete (no re-register) sees a tombstoned slot
+// and bails on the key-empty check before ever comparing generation or key
+// string -- a different branch outcome than the generation-mismatch one the
+// delete+reregister hook exercises.
+static void race_delete_only(const char *key)
+{
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_cache_delete(key));
+}
+
+// Covers serialize_locked's tombstone-mismatch branch (shared by
+// bb_cache_post and bb_cache_serialize_into) via the serialize_into caller.
+void test_bb_cache_serialize_into_delete_race_returns_not_found(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_INT(BB_OK, race_register("test.race.serialize"));
+
+    bb_cache_test_set_race_hook(race_delete_and_reregister);
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_err_t err = bb_cache_serialize_into("test.race.serialize", obj);
+    bb_json_free(obj);
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
+    // Hook re-registered the key under a new generation -- confirm the slot
+    // is alive again post-race, not left tombstoned.
+    TEST_ASSERT_TRUE(bb_cache_exists("test.race.serialize"));
+}
+
+// Covers bb_cache_update's own inline tombstone-mismatch branch.
+void test_bb_cache_update_delete_race_returns_not_found(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_INT(BB_OK, race_register("test.race.update"));
+
+    bb_cache_test_set_race_hook(race_delete_and_reregister);
+
+    race_snap_t s = { .value = 42 };
+    bb_err_t err = bb_cache_update(&(bb_cache_update_t){
+        .key = "test.race.update", .snap = &s });
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
+    TEST_ASSERT_TRUE(bb_cache_exists("test.race.update"));
+}
+
+// Covers bb_cache_get_serialized's own inline tombstone-mismatch branch.
+void test_bb_cache_get_serialized_delete_race_returns_not_found(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_INT(BB_OK, race_register("test.race.getser"));
+
+    bb_cache_test_set_race_hook(race_delete_and_reregister);
+
+    char buf[128];
+    bb_err_t err = bb_cache_get_serialized("test.race.getser", buf, sizeof(buf), NULL);
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
+    TEST_ASSERT_TRUE(bb_cache_exists("test.race.getser"));
+}
+
+// Covers bb_cache_get_raw's own inline tombstone-mismatch branch.
+void test_bb_cache_get_raw_delete_race_returns_not_found(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_INT(BB_OK, race_register("test.race.getraw"));
+
+    bb_cache_test_set_race_hook(race_delete_and_reregister);
+
+    race_snap_t out = {0};
+    bb_err_t err = bb_cache_get_raw("test.race.getraw", &out, sizeof(out));
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
+    TEST_ASSERT_TRUE(bb_cache_exists("test.race.getraw"));
+}
+
+// Covers bb_cache_post_serialized's own inline tombstone-mismatch branch --
+// the fifth call site (distinct from serialize_locked, update, get_serialized,
+// and get_raw above). The threaded race test
+// (test_bb_cache_post_serialized_delete_race_never_crashes) exercises this
+// call site too, but only via schedule-dependent thread timing; this
+// deterministic hook test is what actually guarantees the mismatch branch
+// fires on every host/CI combination.
+void test_bb_cache_post_serialized_delete_race_returns_not_found(void)
+{
+    reset_all();
+    bb_event_init(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_OK, race_register("test.race.postser"));
+
+    bb_cache_test_set_race_hook(race_delete_and_reregister);
+
+    bb_err_t err = bb_cache_post_serialized("test.race.postser", "{\"value\":0}", 11);
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
+    TEST_ASSERT_TRUE(bb_cache_exists("test.race.postser"));
+}
+
+// Covers entry_matches_locked's key-empty (tombstoned, not re-registered)
+// short-circuit branch -- distinct from every race test above, which all
+// delete-AND-reregister (hitting the generation-mismatch branch instead).
+// A bare delete with no re-register leaves key[0] == '\0', so this exercises
+// the FIRST condition's false path rather than the second.
+void test_bb_cache_serialize_into_delete_only_race_returns_not_found(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL_INT(BB_OK, race_register("test.race.delonly"));
+
+    bb_cache_test_set_race_hook(race_delete_only);
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+    bb_err_t err = bb_cache_serialize_into("test.race.delonly", obj);
+    bb_json_free(obj);
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NOT_FOUND, err);
+    // Hook did NOT re-register -- the slot stays tombstoned.
+    TEST_ASSERT_FALSE(bb_cache_exists("test.race.delonly"));
 }
