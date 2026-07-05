@@ -1895,6 +1895,11 @@ void test_bb_pub_sample_into_returns_false_no_source(void);
 void test_bb_pub_sample_into_calls_source(void);
 void test_bb_pub_sample_into_null_subtopic(void);
 void test_bb_pub_sample_into_null_obj(void);
+void test_bb_pub_sample_into_skips_non_matching_sources_first(void);
+void test_bb_pub_subscription_match_null_entry_in_subtopics_skipped(void);
+void test_bb_pub_subscription_match_null_entry_in_tags_skipped(void);
+void test_bb_pub_subscription_match_null_entry_in_source_tags_skipped(void);
+void test_bb_pub_subscription_match_null_tags_ptr_with_nonzero_ntags_skipped(void);
 void test_bb_pub_tags_cleared_after_test_reset(void);
 
 // Forward declarations from test_bb_sink_event.c
@@ -1960,6 +1965,24 @@ void test_bb_sink_ws_snapshot_on_connect_no_keys_no_captures(void);
 void test_bb_sink_ws_snapshot_on_connect_suspended_skips(void);
 void test_bb_sink_ws_snapshot_on_connect_get_serialized_failure_skipped(void);
 void test_bb_sink_ws_snapshot_on_connect_malloc_fail_skipped(void);
+void test_bb_sink_ws_dispatch_negative_fd_is_ignored(void);
+void test_bb_sink_ws_disconnect_negative_fd_is_ignored(void);
+void test_bb_sink_ws_sub_topic_unterminated_string_ignored(void);
+void test_bb_sink_ws_sub_topic_array_overflow_caps_at_max_subs(void);
+void test_bb_sink_ws_sub_topic_name_truncated_to_fit(void);
+void test_bb_sink_ws_sub_topic_value_not_array_ignored(void);
+void test_bb_sink_ws_legacy_sub_value_not_array_ignored(void);
+void test_bb_sink_ws_type_value_unterminated_falls_back_to_legacy(void);
+void test_bb_sink_ws_type_value_overlong_truncated_and_reserved(void);
+void test_bb_sink_ws_publish_broadcast_async_failure_propagates(void);
+void test_bb_sink_ws_sub_topic_array_unclosed_at_buffer_end(void);
+void test_bb_sink_ws_sub_topic_array_trailing_garbage_at_buffer_end(void);
+void test_bb_sink_ws_sub_whitespace_tab_and_cr_tolerant(void);
+void test_bb_sink_ws_sub_whitespace_newline_directly_after_colon(void);
+void test_bb_sink_ws_sub_key_at_buffer_end_no_value(void);
+void test_bb_sink_ws_type_key_at_buffer_end_no_value(void);
+void test_bb_sink_ws_handler_null_payload_text_frame_ignored(void);
+void test_bb_sink_ws_host_inject_log_event_null_json_is_noop(void);
 
 // Forward declarations from test_bb_pub_parity.c
 void test_bb_pub_parity_register_source_ex_null_tags_same_behavior(void);
@@ -3094,6 +3117,48 @@ void test_bb_sink_http_publish_success_reports_transport_health(void);
 void test_bb_sink_http_publish_failure_reports_transport_health(void);
 void test_bb_sink_http_publish_registers_transport_health_once(void);
 void test_bb_sink_http_publish_survives_transport_health_slot_exhaustion(void);
+void test_bb_sink_http_parse_skips_name_too_long(void);
+void test_bb_sink_http_parse_skips_value_too_long(void);
+void test_bb_sink_http_serialize_truncates_value_to_fit(void);
+void test_bb_sink_http_merge_secret_no_value_no_existing_blanks(void);
+void test_bb_sink_http_url_unknown_placeholder_copied_literally(void);
+void test_bb_sink_http_set_cfg_hbuf_oom_graceful(void);
+void test_bb_sink_http_publish_tls_creds_resolve_failure_propagates(void);
+void test_bb_sink_http_set_malloc_null_falls_back_to_libc(void);
+void test_bb_sink_http_serialize_headers_null_args_return_zero(void);
+void test_bb_sink_http_merge_headers_null_args_return_zero(void);
+void test_bb_sink_http_url_encode_null_dst_or_zero_cap_returns_zero(void);
+void test_bb_sink_http_get_cfg_null_out_is_noop(void);
+void test_bb_sink_http_set_cfg_null_returns_invalid_arg(void);
+void test_bb_sink_http_header_name_invalid_del_char(void);
+void test_bb_sink_http_header_value_valid_null_returns_false(void);
+void test_bb_sink_http_parse_headers_null_out_returns_zero(void);
+void test_bb_sink_http_parse_headers_zero_out_max_returns_zero(void);
+void test_bb_sink_http_parse_trailing_blank_line_no_newline(void);
+void test_bb_sink_http_parse_malformed_last_line_no_newline(void);
+void test_bb_sink_http_parse_invalid_value_last_line_no_newline(void);
+void test_bb_sink_http_parse_overlong_value_last_line_no_newline(void);
+void test_bb_sink_http_serialize_skips_valid_name_invalid_value(void);
+void test_bb_sink_http_serialize_second_header_name_does_not_fit(void);
+void test_bb_sink_http_serialize_secret_prefix_does_not_fit(void);
+void test_bb_sink_http_serialize_empty_value(void);
+void test_bb_sink_http_serialize_separator_does_not_fit(void);
+void test_bb_sink_http_merge_headers_out_max_caps_loop(void);
+void test_bb_sink_http_merge_headers_empty_name_rejected(void);
+void test_bb_sink_http_merge_headers_invalid_name_rejected(void);
+void test_bb_sink_http_merge_headers_secret_no_match_in_existing_blanks(void);
+void test_bb_sink_http_merge_headers_invalid_value_rejected(void);
+void test_bb_sink_http_url_encode_exact_capacity_unreserved_chars(void);
+void test_bb_sink_http_merge_headers_secret_present_but_empty_value(void);
+void test_bb_sink_http_get_cfg_qos_negative_from_nvs_clamped(void);
+void test_bb_sink_http_get_cfg_qos_above_range_from_nvs_clamped(void);
+void test_bb_sink_http_set_cfg_enabled_false_persists_zero(void);
+void test_bb_sink_http_session_no_client_id_and_no_hostname_omits_header(void);
+void test_bb_sink_http_session_applies_headers_skips_empty_name_entry(void);
+void test_bb_sink_http_init_override_empty_base_preserves_nvs_base(void);
+void test_bb_sink_http_init_override_headers_overflow_clamped(void);
+void test_bb_sink_http_publish_session_open_failure_propagates(void);
+void test_bb_sink_http_publish_failure_with_tls_error_code_classifies(void);
 
 // Forward declarations from test_bb_http_client_session.c
 void test_bb_http_client_session_open_null_url_base_returns_invalid_arg(void);
@@ -3388,6 +3453,10 @@ void test_bb_pub_pause_then_tick_is_noop(void);
 void test_bb_pub_pause_resume_round_trip(void);
 void test_bb_pub_pause_blocks_until_in_flight_tick_completes(void);
 void test_bb_pub_pause_bounded_wait_returns_before_slow_sink_finishes(void);
+void test_bb_pub_pause_bounded_wait_times_out_on_slow_sink(void);
+void test_bb_pub_pause_bounded_wait_deadline_nsec_carry(void);
+void test_bb_pub_set_interval_ms_nvs_write_failure_still_returns_ok(void);
+void test_bb_pub_set_enabled_nvs_write_failure_still_returns_ok(void);
 void test_bb_pub_cadence_every_tick_publishes_each_tick(void);
 void test_bb_pub_cadence_on_change_unchanged_suppresses(void);
 void test_bb_pub_cadence_on_change_changed_republishes(void);
@@ -3400,6 +3469,44 @@ void test_bb_pub_cadence_on_change_failing_sink_leaves_state_uncommitted(void);
 void test_bb_pub_cadence_once_failing_sink_leaves_state_uncommitted(void);
 void test_bb_pub_legacy_source_payload_is_enveloped(void);
 void test_bb_pub_legacy_source_envelope_ts_matches_uptime_ms(void);
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+void test_bb_pub_buffer_init_eager_always_on_calls_ring_pool_get(void);
+void test_bb_pub_buffer_init_eager_not_always_on_is_noop(void);
+#endif
+void test_bb_pub_sink_info_negative_index_returns_invalid_arg(void);
+void test_bb_pub_sink_info_index_ge_count_returns_invalid_arg(void);
+void test_bb_pub_register_telemetry_null_cfg_returns_invalid_arg(void);
+void test_bb_pub_register_telemetry_null_topic_returns_invalid_arg(void);
+void test_bb_pub_register_telemetry_null_gather_returns_invalid_arg(void);
+void test_bb_pub_register_telemetry_null_serialize_returns_invalid_arg(void);
+void test_bb_pub_register_telemetry_zero_snap_size_returns_invalid_arg(void);
+void test_bb_pub_register_telemetry_snap_size_over_max_returns_no_space(void);
+void test_bb_pub_register_telemetry_table_full_returns_no_space(void);
+void test_bb_pub_register_telemetry_cache_register_failure_propagates(void);
+void test_bb_pub_register_telemetry_source_registry_full_undoes_telem_entry(void);
+void test_bb_pub_set_interval_volatile_ms_invokes_registered_hook(void);
+void test_bb_pub_set_interval_volatile_does_not_change_stored_interval(void);
+void test_bb_pub_set_interval_volatile_calls_apply_hook(void);
+void test_bb_pub_set_interval_volatile_rejects_invalid_range(void);
+void test_bb_pub_set_interval_volatile_then_persisting_updates_stored(void);
+void test_bb_pub_tick_hostname_fallback_to_device_when_empty(void);
+void test_bb_pub_telemetry_sink_subscribe_false_is_skipped(void);
+void test_bb_pub_telemetry_cache_update_failure_marks_not_fired(void);
+void test_bb_pub_telemetry_get_serialized_failure_skips_gracefully(void);
+void test_bb_pub_tick_legacy_source_obj_alloc_failure_skips_source(void);
+void test_bb_pub_tick_legacy_source_envelope_alloc_failure_skips_source(void);
+void test_bb_pub_tick_legacy_source_serialize_failure_skips_source(void);
+void test_bb_pub_buffer_stats_null_out_is_noop(void);
+void test_bb_pub_set_sink_non_null_with_null_publish_returns_ok_noop(void);
+void test_bb_pub_source_info_index_ge_count_returns_invalid_arg(void);
+void test_bb_pub_source_info_negative_index_returns_invalid_arg(void);
+void test_bb_pub_source_info_ex_null_ntags_is_safe(void);
+void test_bb_pub_sink_info_null_out_transport_is_safe(void);
+void test_bb_pub_sink_info_null_out_tls_is_safe(void);
+void test_bb_pub_set_metrics_prefix_null_is_noop(void);
+void test_bb_pub_register_source_ex_propagates_register_source_failure(void);
+void test_bb_pub_failing_non_first_sink_marks_not_all_ok(void);
+void test_bb_pub_legacy_source_per_sink_subscribe_filter_skips_rejecting_sink(void);
 
 // Forward declarations from test_bb_sensors.c
 void bb_sensors_reset_for_test(void);
@@ -3538,6 +3645,9 @@ void test_bb_sink_http_telemetry_patch_headers_secret_blank_preserves_existing(v
 void test_bb_sink_http_telemetry_patch_headers_omitted_name_removed(void);
 void test_bb_sink_http_telemetry_patch_headers_independent_edit(void);
 void test_bb_sink_http_telemetry_patch_large_tls_ca_stored_via_heap(void);
+void test_bb_sink_http_telemetry_patch_enable_rejected_on_exclusive_conflict(void);
+void test_bb_sink_http_telemetry_patch_headers_invalid_name_skipped(void);
+void test_bb_sink_http_telemetry_patch_headers_missing_name_skipped(void);
 void test_bb_sink_http_telemetry_get_tls_false_for_http_base(void);
 void test_bb_sink_http_telemetry_get_tls_true_for_https_base(void);
 void test_bb_sink_http_telemetry_get_tls_false_when_no_base(void);
@@ -3639,6 +3749,7 @@ void test_bb_pub_buffer_always_off_regression(void);
 // oversized-entry fallback tests
 void test_bb_pub_buffer_always_oversized_published_directly(void);
 void test_bb_pub_buffer_always_normal_goes_through_ring(void);
+void test_bb_pub_buffer_always_skips_capture_when_sink0_not_subscribed(void);
 // idle-free tests (B1-419)
 void test_bb_pub_buffer_idle_ring_created_on_first_failure(void);
 void test_bb_pub_buffer_idle_ring_freed_after_n_idle_ticks(void);
@@ -3650,6 +3761,7 @@ void test_bb_pub_buffer_ring_arena_budget_covers_pool_requirement(void);
 void test_bb_pub_buffer_lazy_heap_zero_standing_cost_when_healthy(void);
 void test_bb_pub_buffer_lazy_heap_alloc_and_reclaim_moves_heap_stats(void);
 void test_bb_pub_buffer_lazy_heap_alloc_failure_is_fail_soft(void);
+void test_bb_pub_buffer_lazy_heap_consecutive_alloc_failures_log_once(void);
 void test_bb_pub_buffer_static_mode_replay_oldest_first(void);
 void test_bb_pub_buffer_static_mode_overflow_drops_oldest(void);
 void test_bb_pub_buffer_static_mode_idle_ticks_do_not_destroy_ring(void);
@@ -7709,6 +7821,48 @@ int main(void) {
     RUN_TEST(test_bb_sink_http_publish_failure_reports_transport_health);
     RUN_TEST(test_bb_sink_http_publish_registers_transport_health_once);
     RUN_TEST(test_bb_sink_http_publish_survives_transport_health_slot_exhaustion);
+    RUN_TEST(test_bb_sink_http_parse_skips_name_too_long);
+    RUN_TEST(test_bb_sink_http_parse_skips_value_too_long);
+    RUN_TEST(test_bb_sink_http_serialize_truncates_value_to_fit);
+    RUN_TEST(test_bb_sink_http_merge_secret_no_value_no_existing_blanks);
+    RUN_TEST(test_bb_sink_http_url_unknown_placeholder_copied_literally);
+    RUN_TEST(test_bb_sink_http_set_cfg_hbuf_oom_graceful);
+    RUN_TEST(test_bb_sink_http_publish_tls_creds_resolve_failure_propagates);
+    RUN_TEST(test_bb_sink_http_set_malloc_null_falls_back_to_libc);
+    RUN_TEST(test_bb_sink_http_serialize_headers_null_args_return_zero);
+    RUN_TEST(test_bb_sink_http_merge_headers_null_args_return_zero);
+    RUN_TEST(test_bb_sink_http_url_encode_null_dst_or_zero_cap_returns_zero);
+    RUN_TEST(test_bb_sink_http_get_cfg_null_out_is_noop);
+    RUN_TEST(test_bb_sink_http_set_cfg_null_returns_invalid_arg);
+    RUN_TEST(test_bb_sink_http_header_name_invalid_del_char);
+    RUN_TEST(test_bb_sink_http_header_value_valid_null_returns_false);
+    RUN_TEST(test_bb_sink_http_parse_headers_null_out_returns_zero);
+    RUN_TEST(test_bb_sink_http_parse_headers_zero_out_max_returns_zero);
+    RUN_TEST(test_bb_sink_http_parse_trailing_blank_line_no_newline);
+    RUN_TEST(test_bb_sink_http_parse_malformed_last_line_no_newline);
+    RUN_TEST(test_bb_sink_http_parse_invalid_value_last_line_no_newline);
+    RUN_TEST(test_bb_sink_http_parse_overlong_value_last_line_no_newline);
+    RUN_TEST(test_bb_sink_http_serialize_skips_valid_name_invalid_value);
+    RUN_TEST(test_bb_sink_http_serialize_second_header_name_does_not_fit);
+    RUN_TEST(test_bb_sink_http_serialize_secret_prefix_does_not_fit);
+    RUN_TEST(test_bb_sink_http_serialize_empty_value);
+    RUN_TEST(test_bb_sink_http_serialize_separator_does_not_fit);
+    RUN_TEST(test_bb_sink_http_merge_headers_out_max_caps_loop);
+    RUN_TEST(test_bb_sink_http_merge_headers_empty_name_rejected);
+    RUN_TEST(test_bb_sink_http_merge_headers_invalid_name_rejected);
+    RUN_TEST(test_bb_sink_http_merge_headers_secret_no_match_in_existing_blanks);
+    RUN_TEST(test_bb_sink_http_merge_headers_invalid_value_rejected);
+    RUN_TEST(test_bb_sink_http_url_encode_exact_capacity_unreserved_chars);
+    RUN_TEST(test_bb_sink_http_merge_headers_secret_present_but_empty_value);
+    RUN_TEST(test_bb_sink_http_get_cfg_qos_negative_from_nvs_clamped);
+    RUN_TEST(test_bb_sink_http_get_cfg_qos_above_range_from_nvs_clamped);
+    RUN_TEST(test_bb_sink_http_set_cfg_enabled_false_persists_zero);
+    RUN_TEST(test_bb_sink_http_session_no_client_id_and_no_hostname_omits_header);
+    RUN_TEST(test_bb_sink_http_session_applies_headers_skips_empty_name_entry);
+    RUN_TEST(test_bb_sink_http_init_override_empty_base_preserves_nvs_base);
+    RUN_TEST(test_bb_sink_http_init_override_headers_overflow_clamped);
+    RUN_TEST(test_bb_sink_http_publish_session_open_failure_propagates);
+    RUN_TEST(test_bb_sink_http_publish_failure_with_tls_error_code_classifies);
 
     // bb_http_client session tests
     RUN_TEST(test_bb_http_client_session_open_null_url_base_returns_invalid_arg);
@@ -7799,6 +7953,10 @@ int main(void) {
     RUN_TEST(test_bb_pub_pause_resume_round_trip);
     RUN_TEST(test_bb_pub_pause_blocks_until_in_flight_tick_completes);
     RUN_TEST(test_bb_pub_pause_bounded_wait_returns_before_slow_sink_finishes);
+    RUN_TEST(test_bb_pub_pause_bounded_wait_times_out_on_slow_sink);
+    RUN_TEST(test_bb_pub_pause_bounded_wait_deadline_nsec_carry);
+    RUN_TEST(test_bb_pub_set_interval_ms_nvs_write_failure_still_returns_ok);
+    RUN_TEST(test_bb_pub_set_enabled_nvs_write_failure_still_returns_ok);
     RUN_TEST(test_bb_pub_cadence_every_tick_publishes_each_tick);
     RUN_TEST(test_bb_pub_cadence_on_change_unchanged_suppresses);
     RUN_TEST(test_bb_pub_cadence_on_change_changed_republishes);
@@ -7811,6 +7969,44 @@ int main(void) {
     RUN_TEST(test_bb_pub_cadence_once_failing_sink_leaves_state_uncommitted);
     RUN_TEST(test_bb_pub_legacy_source_payload_is_enveloped);
     RUN_TEST(test_bb_pub_legacy_source_envelope_ts_matches_uptime_ms);
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    RUN_TEST(test_bb_pub_buffer_init_eager_always_on_calls_ring_pool_get);
+    RUN_TEST(test_bb_pub_buffer_init_eager_not_always_on_is_noop);
+#endif
+    RUN_TEST(test_bb_pub_sink_info_negative_index_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_sink_info_index_ge_count_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_register_telemetry_null_cfg_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_register_telemetry_null_topic_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_register_telemetry_null_gather_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_register_telemetry_null_serialize_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_register_telemetry_zero_snap_size_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_register_telemetry_snap_size_over_max_returns_no_space);
+    RUN_TEST(test_bb_pub_register_telemetry_table_full_returns_no_space);
+    RUN_TEST(test_bb_pub_register_telemetry_cache_register_failure_propagates);
+    RUN_TEST(test_bb_pub_register_telemetry_source_registry_full_undoes_telem_entry);
+    RUN_TEST(test_bb_pub_set_interval_volatile_ms_invokes_registered_hook);
+    RUN_TEST(test_bb_pub_set_interval_volatile_does_not_change_stored_interval);
+    RUN_TEST(test_bb_pub_set_interval_volatile_calls_apply_hook);
+    RUN_TEST(test_bb_pub_set_interval_volatile_rejects_invalid_range);
+    RUN_TEST(test_bb_pub_set_interval_volatile_then_persisting_updates_stored);
+    RUN_TEST(test_bb_pub_tick_hostname_fallback_to_device_when_empty);
+    RUN_TEST(test_bb_pub_telemetry_sink_subscribe_false_is_skipped);
+    RUN_TEST(test_bb_pub_telemetry_cache_update_failure_marks_not_fired);
+    RUN_TEST(test_bb_pub_telemetry_get_serialized_failure_skips_gracefully);
+    RUN_TEST(test_bb_pub_tick_legacy_source_obj_alloc_failure_skips_source);
+    RUN_TEST(test_bb_pub_tick_legacy_source_envelope_alloc_failure_skips_source);
+    RUN_TEST(test_bb_pub_tick_legacy_source_serialize_failure_skips_source);
+    RUN_TEST(test_bb_pub_buffer_stats_null_out_is_noop);
+    RUN_TEST(test_bb_pub_set_sink_non_null_with_null_publish_returns_ok_noop);
+    RUN_TEST(test_bb_pub_source_info_index_ge_count_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_source_info_negative_index_returns_invalid_arg);
+    RUN_TEST(test_bb_pub_source_info_ex_null_ntags_is_safe);
+    RUN_TEST(test_bb_pub_sink_info_null_out_transport_is_safe);
+    RUN_TEST(test_bb_pub_sink_info_null_out_tls_is_safe);
+    RUN_TEST(test_bb_pub_set_metrics_prefix_null_is_noop);
+    RUN_TEST(test_bb_pub_register_source_ex_propagates_register_source_failure);
+    RUN_TEST(test_bb_pub_failing_non_first_sink_marks_not_all_ok);
+    RUN_TEST(test_bb_pub_legacy_source_per_sink_subscribe_filter_skips_rejecting_sink);
 
     // bb_response tests
     RUN_TEST(test_bb_response_register_ok);
@@ -7946,6 +8142,9 @@ int main(void) {
     RUN_TEST(test_bb_sink_http_telemetry_patch_headers_omitted_name_removed);
     RUN_TEST(test_bb_sink_http_telemetry_patch_headers_independent_edit);
     RUN_TEST(test_bb_sink_http_telemetry_patch_large_tls_ca_stored_via_heap);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_enable_rejected_on_exclusive_conflict);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_invalid_name_skipped);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_missing_name_skipped);
     RUN_TEST(test_bb_sink_http_telemetry_get_tls_false_for_http_base);
     RUN_TEST(test_bb_sink_http_telemetry_get_tls_true_for_https_base);
     RUN_TEST(test_bb_sink_http_telemetry_get_tls_false_when_no_base);
@@ -8047,6 +8246,7 @@ int main(void) {
     // oversized-entry fallback tests
     RUN_TEST(test_bb_pub_buffer_always_oversized_published_directly);
     RUN_TEST(test_bb_pub_buffer_always_normal_goes_through_ring);
+    RUN_TEST(test_bb_pub_buffer_always_skips_capture_when_sink0_not_subscribed);
     // idle-free tests (B1-419)
     RUN_TEST(test_bb_pub_buffer_idle_ring_created_on_first_failure);
     RUN_TEST(test_bb_pub_buffer_idle_ring_freed_after_n_idle_ticks);
@@ -8057,6 +8257,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_buffer_lazy_heap_zero_standing_cost_when_healthy);
     RUN_TEST(test_bb_pub_buffer_lazy_heap_alloc_and_reclaim_moves_heap_stats);
     RUN_TEST(test_bb_pub_buffer_lazy_heap_alloc_failure_is_fail_soft);
+    RUN_TEST(test_bb_pub_buffer_lazy_heap_consecutive_alloc_failures_log_once);
     RUN_TEST(test_bb_pub_buffer_static_mode_replay_oldest_first);
     RUN_TEST(test_bb_pub_buffer_static_mode_overflow_drops_oldest);
     RUN_TEST(test_bb_pub_buffer_static_mode_idle_ticks_do_not_destroy_ring);
@@ -8482,6 +8683,11 @@ int main(void) {
     RUN_TEST(test_bb_pub_sample_into_calls_source);
     RUN_TEST(test_bb_pub_sample_into_null_subtopic);
     RUN_TEST(test_bb_pub_sample_into_null_obj);
+    RUN_TEST(test_bb_pub_sample_into_skips_non_matching_sources_first);
+    RUN_TEST(test_bb_pub_subscription_match_null_entry_in_subtopics_skipped);
+    RUN_TEST(test_bb_pub_subscription_match_null_entry_in_tags_skipped);
+    RUN_TEST(test_bb_pub_subscription_match_null_entry_in_source_tags_skipped);
+    RUN_TEST(test_bb_pub_subscription_match_null_tags_ptr_with_nonzero_ntags_skipped);
     RUN_TEST(test_bb_pub_tags_cleared_after_test_reset);
 
     // bb_sink_event (B1 step 1)
@@ -8614,6 +8820,24 @@ int main(void) {
     RUN_TEST(test_bb_sink_ws_snapshot_on_connect_suspended_skips);
     RUN_TEST(test_bb_sink_ws_snapshot_on_connect_get_serialized_failure_skipped);
     RUN_TEST(test_bb_sink_ws_snapshot_on_connect_malloc_fail_skipped);
+    RUN_TEST(test_bb_sink_ws_dispatch_negative_fd_is_ignored);
+    RUN_TEST(test_bb_sink_ws_disconnect_negative_fd_is_ignored);
+    RUN_TEST(test_bb_sink_ws_sub_topic_unterminated_string_ignored);
+    RUN_TEST(test_bb_sink_ws_sub_topic_array_overflow_caps_at_max_subs);
+    RUN_TEST(test_bb_sink_ws_sub_topic_name_truncated_to_fit);
+    RUN_TEST(test_bb_sink_ws_sub_topic_value_not_array_ignored);
+    RUN_TEST(test_bb_sink_ws_legacy_sub_value_not_array_ignored);
+    RUN_TEST(test_bb_sink_ws_type_value_unterminated_falls_back_to_legacy);
+    RUN_TEST(test_bb_sink_ws_type_value_overlong_truncated_and_reserved);
+    RUN_TEST(test_bb_sink_ws_publish_broadcast_async_failure_propagates);
+    RUN_TEST(test_bb_sink_ws_sub_topic_array_unclosed_at_buffer_end);
+    RUN_TEST(test_bb_sink_ws_sub_topic_array_trailing_garbage_at_buffer_end);
+    RUN_TEST(test_bb_sink_ws_sub_whitespace_tab_and_cr_tolerant);
+    RUN_TEST(test_bb_sink_ws_sub_whitespace_newline_directly_after_colon);
+    RUN_TEST(test_bb_sink_ws_sub_key_at_buffer_end_no_value);
+    RUN_TEST(test_bb_sink_ws_type_key_at_buffer_end_no_value);
+    RUN_TEST(test_bb_sink_ws_handler_null_payload_text_frame_ignored);
+    RUN_TEST(test_bb_sink_ws_host_inject_log_event_null_json_is_noop);
 
     // bb_pub telemetry SSOT fidelity
     RUN_TEST(test_bb_pub_telemetry_fidelity_serialize_once_per_tick_sinks);

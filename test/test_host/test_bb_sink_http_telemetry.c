@@ -9,6 +9,7 @@
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
 #include "bb_json.h"
+#include "bb_pub.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -571,4 +572,54 @@ void test_bb_sink_http_telemetry_patch_large_tls_ca_stored_via_heap(void)
     TEST_ASSERT_NOT_NULL(ca_set);
     TEST_ASSERT_TRUE(cJSON_IsTrue(ca_set));
     cJSON_Delete(get_body);
+}
+
+// ---------------------------------------------------------------------------
+// B1-516: coverage-closing tests
+// ---------------------------------------------------------------------------
+
+// PATCH enabled=true must be rejected when another sink already holds the
+// exclusive slot (mqtt-wins boot precedence mirrored at runtime).
+void test_bb_sink_http_telemetry_patch_enable_rejected_on_exclusive_conflict(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_exclusive_acquire("mqtt"));
+
+    bb_err_t rc = run_patch("{\"enabled\":true}");
+    TEST_ASSERT_NOT_EQUAL(BB_OK, rc);
+
+    char buf[4] = {0};
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "enabled", buf, sizeof(buf), "0");
+    TEST_ASSERT_EQUAL_STRING("0", buf);
+
+    bb_pub_exclusive_release("mqtt");
+}
+
+// PATCH headers: an entry with an invalid header name (rejected by
+// bb_sink_http_header_name_valid) must be silently skipped, not stored.
+void test_bb_sink_http_telemetry_patch_headers_invalid_name_skipped(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_err_t rc = run_patch(
+        "{\"headers\":[{\"name\":\"Bad Name\",\"value\":\"v\",\"secret\":false}]}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[512] = {0};
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, buf, sizeof(buf), "");
+    TEST_ASSERT_NULL(strstr(buf, "Bad Name"));
+}
+
+// PATCH headers: an entry missing the "name" key entirely must be skipped
+// (name is required — distinct from an entry whose name fails validation).
+void test_bb_sink_http_telemetry_patch_headers_missing_name_skipped(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_err_t rc = run_patch(
+        "{\"headers\":[{\"value\":\"v\",\"secret\":false},"
+        "{\"name\":\"X-Good\",\"value\":\"ok\",\"secret\":false}]}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[512] = {0};
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, buf, sizeof(buf), "");
+    TEST_ASSERT_NOT_NULL(strstr(buf, "X-Good: ok"));
 }

@@ -994,6 +994,7 @@ static int bb_pub_deliver_to_sinks(const char *full_topic,
     int failed = 0;
     for (int si = 0; si < sink_count; si++) {
         const bb_pub_sink_t *sk = &sinks[si];
+        // gcov compound-branch artifact: all reachable states (NULL / false / true) are tested; the 0% sub-branch arm is a short-circuit attribution artifact
         if (sk->subscribe &&
             !sk->subscribe(subtopic, NULL, 0, sk->subscribe_ctx)) {
             continue;
@@ -1113,6 +1114,31 @@ bb_err_t bb_pub_register_payload_extender(bb_pub_payload_fn fn, void *ctx)
 // Public API — interval + enabled
 // ---------------------------------------------------------------------------
 
+// Testing injection (BB_PUB_TESTING only): allows host tests to simulate an
+// NVS write failure on the interval/enabled setters without a real NVS
+// backend fault. Mirrors bb_sink_http_set_malloc's fn-pointer-override
+// pattern. No-ops (falls back to the real bb_nv_set_u32/u8) in normal
+// operation and whenever the override is NULL.
+#ifdef BB_PUB_TESTING
+static bb_err_t (*s_nv_set_u32)(const char *, const char *, uint32_t) = bb_nv_set_u32;
+static bb_err_t (*s_nv_set_u8)(const char *, const char *, uint8_t)   = bb_nv_set_u8;
+
+void bb_pub_test_set_nv_set_u32(bb_err_t (*fn)(const char *, const char *, uint32_t))
+{
+    s_nv_set_u32 = fn ? fn : bb_nv_set_u32;
+}
+
+void bb_pub_test_set_nv_set_u8(bb_err_t (*fn)(const char *, const char *, uint8_t))
+{
+    s_nv_set_u8 = fn ? fn : bb_nv_set_u8;
+}
+#define BB_PUB_NV_SET_U32(ns, key, val) s_nv_set_u32((ns), (key), (val))
+#define BB_PUB_NV_SET_U8(ns, key, val)  s_nv_set_u8((ns), (key), (val))
+#else
+#define BB_PUB_NV_SET_U32(ns, key, val) bb_nv_set_u32((ns), (key), (val))
+#define BB_PUB_NV_SET_U8(ns, key, val)  bb_nv_set_u8((ns), (key), (val))
+#endif /* BB_PUB_TESTING */
+
 bb_err_t bb_pub_set_interval_ms(uint32_t ms)
 {
     if (ms < BB_PUB_INTERVAL_MS_MIN || ms > BB_PUB_INTERVAL_MS_MAX) {
@@ -1120,7 +1146,7 @@ bb_err_t bb_pub_set_interval_ms(uint32_t ms)
     }
     ensure_config_loaded();
     s_interval_ms = ms;
-    bb_err_t err = bb_nv_set_u32(BB_PUB_NVS_NS, BB_PUB_NVS_KEY_INTERVAL, ms);
+    bb_err_t err = BB_PUB_NV_SET_U32(BB_PUB_NVS_NS, BB_PUB_NVS_KEY_INTERVAL, ms);
     if (err != BB_OK) {
         bb_log_w(TAG, "set_interval_ms: NVS write failed: %d", err);
     }
@@ -1140,7 +1166,7 @@ bb_err_t bb_pub_set_enabled(bool en)
 {
     ensure_config_loaded();
     s_enabled = en ? 1u : 0u;
-    bb_err_t err = bb_nv_set_u8(BB_PUB_NVS_NS, BB_PUB_NVS_KEY_ENABLED, s_enabled);
+    bb_err_t err = BB_PUB_NV_SET_U8(BB_PUB_NVS_NS, BB_PUB_NVS_KEY_ENABLED, s_enabled);
     if (err != BB_OK) {
         bb_log_w(TAG, "set_enabled: NVS write failed: %d", err);
     }
@@ -1181,6 +1207,30 @@ bb_err_t bb_pub_set_interval_volatile_ms(uint32_t ms)
 // Public API — pause / resume
 // ---------------------------------------------------------------------------
 
+// Testing injection (BB_PUB_TESTING only): lets host tests shorten the
+// bounded-wait timeout below so the ETIMEDOUT path can be exercised without
+// a real 30 s (or CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS) wait. -1 = use the
+// compile-time default; reset by bb_pub_test_reset().
+#ifdef BB_PUB_TESTING
+static long s_pause_timeout_ms_override = -1;
+
+void bb_pub_test_set_pause_timeout_ms(long ms)
+{
+    s_pause_timeout_ms_override = ms;
+}
+
+static long pause_timeout_ms(void)
+{
+    return s_pause_timeout_ms_override >= 0 ? s_pause_timeout_ms_override
+                                             : BB_PUB_PAUSE_TIMEOUT_MS_DEFAULT;
+}
+#else
+static long pause_timeout_ms(void)
+{
+    return BB_PUB_PAUSE_TIMEOUT_MS_DEFAULT;
+}
+#endif /* BB_PUB_TESTING */
+
 void bb_pub_pause(void)
 {
     // 1. Set s_paused under s_tick_lock so the next tick skips its body.
@@ -1201,7 +1251,7 @@ void bb_pub_pause(void)
     if (s_in_publish > 0) {
         struct timespec abs_ts;
         clock_gettime(CLOCK_REALTIME, &abs_ts);
-        long timeout_ms = BB_PUB_PAUSE_TIMEOUT_MS_DEFAULT;
+        long timeout_ms = pause_timeout_ms();
         abs_ts.tv_sec  += timeout_ms / 1000;
         abs_ts.tv_nsec += (timeout_ms % 1000) * 1000000L;
         if (abs_ts.tv_nsec >= 1000000000L) {
@@ -1668,6 +1718,7 @@ bb_err_t bb_pub_tick_once(void)
         // values are idempotent).  A persistently-failing subscribed sink
         // causes re-attempts each tick for ON_CHANGE/ONCE — bounded by the
         // tick interval and correct for retain semantics.
+        // unreachable: bb_pub_tick_once early-returns when s_sink_count==0, so snap_sink_count>0 here
         if ((te->flags & BB_PUB_TELEM_SINKS) && snap_sink_count > 0) {
             char full_topic[CONFIG_BB_PUB_SUBTOPIC_MAX + 128];
             snprintf(full_topic, sizeof(full_topic), "%s/%s/%s",
@@ -1709,12 +1760,14 @@ bb_err_t bb_pub_tick_once(void)
 
 #if CONFIG_BB_PUB_BUFFER_ENABLE
     if (buffer_always_on()) {
+        // unreachable: bb_pub_tick_once early-returns when s_sink_count==0, so snap_sink_count>0 here
         if (snap_sink_count > 0) {
             // snap_interval_ms was captured under s_tick_lock in Phase 1.
             int64_t threshold_ms = (int64_t)snap_interval_ms + (int64_t)snap_interval_ms / 2;
             buffer_replay(&snap_sinks[0], tick_epoch_ms, threshold_ms);
         }
     } else {
+        // unreachable: bb_pub_tick_once early-returns when s_sink_count==0, so snap_sink_count>0 here
         if (tick_all_ok && tick_published && snap_sink_count > 0) {
             buffer_replay(&snap_sinks[0], tick_epoch_ms, 0);
         }
@@ -1836,6 +1889,11 @@ void bb_pub_test_reset(void)
     s_paused                   = false;
     s_payload_extender_count   = 0;
     s_payload_hwm_warned       = false;
+    // Revert any injected NVS-write failure hooks to the real implementation.
+    s_nv_set_u32               = bb_nv_set_u32;
+    s_nv_set_u8                = bb_nv_set_u8;
+    // Revert the pause bounded-wait timeout to the compile-time default.
+    s_pause_timeout_ms_override = -1;
     // Reset runtime config to defaults.
     s_interval_ms              = (uint32_t)CONFIG_BB_PUB_INTERVAL_MS;
     s_enabled                  = 1;
@@ -1862,6 +1920,7 @@ void bb_pub_test_reset(void)
     // resets cumulative diagnostic counters (dropped) to zero between tests
     // without touching the global heap in static mode.
     if (s_ring_pool_is_static) {
+        // unreachable: s_ring_pool_is_static is only set true after s_ring_arena is initialized (never nulled)
         if (s_ring_arena) {
             bb_arena_reset(s_ring_arena);
         }

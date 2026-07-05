@@ -544,6 +544,22 @@ void bb_pub_test_set_idle_free_ticks(int n);
  */
 void bb_pub_test_set_buffer_static(bool is_static);
 
+/**
+ * Override the NVS writer used by bb_pub_set_interval_ms/bb_pub_set_enabled,
+ * so host tests can simulate an NVS write failure. Pass NULL to revert to
+ * the real bb_nv_set_u32/bb_nv_set_u8 (also reverted by bb_pub_test_reset()).
+ */
+void bb_pub_test_set_nv_set_u32(bb_err_t (*fn)(const char *ns, const char *key, uint32_t value));
+void bb_pub_test_set_nv_set_u8(bb_err_t (*fn)(const char *ns, const char *key, uint8_t value));
+
+/**
+ * Override bb_pub_pause()'s bounded-wait timeout (ms) for testing, so the
+ * ETIMEDOUT path can be exercised without a real 30 s wait. Pass a negative
+ * value (or call bb_pub_test_reset()) to revert to the compile-time default
+ * (CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS, or 30000 if unset).
+ */
+void bb_pub_test_set_pause_timeout_ms(long ms);
+
 #endif /* BB_PUB_TESTING */
 
 /**

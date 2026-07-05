@@ -33,6 +33,18 @@ static pthread_mutex_t s_mock_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static bb_http_client_post_record_t s_last_post = { .called = false };
 
+// Testing injection: allows host tests to simulate a session-struct
+// allocation failure inside bb_http_client_session_open (mirrors
+// bb_sink_http_set_malloc's fn-pointer-override pattern). No-ops (falls
+// back to the real calloc) in normal operation and whenever the override
+// is NULL. Reset by bb_http_client_clear_mock().
+static void *(*s_session_calloc)(size_t, size_t) = calloc;
+
+void bb_http_client_host_set_session_calloc(void *(*fn)(size_t, size_t))
+{
+    s_session_calloc = fn ? fn : calloc;
+}
+
 // ---------------------------------------------------------------------------
 // Session mock state (declared early so clear_mock can reference them)
 // ---------------------------------------------------------------------------
@@ -95,6 +107,7 @@ void bb_http_client_clear_mock(void)
     s_session_open_count = 0;
     s_session_last_keep_alive = false;
     pthread_mutex_unlock(&s_mock_lock);
+    s_session_calloc = calloc;
 }
 
 void bb_http_client_session_set_mock_status(int status_code)
@@ -194,7 +207,7 @@ bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
                                      bb_http_client_session_t *out)
 {
     if (!url_base || !out) return BB_ERR_INVALID_ARG;
-    host_session_t *s = (host_session_t *)calloc(1, sizeof(host_session_t));
+    host_session_t *s = (host_session_t *)s_session_calloc(1, sizeof(host_session_t));
     if (!s) return BB_ERR_NO_SPACE;
     bb_strlcpy(s->url_base, url_base, sizeof(s->url_base));
     // Reset header capture for the new session; record open.
@@ -256,7 +269,11 @@ bb_err_t bb_http_client_session_post(bb_http_client_session_t s,
         out->status_code  = 0;
         out->body_len     = 0;
         out->truncated    = false;
-        out->tls_error_code = 0;
+        // Carry the mock's tls_error_code through on failure too, so tests
+        // can simulate a TLS-handshake failure that also fails the overall
+        // transport result (bb_http_client_session_set_mock_tls_error_code
+        // + bb_http_client_session_set_mock_transport_error together).
+        out->tls_error_code = m.tls_error_code;
         return m.transport_result;
     }
 

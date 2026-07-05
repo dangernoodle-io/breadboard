@@ -2,6 +2,10 @@
 #include "unity.h"
 #include "bb_pub.h"
 #include "bb_nv.h"
+#include "bb_cache.h"
+#include "bb_json.h"
+#include "bb_json_test_hooks.h"
+#include "bb_str.h"
 
 #include <pthread.h>
 #include <sched.h>
@@ -1540,6 +1544,175 @@ void test_bb_pub_pause_bounded_wait_returns_before_slow_sink_finishes(void)
     pthread_cond_destroy(&ssink.cv);
 }
 
+// bb_pub_pause()'s ETIMEDOUT branch: with the bounded-wait timeout
+// overridden below the slow sink's publish duration, pause() must time out,
+// log once, and return WITHOUT waiting for the publish to finish (instead
+// of the happy-path bounded-wait-completes-normally case covered above).
+#define SHORT_PAUSE_TIMEOUT_MS 20   /* well under SHORT_PUBLISH_MS (200) */
+
+void test_bb_pub_pause_bounded_wait_times_out_on_slow_sink(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("testhost");
+    bb_pub_test_set_pause_timeout_ms(SHORT_PAUSE_TIMEOUT_MS);
+
+    slow_sink_ctx_t ssink;
+    memset(&ssink, 0, sizeof(ssink));
+    pthread_mutex_init(&ssink.mu, NULL);
+    pthread_cond_init(&ssink.cv, NULL);
+
+    bb_pub_sink_t sk = { .publish = slow_sink_publish, .ctx = &ssink };
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("x", sample_temperature, NULL);
+
+    pthread_t tick_tid;
+    pthread_create(&tick_tid, NULL, slow_tick_thread_fn, NULL);
+
+    pthread_mutex_lock(&ssink.mu);
+    while (!ssink.publish_entered) {
+        pthread_cond_wait(&ssink.cv, &ssink.mu);
+    }
+    pthread_mutex_unlock(&ssink.mu);
+
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    bb_pub_pause();
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+
+    long elapsed_ms = (long)(t1.tv_sec  - t0.tv_sec)  * 1000
+                    + (long)(t1.tv_nsec - t0.tv_nsec) / 1000000;
+
+    // pause() must return around the SHORT override timeout, well before
+    // the slow sink's SHORT_PUBLISH_MS (200 ms) publish completes --
+    // proving the ETIMEDOUT path fired rather than the normal wait-for-
+    // completion path.
+    TEST_ASSERT_TRUE_MESSAGE(elapsed_ms < SHORT_PUBLISH_MS,
+        "bb_pub_pause did not time out on the overridden short timeout");
+    TEST_ASSERT_TRUE(bb_pub_is_paused());
+
+    pthread_join(tick_tid, NULL);
+    TEST_ASSERT_EQUAL_INT(1, ssink.call_count);
+
+    pthread_mutex_destroy(&ssink.mu);
+    pthread_cond_destroy(&ssink.cv);
+}
+
+// bb_pub_pause()'s absolute-deadline nanosecond-carry branch
+// (abs_ts.tv_nsec >= 1000000000L -> tv_sec++, tv_nsec -= 1e9). Using a
+// timeout whose ms%1000 component is 999 guarantees the added 999,000,000 ns
+// overflows 1 second unless clock_gettime()'s nsec component happens to be
+// under 1,000,000 (a <0.1% coincidence) -- deterministic enough for CI.
+#define CARRY_PAUSE_TIMEOUT_MS 999
+#define CARRY_SINK_SLEEP_MS    1200   /* > CARRY_PAUSE_TIMEOUT_MS: forces ETIMEDOUT too */
+
+typedef struct {
+    pthread_mutex_t mu;
+    pthread_cond_t  cv;
+    bool            publish_entered;
+} carry_sink_ctx_t;
+
+static bb_err_t carry_sink_publish(void *ctx, const char *topic,
+                                    const char *payload, int len, bool retain)
+{
+    (void)topic; (void)payload; (void)len; (void)retain;
+    carry_sink_ctx_t *s = (carry_sink_ctx_t *)ctx;
+
+    pthread_mutex_lock(&s->mu);
+    s->publish_entered = true;
+    pthread_cond_broadcast(&s->cv);
+    pthread_mutex_unlock(&s->mu);
+
+    struct timespec ts_sleep = {
+        .tv_sec  = CARRY_SINK_SLEEP_MS / 1000,
+        .tv_nsec = (CARRY_SINK_SLEEP_MS % 1000) * 1000000L,
+    };
+    nanosleep(&ts_sleep, NULL);
+    return BB_OK;
+}
+
+static void *carry_tick_thread_fn(void *arg)
+{
+    (void)arg;
+    bb_pub_tick_once();
+    return NULL;
+}
+
+void test_bb_pub_pause_bounded_wait_deadline_nsec_carry(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("testhost");
+    bb_pub_test_set_pause_timeout_ms(CARRY_PAUSE_TIMEOUT_MS);
+
+    carry_sink_ctx_t csink;
+    memset(&csink, 0, sizeof(csink));
+    pthread_mutex_init(&csink.mu, NULL);
+    pthread_cond_init(&csink.cv, NULL);
+
+    bb_pub_sink_t sk = { .publish = carry_sink_publish, .ctx = &csink };
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("x", sample_temperature, NULL);
+
+    pthread_t tick_tid;
+    pthread_create(&tick_tid, NULL, carry_tick_thread_fn, NULL);
+
+    pthread_mutex_lock(&csink.mu);
+    while (!csink.publish_entered) {
+        pthread_cond_wait(&csink.cv, &csink.mu);
+    }
+    pthread_mutex_unlock(&csink.mu);
+
+    // Must not crash regardless of the absolute-deadline carry; pause()
+    // still returns (via ETIMEDOUT) well before the sink's long sleep ends.
+    bb_pub_pause();
+    TEST_ASSERT_TRUE(bb_pub_is_paused());
+
+    pthread_join(tick_tid, NULL);
+    pthread_mutex_destroy(&csink.mu);
+    pthread_cond_destroy(&csink.cv);
+}
+
+// ---------------------------------------------------------------------------
+// bb_pub_set_interval_ms / bb_pub_set_enabled: NVS-write-failure injection
+// ---------------------------------------------------------------------------
+
+static bb_err_t cov_nv_set_u32_fail(const char *ns, const char *key, uint32_t value)
+{
+    (void)ns; (void)key; (void)value;
+    return BB_ERR_INVALID_STATE;
+}
+
+static bb_err_t cov_nv_set_u8_fail(const char *ns, const char *key, uint8_t value)
+{
+    (void)ns; (void)key; (void)value;
+    return BB_ERR_INVALID_STATE;
+}
+
+// bb_pub_set_interval_ms must still return BB_OK (the in-RAM value is
+// updated regardless) even when the NVS write itself fails -- only the
+// warning log path differs.
+void test_bb_pub_set_interval_ms_nvs_write_failure_still_returns_ok(void)
+{
+    bb_pub_test_reset();
+    bb_pub_test_set_nv_set_u32(cov_nv_set_u32_fail);
+    bb_err_t err = bb_pub_set_interval_ms(12345);
+    bb_pub_test_set_nv_set_u32(NULL);
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_UINT32(12345, bb_pub_get_interval_ms());
+}
+
+// bb_pub_set_enabled must still return BB_OK even when the NVS write fails.
+void test_bb_pub_set_enabled_nvs_write_failure_still_returns_ok(void)
+{
+    bb_pub_test_reset();
+    bb_pub_test_set_nv_set_u8(cov_nv_set_u8_fail);
+    bb_err_t err = bb_pub_set_enabled(false);
+    bb_pub_test_set_nv_set_u8(NULL);
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_FALSE(bb_pub_is_enabled());
+}
+
 // ---------------------------------------------------------------------------
 // B1-436: per-source cadence + retain tests
 // ---------------------------------------------------------------------------
@@ -1865,4 +2038,534 @@ void test_bb_pub_legacy_source_envelope_ts_matches_uptime_ms(void)
     TEST_ASSERT_EQUAL_INT((int)ts, (int)uptime);
 
     bb_json_free(root);
+}
+
+// ---------------------------------------------------------------------------
+// B1-516: coverage-closing tests (bb_pub core)
+// ---------------------------------------------------------------------------
+
+// bb_pub_buffer_init_eager
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+void test_bb_pub_buffer_init_eager_always_on_calls_ring_pool_get(void)
+{
+    bb_pub_test_reset();
+    bb_pub_test_set_buffer_always(true);
+    // Must not crash; the ring pool is allocated (or a warning logged on
+    // alloc failure) — either way bb_pub_buffer_stats() stays well-formed.
+    bb_pub_buffer_init_eager();
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_INT(0, (int)stats.count);
+}
+
+void test_bb_pub_buffer_init_eager_not_always_on_is_noop(void)
+{
+    bb_pub_test_reset();
+    bb_pub_test_set_buffer_always(false);
+    bb_pub_buffer_init_eager();
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_INT(0, (int)stats.count);
+}
+#endif
+
+// bb_pub_sink_info: invalid index
+void test_bb_pub_sink_info_negative_index_returns_invalid_arg(void)
+{
+    setup_with_sink();
+    const char *transport = NULL;
+    bool tls = false;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_sink_info(-1, &transport, &tls));
+}
+
+void test_bb_pub_sink_info_index_ge_count_returns_invalid_arg(void)
+{
+    setup_with_sink();
+    const char *transport = NULL;
+    bool tls = false;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_sink_info(1, &transport, &tls));
+}
+
+// ---------------------------------------------------------------------------
+// bb_pub_register_telemetry validation
+// ---------------------------------------------------------------------------
+
+typedef struct { int value; } cov_telem_snap_t;
+
+static bool cov_telem_gather_ok(void *buf, void *ctx)
+{
+    (void)ctx;
+    cov_telem_snap_t *s = (cov_telem_snap_t *)buf;
+    s->value = 1;
+    return true;
+}
+
+static void cov_telem_serialize(bb_json_t obj, const void *snap)
+{
+    const cov_telem_snap_t *s = (const cov_telem_snap_t *)snap;
+    bb_json_obj_set_number(obj, "value", (double)s->value);
+}
+
+void test_bb_pub_register_telemetry_null_cfg_returns_invalid_arg(void)
+{
+    bb_pub_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_register_telemetry(NULL));
+}
+
+void test_bb_pub_register_telemetry_null_topic_returns_invalid_arg(void)
+{
+    bb_pub_test_reset();
+    bb_pub_telemetry_cfg_t cfg = {
+        .topic = NULL, .gather = cov_telem_gather_ok,
+        .serialize = cov_telem_serialize, .snap_size = sizeof(cov_telem_snap_t),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_register_telemetry(&cfg));
+}
+
+void test_bb_pub_register_telemetry_null_gather_returns_invalid_arg(void)
+{
+    bb_pub_test_reset();
+    bb_pub_telemetry_cfg_t cfg = {
+        .topic = "cov_a", .gather = NULL,
+        .serialize = cov_telem_serialize, .snap_size = sizeof(cov_telem_snap_t),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_register_telemetry(&cfg));
+}
+
+void test_bb_pub_register_telemetry_null_serialize_returns_invalid_arg(void)
+{
+    bb_pub_test_reset();
+    bb_pub_telemetry_cfg_t cfg = {
+        .topic = "cov_a", .gather = cov_telem_gather_ok,
+        .serialize = NULL, .snap_size = sizeof(cov_telem_snap_t),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_register_telemetry(&cfg));
+}
+
+void test_bb_pub_register_telemetry_zero_snap_size_returns_invalid_arg(void)
+{
+    bb_pub_test_reset();
+    bb_pub_telemetry_cfg_t cfg = {
+        .topic = "cov_a", .gather = cov_telem_gather_ok,
+        .serialize = cov_telem_serialize, .snap_size = 0,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pub_register_telemetry(&cfg));
+}
+
+void test_bb_pub_register_telemetry_snap_size_over_max_returns_no_space(void)
+{
+    bb_pub_test_reset();
+    bb_pub_telemetry_cfg_t cfg = {
+        .topic = "cov_a", .gather = cov_telem_gather_ok,
+        .serialize = cov_telem_serialize,
+        .snap_size = CONFIG_BB_PUB_TELEM_SNAP_MAX + 1,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_pub_register_telemetry(&cfg));
+}
+
+void test_bb_pub_register_telemetry_table_full_returns_no_space(void)
+{
+    bb_pub_test_reset();
+    char topic_buf[CONFIG_BB_PUB_MAX_SOURCES][16];
+    for (int i = 0; i < CONFIG_BB_PUB_MAX_SOURCES; i++) {
+        snprintf(topic_buf[i], sizeof(topic_buf[i]), "cov_full_%d", i);
+        bb_pub_telemetry_cfg_t cfg = {
+            .topic = topic_buf[i], .gather = cov_telem_gather_ok,
+            .serialize = cov_telem_serialize, .snap_size = sizeof(cov_telem_snap_t),
+        };
+        TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_telemetry(&cfg));
+    }
+    // Telem table (and source table) is now full at CONFIG_BB_PUB_MAX_SOURCES.
+    bb_pub_telemetry_cfg_t overflow_cfg = {
+        .topic = "cov_full_overflow", .gather = cov_telem_gather_ok,
+        .serialize = cov_telem_serialize, .snap_size = sizeof(cov_telem_snap_t),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_pub_register_telemetry(&overflow_cfg));
+}
+
+// bb_cache_register() failing (registry full) must propagate through
+// bb_pub_register_telemetry. Fill bb_cache's own registry directly with
+// topics bb_pub never sees (idempotent-by-key, mirrors test_bb_sub.c's
+// pattern), leaving bb_pub's own (much smaller) telem table nearly empty.
+void test_bb_pub_register_telemetry_cache_register_failure_propagates(void)
+{
+    bb_pub_test_reset();
+    char fill_buf[32];
+    for (int i = 0; i < BB_CACHE_MAX_TOPICS; i++) {
+        snprintf(fill_buf, sizeof(fill_buf), "cov_cachefill.%d", i);
+        bb_cache_config_t cfg = {
+            .key       = fill_buf,
+            .snapshot  = NULL,
+            .snap_size = 8,
+            .serialize = cov_telem_serialize,
+            .flags     = BB_CACHE_FLAG_NONE,
+        };
+        bb_err_t rc = bb_cache_register(&cfg);
+        TEST_ASSERT_TRUE_MESSAGE(rc == BB_OK || rc == BB_ERR_NO_SPACE, fill_buf);
+    }
+    bb_pub_telemetry_cfg_t cfg = {
+        .topic = "cov_cache_full_new_topic", .gather = cov_telem_gather_ok,
+        .serialize = cov_telem_serialize, .snap_size = sizeof(cov_telem_snap_t),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_pub_register_telemetry(&cfg));
+}
+
+// bb_pub_register_source() failing (source registry full, telem table NOT
+// full) must undo the already-committed telem entry.
+void test_bb_pub_register_telemetry_source_registry_full_undoes_telem_entry(void)
+{
+    bb_pub_test_reset();
+    for (int i = 0; i < CONFIG_BB_PUB_MAX_SOURCES; i++) {
+        char sub[16];
+        snprintf(sub, sizeof(sub), "plain_%d", i);
+        TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_source(sub, sample_temperature, NULL));
+    }
+    TEST_ASSERT_EQUAL(CONFIG_BB_PUB_MAX_SOURCES, bb_pub_source_count());
+
+    bb_pub_telemetry_cfg_t cfg = {
+        .topic = "cov_undo_topic", .gather = cov_telem_gather_ok,
+        .serialize = cov_telem_serialize, .snap_size = sizeof(cov_telem_snap_t),
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_pub_register_telemetry(&cfg));
+    // Source count must be unchanged (register_source itself failed).
+    TEST_ASSERT_EQUAL(CONFIG_BB_PUB_MAX_SOURCES, bb_pub_source_count());
+}
+
+// ---------------------------------------------------------------------------
+// bb_pub_set_interval_volatile_ms: hook-invoked branch
+// ---------------------------------------------------------------------------
+
+static uint32_t s_volatile_hook_ms = 0;
+static void cov_volatile_hook(uint32_t ms) { s_volatile_hook_ms = ms; }
+
+void test_bb_pub_set_interval_volatile_ms_invokes_registered_hook(void)
+{
+    bb_pub_test_reset();
+    s_volatile_hook_ms = 0;
+    bb_pub_set_interval_apply_hook(cov_volatile_hook);
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_set_interval_volatile_ms(12345));
+    TEST_ASSERT_EQUAL_UINT32(12345, s_volatile_hook_ms);
+    bb_pub_set_interval_apply_hook(NULL);
+}
+
+// ---------------------------------------------------------------------------
+// Hostname fallback: empty hostname -> "device"
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_tick_hostname_fallback_to_device_when_empty(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    // bb_nv_config_set_hostname() rejects an empty string outright, and no
+    // hostname value survives a validated set — factory_reset is the only
+    // way to force the in-RAM hostname cache back to its zeroed ("") default.
+    bb_nv_config_factory_reset();
+    bb_pub_sink_t sink = make_capture_sink();
+    bb_pub_set_sink(&sink);
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_EQUAL_STRING("metrics/device/temp", s_captured[0].topic);
+}
+
+// ---------------------------------------------------------------------------
+// bb_pub_deliver_to_sinks: per-sink subscribe predicate skip
+// ---------------------------------------------------------------------------
+
+static bool cov_reject_all(const char *subtopic, const char *const *tags,
+                            int ntags, void *ctx)
+{
+    (void)subtopic; (void)tags; (void)ntags; (void)ctx;
+    return false;
+}
+
+void test_bb_pub_telemetry_sink_subscribe_false_is_skipped(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    bb_pub_sink_t rejecting = make_capture_sink();
+    rejecting.subscribe = cov_reject_all;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&rejecting));
+
+    bb_pub_telemetry_cfg_t cfg = {
+        .topic = "cov_subskip", .gather = cov_telem_gather_ok,
+        .serialize = cov_telem_serialize, .snap_size = sizeof(cov_telem_snap_t),
+        .flags = BB_PUB_TELEM_SINKS, .cadence = BB_PUB_CADENCE_EVERY_TICK,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_telemetry(&cfg));
+
+    bb_pub_tick_once();
+    // The only registered sink rejects this subtopic -> deliver_to_sinks
+    // must skip it without treating the skip as a delivery failure.
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+}
+
+// ---------------------------------------------------------------------------
+// Telem Phase 1: bb_cache_update failure (entry deleted out from under a
+// registered telem source) must mark the source as not-fired without crash.
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_telemetry_cache_update_failure_marks_not_fired(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+    bb_pub_sink_t sink = make_capture_sink();
+    bb_pub_set_sink(&sink);
+
+    bb_pub_telemetry_cfg_t cfg = {
+        .topic = "cov_deleted", .gather = cov_telem_gather_ok,
+        .serialize = cov_telem_serialize, .snap_size = sizeof(cov_telem_snap_t),
+        .flags = BB_PUB_TELEM_SINKS, .cadence = BB_PUB_CADENCE_EVERY_TICK,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_telemetry(&cfg));
+
+    // Simulate the cache entry disappearing between registration and tick
+    // (e.g. an AGE_OUT eviction sweep) — bb_cache_update() must then fail
+    // with BB_ERR_NOT_FOUND inside Phase 1.
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_delete("cov_deleted"));
+
+    bb_err_t err = bb_pub_tick_once();
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+}
+
+// ---------------------------------------------------------------------------
+// Telem Phase 2b: bb_cache_get_serialized failure (entry deleted mid-tick by
+// a later-registered telem source's own gather) must skip gracefully.
+// ---------------------------------------------------------------------------
+
+static bool cov_telem_gather_deletes_other(void *buf, void *ctx)
+{
+    (void)ctx;
+    cov_telem_snap_t *s = (cov_telem_snap_t *)buf;
+    s->value = 2;
+    // Side effect: remove the FIRST-registered telem source's cache entry
+    // mid-Phase-1, so its Phase 2b get_serialized() call fails.
+    bb_cache_delete("cov_evictee");
+    return true;
+}
+
+void test_bb_pub_telemetry_get_serialized_failure_skips_gracefully(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+    bb_pub_sink_t sink = make_capture_sink();
+    bb_pub_set_sink(&sink);
+
+    bb_pub_telemetry_cfg_t cfg_a = {
+        .topic = "cov_evictee", .gather = cov_telem_gather_ok,
+        .serialize = cov_telem_serialize, .snap_size = sizeof(cov_telem_snap_t),
+        .flags = BB_PUB_TELEM_SINKS, .cadence = BB_PUB_CADENCE_EVERY_TICK,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_telemetry(&cfg_a));
+
+    bb_pub_telemetry_cfg_t cfg_b = {
+        .topic = "cov_evictor", .gather = cov_telem_gather_deletes_other,
+        .serialize = cov_telem_serialize, .snap_size = sizeof(cov_telem_snap_t),
+        .flags = BB_PUB_TELEM_SINKS, .cadence = BB_PUB_CADENCE_EVERY_TICK,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_telemetry(&cfg_b));
+
+    bb_err_t err = bb_pub_tick_once();
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    // Only "cov_evictor" (B) reaches the sink; "cov_evictee" (A) was deleted
+    // out from under Phase 2b's get_serialized() call and skipped silently.
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+    TEST_ASSERT_EQUAL_STRING("metrics/testhost/cov_evictor", s_captured[0].topic);
+}
+
+// ---------------------------------------------------------------------------
+// Legacy source path: bb_json allocation / serialize fault injection
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_tick_legacy_source_obj_alloc_failure_skips_source(void)
+{
+    setup_with_sink();
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_json_host_force_alloc_fail_after(0);   /* fail the source's own obj_new */
+    bb_err_t err = bb_pub_tick_once();
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+}
+
+void test_bb_pub_tick_legacy_source_envelope_alloc_failure_skips_source(void)
+{
+    setup_with_sink();
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    // 1st bb_json_obj_new() call is the source's own object (succeeds);
+    // the 2nd is the envelope object — force that one to fail.
+    bb_json_host_force_alloc_fail_after(1);
+    bb_err_t err = bb_pub_tick_once();
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+}
+
+void test_bb_pub_tick_legacy_source_serialize_failure_skips_source(void)
+{
+    setup_with_sink();
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_json_host_force_serialize_fail_after(0);   /* fail the envelope serialize */
+    bb_err_t err = bb_pub_tick_once();
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, s_capture_count);
+}
+
+// ---------------------------------------------------------------------------
+// B1-516 pass 2: reachable-without-a-seam branch coverage (bb_pub core)
+// ---------------------------------------------------------------------------
+
+void test_bb_pub_buffer_stats_null_out_is_noop(void)
+{
+    bb_pub_test_reset();
+    // Must not crash.
+    bb_pub_buffer_stats(NULL);
+}
+
+// bb_pub_set_sink with a non-NULL sink whose publish is NULL — distinct
+// from the sink==NULL case (test_bb_pub_set_sink_null_clears_sink).
+void test_bb_pub_set_sink_non_null_with_null_publish_returns_ok_noop(void)
+{
+    bb_pub_test_reset();
+    bb_pub_sink_t s = { .publish = NULL, .ctx = NULL };
+    bb_err_t err = bb_pub_set_sink(&s);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_pub_status_t status;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_get_status(&status));
+    TEST_ASSERT_EQUAL_INT(0, status.sink_count);
+}
+
+void test_bb_pub_source_info_index_ge_count_returns_invalid_arg(void)
+{
+    bb_pub_test_reset();
+    bb_pub_register_source("a", sample_temperature, NULL);
+    const char *subtopic = NULL;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+        bb_pub_source_info(1, &subtopic, NULL, NULL, NULL, NULL));
+}
+
+void test_bb_pub_source_info_negative_index_returns_invalid_arg(void)
+{
+    bb_pub_test_reset();
+    bb_pub_register_source("a", sample_temperature, NULL);
+    const char *subtopic = NULL;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+        bb_pub_source_info(-1, &subtopic, NULL, NULL, NULL, NULL));
+}
+
+void test_bb_pub_source_info_ex_null_ntags_is_safe(void)
+{
+    bb_pub_test_reset();
+    const char *tags[] = { "a" };
+    bb_pub_register_source_ex("a", sample_temperature, NULL, tags, 1);
+    const char *const *out_tags = NULL;
+    bb_err_t err = bb_pub_source_info_ex(0, NULL, NULL, NULL, NULL, NULL, &out_tags, NULL);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+}
+
+void test_bb_pub_sink_info_null_out_transport_is_safe(void)
+{
+    setup_with_sink();
+    bool tls = false;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_sink_info(0, NULL, &tls));
+}
+
+void test_bb_pub_sink_info_null_out_tls_is_safe(void)
+{
+    setup_with_sink();
+    const char *transport = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_sink_info(0, &transport, NULL));
+}
+
+void test_bb_pub_set_metrics_prefix_null_is_noop(void)
+{
+    bb_pub_test_reset();
+    const char *before = bb_pub_metrics_prefix();
+    char saved[64];
+    bb_strlcpy(saved, before, sizeof(saved));
+    bb_pub_set_metrics_prefix(NULL);
+    TEST_ASSERT_EQUAL_STRING(saved, bb_pub_metrics_prefix());
+}
+
+// bb_pub_register_source_ex must propagate a failure from the underlying
+// bb_pub_register_source call (source registry full) rather than proceeding
+// to write tags.
+void test_bb_pub_register_source_ex_propagates_register_source_failure(void)
+{
+    bb_pub_test_reset();
+    for (int i = 0; i < CONFIG_BB_PUB_MAX_SOURCES; i++) {
+        char sub[16];
+        snprintf(sub, sizeof(sub), "s%d", i);
+        TEST_ASSERT_EQUAL(BB_OK, bb_pub_register_source(sub, sample_temperature, NULL));
+    }
+    const char *tags[] = { "t" };
+    bb_err_t err = bb_pub_register_source_ex("overflow", sample_temperature, NULL, tags, 1);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
+}
+
+// ---------------------------------------------------------------------------
+// B1-516 pass 3: reachable-without-a-seam Phase 2 bookkeeping branches
+// ---------------------------------------------------------------------------
+
+// bb_pub_tick_once Phase 2a: a failure on a NON-FIRST sink (si != 0) must
+// still be logged / marked tick_all_ok=false, distinct from the si==0
+// failure case already covered by test_bb_pub_failing_sink_does_not_stop_other_sink.
+void test_bb_pub_failing_non_first_sink_marks_not_all_ok(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+#if CONFIG_BB_PUB_BUFFER_ENABLE
+    // Force on-failure mode so last_publish_ok reflects tick_all_ok directly
+    // rather than the always-on mode's ring-drained status.
+    bb_pub_test_set_buffer_always(false);
+#endif
+
+    bb_pub_sink_t good = make_capture_sink();
+    bb_pub_sink_t bad  = { .publish = failing_publish, .ctx = NULL };
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&good));  // si=0, succeeds
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&bad));   // si=1, fails
+
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_err_t err = bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
+
+    bb_pub_status_t status;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_get_status(&status));
+    TEST_ASSERT_FALSE(status.last_publish_ok);
+}
+
+// bb_pub_tick_once Phase 2a: a legacy (non-telemetry) source with a
+// per-sink subscribe filter must skip the rejecting sink's direct publish
+// (Phase 2a's own !p->subscribed[si] guard, distinct from the Phase 1
+// any_subscribed pre-filter which only guarantees at least one sink is
+// subscribed).
+void test_bb_pub_legacy_source_per_sink_subscribe_filter_skips_rejecting_sink(void)
+{
+    bb_pub_test_reset();
+    capture_reset();
+    bb_nv_config_set_hostname("testhost");
+
+    bb_pub_sink_t rejecting = make_capture_sink();
+    rejecting.subscribe = cov_reject_all;
+    bb_pub_sink_t accepting = make_capture_sink();
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&rejecting));
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&accepting));
+
+    bb_pub_register_source("temp", sample_temperature, NULL);
+    bb_err_t err = bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    // Only the accepting sink receives it -- 1 capture, not 2 (both sinks
+    // share s_captured/s_capture_count via make_capture_sink's capture_publish).
+    TEST_ASSERT_EQUAL_INT(1, s_capture_count);
 }

@@ -277,6 +277,58 @@ void test_bb_pub_sample_into_null_obj(void)
     TEST_ASSERT_FALSE(bb_pub_sample_into("power", NULL));
 }
 
+// bb_pub_sample_into: with multiple sources, a non-matching earlier entry
+// must be skipped (continue) before the matching one is found.
+void test_bb_pub_sample_into_skips_non_matching_sources_first(void)
+{
+    bb_pub_register_source("wifi", sample_val, NULL);
+    bb_pub_register_source("power", sample_val, NULL);
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_TRUE(bb_pub_sample_into("power", obj));
+    bb_json_free(obj);
+}
+
+// bb_pub_subscription_match: a NULL entry inside the subtopics array must
+// be skipped safely rather than dereferenced.
+void test_bb_pub_subscription_match_null_entry_in_subtopics_skipped(void)
+{
+    const char *list[] = { NULL, "power" };
+    bb_pub_subscription_t sub = { .subtopics = list, .nsubtopics = 2 };
+    TEST_ASSERT_TRUE(bb_pub_subscription_match(&sub, "power", NULL, 0));
+}
+
+// bb_pub_subscription_match: a NULL entry inside the tags array must be
+// skipped safely rather than dereferenced.
+void test_bb_pub_subscription_match_null_entry_in_tags_skipped(void)
+{
+    const char *tag_list[] = { NULL, "critical" };
+    bb_pub_subscription_t sub = { .tags = tag_list, .ntags = 2 };
+    const char *src_tags[] = { "critical" };
+    TEST_ASSERT_TRUE(bb_pub_subscription_match(&sub, "power", src_tags, 1));
+}
+
+// bb_pub_subscription_match: a NULL entry inside the SOURCE tags array
+// (tags[ti]) must be skipped safely -- distinct from a NULL entry in the
+// subscription's own tags[si] array (already covered) and a NULL tags
+// pointer entirely (already covered).
+void test_bb_pub_subscription_match_null_entry_in_source_tags_skipped(void)
+{
+    const char *tag_list[] = { "critical" };
+    bb_pub_subscription_t sub = { .tags = tag_list, .ntags = 1 };
+    const char *src_tags[] = { NULL, "critical" };
+    TEST_ASSERT_TRUE(bb_pub_subscription_match(&sub, "power", src_tags, 2));
+}
+
+// bb_pub_subscription_match: a NULL source-tags pointer with a nonzero
+// ntags (a mismatched/defensive caller) must be skipped safely rather than
+// dereferenced.
+void test_bb_pub_subscription_match_null_tags_ptr_with_nonzero_ntags_skipped(void)
+{
+    const char *tag_list[] = { "critical" };
+    bb_pub_subscription_t sub = { .tags = tag_list, .ntags = 1 };
+    TEST_ASSERT_FALSE(bb_pub_subscription_match(&sub, "power", NULL, 1));
+}
+
 // ---------------------------------------------------------------------------
 // tags reset on test_reset
 // ---------------------------------------------------------------------------
