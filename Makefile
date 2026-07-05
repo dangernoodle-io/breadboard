@@ -37,6 +37,7 @@ coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging
 	    --filter 'platform/host/bb_mdns_cache/' \
 	    --filter 'platform/host/bb_str/' \
 	    --filter 'platform/host/bb_scalar/' \
+	    --filter 'platform/host/bb_num/' \
 	    --exclude-throw-branches \
 	    --exclude-unreachable-branches \
 	    --exclude-directories '\.claude' \
