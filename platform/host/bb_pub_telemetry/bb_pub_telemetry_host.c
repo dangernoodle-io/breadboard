@@ -15,6 +15,7 @@
 #include "bb_telemetry.h"
 #include "bb_init.h"
 #include "bb_log.h"
+#include "bb_str.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -85,8 +86,7 @@ static bool meta_gather(void *snap_buf, void *ctx)
     memset(m, 0, sizeof(*m));
 
     // --- Publisher provenance ---
-    strncpy(m->topic_prefix, CONFIG_BB_PUB_TOPIC_PREFIX, sizeof(m->topic_prefix) - 1);
-    m->topic_prefix[sizeof(m->topic_prefix) - 1] = '\0';
+    bb_strlcpy(m->topic_prefix, CONFIG_BB_PUB_TOPIC_PREFIX, sizeof(m->topic_prefix));
 
     bb_pub_status_t st;
     bb_pub_get_status_nolock(&st);   /* caller (tick) holds s_tick_lock */
@@ -99,9 +99,8 @@ static bool meta_gather(void *snap_buf, void *ctx)
         bb_pub_sink_info_nolock(i, &transport, &tls);   /* caller holds s_tick_lock */
         m->sinks[i].transport[0] = '\0';
         if (transport) {
-            strncpy(m->sinks[i].transport, transport,
-                    sizeof(m->sinks[i].transport) - 1);
-            m->sinks[i].transport[sizeof(m->sinks[i].transport) - 1] = '\0';
+            bb_strlcpy(m->sinks[i].transport, transport,
+                       sizeof(m->sinks[i].transport));
         }
         m->sinks[i].tls = tls;
     }
@@ -110,17 +109,14 @@ static bool meta_gather(void *snap_buf, void *ctx)
     {
         const char *ver = bb_system_get_version();
         if (ver) {
-            strncpy(m->version, ver, sizeof(m->version) - 1);
-            m->version[sizeof(m->version) - 1] = '\0';
+            bb_strlcpy(m->version, ver, sizeof(m->version));
         }
     }
     {
         bb_board_info_t bi;
         if (bb_board_get_info(&bi) == BB_OK) {
-            strncpy(m->board,      bi.board,      sizeof(m->board)      - 1);
-            m->board[sizeof(m->board) - 1] = '\0';
-            strncpy(m->chip_model, bi.chip_model, sizeof(m->chip_model) - 1);
-            m->chip_model[sizeof(m->chip_model) - 1] = '\0';
+            bb_strlcpy(m->board,      bi.board,      sizeof(m->board));
+            bb_strlcpy(m->chip_model, bi.chip_model, sizeof(m->chip_model));
         }
     }
     bb_board_get_mac(m->mac, sizeof(m->mac));
@@ -133,15 +129,13 @@ static bool meta_gather(void *snap_buf, void *ctx)
     m->rtc_total         = bb_board_rtc_total();
 
     // boot_epoch_s and time_source: static once synced (boot epoch never changes).
-    strncpy(m->time_source, "none", sizeof(m->time_source) - 1);
-    m->time_source[sizeof(m->time_source) - 1] = '\0';
+    bb_strlcpy(m->time_source, "none", sizeof(m->time_source));
     if (bb_ntp_is_synced()) {
         time_t now = time(NULL);
         if (now >= (time_t)1704067200LL) {
             int64_t uptime_s = (int64_t)bb_clock_now_ms() / 1000;
             m->boot_epoch_s = (int64_t)now - uptime_s;
-            strncpy(m->time_source, "sntp", sizeof(m->time_source) - 1);
-            m->time_source[sizeof(m->time_source) - 1] = '\0';
+            bb_strlcpy(m->time_source, "sntp", sizeof(m->time_source));
         }
     }
 

@@ -10,7 +10,7 @@ idf_component_register(
     # can't be CONFIG-conditional — ESP-IDF expands deps before config is loaded.
     # bb_cache/bb_event/bb_event_routes: PRIV_REQUIRES because they are not
     # exposed in any public header under components/bb_info/include/.
-    PRIV_REQUIRES bb_http bb_board bb_wifi bb_openapi bb_init bb_log bb_ntp bb_mdns bb_ota_pull bb_cache bb_event bb_event_routes bb_system
+    PRIV_REQUIRES bb_http bb_board bb_wifi bb_openapi bb_init bb_log bb_ntp bb_mdns bb_ota_pull bb_cache bb_event bb_event_routes bb_system bb_str
 )
 
 if(CONFIG_BB_INFO_AUTOREGISTER)

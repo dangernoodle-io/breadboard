@@ -6,7 +6,7 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "."
     REQUIRES bb_core
-    PRIV_REQUIRES bb_http bb_log bb_hw bb_wifi bb_init bb_timer bb_ring bb_task_registry esp_app_format esp_netif espressif__mdns esp_system
+    PRIV_REQUIRES bb_http bb_log bb_hw bb_wifi bb_init bb_timer bb_ring bb_task_registry esp_app_format esp_netif espressif__mdns esp_system bb_str
 )
 
 # Ensure managed component is available

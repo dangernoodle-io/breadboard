@@ -1,5 +1,6 @@
 #include "bb_log.h"
 #include "bb_log_internal.h"
+#include "bb_str.h"
 
 #include <ctype.h>
 #include <string.h>
@@ -89,8 +90,7 @@ static void _bb_log_registry_set(const char *tag, bb_log_level_t level)
     // Find first free slot
     for (int i = 0; i < BB_LOG_REGISTRY_MAX; i++) {
         if (!s_registry[i].used) {
-            strncpy(s_registry[i].tag, tag, sizeof(s_registry[i].tag) - 1);
-            s_registry[i].tag[sizeof(s_registry[i].tag) - 1] = '\0';
+            bb_strlcpy(s_registry[i].tag, tag, sizeof(s_registry[i].tag));
             s_registry[i].level = level;
             s_registry[i].used = true;
             return;

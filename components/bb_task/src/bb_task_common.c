@@ -6,6 +6,7 @@
 
 #include "bb_task.h"
 #include "bb_registry.h"
+#include "bb_str.h"
 
 #include <pthread.h>
 #include <stddef.h>
@@ -88,8 +89,7 @@ static void pool_free_locked(bb_task_base_entry_t *entry)
 
 static void copy_name(bb_task_base_entry_t *entry, const char *name)
 {
-    strncpy(entry->name, name, sizeof(entry->name) - 1);
-    entry->name[sizeof(entry->name) - 1] = '\0';
+    bb_strlcpy(entry->name, name, sizeof(entry->name));
 }
 
 bb_err_t bb_task_base_upsert(void *handle, const char *name,

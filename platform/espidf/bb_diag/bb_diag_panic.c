@@ -2,6 +2,7 @@
 #include "bb_core.h"
 #include "bb_log.h"
 #include "bb_nv.h"
+#include "bb_str.h"
 #include "esp_system.h"
 #include "esp_app_desc.h"
 #include <string.h>
@@ -81,8 +82,7 @@ static void bb_diag_panic_coredump_init(void)
     esp_core_dump_summary_t cd_summary;
     if (esp_core_dump_get_summary(&cd_summary) != ESP_OK) return;
 
-    strncpy(s_summary.task_name, cd_summary.exc_task, sizeof(s_summary.task_name) - 1);
-    s_summary.task_name[sizeof(s_summary.task_name) - 1] = '\0';
+    bb_strlcpy(s_summary.task_name, cd_summary.exc_task, sizeof(s_summary.task_name));
     bb_diag_scrub_text(s_summary.task_name);
     s_summary.exc_pc = cd_summary.exc_pc;
 
@@ -111,9 +111,8 @@ static void bb_diag_panic_coredump_init(void)
 
     /* Copy ELF SHA256: cd_summary.app_elf_sha256 is a NUL-terminated hex string
      * of length APP_ELF_SHA256_SZ (= CONFIG_APP_RETRIEVE_LEN_ELF_SHA + 1). */
-    strncpy(s_summary.app_sha256, (const char *)cd_summary.app_elf_sha256,
-            sizeof(s_summary.app_sha256) - 1);
-    s_summary.app_sha256[sizeof(s_summary.app_sha256) - 1] = '\0';
+    bb_strlcpy(s_summary.app_sha256, (const char *)cd_summary.app_elf_sha256,
+               sizeof(s_summary.app_sha256));
 
     s_have_summary = true;
 }

@@ -4,6 +4,7 @@
 #include "bb_ota_check.h"
 #include "bb_release_manifest.h"
 #include "bb_http_client.h"
+#include "bb_str.h"
 #include <inttypes.h>
 #include <stdarg.h>
 #include <string.h>
@@ -281,8 +282,7 @@ static ota_worker_arg_t s_ota_worker_arg;
 void bb_ota_pull_set_releases_url(const char *url)
 {
     if (url) {
-        strncpy(s_releases_url, url, sizeof(s_releases_url) - 1);
-        s_releases_url[sizeof(s_releases_url) - 1] = '\0';
+        bb_strlcpy(s_releases_url, url, sizeof(s_releases_url));
     } else {
         s_releases_url[0] = '\0';
     }
@@ -1117,10 +1117,8 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         return BB_OK;
     }
 
-    strncpy(task_arg->latest_tag, uc_status.latest,       sizeof(task_arg->latest_tag) - 1);
-    task_arg->latest_tag[sizeof(task_arg->latest_tag) - 1] = '\0';
-    strncpy(task_arg->asset_url,  uc_status.download_url, sizeof(task_arg->asset_url) - 1);
-    task_arg->asset_url[sizeof(task_arg->asset_url) - 1] = '\0';
+    bb_strlcpy(task_arg->latest_tag, uc_status.latest,       sizeof(task_arg->latest_tag));
+    bb_strlcpy(task_arg->asset_url,  uc_status.download_url, sizeof(task_arg->asset_url));
 
     taskENTER_CRITICAL(&s_ota_status_mux);
     s_ota_status.state = OTA_STATE_CHECKING;

@@ -8,6 +8,7 @@
 
 #include "bb_http_client.h"
 #include "bb_http_client_host.h"
+#include "bb_str.h"
 
 #include <pthread.h>
 #include <stdbool.h>
@@ -195,7 +196,7 @@ bb_err_t bb_http_client_session_open(const bb_http_client_cfg_t *cfg,
     if (!url_base || !out) return BB_ERR_INVALID_ARG;
     host_session_t *s = (host_session_t *)calloc(1, sizeof(host_session_t));
     if (!s) return BB_ERR_NO_SPACE;
-    strncpy(s->url_base, url_base, sizeof(s->url_base) - 1);
+    bb_strlcpy(s->url_base, url_base, sizeof(s->url_base));
     // Reset header capture for the new session; record open.
     pthread_mutex_lock(&s_mock_lock);
     memset(s_headers, 0, sizeof(s_headers));

@@ -11,6 +11,7 @@
 #include "bb_board.h"
 #include "bb_json.h"
 #include "bb_system.h"
+#include "bb_str.h"
 #include <string.h>
 
 // ---------------------------------------------------------------------------
@@ -45,11 +46,11 @@ bb_err_t bb_info_build_capture(bb_info_build_snap_t *out)
     memset(out, 0, sizeof(*out));
 
     // Version strings via bb_system — all accessors are contractually non-NULL
-    strncpy(out->version,      bb_system_get_version(),      sizeof(out->version)      - 1);
-    strncpy(out->idf_version,  bb_system_get_idf_version(),  sizeof(out->idf_version)  - 1);
-    strncpy(out->build_date,   bb_system_get_build_date(),   sizeof(out->build_date)   - 1);
-    strncpy(out->build_time,   bb_system_get_build_time(),   sizeof(out->build_time)   - 1);
-    strncpy(out->project_name, bb_system_get_project_name(), sizeof(out->project_name) - 1);
+    bb_strlcpy(out->version,      bb_system_get_version(),      sizeof(out->version));
+    bb_strlcpy(out->idf_version,  bb_system_get_idf_version(),  sizeof(out->idf_version));
+    bb_strlcpy(out->build_date,   bb_system_get_build_date(),   sizeof(out->build_date));
+    bb_strlcpy(out->build_time,   bb_system_get_build_time(),   sizeof(out->build_time));
+    bb_strlcpy(out->project_name, bb_system_get_project_name(), sizeof(out->project_name));
 
     // Chip model via bb_board
     bb_board_get_chip_model(out->chip_model, sizeof(out->chip_model));
@@ -63,7 +64,7 @@ bb_err_t bb_info_build_capture(bb_info_build_snap_t *out)
     // Board name: use bb_board_info_t.board (FIRMWARE_BOARD value)
     bb_board_info_t binfo;
     bb_board_get_info(&binfo);
-    strncpy(out->board, binfo.board, sizeof(out->board) - 1);
+    bb_strlcpy(out->board, binfo.board, sizeof(out->board));
 
     // App SHA256 prefix
     bb_system_get_app_sha256(out->app_sha256, sizeof(out->app_sha256));

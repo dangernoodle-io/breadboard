@@ -6,6 +6,7 @@
 #include "bb_nv.h"
 #include "bb_nv_namespaces.h"
 #include "bb_nv_keys.h"
+#include "bb_str.h"
 
 #include <string.h>
 
@@ -19,8 +20,7 @@ bb_err_t bb_nv_reboot_record_save(bb_reset_source_t src, const char *detail,
     rec.uptime_s = uptime_s;
 
     if (detail) {
-        strncpy(rec.detail, detail, sizeof(rec.detail) - 1);
-        rec.detail[sizeof(rec.detail) - 1] = '\0';
+        bb_strlcpy(rec.detail, detail, sizeof(rec.detail));
     }
 
     // BB_REBOOT_RECORD_STR_MAX (96) always fits the widest possible encoding

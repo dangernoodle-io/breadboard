@@ -13,7 +13,7 @@ idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_http
-    PRIV_REQUIRES bb_log bb_init esp_http_server
+    PRIV_REQUIRES bb_log bb_init esp_http_server bb_str
 )
 
 if(CONFIG_BB_WEBSOCKET_DIAG_AUTOREGISTER)

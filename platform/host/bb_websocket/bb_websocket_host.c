@@ -4,6 +4,7 @@
 
 #include "bb_websocket.h"
 #include "bb_websocket_host.h"
+#include "bb_str.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -123,8 +124,7 @@ bb_err_t bb_websocket_register_endpoint(bb_http_handle_t server,
         return BB_ERR_INVALID_ARG;
     }
     s_handler = handler;
-    strncpy(s_registered_path, path, sizeof(s_registered_path) - 1);
-    s_registered_path[sizeof(s_registered_path) - 1] = '\0';
+    bb_strlcpy(s_registered_path, path, sizeof(s_registered_path));
     return BB_OK;
 }
 

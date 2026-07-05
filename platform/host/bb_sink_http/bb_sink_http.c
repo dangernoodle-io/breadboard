@@ -8,6 +8,7 @@
 #include "bb_log.h"
 #include "bb_tls.h"
 #include "bb_transport_health.h"
+#include "bb_str.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -198,10 +199,8 @@ int bb_sink_http_parse_headers(const char *buf,
         }
 
         bb_sink_http_header_t *h = &out[count++];
-        strncpy(h->name,  name,  sizeof(h->name)  - 1);
-        strncpy(h->value, value, sizeof(h->value) - 1);
-        h->name[sizeof(h->name)   - 1] = '\0';
-        h->value[sizeof(h->value) - 1] = '\0';
+        bb_strlcpy(h->name,  name,  sizeof(h->name));
+        bb_strlcpy(h->value, value, sizeof(h->value));
         h->secret = secret;
 
         line = nl ? nl + 1 : line + strlen(line) + 1;
@@ -282,8 +281,7 @@ int bb_sink_http_merge_headers(const bb_sink_http_patch_entry_t *patch, int patc
         if (!bb_sink_http_header_name_valid(pe->name)) continue;
 
         bb_sink_http_header_t *h = &out[count];
-        strncpy(h->name, pe->name, sizeof(h->name) - 1);
-        h->name[sizeof(h->name) - 1] = '\0';
+        bb_strlcpy(h->name, pe->name, sizeof(h->name));
         h->secret = pe->secret;
 
         if (pe->secret && (!pe->value_present || pe->value[0] == '\0')) {
@@ -292,8 +290,7 @@ int bb_sink_http_merge_headers(const bb_sink_http_patch_entry_t *patch, int patc
             if (existing) {
                 for (int j = 0; j < existing_count; j++) {
                     if (strcmp(existing[j].name, pe->name) == 0) {
-                        strncpy(h->value, existing[j].value, sizeof(h->value) - 1);
-                        h->value[sizeof(h->value) - 1] = '\0';
+                        bb_strlcpy(h->value, existing[j].value, sizeof(h->value));
                         found = true;
                         break;
                     }
@@ -305,8 +302,7 @@ int bb_sink_http_merge_headers(const bb_sink_http_patch_entry_t *patch, int patc
         } else {
             // Use provided value; validate it.
             if (!bb_sink_http_header_value_valid(pe->value)) continue;
-            strncpy(h->value, pe->value, sizeof(h->value) - 1);
-            h->value[sizeof(h->value) - 1] = '\0';
+            bb_strlcpy(h->value, pe->value, sizeof(h->value));
         }
 
         count++;
@@ -715,19 +711,16 @@ bb_err_t bb_sink_http_init(const bb_sink_http_cfg_t *over)
 
     if (over) {
         if (over->base[0])      {
-            strncpy(s_cfg.base, over->base, sizeof(s_cfg.base) - 1);
-            s_cfg.base[sizeof(s_cfg.base) - 1] = '\0';
+            bb_strlcpy(s_cfg.base, over->base, sizeof(s_cfg.base));
         }
         if (over->path_tmpl[0]) {
-            strncpy(s_cfg.path_tmpl, over->path_tmpl, sizeof(s_cfg.path_tmpl) - 1);
-            s_cfg.path_tmpl[sizeof(s_cfg.path_tmpl) - 1] = '\0';
+            bb_strlcpy(s_cfg.path_tmpl, over->path_tmpl, sizeof(s_cfg.path_tmpl));
         }
         if (over->qos != 0)     s_cfg.qos     = over->qos;
         if (over->enabled)      s_cfg.enabled  = over->enabled;
         // client_id override (allow setting to empty string explicitly via set_cfg).
         if (over->client_id[0]) {
-            strncpy(s_cfg.client_id, over->client_id, sizeof(s_cfg.client_id) - 1);
-            s_cfg.client_id[sizeof(s_cfg.client_id) - 1] = '\0';
+            bb_strlcpy(s_cfg.client_id, over->client_id, sizeof(s_cfg.client_id));
         }
         // headers override: only when num_headers > 0.
         if (over->num_headers > 0) {

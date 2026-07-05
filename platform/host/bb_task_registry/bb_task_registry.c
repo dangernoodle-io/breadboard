@@ -8,6 +8,7 @@
 #include "bb_clock.h"
 #include "bb_wdt.h"
 #include "bb_task.h"
+#include "bb_str.h"
 
 #include <inttypes.h>
 #include <pthread.h>
@@ -466,8 +467,7 @@ static void sw_wdt_snapshot_cb(const char *name, void *value, void *ctx)
     // bb_registry never invokes foreach callbacks with a NULL name (only
     // successfully-registered, non-NULL-keyed entries are iterated) — no
     // defensive NULL check, matching foreach_trampoline's contract above.
-    strncpy(row->name, name, sizeof(row->name) - 1);
-    row->name[sizeof(row->name) - 1] = '\0';
+    bb_strlcpy(row->name, name, sizeof(row->name));
     row->handle             = entry->handle;
     row->sw_wdt_timeout_ms  = entry->sw_wdt_timeout_ms;
     row->last_feed_ms       = atomic_load_explicit(&entry->last_feed_ms, memory_order_relaxed);

@@ -230,8 +230,7 @@ bb_err_t bb_prov_start_ap(void)
     const char *prefix = s_ap_ssid_prefix_set ? s_ap_ssid_prefix : "BB-";
     char ssid[32];
     snprintf(ssid, sizeof(ssid), "%s%02X%02X", prefix, mac[4], mac[5]);
-    strncpy(s_ap_ssid, ssid, sizeof(s_ap_ssid) - 1);
-    s_ap_ssid[sizeof(s_ap_ssid) - 1] = '\0';
+    bb_strlcpy(s_ap_ssid, ssid, sizeof(s_ap_ssid));
 
     // Configure AP
     wifi_config_t ap_config = {
@@ -400,14 +399,12 @@ void bb_prov_set_ap_ssid_prefix(const char *prefix)
         s_ap_ssid_prefix_set = false;
         return;
     }
-    strncpy(s_ap_ssid_prefix, prefix, sizeof(s_ap_ssid_prefix) - 1);
-    s_ap_ssid_prefix[sizeof(s_ap_ssid_prefix) - 1] = '\0';
+    bb_strlcpy(s_ap_ssid_prefix, prefix, sizeof(s_ap_ssid_prefix));
     s_ap_ssid_prefix_set = true;
 }
 
 void bb_prov_set_ap_password(const char *password)
 {
     if (!password) password = "breadboard";
-    strncpy(s_ap_password, password, sizeof(s_ap_password) - 1);
-    s_ap_password[sizeof(s_ap_password) - 1] = '\0';
+    bb_strlcpy(s_ap_password, password, sizeof(s_ap_password));
 }

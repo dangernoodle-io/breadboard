@@ -30,6 +30,7 @@
 #include "bb_pub.h"
 #include "bb_init.h"
 #include "bb_transport_health.h"
+#include "bb_str.h"
 #include <inttypes.h>
 
 #if CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
@@ -435,8 +436,7 @@ static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
         .tx_failing             = tx_failing,
         .egress_state           = egress_state,
     };
-    strncpy(snap.ip, wi->ip, sizeof(snap.ip) - 1);
-    snap.ip[sizeof(snap.ip) - 1] = '\0';
+    bb_strlcpy(snap.ip, wi->ip, sizeof(snap.ip));
 
     return snap;
 }

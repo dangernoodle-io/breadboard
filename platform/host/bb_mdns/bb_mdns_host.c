@@ -2,6 +2,7 @@
 #include "bb_mdns.h"
 #include "bb_mdns_host_test_hooks.h"
 #include "bb_log.h"
+#include "bb_str.h"
 #include <stdbool.h>
 #include <string.h>
 
@@ -37,17 +38,14 @@ static void host_txt_store(const char *key, const char *value)
     int free_slot = -1;
     for (int i = 0; i < BB_MDNS_HOST_TXT_PENDING_MAX; i++) {
         if (s_host_txt[i].in_use && strcmp(s_host_txt[i].key, key) == 0) {
-            strncpy(s_host_txt[i].value, value, sizeof(s_host_txt[i].value) - 1);
-            s_host_txt[i].value[sizeof(s_host_txt[i].value) - 1] = '\0';
+            bb_strlcpy(s_host_txt[i].value, value, sizeof(s_host_txt[i].value));
             return;
         }
         if (!s_host_txt[i].in_use && free_slot < 0) free_slot = i;
     }
     if (free_slot < 0) return;
-    strncpy(s_host_txt[free_slot].key, key, sizeof(s_host_txt[free_slot].key) - 1);
-    s_host_txt[free_slot].key[sizeof(s_host_txt[free_slot].key) - 1] = '\0';
-    strncpy(s_host_txt[free_slot].value, value, sizeof(s_host_txt[free_slot].value) - 1);
-    s_host_txt[free_slot].value[sizeof(s_host_txt[free_slot].value) - 1] = '\0';
+    bb_strlcpy(s_host_txt[free_slot].key, key, sizeof(s_host_txt[free_slot].key));
+    bb_strlcpy(s_host_txt[free_slot].value, value, sizeof(s_host_txt[free_slot].value));
     s_host_txt[free_slot].in_use = true;
 }
 
@@ -200,10 +198,8 @@ bb_err_t bb_mdns_browse_start(const char *service, const char *proto,
     // Allocate new slot
     for (int i = 0; i < BB_MDNS_HOST_BROWSE_MAX; i++) {
         if (!s_host_subs[i].in_use) {
-            strncpy(s_host_subs[i].service, service, sizeof(s_host_subs[i].service) - 1);
-            s_host_subs[i].service[sizeof(s_host_subs[i].service) - 1] = '\0';
-            strncpy(s_host_subs[i].proto, proto, sizeof(s_host_subs[i].proto) - 1);
-            s_host_subs[i].proto[sizeof(s_host_subs[i].proto) - 1] = '\0';
+            bb_strlcpy(s_host_subs[i].service, service, sizeof(s_host_subs[i].service));
+            bb_strlcpy(s_host_subs[i].proto, proto, sizeof(s_host_subs[i].proto));
             s_host_subs[i].on_peer    = on_peer;
             s_host_subs[i].on_removed = on_removed;
             s_host_subs[i].ctx        = ctx;
@@ -446,13 +442,11 @@ bb_err_t bb_mdns_coalesce_append_for_test(const char *service, const char *proto
         memset(&s_coalesce.entries[i], 0, sizeof(bb_mdns_peer_t));
     }
     s_coalesce.is_removal[i] = is_removal;
-    strncpy(s_coalesce.service[i], service, sizeof(s_coalesce.service[i]) - 1);
-    s_coalesce.service[i][sizeof(s_coalesce.service[i]) - 1] = '\0';
-    strncpy(s_coalesce.proto[i], proto, sizeof(s_coalesce.proto[i]) - 1);
-    s_coalesce.proto[i][sizeof(s_coalesce.proto[i]) - 1] = '\0';
+    bb_strlcpy(s_coalesce.service[i], service, sizeof(s_coalesce.service[i]));
+    bb_strlcpy(s_coalesce.proto[i], proto, sizeof(s_coalesce.proto[i]));
     if (peer && peer->id.instance_name[0] != '\0') {
-        strncpy(s_coalesce.instance_names[i], peer->id.instance_name,
-                sizeof(s_coalesce.instance_names[i]) - 1);
+        bb_strlcpy(s_coalesce.instance_names[i], peer->id.instance_name,
+                   sizeof(s_coalesce.instance_names[i]));
     }
     s_coalesce.count++;
     return BB_OK;

@@ -5,6 +5,7 @@
 #include "bb_system.h"
 
 #include "bb_json.h"
+#include "bb_str.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -32,8 +33,7 @@ void bb_system_reboot_parse_body(const char *body, int body_len, const char *ua_
 
     // Precedence: body detail (non-empty) > ua_or_null (non-NULL/non-empty) > "".
     if (!detail[0] && ua_or_null && ua_or_null[0]) {
-        strncpy(detail, ua_or_null, sizeof(detail) - 1);
-        detail[sizeof(detail) - 1] = '\0';
+        bb_strlcpy(detail, ua_or_null, sizeof(detail));
     }
 
     *out_ts = ts;

@@ -2,6 +2,7 @@
 #include <EEPROM.h>
 #include <string.h>
 #include "bb_nv.h"
+#include "bb_str.h"
 
 // EEPROM layout: magic (4B) | count (2B) | records...
 // Each record: ns_len (1B) | ns | key_len (1B) | key | type (1B) | val_len (1B) | val
@@ -303,8 +304,7 @@ extern "C" bb_err_t bb_nv_batch_begin(bb_nv_batch_t *batch, const char *ns) {
     batch->_impl = 0;
     batch->_err = BB_OK;
     batch->_open = 1;
-    strncpy(batch->_ns, ns, sizeof(batch->_ns) - 1);
-    batch->_ns[sizeof(batch->_ns) - 1] = '\0';
+    bb_strlcpy(batch->_ns, ns, sizeof(batch->_ns));
     return BB_OK;
 }
 
