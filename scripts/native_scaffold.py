@@ -521,6 +521,14 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_cache_reactive/bb_cache_reactive.c"],
         "depends":  ["bb_core", "bb_cache", "bb_json", "bb_log"],
     },
+    "bb_cache_routes": {
+        "includes": ["components/bb_cache_routes/include", "components/bb_cache_routes/src"],
+        "sources":  [
+            "components/bb_cache_routes/src/cache_route_status.c",
+            "platform/host/bb_cache_routes/bb_cache_routes_host.c",
+        ],
+        "depends":  ["bb_core", "bb_json", "bb_cache"],
+    },
     "bb_registry": {
         "includes": ["components/bb_registry/include"],
         "sources":  ["platform/host/bb_registry/bb_registry.c"],

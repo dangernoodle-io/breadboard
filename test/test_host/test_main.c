@@ -4045,6 +4045,13 @@ void test_sse_pool_reclaim_decide_acquired_nonzero_keeps(void);
 void test_sse_pool_reclaim_decide_pending_nonzero_keeps(void);
 void test_sse_pool_reclaim_decide_all_zero_destroys(void);
 
+// Forward declarations from test_cache_route_status.c (B1-583)
+void test_cache_route_map_status_ok_is_200(void);
+void test_cache_route_map_status_not_found_is_404(void);
+void test_cache_route_map_status_invalid_state_is_404(void);
+void test_cache_route_map_status_no_space_is_500(void);
+void test_cache_route_map_status_other_is_500(void);
+
 // Forward declarations from test_sse_connect_error_decision.c (B1-561)
 void test_sse_connect_error_status_no_space_returns_503(void);
 void test_sse_connect_error_status_other_returns_500(void);
@@ -8343,6 +8350,13 @@ int main(void) {
     RUN_TEST(test_sse_pool_reclaim_decide_acquired_nonzero_keeps);
     RUN_TEST(test_sse_pool_reclaim_decide_pending_nonzero_keeps);
     RUN_TEST(test_sse_pool_reclaim_decide_all_zero_destroys);
+
+    // cache_route_status tests (B1-583)
+    RUN_TEST(test_cache_route_map_status_ok_is_200);
+    RUN_TEST(test_cache_route_map_status_not_found_is_404);
+    RUN_TEST(test_cache_route_map_status_invalid_state_is_404);
+    RUN_TEST(test_cache_route_map_status_no_space_is_500);
+    RUN_TEST(test_cache_route_map_status_other_is_500);
 
     RUN_TEST(test_sse_connect_error_status_no_space_returns_503);
     RUN_TEST(test_sse_connect_error_status_other_returns_500);
