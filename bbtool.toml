@@ -81,5 +81,13 @@ severity = "warn"
 # taxonomy decision + open forks gate the fill). Flip to "error" once the
 # fill lands (B1-646).
 
+[docs]
+repo_url = "https://github.com/dangernoodle-io/breadboard"
+wiki_base = "https://github.com/dangernoodle-io/breadboard/wiki"
+
+[docs.badges]
+build = "https://github.com/dangernoodle-io/breadboard/actions/workflows/build.yml/badge.svg"
+coverage = "https://coveralls.io/repos/github/dangernoodle-io/breadboard/badge.svg?branch=main"
+
 [plugins]
 paths = []

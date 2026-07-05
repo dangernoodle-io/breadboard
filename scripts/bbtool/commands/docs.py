@@ -1,9 +1,15 @@
 """docs command — regenerate marker-delimited generated regions in component READMEs.
 
-Subcommand:
-    bbtool docs gen    Regenerate + write the GENERATED marker regions
-                       (deps, platform) in every components/<name>/README.md
-                       that already contains them.
+Subcommands:
+    bbtool docs gen               Regenerate + write the GENERATED marker
+                                  regions (deps, platform) in every
+                                  components/<name>/README.md that already
+                                  contains them.
+    bbtool docs scaffold <name>   Stamp scripts/bbtool/templates/component-readme.md
+                                  into components/<name>/README.md (error, never
+                                  overwrite, if it already exists), substitute
+                                  tokens, then run the same marker-region
+                                  generation as `gen` over the fresh file.
 
 There is no --check mode: the drift gate is simply `bbtool docs gen` followed
 by `git diff --exit-code` (wired into `make check`).
@@ -16,9 +22,11 @@ Marker convention (terraform-docs style):
 
 Only the text strictly between a BEGIN/END pair is rewritten; everything else
 in the file (hand-authored prose, other sections) is left byte-for-byte
-untouched. A README with no markers is never modified and never created by
-this command — component READMEs are hand-authored from birth; `docs gen`
-only fills in the generated regions of READMEs that already opt in.
+untouched. A README with no markers is never modified by `gen`. `docs gen`
+itself never creates or scaffolds a README for a component that doesn't have
+one — component READMEs are hand-authored from birth; `docs gen` only fills
+in the generated regions of READMEs that already opt in. `docs scaffold` is
+the separate, explicit opt-in path for creating a new one.
 
 Generated regions today:
   - deps     — REQUIRES / PRIV_REQUIRES parsed from components/<name>/CMakeLists.txt
@@ -28,7 +36,10 @@ Determinism is load-bearing: sorted lists, no dict/set iteration-order leaks,
 no timestamps, no absolute paths, normalized trailing newline. A second `gen`
 run on unchanged inputs MUST produce zero diff.
 
-See scripts/bbtool/README.md for the full per-component README template.
+See scripts/bbtool/templates/component-readme.md for the stampable README
+template (the single source of truth for its shape) and
+scripts/bbtool/README.md for the `[docs]` config schema and `docs scaffold`
+usage.
 """
 from __future__ import annotations
 import argparse
@@ -36,10 +47,11 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from core import Context
 from registry import Rule
+from templating import render, find_dangling_tokens
 
 NAME = "docs"
 HELP = "Regenerate generated marker regions in component READMEs"
@@ -249,6 +261,122 @@ def _cmd_gen(root: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# docs scaffold — stamp templates/component-readme.md into a new component
+# ---------------------------------------------------------------------------
+
+_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "component-readme.md"
+
+
+def _load_docs_config(config: dict) -> Optional[dict]:
+    """Parse the optional `[docs]` bbtool.toml block. Returns None when
+    absent — callers must treat that as "omit every optional doc region",
+    never as empty-string tokens."""
+    docs_cfg = config.get("docs") if config else None
+    if not docs_cfg:
+        return None
+    return docs_cfg
+
+
+def _component_prefix(component: str) -> str:
+    """Derive the symbol-prefix token from a component directory name, e.g.
+    'bb_foo' -> 'bb'. Leading underscores are stripped first so a name like
+    '_bb_widget' still yields 'bb' instead of an empty prefix. Falls back to
+    the (stripped) full name if there is no underscore left to split on."""
+    stripped = component.lstrip("_")
+    return stripped.split("_", 1)[0] if "_" in stripped else stripped
+
+
+def _render_badges_row(repo_url: str, badges: Dict[str, str]) -> str:
+    """Render a markdown badge row from a name->image-url map, sorted by name
+    for determinism. Each badge links to repo_url."""
+    if not badges:
+        return ""
+    return " ".join(
+        f"[![{name}]({url})]({repo_url})" for name, url in sorted(badges.items())
+    )
+
+
+def scaffold_component(root: str, component: str, config: dict) -> Path:
+    """Stamp templates/component-readme.md into components/<component>/README.md,
+    substituting tokens, then run marker-region generation over the fresh file
+    so it lands fully populated in one shot.
+
+    Raises FileExistsError if the README already exists — this function must
+    NEVER overwrite an existing README.
+    Raises RuntimeError if the rendered output still has dangling {{tokens}}.
+    """
+    root_p = Path(root)
+    readme_path = root_p / "components" / component / "README.md"
+    if readme_path.exists():
+        raise FileExistsError(f"{readme_path} already exists; docs scaffold refuses to overwrite it")
+
+    template_text = _TEMPLATE_PATH.read_text(encoding="utf-8")
+
+    vars = {
+        "component": component,
+        "prefix": _component_prefix(component),
+    }
+
+    optional_vars: Dict[str, Optional[Dict[str, str]]] = {"badges": None}
+    docs_cfg = _load_docs_config(config)
+    repo_url = ""
+    wiki_base = ""
+    if docs_cfg:
+        repo_url = docs_cfg.get("repo_url", "")
+        wiki_base = docs_cfg.get("wiki_base", "")
+        badges = docs_cfg.get("badges", {}) or {}
+        optional_vars["badges"] = {
+            "repo_url": repo_url,
+            "wiki_base": wiki_base,
+            "badges_row": _render_badges_row(repo_url, badges),
+        }
+
+    rendered = render(template_text, vars, optional_vars)
+
+    if docs_cfg:
+        # Each link line is independently conditional on its own token being
+        # present — a partial [docs] config (only one of repo_url/wiki_base
+        # set) must omit the missing line entirely rather than emit a broken
+        # `[]()` link.
+        if not repo_url:
+            rendered = re.sub(r'^- Repository:.*\n?', "", rendered, flags=re.MULTILINE)
+        if not wiki_base:
+            rendered = re.sub(r'^- Wiki:.*\n?', "", rendered, flags=re.MULTILINE)
+        # An empty badges row (or a dropped link line above) can leave a
+        # doubled blank line under the "Links" heading — collapse it.
+        # NOTE: this collapse is global over the rendered template and is safe
+        # only because the template contains no intentional triple-newline and
+        # this runs before marker population — a future multi-paragraph
+        # template with deliberate blank-line spacing would need a Links-scoped
+        # collapse instead.
+        rendered = re.sub(r'\n{3,}', "\n\n", rendered)
+
+    dangling = find_dangling_tokens(rendered)
+    if dangling:
+        raise RuntimeError(f"docs scaffold: unresolved template tokens {dangling} in {readme_path}")
+
+    readme_path.parent.mkdir(parents=True, exist_ok=True)
+    readme_path.write_text(rendered, encoding="utf-8")
+
+    # Populate the freshly-stamped marker regions in the same pass.
+    _gen_component_readme(root_p, component)
+    return readme_path
+
+
+def _cmd_scaffold(root: str, component: str, config: dict) -> int:
+    try:
+        path = scaffold_component(root, component, config)
+    except FileExistsError as e:
+        print(f"bbtool docs scaffold: error: {e}", file=sys.stderr)
+        return 1
+    except RuntimeError as e:
+        print(f"bbtool docs scaffold: error: {e}", file=sys.stderr)
+        return 1
+    print(f"bbtool docs scaffold: {path} (created)")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Lint rule: component-readme (doc-completeness)
 # ---------------------------------------------------------------------------
 
@@ -279,7 +407,8 @@ _DOCS_RULES = [
         profiles={"library"},
         check=_check_component_readme,
         hint="every components/<name>/ directory should have a README.md"
-             " (see scripts/bbtool/README.md for the template)",
+             " (run `bbtool docs scaffold <name>`, or see"
+             " scripts/bbtool/templates/component-readme.md)",
     ),
 ]
 
@@ -306,8 +435,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "action",
-        choices=["gen"],
-        help="docs subcommand (only 'gen' today)",
+        choices=["gen", "scaffold"],
+        help="docs subcommand: 'gen' regenerates marker regions; "
+             "'scaffold' stamps a new component README",
+    )
+    parser.add_argument(
+        "component",
+        nargs="?",
+        default=None,
+        help="component name, e.g. bb_foo (required for 'scaffold')",
     )
 
 
@@ -317,4 +453,10 @@ def run(args: argparse.Namespace) -> int:
 
     if args.action == "gen":
         return _cmd_gen(root)
+    if args.action == "scaffold":
+        if not args.component:
+            print("bbtool docs scaffold: error: component name required", file=sys.stderr)
+            return 1
+        config = getattr(args, "_config_dict", None) or {}
+        return _cmd_scaffold(root, args.component, config)
     return 1
