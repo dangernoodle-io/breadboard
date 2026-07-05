@@ -21,7 +21,10 @@ from commands.docs import (
     NestedMarkerError,
     gen_all,
     _check_component_readme,
+    scaffold_component,
+    _component_prefix,
 )
+from templating import find_dangling_tokens
 
 
 README_TEMPLATE = """# bb_fake
@@ -274,6 +277,136 @@ class TestComponentReadmeRule(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             ctx = Context(root=td, config={})
             self.assertEqual(_check_component_readme(ctx), [])
+
+
+_DOCS_CONFIG = {
+    "docs": {
+        "repo_url": "https://github.com/example-org/example-repo",
+        "wiki_base": "https://github.com/example-org/example-repo/wiki",
+        "badges": {
+            "build": "https://example.test/build.svg",
+            "coverage": "https://example.test/coverage.svg",
+        },
+    }
+}
+
+
+class TestComponentPrefix(unittest.TestCase):
+    def test_prefix_before_first_underscore(self):
+        self.assertEqual(_component_prefix("bb_foo"), "bb")
+        self.assertEqual(_component_prefix("bb_foo_bar"), "bb")
+
+    def test_prefix_no_underscore(self):
+        self.assertEqual(_component_prefix("standalone"), "standalone")
+
+    def test_prefix_leading_underscore(self):
+        self.assertEqual(_component_prefix("_bb_widget"), "bb")
+
+
+class TestDocsScaffold(unittest.TestCase):
+    def test_scaffold_stamps_expected_content(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = scaffold_component(td, "bb_widget", {})
+            self.assertTrue(path.exists())
+            content = path.read_text(encoding="utf-8")
+            self.assertIn("# bb_widget", content)
+            self.assertIn("include/bb_widget.h", content)
+            self.assertIn("`bb_` prefix", content)
+            self.assertIn("<!-- BEGIN bbtool:deps -->", content)
+            self.assertIn("<!-- BEGIN bbtool:platform -->", content)
+            # docs config absent -> badges/links region fully omitted
+            self.assertNotIn("bbtool:optional:badges", content)
+            self.assertNotIn("## Links", content)
+            self.assertEqual(find_dangling_tokens(content), [])
+
+    def test_scaffold_refuses_to_overwrite(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = scaffold_component(td, "bb_widget", {})
+            original = path.read_text(encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                scaffold_component(td, "bb_widget", {})
+            # File must be untouched by the refused attempt.
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+    def test_scaffold_with_docs_config_renders_badges_region(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = scaffold_component(td, "bb_widget", _DOCS_CONFIG)
+            content = path.read_text(encoding="utf-8")
+            self.assertIn("## Links", content)
+            self.assertIn("https://github.com/example-org/example-repo", content)
+            self.assertIn("https://github.com/example-org/example-repo/wiki", content)
+            self.assertIn("https://example.test/build.svg", content)
+            self.assertIn("https://example.test/coverage.svg", content)
+            self.assertNotIn("bbtool:optional:badges", content)
+            self.assertEqual(find_dangling_tokens(content), [])
+
+    def test_scaffold_without_docs_config_omits_region_cleanly(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = scaffold_component(td, "bb_widget", {})
+            content = path.read_text(encoding="utf-8")
+            self.assertNotIn("{{", content)
+            self.assertNotIn("}}", content)
+            self.assertNotIn("bbtool:optional", content)
+            self.assertNotIn("## Links", content)
+
+    def test_scaffold_deterministic(self):
+        with tempfile.TemporaryDirectory() as td1, tempfile.TemporaryDirectory() as td2:
+            path1 = scaffold_component(td1, "bb_widget", _DOCS_CONFIG)
+            path2 = scaffold_component(td2, "bb_widget", _DOCS_CONFIG)
+            self.assertEqual(
+                path1.read_text(encoding="utf-8"),
+                path2.read_text(encoding="utf-8"),
+            )
+
+    def test_scaffold_partial_docs_config_missing_wiki_base(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = {"docs": {"repo_url": "https://github.com/example-org/example-repo"}}
+            path = scaffold_component(td, "bb_widget", config)
+            content = path.read_text(encoding="utf-8")
+            self.assertNotIn("[]()", content)
+            self.assertNotIn("- Wiki:", content)
+            self.assertIn(
+                "- Repository: [https://github.com/example-org/example-repo]"
+                "(https://github.com/example-org/example-repo)",
+                content,
+            )
+
+    def test_scaffold_partial_docs_config_missing_repo_url(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = {"docs": {"wiki_base": "https://github.com/example-org/example-repo/wiki"}}
+            path = scaffold_component(td, "bb_widget", config)
+            content = path.read_text(encoding="utf-8")
+            self.assertNotIn("[]()", content)
+            self.assertNotIn("- Repository:", content)
+            self.assertIn(
+                "- Wiki: [https://github.com/example-org/example-repo/wiki]"
+                "(https://github.com/example-org/example-repo/wiki)",
+                content,
+            )
+
+    def test_scaffold_docs_config_empty_badges(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = {
+                "docs": {
+                    "repo_url": "https://github.com/example-org/example-repo",
+                    "wiki_base": "https://github.com/example-org/example-repo/wiki",
+                }
+            }
+            path = scaffold_component(td, "bb_widget", config)
+            content = path.read_text(encoding="utf-8")
+            self.assertNotIn("\n\n\n", content)
+
+    def test_scaffolded_readme_is_gen_idempotent(self):
+        with tempfile.TemporaryDirectory() as td:
+            scaffold_component(td, "bb_widget", {})
+            comp = Path(td) / "components" / "bb_widget"
+            before = (comp / "README.md").read_text(encoding="utf-8")
+            results = gen_all(td)
+            self.assertEqual(len(results), 1)
+            _, changed = results[0]
+            self.assertFalse(changed, "docs gen must not churn a freshly-scaffolded README")
+            after = (comp / "README.md").read_text(encoding="utf-8")
+            self.assertEqual(before, after)
 
 
 if __name__ == "__main__":
