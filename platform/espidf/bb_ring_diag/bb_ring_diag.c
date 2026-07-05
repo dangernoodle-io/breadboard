@@ -18,6 +18,7 @@
 #include "bb_http.h"
 #include "bb_init.h"
 #include "bb_log.h"
+#include "bb_str.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -47,7 +48,7 @@ static void rings_snapshot_cb(const char *name, bb_ring_t r, void *ctx)
         return;  // registry is bounded by BB_RING_REGISTRY_MAX; defensive only
     }
     ring_snapshot_t *s = &sc->snap[sc->n];
-    strlcpy(s->name, name ? name : "", sizeof(s->name));
+    bb_strlcpy(s->name, name ? name : "", sizeof(s->name));
     // size_t -> uint32_t narrowing is safe here: these are diagnostic ring
     // counts/dropped/truncated (bounded by BB_RING_REGISTRY_MAX-sized rings)
     // and cumulative byte totals — none realistically approach 4G on an

@@ -1,4 +1,5 @@
 #include "bb_partition.h"
+#include "bb_str.h"
 #include "esp_partition.h"
 #include "esp_ota_ops.h"
 #include <string.h>
@@ -57,9 +58,9 @@ static void fill_info(bb_partition_info_t *out,
                       const esp_partition_t *running,
                       const esp_partition_t *next_ota)
 {
-    strlcpy(out->label,   p->label, sizeof(out->label));
-    strlcpy(out->type,    partition_type_str(p->type),            sizeof(out->type));
-    strlcpy(out->subtype, partition_subtype_str(p->type, p->subtype), sizeof(out->subtype));
+    bb_strlcpy(out->label,   p->label, sizeof(out->label));
+    bb_strlcpy(out->type,    partition_type_str(p->type),            sizeof(out->type));
+    bb_strlcpy(out->subtype, partition_subtype_str(p->type, p->subtype), sizeof(out->subtype));
     out->offset   = p->address;
     out->size     = p->size;
     out->running  = (p == running);

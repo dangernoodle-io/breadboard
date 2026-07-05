@@ -95,7 +95,7 @@ COMPONENT_MAP = {
             "components/bb_nv/bb_nv_wifi_pending.c",
             "components/bb_nv/bb_nv_reboot.c",
         ],
-        "depends":  ["bb_core", "bb_init", "bb_http", "bb_json"],
+        "depends":  ["bb_core", "bb_init", "bb_http", "bb_json", "bb_str"],
     },
     "bb_json": {
         "includes": ["components/bb_json/include", "platform/host/bb_json"],
