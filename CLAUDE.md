@@ -123,13 +123,17 @@ error. Set `BB_LINT_ON_BUILD=OFF` to disable it as a deliberate override.
 
 **EARLY tier** — NVS, WiFi init, board bring-up (no server arg):
 ```c
-BB_INIT_REGISTER_EARLY(bb_<comp>, bb_<comp>_init);  // bb_err_t fn(void)
+BB_INIT_REGISTER_EARLY(bb_<comp>, bb_<comp>_init);          // order=0 (default)
+BB_INIT_REGISTER_EARLY_N(bb_<comp>, bb_<comp>_init, N);     // explicit order N
 ```
 
 **PRE_HTTP tier** — tasks that must run after EARLY but before the HTTP server (no server arg):
 ```c
-BB_INIT_REGISTER_PRE_HTTP(bb_<comp>, bb_<comp>_init);  // bb_err_t fn(void)
+BB_INIT_REGISTER_PRE_HTTP(bb_<comp>, bb_<comp>_init);       // order=0 (default)
+BB_INIT_REGISTER_PRE_HTTP_N(bb_<comp>, bb_<comp>_init, N);  // explicit order N
 ```
+
+Like the regular tier, `BB_INIT_REGISTER_EARLY_N` / `BB_INIT_REGISTER_PRE_HTTP_N` accept an integer `order` as the third argument — each tier's walker sorts its own entries by `.order` ascending before invoking inits, ties preserve registration (insertion) order. EARLY and PRE_HTTP are **not** unordered: they're independently ordered lists, same sort semantics as REGULAR, just no server arg and a separate namespace of order values (an EARLY order N has no relationship to a PRE_HTTP or REGULAR order N). Example: `BB_INIT_REGISTER_PRE_HTTP_N(bb_<comp>, bb_<comp>_init, -1);` runs before the default order-0 PRE_HTTP entries — use a negative order to guarantee a component initializes before every plain `BB_INIT_REGISTER_PRE_HTTP` registrant.
 
 **Regular tier** — HTTP route registration (server arg):
 ```c
