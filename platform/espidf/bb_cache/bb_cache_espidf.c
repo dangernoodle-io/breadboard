@@ -343,8 +343,10 @@ static bb_err_t serialize_locked(bb_cache_entry_t *e, const char *key, uint32_t 
 // Public API
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
+bb_err_t bb_cache_register_ex(const bb_cache_config_t *cfg, bool *out_first_time)
 {
+    if (out_first_time) *out_first_time = false;
+
     if (!cfg || !cfg->key || !cfg->serialize) return BB_ERR_INVALID_ARG;
     if (strlen(cfg->key) >= BB_CACHE_KEY_MAX) {
         bb_log_e(TAG, "key '%s' too long (max %d chars)", cfg->key, BB_CACHE_KEY_MAX - 1);
@@ -355,7 +357,11 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
 
     pthread_mutex_lock(&s_reg_lock);
 
-    // Idempotent: already registered?
+    // Idempotent: already registered? Find-or-init happens under this SINGLE
+    // s_reg_lock acquisition (B1-592 firmware-review fix) -- callers that need
+    // atomic first-time detection (bb_cache_reactive's on_register) must never
+    // pair a separate bb_cache_exists() probe with this call, which would
+    // leave a TOCTOU window between the two lock acquisitions.
     if (find_entry(cfg->key)) {
         pthread_mutex_unlock(&s_reg_lock);
         return BB_OK;
@@ -429,7 +435,13 @@ bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
     slot->ts_ms       = 0;      // stamped on first update()/snapshot() read
 
     pthread_mutex_unlock(&s_reg_lock);
+    if (out_first_time) *out_first_time = true;
     return BB_OK;
+}
+
+bb_err_t bb_cache_register(const bb_cache_config_t *cfg)
+{
+    return bb_cache_register_ex(cfg, NULL);
 }
 
 bb_err_t bb_cache_update(const bb_cache_update_t *req)

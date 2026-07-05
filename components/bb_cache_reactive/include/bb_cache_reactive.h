@@ -9,20 +9,32 @@
 //     write that actually CHANGED the stored value, every matching
 //     observer's on_change is fired with the freshly-serialized {ts_ms,data}
 //     envelope, ts_ms lifted out and json pointing at the "data" bytes only.
-//   - on_register / on_remove are ACCEPTED and STORED but never invoked in
-//     this PR — reserved for a later PR (on_remove needs B1-592 delete/
-//     eviction; on_register needs a new-key-notify hook). Callers may safely
-//     register them now; behavior is a documented no-op until then.
 //
-// Reentrancy (load-bearing, B1-589):
+// A2 scope (B1-592 A2 — reactive triad, on top of A1's bb_cache_delete):
+//   - bb_cache_reactive_register() wraps bb_cache_register(): on a
+//     FIRST-TIME registration success (not the idempotent already-registered
+//     case), every matching observer's on_register is fired with the key.
+//   - bb_cache_reactive_delete() wraps bb_cache_delete(): on success, every
+//     matching observer's on_remove is fired with the key, AFTER the entry
+//     has been freed.
+//   - Both firings use the same snapshot-then-notify shape as on_change
+//     (see the Reentrancy note below).
+//
+// Reentrancy (load-bearing, B1-589; extended B1-592 A2 for the full triad):
 //   The matching observer list is snapshotted under an internal lock, the
 //   lock is released, and only THEN are callbacks invoked (mirrors
-//   bb_cache_foreach). on_change callbacks may safely call bb_cache_* /
-//   bb_cache_reactive_observe() (a fresh registration), but MUST NOT call
-//   back into bb_cache_reactive_update() for the same key from within the
-//   callback -- that reintroduces the recursion this snapshot-then-notify
-//   shape exists to avoid. This layer never holds a raw bb_cache entry
-//   pointer -- it only ever calls bb_cache's public API.
+//   bb_cache_foreach). This holds symmetrically for all three callbacks:
+//   on_change, on_register, and on_remove. Each may safely call bb_cache_* /
+//   bb_cache_reactive_observe() (a fresh registration) or reentrantly drive
+//   bb_cache_reactive_register()/bb_cache_reactive_delete() for a DIFFERENT
+//   key (bb_cache_register_ex()'s single-lock-acquisition find-or-init makes
+//   same-key first-time detection atomic, so a reentrant call for a
+//   DIFFERENT key never races the in-flight registration/deletion this
+//   callback was fired from). Callbacks MUST NOT call back into
+//   bb_cache_reactive_update()/_register()/_delete() for the SAME key they
+//   were fired for -- that reintroduces the recursion this snapshot-then-
+//   notify shape exists to avoid. This layer never holds a raw bb_cache
+//   entry pointer -- it only ever calls bb_cache's public API.
 //
 // Kconfig-gated (CONFIG_BB_CACHE_REACTIVE_ENABLE, default n): when disabled,
 // bb_cache_reactive_observe() is a static-inline no-op (BB_ERR_UNSUPPORTED)
@@ -67,7 +79,10 @@ extern "C" {
 // Observer callback triad (PINNED signatures, B1-589)
 // ---------------------------------------------------------------------------
 
-// New key registered. ACCEPTED but NOT fired in PR-4b (reserved).
+// New key registered. Fires exactly once, iff the registration is the
+// key's FIRST-TIME registration via bb_cache_reactive_register() --
+// re-registering an already-registered key is idempotent (matches
+// bb_cache_register()) and does NOT re-fire.
 typedef void (*bb_cache_on_register_fn)(const char *key, void *ctx);
 
 // Value changed. json/len point at the "data" object bytes only (ts_ms is
@@ -76,8 +91,10 @@ typedef void (*bb_cache_on_register_fn)(const char *key, void *ctx);
 typedef void (*bb_cache_on_change_fn)(const char *key, const char *json,
                                        size_t len, int64_t ts_ms, void *ctx);
 
-// Key deleted/evicted. ACCEPTED but NOT fired in PR-4b (reserved; needs
-// B1-592 delete/eviction).
+// Key deleted. Fires exactly once per successful bb_cache_reactive_delete(),
+// AFTER the entry has been freed -- the value is no longer readable at fire
+// time (only the key string, captured before the free, is available to the
+// callback).
 typedef void (*bb_cache_on_remove_fn)(const char *key, void *ctx);
 
 // Config-struct registration (single struct arg, no _ex -- see the
@@ -85,9 +102,9 @@ typedef void (*bb_cache_on_remove_fn)(const char *key, void *ctx);
 //
 //   key         — NULL observes every key; non-NULL observes exactly that
 //                 key (copied, up to BB_CACHE_KEY_MAX-1 chars).
-//   on_register — reserved, stored but never invoked in this PR.
+//   on_register — fired synchronously after a first-time bb_cache_reactive_register().
 //   on_change   — fired synchronously after a changed bb_cache_reactive_update().
-//   on_remove   — reserved, stored but never invoked in this PR.
+//   on_remove   — fired synchronously after a successful bb_cache_reactive_delete().
 //   ctx         — passed through to every callback unchanged.
 typedef struct {
     const char              *key;
@@ -112,6 +129,22 @@ bb_err_t bb_cache_reactive_observe(const bb_cache_reactive_observer_t *cfg);
 // Returns whatever bb_cache_update() returns.
 bb_err_t bb_cache_reactive_update(const bb_cache_update_t *req);
 
+// Write-through to bb_cache_register(): performs the plain registration
+// and, iff this is the key's FIRST-TIME registration (bb_cache_register()
+// is idempotent -- re-registering an already-registered key returns BB_OK
+// without creating a duplicate entry and does NOT count as first-time),
+// fires every matching observer's on_register with the key.
+// Returns whatever bb_cache_register() returns.
+bb_err_t bb_cache_reactive_register(const bb_cache_config_t *cfg);
+
+// Write-through to bb_cache_delete(): performs the plain delete and, on
+// success, fires every matching observer's on_remove with the key AFTER the
+// entry has been freed -- observers must not assume the value is still
+// readable (bb_cache_get_serialized/bb_cache_get_raw will return
+// BB_ERR_NOT_FOUND for the key by the time on_remove runs).
+// Returns whatever bb_cache_delete() returns.
+bb_err_t bb_cache_reactive_delete(const char *key);
+
 #else
 
 static inline bb_err_t bb_cache_reactive_observe(const bb_cache_reactive_observer_t *cfg)
@@ -123,6 +156,16 @@ static inline bb_err_t bb_cache_reactive_observe(const bb_cache_reactive_observe
 static inline bb_err_t bb_cache_reactive_update(const bb_cache_update_t *req)
 {
     return bb_cache_update(req);
+}
+
+static inline bb_err_t bb_cache_reactive_register(const bb_cache_config_t *cfg)
+{
+    return bb_cache_register(cfg);
+}
+
+static inline bb_err_t bb_cache_reactive_delete(const char *key)
+{
+    return bb_cache_delete(key);
 }
 
 #endif // BB_CACHE_REACTIVE_ENABLE
