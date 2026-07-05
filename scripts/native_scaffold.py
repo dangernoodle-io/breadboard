@@ -268,11 +268,11 @@ COMPONENT_MAP = {
         "includes": ["components/bb_health/include", "components/bb_health"],
         "sources":  [
             "platform/host/bb_health/bb_health_host.c",
-            "platform/host/bb_health/bb_health_stack_host.c",
             "platform/host/bb_health/bb_health_emit.c",
             "components/bb_health/bb_health_stack_common.c",
         ],
-        "depends":  ["bb_core", "bb_http", "bb_json", "bb_ota_validator", "bb_wifi", "bb_response"],
+        "depends":  ["bb_core", "bb_http", "bb_json", "bb_ota_validator", "bb_wifi", "bb_response",
+                     "bb_task_registry"],
     },
     "bb_power": {
         "includes": ["components/bb_power/include"],
@@ -571,9 +571,12 @@ COMPONENT_MAP = {
         "depends":  ["bb_core", "bb_pub", "bb_openapi", "bb_task_registry"],
     },
     "bb_task_registry": {
-        "includes": ["components/bb_task_registry/include"],
-        "sources":  ["platform/host/bb_task_registry/bb_task_registry.c"],
-        "depends":  ["bb_core", "bb_registry"],
+        "includes": ["components/bb_task_registry/include", "components/bb_task_registry"],
+        "sources":  [
+            "platform/host/bb_task_registry/bb_task_registry.c",
+            "components/bb_task_registry/bb_task_registry_base_scan_common.c",
+        ],
+        "depends":  ["bb_core", "bb_registry", "bb_wdt", "bb_task"],
     },
     "bb_task": {
         "includes": ["components/bb_task/include"],

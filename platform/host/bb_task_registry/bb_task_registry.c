@@ -7,6 +7,7 @@
 #include "bb_log.h"
 #include "bb_clock.h"
 #include "bb_wdt.h"
+#include "bb_task.h"
 
 #include <inttypes.h>
 #include <pthread.h>
@@ -284,9 +285,21 @@ bb_err_t bb_task_registry_register(const char *name, uint32_t stack_budget_bytes
 
     if (err != BB_OK) {
         bb_log_w(TAG, "register('%s') failed: %d", name, (int)err);
-    } else if (out_token) {
-        out_token->index      = (uint16_t)idx;
-        out_token->generation = generation;
+    } else {
+        if (out_token) {
+            out_token->index      = (uint16_t)idx;
+            out_token->generation = generation;
+        }
+        // Base-registry join (task-registry unification PR3): ensure a base
+        // entry exists for `handle`, linking the overlay's authoritative
+        // budget/wdt state to it -- create-if-absent, update-if-present
+        // (bb_task_base_upsert never double-inserts). This is separate from
+        // (and always wins over) any best-effort placeholder the periodic
+        // base scan may have already inserted for this handle. Only when
+        // handle is non-NULL -- bb_task_base_upsert requires a real handle.
+        if (handle) {
+            bb_task_base_upsert(handle, name, stack_budget_bytes, entry->wdt_subscribed);
+        }
     }
     return err;
 }
@@ -347,6 +360,18 @@ bb_err_t bb_task_registry_deregister(void *handle)
     }
 
     pthread_mutex_unlock(&s_task_reg_lock);
+
+    if (err == BB_OK) {
+        // Base-registry unjoin (task-registry unification PR3): proactively
+        // remove the base entry rather than waiting for the periodic base
+        // scan's grace-window sweep to notice the handle is gone -- closes
+        // the window where a fast-recycled TaskHandle_t could otherwise
+        // alias a stale base entry before the next scan runs. Best-effort:
+        // bb_task_base_remove's own BB_ERR_NOT_FOUND (handle was never
+        // base-registered, e.g. register() was called with a NULL handle)
+        // is not an error here.
+        bb_task_base_remove(handle);
+    }
     return err;
 }
 

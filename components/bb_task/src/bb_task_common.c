@@ -11,16 +11,12 @@
 #include <stddef.h>
 #include <string.h>
 
-// Kconfig bridge (see CLAUDE.md "Avoiding audit-class regressions").
-#ifdef ESP_PLATFORM
-#include "sdkconfig.h"
-#endif
-#ifdef CONFIG_BB_TASK_BASE_MAX
-#define BB_TASK_BASE_MAX CONFIG_BB_TASK_BASE_MAX
-#endif
-#ifndef BB_TASK_BASE_MAX
-#define BB_TASK_BASE_MAX 24
-#endif
+// BB_TASK_BASE_MAX_CAP (Kconfig bridge for CONFIG_BB_TASK_BASE_MAX, C
+// default 24) is the SSOT for this capacity, defined in bb_task.h so every
+// consumer sizing a buffer off it (this file's own pool, and
+// bb_task_registry_base_scan_common.c's reconcile buffer) shares the exact
+// same symbol and cannot silently diverge.
+#define BB_TASK_BASE_MAX BB_TASK_BASE_MAX_CAP
 
 // ---------------------------------------------------------------------------
 // bb_task_resolve — pure, no FreeRTOS types.
@@ -171,6 +167,106 @@ bb_err_t bb_task_base_remove(void *handle)
     return BB_OK;
 }
 
+bb_err_t bb_task_base_touch(void *handle, uint32_t now_tick)
+{
+    if (!handle) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    pthread_mutex_lock(&s_lock);
+
+    void *existing = bb_registry_lookup_ptr(&s_base_registry, handle);
+    if (!existing) {
+        pthread_mutex_unlock(&s_lock);
+        return BB_ERR_NOT_FOUND;
+    }
+
+    ((bb_task_base_entry_t *)existing)->seen_tick = now_tick;
+    pthread_mutex_unlock(&s_lock);
+    return BB_OK;
+}
+
+#ifdef BB_TASK_TESTING
+// Test-only race injection state -- see bb_task_base_test_arm_race_insert()
+// (bb_task.h) and bb_task_base_touch_or_insert() below.
+static bool                 s_test_race_armed = false;
+static bb_task_base_entry_t s_test_race_payload;
+
+void bb_task_base_test_arm_race_insert(void *handle, const char *name,
+                                        uint32_t stack_bytes, bool wdt_arm)
+{
+    s_test_race_payload.handle      = handle;
+    copy_name(&s_test_race_payload, name);
+    s_test_race_payload.stack_bytes = stack_bytes;
+    s_test_race_payload.wdt_arm     = wdt_arm;
+    s_test_race_armed = true;
+}
+#endif
+
+bb_err_t bb_task_base_touch_or_insert(void *handle, const char *name, uint32_t now_tick)
+{
+    if (!handle || !name) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    pthread_mutex_lock(&s_lock);
+
+    void *existing = bb_registry_lookup_ptr(&s_base_registry, handle);
+
+#ifdef BB_TASK_TESTING
+    // Test-only: see bb_task_base_test_arm_race_insert(). Fires once, still
+    // inside this critical section, simulating a competing "real" insert
+    // landing in the gap a non-atomic touch()+upsert() caller would
+    // otherwise expose. Re-checking `existing` afterward proves the insert
+    // path below never trusts a stale "not found" snapshot.
+    if (!existing && s_test_race_armed) {
+        s_test_race_armed = false;
+        int race_idx = pool_alloc_locked();
+        if (race_idx >= 0) {
+            bb_task_base_entry_t *race_entry = &s_pool[race_idx];
+            race_entry->handle      = s_test_race_payload.handle;
+            copy_name(race_entry, s_test_race_payload.name);
+            race_entry->stack_bytes = s_test_race_payload.stack_bytes;
+            race_entry->wdt_arm     = s_test_race_payload.wdt_arm;
+            race_entry->seen_tick   = 0;
+            bb_registry_register_ptr(&s_base_registry, s_test_race_payload.handle, race_entry);
+        }
+        existing = bb_registry_lookup_ptr(&s_base_registry, handle);
+    }
+#endif
+
+    if (existing) {
+        // Already tracked -- touch seen_tick only, never overwrite
+        // name/stack_bytes/wdt_arm (owned by bb_task_create()/
+        // bb_task_registry_register()'s overlay-join).
+        ((bb_task_base_entry_t *)existing)->seen_tick = now_tick;
+        pthread_mutex_unlock(&s_lock);
+        return BB_OK;
+    }
+
+    int idx = pool_alloc_locked();
+    if (idx < 0) {
+        pthread_mutex_unlock(&s_lock);
+        return BB_ERR_NO_SPACE;
+    }
+
+    bb_task_base_entry_t *entry = &s_pool[idx];
+    entry->handle      = handle;
+    copy_name(entry, name);
+    entry->stack_bytes = 0;
+    entry->wdt_arm     = false;
+    entry->seen_tick   = now_tick;
+
+    // Same "cannot fail" rationale as bb_task_base_upsert's new-handle path
+    // above: `handle` was confirmed absent from the registry under this
+    // same lock (including the test-only re-check), and the pool slot was
+    // just allocated -- register unconditionally.
+    bb_registry_register_ptr(&s_base_registry, handle, entry);
+
+    pthread_mutex_unlock(&s_lock);
+    return BB_OK;
+}
+
 // Trampoline: bridges bb_registry_foreach_ptr's (void*key, void*value, ctx)
 // shape to bb_task_base_cb_t's (handle, const entry*, ctx) shape.
 typedef struct {
@@ -201,8 +297,10 @@ void bb_task_base_foreach(bb_task_base_cb_t cb, void *ctx)
 
 // ---------------------------------------------------------------------------
 // bb_task_base_sweep_apply — pure mark-and-sweep evaluator over a
-// caller-supplied array. See bb_health_stack_table_sweep for the identical
-// grace-window rationale this mirrors.
+// caller-supplied array. Mirrors the identical grace-window rationale of
+// bb_task_registry's low-stack debounce table (components/bb_task_registry/
+// bb_task_registry_base_scan_common.c) and the retired bb_health_stack
+// mark/sweep table it superseded (task-registry unification PR3).
 // ---------------------------------------------------------------------------
 
 #define BB_TASK_SWEEP_GRACE 1

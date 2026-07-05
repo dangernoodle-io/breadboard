@@ -1,7 +1,8 @@
 #include "bb_timer.h"
 #include "bb_log.h"
 #include "bb_mem.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
+#include "bb_wdt.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -69,40 +70,27 @@ typedef struct {
 
 static QueueHandle_t s_disp_queue = NULL;
 static TaskHandle_t  s_disp_task  = NULL;
-// bb_timer_disp's own registry token, obtained from the register() call in
-// disp_ensure_started (parent context). disp_task_fn may start running on a
-// different core (xTaskCreatePinnedToCore) before that call returns and
-// publishes the token, so the two halves are carried as independent atomics
-// with a release/acquire pairing on the generation half — mirrors the
-// release/acquire pairing bb_task_registry.c already uses internally for its
-// per-entry generation counter. Publish: store index (relaxed) then
-// generation (release). Consume: load generation (acquire) then index
-// (relaxed) — release/acquire on `generation` establishes happens-before, so
-// the consumer's index read is guaranteed to observe the publisher's index
-// store. A pre-publish read yields BB_TASK_REGISTRY_TOKEN_INVALID (the init
-// value below), which bb_task_registry_feed() treats as a harmless no-op —
-// so no ordering dependency is required for correctness, only for promptly
-// picking up the real token.
-static _Atomic uint16_t s_disp_token_index = UINT16_MAX; /* BB_TASK_REGISTRY_TOKEN_INVALID.index */
-static _Atomic uint16_t s_disp_token_gen   = 0;          /* BB_TASK_REGISTRY_TOKEN_INVALID.generation */
 
 static void disp_task_fn(void *unused)
 {
     (void)unused;
     bb_disp_msg_t msg;
 #if defined(ESP_PLATFORM) && defined(CONFIG_BB_TIMER_DISP_WDT_ENABLE)
+    // Self-subscribe at task entry (cycle-breaking migration onto
+    // bb_task_create, task-registry unification PR3) — same runtime effect
+    // as the former parent-context bb_task_registry_register(hw_wdt_subscribe)
+    // call, and tighter: this is the very first statement the task runs, vs.
+    // the old parent-side subscribe which raced the task's own first
+    // scheduler slice on the other core.
+    bb_wdt_task_subscribe();
     for (;;) {
-        /* Acquire consume — see s_disp_token_index/_gen comment above. */
-        bb_task_registry_token_t token;
-        token.generation = atomic_load_explicit(&s_disp_token_gen, memory_order_acquire);
-        token.index      = atomic_load_explicit(&s_disp_token_index, memory_order_relaxed);
         if (xQueueReceive(s_disp_queue, &msg,
                           pdMS_TO_TICKS(BB_TIMER_DISP_WDT_FEED_MS)) == pdTRUE) {
             msg.work_fn(msg.arg);
-            bb_task_registry_feed(token);
+            bb_wdt_task_feed();
         } else {
             /* queue empty / idle timeout — feed to prove we are alive */
-            bb_task_registry_feed(token);
+            bb_wdt_task_feed();
         }
     }
 #else
@@ -121,39 +109,28 @@ static bb_err_t disp_ensure_started(void)
     s_disp_queue = xQueueCreate(BB_TIMER_DISP_QUEUE_DEPTH, sizeof(bb_disp_msg_t));
     if (s_disp_queue == NULL) return BB_ERR_NO_SPACE;
 
-    BaseType_t rc;
-    if (BB_TIMER_DISP_CORE < 0) {
-        rc = xTaskCreate(disp_task_fn, "bb_timer_disp", BB_TIMER_DISP_STACK,
-                         NULL, BB_TIMER_DISP_PRIORITY, &s_disp_task);
-    } else {
-        rc = xTaskCreatePinnedToCore(disp_task_fn, "bb_timer_disp",
-                                     BB_TIMER_DISP_STACK, NULL,
-                                     BB_TIMER_DISP_PRIORITY, &s_disp_task,
-                                     BB_TIMER_DISP_CORE);
-    }
-    if (rc != pdPASS) {
+    bb_task_config_t cfg = {
+        .entry       = disp_task_fn,
+        .name        = "bb_timer_disp",
+        .arg         = NULL,
+        .stack_bytes = BB_TIMER_DISP_STACK,
+        .priority    = BB_TIMER_DISP_PRIORITY,
+        .core        = BB_TIMER_DISP_CORE,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        // Data flag only, surfaced at GET /api/diag/tasks — the actual hw
+        // WDT subscribe is self-performed inside disp_task_fn above.
+#if defined(ESP_PLATFORM) && defined(CONFIG_BB_TIMER_DISP_WDT_ENABLE)
+        .wdt_arm     = true,
+#else
+        .wdt_arm     = false,
+#endif
+    };
+    bb_err_t err = bb_task_create(&cfg, (void **)&s_disp_task);
+    if (err != BB_OK) {
         vQueueDelete(s_disp_queue);
         s_disp_queue = NULL;
         return BB_ERR_NO_SPACE;
     }
-    // Registry owns bb_timer_disp's hw WDT subscribe (parent context) —
-    // same runtime effect as the task's former self-subscribe, gated by the
-    // same Kconfig.
-    bb_task_registry_opts_t opts = {
-#if defined(ESP_PLATFORM) && defined(CONFIG_BB_TIMER_DISP_WDT_ENABLE)
-        .hw_wdt_subscribe = true,
-#else
-        .hw_wdt_subscribe = false,
-#endif
-    };
-    // Register into a local token, then publish via release stores — see the
-    // s_disp_token_index/_gen comment above for why disp_task_fn (which may
-    // already be running on the other core) must never see a torn/partial
-    // write of the token here.
-    bb_task_registry_token_t local_token = BB_TASK_REGISTRY_TOKEN_INVALID;
-    bb_task_registry_register("bb_timer_disp", BB_TIMER_DISP_STACK, s_disp_task, &opts, &local_token);
-    atomic_store_explicit(&s_disp_token_index, local_token.index, memory_order_relaxed);
-    atomic_store_explicit(&s_disp_token_gen, local_token.generation, memory_order_release);
     return BB_OK;
 }
 
@@ -314,7 +291,7 @@ static void worker_task_fn(void *arg)
             t->work_fn(t->arg);
         }
     }
-    bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
+    bb_task_deregister(xTaskGetCurrentTaskHandle());
     vTaskDelete(NULL);
 }
 
@@ -573,21 +550,22 @@ bb_err_t bb_timer_worker_periodic_create(void (*work_fn)(void *arg), void *arg,
         return BB_ERR_NO_SPACE;
     }
 
-    BaseType_t rc;
-    if (core < 0) {
-        rc = xTaskCreate(worker_task_fn, name ? name : "bb_timer_worker",
-                         stack, t, priority, &t->worker_task);
-    } else {
-        rc = xTaskCreatePinnedToCore(worker_task_fn,
-                                     name ? name : "bb_timer_worker",
-                                     stack, t, priority, &t->worker_task, core);
-    }
-    if (rc != pdPASS) {
+    bb_task_config_t task_cfg = {
+        .entry       = worker_task_fn,
+        .name        = name ? name : "bb_timer_worker",
+        .arg         = t,
+        .stack_bytes = stack,
+        .priority    = (uint32_t)priority,
+        .core        = core,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        .wdt_arm     = false,
+    };
+    bb_err_t task_err = bb_task_create(&task_cfg, (void **)&t->worker_task);
+    if (task_err != BB_OK) {
         vSemaphoreDelete(t->worker_sem);
         bb_mem_free(t);
         return BB_ERR_NO_SPACE;
     }
-    bb_task_registry_register(name ? name : "bb_timer_worker", stack, t->worker_task, NULL, NULL);
 
     esp_timer_create_args_t args = {
         .callback        = periodic_dispatcher,

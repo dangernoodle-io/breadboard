@@ -208,6 +208,26 @@ bool bb_task_registry_lookup_sw_wdt(const char *name, uint32_t now_ms,
                                      uint32_t *out_last_miss_age_ms,
                                      uint32_t *out_miss_count);
 
+// --- Base-scan low-stack observer (task-registry unification PR3) ------
+
+// Low-stack transition handler, invoked once per transition INTO low stack
+// (debounced by task handle -- not once per scan) from the periodic base
+// scan (platform/espidf/bb_task_registry/bb_task_registry_base_scan.c).
+// `name` is the kernel task name; `handle` and `free_bytes` (current stack
+// high-water free bytes) identify the offending task. Mirrors
+// bb_task_registry_sw_wdt_handler_t's episode-debounce contract.
+typedef void (*bb_task_registry_low_stack_handler_t)(const char *name, void *handle,
+                                                       uint32_t free_bytes, void *ctx);
+
+// Register a low-stack handler (NULL to clear) and threshold (free bytes
+// below which a task is flagged low). Call once at startup, before the
+// periodic base-scan job starts running -- not synchronized against
+// concurrent scan passes. Replaces bb_health_stack's own former self-scan
+// (task-registry unification PR3): bb_health_stack now registers here
+// instead of polling FreeRTOS task state itself.
+void bb_task_registry_set_low_stack_handler(bb_task_registry_low_stack_handler_t fn,
+                                             uint32_t threshold_bytes, void *ctx);
+
 #ifdef BB_TASK_REGISTRY_TESTING
 // Reset the registry to its initial (empty) state. Test teardown only.
 void bb_task_registry_test_reset(void);

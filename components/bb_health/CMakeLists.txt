@@ -7,7 +7,7 @@ idf_component_register(
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_json bb_response
     PRIV_REQUIRES bb_http bb_board bb_wifi bb_mdns bb_openapi bb_init bb_log bb_ota_validator
-                  bb_event bb_event_routes bb_timer
+                  bb_event bb_event_routes bb_task_registry
 )
 
 if(CONFIG_BB_HEALTH_AUTOREGISTER)

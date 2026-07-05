@@ -1524,34 +1524,12 @@ void test_bb_health_schema_network_has_mdns(void);
 void test_bb_health_section_get_fn_invoked(void);
 
 // Forward declarations from test_bb_health_stack.c
-void test_bb_health_stack_is_low_below_threshold(void);
-void test_bb_health_stack_is_low_at_threshold_is_not_low(void);
-void test_bb_health_stack_is_low_above_threshold(void);
-void test_bb_health_stack_is_low_zero_threshold(void);
-void test_bb_health_stack_is_low_zero_free_nonzero_threshold(void);
 void test_bb_health_stack_build_json_low_true(void);
 void test_bb_health_stack_build_json_low_false(void);
 void test_bb_health_stack_build_json_null_buf_returns_neg1(void);
 void test_bb_health_stack_build_json_zero_buf_sz_returns_neg1(void);
 void test_bb_health_stack_build_json_null_task_name_returns_neg1(void);
 void test_bb_health_stack_build_json_initial_snapshot(void);
-void test_bb_health_stack_simulate_transition_into_low_posts(void);
-void test_bb_health_stack_simulate_already_low_no_repost(void);
-void test_bb_health_stack_simulate_normal_no_post(void);
-void test_bb_health_stack_simulate_recovery_then_low_again_posts_once(void);
-void test_bb_health_stack_simulate_multiple_tasks(void);
-void test_bb_health_stack_simulate_at_threshold_not_low(void);
-void test_bb_health_stack_reset_clears_state(void);
-void test_bb_health_stack_table_mark_inserts_on_first_sight(void);
-void test_bb_health_stack_table_mark_refreshes_not_duplicates(void);
-void test_bb_health_stack_table_sweep_frees_disappeared_task(void);
-void test_bb_health_stack_table_sweep_keeps_live_task(void);
-void test_bb_health_stack_table_never_wedges_full_after_many_transient_tasks(void);
-void test_bb_health_stack_table_mark_null_args(void);
-void test_bb_health_stack_table_sweep_null_args(void);
-void test_bb_health_stack_table_mark_full_of_distinct_live_tasks_returns_null(void);
-void test_bb_health_stack_table_sweep_grace_preserves_low_across_single_miss(void);
-void test_bb_health_stack_table_sweep_grace_boundary_frees_after_two_misses(void);
 
 // Forward declarations from test_bb_net_health.c
 void test_bb_net_health_rssi_zero_is_poor(void);
@@ -2641,6 +2619,9 @@ void test_bb_task_base_upsert_null_name_returns_invalid_arg(void);
 void test_bb_task_base_upsert_and_remove_roundtrip(void);
 void test_bb_task_base_remove_null_handle_returns_invalid_arg(void);
 void test_bb_task_base_remove_unregistered_returns_not_found(void);
+void test_bb_task_base_touch_null_handle_returns_invalid_arg(void);
+void test_bb_task_base_touch_unregistered_returns_not_found(void);
+void test_bb_task_base_touch_updates_seen_tick_not_other_fields(void);
 void test_bb_task_base_upsert_reinvoke_same_handle_updates_not_duplicates(void);
 void test_bb_task_base_foreach_visits_all(void);
 void test_bb_task_base_foreach_null_cb_is_noop(void);
@@ -2655,6 +2636,35 @@ void test_bb_task_base_sweep_apply_single_miss_survives_grace(void);
 void test_bb_task_base_sweep_apply_frees_after_two_misses(void);
 void test_bb_task_base_sweep_apply_keeps_live_entry_remarked_each_tick(void);
 void test_bb_task_base_sweep_apply_multiple_entries_mixed(void);
+
+void test_bb_task_base_touch_or_insert_null_handle_returns_invalid_arg(void);
+void test_bb_task_base_touch_or_insert_null_name_returns_invalid_arg(void);
+void test_bb_task_base_touch_or_insert_new_handle_inserts_placeholder(void);
+void test_bb_task_base_touch_or_insert_existing_handle_touches_only(void);
+void test_bb_task_base_touch_or_insert_overflow_returns_no_space(void);
+void test_bb_task_base_touch_or_insert_race_does_not_clobber_real_entry(void);
+void test_bb_task_base_touch_or_insert_race_pool_full_is_noop(void);
+
+// Forward declarations from test_bb_task_registry_base_scan.c
+void test_bb_task_registry_base_scan_apply_null_rows_is_noop(void);
+void test_bb_task_registry_base_scan_apply_non_positive_n_is_noop(void);
+void test_bb_task_registry_base_scan_apply_null_handle_row_skipped(void);
+void test_bb_task_registry_base_scan_apply_inserts_new_handle_placeholder(void);
+void test_bb_task_registry_base_scan_apply_never_clobbers_already_tracked_handle(void);
+void test_bb_task_registry_base_scan_apply_reclaims_gone_handle_after_grace(void);
+void test_bb_task_registry_base_scan_apply_mixed_reclaim_keeps_alive_handle(void);
+void test_bb_task_registry_base_scan_apply_no_handler_no_low_stack_side_effects(void);
+void test_bb_task_registry_base_scan_apply_transition_into_low_fires_once(void);
+void test_bb_task_registry_base_scan_apply_above_threshold_never_fires(void);
+void test_bb_task_registry_base_scan_apply_recovery_then_low_again_fires_twice(void);
+void test_bb_task_registry_base_scan_apply_two_handles_low_independently(void);
+void test_bb_task_registry_base_scan_apply_low_state_table_full_skips_extra_handle(void);
+void test_bb_task_registry_base_scan_apply_low_state_swept_after_handle_gone(void);
+void test_bb_task_registry_register_joins_base_registry_by_handle(void);
+void test_bb_task_registry_register_null_handle_does_not_join_base_registry(void);
+void test_bb_task_registry_deregister_removes_base_registry_entry(void);
+void test_bb_task_registry_deregister_unregistered_handle_is_noop_for_base_registry(void);
+
 void test_bb_task_create_null_cfg_returns_invalid_arg(void);
 void test_bb_task_create_invalid_config_propagates_resolve_error(void);
 void test_bb_task_create_success_upserts_base_entry(void);
@@ -3922,7 +3932,6 @@ void setUp(void) {
     bb_cache_reset_for_test();
     bb_info_reset_for_test();
     bb_health_reset_for_test();
-    bb_health_stack_reset_for_test();
     bb_wdt_test_reset();
     bb_pub_test_reset();
     bb_sink_event_reset_for_test();
@@ -5748,35 +5757,16 @@ int main(void) {
     RUN_TEST(test_bb_health_schema_network_has_mdns);
     RUN_TEST(test_bb_health_section_get_fn_invoked);
 
-    // bb_health_stack tests
-    RUN_TEST(test_bb_health_stack_is_low_below_threshold);
-    RUN_TEST(test_bb_health_stack_is_low_at_threshold_is_not_low);
-    RUN_TEST(test_bb_health_stack_is_low_above_threshold);
-    RUN_TEST(test_bb_health_stack_is_low_zero_threshold);
-    RUN_TEST(test_bb_health_stack_is_low_zero_free_nonzero_threshold);
+    // bb_health_stack tests (task-registry unification PR3: low-stack
+    // transition + debounce coverage moved to
+    // test_bb_task_registry_base_scan.c; this file keeps only the pure JSON
+    // builder tests)
     RUN_TEST(test_bb_health_stack_build_json_low_true);
     RUN_TEST(test_bb_health_stack_build_json_low_false);
     RUN_TEST(test_bb_health_stack_build_json_null_buf_returns_neg1);
     RUN_TEST(test_bb_health_stack_build_json_zero_buf_sz_returns_neg1);
     RUN_TEST(test_bb_health_stack_build_json_null_task_name_returns_neg1);
     RUN_TEST(test_bb_health_stack_build_json_initial_snapshot);
-    RUN_TEST(test_bb_health_stack_simulate_transition_into_low_posts);
-    RUN_TEST(test_bb_health_stack_simulate_already_low_no_repost);
-    RUN_TEST(test_bb_health_stack_simulate_normal_no_post);
-    RUN_TEST(test_bb_health_stack_simulate_recovery_then_low_again_posts_once);
-    RUN_TEST(test_bb_health_stack_simulate_multiple_tasks);
-    RUN_TEST(test_bb_health_stack_simulate_at_threshold_not_low);
-    RUN_TEST(test_bb_health_stack_reset_clears_state);
-    RUN_TEST(test_bb_health_stack_table_mark_inserts_on_first_sight);
-    RUN_TEST(test_bb_health_stack_table_mark_refreshes_not_duplicates);
-    RUN_TEST(test_bb_health_stack_table_sweep_frees_disappeared_task);
-    RUN_TEST(test_bb_health_stack_table_sweep_keeps_live_task);
-    RUN_TEST(test_bb_health_stack_table_never_wedges_full_after_many_transient_tasks);
-    RUN_TEST(test_bb_health_stack_table_mark_null_args);
-    RUN_TEST(test_bb_health_stack_table_sweep_null_args);
-    RUN_TEST(test_bb_health_stack_table_mark_full_of_distinct_live_tasks_returns_null);
-    RUN_TEST(test_bb_health_stack_table_sweep_grace_preserves_low_across_single_miss);
-    RUN_TEST(test_bb_health_stack_table_sweep_grace_boundary_frees_after_two_misses);
 
     // bb_net_health pure classifier tests
     RUN_TEST(test_bb_net_health_rssi_zero_is_poor);
@@ -6719,6 +6709,9 @@ int main(void) {
     RUN_TEST(test_bb_task_base_upsert_and_remove_roundtrip);
     RUN_TEST(test_bb_task_base_remove_null_handle_returns_invalid_arg);
     RUN_TEST(test_bb_task_base_remove_unregistered_returns_not_found);
+    RUN_TEST(test_bb_task_base_touch_null_handle_returns_invalid_arg);
+    RUN_TEST(test_bb_task_base_touch_unregistered_returns_not_found);
+    RUN_TEST(test_bb_task_base_touch_updates_seen_tick_not_other_fields);
     RUN_TEST(test_bb_task_base_upsert_reinvoke_same_handle_updates_not_duplicates);
     RUN_TEST(test_bb_task_base_foreach_visits_all);
     RUN_TEST(test_bb_task_base_foreach_null_cb_is_noop);
@@ -6733,6 +6726,33 @@ int main(void) {
     RUN_TEST(test_bb_task_base_sweep_apply_frees_after_two_misses);
     RUN_TEST(test_bb_task_base_sweep_apply_keeps_live_entry_remarked_each_tick);
     RUN_TEST(test_bb_task_base_sweep_apply_multiple_entries_mixed);
+    RUN_TEST(test_bb_task_base_touch_or_insert_null_handle_returns_invalid_arg);
+    RUN_TEST(test_bb_task_base_touch_or_insert_null_name_returns_invalid_arg);
+    RUN_TEST(test_bb_task_base_touch_or_insert_new_handle_inserts_placeholder);
+    RUN_TEST(test_bb_task_base_touch_or_insert_existing_handle_touches_only);
+    RUN_TEST(test_bb_task_base_touch_or_insert_overflow_returns_no_space);
+    RUN_TEST(test_bb_task_base_touch_or_insert_race_does_not_clobber_real_entry);
+    RUN_TEST(test_bb_task_base_touch_or_insert_race_pool_full_is_noop);
+
+    // bb_task_registry base-scan (task-registry unification PR3)
+    RUN_TEST(test_bb_task_registry_base_scan_apply_null_rows_is_noop);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_non_positive_n_is_noop);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_null_handle_row_skipped);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_inserts_new_handle_placeholder);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_never_clobbers_already_tracked_handle);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_reclaims_gone_handle_after_grace);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_mixed_reclaim_keeps_alive_handle);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_no_handler_no_low_stack_side_effects);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_transition_into_low_fires_once);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_above_threshold_never_fires);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_recovery_then_low_again_fires_twice);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_two_handles_low_independently);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_low_state_table_full_skips_extra_handle);
+    RUN_TEST(test_bb_task_registry_base_scan_apply_low_state_swept_after_handle_gone);
+    RUN_TEST(test_bb_task_registry_register_joins_base_registry_by_handle);
+    RUN_TEST(test_bb_task_registry_register_null_handle_does_not_join_base_registry);
+    RUN_TEST(test_bb_task_registry_deregister_removes_base_registry_entry);
+    RUN_TEST(test_bb_task_registry_deregister_unregistered_handle_is_noop_for_base_registry);
     RUN_TEST(test_bb_task_create_null_cfg_returns_invalid_arg);
     RUN_TEST(test_bb_task_create_invalid_config_propagates_resolve_error);
     RUN_TEST(test_bb_task_create_success_upserts_base_entry);
