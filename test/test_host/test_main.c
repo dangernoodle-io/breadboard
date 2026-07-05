@@ -4075,6 +4075,38 @@ void test_bb_cache_get_raw_delete_race_returns_not_found(void);
 void test_bb_cache_post_serialized_delete_race_returns_not_found(void);
 void test_bb_cache_serialize_into_delete_only_race_returns_not_found(void);
 
+// Forward declarations from test_bb_cache_evaluate.c
+void test_bb_cache_evaluate_age_table(void);
+void test_bb_cache_evaluate_age_evict_takes_priority_over_stale(void);
+
+// Forward declarations from test_bb_cache_evict.c
+void test_bb_cache_evict_lazy_read_before_evict_age_still_served(void);
+void test_bb_cache_evict_lazy_read_at_evict_age_misses_and_frees(void);
+void test_bb_cache_evict_lazy_fires_on_remove_via_reactive_hook(void);
+void test_bb_cache_evict_lazy_get_raw_evicts(void);
+void test_bb_cache_evict_lazy_serialize_into_evicts(void);
+void test_bb_cache_evict_lazy_post_serialized_evicts(void);
+void test_bb_cache_evict_pinned_policy_never_evicts(void);
+void test_bb_cache_evict_sweep_evicts_unread_key(void);
+void test_bb_cache_evict_sweep_skips_still_fresh_key(void);
+void test_bb_cache_evict_sweep_skips_pinned_key(void);
+void test_bb_cache_evict_sweep_fires_on_remove_via_reactive_hook(void);
+void test_bb_cache_evict_sweep_no_registered_keys_is_noop(void);
+void test_bb_cache_is_stale_fresh_reports_false(void);
+void test_bb_cache_is_stale_between_stale_and_evict_reports_true(void);
+void test_bb_cache_is_stale_pinned_policy_always_false(void);
+void test_bb_cache_is_stale_unknown_key_returns_not_found(void);
+void test_bb_cache_is_stale_null_args_return_invalid_arg(void);
+void test_bb_cache_register_age_out_zero_evict_age_rejected(void);
+void test_bb_cache_register_age_out_stale_ge_evict_rejected(void);
+void test_bb_cache_register_age_out_getter_mode_rejected(void);
+void test_bb_cache_register_age_out_pinned_policy_ignores_stale_and_evict(void);
+void test_bb_cache_is_stale_delete_reregister_race_returns_not_found(void);
+void test_bb_cache_evict_sweep_generation_mismatch_race_skips_key(void);
+void test_bb_cache_evict_sweep_reentrant_delete_key_already_gone(void);
+void test_bb_cache_evict_lazy_generation_mismatch_race_preserves_reregistered_incarnation(void);
+void test_bb_cache_evict_lazy_key_deleted_during_race_is_silent_noop(void);
+
 // Forward declarations from test_bb_cache_reactive.c
 void test_bb_cache_reactive_observe_null_cfg_returns_invalid_arg(void);
 void test_bb_cache_reactive_observe_overlength_key_returns_invalid_arg(void);
@@ -4089,6 +4121,7 @@ void test_bb_cache_reactive_update_unknown_key_propagates_error_no_fire(void);
 void test_bb_cache_reactive_register_fires_on_register_exactly_once(void);
 void test_bb_cache_reactive_register_reregister_same_key_does_not_refire(void);
 void test_bb_cache_reactive_delete_fires_on_remove_once_with_correct_key(void);
+void test_bb_cache_reactive_plain_bb_cache_delete_also_fires_on_remove(void);
 void test_bb_cache_reactive_delete_no_matching_observer_is_noop(void);
 void test_bb_cache_reactive_observe_all_receives_register_and_remove(void);
 void test_bb_cache_reactive_register_delete_register_interleave(void);
@@ -8366,6 +8399,38 @@ int main(void) {
     RUN_TEST(test_bb_cache_post_serialized_delete_race_returns_not_found);
     RUN_TEST(test_bb_cache_serialize_into_delete_only_race_returns_not_found);
 
+    // bb_cache_evaluate (pure age classifier)
+    RUN_TEST(test_bb_cache_evaluate_age_table);
+    RUN_TEST(test_bb_cache_evaluate_age_evict_takes_priority_over_stale);
+
+    // bb_cache age-out eviction (LAZY + SWEEP + is_stale + register guards)
+    RUN_TEST(test_bb_cache_evict_lazy_read_before_evict_age_still_served);
+    RUN_TEST(test_bb_cache_evict_lazy_read_at_evict_age_misses_and_frees);
+    RUN_TEST(test_bb_cache_evict_lazy_fires_on_remove_via_reactive_hook);
+    RUN_TEST(test_bb_cache_evict_lazy_get_raw_evicts);
+    RUN_TEST(test_bb_cache_evict_lazy_serialize_into_evicts);
+    RUN_TEST(test_bb_cache_evict_lazy_post_serialized_evicts);
+    RUN_TEST(test_bb_cache_evict_pinned_policy_never_evicts);
+    RUN_TEST(test_bb_cache_evict_sweep_evicts_unread_key);
+    RUN_TEST(test_bb_cache_evict_sweep_skips_still_fresh_key);
+    RUN_TEST(test_bb_cache_evict_sweep_skips_pinned_key);
+    RUN_TEST(test_bb_cache_evict_sweep_fires_on_remove_via_reactive_hook);
+    RUN_TEST(test_bb_cache_evict_sweep_no_registered_keys_is_noop);
+    RUN_TEST(test_bb_cache_is_stale_fresh_reports_false);
+    RUN_TEST(test_bb_cache_is_stale_between_stale_and_evict_reports_true);
+    RUN_TEST(test_bb_cache_is_stale_pinned_policy_always_false);
+    RUN_TEST(test_bb_cache_is_stale_unknown_key_returns_not_found);
+    RUN_TEST(test_bb_cache_is_stale_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_cache_register_age_out_zero_evict_age_rejected);
+    RUN_TEST(test_bb_cache_register_age_out_stale_ge_evict_rejected);
+    RUN_TEST(test_bb_cache_register_age_out_getter_mode_rejected);
+    RUN_TEST(test_bb_cache_register_age_out_pinned_policy_ignores_stale_and_evict);
+    RUN_TEST(test_bb_cache_is_stale_delete_reregister_race_returns_not_found);
+    RUN_TEST(test_bb_cache_evict_sweep_generation_mismatch_race_skips_key);
+    RUN_TEST(test_bb_cache_evict_sweep_reentrant_delete_key_already_gone);
+    RUN_TEST(test_bb_cache_evict_lazy_generation_mismatch_race_preserves_reregistered_incarnation);
+    RUN_TEST(test_bb_cache_evict_lazy_key_deleted_during_race_is_silent_noop);
+
     // bb_cache_reactive
     RUN_TEST(test_bb_cache_reactive_observe_null_cfg_returns_invalid_arg);
     RUN_TEST(test_bb_cache_reactive_observe_overlength_key_returns_invalid_arg);
@@ -8380,6 +8445,7 @@ int main(void) {
     RUN_TEST(test_bb_cache_reactive_register_fires_on_register_exactly_once);
     RUN_TEST(test_bb_cache_reactive_register_reregister_same_key_does_not_refire);
     RUN_TEST(test_bb_cache_reactive_delete_fires_on_remove_once_with_correct_key);
+    RUN_TEST(test_bb_cache_reactive_plain_bb_cache_delete_also_fires_on_remove);
     RUN_TEST(test_bb_cache_reactive_delete_no_matching_observer_is_noop);
     RUN_TEST(test_bb_cache_reactive_observe_all_receives_register_and_remove);
     RUN_TEST(test_bb_cache_reactive_register_delete_register_interleave);

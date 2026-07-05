@@ -381,6 +381,27 @@ void test_bb_cache_reactive_delete_fires_on_remove_once_with_correct_key(void)
     TEST_ASSERT_EQUAL_STRING("rx.a", s_last_remove_key);
 }
 
+// B1-592 A3 (revises A2): on_remove is now fired by bb_cache itself via the
+// evict-notify hook, installed on the FIRST bb_cache_reactive_observe() call
+// -- NOT by bb_cache_reactive_delete() directly (see that fn's doc comment
+// in bb_cache_reactive.h). So a PLAIN bb_cache_delete() call -- never
+// routing through bb_cache_reactive_delete() at all -- must ALSO fire
+// on_remove exactly once.
+void test_bb_cache_reactive_plain_bb_cache_delete_also_fires_on_remove(void)
+{
+    rx_setup();
+    TEST_ASSERT_EQUAL(BB_OK, reg_owned("rx.a", rx_serialize));
+
+    bb_cache_reactive_observer_t obs = {
+        .key = "rx.a", .on_remove = spy_on_remove_capture_key,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_delete("rx.a"));  // plain API, not _reactive_
+    TEST_ASSERT_EQUAL(1, s_on_remove_calls);
+    TEST_ASSERT_EQUAL_STRING("rx.a", s_last_remove_key);
+}
+
 void test_bb_cache_reactive_delete_no_matching_observer_is_noop(void)
 {
     rx_setup();

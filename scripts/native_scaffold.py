@@ -490,7 +490,8 @@ COMPONENT_MAP = {
     },
     "bb_cache": {
         "includes": ["components/bb_cache/include"],
-        "sources":  ["platform/host/bb_cache/bb_cache_host.c"],
+        "sources":  ["platform/host/bb_cache/bb_cache_host.c",
+                     "components/bb_cache/src/bb_cache_evaluate.c"],
         "depends":  ["bb_core", "bb_json", "bb_event", "bb_log"],
     },
     "bb_cache_reactive": {

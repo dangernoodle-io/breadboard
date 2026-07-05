@@ -5,6 +5,7 @@
 #endif
 
 #include "bb_cache.h"
+#include "bb_cache_internal.h"
 #include "bb_event.h"
 #include "bb_json.h"
 #include "bb_log.h"
@@ -17,6 +18,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <time.h>
+#include <stdatomic.h>
 
 static const char *TAG = "bb_cache";
 
@@ -54,6 +57,14 @@ typedef struct {
     // Producers no longer emit their own ts_ms — bb_cache owns it and wraps
     // every serialize point ({"ts_ms":N,"data":{...}}).
     int64_t              ts_ms;
+    // Age-out eviction (B1-592 A3). policy defaults to BB_CACHE_EVICT_PINNED
+    // (0) whenever cfg->eviction is zero-initialized -- preserves the
+    // pre-A3 never-auto-free behavior. stale_age_ms/evict_age_ms are only
+    // meaningful when policy == BB_CACHE_EVICT_AGE_OUT (see
+    // bb_cache_register()'s AGE_OUT validation).
+    bb_cache_evict_policy_t policy;
+    uint32_t             stale_age_ms;
+    uint32_t             evict_age_ms;
     // Tombstone/generation guard (B1-592 firmware-review fix): bumped every
     // time this slot transitions free -> in-use (bb_cache_register populating
     // a freed or never-used slot) AND every time it transitions in-use ->
@@ -68,6 +79,29 @@ typedef struct {
 static bb_cache_entry_t s_entries[BB_CACHE_MAX_TOPICS];
 static pthread_mutex_t  s_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_once_t   s_init_once = PTHREAD_ONCE_INIT;
+
+// One-way evict-notify hook (B1-592 A3, revises A2). Fired by bb_cache_delete()
+// (explicit delete AND the age-out eviction path, which funnels through
+// bb_cache_delete_if_generation()) after a slot has actually been freed,
+// outside all bb_cache locks. bb_cache_reactive installs its fire_on_remove
+// here so explicit deletes and age-out evictions both fire on_remove through
+// the same single path -- see bb_cache_reactive_espidf.c.
+//
+// _Atomic (firmware-review fix, revises A3): the raw global was written by
+// bb_cache_reactive_espidf.c's bb_cache_reactive_observe() (first-observe
+// install) and read here on every delete/eviction, from whichever thread
+// happens to be deleting/evicting -- a plain `void (*)()` global read/written
+// from multiple threads with no synchronization is a data race. Relaxed
+// ordering is sufficient: this is a one-shot install-then-fire pointer with
+// no other memory it needs to publish-with (the callback itself takes its own
+// locks), so we only need atomicity of the pointer read/write, not a
+// happens-before edge to any other data.
+static _Atomic(void (*)(const char *key)) s_evict_notify_fn = NULL;
+
+void bb_cache_set_evict_notify_fn(void (*fn)(const char *key))
+{
+    atomic_store_explicit(&s_evict_notify_fn, fn, memory_order_relaxed);
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -254,9 +288,39 @@ static void fire_test_race_hook(const char *key)
     h(key);
 }
 #define BB_CACHE_TEST_RACE_POINT(key) fire_test_race_hook(key)
+
+// Injectable clock (B1-592 A3): lets a single-threaded host test advance
+// "now" deterministically to exercise age-out eviction boundaries without
+// real sleeps. Same idiom as s_test_race_hook above -- reset via
+// bb_cache_reset_for_test() is NOT required (tests call
+// bb_cache_test_set_clock(NULL) themselves to restore the real clock; see
+// test_bb_cache_evict.c).
+static uint64_t (*s_test_clock_hook)(void) = NULL;
+
+void bb_cache_test_set_clock(uint64_t (*fn)(void))
+{
+    s_test_clock_hook = fn;
+}
 #else
 #define BB_CACHE_TEST_RACE_POINT(key) ((void)0)
 #endif
+
+// Forward declaration -- defined below, next to the public bb_cache_delete()
+// it shares its teardown with (see that pairing's doc comments). Needed here
+// because evict_if_aged_out_locked() (LAZY floor + SWEEP backstop, both
+// defined ahead of bb_cache_delete() in this file) calls it.
+static bb_err_t bb_cache_delete_if_generation(const char *key, uint32_t expected_gen);
+
+// Canonical "now" for all age-out computations in this file -- routes
+// through the injectable test clock when BB_CACHE_TESTING is compiled in and
+// a hook is installed, otherwise the real monotonic clock (bb_clock.h).
+static inline uint64_t cache_now_ms64(void)
+{
+#ifdef BB_CACHE_TESTING
+    if (s_test_clock_hook) return s_test_clock_hook();
+#endif
+    return bb_clock_now_ms64();
+}
 
 // Owned+fallback cold-start seed (PR-4a-0). Called under e->lock from every
 // read/serialize path that is about to hand out e->owned bytes.
@@ -287,9 +351,65 @@ static void maybe_seed_fallback(bb_cache_entry_t *e)
     const void *snap = e->snapshot();
     if (snap) {
         memcpy(e->owned, snap, e->size);
-        e->ts_ms = (int64_t)bb_clock_now_ms64();  // seed IS a sample
+        e->ts_ms = (int64_t)cache_now_ms64();  // seed IS a sample
     }
     e->fallback_seeded = true;  // never retry, even if snapshot() returned NULL
+}
+
+// LAZY age-out eviction floor (B1-592 A3). Called under e->lock immediately
+// after entry_matches_locked() succeeds, from every read call site
+// (serialize_locked, bb_cache_get_serialized, bb_cache_get_raw,
+// bb_cache_post_serialized) and from the SWEEP backstop's sweep_cb() below.
+//
+// Returns true if the entry was evicted -- e->lock has ALREADY been released
+// by this function and the caller must not touch e any further; the caller's
+// own operation must return/report BB_ERR_NOT_FOUND (the "read misses"
+// contract). Returns false (e->lock still held) if the entry is not evicted,
+// so the caller proceeds with its normal read under the still-held lock.
+//
+// NEVER acquires s_reg_lock while holding e->lock -- the AB-BA deadlock this
+// design forbids (bb_cache_delete()/bb_cache_delete_if_generation() hold
+// s_reg_lock across their entire operation, nested with e->lock only for the
+// teardown sub-step; taking s_reg_lock here while already holding e->lock
+// would invert that order). Instead: capture the key AND generation into
+// stack locals, release e->lock, THEN call bb_cache_delete_if_generation() --
+// which does a FRESH find under s_reg_lock and only tears down the entry if
+// its CURRENT generation still matches the one captured here.
+//
+// Identity-keyed, not string-keyed (firmware-review fix, revises A3): a
+// string-keyed bb_cache_delete(key_copy) here would delete+notify whatever
+// incarnation find_entry(key) turns up at the moment it runs -- including a
+// BRAND-NEW registration of the same key that landed in the window between
+// this function releasing e->lock and the delete actually running (two
+// evictors racing, or an evictor racing a same-key bb_cache_register() reuse).
+// Passing the generation captured under e->lock lets
+// bb_cache_delete_if_generation() detect that mismatch and skip the wrong
+// incarnation instead of freeing/notifying it.
+static bool evict_if_aged_out_locked(bb_cache_entry_t *e)
+{
+    if (e->policy != BB_CACHE_EVICT_AGE_OUT) return false;
+
+    uint64_t age = cache_now_ms64() - (uint64_t)e->ts_ms;
+    if (bb_cache_evaluate_age(age, e->stale_age_ms, e->evict_age_ms) != BB_CACHE_ENTRY_EVICT) {
+        return false;
+    }
+
+    char key_copy[BB_CACHE_KEY_MAX];
+    strncpy(key_copy, e->key, sizeof(key_copy) - 1);
+    key_copy[sizeof(key_copy) - 1] = '\0';
+    uint32_t gen = e->generation;
+    pthread_mutex_unlock(&e->lock);
+
+    // Test-only deterministic race window (BB_CACHE_TESTING): fires here,
+    // AFTER releasing e->lock and capturing (key, generation) but BEFORE the
+    // identity-keyed delete below -- a hook body that deletes and
+    // re-registers this same key deterministically reproduces the
+    // double-evictor/same-key-reuse race the generation guard defends
+    // against (see test_bb_cache_evict.c).
+    BB_CACHE_TEST_RACE_POINT(key_copy);
+
+    bb_cache_delete_if_generation(key_copy, gen);  // return value ignored: mismatch/not-found is a silent no-op
+    return true;
 }
 
 // Serialize entry contents into obj under the entry's lock.
@@ -314,13 +434,17 @@ static bb_err_t serialize_locked(bb_cache_entry_t *e, const char *key, uint32_t 
         return BB_ERR_NOT_FOUND;
     }
 
+    if (evict_if_aged_out_locked(e)) {
+        return BB_ERR_NOT_FOUND;
+    }
+
     if (out_topic) *out_topic = e->event_topic;
 
     const void *snap;
     if (is_plain_getter(e)) {
         // Plain getter mode: no owned buffer, always pull through.
         snap = e->snapshot();
-        e->ts_ms = (int64_t)bb_clock_now_ms64();
+        e->ts_ms = (int64_t)cache_now_ms64();
     } else {
         // Plain owned mode, or owned+fallback (seed if still unpopulated).
         maybe_seed_fallback(e);
@@ -351,6 +475,31 @@ bb_err_t bb_cache_register_ex(const bb_cache_config_t *cfg, bool *out_first_time
     if (strlen(cfg->key) >= BB_CACHE_KEY_MAX) {
         bb_log_e(TAG, "key '%s' too long (max %d chars)", cfg->key, BB_CACHE_KEY_MAX - 1);
         return BB_ERR_INVALID_ARG;
+    }
+
+    // AGE_OUT eviction validation (B1-592 A3). BB_CACHE_EVICT_PINNED (the
+    // zero-init default) is unrestricted -- these three checks apply ONLY to
+    // BB_CACHE_EVICT_AGE_OUT, so they nest under a single outer policy check
+    // rather than each being a standalone compound `&&` condition (CI/GCC
+    // branch coverage is the source of truth and splits compounds
+    // unpredictably -- each rejection below is its own single-term `if`).
+    if (cfg->eviction.policy == BB_CACHE_EVICT_AGE_OUT) {
+        if (cfg->eviction.evict_age_ms == 0) {
+            bb_log_e(TAG, "key '%s': AGE_OUT requires non-zero evict_age_ms", cfg->key);
+            return BB_ERR_INVALID_ARG;
+        }
+        if (cfg->eviction.stale_age_ms >= cfg->eviction.evict_age_ms) {
+            bb_log_e(TAG, "key '%s': stale_age_ms (%" PRIu32 ") must be < evict_age_ms (%" PRIu32 ")",
+                     cfg->key, cfg->eviction.stale_age_ms, cfg->eviction.evict_age_ms);
+            return BB_ERR_INVALID_ARG;
+        }
+        if (cfg->snapshot != NULL) {
+            // Getter/refresh mode re-stamps ts_ms to now on every read, so
+            // age-out is meaningless there -- AGE_OUT is only valid on OWNED
+            // entries (snapshot == NULL, update-stamped ts_ms).
+            bb_log_e(TAG, "key '%s': AGE_OUT is only valid on owned entries (snapshot must be NULL)", cfg->key);
+            return BB_ERR_INVALID_ARG;
+        }
     }
 
     ensure_init();
@@ -433,6 +582,9 @@ bb_err_t bb_cache_register_ex(const bb_cache_config_t *cfg, bool *out_first_time
     slot->cached_len  = 0;
     slot->dirty       = true;   // no bytes cached yet
     slot->ts_ms       = 0;      // stamped on first update()/snapshot() read
+    slot->policy       = cfg->eviction.policy;
+    slot->stale_age_ms = cfg->eviction.stale_age_ms;
+    slot->evict_age_ms = cfg->eviction.evict_age_ms;
 
     pthread_mutex_unlock(&s_reg_lock);
     if (out_first_time) *out_first_time = true;
@@ -480,12 +632,34 @@ bb_err_t bb_cache_update(const bb_cache_update_t *req)
     // Envelope sample-time (owned mode): default to now; req->ts_ms overrides
     // when the caller supplies its own sample time (e.g. ingress/self-emit
     // source timestamp).
-    e->ts_ms = req->ts_ms != 0 ? req->ts_ms : (int64_t)bb_clock_now_ms64();
+    e->ts_ms = req->ts_ms != 0 ? req->ts_ms : (int64_t)cache_now_ms64();
     e->dirty = true;   // invalidate memoized bytes; do NOT serialize here
     pthread_mutex_unlock(&e->lock);
 
     if (req->out_changed) *req->out_changed = changed;
     return BB_OK;
+}
+
+// Shared teardown for an ALREADY-FOUND entry (firmware-review fix, revises
+// A3). Caller holds s_reg_lock across this call (both bb_cache_delete() and
+// bb_cache_delete_if_generation() hold it across their entire find+teardown,
+// for the same "no concurrent register/delete can observe a half-torn-down
+// slot" reason documented on bb_cache_delete() below). Frees the entry's
+// owned/cached_json buffers, bumps generation (tombstone -- see
+// find_entry_locked_ref()'s doc comment), clears event_topic (Phase-A
+// limitation: bb_event has no topic-unregister primitive, see bb_cache.h's
+// bb_cache_delete() doc comment), and marks the slot free for reuse. Does
+// NOT release s_reg_lock or fire the evict-notify hook -- both callers do
+// that themselves immediately after this returns.
+static void teardown_found_entry_locked(bb_cache_entry_t *e)
+{
+    pthread_mutex_lock(&e->lock);
+    free_entry_locked(e);
+    e->generation++;
+    pthread_mutex_unlock(&e->lock);
+
+    e->event_topic = NULL;
+    e->key[0] = '\0';  // last: marks the slot free for bb_cache_register reuse
 }
 
 bb_err_t bb_cache_delete(const char *key)
@@ -505,6 +679,13 @@ bb_err_t bb_cache_delete(const char *key)
     // respect to every other registry-mutating call (register/delete),
     // matching how bb_cache_register already holds s_reg_lock across its own
     // find+init.
+    //
+    // String-keyed by design: this is the PUBLIC, app-facing delete (a
+    // "graceful bye" for a key the app knows by name) -- the app has no
+    // generation to hand back, so it deletes whatever incarnation is
+    // CURRENTLY registered under `key`. The identity-keyed (generation-
+    // checked) variant used internally by age-out eviction is
+    // bb_cache_delete_if_generation() below.
     pthread_mutex_lock(&s_reg_lock);
 
     bb_cache_entry_t *e = find_entry(key);
@@ -513,26 +694,62 @@ bb_err_t bb_cache_delete(const char *key)
         return BB_ERR_NOT_FOUND;
     }
 
-    pthread_mutex_lock(&e->lock);
-    free_entry_locked(e);
-    // Tombstone: bump generation so any reader holding a pre-delete (entry,
-    // generation) pair from find_entry_locked_ref() detects the mismatch
-    // after acquiring e->lock and bails with BB_ERR_NOT_FOUND, instead of
-    // observing a torn-down or (once reused) a completely different key's
-    // data under this lock. e->lock itself is NEVER destroyed here -- see
-    // ensure_init()'s mutex-lifetime comment -- which is what makes this
-    // guard sufficient without a destroyed-mutex UB risk.
-    e->generation++;
-    pthread_mutex_unlock(&e->lock);
-
-    // Known Phase-A limitation: e->event_topic (if any, BB_CACHE_FLAG_SSE) is
-    // intentionally NOT torn down here -- bb_event has no topic-unregister
-    // primitive. See the loud warning on bb_cache_delete() in bb_cache.h.
-    e->event_topic = NULL;
-
-    e->key[0] = '\0';  // last: marks the slot free for bb_cache_register reuse
+    teardown_found_entry_locked(e);
 
     pthread_mutex_unlock(&s_reg_lock);
+
+    // Evict-notify hook (B1-592 A3, revises A2): fired for EVERY successful
+    // delete -- explicit callers of bb_cache_delete() AND the LAZY/SWEEP
+    // age-out eviction paths (which call bb_cache_delete_if_generation()
+    // internally, see evict_if_aged_out_locked()) -- outside all bb_cache
+    // locks, so the installed hook (bb_cache_reactive's fire_on_remove) may
+    // safely call back into bb_cache without deadlocking.
+    void (*notify)(const char *) = atomic_load_explicit(&s_evict_notify_fn, memory_order_relaxed);
+    if (notify) notify(key);
+    return BB_OK;
+}
+
+// Internal, identity-keyed delete (firmware-review fix, revises A3): used
+// ONLY by the age-out eviction paths (evict_if_aged_out_locked(), shared by
+// the LAZY read-time floor and the SWEEP backstop's sweep_cb()). Deletes and
+// fires the evict-notify hook ONLY if the entry CURRENTLY registered under
+// `key` still has generation == expected_gen -- i.e. it is provably the exact
+// incarnation the caller observed as aged-out, not a brand-new registration
+// of the same key that landed in the window between the caller releasing
+// e->lock and this call running (two evictors racing each other, or an
+// evictor racing a same-key bb_cache_register() reuse). On a mismatch (or the
+// key no longer existing at all), this is a silent no-op: the found-later
+// incarnation is a DIFFERENT entry that this eviction pass has no business
+// touching.
+//
+// Not app-facing (no bb_cache.h declaration) -- see bb_cache_delete()'s doc
+// comment for why the public, string-keyed delete has different semantics.
+static bb_err_t bb_cache_delete_if_generation(const char *key, uint32_t expected_gen)
+{
+    ensure_init();
+
+    // Same whole-operation s_reg_lock rationale as bb_cache_delete() above.
+    pthread_mutex_lock(&s_reg_lock);
+
+    bb_cache_entry_t *e = find_entry(key);
+    if (!e) {
+        pthread_mutex_unlock(&s_reg_lock);
+        return BB_ERR_NOT_FOUND;
+    }
+    if (e->generation != expected_gen) {
+        // A different incarnation (deleted-and-reused, or freshly
+        // re-registered) now occupies this key -- not the one this eviction
+        // pass observed as aged-out. Leave it alone.
+        pthread_mutex_unlock(&s_reg_lock);
+        return BB_OK;
+    }
+
+    teardown_found_entry_locked(e);
+
+    pthread_mutex_unlock(&s_reg_lock);
+
+    void (*notify)(const char *) = atomic_load_explicit(&s_evict_notify_fn, memory_order_relaxed);
+    if (notify) notify(key);
     return BB_OK;
 }
 
@@ -625,6 +842,9 @@ bb_err_t bb_cache_post_serialized(const char *key, const char *json, size_t json
         pthread_mutex_unlock(&e->lock);
         return BB_ERR_NOT_FOUND;
     }
+    if (evict_if_aged_out_locked(e)) {
+        return BB_ERR_NOT_FOUND;
+    }
     // Read event_topic under the SAME lock+validation, never unguarded.
     bb_event_topic_t topic = e->event_topic;
     pthread_mutex_unlock(&e->lock);
@@ -650,6 +870,9 @@ bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t 
         pthread_mutex_unlock(&e->lock);
         return BB_ERR_NOT_FOUND;
     }
+    if (evict_if_aged_out_locked(e)) {
+        return BB_ERR_NOT_FOUND;
+    }
 
     // Plain getter-mode entries (no owned buffer) have no dirty signal (data
     // can change without an update), so always re-serialize. Owned-mode and
@@ -667,7 +890,7 @@ bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t 
         const void *snap;
         if (is_plain_getter(e)) {
             snap = e->snapshot();
-            e->ts_ms = (int64_t)bb_clock_now_ms64();  // getter mode: read IS the sample
+            e->ts_ms = (int64_t)cache_now_ms64();  // getter mode: read IS the sample
         } else {
             maybe_seed_fallback(e);  // owned+fallback: seed if still unpopulated
             snap = e->owned;
@@ -819,6 +1042,9 @@ bb_err_t bb_cache_get_raw(const char *key, void *buf, size_t cap)
         pthread_mutex_unlock(&e->lock);
         return BB_ERR_NOT_FOUND;
     }
+    if (evict_if_aged_out_locked(e)) {
+        return BB_ERR_NOT_FOUND;
+    }
     if (!e->owned) {
         pthread_mutex_unlock(&e->lock);
         return BB_ERR_INVALID_STATE;
@@ -833,6 +1059,121 @@ bb_err_t bb_cache_get_raw(const char *key, void *buf, size_t cap)
     pthread_mutex_unlock(&e->lock);
     return BB_OK;
 }
+
+// ---------------------------------------------------------------------------
+// Age-out eviction (B1-592 A3)
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_cache_is_stale(const char *key, bool *out_stale)
+{
+    if (!key) return BB_ERR_INVALID_ARG;
+    if (!out_stale) return BB_ERR_INVALID_ARG;
+
+    ensure_init();
+
+    entry_ref_t ref = find_entry_locked_ref(key);
+    if (!ref.entry) return BB_ERR_NOT_FOUND;
+    bb_cache_entry_t *e = ref.entry;
+
+    BB_CACHE_TEST_RACE_POINT(key);
+    pthread_mutex_lock(&e->lock);
+    if (!entry_matches_locked(e, key, ref.generation)) {
+        pthread_mutex_unlock(&e->lock);
+        return BB_ERR_NOT_FOUND;
+    }
+
+    // Deliberately does NOT evict here -- this is a non-destructive staleness
+    // probe (see bb_cache.h doc comment), not a read call site. PINNED-policy
+    // entries and entries with no stale window (stale_age_ms == 0) always
+    // report false while present.
+    bool stale = false;
+    if (e->policy == BB_CACHE_EVICT_AGE_OUT) {
+        uint64_t age = cache_now_ms64() - (uint64_t)e->ts_ms;
+        stale = bb_cache_evaluate_age(age, e->stale_age_ms, e->evict_age_ms) != BB_CACHE_ENTRY_FRESH;
+    }
+    pthread_mutex_unlock(&e->lock);
+
+    *out_stale = stale;
+    return BB_OK;
+}
+
+// SWEEP backstop callback (B1-592 A3): invoked once per registered key by
+// bb_cache_foreach()'s snapshot-then-notify shape (s_reg_lock is NOT held
+// here). Re-finds the key fresh (find_entry_locked_ref) rather than trusting
+// any pointer captured before foreach's snapshot -- the entry may have been
+// deleted, or the slot reused for a different key, by the time this callback
+// runs. Reuses evict_if_aged_out_locked() -- the same evaluate+evict-under-
+// e->lock-then-release-then-delete logic as the LAZY read-time floor -- so
+// SWEEP is edge-triggered naturally: a freed slot is simply absent from the
+// NEXT bb_cache_foreach() snapshot, no separate bookkeeping needed.
+//
+// Only compiled when something can actually call it (the real periodic
+// driver below, gated on BB_CACHE_SWEEP_ENABLE, or the host-test direct
+// invocation, gated on BB_CACHE_TESTING) -- otherwise an unused static
+// function would warn on a production build with the sweep Kconfig off.
+#if BB_CACHE_SWEEP_ENABLE || defined(BB_CACHE_TESTING)
+static void sweep_cb(const char *key, void *ctx)
+{
+    (void)ctx;
+
+    entry_ref_t ref = find_entry_locked_ref(key);
+    if (!ref.entry) return;
+    bb_cache_entry_t *e = ref.entry;
+
+    BB_CACHE_TEST_RACE_POINT(key);
+    pthread_mutex_lock(&e->lock);
+    if (!entry_matches_locked(e, key, ref.generation)) {
+        pthread_mutex_unlock(&e->lock);
+        return;
+    }
+    if (evict_if_aged_out_locked(e)) {
+        return;  // e->lock already released by evict_if_aged_out_locked
+    }
+    pthread_mutex_unlock(&e->lock);
+}
+#endif // BB_CACHE_SWEEP_ENABLE || BB_CACHE_TESTING
+
+#if BB_CACHE_SWEEP_ENABLE
+static bool       s_sweep_started = false;
+static pthread_mutex_t s_sweep_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// Background sweep loop. Runs for the process lifetime once started -- there
+// is no stop primitive (mirrors bb_cache_delete()'s SSE-topic-leak Phase-A
+// limitation: no teardown path exists for this component yet). Detached
+// thread; nothing joins it.
+static void *sweep_thread_main(void *arg)
+{
+    (void)arg;
+    struct timespec ts;
+    for (;;) {
+        ts.tv_sec  = BB_CACHE_SWEEP_PERIOD_MS / 1000;
+        ts.tv_nsec = (long)(BB_CACHE_SWEEP_PERIOD_MS % 1000) * 1000000L;
+        nanosleep(&ts, NULL);
+        bb_cache_foreach(sweep_cb, NULL);
+    }
+    return NULL;  // LCOV_EXCL_LINE -- infinite loop above never returns
+}
+
+void bb_cache_evict_start(void)
+{
+    ensure_init();
+
+    pthread_mutex_lock(&s_sweep_lock);
+    if (s_sweep_started) {
+        pthread_mutex_unlock(&s_sweep_lock);
+        return;
+    }
+    s_sweep_started = true;
+    pthread_mutex_unlock(&s_sweep_lock);
+
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_t tid;
+    pthread_create(&tid, &attr, sweep_thread_main, NULL);
+    pthread_attr_destroy(&attr);
+}
+#endif // BB_CACHE_SWEEP_ENABLE
 
 // ---------------------------------------------------------------------------
 // Test reset (guarded by BB_CACHE_TESTING)
@@ -864,8 +1205,25 @@ void bb_cache_reset_for_test(void)
             s_entries[i].flags       = BB_CACHE_FLAG_NONE;
             s_entries[i].ts_ms       = 0;
             s_entries[i].generation  = 0;
+            s_entries[i].policy       = BB_CACHE_EVICT_PINNED;
+            s_entries[i].stale_age_ms = 0;
+            s_entries[i].evict_age_ms = 0;
         }
     }
     pthread_mutex_unlock(&s_reg_lock);
+    // Test isolation: a prior test's installed evict-notify hook or fake
+    // clock must never leak into the next test.
+    atomic_store_explicit(&s_evict_notify_fn, NULL, memory_order_relaxed);
+    s_test_clock_hook = NULL;
+}
+
+// Test-only direct invocation of the SWEEP backstop's single pass, bypassing
+// the Kconfig-gated periodic driver (bb_cache_evict_start()) entirely so
+// tests can exercise sweep_cb() deterministically with no real threads or
+// sleeps -- pairs with bb_cache_test_set_clock() (see test_bb_cache_evict.c).
+void bb_cache_evict_sweep_once_for_test(void)
+{
+    ensure_init();
+    bb_cache_foreach(sweep_cb, NULL);
 }
 #endif

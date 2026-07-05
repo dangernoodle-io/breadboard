@@ -43,13 +43,16 @@ coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging
 	    --coveralls gcovr-coveralls.json \
 	    --txt
 
-smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32c3 smoke-r4_wifis3 smoke-tdongle smoke-uno_cc3000
+smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32-cache-sweep smoke-esp32c3 smoke-r4_wifis3 smoke-tdongle smoke-uno_cc3000
 
 smoke-elecrow-p4-hmi7: ## Build smoke example for Elecrow CrowPanel P4 HMI 7.0 (with display)
 	$(PIO) run -d examples/smoke -e elecrow-p4-hmi7
 
 smoke-esp32: ## Build smoke example for classic ESP32-D0 / WROOM-32
 	$(PIO) run -d examples/smoke -e esp32
+
+smoke-esp32-cache-sweep: ## Build smoke with CONFIG_BB_CACHE_SWEEP_ENABLE=y (bb_cache age-out sweep compile gate)
+	$(PIO) run -d examples/smoke -e esp32-cache-sweep
 
 smoke-esp32-boot-progress: ## Build smoke with BB_OTA_BOOT_PROGRESS_HTTP=y (gated path compile gate)
 	$(PIO) run -d examples/smoke -e esp32-boot-progress
