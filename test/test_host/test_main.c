@@ -1245,6 +1245,21 @@ void test_bb_kv_parse_key_and_value_with_internal_spaces(void);
 void test_bb_kv_parse_last_pair_with_no_trailing_comma(void);
 void test_bb_kv_parse_value_at_string_end_no_delimiters(void);
 
+// Forward declarations from test_bb_str.c
+void test_bb_strlcpy_table_driven(void);
+void test_bb_strlcpy_truncation_is_detected_via_return_value(void);
+void test_bb_strlcpy_exact_fit_is_not_flagged_as_truncated(void);
+void test_bb_strlcpy_dstsize_zero_writes_nothing_and_returns_strlen(void);
+void test_bb_strlcpy_dstsize_zero_with_empty_src_returns_zero(void);
+void test_bb_strlcpy_empty_src_terminates_dst_as_empty_string(void);
+void test_bb_strlcpy_dstsize_one_writes_only_nul_terminator(void);
+void test_bb_str_field_shorter_src_copies_and_zero_pads_tail(void);
+void test_bb_str_field_src_exactly_fills_dstsize_no_nul_no_pad(void);
+void test_bb_str_field_longer_src_truncates_no_nul(void);
+void test_bb_str_field_dstsize_zero_writes_nothing_and_returns_strlen(void);
+void test_bb_str_field_empty_src_zero_pads_entire_dst(void);
+void test_bb_str_field_return_value_equals_strlen_src_in_each_case(void);
+
 // Forward declarations from test_bb_mdns.c
 void test_bb_mdns_browse_start_null_service(void);
 void test_bb_mdns_browse_start_null_proto(void);
@@ -5670,6 +5685,21 @@ int main(void) {
     RUN_TEST(test_bb_kv_parse_key_and_value_with_internal_spaces);
     RUN_TEST(test_bb_kv_parse_last_pair_with_no_trailing_comma);
     RUN_TEST(test_bb_kv_parse_value_at_string_end_no_delimiters);
+
+    // bb_str tests
+    RUN_TEST(test_bb_strlcpy_table_driven);
+    RUN_TEST(test_bb_strlcpy_truncation_is_detected_via_return_value);
+    RUN_TEST(test_bb_strlcpy_exact_fit_is_not_flagged_as_truncated);
+    RUN_TEST(test_bb_strlcpy_dstsize_zero_writes_nothing_and_returns_strlen);
+    RUN_TEST(test_bb_strlcpy_dstsize_zero_with_empty_src_returns_zero);
+    RUN_TEST(test_bb_strlcpy_empty_src_terminates_dst_as_empty_string);
+    RUN_TEST(test_bb_strlcpy_dstsize_one_writes_only_nul_terminator);
+    RUN_TEST(test_bb_str_field_shorter_src_copies_and_zero_pads_tail);
+    RUN_TEST(test_bb_str_field_src_exactly_fills_dstsize_no_nul_no_pad);
+    RUN_TEST(test_bb_str_field_longer_src_truncates_no_nul);
+    RUN_TEST(test_bb_str_field_dstsize_zero_writes_nothing_and_returns_strlen);
+    RUN_TEST(test_bb_str_field_empty_src_zero_pads_entire_dst);
+    RUN_TEST(test_bb_str_field_return_value_equals_strlen_src_in_each_case);
 
     // bb_mdns tests
     RUN_TEST(test_bb_mdns_browse_start_null_service);
