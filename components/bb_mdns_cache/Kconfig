@@ -1,0 +1,89 @@
+menu "breadboard: bb_mdns_cache"
+
+config BB_MDNS_CACHE_REQUERY_PERIOD_S
+    int "Re-query worker period (seconds)"
+    default 30
+    range 1 3600
+    help
+        How often the dedicated re-query worker task issues mdns_query_ptr
+        to refresh presence entries beyond bb_mdns's hello/bye browse
+        notifications. Overridable per-call via
+        bb_mdns_cache_config_t.requery_period_ms (0 = use this default).
+
+config BB_MDNS_CACHE_QUERY_TIMEOUT_MS
+    int "mdns_query_ptr timeout (ms)"
+    default 3000
+    range 100 60000
+    help
+        Per-tick timeout passed to mdns_query_ptr on the dedicated re-query
+        worker task. Not overridable per-call.
+
+config BB_MDNS_CACHE_MAX_RESULTS
+    int "mdns_query_ptr max results"
+    default 16
+    range 1 64
+    help
+        Max results requested per mdns_query_ptr call on the re-query
+        worker tick. Not overridable per-call.
+
+config BB_MDNS_CACHE_STALE_AGE_MS
+    int "Default stale-age threshold (ms, 0 = no stale window)"
+    default 0
+    range 0 3600000
+    help
+        Default bb_cache AGE_OUT stale_age_ms for registered presence
+        entries. Overridable per-call via
+        bb_mdns_cache_config_t.stale_age_ms (0 = use this default).
+
+config BB_MDNS_CACHE_EVICT_AGE_MS
+    int "Default evict-age threshold (ms)"
+    default 90000
+    range 1000 3600000
+    help
+        Default bb_cache AGE_OUT evict_age_ms for registered presence
+        entries -- an entry unread/unwritten past this age is evicted.
+        Overridable per-call via bb_mdns_cache_config_t.evict_age_ms
+        (0 = use this default). Must exceed BB_MDNS_CACHE_STALE_AGE_MS.
+
+config BB_MDNS_CACHE_WORKER_STACK
+    int "Re-query worker task stack (bytes)"
+    default 4096
+    range 2048 16384
+    help
+        Stack size for the dedicated re-query worker task (bb_timer worker
+        mode -- mdns_query_ptr can block).
+
+config BB_MDNS_CACHE_WORKER_PRIORITY
+    int "Re-query worker task priority"
+    default 3
+    range 1 24
+    help
+        FreeRTOS priority for the dedicated re-query worker task.
+
+config BB_MDNS_CACHE_AUTOREGISTER
+    bool "Auto-start bb_mdns_cache via bb_init at PRE_HTTP"
+    default n
+    help
+        When enabled, bb_mdns_cache self-starts through bb_init at the
+        PRE_HTTP tier using BB_MDNS_CACHE_AUTO_SERVICE /
+        BB_MDNS_CACHE_AUTO_PROTO as the compiled-in default service/proto.
+        Disable (default) to call bb_mdns_cache_start() manually with a
+        consumer-chosen service/proto.
+
+config BB_MDNS_CACHE_AUTO_SERVICE
+    string "Auto-registered mDNS service (e.g. _miner)"
+    default "_miner"
+    depends on BB_MDNS_CACHE_AUTOREGISTER
+    help
+        Service label passed to bb_mdns_cache_start() when
+        BB_MDNS_CACHE_AUTOREGISTER is enabled.
+
+config BB_MDNS_CACHE_AUTO_PROTO
+    string "Auto-registered mDNS proto (e.g. _tcp)"
+    default "_tcp"
+    depends on BB_MDNS_CACHE_AUTOREGISTER
+    help
+        Proto label passed to bb_mdns_cache_start() when
+        BB_MDNS_CACHE_AUTOREGISTER is enabled.
+
+endmenu

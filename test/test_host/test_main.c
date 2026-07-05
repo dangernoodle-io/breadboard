@@ -1171,6 +1171,24 @@ void test_bb_reboot_history_decode_header_field_count_mismatch(void);
 void test_bb_reboot_history_decode_entry_field_mismatch(void);
 void test_bb_reboot_history_decode_leaves_out_untouched_on_failure(void);
 
+// Forward declarations from test_bb_mdns_cache.c
+void test_bb_mdns_cache_build_key_default_prefix(void);
+void test_bb_mdns_cache_build_key_empty_prefix_defaults(void);
+void test_bb_mdns_cache_build_key_custom_prefix(void);
+void test_bb_mdns_cache_build_key_null_out_rejected(void);
+void test_bb_mdns_cache_build_key_zero_out_size_rejected(void);
+void test_bb_mdns_cache_build_key_null_instance_name_rejected(void);
+void test_bb_mdns_cache_build_key_empty_instance_name_rejected(void);
+void test_bb_mdns_cache_build_key_truncation_is_safe(void);
+void test_bb_mdns_cache_result_valid_happy_path(void);
+void test_bb_mdns_cache_result_valid_null_instance_name(void);
+void test_bb_mdns_cache_result_valid_empty_instance_name(void);
+void test_bb_mdns_cache_result_valid_null_ip4(void);
+void test_bb_mdns_cache_result_valid_empty_ip4(void);
+void test_bb_mdns_cache_result_valid_malformed_ip4(void);
+void test_bb_mdns_cache_result_valid_ip4_with_letter(void);
+void test_bb_mdns_cache_result_valid_ip4_with_low_char(void);
+
 // Forward declarations from test_bb_kv.c
 void test_bb_kv_parse_null_string_invokes_no_callbacks(void);
 void test_bb_kv_parse_empty_string_invokes_no_callbacks(void);
@@ -8608,6 +8626,24 @@ int main(void) {
     RUN_TEST(test_bb_log_event_parse_tag_truncation);
     RUN_TEST(test_bb_log_event_parse_colon_in_msg);
     RUN_TEST(test_bb_log_event_parse_zero_cap);
+
+    // bb_mdns_cache pure key-format + result-validity test seam
+    RUN_TEST(test_bb_mdns_cache_build_key_default_prefix);
+    RUN_TEST(test_bb_mdns_cache_build_key_empty_prefix_defaults);
+    RUN_TEST(test_bb_mdns_cache_build_key_custom_prefix);
+    RUN_TEST(test_bb_mdns_cache_build_key_null_out_rejected);
+    RUN_TEST(test_bb_mdns_cache_build_key_zero_out_size_rejected);
+    RUN_TEST(test_bb_mdns_cache_build_key_null_instance_name_rejected);
+    RUN_TEST(test_bb_mdns_cache_build_key_empty_instance_name_rejected);
+    RUN_TEST(test_bb_mdns_cache_build_key_truncation_is_safe);
+    RUN_TEST(test_bb_mdns_cache_result_valid_happy_path);
+    RUN_TEST(test_bb_mdns_cache_result_valid_null_instance_name);
+    RUN_TEST(test_bb_mdns_cache_result_valid_empty_instance_name);
+    RUN_TEST(test_bb_mdns_cache_result_valid_null_ip4);
+    RUN_TEST(test_bb_mdns_cache_result_valid_empty_ip4);
+    RUN_TEST(test_bb_mdns_cache_result_valid_malformed_ip4);
+    RUN_TEST(test_bb_mdns_cache_result_valid_ip4_with_letter);
+    RUN_TEST(test_bb_mdns_cache_result_valid_ip4_with_low_char);
 
     return UNITY_END();
 }
