@@ -466,6 +466,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_str/bb_str.c"],
         "depends":  [],
     },
+    "bb_scalar": {
+        "includes": ["components/bb_scalar/include"],
+        "sources":  ["platform/host/bb_scalar/bb_scalar.c"],
+        "depends":  [],
+    },
     "bb_event_ring": {
         "includes": ["components/bb_event_ring/include"],
         "sources":  ["components/bb_event_ring/bb_event_ring.c"],

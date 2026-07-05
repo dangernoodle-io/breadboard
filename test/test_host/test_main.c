@@ -1260,6 +1260,26 @@ void test_bb_str_field_dstsize_zero_writes_nothing_and_returns_strlen(void);
 void test_bb_str_field_empty_src_zero_pads_entire_dst(void);
 void test_bb_str_field_return_value_equals_strlen_src_in_each_case(void);
 
+// Forward declarations from test_bb_scalar.c
+void test_bb_scalar_parse_bool_table_driven(void);
+void test_bb_scalar_parse_bool_null_val_returns_false(void);
+void test_bb_scalar_parse_bool_empty_string_returns_false(void);
+void test_bb_scalar_parse_bool_garbage_returns_false(void);
+void test_bb_scalar_parse_bool_numeric_garbage_returns_false(void);
+void test_bb_scalar_parse_bool_prefix_of_accepted_token_returns_false(void);
+void test_bb_scalar_parse_uint_valid_decimal(void);
+void test_bb_scalar_parse_uint_leading_zeros_accepted(void);
+void test_bb_scalar_parse_uint_zero(void);
+void test_bb_scalar_parse_uint_null_val_returns_false(void);
+void test_bb_scalar_parse_uint_empty_string_returns_false(void);
+void test_bb_scalar_parse_uint_non_numeric_returns_false(void);
+void test_bb_scalar_parse_uint_trailing_garbage_returns_false(void);
+void test_bb_scalar_parse_uint_leading_whitespace_returns_false(void);
+void test_bb_scalar_parse_uint_leading_plus_returns_false(void);
+void test_bb_scalar_parse_uint_leading_minus_returns_false(void);
+void test_bb_scalar_parse_uint_boundary_ulong_max(void);
+void test_bb_scalar_parse_uint_overflow_returns_false(void);
+
 // Forward declarations from test_bb_mdns.c
 void test_bb_mdns_browse_start_null_service(void);
 void test_bb_mdns_browse_start_null_proto(void);
@@ -5717,6 +5737,26 @@ int main(void) {
     RUN_TEST(test_bb_str_field_dstsize_zero_writes_nothing_and_returns_strlen);
     RUN_TEST(test_bb_str_field_empty_src_zero_pads_entire_dst);
     RUN_TEST(test_bb_str_field_return_value_equals_strlen_src_in_each_case);
+
+    // bb_scalar tests
+    RUN_TEST(test_bb_scalar_parse_bool_table_driven);
+    RUN_TEST(test_bb_scalar_parse_bool_null_val_returns_false);
+    RUN_TEST(test_bb_scalar_parse_bool_empty_string_returns_false);
+    RUN_TEST(test_bb_scalar_parse_bool_garbage_returns_false);
+    RUN_TEST(test_bb_scalar_parse_bool_numeric_garbage_returns_false);
+    RUN_TEST(test_bb_scalar_parse_bool_prefix_of_accepted_token_returns_false);
+    RUN_TEST(test_bb_scalar_parse_uint_valid_decimal);
+    RUN_TEST(test_bb_scalar_parse_uint_leading_zeros_accepted);
+    RUN_TEST(test_bb_scalar_parse_uint_zero);
+    RUN_TEST(test_bb_scalar_parse_uint_null_val_returns_false);
+    RUN_TEST(test_bb_scalar_parse_uint_empty_string_returns_false);
+    RUN_TEST(test_bb_scalar_parse_uint_non_numeric_returns_false);
+    RUN_TEST(test_bb_scalar_parse_uint_trailing_garbage_returns_false);
+    RUN_TEST(test_bb_scalar_parse_uint_leading_whitespace_returns_false);
+    RUN_TEST(test_bb_scalar_parse_uint_leading_plus_returns_false);
+    RUN_TEST(test_bb_scalar_parse_uint_leading_minus_returns_false);
+    RUN_TEST(test_bb_scalar_parse_uint_boundary_ulong_max);
+    RUN_TEST(test_bb_scalar_parse_uint_overflow_returns_false);
 
     // bb_mdns tests
     RUN_TEST(test_bb_mdns_browse_start_null_service);
