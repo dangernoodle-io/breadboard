@@ -1,13 +1,19 @@
 PIO ?= pio
 
-.PHONY: help check test-py test coverage smoke clean
+.PHONY: help all check lint cppcheck test-py test coverage smoke clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-check: ## Forbidden-pattern lint + static analysis (cppcheck)
+all: cppcheck test-py test ## Fast subset: static analysis + py-tests + host tests (lint runs per firmware build via BB_LINT_ON_BUILD)
+
+check: lint cppcheck ## Forbidden-pattern lint + static analysis (cppcheck)
+
+lint: ## Forbidden-pattern lint (also enforced on every firmware build via BB_LINT_ON_BUILD)
 	python3 scripts/bbtool.py lint --root . --profile library
+
+cppcheck: ## Static analysis (cppcheck)
 	@if command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --enable=all --suppress=missingIncludeSystem --suppress=unusedFunction --suppress=redundantAssignment components/; \
 	else \
