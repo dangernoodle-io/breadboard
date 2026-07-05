@@ -5,6 +5,7 @@
 #include "bb_pub.h"
 #include "bb_websocket.h"
 #include "bb_websocket_host.h"
+#include "bb_http.h"
 #include "bb_nv.h"
 #include "bb_cache.h"
 #include "bb_cache_reactive.h"
@@ -89,6 +90,14 @@ static void ws_sink_setup(void)
     bb_nv_config_set_hostname("testhost");
     bb_cache_reset_for_test();
     bb_cache_reactive_reset_for_test();
+    // The route registry is process-global and never reset by the shared
+    // Unity setUp() (test_route_registry.c / test_bb_websocket.c reset it
+    // locally the same way). Every bb_sink_ws_init() call registers the
+    // static "/ws" descriptor with no dedup, so without this the registry
+    // (cap BB_ROUTE_REGISTRY_CAP=64) eventually overflows purely from
+    // running enough bb_sink_ws tests in one process, independent of any
+    // single test's correctness.
+    bb_http_route_registry_clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -1292,4 +1301,364 @@ void test_bb_sink_ws_snapshot_on_connect_malloc_fail_skipped(void)
     TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
     bb_sink_ws_set_malloc(NULL);
     test_alloc_fail_at = -1;
+}
+
+// ---------------------------------------------------------------------------
+// B1-516 pass 2: coverage-closing tests (bb_sink_ws) — no production seam
+// added; all use existing host-stub hooks (inject_fd, force_async_alloc_fail).
+// ---------------------------------------------------------------------------
+
+// client_slot_acquire: fd<0 short-circuit guard (via parse_topic_array).
+void test_bb_sink_ws_dispatch_negative_fd_is_ignored(void)
+{
+    ws_sink_setup();
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    // Must not crash; fd=-1 can never own a slot.
+    inject_sub(req, -1, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// client_slot_find's OWN fd<0 guard is reached via client_sub_clear (the
+// disconnect path), which calls client_slot_find directly rather than via
+// client_slot_acquire's own separate fd<0 check.
+void test_bb_sink_ws_disconnect_negative_fd_is_ignored(void)
+{
+    ws_sink_setup();
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    // Must not crash.
+    bb_websocket_host_simulate_disconnect(-1);
+}
+
+// parse_topic_array: unterminated string (no closing quote before frame end)
+// must fail safely (no crash / OOB read) rather than parse a partial topic.
+void test_bb_sink_ws_sub_topic_unterminated_string_ignored(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    // Opening quote for the topic string is never closed.
+    inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"telemetry");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// parse_topic_array: more entries than BB_SINK_WS_MAX_SUBS (8) — extras are
+// dropped (loop cutoff), the first MAX_SUBS entries are kept.
+void test_bb_sink_ws_sub_topic_array_overflow_caps_at_max_subs(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    // 9 distinct exact-match subtopics — one more than BB_SINK_WS_MAX_SUBS.
+    inject_sub(req, 1,
+        "{\"type\":\"sub\",\"topic\":["
+        "\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]}");
+
+    // The first entry ("a") must still be subscribed.
+    bb_err_t err = s.publish(s.ctx, "m/h/a", "{\"ts_ms\":1,\"data\":{}}", 21, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+}
+
+// parse_topic_array: a topic name longer than BB_SINK_WS_SUB_MAX_LEN (32)
+// is truncated to fit rather than overflowing the fixed-size slot.
+void test_bb_sink_ws_sub_topic_name_truncated_to_fit(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    // 40 'x' chars — longer than BB_SINK_WS_SUB_MAX_LEN (32).
+    inject_sub(req, 1,
+        "{\"type\":\"sub\",\"topic\":"
+        "[\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"]}");
+
+    // Must not crash; a subtopic matching the truncated string still won't
+    // exact-match a distinct real subtopic, so nothing should be delivered.
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// find_array_start: the "topic" key is present but its value is NOT an
+// array (e.g. a bare string) — must be rejected, not mis-parsed.
+void test_bb_sink_ws_sub_topic_value_not_array_ignored(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":\"telemetry\"}");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// Legacy back-compat: the "sub" key present but not an array is rejected.
+void test_bb_sink_ws_legacy_sub_value_not_array_ignored(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 1, "{\"sub\":\"telemetry\"}");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// extract_type: an unterminated "type" string value (no closing quote
+// before the frame ends) must fail safely, falling through to legacy parse.
+void test_bb_sink_ws_type_value_unterminated_falls_back_to_legacy(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    // "type" value's closing quote is missing — extract_type must return
+    // false (falls through to the legacy {"sub":[...]} path), which also
+    // finds no "sub" key here, so the frame is ignored.
+    inject_sub(req, 1, "{\"type\":\"sub");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// extract_type: a "type" value longer than BB_SINK_WS_TYPE_MAX_LEN (16) is
+// truncated to fit rather than overflowing type_buf; it's still correctly
+// recognised as not "sub" (RESERVED, ignored-with-log).
+void test_bb_sink_ws_type_value_overlong_truncated_and_reserved(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    // 20 chars — longer than BB_SINK_WS_TYPE_MAX_LEN (16).
+    inject_sub(req, 1, "{\"type\":\"aaaaaaaaaaaaaaaaaaaa\",\"topic\":[\"telemetry\"]}");
+
+    // No subscription created (type wasn't "sub") — publish delivers nothing.
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// broadcast_filtered: bb_websocket_broadcast_frame_async failing for a
+// subscribed client must propagate the error from publish() without
+// crashing or stopping delivery bookkeeping for other clients.
+void test_bb_sink_ws_publish_broadcast_async_failure_propagates(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+    bb_websocket_host_set_client_active(2, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
+    inject_sub(req, 2, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
+
+    bb_websocket_host_force_async_alloc_fail(true);
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    bb_websocket_host_force_async_alloc_fail(false);
+
+    TEST_ASSERT_NOT_EQUAL(BB_OK, err);
+}
+
+// parse_topic_array: array runs to end-of-buffer immediately after a valid
+// closing quote, with no closing ']' — the outer/inner scan loops must
+// terminate on r==end rather than reading past it.
+void test_bb_sink_ws_sub_topic_array_unclosed_at_buffer_end(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    // Buffer ends exactly after the closing quote of "a" — no ']', no comma,
+    // nothing else follows.
+    inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"a\"");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// parse_topic_array: after a comma, trailing garbage with no opening quote
+// and no ']' runs the inner "scan for quote" loop off the end of the buffer.
+void test_bb_sink_ws_sub_topic_array_trailing_garbage_at_buffer_end(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"a\",xyz");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// find_key_value: whitespace-tolerant skip must handle a lone tab and a
+// lone carriage return between the colon and the value, not just space/LF
+// (already covered by the pretty-printed-JSON test).
+void test_bb_sink_ws_sub_whitespace_tab_and_cr_tolerant(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 1, "{\"type\":\t\"sub\",\"topic\":\r[\"telemetry\"]}");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+}
+
+// find_key_value: a lone newline directly after the colon (distinct from
+// the multi-space pretty-printed-JSON indentation case above).
+void test_bb_sink_ws_sub_whitespace_newline_directly_after_colon(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 1, "{\"type\":\n\"sub\",\"topic\":[\"telemetry\"]}");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+}
+
+// find_array_start / extract_type: the sought key is the very last thing in
+// the payload (colon with nothing after it) — the "found key, but v>=end"
+// guard must reject it rather than reading past the buffer.
+void test_bb_sink_ws_sub_key_at_buffer_end_no_value(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    // "topic": is the last thing in the buffer -- nothing follows the colon.
+    inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+void test_bb_sink_ws_type_key_at_buffer_end_no_value(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(1, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    // "type": is the last thing in the buffer -- extract_type must reject
+    // it (v>=end) and fall through to the legacy {"sub":[...]} parse, which
+    // also finds nothing, so the frame is ignored.
+    inject_sub(req, 1, "{\"type\":");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
+// ws_handler: a TEXT frame with a NULL payload (len>0) must be rejected by
+// the guard clause without dereferencing payload. Constructed directly
+// (not via inject_sub) since bb_websocket_host_inject_frame() forwards the
+// frame pointer straight to the registered handler.
+void test_bb_sink_ws_handler_null_payload_text_frame_ignored(void)
+{
+    ws_sink_setup();
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+
+    bb_websocket_host_set_inject_fd(1);
+    bb_websocket_frame_t frame = {
+        .final   = true,
+        .type    = BB_WS_TYPE_TEXT,
+        .payload = NULL,
+        .len     = 10,
+    };
+    bb_err_t err = bb_websocket_host_inject_frame(req, &frame);
+    bb_websocket_host_set_inject_fd(-1);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+}
+
+// bb_sink_ws_host_inject_log_event(NULL) must be a safe no-op.
+void test_bb_sink_ws_host_inject_log_event_null_json_is_noop(void)
+{
+    ws_sink_setup();
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+    // Must not crash.
+    bb_sink_ws_host_inject_log_event(NULL);
 }

@@ -15,6 +15,7 @@
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
 #include "bb_tls.h"
+#include "bb_tls_creds.h"
 #include "bb_transport_health.h"
 #include "../../platform/host/bb_http_client/bb_http_client_host.h"
 
@@ -1051,4 +1052,709 @@ void test_bb_sink_http_publish_survives_transport_health_slot_exhaustion(void)
     rc = sink.publish(sink.ctx, "t/y", "{}", 2, false);
     TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, rc);
     TEST_ASSERT_NOT_EQUAL(BB_ERR_NO_SPACE, rc);
+}
+
+// ---------------------------------------------------------------------------
+// B1-516: coverage-closing tests (bb_sink_http)
+// ---------------------------------------------------------------------------
+
+// parse_headers: name/value exceeding max length must be skipped, not
+// truncated-and-kept.
+void test_bb_sink_http_parse_skips_name_too_long(void)
+{
+    char long_name[BB_SINK_HTTP_HEADER_NAME_MAX + 16];
+    memset(long_name, 'A', sizeof(long_name) - 1);
+    long_name[sizeof(long_name) - 1] = '\0';
+
+    char buf[512];
+    snprintf(buf, sizeof(buf), "%s: v\nX-Good: ok\n", long_name);
+
+    bb_sink_http_header_t out[4];
+    int n = bb_sink_http_parse_headers(buf, out, 4);
+    TEST_ASSERT_EQUAL_INT(1, n);
+    TEST_ASSERT_EQUAL_STRING("X-Good", out[0].name);
+}
+
+void test_bb_sink_http_parse_skips_value_too_long(void)
+{
+    char long_value[BB_SINK_HTTP_HEADER_VALUE_MAX + 16];
+    memset(long_value, 'v', sizeof(long_value) - 1);
+    long_value[sizeof(long_value) - 1] = '\0';
+
+    char buf[1024];
+    snprintf(buf, sizeof(buf), "X-Bad: %s\nX-Good: ok\n", long_value);
+
+    bb_sink_http_header_t out[4];
+    int n = bb_sink_http_parse_headers(buf, out, 4);
+    TEST_ASSERT_EQUAL_INT(1, n);
+    TEST_ASSERT_EQUAL_STRING("X-Good", out[0].name);
+}
+
+// serialize_headers: a value that doesn't fit in the remaining destination
+// capacity must be truncated to fit rather than overflow.
+void test_bb_sink_http_serialize_truncates_value_to_fit(void)
+{
+    bb_sink_http_header_t hdr;
+    memset(&hdr, 0, sizeof(hdr));
+    strncpy(hdr.name, "X-A", sizeof(hdr.name) - 1);
+    memset(hdr.value, 'v', sizeof(hdr.value) - 1);
+    hdr.value[sizeof(hdr.value) - 1] = '\0';
+
+    // Capacity too small to hold the full value after "X-A: ".
+    char small_buf[16];
+    size_t written = bb_sink_http_serialize_headers(&hdr, 1, small_buf, sizeof(small_buf));
+    TEST_ASSERT_TRUE(written < sizeof(hdr.value));
+    TEST_ASSERT_TRUE(written < sizeof(small_buf));
+}
+
+// merge_headers: secret entry with no value submitted and no matching
+// existing entry by name must blank the value (not crash / leak stale data).
+void test_bb_sink_http_merge_secret_no_value_no_existing_blanks(void)
+{
+    bb_sink_http_patch_entry_t patch[1];
+    memset(patch, 0, sizeof(patch));
+    strncpy(patch[0].name, "X-New-Secret", sizeof(patch[0].name) - 1);
+    patch[0].secret = true;
+    patch[0].value_present = false;
+
+    bb_sink_http_header_t out[4];
+    memset(out, 0, sizeof(out));
+    int n = bb_sink_http_merge_headers(patch, 1, NULL, 0, out, 4);
+    TEST_ASSERT_EQUAL_INT(1, n);
+    TEST_ASSERT_EQUAL_STRING("X-New-Secret", out[0].name);
+    TEST_ASSERT_TRUE(out[0].secret);
+    TEST_ASSERT_EQUAL_STRING("", out[0].value);
+}
+
+// build_url: an unrecognized "{...}" placeholder is copied through
+// char-by-char rather than substituted.
+void test_bb_sink_http_url_unknown_placeholder_copied_literally(void)
+{
+    reset_state();
+    set_mock_200();
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com", sizeof(cfg.base) - 1);
+    strncpy(cfg.path_tmpl, "/pub/{unknown}/x", sizeof(cfg.path_tmpl) - 1);
+    cfg.enabled = true;
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    bb_http_client_session_record_t rec = bb_http_client_session_last_post();
+    TEST_ASSERT_TRUE(rec.called);
+    TEST_ASSERT_NOT_NULL(strstr(rec.url, "/pub/{unknown}/x"));
+}
+
+// save_to_nvs (via bb_sink_http_set_cfg): malloc failure for the headers
+// serialize buffer is graceful (config still persists, no crash).
+void test_bb_sink_http_set_cfg_hbuf_oom_graceful(void)
+{
+    reset_state();
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com", sizeof(cfg.base) - 1);
+    cfg.enabled = true;
+
+    bb_sink_http_set_malloc(failing_malloc);
+    bb_err_t rc = bb_sink_http_set_cfg(&cfg);
+    bb_sink_http_reset_malloc();
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+}
+
+// session_ensure: TLS credential resolution failure must propagate through
+// publish() as the transport-health-reported failure, without a session open.
+void test_bb_sink_http_publish_tls_creds_resolve_failure_propagates(void)
+{
+    reset_state();
+    set_mock_200();
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com", sizeof(cfg.base) - 1);
+    cfg.enabled = true;
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    bb_tls_creds_set_malloc(failing_malloc);
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
+    bb_tls_creds_reset_malloc();
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+    // No session should have been opened since creds resolution failed first.
+    TEST_ASSERT_EQUAL_INT(0, bb_http_client_session_open_count());
+}
+
+// ---------------------------------------------------------------------------
+// B1-516: pure-helper null-arg / guard-condition edge cases
+// ---------------------------------------------------------------------------
+
+void test_bb_sink_http_set_malloc_null_falls_back_to_libc(void)
+{
+    bb_sink_http_set_malloc(NULL);
+    bb_sink_http_header_t out[4];
+    // A normal parse must still work using the libc-malloc fallback.
+    int n = bb_sink_http_parse_headers("X-A: v1\n", out, 4);
+    TEST_ASSERT_EQUAL_INT(1, n);
+    bb_sink_http_reset_malloc();
+}
+
+void test_bb_sink_http_serialize_headers_null_args_return_zero(void)
+{
+    bb_sink_http_header_t hdrs[1];
+    memset(hdrs, 0, sizeof(hdrs));
+    char buf[16];
+    TEST_ASSERT_EQUAL_INT(0, (int)bb_sink_http_serialize_headers(NULL, 1, buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_INT(0, (int)bb_sink_http_serialize_headers(hdrs, 1, NULL, sizeof(buf)));
+    TEST_ASSERT_EQUAL_INT(0, (int)bb_sink_http_serialize_headers(hdrs, 1, buf, 0));
+}
+
+void test_bb_sink_http_merge_headers_null_args_return_zero(void)
+{
+    bb_sink_http_patch_entry_t patch[1];
+    memset(patch, 0, sizeof(patch));
+    bb_sink_http_header_t out[1];
+    TEST_ASSERT_EQUAL_INT(0, bb_sink_http_merge_headers(patch, 1, NULL, 0, NULL, 1));
+    TEST_ASSERT_EQUAL_INT(0, bb_sink_http_merge_headers(patch, 1, NULL, 0, out, 0));
+    TEST_ASSERT_EQUAL_INT(0, bb_sink_http_merge_headers(NULL, 1, NULL, 0, out, 1));
+    TEST_ASSERT_EQUAL_INT(0, bb_sink_http_merge_headers(patch, 0, NULL, 0, out, 1));
+}
+
+void test_bb_sink_http_url_encode_null_dst_or_zero_cap_returns_zero(void)
+{
+    char dst[8];
+    TEST_ASSERT_EQUAL_INT(0, (int)bb_sink_http_url_encode("abc", NULL, sizeof(dst)));
+    TEST_ASSERT_EQUAL_INT(0, (int)bb_sink_http_url_encode("abc", dst, 0));
+}
+
+void test_bb_sink_http_get_cfg_null_out_is_noop(void)
+{
+    // Must not crash.
+    bb_sink_http_get_cfg(NULL);
+}
+
+void test_bb_sink_http_set_cfg_null_returns_invalid_arg(void)
+{
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, bb_sink_http_set_cfg(NULL));
+}
+
+// ---------------------------------------------------------------------------
+// B1-516 pass 2: rare-polarity branch coverage on pure helpers — no
+// production seam added; all inputs are ordinary function arguments.
+// ---------------------------------------------------------------------------
+
+// header_name_valid: DEL (0x7F) is rejected via the second half of the
+// "c <= 0x1F || c == 0x7F" compound (distinct from the c<=0x1F half).
+void test_bb_sink_http_header_name_invalid_del_char(void)
+{
+    char name[2] = { (char)0x7F, '\0' };
+    TEST_ASSERT_FALSE(bb_sink_http_header_name_valid(name));
+}
+
+void test_bb_sink_http_header_value_valid_null_returns_false(void)
+{
+    TEST_ASSERT_FALSE(bb_sink_http_header_value_valid(NULL));
+}
+
+void test_bb_sink_http_parse_headers_null_out_returns_zero(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, bb_sink_http_parse_headers("X-A: v\n", NULL, 4));
+}
+
+void test_bb_sink_http_parse_headers_zero_out_max_returns_zero(void)
+{
+    bb_sink_http_header_t out[1];
+    TEST_ASSERT_EQUAL_INT(0, bb_sink_http_parse_headers("X-A: v\n", out, 0));
+}
+
+// parse_headers: a blank line as the very LAST line (no trailing '\n')
+// exercises the nl==NULL side of the blank-line-skip ternary.
+void test_bb_sink_http_parse_trailing_blank_line_no_newline(void)
+{
+    bb_sink_http_header_t out[4];
+    int n = bb_sink_http_parse_headers("X-Good: value\n", out, 4);
+    TEST_ASSERT_EQUAL_INT(1, n);
+    // Now a buffer whose FINAL line is blank with nothing after it.
+    n = bb_sink_http_parse_headers("X-Good: value\n\n", out, 4);
+    TEST_ASSERT_EQUAL_INT(1, n);
+}
+
+// parse_headers: a malformed (no ": ") line as the very last line (no
+// trailing '\n') exercises the nl==NULL side of that skip ternary.
+void test_bb_sink_http_parse_malformed_last_line_no_newline(void)
+{
+    bb_sink_http_header_t out[4];
+    int n = bb_sink_http_parse_headers("X-Good: v\nNoColonSpace", out, 4);
+    TEST_ASSERT_EQUAL_INT(1, n);
+}
+
+// parse_headers: an invalid-value entry (contains '\r') as the very last
+// line (no trailing '\n') exercises the nl==NULL side of that skip ternary.
+void test_bb_sink_http_parse_invalid_value_last_line_no_newline(void)
+{
+    bb_sink_http_header_t out[4];
+    // "X-Bad: v\rinjected" has no trailing '\n' -- value contains '\r'.
+    int n = bb_sink_http_parse_headers("X-Good: v\nX-Bad: v\rinjected", out, 4);
+    TEST_ASSERT_EQUAL_INT(1, n);
+    TEST_ASSERT_EQUAL_STRING("X-Good", out[0].name);
+}
+
+// parse_headers: an over-length value on the very last line (no trailing
+// '\n') exercises the nl==NULL side of the length-cap skip ternary.
+void test_bb_sink_http_parse_overlong_value_last_line_no_newline(void)
+{
+    char long_value[BB_SINK_HTTP_HEADER_VALUE_MAX + 16];
+    memset(long_value, 'v', sizeof(long_value) - 1);
+    long_value[sizeof(long_value) - 1] = '\0';
+
+    char buf[1024];
+    snprintf(buf, sizeof(buf), "X-Good: ok\nX-Bad: %s", long_value);
+
+    bb_sink_http_header_t out[4];
+    int n = bb_sink_http_parse_headers(buf, out, 4);
+    TEST_ASSERT_EQUAL_INT(1, n);
+    TEST_ASSERT_EQUAL_STRING("X-Good", out[0].name);
+}
+
+// serialize_headers: a valid name paired with an invalid value (contains
+// '\n') must be skipped (distinct from the invalid-name case already
+// covered by test_bb_sink_http_serialize_skips_invalid_entries).
+void test_bb_sink_http_serialize_skips_valid_name_invalid_value(void)
+{
+    bb_sink_http_header_t hdrs[2];
+    memset(hdrs, 0, sizeof(hdrs));
+    strncpy(hdrs[0].name, "X-Bad", sizeof(hdrs[0].name) - 1);
+    strncpy(hdrs[0].value, "v1\ninjected", sizeof(hdrs[0].value) - 1);
+    strncpy(hdrs[1].name, "X-Good", sizeof(hdrs[1].name) - 1);
+    strncpy(hdrs[1].value, "ok", sizeof(hdrs[1].value) - 1);
+
+    char buf[256] = {0};
+    bb_sink_http_serialize_headers(hdrs, 2, buf, sizeof(buf));
+
+    TEST_ASSERT_NOT_NULL(strstr(buf, "X-Good: ok"));
+    TEST_ASSERT_NULL(strstr(buf, "X-Bad"));
+}
+
+// serialize_headers: the loop's OWN capacity check (not the name/": "
+// fit check) terminates the loop when a second header's name plus ": "
+// cannot fit in the remaining space.
+void test_bb_sink_http_serialize_second_header_name_does_not_fit(void)
+{
+    bb_sink_http_header_t hdrs[2];
+    memset(hdrs, 0, sizeof(hdrs));
+    strncpy(hdrs[0].name, "A", sizeof(hdrs[0].name) - 1);
+    strncpy(hdrs[0].value, "1", sizeof(hdrs[0].value) - 1);
+    strncpy(hdrs[1].name, "X-Second-Long-Name", sizeof(hdrs[1].name) - 1);
+    strncpy(hdrs[1].value, "v", sizeof(hdrs[1].value) - 1);
+
+    // "A: 1\n" is 5 bytes; cap just past that leaves no room for the
+    // second header's own name + ": ".
+    char buf[7] = {0};
+    size_t written = bb_sink_http_serialize_headers(hdrs, 2, buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "A: 1"));
+    TEST_ASSERT_NULL(strstr(buf, "X-Second"));
+    TEST_ASSERT_TRUE(written < sizeof(buf));
+}
+
+// serialize_headers: the secret '*' prefix write itself is what overflows
+// the remaining capacity (distinct from the name/value overflow cases).
+void test_bb_sink_http_serialize_secret_prefix_does_not_fit(void)
+{
+    bb_sink_http_header_t hdrs[2];
+    memset(hdrs, 0, sizeof(hdrs));
+    strncpy(hdrs[0].name, "A", sizeof(hdrs[0].name) - 1);
+    strncpy(hdrs[0].value, "1", sizeof(hdrs[0].value) - 1);
+    hdrs[0].secret = false;
+    strncpy(hdrs[1].name, "B", sizeof(hdrs[1].name) - 1);
+    strncpy(hdrs[1].value, "2", sizeof(hdrs[1].value) - 1);
+    hdrs[1].secret = true;
+
+    // "A: 1\n" consumes 5 bytes; cap=6 leaves exactly 1 byte (for NUL),
+    // so the '*' prefix write for the second (secret) header cannot fit.
+    char buf[6] = {0};
+    bb_sink_http_serialize_headers(hdrs, 2, buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "A: 1"));
+    TEST_ASSERT_NULL(strstr(buf, "B"));
+}
+
+// serialize_headers: an empty value ("") must serialize as "name: " with
+// no value bytes copied (vlen==0 skips the memcpy branch).
+void test_bb_sink_http_serialize_empty_value(void)
+{
+    bb_sink_http_header_t hdr;
+    memset(&hdr, 0, sizeof(hdr));
+    strncpy(hdr.name, "X-Empty", sizeof(hdr.name) - 1);
+    hdr.value[0] = '\0';
+
+    char buf[64] = {0};
+    size_t written = bb_sink_http_serialize_headers(&hdr, 1, buf, sizeof(buf));
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "X-Empty: "));
+}
+
+// serialize_headers: the '\n' separator between two non-final headers is
+// itself what overflows the remaining capacity.
+void test_bb_sink_http_serialize_separator_does_not_fit(void)
+{
+    bb_sink_http_header_t hdrs[3];
+    memset(hdrs, 0, sizeof(hdrs));
+    strncpy(hdrs[0].name, "A", sizeof(hdrs[0].name) - 1);
+    strncpy(hdrs[0].value, "1", sizeof(hdrs[0].value) - 1);
+    strncpy(hdrs[1].name, "B", sizeof(hdrs[1].name) - 1);
+    hdrs[1].value[0] = '\0';
+    strncpy(hdrs[2].name, "C", sizeof(hdrs[2].name) - 1);
+    strncpy(hdrs[2].value, "3", sizeof(hdrs[2].value) - 1);
+
+    // "A: 1" (4) + "\n" (1) + "B: " (3) = 8 bytes exactly, leaving no room
+    // for a trailing '\n' separator before the (dropped) third header.
+    char buf[9] = {0};
+    bb_sink_http_serialize_headers(hdrs, 3, buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "A: 1"));
+}
+
+// merge_headers: more valid patch entries than out_max — the loop's own
+// out-of-space check (not patch_count) terminates it.
+void test_bb_sink_http_merge_headers_out_max_caps_loop(void)
+{
+    bb_sink_http_patch_entry_t patch[3];
+    memset(patch, 0, sizeof(patch));
+    for (int i = 0; i < 3; i++) {
+        snprintf(patch[i].name, sizeof(patch[i].name), "X-%d", i);
+        snprintf(patch[i].value, sizeof(patch[i].value), "v%d", i);
+        patch[i].value_present = true;
+    }
+    bb_sink_http_header_t out[2];
+    memset(out, 0, sizeof(out));
+    int n = bb_sink_http_merge_headers(patch, 3, NULL, 0, out, 2);
+    TEST_ASSERT_EQUAL_INT(2, n);
+}
+
+// merge_headers: an empty-name entry is rejected outright.
+void test_bb_sink_http_merge_headers_empty_name_rejected(void)
+{
+    bb_sink_http_patch_entry_t patch[2];
+    memset(patch, 0, sizeof(patch));
+    patch[0].name[0] = '\0';
+    strncpy(patch[0].value, "v", sizeof(patch[0].value) - 1);
+    patch[0].value_present = true;
+    strncpy(patch[1].name, "X-Good", sizeof(patch[1].name) - 1);
+    strncpy(patch[1].value, "ok", sizeof(patch[1].value) - 1);
+    patch[1].value_present = true;
+
+    bb_sink_http_header_t out[4];
+    memset(out, 0, sizeof(out));
+    int n = bb_sink_http_merge_headers(patch, 2, NULL, 0, out, 4);
+    TEST_ASSERT_EQUAL_INT(1, n);
+    TEST_ASSERT_EQUAL_STRING("X-Good", out[0].name);
+}
+
+// merge_headers: a non-empty but invalid name (contains ':') is rejected.
+void test_bb_sink_http_merge_headers_invalid_name_rejected(void)
+{
+    bb_sink_http_patch_entry_t patch[1];
+    memset(patch, 0, sizeof(patch));
+    strncpy(patch[0].name, "Bad:Name", sizeof(patch[0].name) - 1);
+    strncpy(patch[0].value, "v", sizeof(patch[0].value) - 1);
+    patch[0].value_present = true;
+
+    bb_sink_http_header_t out[1];
+    memset(out, 0, sizeof(out));
+    int n = bb_sink_http_merge_headers(patch, 1, NULL, 0, out, 1);
+    TEST_ASSERT_EQUAL_INT(0, n);
+}
+
+// merge_headers: secret+no-value with a non-empty existing array that
+// contains NO matching name must blank the value (distinct from the
+// existing==NULL case already covered).
+void test_bb_sink_http_merge_headers_secret_no_match_in_existing_blanks(void)
+{
+    bb_sink_http_patch_entry_t patch[1];
+    memset(patch, 0, sizeof(patch));
+    strncpy(patch[0].name, "X-New-Secret", sizeof(patch[0].name) - 1);
+    patch[0].secret = true;
+    patch[0].value_present = false;
+
+    bb_sink_http_header_t existing[1];
+    memset(existing, 0, sizeof(existing));
+    strncpy(existing[0].name, "X-Other", sizeof(existing[0].name) - 1);
+    strncpy(existing[0].value, "unrelated", sizeof(existing[0].value) - 1);
+
+    bb_sink_http_header_t out[1];
+    memset(out, 0, sizeof(out));
+    int n = bb_sink_http_merge_headers(patch, 1, existing, 1, out, 1);
+    TEST_ASSERT_EQUAL_INT(1, n);
+    TEST_ASSERT_EQUAL_STRING("", out[0].value);
+}
+
+// merge_headers: a non-secret entry with an invalid submitted value
+// (contains '\n') is rejected.
+void test_bb_sink_http_merge_headers_invalid_value_rejected(void)
+{
+    bb_sink_http_patch_entry_t patch[1];
+    memset(patch, 0, sizeof(patch));
+    strncpy(patch[0].name, "X-Bad", sizeof(patch[0].name) - 1);
+    strncpy(patch[0].value, "v\ninjected", sizeof(patch[0].value) - 1);
+    patch[0].value_present = true;
+    patch[0].secret = false;
+
+    bb_sink_http_header_t out[1];
+    memset(out, 0, sizeof(out));
+    int n = bb_sink_http_merge_headers(patch, 1, NULL, 0, out, 1);
+    TEST_ASSERT_EQUAL_INT(0, n);
+}
+
+// url_encode: the outer loop's own capacity check (out+1<dst_cap) — not a
+// mid-percent-encode break — terminates the loop when plain unreserved
+// characters exactly fill the destination.
+void test_bb_sink_http_url_encode_exact_capacity_unreserved_chars(void)
+{
+    char out[4] = {0};
+    size_t n = bb_sink_http_url_encode("abcd", out, sizeof(out));
+    TEST_ASSERT_EQUAL_INT(3, (int)n);
+    TEST_ASSERT_EQUAL_STRING("abc", out);
+}
+
+// merge_headers: secret entry with value_present=true but an explicitly
+// empty value ("") must still blank/preserve-by-name (distinct from the
+// value_present=false case already covered).
+void test_bb_sink_http_merge_headers_secret_present_but_empty_value(void)
+{
+    bb_sink_http_patch_entry_t patch[1];
+    memset(patch, 0, sizeof(patch));
+    strncpy(patch[0].name, "X-Secret", sizeof(patch[0].name) - 1);
+    patch[0].secret = true;
+    patch[0].value_present = true;
+    patch[0].value[0] = '\0';
+
+    bb_sink_http_header_t out[1];
+    memset(out, 0, sizeof(out));
+    int n = bb_sink_http_merge_headers(patch, 1, NULL, 0, out, 1);
+    TEST_ASSERT_EQUAL_INT(1, n);
+    TEST_ASSERT_EQUAL_STRING("", out[0].value);
+}
+
+// load_from_nvs: a corrupt/non-digit "qos" NVS value drives qos negative,
+// hitting the "< 0" half of the clamp (distinct from the "> 2" half,
+// already covered elsewhere by normal qos round-trips).
+void test_bb_sink_http_get_cfg_qos_negative_from_nvs_clamped(void)
+{
+    reset_state();
+    // qos_str[0] - '0' is negative when qos_str[0] < '0' (e.g. '!' = 0x21,
+    // '0' = 0x30 -> negative delta).
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "qos", "!");
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com", sizeof(cfg.base) - 1);
+    bb_sink_http_init(&cfg);
+
+    bb_sink_http_cfg_t out;
+    bb_sink_http_get_cfg(&out);
+    TEST_ASSERT_EQUAL_INT(1, out.qos);  // clamped to the default (1)
+}
+
+// load_from_nvs: a corrupt "qos" NVS value above the valid range (a digit
+// > 2) drives qos above 2, hitting the "> 2" half of the clamp (distinct
+// from the "< 0" half above).
+void test_bb_sink_http_get_cfg_qos_above_range_from_nvs_clamped(void)
+{
+    reset_state();
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "qos", "9");
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com", sizeof(cfg.base) - 1);
+    bb_sink_http_init(&cfg);
+
+    bb_sink_http_cfg_t out;
+    bb_sink_http_get_cfg(&out);
+    TEST_ASSERT_EQUAL_INT(1, out.qos);  // clamped to the default (1)
+}
+
+// save_to_nvs (via set_cfg): enabled=false must persist "0" (the ternary's
+// other polarity from the enabled=true round-trip already covered).
+void test_bb_sink_http_set_cfg_enabled_false_persists_zero(void)
+{
+    reset_state();
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com", sizeof(cfg.base) - 1);
+    cfg.enabled = false;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_sink_http_set_cfg(&cfg));
+
+    char buf[4] = {0};
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "enabled", buf, sizeof(buf), "1");
+    TEST_ASSERT_EQUAL_STRING("0", buf);
+}
+
+// apply_headers_to_session: when both client_id and hostname are empty,
+// cid[0] is false and the X-Client-Id header must be omitted (distinct
+// from the normal hostname-fallback case already covered elsewhere).
+void test_bb_sink_http_session_no_client_id_and_no_hostname_omits_header(void)
+{
+    reset_state();
+    set_mock_200();
+    bb_nv_config_factory_reset();  // hostname reverts to "" (empty)
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com", sizeof(cfg.base) - 1);
+    cfg.enabled = true;
+    // client_id left empty.
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    bb_http_client_header_record_t rec = bb_http_client_session_find_header("X-Client-Id");
+    TEST_ASSERT_EQUAL_STRING("", rec.name);  // not found -> zeroed record
+}
+
+// apply_headers_to_session: a configured header entry with an empty name
+// (defensive slot, never produced by the public merge/patch path) must be
+// skipped rather than sent with an empty header name.
+void test_bb_sink_http_session_applies_headers_skips_empty_name_entry(void)
+{
+    reset_state();
+    set_mock_200();
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com", sizeof(cfg.base) - 1);
+    cfg.enabled = true;
+    cfg.num_headers = 2;
+    // headers[0] has an empty name -- must be skipped.
+    strncpy(cfg.headers[1].name, "X-Real", sizeof(cfg.headers[1].name) - 1);
+    strncpy(cfg.headers[1].value, "ok", sizeof(cfg.headers[1].value) - 1);
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    bb_http_client_header_record_t real = bb_http_client_session_find_header("X-Real");
+    TEST_ASSERT_EQUAL_STRING("ok", real.value);
+}
+
+// bb_sink_http_init: an override with an empty base leaves the NVS-loaded
+// base untouched (the "over->base[0]" false polarity).
+void test_bb_sink_http_init_override_empty_base_preserves_nvs_base(void)
+{
+    reset_state();
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "base", "https://from-nvs.example.com");
+
+    bb_sink_http_cfg_t over;
+    memset(&over, 0, sizeof(over));
+    // over.base left empty; only qos is overridden.
+    over.qos = 2;
+    bb_sink_http_init(&over);
+
+    bb_sink_http_cfg_t out;
+    bb_sink_http_get_cfg(&out);
+    TEST_ASSERT_EQUAL_STRING("https://from-nvs.example.com", out.base);
+    TEST_ASSERT_EQUAL_INT(2, out.qos);
+}
+
+// bb_sink_http_init: an override with more headers than
+// BB_SINK_HTTP_HEADERS_MAX is clamped to the cap rather than overflowing
+// s_cfg.headers[].
+void test_bb_sink_http_init_override_headers_overflow_clamped(void)
+{
+    reset_state();
+    bb_sink_http_cfg_t over;
+    memset(&over, 0, sizeof(over));
+    strncpy(over.base, "https://broker.example.com", sizeof(over.base) - 1);
+    over.num_headers = BB_SINK_HTTP_HEADERS_MAX + 4;
+    for (int i = 0; i < BB_SINK_HTTP_HEADERS_MAX; i++) {
+        snprintf(over.headers[i].name, sizeof(over.headers[i].name), "X-%d", i);
+    }
+    bb_sink_http_init(&over);
+
+    bb_sink_http_cfg_t out;
+    bb_sink_http_get_cfg(&out);
+    TEST_ASSERT_EQUAL_INT(BB_SINK_HTTP_HEADERS_MAX, out.num_headers);
+}
+
+// ---------------------------------------------------------------------------
+// B1-516 pass 3: seam-backed coverage (session-open failure, TLS-error carry
+// on failure)
+// ---------------------------------------------------------------------------
+
+static void *failing_session_calloc(size_t n, size_t sz)
+{
+    (void)n; (void)sz;
+    return NULL;
+}
+
+// session_ensure: bb_http_client_session_open failing (simulated allocation
+// failure) must propagate through publish() without a partial/dangling
+// session, distinct from the TLS-creds-resolve failure case (which fails
+// before session_open is ever reached).
+void test_bb_sink_http_publish_session_open_failure_propagates(void)
+{
+    reset_state();
+    set_mock_200();
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com", sizeof(cfg.base) - 1);
+    cfg.enabled = true;
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    bb_http_client_host_set_session_calloc(failing_session_calloc);
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
+    bb_http_client_host_set_session_calloc(NULL);
+
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+    TEST_ASSERT_EQUAL_INT(0, bb_http_client_session_open_count());
+}
+
+// http_pub_publish: a mocked transport failure that ALSO carries a nonzero
+// tls_error_code must classify + log the TLS handshake diagnostic (distinct
+// from a plain transport failure with tls_error_code==0, already covered).
+void test_bb_sink_http_publish_failure_with_tls_error_code_classifies(void)
+{
+    reset_state();
+
+    bb_sink_http_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.base, "https://broker.example.com", sizeof(cfg.base) - 1);
+    cfg.enabled = true;
+    bb_sink_http_init(&cfg);
+
+    bb_pub_sink_t sink;
+    memset(&sink, 0, sizeof(sink));
+    bb_sink_http(&sink);
+
+    bb_http_client_session_set_mock_transport_error(BB_ERR_TIMEOUT);
+    bb_http_client_session_set_mock_tls_error_code(-0x7280);  /* arbitrary mbedtls-style code */
+
+    bb_err_t rc = sink.publish(sink.ctx, "t/x", "{}", 2, false);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_TIMEOUT, rc);
+
+    bb_sink_http_health_t health;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_sink_http_get_health(&health));
+    TEST_ASSERT_NOT_EQUAL(BB_TLS_FAIL_NONE, health.tls_fail);
 }

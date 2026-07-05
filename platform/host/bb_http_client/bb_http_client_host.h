@@ -107,9 +107,17 @@ int bb_http_client_session_open_count(void);
 // Returns false if session_open has not been called or cfg was NULL.
 bool bb_http_client_session_last_keep_alive(void);
 
-// Set the tls_error_code that the next session_post will carry in out->tls_error_code.
+// Set the tls_error_code that the next session_post will carry in
+// out->tls_error_code -- on success AND on a mocked transport failure (see
+// bb_http_client_session_set_mock_transport_error), so tests can simulate a
+// TLS-handshake failure that also fails the overall transport result.
 // Default 0. Reset by bb_http_client_clear_mock().
 void bb_http_client_session_set_mock_tls_error_code(int code);
+
+// Override the allocator used internally by bb_http_client_session_open to
+// simulate an allocation failure. Pass NULL to revert to the real calloc
+// (also reverted by bb_http_client_clear_mock()).
+void bb_http_client_host_set_session_calloc(void *(*fn)(size_t, size_t));
 
 #ifdef __cplusplus
 }

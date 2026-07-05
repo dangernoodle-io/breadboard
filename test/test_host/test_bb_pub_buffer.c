@@ -602,6 +602,42 @@ void test_bb_pub_buffer_always_normal_goes_through_ring(void)
     TEST_ASSERT_EQUAL_size_t(0, stats.count);   /* ring empty */
 }
 
+// Always-on capture must be skipped for sink[0] when the source isn't
+// actually subscribed on sink[0] (p->subscribed[0] == false) -- distinct
+// from the buffer_always_on()==false case already covered elsewhere.
+static bool buf_reject_all(const char *subtopic, const char *const *tags,
+                            int ntags, void *ctx)
+{
+    (void)subtopic; (void)tags; (void)ntags; (void)ctx;
+    return false;
+}
+
+static fake_sink_ctx_t s_ctx2;
+
+void test_bb_pub_buffer_always_skips_capture_when_sink0_not_subscribed(void)
+{
+    buf_reset();
+    bb_pub_test_set_buffer_always(true);
+    ctx_reset(&s_ctx2);
+
+    bb_pub_sink_t rejecting = make_sink(&s_ctx);
+    rejecting.subscribe = buf_reject_all;   // sink[0]: never subscribed
+    bb_pub_sink_t accepting = make_sink(&s_ctx2);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&rejecting));
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_add_sink(&accepting));
+    bb_pub_register_source("small", source_fn, NULL);
+
+    bb_pub_tick_once();
+
+    // sink[0] never subscribed -> nothing captured into the ring for it.
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
+    // sink[1] (accepting) still received the direct publish.
+    TEST_ASSERT_EQUAL_INT(1, s_ctx2.count);
+}
+
 // ---------------------------------------------------------------------------
 // Idle-free tests (B1-419) — free store-forward ring when idle
 // ---------------------------------------------------------------------------
@@ -962,6 +998,36 @@ void test_bb_pub_buffer_lazy_heap_alloc_failure_is_fail_soft(void)
 
     bb_pub_buffer_stats(&stats);
     TEST_ASSERT_EQUAL_size_t(1, stats.count);
+#else
+    TEST_IGNORE_MESSAGE("BB_MEM_TESTING not defined; skip alloc-fail injection test");
+#endif
+}
+
+// 21b. Consecutive lazy-heap allocation failures log the warning only once
+// (s_ring_alloc_fail_logged latch) — the second consecutive failure must
+// skip re-logging. Correctness is asserted the same way as the fail-soft
+// test above (no crash, nothing buffered); the log-once behavior itself is
+// a coverage-only branch with no externally observable side effect to
+// assert on beyond "did not crash".
+void test_bb_pub_buffer_lazy_heap_consecutive_alloc_failures_log_once(void)
+{
+#ifdef BB_MEM_TESTING
+    buf_reset();
+    bb_pub_test_set_buffer_static(false);
+
+    s_ctx.fail = true;
+    bb_pub_sink_t sk = make_sink(&s_ctx);
+    bb_pub_set_sink(&sk);
+    bb_pub_register_source("info", source_fn, NULL);
+
+    bb_mem_set_alloc_hook(s_null_alloc_hook);
+    bb_pub_tick_once();   /* first failure: warning logged, latch set */
+    bb_pub_tick_once();   /* second consecutive failure: latch already set */
+    bb_mem_set_alloc_hook(NULL);
+
+    bb_pub_buffer_stats_t stats;
+    bb_pub_buffer_stats(&stats);
+    TEST_ASSERT_EQUAL_size_t(0, stats.count);
 #else
     TEST_IGNORE_MESSAGE("BB_MEM_TESTING not defined; skip alloc-fail injection test");
 #endif
