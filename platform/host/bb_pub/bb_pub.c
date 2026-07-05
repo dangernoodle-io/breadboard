@@ -198,6 +198,33 @@ static bool s_paused = false;
 // barriering on this lock for the full publish duration.
 static pthread_mutex_t s_tick_lock = PTHREAD_MUTEX_INITIALIZER;
 
+// Tick owner (B1-651): the thread currently holding s_tick_lock across
+// Phase 1 of bb_pub_tick_once, which invokes source sample_fn callbacks and
+// payload extenders. s_tick_lock is a plain (non-recursive) mutex, so if one
+// of those callbacks calls bb_pub_add_sink/bb_pub_set_sink/bb_pub_clear_sinks
+// it would self-deadlock trying to re-acquire a lock its own thread already
+// holds. Guard against that: s_tick_owner/s_tick_owner_valid are set right
+// after Phase 1 acquires s_tick_lock and cleared right before every unlock of
+// s_tick_lock within tick_once, so they are only ever written by the thread
+// that holds s_tick_lock. Reading s_tick_owner from a DIFFERENT thread
+// without the lock would be a race, but the only comparison made outside the
+// lock is "is s_tick_owner == pthread_self()", which can only be true if the
+// reading thread is itself the owner — i.e. only the owning thread's own
+// (program-ordered, same-thread) prior write is ever observed as a match.
+// A non-owning thread's pthread_self() can never coincidentally equal the
+// owner's tid, so the unguarded read is safe for this specific comparison.
+static pthread_t s_tick_owner;
+static bool      s_tick_owner_valid = false;
+
+// True if the calling thread is the one currently running Phase 1 of
+// bb_pub_tick_once (i.e. this is a reentrant call from a sample_fn or
+// payload-extender callback). Safe to call without s_tick_lock — see the
+// s_tick_owner comment above.
+static bool tick_owned_by_self(void)
+{
+    return s_tick_owner_valid && pthread_equal(s_tick_owner, pthread_self());
+}
+
 // In-publish flag: incremented just before the blocking sink fan-out begins,
 // decremented (and cv broadcast) just after it completes.
 // Protected by s_in_publish_mu.
@@ -751,10 +778,13 @@ void bb_pub_buffer_stats(bb_pub_buffer_stats_t *out)
 // Public API — sinks
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_pub_add_sink(const bb_pub_sink_t *sink)
+// s_tick_lock-held helpers (B1-651). bb_pub_tick_once reads s_sinks/s_sink_count
+// under s_tick_lock (Phase 1's snap_sinks[] copy); these mutators must take the
+// same lock so a concurrent add/set/clear can never resize or reorder the array
+// mid-fan-out (TOCTOU / iterator invalidation). Only the array write itself is
+// guarded here — no blocking I/O runs under s_tick_lock in either path.
+static bb_err_t add_sink_locked(const bb_pub_sink_t *sink)
 {
-    if (!sink || !sink->publish) return BB_ERR_INVALID_ARG;
-
     if (s_sink_count >= CONFIG_BB_PUB_MAX_SINKS) {
         return BB_ERR_NO_SPACE;
     }
@@ -762,18 +792,56 @@ bb_err_t bb_pub_add_sink(const bb_pub_sink_t *sink)
     return BB_OK;
 }
 
-void bb_pub_clear_sinks(void)
+static void clear_sinks_locked(void)
 {
     s_sink_count = 0;
 }
 
+bb_err_t bb_pub_add_sink(const bb_pub_sink_t *sink)
+{
+    if (!sink || !sink->publish) return BB_ERR_INVALID_ARG;
+
+    // Reentrancy guard (B1-651): s_tick_lock is non-recursive, and
+    // bb_pub_tick_once's Phase 1 holds it across each source's sample_fn and
+    // every payload extender. If one of those callbacks calls this function
+    // from the tick-owning thread, re-acquiring the lock would self-deadlock
+    // the worker permanently. Detect that case up front and refuse instead
+    // of blocking — see the s_tick_owner comment near its declaration.
+    if (tick_owned_by_self()) return BB_ERR_INVALID_STATE;
+
+    pthread_mutex_lock(&s_tick_lock);
+    bb_err_t err = add_sink_locked(sink);
+    pthread_mutex_unlock(&s_tick_lock);
+    return err;
+}
+
+bb_err_t bb_pub_clear_sinks(void)
+{
+    // Reentrancy guard (B1-651); see bb_pub_add_sink.
+    if (tick_owned_by_self()) return BB_ERR_INVALID_STATE;
+
+    pthread_mutex_lock(&s_tick_lock);
+    clear_sinks_locked();
+    pthread_mutex_unlock(&s_tick_lock);
+    return BB_OK;
+}
+
 bb_err_t bb_pub_set_sink(const bb_pub_sink_t *sink)
 {
-    bb_pub_clear_sinks();
-    if (!sink || !sink->publish) {
-        return BB_OK;
+    // Reentrancy guard (B1-651); see bb_pub_add_sink.
+    if (tick_owned_by_self()) return BB_ERR_INVALID_STATE;
+
+    // Replace-all under a single critical section (rather than calling
+    // bb_pub_clear_sinks()+bb_pub_add_sink() back to back) so tick_once can
+    // never observe a transient empty sink set between the clear and the add.
+    pthread_mutex_lock(&s_tick_lock);
+    clear_sinks_locked();
+    bb_err_t err = BB_OK;
+    if (sink && sink->publish) {
+        err = add_sink_locked(sink);
     }
-    return bb_pub_add_sink(sink);
+    pthread_mutex_unlock(&s_tick_lock);
+    return err;
 }
 
 // ---------------------------------------------------------------------------
@@ -783,17 +851,18 @@ bb_err_t bb_pub_set_sink(const bb_pub_sink_t *sink)
 bb_err_t bb_pub_get_status(bb_pub_status_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
-    // s_source_count and s_sink_count are only mutated at registration time
-    // (before the worker starts); no lock needed for them.
+    // s_source_count is only mutated at registration time (before the worker
+    // starts); no lock needed for it.
     out->source_count = s_source_count;
-    out->sink_count   = s_sink_count;
-    // s_last_publish_ok, s_last_publish_ms, and s_published_ever are written
-    // by Phase 3 of bb_pub_tick_once under s_tick_lock.  Acquire the lock for
-    // the read so callers get a coherent snapshot.
+    // s_sink_count is now mutated at any time by bb_pub_add_sink/set_sink/
+    // clear_sinks (B1-651), which take s_tick_lock — fold its read into the
+    // same locked block as last_publish_ok/_ms/published_ever so callers get
+    // a coherent snapshot.
     pthread_mutex_lock(&s_tick_lock);
-    out->last_publish_ok = s_last_publish_ok;
-    out->last_publish_ms = s_last_publish_ms;
-    out->published_ever  = s_published_ever;
+    out->sink_count       = s_sink_count;
+    out->last_publish_ok  = s_last_publish_ok;
+    out->last_publish_ms  = s_last_publish_ms;
+    out->published_ever   = s_published_ever;
     pthread_mutex_unlock(&s_tick_lock);
     // s_started is written once at startup (before any tick); no lock needed.
     out->available = s_started;
@@ -1387,6 +1456,15 @@ bb_err_t bb_pub_tick_once(void)
         return BB_OK;
     }
 
+    // Record the tick owner (B1-651) for the remainder of Phase 1, which is
+    // about to start invoking each source's sample_fn and every payload
+    // extender, so the sink mutators can detect same-thread reentrancy from
+    // one of those callbacks and refuse instead of self-deadlocking. Set
+    // only now (after the paused re-check above) since no callback runs on
+    // the early-return path. See the s_tick_owner comment above.
+    s_tick_owner       = pthread_self();
+    s_tick_owner_valid = true;
+
 #if CONFIG_BB_PUB_BUFFER_ENABLE
     // One-shot guard: warn when always-on ring is smaller than the per-tick
     // source count.  In that case the ring evicts the first-enqueued sources
@@ -1608,7 +1686,10 @@ bb_err_t bb_pub_tick_once(void)
         payload_count++;
     }
 
-    // Release the tick lock before the blocking publish phase.
+    // Release the tick lock before the blocking publish phase. Clear the
+    // tick owner first — Phase 1's callbacks (the only reentrancy risk) are
+    // done, and Phase 2/3 don't hold s_tick_lock across sink mutator calls.
+    s_tick_owner_valid = false;
     pthread_mutex_unlock(&s_tick_lock);
 
     if (payload_count == 0 && telem_fired_count == 0) {
@@ -1940,6 +2021,7 @@ void bb_pub_test_reset(void)
     // from a prior test is cleared.
     pthread_mutex_destroy(&s_tick_lock);
     pthread_mutex_init(&s_tick_lock, NULL);
+    s_tick_owner_valid = false;
     pthread_mutex_destroy(&s_in_publish_mu);
     pthread_mutex_init(&s_in_publish_mu, NULL);
     pthread_cond_destroy(&s_in_publish_cv);
