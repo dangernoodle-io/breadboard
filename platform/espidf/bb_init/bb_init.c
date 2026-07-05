@@ -29,6 +29,48 @@ static node_early_t *s_early_head = NULL;
 static node_pre_http_t *s_pre_http_head = NULL;
 static bool s_pre_http_walked = false;
 
+typedef int (*bb_init_order_getter_fn)(const void *node);
+
+// Reverses a head-is-most-recently-registered node array into insertion order,
+// then runs a stable insertion sort ascending by .order (ties preserve
+// insertion order because the array is already in insertion order before the
+// sort begins). No-ops for n < 2 — this is what guards the n==0 case that
+// previously underflowed `hi = n - 1` to SIZE_MAX.
+static void bb_init_sort_nodes_by_order(void **nodes, size_t n, bb_init_order_getter_fn get_order)
+{
+    if (n < 2) return;
+
+    for (size_t lo = 0, hi = n - 1; lo < hi; lo++, hi--) {
+        void *tmp = nodes[lo]; nodes[lo] = nodes[hi]; nodes[hi] = tmp;
+    }
+
+    for (size_t i = 1; i < n; i++) {
+        void *key = nodes[i];
+        int key_order = get_order(key);
+        int j = (int)i - 1;
+        while (j >= 0 && get_order(nodes[j]) > key_order) {
+            nodes[j + 1] = nodes[j];
+            j--;
+        }
+        nodes[j + 1] = key;
+    }
+}
+
+static int bb_init_order_regular(const void *node)
+{
+    return ((const node_t *)node)->entry->order;
+}
+
+static int bb_init_order_early(const void *node)
+{
+    return ((const node_early_t *)node)->entry->order;
+}
+
+static int bb_init_order_pre_http(const void *node)
+{
+    return ((const node_pre_http_t *)node)->entry->order;
+}
+
 void bb_init_add(const bb_init_entry_t *entry)
 {
     if (!entry) return;
@@ -53,14 +95,17 @@ bb_err_t bb_init_init(void)
             size_t count = bb_init_count_pre_http();
             printf("[bb_init] pre_http init: %zu entries\n", count);
 
-            node_pre_http_t *nodes[256];
+            void *nodes[256];
             size_t n = 0;
             for (node_pre_http_t *p = s_pre_http_head; p && n < 256; p = p->next) {
                 nodes[n++] = p;
             }
 
-            for (int i = (int)n - 1; i >= 0; i--) {
-                bb_err_t err = nodes[i]->entry->init();
+            bb_init_sort_nodes_by_order(nodes, n, bb_init_order_pre_http);
+
+            for (size_t i = 0; i < n; i++) {
+                node_pre_http_t *nd = (node_pre_http_t *)nodes[i];
+                bb_err_t err = nd->entry->init();
                 if (err != BB_OK && first_error == BB_OK) {
                     first_error = err;
                 }
@@ -85,33 +130,17 @@ bb_err_t bb_init_init(void)
         size_t count = bb_init_count();
         printf("[bb_init] registry init: %zu entries\n", count);
 
-        // Walk from head to tail; since we prepend, this walks in reverse order
-        // To visit in insertion order, we need to reverse the list or count from tail
-        // For now, follow the spec: walk in insertion order by reversing the walk
-        node_t *nodes[256];
+        void *nodes[256];
         size_t n = 0;
         for (node_t *p = s_head; p && n < 256; p = p->next) {
             nodes[n++] = p;
         }
 
-        // Reverse into insertion order (we prepend, so head is last-registered).
-        for (size_t lo = 0, hi = n - 1; lo < hi; lo++, hi--) {
-            node_t *tmp = nodes[lo]; nodes[lo] = nodes[hi]; nodes[hi] = tmp;
-        }
-        // Stable insertion sort by .order ascending — preserves insertion-order
-        // tie-breaking because the array is already in insertion order.
-        for (size_t i = 1; i < n; i++) {
-            node_t *key = nodes[i];
-            int j = (int)i - 1;
-            while (j >= 0 && nodes[j]->entry->order > key->entry->order) {
-                nodes[j + 1] = nodes[j];
-                j--;
-            }
-            nodes[j + 1] = key;
-        }
+        bb_init_sort_nodes_by_order(nodes, n, bb_init_order_regular);
 
         for (size_t i = 0; i < n; i++) {
-            bb_err_t err = nodes[i]->entry->init(server);
+            node_t *nd = (node_t *)nodes[i];
+            bb_err_t err = nd->entry->init(server);
             if (err != BB_OK && first_error == BB_OK) {
                 first_error = err;
             }
@@ -196,18 +225,17 @@ bb_err_t bb_init_init_early(void)
 
     bb_err_t first_error = BB_OK;
 
-    // Walk from head to tail; since we prepend, this walks in reverse order
-    // To visit in insertion order, we need to reverse the list or count from tail
-    // For now, follow the spec: walk in insertion order by reversing the walk
-    node_early_t *nodes[256];
+    void *nodes[256];
     size_t n = 0;
     for (node_early_t *p = s_early_head; p && n < 256; p = p->next) {
         nodes[n++] = p;
     }
 
-    // Walk backwards to get insertion order (since we prepend)
-    for (int i = (int)n - 1; i >= 0; i--) {
-        bb_err_t err = nodes[i]->entry->init();
+    bb_init_sort_nodes_by_order(nodes, n, bb_init_order_early);
+
+    for (size_t i = 0; i < n; i++) {
+        node_early_t *nd = (node_early_t *)nodes[i];
+        bb_err_t err = nd->entry->init();
         if (err != BB_OK && first_error == BB_OK) {
             first_error = err;
         }
@@ -275,14 +303,17 @@ bb_err_t bb_init_init_pre_http(void)
 
     bb_err_t first_error = BB_OK;
 
-    node_pre_http_t *nodes[256];
+    void *nodes[256];
     size_t n = 0;
     for (node_pre_http_t *p = s_pre_http_head; p && n < 256; p = p->next) {
         nodes[n++] = p;
     }
 
-    for (int i = (int)n - 1; i >= 0; i--) {
-        bb_err_t err = nodes[i]->entry->init();
+    bb_init_sort_nodes_by_order(nodes, n, bb_init_order_pre_http);
+
+    for (size_t i = 0; i < n; i++) {
+        node_pre_http_t *nd = (node_pre_http_t *)nodes[i];
+        bb_err_t err = nd->entry->init();
         if (err != BB_OK && first_error == BB_OK) {
             first_error = err;
         }

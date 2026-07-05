@@ -57,14 +57,16 @@ void     bb_init_clear_early(void);
 // add `-u bb_init_register_early__<name>` to force-keep the .o under PlatformIO,
 // whose espidf builder strips IDF's WHOLE_ARCHIVE flag. See
 // cmake/bb_init.cmake for the bb_init_force_register_early() helper.
-#define BB_INIT_REGISTER_EARLY(name_, fn_)                                       \
+#define BB_INIT_REGISTER_EARLY_N(name_, fn_, n_)                                  \
     static const bb_init_entry_early_t bb_init_entry_early__##name_ = {      \
-        .name = #name_, .init = (fn_)                                                 \
+        .name = #name_, .init = (fn_), .order = (n_)                                  \
     };                                                                                 \
     void bb_init_register_early__##name_(void) __attribute__((constructor));     \
     void bb_init_register_early__##name_(void) {                                 \
         bb_init_add_early(&bb_init_entry_early__##name_);                    \
     }
+
+#define BB_INIT_REGISTER_EARLY(name_, fn_) BB_INIT_REGISTER_EARLY_N(name_, fn_, 0)
 
 // PRE_HTTP tier — runs after EARLY, before the HTTP server starts.
 // Signature is parallel to EARLY (no server arg).
@@ -87,14 +89,16 @@ void     bb_init_clear_pre_http(void);
 // add `-u bb_init_register_pre_http__<name>` to force-keep the .o under PlatformIO,
 // whose espidf builder strips IDF's WHOLE_ARCHIVE flag. See
 // cmake/bb_init.cmake for the bb_init_force_register_pre_http() helper.
-#define BB_INIT_REGISTER_PRE_HTTP(name_, fn_)                                           \
+#define BB_INIT_REGISTER_PRE_HTTP_N(name_, fn_, n_)                                     \
     static const bb_init_entry_pre_http_t bb_init_entry_pre_http__##name_ = {      \
-        .name = #name_, .init = (fn_)                                                       \
+        .name = #name_, .init = (fn_), .order = (n_)                                        \
     };                                                                                      \
     void bb_init_register_pre_http__##name_(void) __attribute__((constructor));        \
     void bb_init_register_pre_http__##name_(void) {                                    \
         bb_init_add_pre_http(&bb_init_entry_pre_http__##name_);                    \
     }
+
+#define BB_INIT_REGISTER_PRE_HTTP(name_, fn_) BB_INIT_REGISTER_PRE_HTTP_N(name_, fn_, 0)
 
 #ifdef __cplusplus
 }
