@@ -1,0 +1,20 @@
+menu "breadboard: bb_sink_display"
+
+config BB_SINK_DISPLAY_MAX_FIELDS
+    int "Maximum number of selectable display fields"
+    default 16
+    range 1 32
+    help
+        Fixed-capacity bound on the v1 hand-authored field catalog, the
+        bb_filter selection output, and the row table. Raise only if a
+        board's catalog genuinely exceeds 16 fields.
+
+config BB_SINK_DISPLAY_VALUE_MAX
+    int "Maximum formatted row value length (bytes, including NUL)"
+    default 40
+    range 8 128
+    help
+        Buffer size for one row's formatted "label: value unit" string
+        (bb_sink_display_format_default()'s output, or a custom format_fn's).
+
+endmenu

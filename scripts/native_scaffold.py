@@ -698,6 +698,16 @@ COMPONENT_MAP = {
         "sources":  ["components/bb_filter/src/bb_filter.c"],
         "depends":  ["bb_core", "bb_attrs"],
     },
+    "bb_sink_display": {
+        "includes": ["components/bb_sink_display/include"],
+        "sources":  [
+            "platform/host/bb_sink_display/bb_sink_display_select.c",
+            "platform/host/bb_sink_display/bb_sink_display_format.c",
+            "platform/host/bb_sink_display/bb_sink_display_table.c",
+            "platform/host/bb_sink_display/bb_sink_display_validate.c",
+        ],
+        "depends":  ["bb_core", "bb_attrs", "bb_filter", "bb_cache", "bb_json"],
+    },
 }
 
 
