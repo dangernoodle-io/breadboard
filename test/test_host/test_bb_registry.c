@@ -341,6 +341,206 @@ void test_bb_registry_lookup_null_name_returns_null(void)
 }
 
 // ---------------------------------------------------------------------------
+// pointer-keyed variant — separate registry so name-keyed/ptr-keyed tests
+// never mix on the same instance (per the header's documented invariant).
+// ---------------------------------------------------------------------------
+
+BB_REGISTRY_DEFINE_TAGGED(s_ptr_reg, 4, "test_bb_registry_ptr");
+
+static void reset_ptr_reg(void)
+{
+    bb_registry_reset(&s_ptr_reg);
+}
+
+// Dummy keys — addresses used as distinct identity pointers.
+static int s_k1, s_k2, s_k3, s_k4, s_k5;
+
+void test_bb_registry_register_ptr_null_key_returns_invalid_arg(void)
+{
+    reset_ptr_reg();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_registry_register_ptr(&s_ptr_reg, NULL, &s_v1));
+}
+
+void test_bb_registry_register_ptr_null_value_returns_invalid_arg(void)
+{
+    reset_ptr_reg();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_registry_register_ptr(&s_ptr_reg, &s_k1, NULL));
+}
+
+void test_bb_registry_register_ptr_basic(void)
+{
+    reset_ptr_reg();
+    TEST_ASSERT_EQUAL(BB_OK, bb_registry_register_ptr(&s_ptr_reg, &s_k1, &s_v1));
+    TEST_ASSERT_EQUAL(1, bb_registry_count(&s_ptr_reg));
+}
+
+void test_bb_registry_register_ptr_duplicate_returns_invalid_state(void)
+{
+    reset_ptr_reg();
+    TEST_ASSERT_EQUAL(BB_OK, bb_registry_register_ptr(&s_ptr_reg, &s_k1, &s_v1));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE,
+                      bb_registry_register_ptr(&s_ptr_reg, &s_k1, &s_v2));
+    TEST_ASSERT_EQUAL(1, bb_registry_count(&s_ptr_reg));
+}
+
+void test_bb_registry_register_ptr_after_freeze_returns_invalid_state(void)
+{
+    reset_ptr_reg();
+    bb_registry_freeze(&s_ptr_reg);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE,
+                      bb_registry_register_ptr(&s_ptr_reg, &s_k1, &s_v1));
+}
+
+void test_bb_registry_register_ptr_hwm_and_full(void)
+{
+    reset_ptr_reg();
+    TEST_ASSERT_EQUAL(BB_OK, bb_registry_register_ptr(&s_ptr_reg, &s_k1, &s_v1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_registry_register_ptr(&s_ptr_reg, &s_k2, &s_v2));
+    // count transitions 2->3 == cap-1; HWM warn fires after.
+    TEST_ASSERT_EQUAL(BB_OK, bb_registry_register_ptr(&s_ptr_reg, &s_k3, &s_v3));
+    TEST_ASSERT_EQUAL(3, bb_registry_count(&s_ptr_reg));
+    TEST_ASSERT_EQUAL(BB_OK, bb_registry_register_ptr(&s_ptr_reg, &s_k4, &s_v4));
+    TEST_ASSERT_EQUAL(4, bb_registry_count(&s_ptr_reg));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE,
+                      bb_registry_register_ptr(&s_ptr_reg, &s_k5, &s_v5));
+    TEST_ASSERT_EQUAL(4, bb_registry_count(&s_ptr_reg));
+}
+
+void test_bb_registry_deregister_ptr_null_key_returns_invalid_arg(void)
+{
+    reset_ptr_reg();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+                      bb_registry_deregister_ptr(&s_ptr_reg, NULL));
+}
+
+void test_bb_registry_deregister_ptr_not_found_returns_not_found(void)
+{
+    reset_ptr_reg();
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND,
+                      bb_registry_deregister_ptr(&s_ptr_reg, &s_k1));
+}
+
+void test_bb_registry_deregister_ptr_frozen_returns_invalid_state(void)
+{
+    reset_ptr_reg();
+    bb_registry_register_ptr(&s_ptr_reg, &s_k1, &s_v1);
+    bb_registry_freeze(&s_ptr_reg);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE,
+                      bb_registry_deregister_ptr(&s_ptr_reg, &s_k1));
+}
+
+void test_bb_registry_deregister_ptr_mid_table_compaction(void)
+{
+    reset_ptr_reg();
+    TEST_ASSERT_EQUAL(BB_OK, bb_registry_register_ptr(&s_ptr_reg, &s_k1, &s_v1));
+    TEST_ASSERT_EQUAL(BB_OK, bb_registry_register_ptr(&s_ptr_reg, &s_k2, &s_v2));
+    TEST_ASSERT_EQUAL(BB_OK, bb_registry_register_ptr(&s_ptr_reg, &s_k3, &s_v3));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_registry_deregister_ptr(&s_ptr_reg, &s_k2));
+    TEST_ASSERT_EQUAL(2, bb_registry_count(&s_ptr_reg));
+
+    TEST_ASSERT_EQUAL_PTR(&s_v1, bb_registry_lookup_ptr(&s_ptr_reg, &s_k1));
+    TEST_ASSERT_EQUAL_PTR(&s_v3, bb_registry_lookup_ptr(&s_ptr_reg, &s_k3));
+    TEST_ASSERT_NULL(bb_registry_lookup_ptr(&s_ptr_reg, &s_k2));
+}
+
+void test_bb_registry_lookup_ptr_found(void)
+{
+    reset_ptr_reg();
+    bb_registry_register_ptr(&s_ptr_reg, &s_k1, &s_v3);
+    TEST_ASSERT_EQUAL_PTR(&s_v3, bb_registry_lookup_ptr(&s_ptr_reg, &s_k1));
+}
+
+void test_bb_registry_lookup_ptr_not_found_returns_null(void)
+{
+    reset_ptr_reg();
+    TEST_ASSERT_NULL(bb_registry_lookup_ptr(&s_ptr_reg, &s_k1));
+}
+
+void test_bb_registry_lookup_ptr_miss_in_nonempty_registry(void)
+{
+    reset_ptr_reg();
+    bb_registry_register_ptr(&s_ptr_reg, &s_k1, &s_v1);
+    TEST_ASSERT_NULL(bb_registry_lookup_ptr(&s_ptr_reg, &s_k2));
+}
+
+void test_bb_registry_lookup_ptr_null_key_returns_null(void)
+{
+    reset_ptr_reg();
+    TEST_ASSERT_NULL(bb_registry_lookup_ptr(&s_ptr_reg, NULL));
+}
+
+void test_bb_registry_foreach_visits_ptr_keyed_entries(void)
+{
+    reset_ptr_reg();
+    bb_registry_register_ptr(&s_ptr_reg, &s_k1, &s_v1);
+    bb_registry_register_ptr(&s_ptr_reg, &s_k2, &s_v2);
+
+    foreach_ctx_t ctx = {0};
+    bb_registry_foreach(&s_ptr_reg, foreach_collect, &ctx);
+
+    TEST_ASSERT_EQUAL(2, ctx.count);
+    TEST_ASSERT_EQUAL_PTR(&s_k1, ctx.names[0]);
+    TEST_ASSERT_EQUAL_PTR(&s_k2, ctx.names[1]);
+    TEST_ASSERT_EQUAL_PTR(&s_v1, ctx.values[0]);
+    TEST_ASSERT_EQUAL_PTR(&s_v2, ctx.values[1]);
+}
+
+// ---------------------------------------------------------------------------
+// foreach_ptr — typed void* key wrapper for pointer-keyed instances
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    void *keys[8];
+    void *values[8];
+    int   count;
+} foreach_ptr_ctx_t;
+
+static void foreach_ptr_collect(void *key, void *value, void *ctx)
+{
+    foreach_ptr_ctx_t *c = (foreach_ptr_ctx_t *)ctx;
+    if (c->count < 8) {
+        c->keys[c->count]   = key;
+        c->values[c->count] = value;
+        c->count++;
+    }
+}
+
+void test_bb_registry_foreach_ptr_visits_all(void)
+{
+    reset_ptr_reg();
+    bb_registry_register_ptr(&s_ptr_reg, &s_k1, &s_v1);
+    bb_registry_register_ptr(&s_ptr_reg, &s_k2, &s_v2);
+
+    foreach_ptr_ctx_t ctx = {0};
+    bb_registry_foreach_ptr(&s_ptr_reg, foreach_ptr_collect, &ctx);
+
+    TEST_ASSERT_EQUAL(2, ctx.count);
+    TEST_ASSERT_EQUAL_PTR(&s_k1, ctx.keys[0]);
+    TEST_ASSERT_EQUAL_PTR(&s_k2, ctx.keys[1]);
+    TEST_ASSERT_EQUAL_PTR(&s_v1, ctx.values[0]);
+    TEST_ASSERT_EQUAL_PTR(&s_v2, ctx.values[1]);
+}
+
+void test_bb_registry_foreach_ptr_null_cb_is_noop(void)
+{
+    reset_ptr_reg();
+    bb_registry_register_ptr(&s_ptr_reg, &s_k1, &s_v1);
+    // Must not crash.
+    bb_registry_foreach_ptr(&s_ptr_reg, NULL, NULL);
+}
+
+void test_bb_registry_foreach_ptr_empty_registry(void)
+{
+    reset_ptr_reg();
+    foreach_ptr_ctx_t ctx = {0};
+    bb_registry_foreach_ptr(&s_ptr_reg, foreach_ptr_collect, &ctx);
+    TEST_ASSERT_EQUAL(0, ctx.count);
+}
+
+// ---------------------------------------------------------------------------
 // reset: clears everything
 // ---------------------------------------------------------------------------
 
