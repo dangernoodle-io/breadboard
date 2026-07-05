@@ -251,6 +251,51 @@ void test_bb_task_base_remove_unregistered_returns_not_found(void)
     TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_task_base_remove(&fake));
 }
 
+// ---------------------------------------------------------------------------
+// bb_task_base_touch
+// ---------------------------------------------------------------------------
+
+void test_bb_task_base_touch_null_handle_returns_invalid_arg(void)
+{
+    bb_task_base_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_base_touch(NULL, 5));
+}
+
+void test_bb_task_base_touch_unregistered_returns_not_found(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_task_base_touch(&fake, 5));
+}
+
+typedef struct {
+    void     *target;
+    uint32_t  seen_tick;
+    bool      found;
+} touch_find_ctx_t;
+
+static void touch_find_by_handle_cb(void *handle, const bb_task_base_entry_t *entry, void *ctx)
+{
+    touch_find_ctx_t *scan = (touch_find_ctx_t *)ctx;
+    if (handle == scan->target) {
+        scan->found = true;
+        scan->seen_tick = entry->seen_tick;
+    }
+}
+
+void test_bb_task_base_touch_updates_seen_tick_not_other_fields(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&fake, "worker", 512, true));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_touch(&fake, 7));
+
+    touch_find_ctx_t scan = { .target = &fake };
+    bb_task_base_foreach(touch_find_by_handle_cb, &scan);
+    TEST_ASSERT_TRUE(scan.found);
+    TEST_ASSERT_EQUAL_UINT32(7, scan.seen_tick);
+}
+
 typedef struct {
     int calls;
 } foreach_capture_t;
@@ -466,6 +511,101 @@ void test_bb_task_base_sweep_apply_multiple_entries_mixed(void)
     TEST_ASSERT_FALSE(entries[1].in_use);
     TEST_ASSERT_FALSE(entries[2].in_use);
     TEST_ASSERT_TRUE(entries[3].in_use);
+}
+
+// ---------------------------------------------------------------------------
+// bb_task_base_touch_or_insert -- atomic touch-or-insert
+// ---------------------------------------------------------------------------
+
+void test_bb_task_base_touch_or_insert_null_handle_returns_invalid_arg(void)
+{
+    bb_task_base_test_reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_base_touch_or_insert(NULL, "t", 1));
+}
+
+void test_bb_task_base_touch_or_insert_null_name_returns_invalid_arg(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_task_base_touch_or_insert(&fake, NULL, 1));
+}
+
+void test_bb_task_base_touch_or_insert_new_handle_inserts_placeholder(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_touch_or_insert(&fake, "scanned", 5));
+
+    touch_find_ctx_t scan = { .target = &fake };
+    bb_task_base_foreach(touch_find_by_handle_cb, &scan);
+    TEST_ASSERT_TRUE(scan.found);
+    TEST_ASSERT_EQUAL_UINT32(5, scan.seen_tick);
+}
+
+void test_bb_task_base_touch_or_insert_existing_handle_touches_only(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&fake, "worker", 4096, true));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_touch_or_insert(&fake, "kernel_name", 9));
+
+    foreach_snapshot_t snap = { 0 };
+    bb_task_base_foreach(foreach_snapshot_cb, &snap);
+    TEST_ASSERT_EQUAL_INT(1, snap.calls);
+    TEST_ASSERT_EQUAL_STRING("worker", snap.last_name);      // untouched
+    TEST_ASSERT_EQUAL_UINT32(4096, snap.last_stack_bytes);   // untouched
+    TEST_ASSERT_TRUE(snap.last_wdt_arm);                     // untouched
+}
+
+void test_bb_task_base_touch_or_insert_overflow_returns_no_space(void)
+{
+    bb_task_base_test_reset();
+    // CONFIG_BB_TASK_BASE_MAX pinned to 8 for host tests (platformio.ini).
+    int handles[9];
+    for (int i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL(BB_OK, bb_task_base_touch_or_insert(&handles[i], "t", 1));
+    }
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_task_base_touch_or_insert(&handles[8], "overflow", 1));
+}
+
+// Race reproduction (HIGH finding): a concurrent bb_task_create()/
+// bb_task_registry_register() inserting the REAL entry for `handle` in the
+// gap between a non-atomic touch() + conditional upsert() must not be
+// clobbered. bb_task_base_test_arm_race_insert() fires that competing
+// insert from INSIDE touch_or_insert()'s own critical section, proving the
+// atomic path re-checks presence before writing its placeholder instead of
+// trusting its earlier "not found" snapshot.
+void test_bb_task_base_touch_or_insert_race_does_not_clobber_real_entry(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+
+    bb_task_base_test_arm_race_insert(&fake, "real_worker", 8192, true);
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_touch_or_insert(&fake, "scan_name", 3));
+
+    foreach_snapshot_t snap = { 0 };
+    bb_task_base_foreach(foreach_snapshot_cb, &snap);
+    TEST_ASSERT_EQUAL_INT(1, snap.calls);
+    TEST_ASSERT_EQUAL_STRING("real_worker", snap.last_name);
+    TEST_ASSERT_EQUAL_UINT32(8192, snap.last_stack_bytes);
+    TEST_ASSERT_TRUE(snap.last_wdt_arm);
+}
+
+// Race hook fires but the pool is already full when it tries its own
+// insert -- exercises the race-injection's own "no free slot" branch (the
+// hook is best-effort; it must not crash or corrupt state when the table
+// it is racing against has no room either).
+void test_bb_task_base_touch_or_insert_race_pool_full_is_noop(void)
+{
+    bb_task_base_test_reset();
+    int handles[8];
+    for (int i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&handles[i], "t", 1, false));
+    }
+
+    int fake;
+    bb_task_base_test_arm_race_insert(&fake, "race_worker", 1024, true);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_task_base_touch_or_insert(&fake, "scan_name", 1));
 }
 
 // ---------------------------------------------------------------------------

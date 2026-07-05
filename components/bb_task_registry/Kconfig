@@ -14,6 +14,22 @@ config BB_TASK_REGISTRY_MAX
         bb_task_registry_sw_wdt_check()) when BB_TASK_REGISTRY_SW_WDT is
         enabled.
 
+config BB_TASK_REGISTRY_BASE_POLL_MS
+    int "Base-scan poll interval (ms)"
+    default 10000
+    range 1000 3600000
+    help
+        How often the periodic base-scan job (platform/espidf/
+        bb_task_registry/bb_task_registry_base_scan.c) polls all FreeRTOS
+        task stack margins and reconciles bb_task's base registry. Default
+        10 000 ms (10 s), matches the retired bb_health_stack self-scan's
+        former cadence (task-registry unification PR3).
+
+        Note: the scan requires CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+        (enabled automatically by FREERTOS_GENERATE_RUN_TIME_STATS or
+        similar; check your sdkconfig). If TRACE_FACILITY is off, the
+        scan compiles as a no-op and this setting has no effect.
+
 config BB_TASK_REGISTRY_WDT_SUPPORT
     bool "Route per-task hardware Task WDT subscribe/feed through bb_task_registry"
     default y

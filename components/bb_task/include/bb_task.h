@@ -33,6 +33,23 @@
 extern "C" {
 #endif
 
+// Kconfig bridge (see CLAUDE.md "Avoiding audit-class regressions"). This is
+// the ONE real symbol for bb_task's base-registry capacity -- bb_task_common.c
+// and every other consumer that must size a buffer off this same capacity
+// (e.g. components/bb_task_registry/bb_task_registry_base_scan_common.c's
+// reconcile buffer) reference BB_TASK_BASE_MAX_CAP rather than re-deriving
+// their own copy of CONFIG_BB_TASK_BASE_MAX, so the two can never silently
+// diverge.
+#ifdef ESP_PLATFORM
+#  include "sdkconfig.h"
+#endif
+#ifdef CONFIG_BB_TASK_BASE_MAX
+#  define BB_TASK_BASE_MAX_CAP CONFIG_BB_TASK_BASE_MAX
+#endif
+#ifndef BB_TASK_BASE_MAX_CAP
+#define BB_TASK_BASE_MAX_CAP 24
+#endif
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -127,6 +144,32 @@ bb_err_t bb_task_base_upsert(void *handle, const char *name,
 // Returns BB_ERR_NOT_FOUND if handle was never upserted.
 bb_err_t bb_task_base_remove(void *handle);
 
+// Tag `handle`'s base entry as seen this scan (updates seen_tick only --
+// never touches name/stack_bytes/wdt_arm).
+// Returns BB_ERR_INVALID_ARG if handle is NULL.
+// Returns BB_ERR_NOT_FOUND if handle was never upserted.
+bb_err_t bb_task_base_touch(void *handle, uint32_t now_tick);
+
+// Atomic touch-or-insert -- a SINGLE critical section performs the
+// lookup-then-touch-or-insert decision, closing the race a separately
+// locked touch() + upsert() pair would otherwise expose: if a concurrent
+// bb_task_create()/bb_task_registry_register() inserts the REAL entry
+// (real stack_bytes/wdt_arm) for `handle` in the gap between an unlocked
+// "not found" and a fallback upsert, the fallback's update-if-present
+// branch would clobber the real values with the placeholder (0, false).
+// Used by the periodic base-scan consumer (task-registry unification PR3)
+// in place of bb_task_base_touch() + a conditional bb_task_base_upsert().
+//
+// If `handle` is already tracked: bumps seen_tick only (mirrors
+// bb_task_base_touch() -- never overwrites name/stack_bytes/wdt_arm, which
+// are owned by bb_task_create()/bb_task_registry_register()'s
+// overlay-join).
+// If `handle` is not yet tracked: inserts a best-effort placeholder
+// (`name`, stack_bytes=0, wdt_arm=false, seen_tick=now_tick).
+// Returns BB_ERR_INVALID_ARG if handle or name is NULL.
+// Returns BB_ERR_NO_SPACE if the base registry is full and handle is new.
+bb_err_t bb_task_base_touch_or_insert(void *handle, const char *name, uint32_t now_tick);
+
 typedef void (*bb_task_base_cb_t)(void *handle, const bb_task_base_entry_t *entry, void *ctx);
 
 // Iterate every base entry (snapshot-then-notify semantics, via
@@ -173,6 +216,18 @@ bb_err_t bb_task_deregister(void *handle);
 #ifdef BB_TASK_TESTING
 // Reset the base registry to its initial (empty) state. Test teardown only.
 void bb_task_base_test_reset(void);
+
+// Test-only race injection: arms a one-shot hook that fires INSIDE
+// bb_task_base_touch_or_insert()'s critical section, immediately after it
+// determines `handle` is not yet tracked and before it inserts its own
+// placeholder. The hook inserts the "real" entry described here (as
+// bb_task_create()/bb_task_registry_register() would) directly into the
+// pool/registry, then touch_or_insert() re-checks presence before falling
+// through to its own insert -- proving the atomic path tolerates a
+// same-tick competing insert instead of assuming its earlier "not found"
+// snapshot is still valid. Consumed at most once; a no-op if never armed.
+void bb_task_base_test_arm_race_insert(void *handle, const char *name,
+                                        uint32_t stack_bytes, bool wdt_arm);
 #endif
 
 #ifdef __cplusplus
