@@ -9,3 +9,13 @@
 // Pass -1 to disable without triggering a failure.
 
 void bb_json_host_force_alloc_fail_after(int n);
+
+// Call bb_json_host_force_serialize_fail_after(n) to make the (n+1)th
+// bb_json_serialize call (on a non-NULL root) return NULL, simulating a
+// cJSON_PrintUnformatted allocation failure -- a distinct failure mode from
+// bb_json_obj_new/bb_json_arr_new above, since serialize's internal malloc
+// isn't reachable through that counter. After one failure the counter resets
+// to -1 (disabled) automatically. Pass -1 to disable without triggering a
+// failure.
+
+void bb_json_host_force_serialize_fail_after(int n);

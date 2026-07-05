@@ -174,6 +174,25 @@ typedef struct {
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
 bb_err_t bb_cache_update(const bb_cache_update_t *req);
 
+// Delete a registered key, freeing its owned buffer and memoized serialized
+// bytes and marking the slot reusable by a future bb_cache_register() call
+// (a deleted slot is indistinguishable from a never-used slot).
+//
+// Returns BB_ERR_NOT_FOUND if the key is not registered.
+// Returns BB_ERR_INVALID_ARG if key is NULL.
+//
+// KNOWN PHASE-A LIMITATION (B1-592): bb_cache has no coupling to bb_event's
+// topic lifecycle. Deleting a key registered with BB_CACHE_FLAG_SSE frees the
+// bb_cache_entry_t but does NOT unregister the underlying bb_event_topic_t --
+// bb_event has no topic-unregister primitive today. The event topic handle is
+// leaked for the remaining process life (a subsequent bb_cache_register() of
+// the same key registers a NEW event topic and overwrites the field; the old
+// topic handle is simply abandoned, not freed). This is acceptable for the
+// current callers (e.g. an ingress router evicting a stale bb_sub key) but is
+// a real leak for any consumer that deletes+re-registers SSE-flagged keys in
+// a hot loop. A bb_event topic-unregister primitive is tracked as a follow-up.
+bb_err_t bb_cache_delete(const char *key);
+
 // Returns true if key is currently registered, false otherwise (including
 // when bb_cache has not yet been initialized).
 bool bb_cache_exists(const char *key);
@@ -249,16 +268,31 @@ bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t 
 // Number of currently registered (non-NULL key) entries in the registry.
 size_t bb_cache_count(void);
 
-// Look up the key at a raw registry slot index.
-//   index   — raw slot index, [0, BB_CACHE_MAX_TOPICS).
-//   out_key — receives s_entries[index].key; may be NULL for a free slot.
-// Returns BB_ERR_INVALID_ARG if out_key is NULL.
+// Look up the key at a raw registry slot index, COPYING the key by value into
+// buf under the registry lock -- never returns a raw pointer into the
+// registry (same UAF class bb_cache_foreach's snapshot-by-value fix
+// eliminated: a concurrent delete+re-register could rename a slot's key
+// bytes out from under a caller holding a raw pointer).
+//   index — raw slot index, [0, BB_CACHE_MAX_TOPICS).
+//   buf   — caller-owned destination buffer (must be non-NULL).
+//   cap   — capacity of buf in bytes (must be non-zero).
+// A free slot copies "" (empty string) into buf and returns BB_OK.
+// Returns BB_ERR_INVALID_ARG on a NULL buf or cap == 0.
 // Returns BB_ERR_NOT_FOUND if index >= BB_CACHE_MAX_TOPICS.
-bb_err_t bb_cache_key_at(size_t index, const char **out_key);
+// Returns BB_ERR_NO_SPACE if cap is too small to hold the key plus its NUL
+// terminator (buf untouched).
+bb_err_t bb_cache_key_at(size_t index, char *buf, size_t cap);
 
-// Invoke cb once per registered key. The key set is snapshotted under the
-// registry lock and cb is invoked with the lock released, so cb may safely
-// call bb_cache_* (lock not held during cb).
+// Invoke cb once per registered key. The key set is snapshotted BY VALUE
+// (each key's bytes are copied into a stack buffer) under the registry lock,
+// which is released before invoking cb -- so cb may safely call bb_cache_*
+// (lock not held during cb), including bb_cache_delete/bb_cache_register on
+// keys other than the one currently being visited. The by-value copy costs
+// BB_CACHE_MAX_TOPICS * BB_CACHE_KEY_MAX stack bytes (default 32*96 = 3 KB)
+// but is required now that keys are not add-only: entries can be deleted and
+// slots reused (bb_cache_delete), so a snapshot of raw key POINTERS into
+// s_entries[] could be renamed out from under an in-flight cb by a concurrent
+// delete+re-register racing the lock-released window.
 bb_err_t bb_cache_foreach(void (*cb)(const char *key, void *ctx), void *ctx);
 
 // Compact read of an owned-mode key's raw struct bytes.

@@ -1,8 +1,10 @@
 #include "unity.h"
 #include "bb_json.h"
+#include "bb_json_test_hooks.h"
 
 #include <string.h>
 #include <math.h>
+#include <stdlib.h>
 
 // ---------------------------------------------------------------------------
 // Basic object round-trip (string / number / bool / null)
@@ -399,6 +401,33 @@ void test_bb_json_serialize_null_returns_null(void)
 {
     char *s = bb_json_serialize(NULL);
     TEST_ASSERT_NULL(s);
+}
+
+// force_serialize_fail_after's countdown must exercise both directions: the
+// "not yet" (>0, decrement) branch and the "trigger" (==0) branch. A fail_after
+// value of 1 means the 1st serialize call succeeds (countdown 1 -> 0) and the
+// 2nd call fails (countdown ==0, triggers, then auto-resets to -1/disabled).
+void test_bb_json_serialize_fail_after_countdown_decrements_before_triggering(void)
+{
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+
+    bb_json_host_force_serialize_fail_after(1);
+
+    char *first = bb_json_serialize(obj);
+    TEST_ASSERT_NOT_NULL(first);
+    free(first);
+
+    char *second = bb_json_serialize(obj);
+    TEST_ASSERT_NULL(second);
+
+    // Counter auto-reset after the trigger; subsequent calls succeed again.
+    char *third = bb_json_serialize(obj);
+    TEST_ASSERT_NOT_NULL(third);
+    free(third);
+
+    bb_json_host_force_serialize_fail_after(-1);
+    bb_json_free(obj);
 }
 
 // ---------------------------------------------------------------------------
