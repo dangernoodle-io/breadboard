@@ -2,6 +2,7 @@
 #include "bb_http.h"
 #include "bb_log.h"
 #include "bb_nv.h"
+#include "bb_str.h"
 #include "bb_wifi.h"
 #include "bb_init.h"
 #include "bb_task_registry.h"
@@ -239,8 +240,8 @@ bb_err_t bb_prov_start_ap(void)
             .authmode = WIFI_AUTH_WPA2_PSK,
         },
     };
-    strncpy((char *)ap_config.ap.password, s_ap_password, sizeof(ap_config.ap.password));
-    strncpy((char *)ap_config.ap.ssid, ssid, sizeof(ap_config.ap.ssid));
+    bb_str_field((char *)ap_config.ap.password, s_ap_password, sizeof(ap_config.ap.password));
+    bb_str_field((char *)ap_config.ap.ssid, ssid, sizeof(ap_config.ap.ssid));
     ap_config.ap.ssid_len = strlen(ssid);
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
