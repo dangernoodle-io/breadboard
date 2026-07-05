@@ -13,38 +13,7 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 
 ## Components
 
-| Component | Purpose | Platforms |
-|-----------|---------|-----------|
-| `bb_hw` | Consumer-supplied board pin/peripheral header resolved at compile time via `-DBB_HW_BOARD_HEADER="<name>.h"` | ESP-IDF |
-| `bb_display` | MIPI-DSI panel init (EK79007) with LVGL via `esp_lvgl_port`; consumer holds `bb_display_lock` for all LVGL calls. Exposes `bb_display_screen` / `bb_display_lock` / `bb_display_unlock` for direct LVGL access. | ESP-IDF |
-| `bb_display_spi_common` | Shared SPI helpers for SPI-based display drivers: `bb_display_spi_init_bus()`, `bb_display_blit_spi()`, `bb_display_clear_spi()`. Shared bounce buffer used by ili9341 and st77xx. `BB_DISPLAY_AUTOREGISTER` macro replaces per-driver constructor boilerplate. | ESP-IDF |
-| `bb_event` | Generic app-level event bus on a portable callback list. Multi-subscriber publish/subscribe with queued dispatch; ESP-IDF uses a FreeRTOS dispatcher task, Arduino requires `bb_event_pump()` from `loop()`. | ESP-IDF, Arduino |
-| `bb_event_ring` | Circular buffer variant of `bb_event` with replay-on-subscribe — for SSE/WebSocket fan-out and event history. | ESP-IDF, Arduino |
-| `bb_event_routes` | Surfaces attached `bb_event` topics on `GET /api/events` as Server-Sent Events. Multi-client with per-topic replay; payload contract is "producer posts valid JSON, route emits raw". | ESP-IDF (Arduino: 503 stub) |
-| `bb_http_client` | Portable outbound HTTP GET wrapper used by `bb_ota_check` (and migrating `bb_ota_pull`) so consumers don't reach into `esp_http_client` directly. Host build ships a mock-response hook for tests | ESP-IDF, host (Arduino: stub) |
-| `bb_release_manifest` | Provider-pluggable release-manifest parser: typedef for a `bb_release_manifest_parse_fn` plus built-in `bb_release_manifest_parse_github`. Consumers wanting GitLab/Jenkins/S3 register their own parser | ESP-IDF, host, Arduino |
-| `bb_ota_check` | Periodic poll of a configurable release manifest URL; posts `update.available` `bb_event` topic and `update=<value>` mDNS TXT on state changes. Auto-registers `GET /api/update/status` | ESP-IDF (Arduino: stub) |
-| `bb_json` | Portable JSON builder + minimal parser; cJSON backend on ESP-IDF/host, ArduinoJson backend on Arduino. Opaque `bb_json_t` handle — no backend headers leak into public API. | ESP-IDF, Arduino |
-| `bb_http` | HTTP server wrapper with portable route registration API; optional `bb_route_t` descriptors carry OpenAPI metadata for `bb_openapi` consumption; Arduino backend routes/handlers with fixed-buffer response batching | ESP-IDF, Arduino |
-| `bb_log` | Ring-buffered log capture, runtime tag-level control, and `bb_log_{e,w,i,d,v}` macros for platform-abstract logging. Optional routes module (`CONFIG_BB_LOG_ROUTES`, default-on) adds log-level GET/POST; structured log stream served at `GET /api/events?topic=log` (`CONFIG_BB_LOG_EVENT_AUTO_ATTACH`, default-on) | ESP-IDF, Arduino |
-| `bb_nv` | Typed NVS accessors plus generic `bb_nv_*` key/value helpers with caller-supplied namespace | ESP-IDF, Arduino |
-| `bb_ota_pull` | HTTP releases-feed poller with cJSON parse and A/B rollback | ESP-IDF |
-| `bb_ota_push` | HTTP firmware upload handler | ESP-IDF |
-| `bb_ota_validator` | Owns the full OTA rollback state machine: boot-time pending detection, rollback-safety preflight, `bb_ota_mark_valid(reason)` signal API, POST `/api/ota/mark-valid` | ESP-IDF (portable stubs on non-ESP) |
-| `bb_board` | Runtime sysinfo (chip model, cores, flash, heap, OTA state) and GET `/api/board` | ESP-IDF |
-| `bb_clock` | Portable millisecond timestamp (`bb_clock_now_ms()`) in `bb_core/include/bb_clock.h`; no platform headers in consumers. | ESP-IDF, Arduino, host |
-| `bb_info` | Composite GET `/api/info` merging sysinfo + wifi + consumer-registered extender callbacks | ESP-IDF |
-| `bb_mdns` | mDNS service registration (registry auto-init via `CONFIG_BB_MDNS_AUTOREGISTER`); setters for hostname, instance, service-type are caller-driven | ESP-IDF |
-| `bb_openapi` | Opt-in OpenAPI 3.1 spec emitter; walks the `bb_http` route descriptor registry to publish `GET /api/openapi.json` via registry auto-registration; same emitter drives build-time codegen via `host_tools/emit_openapi` | ESP-IDF, host |
-| `bb_manifest` | Opt-in device manifest endpoint; consumer registers NVS keyspaces and mDNS TXT keys to expose `GET /api/manifest` with keyspace/enum descriptors for external tools (custom flashers, fleet provisioners) | ESP-IDF |
-| `bb_prov` | Provisioning state machine (SoftAP + captive-portal + HTTP `/save` handler) | ESP-IDF |
-| `bb_prov_default_form` | Opt-in default WiFi setup form asset (`bb_prov_default_form_get()`) for bare-minimum `bb_prov` bringup | ESP-IDF |
-| `bb_init` | Handler-lifecycle registry: opt-in components self-register an init fn via `BB_INIT_REGISTER`; the app calls `bb_init_init(server)` once after `bb_http_server_start` to invoke them all | ESP-IDF, host |
-| `bb_system` | Device restart and system info; optional routes module (`CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER`, default-on) adds GET `/api/version`, GET `/api/ping`, POST `/api/reboot` | ESP-IDF |
-| `bb_arena_tls` | Boot-reserved contiguous mbedTLS handshake arena (`CONFIG_BB_ARENA_TLS_BYTES`), built on the generic `bb_arena` primitive; installs a custom `mbedtls_platform_set_calloc_free` allocator that tries the static arena first and falls back to the internal-heap facade (`bb_calloc_internal`/`bb_mem_free`) — prevents mid-uptime heap fragmentation on no-PSRAM boards. No-op when `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC` is unset. | ESP-IDF, host |
-| `bb_arena` | Generic, multi-instance contiguous-buffer bump allocator (caller-supplied or `bb_mem`-backed) | ESP-IDF, host |
-| `bb_pool` | Generic object/memory pool carved from a `bb_arena` — RETAINED (recycle-on-update slots), FIFO (arena-carved ring), TRANSIENT (bump/reset), SLOTS (fixed-slot acquire/release free-list). Arena-optional: `bb_pool_create` uses a caller-supplied arena, `bb_pool_create_owned` allocates and owns a right-sized one | ESP-IDF, host |
-| `bb_wifi` | STA init, async scan, auto-reconnect, diagnostics and GET `/api/wifi`; optional routes module (`CONFIG_BB_WIFI_ROUTES_AUTOREGISTER`, default-on) gates HTTP routes | ESP-IDF |
+See [components/README.md](components/README.md) for the full, generated component index.
 
 ## Use in an ESP-IDF project
 
