@@ -29,6 +29,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_cache](./bb_cache/) | — |
 | [bb_cache_reactive](./bb_cache_reactive/) | — |
 | [bb_cache_routes](./bb_cache_routes/) | — |
+| [bb_collection](./bb_collection/) | A humble, fixed-capacity, thread-safe ordered collection of caller-owned opaque items. |
 | [bb_core](./bb_core/) | — |
 | [bb_diag](./bb_diag/) | — |
 | [bb_dispatch_cmd](./bb_dispatch_cmd/) | — |

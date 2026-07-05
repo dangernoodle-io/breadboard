@@ -708,6 +708,11 @@ COMPONENT_MAP = {
         ],
         "depends":  ["bb_core", "bb_attrs", "bb_filter", "bb_cache", "bb_json"],
     },
+    "bb_collection": {
+        "includes": ["components/bb_collection/include"],
+        "sources":  ["platform/host/bb_collection/bb_collection.c"],
+        "depends":  ["bb_core", "bb_log"],
+    },
 }
 
 
