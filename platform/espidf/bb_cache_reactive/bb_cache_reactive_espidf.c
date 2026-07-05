@@ -10,6 +10,7 @@
 #if BB_CACHE_REACTIVE_ENABLE
 
 #include "bb_cache.h"
+#include "bb_cache_internal.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mem.h"
@@ -41,6 +42,15 @@ static reactive_observer_t s_observers[BB_CACHE_REACTIVE_MAX_OBSERVERS];
 // bb_cache's public API while holding s_obs_lock, so s_obs_lock is never
 // nested inside a bb_cache-owned lock.
 static pthread_mutex_t s_obs_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// Guards fire_on_remove's one-time registration via bb_cache_set_evict_
+// notify_fn() (B1-592 A3, revises A2 -- see that header's doc comment on
+// bb_cache_reactive_delete()). Set under s_obs_lock the first time
+// bb_cache_reactive_observe() is called; bb_cache_set_evict_notify_fn()
+// itself is a plain unsynchronized global assignment (same idiom as
+// s_test_race_hook in bb_cache_espidf.c) and is safe to call while holding
+// s_obs_lock -- it never re-enters bb_cache's own locks.
+static bool s_notify_hook_registered = false;
 
 #ifdef BB_CACHE_REACTIVE_TESTING
 // Test-injectable envelope splitter. bb_cache always emits a well-formed
@@ -202,6 +212,16 @@ bb_err_t bb_cache_reactive_observe(const bb_cache_reactive_observer_t *cfg)
 
     pthread_mutex_lock(&s_obs_lock);
 
+    // Install the evict-notify hook on the FIRST observer registration only
+    // (B1-592 A3, revises A2): once installed, bb_cache_delete() -- both
+    // explicit callers and its own age-out eviction path -- fires
+    // fire_on_remove() for us, so bb_cache_reactive_delete() below no longer
+    // needs to fire it itself.
+    if (!s_notify_hook_registered) {
+        bb_cache_set_evict_notify_fn(fire_on_remove);
+        s_notify_hook_registered = true;
+    }
+
     reactive_observer_t *slot = NULL;
     for (int i = 0; i < BB_CACHE_REACTIVE_MAX_OBSERVERS; i++) {
         if (!s_observers[i].active) {
@@ -273,21 +293,16 @@ bb_err_t bb_cache_reactive_register(const bb_cache_config_t *cfg)
 
 bb_err_t bb_cache_reactive_delete(const char *key)
 {
-    if (!key) return bb_cache_delete(key);
-
-    // Capture the key into a local buffer BEFORE calling bb_cache_delete():
-    // bb_cache_delete() zeroes the registry entry's own key[0] to mark the
-    // slot free for reuse, so on_remove must never be fired with a pointer
-    // into cache-owned storage -- always fire with this stable local copy.
-    char local_key[BB_CACHE_KEY_MAX];
-    strncpy(local_key, key, sizeof(local_key) - 1);
-    local_key[sizeof(local_key) - 1] = '\0';
-
-    bb_err_t err = bb_cache_delete(key);
-    if (err == BB_OK) {
-        fire_on_remove(local_key);
-    }
-    return err;
+    // B1-592 A3 (revises A2): bb_cache_delete() itself now fires
+    // fire_on_remove() via bb_cache_set_evict_notify_fn() -- installed once,
+    // on the first bb_cache_reactive_observe() call above -- for EVERY
+    // successful delete, whether it originates here, from a direct
+    // bb_cache_delete() call, or from bb_cache's own age-out eviction path.
+    // This function is therefore a pure passthrough; the hook fires with
+    // bb_cache_delete()'s OWN key parameter (caller-owned, valid for the
+    // duration of this call), never a pointer into cache-owned storage, so
+    // no local copy is needed here anymore.
+    return bb_cache_delete(key);
 }
 
 #ifdef BB_CACHE_REACTIVE_TESTING
@@ -295,8 +310,15 @@ void bb_cache_reactive_reset_for_test(void)
 {
     pthread_mutex_lock(&s_obs_lock);
     memset(s_observers, 0, sizeof(s_observers));
+    s_notify_hook_registered = false;
     pthread_mutex_unlock(&s_obs_lock);
     s_envelope_split_fn = bb_json_envelope_split;
+    // Uninstall the evict-notify hook so a subsequent bb_cache_delete() in a
+    // DIFFERENT test (or a test that never calls bb_cache_reactive_observe()
+    // again) never fires a stale fire_on_remove pointer. The next
+    // bb_cache_reactive_observe() call re-installs it (first-observe guard
+    // above).
+    bb_cache_set_evict_notify_fn(NULL);
 }
 
 // Inject a fake envelope splitter to exercise fire_on_change's

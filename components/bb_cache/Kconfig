@@ -23,4 +23,26 @@ config BB_CACHE_KEY_MAX
         "update.available") are far shorter. Standing cost is
         BB_CACHE_KEY_MAX * BB_CACHE_MAX_TOPICS bytes.
 
+config BB_CACHE_SWEEP_ENABLE
+    bool "Enable periodic age-out eviction sweep backstop"
+    default n
+    help
+        When enabled, bb_cache_evict_start() spins a periodic background
+        pass (bb_cache_foreach) that evicts BB_CACHE_EVICT_AGE_OUT keys past
+        their evict_age_ms even if nothing reads them -- LAZY (read-time)
+        eviction only fires on an actual read. Disabled by default: LAZY
+        eviction alone is sufficient for read-driven keys; enable this for
+        keys that may go unread for long stretches (e.g. a disconnected
+        ingress source) and still need their memory reclaimed.
+
+config BB_CACHE_SWEEP_PERIOD_MS
+    int "Age-out sweep period (ms)"
+    default 30000
+    range 1000 3600000
+    depends on BB_CACHE_SWEEP_ENABLE
+    help
+        Interval between sweep passes. Should be well under the shortest
+        registered evict_age_ms among AGE_OUT keys, or eviction lags behind
+        the configured window.
+
 endmenu

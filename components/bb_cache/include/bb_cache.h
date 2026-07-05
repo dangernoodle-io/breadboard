@@ -64,6 +64,25 @@
 #define BB_CACHE_KEY_MAX 96
 #endif
 
+// ---------------------------------------------------------------------------
+// Age-out eviction backstop sweep (Kconfig bridge — pattern from bb_clock.h)
+// ---------------------------------------------------------------------------
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#ifdef CONFIG_BB_CACHE_SWEEP_ENABLE
+#define BB_CACHE_SWEEP_ENABLE CONFIG_BB_CACHE_SWEEP_ENABLE
+#endif
+#ifdef CONFIG_BB_CACHE_SWEEP_PERIOD_MS
+#define BB_CACHE_SWEEP_PERIOD_MS CONFIG_BB_CACHE_SWEEP_PERIOD_MS
+#endif
+#endif
+#ifndef BB_CACHE_SWEEP_ENABLE
+#define BB_CACHE_SWEEP_ENABLE 0
+#endif
+#ifndef BB_CACHE_SWEEP_PERIOD_MS
+#define BB_CACHE_SWEEP_PERIOD_MS 30000
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -79,6 +98,53 @@ typedef uint32_t bb_cache_flags_t;
 #define BB_CACHE_FLAG_NONE  (0u)
 /** Register an SSE event topic so bb_cache_post can fan out to SSE clients. */
 #define BB_CACHE_FLAG_SSE   (1u << 0)
+
+// ---------------------------------------------------------------------------
+// Age-out eviction (B1-592 A3)
+// ---------------------------------------------------------------------------
+
+// Classification of an entry's age against its configured stale/evict
+// windows. Pure -- no locks, no clock reads, no I/O -- so it is directly
+// host-testable and shared verbatim between the LAZY (read-time) and SWEEP
+// (periodic backstop) eviction paths.
+typedef enum {
+    BB_CACHE_ENTRY_FRESH,
+    BB_CACHE_ENTRY_STALE,
+    BB_CACHE_ENTRY_EVICT,
+} bb_cache_entry_state_t;
+
+// Classify age_ms against the entry's configured windows:
+//   age_ms <  stale_age_ms                       -> FRESH
+//   stale_age_ms <= age_ms < evict_age_ms         -> STALE
+//   age_ms >= evict_age_ms                        -> EVICT
+// stale_age_ms == 0 means "no stale window" -- the entry stays FRESH until
+// it crosses evict_age_ms (never reports STALE).
+bb_cache_entry_state_t bb_cache_evaluate_age(uint64_t age_ms, uint32_t stale_age_ms,
+                                              uint32_t evict_age_ms);
+
+// Per-key eviction policy. Default (zero-initialized, BB_CACHE_EVICT_PINNED)
+// preserves today's behavior -- a registered key is never auto-freed.
+typedef enum {
+    BB_CACHE_EVICT_PINNED = 0,  // never auto-evicted (today's behavior)
+    BB_CACHE_EVICT_AGE_OUT,     // evicted once unread/unwritten past evict_age_ms
+} bb_cache_evict_policy_t;
+
+// Eviction configuration, embedded in bb_cache_config_t.
+//
+//   policy        — BB_CACHE_EVICT_PINNED (default) or BB_CACHE_EVICT_AGE_OUT.
+//   stale_age_ms  — AGE_OUT only. Age at which reads should be treated as
+//                   stale-but-still-served by the caller's own staleness
+//                   check (see bb_cache_is_stale()). 0 means no stale
+//                   window. Ignored when policy is PINNED.
+//   evict_age_ms  — AGE_OUT only. Age at which the entry is evicted (freed)
+//                   on next read (LAZY) or the next sweep pass (SWEEP, see
+//                   bb_cache_evict_start()). Must be > 0 and > stale_age_ms
+//                   -- see bb_cache_register()'s AGE_OUT validation.
+typedef struct {
+    bb_cache_evict_policy_t policy;
+    uint32_t                stale_age_ms;
+    uint32_t                evict_age_ms;
+} bb_cache_eviction_t;
 
 // ---------------------------------------------------------------------------
 // Serializer type
@@ -116,12 +182,18 @@ typedef void (*bb_cache_serialize_fn)(bb_json_t obj, const void *snap);
 //                need SSE delivery. Zero-initializing flags is equivalent
 //                to BB_CACHE_FLAG_NONE — callers that need SSE MUST set
 //                this explicitly.
+//   eviction   — bb_cache_eviction_t. Zero-initializing (policy ==
+//                BB_CACHE_EVICT_PINNED) preserves today's never-auto-free
+//                behavior. BB_CACHE_EVICT_AGE_OUT is only valid on OWNED
+//                entries (snapshot == NULL) -- see bb_cache_register()'s
+//                validation below.
 typedef struct {
     const char             *key;
     const void            *(*snapshot)(void);
     size_t                  snap_size;
     bb_cache_serialize_fn   serialize;
     bb_cache_flags_t        flags;
+    bb_cache_eviction_t     eviction;
 } bb_cache_config_t;
 
 // Register a cache entry.
@@ -133,6 +205,14 @@ typedef struct {
 // snapshot buffer could not be allocated.
 // Idempotent: registering an already-registered key returns BB_OK without
 // creating a duplicate entry.
+//
+// AGE_OUT eviction validation (B1-592 A3, cfg->eviction.policy ==
+// BB_CACHE_EVICT_AGE_OUT only -- BB_CACHE_EVICT_PINNED is unrestricted):
+// Returns BB_ERR_INVALID_ARG if cfg->eviction.evict_age_ms == 0, if
+// cfg->eviction.stale_age_ms >= cfg->eviction.evict_age_ms, or if
+// cfg->snapshot != NULL (getter/refresh mode re-stamps ts_ms to now on every
+// read, so age-out is meaningless there -- AGE_OUT is only valid on OWNED
+// entries).
 bb_err_t bb_cache_register(const bb_cache_config_t *cfg);
 
 // Config-struct + explicit first-time-reporting variant of bb_cache_register().
@@ -326,6 +406,32 @@ bb_err_t bb_cache_foreach(void (*cb)(const char *key, void *ctx), void *ctx);
 // Returns BB_ERR_INVALID_ARG on null args or cap == 0.
 // Returns BB_ERR_NO_SPACE if cap < the stored struct size (buf untouched).
 bb_err_t bb_cache_get_raw(const char *key, void *buf, size_t cap);
+
+// ---------------------------------------------------------------------------
+// Age-out eviction (B1-592 A3)
+// ---------------------------------------------------------------------------
+
+// Report whether a registered AGE_OUT key's current value is stale (age >=
+// stale_age_ms) WITHOUT evicting it -- lets a caller degrade a read (e.g.
+// mark a REST/SSE payload "stale":true) without paying an eviction+refetch.
+// PINNED-policy keys and keys with stale_age_ms == 0 (no stale window)
+// always report false while present.
+// Returns BB_ERR_NOT_FOUND if the key is not registered (including
+// immediately after a LAZY/SWEEP eviction).
+bb_err_t bb_cache_is_stale(const char *key, bool *out_stale);
+
+// Start the age-out sweep backstop: a periodic background pass over every
+// AGE_OUT-policy key (bb_cache_foreach under the hood) that evicts entries
+// past evict_age_ms even when nothing reads them (LAZY eviction only fires
+// on a read). Compiled in only when BB_CACHE_SWEEP_ENABLE is set (Kconfig
+// CONFIG_BB_CACHE_SWEEP_ENABLE, default n); otherwise a zero-cost no-op so
+// callers may invoke it unconditionally. Idempotent: a second call after the
+// sweep is already running is a no-op.
+#if BB_CACHE_SWEEP_ENABLE
+void bb_cache_evict_start(void);
+#else
+static inline void bb_cache_evict_start(void) { }
+#endif
 
 #ifdef __cplusplus
 }

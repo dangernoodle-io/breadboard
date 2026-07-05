@@ -20,6 +20,15 @@
 //   - Both firings use the same snapshot-then-notify shape as on_change
 //     (see the Reentrancy note below).
 //
+// A3 revision (B1-592 A3, age-out eviction): bb_cache_reactive_delete() no
+// longer fires on_remove itself -- it installs fire_on_remove into bb_cache
+// via bb_cache_set_evict_notify_fn() (once, on the first
+// bb_cache_reactive_observe() call) and is now a pure passthrough to
+// bb_cache_delete(). bb_cache_delete() fires the hook for every successful
+// delete, so on_remove now fires for a plain bb_cache_delete() call too, and
+// for bb_cache's own AGE_OUT eviction path -- see bb_cache_reactive_delete()'s
+// own doc comment below for the full rationale.
+//
 // Reentrancy (load-bearing, B1-589; extended B1-592 A2 for the full triad):
 //   The matching observer list is snapshotted under an internal lock, the
 //   lock is released, and only THEN are callbacks invoked (mirrors
@@ -142,6 +151,17 @@ bb_err_t bb_cache_reactive_register(const bb_cache_config_t *cfg);
 // entry has been freed -- observers must not assume the value is still
 // readable (bb_cache_get_serialized/bb_cache_get_raw will return
 // BB_ERR_NOT_FOUND for the key by the time on_remove runs).
+//
+// B1-592 A3 (revises A2): on_remove is now fired by bb_cache itself, via a
+// one-way notify hook (bb_cache_set_evict_notify_fn()) this layer installs
+// on its FIRST bb_cache_reactive_observe() call -- NOT by this function
+// directly. This function is a pure passthrough to bb_cache_delete(). The
+// practical effect: on_remove now fires for a plain bb_cache_delete() call
+// too (not just bb_cache_reactive_delete()), and for bb_cache's own AGE_OUT
+// eviction path (see bb_cache_register()'s eviction config) -- both funnel
+// through the same bb_cache_delete() that installs and drives the hook, so
+// on_remove still fires exactly once per actual free, from every entry
+// point.
 // Returns whatever bb_cache_delete() returns.
 bb_err_t bb_cache_reactive_delete(const char *key);
 
