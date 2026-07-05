@@ -42,6 +42,7 @@ coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging
 	    --filter 'platform/host/bb_cache/' \
 	    --filter 'platform/espidf/bb_cache_reactive/' \
 	    --filter 'platform/host/bb_cache_reactive/' \
+	    --filter 'platform/host/bb_sink_display/' \
 	    --filter 'platform/espidf/bb_init/' \
 	    --filter 'platform/host/bb_init/' \
 	    --filter 'platform/host/bb_cache_routes/' \

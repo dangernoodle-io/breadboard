@@ -106,6 +106,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_ring_diag](./bb_ring_diag/) | — |
 | [bb_scalar](./bb_scalar/) | — |
 | [bb_sensors](./bb_sensors/) | — |
+| [bb_sink_display](./bb_sink_display/) | The northstar display-egress sink: renders a board-appropriate subset of |
 | [bb_sink_event](./bb_sink_event/) | — |
 | [bb_sink_http](./bb_sink_http/) | — |
 | [bb_sink_http_telemetry](./bb_sink_http_telemetry/) | — |
