@@ -96,7 +96,7 @@ If a new type would force an `#include <esp_…>` or `#include "cJSON.h"` into a
 ```sh
 grep -nE '#include <esp_|#include "esp_|cJSON|i2c_master|httpd_' components/<name>/include/*.h
 ```
-This should be empty (outside the LVGL exception). The CI lint step (`make check`) enforces this automatically via `scripts/check_lint.sh` (B1-263).
+This should be empty (outside the LVGL exception). The CI `check` step (`make check` = `lint` + `cppcheck`) enforces this automatically via `python3 scripts/bbtool.py lint --root . --profile library` (B1-263). The same lint also runs as part of every firmware build (see `bb_lint()` / `BB_LINT_ON_BUILD` below) — zero rule divergence between the two paths, so `make all` (static analysis + py-tests + host tests) drops the standalone lint step and relies on the build-time gate instead; run `make lint` to invoke it standalone. Run `make all` locally before pushing — it excludes `smoke`, which CI also gates on but is too slow for a local pre-push loop.
 
 ### Tests must not reach into other components
 
@@ -112,8 +112,10 @@ This should be empty (outside the LVGL exception). The CI lint step (`make check
 Assets are embedded via `bb_embed_assets()` / `bb_embed_site()` cmake helpers in
 `cmake/bbtool.cmake`; consumers include it before `project()`. See
 `scripts/bbtool/README.md` for full usage, wiring, and the `flash_factory.py`
-post-script. `bb_lint()` (same file) creates an opt-in linter target:
-`cmake --build build --target bb_lint` — never runs on a normal build.
+post-script. `bb_lint()` (same file) is wired into every build by default
+(`BB_LINT_ON_BUILD=ON`) — it runs `scripts/bbtool.py lint --root . --profile
+library` (the same rules as `make check`) and fails the build on any lint
+error. Set `BB_LINT_ON_BUILD=OFF` to disable it as a deliberate override.
 
 ## Registry (handler-lifecycle)
 
