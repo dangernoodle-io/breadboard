@@ -1292,6 +1292,20 @@ void test_bb_clampf_in_range_returns_x(void);
 void test_bb_clampf_equal_to_lo_returns_lo(void);
 void test_bb_clampf_equal_to_hi_returns_hi(void);
 
+// Forward declarations from test_bb_fmt.c
+void test_bb_fmt_hex_zero_nbytes_returns_zero_and_terminates(void);
+void test_bb_fmt_hex_with_separator(void);
+void test_bb_fmt_hex_without_separator(void);
+void test_bb_fmt_hex_exact_fit_dstsize(void);
+void test_bb_fmt_hex_truncation_is_detected_via_return_value(void);
+void test_bb_fmt_hex_dstsize_zero_writes_nothing_and_returns_full_length(void);
+void test_bb_fmt_hex_dstsize_one_writes_only_nul_terminator(void);
+void test_bb_fmt_mac6_known_mac_formats_exactly(void);
+void test_bb_fmt_mac6_dstsize_too_small_returns_false(void);
+void test_bb_fmt_mac6_dstsize_larger_than_needed_succeeds(void);
+void test_bb_fmt_bool_true(void);
+void test_bb_fmt_bool_false(void);
+
 // Forward declarations from test_bb_mdns.c
 void test_bb_mdns_browse_start_null_service(void);
 void test_bb_mdns_browse_start_null_proto(void);
@@ -5815,6 +5829,20 @@ int main(void) {
     RUN_TEST(test_bb_clampf_in_range_returns_x);
     RUN_TEST(test_bb_clampf_equal_to_lo_returns_lo);
     RUN_TEST(test_bb_clampf_equal_to_hi_returns_hi);
+
+    // bb_fmt tests
+    RUN_TEST(test_bb_fmt_hex_zero_nbytes_returns_zero_and_terminates);
+    RUN_TEST(test_bb_fmt_hex_with_separator);
+    RUN_TEST(test_bb_fmt_hex_without_separator);
+    RUN_TEST(test_bb_fmt_hex_exact_fit_dstsize);
+    RUN_TEST(test_bb_fmt_hex_truncation_is_detected_via_return_value);
+    RUN_TEST(test_bb_fmt_hex_dstsize_zero_writes_nothing_and_returns_full_length);
+    RUN_TEST(test_bb_fmt_hex_dstsize_one_writes_only_nul_terminator);
+    RUN_TEST(test_bb_fmt_mac6_known_mac_formats_exactly);
+    RUN_TEST(test_bb_fmt_mac6_dstsize_too_small_returns_false);
+    RUN_TEST(test_bb_fmt_mac6_dstsize_larger_than_needed_succeeds);
+    RUN_TEST(test_bb_fmt_bool_true);
+    RUN_TEST(test_bb_fmt_bool_false);
 
     // bb_mdns tests
     RUN_TEST(test_bb_mdns_browse_start_null_service);

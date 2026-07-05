@@ -40,6 +40,7 @@ coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging
 	    --filter 'platform/host/bb_str/' \
 	    --filter 'platform/host/bb_scalar/' \
 	    --filter 'platform/host/bb_num/' \
+	    --filter 'platform/host/bb_fmt/' \
 	    --exclude-throw-branches \
 	    --exclude-unreachable-branches \
 	    --exclude-directories '\.claude' \
