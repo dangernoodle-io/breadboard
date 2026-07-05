@@ -26,6 +26,7 @@
 #include "bb_log.h"
 #include "bb_openapi.h"
 #include "bb_init.h"
+#include "bb_str.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -93,9 +94,9 @@ static bool wifi_gather(void *snap_buf, void *ctx)
     memset(snap, 0, sizeof(*snap));
     snap->info.connected   = s_test_info.connected;
     snap->info.rssi        = s_test_info.rssi;
-    strncpy(snap->info.ssid, s_test_info.ssid, sizeof(snap->info.ssid) - 1);
+    bb_strlcpy(snap->info.ssid, s_test_info.ssid, sizeof(snap->info.ssid));
     memcpy(snap->info.bssid, s_test_info.bssid, sizeof(snap->info.bssid));
-    strncpy(snap->info.ip, s_test_info.ip, sizeof(snap->info.ip) - 1);
+    bb_strlcpy(snap->info.ip, s_test_info.ip, sizeof(snap->info.ip));
     snap->info.disc_reason  = s_test_info.disc_reason;
     snap->info.disc_age_s   = s_test_info.disc_age_s;
     snap->info.retry_count  = s_test_info.retry_count;

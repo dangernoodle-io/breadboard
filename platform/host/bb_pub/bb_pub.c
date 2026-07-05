@@ -18,6 +18,7 @@
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
 #include "bb_pool.h"
+#include "bb_str.h"
 
 #include <inttypes.h>
 #include <pthread.h>
@@ -927,8 +928,7 @@ bb_err_t bb_pub_register_source(const char *subtopic, bb_pub_sample_fn fn, void 
 
     bb_pub_source_t *src = &s_sources[s_source_count++];
     memset(src, 0, sizeof(*src));   /* zero ALL fields including telem_managed */
-    strncpy(src->subtopic, subtopic, sizeof(src->subtopic) - 1);
-    src->subtopic[sizeof(src->subtopic) - 1] = '\0';
+    bb_strlcpy(src->subtopic, subtopic, sizeof(src->subtopic));
     src->fn  = fn;
     src->ctx = ctx;
     return BB_OK;
@@ -1050,8 +1050,7 @@ bb_err_t bb_pub_register_telemetry(const bb_pub_telemetry_cfg_t *cfg)
     // Store in telem table before calling bb_pub_register_source so that if
     // register_source succeeds, the entry is already visible to the tick loop.
     bb_pub_telem_entry_t *te = &s_telem_sources[s_telem_count];
-    strncpy(te->topic, cfg->topic, sizeof(te->topic) - 1);
-    te->topic[sizeof(te->topic) - 1] = '\0';
+    bb_strlcpy(te->topic, cfg->topic, sizeof(te->topic));
     te->gather         = cfg->gather;
     te->snap_size      = cfg->snap_size;
     te->flags          = cfg->flags;

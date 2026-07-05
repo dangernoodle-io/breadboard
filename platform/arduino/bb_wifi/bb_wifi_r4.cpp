@@ -11,6 +11,7 @@
 #include "bb_wifi.h"
 #include "bb_log.h"
 #include "bb_system.h"
+#include "bb_str.h"
 #include <Arduino.h>
 #include <WiFiS3.h>
 #include <string.h>
@@ -125,7 +126,7 @@ int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results) {
     if (count > max_results) count = max_results;
     for (int i = 0; i < count; i++) {
         memset(&results[i], 0, sizeof(results[i]));
-        strncpy(results[i].ssid, WiFi.SSID(i), sizeof(results[i].ssid) - 1);
+        bb_strlcpy(results[i].ssid, WiFi.SSID(i), sizeof(results[i].ssid));
         results[i].rssi = WiFi.RSSI(i);
         results[i].secure = (WiFi.encryptionType(i) != ENC_TYPE_NONE);
     }
@@ -178,13 +179,13 @@ bb_err_t bb_wifi_get_info(bb_wifi_info_t *out) {
     memset(out, 0, sizeof(*out));
     out->connected = (WiFi.status() == WL_CONNECTED);
     if (out->connected) {
-        strncpy(out->ssid, WiFi.SSID(), sizeof(out->ssid) - 1);
+        bb_strlcpy(out->ssid, WiFi.SSID(), sizeof(out->ssid));
         WiFi.BSSID(out->bssid);
         out->rssi = (int8_t)WiFi.RSSI();
         IPAddress ip = WiFi.localIP();
         snprintf(out->ip, sizeof(out->ip), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
     } else {
-        strncpy(out->ip, "0.0.0.0", sizeof(out->ip) - 1);
+        bb_strlcpy(out->ip, "0.0.0.0", sizeof(out->ip));
     }
     out->disc_reason = g_disc_reason;
     out->disc_age_s = g_disc_at_ms ? (millis() - g_disc_at_ms) / 1000 : 0;

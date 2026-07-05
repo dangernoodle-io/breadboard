@@ -13,6 +13,7 @@
 #include "bb_http_query.h"
 #include "bb_json.h"
 #include "bb_mem.h"
+#include "bb_str.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -128,8 +129,7 @@ bb_err_t bb_http_resp_set_type(bb_http_request_t *req, const char *mime)
     if (s_force_set_type_fail) return BB_ERR_INVALID_STATE;
     capture_slot_t *cap = capture_find(req);
     if (cap && mime) {
-        strncpy(cap->content_type, mime, sizeof(cap->content_type) - 1);
-        cap->content_type[sizeof(cap->content_type) - 1] = '\0';
+        bb_strlcpy(cap->content_type, mime, sizeof(cap->content_type));
         return BB_OK;
     }
     (void)req;
@@ -491,9 +491,8 @@ bb_err_t bb_http_host_capture_end(bb_http_request_t *req,
     out->body_len = s_cap.body_len;
     out->has_acao  = s_cap.has_acao;
     out->has_acapn = s_cap.has_acapn;
-    strncpy(out->content_type, s_cap.content_type,
-            sizeof(out->content_type) - 1);
-    out->content_type[sizeof(out->content_type) - 1] = '\0';
+    bb_strlcpy(out->content_type, s_cap.content_type,
+               sizeof(out->content_type));
 
     // Disarm the slot (body ownership transferred to caller)
     s_cap.req  = NULL;

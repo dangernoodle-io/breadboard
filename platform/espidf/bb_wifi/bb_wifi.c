@@ -353,8 +353,7 @@ bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)
     memset(out, 0, sizeof(*out));
 
     portENTER_CRITICAL(&s_ap_mux);
-    strncpy(out->ssid, s_cached_ssid, sizeof(out->ssid) - 1);
-    out->ssid[sizeof(out->ssid) - 1] = '\0';
+    bb_strlcpy(out->ssid, s_cached_ssid, sizeof(out->ssid));
     memcpy(out->bssid, s_cached_bssid, sizeof(out->bssid));
     out->rssi = s_cached_rssi;
     portEXIT_CRITICAL(&s_ap_mux);

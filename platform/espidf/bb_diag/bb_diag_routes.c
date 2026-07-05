@@ -19,6 +19,7 @@
 #include "bb_mem.h"
 #include "bb_task_registry.h"
 #include "bb_clock.h"
+#include "bb_str.h"
 
 #include "esp_system.h"
 #include "esp_heap_caps.h"
@@ -76,8 +77,7 @@ static void load_reboot_record(void)
     bool sw_reset = (bb_system_get_reset_reason() == BB_RESET_REASON_SW);
     if (have_rec && sw_reset) {
         s_reboot_src = (bb_reset_source_t)rec.src;
-        strncpy(s_reboot_detail, rec.detail, sizeof(s_reboot_detail) - 1);
-        s_reboot_detail[sizeof(s_reboot_detail) - 1] = '\0';
+        bb_strlcpy(s_reboot_detail, rec.detail, sizeof(s_reboot_detail));
         s_reboot_epoch_s  = rec.epoch_s;
         s_reboot_uptime_s = rec.uptime_s;
     } else {
@@ -138,8 +138,7 @@ static void build_boot_snap(bb_diag_boot_snap_t *snap)
     snap->rolled_back       = bb_ota_rolled_back();
 
     snap->reboot_src = (uint8_t)s_reboot_src;
-    strncpy(snap->reboot_detail, s_reboot_detail, sizeof(snap->reboot_detail) - 1);
-    snap->reboot_detail[sizeof(snap->reboot_detail) - 1] = '\0';
+    bb_strlcpy(snap->reboot_detail, s_reboot_detail, sizeof(snap->reboot_detail));
     snap->reboot_epoch_s  = s_reboot_epoch_s;
     snap->reboot_uptime_s = s_reboot_uptime_s;
 

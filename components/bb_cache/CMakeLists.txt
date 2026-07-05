@@ -3,4 +3,4 @@ idf_component_register(
          "src/bb_cache_evaluate.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_json bb_event
-    PRIV_REQUIRES bb_log)
+    PRIV_REQUIRES bb_log bb_str)

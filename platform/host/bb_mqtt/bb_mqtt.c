@@ -7,6 +7,7 @@
 #include "bb_mqtt.h"
 #include "bb_nv.h"
 #include "bb_mqtt_reassemble.h"
+#include "bb_str.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -83,7 +84,7 @@ bb_err_t bb_mqtt_publish(bb_mqtt_t handle, const char *topic,
 
     bb_mqtt_host_pub_t *p = &h->pubs[h->count++];
     memset(p, 0, sizeof(*p));
-    strncpy(p->topic, topic, sizeof(p->topic) - 1);
+    bb_strlcpy(p->topic, topic, sizeof(p->topic));
     if (payload) {
         int n = (len < 0) ? (int)strlen(payload) : len;
         if (n >= (int)sizeof(p->payload)) n = (int)sizeof(p->payload) - 1;
@@ -250,7 +251,7 @@ bb_err_t bb_mqtt_resume_default(void)
         bb_nv_get_str(BB_MQTT_NVS_NS, "uri", uri, sizeof(uri), "");
 
         if (!uri[0]) {
-            strncpy(uri, "mqtt://localhost:1883", sizeof(uri) - 1);
+            bb_strlcpy(uri, "mqtt://localhost:1883", sizeof(uri));
         }
 
         bb_mqtt_cfg_t cfg = {

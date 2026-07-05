@@ -13,6 +13,7 @@
 #include "bb_openapi.h"
 #include "bb_init.h"
 #include "bb_task_registry.h"
+#include "bb_str.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -159,8 +160,7 @@ static void registry_field_cb(const char *name, uint32_t stack_budget_bytes,
             uint32_t bytes = (uint32_t)sc->tasks[i].usStackHighWaterMark
                              * sizeof(StackType_t);
             registry_snapshot_entry_t *e = &sc->snap[sc->snap_count++];
-            strncpy(e->name, name, sizeof(e->name) - 1);
-            e->name[sizeof(e->name) - 1] = '\0';
+            bb_strlcpy(e->name, name, sizeof(e->name));
             e->bytes = bytes;
             break;
         }
@@ -243,8 +243,7 @@ static void registry_field_cb_host(const char *name, uint32_t stack_budget_bytes
     registry_scan_ctx_host_t *sc = (registry_scan_ctx_host_t *)cb_ctx;
     if (sc->count >= BB_TASK_REGISTRY_MAX) return;
     registry_snapshot_entry_t *e = &sc->snap[sc->count++];
-    strncpy(e->name, name, sizeof(e->name) - 1);
-    e->name[sizeof(e->name) - 1] = '\0';
+    bb_strlcpy(e->name, name, sizeof(e->name));
     e->bytes = stack_budget_bytes;
 }
 

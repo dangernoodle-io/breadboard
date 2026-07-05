@@ -5,6 +5,7 @@
 #include "bb_event_routes.h"
 #include "bb_json.h"
 #include "bb_log.h"
+#include "bb_str.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -69,8 +70,7 @@ bb_err_t bb_sink_event_register_topic(const char *subtopic, bool retained)
     if (s_count >= BB_SINK_EVENT_MAX_TOPICS) return BB_ERR_NO_SPACE;
 
     sink_event_entry_t *entry = &s_entries[s_count];
-    strncpy(entry->subtopic, subtopic, sizeof(entry->subtopic) - 1);
-    entry->subtopic[sizeof(entry->subtopic) - 1] = '\0';
+    bb_strlcpy(entry->subtopic, subtopic, sizeof(entry->subtopic));
     entry->retained = retained;
 
     bb_err_t err = bb_event_topic_register(subtopic, &entry->handle);

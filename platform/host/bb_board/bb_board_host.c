@@ -1,4 +1,5 @@
 #include "bb_board.h"
+#include "bb_str.h"
 
 #include <string.h>
 
@@ -17,11 +18,11 @@ bb_err_t bb_board_get_info(bb_board_info_t *out)
     if (!out) return BB_ERR_INVALID_ARG;
     memset(out, 0, sizeof(*out));
 
-    strncpy(out->board, "host", sizeof(out->board) - 1);
-    strncpy(out->project_name, "host", sizeof(out->project_name) - 1);
-    strncpy(out->version, "0.0.0-host", sizeof(out->version) - 1);
-    strncpy(out->chip_model, "host", sizeof(out->chip_model) - 1);
-    strncpy(out->idf_version, "0.0.0-host", sizeof(out->idf_version) - 1);
+    bb_strlcpy(out->board, "host", sizeof(out->board));
+    bb_strlcpy(out->project_name, "host", sizeof(out->project_name));
+    bb_strlcpy(out->version, "0.0.0-host", sizeof(out->version));
+    bb_strlcpy(out->chip_model, "host", sizeof(out->chip_model));
+    bb_strlcpy(out->idf_version, "0.0.0-host", sizeof(out->idf_version));
     out->cores = 1;
 #ifdef BB_BOARD_TESTING
     out->ota_validated = s_test_ota_validated;

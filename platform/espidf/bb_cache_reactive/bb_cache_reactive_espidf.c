@@ -14,6 +14,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mem.h"
+#include "bb_str.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -239,8 +240,7 @@ bb_err_t bb_cache_reactive_observe(const bb_cache_reactive_observer_t *cfg)
     slot->active = true;
     if (cfg->key) {
         slot->observe_all = false;
-        strncpy(slot->key, cfg->key, sizeof(slot->key) - 1);
-        slot->key[sizeof(slot->key) - 1] = '\0';
+        bb_strlcpy(slot->key, cfg->key, sizeof(slot->key));
     } else {
         slot->observe_all = true;
     }

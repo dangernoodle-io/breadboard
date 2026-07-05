@@ -1,4 +1,5 @@
 #include "bb_board.h"
+#include "bb_str.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -57,20 +58,20 @@ bb_err_t bb_board_get_info(bb_board_info_t *out)
     if (!out) return BB_ERR_INVALID_ARG;
     memset(out, 0, sizeof(*out));
 
-    strncpy(out->board, FIRMWARE_BOARD, sizeof(out->board) - 1);
+    bb_strlcpy(out->board, FIRMWARE_BOARD, sizeof(out->board));
 
     const esp_app_desc_t *app = esp_app_get_description();
     if (app) {
-        strncpy(out->project_name, app->project_name, sizeof(out->project_name) - 1);
-        strncpy(out->version,      app->version,      sizeof(out->version) - 1);
-        strncpy(out->idf_version,  app->idf_ver,      sizeof(out->idf_version) - 1);
-        strncpy(out->build_date,   app->date,         sizeof(out->build_date) - 1);
-        strncpy(out->build_time,   app->time,         sizeof(out->build_time) - 1);
+        bb_strlcpy(out->project_name, app->project_name, sizeof(out->project_name));
+        bb_strlcpy(out->version,      app->version,      sizeof(out->version));
+        bb_strlcpy(out->idf_version,  app->idf_ver,      sizeof(out->idf_version));
+        bb_strlcpy(out->build_date,   app->date,         sizeof(out->build_date));
+        bb_strlcpy(out->build_time,   app->time,         sizeof(out->build_time));
     }
 
     esp_chip_info_t chip;
     esp_chip_info(&chip);
-    strncpy(out->chip_model, chip_model_str(chip.model), sizeof(out->chip_model) - 1);
+    bb_strlcpy(out->chip_model, chip_model_str(chip.model), sizeof(out->chip_model));
     out->cores = chip.cores;
 
     uint8_t mac[6] = {0};
@@ -99,8 +100,8 @@ bb_err_t bb_board_get_info(bb_board_info_t *out)
         out->ota_validated = true;
     }
 
-    strncpy(out->reset_reason, reset_reason_str(esp_reset_reason()),
-            sizeof(out->reset_reason) - 1);
+    bb_strlcpy(out->reset_reason, reset_reason_str(esp_reset_reason()),
+               sizeof(out->reset_reason));
 
     return BB_OK;
 }

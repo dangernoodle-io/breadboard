@@ -1,5 +1,6 @@
 #include "bb_openapi.h"
 #include "bb_log.h"
+#include "bb_str.h"
 
 #include <cJSON.h>
 #include <string.h>
@@ -124,8 +125,7 @@ static bb_err_t check_enum(const cJSON *schema, const cJSON *value,
         path_render(ps, err->path, sizeof(err->path));
         char val_str[64] = "<non-string>";
         if (cJSON_IsString(value)) {
-            strncpy(val_str, value->valuestring, sizeof(val_str) - 1);
-            val_str[sizeof(val_str) - 1] = '\0';
+            bb_strlcpy(val_str, value->valuestring, sizeof(val_str));
         } else if (cJSON_IsNumber(value)) {
             snprintf(val_str, sizeof(val_str), "%g", value->valuedouble);
         }

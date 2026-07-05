@@ -1,4 +1,5 @@
 #include "bb_wifi.h"
+#include "bb_str.h"
 
 #include <string.h>
 
@@ -110,7 +111,7 @@ bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)
     if (!out) return BB_ERR_INVALID_ARG;
     memset(out, 0, sizeof(*out));
     // Set "0.0.0.0" for ip — same as disconnected device
-    strncpy(out->ip, "0.0.0.0", sizeof(out->ip) - 1);
+    bb_strlcpy(out->ip, "0.0.0.0", sizeof(out->ip));
     return BB_OK;
 }
 

@@ -9,6 +9,7 @@
 #include "bb_json.h"
 #include "bb_timer.h"
 #include "bb_log.h"
+#include "bb_str.h"
 #include "mdns.h"
 #include "esp_netif.h"
 #include "esp_system.h"
@@ -82,8 +83,8 @@ static void on_hello(const bb_mdns_peer_t *peer, void *ctx)
     if (err != BB_OK && err != BB_ERR_NO_SPACE) return;
 
     bb_mdns_cache_entry_t entry = {0};
-    strncpy(entry.hostname, peer->id.hostname, sizeof(entry.hostname) - 1);
-    strncpy(entry.ip4, peer->id.ip4, sizeof(entry.ip4) - 1);
+    bb_strlcpy(entry.hostname, peer->id.hostname, sizeof(entry.hostname));
+    bb_strlcpy(entry.ip4, peer->id.ip4, sizeof(entry.ip4));
     entry.port = peer->id.port;
 
     cache_upsert(key, &entry);
@@ -151,8 +152,8 @@ static void requery_work_fn(void *arg)
         if (kerr != BB_OK && kerr != BB_ERR_NO_SPACE) continue;
 
         bb_mdns_cache_entry_t entry = {0};
-        strncpy(entry.hostname, r->hostname ? r->hostname : "", sizeof(entry.hostname) - 1);
-        strncpy(entry.ip4, ip4, sizeof(entry.ip4) - 1);
+        bb_strlcpy(entry.hostname, r->hostname ? r->hostname : "", sizeof(entry.hostname));
+        bb_strlcpy(entry.ip4, ip4, sizeof(entry.ip4));
         entry.port = r->port;
 
         cache_upsert(key, &entry);
@@ -172,15 +173,12 @@ bb_err_t bb_mdns_cache_start(const bb_mdns_cache_config_t *cfg)
         return BB_OK;
     }
 
-    strncpy(s_state.service, cfg->service, sizeof(s_state.service) - 1);
-    s_state.service[sizeof(s_state.service) - 1] = '\0';
-    strncpy(s_state.proto, cfg->proto, sizeof(s_state.proto) - 1);
-    s_state.proto[sizeof(s_state.proto) - 1] = '\0';
+    bb_strlcpy(s_state.service, cfg->service, sizeof(s_state.service));
+    bb_strlcpy(s_state.proto, cfg->proto, sizeof(s_state.proto));
 
     const char *prefix = cfg->key_prefix;
     if (!prefix || prefix[0] == '\0') prefix = BB_MDNS_CACHE_KEY_PREFIX_DEFAULT;
-    strncpy(s_state.key_prefix, prefix, sizeof(s_state.key_prefix) - 1);
-    s_state.key_prefix[sizeof(s_state.key_prefix) - 1] = '\0';
+    bb_strlcpy(s_state.key_prefix, prefix, sizeof(s_state.key_prefix));
 
     s_state.stale_age_ms = cfg->stale_age_ms ? cfg->stale_age_ms : BB_MDNS_CACHE_STALE_AGE_MS;
     s_state.evict_age_ms = cfg->evict_age_ms ? cfg->evict_age_ms : BB_MDNS_CACHE_EVICT_AGE_MS;

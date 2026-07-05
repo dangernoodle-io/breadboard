@@ -13,6 +13,7 @@
 #include "bb_system.h"
 #include "bb_alert.h"
 #include "bb_mem.h"
+#include "bb_str.h"
 
 #include <limits.h>
 #include <pthread.h>
@@ -162,14 +163,14 @@ static void publish_state(const bb_ota_check_status_t *st, const char *txt_value
 
     bb_ota_check_snap_t snap;
     memset(&snap, 0, sizeof(snap));
-    strncpy(snap.current,      st->current,      sizeof(snap.current) - 1);
-    strncpy(snap.latest,       st->latest,       sizeof(snap.latest) - 1);
-    strncpy(snap.download_url, st->download_url, sizeof(snap.download_url) - 1);
+    bb_strlcpy(snap.current,      st->current,      sizeof(snap.current));
+    bb_strlcpy(snap.latest,       st->latest,       sizeof(snap.latest));
+    bb_strlcpy(snap.download_url, st->download_url, sizeof(snap.download_url));
     snap.available     = st->available;
     snap.ts            = s_last_publish_ts;
     snap.last_check_ok = st->last_check_ok;
     snap.enabled       = bb_nv_config_update_check_enabled();
-    strncpy(snap.outcome, outcome_str(st->outcome), sizeof(snap.outcome) - 1);
+    bb_strlcpy(snap.outcome, outcome_str(st->outcome), sizeof(snap.outcome));
     snap.last_check_ts = (st->last_check_us != 0) ? (int64_t)(st->last_check_us / 1000000) : 0;
 
     bb_cache_update(&(bb_cache_update_t){ .key = BB_OTA_CHECK_TOPIC, .snap = &snap });
@@ -190,8 +191,7 @@ bb_err_t bb_ota_check_init(const bb_ota_check_cfg_t *cfg)
     memset(&s_status, 0, sizeof(s_status));
     const char *running = bb_system_get_version();
     if (running) {  // LCOV_EXCL_BR_LINE — host always returns non-null
-        strncpy(s_status.current, running, sizeof(s_status.current) - 1);
-        s_status.current[sizeof(s_status.current) - 1] = '\0';
+        bb_strlcpy(s_status.current, running, sizeof(s_status.current));
     }
     s_status.latest[0] = '\0';
     s_status.download_url[0] = '\0';
@@ -312,8 +312,7 @@ bb_err_t bb_ota_check_get_status(bb_ota_check_status_t *out)
     pthread_mutex_lock(&s_lock);
     *out = s_status;
     const char *board_eff = (s_firmware_board[0] != '\0') ? s_firmware_board : BOARD_NAME_FALLBACK;
-    strncpy(out->board, board_eff, sizeof(out->board) - 1);
-    out->board[sizeof(out->board) - 1] = '\0';
+    bb_strlcpy(out->board, board_eff, sizeof(out->board));
     pthread_mutex_unlock(&s_lock);
     out->enabled = bb_nv_config_update_check_enabled();
     return BB_OK;
@@ -392,10 +391,8 @@ bb_err_t bb_ota_check_run_one(void)
     bb_ota_check_pause_cb_t  pause_local;
     bb_ota_check_resume_cb_t resume_local;
     pthread_mutex_lock(&s_lock);
-    strncpy(url_local, s_url, sizeof(url_local));
-    url_local[sizeof(url_local) - 1] = '\0';
-    strncpy(board_local, s_firmware_board, sizeof(board_local));
-    board_local[sizeof(board_local) - 1] = '\0';
+    bb_strlcpy(url_local, s_url, sizeof(url_local));
+    bb_strlcpy(board_local, s_firmware_board, sizeof(board_local));
     parser_local  = s_parser;
     pause_local   = s_pause_hook;
     resume_local  = s_resume_hook;
@@ -496,10 +493,8 @@ bb_err_t bb_ota_check_run_one(void)
         bb_ota_check_status_t snap;
         pthread_mutex_lock(&s_lock);
         bool old_available = s_status.available;
-        strncpy(s_status.latest, tag, sizeof(s_status.latest) - 1);
-        s_status.latest[sizeof(s_status.latest) - 1] = '\0';
-        strncpy(s_status.download_url, dl_url, sizeof(s_status.download_url) - 1);
-        s_status.download_url[sizeof(s_status.download_url) - 1] = '\0';
+        bb_strlcpy(s_status.latest, tag, sizeof(s_status.latest));
+        bb_strlcpy(s_status.download_url, dl_url, sizeof(s_status.download_url));
         s_status.available = new_available;
         s_status.last_check_us = now_us;
         s_status.last_check_ok = true;
@@ -603,10 +598,8 @@ bb_err_t bb_ota_check_run_one(void)
         bb_ota_check_status_t snap;
         pthread_mutex_lock(&s_lock);
         bool old_available2 = s_status.available;
-        strncpy(s_status.latest, tag, sizeof(s_status.latest) - 1);
-        s_status.latest[sizeof(s_status.latest) - 1] = '\0';
-        strncpy(s_status.download_url, dl_url, sizeof(s_status.download_url) - 1);
-        s_status.download_url[sizeof(s_status.download_url) - 1] = '\0';
+        bb_strlcpy(s_status.latest, tag, sizeof(s_status.latest));
+        bb_strlcpy(s_status.download_url, dl_url, sizeof(s_status.download_url));
         s_status.available = new_available;
         s_status.last_check_us = now_us;
         s_status.last_check_ok = true;
@@ -863,14 +856,14 @@ bb_err_t bb_ota_check_emit_status_json(bb_http_request_t *req)
         bb_ota_check_get_status(&st);
         bb_ota_check_snap_t snap;
         memset(&snap, 0, sizeof(snap));
-        strncpy(snap.current,      st.current,      sizeof(snap.current) - 1);
-        strncpy(snap.latest,       st.latest,       sizeof(snap.latest) - 1);
-        strncpy(snap.download_url, st.download_url, sizeof(snap.download_url) - 1);
+        bb_strlcpy(snap.current,      st.current,      sizeof(snap.current));
+        bb_strlcpy(snap.latest,       st.latest,       sizeof(snap.latest));
+        bb_strlcpy(snap.download_url, st.download_url, sizeof(snap.download_url));
         snap.available     = st.available;
         snap.ts            = s_last_publish_ts;  // preserved from last publish_state
         snap.last_check_ok = st.last_check_ok;
         snap.enabled       = st.enabled;
-        strncpy(snap.outcome, outcome_str(st.outcome), sizeof(snap.outcome) - 1);
+        bb_strlcpy(snap.outcome, outcome_str(st.outcome), sizeof(snap.outcome));
         snap.last_check_ts = (st.last_check_us != 0)
                              ? (int64_t)(st.last_check_us / 1000000) : 0;
         bb_cache_update(&(bb_cache_update_t){ .key = BB_OTA_CHECK_TOPIC, .snap = &snap });

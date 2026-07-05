@@ -12,6 +12,7 @@
 #include "bb_core.h"
 #include "bb_mem.h"
 #include "bb_clock.h"
+#include "bb_str.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -395,8 +396,7 @@ static bool evict_if_aged_out_locked(bb_cache_entry_t *e)
     }
 
     char key_copy[BB_CACHE_KEY_MAX];
-    strncpy(key_copy, e->key, sizeof(key_copy) - 1);
-    key_copy[sizeof(key_copy) - 1] = '\0';
+    bb_strlcpy(key_copy, e->key, sizeof(key_copy));
     uint32_t gen = e->generation;
     pthread_mutex_unlock(&e->lock);
 
@@ -568,8 +568,7 @@ bb_err_t bb_cache_register_ex(const bb_cache_config_t *cfg, bool *out_first_time
     // see find_entry_locked_ref()'s invariant.
     slot->generation++;
 
-    strncpy(slot->key, cfg->key, sizeof(slot->key) - 1);
-    slot->key[sizeof(slot->key) - 1] = '\0';
+    bb_strlcpy(slot->key, cfg->key, sizeof(slot->key));
     slot->snapshot    = cfg->snapshot;
     slot->owned       = owned;
     slot->size        = cfg->snap_size;

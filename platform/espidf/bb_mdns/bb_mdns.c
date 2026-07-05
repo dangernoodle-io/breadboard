@@ -18,6 +18,7 @@
 #include "bb_log.h"
 #include "bb_mem.h"
 #include "bb_task_registry.h"
+#include "bb_str.h"
 #include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
@@ -405,8 +406,7 @@ static void txt_pending_store(const char *key, const char *value)
     int free_slot = -1;
     for (int i = 0; i < BB_MDNS_TXT_PENDING_MAX; i++) {
         if (s_txt_pending[i].in_use && strcmp(s_txt_pending[i].key, key) == 0) {
-            strncpy(s_txt_pending[i].value, value, sizeof(s_txt_pending[i].value) - 1);
-            s_txt_pending[i].value[sizeof(s_txt_pending[i].value) - 1] = '\0';
+            bb_strlcpy(s_txt_pending[i].value, value, sizeof(s_txt_pending[i].value));
             return;
         }
         if (!s_txt_pending[i].in_use && free_slot < 0) free_slot = i;
@@ -415,10 +415,8 @@ static void txt_pending_store(const char *key, const char *value)
         bb_log_w(TAG, "txt pending buffer full, dropping %s=%s", key, value);
         return;
     }
-    strncpy(s_txt_pending[free_slot].key, key, sizeof(s_txt_pending[free_slot].key) - 1);
-    s_txt_pending[free_slot].key[sizeof(s_txt_pending[free_slot].key) - 1] = '\0';
-    strncpy(s_txt_pending[free_slot].value, value, sizeof(s_txt_pending[free_slot].value) - 1);
-    s_txt_pending[free_slot].value[sizeof(s_txt_pending[free_slot].value) - 1] = '\0';
+    bb_strlcpy(s_txt_pending[free_slot].key, key, sizeof(s_txt_pending[free_slot].key));
+    bb_strlcpy(s_txt_pending[free_slot].value, value, sizeof(s_txt_pending[free_slot].value));
     s_txt_pending[free_slot].in_use = true;
 }
 
@@ -512,14 +510,14 @@ static void bb_mdns_query_task(void *arg)
                     bb_log_w(TAG, "query: instance_name truncated (src %zu > max %zu)",
                              strlen(results->instance_name), sizeof(out.id.instance_name) - 1);
                 }
-                strncpy(out.id.instance_name, results->instance_name, sizeof(out.id.instance_name) - 1);
+                bb_strlcpy(out.id.instance_name, results->instance_name, sizeof(out.id.instance_name));
             }
             if (results->hostname) {
                 if (strlen(results->hostname) >= sizeof(out.id.hostname)) {
                     bb_log_w(TAG, "query: hostname truncated (src %zu > max %zu)",
                              strlen(results->hostname), sizeof(out.id.hostname) - 1);
                 }
-                strncpy(out.id.hostname, results->hostname, sizeof(out.id.hostname) - 1);
+                bb_strlcpy(out.id.hostname, results->hostname, sizeof(out.id.hostname));
             }
             out.id.port   = results->port;
             out.txt       = n ? txt_view : NULL;
@@ -551,8 +549,7 @@ static void dispatch_one(const bb_mdns_evt_t *evt)
     // If add event has no ip4, attempt a short A-record lookup before dispatch.
     // Blocks only the worker task (not the IDF mDNS task) — acceptable on LAN.
     char ip4_resolved[BB_MDNS_IP4_MAX];
-    strncpy(ip4_resolved, evt->ip4, sizeof(ip4_resolved) - 1);
-    ip4_resolved[sizeof(ip4_resolved) - 1] = '\0';
+    bb_strlcpy(ip4_resolved, evt->ip4, sizeof(ip4_resolved));
     if (!evt->is_removal && ip4_resolved[0] == '\0' && evt->hostname[0] != '\0') {
         esp_ip4_addr_t out_ip;
         esp_err_t qerr = mdns_query_a(evt->hostname, 200, &out_ip);
@@ -568,9 +565,9 @@ static void dispatch_one(const bb_mdns_evt_t *evt)
         if (on_removed) on_removed(evt->instance_name, ctx);
     } else if (on_peer) {
         bb_mdns_peer_t peer = {0};
-        strncpy(peer.id.instance_name, evt->instance_name, sizeof(peer.id.instance_name) - 1);
-        strncpy(peer.id.hostname,      evt->hostname,      sizeof(peer.id.hostname) - 1);
-        strncpy(peer.id.ip4,           ip4_resolved,       sizeof(peer.id.ip4) - 1);
+        bb_strlcpy(peer.id.instance_name, evt->instance_name, sizeof(peer.id.instance_name));
+        bb_strlcpy(peer.id.hostname,      evt->hostname,      sizeof(peer.id.hostname));
+        bb_strlcpy(peer.id.ip4,           ip4_resolved,       sizeof(peer.id.ip4));
         peer.id.port   = evt->port;
         peer.txt       = evt->txt_count ? evt->txt : NULL;
         peer.txt_count = evt->txt_count;
@@ -627,15 +624,15 @@ static void bb_mdns_dispatch_task(void *arg)
 static void fill_evt_from_result(bb_mdns_evt_t *evt, const mdns_result_t *r)
 {
     memset(evt, 0, sizeof(*evt));
-    strncpy(evt->service, r->service_type ? r->service_type : "", sizeof(evt->service) - 1);
-    strncpy(evt->proto,   r->proto        ? r->proto        : "", sizeof(evt->proto)   - 1);
+    bb_strlcpy(evt->service, r->service_type ? r->service_type : "", sizeof(evt->service));
+    bb_strlcpy(evt->proto,   r->proto        ? r->proto        : "", sizeof(evt->proto));
     if (r->instance_name && strlen(r->instance_name) >= sizeof(evt->instance_name)) {
         bb_log_w(TAG, "notifier: instance_name truncated (src %zu > max %zu)",
                  strlen(r->instance_name), sizeof(evt->instance_name) - 1);
     }
-    strncpy(evt->instance_name,
-            r->instance_name ? r->instance_name : "",
-            sizeof(evt->instance_name) - 1);
+    bb_strlcpy(evt->instance_name,
+               r->instance_name ? r->instance_name : "",
+               sizeof(evt->instance_name));
 
     if (r->ttl == 0) {
         evt->is_removal = true;
@@ -647,7 +644,7 @@ static void fill_evt_from_result(bb_mdns_evt_t *evt, const mdns_result_t *r)
         bb_log_w(TAG, "notifier: hostname truncated (src %zu > max %zu)",
                  strlen(r->hostname), sizeof(evt->hostname) - 1);
     }
-    strncpy(evt->hostname, r->hostname ? r->hostname : "", sizeof(evt->hostname) - 1);
+    bb_strlcpy(evt->hostname, r->hostname ? r->hostname : "", sizeof(evt->hostname));
     evt->port = r->port;
 
     // First IPv4 address
@@ -750,8 +747,7 @@ static int mdns_init_impl(void)
     mdns_build_hostname(hostname, sizeof(hostname));
 
     // Cache the running hostname for bb_mdns_get_hostname()
-    strncpy(s_running_hostname, hostname, sizeof(s_running_hostname) - 1);
-    s_running_hostname[sizeof(s_running_hostname) - 1] = '\0';
+    bb_strlcpy(s_running_hostname, hostname, sizeof(s_running_hostname));
     s_running_hostname_valid = true;
 
     esp_err_t err = mdns_init();
@@ -802,8 +798,8 @@ static int mdns_init_impl(void)
     for (int i = 0; i < BB_MDNS_BROWSE_MAX; i++) {
         if (!s_subs[i].in_use) continue;
         char svc[32], proto[8];
-        strncpy(svc,   s_subs[i].service, sizeof(svc)   - 1); svc[sizeof(svc)-1]     = '\0';
-        strncpy(proto, s_subs[i].proto,   sizeof(proto) - 1); proto[sizeof(proto)-1] = '\0';
+        bb_strlcpy(svc,   s_subs[i].service, sizeof(svc));
+        bb_strlcpy(proto, s_subs[i].proto,   sizeof(proto));
         xSemaphoreGive(s_subs_mutex);
         mdns_browse_t *handle = mdns_browse_new(svc, proto, internal_notifier);
         if (!handle) {
@@ -896,8 +892,8 @@ static void browse_refresh_work_fn(void *arg)
         if (s_subs_mutex && xSemaphoreTake(s_subs_mutex, portMAX_DELAY) == pdTRUE) {
             in_use = s_subs[i].in_use;
             if (in_use) {
-                strncpy(svc,   s_subs[i].service, sizeof(svc)   - 1);
-                strncpy(proto, s_subs[i].proto,   sizeof(proto) - 1);
+                bb_strlcpy(svc,   s_subs[i].service, sizeof(svc));
+                bb_strlcpy(proto, s_subs[i].proto,   sizeof(proto));
             }
             xSemaphoreGive(s_subs_mutex);
         }
@@ -1111,8 +1107,7 @@ void bb_mdns_set_hostname(const char *hostname)
         bb_log_w(TAG, "set_hostname: truncating (src %zu > max %zu)",
                  strlen(hostname), sizeof(s_mdns_hostname) - 1);
     }
-    strncpy(s_mdns_hostname, hostname, sizeof(s_mdns_hostname) - 1);
-    s_mdns_hostname[sizeof(s_mdns_hostname) - 1] = '\0';
+    bb_strlcpy(s_mdns_hostname, hostname, sizeof(s_mdns_hostname));
     s_mdns_hostname_set = true;
 }
 
@@ -1123,8 +1118,7 @@ void bb_mdns_set_service_type(const char *service_type)
         s_mdns_service_type_set = false;
         return;
     }
-    strncpy(s_mdns_service_type, service_type, sizeof(s_mdns_service_type) - 1);
-    s_mdns_service_type[sizeof(s_mdns_service_type) - 1] = '\0';
+    bb_strlcpy(s_mdns_service_type, service_type, sizeof(s_mdns_service_type));
     s_mdns_service_type_set = true;
 }
 
@@ -1139,8 +1133,7 @@ void bb_mdns_set_instance_name(const char *instance_name)
         bb_log_w(TAG, "set_instance_name: truncating (src %zu > max %zu)",
                  strlen(instance_name), sizeof(s_mdns_instance_name) - 1);
     }
-    strncpy(s_mdns_instance_name, instance_name, sizeof(s_mdns_instance_name) - 1);
-    s_mdns_instance_name[sizeof(s_mdns_instance_name) - 1] = '\0';
+    bb_strlcpy(s_mdns_instance_name, instance_name, sizeof(s_mdns_instance_name));
     s_mdns_instance_name_set = true;
 }
 
@@ -1218,10 +1211,8 @@ bb_err_t bb_mdns_browse_start(const char *service, const char *proto,
     }
 
     // Populate slot
-    strncpy(slot->service, service, sizeof(slot->service) - 1);
-    slot->service[sizeof(slot->service) - 1] = '\0';
-    strncpy(slot->proto, proto, sizeof(slot->proto) - 1);
-    slot->proto[sizeof(slot->proto) - 1] = '\0';
+    bb_strlcpy(slot->service, service, sizeof(slot->service));
+    bb_strlcpy(slot->proto, proto, sizeof(slot->proto));
     slot->on_peer    = on_peer;
     slot->on_removed = on_removed;
     slot->ctx        = ctx;
@@ -1278,9 +1269,9 @@ bb_err_t bb_mdns_query_txt(const char *instance_name, const char *service, const
     if (!instance_name || !service || !proto) return BB_ERR_INVALID_ARG;
     if (!s_query_queue) return BB_ERR_INVALID_STATE;
     bb_mdns_query_req_t req = { .timeout_ms = timeout_ms, .cb = cb, .ctx = ctx };
-    strncpy(req.instance_name, instance_name, sizeof(req.instance_name) - 1);
-    strncpy(req.service,       service,       sizeof(req.service)       - 1);
-    strncpy(req.proto,         proto,         sizeof(req.proto)         - 1);
+    bb_strlcpy(req.instance_name, instance_name, sizeof(req.instance_name));
+    bb_strlcpy(req.service,       service,       sizeof(req.service));
+    bb_strlcpy(req.proto,         proto,         sizeof(req.proto));
     if (xQueueSend(s_query_queue, &req, 0) != pdTRUE) return BB_ERR_NO_SPACE;
     return BB_OK;
 }

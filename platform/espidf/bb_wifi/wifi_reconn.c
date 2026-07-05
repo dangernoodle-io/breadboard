@@ -7,6 +7,7 @@
 #include "bb_alert.h"
 #include "bb_task_registry.h"
 #include "bb_system.h"
+#include "bb_str.h"
 
 #include <stdio.h>
 
@@ -394,8 +395,7 @@ void wifi_reconn_request_recovery(const char *reason)
     if (!s_queue) return;
     reconn_evt_t evt = { .type = EVT_RECOVERY_REQUEST, .reason = 0 };
     if (reason) {
-        strncpy(evt.recovery_reason, reason, sizeof(evt.recovery_reason) - 1);
-        evt.recovery_reason[sizeof(evt.recovery_reason) - 1] = '\0';
+        bb_strlcpy(evt.recovery_reason, reason, sizeof(evt.recovery_reason));
     }
     if (xQueueSend(s_queue, &evt, 0) != pdTRUE) {
         bb_log_w(TAG, "recovery request queue full, dropping");

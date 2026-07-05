@@ -12,6 +12,7 @@
 #include "bb_init.h"
 #include "bb_pub.h"
 #include "bb_log.h"
+#include "bb_str.h"
 
 #include <stdbool.h>
 #include <stdlib.h>
@@ -187,8 +188,7 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
             char val_tmp[BB_SINK_HTTP_HEADER_VALUE_MAX] = {0};
             if (bb_json_obj_get_string(item, "value", val_tmp, sizeof(val_tmp))) {
                 pe->value_present = true;
-                strncpy(pe->value, val_tmp, sizeof(pe->value) - 1);
-                pe->value[sizeof(pe->value) - 1] = '\0';
+                bb_strlcpy(pe->value, val_tmp, sizeof(pe->value));
                 if (!bb_sink_http_header_value_valid(pe->value)) continue;
             } else {
                 pe->value_present = false;

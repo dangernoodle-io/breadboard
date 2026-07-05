@@ -4,7 +4,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_mdns_cache/bb_mdns_cache.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_mdns bb_cache bb_json bb_timer bb_log bb_init espressif__mdns esp_netif esp_system
+    PRIV_REQUIRES bb_mdns bb_cache bb_json bb_timer bb_log bb_init espressif__mdns esp_netif esp_system bb_str
 )
 
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")

@@ -13,6 +13,7 @@
 #include "bb_wifi.h"
 #include "bb_log.h"
 #include "bb_system.h"
+#include "bb_str.h"
 #include <Arduino.h>
 #include <Adafruit_CC3000.h>
 #include <Adafruit_CC3000_Server.h>
@@ -115,7 +116,7 @@ static bb_err_t connect_internal(void) {
     }
 
     g_connected = true;
-    strncpy(g_ssid_cached, WIFI_SSID, sizeof(g_ssid_cached) - 1);
+    bb_strlcpy(g_ssid_cached, WIFI_SSID, sizeof(g_ssid_cached));
     bb_log_i(TAG, "got ip %lu.%lu.%lu.%lu",
              (unsigned long)((g_ip >> 24) & 0xff),
              (unsigned long)((g_ip >> 16) & 0xff),
@@ -197,14 +198,14 @@ bb_err_t bb_wifi_get_info(bb_wifi_info_t *out) {
     memset(out, 0, sizeof(*out));
     out->connected = g_connected;
     if (g_connected) {
-        strncpy(out->ssid, g_ssid_cached, sizeof(out->ssid) - 1);
+        bb_strlcpy(out->ssid, g_ssid_cached, sizeof(out->ssid));
         snprintf(out->ip, sizeof(out->ip), "%lu.%lu.%lu.%lu",
                  (unsigned long)((g_ip >> 24) & 0xff),
                  (unsigned long)((g_ip >> 16) & 0xff),
                  (unsigned long)((g_ip >>  8) & 0xff),
                  (unsigned long)( g_ip        & 0xff));
     } else {
-        strncpy(out->ip, "0.0.0.0", sizeof(out->ip) - 1);
+        bb_strlcpy(out->ip, "0.0.0.0", sizeof(out->ip));
     }
     out->disc_reason = g_disc_reason;
     out->disc_age_s = g_disc_at_ms ? (millis() - g_disc_at_ms) / 1000 : 0;

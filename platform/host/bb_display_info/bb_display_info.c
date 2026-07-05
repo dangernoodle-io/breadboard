@@ -6,6 +6,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_nv.h"
+#include "bb_str.h"
 
 #include <string.h>
 
@@ -26,7 +27,7 @@ static bb_display_snap_t make_snap(void)
     const char *panel = bb_display_backend_name();
     snap.present = (panel != NULL);
     if (panel) {
-        strncpy(snap.panel, panel, sizeof(snap.panel) - 1);
+        bb_strlcpy(snap.panel, panel, sizeof(snap.panel));
         snap.width   = bb_display_width();
         snap.height  = bb_display_height();
         snap.enabled = bb_nv_config_display_enabled();

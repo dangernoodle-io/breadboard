@@ -5,7 +5,7 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_task_registry/bb_task_registry_base_scan.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_log bb_registry bb_wdt bb_init esp_system bb_task bb_timer)
+    PRIV_REQUIRES bb_log bb_registry bb_wdt bb_init esp_system bb_task bb_timer bb_str)
 
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
 bb_init_force_register_pre_http(${COMPONENT_LIB} bb_task_registry_base_scan)

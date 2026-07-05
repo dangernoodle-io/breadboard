@@ -15,6 +15,7 @@
 #include "bb_log.h"
 #include "bb_mem.h"
 #include "bb_timer.h"
+#include "bb_str.h"
 
 #include <inttypes.h>
 #include <string.h>
@@ -68,8 +69,7 @@ static void do_scan(void)
 
     for (UBaseType_t i = 0; i < got; i++) {
         rows[i].handle = (void *)tasks[i].xHandle;
-        strncpy(rows[i].name, tasks[i].pcTaskName, sizeof(rows[i].name) - 1);
-        rows[i].name[sizeof(rows[i].name) - 1] = '\0';
+        bb_strlcpy(rows[i].name, tasks[i].pcTaskName, sizeof(rows[i].name));
         // uxTaskGetStackHighWaterMark returns words; convert to bytes.
         rows[i].free_bytes = (uint32_t)tasks[i].usStackHighWaterMark * sizeof(StackType_t);
     }

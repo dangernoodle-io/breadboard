@@ -2,7 +2,7 @@ set(_sys_srcs
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_reboot_parse.c"
     "${CMAKE_CURRENT_LIST_DIR}/src/bb_system_boot_banner_format.c"
     "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system.c")
-set(_sys_priv_reqs bb_log esp_app_format bb_http bb_init esp_driver_tsens esp_system bb_ntp bb_json)
+set(_sys_priv_reqs bb_log esp_app_format bb_http bb_init esp_driver_tsens esp_system bb_ntp bb_json bb_str)
 
 if(CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER)
     list(APPEND _sys_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_system/bb_system_routes.c")
