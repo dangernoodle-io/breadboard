@@ -75,5 +75,11 @@ severity = "error"
 # bb_task_registry callers onto bb_task; until then both coexist.
 allow = ["platform/espidf/bb_task/bb_task_espidf.c"]
 
+[lint.rules.component-readme]
+severity = "warn"
+# Fires broadly on components lacking a README.md today (expected — B1-644
+# taxonomy decision + open forks gate the fill). Flip to "error" once the
+# fill lands (B1-646).
+
 [plugins]
 paths = []

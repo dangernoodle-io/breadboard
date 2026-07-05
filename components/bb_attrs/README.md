@@ -8,7 +8,9 @@ Use it whenever an element needs to be filterable by priority/kind/tag/delivery 
 
 ## Public API
 
-See `include/bb_attrs.h`. Key symbols: `bb_attrs_t`, `BB_ATTRS_DELIVERY_MUST` / `BB_ATTRS_DELIVERY_DEFERRABLE`, `bb_attrs_container_of()`.
+See [`include/bb_attrs.h`](include/bb_attrs.h). Key symbols: `bb_attrs_t`, `BB_ATTRS_DELIVERY_MUST` / `BB_ATTRS_DELIVERY_DEFERRABLE`, `bb_attrs_container_of()`.
+
+A generated C API reference site (Doxygen+MkDocs) is future work — tracked as B1-348.
 
 ## Config knobs
 
@@ -16,13 +18,23 @@ None.
 
 ## Dependencies
 
-REQUIRES `bb_core`. No PRIV_REQUIRES.
+<!-- BEGIN bbtool:deps -->
+**REQUIRES:** `bb_core`
+
+**PRIV_REQUIRES:** _(none)_
+<!-- END bbtool:deps -->
 
 ## Platform support
 
+<!-- BEGIN bbtool:platform -->
 | host | espidf | arduino |
 |------|--------|---------|
-| full | full   | n/a (portable header, no platform code) |
+| no | no | no |
+<!-- END bbtool:platform -->
+
+`bb_attrs` is a portable intrusive header with no platform-specific implementation
+directory — the table above reflects `platform/{host,espidf,arduino}/bb_attrs/`
+directory presence, not language portability (it compiles unchanged everywhere).
 
 ## See also
 
