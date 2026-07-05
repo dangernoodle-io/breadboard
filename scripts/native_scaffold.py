@@ -575,6 +575,12 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_task_registry/bb_task_registry.c"],
         "depends":  ["bb_core", "bb_registry"],
     },
+    "bb_task": {
+        "includes": ["components/bb_task/include"],
+        "sources":  ["components/bb_task/src/bb_task_common.c",
+                     "platform/host/bb_task/bb_task_host.c"],
+        "depends":  ["bb_core", "bb_registry"],
+    },
     "bb_response": {
         "includes": ["components/bb_response/include"],
         "sources":  ["platform/host/bb_response/bb_response.c"],

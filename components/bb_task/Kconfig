@@ -1,0 +1,16 @@
+menu "breadboard: bb_task"
+
+config BB_TASK_BASE_MAX
+    int "Task base-registry capacity (max concurrently-tracked bb_task_create() tasks)"
+    default 24
+    range 1 64
+    help
+        Capacity of the pointer-keyed base registry that bb_task_create()
+        upserts into (one entry per live task created through this API).
+        Must be <= BB_REGISTRY_SNAPSHOT_MAX (64).
+
+        Dormant in this PR -- no in-tree caller of bb_task_create() exists
+        yet; a later PR migrates existing xTaskCreate* call sites onto this
+        API.
+
+endmenu
