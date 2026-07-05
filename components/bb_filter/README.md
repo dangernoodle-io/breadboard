@@ -8,7 +8,9 @@ Use it for one-shot or per-tick selection over a caller-owned array. Don't use i
 
 ## Public API
 
-See `include/bb_filter.h`. Key symbols: `bb_filter_elem_t`, `bb_filter_selector_t`, `bb_filter_select()`, `bb_filter_emit_t`, `bb_filter_emit_decide()`.
+See [`include/bb_filter.h`](include/bb_filter.h). Key symbols: `bb_filter_elem_t`, `bb_filter_selector_t`, `bb_filter_select()`, `bb_filter_emit_t`, `bb_filter_emit_decide()`.
+
+A generated C API reference site (Doxygen+MkDocs) is future work — tracked as B1-348.
 
 ## Config knobs
 
@@ -16,13 +18,24 @@ See `include/bb_filter.h`. Key symbols: `bb_filter_elem_t`, `bb_filter_selector_
 
 ## Dependencies
 
-REQUIRES `bb_core`, `bb_attrs`. No PRIV_REQUIRES.
+<!-- BEGIN bbtool:deps -->
+**REQUIRES:** `bb_attrs`, `bb_core`
+
+**PRIV_REQUIRES:** _(none)_
+<!-- END bbtool:deps -->
 
 ## Platform support
 
+<!-- BEGIN bbtool:platform -->
 | host | espidf | arduino |
 |------|--------|---------|
-| full | full   | n/a (portable, no platform code) |
+| no | no | no |
+<!-- END bbtool:platform -->
+
+`bb_filter` is a portable projection component with no platform-specific
+implementation directory — the table above reflects
+`platform/{host,espidf,arduino}/bb_filter/` directory presence, not language
+portability (it compiles unchanged everywhere).
 
 ## See also
 

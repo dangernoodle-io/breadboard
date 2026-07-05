@@ -8,5 +8,6 @@ from commands import elf as _elf
 from commands import decode as _decode
 from commands import stage as _stage
 from commands import ota_serve as _ota_serve
+from commands import docs as _docs
 
-FIRST_PARTY = [_lint, _version, _embed, _gen_site, _fetch, _elf, _decode, _stage, _ota_serve]
+FIRST_PARTY = [_lint, _version, _embed, _gen_site, _fetch, _elf, _decode, _stage, _ota_serve, _docs]
