@@ -45,7 +45,8 @@ coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging
 	    --coveralls gcovr-coveralls.json \
 	    --txt
 
-smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32-cache-sweep smoke-esp32c3 smoke-r4_wifis3 smoke-tdongle smoke-uno_cc3000
+# r4_wifis3 / uno_cc3000 excluded from aggregate + CI pending arm64 toolchain fix (see backlog); use their individual targets locally
+smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32-cache-sweep smoke-esp32c3 smoke-tdongle
 
 smoke-elecrow-p4-hmi7: ## Build smoke example for Elecrow CrowPanel P4 HMI 7.0 (with display)
 	$(PIO) run -d examples/smoke -e elecrow-p4-hmi7

@@ -59,7 +59,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        example: [elecrow-p4-hmi7, esp32, esp32-cache-sweep, esp32c3, r4_wifis3, tdongle, uno_cc3000]
+        # r4_wifis3 / uno_cc3000 temporarily excluded — local arm64 toolchain dance; restore after toolchain fix (see backlog)
+        example: [elecrow-p4-hmi7, esp32, esp32-cache-sweep, esp32c3, tdongle]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
