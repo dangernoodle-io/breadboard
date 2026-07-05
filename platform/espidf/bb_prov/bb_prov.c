@@ -306,8 +306,7 @@ void bb_prov_stop_ap(void)
 
 void bb_prov_get_ap_ssid(char *buf, size_t len)
 {
-    strncpy(buf, s_ap_ssid, len - 1);
-    buf[len - 1] = '\0';
+    bb_strlcpy(buf, s_ap_ssid, len);
 }
 
 bool bb_prov_wait_done(uint32_t timeout_ms)

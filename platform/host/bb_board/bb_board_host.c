@@ -59,8 +59,7 @@ uint8_t bb_board_get_cores(void)
 bb_err_t bb_board_get_chip_model(char *out, size_t out_size)
 {
     if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
-    strncpy(out, "host", out_size - 1);
-    out[out_size - 1] = '\0';
+    bb_strlcpy(out, "host", out_size);
     return BB_OK;
 }
 
@@ -74,16 +73,14 @@ bb_err_t bb_board_get_mac(char *out, size_t out_size)
 bb_err_t bb_board_get_idf_version(char *out, size_t out_size)
 {
     if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
-    strncpy(out, "0.0.0-host", out_size - 1);
-    out[out_size - 1] = '\0';
+    bb_strlcpy(out, "0.0.0-host", out_size);
     return BB_OK;
 }
 
 bb_err_t bb_board_get_reset_reason(char *out, size_t out_size)
 {
     if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
-    strncpy(out, "power-on", out_size - 1);
-    out[out_size - 1] = '\0';
+    bb_strlcpy(out, "power-on", out_size);
     return BB_OK;
 }
 

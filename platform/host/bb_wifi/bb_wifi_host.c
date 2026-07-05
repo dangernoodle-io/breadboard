@@ -147,8 +147,7 @@ bool bb_wifi_is_associated(void)
 bb_err_t bb_wifi_get_ip_str(char *out, size_t out_len)
 {
     if (!out || out_len == 0) return BB_ERR_INVALID_ARG;
-    strncpy(out, "0.0.0.0", out_len - 1);
-    out[out_len - 1] = '\0';
+    bb_strlcpy(out, "0.0.0.0", out_len);
     return BB_OK;
 }
 

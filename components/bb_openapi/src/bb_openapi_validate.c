@@ -43,8 +43,7 @@ static void path_render(const path_stack_t *ps, char *buf, size_t bufsz)
 static void path_push(path_stack_t *ps, const char *seg)
 {
     if (ps->depth >= PATH_DEPTH_MAX) return;
-    strncpy(ps->segments[ps->depth], seg, sizeof(ps->segments[0]) - 1);
-    ps->segments[ps->depth][sizeof(ps->segments[0]) - 1] = '\0';
+    bb_strlcpy(ps->segments[ps->depth], seg, sizeof(ps->segments[0]));
     ps->depth++;
 }
 

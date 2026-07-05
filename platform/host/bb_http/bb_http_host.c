@@ -194,8 +194,7 @@ bb_err_t bb_http_req_get_header(bb_http_request_t *req, const char *name,
     }
     // Present (even if the value must be truncated to fit out_len) is BB_OK —
     // matches the ESP-IDF backend's ESP_ERR_HTTPD_RESULT_TRUNC handling.
-    strncpy(out, s_req_header_value, out_len - 1);
-    out[out_len - 1] = '\0';
+    bb_strlcpy(out, s_req_header_value, out_len);
     return BB_OK;
 }
 
