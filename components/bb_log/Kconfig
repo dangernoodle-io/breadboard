@@ -1,5 +1,47 @@
 menu "breadboard: bb_log"
 
+config BB_LOG_DEFAULT_LEVEL
+    string "Default log level applied at boot (\"*\")"
+    default "info"
+    help
+        ESP-IDF only today (not wired into Arduino builds). Applied via
+        esp_log_level_set("*", level) during the EARLY init tier — before
+        all PRE_HTTP/REGULAR-tier and runtime logging. Note: bb_init's
+        EARLY tier does not sort by `.order` (unlike PRE_HTTP/REGULAR); it
+        replays constructor/link order, so this is not guaranteed to be in
+        effect before another EARLY-tier component's own boot logging
+        (deterministic EARLY ordering is tracked in the backlog). One of:
+        none, error, warn, info, debug, verbose (case-insensitive). An
+        unrecognised value is logged as a warning and the platform default
+        is left in place — never fatal.
+
+config BB_LOG_LEVELS
+    string "Per-tag log level overrides (\"tag=level,tag2=level2\")"
+    default ""
+    help
+        ESP-IDF only today (not wired into Arduino builds). Comma-separated
+        tag=level pairs applied during the EARLY init tier, after
+        BB_LOG_DEFAULT_LEVEL — before all PRE_HTTP/REGULAR-tier and runtime
+        logging. Example: "wifi=debug,httpd=warn". Note: bb_init's EARLY
+        tier does not sort by `.order` (unlike PRE_HTTP/REGULAR); it
+        replays constructor/link order, so a per-tag override here is not
+        guaranteed to be in effect before another EARLY-tier component's
+        own boot logging (deterministic EARLY ordering is tracked in the
+        backlog). A malformed pair (no '=') or an unrecognised level name
+        is logged as a warning and skipped — never fatal. This is a
+        bootstrap default; runtime overrides remain available via
+        bb_log_level_set() and the GET/POST /api/log/level routes
+        (BB_LOG_ROUTES).
+
+config BB_LOG_CONFIG_AUTOREGISTER
+    bool "Auto-apply BB_LOG_DEFAULT_LEVEL / BB_LOG_LEVELS via bb_init EARLY tier"
+    default y
+    help
+        When enabled, bb_log_config_init is automatically invoked by
+        bb_init_init_early() without an explicit app_main call — the
+        default-level and per-tag-level Kconfig knobs above take effect
+        with no consumer wiring. Disable to apply log-level config manually.
+
 config BB_LOG_ROUTES
     bool "Build bb_log HTTP routes (log-level GET/POST)"
     default y

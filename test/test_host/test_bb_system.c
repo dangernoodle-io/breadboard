@@ -843,3 +843,44 @@ void test_bb_reboot_history_decode_leaves_out_untouched_on_failure(void)
         TEST_ASSERT_EQUAL_UINT8(0x5A, bytes[i]);
     }
 }
+
+// ---------------------------------------------------------------------------
+// bb_system_boot_banner_format — pure CONFIG_BB_SYSTEM_BOOT_BANNER line formatter
+// ---------------------------------------------------------------------------
+
+void test_bb_system_boot_banner_format_all_present(void)
+{
+    char buf[128];
+    int n = bb_system_boot_banner_format(buf, sizeof(buf), "myapp", "1.2.3",
+                                          "Jan  1 2025", "12:00:00", "5.1.2");
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_EQUAL_STRING("project=myapp version=1.2.3 build=Jan  1 2025 12:00:00 idf=5.1.2", buf);
+}
+
+void test_bb_system_boot_banner_format_all_null(void)
+{
+    char buf[128];
+    int n = bb_system_boot_banner_format(buf, sizeof(buf), NULL, NULL, NULL, NULL, NULL);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_EQUAL_STRING("project=? version=? build=? ? idf=?", buf);
+}
+
+void test_bb_system_boot_banner_format_null_out(void)
+{
+    TEST_ASSERT_EQUAL(-1, bb_system_boot_banner_format(NULL, 128, "a", "b", "c", "d", "e"));
+}
+
+void test_bb_system_boot_banner_format_zero_len(void)
+{
+    char buf[4];
+    TEST_ASSERT_EQUAL(-1, bb_system_boot_banner_format(buf, 0, "a", "b", "c", "d", "e"));
+}
+
+void test_bb_system_boot_banner_format_truncation(void)
+{
+    char buf[8];
+    int n = bb_system_boot_banner_format(buf, sizeof(buf), "myapp", "1.2.3",
+                                          "Jan  1 2025", "12:00:00", "5.1.2");
+    TEST_ASSERT_TRUE(n >= (int)sizeof(buf));
+    TEST_ASSERT_EQUAL_CHAR('\0', buf[sizeof(buf) - 1]);
+}

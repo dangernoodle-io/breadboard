@@ -71,8 +71,9 @@ COMPONENT_MAP = {
             "platform/host/bb_log/bb_log_level.c",
             "platform/host/bb_log/bb_log_event_parse.c",
             "components/bb_log/src/bb_log_level.c",
+            "components/bb_log/src/bb_log_config.c",
         ],
-        "depends":  ["bb_core"],
+        "depends":  ["bb_core", "bb_kv"],
     },
     "bb_diag": {
         "includes": ["components/bb_diag/include", "components/bb_diag"],
@@ -145,6 +146,7 @@ COMPONENT_MAP = {
         "sources":  [
             "platform/host/bb_system/bb_system_host.c",
             "components/bb_system/src/bb_system_reboot_parse.c",
+            "components/bb_system/src/bb_system_boot_banner_format.c",
         ],
         "depends":  ["bb_core", "bb_json"],
     },

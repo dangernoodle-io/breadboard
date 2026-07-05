@@ -153,6 +153,19 @@ void bb_system_reboot_parse_body(const char *body, int body_len, const char *ua_
 /// and on host/Arduino backends. *out is untouched on error.
 bb_err_t bb_system_read_temp_celsius(float *out);
 
+/// Pure formatter for the CONFIG_BB_SYSTEM_BOOT_BANNER one-time boot banner line.
+/// Any NULL input string is rendered as "?" rather than crashing — every
+/// bb_system_get_* accessor above already promises a non-NULL, program-
+/// lifetime pointer, but this keeps the formatter itself defensive and
+/// independently host-testable. `out` is always NUL-terminated within
+/// out_len (even when truncated). Returns the vsnprintf-style would-be
+/// length (may be >= out_len to signal truncation — callers may still log
+/// the buffer as-is), or -1 if out is NULL or out_len is 0 (no write).
+int bb_system_boot_banner_format(char *out, size_t out_len,
+                                  const char *project, const char *version,
+                                  const char *build_date, const char *build_time,
+                                  const char *idf_version);
+
 /// Writes the first N hex characters of the app ELF SHA256 into out.
 /// N is controlled by CONFIG_APP_RETRIEVE_LEN_ELF_SHA (default 9 on ESP-IDF).
 /// On host, writes "deadbeef0" (9 chars, fixed test value).

@@ -1,9 +1,10 @@
 set(_log_srcs "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log.c"
               "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log/bb_log_level_backend.c"
               "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_log/bb_log_event_parse.c"
-              "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_level.c")
+              "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_level.c"
+              "${CMAKE_CURRENT_LIST_DIR}/src/bb_log_config.c")
 set(_log_reqs bb_core)
-set(_log_priv_reqs bb_http bb_json bb_init esp_ringbuf freertos log bb_nv lwip bb_sse_writer bb_event bb_event_routes bb_openapi bb_task_registry)
+set(_log_priv_reqs bb_http bb_json bb_init bb_kv esp_ringbuf freertos log bb_nv lwip bb_sse_writer bb_event bb_event_routes bb_openapi bb_task_registry)
 
 if(CONFIG_BB_LOG_ROUTES)
     list(APPEND _log_srcs
@@ -31,6 +32,11 @@ endif()
 if(CONFIG_BB_LOG_STREAM_AUTOREGISTER)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
     bb_init_force_register_early(${COMPONENT_LIB} bb_log_stream)
+endif()
+
+if(CONFIG_BB_LOG_CONFIG_AUTOREGISTER)
+    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
+    bb_init_force_register_early(${COMPONENT_LIB} bb_log_config)
 endif()
 
 if(CONFIG_BB_LOG_EVENT_AUTO_ATTACH)

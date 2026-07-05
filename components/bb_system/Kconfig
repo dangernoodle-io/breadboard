@@ -1,5 +1,14 @@
 menu "breadboard: bb_system (routes)"
 
+config BB_SYSTEM_BOOT_BANNER
+    bool "Emit a one-time boot banner (project/version/build/idf)"
+    default y
+    help
+        When enabled, bb_system auto-emits a single bb_log_i line during the
+        EARLY init tier naming the project, firmware version, build
+        date/time, and ESP-IDF version — via the existing bb_system
+        accessors. Disable for consumers that build their own boot banner.
+
 config BB_SYSTEM_ROUTES_AUTOREGISTER
     bool "Build bb_system HTTP routes (/api/version, /api/reboot, /api/ping)"
     default y

@@ -55,6 +55,38 @@ void test_bb_log_tag_level_null_args(void);
 void test_bb_log_tag_at_null_args(void);
 void test_bb_log_registry_full(void);
 
+// Forward declarations from test_bb_log_config.c
+void test_bb_log_level_from_name_none(void);
+void test_bb_log_level_from_name_error(void);
+void test_bb_log_level_from_name_warn(void);
+void test_bb_log_level_from_name_info(void);
+void test_bb_log_level_from_name_debug(void);
+void test_bb_log_level_from_name_verbose(void);
+void test_bb_log_level_from_name_unknown(void);
+void test_bb_log_level_from_name_empty(void);
+void test_bb_log_level_from_name_null_name(void);
+void test_bb_log_level_from_name_null_out(void);
+void test_bb_log_level_from_name_slice_too_long(void);
+void test_bb_log_level_from_name_slice_within_larger_string(void);
+void test_bb_log_config_apply_kv_valid(void);
+void test_bb_log_config_apply_kv_unknown_level_skipped(void);
+void test_bb_log_config_apply_kv_empty_value_skipped(void);
+void test_bb_log_config_apply_kv_tag_truncated_to_scratch_buffer(void);
+void test_bb_log_config_apply_kv_malformed_pair_never_reaches_callback(void);
+void test_bb_log_config_apply_levels_null(void);
+void test_bb_log_config_apply_levels_empty(void);
+void test_bb_log_config_apply_levels_single_pair(void);
+void test_bb_log_config_apply_levels_multiple_pairs(void);
+void test_bb_log_config_apply_levels_skips_bad_pair_keeps_good_ones(void);
+void test_bb_log_config_apply_levels_trailing_comma_skips_empty_token(void);
+void test_bb_log_config_apply_levels_leading_comma_skips_empty_token(void);
+void test_bb_log_config_apply_levels_doubled_comma_skips_empty_token(void);
+void test_bb_log_config_apply_valid_default_sets_global(void);
+void test_bb_log_config_apply_invalid_default_is_non_fatal(void);
+void test_bb_log_config_apply_null_default_is_non_fatal(void);
+void test_bb_log_config_apply_default_plus_levels(void);
+void test_bb_log_config_init_applies_default(void);
+
 // Forward declarations from test_log_stream.c
 void test_log_stream_format_basic(void);
 void test_log_stream_format_truncation(void);
@@ -1170,6 +1202,11 @@ void test_bb_reboot_history_encode_buffer_too_small_mid_loop(void);
 void test_bb_reboot_history_decode_header_field_count_mismatch(void);
 void test_bb_reboot_history_decode_entry_field_mismatch(void);
 void test_bb_reboot_history_decode_leaves_out_untouched_on_failure(void);
+void test_bb_system_boot_banner_format_all_present(void);
+void test_bb_system_boot_banner_format_all_null(void);
+void test_bb_system_boot_banner_format_null_out(void);
+void test_bb_system_boot_banner_format_zero_len(void);
+void test_bb_system_boot_banner_format_truncation(void);
 
 // Forward declarations from test_bb_mdns_cache.c
 void test_bb_mdns_cache_build_key_default_prefix(void);
@@ -4452,6 +4489,38 @@ int main(void) {
     RUN_TEST(test_bb_log_tag_at_iteration);
     RUN_TEST(test_bb_log_registry_full);
 
+    // bb_log_config tests
+    RUN_TEST(test_bb_log_level_from_name_none);
+    RUN_TEST(test_bb_log_level_from_name_error);
+    RUN_TEST(test_bb_log_level_from_name_warn);
+    RUN_TEST(test_bb_log_level_from_name_info);
+    RUN_TEST(test_bb_log_level_from_name_debug);
+    RUN_TEST(test_bb_log_level_from_name_verbose);
+    RUN_TEST(test_bb_log_level_from_name_unknown);
+    RUN_TEST(test_bb_log_level_from_name_empty);
+    RUN_TEST(test_bb_log_level_from_name_null_name);
+    RUN_TEST(test_bb_log_level_from_name_null_out);
+    RUN_TEST(test_bb_log_level_from_name_slice_too_long);
+    RUN_TEST(test_bb_log_level_from_name_slice_within_larger_string);
+    RUN_TEST(test_bb_log_config_apply_kv_valid);
+    RUN_TEST(test_bb_log_config_apply_kv_unknown_level_skipped);
+    RUN_TEST(test_bb_log_config_apply_kv_empty_value_skipped);
+    RUN_TEST(test_bb_log_config_apply_kv_tag_truncated_to_scratch_buffer);
+    RUN_TEST(test_bb_log_config_apply_kv_malformed_pair_never_reaches_callback);
+    RUN_TEST(test_bb_log_config_apply_levels_null);
+    RUN_TEST(test_bb_log_config_apply_levels_empty);
+    RUN_TEST(test_bb_log_config_apply_levels_single_pair);
+    RUN_TEST(test_bb_log_config_apply_levels_multiple_pairs);
+    RUN_TEST(test_bb_log_config_apply_levels_skips_bad_pair_keeps_good_ones);
+    RUN_TEST(test_bb_log_config_apply_levels_trailing_comma_skips_empty_token);
+    RUN_TEST(test_bb_log_config_apply_levels_leading_comma_skips_empty_token);
+    RUN_TEST(test_bb_log_config_apply_levels_doubled_comma_skips_empty_token);
+    RUN_TEST(test_bb_log_config_apply_valid_default_sets_global);
+    RUN_TEST(test_bb_log_config_apply_invalid_default_is_non_fatal);
+    RUN_TEST(test_bb_log_config_apply_null_default_is_non_fatal);
+    RUN_TEST(test_bb_log_config_apply_default_plus_levels);
+    RUN_TEST(test_bb_log_config_init_applies_default);
+
     // Log stream tests
     RUN_TEST(test_log_stream_format_basic);
     RUN_TEST(test_log_stream_format_truncation);
@@ -5577,6 +5646,11 @@ int main(void) {
     RUN_TEST(test_bb_reboot_history_decode_header_field_count_mismatch);
     RUN_TEST(test_bb_reboot_history_decode_entry_field_mismatch);
     RUN_TEST(test_bb_reboot_history_decode_leaves_out_untouched_on_failure);
+    RUN_TEST(test_bb_system_boot_banner_format_all_present);
+    RUN_TEST(test_bb_system_boot_banner_format_all_null);
+    RUN_TEST(test_bb_system_boot_banner_format_null_out);
+    RUN_TEST(test_bb_system_boot_banner_format_zero_len);
+    RUN_TEST(test_bb_system_boot_banner_format_truncation);
 
     // bb_kv tests
     RUN_TEST(test_bb_kv_parse_null_string_invokes_no_callbacks);
