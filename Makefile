@@ -31,6 +31,8 @@ coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging
 	gcovr --root . --filter 'components/' \
 	    --filter 'platform/espidf/bb_cache/' \
 	    --filter 'platform/host/bb_cache/' \
+	    --filter 'platform/espidf/bb_cache_reactive/' \
+	    --filter 'platform/host/bb_cache_reactive/' \
 	    --exclude-throw-branches \
 	    --exclude-unreachable-branches \
 	    --exclude-directories '\.claude' \

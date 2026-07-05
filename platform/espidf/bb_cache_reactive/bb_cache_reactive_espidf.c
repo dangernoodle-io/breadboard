@@ -126,6 +126,68 @@ static void fire_on_change(const char *key)
     bb_mem_free(buf);
 }
 
+typedef struct {
+    bb_cache_on_register_fn fn;
+    void                    *ctx;
+} reg_match_t;
+
+// Snapshot every observer matching `key` (exact match or observe_all) with a
+// non-NULL on_register under s_obs_lock, release the lock, THEN invoke --
+// same snapshot-then-notify shape as fire_on_change (see its comment).
+static void fire_on_register(const char *key)
+{
+    reg_match_t matches[BB_CACHE_REACTIVE_MAX_OBSERVERS];
+    int n = 0;
+
+    pthread_mutex_lock(&s_obs_lock);
+    for (int i = 0; i < BB_CACHE_REACTIVE_MAX_OBSERVERS; i++) {
+        reactive_observer_t *o = &s_observers[i];
+        if (!o->active || !o->on_register) continue;
+        if (o->observe_all || strcmp(o->key, key) == 0) {
+            matches[n].fn  = o->on_register;
+            matches[n].ctx = o->ctx;
+            n++;
+        }
+    }
+    pthread_mutex_unlock(&s_obs_lock);
+
+    for (int i = 0; i < n; i++) {
+        matches[i].fn(key, matches[i].ctx);
+    }
+}
+
+typedef struct {
+    bb_cache_on_remove_fn fn;
+    void                  *ctx;
+} rm_match_t;
+
+// Snapshot every observer matching `key` (exact match or observe_all) with a
+// non-NULL on_remove under s_obs_lock, release the lock, THEN invoke -- same
+// snapshot-then-notify shape as fire_on_change (see its comment). `key` must
+// be a caller-owned buffer that stays valid for the duration of this call
+// (bb_cache_reactive_delete captures it BEFORE freeing the cache entry).
+static void fire_on_remove(const char *key)
+{
+    rm_match_t matches[BB_CACHE_REACTIVE_MAX_OBSERVERS];
+    int n = 0;
+
+    pthread_mutex_lock(&s_obs_lock);
+    for (int i = 0; i < BB_CACHE_REACTIVE_MAX_OBSERVERS; i++) {
+        reactive_observer_t *o = &s_observers[i];
+        if (!o->active || !o->on_remove) continue;
+        if (o->observe_all || strcmp(o->key, key) == 0) {
+            matches[n].fn  = o->on_remove;
+            matches[n].ctx = o->ctx;
+            n++;
+        }
+    }
+    pthread_mutex_unlock(&s_obs_lock);
+
+    for (int i = 0; i < n; i++) {
+        matches[i].fn(key, matches[i].ctx);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -187,6 +249,43 @@ bb_err_t bb_cache_reactive_update(const bb_cache_update_t *req)
     // already implies a valid key.
     if (err == BB_OK && changed) {
         fire_on_change(req->key);
+    }
+    return err;
+}
+
+bb_err_t bb_cache_reactive_register(const bb_cache_config_t *cfg)
+{
+    // Single bb_cache_register_ex() call: first-time detection happens
+    // atomically under bb_cache's own registry lock (B1-592 firmware-review
+    // fix) -- a separate bb_cache_exists() probe before bb_cache_register()
+    // would be TWO lock acquisitions, leaving a TOCTOU window where two
+    // racing first-time registers of the same key could both observe
+    // "not yet registered" and both fire on_register. bb_cache_register_ex()
+    // itself rejects a NULL cfg/cfg->key with BB_ERR_INVALID_ARG, so cfg->key
+    // is only dereferenced here once err == BB_OK guarantees it was valid.
+    bool first_time = false;
+    bb_err_t err = bb_cache_register_ex(cfg, &first_time);
+    if (err == BB_OK && first_time) {
+        fire_on_register(cfg->key);
+    }
+    return err;
+}
+
+bb_err_t bb_cache_reactive_delete(const char *key)
+{
+    if (!key) return bb_cache_delete(key);
+
+    // Capture the key into a local buffer BEFORE calling bb_cache_delete():
+    // bb_cache_delete() zeroes the registry entry's own key[0] to mark the
+    // slot free for reuse, so on_remove must never be fired with a pointer
+    // into cache-owned storage -- always fire with this stable local copy.
+    char local_key[BB_CACHE_KEY_MAX];
+    strncpy(local_key, key, sizeof(local_key) - 1);
+    local_key[sizeof(local_key) - 1] = '\0';
+
+    bb_err_t err = bb_cache_delete(key);
+    if (err == BB_OK) {
+        fire_on_remove(local_key);
     }
     return err;
 }

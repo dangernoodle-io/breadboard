@@ -5,6 +5,7 @@
 #include "bb_cache.h"
 #include "bb_cache_reactive.h"
 #include "bb_json.h"
+#include "bb_mem_test.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -59,6 +60,7 @@ static char s_last_key[64];
 static char s_last_json[256];
 static int  s_on_register_calls;
 static int  s_on_remove_calls;
+static char s_last_remove_key[BB_CACHE_KEY_MAX];
 static bool s_reentrant_ok;
 
 static void spy_on_change(const char *key, const char *json, size_t len,
@@ -104,6 +106,37 @@ static void spy_on_change_reentrant(const char *key, const char *json,
     s_on_change_calls++;
 }
 
+// Reentrant on_register: fired while registering "rx.a" -- reentrantly
+// registers a SECOND, DIFFERENT key ("rx.reentrant") from inside the
+// callback. Must not deadlock (s_obs_lock is released before this callback
+// runs) and must fire on_register for BOTH keys with correct counts.
+static void spy_on_register_reentrant(const char *key, void *ctx)
+{
+    (void)ctx;
+    s_on_register_calls++;
+    if (strcmp(key, "rx.a") == 0) {
+        bb_cache_config_t cfg2 = {
+            .key = "rx.reentrant", .snapshot = NULL, .snap_size = sizeof(rx_snap_t),
+            .serialize = rx_serialize, .flags = BB_CACHE_FLAG_NONE,
+        };
+        bb_err_t err = bb_cache_reactive_register(&cfg2);
+        s_reentrant_ok = (err == BB_OK);
+    }
+}
+
+// Reentrant on_remove: fired while deleting "rx.a" -- reentrantly deletes a
+// SECOND, DIFFERENT key ("rx.other") from inside the callback. Must not
+// deadlock and must fire on_remove for BOTH keys with correct counts.
+static void spy_on_remove_reentrant(const char *key, void *ctx)
+{
+    (void)ctx;
+    s_on_remove_calls++;
+    if (strcmp(key, "rx.a") == 0) {
+        bb_err_t err = bb_cache_reactive_delete("rx.other");
+        s_reentrant_ok = (err == BB_OK);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -118,6 +151,7 @@ static void rx_setup(void)
     s_reentrant_ok       = false;
     s_last_key[0]  = '\0';
     s_last_json[0] = '\0';
+    s_last_remove_key[0] = '\0';
 }
 
 // ---------------------------------------------------------------------------
@@ -280,28 +314,223 @@ void test_bb_cache_reactive_update_unknown_key_propagates_error_no_fire(void)
 }
 
 // ---------------------------------------------------------------------------
-// on_register / on_remove -- reserved, never invoked in PR-4b
+// on_register / on_remove -- reactive triad (B1-592 A2)
 // ---------------------------------------------------------------------------
 
-void test_bb_cache_reactive_on_register_and_on_remove_never_invoked(void)
+// Spy capturing the key seen by on_remove -- asserts the key string is
+// still valid/non-empty inside the callback (fired AFTER the free).
+static void spy_on_remove_capture_key(const char *key, void *ctx)
+{
+    (void)ctx;
+    s_on_remove_calls++;
+    TEST_ASSERT_NOT_NULL(key);
+    TEST_ASSERT_TRUE(strlen(key) > 0);
+    strncpy(s_last_remove_key, key, sizeof(s_last_remove_key) - 1);
+    s_last_remove_key[sizeof(s_last_remove_key) - 1] = '\0';
+}
+
+void test_bb_cache_reactive_register_fires_on_register_exactly_once(void)
+{
+    rx_setup();
+    bb_cache_reactive_observer_t obs = {
+        .key = "rx.a", .on_register = spy_on_register,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    bb_cache_config_t cfg = {
+        .key = "rx.a", .snapshot = NULL, .snap_size = sizeof(rx_snap_t),
+        .serialize = rx_serialize, .flags = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_register(&cfg));
+    TEST_ASSERT_EQUAL(1, s_on_register_calls);
+}
+
+void test_bb_cache_reactive_register_reregister_same_key_does_not_refire(void)
+{
+    rx_setup();
+    bb_cache_reactive_observer_t obs = {
+        .key = "rx.a", .on_register = spy_on_register,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    bb_cache_config_t cfg = {
+        .key = "rx.a", .snapshot = NULL, .snap_size = sizeof(rx_snap_t),
+        .serialize = rx_serialize, .flags = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_register(&cfg));
+    TEST_ASSERT_EQUAL(1, s_on_register_calls);
+
+    // Idempotent re-register of the same key: bb_cache_register() returns
+    // BB_OK without a duplicate entry -- must NOT re-fire on_register.
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_register(&cfg));
+    TEST_ASSERT_EQUAL(1, s_on_register_calls);
+}
+
+void test_bb_cache_reactive_delete_fires_on_remove_once_with_correct_key(void)
 {
     rx_setup();
     TEST_ASSERT_EQUAL(BB_OK, reg_owned("rx.a", rx_serialize));
 
     bb_cache_reactive_observer_t obs = {
-        .key = "rx.a",
-        .on_register = spy_on_register,
-        .on_change   = spy_on_change,
-        .on_remove   = spy_on_remove,
+        .key = "rx.a", .on_remove = spy_on_remove_capture_key,
     };
     TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
 
-    rx_snap_t snap = { .value = 1 };
-    bb_cache_update_t req = { .key = "rx.a", .snap = &snap };
-    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&req));
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_delete("rx.a"));
+    TEST_ASSERT_EQUAL(1, s_on_remove_calls);
+    TEST_ASSERT_EQUAL_STRING("rx.a", s_last_remove_key);
+}
 
-    TEST_ASSERT_EQUAL(1, s_on_change_calls);
+void test_bb_cache_reactive_delete_no_matching_observer_is_noop(void)
+{
+    rx_setup();
+    TEST_ASSERT_EQUAL(BB_OK, reg_owned("rx.a", rx_serialize));
+
+    // Observer registered for a DIFFERENT key -- delete of "rx.a" must not
+    // fire it, and must otherwise behave as a normal successful delete.
+    bb_cache_reactive_observer_t obs = {
+        .key = "rx.other", .on_remove = spy_on_remove_capture_key,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_delete("rx.a"));
+    TEST_ASSERT_EQUAL(0, s_on_remove_calls);
+}
+
+void test_bb_cache_reactive_observe_all_receives_register_and_remove(void)
+{
+    rx_setup();
+    bb_cache_reactive_observer_t obs = {
+        .key = NULL, // observe-all
+        .on_register = spy_on_register,
+        .on_remove   = spy_on_remove_capture_key,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    bb_cache_config_t cfg = {
+        .key = "rx.a", .snapshot = NULL, .snap_size = sizeof(rx_snap_t),
+        .serialize = rx_serialize, .flags = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_register(&cfg));
+    TEST_ASSERT_EQUAL(1, s_on_register_calls);
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_delete("rx.a"));
+    TEST_ASSERT_EQUAL(1, s_on_remove_calls);
+    TEST_ASSERT_EQUAL_STRING("rx.a", s_last_remove_key);
+}
+
+void test_bb_cache_reactive_register_delete_register_interleave(void)
+{
+    rx_setup();
+    bb_cache_reactive_observer_t obs = {
+        .key = "rx.a",
+        .on_register = spy_on_register,
+        .on_remove   = spy_on_remove_capture_key,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    bb_cache_config_t cfg = {
+        .key = "rx.a", .snapshot = NULL, .snap_size = sizeof(rx_snap_t),
+        .serialize = rx_serialize, .flags = BB_CACHE_FLAG_NONE,
+    };
+
+    // register -> delete -> register-same-key: on_register fires TWICE
+    // (each register is first-time relative to the slot's current
+    // lifetime -- the delete freed the slot), on_remove fires ONCE.
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_register(&cfg));
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_delete("rx.a"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_register(&cfg));
+
+    TEST_ASSERT_EQUAL(2, s_on_register_calls);
+    TEST_ASSERT_EQUAL(1, s_on_remove_calls);
+}
+
+void test_bb_cache_reactive_register_null_cfg_returns_invalid_arg(void)
+{
+    rx_setup();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_cache_reactive_register(NULL));
     TEST_ASSERT_EQUAL(0, s_on_register_calls);
+}
+
+void test_bb_cache_reactive_register_null_key_returns_invalid_arg(void)
+{
+    rx_setup();
+    bb_cache_config_t cfg = {
+        .key = NULL, .snapshot = NULL, .snap_size = sizeof(rx_snap_t),
+        .serialize = rx_serialize, .flags = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_cache_reactive_register(&cfg));
+    TEST_ASSERT_EQUAL(0, s_on_register_calls);
+}
+
+void test_bb_cache_reactive_register_mismatched_key_observer_not_fired(void)
+{
+    rx_setup();
+    // Observer watches a DIFFERENT key -- registering "rx.a" must not fire
+    // it (exercises fire_on_register's strcmp-mismatch branch).
+    bb_cache_reactive_observer_t obs = {
+        .key = "rx.other", .on_register = spy_on_register,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    bb_cache_config_t cfg = {
+        .key = "rx.a", .snapshot = NULL, .snap_size = sizeof(rx_snap_t),
+        .serialize = rx_serialize, .flags = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_register(&cfg));
+    TEST_ASSERT_EQUAL(0, s_on_register_calls);
+}
+
+void test_bb_cache_reactive_register_observer_without_on_register_is_skipped(void)
+{
+    rx_setup();
+    // Observer with only on_change set (no on_register) -- must be skipped
+    // by fire_on_register's match scan without crashing.
+    bb_cache_reactive_observer_t obs = {
+        .key = "rx.a", .on_change = spy_on_change,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    bb_cache_config_t cfg = {
+        .key = "rx.a", .snapshot = NULL, .snap_size = sizeof(rx_snap_t),
+        .serialize = rx_serialize, .flags = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_register(&cfg));
+    TEST_ASSERT_EQUAL(0, s_on_register_calls);
+}
+
+void test_bb_cache_reactive_delete_observer_without_on_remove_is_skipped(void)
+{
+    rx_setup();
+    TEST_ASSERT_EQUAL(BB_OK, reg_owned("rx.a", rx_serialize));
+
+    // Observer with only on_change set (no on_remove) -- must be skipped by
+    // fire_on_remove's match scan without crashing.
+    bb_cache_reactive_observer_t obs = {
+        .key = "rx.a", .on_change = spy_on_change,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_delete("rx.a"));
+    TEST_ASSERT_EQUAL(0, s_on_remove_calls);
+}
+
+void test_bb_cache_reactive_delete_null_key_returns_invalid_arg(void)
+{
+    rx_setup();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_cache_reactive_delete(NULL));
+    TEST_ASSERT_EQUAL(0, s_on_remove_calls);
+}
+
+void test_bb_cache_reactive_delete_unknown_key_propagates_error_no_fire(void)
+{
+    rx_setup();
+    bb_cache_reactive_observer_t obs = {
+        .key = NULL, .on_remove = spy_on_remove_capture_key, // observe-all
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_cache_reactive_delete("rx.missing"));
     TEST_ASSERT_EQUAL(0, s_on_remove_calls);
 }
 
@@ -347,6 +576,47 @@ void test_bb_cache_reactive_on_change_callback_reentrant_no_deadlock(void)
     TEST_ASSERT_TRUE(s_reentrant_ok);
 }
 
+void test_bb_cache_reactive_on_register_callback_reentrant_no_deadlock(void)
+{
+    rx_setup();
+    bb_cache_reactive_observer_t obs = {
+        .key = NULL, .on_register = spy_on_register_reentrant, // observe-all
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    bb_cache_config_t cfg = {
+        .key = "rx.a", .snapshot = NULL, .snap_size = sizeof(rx_snap_t),
+        .serialize = rx_serialize, .flags = BB_CACHE_FLAG_NONE,
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_register(&cfg));
+
+    // "rx.a"'s on_register fired, reentrantly registered "rx.reentrant",
+    // whose own on_register also fired -- two calls total, no deadlock.
+    TEST_ASSERT_EQUAL(2, s_on_register_calls);
+    TEST_ASSERT_TRUE(s_reentrant_ok);
+    TEST_ASSERT_TRUE(bb_cache_exists("rx.reentrant"));
+}
+
+void test_bb_cache_reactive_on_remove_callback_reentrant_no_deadlock(void)
+{
+    rx_setup();
+    TEST_ASSERT_EQUAL(BB_OK, reg_owned("rx.a", rx_serialize));
+    TEST_ASSERT_EQUAL(BB_OK, reg_owned("rx.other", rx_serialize));
+
+    bb_cache_reactive_observer_t obs = {
+        .key = NULL, .on_remove = spy_on_remove_reentrant, // observe-all
+    };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_delete("rx.a"));
+
+    // "rx.a"'s on_remove fired, reentrantly deleted "rx.other", whose own
+    // on_remove also fired -- two calls total, no deadlock.
+    TEST_ASSERT_EQUAL(2, s_on_remove_calls);
+    TEST_ASSERT_TRUE(s_reentrant_ok);
+    TEST_ASSERT_FALSE(bb_cache_exists("rx.other"));
+}
+
 // ---------------------------------------------------------------------------
 // fire_on_change internal failure branches
 // ---------------------------------------------------------------------------
@@ -365,6 +635,31 @@ void test_bb_cache_reactive_fire_on_change_oversized_envelope_no_fire(void)
     // dropped because bb_cache_get_serialized can't fit the envelope in
     // BB_CACHE_REACTIVE_PAYLOAD_MAX bytes.
     TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&req));
+    TEST_ASSERT_EQUAL(0, s_on_change_calls);
+}
+
+// fire_on_change heap-allocates its fetch buffer via bb_malloc_prefer_spiram
+// (see the comment in bb_cache_reactive_espidf.c) -- inject an allocation
+// failure via the shared bb_mem_test.h seam (same idiom as
+// test_bb_cache_fidelity.c's owned-registration alloc-failure test) to
+// exercise that otherwise-rare OOM branch.
+static void *fail_alloc(size_t sz) { (void)sz; return NULL; }
+
+void test_bb_cache_reactive_fire_on_change_malloc_fail_no_fire(void)
+{
+    rx_setup();
+    TEST_ASSERT_EQUAL(BB_OK, reg_owned("rx.oom", rx_serialize));
+
+    bb_cache_reactive_observer_t obs = { .key = "rx.oom", .on_change = spy_on_change };
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_observe(&obs));
+
+    bb_mem_set_alloc_hook(fail_alloc);
+    rx_snap_t snap = { .value = 1 };
+    bb_cache_update_t req = { .key = "rx.oom", .snap = &snap };
+    // bb_cache_update itself still succeeds; only the observer fire is
+    // dropped because fire_on_change's fetch buffer allocation failed.
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&req));
+    bb_mem_set_alloc_hook(NULL);
     TEST_ASSERT_EQUAL(0, s_on_change_calls);
 }
 
