@@ -1171,6 +1171,25 @@ void test_bb_reboot_history_decode_header_field_count_mismatch(void);
 void test_bb_reboot_history_decode_entry_field_mismatch(void);
 void test_bb_reboot_history_decode_leaves_out_untouched_on_failure(void);
 
+// Forward declarations from test_bb_kv.c
+void test_bb_kv_parse_null_string_invokes_no_callbacks(void);
+void test_bb_kv_parse_empty_string_invokes_no_callbacks(void);
+void test_bb_kv_parse_null_callback_is_safe_noop(void);
+void test_bb_kv_parse_single_pair(void);
+void test_bb_kv_parse_multi_pair(void);
+void test_bb_kv_parse_trims_surrounding_whitespace(void);
+void test_bb_kv_parse_trims_tab_whitespace(void);
+void test_bb_kv_parse_empty_value_is_valid(void);
+void test_bb_kv_parse_empty_key_is_skipped(void);
+void test_bb_kv_parse_whitespace_only_key_is_skipped(void);
+void test_bb_kv_parse_entry_with_no_equals_is_skipped(void);
+void test_bb_kv_parse_trailing_comma_is_skipped(void);
+void test_bb_kv_parse_leading_comma_is_skipped(void);
+void test_bb_kv_parse_double_comma_is_skipped(void);
+void test_bb_kv_parse_key_and_value_with_internal_spaces(void);
+void test_bb_kv_parse_last_pair_with_no_trailing_comma(void);
+void test_bb_kv_parse_value_at_string_end_no_delimiters(void);
+
 // Forward declarations from test_bb_mdns.c
 void test_bb_mdns_browse_start_null_service(void);
 void test_bb_mdns_browse_start_null_proto(void);
@@ -5507,6 +5526,25 @@ int main(void) {
     RUN_TEST(test_bb_reboot_history_decode_header_field_count_mismatch);
     RUN_TEST(test_bb_reboot_history_decode_entry_field_mismatch);
     RUN_TEST(test_bb_reboot_history_decode_leaves_out_untouched_on_failure);
+
+    // bb_kv tests
+    RUN_TEST(test_bb_kv_parse_null_string_invokes_no_callbacks);
+    RUN_TEST(test_bb_kv_parse_empty_string_invokes_no_callbacks);
+    RUN_TEST(test_bb_kv_parse_null_callback_is_safe_noop);
+    RUN_TEST(test_bb_kv_parse_single_pair);
+    RUN_TEST(test_bb_kv_parse_multi_pair);
+    RUN_TEST(test_bb_kv_parse_trims_surrounding_whitespace);
+    RUN_TEST(test_bb_kv_parse_trims_tab_whitespace);
+    RUN_TEST(test_bb_kv_parse_empty_value_is_valid);
+    RUN_TEST(test_bb_kv_parse_empty_key_is_skipped);
+    RUN_TEST(test_bb_kv_parse_whitespace_only_key_is_skipped);
+    RUN_TEST(test_bb_kv_parse_entry_with_no_equals_is_skipped);
+    RUN_TEST(test_bb_kv_parse_trailing_comma_is_skipped);
+    RUN_TEST(test_bb_kv_parse_leading_comma_is_skipped);
+    RUN_TEST(test_bb_kv_parse_double_comma_is_skipped);
+    RUN_TEST(test_bb_kv_parse_key_and_value_with_internal_spaces);
+    RUN_TEST(test_bb_kv_parse_last_pair_with_no_trailing_comma);
+    RUN_TEST(test_bb_kv_parse_value_at_string_end_no_delimiters);
 
     // bb_mdns tests
     RUN_TEST(test_bb_mdns_browse_start_null_service);

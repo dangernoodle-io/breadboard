@@ -503,6 +503,11 @@ COMPONENT_MAP = {
         "sources":  ["platform/host/bb_registry/bb_registry.c"],
         "depends":  ["bb_core", "bb_log"],
     },
+    "bb_kv": {
+        "includes": ["components/bb_kv/include"],
+        "sources":  ["platform/host/bb_kv/bb_kv.c"],
+        "depends":  [],
+    },
     "bb_ota_check": {
         "includes": ["components/bb_ota_check/include",
                      "components/bb_ota_check/src"],
