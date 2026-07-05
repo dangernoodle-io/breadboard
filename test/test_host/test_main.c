@@ -4505,6 +4505,50 @@ void test_bb_log_event_parse_tag_truncation(void);
 void test_bb_log_event_parse_colon_in_msg(void);
 void test_bb_log_event_parse_zero_cap(void);
 
+// Forward declarations from test_bb_attrs.c
+void test_bb_attrs_container_of_round_trip(void);
+void test_bb_attrs_delivery_class_constants(void);
+
+// Forward declarations from test_bb_filter.c
+void test_bb_filter_select_orders_by_priority_ascending(void);
+void test_bb_filter_select_stable_ties_keep_input_order(void);
+void test_bb_filter_select_priority_max_excludes_worse(void);
+void test_bb_filter_select_priority_max_0xff_admits_all(void);
+void test_bb_filter_select_kind_mask_zero_admits_all_kinds(void);
+void test_bb_filter_select_kind_mask_matches_bit(void);
+void test_bb_filter_select_kind_mask_excludes_unset_bit(void);
+void test_bb_filter_select_kind_ge_16_excluded_when_mask_set(void);
+void test_bb_filter_select_tag_mask_zero_admits_all(void);
+void test_bb_filter_select_tag_mask_requires_overlap(void);
+void test_bb_filter_select_tag_mask_overlap_included(void);
+void test_bb_filter_select_min_delivery_excludes_must(void);
+void test_bb_filter_select_min_delivery_zero_admits_all(void);
+void test_bb_filter_select_null_attrs_element_skipped(void);
+void test_bb_filter_select_max_count_truncates(void);
+void test_bb_filter_select_max_count_zero_unbounded(void);
+void test_bb_filter_select_out_cap_smaller_than_filtered_count(void);
+void test_bb_filter_select_null_sel_returns_zero(void);
+void test_bb_filter_select_null_out_returns_zero(void);
+void test_bb_filter_select_zero_out_cap_returns_zero(void);
+void test_bb_filter_select_null_in_returns_zero(void);
+void test_bb_filter_select_zero_n_returns_zero(void);
+void test_bb_filter_select_all_gated_out_returns_zero(void);
+void test_bb_filter_select_pressure_zero_sheds_nothing(void);
+void test_bb_filter_select_pressure_max_sheds_all_deferrable_never_must(void);
+void test_bb_filter_select_pressure_sheds_tail_deferrable_keeps_head(void);
+void test_bb_filter_select_pressure_with_no_deferrable_is_noop(void);
+void test_bb_filter_select_pressure_low_shed_count_zero_keeps_all(void);
+void test_bb_filter_select_container_of_recovers_owner(void);
+void test_bb_filter_emit_decide_null_attrs_is_now(void);
+void test_bb_filter_emit_decide_null_sel_is_now(void);
+void test_bb_filter_emit_decide_zero_pressure_is_now(void);
+void test_bb_filter_emit_decide_must_zero_since_last_is_defer(void);
+void test_bb_filter_emit_decide_must_nonzero_since_last_is_now(void);
+void test_bb_filter_emit_decide_deferrable_below_floor_is_defer(void);
+void test_bb_filter_emit_decide_deferrable_at_floor_is_now(void);
+void test_bb_filter_emit_decide_deferrable_below_double_floor_is_now(void);
+void test_bb_filter_emit_decide_deferrable_at_double_floor_is_drop(void);
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -8956,6 +9000,50 @@ int main(void) {
     RUN_TEST(test_bb_mdns_cache_result_valid_malformed_ip4);
     RUN_TEST(test_bb_mdns_cache_result_valid_ip4_with_letter);
     RUN_TEST(test_bb_mdns_cache_result_valid_ip4_with_low_char);
+
+    // bb_attrs — intrusive attrs header
+    RUN_TEST(test_bb_attrs_container_of_round_trip);
+    RUN_TEST(test_bb_attrs_delivery_class_constants);
+
+    // bb_filter — pure projection over bb_attrs elements
+    RUN_TEST(test_bb_filter_select_orders_by_priority_ascending);
+    RUN_TEST(test_bb_filter_select_stable_ties_keep_input_order);
+    RUN_TEST(test_bb_filter_select_priority_max_excludes_worse);
+    RUN_TEST(test_bb_filter_select_priority_max_0xff_admits_all);
+    RUN_TEST(test_bb_filter_select_kind_mask_zero_admits_all_kinds);
+    RUN_TEST(test_bb_filter_select_kind_mask_matches_bit);
+    RUN_TEST(test_bb_filter_select_kind_mask_excludes_unset_bit);
+    RUN_TEST(test_bb_filter_select_kind_ge_16_excluded_when_mask_set);
+    RUN_TEST(test_bb_filter_select_tag_mask_zero_admits_all);
+    RUN_TEST(test_bb_filter_select_tag_mask_requires_overlap);
+    RUN_TEST(test_bb_filter_select_tag_mask_overlap_included);
+    RUN_TEST(test_bb_filter_select_min_delivery_excludes_must);
+    RUN_TEST(test_bb_filter_select_min_delivery_zero_admits_all);
+    RUN_TEST(test_bb_filter_select_null_attrs_element_skipped);
+    RUN_TEST(test_bb_filter_select_max_count_truncates);
+    RUN_TEST(test_bb_filter_select_max_count_zero_unbounded);
+    RUN_TEST(test_bb_filter_select_out_cap_smaller_than_filtered_count);
+    RUN_TEST(test_bb_filter_select_null_sel_returns_zero);
+    RUN_TEST(test_bb_filter_select_null_out_returns_zero);
+    RUN_TEST(test_bb_filter_select_zero_out_cap_returns_zero);
+    RUN_TEST(test_bb_filter_select_null_in_returns_zero);
+    RUN_TEST(test_bb_filter_select_zero_n_returns_zero);
+    RUN_TEST(test_bb_filter_select_all_gated_out_returns_zero);
+    RUN_TEST(test_bb_filter_select_pressure_zero_sheds_nothing);
+    RUN_TEST(test_bb_filter_select_pressure_max_sheds_all_deferrable_never_must);
+    RUN_TEST(test_bb_filter_select_pressure_sheds_tail_deferrable_keeps_head);
+    RUN_TEST(test_bb_filter_select_pressure_with_no_deferrable_is_noop);
+    RUN_TEST(test_bb_filter_select_pressure_low_shed_count_zero_keeps_all);
+    RUN_TEST(test_bb_filter_select_container_of_recovers_owner);
+    RUN_TEST(test_bb_filter_emit_decide_null_attrs_is_now);
+    RUN_TEST(test_bb_filter_emit_decide_null_sel_is_now);
+    RUN_TEST(test_bb_filter_emit_decide_zero_pressure_is_now);
+    RUN_TEST(test_bb_filter_emit_decide_must_zero_since_last_is_defer);
+    RUN_TEST(test_bb_filter_emit_decide_must_nonzero_since_last_is_now);
+    RUN_TEST(test_bb_filter_emit_decide_deferrable_below_floor_is_defer);
+    RUN_TEST(test_bb_filter_emit_decide_deferrable_at_floor_is_now);
+    RUN_TEST(test_bb_filter_emit_decide_deferrable_below_double_floor_is_now);
+    RUN_TEST(test_bb_filter_emit_decide_deferrable_at_double_floor_is_drop);
 
     return UNITY_END();
 }

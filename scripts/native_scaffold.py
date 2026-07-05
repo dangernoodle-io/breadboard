@@ -688,6 +688,16 @@ COMPONENT_MAP = {
         ],
         "depends":  ["bb_core", "bb_pub", "bb_udp_frame", "bb_nv", "bb_log", "bb_init"],
     },
+    "bb_attrs": {
+        "includes": ["components/bb_attrs/include"],
+        "sources":  [],
+        "depends":  ["bb_core"],
+    },
+    "bb_filter": {
+        "includes": ["components/bb_filter/include"],
+        "sources":  ["components/bb_filter/src/bb_filter.c"],
+        "depends":  ["bb_core", "bb_attrs"],
+    },
 }
 
 
