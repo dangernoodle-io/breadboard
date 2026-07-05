@@ -3508,6 +3508,9 @@ void test_bb_pub_set_metrics_prefix_null_is_noop(void);
 void test_bb_pub_register_source_ex_propagates_register_source_failure(void);
 void test_bb_pub_failing_non_first_sink_marks_not_all_ok(void);
 void test_bb_pub_legacy_source_per_sink_subscribe_filter_skips_rejecting_sink(void);
+void test_bb_pub_sink_mutators_locked_against_concurrent_tick(void);
+void test_bb_pub_add_sink_from_sample_fn_returns_invalid_state(void);
+void test_bb_pub_add_sink_from_payload_extender_returns_invalid_state(void);
 
 // Forward declarations from test_bb_sensors.c
 void bb_sensors_reset_for_test(void);
@@ -8084,6 +8087,9 @@ int main(void) {
     RUN_TEST(test_bb_pub_register_source_ex_propagates_register_source_failure);
     RUN_TEST(test_bb_pub_failing_non_first_sink_marks_not_all_ok);
     RUN_TEST(test_bb_pub_legacy_source_per_sink_subscribe_filter_skips_rejecting_sink);
+    RUN_TEST(test_bb_pub_sink_mutators_locked_against_concurrent_tick);
+    RUN_TEST(test_bb_pub_add_sink_from_sample_fn_returns_invalid_state);
+    RUN_TEST(test_bb_pub_add_sink_from_payload_extender_returns_invalid_state);
 
     // bb_response tests
     RUN_TEST(test_bb_response_register_ok);

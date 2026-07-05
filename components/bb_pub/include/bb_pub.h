@@ -6,10 +6,19 @@
 // sink. Sinks are deliberately decoupled from transport — see bb_sink_mqtt for
 // the MQTT adapter and bb_sink_http for the HTTP adapter.
 //
-// Thread-safety: bb_pub_set_sink, bb_pub_add_sink, bb_pub_clear_sinks, and
-// bb_pub_register_source must be called before any concurrent tick.
-// bb_pub_tick_once is NOT reentrant; call it from a single worker task (or
-// sequentially in tests).
+// Thread-safety: bb_pub_set_sink, bb_pub_add_sink, and bb_pub_clear_sinks
+// internally serialize against bb_pub_tick_once's sink-array read (B1-651) and
+// may be called concurrently with ticking. bb_pub_register_source must still
+// be called before any concurrent tick — the source registry has no such
+// guard. bb_pub_tick_once is NOT reentrant; call it from a single worker task
+// (or sequentially in tests).
+//
+// Reentrancy invariant (B1-651): bb_pub_set_sink, bb_pub_add_sink, and
+// bb_pub_clear_sinks MUST NOT be called from a source's sample_fn or from a
+// registered payload extender — both run on the tick-owning thread while it
+// already holds the internal tick lock. Calling a sink mutator from that
+// context is detected and rejected with BB_ERR_INVALID_STATE rather than
+// deadlocking the worker.
 #pragma once
 
 #include <stdbool.h>
@@ -198,6 +207,10 @@ typedef bool (*bb_pub_sample_fn)(bb_json_t obj, void *ctx);
  * Clears all previously registered sinks, then adds this one.
  * Pass NULL sink or NULL sink->publish to clear all sinks; tick is then a
  * no-op (same as before). Existing single-sink callers are unaffected.
+ *
+ * Returns BB_ERR_INVALID_STATE if called reentrantly from a sample_fn or
+ * payload extender during bb_pub_tick_once (see the reentrancy invariant
+ * above).
  */
 bb_err_t bb_pub_set_sink(const bb_pub_sink_t *sink);
 
@@ -208,15 +221,21 @@ bb_err_t bb_pub_set_sink(const bb_pub_sink_t *sink);
  *
  * Returns BB_ERR_NO_SPACE when the sink array is full
  * (CONFIG_BB_PUB_MAX_SINKS). Returns BB_ERR_INVALID_ARG if sink or
- * sink->publish is NULL.
+ * sink->publish is NULL. Returns BB_ERR_INVALID_STATE if called reentrantly
+ * from a sample_fn or payload extender during bb_pub_tick_once (see the
+ * reentrancy invariant above).
  */
 bb_err_t bb_pub_add_sink(const bb_pub_sink_t *sink);
 
 /**
  * Remove all registered sinks. After this call, tick is a no-op until a sink
  * is registered again.
+ *
+ * Returns BB_ERR_INVALID_STATE if called reentrantly from a sample_fn or
+ * payload extender during bb_pub_tick_once (see the reentrancy invariant
+ * above); BB_OK otherwise.
  */
-void bb_pub_clear_sinks(void);
+bb_err_t bb_pub_clear_sinks(void);
 
 // ---------------------------------------------------------------------------
 // Payload-extender interface

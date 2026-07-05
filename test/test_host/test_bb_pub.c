@@ -2569,3 +2569,208 @@ void test_bb_pub_legacy_source_per_sink_subscribe_filter_skips_rejecting_sink(vo
     // share s_captured/s_capture_count via make_capture_sink's capture_publish).
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
 }
+
+// ---------------------------------------------------------------------------
+// B1-651: bb_pub_add_sink / bb_pub_set_sink / bb_pub_clear_sinks vs
+// bb_pub_tick_once TOCTOU / iterator-invalidation race.
+//
+// bb_pub_tick_once's Phase 1 copies s_sinks[]/s_sink_count into a local
+// snap_sinks[] array under s_tick_lock. Before the fix the sink-set mutators
+// wrote that same array WITHOUT holding s_tick_lock, so a concurrent
+// add/set/clear could interleave with the copy loop mid-struct (a "torn"
+// bb_pub_sink_t combining one sink's `publish` fn pointer with another's
+// `ctx`), or resize/reorder the array while it was being read.
+//
+// This test hammers the mutators from a second thread while the main thread
+// repeatedly ticks, and verifies every delivered sink struct is fully
+// self-consistent (ctx magic matches the sink that owns it) -- a torn read
+// would very likely trip the magic-mismatch guard (or crash outright via a
+// corrupted function/ctx pointer). Run count is large enough to force the
+// interleaving with high probability against the pre-fix code.
+// ---------------------------------------------------------------------------
+
+#define RACE_MAGIC_A 0xA5A5A5A5u
+#define RACE_MAGIC_B 0x5A5A5A5Au
+
+typedef struct {
+    uint32_t magic;
+    int      calls;
+} race_sink_ctx_t;
+
+static race_sink_ctx_t s_race_ctx_a;
+static race_sink_ctx_t s_race_ctx_b;
+static bool            s_race_corrupted;
+static bool            s_race_saw_invalid_state;
+
+static bb_err_t race_publish(void *ctx, const char *topic, const char *payload,
+                              int len, bool retain)
+{
+    (void)topic;
+    (void)len;
+    (void)retain;
+    race_sink_ctx_t *c = (race_sink_ctx_t *)ctx;
+    if (!c || (c->magic != RACE_MAGIC_A && c->magic != RACE_MAGIC_B)) {
+        s_race_corrupted = true;
+        return BB_ERR_INVALID_ARG;
+    }
+    if (!payload || payload[0] != '{') {
+        s_race_corrupted = true;
+        return BB_ERR_INVALID_ARG;
+    }
+    c->calls++;
+    return BB_OK;
+}
+
+typedef struct {
+    volatile bool       stop;
+    const bb_pub_sink_t *sink_a;
+    const bb_pub_sink_t *sink_b;
+} race_mutator_arg_t;
+
+static void *race_mutator_fn(void *arg)
+{
+    race_mutator_arg_t *a = (race_mutator_arg_t *)arg;
+    while (!a->stop) {
+        // This runs on a genuinely different thread than the one ticking
+        // (B1-651's reentrancy guard is thread-scoped — see
+        // test_bb_pub_add_sink_from_sample_fn_returns_invalid_state), so
+        // none of these calls should ever see BB_ERR_INVALID_STATE; they
+        // should simply block on s_tick_lock as before B1-651.
+        if (bb_pub_add_sink(a->sink_b) == BB_ERR_INVALID_STATE) s_race_saw_invalid_state = true;
+        if (bb_pub_clear_sinks() == BB_ERR_INVALID_STATE) s_race_saw_invalid_state = true;
+        if (bb_pub_set_sink(a->sink_a) == BB_ERR_INVALID_STATE) s_race_saw_invalid_state = true;
+        if (bb_pub_add_sink(a->sink_b) == BB_ERR_INVALID_STATE) s_race_saw_invalid_state = true;
+        if (bb_pub_clear_sinks() == BB_ERR_INVALID_STATE) s_race_saw_invalid_state = true;
+        if (bb_pub_set_sink(a->sink_b) == BB_ERR_INVALID_STATE) s_race_saw_invalid_state = true;
+    }
+    return NULL;
+}
+
+void test_bb_pub_sink_mutators_locked_against_concurrent_tick(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("racehost");
+    bb_pub_register_source("race", sample_temperature, NULL);
+
+    s_race_corrupted = false;
+    s_race_saw_invalid_state = false;
+    s_race_ctx_a = (race_sink_ctx_t){ .magic = RACE_MAGIC_A, .calls = 0 };
+    s_race_ctx_b = (race_sink_ctx_t){ .magic = RACE_MAGIC_B, .calls = 0 };
+    bb_pub_sink_t sink_a = { .publish = race_publish, .ctx = &s_race_ctx_a };
+    bb_pub_sink_t sink_b = { .publish = race_publish, .ctx = &s_race_ctx_b };
+    bb_pub_add_sink(&sink_a);
+
+    race_mutator_arg_t arg = { .stop = false, .sink_a = &sink_a, .sink_b = &sink_b };
+    pthread_t mutator_tid;
+    pthread_create(&mutator_tid, NULL, race_mutator_fn, &arg);
+
+    for (int i = 0; i < 2000; i++) {
+        bb_pub_tick_once();
+    }
+
+    arg.stop = true;
+    pthread_join(mutator_tid, NULL);
+
+    TEST_ASSERT_FALSE(s_race_corrupted);
+    TEST_ASSERT_FALSE(s_race_saw_invalid_state);
+
+    bb_pub_status_t status;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_get_status(&status));
+    TEST_ASSERT_TRUE(status.sink_count >= 0);
+    TEST_ASSERT_TRUE(status.sink_count <= CONFIG_BB_PUB_MAX_SINKS);
+}
+
+// ---------------------------------------------------------------------------
+// B1-651: reentrancy guard.  s_tick_lock is a plain (non-recursive) mutex,
+// and bb_pub_tick_once's Phase 1 holds it across every source sample_fn and
+// payload extender.  A sample_fn/extender that (directly or indirectly)
+// calls a sink mutator from the SAME thread would otherwise re-acquire a
+// lock its own thread already holds and deadlock the worker forever.  These
+// tests exercise the guard from both callback sites and confirm
+// BB_ERR_INVALID_STATE is returned instead of hanging.
+// ---------------------------------------------------------------------------
+
+static bb_err_t s_reentrant_add_sink_err  = BB_OK;
+static bb_err_t s_reentrant_set_sink_err  = BB_OK;
+static bb_err_t s_reentrant_clear_sink_err = BB_OK;
+static bb_pub_sink_t s_reentrant_probe_sink;
+
+static bool reentrant_sample_fn(bb_json_t obj, void *ctx)
+{
+    (void)ctx;
+    // Called from the tick-owning thread while s_tick_lock is held (Phase 1).
+    // A non-guarded implementation would self-deadlock here.
+    s_reentrant_add_sink_err   = bb_pub_add_sink(&s_reentrant_probe_sink);
+    s_reentrant_set_sink_err   = bb_pub_set_sink(&s_reentrant_probe_sink);
+    s_reentrant_clear_sink_err = bb_pub_clear_sinks();
+    bb_json_obj_set_bool(obj, "ok", true);
+    return true;
+}
+
+void test_bb_pub_add_sink_from_sample_fn_returns_invalid_state(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("reentranthost");
+
+    s_reentrant_probe_sink = make_capture_sink();
+    bb_pub_sink_t outer_sink = make_capture_sink();
+    bb_pub_add_sink(&outer_sink);
+    bb_pub_register_source("reentrant", reentrant_sample_fn, NULL);
+
+    s_reentrant_add_sink_err   = BB_OK;
+    s_reentrant_set_sink_err   = BB_OK;
+    s_reentrant_clear_sink_err = BB_OK;
+
+    // Would hang forever pre-fix; the surrounding Unity test harness itself
+    // has no built-in timeout, so a regression here manifests as the whole
+    // suite run hanging rather than a targeted assertion failure — that is
+    // exactly the failure mode this guard exists to prevent.
+    bb_err_t tick_err = bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL(BB_OK, tick_err);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, s_reentrant_add_sink_err);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, s_reentrant_set_sink_err);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, s_reentrant_clear_sink_err);
+
+    // The reentrant calls must have been true no-ops: the outer sink is
+    // still the only registered sink.
+    bb_pub_status_t status;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_get_status(&status));
+    TEST_ASSERT_EQUAL_INT(1, status.sink_count);
+}
+
+static bb_err_t s_reentrant_extender_add_err = BB_OK;
+
+static void reentrant_payload_extender(bb_json_t obj, const char *source, void *ctx)
+{
+    (void)obj;
+    (void)source;
+    (void)ctx;
+    // Payload extenders also run on the tick-owning thread under
+    // s_tick_lock (Phase 1) — same reentrancy hazard as a sample_fn.
+    s_reentrant_extender_add_err = bb_pub_add_sink(&s_reentrant_probe_sink);
+}
+
+void test_bb_pub_add_sink_from_payload_extender_returns_invalid_state(void)
+{
+    bb_pub_test_reset();
+    bb_nv_config_set_hostname("reentranthost2");
+
+    s_reentrant_probe_sink = make_capture_sink();
+    bb_pub_sink_t outer_sink = make_capture_sink();
+    bb_pub_add_sink(&outer_sink);
+    bb_pub_register_source("plain", sample_temperature, NULL);
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_pub_register_payload_extender(reentrant_payload_extender, NULL));
+
+    s_reentrant_extender_add_err = BB_OK;
+
+    bb_err_t tick_err = bb_pub_tick_once();
+
+    TEST_ASSERT_EQUAL(BB_OK, tick_err);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, s_reentrant_extender_add_err);
+
+    bb_pub_status_t status;
+    TEST_ASSERT_EQUAL(BB_OK, bb_pub_get_status(&status));
+    TEST_ASSERT_EQUAL_INT(1, status.sink_count);
+}
