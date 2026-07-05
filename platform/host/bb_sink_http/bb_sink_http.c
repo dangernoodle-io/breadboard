@@ -150,8 +150,7 @@ int bb_sink_http_parse_headers(const char *buf,
     // 3584-byte main task stack on WROOM-32 when called from init.
     char *tmp = (char *)SINK_MALLOC(HEADERS_BUF_MAX);
     if (!tmp) return 0;
-    strncpy(tmp, buf, HEADERS_BUF_MAX - 1);
-    tmp[HEADERS_BUF_MAX - 1] = '\0';
+    bb_strlcpy(tmp, buf, HEADERS_BUF_MAX);
 
     char *line = tmp;
     while (*line && count < out_max) {

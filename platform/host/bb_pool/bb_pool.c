@@ -8,6 +8,7 @@
 #include "bb_pool.h"
 #include "bb_arena.h"
 #include "bb_log.h"
+#include "bb_str.h"
 
 #include <string.h>
 #include <stdint.h>
@@ -273,8 +274,7 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_arena_t arena,
     p->owns_arena = false;
 
     if (cfg->name) {
-        strncpy(p->name, cfg->name, BB_POOL_NAME_MAX - 1);
-        p->name[BB_POOL_NAME_MAX - 1] = '\0';
+        bb_strlcpy(p->name, cfg->name, sizeof(p->name));
     }
 
     if (cfg->mode == BB_POOL_MODE_RETAINED) {

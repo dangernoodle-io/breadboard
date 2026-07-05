@@ -8,6 +8,7 @@
 #include "bb_event_routes_internal.h"
 #include "bb_event_topic_registry.h"
 #include "bb_event_routes_defaults.h"
+#include "bb_str.h"
 
 #include <assert.h>
 #ifndef ARDUINO
@@ -447,8 +448,7 @@ bb_err_t bb_event_routes_attach_ex2(const char *topic_name, bool retained,
     // attach_ex2 call, and the registry is register-only (no deregister),
     // so its count always equals the number of slots already committed.
     attached_topic_t *t = &s_topics[bb_event_topic_registry_count()];
-    strncpy(t->name, topic_name, TOPIC_NAME_MAX - 1);
-    t->name[TOPIC_NAME_MAX - 1] = '\0';
+    bb_strlcpy(t->name, topic_name, sizeof(t->name));
     t->topic = topic;
     t->ring = ring;
 

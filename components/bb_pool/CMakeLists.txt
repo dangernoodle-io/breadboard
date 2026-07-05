@@ -3,5 +3,5 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_pool/bb_pool.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_arena
-    PRIV_REQUIRES bb_log
+    PRIV_REQUIRES bb_log bb_str
 )

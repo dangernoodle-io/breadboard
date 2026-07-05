@@ -253,8 +253,7 @@ bb_err_t bb_ota_check_set_releases_url(const char *url)
     size_t n = strlen(url);
     if (n == 0 || n >= URL_MAX) return BB_ERR_INVALID_ARG;
     pthread_mutex_lock(&s_lock);
-    strncpy(s_url, url, URL_MAX - 1);
-    s_url[URL_MAX - 1] = '\0';
+    bb_strlcpy(s_url, url, sizeof(s_url));
     pthread_mutex_unlock(&s_lock);
     return BB_OK;
 }
@@ -277,8 +276,7 @@ bb_err_t bb_ota_check_set_firmware_board(const char *board)
     if (!board || board[0] == '\0') {
         s_firmware_board[0] = '\0';
     } else {
-        strncpy(s_firmware_board, board, BOARD_MAX - 1);
-        s_firmware_board[BOARD_MAX - 1] = '\0';
+        bb_strlcpy(s_firmware_board, board, sizeof(s_firmware_board));
     }
     pthread_mutex_unlock(&s_lock);
     return BB_OK;
