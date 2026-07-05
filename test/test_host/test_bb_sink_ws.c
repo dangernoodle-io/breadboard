@@ -1060,6 +1060,27 @@ void test_bb_sink_ws_reserved_type_ignored(void)
     TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
 }
 
+// An envelope whose "type" value is not a quoted string (e.g. a bare number)
+// fails extract_type's quote check -- treated as "no type key", falling
+// through to the legacy {"sub":[...]} back-compat path (which also finds
+// nothing here, since this frame has no "sub" key either).
+void test_bb_sink_ws_type_value_not_quoted_treated_as_no_type(void)
+{
+    ws_sink_setup();
+    bb_websocket_host_set_client_active(3, true);
+
+    bb_pub_sink_t s;
+    TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
+
+    bb_http_request_t *req = NULL;
+    bb_websocket_host_capture_begin(&req);
+    inject_sub(req, 3, "{\"type\":5,\"topic\":[\"telemetry\"]}");
+
+    bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+}
+
 // BB_SINK_WS_MAX_CLIENTS (right-sized to CONFIG_BB_HTTP_MAX_OPEN_SOCKETS,
 // C default 5 on host) bounds the fd->slot map. A subscription beyond the
 // cap is dropped (logged), never a crash or out-of-bounds write; earlier

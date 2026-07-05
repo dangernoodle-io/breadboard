@@ -11,6 +11,7 @@
 #include "bb_json.h"
 #include "bb_pub.h"
 #include "cJSON.h"
+#include "test_alloc_inject.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -622,4 +623,285 @@ void test_bb_sink_http_telemetry_patch_headers_missing_name_skipped(void)
     char buf[512] = {0};
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, buf, sizeof(buf), "");
     TEST_ASSERT_NOT_NULL(strstr(buf, "X-Good: ok"));
+}
+
+// ---------------------------------------------------------------------------
+// B1-516 residual: qos out-of-range default, path_tmpl true branch, headers
+// not-array / over-cap / invalid-value, and calloc/malloc OOM branches.
+// ---------------------------------------------------------------------------
+
+// GET: a corrupted/out-of-range stored qos digit falls back to 1.
+void test_bb_sink_http_telemetry_get_qos_out_of_range_defaults_to_one(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "qos", "9");
+
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *qos = cJSON_GetObjectItemCaseSensitive(body, "qos");
+    TEST_ASSERT_NOT_NULL(qos);
+    TEST_ASSERT_EQUAL_INT(1, (int)cJSON_GetNumberValue(qos));
+    cJSON_Delete(body);
+}
+
+// GET: a corrupted stored qos digit below '0' (yielding a negative int)
+// falls back to 1 (qos < 0 branch, distinct from the qos > 2 branch above).
+void test_bb_sink_http_telemetry_get_qos_negative_defaults_to_one(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, "qos", " "); // ' ' - '0' < 0
+
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *qos = cJSON_GetObjectItemCaseSensitive(body, "qos");
+    TEST_ASSERT_NOT_NULL(qos);
+    TEST_ASSERT_EQUAL_INT(1, (int)cJSON_GetNumberValue(qos));
+    cJSON_Delete(body);
+}
+
+// GET: a stored non-empty path_tmpl is reflected as-is (true branch of the
+// path_tmpl[0] ? ... : default ternary).
+void test_bb_sink_http_telemetry_get_path_tmpl_reflects_custom_value(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_nv_set_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_PATH_TMPL, "/custom/{topic}");
+
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *pt = cJSON_GetObjectItemCaseSensitive(body, "path_tmpl");
+    TEST_ASSERT_NOT_NULL(pt);
+    TEST_ASSERT_EQUAL_STRING("/custom/{topic}", cJSON_GetStringValue(pt));
+    cJSON_Delete(body);
+}
+
+// PATCH: qos clamped up from a negative value to 0.
+void test_bb_sink_http_telemetry_patch_qos_clamped_negative_to_zero(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_err_t rc = run_patch("{\"qos\":-5}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[4] = {0};
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "qos", buf, sizeof(buf), "1");
+    TEST_ASSERT_EQUAL_STRING("0", buf);
+}
+
+// PATCH: qos clamped down from an over-range value to 2.
+void test_bb_sink_http_telemetry_patch_qos_clamped_above_two_to_two(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_err_t rc = run_patch("{\"qos\":99}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[4] = {0};
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "qos", buf, sizeof(buf), "1");
+    TEST_ASSERT_EQUAL_STRING("2", buf);
+}
+
+// PATCH: a "headers" field that is present but not a JSON array is ignored
+// (bb_json_item_is_array false branch) -- no crash, no NVS write.
+void test_bb_sink_http_telemetry_patch_headers_not_array_ignored(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_err_t rc = run_patch("{\"headers\":\"oops\"}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[16] = {0};
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, buf, sizeof(buf), "");
+    TEST_ASSERT_EQUAL_STRING("", buf);
+}
+
+// PATCH: a headers array with more entries than BB_SINK_HTTP_HEADERS_MAX (8)
+// is clamped -- only the first MAX entries are considered.
+void test_bb_sink_http_telemetry_patch_headers_over_max_clamped(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_err_t rc = run_patch(
+        "{\"headers\":["
+        "{\"name\":\"X-0\",\"value\":\"v0\",\"secret\":false},"
+        "{\"name\":\"X-1\",\"value\":\"v1\",\"secret\":false},"
+        "{\"name\":\"X-2\",\"value\":\"v2\",\"secret\":false},"
+        "{\"name\":\"X-3\",\"value\":\"v3\",\"secret\":false},"
+        "{\"name\":\"X-4\",\"value\":\"v4\",\"secret\":false},"
+        "{\"name\":\"X-5\",\"value\":\"v5\",\"secret\":false},"
+        "{\"name\":\"X-6\",\"value\":\"v6\",\"secret\":false},"
+        "{\"name\":\"X-7\",\"value\":\"v7\",\"secret\":false},"
+        "{\"name\":\"X-8\",\"value\":\"v8\",\"secret\":false},"
+        "{\"name\":\"X-9\",\"value\":\"v9\",\"secret\":false}"
+        "]}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[1024] = {0};
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, buf, sizeof(buf), "");
+    // Entries beyond the MAX (8) cap must never be considered.
+    TEST_ASSERT_NULL(strstr(buf, "X-8"));
+    TEST_ASSERT_NULL(strstr(buf, "X-9"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "X-0"));
+}
+
+// PATCH headers: an entry with a "value" that fails
+// bb_sink_http_header_value_valid (embedded newline) is silently skipped.
+void test_bb_sink_http_telemetry_patch_headers_invalid_value_skipped(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_err_t rc = run_patch(
+        "{\"headers\":[{\"name\":\"X-Bad\",\"value\":\"line1\\nline2\",\"secret\":false}]}");
+    TEST_ASSERT_EQUAL_INT(BB_OK, rc);
+
+    char buf[512] = {0};
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, buf, sizeof(buf), "");
+    TEST_ASSERT_NULL(strstr(buf, "X-Bad"));
+}
+
+// ---------------------------------------------------------------------------
+// Injected allocator OOM branches (BB_SINK_HTTP_TELEMETRY_TESTING seam).
+// ---------------------------------------------------------------------------
+
+// GET: hbuf calloc (first headers-array allocation) fails -> empty array,
+// other fields still emitted.
+void test_bb_sink_http_telemetry_get_hbuf_calloc_fail_returns_empty_headers(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_sink_http_telemetry_set_calloc(test_failing_calloc);
+    test_alloc_reset();
+    test_alloc_fail_at = 0;
+
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *base = cJSON_GetObjectItemCaseSensitive(body, "base");
+    TEST_ASSERT_NOT_NULL(base); // fields emitted before the headers calloc still present
+
+    cJSON *headers = cJSON_GetObjectItemCaseSensitive(body, "headers");
+    TEST_ASSERT_NOT_NULL(headers);
+    TEST_ASSERT_TRUE(cJSON_IsArray(headers));
+    TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(headers));
+    cJSON_Delete(body);
+
+    bb_sink_http_telemetry_set_calloc(NULL);
+    test_alloc_fail_at = -1;
+}
+
+// GET: `stored` calloc (second headers-array allocation) fails -> empty array.
+void test_bb_sink_http_telemetry_get_stored_calloc_fail_returns_empty_headers(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_sink_http_telemetry_set_calloc(test_failing_calloc);
+    test_alloc_reset();
+    test_alloc_fail_at = 1;
+
+    cJSON *body = run_get();
+    TEST_ASSERT_NOT_NULL(body);
+    cJSON *headers = cJSON_GetObjectItemCaseSensitive(body, "headers");
+    TEST_ASSERT_NOT_NULL(headers);
+    TEST_ASSERT_TRUE(cJSON_IsArray(headers));
+    TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(headers));
+    cJSON_Delete(body);
+
+    bb_sink_http_telemetry_set_calloc(NULL);
+    test_alloc_fail_at = -1;
+}
+
+// PATCH: the scratch `tmp` malloc fails -> BB_ERR_NO_SPACE, no NVS writes.
+void test_bb_sink_http_telemetry_patch_tmp_malloc_fail_returns_no_space(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_sink_http_telemetry_set_malloc(test_failing_malloc);
+    test_alloc_reset();
+    test_alloc_fail_at = 0;
+
+    bb_err_t rc = run_patch("{\"base\":\"https://example.com\"}");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+
+    char buf[128] = {0};
+    bb_nv_get_str(BB_SINK_HTTP_NVS_NS, "base", buf, sizeof(buf), "");
+    TEST_ASSERT_EQUAL_STRING("", buf);
+
+    bb_sink_http_telemetry_set_malloc(NULL);
+    test_alloc_fail_at = -1;
+}
+
+// PATCH headers: patch_entries calloc fails -> BB_ERR_NO_SPACE.
+void test_bb_sink_http_telemetry_patch_headers_patch_entries_calloc_fail(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_sink_http_telemetry_set_malloc(test_failing_malloc);
+    bb_sink_http_telemetry_set_calloc(test_failing_calloc);
+    test_alloc_reset();
+    test_alloc_fail_at = 1; // call 0 = tmp malloc (ok), call 1 = patch_entries calloc
+
+    bb_err_t rc = run_patch("{\"headers\":[]}");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+
+    bb_sink_http_telemetry_set_malloc(NULL);
+    bb_sink_http_telemetry_set_calloc(NULL);
+    test_alloc_fail_at = -1;
+}
+
+// PATCH headers: the existing-headers-load hbuf calloc fails -> BB_ERR_NO_SPACE.
+void test_bb_sink_http_telemetry_patch_headers_existing_hbuf_calloc_fail(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_sink_http_telemetry_set_malloc(test_failing_malloc);
+    bb_sink_http_telemetry_set_calloc(test_failing_calloc);
+    test_alloc_reset();
+    test_alloc_fail_at = 2; // call 0 = tmp, call 1 = patch_entries, call 2 = hbuf
+
+    bb_err_t rc = run_patch("{\"headers\":[]}");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+
+    bb_sink_http_telemetry_set_malloc(NULL);
+    bb_sink_http_telemetry_set_calloc(NULL);
+    test_alloc_fail_at = -1;
+}
+
+// PATCH headers: the `existing` header array calloc fails -> BB_ERR_NO_SPACE.
+void test_bb_sink_http_telemetry_patch_headers_existing_calloc_fail(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_sink_http_telemetry_set_malloc(test_failing_malloc);
+    bb_sink_http_telemetry_set_calloc(test_failing_calloc);
+    test_alloc_reset();
+    test_alloc_fail_at = 3; // call 0 = tmp, 1 = patch_entries, 2 = hbuf, 3 = existing
+
+    bb_err_t rc = run_patch("{\"headers\":[]}");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+
+    bb_sink_http_telemetry_set_malloc(NULL);
+    bb_sink_http_telemetry_set_calloc(NULL);
+    test_alloc_fail_at = -1;
+}
+
+// PATCH headers: the `merged` header array calloc fails -> BB_ERR_NO_SPACE.
+void test_bb_sink_http_telemetry_patch_headers_merged_calloc_fail(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_sink_http_telemetry_set_malloc(test_failing_malloc);
+    bb_sink_http_telemetry_set_calloc(test_failing_calloc);
+    test_alloc_reset();
+    test_alloc_fail_at = 4; // call 0 = tmp, 1 = patch_entries, 2 = hbuf, 3 = existing, 4 = merged
+
+    bb_err_t rc = run_patch("{\"headers\":[]}");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+
+    bb_sink_http_telemetry_set_malloc(NULL);
+    bb_sink_http_telemetry_set_calloc(NULL);
+    test_alloc_fail_at = -1;
+}
+
+// PATCH headers: the final `out_buf` serialize-target calloc fails ->
+// BB_ERR_NO_SPACE.
+void test_bb_sink_http_telemetry_patch_headers_out_buf_calloc_fail(void)
+{
+    bb_sink_http_telemetry_reset_for_test();
+    bb_sink_http_telemetry_set_malloc(test_failing_malloc);
+    bb_sink_http_telemetry_set_calloc(test_failing_calloc);
+    test_alloc_reset();
+    test_alloc_fail_at = 5; // call 0 = tmp, 1..4 as above, 5 = out_buf
+
+    bb_err_t rc = run_patch("{\"headers\":[]}");
+    TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE, rc);
+
+    bb_sink_http_telemetry_set_malloc(NULL);
+    bb_sink_http_telemetry_set_calloc(NULL);
+    test_alloc_fail_at = -1;
 }

@@ -8,6 +8,7 @@
 #pragma once
 #include "bb_core.h"
 #include "bb_json.h"
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,6 +26,11 @@ void bb_sink_http_telemetry_reset_for_test(void);
 // Expose section get/patch for direct test invocation.
 void     bb_sink_http_telemetry_section_get_for_test(bb_json_t section, void *ctx);
 bb_err_t bb_sink_http_telemetry_section_patch_for_test(bb_json_t patch, void *ctx);
+
+// Injectable allocator hooks — allow host tests to force an OOM branch in
+// the section get/patch heap paths. NULL reverts to the libc allocator.
+void bb_sink_http_telemetry_set_malloc(void *(*fn)(size_t));
+void bb_sink_http_telemetry_set_calloc(void *(*fn)(size_t, size_t));
 
 #endif /* BB_SINK_HTTP_TELEMETRY_TESTING */
 
