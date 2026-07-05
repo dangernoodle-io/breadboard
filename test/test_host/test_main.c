@@ -1280,6 +1280,18 @@ void test_bb_scalar_parse_uint_leading_minus_returns_false(void);
 void test_bb_scalar_parse_uint_boundary_ulong_max(void);
 void test_bb_scalar_parse_uint_overflow_returns_false(void);
 
+// Forward declarations from test_bb_num.c
+void test_bb_clampi_below_range_returns_lo(void);
+void test_bb_clampi_above_range_returns_hi(void);
+void test_bb_clampi_in_range_returns_x(void);
+void test_bb_clampi_equal_to_lo_returns_lo(void);
+void test_bb_clampi_equal_to_hi_returns_hi(void);
+void test_bb_clampf_below_range_returns_lo(void);
+void test_bb_clampf_above_range_returns_hi(void);
+void test_bb_clampf_in_range_returns_x(void);
+void test_bb_clampf_equal_to_lo_returns_lo(void);
+void test_bb_clampf_equal_to_hi_returns_hi(void);
+
 // Forward declarations from test_bb_mdns.c
 void test_bb_mdns_browse_start_null_service(void);
 void test_bb_mdns_browse_start_null_proto(void);
@@ -5757,6 +5769,18 @@ int main(void) {
     RUN_TEST(test_bb_scalar_parse_uint_leading_minus_returns_false);
     RUN_TEST(test_bb_scalar_parse_uint_boundary_ulong_max);
     RUN_TEST(test_bb_scalar_parse_uint_overflow_returns_false);
+
+    // bb_num tests
+    RUN_TEST(test_bb_clampi_below_range_returns_lo);
+    RUN_TEST(test_bb_clampi_above_range_returns_hi);
+    RUN_TEST(test_bb_clampi_in_range_returns_x);
+    RUN_TEST(test_bb_clampi_equal_to_lo_returns_lo);
+    RUN_TEST(test_bb_clampi_equal_to_hi_returns_hi);
+    RUN_TEST(test_bb_clampf_below_range_returns_lo);
+    RUN_TEST(test_bb_clampf_above_range_returns_hi);
+    RUN_TEST(test_bb_clampf_in_range_returns_x);
+    RUN_TEST(test_bb_clampf_equal_to_lo_returns_lo);
+    RUN_TEST(test_bb_clampf_equal_to_hi_returns_hi);
 
     // bb_mdns tests
     RUN_TEST(test_bb_mdns_browse_start_null_service);
