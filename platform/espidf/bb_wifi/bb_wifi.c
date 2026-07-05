@@ -1,6 +1,7 @@
 #include "bb_wifi.h"
 #include "bb_nv.h"
 #include "bb_nv_wifi_pending.h"
+#include "bb_str.h"
 #include "wifi_reconn.h"
 #include "bb_init.h"
 #include <string.h>
@@ -620,12 +621,12 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
     wifi_config_t wifi_config = {0};
 #if CONFIG_BB_WIFI_RECONFIGURE
     if (src == CREDS_PENDING) {
-        strncpy((char *)wifi_config.sta.ssid, bb_nv_config_wifi_pending_ssid(), sizeof(wifi_config.sta.ssid));
-        strncpy((char *)wifi_config.sta.password, bb_nv_config_wifi_pending_pass(), sizeof(wifi_config.sta.password));
+        bb_str_field((char *)wifi_config.sta.ssid, bb_nv_config_wifi_pending_ssid(), sizeof(wifi_config.sta.ssid));
+        bb_str_field((char *)wifi_config.sta.password, bb_nv_config_wifi_pending_pass(), sizeof(wifi_config.sta.password));
     } else {
 #endif
-        strncpy((char *)wifi_config.sta.ssid, bb_nv_config_wifi_ssid(), sizeof(wifi_config.sta.ssid));
-        strncpy((char *)wifi_config.sta.password, bb_nv_config_wifi_pass(), sizeof(wifi_config.sta.password));
+        bb_str_field((char *)wifi_config.sta.ssid, bb_nv_config_wifi_ssid(), sizeof(wifi_config.sta.ssid));
+        bb_str_field((char *)wifi_config.sta.password, bb_nv_config_wifi_pass(), sizeof(wifi_config.sta.password));
 #if CONFIG_BB_WIFI_RECONFIGURE
     }
 #else
