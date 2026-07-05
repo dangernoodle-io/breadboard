@@ -139,8 +139,7 @@ uint8_t bb_board_get_cores(void)
 static bb_err_t copy_str(char *out, size_t out_size, const char *src)
 {
     if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
-    strncpy(out, src ? src : "", out_size - 1);
-    out[out_size - 1] = '\0';
+    bb_strlcpy(out, src ? src : "", out_size);
     return BB_OK;
 }
 

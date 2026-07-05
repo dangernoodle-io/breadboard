@@ -411,8 +411,7 @@ bb_err_t bb_diag_panic_app_sha(char *out, size_t out_size)
     if (!out || out_size == 0) return BB_ERR_INVALID_ARG;
 #ifdef CONFIG_BB_DIAG_PANIC_COREDUMP
     if (!s_have_summary || s_summary.app_sha256[0] == '\0') return BB_ERR_NOT_FOUND;
-    strncpy(out, s_summary.app_sha256, out_size - 1);
-    out[out_size - 1] = '\0';
+    bb_strlcpy(out, s_summary.app_sha256, out_size);
     return BB_OK;
 #else
     (void)out_size;
