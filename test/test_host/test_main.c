@@ -4741,6 +4741,21 @@ void test_bb_sink_display_validate_config_evict_equal_stale_invalid(void);
 void test_bb_sink_display_validate_config_evict_less_than_stale_invalid(void);
 void test_bb_sink_display_validate_config_evict_greater_than_stale_valid(void);
 
+// Forward declarations from test_bb_collection.c
+void test_bb_collection_add_null_collection_returns_invalid_arg(void);
+void test_bb_collection_add_null_name_returns_invalid_arg(void);
+void test_bb_collection_add_and_count_basic(void);
+void test_bb_collection_add_null_item_accepted(void);
+void test_bb_collection_count_null_returns_zero(void);
+void test_bb_collection_add_full_returns_no_space_and_no_corruption(void);
+void test_bb_collection_foreach_null_collection_is_noop(void);
+void test_bb_collection_foreach_null_cb_is_noop(void);
+void test_bb_collection_foreach_empty_is_noop(void);
+void test_bb_collection_foreach_sorts_by_order(void);
+void test_bb_collection_foreach_equal_order_preserves_insertion_order(void);
+void test_bb_collection_foreach_mixed_order_and_ties(void);
+void test_bb_collection_foreach_reflects_snapshot_at_call_time(void);
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -9427,6 +9442,21 @@ int main(void) {
     RUN_TEST(test_bb_sink_display_validate_config_evict_equal_stale_invalid);
     RUN_TEST(test_bb_sink_display_validate_config_evict_less_than_stale_invalid);
     RUN_TEST(test_bb_sink_display_validate_config_evict_greater_than_stale_valid);
+
+    // bb_collection
+    RUN_TEST(test_bb_collection_add_null_collection_returns_invalid_arg);
+    RUN_TEST(test_bb_collection_add_null_name_returns_invalid_arg);
+    RUN_TEST(test_bb_collection_add_and_count_basic);
+    RUN_TEST(test_bb_collection_add_null_item_accepted);
+    RUN_TEST(test_bb_collection_count_null_returns_zero);
+    RUN_TEST(test_bb_collection_add_full_returns_no_space_and_no_corruption);
+    RUN_TEST(test_bb_collection_foreach_null_collection_is_noop);
+    RUN_TEST(test_bb_collection_foreach_null_cb_is_noop);
+    RUN_TEST(test_bb_collection_foreach_empty_is_noop);
+    RUN_TEST(test_bb_collection_foreach_sorts_by_order);
+    RUN_TEST(test_bb_collection_foreach_equal_order_preserves_insertion_order);
+    RUN_TEST(test_bb_collection_foreach_mixed_order_and_ties);
+    RUN_TEST(test_bb_collection_foreach_reflects_snapshot_at_call_time);
 
     return UNITY_END();
 }
