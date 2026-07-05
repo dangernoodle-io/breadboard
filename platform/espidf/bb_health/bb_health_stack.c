@@ -49,37 +49,19 @@ static bb_event_topic_t s_topic = NULL;
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-// Debounce table: track which tasks were already in low state last poll
-// so we only post on transition into low (not every poll).
+// Debounce table: track which tasks were already in low state last poll so
+// we only post on transition into low (not every poll). Bounded by
+// mark-and-sweep (B1-601): every poll cycle tags each live task's entry with
+// the current scan tick (mark), then frees entries whose tick doesn't match
+// (sweep) -- their tasks have exited. Without this, short-lived pool tasks
+// that cycle through names (e.g. sse_N) would accumulate a permanent slot
+// each, wedging the table full for the rest of the boot. Table type and the
+// mark/sweep functions themselves are pure (bb_health_stack.h) and
+// host-tested in test/test_host/test_bb_health_stack.c.
 #define MAX_TRACKED_TASKS CONFIG_BB_HEALTH_STACK_MAX_TASKS
 
-typedef struct {
-    char     name[configMAX_TASK_NAME_LEN + 1];
-    bool     low;
-} task_low_state_t;
-
-static task_low_state_t s_low_states[MAX_TRACKED_TASKS];
-static int              s_low_state_count = 0;
-
-// Find or insert a task in the debounce table. Returns pointer to entry,
-// or NULL if table is full (new task, no slot).
-static task_low_state_t *find_or_insert(const char *name)
-{
-    for (int i = 0; i < s_low_state_count; i++) {
-        if (strncmp(s_low_states[i].name, name,
-                    sizeof(s_low_states[i].name)) == 0) {
-            return &s_low_states[i];
-        }
-    }
-    if (s_low_state_count >= MAX_TRACKED_TASKS) {
-        return NULL;  // table full: can't track this task
-    }
-    task_low_state_t *e = &s_low_states[s_low_state_count++];
-    strncpy(e->name, name, sizeof(e->name) - 1);
-    e->name[sizeof(e->name) - 1] = '\0';
-    e->low = false;
-    return e;
-}
+static bb_health_stack_entry_t s_low_states[MAX_TRACKED_TASKS];
+static uint32_t                s_scan_tick = 0;
 
 static void check_tasks(void)
 {
@@ -98,6 +80,8 @@ static void check_tasks(void)
 
     UBaseType_t got = uxTaskGetSystemState(tasks, n, NULL);
 
+    uint32_t scan_tick = ++s_scan_tick;
+
     for (UBaseType_t i = 0; i < got; i++) {
         // uxTaskGetStackHighWaterMark returns words; convert to bytes.
         uint32_t free_bytes =
@@ -105,9 +89,11 @@ static void check_tasks(void)
         bool is_low = bb_health_stack_is_low(
             free_bytes, (uint32_t)CONFIG_BB_HEALTH_STACK_LOW_BYTES);
 
-        task_low_state_t *entry = find_or_insert(tasks[i].pcTaskName);
+        bb_health_stack_entry_t *entry = bb_health_stack_table_mark(
+            s_low_states, MAX_TRACKED_TASKS, tasks[i].pcTaskName, scan_tick);
         if (!entry) {
-            // Table full — log once and skip.
+            // Table full of distinct live tasks — logs every occurrence and skips
+            // (no rate-limiting).
             bb_log_w(TAG, "task table full; skipping %s", tasks[i].pcTaskName);
             continue;
         }
@@ -130,6 +116,9 @@ static void check_tasks(void)
     }
 
     bb_mem_free(tasks);
+
+    // Sweep entries not seen this scan — their tasks have exited.
+    bb_health_stack_table_sweep(s_low_states, MAX_TRACKED_TASKS, scan_tick);
 }
 
 static void poll_work_fn(void *arg)

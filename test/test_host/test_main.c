@@ -1542,6 +1542,16 @@ void test_bb_health_stack_simulate_recovery_then_low_again_posts_once(void);
 void test_bb_health_stack_simulate_multiple_tasks(void);
 void test_bb_health_stack_simulate_at_threshold_not_low(void);
 void test_bb_health_stack_reset_clears_state(void);
+void test_bb_health_stack_table_mark_inserts_on_first_sight(void);
+void test_bb_health_stack_table_mark_refreshes_not_duplicates(void);
+void test_bb_health_stack_table_sweep_frees_disappeared_task(void);
+void test_bb_health_stack_table_sweep_keeps_live_task(void);
+void test_bb_health_stack_table_never_wedges_full_after_many_transient_tasks(void);
+void test_bb_health_stack_table_mark_null_args(void);
+void test_bb_health_stack_table_sweep_null_args(void);
+void test_bb_health_stack_table_mark_full_of_distinct_live_tasks_returns_null(void);
+void test_bb_health_stack_table_sweep_grace_preserves_low_across_single_miss(void);
+void test_bb_health_stack_table_sweep_grace_boundary_frees_after_two_misses(void);
 
 // Forward declarations from test_bb_net_health.c
 void test_bb_net_health_rssi_zero_is_poor(void);
@@ -5696,6 +5706,16 @@ int main(void) {
     RUN_TEST(test_bb_health_stack_simulate_multiple_tasks);
     RUN_TEST(test_bb_health_stack_simulate_at_threshold_not_low);
     RUN_TEST(test_bb_health_stack_reset_clears_state);
+    RUN_TEST(test_bb_health_stack_table_mark_inserts_on_first_sight);
+    RUN_TEST(test_bb_health_stack_table_mark_refreshes_not_duplicates);
+    RUN_TEST(test_bb_health_stack_table_sweep_frees_disappeared_task);
+    RUN_TEST(test_bb_health_stack_table_sweep_keeps_live_task);
+    RUN_TEST(test_bb_health_stack_table_never_wedges_full_after_many_transient_tasks);
+    RUN_TEST(test_bb_health_stack_table_mark_null_args);
+    RUN_TEST(test_bb_health_stack_table_sweep_null_args);
+    RUN_TEST(test_bb_health_stack_table_mark_full_of_distinct_live_tasks_returns_null);
+    RUN_TEST(test_bb_health_stack_table_sweep_grace_preserves_low_across_single_miss);
+    RUN_TEST(test_bb_health_stack_table_sweep_grace_boundary_frees_after_two_misses);
 
     // bb_net_health pure classifier tests
     RUN_TEST(test_bb_net_health_rssi_zero_is_poor);
