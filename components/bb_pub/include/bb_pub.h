@@ -579,6 +579,14 @@ void bb_pub_test_set_nv_set_u8(bb_err_t (*fn)(const char *ns, const char *key, u
  */
 void bb_pub_test_set_pause_timeout_ms(long ms);
 
+/**
+ * Expose the ON_CHANGE cadence gate's envelope-data hash (B1-661) directly
+ * for host tests, so the marker-not-found defensive fallback and the
+ * envelope-length edge cases can be exercised without contriving a real
+ * bb_cache envelope for every branch.
+ */
+uint64_t bb_pub_test_hash_envelope_data(const char *envelope, size_t len);
+
 #endif /* BB_PUB_TESTING */
 
 /**
