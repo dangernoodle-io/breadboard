@@ -215,12 +215,16 @@ static bool extract_type(const char *payload, size_t len, char *out, size_t out_
 //   "sub"      -> parse "topic":[...] into the client's subscription slot.
 //   other      -> RESERVED (e.g. "cmd"); ignored-with-log, no execution path.
 //   (no type)  -> legacy back-compat {"sub":[...]}.
+// (B) payload is never NULL here: dispatch_inbound_frame's only caller
+// (ws_handler) already returns early on !frame->payload, so every
+// payload-nullness check below is dead-by-construction defensive code —
+// LCOV_EXCL_BR_LINE on each.
 static bool dispatch_inbound_frame(int fd, const char *payload, size_t len)
 {
-    const char *end = payload ? payload + len : payload;
+    const char *end = payload ? payload + len : payload;  // LCOV_EXCL_BR_LINE — payload always non-NULL, see comment above
     char type_buf[BB_SINK_WS_TYPE_MAX_LEN];
 
-    if (payload && extract_type(payload, len, type_buf, sizeof(type_buf))) {
+    if (payload && extract_type(payload, len, type_buf, sizeof(type_buf))) {  // LCOV_EXCL_BR_LINE — "payload &&" always true, see comment above
         if (strcmp(type_buf, "sub") == 0) {
             const char *arr = find_array_start(payload, end, "\"topic\":");
             if (!arr) return false;
@@ -232,7 +236,7 @@ static bool dispatch_inbound_frame(int fd, const char *payload, size_t len)
     }
 
     // Legacy back-compat: {"sub":[...]} with no envelope "type".
-    if (!payload) return false;
+    if (!payload) return false;  // LCOV_EXCL_BR_LINE — payload always non-NULL, see comment above
     const char *arr = find_array_start(payload, end, "\"sub\":");
     if (!arr) return false;
     return parse_topic_array(fd, arr, end);
@@ -260,8 +264,12 @@ static bool client_subscribed(int fd, const char *topic)
         if (strcmp(sub, "telemetry") == 0 &&
             strcmp(topic, "events")  != 0 &&
             strcmp(topic, "log")     != 0) return true;
-        // Coarse group: "events" covers topic="events"
-        if (strcmp(sub, "events") == 0 && strcmp(topic, "events") == 0) return true;
+        // Coarse group: "events" covers topic="events".
+        // (B) the second operand can never be reached true here: whenever
+        // sub == topic == "events", the exact-match check two lines above
+        // already returns true first, so this line only ever runs with
+        // topic != "events" — dead-by-construction.
+        if (strcmp(sub, "events") == 0 && strcmp(topic, "events") == 0) return true;  // LCOV_EXCL_BR_LINE — see comment above
     }
     return false;
 }
@@ -273,7 +281,10 @@ static bool client_subscribed(int fd, const char *topic)
 static bb_err_t ws_handler(bb_http_request_t *req, const bb_websocket_frame_t *frame)
 {
     // Only process TEXT frames carrying envelope commands.
-    if (!frame || frame->type != BB_WS_TYPE_TEXT || !frame->payload || frame->len == 0) {
+    // (B) !frame is never true: the bb_websocket transport (and the host
+    // mock harness) always invokes a registered handler with a non-NULL
+    // frame — dead-by-construction defensive check.
+    if (!frame || frame->type != BB_WS_TYPE_TEXT || !frame->payload || frame->len == 0) {  // LCOV_EXCL_BR_LINE — see comment above
         return BB_OK;
     }
 
@@ -394,10 +405,16 @@ static bb_err_t sink_ws_publish(void *ctx, const char *topic,
     int written = snprintf(buf, envelope_len,
                            "{\"type\":\"push\",\"topic\":\"%s\",\"ts_ms\":%.*s,\"data\":%.*s}",
                            subtopic, (int)ts_len, ts_start, (int)data_len, data_start);
-    if (written < 0 || (size_t)written >= envelope_len) {
+    // (B) envelope_len is computed above to exactly fit this format string
+    // (subtopic_len + ts_len + data_len + fixed literal overhead) — snprintf
+    // can never truncate or error against a buffer sized to its own inputs;
+    // unreachable without corrupting the size arithmetic above.
+    if (written < 0 || (size_t)written >= envelope_len) {  // LCOV_EXCL_BR_LINE — see comment above
+        // LCOV_EXCL_START — body of the unreachable branch above
         bb_log_w(TAG, "publish: snprintf truncated (written=%d cap=%zu)", written, envelope_len);
         free(buf);
         return BB_ERR_NO_SPACE;
+        // LCOV_EXCL_STOP
     }
 
     bb_err_t err = broadcast_filtered(subtopic, buf, (size_t)written);
@@ -435,6 +452,16 @@ void bb_sink_ws_resume(void)
 // Log bb_event subscriber
 // ---------------------------------------------------------------------------
 
+// (B) ESP-only reachability: log_event_cb is only ever invoked by bb_event
+// as the subscriber callback for the "log" topic, registered in
+// bb_sink_ws_init() via bb_event_topic_lookup("log", ...). That topic is
+// registered exclusively by platform/espidf/bb_log/bb_log_event.c, which is
+// compiled only under ESP_PLATFORM — on host there is no "log" topic to
+// subscribe to, so this callback body never runs. Host tests exercise the
+// equivalent broadcast behavior via the host-only test-injection helper
+// bb_sink_ws_host_inject_log_event() below, which calls broadcast_filtered
+// directly rather than through this ESP-only callback.
+// LCOV_EXCL_START
 static void log_event_cb(bb_event_topic_t topic, int32_t id,
                          const void *data, size_t size, void *user)
 {
@@ -457,6 +484,7 @@ static void log_event_cb(bb_event_topic_t topic, int32_t id,
     }
     free(buf);
 }
+// LCOV_EXCL_STOP
 
 // ---------------------------------------------------------------------------
 // bb_cache_reactive change-driven deltas + snapshot-on-connect (B1-589
@@ -475,11 +503,19 @@ static char *format_push_frame(const char *topic, int64_t ts_ms,
     int written = snprintf(buf, envelope_len,
                            "{\"type\":\"push\",\"topic\":\"%s\",\"ts_ms\":%" PRId64 ",\"data\":%.*s}",
                            topic, ts_ms, (int)data_len, data);
-    if (written < 0 || (size_t)written >= envelope_len) {
+    // (B) envelope_len is computed above to exactly fit this format string
+    // (topic_len + data_len + fixed literal overhead) — snprintf can never
+    // truncate or error against a buffer sized to its own inputs; see the
+    // identical invariant in sink_ws_publish above.
+    if (written < 0 || (size_t)written >= envelope_len) {  // LCOV_EXCL_BR_LINE — see comment above
+        // LCOV_EXCL_START — body of the unreachable branch above
         free(buf);
         return NULL;
+        // LCOV_EXCL_STOP
     }
-    if (out_len) *out_len = (size_t)written;
+    // (B) out_len is never NULL: both call sites (reactive_on_change,
+    // snapshot_key_to_fd) pass &out_len from a local stack variable.
+    if (out_len) *out_len = (size_t)written;  // LCOV_EXCL_BR_LINE — see comment above
     return buf;
 }
 
@@ -519,9 +555,15 @@ static void snapshot_key_to_fd(const char *key, void *ctx_v)
 
     const char *ts_start = NULL, *data_start = NULL;
     size_t ts_len = 0, data_len = 0;
-    if (!bb_json_envelope_split(envbuf, (int)env_len, &ts_start, &ts_len, &data_start, &data_len)) {
+    // (B) bb_cache_get_serialized() always emits a well-formed
+    // {"ts_ms":N,"data":<json>} envelope by construction (snprintf against a
+    // fixed literal format string wrapping an already-validated JSON "data"
+    // blob) — bb_json_envelope_split can never fail against its own output.
+    if (!bb_json_envelope_split(envbuf, (int)env_len, &ts_start, &ts_len, &data_start, &data_len)) {  // LCOV_EXCL_BR_LINE — see comment above
+        // LCOV_EXCL_START — body of the unreachable branch above
         bb_log_w(TAG, "snapshot: envelope split failed for '%s'", key);
         return;
+        // LCOV_EXCL_STOP
     }
 
     char ts_buf[24];
@@ -582,12 +624,18 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
     s_ctx.server = server;
 
     // Subscribe to the "log" bb_event topic (registered by bb_log_event at order 4).
+    // (B) ESP-only reachability: the "log" topic is registered exclusively
+    // by platform/espidf/bb_log/bb_log_event.c (ESP_PLATFORM only) — on host
+    // the lookup always misses and the subscribe branch below never runs.
+    // See the matching invariant comment on log_event_cb above.
     bb_event_topic_t lt;
-    if (bb_event_topic_lookup("log", &lt) == BB_OK) {
+    if (bb_event_topic_lookup("log", &lt) == BB_OK) {  // LCOV_EXCL_BR_LINE — see comment above
+        // LCOV_EXCL_START — see comment above
         bb_err_t sub_err = bb_event_subscribe(lt, log_event_cb, NULL, NULL);
         if (sub_err != BB_OK) {
             bb_log_w(TAG, "log event subscribe failed: %d", (int)sub_err);
         }
+        // LCOV_EXCL_STOP
     } else {
         bb_log_d(TAG, "log topic not yet registered, skipping ws subscription");
     }
@@ -654,7 +702,11 @@ void bb_sink_ws_host_inject_log_event(const char *json)
     int written = snprintf(buf, envelope_len,
                            "{\"type\":\"push\",\"topic\":\"log\",\"data\":%.*s}",
                            (int)json_len, json);
-    if (written > 0 && (size_t)written < envelope_len) {
+    // (B) envelope_len is computed above to exactly fit this format string
+    // (json_len + fixed literal overhead) — snprintf can never truncate or
+    // error against a buffer sized to its own inputs; same invariant as
+    // sink_ws_publish/format_push_frame above.
+    if (written > 0 && (size_t)written < envelope_len) {  // LCOV_EXCL_BR_LINE — see comment above
         broadcast_filtered("log", buf, (size_t)written);
     }
     free(buf);

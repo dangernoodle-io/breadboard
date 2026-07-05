@@ -29,6 +29,23 @@ static const char *TAG = "bb_sink_http_telemetry";
 #define HEADERS_BUF_MAX        2048
 
 // ---------------------------------------------------------------------------
+// Testing allocator injection (BB_SINK_HTTP_TELEMETRY_TESTING only).
+// Allows host tests to inject a failing malloc/calloc to exercise the
+// section get/patch OOM paths. Mirrors bb_sink_http's s_malloc idiom.
+// ---------------------------------------------------------------------------
+#ifdef BB_SINK_HTTP_TELEMETRY_TESTING
+static void *(*s_malloc)(size_t)         = malloc;
+static void *(*s_calloc)(size_t, size_t) = calloc;
+void bb_sink_http_telemetry_set_malloc(void *(*fn)(size_t))         { s_malloc = fn ? fn : malloc; }
+void bb_sink_http_telemetry_set_calloc(void *(*fn)(size_t, size_t)) { s_calloc = fn ? fn : calloc; }
+#define TELEM_MALLOC(n)     s_malloc(n)
+#define TELEM_CALLOC(n, sz) s_calloc((n), (sz))
+#else
+#define TELEM_MALLOC(n)     malloc(n)
+#define TELEM_CALLOC(n, sz) calloc((n), (sz))
+#endif /* BB_SINK_HTTP_TELEMETRY_TESTING */
+
+// ---------------------------------------------------------------------------
 // Section get
 // ---------------------------------------------------------------------------
 
@@ -69,13 +86,13 @@ static void httppub_section_get(bb_json_t section, void *ctx)
     bb_json_obj_set_bool  (section, "key_set",   key_set);
 
     // Emit headers array — structured, with per-row secret masking.
-    char *hbuf = calloc(1, HEADERS_BUF_MAX);
+    char *hbuf = TELEM_CALLOC(1, HEADERS_BUF_MAX);
     if (!hbuf) {
         bb_json_obj_set_arr(section, "headers", bb_json_arr_new());
         return;
     }
     bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, hbuf, HEADERS_BUF_MAX, "");
-    bb_sink_http_header_t *stored = calloc(BB_SINK_HTTP_HEADERS_MAX, sizeof(*stored));
+    bb_sink_http_header_t *stored = TELEM_CALLOC(BB_SINK_HTTP_HEADERS_MAX, sizeof(*stored));
     if (!stored) {
         free(hbuf);
         bb_json_obj_set_arr(section, "headers", bb_json_arr_new());
@@ -108,7 +125,7 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
 {
     (void)ctx;
 
-    char *tmp = malloc(BB_SINK_HTTP_BODY_MAX + 1);
+    char *tmp = TELEM_MALLOC(BB_SINK_HTTP_BODY_MAX + 1);
     if (!tmp) return BB_ERR_NO_SPACE;
 
     if (bb_json_obj_get_string(patch, "base",      tmp, BB_SINK_HTTP_BODY_MAX + 1)) {
@@ -164,7 +181,7 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
 
         // Build patch_entry array from JSON.
         bb_sink_http_patch_entry_t *patch_entries =
-            calloc(BB_SINK_HTTP_HEADERS_MAX, sizeof(*patch_entries));
+            TELEM_CALLOC(BB_SINK_HTTP_HEADERS_MAX, sizeof(*patch_entries));
         if (!patch_entries) {
             free(tmp);
             return BB_ERR_NO_SPACE;
@@ -173,7 +190,11 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
 
         for (int i = 0; i < patch_count; i++) {
             bb_json_t item = bb_json_arr_get_item(harr, i);
-            if (!item) continue;
+            // (B) i is always < the array's real element count here
+            // (patch_count = min(bb_json_arr_size(harr), MAX)), so the
+            // cJSON-backed accessor never returns NULL in this loop —
+            // defensive guard only, dead-by-construction.
+            if (!item) continue;  // LCOV_EXCL_BR_LINE — see comment above
 
             bb_sink_http_patch_entry_t *pe = &patch_entries[valid_patch];
             if (!bb_json_obj_get_string(item, "name", pe->name, sizeof(pe->name))) {
@@ -199,7 +220,7 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
         }
 
         // Load existing headers from NVS for secret-preserve merge.
-        char *hbuf = calloc(1, HEADERS_BUF_MAX);
+        char *hbuf = TELEM_CALLOC(1, HEADERS_BUF_MAX);
         if (!hbuf) {
             free(patch_entries);
             free(tmp);
@@ -207,7 +228,7 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
         }
         bb_nv_get_str(BB_SINK_HTTP_NVS_NS, BB_NV_KEY_HEADERS, hbuf, HEADERS_BUF_MAX, "");
         bb_sink_http_header_t *existing =
-            calloc(BB_SINK_HTTP_HEADERS_MAX, sizeof(*existing));
+            TELEM_CALLOC(BB_SINK_HTTP_HEADERS_MAX, sizeof(*existing));
         if (!existing) {
             free(hbuf);
             free(patch_entries);
@@ -219,7 +240,7 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
 
         // Merge.
         bb_sink_http_header_t *merged =
-            calloc(BB_SINK_HTTP_HEADERS_MAX, sizeof(*merged));
+            TELEM_CALLOC(BB_SINK_HTTP_HEADERS_MAX, sizeof(*merged));
         if (!merged) {
             free(existing);
             free(patch_entries);
@@ -234,7 +255,7 @@ static bb_err_t httppub_section_patch(bb_json_t patch, void *ctx)
         free(patch_entries);
 
         // Serialize and persist.
-        char *out_buf = calloc(1, HEADERS_BUF_MAX);
+        char *out_buf = TELEM_CALLOC(1, HEADERS_BUF_MAX);
         if (!out_buf) {
             free(merged);
             free(tmp);
@@ -272,11 +293,17 @@ bb_err_t bb_sink_http_telemetry_init(void)
         if (arc == BB_OK) {
             // WINNER: init the http sink from NVS and register it with bb_pub.
             bb_sink_http_init(NULL);
-            if (bb_sink_http(&s_http_sink) == BB_OK) {
+            // (B) bb_sink_http() only returns non-BB_OK for a NULL `out` arg;
+            // &s_http_sink is a static file-scope address, never NULL — the
+            // else branch below is dead-by-construction, not reachable from
+            // any caller of this function.
+            if (bb_sink_http(&s_http_sink) == BB_OK) {  // LCOV_EXCL_BR_LINE — see comment above
                 bb_pub_add_sink(&s_http_sink);
                 bb_log_i(TAG, "boot: http sink registered (winner)");
             } else {
+                // LCOV_EXCL_START — body of the unreachable branch above
                 bb_log_w(TAG, "boot: http enabled but sink init failed");
+                // LCOV_EXCL_STOP
             }
         } else {
             bb_log_w(TAG, "boot: mqtt and http both enabled in NVS — "
@@ -315,6 +342,8 @@ void bb_sink_http_telemetry_reset_for_test(void)
 {
     bb_nv_host_str_store_reset();
     bb_pub_exclusive_reset();
+    bb_sink_http_telemetry_set_malloc(NULL);
+    bb_sink_http_telemetry_set_calloc(NULL);
 }
 
 void bb_sink_http_telemetry_section_get_for_test(bb_json_t section, void *ctx)

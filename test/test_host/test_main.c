@@ -1954,6 +1954,7 @@ void test_sink_ws_suspend_idempotent(void);
 void test_sink_ws_resume_clears_flag(void);
 void test_bb_sink_ws_legacy_sub_frame_back_compat(void);
 void test_bb_sink_ws_reserved_type_ignored(void);
+void test_bb_sink_ws_type_value_not_quoted_treated_as_no_type(void);
 void test_bb_sink_ws_client_pool_exhaustion_drops_extra_sub(void);
 void test_bb_sink_ws_reactive_delta_broadcasts_on_cache_change(void);
 void test_bb_sink_ws_reactive_delta_unchanged_rewrite_not_broadcast(void);
@@ -3651,6 +3652,22 @@ void test_bb_sink_http_telemetry_patch_headers_missing_name_skipped(void);
 void test_bb_sink_http_telemetry_get_tls_false_for_http_base(void);
 void test_bb_sink_http_telemetry_get_tls_true_for_https_base(void);
 void test_bb_sink_http_telemetry_get_tls_false_when_no_base(void);
+void test_bb_sink_http_telemetry_get_qos_out_of_range_defaults_to_one(void);
+void test_bb_sink_http_telemetry_get_qos_negative_defaults_to_one(void);
+void test_bb_sink_http_telemetry_get_path_tmpl_reflects_custom_value(void);
+void test_bb_sink_http_telemetry_patch_qos_clamped_negative_to_zero(void);
+void test_bb_sink_http_telemetry_patch_qos_clamped_above_two_to_two(void);
+void test_bb_sink_http_telemetry_patch_headers_not_array_ignored(void);
+void test_bb_sink_http_telemetry_patch_headers_over_max_clamped(void);
+void test_bb_sink_http_telemetry_patch_headers_invalid_value_skipped(void);
+void test_bb_sink_http_telemetry_get_hbuf_calloc_fail_returns_empty_headers(void);
+void test_bb_sink_http_telemetry_get_stored_calloc_fail_returns_empty_headers(void);
+void test_bb_sink_http_telemetry_patch_tmp_malloc_fail_returns_no_space(void);
+void test_bb_sink_http_telemetry_patch_headers_patch_entries_calloc_fail(void);
+void test_bb_sink_http_telemetry_patch_headers_existing_hbuf_calloc_fail(void);
+void test_bb_sink_http_telemetry_patch_headers_existing_calloc_fail(void);
+void test_bb_sink_http_telemetry_patch_headers_merged_calloc_fail(void);
+void test_bb_sink_http_telemetry_patch_headers_out_buf_calloc_fail(void);
 
 // Forward declarations from test_bb_pub_telemetry.c
 void test_bb_pub_telemetry_get_has_interval_ms(void);
@@ -8148,6 +8165,22 @@ int main(void) {
     RUN_TEST(test_bb_sink_http_telemetry_get_tls_false_for_http_base);
     RUN_TEST(test_bb_sink_http_telemetry_get_tls_true_for_https_base);
     RUN_TEST(test_bb_sink_http_telemetry_get_tls_false_when_no_base);
+    RUN_TEST(test_bb_sink_http_telemetry_get_qos_out_of_range_defaults_to_one);
+    RUN_TEST(test_bb_sink_http_telemetry_get_qos_negative_defaults_to_one);
+    RUN_TEST(test_bb_sink_http_telemetry_get_path_tmpl_reflects_custom_value);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_qos_clamped_negative_to_zero);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_qos_clamped_above_two_to_two);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_not_array_ignored);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_over_max_clamped);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_invalid_value_skipped);
+    RUN_TEST(test_bb_sink_http_telemetry_get_hbuf_calloc_fail_returns_empty_headers);
+    RUN_TEST(test_bb_sink_http_telemetry_get_stored_calloc_fail_returns_empty_headers);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_tmp_malloc_fail_returns_no_space);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_patch_entries_calloc_fail);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_existing_hbuf_calloc_fail);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_existing_calloc_fail);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_merged_calloc_fail);
+    RUN_TEST(test_bb_sink_http_telemetry_patch_headers_out_buf_calloc_fail);
 
     // bb_pub_telemetry tests
     RUN_TEST(test_bb_pub_telemetry_get_has_interval_ms);
@@ -8809,6 +8842,7 @@ int main(void) {
     RUN_TEST(test_sink_ws_resume_clears_flag);
     RUN_TEST(test_bb_sink_ws_legacy_sub_frame_back_compat);
     RUN_TEST(test_bb_sink_ws_reserved_type_ignored);
+    RUN_TEST(test_bb_sink_ws_type_value_not_quoted_treated_as_no_type);
     RUN_TEST(test_bb_sink_ws_client_pool_exhaustion_drops_extra_sub);
     RUN_TEST(test_bb_sink_ws_reactive_delta_broadcasts_on_cache_change);
     RUN_TEST(test_bb_sink_ws_reactive_delta_unchanged_rewrite_not_broadcast);
