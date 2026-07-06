@@ -73,7 +73,7 @@ COMPONENT_MAP = {
             "components/bb_log/src/bb_log_level.c",
             "components/bb_log/src/bb_log_config.c",
         ],
-        "depends":  ["bb_core", "bb_kv"],
+        "depends":  ["bb_core", "bb_kv", "bb_str"],
     },
     "bb_diag": {
         "includes": ["components/bb_diag/include", "components/bb_diag"],
@@ -115,7 +115,7 @@ COMPONENT_MAP = {
             "components/bb_http/src/bb_dispatch_api.c",
             "platform/host/bb_http/bb_http_host.c",
         ],
-        "depends":  ["bb_core", "bb_log"],
+        "depends":  ["bb_core", "bb_log", "bb_str"],
     },
     "bb_dispatch_cmd": {
         "includes": ["components/bb_dispatch_cmd/include"],
@@ -134,7 +134,7 @@ COMPONENT_MAP = {
             "platform/host/bb_wifi/bb_wifi_emit.c",
             "components/bb_wifi/wifi_reconn_policy.c",
         ],
-        "depends":  ["bb_core", "bb_log", "bb_nv", "bb_json"],
+        "depends":  ["bb_core", "bb_log", "bb_nv", "bb_json", "bb_str"],
     },
     "bb_ntp": {
         "includes": ["components/bb_ntp/include"],
@@ -148,7 +148,7 @@ COMPONENT_MAP = {
             "components/bb_system/src/bb_system_reboot_parse.c",
             "components/bb_system/src/bb_system_boot_banner_format.c",
         ],
-        "depends":  ["bb_core", "bb_json"],
+        "depends":  ["bb_core", "bb_json", "bb_str"],
     },
     "bb_wdt": {
         "includes": ["components/bb_wdt/include", "platform/host/bb_wdt"],
@@ -171,7 +171,7 @@ COMPONENT_MAP = {
     "bb_ota_pull": {
         "includes": ["components/bb_ota_pull/include", "platform/host/bb_ota_pull"],
         "sources":  ["platform/espidf/bb_ota_pull/bb_ota_pull.c"],
-        "depends":  ["bb_core", "bb_http", "bb_nv", "bb_log", "bb_json", "bb_release_manifest", "bb_http_client", "bb_ota_hooks", "bb_tls"],
+        "depends":  ["bb_core", "bb_http", "bb_nv", "bb_log", "bb_json", "bb_release_manifest", "bb_http_client", "bb_ota_hooks", "bb_tls", "bb_str"],
     },
     "bb_ota_push": {
         "includes": ["components/bb_ota_push/include"],
@@ -181,7 +181,7 @@ COMPONENT_MAP = {
     "bb_ota_boot": {
         "includes": ["components/bb_ota_boot/include"],
         "sources":  ["platform/espidf/bb_ota_boot/bb_ota_boot.c"],
-        "depends":  ["bb_core", "bb_log", "bb_nv", "bb_ota_hooks"],
+        "depends":  ["bb_core", "bb_log", "bb_nv", "bb_ota_hooks", "bb_str"],
     },
     "bb_ota_hooks": {
         "includes": ["components/bb_ota_hooks/include"],
@@ -202,7 +202,7 @@ COMPONENT_MAP = {
             "components/bb_mdns/bb_mdns_util.c",
             "components/bb_mdns/bb_mdns_refresh_decision.c",
         ],
-        "depends":  ["bb_core", "bb_nv"],
+        "depends":  ["bb_core", "bb_nv", "bb_str"],
         # components/bb_mdns/ already in includes above, which also resolves bb_mdns_test.h
     },
     "bb_openapi": {
@@ -211,7 +211,7 @@ COMPONENT_MAP = {
             "components/bb_openapi/src/bb_openapi_emit.c",
             "components/bb_openapi/src/bb_openapi_validate.c",
         ],
-        "depends":  ["bb_core", "bb_http", "bb_json"],
+        "depends":  ["bb_core", "bb_http", "bb_json", "bb_str"],
     },
     "bb_manifest": {
         "includes": ["components/bb_manifest/include"],
@@ -222,7 +222,7 @@ COMPONENT_MAP = {
         "includes": ["components/bb_websocket/include",
                      "platform/host/bb_websocket/include"],
         "sources":  ["platform/host/bb_websocket/bb_websocket_host.c"],
-        "depends":  ["bb_core", "bb_http", "bb_log"],
+        "depends":  ["bb_core", "bb_http", "bb_log", "bb_str"],
     },
     "bb_display": {
         "includes": ["components/bb_display/include"],
@@ -240,7 +240,7 @@ COMPONENT_MAP = {
             "platform/host/bb_display_info/bb_display_info.c",
             "components/bb_display_info/bb_display_info_event_common.c",
         ],
-        "depends":  ["bb_display", "bb_info", "bb_nv", "bb_json", "bb_core"],
+        "depends":  ["bb_display", "bb_info", "bb_nv", "bb_json", "bb_core", "bb_str"],
     },
     "bb_init": {
         "includes": ["components/bb_init/include"],
@@ -255,7 +255,7 @@ COMPONENT_MAP = {
     "bb_board": {
         "includes": ["components/bb_board/include"],
         "sources":  ["platform/host/bb_board/bb_board_host.c"],
-        "depends":  ["bb_core", "bb_nv"],
+        "depends":  ["bb_core", "bb_nv", "bb_str"],
     },
     "bb_info": {
         "includes": ["components/bb_info/include", "components/bb_info/src"],
@@ -264,7 +264,7 @@ COMPONENT_MAP = {
             "components/bb_info/src/bb_info_build.c",
         ],
         "depends":  ["bb_core", "bb_http", "bb_json", "bb_board", "bb_wifi", "bb_response",
-                     "bb_system", "bb_cache"],
+                     "bb_system", "bb_cache", "bb_str"],
     },
     "bb_health": {
         "includes": ["components/bb_health/include", "components/bb_health"],
@@ -394,7 +394,7 @@ COMPONENT_MAP = {
     "bb_pool": {
         "includes": ["components/bb_pool/include"],
         "sources":  ["platform/host/bb_pool/bb_pool.c"],
-        "depends":  ["bb_core", "bb_arena", "bb_log"],
+        "depends":  ["bb_core", "bb_arena", "bb_log", "bb_str"],
     },
     "bb_tls_creds": {
         "includes": ["components/bb_tls_creds/include"],
@@ -410,12 +410,12 @@ COMPONENT_MAP = {
         "includes": ["components/bb_mqtt/include", "components/bb_mqtt/src"],
         "sources":  ["platform/host/bb_mqtt/bb_mqtt.c",
                      "components/bb_mqtt/src/bb_mqtt_reassemble.c"],
-        "depends":  ["bb_core", "bb_log", "bb_nv", "bb_tls_creds"],
+        "depends":  ["bb_core", "bb_log", "bb_nv", "bb_tls_creds", "bb_str"],
     },
     "bb_sink_http": {
         "includes": ["components/bb_sink_http/include"],
         "sources":  ["platform/host/bb_sink_http/bb_sink_http.c"],
-        "depends":  ["bb_core", "bb_pub", "bb_http_client", "bb_tls_creds", "bb_nv", "bb_log"],
+        "depends":  ["bb_core", "bb_pub", "bb_http_client", "bb_tls_creds", "bb_nv", "bb_log", "bb_str"],
     },
     "bb_ota_led": {
         "includes": ["components/bb_ota_hooks/include", "platform/host/bb_ota_hooks"],
@@ -453,13 +453,13 @@ COMPONENT_MAP = {
             "components/bb_event/bb_event_common.c",
             "platform/host/bb_event/bb_event_host.c",
         ],
-        "depends":  ["bb_core", "bb_log"],
+        "depends":  ["bb_core", "bb_log", "bb_str"],
     },
     "bb_ring": {
         "includes": ["components/bb_ring/include"],
         "sources":  ["platform/host/bb_ring/bb_ring.c",
                      "platform/host/bb_ring/bb_ring_registry.c"],
-        "depends":  ["bb_core", "bb_registry"],
+        "depends":  ["bb_core", "bb_registry", "bb_str"],
     },
     "bb_str": {
         "includes": ["components/bb_str/include"],
@@ -490,7 +490,7 @@ COMPONENT_MAP = {
         "includes": ["components/bb_http_client/include",
                      "platform/host/bb_http_client"],
         "sources":  ["platform/host/bb_http_client/bb_http_client_host.c"],
-        "depends":  ["bb_core"],
+        "depends":  ["bb_core", "bb_str"],
     },
     "bb_event_routes": {
         "includes": ["components/bb_event_routes/include", "components/bb_event_routes/src"],
@@ -503,7 +503,7 @@ COMPONENT_MAP = {
             "platform/host/bb_event_routes/bb_event_topic_registry.c",
         ],
         "depends":  ["bb_core", "bb_event", "bb_event_ring", "bb_log", "bb_registry",
-                     "bb_arena"],
+                     "bb_arena", "bb_str"],
     },
     "bb_alert": {
         "includes": ["components/bb_alert/include"],
@@ -514,12 +514,12 @@ COMPONENT_MAP = {
         "includes": ["components/bb_cache/include"],
         "sources":  ["platform/host/bb_cache/bb_cache_host.c",
                      "components/bb_cache/src/bb_cache_evaluate.c"],
-        "depends":  ["bb_core", "bb_json", "bb_event", "bb_log"],
+        "depends":  ["bb_core", "bb_json", "bb_event", "bb_log", "bb_str"],
     },
     "bb_cache_reactive": {
         "includes": ["components/bb_cache_reactive/include"],
         "sources":  ["platform/host/bb_cache_reactive/bb_cache_reactive.c"],
-        "depends":  ["bb_core", "bb_cache", "bb_json", "bb_log"],
+        "depends":  ["bb_core", "bb_cache", "bb_json", "bb_log", "bb_str"],
     },
     "bb_cache_routes": {
         "includes": ["components/bb_cache_routes/include", "components/bb_cache_routes/src"],
@@ -546,7 +546,7 @@ COMPONENT_MAP = {
         "depends":  ["bb_core", "bb_http", "bb_json", "bb_nv",
                      "bb_release_manifest", "bb_http_client",
                      "bb_event", "bb_log", "bb_mdns", "bb_system", "bb_alert",
-                     "bb_openapi"],
+                     "bb_openapi", "bb_str"],
     },
     "bb_release_manifest": {
         "includes": ["components/bb_release_manifest/include"],
@@ -559,7 +559,7 @@ COMPONENT_MAP = {
     "bb_pub": {
         "includes": ["components/bb_pub/include"],
         "sources":  ["platform/host/bb_pub/bb_pub.c"],
-        "depends":  ["bb_core", "bb_json", "bb_nv", "bb_log"],
+        "depends":  ["bb_core", "bb_json", "bb_nv", "bb_log", "bb_str"],
     },
     "bb_sink_mqtt": {
         "includes": ["components/bb_sink_mqtt/include"],
@@ -569,7 +569,7 @@ COMPONENT_MAP = {
     "bb_sink_event": {
         "includes": ["components/bb_sink_event/include"],
         "sources":  ["platform/host/bb_sink_event/bb_sink_event.c"],
-        "depends":  ["bb_core", "bb_pub", "bb_event", "bb_event_routes", "bb_json", "bb_log"],
+        "depends":  ["bb_core", "bb_pub", "bb_event", "bb_event_routes", "bb_json", "bb_log", "bb_str"],
     },
     "bb_pub_fan": {
         "includes": ["components/bb_pub_fan/include"],
@@ -594,7 +594,7 @@ COMPONENT_MAP = {
     "bb_pub_wifi": {
         "includes": ["components/bb_pub_wifi/include"],
         "sources":  ["platform/host/bb_pub_wifi/bb_pub_wifi.c"],
-        "depends":  ["bb_core", "bb_pub", "bb_wifi", "bb_openapi"],
+        "depends":  ["bb_core", "bb_pub", "bb_wifi", "bb_openapi", "bb_str"],
     },
     "bb_pub_health": {
         "includes": ["components/bb_pub_health/include"],
@@ -604,7 +604,7 @@ COMPONENT_MAP = {
     "bb_pub_rtos": {
         "includes": ["components/bb_pub_rtos/include"],
         "sources":  ["platform/host/bb_pub_rtos/bb_pub_rtos.c"],
-        "depends":  ["bb_core", "bb_pub", "bb_openapi", "bb_task_registry"],
+        "depends":  ["bb_core", "bb_pub", "bb_openapi", "bb_task_registry", "bb_str"],
     },
     "bb_task_registry": {
         "includes": ["components/bb_task_registry/include", "components/bb_task_registry"],
@@ -612,13 +612,13 @@ COMPONENT_MAP = {
             "platform/host/bb_task_registry/bb_task_registry.c",
             "components/bb_task_registry/bb_task_registry_base_scan_common.c",
         ],
-        "depends":  ["bb_core", "bb_registry", "bb_wdt", "bb_task"],
+        "depends":  ["bb_core", "bb_registry", "bb_wdt", "bb_task", "bb_str"],
     },
     "bb_task": {
         "includes": ["components/bb_task/include"],
         "sources":  ["components/bb_task/src/bb_task_common.c",
                      "platform/host/bb_task/bb_task_host.c"],
-        "depends":  ["bb_core", "bb_registry"],
+        "depends":  ["bb_core", "bb_registry", "bb_str"],
     },
     "bb_response": {
         "includes": ["components/bb_response/include"],
@@ -647,12 +647,12 @@ COMPONENT_MAP = {
     "bb_sink_http_telemetry": {
         "includes": ["components/bb_sink_http_telemetry/include"],
         "sources":  ["platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c"],
-        "depends":  ["bb_sink_http", "bb_core", "bb_nv", "bb_json", "bb_telemetry"],
+        "depends":  ["bb_sink_http", "bb_core", "bb_nv", "bb_json", "bb_telemetry", "bb_str"],
     },
     "bb_pub_telemetry": {
         "includes": ["components/bb_pub_telemetry/include"],
         "sources":  ["platform/host/bb_pub_telemetry/bb_pub_telemetry_host.c"],
-        "depends":  ["bb_pub", "bb_core", "bb_json", "bb_telemetry"],
+        "depends":  ["bb_pub", "bb_core", "bb_json", "bb_telemetry", "bb_str"],
     },
     "bb_sink_ws": {
         "includes": ["components/bb_sink_ws/include"],
