@@ -1226,6 +1226,38 @@ void test_bb_mdns_cache_result_valid_malformed_ip4(void);
 void test_bb_mdns_cache_result_valid_ip4_with_letter(void);
 void test_bb_mdns_cache_result_valid_ip4_with_low_char(void);
 
+// Forward declarations from test_bb_mdns_cache_txt.c
+void test_bb_mdns_cache_apply_txt_matching_keys_land(void);
+void test_bb_mdns_cache_apply_txt_non_matching_keys_skipped(void);
+void test_bb_mdns_cache_apply_txt_oversized_value_truncates(void);
+void test_bb_mdns_cache_apply_txt_null_value_copies_empty(void);
+void test_bb_mdns_cache_apply_txt_duplicate_keys_first_wins(void);
+void test_bb_mdns_cache_apply_txt_txt_entry_null_key_skipped(void);
+void test_bb_mdns_cache_apply_txt_field_null_key_skipped(void);
+void test_bb_mdns_cache_apply_txt_field_zero_dest_len_skipped(void);
+void test_bb_mdns_cache_apply_txt_field_out_of_bounds_skipped(void);
+void test_bb_mdns_cache_apply_txt_null_entry_is_noop(void);
+void test_bb_mdns_cache_apply_txt_zero_entry_size_is_noop(void);
+void test_bb_mdns_cache_apply_txt_null_fields_is_noop(void);
+void test_bb_mdns_cache_apply_txt_zero_field_count_is_noop(void);
+void test_bb_mdns_cache_apply_txt_null_txt_is_noop(void);
+void test_bb_mdns_cache_apply_txt_zero_txt_count_is_noop(void);
+void test_bb_mdns_cache_txt_serialize_emits_descriptor_fields(void);
+void test_bb_mdns_cache_txt_serialize_field_null_key_skipped(void);
+void test_bb_mdns_cache_txt_serialize_null_obj_is_noop(void);
+void test_bb_mdns_cache_txt_serialize_null_entry_is_noop(void);
+void test_bb_mdns_cache_txt_serialize_null_fields_is_noop(void);
+void test_bb_mdns_cache_txt_serialize_zero_field_count_is_noop(void);
+void test_bb_mdns_cache_txt_serialize_field_out_of_bounds_skipped(void);
+
+// Forward declarations from test_bb_mdns_cache_validate.c
+void test_bb_mdns_cache_validate_config_txt_fields_without_entry_size_rejected(void);
+void test_bb_mdns_cache_validate_config_entry_size_exceeds_max_rejected(void);
+void test_bb_mdns_cache_validate_config_effective_default_size_exceeds_max_rejected(void);
+void test_bb_mdns_cache_validate_config_pass_case_accepted(void);
+void test_bb_mdns_cache_validate_config_no_descriptor_default_size_accepted(void);
+void test_bb_mdns_cache_validate_config_txt_fields_zero_count_default_size_accepted(void);
+
 // Forward declarations from test_bb_kv.c
 void test_bb_kv_parse_null_string_invokes_no_callbacks(void);
 void test_bb_kv_parse_empty_string_invokes_no_callbacks(void);
@@ -9347,6 +9379,36 @@ int main(void) {
     RUN_TEST(test_bb_mdns_cache_result_valid_malformed_ip4);
     RUN_TEST(test_bb_mdns_cache_result_valid_ip4_with_letter);
     RUN_TEST(test_bb_mdns_cache_result_valid_ip4_with_low_char);
+
+    RUN_TEST(test_bb_mdns_cache_apply_txt_matching_keys_land);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_non_matching_keys_skipped);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_oversized_value_truncates);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_null_value_copies_empty);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_duplicate_keys_first_wins);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_txt_entry_null_key_skipped);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_field_null_key_skipped);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_field_zero_dest_len_skipped);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_field_out_of_bounds_skipped);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_null_entry_is_noop);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_zero_entry_size_is_noop);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_null_fields_is_noop);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_zero_field_count_is_noop);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_null_txt_is_noop);
+    RUN_TEST(test_bb_mdns_cache_apply_txt_zero_txt_count_is_noop);
+    RUN_TEST(test_bb_mdns_cache_txt_serialize_emits_descriptor_fields);
+    RUN_TEST(test_bb_mdns_cache_txt_serialize_field_null_key_skipped);
+    RUN_TEST(test_bb_mdns_cache_txt_serialize_null_obj_is_noop);
+    RUN_TEST(test_bb_mdns_cache_txt_serialize_null_entry_is_noop);
+    RUN_TEST(test_bb_mdns_cache_txt_serialize_null_fields_is_noop);
+    RUN_TEST(test_bb_mdns_cache_txt_serialize_zero_field_count_is_noop);
+    RUN_TEST(test_bb_mdns_cache_txt_serialize_field_out_of_bounds_skipped);
+
+    RUN_TEST(test_bb_mdns_cache_validate_config_txt_fields_without_entry_size_rejected);
+    RUN_TEST(test_bb_mdns_cache_validate_config_entry_size_exceeds_max_rejected);
+    RUN_TEST(test_bb_mdns_cache_validate_config_effective_default_size_exceeds_max_rejected);
+    RUN_TEST(test_bb_mdns_cache_validate_config_pass_case_accepted);
+    RUN_TEST(test_bb_mdns_cache_validate_config_no_descriptor_default_size_accepted);
+    RUN_TEST(test_bb_mdns_cache_validate_config_txt_fields_zero_count_default_size_accepted);
 
     // bb_attrs — intrusive attrs header
     RUN_TEST(test_bb_attrs_container_of_round_trip);

@@ -20,6 +20,14 @@
 
 static const char *TAG = "bb_mdns_cache";
 
+// mdns_query_ptr's mdns_result_t.txt is mdns_txt_item_t (const char* fields),
+// not the bb_mdns_txt_t (char* fields) apply_txt takes, so the re-query path
+// -- unlike on_hello, which already gets a ready-made bb_mdns_txt_t view from
+// bb_mdns -- needs an adaptation step. Named per the BB_MDNS_TXT_PENDING_MAX
+// idiom (bb_mdns.c) rather than a bare literal; an actual peer TXT set past
+// this cap is truncated LOUDLY (bb_log_w below), never silently dropped.
+#define BB_MDNS_CACHE_REQUERY_TXT_MAX 8
+
 typedef struct {
     char     service[32];
     char     proto[8];
@@ -27,11 +35,22 @@ typedef struct {
     uint32_t stale_age_ms;
     uint32_t evict_age_ms;
     uint32_t requery_period_ms;
+    size_t   entry_size;
+    const bb_mdns_txt_field_t *txt_fields;
+    size_t   txt_count;
     bool     started;
 } bb_mdns_cache_state_t;
 
 static bb_mdns_cache_state_t s_state = {0};
 static bb_periodic_timer_t   s_requery_timer = NULL;
+
+// Effective entry size for this session: cfg->entry_size when set, else the
+// identity-only bb_mdns_cache_entry_t shape (today's behavior, byte-
+// identical when no consumer descriptor is configured).
+static size_t effective_entry_size(void)
+{
+    return s_state.entry_size ? s_state.entry_size : sizeof(bb_mdns_cache_entry_t);
+}
 
 static void entry_serialize(bb_json_t obj, const void *snap)
 {
@@ -39,19 +58,23 @@ static void entry_serialize(bb_json_t obj, const void *snap)
     bb_json_obj_set_string(obj, "hostname", e->hostname);
     bb_json_obj_set_string(obj, "ip4", e->ip4);
     bb_json_obj_set_int(obj, "port", (int64_t)e->port);
+    if (s_state.txt_fields && s_state.txt_count > 0) {
+        bb_mdns_cache_txt_serialize(obj, snap, effective_entry_size(),
+                                    s_state.txt_fields, s_state.txt_count);
+    }
 }
 
 // Register key in bb_cache (AGE_OUT policy) if not already present, then
 // copy in the entry. Called from both the hello handler and the re-query
 // worker -- bb_cache_reactive_register is idempotent, so a race between the two
 // contexts registering the same key concurrently is harmless.
-static void cache_upsert(const char *key, const bb_mdns_cache_entry_t *entry)
+static void cache_upsert(const char *key, const void *entry)
 {
     if (!bb_cache_exists(key)) {
         bb_cache_config_t cfg = {
             .key       = key,
             .snapshot  = NULL,
-            .snap_size = sizeof(bb_mdns_cache_entry_t),
+            .snap_size = effective_entry_size(),
             .serialize = entry_serialize,
             .flags     = BB_CACHE_FLAG_NONE,
             .eviction  = {
@@ -83,12 +106,24 @@ static void on_hello(const bb_mdns_peer_t *peer, void *ctx)
                                            key, sizeof(key));
     if (err != BB_OK && err != BB_ERR_NO_SPACE) return;
 
-    bb_mdns_cache_entry_t entry = {0};
-    bb_strlcpy(entry.hostname, peer->id.hostname, sizeof(entry.hostname));
-    bb_strlcpy(entry.ip4, peer->id.ip4, sizeof(entry.ip4));
-    entry.port = peer->id.port;
+    // entry_buf holds effective_entry_size() bytes -- either the plain
+    // identity-only shape (default) or the consumer's own struct, which
+    // MUST hold identity at this same leading layout (see
+    // bb_mdns_cache_config_t.entry_size doc). Bounded by
+    // BB_MDNS_CACHE_ENTRY_MAX, validated at bb_mdns_cache_start().
+    uint8_t entry_buf[BB_MDNS_CACHE_ENTRY_MAX] = {0};
+    bb_mdns_cache_entry_t *identity = (bb_mdns_cache_entry_t *)entry_buf;
+    bb_strlcpy(identity->hostname, peer->id.hostname, sizeof(identity->hostname));
+    bb_strlcpy(identity->ip4, peer->id.ip4, sizeof(identity->ip4));
+    identity->port = peer->id.port;
 
-    cache_upsert(key, &entry);
+    if (s_state.txt_fields && s_state.txt_count > 0) {
+        bb_mdns_cache_apply_txt(entry_buf, effective_entry_size(),
+                                s_state.txt_fields, s_state.txt_count,
+                                peer->txt, peer->txt_count);
+    }
+
+    cache_upsert(key, entry_buf);
 }
 
 // Do NOT delete from the cache here. bb_mdns's browse-refresh workaround
@@ -152,12 +187,34 @@ static void requery_work_fn(void *arg)
                                                 key, sizeof(key));
         if (kerr != BB_OK && kerr != BB_ERR_NO_SPACE) continue;
 
-        bb_mdns_cache_entry_t entry = {0};
-        bb_strlcpy(entry.hostname, r->hostname ? r->hostname : "", sizeof(entry.hostname));
-        bb_strlcpy(entry.ip4, ip4, sizeof(entry.ip4));
-        entry.port = r->port;
+        // See on_hello: entry_buf holds effective_entry_size() bytes, either
+        // the plain identity-only shape or the consumer's own struct with
+        // identity at the same leading layout.
+        uint8_t entry_buf[BB_MDNS_CACHE_ENTRY_MAX] = {0};
+        bb_mdns_cache_entry_t *identity = (bb_mdns_cache_entry_t *)entry_buf;
+        bb_strlcpy(identity->hostname, r->hostname ? r->hostname : "", sizeof(identity->hostname));
+        bb_strlcpy(identity->ip4, ip4, sizeof(identity->ip4));
+        identity->port = r->port;
 
-        cache_upsert(key, &entry);
+        if (s_state.txt_fields && s_state.txt_count > 0) {
+            if (r->txt_count > BB_MDNS_CACHE_REQUERY_TXT_MAX) {
+                bb_log_w(TAG, "requery: %s has %zu TXT records, truncating to %d",
+                         r->instance_name ? r->instance_name : "(null)",
+                         r->txt_count, BB_MDNS_CACHE_REQUERY_TXT_MAX);
+            }
+            bb_mdns_txt_t txt_view[BB_MDNS_CACHE_REQUERY_TXT_MAX] = {0};
+            size_t n = r->txt_count > BB_MDNS_CACHE_REQUERY_TXT_MAX
+                           ? BB_MDNS_CACHE_REQUERY_TXT_MAX : r->txt_count;
+            for (size_t i = 0; i < n; i++) {
+                txt_view[i].key   = (char *)r->txt[i].key;
+                txt_view[i].value = (char *)r->txt[i].value;
+            }
+            bb_mdns_cache_apply_txt(entry_buf, effective_entry_size(),
+                                    s_state.txt_fields, s_state.txt_count,
+                                    txt_view, n);
+        }
+
+        cache_upsert(key, entry_buf);
     }
 
     mdns_query_results_free(results);
@@ -168,6 +225,22 @@ bb_err_t bb_mdns_cache_start(const bb_mdns_cache_config_t *cfg)
     if (!cfg) return BB_ERR_INVALID_ARG;
     if (!cfg->service) return BB_ERR_INVALID_ARG;
     if (!cfg->proto) return BB_ERR_INVALID_ARG;
+
+    // Both guard checks live in the pure, host-testable
+    // bb_mdns_cache_validate_config() -- this call site only decides which
+    // log line to emit on failure.
+    bb_err_t verr = bb_mdns_cache_validate_config(cfg->entry_size, cfg->txt_fields,
+                                                  cfg->txt_count, BB_MDNS_CACHE_ENTRY_MAX);
+    if (verr != BB_OK) {
+        if (cfg->txt_fields && cfg->txt_count > 0 && cfg->entry_size == 0) {
+            bb_log_e(TAG, "bb_mdns_cache_start: txt_fields set but entry_size == 0");
+        } else {
+            size_t entry_size = cfg->entry_size ? cfg->entry_size : sizeof(bb_mdns_cache_entry_t);
+            bb_log_e(TAG, "bb_mdns_cache_start: entry_size %zu exceeds BB_MDNS_CACHE_ENTRY_MAX %d",
+                     entry_size, BB_MDNS_CACHE_ENTRY_MAX);
+        }
+        return verr;
+    }
 
     if (s_state.started) {
         bb_log_d(TAG, "bb_mdns_cache_start: already started");
@@ -185,6 +258,9 @@ bb_err_t bb_mdns_cache_start(const bb_mdns_cache_config_t *cfg)
     s_state.evict_age_ms = cfg->evict_age_ms ? cfg->evict_age_ms : BB_MDNS_CACHE_EVICT_AGE_MS;
     s_state.requery_period_ms = cfg->requery_period_ms ? cfg->requery_period_ms
                                                         : (BB_MDNS_CACHE_REQUERY_PERIOD_S * 1000u);
+    s_state.entry_size = cfg->entry_size;
+    s_state.txt_fields = cfg->txt_fields;
+    s_state.txt_count  = cfg->txt_count;
 
     bb_err_t err = bb_mdns_browse_start(s_state.service, s_state.proto, on_hello, on_bye, NULL);
     if (err != BB_OK) {

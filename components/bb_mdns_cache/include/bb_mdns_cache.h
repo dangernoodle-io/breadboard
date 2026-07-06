@@ -20,6 +20,8 @@
 // (bb_cache_foreach/get, already UAF-safe copy-out).
 
 #include "bb_core.h"
+#include "bb_json.h"
+#include "bb_mdns.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -51,6 +53,9 @@
 #ifdef CONFIG_BB_MDNS_CACHE_WORKER_PRIORITY
 #define BB_MDNS_CACHE_WORKER_PRIORITY CONFIG_BB_MDNS_CACHE_WORKER_PRIORITY
 #endif
+#ifdef CONFIG_BB_MDNS_CACHE_ENTRY_MAX
+#define BB_MDNS_CACHE_ENTRY_MAX CONFIG_BB_MDNS_CACHE_ENTRY_MAX
+#endif
 #endif /* ESP_PLATFORM */
 
 #ifndef BB_MDNS_CACHE_REQUERY_PERIOD_S
@@ -74,6 +79,9 @@
 #ifndef BB_MDNS_CACHE_WORKER_PRIORITY
 #define BB_MDNS_CACHE_WORKER_PRIORITY 3
 #endif
+#ifndef BB_MDNS_CACHE_ENTRY_MAX
+#define BB_MDNS_CACHE_ENTRY_MAX 192
+#endif
 
 // ---------------------------------------------------------------------------
 // Field sizes (fixed, not Kconfig-tunable -- payload-display fields only).
@@ -96,6 +104,18 @@ typedef struct {
     uint16_t port;
 } bb_mdns_cache_entry_t;
 
+// Descriptor for a single consumer TXT field to capture, const/rodata --
+// dest_offset/dest_len target a slot in the CONSUMER's own struct (NOT
+// bb_mdns_cache_entry_t). A consumer builds a `static const
+// bb_mdns_txt_field_t[]` table with offsetof()/sizeof() into its own struct
+// and hands it to bb_mdns_cache_config_t.txt_fields -- bb_mdns_cache itself
+// hardcodes no TXT keys.
+typedef struct {
+    const char *txt_key;      // TXT key to match, e.g. "board"
+    size_t      dest_offset;  // offsetof(consumer_struct_t, field)
+    size_t      dest_len;     // sizeof that field
+} bb_mdns_txt_field_t;
+
 // Configuration for bb_mdns_cache_start().
 //
 //   service           -- mDNS service label (e.g. "_miner"), required.
@@ -106,6 +126,21 @@ typedef struct {
 //   evict_age_ms      -- 0 uses the Kconfig default (BB_MDNS_CACHE_EVICT_AGE_MS).
 //   requery_period_ms -- 0 uses the Kconfig default
 //                         (BB_MDNS_CACHE_REQUERY_PERIOD_S * 1000).
+//   entry_size        -- 0 (default) uses bb_mdns_cache_entry_t (today's
+//                         identity-only shape, byte-identical back-compat
+//                         behavior). >0 stores entry_size bytes/entry in a
+//                         CONSUMER-defined struct -- that struct MUST hold
+//                         identity (hostname/ip4/port) at the SAME leading
+//                         layout as bb_mdns_cache_entry_t. Validated against
+//                         BB_MDNS_CACHE_ENTRY_MAX at start() -- see below.
+//   txt_fields        -- NULL (default) captures identity only. Non-NULL
+//                         points at a const descriptor table (rodata) naming
+//                         which TXT keys to capture and where in the
+//                         consumer's entry struct to land them. Setting this
+//                         REQUIRES entry_size > 0 (a descriptor implies a
+//                         consumer struct) -- see bb_mdns_cache_start()'s
+//                         validation.
+//   txt_count         -- number of entries in txt_fields.
 typedef struct {
     const char *service;
     const char *proto;
@@ -113,6 +148,9 @@ typedef struct {
     uint32_t    stale_age_ms;
     uint32_t    evict_age_ms;
     uint32_t    requery_period_ms;
+    size_t      entry_size;
+    const bb_mdns_txt_field_t *txt_fields;
+    size_t      txt_count;
 } bb_mdns_cache_config_t;
 
 #ifdef ESP_PLATFORM
@@ -120,6 +158,13 @@ typedef struct {
 // Subscribe to bb_mdns browse hello/bye for (service, proto) and register a
 // periodic mdns_query_ptr re-query worker. Idempotent per (service, proto).
 // Returns BB_ERR_INVALID_ARG if cfg, cfg->service, or cfg->proto is NULL.
+// Returns BB_ERR_INVALID_ARG if cfg->txt_fields/txt_count are set but
+// cfg->entry_size == 0 (a descriptor implies a consumer struct).
+// Returns BB_ERR_INVALID_ARG if the effective entry_size (cfg->entry_size,
+// or sizeof(bb_mdns_cache_entry_t) when 0) exceeds BB_MDNS_CACHE_ENTRY_MAX
+// -- fails loud rather than risking a silent stack overflow on the per-entry
+// scratch buffer. Both checks are delegated to the pure, host-testable
+// bb_mdns_cache_validate_config() below.
 bb_err_t bb_mdns_cache_start(const bb_mdns_cache_config_t *cfg);
 
 // Stop the browse subscription and the re-query worker. Does NOT delete any
@@ -146,11 +191,66 @@ bb_err_t bb_mdns_cache_stop(void);
 bb_err_t bb_mdns_cache_build_key(const char *prefix, const char *instance_name,
                                  char *out, size_t out_size);
 
+// Validate a bb_mdns_cache_config_t's entry-size/TXT-descriptor combination
+// -- the pure predicate bb_mdns_cache_start() calls before touching any
+// state. Returns BB_ERR_INVALID_ARG when txt_fields is non-NULL and
+// txt_count > 0 but entry_size == 0 (a descriptor implies a consumer
+// struct). Returns BB_ERR_INVALID_ARG when the effective entry_size
+// (entry_size, or sizeof(bb_mdns_cache_entry_t) when entry_size == 0)
+// exceeds entry_max. Returns BB_OK otherwise.
+bb_err_t bb_mdns_cache_validate_config(size_t entry_size,
+                                       const bb_mdns_txt_field_t *txt_fields,
+                                       size_t txt_count, size_t entry_max);
+
 // Predicate: is this (instance_name, ip4) pair usable for a cache entry?
 // Returns false when instance_name is NULL/empty, when ip4 is NULL/empty, or
 // when ip4 contains any character outside '0'-'9' and '.' (not a plausible
 // dotted-quad). Returns true otherwise.
 bool bb_mdns_cache_result_valid(const char *instance_name, const char *ip4);
+
+// Apply a TXT descriptor to a consumer entry buffer -- pure byte copy, no
+// locks/clock/I/O. For each descriptor field, finds the matching TXT key in
+// txt[] (first match in txt[] order wins on duplicate keys) and copies its
+// value into entry+dest_offset, bounded by dest_len and ALWAYS NUL-
+// terminated within dest_len (bb_strlcpy semantics -- truncates safely,
+// never overflows). Unlisted TXT keys are skipped. A field whose
+// [dest_offset, dest_offset+dest_len) range would exceed entry_size is
+// skipped (defensive bounds check -- bb_mdns_cache_start() also validates
+// the overall entry_size at registration time, this is a second guard on
+// the per-field range).
+// No-op when entry is NULL, entry_size == 0, fields is NULL, field_count ==
+// 0, txt is NULL, or txt_count == 0.
+void bb_mdns_cache_apply_txt(void *entry, size_t entry_size,
+                              const bb_mdns_txt_field_t *fields, size_t field_count,
+                              const bb_mdns_txt_t *txt, size_t txt_count);
+
+// Serialize the SAME descriptor walked by bb_mdns_cache_apply_txt -- mirror
+// image so the on-wire JSON and the stored struct can never drift apart.
+// Emits obj[field->txt_key] = (const char*)(entry+field->dest_offset) for
+// each field. entry_size mirrors bb_mdns_cache_apply_txt's bound: a field
+// whose [dest_offset, dest_offset+dest_len) range would exceed entry_size is
+// skipped (not read) rather than risking an OOB read on a future caller
+// with a smaller/mismatched entry buffer. No-op when obj is NULL, entry is
+// NULL, fields is NULL, or field_count == 0.
+void bb_mdns_cache_txt_serialize(bb_json_t obj, const void *entry, size_t entry_size,
+                                  const bb_mdns_txt_field_t *fields, size_t field_count);
+
+// Build-time contract check for a consumer's TXT-capture entry struct: MUST
+// hold identity (hostname/ip4/port) at the SAME leading layout as
+// bb_mdns_cache_entry_t (see bb_mdns_cache_config_t.entry_size doc above).
+// Place one invocation at file scope in the consumer's own source (NOT
+// inside bb_mdns_cache) to turn a layout drift into a build error instead of
+// a silent runtime corruption of the identity fields.
+#define BB_MDNS_CACHE_ASSERT_IDENTITY_LAYOUT(consumer_struct_t)              \
+    _Static_assert(offsetof(consumer_struct_t, hostname) ==                 \
+                       offsetof(bb_mdns_cache_entry_t, hostname),            \
+                   #consumer_struct_t ".hostname must match bb_mdns_cache_entry_t layout"); \
+    _Static_assert(offsetof(consumer_struct_t, ip4) ==                      \
+                       offsetof(bb_mdns_cache_entry_t, ip4),                 \
+                   #consumer_struct_t ".ip4 must match bb_mdns_cache_entry_t layout"); \
+    _Static_assert(offsetof(consumer_struct_t, port) ==                     \
+                       offsetof(bb_mdns_cache_entry_t, port),                \
+                   #consumer_struct_t ".port must match bb_mdns_cache_entry_t layout")
 
 #ifdef __cplusplus
 }

@@ -667,8 +667,12 @@ COMPONENT_MAP = {
     },
     "bb_mdns_cache": {
         "includes": ["components/bb_mdns_cache/include"],
-        "sources":  ["platform/host/bb_mdns_cache/bb_mdns_cache_entry.c"],
-        "depends":  ["bb_core"],
+        "sources":  [
+            "platform/host/bb_mdns_cache/bb_mdns_cache_entry.c",
+            "platform/host/bb_mdns_cache/bb_mdns_cache_txt.c",
+            "platform/host/bb_mdns_cache/bb_mdns_cache_validate.c",
+        ],
+        "depends":  ["bb_core", "bb_json", "bb_mdns", "bb_str"],
     },
     "bb_sub_mqtt": {
         "includes": ["components/bb_sub_mqtt/include"],
