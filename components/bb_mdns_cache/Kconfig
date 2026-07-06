@@ -60,6 +60,17 @@ config BB_MDNS_CACHE_WORKER_PRIORITY
     help
         FreeRTOS priority for the dedicated re-query worker task.
 
+config BB_MDNS_CACHE_ENTRY_MAX
+    int "Max per-entry scratch buffer size (bytes)"
+    default 192
+    range 32 1024
+    help
+        Compile-time cap on the local stack scratch buffer used to build a
+        cache entry before upsert. bb_mdns_cache_start() rejects
+        (BB_ERR_INVALID_ARG) any effective entry_size (cfg->entry_size, or
+        sizeof(bb_mdns_cache_entry_t) when 0) exceeding this cap -- fails
+        loud rather than risking a silent stack overflow.
+
 config BB_MDNS_CACHE_AUTOREGISTER
     bool "Auto-start bb_mdns_cache via bb_init at PRE_HTTP"
     default n
