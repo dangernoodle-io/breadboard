@@ -1789,6 +1789,100 @@ void test_bb_pub_cadence_on_change_unchanged_suppresses(void)
     TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
 }
 
+// B1-661 regression guard: bb_cache_get_serialized() envelopes every read as
+// {"ts_ms":N,"data":{...}} and re-stamps ts_ms on every owned-mode update
+// (see bb_cache.h), even when "data" is byte-identical to the prior tick.
+// The ON_CHANGE cadence gate must hash only the "data" subtree -- hashing
+// the full envelope would spuriously treat an advancing ts_ms as a content
+// change and re-publish unchanged data. Uses bb_cache_test_set_clock()
+// (BB_CACHE_TESTING, same seam as test_bb_cache_evict.c) to advance "now"
+// deterministically across ticks -- no real sleeps, no clock-pinning of the
+// tick/interval path under test.
+static uint64_t s_regress_now_ms;
+
+static uint64_t regress_fake_clock(void)
+{
+    return s_regress_now_ms;
+}
+
+void test_bb_pub_cadence_on_change_ts_advance_alone_suppresses(void)
+{
+    extern void bb_cache_test_set_clock(uint64_t (*fn)(void));
+
+    cadence_setup(BB_PUB_CADENCE_ON_CHANGE, false);
+    s_regress_now_ms = 1000000;
+    bb_cache_test_set_clock(regress_fake_clock);
+
+    // First tick: publishes (hash transition from 0).
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+
+    // Advance the envelope's ts_ms across ticks with unchanged "data" --
+    // must still suppress (this is the exact B1-661 failure mode: two ticks
+    // crossing a millisecond boundary previously hashed differently despite
+    // byte-identical data).
+    s_regress_now_ms += 1;
+    bb_pub_tick_once();
+    s_regress_now_ms += 1;
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(1, s_cadence_count);
+
+    // Sanity: a genuine data change (still with ts_ms advancing) republishes.
+    s_cadence_val = 99;
+    s_regress_now_ms += 1;
+    bb_pub_tick_once();
+    TEST_ASSERT_EQUAL_INT(2, s_cadence_count);
+
+    bb_cache_test_set_clock(NULL);
+}
+
+// Direct unit coverage of the pure envelope-data hash helper (B1-661) via
+// bb_pub_test_hash_envelope_data(), so every branch (marker-missing
+// fallback, and the trailing-data-length edge cases) is exercised without
+// contriving a real bb_cache envelope for each case.
+
+void test_bb_pub_envelope_data_hash_marker_missing_falls_back_to_whole_buffer(void)
+{
+    // No ",\"data\":" marker present -- the defensive fallback hashes the
+    // whole buffer. Verify it's deterministic and content-sensitive (proof
+    // the fallback path actually ran, not a no-op/zero hash).
+    static const char a[] = "not a bb_cache envelope at all";
+    static const char b[] = "not a bb_cache envelope at ALL";
+
+    uint64_t h1 = bb_pub_test_hash_envelope_data(a, sizeof(a) - 1);
+    uint64_t h2 = bb_pub_test_hash_envelope_data(a, sizeof(a) - 1);
+    uint64_t h3 = bb_pub_test_hash_envelope_data(b, sizeof(b) - 1);
+
+    TEST_ASSERT_EQUAL_UINT64(h1, h2);
+    TEST_ASSERT_NOT_EQUAL(h1, h3);
+}
+
+void test_bb_pub_envelope_data_hash_empty_data_after_marker(void)
+{
+    // Marker present but nothing follows it (len == prefix_len): the
+    // len > prefix_len / data_len > 0 guards both take their false arm.
+    static const char envelope[] = "{\"ts_ms\":1,\"data\":";
+
+    uint64_t h1 = bb_pub_test_hash_envelope_data(envelope, sizeof(envelope) - 1);
+    uint64_t h2 = bb_pub_test_hash_envelope_data(envelope, sizeof(envelope) - 1);
+
+    TEST_ASSERT_EQUAL_UINT64(h1, h2);
+}
+
+void test_bb_pub_envelope_data_hash_ts_ms_prefix_ignored(void)
+{
+    // Marker present with real trailing data: the len > prefix_len /
+    // data_len > 0 guards both take their true arm, and a differing ts_ms
+    // prefix with identical trailing data hashes identically.
+    static const char e1[] = "{\"ts_ms\":1,\"data\":{\"x\":1}}";
+    static const char e2[] = "{\"ts_ms\":999999,\"data\":{\"x\":1}}";
+
+    uint64_t h1 = bb_pub_test_hash_envelope_data(e1, sizeof(e1) - 1);
+    uint64_t h2 = bb_pub_test_hash_envelope_data(e2, sizeof(e2) - 1);
+
+    TEST_ASSERT_EQUAL_UINT64(h1, h2);
+}
+
 void test_bb_pub_cadence_on_change_changed_republishes(void)
 {
     cadence_setup(BB_PUB_CADENCE_ON_CHANGE, false);

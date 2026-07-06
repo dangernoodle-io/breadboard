@@ -1043,6 +1043,39 @@ static uint64_t fnv1a64(const void *data, size_t len)
     return h;
 }
 
+// bb_cache_get_serialized() always wraps the memoized "data" bytes in a fixed
+// envelope: {"ts_ms":<N>,"data":<data-bytes>} (see bb_cache.h / B1-570 PR-3).
+// ts_ms is re-stamped on every read/gather even when "data" is byte-identical,
+// so hashing the full envelope makes the ON_CHANGE cadence gate spuriously
+// "change" across a millisecond boundary (B1-661). Locate the literal
+// ,"data": marker and hash only the bytes after it, up to (but excluding) the
+// envelope's closing '}' — no JSON parsing needed since the wrapper format is
+// fixed and produced solely by bb_cache_get_serialized.
+static uint64_t fnv1a64_envelope_data(const char *envelope, size_t len)
+{
+    static const char marker[] = ",\"data\":";
+    const char *m = strstr(envelope, marker);
+    if (!m) {
+        // Defensive fallback: envelope shape changed unexpectedly; hash the
+        // whole thing rather than risk reading past the buffer.
+        return fnv1a64(envelope, len);
+    }
+    const char *data = m + (sizeof(marker) - 1);
+    size_t      prefix_len = (size_t)(data - envelope);
+    size_t      data_len   = (len > prefix_len) ? (len - prefix_len) : 0;
+    if (data_len > 0) {
+        data_len--;   /* drop the envelope's trailing '}' */
+    }
+    return fnv1a64(data, data_len);
+}
+
+#ifdef BB_PUB_TESTING
+uint64_t bb_pub_test_hash_envelope_data(const char *envelope, size_t len)
+{
+    return fnv1a64_envelope_data(envelope, len);
+}
+#endif /* BB_PUB_TESTING */
+
 // ---------------------------------------------------------------------------
 // bb_pub_deliver_to_sinks — fan a pre-serialized payload to all sinks.
 // Used by Phase 2b (telem path).  The caller has already serialized ONCE.
@@ -1810,7 +1843,7 @@ bb_err_t bb_pub_tick_once(void)
                                         te->retain, snap_sinks, snap_sink_count);
                 break;
             case BB_PUB_CADENCE_ON_CHANGE: {
-                uint64_t h = fnv1a64(S, S_len);
+                uint64_t h = fnv1a64_envelope_data(S, S_len);
                 if (h != te->last_pub_hash) {
                     int failed = bb_pub_deliver_to_sinks(full_topic, te->topic,
                                                          S, (int)S_len,
