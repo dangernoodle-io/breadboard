@@ -137,9 +137,10 @@ typedef enum {
 //                   check (see bb_cache_is_stale()). 0 means no stale
 //                   window. Ignored when policy is PINNED.
 //   evict_age_ms  — AGE_OUT only. Age at which the entry is evicted (freed)
-//                   on next read (LAZY) or the next sweep pass (SWEEP, see
-//                   bb_cache_evict_start()). Must be > 0 and > stale_age_ms
-//                   -- see bb_cache_register()'s AGE_OUT validation.
+//                   on next read (LAZY) or the next sweep pass (SWEEP
+//                   backstop -- enable via CONFIG_BB_CACHE_SWEEP_ENABLE).
+//                   Must be > 0 and > stale_age_ms -- see
+//                   bb_cache_register()'s AGE_OUT validation.
 typedef struct {
     bb_cache_evict_policy_t policy;
     uint32_t                stale_age_ms;
@@ -420,18 +421,14 @@ bb_err_t bb_cache_get_raw(const char *key, void *buf, size_t cap);
 // immediately after a LAZY/SWEEP eviction).
 bb_err_t bb_cache_is_stale(const char *key, bool *out_stale);
 
-// Start the age-out sweep backstop: a periodic background pass over every
-// AGE_OUT-policy key (bb_cache_foreach under the hood) that evicts entries
-// past evict_age_ms even when nothing reads them (LAZY eviction only fires
-// on a read). Compiled in only when BB_CACHE_SWEEP_ENABLE is set (Kconfig
-// CONFIG_BB_CACHE_SWEEP_ENABLE, default n); otherwise a zero-cost no-op so
-// callers may invoke it unconditionally. Idempotent: a second call after the
-// sweep is already running is a no-op.
-#if BB_CACHE_SWEEP_ENABLE
-void bb_cache_evict_start(void);
-#else
-static inline void bb_cache_evict_start(void) { }
-#endif
+// Age-out sweep backstop lifecycle (B1-592 lifecycle follow-up): the
+// periodic background pass over every AGE_OUT-policy key (bb_cache_foreach
+// under the hood) that evicts entries past evict_age_ms even when nothing
+// reads them (LAZY eviction only fires on a read) is started AUTOMATICALLY
+// via a bb_init PRE_HTTP hook when CONFIG_BB_CACHE_SWEEP_ENABLE=y (Kconfig,
+// default n) -- mirroring bb_pub_start(). There is no public start call:
+// the Kconfig knob is the only control (registration-gated, container-
+// invoked). See platform/espidf/bb_cache/bb_cache_espidf.c.
 
 #ifdef __cplusplus
 }

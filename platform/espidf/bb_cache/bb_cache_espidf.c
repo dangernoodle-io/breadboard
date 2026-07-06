@@ -5,6 +5,10 @@
 #endif
 
 #include "bb_cache.h"
+#if BB_CACHE_SWEEP_ENABLE
+#include "bb_init.h"
+#include "bb_timer.h"
+#endif
 #include "bb_cache_internal.h"
 #include "bb_event.h"
 #include "bb_json.h"
@@ -1133,45 +1137,126 @@ static void sweep_cb(const char *key, void *ctx)
 #endif // BB_CACHE_SWEEP_ENABLE || BB_CACHE_TESTING
 
 #if BB_CACHE_SWEEP_ENABLE
-static bool       s_sweep_started = false;
-static pthread_mutex_t s_sweep_lock = PTHREAD_MUTEX_INITIALIZER;
 
-// Background sweep loop. Runs for the process lifetime once started -- there
-// is no stop primitive (mirrors bb_cache_delete()'s SSE-topic-leak Phase-A
-// limitation: no teardown path exists for this component yet). Detached
-// thread; nothing joins it.
-static void *sweep_thread_main(void *arg)
+// Worker task stack in bytes. Tunable via CONFIG_BB_CACHE_SWEEP_WORKER_STACK
+// (Kconfig, default 8192). Sized generously (matches bb_pub's TLS-tier
+// worker stack -- see bb_pub_espidf.c) because sweep_cb()'s call chain is
+// consumer-controlled at its far end: sweep_cb -> evict_if_aged_out_locked
+// -> bb_cache_delete_if_generation -> the evict-notify hook -> (when
+// bb_cache_reactive is enabled) fire_on_remove -> an ARBITRARY
+// consumer-supplied on_remove callback. bb_cache has no way to bound that
+// last hop's stack depth, so it cannot safely run on the ESP-IDF pthread
+// default (~3072 bytes) the sweep used before this firmware-review fix.
+#ifndef BB_CACHE_SWEEP_WORKER_STACK
+#  if defined(CONFIG_BB_CACHE_SWEEP_WORKER_STACK)
+#    define BB_CACHE_SWEEP_WORKER_STACK CONFIG_BB_CACHE_SWEEP_WORKER_STACK
+#  else
+#    define BB_CACHE_SWEEP_WORKER_STACK 8192
+#  endif
+#endif
+
+// Worker task priority. Tunable via CONFIG_BB_CACHE_SWEEP_WORKER_PRIORITY
+// (Kconfig). Default 1 (lowest app priority), matching bb_pub's worker.
+#ifndef BB_CACHE_SWEEP_WORKER_PRIORITY
+#  if defined(CONFIG_BB_CACHE_SWEEP_WORKER_PRIORITY)
+#    define BB_CACHE_SWEEP_WORKER_PRIORITY CONFIG_BB_CACHE_SWEEP_WORKER_PRIORITY
+#  else
+#    define BB_CACHE_SWEEP_WORKER_PRIORITY 1
+#  endif
+#endif
+
+// Worker task core affinity. Tunable via CONFIG_BB_CACHE_SWEEP_WORKER_CORE
+// (Kconfig). Default -1 (tskNO_AFFINITY).
+#ifndef BB_CACHE_SWEEP_WORKER_CORE
+#  if defined(CONFIG_BB_CACHE_SWEEP_WORKER_CORE)
+#    define BB_CACHE_SWEEP_WORKER_CORE CONFIG_BB_CACHE_SWEEP_WORKER_CORE
+#  else
+#    define BB_CACHE_SWEEP_WORKER_CORE (-1)
+#  endif
+#endif
+
+static bb_periodic_timer_t s_sweep_timer = NULL;
+
+static void sweep_work_fn(void *arg)
 {
     (void)arg;
-    struct timespec ts;
-    for (;;) {
-        ts.tv_sec  = BB_CACHE_SWEEP_PERIOD_MS / 1000;
-        ts.tv_nsec = (long)(BB_CACHE_SWEEP_PERIOD_MS % 1000) * 1000000L;
-        nanosleep(&ts, NULL);
-        bb_cache_foreach(sweep_cb, NULL);
-    }
-    return NULL;  // LCOV_EXCL_LINE -- infinite loop above never returns
+    bb_cache_foreach(sweep_cb, NULL);
 }
 
-void bb_cache_evict_start(void)
+// bb_init PRE_HTTP lifecycle hook (B1-592 lifecycle follow-up, firmware-
+// review fix: replaces a raw pthread_create() + manual usleep() loop with
+// the house bb_timer_worker pattern -- mirrors bb_pub_start()
+// (platform/espidf/bb_pub/bb_pub_espidf.c) exactly: a dedicated worker task
+// created via bb_timer_worker_periodic_create, sized/named/prioritized
+// explicitly instead of inheriting the ESP-IDF pthread default. This file is
+// shared verbatim with the host build (see platform/host/bb_cache/
+// bb_cache_host.c); BB_CACHE_SWEEP_ENABLE is only ever nonzero under
+// ESP_PLATFORM (host never defines the CONFIG_BB_CACHE_SWEEP_ENABLE
+// Kconfig), so the outer BB_CACHE_SWEEP_ENABLE guard alone is sufficient --
+// host never links bb_init/bb_timer and never sees this block.
+//
+// Static (B1-592 lifecycle follow-up): the only caller is the bb_init
+// PRE_HTTP registration below. There is no public start call anymore -- the
+// Kconfig knob (CONFIG_BB_CACHE_SWEEP_ENABLE) is the ONLY control: it gates
+// the compile-time bb_init registration, and bb_init invokes it. See
+// bb_cache.h -- bb_cache_evict_start() is no longer declared there.
+// bb_timer_worker_periodic_create() returns bb_err_t and this fn's signature
+// already matches bb_init's PRE_HTTP tier (bb_init_init_pre_http_fn), so
+// unlike the pre-fix version there is no separate thin adapter needed.
+//
+// Idempotent via s_sweep_timer: NULL means "not started" -- on a failed
+// create, s_sweep_timer is left/reset to NULL rather than being set true
+// before the call succeeds (the firmware-review-flagged lying-state bug),
+// so a create failure is loudly logged and never silently+permanently
+// disables the sweep behind a state that claims otherwise. The existing
+// bb_cache_evict_sweep_once_for_test() (BB_CACHE_TESTING) bypasses this
+// worker entirely and calls sweep_cb's driver (bb_cache_foreach(sweep_cb,
+// NULL)) directly -- unaffected by this change.
+//
+// Host-test seam limitation: this entire block (including this function)
+// only compiles when BB_CACHE_SWEEP_ENABLE is nonzero, which requires
+// ESP_PLATFORM + CONFIG_BB_CACHE_SWEEP_ENABLE=y -- it is never compiled into
+// the host test binary at all (BB_CACHE_SWEEP_ENABLE is hard-0 off
+// ESP_PLATFORM, see bb_cache.h). There is therefore no host-reachable seam
+// to fault-inject bb_timer_worker_periodic_create()'s failure branch through
+// a BB_CACHE_TESTING hook -- unlike e.g. bb_alloc_inject seams elsewhere,
+// contorting this component to expose one would mean linking bb_timer/
+// bb_init into the host build for a code path host never runs. The
+// create-failure branch is covered by inspection only; the esp32-cache-sweep
+// smoke build is the live-link proof that this code path compiles and links
+// correctly on-device.
+static bb_err_t bb_cache_evict_start(void)
 {
+    if (s_sweep_timer) return BB_OK;  // already started (idempotent)
+
     ensure_init();
 
-    pthread_mutex_lock(&s_sweep_lock);
-    if (s_sweep_started) {
-        pthread_mutex_unlock(&s_sweep_lock);
-        return;
+    bb_timer_worker_cfg_t cfg = {
+        .stack    = BB_CACHE_SWEEP_WORKER_STACK,
+        .priority = BB_CACHE_SWEEP_WORKER_PRIORITY,
+        .core     = BB_CACHE_SWEEP_WORKER_CORE,
+    };
+    bb_err_t err = bb_timer_worker_periodic_create(sweep_work_fn, NULL, "bb_cache_evict",
+                                                    &cfg, &s_sweep_timer);
+    if (err != BB_OK) {
+        bb_log_e(TAG, "failed to create eviction sweep worker: %d", err);
+        s_sweep_timer = NULL;  // belt-and-suspenders: never leave a lying started-state
+        return err;
     }
-    s_sweep_started = true;
-    pthread_mutex_unlock(&s_sweep_lock);
 
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    pthread_t tid;
-    pthread_create(&tid, &attr, sweep_thread_main, NULL);
-    pthread_attr_destroy(&attr);
+    err = bb_timer_periodic_start(s_sweep_timer, (uint64_t)BB_CACHE_SWEEP_PERIOD_MS * 1000ULL);
+    if (err != BB_OK) {
+        bb_log_e(TAG, "failed to start eviction sweep timer: %d", err);
+        bb_timer_periodic_delete(s_sweep_timer);
+        s_sweep_timer = NULL;  // retry-able on a future call, not a lying "started" state
+        return err;
+    }
+
+    bb_log_i(TAG, "eviction sweep started; period=%d ms", BB_CACHE_SWEEP_PERIOD_MS);
+    return BB_OK;
 }
+
+BB_INIT_REGISTER_PRE_HTTP(bb_cache_evict, bb_cache_evict_start);
 #endif // BB_CACHE_SWEEP_ENABLE
 
 // ---------------------------------------------------------------------------
