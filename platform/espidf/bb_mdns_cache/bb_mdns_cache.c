@@ -6,6 +6,7 @@
 #include "bb_mdns_cache.h"
 #include "bb_mdns.h"
 #include "bb_cache.h"
+#include "bb_cache_reactive.h"
 #include "bb_json.h"
 #include "bb_timer.h"
 #include "bb_log.h"
@@ -42,7 +43,7 @@ static void entry_serialize(bb_json_t obj, const void *snap)
 
 // Register key in bb_cache (AGE_OUT policy) if not already present, then
 // copy in the entry. Called from both the hello handler and the re-query
-// worker -- bb_cache_register is idempotent, so a race between the two
+// worker -- bb_cache_reactive_register is idempotent, so a race between the two
 // contexts registering the same key concurrently is harmless.
 static void cache_upsert(const char *key, const bb_mdns_cache_entry_t *entry)
 {
@@ -59,13 +60,13 @@ static void cache_upsert(const char *key, const bb_mdns_cache_entry_t *entry)
                 .evict_age_ms = s_state.evict_age_ms,
             },
         };
-        bb_err_t err = bb_cache_register(&cfg);
+        bb_err_t err = bb_cache_reactive_register(&cfg);
         if (err != BB_OK) {
-            bb_log_w(TAG, "bb_cache_register(%s) failed: %d", key, (int)err);
+            bb_log_w(TAG, "bb_cache_reactive_register(%s) failed: %d", key, (int)err);
             return;
         }
     }
-    bb_cache_update(&(bb_cache_update_t){ .key = key, .snap = entry });
+    bb_cache_reactive_update(&(bb_cache_update_t){ .key = key, .snap = entry });
 }
 
 // Light -- no blocking, no mDNS re-entry. Runs on the bb_mdns dispatch task.
