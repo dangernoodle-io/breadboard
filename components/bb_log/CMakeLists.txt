@@ -43,3 +43,7 @@ if(CONFIG_BB_LOG_EVENT_AUTO_ATTACH)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
     bb_init_force_register(${COMPONENT_LIB} bb_log_event)
 endif()
+
+# bb_log.c is portable (guarded by #ifdef ESP_PLATFORM internally) but filed
+# under platform/espidf/ for historical reasons; the host build needs it too.
+# bbtool-scaffold-hint: source=platform/espidf/bb_log/bb_log.c

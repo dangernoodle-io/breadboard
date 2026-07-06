@@ -91,3 +91,37 @@ coverage = "https://coveralls.io/repos/github/dangernoodle-io/breadboard/badge.s
 
 [plugins]
 paths = []
+
+# --- bbtool scaffold: capability/board manifest (Phase 1, B1-663 foundation) ---
+# See scripts/bbtool/boards.py + scripts/bbtool/commands/scaffold.py.
+# `core` is `required = true` — every board gets it automatically; it is not
+# listed in any board's `capabilities`. This dogfoods scaffold on breadboard's
+# own [env:native] host test env (custom_bb_board = native in platformio.ini),
+# replacing the old scripts/native_scaffold.py hand-maintained COMPONENT_MAP.
+[capability.core]
+required = true
+components = [
+    "bb_alert", "bb_arena", "bb_arena_tls", "bb_attrs", "bb_board", "bb_button",
+    "bb_button_events", "bb_button_gpio", "bb_cache", "bb_cache_reactive",
+    "bb_cache_routes", "bb_collection", "bb_core", "bb_diag", "bb_dispatch_cmd",
+    "bb_display", "bb_display_info", "bb_event", "bb_event_ring", "bb_event_routes",
+    "bb_fan", "bb_fan_routes", "bb_filter", "bb_fmt", "bb_health", "bb_http",
+    "bb_http_client", "bb_i2c", "bb_info", "bb_init", "bb_json", "bb_kv",
+    "bb_led", "bb_led_anim", "bb_led_apa102", "bb_led_gpio", "bb_led_info",
+    "bb_led_pwm", "bb_led_rgb_pwm", "bb_log", "bb_manifest", "bb_mdns",
+    "bb_mdns_cache", "bb_mqtt", "bb_mqtt_info", "bb_mqtt_telemetry", "bb_net_health",
+    "bb_ntp", "bb_ntp_info", "bb_num", "bb_nv", "bb_openapi", "bb_ota_boot",
+    "bb_ota_check", "bb_ota_hooks", "bb_ota_pull", "bb_ota_push", "bb_ota_validator",
+    "bb_partition", "bb_pool", "bb_power", "bb_power_health", "bb_power_routes",
+    "bb_power_tps546", "bb_prov", "bb_pub", "bb_pub_fan", "bb_pub_health",
+    "bb_pub_info", "bb_pub_power", "bb_pub_rtos", "bb_pub_telemetry", "bb_pub_thermal",
+    "bb_pub_wifi", "bb_registry", "bb_release_manifest", "bb_response", "bb_ring",
+    "bb_scalar", "bb_sensors", "bb_sink_display", "bb_sink_event", "bb_sink_http",
+    "bb_sink_http_telemetry", "bb_sink_mqtt", "bb_sink_udp", "bb_sink_ws", "bb_sse_writer",
+    "bb_str", "bb_sub", "bb_sub_mqtt", "bb_system", "bb_task", "bb_task_registry",
+    "bb_telemetry", "bb_temp", "bb_thermal", "bb_timer", "bb_tls_creds", "bb_tls_info",
+    "bb_transport_health", "bb_udp_frame", "bb_wdt", "bb_websocket", "bb_wifi",
+]
+
+[board.native]
+platform = "host"

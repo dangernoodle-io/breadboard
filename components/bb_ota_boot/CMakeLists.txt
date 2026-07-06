@@ -10,3 +10,7 @@ if(CONFIG_BB_OTA_BOOT_AUTOREGISTER)
     bb_init_force_register_pre_http(${COMPONENT_LIB} bb_ota_boot)
     bb_init_force_register(${COMPONENT_LIB} bb_ota_boot)
 endif()
+
+# bb_ota_boot has no platform/host/bb_ota_boot/ — its impl is portable
+# (guarded by #ifdef ESP_PLATFORM internally); the host build needs it too.
+# bbtool-scaffold-hint: source=platform/espidf/bb_ota_boot/bb_ota_boot.c

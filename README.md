@@ -76,15 +76,26 @@ Public headers guard `esp_*.h` and `freertos/*.h` behind `#ifdef ESP_PLATFORM` s
 
 ## Host tests in downstream projects
 
-Downstream projects that host-test code linking against `bb_*` components can opt into a Python scaffold script that automates the wiring of includes, source files, and dependencies. Rather than manually managing include paths and build filters for each component, declare your dependencies once:
+Downstream projects that host-test code linking against `bb_*` components can opt into `bbtool scaffold`, a PlatformIO pre-hook that derives the build graph (includes, source files, dependencies) from a capability/board manifest instead of a hand-maintained component list. Declare a `[capability.*]` (a named group of components) and a `[board.*]` (which capabilities a board gets) in your own `bbtool.toml`, then point `custom_bb_board` at the board id in `platformio.ini`:
+
+```toml
+# bbtool.toml
+[capability.core]
+components = ["bb_log", "bb_nv", "bb_json"]
+
+[board.native]
+platform = "host"
+```
 
 ```ini
 [env:native]
-extra_scripts = pre:.breadboard/scripts/native_scaffold.py
-custom_bb_components = bb_log bb_nv bb_json
+extra_scripts = pre:.breadboard/scripts/bbtool_pio.py
+custom_bb_board = native
 ```
 
-The scaffold resolves absolute paths to breadboard sources, handles cJSON lib_dep automatically if `bb_json` is listed, and skips de-duplication if a path is already present. Unknown component names cause the build to fail with a clear error. See `COMPONENT_MAP` in the script for the full list of supported components.
+This repo dogfoods the same wiring for its own host tests — see `[capability.core]`/`[board.native]` in this repo's `bbtool.toml` and `[env:native]` in `platformio.ini`. The pre-hook resolves each active component's includes/sources/deps from its own `CMakeLists.txt` (`REQUIRES`/`PRIV_REQUIRES`) plus the `components/<name>/` + `platform/<backend>/<name>/` directory convention, handles cJSON's `lib_dep` automatically when `bb_json` is active, and is idempotent — safe to run the pre-hook more than once without duplicating flags or filters. An unknown capability, board, or component name fails the build with a clear error.
+
+Run `bbtool scaffold gen --board <id>` to inspect the resolved build graph (components, includes, sources, `-DBB_CAP_*` flags) without invoking PlatformIO.
 
 ## Development
 
