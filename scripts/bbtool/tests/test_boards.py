@@ -1,0 +1,315 @@
+"""boards.py tests: capability/board resolve, component-graph derivation,
+transitive BFS, and manifest validation — over synthetic CMakeLists.txt +
+directory-tree fixtures (never the real breadboard component tree)."""
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from boards import (
+    ManifestError,
+    build_graph,
+    derive_component,
+    discover_components,
+    load_manifest,
+    resolve_active_capabilities,
+    resolve_component_names,
+    resolve_transitive,
+)
+
+
+def _write(path: Path, content: str = "") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _make_component(root: Path, name: str, cmake_body: str = "idf_component_register()\n",
+                     include_header: bool = True, src_files=None, flat_files=None) -> None:
+    """Synthetic components/<name>/ fixture."""
+    comp = root / "components" / name
+    _write(comp / "CMakeLists.txt", cmake_body)
+    if include_header:
+        _write(comp / "include" / f"{name}.h", "#pragma once\n")
+    for f in (src_files or []):
+        _write(comp / "src" / f, "// src\n")
+    for f in (flat_files or []):
+        _write(comp / f, "// flat\n")
+
+
+def _make_platform(root: Path, layer: str, name: str, files=None, under_include: bool = False) -> None:
+    base = root / "platform" / layer / name
+    for f in (files or []):
+        if under_include:
+            _write(base / "include" / f, "// hdr\n")
+        else:
+            _write(base / f, "// impl\n")
+
+
+class TestManifestLoad(unittest.TestCase):
+    def test_load_manifest_splits_capability_and_board(self):
+        config = {
+            "capability": {"core": {"required": True}, "psram": {}},
+            "board": {"native": {"platform": "host"}},
+        }
+        caps, boards = load_manifest(config)
+        self.assertEqual(set(caps), {"core", "psram"})
+        self.assertEqual(set(boards), {"native"})
+
+    def test_load_manifest_empty_config(self):
+        caps, boards = load_manifest({})
+        self.assertEqual(caps, {})
+        self.assertEqual(boards, {})
+
+
+class TestResolveActiveCapabilities(unittest.TestCase):
+    def setUp(self):
+        self.capabilities = {
+            "core": {"required": True, "components": ["bb_core"]},
+            "psram": {"sdkconfig": {"CONFIG_SPIRAM": "y"}},
+            "asic": {"add_components": ["asic_bm1370"]},
+        }
+        self.boards = {
+            "bitaxe": {"platform": "espidf", "capabilities": ["psram", "asic"]},
+            "cyd": {"platform": "espidf", "capabilities": []},
+        }
+
+    def test_required_union_listed(self):
+        active = resolve_active_capabilities("bitaxe", self.boards, self.capabilities)
+        self.assertEqual(active, ["asic", "core", "psram"])
+
+    def test_required_always_included_even_when_not_listed(self):
+        active = resolve_active_capabilities("cyd", self.boards, self.capabilities)
+        self.assertEqual(active, ["core"])
+
+    def test_unknown_board_raises(self):
+        with self.assertRaises(ManifestError):
+            resolve_active_capabilities("nope", self.boards, self.capabilities)
+
+    def test_unknown_capability_in_board_list_raises(self):
+        boards = {"bad": {"capabilities": ["typo_cap"]}}
+        with self.assertRaises(ManifestError):
+            resolve_active_capabilities("bad", boards, self.capabilities)
+
+
+class TestResolveComponentNames(unittest.TestCase):
+    def test_union_add_remove(self):
+        capabilities = {
+            "core": {"required": True, "components": ["bb_core", "bb_log"]},
+            "display": {"add_components": ["bb_display"]},
+        }
+        boards = {
+            "cyd": {
+                "capabilities": ["display"],
+                "add_components": ["bb_extra"],
+                "remove_components": ["bb_log"],
+            }
+        }
+        names = resolve_component_names("cyd", boards, capabilities)
+        self.assertEqual(names, ["bb_core", "bb_display", "bb_extra"])
+
+    def test_required_only_board_gets_core_components(self):
+        capabilities = {"core": {"required": True, "components": ["bb_core", "bb_str"]}}
+        boards = {"native": {}}
+        names = resolve_component_names("native", boards, capabilities)
+        self.assertEqual(names, ["bb_core", "bb_str"])
+
+
+class TestDiscoverComponents(unittest.TestCase):
+    def test_discovers_components_and_platform_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_core")
+            _make_platform(root, "host", "bb_core", files=["bb_core.c"])
+            _make_platform(root, "espidf", "bb_only_platform", files=["x.c"])
+            universe = discover_components(str(root))
+            self.assertEqual(universe, {"bb_core", "bb_only_platform"})
+
+    def test_empty_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(discover_components(tmp), set())
+
+
+class TestDeriveComponent(unittest.TestCase):
+    def test_include_src_and_platform_layer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(
+                root, "bb_foo",
+                cmake_body="idf_component_register(REQUIRES bb_core PRIV_REQUIRES bb_log)\n",
+                src_files=["bb_foo_a.c", "bb_foo_b.c"],
+            )
+            _make_platform(root, "host", "bb_foo", files=["bb_foo_host.c"])
+            entry = derive_component(str(root), "bb_foo", "host")
+            self.assertEqual(entry["depends"], ["bb_core", "bb_log"])
+            self.assertIn("components/bb_foo/include", entry["includes"])
+            self.assertIn("components/bb_foo/src", entry["includes"])
+            self.assertIn("platform/host/bb_foo", entry["includes"])
+            self.assertEqual(
+                sorted(entry["sources"]),
+                sorted([
+                    "components/bb_foo/src/bb_foo_a.c",
+                    "components/bb_foo/src/bb_foo_b.c",
+                    "platform/host/bb_foo/bb_foo_host.c",
+                ]),
+            )
+
+    def test_flat_layout_no_src_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_diag", flat_files=["bb_diag_a.c"])
+            entry = derive_component(str(root), "bb_diag", "host")
+            self.assertIn("components/bb_diag", entry["includes"])
+            self.assertEqual(entry["sources"], ["components/bb_diag/bb_diag_a.c"])
+
+    def test_platform_layer_with_include_subdir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(root, "bb_bar")
+            _make_platform(root, "espidf", "bb_bar", files=["bb_bar.c"], under_include=False)
+            (root / "platform" / "espidf" / "bb_bar" / "include").mkdir(parents=True)
+            entry = derive_component(str(root), "bb_bar", "espidf")
+            self.assertIn("platform/espidf/bb_bar/include", entry["includes"])
+
+    def test_test_subtree_excluded_from_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            comp = root / "components" / "bb_foo"
+            _write(comp / "CMakeLists.txt", "idf_component_register()\n")
+            _write(comp / "src" / "bb_foo.c", "// real\n")
+            _write(comp / "src" / "test" / "test_bb_foo.c", "// test only\n")
+            entry = derive_component(str(root), "bb_foo", "host")
+            self.assertEqual(entry["sources"], ["components/bb_foo/src/bb_foo.c"])
+
+    def test_scaffold_hint_adds_residual_include_and_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cmake = (
+                "idf_component_register(REQUIRES bb_core)\n"
+                "# bbtool-scaffold-hint: include=components/bb_foo/legacy\n"
+                "# bbtool-scaffold-hint: source=components/bb_foo/legacy/shim.c\n"
+            )
+            _make_component(root, "bb_foo", cmake_body=cmake)
+            entry = derive_component(str(root), "bb_foo", "host")
+            self.assertIn("components/bb_foo/legacy", entry["includes"])
+            self.assertIn("components/bb_foo/legacy/shim.c", entry["sources"])
+
+    def test_no_cmakelists_yields_empty_depends(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "components" / "bb_bare" / "include").mkdir(parents=True)
+            entry = derive_component(str(root), "bb_bare", "host")
+            self.assertEqual(entry["depends"], [])
+
+
+class TestResolveTransitive(unittest.TestCase):
+    def test_dependency_before_dependent_order(self):
+        graph = {
+            "a": {"depends": ["b"]},
+            "b": {"depends": ["c"]},
+            "c": {"depends": []},
+        }
+        order = resolve_transitive(["a"], graph, universe={"a", "b", "c"})
+        self.assertEqual(order, ["c", "b", "a"])
+
+    def test_cycle_tolerated(self):
+        graph = {
+            "a": {"depends": ["b"]},
+            "b": {"depends": ["a"]},
+        }
+        order = resolve_transitive(["a"], graph, universe={"a", "b"})
+        self.assertEqual(set(order), {"a", "b"})
+        self.assertEqual(len(order), 2)
+
+    def test_unknown_dependency_silently_filtered(self):
+        # A depend name outside the universe (e.g. an ESP-IDF SDK component
+        # like esp_timer) is not a manifest typo — it's just not
+        # scaffold-resolvable, so it's skipped rather than erroring.
+        graph = {"a": {"depends": ["esp_timer"]}}
+        order = resolve_transitive(["a"], graph, universe={"a"})
+        self.assertEqual(order, ["a"])
+
+    def test_unknown_requested_raises(self):
+        with self.assertRaises(ManifestError):
+            resolve_transitive(["ghost"], {}, universe=set())
+
+
+class TestBuildGraph(unittest.TestCase):
+    def _fixture_root(self, tmp: str) -> Path:
+        root = Path(tmp)
+        _make_component(root, "bb_core")
+        _make_platform(root, "host", "bb_core", files=["bb_core.c"])
+        _make_component(
+            root, "bb_log",
+            cmake_body="idf_component_register(REQUIRES bb_core)\n",
+        )
+        _make_platform(root, "host", "bb_log", files=["bb_log.c"])
+        _make_component(
+            root, "bb_display",
+            cmake_body="idf_component_register(PRIV_REQUIRES bb_log)\n",
+        )
+        _make_platform(root, "host", "bb_display", files=["bb_display.c"])
+        return root
+
+    def test_full_resolution_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_root(tmp)
+            config = {
+                "capability": {
+                    "core": {"required": True, "components": ["bb_core", "bb_log"]},
+                    "display": {"add_components": ["bb_display"]},
+                },
+                "board": {"cyd": {"platform": "host", "capabilities": ["display"]}},
+            }
+            graph = build_graph(str(root), "cyd", config)
+            self.assertEqual(graph["capabilities"], ["core", "display"])
+            self.assertEqual(graph["order"], ["bb_core", "bb_log", "bb_display"])
+            self.assertEqual(graph["components"]["bb_display"]["depends"], ["bb_log"])
+
+    def test_unknown_board_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_root(tmp)
+            with self.assertRaises(ManifestError):
+                build_graph(str(root), "ghost", {"board": {}, "capability": {}})
+
+    def test_manifest_component_typo_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_root(tmp)
+            config = {
+                "capability": {"core": {"required": True, "components": ["bb_core", "bb_typo"]}},
+                "board": {"native": {"platform": "host"}},
+            }
+            with self.assertRaises(ManifestError):
+                build_graph(str(root), "native", config)
+
+    def test_external_sdk_depends_filtered_out(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_root(tmp)
+            _make_component(
+                root, "bb_needs_sdk",
+                cmake_body="idf_component_register(PRIV_REQUIRES bb_core esp_timer)\n",
+            )
+            config = {
+                "capability": {"core": {"required": True, "components": ["bb_needs_sdk"]}},
+                "board": {"native": {"platform": "host"}},
+            }
+            graph = build_graph(str(root), "native", config)
+            self.assertEqual(graph["components"]["bb_needs_sdk"]["depends"], ["bb_core"])
+            self.assertNotIn("esp_timer", graph["components"])
+
+    def test_deterministic_across_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_root(tmp)
+            config = {
+                "capability": {"core": {"required": True, "components": ["bb_core", "bb_log", "bb_display"]}},
+                "board": {"native": {"platform": "host"}},
+            }
+            g1 = build_graph(str(root), "native", config)
+            g2 = build_graph(str(root), "native", config)
+            self.assertEqual(g1, g2)
+
+
+if __name__ == "__main__":
+    unittest.main()

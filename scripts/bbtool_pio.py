@@ -2,11 +2,17 @@
 bbtool_pio.py — breadboard's canonical PlatformIO pre-script hook.
 
 Handles firmware version header generation for breadboard consumers, delegating
-to bbtool.commands.version. Wire it up in your platformio.ini:
+to bbtool.commands.version. Also runs the `scaffold` command's PIO hook when
+the consumer declares a `custom_bb_board` project option — deriving the
+component build graph from the `[capability.*]`/`[board.*]` manifest in
+bbtool.toml instead of native_scaffold.py's hand-maintained COMPONENT_MAP.
+Wire it up in your platformio.ini:
 
   extra_scripts = pre:.breadboard/scripts/bbtool_pio.py
+  custom_bb_board = <board id from [board.<id>] in bbtool.toml>
 
-Logic lives in scripts/bbtool/commands/version.py.
+Logic lives in scripts/bbtool/commands/version.py and
+scripts/bbtool/commands/scaffold.py.
 """
 import inspect
 import os
@@ -35,5 +41,15 @@ else:
     try:
         Import("env")  # noqa: F821
         pio_main(env)  # noqa: F821
+
+        board = env.GetProjectOption("custom_bb_board", "")  # noqa: F821
+        if board.strip():
+            from core import load_config
+            from commands.scaffold import pio_main as scaffold_pio_main
+
+            # breadboard repo root = scripts/bbtool_pio.py -> .. = repo root.
+            bb_root = os.path.abspath(os.path.join(_THIS_DIR, ".."))
+            config = load_config(None, bb_root)
+            scaffold_pio_main(env, bb_root, board.strip(), config)  # noqa: F821
     except NameError:
         pass

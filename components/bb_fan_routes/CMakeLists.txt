@@ -8,3 +8,9 @@ if(CONFIG_BB_FAN_ROUTES_AUTOREGISTER)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
     bb_init_force_register(${COMPONENT_LIB} bb_fan_routes)
 endif()
+
+# test/test_host/test_emc2101_decode.c exercises bb_fan_emc2101's pure decode
+# header directly; bb_fan_emc2101 itself is an ESP-IDF-only I2C driver (no
+# platform/host backend) so it's never a requested scaffold component, but
+# its decode header must still be on the host test include path.
+# bbtool-scaffold-hint: include=components/bb_fan_emc2101/include

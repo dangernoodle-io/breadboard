@@ -10,3 +10,8 @@ if(CONFIG_BB_OTA_PULL_AUTOREGISTER)
     bb_init_force_register_pre_http(${COMPONENT_LIB} bb_ota_pull)
     bb_init_force_register(${COMPONENT_LIB} bb_ota_pull)
 endif()
+
+# bb_ota_pull.c is portable (guarded by #ifdef ESP_PLATFORM internally) but
+# filed under platform/espidf/ only (platform/host/bb_ota_pull/ holds just a
+# test-hook header); the host build needs it too.
+# bbtool-scaffold-hint: source=platform/espidf/bb_ota_pull/bb_ota_pull.c

@@ -29,3 +29,11 @@ if(CONFIG_BB_NV_FACTORY_RESET_AUTOREGISTER)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
     bb_init_force_register(${COMPONENT_LIB} bb_nv_factory_reset_routes)
 endif()
+
+# bb_nv has no platform/host/bb_nv/ — its core impl + routes are portable
+# (guarded by #ifdef ESP_PLATFORM internally) but filed under platform/espidf/
+# only; the host build needs them (and the private headers colocated there).
+# bbtool-scaffold-hint: source=platform/espidf/bb_nv/bb_nv.c
+# bbtool-scaffold-hint: source=platform/espidf/bb_nv/bb_nv_routes.c
+# bbtool-scaffold-hint: source=platform/espidf/bb_nv/bb_nv_delete_routes.c
+# bbtool-scaffold-hint: include=platform/espidf/bb_nv

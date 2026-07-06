@@ -52,82 +52,18 @@ from typing import Callable, Dict, List, Optional, Tuple
 from core import Context
 from registry import Rule
 from templating import render, find_dangling_tokens
+from cmake_parse import (
+    parse_requires as _parse_requires,
+    strip_cmake_comments as _strip_cmake_comments,
+)
 
 NAME = "docs"
 HELP = "Regenerate generated marker regions in component READMEs"
 
 # ---------------------------------------------------------------------------
-# CMakeLists.txt REQUIRES / PRIV_REQUIRES parsing
+# CMakeLists.txt REQUIRES / PRIV_REQUIRES parsing — lifted to cmake_parse.py
+# (shared with boards.py's build-graph derivation); imported above.
 # ---------------------------------------------------------------------------
-
-_CMAKE_ARG_KEYWORDS = frozenset({
-    "SRCS", "SRC_DIRS", "EXCLUDE_SRCS", "INCLUDE_DIRS", "PRIV_INCLUDE_DIRS",
-    "REQUIRES", "PRIV_REQUIRES", "LDFRAGMENTS", "EMBED_FILES", "EMBED_TXTFILES",
-    "KCONFIG", "KCONFIG_PROJBUILD", "WHOLE_ARCHIVE",
-})
-
-
-def _strip_cmake_line_comment(line: str) -> str:
-    """Strip a CMake `#`-to-end-of-line comment from a single physical line.
-    Defensive against `#` inside a quoted string (not observed in practice,
-    but tracked so a stray `#` in a quoted arg isn't mistaken for a comment)."""
-    out = []
-    in_quotes = False
-    for c in line:
-        if c == '"':
-            in_quotes = not in_quotes
-            out.append(c)
-        elif c == '#' and not in_quotes:
-            break
-        else:
-            out.append(c)
-    return "".join(out)
-
-
-def _strip_cmake_comments(cmake_text: str) -> str:
-    """Strip `#`-to-end-of-line comments from every physical line."""
-    return "\n".join(_strip_cmake_line_comment(line) for line in cmake_text.splitlines())
-
-
-def _parse_requires(cmake_text: str) -> Tuple[List[str], List[str]]:
-    """Parse REQUIRES / PRIV_REQUIRES args out of an idf_component_register(...)
-    call. Returns (requires, priv_requires) — sorted, de-duplicated lists."""
-    cmake_text = _strip_cmake_comments(cmake_text)
-    m = re.search(r'idf_component_register\s*\(', cmake_text)
-    if not m:
-        return [], []
-    start = cmake_text.index('(', m.start())
-    depth = 0
-    end = -1
-    for i in range(start, len(cmake_text)):
-        c = cmake_text[i]
-        if c == '(':
-            depth += 1
-        elif c == ')':
-            depth -= 1
-            if depth == 0:
-                end = i
-                break
-    if end == -1:
-        return [], []
-
-    block = cmake_text[start + 1:end]
-    tokens = block.split()
-
-    requires: set = set()
-    priv_requires: set = set()
-    current = None
-    for tok in tokens:
-        if tok in _CMAKE_ARG_KEYWORDS:
-            current = tok
-            continue
-        clean = tok.strip('"')
-        if current == "REQUIRES":
-            requires.add(clean)
-        elif current == "PRIV_REQUIRES":
-            priv_requires.add(clean)
-
-    return sorted(requires), sorted(priv_requires)
 
 
 def _render_deps(requires: List[str], priv_requires: List[str]) -> str:
@@ -218,7 +154,7 @@ def _gen_component_readme(root: Path, name: str) -> Tuple[Path, bool]:
 
     cmake_path = root / "components" / name / "CMakeLists.txt"
     cmake_text = cmake_path.read_text(encoding="utf-8") if cmake_path.is_file() else ""
-    requires, priv_requires = _parse_requires(cmake_text)
+    requires, priv_requires = _parse_requires(cmake_text, component=name)
     matrix = _platform_matrix(root, name)
 
     generators: Dict[str, Callable[[], str]] = {
