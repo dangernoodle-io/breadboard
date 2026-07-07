@@ -16,8 +16,12 @@ config BB_HTTP_AUTOSTART
     bool "Auto-start HTTP server from bb_init_init()"
     default y
     help
-        When enabled, bb_init_init() calls bb_http_server_start() automatically
-        after the PRE_HTTP tier and before the regular route-registration tier.
+        When enabled, bb_http_server self-registers a PRE_HTTP-tier hook
+        (ordered last) that calls bb_http_server_start() automatically, after
+        every other PRE_HTTP entry and before the REGULAR route-registration
+        tier. bb_init itself has no knowledge of bb_http_server (KB #692) --
+        this is bb_http_server wiring itself into the shared lifecycle, not
+        bb_init calling out to it.
         Disable if the application manages server startup itself (e.g. after CORS
         or OpenAPI configuration that must precede server start).
 

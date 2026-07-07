@@ -5,6 +5,7 @@
 
 #if defined(CONFIG_BB_LED_INFO_AUTOREGISTER) && CONFIG_BB_LED_INFO_AUTOREGISTER
 #include "bb_init.h"
+#include "bb_http_server.h"
 #endif
 
 /* JSON-Schema value for the "led" section. */

@@ -5,6 +5,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_init.h"
+#include "bb_http_server.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>

@@ -2,7 +2,7 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_fan_routes/bb_fan_routes.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_fan bb_core bb_json
-    PRIV_REQUIRES bb_log bb_init)
+    PRIV_REQUIRES bb_log bb_init bb_http_server)
 
 if(CONFIG_BB_FAN_ROUTES_AUTOREGISTER)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")

@@ -1735,6 +1735,10 @@ void test_bb_board_heap_internal_minimum_ever_callable(void);
 void test_bb_board_dram_static_bytes_callable(void);
 void test_bb_board_dram_static_bytes_returns_zero_on_host(void);
 
+// Forward declarations from test_bb_meminfo.c
+void test_bb_meminfo_get_rejects_null(void);
+void test_bb_meminfo_get_host_zeroes_snapshot(void);
+
 // Forward declarations from test_bb_health.c
 void test_bb_health_register_section_null_name_returns_err(void);
 void test_bb_health_register_section_null_get_returns_err(void);
@@ -6527,6 +6531,10 @@ int main(void) {
     RUN_TEST(test_bb_board_heap_internal_minimum_ever_callable);
     RUN_TEST(test_bb_board_dram_static_bytes_callable);
     RUN_TEST(test_bb_board_dram_static_bytes_returns_zero_on_host);
+
+    // bb_meminfo tests
+    RUN_TEST(test_bb_meminfo_get_rejects_null);
+    RUN_TEST(test_bb_meminfo_get_host_zeroes_snapshot);
 
     // bb_health tests
     RUN_TEST(test_bb_health_register_section_null_name_returns_err);

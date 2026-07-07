@@ -840,6 +840,14 @@ void test_bb_init_init_regular_second_error_does_not_overwrite_first(void)
     bb_init_clear();
     s_init_call_count = 0;
 
+    // Isolate from the PRE_HTTP tier: bb_init_init() delegates to
+    // bb_init_init_pre_http() (KB #692), so a dirty/leftover PRE_HTTP
+    // registry from a prior test could set first_error before the regular
+    // walk below even runs, masking the "second regular-tier error does not
+    // overwrite first" branch this test targets.
+    bb_init_clear_pre_http();
+    TEST_ASSERT_EQUAL(BB_OK, bb_init_init_pre_http()); // walked+empty -> no-op on the delegated call inside bb_init_init()
+
     bb_init_entry_t e1 = { .name = "e1", .init = fake_init_3_error };
     bb_init_entry_t e2 = { .name = "e2", .init = fake_init_5_error };
 

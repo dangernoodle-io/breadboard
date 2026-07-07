@@ -4,7 +4,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_ota_hooks/bb_ota_led.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_log bb_event bb_event_routes bb_openapi bb_init
+    PRIV_REQUIRES bb_log bb_event bb_event_routes bb_openapi bb_init bb_http_server
 )
 
 if(CONFIG_BB_OTA_HOOKS_AUTOREGISTER)

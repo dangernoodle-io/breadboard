@@ -4,6 +4,7 @@
 #include "bb_nv.h"
 #include "bb_log.h"
 #include "bb_init.h"
+#include "bb_http_server.h"
 #include "bb_transport_health.h"
 
 #include <stdio.h>

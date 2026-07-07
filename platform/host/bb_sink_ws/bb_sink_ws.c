@@ -455,7 +455,7 @@ void bb_sink_ws_resume(void)
 // (B) ESP-only reachability: log_event_cb is only ever invoked by bb_event
 // as the subscriber callback for the "log" topic, registered in
 // bb_sink_ws_init() via bb_event_topic_lookup("log", ...). That topic is
-// registered exclusively by platform/espidf/bb_log/bb_log_event.c, which is
+// registered exclusively by platform/espidf/bb_log_event/bb_log_event.c, which is
 // compiled only under ESP_PLATFORM — on host there is no "log" topic to
 // subscribe to, so this callback body never runs. Host tests exercise the
 // equivalent broadcast behavior via the host-only test-injection helper
@@ -625,7 +625,7 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
 
     // Subscribe to the "log" bb_event topic (registered by bb_log_event at order 4).
     // (B) ESP-only reachability: the "log" topic is registered exclusively
-    // by platform/espidf/bb_log/bb_log_event.c (ESP_PLATFORM only) — on host
+    // by platform/espidf/bb_log_event/bb_log_event.c (ESP_PLATFORM only) — on host
     // the lookup always misses and the subscribe branch below never runs.
     // See the matching invariant comment on log_event_cb above.
     bb_event_topic_t lt;

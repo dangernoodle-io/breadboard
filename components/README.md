@@ -66,9 +66,12 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_led_pwm](./bb_led_pwm/) | — |
 | [bb_led_rgb_pwm](./bb_led_rgb_pwm/) | — |
 | [bb_log](./bb_log/) | — |
+| [bb_log_event](./bb_log_event/) | "log" `bb_event` stream topic sink, carved out of `bb_log` (KB #708/#704). |
+| [bb_log_http](./bb_log_http/) | GET/POST `/api/log/level` routes sink, carved out of `bb_log` (KB #708/#704). |
 | [bb_manifest](./bb_manifest/) | — |
 | [bb_mdns](./bb_mdns/) | — |
 | [bb_mdns_cache](./bb_mdns_cache/) | — |
+| [bb_meminfo](./bb_meminfo/) | Canonical system-heap reader SSOT (KB #698/#699/#693) — the one component that |
 | [bb_mqtt_client](./bb_mqtt_client/) | — |
 | [bb_mqtt_info](./bb_mqtt_info/) | — |
 | [bb_mqtt_telemetry](./bb_mqtt_telemetry/) | — |

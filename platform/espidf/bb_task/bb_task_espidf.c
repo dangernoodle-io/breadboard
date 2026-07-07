@@ -3,12 +3,9 @@
 // FreeRTOS glue only; the resolver + base ops it calls are the
 // coverage-gated pure code in components/bb_task/src/bb_task_common.c).
 #include "bb_task.h"
-#include "bb_log.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
-static const char *TAG = "bb_task";
 
 bb_err_t bb_task_create(const bb_task_config_t *cfg, void **out_handle)
 {
@@ -63,7 +60,9 @@ bb_err_t bb_task_create(const bb_task_config_t *cfg, void **out_handle)
     }
 
     if (ok != pdPASS || !handle) {
-        bb_log_e(TAG, "task create failed for '%s'", cfg->name ? cfg->name : "?");
+        // Silent -- bb_task is a floor-safe primitive with no bb_log
+        // dependency (would form a component cycle: bb_log's writer task
+        // creates via bb_task_create()). Caller already gets BB_ERR_NO_MEM.
         return BB_ERR_NO_MEM;
     }
 
@@ -72,11 +71,9 @@ bb_err_t bb_task_create(const bb_task_config_t *cfg, void **out_handle)
     // these two locals distinct rather than passing `depth` into the
     // registry, which would ship a cross-platform unit split with host
     // (see platform/host/bb_task/bb_task_host.c, which already passes bytes).
-    bb_err_t upsert_err = bb_task_base_upsert(handle, cfg->name,
-                                               resolved.stack_bytes, cfg->wdt_arm);
-    if (upsert_err != BB_OK) {
-        bb_log_w(TAG, "base upsert failed for '%s': %d", cfg->name, (int)upsert_err);
-    }
+    // Base upsert failure is silent for the same reason (no bb_log dep) --
+    // best-effort diagnostics only, task creation itself already succeeded.
+    (void)bb_task_base_upsert(handle, cfg->name, resolved.stack_bytes, cfg->wdt_arm);
 
     if (out_handle) {
         *out_handle = handle;

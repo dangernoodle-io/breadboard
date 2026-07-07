@@ -1,5 +1,5 @@
 #include "unity.h"
-#include "../../platform/host/bb_log/bb_log_event_parse.h"
+#include "../../platform/host/bb_log_event/bb_log_event_parse.h"
 #include <string.h>
 #include <stdint.h>
 

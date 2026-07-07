@@ -9,12 +9,14 @@
 #include "esp_event.h"
 #include "bb_log.h"
 #include "bb_nv.h"
+#include "bb_init.h"
 #include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <assert.h>
 #include <sys/socket.h>
 #include "lwip/sockets.h"
 #include "sdkconfig.h"
@@ -362,6 +364,59 @@ bb_http_handle_t bb_http_server_get_handle(void)
 {
     return (bb_http_handle_t)s_server;
 }
+
+// ============================================================================
+// bb_init self-registration (KB #692 decoupling)
+// ============================================================================
+//
+// bb_init no longer knows bb_http_server exists. Anything that used to live
+// in bb_init_init() and referenced the HTTP server now self-registers HERE
+// instead:
+//
+//   1. HTTP autostart, PRE_HTTP-tier, ordered last (100) so it runs after
+//      every other PRE_HTTP hook (route-count reservations etc., all
+//      registered at the default order=0) but before the REGULAR-tier walk
+//      that registers routes against the now-running server.
+//   2. The route-registry-cap audit, REGULAR-tier, ordered last (1000) so it
+//      runs after every real route registration.
+
+#if defined(CONFIG_BB_HTTP_AUTOSTART) && CONFIG_BB_HTTP_AUTOSTART
+static bb_err_t bb_http_autostart_init(void)
+{
+    if (bb_http_server_get_handle()) {
+        return BB_OK;
+    }
+    esp_err_t err = bb_http_server_start();
+    return (err == ESP_OK) ? BB_OK : BB_ERR_INVALID_STATE;
+}
+BB_INIT_REGISTER_PRE_HTTP_N(bb_http_autostart, bb_http_autostart_init, 100);
+#endif
+
+// Strict registry-cap audit: after all routes are registered, check whether
+// the route descriptor registry overflowed. A high-watermark warning fires
+// at count >= CAP-8 so developers notice before hitting the hard cap.
+// CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT (default y) elevates overflow to a
+// fatal assert so miscounted reserve declarations surface at boot rather than
+// silently dropping route descriptors from the OpenAPI / introspection registry.
+static bb_err_t bb_http_route_audit_init(bb_http_handle_t server)
+{
+    (void)server;
+
+    size_t reg_count = bb_http_route_registry_count();
+    size_t cap = (size_t)CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP;
+    if (reg_count >= cap) {
+        bb_log_e(TAG, "route registry FULL: %zu/%zu descriptors registered — increase BB_HTTP_ROUTE_REGISTRY_CAP",
+                 reg_count, cap);
+#if defined(CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT) && CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT
+        assert(reg_count < cap && "route registry overflow — increase BB_HTTP_ROUTE_REGISTRY_CAP");
+#endif
+    } else if (reg_count + 8 >= cap) {
+        bb_log_w(TAG, "route registry high-watermark: %zu/%zu descriptors — consider raising BB_HTTP_ROUTE_REGISTRY_CAP",
+                 reg_count, cap);
+    }
+    return BB_OK;
+}
+BB_INIT_REGISTER_N(bb_http_route_audit, bb_http_route_audit_init, 1000);
 
 // ============================================================================
 // PORTABLE API IMPLEMENTATIONS

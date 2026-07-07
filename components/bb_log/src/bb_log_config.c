@@ -84,14 +84,3 @@ bb_err_t bb_log_config_init(void)
 {
     return bb_log_config_apply(BB_LOG_DEFAULT_LEVEL_STR, BB_LOG_LEVELS_STR);
 }
-
-// EARLY-tier self-registration, mirroring bb_log_stream's shape
-// (platform/espidf/bb_log/bb_log.c): the .c-level constructor guard and the
-// CMakeLists.txt bb_init_force_register_early() call must both be gated on
-// the same Kconfig symbol so the .o is fully dropped when disabled.
-#ifdef ESP_PLATFORM
-#include "bb_init.h"
-#if CONFIG_BB_LOG_CONFIG_AUTOREGISTER
-BB_INIT_REGISTER_EARLY(bb_log_config, bb_log_config_init);
-#endif
-#endif

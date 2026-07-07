@@ -1,4 +1,5 @@
 #include "bb_board.h"
+#include "bb_meminfo.h"
 #include "bb_str.h"
 
 #include <string.h>
@@ -84,34 +85,50 @@ bb_err_t bb_board_get_reset_reason(char *out, size_t out_size)
     return BB_OK;
 }
 
+// bb_board_heap_* / bb_board_psram_* / bb_board_rtc_* / bb_board_dram_static_bytes
+// delegate to bb_meminfo, matching the espidf backend's delegation (SSOT,
+// KB #698/#699/#693). bb_meminfo's host stub zeros every field, so behavior
+// is unchanged.
 size_t bb_board_heap_free_total(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.default_region.free;
 }
 
 size_t bb_board_heap_free_internal(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.internal.free;
 }
 
 size_t bb_board_heap_minimum_ever(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.default_region.min_ever_free;
 }
 
 size_t bb_board_heap_internal_minimum_ever(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.internal.min_ever_free;
 }
 
 size_t bb_board_heap_largest_free_block(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.default_region.largest_free_block;
 }
 
 size_t bb_board_heap_internal_largest_free_block(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.internal.largest_free_block;
 }
 
 uint32_t bb_board_chip_revision(void)
@@ -126,35 +143,49 @@ uint32_t bb_board_cpu_freq_mhz(void)
 
 size_t bb_board_heap_internal_free(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.internal.free;
 }
 
 size_t bb_board_heap_internal_total(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.internal.total;
 }
 
 size_t bb_board_psram_free(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.spiram.free;
 }
 
 size_t bb_board_psram_total(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.spiram.total;
 }
 
 size_t bb_board_rtc_used(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.rtc_used;
 }
 
 size_t bb_board_rtc_total(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.rtc_total;
 }
 
 size_t bb_board_dram_static_bytes(void)
 {
-    return 0;
+    bb_meminfo_snapshot_t m;
+    bb_meminfo_get(&m);
+    return m.dram_static_bytes;
 }

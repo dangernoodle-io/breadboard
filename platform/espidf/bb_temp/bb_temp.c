@@ -5,6 +5,7 @@
 
 #if defined(CONFIG_BB_TEMP_AUTOREGISTER) && CONFIG_BB_TEMP_AUTOREGISTER
 #include "bb_init.h"
+#include "bb_http_server.h"
 #endif
 
 /* JSON-Schema value for the "temp" section contributed to the /api/health 200 schema. */
