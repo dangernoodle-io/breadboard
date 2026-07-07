@@ -609,6 +609,70 @@ void test_bb_task_base_touch_or_insert_race_pool_full_is_noop(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_task_base_count / _capacity / _dropped -- B1-601 re-scope (occupancy
+// accessors, mirror bb_task_registry_count/_capacity/_dropped).
+// ---------------------------------------------------------------------------
+
+void test_bb_task_base_capacity_returns_max_cap(void)
+{
+    TEST_ASSERT_EQUAL_UINT16(BB_TASK_BASE_MAX_CAP, bb_task_base_capacity());
+}
+
+void test_bb_task_base_count_reflects_live_upserts(void)
+{
+    bb_task_base_test_reset();
+    TEST_ASSERT_EQUAL_UINT16(0, bb_task_base_count());
+
+    int a, b;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&a, "a", 1, false));
+    TEST_ASSERT_EQUAL_UINT16(1, bb_task_base_count());
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&b, "b", 1, false));
+    TEST_ASSERT_EQUAL_UINT16(2, bb_task_base_count());
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_remove(&a));
+    TEST_ASSERT_EQUAL_UINT16(1, bb_task_base_count());
+}
+
+void test_bb_task_base_dropped_zero_before_any_overflow(void)
+{
+    bb_task_base_test_reset();
+    TEST_ASSERT_EQUAL_UINT32(0, bb_task_base_dropped());
+}
+
+void test_bb_task_base_dropped_not_incremented_on_success(void)
+{
+    bb_task_base_test_reset();
+    int fake;
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&fake, "t", 1, false));
+    TEST_ASSERT_EQUAL(BB_OK, bb_task_base_touch_or_insert(&fake, "t", 1));
+    TEST_ASSERT_EQUAL_UINT32(0, bb_task_base_dropped());
+}
+
+void test_bb_task_base_dropped_increments_on_upsert_overflow(void)
+{
+    bb_task_base_test_reset();
+    // CONFIG_BB_TASK_BASE_MAX pinned to 8 for host tests (platformio.ini).
+    int handles[9];
+    for (int i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL(BB_OK, bb_task_base_upsert(&handles[i], "t", 1, false));
+    }
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_task_base_upsert(&handles[8], "overflow", 1, false));
+    TEST_ASSERT_EQUAL_UINT32(1, bb_task_base_dropped());
+    TEST_ASSERT_EQUAL_UINT16(8, bb_task_base_count());
+}
+
+void test_bb_task_base_dropped_increments_on_touch_or_insert_overflow(void)
+{
+    bb_task_base_test_reset();
+    int handles[9];
+    for (int i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL(BB_OK, bb_task_base_touch_or_insert(&handles[i], "t", 1));
+    }
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_task_base_touch_or_insert(&handles[8], "overflow", 1));
+    TEST_ASSERT_EQUAL_UINT32(1, bb_task_base_dropped());
+}
+
+// ---------------------------------------------------------------------------
 // bb_task_create / bb_task_deregister (host stub path)
 // ---------------------------------------------------------------------------
 

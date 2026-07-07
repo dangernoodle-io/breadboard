@@ -2888,6 +2888,13 @@ void test_bb_task_base_touch_or_insert_overflow_returns_no_space(void);
 void test_bb_task_base_touch_or_insert_race_does_not_clobber_real_entry(void);
 void test_bb_task_base_touch_or_insert_race_pool_full_is_noop(void);
 
+void test_bb_task_base_capacity_returns_max_cap(void);
+void test_bb_task_base_count_reflects_live_upserts(void);
+void test_bb_task_base_dropped_zero_before_any_overflow(void);
+void test_bb_task_base_dropped_not_incremented_on_success(void);
+void test_bb_task_base_dropped_increments_on_upsert_overflow(void);
+void test_bb_task_base_dropped_increments_on_touch_or_insert_overflow(void);
+
 // Forward declarations from test_bb_task_registry_base_scan.c
 void test_bb_task_registry_base_scan_apply_null_rows_is_noop(void);
 void test_bb_task_registry_base_scan_apply_non_positive_n_is_noop(void);
@@ -7470,6 +7477,12 @@ int main(void) {
     RUN_TEST(test_bb_task_base_touch_or_insert_overflow_returns_no_space);
     RUN_TEST(test_bb_task_base_touch_or_insert_race_does_not_clobber_real_entry);
     RUN_TEST(test_bb_task_base_touch_or_insert_race_pool_full_is_noop);
+    RUN_TEST(test_bb_task_base_capacity_returns_max_cap);
+    RUN_TEST(test_bb_task_base_count_reflects_live_upserts);
+    RUN_TEST(test_bb_task_base_dropped_zero_before_any_overflow);
+    RUN_TEST(test_bb_task_base_dropped_not_incremented_on_success);
+    RUN_TEST(test_bb_task_base_dropped_increments_on_upsert_overflow);
+    RUN_TEST(test_bb_task_base_dropped_increments_on_touch_or_insert_overflow);
 
     // bb_task_registry base-scan (task-registry unification PR3)
     RUN_TEST(test_bb_task_registry_base_scan_apply_null_rows_is_noop);
