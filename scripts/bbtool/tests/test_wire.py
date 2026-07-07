@@ -1,0 +1,153 @@
+"""wire library-module tests (decision #735, folded into `commands.codegen`):
+fixture component tree -> assert emitted bb_app_init.c call order +
+http-start-line presence, over synthetic CMakeLists.txt/header fixtures
+(never the real breadboard component tree) -- mirrors test_autowire.py's
+fixture style. CLI (`run()`) coverage lives in test_codegen.py."""
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
+
+from commands.wire import WireError, collect_entries, render_source
+from wire_graph import topo_sort
+
+
+def _write(path: Path, content: str = "") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _make_component(root: Path, name: str, header_body: str, requires=None) -> None:
+    body = "idf_component_register(\n"
+    if requires:
+        body += f"    REQUIRES {' '.join(requires)}\n"
+    body += ")\n"
+    comp = root / "components" / name
+    _write(comp / "CMakeLists.txt", body)
+    _write(comp / "include" / f"{name}.h", header_body)
+
+
+def _fixture_root(tmp: str) -> Path:
+    """bb_log-alike: stream then config (requires=log_stream), and an
+    independent bb_meminfo with no markers at all (no init function)."""
+    root = Path(tmp)
+    _make_component(
+        root, "bb_log",
+        "#pragma once\n"
+        "// bbtool:init tier=early fn=bb_log_stream_init provides=log_stream\n"
+        "bb_err_t bb_log_stream_init(void);\n"
+        "// bbtool:init tier=early fn=bb_log_config_init requires=log_stream\n"
+        "bb_err_t bb_log_config_init(void);\n",
+    )
+    _make_component(root, "bb_meminfo", "#pragma once\nbb_err_t bb_meminfo_get(void*);\n")
+    return root
+
+
+def _fixture_root_with_http(tmp: str) -> Path:
+    root = _fixture_root(tmp)
+    _make_component(
+        root, "bb_http",
+        "#pragma once\n"
+        "// bbtool:init tier=pre_http fn=bb_http_start provides=http_server\n"
+        "bb_http_handle_t bb_http_start(void);\n",
+    )
+    _make_component(
+        root, "bb_routes",
+        "#pragma once\n"
+        "// bbtool:init tier=regular fn=bb_routes_register server=true\n"
+        "bb_err_t bb_routes_register(bb_http_handle_t server);\n",
+        requires=["bb_http"],
+    )
+    return root
+
+
+class TestCollectEntries(unittest.TestCase):
+    def test_collects_markers_across_components_in_composition_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            entries = collect_entries(str(root), ["bb_log", "bb_meminfo"], "espidf")
+            self.assertEqual([e.fn for e in entries], ["bb_log_stream_init", "bb_log_config_init"])
+
+    def test_component_with_no_markers_contributes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            entries = collect_entries(str(root), ["bb_meminfo"], "espidf")
+            self.assertEqual(entries, [])
+
+
+class TestRenderSource(unittest.TestCase):
+    def test_early_tier_calls_in_dependency_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            entries = collect_entries(str(root), ["bb_log"], "espidf")
+            source = render_source(topo_sort(entries))
+            stream_pos = source.index("bb_log_stream_init()")
+            config_pos = source.index("bb_log_config_init()")
+            self.assertLess(stream_pos, config_pos)
+            self.assertIn('#include "bb_log.h"', source)
+            self.assertIn("bb_err_t bb_app_init_early(void)", source)
+            self.assertIn("bb_err_t bb_app_init_rest(void)", source)
+            self.assertIn("bb_err_t bb_app_init(void)", source)
+
+    def test_http_start_line_present_when_http_component_in_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertIn("__auto_type bb_app_http_handle = bb_http_start();", source)
+            self.assertIn("bb_routes_register(bb_app_http_handle);", source)
+
+    def test_http_start_line_absent_when_no_http_component(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            entries = collect_entries(str(root), ["bb_log"], "espidf")
+            source = render_source(topo_sort(entries))
+            self.assertNotIn("__auto_type", source)
+
+    def test_server_entry_without_http_provider_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            entries = collect_entries(str(root), ["bb_routes"], "espidf")
+            with self.assertRaises(WireError):
+                render_source(topo_sort(entries))
+
+    def test_duplicate_http_server_provider_raises(self):
+        """Two components both marking provides=http_server must be a hard
+        WireError, not a silent double-call of the second provider."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            _make_component(
+                root, "bb_http2",
+                "#pragma once\n"
+                "// bbtool:init tier=pre_http fn=bb_http2_start provides=http_server\n"
+                "bb_http_handle_t bb_http2_start(void);\n",
+            )
+            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_http2", "bb_routes"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError):
+                render_source(ordered)
+
+    def test_mistiered_http_server_provider_raises(self):
+        """An http_server provider outside tier=pre_http must be a hard
+        WireError, not a silent double-call (once as the captured server
+        line, once again as a plain call in its own tier)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            _make_component(
+                root, "bb_http_regular",
+                "#pragma once\n"
+                "// bbtool:init tier=regular fn=bb_http_start provides=http_server\n"
+                "bb_http_handle_t bb_http_start(void);\n",
+            )
+            entries = collect_entries(str(root), ["bb_log", "bb_http_regular"], "espidf")
+            ordered = topo_sort(entries)
+            with self.assertRaises(WireError):
+                render_source(ordered)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -23,6 +23,14 @@ gcovr-coveralls.json
 *.elf
 *.map
 
+# bbtool codegen output (decision #725 — generated code is a build
+# artifact, never committed)
+**/main/generated/
+
+# Python
+**/__pycache__/
+*.pyc
+
 # Editor / OS
 .DS_Store
 .vscode/
