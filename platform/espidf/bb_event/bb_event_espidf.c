@@ -2,7 +2,7 @@
 #include "bb_event_port.h"
 #include "bb_log.h"
 #include "bb_mem.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -116,10 +116,17 @@ bb_err_t bb_event_port_init(size_t queue_depth, size_t max_payload,
     }
 
     // Spawn dispatcher task
-    BaseType_t ret = xTaskCreate(dispatcher_task, "bb_event_disp",
-                                 stack_size / sizeof(StackType_t),
-                                 NULL, task_priority, &s_port.dispatcher_task);
-    if (ret != pdPASS) {
+    bb_task_config_t disp_cfg = {
+        .entry       = dispatcher_task,
+        .name        = "bb_event_disp",
+        .arg         = NULL,
+        .stack_bytes = stack_size,
+        .priority    = task_priority,
+        .core        = BB_TASK_CORE_ANY,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&disp_cfg, (void **)&s_port.dispatcher_task) != BB_OK) {
         bb_log_e(TAG, "failed to create dispatcher task");
         vSemaphoreDelete(s_port.mutex);
         vQueueDelete(s_port.queue);
@@ -127,7 +134,6 @@ bb_err_t bb_event_port_init(size_t queue_depth, size_t max_payload,
         bb_mem_free(s_port.buffer_pool);
         return BB_ERR_NO_SPACE;
     }
-    bb_task_registry_register("bb_event_disp", stack_size, s_port.dispatcher_task, NULL, NULL);
 
     s_initialized = true;
     bb_log_i(TAG, "initialized: queue_depth=%zu max_payload=%zu stack=%zu prio=%d",

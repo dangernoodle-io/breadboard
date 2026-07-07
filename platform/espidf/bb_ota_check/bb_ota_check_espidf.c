@@ -22,7 +22,7 @@
 #include "bb_init.h"
 #include "bb_event_routes.h"
 #include "bb_claim.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -109,7 +109,7 @@ static void ondemand_task(void *arg)
     bb_claim_release(&s_ota_claim, "upd_check");
     // Clear the in-flight guard before deleting so the next kick can spawn.
     atomic_store(&s_check_in_flight, false);
-    bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
+    bb_task_deregister(xTaskGetCurrentTaskHandle());
     vTaskDelete(NULL);
 }
 
@@ -132,27 +132,40 @@ static bool try_spawn(void)
         return false;
     }
 
-    int task_core = s_task_core;
-    if (task_core != tskNO_AFFINITY && task_core >= configNUMBER_OF_CORES) {
-        task_core = tskNO_AFFINITY;
-    }
-
+    // Unicore (core absent) is clamped to no-affinity inside
+    // bb_task_resolve() (mirrors the hand-rolled clamp this replaced).
 #if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_CHECK_AUTOREGISTER
-    TaskHandle_t upd_task = xTaskCreateStaticPinnedToCore(
-        ondemand_task, "upd_check", BB_HTTP_CLIENT_TASK_STACK / sizeof(StackType_t),
-        NULL, s_task_priority, s_upd_check_stack, &s_upd_check_task_buf, task_core);
-    if (!upd_task) {
+    TaskHandle_t upd_task = NULL;
+    bb_task_config_t upd_cfg = {
+        .entry       = ondemand_task,
+        .name        = "upd_check",
+        .arg         = NULL,
+        .stack_bytes = BB_HTTP_CLIENT_TASK_STACK,
+        .priority    = s_task_priority,
+        .core        = s_task_core,
+        .backing     = BB_TASK_BACKING_STATIC,
+        .stack_buf   = s_upd_check_stack,
+        .tcb_buf     = &s_upd_check_task_buf,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&upd_cfg, (void **)&upd_task) != BB_OK) {
         atomic_store(&s_check_in_flight, false);
         bb_log_w(TAG, "spawn failed; will retry next interval");
         return false;
     }
 #else
     TaskHandle_t upd_task = NULL;
-    BaseType_t rc = xTaskCreatePinnedToCore(
-        ondemand_task, "upd_check", BB_HTTP_CLIENT_TASK_STACK,
-        NULL, s_task_priority, &upd_task, task_core);
-
-    if (rc != pdPASS) {
+    bb_task_config_t upd_cfg = {
+        .entry       = ondemand_task,
+        .name        = "upd_check",
+        .arg         = NULL,
+        .stack_bytes = BB_HTTP_CLIENT_TASK_STACK,
+        .priority    = s_task_priority,
+        .core        = s_task_core,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&upd_cfg, (void **)&upd_task) != BB_OK) {
         // Heap too fragmented / low for the 8 KB stack at this moment.
         // Clear the guard and log a warning; the next timer tick will retry.
         atomic_store(&s_check_in_flight, false);
@@ -160,7 +173,6 @@ static bool try_spawn(void)
         return false;
     }
 #endif
-    bb_task_registry_register("upd_check", BB_HTTP_CLIENT_TASK_STACK, upd_task, NULL, NULL);
 
     return true;
 }

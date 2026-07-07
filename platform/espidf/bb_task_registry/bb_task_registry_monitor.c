@@ -92,6 +92,12 @@ static void sw_wdt_monitor_task(void *arg)
 
 static bb_err_t bb_task_registry_sw_wdt_start(void)
 {
+    // NOT migrated to bb_task_create() (Option C, B1-690): this task
+    // self-registers via bb_task_registry_register() with a non-default
+    // bb_task_registry_opts_t (hw_wdt_subscribe) that bb_task_config_t has
+    // no field for. Stays on raw xTaskCreate[PinnedToCore] pending an opts
+    // pass-through into bb_task; no functional change here.
+    //
     // On single-core (unicore) targets, core 1 does not exist and
     // xTaskCreatePinnedToCore asserts; fall back to no affinity. Mirrors
     // bb_ota_boot's status_task_core guard.

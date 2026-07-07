@@ -77,7 +77,7 @@ bool bb_ota_boot_pending(void)
 #include "bb_http_server.h"
 #include "bb_init.h"
 #include "bb_http_client.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
 #include "bb_system.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -388,12 +388,21 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
     s_boot_url   = releases_url;
     s_boot_board = board;
     TaskHandle_t boot_worker_task = NULL;
-    if (xTaskCreate(ota_boot_worker, "ota_boot", OTA_BOOT_WORKER_STACK, NULL, 5, &boot_worker_task) != pdPASS) {
+    bb_task_config_t boot_cfg = {
+        .entry       = ota_boot_worker,
+        .name        = "ota_boot",
+        .arg         = NULL,
+        .stack_bytes = OTA_BOOT_WORKER_STACK,
+        .priority    = 5,
+        .core        = BB_TASK_CORE_ANY,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&boot_cfg, (void **)&boot_worker_task) != BB_OK) {
         bb_log_e(TAG, "OTA boot-mode: worker create failed, rebooting normal");
         bb_ota_emit_progress("boot", BB_OTA_PHASE_FAIL, 0);
         bb_system_restart_reason(BB_RESET_SRC_OTA_BOOT_ABORT, "task_fail");
     }
-    bb_task_registry_register("ota_boot", OTA_BOOT_WORKER_STACK, boot_worker_task, NULL, NULL);
     for (;;) {
         vTaskDelay(portMAX_DELAY);
     }
@@ -422,9 +431,17 @@ static bb_err_t ota_boot_handler(bb_http_request_t *req)
     bb_http_resp_json_obj_set_str(&obj, "status", "rebooting_for_boot_mode_ota");
     bb_http_resp_json_obj_end(&obj);
     TaskHandle_t reboot_task = NULL;
-    if (xTaskCreate(ota_boot_reboot_task, "ota_boot_rb", 2048, NULL, 5, &reboot_task) == pdPASS) {
-        bb_task_registry_register("ota_boot_rb", 2048, reboot_task, NULL, NULL);
-    }
+    bb_task_config_t reboot_cfg = {
+        .entry       = ota_boot_reboot_task,
+        .name        = "ota_boot_rb",
+        .arg         = NULL,
+        .stack_bytes = 2048,
+        .priority    = 5,
+        .core        = BB_TASK_CORE_ANY,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        .wdt_arm     = false,
+    };
+    bb_task_create(&reboot_cfg, (void **)&reboot_task);
     return BB_OK;
 }
 

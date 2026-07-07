@@ -5,7 +5,7 @@
 #include "bb_timer.h"
 #include "bb_wifi.h"
 #include "bb_alert.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
 #include "bb_system.h"
 #include "bb_str.h"
 
@@ -272,18 +272,22 @@ void wifi_reconn_start(void)
         bb_log_e(TAG, "failed to create reconn queue");
         return;
     }
-    BaseType_t ok = xTaskCreatePinnedToCore(
-        reconn_task, "wifi_reconn",
-        RECONN_TASK_STACK, NULL,
-        RECONN_TASK_PRIO, &s_task,
-        RECONN_TASK_CORE);
-    if (ok != pdPASS) {
+    bb_task_config_t reconn_cfg = {
+        .entry       = reconn_task,
+        .name        = "wifi_reconn",
+        .arg         = NULL,
+        .stack_bytes = RECONN_TASK_STACK,
+        .priority    = RECONN_TASK_PRIO,
+        .core        = RECONN_TASK_CORE,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&reconn_cfg, (void **)&s_task) != BB_OK) {
         bb_log_e(TAG, "failed to create reconn task");
         vQueueDelete(s_queue);
         s_queue = NULL;
         return;
     }
-    bb_task_registry_register("wifi_reconn", RECONN_TASK_STACK, s_task, NULL, NULL);
     s_active = true;
 }
 

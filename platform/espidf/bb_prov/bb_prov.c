@@ -5,7 +5,7 @@
 #include "bb_str.h"
 #include "bb_wifi.h"
 #include "bb_init.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "freertos/FreeRTOS.h"
@@ -248,17 +248,17 @@ bb_err_t bb_prov_start_ap(void)
 
     // Start DNS task
     s_dns_running = true;
-    BaseType_t xReturned = xTaskCreatePinnedToCore(
-        dns_task,
-        "dns",
-        4096,
-        NULL,
-        tskIDLE_PRIORITY + 1,
-        &s_dns_task_handle,
-        0
-    );
-
-    if (xReturned != pdPASS) {
+    bb_task_config_t dns_cfg = {
+        .entry       = dns_task,
+        .name        = "dns",
+        .arg         = NULL,
+        .stack_bytes = 4096,
+        .priority    = tskIDLE_PRIORITY + 1,
+        .core        = 0,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&dns_cfg, (void **)&s_dns_task_handle) != BB_OK) {
         bb_log_e(TAG, "failed to create DNS task");
         s_dns_running = false;
         esp_wifi_stop();
@@ -267,7 +267,6 @@ bb_err_t bb_prov_start_ap(void)
         s_ap_netif = NULL;
         return ESP_FAIL;
     }
-    bb_task_registry_register("dns", 4096, s_dns_task_handle, NULL, NULL);
 
     bb_log_i(TAG, "AP started: SSID=%s, password=%s", ssid, s_ap_password);
 

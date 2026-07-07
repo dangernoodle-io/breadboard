@@ -24,7 +24,7 @@
 #include "bb_wifi.h"
 #include "bb_wdt.h"
 #include "bb_board.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
 #include "bb_system.h"
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
@@ -488,7 +488,7 @@ static void ota_task_exit(void)
 {
     bb_ota_check_ota_claim_release("ota_pull");
     bb_wdt_extend_end();
-    bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
+    bb_task_deregister(xTaskGetCurrentTaskHandle());
     vTaskDelete(NULL);
 }
 
@@ -1127,24 +1127,23 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
     s_ota_status.last_error[0] = '\0';
     taskEXIT_CRITICAL(&s_ota_status_mux);
 
-    // On single-core (unicore) targets, core 1 does not exist and
-    // xTaskCreatePinnedToCore asserts; fall back to no affinity.
-    int ota_task_core = s_ota_task_core;
-    if (ota_task_core != tskNO_AFFINITY && ota_task_core >= configNUMBER_OF_CORES) {
-        ota_task_core = tskNO_AFFINITY;
-    }
+    // Unicore (core 1 absent) is clamped to no-affinity inside
+    // bb_task_resolve() (mirrors the hand-rolled clamp this replaced).
 #if CONFIG_BB_OTA_STATIC_STACK && CONFIG_BB_OTA_PULL_AUTOREGISTER
-    TaskHandle_t task_handle = xTaskCreateStaticPinnedToCore(
-        ota_worker_task,
-        "ota_pull",
-        OTA_TASK_STACK / sizeof(StackType_t),
-        task_arg,
-        s_ota_task_prio,
-        s_ota_pull_stack,
-        &s_ota_pull_task_buf,
-        ota_task_core
-    );
-    if (!task_handle) {
+    TaskHandle_t task_handle = NULL;
+    bb_task_config_t ota_cfg = {
+        .entry       = ota_worker_task,
+        .name        = "ota_pull",
+        .arg         = task_arg,
+        .stack_bytes = OTA_TASK_STACK,
+        .priority    = s_ota_task_prio,
+        .core        = s_ota_task_core,
+        .backing     = BB_TASK_BACKING_STATIC,
+        .stack_buf   = s_ota_pull_stack,
+        .tcb_buf     = &s_ota_pull_task_buf,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&ota_cfg, (void **)&task_handle) != BB_OK) {
         bb_ota_check_ota_claim_release("ota_pull");
         taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
@@ -1158,17 +1157,17 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
     }
 #else
     TaskHandle_t task_handle = NULL;
-    BaseType_t task_result = xTaskCreatePinnedToCore(
-        ota_worker_task,
-        "ota_pull",
-        OTA_TASK_STACK,
-        task_arg,
-        s_ota_task_prio,
-        &task_handle,
-        ota_task_core
-    );
-
-    if (task_result != pdPASS) {
+    bb_task_config_t ota_cfg = {
+        .entry       = ota_worker_task,
+        .name        = "ota_pull",
+        .arg         = task_arg,
+        .stack_bytes = OTA_TASK_STACK,
+        .priority    = s_ota_task_prio,
+        .core        = s_ota_task_core,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&ota_cfg, (void **)&task_handle) != BB_OK) {
         bb_ota_check_ota_claim_release("ota_pull");
         bb_mem_free(task_arg);
         taskENTER_CRITICAL(&s_ota_status_mux);
@@ -1182,7 +1181,6 @@ static bb_err_t ota_update_handler(bb_http_request_t *req)
         return BB_OK;
     }
 #endif
-    bb_task_registry_register("ota_pull", OTA_TASK_STACK, task_handle, NULL, NULL);
 
     bb_http_resp_set_status(req, 202);
     bb_http_json_obj_stream_t obj;

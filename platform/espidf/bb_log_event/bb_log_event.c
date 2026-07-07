@@ -19,7 +19,7 @@
 #include "bb_json.h"
 #include "bb_clock.h"
 #include "bb_openapi.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -132,14 +132,22 @@ static bb_err_t bb_log_event_init(bb_http_handle_t server)
         return ESP_ERR_NO_MEM;
     }
 
-    if (xTaskCreate(s_forwarder_task, "bb_log_evt", LOG_EVENT_TASK_STACK,
-                    NULL, LOG_EVENT_TASK_PRIO, &s_task) != pdPASS) {
+    bb_task_config_t log_evt_cfg = {
+        .entry       = s_forwarder_task,
+        .name        = "bb_log_evt",
+        .arg         = NULL,
+        .stack_bytes = LOG_EVENT_TASK_STACK,
+        .priority    = LOG_EVENT_TASK_PRIO,
+        .core        = BB_TASK_CORE_ANY,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&log_evt_cfg, (void **)&s_task) != BB_OK) {
         vQueueDelete(s_q);
         s_q = NULL;
         bb_log_e(TAG, "task create failed");
         return ESP_ERR_NO_MEM;
     }
-    bb_task_registry_register("bb_log_evt", LOG_EVENT_TASK_STACK, s_task, NULL, NULL);
 
     bb_log_event_set_queue(s_q);
 
