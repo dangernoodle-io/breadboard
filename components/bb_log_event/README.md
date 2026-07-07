@@ -31,7 +31,7 @@ this component's forwarder task.
 ## Dependencies
 
 <!-- BEGIN bbtool:deps -->
-**REQUIRES:** `bb_core`, `bb_event`, `bb_event_routes`, `bb_init`, `bb_json`, `bb_log`, `bb_openapi`, `bb_task_registry`
+**REQUIRES:** `bb_core`, `bb_event`, `bb_event_routes`, `bb_init`, `bb_json`, `bb_log`, `bb_openapi`, `bb_task`
 
 **PRIV_REQUIRES:** `bb_http_server`
 <!-- END bbtool:deps -->

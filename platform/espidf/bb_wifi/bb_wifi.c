@@ -12,7 +12,7 @@
 #include "esp_netif.h"
 #include "esp_mac.h"
 #include "bb_wdt.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
@@ -784,7 +784,7 @@ static void scan_worker_task(void *arg)
     s_scan_in_progress = false;
 
     bb_log_d(TAG, "async scan complete: %d networks found", count);
-    bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
+    bb_task_deregister(xTaskGetCurrentTaskHandle());
     vTaskDelete(NULL);
 }
 
@@ -796,21 +796,21 @@ void bb_wifi_scan_start_async(void)
     s_scan_in_progress = true;
 
     TaskHandle_t scan_task = NULL;
-    BaseType_t xReturned = xTaskCreate(
-        scan_worker_task,
-        "wifi_scan",
-        4096,
-        NULL,
-        tskIDLE_PRIORITY + 1,
-        &scan_task
-    );
-
-    if (xReturned != pdPASS) {
+    bb_task_config_t scan_cfg = {
+        .entry       = scan_worker_task,
+        .name        = "wifi_scan",
+        .arg         = NULL,
+        .stack_bytes = 4096,
+        .priority    = tskIDLE_PRIORITY + 1,
+        .core        = BB_TASK_CORE_ANY,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&scan_cfg, (void **)&scan_task) != BB_OK) {
         bb_log_w(TAG, "failed to create wifi_scan task");
         s_scan_in_progress = false;
         return;
     }
-    bb_task_registry_register("wifi_scan", 4096, scan_task, NULL, NULL);
 }
 
 int bb_wifi_scan_get_cached(bb_wifi_ap_t *results, int max_results)

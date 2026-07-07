@@ -11,7 +11,7 @@
 #include "bb_init.h"
 #include "bb_sse_writer.h"
 #include "bb_timer.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
 #include "bb_arena.h"
 #include "bb_pool.h"
 #include "sse_bundle_decision.h"
@@ -598,7 +598,7 @@ static int events_wait_fn(void *ctx, char *buf, size_t buflen, uint32_t timeout_
 static void events_cleanup_fn(void *ctx)
 {
     sse_task_arg_t *t = (sse_task_arg_t *)ctx;
-    bb_err_t drc = bb_task_registry_deregister(xTaskGetCurrentTaskHandle());
+    bb_err_t drc = bb_task_deregister(xTaskGetCurrentTaskHandle());
     if (drc != BB_OK) {
         // Benign/expected — e.g. BB_ERR_NOT_FOUND when the earlier register
         // call failed. Debug-level only; not actionable at runtime.
@@ -628,16 +628,6 @@ static void sse_task_done(void *ctx)
     }
     bb_mem_free(t);
     vTaskSuspend(NULL);
-}
-
-// Registers the newly-created SSE task in the task registry. Failure is
-// non-fatal (the task still serves the client) but logged for diagnosability.
-static void sse_task_registry_register_or_warn(const char *name, uint32_t stack_bytes, TaskHandle_t th)
-{
-    bb_err_t rc = bb_task_registry_register(name, stack_bytes, th, NULL, NULL);
-    if (rc != BB_OK) {
-        bb_log_w(TAG, "sse task registry register failed: %d", rc);
-    }
 }
 
 static void sse_task(void *arg)
@@ -774,14 +764,23 @@ static bb_err_t events_handler(bb_http_request_t *req)
     // leases are no longer index-addressed to a client slot (B1-492), so
     // naming is decoupled from client slot index entirely.
     static uint32_t s_sse_task_seq;
-    char task_name[BB_TASK_REGISTRY_NAME_MAX];
+    char task_name[BB_TASK_NAME_MAX];
     snprintf(task_name, sizeof(task_name), "sse_%" PRIu32, s_sse_task_seq++);
 
-    TaskHandle_t th = xTaskCreateStatic(sse_task, task_name,
-                                        SSE_TASK_STACK_WORDS, arg, 1,
-                                        bundle->stack,
-                                        &bundle->tcb);
-    if (!th) {
+    TaskHandle_t th = NULL;
+    bb_task_config_t sse_cfg = {
+        .entry       = sse_task,
+        .name        = task_name,
+        .arg         = arg,
+        .stack_bytes = SSE_TASK_STACK_WORDS * sizeof(StackType_t),
+        .priority    = 1,
+        .core        = BB_TASK_CORE_ANY,
+        .backing     = BB_TASK_BACKING_STATIC,
+        .stack_buf   = bundle->stack,
+        .tcb_buf     = &bundle->tcb,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&sse_cfg, (void **)&th) != BB_OK) {
         bb_mem_free(arg);
         sse_pool_release(bundle);
         bb_event_routes_client_release(client);
@@ -789,7 +788,6 @@ static bb_err_t events_handler(bb_http_request_t *req)
         return BB_ERR_INVALID_STATE;
     }
     bundle->handle = th;
-    sse_task_registry_register_or_warn(task_name, SSE_TASK_STACK_WORDS * sizeof(StackType_t), th);
     return BB_OK;
 }
 

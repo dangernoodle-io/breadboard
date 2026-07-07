@@ -17,7 +17,7 @@
 #include "bb_hw.h"
 #include "bb_log.h"
 #include "bb_mem.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
 #include "bb_str.h"
 #include <inttypes.h>
 #include <string.h>
@@ -1072,19 +1072,33 @@ void bb_mdns_init(void)
         }
     }
     if (!s_dispatch_task) {
-        if (xTaskCreate(bb_mdns_dispatch_task, "bb_mdns_disp", 4096, NULL,
-                         BB_MDNS_TASK_PRIO, &s_dispatch_task) == pdPASS) {
-            bb_task_registry_register("bb_mdns_disp", 4096, s_dispatch_task, NULL, NULL);
-        }
+        bb_task_config_t disp_cfg = {
+            .entry       = bb_mdns_dispatch_task,
+            .name        = "bb_mdns_disp",
+            .arg         = NULL,
+            .stack_bytes = 4096,
+            .priority    = BB_MDNS_TASK_PRIO,
+            .core        = BB_TASK_CORE_ANY,
+            .backing     = BB_TASK_BACKING_DYNAMIC,
+            .wdt_arm     = false,
+        };
+        bb_task_create(&disp_cfg, (void **)&s_dispatch_task);
     }
     if (!s_query_queue) {
         s_query_queue = xQueueCreate(BB_MDNS_QUERY_QUEUE_DEPTH, sizeof(bb_mdns_query_req_t));
     }
     if (!s_query_task) {
-        if (xTaskCreate(bb_mdns_query_task, "bb_mdns_query", 4096, NULL,
-                         BB_MDNS_TASK_PRIO, &s_query_task) == pdPASS) {
-            bb_task_registry_register("bb_mdns_query", 4096, s_query_task, NULL, NULL);
-        }
+        bb_task_config_t query_cfg = {
+            .entry       = bb_mdns_query_task,
+            .name        = "bb_mdns_query",
+            .arg         = NULL,
+            .stack_bytes = 4096,
+            .priority    = BB_MDNS_TASK_PRIO,
+            .core        = BB_TASK_CORE_ANY,
+            .backing     = BB_TASK_BACKING_DYNAMIC,
+            .wdt_arm     = false,
+        };
+        bb_task_create(&query_cfg, (void **)&s_query_task);
     }
 
     // Create the coalescing flush timer (one-shot, 50 ms window).

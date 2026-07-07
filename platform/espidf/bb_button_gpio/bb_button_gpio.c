@@ -6,7 +6,7 @@
 #include "bb_button_gpio.h"
 #include "bb_button_driver.h"
 #include "bb_mem.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -121,12 +121,21 @@ bb_err_t bb_button_gpio_open(const bb_button_gpio_cfg_t *cfg, bb_button_handle_t
     }
     s->handle = *out;
 
-    if (xTaskCreate(service_task, "bb_btn_gpio", 2048, s, tskIDLE_PRIORITY + 5, &s->task) != pdPASS) {
+    bb_task_config_t btn_cfg = {
+        .entry       = service_task,
+        .name        = "bb_btn_gpio",
+        .arg         = s,
+        .stack_bytes = 2048,
+        .priority    = tskIDLE_PRIORITY + 5,
+        .core        = BB_TASK_CORE_ANY,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&btn_cfg, (void **)&s->task) != BB_OK) {
         bb_button_close(*out); // closes handle, calls op_close via drv
         *out = NULL;
         return BB_ERR_NO_SPACE;
     }
-    bb_task_registry_register("bb_btn_gpio", 2048, s->task, NULL, NULL);
 
     gpio_isr_handler_add(cfg->gpio, isr_handler, s);
 
