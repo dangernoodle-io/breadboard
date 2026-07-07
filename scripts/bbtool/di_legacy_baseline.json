@@ -1,0 +1,1634 @@
+{
+  "entries": [
+    {
+      "id": "bb_sub_mqtt",
+      "path": "components/bb_sub_mqtt/src/bb_sub_mqtt.c",
+      "type": "BB_INIT_REGISTER"
+    },
+    {
+      "id": "bb_event_routes",
+      "path": "platform/espidf/bb_event_routes/bb_event_routes_espidf.c",
+      "type": "BB_INIT_REGISTER"
+    },
+    {
+      "id": "bb_net_health_routes",
+      "path": "platform/espidf/bb_net_health/bb_net_health_routes.c",
+      "type": "BB_INIT_REGISTER"
+    },
+    {
+      "id": "bb_nv_factory_reset_routes",
+      "path": "platform/espidf/bb_nv/bb_nv_routes.c",
+      "type": "BB_INIT_REGISTER"
+    },
+    {
+      "id": "bb_partition_routes",
+      "path": "platform/espidf/bb_partition/bb_partition_routes.c",
+      "type": "BB_INIT_REGISTER"
+    },
+    {
+      "id": "bb_ring_diag",
+      "path": "platform/espidf/bb_ring_diag/bb_ring_diag.c",
+      "type": "BB_INIT_REGISTER"
+    },
+    {
+      "id": "bb_ws_server_diag",
+      "path": "platform/espidf/bb_ws_server/bb_ws_server_diag.c",
+      "type": "BB_INIT_REGISTER"
+    },
+    {
+      "id": "bb_event",
+      "path": "components/bb_event/bb_event_common.c",
+      "type": "BB_INIT_REGISTER_EARLY"
+    },
+    {
+      "id": "bb_arena_tls",
+      "path": "platform/espidf/bb_arena_tls/bb_arena_tls.c",
+      "type": "BB_INIT_REGISTER_EARLY"
+    },
+    {
+      "id": "bb_diag_panic",
+      "path": "platform/espidf/bb_diag/bb_diag_panic.c",
+      "type": "BB_INIT_REGISTER_EARLY"
+    },
+    {
+      "id": "bb_mqtt_client",
+      "path": "platform/espidf/bb_mqtt_client/bb_mqtt_client_espidf.c",
+      "type": "BB_INIT_REGISTER_EARLY"
+    },
+    {
+      "id": "bb_nv_config",
+      "path": "platform/espidf/bb_nv/bb_nv.c",
+      "type": "BB_INIT_REGISTER_EARLY"
+    },
+    {
+      "id": "bb_nv_flash",
+      "path": "platform/espidf/bb_nv/bb_nv.c",
+      "type": "BB_INIT_REGISTER_EARLY"
+    },
+    {
+      "id": "bb_ring_spiram",
+      "path": "platform/espidf/bb_ring_espidf/bb_ring_spiram.c",
+      "type": "BB_INIT_REGISTER_EARLY"
+    },
+    {
+      "id": "bb_system_boot_banner",
+      "path": "platform/espidf/bb_system/bb_system_boot_banner.c",
+      "type": "BB_INIT_REGISTER_EARLY"
+    },
+    {
+      "id": "bb_wifi",
+      "path": "platform/espidf/bb_wifi/bb_wifi.c",
+      "type": "BB_INIT_REGISTER_EARLY"
+    },
+    {
+      "id": "bb_alert",
+      "path": "platform/espidf/bb_alert/bb_alert_espidf.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_cache_routes",
+      "path": "platform/espidf/bb_cache_routes/bb_cache_routes.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_diag_routes",
+      "path": "platform/espidf/bb_diag/bb_diag_routes.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_display_info",
+      "path": "platform/espidf/bb_display_info/bb_display_info.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_fan_routes",
+      "path": "platform/espidf/bb_fan_routes/bb_fan_routes.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_health",
+      "path": "platform/espidf/bb_health/bb_health.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_http_route_audit",
+      "path": "platform/espidf/bb_http_server/bb_http.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_info",
+      "path": "platform/espidf/bb_info/bb_info.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_info_freeze",
+      "path": "platform/espidf/bb_info/bb_info.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_led_info",
+      "path": "platform/espidf/bb_led_info/bb_led_info.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_log_event",
+      "path": "platform/espidf/bb_log_event/bb_log_event.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_log_register_routes",
+      "path": "platform/espidf/bb_log_http/bb_log_http.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_manifest",
+      "path": "platform/espidf/bb_manifest/bb_manifest_register.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_mdns",
+      "path": "platform/espidf/bb_mdns/bb_mdns.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_mqtt_info",
+      "path": "platform/espidf/bb_mqtt_info/bb_mqtt_info.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_openapi",
+      "path": "platform/espidf/bb_openapi/bb_openapi_register.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_ota_boot",
+      "path": "platform/espidf/bb_ota_boot/bb_ota_boot.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_ota_check",
+      "path": "platform/espidf/bb_ota_check/bb_ota_check_espidf.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_ota_hooks",
+      "path": "platform/espidf/bb_ota_hooks/bb_ota_hooks.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_ota_pull",
+      "path": "platform/espidf/bb_ota_pull/bb_ota_pull.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_ota_push",
+      "path": "platform/espidf/bb_ota_push/bb_ota_push.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_ota_validator",
+      "path": "platform/espidf/bb_ota_validator/bb_ota_validator.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_power_routes",
+      "path": "platform/espidf/bb_power_routes/bb_power_routes.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_sensors",
+      "path": "platform/espidf/bb_sensors/bb_sensors.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_system_routes",
+      "path": "platform/espidf/bb_system/bb_system_routes.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_telemetry",
+      "path": "platform/espidf/bb_telemetry/bb_telemetry_routes.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_temp",
+      "path": "platform/espidf/bb_temp/bb_temp.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_thermal",
+      "path": "platform/espidf/bb_thermal/bb_thermal.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_wifi_routes",
+      "path": "platform/espidf/bb_wifi/bb_wifi_routes.c",
+      "type": "BB_INIT_REGISTER_N"
+    },
+    {
+      "id": "bb_cache_evict",
+      "path": "platform/espidf/bb_cache/bb_cache_espidf.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_event_routes",
+      "path": "platform/espidf/bb_event_routes/bb_event_routes_espidf.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_event_routes_start",
+      "path": "platform/espidf/bb_event_routes/bb_event_routes_espidf.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_health",
+      "path": "platform/espidf/bb_health/bb_health.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_health_stack",
+      "path": "platform/espidf/bb_health/bb_health_stack.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_info",
+      "path": "platform/espidf/bb_info/bb_info.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_log_register_routes",
+      "path": "platform/espidf/bb_log_http/bb_log_http.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_manifest",
+      "path": "platform/espidf/bb_manifest/bb_manifest_register.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_mdns_cache",
+      "path": "platform/espidf/bb_mdns_cache/bb_mdns_cache.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_net_health",
+      "path": "platform/espidf/bb_net_health/bb_net_health_espidf.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_nv_config_manifest",
+      "path": "platform/espidf/bb_nv/bb_nv.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_openapi",
+      "path": "platform/espidf/bb_openapi/bb_openapi_register.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_ota_boot",
+      "path": "platform/espidf/bb_ota_boot/bb_ota_boot.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_ota_check",
+      "path": "platform/espidf/bb_ota_check/bb_ota_check_espidf.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_ota_pull",
+      "path": "platform/espidf/bb_ota_pull/bb_ota_pull.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_ota_push",
+      "path": "platform/espidf/bb_ota_push/bb_ota_push.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_ota_validator",
+      "path": "platform/espidf/bb_ota_validator/bb_ota_validator.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_pub",
+      "path": "platform/espidf/bb_pub/bb_pub_espidf.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_ring_diag",
+      "path": "platform/espidf/bb_ring_diag/bb_ring_diag.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_sink_udp",
+      "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_system_routes",
+      "path": "platform/espidf/bb_system/bb_system_routes.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_task_registry_base_scan",
+      "path": "platform/espidf/bb_task_registry/bb_task_registry_base_scan.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_task_registry_sw_wdt",
+      "path": "platform/espidf/bb_task_registry/bb_task_registry_monitor.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_wifi_gw_probe",
+      "path": "platform/espidf/bb_wifi/bb_wifi_gw_probe.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_wifi_routes",
+      "path": "platform/espidf/bb_wifi/bb_wifi_routes.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_mqtt_telemetry",
+      "path": "platform/host/bb_mqtt_telemetry/bb_mqtt_telemetry_host.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_pub_fan",
+      "path": "platform/host/bb_pub_fan/bb_pub_fan.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_pub_health",
+      "path": "platform/host/bb_pub_health/bb_pub_health.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_pub_info",
+      "path": "platform/host/bb_pub_info/bb_pub_info.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_pub_power",
+      "path": "platform/host/bb_pub_power/bb_pub_power.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_pub_rtos",
+      "path": "platform/host/bb_pub_rtos/bb_pub_rtos.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_pub_telemetry",
+      "path": "platform/host/bb_pub_telemetry/bb_pub_telemetry_host.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_pub_thermal",
+      "path": "platform/host/bb_pub_thermal/bb_pub_thermal.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_pub_wifi",
+      "path": "platform/host/bb_pub_wifi/bb_pub_wifi.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_sink_http_telemetry",
+      "path": "platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_tls_info",
+      "path": "platform/host/bb_tls_info/bb_tls_info.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP"
+    },
+    {
+      "id": "bb_http_autostart",
+      "path": "platform/espidf/bb_http_server/bb_http.c",
+      "type": "BB_INIT_REGISTER_PRE_HTTP_N"
+    },
+    {
+      "id": "BB_DIAG_AUTO_ATTACH",
+      "path": "components/bb_diag/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_DISPLAY_INFO_AUTO_ATTACH",
+      "path": "components/bb_display_info/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_HEALTH_AUTO_ATTACH",
+      "path": "components/bb_health/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_LOG_EVENT_AUTO_ATTACH",
+      "path": "components/bb_log_event/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_NET_HEALTH_SSE_AUTO_ATTACH",
+      "path": "components/bb_net_health/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_OTA_CHECK_AUTO_ATTACH",
+      "path": "components/bb_ota_check/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_OTA_HOOKS_AUTO_ATTACH",
+      "path": "components/bb_ota_hooks/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_PUB_FAN_AUTO_ATTACH",
+      "path": "components/bb_pub_fan/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_PUB_HEALTH_AUTO_ATTACH",
+      "path": "components/bb_pub_health/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_PUB_INFO_AUTO_ATTACH",
+      "path": "components/bb_pub_info/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_PUB_POWER_AUTO_ATTACH",
+      "path": "components/bb_pub_power/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_PUB_RTOS_AUTO_ATTACH",
+      "path": "components/bb_pub_rtos/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_PUB_THERMAL_AUTO_ATTACH",
+      "path": "components/bb_pub_thermal/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_PUB_WIFI_AUTO_ATTACH",
+      "path": "components/bb_pub_wifi/Kconfig",
+      "type": "auto_attach_kconfig"
+    },
+    {
+      "id": "BB_DIAG_AUTO_ATTACH",
+      "path": "platform/espidf/bb_diag/bb_diag_routes.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_DISPLAY_INFO_AUTO_ATTACH",
+      "path": "platform/espidf/bb_display_info/bb_display_info.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_HEALTH_AUTO_ATTACH",
+      "path": "platform/espidf/bb_health/bb_health_stack.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_LOG_EVENT_AUTO_ATTACH",
+      "path": "platform/espidf/bb_log_event/bb_log_event.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_NET_HEALTH_SSE_AUTO_ATTACH",
+      "path": "platform/espidf/bb_net_health/bb_net_health_espidf.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_OTA_CHECK_AUTO_ATTACH",
+      "path": "platform/espidf/bb_ota_check/bb_ota_check_espidf.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_OTA_HOOKS_AUTO_ATTACH",
+      "path": "platform/espidf/bb_ota_hooks/bb_ota_hooks.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_PUB_FAN_AUTO_ATTACH",
+      "path": "platform/host/bb_pub_fan/bb_pub_fan.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_PUB_HEALTH_AUTO_ATTACH",
+      "path": "platform/host/bb_pub_health/bb_pub_health.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_PUB_INFO_AUTO_ATTACH",
+      "path": "platform/host/bb_pub_info/bb_pub_info.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_PUB_POWER_AUTO_ATTACH",
+      "path": "platform/host/bb_pub_power/bb_pub_power.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_PUB_RTOS_AUTO_ATTACH",
+      "path": "platform/host/bb_pub_rtos/bb_pub_rtos.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_PUB_THERMAL_AUTO_ATTACH",
+      "path": "platform/host/bb_pub_thermal/bb_pub_thermal.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_PUB_WIFI_AUTO_ATTACH",
+      "path": "platform/host/bb_pub_wifi/bb_pub_wifi.c",
+      "type": "auto_attach_usage"
+    },
+    {
+      "id": "BB_ALERT_AUTOREGISTER",
+      "path": "components/bb_alert/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_ARENA_TLS_AUTOREGISTER",
+      "path": "components/bb_arena_tls/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_BOARD_AUTOREGISTER",
+      "path": "components/bb_board/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_CACHE_ROUTES_AUTOREGISTER",
+      "path": "components/bb_cache_routes/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_DIAG_AUTOREGISTER",
+      "path": "components/bb_diag/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_DISPLAY_EK79007_AUTOREGISTER",
+      "path": "components/bb_display_ek79007/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_DISPLAY_ILI9341_AUTOREGISTER",
+      "path": "components/bb_display_ili9341/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_DISPLAY_SSD1306_AUTOREGISTER",
+      "path": "components/bb_display_ssd1306/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_DISPLAY_ST7735_AUTOREGISTER",
+      "path": "components/bb_display_st77xx/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_DISPLAY_ST7789_AUTOREGISTER",
+      "path": "components/bb_display_st77xx/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_EVENT_AUTOREGISTER",
+      "path": "components/bb_event/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_EVENT_ROUTES_AUTOREGISTER",
+      "path": "components/bb_event_routes/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_FAN_ROUTES_AUTOREGISTER",
+      "path": "components/bb_fan_routes/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_HEALTH_AUTOREGISTER",
+      "path": "components/bb_health/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_INFO_AUTOREGISTER",
+      "path": "components/bb_info/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_LED_INFO_AUTOREGISTER",
+      "path": "components/bb_led_info/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_MANIFEST_AUTOREGISTER",
+      "path": "components/bb_manifest/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_MDNS_AUTOREGISTER",
+      "path": "components/bb_mdns/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_MDNS_CACHE_AUTOREGISTER",
+      "path": "components/bb_mdns_cache/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_MQTT_CLIENT_AUTOREGISTER",
+      "path": "components/bb_mqtt_client/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_MQTT_INFO_AUTOREGISTER",
+      "path": "components/bb_mqtt_info/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_MQTT_TELEMETRY_AUTOREGISTER",
+      "path": "components/bb_mqtt_telemetry/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_NET_HEALTH_ROUTES_AUTOREGISTER",
+      "path": "components/bb_net_health/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_NV_CONFIG_AUTOREGISTER",
+      "path": "components/bb_nv/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_NV_CONFIG_MANIFEST_AUTOREGISTER",
+      "path": "components/bb_nv/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_NV_FACTORY_RESET_AUTOREGISTER",
+      "path": "components/bb_nv/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_NV_FLASH_AUTOREGISTER",
+      "path": "components/bb_nv/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_OPENAPI_AUTOREGISTER",
+      "path": "components/bb_openapi/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_OTA_BOOT_AUTOREGISTER",
+      "path": "components/bb_ota_boot/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_OTA_CHECK_AUTOREGISTER",
+      "path": "components/bb_ota_check/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_OTA_HOOKS_AUTOREGISTER",
+      "path": "components/bb_ota_hooks/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_OTA_PULL_AUTOREGISTER",
+      "path": "components/bb_ota_pull/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_OTA_PUSH_AUTOREGISTER",
+      "path": "components/bb_ota_push/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_OTA_VALIDATOR_AUTOREGISTER",
+      "path": "components/bb_ota_validator/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_PARTITION_ROUTES_AUTOREGISTER",
+      "path": "components/bb_partition/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_POWER_ROUTES_AUTOREGISTER",
+      "path": "components/bb_power_routes/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_PUB_AUTOREGISTER",
+      "path": "components/bb_pub/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_PUB_TELEMETRY_AUTOREGISTER",
+      "path": "components/bb_pub_telemetry/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_RING_DIAG_AUTOREGISTER",
+      "path": "components/bb_ring_diag/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_SENSORS_AUTOREGISTER",
+      "path": "components/bb_sensors/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_SINK_EVENT_AUTOREGISTER",
+      "path": "components/bb_sink_event/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_SINK_HTTP_TELEMETRY_AUTOREGISTER",
+      "path": "components/bb_sink_http_telemetry/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_SINK_UDP_AUTOREGISTER",
+      "path": "components/bb_sink_udp/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_SINK_WS_AUTOREGISTER",
+      "path": "components/bb_sink_ws/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_SUB_MQTT_AUTOREGISTER",
+      "path": "components/bb_sub_mqtt/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_SYSTEM_ROUTES_AUTOREGISTER",
+      "path": "components/bb_system/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_TELEMETRY_AUTOREGISTER",
+      "path": "components/bb_telemetry/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_TEMP_AUTOREGISTER",
+      "path": "components/bb_temp/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_THERMAL_AUTOREGISTER",
+      "path": "components/bb_thermal/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_TLS_INFO_AUTOREGISTER",
+      "path": "components/bb_tls_info/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_WIFI_AUTOREGISTER",
+      "path": "components/bb_wifi/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_WIFI_ROUTES_AUTOREGISTER",
+      "path": "components/bb_wifi/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_EVENT_AUTOREGISTER",
+      "path": "components/bb_event/bb_event_common.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_SUB_MQTT_AUTOREGISTER",
+      "path": "components/bb_sub_mqtt/src/bb_sub_mqtt.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_ALERT_AUTOREGISTER",
+      "path": "platform/espidf/bb_alert/bb_alert_espidf.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_ARENA_TLS_AUTOREGISTER",
+      "path": "platform/espidf/bb_arena_tls/bb_arena_tls.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_CACHE_ROUTES_AUTOREGISTER",
+      "path": "platform/espidf/bb_cache_routes/bb_cache_routes.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_DISPLAY_EK79007_AUTOREGISTER",
+      "path": "platform/espidf/bb_display_ek79007/bb_display_ek79007.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_DISPLAY_ILI9341_AUTOREGISTER",
+      "path": "platform/espidf/bb_display_ili9341/bb_display_ili9341.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_DISPLAY_SSD1306_AUTOREGISTER",
+      "path": "platform/espidf/bb_display_ssd1306/bb_display_ssd1306.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_DISPLAY_ST7735_AUTOREGISTER",
+      "path": "platform/espidf/bb_display_st77xx/bb_display_st7735.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_DISPLAY_ST7789_AUTOREGISTER",
+      "path": "platform/espidf/bb_display_st77xx/bb_display_st7789.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_EVENT_ROUTES_AUTOREGISTER",
+      "path": "platform/espidf/bb_event_routes/bb_event_routes_espidf.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_FAN_ROUTES_AUTOREGISTER",
+      "path": "platform/espidf/bb_fan_routes/bb_fan_routes.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_HEALTH_AUTOREGISTER",
+      "path": "platform/espidf/bb_health/bb_health.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_INFO_AUTOREGISTER",
+      "path": "platform/espidf/bb_info/bb_info.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_OTA_PULL_AUTOREGISTER",
+      "path": "platform/espidf/bb_info/bb_info.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_LED_INFO_AUTOREGISTER",
+      "path": "platform/espidf/bb_led_info/bb_led_info.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_MANIFEST_AUTOREGISTER",
+      "path": "platform/espidf/bb_manifest/bb_manifest_register.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_MDNS_AUTOREGISTER",
+      "path": "platform/espidf/bb_mdns/bb_mdns.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_MDNS_CACHE_AUTOREGISTER",
+      "path": "platform/espidf/bb_mdns_cache/bb_mdns_cache.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_MQTT_CLIENT_AUTOREGISTER",
+      "path": "platform/espidf/bb_mqtt_client/bb_mqtt_client_espidf.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_MQTT_INFO_AUTOREGISTER",
+      "path": "platform/espidf/bb_mqtt_info/bb_mqtt_info.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_NET_HEALTH_ROUTES_AUTOREGISTER",
+      "path": "platform/espidf/bb_net_health/bb_net_health_routes.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_NV_CONFIG_AUTOREGISTER",
+      "path": "platform/espidf/bb_nv/bb_nv.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_NV_CONFIG_MANIFEST_AUTOREGISTER",
+      "path": "platform/espidf/bb_nv/bb_nv.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_NV_FLASH_AUTOREGISTER",
+      "path": "platform/espidf/bb_nv/bb_nv.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_NV_FACTORY_RESET_AUTOREGISTER",
+      "path": "platform/espidf/bb_nv/bb_nv_routes.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_OPENAPI_AUTOREGISTER",
+      "path": "platform/espidf/bb_openapi/bb_openapi_register.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_OTA_BOOT_AUTOREGISTER",
+      "path": "platform/espidf/bb_ota_boot/bb_ota_boot.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_OTA_CHECK_AUTOREGISTER",
+      "path": "platform/espidf/bb_ota_check/bb_ota_check_espidf.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_OTA_HOOKS_AUTOREGISTER",
+      "path": "platform/espidf/bb_ota_hooks/bb_ota_hooks.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_OTA_PULL_AUTOREGISTER",
+      "path": "platform/espidf/bb_ota_pull/bb_ota_pull.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_OTA_PUSH_AUTOREGISTER",
+      "path": "platform/espidf/bb_ota_push/bb_ota_push.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_OTA_VALIDATOR_AUTOREGISTER",
+      "path": "platform/espidf/bb_ota_validator/bb_ota_validator.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_PARTITION_ROUTES_AUTOREGISTER",
+      "path": "platform/espidf/bb_partition/bb_partition_routes.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_POWER_ROUTES_AUTOREGISTER",
+      "path": "platform/espidf/bb_power_routes/bb_power_routes.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_PUB_AUTOREGISTER",
+      "path": "platform/espidf/bb_pub/bb_pub_espidf.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_RING_DIAG_AUTOREGISTER",
+      "path": "platform/espidf/bb_ring_diag/bb_ring_diag.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_SENSORS_AUTOREGISTER",
+      "path": "platform/espidf/bb_sensors/bb_sensors.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_SINK_UDP_AUTOREGISTER",
+      "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_SYSTEM_ROUTES_AUTOREGISTER",
+      "path": "platform/espidf/bb_system/bb_system_routes.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_TELEMETRY_AUTOREGISTER",
+      "path": "platform/espidf/bb_telemetry/bb_telemetry_routes.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_TEMP_AUTOREGISTER",
+      "path": "platform/espidf/bb_temp/bb_temp.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_THERMAL_AUTOREGISTER",
+      "path": "platform/espidf/bb_thermal/bb_thermal.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_WIFI_AUTOREGISTER",
+      "path": "platform/espidf/bb_wifi/bb_wifi.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_WIFI_ROUTES_AUTOREGISTER",
+      "path": "platform/espidf/bb_wifi/bb_wifi_routes.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_WS_SERVER_DIAG_AUTOREGISTER",
+      "path": "platform/espidf/bb_ws_server/bb_ws_server_diag.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_MQTT_TELEMETRY_AUTOREGISTER",
+      "path": "platform/host/bb_mqtt_telemetry/bb_mqtt_telemetry_host.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_OTA_PULL_AUTOREGISTER",
+      "path": "platform/host/bb_pub_info/bb_pub_info.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_PUB_TELEMETRY_AUTOREGISTER",
+      "path": "platform/host/bb_pub_telemetry/bb_pub_telemetry_host.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_SINK_HTTP_TELEMETRY_AUTOREGISTER",
+      "path": "platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_TLS_INFO_AUTOREGISTER",
+      "path": "platform/host/bb_tls_info/bb_tls_info.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "linker:ek79007",
+      "path": "components/bb_display_ek79007/CMakeLists.txt",
+      "type": "display_force_keep"
+    },
+    {
+      "id": "linker:ili9341",
+      "path": "components/bb_display_ili9341/CMakeLists.txt",
+      "type": "display_force_keep"
+    },
+    {
+      "id": "linker:ssd1306",
+      "path": "components/bb_display_ssd1306/CMakeLists.txt",
+      "type": "display_force_keep"
+    },
+    {
+      "id": "linker:st7735",
+      "path": "components/bb_display_st77xx/CMakeLists.txt",
+      "type": "display_force_keep"
+    },
+    {
+      "id": "linker:st7789",
+      "path": "components/bb_display_st77xx/CMakeLists.txt",
+      "type": "display_force_keep"
+    },
+    {
+      "id": "macro:ek79007",
+      "path": "platform/espidf/bb_display_ek79007/bb_display_ek79007.c",
+      "type": "display_force_keep"
+    },
+    {
+      "id": "macro:ili9341",
+      "path": "platform/espidf/bb_display_ili9341/bb_display_ili9341.c",
+      "type": "display_force_keep"
+    },
+    {
+      "id": "macro:ssd1306",
+      "path": "platform/espidf/bb_display_ssd1306/bb_display_ssd1306.c",
+      "type": "display_force_keep"
+    },
+    {
+      "id": "macro:st7735",
+      "path": "platform/espidf/bb_display_st77xx/bb_display_st7735.c",
+      "type": "display_force_keep"
+    },
+    {
+      "id": "macro:st7789",
+      "path": "platform/espidf/bb_display_st77xx/bb_display_st7789.c",
+      "type": "display_force_keep"
+    },
+    {
+      "id": "regular:bb_alert",
+      "path": "components/bb_alert/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "early:bb_arena_tls",
+      "path": "components/bb_arena_tls/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_cache_evict",
+      "path": "components/bb_cache/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_cache_routes",
+      "path": "components/bb_cache_routes/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "early:bb_diag_panic",
+      "path": "components/bb_diag/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_diag_routes",
+      "path": "components/bb_diag/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_display_info",
+      "path": "components/bb_display_info/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "early:bb_event",
+      "path": "components/bb_event/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_fan_routes",
+      "path": "components/bb_fan_routes/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_health",
+      "path": "components/bb_health/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_health_stack",
+      "path": "components/bb_health/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_health",
+      "path": "components/bb_health/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_http_autostart",
+      "path": "components/bb_http_server/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_http_route_audit",
+      "path": "components/bb_http_server/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_info",
+      "path": "components/bb_info/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_info",
+      "path": "components/bb_info/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_info_freeze",
+      "path": "components/bb_info/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_led_info",
+      "path": "components/bb_led_info/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_log_event",
+      "path": "components/bb_log_event/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_log_register_routes",
+      "path": "components/bb_log_http/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_log_register_routes",
+      "path": "components/bb_log_http/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_manifest",
+      "path": "components/bb_manifest/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_manifest",
+      "path": "components/bb_manifest/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_mdns",
+      "path": "components/bb_mdns/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_mdns_cache",
+      "path": "components/bb_mdns_cache/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "early:bb_mqtt_client",
+      "path": "components/bb_mqtt_client/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_mqtt_info",
+      "path": "components/bb_mqtt_info/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_mqtt_telemetry",
+      "path": "components/bb_mqtt_telemetry/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_net_health",
+      "path": "components/bb_net_health/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_net_health_routes",
+      "path": "components/bb_net_health/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "early:bb_nv_config",
+      "path": "components/bb_nv/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "early:bb_nv_flash",
+      "path": "components/bb_nv/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_nv_config_manifest",
+      "path": "components/bb_nv/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_nv_factory_reset_routes",
+      "path": "components/bb_nv/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_openapi",
+      "path": "components/bb_openapi/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_openapi",
+      "path": "components/bb_openapi/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_ota_boot",
+      "path": "components/bb_ota_boot/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_ota_boot",
+      "path": "components/bb_ota_boot/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_ota_check",
+      "path": "components/bb_ota_check/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_ota_check",
+      "path": "components/bb_ota_check/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_ota_hooks",
+      "path": "components/bb_ota_hooks/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_ota_pull",
+      "path": "components/bb_ota_pull/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_ota_pull",
+      "path": "components/bb_ota_pull/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_ota_push",
+      "path": "components/bb_ota_push/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_ota_push",
+      "path": "components/bb_ota_push/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_ota_validator",
+      "path": "components/bb_ota_validator/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_ota_validator",
+      "path": "components/bb_ota_validator/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_partition_routes",
+      "path": "components/bb_partition/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_power_routes",
+      "path": "components/bb_power_routes/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_pub",
+      "path": "components/bb_pub/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_pub_fan",
+      "path": "components/bb_pub_fan/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_pub_health",
+      "path": "components/bb_pub_health/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_pub_info",
+      "path": "components/bb_pub_info/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_pub_power",
+      "path": "components/bb_pub_power/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_pub_rtos",
+      "path": "components/bb_pub_rtos/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_pub_telemetry",
+      "path": "components/bb_pub_telemetry/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_pub_thermal",
+      "path": "components/bb_pub_thermal/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_pub_wifi",
+      "path": "components/bb_pub_wifi/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_ring_diag",
+      "path": "components/bb_ring_diag/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_ring_diag",
+      "path": "components/bb_ring_diag/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_sensors",
+      "path": "components/bb_sensors/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_sink_http_telemetry",
+      "path": "components/bb_sink_http_telemetry/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_sink_udp",
+      "path": "components/bb_sink_udp/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_sub_mqtt",
+      "path": "components/bb_sub_mqtt/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "early:bb_system_boot_banner",
+      "path": "components/bb_system/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_system_routes",
+      "path": "components/bb_system/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_system_routes",
+      "path": "components/bb_system/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_task_registry_base_scan",
+      "path": "components/bb_task_registry/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_task_registry_sw_wdt",
+      "path": "components/bb_task_registry/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_telemetry",
+      "path": "components/bb_telemetry/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_temp",
+      "path": "components/bb_temp/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_thermal",
+      "path": "components/bb_thermal/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_tls_info",
+      "path": "components/bb_tls_info/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "early:bb_wifi",
+      "path": "components/bb_wifi/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_wifi_gw_probe",
+      "path": "components/bb_wifi/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_wifi_routes",
+      "path": "components/bb_wifi/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_wifi_routes",
+      "path": "components/bb_wifi/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_ws_server_diag",
+      "path": "components/bb_ws_server/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_event_routes",
+      "path": "platform/espidf/bb_event_routes_espidf/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "pre_http:bb_event_routes_start",
+      "path": "platform/espidf/bb_event_routes_espidf/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "regular:bb_event_routes",
+      "path": "platform/espidf/bb_event_routes_espidf/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "early:bb_ring_spiram",
+      "path": "platform/espidf/bb_ring_espidf/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "bb_pub_add_sink",
+      "path": "components/bb_pub/include/bb_pub.h",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "components/bb_pub/include/bb_pub.h",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "components/bb_sink_event/include/bb_sink_event.h",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "components/bb_sink_http/include/bb_sink_http.h",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "components/bb_sink_mqtt/include/bb_sink_mqtt.h",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "components/bb_sink_udp/include/bb_sink_udp.h",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "components/bb_sink_ws/include/bb_sink_ws.h",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_add_sink",
+      "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "platform/espidf/bb_sink_ws/bb_sink_ws.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_add_sink",
+      "path": "platform/host/bb_mqtt_telemetry/bb_mqtt_telemetry_host.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "platform/host/bb_mqtt_telemetry/bb_mqtt_telemetry_host.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_add_sink",
+      "path": "platform/host/bb_pub/bb_pub.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "platform/host/bb_pub/bb_pub.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "platform/host/bb_sink_event/bb_sink_event.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "platform/host/bb_sink_http/bb_sink_http.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_add_sink",
+      "path": "platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "platform/host/bb_sink_mqtt/bb_sink_mqtt.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "platform/host/bb_sink_udp/bb_sink_udp.c",
+      "type": "pub_sink"
+    },
+    {
+      "id": "bb_pub_sink_t",
+      "path": "platform/host/bb_sink_ws/bb_sink_ws.c",
+      "type": "pub_sink"
+    }
+  ]
+}
