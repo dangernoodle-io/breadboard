@@ -9,5 +9,5 @@ endif()
 idf_component_register(
     SRCS ${BB_SINK_WS_SRCS}
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_pub bb_websocket
+    REQUIRES bb_core bb_pub bb_ws_server
     PRIV_REQUIRES bb_log bb_event bb_json bb_cache bb_cache_reactive)

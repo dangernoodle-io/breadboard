@@ -49,7 +49,7 @@
 // stay build-compatible and behaviorally equivalent for tests.
 
 #include "bb_sink_ws.h"
-#include "bb_websocket.h"
+#include "bb_ws_server.h"
 #include "bb_log.h"
 #include "bb_event.h"
 #include "bb_json.h"
@@ -278,17 +278,17 @@ static bool client_subscribed(int fd, const char *topic)
 // WebSocket handler and route descriptor
 // ---------------------------------------------------------------------------
 
-static bb_err_t ws_handler(bb_http_request_t *req, const bb_websocket_frame_t *frame)
+static bb_err_t ws_handler(bb_http_request_t *req, const bb_ws_server_frame_t *frame)
 {
     // Only process TEXT frames carrying envelope commands.
-    // (B) !frame is never true: the bb_websocket transport (and the host
+    // (B) !frame is never true: the bb_ws_server transport (and the host
     // mock harness) always invokes a registered handler with a non-NULL
     // frame — dead-by-construction defensive check.
     if (!frame || frame->type != BB_WS_TYPE_TEXT || !frame->payload || frame->len == 0) {  // LCOV_EXCL_BR_LINE — see comment above
         return BB_OK;
     }
 
-    int fd = bb_websocket_req_fd(req);
+    int fd = bb_ws_server_req_fd(req);
     // Attempt to demux and dispatch; ignore malformed frames silently.
     dispatch_inbound_frame(fd, (const char *)frame->payload, frame->len);
     return BB_OK;
@@ -322,7 +322,7 @@ static bb_err_t broadcast_filtered(const char *topic,
 {
     if (s_suspended) return BB_OK;
 
-    bb_websocket_frame_t frame = {
+    bb_ws_server_frame_t frame = {
         .final   = true,
         .type    = BB_WS_TYPE_TEXT,
         .payload = (uint8_t *)buf,
@@ -330,10 +330,10 @@ static bb_err_t broadcast_filtered(const char *topic,
     };
 
     bb_err_t last_err = BB_OK;
-    for (int fd = 0; fd < BB_WEBSOCKET_MAX_FD; fd++) {
-        if (!bb_websocket_is_client(s_ctx.server, fd)) continue;
+    for (int fd = 0; fd < BB_WS_SERVER_MAX_FD; fd++) {
+        if (!bb_ws_server_is_client(s_ctx.server, fd)) continue;
         if (!client_subscribed(fd, topic)) continue;
-        bb_err_t err = bb_websocket_broadcast_frame_async(
+        bb_err_t err = bb_ws_server_broadcast_frame_async(
             s_ctx.server, fd, &frame, NULL, NULL);
         if (err != BB_OK) last_err = err;
     }
@@ -433,9 +433,9 @@ static bb_err_t sink_ws_publish(void *ctx, const char *topic,
 bb_err_t bb_sink_ws_suspend(void)
 {
     if (s_suspended) return BB_OK;
-    for (int fd = 0; fd < BB_WEBSOCKET_MAX_FD; fd++) {
-        if (bb_websocket_is_client(s_ctx.server, fd)) {
-            bb_websocket_close_client(s_ctx.server, fd);
+    for (int fd = 0; fd < BB_WS_SERVER_MAX_FD; fd++) {
+        if (bb_ws_server_is_client(s_ctx.server, fd)) {
+            bb_ws_server_close_client(s_ctx.server, fd);
             client_sub_clear(fd);
         }
     }
@@ -578,13 +578,13 @@ static void snapshot_key_to_fd(const char *key, void *ctx_v)
         return;
     }
 
-    bb_websocket_frame_t frame = {
+    bb_ws_server_frame_t frame = {
         .final   = true,
         .type    = BB_WS_TYPE_TEXT,
         .payload = (uint8_t *)buf,
         .len     = out_len,
     };
-    bb_websocket_broadcast_frame_async(sc->server, sc->fd, &frame, NULL, NULL);
+    bb_ws_server_broadcast_frame_async(sc->server, sc->fd, &frame, NULL, NULL);
     free(buf);
 }
 
@@ -616,10 +616,10 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
 
-    bb_err_t reg_err = bb_websocket_register_described_endpoint(server, "/ws", ws_handler, &s_ws_route);
+    bb_err_t reg_err = bb_ws_server_register_described_endpoint(server, "/ws", ws_handler, &s_ws_route);
     if (reg_err != BB_OK) return reg_err;
 
-    bb_websocket_set_disconnect_cb(ws_disconnect_cb, NULL);
+    bb_ws_server_set_disconnect_cb(ws_disconnect_cb, NULL);
 
     s_ctx.server = server;
 
@@ -654,7 +654,7 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
     // Snapshot-on-connect (B1-589 PR-4b): unicast full current state to a
     // newly-connected client so a fresh dashboard doesn't wait for the next
     // tick/delta.
-    bb_websocket_set_connect_cb(ws_connect_cb, NULL);
+    bb_ws_server_set_connect_cb(ws_connect_cb, NULL);
 
     out->publish       = sink_ws_publish;
     out->ctx           = &s_ctx;

@@ -1,9 +1,9 @@
-// Host stub for bb_websocket.  Provides a capture harness for unit tests.
+// Host stub for bb_ws_server.  Provides a capture harness for unit tests.
 // Mirrors bb_http_host.c in structure: fake request cookie, frame capture,
 // force-fail test hooks, and async capture tables.
 
-#include "bb_websocket.h"
-#include "bb_websocket_host.h"
+#include "bb_ws_server.h"
+#include "bb_ws_server_host.h"
 #include "bb_str.h"
 
 #include <stdlib.h>
@@ -13,8 +13,8 @@
 // Internal state
 // ---------------------------------------------------------------------------
 
-// Registered handler (from bb_websocket_register_endpoint)
-static bb_websocket_handler_fn s_handler = NULL;
+// Registered handler (from bb_ws_server_register_endpoint)
+static bb_ws_server_handler_fn s_handler = NULL;
 static char                    s_registered_path[128];
 
 // Fake request cookie (stable address, same pattern as bb_http_host)
@@ -22,13 +22,13 @@ static int s_capture_cookie;
 static bb_http_request_t *s_active_req = NULL;
 
 // Last frame injected (recv probe/data)
-static bb_websocket_frame_t s_injected_frame;
+static bb_ws_server_frame_t s_injected_frame;
 static uint8_t             *s_injected_payload = NULL;  // heap copy
 
-// Last frame sent (from bb_websocket_send_frame)
+// Last frame sent (from bb_ws_server_send_frame)
 typedef struct {
     bool                      active;
-    bb_websocket_frame_type_t type;
+    bb_ws_server_frame_type_t type;
     bool                      final;
     uint8_t                  *payload;  // heap copy
     size_t                    len;
@@ -37,23 +37,23 @@ typedef struct {
 static sent_frame_slot_t s_sent;
 
 // Async capture table
-static bb_websocket_host_async_capture_t s_async[BB_WEBSOCKET_HOST_ASYNC_CAP];
+static bb_ws_server_host_async_capture_t s_async[BB_WS_SERVER_HOST_ASYNC_CAP];
 static int s_async_count = 0;
 
-// Client active flags (fd index 0..BB_WEBSOCKET_MAX_FD-1)
-static bool s_client_active[BB_WEBSOCKET_MAX_FD];
+// Client active flags (fd index 0..BB_WS_SERVER_MAX_FD-1)
+static bool s_client_active[BB_WS_SERVER_MAX_FD];
 
-// Open-connection counter, driven by bb_websocket_host_simulate_open/close
+// Open-connection counter, driven by bb_ws_server_host_simulate_open/close
 // (the espidf connect/disconnect hooks have no host-testable seam — they
 // depend on httpd_req_t->sess_ctx/free_ctx, so this is a plain counter).
 static size_t s_open_count = 0;
 
 // Disconnect callback registration, mirrors the espidf backend.
-static bb_websocket_disconnect_cb_t s_disconnect_cb  = NULL;
+static bb_ws_server_disconnect_cb_t s_disconnect_cb  = NULL;
 static void                        *s_disconnect_ctx = NULL;
 
 // Connect callback registration, mirrors the espidf backend.
-static bb_websocket_connect_cb_t s_connect_cb  = NULL;
+static bb_ws_server_connect_cb_t s_connect_cb  = NULL;
 static void                     *s_connect_ctx = NULL;
 
 // Force-fail flags
@@ -69,52 +69,52 @@ static int s_inject_fd = -1;
 // Force-fail hooks
 // ---------------------------------------------------------------------------
 
-void bb_websocket_host_force_register_fail(bool fail)
+void bb_ws_server_host_force_register_fail(bool fail)
 {
     s_force_register_fail = fail;
 }
 
-void bb_websocket_host_force_recv_fail(bool fail)
+void bb_ws_server_host_force_recv_fail(bool fail)
 {
     s_force_recv_fail = fail;
 }
 
-void bb_websocket_host_force_send_fail(bool fail)
+void bb_ws_server_host_force_send_fail(bool fail)
 {
     s_force_send_fail = fail;
 }
 
-void bb_websocket_host_force_async_alloc_fail(bool fail)
+void bb_ws_server_host_force_async_alloc_fail(bool fail)
 {
     s_force_async_alloc_fail = fail;
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_req_fd (host)
+// bb_ws_server_req_fd (host)
 // ---------------------------------------------------------------------------
 
-int bb_websocket_req_fd(bb_http_request_t *req)
+int bb_ws_server_req_fd(bb_http_request_t *req)
 {
     (void)req;
     return s_inject_fd;
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_host_set_inject_fd
+// bb_ws_server_host_set_inject_fd
 // ---------------------------------------------------------------------------
 
-void bb_websocket_host_set_inject_fd(int fd)
+void bb_ws_server_host_set_inject_fd(int fd)
 {
     s_inject_fd = fd;
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_register_endpoint (host)
+// bb_ws_server_register_endpoint (host)
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_register_endpoint(bb_http_handle_t server,
+bb_err_t bb_ws_server_register_endpoint(bb_http_handle_t server,
                                         const char *path,
-                                        bb_websocket_handler_fn handler)
+                                        bb_ws_server_handler_fn handler)
 {
     (void)server;
     if (s_force_register_fail) {
@@ -129,11 +129,11 @@ bb_err_t bb_websocket_register_endpoint(bb_http_handle_t server,
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_recv_frame (host)
+// bb_ws_server_recv_frame (host)
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_recv_frame(bb_http_request_t *req,
-                                 bb_websocket_frame_t *frame,
+bb_err_t bb_ws_server_recv_frame(bb_http_request_t *req,
+                                 bb_ws_server_frame_t *frame,
                                  size_t max_len)
 {
     if (!req || !frame) {
@@ -163,11 +163,11 @@ bb_err_t bb_websocket_recv_frame(bb_http_request_t *req,
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_send_frame (host)
+// bb_ws_server_send_frame (host)
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_send_frame(bb_http_request_t *req,
-                                 const bb_websocket_frame_t *frame)
+bb_err_t bb_ws_server_send_frame(bb_http_request_t *req,
+                                 const bb_ws_server_frame_t *frame)
 {
     if (!req || !frame) {
         return BB_ERR_INVALID_ARG;
@@ -197,26 +197,26 @@ bb_err_t bb_websocket_send_frame(bb_http_request_t *req,
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_is_client (host)
+// bb_ws_server_is_client (host)
 // ---------------------------------------------------------------------------
 
-bool bb_websocket_is_client(bb_http_handle_t server, int fd)
+bool bb_ws_server_is_client(bb_http_handle_t server, int fd)
 {
     (void)server;
-    if (fd < 0 || fd >= BB_WEBSOCKET_MAX_FD) {
+    if (fd < 0 || fd >= BB_WS_SERVER_MAX_FD) {
         return false;
     }
     return s_client_active[fd];
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_broadcast_frame_async (host)
+// bb_ws_server_broadcast_frame_async (host)
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_broadcast_frame_async(bb_http_handle_t server,
+bb_err_t bb_ws_server_broadcast_frame_async(bb_http_handle_t server,
                                             int fd,
-                                            const bb_websocket_frame_t *frame,
-                                            bb_websocket_send_cb_t cb,
+                                            const bb_ws_server_frame_t *frame,
+                                            bb_ws_server_send_cb_t cb,
                                             void *ctx)
 {
     (void)server;
@@ -229,11 +229,11 @@ bb_err_t bb_websocket_broadcast_frame_async(bb_http_handle_t server,
         }
         return BB_ERR_NO_SPACE;
     }
-    if (s_async_count >= BB_WEBSOCKET_HOST_ASYNC_CAP) {
+    if (s_async_count >= BB_WS_SERVER_HOST_ASYNC_CAP) {
         return BB_ERR_NO_SPACE;
     }
 
-    bb_websocket_host_async_capture_t *a = &s_async[s_async_count];
+    bb_ws_server_host_async_capture_t *a = &s_async[s_async_count];
     a->type  = frame->type;
     a->final = frame->final;
     a->fd    = fd;
@@ -256,21 +256,21 @@ bb_err_t bb_websocket_broadcast_frame_async(bb_http_handle_t server,
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_broadcast_all (host)
+// bb_ws_server_broadcast_all (host)
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_broadcast_all(bb_http_handle_t server,
-                                    const bb_websocket_frame_t *frame,
-                                    bb_websocket_send_cb_t cb,
+bb_err_t bb_ws_server_broadcast_all(bb_http_handle_t server,
+                                    const bb_ws_server_frame_t *frame,
+                                    bb_ws_server_send_cb_t cb,
                                     void *ctx)
 {
     if (!frame) {
         return BB_ERR_INVALID_ARG;
     }
     bb_err_t last_err = BB_OK;
-    for (int fd = 0; fd < BB_WEBSOCKET_MAX_FD; fd++) {
-        if (bb_websocket_is_client(server, fd)) {
-            bb_err_t err = bb_websocket_broadcast_frame_async(server, fd, frame, cb, ctx);
+    for (int fd = 0; fd < BB_WS_SERVER_MAX_FD; fd++) {
+        if (bb_ws_server_is_client(server, fd)) {
+            bb_err_t err = bb_ws_server_broadcast_frame_async(server, fd, frame, cb, ctx);
             if (err != BB_OK) {
                 last_err = err;
             }
@@ -280,18 +280,18 @@ bb_err_t bb_websocket_broadcast_all(bb_http_handle_t server,
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_register_described_endpoint (host)
+// bb_ws_server_register_described_endpoint (host)
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t server,
+bb_err_t bb_ws_server_register_described_endpoint(bb_http_handle_t server,
                                                   const char *path,
-                                                  bb_websocket_handler_fn handler,
+                                                  bb_ws_server_handler_fn handler,
                                                   const bb_route_t *descriptor)
 {
     if (!path || !handler || !descriptor) {
         return BB_ERR_INVALID_ARG;
     }
-    bb_err_t err = bb_websocket_register_endpoint(server, path, handler);
+    bb_err_t err = bb_ws_server_register_endpoint(server, path, handler);
     if (err != BB_OK) {
         return err;
     }
@@ -302,7 +302,7 @@ bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t server,
 // Capture API
 // ---------------------------------------------------------------------------
 
-void bb_websocket_host_capture_begin(bb_http_request_t **out_req)
+void bb_ws_server_host_capture_begin(bb_http_request_t **out_req)
 {
     s_active_req = (bb_http_request_t *)&s_capture_cookie;
 
@@ -320,8 +320,8 @@ void bb_websocket_host_capture_begin(bb_http_request_t **out_req)
     }
 }
 
-bb_err_t bb_websocket_host_inject_frame(bb_http_request_t *req,
-                                        const bb_websocket_frame_t *in_frame)
+bb_err_t bb_ws_server_host_inject_frame(bb_http_request_t *req,
+                                        const bb_ws_server_frame_t *in_frame)
 {
     if (!req || !in_frame || !s_handler) {
         return BB_ERR_INVALID_STATE;
@@ -344,7 +344,7 @@ bb_err_t bb_websocket_host_inject_frame(bb_http_request_t *req,
     return s_handler(req, in_frame);
 }
 
-void bb_websocket_host_capture_sent_frame(bb_websocket_host_capture_t *out)
+void bb_ws_server_host_capture_sent_frame(bb_ws_server_host_capture_t *out)
 {
     if (!out) {
         return;
@@ -361,7 +361,7 @@ void bb_websocket_host_capture_sent_frame(bb_websocket_host_capture_t *out)
     s_sent.active  = false;
 }
 
-void bb_websocket_host_capture_free(bb_websocket_host_capture_t *cap)
+void bb_ws_server_host_capture_free(bb_ws_server_host_capture_t *cap)
 {
     if (!cap) {
         return;
@@ -371,7 +371,7 @@ void bb_websocket_host_capture_free(bb_websocket_host_capture_t *cap)
     cap->len     = 0;
 }
 
-void bb_websocket_host_reset_captures(void)
+void bb_ws_server_host_reset_captures(void)
 {
     s_handler = NULL;
     memset(s_registered_path, 0, sizeof(s_registered_path));
@@ -384,7 +384,7 @@ void bb_websocket_host_reset_captures(void)
     free(s_sent.payload);
     memset(&s_sent, 0, sizeof(s_sent));
 
-    bb_websocket_host_async_reset();
+    bb_ws_server_host_async_reset();
 
     memset(s_client_active, 0, sizeof(s_client_active));
     s_open_count = 0;
@@ -407,12 +407,12 @@ void bb_websocket_host_reset_captures(void)
 // Async capture accessors
 // ---------------------------------------------------------------------------
 
-int bb_websocket_host_async_count(void)
+int bb_ws_server_host_async_count(void)
 {
     return s_async_count;
 }
 
-const bb_websocket_host_async_capture_t *bb_websocket_host_async_at(int i)
+const bb_ws_server_host_async_capture_t *bb_ws_server_host_async_at(int i)
 {
     if (i < 0 || i >= s_async_count) {
         return NULL;
@@ -420,7 +420,7 @@ const bb_websocket_host_async_capture_t *bb_websocket_host_async_at(int i)
     return &s_async[i];
 }
 
-void bb_websocket_host_async_reset(void)
+void bb_ws_server_host_async_reset(void)
 {
     for (int i = 0; i < s_async_count; i++) {
         free(s_async[i].payload);
@@ -433,42 +433,42 @@ void bb_websocket_host_async_reset(void)
 // Client active stub
 // ---------------------------------------------------------------------------
 
-void bb_websocket_host_set_client_active(int fd, bool active)
+void bb_ws_server_host_set_client_active(int fd, bool active)
 {
     if (fd < 0) {
         memset(s_client_active, 0, sizeof(s_client_active));
         return;
     }
-    if (fd < BB_WEBSOCKET_MAX_FD) {
+    if (fd < BB_WS_SERVER_MAX_FD) {
         s_client_active[fd] = active;
     }
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_close_client (host — no-op)
+// bb_ws_server_close_client (host — no-op)
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_close_client(bb_http_handle_t server, int fd)
+bb_err_t bb_ws_server_close_client(bb_http_handle_t server, int fd)
 {
     (void)server; (void)fd;
     return BB_OK;
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_open_count (host)
+// bb_ws_server_open_count (host)
 // ---------------------------------------------------------------------------
 
-size_t bb_websocket_open_count(void)
+size_t bb_ws_server_open_count(void)
 {
     return s_open_count;
 }
 
-void bb_websocket_host_simulate_open(void)
+void bb_ws_server_host_simulate_open(void)
 {
     s_open_count++;
 }
 
-void bb_websocket_host_simulate_close(void)
+void bb_ws_server_host_simulate_close(void)
 {
     if (s_open_count > 0) {
         s_open_count--;
@@ -476,16 +476,16 @@ void bb_websocket_host_simulate_close(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_set_disconnect_cb / simulate_disconnect (host)
+// bb_ws_server_set_disconnect_cb / simulate_disconnect (host)
 // ---------------------------------------------------------------------------
 
-void bb_websocket_set_disconnect_cb(bb_websocket_disconnect_cb_t cb, void *ctx)
+void bb_ws_server_set_disconnect_cb(bb_ws_server_disconnect_cb_t cb, void *ctx)
 {
     s_disconnect_cb  = cb;
     s_disconnect_ctx = ctx;
 }
 
-void bb_websocket_host_simulate_disconnect(int fd)
+void bb_ws_server_host_simulate_disconnect(int fd)
 {
     if (s_disconnect_cb) {
         s_disconnect_cb(fd, s_disconnect_ctx);
@@ -493,16 +493,16 @@ void bb_websocket_host_simulate_disconnect(int fd)
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_set_connect_cb / simulate_connect (host)
+// bb_ws_server_set_connect_cb / simulate_connect (host)
 // ---------------------------------------------------------------------------
 
-void bb_websocket_set_connect_cb(bb_websocket_connect_cb_t cb, void *ctx)
+void bb_ws_server_set_connect_cb(bb_ws_server_connect_cb_t cb, void *ctx)
 {
     s_connect_cb  = cb;
     s_connect_ctx = ctx;
 }
 
-void bb_websocket_host_simulate_connect(bb_http_handle_t server, int fd)
+void bb_ws_server_host_simulate_connect(bb_http_handle_t server, int fd)
 {
     if (s_connect_cb) {
         s_connect_cb(server, fd, s_connect_ctx);

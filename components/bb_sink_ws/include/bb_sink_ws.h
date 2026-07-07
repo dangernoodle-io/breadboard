@@ -1,6 +1,6 @@
 #pragma once
 // bb_sink_ws — bb_pub sink that forwards serialized telemetry payloads to
-// subscribed WebSocket clients via bb_websocket_broadcast_all.
+// subscribed WebSocket clients via bb_ws_server_broadcast_all.
 //
 // Usage:
 //   bb_http_handle_t server = ...; // already-started HTTP server handle

@@ -131,5 +131,5 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_transport_health](./bb_transport_health/) | — |
 | [bb_udp_frame](./bb_udp_frame/) | — |
 | [bb_wdt](./bb_wdt/) | — |
-| [bb_websocket](./bb_websocket/) | — |
 | [bb_wifi](./bb_wifi/) | — |
+| [bb_ws_server](./bb_ws_server/) | — |

@@ -1,4 +1,4 @@
-// ESP-IDF implementation of bb_websocket.
+// ESP-IDF implementation of bb_ws_server.
 // Wraps httpd_ws_* APIs (CONFIG_HTTPD_WS_SUPPORT, default y).
 // bb_http_request_t is cast to httpd_req_t *; bb_http_handle_t to httpd_handle_t.
 // Async broadcast uses httpd_queue_work + httpd_ws_send_frame_async.
@@ -11,7 +11,7 @@
 
 #if CONFIG_HTTPD_WS_SUPPORT
 
-#include "bb_websocket.h"
+#include "bb_ws_server.h"
 #include "bb_log.h"
 #include "bb_mem.h"
 
@@ -34,7 +34,7 @@ static const char *TAG = "bb_ws";
 // untested 6.0 code. Fail the build loudly instead of silently zeroing the
 // counter if this component is ever compiled against >=6.0.
 _Static_assert(ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0),
-               "bb_websocket open-connection counter relies on the pre-6.0 "
+               "bb_ws_server open-connection counter relies on the pre-6.0 "
                "handshake handler invocation (req->method==HTTP_GET). "
                "ESP-IDF >=6.0.1 no longer calls the handler during the "
                "handshake -- reimplement the connect hook via "
@@ -58,10 +58,10 @@ static atomic_size_t s_ws_open_count = 0;
 // fd) at handshake completion, and decoded back out in ws_session_free_ctx so
 // the disconnect callback knows which fd went away without any extra
 // per-session state.
-static bb_websocket_disconnect_cb_t s_disconnect_cb  = NULL;
+static bb_ws_server_disconnect_cb_t s_disconnect_cb  = NULL;
 static void                        *s_disconnect_ctx = NULL;
 
-void bb_websocket_set_disconnect_cb(bb_websocket_disconnect_cb_t cb, void *ctx)
+void bb_ws_server_set_disconnect_cb(bb_ws_server_disconnect_cb_t cb, void *ctx)
 {
     s_disconnect_cb  = cb;
     s_disconnect_ctx = ctx;
@@ -72,10 +72,10 @@ void bb_websocket_set_disconnect_cb(bb_websocket_disconnect_cb_t cb, void *ctx)
 // (req->sess_ctx == NULL) that arms the disconnect hook above, before any
 // data frame has been received from the new client.
 // ---------------------------------------------------------------------------
-static bb_websocket_connect_cb_t s_connect_cb  = NULL;
+static bb_ws_server_connect_cb_t s_connect_cb  = NULL;
 static void                     *s_connect_ctx = NULL;
 
-void bb_websocket_set_connect_cb(bb_websocket_connect_cb_t cb, void *ctx)
+void bb_ws_server_set_connect_cb(bb_ws_server_connect_cb_t cb, void *ctx)
 {
     s_connect_cb  = cb;
     s_connect_ctx = ctx;
@@ -90,18 +90,18 @@ static void ws_session_free_ctx(void *ctx)
     }
 }
 
-size_t bb_websocket_open_count(void)
+size_t bb_ws_server_open_count(void)
 {
     return atomic_load(&s_ws_open_count);
 }
 
 // ---------------------------------------------------------------------------
-// Internal shim — bridges httpd_uri_t handler to bb_websocket_handler_fn
+// Internal shim — bridges httpd_uri_t handler to bb_ws_server_handler_fn
 // ---------------------------------------------------------------------------
 
 // Per-endpoint user_ctx stored on the httpd_uri_t.
 typedef struct {
-    bb_websocket_handler_fn handler;
+    bb_ws_server_handler_fn handler;
 } ws_endpoint_ctx_t;
 
 static esp_err_t ws_shim_handler(httpd_req_t *req)
@@ -173,9 +173,9 @@ static esp_err_t ws_shim_handler(httpd_req_t *req)
     }
 
     // Build portable frame descriptor and call the user handler.
-    bb_websocket_frame_t frame = {
+    bb_ws_server_frame_t frame = {
         .final   = ws_pkt.final,
-        .type    = (bb_websocket_frame_type_t)ws_pkt.type,
+        .type    = (bb_ws_server_frame_type_t)ws_pkt.type,
         .payload = ws_pkt.payload,
         .len     = ws_pkt.len,
     };
@@ -187,12 +187,12 @@ static esp_err_t ws_shim_handler(httpd_req_t *req)
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_register_endpoint
+// bb_ws_server_register_endpoint
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_register_endpoint(bb_http_handle_t server,
+bb_err_t bb_ws_server_register_endpoint(bb_http_handle_t server,
                                         const char *path,
-                                        bb_websocket_handler_fn handler)
+                                        bb_ws_server_handler_fn handler)
 {
     if (!server || !path || !handler) {
         return BB_ERR_INVALID_ARG;
@@ -231,11 +231,11 @@ bb_err_t bb_websocket_register_endpoint(bb_http_handle_t server,
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_recv_frame
+// bb_ws_server_recv_frame
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_recv_frame(bb_http_request_t *req,
-                                 bb_websocket_frame_t *frame,
+bb_err_t bb_ws_server_recv_frame(bb_http_request_t *req,
+                                 bb_ws_server_frame_t *frame,
                                  size_t max_len)
 {
     if (!req || !frame) {
@@ -251,7 +251,7 @@ bb_err_t bb_websocket_recv_frame(bb_http_request_t *req,
     esp_err_t err = httpd_ws_recv_frame(http_req, &ws_pkt, max_len);
     if (err == ESP_OK) {
         frame->final   = ws_pkt.final;
-        frame->type    = (bb_websocket_frame_type_t)ws_pkt.type;
+        frame->type    = (bb_ws_server_frame_type_t)ws_pkt.type;
         frame->payload = ws_pkt.payload;
         frame->len     = ws_pkt.len;
     }
@@ -259,11 +259,11 @@ bb_err_t bb_websocket_recv_frame(bb_http_request_t *req,
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_send_frame
+// bb_ws_server_send_frame
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_send_frame(bb_http_request_t *req,
-                                 const bb_websocket_frame_t *frame)
+bb_err_t bb_ws_server_send_frame(bb_http_request_t *req,
+                                 const bb_ws_server_frame_t *frame)
 {
     if (!req || !frame) {
         return BB_ERR_INVALID_ARG;
@@ -287,9 +287,9 @@ typedef struct {
     int                      fd;
     uint8_t                 *payload;   // heap copy; freed after send
     size_t                   len;
-    bb_websocket_frame_type_t type;
+    bb_ws_server_frame_type_t type;
     bool                     final;
-    bb_websocket_send_cb_t   cb;
+    bb_ws_server_send_cb_t   cb;
     void                    *ctx;
 } async_send_ctx_t;
 
@@ -302,7 +302,7 @@ static void async_send_worker(void *arg)
     // work item is queued and runs later on httpd's async-send worker task.
     // If the fd closed in the meantime, httpd_ws_send_frame_async would send
     // into a dead socket; re-validating here with httpd_ws_get_fd_info
-    // (via bb_websocket_is_client) closes that window. It does NOT close the
+    // (via bb_ws_server_is_client) closes that window. It does NOT close the
     // narrower window where the same fd number was already reused by a NEW
     // WS client before this worker runs -- get_fd_info reports WEBSOCKET for
     // that new client too, so it looks "live" either way. That residual case
@@ -310,7 +310,7 @@ static void async_send_worker(void *arg)
     // data, bounded by this worker-queue's latency) to the wrong client; it
     // is accepted and tracked as a follow-up, not fixed with a generation
     // counter here.
-    if (!bb_websocket_is_client((bb_http_handle_t)a->server, a->fd)) {
+    if (!bb_ws_server_is_client((bb_http_handle_t)a->server, a->fd)) {
         bb_log_d(TAG, "async send skipped: fd %d no longer a live WS client", a->fd);
         if (a->cb) {
             a->cb((bb_err_t)ESP_ERR_INVALID_STATE, a->fd, a->ctx);
@@ -335,10 +335,10 @@ static void async_send_worker(void *arg)
     bb_mem_free(a);
 }
 
-bb_err_t bb_websocket_broadcast_frame_async(bb_http_handle_t server,
+bb_err_t bb_ws_server_broadcast_frame_async(bb_http_handle_t server,
                                             int fd,
-                                            const bb_websocket_frame_t *frame,
-                                            bb_websocket_send_cb_t cb,
+                                            const bb_ws_server_frame_t *frame,
+                                            bb_ws_server_send_cb_t cb,
                                             void *ctx)
 {
     if (!server || !frame) {
@@ -379,10 +379,10 @@ bb_err_t bb_websocket_broadcast_frame_async(bb_http_handle_t server,
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_is_client
+// bb_ws_server_is_client
 // ---------------------------------------------------------------------------
 
-bool bb_websocket_is_client(bb_http_handle_t server, int fd)
+bool bb_ws_server_is_client(bb_http_handle_t server, int fd)
 {
     if (!server || fd < 0) {
         return false;
@@ -392,21 +392,21 @@ bool bb_websocket_is_client(bb_http_handle_t server, int fd)
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_broadcast_all
+// bb_ws_server_broadcast_all
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_broadcast_all(bb_http_handle_t server,
-                                    const bb_websocket_frame_t *frame,
-                                    bb_websocket_send_cb_t cb,
+bb_err_t bb_ws_server_broadcast_all(bb_http_handle_t server,
+                                    const bb_ws_server_frame_t *frame,
+                                    bb_ws_server_send_cb_t cb,
                                     void *ctx)
 {
     if (!server || !frame) {
         return BB_ERR_INVALID_ARG;
     }
     bb_err_t last_err = BB_OK;
-    for (int fd = 0; fd < BB_WEBSOCKET_MAX_FD; fd++) {
-        if (bb_websocket_is_client(server, fd)) {
-            bb_err_t err = bb_websocket_broadcast_frame_async(server, fd, frame, cb, ctx);
+    for (int fd = 0; fd < BB_WS_SERVER_MAX_FD; fd++) {
+        if (bb_ws_server_is_client(server, fd)) {
+            bb_err_t err = bb_ws_server_broadcast_frame_async(server, fd, frame, cb, ctx);
             if (err != BB_OK) {
                 last_err = err;
             }
@@ -416,28 +416,28 @@ bb_err_t bb_websocket_broadcast_all(bb_http_handle_t server,
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_req_fd
+// bb_ws_server_req_fd
 // ---------------------------------------------------------------------------
 
-int bb_websocket_req_fd(bb_http_request_t *req)
+int bb_ws_server_req_fd(bb_http_request_t *req)
 {
     if (!req) return -1;
     return httpd_req_to_sockfd((httpd_req_t *)req);
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_register_described_endpoint
+// bb_ws_server_register_described_endpoint
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t server,
+bb_err_t bb_ws_server_register_described_endpoint(bb_http_handle_t server,
                                                   const char *path,
-                                                  bb_websocket_handler_fn handler,
+                                                  bb_ws_server_handler_fn handler,
                                                   const bb_route_t *descriptor)
 {
     if (!path || !handler || !descriptor) {
         return BB_ERR_INVALID_ARG;
     }
-    bb_err_t err = bb_websocket_register_endpoint(server, path, handler);
+    bb_err_t err = bb_ws_server_register_endpoint(server, path, handler);
     if (err != BB_OK) {
         return err;
     }
@@ -445,10 +445,10 @@ bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t server,
 }
 
 // ---------------------------------------------------------------------------
-// bb_websocket_close_client
+// bb_ws_server_close_client
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_websocket_close_client(bb_http_handle_t server, int fd)
+bb_err_t bb_ws_server_close_client(bb_http_handle_t server, int fd)
 {
     if (!server || fd < 0) return BB_ERR_INVALID_ARG;
     esp_err_t e = httpd_sess_trigger_close((httpd_handle_t)server, fd);
@@ -458,49 +458,49 @@ bb_err_t bb_websocket_close_client(bb_http_handle_t server, int fd)
 #else // !CONFIG_HTTPD_WS_SUPPORT
 
 // Stub implementations when WebSocket support is compiled out.
-#include "bb_websocket.h"
+#include "bb_ws_server.h"
 
-bb_err_t bb_websocket_register_endpoint(bb_http_handle_t s, const char *p,
-                                        bb_websocket_handler_fn h)
+bb_err_t bb_ws_server_register_endpoint(bb_http_handle_t s, const char *p,
+                                        bb_ws_server_handler_fn h)
 { (void)s; (void)p; (void)h; return BB_ERR_UNSUPPORTED; }
 
-bb_err_t bb_websocket_recv_frame(bb_http_request_t *req,
-                                 bb_websocket_frame_t *f, size_t l)
+bb_err_t bb_ws_server_recv_frame(bb_http_request_t *req,
+                                 bb_ws_server_frame_t *f, size_t l)
 { (void)req; (void)f; (void)l; return BB_ERR_UNSUPPORTED; }
 
-bb_err_t bb_websocket_send_frame(bb_http_request_t *req,
-                                 const bb_websocket_frame_t *f)
+bb_err_t bb_ws_server_send_frame(bb_http_request_t *req,
+                                 const bb_ws_server_frame_t *f)
 { (void)req; (void)f; return BB_ERR_UNSUPPORTED; }
 
-bb_err_t bb_websocket_broadcast_frame_async(bb_http_handle_t s, int fd,
-                                            const bb_websocket_frame_t *f,
-                                            bb_websocket_send_cb_t cb, void *ctx)
+bb_err_t bb_ws_server_broadcast_frame_async(bb_http_handle_t s, int fd,
+                                            const bb_ws_server_frame_t *f,
+                                            bb_ws_server_send_cb_t cb, void *ctx)
 { (void)s; (void)fd; (void)f; (void)cb; (void)ctx; return BB_ERR_UNSUPPORTED; }
 
-bb_err_t bb_websocket_broadcast_all(bb_http_handle_t s,
-                                    const bb_websocket_frame_t *f,
-                                    bb_websocket_send_cb_t cb, void *ctx)
+bb_err_t bb_ws_server_broadcast_all(bb_http_handle_t s,
+                                    const bb_ws_server_frame_t *f,
+                                    bb_ws_server_send_cb_t cb, void *ctx)
 { (void)s; (void)f; (void)cb; (void)ctx; return BB_ERR_UNSUPPORTED; }
 
-bool bb_websocket_is_client(bb_http_handle_t s, int fd)
+bool bb_ws_server_is_client(bb_http_handle_t s, int fd)
 { (void)s; (void)fd; return false; }
 
-int bb_websocket_req_fd(bb_http_request_t *req)
+int bb_ws_server_req_fd(bb_http_request_t *req)
 { (void)req; return -1; }
 
-bb_err_t bb_websocket_register_described_endpoint(bb_http_handle_t s,
+bb_err_t bb_ws_server_register_described_endpoint(bb_http_handle_t s,
                                                   const char *p,
-                                                  bb_websocket_handler_fn h,
+                                                  bb_ws_server_handler_fn h,
                                                   const bb_route_t *d)
 { (void)s; (void)p; (void)h; (void)d; return BB_ERR_UNSUPPORTED; }
 
-bb_err_t bb_websocket_close_client(bb_http_handle_t s, int fd)
+bb_err_t bb_ws_server_close_client(bb_http_handle_t s, int fd)
 { (void)s; (void)fd; return BB_ERR_UNSUPPORTED; }
 
-size_t bb_websocket_open_count(void)
+size_t bb_ws_server_open_count(void)
 { return 0; }
 
-void bb_websocket_set_disconnect_cb(bb_websocket_disconnect_cb_t cb, void *ctx)
+void bb_ws_server_set_disconnect_cb(bb_ws_server_disconnect_cb_t cb, void *ctx)
 { (void)cb; (void)ctx; }
 
 #endif // CONFIG_HTTPD_WS_SUPPORT
