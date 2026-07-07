@@ -8,6 +8,7 @@
 #include "bb_event_routes.h"
 #include "bb_openapi.h"
 #include "bb_init.h"
+#include "bb_http_server.h"
 #endif
 
 // ---------------------------------------------------------------------------

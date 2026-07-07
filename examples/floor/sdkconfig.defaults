@@ -1,0 +1,20 @@
+CONFIG_IDF_TARGET="esp32"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW=2
+CONFIG_LOG_DEFAULT_LEVEL=3
+
+# FOUNDATIONAL FLOOR (jae/autowire-sweep): all bb_log sinks off -- this is the
+# true floor, console logging only. bb_log's CMakeLists REQUIRES are now
+# Kconfig-conditional to match these gates (see components/bb_log/CMakeLists.txt),
+# so leaving these =n also shrinks the component-discovery closure itself,
+# not just the compiled sources.
+CONFIG_BB_LOG_ROUTES=n
+CONFIG_BB_LOG_EVENT_AUTO_ATTACH=n
+CONFIG_BB_LOG_UDP_SINK=n
+
+# Free size win: smallest floor, not fastest.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+CONFIG_NEWLIB_NANO_FORMAT=y

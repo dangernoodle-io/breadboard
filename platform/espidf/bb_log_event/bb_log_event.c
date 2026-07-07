@@ -9,12 +9,13 @@
 
 #ifdef ESP_PLATFORM
 
-#include "../../host/bb_log/bb_log_event_parse.h"
+#include "../../host/bb_log_event/bb_log_event_parse.h"
 #include "../../../components/bb_log/src/bb_log_internal.h"
 #include "bb_log.h"
 #include "bb_event.h"
 #include "bb_event_routes.h"
 #include "bb_init.h"
+#include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_clock.h"
 #include "bb_openapi.h"

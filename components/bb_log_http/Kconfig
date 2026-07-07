@@ -1,0 +1,25 @@
+menu "breadboard: bb_log_http"
+
+config BB_LOG_ROUTES
+    bool "Build bb_log HTTP routes (log-level GET/POST)"
+    default y
+    help
+        When enabled, bb_log_http compiles the routes module that exposes
+        GET /api/log/level and POST /api/log/level. Disable for headless
+        logging-only consumers that compose bb_log_http but don't want the
+        routes wired.
+
+        The structured log stream is served separately via bb_event at
+        GET /api/events?topic=log (see bb_log_event's BB_LOG_EVENT_AUTO_ATTACH).
+
+config BB_LOG_SSE_KEEPALIVE_MS
+    int "SSE keepalive interval (ms)"
+    default 5000
+    range 1000 60000
+    depends on BB_LOG_ROUTES
+    help
+        Vestigial — the /api/logs SSE route has been retired. This symbol
+        is kept to avoid build breakage on boards that still reference it
+        via sdkconfig. It is unused.
+
+endmenu

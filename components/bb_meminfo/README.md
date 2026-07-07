@@ -1,0 +1,56 @@
+# bb_meminfo
+
+Canonical system-heap reader SSOT (KB #698/#699/#693) — the one component that
+calls `heap_caps_*`.
+
+## When to use / when not
+
+Use `bb_meminfo_get()` whenever you need a heap/PSRAM/RTC/DRAM snapshot
+(diagnostics, `/api/info`, telemetry sources). Do not call `heap_caps_*`
+directly from another component — route through `bb_meminfo` instead so
+there is exactly one call site to audit. `bb_board`'s `bb_board_heap_*` /
+`bb_board_psram_*` / `bb_board_rtc_*` / `bb_board_dram_static_bytes`
+accessors already delegate here; existing callers of those functions need no
+changes. This is a pure on-demand reader — it owns no routes, no `bb_pub`
+source, and needs no `BB_INIT_REGISTER` hook.
+
+## Public API
+
+See [`include/bb_meminfo.h`](include/bb_meminfo.h). Key symbols:
+`bb_meminfo_get(bb_meminfo_snapshot_t *out)` fills a snapshot covering the
+`default`/`internal`/`dma`/`spiram` `heap_caps_*` regions plus RTC
+used/total and internal-DRAM static bytes. ESP-IDF backs it with real
+`heap_caps_*` reads; the host stub zeros every field.
+Public symbols in this component use the `bb_` prefix.
+
+## Config knobs
+
+None.
+
+## Dependencies
+
+<!-- BEGIN bbtool:deps -->
+**REQUIRES:** `bb_core`
+
+**PRIV_REQUIRES:** _(none)_
+<!-- END bbtool:deps -->
+
+## Platform support
+
+<!-- BEGIN bbtool:platform -->
+| host | espidf | arduino |
+|------|--------|---------|
+| yes | yes | no |
+<!-- END bbtool:platform -->
+
+## Links
+
+[![build](https://github.com/dangernoodle-io/breadboard/actions/workflows/build.yml/badge.svg)](https://github.com/dangernoodle-io/breadboard) [![coverage](https://coveralls.io/repos/github/dangernoodle-io/breadboard/badge.svg?branch=main)](https://github.com/dangernoodle-io/breadboard)
+
+- Repository: [https://github.com/dangernoodle-io/breadboard](https://github.com/dangernoodle-io/breadboard)
+- Wiki: [https://github.com/dangernoodle-io/breadboard/wiki](https://github.com/dangernoodle-io/breadboard/wiki)
+
+## See also
+
+`bb_board` (delegates its heap/psram/rtc/dram accessors here), `examples/floor`
+(the floor's first telemetry source, read every tick and logged via `bb_log`).

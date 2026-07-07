@@ -10,6 +10,7 @@
 #include "bb_nv.h"
 #include "bb_openapi.h"
 #include "bb_init.h"
+#include "bb_http_server.h"
 #include "bb_str.h"
 
 #include <stdbool.h>

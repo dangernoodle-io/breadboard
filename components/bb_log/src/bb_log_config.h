@@ -11,10 +11,10 @@
  * here; splitting is delegated to bb_kv_parse (components/bb_kv), and the
  * actual level application goes through bb_log_level_set(), which is
  * already portable (no-op backend on host/Arduino, esp_log_level_set on
- * ESP-IDF). However the *feature* (auto-applying via bb_init's EARLY tier
- * from CONFIG_BB_LOG_DEFAULT_LEVEL/CONFIG_BB_LOG_LEVELS) is ESP-IDF only
- * today — it is not wired into the Arduino build_src_filter, so it is
- * absent on Arduino targets, not just a no-op.
+ * ESP-IDF). However the *feature* (applying CONFIG_BB_LOG_DEFAULT_LEVEL/
+ * CONFIG_BB_LOG_LEVELS via bb_log_config_init(), hand-wired from app_main)
+ * is ESP-IDF only today — it is not wired into the Arduino
+ * build_src_filter, so it is absent on Arduino targets, not just a no-op.
  *
  * Private to bb_log — not part of the public API surface. Host tests reach
  * this header directly (same component, not "reaching into another
@@ -61,7 +61,8 @@ void bb_log_config_apply_levels(const char *s);
 bb_err_t bb_log_config_apply(const char *default_level_str, const char *levels_str);
 
 /**
- * EARLY-tier bb_init entry point: thin wrapper calling bb_log_config_apply
- * with CONFIG_BB_LOG_DEFAULT_LEVEL / CONFIG_BB_LOG_LEVELS.
+ * Hand-wire entry point: thin wrapper calling bb_log_config_apply with
+ * CONFIG_BB_LOG_DEFAULT_LEVEL / CONFIG_BB_LOG_LEVELS. No self-registration --
+ * the consumer's app_main calls this directly.
  */
 bb_err_t bb_log_config_init(void);

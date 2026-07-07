@@ -461,7 +461,7 @@ void test_validate_smoke_ota_check_schema(void)
 }
 
 // Mirrors POST /api/log/level request schema from
-// platform/espidf/bb_log/bb_log_http.c
+// platform/espidf/bb_log_http/bb_log_http.c
 void test_validate_smoke_log_level_schema(void)
 {
     static const char schema[] =

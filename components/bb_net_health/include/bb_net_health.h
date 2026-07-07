@@ -628,7 +628,7 @@ bool bb_net_health_should_log(int64_t now_us, int64_t last_log_us,
  * into buf. Fields are ordered critical-first (nm, ip, ip_ok, assoc, rssi,
  * sess, dr) so the line degrades gracefully under truncation against the
  * shared log pipeline caps (LOG_STREAM_LINE_MAX=192; the "log" bb_event
- * forwarder msgbuf=168, platform/espidf/bb_log/bb_log_event.c). Worst case
+ * forwarder msgbuf=168, platform/espidf/bb_log_event/bb_log_event.c). Worst case
  * (max-length "255.255.255.255" ip, max uint32 counters) is ~212 bytes —
  * still exceeds both caps, but only the trailing counters (roam= onward)
  * are at risk: the critical-first prefix (nm/ip/ip_ok/assoc/rssi/sess/dr)

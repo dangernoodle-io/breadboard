@@ -28,9 +28,25 @@ void    bb_init_clear(void);
 // N is a sort key only — lower N runs first. It is NOT a route-count hint.
 // Route counts are declared via bb_http_reserve_routes() in a companion
 // BB_INIT_REGISTER_PRE_HTTP init function.
+//
+// DECOUPLING (KB #692): fn_ still takes a bb_http_handle_t server argument
+// for source compatibility with every existing call site, but bb_init itself
+// no longer resolves that handle — bb_init_init() passes NULL. This macro
+// generates a per-component trampoline that ignores the incoming argument and
+// resolves the real handle itself via bb_http_server_get_handle(), called
+// from THIS translation unit (which must already depend on bb_http_server to
+// make use of the server — e.g. to register routes). That keeps the
+// bb_http_server_get_handle() reference out of bb_init entirely, so bb_init's
+// CMakeLists carries no bb_http_server dependency and firmwares that never
+// register a REGULAR-tier component (e.g. the serial-only floor, which only
+// calls bb_init_init_early()) never link the web stack.
 #define BB_INIT_REGISTER_N(name_, fn_, n_)                                 \
+    static bb_err_t bb_init_trampoline__##name_(bb_http_handle_t server_unused_) { \
+        (void)server_unused_;                                              \
+        return (fn_)(bb_http_server_get_handle());                        \
+    }                                                                      \
     static const bb_init_entry_t bb_init_entry__##name_ = {            \
-        .name = #name_, .init = (fn_), .order = (n_)                           \
+        .name = #name_, .init = bb_init_trampoline__##name_, .order = (n_)     \
     };                                                                          \
     void bb_init_register__##name_(void) __attribute__((constructor));     \
     void bb_init_register__##name_(void) {                                 \

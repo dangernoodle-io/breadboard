@@ -1,9 +1,18 @@
 #include "bb_log.h"
-#include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_init.h"
 
 #include <string.h>
+
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
+
+// This whole component only exists to be composed when the GET/POST
+// /api/log/level routes are wanted; CONFIG_BB_LOG_ROUTES (own Kconfig,
+// default y) additionally gates registration so a consumer can compose the
+// component yet still opt out of the route wiring at configure time.
+#if defined(CONFIG_BB_LOG_ROUTES) && CONFIG_BB_LOG_ROUTES
 
 static const char *TAG = "bb_log_http";
 
@@ -179,3 +188,5 @@ static bb_err_t bb_log_register_routes_reserve(void)
 }
 BB_INIT_REGISTER_PRE_HTTP(bb_log_register_routes, bb_log_register_routes_reserve);
 BB_INIT_REGISTER_N(bb_log_register_routes, bb_log_register_routes_init, 4);
+
+#endif /* CONFIG_BB_LOG_ROUTES */

@@ -1,5 +1,4 @@
 #include "bb_init.h"
-#include "bb_http_server.h"
 #include "bb_mem.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -83,36 +82,28 @@ bb_err_t bb_init_init(void)
 {
     bb_err_t first_error = BB_OK;
 
-    // 1. Walk PRE_HTTP entries (after EARLY, before server start)
+    // 1. Walk PRE_HTTP entries (after EARLY). bb_init has no knowledge of
+    // bb_http_server whatsoever (KB #692 decoupling) — if a firmware needs the HTTP
+    // server up before REGULAR-tier init runs, bb_http_server self-registers its own
+    // PRE_HTTP-tier autostart hook ordered last (see platform/espidf/bb_http_server/bb_http.c). Delegates to
+    // the standalone entry point so the walked-once guard is shared.
     {
-        if (s_pre_http_walked) {
-            printf("[bb_init] pre_http init: already walked, skipping\n");
-        } else {
-            size_t count = bb_init_count_pre_http();
-            printf("[bb_init] pre_http init: %zu entries\n", count);
-
-            void *nodes[256];
-            size_t n = 0;
-            for (node_pre_http_t *p = s_pre_http_head; p && n < 256; p = p->next) {
-                nodes[n++] = p;
-            }
-
-            bb_init_sort_nodes_by_order(nodes, n, bb_init_order_pre_http);
-
-            for (size_t i = 0; i < n; i++) {
-                node_pre_http_t *nd = (node_pre_http_t *)nodes[i];
-                bb_err_t err = nd->entry->init();
-                if (err != BB_OK && first_error == BB_OK) {
-                    first_error = err;
-                }
-            }
-            s_pre_http_walked = true;
+        bb_err_t err = bb_init_init_pre_http();
+        // No `&& first_error == BB_OK` guard here (unlike the regular-tier
+        // loop below): first_error was just initialized to BB_OK a few lines
+        // up and nothing else can have run before this single call, so that
+        // second operand is a tautology at this call site.
+        if (err != BB_OK) {
+            first_error = err;
         }
     }
 
-    // 2. Walk regular entries (route registration — server must be up)
+    // 2. Walk regular entries. Legacy BB_INIT_REGISTER entries take a
+    // bb_http_handle_t server argument for source compatibility, but the
+    // value is resolved by a per-component trampoline living in the
+    // CONSUMER's translation unit (see BB_INIT_REGISTER_N in bb_init.h) — not
+    // here. bb_init never calls into bb_http_server, so it passes NULL.
     {
-        bb_http_handle_t server = bb_http_server_get_handle();
         size_t count = bb_init_count();
         printf("[bb_init] registry init: %zu entries\n", count);
 
@@ -126,7 +117,7 @@ bb_err_t bb_init_init(void)
 
         for (size_t i = 0; i < n; i++) {
             node_t *nd = (node_t *)nodes[i];
-            bb_err_t err = nd->entry->init(server);
+            bb_err_t err = nd->entry->init(NULL);
             if (err != BB_OK && first_error == BB_OK) {
                 first_error = err;
             }

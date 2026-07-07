@@ -25,7 +25,7 @@ int bb_log_stream_format(char *out_buf, size_t out_buf_len, const char *fmt, va_
 #include "freertos/ringbuf.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
-#include "bb_task_registry.h"
+#include "bb_task.h"
 #include <stdatomic.h>
 #if CONFIG_BB_LOG_UDP_SINK
 #include "lwip/sockets.h"
@@ -203,12 +203,20 @@ void bb_log_udp_enable(uint32_t ip_be, uint16_t port)
         }
     }
     if (!s_udp_task) {
-        if (xTaskCreate(s_udp_task_fn, "bb_log_udp", LOG_UDP_TASK_STACK,
-                        NULL, LOG_UDP_TASK_PRIO, &s_udp_task) != pdPASS) {
+        bb_task_config_t udp_cfg = {
+            .entry       = s_udp_task_fn,
+            .name        = "bb_log_udp",
+            .arg         = NULL,
+            .stack_bytes = LOG_UDP_TASK_STACK,
+            .priority    = LOG_UDP_TASK_PRIO,
+            .core        = BB_TASK_CORE_ANY,
+            .backing     = BB_TASK_BACKING_DYNAMIC,
+            .wdt_arm     = false,
+        };
+        if (bb_task_create(&udp_cfg, (void **)&s_udp_task) != BB_OK) {
             bb_log_e(TAG, "udp sink task create failed");
             return;
         }
-        bb_task_registry_register("bb_log_udp", LOG_UDP_TASK_STACK, s_udp_task, NULL, NULL);
     }
     s_udp_enabled = true;
     bb_log_i(TAG, "udp log sink enabled -> port %u", (unsigned)port);
@@ -268,8 +276,17 @@ bb_err_t bb_log_stream_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    if (xTaskCreate(s_writer_task_fn, "bb_log_writer", LOG_WRITER_TASK_STACK,
-                    NULL, LOG_WRITER_TASK_PRIO, &s_writer_task) != pdPASS) {
+    bb_task_config_t writer_cfg = {
+        .entry       = s_writer_task_fn,
+        .name        = "bb_log_writer",
+        .arg         = NULL,
+        .stack_bytes = LOG_WRITER_TASK_STACK,
+        .priority    = LOG_WRITER_TASK_PRIO,
+        .core        = BB_TASK_CORE_ANY,
+        .backing     = BB_TASK_BACKING_DYNAMIC,
+        .wdt_arm     = false,
+    };
+    if (bb_task_create(&writer_cfg, (void **)&s_writer_task) != BB_OK) {
         bb_log_e(TAG, "writer task creation failed");
         vQueueDelete(s_writer_q);
         s_writer_q = NULL;
@@ -281,7 +298,6 @@ bb_err_t bb_log_stream_init(void)
         s_rb_storage = NULL;
         return ESP_ERR_NO_MEM;
     }
-    bb_task_registry_register("bb_log_writer", LOG_WRITER_TASK_STACK, s_writer_task, NULL, NULL);
 
     s_orig_vprintf = esp_log_set_vprintf(s_log_vprintf);
     s_initialized = true;
@@ -289,12 +305,6 @@ bb_err_t bb_log_stream_init(void)
     bb_log_i(TAG, "log stream initialised (%" PRIu32 " bytes)", (uint32_t)buf_bytes);
     return ESP_OK;
 }
-
-#include "bb_init.h"
-
-#if CONFIG_BB_LOG_STREAM_AUTOREGISTER
-BB_INIT_REGISTER_EARLY(bb_log_stream, bb_log_stream_init);
-#endif
 
 size_t bb_log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t timeout_ms)
 {

@@ -9,6 +9,7 @@
 
 #include "bb_log.h"
 #include "bb_init.h"
+#include "bb_http_server.h"
 #include "bb_event_routes.h"
 
 static const char *TAG = "bb_alert";

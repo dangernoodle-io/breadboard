@@ -154,4 +154,12 @@ void bb_log_udp_enable(uint32_t ip_be, uint16_t port);
 void bb_log_udp_disable(void);
 #endif /* CONFIG_BB_LOG_UDP_SINK */
 
+/**
+ * Apply CONFIG_BB_LOG_DEFAULT_LEVEL / CONFIG_BB_LOG_LEVELS to the log-level
+ * registry. Hand-wire entry point (components/bb_log/src/bb_log_config.c) --
+ * bb_log has no self-registration; the consumer's app_main must call this
+ * directly.
+ */
+bb_err_t bb_log_config_init(void);
+
 #endif /* ESP_PLATFORM */
