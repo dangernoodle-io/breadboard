@@ -1,17 +1,13 @@
-// bb_sink_udp — common logic shared by the host and ESP-IDF backends:
-// NVS-backed config load/save and frame encode + dropped-counter bookkeeping.
-// Compiled on both platforms; the platform-specific files
-// (platform/{host,espidf}/bb_sink_udp/*.c) implement only the actual
-// datagram transport (real sendto() vs. host capture buffer).
+// bb_sink_udp — common logic shared by the host and ESP-IDF backends: frame
+// encode + dropped-counter bookkeeping. Compiled on both platforms; the
+// platform-specific files (platform/{host,espidf}/bb_sink_udp/*.c) implement
+// only the pub-sink adapter's publish() call into bb_udp_client_send() —
+// the actual datagram transport (real sendto() vs. host capture buffer)
+// lives in bb_udp_client (KB#702/#710).
 #include "bb_sink_udp_priv.h"
-#include "bb_nv.h"
 
 #include <stdatomic.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-
-#define BB_SINK_UDP_NVS_NS "bb_sink_udp"
 
 // s_seq and s_dropped are shared file-scope state that will later be reused
 // by the paired UDP log sink (bb_sink_udp_log) so both transports share one
@@ -20,33 +16,6 @@
 // (its own publish()), so a plain uint32_t counter would race.
 static _Atomic uint32_t s_seq     = 0;
 static _Atomic uint32_t s_dropped = 0;
-
-void bb_sink_udp_priv_load_from_nvs(bb_sink_udp_cfg_t *out)
-{
-    memset(out, 0, sizeof(*out));
-    bb_nv_get_str(BB_SINK_UDP_NVS_NS, "host", out->host, sizeof(out->host), "");
-
-    char default_port[8];
-    snprintf(default_port, sizeof(default_port), "%u", (unsigned)BB_SINK_UDP_PORT);
-    char port_str[8];
-    bb_nv_get_str(BB_SINK_UDP_NVS_NS, "port", port_str, sizeof(port_str), default_port);
-    out->port = (uint16_t)atoi(port_str);
-
-    char bcast_str[4];
-    bb_nv_get_str(BB_SINK_UDP_NVS_NS, "broadcast", bcast_str, sizeof(bcast_str),
-                  BB_SINK_UDP_BROADCAST ? "1" : "0");
-    out->broadcast = (bcast_str[0] == '1');
-}
-
-void bb_sink_udp_priv_save_to_nvs(const bb_sink_udp_cfg_t *cfg)
-{
-    bb_nv_set_str(BB_SINK_UDP_NVS_NS, "host", cfg->host);
-
-    char port_str[8];
-    snprintf(port_str, sizeof(port_str), "%u", (unsigned)cfg->port);
-    bb_nv_set_str(BB_SINK_UDP_NVS_NS, "port", port_str);
-    bb_nv_set_str(BB_SINK_UDP_NVS_NS, "broadcast", cfg->broadcast ? "1" : "0");
-}
 
 int bb_sink_udp_priv_encode(const char *topic, const char *payload, int len,
                              uint8_t *buf, int buf_cap)

@@ -129,6 +129,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_tls_creds](./bb_tls_creds/) | — |
 | [bb_tls_info](./bb_tls_info/) | — |
 | [bb_transport_health](./bb_transport_health/) | — |
+| [bb_udp_client](./bb_udp_client/) | — |
 | [bb_udp_frame](./bb_udp_frame/) | — |
 | [bb_wdt](./bb_wdt/) | — |
 | [bb_wifi](./bb_wifi/) | — |

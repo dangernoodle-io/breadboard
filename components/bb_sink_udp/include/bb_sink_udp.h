@@ -2,16 +2,19 @@
 //
 // Additive fan-out sink (NOT the bb_pub exclusive-sink arbiter) — coexists
 // with bb_sink_mqtt / bb_sink_http. Each publish() call builds ONE UDP
-// datagram via bb_udp_frame_encode (kind=BB_UDP_KIND_TELEMETRY) and sends it
-// to a configured unicast host:port or the local broadcast address. Designed
-// for same-subnet delivery — no gateway hop required.
+// datagram via bb_udp_frame_encode (kind=BB_UDP_KIND_TELEMETRY) and hands it
+// to bb_udp_client_send(), which owns the socket lifecycle and destination
+// config (unicast host:port or local broadcast) — see KB#702/#710. This
+// component is a thin pub-sink adapter: framing, kind selection, and the
+// dropped counter live here; the transport lives in bb_udp_client.
 //
 // The `topic` bb_pub hands to publish() is already fully-qualified
 // ("metrics/<hostname>/<subtopic>") and is forwarded unchanged onto the
 // wire — this is what keeps brood transport-transparent across MQTT/HTTP/UDP.
 //
 // Usage:
-//   bb_sink_udp_init(NULL);        // NVS-backed config (namespace "bb_sink_udp")
+//   bb_udp_client_init(NULL);      // NVS-backed dest config (namespace "bb_udp")
+//   bb_sink_udp_init();
 //   bb_pub_sink_t s;
 //   bb_sink_udp(&s);
 //   bb_pub_add_sink(&s);
@@ -25,35 +28,22 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef BB_SINK_UDP_TESTING
-#include "bb_udp_frame.h"
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define BB_SINK_UDP_HOST_MAX 64
-
-typedef struct {
-    char     host[BB_SINK_UDP_HOST_MAX]; /**< Literal IPv4 dotted-quad; no DNS resolution. */
-    uint16_t port;
-    bool     broadcast; /**< true = send to 255.255.255.255:port instead of host. */
-} bb_sink_udp_cfg_t;
-
 /**
- * Initialize bb_sink_udp config. NVS-backed (namespace "bb_sink_udp").
- * Pass NULL to load the persisted config (falling back to Kconfig defaults
- * when NVS is empty); pass non-NULL to override and persist `cfg`.
+ * Mark the bb_sink_udp adapter ready. Does not configure the transport —
+ * callers must separately call bb_udp_client_init() (directly, or via the
+ * PRE_HTTP autoregister path on ESP-IDF) before any publish() succeeds.
  *
- * @return BB_OK on success; BB_ERR_INVALID_ARG if cfg is non-NULL and
- *         cfg->host does not fit in BB_SINK_UDP_HOST_MAX - 1 chars.
+ * @return BB_OK always.
  */
-bb_err_t bb_sink_udp_init(const bb_sink_udp_cfg_t *cfg_or_null);
+bb_err_t bb_sink_udp_init(void);
 
 /**
- * Fill `out` with a bb_pub_sink_t whose publish() builds and sends one UDP
- * datagram per call (bb_udp_frame_encode + platform transport). Sets
+ * Fill `out` with a bb_pub_sink_t whose publish() builds one UDP datagram
+ * per call (bb_udp_frame_encode + bb_udp_client_send). Sets
  * out->transport = "udp"; out->tls is always false (UDP has no TLS mode).
  * Must be called after bb_sink_udp_init.
  *
@@ -77,20 +67,6 @@ uint32_t bb_sink_udp_dropped(void);
 
 /** Reset seq counter and dropped counter (test isolation). */
 void bb_sink_udp_test_reset(void);
-
-/**
- * Number of datagrams captured by the host stub since the last
- * bb_sink_udp_test_reset() (or process start).
- */
-int bb_sink_udp_host_capture_count(void);
-
-/**
- * Decode the most recently captured datagram into `out`.
- * `out->topic`/`out->payload` point into internal storage — valid until the
- * next publish() call. Returns false if no datagram has been captured yet
- * or the captured bytes fail to decode.
- */
-bool bb_sink_udp_host_last_frame(bb_udp_frame_t *out);
 
 #endif /* BB_SINK_UDP_TESTING */
 
