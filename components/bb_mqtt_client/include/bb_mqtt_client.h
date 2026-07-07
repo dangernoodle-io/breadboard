@@ -255,7 +255,7 @@ bb_err_t bb_mqtt_client_stop_default(void);
  *     Calls esp_mqtt_client_stop() only.  Keeps the client handle, task, and
  *     buffers resident (~11 KB residency).  The auto-client pointer remains
  *     NON-NULL.  Resume calls esp_mqtt_client_start() on the same handle —
- *     no destroy, no realloc, no NVS reload.  ONLY safe when bb_arena_tls
+ *     no destroy, no realloc, no NVS reload.  ONLY safe when bb_mem_arena_tls
  *     already reserves enough headroom for the TLS handshake.
  *
  * Contrast with bb_mqtt_client_stop_default() (permanent teardown, no resume).

@@ -41,8 +41,8 @@
       "type": "BB_INIT_REGISTER_EARLY"
     },
     {
-      "id": "bb_arena_tls",
-      "path": "platform/espidf/bb_arena_tls/bb_arena_tls.c",
+      "id": "bb_mem_arena_tls",
+      "path": "platform/espidf/bb_mem_arena_tls/bb_mem_arena_tls.c",
       "type": "BB_INIT_REGISTER_EARLY"
     },
     {
@@ -556,8 +556,8 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_ARENA_TLS_AUTOREGISTER",
-      "path": "components/bb_arena_tls/Kconfig",
+      "id": "BB_MEM_ARENA_TLS_AUTOREGISTER",
+      "path": "components/bb_mem_arena_tls/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
@@ -826,8 +826,8 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_ARENA_TLS_AUTOREGISTER",
-      "path": "platform/espidf/bb_arena_tls/bb_arena_tls.c",
+      "id": "BB_MEM_ARENA_TLS_AUTOREGISTER",
+      "path": "platform/espidf/bb_mem_arena_tls/bb_mem_arena_tls.c",
       "type": "autoregister_usage"
     },
     {
@@ -1121,8 +1121,8 @@
       "type": "linker_force_register"
     },
     {
-      "id": "early:bb_arena_tls",
-      "path": "components/bb_arena_tls/CMakeLists.txt",
+      "id": "early:bb_mem_arena_tls",
+      "path": "components/bb_mem_arena_tls/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {

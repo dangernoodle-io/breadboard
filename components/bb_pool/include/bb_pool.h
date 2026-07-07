@@ -1,19 +1,19 @@
 #pragma once
-// bb_pool — generic object/memory pool carved from a bb_arena.
+// bb_pool — generic object/memory pool carved from a bb_mem_arena.
 //
-// bb_pool sits ON bb_arena (components/bb_arena) — all pool data (slot
+// bb_pool sits ON bb_mem_arena (components/bb_mem_arena) — all pool data (slot
 // buffers, FIFO ring storage, free-lists) is carved from an arena via
-// bb_arena_alloc. bb_pool itself never calls the global heap allocator;
+// bb_mem_arena_alloc. bb_pool itself never calls the global heap allocator;
 // the arena it is carved from is the sole allocation site.
 //
 // Two ways to obtain a pool:
-//   - bb_pool_create()       — caller supplies/owns the bb_arena (share one
+//   - bb_pool_create()       — caller supplies/owns the bb_mem_arena (share one
 //                               arena across several pools, or a static-BSS
 //                               arena for no-PSRAM boards). bb_pool_destroy()
 //                               does not touch the arena's lifetime.
 //   - bb_pool_create_owned() — bb_pool internally allocates a right-sized
 //                               arena (bb_pool_arena_size_needed(cfg)) via
-//                               bb_arena_init_heap / bb_arena_init_spiram and
+//                               bb_mem_arena_init_heap / bb_mem_arena_init_spiram and
 //                               owns it; bb_pool_destroy() frees it.
 //
 // Four modes (bb_pool_mode_t):
@@ -30,14 +30,14 @@
 //               per-object init/teardown — bb_pool does not run any
 //               acquire/release lifecycle hooks.
 //
-// Thread-safety: NONE. Mirrors the bb_arena contract — the caller must
+// Thread-safety: NONE. Mirrors the bb_mem_arena contract — the caller must
 // serialise concurrent access to a single bb_pool_t instance.
 
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include "bb_core.h"
-#include "bb_arena.h"
+#include "bb_mem_arena.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -197,7 +197,7 @@ size_t bb_pool_arena_size_needed(const bb_pool_cfg_t *cfg);
 
 /**
  * Create a pool carved entirely from caller-supplied `arena`. The pool
- * struct and all mode-specific data are allocated via bb_arena_alloc — no
+ * struct and all mode-specific data are allocated via bb_mem_arena_alloc — no
  * global heap calls. `arena` must have >= bb_pool_arena_size_needed(cfg)
  * free bytes. The caller retains ownership of `arena`'s lifetime;
  * bb_pool_destroy() will not free it.
@@ -205,13 +205,13 @@ size_t bb_pool_arena_size_needed(const bb_pool_cfg_t *cfg);
  * Returns BB_ERR_INVALID_ARG for NULL cfg/arena/out or invalid cfg fields.
  * Returns BB_ERR_NO_SPACE if the arena is exhausted.
  */
-bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_arena_t arena,
+bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_mem_arena_t arena,
                          bb_pool_t *out);
 
 /**
  * Create a pool that internally allocates and OWNS a right-sized arena
- * (bb_pool_arena_size_needed(cfg) bytes) via bb_arena_init_heap (HEAP) or
- * bb_arena_init_spiram (SPIRAM). bb_pool_destroy() frees the owned arena.
+ * (bb_pool_arena_size_needed(cfg) bytes) via bb_mem_arena_init_heap (HEAP) or
+ * bb_mem_arena_init_spiram (SPIRAM). bb_pool_destroy() frees the owned arena.
  * Use this form to use bb_pool without managing an arena yourself.
  *
  * Returns BB_ERR_INVALID_ARG for NULL cfg/out or invalid cfg fields.
@@ -233,7 +233,7 @@ bb_err_t bb_pool_create_owned(const bb_pool_cfg_t *cfg,
  * MUST NOT be re-destroyed, reused, or dereferenced — a second
  * bb_pool_destroy() on a bb_pool_create_owned() handle is a use-after-free
  * (the freed arena block also backed the pool struct itself). Mirrors
- * bb_arena_destroy()'s documented caveat.
+ * bb_mem_arena_destroy()'s documented caveat.
  */
 void bb_pool_destroy(bb_pool_t pool);
 
@@ -241,7 +241,7 @@ void bb_pool_destroy(bb_pool_t pool);
  * Copy the backing arena's allocation stats into *out.
  * No-op for NULL pool or NULL out.
  */
-void bb_pool_get_stats(bb_pool_t pool, bb_arena_stats_t *out);
+void bb_pool_get_stats(bb_pool_t pool, bb_mem_arena_stats_t *out);
 
 // ---------------------------------------------------------------------------
 // TRANSIENT path

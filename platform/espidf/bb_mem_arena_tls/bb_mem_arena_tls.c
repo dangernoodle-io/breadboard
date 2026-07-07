@@ -1,5 +1,5 @@
-#include "bb_arena_tls.h"
-#include "bb_arena.h"
+#include "bb_mem_arena_tls.h"
+#include "bb_mem_arena.h"
 #include "bb_mem.h"
 #include <string.h>
 #include <stdint.h>
@@ -14,11 +14,11 @@
 /* Guard: if arena bytes > 0 but MBEDTLS_CUSTOM_MEM_ALLOC is not set, the
  * static arena buffer is never registered as an allocator — all those bytes
  * sit unused in BSS forever.  Catch this misconfiguration at compile time. */
-#if defined(CONFIG_BB_ARENA_TLS_BYTES) && (CONFIG_BB_ARENA_TLS_BYTES > 0) && \
+#if defined(CONFIG_BB_MEM_ARENA_TLS_BYTES) && (CONFIG_BB_MEM_ARENA_TLS_BYTES > 0) && \
     !defined(CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC)
-#  error "BB_ARENA_TLS_BYTES > 0 requires CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y " \
+#  error "BB_MEM_ARENA_TLS_BYTES > 0 requires CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y " \
          "(arena allocated but mbedTLS will never use it — wasted BSS); " \
-         "set CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y or set CONFIG_BB_ARENA_TLS_BYTES=0"
+         "set CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y or set CONFIG_BB_MEM_ARENA_TLS_BYTES=0"
 #endif
 
 /* Only install when CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC is set.
@@ -27,12 +27,12 @@
 
 #include "mbedtls/platform.h"
 
-#if defined(CONFIG_BB_ARENA_TLS_BYTES) && CONFIG_BB_ARENA_TLS_BYTES > 0
-/* Static backing buffer for the bb_arena instance — aligned for
- * max_align_t so the carved-off bb_arena header and every allocation
+#if defined(CONFIG_BB_MEM_ARENA_TLS_BYTES) && CONFIG_BB_MEM_ARENA_TLS_BYTES > 0
+/* Static backing buffer for the bb_mem_arena instance — aligned for
+ * max_align_t so the carved-off bb_mem_arena header and every allocation
  * satisfy worst-case alignment. */
-static uint8_t s_arena_buf[CONFIG_BB_ARENA_TLS_BYTES] __attribute__((aligned(16)));
-static bb_arena_t s_arena = NULL;
+static uint8_t s_arena_buf[CONFIG_BB_MEM_ARENA_TLS_BYTES] __attribute__((aligned(16)));
+static bb_mem_arena_t s_arena = NULL;
 /* Count of arena-owned allocations currently outstanding (not yet freed).
  * When this drains to 0 in the free path, the arena is reset so the bump
  * pointer rewinds and the next handshake can reuse the whole region —
@@ -55,7 +55,7 @@ static size_t s_arena_outstanding;
 static pthread_mutex_t s_arena_mtx = PTHREAD_MUTEX_INITIALIZER;
 static bool s_installed;
 
-static void *bb_arena_tls_calloc_impl(size_t n, size_t size)
+static void *bb_mem_arena_tls_calloc_impl(size_t n, size_t size)
 {
     size_t total = n * size;
     if (total == 0) return NULL;
@@ -64,7 +64,7 @@ static void *bb_arena_tls_calloc_impl(size_t n, size_t size)
     void *ret = NULL;
 #if ARENA_ENABLED
     if (s_arena != NULL) {
-        ret = bb_arena_alloc(s_arena, total);
+        ret = bb_mem_arena_alloc(s_arena, total);
         if (ret) {
             memset(ret, 0, total);
             s_arena_outstanding++;
@@ -79,27 +79,27 @@ static void *bb_arena_tls_calloc_impl(size_t n, size_t size)
     return ret;
 }
 
-static void bb_arena_tls_free_impl(void *ptr)
+static void bb_mem_arena_tls_free_impl(void *ptr)
 {
     if (!ptr) return;
 
     pthread_mutex_lock(&s_arena_mtx);
 #if ARENA_ENABLED
-    if (s_arena != NULL && bb_arena_owns(s_arena, ptr)) {
-        bb_arena_free(s_arena, ptr);
+    if (s_arena != NULL && bb_mem_arena_owns(s_arena, ptr)) {
+        bb_mem_arena_free(s_arena, ptr);
         /* NOTE: this guard prevents size_t underflow from a caller
          * double-free, but cannot detect the double-free itself in release
-         * builds (bb_arena_owns is range-only; the debug assert inside
-         * bb_arena_free is compiled out under NDEBUG). mbedTLS is a
+         * builds (bb_mem_arena_owns is range-only; the debug assert inside
+         * bb_mem_arena_free is compiled out under NDEBUG). mbedTLS is a
          * well-behaved single-free caller in practice; per-allocation
-         * liveness tracking would be a bb_arena change, out of scope here. */
+         * liveness tracking would be a bb_mem_arena change, out of scope here. */
         if (s_arena_outstanding > 0) {
             s_arena_outstanding--;
         }
         if (s_arena_outstanding == 0) {
             /* Arena fully drained — rewind so the next handshake can reuse
              * the whole region instead of permanently falling back to heap. */
-            bb_arena_reset(s_arena);
+            bb_mem_arena_reset(s_arena);
         }
     } else {
         bb_mem_free(ptr);
@@ -110,37 +110,37 @@ static void bb_arena_tls_free_impl(void *ptr)
     pthread_mutex_unlock(&s_arena_mtx);
 }
 
-void bb_arena_tls_init(void)
+void bb_mem_arena_tls_init(void)
 {
     pthread_mutex_lock(&s_arena_mtx);
 #if ARENA_ENABLED
     if (s_arena == NULL) {
-        bb_arena_init(&s_arena, s_arena_buf, sizeof(s_arena_buf));
+        bb_mem_arena_init(&s_arena, s_arena_buf, sizeof(s_arena_buf));
         s_arena_outstanding = 0;
         /* Install custom allocator (required when CUSTOM_MEM_ALLOC=y —
          * ESP-IDF compiles out esp_mem.c, leaving no default; we MUST
          * install one). Installing only on first-init makes a second call
-         * (e.g. explicit app_main() call + CONFIG_BB_ARENA_TLS_AUTOREGISTER)
+         * (e.g. explicit app_main() call + CONFIG_BB_MEM_ARENA_TLS_AUTOREGISTER)
          * a true no-op — it cannot zero the counter or rewind the arena
          * while allocations from an in-flight handshake are still live. */
-        mbedtls_platform_set_calloc_free(bb_arena_tls_calloc_impl,
-                                          bb_arena_tls_free_impl);
+        mbedtls_platform_set_calloc_free(bb_mem_arena_tls_calloc_impl,
+                                          bb_mem_arena_tls_free_impl);
     }
 #else
     if (!s_installed) {
         s_installed = true;
-        mbedtls_platform_set_calloc_free(bb_arena_tls_calloc_impl,
-                                          bb_arena_tls_free_impl);
+        mbedtls_platform_set_calloc_free(bb_mem_arena_tls_calloc_impl,
+                                          bb_mem_arena_tls_free_impl);
     }
 #endif
     pthread_mutex_unlock(&s_arena_mtx);
 }
 
-bool bb_arena_tls_owns(const void *ptr)
+bool bb_mem_arena_tls_owns(const void *ptr)
 {
     pthread_mutex_lock(&s_arena_mtx);
 #if ARENA_ENABLED
-    bool owns = bb_arena_owns(s_arena, ptr);
+    bool owns = bb_mem_arena_owns(s_arena, ptr);
 #else
     (void)ptr;
     bool owns = false;
@@ -150,20 +150,20 @@ bool bb_arena_tls_owns(const void *ptr)
 }
 
 /* Optional EARLY-tier auto-register (convenience; explicit call is the safe contract). */
-#if defined(CONFIG_BB_ARENA_TLS_AUTOREGISTER)
+#if defined(CONFIG_BB_MEM_ARENA_TLS_AUTOREGISTER)
 #include "bb_init.h"
-static bb_err_t bb_arena_tls_early_init(void)
+static bb_err_t bb_mem_arena_tls_early_init(void)
 {
-    bb_arena_tls_init();
+    bb_mem_arena_tls_init();
     return BB_OK;
 }
-BB_INIT_REGISTER_EARLY(bb_arena_tls, bb_arena_tls_early_init)
+BB_INIT_REGISTER_EARLY(bb_mem_arena_tls, bb_mem_arena_tls_early_init)
 #endif
 
 #else /* !CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC */
 
 /* CUSTOM_MEM_ALLOC not set: esp_mem.c allocator stands; install nothing. */
-void bb_arena_tls_init(void) { }
-bool bb_arena_tls_owns(const void *ptr) { (void)ptr; return false; }
+void bb_mem_arena_tls_init(void) { }
+bool bb_mem_arena_tls_owns(const void *ptr) { (void)ptr; return false; }
 
 #endif /* CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC */

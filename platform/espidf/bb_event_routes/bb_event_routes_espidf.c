@@ -12,7 +12,7 @@
 #include "bb_sse_writer.h"
 #include "bb_timer.h"
 #include "bb_task.h"
-#include "bb_arena.h"
+#include "bb_mem_arena.h"
 #include "bb_pool.h"
 #include "sse_bundle_decision.h"
 #include "sse_pool_reclaim_decision.h"
@@ -75,7 +75,7 @@ static const char *TAG = "bb_event_routes";
 // the matching comment in bb_event_routes_common.c):
 //   n (default) — sse_task_bundles_ensure() lazily creates a heap-backed
 //     pool (bb_pool_create_owned, BB_POOL_BACKING_HEAP; SPIRAM-preferred
-//     via bb_arena's own allocator) on the FIRST SSE client connect. A
+//     via bb_mem_arena's own allocator) on the FIRST SSE client connect. A
 //     failed allocation fails soft — the connection is rejected (same 500
 //     path the pre-existing xTaskCreateStatic-failure branch already
 //     returns) and retried on the next connect; no crash. B1-492:
@@ -100,12 +100,12 @@ typedef struct {
 } sse_task_bundle_t;
 
 // xTaskCreateStatic requires the stack buffer and TCB to be at least
-// naturally aligned for their respective types; bb_arena_alloc() returns
+// naturally aligned for their respective types; bb_mem_arena_alloc() returns
 // _Alignof(max_align_t)-aligned storage, which is >= both — verify that
 // assumption holds on this target rather than relying on it silently.
 _Static_assert(_Alignof(max_align_t) >= _Alignof(StackType_t) &&
                _Alignof(max_align_t) >= _Alignof(StaticTask_t),
-               "bb_arena alignment insufficient for FreeRTOS static task storage");
+               "bb_mem_arena alignment insufficient for FreeRTOS static task storage");
 
 static bb_pool_t s_sse_task_pool;  // NULL until sse_task_bundles_ensure() creates it
 
@@ -113,7 +113,7 @@ static bb_pool_t s_sse_task_pool;  // NULL until sse_task_bundles_ensure() creat
 // SLOTS-mode math (bb_pool_arena_size_needed() in
 // platform/host/bb_pool/bb_pool.c) rather than a single flat byte count.
 //
-// Only bb_arena's internal header struct (private to bb_arena.c) and
+// Only bb_mem_arena's internal header struct (private to bb_mem_arena.c) and
 // bb_pool's own control struct (private to bb_pool.c) are truly
 // capacity-independent — SSE_TASK_ARENA_HDR_ALLOWANCE_BYTES covers those
 // two only, generously rounded. Everything else scales linearly with
@@ -157,12 +157,12 @@ _Static_assert(CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS == 0 ||
 #if CONFIG_BB_EVENT_ROUTES_POOL_STATIC
 static uint8_t s_sse_task_arena_buf[SSE_TASK_ARENA_TOTAL_BYTES]
     __attribute__((aligned(_Alignof(max_align_t))));
-static bb_arena_t s_sse_task_arena;
+static bb_mem_arena_t s_sse_task_arena;
 #endif
 
 // Dedicated leaf mutex guarding the ENTIRE s_sse_task_pool lifetime
 // (portable POSIX pthread — ESP-IDF ships a pthread layer; mirrors
-// bb_arena_tls's s_arena_mtx pattern and the sibling s_sse_pool_mtx in
+// bb_mem_arena_tls's s_arena_mtx pattern and the sibling s_sse_pool_mtx in
 // bb_event_routes_common.c). Separate mutex from s_sse_pool_mtx: distinct
 // global state (s_sse_task_pool vs s_sse_bundles), distinct translation
 // units, no ordering interaction between them.
@@ -318,7 +318,7 @@ static void sse_bundle_on_destroy(void *ctx, void *slot)
 // — so failure here should be unreachable across the full Kconfig capacity
 // range (1..32). That claim is cross-checked below against
 // bb_pool_arena_size_needed(), the actual runtime authority for the
-// capacity-scaling portion of the math, before bb_arena_init() ever runs —
+// capacity-scaling portion of the math, before bb_mem_arena_init() ever runs —
 // catching any future drift (e.g. bb_pool.c's private struct growing, or a
 // third bitmap being added) instead of silently overflowing the arena the
 // way the old flat 256-byte allowance did.
@@ -355,8 +355,8 @@ static bb_err_t sse_task_bundles_ensure(void)
     // sync with bb_pool.c forever.
     size_t pool_need = bb_pool_arena_size_needed(&cfg);
     assert(pool_need > 0 && pool_need <= sizeof(s_sse_task_arena_buf));  // LCOV_EXCL_BR_LINE — buffer is sized to fit the full Kconfig capacity range
-    bb_err_t err = bb_arena_init(&s_sse_task_arena, s_sse_task_arena_buf,
-                                  sizeof(s_sse_task_arena_buf));
+    bb_err_t err = bb_mem_arena_init(&s_sse_task_arena, s_sse_task_arena_buf,
+                                     sizeof(s_sse_task_arena_buf));
     assert(err == BB_OK);  // LCOV_EXCL_BR_LINE — buffer is compile-time sized to fit
     err = bb_pool_create(&cfg, s_sse_task_arena, &s_sse_task_pool);
     assert(err == BB_OK);  // LCOV_EXCL_BR_LINE — see above
@@ -383,7 +383,7 @@ static bb_err_t sse_task_bundles_ensure(void)
 // nothing to reclaim, so no timer is created (see bb_event_routes_start()).
 //
 // Timer-callback-signal-only convention: bb_pool_destroy() frees memory
-// (bb_arena_destroy -> bb_mem_free), which must never run on the esp_timer
+// (bb_mem_arena_destroy -> bb_mem_free), which must never run on the esp_timer
 // service task. bb_event_routes_start() therefore arms this work_fn via
 // bb_timer_deferred_periodic_create(), NOT bb_timer_periodic_create() — the
 // shared bb_timer_disp task runs work_fn in real task context (its own

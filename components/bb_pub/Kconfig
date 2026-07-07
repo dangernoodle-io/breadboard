@@ -135,7 +135,7 @@ config BB_PUB_BUFFER_STATIC
         (e.g. fragmented no-PSRAM heap) is fail-soft: the ring is unavailable
         for that cycle and is retried on the next outage.
 
-        When y, the ring is backed by a permanent static-BSS bb_arena sized
+        When y, the ring is backed by a permanent static-BSS bb_mem_arena sized
         for BB_PUB_BUFFER_MAX_ENTRIES entries (~8.5 KB at Kconfig defaults) —
         a deterministic standing cost with no heap allocation, ever, and no
         idle-free reclaim (nothing to reclaim). Use this on boards that need

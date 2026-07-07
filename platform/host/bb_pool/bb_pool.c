@@ -1,12 +1,12 @@
-// bb_pool — generic object/memory pool carved from a bb_arena.
+// bb_pool — generic object/memory pool carved from a bb_mem_arena.
 //
 // Compiled on both host (tests) and ESP-IDF. All pool storage is carved from
-// the backing bb_arena via bb_arena_alloc; bb_pool never calls the global
-// heap allocator directly (bb_pool_create_owned routes through bb_arena's
+// the backing bb_mem_arena via bb_mem_arena_alloc; bb_pool never calls the global
+// heap allocator directly (bb_pool_create_owned routes through bb_mem_arena's
 // bb_mem-backed init helpers, same as any other arena-owning consumer).
 
 #include "bb_pool.h"
-#include "bb_arena.h"
+#include "bb_mem_arena.h"
 #include "bb_log.h"
 #include "bb_str.h"
 
@@ -18,7 +18,7 @@ static const char *TAG = "bb_pool";
 // Max name length stored in the pool struct (diagnostic only).
 #define BB_POOL_NAME_MAX 24
 
-// Alignment used for every carved allocation — matches bb_arena_alloc's
+// Alignment used for every carved allocation — matches bb_mem_arena_alloc's
 // guarantee (max_align_t), so slots/entries returned to callers satisfy the
 // worst-case alignment for any object type.
 #define BB_POOL_ALIGN ((size_t)_Alignof(max_align_t))
@@ -133,7 +133,7 @@ static void bitmap_clear(uint8_t *bm, size_t idx)
 
 struct bb_pool {
     bb_pool_cfg_t cfg;
-    bb_arena_t    arena;       /* backing arena; owned iff owns_arena */
+    bb_mem_arena_t arena;       /* backing arena; owned iff owns_arena */
     bool          owns_arena;
     char          name[BB_POOL_NAME_MAX];
 
@@ -232,7 +232,7 @@ static void *slots_ptr_at(struct bb_pool *pool, size_t idx);
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_arena_t arena,
+bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_mem_arena_t arena,
                          bb_pool_t *out)
 {
     if (!cfg || !arena || !out) return BB_ERR_INVALID_ARG;
@@ -258,12 +258,12 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_arena_t arena,
     // overflow by this call.
     size_t need = bb_pool_arena_size_needed(cfg);
     if (!need) return BB_ERR_INVALID_ARG;
-    if (bb_arena_free_bytes(arena) < need) {
-        bb_log_e(TAG, "create: arena has %zu B free, need %zu B", bb_arena_free_bytes(arena), need);
+    if (bb_mem_arena_free_bytes(arena) < need) {
+        bb_log_e(TAG, "create: arena has %zu B free, need %zu B", bb_mem_arena_free_bytes(arena), need);
         return BB_ERR_NO_SPACE;
     }
 
-    struct bb_pool *p = (struct bb_pool *)bb_arena_alloc(arena, sizeof(struct bb_pool));
+    struct bb_pool *p = (struct bb_pool *)bb_mem_arena_alloc(arena, sizeof(struct bb_pool));
     if (!p) {
         bb_log_e(TAG, "create: arena exhausted allocating pool struct");
         return BB_ERR_NO_SPACE;
@@ -278,7 +278,7 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_arena_t arena,
     }
 
     if (cfg->mode == BB_POOL_MODE_RETAINED) {
-        p->retained_slots = (bb_pool_retained_slot_t *)bb_arena_alloc(
+        p->retained_slots = (bb_pool_retained_slot_t *)bb_mem_arena_alloc(
                                  arena, cfg->capacity * sizeof(bb_pool_retained_slot_t));
         if (!p->retained_slots) {
             bb_log_e(TAG, "'%s': arena exhausted allocating retained slot array", p->name);
@@ -287,7 +287,7 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_arena_t arena,
         memset(p->retained_slots, 0, cfg->capacity * sizeof(bb_pool_retained_slot_t));
 
         for (size_t i = 0; i < cfg->capacity; i++) {
-            p->retained_slots[i].data = (uint8_t *)bb_arena_alloc(arena, cfg->max_slot_bytes);
+            p->retained_slots[i].data = (uint8_t *)bb_mem_arena_alloc(arena, cfg->max_slot_bytes);
             if (!p->retained_slots[i].data) {
                 bb_log_e(TAG, "'%s': arena exhausted at retained slot %zu", p->name, i);
                 return BB_ERR_NO_SPACE;
@@ -297,7 +297,7 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_arena_t arena,
         size_t entry_stride = align_up(sizeof(bb_pool_fifo_hdr_t) + cfg->max_slot_bytes);
         size_t ring_bytes = cfg->capacity * entry_stride;
 
-        p->fifo.entries = (uint8_t *)bb_arena_alloc(arena, ring_bytes);
+        p->fifo.entries = (uint8_t *)bb_mem_arena_alloc(arena, ring_bytes);
         if (!p->fifo.entries) {
             bb_log_e(TAG, "'%s': arena exhausted allocating FIFO ring (%zu B)", p->name, ring_bytes);
             return BB_ERR_NO_SPACE;
@@ -310,7 +310,7 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_arena_t arena,
         size_t slot_stride = align_up(cfg->max_slot_bytes);
         size_t storage_bytes = cfg->capacity * slot_stride;
 
-        p->slots.storage = (uint8_t *)bb_arena_alloc(arena, storage_bytes);
+        p->slots.storage = (uint8_t *)bb_mem_arena_alloc(arena, storage_bytes);
         if (!p->slots.storage) {
             bb_log_e(TAG, "'%s': arena exhausted allocating slot storage (%zu B)", p->name, storage_bytes);
             return BB_ERR_NO_SPACE;
@@ -322,30 +322,30 @@ bb_err_t bb_pool_create(const bb_pool_cfg_t *cfg, bb_arena_t arena,
         // on_acquire) use a zero-valued field as a reliable "never
         // initialized yet" sentinel on a slot's first-ever acquire.
         memset(p->slots.storage, 0, storage_bytes);
-        p->slots.free_list = (void **)bb_arena_alloc(arena, cfg->capacity * sizeof(void *));
+        p->slots.free_list = (void **)bb_mem_arena_alloc(arena, cfg->capacity * sizeof(void *));
         if (!p->slots.free_list) {
             bb_log_e(TAG, "'%s': arena exhausted allocating slot free-list", p->name);
             return BB_ERR_NO_SPACE;
         }
 
         size_t bitmap_bytes = align_up(bitmap_bytes_for(cfg->capacity));
-        p->slots.acquired_bitmap = (uint8_t *)bb_arena_alloc(arena, bitmap_bytes);
+        p->slots.acquired_bitmap = (uint8_t *)bb_mem_arena_alloc(arena, bitmap_bytes);
         if (!p->slots.acquired_bitmap) {
             bb_log_e(TAG, "'%s': arena exhausted allocating slot bitmap", p->name);
             return BB_ERR_NO_SPACE;
         }
         memset(p->slots.acquired_bitmap, 0, bitmap_bytes); /* all slots start free */
 
-        p->slots.pending_bitmap = (uint8_t *)bb_arena_alloc(arena, bitmap_bytes);
+        p->slots.pending_bitmap = (uint8_t *)bb_mem_arena_alloc(arena, bitmap_bytes);
         if (!p->slots.pending_bitmap) {  // LCOV_EXCL_BR_LINE — see comment below
             // Provably unreachable given a correctly-implemented
             // bb_pool_arena_size_needed(): the front-loaded
-            // `bb_arena_free_bytes(arena) < need` gate a few lines above
-            // computes `need` as the exact sum of every bb_arena_alloc()
+            // `bb_mem_arena_free_bytes(arena) < need` gate a few lines above
+            // computes `need` as the exact sum of every bb_mem_arena_alloc()
             // call this function goes on to make for this cfg (pool struct
             // + storage + free-list + acquired_bitmap + pending_bitmap, each
             // rounded to the same BB_POOL_ALIGN used internally by
-            // bb_arena_alloc). Passing that gate therefore guarantees every
+            // bb_mem_arena_alloc). Passing that gate therefore guarantees every
             // subsequent allocation in this sequence — including this one —
             // succeeds; empirically confirmed (an arena sized to exactly
             // `need - 1` bytes is rejected by the top gate, never reaching
@@ -381,16 +381,16 @@ bb_err_t bb_pool_create_owned(const bb_pool_cfg_t *cfg,
     size_t need = bb_pool_arena_size_needed(cfg);
     if (!need) return BB_ERR_INVALID_ARG;
 
-    bb_arena_t arena;
+    bb_mem_arena_t arena;
     bb_err_t rc = (backing == BB_POOL_BACKING_SPIRAM)
-                      ? bb_arena_init_spiram(&arena, need)
-                      : bb_arena_init_heap(&arena, need);
+                      ? bb_mem_arena_init_spiram(&arena, need)
+                      : bb_mem_arena_init_heap(&arena, need);
     if (rc != BB_OK) return rc;
 
     bb_pool_t p;
     rc = bb_pool_create(cfg, arena, &p);
     if (rc != BB_OK) {
-        bb_arena_destroy(arena);
+        bb_mem_arena_destroy(arena);
         return rc;
     }
 
@@ -418,16 +418,16 @@ void bb_pool_destroy(bb_pool_t pool)
         /* Frees the single bb_mem allocation backing the arena, which also
          * contains the pool struct and all mode-specific storage — pool
          * must not be touched after this call. */
-        bb_arena_destroy(pool->arena);
+        bb_mem_arena_destroy(pool->arena);
         return;
     }
     bb_log_d(TAG, "destroyed pool '%s' (caller-owned arena)", pool->name);
 }
 
-void bb_pool_get_stats(bb_pool_t pool, bb_arena_stats_t *out)
+void bb_pool_get_stats(bb_pool_t pool, bb_mem_arena_stats_t *out)
 {
     if (!pool || !out) return;
-    bb_arena_get_stats(pool->arena, out);
+    bb_mem_arena_get_stats(pool->arena, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -437,19 +437,19 @@ void bb_pool_get_stats(bb_pool_t pool, bb_arena_stats_t *out)
 void *bb_pool_alloc(bb_pool_t pool, size_t bytes)
 {
     if (!pool) return NULL;
-    return bb_arena_alloc(pool->arena, bytes);
+    return bb_mem_arena_alloc(pool->arena, bytes);
 }
 
 void bb_pool_free(bb_pool_t pool, void *ptr)
 {
     if (!pool) return;
-    bb_arena_free(pool->arena, ptr);
+    bb_mem_arena_free(pool->arena, ptr);
 }
 
 void bb_pool_reset(bb_pool_t pool)
 {
     if (!pool) return;
-    bb_arena_reset(pool->arena);
+    bb_mem_arena_reset(pool->arena);
 }
 
 // ---------------------------------------------------------------------------

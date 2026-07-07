@@ -19,8 +19,6 @@ project-wide conventions, build instructions, and architecture notes.
 | Component | Purpose |
 |-----------|---------|
 | [bb_alert](./bb_alert/) | — |
-| [bb_arena](./bb_arena/) | — |
-| [bb_arena_tls](./bb_arena_tls/) | — |
 | [bb_attrs](./bb_attrs/) | Intrusive header carrying filter/collection metadata (`priority`, `kind`, `tag_mask`, `delivery_class`) that any element embeds as a member. Reach for it when a set of heterogeneous elements needs to be projected/selected by `bb_filter` without a shared base type or heap-allocated wrapper. |
 | [bb_board](./bb_board/) | — |
 | [bb_button](./bb_button/) | — |
@@ -71,6 +69,8 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_manifest](./bb_manifest/) | — |
 | [bb_mdns](./bb_mdns/) | — |
 | [bb_mdns_cache](./bb_mdns_cache/) | — |
+| [bb_mem_arena](./bb_mem_arena/) | — |
+| [bb_mem_arena_tls](./bb_mem_arena_tls/) | — |
 | [bb_meminfo](./bb_meminfo/) | Canonical system-heap reader SSOT (KB #698/#699/#693) — the one component that |
 | [bb_mqtt_client](./bb_mqtt_client/) | — |
 | [bb_mqtt_info](./bb_mqtt_info/) | — |
