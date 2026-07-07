@@ -19,6 +19,7 @@
 #include "bb_reboot_reason.h"
 #include "bb_mem.h"
 #include "bb_task_registry.h"
+#include "bb_task.h"
 #include "bb_clock.h"
 #include "bb_str.h"
 
@@ -702,14 +703,16 @@ static bb_err_t tasks_get_handler(bb_http_request_t *req)
     bb_http_resp_json_obj_set_arr_end(&obj);
     bb_mem_free(arr);
 
-    // Registry occupancy (B1-471): observability for bb_task_registry's own
-    // fixed-capacity pool, independent of the live FreeRTOS task list above
-    // (a task can be registered without a matching TaskStatus_t entry, e.g.
-    // a name mismatch, and vice versa for tasks that never self-registered).
+    // Registry occupancy (B1-601 re-scope, was B1-471 on bb_task_registry):
+    // observability for bb_task_base's own fixed-capacity pool -- the SSOT
+    // table every bb_task_create() call hits -- independent of the live
+    // FreeRTOS task list above (a task can be base-registered without a
+    // matching TaskStatus_t entry, e.g. a name mismatch, and vice versa for
+    // tasks that never went through bb_task_create()).
     bb_http_resp_json_obj_set_obj_begin(&obj, "registry");
-    bb_http_resp_json_obj_set_int(&obj, "count",    (int64_t)bb_task_registry_count());
-    bb_http_resp_json_obj_set_int(&obj, "capacity", (int64_t)bb_task_registry_capacity());
-    bb_http_resp_json_obj_set_int(&obj, "dropped",  (int64_t)bb_task_registry_dropped());
+    bb_http_resp_json_obj_set_int(&obj, "count",    (int64_t)bb_task_base_count());
+    bb_http_resp_json_obj_set_int(&obj, "capacity", (int64_t)bb_task_base_capacity());
+    bb_http_resp_json_obj_set_int(&obj, "dropped",  (int64_t)bb_task_base_dropped());
     bb_http_resp_json_obj_set_obj_end(&obj);
 
     return bb_http_resp_json_obj_end(&obj);
@@ -742,14 +745,17 @@ static const bb_route_response_t s_tasks_get_responses[] = {
       "\"dropped\":{\"type\":\"integer\"}},"
       "\"required\":[\"count\",\"capacity\",\"dropped\"]}},"
       "\"required\":[\"tasks\",\"registry\"]}",
-      "task list + bb_task_registry occupancy (BREAKING B1-471: response root "
-      "changed from a bare array to an object with a \\\"tasks\\\" array field); "
+      "task list + bb_task_base occupancy (BREAKING B1-471: response root "
+      "changed from a bare array to an object with a \\\"tasks\\\" array field; "
+      "B1-601 re-scope: registry.{count,capacity,dropped} moved from "
+      "bb_task_registry to bb_task_base); "
       "core requires CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
       "runtime requires CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS; "
       "stack_budget_bytes/wdt_subscribed present only for tasks self-registered "
       "via bb_task_registry; sw_wdt_* present only when that task's "
       "opts->sw_wdt_timeout_ms > 0; registry.{count,capacity,dropped} come from "
-      "bb_task_registry_{count,capacity,dropped}() and are independent of the "
+      "bb_task_base_{count,capacity,dropped}() -- the fixed task-creation pool "
+      "every bb_task_create() call hits -- and are independent of the "
       "live FreeRTOS task list above" },
     { 500, "application/json",
       "{\"type\":\"object\","
@@ -764,7 +770,7 @@ static const bb_route_t s_tasks_get_route = {
     .path      = "/api/diag/tasks",
     .tag       = "diag",
     .summary   = "List all FreeRTOS tasks with state, priority, and stack high-water mark, "
-                 "plus bb_task_registry occupancy "
+                 "plus bb_task_base occupancy "
                  "(requires CONFIG_FREERTOS_USE_TRACE_FACILITY=y; "
                  "core field: CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID; "
                  "runtime field: CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS)",

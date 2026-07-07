@@ -178,6 +178,24 @@ typedef void (*bb_task_base_cb_t)(void *handle, const bb_task_base_entry_t *entr
 // bb_registry_foreach_ptr).
 void bb_task_base_foreach(bb_task_base_cb_t cb, void *ctx);
 
+// Occupancy accessors (B1-601 re-scope) -- mirror bb_task_registry_count()/
+// _capacity()/_dropped()'s exact signatures/types for drop-in parity. This
+// base registry is the SSOT for /api/diag/tasks' registry.{count,capacity,
+// dropped} aggregate: it owns the fixed task table every bb_task_create()
+// call hits, so overflow observed here reflects the real task-creation
+// pool, unlike bb_task_registry (which only counts health-registered
+// tasks).
+
+// Count of in_use base-registry entries, read under lock.
+uint16_t bb_task_base_count(void);
+
+// Fixed pool capacity (BB_TASK_BASE_MAX_CAP).
+uint16_t bb_task_base_capacity(void);
+
+// Monotonic count of bb_task_base_upsert()/_touch_or_insert() calls
+// rejected with BB_ERR_NO_SPACE because the pool was full.
+uint32_t bb_task_base_dropped(void);
+
 // Pure mark-and-sweep evaluator over a caller-supplied entries array -- NO
 // FreeRTOS types, no access to the internal base registry above. An entry
 // with `seen_tick == now_tick` is treated as seen (alive) this scan and

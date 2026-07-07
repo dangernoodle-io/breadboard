@@ -65,6 +65,13 @@ bb_err_t bb_task_resolve(const bb_task_config_t *cfg, int num_cores,
 static bb_task_base_entry_t s_pool[BB_TASK_BASE_MAX];
 static pthread_mutex_t      s_lock = PTHREAD_MUTEX_INITIALIZER;
 
+// Overflow observability (B1-601 re-scope, mirrors bb_task_registry's
+// s_dropped -- see platform/host/bb_task_registry/bb_task_registry.c).
+// Counts every bb_task_base_upsert()/_touch_or_insert() call rejected with
+// BB_ERR_NO_SPACE because the pool was full. Incremented under s_lock, at
+// the point pool_alloc_locked() signals exhaustion.
+static uint32_t s_base_dropped;
+
 BB_REGISTRY_DEFINE_TAGGED(s_base_registry, BB_TASK_BASE_MAX, "task_base");
 
 static int pool_alloc_locked(void)
@@ -115,6 +122,7 @@ bb_err_t bb_task_base_upsert(void *handle, const char *name,
 
     int idx = pool_alloc_locked();
     if (idx < 0) {
+        s_base_dropped++;
         pthread_mutex_unlock(&s_lock);
         return BB_ERR_NO_SPACE;
     }
@@ -246,6 +254,7 @@ bb_err_t bb_task_base_touch_or_insert(void *handle, const char *name, uint32_t n
 
     int idx = pool_alloc_locked();
     if (idx < 0) {
+        s_base_dropped++;
         pthread_mutex_unlock(&s_lock);
         return BB_ERR_NO_SPACE;
     }
@@ -293,6 +302,32 @@ void bb_task_base_foreach(bb_task_base_cb_t cb, void *ctx)
     foreach_bridge_t bridge = { .cb = cb, .ctx = ctx };
     bb_registry_foreach_ptr(&s_base_registry, foreach_trampoline, &bridge);
     pthread_mutex_unlock(&s_lock);
+}
+
+uint16_t bb_task_base_count(void)
+{
+    pthread_mutex_lock(&s_lock);
+    uint16_t count = 0;
+    for (int i = 0; i < BB_TASK_BASE_MAX; i++) {
+        if (s_pool[i].in_use) {
+            count++;
+        }
+    }
+    pthread_mutex_unlock(&s_lock);
+    return count;
+}
+
+uint16_t bb_task_base_capacity(void)
+{
+    return BB_TASK_BASE_MAX;
+}
+
+uint32_t bb_task_base_dropped(void)
+{
+    pthread_mutex_lock(&s_lock);
+    uint32_t dropped = s_base_dropped;
+    pthread_mutex_unlock(&s_lock);
+    return dropped;
 }
 
 // ---------------------------------------------------------------------------
@@ -343,6 +378,7 @@ void bb_task_base_test_reset(void)
     pthread_mutex_lock(&s_lock);
     bb_registry_reset(&s_base_registry);
     memset(s_pool, 0, sizeof(s_pool));
+    s_base_dropped = 0;
     pthread_mutex_unlock(&s_lock);
 }
 #endif
