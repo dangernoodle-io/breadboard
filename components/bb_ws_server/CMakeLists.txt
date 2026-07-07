@@ -12,7 +12,7 @@ endif()
 idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_http
+    REQUIRES bb_core bb_http bb_http_server
     PRIV_REQUIRES bb_log bb_init esp_http_server bb_str
 )
 

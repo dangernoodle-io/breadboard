@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include <string.h>
 
 void test_url_decode_basic(void)

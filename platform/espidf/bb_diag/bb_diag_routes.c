@@ -4,6 +4,7 @@
 #include "bb_event.h"
 #include "bb_event_routes.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_openapi.h"

@@ -12,6 +12,7 @@
 #if CONFIG_HTTPD_WS_SUPPORT
 
 #include "bb_ws_server.h"
+#include "bb_http_server.h"
 #include "bb_log.h"
 #include "bb_mem.h"
 

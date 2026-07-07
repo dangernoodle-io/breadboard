@@ -9,6 +9,7 @@
 #include "esp_partition.h"
 #include "esp_app_format.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_nv.h"

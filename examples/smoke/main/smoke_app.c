@@ -8,6 +8,7 @@
 #include "bb_log.h"
 #include "bb_nv.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_wifi.h"
 #include "bb_led.h"
 #include "bb_led_gpio.h"

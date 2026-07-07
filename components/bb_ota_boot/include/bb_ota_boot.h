@@ -64,7 +64,7 @@ void bb_ota_boot_arm(void);
 bool bb_ota_boot_pending(void);
 
 #ifdef ESP_PLATFORM
-#include "bb_http.h"
+#include "bb_http_server.h"
 
 /* Registry hook — registers POST /api/update/apply (arm + reboot). Gated by
  * CONFIG_BB_OTA_BOOT_AUTOREGISTER (defaults on only when BB_OTA_STRATEGY_BOOT). */

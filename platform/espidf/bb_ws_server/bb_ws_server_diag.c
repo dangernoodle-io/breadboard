@@ -11,6 +11,7 @@
 
 #include "bb_ws_server.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_init.h"
 #include "bb_log.h"
 

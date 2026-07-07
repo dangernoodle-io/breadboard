@@ -6,6 +6,7 @@
 #include "bb_ws_server.h"
 #include "bb_ws_server_host.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_nv.h"
 #include "bb_cache.h"
 #include "bb_cache_reactive.h"

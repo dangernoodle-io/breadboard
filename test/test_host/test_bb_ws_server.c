@@ -10,6 +10,7 @@
 #include "bb_ws_server.h"
 #include "bb_ws_server_host.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 
 #include <string.h>
 #include <stdlib.h>

@@ -3,7 +3,7 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_manifest/bb_manifest_register.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_json
-    PRIV_REQUIRES bb_log bb_init bb_http
+    PRIV_REQUIRES bb_log bb_init bb_http bb_http_server
 )
 
 if(CONFIG_BB_MANIFEST_AUTOREGISTER)

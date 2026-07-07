@@ -1,5 +1,5 @@
-// Host stubs for bb_http functions that require a real HTTP server backend.
-// These are no-ops used only by the native (host) test environment.
+// Host stubs for bb_http_server functions that require a real HTTP server
+// backend. These are no-ops used only by the native (host) test environment.
 // The route registry (route_registry.c) is portable and compiled directly.
 //
 // Capture harness: tests can arm a capture slot via bb_http_host_capture_begin
@@ -7,6 +7,7 @@
 // and body into the slot instead of sending them to a real network connection.
 // Only one slot is active at a time (host tests are single-threaded).
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_http_host.h"
 #include "bb_dispatch_api.h"
 #include "bb_http_status.h"

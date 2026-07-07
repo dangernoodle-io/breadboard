@@ -15,6 +15,7 @@
 #include "unity.h"
 #include "bb_nv.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_http_host.h"
 #include "cJSON.h"
 

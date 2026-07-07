@@ -26,23 +26,24 @@ add_executable(emit_openapi
     "${CMAKE_CURRENT_LIST_DIR}/main.c"
     "${BB_ROOT}/components/bb_openapi/src/bb_openapi_emit.c"
     "${BB_ROOT}/platform/espidf/bb_json/bb_json_cjson.c"
-    "${BB_ROOT}/components/bb_http/src/route_registry.c"
-    "${BB_ROOT}/components/bb_http/src/http_utils.c"
-    "${BB_ROOT}/components/bb_http/src/bb_http_query.c"
-    "${BB_ROOT}/components/bb_http/src/bb_http_status.c"
-    "${BB_ROOT}/components/bb_http/src/bb_dispatch_api.c"
-    "${BB_ROOT}/platform/host/bb_http/bb_http_host.c"
+    "${BB_ROOT}/components/bb_http_server/src/route_registry.c"
+    "${BB_ROOT}/components/bb_http_server/src/http_utils.c"
+    "${BB_ROOT}/components/bb_http_server/src/bb_http_query.c"
+    "${BB_ROOT}/components/bb_http_server/src/bb_http_status.c"
+    "${BB_ROOT}/components/bb_http_server/src/bb_dispatch_api.c"
+    "${BB_ROOT}/platform/host/bb_http_server/bb_http_host.c"
 )
 
 target_include_directories(emit_openapi PRIVATE
     "${BB_ROOT}/components/bb_openapi/include"
     "${BB_ROOT}/components/bb_http/include"
+    "${BB_ROOT}/components/bb_http_server/include"
     "${BB_ROOT}/components/bb_json/include"
     "${BB_ROOT}/components/bb_log/include"
     "${BB_ROOT}/components/bb_nv/include"
     "${BB_ROOT}/components/bb_core/include"
     "${BB_ROOT}/platform/host/bb_json"
-    "${BB_ROOT}/platform/host/bb_http/include"
+    "${BB_ROOT}/platform/host/bb_http_server/include"
 )
 
 # cJSON header discovery: homebrew installs cJSON.h under <prefix>/cjson/,

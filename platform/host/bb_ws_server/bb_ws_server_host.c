@@ -3,6 +3,7 @@
 // force-fail test hooks, and async capture tables.
 
 #include "bb_ws_server.h"
+#include "bb_http_server.h"
 #include "bb_ws_server_host.h"
 #include "bb_str.h"
 

@@ -1,6 +1,7 @@
 #ifdef ARDUINO
 
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_wifi.h"
 #include <Arduino.h>

@@ -1,6 +1,6 @@
 #include "bb_sse_writer.h"
 #include "../../../components/bb_sse_writer/src/bb_sse_idle.h"
-#include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_log.h"
 
 #include <string.h>

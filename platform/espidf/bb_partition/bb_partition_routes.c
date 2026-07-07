@@ -4,6 +4,7 @@
 // how bb_event_routes owns /api/diag/events.
 #include "bb_partition.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_init.h"
 #include "bb_log.h"

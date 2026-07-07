@@ -1,5 +1,5 @@
 #include "bb_prov.h"
-#include "bb_http.h"
+#include "bb_http_server.h"
 
 bb_prov_parse_result_t bb_prov_parse_body(
     const char *body, int body_len,

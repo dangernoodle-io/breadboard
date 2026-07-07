@@ -14,7 +14,7 @@ idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include" "."
     REQUIRES bb_core
-    PRIV_REQUIRES bb_log bb_init bb_http bb_json bb_cache bb_nv bb_ntp bb_openapi bb_system bb_ota_validator bb_event bb_event_routes bb_task_registry espcoredump lwip nvs_flash esp_partition esp_app_format bb_str
+    PRIV_REQUIRES bb_log bb_init bb_http bb_http_server bb_json bb_cache bb_nv bb_ntp bb_openapi bb_system bb_ota_validator bb_event bb_event_routes bb_task_registry espcoredump lwip nvs_flash esp_partition esp_app_format bb_str
 )
 
 # bb_nv_delete_routes.h is a private header next to its implementation in bb_nv.

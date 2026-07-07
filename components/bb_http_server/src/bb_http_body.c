@@ -2,10 +2,10 @@
 //
 // Extracts the malloc→recv→NUL-terminate idiom shared by POST/PATCH/DELETE
 // handlers. Compiled on both ESP-IDF (via CMakeLists SRCS) and host
-// (via scripts/native_scaffold.py bb_http sources).
+// (via the bbtool scaffold's bb_http_server sources).
 
 #include "bb_http_body.h"
-#include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_mem.h"
 
 #include <stdlib.h>

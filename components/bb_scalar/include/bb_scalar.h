@@ -6,11 +6,11 @@
 // and ESP-IDF (mirrors the bb_str shape: single implementation under
 // platform/host/bb_scalar/, no espidf-specific variant needed).
 //
-// Behavior-equivalent to bb_http's bb_url_parse_bool/bb_url_parse_uint
-// (components/bb_http/src/http_utils.c) — extracted here as host-portable
-// primitives so non-HTTP callers don't need to depend on bb_http. bb_http's
-// originals are unchanged and still exist as the migration to this
-// component is deferred.
+// Behavior-equivalent to bb_http_server's bb_url_parse_bool/bb_url_parse_uint
+// (components/bb_http_server/src/http_utils.c) — extracted here as host-portable
+// primitives so non-HTTP callers don't need to depend on bb_http_server.
+// bb_http_server's originals are unchanged and still exist as the migration
+// to this component is deferred.
 
 #include <stdbool.h>
 

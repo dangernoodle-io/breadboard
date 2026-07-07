@@ -3,6 +3,7 @@
 #include "bb_release_manifest.h"
 #include "bb_cache.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_http_client.h"
 #include "bb_event.h"
 #include "bb_json.h"

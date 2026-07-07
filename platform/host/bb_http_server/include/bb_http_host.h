@@ -12,7 +12,7 @@
 //   bb_http_host_capture_free(&cap);         // frees cap.body heap allocation
 
 #include "bb_core.h"
-#include "bb_http.h"
+#include "bb_http_server.h"
 
 #include <stddef.h>
 

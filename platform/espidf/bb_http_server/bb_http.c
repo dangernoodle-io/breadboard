@@ -1,4 +1,5 @@
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_dispatch_api.h"
 #include "bb_http_status.h"
 #include "bb_http_query.h"

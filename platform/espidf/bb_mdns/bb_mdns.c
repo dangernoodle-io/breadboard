@@ -3,7 +3,7 @@
 #include "bb_mdns_refresh_decision.h"
 #include "bb_wifi.h"
 #include "bb_init.h"
-#include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_timer.h"
 #include "bb_ring.h"
 #include "mdns.h"

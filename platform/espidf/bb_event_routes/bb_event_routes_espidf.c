@@ -5,6 +5,7 @@
 #include "bb_event_routes_internal.h"
 #include "bb_event_ring.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_log.h"
 #include "bb_mem.h"
 #include "bb_init.h"
