@@ -2,11 +2,11 @@
 //
 // Registers a bb_pub source under the "health" subtopic. On each tick, emits:
 //   ok            — bool  (true when validated and network is up)
-//   mqtt_enabled  — bool  (bb_mqtt_default() != NULL)
-//   mqtt_connected — bool (bb_mqtt_is_connected(bb_mqtt_default()))
+//   mqtt_enabled  — bool  (bb_mqtt_client_default() != NULL)
+//   mqtt_connected — bool (bb_mqtt_client_is_connected(bb_mqtt_client_default()))
 //
 // Fields already published by bb_pub_info (reset_reason, ota_validated) are
-// not duplicated here. mqtt fields are omitted gracefully when bb_mqtt is absent.
+// not duplicated here. mqtt fields are omitted gracefully when bb_mqtt_client is absent.
 //
 // Always publishes (returns true) — provides a health heartbeat even without
 // optional sinks.

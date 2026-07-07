@@ -575,7 +575,7 @@ void bb_pub_test_set_nv_set_u8(bb_err_t (*fn)(const char *ns, const char *key, u
  * Override bb_pub_pause()'s bounded-wait timeout (ms) for testing, so the
  * ETIMEDOUT path can be exercised without a real 30 s wait. Pass a negative
  * value (or call bb_pub_test_reset()) to revert to the compile-time default
- * (CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS, or 30000 if unset).
+ * (CONFIG_BB_MQTT_CLIENT_NETWORK_TIMEOUT_MS, or 30000 if unset).
  */
 void bb_pub_test_set_pause_timeout_ms(long ms);
 

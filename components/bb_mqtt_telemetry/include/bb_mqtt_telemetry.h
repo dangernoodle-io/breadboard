@@ -8,7 +8,7 @@
 #pragma once
 #include "bb_core.h"
 #include "bb_json.h"
-#include "bb_mqtt.h"
+#include "bb_mqtt_client.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,8 +19,8 @@ extern "C" {
 bb_err_t bb_mqtt_telemetry_init(void);
 
 // Set the client handle reference used to report connection state.
-// Pass a pointer to the module-level bb_mqtt_t handle (or NULL to clear).
-void bb_mqtt_telemetry_set_client(bb_mqtt_t *ref);
+// Pass a pointer to the module-level bb_mqtt_client_t handle (or NULL to clear).
+void bb_mqtt_telemetry_set_client(bb_mqtt_client_t *ref);
 
 #ifdef BB_MQTT_TELEMETRY_TESTING
 

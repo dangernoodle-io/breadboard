@@ -6,15 +6,15 @@
 //
 // Fields published:
 //   ok             — bool  (true when wifi connected AND OTA validated)
-//   mqtt_enabled   — bool  (bb_mqtt_default() != NULL)
-//   mqtt_connected — bool  (bb_mqtt_is_connected(default handle))
+//   mqtt_enabled   — bool  (bb_mqtt_client_default() != NULL)
+//   mqtt_connected — bool  (bb_mqtt_client_is_connected(default handle))
 //
 // Always publishes (returns true) to provide a continuous health heartbeat.
 #include "bb_pub_health.h"
 #include "bb_net_health.h"
 #include "bb_pub.h"
 #include "bb_health.h"
-#include "bb_mqtt.h"
+#include "bb_mqtt_client.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_init.h"
@@ -38,17 +38,17 @@ static bool health_sample(bb_json_t obj, void *ctx)
     bb_json_obj_set_bool(obj, "ok", bb_health_compute_ok());
 
     // mqtt: gracefully absent when no MQTT client was started
-    bb_mqtt_t h         = bb_mqtt_default();
+    bb_mqtt_client_t h         = bb_mqtt_client_default();
     bool mqtt_enabled   = (h != NULL);
-    bool mqtt_connected = mqtt_enabled && bb_mqtt_is_connected(h);
+    bool mqtt_connected = mqtt_enabled && bb_mqtt_client_is_connected(h);
     bb_json_obj_set_bool(obj, "mqtt_enabled",   mqtt_enabled);
     bb_json_obj_set_bool(obj, "mqtt_connected", mqtt_connected);
 
     // mqtt_reconnect_count: churn metric — only in /api/health (net section)
     // before this; surface it to telemetry so MQTT-broker flap is alertable.
     if (mqtt_enabled) {
-        bb_mqtt_stats_t st = {0};   // stays zero if the stats read fails
-        (void)bb_mqtt_get_stats(h, &st);
+        bb_mqtt_client_stats_t st = {0};   // stays zero if the stats read fails
+        (void)bb_mqtt_client_get_stats(h, &st);
         bb_json_obj_set_number(obj, "mqtt_reconnect_count", (double)st.reconnect_count);
     }
 

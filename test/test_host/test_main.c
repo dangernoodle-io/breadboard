@@ -7806,7 +7806,7 @@ int main(void) {
     RUN_TEST(test_bb_wdt_unsubscribe_increments_counter);
     RUN_TEST(test_bb_wdt_set_timeout_noop_on_host);
 
-    // bb_mqtt tests
+    // bb_mqtt_client tests
     RUN_TEST(test_bb_mqtt_publish_captures_topic);
     RUN_TEST(test_bb_mqtt_publish_captures_payload);
     RUN_TEST(test_bb_mqtt_publish_captures_qos_retain);
@@ -7869,7 +7869,7 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_subscribe_happy_path_returns_ok);
     RUN_TEST(test_bb_mqtt_host_set_subscribe_fail_forces_error);
     RUN_TEST(test_bb_mqtt_host_set_subscribe_fail_can_be_cleared);
-    // bb_mqtt_on_message tests
+    // bb_mqtt_client_on_message tests
     RUN_TEST(test_bb_mqtt_on_message_receives_injected_message);
     RUN_TEST(test_bb_mqtt_on_message_passes_ctx);
     RUN_TEST(test_bb_mqtt_on_message_multiple_injections);
@@ -9246,7 +9246,7 @@ int main(void) {
     RUN_TEST(test_bb_sub_subscribe_aggregate_topic_register_failure_returns_invalid_state);
     RUN_TEST(test_bb_sub_route_sse_matches_cache_get_serialized);
 
-    // bb_mqtt_on_message
+    // bb_mqtt_client_on_message
     RUN_TEST(test_bb_mqtt_on_message_receives_injected_message);
     RUN_TEST(test_bb_mqtt_on_message_passes_ctx);
     RUN_TEST(test_bb_mqtt_on_message_multiple_injections);

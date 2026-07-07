@@ -10,10 +10,10 @@
 #define BB_NV_KEY_HEADERS     "headers"
 #define BB_NV_KEY_PATH_TMPL   "path_tmpl"
 
-// bb_mqtt / bb_sink_http shared (client identifier sent to broker/endpoint)
+// bb_mqtt_client / bb_sink_http shared (client identifier sent to broker/endpoint)
 #define BB_NV_KEY_CLIENT_ID   "client_id"
 
-// bb_tls_creds (TLS credential PEM blobs; consumed by bb_mqtt and bb_sink_http
+// bb_tls_creds (TLS credential PEM blobs; consumed by bb_mqtt_client and bb_sink_http
 // under their respective namespaces)
 #define BB_NV_KEY_TLS_CA      "tls_ca"
 #define BB_NV_KEY_TLS_CERT    "tls_cert"

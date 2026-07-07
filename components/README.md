@@ -68,7 +68,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_manifest](./bb_manifest/) | — |
 | [bb_mdns](./bb_mdns/) | — |
 | [bb_mdns_cache](./bb_mdns_cache/) | — |
-| [bb_mqtt](./bb_mqtt/) | — |
+| [bb_mqtt_client](./bb_mqtt_client/) | — |
 | [bb_mqtt_info](./bb_mqtt_info/) | — |
 | [bb_mqtt_telemetry](./bb_mqtt_telemetry/) | — |
 | [bb_net_health](./bb_net_health/) | — |

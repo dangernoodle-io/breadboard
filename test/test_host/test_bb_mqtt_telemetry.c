@@ -3,7 +3,7 @@
 // - PATCH persists each field to NVS "bb_mqtt"
 // - PATCH bad body → returns error (tested via dispatch_patch)
 #include "unity.h"
-#include "bb_mqtt.h"
+#include "bb_mqtt_client.h"
 #include "bb_mqtt_telemetry.h"
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
@@ -165,10 +165,10 @@ void test_bb_mqtt_telemetry_get_cert_set_and_key_set_flags(void)
 void test_bb_mqtt_telemetry_get_connected_from_client(void)
 {
     bb_mqtt_telemetry_reset_for_test();
-    bb_mqtt_t client = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
-    bb_mqtt_init(&cfg, &client);
-    bb_mqtt_host_set_connected(client, true);
+    bb_mqtt_client_t client = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    bb_mqtt_client_init(&cfg, &client);
+    bb_mqtt_client_host_set_connected(client, true);
     bb_mqtt_telemetry_set_client(&client);
 
     cJSON *body = run_get();
@@ -180,16 +180,16 @@ void test_bb_mqtt_telemetry_get_connected_from_client(void)
 
     cJSON_Delete(body);
     bb_mqtt_telemetry_set_client(NULL);
-    bb_mqtt_destroy(client);
+    bb_mqtt_client_destroy(client);
 }
 
 void test_bb_mqtt_telemetry_get_connected_false_when_disconnected(void)
 {
     bb_mqtt_telemetry_reset_for_test();
-    bb_mqtt_t client = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
-    bb_mqtt_init(&cfg, &client);
-    bb_mqtt_host_set_connected(client, false);
+    bb_mqtt_client_t client = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    bb_mqtt_client_init(&cfg, &client);
+    bb_mqtt_client_host_set_connected(client, false);
     bb_mqtt_telemetry_set_client(&client);
 
     cJSON *body = run_get();
@@ -201,17 +201,17 @@ void test_bb_mqtt_telemetry_get_connected_false_when_disconnected(void)
 
     cJSON_Delete(body);
     bb_mqtt_telemetry_set_client(NULL);
-    bb_mqtt_destroy(client);
+    bb_mqtt_client_destroy(client);
 }
 
 void test_bb_mqtt_telemetry_get_connected_via_default(void)
 {
     bb_mqtt_telemetry_reset_for_test();
-    bb_mqtt_t client = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
-    bb_mqtt_init(&cfg, &client);
-    bb_mqtt_host_set_connected(client, true);
-    bb_mqtt_default_set(client);
+    bb_mqtt_client_t client = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    bb_mqtt_client_init(&cfg, &client);
+    bb_mqtt_client_host_set_connected(client, true);
+    bb_mqtt_client_default_set(client);
 
     cJSON *body = run_get();
     TEST_ASSERT_NOT_NULL(body);
@@ -221,18 +221,18 @@ void test_bb_mqtt_telemetry_get_connected_via_default(void)
     TEST_ASSERT_TRUE(cJSON_IsTrue(connected));
 
     cJSON_Delete(body);
-    bb_mqtt_default_set(NULL);
-    bb_mqtt_destroy(client);
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_destroy(client);
 }
 
 void test_bb_mqtt_telemetry_get_connected_false_via_default_when_disconnected(void)
 {
     bb_mqtt_telemetry_reset_for_test();
-    bb_mqtt_t client = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
-    bb_mqtt_init(&cfg, &client);
-    bb_mqtt_host_set_connected(client, false);
-    bb_mqtt_default_set(client);
+    bb_mqtt_client_t client = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    bb_mqtt_client_init(&cfg, &client);
+    bb_mqtt_client_host_set_connected(client, false);
+    bb_mqtt_client_default_set(client);
 
     cJSON *body = run_get();
     TEST_ASSERT_NOT_NULL(body);
@@ -242,8 +242,8 @@ void test_bb_mqtt_telemetry_get_connected_false_via_default_when_disconnected(vo
     TEST_ASSERT_FALSE(cJSON_IsTrue(connected));
 
     cJSON_Delete(body);
-    bb_mqtt_default_set(NULL);
-    bb_mqtt_destroy(client);
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_destroy(client);
 }
 
 // ---------------------------------------------------------------------------

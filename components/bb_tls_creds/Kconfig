@@ -4,7 +4,7 @@ config BB_MQTT_TLS_ENABLE
     bool "Enable TLS for the MQTT sink"
     default n
     help
-        Opt-in TLS for the MQTT sink (bb_mqtt).  Default OFF for the
+        Opt-in TLS for the MQTT sink (bb_mqtt_client).  Default OFF for the
         smallest firmware footprint; the OTA/update-check HTTPS path
         (esp_http_client crt-bundle) is independent of this gate.
         When OFF, a cfg.tls=true request degrades gracefully: the

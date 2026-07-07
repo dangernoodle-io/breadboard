@@ -5,7 +5,7 @@
 //   bb_net_health_start()           — at PRE_HTTP tier
 //   bb_net_health_attach_sse()      — in regular-tier init (after bb_event_routes)
 //
-// The 5-second evaluator reads bb_wifi_get_info() and bb_mqtt_get_stats(), runs
+// The 5-second evaluator reads bb_wifi_get_info() and bb_mqtt_client_get_stats(), runs
 // bb_net_health_eval against a static module state, and publishes to the
 // "net.health" retained SSE topic ONLY when state or early_warning changes.
 //
@@ -18,7 +18,7 @@
 #include "bb_mem.h"
 #include "bb_openapi.h"
 #include "bb_wifi.h"
-#include "bb_mqtt.h"
+#include "bb_mqtt_client.h"
 #include "bb_tls.h"
 #include "bb_sink_http.h"
 #include "bb_event.h"
@@ -262,10 +262,10 @@ static void build_input(bb_net_health_input_t *in)
         in->disc_age_s = wi.disc_age_s;
     }
 
-    bb_mqtt_t mqtt = bb_mqtt_default();
+    bb_mqtt_client_t mqtt = bb_mqtt_client_default();
     if (mqtt) {
-        bb_mqtt_stats_t stats;
-        if (bb_mqtt_get_stats(mqtt, &stats) == BB_OK) {
+        bb_mqtt_client_stats_t stats;
+        if (bb_mqtt_client_get_stats(mqtt, &stats) == BB_OK) {
             in->mqtt_connected       = stats.connected;
             in->mqtt_reconnect_count = stats.reconnect_count;
 
@@ -384,7 +384,7 @@ static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
                                              const bb_net_health_input_t  *in,
                                              const bb_wifi_info_t         *wi,
                                              bool throttled,
-                                             bb_mqtt_disc_t mqtt_disc_reason,
+                                             bb_mqtt_client_disc_t mqtt_disc_reason,
                                              bb_tls_fail_t  mqtt_tls_fail,
                                              bb_sink_http_health_t http_h,
                                              bool gw_available,
@@ -508,13 +508,13 @@ static void eval_work_fn(void *arg)
     bb_net_health_eval(&s_state, &in, &out);
 
     // B1-362: capture disc_reason + tls_fail separately for publish_snapshot
-    bb_mqtt_disc_t mqtt_disc_reason = BB_MQTT_DISC_NONE;
+    bb_mqtt_client_disc_t mqtt_disc_reason = BB_MQTT_CLIENT_DISC_NONE;
     bb_tls_fail_t  mqtt_tls_fail   = BB_TLS_FAIL_NONE;
     {
-        bb_mqtt_t mqtt = bb_mqtt_default();
+        bb_mqtt_client_t mqtt = bb_mqtt_client_default();
         if (mqtt) {
-            bb_mqtt_stats_t stats;
-            if (bb_mqtt_get_stats(mqtt, &stats) == BB_OK) {
+            bb_mqtt_client_stats_t stats;
+            if (bb_mqtt_client_get_stats(mqtt, &stats) == BB_OK) {
                 mqtt_disc_reason = stats.disc_reason;
                 mqtt_tls_fail    = stats.tls_fail;
             }
@@ -879,13 +879,13 @@ bb_err_t bb_net_health_attach_sse(void)
         bb_net_health_eval(&s_state, &in, &out);
 
         // B1-362: capture disc_reason + tls_fail separately for publish_snapshot
-        bb_mqtt_disc_t mqtt_disc_reason = BB_MQTT_DISC_NONE;
+        bb_mqtt_client_disc_t mqtt_disc_reason = BB_MQTT_CLIENT_DISC_NONE;
         bb_tls_fail_t  mqtt_tls_fail   = BB_TLS_FAIL_NONE;
         {
-            bb_mqtt_t mqtt = bb_mqtt_default();
+            bb_mqtt_client_t mqtt = bb_mqtt_client_default();
             if (mqtt) {
-                bb_mqtt_stats_t stats;
-                if (bb_mqtt_get_stats(mqtt, &stats) == BB_OK) {
+                bb_mqtt_client_stats_t stats;
+                if (bb_mqtt_client_get_stats(mqtt, &stats) == BB_OK) {
                     mqtt_disc_reason = stats.disc_reason;
                     mqtt_tls_fail    = stats.tls_fail;
                 }

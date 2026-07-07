@@ -1,7 +1,7 @@
-// bb_mqtt ESP-IDF backend — wraps esp-mqtt with TLS via bb_tls_creds.
+// bb_mqtt_client ESP-IDF backend — wraps esp-mqtt with TLS via bb_tls_creds.
 //
 // TLS lifetime: bb_tls_creds_t is allocated in the handle and freed only
-// inside bb_mqtt_destroy, AFTER esp_mqtt_client_destroy completes.
+// inside bb_mqtt_client_destroy, AFTER esp_mqtt_client_destroy completes.
 // esp-mqtt does NOT copy certificate/key buffers, so the pointers must
 // remain valid for the entire client lifetime.
 //
@@ -11,7 +11,7 @@
 // bb_pub sink at PRE_HTTP time (register-on-enable, B1-289).
 //
 // Deferred start: esp_mqtt_client_start() is NOT called until the station
-// has an IP address.  bb_mqtt_init registers a bb_wifi_on_got_ip callback
+// has an IP address.  bb_mqtt_client_init registers a bb_wifi_on_got_ip callback
 // (or starts immediately when bb_wifi_has_ip() is already true).  Only the
 // FIRST start is deferred; esp-mqtt's built-in reconnect handles later drops.
 //
@@ -20,7 +20,7 @@
 // prevent a stale event firing into a freed handle we set h->destroyed =
 // true and NULL h->client BEFORE calling esp_mqtt_client_destroy; the
 // event handler checks h->destroyed under h->lock and returns immediately.
-#include "bb_mqtt.h"
+#include "bb_mqtt_client.h"
 #include "bb_tls.h"
 #include "bb_tls_creds.h"
 #include "bb_log.h"
@@ -29,7 +29,7 @@
 #include "bb_nv_keys.h"
 #include "bb_init.h"
 #include "bb_wifi.h"
-#include "bb_mqtt_reassemble.h"  // PRIV_INCLUDE_DIRS "src" (bb_mqtt component)
+#include "bb_mqtt_client_reassemble.h"  // PRIV_INCLUDE_DIRS "src" (bb_mqtt_client component)
 
 #include <stdlib.h>
 #include <string.h>
@@ -41,24 +41,24 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
-static const char *TAG = "bb_mqtt";
+static const char *TAG = "bb_mqtt_client";
 
-// BB_MQTT_NVS_NS is the SSOT namespace constant from bb_mqtt.h.
-#define BB_MQTT_URI_MAX       128
+// BB_MQTT_NVS_NS is the SSOT namespace constant from bb_mqtt_client.h.
+#define BB_MQTT_CLIENT_URI_MAX       128
 #define BB_MQTT_CLIENT_ID_MAX 64
-#define BB_MQTT_USER_MAX      64
-#define BB_MQTT_PASS_MAX      64
+#define BB_MQTT_CLIENT_USER_MAX      64
+#define BB_MQTT_CLIENT_PASS_MAX      64
 
 // B1-487: per-handle subscription-filter tracking, so MQTT_EVENT_CONNECTED
 // can re-issue every subscribe after a reconnect (a fresh broker session
 // does not always preserve subscriptions across a dropped TCP connection).
-#define BB_MQTT_SUB_MAX      4
-#define BB_MQTT_SUB_TOPIC_MAX 128
+#define BB_MQTT_CLIENT_SUB_MAX      4
+#define BB_MQTT_CLIENT_SUB_TOPIC_MAX 128
 
 typedef struct {
-    char topic[BB_MQTT_SUB_TOPIC_MAX];
+    char topic[BB_MQTT_CLIENT_SUB_TOPIC_MAX];
     int  qos;
-} bb_mqtt_sub_entry_t;
+} bb_mqtt_client_sub_entry_t;
 
 // ---------------------------------------------------------------------------
 // Internal handle
@@ -75,49 +75,49 @@ typedef struct {
                                         // guards event handler against stale arg
     bool                     tls;       // captured from cfg.tls at init time
     bool                     suspended; // true while transiently quiesced via
-                                        // bb_mqtt_suspend_default; cleared by resume
+                                        // bb_mqtt_client_suspend_default; cleared by resume
     uint32_t                 reconnect_count;  // incremented on each reconnect
-    bb_mqtt_disc_t           disc_reason;      // classified disconnect reason (B1-362)
+    bb_mqtt_client_disc_t           disc_reason;      // classified disconnect reason (B1-362)
     bb_tls_fail_t            tls_fail;         // TLS handshake failure class (B1-362)
     int                      tls_error_code;   // raw mbedtls err (0 = none) (B1-362)
     char                     uri[256];             // copy of cfg->uri for diag
-    bb_mqtt_sub_entry_t      subs[BB_MQTT_SUB_MAX]; // B1-487: tracked filters
+    bb_mqtt_client_sub_entry_t      subs[BB_MQTT_CLIENT_SUB_MAX]; // B1-487: tracked filters
     int                      sub_count;
-    bb_mqtt_msg_cb           msg_cb;    // B1-487: per-handle receive callback
+    bb_mqtt_client_msg_cb           msg_cb;    // B1-487: per-handle receive callback
     void                    *msg_ctx;
-    bb_mqtt_reasm_state_t    reasm;     // per-handle reassembly state; reasm.buf
+    bb_mqtt_client_reasm_state_t    reasm;     // per-handle reassembly state; reasm.buf
                                          // lazily allocated on first on_message(cb!=NULL)
-} bb_mqtt_handle_t;
+} bb_mqtt_client_handle_t;
 
 // ---------------------------------------------------------------------------
 // B1-487: inbound message reassembly. Reassembly state (rx buffer, cursor,
-// callback+ctx) lives on the handle (bb_mqtt_handle_t.reasm / .msg_cb /
+// callback+ctx) lives on the handle (bb_mqtt_client_handle_t.reasm / .msg_cb /
 // .msg_ctx) — NOT in process-wide statics — so two independently-created
 // handles (e.g. a telemetry client and a separate ingress client, both
 // possible in this codebase) can never splice bytes across each other's
 // messages. The actual fragment-accumulation state machine is the pure,
-// host-testable bb_mqtt_reasm_step (components/bb_mqtt/src/bb_mqtt_reassemble.c)
+// host-testable bb_mqtt_client_reasm_step (components/bb_mqtt_client/src/bb_mqtt_client_reassemble.c)
 // — this file supplies only the esp_mqtt_event_handle_t field extraction.
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_mqtt_on_message(bb_mqtt_t handle, bb_mqtt_msg_cb cb, void *ctx)
+bb_err_t bb_mqtt_client_on_message(bb_mqtt_client_t handle, bb_mqtt_client_msg_cb cb, void *ctx)
 {
     if (!handle) return BB_ERR_INVALID_ARG;
-    bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)handle;
+    bb_mqtt_client_handle_t *h = (bb_mqtt_client_handle_t *)handle;
 
     xSemaphoreTake(h->lock, portMAX_DELAY);
     if (cb && !h->reasm.buf) {
         // Lazy heap allocation (SPIRAM-preferred): boards that only publish
-        // and never call bb_mqtt_on_message pay zero BSS/heap for this.
-        h->reasm.buf = bb_calloc_prefer_spiram(1, CONFIG_BB_MQTT_RX_BUFFER_BYTES);
+        // and never call bb_mqtt_client_on_message pay zero BSS/heap for this.
+        h->reasm.buf = bb_calloc_prefer_spiram(1, CONFIG_BB_MQTT_CLIENT_RX_BUFFER_BYTES);
         if (!h->reasm.buf) {
             xSemaphoreGive(h->lock);
             bb_log_w(TAG, "on_message: rx buffer alloc failed (%u bytes)",
-                     (unsigned)CONFIG_BB_MQTT_RX_BUFFER_BYTES);
+                     (unsigned)CONFIG_BB_MQTT_CLIENT_RX_BUFFER_BYTES);
             return BB_ERR_NO_SPACE;
         }
-        h->reasm.buf_cap = CONFIG_BB_MQTT_RX_BUFFER_BYTES;
-        bb_mqtt_reasm_reset(&h->reasm);
+        h->reasm.buf_cap = CONFIG_BB_MQTT_CLIENT_RX_BUFFER_BYTES;
+        bb_mqtt_client_reasm_reset(&h->reasm);
     }
     h->msg_cb  = cb;
     h->msg_ctx = ctx;
@@ -129,15 +129,15 @@ bb_err_t bb_mqtt_on_message(bb_mqtt_t handle, bb_mqtt_msg_cb cb, void *ctx)
 // Deferred-start support
 //
 // Only one handle can be pending a deferred start at a time (the autoregistered
-// client).  When bb_mqtt_init runs at EARLY tier WiFi has not yet acquired an
+// client).  When bb_mqtt_client_init runs at EARLY tier WiFi has not yet acquired an
 // IP, so we register a bb_wifi got-IP callback that fires the first start.
 // If WiFi already has an IP at init time (e.g. a later manual call), we start
 // immediately and skip the callback registration.
 // ---------------------------------------------------------------------------
 
-static _Atomic(bb_mqtt_handle_t *) s_pending_start = NULL;  // handle waiting for got-IP
+static _Atomic(bb_mqtt_client_handle_t *) s_pending_start = NULL;  // handle waiting for got-IP
 
-static void mqtt_start_once(bb_mqtt_handle_t *h)
+static void mqtt_start_once(bb_mqtt_client_handle_t *h)
 {
     xSemaphoreTake(h->lock, portMAX_DELAY);
     bool already = h->started;
@@ -156,7 +156,7 @@ static void mqtt_start_once(bb_mqtt_handle_t *h)
 
 static void on_got_ip_cb(void)
 {
-    bb_mqtt_handle_t *h = atomic_load(&s_pending_start);
+    bb_mqtt_client_handle_t *h = atomic_load(&s_pending_start);
     if (h) {
         atomic_store(&s_pending_start, NULL);  // clear before start; idempotent if called again
         mqtt_start_once(h);
@@ -192,7 +192,7 @@ static const char *mqtt_url_host(const char *url, char *buf, size_t buf_len)
 static void mqtt_event_handler(void *arg, esp_event_base_t base,
                                int32_t event_id, void *event_data)
 {
-    bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)arg;
+    bb_mqtt_client_handle_t *h = (bb_mqtt_client_handle_t *)arg;
 
     // Guard: esp-mqtt may dispatch a queued event after esp_mqtt_client_stop
     // returns (the event loop processes its queue independently).  If destroy
@@ -212,13 +212,13 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
         // h->lock elsewhere, and esp-mqtt calls back into this handler from
         // the same task, so holding the lock here risks self-deadlock on a
         // reentrant dispatch).
-        bb_mqtt_sub_entry_t local[BB_MQTT_SUB_MAX];
+        bb_mqtt_client_sub_entry_t local[BB_MQTT_CLIENT_SUB_MAX];
         int n;
         xSemaphoreTake(h->lock, portMAX_DELAY);
         h->connected = true;
         h->ever_connected = true;
         n = h->sub_count;
-        memcpy(local, h->subs, sizeof(bb_mqtt_sub_entry_t) * (size_t)n);
+        memcpy(local, h->subs, sizeof(bb_mqtt_client_sub_entry_t) * (size_t)n);
         xSemaphoreGive(h->lock);
         bb_log_i(TAG, "connected");
         for (int i = 0; i < n; i++) {
@@ -243,19 +243,19 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
     case MQTT_EVENT_DATA: {
         // B1-487: reassemble fragmented payload via the shared pure state
         // machine, then invoke the per-handle callback OUTSIDE the lock —
-        // cb may call back into bb_mqtt_publish/subscribe on this same
+        // cb may call back into bb_mqtt_client_publish/subscribe on this same
         // handle, which would deadlock on a non-recursive mutex if we held
         // h->lock across the call. h->reasm.buf/topic are exclusively
         // written by this event task (esp-mqtt dispatches serially), so
         // reading them here after unlocking is safe.
         esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
-        bb_mqtt_msg_cb local_cb  = NULL;
+        bb_mqtt_client_msg_cb local_cb  = NULL;
         void          *local_ctx = NULL;
         size_t         local_len = 0;
 
         xSemaphoreTake(h->lock, portMAX_DELAY);
         if (h->msg_cb && h->reasm.buf) {
-            bool complete = bb_mqtt_reasm_step(
+            bool complete = bb_mqtt_client_reasm_step(
                 &h->reasm,
                 event->topic, (size_t)event->topic_len,
                 (size_t)event->total_data_len, (size_t)event->current_data_offset,
@@ -281,19 +281,19 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
             // Classify disconnect reason (B1-362)
             switch (event->error_handle->error_type) {
             case MQTT_ERROR_TYPE_NONE:
-                h->disc_reason = BB_MQTT_DISC_NONE;
+                h->disc_reason = BB_MQTT_CLIENT_DISC_NONE;
                 break;
             case MQTT_ERROR_TYPE_TCP_TRANSPORT:
-                h->disc_reason = BB_MQTT_DISC_TRANSPORT;
+                h->disc_reason = BB_MQTT_CLIENT_DISC_TRANSPORT;
                 if (event->error_handle->esp_tls_stack_err != 0) {
                     tls_err = event->error_handle->esp_tls_stack_err;
                 }
                 break;
             case MQTT_ERROR_TYPE_CONNECTION_REFUSED:
-                h->disc_reason = BB_MQTT_DISC_CONNECTION_REFUSED;
+                h->disc_reason = BB_MQTT_CLIENT_DISC_CONNECTION_REFUSED;
                 break;
             default:
-                h->disc_reason = BB_MQTT_DISC_OTHER;
+                h->disc_reason = BB_MQTT_CLIENT_DISC_OTHER;
                 break;
             }
             h->tls_error_code = tls_err;
@@ -320,12 +320,12 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
 // Public API
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
+bb_err_t bb_mqtt_client_init(const bb_mqtt_client_cfg_t *cfg, bb_mqtt_client_t *out)
 {
     if (!cfg || !out) return BB_ERR_INVALID_ARG;
     if (!cfg->uri || !cfg->uri[0]) return BB_ERR_INVALID_ARG;
 
-    bb_mqtt_handle_t *h = bb_calloc_prefer_spiram(1, sizeof(*h));
+    bb_mqtt_client_handle_t *h = bb_calloc_prefer_spiram(1, sizeof(*h));
     if (!h) return BB_ERR_NO_SPACE;
 
     h->lock = xSemaphoreCreateMutex();
@@ -373,14 +373,14 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
             },
         },
         .session = {
-            .keepalive = CONFIG_BB_MQTT_KEEPALIVE,
+            .keepalive = CONFIG_BB_MQTT_CLIENT_KEEPALIVE,
         },
         .network = {
-            .timeout_ms = CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS,
+            .timeout_ms = CONFIG_BB_MQTT_CLIENT_NETWORK_TIMEOUT_MS,
         },
         .buffer = {
-            .size     = CONFIG_BB_MQTT_RX_BUFFER_BYTES,
-            .out_size = CONFIG_BB_MQTT_TX_BUFFER_BYTES,
+            .size     = CONFIG_BB_MQTT_CLIENT_RX_BUFFER_BYTES,
+            .out_size = CONFIG_BB_MQTT_CLIENT_TX_BUFFER_BYTES,
         },
     };
 
@@ -466,12 +466,12 @@ bb_err_t bb_mqtt_init(const bb_mqtt_cfg_t *cfg, bb_mqtt_t *out)
 
 // B1-296 destroy-safety guard, shared by publish and subscribe: take h->lock,
 // check destroyed/client under it, and capture the client pointer locally
-// BEFORE releasing the lock so a concurrent bb_mqtt_destroy can't free it
+// BEFORE releasing the lock so a concurrent bb_mqtt_client_destroy can't free it
 // mid-use. Returns true (and writes *client_out, non-NULL) when the handle is
 // live; false when destroyed or client is NULL. Caller must release the lock-
 // free local immediately — never hold h->lock across a blocking esp-mqtt call
 // (the event handler also takes h->lock).
-static inline bool mqtt_acquire_client(bb_mqtt_handle_t *h,
+static inline bool mqtt_acquire_client(bb_mqtt_client_handle_t *h,
                                        esp_mqtt_client_handle_t *client_out)
 {
     xSemaphoreTake(h->lock, portMAX_DELAY);
@@ -481,11 +481,11 @@ static inline bool mqtt_acquire_client(bb_mqtt_handle_t *h,
     return !dead;
 }
 
-bb_err_t bb_mqtt_publish(bb_mqtt_t handle, const char *topic,
+bb_err_t bb_mqtt_client_publish(bb_mqtt_client_t handle, const char *topic,
                           const char *payload, int len, int qos, bool retain)
 {
     if (!handle || !topic) return BB_ERR_INVALID_ARG;
-    bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)handle;
+    bb_mqtt_client_handle_t *h = (bb_mqtt_client_handle_t *)handle;
 
     // Defense-in-depth (B1-296): take the lock, check destroyed/client under it,
     // capture the client pointer locally, then release BEFORE the blocking publish
@@ -506,10 +506,10 @@ bb_err_t bb_mqtt_publish(bb_mqtt_t handle, const char *topic,
     return BB_OK;
 }
 
-bb_err_t bb_mqtt_subscribe(bb_mqtt_t handle, const char *topic, int qos)
+bb_err_t bb_mqtt_client_subscribe(bb_mqtt_client_t handle, const char *topic, int qos)
 {
     if (!handle || !topic) return BB_ERR_INVALID_ARG;
-    bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)handle;
+    bb_mqtt_client_handle_t *h = (bb_mqtt_client_handle_t *)handle;
 
     // Mirror the publish guard (B1-296): take the lock, check destroyed/client
     // under it, capture a local pointer, then release BEFORE the blocking call.
@@ -527,8 +527,8 @@ bb_err_t bb_mqtt_subscribe(bb_mqtt_t handle, const char *topic, int qos)
     // truncated form (mirrors what would actually be stored) rather than a
     // raw strncmp bound to sizeof(topic) — a bare strncmp of the incoming
     // (possibly longer) topic against an already-truncated stored entry is
-    // not a well-defined equality check for topics >= BB_MQTT_SUB_TOPIC_MAX.
-    char topic_trunc[BB_MQTT_SUB_TOPIC_MAX];
+    // not a well-defined equality check for topics >= BB_MQTT_CLIENT_SUB_TOPIC_MAX.
+    char topic_trunc[BB_MQTT_CLIENT_SUB_TOPIC_MAX];
     snprintf(topic_trunc, sizeof(topic_trunc), "%s", topic);
 
     xSemaphoreTake(h->lock, portMAX_DELAY);
@@ -541,13 +541,13 @@ bb_err_t bb_mqtt_subscribe(bb_mqtt_t handle, const char *topic, int qos)
         }
     }
     if (!tracked) {
-        if (h->sub_count < BB_MQTT_SUB_MAX) {
+        if (h->sub_count < BB_MQTT_CLIENT_SUB_MAX) {
             snprintf(h->subs[h->sub_count].topic, sizeof(h->subs[h->sub_count].topic), "%s", topic_trunc);
             h->subs[h->sub_count].qos = qos;
             h->sub_count++;
         } else {
             bb_log_w(TAG, "subscribe: filter registry full (max %d); '%s' will not be "
-                          "re-subscribed on reconnect", BB_MQTT_SUB_MAX, topic);
+                          "re-subscribed on reconnect", BB_MQTT_CLIENT_SUB_MAX, topic);
         }
     }
     xSemaphoreGive(h->lock);
@@ -556,20 +556,20 @@ bb_err_t bb_mqtt_subscribe(bb_mqtt_t handle, const char *topic, int qos)
     return (msg_id < 0) ? BB_ERR_INVALID_STATE : BB_OK;
 }
 
-bool bb_mqtt_is_connected(bb_mqtt_t handle)
+bool bb_mqtt_client_is_connected(bb_mqtt_client_t handle)
 {
     if (!handle) return false;
-    bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)handle;
+    bb_mqtt_client_handle_t *h = (bb_mqtt_client_handle_t *)handle;
     xSemaphoreTake(h->lock, portMAX_DELAY);
     bool c = h->connected;
     xSemaphoreGive(h->lock);
     return c;
 }
 
-bb_err_t bb_mqtt_get_stats(bb_mqtt_t handle, bb_mqtt_stats_t *out)
+bb_err_t bb_mqtt_client_get_stats(bb_mqtt_client_t handle, bb_mqtt_client_stats_t *out)
 {
     if (!handle || !out) return BB_ERR_INVALID_ARG;
-    bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)handle;
+    bb_mqtt_client_handle_t *h = (bb_mqtt_client_handle_t *)handle;
     xSemaphoreTake(h->lock, portMAX_DELAY);
     out->reconnect_count = h->reconnect_count;
     out->connected       = h->connected;
@@ -580,16 +580,16 @@ bb_err_t bb_mqtt_get_stats(bb_mqtt_t handle, bb_mqtt_stats_t *out)
     return BB_OK;
 }
 
-bool bb_mqtt_is_tls(bb_mqtt_t handle)
+bool bb_mqtt_client_is_tls(bb_mqtt_client_t handle)
 {
     if (!handle) return false;
-    return ((bb_mqtt_handle_t *)handle)->tls;
+    return ((bb_mqtt_client_handle_t *)handle)->tls;
 }
 
-bb_err_t bb_mqtt_destroy(bb_mqtt_t handle)
+bb_err_t bb_mqtt_client_destroy(bb_mqtt_client_t handle)
 {
     if (!handle) return BB_OK;
-    bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)handle;
+    bb_mqtt_client_handle_t *h = (bb_mqtt_client_handle_t *)handle;
     if (h->client) {
         // Mark destroyed under lock BEFORE stop/destroy so that any event
         // already queued in the event loop (and not yet dispatched when stop
@@ -622,20 +622,20 @@ bb_err_t bb_mqtt_destroy(bb_mqtt_t handle)
     return BB_OK;
 }
 
-// bb_mqtt_stop — stop and destroy the client, clearing the handle.
+// bb_mqtt_client_stop — stop and destroy the client, clearing the handle.
 // Idempotent: safe to call with a NULL or already-destroyed handle.
 // Used by telemetry sink teardown (B1-275) to release the client when
 // the exclusive sink slot is lost.
 //
 // SYNC on ESP-IDF (httpd-safe): stop+destroy do NOT run TLS/mbedTLS and
 // have a combined stack depth well under 6144 bytes, so they are safe to
-// call inline on the httpd thread.  The handle is NULLed before bb_mqtt_destroy
+// call inline on the httpd thread.  The handle is NULLed before bb_mqtt_client_destroy
 // is called so subsequent calls are idempotent.  This mirrors the inline
-// disable path in bb_mqtt_reconfigure (B1-276).
-bb_err_t bb_mqtt_stop(bb_mqtt_t *handle_p)
+// disable path in bb_mqtt_client_reconfigure (B1-276).
+bb_err_t bb_mqtt_client_stop(bb_mqtt_client_t *handle_p)
 {
     if (!handle_p || !*handle_p) return BB_OK;
-    bb_mqtt_destroy(*handle_p);
+    bb_mqtt_client_destroy(*handle_p);
     *handle_p = NULL;
     return BB_OK;
 }
@@ -644,21 +644,21 @@ bb_err_t bb_mqtt_stop(bb_mqtt_t *handle_p)
 // EARLY-tier self-registration (B1-289: register-on-enable at boot)
 // ---------------------------------------------------------------------------
 
-#if CONFIG_BB_MQTT_AUTOREGISTER
+#if CONFIG_BB_MQTT_CLIENT_AUTOREGISTER
 
 // Module-level handle so the autoregistered client lives for the app lifetime.
 //
-// HANDLE STABILITY: s_auto_client is a bb_mqtt_t (void *) whose VALUE changes
+// HANDLE STABILITY: s_auto_client is a bb_mqtt_client_t (void *) whose VALUE changes
 // across suspend/resume — suspend destroys the heap-allocated handle object
 // (frees task + buffers + struct, ~11 KB) and resume recreates it at a NEW
 // address.  Any sink that captured the old pointer value holds a use-after-free
 // reference after suspend (B1-296).
 //
 // The telemetry autoregister uses bb_sink_mqtt_default() (NOT bb_sink_mqtt())
-// as the bb_pub sink.  bb_sink_mqtt_default() resolves bb_mqtt_default() on
+// as the bb_pub sink.  bb_sink_mqtt_default() resolves bb_mqtt_client_default() on
 // every publish call rather than caching the pointer at boot.  This means:
 //
-//  - During the suspend window (s_auto_client == NULL), bb_mqtt_publish()
+//  - During the suspend window (s_auto_client == NULL), bb_mqtt_client_publish()
 //    receives NULL and returns BB_ERR_INVALID_ARG — a clean no-op.
 //  - After resume the sink automatically targets the new handle; no
 //    re-registration is needed.
@@ -666,20 +666,20 @@ bb_err_t bb_mqtt_stop(bb_mqtt_t *handle_p)
 //    bb_pub_resume() to avoid unnecessary publish attempts during the window,
 //    but even without the pause the dynamic sink is safe (no crash).
 //
-// bb_mqtt_default() returns s_auto_client (NULL when destroyed, non-NULL when
+// bb_mqtt_client_default() returns s_auto_client (NULL when destroyed, non-NULL when
 // live).  Callers that snapshot the return value must treat NULL as "suspended".
-static bb_mqtt_t s_auto_client = NULL;
+static bb_mqtt_client_t s_auto_client = NULL;
 
 // auto_client_create_from_nvs — read NVS config and create the auto-client.
 //
-// Shared by bb_mqtt_autoregister_init (boot) and bb_mqtt_resume_default (post-
+// Shared by bb_mqtt_client_autoregister_init (boot) and bb_mqtt_client_resume_default (post-
 // suspend recreate).  On success, s_auto_client is set to the new handle but
 // NOT yet started; the caller is responsible for starting appropriately:
-//  - Boot path:   deferred via got-IP callback (handled inside bb_mqtt_init).
+//  - Boot path:   deferred via got-IP callback (handled inside bb_mqtt_client_init).
 //  - Resume path: immediate start (WiFi/IP already up post-boot).
 //
 // Returns BB_OK on success or when disabled/unconfigured (non-fatal).
-// Returns an error code only when bb_mqtt_init itself fails.
+// Returns an error code only when bb_mqtt_client_init itself fails.
 static bb_err_t auto_client_create_from_nvs(void)
 {
     char enabled_str[4] = "0";
@@ -689,10 +689,10 @@ static bb_err_t auto_client_create_from_nvs(void)
         return BB_OK;
     }
 
-    char uri[BB_MQTT_URI_MAX]             = {0};
+    char uri[BB_MQTT_CLIENT_URI_MAX]             = {0};
     char client_id[BB_MQTT_CLIENT_ID_MAX] = {0};
-    char username[BB_MQTT_USER_MAX]       = {0};
-    char password[BB_MQTT_PASS_MAX]       = {0};
+    char username[BB_MQTT_CLIENT_USER_MAX]       = {0};
+    char password[BB_MQTT_CLIENT_PASS_MAX]       = {0};
     char tls_str[4]                       = "0";
 
     bb_nv_get_str(BB_MQTT_NVS_NS, "uri",       uri,       sizeof(uri),       "");
@@ -706,7 +706,7 @@ static bb_err_t auto_client_create_from_nvs(void)
         return BB_OK;
     }
 
-    bb_mqtt_cfg_t cfg = {
+    bb_mqtt_client_cfg_t cfg = {
         .uri       = uri,
         .client_id = client_id[0] ? client_id : NULL,
         .username  = username[0]  ? username  : NULL,
@@ -715,19 +715,19 @@ static bb_err_t auto_client_create_from_nvs(void)
         .creds_ns  = BB_MQTT_NVS_NS,
     };
 
-    bb_err_t rc = bb_mqtt_init(&cfg, &s_auto_client);
+    bb_err_t rc = bb_mqtt_client_init(&cfg, &s_auto_client);
     if (rc != BB_OK) {
-        bb_log_w(TAG, "auto_client_create_from_nvs: bb_mqtt_init failed: %d", rc);
+        bb_log_w(TAG, "auto_client_create_from_nvs: bb_mqtt_client_init failed: %d", rc);
         s_auto_client = NULL;
     }
     return rc;
 }
 
-static bb_err_t bb_mqtt_autoregister_init(void)
+static bb_err_t bb_mqtt_client_autoregister_init(void)
 {
     // Boot init runs on the 8192-byte main task — safe to call directly.
     // auto_client_create_from_nvs also sets up the deferred got-IP start inside
-    // bb_mqtt_init when WiFi has no IP yet (the normal EARLY-tier path).
+    // bb_mqtt_client_init when WiFi has no IP yet (the normal EARLY-tier path).
     bb_err_t rc = auto_client_create_from_nvs();
     if (rc != BB_OK) {
         bb_log_w(TAG, "autoregister init failed: %d", rc);
@@ -735,28 +735,28 @@ static bb_err_t bb_mqtt_autoregister_init(void)
     return BB_OK;  // non-fatal: EARLY walk continues
 }
 
-BB_INIT_REGISTER_EARLY(bb_mqtt, bb_mqtt_autoregister_init);
+BB_INIT_REGISTER_EARLY(bb_mqtt_client, bb_mqtt_client_autoregister_init);
 
-// bb_mqtt_stop_default — stop and destroy the auto-registered client.
+// bb_mqtt_client_stop_default — stop and destroy the auto-registered client.
 // Called by bb_mqtt_telemetry_init when MQTT loses the exclusive-sink slot
 // at boot (B1-289: loser teardown without reboot).
 // Idempotent: safe to call when s_auto_client is already NULL.
-bb_err_t bb_mqtt_stop_default(void)
+bb_err_t bb_mqtt_client_stop_default(void)
 {
-    bb_mqtt_handle_t *pending = atomic_load(&s_pending_start);
-    if (pending != NULL && pending == (bb_mqtt_handle_t *)s_auto_client) {
+    bb_mqtt_client_handle_t *pending = atomic_load(&s_pending_start);
+    if (pending != NULL && pending == (bb_mqtt_client_handle_t *)s_auto_client) {
         atomic_store(&s_pending_start, NULL);
     }
-    return bb_mqtt_stop(&s_auto_client);
+    return bb_mqtt_client_stop(&s_auto_client);
 }
 
-// bb_mqtt_suspend_default — quiesce the auto-client to free heap headroom for
+// bb_mqtt_client_suspend_default — quiesce the auto-client to free heap headroom for
 // a heap-heavy TLS operation (e.g. a GitHub update-check handshake on a
 // heap-tight ESP32-S2 board).
 //
-// Two modes controlled by CONFIG_BB_MQTT_SUSPEND_STOP_ONLY:
+// Two modes controlled by CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY:
 //
-//   STOP-ONLY (CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=y):
+//   STOP-ONLY (CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY=y):
 //     Calls esp_mqtt_client_stop() only.  Keeps the client handle, task, and
 //     buffers resident (~11 KB).  Resume calls esp_mqtt_client_start() on the
 //     same handle — no destroy, no realloc, no NVS reload.
@@ -764,11 +764,11 @@ bb_err_t bb_mqtt_stop_default(void)
 //     ONLY safe when bb_arena_tls already reserves enough headroom for the
 //     TLS handshake without the full 11 KB free.
 //
-//   FULL RELEASE (CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=n, default):
-//     Calls bb_mqtt_stop(&s_auto_client) which stops + DESTROYS the client
+//   FULL RELEASE (CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY=n, default):
+//     Calls bb_mqtt_client_stop(&s_auto_client) which stops + DESTROYS the client
 //     and NULLs the handle.  Frees the entire ~11 KB budget.
 //
-// Contrast with bb_mqtt_stop_default() which is a permanent disable (never
+// Contrast with bb_mqtt_client_stop_default() which is a permanent disable (never
 // resumed).  suspend/resume is a transient bracket.
 //
 // CALLER CONTRACT: the caller MUST pause publishing (bb_pub_pause) before
@@ -781,14 +781,14 @@ bb_err_t bb_mqtt_stop_default(void)
 // Idempotent: no-op + BB_OK if already suspended.
 static bool s_suspended = false;   // tracks whether we are in a suspend window
 
-bb_err_t bb_mqtt_suspend_default(void)
+bb_err_t bb_mqtt_client_suspend_default(void)
 {
     if (s_suspended) return BB_OK;   // idempotent
 
-#if CONFIG_BB_MQTT_SUSPEND_STOP_ONLY
+#if CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY
     // Stop-only: keep client resident, just halt the network activity.
     if (s_auto_client) {
-        bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)s_auto_client;
+        bb_mqtt_client_handle_t *h = (bb_mqtt_client_handle_t *)s_auto_client;
         xSemaphoreTake(h->lock, portMAX_DELAY);
         h->suspended  = true;
         h->connected  = false;
@@ -802,11 +802,11 @@ bb_err_t bb_mqtt_suspend_default(void)
     if (s_auto_client) {
         // Clear the pending-start pointer if it still refers to this handle,
         // so the got-IP callback does not fire into the freed handle.
-        bb_mqtt_handle_t *pending = atomic_load(&s_pending_start);
-        if (pending != NULL && pending == (bb_mqtt_handle_t *)s_auto_client) {
+        bb_mqtt_client_handle_t *pending = atomic_load(&s_pending_start);
+        if (pending != NULL && pending == (bb_mqtt_client_handle_t *)s_auto_client) {
             atomic_store(&s_pending_start, NULL);
         }
-        bb_mqtt_stop(&s_auto_client);  // destroys + NULLs s_auto_client
+        bb_mqtt_client_stop(&s_auto_client);  // destroys + NULLs s_auto_client
     }
     bb_log_i(TAG, "suspended (full release ~11KB for heap-heavy TLS op)");
 #endif
@@ -815,31 +815,31 @@ bb_err_t bb_mqtt_suspend_default(void)
     return BB_OK;
 }
 
-// bb_mqtt_resume_default — re-establish the auto-client after a
-// bb_mqtt_suspend_default() call.
+// bb_mqtt_client_resume_default — re-establish the auto-client after a
+// bb_mqtt_client_suspend_default() call.
 //
-// Two modes controlled by CONFIG_BB_MQTT_SUSPEND_STOP_ONLY:
+// Two modes controlled by CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY:
 //
-//   STOP-ONLY (CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=y):
+//   STOP-ONLY (CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY=y):
 //     Calls esp_mqtt_client_start() on the resident handle.  No NVS read,
 //     no realloc.  esp-mqtt reconnects from the existing config.
 //
-//   FULL RELEASE (CONFIG_BB_MQTT_SUSPEND_STOP_ONLY=n, default):
+//   FULL RELEASE (CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY=n, default):
 //     Calls auto_client_create_from_nvs() which re-initialises and restarts
 //     the client from NVS-persisted configuration.
 //
 // Post-boot the station already has an IP address for the full-release path;
-// if WiFi is down, bb_mqtt_init falls back to the deferred got-IP path.
+// if WiFi is down, bb_mqtt_client_init falls back to the deferred got-IP path.
 //
 // Idempotent: no-op + BB_OK if not suspended.
-bb_err_t bb_mqtt_resume_default(void)
+bb_err_t bb_mqtt_client_resume_default(void)
 {
     if (!s_suspended) return BB_OK;   // idempotent
 
-#if CONFIG_BB_MQTT_SUSPEND_STOP_ONLY
+#if CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY
     // Stop-only: restart the resident client.
     if (s_auto_client) {
-        bb_mqtt_handle_t *h = (bb_mqtt_handle_t *)s_auto_client;
+        bb_mqtt_client_handle_t *h = (bb_mqtt_client_handle_t *)s_auto_client;
         bb_err_t rc = esp_mqtt_client_start(h->client);
         if (rc != BB_OK) {
             bb_log_w(TAG, "resume (stop-only): esp_mqtt_client_start failed: %d", rc);
@@ -867,15 +867,15 @@ bb_err_t bb_mqtt_resume_default(void)
     return BB_OK;
 }
 
-#endif /* CONFIG_BB_MQTT_AUTOREGISTER */
+#endif /* CONFIG_BB_MQTT_CLIENT_AUTOREGISTER */
 
 // ---------------------------------------------------------------------------
 // Default handle accessor
 // ---------------------------------------------------------------------------
 
-bb_mqtt_t bb_mqtt_default(void)
+bb_mqtt_client_t bb_mqtt_client_default(void)
 {
-#if CONFIG_BB_MQTT_AUTOREGISTER
+#if CONFIG_BB_MQTT_CLIENT_AUTOREGISTER
     return s_auto_client;
 #else
     return NULL;
@@ -883,23 +883,23 @@ bb_mqtt_t bb_mqtt_default(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_mqtt_stop_default — stub when autoregister is disabled
+// bb_mqtt_client_stop_default — stub when autoregister is disabled
 // ---------------------------------------------------------------------------
 
-#if !CONFIG_BB_MQTT_AUTOREGISTER
-bb_err_t bb_mqtt_stop_default(void)
+#if !CONFIG_BB_MQTT_CLIENT_AUTOREGISTER
+bb_err_t bb_mqtt_client_stop_default(void)
 {
     // Autoregister disabled; no managed client to stop.
     return BB_OK;
 }
 
-bb_err_t bb_mqtt_suspend_default(void)
+bb_err_t bb_mqtt_client_suspend_default(void)
 {
     // Autoregister disabled; no managed client to suspend.
     return BB_OK;
 }
 
-bb_err_t bb_mqtt_resume_default(void)
+bb_err_t bb_mqtt_client_resume_default(void)
 {
     // Autoregister disabled; no managed client to resume.
     return BB_OK;

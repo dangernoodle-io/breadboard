@@ -1,14 +1,14 @@
 // Pure fragmented-payload reassembly state machine (B1-487 HIGH-1). No
 // esp-mqtt / platform types — compiled on host and ESP-IDF so the espidf
 // event-handler glue and host unit tests exercise the exact same logic.
-#include "bb_mqtt_reassemble.h"
+#include "bb_mqtt_client_reassemble.h"
 #include "bb_log.h"
 
 #include <string.h>
 
 static const char *TAG = "bb_mqtt_reasm";
 
-void bb_mqtt_reasm_reset(bb_mqtt_reasm_state_t *st)
+void bb_mqtt_client_reasm_reset(bb_mqtt_client_reasm_state_t *st)
 {
     if (!st) return;
     st->topic[0] = '\0';
@@ -17,7 +17,7 @@ void bb_mqtt_reasm_reset(bb_mqtt_reasm_state_t *st)
     st->active   = false;
 }
 
-bool bb_mqtt_reasm_step(bb_mqtt_reasm_state_t *st,
+bool bb_mqtt_client_reasm_step(bb_mqtt_client_reasm_state_t *st,
                          const char *topic, size_t topic_len,
                          size_t total_len, size_t offset,
                          const void *data, size_t data_len)

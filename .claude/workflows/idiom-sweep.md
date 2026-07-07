@@ -24,7 +24,7 @@ Domains:
 1. **Allocation/memory** — SPIRAM-preferred alloc + fallback, `heap_caps_*`
    wrappers vs the existing `bb_board_heap_*` / `bb_mem` helpers, fixed scratch
    buffers, alloc/free unwind ladders.
-2. **Concurrency** — lock+check-dead+capture+unlock (the `bb_mqtt_publish`
+2. **Concurrency** — lock+check-dead+capture+unlock (the `bb_mqtt_client_publish`
    guard), poll→cache / snapshot→read HAL pattern, `portMUX` critical sections,
    nullable-mutex take/give, lazy-init-under-lock singletons.
 3. **HTTP / serialization** — query-string parsing, status-code→reason mapping,

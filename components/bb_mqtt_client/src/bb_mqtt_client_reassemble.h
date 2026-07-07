@@ -1,31 +1,31 @@
-// Private header — not part of the public bb_mqtt surface. Lives next to the
-// implementation (components/bb_mqtt/src/), not in include/.
+// Private header — not part of the public bb_mqtt_client surface. Lives next to the
+// implementation (components/bb_mqtt_client/src/), not in include/.
 #pragma once
 
 #include <stddef.h>
 #include <stdbool.h>
 
-#define BB_MQTT_REASM_TOPIC_MAX 128
+#define BB_MQTT_CLIENT_REASM_TOPIC_MAX 128
 
 // Pure fragmented-payload reassembly state, shared verbatim by the espidf
 // event-handler glue (MQTT_EVENT_DATA case) and host unit tests so the
 // reassembly state machine has exactly one implementation (B1-487 HIGH-1).
 //
 // buf/buf_cap point at a caller-owned buffer — this struct itself allocates
-// nothing. Callers (one per bb_mqtt handle, B1-487 HIGH-2) lazily allocate
+// nothing. Callers (one per bb_mqtt_client handle, B1-487 HIGH-2) lazily allocate
 // buf and keep it for the handle's lifetime.
 typedef struct {
-    char   topic[BB_MQTT_REASM_TOPIC_MAX];
+    char   topic[BB_MQTT_CLIENT_REASM_TOPIC_MAX];
     size_t total;    // expected total payload size for the in-flight message
     size_t len;      // bytes accumulated so far
     bool   active;   // true while accumulating; false once dispatched/dropped
     char  *buf;      // caller-owned reassembly buffer (NULL = not allocated yet)
     size_t buf_cap;  // capacity of buf, in bytes
-} bb_mqtt_reasm_state_t;
+} bb_mqtt_client_reasm_state_t;
 
 // Reset accumulation fields (buf/buf_cap are left untouched — call once right
 // after allocating/assigning the buffer, not per-message).
-void bb_mqtt_reasm_reset(bb_mqtt_reasm_state_t *st);
+void bb_mqtt_client_reasm_reset(bb_mqtt_client_reasm_state_t *st);
 
 // Process one MQTT_EVENT_DATA-shaped fragment.
 //
@@ -44,7 +44,7 @@ void bb_mqtt_reasm_reset(bb_mqtt_reasm_state_t *st);
 //
 // No-op (returns false) if st->buf is NULL or st->buf_cap is 0 — caller must
 // allocate the buffer before routing fragments here.
-bool bb_mqtt_reasm_step(bb_mqtt_reasm_state_t *st,
+bool bb_mqtt_client_reasm_step(bb_mqtt_client_reasm_state_t *st,
                          const char *topic, size_t topic_len,
                          size_t total_len, size_t offset,
                          const void *data, size_t data_len);

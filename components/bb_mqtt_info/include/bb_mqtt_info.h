@@ -20,10 +20,10 @@ extern "C" {
  *
  * Reported fields (as nested "mqtt" section):
  *   "mqtt": {
- *     "enabled":   bool  — true when bb_mqtt_default() is non-NULL
+ *     "enabled":   bool  — true when bb_mqtt_client_default() is non-NULL
  *                          (MQTT was configured and started)
  *     "connected": bool  — true when the client is currently connected to
- *                          the broker (bb_mqtt_is_connected)
+ *                          the broker (bb_mqtt_client_is_connected)
  *   }
  *
  * No secrets are exposed.

@@ -1,6 +1,6 @@
 #include "unity.h"
 #include "bb_mqtt_info.h"
-#include "bb_mqtt.h"
+#include "bb_mqtt_client.h"
 #include "bb_health.h"
 #include "bb_health_test.h"
 #include "bb_json.h"
@@ -23,7 +23,7 @@ static bb_json_t invoke_sections(void)
 
 void test_bb_mqtt_health_no_handle_enabled_false(void)
 {
-    /* bb_mqtt_default() returns NULL by default on host */
+    /* bb_mqtt_client_default() returns NULL by default on host */
     bb_json_t root = invoke_sections();
 
     bb_json_t mqtt = bb_json_obj_get_item(root, "mqtt");
@@ -54,10 +54,10 @@ void test_bb_mqtt_health_no_handle_connected_false(void)
 
 void test_bb_mqtt_health_handle_present_enabled_true(void)
 {
-    bb_mqtt_t h = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
-    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_init(&cfg, &h));
-    bb_mqtt_default_set(h);
+    bb_mqtt_client_t h = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_init(&cfg, &h));
+    bb_mqtt_client_default_set(h);
     /* host stub initialises connected=true */
 
     bb_json_t root = invoke_sections();
@@ -69,16 +69,16 @@ void test_bb_mqtt_health_handle_present_enabled_true(void)
     TEST_ASSERT_TRUE(enabled);
 
     bb_json_free(root);
-    bb_mqtt_default_set(NULL);
-    bb_mqtt_destroy(h);
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_destroy(h);
 }
 
 void test_bb_mqtt_health_handle_connected_reflects_stub(void)
 {
-    bb_mqtt_t h = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
-    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_init(&cfg, &h));
-    bb_mqtt_default_set(h);
+    bb_mqtt_client_t h = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_init(&cfg, &h));
+    bb_mqtt_client_default_set(h);
     /* default connected=true on host stub */
 
     bb_json_t root = invoke_sections();
@@ -90,19 +90,19 @@ void test_bb_mqtt_health_handle_connected_reflects_stub(void)
     TEST_ASSERT_TRUE(connected);
 
     bb_json_free(root);
-    bb_mqtt_default_set(NULL);
-    bb_mqtt_destroy(h);
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_destroy(h);
 }
 
 /* ---- tests: toggling connected state ---- */
 
 void test_bb_mqtt_health_set_disconnected(void)
 {
-    bb_mqtt_t h = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
-    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_init(&cfg, &h));
-    bb_mqtt_default_set(h);
-    bb_mqtt_host_set_connected(h, false);
+    bb_mqtt_client_t h = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_init(&cfg, &h));
+    bb_mqtt_client_default_set(h);
+    bb_mqtt_client_host_set_connected(h, false);
 
     bb_json_t root = invoke_sections();
     bb_json_t mqtt = bb_json_obj_get_item(root, "mqtt");
@@ -117,18 +117,18 @@ void test_bb_mqtt_health_set_disconnected(void)
     TEST_ASSERT_FALSE(connected); /* explicitly disconnected */
 
     bb_json_free(root);
-    bb_mqtt_default_set(NULL);
-    bb_mqtt_destroy(h);
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_destroy(h);
 }
 
 void test_bb_mqtt_health_reconnect_reflects_connected_true(void)
 {
-    bb_mqtt_t h = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
-    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_init(&cfg, &h));
-    bb_mqtt_default_set(h);
-    bb_mqtt_host_set_connected(h, false);
-    bb_mqtt_host_set_connected(h, true);
+    bb_mqtt_client_t h = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_init(&cfg, &h));
+    bb_mqtt_client_default_set(h);
+    bb_mqtt_client_host_set_connected(h, false);
+    bb_mqtt_client_host_set_connected(h, true);
 
     bb_json_t root = invoke_sections();
     bb_json_t mqtt = bb_json_obj_get_item(root, "mqtt");
@@ -139,8 +139,8 @@ void test_bb_mqtt_health_reconnect_reflects_connected_true(void)
     TEST_ASSERT_TRUE(connected);
 
     bb_json_free(root);
-    bb_mqtt_default_set(NULL);
-    bb_mqtt_destroy(h);
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_destroy(h);
 }
 
 /* ---- test: schema in assembled /api/health schema ---- */
