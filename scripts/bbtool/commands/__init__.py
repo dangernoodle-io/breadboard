@@ -13,5 +13,6 @@ from commands import scaffold as _scaffold
 from commands import autowire as _autowire
 from commands import size as _size
 from commands import di_fence as _di_fence
+from commands import codegen as _codegen
 
-FIRST_PARTY = [_lint, _version, _embed, _gen_site, _fetch, _elf, _decode, _stage, _ota_serve, _docs, _scaffold, _autowire, _size, _di_fence]
+FIRST_PARTY = [_lint, _version, _embed, _gen_site, _fetch, _elf, _decode, _stage, _ota_serve, _docs, _scaffold, _autowire, _size, _di_fence, _codegen]

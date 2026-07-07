@@ -101,6 +101,7 @@ bool bb_log_tag_at(size_t index, const char **tag_out, bb_log_level_t *level_out
  * Initialise the ring buffer and install the custom vprintf hook.
  * Must be called once from app_main before any tasks are started.
  */
+// bbtool:init tier=early fn=bb_log_stream_init provides=log_stream
 bb_err_t bb_log_stream_init(void);
 
 /**
@@ -160,6 +161,7 @@ void bb_log_udp_disable(void);
  * bb_log has no self-registration; the consumer's app_main must call this
  * directly.
  */
+// bbtool:init tier=early fn=bb_log_config_init requires=log_stream
 bb_err_t bb_log_config_init(void);
 
 #endif /* ESP_PLATFORM */
