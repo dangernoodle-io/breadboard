@@ -71,3 +71,22 @@ config BB_MEM_STATS_ENABLE
         Default OFF — zero BSS and zero instrumentation cost when disabled.
 
 endmenu
+
+menu "breadboard: bb_lock instrumentation"
+
+config BB_LOCK_STATS_ENABLE
+    bool "Enable bb_lock contention/wait/hold-time statistics"
+    default n
+    help
+        When enabled, bb_lock_lock/trylock/unlock track per-handle
+        acquisition_count, contention_count, wait_time_total_us,
+        wait_time_max_us, hold_time_total_us, and hold_time_max_us via C11
+        _Atomic counters embedded in each bb_lock_t. A companion runtime flag
+        (bb_lock_stats_set_enabled/bb_lock_stats_enabled) can additionally
+        gate collection on top of this compile-time switch at zero extra
+        cost when off (single atomic-bool load per lock/unlock call).
+
+        Default OFF — plain mutex lock/unlock with zero instrumentation cost
+        when disabled.
+
+endmenu

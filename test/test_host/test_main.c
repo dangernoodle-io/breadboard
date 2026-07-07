@@ -1489,6 +1489,40 @@ void test_bb_http_req_get_header_wrong_name_not_found(void);
 void test_bb_http_req_get_header_null_args(void);
 void test_bb_http_req_get_header_truncates_to_out_len(void);
 
+// Forward declarations from test_bb_clock.c
+void test_bb_clock_now_us_nonzero(void);
+void test_bb_clock_now_us_monotonic_increases(void);
+
+// Forward declarations from test_bb_lock.c
+void test_bb_lock_init_and_destroy_basic(void);
+void test_bb_lock_init_null_out_returns_invalid_arg(void);
+void test_bb_lock_destroy_never_initialized_is_noop_ok(void);
+void test_bb_lock_destroy_twice_returns_invalid_state(void);
+void test_bb_lock_destroy_while_held_returns_invalid_state(void);
+void test_bb_lock_stats_disabled_returns_zeroed_after_traffic(void);
+void test_bb_lock_stats_enabled_uncontended(void);
+void test_bb_lock_stats_enabled_contended(void);
+void test_bb_lock_reset_stats_zeroes(void);
+void test_bb_lock_trylock_on_held_returns_timeout_no_contention(void);
+void test_bb_lock_held_since_cleared_across_runtime_toggle_mid_hold(void);
+void test_bb_lock_destroy_null_returns_invalid_arg(void);
+void test_bb_lock_lock_null_returns_invalid_arg(void);
+void test_bb_lock_trylock_null_returns_invalid_arg(void);
+void test_bb_lock_unlock_null_returns_invalid_arg(void);
+void test_bb_lock_reset_stats_null_is_noop(void);
+void test_bb_lock_trylock_success_with_stats_enabled_records_acquired(void);
+void test_bb_lock_init_cfg_with_null_name_and_category_leaves_defaults(void);
+void test_bb_lock_trylock_success_with_stats_runtime_disabled(void);
+void test_bb_lock_get_stats_null_out_is_noop(void);
+void test_bb_lock_get_stats_null_lock_zeroes_out(void);
+
+// Forward declarations from test_bb_once.c
+void test_bb_once_run_exactly_once_across_threads(void);
+void test_bb_once_run_second_call_is_noop(void);
+void test_bb_once_run_null_once_is_safe(void);
+void test_bb_once_run_null_fn_is_safe(void);
+void test_bb_once_run_loser_waits_via_sched_yield(void);
+
 // Forward declarations from test_bb_mem.c
 void test_bb_mem_malloc_returns_usable_block(void);
 void test_bb_mem_calloc_zeroes(void);
@@ -4835,6 +4869,40 @@ int main(void) {
     RUN_TEST(test_bb_http_req_get_header_wrong_name_not_found);
     RUN_TEST(test_bb_http_req_get_header_null_args);
     RUN_TEST(test_bb_http_req_get_header_truncates_to_out_len);
+
+    // bb_clock microsecond helper
+    RUN_TEST(test_bb_clock_now_us_nonzero);
+    RUN_TEST(test_bb_clock_now_us_monotonic_increases);
+
+    // bb_lock contention-instrumented lock primitive
+    RUN_TEST(test_bb_lock_init_and_destroy_basic);
+    RUN_TEST(test_bb_lock_init_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_destroy_never_initialized_is_noop_ok);
+    RUN_TEST(test_bb_lock_destroy_twice_returns_invalid_state);
+    RUN_TEST(test_bb_lock_destroy_while_held_returns_invalid_state);
+    RUN_TEST(test_bb_lock_stats_disabled_returns_zeroed_after_traffic);
+    RUN_TEST(test_bb_lock_stats_enabled_uncontended);
+    RUN_TEST(test_bb_lock_stats_enabled_contended);
+    RUN_TEST(test_bb_lock_reset_stats_zeroes);
+    RUN_TEST(test_bb_lock_trylock_on_held_returns_timeout_no_contention);
+    RUN_TEST(test_bb_lock_held_since_cleared_across_runtime_toggle_mid_hold);
+    RUN_TEST(test_bb_lock_destroy_null_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_lock_null_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_trylock_null_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_unlock_null_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_reset_stats_null_is_noop);
+    RUN_TEST(test_bb_lock_trylock_success_with_stats_enabled_records_acquired);
+    RUN_TEST(test_bb_lock_init_cfg_with_null_name_and_category_leaves_defaults);
+    RUN_TEST(test_bb_lock_trylock_success_with_stats_runtime_disabled);
+    RUN_TEST(test_bb_lock_get_stats_null_out_is_noop);
+    RUN_TEST(test_bb_lock_get_stats_null_lock_zeroes_out);
+
+    // bb_once run-exactly-once primitive
+    RUN_TEST(test_bb_once_run_exactly_once_across_threads);
+    RUN_TEST(test_bb_once_run_second_call_is_noop);
+    RUN_TEST(test_bb_once_run_null_once_is_safe);
+    RUN_TEST(test_bb_once_run_null_fn_is_safe);
+    RUN_TEST(test_bb_once_run_loser_waits_via_sched_yield);
 
     // bb_mem SPIRAM-preferred alloc helper
     RUN_TEST(test_bb_mem_malloc_returns_usable_block);

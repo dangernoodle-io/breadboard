@@ -13,7 +13,14 @@
 //                       into a u64 field (the truncation is silent and wrong at
 //                       wrap boundaries).
 //
-// Platform routing (both helpers):
+// bb_clock_now_us()   — uint64_t microsecond monotonic timestamp, no wrap. Use
+//                       this instead of hand-rolling esp_timer_get_time()/1000
+//                       or any other platform-specific microsecond source
+//                       (e.g. bb_lock contention/hold-time instrumentation).
+//                       On ESP-IDF this is a direct esp_timer_get_time()
+//                       passthrough (already microseconds, 64-bit, no wrap).
+//
+// Platform routing (both ms helpers):
 //   ESP_PLATFORM  → esp_timer_get_time() / 1000  (64-bit µs timer; u32 truncates
 //                   the low 32 bits, giving correct u32 subtraction semantics)
 //   ARDUINO       → millis() (u32 source; bb_clock_now_ms64 casts to u64 — correct
@@ -36,6 +43,10 @@ uint32_t bb_clock_now_ms(void);
 
 // u64 — for exposed absolute time points (no 49.7-day wrap).
 uint64_t bb_clock_now_ms64(void);
+
+// u64 microseconds — monotonic, no wrap. Canonical microsecond source; never
+// hand-roll esp_timer_get_time()/1000 or a raw platform microsecond call.
+uint64_t bb_clock_now_us(void);
 
 #ifdef __cplusplus
 }

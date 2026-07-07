@@ -13,3 +13,8 @@ uint32_t bb_clock_now_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000u);
 }
+
+uint64_t bb_clock_now_us(void)
+{
+    return (uint64_t)esp_timer_get_time();
+}

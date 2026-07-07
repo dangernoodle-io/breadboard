@@ -30,7 +30,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_cache_reactive](./bb_cache_reactive/) | — |
 | [bb_cache_routes](./bb_cache_routes/) | — |
 | [bb_collection](./bb_collection/) | A humble, fixed-capacity, thread-safe ordered collection of caller-owned opaque items. |
-| [bb_core](./bb_core/) | — |
+| [bb_core](./bb_core/) | Foundational, near-zero-dep primitives every other `bb_*` component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. |
 | [bb_diag](./bb_diag/) | — |
 | [bb_dispatch_cmd](./bb_dispatch_cmd/) | — |
 | [bb_display](./bb_display/) | — |

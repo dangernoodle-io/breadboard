@@ -33,8 +33,9 @@ test-py: ## Python tooling tests (bbtool + bbdevice)
 	python3 -m unittest discover -s scripts/bbtool/tests
 	python3 -m unittest discover -s scripts/bbdevice/tests -t scripts
 
-test: ## Run host unit tests
+test: ## Run host unit tests (both compile-time BB_LOCK_STATS_ENABLE states)
 	$(PIO) test -e native
+	$(PIO) test -e native_lock_stats_off
 
 coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging when Coveralls flags drops
 	gcovr --root . --filter 'components/' \
@@ -52,6 +53,8 @@ coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging
 	    --filter 'platform/host/bb_scalar/' \
 	    --filter 'platform/host/bb_num/' \
 	    --filter 'platform/host/bb_fmt/' \
+	    --filter 'platform/host/bb_core/bb_clock\.c' \
+	    --filter 'platform/host/bb_core/bb_lock\.c' \
 	    --exclude-throw-branches \
 	    --exclude-unreachable-branches \
 	    --exclude-directories '\.claude' \
