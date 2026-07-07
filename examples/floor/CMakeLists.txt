@@ -12,7 +12,7 @@ cmake_minimum_required(VERSION 3.16.0)
 #
 # Usage (never `pio ci`; regenerate the fragment, clean, rebuild, measure):
 #   python3 ../../scripts/bbtool.py autowire --root ../.. \
-#       --components "bb_log,bb_meminfo" \
+#       --components "bb_log,bb_meminfo,bb_timer" \
 #       --out main/generated/bb_autowire_components.cmake
 #   pio run -d . -e esp32
 #   python3 ../../scripts/bbtool.py size --build-dir .pio/build/esp32
@@ -33,7 +33,7 @@ if(NOT EXISTS "${BB_AUTOWIRE_OUT}")
     message(FATAL_ERROR
         "Missing ${BB_AUTOWIRE_OUT} -- run:\n"
         "  python3 ../../scripts/bbtool.py autowire --root ../.. "
-        "--components \"bb_log,bb_meminfo\" --out main/generated/bb_autowire_components.cmake\n"
+        "--components \"bb_log,bb_meminfo,bb_timer\" --out main/generated/bb_autowire_components.cmake\n"
         "first (see the usage comment at the top of this file).")
 endif()
 

@@ -6,7 +6,8 @@
 # CONFIG_BB_LOG_*_AUTOREGISTER -- was removed from bb_log/bb_log_config), so
 # bb_init is fully out of the floor's link closure.
 #
-# main REQUIRES only the two composed seeds -- bb_log's and bb_meminfo's OWN
+# main REQUIRES only the composed seeds -- bb_log's, bb_meminfo's, and
+# bb_timer's OWN
 # CMakeLists.txt are evaluated for real by ESP-IDF's actual cmake config step
 # (real Kconfig values from sdkconfig), so the true, Kconfig-pruned
 # transitive closure is what actually gets linked. The generated fragment is
@@ -15,4 +16,4 @@
 idf_component_register(
     SRCS "floor_app.c"
     INCLUDE_DIRS "."
-    REQUIRES bb_log bb_meminfo)
+    REQUIRES bb_log bb_meminfo bb_timer)
