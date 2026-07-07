@@ -520,6 +520,74 @@ shallow fetch on first bootstrap, harmless.
 
 ---
 
+## `autowire` command
+
+Resolves an explicit component-name list's transitive closure (via the same
+discover/derive/resolve plumbing `boards.py` uses for a board manifest) and
+writes a CMake fragment defining `BB_AUTOWIRE_REQUIRES`/`BB_AUTOWIRE_COMPONENTS`
+for one-off link-set experiments (e.g. flash-size comparisons) where a full
+board manifest is overkill.
+
+```
+python3 scripts/bbtool.py autowire --components bb_log,bb_init [--root ROOT] [--platform PLATFORM] [--out OUT]
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--components` | (required) | Comma-separated component names to resolve |
+| `--root ROOT` | cwd | Repository root |
+| `--platform PLATFORM` | `espidf` | Platform layer to resolve against |
+| `--out OUT` | `<root>/examples/smoke/main/generated/bb_autowire_components.cmake` | Output `.cmake` path |
+
+Emits two CMake variables:
+- `BB_AUTOWIRE_REQUIRES` — space-separated resolved component list, for a
+  component's own `idf_component_register(... REQUIRES ${BB_AUTOWIRE_REQUIRES})`.
+  Controls what that component declares itself to require; does not by itself
+  gate ESP-IDF's component *discovery* under `EXTRA_COMPONENT_DIRS`.
+- `BB_AUTOWIRE_COMPONENTS` — the same list prefixed with `main`, for the
+  project-level ESP-IDF `COMPONENTS` allowlist (`set(COMPONENTS
+  ${BB_AUTOWIRE_COMPONENTS})`, set BEFORE `include($ENV{IDF_PATH}/tools/cmake/project.cmake)`)
+  — this variable actually restricts component discovery.
+
+Typical usage: regenerate the fragment, then clean-build and measure with the
+`size` command below (never `pio ci` — it doesn't pick up regenerated
+fragments):
+```
+python3 scripts/bbtool.py autowire --root . --components "bb_log,bb_init" \
+    --out examples/smoke/main/generated/bb_autowire_components.cmake
+pio run -d examples/smoke -e esp32
+python3 scripts/bbtool.py size --build-dir examples/smoke/.pio/build/esp32
+```
+
+---
+
+## `size` command
+
+Measures flash/RAM footprint of a built PlatformIO/ESP-IDF env, device-free
+(no flashing) — runs the target toolchain's `size` binary against the env's
+`.elf` and parses the accompanying `.map` file for a per-component archive-
+member breakdown.
+
+```
+python3 scripts/bbtool.py size --build-dir .pio/build/<env> [--component NAME ...] [--elf PATH] [--map PATH] [--arch {xtensa,riscv}] [--size-tool PATH]
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--build-dir DIR` | (required) | PlatformIO/ESP-IDF build dir containing `firmware.elf` (+ `firmware.map`) |
+| `--elf PATH` | `<build-dir>/firmware.elf` | Explicit `.elf` path |
+| `--map PATH` | `<build-dir>/firmware.map` | Explicit `.map` path |
+| `--component NAME` | none | Component name to report a `.map` size breakdown for (repeatable); omit for a breakdown of every `bb_*` archive found |
+| `--arch {xtensa,riscv}` | `xtensa` | Toolchain arch for the `size` binary |
+| `--size-tool PATH` | auto-detect | Explicit `size` binary (overrides toolchain auto-detect) |
+
+Emits one JSON line: `{"elf", "build_dir", "text", "data", "bss",
+"flash_total", "components"}` — `flash_total` is `text + data` and is the
+authoritative aggregate; per-component `.map` sizes overlap (a symbol can be
+attributed to multiple sections) and are not additive against `flash_total`.
+
+---
+
 ## cmake bridge (`cmake/bbtool.cmake`)
 
 `cmake/bbtool.cmake` is the canonical CMake entry point for all bbtool functions. Include
