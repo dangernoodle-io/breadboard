@@ -1,7 +1,7 @@
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_ota_push/bb_ota_push.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_http bb_nv
+    REQUIRES bb_core bb_http bb_http_server bb_nv
     PRIV_REQUIRES bb_wdt bb_init bb_log bb_ota_hooks bb_system app_update esp_app_format
 )
 

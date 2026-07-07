@@ -181,7 +181,7 @@ static void ensure_config_loaded(void)
 // s_in_publish counts ongoing sink fan-out passes (0 or 1 in practice).
 // bb_pub_pause() sets s_paused (stops new ticks) under s_tick_lock, then
 // waits on s_in_publish_cv for s_in_publish to reach zero — bounded by
-// CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS (or BB_PUB_PAUSE_TIMEOUT_MS_DEFAULT).
+// CONFIG_BB_MQTT_CLIENT_NETWORK_TIMEOUT_MS (or BB_PUB_PAUSE_TIMEOUT_MS_DEFAULT).
 // This allows the tick lock to be released before the blocking sink fan-out,
 // so bb_pub_pause() no longer stalls for the full TLS-publish duration.
 //
@@ -233,12 +233,12 @@ static pthread_cond_t  s_in_publish_cv  = PTHREAD_COND_INITIALIZER;
 static int             s_in_publish     = 0;
 
 // Fallback pause-wait timeout for host builds where
-// CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS may not be defined.
+// CONFIG_BB_MQTT_CLIENT_NETWORK_TIMEOUT_MS may not be defined.
 // Matches the Kconfig default (30 000 ms).
-#ifndef CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS
+#ifndef CONFIG_BB_MQTT_CLIENT_NETWORK_TIMEOUT_MS
 #define BB_PUB_PAUSE_TIMEOUT_MS_DEFAULT 30000
 #else
-#define BB_PUB_PAUSE_TIMEOUT_MS_DEFAULT CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS
+#define BB_PUB_PAUSE_TIMEOUT_MS_DEFAULT CONFIG_BB_MQTT_CLIENT_NETWORK_TIMEOUT_MS
 #endif
 
 // ---------------------------------------------------------------------------
@@ -1311,7 +1311,7 @@ bb_err_t bb_pub_set_interval_volatile_ms(uint32_t ms)
 
 // Testing injection (BB_PUB_TESTING only): lets host tests shorten the
 // bounded-wait timeout below so the ETIMEDOUT path can be exercised without
-// a real 30 s (or CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS) wait. -1 = use the
+// a real 30 s (or CONFIG_BB_MQTT_CLIENT_NETWORK_TIMEOUT_MS) wait. -1 = use the
 // compile-time default; reset by bb_pub_test_reset().
 #ifdef BB_PUB_TESTING
 static long s_pause_timeout_ms_override = -1;
@@ -1345,7 +1345,7 @@ void bb_pub_pause(void)
     //    This guarantees no concurrent TLS write when pause() returns in the
     //    common case, without holding s_tick_lock across the blocking publish.
     //
-    //    Timeout = CONFIG_BB_MQTT_NETWORK_TIMEOUT_MS (default 30 000 ms).
+    //    Timeout = CONFIG_BB_MQTT_CLIENT_NETWORK_TIMEOUT_MS (default 30 000 ms).
     //    On timeout we log once and proceed — the OTA TLS will not race an
     //    already-completed publish; it may race a very slow one, but the
     //    no-concurrent-TLS guarantee degrades gracefully rather than deadlocking.

@@ -3,9 +3,10 @@
 #include "unity.h"
 #include "bb_sink_ws.h"
 #include "bb_pub.h"
-#include "bb_websocket.h"
-#include "bb_websocket_host.h"
+#include "bb_ws_server.h"
+#include "bb_ws_server_host.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_nv.h"
 #include "bb_cache.h"
 #include "bb_cache_reactive.h"
@@ -85,13 +86,13 @@ static bb_err_t ws_cache_reg_getter_null(const char *key)
 static void ws_sink_setup(void)
 {
     bb_pub_test_reset();
-    bb_websocket_host_reset_captures();
+    bb_ws_server_host_reset_captures();
     bb_sink_ws_reset_for_test();
     bb_nv_config_set_hostname("testhost");
     bb_cache_reset_for_test();
     bb_cache_reactive_reset_for_test();
     // The route registry is process-global and never reset by the shared
-    // Unity setUp() (test_route_registry.c / test_bb_websocket.c reset it
+    // Unity setUp() (test_route_registry.c / test_bb_ws_server.c reset it
     // locally the same way). Every bb_sink_ws_init() call registers the
     // static "/ws" descriptor with no dedup, so without this the registry
     // (cap BB_ROUTE_REGISTRY_CAP=64) eventually overflows purely from
@@ -111,17 +112,17 @@ static void ws_sink_setup(void)
 
 static void inject_sub(bb_http_request_t *req, int fd, const char *sub_json)
 {
-    bb_websocket_host_set_inject_fd(fd);
-    bb_websocket_frame_t frame = {
+    bb_ws_server_host_set_inject_fd(fd);
+    bb_ws_server_frame_t frame = {
         .final   = true,
         .type    = BB_WS_TYPE_TEXT,
         .payload = (uint8_t *)sub_json,
         .len     = strlen(sub_json),
     };
-    bb_websocket_host_inject_frame(req, &frame);
-    bb_websocket_host_set_inject_fd(-1);
+    bb_ws_server_host_inject_frame(req, &frame);
+    bb_ws_server_host_set_inject_fd(-1);
     // Flush any captured sends from the sub frame itself (none expected).
-    bb_websocket_host_async_reset();
+    bb_ws_server_host_async_reset();
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +158,7 @@ void test_bb_sink_ws_publish_broadcast_on_tick(void)
     ws_sink_setup();
 
     // Register one active WS client (fd=3) subscribed to telemetry.
-    bb_websocket_host_set_client_active(3, true);
+    bb_ws_server_host_set_client_active(3, true);
 
     // Wire sink + source.
     bb_pub_sink_t s;
@@ -167,15 +168,15 @@ void test_bb_sink_ws_publish_broadcast_on_tick(void)
 
     // Inject subscription for fd=3.
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_pub_tick_once();
 
     // Should have one async broadcast to fd=3.
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
 
-    const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
+    const bb_ws_server_host_async_capture_t *a = bb_ws_server_host_async_at(0);
     TEST_ASSERT_NOT_NULL(a);
     TEST_ASSERT_EQUAL(3, a->fd);
     TEST_ASSERT_EQUAL(BB_WS_TYPE_TEXT, a->type);
@@ -195,7 +196,7 @@ void test_bb_sink_ws_publish_broadcast_on_tick(void)
 void test_bb_sink_ws_publish_skipped_source_not_broadcast(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
@@ -204,13 +205,13 @@ void test_bb_sink_ws_publish_skipped_source_not_broadcast(void)
 
     // Subscribe fd=1 to telemetry — sample_skip still returns false.
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_pub_tick_once();
 
     // sample_skip returns false → bb_pub skips → nothing broadcast.
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 void test_bb_sink_ws_publish_no_clients_broadcast_all_ok(void)
@@ -226,13 +227,13 @@ void test_bb_sink_ws_publish_no_clients_broadcast_all_ok(void)
     bb_pub_tick_once();
 
     // No active fds → 0 async sends.
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 void test_bb_sink_ws_publish_multiple_sources(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(0, true);
+    bb_ws_server_host_set_client_active(0, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
@@ -242,16 +243,16 @@ void test_bb_sink_ws_publish_multiple_sources(void)
 
     // Subscribe fd=0 to telemetry so both subtopics deliver.
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 0, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_pub_tick_once();
 
     // Two sources → two broadcasts.
-    TEST_ASSERT_EQUAL_INT(2, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(2, bb_ws_server_host_async_count());
 
-    const bb_websocket_host_async_capture_t *a0 = bb_websocket_host_async_at(0);
-    const bb_websocket_host_async_capture_t *a1 = bb_websocket_host_async_at(1);
+    const bb_ws_server_host_async_capture_t *a0 = bb_ws_server_host_async_at(0);
+    const bb_ws_server_host_async_capture_t *a1 = bb_ws_server_host_async_at(1);
     TEST_ASSERT_NOT_NULL(a0);
     TEST_ASSERT_NOT_NULL(a1);
 
@@ -269,8 +270,8 @@ void test_bb_sink_ws_publish_multiple_sources(void)
 void test_bb_sink_ws_publish_multiple_clients(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(2, true);
-    bb_websocket_host_set_client_active(5, true);
+    bb_ws_server_host_set_client_active(2, true);
+    bb_ws_server_host_set_client_active(5, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
@@ -279,14 +280,14 @@ void test_bb_sink_ws_publish_multiple_clients(void)
 
     // Subscribe both fds to telemetry.
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 2, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
     inject_sub(req, 5, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_pub_tick_once();
 
     // One source × two clients = two async sends.
-    TEST_ASSERT_EQUAL_INT(2, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(2, bb_ws_server_host_async_count());
 }
 
 // ---------------------------------------------------------------------------
@@ -296,7 +297,7 @@ void test_bb_sink_ws_publish_multiple_clients(void)
 void test_bb_sink_ws_envelope_format(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(0, true);
+    bb_ws_server_host_set_client_active(0, true);
 
     bb_pub_sink_t s;
     bb_sink_ws_init(NULL, &s);
@@ -305,12 +306,12 @@ void test_bb_sink_ws_envelope_format(void)
 
     // Subscribe fd=0 — "telemetry" group matches subtopic "telemetry" exactly.
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 0, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_pub_tick_once();
 
-    const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
+    const bb_ws_server_host_async_capture_t *a = bb_ws_server_host_async_at(0);
     TEST_ASSERT_NOT_NULL(a);
 
     // Must start with {"type":"push","topic":"telemetry","ts_ms": -- the
@@ -339,22 +340,22 @@ void test_bb_sink_ws_envelope_format(void)
 void test_bb_sink_ws_direct_publish_returns_ok(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     bb_sink_ws_init(NULL, &s);
 
     // Subscribe fd=1 to "power" exactly.
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"power\"]}");
 
     // Simulate what bb_pub does: topic has prefix/hostname/subtopic form.
     bb_err_t err = s.publish(s.ctx, "metrics/testhost/power", "{\"ts_ms\":1,\"data\":{\"v\":1}}", 26, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
 
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
-    const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
+    const bb_ws_server_host_async_capture_t *a = bb_ws_server_host_async_at(0);
     TEST_ASSERT_NOT_NULL(a);
     TEST_ASSERT_NOT_NULL(strstr((const char *)a->payload, "\"topic\":\"power\""));
 }
@@ -363,7 +364,7 @@ void test_bb_sink_ws_direct_publish_no_slash_topic(void)
 {
     // Topic with fewer than 2 slashes — subtopic extraction reaches end of string.
     ws_sink_setup();
-    bb_websocket_host_set_client_active(0, true);
+    bb_ws_server_host_set_client_active(0, true);
 
     bb_pub_sink_t s;
     bb_sink_ws_init(NULL, &s);
@@ -381,21 +382,21 @@ void test_bb_sink_ws_direct_publish_no_slash_topic(void)
 void test_bb_sink_ws_publish_brace_in_string_broadcasts_intact_object(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     bb_sink_ws_init(NULL, &s);
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"power\"]}");
 
     const char *payload = "{\"ts_ms\":1,\"data\":{\"msg\":\"a}b\"}}";
     bb_err_t err = s.publish(s.ctx, "metrics/testhost/power", payload, (int)strlen(payload), false);
     TEST_ASSERT_EQUAL(BB_OK, err);
 
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
-    const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
+    const bb_ws_server_host_async_capture_t *a = bb_ws_server_host_async_at(0);
     TEST_ASSERT_NOT_NULL(a);
     char msg[256];
     size_t cl = a->len < sizeof(msg) - 1 ? a->len : sizeof(msg) - 1;
@@ -414,7 +415,7 @@ void test_bb_sink_ws_publish_brace_in_string_broadcasts_intact_object(void)
 void test_bb_sink_ws_publish_missing_envelope_returns_invalid_arg(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     bb_sink_ws_init(NULL, &s);
@@ -423,13 +424,13 @@ void test_bb_sink_ws_publish_missing_envelope_returns_invalid_arg(void)
     const char *payload = "{\"v\":1}";
     bb_err_t err = s.publish(s.ctx, "metrics/testhost/power", payload, (int)strlen(payload), false);
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 void test_bb_sink_ws_publish_non_numeric_ts_ms_returns_invalid_arg(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     bb_sink_ws_init(NULL, &s);
@@ -438,13 +439,13 @@ void test_bb_sink_ws_publish_non_numeric_ts_ms_returns_invalid_arg(void)
     const char *payload = "{\"ts_ms\":\"nope\",\"data\":{\"v\":1}}";
     bb_err_t err = s.publish(s.ctx, "metrics/testhost/power", payload, (int)strlen(payload), false);
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 void test_bb_sink_ws_publish_unbalanced_data_braces_returns_invalid_arg(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     bb_sink_ws_init(NULL, &s);
@@ -454,7 +455,7 @@ void test_bb_sink_ws_publish_unbalanced_data_braces_returns_invalid_arg(void)
     const char *payload = "{\"ts_ms\":1,\"data\":{\"v\":1";
     bb_err_t err = s.publish(s.ctx, "metrics/testhost/power", payload, (int)strlen(payload), false);
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // ---------------------------------------------------------------------------
@@ -488,24 +489,24 @@ void test_bb_sink_ws_init_registers_ws_endpoint(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
-    bb_websocket_frame_t frame = {
+    bb_ws_server_host_capture_begin(&req);
+    bb_ws_server_frame_t frame = {
         .final   = true,
         .type    = BB_WS_TYPE_TEXT,
         .payload = (uint8_t *)"ping",
         .len     = 4,
     };
-    bb_err_t err = bb_websocket_host_inject_frame(req, &frame);
+    bb_err_t err = bb_ws_server_host_inject_frame(req, &frame);
     TEST_ASSERT_EQUAL(BB_OK, err);
 }
 
 void test_bb_sink_ws_init_register_fail_returns_error(void)
 {
     ws_sink_setup();
-    bb_websocket_host_force_register_fail(true);
+    bb_ws_server_host_force_register_fail(true);
     bb_pub_sink_t s;
     bb_err_t err = bb_sink_ws_init(NULL, &s);
-    bb_websocket_host_force_register_fail(false);
+    bb_ws_server_host_force_register_fail(false);
     TEST_ASSERT_NOT_EQUAL(BB_OK, err);
 }
 
@@ -516,14 +517,14 @@ void test_bb_sink_ws_handler_accepts_text_frame(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
-    bb_websocket_frame_t frame = {
+    bb_ws_server_host_capture_begin(&req);
+    bb_ws_server_frame_t frame = {
         .final   = true,
         .type    = BB_WS_TYPE_TEXT,
         .payload = (uint8_t *)"hello",
         .len     = 5,
     };
-    TEST_ASSERT_EQUAL(BB_OK, bb_websocket_host_inject_frame(req, &frame));
+    TEST_ASSERT_EQUAL(BB_OK, bb_ws_server_host_inject_frame(req, &frame));
 }
 
 void test_bb_sink_ws_handler_accepts_binary_frame(void)
@@ -533,15 +534,15 @@ void test_bb_sink_ws_handler_accepts_binary_frame(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     uint8_t data[] = {0x01, 0x02, 0x03};
-    bb_websocket_frame_t frame = {
+    bb_ws_server_frame_t frame = {
         .final   = true,
         .type    = BB_WS_TYPE_BINARY,
         .payload = data,
         .len     = sizeof(data),
     };
-    TEST_ASSERT_EQUAL(BB_OK, bb_websocket_host_inject_frame(req, &frame));
+    TEST_ASSERT_EQUAL(BB_OK, bb_ws_server_host_inject_frame(req, &frame));
 }
 
 // ---------------------------------------------------------------------------
@@ -553,55 +554,55 @@ void test_bb_sink_ws_handler_accepts_binary_frame(void)
 void test_bb_sink_ws_sub_telemetry_receives_telemetry_not_events_logs(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(4, true);
+    bb_ws_server_host_set_client_active(4, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 4, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     // Publish a telemetry subtopic: should arrive.
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
 
     char msg[256];
-    const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
+    const bb_ws_server_host_async_capture_t *a = bb_ws_server_host_async_at(0);
     size_t cl = a->len < sizeof(msg) - 1 ? a->len : sizeof(msg) - 1;
     memcpy(msg, a->payload, cl); msg[cl] = '\0';
     TEST_ASSERT_NOT_NULL(strstr(msg, "\"topic\":\"mining\""));
 
-    bb_websocket_host_async_reset();
+    bb_ws_server_host_async_reset();
 
     // Publish an events subtopic: should NOT arrive.
     err = s.publish(s.ctx, "m/h/events", "{\"ts_ms\":1,\"data\":{\"e\":1}}", 26, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 
     // Inject a structured log event: should NOT arrive for telemetry subscriber.
     bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // (b) client subscribed to ["log"] receives structured log event.
 void test_bb_sink_ws_sub_log_receives_log_event(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(6, true);
+    bb_ws_server_host_set_client_active(6, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 6, "{\"type\":\"sub\",\"topic\":[\"log\"]}");
 
     bb_sink_ws_host_inject_log_event("{\"ts\":123,\"level\":\"I\",\"tag\":\"foo\",\"msg\":\"bar\"}");
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
 
-    const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
+    const bb_ws_server_host_async_capture_t *a = bb_ws_server_host_async_at(0);
     TEST_ASSERT_NOT_NULL(a);
     TEST_ASSERT_EQUAL(6, a->fd);
     TEST_ASSERT_EQUAL(BB_WS_TYPE_TEXT, a->type);
@@ -619,36 +620,36 @@ void test_bb_sink_ws_sub_log_receives_log_event(void)
 void test_bb_sink_ws_sub_log_unsubscribed_receives_nothing(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(7, true);
+    bb_ws_server_host_set_client_active(7, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 7, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // (b3) suspended state blocks log event broadcast.
 void test_bb_sink_ws_sub_log_suspend_gates(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(5, true);
+    bb_ws_server_host_set_client_active(5, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 5, "{\"type\":\"sub\",\"topic\":[\"log\"]}");
 
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
 
     bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // (b4) inject_log_event with no active clients is a no-op (no crash).
@@ -661,20 +662,20 @@ void test_bb_sink_ws_log_event_inject_no_clients(void)
 
     // No clients active — should complete silently.
     bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // (b5) inject_log_event malloc fail → no broadcast, no crash.
 void test_bb_sink_ws_log_event_inject_malloc_fail(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(9, true);
+    bb_ws_server_host_set_client_active(9, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 9, "{\"type\":\"sub\",\"topic\":[\"log\"]}");
 
     bb_sink_ws_set_malloc(test_failing_malloc);
@@ -682,7 +683,7 @@ void test_bb_sink_ws_log_event_inject_malloc_fail(void)
     test_alloc_reset();
 
     bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 
     bb_sink_ws_set_malloc(NULL);
     test_alloc_fail_at = -1;
@@ -692,7 +693,7 @@ void test_bb_sink_ws_log_event_inject_malloc_fail(void)
 void test_bb_sink_ws_unsubscribed_client_receives_nothing(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(7, true);
+    bb_ws_server_host_set_client_active(7, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
@@ -701,11 +702,11 @@ void test_bb_sink_ws_unsubscribed_client_receives_nothing(void)
 
     // No sub frame injected for fd=7.
     bb_pub_tick_once();
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 
     // Log event inject also delivers nothing to unsubscribed client.
     bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // ---------------------------------------------------------------------------
@@ -716,13 +717,13 @@ void test_bb_sink_ws_unsubscribed_client_receives_nothing(void)
 void test_bb_sink_ws_publish_malloc_fail_returns_no_space(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(0, true);
+    bb_ws_server_host_set_client_active(0, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 0, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     // Inject a failing malloc so sink_ws_publish returns BB_ERR_NO_SPACE.
@@ -732,7 +733,7 @@ void test_bb_sink_ws_publish_malloc_fail_returns_no_space(void)
 
     bb_err_t err = s.publish(s.ctx, "m/h/power", "{\"ts_ms\":1,\"data\":{\"v\":1}}", 26, false);
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 
     // Restore normal allocator.
     bb_sink_ws_set_malloc(NULL);
@@ -747,29 +748,29 @@ void test_bb_sink_ws_publish_malloc_fail_returns_no_space(void)
 void test_sink_ws_suspend_clears_clients(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(3, true);
-    bb_websocket_host_set_client_active(5, true);
+    bb_ws_server_host_set_client_active(3, true);
+    bb_ws_server_host_set_client_active(5, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
     inject_sub(req, 5, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     // Pre-suspend: both clients receive.
     bb_err_t err = s.publish(s.ctx, "m/h/power", "{\"ts_ms\":1,\"data\":{\"v\":1}}", 26, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(2, bb_websocket_host_async_count());
-    bb_websocket_host_async_reset();
+    TEST_ASSERT_EQUAL_INT(2, bb_ws_server_host_async_count());
+    bb_ws_server_host_async_reset();
 
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
 
     // Post-suspend: no client receives.
     err = s.publish(s.ctx, "m/h/power", "{\"ts_ms\":1,\"data\":{\"v\":2}}", 26, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // disconnect notification clears subscription state for that fd — an fd
@@ -779,31 +780,31 @@ void test_sink_ws_suspend_clears_clients(void)
 void test_sink_ws_disconnect_clears_client_sub_state(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(3, true);
+    bb_ws_server_host_set_client_active(3, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     // Pre-disconnect: fd=3 receives.
     bb_err_t err = s.publish(s.ctx, "m/h/power", "{\"ts_ms\":1,\"data\":{\"v\":1}}", 26, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
-    bb_websocket_host_async_reset();
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
+    bb_ws_server_host_async_reset();
 
     // Simulate the socket disconnecting (fd=3 goes away) without a suspend.
-    bb_websocket_host_simulate_disconnect(3);
-    bb_websocket_host_set_client_active(3, false);
+    bb_ws_server_host_simulate_disconnect(3);
+    bb_ws_server_host_set_client_active(3, false);
 
     // A new connection reuses fd=3 (LWIP fd reuse) but never re-subscribes —
     // it must NOT inherit the old subscription.
-    bb_websocket_host_set_client_active(3, true);
+    bb_ws_server_host_set_client_active(3, true);
     err = s.publish(s.ctx, "m/h/power", "{\"ts_ms\":1,\"data\":{\"v\":2}}", 26, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // suspend is idempotent: second call returns BB_OK without crashing.
@@ -821,7 +822,7 @@ void test_sink_ws_suspend_idempotent(void)
 void test_sink_ws_resume_clears_flag(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(2, true);
+    bb_ws_server_host_set_client_active(2, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
@@ -831,25 +832,25 @@ void test_sink_ws_resume_clears_flag(void)
 
     // Re-inject subscription (suspend cleared sub table).
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 2, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_err_t err = s.publish(s.ctx, "m/h/info", "{\"ts_ms\":1,\"data\":{\"x\":1}}", 26, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
 }
 
 // (d) malformed sub frame is ignored safely — state for the fd unchanged.
 void test_bb_sink_ws_malformed_sub_frame_ignored(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(8, true);
+    bb_ws_server_host_set_client_active(8, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
 
     // Inject various malformed payloads — none should crash.
     const char *bad[] = {
@@ -860,25 +861,25 @@ void test_bb_sink_ws_malformed_sub_frame_ignored(void)
         "",
     };
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
-        bb_websocket_host_set_inject_fd(8);
-        bb_websocket_frame_t frame = {
+        bb_ws_server_host_set_inject_fd(8);
+        bb_ws_server_frame_t frame = {
             .final   = true,
             .type    = BB_WS_TYPE_TEXT,
             .payload = (uint8_t *)bad[i],
             .len     = strlen(bad[i]),
         };
-        bb_err_t err = bb_websocket_host_inject_frame(req, &frame);
+        bb_err_t err = bb_ws_server_host_inject_frame(req, &frame);
         TEST_ASSERT_EQUAL(BB_OK, err);
-        bb_websocket_host_set_inject_fd(-1);
+        bb_ws_server_host_set_inject_fd(-1);
     }
-    bb_websocket_host_async_reset();
+    bb_ws_server_host_async_reset();
 
     // fd=8 still has no valid subscriptions → publish delivers nothing.
     bb_pub_sink_t s2;
     bb_sink_ws_init(NULL, &s2);
     bb_err_t err = s2.publish(s2.ctx, "m/h/info", "{\"ts_ms\":1,\"data\":{\"x\":1}}", 26, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // ---------------------------------------------------------------------------
@@ -888,14 +889,14 @@ void test_bb_sink_ws_malformed_sub_frame_ignored(void)
 void test_bb_sink_ws_sub_exact_subtopic_match(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(0, true);
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(0, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
 
     // fd=0 subscribed to exact "mining" subtopic only.
     inject_sub(req, 0, "{\"type\":\"sub\",\"topic\":[\"mining\"]}");
@@ -905,15 +906,15 @@ void test_bb_sink_ws_sub_exact_subtopic_match(void)
     // Publish "mining": only fd=0 should receive.
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
-    TEST_ASSERT_EQUAL(0, bb_websocket_host_async_at(0)->fd);
-    bb_websocket_host_async_reset();
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
+    TEST_ASSERT_EQUAL(0, bb_ws_server_host_async_at(0)->fd);
+    bb_ws_server_host_async_reset();
 
     // Publish "pool": only fd=1 should receive.
     err = s.publish(s.ctx, "m/h/pool", "{\"ts_ms\":1,\"data\":{\"p\":1}}", 26, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
-    TEST_ASSERT_EQUAL(1, bb_websocket_host_async_at(0)->fd);
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
+    TEST_ASSERT_EQUAL(1, bb_ws_server_host_async_at(0)->fd);
 }
 
 // ---------------------------------------------------------------------------
@@ -926,13 +927,13 @@ void test_bb_sink_ws_sub_exact_subtopic_match(void)
 void test_bb_sink_ws_sub_whitespace_tolerant_parse(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(4, true);
+    bb_ws_server_host_set_client_active(4, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 4,
         "{\n"
         "  \"type\": \"sub\",\n"
@@ -945,12 +946,12 @@ void test_bb_sink_ws_sub_whitespace_tolerant_parse(void)
     // Telemetry subtopic should arrive via the "telemetry" coarse group.
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
-    bb_websocket_host_async_reset();
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
+    bb_ws_server_host_async_reset();
 
     // "log" exact opt-in should also arrive.
     bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"m\"}");
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
 }
 
 // ---------------------------------------------------------------------------
@@ -960,25 +961,25 @@ void test_bb_sink_ws_sub_whitespace_tolerant_parse(void)
 void test_bb_sink_ws_sub_events_group(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(2, true);
+    bb_ws_server_host_set_client_active(2, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 2, "{\"type\":\"sub\",\"topic\":[\"events\"]}");
 
     // "events" subtopic should arrive.
     bb_err_t err = s.publish(s.ctx, "m/h/events", "{\"ts_ms\":1,\"data\":{\"type\":\"share\"}}", 35, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
-    bb_websocket_host_async_reset();
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
+    bb_ws_server_host_async_reset();
 
     // "mining" subtopic should NOT arrive.
     err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // ---------------------------------------------------------------------------
@@ -988,13 +989,13 @@ void test_bb_sink_ws_sub_events_group(void)
 void test_bb_sink_ws_sub_replace_on_resub(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(3, true);
+    bb_ws_server_host_set_client_active(3, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
 
     // First sub: telemetry.
     inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
@@ -1002,19 +1003,19 @@ void test_bb_sink_ws_sub_replace_on_resub(void)
     // Confirm telemetry delivers.
     bb_err_t err = s.publish(s.ctx, "m/h/info", "{\"ts_ms\":1,\"data\":{}}", 21, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
-    bb_websocket_host_async_reset();
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
+    bb_ws_server_host_async_reset();
 
     // Re-sub to log only — telemetry should no longer deliver.
     inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"log\"]}");
 
     err = s.publish(s.ctx, "m/h/info", "{\"ts_ms\":1,\"data\":{}}", 21, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 
     // But log events should now deliver.
     bb_sink_ws_host_inject_log_event("{\"ts\":1,\"level\":\"I\",\"tag\":\"t\",\"msg\":\"after resub\"}");
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
 }
 
 // ---------------------------------------------------------------------------
@@ -1025,19 +1026,19 @@ void test_bb_sink_ws_sub_replace_on_resub(void)
 void test_bb_sink_ws_legacy_sub_frame_back_compat(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(2, true);
+    bb_ws_server_host_set_client_active(2, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     // Legacy frame, no "type" key.
     inject_sub(req, 2, "{\"sub\":[\"telemetry\"]}");
 
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
 }
 
 // An envelope with a "type" other than "sub" (e.g. "cmd") is RESERVED —
@@ -1045,19 +1046,19 @@ void test_bb_sink_ws_legacy_sub_frame_back_compat(void)
 void test_bb_sink_ws_reserved_type_ignored(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(3, true);
+    bb_ws_server_host_set_client_active(3, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 3, "{\"type\":\"cmd\",\"topic\":[\"telemetry\"]}");
 
     // No subscription was created for fd=3 — publish delivers nothing.
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // An envelope whose "type" value is not a quoted string (e.g. a bare number)
@@ -1067,18 +1068,18 @@ void test_bb_sink_ws_reserved_type_ignored(void)
 void test_bb_sink_ws_type_value_not_quoted_treated_as_no_type(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(3, true);
+    bb_ws_server_host_set_client_active(3, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 3, "{\"type\":5,\"topic\":[\"telemetry\"]}");
 
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // BB_SINK_WS_MAX_CLIENTS (right-sized to CONFIG_BB_HTTP_MAX_OPEN_SOCKETS,
@@ -1090,14 +1091,14 @@ void test_bb_sink_ws_client_pool_exhaustion_drops_extra_sub(void)
     ws_sink_setup();
     const int fds[] = {10, 20, 30, 40, 50, 60}; // 6 clients > default cap of 5
     for (size_t i = 0; i < sizeof(fds) / sizeof(fds[0]); i++) {
-        bb_websocket_host_set_client_active(fds[i], true);
+        bb_ws_server_host_set_client_active(fds[i], true);
     }
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     for (size_t i = 0; i < sizeof(fds) / sizeof(fds[0]); i++) {
         inject_sub(req, fds[i], "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
     }
@@ -1105,7 +1106,7 @@ void test_bb_sink_ws_client_pool_exhaustion_drops_extra_sub(void)
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
     // Only the first 5 (pool capacity) actually got a subscription slot.
-    TEST_ASSERT_EQUAL_INT(5, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(5, bb_ws_server_host_async_count());
 }
 
 // ---------------------------------------------------------------------------
@@ -1116,21 +1117,21 @@ void test_bb_sink_ws_reactive_delta_broadcasts_on_cache_change(void)
 {
     ws_sink_setup();
     TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.a"));
-    bb_websocket_host_set_client_active(3, true);
+    bb_ws_server_host_set_client_active(3, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     ws_cache_snap_t snap = { .value = 1 };
     bb_cache_update_t update = { .key = "rx.a", .snap = &snap };
     TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&update));
 
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
-    const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
+    const bb_ws_server_host_async_capture_t *a = bb_ws_server_host_async_at(0);
     TEST_ASSERT_NOT_NULL(a);
     TEST_ASSERT_EQUAL(3, a->fd);
 
@@ -1146,58 +1147,58 @@ void test_bb_sink_ws_reactive_delta_unchanged_rewrite_not_broadcast(void)
 {
     ws_sink_setup();
     TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.a"));
-    bb_websocket_host_set_client_active(3, true);
+    bb_ws_server_host_set_client_active(3, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     ws_cache_snap_t snap = { .value = 1 };
     bb_cache_update_t update = { .key = "rx.a", .snap = &snap };
     TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&update));
-    bb_websocket_host_async_reset();
+    bb_ws_server_host_async_reset();
 
     // Identical rewrite: no change -> no additional delta.
     TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&update));
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 void test_bb_sink_ws_reactive_delta_suspended_no_broadcast(void)
 {
     ws_sink_setup();
     TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.a"));
-    bb_websocket_host_set_client_active(3, true);
+    bb_ws_server_host_set_client_active(3, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
-    bb_websocket_host_async_reset();
+    bb_ws_server_host_async_reset();
 
     ws_cache_snap_t snap = { .value = 1 };
     bb_cache_update_t update = { .key = "rx.a", .snap = &snap };
     TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&update));
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 void test_bb_sink_ws_reactive_delta_malloc_fail_no_broadcast(void)
 {
     ws_sink_setup();
     TEST_ASSERT_EQUAL(BB_OK, ws_cache_reg_owned("rx.a"));
-    bb_websocket_host_set_client_active(3, true);
+    bb_ws_server_host_set_client_active(3, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 3, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_sink_ws_set_malloc(test_failing_malloc);
@@ -1205,7 +1206,7 @@ void test_bb_sink_ws_reactive_delta_malloc_fail_no_broadcast(void)
     ws_cache_snap_t snap = { .value = 1 };
     bb_cache_update_t update = { .key = "rx.a", .snap = &snap };
     TEST_ASSERT_EQUAL(BB_OK, bb_cache_reactive_update(&update));
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
     bb_sink_ws_set_malloc(NULL);
     test_alloc_fail_at = -1;
 }
@@ -1225,10 +1226,10 @@ void test_bb_sink_ws_snapshot_on_connect_sends_current_state(void)
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
-    bb_websocket_host_simulate_connect(NULL, 7);
+    bb_ws_server_host_simulate_connect(NULL, 7);
 
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
-    const bb_websocket_host_async_capture_t *a = bb_websocket_host_async_at(0);
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
+    const bb_ws_server_host_async_capture_t *a = bb_ws_server_host_async_at(0);
     TEST_ASSERT_NOT_NULL(a);
     TEST_ASSERT_EQUAL(7, a->fd); // unicast to the connecting fd only
 
@@ -1254,11 +1255,11 @@ void test_bb_sink_ws_snapshot_on_connect_multiple_keys_all_sent(void)
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
-    bb_websocket_host_simulate_connect(NULL, 9);
+    bb_ws_server_host_simulate_connect(NULL, 9);
 
-    TEST_ASSERT_EQUAL_INT(2, bb_websocket_host_async_count());
-    const bb_websocket_host_async_capture_t *a0 = bb_websocket_host_async_at(0);
-    const bb_websocket_host_async_capture_t *a1 = bb_websocket_host_async_at(1);
+    TEST_ASSERT_EQUAL_INT(2, bb_ws_server_host_async_count());
+    const bb_ws_server_host_async_capture_t *a0 = bb_ws_server_host_async_at(0);
+    const bb_ws_server_host_async_capture_t *a1 = bb_ws_server_host_async_at(1);
     TEST_ASSERT_EQUAL(9, a0->fd);
     TEST_ASSERT_EQUAL(9, a1->fd);
 }
@@ -1270,8 +1271,8 @@ void test_bb_sink_ws_snapshot_on_connect_no_keys_no_captures(void)
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
-    bb_websocket_host_simulate_connect(NULL, 7);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    bb_ws_server_host_simulate_connect(NULL, 7);
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 void test_bb_sink_ws_snapshot_on_connect_suspended_skips(void)
@@ -1285,10 +1286,10 @@ void test_bb_sink_ws_snapshot_on_connect_suspended_skips(void)
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_suspend());
-    bb_websocket_host_async_reset();
+    bb_ws_server_host_async_reset();
 
-    bb_websocket_host_simulate_connect(NULL, 7);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    bb_ws_server_host_simulate_connect(NULL, 7);
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 void test_bb_sink_ws_snapshot_on_connect_get_serialized_failure_skipped(void)
@@ -1301,8 +1302,8 @@ void test_bb_sink_ws_snapshot_on_connect_get_serialized_failure_skipped(void)
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
-    bb_websocket_host_simulate_connect(NULL, 7);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    bb_ws_server_host_simulate_connect(NULL, 7);
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 void test_bb_sink_ws_snapshot_on_connect_malloc_fail_skipped(void)
@@ -1318,8 +1319,8 @@ void test_bb_sink_ws_snapshot_on_connect_malloc_fail_skipped(void)
 
     bb_sink_ws_set_malloc(test_failing_malloc);
     test_alloc_fail_at = 0;
-    bb_websocket_host_simulate_connect(NULL, 7);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    bb_ws_server_host_simulate_connect(NULL, 7);
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
     bb_sink_ws_set_malloc(NULL);
     test_alloc_fail_at = -1;
 }
@@ -1337,10 +1338,10 @@ void test_bb_sink_ws_dispatch_negative_fd_is_ignored(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     // Must not crash; fd=-1 can never own a slot.
     inject_sub(req, -1, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // client_slot_find's OWN fd<0 guard is reached via client_sub_clear (the
@@ -1353,7 +1354,7 @@ void test_bb_sink_ws_disconnect_negative_fd_is_ignored(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     // Must not crash.
-    bb_websocket_host_simulate_disconnect(-1);
+    bb_ws_server_host_simulate_disconnect(-1);
 }
 
 // parse_topic_array: unterminated string (no closing quote before frame end)
@@ -1361,19 +1362,19 @@ void test_bb_sink_ws_disconnect_negative_fd_is_ignored(void)
 void test_bb_sink_ws_sub_topic_unterminated_string_ignored(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     // Opening quote for the topic string is never closed.
     inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"telemetry");
 
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // parse_topic_array: more entries than BB_SINK_WS_MAX_SUBS (8) — extras are
@@ -1381,13 +1382,13 @@ void test_bb_sink_ws_sub_topic_unterminated_string_ignored(void)
 void test_bb_sink_ws_sub_topic_array_overflow_caps_at_max_subs(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     // 9 distinct exact-match subtopics — one more than BB_SINK_WS_MAX_SUBS.
     inject_sub(req, 1,
         "{\"type\":\"sub\",\"topic\":["
@@ -1396,7 +1397,7 @@ void test_bb_sink_ws_sub_topic_array_overflow_caps_at_max_subs(void)
     // The first entry ("a") must still be subscribed.
     bb_err_t err = s.publish(s.ctx, "m/h/a", "{\"ts_ms\":1,\"data\":{}}", 21, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
 }
 
 // parse_topic_array: a topic name longer than BB_SINK_WS_SUB_MAX_LEN (32)
@@ -1404,13 +1405,13 @@ void test_bb_sink_ws_sub_topic_array_overflow_caps_at_max_subs(void)
 void test_bb_sink_ws_sub_topic_name_truncated_to_fit(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     // 40 'x' chars — longer than BB_SINK_WS_SUB_MAX_LEN (32).
     inject_sub(req, 1,
         "{\"type\":\"sub\",\"topic\":"
@@ -1420,7 +1421,7 @@ void test_bb_sink_ws_sub_topic_name_truncated_to_fit(void)
     // exact-match a distinct real subtopic, so nothing should be delivered.
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // find_array_start: the "topic" key is present but its value is NOT an
@@ -1428,36 +1429,36 @@ void test_bb_sink_ws_sub_topic_name_truncated_to_fit(void)
 void test_bb_sink_ws_sub_topic_value_not_array_ignored(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":\"telemetry\"}");
 
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // Legacy back-compat: the "sub" key present but not an array is rejected.
 void test_bb_sink_ws_legacy_sub_value_not_array_ignored(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 1, "{\"sub\":\"telemetry\"}");
 
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // extract_type: an unterminated "type" string value (no closing quote
@@ -1465,13 +1466,13 @@ void test_bb_sink_ws_legacy_sub_value_not_array_ignored(void)
 void test_bb_sink_ws_type_value_unterminated_falls_back_to_legacy(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     // "type" value's closing quote is missing — extract_type must return
     // false (falls through to the legacy {"sub":[...]} path), which also
     // finds no "sub" key here, so the frame is ignored.
@@ -1479,7 +1480,7 @@ void test_bb_sink_ws_type_value_unterminated_falls_back_to_legacy(void)
 
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // extract_type: a "type" value longer than BB_SINK_WS_TYPE_MAX_LEN (16) is
@@ -1488,42 +1489,42 @@ void test_bb_sink_ws_type_value_unterminated_falls_back_to_legacy(void)
 void test_bb_sink_ws_type_value_overlong_truncated_and_reserved(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     // 20 chars — longer than BB_SINK_WS_TYPE_MAX_LEN (16).
     inject_sub(req, 1, "{\"type\":\"aaaaaaaaaaaaaaaaaaaa\",\"topic\":[\"telemetry\"]}");
 
     // No subscription created (type wasn't "sub") — publish delivers nothing.
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
-// broadcast_filtered: bb_websocket_broadcast_frame_async failing for a
+// broadcast_filtered: bb_ws_server_broadcast_frame_async failing for a
 // subscribed client must propagate the error from publish() without
 // crashing or stopping delivery bookkeeping for other clients.
 void test_bb_sink_ws_publish_broadcast_async_failure_propagates(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
-    bb_websocket_host_set_client_active(2, true);
+    bb_ws_server_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(2, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
     inject_sub(req, 2, "{\"type\":\"sub\",\"topic\":[\"telemetry\"]}");
 
-    bb_websocket_host_force_async_alloc_fail(true);
+    bb_ws_server_host_force_async_alloc_fail(true);
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
-    bb_websocket_host_force_async_alloc_fail(false);
+    bb_ws_server_host_force_async_alloc_fail(false);
 
     TEST_ASSERT_NOT_EQUAL(BB_OK, err);
 }
@@ -1534,20 +1535,20 @@ void test_bb_sink_ws_publish_broadcast_async_failure_propagates(void)
 void test_bb_sink_ws_sub_topic_array_unclosed_at_buffer_end(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     // Buffer ends exactly after the closing quote of "a" — no ']', no comma,
     // nothing else follows.
     inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"a\"");
 
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // parse_topic_array: after a comma, trailing garbage with no opening quote
@@ -1555,18 +1556,18 @@ void test_bb_sink_ws_sub_topic_array_unclosed_at_buffer_end(void)
 void test_bb_sink_ws_sub_topic_array_trailing_garbage_at_buffer_end(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":[\"a\",xyz");
 
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // find_key_value: whitespace-tolerant skip must handle a lone tab and a
@@ -1575,18 +1576,18 @@ void test_bb_sink_ws_sub_topic_array_trailing_garbage_at_buffer_end(void)
 void test_bb_sink_ws_sub_whitespace_tab_and_cr_tolerant(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 1, "{\"type\":\t\"sub\",\"topic\":\r[\"telemetry\"]}");
 
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
 }
 
 // find_key_value: a lone newline directly after the colon (distinct from
@@ -1594,18 +1595,18 @@ void test_bb_sink_ws_sub_whitespace_tab_and_cr_tolerant(void)
 void test_bb_sink_ws_sub_whitespace_newline_directly_after_colon(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     inject_sub(req, 1, "{\"type\":\n\"sub\",\"topic\":[\"telemetry\"]}");
 
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(1, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(1, bb_ws_server_host_async_count());
 }
 
 // find_array_start / extract_type: the sought key is the very last thing in
@@ -1614,31 +1615,31 @@ void test_bb_sink_ws_sub_whitespace_newline_directly_after_colon(void)
 void test_bb_sink_ws_sub_key_at_buffer_end_no_value(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     // "topic": is the last thing in the buffer -- nothing follows the colon.
     inject_sub(req, 1, "{\"type\":\"sub\",\"topic\":");
 
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 void test_bb_sink_ws_type_key_at_buffer_end_no_value(void)
 {
     ws_sink_setup();
-    bb_websocket_host_set_client_active(1, true);
+    bb_ws_server_host_set_client_active(1, true);
 
     bb_pub_sink_t s;
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
     // "type": is the last thing in the buffer -- extract_type must reject
     // it (v>=end) and fall through to the legacy {"sub":[...]} parse, which
     // also finds nothing, so the frame is ignored.
@@ -1646,12 +1647,12 @@ void test_bb_sink_ws_type_key_at_buffer_end_no_value(void)
 
     bb_err_t err = s.publish(s.ctx, "m/h/mining", "{\"ts_ms\":1,\"data\":{\"hr\":1}}", 27, false);
     TEST_ASSERT_EQUAL(BB_OK, err);
-    TEST_ASSERT_EQUAL_INT(0, bb_websocket_host_async_count());
+    TEST_ASSERT_EQUAL_INT(0, bb_ws_server_host_async_count());
 }
 
 // ws_handler: a TEXT frame with a NULL payload (len>0) must be rejected by
 // the guard clause without dereferencing payload. Constructed directly
-// (not via inject_sub) since bb_websocket_host_inject_frame() forwards the
+// (not via inject_sub) since bb_ws_server_host_inject_frame() forwards the
 // frame pointer straight to the registered handler.
 void test_bb_sink_ws_handler_null_payload_text_frame_ignored(void)
 {
@@ -1660,17 +1661,17 @@ void test_bb_sink_ws_handler_null_payload_text_frame_ignored(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_sink_ws_init(NULL, &s));
 
     bb_http_request_t *req = NULL;
-    bb_websocket_host_capture_begin(&req);
+    bb_ws_server_host_capture_begin(&req);
 
-    bb_websocket_host_set_inject_fd(1);
-    bb_websocket_frame_t frame = {
+    bb_ws_server_host_set_inject_fd(1);
+    bb_ws_server_frame_t frame = {
         .final   = true,
         .type    = BB_WS_TYPE_TEXT,
         .payload = NULL,
         .len     = 10,
     };
-    bb_err_t err = bb_websocket_host_inject_frame(req, &frame);
-    bb_websocket_host_set_inject_fd(-1);
+    bb_err_t err = bb_ws_server_host_inject_frame(req, &frame);
+    bb_ws_server_host_set_inject_fd(-1);
     TEST_ASSERT_EQUAL(BB_OK, err);
 }
 

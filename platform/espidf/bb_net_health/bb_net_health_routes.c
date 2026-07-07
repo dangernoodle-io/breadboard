@@ -23,6 +23,7 @@
 // ONLY — no recovery/classifier logic; see bb_wifi_get_gateway_status().
 #include "bb_net_health.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_clock.h"
 #include "bb_init.h"
 #include "bb_log.h"

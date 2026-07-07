@@ -3,7 +3,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_sensors/bb_sensors.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_json bb_response
-    PRIV_REQUIRES bb_http bb_log bb_init bb_fan_routes bb_power_routes bb_thermal bb_fan)
+    PRIV_REQUIRES bb_http bb_http_server bb_log bb_init bb_fan_routes bb_power_routes bb_thermal bb_fan)
 
 if(CONFIG_BB_SENSORS_AUTOREGISTER)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")

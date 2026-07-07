@@ -51,6 +51,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_health](./bb_health/) | — |
 | [bb_http](./bb_http/) | — |
 | [bb_http_client](./bb_http_client/) | — |
+| [bb_http_server](./bb_http_server/) | — |
 | [bb_hw](./bb_hw/) | — |
 | [bb_i2c](./bb_i2c/) | — |
 | [bb_info](./bb_info/) | — |
@@ -68,7 +69,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_manifest](./bb_manifest/) | — |
 | [bb_mdns](./bb_mdns/) | — |
 | [bb_mdns_cache](./bb_mdns_cache/) | — |
-| [bb_mqtt](./bb_mqtt/) | — |
+| [bb_mqtt_client](./bb_mqtt_client/) | — |
 | [bb_mqtt_info](./bb_mqtt_info/) | — |
 | [bb_mqtt_telemetry](./bb_mqtt_telemetry/) | — |
 | [bb_net_health](./bb_net_health/) | — |
@@ -129,7 +130,8 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_tls_creds](./bb_tls_creds/) | — |
 | [bb_tls_info](./bb_tls_info/) | — |
 | [bb_transport_health](./bb_transport_health/) | — |
+| [bb_udp_client](./bb_udp_client/) | — |
 | [bb_udp_frame](./bb_udp_frame/) | — |
 | [bb_wdt](./bb_wdt/) | — |
-| [bb_websocket](./bb_websocket/) | — |
 | [bb_wifi](./bb_wifi/) | — |
+| [bb_ws_server](./bb_ws_server/) | — |

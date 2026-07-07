@@ -6,7 +6,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_health/bb_health_emit.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_json bb_response
-    PRIV_REQUIRES bb_http bb_board bb_wifi bb_mdns bb_openapi bb_init bb_log bb_ota_validator
+    PRIV_REQUIRES bb_http bb_http_server bb_board bb_wifi bb_mdns bb_openapi bb_init bb_log bb_ota_validator
                   bb_event bb_event_routes bb_task_registry
 )
 

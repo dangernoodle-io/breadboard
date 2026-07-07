@@ -49,7 +49,7 @@
 // FD_SETSIZE - CONFIG_LWIP_MAX_SOCKETS), so live fd values commonly land in
 // the FD_SETSIZE-CONFIG_LWIP_MAX_SOCKETS..FD_SETSIZE-1 range — far above
 // BB_SINK_WS_MAX_CLIENTS. Indexing s_clients[fd] directly would need an
-// array sized to BB_WEBSOCKET_MAX_FD (FD_SETSIZE, 64) regardless of how few
+// array sized to BB_WS_SERVER_MAX_FD (FD_SETSIZE, 64) regardless of how few
 // concurrent clients are allowed; the fd->slot map avoids that while still
 // bounding memory to the real concurrency cap.
 //
@@ -70,12 +70,12 @@
 // same idiom as bb_net_health's s_cache_lock) guards every access. Critical
 // sections are kept tight: broadcast_filtered takes the lock only to build a
 // snapshot of matching fds, then releases it before calling
-// bb_websocket_broadcast_frame_async — the actual httpd send never runs
+// bb_ws_server_broadcast_frame_async — the actual httpd send never runs
 // under the lock.
 #ifdef ESP_PLATFORM
 
 #include "bb_sink_ws.h"
-#include "bb_websocket.h"
+#include "bb_ws_server.h"
 #include "bb_log.h"
 #include "bb_event.h"
 #include "bb_json.h"
@@ -330,14 +330,14 @@ static bool client_subscribed(int fd, const char *topic)
 // WebSocket handler and route descriptor
 // ---------------------------------------------------------------------------
 
-static bb_err_t ws_handler(bb_http_request_t *req, const bb_websocket_frame_t *frame)
+static bb_err_t ws_handler(bb_http_request_t *req, const bb_ws_server_frame_t *frame)
 {
     // Only process TEXT frames carrying envelope commands.
     if (!frame || frame->type != BB_WS_TYPE_TEXT || !frame->payload || frame->len == 0) {
         return BB_OK;
     }
 
-    int fd = bb_websocket_req_fd(req);
+    int fd = bb_ws_server_req_fd(req);
     // Attempt to demux and dispatch; ignore malformed frames silently.
     dispatch_inbound_frame(fd, (const char *)frame->payload, frame->len);
     return BB_OK;
@@ -375,12 +375,12 @@ static _Atomic bool s_suspended = false;
 //
 // Two-phase to keep the critical section tight: scan+match under
 // s_clients_lock into a bounded fd snapshot, release the lock, then fire the
-// (potentially slower) async sends outside it — bb_websocket_broadcast_frame_async
+// (potentially slower) async sends outside it — bb_ws_server_broadcast_frame_async
 // must never run while s_clients_lock is held.
 //
 // TOCTOU note: the fd snapshot is taken here, but the actual
 // httpd_ws_send_frame_async fires later from a deferred httpd_queue_work
-// item (bb_websocket.c's async_send_worker). That worker re-validates each
+// item (bb_ws_server.c's async_send_worker). That worker re-validates each
 // fd is still a live WS client immediately before sending, closing the
 // common closed-fd race. It does NOT close the narrower window where the
 // same fd number was reused by a NEW WS client in between — that residual
@@ -390,7 +390,7 @@ static _Atomic bool s_suspended = false;
 static bb_err_t broadcast_filtered(const char *topic,
                                    const char *buf, size_t len)
 {
-    bb_websocket_frame_t frame = {
+    bb_ws_server_frame_t frame = {
         .final   = true,
         .type    = BB_WS_TYPE_TEXT,
         .payload = (uint8_t *)buf,
@@ -401,8 +401,8 @@ static bb_err_t broadcast_filtered(const char *topic,
     int matched_count = 0;
 
     xSemaphoreTake(s_clients_lock, portMAX_DELAY);
-    for (int fd = 0; fd < BB_WEBSOCKET_MAX_FD; fd++) {
-        if (!bb_websocket_is_client(s_ctx.server, fd)) continue;
+    for (int fd = 0; fd < BB_WS_SERVER_MAX_FD; fd++) {
+        if (!bb_ws_server_is_client(s_ctx.server, fd)) continue;
         if (!client_subscribed(fd, topic)) continue;
         if (matched_count < BB_SINK_WS_MAX_CLIENTS) {
             matched_fds[matched_count++] = fd;
@@ -412,7 +412,7 @@ static bb_err_t broadcast_filtered(const char *topic,
 
     bb_err_t last_err = BB_OK;
     for (int i = 0; i < matched_count; i++) {
-        bb_err_t err = bb_websocket_broadcast_frame_async(
+        bb_err_t err = bb_ws_server_broadcast_frame_async(
             s_ctx.server, matched_fds[i], &frame, NULL, NULL);
         if (err != BB_OK) last_err = err;
     }
@@ -570,11 +570,11 @@ static void reactive_on_change(const char *key, const char *json, size_t len,
 // ---------------------------------------------------------------------------
 // Snapshot-on-connect (B1-589 PR-4b)
 //
-// When a new WS client connects (bb_websocket connect hook, fires before any
-// data frame -- see bb_websocket.h), walk the bb_cache registry (#708
+// When a new WS client connects (bb_ws_server connect hook, fires before any
+// data frame -- see bb_ws_server.h), walk the bb_cache registry (#708
 // enumeration: bb_cache_foreach) and send each currently-cached key's
 // current value to THAT client only (unicast via
-// bb_websocket_broadcast_frame_async(server, fd, ...) -- never a broadcast),
+// bb_ws_server_broadcast_frame_async(server, fd, ...) -- never a broadcast),
 // so a fresh dashboard sees full current state immediately instead of
 // waiting for the next periodic tick or the next per-key change.
 // ---------------------------------------------------------------------------
@@ -620,14 +620,14 @@ static void snapshot_key_to_fd(const char *key, void *ctx_v)
         return;
     }
 
-    bb_websocket_frame_t frame = {
+    bb_ws_server_frame_t frame = {
         .final   = true,
         .type    = BB_WS_TYPE_TEXT,
         .payload = (uint8_t *)buf,
         .len     = out_len,
     };
     // Unicast: broadcast_frame_async targets a single fd despite the name.
-    bb_websocket_broadcast_frame_async(sc->server, sc->fd, &frame, NULL, NULL);
+    bb_ws_server_broadcast_frame_async(sc->server, sc->fd, &frame, NULL, NULL);
     bb_mem_free(buf);
 }
 
@@ -669,13 +669,13 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
         }
     }
 
-    bb_err_t reg_err = bb_websocket_register_described_endpoint(server, "/ws", ws_handler, &s_ws_route);
+    bb_err_t reg_err = bb_ws_server_register_described_endpoint(server, "/ws", ws_handler, &s_ws_route);
     if (reg_err != BB_OK) {
         bb_log_e(TAG, "register /ws failed: %d", (int)reg_err);
         return reg_err;
     }
 
-    bb_websocket_set_disconnect_cb(ws_disconnect_cb, NULL);
+    bb_ws_server_set_disconnect_cb(ws_disconnect_cb, NULL);
 
     s_ctx.server = server;
 
@@ -704,7 +704,7 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
     // Snapshot-on-connect (B1-589 PR-4b): unicast full current state to a
     // newly-connected client so a fresh dashboard doesn't wait for the next
     // tick/delta.
-    bb_websocket_set_connect_cb(ws_connect_cb, NULL);
+    bb_ws_server_set_connect_cb(ws_connect_cb, NULL);
 
     out->publish       = sink_ws_publish;
     out->ctx           = &s_ctx;
@@ -718,9 +718,9 @@ bb_err_t bb_sink_ws_init(bb_http_handle_t server, bb_pub_sink_t *out)
 bb_err_t bb_sink_ws_suspend(void)
 {
     if (s_suspended) return BB_OK;
-    for (int fd = 0; fd < BB_WEBSOCKET_MAX_FD; fd++) {
-        if (bb_websocket_is_client(s_ctx.server, fd)) {
-            bb_websocket_close_client(s_ctx.server, fd);
+    for (int fd = 0; fd < BB_WS_SERVER_MAX_FD; fd++) {
+        if (bb_ws_server_is_client(s_ctx.server, fd)) {
+            bb_ws_server_close_client(s_ctx.server, fd);
             client_sub_clear(fd);
         }
     }

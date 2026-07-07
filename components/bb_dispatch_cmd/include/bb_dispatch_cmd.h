@@ -1,6 +1,6 @@
 // bb_dispatch_cmd — transport-neutral action -> handler command registry.
 //
-// Sibling of bb_dispatch_api (components/bb_http/include/bb_dispatch_api.h):
+// Sibling of bb_dispatch_api (components/bb_http_server/include/bb_dispatch_api.h):
 // that table keys on (method, path) and hands the caller an httpd-flavoured
 // bb_http_handler_fn; this one keys on a plain action string and hands the
 // caller a bb_json in/out handler with no HTTP concept at all. It ships

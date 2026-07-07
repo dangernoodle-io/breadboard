@@ -419,7 +419,7 @@ class TestPlatformErrorInPublicStruct(unittest.TestCase):
             self._make_header(td, "bb_fake", "bb_fake.h",
                 '#pragma once\n'
                 'typedef struct {\n'
-                '    bb_mqtt_disc_t disc_reason;\n'
+                '    bb_mqtt_client_disc_t disc_reason;\n'
                 '    bb_tls_fail_t  tls_fail;\n'
                 '} bb_fake_t;\n')
             violations = _check_platform_error_in_public_struct(self._ctx(td))

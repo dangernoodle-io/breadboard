@@ -4,6 +4,7 @@
 // stubs — this guards against a future accidental stub flip (B1-517 review).
 #include "unity.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 
 void test_bb_http_req_peer_alive_host_stub_always_true(void)
 {

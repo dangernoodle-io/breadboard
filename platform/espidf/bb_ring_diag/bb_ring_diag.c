@@ -16,6 +16,7 @@
 #include "bb_ring.h"
 #include "bb_ring_registry.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_init.h"
 #include "bb_log.h"
 #include "bb_str.h"

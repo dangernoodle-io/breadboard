@@ -13,6 +13,7 @@
 #ifdef BB_OPENAPI_HARNESS_FIXTURES
 
 #include "bb_http.h"
+#include "bb_http_server.h"
 
 static bb_err_t stub_handler(bb_http_request_t *req)
 {

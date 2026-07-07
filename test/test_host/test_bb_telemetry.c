@@ -5,8 +5,9 @@
 #include "bb_nv.h"
 #include "bb_pub.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_dispatch_api.h"
-#include "../../platform/host/bb_http/include/bb_http_host.h"
+#include "../../platform/host/bb_http_server/include/bb_http_host.h"
 #include "bb_json.h"
 
 #include <stdbool.h>

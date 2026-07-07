@@ -2,7 +2,7 @@
 #include "unity.h"
 #include "bb_pub_health.h"
 #include "bb_pub.h"
-#include "bb_mqtt.h"
+#include "bb_mqtt_client.h"
 #include "bb_nv.h"
 
 #include <string.h>
@@ -47,7 +47,7 @@ static void setup(void)
     bb_pub_test_reset();
     capture_reset();
     bb_nv_config_set_hostname("testhost");
-    bb_mqtt_default_set(NULL);
+    bb_mqtt_client_default_set(NULL);
 
     bb_pub_sink_t sink = { .publish = capture_publish, .ctx = NULL };
     bb_pub_set_sink(&sink);
@@ -102,7 +102,7 @@ void test_bb_pub_health_has_mqtt_enabled_field(void)
 void test_bb_pub_health_mqtt_enabled_false_when_no_handle(void)
 {
     setup();
-    // bb_mqtt_default() returns NULL by default on host
+    // bb_mqtt_client_default() returns NULL by default on host
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"mqtt_enabled\":false"));
@@ -127,50 +127,50 @@ void test_bb_pub_health_mqtt_connected_false_when_no_handle(void)
 void test_bb_pub_health_mqtt_enabled_true_when_handle_set(void)
 {
     setup();
-    bb_mqtt_t h = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
-    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_init(&cfg, &h));
-    bb_mqtt_default_set(h);
+    bb_mqtt_client_t h = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_init(&cfg, &h));
+    bb_mqtt_client_default_set(h);
 
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"mqtt_enabled\":true"));
 
-    bb_mqtt_default_set(NULL);
-    bb_mqtt_destroy(h);
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_destroy(h);
 }
 
 void test_bb_pub_health_has_mqtt_reconnect_count_when_enabled(void)
 {
     setup();
-    bb_mqtt_t h = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
-    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_init(&cfg, &h));
-    bb_mqtt_default_set(h);
+    bb_mqtt_client_t h = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_init(&cfg, &h));
+    bb_mqtt_client_default_set(h);
 
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"mqtt_reconnect_count\""));
 
-    bb_mqtt_default_set(NULL);
-    bb_mqtt_destroy(h);
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_destroy(h);
 }
 
 void test_bb_pub_health_mqtt_connected_reflects_state(void)
 {
     setup();
-    bb_mqtt_t h = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
-    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_init(&cfg, &h));
-    bb_mqtt_default_set(h);
-    bb_mqtt_host_set_connected(h, false);
+    bb_mqtt_client_t h = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://broker.example.com:1883" };
+    TEST_ASSERT_EQUAL_INT(0, bb_mqtt_client_init(&cfg, &h));
+    bb_mqtt_client_default_set(h);
+    bb_mqtt_client_host_set_connected(h, false);
 
     bb_pub_tick_once();
     TEST_ASSERT_EQUAL_INT(1, s_capture_count);
     TEST_ASSERT_NOT_NULL(strstr(s_captured[0].payload, "\"mqtt_connected\":false"));
 
-    bb_mqtt_default_set(NULL);
-    bb_mqtt_destroy(h);
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_destroy(h);
 }
 
 void test_bb_pub_health_payload_has_uptime_ms_field(void)

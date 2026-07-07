@@ -14,7 +14,7 @@
 #include <string.h>
 
 // Key for each sink's enabled flag. bb_telemetry deliberately does NOT
-// REQUIRES bb_mqtt / bb_sink_http (it only reads each sink's persisted
+// REQUIRES bb_mqtt_client / bb_sink_http (it only reads each sink's persisted
 // "enabled" flag via the generic bb_nv API); the namespace strings
 // themselves come from the SSOT header (bb_nv_namespaces.h) via bb_nv.
 #define BB_TELEMETRY_SINK_NVS_KEY    "enabled"

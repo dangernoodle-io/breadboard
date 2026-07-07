@@ -13,7 +13,7 @@
 #include "bb_telemetry.h"
 #include "bb_nv.h"
 #include "bb_json.h"
-#include "bb_mqtt.h"
+#include "bb_mqtt_client.h"
 
 #include <string.h>
 #include <stdbool.h>
@@ -292,8 +292,8 @@ void test_boot_neither_enabled(void)
 // B1-289: loser-teardown tests (stop_default replaces reconfigure)
 //
 // When a sink loses the exclusive slot at boot its transport must be torn
-// down immediately via bb_mqtt_stop_default().  On the host this is verified
-// by setting up bb_mqtt_default() and confirming it is NULL after loser init.
+// down immediately via bb_mqtt_client_stop_default().  On the host this is verified
+// by setting up bb_mqtt_client_default() and confirming it is NULL after loser init.
 // HTTP transport is lazy (no session opened at boot), so nothing to tear down
 // on the HTTP-loser path.
 // ---------------------------------------------------------------------------
@@ -301,17 +301,17 @@ void test_boot_neither_enabled(void)
 void test_boot_mqtt_loser_triggers_reconfigure(void)
 {
     // Simulate both sinks NVS-enabled but HTTP registers first → HTTP wins,
-    // MQTT loses and must stop its auto-client via bb_mqtt_stop_default().
+    // MQTT loses and must stop its auto-client via bb_mqtt_client_stop_default().
     bb_pub_exclusive_reset();
     bb_nv_host_str_store_reset();
     bb_nv_set_str("bb_mqtt",      "enabled", "1");
     bb_nv_set_str("bb_sink_http", "enabled", "1");
 
     // Pre-set a default handle to simulate the EARLY-connected auto-client.
-    bb_mqtt_t tmp = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
-    bb_mqtt_init(&cfg, &tmp);
-    bb_mqtt_default_set(tmp);  // simulate s_auto_client set by EARLY init
+    bb_mqtt_client_t tmp = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    bb_mqtt_client_init(&cfg, &tmp);
+    bb_mqtt_client_default_set(tmp);  // simulate s_auto_client set by EARLY init
 
     // HTTP registers first (wins); MQTT registers second (loses).
     bb_err_t rc_http = bb_sink_http_telemetry_init();
@@ -320,9 +320,9 @@ void test_boot_mqtt_loser_triggers_reconfigure(void)
     bb_err_t rc_mqtt = bb_mqtt_telemetry_init();
     TEST_ASSERT_EQUAL_INT(BB_OK, rc_mqtt);  // section registration still succeeds
 
-    // MQTT loser must have stopped the auto-client via bb_mqtt_stop_default().
-    // On the host stop_default calls bb_mqtt_stop(&s_default_handle) → NULL.
-    TEST_ASSERT_NULL(bb_mqtt_default());
+    // MQTT loser must have stopped the auto-client via bb_mqtt_client_stop_default().
+    // On the host stop_default calls bb_mqtt_client_stop(&s_default_handle) → NULL.
+    TEST_ASSERT_NULL(bb_mqtt_client_default());
 
     // HTTP remains enabled in NVS; MQTT was disabled.
     char http_buf[4] = {0};
@@ -351,25 +351,25 @@ void test_boot_mqtt_winner_no_spurious_reconfigure(void)
     bb_nv_set_str("bb_mqtt",      "enabled", "1");
     bb_nv_set_str("bb_sink_http", "enabled", "1");
 
-    bb_mqtt_t tmp = NULL;
-    bb_mqtt_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
-    bb_mqtt_init(&cfg, &tmp);
-    bb_mqtt_default_set(tmp);
+    bb_mqtt_client_t tmp = NULL;
+    bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
+    bb_mqtt_client_init(&cfg, &tmp);
+    bb_mqtt_client_default_set(tmp);
 
     // MQTT first (wins), HTTP second (loses — no transport to tear down).
     bb_mqtt_telemetry_init();
     bb_sink_http_telemetry_init();
 
     // MQTT winner must NOT have stopped the default handle.
-    TEST_ASSERT_NOT_NULL(bb_mqtt_default());
+    TEST_ASSERT_NOT_NULL(bb_mqtt_client_default());
 
     // Sink must have been registered with bb_pub.
     bb_pub_status_t st = {0};
     bb_pub_get_status(&st);
     TEST_ASSERT_EQUAL_INT(1, st.sink_count);
 
-    bb_mqtt_default_set(NULL);
-    bb_mqtt_destroy(tmp);
+    bb_mqtt_client_default_set(NULL);
+    bb_mqtt_client_destroy(tmp);
     bb_telemetry_reset_for_test();
     bb_pub_exclusive_reset();
     bb_pub_test_reset();

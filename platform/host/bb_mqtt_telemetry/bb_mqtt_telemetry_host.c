@@ -4,7 +4,7 @@
 // B1-289: PATCH /api/telemetry validates + writes NVS only (no live reconfigure).
 // Boot: bb_mqtt_telemetry_init wires the ONE enabled sink at PRE_HTTP time.
 #include "bb_mqtt_telemetry.h"
-#include "bb_mqtt.h"
+#include "bb_mqtt_client.h"
 #include "bb_sink_mqtt.h"
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
@@ -23,13 +23,13 @@
 
 static const char *TAG = "bb_mqtt_telemetry";
 
-// BB_MQTT_NVS_NS is the SSOT namespace constant from bb_mqtt.h.
+// BB_MQTT_NVS_NS is the SSOT namespace constant from bb_mqtt_client.h.
 #define BB_MQTT_STR_MAX     64
 #define BB_MQTT_BODY_MAX    4096
 
-static bb_mqtt_t *s_client_ref = NULL;
+static bb_mqtt_client_t *s_client_ref = NULL;
 
-void bb_mqtt_telemetry_set_client(bb_mqtt_t *ref)
+void bb_mqtt_telemetry_set_client(bb_mqtt_client_t *ref)
 {
     s_client_ref = ref;
 }
@@ -64,10 +64,10 @@ static void mqtt_section_get(bb_json_t section, void *ctx)
 
     bool connected = false;
     if (s_client_ref && *s_client_ref) {
-        connected = bb_mqtt_is_connected(*s_client_ref);
+        connected = bb_mqtt_client_is_connected(*s_client_ref);
     } else {
-        bb_mqtt_t def = bb_mqtt_default();
-        if (def) connected = bb_mqtt_is_connected(def);
+        bb_mqtt_client_t def = bb_mqtt_client_default();
+        if (def) connected = bb_mqtt_client_is_connected(def);
     }
 
     bb_json_obj_set_string(section, "uri",       uri);
@@ -162,11 +162,11 @@ bb_err_t bb_mqtt_telemetry_init(void)
     if (enabled_str[0] == '1') {
         bb_err_t arc = bb_pub_exclusive_acquire(BB_SINK_MQTT_EXCLUSIVE_ID);
         if (arc == BB_OK) {
-            // WINNER: wire a dynamic sink that resolves bb_mqtt_default() at
+            // WINNER: wire a dynamic sink that resolves bb_mqtt_client_default() at
             // publish time so it survives the OTA suspend/resume client-recreate.
             // The handle is NOT stable across suspend/resume — capturing it at
             // boot was a use-after-free (B1-296). bb_sink_mqtt_default() resolves
-            // bb_mqtt_default() on every publish call; a NULL handle (suspend
+            // bb_mqtt_client_default() on every publish call; a NULL handle (suspend
             // window) yields a clean no-op rather than dereferencing freed memory.
             if (bb_sink_mqtt_default(&s_mqtt_sink) == BB_OK) {
                 bb_pub_add_sink(&s_mqtt_sink);
@@ -181,7 +181,7 @@ bb_err_t bb_mqtt_telemetry_init(void)
             bb_log_w(TAG, "boot: exclusive slot already taken — "
                      "disabling mqtt sink and stopping auto-client");
             bb_nv_set_str(BB_MQTT_NVS_NS, "enabled", "0");
-            bb_mqtt_stop_default();
+            bb_mqtt_client_stop_default();
         }
     }
     static const char k_mqtt_schema_props[] =

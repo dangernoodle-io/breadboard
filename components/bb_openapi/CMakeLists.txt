@@ -3,7 +3,7 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/src/bb_openapi_validate.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_openapi/bb_openapi_register.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_core bb_http bb_json
+    REQUIRES bb_core bb_http bb_http_server bb_json
     PRIV_REQUIRES bb_log bb_system bb_init json bb_str
 )
 

@@ -16,6 +16,7 @@
 #include "bb_ota_check.h"
 #include "bb_ota_check_internal.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_http_client.h"
 #include "bb_log.h"
 #include "bb_init.h"

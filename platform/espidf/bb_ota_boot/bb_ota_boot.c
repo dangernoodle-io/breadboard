@@ -74,6 +74,7 @@ bool bb_ota_boot_pending(void)
 #include "bb_ota_pull.h"
 #include "bb_ota_check.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_init.h"
 #include "bb_http_client.h"
 #include "bb_task_registry.h"

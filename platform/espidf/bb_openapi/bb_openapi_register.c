@@ -1,5 +1,6 @@
 #include "bb_openapi.h"
 #include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_log.h"
 #include "bb_system.h"
 #include "bb_init.h"

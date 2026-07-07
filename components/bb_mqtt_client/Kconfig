@@ -1,0 +1,75 @@
+menu "breadboard: bb_mqtt_client"
+
+config BB_MQTT_CLIENT_AUTOREGISTER
+    bool "Auto-register MQTT client init via bb_init (EARLY tier)"
+    default y
+    help
+        When enabled, bb_mqtt_client self-registers at the EARLY tier. On init it reads
+        NVS namespace "bb_mqtt" for uri/client_id/username/password/enabled and,
+        when enabled=1, connects to the broker. Disable to call bb_mqtt_client_init
+        manually.
+
+config BB_MQTT_CLIENT_KEEPALIVE
+    int "MQTT keepalive interval in seconds"
+    default 120
+    range 10 3600
+    help
+        MQTT keepalive sent to the broker. If the broker closes the connection
+        after this many seconds of inactivity, esp-mqtt will reconnect
+        automatically (unless disable_auto_reconnect is set).
+        Note: CONFIG_MQTT_TASK_STACK_SIZE may need to be raised to 6144 or
+        higher when TLS is enabled (mbedTLS handshake requires ~5-8 KB stack).
+
+config BB_MQTT_CLIENT_NETWORK_TIMEOUT_MS
+    int "MQTT network timeout (ms)"
+    default 30000
+    range 1000 120000
+    help
+        Maps to esp_mqtt_client_config_t.network.timeout_ms. esp-mqtt
+        defaults to 10000, which aborts writes ("write didn't complete in
+        specified timeout") on a marginal link and forces a reconnect.
+        30s tolerates a slow/weak link without churning.
+
+config BB_MQTT_CLIENT_RX_BUFFER_BYTES
+    int "MQTT receive buffer size (bytes)"
+    default 1024
+    range 64 4096
+    help
+        Receive buffer for the bb_mqtt_client component (maps to
+        esp_mqtt_client_config_t.buffer.size), overriding the global
+        CONFIG_MQTT_BUFFER_SIZE. ALSO sizes the app-level reassembly buffer
+        used by bb_mqtt_client_on_message() (B1-487) to accumulate a message across
+        multiple MQTT_EVENT_DATA fragments — a message whose total size
+        exceeds this value is dropped (logged) rather than delivered.
+        Default 1024 covers real meta/stats-shaped subscribe payloads
+        (the 256-byte legacy default only fit publish-only/non-subscribing
+        clients whose RX only ever sees short protocol ACK frames); raise it
+        further if your client subscribes to topics with larger payloads.
+
+config BB_MQTT_CLIENT_TX_BUFFER_BYTES
+    int "MQTT transmit buffer size (bytes)"
+    default 1024
+    range 128 4096
+    help
+        Transmit buffer (maps to esp_mqtt_client_config_t.buffer.out_size);
+        1024 fits typical JSON telemetry.
+
+config BB_MQTT_CLIENT_SUSPEND_STOP_ONLY
+    bool "Suspend uses stop-only (keeps client resident, no destroy/recreate)"
+    default n
+    help
+        When y, bb_mqtt_client_suspend_default() calls esp_mqtt_client_stop() only
+        (keeps client handle, buffers, and task resident, ~11 KB) and
+        bb_mqtt_client_resume_default() calls esp_mqtt_client_start() only — no
+        destroy, no realloc, no NVS reload.
+
+        ONLY safe when bb_arena_tls covers the TLS handshake that follows
+        the suspend window.  The ~11 KB residency means the largest_free_block
+        improvement is smaller than the full destroy path; use this mode only
+        when the arena already reserves enough headroom.
+
+        Default n = full destroy+recreate (original behavior): suspend calls
+        bb_mqtt_client_stop() which destroys the client and frees all buffers; resume
+        calls auto_client_create_from_nvs() to recreate.
+
+endmenu

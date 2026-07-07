@@ -1,6 +1,6 @@
 #include "bb_sub_mqtt.h"
 #include "bb_sub.h"
-#include "bb_mqtt.h"
+#include "bb_mqtt_client.h"
 #include "bb_nv.h"
 #include "bb_log.h"
 #include "bb_init.h"
@@ -38,7 +38,7 @@ static const char *s_topics_cfg_override = NULL;
 // idiom, see platform/host/bb_sink_mqtt/bb_sink_mqtt.c). Named "mqtt_sub" —
 // deliberately distinct from the egress sink's "mqtt" slot so the two never
 // collide in bb_transport_health_snapshot_all().
-// Single-writer: on_mqtt_message() only ever runs on the bb_mqtt event task,
+// Single-writer: on_mqtt_message() only ever runs on the bb_mqtt_client event task,
 // so the lazy check-then-register on s_th_handle needs no lock
 // (bb_transport_health's own ops are internally locked).
 static bb_transport_handle_t s_th_handle = BB_TRANSPORT_HANDLE_INVALID;
@@ -115,7 +115,7 @@ void bb_sub_mqtt_set_ignore_self(bool ignore_self)
 // the topic has fewer than 2 segments or hostname is empty.
 static bool topic_is_own_hostname(const char *topic, const char *hostname)
 {
-    if (!topic || !hostname || !hostname[0]) return false;  // LCOV_EXCL_BR_LINE — topic is always non-NULL from bb_mqtt's callback; hostname is always non-NULL from bb_nv_config_hostname() (static buffer)
+    if (!topic || !hostname || !hostname[0]) return false;  // LCOV_EXCL_BR_LINE — topic is always non-NULL from bb_mqtt_client's callback; hostname is always non-NULL from bb_nv_config_hostname() (static buffer)
 
     const char *seg1 = strchr(topic, '/');
     if (!seg1) return false;
@@ -129,7 +129,7 @@ static bool topic_is_own_hostname(const char *topic, const char *hostname)
 }
 
 // ---------------------------------------------------------------------------
-// bb_mqtt receive callback
+// bb_mqtt_client receive callback
 // ---------------------------------------------------------------------------
 
 static void on_mqtt_message(const char *topic, const void *payload, size_t len, void *ctx)
@@ -160,7 +160,7 @@ bb_err_t bb_sub_mqtt_init(void)
 {
     load_kconfig_default();
 
-    bb_mqtt_t h = bb_mqtt_default();
+    bb_mqtt_client_t h = bb_mqtt_client_default();
     if (!h) {
         bb_log_w(TAG, "no default MQTT client; skipping subscribe (%d filter(s) configured, "
                       "reboot required after MQTT is configured to apply)",
@@ -168,10 +168,10 @@ bb_err_t bb_sub_mqtt_init(void)
         return BB_OK;
     }
 
-    bb_mqtt_on_message(h, on_mqtt_message, NULL);
+    bb_mqtt_client_on_message(h, on_mqtt_message, NULL);
 
     for (int i = 0; i < s_topic_count; i++) {
-        bb_err_t rc = bb_mqtt_subscribe(h, s_topics[i], 0);
+        bb_err_t rc = bb_mqtt_client_subscribe(h, s_topics[i], 0);
         if (rc != BB_OK) {
             bb_log_w(TAG, "subscribe '%s' failed: %d", s_topics[i], rc);
         } else {

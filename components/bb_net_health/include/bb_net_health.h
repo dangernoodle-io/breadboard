@@ -524,7 +524,7 @@ typedef struct {
     uint32_t       last_disconnect_reason; // WiFi disconnect reason (wi->disc_reason)
     uint32_t       disc_age_s;           // seconds since last WiFi disconnect (0 = connected)
     uint32_t       mqtt_disc_age_s;      // seconds since last MQTT disconnect (from evaluator)
-    uint32_t       mqtt_disc_reason;     // classified MQTT disconnect reason (bb_mqtt_disc_t)
+    uint32_t       mqtt_disc_reason;     // classified MQTT disconnect reason (bb_mqtt_client_disc_t)
     uint32_t       mqtt_tls_fail;        // TLS handshake failure class (bb_tls_fail_t)
     bool          http_connected;       // true when HTTP sink session is open
     uint32_t      http_consec_failures; // consecutive HTTP transport failures

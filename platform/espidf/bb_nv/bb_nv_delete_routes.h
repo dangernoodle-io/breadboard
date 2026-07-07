@@ -27,7 +27,7 @@
 // Called from bb_diag_routes_init. Portable: no ESP-IDF-specific includes.
 
 #include "bb_core.h"
-#include "bb_http.h"
+#include "bb_http_server.h"
 
 #ifdef __cplusplus
 extern "C" {

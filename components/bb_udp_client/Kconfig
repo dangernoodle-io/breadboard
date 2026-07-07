@@ -1,0 +1,20 @@
+menu "breadboard: bb_udp_client"
+
+config BB_UDP_PORT
+    int "Default UDP destination port"
+    default 9109
+    help
+        Destination UDP port used for both unicast and broadcast sends.
+        Persisted config in NVS ("bb_udp" namespace, key "port") overrides
+        this default once set.
+
+config BB_UDP_BROADCAST
+    bool "Default to local broadcast (255.255.255.255)"
+    default n
+    help
+        When enabled, sends target the local broadcast address instead of
+        the configured unicast host (dotted-quad IPv4; no DNS resolution).
+        Persisted NVS config ("bb_udp" namespace, keys "host"/"broadcast")
+        overrides this default once set.
+
+endmenu

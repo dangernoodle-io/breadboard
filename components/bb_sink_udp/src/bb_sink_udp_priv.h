@@ -17,39 +17,20 @@ extern "C" {
 // the resolved BB_SINK_UDP_* macros here so all three backends (common, host,
 // espidf) read one already-resolved definition instead of each re-deriving
 // its own ad-hoc fallback.
+//
+// Only MTU remains here — the destination config (PORT/BROADCAST/HOST) moved
+// to bb_udp_client along with the socket transport it gates (KB#702/#710).
 // ---------------------------------------------------------------------------
 
 #ifdef ESP_PLATFORM
-#  ifdef CONFIG_BB_SINK_UDP_PORT
-#    define BB_SINK_UDP_PORT CONFIG_BB_SINK_UDP_PORT
-#  endif
-#  ifdef CONFIG_BB_SINK_UDP_BROADCAST
-#    define BB_SINK_UDP_BROADCAST CONFIG_BB_SINK_UDP_BROADCAST
-#  endif
 #  ifdef CONFIG_BB_SINK_UDP_MTU
 #    define BB_SINK_UDP_MTU CONFIG_BB_SINK_UDP_MTU
 #  endif
 #endif
 
-#ifndef BB_SINK_UDP_PORT
-#define BB_SINK_UDP_PORT 9109
-#endif
-#ifndef BB_SINK_UDP_BROADCAST
-#define BB_SINK_UDP_BROADCAST 0
-#endif
 #ifndef BB_SINK_UDP_MTU
 #define BB_SINK_UDP_MTU 1400
 #endif
-
-/**
- * Load bb_sink_udp_cfg_t from NVS namespace "bb_sink_udp", falling back to
- * Kconfig defaults (CONFIG_BB_SINK_UDP_PORT / CONFIG_BB_SINK_UDP_BROADCAST)
- * for any unset key.
- */
-void bb_sink_udp_priv_load_from_nvs(bb_sink_udp_cfg_t *out);
-
-/** Persist bb_sink_udp_cfg_t to NVS namespace "bb_sink_udp". */
-void bb_sink_udp_priv_save_to_nvs(const bb_sink_udp_cfg_t *cfg);
 
 /**
  * Encode one TELEMETRY frame (next atomic seq, flags=0) into buf.

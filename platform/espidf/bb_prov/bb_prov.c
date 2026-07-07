@@ -1,5 +1,5 @@
 #include "bb_prov.h"
-#include "bb_http.h"
+#include "bb_http_server.h"
 #include "bb_log.h"
 #include "bb_nv.h"
 #include "bb_str.h"

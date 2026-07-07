@@ -4012,60 +4012,60 @@ void test_bb_pub_rtos_emits_one_stack_field_per_registered_entry(void);
 void test_bb_pub_rtos_emits_multiple_registered_entries(void);
 void test_bb_pub_rtos_no_registered_entries_still_publishes(void);
 
-// Forward declarations from test_bb_websocket.c
-void test_bb_websocket_register_endpoint_null_server_ok(void);
-void test_bb_websocket_register_endpoint_null_path(void);
-void test_bb_websocket_register_endpoint_null_handler(void);
-void test_bb_websocket_register_endpoint_force_fail(void);
-void test_bb_websocket_recv_frame_null_req(void);
-void test_bb_websocket_recv_frame_null_frame(void);
-void test_bb_websocket_recv_frame_probe(void);
-void test_bb_websocket_recv_frame_force_fail(void);
-void test_bb_websocket_recv_frame_with_payload(void);
-void test_bb_websocket_recv_frame_null_payload_buffer_zero_len(void);
-void test_bb_websocket_send_frame_null_req(void);
-void test_bb_websocket_send_frame_null_frame(void);
-void test_bb_websocket_send_frame_captures_payload(void);
-void test_bb_websocket_send_frame_force_fail(void);
-void test_bb_websocket_send_frame_empty_payload(void);
-void test_bb_websocket_capture_sent_frame_second_call_empty(void);
-void test_bb_websocket_capture_sent_frame_null(void);
-void test_bb_websocket_capture_free_null(void);
-void test_bb_websocket_echo_roundtrip_text(void);
-void test_bb_websocket_echo_roundtrip_binary(void);
-void test_bb_websocket_inject_frame_no_handler(void);
-void test_bb_websocket_inject_frame_null_req(void);
-void test_bb_websocket_inject_frame_null_frame(void);
-void test_bb_websocket_handler_returns_error(void);
-void test_bb_websocket_broadcast_frame_async_null_frame(void);
-void test_bb_websocket_broadcast_frame_async_captures(void);
-void test_bb_websocket_broadcast_frame_async_null_cb(void);
-void test_bb_websocket_broadcast_frame_async_empty_payload(void);
-void test_bb_websocket_broadcast_frame_async_force_alloc_fail(void);
-void test_bb_websocket_async_at_out_of_range(void);
-void test_bb_websocket_async_reset(void);
-void test_bb_websocket_is_client_false_by_default(void);
-void test_bb_websocket_is_client_after_set(void);
-void test_bb_websocket_is_client_negative_fd(void);
-void test_bb_websocket_is_client_fd_too_large(void);
-void test_bb_websocket_set_client_active_clear_all(void);
-void test_bb_websocket_broadcast_all_no_clients(void);
-void test_bb_websocket_broadcast_all_two_clients(void);
-void test_bb_websocket_broadcast_all_null_frame(void);
-void test_bb_websocket_register_described_endpoint_ok(void);
-void test_bb_websocket_register_described_endpoint_null_path(void);
-void test_bb_websocket_register_described_endpoint_null_handler(void);
-void test_bb_websocket_register_described_endpoint_null_descriptor(void);
-void test_bb_websocket_register_described_endpoint_propagates_register_fail(void);
-void test_bb_websocket_reset_captures_clears_state(void);
-void test_bb_websocket_open_count_zero_by_default(void);
-void test_bb_websocket_open_count_increments_on_simulated_open(void);
-void test_bb_websocket_open_count_decrements_on_simulated_close(void);
-void test_bb_websocket_open_count_close_clamps_at_zero(void);
-void test_bb_websocket_open_count_reset_by_reset_captures(void);
-void test_bb_websocket_disconnect_cb_invoked_with_fd_and_ctx(void);
-void test_bb_websocket_disconnect_cb_null_is_noop(void);
-void test_bb_websocket_disconnect_cb_cleared_by_reset_captures(void);
+// Forward declarations from test_bb_ws_server.c
+void test_bb_ws_server_register_endpoint_null_server_ok(void);
+void test_bb_ws_server_register_endpoint_null_path(void);
+void test_bb_ws_server_register_endpoint_null_handler(void);
+void test_bb_ws_server_register_endpoint_force_fail(void);
+void test_bb_ws_server_recv_frame_null_req(void);
+void test_bb_ws_server_recv_frame_null_frame(void);
+void test_bb_ws_server_recv_frame_probe(void);
+void test_bb_ws_server_recv_frame_force_fail(void);
+void test_bb_ws_server_recv_frame_with_payload(void);
+void test_bb_ws_server_recv_frame_null_payload_buffer_zero_len(void);
+void test_bb_ws_server_send_frame_null_req(void);
+void test_bb_ws_server_send_frame_null_frame(void);
+void test_bb_ws_server_send_frame_captures_payload(void);
+void test_bb_ws_server_send_frame_force_fail(void);
+void test_bb_ws_server_send_frame_empty_payload(void);
+void test_bb_ws_server_capture_sent_frame_second_call_empty(void);
+void test_bb_ws_server_capture_sent_frame_null(void);
+void test_bb_ws_server_capture_free_null(void);
+void test_bb_ws_server_echo_roundtrip_text(void);
+void test_bb_ws_server_echo_roundtrip_binary(void);
+void test_bb_ws_server_inject_frame_no_handler(void);
+void test_bb_ws_server_inject_frame_null_req(void);
+void test_bb_ws_server_inject_frame_null_frame(void);
+void test_bb_ws_server_handler_returns_error(void);
+void test_bb_ws_server_broadcast_frame_async_null_frame(void);
+void test_bb_ws_server_broadcast_frame_async_captures(void);
+void test_bb_ws_server_broadcast_frame_async_null_cb(void);
+void test_bb_ws_server_broadcast_frame_async_empty_payload(void);
+void test_bb_ws_server_broadcast_frame_async_force_alloc_fail(void);
+void test_bb_ws_server_async_at_out_of_range(void);
+void test_bb_ws_server_async_reset(void);
+void test_bb_ws_server_is_client_false_by_default(void);
+void test_bb_ws_server_is_client_after_set(void);
+void test_bb_ws_server_is_client_negative_fd(void);
+void test_bb_ws_server_is_client_fd_too_large(void);
+void test_bb_ws_server_set_client_active_clear_all(void);
+void test_bb_ws_server_broadcast_all_no_clients(void);
+void test_bb_ws_server_broadcast_all_two_clients(void);
+void test_bb_ws_server_broadcast_all_null_frame(void);
+void test_bb_ws_server_register_described_endpoint_ok(void);
+void test_bb_ws_server_register_described_endpoint_null_path(void);
+void test_bb_ws_server_register_described_endpoint_null_handler(void);
+void test_bb_ws_server_register_described_endpoint_null_descriptor(void);
+void test_bb_ws_server_register_described_endpoint_propagates_register_fail(void);
+void test_bb_ws_server_reset_captures_clears_state(void);
+void test_bb_ws_server_open_count_zero_by_default(void);
+void test_bb_ws_server_open_count_increments_on_simulated_open(void);
+void test_bb_ws_server_open_count_decrements_on_simulated_close(void);
+void test_bb_ws_server_open_count_close_clamps_at_zero(void);
+void test_bb_ws_server_open_count_reset_by_reset_captures(void);
+void test_bb_ws_server_disconnect_cb_invoked_with_fd_and_ctx(void);
+void test_bb_ws_server_disconnect_cb_null_is_noop(void);
+void test_bb_ws_server_disconnect_cb_cleared_by_reset_captures(void);
 
 // Forward declarations from test_bb_tls_creds.c
 void test_bb_tls_creds_override_ca_beats_nvs(void);
@@ -4562,6 +4562,17 @@ void test_bb_udp_frame_encode_decode_empty_payload(void);
 void test_bb_udp_frame_encode_decode_empty_topic(void);
 void test_bb_udp_frame_encode_little_endian_layout(void);
 
+// Forward declarations from test_bb_udp_client.c
+void test_bb_udp_client_send_before_init_returns_invalid_state(void);
+void test_bb_udp_client_init_null_loads_defaults(void);
+void test_bb_udp_client_init_persists_and_reloads(void);
+void test_bb_udp_client_init_host_too_long_returns_invalid_arg(void);
+void test_bb_udp_client_send_captures_bytes(void);
+void test_bb_udp_client_send_multiple_increments_capture_count(void);
+void test_bb_udp_client_broadcast_cfg_accepted(void);
+void test_bb_udp_client_send_null_buf_or_negative_len_returns_invalid_arg(void);
+void test_bb_udp_client_host_last_capture_before_any_send_returns_negative(void);
+
 // Forward declarations from test_bb_sink_udp.c
 void test_bb_sink_udp_before_init_returns_invalid_state(void);
 void test_bb_sink_udp_null_out_returns_invalid_arg(void);
@@ -4569,9 +4580,6 @@ void test_bb_sink_udp_publish_builds_telemetry_frame(void);
 void test_bb_sink_udp_publish_null_topic_and_negative_len(void);
 void test_bb_sink_udp_seq_increments_across_publishes(void);
 void test_bb_sink_udp_oversized_frame_dropped(void);
-void test_bb_sink_udp_init_null_loads_defaults(void);
-void test_bb_sink_udp_init_persists_and_reloads(void);
-void test_bb_sink_udp_init_host_too_long_returns_invalid_arg(void);
 
 // Forward declarations from test_bb_registry.c
 void test_bb_registry_register_null_name_returns_invalid_arg(void);
@@ -7806,7 +7814,7 @@ int main(void) {
     RUN_TEST(test_bb_wdt_unsubscribe_increments_counter);
     RUN_TEST(test_bb_wdt_set_timeout_noop_on_host);
 
-    // bb_mqtt tests
+    // bb_mqtt_client tests
     RUN_TEST(test_bb_mqtt_publish_captures_topic);
     RUN_TEST(test_bb_mqtt_publish_captures_payload);
     RUN_TEST(test_bb_mqtt_publish_captures_qos_retain);
@@ -7869,7 +7877,7 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_subscribe_happy_path_returns_ok);
     RUN_TEST(test_bb_mqtt_host_set_subscribe_fail_forces_error);
     RUN_TEST(test_bb_mqtt_host_set_subscribe_fail_can_be_cleared);
-    // bb_mqtt_on_message tests
+    // bb_mqtt_client_on_message tests
     RUN_TEST(test_bb_mqtt_on_message_receives_injected_message);
     RUN_TEST(test_bb_mqtt_on_message_passes_ctx);
     RUN_TEST(test_bb_mqtt_on_message_multiple_injections);
@@ -8869,60 +8877,60 @@ int main(void) {
     // B1-352: bb_thermal_collect is SSOT for both REST and pub thermal values
     RUN_TEST(test_bb_pub_thermal_parity_collect_matches_rest_fields);
 
-    // bb_websocket (B1-104)
-    RUN_TEST(test_bb_websocket_register_endpoint_null_server_ok);
-    RUN_TEST(test_bb_websocket_register_endpoint_null_path);
-    RUN_TEST(test_bb_websocket_register_endpoint_null_handler);
-    RUN_TEST(test_bb_websocket_register_endpoint_force_fail);
-    RUN_TEST(test_bb_websocket_recv_frame_null_req);
-    RUN_TEST(test_bb_websocket_recv_frame_null_frame);
-    RUN_TEST(test_bb_websocket_recv_frame_probe);
-    RUN_TEST(test_bb_websocket_recv_frame_force_fail);
-    RUN_TEST(test_bb_websocket_recv_frame_with_payload);
-    RUN_TEST(test_bb_websocket_recv_frame_null_payload_buffer_zero_len);
-    RUN_TEST(test_bb_websocket_send_frame_null_req);
-    RUN_TEST(test_bb_websocket_send_frame_null_frame);
-    RUN_TEST(test_bb_websocket_send_frame_captures_payload);
-    RUN_TEST(test_bb_websocket_send_frame_force_fail);
-    RUN_TEST(test_bb_websocket_send_frame_empty_payload);
-    RUN_TEST(test_bb_websocket_capture_sent_frame_second_call_empty);
-    RUN_TEST(test_bb_websocket_capture_sent_frame_null);
-    RUN_TEST(test_bb_websocket_capture_free_null);
-    RUN_TEST(test_bb_websocket_echo_roundtrip_text);
-    RUN_TEST(test_bb_websocket_echo_roundtrip_binary);
-    RUN_TEST(test_bb_websocket_inject_frame_no_handler);
-    RUN_TEST(test_bb_websocket_inject_frame_null_req);
-    RUN_TEST(test_bb_websocket_inject_frame_null_frame);
-    RUN_TEST(test_bb_websocket_handler_returns_error);
-    RUN_TEST(test_bb_websocket_broadcast_frame_async_null_frame);
-    RUN_TEST(test_bb_websocket_broadcast_frame_async_captures);
-    RUN_TEST(test_bb_websocket_broadcast_frame_async_null_cb);
-    RUN_TEST(test_bb_websocket_broadcast_frame_async_empty_payload);
-    RUN_TEST(test_bb_websocket_broadcast_frame_async_force_alloc_fail);
-    RUN_TEST(test_bb_websocket_async_at_out_of_range);
-    RUN_TEST(test_bb_websocket_async_reset);
-    RUN_TEST(test_bb_websocket_is_client_false_by_default);
-    RUN_TEST(test_bb_websocket_is_client_after_set);
-    RUN_TEST(test_bb_websocket_is_client_negative_fd);
-    RUN_TEST(test_bb_websocket_is_client_fd_too_large);
-    RUN_TEST(test_bb_websocket_set_client_active_clear_all);
-    RUN_TEST(test_bb_websocket_broadcast_all_no_clients);
-    RUN_TEST(test_bb_websocket_broadcast_all_two_clients);
-    RUN_TEST(test_bb_websocket_broadcast_all_null_frame);
-    RUN_TEST(test_bb_websocket_register_described_endpoint_ok);
-    RUN_TEST(test_bb_websocket_register_described_endpoint_null_path);
-    RUN_TEST(test_bb_websocket_register_described_endpoint_null_handler);
-    RUN_TEST(test_bb_websocket_register_described_endpoint_null_descriptor);
-    RUN_TEST(test_bb_websocket_register_described_endpoint_propagates_register_fail);
-    RUN_TEST(test_bb_websocket_reset_captures_clears_state);
-    RUN_TEST(test_bb_websocket_open_count_zero_by_default);
-    RUN_TEST(test_bb_websocket_open_count_increments_on_simulated_open);
-    RUN_TEST(test_bb_websocket_open_count_decrements_on_simulated_close);
-    RUN_TEST(test_bb_websocket_open_count_close_clamps_at_zero);
-    RUN_TEST(test_bb_websocket_open_count_reset_by_reset_captures);
-    RUN_TEST(test_bb_websocket_disconnect_cb_invoked_with_fd_and_ctx);
-    RUN_TEST(test_bb_websocket_disconnect_cb_null_is_noop);
-    RUN_TEST(test_bb_websocket_disconnect_cb_cleared_by_reset_captures);
+    // bb_ws_server (B1-104)
+    RUN_TEST(test_bb_ws_server_register_endpoint_null_server_ok);
+    RUN_TEST(test_bb_ws_server_register_endpoint_null_path);
+    RUN_TEST(test_bb_ws_server_register_endpoint_null_handler);
+    RUN_TEST(test_bb_ws_server_register_endpoint_force_fail);
+    RUN_TEST(test_bb_ws_server_recv_frame_null_req);
+    RUN_TEST(test_bb_ws_server_recv_frame_null_frame);
+    RUN_TEST(test_bb_ws_server_recv_frame_probe);
+    RUN_TEST(test_bb_ws_server_recv_frame_force_fail);
+    RUN_TEST(test_bb_ws_server_recv_frame_with_payload);
+    RUN_TEST(test_bb_ws_server_recv_frame_null_payload_buffer_zero_len);
+    RUN_TEST(test_bb_ws_server_send_frame_null_req);
+    RUN_TEST(test_bb_ws_server_send_frame_null_frame);
+    RUN_TEST(test_bb_ws_server_send_frame_captures_payload);
+    RUN_TEST(test_bb_ws_server_send_frame_force_fail);
+    RUN_TEST(test_bb_ws_server_send_frame_empty_payload);
+    RUN_TEST(test_bb_ws_server_capture_sent_frame_second_call_empty);
+    RUN_TEST(test_bb_ws_server_capture_sent_frame_null);
+    RUN_TEST(test_bb_ws_server_capture_free_null);
+    RUN_TEST(test_bb_ws_server_echo_roundtrip_text);
+    RUN_TEST(test_bb_ws_server_echo_roundtrip_binary);
+    RUN_TEST(test_bb_ws_server_inject_frame_no_handler);
+    RUN_TEST(test_bb_ws_server_inject_frame_null_req);
+    RUN_TEST(test_bb_ws_server_inject_frame_null_frame);
+    RUN_TEST(test_bb_ws_server_handler_returns_error);
+    RUN_TEST(test_bb_ws_server_broadcast_frame_async_null_frame);
+    RUN_TEST(test_bb_ws_server_broadcast_frame_async_captures);
+    RUN_TEST(test_bb_ws_server_broadcast_frame_async_null_cb);
+    RUN_TEST(test_bb_ws_server_broadcast_frame_async_empty_payload);
+    RUN_TEST(test_bb_ws_server_broadcast_frame_async_force_alloc_fail);
+    RUN_TEST(test_bb_ws_server_async_at_out_of_range);
+    RUN_TEST(test_bb_ws_server_async_reset);
+    RUN_TEST(test_bb_ws_server_is_client_false_by_default);
+    RUN_TEST(test_bb_ws_server_is_client_after_set);
+    RUN_TEST(test_bb_ws_server_is_client_negative_fd);
+    RUN_TEST(test_bb_ws_server_is_client_fd_too_large);
+    RUN_TEST(test_bb_ws_server_set_client_active_clear_all);
+    RUN_TEST(test_bb_ws_server_broadcast_all_no_clients);
+    RUN_TEST(test_bb_ws_server_broadcast_all_two_clients);
+    RUN_TEST(test_bb_ws_server_broadcast_all_null_frame);
+    RUN_TEST(test_bb_ws_server_register_described_endpoint_ok);
+    RUN_TEST(test_bb_ws_server_register_described_endpoint_null_path);
+    RUN_TEST(test_bb_ws_server_register_described_endpoint_null_handler);
+    RUN_TEST(test_bb_ws_server_register_described_endpoint_null_descriptor);
+    RUN_TEST(test_bb_ws_server_register_described_endpoint_propagates_register_fail);
+    RUN_TEST(test_bb_ws_server_reset_captures_clears_state);
+    RUN_TEST(test_bb_ws_server_open_count_zero_by_default);
+    RUN_TEST(test_bb_ws_server_open_count_increments_on_simulated_open);
+    RUN_TEST(test_bb_ws_server_open_count_decrements_on_simulated_close);
+    RUN_TEST(test_bb_ws_server_open_count_close_clamps_at_zero);
+    RUN_TEST(test_bb_ws_server_open_count_reset_by_reset_captures);
+    RUN_TEST(test_bb_ws_server_disconnect_cb_invoked_with_fd_and_ctx);
+    RUN_TEST(test_bb_ws_server_disconnect_cb_null_is_noop);
+    RUN_TEST(test_bb_ws_server_disconnect_cb_cleared_by_reset_captures);
 
     // bb_sink_ws
     RUN_TEST(test_bb_sink_ws_init_null_out_returns_invalid_arg);
@@ -9246,7 +9254,7 @@ int main(void) {
     RUN_TEST(test_bb_sub_subscribe_aggregate_topic_register_failure_returns_invalid_state);
     RUN_TEST(test_bb_sub_route_sse_matches_cache_get_serialized);
 
-    // bb_mqtt_on_message
+    // bb_mqtt_client_on_message
     RUN_TEST(test_bb_mqtt_on_message_receives_injected_message);
     RUN_TEST(test_bb_mqtt_on_message_passes_ctx);
     RUN_TEST(test_bb_mqtt_on_message_multiple_injections);
@@ -9296,6 +9304,18 @@ int main(void) {
     RUN_TEST(test_bb_udp_frame_encode_decode_empty_topic);
     RUN_TEST(test_bb_udp_frame_encode_little_endian_layout);
 
+    // bb_udp_client (must run before any test_bb_sink_udp test that calls
+    // bb_udp_client_init, since s_initialized has no reset hook)
+    RUN_TEST(test_bb_udp_client_send_before_init_returns_invalid_state);
+    RUN_TEST(test_bb_udp_client_init_null_loads_defaults);
+    RUN_TEST(test_bb_udp_client_init_persists_and_reloads);
+    RUN_TEST(test_bb_udp_client_init_host_too_long_returns_invalid_arg);
+    RUN_TEST(test_bb_udp_client_send_captures_bytes);
+    RUN_TEST(test_bb_udp_client_send_multiple_increments_capture_count);
+    RUN_TEST(test_bb_udp_client_broadcast_cfg_accepted);
+    RUN_TEST(test_bb_udp_client_send_null_buf_or_negative_len_returns_invalid_arg);
+    RUN_TEST(test_bb_udp_client_host_last_capture_before_any_send_returns_negative);
+
     // bb_sink_udp
     RUN_TEST(test_bb_sink_udp_before_init_returns_invalid_state);
     RUN_TEST(test_bb_sink_udp_null_out_returns_invalid_arg);
@@ -9303,9 +9323,6 @@ int main(void) {
     RUN_TEST(test_bb_sink_udp_publish_null_topic_and_negative_len);
     RUN_TEST(test_bb_sink_udp_seq_increments_across_publishes);
     RUN_TEST(test_bb_sink_udp_oversized_frame_dropped);
-    RUN_TEST(test_bb_sink_udp_init_null_loads_defaults);
-    RUN_TEST(test_bb_sink_udp_init_persists_and_reloads);
-    RUN_TEST(test_bb_sink_udp_init_host_too_long_returns_invalid_arg);
 
     // bb_alert
     RUN_TEST(test_bb_alert_emit_no_topic_noop);

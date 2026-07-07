@@ -9,32 +9,19 @@ config BB_SINK_UDP_ENABLE
         Coexists with bb_sink_mqtt / bb_sink_http — not the bb_pub
         exclusive-sink arbiter.
 
-        This is a menu-gate for the sibling options below (_PORT,
-        _BROADCAST, _MTU, _AUTOREGISTER) — it controls their visibility and
-        defaults in menuconfig only. Like other tier-2 satellites, the
-        bb_sink_udp component sources compile whenever the component is
-        added to a consumer's REQUIRES, regardless of this flag; actual
-        runtime behavior (whether the sink ever sends a datagram) is gated
-        by _AUTOREGISTER or by the consumer's own manual
+        This is a menu-gate for the sibling options below (_MTU,
+        _AUTOREGISTER) — it controls their visibility and defaults in
+        menuconfig only. Like other tier-2 satellites, the bb_sink_udp
+        component sources compile whenever the component is added to a
+        consumer's REQUIRES, regardless of this flag; actual runtime
+        behavior (whether the sink ever sends a datagram) is gated by
+        _AUTOREGISTER or by the consumer's own manual
         bb_sink_udp_init()/bb_sink_udp()/bb_pub_add_sink() call sequence.
 
-config BB_SINK_UDP_PORT
-    int "Default UDP destination port"
-    default 9109
-    depends on BB_SINK_UDP_ENABLE
-    help
-        Destination UDP port used for both unicast and broadcast sends.
-        Persisted config in NVS ("bb_sink_udp" namespace, key "port")
-        overrides this default once set.
-
-config BB_SINK_UDP_BROADCAST
-    bool "Default to local broadcast (255.255.255.255)"
-    default n
-    depends on BB_SINK_UDP_ENABLE
-    help
-        When enabled, publishes target the local broadcast address instead
-        of the configured unicast host. Persisted NVS config overrides this
-        default once set.
+        Destination config (host/port/broadcast) is no longer configured
+        here — it moved to the bb_udp_client transport component (see
+        components/bb_udp_client/Kconfig, CONFIG_BB_UDP_PORT /
+        CONFIG_BB_UDP_BROADCAST) per KB#702/#710.
 
 config BB_SINK_UDP_MTU
     int "Max encoded datagram size (bytes)"

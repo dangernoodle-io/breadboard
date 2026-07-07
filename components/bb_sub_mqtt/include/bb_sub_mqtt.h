@@ -4,7 +4,7 @@
 //
 // Subscribes to a configurable MQTT topic filter and routes every received
 // message into bb_sub_route(). Self-registers at the regular bb_init tier
-// (CONFIG_BB_SUB_MQTT_AUTOREGISTER, default y) once bb_mqtt_default() is
+// (CONFIG_BB_SUB_MQTT_AUTOREGISTER, default y) once bb_mqtt_client_default() is
 // resolvable (an MQTT client must already be configured/auto-registered).
 //
 // Default filter: "metrics/+/meta" (single-level wildcard), overridable via
@@ -72,9 +72,9 @@ extern "C" {
 bb_err_t bb_sub_mqtt_add_topic(const char *filter);
 
 /**
- * Subscribe (via bb_mqtt_subscribe) to every configured topic filter and
- * register bb_sub_route (via bb_mqtt_on_message) as the bb_mqtt receive
- * callback. No-op (returns BB_OK, logs) if bb_mqtt_default() is NULL (no
+ * Subscribe (via bb_mqtt_client_subscribe) to every configured topic filter and
+ * register bb_sub_route (via bb_mqtt_client_on_message) as the bb_mqtt_client receive
+ * callback. No-op (returns BB_OK, logs) if bb_mqtt_client_default() is NULL (no
  * MQTT client configured) — does not fail boot.
  *
  * Idempotent-ish: safe to call more than once; re-subscribes the same
@@ -94,7 +94,7 @@ void bb_sub_mqtt_set_ignore_self(bool ignore_self);
 /**
  * Reset bb_sub_mqtt's internal state (topic filter list, Kconfig-default
  * load latch, ignore-self flag back to its build-time default) — test
- * isolation. Does NOT touch bb_mqtt or bb_sub state; reset those
+ * isolation. Does NOT touch bb_mqtt_client or bb_sub state; reset those
  * separately.
  */
 void bb_sub_mqtt_reset_for_test(void);
