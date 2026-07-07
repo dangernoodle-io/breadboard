@@ -1,20 +1,20 @@
-menu "breadboard: bb_arena_tls"
+menu "breadboard: bb_mem_arena_tls"
 
-config BB_ARENA_TLS_BYTES
+config BB_MEM_ARENA_TLS_BYTES
     int "mbedTLS arena size (bytes; 0 = disabled, use heap fallback only)"
     range 0 65536
     default 0
     help
         Size in bytes of the static boot-reserved contiguous arena for mbedTLS
         allocations. When > 0 and CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y, a
-        static uint8_t buffer of this size backs a bb_arena instance
-        (components/bb_arena) at boot. mbedTLS allocations are tried
+        static uint8_t buffer of this size backs a bb_mem_arena instance
+        (components/bb_mem_arena) at boot. mbedTLS allocations are tried
         arena-first; if the arena is exhausted, the allocator falls back to
         the internal-heap facade (bb_calloc_internal() / bb_mem_free()).
 
-        IMPORTANT: bb_arena is a bump allocator — bb_arena_free() does NOT
+        IMPORTANT: bb_mem_arena is a bump allocator — bb_mem_arena_free() does NOT
         reclaim space mid-handshake; freed bytes stay consumed until the
-        arena is reset. bb_arena_tls resets the arena automatically once
+        arena is reset. bb_mem_arena_tls resets the arena automatically once
         every outstanding arena allocation has been freed (the arena fully
         drains between handshakes), so one arena is reused across many
         sequential handshakes over device uptime. Size this value for the
@@ -47,20 +47,20 @@ config BB_ARENA_TLS_BYTES
         the manifest check TLS handshake's cumulative allocation (IN buffer +
         ssl_context + handshake).
 
-config BB_ARENA_TLS_AUTOREGISTER
-    bool "Auto-register bb_arena_tls at EARLY tier"
+config BB_MEM_ARENA_TLS_AUTOREGISTER
+    bool "Auto-register bb_mem_arena_tls at EARLY tier"
     default n
     depends on MBEDTLS_CUSTOM_MEM_ALLOC
     help
-        When enabled, bb_arena_tls registers itself at the EARLY tier via
-        bb_init, calling bb_arena_tls_init() during bb_init_init_early().
+        When enabled, bb_mem_arena_tls registers itself at the EARLY tier via
+        bb_init, calling bb_mem_arena_tls_init() during bb_init_init_early().
 
         WARNING: This may race with bb_wifi's WPA-supplicant mbedTLS use.
-        The SAFE contract is to call bb_arena_tls_init() explicitly at the TOP
+        The SAFE contract is to call bb_mem_arena_tls_init() explicitly at the TOP
         of app_main(), BEFORE bb_init_init_early(). Only enable this if
         you are certain no mbedTLS use occurs before EARLY-tier init and
-        bb_arena_tls is registered at a lower order than bb_wifi.
+        bb_mem_arena_tls is registered at a lower order than bb_wifi.
 
-        Default: n (use explicit bb_arena_tls_init() instead).
+        Default: n (use explicit bb_mem_arena_tls_init() instead).
 
 endmenu

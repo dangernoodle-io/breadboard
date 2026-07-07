@@ -5,7 +5,7 @@
 #include "bb_nv.h"
 #include "bb_core.h"
 #include "bb_pool.h"
-#include "bb_arena.h"
+#include "bb_mem_arena.h"
 #include "bb_mem.h"
 #include "bb_mem_test.h"
 
@@ -854,7 +854,7 @@ void test_bb_pub_buffer_idle_zero_ticks_disables_reclaim(void)
      (size_t)(CONFIG_BB_PUB_BUFFER_MAX_ENTRIES) * (size_t)(TEST_BB_PUB_BUFFER_ENTRY_MAX))
 
 // Scratch buffer mirrors bb_pub.c's real static-BSS s_ring_arena_buf: same
-// size and alignment. bb_arena_init carves BB_ARENA_HDR_SZ off the front, so
+// size and alignment. bb_mem_arena_init carves BB_MEM_ARENA_HDR_SZ off the front, so
 // the bytes actually available to bb_pool_create are less than sizeof(scratch).
 static uint8_t s_scratch[TEST_BB_PUB_RING_POOL_ARENA_BYTES]
     __attribute__((aligned(_Alignof(max_align_t))));
@@ -872,17 +872,17 @@ void test_bb_pub_buffer_ring_arena_budget_covers_pool_requirement(void)
     size_t needed = bb_pool_arena_size_needed(&cfg);
     TEST_ASSERT_GREATER_THAN_size_t(0, needed);
 
-    bb_arena_t arena = NULL;
-    bb_err_t rc = bb_arena_init(&arena, s_scratch, sizeof(s_scratch));
+    bb_mem_arena_t arena = NULL;
+    bb_err_t rc = bb_mem_arena_init(&arena, s_scratch, sizeof(s_scratch));
     TEST_ASSERT_EQUAL(BB_OK, rc);
 
-    size_t available = bb_arena_free_bytes(arena);
+    size_t available = bb_mem_arena_free_bytes(arena);
     TEST_ASSERT_TRUE_MESSAGE(available >= needed,
         "bb_pub's hand-rolled BB_PUB_RING_POOL_ARENA_BYTES budget no longer "
         "covers bb_pool's actual arena requirement (post header-carve) for "
         "the ring FIFO cfg — update the sizing constants in bb_pub.c");
 
-    bb_arena_destroy(arena);   /* no-op for caller-supplied buffer; explicit for clarity */
+    bb_mem_arena_destroy(arena);   /* no-op for caller-supplied buffer; explicit for clarity */
 }
 
 // ---------------------------------------------------------------------------

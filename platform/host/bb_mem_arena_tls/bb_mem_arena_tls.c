@@ -1,15 +1,15 @@
-/* bb_arena_tls — host stub.
+/* bb_mem_arena_tls — host stub.
  *
  * Simulates arena routing behavior for testing without ESP-IDF deps.
- * Rebuilt on the generic bb_arena primitive (components/bb_arena) — the
+ * Rebuilt on the generic bb_mem_arena primitive (components/bb_mem_arena) — the
  * arena mechanics (bump-alloc, owns, reset, stats) are shared with the
  * ESP-IDF impl; only the mbedTLS-shaped calloc/free routing and Kconfig
- * bridge live here. Arena size is set via CONFIG_BB_ARENA_TLS_BYTES in
- * build flags. Exposes bb_arena_tls_calloc/free/test_reset under
- * BB_ARENA_TLS_TESTING.
+ * bridge live here. Arena size is set via CONFIG_BB_MEM_ARENA_TLS_BYTES in
+ * build flags. Exposes bb_mem_arena_tls_calloc/free/test_reset under
+ * BB_MEM_ARENA_TLS_TESTING.
  */
-#include "bb_arena_tls.h"
-#include "bb_arena.h"
+#include "bb_mem_arena_tls.h"
+#include "bb_mem_arena.h"
 #include "bb_mem.h"
 #include <stdint.h>
 #include <stddef.h>
@@ -17,22 +17,22 @@
 #include <string.h>
 #include <pthread.h>
 
-/* Kconfig bridge: honour CONFIG_BB_ARENA_TLS_BYTES from build flags; default 0. */
+/* Kconfig bridge: honour CONFIG_BB_MEM_ARENA_TLS_BYTES from build flags; default 0. */
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
-#ifdef CONFIG_BB_ARENA_TLS_BYTES
-#define BB_ARENA_TLS_BYTES CONFIG_BB_ARENA_TLS_BYTES
+#ifdef CONFIG_BB_MEM_ARENA_TLS_BYTES
+#define BB_MEM_ARENA_TLS_BYTES CONFIG_BB_MEM_ARENA_TLS_BYTES
 #endif
-#ifndef BB_ARENA_TLS_BYTES
-#define BB_ARENA_TLS_BYTES 0
+#ifndef BB_MEM_ARENA_TLS_BYTES
+#define BB_MEM_ARENA_TLS_BYTES 0
 #endif
 
-#if BB_ARENA_TLS_BYTES > 0
+#if BB_MEM_ARENA_TLS_BYTES > 0
 
-/* Static backing buffer for the bb_arena instance used by host tests. */
-static uint8_t s_arena_buf[BB_ARENA_TLS_BYTES] __attribute__((aligned(16)));
-static bb_arena_t s_arena = NULL;
+/* Static backing buffer for the bb_mem_arena instance used by host tests. */
+static uint8_t s_arena_buf[BB_MEM_ARENA_TLS_BYTES] __attribute__((aligned(16)));
+static bb_mem_arena_t s_arena = NULL;
 /* Count of arena-owned allocations currently outstanding (not yet freed).
  * When this drains to 0 in the free path, the arena is reset so the bump
  * pointer rewinds and the next handshake can reuse the whole region —
@@ -43,7 +43,7 @@ static size_t s_arena_outstanding;
 
 #else
 #define ARENA_ENABLED 0
-#endif /* BB_ARENA_TLS_BYTES > 0 */
+#endif /* BB_MEM_ARENA_TLS_BYTES > 0 */
 
 /* Process-wide mbedTLS allocator — mirrors the ESP-IDF impl. The arena's
  * bump-offset write and s_arena_outstanding inc/dec + conditional reset are
@@ -57,12 +57,12 @@ static size_t s_arena_outstanding;
 static pthread_mutex_t s_arena_mtx = PTHREAD_MUTEX_INITIALIZER;
 static bool s_inited;
 
-void bb_arena_tls_init(void)
+void bb_mem_arena_tls_init(void)
 {
     pthread_mutex_lock(&s_arena_mtx);
     if (!s_inited) {
 #if ARENA_ENABLED
-        bb_arena_init(&s_arena, s_arena_buf, sizeof(s_arena_buf));
+        bb_mem_arena_init(&s_arena, s_arena_buf, sizeof(s_arena_buf));
         s_arena_outstanding = 0;
 #endif
         s_inited = true;
@@ -70,11 +70,11 @@ void bb_arena_tls_init(void)
     pthread_mutex_unlock(&s_arena_mtx);
 }
 
-bool bb_arena_tls_owns(const void *ptr)
+bool bb_mem_arena_tls_owns(const void *ptr)
 {
     pthread_mutex_lock(&s_arena_mtx);
 #if ARENA_ENABLED
-    bool owns = bb_arena_owns(s_arena, ptr);
+    bool owns = bb_mem_arena_owns(s_arena, ptr);
 #else
     (void)ptr;
     bool owns = false;
@@ -83,9 +83,9 @@ bool bb_arena_tls_owns(const void *ptr)
     return owns;
 }
 
-#if defined(BB_ARENA_TLS_TESTING)
+#if defined(BB_MEM_ARENA_TLS_TESTING)
 
-void *bb_arena_tls_calloc(size_t n, size_t size)
+void *bb_mem_arena_tls_calloc(size_t n, size_t size)
 {
     size_t total = n * size;
     if (total == 0) return NULL;
@@ -94,7 +94,7 @@ void *bb_arena_tls_calloc(size_t n, size_t size)
     void *ret = NULL;
 #if ARENA_ENABLED
     if (s_arena != NULL) {
-        ret = bb_arena_alloc(s_arena, total);
+        ret = bb_mem_arena_alloc(s_arena, total);
         if (ret) {
             memset(ret, 0, total);
             s_arena_outstanding++;
@@ -109,27 +109,27 @@ void *bb_arena_tls_calloc(size_t n, size_t size)
     return ret;
 }
 
-void bb_arena_tls_free(void *ptr)
+void bb_mem_arena_tls_free(void *ptr)
 {
     if (!ptr) return;
 
     pthread_mutex_lock(&s_arena_mtx);
 #if ARENA_ENABLED
-    if (s_arena != NULL && bb_arena_owns(s_arena, ptr)) {
-        bb_arena_free(s_arena, ptr);
+    if (s_arena != NULL && bb_mem_arena_owns(s_arena, ptr)) {
+        bb_mem_arena_free(s_arena, ptr);
         /* NOTE: this guard prevents size_t underflow from a caller
          * double-free, but cannot detect the double-free itself in release
-         * builds (bb_arena_owns is range-only; the debug assert inside
-         * bb_arena_free is compiled out under NDEBUG). mbedTLS is a
+         * builds (bb_mem_arena_owns is range-only; the debug assert inside
+         * bb_mem_arena_free is compiled out under NDEBUG). mbedTLS is a
          * well-behaved single-free caller in practice; per-allocation
-         * liveness tracking would be a bb_arena change, out of scope here. */
+         * liveness tracking would be a bb_mem_arena change, out of scope here. */
         if (s_arena_outstanding > 0) {
             s_arena_outstanding--;
         }
         if (s_arena_outstanding == 0) {
             /* Arena fully drained — rewind so the next handshake can reuse
              * the whole region instead of permanently falling back to heap. */
-            bb_arena_reset(s_arena);
+            bb_mem_arena_reset(s_arena);
         }
     } else {
         bb_mem_free(ptr);
@@ -140,15 +140,15 @@ void bb_arena_tls_free(void *ptr)
     pthread_mutex_unlock(&s_arena_mtx);
 }
 
-void bb_arena_tls_test_reset(void)
+void bb_mem_arena_tls_test_reset(void)
 {
     pthread_mutex_lock(&s_arena_mtx);
 #if ARENA_ENABLED
-    bb_arena_reset(s_arena);
+    bb_mem_arena_reset(s_arena);
     s_arena_outstanding = 0;
 #endif
     s_inited = false;
     pthread_mutex_unlock(&s_arena_mtx);
 }
 
-#endif /* BB_ARENA_TLS_TESTING */
+#endif /* BB_MEM_ARENA_TLS_TESTING */

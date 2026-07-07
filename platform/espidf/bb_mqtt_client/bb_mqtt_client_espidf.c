@@ -761,7 +761,7 @@ bb_err_t bb_mqtt_client_stop_default(void)
 //     buffers resident (~11 KB).  Resume calls esp_mqtt_client_start() on the
 //     same handle — no destroy, no realloc, no NVS reload.
 //     s_auto_client remains NON-NULL during the suspend window.
-//     ONLY safe when bb_arena_tls already reserves enough headroom for the
+//     ONLY safe when bb_mem_arena_tls already reserves enough headroom for the
 //     TLS handshake without the full 11 KB free.
 //
 //   FULL RELEASE (CONFIG_BB_MQTT_CLIENT_SUSPEND_STOP_ONLY=n, default):

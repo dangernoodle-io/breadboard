@@ -7,7 +7,7 @@
  */
 #include "unity.h"
 #include "bb_pool.h"
-#include "bb_arena.h"
+#include "bb_mem_arena.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -90,8 +90,8 @@ void test_pool_arena_size_needed_slots_align_up_wrap_overflow(void)
 void test_pool_transient_alloc_free_reset(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_TRANSIENT, .name = "trans" };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
 
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
@@ -101,7 +101,7 @@ void test_pool_transient_alloc_free_reset(void)
 
     bb_pool_free(p, m1); /* bump allocator: does not reclaim, just accounting */
 
-    bb_arena_stats_t stats;
+    bb_mem_arena_stats_t stats;
     bb_pool_get_stats(p, &stats);
     TEST_ASSERT_TRUE(stats.alloc_count >= 1);
 
@@ -110,7 +110,7 @@ void test_pool_transient_alloc_free_reset(void)
     TEST_ASSERT_NOT_NULL(m2);
 
     bb_pool_destroy(p); /* caller-owned arena: no-op */
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_transient_null_pool_is_safe(void)
@@ -168,8 +168,8 @@ void test_pool_retained_update_and_get_recycle(void)
         .max_slot_bytes = 16,
         .name = "retained",
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
 
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
@@ -192,14 +192,14 @@ void test_pool_retained_update_and_get_recycle(void)
     /* other slots remain independent */
     TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_pool_retained_get(p, 1, &out_ptr, &out_len));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_retained_update_out_of_range_slot(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_RETAINED, .capacity = 2, .max_slot_bytes = 8 };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -209,14 +209,14 @@ void test_pool_retained_update_out_of_range_slot(void)
     const void *ptr; size_t len;
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pool_retained_get(p, 5, &ptr, &len));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_retained_ops_on_non_retained_pool_return_invalid_state(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_TRANSIENT };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -224,7 +224,7 @@ void test_pool_retained_ops_on_non_retained_pool_return_invalid_state(void)
     const void *ptr; size_t len;
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_pool_retained_get(p, 0, &ptr, &len));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 // ---------------------------------------------------------------------------
@@ -240,8 +240,8 @@ void test_pool_fifo_push_peek_pop_order(void)
         .full_policy = BB_POOL_FULL_REJECT_NEW,
         .name = "fifo",
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -263,7 +263,7 @@ void test_pool_fifo_push_peek_pop_order(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_peek_oldest(p, buf, sizeof(buf), &len, &ts, &id));
     TEST_ASSERT_EQUAL_MEMORY("two", buf, 3);
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_fifo_reject_new_when_full(void)
@@ -274,8 +274,8 @@ void test_pool_fifo_reject_new_when_full(void)
         .max_slot_bytes = 4,
         .full_policy = BB_POOL_FULL_REJECT_NEW,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -290,7 +290,7 @@ void test_pool_fifo_reject_new_when_full(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_peek_oldest(p, buf, sizeof(buf), &len, &ts, &id));
     TEST_ASSERT_EQUAL_MEMORY("a", buf, 1);
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_fifo_evict_oldest_when_full(void)
@@ -301,8 +301,8 @@ void test_pool_fifo_evict_oldest_when_full(void)
         .max_slot_bytes = 4,
         .full_policy = BB_POOL_FULL_EVICT_OLDEST,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -317,14 +317,14 @@ void test_pool_fifo_evict_oldest_when_full(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_peek_oldest(p, buf, sizeof(buf), &len, &ts, &id));
     TEST_ASSERT_EQUAL_MEMORY("b", buf, 1);
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_fifo_peek_pop_empty_returns_not_found(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_FIFO, .capacity = 2, .max_slot_bytes = 4 };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -332,27 +332,27 @@ void test_pool_fifo_peek_pop_empty_returns_not_found(void)
     TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_pool_peek_oldest(p, buf, sizeof(buf), &len, &ts, &id));
     TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_pool_pop_oldest(p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_fifo_push_oversized_returns_invalid_arg(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_FIFO, .capacity = 2, .max_slot_bytes = 4 };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pool_push(p, "toolong", 7, 1, 1));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_fifo_count_dropped_on_non_fifo_pool_are_zero(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_TRANSIENT };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -361,7 +361,7 @@ void test_pool_fifo_count_dropped_on_non_fifo_pool_are_zero(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_pool_push(p, "x", 1, 0, 0));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_pool_pop_oldest(p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 // ---------------------------------------------------------------------------
@@ -376,8 +376,8 @@ void test_pool_slots_acquire_exhaust_release_reacquire(void)
         .max_slot_bytes = sizeof(int),
         .name = "slots",
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -405,14 +405,14 @@ void test_pool_slots_acquire_exhaust_release_reacquire(void)
     *(int *)s4 = 42;
     TEST_ASSERT_EQUAL_INT(42, *(int *)s4);
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_release_foreign_pointer_returns_invalid_arg(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_SLOTS, .capacity = 2, .max_slot_bytes = 8 };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -421,14 +421,14 @@ void test_pool_slots_release_foreign_pointer_returns_invalid_arg(void)
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pool_release(p, NULL));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pool_release(NULL, &outside));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_double_release_returns_invalid_state(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_SLOTS, .capacity = 2, .max_slot_bytes = 8 };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -439,14 +439,14 @@ void test_pool_slots_double_release_returns_invalid_state(void)
      * not silently double-pushed onto the free-list */
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_pool_release(p, s1));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_release_one_twice_does_not_corrupt_free_list(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_SLOTS, .capacity = 3, .max_slot_bytes = sizeof(int) };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -467,7 +467,7 @@ void test_pool_slots_release_one_twice_does_not_corrupt_free_list(void)
     TEST_ASSERT_EQUAL_PTR(s2, s4);
     TEST_ASSERT_NULL(bb_pool_acquire(p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_storage_is_zero_initialized(void)
@@ -478,8 +478,8 @@ void test_pool_slots_storage_is_zero_initialized(void)
     memset(s_buf, 0xA5, sizeof(s_buf));
 
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_SLOTS, .capacity = 2, .max_slot_bytes = sizeof(int) * 4 };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -492,14 +492,14 @@ void test_pool_slots_storage_is_zero_initialized(void)
     TEST_ASSERT_EQUAL_MEMORY(zeros, s1, sizeof(zeros));
     TEST_ASSERT_EQUAL_MEMORY(zeros, s2, sizeof(zeros));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_ops_on_non_slots_pool(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_TRANSIENT };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -508,7 +508,7 @@ void test_pool_slots_ops_on_non_slots_pool(void)
     int dummy;
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_pool_release(p, &dummy));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 // ---------------------------------------------------------------------------
@@ -518,27 +518,27 @@ void test_pool_slots_ops_on_non_slots_pool(void)
 void test_pool_create_null_args_return_invalid_arg(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_TRANSIENT };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
 
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pool_create(NULL, a, &p));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pool_create(&cfg, NULL, &p));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pool_create(&cfg, a, NULL));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_create_invalid_mode_returns_invalid_arg(void)
 {
     bb_pool_cfg_t cfg = { .mode = (bb_pool_mode_t)77 };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
 
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pool_create(&cfg, a, &p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_create_overflow_sizes_returns_invalid_arg_no_oob(void)
@@ -548,18 +548,18 @@ void test_pool_create_overflow_sizes_returns_invalid_arg_no_oob(void)
      * the shared bb_pool_arena_size_needed overflow-checked path), not
      * partially carved into a small backing arena. */
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_SLOTS, .capacity = SIZE_MAX, .max_slot_bytes = SIZE_MAX / 2 };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
 
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_pool_create(&cfg, a, &p));
 
     /* arena is untouched by the rejected create — still usable, evidence
      * that no out-of-bounds carve/write happened before the size check. */
-    void *m = bb_arena_alloc(a, 16);
+    void *m = bb_mem_arena_alloc(a, 16);
     TEST_ASSERT_NOT_NULL(m);
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_create_exhausted_arena_returns_no_space(void)
@@ -568,16 +568,16 @@ void test_pool_create_exhausted_arena_returns_no_space(void)
     /* Sized to be valid (>= arena header + alignment, currently 64+16=80 on
      * a 64-bit host with max_align_t alignment 16) but far below what a
      * RETAINED pool of capacity=4, max_slot_bytes=64 needs (hundreds of
-     * bytes) — so bb_arena_init succeeds but bb_pool_create still reports
+     * bytes) — so bb_mem_arena_init succeeds but bb_pool_create still reports
      * BB_ERR_NO_SPACE. */
     static uint8_t tiny[96] __attribute__((aligned(_Alignof(max_align_t))));
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, tiny, sizeof(tiny)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, tiny, sizeof(tiny)));
     bb_pool_t p = NULL;
 
     TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_pool_create(&cfg, a, &p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 // ---------------------------------------------------------------------------
@@ -658,18 +658,18 @@ void test_pool_create_owned_invalid_cfg_returns_invalid_arg(void)
 void test_pool_destroy_does_not_free_caller_supplied_arena(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_TRANSIENT };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
     bb_pool_destroy(p); /* must be a no-op on the arena */
 
     /* arena is still usable after pool destroy */
-    void *m = bb_arena_alloc(a, 16);
+    void *m = bb_mem_arena_alloc(a, 16);
     TEST_ASSERT_NOT_NULL(m);
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 // ---------------------------------------------------------------------------
@@ -680,12 +680,12 @@ void test_pool_get_stats_null_args_is_noop(void)
 {
     bb_pool_get_stats(NULL, NULL);
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_TRANSIENT };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
     bb_pool_get_stats(p, NULL); /* must not crash */
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 // ---------------------------------------------------------------------------
@@ -754,8 +754,8 @@ void test_pool_slots_on_acquire_on_release_fire(void)
         .on_acquire = spy_on_acquire,
         .on_release = spy_on_release,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -775,7 +775,7 @@ void test_pool_slots_on_acquire_on_release_fire(void)
     TEST_ASSERT_EQUAL_PTR(s1, s2);
     TEST_ASSERT_EQUAL_INT(2, spy.acquire_calls);
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_not_reusable_blocks_reissue(void)
@@ -790,8 +790,8 @@ void test_pool_slots_not_reusable_blocks_reissue(void)
         .slot_reusable = spy_slot_reusable,
         .slot_reap = spy_slot_reap,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -805,7 +805,7 @@ void test_pool_slots_not_reusable_blocks_reissue(void)
     TEST_ASSERT_TRUE(spy.reusable_calls >= 1);
     TEST_ASSERT_EQUAL_INT(0, spy.reap_calls);
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_reusable_true_reaps_then_reissues(void)
@@ -821,8 +821,8 @@ void test_pool_slots_reusable_true_reaps_then_reissues(void)
         .slot_reusable = spy_slot_reusable,
         .slot_reap = spy_slot_reap,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -844,7 +844,7 @@ void test_pool_slots_reusable_true_reaps_then_reissues(void)
     TEST_ASSERT_EQUAL_PTR(s1, spy.last_reap_slot);
     TEST_ASSERT_EQUAL_INT(acquire_calls_after_first + 1, spy.acquire_calls);
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_pending_slot_ignored_while_free_list_nonempty(void)
@@ -868,8 +868,8 @@ void test_pool_slots_pending_slot_ignored_while_free_list_nonempty(void)
         .slot_reusable = spy_slot_reusable,
         .slot_reap = spy_slot_reap,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -889,7 +889,7 @@ void test_pool_slots_pending_slot_ignored_while_free_list_nonempty(void)
     TEST_ASSERT_TRUE(s3 != s1 && s3 != s2);
     TEST_ASSERT_EQUAL_INT(reusable_calls_before, spy.reusable_calls);
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_double_release_rejected_with_reusable_configured(void)
@@ -902,8 +902,8 @@ void test_pool_slots_double_release_rejected_with_reusable_configured(void)
         .cb_ctx = &spy,
         .slot_reusable = spy_slot_reusable,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -912,7 +912,7 @@ void test_pool_slots_double_release_rejected_with_reusable_configured(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_STATE, bb_pool_release(p, s1));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 // ---------------------------------------------------------------------------
@@ -930,14 +930,14 @@ void test_pool_slots_pending_count_zero_on_fresh_pool(void)
         .slot_reusable = spy_slot_reusable_selective,
         .slot_reap = spy_slot_reap,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
     TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_pending_count(p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_pending_count_zero_without_slot_reusable(void)
@@ -950,8 +950,8 @@ void test_pool_slots_pending_count_zero_without_slot_reusable(void)
         .capacity = 1,
         .max_slot_bytes = sizeof(int),
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -960,7 +960,7 @@ void test_pool_slots_pending_count_zero_without_slot_reusable(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
     TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_pending_count(p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_pending_count_reflects_released_pending_slots(void)
@@ -975,8 +975,8 @@ void test_pool_slots_pending_count_reflects_released_pending_slots(void)
         .slot_reusable = spy_slot_reusable_selective, // ready_ptr NULL -> never ready
         .slot_reap = spy_slot_reap,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -989,7 +989,7 @@ void test_pool_slots_pending_count_reflects_released_pending_slots(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s2));
     TEST_ASSERT_EQUAL_UINT(2, bb_pool_slots_pending_count(p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_reap_ready_moves_ready_slot_to_free_list(void)
@@ -1003,8 +1003,8 @@ void test_pool_slots_reap_ready_moves_ready_slot_to_free_list(void)
         .slot_reusable = spy_slot_reusable_selective,
         .slot_reap = spy_slot_reap,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -1029,7 +1029,7 @@ void test_pool_slots_reap_ready_moves_ready_slot_to_free_list(void)
     TEST_ASSERT_EQUAL_PTR(s1, s3);
     TEST_ASSERT_EQUAL_INT(reusable_calls_before, spy.reusable_calls);
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_reap_ready_leaves_not_ready_slots_pending(void)
@@ -1044,8 +1044,8 @@ void test_pool_slots_reap_ready_leaves_not_ready_slots_pending(void)
         .slot_reusable = spy_slot_reusable_selective, // ready_ptr NULL -> never ready
         .slot_reap = spy_slot_reap,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -1056,7 +1056,7 @@ void test_pool_slots_reap_ready_leaves_not_ready_slots_pending(void)
     TEST_ASSERT_EQUAL_INT(0, spy.reap_calls);
     TEST_ASSERT_EQUAL_UINT(1, bb_pool_slots_pending_count(p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_reap_ready_noop_without_slot_reusable(void)
@@ -1069,8 +1069,8 @@ void test_pool_slots_reap_ready_noop_without_slot_reusable(void)
         .capacity = 1,
         .max_slot_bytes = sizeof(int),
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -1078,7 +1078,7 @@ void test_pool_slots_reap_ready_noop_without_slot_reusable(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s1));
     TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_reap_ready(p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_reap_ready_and_pending_count_null_pool_is_noop(void)
@@ -1090,15 +1090,15 @@ void test_pool_slots_reap_ready_and_pending_count_null_pool_is_noop(void)
 void test_pool_slots_reap_ready_and_pending_count_non_slots_mode_is_noop(void)
 {
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_TRANSIENT };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
     TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_reap_ready(p));
     TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_pending_count(p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_acquired_count_tracks_loan_state(void)
@@ -1110,8 +1110,8 @@ void test_pool_slots_acquired_count_tracks_loan_state(void)
         .capacity = 2,
         .max_slot_bytes = sizeof(int),
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -1129,7 +1129,7 @@ void test_pool_slots_acquired_count_tracks_loan_state(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_release(p, s2));
     TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_acquired_count(p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_acquired_count_stays_set_while_pending_reap(void)
@@ -1147,8 +1147,8 @@ void test_pool_slots_acquired_count_stays_set_while_pending_reap(void)
         .cb_ctx = &spy,
         .slot_reusable = spy_slot_reusable_selective,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
@@ -1160,7 +1160,7 @@ void test_pool_slots_acquired_count_stays_set_while_pending_reap(void)
     TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_acquired_count(p));
     TEST_ASSERT_EQUAL_UINT(1, bb_pool_slots_pending_count(p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 void test_pool_slots_acquired_count_null_and_non_slots_mode_is_noop(void)
@@ -1168,14 +1168,14 @@ void test_pool_slots_acquired_count_null_and_non_slots_mode_is_noop(void)
     TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_acquired_count(NULL));
 
     bb_pool_cfg_t cfg = { .mode = BB_POOL_MODE_TRANSIENT };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
     TEST_ASSERT_EQUAL_UINT(0, bb_pool_slots_acquired_count(p));
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }
 
 // ---------------------------------------------------------------------------
@@ -1247,13 +1247,13 @@ void test_pool_slots_on_destroy_not_called_for_non_slots_mode(void)
         .cb_ctx     = &s_destroy_calls,
         .on_destroy = spy_on_destroy,
     };
-    bb_arena_t a = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_arena_init(&a, s_buf, sizeof(s_buf)));
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
     bb_pool_t p = NULL;
     TEST_ASSERT_EQUAL(BB_OK, bb_pool_create(&cfg, a, &p));
 
     bb_pool_destroy(p); /* caller-owned arena: no-op, and no on_destroy call */
     TEST_ASSERT_EQUAL_INT(0, s_destroy_calls);
 
-    bb_arena_destroy(a);
+    bb_mem_arena_destroy(a);
 }

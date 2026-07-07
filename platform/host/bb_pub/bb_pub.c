@@ -8,7 +8,7 @@
 // include the wall-clock timestamp themselves inside their sample_fn.
 #include "bb_pub.h"
 #include "bb_pub_defaults.h"
-#include "bb_arena.h"
+#include "bb_mem_arena.h"
 #include "bb_cache.h"
 #include "bb_claim.h"
 #include "bb_clock.h"
@@ -310,7 +310,7 @@ static bool     s_started          = false;
 //     (fragmented heap) fails soft: the ring is unavailable for that cycle
 //     and retried on the next outage.
 //
-//   STATIC=y — permanent static-BSS bb_arena (the B1-478 PR D shape),
+//   STATIC=y — permanent static-BSS bb_mem_arena (the B1-478 PR D shape),
 //     carved once and never freed; deterministic standing cost, no heap
 //     allocation ever, no idle-free reclaim (nothing to reclaim).
 //
@@ -333,7 +333,7 @@ static bool     s_started          = false;
 #if CONFIG_BB_PUB_BUFFER_STATIC || defined(BB_PUB_TESTING)
 static uint8_t    s_ring_arena_buf[BB_PUB_RING_POOL_ARENA_BYTES]
     __attribute__((aligned(_Alignof(max_align_t))));
-static bb_arena_t s_ring_arena = NULL;
+static bb_mem_arena_t s_ring_arena = NULL;
 #endif
 static bb_pool_t  s_ring_pool  = NULL;
 
@@ -455,7 +455,7 @@ static uint32_t buffer_idle_free_ticks(void)
 //
 // STATIC mode: arena struct lives in s_ring_arena_buf, not heap; after
 // bb_pub_test_reset() s_ring_pool is NULL but s_ring_arena may still be
-// valid — in that case skip bb_arena_init and just re-create the pool from
+// valid — in that case skip bb_mem_arena_init and just re-create the pool from
 // the already-reset arena.
 //
 // Lazy-heap mode (default): bb_pool_create_owned() allocates a right-sized
@@ -477,8 +477,8 @@ static bb_pool_t ring_pool_get(void)
     if (buffer_static_mode()) {
 #if CONFIG_BB_PUB_BUFFER_STATIC || defined(BB_PUB_TESTING)
         if (!s_ring_arena) {
-            bb_err_t ae = bb_arena_init(&s_ring_arena, s_ring_arena_buf,
-                                         sizeof(s_ring_arena_buf));
+            bb_err_t ae = bb_mem_arena_init(&s_ring_arena, s_ring_arena_buf,
+                                            sizeof(s_ring_arena_buf));
             if (ae != BB_OK) {
                 bb_log_w(TAG, "store-and-forward: arena init failed (%d)", ae);
                 return NULL;
@@ -2036,7 +2036,7 @@ void bb_pub_test_reset(void)
     if (s_ring_pool_is_static) {
         // unreachable: s_ring_pool_is_static is only set true after s_ring_arena is initialized (never nulled)
         if (s_ring_arena) {
-            bb_arena_reset(s_ring_arena);
+            bb_mem_arena_reset(s_ring_arena);
         }
         s_ring_pool = NULL;
     } else if (s_ring_pool) {

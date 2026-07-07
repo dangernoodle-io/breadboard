@@ -1,6 +1,6 @@
 #include "bb_event_routes.h"
 #ifndef ARDUINO
-#include "bb_arena.h"
+#include "bb_mem_arena.h"
 #endif
 #include "bb_event.h"
 #include "bb_event_ring.h"
@@ -104,7 +104,7 @@ struct bb_event_routes_client {
 
 static bb_event_routes_client_t s_clients[CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS];
 
-// The index-addressed bb_arena pool below (SSE_pool) needs bb_arena/pthread,
+// The index-addressed bb_mem_arena pool below (SSE_pool) needs bb_mem_arena/pthread,
 // neither of which is on the Arduino build's include path — /api/events is
 // a 503 stub there (CC3000 RAM constraints; see breadboard CLAUDE.md), so
 // the pool is compiled out and bb_event_routes_client_acquire_ex falls back
@@ -116,7 +116,7 @@ static bb_event_routes_client_t s_clients[CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS];
 // SSE pool (B1-478 PR E, heap-backed-by-default per B1-491)
 //
 // Pre-allocates a per-client bundle (queue entry array + payload buffer) as
-// a fixed array carved once from an SSE-private bb_arena. Client slot i
+// a fixed array carved once from an SSE-private bb_mem_arena. Client slot i
 // (the index the existing CAS client-slot loop in
 // bb_event_routes_client_acquire_ex assigns atomically) deterministically
 // owns s_sse_bundles[i] for the arena's lifetime — no acquire/release, no
@@ -137,9 +137,9 @@ typedef struct {
     uint8_t payload[CONFIG_BB_EVENT_ROUTES_QUEUE_DEPTH * CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY];
 } sse_bundle_t;
 
-// Documented flat allowance covering bb_arena's internal header struct
-// (private to bb_arena.c — not visible here) plus max_align_t rounding of
-// the single bb_arena_alloc() call below. Not a magic constant: the bulk of
+// Documented flat allowance covering bb_mem_arena's internal header struct
+// (private to bb_mem_arena.c — not visible here) plus max_align_t rounding of
+// the single bb_mem_arena_alloc() call below. Not a magic constant: the bulk of
 // the buffer is computed from MAX_CLIENTS * sizeof(sse_bundle_t); this is
 // only the small fixed overhead on top of that.
 #define SSE_ARENA_HDR_ALLOWANCE_BYTES 128u
@@ -162,13 +162,13 @@ static uint8_t s_sse_arena_buf[
 ] __attribute__((aligned(_Alignof(max_align_t))));
 #endif
 
-static bb_arena_t    s_sse_arena;      // NULL until sse_pool_ensure() creates it
+static bb_mem_arena_t    s_sse_arena;      // NULL until sse_pool_ensure() creates it
 static sse_bundle_t *s_sse_bundles;    // [MAX_CLIENTS], index == client slot; NULL until created
 static bool          s_sse_pool_is_static;  // backing actually used by s_sse_arena (mirrors bb_pub's *_is_static flag)
 
 // Dedicated leaf mutex guarding ONLY the sse_pool_ensure() first-alloc
 // critical section below (portable POSIX pthread, host + ESP-IDF — mirrors
-// bb_arena_tls's s_arena_mtx pattern). esp_http_server dispatches requests
+// bb_mem_arena_tls's s_arena_mtx pattern). esp_http_server dispatches requests
 // on a single task today, so the unguarded check-then-allocate-then-publish
 // sequence was safe in practice, but this exact TOCTOU shape has shipped
 // twice before on this component (PR E CRITICALs) — harden rather than
@@ -244,10 +244,10 @@ static bb_err_t sse_pool_ensure(void)
 
     if (use_static_pool()) {
 #if CONFIG_BB_EVENT_ROUTES_POOL_STATIC || defined(BB_EVENT_ROUTES_TESTING)
-        bb_err_t arena_err = bb_arena_init(&s_sse_arena, s_sse_arena_buf, sizeof(s_sse_arena_buf));
+        bb_err_t arena_err = bb_mem_arena_init(&s_sse_arena, s_sse_arena_buf, sizeof(s_sse_arena_buf));
         assert(arena_err == BB_OK);  // LCOV_EXCL_BR_LINE — buffer is compile-time sized to fit, see static asserts above
         (void)arena_err;  // avoid unused-variable warning when NDEBUG compiles the assert out
-        s_sse_bundles = (sse_bundle_t *)bb_arena_alloc(s_sse_arena, SSE_BUNDLES_BYTES);
+        s_sse_bundles = (sse_bundle_t *)bb_mem_arena_alloc(s_sse_arena, SSE_BUNDLES_BYTES);
         assert(s_sse_bundles != NULL);  // LCOV_EXCL_BR_LINE — arena sized generously above, see static asserts above
         s_sse_pool_is_static = true;
         pthread_mutex_unlock(&s_sse_pool_mtx);
@@ -265,7 +265,7 @@ static bb_err_t sse_pool_ensure(void)
         pthread_mutex_unlock(&s_sse_pool_mtx);
         return BB_ERR_NO_SPACE;
     }
-    bb_err_t err = bb_arena_init(&s_sse_arena, block, total);
+    bb_err_t err = bb_mem_arena_init(&s_sse_arena, block, total);
     if (err != BB_OK) {  // LCOV_EXCL_BR_LINE — total is compile-time sized to fit (same computation as the static path above)
         // LCOV_EXCL_START
         s_free(block);
@@ -273,7 +273,7 @@ static bb_err_t sse_pool_ensure(void)
         return BB_ERR_NO_SPACE;
         // LCOV_EXCL_STOP
     }
-    s_sse_bundles = (sse_bundle_t *)bb_arena_alloc(s_sse_arena, SSE_BUNDLES_BYTES);
+    s_sse_bundles = (sse_bundle_t *)bb_mem_arena_alloc(s_sse_arena, SSE_BUNDLES_BYTES);
     if (!s_sse_bundles) {  // LCOV_EXCL_BR_LINE — arena sized exactly for this one alloc above
         // LCOV_EXCL_START
         s_free(block);
@@ -287,7 +287,7 @@ static bb_err_t sse_pool_ensure(void)
     return BB_OK;
 }
 
-#endif // !ARDUINO — SSE pool (bb_arena/pthread)
+#endif // !ARDUINO — SSE pool (bb_mem_arena/pthread)
 
 // ---------------------------------------------------------------------------
 // Config (resolved at init)
@@ -807,7 +807,7 @@ void bb_event_routes_reset_for_test(void) {
     // lazy-heap, via bb_event_routes_set_static_pool_for_test) takes effect
     // cleanly, and so lazy-creation-on-first-acquire can be re-exercised.
     // s_sse_arena and the heap block s_calloc returned are the same pointer
-    // (bb_arena carves its header from the front of the caller-supplied
+    // (bb_mem_arena carves its header from the front of the caller-supplied
     // block) — freeing s_sse_arena directly is correct, not a mismatch.
     if (s_sse_arena && !s_sse_pool_is_static) {
         s_free((void *)s_sse_arena);
