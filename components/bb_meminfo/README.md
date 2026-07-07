@@ -21,6 +21,16 @@ See [`include/bb_meminfo.h`](include/bb_meminfo.h). Key symbols:
 `default`/`internal`/`dma`/`spiram` `heap_caps_*` regions plus RTC
 used/total and internal-DRAM static bytes. ESP-IDF backs it with real
 `heap_caps_*` reads; the host stub zeros every field.
+
+`bb_meminfo_format(const bb_meminfo_snapshot_t *snap, char *buf, size_t len)`
+formats a compact HEAP-ONLY diagnostic line from a snapshot (snprintf
+semantics — buf is always NUL-terminated when len > 0): internal
+free/min-ever-free/largest-free-block, spiram free, dma free, and
+esp_min_free_heap. Pure formatting, identical on host and ESP-IDF; no
+board/flash/app-size fields (that's a different domain — see `bb_board`).
+Used by `examples/floor` and `examples/smoke` for a periodic serial heap
+baseline line.
+
 Public symbols in this component use the `bb_` prefix.
 
 ## Config knobs

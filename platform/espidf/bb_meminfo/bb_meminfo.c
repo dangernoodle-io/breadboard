@@ -2,6 +2,7 @@
 #include "bb_mem.h"
 
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_heap_caps.h"
@@ -87,4 +88,20 @@ bb_err_t bb_meminfo_get(bb_meminfo_snapshot_t *out)
     }
 
     return BB_OK;
+}
+
+// Pure formatting — identical on host and ESP-IDF (duplicated in each
+// platform impl per bb_meminfo's own convention; see bb_meminfo.h).
+int bb_meminfo_format(const bb_meminfo_snapshot_t *snap, char *buf, size_t len)
+{
+    if (!snap || !buf || len == 0) return 0;
+    return snprintf(buf, len,
+                     "heap_int_free=%u int_min=%u int_largest=%u "
+                     "spiram_free=%u dma_free=%u esp_min_free=%u",
+                     (unsigned)snap->internal.free,
+                     (unsigned)snap->internal.min_ever_free,
+                     (unsigned)snap->internal.largest_free_block,
+                     (unsigned)snap->spiram.free,
+                     (unsigned)snap->dma.free,
+                     (unsigned)snap->esp_min_free_heap);
 }

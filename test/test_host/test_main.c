@@ -1738,6 +1738,9 @@ void test_bb_board_dram_static_bytes_returns_zero_on_host(void);
 // Forward declarations from test_bb_meminfo.c
 void test_bb_meminfo_get_rejects_null(void);
 void test_bb_meminfo_get_host_zeroes_snapshot(void);
+void test_bb_meminfo_format_rejects_null(void);
+void test_bb_meminfo_format_known_snapshot(void);
+void test_bb_meminfo_format_truncates_cleanly(void);
 
 // Forward declarations from test_bb_health.c
 void test_bb_health_register_section_null_name_returns_err(void);
@@ -6535,6 +6538,9 @@ int main(void) {
     // bb_meminfo tests
     RUN_TEST(test_bb_meminfo_get_rejects_null);
     RUN_TEST(test_bb_meminfo_get_host_zeroes_snapshot);
+    RUN_TEST(test_bb_meminfo_format_rejects_null);
+    RUN_TEST(test_bb_meminfo_format_known_snapshot);
+    RUN_TEST(test_bb_meminfo_format_truncates_cleanly);
 
     // bb_health tests
     RUN_TEST(test_bb_health_register_section_null_name_returns_err);

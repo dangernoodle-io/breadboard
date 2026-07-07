@@ -77,6 +77,19 @@ typedef struct {
 // BB_ERR_INVALID_ARG if out is NULL. On host, out is zero-filled (BB_OK).
 bb_err_t bb_meminfo_get(bb_meminfo_snapshot_t *out);
 
+// Format a compact HEAP-ONLY diagnostic line from snap into buf (snprintf
+// semantics — buf is always NUL-terminated when len > 0). Pure formatting,
+// no I/O, no allocation; identical on host and ESP-IDF. Fields (in emitted
+// order): internal free / min-ever-free / largest-free-block, spiram free,
+// dma free, esp_min_free_heap. Deliberately HEAP-ONLY — board/flash/app-size
+// fields belong to a different domain (bb_board/build), out of scope here.
+//
+// Returns the number of bytes that would have been written — matches
+// snprintf's buffer/truncation semantics for len>0 (may exceed len on
+// truncation); returns 0 (without calling snprintf) when snap or buf is
+// NULL or len == 0.
+int bb_meminfo_format(const bb_meminfo_snapshot_t *snap, char *buf, size_t len);
+
 #ifdef __cplusplus
 }
 #endif
