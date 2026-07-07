@@ -45,6 +45,55 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 | `no-arduino-string` | library | Flags Arduino `String` type usage in library sources (`.c`/`.cpp`/`.h` under `platform/` and `components/`, excluding `.pio`/`.claude`/`test/`) — use `const char*` + length instead |
 | `component-readme` | library | Flags `components/<name>/` directories with no `README.md` (see the `docs` command below for the README template). Default severity `warn` — fires broadly on undocumented components today by design; flips to `error` once the fill lands (B1-646) |
 
+## `di-fence` command
+
+DI legacy ratchet-fence lint: freezes breadboard's legacy dependency-injection
+glue surface (self-registration macros, autoregister/auto-attach Kconfig
+options, pub-captive-sink patterns, force-keep linker directives) as
+shrink-only.
+
+```
+python3 scripts/bbtool.py di-fence [--root DIR] [--update-baseline]
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--root DIR` | cwd | Repository root to scan |
+| `--update-baseline` | — | Regenerate `scripts/bbtool/di_legacy_baseline.json` from the current scan and exit 0 — use for legitimate conversions/relocations of existing legacy markers |
+
+**What it does.** It scans `components/` + `platform/` for a fixed set of
+legacy-glue markers (BB_INIT_REGISTER family, `*_AUTOREGISTER`/`*_AUTO_ATTACH`
+Kconfig defs + usages, `bb_pub_sink_t`/`bb_pub_add_sink`, display
+force-keep, `bb_init_force_register*` CMake calls), diffs the current
+occurrence set against the committed baseline, and **fails on any net-new
+occurrence** that isn't already in the baseline. Removals never fail — they
+are reported as `INFO "candidate to prune"` so the baseline can shrink over
+time. New composition (a component, a route, a satellite) never needs a new
+occurrence of any of these markers — they are the legacy glue surface being
+phased out, not the sanctioned extension point.
+
+**Identity is symbol-keyed, not path-keyed.** A marker's identity for the
+ratchet diff is `(marker_type, symbol)` — the file path is retained only as
+informational metadata on each entry. This means a pure file rename of a
+component containing a marker does not trip the fence (no spurious
+remove+add); only a genuinely new or removed symbol does.
+
+**Scope: ESP-IDF + host only.** The Arduino backend
+(`platform/arduino/bb_display_*`) self-registers display backends via a
+`__attribute__((constructor))` function definition
+(`bb_display_register__<chip>`), a different mechanism than the ESP-IDF
+`BB_DISPLAY_AUTOREGISTER` macro / `-u` linker force-keep this fence scans
+for. That Arduino path is **not currently scanned** — Arduino is behind
+ESP-IDF on platform parity and not under active development, so scanner
+investment there is deliberately deferred rather than silent; see the
+`KNOWN GAP` comment above `_scan_display_force_keep` in
+`scripts/bbtool/commands/di_fence.py`.
+
+**Legitimate conversions/renames:** run with `--update-baseline` to move the
+baseline forward after intentionally converting or relocating an existing
+legacy marker (e.g. flipping a satellite from Tier 3 manual registration to
+Tier 2 auto-register).
+
 ## `bbtool.toml` config schema
 
 Discovery order: `--config PATH` → `<root>/bbtool.toml` → empty config.

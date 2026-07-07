@@ -1,6 +1,6 @@
 PIO ?= pio
 
-.PHONY: help all check lint cppcheck docs docs-index-check docs-check test-py test coverage smoke clean
+.PHONY: help all check lint cppcheck docs docs-index-check docs-check di-fence test-py test coverage smoke clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
@@ -8,7 +8,7 @@ help: ## Show available targets
 
 all: cppcheck test-py test ## Fast subset: static analysis + py-tests + host tests (lint runs per firmware build via BB_LINT_ON_BUILD)
 
-check: lint cppcheck docs-index-check docs-check ## Forbidden-pattern lint + static analysis (cppcheck) + docs drift checks
+check: lint cppcheck docs-index-check docs-check di-fence ## Forbidden-pattern lint + static analysis (cppcheck) + docs drift checks + DI ratchet-fence
 
 lint: ## Forbidden-pattern lint (also enforced on every firmware build via BB_LINT_ON_BUILD)
 	python3 scripts/bbtool.py lint --root . --profile library
@@ -21,6 +21,9 @@ docs-check: docs ## Verify component README marker regions match generated conte
 
 docs-index-check: ## Verify components/README.md matches generated content (no drift)
 	python3 scripts/gen_components_readme.py --check
+
+di-fence: ## DI legacy ratchet-fence: fail on any new self-registration/AUTOREGISTER/pub-sink/force-keep marker (enforced via `check`)
+	python3 scripts/bbtool.py di-fence --root .
 
 cppcheck: ## Static analysis (cppcheck)
 	@if command -v cppcheck >/dev/null 2>&1; then \
