@@ -103,7 +103,7 @@ required = true
 components = [
     "bb_alert", "bb_attrs", "bb_board", "bb_button",
     "bb_button_events", "bb_button_gpio", "bb_cache", "bb_cache_reactive",
-    "bb_cache_routes", "bb_collection", "bb_core", "bb_diag", "bb_dispatch_cmd",
+    "bb_cache_routes", "bb_collection", "bb_config", "bb_core", "bb_diag", "bb_dispatch_cmd",
     "bb_display", "bb_display_info", "bb_event", "bb_event_ring", "bb_event_routes",
     "bb_fan", "bb_fan_routes", "bb_filter", "bb_fmt", "bb_health", "bb_http",
     "bb_http_client", "bb_http_server", "bb_i2c", "bb_info", "bb_init", "bb_json", "bb_kv",
