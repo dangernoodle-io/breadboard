@@ -6,6 +6,7 @@
 
 #include "bb_core.h"
 #include "bb_json.h"
+#include "bb_wifi_creds.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,6 +53,14 @@ typedef struct {
 // the platform handles this implicitly (Arduino), this is a BB_OK no-op so
 // portable consumer code can call it unconditionally.
 bb_err_t bb_wifi_ensure_netif(void);
+
+// Inject the wifi-credential provider bb_wifi reads for the CONNECT path
+// (live creds only; the CONFIG_BB_WIFI_RECONFIGURE pending-creds path stays
+// on bb_nv — see bb_wifi.c). Pass NULL to fall back to bb_nv_config_wifi_ssid/
+// pass (today's behavior, byte-identical). MUST be called before
+// bb_init_init_early() so it is set before the EARLY-tier bb_wifi_autoinit
+// runs. Composition-only — bb_wifi does not self-register a default.
+void bb_wifi_set_creds_provider(const bb_wifi_creds_provider_t *provider, void *ctx);
 
 // STA mode connect. bb_wifi_init restarts the system on connect timeout
 // (intended for normal boot); bb_wifi_init_sta returns an error on timeout
