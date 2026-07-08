@@ -33,16 +33,43 @@ baseline line.
 
 Public symbols in this component use the `bb_` prefix.
 
+## bb_memreport — the unified memory report
+
+`bb_memreport_get(bb_memreport_snapshot_t *out)` folds `bb_meminfo_get`'s
+heap snapshot together with a per-region walk of every `bb_mem_arena_t`
+registered via `bb_memreport_register_arena(name, arena)` — one snapshot
+covering heap, bss (`out->heap.dram_static_bytes`), and each named arena's
+free/used/peak-used bytes plus alloc/free/alloc-failed counters. Additive to
+`bb_meminfo_get`/`_format` above; those stay heap-only by contract.
+
+`bb_memreport_format(const bb_memreport_snapshot_t *snap, char *buf, size_t
+len)` extends `bb_meminfo_format`'s heap-only line with `bss=<N>` and one
+`<name>=free/peak/used` token per registered region (snprintf semantics,
+truncation-safe).
+
+`bb_memreport_deregister(name)` removes a previously registered arena
+(no-op if never registered). Region capacity is `BB_MEMREPORT_MAX_REGIONS`
+(Kconfig `CONFIG_BB_MEMREPORT_MAX_REGIONS`, default 8). PR1 scope is
+arena-only — `bb_pool` consumers are a follow-up once `bb_pool` exposes its
+backing arena handle.
+
+`examples/floor` and `examples/smoke` use `bb_memreport_get`/`_format`
+(instead of the heap-only `bb_meminfo_get`/`_format`) for their periodic
+serial line; neither registers an arena, so their region_count is 0 and the
+line is just heap + bss.
+
 ## Config knobs
 
-None.
+| Kconfig | Default | Notes |
+|---------|---------|-------|
+| `CONFIG_BB_MEMREPORT_MAX_REGIONS` | 8 | `bb_memreport` region-registry capacity (`BB_MEMREPORT_MAX_REGIONS`). |
 
 ## Dependencies
 
 <!-- BEGIN bbtool:deps -->
-**REQUIRES:** `bb_core`
+**REQUIRES:** `bb_core`, `bb_mem_arena`
 
-**PRIV_REQUIRES:** _(none)_
+**PRIV_REQUIRES:** `bb_registry`
 <!-- END bbtool:deps -->
 
 ## Platform support

@@ -48,6 +48,12 @@ typedef struct {
     size_t alloc_count;   /**< Successful allocations */
     size_t free_count;    /**< Frees routed through bb_mem_arena_free */
     size_t alloc_failed;  /**< Allocations that returned NULL */
+    size_t peak_offset;   /**< High-watermark bump offset ever reached.
+                            *   Survives bb_mem_arena_reset() (unlike the live
+                            *   offset) — the soak-visible "worst it ever got"
+                            *   watermark. Zero-initialized; backward
+                            *   compatible with existing designated-initializer
+                            *   callers. */
 } bb_mem_arena_stats_t;
 
 /**
@@ -110,6 +116,14 @@ bool bb_mem_arena_owns(bb_mem_arena_t a, const void *ptr);
  * Returns 0 for NULL arena.
  */
 size_t bb_mem_arena_free_bytes(bb_mem_arena_t a);
+
+/**
+ * Returns the arena's total data-region size (free + used bytes), constant
+ * for the arena's lifetime. Returns 0 for NULL arena. Paired with
+ * bb_mem_arena_free_bytes() by consumers (e.g. bb_memreport) that need a
+ * used/free split, since the arena does not track "used" directly.
+ */
+size_t bb_mem_arena_size(bb_mem_arena_t a);
 
 /** Copy a stats snapshot into *out. No-op for NULL arena or NULL out. */
 void bb_mem_arena_get_stats(bb_mem_arena_t a, bb_mem_arena_stats_t *out);

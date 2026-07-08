@@ -23,10 +23,10 @@ static const char *TAG = "floor_app";
 static void heap_log_tick(void *arg)
 {
     (void)arg;
-    bb_meminfo_snapshot_t m;
-    bb_meminfo_get(&m);
+    bb_memreport_snapshot_t m;
+    bb_memreport_get(&m);
     char line[128];
-    bb_meminfo_format(&m, line, sizeof(line));
+    bb_memreport_format(&m, line, sizeof(line));
     bb_log_i(TAG, "%s", line);
 }
 

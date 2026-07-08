@@ -5,5 +5,6 @@
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_meminfo/bb_meminfo.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_core
+    REQUIRES bb_core bb_mem_arena
+    PRIV_REQUIRES bb_registry
 )

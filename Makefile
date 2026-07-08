@@ -58,6 +58,8 @@ coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging
 	    --filter 'platform/host/bb_fmt/' \
 	    --filter 'platform/host/bb_core/bb_clock\.c' \
 	    --filter 'platform/host/bb_core/bb_lock\.c' \
+	    --filter 'platform/host/bb_meminfo/' \
+	    --filter 'platform/host/bb_mem_arena/' \
 	    --exclude-throw-branches \
 	    --exclude-unreachable-branches \
 	    --exclude-directories '\.claude' \
