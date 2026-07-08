@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from core import Context
 from registry import Rule, RULES
+from cmake_parse import parse_requires, ConditionalSetError
 
 NAME = "lint"
 HELP = "Run source lint checks"
@@ -48,7 +49,13 @@ def _check_public_header_leak(ctx: Context) -> list:
         return violations
 
     include_pattern = re.compile(
-        r'["<](esp_|freertos/)|["<]driver/|["<]cJSON\.h'
+        r'["<](esp_|freertos/|lwip/|mbedtls/)'
+        r'|["<]driver/'
+        r'|["<]cJSON\.h'
+        r'|["<]mdns\.h'
+        r'|["<]nvs(?:_flash)?\.h'
+        r'|["<]httpd_'
+        r'|["<]sdkconfig\.h'
     )
     ifdef_open = re.compile(
         r'^\s*#\s*(?:ifdef\s+ESP_PLATFORM|if\s+defined\s*\(\s*ESP_PLATFORM\s*\))'
@@ -123,63 +130,6 @@ def _check_state_topic_post(ctx: Context) -> list:
         for i, line in enumerate(content.splitlines(), 1):
             if post_pattern.search(line) and topic_pattern.search(line):
                 violations.append(ctx.violation(path, i))
-    return violations
-
-
-def _check_public_requires_watchlist(ctx: Context) -> list:
-    """Rule: public-requires-watchlist — flags watchlist deps in REQUIRES (not PRIV_REQUIRES)."""
-    violations = []
-    root = Path(ctx.root)
-    comp_root = root / "components"
-    if not comp_root.exists():
-        return violations
-
-    watchlist_prefixes = [
-        "esp_driver_", "esp_lcd", "esp_http_server", "esp_timer",
-        "esp_system", "app_update", "espressif__mdns",
-    ]
-
-    # Allowlist: (component, dep_prefix) pairs
-    allowlist = [
-        ("bb_display_ek79007", "esp_lvgl_port"),
-        ("bb_display_ek79007", "lv_"),
-        ("bb_display_ek79007", "lvgl"),
-        ("bb_display_ssd1306", "esp_driver_i2c"),
-        ("bb_fan_emc2101", "esp_driver_i2c"),
-        ("bb_power_tps546", "esp_driver_i2c"),
-    ]
-
-    def is_watchlist(dep: str) -> bool:
-        for prefix in watchlist_prefixes:
-            if dep.startswith(prefix):
-                return True
-        return False
-
-    def is_allowlisted(comp: str, dep: str) -> bool:
-        for (ac, ap) in allowlist:
-            if comp == ac and dep.startswith(ap):
-                return True
-        return False
-
-    for cmake_file in sorted(comp_root.glob("*/CMakeLists.txt")):
-        comp = cmake_file.parent.name
-        content = ctx.read(cmake_file)
-        lines = content.splitlines()
-        for i, line in enumerate(lines, 1):
-            # Skip PRIV_REQUIRES lines
-            if "PRIV_REQUIRES" in line:
-                continue
-            if "REQUIRES" not in line:
-                continue
-            # Strip up to and including REQUIRES keyword, strip trailing )
-            after = line[line.index("REQUIRES") + len("REQUIRES"):]
-            after = after.split(")")[0]
-            deps = after.split()
-            for dep in deps:
-                if dep in ("REQUIRES", "idf_component_register"):
-                    continue
-                if is_watchlist(dep) and not is_allowlisted(comp, dep):
-                    violations.append(ctx.violation(cmake_file, i, f"component={comp} dep={dep}"))
     return violations
 
 
@@ -1075,6 +1025,21 @@ def _parse_kconfig_int_defaults(text: str) -> dict:
     return result
 
 
+def _collect_kconfig_int_defaults(ctx: Context) -> dict:
+    """Glob every components/**/Kconfig + platform/**/Kconfig file and merge
+    their int-typed base defaults into a single {name: default} map (first
+    occurrence wins across files). Shared by kconfig-default-mismatch and
+    kconfig-bridge-shadow so the glob+parse work isn't duplicated."""
+    kconfig_defaults: dict[str, int] = {}
+    for path in ctx.files(
+        ["components/**/Kconfig", "platform/**/Kconfig"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        for name, base in _parse_kconfig_int_defaults(ctx.read(path)).items():
+            kconfig_defaults.setdefault(name, base)
+    return kconfig_defaults
+
+
 def _check_kconfig_default_mismatch(ctx: Context) -> list:
     """Rule: kconfig-default-mismatch — for every `#ifndef BB_X` / `#define
     BB_X <int>` C fallback bridge, flag when it doesn't match the base
@@ -1089,13 +1054,7 @@ def _check_kconfig_default_mismatch(ctx: Context) -> list:
     )
     allowlist: set = set(rule_cfg.get("allow", []))
 
-    kconfig_defaults: dict[str, int] = {}
-    for path in ctx.files(
-        ["components/**/Kconfig", "platform/**/Kconfig"],
-        exclude_dirs=[".pio", ".claude"],
-    ):
-        for name, base in _parse_kconfig_int_defaults(ctx.read(path)).items():
-            kconfig_defaults.setdefault(name, base)
+    kconfig_defaults = _collect_kconfig_int_defaults(ctx)
 
     if not kconfig_defaults:
         return violations
@@ -1198,6 +1157,311 @@ def _check_task_creation_without_registration(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: public-requires-unused
+# ---------------------------------------------------------------------------
+
+# Seeded from the retired public-requires-watchlist rule's allowlist (that
+# rule has been removed — this rule supersedes it) — these are known,
+# deliberate exceptions to the REQUIRES/PRIV_REQUIRES
+# decisive test (documented escape hatches, e.g. the large-panel LVGL
+# backend exception in CLAUDE.md). Default, always active; a repo's
+# bbtool.toml [lint.rules.public-requires-unused] allow = [[comp, dep], ...]
+# adds to (not replaces) this list.
+_PUBLIC_REQUIRES_UNUSED_DEFAULT_ALLOW = [
+    ("bb_display_ek79007", "esp_lvgl_port"),
+    ("bb_display_ek79007", "lv_"),
+    ("bb_display_ek79007", "lvgl"),
+    ("bb_display_ssd1306", "esp_driver_i2c"),
+    ("bb_fan_emc2101", "esp_driver_i2c"),
+    ("bb_power_tps546", "esp_driver_i2c"),
+]
+
+_INCLUDE_TARGET_RE = re.compile(r'#\s*include\s*[<"]([^">]+)[">]')
+_REGISTER_CALL_RE = re.compile(r'\bidf_component_register\s*\(')
+
+
+def _find_register_call_span(content: str) -> Optional[tuple]:
+    """Return (open_paren_idx, close_paren_idx) for the first
+    idf_component_register(...) call in content, or None if not found."""
+    m = _REGISTER_CALL_RE.search(content)
+    if not m:
+        return None
+    open_idx = content.index('(', m.start())
+    close_idx = _walk_balanced(content, open_idx, '(', ')')
+    if close_idx < 0:
+        return None
+    return open_idx, close_idx
+
+
+# CMake component names sometimes don't match the header stem they provide
+# (e.g. REQUIRES json provides cJSON.h; REQUIRES espressif__mdns provides
+# mdns.h). Map the component-name token to the header-stem token it
+# actually provides so these aren't false-flagged as unused.
+_PUBLIC_REQUIRES_UNUSED_DEP_ALIASES = {
+    "json": "cjson",
+}
+
+
+def _normalize_dep_token(dep: str) -> str:
+    """Strip a leading 'espressif__' namespace and apply the known
+    component-name -> header-stem alias map, for matching against
+    #include'd header stems."""
+    token = dep
+    if token.startswith("espressif__"):
+        token = token[len("espressif__"):]
+    return _PUBLIC_REQUIRES_UNUSED_DEP_ALIASES.get(token, token)
+
+
+def _dep_referenced_by_stem(dep: str, stem: str) -> bool:
+    """True if a public header's #include stem satisfies REQUIRES dep,
+    either literally or via the espressif__ / component-name alias map
+    (case-insensitive for the alias path, since header stems like cJSON
+    don't case-match their providing component name json)."""
+    if stem == dep or stem.startswith(dep):
+        return True
+    normalized = _normalize_dep_token(dep)
+    if normalized != dep:
+        stem_lower = stem.lower()
+        normalized_lower = normalized.lower()
+        if stem_lower == normalized_lower or stem_lower.startswith(normalized_lower):
+            return True
+    return False
+
+
+def _public_header_include_stems(comp_dir: Path, ctx: Context) -> set:
+    """Return the set of filename stems (no extension) #include'd by any
+    public header (include/*.h) of the component at comp_dir."""
+    stems: set = set()
+    inc_dir = comp_dir / "include"
+    if not inc_dir.exists():
+        return stems
+    for header in sorted(inc_dir.glob("*.h")):
+        content = ctx.read(header)
+        for m in _INCLUDE_TARGET_RE.finditer(content):
+            filename = m.group(1).rsplit('/', 1)[-1]
+            stem = filename[:-2] if filename.endswith('.h') else filename
+            stems.add(stem)
+    return stems
+
+
+def _check_public_requires_unused(ctx: Context) -> list:
+    """Rule: public-requires-unused — for each component's REQUIRES (public)
+    dependency, flag it when no public header (include/*.h) of the component
+    #includes a header matching that dependency's name. This is the decisive
+    test from CLAUDE.md's "REQUIRES vs PRIV_REQUIRES" section: a dep belongs
+    in REQUIRES only if THIS component's public header includes that dep's
+    header or uses its types — everything else defaults to PRIV_REQUIRES.
+
+    Conservative on purpose (bias toward NOT flagging when unsure): a token T
+    counts as "referenced" if any public header #includes a header whose
+    filename stem equals T or starts with T. PRIV_REQUIRES tokens are never
+    checked (they're already private).
+
+    Scoped to platform/third-party tokens only (any dep NOT starting with
+    "bb_" — esp_*, espressif__*, managed-component/bare names like lwip,
+    mbedtls, mdns, cjson, etc.). Internal bb_*-to-bb_* coupling is out of
+    scope: their types can reach a public header via transitive/cross-header
+    includes the filename-stem heuristic can't follow, so evaluating them
+    produced mostly false positives (~76 hits, collapsing to a handful of
+    genuine platform leaks once bb_* tokens are excluded). This targets the
+    esp_netif-class leak specifically.
+
+    Severity stays "warn" — bb_wifi/esp_netif is a known, currently-unfixed
+    leak; promoting to "error" here would break `make lint`/CI on the
+    existing tree. Graduate to "error" once that leak is fixed downstream."""
+    violations = []
+    root = Path(ctx.root)
+    comp_root = root / "components"
+    if not comp_root.exists():
+        return violations
+
+    rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get(
+        "public-requires-unused", {}
+    )
+    config_allow = [tuple(pair) for pair in rule_cfg.get("allow", [])]
+    allowlist = _PUBLIC_REQUIRES_UNUSED_DEFAULT_ALLOW + config_allow
+
+    def is_allowlisted(comp: str, dep: str) -> bool:
+        for (ac, ap) in allowlist:
+            if comp == ac and dep.startswith(ap):
+                return True
+        return False
+
+    for cmake_file in sorted(comp_root.glob("*/CMakeLists.txt")):
+        comp = cmake_file.parent.name
+        content = ctx.read(cmake_file)
+        try:
+            requires, _priv_requires = parse_requires(content, component=comp)
+        except ConditionalSetError:
+            # Out of scope for this rule — parse_requires already documents
+            # why conditional REQUIRES/PRIV_REQUIRES isn't statically derivable.
+            continue
+
+        if not requires:
+            continue
+
+        stems = _public_header_include_stems(cmake_file.parent, ctx)
+
+        # Line attribution: find the register call's own line as a
+        # fallback, and pin per-dep violations to the line inside the call
+        # block that word-boundary-matches the dep token (multi-line
+        # REQUIRES lists are common — falling back to line 1 unconditionally
+        # mis-attributes every one of them).
+        register_span = _find_register_call_span(content)
+        if register_span is not None:
+            reg_open_idx, reg_close_idx = register_span
+            register_line_no = content[:reg_open_idx].count('\n') + 1
+            block_lines = content[reg_open_idx:reg_close_idx + 1].splitlines()
+        else:
+            register_line_no = 1
+            block_lines = []
+
+        for dep in requires:
+            if dep.startswith("bb_"):
+                # Internal bb_*-to-bb_* coupling — deliberately out of scope,
+                # see the rule docstring.
+                continue
+            if is_allowlisted(comp, dep):
+                continue
+            if any(_dep_referenced_by_stem(dep, stem) for stem in stems):
+                continue
+
+            line_no = register_line_no
+            dep_re = re.compile(r'\b' + re.escape(dep) + r'\b')
+            for offset, line in enumerate(block_lines):
+                if "PRIV_REQUIRES" in line:
+                    continue
+                if dep_re.search(line):
+                    line_no = register_line_no + offset
+                    break
+
+            violations.append(ctx.violation(
+                cmake_file, line_no,
+                f"component={comp} dep={dep} — no public header references it;"
+                " should be PRIV_REQUIRES"))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Rule: kconfig-bridge-shadow
+# ---------------------------------------------------------------------------
+
+def _check_kconfig_bridge_shadow(ctx: Context) -> list:
+    """Rule: kconfig-bridge-shadow — flags a bare `#ifndef BB_X` / `#define
+    BB_X <literal>` C fallback for a name X that also has a `config BB_X` int
+    declared in Kconfig, when the same file has NO bridge (`#ifdef
+    CONFIG_BB_X` / `#define BB_X CONFIG_BB_X`) tying the C macro to the
+    Kconfig symbol. Without the bridge, the `#ifndef` always wins and the
+    Kconfig knob can never reach the code — this shipped 3x (bb_net_health,
+    bb_power_health, bb_pub; see CLAUDE.md 'Avoiding audit-class
+    regressions')."""
+    violations = []
+    root = Path(ctx.root)
+
+    kconfig_defaults = _collect_kconfig_int_defaults(ctx)
+
+    if not kconfig_defaults:
+        return violations
+
+    for path in ctx.files(
+        ["components/**/*.c", "components/**/*.h",
+         "platform/**/*.c", "platform/**/*.h", "platform/**/*.cpp"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+
+        content = ctx.read(path)
+        lines = content.splitlines()
+
+        for i, line in enumerate(lines):
+            m = _C_IFNDEF_BB_RE.match(line)
+            if not m:
+                continue
+            name = m.group(1)
+            if name not in kconfig_defaults:
+                continue
+            if i + 1 >= len(lines):
+                continue
+            def_m = re.match(r'^\s*#define\s+' + re.escape(name) + r'\b', lines[i + 1])
+            if not def_m:
+                continue
+
+            bridge_token = f"CONFIG_{name}"
+            if re.search(rf'\bCONFIG_{re.escape(name)}\b', content):
+                continue  # bridge exists somewhere in this file
+
+            violations.append(ctx.violation(
+                path, i + 1,
+                f"{name} has a bare #ifndef/#define fallback but Kconfig declares"
+                f" config {name} with no {bridge_token} bridge in this file —"
+                " the knob is silently inert"))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Rule: raw-timestamp-divide
+# ---------------------------------------------------------------------------
+
+_RAW_TIMESTAMP_DIVIDE_RE = re.compile(
+    r'\besp_timer_get_time\s*\(\s*\)\s*/\s*1000(?![0-9])[uUlL]*'
+    r'|\bbb_timer_now_us\s*\(\s*\)\s*/\s*1000(?![0-9])[uUlL]*'
+)
+
+
+def _check_raw_timestamp_divide(ctx: Context) -> list:
+    """Rule: raw-timestamp-divide — flags raw millisecond conversions
+    (`esp_timer_get_time()/1000` or `bb_timer_now_us()/1000`) that bypass the
+    canonical bb_clock helper, outside the bb_clock/ and bb_timer/ component
+    directories (the only places allowed to do this raw math). See CLAUDE.md
+    'Avoiding audit-class regressions' — timestamps must go through
+    bb_clock_now_ms64() / bb_clock_now_ms()."""
+    violations = []
+    root = Path(ctx.root)
+
+    rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get(
+        "raw-timestamp-divide", {}
+    )
+    allowlist: set = set(rule_cfg.get("allow", []))
+
+    for path in ctx.files(
+        ["platform/**/*.c", "platform/**/*.h",
+         "components/**/*.c", "components/**/*.h"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+        # Exempt the canonical bb_clock impl (basename bb_clock.c/.h, any
+        # directory) and any file under a bb_timer component directory — the
+        # only places allowed to do this raw math. Keying on a path
+        # component literally named "bb_clock" misses the real layout
+        # (platform/{host,espidf}/bb_core/bb_clock.c — component bb_core,
+        # no bb_clock directory).
+        if path.name in ("bb_clock.c", "bb_clock.h") or "bb_timer" in parts:
+            continue
+
+        rel = str(path.relative_to(root))
+        if rel in allowlist:
+            continue
+
+        content = ctx.read(path)
+        stripped = _strip_noise(content)
+        for i, line in enumerate(stripped.splitlines(), 1):
+            if not _RAW_TIMESTAMP_DIVIDE_RE.search(line):
+                continue
+            key = f"{rel}:{i}"
+            if key in allowlist:
+                continue
+            violations.append(ctx.violation(path, i, line.strip()))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule registry
 # ---------------------------------------------------------------------------
 
@@ -1226,13 +1490,6 @@ def _register_lint_rules() -> None:
             profiles={"all"},
             check=_check_state_topic_post,
             hint="state topics must be posted through bb_cache",
-        ),
-        Rule(
-            id="public-requires-watchlist",
-            default_severity="error",
-            profiles={"library"},
-            check=_check_public_requires_watchlist,
-            hint="move watchlist deps to PRIV_REQUIRES",
         ),
         Rule(
             id="raw-allocator",
@@ -1342,6 +1599,31 @@ def _register_lint_rules() -> None:
             hint="every xTaskCreate*/xTaskCreateStatic* in components/ or"
                  " platform/espidf/ must pair with bb_task_registry_register(...)"
                  " in the same file",
+        ),
+        Rule(
+            id="public-requires-unused",
+            default_severity="warn",
+            profiles={"library"},
+            check=_check_public_requires_unused,
+            hint="REQUIRES dep not referenced by any public header — move to"
+                 " PRIV_REQUIRES (decisive test: CLAUDE.md 'REQUIRES vs PRIV_REQUIRES')",
+        ),
+        Rule(
+            id="kconfig-bridge-shadow",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_kconfig_bridge_shadow,
+            hint="bare #ifndef BB_X/#define BB_X shadows a Kconfig config BB_X"
+                 " with no CONFIG_BB_X bridge — the knob is silently inert",
+        ),
+        Rule(
+            id="raw-timestamp-divide",
+            default_severity="warn",
+            profiles={"all"},
+            check=_check_raw_timestamp_divide,
+            hint="use bb_clock_now_ms64()/bb_clock_now_ms() instead of raw"
+                 " esp_timer_get_time()/1000 or bb_timer_now_us()/1000"
+                 " outside bb_clock/ and bb_timer/",
         ),
     ]
     for rule in rules:

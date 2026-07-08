@@ -14,7 +14,6 @@ from commands.lint import (
     _check_deprecated_http_send,
     _check_public_header_leak,
     _check_state_topic_post,
-    _check_public_requires_watchlist,
     _check_raw_allocator,
     _check_raw_esp_timer,
     _check_timer_cb_heavy,
@@ -28,6 +27,9 @@ from commands.lint import (
     _check_event_topic_needs_schema,
     _check_kconfig_default_mismatch,
     _check_task_creation_without_registration,
+    _check_public_requires_unused,
+    _check_kconfig_bridge_shadow,
+    _check_raw_timestamp_divide,
     _strip_noise,
     _parse_kconfig_int_defaults,
 )
@@ -116,6 +118,104 @@ class TestPublicHeaderLeak(unittest.TestCase):
             violations = _check_public_header_leak(make_ctx(td))
             self.assertTrue(violations, "ungated cJSON.h include must fire")
 
+    def test_fires_on_lwip_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#include "lwip/ip4_addr.h"\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertTrue(violations, "ungated lwip/ include must fire")
+
+    def test_no_fire_on_gated_lwip_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#ifdef ESP_PLATFORM\n#include "lwip/ip4_addr.h"\n#endif\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertFalse(violations, "gated lwip/ include must NOT fire")
+
+    def test_fires_on_mbedtls_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#include "mbedtls/ssl.h"\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertTrue(violations, "ungated mbedtls/ include must fire")
+
+    def test_no_fire_on_gated_mbedtls_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#ifdef ESP_PLATFORM\n#include "mbedtls/ssl.h"\n#endif\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertFalse(violations, "gated mbedtls/ include must NOT fire")
+
+    def test_fires_on_mdns_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#include "mdns.h"\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertTrue(violations, "ungated mdns.h include must fire")
+
+    def test_no_fire_on_gated_mdns_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#ifdef ESP_PLATFORM\n#include "mdns.h"\n#endif\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertFalse(violations, "gated mdns.h include must NOT fire")
+
+    def test_fires_on_nvs_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#include "nvs.h"\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertTrue(violations, "ungated nvs.h include must fire")
+
+    def test_fires_on_nvs_flash_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#include "nvs_flash.h"\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertTrue(violations, "ungated nvs_flash.h include must fire")
+
+    def test_no_fire_on_gated_nvs_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#ifdef ESP_PLATFORM\n#include "nvs_flash.h"\n#endif\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertFalse(violations, "gated nvs_flash.h include must NOT fire")
+
+    def test_fires_on_esp_http_server_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#include "esp_http_server.h"\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertTrue(violations, "ungated esp_http_server.h include must fire")
+
+    def test_fires_on_httpd_priv_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#include "httpd_priv.h"\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertTrue(violations, "ungated httpd_* include must fire")
+
+    def test_no_fire_on_gated_httpd_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#ifdef ESP_PLATFORM\n#include "httpd_priv.h"\n#endif\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertFalse(violations, "gated httpd_* include must NOT fire")
+
+    def test_fires_on_sdkconfig_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#include "sdkconfig.h"\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertTrue(violations, "ungated sdkconfig.h include must fire")
+
+    def test_no_fire_on_gated_sdkconfig_include(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_header(td, "bb_fake", "bb_fake.h",
+                '#pragma once\n#ifdef ESP_PLATFORM\n#include "sdkconfig.h"\n#endif\n')
+            violations = _check_public_header_leak(make_ctx(td))
+            self.assertFalse(violations, "gated sdkconfig.h include must NOT fire")
+
 
 class TestStateTopicPost(unittest.TestCase):
     def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
@@ -165,49 +265,6 @@ class TestStateTopicPost(unittest.TestCase):
                 'void foo(void) { bb_event_post(ev, BB_NET_HEALTH_TOPIC, data, len); }\n')
             violations = _check_state_topic_post(make_ctx(td))
             self.assertTrue(violations, "expected violation on BB_NET_HEALTH_TOPIC macro")
-
-
-class TestPublicRequiresWatchlist(unittest.TestCase):
-    def _make_cmake(self, tmpdir: str, comp: str, content: str) -> str:
-        d = os.path.join(tmpdir, "components", comp)
-        os.makedirs(d, exist_ok=True)
-        Path(os.path.join(d, "CMakeLists.txt")).write_text(content)
-        return tmpdir
-
-    def test_fires_on_non_allowlisted_watchlist_dep(self):
-        with tempfile.TemporaryDirectory() as td:
-            self._make_cmake(td, "bb_fake",
-                'idf_component_register(\n    SRCS "fake.c"\n    REQUIRES bb_core esp_lcd\n)\n')
-            violations = _check_public_requires_watchlist(make_ctx(td))
-            self.assertTrue(violations, "expected violation on watchlist dep in REQUIRES")
-
-    def test_no_fire_on_priv_requires(self):
-        with tempfile.TemporaryDirectory() as td:
-            self._make_cmake(td, "bb_fake",
-                'idf_component_register(\n    SRCS "fake.c"\n    PRIV_REQUIRES bb_core esp_lcd\n)\n')
-            violations = _check_public_requires_watchlist(make_ctx(td))
-            self.assertFalse(violations, "PRIV_REQUIRES must NOT fire")
-
-    def test_allowlist_bb_display_ssd1306_esp_driver_i2c(self):
-        with tempfile.TemporaryDirectory() as td:
-            self._make_cmake(td, "bb_display_ssd1306",
-                'idf_component_register(\n    SRCS "fake.c"\n    REQUIRES bb_core bb_display esp_driver_i2c\n)\n')
-            violations = _check_public_requires_watchlist(make_ctx(td))
-            self.assertFalse(violations, "bb_display_ssd1306 / esp_driver_i2c must be allowlisted")
-
-    def test_fires_bb_fake_i2c_esp_driver_i2c(self):
-        with tempfile.TemporaryDirectory() as td:
-            self._make_cmake(td, "bb_fake_i2c",
-                'idf_component_register(\n    SRCS "fake.c"\n    REQUIRES bb_core esp_driver_i2c\n)\n')
-            violations = _check_public_requires_watchlist(make_ctx(td))
-            self.assertTrue(violations, "non-allowlisted component with esp_driver_i2c must fire")
-
-    def test_allowlist_bb_display_ek79007_esp_lvgl_port(self):
-        with tempfile.TemporaryDirectory() as td:
-            self._make_cmake(td, "bb_display_ek79007",
-                'idf_component_register(\n    SRCS "fake.c"\n    REQUIRES bb_core bb_display esp_lvgl_port\n)\n')
-            violations = _check_public_requires_watchlist(make_ctx(td))
-            self.assertFalse(violations, "bb_display_ek79007 / esp_lvgl_port must be allowlisted")
 
 
 class TestRawEspTimer(unittest.TestCase):
@@ -1416,6 +1473,415 @@ class TestTaskCreationWithoutRegistration(unittest.TestCase):
             # creates in the same file. A future call-site-precise rule would
             # flip this to a violation — see B1-466 follow-up.
             self.assertFalse(violations, "1 register satisfies N creates in the same file")
+
+
+class TestPublicRequiresUnused(unittest.TestCase):
+    def _make_cmake(self, tmpdir: str, comp: str, content: str) -> str:
+        d = os.path.join(tmpdir, "components", comp)
+        os.makedirs(d, exist_ok=True)
+        Path(os.path.join(d, "CMakeLists.txt")).write_text(content)
+        return tmpdir
+
+    def _make_header(self, tmpdir: str, comp: str, filename: str, content: str) -> str:
+        inc = os.path.join(tmpdir, "components", comp, "include")
+        os.makedirs(inc, exist_ok=True)
+        Path(os.path.join(inc, filename)).write_text(content)
+        return tmpdir
+
+    def test_no_fire_when_public_header_references_dep(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_netstuff",
+                'idf_component_register(\n    SRCS "fake.c"\n    REQUIRES bb_core esp_netif\n)\n')
+            self._make_header(td, "bb_netstuff", "bb_netstuff.h",
+                '#pragma once\n#include "bb_core.h"\n#include "esp_netif.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertFalse(violations,
+                "esp_netif referenced by a public header must NOT fire")
+
+    def test_fires_when_dep_not_referenced(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_netstuff",
+                'idf_component_register(\n    SRCS "fake.c"\n    REQUIRES bb_core esp_netif\n)\n')
+            self._make_header(td, "bb_netstuff", "bb_netstuff.h",
+                '#pragma once\n#include "bb_core.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertTrue(violations,
+                "esp_netif in REQUIRES with no public-header reference must fire")
+            self.assertIn("esp_netif", violations[0]["detail"])
+
+    def test_no_fire_on_priv_requires(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_netstuff",
+                'idf_component_register(\n    SRCS "fake.c"\n'
+                '    REQUIRES bb_core\n    PRIV_REQUIRES esp_netif\n)\n')
+            self._make_header(td, "bb_netstuff", "bb_netstuff.h",
+                '#pragma once\n#include "bb_core.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertFalse(violations, "PRIV_REQUIRES deps must never be checked")
+
+    def test_default_allowlist_bb_display_ek79007(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_display_ek79007",
+                'idf_component_register(\n    SRCS "fake.c"\n'
+                '    REQUIRES bb_core bb_display esp_lvgl_port\n)\n')
+            self._make_header(td, "bb_display_ek79007", "bb_display_ek79007.h",
+                '#pragma once\n#include "bb_core.h"\n#include "bb_display.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertFalse(violations,
+                "bb_display_ek79007 / esp_lvgl_port must be allowlisted by default")
+
+    def test_config_allowlist_pair(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_custom",
+                'idf_component_register(\n    SRCS "fake.c"\n    REQUIRES bb_core esp_weird\n)\n')
+            self._make_header(td, "bb_custom", "bb_custom.h",
+                '#pragma once\n#include "bb_core.h"\n')
+            config = {"lint": {"rules": {"public-requires-unused": {
+                "allow": [["bb_custom", "esp_weird"]]
+            }}}}
+            ctx = Context(root=td, config=config)
+            violations = _check_public_requires_unused(ctx)
+            self.assertFalse(violations, "config-allowlisted (component, dep) pair must NOT fire")
+
+    def test_no_fire_on_bb_prefixed_dep_even_when_unreferenced(self):
+        """bb_* tokens are out of scope entirely — never evaluated, regardless
+        of whether a public header references them."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_consumer",
+                'idf_component_register(\n    SRCS "fake.c"\n    REQUIRES bb_core bb_helper_unrelated\n)\n')
+            self._make_header(td, "bb_consumer", "bb_consumer.h",
+                '#pragma once\n#include "bb_core.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertFalse(violations,
+                "bb_* REQUIRES tokens must never be flagged (internal coupling is out of scope)")
+
+    def test_fires_on_platform_dep_not_referenced_alongside_bb_deps(self):
+        """A genuine platform-dep leak still fires even when bb_* deps are
+        also present in REQUIRES (and correctly ignored)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_wifi",
+                'idf_component_register(\n    SRCS "fake.c"\n'
+                '    REQUIRES bb_core bb_event esp_netif\n)\n')
+            self._make_header(td, "bb_wifi", "bb_wifi.h",
+                '#pragma once\n#include "bb_core.h"\n#include "bb_event.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertEqual(len(violations), 1,
+                "esp_netif must fire even with bb_* deps present (which must be ignored)")
+            self.assertIn("esp_netif", violations[0]["detail"])
+
+    def test_default_allowlist_bb_display_ssd1306_esp_driver_i2c(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_display_ssd1306",
+                'idf_component_register(\n    SRCS "fake.c"\n'
+                '    REQUIRES bb_core bb_display esp_driver_i2c\n)\n')
+            self._make_header(td, "bb_display_ssd1306", "bb_display_ssd1306.h",
+                '#pragma once\n#include "bb_core.h"\n#include "bb_display.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertFalse(violations,
+                "bb_display_ssd1306 / esp_driver_i2c must be allowlisted by default"
+                " (carried over from the retired public-requires-watchlist rule)")
+
+    def test_default_allowlist_bb_fan_emc2101_esp_driver_i2c(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_fan_emc2101",
+                'idf_component_register(\n    SRCS "fake.c"\n'
+                '    REQUIRES bb_core bb_fan esp_driver_i2c\n)\n')
+            self._make_header(td, "bb_fan_emc2101", "bb_fan_emc2101.h",
+                '#pragma once\n#include "bb_core.h"\n#include "bb_fan.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertFalse(violations,
+                "bb_fan_emc2101 / esp_driver_i2c must be allowlisted by default")
+
+    def test_default_allowlist_bb_power_tps546_esp_driver_i2c(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_power_tps546",
+                'idf_component_register(\n    SRCS "fake.c"\n'
+                '    REQUIRES bb_core bb_power esp_driver_i2c\n)\n')
+            self._make_header(td, "bb_power_tps546", "bb_power_tps546.h",
+                '#pragma once\n#include "bb_core.h"\n#include "bb_power.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertFalse(violations,
+                "bb_power_tps546 / esp_driver_i2c must be allowlisted by default")
+
+    def test_non_allowlisted_component_esp_driver_i2c_still_fires(self):
+        """A component NOT on the allowlist with an unreferenced esp_driver_i2c
+        dep must still fire — the allowlist is component+dep scoped, not global."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_fake_i2c",
+                'idf_component_register(\n    SRCS "fake.c"\n    REQUIRES bb_core esp_driver_i2c\n)\n')
+            self._make_header(td, "bb_fake_i2c", "bb_fake_i2c.h",
+                '#pragma once\n#include "bb_core.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertTrue(violations,
+                "non-allowlisted component with unreferenced esp_driver_i2c must fire")
+
+    def test_no_fire_json_dep_referencing_cjson_header(self):
+        """REQUIRES json provides cJSON.h — the component-name/header-stem
+        alias map must not false-flag this as unused."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_jsonstuff",
+                'idf_component_register(\n    SRCS "fake.c"\n    REQUIRES bb_core json\n)\n')
+            self._make_header(td, "bb_jsonstuff", "bb_jsonstuff.h",
+                '#pragma once\n#include "bb_core.h"\n#include "cJSON.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertFalse(violations,
+                "json / cJSON.h must NOT be flagged via the alias map")
+
+    def test_no_fire_espressif_mdns_dep_referencing_mdns_header(self):
+        """REQUIRES espressif__mdns provides mdns.h — the leading
+        espressif__ namespace must be stripped before matching."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_mdnsstuff",
+                'idf_component_register(\n    SRCS "fake.c"\n'
+                '    REQUIRES bb_core espressif__mdns\n)\n')
+            self._make_header(td, "bb_mdnsstuff", "bb_mdnsstuff.h",
+                '#pragma once\n#include "bb_core.h"\n#include "mdns.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertFalse(violations,
+                "espressif__mdns / mdns.h must NOT be flagged via the alias map")
+
+    def test_genuinely_unused_platform_dep_still_fires_alongside_aliases(self):
+        """A real, unreferenced platform dep must still fire even when an
+        aliased dep is present and correctly suppressed."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_mixed",
+                'idf_component_register(\n    SRCS "fake.c"\n'
+                '    REQUIRES bb_core json esp_netif\n)\n')
+            self._make_header(td, "bb_mixed", "bb_mixed.h",
+                '#pragma once\n#include "bb_core.h"\n#include "cJSON.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertEqual(len(violations), 1,
+                "esp_netif must still fire while json/cJSON.h is suppressed")
+            self.assertIn("esp_netif", violations[0]["detail"])
+
+    def test_line_attribution_for_multiline_requires(self):
+        """The violation's line number must point at the actual line inside
+        the idf_component_register(...) block where the dep token appears,
+        not an unconditional fallback to line 1."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_multiline",
+                'idf_component_register(\n'
+                '    SRCS "fake.c"\n'
+                '    REQUIRES\n'
+                '        bb_core\n'
+                '        esp_netif\n'
+                ')\n')
+            self._make_header(td, "bb_multiline", "bb_multiline.h",
+                '#pragma once\n#include "bb_core.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertEqual(len(violations), 1)
+            # esp_netif is on line 5 (1-indexed) of the CMakeLists.txt fixture.
+            self.assertEqual(violations[0]["line"], 5,
+                "line attribution must point at the esp_netif token's own line,"
+                " not fall back to line 1")
+
+    def test_conditional_set_requires_is_skipped_not_crashed(self):
+        """A component whose REQUIRES comes from a conditional set() raises
+        ConditionalSetError inside parse_requires; the rule must catch it and
+        continue (out of scope), not propagate or crash the whole lint run."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_cmake(td, "bb_conditional",
+                'if(CONFIG_BB_CONDITIONAL_VARIANT)\n'
+                '    set(_reqs bb_core esp_netif)\n'
+                'else()\n'
+                '    set(_reqs bb_core)\n'
+                'endif()\n'
+                'idf_component_register(\n'
+                '    SRCS "fake.c"\n'
+                '    REQUIRES ${_reqs}\n'
+                ')\n')
+            self._make_header(td, "bb_conditional", "bb_conditional.h",
+                '#pragma once\n#include "bb_core.h"\n')
+            violations = _check_public_requires_unused(make_ctx(td))
+            self.assertEqual(violations, [],
+                "a conditional-set REQUIRES component must be skipped, not raise")
+
+
+class TestKconfigBridgeShadow(unittest.TestCase):
+    def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return tmpdir
+
+    def test_fires_on_missing_bridge(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_LEN\n'
+                '    int "Fake length"\n'
+                '    default 24\n')
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '#ifndef BB_FAKE_LEN\n'
+                '#define BB_FAKE_LEN 24\n'
+                '#endif\n')
+            violations = _check_kconfig_bridge_shadow(make_ctx(td))
+            self.assertTrue(violations,
+                "bare #ifndef/#define with a matching Kconfig int and no CONFIG_ bridge must fire")
+
+    def test_no_fire_with_bridge_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_LEN\n'
+                '    int "Fake length"\n'
+                '    default 24\n')
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '#ifdef ESP_PLATFORM\n'
+                '#include "sdkconfig.h"\n'
+                '#ifdef CONFIG_BB_FAKE_LEN\n'
+                '#define BB_FAKE_LEN CONFIG_BB_FAKE_LEN\n'
+                '#endif\n'
+                '#endif\n'
+                '#ifndef BB_FAKE_LEN\n'
+                '#define BB_FAKE_LEN 24\n'
+                '#endif\n')
+            violations = _check_kconfig_bridge_shadow(make_ctx(td))
+            self.assertFalse(violations, "bridge present in the same file must NOT fire")
+
+    def test_no_fire_on_unrelated_c_default(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_OTHER\n'
+                '    int "Other"\n'
+                '    default 1\n')
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '#ifndef BB_UNRELATED\n'
+                '#define BB_UNRELATED 999\n'
+                '#endif\n')
+            violations = _check_kconfig_bridge_shadow(make_ctx(td))
+            self.assertFalse(violations,
+                "C default with no matching Kconfig int entry must NOT fire")
+
+    def test_fires_despite_unrelated_longer_config_symbol_in_file(self):
+        """A raw substring test for f"CONFIG_{name}" in content is defeated
+        by CONFIG_BB_FAKE_LEN matching inside CONFIG_BB_FAKE_LEN_EXTRA — the
+        match must be word-bounded so a genuinely-unbridged BB_FAKE_LEN still
+        fires even when an unrelated CONFIG_BB_FAKE_LEN_EXTRA symbol is
+        present in the same file."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_LEN\n'
+                '    int "Fake length"\n'
+                '    default 24\n')
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '#ifdef CONFIG_BB_FAKE_LEN_EXTRA\n'
+                '#define BB_FAKE_LEN_EXTRA 1\n'
+                '#endif\n'
+                '#ifndef BB_FAKE_LEN\n'
+                '#define BB_FAKE_LEN 24\n'
+                '#endif\n')
+            violations = _check_kconfig_bridge_shadow(make_ctx(td))
+            self.assertTrue(violations,
+                "a genuinely-unbridged BB_FAKE_LEN must still fire despite an"
+                " unrelated CONFIG_BB_FAKE_LEN_EXTRA symbol in the same file")
+
+    def test_no_fire_when_properly_bridged_alongside_longer_symbol(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/Kconfig",
+                'config BB_FAKE_LEN\n'
+                '    int "Fake length"\n'
+                '    default 24\n')
+            self._make_file(td, "platform/espidf/bb_fake/bb_fake.c",
+                '#ifdef CONFIG_BB_FAKE_LEN_EXTRA\n'
+                '#define BB_FAKE_LEN_EXTRA 1\n'
+                '#endif\n'
+                '#ifdef ESP_PLATFORM\n'
+                '#include "sdkconfig.h"\n'
+                '#ifdef CONFIG_BB_FAKE_LEN\n'
+                '#define BB_FAKE_LEN CONFIG_BB_FAKE_LEN\n'
+                '#endif\n'
+                '#endif\n'
+                '#ifndef BB_FAKE_LEN\n'
+                '#define BB_FAKE_LEN 24\n'
+                '#endif\n')
+            violations = _check_kconfig_bridge_shadow(make_ctx(td))
+            self.assertFalse(violations,
+                "a properly-bridged symbol must NOT fire")
+
+
+class TestRawTimestampDivide(unittest.TestCase):
+    def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return tmpdir
+
+    def test_fires_on_esp_timer_get_time_divide_outside_bb_clock(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.c",
+                'uint64_t now_ms = esp_timer_get_time() / 1000;\n')
+            violations = _check_raw_timestamp_divide(make_ctx(td))
+            self.assertTrue(violations,
+                "raw esp_timer_get_time()/1000 outside bb_clock/bb_timer must fire")
+
+    def test_fires_on_bb_timer_now_us_divide_outside_bb_timer(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.c",
+                'uint64_t now_ms = bb_timer_now_us() / 1000;\n')
+            violations = _check_raw_timestamp_divide(make_ctx(td))
+            self.assertTrue(violations,
+                "raw bb_timer_now_us()/1000 outside bb_clock/bb_timer must fire")
+
+    def test_no_fire_inside_bb_clock(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_clock/bb_clock.c",
+                'uint64_t now_ms = esp_timer_get_time() / 1000;\n')
+            violations = _check_raw_timestamp_divide(make_ctx(td))
+            self.assertFalse(violations, "must NOT fire inside bb_clock/")
+
+    def test_no_fire_inside_bb_timer(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_timer/bb_timer.c",
+                'uint64_t now_ms = bb_timer_now_us() / 1000;\n')
+            violations = _check_raw_timestamp_divide(make_ctx(td))
+            self.assertFalse(violations, "must NOT fire inside bb_timer/")
+
+    def test_fires_on_integer_suffix_variants(self):
+        """1000u/1000U/1000UL/1000ULL/1000LL must all fire — the trailing \\b
+        after 1000 previously failed on any C integer suffix, making the
+        rule nearly inert on the real tree."""
+        for suffix in ("u", "U", "UL", "ULL", "LL"):
+            with tempfile.TemporaryDirectory() as td:
+                self._make_file(td, "components/bb_fake/src/fake.c",
+                    f'uint64_t now_ms = esp_timer_get_time() / 1000{suffix};\n')
+                violations = _check_raw_timestamp_divide(make_ctx(td))
+                self.assertTrue(violations,
+                    f"esp_timer_get_time()/1000{suffix} must fire")
+
+    def test_no_fire_on_10000(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.c",
+                'uint64_t x = esp_timer_get_time() / 10000;\n')
+            violations = _check_raw_timestamp_divide(make_ctx(td))
+            self.assertFalse(violations, "/10000 must NOT fire (not a ms conversion)")
+
+    def test_no_fire_on_100000(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "components/bb_fake/src/fake.c",
+                'uint64_t x = esp_timer_get_time() / 100000;\n')
+            violations = _check_raw_timestamp_divide(make_ctx(td))
+            self.assertFalse(violations, "/100000 must NOT fire (not a ms conversion)")
+
+    def test_no_fire_inside_real_bb_clock_layout(self):
+        """The canonical clock impl lives at platform/espidf/bb_core/bb_clock.c
+        (component bb_core, no bb_clock/ directory) — the exemption must key
+        on the bb_clock.c/.h basename, not a path component literally named
+        bb_clock."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_core/bb_clock.c",
+                'uint64_t now_ms = esp_timer_get_time() / 1000;\n')
+            violations = _check_raw_timestamp_divide(make_ctx(td))
+            self.assertFalse(violations,
+                "must NOT fire inside the real platform/espidf/bb_core/bb_clock.c path")
+
+    def test_fires_on_normal_file_same_component_dir(self):
+        """A sibling file in the same bb_core component dir (not named
+        bb_clock.c) must still fire — the exemption is basename-scoped."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_file(td, "platform/espidf/bb_core/bb_other.c",
+                'uint64_t now_ms = esp_timer_get_time() / 1000;\n')
+            violations = _check_raw_timestamp_divide(make_ctx(td))
+            self.assertTrue(violations,
+                "a normal file in bb_core (not bb_clock.c) must fire")
 
 
 if __name__ == "__main__":
