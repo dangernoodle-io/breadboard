@@ -448,3 +448,26 @@ void test_bb_wifi_get_gateway_status_test_hook_roundtrip(void)
     TEST_ASSERT_FALSE(out.gw_reachable);
 #endif
 }
+
+// ---------------------------------------------------------------------------
+// bb_wifi_ota_validated_eval — pure cb-set/cb-NULL dispatch backing bb_wifi.c's
+// private wifi_ota_validated() (platform/espidf/bb_wifi/bb_wifi.c).
+// ---------------------------------------------------------------------------
+
+static bool ota_validated_eval_fixture_false(void) { return false; }
+static bool ota_validated_eval_fixture_true(void)  { return true; }
+
+void test_bb_wifi_ota_validated_eval_null_cb_defaults_true(void)
+{
+    TEST_ASSERT_TRUE(bb_wifi_ota_validated_eval(NULL));
+}
+
+void test_bb_wifi_ota_validated_eval_cb_returns_false(void)
+{
+    TEST_ASSERT_FALSE(bb_wifi_ota_validated_eval(ota_validated_eval_fixture_false));
+}
+
+void test_bb_wifi_ota_validated_eval_cb_returns_true(void)
+{
+    TEST_ASSERT_TRUE(bb_wifi_ota_validated_eval(ota_validated_eval_fixture_true));
+}

@@ -1039,6 +1039,9 @@ void test_bb_wifi_disc_reason_str_default_unmapped(void);
 void test_bb_wifi_get_gateway_status_null_arg(void);
 void test_bb_wifi_get_gateway_status_default_zeroed(void);
 void test_bb_wifi_get_gateway_status_test_hook_roundtrip(void);
+void test_bb_wifi_ota_validated_eval_null_cb_defaults_true(void);
+void test_bb_wifi_ota_validated_eval_cb_returns_false(void);
+void test_bb_wifi_ota_validated_eval_cb_returns_true(void);
 
 // Forward declarations from test_manifest.c
 void test_manifest_empty_emits_empty_arrays(void);
@@ -6005,6 +6008,9 @@ int main(void) {
     RUN_TEST(test_bb_wifi_get_gateway_status_null_arg);
     RUN_TEST(test_bb_wifi_get_gateway_status_default_zeroed);
     RUN_TEST(test_bb_wifi_get_gateway_status_test_hook_roundtrip);
+    RUN_TEST(test_bb_wifi_ota_validated_eval_null_cb_defaults_true);
+    RUN_TEST(test_bb_wifi_ota_validated_eval_cb_returns_false);
+    RUN_TEST(test_bb_wifi_ota_validated_eval_cb_returns_true);
 
     // bb_manifest tests
     RUN_TEST(test_manifest_empty_emits_empty_arrays);

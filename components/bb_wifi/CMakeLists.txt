@@ -7,7 +7,7 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "."
     REQUIRES bb_core bb_wifi_creds esp_netif
-    PRIV_REQUIRES bb_alert bb_init bb_ota_validator bb_wdt bb_task bb_str esp_wifi esp_event esp_timer esp_system bb_log bb_nv lwip bb_timer bb_system
+    PRIV_REQUIRES bb_alert bb_init bb_wdt bb_task bb_str esp_wifi esp_event esp_timer esp_system bb_log bb_nv lwip bb_timer bb_system
 )
 
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")

@@ -87,3 +87,11 @@ const char *bb_wifi_disc_reason_str(uint8_t reason)
     default:  return "other";
     }
 }
+
+// Pure cb-set/cb-NULL dispatch backing bb_wifi.c's private wifi_ota_validated()
+// -- see bb_wifi.h for the full rationale (NULL cb == running image treated
+// as trusted/permanent).
+bool bb_wifi_ota_validated_eval(bb_wifi_ota_validated_fn cb)
+{
+    return cb ? cb() : true;
+}
