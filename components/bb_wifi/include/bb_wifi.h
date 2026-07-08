@@ -5,7 +5,6 @@
 #include <stdbool.h>
 
 #include "bb_core.h"
-#include "bb_json.h"
 #include "bb_wifi_creds.h"
 
 #ifdef __cplusplus
@@ -288,17 +287,11 @@ typedef struct {
 // bb_wifi_host_set_gateway_status (BB_WIFI_TESTING).
 bb_err_t bb_wifi_get_gateway_status(bb_wifi_gw_status_t *out);
 
-// Emit the canonical wifi section into a bb_json_t object.
-// Writes: ssid, bssid (colon-hex), rssi (integer), ip, connected,
-// disc_reason (integer), disc_age_s (integer), retry_count (integer).
-// When disconnected all numeric fields are 0/false, strings empty/"0.0.0.0".
-// Requires bb_json.h — callers that include bb_wifi.h must also link bb_json.
-void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info);
-
-// Emit status-only wifi fields into a bb_json_t object (TA-505).
-// Writes: ssid, bssid (colon-hex), ip, connected — no numeric fields.
-// Calls bb_wifi_get_info internally; no info parameter required.
-void bb_wifi_emit_status(bb_json_t obj);
+// bb_wifi_emit_section / bb_wifi_emit_status (bb_json_t-based JSON emitters)
+// moved to bb_wifi_http.h (PR1, KB 781) — bb_wifi's public header no longer
+// includes bb_json.h so the STA core stays free of the http/json/openapi
+// dependency closure. Callers that need the JSON emitters (e.g. bb_health)
+// include bb_wifi_http.h instead.
 
 // ---------------------------------------------------------------------------
 // Runtime WiFi reconfigure (brick-safe pending-creds try)

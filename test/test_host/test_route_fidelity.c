@@ -46,6 +46,7 @@
 #include "bb_board.h"
 #include "bb_nv.h"
 #include "bb_wifi.h"
+#include "bb_wifi_http.h"
 #include "bb_system.h"
 #include "bb_mdns.h"
 #include "bb_diag.h"

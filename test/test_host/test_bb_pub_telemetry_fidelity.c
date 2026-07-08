@@ -31,6 +31,7 @@
 #include "bb_power_test.h"
 #include "bb_thermal.h"
 #include "bb_wifi.h"
+#include "bb_wifi_http.h"
 
 #ifdef BB_WIFI_TESTING
 #include "bb_wifi_test.h"
