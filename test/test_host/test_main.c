@@ -499,6 +499,38 @@ void test_bb_dispatch_cmd_authorizer_reject_distinct_from_handler_invalid_state(
 void test_bb_dispatch_cmd_set_authorizer_null_clears_to_allow_all(void);
 void test_bb_dispatch_cmd_test_reset_clears_state(void);
 
+// Forward declarations from test_bb_storage.c
+void test_bb_storage_ram_set_get_round_trip(void);
+void test_bb_storage_ram_erase_removes_value(void);
+void test_bb_storage_ram_erase_missing_key_is_ok(void);
+void test_bb_storage_exists_true_after_set_false_before(void);
+void test_bb_storage_exists_false_for_null_addr(void);
+void test_bb_storage_exists_false_for_unknown_backend(void);
+void test_bb_storage_get_unknown_backend_returns_not_found(void);
+void test_bb_storage_set_unknown_backend_returns_not_found(void);
+void test_bb_storage_erase_unknown_backend_returns_not_found(void);
+void test_bb_storage_get_missing_key_returns_not_found(void);
+void test_bb_storage_get_buffer_too_small_reports_full_len(void);
+void test_bb_storage_get_zero_cap_probes_length(void);
+void test_bb_storage_set_overwrites_existing_key(void);
+void test_bb_storage_get_null_addr_returns_invalid_arg(void);
+void test_bb_storage_get_null_backend_returns_invalid_arg(void);
+void test_bb_storage_get_null_out_len_returns_invalid_arg(void);
+void test_bb_storage_get_null_buf_with_nonzero_cap_returns_invalid_arg(void);
+void test_bb_storage_set_null_addr_returns_invalid_arg(void);
+void test_bb_storage_set_null_buf_with_nonzero_len_returns_invalid_arg(void);
+void test_bb_storage_set_null_buf_zero_len_is_ok(void);
+void test_bb_storage_erase_null_addr_returns_invalid_arg(void);
+void test_bb_storage_register_backend_null_name_returns_invalid_arg(void);
+void test_bb_storage_register_backend_null_vtable_returns_invalid_arg(void);
+void test_bb_storage_register_backend_partial_vtable_returns_invalid_arg(void);
+void test_bb_storage_register_backend_duplicate_name_rejected(void);
+void test_bb_storage_register_backend_overflow_returns_no_space(void);
+void test_bb_storage_ram_set_table_full_returns_no_space(void);
+void test_bb_storage_ram_set_value_too_large_returns_no_space(void);
+void test_bb_storage_ram_set_key_too_long_returns_invalid_arg(void);
+void test_bb_storage_ram_register_twice_returns_invalid_state(void);
+
 // Forward declarations from test_nv_creds_mirror.c
 void test_nv_creds_mirror_pack_valid_roundtrip(void);
 void test_nv_creds_mirror_flip_ssid_invalidates(void);
@@ -7926,6 +7958,38 @@ int main(void) {
     RUN_TEST(test_bb_dispatch_cmd_authorizer_reject_distinct_from_handler_invalid_state);
     RUN_TEST(test_bb_dispatch_cmd_set_authorizer_null_clears_to_allow_all);
     RUN_TEST(test_bb_dispatch_cmd_test_reset_clears_state);
+
+    // bb_storage tests
+    RUN_TEST(test_bb_storage_ram_set_get_round_trip);
+    RUN_TEST(test_bb_storage_ram_erase_removes_value);
+    RUN_TEST(test_bb_storage_ram_erase_missing_key_is_ok);
+    RUN_TEST(test_bb_storage_exists_true_after_set_false_before);
+    RUN_TEST(test_bb_storage_exists_false_for_null_addr);
+    RUN_TEST(test_bb_storage_exists_false_for_unknown_backend);
+    RUN_TEST(test_bb_storage_get_unknown_backend_returns_not_found);
+    RUN_TEST(test_bb_storage_set_unknown_backend_returns_not_found);
+    RUN_TEST(test_bb_storage_erase_unknown_backend_returns_not_found);
+    RUN_TEST(test_bb_storage_get_missing_key_returns_not_found);
+    RUN_TEST(test_bb_storage_get_buffer_too_small_reports_full_len);
+    RUN_TEST(test_bb_storage_get_zero_cap_probes_length);
+    RUN_TEST(test_bb_storage_set_overwrites_existing_key);
+    RUN_TEST(test_bb_storage_get_null_addr_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_get_null_backend_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_get_null_out_len_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_get_null_buf_with_nonzero_cap_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_set_null_addr_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_set_null_buf_with_nonzero_len_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_set_null_buf_zero_len_is_ok);
+    RUN_TEST(test_bb_storage_erase_null_addr_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_register_backend_null_name_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_register_backend_null_vtable_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_register_backend_partial_vtable_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_register_backend_duplicate_name_rejected);
+    RUN_TEST(test_bb_storage_register_backend_overflow_returns_no_space);
+    RUN_TEST(test_bb_storage_ram_set_table_full_returns_no_space);
+    RUN_TEST(test_bb_storage_ram_set_value_too_large_returns_no_space);
+    RUN_TEST(test_bb_storage_ram_set_key_too_long_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_ram_register_twice_returns_invalid_state);
 
     // bb_wdt tests
     RUN_TEST(test_bb_wdt_park_wait_resume_unsubscribes_and_resubscribes);

@@ -1,0 +1,25 @@
+menu "breadboard: bb_storage_ram"
+
+config BB_STORAGE_RAM_MAX_ENTRIES
+    int "In-memory storage backend table capacity"
+    default 32
+    help
+        Maximum number of distinct keys the "ram" bb_storage backend can
+        hold at once. Fixed-size table, no heap. Storing a new key once
+        the table is full returns BB_ERR_NO_SPACE.
+
+config BB_STORAGE_RAM_MAX_VALUE_BYTES
+    int "In-memory storage backend max value size (bytes)"
+    default 256
+    help
+        Maximum size in bytes of a single stored value. A bb_storage_set()
+        call exceeding this returns BB_ERR_NO_SPACE (never truncated).
+
+config BB_STORAGE_RAM_MAX_KEY_BYTES
+    int "In-memory storage backend max key length (bytes, incl. NUL)"
+    default 64
+    help
+        Maximum length of a key string, including the NUL terminator. A key
+        at or above this length is rejected with BB_ERR_INVALID_ARG.
+
+endmenu

@@ -119,6 +119,8 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_sink_udp](./bb_sink_udp/) | — |
 | [bb_sink_ws](./bb_sink_ws/) | — |
 | [bb_sse_writer](./bb_sse_writer/) | — |
+| [bb_storage](./bb_storage/) | Portable storage facade + backend registry: one `bb_storage_get/set/erase/exists` API dispatching by `bb_storage_addr_t.backend` to whichever backend has registered itself. |
+| [bb_storage_ram](./bb_storage_ram/) | In-memory `bb_storage` backend — the reference implementation, a fixed-capacity key/value table with no heap allocation. |
 | [bb_str](./bb_str/) | — |
 | [bb_sub](./bb_sub/) | — |
 | [bb_sub_mqtt](./bb_sub_mqtt/) | — |
