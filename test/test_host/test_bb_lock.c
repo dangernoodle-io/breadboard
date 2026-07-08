@@ -304,6 +304,15 @@ void test_bb_lock_held_since_cleared_across_runtime_toggle_mid_hold(void)
     bb_lock_stats_set_enabled(false);
     TEST_ASSERT_EQUAL(BB_OK, bb_lock_unlock(&lock));
 
+    // (a)-(b)'s unlock legitimately records a real (instrumented-acquire)
+    // hold time here — its magnitude is real wall-clock elapsed time and is
+    // NOT deterministic (a loaded CI runner can observe >=1us where a quiet
+    // box observes 0), so asserting an exact value on it would itself be a
+    // race. Reset counters now so the assertions below check only the
+    // invariant this test exists to cover: whether the (c)-(d) uninstrumented
+    // acquire leaks a bogus hold time, not the real timing of (a)-(b).
+    bb_lock_reset_stats(&lock);
+
     // Let real wall-clock time pass so a stale held_since_us (if the bug
     // were present) would yield an obviously bogus multi-ms hold_us below.
     usleep(5000);
