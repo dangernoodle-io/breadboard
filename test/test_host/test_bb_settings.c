@@ -189,6 +189,21 @@ void test_bb_settings_provider_has_creds_true_after_set(void)
     TEST_ASSERT_TRUE(p->has_creds(bb_settings_wifi_creds_ctx()));
 }
 
+// settings_has_creds uses NON-EMPTY-VALUE semantics (matches bb_wifi's
+// fallback wifi_has_creds(), which checks ssid[0]) -- NOT mere key
+// presence. An empty-but-present ssid key must report false, or the
+// provider and fallback paths drift for a board that persisted an empty
+// string (e.g. a cleared-but-not-erased field).
+void test_bb_settings_provider_has_creds_false_when_value_empty(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_set_str(&s_test_ssid_field, ""));
+    TEST_ASSERT_TRUE(bb_config_exists(&s_test_ssid_field)); // key IS present
+
+    const bb_wifi_creds_provider_t *p = bb_settings_wifi_creds_provider();
+    TEST_ASSERT_FALSE(p->has_creds(bb_settings_wifi_creds_ctx()));
+}
+
 /* ---------------------------------------------------------------------------
  * clear
  * ---------------------------------------------------------------------------*/

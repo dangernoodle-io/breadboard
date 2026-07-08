@@ -1,6 +1,8 @@
 // ESP-IDF entry shim for the unified smoke example.
 //
 // Bringup sequence:
+//   0. bb_wifi_set_creds_provider() — inject bb_settings' default wifi-creds
+//      provider before EARLY init (see KB 781 wifi-PR3 seam adoption).
 //   1. bb_init_init_early() — EARLY tier: bb_nv_config_init, bb_wifi_init_sta
 //      (auto-registered via BB_WIFI_AUTOREGISTER).
 //   2. bb_init_init()       — PRE_HTTP tier, then HTTP autostart
@@ -13,6 +15,8 @@
 #include "bb_log.h"
 #include "bb_init.h"
 #include "bb_led_info.h"
+#include "bb_wifi.h"
+#include "bb_settings.h"
 #include "smoke_app.h"
 #include "storage_typed_selftest.h"
 #include "freertos/FreeRTOS.h"
@@ -27,6 +31,10 @@ static const char *TAG = "smoke";
 
 void app_main(void)
 {
+    // Compose bb_settings' default wifi-creds provider into bb_wifi's CONNECT
+    // path. Must run before bb_init_init_early() so it is set before the
+    // EARLY-tier bb_wifi_autoinit runs.
+    bb_wifi_set_creds_provider(bb_settings_wifi_creds_provider(), bb_settings_wifi_creds_ctx());
     bb_init_init_early();
     bb_smoke_storage_typed_selftest();
     bb_led_register_info();

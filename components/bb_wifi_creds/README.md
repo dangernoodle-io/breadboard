@@ -1,6 +1,6 @@
 # bb_wifi_creds
 
-Interface-only component defining the wifi-credential-provider seam (`bb_wifi_creds_provider_t`).
+Interface component defining the wifi-credential-provider seam (`bb_wifi_creds_provider_t`), plus one pure, host-testable dispatch helper (`bb_wifi_creds_read`) used by `bb_wifi` to route provider-vs-fallback reads through a single call site.
 
 ## When to use / when not
 
@@ -11,11 +11,14 @@ Don't use it if your app hard-wires a single wifi-creds source and has no need f
 ## Public API
 
 See [`include/bb_wifi_creds.h`](include/bb_wifi_creds.h). Key symbol: `bb_wifi_creds_provider_t` — `{get_ssid, get_pass, has_creds, clear}`. `get_ssid`/`get_pass` mirror `bb_config_get_str`'s size-probe/truncation contract (`cap=0` probes length). The password value is secret — implementations and callers must never log it.
+
+`bb_wifi_creds_read(provider_fn, pctx, fallback_fn, fctx, buf, cap, out_len)` — pure dispatcher: calls `provider_fn` if non-NULL, else `fallback_fn`. Always passes a non-NULL `out_len` to whichever function it calls (a local, when the caller's own `out_len` is NULL), so a provider relying on `bb_config_get_str`'s contract (which rejects `out_len==NULL`) always gets a valid pointer and actually populates `buf`. `bb_wifi`'s `wifi_read_ssid`/`wifi_read_pass` are the sole production callers.
+
 Public symbols in this component use the `bb_` prefix.
 
 ## Config knobs
 
-None — this component is a header-only interface, no Kconfig options.
+None — no Kconfig options.
 
 ## Dependencies
 
@@ -30,7 +33,7 @@ None — this component is a header-only interface, no Kconfig options.
 <!-- BEGIN bbtool:platform -->
 | host | espidf | arduino |
 |------|--------|---------|
-| no | no | no |
+| yes | no | no |
 <!-- END bbtool:platform -->
 
 ## Links
@@ -42,4 +45,4 @@ None — this component is a header-only interface, no Kconfig options.
 
 ## See also
 
-`bb_settings` — bb's default provider implementation, backed by `bb_config`/`bb_storage`. This component intentionally has no implementation and no test — it exists solely as the shared vtable shape.
+`bb_settings` — bb's default provider implementation, backed by `bb_config`/`bb_storage`. This component's own implementation is limited to the pure `bb_wifi_creds_read` dispatcher above — no provider vtable implementation lives here.

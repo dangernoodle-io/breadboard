@@ -51,10 +51,17 @@ static bb_err_t settings_get_pass(void *ctx, char *buf, size_t cap, size_t *out_
     return bb_config_get_str(&s_wifi_pass_field, buf, cap, out_len);
 }
 
+// Non-empty-value semantics -- matches bb_wifi's fallback wifi_has_creds()
+// (ssid[0] != '\0'), NOT mere key presence. A cap=0 call is a valid
+// bb_config_get_str size-probe (returns the true length via out_len without
+// touching buf); an empty-but-present ssid key probes to out_len==0 and
+// correctly reports "no creds", keeping provider and fallback zero-drift.
 static bool settings_has_creds(void *ctx)
 {
     (void)ctx;
-    return bb_config_exists(&s_wifi_ssid_field);
+    size_t len = 0;
+    bb_err_t err = bb_config_get_str(&s_wifi_ssid_field, NULL, 0, &len);
+    return err == BB_OK && len > 0;
 }
 
 static bb_err_t settings_clear(void *ctx)
