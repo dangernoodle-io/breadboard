@@ -79,15 +79,24 @@ bb_err_t bb_storage_register_backend(const char *name, const bb_storage_vtable_t
 // Read the value at addr into buf (capacity cap), writing the actual stored
 // length to *out_len regardless of whether it fit in cap (mirrors
 // snprintf-style "would have written" semantics) — callers detect
-// truncation via (*out_len > cap). On truncation, buf holds the leading cap
-// bytes; a short/zero cap with out_len non-NULL still succeeds (BB_OK) so
-// callers can size-probe with cap=0.
+// truncation via (*out_len > cap). A size-probe (cap=0) and any read with
+// cap >= the true length always succeed (BB_OK). A TRUNCATING read
+// (0 < cap < true length) copies min(cap, len) bytes into buf and returns
+// BB_OK on backends that can partial-read the stored value (e.g. ram); a
+// backend that cannot partial-read (e.g. nvs, which must stage the full
+// value before copying) MAY instead impose a bounded limit on the true
+// length it will service for a truncating read and return
+// BB_ERR_NO_SPACE beyond that limit — *out_len is still set to the true
+// length in that case so the caller can retry with an adequately sized
+// buffer.
 // Returns:
 //   BB_OK                 read succeeded (see truncation note above)
 //   BB_ERR_INVALID_ARG    addr, addr->backend, buf (when cap>0), or
 //                         out_len is NULL
 //   BB_ERR_NOT_FOUND      no backend registered for addr->backend, or no
 //                         value stored at addr
+//   BB_ERR_NO_SPACE       backend cannot service this truncating read (see
+//                         above); *out_len still reports the true length
 bb_err_t bb_storage_get(const bb_storage_addr_t *addr, void *buf, size_t cap, size_t *out_len);
 
 // Write len bytes from buf to addr, creating or overwriting the value.

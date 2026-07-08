@@ -531,6 +531,17 @@ void test_bb_storage_ram_set_value_too_large_returns_no_space(void);
 void test_bb_storage_ram_set_key_too_long_returns_invalid_arg(void);
 void test_bb_storage_ram_register_twice_returns_invalid_state(void);
 
+// Forward declarations from test_bb_storage_nvs_get_decision.c
+void test_bb_storage_nvs_get_decide_zero_cap_probes(void);
+void test_bb_storage_nvs_get_decide_cap_equal_required_is_full(void);
+void test_bb_storage_nvs_get_decide_cap_greater_than_required_is_full(void);
+void test_bb_storage_nvs_get_decide_truncating_within_scratch_bounces(void);
+void test_bb_storage_nvs_get_decide_truncating_at_scratch_limit_bounces(void);
+void test_bb_storage_nvs_get_decide_truncating_beyond_scratch_is_no_space(void);
+void test_bb_storage_nvs_get_decide_zero_required_zero_cap_probes(void);
+void test_bb_storage_nvs_get_decide_zero_required_nonzero_cap_is_full(void);
+void test_bb_storage_nvs_get_decide_null_out_len_is_safe(void);
+
 // Forward declarations from test_nv_creds_mirror.c
 void test_nv_creds_mirror_pack_valid_roundtrip(void);
 void test_nv_creds_mirror_flip_ssid_invalidates(void);
@@ -7990,6 +8001,17 @@ int main(void) {
     RUN_TEST(test_bb_storage_ram_set_value_too_large_returns_no_space);
     RUN_TEST(test_bb_storage_ram_set_key_too_long_returns_invalid_arg);
     RUN_TEST(test_bb_storage_ram_register_twice_returns_invalid_state);
+
+    // bb_storage_nvs_get_decision tests
+    RUN_TEST(test_bb_storage_nvs_get_decide_zero_cap_probes);
+    RUN_TEST(test_bb_storage_nvs_get_decide_cap_equal_required_is_full);
+    RUN_TEST(test_bb_storage_nvs_get_decide_cap_greater_than_required_is_full);
+    RUN_TEST(test_bb_storage_nvs_get_decide_truncating_within_scratch_bounces);
+    RUN_TEST(test_bb_storage_nvs_get_decide_truncating_at_scratch_limit_bounces);
+    RUN_TEST(test_bb_storage_nvs_get_decide_truncating_beyond_scratch_is_no_space);
+    RUN_TEST(test_bb_storage_nvs_get_decide_zero_required_zero_cap_probes);
+    RUN_TEST(test_bb_storage_nvs_get_decide_zero_required_nonzero_cap_is_full);
+    RUN_TEST(test_bb_storage_nvs_get_decide_null_out_len_is_safe);
 
     // bb_wdt tests
     RUN_TEST(test_bb_wdt_park_wait_resume_unsubscribes_and_resubscribes);

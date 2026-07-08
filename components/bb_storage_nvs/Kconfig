@@ -1,0 +1,16 @@
+menu "breadboard: bb_storage_nvs"
+
+config BB_STORAGE_NVS_GET_SCRATCH_MAX
+    int "Max bytes for truncated blob reads via the generic bb_storage facade"
+    default 512
+    help
+        When a caller requests fewer bytes (cap) than a stored NVS blob's
+        full length via the generic bb_storage_get() facade, the "nvs"
+        backend copies through a bounded on-stack scratch buffer of this
+        size (no heap). A blob larger than this value that also needs
+        truncation returns BB_ERR_NO_SPACE. Does not apply to
+        bb_nv_get_str/u8/u16/u32 (the typed accessors read directly into the
+        caller's buffer via nvs_get_str/nvs_get_u*, unaffected by this
+        limit).
+
+endmenu
