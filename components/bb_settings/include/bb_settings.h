@@ -1,37 +1,49 @@
 #pragma once
 
-// bb_settings — bb's default bb_wifi_creds_provider_t, backed by bb_config.
+// bb_settings — bb's default WiFi-credentials store, backed by bb_config.
 //
-// PR1 scope: the wifi-creds field table + a default provider that forwards
-// to bb_config_get_str/set_str/exists/erase over the SAME NVS namespace/keys
-// bb_nv_config already uses ("bb_cfg"/"wifi_ssid"/"wifi_pass") — byte-compat
-// with provisioned boards because bb_config's STR encoding routes through
-// bb_storage's "nvs" backend get_typed/set_typed, which calls nvs_get_str/
-// nvs_set_str under the hood (see bb_storage_nvs).
+// The wifi-creds field table forwards to bb_config_get_str/set_str/exists/
+// erase over the SAME NVS namespace/keys bb_nv_config already uses
+// ("bb_cfg"/"wifi_ssid"/"wifi_pass") — byte-compat with provisioned boards
+// because bb_config's STR encoding routes through bb_storage's "nvs" backend
+// get_typed/set_typed, which calls nvs_get_str/nvs_set_str under the hood
+// (see bb_storage_nvs).
 //
-// bb_settings is OPTIONAL (KB 795 — un-opinionated). A consumer composes it
-// to get bb's default wifi-creds provider, OR supplies its own
-// bb_wifi_creds_provider_t and omits bb_settings entirely. Nothing here
-// self-registers.
+// bb_settings is bb's opinionated bb-config authority (KB 805/806): consumers
+// that want bb's default wifi-creds store compose bb_settings and bb_wifi
+// reads it directly via the accessors below. Nothing here self-registers.
 //
 // DEFERRED to later PRs (not in scope here): NVS lifecycle (factory-reset/
 // boot-count/pending-creds) and bb_manifest dissolution.
 
-#include "bb_wifi_creds.h"
+#include "bb_core.h"
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Returns bb's default wifi-creds provider vtable (stateless, always valid).
-const bb_wifi_creds_provider_t *bb_settings_wifi_creds_provider(void);
+// Read the stored WiFi SSID. Mirrors bb_config_get_str's size-probe/
+// truncation contract: cap=0 probes the true length via out_len without
+// touching buf. Returns BB_OK with an empty string (out_len=0, when
+// out_len is non-NULL) when no SSID is stored.
+//
+// out_len MAY be NULL (#776 CRITICAL: bb_config_get_str itself rejects a
+// NULL out_len with BB_ERR_INVALID_ARG, which would have left buf
+// untouched and silently produced an empty SSID/pass at connect time). This
+// accessor owns the NULL-safety guarantee: when out_len is NULL, it
+// substitutes a local size_t so buf is always correctly filled and
+// NUL-terminated regardless of whether the caller wants the length back.
+bb_err_t bb_settings_wifi_ssid_get(char *buf, size_t cap, size_t *out_len);
 
-// Returns the ctx to pass alongside bb_settings_wifi_creds_provider() to
-// every vtable call. The default provider is stateless (forwards straight
-// to bb_config field accessors) so this is always NULL today — callers
-// should still pass it through rather than assuming NULL, in case a future
-// provider needs instance state.
-void *bb_settings_wifi_creds_ctx(void);
+// Read the stored WiFi password. Same size-probe/truncation contract and
+// NULL-safe out_len guarantee as bb_settings_wifi_ssid_get. The value is
+// SECRET — callers must never log it.
+bb_err_t bb_settings_wifi_pass_get(char *buf, size_t cap, size_t *out_len);
+
+// True iff a non-empty SSID is currently stored (non-empty-value semantics,
+// not mere key presence — a present-but-empty SSID reports false).
+bool bb_settings_wifi_has_creds(void);
 
 #ifdef __cplusplus
 }
