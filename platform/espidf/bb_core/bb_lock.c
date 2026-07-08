@@ -4,10 +4,12 @@
 // gets priority inheritance — a binary semaphore has no owner concept and
 // cannot boost a low-priority holder blocking a high-priority waiter.
 //
-// Stats bookkeeping mirrors platform/host/bb_core/bb_lock.c exactly; see that
-// file for the two-level BB_LOCK_STATS_ENABLE gate rationale.
+// Stats bookkeeping is shared with the host backend via bb_lock_stats.c/.h
+// (see that file); this file owns only the runtime enable/disable flag and
+// the mutex API.
 
 #include "bb_lock.h"
+#include "bb_lock_stats.h"
 #include "bb_clock.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -31,39 +33,6 @@ static inline void bb_lock_impl_set(bb_lock_t *lock, SemaphoreHandle_t h)
 
 #if BB_LOCK_STATS_ENABLE
 static _Atomic bool s_stats_runtime_enabled = true;
-
-static void bb_lock_record_acquired(bb_lock_t *lock, uint64_t wait_us)
-{
-    atomic_fetch_add_explicit(&lock->bb_lock_acquisition_count, 1u, memory_order_relaxed);
-    if (wait_us > 0) {
-        atomic_fetch_add_explicit(&lock->bb_lock_wait_time_total_us, wait_us, memory_order_relaxed);
-        uint64_t cur_max = atomic_load_explicit(&lock->bb_lock_wait_time_max_us, memory_order_relaxed);
-        while (wait_us > cur_max) {
-            if (atomic_compare_exchange_weak_explicit(&lock->bb_lock_wait_time_max_us, &cur_max, wait_us,
-                                                       memory_order_relaxed, memory_order_relaxed)) {
-                break;
-            }
-        }
-    }
-    atomic_store_explicit(&lock->bb_lock_held_since_us, bb_clock_now_us(), memory_order_relaxed);
-}
-
-static void bb_lock_record_released(bb_lock_t *lock)
-{
-    uint64_t since = atomic_exchange_explicit(&lock->bb_lock_held_since_us, 0, memory_order_relaxed);
-    if (since == 0) {
-        return;
-    }
-    uint64_t hold_us = bb_clock_now_us() - since;
-    atomic_fetch_add_explicit(&lock->bb_lock_hold_time_total_us, hold_us, memory_order_relaxed);
-    uint64_t cur_max = atomic_load_explicit(&lock->bb_lock_hold_time_max_us, memory_order_relaxed);
-    while (hold_us > cur_max) {
-        if (atomic_compare_exchange_weak_explicit(&lock->bb_lock_hold_time_max_us, &cur_max, hold_us,
-                                                   memory_order_relaxed, memory_order_relaxed)) {
-            break;
-        }
-    }
-}
 #endif // BB_LOCK_STATS_ENABLE
 
 bb_err_t bb_lock_init(const bb_lock_config_t *cfg, bb_lock_t *out)
@@ -128,14 +97,14 @@ bb_err_t bb_lock_lock(bb_lock_t *lock)
 #if BB_LOCK_STATS_ENABLE
     if (atomic_load_explicit(&s_stats_runtime_enabled, memory_order_relaxed)) {
         if (xSemaphoreTake(h, 0) == pdTRUE) {
-            bb_lock_record_acquired(lock, 0);
+            bb_lock_stats_record_acquired(lock, 0);
             return BB_OK;
         }
         uint64_t wait_start = bb_clock_now_us();
         xSemaphoreTake(h, portMAX_DELAY);
         uint64_t wait_us = bb_clock_now_us() - wait_start;
         atomic_fetch_add_explicit(&lock->bb_lock_contention_count, 1u, memory_order_relaxed);
-        bb_lock_record_acquired(lock, wait_us);
+        bb_lock_stats_record_acquired(lock, wait_us);
         return BB_OK;
     }
 #endif
@@ -156,7 +125,7 @@ bb_err_t bb_lock_trylock(bb_lock_t *lock)
     }
 #if BB_LOCK_STATS_ENABLE
     if (atomic_load_explicit(&s_stats_runtime_enabled, memory_order_relaxed)) {
-        bb_lock_record_acquired(lock, 0);
+        bb_lock_stats_record_acquired(lock, 0);
     }
 #endif
     return BB_OK;
@@ -171,7 +140,7 @@ bb_err_t bb_lock_unlock(bb_lock_t *lock)
     // Unconditionally attempt the release-side bookkeeping — see the
     // matching comment in platform/host/bb_core/bb_lock.c for the stale
     // held_since_us-across-a-runtime-toggle rationale.
-    bb_lock_record_released(lock);
+    bb_lock_stats_record_released(lock);
 #endif
     SemaphoreHandle_t h = bb_lock_impl_get(lock);
     return (xSemaphoreGive(h) == pdTRUE) ? BB_OK : BB_ERR_INVALID_STATE;
