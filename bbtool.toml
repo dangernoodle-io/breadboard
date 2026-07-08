@@ -118,6 +118,7 @@ components = [
     "bb_pub_wifi", "bb_registry", "bb_release_manifest", "bb_response", "bb_ring",
     "bb_scalar", "bb_sensors", "bb_sink_display", "bb_sink_event", "bb_sink_http",
     "bb_sink_http_telemetry", "bb_sink_mqtt", "bb_sink_udp", "bb_sink_ws", "bb_sse_writer",
+    "bb_storage", "bb_storage_ram",
     "bb_str", "bb_sub", "bb_sub_mqtt", "bb_system", "bb_task", "bb_task_registry",
     "bb_telemetry", "bb_temp", "bb_thermal", "bb_timer", "bb_tls_creds", "bb_tls_info",
     "bb_transport_health", "bb_udp_client", "bb_udp_frame", "bb_wdt", "bb_wifi", "bb_ws_server",

@@ -1,0 +1,12 @@
+menu "breadboard: bb_storage"
+
+config BB_STORAGE_MAX_BACKENDS
+    int "Storage backend registry capacity"
+    default 4
+    help
+        Maximum number of registered backends (e.g. "nvs", "sdcard", "ram")
+        in the static registry. Each entry costs sizeof(a name pointer + a
+        4-function vtable + a context pointer). Registering more backends
+        than this returns BB_ERR_NO_SPACE.
+
+endmenu
