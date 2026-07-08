@@ -4,6 +4,7 @@
 #include "bb_init.h"
 #include "bb_nv_wifi_pending.h"
 #include "bb_str.h"
+#include "bb_storage_nvs.h"
 #include <stdbool.h>
 #include <string.h>
 
@@ -639,296 +640,64 @@ bb_err_t bb_nv_config_set_ota_skip_check(bool skip)
     return err;
 }
 
+// bb_nv_set_u8/set_u16/set_u32/set_str/get_u8/get_u16/get_u32/get_str/erase/
+// erase_namespace/exists are thin forwarders to bb_storage_nvs's typed
+// accessors (components/bb_storage_nvs) — the NVS access logic itself
+// (nvs_open/get/set/erase-per-call, type-mismatch handling) moved there
+// verbatim; on-flash format is unchanged (B1: bb_storage_nvs PR2).
 bb_err_t bb_nv_set_u8(const char *ns, const char *key, uint8_t value)
 {
-    if (ns == NULL || key == NULL) {
-        return BB_ERR_INVALID_ARG;
-    }
-
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
-    if (err != BB_OK) return err;
-
-    err = nvs_set_u8(handle, key, value);
-    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
-        bb_log_w(TAG_NV, "type mismatch on set '%s/%s', rewriting", ns, key);
-        (void)nvs_erase_key(handle, key);
-        err = nvs_set_u8(handle, key, value);
-    }
-    if (err == BB_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-
-    return err;
+    return bb_storage_nvs_set_u8(ns, key, value);
 }
 
 bb_err_t bb_nv_set_u16(const char *ns, const char *key, uint16_t value)
 {
-    if (ns == NULL || key == NULL) {
-        return BB_ERR_INVALID_ARG;
-    }
-
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
-    if (err != BB_OK) return err;
-
-    err = nvs_set_u16(handle, key, value);
-    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
-        bb_log_w(TAG_NV, "type mismatch on set '%s/%s', rewriting", ns, key);
-        (void)nvs_erase_key(handle, key);
-        err = nvs_set_u16(handle, key, value);
-    }
-    if (err == BB_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-
-    return err;
+    return bb_storage_nvs_set_u16(ns, key, value);
 }
 
 bb_err_t bb_nv_set_u32(const char *ns, const char *key, uint32_t value)
 {
-    if (ns == NULL || key == NULL) {
-        return BB_ERR_INVALID_ARG;
-    }
-
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
-    if (err != BB_OK) return err;
-
-    err = nvs_set_u32(handle, key, value);
-    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
-        bb_log_w(TAG_NV, "type mismatch on set '%s/%s', rewriting", ns, key);
-        (void)nvs_erase_key(handle, key);
-        err = nvs_set_u32(handle, key, value);
-    }
-    if (err == BB_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-
-    return err;
+    return bb_storage_nvs_set_u32(ns, key, value);
 }
 
 bb_err_t bb_nv_set_str(const char *ns, const char *key, const char *value)
 {
-    if (ns == NULL || key == NULL || value == NULL) {
-        return BB_ERR_INVALID_ARG;
-    }
-
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
-    if (err != BB_OK) return err;
-
-    err = nvs_set_str(handle, key, value);
-    if (err == BB_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-
-    return err;
+    return bb_storage_nvs_set_str(ns, key, value);
 }
 
 bb_err_t bb_nv_get_u8(const char *ns, const char *key, uint8_t *out, uint8_t fallback)
 {
-    if (ns == NULL || key == NULL || out == NULL) {
-        return BB_ERR_INVALID_ARG;
-    }
-
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
-
-    if (err == ESP_ERR_NVS_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
-        *out = fallback;
-        return BB_OK;
-    }
-
-    if (err != BB_OK) {
-        return err;
-    }
-
-    err = nvs_get_u8(handle, key, out);
-    nvs_close(handle);
-
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        *out = fallback;
-        return BB_OK;
-    }
-    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
-        bb_log_w(TAG_NV, "type mismatch on get '%s/%s', using fallback", ns, key);
-        *out = fallback;
-        return BB_OK;
-    }
-
-    return err;
+    return bb_storage_nvs_get_u8(ns, key, out, fallback);
 }
 
 bb_err_t bb_nv_get_u16(const char *ns, const char *key, uint16_t *out, uint16_t fallback)
 {
-    if (ns == NULL || key == NULL || out == NULL) {
-        return BB_ERR_INVALID_ARG;
-    }
-
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
-
-    if (err == ESP_ERR_NVS_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
-        *out = fallback;
-        return BB_OK;
-    }
-
-    if (err != BB_OK) {
-        return err;
-    }
-
-    err = nvs_get_u16(handle, key, out);
-    nvs_close(handle);
-
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        *out = fallback;
-        return BB_OK;
-    }
-    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
-        bb_log_w(TAG_NV, "type mismatch on get '%s/%s', using fallback", ns, key);
-        *out = fallback;
-        return BB_OK;
-    }
-
-    return err;
+    return bb_storage_nvs_get_u16(ns, key, out, fallback);
 }
 
 bb_err_t bb_nv_get_u32(const char *ns, const char *key, uint32_t *out, uint32_t fallback)
 {
-    if (ns == NULL || key == NULL || out == NULL) {
-        return BB_ERR_INVALID_ARG;
-    }
-
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
-
-    if (err == ESP_ERR_NVS_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
-        *out = fallback;
-        return BB_OK;
-    }
-
-    if (err != BB_OK) {
-        return err;
-    }
-
-    err = nvs_get_u32(handle, key, out);
-    nvs_close(handle);
-
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        *out = fallback;
-        return BB_OK;
-    }
-    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
-        bb_log_w(TAG_NV, "type mismatch on get '%s/%s', using fallback", ns, key);
-        *out = fallback;
-        return BB_OK;
-    }
-
-    return err;
+    return bb_storage_nvs_get_u32(ns, key, out, fallback);
 }
 
 bb_err_t bb_nv_get_str(const char *ns, const char *key, char *buf, size_t len, const char *fallback)
 {
-    if (ns == NULL || key == NULL || buf == NULL || len == 0) {
-        return BB_ERR_INVALID_ARG;
-    }
-
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
-
-    if (err == ESP_ERR_NVS_NOT_FOUND || err == BB_ERR_NOT_INITIALIZED) {
-        if (fallback == NULL) {
-            buf[0] = '\0';
-        } else {
-            bb_strlcpy(buf, fallback, len);
-        }
-        return BB_OK;
-    }
-
-    if (err != BB_OK) {
-        return err;
-    }
-
-    size_t buf_len = len;
-    err = nvs_get_str(handle, key, buf, &buf_len);
-    nvs_close(handle);
-
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        if (fallback == NULL) {
-            buf[0] = '\0';
-        } else {
-            bb_strlcpy(buf, fallback, len);
-        }
-        return BB_OK;
-    }
-
-    return err;
+    return bb_storage_nvs_get_str(ns, key, buf, len, fallback);
 }
 
 bb_err_t bb_nv_erase(const char *ns, const char *key)
 {
-    if (ns == NULL || key == NULL) {
-        return BB_ERR_INVALID_ARG;
-    }
-
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
-    if (err != BB_OK) return err;
-
-    err = nvs_erase_key(handle, key);
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        err = BB_OK;
-    }
-    if (err == BB_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-
-    return err;
+    return bb_storage_nvs_erase(ns, key);
 }
 
 bb_err_t bb_nv_erase_namespace(const char *ns)
 {
-    if (ns == NULL) {
-        return BB_ERR_INVALID_ARG;
-    }
-
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(ns, NVS_READWRITE, &handle);
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        /* Namespace doesn't exist — already clean, treat as success. */
-        return BB_OK;
-    }
-    if (err != BB_OK) return err;
-
-    err = nvs_erase_all(handle);
-    if (err == BB_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-
-    return err;
+    return bb_storage_nvs_erase_namespace(ns);
 }
 
 bool bb_nv_exists(const char *ns, const char *key)
 {
-    if (ns == NULL || key == NULL) return false;
-
-    nvs_handle_t handle;
-    bb_err_t err = nvs_open(ns, NVS_READONLY, &handle);
-    if (err != BB_OK) return false;
-
-    size_t required = 0;
-    esp_err_t gerr = nvs_get_str(handle, key, NULL, &required);
-    nvs_close(handle);
-
-    /* required includes the NUL terminator; > 1 means at least one real byte */
-    return (gerr == ESP_OK && required > 1);
+    return bb_storage_nvs_exists(ns, key);
 }
 
 /* -------- batched setters -------- */
