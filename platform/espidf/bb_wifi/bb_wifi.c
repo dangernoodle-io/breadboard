@@ -21,7 +21,6 @@
 #include "bb_timer.h"
 #include "ping/ping_sock.h"
 #include "lwip/ip_addr.h"
-#include "bb_ota_validator.h"
 #include "bb_mem.h"
 #include "bb_system.h"
 
@@ -88,6 +87,13 @@ static void *s_creds_ctx = NULL;
 // non-atomic swap racing the connect path that already captured the prior
 // provider.
 static volatile bool s_creds_provider_locked = false;
+
+// Injected OTA-image-validated query (bb_wifi_set_ota_validated_cb). NULL =
+// treat the running image as trusted (see bb_wifi.h for the full rationale:
+// a build without bb_ota_validator has no rollback watchdog, so the running
+// image is implicitly permanent). Read by wifi_ota_validated() below and by
+// wifi_reconn.c via bb_wifi_internal_ota_validated() (wifi_reconn.h).
+static bb_wifi_ota_validated_fn s_ota_validated_cb = NULL;
 
 // WiFi scan cache
 static bb_wifi_ap_t s_cached_scan[WIFI_SCAN_MAX];
@@ -607,6 +613,31 @@ void bb_wifi_set_creds_provider(const bb_wifi_creds_provider_t *provider, void *
     s_creds_ctx = ctx;
 }
 
+void bb_wifi_set_ota_validated_cb(bb_wifi_ota_validated_fn cb)
+{
+    s_ota_validated_cb = cb;
+}
+
+// See bb_wifi.h: DEFAULT = true when no callback is injected. Every call site
+// gates a "no additional caution needed" behavior (skip cold-boot reboot,
+// retry indefinitely, don't bump boot_count) on a validated image; a build
+// without bb_ota_validator has no rollback watchdog at all, so the running
+// image is implicitly permanent/trusted and every gate should behave exactly
+// as it did when the direct bb_ota_is_validated() call always found a
+// validated image. The cb-set/cb-NULL decision itself is the pure, host-
+// testable bb_wifi_ota_validated_eval() (platform/host/bb_wifi/bb_wifi_emit.c)
+// -- this wrapper just supplies the live s_ota_validated_cb.
+static bool wifi_ota_validated(void)
+{
+    return bb_wifi_ota_validated_eval(s_ota_validated_cb);
+}
+
+// Internal accessor for wifi_reconn.c (private header, see wifi_reconn.h).
+bool bb_wifi_internal_ota_validated(void)
+{
+    return wifi_ota_validated();
+}
+
 // Fallback readers -- today's bb_nv_config_wifi_ssid/pass behavior, wrapped
 // to the bb_wifi_creds_get_fn shape so they can be dispatched through the
 // same bb_wifi_creds_read() call site as the injected provider.
@@ -760,7 +791,7 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
         s_ip_handler = NULL;
 
         if (restart_on_timeout) {
-            if (bb_ota_is_validated()) {
+            if (wifi_ota_validated()) {
                 bb_log_w(TAG, "wifi cold-boot timeout; firmware validated, returning ESP_ERR_TIMEOUT without reboot");
                 return ESP_ERR_TIMEOUT;
             }
@@ -996,7 +1027,7 @@ static bb_err_t bb_wifi_autoinit(void)
     // Sleep is broken into 1 s chunks so the task WDT (default 5 s in ESP-IDF
     // v5.x, subscribed to app_main by default) is fed on every iteration and
     // the 30 s backoff doesn't trip it.
-    while (err != BB_OK && bb_ota_is_validated()) {
+    while (err != BB_OK && wifi_ota_validated()) {
         bb_log_w(TAG, "wifi cold-boot timeout; retrying in 30s");
         for (int i = 0; i < 30; i++) {
             vTaskDelay(pdMS_TO_TICKS(1000));

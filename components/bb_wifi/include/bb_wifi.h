@@ -61,6 +61,29 @@ bb_err_t bb_wifi_ensure_netif(void);
 // runs. Composition-only — bb_wifi does not self-register a default.
 void bb_wifi_set_creds_provider(const bb_wifi_creds_provider_t *provider, void *ctx);
 
+// Inject the OTA-image-validated query bb_wifi's cold-boot timeout / persistent-
+// disconnect safeguard / retry-forever gates read to decide whether the running
+// image is "trusted" (skip cold-boot reboot, retry indefinitely, don't bump
+// boot_count toward AP-fallback). Composition-only — bb_wifi does not self-
+// register a default and has no dependency on bb_ota_validator. Pass NULL to
+// clear the callback. When no callback is set, bb_wifi treats the running
+// image as trusted (returns true) — a build without bb_ota_validator has no
+// rollback watchdog at all, so the running image is implicitly permanent and
+// every one of these gates should behave exactly as it did when the direct
+// bb_ota_is_validated() call always found a validated image. MUST be called
+// before bb_init_init_early() so it is set before the EARLY-tier
+// bb_wifi_autoinit runs (same ordering constraint as the creds provider above).
+typedef bool (*bb_wifi_ota_validated_fn)(void);
+void bb_wifi_set_ota_validated_cb(bb_wifi_ota_validated_fn cb);
+
+// Pure, host-testable dispatch backing bb_wifi's private wifi_ota_validated():
+// calls cb() if non-NULL, else returns true (see the "implicitly permanent"
+// rationale above). Compiled on host and ESP-IDF (platform/host/bb_wifi/
+// bb_wifi_emit.c) -- mirrors bb_wifi_creds_read's pure-dispatcher shape so the
+// cb-set/cb-NULL branches are host-covered without touching the espidf-only
+// private static that wraps it.
+bool bb_wifi_ota_validated_eval(bb_wifi_ota_validated_fn cb);
+
 // STA mode connect. bb_wifi_init restarts the system on connect timeout
 // (intended for normal boot); bb_wifi_init_sta returns an error on timeout
 // instead (intended for provisioning retry loops). Both block until

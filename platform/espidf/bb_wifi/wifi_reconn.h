@@ -105,3 +105,9 @@ uint32_t wifi_reconn_get_no_ip_count(void);
 // Signal the reconn task to run bb_wifi_restart_sta() from the task context.
 // Called by bb_wifi_request_recovery() after debounce check.
 void wifi_reconn_request_recovery(const char *reason);
+
+// Internal accessor (bb_wifi.c) for the injected OTA-image-validated callback
+// (bb_wifi_set_ota_validated_cb, bb_wifi.h). DEFAULT true when no callback is
+// injected — see bb_wifi.h for rationale. Private to this component; not a
+// public API.
+bool bb_wifi_internal_ota_validated(void);

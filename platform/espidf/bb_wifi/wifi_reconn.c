@@ -1,7 +1,6 @@
 #include "wifi_reconn.h"
 #include "wifi_reconn_policy.h"
 #include "bb_nv.h"
-#include "bb_ota_validator.h"
 #include "bb_timer.h"
 #include "bb_wifi.h"
 #include "bb_alert.h"
@@ -101,7 +100,7 @@ static const wifi_reconn_adapter_t s_adapter = {
 static void do_safeguard_reboot(const char *ctx)
 {
 #if !CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
-    if (bb_ota_is_validated()) {
+    if (bb_wifi_internal_ota_validated()) {
         bb_log_w(TAG, "%s (handshake=%d, generic=%d) on validated firmware: safeguard reboot, boot_count not incremented",
                  ctx, s_state.handshake_fail_count, s_state.generic_fail_count);
         bb_system_restart_reason(BB_RESET_SRC_WIFI_SAFEGUARD, "persistent disconnect");
