@@ -42,6 +42,11 @@ bb_err_t bb_storage_register_backend(const char *name, const bb_storage_vtable_t
         vt->erase == NULL || vt->exists == NULL) {
         return BB_ERR_INVALID_ARG;
     }
+    if ((vt->get_typed == NULL) != (vt->set_typed == NULL)) {
+        // get_typed/set_typed are an optional pair — one set without the
+        // other is a broken vtable, not a valid "typed unsupported" state.
+        return BB_ERR_INVALID_ARG;
+    }
 
     for (size_t i = 0; i < s_count; i++) {
         if (strcmp(s_backends[i].name, name) == 0) {
@@ -131,4 +136,40 @@ bool bb_storage_exists(const bb_storage_addr_t *addr)
     }
 
     return entry->vt.exists(entry->impl, addr);
+}
+
+bb_err_t bb_storage_get_typed(const bb_storage_addr_t *addr, bb_storage_enc_t enc,
+                               void *buf, size_t cap, size_t *out_len)
+{
+    if (addr == NULL || addr->backend == NULL || out_len == NULL || (cap > 0 && buf == NULL)) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    const bb_storage_backend_entry_t *entry = find_backend(addr->backend);
+    if (entry == NULL) {
+        return BB_ERR_NOT_FOUND;
+    }
+
+    if (entry->vt.get_typed != NULL) {
+        return entry->vt.get_typed(entry->impl, addr, enc, buf, cap, out_len);
+    }
+    return entry->vt.get(entry->impl, addr, buf, cap, out_len);
+}
+
+bb_err_t bb_storage_set_typed(const bb_storage_addr_t *addr, bb_storage_enc_t enc,
+                               const void *buf, size_t len)
+{
+    if (addr == NULL || addr->backend == NULL || (len > 0 && buf == NULL)) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    const bb_storage_backend_entry_t *entry = find_backend(addr->backend);
+    if (entry == NULL) {
+        return BB_ERR_NOT_FOUND;
+    }
+
+    if (entry->vt.set_typed != NULL) {
+        return entry->vt.set_typed(entry->impl, addr, enc, buf, len);
+    }
+    return entry->vt.set(entry->impl, addr, buf, len);
 }

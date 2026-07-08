@@ -52,14 +52,38 @@ typedef struct {
     const char *key;        // nvs: key; sdcard: filename; ram: key
 } bb_storage_addr_t;
 
-// Backend implementation. All four members must be non-NULL when passed to
-// bb_storage_register_backend() — a partial vtable is rejected outright
-// rather than crashing on a NULL call later.
+// Value encoding hint for bb_storage_get_typed/set_typed. BLOB is the
+// default and is byte-identical to the plain get/set path above; the
+// scalar/STR encodings let a backend that supports native typed entries
+// (e.g. NVS's nvs_set_u8/u16/u32/i32/str) preserve on-flash type tags
+// instead of writing everything as an untyped blob.
+typedef enum {
+    BB_STORAGE_ENC_BLOB = 0,
+    BB_STORAGE_ENC_STR,
+    BB_STORAGE_ENC_U8,
+    BB_STORAGE_ENC_U16,
+    BB_STORAGE_ENC_U32,
+    BB_STORAGE_ENC_I32,
+} bb_storage_enc_t;
+
+// Backend implementation. The first four members must be non-NULL when
+// passed to bb_storage_register_backend() — a partial vtable is rejected
+// outright rather than crashing on a NULL call later. get_typed/set_typed
+// are OPTIONAL (nullable, as a pair): a backend that leaves them NULL gets
+// blob semantics automatically via the facade's fallback to get/set (see
+// bb_storage_get_typed/set_typed below) — RAM/host/sdcard backends need no
+// code changes to keep their existing behavior.
 typedef struct {
     bb_err_t (*get)(void *impl, const bb_storage_addr_t *addr, void *buf, size_t cap, size_t *out_len);
     bb_err_t (*set)(void *impl, const bb_storage_addr_t *addr, const void *buf, size_t len);
     bb_err_t (*erase)(void *impl, const bb_storage_addr_t *addr);
     bool     (*exists)(void *impl, const bb_storage_addr_t *addr);
+
+    // Optional pair — both NULL or both set (validated at registration).
+    bb_err_t (*get_typed)(void *impl, const bb_storage_addr_t *addr, bb_storage_enc_t enc,
+                           void *buf, size_t cap, size_t *out_len);
+    bb_err_t (*set_typed)(void *impl, const bb_storage_addr_t *addr, bb_storage_enc_t enc,
+                           const void *buf, size_t len);
 } bb_storage_vtable_t;
 
 // Clear the backend registry (test/re-init use only).
@@ -68,9 +92,12 @@ void bb_storage_test_reset(void);
 // Register a backend under `name`. `name` must have static/registry-lifetime
 // storage duration — the registry stores the raw pointer, not a copy (safe
 // for the intended string-literal-at-init usage). `vt` is copied by value.
+// get_typed/set_typed are validated as a pair — one NULL and the other set
+// is rejected the same as a missing mandatory member.
 // Returns:
 //   BB_OK                 on success
-//   BB_ERR_INVALID_ARG    name, vt, or any vt member is NULL
+//   BB_ERR_INVALID_ARG    name, vt, any mandatory vt member is NULL, or
+//                         get_typed/set_typed are not both NULL or both set
 //   BB_ERR_NO_SPACE        registry is full (BB_STORAGE_MAX_BACKENDS)
 //   BB_ERR_INVALID_STATE   name already registered (first registration
 //                          wins; the duplicate is logged and dropped)
@@ -117,6 +144,19 @@ bb_err_t bb_storage_erase(const bb_storage_addr_t *addr);
 // Returns true iff a value is currently stored at addr. false for a NULL
 // addr, a NULL addr->backend, or an unknown backend name — never a crash.
 bool bb_storage_exists(const bb_storage_addr_t *addr);
+
+// Type-aware read: dispatches to the backend's get_typed when the backend
+// registered one, else falls back to plain bb_storage_get() (enc ignored —
+// blob semantics, byte-identical to today's behavior). Same truncation/
+// size-probe/error contract as bb_storage_get().
+bb_err_t bb_storage_get_typed(const bb_storage_addr_t *addr, bb_storage_enc_t enc,
+                               void *buf, size_t cap, size_t *out_len);
+
+// Type-aware write: dispatches to the backend's set_typed when the backend
+// registered one, else falls back to plain bb_storage_set() (enc ignored).
+// Same error contract as bb_storage_set().
+bb_err_t bb_storage_set_typed(const bb_storage_addr_t *addr, bb_storage_enc_t enc,
+                               const void *buf, size_t len);
 
 #ifdef __cplusplus
 }

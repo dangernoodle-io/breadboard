@@ -61,10 +61,12 @@ bb_err_t bb_storage_nvs_register(void);
 bb_err_t bb_storage_nvs_set_u8 (const char *ns, const char *key, uint8_t  value);
 bb_err_t bb_storage_nvs_set_u16(const char *ns, const char *key, uint16_t value);
 bb_err_t bb_storage_nvs_set_u32(const char *ns, const char *key, uint32_t value);
+bb_err_t bb_storage_nvs_set_i32(const char *ns, const char *key, int32_t  value);
 bb_err_t bb_storage_nvs_set_str(const char *ns, const char *key, const char *value);
 bb_err_t bb_storage_nvs_get_u8 (const char *ns, const char *key, uint8_t  *out, uint8_t  fallback);
 bb_err_t bb_storage_nvs_get_u16(const char *ns, const char *key, uint16_t *out, uint16_t fallback);
 bb_err_t bb_storage_nvs_get_u32(const char *ns, const char *key, uint32_t *out, uint32_t fallback);
+bb_err_t bb_storage_nvs_get_i32(const char *ns, const char *key, int32_t  *out, int32_t  fallback);
 bb_err_t bb_storage_nvs_get_str(const char *ns, const char *key, char *buf, size_t len, const char *fallback);
 
 // Erase a single key. Idempotent — a missing key is not an error.

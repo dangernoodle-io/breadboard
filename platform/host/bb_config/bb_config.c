@@ -8,6 +8,44 @@
 #include "bb_byte_order.h"
 
 // ---------------------------------------------------------------------------
+// bb_config_type_t -> bb_storage_enc_t — lets NVS-backed fields round-trip
+// through native NVS typed entries (nvs_set_u8/u16/u32/i32/str) instead of
+// an untyped blob, preserving on-flash type tags for provisioned boards.
+// Backends without a get_typed/set_typed pair (RAM/host/sdcard) ignore the
+// encoding via bb_storage_get_typed/set_typed's blob fallback, so this
+// mapping is a no-op there.
+// ---------------------------------------------------------------------------
+
+static bb_storage_enc_t cfg_type_to_enc(bb_config_type_t t)
+{
+    switch (t) {
+    case BB_CONFIG_BOOL:
+    case BB_CONFIG_U8:
+        return BB_STORAGE_ENC_U8;
+    case BB_CONFIG_U16:
+        return BB_STORAGE_ENC_U16;
+    case BB_CONFIG_U32:
+        return BB_STORAGE_ENC_U32;
+    case BB_CONFIG_I32:
+        return BB_STORAGE_ENC_I32;
+    case BB_CONFIG_STR:
+        return BB_STORAGE_ENC_STR;
+    case BB_CONFIG_BLOB:
+    default:
+        return BB_STORAGE_ENC_BLOB;
+    }
+}
+
+#ifdef BB_CONFIG_TESTING
+#include "bb_config_test.h"
+
+bb_storage_enc_t bb_config_cfg_type_to_enc_for_test(bb_config_type_t t)
+{
+    return cfg_type_to_enc(t);
+}
+#endif
+
+// ---------------------------------------------------------------------------
 // Scalar helpers
 // ---------------------------------------------------------------------------
 
@@ -21,7 +59,7 @@ static bb_err_t scalar_get(const bb_config_field_t *f, bb_config_type_t want,
     memset(buf, 0, width);
 
     size_t out_len = 0;
-    bb_err_t rc = bb_storage_get(&f->addr, buf, width, &out_len);
+    bb_err_t rc = bb_storage_get_typed(&f->addr, cfg_type_to_enc(f->type), buf, width, &out_len);
     if (rc != BB_OK) {
         return rc;
     }
@@ -41,7 +79,7 @@ static bb_err_t scalar_set(const bb_config_field_t *f, bb_config_type_t want,
     if (f == NULL || f->type != want) {
         return BB_ERR_INVALID_ARG;
     }
-    return bb_storage_set(&f->addr, buf, width);
+    return bb_storage_set_typed(&f->addr, cfg_type_to_enc(f->type), buf, width);
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +237,7 @@ bb_err_t bb_config_get_str(const bb_config_field_t *f, char *buf, size_t cap, si
         return BB_ERR_INVALID_ARG;
     }
 
-    bb_err_t rc = bb_storage_get(&f->addr, buf, cap, out_len);
+    bb_err_t rc = bb_storage_get_typed(&f->addr, BB_STORAGE_ENC_STR, buf, cap, out_len);
     if (rc == BB_ERR_NOT_FOUND && f->has_default) {
         const char *def = f->def.str != NULL ? f->def.str : "";
         size_t len = strlen(def);
@@ -227,7 +265,7 @@ bb_err_t bb_config_set_str(const bb_config_field_t *f, const char *v)
     if (len >= f->max_len) {
         return BB_ERR_INVALID_ARG;
     }
-    return bb_storage_set(&f->addr, v, len);
+    return bb_storage_set_typed(&f->addr, BB_STORAGE_ENC_STR, v, len);
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +277,7 @@ bb_err_t bb_config_get_blob(const bb_config_field_t *f, void *buf, size_t cap, s
     if (f == NULL || f->type != BB_CONFIG_BLOB || out_len == NULL || (cap > 0 && buf == NULL)) {
         return BB_ERR_INVALID_ARG;
     }
-    return bb_storage_get(&f->addr, buf, cap, out_len);
+    return bb_storage_get_typed(&f->addr, BB_STORAGE_ENC_BLOB, buf, cap, out_len);
 }
 
 bb_err_t bb_config_set_blob(const bb_config_field_t *f, const void *v, size_t len)
@@ -250,7 +288,7 @@ bb_err_t bb_config_set_blob(const bb_config_field_t *f, const void *v, size_t le
     if (len > f->max_len) {
         return BB_ERR_INVALID_ARG;
     }
-    return bb_storage_set(&f->addr, v, len);
+    return bb_storage_set_typed(&f->addr, BB_STORAGE_ENC_BLOB, v, len);
 }
 
 // ---------------------------------------------------------------------------
