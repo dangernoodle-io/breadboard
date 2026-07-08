@@ -1741,6 +1741,16 @@ void test_bb_meminfo_get_host_zeroes_snapshot(void);
 void test_bb_meminfo_format_rejects_null(void);
 void test_bb_meminfo_format_known_snapshot(void);
 void test_bb_meminfo_format_truncates_cleanly(void);
+void test_bb_memreport_get_null_out_is_noop(void);
+void test_bb_memreport_register_arena_rejects_null(void);
+void test_bb_memreport_register_arena_rejects_duplicate(void);
+void test_bb_memreport_deregister_unknown_is_noop(void);
+void test_bb_memreport_get_aggregates_registered_arenas(void);
+void test_bb_memreport_peak_used_bytes_survives_reset(void);
+void test_bb_memreport_format_rejects_null(void);
+void test_bb_memreport_format_no_regions_is_heap_plus_bss(void);
+void test_bb_memreport_format_appends_region_tokens(void);
+void test_bb_memreport_format_truncates_cleanly(void);
 
 // Forward declarations from test_bb_health.c
 void test_bb_health_register_section_null_name_returns_err(void);
@@ -4169,6 +4179,8 @@ void test_bb_mem_arena_reset_null_arena_is_noop(void);
 void test_bb_mem_arena_owns_null_arena_is_false(void);
 void test_bb_mem_arena_owns_null_ptr_is_false(void);
 void test_bb_mem_arena_owns_out_of_range_ptr_is_false(void);
+void test_bb_mem_arena_owns_ptr_before_buf_is_false(void);
+void test_bb_mem_arena_owns_ptr_at_end_boundary_is_false(void);
 void test_bb_mem_arena_free_bytes_null_arena_is_zero(void);
 void test_bb_mem_arena_get_stats_null_args_is_noop(void);
 void test_bb_mem_arena_destroy_null_is_noop(void);
@@ -4176,6 +4188,7 @@ void test_bb_mem_arena_init_heap_succeeds_and_destroy_frees(void);
 void test_bb_mem_arena_init_spiram_succeeds_and_destroy_frees(void);
 void test_bb_mem_arena_init_heap_null_out_returns_invalid_arg(void);
 void test_bb_mem_arena_init_heap_zero_size_returns_invalid_arg(void);
+void test_bb_mem_arena_init_heap_size_too_small_for_carve_returns_invalid_arg(void);
 void test_bb_mem_arena_init_spiram_null_out_returns_invalid_arg(void);
 void test_bb_mem_arena_init_spiram_zero_size_returns_invalid_arg(void);
 void test_bb_mem_arena_init_heap_alloc_failure_returns_no_mem(void);
@@ -4185,6 +4198,10 @@ void test_bb_mem_arena_init_heap_size_overflow_returns_invalid_arg(void);
 void test_bb_mem_arena_double_destroy_caller_buffer_is_safe(void);
 void test_bb_mem_arena_alloc_returns_max_align_t_aligned_pointer(void);
 void test_bb_mem_arena_alloc_exact_fit_succeeds(void);
+void test_bb_mem_arena_size_returns_total_bytes(void);
+void test_bb_mem_arena_size_null_arena_is_zero(void);
+void test_bb_mem_arena_peak_offset_monotonic_across_reset(void);
+void test_bb_mem_arena_peak_offset_advances_past_prior_high(void);
 void test_bb_mem_arena_destroy_caller_buffer_does_not_touch_bb_mem(void);
 
 // Forward declarations from test_pool.c (B1-478 PR C)
@@ -6541,6 +6558,16 @@ int main(void) {
     RUN_TEST(test_bb_meminfo_format_rejects_null);
     RUN_TEST(test_bb_meminfo_format_known_snapshot);
     RUN_TEST(test_bb_meminfo_format_truncates_cleanly);
+    RUN_TEST(test_bb_memreport_get_null_out_is_noop);
+    RUN_TEST(test_bb_memreport_register_arena_rejects_null);
+    RUN_TEST(test_bb_memreport_register_arena_rejects_duplicate);
+    RUN_TEST(test_bb_memreport_deregister_unknown_is_noop);
+    RUN_TEST(test_bb_memreport_get_aggregates_registered_arenas);
+    RUN_TEST(test_bb_memreport_peak_used_bytes_survives_reset);
+    RUN_TEST(test_bb_memreport_format_rejects_null);
+    RUN_TEST(test_bb_memreport_format_no_regions_is_heap_plus_bss);
+    RUN_TEST(test_bb_memreport_format_appends_region_tokens);
+    RUN_TEST(test_bb_memreport_format_truncates_cleanly);
 
     // bb_health tests
     RUN_TEST(test_bb_health_register_section_null_name_returns_err);
@@ -8759,6 +8786,8 @@ int main(void) {
     RUN_TEST(test_bb_mem_arena_owns_null_arena_is_false);
     RUN_TEST(test_bb_mem_arena_owns_null_ptr_is_false);
     RUN_TEST(test_bb_mem_arena_owns_out_of_range_ptr_is_false);
+    RUN_TEST(test_bb_mem_arena_owns_ptr_before_buf_is_false);
+    RUN_TEST(test_bb_mem_arena_owns_ptr_at_end_boundary_is_false);
     RUN_TEST(test_bb_mem_arena_free_bytes_null_arena_is_zero);
     RUN_TEST(test_bb_mem_arena_get_stats_null_args_is_noop);
     RUN_TEST(test_bb_mem_arena_destroy_null_is_noop);
@@ -8766,6 +8795,7 @@ int main(void) {
     RUN_TEST(test_bb_mem_arena_init_spiram_succeeds_and_destroy_frees);
     RUN_TEST(test_bb_mem_arena_init_heap_null_out_returns_invalid_arg);
     RUN_TEST(test_bb_mem_arena_init_heap_zero_size_returns_invalid_arg);
+    RUN_TEST(test_bb_mem_arena_init_heap_size_too_small_for_carve_returns_invalid_arg);
     RUN_TEST(test_bb_mem_arena_init_spiram_null_out_returns_invalid_arg);
     RUN_TEST(test_bb_mem_arena_init_spiram_zero_size_returns_invalid_arg);
     RUN_TEST(test_bb_mem_arena_init_heap_alloc_failure_returns_no_mem);
@@ -8775,6 +8805,10 @@ int main(void) {
     RUN_TEST(test_bb_mem_arena_double_destroy_caller_buffer_is_safe);
     RUN_TEST(test_bb_mem_arena_alloc_returns_max_align_t_aligned_pointer);
     RUN_TEST(test_bb_mem_arena_alloc_exact_fit_succeeds);
+    RUN_TEST(test_bb_mem_arena_size_returns_total_bytes);
+    RUN_TEST(test_bb_mem_arena_size_null_arena_is_zero);
+    RUN_TEST(test_bb_mem_arena_peak_offset_monotonic_across_reset);
+    RUN_TEST(test_bb_mem_arena_peak_offset_advances_past_prior_high);
     RUN_TEST(test_bb_mem_arena_destroy_caller_buffer_does_not_touch_bb_mem);
 
     // bb_pool generic pool primitive tests (B1-478 PR C)

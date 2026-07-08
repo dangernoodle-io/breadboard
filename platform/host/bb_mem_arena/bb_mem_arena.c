@@ -107,13 +107,18 @@ void *bb_mem_arena_alloc(bb_mem_arena_t a, size_t bytes)
     size_t aligned = (bytes + (BB_MEM_ARENA_ALIGN - 1u)) & ~(BB_MEM_ARENA_ALIGN - 1u);
     /* defensive: unreachable via public API given arena size bounds; guards
      * against future callers. */
-    if (aligned < bytes || aligned > remaining) {
+    if (aligned < bytes || aligned > remaining) { // LCOV_EXCL_BR_LINE — defensive, unreachable via public API given arena size bounds (see comment above)
+        // LCOV_EXCL_START — body of the unreachable branch above
         a->stats.alloc_failed++;
         return NULL;
+        // LCOV_EXCL_STOP
     }
     void *p = a->buf + a->offset;
     a->offset += aligned;
     a->stats.alloc_count++;
+    if (a->offset > a->stats.peak_offset) {
+        a->stats.peak_offset = a->offset;
+    }
     return p;
 }
 
@@ -122,7 +127,7 @@ void bb_mem_arena_free(bb_mem_arena_t a, void *ptr)
     if (!a || !ptr) {
         return;
     }
-    assert(bb_mem_arena_owns(a, ptr));
+    assert(bb_mem_arena_owns(a, ptr)); // LCOV_EXCL_BR_LINE — assert-fail branch only reachable via caller misuse
     /* Bump allocator: reclaim is not supported; track the free for stats. */
     a->stats.free_count++;
 }
@@ -150,6 +155,14 @@ size_t bb_mem_arena_free_bytes(bb_mem_arena_t a)
         return 0;
     }
     return a->size - a->offset;
+}
+
+size_t bb_mem_arena_size(bb_mem_arena_t a)
+{
+    if (!a) {
+        return 0;
+    }
+    return a->size;
 }
 
 void bb_mem_arena_get_stats(bb_mem_arena_t a, bb_mem_arena_stats_t *out)

@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include "bb_core.h"
+#include "bb_mem_arena.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -89,6 +90,72 @@ bb_err_t bb_meminfo_get(bb_meminfo_snapshot_t *out);
 // truncation); returns 0 (without calling snprintf) when snap or buf is
 // NULL or len == 0.
 int bb_meminfo_format(const bb_meminfo_snapshot_t *snap, char *buf, size_t len);
+
+// ---------------------------------------------------------------------------
+// bb_memreport — the unified memory report ("the ruler"): heap (via
+// bb_meminfo_get above) + bss + per-region arena watermarks in one snapshot.
+// Additive to bb_meminfo's heap-only contract above; does not change it.
+// ARENA-ONLY for PR1 — bb_pool consumers are a follow-up once bb_pool
+// exposes its backing arena handle.
+// ---------------------------------------------------------------------------
+
+// Capacity constant (Kconfig bridge — pattern from bb_clock.h).
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#ifdef CONFIG_BB_MEMREPORT_MAX_REGIONS
+#define BB_MEMREPORT_MAX_REGIONS CONFIG_BB_MEMREPORT_MAX_REGIONS
+#endif
+#endif
+#ifndef BB_MEMREPORT_MAX_REGIONS
+#define BB_MEMREPORT_MAX_REGIONS 8
+#endif
+
+// One named arena's contribution to the report.
+typedef struct {
+    char   name[24];
+    size_t free_bytes;
+    size_t used_bytes;
+    size_t peak_used_bytes;
+    size_t alloc_count;
+    size_t free_count;
+    size_t alloc_failed;
+} bb_memreport_region_t;
+
+typedef struct {
+    bb_meminfo_snapshot_t heap; // heap regions + bss (heap.dram_static_bytes)
+    uint16_t              region_count;
+    bb_memreport_region_t regions[BB_MEMREPORT_MAX_REGIONS];
+} bb_memreport_snapshot_t;
+
+// Populate out with the heap snapshot (bb_meminfo_get) plus one entry per
+// registered arena (bb_memreport_register_arena). No-op if out is NULL.
+// Per-arena stats (bb_mem_arena_get_stats / _free_bytes / _size) are read
+// WITHOUT a lock and may be stale or torn if a concurrent bb_mem_arena_alloc
+// runs on another task during the read — acceptable for diagnostics, not a
+// correctness-critical read.
+void bb_memreport_get(bb_memreport_snapshot_t *out);
+
+// Format a compact diagnostic line: bb_meminfo_format's heap-only prefix,
+// then "bss=<N>", then one "<name>=free/peak/used" token per registered
+// region. snprintf semantics — buf is always NUL-terminated when len > 0.
+// Returns the number of bytes that would have been written (may exceed len
+// on truncation); returns 0 (without writing) when snap or buf is NULL or
+// len == 0.
+int bb_memreport_format(const bb_memreport_snapshot_t *snap, char *buf, size_t len);
+
+// Register a named bb_mem_arena_t for inclusion in bb_memreport_get's
+// per-region walk. bb_registry stores the raw name pointer, not a copy —
+// name must remain valid for the arena's entire registered lifetime (a
+// string literal or other static/rodata storage is recommended); the
+// pointed-to bytes are only copied into a fixed-size buffer later, at
+// bb_memreport_get() time. A duplicate name or a full registry returns the
+// underlying bb_registry error (BB_ERR_INVALID_STATE / BB_ERR_NO_SPACE).
+// Returns BB_ERR_INVALID_ARG if name or a is NULL.
+bb_err_t bb_memreport_register_arena(const char *name, bb_mem_arena_t a);
+
+// Remove a previously registered arena by name. No-op (safe) if name was
+// never registered.
+void bb_memreport_deregister(const char *name);
 
 #ifdef __cplusplus
 }

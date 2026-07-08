@@ -1,0 +1,12 @@
+menu "breadboard: bb_meminfo"
+
+config BB_MEMREPORT_MAX_REGIONS
+    int "bb_memreport arena region-registry capacity"
+    default 8
+    range 1 64
+    help
+        Maximum number of bb_mem_arena_t regions bb_memreport_get() can
+        aggregate (bb_memreport_register_arena capacity). Must not exceed
+        BB_REGISTRY_SNAPSHOT_MAX (64).
+
+endmenu

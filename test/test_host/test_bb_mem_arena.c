@@ -163,6 +163,38 @@ void test_bb_mem_arena_owns_out_of_range_ptr_is_false(void)
     bb_mem_arena_destroy(a);
 }
 
+void test_bb_mem_arena_owns_ptr_before_buf_is_false(void)
+{
+    /* `a` (the arena header) lives at the start of the backing block, before
+     * a->buf (buf = block + BB_MEM_ARENA_HDR_SZ) -- so (const void *)a is a
+     * non-NULL pointer guaranteed to be < a->buf, exercising the `ptr >=
+     * buf` short-circuit-false branch deterministically (unlike a stack
+     * local, whose address relative to a static buffer is layout-dependent). */
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
+    TEST_ASSERT_FALSE(bb_mem_arena_owns(a, (const void *)a));
+    bb_mem_arena_destroy(a);
+}
+
+void test_bb_mem_arena_owns_ptr_at_end_boundary_is_false(void)
+{
+    /* One-past-the-last-valid-byte: ptr >= buf is true, but ptr < buf+size
+     * is false -- exercises the second half of the && short-circuit that
+     * test_bb_mem_arena_owns_out_of_range_ptr_is_false does not
+     * deterministically hit. */
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
+
+    size_t total = bb_mem_arena_free_bytes(a);
+    void *p = bb_mem_arena_alloc(a, total);
+    TEST_ASSERT_NOT_NULL(p);
+
+    const uint8_t *end = (const uint8_t *)p + total;
+    TEST_ASSERT_FALSE(bb_mem_arena_owns(a, end));
+
+    bb_mem_arena_destroy(a);
+}
+
 void test_bb_mem_arena_free_bytes_null_arena_is_zero(void)
 {
     TEST_ASSERT_EQUAL_UINT(0, bb_mem_arena_free_bytes(NULL));
@@ -227,6 +259,19 @@ void test_bb_mem_arena_init_heap_zero_size_returns_invalid_arg(void)
 {
     bb_mem_arena_t a = NULL;
     TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_mem_arena_init_heap(&a, 0));
+}
+
+void test_bb_mem_arena_init_heap_size_too_small_for_carve_returns_invalid_arg(void)
+{
+    /* size=1 passes the size==0 / overflow checks in
+     * bb_mem_arena_init_from_bb_mem, so bb_calloc_prefer_spiram succeeds and
+     * allocates BB_MEM_ARENA_HDR_SZ+1 bytes -- but that total is too small
+     * for bb_mem_arena_carve's own HDR_SZ+ALIGN floor, so carve fails and
+     * the caller must free the just-allocated block before returning the
+     * error (exercises the err != BB_OK cleanup branch). */
+    bb_mem_arena_t a = NULL;
+    bb_err_t err = bb_mem_arena_init_heap(&a, 1);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, err);
 }
 
 void test_bb_mem_arena_init_spiram_null_out_returns_invalid_arg(void)
@@ -334,6 +379,84 @@ void test_bb_mem_arena_alloc_exact_fit_succeeds(void)
     void *p = bb_mem_arena_alloc(a, free_before);
     TEST_ASSERT_NOT_NULL(p);
     TEST_ASSERT_EQUAL_UINT(0, bb_mem_arena_free_bytes(a));
+
+    bb_mem_arena_destroy(a);
+}
+
+// ---------------------------------------------------------------------------
+// bb_mem_arena_size() — total data-region size accessor.
+// ---------------------------------------------------------------------------
+
+void test_bb_mem_arena_size_returns_total_bytes(void)
+{
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
+
+    size_t total = bb_mem_arena_size(a);
+    size_t free_before = bb_mem_arena_free_bytes(a);
+    TEST_ASSERT_EQUAL_UINT(free_before, total); // nothing allocated yet
+
+    void *p = bb_mem_arena_alloc(a, 32);
+    TEST_ASSERT_NOT_NULL(p);
+    TEST_ASSERT_EQUAL_UINT(total, bb_mem_arena_size(a)); // size is constant
+    TEST_ASSERT_EQUAL_UINT(total - 32, bb_mem_arena_free_bytes(a));
+
+    bb_mem_arena_destroy(a);
+}
+
+void test_bb_mem_arena_size_null_arena_is_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT(0, bb_mem_arena_size(NULL));
+}
+
+// ---------------------------------------------------------------------------
+// bb_mem_arena_stats_t.peak_offset — soak high-watermark, survives reset.
+// ---------------------------------------------------------------------------
+
+void test_bb_mem_arena_peak_offset_monotonic_across_reset(void)
+{
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
+
+    bb_mem_arena_stats_t stats;
+    bb_mem_arena_get_stats(a, &stats);
+    TEST_ASSERT_EQUAL_UINT(0, stats.peak_offset);
+
+    void *p1 = bb_mem_arena_alloc(a, 96);
+    TEST_ASSERT_NOT_NULL(p1);
+    bb_mem_arena_get_stats(a, &stats);
+    TEST_ASSERT_EQUAL_UINT(96, stats.peak_offset);
+
+    bb_mem_arena_reset(a);
+    bb_mem_arena_get_stats(a, &stats);
+    TEST_ASSERT_EQUAL_UINT(96, stats.peak_offset); // reset does not touch peak_offset
+
+    void *p2 = bb_mem_arena_alloc(a, 16); // smaller than the prior high-water mark
+    TEST_ASSERT_NOT_NULL(p2);
+    bb_mem_arena_get_stats(a, &stats);
+    TEST_ASSERT_EQUAL_UINT(96, stats.peak_offset); // still the pre-reset high
+
+    void *p3 = bb_mem_arena_alloc(a, 32); // 16 + 32 = 48, still under the prior peak
+    TEST_ASSERT_NOT_NULL(p3);
+    bb_mem_arena_get_stats(a, &stats);
+    TEST_ASSERT_EQUAL_UINT(96, stats.peak_offset);
+
+    bb_mem_arena_destroy(a);
+}
+
+void test_bb_mem_arena_peak_offset_advances_past_prior_high(void)
+{
+    bb_mem_arena_t a = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_mem_arena_init(&a, s_buf, sizeof(s_buf)));
+
+    void *p1 = bb_mem_arena_alloc(a, 32);
+    TEST_ASSERT_NOT_NULL(p1);
+    void *p2 = bb_mem_arena_alloc(a, 64); /* cumulative offset 96 > prior 32 */
+    TEST_ASSERT_NOT_NULL(p2);
+
+    bb_mem_arena_stats_t stats;
+    bb_mem_arena_get_stats(a, &stats);
+    TEST_ASSERT_EQUAL_UINT(96, stats.peak_offset);
 
     bb_mem_arena_destroy(a);
 }
