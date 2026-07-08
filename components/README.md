@@ -112,6 +112,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_ring_diag](./bb_ring_diag/) | — |
 | [bb_scalar](./bb_scalar/) | — |
 | [bb_sensors](./bb_sensors/) | — |
+| [bb_settings](./bb_settings/) | bb's default `bb_wifi_creds_provider_t` implementation — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. |
 | [bb_sink_display](./bb_sink_display/) | The northstar display-egress sink: renders a board-appropriate subset of |
 | [bb_sink_event](./bb_sink_event/) | — |
 | [bb_sink_http](./bb_sink_http/) | — |
@@ -141,4 +142,5 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_udp_frame](./bb_udp_frame/) | — |
 | [bb_wdt](./bb_wdt/) | — |
 | [bb_wifi](./bb_wifi/) | — |
+| [bb_wifi_creds](./bb_wifi_creds/) | Interface-only component defining the wifi-credential-provider seam (`bb_wifi_creds_provider_t`). |
 | [bb_ws_server](./bb_ws_server/) | — |
