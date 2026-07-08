@@ -647,6 +647,18 @@ void test_cfg_type_to_enc_i32_maps_to_i32(void);
 void test_cfg_type_to_enc_str_maps_to_str(void);
 void test_cfg_type_to_enc_blob_maps_to_blob(void);
 
+// Forward declarations from test_bb_settings.c
+void test_bb_settings_provider_get_ssid_get_pass_round_trip(void);
+void test_bb_settings_provider_has_creds_false_when_unset(void);
+void test_bb_settings_provider_has_creds_true_after_set(void);
+void test_bb_settings_provider_clear_resets_has_creds_false(void);
+void test_bb_settings_provider_clear_is_idempotent(void);
+void test_bb_settings_provider_clear_propagates_ssid_erase_error(void);
+void test_bb_settings_provider_get_ssid_cap_zero_probes_length(void);
+void test_bb_settings_provider_get_pass_truncation_reports_full_len(void);
+void test_bb_settings_provider_vtable_pointer_indirection(void);
+void test_bb_settings_wifi_creds_ctx_returns_null(void);
+
 // Forward declarations from test_nv_creds_mirror.c
 void test_nv_creds_mirror_pack_valid_roundtrip(void);
 void test_nv_creds_mirror_flip_ssid_invalidates(void);
@@ -8186,6 +8198,18 @@ int main(void) {
     RUN_TEST(test_bb_config_erase_null_field_returns_invalid_arg);
     RUN_TEST(test_bb_config_exists_false_before_set_true_after);
     RUN_TEST(test_bb_config_exists_false_for_null_field);
+
+    // bb_settings (default wifi-creds provider over bb_config) tests
+    RUN_TEST(test_bb_settings_provider_get_ssid_get_pass_round_trip);
+    RUN_TEST(test_bb_settings_provider_has_creds_false_when_unset);
+    RUN_TEST(test_bb_settings_provider_has_creds_true_after_set);
+    RUN_TEST(test_bb_settings_provider_clear_resets_has_creds_false);
+    RUN_TEST(test_bb_settings_provider_clear_is_idempotent);
+    RUN_TEST(test_bb_settings_provider_clear_propagates_ssid_erase_error);
+    RUN_TEST(test_bb_settings_provider_get_ssid_cap_zero_probes_length);
+    RUN_TEST(test_bb_settings_provider_get_pass_truncation_reports_full_len);
+    RUN_TEST(test_bb_settings_provider_vtable_pointer_indirection);
+    RUN_TEST(test_bb_settings_wifi_creds_ctx_returns_null);
 
     // bb_storage_typed (get_typed/set_typed facade) tests
     RUN_TEST(test_bb_storage_get_typed_falls_back_to_get_on_ram_backend);
