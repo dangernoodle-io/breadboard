@@ -541,6 +541,10 @@ void test_bb_storage_nvs_get_decide_truncating_beyond_scratch_is_no_space(void);
 void test_bb_storage_nvs_get_decide_zero_required_zero_cap_probes(void);
 void test_bb_storage_nvs_get_decide_zero_required_nonzero_cap_is_full(void);
 void test_bb_storage_nvs_get_decide_null_out_len_is_safe(void);
+void test_bb_storage_nvs_get_decide_reserve1_cap_equal_required_is_bounce(void);
+void test_bb_storage_nvs_get_decide_reserve1_cap_equal_required_plus_one_is_full(void);
+void test_bb_storage_nvs_get_decide_reserve1_probed_equal_scratch_max_bounces(void);
+void test_bb_storage_nvs_get_decide_reserve1_probed_exceeds_scratch_max_is_no_space(void);
 
 // Forward declarations from test_bb_config.c
 void test_bb_config_bool_set_then_get_round_trip(void);
@@ -606,6 +610,42 @@ void test_bb_config_erase_missing_is_idempotent(void);
 void test_bb_config_erase_null_field_returns_invalid_arg(void);
 void test_bb_config_exists_false_before_set_true_after(void);
 void test_bb_config_exists_false_for_null_field(void);
+
+// Forward declarations from test_bb_storage_typed.c
+void test_bb_storage_get_typed_falls_back_to_get_on_ram_backend(void);
+void test_bb_storage_set_typed_falls_back_to_set_on_ram_backend(void);
+void test_bb_storage_get_typed_dispatches_to_backend_hook_when_present(void);
+void test_bb_storage_set_typed_dispatches_to_backend_hook_when_present(void);
+void test_bb_storage_get_typed_null_addr_returns_invalid_arg(void);
+void test_bb_storage_get_typed_null_backend_returns_invalid_arg(void);
+void test_bb_storage_get_typed_unknown_backend_returns_not_found(void);
+void test_bb_storage_get_typed_null_out_len_returns_invalid_arg(void);
+void test_bb_storage_get_typed_null_buf_with_nonzero_cap_returns_invalid_arg(void);
+void test_bb_storage_set_typed_null_addr_returns_invalid_arg(void);
+void test_bb_storage_set_typed_unknown_backend_returns_not_found(void);
+void test_bb_storage_set_typed_null_buf_with_nonzero_len_returns_invalid_arg(void);
+void test_bb_storage_register_backend_get_typed_without_set_typed_returns_invalid_arg(void);
+void test_bb_storage_register_backend_set_typed_without_get_typed_returns_invalid_arg(void);
+void test_bb_storage_register_backend_both_typed_null_succeeds(void);
+void test_bb_storage_register_backend_both_typed_set_succeeds(void);
+
+// Forward declarations from test_bb_storage_nvs_classify_enc.c
+void test_bb_storage_nvs_classify_enc_blob(void);
+void test_bb_storage_nvs_classify_enc_str(void);
+void test_bb_storage_nvs_classify_enc_u8(void);
+void test_bb_storage_nvs_classify_enc_u16(void);
+void test_bb_storage_nvs_classify_enc_u32(void);
+void test_bb_storage_nvs_classify_enc_i32(void);
+void test_bb_storage_nvs_classify_enc_unknown_defaults_to_blob(void);
+
+// Forward declarations from test_bb_config_typed.c
+void test_cfg_type_to_enc_bool_maps_to_u8(void);
+void test_cfg_type_to_enc_u8_maps_to_u8(void);
+void test_cfg_type_to_enc_u16_maps_to_u16(void);
+void test_cfg_type_to_enc_u32_maps_to_u32(void);
+void test_cfg_type_to_enc_i32_maps_to_i32(void);
+void test_cfg_type_to_enc_str_maps_to_str(void);
+void test_cfg_type_to_enc_blob_maps_to_blob(void);
 
 // Forward declarations from test_nv_creds_mirror.c
 void test_nv_creds_mirror_pack_valid_roundtrip(void);
@@ -8077,6 +8117,10 @@ int main(void) {
     RUN_TEST(test_bb_storage_nvs_get_decide_zero_required_zero_cap_probes);
     RUN_TEST(test_bb_storage_nvs_get_decide_zero_required_nonzero_cap_is_full);
     RUN_TEST(test_bb_storage_nvs_get_decide_null_out_len_is_safe);
+    RUN_TEST(test_bb_storage_nvs_get_decide_reserve1_cap_equal_required_is_bounce);
+    RUN_TEST(test_bb_storage_nvs_get_decide_reserve1_cap_equal_required_plus_one_is_full);
+    RUN_TEST(test_bb_storage_nvs_get_decide_reserve1_probed_equal_scratch_max_bounces);
+    RUN_TEST(test_bb_storage_nvs_get_decide_reserve1_probed_exceeds_scratch_max_is_no_space);
 
     // bb_config tests
     RUN_TEST(test_bb_config_bool_set_then_get_round_trip);
@@ -8142,6 +8186,42 @@ int main(void) {
     RUN_TEST(test_bb_config_erase_null_field_returns_invalid_arg);
     RUN_TEST(test_bb_config_exists_false_before_set_true_after);
     RUN_TEST(test_bb_config_exists_false_for_null_field);
+
+    // bb_storage_typed (get_typed/set_typed facade) tests
+    RUN_TEST(test_bb_storage_get_typed_falls_back_to_get_on_ram_backend);
+    RUN_TEST(test_bb_storage_set_typed_falls_back_to_set_on_ram_backend);
+    RUN_TEST(test_bb_storage_get_typed_dispatches_to_backend_hook_when_present);
+    RUN_TEST(test_bb_storage_set_typed_dispatches_to_backend_hook_when_present);
+    RUN_TEST(test_bb_storage_get_typed_null_addr_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_get_typed_null_backend_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_get_typed_unknown_backend_returns_not_found);
+    RUN_TEST(test_bb_storage_get_typed_null_out_len_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_get_typed_null_buf_with_nonzero_cap_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_set_typed_null_addr_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_set_typed_unknown_backend_returns_not_found);
+    RUN_TEST(test_bb_storage_set_typed_null_buf_with_nonzero_len_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_register_backend_get_typed_without_set_typed_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_register_backend_set_typed_without_get_typed_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_register_backend_both_typed_null_succeeds);
+    RUN_TEST(test_bb_storage_register_backend_both_typed_set_succeeds);
+
+    // bb_storage_nvs_classify_enc tests
+    RUN_TEST(test_bb_storage_nvs_classify_enc_blob);
+    RUN_TEST(test_bb_storage_nvs_classify_enc_str);
+    RUN_TEST(test_bb_storage_nvs_classify_enc_u8);
+    RUN_TEST(test_bb_storage_nvs_classify_enc_u16);
+    RUN_TEST(test_bb_storage_nvs_classify_enc_u32);
+    RUN_TEST(test_bb_storage_nvs_classify_enc_i32);
+    RUN_TEST(test_bb_storage_nvs_classify_enc_unknown_defaults_to_blob);
+
+    // bb_config cfg_type_to_enc mapper tests
+    RUN_TEST(test_cfg_type_to_enc_bool_maps_to_u8);
+    RUN_TEST(test_cfg_type_to_enc_u8_maps_to_u8);
+    RUN_TEST(test_cfg_type_to_enc_u16_maps_to_u16);
+    RUN_TEST(test_cfg_type_to_enc_u32_maps_to_u32);
+    RUN_TEST(test_cfg_type_to_enc_i32_maps_to_i32);
+    RUN_TEST(test_cfg_type_to_enc_str_maps_to_str);
+    RUN_TEST(test_cfg_type_to_enc_blob_maps_to_blob);
 
     // bb_wdt tests
     RUN_TEST(test_bb_wdt_park_wait_resume_unsubscribes_and_resubscribes);

@@ -14,6 +14,7 @@
 #include "bb_init.h"
 #include "bb_led_info.h"
 #include "smoke_app.h"
+#include "storage_typed_selftest.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -27,6 +28,7 @@ static const char *TAG = "smoke";
 void app_main(void)
 {
     bb_init_init_early();
+    bb_smoke_storage_typed_selftest();
     bb_led_register_info();
 #ifdef BB_HAVE_DISPLAY_INFO
     bb_display_register_info();
