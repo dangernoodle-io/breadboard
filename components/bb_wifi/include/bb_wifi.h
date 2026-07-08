@@ -5,7 +5,6 @@
 #include <stdbool.h>
 
 #include "bb_core.h"
-#include "bb_wifi_creds.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,14 +52,6 @@ typedef struct {
 // portable consumer code can call it unconditionally.
 bb_err_t bb_wifi_ensure_netif(void);
 
-// Inject the wifi-credential provider bb_wifi reads for the CONNECT path
-// (live creds only; the CONFIG_BB_WIFI_RECONFIGURE pending-creds path stays
-// on bb_nv — see bb_wifi.c). Pass NULL to fall back to bb_nv_config_wifi_ssid/
-// pass (today's behavior, byte-identical). MUST be called before
-// bb_init_init_early() so it is set before the EARLY-tier bb_wifi_autoinit
-// runs. Composition-only — bb_wifi does not self-register a default.
-void bb_wifi_set_creds_provider(const bb_wifi_creds_provider_t *provider, void *ctx);
-
 // Inject the OTA-image-validated query bb_wifi's cold-boot timeout / persistent-
 // disconnect safeguard / retry-forever gates read to decide whether the running
 // image is "trusted" (skip cold-boot reboot, retry indefinitely, don't bump
@@ -72,16 +63,15 @@ void bb_wifi_set_creds_provider(const bb_wifi_creds_provider_t *provider, void *
 // every one of these gates should behave exactly as it did when the direct
 // bb_ota_is_validated() call always found a validated image. MUST be called
 // before bb_init_init_early() so it is set before the EARLY-tier
-// bb_wifi_autoinit runs (same ordering constraint as the creds provider above).
+// bb_wifi_autoinit runs.
 typedef bool (*bb_wifi_ota_validated_fn)(void);
 void bb_wifi_set_ota_validated_cb(bb_wifi_ota_validated_fn cb);
 
 // Pure, host-testable dispatch backing bb_wifi's private wifi_ota_validated():
 // calls cb() if non-NULL, else returns true (see the "implicitly permanent"
 // rationale above). Compiled on host and ESP-IDF (platform/host/bb_wifi/
-// bb_wifi_emit.c) -- mirrors bb_wifi_creds_read's pure-dispatcher shape so the
-// cb-set/cb-NULL branches are host-covered without touching the espidf-only
-// private static that wraps it.
+// bb_wifi_emit.c) -- the cb-set/cb-NULL branches are host-covered without
+// touching the espidf-only private static that wraps it.
 bool bb_wifi_ota_validated_eval(bb_wifi_ota_validated_fn cb);
 
 // STA mode connect. bb_wifi_init restarts the system on connect timeout

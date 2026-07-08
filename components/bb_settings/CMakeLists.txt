@@ -1,7 +1,7 @@
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_settings/bb_settings.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_config bb_wifi_creds bb_core
+    REQUIRES bb_config bb_core
 )
 
 # bb_settings is a portable provider over bb_config (no ESP-IDF deps) --

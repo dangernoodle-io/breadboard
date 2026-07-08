@@ -121,7 +121,7 @@ components = [
     "bb_storage", "bb_storage_ram",
     "bb_str", "bb_sub", "bb_sub_mqtt", "bb_system", "bb_task", "bb_task_registry",
     "bb_telemetry", "bb_temp", "bb_thermal", "bb_timer", "bb_tls_creds", "bb_tls_info",
-    "bb_transport_health", "bb_udp_client", "bb_udp_frame", "bb_wdt", "bb_wifi", "bb_wifi_creds", "bb_wifi_http", "bb_ws_server",
+    "bb_transport_health", "bb_udp_client", "bb_udp_frame", "bb_wdt", "bb_wifi", "bb_wifi_http", "bb_ws_server",
 ]
 
 [board.native]

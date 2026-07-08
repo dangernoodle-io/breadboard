@@ -1,8 +1,8 @@
 // ESP-IDF entry shim for the unified smoke example.
 //
 // Bringup sequence:
-//   0. bb_wifi_set_creds_provider() — inject bb_settings' default wifi-creds
-//      provider before EARLY init (see KB 781 wifi-PR3 seam adoption).
+//   0. bb_wifi reads bb_settings' wifi ssid/pass/has-creds accessors directly
+//      for its CONNECT path (KB 805/806 — bb_wifi_creds seam collapsed).
 //   0b. bb_wifi_set_ota_validated_cb() — inject bb_ota_validator's real
 //      bb_ota_is_validated() before EARLY init (KB 781 wifi-split PR2:
 //      bb_wifi core no longer depends on bb_ota_validator; this composes
@@ -21,7 +21,6 @@
 #include "bb_led_info.h"
 #include "bb_wifi.h"
 #include "bb_ota_validator.h"
-#include "bb_settings.h"
 #include "smoke_app.h"
 #include "storage_typed_selftest.h"
 #include "freertos/FreeRTOS.h"
@@ -36,10 +35,6 @@ static const char *TAG = "smoke";
 
 void app_main(void)
 {
-    // Compose bb_settings' default wifi-creds provider into bb_wifi's CONNECT
-    // path. Must run before bb_init_init_early() so it is set before the
-    // EARLY-tier bb_wifi_autoinit runs.
-    bb_wifi_set_creds_provider(bb_settings_wifi_creds_provider(), bb_settings_wifi_creds_ctx());
     // Compose bb_ota_validator's real bb_ota_is_validated() into bb_wifi's
     // cold-boot/safeguard/retry-forever gates. Must run before
     // bb_init_init_early() so it is set before the EARLY-tier bb_wifi_autoinit

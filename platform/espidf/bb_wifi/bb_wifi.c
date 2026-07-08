@@ -1,4 +1,5 @@
 #include "bb_wifi.h"
+#include "bb_settings.h"
 #include "bb_nv.h"
 #include "bb_nv_wifi_pending.h"
 #include "bb_str.h"
@@ -73,20 +74,6 @@ static bb_wifi_on_got_ip_cb_t s_on_got_ip_cb = NULL;
 
 // Disconnect callback
 static bb_wifi_on_disconnect_cb_t s_on_disconnect_cb = NULL;
-
-// Injected wifi-creds provider (bb_wifi_set_creds_provider). NULL = fall back
-// to bb_nv_config_wifi_ssid/pass (today's behavior, unchanged). Live-creds
-// path only -- the CONFIG_BB_WIFI_RECONFIGURE pending-creds path stays on
-// bb_nv (deferred, no pending-slot concept in the seam).
-static const bb_wifi_creds_provider_t *s_creds_provider = NULL;
-static void *s_creds_ctx = NULL;
-
-// Set once wifi_connect_sta_ex() begins reading credentials for the connect
-// path. bb_wifi_set_creds_provider() is documented "call before init"; this
-// flag turns a late (post-init) call into a logged no-op instead of a silent
-// non-atomic swap racing the connect path that already captured the prior
-// provider.
-static volatile bool s_creds_provider_locked = false;
 
 // Injected OTA-image-validated query (bb_wifi_set_ota_validated_cb). NULL =
 // treat the running image as trusted (see bb_wifi.h for the full rationale:
@@ -602,17 +589,6 @@ bb_err_t bb_wifi_ensure_netif(void)
 
 typedef enum { CREDS_LIVE, CREDS_PENDING } wifi_creds_src_t;
 
-void bb_wifi_set_creds_provider(const bb_wifi_creds_provider_t *provider, void *ctx)
-{
-    if (s_creds_provider_locked) {
-        bb_log_w(TAG, "set_creds_provider called after connect path started; ignoring "
-                      "(must be called before bb_init_init_early())");
-        return;
-    }
-    s_creds_provider = provider;
-    s_creds_ctx = ctx;
-}
-
 void bb_wifi_set_ota_validated_cb(bb_wifi_ota_validated_fn cb)
 {
     s_ota_validated_cb = cb;
@@ -638,55 +614,25 @@ bool bb_wifi_internal_ota_validated(void)
     return wifi_ota_validated();
 }
 
-// Fallback readers -- today's bb_nv_config_wifi_ssid/pass behavior, wrapped
-// to the bb_wifi_creds_get_fn shape so they can be dispatched through the
-// same bb_wifi_creds_read() call site as the injected provider.
-static bb_err_t wifi_fallback_get_ssid(void *ctx, char *buf, size_t cap, size_t *out_len)
-{
-    (void)ctx;
-    bb_str_field(buf, bb_nv_config_wifi_ssid(), cap);
-    if (out_len) *out_len = strlen(buf);
-    return BB_OK;
-}
-
-static bb_err_t wifi_fallback_get_pass(void *ctx, char *buf, size_t cap, size_t *out_len)
-{
-    (void)ctx;
-    bb_str_field(buf, bb_nv_config_wifi_pass(), cap);
-    if (out_len) *out_len = strlen(buf);
-    return BB_OK;
-}
-
-// Live-creds helpers: use the injected provider if set, else fall back to
-// bb_nv_config_wifi_ssid/pass (today's behavior, byte-identical). Never log
-// the password value returned by wifi_read_pass. Routed through the pure,
-// host-testable bb_wifi_creds_read() dispatcher, which always passes a
-// non-NULL out_len to whichever function it calls -- required by providers
-// (e.g. bb_settings) that forward to bb_config_get_str, which rejects
-// out_len==NULL and writes nothing to buf.
+// Live-creds helpers: read directly from bb_settings, which owns the bb-
+// config wifi.ssid/wifi.pass descriptors and reads/writes the SAME NVS ns/
+// keys bb_nv_config_wifi_ssid/pass used to (byte-compat -- see bb_settings.h).
+// Never log the password value returned by wifi_read_pass. out_len may be
+// NULL -- bb_settings_wifi_ssid_get/_pass_get own the NULL-safety guarantee
+// (#776 CRITICAL) so callers here don't need a defensive local fallback.
 static bb_err_t wifi_read_ssid(char *buf, size_t cap, size_t *out_len)
 {
-    s_creds_provider_locked = true;
-    return bb_wifi_creds_read(s_creds_provider ? s_creds_provider->get_ssid : NULL, s_creds_ctx,
-                               wifi_fallback_get_ssid, NULL,
-                               buf, cap, out_len);
+    return bb_settings_wifi_ssid_get(buf, cap, out_len);
 }
 
 static bb_err_t wifi_read_pass(char *buf, size_t cap, size_t *out_len)
 {
-    s_creds_provider_locked = true;
-    return bb_wifi_creds_read(s_creds_provider ? s_creds_provider->get_pass : NULL, s_creds_ctx,
-                               wifi_fallback_get_pass, NULL,
-                               buf, cap, out_len);
+    return bb_settings_wifi_pass_get(buf, cap, out_len);
 }
 
 static bool wifi_has_creds(void)
 {
-    if (s_creds_provider) {
-        return s_creds_provider->has_creds(s_creds_ctx);
-    }
-    const char *ssid = bb_nv_config_wifi_ssid();
-    return ssid && ssid[0];
+    return bb_settings_wifi_has_creds();
 }
 
 static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
