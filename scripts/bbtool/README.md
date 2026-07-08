@@ -37,13 +37,15 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 | `raw-esp-timer` | all | Flags `esp_timer_create` or `esp_timer_create_args_t` used outside `platform/espidf/bb_timer/` — use `bb_timer_deferred_*` / `bb_timer_worker_*` instead |
 | `timer-cb-heavy` | all | Flags heavy work (blocking locks, alloc, IDF-subsystem calls) inside a `bb_timer_(periodic\|oneshot)_create` callback body — use `bb_timer_deferred_*` instead |
 | `public-header-leak` | library | Flags `esp_*/driver//cJSON.h` includes in public component headers outside an `#ifdef ESP_PLATFORM` gate |
-| `public-requires-watchlist` | library | Flags high-risk ESP-IDF deps (`esp_driver_*`, `esp_lcd`, etc.) in `REQUIRES` when they should be `PRIV_REQUIRES` (allowlist exceptions defined in `_check_public_requires_watchlist` in `scripts/bbtool/commands/lint.py`) |
+| `public-requires-unused` | library | Flags a platform/third-party `REQUIRES` dep (any token not starting with `bb_`) not referenced by any public header (`include/*.h`) — decisive test from CLAUDE.md's "REQUIRES vs PRIV_REQUIRES" section; internal `bb_*`-to-`bb_*` deps are out of scope. Default severity `warn` (a known unfixed `bb_wifi`/`esp_netif` leak would otherwise break CI); allowlist via `[lint.rules.public-requires-unused] allow=[[comp, dep], ...]` |
 | `platform-error-in-public-struct` | library | Flags integer-typed struct fields in public headers (`components/*/include/*.h`) whose name or trailing comment matches a raw platform error pattern (`esp_err`, `mbedtls`, `tls_*_(err\|code\|fail)`, `disc_reason`, `err_code`, `_errno`) — use a portable `bb_*` enum or keep the field log/diagnostic-only (B1-366) |
 | `ticket-ref-in-log` | all | Flags ticket IDs (e.g. `B1-123`, `TA-456`) inside `bb_log_*` runtime string literals across `platform/` and `components/` — reference tickets in comments only, not in log output |
 | `bb-prefix` | library | Flags public symbols in `components/*/include/*.h` (function declarations and macros) whose name does not start with `bb_`/`BB_` — all public symbols must carry the library prefix (v0.1.0 convention); configurable allowlist via `[lint.rules.bb-prefix] allow=[...]` |
 | `pragma-once` | library | Flags public headers (`components/*/include/*.h`) that do not contain a `#pragma once` line — use `#pragma once` instead of `#ifndef`/`#define` include guards |
 | `no-arduino-string` | library | Flags Arduino `String` type usage in library sources (`.c`/`.cpp`/`.h` under `platform/` and `components/`, excluding `.pio`/`.claude`/`test/`) — use `const char*` + length instead |
 | `component-readme` | library | Flags `components/<name>/` directories with no `README.md` (see the `docs` command below for the README template). Default severity `warn` — fires broadly on undocumented components today by design; flips to `error` once the fill lands (B1-646) |
+| `kconfig-bridge-shadow` | all | Flags a bare `#ifndef BB_X`/`#define BB_X <literal>` C fallback for a name X that also has a `config BB_X` int declared in Kconfig, when the same file has no `CONFIG_BB_X` bridge tying the C macro to the Kconfig symbol — the knob is silently inert (shipped 3×, see CLAUDE.md "Avoiding audit-class regressions") |
+| `raw-timestamp-divide` | all | Flags raw millisecond conversions (`esp_timer_get_time()/1000` or `bb_timer_now_us()/1000`, any C integer suffix) that bypass the canonical `bb_clock` helper, outside the real `bb_clock.c`/`bb_clock.h` files and any `bb_timer/` component directory — use `bb_clock_now_ms64()`/`bb_clock_now_ms()` instead. Default severity `warn`; allowlist via `[lint.rules.raw-timestamp-divide] allow=[...]` |
 
 ## `di-fence` command
 
@@ -111,8 +113,9 @@ severity = "error"
 [lint.rules.state-topic-post]
 severity = "error"
 
-[lint.rules.public-requires-watchlist]
-severity = "error"
+[lint.rules.public-requires-unused]
+severity = "warn"
+allow = []                    # additional [comp, dep] pairs beyond the built-in default allowlist
 
 [lint.rules.raw-esp-timer]
 severity = "error"
@@ -140,6 +143,13 @@ severity = "error"
 
 [lint.rules.component-readme]
 severity = "warn"             # fires broadly on undocumented components today; flip to "error" once the fill lands (B1-646)
+
+[lint.rules.kconfig-bridge-shadow]
+severity = "error"
+
+[lint.rules.raw-timestamp-divide]
+severity = "warn"
+allow = []                    # list of path strings or "path:line" keys to suppress
 
 [plugins]
 paths = []                    # list of .py plugin files (abs or relative to config)

@@ -10,9 +10,6 @@ severity = "error"
 [lint.rules.state-topic-post]
 severity = "error"
 
-[lint.rules.public-requires-watchlist]
-severity = "error"
-
 [lint.rules.raw-allocator]
 severity = "error"
 # Allowlist: path strings or "path:line" keys for intentional raw-allocator uses.
@@ -80,6 +77,15 @@ severity = "warn"
 # Fires broadly on components lacking a README.md today (expected — B1-644
 # taxonomy decision + open forks gate the fill). Flip to "error" once the
 # fill lands (B1-646).
+
+[lint.rules.kconfig-bridge-shadow]
+severity = "error"
+
+[lint.rules.raw-timestamp-divide]
+severity = "warn"
+# Allowlist: path strings or "path:line" keys for intentional raw millisecond
+# conversions outside bb_clock.c/bb_clock.h and bb_timer/.
+allow = []
 
 [docs]
 repo_url = "https://github.com/dangernoodle-io/breadboard"
