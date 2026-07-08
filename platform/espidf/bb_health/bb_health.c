@@ -12,7 +12,7 @@
 #include "bb_log.h"
 #include "bb_mdns.h"
 #include "bb_init.h"
-#include "bb_wifi.h"
+#include "bb_wifi_http.h"
 
 #include "../../../components/bb_health/bb_health_schema_priv.h"
 #include "../../../components/bb_health/bb_health_stack.h"

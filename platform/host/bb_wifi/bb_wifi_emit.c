@@ -1,10 +1,10 @@
-// bb_wifi_emit — shared per-datum wifi section emitter.
-// Compiled on both host (tests/bb_pub_wifi) and ESP-IDF (bb_wifi routes,
-// bb_info, bb_health).  This is the single source of truth for the wifi
-// section wire format.
+// bb_wifi_emit — pure wifi status helpers with no bb_json dependency.
+// Compiled on both host (tests) and ESP-IDF.
 //
-// When disconnected all numeric fields are 0/false and string fields are
-// empty/"0.0.0.0", matching the current /api/wifi behaviour.
+// PR1 (KB 781): the bb_json_t-based JSON emitters (bb_wifi_emit_section,
+// bb_wifi_emit_status) moved to bb_wifi_http (platform/host/bb_wifi_http/
+// bb_wifi_http_emit.c) so the bb_wifi STA core sheds its bb_json dependency.
+// This file keeps the pure, bb_json-free helpers only.
 //
 // B1-486: the recovery counters (no_ip_recoveries, egress_dead_count,
 // lost_ip_count, recovery_count) and reason_histogram have moved to
@@ -16,41 +16,8 @@
 // /api/diag/net + net.health discriminator surface only — no longer
 // duplicated here (net-health SSOT, wifi-netmode PR).
 #include "bb_wifi.h"
-#include "bb_json.h"
 
-#include <stdio.h>
 #include <string.h>
-
-// Emit the canonical wifi section into obj.
-// Fields written (in order):
-//   ssid               (string)
-//   bssid              (string "aa:bb:cc:dd:ee:ff")
-//   rssi               (integer)
-//   ip                 (string)
-//   connected          (bool)
-//   disc_reason        (integer)
-//   disc_age_s         (integer)
-//   retry_count        (integer)
-//   restart_sta_count  (integer, times bb_wifi_restart_sta was invoked)
-//   disconnect_rssi    (integer, RSSI at most recent disconnect)
-void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
-{
-    char bssid[18];
-    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
-             info->bssid[0], info->bssid[1], info->bssid[2],
-             info->bssid[3], info->bssid[4], info->bssid[5]);
-
-    bb_json_obj_set_string(obj, "ssid",             info->ssid);
-    bb_json_obj_set_string(obj, "bssid",            bssid);
-    bb_json_obj_set_int   (obj, "rssi",             (int64_t)info->rssi);
-    bb_json_obj_set_string(obj, "ip",               info->ip);
-    bb_json_obj_set_bool  (obj, "connected",        info->connected);
-    bb_json_obj_set_int   (obj, "disc_reason",      (int64_t)info->disc_reason);
-    bb_json_obj_set_int   (obj, "disc_age_s",       (int64_t)info->disc_age_s);
-    bb_json_obj_set_int   (obj, "retry_count",      (int64_t)info->retry_count);
-    bb_json_obj_set_int   (obj, "restart_sta_count",  (int64_t)bb_wifi_get_restart_sta_count());
-    bb_json_obj_set_int   (obj, "disconnect_rssi",    (int64_t)bb_wifi_get_disconnect_rssi());
-}
 
 // Find the top standard (non-sentinel) reason in a 256-entry disconnect
 // histogram. Pure; single implementation shared by /api/diag/net
@@ -119,22 +86,4 @@ const char *bb_wifi_disc_reason_str(uint8_t reason)
     case BB_WIFI_REASON_BB_NO_IP_WATCHDOG: return "bb_no_ip_watchdog";
     default:  return "other";
     }
-}
-
-// Emit status-only wifi fields — ssid/bssid/ip/connected.
-// No numeric fields; this is the SSOT for the /api/health "network" section (TA-505).
-void bb_wifi_emit_status(bb_json_t obj)
-{
-    bb_wifi_info_t info;
-    bb_wifi_get_info(&info);
-
-    char bssid[18];
-    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
-             info.bssid[0], info.bssid[1], info.bssid[2],
-             info.bssid[3], info.bssid[4], info.bssid[5]);
-
-    bb_json_obj_set_string(obj, "ssid",      info.ssid);
-    bb_json_obj_set_string(obj, "bssid",     bssid);
-    bb_json_obj_set_string(obj, "ip",        info.ip);
-    bb_json_obj_set_bool  (obj, "connected", info.connected);
 }

@@ -143,4 +143,5 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_wdt](./bb_wdt/) | — |
 | [bb_wifi](./bb_wifi/) | — |
 | [bb_wifi_creds](./bb_wifi_creds/) | Interface component defining the wifi-credential-provider seam (`bb_wifi_creds_provider_t`), plus one pure, host-testable dispatch helper (`bb_wifi_creds_read`) used by `bb_wifi` to route provider-vs-fallback reads through a single call site. |
+| [bb_wifi_http](./bb_wifi_http/) | Opt-in STA route bundle for `bb_wifi` (PR1 of the bb_wifi split, KB 781/809). |
 | [bb_ws_server](./bb_ws_server/) | — |
