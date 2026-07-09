@@ -100,7 +100,7 @@ def _scan_init_register(root: Path) -> Set[Marker]:
 
 def _kconfig_symbols(root: Path, suffix: str, marker_type: str) -> Set[Marker]:
     found: Set[Marker] = set()
-    pattern = re.compile(r'^config\s+(BB_[A-Za-z0-9_]*' + suffix + r')\s*$')
+    pattern = re.compile(r'^[ \t]*config\s+(BB_[A-Za-z0-9_]*' + suffix + r')\s*$')
     for path in _base.iter_files(root, _SCAN_ROOTS, _KCONFIG_GLOBS):
         rel = _base.rel(root, path)
         for line in _base.read(path).splitlines():
