@@ -19,8 +19,8 @@
 extern "C" {
 #endif
 
-// Register GET /api/cache on server. Regular-tier init, called either via
-// CONFIG_BB_CACHE_ROUTES_AUTOREGISTER or manually by the consumer.
+// Register GET /api/cache on server.
+// bbtool:init tier=regular fn=bb_cache_routes_init server=true
 bb_err_t bb_cache_routes_init(bb_http_handle_t server);
 
 #ifdef BB_CACHE_ROUTES_TESTING

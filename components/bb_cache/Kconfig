@@ -30,8 +30,9 @@ config BB_CACHE_SWEEP_ENABLE
         When enabled, a periodic background sweep (bb_cache_foreach) evicts
         BB_CACHE_EVICT_AGE_OUT keys past their evict_age_ms even if nothing
         reads them -- LAZY (read-time) eviction only fires on an actual
-        read. The sweep starts automatically via a bb_init PRE_HTTP hook;
-        no application code changes are needed. Disabled by default: LAZY
+        read. The sweep starts via a pre_http registry hook (bbtool:init
+        marker in bb_cache.h); no application code changes are needed.
+        Disabled by default: LAZY
         eviction alone is sufficient for read-driven keys; enable this for
         keys that may go unread for long stretches (e.g. a disconnected
         ingress source) and still need their memory reclaimed.

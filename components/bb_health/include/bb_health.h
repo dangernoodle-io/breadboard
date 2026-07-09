@@ -29,6 +29,30 @@ bb_err_t bb_health_register_section(const char *name,
                                      void *ctx,
                                      const char *schema_props);
 
+#ifdef ESP_PLATFORM
+#include "bb_http_server.h"
+
+// ---------------------------------------------------------------------------
+// Registry hooks
+// ---------------------------------------------------------------------------
+
+// Reserve route-table slots for bb_health before the HTTP server starts.
+// bbtool:init tier=pre_http fn=bb_health_reserve_routes
+bb_err_t bb_health_reserve_routes(void);
+
+// Registry hook — registers GET /api/health and starts the stack
+// high-water monitor.
+// bbtool:init tier=regular fn=bb_health_init server=true
+bb_err_t bb_health_init(bb_http_handle_t server);
+
+// Registry hook — registers the low-stack transition handler with
+// bb_task_registry. Gated behind CONFIG_BB_HEALTH_STACK_AUTOSTART (feature
+// toggle, not registration glue — KEPT).
+// bbtool:init tier=pre_http fn=bb_health_stack_monitor_start
+bb_err_t bb_health_stack_monitor_start(void);
+
+#endif /* ESP_PLATFORM */
+
 #ifdef __cplusplus
 }
 #endif

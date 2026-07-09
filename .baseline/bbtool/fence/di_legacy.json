@@ -11,11 +11,6 @@
       "type": "BB_INIT_REGISTER"
     },
     {
-      "id": "bb_partition_routes",
-      "path": "platform/espidf/bb_partition/bb_partition_routes.c",
-      "type": "BB_INIT_REGISTER"
-    },
-    {
       "id": "bb_ring_diag",
       "path": "platform/espidf/bb_ring_diag/bb_ring_diag.c",
       "type": "BB_INIT_REGISTER"
@@ -41,11 +36,6 @@
       "type": "BB_INIT_REGISTER_N"
     },
     {
-      "id": "bb_cache_routes",
-      "path": "platform/espidf/bb_cache_routes/bb_cache_routes.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
       "id": "bb_display_info",
       "path": "platform/espidf/bb_display_info/bb_display_info.c",
       "type": "BB_INIT_REGISTER_N"
@@ -53,21 +43,6 @@
     {
       "id": "bb_fan_routes",
       "path": "platform/espidf/bb_fan_routes/bb_fan_routes.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_health",
-      "path": "platform/espidf/bb_health/bb_health.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_info",
-      "path": "platform/espidf/bb_info/bb_info.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_info_freeze",
-      "path": "platform/espidf/bb_info/bb_info.c",
       "type": "BB_INIT_REGISTER_N"
     },
     {
@@ -86,18 +61,8 @@
       "type": "BB_INIT_REGISTER_N"
     },
     {
-      "id": "bb_manifest",
-      "path": "platform/espidf/bb_manifest/bb_manifest_register.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
       "id": "bb_mdns",
       "path": "platform/espidf/bb_mdns/bb_mdns.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_openapi",
-      "path": "platform/espidf/bb_openapi/bb_openapi_register.c",
       "type": "BB_INIT_REGISTER_N"
     },
     {
@@ -126,11 +91,6 @@
       "type": "BB_INIT_REGISTER_N"
     },
     {
-      "id": "bb_cache_evict",
-      "path": "platform/espidf/bb_cache/bb_cache_espidf.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
       "id": "bb_event_routes",
       "path": "platform/espidf/bb_event_routes/bb_event_routes_espidf.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
@@ -141,28 +101,8 @@
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
-      "id": "bb_health",
-      "path": "platform/espidf/bb_health/bb_health.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_health_stack",
-      "path": "platform/espidf/bb_health/bb_health_stack.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_info",
-      "path": "platform/espidf/bb_info/bb_info.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
       "id": "bb_log_register_routes",
       "path": "platform/espidf/bb_log_http/bb_log_http.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_manifest",
-      "path": "platform/espidf/bb_manifest/bb_manifest_register.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
@@ -173,11 +113,6 @@
     {
       "id": "bb_net_health",
       "path": "platform/espidf/bb_net_health/bb_net_health_espidf.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_openapi",
-      "path": "platform/espidf/bb_openapi/bb_openapi_register.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
@@ -346,11 +281,6 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_CACHE_ROUTES_AUTOREGISTER",
-      "path": "components/bb_cache_routes/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_DISPLAY_EK79007_AUTOREGISTER",
       "path": "components/bb_display_ek79007/Kconfig",
       "type": "autoregister_kconfig"
@@ -391,23 +321,8 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_HEALTH_AUTOREGISTER",
-      "path": "components/bb_health/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_INFO_AUTOREGISTER",
-      "path": "components/bb_info/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_LED_INFO_AUTOREGISTER",
       "path": "components/bb_led_info/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_MANIFEST_AUTOREGISTER",
-      "path": "components/bb_manifest/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
@@ -428,16 +343,6 @@
     {
       "id": "BB_NET_HEALTH_ROUTES_AUTOREGISTER",
       "path": "components/bb_net_health/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_OPENAPI_AUTOREGISTER",
-      "path": "components/bb_openapi/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_PARTITION_ROUTES_AUTOREGISTER",
-      "path": "components/bb_partition/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
@@ -521,11 +426,6 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_CACHE_ROUTES_AUTOREGISTER",
-      "path": "platform/espidf/bb_cache_routes/bb_cache_routes.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_DISPLAY_EK79007_AUTOREGISTER",
       "path": "platform/espidf/bb_display_ek79007/bb_display_ek79007.c",
       "type": "autoregister_usage"
@@ -561,16 +461,6 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_HEALTH_AUTOREGISTER",
-      "path": "platform/espidf/bb_health/bb_health.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_INFO_AUTOREGISTER",
-      "path": "platform/espidf/bb_info/bb_info.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_OTA_PULL_AUTOREGISTER",
       "path": "platform/espidf/bb_info/bb_info.c",
       "type": "autoregister_usage"
@@ -578,11 +468,6 @@
     {
       "id": "BB_LED_INFO_AUTOREGISTER",
       "path": "platform/espidf/bb_led_info/bb_led_info.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_MANIFEST_AUTOREGISTER",
-      "path": "platform/espidf/bb_manifest/bb_manifest_register.c",
       "type": "autoregister_usage"
     },
     {
@@ -606,11 +491,6 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_OPENAPI_AUTOREGISTER",
-      "path": "platform/espidf/bb_openapi/bb_openapi_register.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_OTA_CHECK_AUTOREGISTER",
       "path": "platform/espidf/bb_ota_check/bb_ota_check_espidf.c",
       "type": "autoregister_usage"
@@ -618,11 +498,6 @@
     {
       "id": "BB_OTA_PULL_AUTOREGISTER",
       "path": "platform/espidf/bb_ota_pull/bb_ota_pull.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_PARTITION_ROUTES_AUTOREGISTER",
-      "path": "platform/espidf/bb_partition/bb_partition_routes.c",
       "type": "autoregister_usage"
     },
     {
@@ -746,16 +621,6 @@
       "type": "linker_force_register"
     },
     {
-      "id": "pre_http:bb_cache_evict",
-      "path": "components/bb_cache/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_cache_routes",
-      "path": "components/bb_cache_routes/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
       "id": "regular:bb_display_info",
       "path": "components/bb_display_info/CMakeLists.txt",
       "type": "linker_force_register"
@@ -768,36 +633,6 @@
     {
       "id": "regular:bb_fan_routes",
       "path": "components/bb_fan_routes/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_health",
-      "path": "components/bb_health/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_health_stack",
-      "path": "components/bb_health/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_health",
-      "path": "components/bb_health/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_info",
-      "path": "components/bb_info/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_info",
-      "path": "components/bb_info/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_info_freeze",
-      "path": "components/bb_info/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {
@@ -821,16 +656,6 @@
       "type": "linker_force_register"
     },
     {
-      "id": "pre_http:bb_manifest",
-      "path": "components/bb_manifest/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_manifest",
-      "path": "components/bb_manifest/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
       "id": "regular:bb_mdns",
       "path": "components/bb_mdns/CMakeLists.txt",
       "type": "linker_force_register"
@@ -848,21 +673,6 @@
     {
       "id": "regular:bb_net_health_routes",
       "path": "components/bb_net_health/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_openapi",
-      "path": "components/bb_openapi/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_openapi",
-      "path": "components/bb_openapi/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_partition_routes",
-      "path": "components/bb_partition/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {

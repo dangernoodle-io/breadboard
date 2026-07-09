@@ -25,7 +25,6 @@
 #include "bb_mdns.h"
 #include "bb_ntp.h"
 #include "bb_openapi.h"
-#include "bb_init.h"
 #include "bb_response.h"
 
 #include "../../../components/bb_info/bb_info_schema_priv.h"
@@ -193,7 +192,7 @@ static const bb_route_t s_info_route = {
     .handler   = info_handler,
 };
 
-static bb_err_t bb_info_init(bb_http_handle_t server)
+bb_err_t bb_info_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     // NOTE: freeze and schema assembly are deferred to bb_info_freeze_init (order 20)
@@ -272,7 +271,7 @@ static bb_err_t bb_info_init(bb_http_handle_t server)
 // Late init: freeze the section registry and assemble the schema.
 // Runs at order 20, AFTER all section registrants (at order < 20) have called
 // bb_info_register_section.
-static bb_err_t bb_info_freeze_init(bb_http_handle_t server)
+bb_err_t bb_info_freeze_init(bb_http_handle_t server)
 {
     (void)server;
     s_cap_frozen = true;
@@ -281,15 +280,10 @@ static bb_err_t bb_info_freeze_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-#if CONFIG_BB_INFO_AUTOREGISTER
 // PRE_HTTP companion: declare route count before server starts (must match
 // the number of bb_http_register_* calls in bb_info_init above: 1).
-static bb_err_t bb_info_reserve_routes(void)
+bb_err_t bb_info_reserve_routes(void)
 {
     bb_http_reserve_routes(1);  // GET /api/info
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_info, bb_info_reserve_routes);
-BB_INIT_REGISTER_N(bb_info, bb_info_init, 2);
-BB_INIT_REGISTER_N(bb_info_freeze, bb_info_freeze_init, 20);
-#endif

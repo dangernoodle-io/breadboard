@@ -1,13 +1,5 @@
 menu "breadboard: bb_health"
 
-config BB_HEALTH_AUTOREGISTER
-    bool "Auto-register /api/health HTTP route via bb_init"
-    default y
-    help
-        When enabled, bb_health self-registers GET /api/health through bb_init.
-        Disable to keep the bb_health_register_extender API but skip the route
-        entirely.
-
 config BB_HEALTH_STACK_LOW_BYTES
     int "Stack low-water threshold (bytes)"
     default 256
@@ -41,7 +33,7 @@ config BB_HEALTH_STACK_AUTOSTART
     help
         When enabled, bb_health_stack_monitor_start registers this
         component's low-stack transition handler with bb_task_registry
-        (bb_task_registry_set_low_stack_handler) at the bb_init PRE_HTTP
+        (bb_task_registry_set_low_stack_handler) at the pre_http registry
         tier. Disable to call bb_health_stack_monitor_start manually before
         bb_health_stack_monitor_init.
 

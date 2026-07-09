@@ -424,11 +424,19 @@ bb_err_t bb_cache_is_stale(const char *key, bool *out_stale);
 // Age-out sweep backstop lifecycle (B1-592 lifecycle follow-up): the
 // periodic background pass over every AGE_OUT-policy key (bb_cache_foreach
 // under the hood) that evicts entries past evict_age_ms even when nothing
-// reads them (LAZY eviction only fires on a read) is started AUTOMATICALLY
-// via a bb_init PRE_HTTP hook when CONFIG_BB_CACHE_SWEEP_ENABLE=y (Kconfig,
+// reads them (LAZY eviction only fires on a read) is started via the
+// pre_http registry hook below when CONFIG_BB_CACHE_SWEEP_ENABLE=y (Kconfig,
 // default n) -- mirroring bb_pub_start(). There is no public start call:
 // the Kconfig knob is the only control (registration-gated, container-
 // invoked). See platform/espidf/bb_cache/bb_cache_espidf.c.
+
+#if BB_CACHE_SWEEP_ENABLE
+// Registry hook — starts the age-out eviction sweep backstop. Compiled in
+// only when CONFIG_BB_CACHE_SWEEP_ENABLE=y (feature toggle, not registration
+// glue -- KEPT; the whole function only exists under this gate).
+// bbtool:init tier=pre_http fn=bb_cache_evict_start
+bb_err_t bb_cache_evict_start(void);
+#endif
 
 #ifdef __cplusplus
 }

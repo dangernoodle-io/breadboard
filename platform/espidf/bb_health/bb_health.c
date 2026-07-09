@@ -11,7 +11,6 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mdns.h"
-#include "bb_init.h"
 #include "bb_wifi_http.h"
 
 #include "../../../components/bb_health/bb_health_schema_priv.h"
@@ -103,7 +102,7 @@ static const bb_route_t s_health_route = {
     .handler   = health_handler,
 };
 
-static bb_err_t bb_health_init(bb_http_handle_t server)
+bb_err_t bb_health_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     s_health_responses[0].schema = bb_response_freeze_and_assemble(&s_health_reg, k_health_base, k_health_suffix);
@@ -121,13 +120,9 @@ static bb_err_t bb_health_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-#if CONFIG_BB_HEALTH_AUTOREGISTER
 // PRE_HTTP companion: declare route count before server starts.
-static bb_err_t bb_health_reserve_routes(void)
+bb_err_t bb_health_reserve_routes(void)
 {
     bb_http_reserve_routes(1);  // GET /api/health
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_health, bb_health_reserve_routes);
-BB_INIT_REGISTER_N(bb_health, bb_health_init, 1);
-#endif
