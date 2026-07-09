@@ -2847,6 +2847,7 @@ void test_bb_event_topic_register_returns_no_space_when_full(void);
 void test_bb_event_topic_lookup_walks_past_non_matches(void);
 void test_bb_event_post_exceeds_max_payload_at_runtime_limit(void);
 void test_bb_event_topic_name_null_returns_empty(void);
+void test_bb_event_autoinit_returns_ok(void);
 
 // Forward declarations from test_bb_event_ring.c
 void test_bb_event_ring_attach_and_post_replay_delivers_all_entries(void);
@@ -7350,6 +7351,7 @@ int main(void) {
     RUN_TEST(test_bb_event_topic_lookup_walks_past_non_matches);
     RUN_TEST(test_bb_event_post_exceeds_max_payload_at_runtime_limit);
     RUN_TEST(test_bb_event_topic_name_null_returns_empty);
+    RUN_TEST(test_bb_event_autoinit_returns_ok);
 
     // bb_event_ring tests
     RUN_TEST(test_bb_event_ring_attach_and_post_replay_delivers_all_entries);

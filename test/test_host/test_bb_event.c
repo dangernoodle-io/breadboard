@@ -963,3 +963,14 @@ void test_bb_event_topic_name_null_returns_empty(void)
 {
     TEST_ASSERT_EQUAL_STRING("", bb_event_topic_name(NULL));
 }
+
+/* bb_event_autoinit is the tier=early composition-root entry point (see the
+   "bbtool:init" marker in bb_event.h); it just forwards to bb_event_init(NULL)
+   so Kconfig defaults apply. Cover it directly since codegen call sites aren't
+   exercised on host. */
+void test_bb_event_autoinit_returns_ok(void)
+{
+    setup_sync_mode();
+    bb_err_t err = bb_event_autoinit();
+    TEST_ASSERT_EQUAL(BB_OK, err);
+}
