@@ -11,7 +11,6 @@
 // no-op path).
 #include "../../../components/bb_task_registry/bb_task_registry_base_scan.h"
 
-#include "bb_init.h"
 #include "bb_log.h"
 #include "bb_mem.h"
 #include "bb_timer.h"
@@ -90,7 +89,7 @@ static void poll_work_fn(void *arg)
 
 static bb_periodic_timer_t s_timer = NULL;
 
-static bb_err_t start_scan(void)
+bb_err_t bb_task_registry_base_scan_start(void)
 {
     bb_err_t err = bb_timer_deferred_periodic_create(poll_work_fn, NULL, "bb_task_reg_scan", &s_timer);
     if (err != BB_OK) {
@@ -101,12 +100,10 @@ static bb_err_t start_scan(void)
 
 #else /* CONFIG_FREERTOS_USE_TRACE_FACILITY not set */
 
-static bb_err_t start_scan(void)
+bb_err_t bb_task_registry_base_scan_start(void)
 {
     bb_log_w(TAG, "CONFIG_FREERTOS_USE_TRACE_FACILITY=n; base scan is a no-op");
     return BB_OK;
 }
 
 #endif /* CONFIG_FREERTOS_USE_TRACE_FACILITY */
-
-BB_INIT_REGISTER_PRE_HTTP(bb_task_registry_base_scan, start_scan);

@@ -9,7 +9,6 @@
 #include "bb_log.h"
 #include "bb_nv.h"
 #include "bb_openapi.h"
-#include "bb_init.h"
 #include "bb_http_server.h"
 #include "bb_str.h"
 
@@ -102,7 +101,7 @@ void bb_display_register_info(void)
 
 #if defined(CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH) && CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH
 
-static bb_err_t bb_display_info_register_init(bb_http_handle_t server)
+bb_err_t bb_display_info_register_init(bb_http_handle_t server)
 {
     (void)server;
     if (!s_registered) return BB_OK;
@@ -121,7 +120,12 @@ static bb_err_t bb_display_info_register_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-/* order 4: after bb_event_routes_init (order 0) — mirrors bb_ota_check. */
-BB_INIT_REGISTER_N(bb_display_info, bb_display_info_register_init, 4);
+#else /* !CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH: opt-in behavior off, no-op */
+
+bb_err_t bb_display_info_register_init(bb_http_handle_t server)
+{
+    (void)server;
+    return BB_OK;
+}
 
 #endif /* CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH */

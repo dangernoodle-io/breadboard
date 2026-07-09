@@ -6,31 +6,6 @@
       "type": "BB_INIT_REGISTER_EARLY"
     },
     {
-      "id": "bb_alert",
-      "path": "platform/espidf/bb_alert/bb_alert_espidf.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_display_info",
-      "path": "platform/espidf/bb_display_info/bb_display_info.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_mdns",
-      "path": "platform/espidf/bb_mdns/bb_mdns.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_telemetry",
-      "path": "platform/espidf/bb_telemetry/bb_telemetry_routes.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_mdns_cache",
-      "path": "platform/espidf/bb_mdns_cache/bb_mdns_cache.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
       "id": "bb_pub",
       "path": "platform/espidf/bb_pub/bb_pub_espidf.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
@@ -38,16 +13,6 @@
     {
       "id": "bb_sink_udp",
       "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_task_registry_base_scan",
-      "path": "platform/espidf/bb_task_registry/bb_task_registry_base_scan.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_task_registry_sw_wdt",
-      "path": "platform/espidf/bb_task_registry/bb_task_registry_monitor.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
@@ -181,11 +146,6 @@
       "type": "auto_attach_usage"
     },
     {
-      "id": "BB_ALERT_AUTOREGISTER",
-      "path": "components/bb_alert/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_BOARD_AUTOREGISTER",
       "path": "components/bb_board/Kconfig",
       "type": "autoregister_kconfig"
@@ -218,11 +178,6 @@
     {
       "id": "BB_EVENT_ROUTES_AUTOREGISTER",
       "path": "components/bb_event_routes/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_MDNS_AUTOREGISTER",
-      "path": "components/bb_mdns/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
@@ -281,11 +236,6 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_ALERT_AUTOREGISTER",
-      "path": "platform/espidf/bb_alert/bb_alert_espidf.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_DISPLAY_EK79007_AUTOREGISTER",
       "path": "platform/espidf/bb_display_ek79007/bb_display_ek79007.c",
       "type": "autoregister_usage"
@@ -316,11 +266,6 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_MDNS_AUTOREGISTER",
-      "path": "platform/espidf/bb_mdns/bb_mdns.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_MDNS_CACHE_AUTOREGISTER",
       "path": "platform/espidf/bb_mdns_cache/bb_mdns_cache.c",
       "type": "autoregister_usage"
@@ -348,11 +293,6 @@
     {
       "id": "BB_SINK_UDP_AUTOREGISTER",
       "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_TELEMETRY_AUTOREGISTER",
-      "path": "platform/espidf/bb_telemetry/bb_telemetry_routes.c",
       "type": "autoregister_usage"
     },
     {
@@ -426,26 +366,6 @@
       "type": "display_force_keep"
     },
     {
-      "id": "regular:bb_alert",
-      "path": "components/bb_alert/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_display_info",
-      "path": "components/bb_display_info/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_mdns",
-      "path": "components/bb_mdns/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_mdns_cache",
-      "path": "components/bb_mdns_cache/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
       "id": "pre_http:bb_pub",
       "path": "components/bb_pub/CMakeLists.txt",
       "type": "linker_force_register"
@@ -478,21 +398,6 @@
     {
       "id": "pre_http:bb_sink_udp",
       "path": "components/bb_sink_udp/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_task_registry_base_scan",
-      "path": "components/bb_task_registry/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_task_registry_sw_wdt",
-      "path": "components/bb_task_registry/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_telemetry",
-      "path": "components/bb_telemetry/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {

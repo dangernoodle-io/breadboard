@@ -5,16 +5,15 @@
 
 #include "bb_alert.h"
 
-#if BB_ALERT_ENABLE && defined(CONFIG_BB_ALERT_AUTOREGISTER) && CONFIG_BB_ALERT_AUTOREGISTER
+#if BB_ALERT_ENABLE
 
 #include "bb_log.h"
-#include "bb_init.h"
 #include "bb_http_server.h"
 #include "bb_event_routes.h"
 
 static const char *TAG = "bb_alert";
 
-static bb_err_t bb_alert_init(bb_http_handle_t server)
+bb_err_t bb_alert_init(bb_http_handle_t server)
 {
     (void)server;
     bb_err_t err = bb_alert_register();
@@ -30,9 +29,6 @@ static bb_err_t bb_alert_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-// Order 4 — same as bb_ota_check; bb_event_routes_init runs at order 0.
-BB_INIT_REGISTER_N(bb_alert, bb_alert_init, 4)
-
-#endif // BB_ALERT_ENABLE && CONFIG_BB_ALERT_AUTOREGISTER
+#endif // BB_ALERT_ENABLE
 
 #endif // ESP_PLATFORM
