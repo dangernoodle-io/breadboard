@@ -12,6 +12,7 @@
 extern "C" {
 #endif
 
+// bbtool:init tier=early fn=bb_nv_config_init
 bb_err_t bb_nv_config_init(void);
 
 /// Factory reset: erase ALL NVS flash, clear the in-RAM config, and invalidate
@@ -20,14 +21,14 @@ bb_err_t bb_nv_config_init(void);
 /// clears in-memory state so host tests can assert the reset).
 bb_err_t bb_nv_config_factory_reset(void);
 
-// Register bb_cfg NVS keys with /api/manifest. Called automatically at
-// PRE_HTTP tier when CONFIG_BB_NV_CONFIG_MANIFEST_AUTOREGISTER=y (default).
-// Consumers may also call it directly before bb_init_init() if needed.
+// Register bb_cfg NVS keys with /api/manifest.
+// bbtool:init tier=pre_http fn=bb_nv_config_manifest_init
 bb_err_t bb_nv_config_manifest_init(void);
 
 /// Initialize the NV flash partition. Handles the
 /// ESP_ERR_NVS_NO_FREE_PAGES / NEW_VERSION_FOUND erase-and-retry case.
 /// Idempotent — safe to call multiple times.
+// bbtool:init tier=early fn=bb_nv_flash_init
 bb_err_t bb_nv_flash_init(void);
 
 const char *bb_nv_config_wifi_ssid(void);
@@ -192,6 +193,12 @@ bb_err_t bb_nv_batch_set_u16(bb_nv_batch_t *batch, const char *key, uint16_t val
 bb_err_t bb_nv_batch_set_u32(bb_nv_batch_t *batch, const char *key, uint32_t value);
 bb_err_t bb_nv_batch_set_str(bb_nv_batch_t *batch, const char *key, const char *value);
 bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch);
+
+#if CONFIG_BB_NV_FACTORY_RESET
+/// Registry hook — registers POST /api/factory-reset.
+// bbtool:init tier=regular fn=bb_nv_factory_reset_routes_init server=true
+bb_err_t bb_nv_factory_reset_routes_init(bb_http_handle_t server);
+#endif /* CONFIG_BB_NV_FACTORY_RESET */
 
 #ifdef BB_NV_FACTORY_RESET_TESTING
 /// Expose the factory-reset route handler for host unit tests.

@@ -1,18 +1,5 @@
 menu "breadboard: bb_nv"
 
-config BB_NV_FLASH_AUTOREGISTER
-    bool "Auto-init NVS partition (nvs_flash_init) via bb_init early tier"
-    default y
-
-config BB_NV_CONFIG_AUTOREGISTER
-    bool "Auto-load breadboard typed config (wifi creds, display flag) via bb_init early tier"
-    default y
-
-config BB_NV_CONFIG_MANIFEST_AUTOREGISTER
-    bool "Auto-register bb_cfg NVS keys with /api/manifest via bb_init pre_http tier"
-    default y
-    depends on BB_MANIFEST_AUTOREGISTER
-
 config BB_NV_CREDS_RTC_BACKUP
     bool "Back up wifi creds to RTC slow memory (survive NVS erase-on-corruption)"
     default y
@@ -30,10 +17,5 @@ config BB_NV_FACTORY_RESET
       invalidates the RTC creds mirror so the restore-heal path cannot resurrect
       credentials, responds 202, then reboots after ~500 ms. Disabled by default
       because factory reset is a destructive operation that should be opt-in.
-
-config BB_NV_FACTORY_RESET_AUTOREGISTER
-    bool "Auto-register /api/factory-reset via bb_init"
-    default y
-    depends on BB_NV_FACTORY_RESET
 
 endmenu

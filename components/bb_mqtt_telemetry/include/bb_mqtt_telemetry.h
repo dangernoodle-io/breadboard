@@ -14,8 +14,8 @@
 extern "C" {
 #endif
 
-// Register the "mqtt" telemetry section.
-// Called automatically when CONFIG_BB_MQTT_TELEMETRY_AUTOREGISTER=y (PRE_HTTP tier).
+// Registry hook — registers the "mqtt" telemetry section.
+// bbtool:init tier=pre_http fn=bb_mqtt_telemetry_init
 bb_err_t bb_mqtt_telemetry_init(void);
 
 // Set the client handle reference used to report connection state.

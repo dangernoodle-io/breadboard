@@ -7,28 +7,8 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/bb_nv_reboot.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_log bb_init bb_manifest bb_http bb_http_server bb_json nvs_flash bb_timer bb_str bb_storage_nvs
+    PRIV_REQUIRES bb_log bb_manifest bb_http bb_http_server bb_json nvs_flash bb_timer bb_str bb_storage_nvs
 )
-
-if(CONFIG_BB_NV_FLASH_AUTOREGISTER)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
-    bb_init_force_register_early(${COMPONENT_LIB} bb_nv_flash)
-endif()
-
-if(CONFIG_BB_NV_CONFIG_AUTOREGISTER)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
-    bb_init_force_register_early(${COMPONENT_LIB} bb_nv_config)
-endif()
-
-if(CONFIG_BB_NV_CONFIG_MANIFEST_AUTOREGISTER)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
-    bb_init_force_register_pre_http(${COMPONENT_LIB} bb_nv_config_manifest)
-endif()
-
-if(CONFIG_BB_NV_FACTORY_RESET_AUTOREGISTER)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
-    bb_init_force_register(${COMPONENT_LIB} bb_nv_factory_reset_routes)
-endif()
 
 # bb_nv has no platform/host/bb_nv/ — its core impl + routes are portable
 # (guarded by #ifdef ESP_PLATFORM internally) but filed under platform/espidf/

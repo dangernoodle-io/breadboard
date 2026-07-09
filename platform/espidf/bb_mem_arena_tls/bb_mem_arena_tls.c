@@ -120,7 +120,7 @@ void bb_mem_arena_tls_init(void)
         /* Install custom allocator (required when CUSTOM_MEM_ALLOC=y —
          * ESP-IDF compiles out esp_mem.c, leaving no default; we MUST
          * install one). Installing only on first-init makes a second call
-         * (e.g. explicit app_main() call + CONFIG_BB_MEM_ARENA_TLS_AUTOREGISTER)
+         * (e.g. explicit app_main() call + the codegen'd EARLY-tier init)
          * a true no-op — it cannot zero the counter or rewind the arena
          * while allocations from an in-flight handshake are still live. */
         mbedtls_platform_set_calloc_free(bb_mem_arena_tls_calloc_impl,
@@ -149,21 +149,17 @@ bool bb_mem_arena_tls_owns(const void *ptr)
     return owns;
 }
 
-/* Optional EARLY-tier auto-register (convenience; explicit call is the safe contract). */
-#if defined(CONFIG_BB_MEM_ARENA_TLS_AUTOREGISTER)
-#include "bb_init.h"
-static bb_err_t bb_mem_arena_tls_early_init(void)
+bb_err_t bb_mem_arena_tls_early_init(void)
 {
     bb_mem_arena_tls_init();
     return BB_OK;
 }
-BB_INIT_REGISTER_EARLY(bb_mem_arena_tls, bb_mem_arena_tls_early_init)
-#endif
 
 #else /* !CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC */
 
 /* CUSTOM_MEM_ALLOC not set: esp_mem.c allocator stands; install nothing. */
 void bb_mem_arena_tls_init(void) { }
 bool bb_mem_arena_tls_owns(const void *ptr) { (void)ptr; return false; }
+bb_err_t bb_mem_arena_tls_early_init(void) { return BB_OK; }
 
 #endif /* CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC */

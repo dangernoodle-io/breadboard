@@ -1,11 +1,6 @@
 {
   "entries": [
     {
-      "id": "bb_sub_mqtt",
-      "path": "components/bb_sub_mqtt/src/bb_sub_mqtt.c",
-      "type": "BB_INIT_REGISTER"
-    },
-    {
       "id": "bb_event_routes",
       "path": "platform/espidf/bb_event_routes/bb_event_routes_espidf.c",
       "type": "BB_INIT_REGISTER"
@@ -13,11 +8,6 @@
     {
       "id": "bb_net_health_routes",
       "path": "platform/espidf/bb_net_health/bb_net_health_routes.c",
-      "type": "BB_INIT_REGISTER"
-    },
-    {
-      "id": "bb_nv_factory_reset_routes",
-      "path": "platform/espidf/bb_nv/bb_nv_routes.c",
       "type": "BB_INIT_REGISTER"
     },
     {
@@ -41,33 +31,8 @@
       "type": "BB_INIT_REGISTER_EARLY"
     },
     {
-      "id": "bb_mem_arena_tls",
-      "path": "platform/espidf/bb_mem_arena_tls/bb_mem_arena_tls.c",
-      "type": "BB_INIT_REGISTER_EARLY"
-    },
-    {
-      "id": "bb_mqtt_client",
-      "path": "platform/espidf/bb_mqtt_client/bb_mqtt_client_espidf.c",
-      "type": "BB_INIT_REGISTER_EARLY"
-    },
-    {
-      "id": "bb_nv_config",
-      "path": "platform/espidf/bb_nv/bb_nv.c",
-      "type": "BB_INIT_REGISTER_EARLY"
-    },
-    {
-      "id": "bb_nv_flash",
-      "path": "platform/espidf/bb_nv/bb_nv.c",
-      "type": "BB_INIT_REGISTER_EARLY"
-    },
-    {
       "id": "bb_ring_spiram",
       "path": "platform/espidf/bb_ring_espidf/bb_ring_spiram.c",
-      "type": "BB_INIT_REGISTER_EARLY"
-    },
-    {
-      "id": "bb_wifi",
-      "path": "platform/espidf/bb_wifi/bb_wifi.c",
       "type": "BB_INIT_REGISTER_EARLY"
     },
     {
@@ -136,11 +101,6 @@
       "type": "BB_INIT_REGISTER_N"
     },
     {
-      "id": "bb_mqtt_info",
-      "path": "platform/espidf/bb_mqtt_info/bb_mqtt_info.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
       "id": "bb_openapi",
       "path": "platform/espidf/bb_openapi/bb_openapi_register.c",
       "type": "BB_INIT_REGISTER_N"
@@ -168,11 +128,6 @@
     {
       "id": "bb_thermal",
       "path": "platform/espidf/bb_thermal/bb_thermal.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_wifi_routes",
-      "path": "platform/espidf/bb_wifi/bb_wifi_routes.c",
       "type": "BB_INIT_REGISTER_N"
     },
     {
@@ -226,11 +181,6 @@
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
-      "id": "bb_nv_config_manifest",
-      "path": "platform/espidf/bb_nv/bb_nv.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
       "id": "bb_openapi",
       "path": "platform/espidf/bb_openapi/bb_openapi_register.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
@@ -258,21 +208,6 @@
     {
       "id": "bb_task_registry_sw_wdt",
       "path": "platform/espidf/bb_task_registry/bb_task_registry_monitor.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_wifi_gw_probe",
-      "path": "platform/espidf/bb_wifi/bb_wifi_gw_probe.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_wifi_routes",
-      "path": "platform/espidf/bb_wifi/bb_wifi_routes.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_mqtt_telemetry",
-      "path": "platform/host/bb_mqtt_telemetry/bb_mqtt_telemetry_host.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
@@ -496,48 +431,13 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_MEM_ARENA_TLS_AUTOREGISTER",
-      "path": "components/bb_mem_arena_tls/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_MQTT_CLIENT_AUTOREGISTER",
       "path": "components/bb_mqtt_client/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_MQTT_INFO_AUTOREGISTER",
-      "path": "components/bb_mqtt_info/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_MQTT_TELEMETRY_AUTOREGISTER",
-      "path": "components/bb_mqtt_telemetry/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_NET_HEALTH_ROUTES_AUTOREGISTER",
       "path": "components/bb_net_health/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_NV_CONFIG_AUTOREGISTER",
-      "path": "components/bb_nv/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_NV_CONFIG_MANIFEST_AUTOREGISTER",
-      "path": "components/bb_nv/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_NV_FACTORY_RESET_AUTOREGISTER",
-      "path": "components/bb_nv/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_NV_FLASH_AUTOREGISTER",
-      "path": "components/bb_nv/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
@@ -596,11 +496,6 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_SUB_MQTT_AUTOREGISTER",
-      "path": "components/bb_sub_mqtt/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_SYSTEM_ROUTES_AUTOREGISTER",
       "path": "components/bb_system/Kconfig",
       "type": "autoregister_kconfig"
@@ -626,23 +521,8 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_WIFI_AUTOREGISTER",
-      "path": "components/bb_wifi/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_WIFI_ROUTES_AUTOREGISTER",
-      "path": "components/bb_wifi/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_EVENT_AUTOREGISTER",
       "path": "components/bb_event/bb_event_common.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_SUB_MQTT_AUTOREGISTER",
-      "path": "components/bb_sub_mqtt/src/bb_sub_mqtt.c",
       "type": "autoregister_usage"
     },
     {
@@ -726,43 +606,13 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_MEM_ARENA_TLS_AUTOREGISTER",
-      "path": "platform/espidf/bb_mem_arena_tls/bb_mem_arena_tls.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_MQTT_CLIENT_AUTOREGISTER",
       "path": "platform/espidf/bb_mqtt_client/bb_mqtt_client_espidf.c",
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_MQTT_INFO_AUTOREGISTER",
-      "path": "platform/espidf/bb_mqtt_info/bb_mqtt_info.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_NET_HEALTH_ROUTES_AUTOREGISTER",
       "path": "platform/espidf/bb_net_health/bb_net_health_routes.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_NV_CONFIG_AUTOREGISTER",
-      "path": "platform/espidf/bb_nv/bb_nv.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_NV_CONFIG_MANIFEST_AUTOREGISTER",
-      "path": "platform/espidf/bb_nv/bb_nv.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_NV_FLASH_AUTOREGISTER",
-      "path": "platform/espidf/bb_nv/bb_nv.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_NV_FACTORY_RESET_AUTOREGISTER",
-      "path": "platform/espidf/bb_nv/bb_nv_routes.c",
       "type": "autoregister_usage"
     },
     {
@@ -826,23 +676,8 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_WIFI_AUTOREGISTER",
-      "path": "platform/espidf/bb_wifi/bb_wifi.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_WIFI_ROUTES_AUTOREGISTER",
-      "path": "platform/espidf/bb_wifi/bb_wifi_routes.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_WS_SERVER_DIAG_AUTOREGISTER",
       "path": "platform/espidf/bb_ws_server/bb_ws_server_diag.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_MQTT_TELEMETRY_AUTOREGISTER",
-      "path": "platform/host/bb_mqtt_telemetry/bb_mqtt_telemetry_host.c",
       "type": "autoregister_usage"
     },
     {
@@ -1026,26 +861,6 @@
       "type": "linker_force_register"
     },
     {
-      "id": "early:bb_mem_arena_tls",
-      "path": "components/bb_mem_arena_tls/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "early:bb_mqtt_client",
-      "path": "components/bb_mqtt_client/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_mqtt_info",
-      "path": "components/bb_mqtt_info/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_mqtt_telemetry",
-      "path": "components/bb_mqtt_telemetry/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
       "id": "pre_http:bb_net_health",
       "path": "components/bb_net_health/CMakeLists.txt",
       "type": "linker_force_register"
@@ -1053,26 +868,6 @@
     {
       "id": "regular:bb_net_health_routes",
       "path": "components/bb_net_health/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "early:bb_nv_config",
-      "path": "components/bb_nv/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "early:bb_nv_flash",
-      "path": "components/bb_nv/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_nv_config_manifest",
-      "path": "components/bb_nv/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_nv_factory_reset_routes",
-      "path": "components/bb_nv/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {
@@ -1146,11 +941,6 @@
       "type": "linker_force_register"
     },
     {
-      "id": "regular:bb_sub_mqtt",
-      "path": "components/bb_sub_mqtt/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
       "id": "pre_http:bb_task_registry_base_scan",
       "path": "components/bb_task_registry/CMakeLists.txt",
       "type": "linker_force_register"
@@ -1178,26 +968,6 @@
     {
       "id": "pre_http:bb_tls_info",
       "path": "components/bb_tls_info/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "early:bb_wifi",
-      "path": "components/bb_wifi/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_wifi_gw_probe",
-      "path": "components/bb_wifi/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_wifi_routes",
-      "path": "components/bb_wifi/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_wifi_routes",
-      "path": "components/bb_wifi/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {

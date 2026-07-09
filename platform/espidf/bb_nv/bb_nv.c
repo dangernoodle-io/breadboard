@@ -1,7 +1,6 @@
 #include "bb_nv.h"
 #include "bb_log.h"
 #include "bb_manifest.h"
-#include "bb_init.h"
 #include "bb_nv_wifi_pending.h"
 #include "bb_str.h"
 #include "bb_storage_nvs.h"
@@ -1080,18 +1079,6 @@ bb_err_t bb_nv_config_factory_reset(void)
     s_config.update_check_en = 1;
     return BB_OK;
 }
-#endif
-
-#if CONFIG_BB_NV_FLASH_AUTOREGISTER
-BB_INIT_REGISTER_EARLY(bb_nv_flash, bb_nv_flash_init);
-#endif
-
-#if CONFIG_BB_NV_CONFIG_AUTOREGISTER
-BB_INIT_REGISTER_EARLY(bb_nv_config, bb_nv_config_init);
-#endif
-
-#if CONFIG_BB_NV_CONFIG_MANIFEST_AUTOREGISTER
-BB_INIT_REGISTER_PRE_HTTP(bb_nv_config_manifest, bb_nv_config_manifest_init);
 #endif
 
 const char *bb_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }

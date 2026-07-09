@@ -44,7 +44,7 @@ extern "C" {
  * for cumulative concurrent usage (see Kconfig help).
  *
  * bb_mem_arena_tls_init() is idempotent: a second call (e.g. an explicit
- * app_main() call plus CONFIG_BB_MEM_ARENA_TLS_AUTOREGISTER) is a true no-op and
+ * app_main() call plus the codegen'd EARLY-tier init) is a true no-op and
  * will not zero the outstanding-allocation counter or rewind the arena while
  * allocations from an in-flight handshake are still live.
  *
@@ -65,6 +65,15 @@ void bb_mem_arena_tls_init(void);
  * Host-testable pure predicate.
  */
 bool bb_mem_arena_tls_owns(const void *ptr);
+
+/**
+ * Registry hook — calls bb_mem_arena_tls_init(). See the ORDERING CONTRACT
+ * above: the safe contract is an explicit call at the top of app_main(),
+ * before any WiFi/WPA-supplicant mbedTLS use. No-op when
+ * CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC is off.
+ */
+// bbtool:init tier=early fn=bb_mem_arena_tls_early_init
+bb_err_t bb_mem_arena_tls_early_init(void);
 
 #if defined(BB_MEM_ARENA_TLS_TESTING)
 /* Test hooks: exercise routing without going through mbedtls_platform. */

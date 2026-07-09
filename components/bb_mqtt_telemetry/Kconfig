@@ -1,12 +1,3 @@
 menu "breadboard: bb_mqtt_telemetry"
 
-config BB_MQTT_TELEMETRY_AUTOREGISTER
-    bool "Auto-register mqtt telemetry section via bb_init"
-    default y
-    depends on BB_TELEMETRY_AUTOREGISTER
-    help
-        When enabled, bb_mqtt_telemetry registers the "mqtt" section with
-        bb_telemetry at the PRE_HTTP tier. Disable to call
-        bb_mqtt_telemetry_init manually.
-
 endmenu

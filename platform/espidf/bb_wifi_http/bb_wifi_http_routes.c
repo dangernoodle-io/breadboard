@@ -10,7 +10,6 @@
 #include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_openapi.h"
-#include "bb_init.h"
 
 #include "esp_wifi.h"
 
@@ -247,7 +246,7 @@ static const bb_route_t s_wifi_patch_route = {
 
 #endif /* CONFIG_BB_WIFI_RECONFIGURE */
 
-static bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
+bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     bb_openapi_register_schema("WifiInfo", k_wifi_info_schema, NULL);
@@ -263,8 +262,7 @@ static bb_err_t bb_wifi_routes_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-#if CONFIG_BB_WIFI_ROUTES_AUTOREGISTER
-static bb_err_t bb_wifi_routes_reserve(void)
+bb_err_t bb_wifi_routes_reserve(void)
 {
 #if CONFIG_BB_WIFI_RECONFIGURE
     bb_http_reserve_routes(3);  // GET /api/wifi + POST /api/scan + PATCH /api/wifi
@@ -273,6 +271,3 @@ static bb_err_t bb_wifi_routes_reserve(void)
 #endif
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_wifi_routes, bb_wifi_routes_reserve);
-BB_INIT_REGISTER_N(bb_wifi_routes, bb_wifi_routes_init, 2);
-#endif

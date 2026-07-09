@@ -4,7 +4,6 @@
 #include "bb_nv_wifi_pending.h"
 #include "bb_str.h"
 #include "wifi_reconn.h"
-#include "bb_init.h"
 #include <string.h>
 #include <stdatomic.h>
 #include "esp_wifi.h"
@@ -927,8 +926,7 @@ bb_err_t bb_wifi_reconfigure(const char *ssid, const char *pass)
 }
 #endif
 
-#if CONFIG_BB_WIFI_AUTOREGISTER
-static bb_err_t bb_wifi_autoinit(void)
+bb_err_t bb_wifi_autoinit(void)
 {
     // No credentials → nothing to connect to. Return immediately so the
     // EARLY-tier walker continues and the consumer can branch into
@@ -990,8 +988,6 @@ static bb_err_t bb_wifi_autoinit(void)
     }
     return BB_OK;
 }
-BB_INIT_REGISTER_EARLY(bb_wifi, bb_wifi_autoinit);
-#endif
 
 // Transport stubs — ESP-IDF bb_http uses esp_http_server directly.
 bb_err_t bb_wifi_listen(uint16_t port) { (void)port; return BB_ERR_INVALID_STATE; }

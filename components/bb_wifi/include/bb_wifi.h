@@ -80,6 +80,11 @@ bool bb_wifi_ota_validated_eval(bb_wifi_ota_validated_fn cb);
 bb_err_t bb_wifi_init(void);
 bb_err_t bb_wifi_init_sta(void);
 
+// Registry hook — connects STA using stored creds (or skips if unconfigured),
+// applying the pending-creds-try / retry-forever-when-validated policies.
+// bbtool:init tier=early fn=bb_wifi_autoinit
+bb_err_t bb_wifi_autoinit(void);
+
 // Force WiFi reassociation — recover from a zombie-connected state.
 // On backends without explicit reassociation control (Arduino), this is
 // a BB_OK no-op.
@@ -298,6 +303,12 @@ typedef struct {
 // zeroed status (gw_reachable=false) unless overridden via
 // bb_wifi_host_set_gateway_status (BB_WIFI_TESTING).
 bb_err_t bb_wifi_get_gateway_status(bb_wifi_gw_status_t *out);
+
+#if CONFIG_BB_WIFI_GW_PROBE_ENABLE
+// Registry hook — starts the dedicated gateway-probe worker task.
+// bbtool:init tier=pre_http fn=bb_wifi_gw_probe_start
+bb_err_t bb_wifi_gw_probe_start(void);
+#endif /* CONFIG_BB_WIFI_GW_PROBE_ENABLE */
 
 // bb_wifi_emit_section / bb_wifi_emit_status (bb_json_t-based JSON emitters)
 // moved to bb_wifi_http.h (PR1, KB 781) — bb_wifi's public header no longer
