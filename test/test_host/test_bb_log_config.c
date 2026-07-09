@@ -79,7 +79,7 @@ void test_bb_log_level_from_name_slice_within_larger_string(void) {
 }
 
 // ---------------------------------------------------------------------------
-// bb_log_config_apply_kv — bb_kv_cb_t-shaped per-pair callback
+// bb_log_config_apply_kv — bb_str_kv_cb_t-shaped per-pair callback
 // ---------------------------------------------------------------------------
 
 void test_bb_log_config_apply_kv_valid(void) {
@@ -127,7 +127,7 @@ void test_bb_log_config_apply_kv_tag_truncated_to_scratch_buffer(void) {
 }
 
 void test_bb_log_config_apply_kv_malformed_pair_never_reaches_callback(void) {
-    // bb_kv_parse itself skips entries with no '=' before ever invoking the
+    // bb_str_kv_parse itself skips entries with no '=' before ever invoking the
     // callback — verified at the bb_log_config_apply_levels integration
     // level, since bb_log_config_apply_kv can't observe an entry that never
     // reaches it.

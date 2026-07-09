@@ -1,5 +1,5 @@
 #include "bb_log_config.h"
-#include "bb_kv.h"
+#include "bb_str.h"
 
 #include <string.h>
 
@@ -62,7 +62,7 @@ void bb_log_config_apply_kv(const char *key, size_t key_len,
 
 void bb_log_config_apply_levels(const char *s)
 {
-    bb_kv_parse(s, bb_log_config_apply_kv, NULL);
+    bb_str_kv_parse(s, bb_log_config_apply_kv, NULL);
 }
 
 bb_err_t bb_log_config_apply(const char *default_level_str, const char *levels_str)

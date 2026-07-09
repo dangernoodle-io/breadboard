@@ -52,7 +52,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_info](./bb_info/) | — |
 | [bb_init](./bb_init/) | — |
 | [bb_json](./bb_json/) | — |
-| [bb_kv](./bb_kv/) | — |
 | [bb_led](./bb_led/) | — |
 | [bb_led_anim](./bb_led_anim/) | — |
 | [bb_led_apa102](./bb_led_apa102/) | — |

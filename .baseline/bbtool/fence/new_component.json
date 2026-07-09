@@ -191,11 +191,6 @@
       "type": "component"
     },
     {
-      "id": "bb_kv",
-      "path": "components/bb_kv",
-      "type": "component"
-    },
-    {
       "id": "bb_led",
       "path": "components/bb_led",
       "type": "component"
