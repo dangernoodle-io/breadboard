@@ -3,7 +3,6 @@ menu "breadboard: bb_log_event"
 config BB_LOG_EVENT_AUTO_ATTACH
     bool "Auto-attach 'log' bb_event stream topic to /api/events"
     default y
-    depends on BB_EVENT_ROUTES_AUTOREGISTER
     help
         When enabled (default), bb_log_event registers a non-retained "log"
         bb_event stream topic and attaches it to /api/events at regular-tier

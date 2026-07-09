@@ -8,7 +8,6 @@
 #include "bb_http_server.h"
 #include "bb_log.h"
 #include "bb_mem.h"
-#include "bb_init.h"
 #include "bb_sse_writer.h"
 #include "bb_timer.h"
 #include "bb_task.h"
@@ -945,7 +944,7 @@ static const bb_route_t s_diag_events_route = {
 // client slot is allocated.
 void bb_event_routes_spiram_init(void);
 
-static bb_err_t bb_event_routes_register_routes_init(bb_http_handle_t server)
+bb_err_t bb_event_routes_register_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     bb_event_routes_spiram_init();
@@ -969,13 +968,8 @@ static bb_err_t bb_event_routes_register_routes_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-#if CONFIG_BB_EVENT_ROUTES_AUTOREGISTER
-static bb_err_t bb_event_routes_reserve_routes(void)
+bb_err_t bb_event_routes_reserve_routes(void)
 {
     bb_http_reserve_routes(2);  // GET /api/events + GET /api/diag/events
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_event_routes, bb_event_routes_reserve_routes);
-BB_INIT_REGISTER_PRE_HTTP(bb_event_routes_start, bb_event_routes_start);
-BB_INIT_REGISTER(bb_event_routes, bb_event_routes_register_routes_init);
-#endif

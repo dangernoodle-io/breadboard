@@ -30,8 +30,7 @@ still referencing it via sdkconfig; unused.
 <!-- BEGIN bbtool:deps -->
 | Component | Kind | Role | Docs |
 |-----------|------|------|------|
-| `bb_http_server` | private | — | [bb_http_server](../README.md) |
-| `bb_init` | private | — | [bb_init](../README.md) |
+| `bb_http_server` | public | — | [bb_http_server](../README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
 <!-- END bbtool:deps -->
 

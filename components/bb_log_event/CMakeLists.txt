@@ -5,12 +5,7 @@
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log_event/bb_log_event.c"
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_log_event/bb_log_event_parse.c"
+    INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log_event"
     REQUIRES bb_log bb_event bb_event_routes bb_openapi bb_json bb_task
-             bb_init bb_core
-    PRIV_REQUIRES bb_http_server
+             bb_core bb_http_server
 )
-
-if(CONFIG_BB_LOG_EVENT_AUTO_ATTACH)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
-    bb_init_force_register(${COMPONENT_LIB} bb_log_event)
-endif()

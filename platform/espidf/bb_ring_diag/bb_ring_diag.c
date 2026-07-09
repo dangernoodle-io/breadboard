@@ -13,11 +13,11 @@
 // ring's name + scalar stats into a fixed-size stack array while the lock is
 // held (bounded, allocation-free, no I/O), then stream the JSON response
 // from that snapshot AFTER bb_ring_registry_foreach returns (lock released).
+#include "bb_ring_diag.h"
 #include "bb_ring.h"
 #include "bb_ring_registry.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
-#include "bb_init.h"
 #include "bb_log.h"
 #include "bb_str.h"
 
@@ -126,7 +126,7 @@ static const bb_route_t s_rings_get_route = {
     .handler   = rings_get_handler,
 };
 
-static bb_err_t bb_ring_diag_init(bb_http_handle_t server)
+bb_err_t bb_ring_diag_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     bb_err_t err = bb_http_register_described_route(server, &s_rings_get_route);
@@ -135,12 +135,8 @@ static bb_err_t bb_ring_diag_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-#if CONFIG_BB_RING_DIAG_AUTOREGISTER
-static bb_err_t bb_ring_diag_reserve_routes(void)
+bb_err_t bb_ring_diag_reserve_routes(void)
 {
     bb_http_reserve_routes(1);  // GET /api/diag/rings
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_ring_diag, bb_ring_diag_reserve_routes);
-BB_INIT_REGISTER(bb_ring_diag, bb_ring_diag_init);
-#endif

@@ -190,6 +190,11 @@ bb_err_t bb_ws_server_close_client(bb_http_handle_t server, int fd);
 // (see bb_ws_server_host.h); 0 until simulated.
 size_t bb_ws_server_open_count(void);
 
+#ifdef ESP_PLATFORM
+// bbtool:init tier=regular fn=bb_ws_server_diag_init server=true
+bb_err_t bb_ws_server_diag_init(bb_http_handle_t server);
+#endif
+
 // Max fd probed by broadcast_all.  On ESP-IDF, LWIP socket fds are offset by
 // LWIP_SOCKET_OFFSET = FD_SETSIZE - CONFIG_LWIP_MAX_SOCKETS (typically 64-12=52),
 // so the scan upper bound must be FD_SETSIZE (64), NOT CONFIG_HTTPD_MAX_SOCKETS

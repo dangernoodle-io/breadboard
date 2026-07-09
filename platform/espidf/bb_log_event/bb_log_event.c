@@ -9,12 +9,12 @@
 
 #ifdef ESP_PLATFORM
 
+#include "bb_log_event.h"
 #include "../../host/bb_log_event/bb_log_event_parse.h"
 #include "../../../components/bb_log/src/bb_log_internal.h"
 #include "bb_log.h"
 #include "bb_event.h"
 #include "bb_event_routes.h"
-#include "bb_init.h"
 #include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_clock.h"
@@ -108,7 +108,7 @@ static const char k_log_event_schema[] =
     "\"msg\":{\"type\":\"string\"}},"
     "\"required\":[\"ts\",\"level\",\"tag\",\"msg\"]}";
 
-static bb_err_t bb_log_event_init(bb_http_handle_t server)
+bb_err_t bb_log_event_init(bb_http_handle_t server)
 {
     (void)server;
 
@@ -155,7 +155,13 @@ static bb_err_t bb_log_event_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-BB_INIT_REGISTER_N(bb_log_event, bb_log_event_init, 4)
+#else /* !CONFIG_BB_LOG_EVENT_AUTO_ATTACH */
+
+bb_err_t bb_log_event_init(bb_http_handle_t server)
+{
+    (void)server;
+    return BB_OK;
+}
 
 #endif /* CONFIG_BB_LOG_EVENT_AUTO_ATTACH */
 

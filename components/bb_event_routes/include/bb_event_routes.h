@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "bb_core.h"
 #include "bb_event_ring.h"
+#include "bb_http_server.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,6 +37,12 @@ typedef struct {
 // cfg=NULL uses Kconfig defaults.
 bb_err_t bb_event_routes_init(const bb_event_routes_cfg_t *cfg);
 
+// bbtool:init tier=regular fn=bb_event_routes_register_routes_init server=true
+bb_err_t bb_event_routes_register_routes_init(bb_http_handle_t server);
+
+// bbtool:init tier=pre_http fn=bb_event_routes_reserve_routes
+bb_err_t bb_event_routes_reserve_routes(void);
+
 // B1-492: start the SSE task-bundle pool's idle-reclaim tick. ESP-IDF-only
 // background work — self-registers at PRE_HTTP tier (mirrors bb_pub_start())
 // so route-attach init (bb_event_routes_register_routes_init, REGULAR tier)
@@ -49,6 +56,7 @@ bb_err_t bb_event_routes_init(const bb_event_routes_cfg_t *cfg);
 // only platform that defines it today — Arduino/host builds do not link
 // this symbol (mirrors bb_pub_start()'s platform-only shape).
 #ifdef ESP_PLATFORM
+// bbtool:init tier=pre_http fn=bb_event_routes_start
 bb_err_t bb_event_routes_start(void);
 #endif
 

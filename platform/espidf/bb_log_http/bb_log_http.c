@@ -1,6 +1,6 @@
+#include "bb_log_http.h"
 #include "bb_log.h"
 #include "bb_http_server.h"
-#include "bb_init.h"
 
 #include <string.h>
 
@@ -165,7 +165,7 @@ static const bb_route_t s_log_level_post_route = {
     .handler  = log_level_handler,
 };
 
-static bb_err_t bb_log_register_routes_init(bb_http_handle_t server)
+bb_err_t bb_log_register_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
@@ -181,12 +181,23 @@ static bb_err_t bb_log_register_routes_init(bb_http_handle_t server)
 
 // PRE_HTTP companion: declare route count before server starts (must match
 // the number of bb_http_register_* calls in bb_log_register_routes_init: 2).
-static bb_err_t bb_log_register_routes_reserve(void)
+bb_err_t bb_log_register_routes_reserve(void)
 {
     bb_http_reserve_routes(2);  // POST /api/log/level + GET /api/log/level
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_log_register_routes, bb_log_register_routes_reserve);
-BB_INIT_REGISTER_N(bb_log_register_routes, bb_log_register_routes_init, 4);
+
+#else /* !CONFIG_BB_LOG_ROUTES */
+
+bb_err_t bb_log_register_routes_init(bb_http_handle_t server)
+{
+    (void)server;
+    return BB_OK;
+}
+
+bb_err_t bb_log_register_routes_reserve(void)
+{
+    return BB_OK;
+}
 
 #endif /* CONFIG_BB_LOG_ROUTES */
