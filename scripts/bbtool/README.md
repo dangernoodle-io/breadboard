@@ -212,6 +212,11 @@ v = ctx.violation(path, lineno, detail="optional extra text")
 
 `check(ctx)` returns a list of violation dicts (empty = no violations).
 
+### Authoring conventions
+
+- Reuse shared parsers — parse CMake `REQUIRES`/`PRIV_REQUIRES` via `cmake_parse.parse_requires`, never hand-roll REQUIRES scanning.
+- Config-driven, not hardcoded — a rule's severity and allowlists come from `bbtool.toml` (`[lint.rules.<id>]`); don't bake exceptions into the check body.
+
 ### Minimal worked example
 
 ```python
