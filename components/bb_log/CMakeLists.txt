@@ -18,7 +18,7 @@ set(_log_reqs bb_core)
 # component dependency once CONFIG_BB_LOG_ROUTES/CONFIG_BB_LOG_EVENT_AUTO_ATTACH
 # pulled bb_http/bb_event into bb_log's own PRIV_REQUIRES; splitting the sinks
 # into their own components breaks the cycle at the source.
-set(_log_priv_reqs bb_str bb_kv esp_ringbuf freertos log bb_task)
+set(_log_priv_reqs bb_str esp_ringbuf freertos log bb_task)
 
 if(CONFIG_BB_LOG_UDP_SINK)
     # The UDP mirror sink is deeply entangled in s_log_vprintf (bb_log.c) --

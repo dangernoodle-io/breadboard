@@ -8,8 +8,8 @@
 /*
  * Config-driven log-level bootstrap (CONFIG_BB_LOG_DEFAULT_LEVEL /
  * CONFIG_BB_LOG_LEVELS). This file's code is portable — no ESP-IDF calls
- * here; splitting is delegated to bb_kv_parse (components/bb_kv), and the
- * actual level application goes through bb_log_level_set(), which is
+ * here; splitting is delegated to bb_str_kv_parse (components/bb_str), and
+ * the actual level application goes through bb_log_level_set(), which is
  * already portable (no-op backend on host/Arduino, esp_log_level_set on
  * ESP-IDF). However the *feature* (applying CONFIG_BB_LOG_DEFAULT_LEVEL/
  * CONFIG_BB_LOG_LEVELS via bb_log_config_init(), hand-wired from app_main)
@@ -32,21 +32,22 @@
 bool bb_log_level_from_name(const char *name, size_t len, bb_log_level_t *out);
 
 /**
- * bb_kv_cb_t-shaped callback (bb_kv.h): applies one already-split, already-
- * trimmed "tag"/"level" slice pair. An empty value, or an unrecognised
- * level name, is logged as a warning and skipped — never fatal. `ctx` is
- * unused (NULL). On success, calls bb_log_level_set(tag, level).
+ * bb_str_kv_cb_t-shaped callback (bb_str.h): applies one already-split,
+ * already-trimmed "tag"/"level" slice pair. An empty value, or an
+ * unrecognised level name, is logged as a warning and skipped — never
+ * fatal. `ctx` is unused (NULL). On success, calls
+ * bb_log_level_set(tag, level).
  *
- * bb_kv_parse itself skips entries with no '=' or an empty key before this
- * callback is ever invoked — those never reach here.
+ * bb_str_kv_parse itself skips entries with no '=' or an empty key before
+ * this callback is ever invoked — those never reach here.
  */
 void bb_log_config_apply_kv(const char *key, size_t key_len,
                             const char *val, size_t val_len, void *ctx);
 
 /**
- * Apply a full "tag=level,tag2=level2,..." string via bb_kv_parse, using
- * bb_log_config_apply_kv as the per-pair callback. NULL or empty is a
- * no-op (bb_kv_parse's own contract).
+ * Apply a full "tag=level,tag2=level2,..." string via bb_str_kv_parse,
+ * using bb_log_config_apply_kv as the per-pair callback. NULL or empty is
+ * a no-op (bb_str_kv_parse's own contract).
  */
 void bb_log_config_apply_levels(const char *s);
 
