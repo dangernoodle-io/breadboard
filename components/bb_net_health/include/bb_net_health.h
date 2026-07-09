@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include "bb_core.h"
 #include "bb_json.h"
+#include "bb_http_server.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -745,9 +746,17 @@ bb_err_t bb_net_health_attach_sse(void);
 
 /**
  * PRE_HTTP: starts the evaluator (state+timer). No HTTP side effects.
- * Autostarts when CONFIG_BB_NET_HEALTH_AUTOSTART=y.
  */
+// bbtool:init tier=pre_http fn=bb_net_health_start
 bb_err_t bb_net_health_start(void);
+
+/**
+ * Register GET /api/diag/net (network diagnostic counters relocated from
+ * /api/info and /api/health). Implemented in
+ * platform/espidf/bb_net_health/bb_net_health_routes.c.
+ */
+// bbtool:init tier=regular fn=bb_net_health_routes_init server=true
+bb_err_t bb_net_health_routes_init(bb_http_handle_t server);
 
 #endif /* ESP_PLATFORM */
 

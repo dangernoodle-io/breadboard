@@ -1,5 +1,8 @@
 #pragma once
 
+#include "bb_core.h"
+#include "bb_http_server.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -37,6 +40,13 @@ extern "C" {
  * Call before bb_http_server_start.
  */
 void bb_mqtt_register_health(void);
+
+/**
+ * Registry hook — calls bb_mqtt_register_health(). server is unused
+ * (bb_mqtt_info has no HTTP routes of its own, only a /api/health section).
+ */
+// bbtool:init tier=regular fn=bb_mqtt_info_autoregister_init server=true
+bb_err_t bb_mqtt_info_autoregister_init(bb_http_handle_t server);
 
 #ifdef __cplusplus
 }

@@ -75,7 +75,6 @@ bool bb_ota_boot_pending(void)
 #include "bb_ota_check.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
-#include "bb_init.h"
 #include "bb_http_client.h"
 #include "bb_task.h"
 #include "bb_system.h"
@@ -132,6 +131,12 @@ static void status_check_ensure_init(void)
     bb_ota_check_set_firmware_board(s_status_board[0] ? s_status_board : NULL);
     s_status_check_initialized = true;
 }
+
+// ota_boot_status_handler/ota_boot_check_handler are only wired up inside
+// bb_ota_boot_init below, which is itself gated on BB_OTA_STRATEGY_BOOT (see
+// bb_ota_boot.h) — guard them the same way so they are not left as unused
+// statics when the boot strategy is off but STATUS_HTTP is on.
+#if defined(CONFIG_BB_OTA_STRATEGY_BOOT) && CONFIG_BB_OTA_STRATEGY_BOOT
 
 // GET /api/update/status — delegates to the shared emitter.
 static bb_err_t ota_boot_status_handler(bb_http_request_t *req)
@@ -203,6 +208,7 @@ static bb_err_t ota_boot_check_handler(bb_http_request_t *req)
     bb_http_resp_json_obj_end(&obj);
     return BB_OK;
 }
+#endif // defined(CONFIG_BB_OTA_STRATEGY_BOOT) && CONFIG_BB_OTA_STRATEGY_BOOT
 #endif // CONFIG_BB_OTA_BOOT_STATUS_HTTP
 
 // Boot-mode worker: resolve the latest asset + pull it, both at full heap. Runs
@@ -408,6 +414,13 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
     }
 }
 
+// bb_ota_boot_init and its exclusive helpers below are the single registrant
+// of POST /api/update/apply, chosen by the BB_OTA_STRATEGY Kconfig choice
+// (see the matching gate + rationale in bb_ota_boot.h). When the boot
+// strategy is not selected, bb_ota_boot.h's no-op stub satisfies the
+// generated composition call and none of this is compiled in.
+#if defined(CONFIG_BB_OTA_STRATEGY_BOOT) && CONFIG_BB_OTA_STRATEGY_BOOT
+
 /* Reboot shortly after the route's 202 response flushes. */
 static void ota_boot_reboot_task(void *arg)
 {
@@ -543,14 +556,12 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-#if CONFIG_BB_OTA_BOOT_AUTOREGISTER
-static bb_err_t bb_ota_boot_reserve_routes(void)
+#endif // defined(CONFIG_BB_OTA_STRATEGY_BOOT) && CONFIG_BB_OTA_STRATEGY_BOOT
+
+bb_err_t bb_ota_boot_reserve_routes(void)
 {
     bb_http_reserve_routes(1);  // POST /api/update/apply
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_ota_boot, bb_ota_boot_reserve_routes);
-BB_INIT_REGISTER_N(bb_ota_boot, bb_ota_boot_init, 1);
-#endif
 
 #endif // ESP_PLATFORM

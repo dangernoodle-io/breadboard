@@ -79,13 +79,6 @@ config BB_PUB_SUBTOPIC_MAX
         when the buffer feature is enabled — the total topic string must fit
         within that budget.
 
-config BB_PUB_AUTOREGISTER
-    bool "Auto-register bb_pub init via bb_init (PRE_HTTP tier)"
-    default y
-    help
-        When enabled, bb_pub self-registers at the PRE_HTTP tier, which starts
-        the periodic worker task. Disable to call bb_pub_start manually.
-
 config BB_PUB_WORKER_STACK
     int "bb_pub telemetry worker task stack (bytes)"
     default 8192 if (BB_MQTT_TLS_ENABLE || BB_HTTP_TLS_ENABLE)

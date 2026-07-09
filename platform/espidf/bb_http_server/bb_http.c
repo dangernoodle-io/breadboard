@@ -9,7 +9,6 @@
 #include "esp_event.h"
 #include "bb_log.h"
 #include "bb_nv.h"
-#include "bb_init.h"
 #include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
@@ -366,31 +365,38 @@ bb_http_handle_t bb_http_server_get_handle(void)
 }
 
 // ============================================================================
-// bb_init self-registration (KB #692 decoupling)
+// bbtool:init composition entry points (codegen linchpin)
 // ============================================================================
 //
-// bb_init no longer knows bb_http_server exists. Anything that used to live
-// in bb_init_init() and referenced the HTTP server now self-registers HERE
-// instead:
+// Anything that used to live in bb_init_init() and referenced the HTTP
+// server is wired via `// bbtool:init` markers in bb_http_server.h instead:
 //
-//   1. HTTP autostart, PRE_HTTP-tier, ordered last (100) so it runs after
-//      every other PRE_HTTP hook (route-count reservations etc., all
-//      registered at the default order=0) but before the REGULAR-tier walk
-//      that registers routes against the now-running server.
-//   2. The route-registry-cap audit, REGULAR-tier, ordered last (1000) so it
-//      runs after every real route registration.
+//   1. HTTP autostart, pre_http-tier, provides=http_server — THE codegen
+//      linchpin: returns the live server handle (captured via __auto_type
+//      by the generated bb_app_init_rest()) instead of a bb_err_t, so
+//      every server=true regular-tier entry receives it as an argument.
+//   2. The route-registry-cap audit, regular-tier, server=true, so it runs
+//      after every real route registration and receives the handle.
 
-#if defined(CONFIG_BB_HTTP_AUTOSTART) && CONFIG_BB_HTTP_AUTOSTART
-static bb_err_t bb_http_autostart_init(void)
+// When CONFIG_BB_HTTP_AUTOSTART is on (default), starts the HTTP server on
+// first call (idempotent — reuses the existing s_server if already started
+// by some other path). When off, this is a no-op that just returns whatever
+// handle already exists (NULL if nothing has started the server yet — the
+// consumer is expected to call bb_http_server_start() itself; per wire.py's
+// documented limitation, a NULL handle here surfaces as a runtime issue in
+// downstream server=true consumers, not a codegen-time error).
+bb_http_handle_t bb_http_autostart_init(void)
 {
-    if (bb_http_server_get_handle()) {
-        return BB_OK;
+#if defined(CONFIG_BB_HTTP_AUTOSTART) && CONFIG_BB_HTTP_AUTOSTART
+    if (!bb_http_server_get_handle()) {
+        esp_err_t err = bb_http_server_start();
+        if (err != ESP_OK) {
+            bb_log_e(TAG, "autostart: failed to start HTTP server: %s", esp_err_to_name(err));
+        }
     }
-    esp_err_t err = bb_http_server_start();
-    return (err == ESP_OK) ? BB_OK : BB_ERR_INVALID_STATE;
-}
-BB_INIT_REGISTER_PRE_HTTP_N(bb_http_autostart, bb_http_autostart_init, 100);
 #endif
+    return bb_http_server_get_handle();
+}
 
 // Strict registry-cap audit: after all routes are registered, check whether
 // the route descriptor registry overflowed. A high-watermark warning fires
@@ -398,7 +404,7 @@ BB_INIT_REGISTER_PRE_HTTP_N(bb_http_autostart, bb_http_autostart_init, 100);
 // CONFIG_BB_HTTP_ROUTE_REGISTRY_STRICT (default y) elevates overflow to a
 // fatal assert so miscounted reserve declarations surface at boot rather than
 // silently dropping route descriptors from the OpenAPI / introspection registry.
-static bb_err_t bb_http_route_audit_init(bb_http_handle_t server)
+bb_err_t bb_http_route_audit_init(bb_http_handle_t server)
 {
     (void)server;
 
@@ -416,7 +422,6 @@ static bb_err_t bb_http_route_audit_init(bb_http_handle_t server)
     }
     return BB_OK;
 }
-BB_INIT_REGISTER_N(bb_http_route_audit, bb_http_route_audit_init, 1000);
 
 // ============================================================================
 // PORTABLE API IMPLEMENTATIONS

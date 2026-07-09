@@ -2,7 +2,6 @@
 #include "bb_mdns_lifecycle.h"
 #include "bb_mdns_refresh_decision.h"
 #include "bb_wifi.h"
-#include "bb_init.h"
 #include "bb_http_server.h"
 #include "bb_timer.h"
 #include "bb_ring.h"
@@ -1294,13 +1293,9 @@ bb_err_t bb_mdns_query_txt(const char *instance_name, const char *service, const
 // Registry auto-registration
 // ---------------------------------------------------------------------------
 
-static bb_err_t bb_mdns_registry_init(bb_http_handle_t server)
+bb_err_t bb_mdns_registry_init(bb_http_handle_t server)
 {
     (void)server;
     bb_mdns_init();
     return BB_OK;
 }
-
-#if CONFIG_BB_MDNS_AUTOREGISTER
-BB_INIT_REGISTER_N(bb_mdns, bb_mdns_registry_init, 0);
-#endif

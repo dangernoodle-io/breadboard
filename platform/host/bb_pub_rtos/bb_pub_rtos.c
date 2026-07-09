@@ -11,16 +11,11 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_openapi.h"
-#include "bb_init.h"
 #include "bb_task_registry.h"
 #include "bb_str.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-
-#ifndef CONFIG_BB_PUB_RTOS_AUTO_ATTACH
-#define CONFIG_BB_PUB_RTOS_AUTO_ATTACH 0
-#endif
 
 static const char *TAG = "bb_pub_rtos";
 
@@ -315,14 +310,10 @@ bb_err_t bb_pub_rtos_register(void)
 }
 
 // ---------------------------------------------------------------------------
-// Auto-attach (PRE_HTTP tier, after bb_pub's own PRE_HTTP registration)
+// PRE_HTTP init (after bb_pub's own PRE_HTTP registration)
 // ---------------------------------------------------------------------------
 
-static bb_err_t bb_pub_rtos_init(void)
+bb_err_t bb_pub_rtos_init(void)
 {
     return bb_pub_rtos_register();
 }
-
-#if CONFIG_BB_PUB_RTOS_AUTO_ATTACH
-BB_INIT_REGISTER_PRE_HTTP(bb_pub_rtos, bb_pub_rtos_init);
-#endif

@@ -20,7 +20,6 @@
 #include "bb_log.h"
 #include "bb_timer.h"
 #include "bb_clock.h"
-#include "bb_init.h"
 
 #include "freertos/FreeRTOS.h"
 
@@ -137,7 +136,7 @@ bb_err_t bb_wifi_get_gateway_status(bb_wifi_gw_status_t *out)
 #if CONFIG_BB_WIFI_GW_PROBE_ENABLE
 static bb_periodic_timer_t s_timer = NULL;
 
-static bb_err_t bb_wifi_gw_probe_start(void)
+bb_err_t bb_wifi_gw_probe_start(void)
 {
     wifi_reconn_state_reset(&s_observe_state);
 
@@ -165,5 +164,4 @@ static bb_err_t bb_wifi_gw_probe_start(void)
     return BB_OK;
 }
 
-BB_INIT_REGISTER_PRE_HTTP(bb_wifi_gw_probe, bb_wifi_gw_probe_start);
 #endif /* CONFIG_BB_WIFI_GW_PROBE_ENABLE */

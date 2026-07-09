@@ -1,24 +1,21 @@
-"""codegen command: folds `bbtool wire` and `bbtool autowire` into one
-command (previously deferred in commands/wire.py's module docstring).
+"""codegen command: the sole composition-generation CLI (the dead `bbtool
+autowire`/`bbtool wire` spike commands have been removed; their surviving
+logic lives on as library code this command calls into).
 
 Resolves the composition's transitive closure exactly ONCE via
-`commands.autowire.resolve_composition()`, then emits BOTH artifacts from
-that single resolution:
+`composition.resolve_composition()`, then emits BOTH artifacts from that
+single resolution:
 
-  1. The COMPONENTS link-set fragment (`bb_autowire_components.cmake`) --
-     same content `bbtool autowire` produces.
+  1. The COMPONENTS link-set fragment (`bb_autowire_components.cmake`).
   2. `bb_app_init.c` (+ sibling `.cmake`) wired from `// bbtool:init`
-     markers -- same content the (now-folded) `bbtool wire` used to
-     produce.
+     markers.
 
 Neither underlying algorithm is reimplemented here: the CMake-fragment
-renderer and topo-sort/marker-parsing/source-renderer all still live in
-`commands.autowire` / `wire_parse` / `wire_graph` / `commands.wire` and are
-simply called into.
+renderer lives in `composition`, and the topo-sort/marker-parsing/source-
+renderer live in `wire_parse` / `wire_graph` / `commands.wire` — all simply
+called into.
 
-`--components` is REQUIRED (mirrors the graduated `bbtool autowire` CLI —
-the spike's `--composition`/`COMPOSITIONS` preset shortcut was retired when
-autowire graduated out of spike status; there is no equivalent here).
+`--components` is REQUIRED (there is no preset/shortcut equivalent).
 """
 from __future__ import annotations
 import argparse
@@ -27,10 +24,10 @@ import sys
 
 from boards import ManifestError
 from cmake_parse import ConditionalSetError
-from commands.autowire import (
-    DEFAULT_OUT_REL as AUTOWIRE_DEFAULT_OUT_REL,
+from composition import (
+    DEFAULT_OUT_REL as COMPOSITION_DEFAULT_OUT_REL,
     DEFAULT_PLATFORM,
-    render_cmake_fragment as render_autowire_fragment,
+    render_cmake_fragment as render_components_fragment,
     resolve_composition,
 )
 from commands.wire import (
@@ -59,7 +56,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--components-out", default=None,
-        help=f"output link-set .cmake path (default: <root>/{AUTOWIRE_DEFAULT_OUT_REL})",
+        help=f"output link-set .cmake path (default: <root>/{COMPOSITION_DEFAULT_OUT_REL})",
     )
     parser.add_argument(
         "--wire-out", default=None,
@@ -91,10 +88,10 @@ def run(args: argparse.Namespace) -> int:
         print(f"bbtool codegen: error: {e}", file=sys.stderr)
         return 1
 
-    components_out = args.components_out or os.path.join(root, AUTOWIRE_DEFAULT_OUT_REL)
+    components_out = args.components_out or os.path.join(root, COMPOSITION_DEFAULT_OUT_REL)
     os.makedirs(os.path.dirname(components_out), exist_ok=True)
     with open(components_out, "w", encoding="utf-8") as f:
-        f.write(render_autowire_fragment(components))
+        f.write(render_components_fragment(components))
 
     wire_out = args.wire_out or os.path.join(root, WIRE_DEFAULT_OUT_REL)
     wire_cmake_out = os.path.splitext(wire_out)[0] + ".cmake"

@@ -27,7 +27,6 @@
 #include "bb_mem.h"
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
-#include "bb_init.h"
 #include "bb_wifi.h"
 #include "bb_mqtt_client_reassemble.h"  // PRIV_INCLUDE_DIRS "src" (bb_mqtt_client component)
 
@@ -723,7 +722,7 @@ static bb_err_t auto_client_create_from_nvs(void)
     return rc;
 }
 
-static bb_err_t bb_mqtt_client_autoregister_init(void)
+bb_err_t bb_mqtt_client_autoregister_init(void)
 {
     // Boot init runs on the 8192-byte main task — safe to call directly.
     // auto_client_create_from_nvs also sets up the deferred got-IP start inside
@@ -734,8 +733,6 @@ static bb_err_t bb_mqtt_client_autoregister_init(void)
     }
     return BB_OK;  // non-fatal: EARLY walk continues
 }
-
-BB_INIT_REGISTER_EARLY(bb_mqtt_client, bb_mqtt_client_autoregister_init);
 
 // bb_mqtt_client_stop_default — stop and destroy the auto-registered client.
 // Called by bb_mqtt_telemetry_init when MQTT loses the exclusive-sink slot

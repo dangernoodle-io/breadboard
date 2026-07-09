@@ -2,7 +2,6 @@
 #include "bb_power.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_init.h"
 #include "bb_http_server.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -33,7 +32,3 @@ bb_err_t bb_power_routes_init(bb_http_handle_t server)
     (void)server;
     return BB_OK;
 }
-
-#if CONFIG_BB_POWER_ROUTES_AUTOREGISTER
-BB_INIT_REGISTER_N(bb_power_routes, bb_power_routes_init, 1);
-#endif

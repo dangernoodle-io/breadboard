@@ -3,7 +3,6 @@
 #include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_init.h"
 #include "bb_clock.h"
 
 #include <string.h>
@@ -150,15 +149,11 @@ static const bb_route_t s_factory_reset_route = {
     .handler              = factory_reset_handler,
 };
 
-static bb_err_t bb_nv_factory_reset_routes_init(bb_http_handle_t server)
+bb_err_t bb_nv_factory_reset_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     return bb_http_register_described_route(server, &s_factory_reset_route);
 }
-
-#if CONFIG_BB_NV_FACTORY_RESET_AUTOREGISTER
-BB_INIT_REGISTER(bb_nv_factory_reset_routes, bb_nv_factory_reset_routes_init);
-#endif
 
 #ifdef BB_NV_FACTORY_RESET_TESTING
 bb_err_t bb_nv_factory_reset_handler_for_test(bb_http_request_t *req)

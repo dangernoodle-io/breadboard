@@ -25,6 +25,9 @@ typedef struct {
 // Initialize the event bus with optional config; idempotent, second call no-ops.
 bb_err_t bb_event_init(const bb_event_cfg_t *cfg);
 
+// bbtool:init tier=early fn=bb_event_autoinit
+bb_err_t bb_event_autoinit(void);
+
 // Register a topic by name; returns same handle for duplicate names.
 bb_err_t bb_event_topic_register(const char *name, bb_event_topic_t *out);
 

@@ -1,26 +1,21 @@
-"""autowire command tests: component-list-to-REQUIRES transitive resolution +
-CMake fragment rendering, over synthetic CMakeLists.txt fixtures (never the
-real breadboard component tree) — mirrors test_boards.py's fixture style."""
-import argparse
-import io
-import contextlib
+"""composition resolver tests: component-list-to-REQUIRES transitive
+resolution + CMake fragment rendering, over synthetic CMakeLists.txt
+fixtures (never the real breadboard component tree) — mirrors
+test_boards.py's fixture style. Relocated from the (now-deleted) `bbtool
+autowire` CLI's test_autowire.py; `composition.py` has no CLI surface of its
+own, so only the resolver/renderer tests survive here — the CLI-only tests
+(argparse Namespace wiring, --components validation, run() plumbing) were
+deleted along with the command."""
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
 from boards import ManifestError
-from cmake_parse import ConditionalSetError
-from commands.autowire import (
-    render_cmake_fragment,
-    resolve_composition,
-    run,
-)
+from composition import render_cmake_fragment, resolve_composition
 
 
 def _write(path: Path, content: str = "") -> None:
@@ -98,73 +93,6 @@ class TestRenderCmakeFragment(unittest.TestCase):
     def test_empty_composition_components_is_just_main(self):
         text = render_cmake_fragment([])
         self.assertIn("set(BB_AUTOWIRE_COMPONENTS main )", text)
-
-
-class TestRunCli(unittest.TestCase):
-    def test_run_writes_fragment_and_returns_zero(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = _fixture_root(tmp)
-            out_path = str(root / "out" / "bb_autowire_components.cmake")
-            args = argparse.Namespace(
-                root=str(root), components="bb_c",
-                platform="espidf", out=out_path,
-            )
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                rc = run(args)
-            self.assertEqual(rc, 0)
-            self.assertTrue(os.path.isfile(out_path))
-            content = Path(out_path).read_text(encoding="utf-8")
-            self.assertIn("set(BB_AUTOWIRE_REQUIRES bb_a bb_b bb_c)", content)
-
-    def test_run_writes_fragment_when_out_has_no_directory_component(self):
-        # Regression: os.path.dirname("foo.cmake") == "" -- os.makedirs("")
-        # raises FileNotFoundError if not guarded.
-        with tempfile.TemporaryDirectory() as tmp:
-            root = _fixture_root(tmp)
-            cwd = os.getcwd()
-            os.chdir(tmp)
-            try:
-                args = argparse.Namespace(
-                    root=str(root), components="bb_c",
-                    platform="espidf", out="bare_out.cmake",
-                )
-                buf = io.StringIO()
-                with contextlib.redirect_stdout(buf):
-                    rc = run(args)
-                self.assertEqual(rc, 0)
-                self.assertTrue(os.path.isfile(os.path.join(tmp, "bare_out.cmake")))
-            finally:
-                os.chdir(cwd)
-
-    def test_run_requires_nonempty_components(self):
-        args = argparse.Namespace(root=os.getcwd(), components="",
-                                   platform="espidf", out=None)
-        rc = run(args)
-        self.assertEqual(rc, 1)
-
-    def test_run_unknown_component_returns_error(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = _fixture_root(tmp)
-            args = argparse.Namespace(root=str(root), components="bb_ghost",
-                                       platform="espidf", out=None)
-            rc = run(args)
-            self.assertEqual(rc, 1)
-
-    def test_run_reports_conditional_set_error_as_clean_cli_error(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = _fixture_root(tmp)
-            args = argparse.Namespace(root=str(root), components="bb_c",
-                                       platform="espidf", out=None)
-            with mock.patch(
-                "commands.autowire.resolve_composition",
-                side_effect=ConditionalSetError("REQUIRES fed by a variable set() inside if()/endif()"),
-            ):
-                buf = io.StringIO()
-                with contextlib.redirect_stderr(buf):
-                    rc = run(args)
-                self.assertEqual(rc, 1)
-                self.assertIn("bbtool autowire: error:", buf.getvalue())
 
 
 if __name__ == "__main__":

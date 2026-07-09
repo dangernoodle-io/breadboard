@@ -47,20 +47,4 @@ config BB_MEM_ARENA_TLS_BYTES
         the manifest check TLS handshake's cumulative allocation (IN buffer +
         ssl_context + handshake).
 
-config BB_MEM_ARENA_TLS_AUTOREGISTER
-    bool "Auto-register bb_mem_arena_tls at EARLY tier"
-    default n
-    depends on MBEDTLS_CUSTOM_MEM_ALLOC
-    help
-        When enabled, bb_mem_arena_tls registers itself at the EARLY tier via
-        bb_init, calling bb_mem_arena_tls_init() during bb_init_init_early().
-
-        WARNING: This may race with bb_wifi's WPA-supplicant mbedTLS use.
-        The SAFE contract is to call bb_mem_arena_tls_init() explicitly at the TOP
-        of app_main(), BEFORE bb_init_init_early(). Only enable this if
-        you are certain no mbedTLS use occurs before EARLY-tier init and
-        bb_mem_arena_tls is registered at a lower order than bb_wifi.
-
-        Default: n (use explicit bb_mem_arena_tls_init() instead).
-
 endmenu

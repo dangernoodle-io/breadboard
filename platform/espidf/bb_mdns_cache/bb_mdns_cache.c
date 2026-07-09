@@ -314,14 +314,12 @@ bb_err_t bb_mdns_cache_stop(void)
 }
 
 // ---------------------------------------------------------------------------
-// Optional self-registration (opt-in, CONFIG_BB_MDNS_CACHE_AUTOREGISTER).
+// Optional self-start (opt-in, CONFIG_BB_MDNS_CACHE_AUTOREGISTER).
 // ---------------------------------------------------------------------------
 
 #if defined(CONFIG_BB_MDNS_CACHE_AUTOREGISTER) && CONFIG_BB_MDNS_CACHE_AUTOREGISTER
 
-#include "bb_init.h"
-
-static bb_err_t bb_mdns_cache_init(void)
+bb_err_t bb_mdns_cache_init(void)
 {
     bb_mdns_cache_config_t cfg = {
         .service = CONFIG_BB_MDNS_CACHE_AUTO_SERVICE,
@@ -330,7 +328,12 @@ static bb_err_t bb_mdns_cache_init(void)
     return bb_mdns_cache_start(&cfg);
 }
 
-BB_INIT_REGISTER_PRE_HTTP(bb_mdns_cache, bb_mdns_cache_init)
+#else /* !CONFIG_BB_MDNS_CACHE_AUTOREGISTER: opt-in behavior off, no-op */
+
+bb_err_t bb_mdns_cache_init(void)
+{
+    return BB_OK;
+}
 
 #endif /* CONFIG_BB_MDNS_CACHE_AUTOREGISTER */
 

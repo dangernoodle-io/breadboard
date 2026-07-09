@@ -28,7 +28,6 @@
 #include "bb_timer.h"
 #include "bb_clock.h"
 #include "bb_pub.h"
-#include "bb_init.h"
 #include "bb_transport_health.h"
 #include "bb_str.h"
 #include <inttypes.h>
@@ -984,7 +983,3 @@ bb_err_t bb_net_health_start(void)
     bb_log_i(TAG, "evaluator started");
     return BB_OK;
 }
-
-#if CONFIG_BB_NET_HEALTH_AUTOSTART
-BB_INIT_REGISTER_PRE_HTTP(bb_net_health, bb_net_health_start);
-#endif

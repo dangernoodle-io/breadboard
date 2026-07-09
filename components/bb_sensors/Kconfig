@@ -1,13 +1,5 @@
 menu "breadboard: bb_sensors"
 
-config BB_SENSORS_AUTOREGISTER
-    bool "Auto-register /api/sensors HTTP routes via bb_init"
-    default y
-    help
-        When enabled, bb_sensors self-registers GET /api/sensors and
-        PATCH /api/sensors through bb_init.
-        Disable to call bb_sensors_init manually or omit the routes entirely.
-
 config BB_SENSORS_PATCH_BODY_MAX
     int "Maximum PATCH /api/sensors body size (bytes)"
     default 256

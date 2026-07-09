@@ -225,6 +225,16 @@ bb_err_t bb_mqtt_client_stop(bb_mqtt_client_t *handle_p);
  */
 bb_mqtt_client_t bb_mqtt_client_default(void);
 
+#if defined(ESP_PLATFORM) && CONFIG_BB_MQTT_CLIENT_AUTOREGISTER
+/**
+ * Registry hook — reads NVS namespace "bb_mqtt" for uri/client_id/username/
+ * password/enabled and, when enabled=1, creates and (deferred-)starts the
+ * auto-registered client returned by bb_mqtt_client_default().
+ */
+// bbtool:init tier=early fn=bb_mqtt_client_autoregister_init
+bb_err_t bb_mqtt_client_autoregister_init(void);
+#endif /* ESP_PLATFORM && CONFIG_BB_MQTT_CLIENT_AUTOREGISTER */
+
 /**
  * Stop and destroy the auto-registered (default) MQTT client.
  *

@@ -1,18 +1,5 @@
 menu "breadboard: bb_ota_pull"
 
-config BB_OTA_PULL_AUTOREGISTER
-    bool "Auto-register OTA pull HTTP routes via bb_init"
-    default y if BB_OTA_STRATEGY_PULL
-    default n
-    help
-        When enabled, bb_ota_pull self-registers its HTTP route handlers
-        (POST /api/update/apply, /check, GET /api/update/progress) through
-        bb_init. Defaults on when the OTA strategy is in-place pull (see
-        BB_OTA_STRATEGY) so /api/update/apply has a single owner. Disable this
-        if you want to keep bb_ota_pull's public C API but drive route
-        registration manually or skip routes entirely (e.g. headless
-        OTA-driver use).
-
 config BB_OTA_PULL_WDT_EXTENDED_S
     int "Task WDT timeout (s) during OTA flash phase"
     range 30 1800

@@ -3,7 +3,6 @@
 #include "bb_http_server.h"
 #include "bb_log.h"
 #include "bb_system.h"
-#include "bb_init.h"
 
 #include <string.h>
 
@@ -62,7 +61,7 @@ void bb_openapi_set_meta(const bb_openapi_meta_t *meta)
     s_meta = meta;
 }
 
-static bb_err_t bb_openapi_init(bb_http_handle_t server)
+bb_err_t bb_openapi_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
@@ -76,12 +75,8 @@ static bb_err_t bb_openapi_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-#if CONFIG_BB_OPENAPI_AUTOREGISTER
-static bb_err_t bb_openapi_reserve_routes(void)
+bb_err_t bb_openapi_reserve_routes(void)
 {
     bb_http_reserve_routes(1);  // GET /api/openapi.json
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_openapi, bb_openapi_reserve_routes);
-BB_INIT_REGISTER_N(bb_openapi, bb_openapi_init, 1);
-#endif

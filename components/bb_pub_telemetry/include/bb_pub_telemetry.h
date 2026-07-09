@@ -15,7 +15,7 @@ extern "C" {
 #endif
 
 // Register the "publisher" telemetry section (GET + PATCH).
-// Called automatically when CONFIG_BB_PUB_TELEMETRY_AUTOREGISTER=y (PRE_HTTP tier).
+// bbtool:init tier=pre_http fn=bb_pub_telemetry_init
 bb_err_t bb_pub_telemetry_init(void);
 
 #ifdef BB_PUB_TELEMETRY_TESTING

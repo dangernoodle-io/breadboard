@@ -1,5 +1,7 @@
 #pragma once
 
+#include "bb_http_server.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -24,6 +26,13 @@ extern "C" {
  * opt-in mechanism — no Kconfig gate is needed.
  */
 void bb_led_register_info(void);
+
+/**
+ * Registry hook — calls bb_led_register_info(). server is unused
+ * (bb_led_info has no HTTP routes of its own, only a /api/info section).
+ */
+// bbtool:init tier=regular fn=bb_led_info_autoregister_init server=true
+bb_err_t bb_led_info_autoregister_init(bb_http_handle_t server);
 
 #ifdef __cplusplus
 }

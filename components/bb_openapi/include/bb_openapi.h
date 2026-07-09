@@ -1,6 +1,6 @@
 #pragma once
 
-// Opt-in OpenAPI 3.1 spec emitter with auto-registration.
+// Opt-in OpenAPI 3.1 spec emitter.
 //
 // Consumer firmware links this component only by adding `bb_openapi` to a
 // REQUIRES/PRIV_REQUIRES line in one of its own components' idf_component_register
@@ -12,8 +12,9 @@
 //   2. Optionally call bb_openapi_set_meta(&meta) before bb_http_server_start();
 //      if not called, defaults are used (title "breadboard device", version from
 //      bb_system_get_version(), description and server_url NULL).
-//   3. After bb_http_server_start(), call bb_init_init() once to
-//      auto-register the GET /api/openapi.json route.
+//   3. After bb_http_server_start(), call bb_openapi_init(server) (composition
+//      root, e.g. codegen'd bb_app_init()) once to register the
+//      GET /api/openapi.json route.
 //   4. The runtime endpoint walks the route descriptor registry populated by
 //      bb_http_register_described_route().
 
@@ -147,6 +148,18 @@ size_t bb_openapi_schema_count(void);
 
 // Get a schema entry by index. Returns false if idx >= count or out is NULL.
 bool bb_openapi_schema_get(size_t idx, bb_openapi_schema_entry_t *out);
+
+// ---------------------------------------------------------------------------
+// Registry hooks
+// ---------------------------------------------------------------------------
+
+// Reserve route-table slots for bb_openapi before the HTTP server starts.
+// bbtool:init tier=pre_http fn=bb_openapi_reserve_routes
+bb_err_t bb_openapi_reserve_routes(void);
+
+// Registry hook — registers GET /api/openapi.json.
+// bbtool:init tier=regular fn=bb_openapi_init server=true
+bb_err_t bb_openapi_init(bb_http_handle_t server);
 
 #ifdef __cplusplus
 }

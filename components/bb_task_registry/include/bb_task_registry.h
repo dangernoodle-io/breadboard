@@ -228,6 +228,18 @@ typedef void (*bb_task_registry_low_stack_handler_t)(const char *name, void *han
 void bb_task_registry_set_low_stack_handler(bb_task_registry_low_stack_handler_t fn,
                                              uint32_t threshold_bytes, void *ctx);
 
+// Start the periodic base-scan job (platform/espidf/bb_task_registry/
+// bb_task_registry_base_scan.c). No-op (returns BB_OK) when
+// CONFIG_FREERTOS_USE_TRACE_FACILITY is off.
+// bbtool:init tier=pre_http fn=bb_task_registry_base_scan_start
+bb_err_t bb_task_registry_base_scan_start(void);
+
+// Start the software watchdog monitor task (platform/espidf/
+// bb_task_registry/bb_task_registry_monitor.c). No-op (returns BB_OK) when
+// CONFIG_BB_TASK_REGISTRY_SW_WDT is off.
+// bbtool:init tier=pre_http fn=bb_task_registry_sw_wdt_start
+bb_err_t bb_task_registry_sw_wdt_start(void);
+
 #ifdef BB_TASK_REGISTRY_TESTING
 // Reset the registry to its initial (empty) state. Test teardown only.
 void bb_task_registry_test_reset(void);

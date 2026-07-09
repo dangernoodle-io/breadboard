@@ -25,9 +25,6 @@
 // This source always publishes (never skips), providing a heartbeat even
 // when no hardware HALs are present.
 //
-// Self-registration is gated on CONFIG_BB_PUB_INFO_AUTO_ATTACH (default y,
-// depends on BB_PUB_AUTOREGISTER). Registration happens at the PRE_HTTP tier
-// at an order after bb_pub so the source registry exists first.
 #pragma once
 
 #include "bb_core.h"
@@ -39,9 +36,14 @@ extern "C" {
 /**
  * Register the "info" telemetry source with bb_pub.
  * Idempotent — subsequent calls are no-ops (source slot already taken).
- * Called automatically at PRE_HTTP tier when CONFIG_BB_PUB_INFO_AUTO_ATTACH=y.
  */
 bb_err_t bb_pub_info_register(void);
+
+/**
+ * PRE_HTTP init entry point (after bb_pub): registers the "info" source.
+ */
+// bbtool:init tier=pre_http fn=bb_pub_info_init
+bb_err_t bb_pub_info_init(void);
 
 #ifdef __cplusplus
 }

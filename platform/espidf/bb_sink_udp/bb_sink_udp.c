@@ -6,7 +6,7 @@
 #include "bb_sink_udp.h"
 #include "bb_sink_udp_priv.h"
 #include "bb_udp_client.h"
-#include "bb_init.h" // bb_pub.h comes in transitively via bb_sink_udp.h
+// bb_pub.h comes in transitively via bb_sink_udp.h
 
 static bool s_initialized = false;
 
@@ -45,17 +45,13 @@ bb_err_t bb_sink_udp(bb_pub_sink_t *out)
 }
 
 // ---------------------------------------------------------------------------
-// Autoregister (PRE_HTTP tier) — additive fan-out sink, coexists with
-// bb_sink_mqtt / bb_sink_http (NOT the bb_pub exclusive-sink arbiter).
-// Initializes both the transport (bb_udp_client, dest config in NVS
-// namespace "bb_udp") and this adapter.
+// PRE_HTTP-tier init — additive fan-out sink, coexists with bb_sink_mqtt /
+// bb_sink_http (NOT the bb_pub exclusive-sink arbiter). Initializes both the
+// transport (bb_udp_client, dest config in NVS namespace "bb_udp") and this
+// adapter. Called via the bb_app_init() composition root (bbtool:init
+// marker in bb_sink_udp.h), not self-registered.
 // ---------------------------------------------------------------------------
-#ifndef CONFIG_BB_SINK_UDP_AUTOREGISTER
-#define CONFIG_BB_SINK_UDP_AUTOREGISTER 0
-#endif
-
-#if CONFIG_BB_SINK_UDP_AUTOREGISTER
-static bb_err_t bb_sink_udp_auto_init(void)
+bb_err_t bb_sink_udp_auto_init(void)
 {
     bb_err_t err = bb_udp_client_init(NULL);
     if (err != BB_OK) return err;
@@ -69,5 +65,3 @@ static bb_err_t bb_sink_udp_auto_init(void)
 
     return bb_pub_add_sink(&s);
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_sink_udp, bb_sink_udp_auto_init);
-#endif

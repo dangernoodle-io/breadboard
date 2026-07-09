@@ -6,7 +6,6 @@
 
 #include "bb_cache.h"
 #if BB_CACHE_SWEEP_ENABLE
-#include "bb_init.h"
 #include "bb_timer.h"
 #endif
 #include "bb_cache_internal.h"
@@ -1183,9 +1182,9 @@ static void sweep_work_fn(void *arg)
     bb_cache_foreach(sweep_cb, NULL);
 }
 
-// bb_init PRE_HTTP lifecycle hook (B1-592 lifecycle follow-up, firmware-
-// review fix: replaces a raw pthread_create() + manual usleep() loop with
-// the house bb_timer_worker pattern -- mirrors bb_pub_start()
+// pre_http registry hook (B1-592 lifecycle follow-up, firmware-review fix:
+// replaces a raw pthread_create() + manual usleep() loop with the house
+// bb_timer_worker pattern -- mirrors bb_pub_start()
 // (platform/espidf/bb_pub/bb_pub_espidf.c) exactly: a dedicated worker task
 // created via bb_timer_worker_periodic_create, sized/named/prioritized
 // explicitly instead of inheriting the ESP-IDF pthread default. This file is
@@ -1193,16 +1192,11 @@ static void sweep_work_fn(void *arg)
 // bb_cache_host.c); BB_CACHE_SWEEP_ENABLE is only ever nonzero under
 // ESP_PLATFORM (host never defines the CONFIG_BB_CACHE_SWEEP_ENABLE
 // Kconfig), so the outer BB_CACHE_SWEEP_ENABLE guard alone is sufficient --
-// host never links bb_init/bb_timer and never sees this block.
+// host never links bb_timer and never sees this block.
 //
-// Static (B1-592 lifecycle follow-up): the only caller is the bb_init
-// PRE_HTTP registration below. There is no public start call anymore -- the
-// Kconfig knob (CONFIG_BB_CACHE_SWEEP_ENABLE) is the ONLY control: it gates
-// the compile-time bb_init registration, and bb_init invokes it. See
-// bb_cache.h -- bb_cache_evict_start() is no longer declared there.
-// bb_timer_worker_periodic_create() returns bb_err_t and this fn's signature
-// already matches bb_init's PRE_HTTP tier (bb_init_init_pre_http_fn), so
-// unlike the pre-fix version there is no separate thin adapter needed.
+// The Kconfig knob (CONFIG_BB_CACHE_SWEEP_ENABLE) is the ONLY control: it
+// gates whether this fn (and its bbtool:init marker in bb_cache.h) even
+// compiles in -- see bb_cache.h.
 //
 // Idempotent via s_sweep_timer: NULL means "not started" -- on a failed
 // create, s_sweep_timer is left/reset to NULL rather than being set true
@@ -1220,12 +1214,12 @@ static void sweep_work_fn(void *arg)
 // ESP_PLATFORM, see bb_cache.h). There is therefore no host-reachable seam
 // to fault-inject bb_timer_worker_periodic_create()'s failure branch through
 // a BB_CACHE_TESTING hook -- unlike e.g. bb_alloc_inject seams elsewhere,
-// contorting this component to expose one would mean linking bb_timer/
-// bb_init into the host build for a code path host never runs. The
+// contorting this component to expose one would mean linking bb_timer
+// into the host build for a code path host never runs. The
 // create-failure branch is covered by inspection only; the esp32-cache-sweep
 // smoke build is the live-link proof that this code path compiles and links
 // correctly on-device.
-static bb_err_t bb_cache_evict_start(void)
+bb_err_t bb_cache_evict_start(void)
 {
     if (s_sweep_timer) return BB_OK;  // already started (idempotent)
 
@@ -1255,8 +1249,6 @@ static bb_err_t bb_cache_evict_start(void)
     bb_log_i(TAG, "eviction sweep started; period=%d ms", BB_CACHE_SWEEP_PERIOD_MS);
     return BB_OK;
 }
-
-BB_INIT_REGISTER_PRE_HTTP(bb_cache_evict, bb_cache_evict_start);
 #endif // BB_CACHE_SWEEP_ENABLE
 
 // ---------------------------------------------------------------------------

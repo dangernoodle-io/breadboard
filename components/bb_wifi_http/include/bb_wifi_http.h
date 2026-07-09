@@ -30,6 +30,15 @@ void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info);
 // Calls bb_wifi_get_info internally; no info parameter required.
 void bb_wifi_emit_status(bb_json_t obj);
 
+/// Reserve route-table slots for bb_wifi_http before the HTTP server starts.
+// bbtool:init tier=pre_http fn=bb_wifi_routes_reserve
+bb_err_t bb_wifi_routes_reserve(void);
+
+/// Registry hook — registers GET /api/wifi, POST /api/scan, and (when
+/// CONFIG_BB_WIFI_RECONFIGURE=y) PATCH /api/wifi.
+// bbtool:init tier=regular fn=bb_wifi_routes_init server=true
+bb_err_t bb_wifi_routes_init(bb_http_handle_t server);
+
 #ifdef __cplusplus
 }
 #endif

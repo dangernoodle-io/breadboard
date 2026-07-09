@@ -1,6 +1,7 @@
 #pragma once
 #include "bb_core.h"
 #include "bb_json.h"
+#include "bb_http_server.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,6 +48,10 @@ typedef void (*bb_alert_fill_fn)(bb_json_t obj, void *ctx);
 void bb_alert_emit(const char *type, bb_alert_severity_t sev,
                    bb_alert_fill_fn fill, void *ctx);
 bb_err_t bb_alert_register(void);
+
+// Registers the alert topic and attaches it to /api/events.
+// bbtool:init tier=regular fn=bb_alert_init server=true
+bb_err_t bb_alert_init(bb_http_handle_t server);
 #else
 static inline void bb_alert_emit(const char *type, bb_alert_severity_t sev,
                                   bb_alert_fill_fn fill, void *ctx)
@@ -54,6 +59,7 @@ static inline void bb_alert_emit(const char *type, bb_alert_severity_t sev,
     (void)type; (void)sev; (void)fill; (void)ctx;
 }
 static inline bb_err_t bb_alert_register(void) { return 0; }
+static inline bb_err_t bb_alert_init(bb_http_handle_t server) { (void)server; return 0; }
 #endif
 
 #ifdef BB_ALERT_TESTING

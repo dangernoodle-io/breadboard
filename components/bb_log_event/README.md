@@ -36,8 +36,7 @@ this component's forwarder task.
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
 | `bb_event` | public | — | [bb_event](../README.md) |
 | `bb_event_routes` | public | — | [bb_event_routes](../README.md) |
-| `bb_http_server` | private | — | [bb_http_server](../README.md) |
-| `bb_init` | public | — | [bb_init](../README.md) |
+| `bb_http_server` | public | — | [bb_http_server](../README.md) |
 | `bb_json` | public | — | [bb_json](../README.md) |
 | `bb_log` | public | — | [bb_log](../README.md) |
 | `bb_openapi` | public | — | [bb_openapi](../README.md) |

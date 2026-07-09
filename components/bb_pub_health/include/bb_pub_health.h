@@ -11,9 +11,6 @@
 // Always publishes (returns true) — provides a health heartbeat even without
 // optional sinks.
 //
-// Self-registration is gated on CONFIG_BB_PUB_HEALTH_AUTO_ATTACH (default y,
-// depends on BB_PUB_AUTOREGISTER). Registration happens at the PRE_HTTP tier
-// after bb_pub so the source registry exists first.
 #pragma once
 
 #include "bb_core.h"
@@ -25,9 +22,14 @@ extern "C" {
 /**
  * Register the "health" telemetry source with bb_pub.
  * Idempotent — subsequent calls are no-ops (source slot already taken).
- * Called automatically at PRE_HTTP tier when CONFIG_BB_PUB_HEALTH_AUTO_ATTACH=y.
  */
 bb_err_t bb_pub_health_register(void);
+
+/**
+ * PRE_HTTP init entry point (after bb_pub): registers the "health" source.
+ */
+// bbtool:init tier=pre_http fn=bb_pub_health_init
+bb_err_t bb_pub_health_init(void);
 
 #ifdef __cplusplus
 }

@@ -51,6 +51,23 @@ bb_json_t bb_manifest_emit(void);
 // Test helpers — clear all registrations.
 void bb_manifest_clear(void);
 
+#ifdef ESP_PLATFORM
+#include "bb_http_server.h"
+
+// ---------------------------------------------------------------------------
+// Registry hooks
+// ---------------------------------------------------------------------------
+
+// Reserve route-table slots for bb_manifest before the HTTP server starts.
+// bbtool:init tier=pre_http fn=bb_manifest_reserve_routes
+bb_err_t bb_manifest_reserve_routes(void);
+
+// Registry hook — registers GET /api/manifest.
+// bbtool:init tier=regular fn=bb_manifest_init server=true
+bb_err_t bb_manifest_init(bb_http_handle_t server);
+
+#endif /* ESP_PLATFORM */
+
 #ifdef __cplusplus
 }
 #endif

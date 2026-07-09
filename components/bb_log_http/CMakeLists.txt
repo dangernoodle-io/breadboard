@@ -4,11 +4,7 @@
 # bb_http_server<->bb_log circular dependency.
 idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log_http/bb_log_http.c"
-    PRIV_REQUIRES bb_http_server bb_log bb_init
+    INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_log_http"
+    REQUIRES bb_http_server
+    PRIV_REQUIRES bb_log
 )
-
-if(CONFIG_BB_LOG_ROUTES)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
-    bb_init_force_register_pre_http(${COMPONENT_LIB} bb_log_register_routes)
-    bb_init_force_register(${COMPONENT_LIB} bb_log_register_routes)
-endif()

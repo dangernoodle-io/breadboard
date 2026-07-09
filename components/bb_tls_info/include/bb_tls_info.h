@@ -14,14 +14,17 @@ extern "C" {
  *   "mutual_tls" — CONFIG_BB_TLS_MUTUAL_ENABLE=y
  *
  * Must be called at PRE_HTTP tier (before bb_info_init freeze at regular
- * order 2). The auto-register companion (CONFIG_BB_TLS_INFO_AUTOREGISTER,
- * default y) handles this automatically.  The manual call is provided for
- * consumers that disable autoregister and control registration order.
+ * order 2). bb_tls_info_pre_http_init (below) wraps this call for the
+ * bb_app_init() composition root. The manual call is provided for
+ * consumers that want to control registration order directly.
  *
  * Registration is idempotent: bb_info_register_capability silently ignores
  * duplicates (string-compare dedup).
  */
 void bb_tls_info_register(void);
+
+// bbtool:init tier=pre_http fn=bb_tls_info_pre_http_init
+void bb_tls_info_pre_http_init(void);
 
 #ifdef __cplusplus
 }

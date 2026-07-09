@@ -325,6 +325,27 @@ void bb_prov_signal_done(void)
     }
 }
 
+// DI DEMOLITION MIGRATION -- DEFERRED, FLAGGED FOR REVIEW (INT-1, this
+// step): bb_prov_start() below still drives the bb_init walker
+// (bb_init_init_pre_http() / bb_init_init()) rather than the `bbtool
+// codegen`-generated bb_app_init_early()/bb_app_init_rest()/bb_app_init()
+// entry points used elsewhere (examples/smoke/main/entry_espidf.c).
+// This is intentional, not an oversight: bb_prov's two-phase bring-up
+// (reserve routes -> manually bb_http_server_ensure_started() -> register
+// /save + caller assets -> THEN run the registry-route tier -> extra() ->
+// captive wildcard LAST) can't be expressed with codegen's current
+// contract, which bundles pre_http + the HTTP-server capture/start itself
+// + the regular tier into a single bb_app_init_rest() call (see
+// scripts/bbtool/commands/wire.py's module docstring) -- there is no
+// standalone generated pre_http-only entry point to call before
+// registering bb_prov's own routes, and calling bb_app_init_rest() here
+// would double-start the HTTP server via its own http_server-providing
+// marker (bb_http_autostart_init) on top of the ensure_started() call
+// below. Since bb_init is not deleted this step (a later step retires it
+// once smoke proves the walker-free path compiles), this call site
+// compiles unchanged. A real migration needs either a provisioning-
+// specific codegen composition or split pre_http-only/server-start/
+// regular entry points from wire.py -- follow-up, not solved here.
 bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
                        bb_prov_extra_routes_fn_t extra)
 {

@@ -1,14 +1,3 @@
 menu "breadboard: bb_pub_rtos"
 
-config BB_PUB_RTOS_AUTO_ATTACH
-    bool "Auto-register rtos telemetry source with bb_pub"
-    default y
-    depends on BB_PUB_AUTOREGISTER
-    help
-        When enabled, bb_pub_rtos self-registers at the PRE_HTTP tier (after
-        bb_pub) so FreeRTOS task-stack high-water-marks are published on every
-        bb_pub tick under the "rtos" subtopic. Disable to call
-        bb_pub_rtos_register() manually.
-        Requires CONFIG_FREERTOS_USE_TRACE_FACILITY=y.
-
 endmenu

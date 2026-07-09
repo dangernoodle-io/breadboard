@@ -14,7 +14,6 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mem.h"
-#include "bb_init.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -317,9 +316,4 @@ bb_err_t bb_sensors_init(bb_http_handle_t server)
     bb_log_i(TAG, "sensors routes registered (/api/sensors GET+PATCH)");
     return BB_OK;
 }
-
-#if CONFIG_BB_SENSORS_AUTOREGISTER
-BB_INIT_REGISTER_N(bb_sensors, bb_sensors_init, 1);
-#endif
-
 

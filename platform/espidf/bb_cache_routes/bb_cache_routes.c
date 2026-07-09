@@ -6,7 +6,6 @@
 
 #include "bb_http.h"
 #include "bb_http_server.h"
-#include "bb_init.h"
 #include "bb_log.h"
 
 static const char *TAG = "bb_cache_routes";
@@ -122,7 +121,3 @@ bb_err_t bb_cache_routes_init(bb_http_handle_t server)
     bb_http_reserve_routes(1);  // GET /api/cache
     return bb_http_register_described_route(server, &s_cache_route);
 }
-
-#if CONFIG_BB_CACHE_ROUTES_AUTOREGISTER
-BB_INIT_REGISTER_N(bb_cache_routes, bb_cache_routes_init, 1);
-#endif

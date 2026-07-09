@@ -6,5 +6,5 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_event_routes/bb_event_topic_registry.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
-    REQUIRES bb_event bb_event_ring bb_core
+    REQUIRES bb_event bb_event_ring bb_core bb_http_server
     PRIV_REQUIRES bb_log bb_registry bb_mem_arena bb_str)

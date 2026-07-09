@@ -13,7 +13,6 @@
 
 #include "bb_event.h"
 #include "bb_event_routes.h"
-#include "bb_init.h"
 #include "bb_log.h"
 #include "bb_openapi.h"
 #include "bb_task_registry.h"
@@ -65,10 +64,6 @@ bb_err_t bb_health_stack_monitor_start(void)
                                             (uint32_t)CONFIG_BB_HEALTH_STACK_LOW_BYTES, NULL);
     return BB_OK;
 }
-
-#if CONFIG_BB_HEALTH_STACK_AUTOSTART
-BB_INIT_REGISTER_PRE_HTTP(bb_health_stack, bb_health_stack_monitor_start);
-#endif
 
 // ---------------------------------------------------------------------------
 // Public init (called by bb_health_init after the HTTP server is up)

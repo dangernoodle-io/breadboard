@@ -23,10 +23,10 @@ extern "C" {
  * pull's "update_started", so clients wait for the device to reappear on a
  * bumped version rather than poll /api/update/progress.
  *
- * Runtime cost on a tight board is a single lean route (gated by
- * CONFIG_BB_OTA_BOOT_AUTOREGISTER) — no download worker until boot. The manifest
- * resolve + download run in boot mode, so the runtime can leave
- * CONFIG_BB_OTA_CHECK_AUTOREGISTER and CONFIG_BB_OTA_PULL_AUTOREGISTER off.
+ * Runtime cost on a tight board is a single lean route — no download worker
+ * until boot. The manifest resolve + download run in boot mode, so the
+ * runtime can leave bb_ota_check/bb_ota_pull's route-registration fns
+ * uncomposed.
  */
 
 /*
@@ -66,9 +66,25 @@ bool bb_ota_boot_pending(void);
 #ifdef ESP_PLATFORM
 #include "bb_http_server.h"
 
-/* Registry hook — registers POST /api/update/apply (arm + reboot). Gated by
- * CONFIG_BB_OTA_BOOT_AUTOREGISTER (defaults on only when BB_OTA_STRATEGY_BOOT). */
+/* Reserve route-table slots for bb_ota_boot before the HTTP server starts. */
+// bbtool:init tier=pre_http fn=bb_ota_boot_reserve_routes
+bb_err_t bb_ota_boot_reserve_routes(void);
+
+// POST /api/update/apply has a single registrant, chosen by the
+// BB_OTA_STRATEGY Kconfig choice (components/bb_core/Kconfig) --
+// bb_ota_pull and bb_ota_boot must never both register the route.
+// codegen's `// bbtool:init` marker scan is grep-time / preprocessor-unaware
+// (see wire_parse.py), so the marker is only visible (and only resolves to
+// the real function) when this strategy is selected; otherwise the no-op
+// stub below satisfies the generated call and registers nothing. Mirrors
+// the bb_cache_evict_start Kconfig-bridge stub pattern (bb_cache.h).
+#if defined(CONFIG_BB_OTA_STRATEGY_BOOT) && CONFIG_BB_OTA_STRATEGY_BOOT
+/* Registry hook — registers POST /api/update/apply (arm + reboot). */
+// bbtool:init tier=regular fn=bb_ota_boot_init server=true
 bb_err_t bb_ota_boot_init(bb_http_handle_t server);
+#else
+static inline bb_err_t bb_ota_boot_init(bb_http_handle_t server) { (void)server; return BB_OK; }
+#endif
 
 /*
  * Early-boot entry. If armed: clear the flag, bring up link + clock, resolve the

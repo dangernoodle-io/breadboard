@@ -20,7 +20,6 @@
 #include "bb_http_server.h"
 #include "bb_log.h"
 #include "bb_mem.h"
-#include "bb_init.h"
 #include "bb_wifi.h"
 #include "bb_wdt.h"
 #include "bb_board.h"
@@ -968,6 +967,12 @@ bb_err_t bb_ota_pull_run_sync(const char *asset_url)
     return ota_download_and_flash(asset_url);
 }
 
+// The route handlers/tables below (through bb_ota_pull_init) exist only to
+// serve POST /api/update/apply (plus /api/update/check + /api/update/progress)
+// -- the single-registrant strategy gate applies to all of it (see
+// bb_ota_pull_init's own gate + rationale below and bb_ota_pull.h).
+#if defined(CONFIG_BB_OTA_STRATEGY_PULL) && CONFIG_BB_OTA_STRATEGY_PULL
+
 /**
  * POST /api/update/check - Kick the bb_ota_check worker and return immediately.
  *
@@ -1304,7 +1309,7 @@ static const bb_route_t s_ota_status_route = {
 /**
  * Register OTA pull HTTP handlers with an existing httpd instance.
  */
-static bb_err_t bb_ota_pull_init(bb_http_handle_t server)
+bb_err_t bb_ota_pull_init(bb_http_handle_t server)
 {
     if (!server) {
         return BB_ERR_INVALID_ARG;
@@ -1332,15 +1337,13 @@ static bb_err_t bb_ota_pull_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-#if CONFIG_BB_OTA_PULL_AUTOREGISTER
-static bb_err_t bb_ota_pull_reserve_routes(void)
+#endif // defined(CONFIG_BB_OTA_STRATEGY_PULL) && CONFIG_BB_OTA_STRATEGY_PULL
+
+bb_err_t bb_ota_pull_reserve_routes(void)
 {
     bb_http_reserve_routes(3);  // POST /api/update/check + POST /api/update/apply + GET /api/update/progress
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_ota_pull, bb_ota_pull_reserve_routes);
-BB_INIT_REGISTER_N(bb_ota_pull, bb_ota_pull_init, 3);
-#endif
 
 /**
  * Trigger an immediate OTA check (non-blocking).

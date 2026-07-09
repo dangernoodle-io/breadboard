@@ -1,18 +1,5 @@
 menu "breadboard: bb_cache_routes"
 
-config BB_CACHE_ROUTES_AUTOREGISTER
-    bool "Auto-register GET /api/cache HTTP route via bb_init"
-    default n
-    help
-        When enabled, bb_cache_routes self-registers GET /api/cache through
-        bb_init at regular-tier order 1. Disable to call bb_cache_routes_init
-        manually to control registration timing, or omit entirely if your
-        app defines its own /api/cache handler.
-
-        Enabling this route exposes EVERY bb_cache_register()'d key by name
-        -- including internal bb_sub ingress keys -- to unauthenticated HTTP
-        clients; bb_http has no auth layer. That is why this defaults to n.
-
 config BB_CACHE_ROUTES_BUF_BYTES
     int "Stack buffer size for the serialized cache snapshot (bytes)"
     default 768

@@ -41,6 +41,9 @@ extern "C" {
  */
 bb_err_t bb_sink_udp_init(void);
 
+// bbtool:init tier=pre_http fn=bb_sink_udp_auto_init
+extern bb_err_t bb_sink_udp_auto_init(void);
+
 /**
  * Fill `out` with a bb_pub_sink_t whose publish() builds one UDP datagram
  * per call (bb_udp_frame_encode + bb_udp_client_send). Sets

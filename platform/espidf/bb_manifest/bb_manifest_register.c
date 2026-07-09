@@ -3,7 +3,6 @@
 #include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_init.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -91,7 +90,7 @@ static const bb_route_t s_manifest_route = {
     .handler  = manifest_handler,
 };
 
-static bb_err_t bb_manifest_init(bb_http_handle_t server)
+bb_err_t bb_manifest_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
@@ -105,12 +104,8 @@ static bb_err_t bb_manifest_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-#if CONFIG_BB_MANIFEST_AUTOREGISTER
-static bb_err_t bb_manifest_reserve_routes(void)
+bb_err_t bb_manifest_reserve_routes(void)
 {
     bb_http_reserve_routes(1);  // GET /api/manifest
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_manifest, bb_manifest_reserve_routes);
-BB_INIT_REGISTER_N(bb_manifest, bb_manifest_init, 1);
-#endif

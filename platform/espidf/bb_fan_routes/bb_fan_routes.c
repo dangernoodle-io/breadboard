@@ -2,7 +2,6 @@
 #include "bb_fan.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_init.h"
 #include "bb_http_server.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -56,7 +55,3 @@ bb_err_t bb_fan_routes_init(bb_http_handle_t server)
     (void)server;
     return BB_OK;
 }
-
-#if CONFIG_BB_FAN_ROUTES_AUTOREGISTER
-BB_INIT_REGISTER_N(bb_fan_routes, bb_fan_routes_init, 1);
-#endif

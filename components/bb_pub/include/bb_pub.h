@@ -638,6 +638,18 @@ void bb_pub_mark_started(void);
  */
 bb_err_t bb_pub_set_interval_volatile_ms(uint32_t ms);
 
+// ---------------------------------------------------------------------------
+// Worker start (ESP-IDF platform backend)
+// ---------------------------------------------------------------------------
+
+#ifdef ESP_PLATFORM
+
+// Start the periodic publish worker (bb_pub_espidf.c).
+// bbtool:init tier=pre_http fn=bb_pub_start
+bb_err_t bb_pub_start(void);
+
+#endif /* ESP_PLATFORM */
+
 #ifdef __cplusplus
 }
 #endif

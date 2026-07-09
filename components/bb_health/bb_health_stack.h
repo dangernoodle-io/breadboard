@@ -34,6 +34,6 @@ int bb_health_stack_build_json(char *buf, size_t buf_sz,
 // PRE_HTTP: registers bb_health_stack's low-stack handler with
 // bb_task_registry (see bb_task_registry_set_low_stack_handler). No topic/
 // event/openapi side effects. Implemented in
-// platform/espidf/bb_health/bb_health_stack.c; self-registers at PRE_HTTP
-// when CONFIG_BB_HEALTH_STACK_AUTOSTART=y.
+// platform/espidf/bb_health/bb_health_stack.c; PRE_HTTP registry hook
+// (see components/bb_health/include/bb_health.h bbtool:init marker).
 bb_err_t bb_health_stack_monitor_start(void);

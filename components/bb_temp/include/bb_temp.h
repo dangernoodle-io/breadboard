@@ -23,6 +23,7 @@ extern "C" {
  */
 
 #include <stdbool.h>
+#include "bb_http_server.h"
 #include "bb_json.h"
 
 /*
@@ -51,6 +52,13 @@ void bb_temp_emit_section(bb_json_t obj);
  * Call before bb_http_server_start.
  */
 void bb_temp_register_info(void);
+
+/**
+ * Registry hook — calls bb_temp_register_info(). server is unused
+ * (bb_temp has no HTTP routes of its own, only a /api/health section).
+ */
+// bbtool:init tier=regular fn=bb_temp_autoregister_init server=true
+bb_err_t bb_temp_autoregister_init(bb_http_handle_t server);
 
 #ifdef __cplusplus
 }

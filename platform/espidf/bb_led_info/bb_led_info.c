@@ -3,11 +3,6 @@
 #include "bb_info.h"
 #include "bb_json.h"
 
-#if defined(CONFIG_BB_LED_INFO_AUTOREGISTER) && CONFIG_BB_LED_INFO_AUTOREGISTER
-#include "bb_init.h"
-#include "bb_http_server.h"
-#endif
-
 /* JSON-Schema value for the "led" section. */
 static const char k_led_schema[] =
     "{\"type\":\"object\",\"properties\":{"
@@ -39,18 +34,9 @@ void bb_led_register_info(void)
     bb_info_register_section("led", led_section_get, NULL, k_led_schema);
 }
 
-#if defined(CONFIG_BB_LED_INFO_AUTOREGISTER) && CONFIG_BB_LED_INFO_AUTOREGISTER
-
-/* order 1: bb_info registers at order 2 but its section table accepts
- * registrations at any regular-tier order before bb_info_freeze (order 20).
- * Mirrors the sequencing of the manual call (before bb_init_init). */
-static bb_err_t bb_led_info_autoregister_init(bb_http_handle_t server)
+bb_err_t bb_led_info_autoregister_init(bb_http_handle_t server)
 {
     (void)server;
     bb_led_register_info();
     return BB_OK;
 }
-
-BB_INIT_REGISTER_N(bb_led_info, bb_led_info_autoregister_init, 1);
-
-#endif /* CONFIG_BB_LED_INFO_AUTOREGISTER */

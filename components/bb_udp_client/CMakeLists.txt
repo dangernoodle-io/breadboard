@@ -1,4 +1,4 @@
-set(BB_UDP_CLIENT_PRIV_REQUIRES bb_nv bb_log bb_init)
+set(BB_UDP_CLIENT_PRIV_REQUIRES bb_nv bb_log)
 
 if(IDF_TARGET)
     set(BB_UDP_CLIENT_BACKEND

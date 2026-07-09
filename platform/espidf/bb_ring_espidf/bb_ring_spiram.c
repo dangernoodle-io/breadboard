@@ -7,15 +7,14 @@
 // Registered at EARLY tier so the override is in place before any
 // bb_ring_create() call during component init.
 
+#include "bb_ring_espidf.h"
 #include "bb_ring.h"
-#include "bb_core.h"
 #include "bb_mem.h"
-#include "bb_init.h"
 
-static bb_err_t bb_ring_spiram_early_init(void)
+// Called via the bb_app_init() composition root (bbtool:init marker in
+// bb_ring_espidf.h), not self-registered.
+bb_err_t bb_ring_spiram_early_init(void)
 {
     bb_ring_set_allocator(bb_calloc_prefer_spiram, bb_mem_free);
     return BB_OK;
 }
-
-BB_INIT_REGISTER_EARLY(bb_ring_spiram, bb_ring_spiram_early_init);

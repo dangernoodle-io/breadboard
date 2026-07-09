@@ -25,7 +25,6 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_clock.h"
-#include "bb_init.h"
 #include "bb_log.h"
 #include "bb_wifi.h"
 #include "bb_transport_health.h"
@@ -223,7 +222,7 @@ static const bb_route_t s_diag_net_route = {
     .handler   = diag_net_handler,
 };
 
-static bb_err_t bb_net_health_routes_init(bb_http_handle_t server)
+bb_err_t bb_net_health_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     bb_err_t err = bb_http_register_described_route(server, &s_diag_net_route);
@@ -231,7 +230,3 @@ static bb_err_t bb_net_health_routes_init(bb_http_handle_t server)
     bb_log_i(TAG, "registered /api/diag/net");
     return BB_OK;
 }
-
-#if CONFIG_BB_NET_HEALTH_ROUTES_AUTOREGISTER
-BB_INIT_REGISTER(bb_net_health_routes, bb_net_health_routes_init);
-#endif

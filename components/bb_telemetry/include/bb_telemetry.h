@@ -70,7 +70,7 @@ bool bb_telemetry_couple_publisher(bool any_sink_enabled,
 void bb_telemetry_freeze(void);
 
 // Register GET + PATCH /api/telemetry with the HTTP server.
-// Called automatically when CONFIG_BB_TELEMETRY_AUTOREGISTER=y.
+// bbtool:init tier=regular fn=bb_telemetry_init server=true
 bb_err_t bb_telemetry_init(bb_http_handle_t server);
 
 #ifdef BB_TELEMETRY_TESTING

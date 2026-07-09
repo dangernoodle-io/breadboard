@@ -7,6 +7,7 @@
 #ifdef ESP_PLATFORM
 
 #include <stdbool.h>
+#include "bb_http_server.h"
 
 // Initialize mDNS. Registers got-IP callback on bb_wifi. Idempotent.
 void bb_mdns_init(void);
@@ -33,6 +34,10 @@ bool bb_mdns_started(void);
 // Get the running mDNS hostname (cached on init). Returns the string when
 // started (e.g. "bsp-device-c718"), NULL when not started or before init.
 const char *bb_mdns_get_hostname(void);
+
+// Registry init: calls bb_mdns_init(). server is unused.
+// bbtool:init tier=regular fn=bb_mdns_registry_init server=true
+bb_err_t bb_mdns_registry_init(bb_http_handle_t server);
 
 #endif /* ESP_PLATFORM */
 

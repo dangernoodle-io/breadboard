@@ -24,6 +24,15 @@ bb_err_t bb_partition_get_running(bb_partition_info_t *out);
 // Fill *out with the next-OTA-update partition; BB_ERR_NOT_FOUND if none.
 bb_err_t bb_partition_get_next_ota(bb_partition_info_t *out);
 
+#ifdef ESP_PLATFORM
+#include "bb_http_server.h"
+
+// Registry hook — registers GET /api/diag/partitions.
+// bbtool:init tier=regular fn=bb_partition_routes_init server=true
+bb_err_t bb_partition_routes_init(bb_http_handle_t server);
+
+#endif /* ESP_PLATFORM */
+
 #ifdef __cplusplus
 }
 #endif

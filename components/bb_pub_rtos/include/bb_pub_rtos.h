@@ -14,10 +14,6 @@
 //   stack_ipc1      — IPC core 1 task HWM
 //   stack_main      — main/app_main task HWM
 //
-// Self-registration is gated on CONFIG_BB_PUB_RTOS_AUTO_ATTACH (default y,
-// depends on BB_PUB_AUTOREGISTER). Registration happens at the PRE_HTTP tier
-// at an order after bb_pub so the source registry exists first.
-//
 // Requires CONFIG_FREERTOS_USE_TRACE_FACILITY=y (already enabled; /api/diag/tasks uses it).
 #pragma once
 
@@ -30,9 +26,14 @@ extern "C" {
 /**
  * Register the "rtos" telemetry source with bb_pub.
  * Idempotent — subsequent calls are no-ops (source slot already taken).
- * Called automatically at PRE_HTTP tier when CONFIG_BB_PUB_RTOS_AUTO_ATTACH=y.
  */
 bb_err_t bb_pub_rtos_register(void);
+
+/**
+ * PRE_HTTP init entry point (after bb_pub): registers the "rtos" source.
+ */
+// bbtool:init tier=pre_http fn=bb_pub_rtos_init
+bb_err_t bb_pub_rtos_init(void);
 
 /**
  * True for FreeRTOS system tasks with intentionally tiny, idle-heavy stacks

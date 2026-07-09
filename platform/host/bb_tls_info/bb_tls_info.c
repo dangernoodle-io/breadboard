@@ -10,10 +10,6 @@
 #include "bb_tls_info.h"
 #include "bb_info.h"
 
-#ifndef CONFIG_BB_TLS_INFO_AUTOREGISTER
-#define CONFIG_BB_TLS_INFO_AUTOREGISTER 0
-#endif
-
 void bb_tls_info_register(void)
 {
 #if CONFIG_BB_MQTT_TLS_ENABLE
@@ -27,14 +23,9 @@ void bb_tls_info_register(void)
 #endif
 }
 
-#if CONFIG_BB_TLS_INFO_AUTOREGISTER
-#include "bb_init.h"
-
-static bb_err_t tls_info_pre_http_init(void)
+// PRE_HTTP-tier init wrapper for the bb_app_init() composition root
+// (bbtool:init marker in bb_tls_info.h), not self-registered.
+void bb_tls_info_pre_http_init(void)
 {
     bb_tls_info_register();
-    return BB_OK;
 }
-
-BB_INIT_REGISTER_PRE_HTTP(bb_tls_info, tls_info_pre_http_init);
-#endif /* CONFIG_BB_TLS_INFO_AUTOREGISTER */

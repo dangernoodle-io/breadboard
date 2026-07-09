@@ -188,6 +188,15 @@ bb_err_t bb_ota_check_mark_check_on_apply(void);
 // coordinated consumer update.
 bb_err_t bb_ota_check_emit_status_json(bb_http_request_t *req);
 
+/* Reserve route-table slots for bb_ota_check before the HTTP server starts. */
+// bbtool:init tier=pre_http fn=bb_ota_check_reserve_routes
+bb_err_t bb_ota_check_reserve_routes(void);
+
+/* Registry hook — inits bb_ota_check and registers GET /api/update/status +
+ * the update-config routes. */
+// bbtool:init tier=regular fn=bb_ota_check_register_init server=true
+bb_err_t bb_ota_check_register_init(bb_http_handle_t server);
+
 // OTA operation exclusive-slot claim. Backed by bb_claim; at most one OTA-class
 // operation (ota_pull download or upd_check manifest fetch) runs at a time.
 // acquire → BB_OK (free or same id), BB_ERR_CONFLICT (different id).

@@ -748,47 +748,6 @@ shallow fetch on first bootstrap, harmless.
 
 ---
 
-## `autowire` command
-
-Resolves an explicit component-name list's transitive closure (via the same
-discover/derive/resolve plumbing `boards.py` uses for a board manifest) and
-writes a CMake fragment defining `BB_AUTOWIRE_REQUIRES`/`BB_AUTOWIRE_COMPONENTS`
-for one-off link-set experiments (e.g. flash-size comparisons) where a full
-board manifest is overkill.
-
-```
-python3 scripts/bbtool.py autowire --components bb_log,bb_init [--root ROOT] [--platform PLATFORM] [--out OUT]
-```
-
-| Flag | Default | Meaning |
-|------|---------|---------|
-| `--components` | (required) | Comma-separated component names to resolve |
-| `--root ROOT` | cwd | Repository root |
-| `--platform PLATFORM` | `espidf` | Platform layer to resolve against |
-| `--out OUT` | `<root>/examples/smoke/main/generated/bb_autowire_components.cmake` | Output `.cmake` path |
-
-Emits two CMake variables:
-- `BB_AUTOWIRE_REQUIRES` — space-separated resolved component list, for a
-  component's own `idf_component_register(... REQUIRES ${BB_AUTOWIRE_REQUIRES})`.
-  Controls what that component declares itself to require; does not by itself
-  gate ESP-IDF's component *discovery* under `EXTRA_COMPONENT_DIRS`.
-- `BB_AUTOWIRE_COMPONENTS` — the same list prefixed with `main`, for the
-  project-level ESP-IDF `COMPONENTS` allowlist (`set(COMPONENTS
-  ${BB_AUTOWIRE_COMPONENTS})`, set BEFORE `include($ENV{IDF_PATH}/tools/cmake/project.cmake)`)
-  — this variable actually restricts component discovery.
-
-Typical usage: regenerate the fragment, then clean-build and measure with the
-`size` command below (never `pio ci` — it doesn't pick up regenerated
-fragments):
-```
-python3 scripts/bbtool.py autowire --root . --components "bb_log,bb_init" \
-    --out examples/smoke/main/generated/bb_autowire_components.cmake
-pio run -d examples/smoke -e esp32
-python3 scripts/bbtool.py size --build-dir examples/smoke/.pio/build/esp32
-```
-
----
-
 ## `size` command
 
 Measures flash/RAM footprint of a built PlatformIO/ESP-IDF env, device-free

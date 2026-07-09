@@ -10,7 +10,6 @@
 #include "bb_nv_keys.h"
 #include "bb_json.h"
 #include "bb_telemetry.h"
-#include "bb_init.h"
 #include "bb_pub.h"
 #include "bb_log.h"
 
@@ -201,10 +200,6 @@ bb_err_t bb_mqtt_telemetry_init(void)
                                              mqtt_section_patch, NULL,
                                              k_mqtt_schema_props);
 }
-
-#if CONFIG_BB_MQTT_TELEMETRY_AUTOREGISTER
-BB_INIT_REGISTER_PRE_HTTP(bb_mqtt_telemetry, bb_mqtt_telemetry_init);
-#endif
 
 // ---------------------------------------------------------------------------
 // Test hooks

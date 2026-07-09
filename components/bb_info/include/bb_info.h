@@ -45,6 +45,31 @@ bb_err_t bb_info_register_section(const char *name,
 // registration is dropped and a warning is logged.
 void bb_info_register_capability(const char *name);
 
+#ifdef ESP_PLATFORM
+#include "bb_http_server.h"
+
+// ---------------------------------------------------------------------------
+// Registry hooks
+// ---------------------------------------------------------------------------
+
+// Reserve route-table slots for bb_info before the HTTP server starts.
+// bbtool:init tier=pre_http fn=bb_info_reserve_routes
+bb_err_t bb_info_reserve_routes(void);
+
+// Registry hook — registers GET /api/info and the "build" bb_cache topic.
+// Section registration (bb_info_register_section) is deferred until
+// bb_info_freeze_init runs.
+// bbtool:init tier=regular fn=bb_info_init server=true
+bb_err_t bb_info_init(bb_http_handle_t server);
+
+// Registry hook — freezes the section registry and assembles the schema.
+// Must run after all section registrants have called
+// bb_info_register_section.
+// bbtool:init tier=regular fn=bb_info_freeze_init server=true
+bb_err_t bb_info_freeze_init(bb_http_handle_t server);
+
+#endif /* ESP_PLATFORM */
+
 #ifdef __cplusplus
 }
 #endif

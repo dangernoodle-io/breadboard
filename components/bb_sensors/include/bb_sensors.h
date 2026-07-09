@@ -16,6 +16,7 @@
 // Host twin: platform/host/bb_sensors/bb_sensors_host.c
 #pragma once
 #include "bb_core.h"
+#include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_response.h"
 
@@ -44,6 +45,7 @@ bb_err_t bb_sensors_register_section(const char *name,
 // Register GET+PATCH /api/sensors with the HTTP server (regular-tier init fn).
 // Registers the built-in fan/power/thermal sections, freezes the registry,
 // assembles the schema, then registers the routes.
+// bbtool:init tier=regular fn=bb_sensors_init server=true
 bb_err_t bb_sensors_init(bb_http_handle_t server);
 
 #ifdef BB_SENSORS_TESTING

@@ -1,7 +1,6 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_system.h"
-#include "bb_init.h"
 
 // Bound on the request body accepted for POST /api/reboot's optional
 // {"ts": <epoch_s>, "detail": "<string>"} JSON. Both fields are optional;
@@ -62,7 +61,7 @@ static const bb_route_t s_reboot_route = {
     .handler  = reboot_handler,
 };
 
-static bb_err_t bb_system_routes_init(bb_http_handle_t server)
+bb_err_t bb_system_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
@@ -71,12 +70,8 @@ static bb_err_t bb_system_routes_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-#if CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER
-static bb_err_t bb_system_routes_reserve(void)
+bb_err_t bb_system_routes_reserve(void)
 {
     bb_http_reserve_routes(1);  // POST /api/reboot
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_system_routes, bb_system_routes_reserve);
-BB_INIT_REGISTER_N(bb_system_routes, bb_system_routes_init, 3);
-#endif

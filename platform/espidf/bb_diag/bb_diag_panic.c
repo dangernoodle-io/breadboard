@@ -164,7 +164,7 @@ size_t bb_diag_panic_order_copy(const char *buf, size_t buf_size,
     return to_copy;
 }
 
-static bb_err_t bb_diag_panic_init(void)
+bb_err_t bb_diag_panic_init(void)
 {
     esp_reset_reason_t reason = esp_reset_reason();
 
@@ -252,10 +252,6 @@ static bb_err_t bb_diag_panic_init(void)
 
     return BB_OK;
 }
-
-// Register in early tier so we detect panic logs before normal boot proceeds
-#include "bb_init.h"
-BB_INIT_REGISTER_EARLY(bb_diag_panic, bb_diag_panic_init);
 
 // Tap entry called from bb_log_stream's vprintf hook for every line
 void bb_diag_panic_capture_write(const char *data, size_t len)
@@ -433,7 +429,7 @@ void bb_diag_panic_coredump_erase(void)
 
 // Stubs when panic capture is disabled
 
-static bb_err_t bb_diag_panic_init(void)
+bb_err_t bb_diag_panic_init(void)
 {
     esp_reset_reason_t reason = esp_reset_reason();
     bool was_panic_boot = (reason == ESP_RST_PANIC || reason == ESP_RST_TASK_WDT ||
@@ -457,9 +453,6 @@ static bb_err_t bb_diag_panic_init(void)
     }
     return BB_OK;
 }
-
-#include "bb_init.h"
-BB_INIT_REGISTER_EARLY(bb_diag_panic, bb_diag_panic_init);
 
 bool bb_diag_panic_available(void)
 {

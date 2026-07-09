@@ -14,7 +14,6 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mem.h"
-#include "bb_init.h"
 #include "bb_pub.h"
 #include "bb_nv.h"
 #include "bb_clock.h"
@@ -884,7 +883,3 @@ bb_err_t bb_telemetry_init(bb_http_handle_t server)
     bb_log_i(TAG, "telemetry routes registered");
     return BB_OK;
 }
-
-#if CONFIG_BB_TELEMETRY_AUTOREGISTER
-BB_INIT_REGISTER_N(bb_telemetry, bb_telemetry_init, 5);
-#endif

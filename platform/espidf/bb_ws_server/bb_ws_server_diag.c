@@ -12,7 +12,6 @@
 #include "bb_ws_server.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
-#include "bb_init.h"
 #include "bb_log.h"
 
 static const char *TAG = "bb_ws_diag";
@@ -48,7 +47,7 @@ static const bb_route_t s_diag_websocket_route = {
     .handler   = ws_diag_handler,
 };
 
-static bb_err_t bb_ws_server_diag_init(bb_http_handle_t server)
+bb_err_t bb_ws_server_diag_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     bb_err_t err = bb_http_register_described_route(server, &s_diag_websocket_route);
@@ -56,9 +55,5 @@ static bb_err_t bb_ws_server_diag_init(bb_http_handle_t server)
     bb_log_i(TAG, "registered /api/diag/websocket");
     return BB_OK;
 }
-
-#if CONFIG_BB_WS_SERVER_DIAG_AUTOREGISTER
-BB_INIT_REGISTER(bb_ws_server_diag, bb_ws_server_diag_init);
-#endif
 
 #endif // ESP_PLATFORM

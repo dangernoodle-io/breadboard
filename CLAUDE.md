@@ -2,6 +2,16 @@
 
 Measurement-driven, ground-up firmware component framework for no-PSRAM-class ESP32 (and beyond), with multiple backends (ESP-IDF, Arduino/CC3000, Arduino R4, host). Heap is the strict, vigilantly-guarded resource; flash is forgiving; components compose and pay heap only for what you add.
 
+## ⚠️ Composition: TWO paths only — codegen + handwire
+
+**"autowire" is DEAD.** Any reference to `autowire` / `bbtool autowire` as a *composition* mechanism, or to component self-registration (`BB_INIT_REGISTER*`, `*_AUTOREGISTER`, `*_AUTO_ATTACH`, force-register `-u` keeps, pub-sink glue) is LEGACY being removed — ignore it as a pattern to follow. NEVER add a new one (enforced shrink-only by `make fence`, `di_legacy` family).
+
+The only two sanctioned composition paths: (1) **codegen** — `bbtool codegen` generates the composition root `bb_app_init()` from `// bbtool:init tier= fn=` header markers (see `examples/floor` `make floor-codegen`); (2) **handwire** — explicit `app_main`/entry calls the component init fns directly (see `examples/floor/main/floor_app.c`).
+
+The `bbtool autowire` CLI command has been deleted (its transitive-closure resolver survives as library code in `scripts/bbtool/composition.py`, used only by `bbtool codegen`). `bbtool size` survives as measurement tooling (flash/heap budgeting) — NOT a composition mechanism.
+
+Any legacy `bb_init` walker / `BB_INIT_REGISTER*` docs found elsewhere (e.g. still-live in `examples/smoke`) are CURRENT-because-still-used, not a pattern to follow — they're slated for demolition (roadmap: DI dissolution); do not extend them.
+
 ## Public symbol prefix
 
 All public C symbols use prefix `bb_`.
@@ -55,7 +65,7 @@ Conventions are lint-enforced — the lint is the canonical rule; full detail + 
 - Timer callbacks — `timer-cb-heavy` — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#timer-callback-convention)
 - Logging — no lint — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#logging)
 - Audit-class defect ratchets (Kconfig bridge, reuse/idiom, branch coverage, route-init purity) — `kconfig-bridge-shadow`, plus non-lint items — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#audit-class-regressions)
-- Composition-only — the legacy DI/registry surface (`BB_INIT_REGISTER`, `*_AUTOREGISTER`, force-register keeps) is frozen shrink-only; never add new uses (enforced by `make fence`, `di-legacy` family — `di-fence` remains as a back-compat alias); `--update-baseline` only prunes, a genuine conversion needs a reviewed baseline edit (see `scripts/bbtool/README.md`) — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/design/DI-Model)
+- Composition-only — codegen + handwire are the only sanctioned paths, the legacy DI/registry surface (`BB_INIT_REGISTER`, `*_AUTOREGISTER`, force-register keeps) is frozen shrink-only (see the banner at top); never add new uses (enforced by `make fence`, `di-legacy` family — `di-fence` remains as a back-compat alias); `--update-baseline` only prunes, a genuine conversion needs a reviewed baseline edit (see `scripts/bbtool/README.md`) — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/design/DI-Model)
 - Consolidation — new shared/numeric/string/parse helpers land in their central component (`bb_core`/`bb_num`/`bb_str`/`bb_scalar`) from the get-go, never re-hand-rolled; the `fence` ratchets enforce it — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#reuse-or-extract-shared-helpers-dont-re-hand-roll-an-idiom)
 - Component creation — extend by default; a NEW `components/<name>/` requires a distinct dependency + a real consumer + design sign-off (no speculative/ad-hoc components); enforced by `make fence`, `new_component` family — a new component fails the fence until approved via `fence --approve <name>`, the one baseline that legitimately grows (see `scripts/bbtool/README.md`) — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/design/Component-Taxonomy#when-to-create-a-new-component)
 - Backend dispatch — vtable (runtime-registered) vs flat per-platform-TU (link-time); pick one per component — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/design/Backend-Dispatch)

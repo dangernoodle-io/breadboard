@@ -6,7 +6,6 @@
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_json.h"
-#include "bb_init.h"
 #include "bb_log.h"
 
 static const char *TAG = "bb_partition_routes";
@@ -68,7 +67,7 @@ static const bb_route_t s_partitions_get_route = {
     .handler   = partitions_get_handler,
 };
 
-static bb_err_t bb_partition_routes_init(bb_http_handle_t server)
+bb_err_t bb_partition_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
     bb_err_t err = bb_http_register_described_route(server, &s_partitions_get_route);
@@ -76,7 +75,3 @@ static bb_err_t bb_partition_routes_init(bb_http_handle_t server)
     bb_log_i(TAG, "registered /api/diag/partitions");
     return BB_OK;
 }
-
-#if CONFIG_BB_PARTITION_ROUTES_AUTOREGISTER
-BB_INIT_REGISTER(bb_partition_routes, bb_partition_routes_init);
-#endif
