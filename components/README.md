@@ -117,7 +117,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_storage_ram](./bb_storage_ram/) | In-memory `bb_storage` backend — the reference implementation, a fixed-capacity key/value table with no heap allocation. |
 | [bb_str](./bb_str/) | — |
 | [bb_sub](./bb_sub/) | — |
-| [bb_sub_mqtt](./bb_sub_mqtt/) | — |
 | [bb_system](./bb_system/) | — |
 | [bb_task](./bb_task/) | — |
 | [bb_task_registry](./bb_task_registry/) | — |

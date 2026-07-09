@@ -516,11 +516,6 @@
       "type": "component"
     },
     {
-      "id": "bb_sub_mqtt",
-      "path": "components/bb_sub_mqtt",
-      "type": "component"
-    },
-    {
       "id": "bb_system",
       "path": "components/bb_system",
       "type": "component"

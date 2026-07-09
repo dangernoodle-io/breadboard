@@ -814,8 +814,8 @@ void test_bb_mqtt_subscribe_happy_path_returns_ok(void)
     bb_mqtt_client_destroy(h);
 }
 
-// bb_mqtt_client_host_set_subscribe_fail (B1-487): lets a later consumer (bb_sub_mqtt)
-// cover its subscribe-failure branch without a real broker.
+// bb_mqtt_client_host_set_subscribe_fail (B1-487): lets a later consumer (e.g. an MQTT
+// ingress adapter) cover its subscribe-failure branch without a real broker.
 void test_bb_mqtt_host_set_subscribe_fail_forces_error(void)
 {
     bb_mqtt_client_t h = make_client(NULL, NULL);
