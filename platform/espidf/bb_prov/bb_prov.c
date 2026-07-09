@@ -207,7 +207,7 @@ bb_err_t bb_prov_start_ap(void)
         s_prov_event_group = xEventGroupCreate();
     }
 
-    ESP_ERROR_CHECK(bb_wifi_ensure_netif());
+    ESP_ERROR_CHECK(bb_wifi_ensure_net_stack());
 
     // Create AP netif with default config (auto-starts DHCPS)
     s_ap_netif = esp_netif_create_default_wifi_ap();

@@ -28,7 +28,7 @@ void bb_wifi_test_set_roam_age_s(uint32_t age_s);
 // Setter for the connected-session-duration telemetry (observe-only).
 void bb_wifi_test_set_last_session_s(uint32_t session_s);
 
-// Inject a full 256-entry reason histogram (host only).
+// Inject a full BB_WIFI_DISC_COUNT-entry reason histogram (host only).
 // len entries are copied; remaining buckets are zeroed.
 void bb_wifi_test_set_reason_histogram(const uint16_t *hist, size_t len);
 

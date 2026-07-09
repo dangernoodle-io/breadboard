@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "bb_wifi.h"
+
 // Watchdog for ST_CONNECTING. If neither GOT_IP nor DISCONNECT arrives within
 // this window, the task treats it as a stalled association and re-attempts.
 // 30 s >> normal associate+DHCP (2–8 s), so false positives are rare.
@@ -74,7 +76,7 @@ void wifi_reconn_on_disconnect(uint8_t reason);
 void wifi_reconn_on_got_ip(void);
 
 // Lock-free diagnostic reads of manager-owned state.
-void wifi_reconn_get_disconnect(uint8_t *reason, int64_t *age_us);
+void wifi_reconn_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us);
 int  wifi_reconn_get_retry_count(void);
 void wifi_reconn_get_histogram(uint16_t *out, size_t len);
 

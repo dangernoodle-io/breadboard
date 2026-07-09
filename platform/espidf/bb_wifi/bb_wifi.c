@@ -224,12 +224,12 @@ static void reconnect_work_fn(void *arg)
 }
 
 // Getters for diagnostics
-void bb_wifi_get_disconnect(uint8_t *reason, int64_t *age_us)
+void bb_wifi_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us)
 {
     if (wifi_reconn_is_active()) {
         wifi_reconn_get_disconnect(reason, age_us);
     } else {
-        if (reason) *reason = 0;
+        if (reason) *reason = BB_WIFI_DISC_UNKNOWN;
         if (age_us) *age_us = 0;
     }
 }
@@ -273,9 +273,9 @@ bool bb_wifi_has_ip(void)
     return s_has_ip;
 }
 
-// Boot-safe: esp_wifi_sta_get_ap_info() returns non-ESP_OK when the STA is
-// not associated (including before the wifi driver is up), matching the
-// pattern used by the ST_IDLE no-IP watchdog above.
+// Boot-safe: returns non-ESP_OK when the STA is not associated (including
+// before the wifi driver is up), matching the pattern used by the ST_IDLE
+// no-IP watchdog above.
 bool bb_wifi_is_associated(void)
 {
     wifi_ap_record_t ap;
@@ -449,9 +449,10 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         // (UDP log sink ships it) for free.
         {
             uint8_t drop_reason = disc ? disc->reason : 0;
+            bb_wifi_disc_reason_t mapped_reason = bb_wifi_map_esp_reason(drop_reason);
             bb_log_w(TAG,
                      "wifi drop: reason=%u(%s) rssi=%d connected=%us bssid=%02x:%02x:%02x:%02x:%02x:%02x",
-                     (unsigned)drop_reason, bb_wifi_disc_reason_str(drop_reason),
+                     (unsigned)drop_reason, bb_wifi_disc_reason_str(mapped_reason),
                      (int)s_disconnect_rssi, (unsigned)session_s,
                      bssid_snapshot[0], bssid_snapshot[1], bssid_snapshot[2],
                      bssid_snapshot[3], bssid_snapshot[4], bssid_snapshot[5]);
@@ -575,7 +576,7 @@ void bb_wifi_force_reassociate(void)
 #endif
 }
 
-bb_err_t bb_wifi_ensure_netif(void)
+bb_err_t bb_wifi_ensure_net_stack(void)
 {
     if (s_netif_initialized) return ESP_OK;
     esp_err_t err = esp_netif_init();
@@ -639,7 +640,7 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
 {
     s_wifi_event_group = xEventGroupCreate();
 
-    ESP_ERROR_CHECK(bb_wifi_ensure_netif());
+    ESP_ERROR_CHECK(bb_wifi_ensure_net_stack());
 
     if (!s_sta_netif) {
         s_sta_netif = esp_netif_create_default_wifi_sta();
