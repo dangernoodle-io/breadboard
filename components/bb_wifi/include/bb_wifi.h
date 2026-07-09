@@ -85,8 +85,9 @@ bb_err_t bb_wifi_ensure_net_stack(void);
 // rollback watchdog at all, so the running image is implicitly permanent and
 // every one of these gates should behave exactly as it did when the direct
 // bb_ota_is_validated() call always found a validated image. MUST be called
-// before bb_init_init_early() so it is set before the EARLY-tier
-// bb_wifi_autoinit runs.
+// before bb_wifi's EARLY-tier init runs (bb_app_init_early() under codegen,
+// or the equivalent hand-wired call), whichever composition path is in use,
+// so it is set before the EARLY-tier bb_wifi_autoinit runs.
 typedef bool (*bb_wifi_ota_validated_fn)(void);
 void bb_wifi_set_ota_validated_cb(bb_wifi_ota_validated_fn cb);
 

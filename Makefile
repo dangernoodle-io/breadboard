@@ -56,8 +56,6 @@ coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging
 	    --filter 'platform/espidf/bb_cache_reactive/' \
 	    --filter 'platform/host/bb_cache_reactive/' \
 	    --filter 'platform/host/bb_sink_display/' \
-	    --filter 'platform/espidf/bb_init/' \
-	    --filter 'platform/host/bb_init/' \
 	    --filter 'platform/host/bb_cache_routes/' \
 	    --filter 'platform/host/bb_mdns_cache/' \
 	    --filter 'platform/host/bb_str/' \
@@ -82,7 +80,7 @@ smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32-cache-sweep smoke-esp32c3 s
 
 # Shared codegen prerequisite for every smoke-<board> target -- regenerates
 # smoke's composition root (bb_app_init.c) from // bbtool:init markers over
-# SMOKE_REQUIRES minus bb_init. .PHONY (not a real file target) because
+# SMOKE_REQUIRES. .PHONY (not a real file target) because
 # bbtool codegen's own inputs (component headers) aren't tracked here; every
 # smoke-<board> run regenerates fresh. Output stays gitignored (decision #725).
 smoke-gen:
@@ -125,7 +123,7 @@ smoke-uno_cc3000: ## Build smoke example for Arduino UNO + CC3000 shield
 	cp examples/smoke/include/secrets.h.example examples/smoke/include/secrets.h
 	$(PIO) run -d examples/smoke -e uno_cc3000
 
-floor: ## Build the hand-wired floor example for esp32 (no bb_init, no codegen pre-step)
+floor: ## Build the hand-wired floor example for esp32 (no codegen pre-step)
 	$(PIO) run -d examples/floor -e esp32
 
 floor-codegen: ## Regenerate bb_app_init.c from // bbtool:init markers over floor's exact component set, then rebuild floor so it compiles against real bb_log.h prototypes -- proves the codegen path end-to-end; floor's app_main stays hand-wired (bb_app_init() is compiled, never called)
@@ -134,7 +132,7 @@ floor-codegen: ## Regenerate bb_app_init.c from // bbtool:init markers over floo
 	    --wire-out examples/floor/main/generated/bb_app_init.c
 	$(PIO) run -d examples/floor -e esp32
 
-smoke-codegen: smoke-gen ## [alias] Regenerate smoke's composition root (bb_app_init.c) from // bbtool:init markers over SMOKE_REQUIRES minus bb_init, then rebuild smoke esp32 -- entry_espidf.c actually CALLS bb_app_init_early()/bb_app_init() (unlike floor's proof-only wiring), so this is smoke's normal build path now, not a proof -- see smoke-esp32
+smoke-codegen: smoke-gen ## [alias] Regenerate smoke's composition root (bb_app_init.c) from // bbtool:init markers over SMOKE_REQUIRES, then rebuild smoke esp32 -- entry_espidf.c actually CALLS bb_app_init_early()/bb_app_init() (unlike floor's proof-only wiring), so this is smoke's normal build path now, not a proof -- see smoke-esp32
 	$(PIO) run -d examples/smoke -e esp32
 
 clean: ## Clean build artifacts

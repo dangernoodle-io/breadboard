@@ -4,7 +4,6 @@
 #include "bb_nv.h"
 #include "bb_str.h"
 #include "bb_wifi.h"
-#include "bb_init.h"
 #include "bb_task.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
@@ -325,35 +324,15 @@ void bb_prov_signal_done(void)
     }
 }
 
-// DI DEMOLITION MIGRATION -- DEFERRED, FLAGGED FOR REVIEW (INT-1, this
-// step): bb_prov_start() below still drives the bb_init walker
-// (bb_init_init_pre_http() / bb_init_init()) rather than the `bbtool
-// codegen`-generated bb_app_init_early()/bb_app_init_rest()/bb_app_init()
-// entry points used elsewhere (examples/smoke/main/entry_espidf.c).
-// This is intentional, not an oversight: bb_prov's two-phase bring-up
-// (reserve routes -> manually bb_http_server_ensure_started() -> register
-// /save + caller assets -> THEN run the registry-route tier -> extra() ->
-// captive wildcard LAST) can't be expressed with codegen's current
-// contract, which bundles pre_http + the HTTP-server capture/start itself
-// + the regular tier into a single bb_app_init_rest() call (see
-// scripts/bbtool/commands/wire.py's module docstring) -- there is no
-// standalone generated pre_http-only entry point to call before
-// registering bb_prov's own routes, and calling bb_app_init_rest() here
-// would double-start the HTTP server via its own http_server-providing
-// marker (bb_http_autostart_init) on top of the ensure_started() call
-// below. Since bb_init is not deleted this step (a later step retires it
-// once smoke proves the walker-free path compiles), this call site
-// compiles unchanged. A real migration needs either a provisioning-
-// specific codegen composition or split pre_http-only/server-start/
-// regular entry points from wire.py -- follow-up, not solved here.
+// bb_prov_start() reserves route slots, starts the shared HTTP server, and
+// registers /save + caller assets + a captive-portal GET /* wildcard. Route
+// composition for the rest of the app (system/wifi/info/etc.) is the
+// consumer's responsibility via codegen/handwire BEFORE calling this — the
+// old bb_init registry walker that used to drive it here is gone (DI
+// demolition; codegen + handwire are the only composition paths).
 bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
                        bb_prov_extra_routes_fn_t extra)
 {
-    // Ensure the PRE_HTTP walk has run so all component route reservations are
-    // accumulated before ensure_started() sizes the handler table. bb_init_init()
-    // (called later) will skip the PRE_HTTP tier if it already walked (idempotent).
-    bb_init_init_pre_http();
-
     // Reserve handler slots for routes registered imperatively below
     // (must happen before ensure_started — once httpd_start runs, the cap
     // is fixed). 2 = POST /save + GET /* captive wildcard. The per-asset count
@@ -378,14 +357,9 @@ bb_err_t bb_prov_start(const bb_http_asset_t *assets, size_t n,
         bb_http_register_assets(server, assets, n);
     }
 
-    // Register all registry routes (system, wifi routes, info, etc.).
-    // This includes /api/scan, /api/reboot, /api/info, /api/health and others.
-    bb_err_t rc = bb_init_init();
-    if (rc != BB_OK) return rc;
-
     // Consumer's dynamic endpoints (e.g. advanced-UI backing routes).
     if (extra) {
-        rc = extra(server);
+        bb_err_t rc = extra(server);
         if (rc != BB_OK) return rc;
     }
 

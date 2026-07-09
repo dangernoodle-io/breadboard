@@ -17,11 +17,14 @@ extern "C" {
  * bb_mem_free) on arena exhaustion.
  *
  * ORDERING CONTRACT (CRITICAL):
- *   Call bb_mem_arena_tls_init() at the very top of app_main(), BEFORE
- *   bb_init_init_early(). The mbedTLS allocator must be installed before
- *   any WiFi/WPA-supplicant mbedTLS use (which occurs during esp_wifi_connect
- *   inside the EARLY-tier bb_wifi init). Calling this function after
- *   bb_init_init_early() is undefined behavior.
+ *   Call bb_mem_arena_tls_init() at the very top of app_main(), BEFORE any
+ *   component that touches WiFi/mbedTLS during EARLY-tier init runs — i.e.
+ *   before bb_app_init_early() (codegen composition) or the equivalent first
+ *   hand-wired init call (see examples/floor/main/floor_app.c's sequencing).
+ *   The mbedTLS allocator must be installed before any WiFi/WPA-supplicant
+ *   mbedTLS use (which occurs during esp_wifi_connect inside the EARLY-tier
+ *   bb_wifi init). Calling this function after that point is undefined
+ *   behavior.
  *
  * When CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC is NOT set, this function is a no-op
  * and ESP-IDF's default mbedTLS allocator (esp_mem.c) handles all allocations.
