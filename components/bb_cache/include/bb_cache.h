@@ -436,6 +436,12 @@ bb_err_t bb_cache_is_stale(const char *key, bool *out_stale);
 // glue -- KEPT; the whole function only exists under this gate).
 // bbtool:init tier=pre_http fn=bb_cache_evict_start
 bb_err_t bb_cache_evict_start(void);
+#else
+// No-op stub when the sweep backstop is compiled out (default) -- codegen's
+// `// bbtool:init` marker scan has no preprocessor awareness (grep-time,
+// see wire_parse.py), so bb_app_init.c unconditionally calls this fn;
+// mirrors the bb_alert.h Kconfig-bridge stub pattern.
+static inline bb_err_t bb_cache_evict_start(void) { return BB_OK; }
 #endif
 
 #ifdef __cplusplus

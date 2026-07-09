@@ -198,6 +198,16 @@ bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch);
 /// Registry hook — registers POST /api/factory-reset.
 // bbtool:init tier=regular fn=bb_nv_factory_reset_routes_init server=true
 bb_err_t bb_nv_factory_reset_routes_init(bb_http_handle_t server);
+#else
+// No-op stub when the factory-reset route is compiled out (default) --
+// codegen's `// bbtool:init` marker scan has no preprocessor awareness
+// (grep-time, see wire_parse.py), so bb_app_init.c unconditionally calls
+// this fn; mirrors the bb_alert.h Kconfig-bridge stub pattern.
+static inline bb_err_t bb_nv_factory_reset_routes_init(bb_http_handle_t server)
+{
+    (void)server;
+    return BB_OK;
+}
 #endif /* CONFIG_BB_NV_FACTORY_RESET */
 
 #ifdef BB_NV_FACTORY_RESET_TESTING
