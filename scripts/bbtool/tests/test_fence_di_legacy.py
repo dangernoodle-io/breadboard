@@ -92,6 +92,28 @@ class TestScanAutoregisterAndAutoAttach(unittest.TestCase):
                 found,
             )
 
+    def test_kconfig_def_detected_when_indented_under_menu(self):
+        # Regression: the scanner regex was previously column-0 anchored, so
+        # a `config BB_*_AUTOREGISTER` indented under a `menu` block escaped
+        # detection entirely (B1-724). Must still be found regardless of
+        # leading whitespace.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write(root, "components/bb_fake/Kconfig", (
+                'menu "BB Fake"\n'
+                "\n"
+                "    config BB_FAKE_AUTOREGISTER\n"
+                "        bool \"enable\"\n"
+                "        default y\n"
+                "\n"
+                "endmenu\n"
+            ))
+            found = scan_all(str(root))
+            self.assertIn(
+                Marker("autoregister_kconfig", "components/bb_fake/Kconfig", "BB_FAKE_AUTOREGISTER"),
+                found,
+            )
+
     def test_auto_attach_kconfig_and_usage(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
