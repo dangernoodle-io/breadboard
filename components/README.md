@@ -100,7 +100,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_pub_rtos](./bb_pub_rtos/) | — |
 | [bb_pub_telemetry](./bb_pub_telemetry/) | — |
 | [bb_pub_thermal](./bb_pub_thermal/) | — |
-| [bb_pub_wifi](./bb_pub_wifi/) | — |
 | [bb_registry](./bb_registry/) | — |
 | [bb_release_manifest](./bb_release_manifest/) | — |
 | [bb_response](./bb_response/) | — |

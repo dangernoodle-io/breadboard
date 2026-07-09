@@ -681,6 +681,147 @@ void test_bb_wifi_emit_no_longer_has_reason_histogram(void)
     bb_json_free(obj);
 }
 
+// B1-486: no_ip_recoveries moved to GET /api/diag/net (bb_net_health) —
+// bb_wifi_emit_section (the /api/wifi fallback SSOT) must NOT emit it.
+void test_bb_wifi_emit_no_longer_has_no_ip_recoveries(void)
+{
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    bb_wifi_emit_section(obj, &info);
+
+    double val = -999.0;
+    TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(obj, "no_ip_recoveries", &val),
+        "no_ip_recoveries must not be emitted (B1-486: moved to /api/diag/net)");
+    bb_json_free(obj);
+}
+
+// wifi-netmode PR: roam_count/roam_age_s (B1-497) are consolidated onto the
+// /api/diag/net + net.health discriminator surface only — bb_wifi_emit_section
+// (the /api/wifi fallback SSOT) must NOT re-emit them.
+void test_bb_wifi_emit_no_longer_has_roam_fields(void)
+{
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+
+#ifdef BB_WIFI_TESTING
+    bb_wifi_test_set_roam_count(3);
+    bb_wifi_test_set_roam_age_s(42);
+#endif
+
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    bb_wifi_emit_section(obj, &info);
+
+    double val = -999.0;
+    TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(obj, "roam_count", &val),
+        "roam_count must not be emitted (consolidated onto /api/diag/net)");
+    TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(obj, "roam_age_s", &val),
+        "roam_age_s must not be emitted (consolidated onto /api/diag/net)");
+
+#ifdef BB_WIFI_TESTING
+    bb_wifi_test_set_roam_count(0);
+    bb_wifi_test_set_roam_age_s(0);
+#endif
+    bb_json_free(obj);
+}
+
+// B1-461: guard the shared "wifi" cache/telemetry topic constant against
+// accidental drift. Externally-consumed as the bb_cache tag, bb_wifi_http
+// route tag, and openapi schema key — byte-identical to the pre-refactor
+// hand-typed literal.
+void test_bb_wifi_topic_const_matches_legacy_literal(void)
+{
+    TEST_ASSERT_EQUAL_STRING("wifi", BB_TOPIC_WIFI);
+}
+
+// ---------------------------------------------------------------------------
+// bb_wifi_emit_section is now the SOLE /api/wifi producer (bb_pub_wifi
+// removed) — value-correctness coverage for the fields it populates directly
+// from the caller-supplied bb_wifi_info_t (ssid/bssid/ip/rssi). No
+// bb_wifi_test_set_* stub needed for these — bb_wifi_emit_section takes the
+// info struct as an argument rather than reading it off bb_wifi_get_info.
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_emit_bssid_hex_format_correct(void)
+{
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    info.bssid[0] = 0xAA; info.bssid[1] = 0xBB; info.bssid[2] = 0xCC;
+    info.bssid[3] = 0xDD; info.bssid[4] = 0xEE; info.bssid[5] = 0xFF;
+    bb_wifi_emit_section(obj, &info);
+
+    char *str = bb_json_serialize(obj);
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(str, "aa:bb:cc:dd:ee:ff"),
+        "bssid must be emitted as colon-separated lowercase hex");
+    bb_json_free_str(str);
+    bb_json_free(obj);
+}
+
+void test_bb_wifi_emit_ssid_value_correct(void)
+{
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    strncpy(info.ssid, "TestNet", sizeof(info.ssid) - 1);
+    bb_wifi_emit_section(obj, &info);
+
+    char *str = bb_json_serialize(obj);
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(str, "TestNet"),
+        "ssid content must be emitted verbatim");
+    bb_json_free_str(str);
+    bb_json_free(obj);
+}
+
+void test_bb_wifi_emit_ip_value_correct(void)
+{
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    strncpy(info.ip, "192.168.1.42", sizeof(info.ip) - 1);
+    bb_wifi_emit_section(obj, &info);
+
+    char *str = bb_json_serialize(obj);
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(str, "192.168.1.42"),
+        "ip content must be emitted verbatim");
+    bb_json_free_str(str);
+    bb_json_free(obj);
+}
+
+void test_bb_wifi_emit_rssi_is_integer_not_float(void)
+{
+    // cJSON serializes small whole doubles without a decimal point so "-55"
+    // is fine; "-55.0" or "-55.000" would indicate set_number(double) was
+    // used instead of the integer setter.
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_NOT_NULL(obj);
+
+    bb_wifi_info_t info;
+    memset(&info, 0, sizeof(info));
+    info.rssi = -55;
+    bb_wifi_emit_section(obj, &info);
+
+    char *str = bb_json_serialize(obj);
+    TEST_ASSERT_NOT_NULL(str);
+    TEST_ASSERT_NULL_MESSAGE(strstr(str, "-55."),
+        "rssi should be integer (no decimal point)");
+    TEST_ASSERT_NOT_NULL(strstr(str, "-55"));
+    bb_json_free_str(str);
+    bb_json_free(obj);
+}
+
 // ===========================================================================
 // Cache-adapter no-re-gather: calling the registered sample_fn multiple times
 // after a tick does NOT invoke gather again — it reads from bb_cache.

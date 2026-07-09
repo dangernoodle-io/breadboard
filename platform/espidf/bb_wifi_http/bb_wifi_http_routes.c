@@ -31,6 +31,11 @@ static bb_err_t wifi_info_handler(bb_http_request_t *req)
     char   json[WIFI_INFO_BUF_BYTES];
     size_t len = 0;
     bb_err_t rc = bb_cache_get_serialized(BB_TOPIC_WIFI, json, sizeof(json), &len);
+    // NOTE: this cache-hit branch is intentionally dormant since bb_pub_wifi's
+    // removal — no producer currently populates the "wifi" bb_cache topic, so
+    // every request falls through to the live-read path below. Kept in place
+    // for B1-723, which will restore a producer (a bb_meminfo-style wifi
+    // snapshot) rather than re-adding pub-captive-sink DI glue.
     if (rc == BB_OK) {
         bb_err_t err = bb_http_resp_set_type(req, "application/json");
         if (err == BB_OK) err = bb_http_resp_send_chunk(req, json, (int)len);
