@@ -28,6 +28,30 @@ typedef struct {
     bool secure;   // true if not WIFI_AUTH_OPEN
 } bb_wifi_ap_t;
 
+// Portable WiFi disconnect-reason contract (KB 820, PR1). Every backend
+// (ESP-IDF, CC3000, WiFiS3/R4, host) maps its own backend-specific
+// disconnect/status code onto this single enum -- no raw backend-specific
+// numeric code is ever surfaced from bb_wifi's public API or wire format
+// again. Wire consumers (GET /api/wifi, GET /api/diag/net) see only the
+// stable STRING label from bb_wifi_disc_reason_str(); this enum (and its
+// ordinal values) is an internal implementation detail, free to change
+// across releases without a wire break.
+typedef enum {
+    BB_WIFI_DISC_UNKNOWN = 0,
+    BB_WIFI_DISC_AUTH_FAIL,
+    BB_WIFI_DISC_ASSOC_FAIL,
+    BB_WIFI_DISC_HANDSHAKE_TIMEOUT,
+    BB_WIFI_DISC_CONNECTION_LOST,
+    BB_WIFI_DISC_NO_AP_FOUND,
+    BB_WIFI_DISC_INACTIVITY,
+    BB_WIFI_DISC_DEAUTH,
+    BB_WIFI_DISC_BEACON_TIMEOUT,
+    BB_WIFI_DISC_BB_LOST_IP,        // breadboard-injected: IP lost while associated
+    BB_WIFI_DISC_BB_EGRESS_DEAD,    // breadboard-injected: gateway probe declared dead
+    BB_WIFI_DISC_BB_NO_IP_WATCHDOG, // breadboard-injected: associated-but-no-IP watchdog
+    BB_WIFI_DISC_COUNT,             // sentinel -- not a valid reason value
+} bb_wifi_disc_reason_t;
+
 // Snapshot of the current STA connection. Populated by bb_wifi_get_info.
 // On backends that don't surface a given field, it is zeroed.
 typedef struct {
@@ -36,7 +60,7 @@ typedef struct {
     int8_t rssi;         // signal strength, 0 if not connected
     char ip[16];         // dotted-quad IPv4, "0.0.0.0" if no IP
     bool connected;      // true iff has_ip
-    uint8_t disc_reason; // last disconnect reason code
+    bb_wifi_disc_reason_t disc_reason; // last disconnect reason (portable enum)
     uint32_t disc_age_s; // seconds since last disconnect, 0 if never
     int retry_count;     // STA retry attempts since last connect
 } bb_wifi_info_t;
@@ -49,7 +73,7 @@ typedef struct {
 // this initializes esp_netif and the default event loop. On backends where
 // the platform handles this implicitly (Arduino), this is a BB_OK no-op so
 // portable consumer code can call it unconditionally.
-bb_err_t bb_wifi_ensure_netif(void);
+bb_err_t bb_wifi_ensure_net_stack(void);
 
 // Inject the OTA-image-validated query bb_wifi's cold-boot timeout / persistent-
 // disconnect safeguard / retry-forever gates read to decide whether the running
@@ -150,17 +174,16 @@ void bb_wifi_register_on_disconnect(bb_wifi_on_disconnect_cb_t cb);
 // Diagnostics
 // ---------------------------------------------------------------------------
 
-void bb_wifi_get_disconnect(uint8_t *reason, int64_t *age_us);
+void bb_wifi_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us);
 int  bb_wifi_get_retry_count(void);
 bb_err_t bb_wifi_get_ip_str(char *out, size_t out_len);
 bb_err_t bb_wifi_get_rssi(int8_t *out);
 bool bb_wifi_has_ip(void);
 
 // True iff the STA is L2-associated to an AP (regardless of IP state).
-// Boot-safe: wraps esp_wifi_sta_get_ap_info() == ESP_OK, the same check the
-// no-IP watchdog in wifi_reconn.c uses — safe to call before the wifi driver
-// is fully up (returns false, not an error). Host stub is test-injectable
-// via bb_wifi_test_set_associated() (BB_WIFI_TESTING).
+// Boot-safe: safe to call before the wifi driver is fully up (returns
+// false, not an error). Host stub is test-injectable via
+// bb_wifi_test_set_associated() (BB_WIFI_TESTING).
 bool bb_wifi_is_associated(void);
 
 // Populate out with a snapshot of the current STA state. Fields the
@@ -222,43 +245,58 @@ int8_t bb_wifi_get_disconnect_rssi(void);
 // at the last disconnect; it does not update live while connected.
 uint32_t bb_wifi_get_last_session_s(void);
 
-// Human-readable name for a WiFi disconnect reason code: covers the common
-// esp_wifi standard reasons (AUTH_EXPIRE, AUTH_LEAVE,
-// DISASSOC_DUE_TO_INACTIVITY, 4WAY_HANDSHAKE_TIMEOUT, BEACON_TIMEOUT,
-// NO_AP_FOUND, ASSOC_FAIL, HANDSHAKE_TIMEOUT, CONNECTION_FAIL) plus the three
-// breadboard sentinels (BB_WIFI_REASON_BB_LOST_IP/_EGRESS_DEAD/_NO_IP_WATCHDOG).
-// Unmapped codes return "other"; reason 0 returns "unknown". Never returns
-// NULL. Pure, host-testable, fully reentrant (every branch returns a static
-// string literal) — no ESP-IDF dependency.
-const char *bb_wifi_disc_reason_str(uint8_t reason);
+// Human-readable, wire-stable label for a bb_wifi_disc_reason_t value: one
+// static string literal per enum member (e.g. "handshake_timeout",
+// "bb_lost_ip"). This label -- never a raw numeric code -- is what crosses
+// the wire (GET /api/wifi "disc_reason", GET /api/diag/net
+// "last_disconnect_reason"/"reason_histogram" keys/"top_reason"). Never
+// returns NULL; an out-of-range value defensively falls back to "unknown".
+// Pure, host-testable, fully reentrant (every branch returns a static
+// string literal) — no platform dependency.
+const char *bb_wifi_disc_reason_str(bb_wifi_disc_reason_t reason);
 
-// Breadboard sentinel disconnect-reason codes injected into the histogram
-// returned by bb_wifi_get_reason_histogram. esp_wifi standard reasons occupy
-// 1-24/53-67/200-208; these three values are free and fit uint8_t (< 256).
-// Do NOT change these numeric values — they are wire-visible in
-// reason_histogram (GET /api/diag/net). Single source of truth: the private
-// WIFI_REASON_BB_* macros in components/bb_wifi/wifi_reconn_policy.h (the
-// production writer) alias these public constants.
-#define BB_WIFI_REASON_BB_LOST_IP        99
-#define BB_WIFI_REASON_BB_EGRESS_DEAD    100
-#define BB_WIFI_REASON_BB_NO_IP_WATCHDOG 101
+// Deprecated aliases — retained for source compatibility with any external
+// callers that referenced the old numeric sentinel values (99/100/101, no
+// longer wire-visible now that the wire carries string labels). New code
+// should reference the bb_wifi_disc_reason_t enum members directly.
+#define BB_WIFI_REASON_BB_LOST_IP        BB_WIFI_DISC_BB_LOST_IP
+#define BB_WIFI_REASON_BB_EGRESS_DEAD    BB_WIFI_DISC_BB_EGRESS_DEAD
+#define BB_WIFI_REASON_BB_NO_IP_WATCHDOG BB_WIFI_DISC_BB_NO_IP_WATCHDOG
 
-// Copy the disconnect reason histogram into out[0..len-1].
-// Indexes BB_WIFI_REASON_BB_LOST_IP/_EGRESS_DEAD/_NO_IP_WATCHDOG (99/100/101)
-// are breadboard sentinels. Standard esp_wifi reasons occupy the remaining
-// slots. If the reconnect manager is not active, out is zeroed.
-// Safe to call with NULL or len==0 (no-op).
+// Map an esp_wifi WIFI_EVENT_STA_DISCONNECTED reason code onto the portable
+// bb_wifi_disc_reason_t bucket. Pure; deliberately does NOT include
+// esp_wifi_types.h (this file compiles on host too) -- the numeric literals
+// are the standard esp_wifi WIFI_REASON_* values, named in each comment
+// (mirrors bb_wifi_disc_reason_str's existing convention). Unmapped codes
+// return BB_WIFI_DISC_UNKNOWN. ESP-IDF backend only production caller
+// (platform/espidf/bb_wifi/wifi_reconn.c); host-testable.
+bb_wifi_disc_reason_t bb_wifi_map_esp_reason(uint16_t esp_code);
+
+// Map an Arduino WiFiS3 wl_status_t value onto the portable
+// bb_wifi_disc_reason_t bucket. Takes a plain int (not wl_status_t) so this
+// header stays free of the Arduino WiFiS3.h include; the numeric literals
+// are the standard wl_status_t values, named in each comment. Unmapped
+// codes return BB_WIFI_DISC_UNKNOWN. R4 backend only production caller
+// (platform/arduino/bb_wifi/bb_wifi_r4.cpp); host-testable.
+bb_wifi_disc_reason_t bb_wifi_map_wl_status(int wl_status);
+
+// Copy the disconnect reason histogram into out[0..len-1], one bucket per
+// bb_wifi_disc_reason_t value (out[BB_WIFI_DISC_HANDSHAKE_TIMEOUT] etc.);
+// out[BB_WIFI_DISC_BB_LOST_IP/_BB_EGRESS_DEAD/_BB_NO_IP_WATCHDOG] are the
+// breadboard-injected buckets. If the reconnect manager is not active, out
+// is zeroed. Safe to call with NULL or len==0 (no-op).
 void bb_wifi_get_reason_histogram(uint16_t *out, size_t len);
 
-// Find the top standard (non-sentinel) disconnect reason in a 256-entry
-// histogram as returned by bb_wifi_get_reason_histogram. Skips the three
-// breadboard sentinel buckets (BB_WIFI_REASON_BB_LOST_IP / _EGRESS_DEAD /
-// _NO_IP_WATCHDOG). Sets *out_count to the highest non-sentinel count found
-// (0 if all zero, or hist is NULL); returns the bucket index (reason code)
-// for that count, or 0 if all are zero. hist must point to at least 256
-// entries. Pure, no side effects; safe to call with hist==NULL or
-// out_count==NULL.
-uint8_t bb_wifi_reason_histogram_top(const uint16_t *hist, uint16_t *out_count);
+// Find the top standard (non-breadboard-injected) disconnect reason in a
+// BB_WIFI_DISC_COUNT-entry histogram as returned by
+// bb_wifi_get_reason_histogram. Skips the three breadboard-injected buckets
+// (BB_WIFI_DISC_BB_LOST_IP / _BB_EGRESS_DEAD / _BB_NO_IP_WATCHDOG). Sets
+// *out_count to the highest non-injected count found (0 if all zero, or
+// hist is NULL); returns the bb_wifi_disc_reason_t bucket for that count, or
+// BB_WIFI_DISC_UNKNOWN if all are zero. hist must point to at least
+// BB_WIFI_DISC_COUNT entries. Pure, no side effects; safe to call with
+// hist==NULL or out_count==NULL.
+bb_wifi_disc_reason_t bb_wifi_reason_histogram_top(const uint16_t *hist, uint16_t *out_count);
 
 #ifdef ESP_PLATFORM
 // ICMP ping a target IPv4 address. target_addr is a raw IPv4 address in

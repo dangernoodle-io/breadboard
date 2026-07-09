@@ -6,6 +6,6 @@ idf_component_register(
          "${CMAKE_CURRENT_LIST_DIR}/wifi_reconn_policy.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "."
-    REQUIRES bb_core esp_netif
-    PRIV_REQUIRES bb_alert bb_wdt bb_task bb_str bb_settings esp_wifi esp_event esp_timer esp_system bb_log bb_nv lwip bb_timer bb_system
+    REQUIRES bb_core
+    PRIV_REQUIRES bb_alert bb_wdt bb_task bb_str bb_settings esp_wifi esp_event esp_timer esp_system bb_log bb_nv lwip bb_timer bb_system esp_netif
 )

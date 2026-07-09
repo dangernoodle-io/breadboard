@@ -540,7 +540,7 @@ static const char k_wifi_telemetry_schema[] =
     "\"rssi\":{\"type\":\"integer\"},"
     "\"ip\":{\"type\":\"string\"},"
     "\"connected\":{\"type\":\"boolean\"},"
-    "\"disc_reason\":{\"type\":\"integer\"},"
+    "\"disc_reason\":{\"type\":\"string\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"retry_count\":{\"type\":\"integer\"},"
     "\"ts_ms\":{\"type\":\"integer\"}},"
@@ -555,7 +555,7 @@ void test_sse_schema_wifi_telemetry_payload_valid(void)
     bb_json_obj_set_int   (obj, "rssi",             -65);
     bb_json_obj_set_string(obj, "ip",               "192.168.1.10");
     bb_json_obj_set_bool  (obj, "connected",        true);
-    bb_json_obj_set_int   (obj, "disc_reason",      0);
+    bb_json_obj_set_string(obj, "disc_reason",      "unknown");
     bb_json_obj_set_int   (obj, "disc_age_s",       0);
     bb_json_obj_set_int   (obj, "retry_count",      0);
     bb_json_obj_set_int   (obj, "ts_ms",            12345678LL);
@@ -1078,7 +1078,7 @@ static const char k_net_health_schema[] =
     "\"state\":{\"type\":\"string\"},"
     "\"early_warning\":{\"type\":\"boolean\"},"
     "\"throttled\":{\"type\":\"boolean\"},"
-    "\"last_disconnect_reason\":{\"type\":\"integer\"},"
+    "\"last_disconnect_reason\":{\"type\":\"string\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"lost_ip_recoveries\":{\"type\":\"integer\"},"
     "\"lost_ip_age_s\":{\"type\":\"integer\"},"
@@ -1119,7 +1119,7 @@ void test_sse_schema_net_health_payload_valid(void)
     bb_json_obj_set_string(obj, "state",                "good");
     bb_json_obj_set_bool(obj, "early_warning",          false);
     bb_json_obj_set_bool(obj, "throttled",              false);
-    bb_json_obj_set_int (obj, "last_disconnect_reason", 0);
+    bb_json_obj_set_string(obj, "last_disconnect_reason", "unknown");
     bb_json_obj_set_int (obj, "disc_age_s",             0);
     bb_json_obj_set_int (obj, "lost_ip_recoveries",     0);
     bb_json_obj_set_int (obj, "lost_ip_age_s",          0);

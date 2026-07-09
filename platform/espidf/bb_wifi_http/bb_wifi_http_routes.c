@@ -93,7 +93,7 @@ static const char k_wifi_info_schema[] =
     "\"rssi\":{\"type\":\"integer\"},"
     "\"ip\":{\"type\":\"string\"},"
     "\"connected\":{\"type\":\"boolean\"},"
-    "\"disc_reason\":{\"type\":\"integer\"},"
+    "\"disc_reason\":{\"type\":\"string\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"retry_count\":{\"type\":\"integer\"},"
     "\"restart_sta_count\":{\"type\":\"integer\"},"

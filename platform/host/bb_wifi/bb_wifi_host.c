@@ -18,7 +18,7 @@ static const char *s_test_last_recovery_reason = NULL;
 static bool s_test_recovery_blocked = false;
 static uint32_t s_test_restart_sta_count = 0;
 static int8_t s_test_disconnect_rssi = INT8_MIN;
-static uint16_t s_test_reason_histogram[256];
+static uint16_t s_test_reason_histogram[BB_WIFI_DISC_COUNT];
 static uint32_t s_test_roam_count = 0;
 static uint32_t s_test_roam_age_s = 0;
 static uint32_t s_test_last_session_s = 0;
@@ -85,7 +85,7 @@ void bb_wifi_test_set_reason_histogram(const uint16_t *hist, size_t len)
 {
     memset(s_test_reason_histogram, 0, sizeof(s_test_reason_histogram));
     if (!hist) return;
-    size_t n = len < 256 ? len : 256;
+    size_t n = len < BB_WIFI_DISC_COUNT ? len : BB_WIFI_DISC_COUNT;
     for (size_t i = 0; i < n; i++) {
         s_test_reason_histogram[i] = hist[i];
     }
@@ -115,9 +115,9 @@ bb_err_t bb_wifi_get_info(bb_wifi_info_t *out)
     return BB_OK;
 }
 
-void bb_wifi_get_disconnect(uint8_t *reason, int64_t *age_us)
+void bb_wifi_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us)
 {
-    if (reason) *reason = 0;
+    if (reason) *reason = BB_WIFI_DISC_UNKNOWN;
     if (age_us) *age_us = 0;
 }
 
@@ -273,7 +273,7 @@ void bb_wifi_get_reason_histogram(uint16_t *out, size_t len)
     if (!out || len == 0) return;
     memset(out, 0, len * sizeof(uint16_t));
 #ifdef BB_WIFI_TESTING
-    size_t n = len < 256 ? len : 256;
+    size_t n = len < BB_WIFI_DISC_COUNT ? len : BB_WIFI_DISC_COUNT;
     for (size_t i = 0; i < n; i++) {
         out[i] = s_test_reason_histogram[i];
     }

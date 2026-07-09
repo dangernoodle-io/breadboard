@@ -118,8 +118,9 @@ static void do_safeguard_reboot(const char *ctx)
 
 static void handle_disconnect(uint8_t reason, reconn_state_t *state, uint32_t *backoff_ms)
 {
+    bb_wifi_disc_reason_t mapped = bb_wifi_map_esp_reason(reason);
     wifi_reconn_action_t action = wifi_reconn_policy_on_disconnect(
-        &s_state, &s_adapter, reason, WIFI_REASON_HANDSHAKE_TIMEOUT, backoff_ms);
+        &s_state, &s_adapter, mapped, backoff_ms);
 
     switch (action) {
         case WIFI_RECONN_ACTION_REBOOT: {
@@ -131,15 +132,16 @@ static void handle_disconnect(uint8_t reason, reconn_state_t *state, uint32_t *b
 
         case WIFI_RECONN_ACTION_SCHEDULE_BACKOFF:
             *state = ST_BACKOFF;
-            bb_log_w(TAG, "disconnect reason=%u, backoff=%ums (handshake=%d, generic=%d)",
-                     reason, (unsigned)(*backoff_ms), s_state.handshake_fail_count,
-                     s_state.generic_fail_count);
+            bb_log_w(TAG, "disconnect reason=%u(%s), backoff=%ums (handshake=%d, generic=%d)",
+                     reason, bb_wifi_disc_reason_str(mapped), (unsigned)(*backoff_ms),
+                     s_state.handshake_fail_count, s_state.generic_fail_count);
             break;
 
         case WIFI_RECONN_ACTION_RECONNECT_NOW:
             *state = ST_BACKOFF;
-            bb_log_w(TAG, "disconnect reason=%u, immediate retry (handshake=%d, generic=%d)",
-                     reason, s_state.handshake_fail_count, s_state.generic_fail_count);
+            bb_log_w(TAG, "disconnect reason=%u(%s), immediate retry (handshake=%d, generic=%d)",
+                     reason, bb_wifi_disc_reason_str(mapped), s_state.handshake_fail_count,
+                     s_state.generic_fail_count);
             break;
 
         case WIFI_RECONN_ACTION_NONE:
@@ -333,7 +335,7 @@ void wifi_reconn_on_lost_ip(void)
     {
         lost_ip_fill_ctx_t alert_ctx = {
             .count       = s_state.lost_ip_count,
-            .reason      = 99, // WIFI_REASON_BB_LOST_IP sentinel
+            .reason      = WIFI_REASON_BB_LOST_IP,
             .retry_count = (uint32_t)(s_state.handshake_fail_count + s_state.generic_fail_count),
         };
         bb_alert_emit(BB_ALERT_TYPE_WIFI_LOST_IP, BB_ALERT_WARNING, fill_wifi_lost_ip, &alert_ctx);
@@ -365,7 +367,7 @@ uint32_t wifi_reconn_get_no_ip_count(void)
     return s_state.no_ip_count;
 }
 
-void wifi_reconn_get_disconnect(uint8_t *reason, int64_t *age_us)
+void wifi_reconn_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us)
 {
     if (reason) *reason = s_state.last_reason;
     if (age_us) {
@@ -382,7 +384,7 @@ int wifi_reconn_get_retry_count(void)
 void wifi_reconn_get_histogram(uint16_t *out, size_t len)
 {
     if (!out) return;
-    if (len > 256) len = 256;
+    if (len > BB_WIFI_DISC_COUNT) len = BB_WIFI_DISC_COUNT;
     for (size_t i = 0; i < len; i++) {
         out[i] = s_state.reason_histogram[i];
     }

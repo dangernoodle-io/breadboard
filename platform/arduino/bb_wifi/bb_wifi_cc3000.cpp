@@ -54,7 +54,8 @@ static bool          g_connected = false;
 static uint32_t      g_ip = 0;
 static char          g_ssid_cached[33] = {0};
 
-static uint8_t       g_disc_reason = 0;
+// CC3000 has no per-reason disconnect diagnostics -- always UNKNOWN.
+static bb_wifi_disc_reason_t g_disc_reason = BB_WIFI_DISC_UNKNOWN;
 static unsigned long g_disc_at_ms = 0;
 static int           g_retry_count = 0;
 
@@ -130,7 +131,7 @@ static bb_err_t connect_internal(void) {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_wifi_ensure_netif(void) { return BB_OK; }
+bb_err_t bb_wifi_ensure_net_stack(void) { return BB_OK; }
 
 bb_err_t bb_wifi_init_sta(void) { return connect_internal(); }
 
@@ -168,7 +169,7 @@ void bb_wifi_register_on_disconnect(bb_wifi_on_disconnect_cb_t cb) { g_on_discon
 // Diagnostics
 // ---------------------------------------------------------------------------
 
-void bb_wifi_get_disconnect(uint8_t *reason, int64_t *age_us) {
+void bb_wifi_get_disconnect(bb_wifi_disc_reason_t *reason, int64_t *age_us) {
     if (reason) *reason = g_disc_reason;
     if (age_us) *age_us = g_disc_at_ms ? (int64_t)(millis() - g_disc_at_ms) * 1000 : 0;
 }

@@ -30,9 +30,9 @@ typedef struct {
     int      generic_fail_count;
     int64_t  first_fail_us;
     int      retry_count;
-    uint8_t  last_reason;
+    bb_wifi_disc_reason_t last_reason;
     int64_t  last_disconnect_us;
-    uint16_t reason_histogram[256];
+    uint16_t reason_histogram[BB_WIFI_DISC_COUNT];
     uint32_t lost_ip_count;    // times lost IP while associated
     int64_t  last_lost_ip_us;  // timestamp of last lost-IP event
     uint8_t  egress_fail_streak; // consecutive egress-probe failures below threshold
@@ -56,14 +56,13 @@ typedef enum {
 // Reset all counters to zero.
 void wifi_reconn_state_reset(wifi_reconn_state_t *st);
 
-// Policy decision on disconnect.
-// Caller passes the platform's HANDSHAKE_TIMEOUT reason code so this
-// module stays free of esp_wifi_types.h.
+// Policy decision on disconnect. Caller passes the already-mapped portable
+// bb_wifi_disc_reason_t (see bb_wifi_map_esp_reason/bb_wifi_map_wl_status)
+// so this module stays free of any backend-specific reason-code type.
 // Returns action enum; if SCHEDULE_BACKOFF, populates *backoff_ms_out.
 wifi_reconn_action_t wifi_reconn_policy_on_disconnect(
     wifi_reconn_state_t *st, const wifi_reconn_adapter_t *a,
-    uint8_t reason, uint8_t handshake_reason_code,
-    uint32_t *backoff_ms_out);
+    bb_wifi_disc_reason_t reason, uint32_t *backoff_ms_out);
 
 // Reset counters on successful IP acquisition.
 void wifi_reconn_policy_on_got_ip(wifi_reconn_state_t *st);
