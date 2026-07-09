@@ -21,7 +21,7 @@ Route new content by kind; don't default to CLAUDE.md:
 - deep knowledge / worked examples / multi-component layering → the wiki
 - internal rationale/process/decisions → the wiki
 - cross-cutting project conventions / build+test → CLAUDE.md
-- NEW components get a GENERATED README (`bbtool docs scaffold`/`gen`; fully generated once B1-717 lands) — never hand-authored. Full authoring/sync workflow: wiki [Component-Docs](https://github.com/dangernoodle-io/breadboard/wiki/Component-Docs)
+- Component READMEs are 100% generated (`bbtool docs scaffold`/`gen`) — brief from the header's `@brief`, deps/platform/api/links derived, plus a link to the wiki narrative — never hand-authored, never hand-edit a README. Narrative (when/how-to-use, design rationale) lives in the wiki `components/<name>.md`. Full authoring/sync workflow: wiki [Component-Docs](https://github.com/dangernoodle-io/breadboard/wiki/Component-Docs)
 - do NOT add component-specific prose to CLAUDE.md — it goes in the component README
 - one home per fact — don't restate content across CLAUDE.md/wiki/README; link the home
 

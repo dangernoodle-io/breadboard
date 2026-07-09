@@ -1,4 +1,5 @@
-"""docs command tests: deps parsing, platform matrix, determinism, component-readme rule."""
+"""docs command tests: deps parsing, brief/api regions, platform matrix, determinism,
+component-readme rule."""
 import io
 import os
 import sys
@@ -14,8 +15,17 @@ from core import Context
 from commands.docs import (
     _parse_requires,
     _render_deps,
+    _dep_role_and_link,
+    _extract_first_sentence,
+    _render_api,
+    _render_brief,
+    DocsGenError,
     _platform_matrix,
     _render_platform,
+    _render_links,
+    _self_wiki_link,
+    _dedupe_links,
+    _render_wiring,
     _rewrite_markers,
     _strip_cmake_comments,
     NestedMarkerError,
@@ -23,13 +33,12 @@ from commands.docs import (
     _check_component_readme,
     scaffold_component,
     _component_prefix,
+    _cmd_gen,
 )
 from templating import find_dangling_tokens
 
 
 README_TEMPLATE = """# bb_fake
-
-One-line brief.
 
 ## Dependencies
 
@@ -48,12 +57,58 @@ placeholder
 Hand-authored trailer, must survive byte-for-byte.
 """
 
+# Full-shape template mirroring templates/component-readme.md — used by
+# tests exercising the brief/api regions.
+FULL_TEMPLATE = """# bb_fake
 
-def _make_component(root: str, name: str, cmake_body: str, readme: str = README_TEMPLATE) -> Path:
+<!-- BEGIN bbtool:brief -->
+placeholder
+<!-- END bbtool:brief -->
+
+## Public API
+
+<!-- BEGIN bbtool:api -->
+placeholder
+<!-- END bbtool:api -->
+
+## Dependencies
+
+<!-- BEGIN bbtool:deps -->
+placeholder
+<!-- END bbtool:deps -->
+
+## Platform support
+
+<!-- BEGIN bbtool:platform -->
+placeholder
+<!-- END bbtool:platform -->
+
+## Use in your project
+
+<!-- BEGIN bbtool:wiring -->
+placeholder
+<!-- END bbtool:wiring -->
+
+## Links
+
+<!-- BEGIN bbtool:links -->
+placeholder
+<!-- END bbtool:links -->
+"""
+
+_BRIEF_HEADER = "#pragma once\n/** @brief Fake component for tests. */\nvoid bb_fake_noop(void);\n"
+
+
+def _make_component(root: str, name: str, cmake_body: str, readme: str = README_TEMPLATE,
+                     header: str = None) -> Path:
     comp = Path(root) / "components" / name
     comp.mkdir(parents=True)
     (comp / "CMakeLists.txt").write_text(cmake_body, encoding="utf-8")
     (comp / "README.md").write_text(readme, encoding="utf-8")
+    if header is not None:
+        include_dir = comp / "include"
+        include_dir.mkdir(parents=True, exist_ok=True)
+        (include_dir / f"{name}.h").write_text(header, encoding="utf-8")
     return comp
 
 
@@ -123,13 +178,211 @@ class TestParseRequires(unittest.TestCase):
         self.assertIn("PRIV_REQUIRES bb_log", stripped)
 
     def test_render_deps_empty(self):
-        text = _render_deps([], [])
-        self.assertIn("_(none)_", text)
+        with tempfile.TemporaryDirectory() as td:
+            text = _render_deps(Path(td), "bb_fake", [], [])
+            self.assertIn("_(none)_", text)
 
     def test_render_deps_nonempty(self):
-        text = _render_deps(["bb_core"], ["bb_log"])
-        self.assertIn("`bb_core`", text)
-        self.assertIn("`bb_log`", text)
+        with tempfile.TemporaryDirectory() as td:
+            text = _render_deps(Path(td), "bb_fake", ["bb_core"], ["bb_log"])
+            self.assertIn("`bb_core`", text)
+            self.assertIn("`bb_log`", text)
+
+    def test_render_deps_merges_requires_and_priv_requires_sorted(self):
+        with tempfile.TemporaryDirectory() as td:
+            text = _render_deps(Path(td), "bb_fake", ["bb_z"], ["bb_a"])
+            self.assertLess(text.index("bb_a"), text.index("bb_z"))
+
+    def test_render_deps_table_header(self):
+        with tempfile.TemporaryDirectory() as td:
+            text = _render_deps(Path(td), "bb_fake", ["bb_core"], [])
+            self.assertIn("| Component | Kind | Role | Docs |", text)
+
+
+class TestRenderDepsKind(unittest.TestCase):
+    def test_requires_only_is_public(self):
+        with tempfile.TemporaryDirectory() as td:
+            text = _render_deps(Path(td), "bb_fake", ["bb_core"], [])
+            self.assertIn("| `bb_core` | public |", text)
+
+    def test_priv_requires_only_is_private(self):
+        with tempfile.TemporaryDirectory() as td:
+            text = _render_deps(Path(td), "bb_fake", [], ["bb_log"])
+            self.assertIn("| `bb_log` | private |", text)
+
+    def test_dep_in_both_requires_and_priv_requires_is_public(self):
+        with tempfile.TemporaryDirectory() as td:
+            text = _render_deps(Path(td), "bb_fake", ["bb_core"], ["bb_core"])
+            self.assertIn("| `bb_core` | public |", text)
+            self.assertEqual(text.count("bb_core"), 2)  # one row only (deduped)
+
+    def test_self_reference_dependency_renders_without_error(self):
+        # A component listing itself in REQUIRES is malformed CMake but must
+        # not crash the generator — it renders as an ordinary (public) row.
+        with tempfile.TemporaryDirectory() as td:
+            text = _render_deps(Path(td), "bb_fake", ["bb_fake"], [])
+            self.assertIn("| `bb_fake` | public |", text)
+
+
+class TestDepRoleAndLink(unittest.TestCase):
+    def test_dep_with_readme_uses_first_sentence_and_own_readme_link(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dep = root / "components" / "bb_dep"
+            dep.mkdir(parents=True)
+            (dep / "README.md").write_text(
+                "# bb_dep\n\nFirst sentence here. Second sentence ignored.\n",
+                encoding="utf-8",
+            )
+            role, link = _dep_role_and_link(root, "bb_dep")
+            self.assertEqual(role, "First sentence here.")
+            self.assertEqual(link, "../bb_dep/README.md")
+
+    def test_local_component_dir_with_no_readme_falls_back_to_index(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "components" / "bb_bare").mkdir(parents=True)
+            role, link = _dep_role_and_link(root, "bb_bare")
+            self.assertEqual(role, "—")
+            self.assertEqual(link, "../README.md")
+
+    def test_external_sdk_dependency_has_no_link(self):
+        # No components/<dep>/ directory at all -> external SDK dependency
+        # (e.g. esp_timer, freertos): plain text, no link, role "—".
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            role, link = _dep_role_and_link(root, "esp_timer")
+            self.assertEqual(role, "—")
+            self.assertIsNone(link)
+
+    def test_render_deps_renders_external_dep_as_plain_text(self):
+        with tempfile.TemporaryDirectory() as td:
+            text = _render_deps(Path(td), "bb_fake", [], ["freertos"])
+            self.assertIn("| `freertos` | private | — | freertos |", text)
+            self.assertNotIn("[freertos]", text)
+
+    def test_render_deps_renders_local_dep_as_link(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "components" / "bb_dep").mkdir(parents=True)
+            (root / "components" / "bb_dep" / "README.md").write_text(
+                "# bb_dep\n\nDep purpose.\n", encoding="utf-8",
+            )
+            text = _render_deps(root, "bb_fake", ["bb_dep"], [])
+            self.assertIn("[bb_dep](../bb_dep/README.md)", text)
+
+
+class TestExtractFirstSentence(unittest.TestCase):
+    def test_skips_title_and_blank_lines(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "README.md"
+            path.write_text("# title\n\n\nBrief here. More text.\n", encoding="utf-8")
+            self.assertEqual(_extract_first_sentence(path), "Brief here.")
+
+    def test_no_prose_line_returns_em_dash(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "README.md"
+            path.write_text("# title\n\n", encoding="utf-8")
+            self.assertEqual(_extract_first_sentence(path), "—")
+
+    def test_no_terminal_punctuation_returns_whole_line(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "README.md"
+            path.write_text("# title\n\nNo punctuation at all\n", encoding="utf-8")
+            self.assertEqual(_extract_first_sentence(path), "No punctuation at all")
+
+    def test_marker_safe_skips_begin_marker_line(self):
+        # A dep whose README was already converted to a bbtool:brief marker:
+        # the region BODY (the line right after BEGIN) is the correct role
+        # to surface, and the marker delimiter lines themselves must not
+        # leak into the extracted text.
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "README.md"
+            path.write_text(
+                "# bb_dep\n\n"
+                "<!-- BEGIN bbtool:brief -->\n"
+                "Converted brief body sentence. More.\n"
+                "<!-- END bbtool:brief -->\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(_extract_first_sentence(path), "Converted brief body sentence.")
+
+    def test_marker_safe_skips_leading_end_marker_with_blank_before_title(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "README.md"
+            path.write_text(
+                "<!-- BEGIN bbtool:mystery -->\n"
+                "# title\n"
+                "<!-- END bbtool:mystery -->\n\n"
+                "Real prose sentence.\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(_extract_first_sentence(path), "Real prose sentence.")
+
+    def test_abbreviation_period_does_not_truncate_sentence(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "README.md"
+            path.write_text(
+                "# title\n\nUses e.g. bb_core for timing, plus a small cache.\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                _extract_first_sentence(path),
+                "Uses e.g. bb_core for timing, plus a small cache.",
+            )
+
+    def test_two_sentence_brief_still_truncates_at_first(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "README.md"
+            path.write_text("# title\n\nFirst sentence. Second one.\n", encoding="utf-8")
+            self.assertEqual(_extract_first_sentence(path), "First sentence.")
+
+
+class TestRenderApi(unittest.TestCase):
+    def test_lists_headers_and_prefix_line(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            include_dir = root / "components" / "bb_fake" / "include"
+            include_dir.mkdir(parents=True)
+            (include_dir / "bb_fake.h").write_text("", encoding="utf-8")
+            (include_dir / "bb_fake_extra.h").write_text("", encoding="utf-8")
+            text = _render_api(root, "bb_fake")
+            self.assertIn("- [`bb_fake.h`](include/bb_fake.h)", text)
+            self.assertIn("- [`bb_fake_extra.h`](include/bb_fake_extra.h)", text)
+            self.assertIn("Public symbols use the `bb_` prefix.", text)
+            # sorted
+            self.assertLess(text.index("bb_fake.h"), text.index("bb_fake_extra.h"))
+
+    def test_no_include_dir_still_renders_prefix_line(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            text = _render_api(root, "bb_fake")
+            self.assertEqual(text.strip(), "Public symbols use the `bb_` prefix.")
+
+
+class TestRenderBrief(unittest.TestCase):
+    def test_sources_from_header_brief(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            include_dir = root / "components" / "bb_fake" / "include"
+            include_dir.mkdir(parents=True)
+            (include_dir / "bb_fake.h").write_text(_BRIEF_HEADER, encoding="utf-8")
+            self.assertEqual(_render_brief(root, "bb_fake"), "Fake component for tests.")
+
+    def test_raises_when_header_has_no_brief(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            include_dir = root / "components" / "bb_fake" / "include"
+            include_dir.mkdir(parents=True)
+            (include_dir / "bb_fake.h").write_text("#pragma once\nvoid a(void);\n", encoding="utf-8")
+            with self.assertRaises(DocsGenError):
+                _render_brief(root, "bb_fake")
+
+    def test_raises_when_header_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with self.assertRaises(DocsGenError):
+                _render_brief(root, "bb_fake")
 
 
 class TestPlatformMatrix(unittest.TestCase):
@@ -144,6 +397,81 @@ class TestPlatformMatrix(unittest.TestCase):
     def test_render_platform_matrix(self):
         text = _render_platform({"host": True, "espidf": False, "arduino": True})
         self.assertIn("| yes | no | yes |", text)
+
+
+class TestSelfWikiLink(unittest.TestCase):
+    def test_derives_components_subdir_link(self):
+        self.assertEqual(
+            _self_wiki_link("https://example.test/wiki", "bb_foo"),
+            "https://example.test/wiki/components/bb_foo",
+        )
+
+    def test_strips_trailing_slash(self):
+        self.assertEqual(
+            _self_wiki_link("https://example.test/wiki/", "bb_foo"),
+            "https://example.test/wiki/components/bb_foo",
+        )
+
+    def test_empty_wiki_base_returns_none(self):
+        self.assertIsNone(_self_wiki_link("", "bb_foo"))
+
+
+class TestDedupeLinks(unittest.TestCase):
+    def test_preserves_order_first_occurrence_wins(self):
+        merged = _dedupe_links(["a", "b"], ["b", "c"], ["a", "d"])
+        self.assertEqual(merged, ["a", "b", "c", "d"])
+
+    def test_skips_falsy_entries(self):
+        merged = _dedupe_links([], ["a"], [])
+        self.assertEqual(merged, ["a"])
+
+
+class TestRenderLinks(unittest.TestCase):
+    def test_no_docs_config_renders_placeholder(self):
+        text = _render_links({}, "bb_foo")
+        self.assertEqual(text, "_(no links configured)_")
+
+    def test_merges_self_global_and_component_links(self):
+        config = {
+            "docs": {
+                "repo_url": "https://example.test/repo",
+                "wiki_base": "https://example.test/wiki",
+                "links": ["https://example.test/wiki/Component-Docs"],
+                "component_links": {"bb_foo": ["https://example.test/wiki/foo-notes"]},
+            }
+        }
+        text = _render_links(config, "bb_foo")
+        self.assertIn("- Repository: [https://example.test/repo](https://example.test/repo)", text)
+        self.assertIn("https://example.test/wiki/components/bb_foo", text)
+        self.assertIn("https://example.test/wiki/Component-Docs", text)
+        self.assertIn("https://example.test/wiki/foo-notes", text)
+
+    def test_other_component_does_not_get_unrelated_component_links(self):
+        config = {
+            "docs": {"component_links": {"bb_foo": ["https://example.test/wiki/foo-notes"]}}
+        }
+        text = _render_links(config, "bb_bar")
+        self.assertNotIn("foo-notes", text)
+
+
+class TestRenderWiring(unittest.TestCase):
+    def test_renders_absolute_wiki_base_url(self):
+        config = {"docs": {"wiki_base": "https://example.test/wiki"}}
+        text = _render_wiring(config, "bb_foo")
+        self.assertIn("https://example.test/wiki/components/bb_foo#use", text)
+        self.assertIn("wiring guide", text)
+        self.assertNotIn("../../wiki", text)
+
+    def test_strips_trailing_slash_on_wiki_base(self):
+        config = {"docs": {"wiki_base": "https://example.test/wiki/"}}
+        text = _render_wiring(config, "bb_foo")
+        self.assertIn("https://example.test/wiki/components/bb_foo#use", text)
+
+    def test_degrades_gracefully_when_wiki_base_unset(self):
+        text = _render_wiring({}, "bb_foo")
+        self.assertNotIn("[wiring guide]", text)  # no markdown link syntax
+        self.assertNotIn("http", text)
+        self.assertIn("wiring guide", text)
 
 
 class TestMarkerRewrite(unittest.TestCase):
@@ -254,6 +582,80 @@ class TestGenAllDeterminism(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             self.assertEqual(gen_all(td), [])
 
+    def test_readme_with_no_markers_is_a_noop(self):
+        # A pre-template README (hand-authored, no bbtool markers at all)
+        # must be left byte-for-byte untouched by `docs gen`.
+        with tempfile.TemporaryDirectory() as td:
+            comp = _make_component(
+                td, "bb_fake",
+                "idf_component_register(REQUIRES bb_core)\n",
+                readme="# bb_fake\n\nHand-authored, no markers at all.\n",
+            )
+            before = (comp / "README.md").read_text(encoding="utf-8")
+            results = gen_all(td)
+            self.assertEqual(len(results), 1)
+            _, changed = results[0]
+            self.assertFalse(changed)
+            self.assertEqual((comp / "README.md").read_text(encoding="utf-8"), before)
+
+    def test_full_template_brief_and_api_regions_idempotent(self):
+        with tempfile.TemporaryDirectory() as td:
+            comp = _make_component(
+                td, "bb_fake",
+                "idf_component_register(REQUIRES bb_core)\n",
+                readme=FULL_TEMPLATE,
+                header=_BRIEF_HEADER,
+            )
+            results = gen_all(td)
+            self.assertEqual(len(results), 1)
+            _, changed = results[0]
+            self.assertTrue(changed)
+            content = (comp / "README.md").read_text(encoding="utf-8")
+            self.assertIn("Fake component for tests.", content)
+            self.assertIn("- [`bb_fake.h`](include/bb_fake.h)", content)
+            self.assertIn("Public symbols use the `bb_` prefix.", content)
+
+            snapshot = content
+            results2 = gen_all(td)
+            _, changed2 = results2[0]
+            self.assertFalse(changed2, "second gen run must report no change")
+            self.assertEqual((comp / "README.md").read_text(encoding="utf-8"), snapshot)
+
+    def test_brief_marker_without_header_brief_raises(self):
+        with tempfile.TemporaryDirectory() as td:
+            _make_component(
+                td, "bb_fake",
+                "idf_component_register(REQUIRES bb_core)\n",
+                readme=FULL_TEMPLATE,
+                header="#pragma once\nvoid bb_fake_noop(void);\n",  # no @brief
+            )
+            with self.assertRaises(DocsGenError):
+                gen_all(td)
+
+    def test_dir_not_a_component_no_readme_no_cmake(self):
+        # A stray directory under components/ with neither README nor
+        # CMakeLists is simply skipped (not a component at all).
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / "components" / "not_a_component").mkdir(parents=True)
+            self.assertEqual(gen_all(td), [])
+
+
+class TestCmdGen(unittest.TestCase):
+    def test_brief_marker_without_header_brief_returns_1_no_traceback(self):
+        with tempfile.TemporaryDirectory() as td:
+            _make_component(
+                td, "bb_fake",
+                "idf_component_register(REQUIRES bb_core)\n",
+                readme=FULL_TEMPLATE,
+                header="#pragma once\nvoid bb_fake_noop(void);\n",  # no @brief
+            )
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                rc = _cmd_gen(td)
+            self.assertEqual(rc, 1)
+            self.assertNotIn("Traceback", stderr.getvalue())
+            self.assertIn("bbtool docs gen: error:", stderr.getvalue())
+
 
 class TestComponentReadmeRule(unittest.TestCase):
     def test_fires_on_missing_readme(self):
@@ -278,14 +680,43 @@ class TestComponentReadmeRule(unittest.TestCase):
             ctx = Context(root=td, config={})
             self.assertEqual(_check_component_readme(ctx), [])
 
+    def test_fires_on_brief_marker_without_header_brief(self):
+        with tempfile.TemporaryDirectory() as td:
+            _make_component(
+                td, "bb_fake", "idf_component_register()\n",
+                readme=FULL_TEMPLATE,
+                header="#pragma once\nvoid bb_fake_noop(void);\n",  # no @brief
+            )
+            ctx = Context(root=td, config={})
+            violations = _check_component_readme(ctx)
+            self.assertTrue(violations)
+            self.assertIn("bb_fake", violations[0]["path"])
+            self.assertIn("@brief", violations[0]["detail"])
+
+    def test_passes_when_brief_marker_and_header_brief_both_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            _make_component(
+                td, "bb_fake", "idf_component_register()\n",
+                readme=FULL_TEMPLATE,
+                header=_BRIEF_HEADER,
+            )
+            ctx = Context(root=td, config={})
+            self.assertEqual(_check_component_readme(ctx), [])
+
+    def test_no_brief_marker_is_untouched_by_the_check(self):
+        with tempfile.TemporaryDirectory() as td:
+            _make_component(td, "bb_documented", "idf_component_register()\n")  # README_TEMPLATE, no brief marker
+            ctx = Context(root=td, config={})
+            self.assertEqual(_check_component_readme(ctx), [])
+
 
 _DOCS_CONFIG = {
     "docs": {
         "repo_url": "https://github.com/example-org/example-repo",
         "wiki_base": "https://github.com/example-org/example-repo/wiki",
-        "badges": {
-            "build": "https://example.test/build.svg",
-            "coverage": "https://example.test/coverage.svg",
+        "links": ["https://github.com/example-org/example-repo/wiki/Component-Docs"],
+        "component_links": {
+            "bb_widget": ["https://github.com/example-org/example-repo/wiki/widget-notes"],
         },
     }
 }
@@ -303,56 +734,90 @@ class TestComponentPrefix(unittest.TestCase):
         self.assertEqual(_component_prefix("_bb_widget"), "bb")
 
 
+def _scaffold_with_brief(root, component, config):
+    """scaffold_component, then seed the primary header with an @brief so
+    the immediate post-scaffold `_gen_component_readme` brief region
+    resolves instead of raising DocsGenError."""
+    include_dir = Path(root) / "components" / component / "include"
+    include_dir.mkdir(parents=True, exist_ok=True)
+    (include_dir / f"{component}.h").write_text(
+        f"#pragma once\n/** @brief {component} test fixture. */\nvoid noop(void);\n",
+        encoding="utf-8",
+    )
+    return scaffold_component(root, component, config)
+
+
 class TestDocsScaffold(unittest.TestCase):
     def test_scaffold_stamps_expected_content(self):
         with tempfile.TemporaryDirectory() as td:
-            path = scaffold_component(td, "bb_widget", {})
+            path = _scaffold_with_brief(td, "bb_widget", {})
             self.assertTrue(path.exists())
             content = path.read_text(encoding="utf-8")
             self.assertIn("# bb_widget", content)
+            self.assertIn("bb_widget test fixture.", content)
             self.assertIn("include/bb_widget.h", content)
             self.assertIn("`bb_` prefix", content)
+            self.assertIn("<!-- BEGIN bbtool:brief -->", content)
+            self.assertIn("<!-- BEGIN bbtool:api -->", content)
             self.assertIn("<!-- BEGIN bbtool:deps -->", content)
             self.assertIn("<!-- BEGIN bbtool:platform -->", content)
-            # docs config absent -> badges/links region fully omitted
-            self.assertNotIn("bbtool:optional:badges", content)
-            self.assertNotIn("## Links", content)
+            self.assertIn("<!-- BEGIN bbtool:links -->", content)
+            self.assertIn("<!-- BEGIN bbtool:wiring -->", content)
+            # Links section is unconditional now (marker-generated); docs
+            # config absent -> placeholder text, not an omitted section.
+            self.assertIn("## Links", content)
+            self.assertIn("_(no links configured)_", content)
+            self.assertIn("wiring guide", content)
+            self.assertIn(
+                "_Generated by `bbtool docs` — see [doc conventions]"
+                "(../../wiki/Component-Docs)._",
+                content,
+            )
             self.assertEqual(find_dangling_tokens(content), [])
 
     def test_scaffold_refuses_to_overwrite(self):
         with tempfile.TemporaryDirectory() as td:
-            path = scaffold_component(td, "bb_widget", {})
+            path = _scaffold_with_brief(td, "bb_widget", {})
             original = path.read_text(encoding="utf-8")
             with self.assertRaises(FileExistsError):
                 scaffold_component(td, "bb_widget", {})
             # File must be untouched by the refused attempt.
             self.assertEqual(path.read_text(encoding="utf-8"), original)
 
-    def test_scaffold_with_docs_config_renders_badges_region(self):
+    def test_scaffold_without_header_brief_raises(self):
         with tempfile.TemporaryDirectory() as td:
-            path = scaffold_component(td, "bb_widget", _DOCS_CONFIG)
+            with self.assertRaises(DocsGenError):
+                scaffold_component(td, "bb_widget", {})
+
+    def test_scaffold_with_docs_config_renders_links(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = _scaffold_with_brief(td, "bb_widget", _DOCS_CONFIG)
             content = path.read_text(encoding="utf-8")
             self.assertIn("## Links", content)
             self.assertIn("https://github.com/example-org/example-repo", content)
-            self.assertIn("https://github.com/example-org/example-repo/wiki", content)
-            self.assertIn("https://example.test/build.svg", content)
-            self.assertIn("https://example.test/coverage.svg", content)
-            self.assertNotIn("bbtool:optional:badges", content)
+            self.assertIn(
+                "https://github.com/example-org/example-repo/wiki/components/bb_widget",
+                content,
+            )
+            self.assertIn(
+                "https://github.com/example-org/example-repo/wiki/Component-Docs", content
+            )
+            self.assertIn("https://github.com/example-org/example-repo/wiki/widget-notes", content)
             self.assertEqual(find_dangling_tokens(content), [])
 
-    def test_scaffold_without_docs_config_omits_region_cleanly(self):
+    def test_scaffold_without_docs_config_renders_placeholder(self):
         with tempfile.TemporaryDirectory() as td:
-            path = scaffold_component(td, "bb_widget", {})
+            path = _scaffold_with_brief(td, "bb_widget", {})
             content = path.read_text(encoding="utf-8")
             self.assertNotIn("{{", content)
             self.assertNotIn("}}", content)
-            self.assertNotIn("bbtool:optional", content)
-            self.assertNotIn("## Links", content)
+            self.assertIn("## Links", content)
+            self.assertIn("_(no links configured)_", content)
 
     def test_scaffold_deterministic(self):
         with tempfile.TemporaryDirectory() as td1, tempfile.TemporaryDirectory() as td2:
-            path1 = scaffold_component(td1, "bb_widget", _DOCS_CONFIG)
-            path2 = scaffold_component(td2, "bb_widget", _DOCS_CONFIG)
+            path1 = _scaffold_with_brief(td1, "bb_widget", _DOCS_CONFIG)
+            path2 = _scaffold_with_brief(td2, "bb_widget", _DOCS_CONFIG)
             self.assertEqual(
                 path1.read_text(encoding="utf-8"),
                 path2.read_text(encoding="utf-8"),
@@ -361,10 +826,16 @@ class TestDocsScaffold(unittest.TestCase):
     def test_scaffold_partial_docs_config_missing_wiki_base(self):
         with tempfile.TemporaryDirectory() as td:
             config = {"docs": {"repo_url": "https://github.com/example-org/example-repo"}}
-            path = scaffold_component(td, "bb_widget", config)
+            path = _scaffold_with_brief(td, "bb_widget", config)
             content = path.read_text(encoding="utf-8")
             self.assertNotIn("[]()", content)
-            self.assertNotIn("- Wiki:", content)
+            # No wiki_base -> no self wiki link in the generated Links region
+            # (the "Use in your project" wiring pointer degrades to plain
+            # text when wiki_base is unset — see TestRenderWiring).
+            self.assertNotIn(
+                "https://github.com/example-org/example-repo/wiki/components/bb_widget",
+                content,
+            )
             self.assertIn(
                 "- Repository: [https://github.com/example-org/example-repo]"
                 "(https://github.com/example-org/example-repo)",
@@ -374,34 +845,30 @@ class TestDocsScaffold(unittest.TestCase):
     def test_scaffold_partial_docs_config_missing_repo_url(self):
         with tempfile.TemporaryDirectory() as td:
             config = {"docs": {"wiki_base": "https://github.com/example-org/example-repo/wiki"}}
-            path = scaffold_component(td, "bb_widget", config)
+            path = _scaffold_with_brief(td, "bb_widget", config)
             content = path.read_text(encoding="utf-8")
             self.assertNotIn("[]()", content)
             self.assertNotIn("- Repository:", content)
             self.assertIn(
-                "- Wiki: [https://github.com/example-org/example-repo/wiki]"
-                "(https://github.com/example-org/example-repo/wiki)",
+                "https://github.com/example-org/example-repo/wiki/components/bb_widget",
                 content,
             )
 
-    def test_scaffold_docs_config_empty_badges(self):
-        with tempfile.TemporaryDirectory() as td:
-            config = {
-                "docs": {
-                    "repo_url": "https://github.com/example-org/example-repo",
-                    "wiki_base": "https://github.com/example-org/example-repo/wiki",
-                }
-            }
-            path = scaffold_component(td, "bb_widget", config)
-            content = path.read_text(encoding="utf-8")
-            self.assertNotIn("\n\n\n", content)
+    def test_scaffold_empty_docs_config_dict_matches_absent(self):
+        with tempfile.TemporaryDirectory() as td1, tempfile.TemporaryDirectory() as td2:
+            path1 = _scaffold_with_brief(td1, "bb_widget", {})
+            path2 = _scaffold_with_brief(td2, "bb_widget", {"docs": {}})
+            self.assertEqual(
+                path1.read_text(encoding="utf-8"),
+                path2.read_text(encoding="utf-8"),
+            )
 
     def test_scaffolded_readme_is_gen_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
-            scaffold_component(td, "bb_widget", {})
+            _scaffold_with_brief(td, "bb_widget", _DOCS_CONFIG)
             comp = Path(td) / "components" / "bb_widget"
             before = (comp / "README.md").read_text(encoding="utf-8")
-            results = gen_all(td)
+            results = gen_all(td, _DOCS_CONFIG)
             self.assertEqual(len(results), 1)
             _, changed = results[0]
             self.assertFalse(changed, "docs gen must not churn a freshly-scaffolded README")
