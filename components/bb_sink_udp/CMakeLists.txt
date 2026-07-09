@@ -1,4 +1,4 @@
-set(BB_SINK_UDP_PRIV_REQUIRES bb_log bb_init)
+set(BB_SINK_UDP_PRIV_REQUIRES bb_log)
 
 if(IDF_TARGET)
     set(BB_SINK_UDP_BACKEND
@@ -16,8 +16,3 @@ idf_component_register(
     PRIV_INCLUDE_DIRS "src"
     REQUIRES bb_core bb_pub bb_udp_client bb_udp_frame
     PRIV_REQUIRES ${BB_SINK_UDP_PRIV_REQUIRES})
-
-if(CONFIG_BB_SINK_UDP_AUTOREGISTER)
-    include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
-    bb_init_force_register_pre_http(${COMPONENT_LIB} bb_sink_udp)
-endif()

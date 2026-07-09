@@ -1,14 +1,3 @@
 menu "breadboard: bb_tls_info"
 
-config BB_TLS_INFO_AUTOREGISTER
-    bool "Auto-register TLS capability flags via bb_init (PRE_HTTP tier)"
-    default y
-    help
-        When enabled, bb_tls_info self-registers at the PRE_HTTP tier and
-        calls bb_info_register_capability() for each enabled TLS gate
-        (BB_MQTT_TLS_ENABLE → "mqtt_tls", BB_HTTP_TLS_ENABLE → "http_tls",
-        BB_TLS_MUTUAL_ENABLE → "mutual_tls").  Must run before bb_info_init
-        freezes the capability registry at regular-tier order 2.
-        Disable to call bb_tls_info_register() manually.
-
 endmenu

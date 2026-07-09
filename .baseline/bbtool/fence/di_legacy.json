@@ -1,26 +1,6 @@
 {
   "entries": [
     {
-      "id": "bb_ring_spiram",
-      "path": "platform/espidf/bb_ring_espidf/bb_ring_spiram.c",
-      "type": "BB_INIT_REGISTER_EARLY"
-    },
-    {
-      "id": "bb_sink_udp",
-      "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_sink_http_telemetry",
-      "path": "platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_tls_info",
-      "path": "platform/host/bb_tls_info/bb_tls_info.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
       "id": "BB_DIAG_AUTO_ATTACH",
       "path": "components/bb_diag/Kconfig",
       "type": "auto_attach_kconfig"
@@ -146,16 +126,6 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_SINK_HTTP_TELEMETRY_AUTOREGISTER",
-      "path": "components/bb_sink_http_telemetry/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_SINK_UDP_AUTOREGISTER",
-      "path": "components/bb_sink_udp/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_SINK_WS_AUTOREGISTER",
       "path": "components/bb_sink_ws/Kconfig",
       "type": "autoregister_kconfig"
@@ -168,11 +138,6 @@
     {
       "id": "BB_TELEMETRY_AUTOREGISTER",
       "path": "components/bb_telemetry/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_TLS_INFO_AUTOREGISTER",
-      "path": "components/bb_tls_info/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
@@ -226,23 +191,8 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_SINK_UDP_AUTOREGISTER",
-      "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_OTA_PULL_AUTOREGISTER",
       "path": "platform/host/bb_pub_info/bb_pub_info.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_SINK_HTTP_TELEMETRY_AUTOREGISTER",
-      "path": "platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_TLS_INFO_AUTOREGISTER",
-      "path": "platform/host/bb_tls_info/bb_tls_info.c",
       "type": "autoregister_usage"
     },
     {
@@ -294,26 +244,6 @@
       "id": "macro:st7789",
       "path": "platform/espidf/bb_display_st77xx/bb_display_st7789.c",
       "type": "display_force_keep"
-    },
-    {
-      "id": "pre_http:bb_sink_http_telemetry",
-      "path": "components/bb_sink_http_telemetry/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_sink_udp",
-      "path": "components/bb_sink_udp/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_tls_info",
-      "path": "components/bb_tls_info/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "early:bb_ring_spiram",
-      "path": "platform/espidf/bb_ring_espidf/CMakeLists.txt",
-      "type": "linker_force_register"
     },
     {
       "id": "bb_pub_add_sink",

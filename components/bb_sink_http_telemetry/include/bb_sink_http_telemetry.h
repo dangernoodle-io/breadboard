@@ -15,7 +15,7 @@ extern "C" {
 #endif
 
 // Register the "http" telemetry section.
-// Called automatically when CONFIG_BB_SINK_HTTP_TELEMETRY_AUTOREGISTER=y (PRE_HTTP tier).
+// bbtool:init tier=pre_http fn=bb_sink_http_telemetry_init
 bb_err_t bb_sink_http_telemetry_init(void);
 
 #ifdef BB_SINK_HTTP_TELEMETRY_TESTING

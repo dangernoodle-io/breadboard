@@ -9,7 +9,6 @@
 #include "bb_nv_keys.h"
 #include "bb_json.h"
 #include "bb_telemetry.h"
-#include "bb_init.h"
 #include "bb_pub.h"
 #include "bb_log.h"
 #include "bb_str.h"
@@ -327,10 +326,6 @@ bb_err_t bb_sink_http_telemetry_init(void)
                                              httppub_section_patch, NULL,
                                              k_http_schema_props);
 }
-
-#if CONFIG_BB_SINK_HTTP_TELEMETRY_AUTOREGISTER
-BB_INIT_REGISTER_PRE_HTTP(bb_sink_http_telemetry, bb_sink_http_telemetry_init);
-#endif
 
 // ---------------------------------------------------------------------------
 // Test hooks
