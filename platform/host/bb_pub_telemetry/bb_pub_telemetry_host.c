@@ -13,7 +13,6 @@
 #include "bb_ntp.h"
 #include "bb_system.h"
 #include "bb_telemetry.h"
-#include "bb_init.h"
 #include "bb_log.h"
 #include "bb_str.h"
 
@@ -340,10 +339,6 @@ bb_err_t bb_pub_telemetry_init(void)
 
     return BB_OK;
 }
-
-#if CONFIG_BB_PUB_TELEMETRY_AUTOREGISTER
-BB_INIT_REGISTER_PRE_HTTP(bb_pub_telemetry, bb_pub_telemetry_init);
-#endif
 
 // ---------------------------------------------------------------------------
 // Test hooks

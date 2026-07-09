@@ -12,7 +12,6 @@
 #include "bb_pub.h"
 #include "bb_log.h"
 #include "bb_timer.h"
-#include "bb_init.h"
 
 #include <inttypes.h>
 
@@ -80,7 +79,7 @@ static void interval_apply_hook(uint32_t ms)
     }
 }
 
-static bb_err_t bb_pub_start(void)
+bb_err_t bb_pub_start(void)
 {
     bb_timer_worker_cfg_t cfg = {
         .stack    = BB_PUB_WORKER_STACK,
@@ -136,7 +135,3 @@ static bb_err_t bb_pub_start(void)
     bb_log_i(TAG, "started; interval=%"PRIu32" ms", interval_ms);
     return BB_OK;
 }
-
-#if CONFIG_BB_PUB_AUTOREGISTER
-BB_INIT_REGISTER_PRE_HTTP(bb_pub, bb_pub_start);
-#endif

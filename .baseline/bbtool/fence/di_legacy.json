@@ -6,33 +6,8 @@
       "type": "BB_INIT_REGISTER_EARLY"
     },
     {
-      "id": "bb_pub",
-      "path": "platform/espidf/bb_pub/bb_pub_espidf.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
       "id": "bb_sink_udp",
       "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_pub_health",
-      "path": "platform/host/bb_pub_health/bb_pub_health.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_pub_info",
-      "path": "platform/host/bb_pub_info/bb_pub_info.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_pub_rtos",
-      "path": "platform/host/bb_pub_rtos/bb_pub_rtos.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_pub_telemetry",
-      "path": "platform/host/bb_pub_telemetry/bb_pub_telemetry_host.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
@@ -81,21 +56,6 @@
       "type": "auto_attach_kconfig"
     },
     {
-      "id": "BB_PUB_HEALTH_AUTO_ATTACH",
-      "path": "components/bb_pub_health/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
-      "id": "BB_PUB_INFO_AUTO_ATTACH",
-      "path": "components/bb_pub_info/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
-      "id": "BB_PUB_RTOS_AUTO_ATTACH",
-      "path": "components/bb_pub_rtos/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
       "id": "BB_DIAG_AUTO_ATTACH",
       "path": "platform/espidf/bb_diag/bb_diag_routes.c",
       "type": "auto_attach_usage"
@@ -128,21 +88,6 @@
     {
       "id": "BB_OTA_HOOKS_AUTO_ATTACH",
       "path": "platform/espidf/bb_ota_hooks/bb_ota_hooks.c",
-      "type": "auto_attach_usage"
-    },
-    {
-      "id": "BB_PUB_HEALTH_AUTO_ATTACH",
-      "path": "platform/host/bb_pub_health/bb_pub_health.c",
-      "type": "auto_attach_usage"
-    },
-    {
-      "id": "BB_PUB_INFO_AUTO_ATTACH",
-      "path": "platform/host/bb_pub_info/bb_pub_info.c",
-      "type": "auto_attach_usage"
-    },
-    {
-      "id": "BB_PUB_RTOS_AUTO_ATTACH",
-      "path": "platform/host/bb_pub_rtos/bb_pub_rtos.c",
       "type": "auto_attach_usage"
     },
     {
@@ -193,11 +138,6 @@
     {
       "id": "BB_PUB_AUTOREGISTER",
       "path": "components/bb_pub/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_PUB_TELEMETRY_AUTOREGISTER",
-      "path": "components/bb_pub_telemetry/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
@@ -286,11 +226,6 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_PUB_AUTOREGISTER",
-      "path": "platform/espidf/bb_pub/bb_pub_espidf.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_SINK_UDP_AUTOREGISTER",
       "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
       "type": "autoregister_usage"
@@ -298,11 +233,6 @@
     {
       "id": "BB_OTA_PULL_AUTOREGISTER",
       "path": "platform/host/bb_pub_info/bb_pub_info.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_PUB_TELEMETRY_AUTOREGISTER",
-      "path": "platform/host/bb_pub_telemetry/bb_pub_telemetry_host.c",
       "type": "autoregister_usage"
     },
     {
@@ -364,31 +294,6 @@
       "id": "macro:st7789",
       "path": "platform/espidf/bb_display_st77xx/bb_display_st7789.c",
       "type": "display_force_keep"
-    },
-    {
-      "id": "pre_http:bb_pub",
-      "path": "components/bb_pub/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_pub_health",
-      "path": "components/bb_pub_health/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_pub_info",
-      "path": "components/bb_pub_info/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_pub_rtos",
-      "path": "components/bb_pub_rtos/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_pub_telemetry",
-      "path": "components/bb_pub_telemetry/CMakeLists.txt",
-      "type": "linker_force_register"
     },
     {
       "id": "pre_http:bb_sink_http_telemetry",
