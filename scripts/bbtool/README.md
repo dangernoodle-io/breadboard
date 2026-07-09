@@ -47,38 +47,64 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 | `kconfig-bridge-shadow` | all | Flags a bare `#ifndef BB_X`/`#define BB_X <literal>` C fallback for a name X that also has a `config BB_X` int declared in Kconfig, when the same file has no `CONFIG_BB_X` bridge tying the C macro to the Kconfig symbol — the knob is silently inert (shipped 3×, see CLAUDE.md "Avoiding audit-class regressions") |
 | `raw-timestamp-divide` | all | Flags raw millisecond conversions (`esp_timer_get_time()/1000` or `bb_timer_now_us()/1000`, any C integer suffix) that bypass the canonical `bb_clock` helper, outside the real `bb_clock.c`/`bb_clock.h` files and any `bb_timer/` component directory — use `bb_clock_now_ms64()`/`bb_clock_now_ms()` instead. Default severity `warn`; allowlist via `[lint.rules.raw-timestamp-divide] allow=[...]` |
 
-## `di-fence` command
+## `fence` command
 
-DI legacy ratchet-fence lint: freezes breadboard's legacy dependency-injection
-glue surface (self-registration macros, autoregister/auto-attach Kconfig
-options, pub-captive-sink patterns, force-keep linker directives) as
-shrink-only.
+Unified ratchet-fence lint over one or more marker **families**. A family
+(`scripts/bbtool/fence/<family>.py`) is a group of `_scan_*` marker-detection
+functions plus its own committed baseline at
+`.baseline/bbtool/fence/<family>.json`. Today there is one family,
+`di_legacy` (breadboard's legacy DI/self-registration glue surface); the
+mechanism is generic so a second family (e.g. a future non-DI ratchet) is a
+new module, not a rewrite.
 
 ```
-python3 scripts/bbtool.py di-fence [--root DIR] [--update-baseline]
+python3 scripts/bbtool.py fence [--root DIR] [--family NAME ...] [--update-baseline] [--seed FAMILY]
 ```
 
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--root DIR` | cwd | Repository root to scan |
-| `--update-baseline` | — | Regenerate `scripts/bbtool/di_legacy_baseline.json` from the current scan and exit 0 — use for legitimate conversions/relocations of existing legacy markers |
+| `--family NAME` | all discovered families | Restrict to this family (repeatable) |
+| `--update-baseline` | — | **Shrink-only**: prune baseline entries whose occurrence no longer exists; never adds a net-new occurrence (a fresh duplicate always stays a failure) |
+| `--seed FAMILY` | — | One-time: bless FAMILY's current occurrence set as its starting baseline; errors if a baseline already exists (`--update-baseline` is what you want after that) |
 
-**What it does.** It scans `components/` + `platform/` for a fixed set of
-legacy-glue markers (BB_INIT_REGISTER family, `*_AUTOREGISTER`/`*_AUTO_ATTACH`
-Kconfig defs + usages, `bb_pub_sink_t`/`bb_pub_add_sink`, display
-force-keep, `bb_init_force_register*` CMake calls), diffs the current
-occurrence set against the committed baseline, and **fails on any net-new
-occurrence** that isn't already in the baseline. Removals never fail — they
-are reported as `INFO "candidate to prune"` so the baseline can shrink over
-time. New composition (a component, a route, a satellite) never needs a new
-occurrence of any of these markers — they are the legacy glue surface being
-phased out, not the sanctioned extension point.
+**What it does.** For each targeted family it scans the tree for that
+family's marker types, diffs the current occurrence set against the
+family's committed baseline, and **fails on any net-new occurrence** not
+already in the baseline. Removals never fail — they are reported as `INFO
+"candidate to prune"` so the baseline can shrink over time. New composition
+never needs a new occurrence of a fenced marker — fenced surfaces are
+frozen glue being phased out, not a sanctioned extension point.
 
-**Identity is symbol-keyed, not path-keyed.** A marker's identity for the
-ratchet diff is `(marker_type, symbol)` — the file path is retained only as
-informational metadata on each entry. This means a pure file rename of a
-component containing a marker does not trip the fence (no spurious
-remove+add); only a genuinely new or removed symbol does.
+**Identity is symbol-keyed, not path-keyed** (per family, via an optional
+`identity(marker)` override — see `di_legacy`'s pub-sink handling). A
+marker's default ratchet-diff identity is `(marker_type, symbol)`; the file
+path is retained only as informational metadata. A pure file/component
+rename does not trip the fence (no spurious remove+add); only a genuinely
+new or removed symbol does.
+
+**`--update-baseline` is shrink-only, not a blanket overwrite.** It prunes
+entries no longer found in the tree, but a net-new occurrence is never
+silently added to the baseline — that always requires either removing the
+occurrence or a deliberate, reviewed baseline edit. This is stricter than a
+"regenerate from current scan" mode: a copy-pasted duplicate of an already-
+fenced marker can never be blessed by accident.
+
+**Seeding a brand-new family** is a separate one-time path
+(`--seed FAMILY`): it writes the family's current occurrence set as its
+starting baseline, refusing to run if a baseline already exists (use
+`--update-baseline` for maintenance after that point).
+
+### `di_legacy` family
+
+The original ratchet fence, unchanged: freezes breadboard's legacy
+dependency-injection glue surface (self-registration macros,
+autoregister/auto-attach Kconfig options, pub-captive-sink patterns,
+force-keep linker directives). Scans `components/` + `platform/` for
+BB_INIT_REGISTER family, `*_AUTOREGISTER`/`*_AUTO_ATTACH` Kconfig defs +
+usages, `bb_pub_sink_t`/`bb_pub_add_sink`, display force-keep, and
+`bb_init_force_register*` CMake calls — see
+`scripts/bbtool/fence/di_legacy.py`.
 
 **Scope: ESP-IDF + host only.** The Arduino backend
 (`platform/arduino/bb_display_*`) self-registers display backends via a
@@ -89,12 +115,32 @@ for. That Arduino path is **not currently scanned** — Arduino is behind
 ESP-IDF on platform parity and not under active development, so scanner
 investment there is deliberately deferred rather than silent; see the
 `KNOWN GAP` comment above `_scan_display_force_keep` in
-`scripts/bbtool/commands/di_fence.py`.
+`scripts/bbtool/fence/di_legacy.py`.
 
-**Legitimate conversions/renames:** run with `--update-baseline` to move the
-baseline forward after intentionally converting or relocating an existing
-legacy marker (e.g. flipping a satellite from Tier 3 manual registration to
-Tier 2 auto-register).
+### `di-fence` command (back-compat alias)
+
+`python3 scripts/bbtool.py di-fence [--root DIR] [--update-baseline]` is a
+thin alias for `fence --family di_legacy` — same flags, same
+pass/fail/shrink-only semantics — kept so existing scripts/muscle-memory
+keep working. New usage should prefer `fence --family di_legacy` (or just
+`fence`, since `di_legacy` is the only family today).
+
+### Adding a fence family
+
+Turnkey, no manual registry-list edit:
+
+1. Add `scripts/bbtool/fence/<family>.py` (any filename not starting with
+   `_`) — the module name becomes the family name.
+2. Define one or more `_scan_<name>(root) -> Set[Marker]` functions; they
+   are auto-collected (see `fence/_base.py:discover_scanners`) — no
+   `scan_all()` to hand-maintain.
+3. Optionally define `identity(marker) -> tuple` to override the default
+   `(type, id)` ratchet-diff identity (see `di_legacy.identity` for the
+   path-insensitive pub_sink example).
+4. Run `python3 scripts/bbtool.py fence --seed <family>` once to write the
+   starting baseline to `.baseline/bbtool/fence/<family>.json`; commit it.
+5. `fence` (and `make fence` / `make check`) now covers the new family
+   automatically alongside `di_legacy`.
 
 ## `bbtool.toml` config schema
 
