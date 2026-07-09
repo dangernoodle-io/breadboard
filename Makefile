@@ -1,6 +1,6 @@
 PIO ?= pio
 
-.PHONY: help all check lint cppcheck docs docs-index-check docs-check fence di-fence size-check size-baseline test-py test coverage smoke clean
+.PHONY: help all check lint cppcheck docs docs-index-check docs-check fence di-fence size-check size-baseline test-py test coverage smoke floor floor-codegen clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
@@ -114,5 +114,15 @@ smoke-uno_cc3000: ## Build smoke example for Arduino UNO + CC3000 shield
 	cp examples/smoke/include/secrets.h.example examples/smoke/include/secrets.h
 	$(PIO) run -d examples/smoke -e uno_cc3000
 
+floor: ## Build the hand-wired floor example for esp32 (no bb_init, no codegen pre-step)
+	$(PIO) run -d examples/floor -e esp32
+
+floor-codegen: ## Regenerate bb_app_init.c from // bbtool:init markers over floor's exact component set, then rebuild floor so it compiles against real bb_log.h prototypes -- proves the codegen path end-to-end; floor's app_main stays hand-wired (bb_app_init() is compiled, never called)
+	python3 scripts/bbtool.py codegen --root . --components bb_log,bb_meminfo,bb_timer \
+	    --components-out examples/floor/main/generated/bb_autowire_components.cmake \
+	    --wire-out examples/floor/main/generated/bb_app_init.c
+	$(PIO) run -d examples/floor -e esp32
+
 clean: ## Clean build artifacts
 	$(PIO) run -t clean
+	rm -f examples/floor/main/generated/bb_app_init.c examples/floor/main/generated/bb_app_init.cmake examples/floor/main/generated/bb_autowire_components.cmake
