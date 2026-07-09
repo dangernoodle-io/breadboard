@@ -19,7 +19,6 @@
 #include "bb_http_server.h"
 #include "bb_http_client.h"
 #include "bb_log.h"
-#include "bb_init.h"
 #include "bb_event_routes.h"
 #include "bb_claim.h"
 #include "bb_task.h"
@@ -272,7 +271,7 @@ static const bb_route_t s_status_route = {
     .handler  = status_handler,
 };
 
-static bb_err_t bb_ota_check_register_init(bb_http_handle_t server)
+bb_err_t bb_ota_check_register_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
@@ -368,12 +367,8 @@ void bb_ota_check_ota_claim_reset(void)
 }
 #endif
 
-#if CONFIG_BB_OTA_CHECK_AUTOREGISTER
-static bb_err_t bb_ota_check_reserve_routes(void)
+bb_err_t bb_ota_check_reserve_routes(void)
 {
     bb_http_reserve_routes(3);  // GET /api/update/status + GET /api/update/config + POST /api/update/config
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_ota_check, bb_ota_check_reserve_routes);
-BB_INIT_REGISTER_N(bb_ota_check, bb_ota_check_register_init, 4);
-#endif

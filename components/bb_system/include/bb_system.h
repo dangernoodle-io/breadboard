@@ -173,6 +173,24 @@ int bb_system_boot_banner_format(char *out, size_t out_len,
 /// out_size is too small to hold N chars + NUL terminator.
 bb_err_t bb_system_get_app_sha256(char *out, size_t out_size);
 
+/// Registry hook — emits the CONFIG_BB_SYSTEM_BOOT_BANNER one-time boot
+/// banner line via bb_log_i.
+// bbtool:init tier=early fn=bb_system_boot_banner_init
+bb_err_t bb_system_boot_banner_init(void);
+
+#ifdef ESP_PLATFORM
+#include "bb_http_server.h"
+
+/// Reserve route-table slots for bb_system before the HTTP server starts.
+// bbtool:init tier=pre_http fn=bb_system_routes_reserve
+bb_err_t bb_system_routes_reserve(void);
+
+/// Registry hook — registers POST /api/reboot.
+// bbtool:init tier=regular fn=bb_system_routes_init server=true
+bb_err_t bb_system_routes_init(bb_http_handle_t server);
+
+#endif /* ESP_PLATFORM */
+
 #ifdef __cplusplus
 }
 #endif

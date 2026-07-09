@@ -35,6 +35,20 @@ bool bb_ota_rolled_back(void);
 // Must be set before bb_ota_mark_valid() is called (i.e., at component init time).
 void bb_ota_validator_set_on_validated(void (*cb)(void));
 
+#ifdef ESP_PLATFORM
+#include "bb_http_server.h"
+
+/* Reserve route-table slots for bb_ota_validator before the HTTP server starts. */
+// bbtool:init tier=pre_http fn=bb_ota_validator_reserve_routes
+bb_err_t bb_ota_validator_reserve_routes(void);
+
+/* Registers POST /api/update/mark-valid, GET /api/update/partitions,
+ * POST /api/update/recover with an existing httpd instance. */
+// bbtool:init tier=regular fn=bb_ota_validator_init server=true
+bb_err_t bb_ota_validator_init(bb_http_handle_t server);
+
+#endif /* ESP_PLATFORM */
+
 #ifdef __cplusplus
 }
 #endif

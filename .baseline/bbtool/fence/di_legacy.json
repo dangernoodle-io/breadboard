@@ -1,6 +1,11 @@
 {
   "entries": [
     {
+      "id": "bb_sub_mqtt",
+      "path": "components/bb_sub_mqtt/src/bb_sub_mqtt.c",
+      "type": "BB_INIT_REGISTER"
+    },
+    {
       "id": "bb_event_routes",
       "path": "platform/espidf/bb_event_routes/bb_event_routes_espidf.c",
       "type": "BB_INIT_REGISTER"
@@ -36,11 +41,6 @@
       "type": "BB_INIT_REGISTER_EARLY"
     },
     {
-      "id": "bb_diag_panic",
-      "path": "platform/espidf/bb_diag/bb_diag_panic.c",
-      "type": "BB_INIT_REGISTER_EARLY"
-    },
-    {
       "id": "bb_mem_arena_tls",
       "path": "platform/espidf/bb_mem_arena_tls/bb_mem_arena_tls.c",
       "type": "BB_INIT_REGISTER_EARLY"
@@ -66,11 +66,6 @@
       "type": "BB_INIT_REGISTER_EARLY"
     },
     {
-      "id": "bb_system_boot_banner",
-      "path": "platform/espidf/bb_system/bb_system_boot_banner.c",
-      "type": "BB_INIT_REGISTER_EARLY"
-    },
-    {
       "id": "bb_wifi",
       "path": "platform/espidf/bb_wifi/bb_wifi.c",
       "type": "BB_INIT_REGISTER_EARLY"
@@ -83,11 +78,6 @@
     {
       "id": "bb_cache_routes",
       "path": "platform/espidf/bb_cache_routes/bb_cache_routes.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_diag_routes",
-      "path": "platform/espidf/bb_diag/bb_diag_routes.c",
       "type": "BB_INIT_REGISTER_N"
     },
     {
@@ -156,36 +146,6 @@
       "type": "BB_INIT_REGISTER_N"
     },
     {
-      "id": "bb_ota_boot",
-      "path": "platform/espidf/bb_ota_boot/bb_ota_boot.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_ota_check",
-      "path": "platform/espidf/bb_ota_check/bb_ota_check_espidf.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_ota_hooks",
-      "path": "platform/espidf/bb_ota_hooks/bb_ota_hooks.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_ota_pull",
-      "path": "platform/espidf/bb_ota_pull/bb_ota_pull.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_ota_push",
-      "path": "platform/espidf/bb_ota_push/bb_ota_push.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_ota_validator",
-      "path": "platform/espidf/bb_ota_validator/bb_ota_validator.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
       "id": "bb_power_routes",
       "path": "platform/espidf/bb_power_routes/bb_power_routes.c",
       "type": "BB_INIT_REGISTER_N"
@@ -193,11 +153,6 @@
     {
       "id": "bb_sensors",
       "path": "platform/espidf/bb_sensors/bb_sensors.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_system_routes",
-      "path": "platform/espidf/bb_system/bb_system_routes.c",
       "type": "BB_INIT_REGISTER_N"
     },
     {
@@ -281,31 +236,6 @@
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
-      "id": "bb_ota_boot",
-      "path": "platform/espidf/bb_ota_boot/bb_ota_boot.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_ota_check",
-      "path": "platform/espidf/bb_ota_check/bb_ota_check_espidf.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_ota_pull",
-      "path": "platform/espidf/bb_ota_pull/bb_ota_pull.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_ota_push",
-      "path": "platform/espidf/bb_ota_push/bb_ota_push.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_ota_validator",
-      "path": "platform/espidf/bb_ota_validator/bb_ota_validator.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
       "id": "bb_pub",
       "path": "platform/espidf/bb_pub/bb_pub_espidf.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
@@ -318,11 +248,6 @@
     {
       "id": "bb_sink_udp",
       "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_system_routes",
-      "path": "platform/espidf/bb_system/bb_system_routes.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
@@ -501,11 +426,6 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_DIAG_AUTOREGISTER",
-      "path": "components/bb_diag/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_DISPLAY_EK79007_AUTOREGISTER",
       "path": "components/bb_display_ek79007/Kconfig",
       "type": "autoregister_kconfig"
@@ -626,36 +546,6 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_OTA_BOOT_AUTOREGISTER",
-      "path": "components/bb_ota_boot/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_OTA_CHECK_AUTOREGISTER",
-      "path": "components/bb_ota_check/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_OTA_HOOKS_AUTOREGISTER",
-      "path": "components/bb_ota_hooks/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_OTA_PULL_AUTOREGISTER",
-      "path": "components/bb_ota_pull/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_OTA_PUSH_AUTOREGISTER",
-      "path": "components/bb_ota_push/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_OTA_VALIDATOR_AUTOREGISTER",
-      "path": "components/bb_ota_validator/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_PARTITION_ROUTES_AUTOREGISTER",
       "path": "components/bb_partition/Kconfig",
       "type": "autoregister_kconfig"
@@ -706,6 +596,11 @@
       "type": "autoregister_kconfig"
     },
     {
+      "id": "BB_SUB_MQTT_AUTOREGISTER",
+      "path": "components/bb_sub_mqtt/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
       "id": "BB_SYSTEM_ROUTES_AUTOREGISTER",
       "path": "components/bb_system/Kconfig",
       "type": "autoregister_kconfig"
@@ -743,6 +638,11 @@
     {
       "id": "BB_EVENT_AUTOREGISTER",
       "path": "components/bb_event/bb_event_common.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_SUB_MQTT_AUTOREGISTER",
+      "path": "components/bb_sub_mqtt/src/bb_sub_mqtt.c",
       "type": "autoregister_usage"
     },
     {
@@ -871,33 +771,13 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_OTA_BOOT_AUTOREGISTER",
-      "path": "platform/espidf/bb_ota_boot/bb_ota_boot.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_OTA_CHECK_AUTOREGISTER",
       "path": "platform/espidf/bb_ota_check/bb_ota_check_espidf.c",
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_OTA_HOOKS_AUTOREGISTER",
-      "path": "platform/espidf/bb_ota_hooks/bb_ota_hooks.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_OTA_PULL_AUTOREGISTER",
       "path": "platform/espidf/bb_ota_pull/bb_ota_pull.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_OTA_PUSH_AUTOREGISTER",
-      "path": "platform/espidf/bb_ota_push/bb_ota_push.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_OTA_VALIDATOR_AUTOREGISTER",
-      "path": "platform/espidf/bb_ota_validator/bb_ota_validator.c",
       "type": "autoregister_usage"
     },
     {
@@ -928,11 +808,6 @@
     {
       "id": "BB_SINK_UDP_AUTOREGISTER",
       "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_SYSTEM_ROUTES_AUTOREGISTER",
-      "path": "platform/espidf/bb_system/bb_system_routes.c",
       "type": "autoregister_usage"
     },
     {
@@ -1053,16 +928,6 @@
     {
       "id": "regular:bb_cache_routes",
       "path": "components/bb_cache_routes/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "early:bb_diag_panic",
-      "path": "components/bb_diag/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_diag_routes",
-      "path": "components/bb_diag/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {
@@ -1221,61 +1086,6 @@
       "type": "linker_force_register"
     },
     {
-      "id": "pre_http:bb_ota_boot",
-      "path": "components/bb_ota_boot/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_ota_boot",
-      "path": "components/bb_ota_boot/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_ota_check",
-      "path": "components/bb_ota_check/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_ota_check",
-      "path": "components/bb_ota_check/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_ota_hooks",
-      "path": "components/bb_ota_hooks/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_ota_pull",
-      "path": "components/bb_ota_pull/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_ota_pull",
-      "path": "components/bb_ota_pull/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_ota_push",
-      "path": "components/bb_ota_push/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_ota_push",
-      "path": "components/bb_ota_push/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_ota_validator",
-      "path": "components/bb_ota_validator/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_ota_validator",
-      "path": "components/bb_ota_validator/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
       "id": "regular:bb_partition_routes",
       "path": "components/bb_partition/CMakeLists.txt",
       "type": "linker_force_register"
@@ -1336,18 +1146,8 @@
       "type": "linker_force_register"
     },
     {
-      "id": "early:bb_system_boot_banner",
-      "path": "components/bb_system/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_system_routes",
-      "path": "components/bb_system/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_system_routes",
-      "path": "components/bb_system/CMakeLists.txt",
+      "id": "regular:bb_sub_mqtt",
+      "path": "components/bb_sub_mqtt/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {

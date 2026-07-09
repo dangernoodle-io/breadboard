@@ -201,3 +201,26 @@ void bb_diag_scrub_text(char *s);
 size_t bb_diag_panic_order_copy(const char *buf, size_t buf_size,
                                  size_t length, size_t write_pos,
                                  char *out, size_t out_cap);
+
+/**
+ * Registry hook — detects a panic log from the previous boot, arms the
+ * log-stream tap, and updates the boots-since / abnormal-reset counters.
+ * Two mutually-exclusive definitions exist (CONFIG_BB_DIAG_PANIC_CAPTURE on
+ * vs off); this single prototype covers both.
+ */
+// bbtool:init tier=early fn=bb_diag_panic_init
+bb_err_t bb_diag_panic_init(void);
+
+#if CONFIG_BB_DIAG_ROUTES
+#ifdef ESP_PLATFORM
+#include "bb_http_server.h"
+
+/**
+ * Registry hook — registers GET/DELETE /api/diag/panic and the /api/info
+ * "panic" extender.
+ */
+// bbtool:init tier=regular fn=bb_diag_routes_init server=true
+bb_err_t bb_diag_routes_init(bb_http_handle_t server);
+
+#endif /* ESP_PLATFORM */
+#endif /* CONFIG_BB_DIAG_ROUTES */

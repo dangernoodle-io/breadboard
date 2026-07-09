@@ -83,4 +83,14 @@ void bb_ota_pull_set_task_priority(int priority);
  */
 bb_err_t bb_ota_pull_run_sync(const char *asset_url);
 
+/* Reserve route-table slots for bb_ota_pull before the HTTP server starts. */
+// bbtool:init tier=pre_http fn=bb_ota_pull_reserve_routes
+bb_err_t bb_ota_pull_reserve_routes(void);
+
+/**
+ * Register OTA pull HTTP handlers with an existing httpd instance.
+ */
+// bbtool:init tier=regular fn=bb_ota_pull_init server=true
+bb_err_t bb_ota_pull_init(bb_http_handle_t server);
+
 #endif // ESP_PLATFORM

@@ -14,7 +14,6 @@
 #include "bb_nv_delete_routes.h"
 #include "bb_ntp.h"
 #include "bb_ota_validator.h"
-#include "bb_init.h"
 #include "bb_system.h"
 #include "bb_reboot_reason.h"
 #include "bb_mem.h"
@@ -892,7 +891,7 @@ static const bb_route_t s_sockets_get_route = {
     .handler   = sockets_get_handler,
 };
 
-static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
+bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 {
     if (!server) return BB_ERR_INVALID_ARG;
 
@@ -999,8 +998,3 @@ static bb_err_t bb_diag_routes_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-// bb_diag_routes' optional diag.boot auto-attach (CONFIG_BB_DIAG_AUTO_ATTACH)
-// calls bb_event_routes_attach_ex(), which requires bb_event_routes_init
-// (order 0) to have already run and set s_cfg.initialized = true. Register at
-// explicit order 4, mirroring bb_ota_check (order 4, same rationale).
-BB_INIT_REGISTER_N(bb_diag_routes, bb_diag_routes_init, 4);

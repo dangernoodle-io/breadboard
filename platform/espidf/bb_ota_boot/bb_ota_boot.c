@@ -75,7 +75,6 @@ bool bb_ota_boot_pending(void)
 #include "bb_ota_check.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
-#include "bb_init.h"
 #include "bb_http_client.h"
 #include "bb_task.h"
 #include "bb_system.h"
@@ -543,14 +542,10 @@ bb_err_t bb_ota_boot_init(bb_http_handle_t server)
     return BB_OK;
 }
 
-#if CONFIG_BB_OTA_BOOT_AUTOREGISTER
-static bb_err_t bb_ota_boot_reserve_routes(void)
+bb_err_t bb_ota_boot_reserve_routes(void)
 {
     bb_http_reserve_routes(1);  // POST /api/update/apply
     return BB_OK;
 }
-BB_INIT_REGISTER_PRE_HTTP(bb_ota_boot, bb_ota_boot_reserve_routes);
-BB_INIT_REGISTER_N(bb_ota_boot, bb_ota_boot_init, 1);
-#endif
 
 #endif // ESP_PLATFORM

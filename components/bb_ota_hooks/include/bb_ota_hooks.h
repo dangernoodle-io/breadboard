@@ -39,6 +39,10 @@ void bb_ota_last_progress(bb_ota_phase_t *phase, int *pct);
 // state: 0=start,1=progress,2=success,3=fail (>3 -> "unknown").
 int bb_ota_progress_json(char *buf, size_t sz, const char *via, int state, int pct);
 
+/* Registry hook — attaches the ota.progress SSE topic (ESP-IDF regular tier). */
+// bbtool:init tier=regular fn=bb_ota_hooks_init server=true
+bb_err_t bb_ota_hooks_init(bb_http_handle_t server);
+
 // ---------------------------------------------------------------------------
 // Testing hooks (active when BB_OTA_HOOKS_TESTING is defined)
 // ---------------------------------------------------------------------------
