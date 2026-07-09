@@ -13,15 +13,13 @@ config BB_HTTP_ROUTE_REGISTRY_CAP
         routes. Lower for ROM-tight builds; raise for large applications.
 
 config BB_HTTP_AUTOSTART
-    bool "Auto-start HTTP server from bb_init_init()"
+    bool "Auto-start HTTP server via bbtool:init codegen"
     default y
     help
-        When enabled, bb_http_server self-registers a PRE_HTTP-tier hook
-        (ordered last) that calls bb_http_server_start() automatically, after
-        every other PRE_HTTP entry and before the REGULAR route-registration
-        tier. bb_init itself has no knowledge of bb_http_server (KB #692) --
-        this is bb_http_server wiring itself into the shared lifecycle, not
-        bb_init calling out to it.
+        When enabled, bb_http_autostart_init() (the pre_http-tier,
+        provides=http_server bbtool:init composition entry point) calls
+        bb_http_server_start() the first time it runs, before the regular
+        route-registration tier.
         Disable if the application manages server startup itself (e.g. after CORS
         or OpenAPI configuration that must precede server start).
 
@@ -149,8 +147,8 @@ config BB_HTTP_ROUTE_REGISTRY_STRICT
     bool "Panic/assert on route registry overflow after regular-tier walk"
     default y
     help
-      After bb_init_init() finishes the regular-tier (route-registration)
-      walk, audit bb_http_route_registry_count() against BB_ROUTE_REGISTRY_CAP.
+      After the regular-tier (route-registration) walk finishes, audit
+      bb_http_route_registry_count() against BB_ROUTE_REGISTRY_CAP.
       When enabled (default), overflow triggers an assert (fatal). At count >=
       CAP-8 a bb_log_w warning fires unconditionally even when strict is off.
       Disable only on explicitly constrained ROM builds where the silent-drop

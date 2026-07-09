@@ -61,11 +61,6 @@
       "type": "BB_INIT_REGISTER_N"
     },
     {
-      "id": "bb_http_route_audit",
-      "path": "platform/espidf/bb_http_server/bb_http.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
       "id": "bb_info",
       "path": "platform/espidf/bb_info/bb_info.c",
       "type": "BB_INIT_REGISTER_N"
@@ -239,11 +234,6 @@
       "id": "bb_tls_info",
       "path": "platform/host/bb_tls_info/bb_tls_info.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_http_autostart",
-      "path": "platform/espidf/bb_http_server/bb_http.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP_N"
     },
     {
       "id": "BB_DIAG_AUTO_ATTACH",
@@ -793,16 +783,6 @@
     {
       "id": "regular:bb_health",
       "path": "components/bb_health/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_http_autostart",
-      "path": "components/bb_http_server/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_http_route_audit",
-      "path": "components/bb_http_server/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {

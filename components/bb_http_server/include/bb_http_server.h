@@ -293,6 +293,19 @@ bb_err_t bb_http_server_start(void);
 bb_err_t bb_http_server_stop(void);
 bb_http_handle_t bb_http_server_get_handle(void);
 
+// Composition entry points (bbtool codegen). ESP-IDF only (platform/espidf/bb_http_server/bb_http.c).
+//
+// THE codegen linchpin: starts the HTTP server (when CONFIG_BB_HTTP_AUTOSTART
+// is on) and returns its handle. codegen captures the return value and passes
+// it to every server=true regular-tier entry.
+// bbtool:init tier=pre_http provides=http_server fn=bb_http_autostart_init
+bb_http_handle_t bb_http_autostart_init(void);
+
+// Route-registry-cap audit; runs last among regular-tier entries so it sees
+// every route registration.
+// bbtool:init tier=regular fn=bb_http_route_audit_init server=true
+bb_err_t bb_http_route_audit_init(bb_http_handle_t server);
+
 // Poll the server for new connections (Arduino backend only; no-op on ESP-IDF).
 void bb_http_server_poll(void);
 
