@@ -11,16 +11,9 @@ extern "C" {
 // URL-decode a named field from a URL-encoded body (e.g., "field=value&...")
 void bb_url_decode_field(const char *body, const char *field, char *out, size_t out_size);
 
-// Strict boolean parser for form-urlencoded values. Returns true on success
-// (with the parsed boolean in *out); false on empty/garbage input. Accepts
-// case-insensitive: 1/true/on/yes/t/y -> true; 0/false/off/no/f/n -> false.
-// Anything else (e.g. "maybe", "2", "") returns false without writing *out.
-bool bb_url_parse_bool(const char *val, bool *out);
-
-// Strict unsigned integer parser. Returns true on success (with the parsed
-// value in *out); false on empty/garbage/overflow input. Accepts only
-// decimal digits — no leading sign, no whitespace, no trailing junk.
-bool bb_url_parse_uint(const char *val, unsigned long *out);
+// Strict bool/uint value parsing (e.g. for query params/form fields) lives in
+// bb_scalar (bb_scalar_parse_bool/bb_scalar_parse_uint) — a portable,
+// host-testable primitive shared by non-HTTP callers too.
 
 // ============================================================================
 // PORTABLE HTTP SERVER API — available on all platforms (ESP-IDF, Arduino, host)

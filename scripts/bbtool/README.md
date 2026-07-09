@@ -139,15 +139,16 @@ no real C parser — see `clamp.py`'s identity-choice comment), not
 
 ### `scalar_parse` family
 
-Freezes hand-rolled reimplementations of `bb_scalar`'s strict scalar
-parsers (`bb_scalar_parse_bool`/`bb_scalar_parse_uint`, mirroring
-bb_http_server's `bb_url_parse_bool`/`bb_url_parse_uint`, whose migration is
-deferred). Scans `components/` + `platform/` for a **definition** of
-`bb_url_parse_bool`/`bb_url_parse_uint` outside `bb_scalar`. Symbol-keyed
-(id = the function name); an accepted limitation is that this catches
-reintroduction of these two named symbols only, not arbitrary inline
-parsing that duplicates their behavior under a different name. See
-`scripts/bbtool/fence/scalar_parse.py`.
+Guards against hand-rolled reimplementations of `bb_scalar`'s strict scalar
+parsers (`bb_scalar_parse_bool`/`bb_scalar_parse_uint`, which superseded
+bb_http_server's former `bb_url_parse_bool`/`bb_url_parse_uint`). Scans
+`components/` + `platform/` for a **definition** of `bb_url_parse_bool`/
+`bb_url_parse_uint` outside `bb_scalar`. The baseline is fully drained and
+locked: reintroducing either symbol (or a hand-rolled duplicate under those
+names) outside `bb_scalar` is blocked. Symbol-keyed (id = the function
+name); an accepted limitation is that this catches reintroduction of these
+two named symbols only, not arbitrary inline parsing that duplicates their
+behavior under a different name. See `scripts/bbtool/fence/scalar_parse.py`.
 
 ### `di-fence` command (back-compat alias)
 

@@ -1,14 +1,3 @@
 {
-  "entries": [
-    {
-      "id": "bb_url_parse_bool",
-      "path": "components/bb_http_server/src/http_utils.c",
-      "type": "scalar_parse"
-    },
-    {
-      "id": "bb_url_parse_uint",
-      "path": "components/bb_http_server/src/http_utils.c",
-      "type": "scalar_parse"
-    }
-  ]
+  "entries": []
 }
