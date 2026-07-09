@@ -320,7 +320,13 @@ class TestFenceCliDiLegacy(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _write(root, "components/bb_fake/src/bb_fake.c", "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n")
-            _run_fence_cli(str(root), seed="di_legacy")
+            # Seed EVERY discovered family (not just di_legacy) so this
+            # synthetic tree — which is unaware of any family's specific
+            # markers — starts clean against the default "all families"
+            # run below; e.g. new_component sees components/bb_fake as a
+            # net-new component unless it too is seeded first.
+            for name in sorted(fence_pkg.FAMILIES):
+                _run_fence_cli(str(root), seed=name)
 
             rc, out, _ = _run_fence_cli(str(root))
             self.assertEqual(rc, 0)

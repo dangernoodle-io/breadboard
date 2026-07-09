@@ -52,16 +52,17 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 Unified ratchet-fence lint over one or more marker **families**. A family
 (`scripts/bbtool/fence/<family>.py`) is a group of `_scan_*` marker-detection
 functions plus its own committed baseline at
-`.baseline/bbtool/fence/<family>.json`. Four families exist today:
+`.baseline/bbtool/fence/<family>.json`. Five families exist today:
 `di_legacy` (breadboard's legacy DI/self-registration glue surface), `clamp`
 (hand-rolled reimplementations of `bb_num`'s two-sided clamp),
 `scalar_parse` (hand-rolled reimplementations of `bb_scalar`'s parsers),
-and `sat_sub` (hand-rolled one-sided saturating-subtract idioms) — one
-family per shared idiom, so a future one is a new module, not a
-combined-family rewrite.
+`sat_sub` (hand-rolled one-sided saturating-subtract idioms), and
+`new_component` (the "no unauthorized components" guardrail — see below) —
+one family per shared idiom/helper/surface, so a future one is a new
+module, not a combined-family rewrite.
 
 ```
-python3 scripts/bbtool.py fence [--root DIR] [--family NAME ...] [--update-baseline] [--seed FAMILY]
+python3 scripts/bbtool.py fence [--root DIR] [--family NAME ...] [--update-baseline] [--seed FAMILY] [--approve COMPONENT]
 ```
 
 | Flag | Default | Meaning |
@@ -70,6 +71,7 @@ python3 scripts/bbtool.py fence [--root DIR] [--family NAME ...] [--update-basel
 | `--family NAME` | all discovered families | Restrict to this family (repeatable) |
 | `--update-baseline` | — | **Shrink-only**: prune baseline entries whose occurrence no longer exists; never adds a net-new occurrence (a fresh duplicate always stays a failure) |
 | `--seed FAMILY` | — | One-time: bless FAMILY's current occurrence set as its starting baseline; errors if a baseline already exists (`--update-baseline` is what you want after that) |
+| `--approve COMPONENT` | — | `new_component` family only: append the single named component (must already exist at `components/COMPONENT/`) to the `new_component` baseline — the sanctioned grow-by-approval path; mutually exclusive with `--seed`/`--update-baseline`/`--family` and never touches any other family's baseline |
 
 **What it does.** For each targeted family it scans the tree for that
 family's marker types, diffs the current occurrence set against the
@@ -181,6 +183,44 @@ there). `platform/host/bb_num/` is excluded, same as `clamp`. Identity is
 `<component>:<enclosing-symbol>:<var>` (best-effort, no real C parser —
 same convention as `clamp.py`), not `path:line`. See
 `scripts/bbtool/fence/sat_sub.py`.
+
+### `new_component` family — grow-by-approval, not shrink-only
+
+Every other family above is a **drain**: it freezes an existing surface and
+only ever shrinks as sites migrate off it. `new_component` is the opposite
+shape — it's a **guardrail on creation**, per the component-creation policy
+(breadboard `CLAUDE.md` "Component creation" + wiki
+[design/Component-Taxonomy#when-to-create-a-new-component](https://github.com/dangernoodle-io/breadboard/wiki/design/Component-Taxonomy#when-to-create-a-new-component),
+KB #402): extending an existing component is the default, and a genuinely
+new `components/<name>/` needs a distinct dependency, a real consumer, and
+reviewed design sign-off — never a speculative/ad-hoc add.
+
+Scans `components/` for every directory directly under it (one `component`
+marker per directory, id = the component name; `components/README.md` and
+similar files are not markers). A directory already in the baseline is
+fine; a **new, unapproved** `components/<name>/` is exactly the case this
+fence exists to catch, so it fails the fence, by design, until a human
+deliberately approves it. A **removed** component (e.g. the bb_pub_wifi
+deletion) prunes normally via `--update-baseline`, same as any other
+family — the guardrail is only on the create direction.
+
+**Approving a new component** goes through `--approve COMPONENT`, not
+`--update-baseline` — `--update-baseline` stays shrink-only for every
+family, this one included, and never blesses a net-new occurrence.
+`--approve` is a distinct, narrowly-scoped path: it verifies
+`components/COMPONENT/` actually exists on disk, then appends exactly that
+one entry to `new_component`'s baseline — nothing else in the tree, and no
+other family's baseline, is touched. The resulting one-line diff on
+`.baseline/bbtool/fence/new_component.json` *is* the reviewed design
+sign-off; it lands in the same PR as the new component, through a
+validated, mistake-resistant command rather than a hand-edited JSON file.
+
+```
+python3 scripts/bbtool.py fence --approve bb_new_thing
+```
+
+See `scripts/bbtool/fence/new_component.py` (scanner) and
+`scripts/bbtool/commands/fence_cmd.py` (`--approve` wiring).
 
 ### `di-fence` command (back-compat alias)
 
