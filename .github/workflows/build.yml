@@ -28,6 +28,9 @@ jobs:
           - 'scripts/bbtool/**'
           - 'scripts/copy_artifacts.py'
           - '.github/workflows/build.yml'
+          # markdown is never a firmware build input — docs-only PRs skip smoke.
+          # if a .md is ever embedded as a build asset (CMake EMBED_FILES), revisit.
+          - '!**/*.md'
         python:
           - 'scripts/**'
           - '.github/workflows/build.yml'
