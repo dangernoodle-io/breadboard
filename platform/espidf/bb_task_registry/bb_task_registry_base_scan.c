@@ -22,7 +22,7 @@
 
 static const char *TAG = "bb_task_registry_base_scan";
 
-// Kconfig bridge (see CLAUDE.md "Avoiding audit-class regressions").
+// Kconfig bridge (see wiki Conventions#audit-class-regressions).
 #ifdef CONFIG_BB_TASK_REGISTRY_BASE_POLL_MS
 #define BB_TASK_REGISTRY_BASE_POLL_MS CONFIG_BB_TASK_REGISTRY_BASE_POLL_MS
 #endif

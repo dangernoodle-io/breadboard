@@ -4,7 +4,7 @@
 [![Coverage Status](https://coveralls.io/repos/github/dangernoodle-io/breadboard/badge.svg?branch=main)](https://coveralls.io/github/dangernoodle-io/breadboard?branch=main)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP server, OTA, log streaming, and hardware abstraction. Supports ESP-IDF (production) and Arduino (experimental).
+Measurement-driven, ground-up firmware component framework for no-PSRAM-class ESP32 (and beyond), with multiple backends (ESP-IDF, Arduino/CC3000, Arduino R4, host). Heap is the strict, vigilantly-guarded resource; components compose and pay heap only for what you add.
 
 > **Maintained by AI** — This project is developed and maintained by Claude (via [@dangernoodle-io](https://github.com/dangernoodle-io)).
 > If you find a bug or have a feature request, please [open an issue](https://github.com/dangernoodle-io/breadboard/issues) with examples so it can be addressed.
@@ -15,104 +15,12 @@ Reusable components for embedded systems: wifi provisioning, NVS storage, HTTP s
 
 See [components/README.md](components/README.md) for the full, generated component index.
 
-## Use in an ESP-IDF project
+## Documentation
 
-Append the `components/` directory to your project's top-level `CMakeLists.txt`:
-
-```cmake
-list(APPEND EXTRA_COMPONENT_DIRS "<path-to>/breadboard/components")
-```
-
-Pick individual components in your app's `idf_component_register(... REQUIRES ...)` — you only pay build cost for what you use.
-
-To run breadboard's conventions linter against your consumer project, add one line to your `CMakeLists.txt` (after `include()`):
-
-```cmake
-include("<path-to>/breadboard/cmake/bbtool.cmake")
-bb_lint()  # opt-in: cmake --build build --target bb_lint
-```
-
-`bb_lint()` creates a non-default target; it never runs on a normal build. Invoke it explicitly: `cmake --build build --target bb_lint`. Optional args: `ROOT <dir>` (default `CMAKE_SOURCE_DIR`), `PROFILE <consumer|library>` (default `consumer`), `TARGET <name>` (default `bb_lint`).
-
-Components that register HTTP handlers (`bb_ota_pull`, `bb_ota_push`, `bb_info`, `bb_board`, `bb_manifest`, `bb_ota_validator`, `bb_openapi`, plus optional routes modules in `bb_log`, `bb_wifi`, and `bb_system`) self-register through `bb_init`. After `bb_http_server_start`, call `bb_init_init(server)` once and every linked component's routes get wired up — no per-component `register_handler` calls in your `app_main`. Components still have to be listed in your CMake `REQUIRES` so the linker pulls their archives and the constructors fire.
-
-## Kconfig flags
-
-Auto-registration is opt-out. Each registry-using component exposes a Kconfig flag (default-on); flip to `n` in your `sdkconfig.defaults` to drop the route handler without losing the component's public C API.
-
-| Flag | Effect when `=n` |
-|------|------------------|
-| `CONFIG_BB_OTA_PULL_AUTOREGISTER` | OTA pull HTTP routes not registered; `bb_ota_pull` C API still callable |
-| `CONFIG_BB_OTA_PUSH_AUTOREGISTER` | OTA push HTTP route not registered |
-| `CONFIG_BB_INFO_AUTOREGISTER` | `/api/info` not registered; `bb_info_register_extender` still works |
-| `CONFIG_BB_LOG_ROUTES` | `bb_log` routes module dropped entirely — `bb_http`/`bb_json`/`bb_init` no longer in `bb_log`'s PRIV_REQUIRES, useful for headless-logging consumers |
-| `CONFIG_BB_LOG_STREAM_AUTOREGISTER` | `bb_log_stream_init` not auto-called via `bb_init_init_early()`; caller must invoke manually. Independent of `CONFIG_BB_LOG_ROUTES` (stream capture vs. HTTP routes) |
-| `CONFIG_BB_NV_FLASH_AUTOREGISTER` | `bb_nv_flash_init` not auto-called via `bb_init_init_early()`; caller must invoke manually |
-| `CONFIG_BB_NV_CONFIG_AUTOREGISTER` | `bb_nv_config_init` not auto-called via `bb_init_init_early()`; caller must invoke manually. Useful for consumers with custom NVS namespaces who want partition init but not typed config preload |
-| `CONFIG_BB_BOARD_AUTOREGISTER` | `/api/board` not registered; `bb_board` accessor C API still callable |
-| `CONFIG_BB_MANIFEST_AUTOREGISTER` | `/api/manifest` not registered; `bb_manifest_register_nv` and `bb_manifest_register_mdns` still work |
-| `CONFIG_BB_OTA_VALIDATOR_AUTOREGISTER` | `POST /api/ota/mark-valid` not registered; `bb_ota_mark_valid` and `bb_ota_is_pending` still work |
-| `CONFIG_BB_WIFI_ROUTES_AUTOREGISTER` | `/api/wifi` and `/api/scan` not registered; wifi driver init APIs still work |
-| `CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER` | System routes module dropped entirely; `bb_http`/`bb_json`/`bb_init`/`esp_timer` no longer in `bb_system`'s PRIV_REQUIRES |
-| `CONFIG_BB_OPENAPI_AUTOREGISTER` | `/api/openapi.json` not registered; `bb_openapi_emit` and `bb_openapi_set_meta` still work |
-| `CONFIG_BB_MDNS_AUTOREGISTER` | `bb_mdns_init` not auto-called via registry; caller must invoke it manually (setters still available) |
-| `CONFIG_BB_OTA_PUSH_MAX_SIZE` | Body size cap for `POST /api/ota/push` (default 4 MB); requests over the limit return 413 |
-| `CONFIG_BB_HTTP_ROUTE_REGISTRY_CAP` | Max registered HTTP routes (default 64); `bb_http_register_*` returns `BB_ERR_NO_SPACE` when full |
-| `CONFIG_BB_LOG_TAG_REGISTRY_MAX` | Max log tag entries (default 24) |
-| `CONFIG_BB_MDNS_TXT_PENDING_MAX` | Max pending mDNS TXT updates (default 4) |
-| `CONFIG_BB_OTA_CHECK_CUSTOM_PARSER_BUF_BYTES` | Heap buffer for custom manifest parsers (default 8192 bytes) |
-
-Tagged source archives will be published on the [releases page](https://github.com/dangernoodle-io/breadboard/releases) once the API stabilizes.
-
-## Provisioning UI
-
-The `bb_prov` component manages the provisioning state machine and HTTP `/save` handler. Consumers provide a `prov_ui_routes_fn` callback to `bb_prov_start` to register `GET /` and any static assets (favicon, css, logo). `POST /save` returns `204 No Content`; the caller's form JS is responsible for post-submit UX.
-
-## Portability
-
-Public headers guard `esp_*.h` and `freertos/*.h` behind `#ifdef ESP_PLATFORM` so non-ESP backends (e.g. Arduino) can coexist without breaking consumers. Components are designed portably even when only one backend is fully implemented. Arduino has validated backends for `bb_log`, `bb_nv`, `bb_http`, and the `bb_system_*` helpers driving `/api/version` and `/api/reboot`. `bb_ota_validator` exposes a portable strategy-struct API, with stubs on non-ESP platforms. Other components are currently ESP-IDF-only; progressive un-fencing is planned.
-
-**Component authors:** See the API conventions section in [CLAUDE.md](CLAUDE.md) for portability rules.
-
-## Host tests in downstream projects
-
-Downstream projects that host-test code linking against `bb_*` components can opt into `bbtool scaffold`, a PlatformIO pre-hook that derives the build graph (includes, source files, dependencies) from a capability/board manifest instead of a hand-maintained component list. Declare a `[capability.*]` (a named group of components) and a `[board.*]` (which capabilities a board gets) in your own `bbtool.toml`, then point `custom_bb_board` at the board id in `platformio.ini`:
-
-```toml
-# bbtool.toml
-[capability.core]
-components = ["bb_log", "bb_nv", "bb_json"]
-
-[board.native]
-platform = "host"
-```
-
-```ini
-[env:native]
-extra_scripts = pre:.breadboard/scripts/bbtool_pio.py
-custom_bb_board = native
-```
-
-This repo dogfoods the same wiring for its own host tests — see `[capability.core]`/`[board.native]` in this repo's `bbtool.toml` and `[env:native]` in `platformio.ini`. The pre-hook resolves each active component's includes/sources/deps from its own `CMakeLists.txt` (`REQUIRES`/`PRIV_REQUIRES`) plus the `components/<name>/` + `platform/<backend>/<name>/` directory convention, handles cJSON's `lib_dep` automatically when `bb_json` is active, and is idempotent — safe to run the pre-hook more than once without duplicating flags or filters. An unknown capability, board, or component name fails the build with a clear error.
-
-Run `bbtool scaffold gen --board <id>` to inspect the resolved build graph (components, includes, sources, `-DBB_CAP_*` flags) without invoking PlatformIO.
-
-## Development
-
-```bash
-make check              # cppcheck static analysis
-make coverage           # host unit tests + gcovr → Coveralls-format JSON
-make smoke-elecrow-p4-hmi7     # build ESP-IDF P4 example (LVGL + EK79007 panel)
-make smoke-esp32-wroom-32      # build classic ESP32-D0 example (headless)
-make smoke-arduino-uno-cc3000  # build Arduino Uno + CC3000 example
-make smoke                     # build all examples
-```
-
-Host tests under `test/test_host/` cover `bb_log` (macro expansion and ring buffer drain), `bb_nv` (typed and generic), `bb_prov`, `http_utils`, `bb_ota_pull`, `bb_ota_push`, `bb_ota_validator`, `bb_http` (route registry), `bb_openapi` (emitter, including OOM cleanup paths via `bb_json_host_force_alloc_fail_after`), `bb_json` (round-trip build/serialize/parse for all value types, nested trees, arrays, edge cases), `bb_tls_creds`, `bb_mqtt_client` (+ `/api/mqtt` routes), `bb_http_client` (POST + mutual-TLS), `bb_pub` (source registry, tick cycle, sink routing), `bb_sink_mqtt`, `bb_sink_http` (+ `/api/httppub`), and the telemetry satellites (`bb_pub_fan`, `bb_pub_power`, `bb_pub_thermal`, `bb_pub_info`, `bb_pub_wifi`). The `bb_hw`, `bb_display`, and hardware-coupled components have no host coverage.
-
-**Telemetry publisher.** `bb_pub` + `bb_sink_mqtt` provide a transport-agnostic telemetry pipeline that publishes `metrics/<hostname>/<subtopic>` JSON (each cycle stamped with a shared `ts`). Add `bb_pub_fan`, `bb_pub_power`, `bb_pub_thermal`, `bb_pub_info`, and/or `bb_pub_wifi` to REQUIRES to auto-register per-HAL sources; each returns false (skip) when its source is absent, so builds without specific hardware emit nothing for that subtopic. `bb_mqtt_client` is the MQTT client (broker config via `/api/mqtt`, TLS via `bb_tls_creds`); `bb_sink_http` is an alternative HTTP-POST sink to a user-configurable endpoint (e.g. AWS IoT Core) over mutual TLS.
-
-See `examples/arduino-uno-cc3000/README.md` for Arduino development setup (Homebrew toolchain on macOS, stock PIO toolchain on Linux).
+Getting started, portability/backend support, and host-test tooling live in the
+[wiki](https://github.com/dangernoodle-io/breadboard/wiki) — start at
+[Home](https://github.com/dangernoodle-io/breadboard/wiki/Home) or
+[Getting-Started](https://github.com/dangernoodle-io/breadboard/wiki/Getting-Started).
 
 ## License
 

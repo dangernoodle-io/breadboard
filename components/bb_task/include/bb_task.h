@@ -33,7 +33,7 @@
 extern "C" {
 #endif
 
-// Kconfig bridge (see CLAUDE.md "Avoiding audit-class regressions"). This is
+// Kconfig bridge (see wiki Conventions#audit-class-regressions). This is
 // the ONE real symbol for bb_task's base-registry capacity -- bb_task_common.c
 // and every other consumer that must size a buffer off this same capacity
 // (e.g. components/bb_task_registry/bb_task_registry_base_scan_common.c's
