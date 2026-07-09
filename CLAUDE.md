@@ -10,7 +10,7 @@ The only two sanctioned composition paths: (1) **codegen** — `bbtool codegen` 
 
 The `bbtool autowire` CLI command has been deleted (its transitive-closure resolver survives as library code in `scripts/bbtool/composition.py`, used only by `bbtool codegen`). `bbtool size` survives as measurement tooling (flash/heap budgeting) — NOT a composition mechanism.
 
-Any legacy `bb_init` walker / `BB_INIT_REGISTER*` docs found elsewhere (e.g. still-live in `examples/smoke`) are CURRENT-because-still-used, not a pattern to follow — they're slated for demolition (roadmap: DI dissolution); do not extend them.
+The `bb_init` walker component (the runtime registry that used to drive `BB_INIT_REGISTER*`) has been deleted — nothing composes through it anymore. Any doc or comment still referencing it is historical/contrastive, not a live pattern; do not resurrect it.
 
 ## Public symbol prefix
 

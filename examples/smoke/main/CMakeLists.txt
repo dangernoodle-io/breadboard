@@ -29,7 +29,7 @@ bb_embed_site(
 # bb_wifi_http (PR1, KB 781) is the opt-in STA /api/wifi + /api/scan route
 # bundle extracted from bb_wifi's STA core -- composed here to keep today's
 # routes working; a minimal STA-only image would omit it.
-set(SMOKE_REQUIRES bb_nv bb_log bb_log_event bb_log_http bb_wifi bb_wifi_http bb_settings bb_http bb_http_server bb_mdns bb_mdns_cache bb_init bb_ota_pull bb_ota_push bb_ota_boot bb_info bb_board bb_manifest bb_ota_validator bb_system bb_openapi bb_led bb_led_info bb_ntp bb_ntp_info bb_led_gpio bb_led_pwm bb_led_apa102 bb_led_anim bb_button bb_button_gpio bb_button_events bb_event bb_event_ring bb_event_ring_espidf bb_event_routes bb_event_routes_espidf bb_ring_espidf bb_ring_diag bb_http_client bb_release_manifest bb_ota_check bb_temp bb_power bb_fan bb_sensors bb_tls_creds bb_mqtt_client bb_pub bb_sink_mqtt bb_pub_info bb_pub_rtos bb_ws_server bb_sink_ws bb_registry bb_partition bb_task_registry bb_task bb_net_health bb_mem_arena bb_pool bb_udp_frame bb_udp_client bb_sink_udp bb_dispatch_cmd bb_meminfo bb_timer bb_config bb_storage_nvs)
+set(SMOKE_REQUIRES bb_nv bb_log bb_log_event bb_log_http bb_wifi bb_wifi_http bb_settings bb_http bb_http_server bb_mdns bb_mdns_cache bb_ota_pull bb_ota_push bb_ota_boot bb_info bb_board bb_manifest bb_ota_validator bb_system bb_openapi bb_led bb_led_info bb_ntp bb_ntp_info bb_led_gpio bb_led_pwm bb_led_apa102 bb_led_anim bb_button bb_button_gpio bb_button_events bb_event bb_event_ring bb_event_ring_espidf bb_event_routes bb_event_routes_espidf bb_ring_espidf bb_ring_diag bb_http_client bb_release_manifest bb_ota_check bb_temp bb_power bb_fan bb_sensors bb_tls_creds bb_mqtt_client bb_pub bb_sink_mqtt bb_pub_info bb_pub_rtos bb_ws_server bb_sink_ws bb_registry bb_partition bb_task_registry bb_task bb_net_health bb_mem_arena bb_pool bb_udp_frame bb_udp_client bb_sink_udp bb_dispatch_cmd bb_meminfo bb_timer bb_config bb_storage_nvs)
 
 # bb_sink_display is linked here (unused -- no call site migrated yet) solely
 # to prove the espidf glue (platform/espidf/bb_sink_display/bb_sink_display.c)
@@ -55,9 +55,7 @@ endif()
 # committed) and absent by default -- entry_espidf.c calls
 # bb_app_init_early()/bb_app_init(), so unlike floor's proof-only wiring,
 # a plain `pio run -d examples/smoke` now REQUIRES `make smoke-codegen`
-# (or an equivalent prior `bbtool codegen` invocation) to have run first;
-# the bb_init walker's own bb_init_init_early()/bb_init_init() are no
-# longer called here.
+# (or an equivalent prior `bbtool codegen` invocation) to have run first.
 set(BB_SMOKE_GENERATED_APP_INIT "${CMAKE_CURRENT_SOURCE_DIR}/generated/bb_app_init.c")
 set(_smoke_srcs "entry_espidf.c" "smoke_app.c" "storage_typed_selftest.c" ${_site_srcs})
 if(EXISTS "${BB_SMOKE_GENERATED_APP_INIT}")

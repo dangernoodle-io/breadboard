@@ -30,11 +30,11 @@ extern "C" {
  * Optional: probe (NULL = always-present), flush (NULL = no-op),
  * draw_text (NULL = core rasterizes via the active font and blit).
  *
- * The constructor must be kept link-live by the
- * `bb_init_force_register` CMake helper on PlatformIO builds
- * (which strip --whole-archive); see cmake/bb_init.cmake for the
- * pattern (use a backend-specific symbol name, e.g.
- * bb_display_register__ek79007).
+ * The constructor must be kept link-live on PlatformIO builds (which strip
+ * --whole-archive) via a `target_link_libraries(${COMPONENT_LIB} INTERFACE
+ * "-u <symbol>")` force-keep in the backend's CMakeLists.txt (use a
+ * backend-specific symbol name, e.g. bb_display_register__ek79007; see
+ * components/bb_display_ek79007/CMakeLists.txt).
  */
 
 typedef struct bb_display_backend_s {

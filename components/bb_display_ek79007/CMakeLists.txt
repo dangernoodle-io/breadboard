@@ -4,5 +4,4 @@ idf_component_register(
     REQUIRES bb_core bb_display esp_lvgl_port
     PRIV_REQUIRES bb_log bb_hw esp_lcd esp_driver_gpio)
 
-include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/bb_init.cmake")
 target_link_libraries(${COMPONENT_LIB} INTERFACE "-u bb_display_register__ek79007")

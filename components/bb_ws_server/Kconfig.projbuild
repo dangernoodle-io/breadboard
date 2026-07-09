@@ -32,12 +32,4 @@ menu "BB WebSocket"
         help
             Per-frame send timeout in seconds.
 
-    config BB_WS_SERVER_AUTOREGISTER
-        bool "Auto-register bb_ws_server via bb_init"
-        default n
-        help
-            When enabled, bb_ws_server_init is called automatically during
-            bb_init_init().  Disable (default) to register endpoints
-            manually in your own init function.
-
 endmenu

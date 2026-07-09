@@ -50,7 +50,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_hw](./bb_hw/) | — |
 | [bb_i2c](./bb_i2c/) | — |
 | [bb_info](./bb_info/) | — |
-| [bb_init](./bb_init/) | — |
 | [bb_json](./bb_json/) | — |
 | [bb_led](./bb_led/) | — |
 | [bb_led_anim](./bb_led_anim/) | — |

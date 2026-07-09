@@ -181,11 +181,6 @@
       "type": "component"
     },
     {
-      "id": "bb_init",
-      "path": "components/bb_init",
-      "type": "component"
-    },
-    {
       "id": "bb_json",
       "path": "components/bb_json",
       "type": "component"

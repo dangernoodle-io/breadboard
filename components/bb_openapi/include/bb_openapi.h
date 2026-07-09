@@ -74,8 +74,11 @@ bb_json_t bb_openapi_emit(const bb_openapi_meta_t *meta);
 bb_err_t bb_openapi_emit_stream(bb_http_request_t *req,
                                 const bb_openapi_meta_t *meta);
 
-// Set metadata for OpenAPI spec emission. Must be called before
-// bb_init_init() if custom metadata is desired.
+// Set metadata for OpenAPI spec emission. Must be called before bb_openapi's
+// routes are registered / before the app hands off to the HTTP server —
+// i.e. before the REGULAR-tier init that registers routes
+// (bb_app_init_rest()/bb_app_init() under codegen, or the equivalent
+// hand-wired call) — if custom metadata is desired.
 // meta pointer must remain valid for the lifetime of the server.
 // Calling bb_openapi_set_meta is optional; defaults are used otherwise.
 void bb_openapi_set_meta(const bb_openapi_meta_t *meta);
