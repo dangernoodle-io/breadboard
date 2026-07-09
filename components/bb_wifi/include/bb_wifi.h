@@ -308,6 +308,12 @@ bb_err_t bb_wifi_get_gateway_status(bb_wifi_gw_status_t *out);
 // Registry hook — starts the dedicated gateway-probe worker task.
 // bbtool:init tier=pre_http fn=bb_wifi_gw_probe_start
 bb_err_t bb_wifi_gw_probe_start(void);
+#else
+// No-op stub when the gateway-probe worker is compiled out (default) --
+// codegen's `// bbtool:init` marker scan has no preprocessor awareness
+// (grep-time, see wire_parse.py), so bb_app_init.c unconditionally calls
+// this fn; mirrors the bb_cache.h Kconfig-bridge stub pattern.
+static inline bb_err_t bb_wifi_gw_probe_start(void) { return BB_OK; }
 #endif /* CONFIG_BB_WIFI_GW_PROBE_ENABLE */
 
 // bb_wifi_emit_section / bb_wifi_emit_status (bb_json_t-based JSON emitters)
