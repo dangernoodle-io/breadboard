@@ -194,7 +194,7 @@ bb_err_t bb_nv_batch_set_u32(bb_nv_batch_t *batch, const char *key, uint32_t val
 bb_err_t bb_nv_batch_set_str(bb_nv_batch_t *batch, const char *key, const char *value);
 bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch);
 
-#if CONFIG_BB_NV_FACTORY_RESET
+#if defined(CONFIG_BB_NV_FACTORY_RESET) && CONFIG_BB_NV_FACTORY_RESET
 /// Registry hook — registers POST /api/factory-reset.
 // bbtool:init tier=regular fn=bb_nv_factory_reset_routes_init server=true
 bb_err_t bb_nv_factory_reset_routes_init(bb_http_handle_t server);
@@ -208,7 +208,7 @@ static inline bb_err_t bb_nv_factory_reset_routes_init(bb_http_handle_t server)
     (void)server;
     return BB_OK;
 }
-#endif /* CONFIG_BB_NV_FACTORY_RESET */
+#endif /* defined(CONFIG_BB_NV_FACTORY_RESET) && CONFIG_BB_NV_FACTORY_RESET */
 
 #ifdef BB_NV_FACTORY_RESET_TESTING
 /// Expose the factory-reset route handler for host unit tests.

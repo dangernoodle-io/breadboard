@@ -116,11 +116,6 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_PUB_AUTOREGISTER",
-      "path": "components/bb_pub/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_SINK_EVENT_AUTOREGISTER",
       "path": "components/bb_sink_event/Kconfig",
       "type": "autoregister_kconfig"
@@ -133,11 +128,6 @@
     {
       "id": "BB_SYSTEM_ROUTES_AUTOREGISTER",
       "path": "components/bb_system/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_TELEMETRY_AUTOREGISTER",
-      "path": "components/bb_telemetry/Kconfig",
       "type": "autoregister_kconfig"
     },
     {

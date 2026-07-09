@@ -304,7 +304,7 @@ typedef struct {
 // bb_wifi_host_set_gateway_status (BB_WIFI_TESTING).
 bb_err_t bb_wifi_get_gateway_status(bb_wifi_gw_status_t *out);
 
-#if CONFIG_BB_WIFI_GW_PROBE_ENABLE
+#if defined(CONFIG_BB_WIFI_GW_PROBE_ENABLE) && CONFIG_BB_WIFI_GW_PROBE_ENABLE
 // Registry hook — starts the dedicated gateway-probe worker task.
 // bbtool:init tier=pre_http fn=bb_wifi_gw_probe_start
 bb_err_t bb_wifi_gw_probe_start(void);
@@ -314,7 +314,7 @@ bb_err_t bb_wifi_gw_probe_start(void);
 // (grep-time, see wire_parse.py), so bb_app_init.c unconditionally calls
 // this fn; mirrors the bb_cache.h Kconfig-bridge stub pattern.
 static inline bb_err_t bb_wifi_gw_probe_start(void) { return BB_OK; }
-#endif /* CONFIG_BB_WIFI_GW_PROBE_ENABLE */
+#endif /* defined(CONFIG_BB_WIFI_GW_PROBE_ENABLE) && CONFIG_BB_WIFI_GW_PROBE_ENABLE */
 
 // bb_wifi_emit_section / bb_wifi_emit_status (bb_json_t-based JSON emitters)
 // moved to bb_wifi_http.h (PR1, KB 781) — bb_wifi's public header no longer
