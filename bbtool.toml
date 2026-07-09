@@ -90,10 +90,15 @@ allow = []
 [docs]
 repo_url = "https://github.com/dangernoodle-io/breadboard"
 wiki_base = "https://github.com/dangernoodle-io/breadboard/wiki"
+# Global extra links, applied to every component README's generated Links
+# section (merged with the component's own wiki_base/components/<name> link
+# and any [docs.component_links] entries below, deduplicated by URL).
+links = ["https://github.com/dangernoodle-io/breadboard/wiki/Component-Docs"]
 
-[docs.badges]
-build = "https://github.com/dangernoodle-io/breadboard/actions/workflows/build.yml/badge.svg"
-coverage = "https://coveralls.io/repos/github/dangernoodle-io/breadboard/badge.svg?branch=main"
+# Per-component extra links, keyed by component name -> list of URLs.
+# Only entries for components that opt in need appear here.
+[docs.component_links]
+bb_filter = ["https://github.com/dangernoodle-io/breadboard/wiki/bb_filter-pressure-shed"]
 
 [plugins]
 paths = []

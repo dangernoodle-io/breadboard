@@ -19,9 +19,9 @@ None.
 ## Dependencies
 
 <!-- BEGIN bbtool:deps -->
-**REQUIRES:** `bb_core`
-
-**PRIV_REQUIRES:** _(none)_
+| Component | Kind | Role | Docs |
+|-----------|------|------|------|
+| `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support

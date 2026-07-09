@@ -323,8 +323,8 @@ python3 scripts/bbtool.py docs scaffold bb_foo
 Stamps `templates/component-readme.md` into `components/<component>/README.md`,
 substitutes tokens, then immediately runs the same marker-region generation as
 `docs gen` over the fresh file — a scaffolded README lands fully populated
-(deps/platform sections filled in) in one shot, no separate `docs gen` call
-needed.
+(brief/api/deps/platform/links/wiring sections filled in) in one shot, no
+separate `docs gen` call needed.
 
 **Never overwrites.** If `components/<component>/README.md` already exists,
 `docs scaffold` errors loudly to stderr and exits non-zero without touching
@@ -336,35 +336,43 @@ the file.
 |-------|--------|-------|
 | `{{component}}` | the `<component>` argument | e.g. `bb_foo` |
 | `{{prefix}}` | derived from `{{component}}` | text before the first `_`, e.g. `bb` |
-| `{{repo_url}}`, `{{wiki_base}}`, `{{badges_row}}` | `[docs]` config block | only inside the optional `badges` region — see below |
 
-**Optional-region mechanism.** The template's badge/links section is wrapped
-in `<!-- bbtool:optional:badges --> ... <!-- /bbtool:optional:badges -->`. The
-substitution engine (`scripts/bbtool/templating.py`, stdlib-only — no Jinja)
-drops that entire region, markers included, when the backing vars are unset;
-otherwise it keeps the body and substitutes its tokens. This keeps scaffold
-output shape-compatible with hand-authored READMEs that have no doc-site
-links at all — no dangling `{{}}` tokens or empty markers either way.
+The template has no optional token-substituted regions left — the Links
+section (repo URL / wiki links) is now a `bbtool:links` marker region,
+populated by the same `docs gen` pass as `brief`/`api`/`deps`/`platform`/
+`wiring` (below), from `[docs]` config regardless of whether it is set (an
+absent `[docs]` block renders `_(no links configured)_` rather than omitting
+the section).
 
 ### `[docs]` config block (`bbtool.toml`)
 
-Optional. Absent ⇒ `docs scaffold` omits the badges/links region entirely.
+Optional. Absent ⇒ the generated Links section renders `_(no links
+configured)_` and the deps table's per-dep "Role"/"Docs" cells fall back to
+"—" / the components index for deps with no README.
 
 ```toml
 [docs]
 repo_url = "https://github.com/<org>/<repo>"
 wiki_base = "https://github.com/<org>/<repo>/wiki"
+links = ["https://github.com/<org>/<repo>/wiki/Component-Docs"]
 
-[docs.badges]
-build = "https://github.com/<org>/<repo>/actions/workflows/build.yml/badge.svg"
-coverage = "https://coveralls.io/repos/github/<org>/<repo>/badge.svg?branch=main"
+[docs.component_links]
+bb_foo = ["https://github.com/<org>/<repo>/wiki/foo-notes"]
 ```
 
 | Key | Type | Meaning |
 |-----|------|---------|
-| `repo_url` | string | Repository URL; also the link target for every badge |
-| `wiki_base` | string | Wiki base URL |
-| `[docs.badges]` | table of string→string | Badge name → badge image URL; rendered sorted by name |
+| `repo_url` | string | Repository URL; rendered as a "Repository:" link in every component README's generated Links section |
+| `wiki_base` | string | Wiki base URL. Also the source of each component's own primary wiki link, derived as `<wiki_base>/components/<name>` (the wiki `components/` subdir convention) — there is no per-component C-header doc-link annotation channel in this codebase |
+| `links` | list of strings | Global extra links, applied to every component README's Links section |
+| `[docs.component_links]` | table of string→list of strings | Component name → extra links for that component only |
+
+The generated Links section merges, in order, the component's own
+`wiki_base/components/<name>` link, `[docs].links` (global), then
+`[docs.component_links].<name>` (per-component) — deduplicated by URL, first
+occurrence wins. Badges are not part of component README generation
+(top-level project README badges are hand-authored, out of scope for
+`bbtool docs`).
 
 **Marker convention (terraform-docs style).** `docs gen` only rewrites the
 text strictly between a `<!-- BEGIN bbtool:<key> -->` / `<!-- END
@@ -375,12 +383,16 @@ scaffolds a README for a component that doesn't have one — component READMEs
 are hand-authored from birth (see `CLAUDE.md`); `docs gen` only fills in the
 generated regions of READMEs that already opt in.
 
-Two marker keys are generated today:
+Six marker keys are generated today:
 
 | Key | Source | Renders |
 |-----|--------|---------|
-| `deps` | `components/<name>/CMakeLists.txt`'s `idf_component_register(...)` `REQUIRES` / `PRIV_REQUIRES` args | Sorted `REQUIRES` / `PRIV_REQUIRES` lists |
+| `brief` | The component's primary public header's FIRST Doxygen `@brief` (`components/<name>/include/<name>.h`, via `header_annot.extract_brief`) | The component's one-line purpose prose |
+| `api` | `components/<name>/include/*.h` | A linked list of public headers, plus a line naming the component's `<prefix>_` symbol prefix |
+| `deps` | `components/<name>/CMakeLists.txt`'s `idf_component_register(...)` `REQUIRES` + `PRIV_REQUIRES` args (direct deps only, no transitive walk) | A `Component \| Kind \| Role \| Docs` table, sorted, one row per dep — "Role" is the dep's own README first sentence (or "—"), "Docs" links to the dep's own `README.md` (or falls back to `components/README.md`) |
 | `platform` | Presence of `platform/{host,espidf,arduino}/<name>/` directories | A host/espidf/arduino yes/no matrix |
+| `links` | `[docs].wiki_base` (self link) + `[docs].links` (global) + `[docs.component_links].<name>` (per-component), plus `[docs].repo_url` | A deduplicated bullet list of links |
+| `wiring` | The component name | A one-line pointer to the wiki's "use in your project" guide for this component |
 
 **Config knobs stays hand-authored.** Kconfig-driven generation for this
 section is a later fork (parsing `Kconfig` files is explicitly out of scope

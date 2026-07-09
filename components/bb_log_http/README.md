@@ -28,9 +28,11 @@ still referencing it via sdkconfig; unused.
 ## Dependencies
 
 <!-- BEGIN bbtool:deps -->
-**REQUIRES:** _(none)_
-
-**PRIV_REQUIRES:** `bb_http_server`, `bb_init`, `bb_log`
+| Component | Kind | Role | Docs |
+|-----------|------|------|------|
+| `bb_http_server` | private | — | [bb_http_server](../README.md) |
+| `bb_init` | private | — | [bb_init](../README.md) |
+| `bb_log` | private | — | [bb_log](../README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support

@@ -67,9 +67,11 @@ line is just heap + bss.
 ## Dependencies
 
 <!-- BEGIN bbtool:deps -->
-**REQUIRES:** `bb_core`, `bb_mem_arena`
-
-**PRIV_REQUIRES:** `bb_registry`
+| Component | Kind | Role | Docs |
+|-----------|------|------|------|
+| `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
+| `bb_mem_arena` | public | — | [bb_mem_arena](../README.md) |
+| `bb_registry` | private | — | [bb_registry](../README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support

@@ -1,5 +1,12 @@
 #pragma once
 
+/**
+ * @brief Foundational, near-zero-dep primitives every bb_* component builds
+ * on: the portable error type, the canonical clock, run-exactly-once, a
+ * contention-instrumented lock, byte-order helpers, memory accounting, and
+ * the reboot-reason codec.
+ */
+
 // Foundational workspace types: error codes + opaque HTTP handles.
 // Every bb_* component REQUIRES bb_core for these types.
 

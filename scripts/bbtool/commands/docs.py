@@ -2,9 +2,9 @@
 
 Subcommands:
     bbtool docs gen               Regenerate + write the GENERATED marker
-                                  regions (deps, platform) in every
-                                  components/<name>/README.md that already
-                                  contains them.
+                                  regions (deps, platform, links, wiring) in
+                                  every components/<name>/README.md that
+                                  already contains them.
     bbtool docs scaffold <name>   Stamp scripts/bbtool/templates/component-readme.md
                                   into components/<name>/README.md (error, never
                                   overwrite, if it already exists), substitute
@@ -29,8 +29,40 @@ in the generated regions of READMEs that already opt in. `docs scaffold` is
 the separate, explicit opt-in path for creating a new one.
 
 Generated regions today:
-  - deps     — REQUIRES / PRIV_REQUIRES parsed from components/<name>/CMakeLists.txt
+  - brief    — the component's one-line purpose, sourced from the FIRST
+               Doxygen `@brief` in its primary public header
+               (components/<name>/include/<name>.h) via header_annot.extract_brief.
+               This is the ONE header-annotation channel this generator reads
+               for prose; there is no `@wiki` tag. A README carrying a
+               `bbtool:brief` marker whose header has no `@brief` is a hard
+               error (fail loud, never silently blank).
+  - api      — a linked list of every public header under
+               components/<name>/include/*.h, plus a line naming the
+               component's `<prefix>_` symbol prefix.
+  - deps     — a `Component | Kind | Role | Docs` table over the DIRECT
+               (non-transitive) REQUIRES + PRIV_REQUIRES parsed from
+               components/<name>/CMakeLists.txt via cmake_parse.parse_requires.
+               "Kind" is "public" (from REQUIRES) or "private" (from
+               PRIV_REQUIRES only); a dep in both is "public" (public wins).
+               "Docs" links to the dep's own README.md when
+               components/<dep>/ exists in this repo; external SDK deps
+               (esp_timer, freertos, ...) render as plain text with role "—"
+               and no link. "Role" is the first sentence of the dep's own
+               README brief when it has one, else "—" — marker-comment lines
+               are skipped when hunting for that first prose line, so a
+               converted dep's `bbtool:brief` marker text never leaks in.
   - platform — presence matrix over platform/{host,espidf,arduino}/<name>/
+  - links    — merged Links section: the component's own wiki page (derived
+               from `[docs].wiki_base` + the wiki `components/` subdir
+               convention — see rules/docs.md) + `[docs].links` (global,
+               applied to every component) + `[docs.component_links]`
+               (per-component, keyed by component name), deduplicated by URL,
+               order preserved.
+  - wiring   — a single pointer line to the wiki's "use in your project"
+               guide for this component, as an ABSOLUTE `[docs].wiki_base`
+               URL (repo-relative `../../wiki/...` 404s cross-repo); degrades
+               to plain text (no link) when wiki_base is unset. The wiki page
+               itself is a separate, non-generated deliverable.
 
 Determinism is load-bearing: sorted lists, no dict/set iteration-order leaks,
 no timestamps, no absolute paths, normalized trailing newline. A second `gen`
@@ -56,6 +88,7 @@ from cmake_parse import (
     parse_requires as _parse_requires,
     strip_cmake_comments as _strip_cmake_comments,
 )
+from header_annot import extract_brief as _extract_brief, primary_header as _primary_header
 
 NAME = "docs"
 HELP = "Regenerate generated marker regions in component READMEs"
@@ -66,10 +99,117 @@ HELP = "Regenerate generated marker regions in component READMEs"
 # ---------------------------------------------------------------------------
 
 
-def _render_deps(requires: List[str], priv_requires: List[str]) -> str:
-    req_txt = ", ".join(f"`{r}`" for r in requires) if requires else "_(none)_"
-    priv_txt = ", ".join(f"`{r}`" for r in priv_requires) if priv_requires else "_(none)_"
-    return f"**REQUIRES:** {req_txt}\n\n**PRIV_REQUIRES:** {priv_txt}"
+_COMMENT_LINE_RE = re.compile(r'^\s*<!--.*-->\s*$')
+
+
+def _extract_first_sentence(readme_path: Path) -> str:
+    """Pull the first sentence of a component README's one-line brief (the
+    first non-blank, non-marker prose line after the title). Mirrors
+    scripts/gen_components_readme.py's `extract_purpose` line-finding, then
+    additionally trims to the first `.`/`!`/`?`-terminated sentence. Blank
+    lines and bare `<!-- ... -->` marker lines (e.g. `bbtool:brief`
+    BEGIN/END lines) are skipped, so a converted dep's marker delimiters
+    never leak into a dependent's Role cell — after conversion, the brief
+    region's BODY (the first line following the marker) is the correct
+    prose to use. Returns "—" (em dash) if the README has no such line."""
+    lines = readme_path.read_text(encoding="utf-8").splitlines()
+    idx = 0
+    n = len(lines)
+
+    def _skip_noise(i: int) -> int:
+        while i < n and (not lines[i].strip() or _COMMENT_LINE_RE.match(lines[i])):
+            i += 1
+        return i
+
+    idx = _skip_noise(idx)
+    if idx < n and lines[idx].lstrip().startswith("#"):
+        idx += 1
+    idx = _skip_noise(idx)
+    if idx >= n or not lines[idx].strip():
+        return "—"
+    brief = lines[idx].strip()
+    m = _SENTENCE_RE.match(brief)
+    return m.group(1) if m else brief
+
+
+_SENTENCE_RE = re.compile(r'(.+?[.!?])(?=\s+[A-Z]|\s*$)')
+
+
+def _dep_role_and_link(root: Path, dep: str) -> Tuple[str, Optional[str]]:
+    """Return (role, docs_link) for one direct dependency `dep` of the
+    component being rendered. `role` is the dep's own README first sentence,
+    or "—" when the dep has no README. `docs_link` points at the dep's own
+    README.md when `components/<dep>/` exists in this repo; falls back to
+    the generated components/ index (components/README.md) for a local
+    component that has no README yet; is None for an external SDK
+    dependency (e.g. esp_timer, freertos) that has no components/<dep>/ dir
+    at all — the caller renders that as plain text, no link."""
+    dep_dir = root / "components" / dep
+    if not dep_dir.is_dir():
+        return "—", None
+    dep_readme = dep_dir / "README.md"
+    if not dep_readme.is_file():
+        return "—", "../README.md"
+    return _extract_first_sentence(dep_readme), f"../{dep}/README.md"
+
+
+def _render_deps(root: Path, name: str, requires: List[str], priv_requires: List[str]) -> str:
+    """Render the Dependencies table: one row per DIRECT dep in this
+    component's REQUIRES + PRIV_REQUIRES (scoped to direct deps only — no
+    transitive walk), sorted, deduplicated. "Kind" is "public" when the dep
+    is in REQUIRES (a dep in both REQUIRES and PRIV_REQUIRES is "public" —
+    public wins), else "private" (PRIV_REQUIRES only)."""
+    requires_set = set(requires)
+    deps = sorted(requires_set | set(priv_requires))
+    if not deps:
+        return "_(none)_"
+    lines = ["| Component | Kind | Role | Docs |", "|-----------|------|------|------|"]
+    for dep in deps:
+        kind = "public" if dep in requires_set else "private"
+        role, link = _dep_role_and_link(root, dep)
+        role = role.replace("|", "\\|")
+        docs_cell = f"[{dep}]({link})" if link else dep
+        lines.append(f"| `{dep}` | {kind} | {role} | {docs_cell} |")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Public API region — linked list of headers under components/<name>/include/
+# ---------------------------------------------------------------------------
+
+def _render_api(root: Path, name: str) -> str:
+    """Render the Public API region: a linked list of every public header
+    under components/<name>/include/*.h, sorted, followed by a line naming
+    the component's symbol prefix."""
+    include_dir = root / "components" / name / "include"
+    headers = sorted(p.name for p in include_dir.glob("*.h")) if include_dir.is_dir() else []
+    prefix = _component_prefix(name)
+    lines = [f"- [`{h}`](include/{h})" for h in headers]
+    if lines:
+        lines.append("")
+    lines.append(f"Public symbols use the `{prefix}_` prefix.")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Brief region — sourced from the primary public header's Doxygen @brief
+# ---------------------------------------------------------------------------
+
+class DocsGenError(Exception):
+    """Raised when a README carries a `bbtool:brief` marker but its primary
+    public header has no `@brief` tag — fail loud rather than emit a blank
+    or stale brief region."""
+
+
+def _render_brief(root: Path, name: str) -> str:
+    header = _primary_header(root, name)
+    brief = _extract_brief(header)
+    if brief is None:
+        raise DocsGenError(
+            f"components/{name}/README.md has a bbtool:brief marker but "
+            f"{header} has no @brief tag"
+        )
+    return brief
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +228,73 @@ def _render_platform(matrix: Dict[str, bool]) -> str:
     row = " | ".join("yes" if matrix[p] else "no" for p in _PLATFORMS)
     lines.append(f"| {row} |")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Links — self wiki link + two-tier [docs] extra links, merged + deduplicated
+# ---------------------------------------------------------------------------
+
+def _self_wiki_link(wiki_base: str, component: str) -> Optional[str]:
+    """Derive a component's own primary wiki link. The only header
+    annotation channel this generator reads is Doxygen `@brief` (prose,
+    via header_annot.extract_brief) — there is no per-component wiki-link
+    header annotation. Instead this deterministically derives the link from
+    `[docs].wiki_base` + the wiki's `components/<name>` subdir convention
+    (see rules/docs.md's "conceptual/architectural docs -> wiki
+    components/ subdir" routing). Returns None when wiki_base is unset."""
+    if not wiki_base:
+        return None
+    return f"{wiki_base.rstrip('/')}/components/{component}"
+
+
+def _dedupe_links(*groups: List[str]) -> List[str]:
+    """Merge link lists in the given order, deduplicated by URL, first
+    occurrence wins (order preserved) — determinism per module docstring."""
+    seen: set = set()
+    out: List[str] = []
+    for group in groups:
+        for url in group:
+            if url and url not in seen:
+                seen.add(url)
+                out.append(url)
+    return out
+
+
+def _render_links(config: dict, component: str) -> str:
+    """Render the merged Links section: self wiki link + `[docs].links`
+    (global) + `[docs.component_links]` (per-component), deduplicated."""
+    docs_cfg = _load_docs_config(config) or {}
+    repo_url = docs_cfg.get("repo_url", "")
+    wiki_base = docs_cfg.get("wiki_base", "")
+    global_links = list(docs_cfg.get("links", []) or [])
+    component_links = list((docs_cfg.get("component_links", {}) or {}).get(component, []))
+
+    self_link = _self_wiki_link(wiki_base, component)
+    merged = _dedupe_links([self_link] if self_link else [], global_links, component_links)
+
+    lines: List[str] = []
+    if repo_url:
+        lines.append(f"- Repository: [{repo_url}]({repo_url})")
+    for url in merged:
+        lines.append(f"- [{url}]({url})")
+    return "\n".join(lines) if lines else "_(no links configured)_"
+
+
+# ---------------------------------------------------------------------------
+# Use-in-your-project pointer — wiring guidance lives in the wiki, not here
+# ---------------------------------------------------------------------------
+
+def _render_wiring(config: dict, component: str) -> str:
+    """Render an ABSOLUTE `[docs].wiki_base`-derived pointer to the wiki's
+    "use in your project" guide for this component (a repo-relative
+    `../../wiki/...` link 404s when the README is viewed cross-repo).
+    Degrades to plain text (no link) when wiki_base is unset."""
+    docs_cfg = _load_docs_config(config) or {}
+    wiki_base = docs_cfg.get("wiki_base", "")
+    link = _self_wiki_link(wiki_base, component)
+    if link is None:
+        return "Use in your project → wiring guide (no `[docs].wiki_base` configured)."
+    return f"Use in your project → [wiring guide]({link}#use)."
 
 
 # ---------------------------------------------------------------------------
@@ -146,9 +353,12 @@ def _rewrite_markers(content: str, generators: Dict[str, Callable[[], str]],
     return new_content
 
 
-def _gen_component_readme(root: Path, name: str) -> Tuple[Path, bool]:
+def _gen_component_readme(root: Path, name: str, config: Optional[dict] = None) -> Tuple[Path, bool]:
     """Regenerate marker regions in components/<name>/README.md in place.
-    Returns (path, changed)."""
+    `config` is the parsed bbtool.toml dict (only its `[docs]` block matters
+    here, for the links region); defaults to {} when omitted. Returns
+    (path, changed)."""
+    config = config or {}
     readme_path = root / "components" / name / "README.md"
     content = readme_path.read_text(encoding="utf-8")
 
@@ -158,8 +368,12 @@ def _gen_component_readme(root: Path, name: str) -> Tuple[Path, bool]:
     matrix = _platform_matrix(root, name)
 
     generators: Dict[str, Callable[[], str]] = {
-        "deps": lambda: _render_deps(requires, priv_requires),
+        "brief": lambda: _render_brief(root, name),
+        "api": lambda: _render_api(root, name),
+        "deps": lambda: _render_deps(root, name, requires, priv_requires),
         "platform": lambda: _render_platform(matrix),
+        "links": lambda: _render_links(config, name),
+        "wiring": lambda: _render_wiring(config, name),
     }
 
     new_content = _rewrite_markers(content, generators, source=str(readme_path))
@@ -169,7 +383,7 @@ def _gen_component_readme(root: Path, name: str) -> Tuple[Path, bool]:
     return readme_path, changed
 
 
-def gen_all(root: str) -> List[Tuple[Path, bool]]:
+def gen_all(root: str, config: Optional[dict] = None) -> List[Tuple[Path, bool]]:
     """Regenerate marker regions in every components/*/README.md that has one.
     Components without a README.md are untouched — this command never creates
     or scaffolds a README. Returns [(path, changed), ...], sorted by name."""
@@ -184,12 +398,16 @@ def gen_all(root: str) -> List[Tuple[Path, bool]]:
         readme = child / "README.md"
         if not readme.is_file():
             continue
-        results.append(_gen_component_readme(root_p, child.name))
+        results.append(_gen_component_readme(root_p, child.name, config))
     return results
 
 
-def _cmd_gen(root: str) -> int:
-    results = gen_all(root)
+def _cmd_gen(root: str, config: Optional[dict] = None) -> int:
+    try:
+        results = gen_all(root, config)
+    except DocsGenError as e:
+        print(f"bbtool docs gen: error: {e}", file=sys.stderr)
+        return 1
     for path, changed in results:
         status = "updated" if changed else "unchanged"
         print(f"bbtool docs gen: {path} ({status})")
@@ -222,16 +440,6 @@ def _component_prefix(component: str) -> str:
     return stripped.split("_", 1)[0] if "_" in stripped else stripped
 
 
-def _render_badges_row(repo_url: str, badges: Dict[str, str]) -> str:
-    """Render a markdown badge row from a name->image-url map, sorted by name
-    for determinism. Each badge links to repo_url."""
-    if not badges:
-        return ""
-    return " ".join(
-        f"[![{name}]({url})]({repo_url})" for name, url in sorted(badges.items())
-    )
-
-
 def scaffold_component(root: str, component: str, config: dict) -> Path:
     """Stamp templates/component-readme.md into components/<component>/README.md,
     substituting tokens, then run marker-region generation over the fresh file
@@ -240,6 +448,8 @@ def scaffold_component(root: str, component: str, config: dict) -> Path:
     Raises FileExistsError if the README already exists — this function must
     NEVER overwrite an existing README.
     Raises RuntimeError if the rendered output still has dangling {{tokens}}.
+    Raises DocsGenError if the component's primary public header has no
+    `@brief` tag (the template's brief region is a bbtool:brief marker).
     """
     root_p = Path(root)
     readme_path = root_p / "components" / component / "README.md"
@@ -253,39 +463,11 @@ def scaffold_component(root: str, component: str, config: dict) -> Path:
         "prefix": _component_prefix(component),
     }
 
-    optional_vars: Dict[str, Optional[Dict[str, str]]] = {"badges": None}
-    docs_cfg = _load_docs_config(config)
-    repo_url = ""
-    wiki_base = ""
-    if docs_cfg:
-        repo_url = docs_cfg.get("repo_url", "")
-        wiki_base = docs_cfg.get("wiki_base", "")
-        badges = docs_cfg.get("badges", {}) or {}
-        optional_vars["badges"] = {
-            "repo_url": repo_url,
-            "wiki_base": wiki_base,
-            "badges_row": _render_badges_row(repo_url, badges),
-        }
-
-    rendered = render(template_text, vars, optional_vars)
-
-    if docs_cfg:
-        # Each link line is independently conditional on its own token being
-        # present — a partial [docs] config (only one of repo_url/wiki_base
-        # set) must omit the missing line entirely rather than emit a broken
-        # `[]()` link.
-        if not repo_url:
-            rendered = re.sub(r'^- Repository:.*\n?', "", rendered, flags=re.MULTILINE)
-        if not wiki_base:
-            rendered = re.sub(r'^- Wiki:.*\n?', "", rendered, flags=re.MULTILINE)
-        # An empty badges row (or a dropped link line above) can leave a
-        # doubled blank line under the "Links" heading — collapse it.
-        # NOTE: this collapse is global over the rendered template and is safe
-        # only because the template contains no intentional triple-newline and
-        # this runs before marker population — a future multi-paragraph
-        # template with deliberate blank-line spacing would need a Links-scoped
-        # collapse instead.
-        rendered = re.sub(r'\n{3,}', "\n\n", rendered)
+    # No optional regions left in the template — repo_url/wiki_base/badges
+    # all moved into the marker-generated "links" region (below), populated
+    # by _gen_component_readme from `config` regardless of whether [docs] is
+    # set (an absent [docs] block just renders "_(no links configured)_").
+    rendered = render(template_text, vars)
 
     dangling = find_dangling_tokens(rendered)
     if dangling:
@@ -295,7 +477,7 @@ def scaffold_component(root: str, component: str, config: dict) -> Path:
     readme_path.write_text(rendered, encoding="utf-8")
 
     # Populate the freshly-stamped marker regions in the same pass.
-    _gen_component_readme(root_p, component)
+    _gen_component_readme(root_p, component, config)
     return readme_path
 
 
@@ -308,6 +490,9 @@ def _cmd_scaffold(root: str, component: str, config: dict) -> int:
     except RuntimeError as e:
         print(f"bbtool docs scaffold: error: {e}", file=sys.stderr)
         return 1
+    except DocsGenError as e:
+        print(f"bbtool docs scaffold: error: {e}", file=sys.stderr)
+        return 1
     print(f"bbtool docs scaffold: {path} (created)")
     return 0
 
@@ -316,10 +501,17 @@ def _cmd_scaffold(root: str, component: str, config: dict) -> int:
 # Lint rule: component-readme (doc-completeness)
 # ---------------------------------------------------------------------------
 
+_BRIEF_MARKER_RE = re.compile(r'<!-- BEGIN bbtool:brief -->')
+
+
 def _check_component_readme(ctx: Context) -> list:
     """Rule: component-readme — flags components/<name>/ directories with no
-    README.md. Fires broadly on the undocumented components today by
-    design (severity stays "warn" until the fill lands — B1-646)."""
+    README.md (fires broadly on the undocumented components today by
+    design; severity stays "warn" until the fill lands — B1-646), and ALSO
+    flags a README that carries a `bbtool:brief` marker whose primary
+    public header has no `@brief` tag (same "warn" severity — `docs gen`
+    itself fails loud/hard on this case; the lint surfaces it ahead of a
+    `make check` run)."""
     violations = []
     root = Path(ctx.root)
     comp_root = root / "components"
@@ -333,6 +525,18 @@ def _check_component_readme(ctx: Context) -> list:
             violations.append(
                 ctx.violation(child, 1, f"components/{child.name}/ has no README.md")
             )
+            continue
+        content = ctx.read(readme)
+        if _BRIEF_MARKER_RE.search(content):
+            header = _primary_header(root, child.name)
+            if _extract_brief(header) is None:
+                violations.append(
+                    ctx.violation(
+                        readme, 1,
+                        f"components/{child.name}/README.md has a bbtool:brief"
+                        f" marker but {header} has no @brief tag",
+                    )
+                )
     return violations
 
 
@@ -388,7 +592,8 @@ def run(args: argparse.Namespace) -> int:
     root = os.path.abspath(root)
 
     if args.action == "gen":
-        return _cmd_gen(root)
+        config = getattr(args, "_config_dict", None) or {}
+        return _cmd_gen(root, config)
     if args.action == "scaffold":
         if not args.component:
             print("bbtool docs scaffold: error: component name required", file=sys.stderr)

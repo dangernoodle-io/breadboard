@@ -26,9 +26,10 @@ None — this component has no Kconfig options and no compile-time capacity knob
 ## Dependencies
 
 <!-- BEGIN bbtool:deps -->
-**REQUIRES:** `bb_core`, `bb_storage`
-
-**PRIV_REQUIRES:** _(none)_
+| Component | Kind | Role | Docs |
+|-----------|------|------|------|
+| `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
+| `bb_storage` | public | Portable storage facade + backend registry: one `bb_storage_get/set/erase/exists` API dispatching by `bb_storage_addr_t.backend` to whichever backend has registered itself. | [bb_storage](../bb_storage/README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support
