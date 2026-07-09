@@ -390,7 +390,9 @@ bb_http_handle_t bb_http_autostart_init(void)
 #if defined(CONFIG_BB_HTTP_AUTOSTART) && CONFIG_BB_HTTP_AUTOSTART
     if (!bb_http_server_get_handle()) {
         esp_err_t err = bb_http_server_start();
-        (void)err;
+        if (err != ESP_OK) {
+            bb_log_e(TAG, "autostart: failed to start HTTP server: %s", esp_err_to_name(err));
+        }
     }
 #endif
     return bb_http_server_get_handle();

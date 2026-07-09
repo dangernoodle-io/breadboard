@@ -13,10 +13,16 @@
 //      the bb_init self-registration walker is retired from this entry
 //      point (bb_init_init_early() is no longer called); generated/
 //      bb_app_init.c must exist (`make smoke-codegen`) for this to link.
-//   2. bb_app_init()       — PRE_HTTP tier, HTTP autostart (the
+//      Call this EXACTLY ONCE -- bb_app_init() below is early+rest combined
+//      (bb_app_init_early() + bb_app_init_rest()), so calling both
+//      bb_app_init_early() and bb_app_init() here would double-fire every
+//      EARLY-tier fn (bb_nv_flash_init, bb_nv_config_init,
+//      bb_wifi_autoinit, ...).
+//   2. bb_app_init_rest()  — PRE_HTTP tier, HTTP autostart (the
 //      provides=http_server marker on bb_http_autostart_init), then the
 //      REGULAR route-registration tier -- same composition bb_init_init()
-//      used to drive, now generated instead of self-registered.
+//      used to drive, now generated instead of self-registered. Calls only
+//      the non-EARLY tiers (EARLY already ran in step 1).
 //   3. smoke_app_setup()        — app-level setup (LED, button, /ping, events).
 //
 // smoke_app_setup() no longer calls bb_wifi_init_sta() or bb_http_server_start()
@@ -52,7 +58,7 @@ void app_main(void)
 #ifdef BB_HAVE_DISPLAY_INFO
     bb_display_register_info();
 #endif
-    bb_app_init();
+    bb_app_init_rest();
     smoke_app_setup();
     bb_log_i(TAG, "smoke boot ok");
     while (1) {
