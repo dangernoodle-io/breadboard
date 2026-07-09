@@ -110,15 +110,15 @@ void test_bb_wifi_disconnect_rssi_test_hook_roundtrip(void)
 void test_bb_wifi_reason_histogram_inject_top_reason(void)
 {
 #ifdef BB_WIFI_TESTING
-    uint16_t h[256];
+    uint16_t h[BB_WIFI_DISC_COUNT];
     memset(h, 0, sizeof(h));
-    h[3] = 5; // reason 3, count 5
-    bb_wifi_test_set_reason_histogram(h, 256);
+    h[BB_WIFI_DISC_HANDSHAKE_TIMEOUT] = 5;
+    bb_wifi_test_set_reason_histogram(h, BB_WIFI_DISC_COUNT);
 
-    uint16_t out[256];
-    bb_wifi_get_reason_histogram(out, 256);
-    TEST_ASSERT_EQUAL_UINT16(5, out[3]);
-    TEST_ASSERT_EQUAL_UINT16(0, out[99]);
+    uint16_t out[BB_WIFI_DISC_COUNT];
+    bb_wifi_get_reason_histogram(out, BB_WIFI_DISC_COUNT);
+    TEST_ASSERT_EQUAL_UINT16(5, out[BB_WIFI_DISC_HANDSHAKE_TIMEOUT]);
+    TEST_ASSERT_EQUAL_UINT16(0, out[BB_WIFI_DISC_BB_LOST_IP]);
 
     // clean up
     bb_wifi_test_set_reason_histogram(NULL, 0);
@@ -132,10 +132,10 @@ void test_bb_wifi_reason_histogram_inject_top_reason(void)
 // Host stub zeroes all buckets.
 void test_bb_wifi_reason_histogram_host_returns_zeros(void)
 {
-    uint16_t hist[256];
+    uint16_t hist[BB_WIFI_DISC_COUNT];
     memset(hist, 0xFF, sizeof(hist));
-    bb_wifi_get_reason_histogram(hist, 256);
-    for (int i = 0; i < 256; i++) {
+    bb_wifi_get_reason_histogram(hist, BB_WIFI_DISC_COUNT);
+    for (int i = 0; i < BB_WIFI_DISC_COUNT; i++) {
         TEST_ASSERT_EQUAL_UINT16(0, hist[i]);
     }
 }
@@ -143,7 +143,7 @@ void test_bb_wifi_reason_histogram_host_returns_zeros(void)
 // NULL/zero-len calls must not crash.
 void test_bb_wifi_reason_histogram_null_safe(void)
 {
-    bb_wifi_get_reason_histogram(NULL, 256);
+    bb_wifi_get_reason_histogram(NULL, BB_WIFI_DISC_COUNT);
     bb_wifi_get_reason_histogram(NULL, 0);
     uint16_t buf[4];
     bb_wifi_get_reason_histogram(buf, 0);
@@ -156,32 +156,32 @@ void test_bb_wifi_reason_histogram_null_safe(void)
 // private wifi_hist_priv.h to bb_wifi's public API, finding #1/#2)
 // ---------------------------------------------------------------------------
 
-// Inject a non-zero standard reason alongside non-zero sentinel buckets;
-// the sentinels must be skipped and the standard reason reported as top.
+// Inject a non-zero standard reason alongside non-zero breadboard-injected
+// buckets; those must be skipped and the standard reason reported as top.
 void test_bb_wifi_reason_histogram_top_injected(void)
 {
-    uint16_t hist[256];
+    uint16_t hist[BB_WIFI_DISC_COUNT];
     memset(hist, 0, sizeof(hist));
-    hist[3]                                   = 5;   // standard reason, top
-    hist[BB_WIFI_REASON_BB_LOST_IP]           = 100; // sentinel — skipped
-    hist[BB_WIFI_REASON_BB_EGRESS_DEAD]       = 200; // sentinel — skipped
-    hist[BB_WIFI_REASON_BB_NO_IP_WATCHDOG]    = 300; // sentinel — skipped
+    hist[BB_WIFI_DISC_INACTIVITY]          = 5;   // standard reason, top
+    hist[BB_WIFI_REASON_BB_LOST_IP]        = 100; // breadboard-injected — skipped
+    hist[BB_WIFI_REASON_BB_EGRESS_DEAD]    = 200; // breadboard-injected — skipped
+    hist[BB_WIFI_REASON_BB_NO_IP_WATCHDOG] = 300; // breadboard-injected — skipped
 
     uint16_t top_count = 0;
-    uint8_t  top_code  = bb_wifi_reason_histogram_top(hist, &top_count);
-    TEST_ASSERT_EQUAL_UINT8(3, top_code);
+    bb_wifi_disc_reason_t top_code = bb_wifi_reason_histogram_top(hist, &top_count);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_INACTIVITY, top_code);
     TEST_ASSERT_EQUAL_UINT16(5, top_count);
 }
 
-// All-zero histogram reports code 0 / count 0.
+// All-zero histogram reports BB_WIFI_DISC_UNKNOWN / count 0.
 void test_bb_wifi_reason_histogram_top_all_zero(void)
 {
-    uint16_t hist[256];
+    uint16_t hist[BB_WIFI_DISC_COUNT];
     memset(hist, 0, sizeof(hist));
 
     uint16_t top_count = 1; // non-zero sentinel to prove it gets reset
-    uint8_t  top_code  = bb_wifi_reason_histogram_top(hist, &top_count);
-    TEST_ASSERT_EQUAL_UINT8(0, top_code);
+    bb_wifi_disc_reason_t top_code = bb_wifi_reason_histogram_top(hist, &top_count);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_UNKNOWN, top_code);
     TEST_ASSERT_EQUAL_UINT16(0, top_count);
 }
 
@@ -189,15 +189,15 @@ void test_bb_wifi_reason_histogram_top_all_zero(void)
 void test_bb_wifi_reason_histogram_top_null_safe(void)
 {
     uint16_t top_count = 99;
-    uint8_t  top_code  = bb_wifi_reason_histogram_top(NULL, &top_count);
-    TEST_ASSERT_EQUAL_UINT8(0, top_code);
+    bb_wifi_disc_reason_t top_code = bb_wifi_reason_histogram_top(NULL, &top_count);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_UNKNOWN, top_code);
     TEST_ASSERT_EQUAL_UINT16(0, top_count);
 
-    uint16_t hist[256];
+    uint16_t hist[BB_WIFI_DISC_COUNT];
     memset(hist, 0, sizeof(hist));
-    hist[5] = 1;
+    hist[BB_WIFI_DISC_NO_AP_FOUND] = 1;
     top_code = bb_wifi_reason_histogram_top(hist, NULL);
-    TEST_ASSERT_EQUAL_UINT8(5, top_code);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_NO_AP_FOUND, top_code);
 
     // reaching here without crash is success
     TEST_PASS();
@@ -308,57 +308,53 @@ void test_bb_wifi_last_session_s_test_hook_roundtrip(void)
 }
 
 // ---------------------------------------------------------------------------
-// wifi-drop-log PR: bb_wifi_disc_reason_str — every mapped reason + default.
+// KB 820 (bb_wifi reason contract, PR1): bb_wifi_disc_reason_str — every
+// enum member's label + an out-of-range default.
 // ---------------------------------------------------------------------------
 
-void test_bb_wifi_disc_reason_str_unknown_zero(void)
+void test_bb_wifi_disc_reason_str_unknown(void)
 {
-    TEST_ASSERT_EQUAL_STRING("unknown", bb_wifi_disc_reason_str(0));
+    TEST_ASSERT_EQUAL_STRING("unknown", bb_wifi_disc_reason_str(BB_WIFI_DISC_UNKNOWN));
 }
 
-void test_bb_wifi_disc_reason_str_auth_expire(void)
+void test_bb_wifi_disc_reason_str_auth_fail(void)
 {
-    TEST_ASSERT_EQUAL_STRING("auth_expire", bb_wifi_disc_reason_str(2));
-}
-
-void test_bb_wifi_disc_reason_str_auth_leave(void)
-{
-    TEST_ASSERT_EQUAL_STRING("auth_leave", bb_wifi_disc_reason_str(3));
-}
-
-void test_bb_wifi_disc_reason_str_disassoc_inactivity(void)
-{
-    TEST_ASSERT_EQUAL_STRING("disassoc_inactivity", bb_wifi_disc_reason_str(4));
-}
-
-void test_bb_wifi_disc_reason_str_4way_handshake_timeout(void)
-{
-    TEST_ASSERT_EQUAL_STRING("4way_handshake_timeout", bb_wifi_disc_reason_str(15));
-}
-
-void test_bb_wifi_disc_reason_str_beacon_timeout(void)
-{
-    TEST_ASSERT_EQUAL_STRING("beacon_timeout", bb_wifi_disc_reason_str(200));
-}
-
-void test_bb_wifi_disc_reason_str_no_ap_found(void)
-{
-    TEST_ASSERT_EQUAL_STRING("no_ap_found", bb_wifi_disc_reason_str(201));
+    TEST_ASSERT_EQUAL_STRING("auth_fail", bb_wifi_disc_reason_str(BB_WIFI_DISC_AUTH_FAIL));
 }
 
 void test_bb_wifi_disc_reason_str_assoc_fail(void)
 {
-    TEST_ASSERT_EQUAL_STRING("assoc_fail", bb_wifi_disc_reason_str(203));
+    TEST_ASSERT_EQUAL_STRING("assoc_fail", bb_wifi_disc_reason_str(BB_WIFI_DISC_ASSOC_FAIL));
 }
 
 void test_bb_wifi_disc_reason_str_handshake_timeout(void)
 {
-    TEST_ASSERT_EQUAL_STRING("handshake_timeout", bb_wifi_disc_reason_str(204));
+    TEST_ASSERT_EQUAL_STRING("handshake_timeout", bb_wifi_disc_reason_str(BB_WIFI_DISC_HANDSHAKE_TIMEOUT));
 }
 
-void test_bb_wifi_disc_reason_str_connection_fail(void)
+void test_bb_wifi_disc_reason_str_connection_lost(void)
 {
-    TEST_ASSERT_EQUAL_STRING("connection_fail", bb_wifi_disc_reason_str(205));
+    TEST_ASSERT_EQUAL_STRING("connection_lost", bb_wifi_disc_reason_str(BB_WIFI_DISC_CONNECTION_LOST));
+}
+
+void test_bb_wifi_disc_reason_str_no_ap_found(void)
+{
+    TEST_ASSERT_EQUAL_STRING("no_ap_found", bb_wifi_disc_reason_str(BB_WIFI_DISC_NO_AP_FOUND));
+}
+
+void test_bb_wifi_disc_reason_str_inactivity(void)
+{
+    TEST_ASSERT_EQUAL_STRING("inactivity", bb_wifi_disc_reason_str(BB_WIFI_DISC_INACTIVITY));
+}
+
+void test_bb_wifi_disc_reason_str_deauth(void)
+{
+    TEST_ASSERT_EQUAL_STRING("deauth", bb_wifi_disc_reason_str(BB_WIFI_DISC_DEAUTH));
+}
+
+void test_bb_wifi_disc_reason_str_beacon_timeout(void)
+{
+    TEST_ASSERT_EQUAL_STRING("beacon_timeout", bb_wifi_disc_reason_str(BB_WIFI_DISC_BEACON_TIMEOUT));
 }
 
 void test_bb_wifi_disc_reason_str_bb_lost_ip(void)
@@ -376,13 +372,91 @@ void test_bb_wifi_disc_reason_str_bb_no_ip_watchdog(void)
     TEST_ASSERT_EQUAL_STRING("bb_no_ip_watchdog", bb_wifi_disc_reason_str(BB_WIFI_REASON_BB_NO_IP_WATCHDOG));
 }
 
-// Unmapped reason code falls through to the default "other" arm — the
-// numeric code is already shown by every caller via reason=%u, so the
-// string need not carry it (also makes the function reentrant: every
-// return is a static literal, no shared mutable buffer).
-void test_bb_wifi_disc_reason_str_default_unmapped(void)
+// Out-of-range value falls through to the default "unknown" arm — every
+// return is a static literal, no shared mutable buffer, never NULL.
+void test_bb_wifi_disc_reason_str_default_out_of_range(void)
 {
-    TEST_ASSERT_EQUAL_STRING("other", bb_wifi_disc_reason_str(207));
+    TEST_ASSERT_EQUAL_STRING("unknown", bb_wifi_disc_reason_str((bb_wifi_disc_reason_t)999));
+}
+
+// ---------------------------------------------------------------------------
+// KB 820 (bb_wifi reason contract, PR1): bb_wifi_map_esp_reason — every
+// mapped esp_wifi WIFI_REASON_* code + default.
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_map_esp_reason_auth_expire(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_AUTH_FAIL, bb_wifi_map_esp_reason(2));
+}
+
+void test_bb_wifi_map_esp_reason_auth_leave(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_DEAUTH, bb_wifi_map_esp_reason(3));
+}
+
+void test_bb_wifi_map_esp_reason_disassoc_inactivity(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_INACTIVITY, bb_wifi_map_esp_reason(4));
+}
+
+void test_bb_wifi_map_esp_reason_4way_handshake_timeout(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_HANDSHAKE_TIMEOUT, bb_wifi_map_esp_reason(15));
+}
+
+void test_bb_wifi_map_esp_reason_beacon_timeout(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_BEACON_TIMEOUT, bb_wifi_map_esp_reason(200));
+}
+
+void test_bb_wifi_map_esp_reason_no_ap_found(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_NO_AP_FOUND, bb_wifi_map_esp_reason(201));
+}
+
+void test_bb_wifi_map_esp_reason_assoc_fail(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_ASSOC_FAIL, bb_wifi_map_esp_reason(203));
+}
+
+void test_bb_wifi_map_esp_reason_handshake_timeout(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_HANDSHAKE_TIMEOUT, bb_wifi_map_esp_reason(204));
+}
+
+void test_bb_wifi_map_esp_reason_connection_fail(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_CONNECTION_LOST, bb_wifi_map_esp_reason(205));
+}
+
+void test_bb_wifi_map_esp_reason_default_unmapped(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_UNKNOWN, bb_wifi_map_esp_reason(99));
+}
+
+// ---------------------------------------------------------------------------
+// KB 820 (bb_wifi reason contract, PR1): bb_wifi_map_wl_status — every
+// mapped Arduino WiFiS3 wl_status_t code + default.
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_map_wl_status_connection_lost(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_CONNECTION_LOST, bb_wifi_map_wl_status(5)); // WL_CONNECTION_LOST
+}
+
+void test_bb_wifi_map_wl_status_connect_failed(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_ASSOC_FAIL, bb_wifi_map_wl_status(4)); // WL_CONNECT_FAILED
+}
+
+void test_bb_wifi_map_wl_status_no_ssid_avail(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_NO_AP_FOUND, bb_wifi_map_wl_status(1)); // WL_NO_SSID_AVAIL
+}
+
+void test_bb_wifi_map_wl_status_default_unmapped(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_UNKNOWN, bb_wifi_map_wl_status(3)); // WL_CONNECTED (not a disconnect code)
 }
 
 // ---------------------------------------------------------------------------
