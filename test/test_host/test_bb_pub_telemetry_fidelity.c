@@ -16,20 +16,12 @@
 
 #include "unity.h"
 #include "bb_pub.h"
-#include "bb_pub_fan.h"
-#include "bb_pub_power.h"
-#include "bb_pub_thermal.h"
 #include "bb_pub_info.h"
 #include "bb_cache.h"
 #include "bb_json.h"
 #include "bb_nv.h"
-#include "bb_fan.h"
-#include "bb_fan_driver.h"
 #include "bb_fan_test.h"
-#include "bb_power.h"
-#include "bb_power_driver.h"
 #include "bb_power_test.h"
-#include "bb_thermal.h"
 #include "bb_wifi.h"
 #include "bb_wifi_http.h"
 
@@ -377,7 +369,7 @@ void test_bb_pub_telemetry_fidelity_cache_get_serialized_no_space(void)
 }
 
 // ===========================================================================
-// Per-satellite SSOT fidelity: fan, power, thermal, info
+// Per-satellite SSOT fidelity: info
 // Each test registers the satellite, ticks once, then verifies:
 //   - gather ran once
 //   - serialize ran once
@@ -418,156 +410,7 @@ static void sat_reset(void)
 }
 
 // ---------------------------------------------------------------------------
-// Fake fan driver for satellite tests
-// ---------------------------------------------------------------------------
-
-static int s_sat_fan_rpm       = 3200;
-static int s_sat_fan_duty      = 75;
-static int sat_fan_read_rpm  (void *s) { (void)s; return s_sat_fan_rpm; }
-static int sat_fan_duty_pct  (void *s) { (void)s; return s_sat_fan_duty; }
-static bb_err_t sat_fan_die  (void *s, float *out) { (void)s; *out = 65.0f; return 0; }
-static bb_err_t sat_fan_board(void *s, float *out) { (void)s; *out = 45.0f; return 0; }
-static const bb_fan_driver_t k_sat_fan_drv = {
-    .read_rpm          = sat_fan_read_rpm,
-    .get_duty_pct      = sat_fan_duty_pct,
-    .read_die_temp_c   = sat_fan_die,
-    .read_board_temp_c = sat_fan_board,
-    .name              = "sat_fan",
-};
-
-// ---------------------------------------------------------------------------
-// Fake power driver for satellite tests
-// ---------------------------------------------------------------------------
-
-static int s_sat_vout = 1150, s_sat_iout = 2800, s_sat_vin = 4800, s_sat_temp = 58;
-static int sat_pow_vout(void *s) { (void)s; return s_sat_vout; }
-static int sat_pow_iout(void *s) { (void)s; return s_sat_iout; }
-static int sat_pow_vin (void *s) { (void)s; return s_sat_vin; }
-static int sat_pow_temp(void *s) { (void)s; return s_sat_temp; }
-static const bb_power_driver_t k_sat_pow_drv = {
-    .read_vout_mv = sat_pow_vout,
-    .read_iout_ma = sat_pow_iout,
-    .read_vin_mv  = sat_pow_vin,
-    .read_temp_c  = sat_pow_temp,
-    .name         = "sat_pow",
-};
-
-// ---------------------------------------------------------------------------
-// 10. bb_pub_fan: SSOT serialize-once, REST==sink bytes.
-// ---------------------------------------------------------------------------
-
-void test_bb_pub_telem_fan_rest_equals_sink(void)
-{
-    sat_reset();
-
-    bb_fan_handle_t fh = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_fan_handle_create(&k_sat_fan_drv, NULL, &fh));
-    bb_fan_poll(fh);
-    bb_fan_set_primary(fh);
-
-    TEST_ASSERT_EQUAL(BB_OK, bb_pub_fan_register());
-    bb_pub_tick_once();
-    TEST_ASSERT_EQUAL_INT_MESSAGE(1, s_sat_count, "fan sink must receive one delivery");
-
-    char rest[512];
-    size_t rlen = 0;
-    TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("fan", rest, sizeof(rest), &rlen));
-    TEST_ASSERT_EQUAL_STRING_MESSAGE(rest, s_sat_payload[0],
-        "fan: REST bytes must equal sink bytes (SSOT)");
-    TEST_ASSERT_NOT_NULL(strstr(rest, "\"rpm\""));
-    TEST_ASSERT_NOT_NULL(strstr(rest, "\"ts_ms\""));
-}
-
-// 11. bb_pub_fan skips when no primary handle.
-void test_bb_pub_telem_fan_skips_without_primary(void)
-{
-    sat_reset();
-    bb_fan_set_primary(NULL);
-
-    TEST_ASSERT_EQUAL(BB_OK, bb_pub_fan_register());
-    bb_pub_tick_once();
-    TEST_ASSERT_EQUAL_INT_MESSAGE(0, s_sat_count, "fan must skip when primary is NULL");
-}
-
-// ---------------------------------------------------------------------------
-// 12. bb_pub_power: SSOT serialize-once, REST==sink bytes.
-// ---------------------------------------------------------------------------
-
-void test_bb_pub_telem_power_rest_equals_sink(void)
-{
-    sat_reset();
-
-    bb_power_handle_t ph = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_power_handle_create(&k_sat_pow_drv, NULL, &ph));
-    bb_power_poll(ph);
-    bb_power_set_primary(ph);
-
-    TEST_ASSERT_EQUAL(BB_OK, bb_pub_power_register());
-    bb_pub_tick_once();
-    TEST_ASSERT_EQUAL_INT_MESSAGE(1, s_sat_count, "power sink must receive one delivery");
-
-    char rest[512];
-    size_t rlen = 0;
-    TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("power", rest, sizeof(rest), &rlen));
-    TEST_ASSERT_EQUAL_STRING_MESSAGE(rest, s_sat_payload[0],
-        "power: REST bytes must equal sink bytes (SSOT)");
-    TEST_ASSERT_NOT_NULL(strstr(rest, "\"vout_mv\""));
-    TEST_ASSERT_NOT_NULL(strstr(rest, "\"ts_ms\""));
-}
-
-// 13. bb_pub_power skips when no primary handle.
-void test_bb_pub_telem_power_skips_without_primary(void)
-{
-    sat_reset();
-    bb_power_set_primary(NULL);
-
-    TEST_ASSERT_EQUAL(BB_OK, bb_pub_power_register());
-    bb_pub_tick_once();
-    TEST_ASSERT_EQUAL_INT_MESSAGE(0, s_sat_count, "power must skip when primary is NULL");
-}
-
-// ---------------------------------------------------------------------------
-// 14. bb_pub_thermal: SSOT serialize-once, REST==sink bytes.
-// Fan + power primaries needed for any fields.
-// ---------------------------------------------------------------------------
-
-void test_bb_pub_telem_thermal_rest_equals_sink(void)
-{
-    sat_reset();
-
-    bb_fan_handle_t fh = NULL;
-    TEST_ASSERT_EQUAL(BB_OK, bb_fan_handle_create(&k_sat_fan_drv, NULL, &fh));
-    bb_fan_poll(fh);
-    bb_fan_set_primary(fh);
-
-    TEST_ASSERT_EQUAL(BB_OK, bb_pub_thermal_register());
-    bb_pub_tick_once();
-    TEST_ASSERT_EQUAL_INT_MESSAGE(1, s_sat_count, "thermal sink must receive one delivery");
-
-    char rest[512];
-    size_t rlen = 0;
-    TEST_ASSERT_EQUAL_INT(0, bb_cache_get_serialized("thermal", rest, sizeof(rest), &rlen));
-    TEST_ASSERT_EQUAL_STRING_MESSAGE(rest, s_sat_payload[0],
-        "thermal: REST bytes must equal sink bytes (SSOT)");
-    TEST_ASSERT_NOT_NULL(strstr(rest, "\"soc_c\""));
-    TEST_ASSERT_NOT_NULL(strstr(rest, "\"ts_ms\""));
-}
-
-// 15. bb_pub_thermal skips when all sources absent.
-void test_bb_pub_telem_thermal_skips_when_all_absent(void)
-{
-    sat_reset();
-    bb_fan_set_primary(NULL);
-    bb_power_set_primary(NULL);
-
-    TEST_ASSERT_EQUAL(BB_OK, bb_pub_thermal_register());
-    bb_pub_tick_once();
-    TEST_ASSERT_EQUAL_INT_MESSAGE(0, s_sat_count,
-        "thermal must skip when all HAL primaries are NULL");
-}
-
-// ---------------------------------------------------------------------------
-// 16. bb_pub_info: sinks-only (BB_PUB_TELEM_SINKS, no SSE).
+// 10. bb_pub_info: sinks-only (BB_PUB_TELEM_SINKS, no SSE).
 //     Always publishes; REST==sink bytes; ts_ms present.
 // ---------------------------------------------------------------------------
 
@@ -590,7 +433,7 @@ void test_bb_pub_telem_info_rest_equals_sink(void)
     TEST_ASSERT_NOT_NULL(strstr(rest, "\"ts_ms\""));
 }
 
-// 17. bb_pub_info: serialize-once-per-tick — two REST reads after one tick
+// 11. bb_pub_info: serialize-once-per-tick — two REST reads after one tick
 //     must not trigger a second serialize; second tick triggers exactly one more.
 void test_bb_pub_telem_info_serialize_once_per_tick(void)
 {

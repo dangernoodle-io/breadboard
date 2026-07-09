@@ -2202,9 +2202,6 @@ void test_bb_pub_parity_register_source_ex_null_tags_same_behavior(void);
 void test_bb_pub_parity_source_and_source_ex_both_publish(void);
 void test_bb_pub_parity_source_info_ex_null_tags_returns_zero(void);
 void test_bb_pub_parity_subscription_predicate_null_ctx_pass_all(void);
-void test_bb_pub_power_parity_emit_matches_rest_core_fields(void);
-void test_bb_pub_fan_parity_emit_matches_pub_source(void);
-void test_bb_pub_thermal_parity_collect_matches_rest_fields(void);
 
 // Forward declarations from test_bb_vcore_wd.c
 void test_bb_vcore_wd_warmup_suppresses_all(void);
@@ -4048,40 +4045,6 @@ void test_bb_sink_mqtt_default_publish_failure_reports_transport_health(void);
 void test_bb_sink_mqtt_publish_registers_transport_health_once(void);
 void test_bb_sink_mqtt_publish_survives_transport_health_slot_exhaustion(void);
 
-// Forward declarations from test_bb_pub_fan.c
-void test_bb_pub_fan_publishes_expected_fields(void);
-void test_bb_pub_fan_topic_is_correct(void);
-void test_bb_pub_fan_rpm_value_present(void);
-void test_bb_pub_fan_rpm_null_when_minus_one(void);
-void test_bb_pub_fan_die_c_null_when_nan(void);
-void test_bb_pub_fan_board_c_null_when_nan(void);
-void test_bb_pub_fan_skips_when_no_primary(void);
-void test_bb_pub_fan_payload_has_uptime_ms_field(void);
-
-// Forward declarations from test_bb_pub_power.c
-void test_bb_pub_power_publishes_expected_fields(void);
-void test_bb_pub_power_topic_is_correct(void);
-void test_bb_pub_power_vout_value_present(void);
-void test_bb_pub_power_vout_null_when_minus_one(void);
-void test_bb_pub_power_temp_null_when_minus_one(void);
-void test_bb_pub_power_pout_mw_computed(void);
-void test_bb_pub_power_skips_when_no_primary(void);
-void test_bb_pub_power_payload_has_uptime_ms_field(void);
-
-// Forward declarations from test_bb_pub_thermal.c
-void test_bb_pub_thermal_publishes_soc_field(void);
-void test_bb_pub_thermal_publishes_vr_field(void);
-void test_bb_pub_thermal_publishes_asic_and_board_fields(void);
-void test_bb_pub_thermal_topic_is_correct(void);
-void test_bb_pub_thermal_skips_when_all_absent(void);
-void test_bb_pub_thermal_vr_null_when_temp_minus_one(void);
-void test_bb_pub_thermal_asic_null_when_die_nan(void);
-void test_bb_pub_thermal_payload_has_uptime_ms_field(void);
-void test_bb_pub_thermal_omits_vr_c_when_no_power_primary(void);
-void test_bb_pub_thermal_omits_asic_and_board_c_when_no_fan_primary(void);
-void test_bb_pub_thermal_vr_c_null_when_power_primary_present_but_no_reading(void);
-void test_bb_pub_thermal_asic_c_null_when_fan_primary_present_but_die_nan(void);
-
 // Forward declarations from test_bb_thermal_collect.c
 void test_bb_thermal_collect_all_absent(void);
 void test_bb_thermal_collect_soc_present(void);
@@ -4474,13 +4437,7 @@ void test_bb_pub_telemetry_fidelity_rest_equals_sink_bytes(void);
 void test_bb_pub_telemetry_fidelity_cache_serialize_once_per_generation(void);
 void test_bb_pub_telemetry_fidelity_cache_get_serialized_is_a_copy(void);
 void test_bb_pub_telemetry_fidelity_cache_get_serialized_no_space(void);
-// satellite SSOT fidelity (fan, power, thermal, info)
-void test_bb_pub_telem_fan_rest_equals_sink(void);
-void test_bb_pub_telem_fan_skips_without_primary(void);
-void test_bb_pub_telem_power_rest_equals_sink(void);
-void test_bb_pub_telem_power_skips_without_primary(void);
-void test_bb_pub_telem_thermal_rest_equals_sink(void);
-void test_bb_pub_telem_thermal_skips_when_all_absent(void);
+// satellite SSOT fidelity (info)
 void test_bb_pub_telem_info_rest_equals_sink(void);
 void test_bb_pub_telem_info_serialize_once_per_tick(void);
 // bb_wifi_emit 3 new recovery fields + top-reason injection
@@ -8818,26 +8775,6 @@ int main(void) {
     RUN_TEST(test_bb_sink_mqtt_publish_registers_transport_health_once);
     RUN_TEST(test_bb_sink_mqtt_publish_survives_transport_health_slot_exhaustion);
 
-    // bb_pub_fan tests
-    RUN_TEST(test_bb_pub_fan_publishes_expected_fields);
-    RUN_TEST(test_bb_pub_fan_topic_is_correct);
-    RUN_TEST(test_bb_pub_fan_rpm_value_present);
-    RUN_TEST(test_bb_pub_fan_rpm_null_when_minus_one);
-    RUN_TEST(test_bb_pub_fan_die_c_null_when_nan);
-    RUN_TEST(test_bb_pub_fan_board_c_null_when_nan);
-    RUN_TEST(test_bb_pub_fan_skips_when_no_primary);
-    RUN_TEST(test_bb_pub_fan_payload_has_uptime_ms_field);
-
-    // bb_pub_power tests
-    RUN_TEST(test_bb_pub_power_publishes_expected_fields);
-    RUN_TEST(test_bb_pub_power_topic_is_correct);
-    RUN_TEST(test_bb_pub_power_vout_value_present);
-    RUN_TEST(test_bb_pub_power_vout_null_when_minus_one);
-    RUN_TEST(test_bb_pub_power_temp_null_when_minus_one);
-    RUN_TEST(test_bb_pub_power_pout_mw_computed);
-    RUN_TEST(test_bb_pub_power_skips_when_no_primary);
-    RUN_TEST(test_bb_pub_power_payload_has_uptime_ms_field);
-
     // bb_thermal_collect unit tests (B1-352)
     RUN_TEST(test_bb_thermal_collect_all_absent);
     RUN_TEST(test_bb_thermal_collect_soc_present);
@@ -8849,20 +8786,6 @@ int main(void) {
     RUN_TEST(test_bb_thermal_collect_asic_absent_when_die_nan);
     RUN_TEST(test_bb_thermal_collect_board_absent_when_board_nan);
     RUN_TEST(test_bb_thermal_collect_all_present);
-
-    // bb_pub_thermal tests
-    RUN_TEST(test_bb_pub_thermal_publishes_soc_field);
-    RUN_TEST(test_bb_pub_thermal_publishes_vr_field);
-    RUN_TEST(test_bb_pub_thermal_publishes_asic_and_board_fields);
-    RUN_TEST(test_bb_pub_thermal_topic_is_correct);
-    RUN_TEST(test_bb_pub_thermal_skips_when_all_absent);
-    RUN_TEST(test_bb_pub_thermal_vr_null_when_temp_minus_one);
-    RUN_TEST(test_bb_pub_thermal_asic_null_when_die_nan);
-    RUN_TEST(test_bb_pub_thermal_payload_has_uptime_ms_field);
-    RUN_TEST(test_bb_pub_thermal_omits_vr_c_when_no_power_primary);
-    RUN_TEST(test_bb_pub_thermal_omits_asic_and_board_c_when_no_fan_primary);
-    RUN_TEST(test_bb_pub_thermal_vr_c_null_when_power_primary_present_but_no_reading);
-    RUN_TEST(test_bb_pub_thermal_asic_c_null_when_fan_primary_present_but_die_nan);
 
     // bb_pub_info tests
     RUN_TEST(test_bb_pub_info_always_publishes);
@@ -9203,12 +9126,6 @@ int main(void) {
     RUN_TEST(test_bb_pub_parity_source_and_source_ex_both_publish);
     RUN_TEST(test_bb_pub_parity_source_info_ex_null_tags_returns_zero);
     RUN_TEST(test_bb_pub_parity_subscription_predicate_null_ctx_pass_all);
-    // B1-352: bb_pub_power and bb_power_emit share same builder
-    RUN_TEST(test_bb_pub_power_parity_emit_matches_rest_core_fields);
-    // B1-352: bb_pub_fan and bb_fan_emit share same builder
-    RUN_TEST(test_bb_pub_fan_parity_emit_matches_pub_source);
-    // B1-352: bb_thermal_collect is SSOT for both REST and pub thermal values
-    RUN_TEST(test_bb_pub_thermal_parity_collect_matches_rest_fields);
 
     // bb_ws_server (B1-104)
     RUN_TEST(test_bb_ws_server_register_endpoint_null_server_ok);
@@ -9345,13 +9262,7 @@ int main(void) {
     RUN_TEST(test_bb_pub_telemetry_fidelity_cache_serialize_once_per_generation);
     RUN_TEST(test_bb_pub_telemetry_fidelity_cache_get_serialized_is_a_copy);
     RUN_TEST(test_bb_pub_telemetry_fidelity_cache_get_serialized_no_space);
-    // satellite SSOT fidelity (fan, power, thermal, info)
-    RUN_TEST(test_bb_pub_telem_fan_rest_equals_sink);
-    RUN_TEST(test_bb_pub_telem_fan_skips_without_primary);
-    RUN_TEST(test_bb_pub_telem_power_rest_equals_sink);
-    RUN_TEST(test_bb_pub_telem_power_skips_without_primary);
-    RUN_TEST(test_bb_pub_telem_thermal_rest_equals_sink);
-    RUN_TEST(test_bb_pub_telem_thermal_skips_when_all_absent);
+    // satellite SSOT fidelity (info)
     RUN_TEST(test_bb_pub_telem_info_rest_equals_sink);
     RUN_TEST(test_bb_pub_telem_info_serialize_once_per_tick);
     // bb_wifi_emit recovery fields + top-reason injection

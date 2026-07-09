@@ -8,7 +8,7 @@
 # later full-registration pass) -- a Kconfig-conditional REQUIRES/PRIV_REQUIRES
 # silently resolves as if the config were unset, every time, regardless of
 # its real value. This matches the established codebase convention seen in
-# bb_pub_fan's and bb_alert's CMakeLists.txt: always PRIV_REQUIRES the
+# bb_pub_health's and bb_alert's CMakeLists.txt: always PRIV_REQUIRES the
 # optional dependency unconditionally, and gate only the runtime
 # registration call (below) behind the Kconfig -- which DOES see the real
 # Kconfig value, because it runs after idf_component_register in the same
