@@ -63,6 +63,16 @@ Generated regions today:
                URL (repo-relative `../../wiki/...` 404s cross-repo); degrades
                to plain text (no link) when wiki_base is unset. The wiki page
                itself is a separate, non-generated deliverable.
+  - budget   — a `| Target | flash | Δ vs baseline |` table (B1-719 phase A)
+               sourced from every committed `.baseline/bbtool/metrics/*.json`
+               that has this component in its `flash.components` map. Δ is
+               always "—" — this renders a committed static value, not a
+               live compare (that's `bbtool size --check`'s job). When any
+               baseline's `heap` block is populated (phase B), min_free/
+               high_water columns are added. FAIL-SOFT: a component with no
+               matching baseline renders `_(no baseline)_` rather than
+               raising — unlike `brief`, footprint docs are advisory, not a
+               hard doc-completeness gate.
 
 Determinism is load-bearing: sorted lists, no dict/set iteration-order leaks,
 no timestamps, no absolute paths, normalized trailing newline. A second `gen`
@@ -75,6 +85,7 @@ usage.
 """
 from __future__ import annotations
 import argparse
+import json
 import os
 import re
 import sys
@@ -298,6 +309,78 @@ def _render_wiring(config: dict, component: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Footprint budget region — sourced from committed .baseline/bbtool/metrics/
+# JSON files (B1-719 phase A: `bbtool size --update-baseline`). FAIL-SOFT by
+# design (see module docstring's "budget" entry): a component with no
+# matching baseline is advisory-missing, never a `docs gen` hard error.
+# ---------------------------------------------------------------------------
+
+def _load_metrics_baselines(root: Path) -> List[dict]:
+    """Load every `.baseline/bbtool/metrics/*.json` file, sorted by
+    filename for determinism. Skips (never raises on) unreadable/malformed
+    files — a corrupt baseline is a `bbtool size` concern, not a `docs gen`
+    one."""
+    metrics_dir = root / ".baseline" / "bbtool" / "metrics"
+    if not metrics_dir.is_dir():
+        return []
+    baselines: List[dict] = []
+    for path in sorted(metrics_dir.glob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            baselines.append(data)
+    return baselines
+
+
+def _render_budget(root: Path, name: str) -> str:
+    """Render the Footprint region: one row per target baseline that has
+    `name` in its `flash.components` map. Δ is always "—" (a committed
+    static value, not a live compare). Adds min_free/high_water columns
+    when any baseline's `heap` block is populated (phase B; null in phase
+    A, so those columns are omitted today)."""
+    matches = []
+    for baseline in _load_metrics_baselines(root):
+        flash = baseline.get("flash") or {}
+        components = flash.get("components") or {}
+        if name not in components:
+            continue
+        matches.append((baseline.get("target", "?"), components[name], baseline.get("heap") or {}))
+
+    if not matches:
+        return "_(no baseline)_"
+
+    matches.sort(key=lambda m: m[0])
+    heap_present = any(
+        heap.get("min_free") is not None or heap.get("high_water") is not None
+        for _, _, heap in matches
+    )
+
+    if heap_present:
+        lines = [
+            "| Target | flash | Δ vs baseline | min_free | high_water |",
+            "|--------|-------|----------------|----------|------------|",
+        ]
+    else:
+        lines = [
+            "| Target | flash | Δ vs baseline |",
+            "|--------|-------|----------------|",
+        ]
+    for target, flash_bytes, heap in matches:
+        row = f"| `{target}` | {flash_bytes} | — |"
+        if heap_present:
+            min_free = heap.get("min_free")
+            high_water = heap.get("high_water")
+            row += (
+                f" {min_free if min_free is not None else '—'} |"
+                f" {high_water if high_water is not None else '—'} |"
+            )
+        lines.append(row)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Marker rewriting — only touches text strictly between BEGIN/END pairs
 # ---------------------------------------------------------------------------
 
@@ -374,6 +457,7 @@ def _gen_component_readme(root: Path, name: str, config: Optional[dict] = None) 
         "platform": lambda: _render_platform(matrix),
         "links": lambda: _render_links(config, name),
         "wiring": lambda: _render_wiring(config, name),
+        "budget": lambda: _render_budget(root, name),
     }
 
     new_content = _rewrite_markers(content, generators, source=str(readme_path))

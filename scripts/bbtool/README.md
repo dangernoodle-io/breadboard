@@ -461,7 +461,7 @@ scaffolds a README for a component that doesn't have one — component READMEs
 are hand-authored from birth (see `CLAUDE.md`); `docs gen` only fills in the
 generated regions of READMEs that already opt in.
 
-Six marker keys are generated today:
+Seven marker keys are generated today:
 
 | Key | Source | Renders |
 |-----|--------|---------|
@@ -471,6 +471,7 @@ Six marker keys are generated today:
 | `platform` | Presence of `platform/{host,espidf,arduino}/<name>/` directories | A host/espidf/arduino yes/no matrix |
 | `links` | `[docs].wiki_base` (self link) + `[docs].links` (global) + `[docs.component_links].<name>` (per-component), plus `[docs].repo_url` | A deduplicated bullet list of links |
 | `wiring` | The component name | A one-line pointer to the wiki's "use in your project" guide for this component |
+| `budget` | Every committed `.baseline/bbtool/metrics/*.json` (see the `size` command above) that lists the component in its `flash.components` map | A `Target \| flash \| Δ vs baseline` table, sorted by target (Δ is always "—" — a static committed value, not a live compare); gains `min_free`/`high_water` columns once any baseline's `heap` block is populated. FAIL-SOFT: renders `_(no baseline)_` when no baseline matches, rather than erroring |
 
 **Config knobs stays hand-authored.** Kconfig-driven generation for this
 section is a later fork (parsing `Kconfig` files is explicitly out of scope
@@ -720,10 +721,11 @@ python3 scripts/bbtool.py size --build-dir examples/smoke/.pio/build/esp32
 Measures flash/RAM footprint of a built PlatformIO/ESP-IDF env, device-free
 (no flashing) — runs the target toolchain's `size` binary against the env's
 `.elf` and parses the accompanying `.map` file for a per-component archive-
-member breakdown.
+member breakdown. Also supports snapshotting/gating that footprint against a
+committed baseline (flash, always; heap, when captured from a live device).
 
 ```
-python3 scripts/bbtool.py size --build-dir .pio/build/<env> [--component NAME ...] [--elf PATH] [--map PATH] [--arch {xtensa,riscv}] [--size-tool PATH]
+python3 scripts/bbtool.py size --build-dir .pio/build/<env> [--component NAME ...] [--elf PATH] [--map PATH] [--arch {xtensa,riscv}] [--size-tool PATH] [--root ROOT] [--target NAME] [--update-baseline | --check] [--flash-threshold-pct PCT] [--heap-from-http BASE_URL]
 ```
 
 | Flag | Default | Meaning |
@@ -734,11 +736,99 @@ python3 scripts/bbtool.py size --build-dir .pio/build/<env> [--component NAME ..
 | `--component NAME` | none | Component name to report a `.map` size breakdown for (repeatable); omit for a breakdown of every `bb_*` archive found |
 | `--arch {xtensa,riscv}` | `xtensa` | Toolchain arch for the `size` binary |
 | `--size-tool PATH` | auto-detect | Explicit `size` binary (overrides toolchain auto-detect) |
+| `--root ROOT` | cwd | Repository root, for resolving `.baseline/` |
+| `--target NAME` | `<build-dir>` basename (e.g. `esp32`) | Baseline target label |
+| `--update-baseline` | off | Measure + snapshot the resolved sdkconfig, write `.baseline/bbtool/metrics/<target>.json` (preserves any existing `heap` block); mutually exclusive with `--check` |
+| `--check` | off | Measure + compare against the committed baseline; FAIL on bss growth or flash_total growth beyond `--flash-threshold-pct`; mutually exclusive with `--update-baseline` |
+| `--flash-threshold-pct PCT` | `2.0` | Allowed `flash_total` growth vs baseline, in percent |
+| `--heap-from-http BASE_URL` | none | Fetch live heap stats from `<BASE_URL>/api/diag/heap` (the `bb_diag` component); only applies with `--update-baseline`/`--check` — with neither, it's a warned no-op |
 
-Emits one JSON line: `{"elf", "build_dir", "text", "data", "bss",
-"flash_total", "components"}` — `flash_total` is `text + data` and is the
-authoritative aggregate; per-component `.map` sizes overlap (a symbol can be
-attributed to multiple sections) and are not additive against `flash_total`.
+With no `--update-baseline`/`--check`, emits one JSON line: `{"elf",
+"build_dir", "text", "data", "bss", "flash_total", "components"}` —
+`flash_total` is `text + data` and is the authoritative aggregate;
+per-component `.map` sizes overlap (a symbol can be attributed to multiple
+sections) and are not additive against `flash_total`.
+
+### Baseline file
+
+`--update-baseline` writes `.baseline/bbtool/metrics/<target>.json`:
+
+```json
+{
+  "target": "esp32",
+  "arch": "xtensa",
+  "config": {
+    "label": "default",
+    "toolchain": "esp-idf",
+    "sdkconfig_sha": "<sha256 of the normalized sdkconfig>",
+    "snapshot": ".baseline/bbtool/metrics/esp32.sdkconfig"
+  },
+  "flash": {
+    "text": 0, "data": 0, "bss": 0, "flash_total": 0,
+    "components": {"bb_core": 0}
+  },
+  "heap": {"min_free": null, "high_water": null, "regions": null, "source": null}
+}
+```
+
+Alongside it, a sibling `.baseline/bbtool/metrics/<target>.sdkconfig` file
+captures every resolved `CONFIG_*` knob (not just `CONFIG_BB_*`), one per
+line, sorted and deduplicated; `# CONFIG_X is not set` is normalized to the
+explicit sentinel `CONFIG_X=n` so a knob flip between "set" and "not set" is
+a visible line-level diff, not a silent line removal/addition. `config.
+sdkconfig_sha` is the SHA-256 of that normalized snapshot text — a config
+drift shows up as a `sdkconfig_sha` change even if flash/RAM happen not to
+move. Both files are written atomically (temp file + `os.replace`), so a
+kill mid-write can't corrupt a committed baseline.
+
+### Flash gate (`--check`)
+
+- `bss` is **shrink-only** — any growth vs the baseline is a FAIL.
+- `flash_total` may grow up to `--flash-threshold-pct` (default 2.0%) before
+  it's a FAIL; growth strictly greater than the threshold fails, growth
+  exactly at the threshold passes.
+- Advance the baseline with `--update-baseline` (a ratchet, mirroring the
+  `fence` family's baseline files) once a legitimate growth/shrink is
+  reviewed and accepted.
+
+### Heap capture + gate (`--heap-from-http`, device-only)
+
+`--heap-from-http <base_url>` GETs `<base_url>/api/diag/heap` (the `bb_diag`
+component's per-capability heap endpoint) — this needs a live, reachable
+board, so it's a device/fleet-run capability, not a host/CI one.
+
+- With `--update-baseline`: snapshots the response into the target's `heap`
+  block (`source: "http"`, `min_free`/`high_water` from `internal.
+  minimum_ever_free`, plus a per-capability `regions` map).
+- With `--check`: re-fetches and gates **higher-is-better** — current
+  watermarks below the committed baseline's are a FAIL. The heap gate is
+  inert (skipped, not failed) while the baseline's `heap` block is null —
+  i.e. until a `--heap-from-http --update-baseline` run has populated it.
+- With neither `--update-baseline` nor `--check` (plain single-shot mode),
+  `--heap-from-http` is a no-op: bbtool prints a `bbtool size: warning:
+  --heap-from-http only applies with --update-baseline/--check` message to
+  stderr and proceeds with the normal single-shot JSON output/exit code.
+
+### `make size-check` / `make size-baseline`
+
+Manual tooling, not part of the default `make check` gate and not yet wired
+into CI:
+
+```
+make size-check      # gate examples/smoke's esp32 build against its committed baseline
+make size-baseline    # update the esp32 baseline from the current build
+```
+
+Both need `examples/smoke/.pio/build/esp32` already built (e.g. `pio run -d
+examples/smoke -e esp32`).
+
+### `docs` `bbtool:budget` region
+
+Component READMEs that opt in to the `bbtool:budget` marker (see the `docs`
+command below) get a generated footprint table sourced from every committed
+`.baseline/bbtool/metrics/*.json` that lists the component in its `flash.
+components` map — one row per target, rendering `_(no baseline)_` when none
+exists. See the marker-keys table below.
 
 ---
 
