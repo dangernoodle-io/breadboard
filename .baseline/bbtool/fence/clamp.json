@@ -1,0 +1,29 @@
+{
+  "entries": [
+    {
+      "id": "bb_fan_emc2101:emc2101_pct_to_duty:pct",
+      "path": "components/bb_fan_emc2101/include/emc2101_decode.h",
+      "type": "clamp"
+    },
+    {
+      "id": "bb_fan_emc2101:op_set_duty_pct:pct",
+      "path": "platform/espidf/bb_fan_emc2101/bb_fan_emc2101.c",
+      "type": "clamp"
+    },
+    {
+      "id": "bb_ota_push:bb_ota_push_deadline_ms:ms",
+      "path": "platform/espidf/bb_ota_push/bb_ota_push.c",
+      "type": "clamp"
+    },
+    {
+      "id": "bb_fan:bb_fan_poll:pct",
+      "path": "platform/host/bb_fan/bb_fan.c",
+      "type": "clamp"
+    },
+    {
+      "id": "bb_sink_http_telemetry:httppub_section_patch:qos",
+      "path": "platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c",
+      "type": "clamp"
+    }
+  ]
+}
