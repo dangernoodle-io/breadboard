@@ -52,12 +52,13 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 Unified ratchet-fence lint over one or more marker **families**. A family
 (`scripts/bbtool/fence/<family>.py`) is a group of `_scan_*` marker-detection
 functions plus its own committed baseline at
-`.baseline/bbtool/fence/<family>.json`. Three families exist today:
+`.baseline/bbtool/fence/<family>.json`. Four families exist today:
 `di_legacy` (breadboard's legacy DI/self-registration glue surface), `clamp`
-(hand-rolled reimplementations of `bb_num`'s two-sided clamp), and
-`scalar_parse` (hand-rolled reimplementations of `bb_scalar`'s parsers) —
-one family per shared helper, so a future helper's fence (e.g. a one-sided
-saturating-subtract idiom) is a new module, not a combined-family rewrite.
+(hand-rolled reimplementations of `bb_num`'s two-sided clamp),
+`scalar_parse` (hand-rolled reimplementations of `bb_scalar`'s parsers),
+and `sat_sub` (hand-rolled one-sided saturating-subtract idioms) — one
+family per shared idiom, so a future one is a new module, not a
+combined-family rewrite.
 
 ```
 python3 scripts/bbtool.py fence [--root DIR] [--family NAME ...] [--update-baseline] [--seed FAMILY]
@@ -130,8 +131,8 @@ x)`), or MIN/MAX nesting (`MAX(lo, MIN(hi, x))` / `fmaxf`/`fminf` /
 underflow-clamp-at-0, or bb_task_resolve's single-bound unicore-affinity
 fallback) deliberately does **not** match — it has no second,
 opposite-direction bound to reimplement bb_clampi/bb_clampf's actual job
-(a future `sat_sub` family is the right home for fencing that one-sided
-idiom, not this one). The canonical impl (`platform/host/bb_num/`) is
+(the `sat_sub` family below is the home for fencing that one-sided idiom,
+not this one). The canonical impl (`platform/host/bb_num/`) is
 excluded. Identity is `<component>:<enclosing-symbol>:<var>` (best-effort,
 no real C parser — see `clamp.py`'s identity-choice comment), not
 `path:line`, so an unrelated edit above a clamp never trips the fence. See
@@ -149,6 +150,37 @@ names) outside `bb_scalar` is blocked. Symbol-keyed (id = the function
 name); an accepted limitation is that this catches reintroduction of these
 two named symbols only, not arbitrary inline parsing that duplicates their
 behavior under a different name. See `scripts/bbtool/fence/scalar_parse.py`.
+
+### `sat_sub` family
+
+Freezes hand-rolled one-sided saturating-subtract idioms (a subtract
+floored at 0 to avoid unsigned/negative underflow, e.g. `used = (total >
+free) ? (total - free) : 0`). There is no canonical extracted helper for
+this idiom yet (extraction is parked); this fence exists to stop the
+hand-rolled duplication from growing further while extraction is deferred.
+Scans `components/` + `platform/` for two shapes:
+
+- the ternary/guard-expression shape (three variants): forward (`(A > B) ?
+  (A - B) : 0`, or `>=`), reversed (`(A < B) ? 0 : (A - B)`, or `<=`), and
+  the decrement-by-1 special case (`(A > 0) ? A - 1 : 0`, e.g. stripping a
+  NUL terminator's length). `B` may be an identifier or a numeric literal;
+  an optional cast before the subtraction is allowed.
+- the post-hoc delta-then-clamp shape: `X = <expr containing a
+  subtraction>; if (X < 0) X = 0;`, single-line or braced (e.g. `int64_t
+  elapsed_us = now_us - last_us; if (elapsed_us < 0) { elapsed_us = 0; }`).
+  Precision guard: only fires when the line immediately preceding the `if
+  (X < 0)` guard is itself an assignment to that same var whose
+  right-hand side contains a subtraction — this is what distinguishes the
+  idiom from the far more common bare negative-error-code guard (`if (n <
+  0) return false;`), which never matches.
+
+Deliberately does **not** match a two-sided clamp (`clamp`'s job) or a
+bounded-chunk loop (`remaining -= chunk` where `chunk` was already computed
+as `min(remaining, N)` — no separate underflow guard being reimplemented
+there). `platform/host/bb_num/` is excluded, same as `clamp`. Identity is
+`<component>:<enclosing-symbol>:<var>` (best-effort, no real C parser —
+same convention as `clamp.py`), not `path:line`. See
+`scripts/bbtool/fence/sat_sub.py`.
 
 ### `di-fence` command (back-compat alias)
 
