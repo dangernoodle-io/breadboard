@@ -1,10 +1,9 @@
-"""codegen command tests: `bbtool codegen` folds `bbtool wire` and `bbtool
-autowire` into a single command that resolves the composition ONCE and
+"""codegen command tests: `bbtool codegen` resolves the composition ONCE and
 emits BOTH artifacts (the COMPONENTS link-set .cmake fragment, and
 bb_app_init.c + its sibling .cmake) from that one resolution. Fixture style
-mirrors test_wire.py/test_autowire.py (synthetic component trees, never the
-real breadboard tree). `--components` is required — mirrors the graduated
-`bbtool autowire` CLI (no `--composition` preset shortcut)."""
+mirrors test_wire.py/test_composition.py (synthetic component trees, never
+the real breadboard tree). `--components` is required (no `--composition`
+preset shortcut)."""
 import argparse
 import contextlib
 import io

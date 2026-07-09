@@ -1,7 +1,7 @@
 """wire library-module tests (decision #735, folded into `commands.codegen`):
 fixture component tree -> assert emitted bb_app_init.c call order +
 http-start-line presence, over synthetic CMakeLists.txt/header fixtures
-(never the real breadboard component tree) -- mirrors test_autowire.py's
+(never the real breadboard component tree) -- mirrors test_composition.py's
 fixture style. CLI (`run()`) coverage lives in test_codegen.py."""
 import os
 import sys

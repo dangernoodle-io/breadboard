@@ -8,7 +8,7 @@ Measurement-driven, ground-up firmware component framework for no-PSRAM-class ES
 
 The only two sanctioned composition paths: (1) **codegen** — `bbtool codegen` generates the composition root `bb_app_init()` from `// bbtool:init tier= fn=` header markers (see `examples/floor` `make floor-codegen`); (2) **handwire** — explicit `app_main`/entry calls the component init fns directly (see `examples/floor/main/floor_app.c`).
 
-`bbtool autowire`+`bbtool size` survive ONLY as measurement tooling (flash/heap budgeting) — NOT a composition mechanism.
+The `bbtool autowire` CLI command has been deleted (its transitive-closure resolver survives as library code in `scripts/bbtool/composition.py`, used only by `bbtool codegen`). `bbtool size` survives as measurement tooling (flash/heap budgeting) — NOT a composition mechanism.
 
 Any legacy `bb_init` walker / `BB_INIT_REGISTER*` docs found elsewhere (e.g. still-live in `examples/smoke`) are CURRENT-because-still-used, not a pattern to follow — they're slated for demolition (roadmap: DI dissolution); do not extend them.
 

@@ -3,8 +3,8 @@ AUTOWIRE mode. Folded into the `commands.codegen` CLI command; this module
 now only exports the shared marker-collection + rendering functions
 `codegen.py` (and its tests) call into.
 
-Reuses `commands.autowire.resolve_composition()` — the same composition
-closure walk used for the CMake REQUIRES fragment — as the SSOT for "which
+Reuses `composition.resolve_composition()` — the same composition closure
+walk used for the CMake REQUIRES fragment — as the SSOT for "which
 components are in this build". Over that component set, it:
 
   1. Greps each component's public header(s) for `// bbtool:init` markers
