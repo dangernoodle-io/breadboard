@@ -1,3 +1,4 @@
 include/secrets.h
 platformio_local.ini
 .pio/
+main/generated/

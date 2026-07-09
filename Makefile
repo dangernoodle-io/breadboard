@@ -1,6 +1,6 @@
 PIO ?= pio
 
-.PHONY: help all check lint cppcheck docs docs-index-check docs-check fence di-fence size-check size-baseline test-py test coverage smoke floor floor-codegen clean
+.PHONY: help all check lint cppcheck docs docs-index-check docs-check fence di-fence size-check size-baseline test-py test coverage smoke smoke-codegen floor floor-codegen clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
@@ -123,6 +123,14 @@ floor-codegen: ## Regenerate bb_app_init.c from // bbtool:init markers over floo
 	    --wire-out examples/floor/main/generated/bb_app_init.c
 	$(PIO) run -d examples/floor -e esp32
 
+smoke-codegen: ## Regenerate smoke's composition root (bb_app_init.c) from // bbtool:init markers over SMOKE_REQUIRES minus bb_init, then rebuild smoke esp32 -- entry_espidf.c actually CALLS bb_app_init_early()/bb_app_init() (unlike floor's proof-only wiring), so this is smoke's normal build path now, not a proof
+	python3 scripts/bbtool.py codegen --root . \
+	    --components bb_nv,bb_log,bb_log_event,bb_log_http,bb_wifi,bb_wifi_http,bb_settings,bb_http,bb_http_server,bb_mdns,bb_mdns_cache,bb_ota_pull,bb_ota_push,bb_ota_boot,bb_info,bb_board,bb_manifest,bb_ota_validator,bb_system,bb_openapi,bb_led,bb_led_info,bb_ntp,bb_ntp_info,bb_led_gpio,bb_led_pwm,bb_led_apa102,bb_led_anim,bb_button,bb_button_gpio,bb_button_events,bb_event,bb_event_ring,bb_event_ring_espidf,bb_event_routes,bb_event_routes_espidf,bb_ring_espidf,bb_ring_diag,bb_http_client,bb_release_manifest,bb_ota_check,bb_temp,bb_power,bb_fan,bb_sensors,bb_tls_creds,bb_mqtt_client,bb_pub,bb_sink_mqtt,bb_pub_info,bb_pub_rtos,bb_ws_server,bb_sink_ws,bb_registry,bb_partition,bb_task_registry,bb_task,bb_net_health,bb_mem_arena,bb_pool,bb_udp_frame,bb_udp_client,bb_sink_udp,bb_dispatch_cmd,bb_meminfo,bb_timer,bb_config,bb_storage_nvs \
+	    --components-out examples/smoke/main/generated/bb_autowire_components.cmake \
+	    --wire-out examples/smoke/main/generated/bb_app_init.c
+	$(PIO) run -d examples/smoke -e esp32
+
 clean: ## Clean build artifacts
 	$(PIO) run -t clean
 	rm -f examples/floor/main/generated/bb_app_init.c examples/floor/main/generated/bb_app_init.cmake examples/floor/main/generated/bb_autowire_components.cmake
+	rm -f examples/smoke/main/generated/bb_app_init.c examples/smoke/main/generated/bb_app_init.cmake examples/smoke/main/generated/bb_autowire_components.cmake

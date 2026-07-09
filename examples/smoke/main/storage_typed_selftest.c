@@ -5,7 +5,7 @@
 // because both ultimately call the same native nvs_get/set_str.
 //
 // Runs automatically at boot (called from entry_espidf.c after
-// bb_init_init_early(), once NVS is ready) and logs PASS/FAIL — the smoke
+// bb_app_init_early(), once NVS is ready) and logs PASS/FAIL — the smoke
 // build compiling this file is the CI proof point; the on-device NVS
 // round-trip itself is verified at the hardware flash gate.
 

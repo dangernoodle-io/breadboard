@@ -353,9 +353,11 @@ void smoke_app_setup(void) {
     bb_log_i(TAG, "boot=%lu", (unsigned long)boot_count);
 
     bb_wifi_set_hostname("bb-smoke");
-    // WiFi init and HTTP server start are handled by bb_init_init_early()
-    // (BB_WIFI_AUTOREGISTER) and bb_init_init() (BB_HTTP_AUTOSTART) respectively.
-    // Route registration still happens here because /ping is not a bb_init entry.
+    // WiFi init and HTTP server start are handled by bb_app_init_early()
+    // (bb_wifi_autoinit) and bb_app_init() (bb_http_autostart_init)
+    // respectively -- the `bbtool codegen`-generated composition root.
+    // Route registration still happens here because /ping is not a
+    // codegen-composed entry.
     bb_http_register_route(bb_http_server_get_handle(), BB_HTTP_GET, "/ping", ping_handler);
 
 #if defined(CONFIG_BB_SMOKE_EVENT) && CONFIG_BB_SMOKE_EVENT
