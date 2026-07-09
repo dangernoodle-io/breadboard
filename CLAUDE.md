@@ -36,7 +36,7 @@ To find a component's docs:
 
 ## Build & test
 
-Default gate: `make check` (lint + cppcheck + docs-index-check + docs-check + di-fence). Python tooling tests: `make test-py`. Host unit tests: `make test`.
+Default gate: `make check` (lint + cppcheck + docs-index-check + docs-check + fence). Python tooling tests: `make test-py`. Host unit tests: `make test`.
 
 **Verify the CI way** — host tests FALSE-PASS under the local default toolchain; run under the CI gcc-16 `-Werror` PATH-shim (B1-642). Also build a real platform target (`make smoke`), which false-passes on native too. Never trust a local green alone.
 
@@ -55,7 +55,7 @@ Conventions are lint-enforced — the lint is the canonical rule; full detail + 
 - Timer callbacks — `timer-cb-heavy` — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#timer-callback-convention)
 - Logging — no lint — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#logging)
 - Audit-class defect ratchets (Kconfig bridge, reuse/idiom, branch coverage, route-init purity) — `kconfig-bridge-shadow`, plus non-lint items — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/Conventions#audit-class-regressions)
-- Composition-only — the legacy DI/registry surface (`BB_INIT_REGISTER`, `*_AUTOREGISTER`, force-register keeps) is frozen shrink-only; never add new uses (enforced by `make di-fence`) — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/design/DI-Model)
+- Composition-only — the legacy DI/registry surface (`BB_INIT_REGISTER`, `*_AUTOREGISTER`, force-register keeps) is frozen shrink-only; never add new uses (enforced by `make fence`, `di-legacy` family — `di-fence` remains as a back-compat alias); `--update-baseline` only prunes, a genuine conversion needs a reviewed baseline edit (see `scripts/bbtool/README.md`) — [wiki](https://github.com/dangernoodle-io/breadboard/wiki/design/DI-Model)
 
 ## Optional tooling (if installed)
 
