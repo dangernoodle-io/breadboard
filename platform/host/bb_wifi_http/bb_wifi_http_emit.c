@@ -8,6 +8,14 @@
 //
 // When disconnected all numeric fields are 0/false and string fields are
 // empty/"0.0.0.0", matching the current /api/wifi behaviour.
+//
+// KB 820 (bb_wifi reason contract, PR1): "disc_reason" changed from a raw
+// esp_wifi/backend-specific numeric code to a STABLE STRING label (e.g.
+// "handshake_timeout", "bb_lost_ip") backed by the portable
+// bb_wifi_disc_reason_t enum. This is a BREAKING CHANGE for any consumer
+// that parsed "disc_reason" as an integer -- the numeric value is no longer
+// wire-visible anywhere. See bb_wifi.h for the full enum + per-backend
+// mapping (bb_wifi_map_esp_reason / bb_wifi_map_wl_status).
 #include "bb_wifi_http.h"
 
 #include <stdio.h>
@@ -19,7 +27,7 @@
 //   rssi               (integer)
 //   ip                 (string)
 //   connected          (bool)
-//   disc_reason        (integer)
+//   disc_reason        (string — stable label, see bb_wifi_disc_reason_str)
 //   disc_age_s         (integer)
 //   retry_count        (integer)
 //   restart_sta_count  (integer, times bb_wifi_restart_sta was invoked)
@@ -36,7 +44,7 @@ void bb_wifi_emit_section(bb_json_t obj, const bb_wifi_info_t *info)
     bb_json_obj_set_int   (obj, "rssi",             (int64_t)info->rssi);
     bb_json_obj_set_string(obj, "ip",               info->ip);
     bb_json_obj_set_bool  (obj, "connected",        info->connected);
-    bb_json_obj_set_int   (obj, "disc_reason",      (int64_t)info->disc_reason);
+    bb_json_obj_set_string(obj, "disc_reason",      bb_wifi_disc_reason_str(info->disc_reason));
     bb_json_obj_set_int   (obj, "disc_age_s",       (int64_t)info->disc_age_s);
     bb_json_obj_set_int   (obj, "retry_count",      (int64_t)info->retry_count);
     bb_json_obj_set_int   (obj, "restart_sta_count",  (int64_t)bb_wifi_get_restart_sta_count());

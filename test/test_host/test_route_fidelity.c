@@ -137,7 +137,7 @@ static const char k_wifi_schema[] =
     "\"rssi\":{\"type\":\"integer\"},"
     "\"ip\":{\"type\":\"string\"},"
     "\"connected\":{\"type\":\"boolean\"},"
-    "\"disc_reason\":{\"type\":\"integer\"},"
+    "\"disc_reason\":{\"type\":\"string\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"retry_count\":{\"type\":\"integer\"},"
     "\"restart_sta_count\":{\"type\":\"integer\"},"
@@ -295,7 +295,7 @@ static const char k_diag_net_schema[] =
     "\"no_ip_recoveries\":{\"type\":\"integer\"},"
     "\"rssi\":{\"type\":\"integer\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
-    "\"last_disconnect_reason\":{\"type\":\"integer\"},"
+    "\"last_disconnect_reason\":{\"type\":\"string\"},"
     "\"lost_ip_recoveries\":{\"type\":\"integer\"},"
     "\"lost_ip_age_s\":{\"type\":\"integer\"},"
     "\"egress_dead_recoveries\":{\"type\":\"integer\"},"
@@ -320,11 +320,10 @@ static const char k_diag_net_schema[] =
     "\"gw_fail_streak\":{\"type\":\"integer\"},"
     "\"gw_dead_count\":{\"type\":\"integer\"},"
     "\"gw_probe_age_s\":{\"type\":\"integer\"}}},"
-    "\"reason_histogram\":{\"type\":\"object\",\"properties\":{"
-    "\"lost_ip\":{\"type\":\"integer\"},"
-    "\"egress_dead\":{\"type\":\"integer\"},"
-    "\"no_ip_watchdog\":{\"type\":\"integer\"},"
-    "\"top_reason_code\":{\"type\":\"integer\"},"
+    "\"reason_histogram\":{\"type\":\"object\","
+    "\"additionalProperties\":{\"type\":\"integer\"},"
+    "\"properties\":{"
+    "\"top_reason\":{\"type\":\"string\"},"
     "\"top_reason_count\":{\"type\":\"integer\"}}}},"
     "\"required\":[\"uptime_ms\"]}";
 
@@ -825,7 +824,8 @@ static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool wi
     bb_http_resp_json_obj_set_int(&obj, "no_ip_recoveries",       (int64_t)snap.no_ip_recoveries);
     bb_http_resp_json_obj_set_int(&obj, "rssi",                   (int64_t)snap.rssi);
     bb_http_resp_json_obj_set_int(&obj, "disc_age_s",             (int64_t)snap.disc_age_s);
-    bb_http_resp_json_obj_set_int(&obj, "last_disconnect_reason", (int64_t)snap.last_disconnect_reason);
+    bb_http_resp_json_obj_set_str(&obj, "last_disconnect_reason",
+        bb_wifi_disc_reason_str((bb_wifi_disc_reason_t)snap.last_disconnect_reason));
     bb_http_resp_json_obj_set_int(&obj, "lost_ip_recoveries",     (int64_t)snap.lost_ip_recoveries);
     bb_http_resp_json_obj_set_int(&obj, "lost_ip_age_s",          (int64_t)snap.lost_ip_age_s);
     bb_http_resp_json_obj_set_int(&obj, "egress_dead_recoveries", (int64_t)snap.egress_dead_recoveries);
@@ -868,23 +868,26 @@ static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool wi
     }
 
     // B1-486 finding #2: inject a non-zero standard reason (and non-zero
-    // sentinel buckets) and run the real bb_wifi_reason_histogram_top logic
-    // rather than canned zeros, so the top-reason branch has host coverage.
-    uint16_t hist[256];
+    // breadboard-injected buckets) and run the real
+    // bb_wifi_reason_histogram_top logic rather than canned zeros, so the
+    // top-reason branch has host coverage.
+    uint16_t hist[BB_WIFI_DISC_COUNT];
     memset(hist, 0, sizeof(hist));
     hist[BB_WIFI_REASON_BB_LOST_IP]        = 1;
     hist[BB_WIFI_REASON_BB_EGRESS_DEAD]    = 4;
     hist[BB_WIFI_REASON_BB_NO_IP_WATCHDOG] = 3;
-    hist[4] = 7; // standard reason 4, top non-sentinel count
+    hist[BB_WIFI_DISC_INACTIVITY]          = 7; // standard reason, top non-injected count
     uint16_t top_count = 0;
-    uint8_t  top_code  = bb_wifi_reason_histogram_top(hist, &top_count);
+    bb_wifi_disc_reason_t top_reason = bb_wifi_reason_histogram_top(hist, &top_count);
 
     bb_http_resp_json_obj_set_obj_begin(&obj, "reason_histogram");
-    bb_http_resp_json_obj_set_int(&obj, "lost_ip",         (int64_t)hist[BB_WIFI_REASON_BB_LOST_IP]);
-    bb_http_resp_json_obj_set_int(&obj, "egress_dead",     (int64_t)hist[BB_WIFI_REASON_BB_EGRESS_DEAD]);
-    bb_http_resp_json_obj_set_int(&obj, "no_ip_watchdog",  (int64_t)hist[BB_WIFI_REASON_BB_NO_IP_WATCHDOG]);
-    bb_http_resp_json_obj_set_int(&obj, "top_reason_code", (int64_t)top_code);
-    bb_http_resp_json_obj_set_int(&obj, "top_reason_count",(int64_t)top_count);
+    for (int i = 0; i < BB_WIFI_DISC_COUNT; i++) {
+        if (hist[i] == 0) continue;
+        bb_http_resp_json_obj_set_int(&obj, bb_wifi_disc_reason_str((bb_wifi_disc_reason_t)i),
+                                       (int64_t)hist[i]);
+    }
+    bb_http_resp_json_obj_set_str(&obj, "top_reason",       bb_wifi_disc_reason_str(top_reason));
+    bb_http_resp_json_obj_set_int(&obj, "top_reason_count", (int64_t)top_count);
     bb_http_resp_json_obj_set_obj_end(&obj);
 
     return bb_http_resp_json_obj_end(&obj);
