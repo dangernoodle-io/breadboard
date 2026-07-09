@@ -16,15 +16,14 @@ void wifi_reconn_state_reset(wifi_reconn_state_t *st)
     st->last_egress_dead_us = 0;
     st->no_ip_count = 0;
     st->last_no_ip_us = 0;
-    for (int i = 0; i < 256; i++) {
+    for (int i = 0; i < BB_WIFI_DISC_COUNT; i++) {
         st->reason_histogram[i] = 0;
     }
 }
 
-static uint32_t compute_backoff_ms(const wifi_reconn_state_t *st, uint8_t reason,
-                                    uint8_t handshake_reason_code)
+static uint32_t compute_backoff_ms(const wifi_reconn_state_t *st, bb_wifi_disc_reason_t reason)
 {
-    if (reason == handshake_reason_code) {
+    if (reason == BB_WIFI_DISC_HANDSHAKE_TIMEOUT) {
         int n = st->handshake_fail_count;
         if (n <= WIFI_RECONN_HANDSHAKE_FAST_RETRY_LIMIT)
             return 0;
@@ -40,8 +39,7 @@ static uint32_t compute_backoff_ms(const wifi_reconn_state_t *st, uint8_t reason
 
 wifi_reconn_action_t wifi_reconn_policy_on_disconnect(
     wifi_reconn_state_t *st, const wifi_reconn_adapter_t *a,
-    uint8_t reason, uint8_t handshake_reason_code,
-    uint32_t *backoff_ms_out)
+    bb_wifi_disc_reason_t reason, uint32_t *backoff_ms_out)
 {
     if (!st || !a || !backoff_ms_out) {
         return WIFI_RECONN_ACTION_NONE;
@@ -63,7 +61,7 @@ wifi_reconn_action_t wifi_reconn_policy_on_disconnect(
     }
 
     // Increment appropriate counter based on reason.
-    if (reason == handshake_reason_code) {
+    if (reason == BB_WIFI_DISC_HANDSHAKE_TIMEOUT) {
         st->handshake_fail_count++;
     } else {
         st->generic_fail_count++;
@@ -76,7 +74,7 @@ wifi_reconn_action_t wifi_reconn_policy_on_disconnect(
     }
 
     // Compute backoff strategy.
-    uint32_t backoff_ms = compute_backoff_ms(st, reason, handshake_reason_code);
+    uint32_t backoff_ms = compute_backoff_ms(st, reason);
     *backoff_ms_out = backoff_ms;
 
     if (backoff_ms == 0) {
@@ -150,8 +148,9 @@ wifi_reconn_action_t wifi_reconn_policy_on_connect_timeout(
     }
 
     // Apply the same progressive backoff as on_disconnect's generic path.
-    // Pass distinct reason/handshake values to force the generic branch.
-    uint32_t backoff_ms = compute_backoff_ms(st, 0, 1);
+    // BB_WIFI_DISC_UNKNOWN != BB_WIFI_DISC_HANDSHAKE_TIMEOUT, forcing the
+    // generic branch (a connect-timeout stall is never a handshake reason).
+    uint32_t backoff_ms = compute_backoff_ms(st, BB_WIFI_DISC_UNKNOWN);
     *backoff_ms_out = backoff_ms;
 
     if (backoff_ms == 0) {
