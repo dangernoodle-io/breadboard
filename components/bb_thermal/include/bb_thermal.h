@@ -34,7 +34,7 @@ typedef struct {
 
 // Pure value collector — reads snapshots from HAL, fills *out.
 // Does NOT poll (callers must have already polled bb_power_poll / bb_fan_poll).
-// SSOT: both bb_thermal_emit_section and bb_pub_thermal sample_fn call this.
+// SSOT: bb_thermal_emit_section (/api/sensors thermal section) calls this.
 void bb_thermal_collect(bb_thermal_values_t *out);
 
 // No-op stub kept for link compatibility. /api/thermal route deleted in B1-269 PR7.

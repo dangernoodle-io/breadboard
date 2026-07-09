@@ -391,11 +391,6 @@
       "type": "component"
     },
     {
-      "id": "bb_pub_fan",
-      "path": "components/bb_pub_fan",
-      "type": "component"
-    },
-    {
       "id": "bb_pub_health",
       "path": "components/bb_pub_health",
       "type": "component"
@@ -406,11 +401,6 @@
       "type": "component"
     },
     {
-      "id": "bb_pub_power",
-      "path": "components/bb_pub_power",
-      "type": "component"
-    },
-    {
       "id": "bb_pub_rtos",
       "path": "components/bb_pub_rtos",
       "type": "component"
@@ -418,11 +408,6 @@
     {
       "id": "bb_pub_telemetry",
       "path": "components/bb_pub_telemetry",
-      "type": "component"
-    },
-    {
-      "id": "bb_pub_thermal",
-      "path": "components/bb_pub_thermal",
       "type": "component"
     },
     {

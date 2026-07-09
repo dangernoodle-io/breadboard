@@ -356,11 +356,6 @@
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
-      "id": "bb_pub_fan",
-      "path": "platform/host/bb_pub_fan/bb_pub_fan.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
       "id": "bb_pub_health",
       "path": "platform/host/bb_pub_health/bb_pub_health.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
@@ -371,11 +366,6 @@
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
-      "id": "bb_pub_power",
-      "path": "platform/host/bb_pub_power/bb_pub_power.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
       "id": "bb_pub_rtos",
       "path": "platform/host/bb_pub_rtos/bb_pub_rtos.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
@@ -383,11 +373,6 @@
     {
       "id": "bb_pub_telemetry",
       "path": "platform/host/bb_pub_telemetry/bb_pub_telemetry_host.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
-      "id": "bb_pub_thermal",
-      "path": "platform/host/bb_pub_thermal/bb_pub_thermal.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
@@ -441,11 +426,6 @@
       "type": "auto_attach_kconfig"
     },
     {
-      "id": "BB_PUB_FAN_AUTO_ATTACH",
-      "path": "components/bb_pub_fan/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
       "id": "BB_PUB_HEALTH_AUTO_ATTACH",
       "path": "components/bb_pub_health/Kconfig",
       "type": "auto_attach_kconfig"
@@ -456,18 +436,8 @@
       "type": "auto_attach_kconfig"
     },
     {
-      "id": "BB_PUB_POWER_AUTO_ATTACH",
-      "path": "components/bb_pub_power/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
       "id": "BB_PUB_RTOS_AUTO_ATTACH",
       "path": "components/bb_pub_rtos/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
-      "id": "BB_PUB_THERMAL_AUTO_ATTACH",
-      "path": "components/bb_pub_thermal/Kconfig",
       "type": "auto_attach_kconfig"
     },
     {
@@ -506,11 +476,6 @@
       "type": "auto_attach_usage"
     },
     {
-      "id": "BB_PUB_FAN_AUTO_ATTACH",
-      "path": "platform/host/bb_pub_fan/bb_pub_fan.c",
-      "type": "auto_attach_usage"
-    },
-    {
       "id": "BB_PUB_HEALTH_AUTO_ATTACH",
       "path": "platform/host/bb_pub_health/bb_pub_health.c",
       "type": "auto_attach_usage"
@@ -521,18 +486,8 @@
       "type": "auto_attach_usage"
     },
     {
-      "id": "BB_PUB_POWER_AUTO_ATTACH",
-      "path": "platform/host/bb_pub_power/bb_pub_power.c",
-      "type": "auto_attach_usage"
-    },
-    {
       "id": "BB_PUB_RTOS_AUTO_ATTACH",
       "path": "platform/host/bb_pub_rtos/bb_pub_rtos.c",
-      "type": "auto_attach_usage"
-    },
-    {
-      "id": "BB_PUB_THERMAL_AUTO_ATTACH",
-      "path": "platform/host/bb_pub_thermal/bb_pub_thermal.c",
       "type": "auto_attach_usage"
     },
     {
@@ -1351,11 +1306,6 @@
       "type": "linker_force_register"
     },
     {
-      "id": "pre_http:bb_pub_fan",
-      "path": "components/bb_pub_fan/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
       "id": "pre_http:bb_pub_health",
       "path": "components/bb_pub_health/CMakeLists.txt",
       "type": "linker_force_register"
@@ -1366,11 +1316,6 @@
       "type": "linker_force_register"
     },
     {
-      "id": "pre_http:bb_pub_power",
-      "path": "components/bb_pub_power/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
       "id": "pre_http:bb_pub_rtos",
       "path": "components/bb_pub_rtos/CMakeLists.txt",
       "type": "linker_force_register"
@@ -1378,11 +1323,6 @@
     {
       "id": "pre_http:bb_pub_telemetry",
       "path": "components/bb_pub_telemetry/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_pub_thermal",
-      "path": "components/bb_pub_thermal/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {

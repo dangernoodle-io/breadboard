@@ -92,13 +92,10 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_prov](./bb_prov/) | — |
 | [bb_prov_default_form](./bb_prov_default_form/) | — |
 | [bb_pub](./bb_pub/) | — |
-| [bb_pub_fan](./bb_pub_fan/) | — |
 | [bb_pub_health](./bb_pub_health/) | — |
 | [bb_pub_info](./bb_pub_info/) | — |
-| [bb_pub_power](./bb_pub_power/) | — |
 | [bb_pub_rtos](./bb_pub_rtos/) | — |
 | [bb_pub_telemetry](./bb_pub_telemetry/) | — |
-| [bb_pub_thermal](./bb_pub_thermal/) | — |
 | [bb_registry](./bb_registry/) | — |
 | [bb_release_manifest](./bb_release_manifest/) | — |
 | [bb_response](./bb_response/) | — |
