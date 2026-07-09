@@ -126,7 +126,7 @@ components = [
     "bb_partition", "bb_pool", "bb_power", "bb_power_health", "bb_power_routes",
     "bb_power_tps546", "bb_prov", "bb_pub", "bb_pub_fan", "bb_pub_health",
     "bb_pub_info", "bb_pub_power", "bb_pub_rtos", "bb_pub_telemetry", "bb_pub_thermal",
-    "bb_pub_wifi", "bb_registry", "bb_release_manifest", "bb_response", "bb_ring",
+    "bb_registry", "bb_release_manifest", "bb_response", "bb_ring",
     "bb_scalar", "bb_sensors", "bb_settings", "bb_sink_display", "bb_sink_event", "bb_sink_http",
     "bb_sink_http_telemetry", "bb_sink_mqtt", "bb_sink_udp", "bb_sink_ws", "bb_sse_writer",
     "bb_storage", "bb_storage_ram",

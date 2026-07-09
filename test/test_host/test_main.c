@@ -4126,38 +4126,6 @@ void test_bb_thermal_collect_asic_absent_when_die_nan(void);
 void test_bb_thermal_collect_board_absent_when_board_nan(void);
 void test_bb_thermal_collect_all_present(void);
 
-// Forward declarations from test_bb_pub_wifi.c
-void test_bb_pub_wifi_skips_when_disconnected(void);
-void test_bb_pub_wifi_publishes_when_connected(void);
-void test_bb_pub_wifi_topic_is_correct(void);
-void test_bb_pub_wifi_has_rssi_field(void);
-void test_bb_pub_wifi_rssi_value_correct(void);
-void test_bb_pub_wifi_payload_has_uptime_ms_field(void);
-void test_bb_pub_wifi_has_ssid_field(void);
-void test_bb_pub_wifi_ssid_value_correct(void);
-void test_bb_pub_wifi_has_bssid_field(void);
-void test_bb_pub_wifi_bssid_format_correct(void);
-void test_bb_pub_wifi_has_ip_field(void);
-void test_bb_pub_wifi_ip_value_correct(void);
-void test_bb_pub_wifi_has_connected_field(void);
-void test_bb_pub_wifi_has_disc_reason_field(void);
-void test_bb_pub_wifi_has_disc_age_s_field(void);
-void test_bb_pub_wifi_has_retry_count_field(void);
-void test_bb_pub_wifi_no_longer_has_no_ip_recoveries_field(void);
-void test_bb_pub_wifi_rssi_is_integer_not_float(void);
-void test_bb_pub_wifi_rest_equals_sink_bytes(void);
-void test_bb_pub_wifi_no_longer_has_egress_dead_count(void);
-void test_bb_pub_wifi_no_longer_has_lost_ip_count(void);
-void test_bb_pub_wifi_no_longer_has_recovery_count(void);
-// B1-411: restart_sta_count, disconnect_rssi emit fields
-void test_bb_pub_wifi_has_restart_sta_count(void);
-void test_bb_pub_wifi_has_disconnect_rssi(void);
-// B1-497: roam_count / roam_age_s emit field (observe-only)
-void test_bb_pub_wifi_no_longer_has_roam_count(void);
-// B1-486: reason_histogram moved to /api/diag/net
-void test_bb_pub_wifi_no_longer_has_reason_histogram(void);
-void test_bb_pub_wifi_topic_const_matches_legacy_literal(void);
-
 // Forward declarations from test_bb_pub_info.c
 // Dynamic runtime metrics (kept in info topic)
 void test_bb_pub_info_always_publishes(void);
@@ -4552,6 +4520,13 @@ void test_bb_wifi_emit_no_longer_has_egress_dead_count(void);
 void test_bb_wifi_emit_no_longer_has_lost_ip_count(void);
 void test_bb_wifi_emit_no_longer_has_recovery_count(void);
 void test_bb_wifi_emit_no_longer_has_reason_histogram(void);
+void test_bb_wifi_emit_no_longer_has_no_ip_recoveries(void);
+void test_bb_wifi_emit_no_longer_has_roam_fields(void);
+void test_bb_wifi_topic_const_matches_legacy_literal(void);
+void test_bb_wifi_emit_bssid_hex_format_correct(void);
+void test_bb_wifi_emit_ssid_value_correct(void);
+void test_bb_wifi_emit_ip_value_correct(void);
+void test_bb_wifi_emit_rssi_is_integer_not_float(void);
 // cache-adapter no-regather
 void test_bb_pub_telem_adapter_no_regather_on_repeated_sample(void);
 
@@ -8953,35 +8928,6 @@ int main(void) {
     RUN_TEST(test_bb_pub_thermal_vr_c_null_when_power_primary_present_but_no_reading);
     RUN_TEST(test_bb_pub_thermal_asic_c_null_when_fan_primary_present_but_die_nan);
 
-    // bb_pub_wifi tests
-    RUN_TEST(test_bb_pub_wifi_skips_when_disconnected);
-    RUN_TEST(test_bb_pub_wifi_publishes_when_connected);
-    RUN_TEST(test_bb_pub_wifi_topic_is_correct);
-    RUN_TEST(test_bb_pub_wifi_has_rssi_field);
-    RUN_TEST(test_bb_pub_wifi_rssi_value_correct);
-    RUN_TEST(test_bb_pub_wifi_payload_has_uptime_ms_field);
-    RUN_TEST(test_bb_pub_wifi_has_ssid_field);
-    RUN_TEST(test_bb_pub_wifi_ssid_value_correct);
-    RUN_TEST(test_bb_pub_wifi_has_bssid_field);
-    RUN_TEST(test_bb_pub_wifi_bssid_format_correct);
-    RUN_TEST(test_bb_pub_wifi_has_ip_field);
-    RUN_TEST(test_bb_pub_wifi_ip_value_correct);
-    RUN_TEST(test_bb_pub_wifi_has_connected_field);
-    RUN_TEST(test_bb_pub_wifi_has_disc_reason_field);
-    RUN_TEST(test_bb_pub_wifi_has_disc_age_s_field);
-    RUN_TEST(test_bb_pub_wifi_has_retry_count_field);
-    RUN_TEST(test_bb_pub_wifi_no_longer_has_no_ip_recoveries_field);
-    RUN_TEST(test_bb_pub_wifi_rssi_is_integer_not_float);
-    RUN_TEST(test_bb_pub_wifi_rest_equals_sink_bytes);
-    RUN_TEST(test_bb_pub_wifi_no_longer_has_egress_dead_count);
-    RUN_TEST(test_bb_pub_wifi_no_longer_has_lost_ip_count);
-    RUN_TEST(test_bb_pub_wifi_no_longer_has_recovery_count);
-    RUN_TEST(test_bb_pub_wifi_has_restart_sta_count);
-    RUN_TEST(test_bb_pub_wifi_has_disconnect_rssi);
-    RUN_TEST(test_bb_pub_wifi_no_longer_has_roam_count);
-    RUN_TEST(test_bb_pub_wifi_no_longer_has_reason_histogram);
-    RUN_TEST(test_bb_pub_wifi_topic_const_matches_legacy_literal);
-
     // bb_pub_info tests
     RUN_TEST(test_bb_pub_info_always_publishes);
     RUN_TEST(test_bb_pub_info_topic_is_correct);
@@ -9477,6 +9423,13 @@ int main(void) {
     RUN_TEST(test_bb_wifi_emit_no_longer_has_lost_ip_count);
     RUN_TEST(test_bb_wifi_emit_no_longer_has_recovery_count);
     RUN_TEST(test_bb_wifi_emit_no_longer_has_reason_histogram);
+    RUN_TEST(test_bb_wifi_emit_no_longer_has_no_ip_recoveries);
+    RUN_TEST(test_bb_wifi_emit_no_longer_has_roam_fields);
+    RUN_TEST(test_bb_wifi_topic_const_matches_legacy_literal);
+    RUN_TEST(test_bb_wifi_emit_bssid_hex_format_correct);
+    RUN_TEST(test_bb_wifi_emit_ssid_value_correct);
+    RUN_TEST(test_bb_wifi_emit_ip_value_correct);
+    RUN_TEST(test_bb_wifi_emit_rssi_is_integer_not_float);
     RUN_TEST(test_bb_pub_telem_adapter_no_regather_on_repeated_sample);
 
     // bb_registry

@@ -41,13 +41,13 @@
       "type": "BB_INIT_REGISTER_EARLY"
     },
     {
-      "id": "bb_mem_arena_tls",
-      "path": "platform/espidf/bb_mem_arena_tls/bb_mem_arena_tls.c",
+      "id": "bb_diag_panic",
+      "path": "platform/espidf/bb_diag/bb_diag_panic.c",
       "type": "BB_INIT_REGISTER_EARLY"
     },
     {
-      "id": "bb_diag_panic",
-      "path": "platform/espidf/bb_diag/bb_diag_panic.c",
+      "id": "bb_mem_arena_tls",
+      "path": "platform/espidf/bb_mem_arena_tls/bb_mem_arena_tls.c",
       "type": "BB_INIT_REGISTER_EARLY"
     },
     {
@@ -391,11 +391,6 @@
       "type": "BB_INIT_REGISTER_PRE_HTTP"
     },
     {
-      "id": "bb_pub_wifi",
-      "path": "platform/host/bb_pub_wifi/bb_pub_wifi.c",
-      "type": "BB_INIT_REGISTER_PRE_HTTP"
-    },
-    {
       "id": "bb_sink_http_telemetry",
       "path": "platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c",
       "type": "BB_INIT_REGISTER_PRE_HTTP"
@@ -476,11 +471,6 @@
       "type": "auto_attach_kconfig"
     },
     {
-      "id": "BB_PUB_WIFI_AUTO_ATTACH",
-      "path": "components/bb_pub_wifi/Kconfig",
-      "type": "auto_attach_kconfig"
-    },
-    {
       "id": "BB_DIAG_AUTO_ATTACH",
       "path": "platform/espidf/bb_diag/bb_diag_routes.c",
       "type": "auto_attach_usage"
@@ -546,18 +536,8 @@
       "type": "auto_attach_usage"
     },
     {
-      "id": "BB_PUB_WIFI_AUTO_ATTACH",
-      "path": "platform/host/bb_pub_wifi/bb_pub_wifi.c",
-      "type": "auto_attach_usage"
-    },
-    {
       "id": "BB_ALERT_AUTOREGISTER",
       "path": "components/bb_alert/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_MEM_ARENA_TLS_AUTOREGISTER",
-      "path": "components/bb_mem_arena_tls/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
@@ -643,6 +623,11 @@
     {
       "id": "BB_MDNS_CACHE_AUTOREGISTER",
       "path": "components/bb_mdns_cache/Kconfig",
+      "type": "autoregister_kconfig"
+    },
+    {
+      "id": "BB_MEM_ARENA_TLS_AUTOREGISTER",
+      "path": "components/bb_mem_arena_tls/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
@@ -826,11 +811,6 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_MEM_ARENA_TLS_AUTOREGISTER",
-      "path": "platform/espidf/bb_mem_arena_tls/bb_mem_arena_tls.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_CACHE_ROUTES_AUTOREGISTER",
       "path": "platform/espidf/bb_cache_routes/bb_cache_routes.c",
       "type": "autoregister_usage"
@@ -903,6 +883,11 @@
     {
       "id": "BB_MDNS_CACHE_AUTOREGISTER",
       "path": "platform/espidf/bb_mdns_cache/bb_mdns_cache.c",
+      "type": "autoregister_usage"
+    },
+    {
+      "id": "BB_MEM_ARENA_TLS_AUTOREGISTER",
+      "path": "platform/espidf/bb_mem_arena_tls/bb_mem_arena_tls.c",
       "type": "autoregister_usage"
     },
     {
@@ -1121,11 +1106,6 @@
       "type": "linker_force_register"
     },
     {
-      "id": "early:bb_mem_arena_tls",
-      "path": "components/bb_mem_arena_tls/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
       "id": "pre_http:bb_cache_evict",
       "path": "components/bb_cache/CMakeLists.txt",
       "type": "linker_force_register"
@@ -1238,6 +1218,11 @@
     {
       "id": "pre_http:bb_mdns_cache",
       "path": "components/bb_mdns_cache/CMakeLists.txt",
+      "type": "linker_force_register"
+    },
+    {
+      "id": "early:bb_mem_arena_tls",
+      "path": "components/bb_mem_arena_tls/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {
@@ -1398,11 +1383,6 @@
     {
       "id": "pre_http:bb_pub_thermal",
       "path": "components/bb_pub_thermal/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "pre_http:bb_pub_wifi",
-      "path": "components/bb_pub_wifi/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {
