@@ -3,7 +3,7 @@
 // bb_sub — cache-only ingress routing core (B1-490).
 //
 // bb_sub_route(topic, payload, len) is the single entry point ingress
-// adapters (e.g. bb_sub_mqtt) call for every inbound message. On first
+// adapters (e.g. an MQTT ingress adapter) call for every inbound message. On first
 // sight of `topic` it dynamically registers a bb_cache entry — a
 // PASSTHROUGH serializer, since the payload is already serialized JSON:
 // bb_sub reproduces it field-for-field via bb_json_parse + a generic

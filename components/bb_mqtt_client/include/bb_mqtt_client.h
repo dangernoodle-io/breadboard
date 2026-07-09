@@ -396,7 +396,7 @@ void bb_mqtt_client_host_inject_fragment(bb_mqtt_client_t h, const char *topic,
  * Force the next bb_mqtt_client_subscribe(h, ...) call on this handle to fail
  * (returns BB_ERR_INVALID_STATE) without attempting anything. Sticky until
  * cleared with fail=false. Used to cover a consumer's subscribe-failure
- * branch (e.g. bb_sub_mqtt) without a real broker.
+ * branch (e.g. an MQTT ingress adapter) without a real broker.
  */
 void bb_mqtt_client_host_set_subscribe_fail(bb_mqtt_client_t h, bool fail);
 

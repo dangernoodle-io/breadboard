@@ -1,5 +1,5 @@
 // Tests for bb_mqtt_client_on_message / bb_mqtt_client_host_inject_message (B1-487): the
-// per-handle receive-callback primitive that bb_sub_mqtt sits on top of.
+// per-handle receive-callback primitive that an MQTT ingress adapter sits on top of.
 #include "unity.h"
 #include "bb_mqtt_client.h"
 

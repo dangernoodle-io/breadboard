@@ -4645,34 +4645,6 @@ void test_bb_mqtt_on_message_multiple_injections(void);
 void test_bb_mqtt_on_message_replaces_previous_callback(void);
 void test_bb_mqtt_on_message_no_callback_registered_is_safe(void);
 
-// Forward declarations from test_bb_sub_mqtt.c
-void test_bb_sub_mqtt_add_topic_null_returns_invalid_arg(void);
-void test_bb_sub_mqtt_add_topic_empty_returns_invalid_arg(void);
-void test_bb_sub_mqtt_add_topic_happy_path(void);
-void test_bb_sub_mqtt_add_topic_overflow_returns_no_space(void);
-void test_bb_sub_mqtt_add_topic_shape_mismatch_warns_once(void);
-void test_bb_sub_mqtt_add_topic_no_slash_filter_is_non_default_shape(void);
-void test_bb_sub_mqtt_add_topic_shape_mismatch_no_warn_when_ignore_self_false(void);
-void test_bb_sub_mqtt_init_no_default_client_is_safe(void);
-void test_bb_sub_mqtt_init_called_twice_reuses_loaded_kconfig(void);
-void test_bb_sub_mqtt_explicit_add_topic_skips_kconfig_default(void);
-void test_bb_sub_mqtt_empty_topics_cfg_configures_nothing(void);
-void test_bb_sub_mqtt_init_routes_injected_message_into_cache(void);
-void test_bb_sub_mqtt_ignores_own_hostname_topic_by_default(void);
-void test_bb_sub_mqtt_allows_other_hostname_topic_by_default(void);
-void test_bb_sub_mqtt_same_length_different_hostname_not_excluded(void);
-void test_bb_sub_mqtt_set_ignore_self_false_ingests_own_topic(void);
-void test_bb_sub_mqtt_ignore_self_no_slash_topic_not_excluded(void);
-void test_bb_sub_mqtt_ignore_self_two_segment_topic_no_trailing_slash(void);
-void test_bb_sub_mqtt_empty_hostname_fails_open_and_routes(void);
-void test_bb_sub_mqtt_init_subscribe_failure_warns_and_continues(void);
-void test_bb_sub_mqtt_multi_topic_config_parses_and_subscribes_all(void);
-void test_bb_sub_mqtt_genuine_message_marks_ingress_activity(void);
-void test_bb_sub_mqtt_genuine_messages_register_transport_health_once(void);
-void test_bb_sub_mqtt_self_filtered_message_does_not_mark_activity(void);
-void test_bb_sub_mqtt_transport_health_excluded_from_authoritative_counts(void);
-void test_bb_sub_mqtt_exhausted_transport_health_degrades_gracefully(void);
-
 // Forward declarations from test_bb_udp_frame.c
 void test_bb_udp_frame_round_trip_telemetry(void);
 void test_bb_udp_frame_round_trip_log_batch(void);
@@ -9511,34 +9483,6 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_on_message_multiple_injections);
     RUN_TEST(test_bb_mqtt_on_message_replaces_previous_callback);
     RUN_TEST(test_bb_mqtt_on_message_no_callback_registered_is_safe);
-
-    // bb_sub_mqtt
-    RUN_TEST(test_bb_sub_mqtt_add_topic_null_returns_invalid_arg);
-    RUN_TEST(test_bb_sub_mqtt_add_topic_empty_returns_invalid_arg);
-    RUN_TEST(test_bb_sub_mqtt_add_topic_happy_path);
-    RUN_TEST(test_bb_sub_mqtt_add_topic_overflow_returns_no_space);
-    RUN_TEST(test_bb_sub_mqtt_add_topic_shape_mismatch_warns_once);
-    RUN_TEST(test_bb_sub_mqtt_add_topic_no_slash_filter_is_non_default_shape);
-    RUN_TEST(test_bb_sub_mqtt_add_topic_shape_mismatch_no_warn_when_ignore_self_false);
-    RUN_TEST(test_bb_sub_mqtt_init_no_default_client_is_safe);
-    RUN_TEST(test_bb_sub_mqtt_init_called_twice_reuses_loaded_kconfig);
-    RUN_TEST(test_bb_sub_mqtt_explicit_add_topic_skips_kconfig_default);
-    RUN_TEST(test_bb_sub_mqtt_empty_topics_cfg_configures_nothing);
-    RUN_TEST(test_bb_sub_mqtt_init_routes_injected_message_into_cache);
-    RUN_TEST(test_bb_sub_mqtt_ignores_own_hostname_topic_by_default);
-    RUN_TEST(test_bb_sub_mqtt_allows_other_hostname_topic_by_default);
-    RUN_TEST(test_bb_sub_mqtt_same_length_different_hostname_not_excluded);
-    RUN_TEST(test_bb_sub_mqtt_set_ignore_self_false_ingests_own_topic);
-    RUN_TEST(test_bb_sub_mqtt_ignore_self_no_slash_topic_not_excluded);
-    RUN_TEST(test_bb_sub_mqtt_ignore_self_two_segment_topic_no_trailing_slash);
-    RUN_TEST(test_bb_sub_mqtt_empty_hostname_fails_open_and_routes);
-    RUN_TEST(test_bb_sub_mqtt_init_subscribe_failure_warns_and_continues);
-    RUN_TEST(test_bb_sub_mqtt_multi_topic_config_parses_and_subscribes_all);
-    RUN_TEST(test_bb_sub_mqtt_genuine_message_marks_ingress_activity);
-    RUN_TEST(test_bb_sub_mqtt_genuine_messages_register_transport_health_once);
-    RUN_TEST(test_bb_sub_mqtt_self_filtered_message_does_not_mark_activity);
-    RUN_TEST(test_bb_sub_mqtt_transport_health_excluded_from_authoritative_counts);
-    RUN_TEST(test_bb_sub_mqtt_exhausted_transport_health_degrades_gracefully);
 
     // bb_udp_frame
     RUN_TEST(test_bb_udp_frame_round_trip_telemetry);

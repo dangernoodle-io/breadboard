@@ -1,11 +1,6 @@
 {
   "entries": [
     {
-      "id": "bb_sub_mqtt",
-      "path": "components/bb_sub_mqtt/src/bb_sub_mqtt.c",
-      "type": "BB_INIT_REGISTER"
-    },
-    {
       "id": "bb_event_routes",
       "path": "platform/espidf/bb_event_routes/bb_event_routes_espidf.c",
       "type": "BB_INIT_REGISTER"
@@ -711,11 +706,6 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_SUB_MQTT_AUTOREGISTER",
-      "path": "components/bb_sub_mqtt/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_SYSTEM_ROUTES_AUTOREGISTER",
       "path": "components/bb_system/Kconfig",
       "type": "autoregister_kconfig"
@@ -753,11 +743,6 @@
     {
       "id": "BB_EVENT_AUTOREGISTER",
       "path": "components/bb_event/bb_event_common.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_SUB_MQTT_AUTOREGISTER",
-      "path": "components/bb_sub_mqtt/src/bb_sub_mqtt.c",
       "type": "autoregister_usage"
     },
     {
@@ -1348,11 +1333,6 @@
     {
       "id": "pre_http:bb_sink_udp",
       "path": "components/bb_sink_udp/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_sub_mqtt",
-      "path": "components/bb_sub_mqtt/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {
