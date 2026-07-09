@@ -14,6 +14,13 @@ either removed from the tree or the baseline is knowingly hand-edited. Use
 `--seed <family>` exactly once, for a brand-new family with no baseline
 yet, to bless its current occurrence set wholesale as the starting point.
 
+`--approve <component>` is a narrow, sanctioned exception to the
+shrink-only rule above, scoped to the `new_component` family only (see
+`fence/new_component.py`): it appends exactly one already-on-disk
+`components/<component>/` to that family's baseline, and never touches any
+other family's baseline. `--update-baseline` itself stays shrink-only for
+every family, `new_component` included.
+
 The `di-fence` command (`scripts/bbtool/commands/di_fence.py`) is a thin
 back-compat alias for `fence --family di_legacy`.
 """
@@ -53,6 +60,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         metavar="FAMILY",
         help="one-time: bless the current occurrence set of FAMILY as its"
              " starting baseline (errors if a baseline already exists)",
+    )
+    parser.add_argument(
+        "--approve",
+        default=None,
+        metavar="COMPONENT",
+        help="new_component family only: append the single named component"
+             " (must already exist at components/COMPONENT/) to the"
+             " new_component baseline — the sanctioned grow-by-approval"
+             " path; does not touch any other family's baseline",
     )
 
 
@@ -94,6 +110,63 @@ def _seed(root: str, family: str) -> int:
     current = fence_pkg.scan_all(module, root)
     written = fence_pkg.write_baseline(root, family, current)
     print(f"bbtool fence[{family}]: baseline seeded ({len(current)} entries) -> {written}")
+    return 0
+
+
+_APPROVE_FAMILY = "new_component"
+
+
+def _approve(root: str, component: str) -> int:
+    """Grow-by-approval: append exactly one component to the
+    new_component family's baseline. This is the ONE sanctioned additive
+    baseline path in the whole fence system — every family (this one
+    included) stays shrink-only under `--update-baseline`; approving a new
+    component is a distinct, narrowly-scoped operation that never touches
+    any other family."""
+    if _APPROVE_FAMILY not in fence_pkg.FAMILIES:
+        print(
+            f"bbtool fence: --approve requires the '{_APPROVE_FAMILY}' family,"
+            " which is not present in this tree",
+            file=sys.stderr,
+        )
+        return 1
+    component_dir = os.path.join(root, "components", component)
+    if not os.path.isdir(component_dir):
+        print(
+            f"bbtool fence --approve: components/{component} does not exist"
+            " on disk — --approve only blesses a component that is already"
+            " present in the tree, it never creates one",
+            file=sys.stderr,
+        )
+        return 1
+    module = fence_pkg.FAMILIES[_APPROVE_FAMILY]
+    identity_fn = fence_pkg.identity_fn_for(module)
+    current = fence_pkg.scan_all(module, root)
+    marker = next(
+        (m for m in current if m.type == "component" and m.id == component),
+        None,
+    )
+    if marker is None:
+        print(
+            f"bbtool fence --approve: components/{component} is not a"
+            " scanned component directory (unexpected) — nothing to approve",
+            file=sys.stderr,
+        )
+        return 1
+    baseline = fence_pkg.load_baseline(root, _APPROVE_FAMILY)
+    baseline_ids = {identity_fn(m) for m in baseline}
+    if identity_fn(marker) in baseline_ids:
+        print(
+            f"bbtool fence[{_APPROVE_FAMILY}]: components/{component} is"
+            " already approved (already in the baseline) — nothing to do"
+        )
+        return 0
+    updated = baseline | {marker}
+    written = fence_pkg.write_baseline(root, _APPROVE_FAMILY, updated)
+    print(
+        f"bbtool fence[{_APPROVE_FAMILY}]: approved components/{component}"
+        f" -> {written}"
+    )
     return 0
 
 
@@ -165,6 +238,22 @@ def run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+
+    if getattr(args, "approve", None) is not None and (
+        getattr(args, "seed", None)
+        or getattr(args, "update_baseline", False)
+        or getattr(args, "family", None)
+    ):
+        print(
+            "bbtool fence: --approve is mutually exclusive with --seed,"
+            " --update-baseline, and --family — it already names the"
+            " single component being approved into new_component",
+            file=sys.stderr,
+        )
+        return 1
+
+    if getattr(args, "approve", None) is not None:
+        return _approve(root, args.approve)
 
     if getattr(args, "seed", None):
         return _seed(root, args.seed)

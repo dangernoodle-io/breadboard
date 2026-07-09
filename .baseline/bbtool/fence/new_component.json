@@ -1,0 +1,629 @@
+{
+  "entries": [
+    {
+      "id": "bb_alert",
+      "path": "components/bb_alert",
+      "type": "component"
+    },
+    {
+      "id": "bb_attrs",
+      "path": "components/bb_attrs",
+      "type": "component"
+    },
+    {
+      "id": "bb_board",
+      "path": "components/bb_board",
+      "type": "component"
+    },
+    {
+      "id": "bb_button",
+      "path": "components/bb_button",
+      "type": "component"
+    },
+    {
+      "id": "bb_button_events",
+      "path": "components/bb_button_events",
+      "type": "component"
+    },
+    {
+      "id": "bb_button_gpio",
+      "path": "components/bb_button_gpio",
+      "type": "component"
+    },
+    {
+      "id": "bb_cache",
+      "path": "components/bb_cache",
+      "type": "component"
+    },
+    {
+      "id": "bb_cache_reactive",
+      "path": "components/bb_cache_reactive",
+      "type": "component"
+    },
+    {
+      "id": "bb_cache_routes",
+      "path": "components/bb_cache_routes",
+      "type": "component"
+    },
+    {
+      "id": "bb_collection",
+      "path": "components/bb_collection",
+      "type": "component"
+    },
+    {
+      "id": "bb_config",
+      "path": "components/bb_config",
+      "type": "component"
+    },
+    {
+      "id": "bb_core",
+      "path": "components/bb_core",
+      "type": "component"
+    },
+    {
+      "id": "bb_diag",
+      "path": "components/bb_diag",
+      "type": "component"
+    },
+    {
+      "id": "bb_dispatch_cmd",
+      "path": "components/bb_dispatch_cmd",
+      "type": "component"
+    },
+    {
+      "id": "bb_display",
+      "path": "components/bb_display",
+      "type": "component"
+    },
+    {
+      "id": "bb_display_ek79007",
+      "path": "components/bb_display_ek79007",
+      "type": "component"
+    },
+    {
+      "id": "bb_display_ili9341",
+      "path": "components/bb_display_ili9341",
+      "type": "component"
+    },
+    {
+      "id": "bb_display_info",
+      "path": "components/bb_display_info",
+      "type": "component"
+    },
+    {
+      "id": "bb_display_spi_common",
+      "path": "components/bb_display_spi_common",
+      "type": "component"
+    },
+    {
+      "id": "bb_display_ssd1306",
+      "path": "components/bb_display_ssd1306",
+      "type": "component"
+    },
+    {
+      "id": "bb_display_st77xx",
+      "path": "components/bb_display_st77xx",
+      "type": "component"
+    },
+    {
+      "id": "bb_event",
+      "path": "components/bb_event",
+      "type": "component"
+    },
+    {
+      "id": "bb_event_ring",
+      "path": "components/bb_event_ring",
+      "type": "component"
+    },
+    {
+      "id": "bb_event_routes",
+      "path": "components/bb_event_routes",
+      "type": "component"
+    },
+    {
+      "id": "bb_fan",
+      "path": "components/bb_fan",
+      "type": "component"
+    },
+    {
+      "id": "bb_fan_emc2101",
+      "path": "components/bb_fan_emc2101",
+      "type": "component"
+    },
+    {
+      "id": "bb_fan_routes",
+      "path": "components/bb_fan_routes",
+      "type": "component"
+    },
+    {
+      "id": "bb_filter",
+      "path": "components/bb_filter",
+      "type": "component"
+    },
+    {
+      "id": "bb_fmt",
+      "path": "components/bb_fmt",
+      "type": "component"
+    },
+    {
+      "id": "bb_health",
+      "path": "components/bb_health",
+      "type": "component"
+    },
+    {
+      "id": "bb_http",
+      "path": "components/bb_http",
+      "type": "component"
+    },
+    {
+      "id": "bb_http_client",
+      "path": "components/bb_http_client",
+      "type": "component"
+    },
+    {
+      "id": "bb_http_server",
+      "path": "components/bb_http_server",
+      "type": "component"
+    },
+    {
+      "id": "bb_hw",
+      "path": "components/bb_hw",
+      "type": "component"
+    },
+    {
+      "id": "bb_i2c",
+      "path": "components/bb_i2c",
+      "type": "component"
+    },
+    {
+      "id": "bb_info",
+      "path": "components/bb_info",
+      "type": "component"
+    },
+    {
+      "id": "bb_init",
+      "path": "components/bb_init",
+      "type": "component"
+    },
+    {
+      "id": "bb_json",
+      "path": "components/bb_json",
+      "type": "component"
+    },
+    {
+      "id": "bb_kv",
+      "path": "components/bb_kv",
+      "type": "component"
+    },
+    {
+      "id": "bb_led",
+      "path": "components/bb_led",
+      "type": "component"
+    },
+    {
+      "id": "bb_led_anim",
+      "path": "components/bb_led_anim",
+      "type": "component"
+    },
+    {
+      "id": "bb_led_apa102",
+      "path": "components/bb_led_apa102",
+      "type": "component"
+    },
+    {
+      "id": "bb_led_gpio",
+      "path": "components/bb_led_gpio",
+      "type": "component"
+    },
+    {
+      "id": "bb_led_info",
+      "path": "components/bb_led_info",
+      "type": "component"
+    },
+    {
+      "id": "bb_led_pwm",
+      "path": "components/bb_led_pwm",
+      "type": "component"
+    },
+    {
+      "id": "bb_led_rgb_pwm",
+      "path": "components/bb_led_rgb_pwm",
+      "type": "component"
+    },
+    {
+      "id": "bb_log",
+      "path": "components/bb_log",
+      "type": "component"
+    },
+    {
+      "id": "bb_log_event",
+      "path": "components/bb_log_event",
+      "type": "component"
+    },
+    {
+      "id": "bb_log_http",
+      "path": "components/bb_log_http",
+      "type": "component"
+    },
+    {
+      "id": "bb_manifest",
+      "path": "components/bb_manifest",
+      "type": "component"
+    },
+    {
+      "id": "bb_mdns",
+      "path": "components/bb_mdns",
+      "type": "component"
+    },
+    {
+      "id": "bb_mdns_cache",
+      "path": "components/bb_mdns_cache",
+      "type": "component"
+    },
+    {
+      "id": "bb_mem_arena",
+      "path": "components/bb_mem_arena",
+      "type": "component"
+    },
+    {
+      "id": "bb_mem_arena_tls",
+      "path": "components/bb_mem_arena_tls",
+      "type": "component"
+    },
+    {
+      "id": "bb_meminfo",
+      "path": "components/bb_meminfo",
+      "type": "component"
+    },
+    {
+      "id": "bb_mqtt_client",
+      "path": "components/bb_mqtt_client",
+      "type": "component"
+    },
+    {
+      "id": "bb_mqtt_info",
+      "path": "components/bb_mqtt_info",
+      "type": "component"
+    },
+    {
+      "id": "bb_mqtt_telemetry",
+      "path": "components/bb_mqtt_telemetry",
+      "type": "component"
+    },
+    {
+      "id": "bb_net_health",
+      "path": "components/bb_net_health",
+      "type": "component"
+    },
+    {
+      "id": "bb_ntp",
+      "path": "components/bb_ntp",
+      "type": "component"
+    },
+    {
+      "id": "bb_ntp_info",
+      "path": "components/bb_ntp_info",
+      "type": "component"
+    },
+    {
+      "id": "bb_num",
+      "path": "components/bb_num",
+      "type": "component"
+    },
+    {
+      "id": "bb_nv",
+      "path": "components/bb_nv",
+      "type": "component"
+    },
+    {
+      "id": "bb_openapi",
+      "path": "components/bb_openapi",
+      "type": "component"
+    },
+    {
+      "id": "bb_ota_boot",
+      "path": "components/bb_ota_boot",
+      "type": "component"
+    },
+    {
+      "id": "bb_ota_check",
+      "path": "components/bb_ota_check",
+      "type": "component"
+    },
+    {
+      "id": "bb_ota_hooks",
+      "path": "components/bb_ota_hooks",
+      "type": "component"
+    },
+    {
+      "id": "bb_ota_pull",
+      "path": "components/bb_ota_pull",
+      "type": "component"
+    },
+    {
+      "id": "bb_ota_push",
+      "path": "components/bb_ota_push",
+      "type": "component"
+    },
+    {
+      "id": "bb_ota_validator",
+      "path": "components/bb_ota_validator",
+      "type": "component"
+    },
+    {
+      "id": "bb_partition",
+      "path": "components/bb_partition",
+      "type": "component"
+    },
+    {
+      "id": "bb_pool",
+      "path": "components/bb_pool",
+      "type": "component"
+    },
+    {
+      "id": "bb_power",
+      "path": "components/bb_power",
+      "type": "component"
+    },
+    {
+      "id": "bb_power_health",
+      "path": "components/bb_power_health",
+      "type": "component"
+    },
+    {
+      "id": "bb_power_routes",
+      "path": "components/bb_power_routes",
+      "type": "component"
+    },
+    {
+      "id": "bb_power_tps546",
+      "path": "components/bb_power_tps546",
+      "type": "component"
+    },
+    {
+      "id": "bb_prov",
+      "path": "components/bb_prov",
+      "type": "component"
+    },
+    {
+      "id": "bb_prov_default_form",
+      "path": "components/bb_prov_default_form",
+      "type": "component"
+    },
+    {
+      "id": "bb_pub",
+      "path": "components/bb_pub",
+      "type": "component"
+    },
+    {
+      "id": "bb_pub_fan",
+      "path": "components/bb_pub_fan",
+      "type": "component"
+    },
+    {
+      "id": "bb_pub_health",
+      "path": "components/bb_pub_health",
+      "type": "component"
+    },
+    {
+      "id": "bb_pub_info",
+      "path": "components/bb_pub_info",
+      "type": "component"
+    },
+    {
+      "id": "bb_pub_power",
+      "path": "components/bb_pub_power",
+      "type": "component"
+    },
+    {
+      "id": "bb_pub_rtos",
+      "path": "components/bb_pub_rtos",
+      "type": "component"
+    },
+    {
+      "id": "bb_pub_telemetry",
+      "path": "components/bb_pub_telemetry",
+      "type": "component"
+    },
+    {
+      "id": "bb_pub_thermal",
+      "path": "components/bb_pub_thermal",
+      "type": "component"
+    },
+    {
+      "id": "bb_registry",
+      "path": "components/bb_registry",
+      "type": "component"
+    },
+    {
+      "id": "bb_release_manifest",
+      "path": "components/bb_release_manifest",
+      "type": "component"
+    },
+    {
+      "id": "bb_response",
+      "path": "components/bb_response",
+      "type": "component"
+    },
+    {
+      "id": "bb_ring",
+      "path": "components/bb_ring",
+      "type": "component"
+    },
+    {
+      "id": "bb_ring_diag",
+      "path": "components/bb_ring_diag",
+      "type": "component"
+    },
+    {
+      "id": "bb_scalar",
+      "path": "components/bb_scalar",
+      "type": "component"
+    },
+    {
+      "id": "bb_sensors",
+      "path": "components/bb_sensors",
+      "type": "component"
+    },
+    {
+      "id": "bb_settings",
+      "path": "components/bb_settings",
+      "type": "component"
+    },
+    {
+      "id": "bb_sink_display",
+      "path": "components/bb_sink_display",
+      "type": "component"
+    },
+    {
+      "id": "bb_sink_event",
+      "path": "components/bb_sink_event",
+      "type": "component"
+    },
+    {
+      "id": "bb_sink_http",
+      "path": "components/bb_sink_http",
+      "type": "component"
+    },
+    {
+      "id": "bb_sink_http_telemetry",
+      "path": "components/bb_sink_http_telemetry",
+      "type": "component"
+    },
+    {
+      "id": "bb_sink_mqtt",
+      "path": "components/bb_sink_mqtt",
+      "type": "component"
+    },
+    {
+      "id": "bb_sink_udp",
+      "path": "components/bb_sink_udp",
+      "type": "component"
+    },
+    {
+      "id": "bb_sink_ws",
+      "path": "components/bb_sink_ws",
+      "type": "component"
+    },
+    {
+      "id": "bb_sse_writer",
+      "path": "components/bb_sse_writer",
+      "type": "component"
+    },
+    {
+      "id": "bb_storage",
+      "path": "components/bb_storage",
+      "type": "component"
+    },
+    {
+      "id": "bb_storage_nvs",
+      "path": "components/bb_storage_nvs",
+      "type": "component"
+    },
+    {
+      "id": "bb_storage_ram",
+      "path": "components/bb_storage_ram",
+      "type": "component"
+    },
+    {
+      "id": "bb_str",
+      "path": "components/bb_str",
+      "type": "component"
+    },
+    {
+      "id": "bb_sub",
+      "path": "components/bb_sub",
+      "type": "component"
+    },
+    {
+      "id": "bb_sub_mqtt",
+      "path": "components/bb_sub_mqtt",
+      "type": "component"
+    },
+    {
+      "id": "bb_system",
+      "path": "components/bb_system",
+      "type": "component"
+    },
+    {
+      "id": "bb_task",
+      "path": "components/bb_task",
+      "type": "component"
+    },
+    {
+      "id": "bb_task_registry",
+      "path": "components/bb_task_registry",
+      "type": "component"
+    },
+    {
+      "id": "bb_telemetry",
+      "path": "components/bb_telemetry",
+      "type": "component"
+    },
+    {
+      "id": "bb_temp",
+      "path": "components/bb_temp",
+      "type": "component"
+    },
+    {
+      "id": "bb_thermal",
+      "path": "components/bb_thermal",
+      "type": "component"
+    },
+    {
+      "id": "bb_timer",
+      "path": "components/bb_timer",
+      "type": "component"
+    },
+    {
+      "id": "bb_tls",
+      "path": "components/bb_tls",
+      "type": "component"
+    },
+    {
+      "id": "bb_tls_creds",
+      "path": "components/bb_tls_creds",
+      "type": "component"
+    },
+    {
+      "id": "bb_tls_info",
+      "path": "components/bb_tls_info",
+      "type": "component"
+    },
+    {
+      "id": "bb_transport_health",
+      "path": "components/bb_transport_health",
+      "type": "component"
+    },
+    {
+      "id": "bb_udp_client",
+      "path": "components/bb_udp_client",
+      "type": "component"
+    },
+    {
+      "id": "bb_udp_frame",
+      "path": "components/bb_udp_frame",
+      "type": "component"
+    },
+    {
+      "id": "bb_wdt",
+      "path": "components/bb_wdt",
+      "type": "component"
+    },
+    {
+      "id": "bb_wifi",
+      "path": "components/bb_wifi",
+      "type": "component"
+    },
+    {
+      "id": "bb_wifi_http",
+      "path": "components/bb_wifi_http",
+      "type": "component"
+    },
+    {
+      "id": "bb_ws_server",
+      "path": "components/bb_ws_server",
+      "type": "component"
+    }
+  ]
+}
