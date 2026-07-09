@@ -1,6 +1,6 @@
 PIO ?= pio
 
-.PHONY: help all check lint cppcheck docs docs-index-check docs-check fence di-fence test-py test coverage smoke clean
+.PHONY: help all check lint cppcheck docs docs-index-check docs-check fence di-fence size-check size-baseline test-py test coverage smoke clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
@@ -27,6 +27,12 @@ fence: ## Ratchet-fence lint over all families (di-legacy today; enforced via `c
 
 di-fence: ## [alias] DI legacy ratchet-fence only — see `fence`
 	python3 scripts/bbtool.py di-fence --root .
+
+size-check: ## Check esp32 smoke build against its committed footprint baseline (needs smoke-esp32 built first; not part of `check`)
+	python3 scripts/bbtool.py size --check --target esp32 --build-dir examples/smoke/.pio/build/esp32 --root .
+
+size-baseline: ## Update the esp32 smoke footprint baseline from the current build (needs smoke-esp32 built first)
+	python3 scripts/bbtool.py size --update-baseline --target esp32 --build-dir examples/smoke/.pio/build/esp32 --root .
 
 cppcheck: ## Static analysis (cppcheck)
 	@if command -v cppcheck >/dev/null 2>&1; then \

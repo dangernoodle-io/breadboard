@@ -1,6 +1,7 @@
 """docs command tests: deps parsing, brief/api regions, platform matrix, determinism,
 component-readme rule."""
 import io
+import json
 import os
 import sys
 import tempfile
@@ -26,6 +27,7 @@ from commands.docs import (
     _self_wiki_link,
     _dedupe_links,
     _render_wiring,
+    _render_budget,
     _rewrite_markers,
     _strip_cmake_comments,
     NestedMarkerError,
@@ -474,6 +476,75 @@ class TestRenderWiring(unittest.TestCase):
         self.assertIn("wiring guide", text)
 
 
+def _write_metrics_baseline(root: Path, target: str, components: dict, heap: dict = None) -> Path:
+    metrics_dir = root / ".baseline" / "bbtool" / "metrics"
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "target": target, "arch": "xtensa",
+        "config": {"label": "default", "toolchain": "esp-idf", "sdkconfig_sha": "x", "snapshot": "x"},
+        "flash": {"text": 1, "data": 1, "bss": 1, "flash_total": 2, "components": components},
+        "heap": heap or {"min_free": None, "high_water": None, "regions": None, "source": None},
+    }
+    path = metrics_dir / f"{target}.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+class TestRenderBudget(unittest.TestCase):
+    def test_no_baseline_dir_renders_fail_soft_placeholder(self):
+        with tempfile.TemporaryDirectory() as td:
+            text = _render_budget(Path(td), "bb_example")
+            self.assertEqual(text, "_(no baseline)_")
+
+    def test_component_absent_from_baseline_renders_fail_soft_placeholder(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_metrics_baseline(root, "esp32", {"bb_other": 100})
+            text = _render_budget(root, "bb_example")
+            self.assertEqual(text, "_(no baseline)_")
+
+    def test_malformed_baseline_file_skipped_not_raised(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            metrics_dir = root / ".baseline" / "bbtool" / "metrics"
+            metrics_dir.mkdir(parents=True)
+            (metrics_dir / "esp32.json").write_text("not json{{{", encoding="utf-8")
+            text = _render_budget(root, "bb_example")
+            self.assertEqual(text, "_(no baseline)_")
+
+    def test_flash_only_renders_table_without_heap_columns(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_metrics_baseline(root, "esp32", {"bb_example": 4096})
+            text = _render_budget(root, "bb_example")
+            self.assertIn("| Target | flash | Δ vs baseline |", text)
+            self.assertNotIn("min_free", text)
+            self.assertIn("| `esp32` | 4096 | — |", text)
+
+    def test_heap_populated_renders_heap_columns(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_metrics_baseline(
+                root, "esp32", {"bb_example": 4096},
+                heap={"min_free": 12345, "high_water": 20000, "regions": ["dram"], "source": "device"},
+            )
+            text = _render_budget(root, "bb_example")
+            self.assertIn("min_free", text)
+            self.assertIn("high_water", text)
+            self.assertIn("12345", text)
+            self.assertIn("20000", text)
+
+    def test_multiple_targets_sorted_by_target_name(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_metrics_baseline(root, "esp32c3", {"bb_example": 100})
+            _write_metrics_baseline(root, "esp32", {"bb_example": 200})
+            text = _render_budget(root, "bb_example")
+            idx_esp32 = text.index("`esp32`")
+            idx_esp32c3 = text.index("`esp32c3`")
+            self.assertLess(idx_esp32, idx_esp32c3)
+
+
 class TestMarkerRewrite(unittest.TestCase):
     def test_only_marked_region_rewritten(self):
         content = README_TEMPLATE
@@ -619,6 +690,40 @@ class TestGenAllDeterminism(unittest.TestCase):
             results2 = gen_all(td)
             _, changed2 = results2[0]
             self.assertFalse(changed2, "second gen run must report no change")
+            self.assertEqual((comp / "README.md").read_text(encoding="utf-8"), snapshot)
+
+    def test_budget_region_idempotent_with_and_without_baseline(self):
+        budget_template = (
+            "# bb_fake\n\n"
+            "## Footprint\n\n"
+            "<!-- BEGIN bbtool:budget -->\nplaceholder\n<!-- END bbtool:budget -->\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            comp = _make_component(
+                td, "bb_fake",
+                "idf_component_register(REQUIRES bb_core)\n",
+                readme=budget_template,
+            )
+            # No baseline yet -> fail-soft placeholder, still idempotent.
+            results = gen_all(td)
+            self.assertEqual(len(results), 1)
+            content = (comp / "README.md").read_text(encoding="utf-8")
+            self.assertIn("_(no baseline)_", content)
+            results2 = gen_all(td)
+            _, changed2 = results2[0]
+            self.assertFalse(changed2)
+
+            # Baseline appears -> region updates, then stabilizes again.
+            _write_metrics_baseline(Path(td), "esp32", {"bb_fake": 512})
+            results3 = gen_all(td)
+            _, changed3 = results3[0]
+            self.assertTrue(changed3)
+            content3 = (comp / "README.md").read_text(encoding="utf-8")
+            self.assertIn("| `esp32` | 512 | — |", content3)
+            snapshot = content3
+            results4 = gen_all(td)
+            _, changed4 = results4[0]
+            self.assertFalse(changed4, "second gen run after baseline appears must be a no-op")
             self.assertEqual((comp / "README.md").read_text(encoding="utf-8"), snapshot)
 
     def test_brief_marker_without_header_brief_raises(self):
