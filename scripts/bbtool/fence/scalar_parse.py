@@ -1,14 +1,14 @@
-"""scalar_parse fence family — ratchet-fence for hand-rolled reimplementations
-of the already-extracted `bb_scalar` strict scalar parsers.
+"""scalar_parse fence family — regression-guard against hand-rolled
+reimplementations of the `bb_scalar` strict scalar parsers.
 
 `bb_scalar` (components/bb_scalar) extracted a small, previously-duplicated
 idiom into a portable, host-testable component: strict scalar parsing
-(`bb_scalar_parse_bool`/`bb_scalar_parse_uint`, mirroring bb_http_server's
-`bb_url_parse_bool`/`bb_url_parse_uint`, whose migration is deferred — see
-bb_scalar.h). This fence freezes the CURRENT set of hand-rolled
-reimplementations as a draining baseline: no *new* one may appear outside
-the canonical component, but existing sites are grandfathered until
-migrated onto `bb_scalar`.
+(`bb_scalar_parse_bool`/`bb_scalar_parse_uint`, which superseded
+bb_http_server's former `bb_url_parse_bool`/`bb_url_parse_uint` — see
+bb_scalar.h). The migration is complete and the baseline is fully drained
+and locked: no definition of either symbol may exist outside the canonical
+component; any reintroduction (including a hand-rolled duplicate under
+those names) fails the fence.
 
 One family per shared helper (see also `fence/clamp.py`) — this is the
 natural "family = module" use of the generic fence engine (`fence/_base.py`);
@@ -25,8 +25,8 @@ symbols, not arbitrary hand-rolled inline parsing that duplicates their
 behavior without reusing the name — a fuller "parses a bool/uint from a
 string" behavioral scan would need real semantic analysis this stdlib-only
 tool doesn't have. Symbol-keyed is the pragmatic middle ground: it still
-catches the concrete, known duplicate (bb_http_server's originals) and any
-copy-paste of them elsewhere.
+catches the concrete, known duplicate (bb_http_server's former originals)
+and any copy-paste of them elsewhere.
 """
 from __future__ import annotations
 import re
