@@ -16,43 +16,13 @@
       "type": "BB_INIT_REGISTER_N"
     },
     {
-      "id": "bb_fan_routes",
-      "path": "platform/espidf/bb_fan_routes/bb_fan_routes.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_led_info",
-      "path": "platform/espidf/bb_led_info/bb_led_info.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
       "id": "bb_mdns",
       "path": "platform/espidf/bb_mdns/bb_mdns.c",
       "type": "BB_INIT_REGISTER_N"
     },
     {
-      "id": "bb_power_routes",
-      "path": "platform/espidf/bb_power_routes/bb_power_routes.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_sensors",
-      "path": "platform/espidf/bb_sensors/bb_sensors.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
       "id": "bb_telemetry",
       "path": "platform/espidf/bb_telemetry/bb_telemetry_routes.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_temp",
-      "path": "platform/espidf/bb_temp/bb_temp.c",
-      "type": "BB_INIT_REGISTER_N"
-    },
-    {
-      "id": "bb_thermal",
-      "path": "platform/espidf/bb_thermal/bb_thermal.c",
       "type": "BB_INIT_REGISTER_N"
     },
     {
@@ -251,16 +221,6 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_FAN_ROUTES_AUTOREGISTER",
-      "path": "components/bb_fan_routes/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_LED_INFO_AUTOREGISTER",
-      "path": "components/bb_led_info/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_MDNS_AUTOREGISTER",
       "path": "components/bb_mdns/Kconfig",
       "type": "autoregister_kconfig"
@@ -276,11 +236,6 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_POWER_ROUTES_AUTOREGISTER",
-      "path": "components/bb_power_routes/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_PUB_AUTOREGISTER",
       "path": "components/bb_pub/Kconfig",
       "type": "autoregister_kconfig"
@@ -288,11 +243,6 @@
     {
       "id": "BB_PUB_TELEMETRY_AUTOREGISTER",
       "path": "components/bb_pub_telemetry/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_SENSORS_AUTOREGISTER",
-      "path": "components/bb_sensors/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
@@ -323,16 +273,6 @@
     {
       "id": "BB_TELEMETRY_AUTOREGISTER",
       "path": "components/bb_telemetry/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_TEMP_AUTOREGISTER",
-      "path": "components/bb_temp/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
-      "id": "BB_THERMAL_AUTOREGISTER",
-      "path": "components/bb_thermal/Kconfig",
       "type": "autoregister_kconfig"
     },
     {
@@ -371,18 +311,8 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_FAN_ROUTES_AUTOREGISTER",
-      "path": "platform/espidf/bb_fan_routes/bb_fan_routes.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_OTA_PULL_AUTOREGISTER",
       "path": "platform/espidf/bb_info/bb_info.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_LED_INFO_AUTOREGISTER",
-      "path": "platform/espidf/bb_led_info/bb_led_info.c",
       "type": "autoregister_usage"
     },
     {
@@ -411,18 +341,8 @@
       "type": "autoregister_usage"
     },
     {
-      "id": "BB_POWER_ROUTES_AUTOREGISTER",
-      "path": "platform/espidf/bb_power_routes/bb_power_routes.c",
-      "type": "autoregister_usage"
-    },
-    {
       "id": "BB_PUB_AUTOREGISTER",
       "path": "platform/espidf/bb_pub/bb_pub_espidf.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_SENSORS_AUTOREGISTER",
-      "path": "platform/espidf/bb_sensors/bb_sensors.c",
       "type": "autoregister_usage"
     },
     {
@@ -433,16 +353,6 @@
     {
       "id": "BB_TELEMETRY_AUTOREGISTER",
       "path": "platform/espidf/bb_telemetry/bb_telemetry_routes.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_TEMP_AUTOREGISTER",
-      "path": "platform/espidf/bb_temp/bb_temp.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_THERMAL_AUTOREGISTER",
-      "path": "platform/espidf/bb_thermal/bb_thermal.c",
       "type": "autoregister_usage"
     },
     {
@@ -526,16 +436,6 @@
       "type": "linker_force_register"
     },
     {
-      "id": "regular:bb_fan_routes",
-      "path": "components/bb_fan_routes/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_led_info",
-      "path": "components/bb_led_info/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
       "id": "regular:bb_mdns",
       "path": "components/bb_mdns/CMakeLists.txt",
       "type": "linker_force_register"
@@ -543,11 +443,6 @@
     {
       "id": "pre_http:bb_mdns_cache",
       "path": "components/bb_mdns_cache/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_power_routes",
-      "path": "components/bb_power_routes/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {
@@ -576,11 +471,6 @@
       "type": "linker_force_register"
     },
     {
-      "id": "regular:bb_sensors",
-      "path": "components/bb_sensors/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
       "id": "pre_http:bb_sink_http_telemetry",
       "path": "components/bb_sink_http_telemetry/CMakeLists.txt",
       "type": "linker_force_register"
@@ -603,16 +493,6 @@
     {
       "id": "regular:bb_telemetry",
       "path": "components/bb_telemetry/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_temp",
-      "path": "components/bb_temp/CMakeLists.txt",
-      "type": "linker_force_register"
-    },
-    {
-      "id": "regular:bb_thermal",
-      "path": "components/bb_thermal/CMakeLists.txt",
       "type": "linker_force_register"
     },
     {

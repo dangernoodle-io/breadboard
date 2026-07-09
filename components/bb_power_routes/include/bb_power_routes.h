@@ -7,6 +7,7 @@
 // Host twin: platform/host/bb_power_routes/bb_power_routes_host.c
 #pragma once
 #include "bb_core.h"
+#include "bb_http_server.h"
 #include "bb_json.h"
 
 #ifdef __cplusplus
@@ -14,6 +15,7 @@ extern "C" {
 #endif
 
 // No-op stub kept for link compatibility. /api/power route deleted in B1-269 PR7.
+// bbtool:init tier=regular fn=bb_power_routes_init server=true
 bb_err_t bb_power_routes_init(bb_http_handle_t server);
 
 // Shared emit helper — writes power fields into an existing bb_json_t object.
