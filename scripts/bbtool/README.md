@@ -52,10 +52,12 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 Unified ratchet-fence lint over one or more marker **families**. A family
 (`scripts/bbtool/fence/<family>.py`) is a group of `_scan_*` marker-detection
 functions plus its own committed baseline at
-`.baseline/bbtool/fence/<family>.json`. Today there is one family,
-`di_legacy` (breadboard's legacy DI/self-registration glue surface); the
-mechanism is generic so a second family (e.g. a future non-DI ratchet) is a
-new module, not a rewrite.
+`.baseline/bbtool/fence/<family>.json`. Three families exist today:
+`di_legacy` (breadboard's legacy DI/self-registration glue surface), `clamp`
+(hand-rolled reimplementations of `bb_num`'s two-sided clamp), and
+`scalar_parse` (hand-rolled reimplementations of `bb_scalar`'s parsers) —
+one family per shared helper, so a future helper's fence (e.g. a one-sided
+saturating-subtract idiom) is a new module, not a combined-family rewrite.
 
 ```
 python3 scripts/bbtool.py fence [--root DIR] [--family NAME ...] [--update-baseline] [--seed FAMILY]
@@ -117,13 +119,43 @@ investment there is deliberately deferred rather than silent; see the
 `KNOWN GAP` comment above `_scan_display_force_keep` in
 `scripts/bbtool/fence/di_legacy.py`.
 
+### `clamp` family
+
+Freezes hand-rolled reimplementations of `bb_num`'s two-sided numeric clamp
+(`bb_clampi`/`bb_clampf`). Scans `components/` + `platform/` for a hand-rolled
+two-sided clamp: if-pair (`if (x < lo) x = lo; if (x > hi) x = hi;`, any
+`</<=`+`>/>=` combination), nested ternary (`x < lo ? lo : (x > hi ? hi :
+x)`), or MIN/MAX nesting (`MAX(lo, MIN(hi, x))` / `fmaxf`/`fminf` /
+`std::max`/`std::min`). A **one-sided** saturating op (e.g. bb_ring's
+underflow-clamp-at-0, or bb_task_resolve's single-bound unicore-affinity
+fallback) deliberately does **not** match — it has no second,
+opposite-direction bound to reimplement bb_clampi/bb_clampf's actual job
+(a future `sat_sub` family is the right home for fencing that one-sided
+idiom, not this one). The canonical impl (`platform/host/bb_num/`) is
+excluded. Identity is `<component>:<enclosing-symbol>:<var>` (best-effort,
+no real C parser — see `clamp.py`'s identity-choice comment), not
+`path:line`, so an unrelated edit above a clamp never trips the fence. See
+`scripts/bbtool/fence/clamp.py`.
+
+### `scalar_parse` family
+
+Freezes hand-rolled reimplementations of `bb_scalar`'s strict scalar
+parsers (`bb_scalar_parse_bool`/`bb_scalar_parse_uint`, mirroring
+bb_http_server's `bb_url_parse_bool`/`bb_url_parse_uint`, whose migration is
+deferred). Scans `components/` + `platform/` for a **definition** of
+`bb_url_parse_bool`/`bb_url_parse_uint` outside `bb_scalar`. Symbol-keyed
+(id = the function name); an accepted limitation is that this catches
+reintroduction of these two named symbols only, not arbitrary inline
+parsing that duplicates their behavior under a different name. See
+`scripts/bbtool/fence/scalar_parse.py`.
+
 ### `di-fence` command (back-compat alias)
 
 `python3 scripts/bbtool.py di-fence [--root DIR] [--update-baseline]` is a
 thin alias for `fence --family di_legacy` — same flags, same
 pass/fail/shrink-only semantics — kept so existing scripts/muscle-memory
 keep working. New usage should prefer `fence --family di_legacy` (or just
-`fence`, since `di_legacy` is the only family today).
+`fence`, since it covers every discovered family).
 
 ### Adding a fence family
 
@@ -140,7 +172,7 @@ Turnkey, no manual registry-list edit:
 4. Run `python3 scripts/bbtool.py fence --seed <family>` once to write the
    starting baseline to `.baseline/bbtool/fence/<family>.json`; commit it.
 5. `fence` (and `make fence` / `make check`) now covers the new family
-   automatically alongside `di_legacy`.
+   automatically alongside the existing ones.
 
 ## `bbtool.toml` config schema
 
