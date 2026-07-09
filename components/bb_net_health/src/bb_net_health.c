@@ -4,6 +4,7 @@
 // See bb_net_health.h for threshold and hysteresis constants.
 #include "bb_net_health.h"
 #include "bb_json.h"
+#include "bb_wifi.h"
 #include <stddef.h>
 #include <stdio.h>
 #include <inttypes.h>
@@ -415,7 +416,8 @@ void bb_net_health_emit(bb_json_t obj, const void *snap_v)
     bb_json_obj_set_string(obj, "state",                  bb_net_state_str(snap->state));
     bb_json_obj_set_bool  (obj, "early_warning",          snap->early_warning);
     bb_json_obj_set_bool  (obj, "throttled",              snap->throttled);
-    bb_json_obj_set_number(obj, "last_disconnect_reason", (double)snap->last_disconnect_reason);
+    bb_json_obj_set_string(obj, "last_disconnect_reason",
+        bb_wifi_disc_reason_str((bb_wifi_disc_reason_t)snap->last_disconnect_reason));
     bb_json_obj_set_number(obj, "disc_age_s",             (double)snap->disc_age_s);
     bb_json_obj_set_number(obj, "lost_ip_recoveries",     (double)snap->lost_ip_recoveries);
     bb_json_obj_set_number(obj, "lost_ip_age_s",          (double)snap->lost_ip_age_s);

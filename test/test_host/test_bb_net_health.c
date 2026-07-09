@@ -640,9 +640,9 @@ void test_bb_net_health_emit_has_8_fields(void)
     TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "throttled", &thr));
     TEST_ASSERT_FALSE(thr);
 
-    double dr = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "last_disconnect_reason", &dr));
-    TEST_ASSERT_EQUAL_INT(3, (int)dr);
+    char dr_buf[32];
+    TEST_ASSERT_TRUE(bb_json_obj_get_string(parsed, "last_disconnect_reason", dr_buf, sizeof(dr_buf)));
+    TEST_ASSERT_EQUAL_STRING("handshake_timeout", dr_buf); // 3 == BB_WIFI_DISC_HANDSHAKE_TIMEOUT
 
     double da = 0.0;
     TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "disc_age_s", &da));
@@ -720,9 +720,9 @@ void test_bb_net_health_emit_full_has_8_fields(void)
     TEST_ASSERT_TRUE(bb_json_obj_get_bool(parsed, "throttled", &thr));
     TEST_ASSERT_TRUE(thr);
 
-    double dr = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "last_disconnect_reason", &dr));
-    TEST_ASSERT_EQUAL_INT(5, (int)dr);
+    char dr_buf[32];
+    TEST_ASSERT_TRUE(bb_json_obj_get_string(parsed, "last_disconnect_reason", dr_buf, sizeof(dr_buf)));
+    TEST_ASSERT_EQUAL_STRING("no_ap_found", dr_buf); // 5 == BB_WIFI_DISC_NO_AP_FOUND
 
     double da = 0.0;
     TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "disc_age_s", &da));

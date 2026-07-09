@@ -222,7 +222,7 @@ static const char k_net_sse_schema[] =
     "\"state\":{\"type\":\"string\"},"
     "\"early_warning\":{\"type\":\"boolean\"},"
     "\"throttled\":{\"type\":\"boolean\"},"
-    "\"last_disconnect_reason\":{\"type\":\"integer\"},"
+    "\"last_disconnect_reason\":{\"type\":\"string\"},"
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"lost_ip_recoveries\":{\"type\":\"integer\"},"
     "\"lost_ip_age_s\":{\"type\":\"integer\"},"
