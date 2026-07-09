@@ -568,3 +568,91 @@ void test_bb_wifi_ota_validated_eval_cb_returns_true(void)
 {
     TEST_ASSERT_TRUE(bb_wifi_ota_validated_eval(ota_validated_eval_fixture_true));
 }
+
+// ---------------------------------------------------------------------------
+// Host-stub NULL-arg branches (bb_wifi_host.c) -- coverage-filter finding
+// (PR1): platform/host/bb_wifi/ is now graded, surfacing these previously
+// untested guard branches.
+// ---------------------------------------------------------------------------
+
+void test_bb_wifi_get_info_null_arg(void)
+{
+    bb_err_t err = bb_wifi_get_info(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_bb_wifi_get_info_zeroed_snapshot(void)
+{
+    bb_wifi_info_t info;
+    memset(&info, 0xAA, sizeof(info));
+    bb_err_t err = bb_wifi_get_info(&info);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_EQUAL_STRING("0.0.0.0", info.ip);
+}
+
+// Both out-params NULL is safe (no-op).
+void test_bb_wifi_get_disconnect_both_null_safe(void)
+{
+    bb_wifi_get_disconnect(NULL, NULL);
+    TEST_PASS();
+}
+
+// Both out-params non-NULL: written with the host-stub defaults.
+void test_bb_wifi_get_disconnect_writes_both_out_params(void)
+{
+    bb_wifi_disc_reason_t reason = BB_WIFI_DISC_AUTH_FAIL;
+    int64_t age_us = -1;
+    bb_wifi_get_disconnect(&reason, &age_us);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_UNKNOWN, reason);
+    TEST_ASSERT_EQUAL_INT64(0, age_us);
+}
+
+void test_bb_wifi_get_ip_str_null_out(void)
+{
+    bb_err_t err = bb_wifi_get_ip_str(NULL, 16);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_bb_wifi_get_ip_str_zero_len(void)
+{
+    char buf[16];
+    bb_err_t err = bb_wifi_get_ip_str(buf, 0);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_bb_wifi_get_ip_str_valid(void)
+{
+    char buf[16];
+    bb_err_t err = bb_wifi_get_ip_str(buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_EQUAL_STRING("0.0.0.0", buf);
+}
+
+void test_bb_wifi_get_rssi_null_out(void)
+{
+    bb_err_t err = bb_wifi_get_rssi(NULL);
+    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
+}
+
+void test_bb_wifi_get_rssi_valid(void)
+{
+    int8_t rssi = -1;
+    bb_err_t err = bb_wifi_get_rssi(&rssi);
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT8(0, rssi);
+}
+
+// bb_wifi_test_set_recovery_blocked's true branch: recovery is suppressed
+// even though has_ip is set (the "blocked" no-op path).
+void test_bb_wifi_request_recovery_blocked_noop(void)
+{
+#ifdef BB_WIFI_TESTING
+    bb_wifi_test_reset_recovery();
+    bb_wifi_test_set_has_ip(true);
+    bb_wifi_test_set_recovery_blocked(true);
+    bb_err_t err = bb_wifi_request_recovery("blocked_reason");
+    TEST_ASSERT_EQUAL_INT(BB_OK, err);
+    TEST_ASSERT_EQUAL_INT(0, bb_wifi_test_get_recovery_count());
+    bb_wifi_test_set_recovery_blocked(false);
+#endif
+}

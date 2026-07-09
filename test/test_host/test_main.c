@@ -1018,6 +1018,16 @@ void test_bb_wifi_get_gateway_status_test_hook_roundtrip(void);
 void test_bb_wifi_ota_validated_eval_null_cb_defaults_true(void);
 void test_bb_wifi_ota_validated_eval_cb_returns_false(void);
 void test_bb_wifi_ota_validated_eval_cb_returns_true(void);
+void test_bb_wifi_get_info_null_arg(void);
+void test_bb_wifi_get_info_zeroed_snapshot(void);
+void test_bb_wifi_get_disconnect_both_null_safe(void);
+void test_bb_wifi_get_disconnect_writes_both_out_params(void);
+void test_bb_wifi_get_ip_str_null_out(void);
+void test_bb_wifi_get_ip_str_zero_len(void);
+void test_bb_wifi_get_ip_str_valid(void);
+void test_bb_wifi_get_rssi_null_out(void);
+void test_bb_wifi_get_rssi_valid(void);
+void test_bb_wifi_request_recovery_blocked_noop(void);
 
 // Forward declarations from test_manifest.c
 void test_manifest_empty_emits_empty_arrays(void);
@@ -5877,6 +5887,16 @@ int main(void) {
     RUN_TEST(test_bb_wifi_ota_validated_eval_null_cb_defaults_true);
     RUN_TEST(test_bb_wifi_ota_validated_eval_cb_returns_false);
     RUN_TEST(test_bb_wifi_ota_validated_eval_cb_returns_true);
+    RUN_TEST(test_bb_wifi_get_info_null_arg);
+    RUN_TEST(test_bb_wifi_get_info_zeroed_snapshot);
+    RUN_TEST(test_bb_wifi_get_disconnect_both_null_safe);
+    RUN_TEST(test_bb_wifi_get_disconnect_writes_both_out_params);
+    RUN_TEST(test_bb_wifi_get_ip_str_null_out);
+    RUN_TEST(test_bb_wifi_get_ip_str_zero_len);
+    RUN_TEST(test_bb_wifi_get_ip_str_valid);
+    RUN_TEST(test_bb_wifi_get_rssi_null_out);
+    RUN_TEST(test_bb_wifi_get_rssi_valid);
+    RUN_TEST(test_bb_wifi_request_recovery_blocked_noop);
 
     // bb_manifest tests
     RUN_TEST(test_manifest_empty_emits_empty_arrays);
