@@ -414,6 +414,11 @@ void test_bb_wifi_map_esp_reason_no_ap_found(void)
     TEST_ASSERT_EQUAL(BB_WIFI_DISC_NO_AP_FOUND, bb_wifi_map_esp_reason(201));
 }
 
+void test_bb_wifi_map_esp_reason_auth_fail(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_AUTH_FAIL, bb_wifi_map_esp_reason(202));
+}
+
 void test_bb_wifi_map_esp_reason_assoc_fail(void)
 {
     TEST_ASSERT_EQUAL(BB_WIFI_DISC_ASSOC_FAIL, bb_wifi_map_esp_reason(203));
@@ -427,6 +432,24 @@ void test_bb_wifi_map_esp_reason_handshake_timeout(void)
 void test_bb_wifi_map_esp_reason_connection_fail(void)
 {
     TEST_ASSERT_EQUAL(BB_WIFI_DISC_CONNECTION_LOST, bb_wifi_map_esp_reason(205));
+}
+
+// Sanity scan (firmware-review finding): the NO_AP_FOUND_* variants (210-212)
+// are unambiguously "no AP found" by name -- map them into the same bucket
+// as 201 rather than leaving them BB_WIFI_DISC_UNKNOWN.
+void test_bb_wifi_map_esp_reason_no_ap_found_w_compatible_security(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_NO_AP_FOUND, bb_wifi_map_esp_reason(210));
+}
+
+void test_bb_wifi_map_esp_reason_no_ap_found_in_authmode_threshold(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_NO_AP_FOUND, bb_wifi_map_esp_reason(211));
+}
+
+void test_bb_wifi_map_esp_reason_no_ap_found_in_rssi_threshold(void)
+{
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_NO_AP_FOUND, bb_wifi_map_esp_reason(212));
 }
 
 void test_bb_wifi_map_esp_reason_default_unmapped(void)
