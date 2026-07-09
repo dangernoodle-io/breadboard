@@ -1,0 +1,99 @@
+{
+  "entries": [
+    {
+      "id": "bb_display:render_centered_lines:x",
+      "path": "components/bb_display/src/bb_display.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_display:render_centered_lines:y0",
+      "path": "components/bb_display/src/bb_display.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_net_health:bb_net_health_should_log:elapsed_us",
+      "path": "components/bb_net_health/src/bb_net_health.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_net_health:egress_act_elapsed_s:now_s",
+      "path": "components/bb_net_health/src/bb_net_health.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_diag:bb_diag_panic_coredump_read_bytes:addr",
+      "path": "platform/espidf/bb_diag/bb_diag_panic.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_diag:coredump_get_handler:addr",
+      "path": "platform/espidf/bb_diag/bb_diag_routes.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_mdns:mdns_build_instance_name:out_size",
+      "path": "platform/espidf/bb_mdns/bb_mdns.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_meminfo:bb_meminfo_get:hi",
+      "path": "platform/espidf/bb_meminfo/bb_meminfo.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_meminfo:memreport_collect_cb:total_bytes",
+      "path": "platform/espidf/bb_meminfo/bb_meminfo.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_net_health:build_input:now_ms",
+      "path": "platform/espidf/bb_net_health/bb_net_health_espidf.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_storage_nvs:nvs_vt_get_typed_str:probed",
+      "path": "platform/espidf/bb_storage_nvs/bb_storage_nvs.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_wifi:bb_wifi_get_roam_age_s:age_us",
+      "path": "platform/espidf/bb_wifi/bb_wifi.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_wifi:event_handler:elapsed_us",
+      "path": "platform/espidf/bb_wifi/bb_wifi.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_led_anim:step_breathe:max_level",
+      "path": "platform/host/bb_led_anim/bb_led_anim.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_meminfo:memreport_collect_cb:total_bytes",
+      "path": "platform/host/bb_meminfo/bb_meminfo_host.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_pub:buffer_replay:payload_len",
+      "path": "platform/host/bb_pub/bb_pub.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_pub:fnv1a64_envelope_data:len",
+      "path": "platform/host/bb_pub/bb_pub.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_ring:bb_ring_bytes_used_sub:*bytes_used",
+      "path": "platform/host/bb_ring/bb_ring.c",
+      "type": "sat_sub"
+    },
+    {
+      "id": "bb_sink_display:bb_sink_display_table_sweep:now_ms",
+      "path": "platform/host/bb_sink_display/bb_sink_display_table.c",
+      "type": "sat_sub"
+    }
+  ]
+}
