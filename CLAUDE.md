@@ -12,6 +12,8 @@ The `bbtool autowire` CLI command has been deleted (its transitive-closure resol
 
 The `bb_init` walker component (the runtime registry that used to drive `BB_INIT_REGISTER*`) has been deleted — nothing composes through it anymore. Any doc or comment still referencing it is historical/contrastive, not a live pattern; do not resurrect it.
 
+breadboard ships **primitives** (seams, topic APIs, helpers), never glue components — wiring is the consumer's job, via codegen or handwire. Full positive-model narrative + two-firmware validation (`examples/floor` handwire, `examples/smoke` codegen): wiki [DI-Model](https://github.com/dangernoodle-io/breadboard/wiki/design/DI-Model).
+
 ## Public symbol prefix
 
 All public C symbols use prefix `bb_`.
