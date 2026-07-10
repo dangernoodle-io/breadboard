@@ -131,6 +131,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_udp_frame](./bb_udp_frame/) | — |
 | [bb_wdt](./bb_wdt/) | — |
 | [bb_wifi](./bb_wifi/) | — |
+| [bb_wifi_ap](./bb_wifi_ap/) | bb_wifi_ap — SoftAP + captive-DNS primitive (KB 781): pure AP bring-up and a captive DNS responder, zero HTTP. Extracted from bb_prov's former AP code; bb_prov does not call bb_wifi_ap_start()/stop(). It is a standalone primitive — callers (or the future bb_wifi_prov lifecycle FSM) invoke bb_wifi_ap_start()/stop() themselves; nothing wires it into bb_prov automatically. The AP<->STA lifecycle FSM, net-event topics, and recovery model are out of scope here — see bb_prov (soon bb_wifi_prov) for provisioning orchestration. |
 | [bb_wifi_http](./bb_wifi_http/) | Opt-in STA route bundle for `bb_wifi` (PR1 of the bb_wifi split, KB 781/809). |
 | [bb_ws_server](./bb_ws_server/) | — |
 

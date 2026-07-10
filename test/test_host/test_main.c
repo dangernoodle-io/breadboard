@@ -1029,6 +1029,33 @@ void test_bb_wifi_get_rssi_null_out(void);
 void test_bb_wifi_get_rssi_valid(void);
 void test_bb_wifi_request_recovery_blocked_noop(void);
 
+// Forward declarations from test_bb_wifi_ap.c
+void test_bb_wifi_ap_build_ssid_formats_prefix_and_mac(void);
+void test_bb_wifi_ap_build_ssid_custom_prefix(void);
+void test_bb_wifi_ap_build_ssid_null_prefix_invalid(void);
+void test_bb_wifi_ap_build_ssid_null_mac_invalid(void);
+void test_bb_wifi_ap_build_ssid_null_out_invalid(void);
+void test_bb_wifi_ap_build_ssid_zero_out_size_invalid(void);
+void test_bb_wifi_ap_build_ssid_out_size_too_small_invalid(void);
+void test_bb_wifi_ap_normalize_prefix_copies_value(void);
+void test_bb_wifi_ap_normalize_prefix_null_clears(void);
+void test_bb_wifi_ap_normalize_prefix_null_out_noop(void);
+void test_bb_wifi_ap_normalize_prefix_zero_size_noop(void);
+void test_bb_wifi_ap_normalize_password_copies_value(void);
+void test_bb_wifi_ap_normalize_password_null_defaults(void);
+void test_bb_wifi_ap_normalize_password_null_out_noop(void);
+void test_bb_wifi_ap_normalize_password_zero_size_noop(void);
+void test_bb_wifi_ap_dns_build_response_valid_query(void);
+void test_bb_wifi_ap_dns_build_response_too_short_returns_zero(void);
+void test_bb_wifi_ap_dns_build_response_exact_header_len(void);
+void test_bb_wifi_ap_dns_build_response_out_cap_too_small_returns_zero(void);
+void test_bb_wifi_ap_dns_build_response_out_cap_exact_fit_succeeds(void);
+void test_bb_wifi_ap_dns_build_response_req_len_too_large_returns_zero(void);
+void test_bb_wifi_ap_dns_build_response_null_req_returns_zero(void);
+void test_bb_wifi_ap_dns_build_response_null_answer_ip_returns_zero(void);
+void test_bb_wifi_ap_dns_build_response_null_out_returns_zero(void);
+void test_bb_wifi_ap_dns_build_response_different_answer_ip(void);
+
 // Forward declarations from test_manifest.c
 void test_manifest_empty_emits_empty_arrays(void);
 void test_manifest_register_nv_single_namespace(void);
@@ -5845,6 +5872,33 @@ int main(void) {
     RUN_TEST(test_bb_wifi_get_rssi_null_out);
     RUN_TEST(test_bb_wifi_get_rssi_valid);
     RUN_TEST(test_bb_wifi_request_recovery_blocked_noop);
+
+    // bb_wifi_ap tests
+    RUN_TEST(test_bb_wifi_ap_build_ssid_formats_prefix_and_mac);
+    RUN_TEST(test_bb_wifi_ap_build_ssid_custom_prefix);
+    RUN_TEST(test_bb_wifi_ap_build_ssid_null_prefix_invalid);
+    RUN_TEST(test_bb_wifi_ap_build_ssid_null_mac_invalid);
+    RUN_TEST(test_bb_wifi_ap_build_ssid_null_out_invalid);
+    RUN_TEST(test_bb_wifi_ap_build_ssid_zero_out_size_invalid);
+    RUN_TEST(test_bb_wifi_ap_build_ssid_out_size_too_small_invalid);
+    RUN_TEST(test_bb_wifi_ap_normalize_prefix_copies_value);
+    RUN_TEST(test_bb_wifi_ap_normalize_prefix_null_clears);
+    RUN_TEST(test_bb_wifi_ap_normalize_prefix_null_out_noop);
+    RUN_TEST(test_bb_wifi_ap_normalize_prefix_zero_size_noop);
+    RUN_TEST(test_bb_wifi_ap_normalize_password_copies_value);
+    RUN_TEST(test_bb_wifi_ap_normalize_password_null_defaults);
+    RUN_TEST(test_bb_wifi_ap_normalize_password_null_out_noop);
+    RUN_TEST(test_bb_wifi_ap_normalize_password_zero_size_noop);
+    RUN_TEST(test_bb_wifi_ap_dns_build_response_valid_query);
+    RUN_TEST(test_bb_wifi_ap_dns_build_response_too_short_returns_zero);
+    RUN_TEST(test_bb_wifi_ap_dns_build_response_exact_header_len);
+    RUN_TEST(test_bb_wifi_ap_dns_build_response_out_cap_too_small_returns_zero);
+    RUN_TEST(test_bb_wifi_ap_dns_build_response_out_cap_exact_fit_succeeds);
+    RUN_TEST(test_bb_wifi_ap_dns_build_response_req_len_too_large_returns_zero);
+    RUN_TEST(test_bb_wifi_ap_dns_build_response_null_req_returns_zero);
+    RUN_TEST(test_bb_wifi_ap_dns_build_response_null_answer_ip_returns_zero);
+    RUN_TEST(test_bb_wifi_ap_dns_build_response_null_out_returns_zero);
+    RUN_TEST(test_bb_wifi_ap_dns_build_response_different_answer_ip);
 
     // bb_manifest tests
     RUN_TEST(test_manifest_empty_emits_empty_arrays);

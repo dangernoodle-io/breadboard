@@ -31,19 +31,14 @@ bb_prov_parse_result_t bb_prov_parse_body(
 #include "bb_http_server.h"
 #include <stdint.h>
 
-// AP mode — for provisioning
-bb_err_t bb_prov_start_ap(void);        // starts AP + captive DNS
-void bb_prov_stop_ap(void);              // stops AP + DNS, deinits wifi
-void bb_prov_get_ap_ssid(char *buf, size_t len);  // get AP SSID
-
-// Set AP SSID prefix (e.g. "TaipanMiner-"). Must be called before bb_prov_start_ap().
-// Defaults to "BB-" if not set.
-void bb_prov_set_ap_ssid_prefix(const char *prefix);
-
-// Set AP WPA2 password. Must be called before bb_prov_start_ap().
-// Defaults to "breadboard" if not set. Passing NULL restores the default.
-// WPA2 requires 8–63 chars; the caller is responsible for validity.
-void bb_prov_set_ap_password(const char *password);
+// AP mode (SoftAP + captive DNS) has moved to bb_wifi_ap (KB 781) — the
+// pure AP primitive, zero HTTP: bb_wifi_ap_start()/bb_wifi_ap_stop()/
+// bb_wifi_ap_get_ssid()/bb_wifi_ap_set_ssid_prefix()/
+// bb_wifi_ap_set_password() (see components/bb_wifi_ap/include/bb_wifi_ap.h).
+// This is extraction only — bb_prov does not call into bb_wifi_ap; it no
+// longer owns or duplicates this API. Callers (or the future bb_wifi_prov
+// lifecycle FSM) invoke bb_wifi_ap_start()/stop() themselves alongside
+// bb_prov_start()/stop().
 
 // Provisioning synchronization
 /**

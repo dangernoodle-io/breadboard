@@ -586,6 +586,11 @@
       "type": "component"
     },
     {
+      "id": "bb_wifi_ap",
+      "path": "components/bb_wifi_ap",
+      "type": "component"
+    },
+    {
       "id": "bb_wifi_http",
       "path": "components/bb_wifi_http",
       "type": "component"
