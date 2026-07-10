@@ -14,23 +14,25 @@ jobs:
     with:
       filters: |
         firmware:
-          - 'components/**'
-          - 'platform/**'
-          - 'examples/**'
-          - 'cmake/**'
+          # dorny/paths-filter ORs a filter's patterns together (.some()), so a
+          # standalone '!**/*.md' entry cannot subtract from what the globs below
+          # already matched -- it only ADDS "any non-.md file". Exclude markdown
+          # inside each glob instead (picomatch extglob, {dot: true}).
+          # If a .md is ever embedded as a build asset (CMake EMBED_FILES), revisit.
+          - 'components/**/!(*.md)'
+          - 'platform/**/!(*.md)'
+          - 'examples/**/!(*.md)'
+          - 'cmake/**/!(*.md)'
           - 'CMakeLists.txt'
           - 'platformio.ini'
-          - 'sdkconfig/**'
+          - 'sdkconfig/**/!(*.md)'
           - 'Makefile'
           - 'bbtool.toml'
           - 'scripts/bbtool.py'
           - 'scripts/bbtool_pio.py'
-          - 'scripts/bbtool/**'
+          - 'scripts/bbtool/**/!(*.md)'
           - 'scripts/copy_artifacts.py'
           - '.github/workflows/build.yml'
-          # markdown is never a firmware build input — docs-only PRs skip smoke.
-          # if a .md is ever embedded as a build asset (CMake EMBED_FILES), revisit.
-          - '!**/*.md'
         python:
           - 'scripts/**'
           - '.github/workflows/build.yml'
