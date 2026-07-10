@@ -461,20 +461,23 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 
         // Structured per-drop log event (OBSERVE-ONLY — log/telemetry only,
         // no recovery action). Flows to serial + the "log" bb_event topic
-        // (UDP log sink ships it) for free.
-        {
-            uint8_t drop_reason = disc ? disc->reason : 0;
-            bb_wifi_disc_reason_t mapped_reason = bb_wifi_map_esp_reason(drop_reason);
-            bb_log_w(TAG,
-                     "wifi drop: reason=%u(%s) rssi=%d connected=%us bssid=%02x:%02x:%02x:%02x:%02x:%02x",
-                     (unsigned)drop_reason, bb_wifi_disc_reason_str(mapped_reason),
-                     (int)s_disconnect_rssi, (unsigned)session_s,
-                     bssid_snapshot[0], bssid_snapshot[1], bssid_snapshot[2],
-                     bssid_snapshot[3], bssid_snapshot[4], bssid_snapshot[5]);
-        }
+        // (UDP log sink ships it) for free. mapped_reason is computed here
+        // (not log-only) so it's also in scope for the net-event-sink invoke
+        // below -- passing it through the sink avoids a stale read via
+        // bb_wifi_get_disconnect(), which races wifi_reconn_on_disconnect()
+        // below (updates the async disconnect-reason state AFTER this
+        // invoke).
+        uint8_t drop_reason = disc ? disc->reason : 0;
+        bb_wifi_disc_reason_t mapped_reason = bb_wifi_map_esp_reason(drop_reason);
+        bb_log_w(TAG,
+                 "wifi drop: reason=%u(%s) rssi=%d connected=%us bssid=%02x:%02x:%02x:%02x:%02x:%02x",
+                 (unsigned)drop_reason, bb_wifi_disc_reason_str(mapped_reason),
+                 (int)s_disconnect_rssi, (unsigned)session_s,
+                 bssid_snapshot[0], bssid_snapshot[1], bssid_snapshot[2],
+                 bssid_snapshot[3], bssid_snapshot[4], bssid_snapshot[5]);
 
         bb_wifi_on_disconnect_invoke();
-        bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_DISCONNECT);
+        bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_DISCONNECT, mapped_reason);
 
         if (wifi_reconn_is_active()) {
             // Post-boot: manager task owns retry policy
@@ -519,7 +522,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         if (s_on_got_ip_cb) {
             s_on_got_ip_cb();
         }
-        bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_GOT_IP);
+        bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN);
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP) {
         esp_netif_ip_info_t ip_info;
         if (s_sta_netif && esp_netif_get_ip_info(s_sta_netif, &ip_info) == ESP_OK
@@ -532,7 +535,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         if (wifi_reconn_is_active()) {
             wifi_reconn_on_lost_ip();
         }
-        bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_LOST_IP);
+        bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_LOST_IP, BB_WIFI_DISC_BB_LOST_IP);
     }
 }
 

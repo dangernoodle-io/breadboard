@@ -59,7 +59,8 @@ BB_CALLBACK_SLOT_VOID0(on_disconnect, bb_wifi_on_disconnect_cb_t,
 // (got_ip/disconnect/lost_ip). Null-safe no-op if unset.
 BB_CALLBACK_SLOT_VOID(net_event, bb_wifi_net_event_fn,
                       bb_wifi_set_net_event_sink, bb_wifi_net_event_invoke,
-                      (bb_wifi_net_event_t evt), (evt))
+                      (bb_wifi_net_event_t evt, bb_wifi_disc_reason_t reason),
+                      (evt, reason))
 
 // Find the top standard (non-breadboard-injected) reason in a
 // BB_WIFI_DISC_COUNT-entry disconnect histogram. Pure; single implementation

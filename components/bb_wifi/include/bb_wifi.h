@@ -196,7 +196,28 @@ typedef enum {
     BB_WIFI_NET_EVT_LOST_IP,
 } bb_wifi_net_event_t;
 
-typedef void (*bb_wifi_net_event_fn)(bb_wifi_net_event_t evt);
+// The reason is passed explicitly as a sink argument -- NOT read back via
+// bb_wifi_get_disconnect() from inside the sink. Reading it back races
+// wifi_reconn_on_disconnect() (which updates the async disconnect-reason
+// state AFTER bb_wifi_net_event_invoke() fires for BB_WIFI_NET_EVT_DISCONNECT
+// in the WIFI_EVENT_STA_DISCONNECTED handler), so a sink calling
+// bb_wifi_get_disconnect() would observe a stale value. Passing the reason
+// through the call closes that race.
+//
+// Per-edge value:
+//   BB_WIFI_NET_EVT_GOT_IP     -> BB_WIFI_DISC_UNKNOWN (not meaningful)
+//   BB_WIFI_NET_EVT_DISCONNECT -> the mapped reason for this disconnect
+//                                 (bb_wifi_map_esp_reason() of the esp_wifi
+//                                 WIFI_REASON_* code)
+//   BB_WIFI_NET_EVT_LOST_IP    -> BB_WIFI_DISC_BB_LOST_IP
+//
+// `evt` is the discriminator, not `reason` alone: BB_WIFI_DISC_UNKNOWN is
+// overloaded -- on GOT_IP it's a "not applicable" filler (there is no
+// disconnect), on DISCONNECT it's a genuine disconnect whose ESP reason
+// code isn't in bb_wifi_map_esp_reason()'s table. A consumer that buckets
+// purely on `reason` (e.g. metrics/logging) without also keying on `evt`
+// will conflate those two populations.
+typedef void (*bb_wifi_net_event_fn)(bb_wifi_net_event_t evt, bb_wifi_disc_reason_t reason);
 
 // Register a single sink for STA lifecycle edges. NULL clears it.
 // MUST be registered at init (before connect) to catch the first got_ip --
@@ -224,6 +245,38 @@ typedef void (*bb_wifi_net_event_fn)(bb_wifi_net_event_t evt);
 // in platform/host/bb_wifi/bb_wifi_emit.c (host+esp compiled). Null-safe:
 // no-op if unset.
 void bb_wifi_set_net_event_sink(bb_wifi_net_event_fn sink);
+
+// ---------------------------------------------------------------------------
+// wifi.net event contract (KB 820, PR1 -- declaration only, no publisher yet)
+// ---------------------------------------------------------------------------
+// bb_wifi does NOT publish this itself and does NOT include bb_event -- the
+// publisher is a composition-level bridge (a later PR). This header gains no
+// new include and bb_wifi's CMakeLists gains no new dependency to declare
+// this contract; it exists so the future bridge and its consumers share one
+// definition instead of inventing their own.
+//
+// Topic: "wifi.net" -- distinct from BB_TOPIC_WIFI ("wifi") above, which is
+// reserved for the bb_cache/HTTP snapshot (GET /api/wifi). Do not reuse
+// BB_TOPIC_WIFI for the event stream.
+#define BB_WIFI_EVENT_TOPIC "wifi.net"
+
+// Payload published on BB_WIFI_EVENT_TOPIC. The bb_wifi_net_event_t edge
+// (GOT_IP/DISCONNECT/LOST_IP) is carried as the bb_event id (0/1/2) --
+// id-as-discriminator, the same precedent as bb_health_stack.c -- not a
+// field in this struct.
+//   ip         dotted-quad IPv4, populated ONLY on GOT_IP; zeroed otherwise.
+//   disc_reason  meaningful on DISCONNECT/LOST_IP; BB_WIFI_DISC_UNKNOWN on
+//                GOT_IP (see the evt/reason disambiguation note on
+//                bb_wifi_net_event_fn above -- key on the bb_event id
+//                (edge), not disc_reason alone).
+//
+// NO RETAIN/REPLAY: bb_event core has no retain (replay is SSE-only). A
+// consumer needing current state at subscribe time calls bb_wifi_has_ip() /
+// bb_wifi_get_info() synchronously once, then subscribes.
+typedef struct {
+    char ip[16];
+    bb_wifi_disc_reason_t disc_reason;
+} bb_wifi_event_payload_t;
 
 // ---------------------------------------------------------------------------
 // Diagnostics
