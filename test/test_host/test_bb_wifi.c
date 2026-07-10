@@ -6,6 +6,15 @@
 #include "bb_wifi_test.h"
 #endif
 
+// bb_wifi_internal_ota_validated / bb_wifi_on_disconnect_invoke are the
+// private accessors declared in platform/espidf/bb_wifi/wifi_reconn.h
+// (bb_wifi.c / wifi_reconn.c's own copy) -- mirrored here since that
+// directory isn't on this file's include path in the host build. Real,
+// shipped functions (defined via BB_CALLBACK_SLOT_* in
+// platform/host/bb_wifi/bb_wifi_emit.c, host-compiled).
+bool bb_wifi_internal_ota_validated(void);
+void bb_wifi_on_disconnect_invoke(void);
+
 void test_bb_wifi_set_hostname_null(void)
 {
     bb_err_t err = bb_wifi_set_hostname(NULL);
@@ -547,26 +556,57 @@ void test_bb_wifi_get_gateway_status_test_hook_roundtrip(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_wifi_ota_validated_eval — pure cb-set/cb-NULL dispatch backing bb_wifi.c's
-// private wifi_ota_validated() (platform/espidf/bb_wifi/bb_wifi.c).
+// Callback-slot real instantiations (bb_wifi_emit.c) -- the SHIPPED
+// setter/invoke pairs, now host-compiled (components/bb_wifi/CMakeLists.txt
+// puts platform/host/bb_wifi/bb_wifi_emit.c in both the espidf SRCS and the
+// host build), so these exercise the exact production functions rather than
+// a per-seam copy. The macro's generic fire/no-fire logic itself is covered
+// once, in isolation, by test/test_host/test_bb_callback_slot.c.
 // ---------------------------------------------------------------------------
 
-static bool ota_validated_eval_fixture_false(void) { return false; }
-static bool ota_validated_eval_fixture_true(void)  { return true; }
-
-void test_bb_wifi_ota_validated_eval_null_cb_defaults_true(void)
+// ota-validated (BB_CALLBACK_SLOT_RET): default true when unset, echoes the
+// callback's value once set.
+void test_bb_wifi_ota_validated_default_true_when_unset(void)
 {
-    TEST_ASSERT_TRUE(bb_wifi_ota_validated_eval(NULL));
+    bb_wifi_set_ota_validated_cb(NULL);
+    TEST_ASSERT_TRUE(bb_wifi_internal_ota_validated());
 }
 
-void test_bb_wifi_ota_validated_eval_cb_returns_false(void)
+static bool s_ota_validated_fixture_value = false;
+static bool ota_validated_fixture(void) { return s_ota_validated_fixture_value; }
+
+void test_bb_wifi_ota_validated_set_cb_returns_value(void)
 {
-    TEST_ASSERT_FALSE(bb_wifi_ota_validated_eval(ota_validated_eval_fixture_false));
+    s_ota_validated_fixture_value = false;
+    bb_wifi_set_ota_validated_cb(ota_validated_fixture);
+    TEST_ASSERT_FALSE(bb_wifi_internal_ota_validated());
+
+    s_ota_validated_fixture_value = true;
+    TEST_ASSERT_TRUE(bb_wifi_internal_ota_validated());
+
+    bb_wifi_set_ota_validated_cb(NULL);
 }
 
-void test_bb_wifi_ota_validated_eval_cb_returns_true(void)
+// on_disconnect (BB_CALLBACK_SLOT_VOID0): null slot is a no-op; set slot
+// fires on invoke.
+static int s_on_disconnect_calls = 0;
+static void on_disconnect_fixture(void) { s_on_disconnect_calls++; }
+
+void test_bb_wifi_on_disconnect_null_is_noop(void)
 {
-    TEST_ASSERT_TRUE(bb_wifi_ota_validated_eval(ota_validated_eval_fixture_true));
+    bb_wifi_register_on_disconnect(NULL);
+    s_on_disconnect_calls = 0;
+    bb_wifi_on_disconnect_invoke();
+    TEST_ASSERT_EQUAL_INT(0, s_on_disconnect_calls);
+}
+
+void test_bb_wifi_on_disconnect_set_cb_is_invoked(void)
+{
+    bb_wifi_register_on_disconnect(on_disconnect_fixture);
+    s_on_disconnect_calls = 0;
+    bb_wifi_on_disconnect_invoke();
+    TEST_ASSERT_EQUAL_INT(1, s_on_disconnect_calls);
+    bb_wifi_register_on_disconnect(NULL);
 }
 
 // ---------------------------------------------------------------------------

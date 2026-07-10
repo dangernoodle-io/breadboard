@@ -1015,9 +1015,6 @@ void test_bb_wifi_map_wl_status_default_unmapped(void);
 void test_bb_wifi_get_gateway_status_null_arg(void);
 void test_bb_wifi_get_gateway_status_default_zeroed(void);
 void test_bb_wifi_get_gateway_status_test_hook_roundtrip(void);
-void test_bb_wifi_ota_validated_eval_null_cb_defaults_true(void);
-void test_bb_wifi_ota_validated_eval_cb_returns_false(void);
-void test_bb_wifi_ota_validated_eval_cb_returns_true(void);
 void test_bb_wifi_get_info_null_arg(void);
 void test_bb_wifi_get_info_zeroed_snapshot(void);
 void test_bb_wifi_get_disconnect_both_null_safe(void);
@@ -1028,6 +1025,10 @@ void test_bb_wifi_get_ip_str_valid(void);
 void test_bb_wifi_get_rssi_null_out(void);
 void test_bb_wifi_get_rssi_valid(void);
 void test_bb_wifi_request_recovery_blocked_noop(void);
+void test_bb_wifi_ota_validated_default_true_when_unset(void);
+void test_bb_wifi_ota_validated_set_cb_returns_value(void);
+void test_bb_wifi_on_disconnect_null_is_noop(void);
+void test_bb_wifi_on_disconnect_set_cb_is_invoked(void);
 
 // Forward declarations from test_bb_wifi_ap.c
 void test_bb_wifi_ap_build_ssid_formats_prefix_and_mac(void);
@@ -1653,6 +1654,17 @@ void test_bb_once_run_second_call_is_noop(void);
 void test_bb_once_run_null_once_is_safe(void);
 void test_bb_once_run_null_fn_is_safe(void);
 void test_bb_once_run_loser_waits_via_sched_yield(void);
+
+// Forward declarations from test_bb_callback_slot.c
+void test_bb_callback_slot_void_null_slot_is_noop(void);
+void test_bb_callback_slot_void_set_slot_dispatches_with_arg(void);
+void test_bb_callback_slot_void_re_set_replaces(void);
+void test_bb_callback_slot_ret_null_slot_returns_default(void);
+void test_bb_callback_slot_ret_set_slot_returns_cb_value(void);
+void test_bb_callback_slot_void0_null_slot_is_noop(void);
+void test_bb_callback_slot_void0_set_slot_dispatches(void);
+void test_bb_callback_slot_void0_re_set_replaces(void);
+void test_bb_callback_slot_ret_re_set_replaces(void);
 
 // Forward declarations from test_bb_mem.c
 void test_bb_mem_malloc_returns_usable_block(void);
@@ -4964,6 +4976,17 @@ int main(void) {
     RUN_TEST(test_bb_once_run_null_fn_is_safe);
     RUN_TEST(test_bb_once_run_loser_waits_via_sched_yield);
 
+    // bb_callback_slot single-slot injected callback idiom (VOID + RET macros)
+    RUN_TEST(test_bb_callback_slot_void_null_slot_is_noop);
+    RUN_TEST(test_bb_callback_slot_void_set_slot_dispatches_with_arg);
+    RUN_TEST(test_bb_callback_slot_void_re_set_replaces);
+    RUN_TEST(test_bb_callback_slot_ret_null_slot_returns_default);
+    RUN_TEST(test_bb_callback_slot_ret_set_slot_returns_cb_value);
+    RUN_TEST(test_bb_callback_slot_ret_re_set_replaces);
+    RUN_TEST(test_bb_callback_slot_void0_null_slot_is_noop);
+    RUN_TEST(test_bb_callback_slot_void0_set_slot_dispatches);
+    RUN_TEST(test_bb_callback_slot_void0_re_set_replaces);
+
     // bb_mem SPIRAM-preferred alloc helper
     RUN_TEST(test_bb_mem_malloc_returns_usable_block);
     RUN_TEST(test_bb_mem_calloc_zeroes);
@@ -5859,9 +5882,6 @@ int main(void) {
     RUN_TEST(test_bb_wifi_get_gateway_status_null_arg);
     RUN_TEST(test_bb_wifi_get_gateway_status_default_zeroed);
     RUN_TEST(test_bb_wifi_get_gateway_status_test_hook_roundtrip);
-    RUN_TEST(test_bb_wifi_ota_validated_eval_null_cb_defaults_true);
-    RUN_TEST(test_bb_wifi_ota_validated_eval_cb_returns_false);
-    RUN_TEST(test_bb_wifi_ota_validated_eval_cb_returns_true);
     RUN_TEST(test_bb_wifi_get_info_null_arg);
     RUN_TEST(test_bb_wifi_get_info_zeroed_snapshot);
     RUN_TEST(test_bb_wifi_get_disconnect_both_null_safe);
@@ -5872,6 +5892,10 @@ int main(void) {
     RUN_TEST(test_bb_wifi_get_rssi_null_out);
     RUN_TEST(test_bb_wifi_get_rssi_valid);
     RUN_TEST(test_bb_wifi_request_recovery_blocked_noop);
+    RUN_TEST(test_bb_wifi_ota_validated_default_true_when_unset);
+    RUN_TEST(test_bb_wifi_ota_validated_set_cb_returns_value);
+    RUN_TEST(test_bb_wifi_on_disconnect_null_is_noop);
+    RUN_TEST(test_bb_wifi_on_disconnect_set_cb_is_invoked);
 
     // bb_wifi_ap tests
     RUN_TEST(test_bb_wifi_ap_build_ssid_formats_prefix_and_mac);

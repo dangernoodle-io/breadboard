@@ -8,6 +8,7 @@ Foundational, near-zero-dep primitives every bb_* component builds on: the porta
 
 <!-- BEGIN bbtool:api -->
 - [`bb_byte_order.h`](include/bb_byte_order.h)
+- [`bb_callback_slot.h`](include/bb_callback_slot.h)
 - [`bb_claim.h`](include/bb_claim.h)
 - [`bb_clock.h`](include/bb_clock.h)
 - [`bb_core.h`](include/bb_core.h)
