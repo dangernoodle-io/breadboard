@@ -1,0 +1,39 @@
+{
+  "entries": [
+    {
+      "id": "bb_wifi:bb_wifi_cc3000:g_on_disconnect",
+      "path": "platform/arduino/bb_wifi/bb_wifi_cc3000.cpp",
+      "type": "callback_slot"
+    },
+    {
+      "id": "bb_wifi:bb_wifi_cc3000:g_on_got_ip",
+      "path": "platform/arduino/bb_wifi/bb_wifi_cc3000.cpp",
+      "type": "callback_slot"
+    },
+    {
+      "id": "bb_wifi:bb_wifi_r4:g_on_disconnect",
+      "path": "platform/arduino/bb_wifi/bb_wifi_r4.cpp",
+      "type": "callback_slot"
+    },
+    {
+      "id": "bb_wifi:bb_wifi_r4:g_on_got_ip",
+      "path": "platform/arduino/bb_wifi/bb_wifi_r4.cpp",
+      "type": "callback_slot"
+    },
+    {
+      "id": "bb_ota_validator:bb_ota_validator:s_on_validated_cb",
+      "path": "platform/espidf/bb_ota_validator/bb_ota_validator.c",
+      "type": "callback_slot"
+    },
+    {
+      "id": "bb_wifi:bb_wifi:s_on_got_ip_cb",
+      "path": "platform/espidf/bb_wifi/bb_wifi.c",
+      "type": "callback_slot"
+    },
+    {
+      "id": "bb_pub:bb_pub:s_interval_apply_hook",
+      "path": "platform/host/bb_pub/bb_pub.c",
+      "type": "callback_slot"
+    }
+  ]
+}

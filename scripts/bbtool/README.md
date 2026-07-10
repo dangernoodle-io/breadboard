@@ -52,14 +52,16 @@ python3 scripts/bbtool.py lint [--root DIR] [--profile consumer|library] [--rule
 Unified ratchet-fence lint over one or more marker **families**. A family
 (`scripts/bbtool/fence/<family>.py`) is a group of `_scan_*` marker-detection
 functions plus its own committed baseline at
-`.baseline/bbtool/fence/<family>.json`. Five families exist today:
+`.baseline/bbtool/fence/<family>.json`. Six families exist today:
 `di_legacy` (breadboard's legacy DI/self-registration glue surface), `clamp`
 (hand-rolled reimplementations of `bb_num`'s two-sided clamp),
 `scalar_parse` (hand-rolled reimplementations of `bb_scalar`'s parsers),
-`sat_sub` (hand-rolled one-sided saturating-subtract idioms), and
-`new_component` (the "no unauthorized components" guardrail — see below) —
-one family per shared idiom/helper/surface, so a future one is a new
-module, not a combined-family rewrite.
+`sat_sub` (hand-rolled one-sided saturating-subtract idioms),
+`callback_slot` (hand-rolled reimplementations of `bb_core`'s single-slot
+injected-callback helper), and `new_component` (the "no unauthorized
+components" guardrail — see below) — one family per shared
+idiom/helper/surface, so a future one is a new module, not a
+combined-family rewrite.
 
 ```
 python3 scripts/bbtool.py fence [--root DIR] [--family NAME ...] [--update-baseline] [--seed FAMILY] [--approve COMPONENT]
@@ -183,6 +185,67 @@ there). `platform/host/bb_num/` is excluded, same as `clamp`. Identity is
 `<component>:<enclosing-symbol>:<var>` (best-effort, no real C parser —
 same convention as `clamp.py`), not `path:line`. See
 `scripts/bbtool/fence/sat_sub.py`.
+
+### `callback_slot` family
+
+Freezes hand-rolled reimplementations of `bb_core`'s "single-slot injected
+callback" idiom — `components/bb_core/include/bb_callback_slot.h`'s
+`BB_CALLBACK_SLOT_RET`/`BB_CALLBACK_SLOT_VOID0`/`BB_CALLBACK_SLOT_VOID`
+macros, which centralize a file-static callback slot + a public setter +
+a public, null-safe invoke. Scans `components/` + `platform/` for:
+
+1. a file-static callback-pointer declaration `static <cb_type> <name> =
+   NULL;` (raw function-pointer syntax, or a typedef'd function-pointer
+   type resolved via a first-pass typedef table built from every header)
+   whose resolved signature is one of the two shapes the macro set
+   actually supports — void return (with or without args) or a non-void
+   return with **no** args; and
+2. a same-file plain-assignment setter statement `<name> = <param>;` that
+   is the FIRST statement of a function whose own parameter list is
+   exactly one parameter.
+
+Does **not** match `BB_CALLBACK_SLOT_*(...)` macro instantiations — those
+are a single macro-call line with no literal `static ... = NULL;`
+declaration or hand-written setter in the raw source text.
+
+**Accepted limitations** (see `callback_slot.py`'s module docstring for
+the full rationale):
+
+- A callback that both takes arguments AND returns a value (e.g. an
+  injectable allocator hook) matches neither macro shape and is out of
+  scope — there is nowhere for it to migrate to today.
+- A ctx-carrying two-parameter setter (`set_foo_cb(cb, ctx)`) is a
+  different idiom the macro set's fixed one-parameter setter doesn't
+  cover, and is excluded by the same setter-arity check.
+- Test-only hooks are out of scope, mirroring `fence/_base.py`'s
+  `EXCLUDE_DIRS` treatment of `test/`/`tests/`: a declaration/setter
+  inside an enclosing `#if`/`#ifdef`/`#ifndef` block whose condition text
+  contains `_TESTING`, `_TEST`, or `UNIT_TEST` (case-insensitive) is
+  skipped via a simple per-line `#if*`/`#elif`/`#else`/`#endif` stack (not
+  a real preprocessor) — a testing hook does not need `_test_` in its own
+  symbol name to be excluded, since the signal is the compile-time gate,
+  not a naming convention. An `#elif` branch is always treated as
+  production, regardless of its own condition text — conservative: a
+  production slot in an `#elif` branch of a testing `#ifdef` is scanned
+  normally (never silently dropped), at the cost of a testing hook that
+  itself lives in an `#elif defined(FOO_TESTING)` branch being
+  over-counted (frozen as if production) rather than excluded — the safe
+  direction.
+- `platform/espidf/bb_wifi/bb_wifi.c`'s `on_got_ip` slot IS included
+  despite its setter carrying extra late-registration replay logic beyond
+  the plain assignment — deliberately grandfathered (not migrated when
+  the helper landed); a future macro variant with replay support would be
+  needed before it can move off this fence.
+
+Identity is `<component>:<file-stem>:<name>`, **not**
+`<component>:<enclosing-symbol>:<var>` like `clamp`/`sat_sub` — two
+different platform-variant files in the same component (e.g.
+`bb_wifi_r4.cpp`/`bb_wifi_cc3000.cpp`) hand-roll a slot of the identical
+setter/name and would collide under the enclosing-symbol scheme. Tradeoff:
+this family does **not** get the generic fence's "a pure file rename never
+trips the fence" guarantee — renaming one of these source files changes
+its identity, surfacing as ordinary remove+add churn on the next
+`--update-baseline`. See `scripts/bbtool/fence/callback_slot.py`.
 
 ### `new_component` family — grow-by-approval, not shrink-only
 
