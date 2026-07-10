@@ -1029,6 +1029,10 @@ void test_bb_wifi_ota_validated_default_true_when_unset(void);
 void test_bb_wifi_ota_validated_set_cb_returns_value(void);
 void test_bb_wifi_on_disconnect_null_is_noop(void);
 void test_bb_wifi_on_disconnect_set_cb_is_invoked(void);
+void test_bb_wifi_net_event_null_sink_is_noop(void);
+void test_bb_wifi_net_event_set_sink_dispatches_got_ip(void);
+void test_bb_wifi_net_event_set_sink_dispatches_disconnect(void);
+void test_bb_wifi_net_event_set_sink_dispatches_lost_ip(void);
 
 // Forward declarations from test_bb_wifi_ap.c
 void test_bb_wifi_ap_build_ssid_formats_prefix_and_mac(void);
@@ -5896,6 +5900,10 @@ int main(void) {
     RUN_TEST(test_bb_wifi_ota_validated_set_cb_returns_value);
     RUN_TEST(test_bb_wifi_on_disconnect_null_is_noop);
     RUN_TEST(test_bb_wifi_on_disconnect_set_cb_is_invoked);
+    RUN_TEST(test_bb_wifi_net_event_null_sink_is_noop);
+    RUN_TEST(test_bb_wifi_net_event_set_sink_dispatches_got_ip);
+    RUN_TEST(test_bb_wifi_net_event_set_sink_dispatches_disconnect);
+    RUN_TEST(test_bb_wifi_net_event_set_sink_dispatches_lost_ip);
 
     // bb_wifi_ap tests
     RUN_TEST(test_bb_wifi_ap_build_ssid_formats_prefix_and_mac);

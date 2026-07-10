@@ -20,17 +20,18 @@
 
 #include <string.h>
 
-// bb_wifi_internal_ota_validated / bb_wifi_on_disconnect_invoke are also
-// declared (as the private accessors wifi_reconn.c and bb_wifi.c use) in
-// platform/espidf/bb_wifi/wifi_reconn.h -- not #included here since that
-// directory isn't on this file's include path in the host (PlatformIO)
-// build; the BB_CALLBACK_SLOT_* macro invocations below are these
-// functions' defining (and, for this TU, only) declaration.
+// bb_wifi_internal_ota_validated / bb_wifi_on_disconnect_invoke /
+// bb_wifi_net_event_invoke are also declared (as the private accessors
+// wifi_reconn.c and bb_wifi.c use) in platform/espidf/bb_wifi/wifi_reconn.h
+// -- not #included here since that directory isn't on this file's include
+// path in the host (PlatformIO) build; the BB_CALLBACK_SLOT_* macro
+// invocations below are these functions' defining (and, for this TU, only)
+// declaration.
 
 // ---------------------------------------------------------------------------
 // Callback-slot instantiations (B1-... callback-slot consolidation).
 //
-// Both seams below are real, shipped setter/invoke pairs -- their macro
+// All seams below are real, shipped setter/invoke pairs -- their macro
 // expansions are the exact functions bb_wifi.c and wifi_reconn.c call in
 // production, and this file is compiled into BOTH the host test binary and
 // the ESP-IDF firmware (see components/bb_wifi/CMakeLists.txt), so runtime
@@ -51,6 +52,14 @@ BB_CALLBACK_SLOT_RET(ota_validated, bb_wifi_ota_validated_fn, bool,
 // no-op if unset.
 BB_CALLBACK_SLOT_VOID0(on_disconnect, bb_wifi_on_disconnect_cb_t,
                        bb_wifi_register_on_disconnect, bb_wifi_on_disconnect_invoke)
+
+// Net-event sink (bb_wifi.h bb_wifi_set_net_event_sink, KB 781 PR4-core).
+// The generated invoke, bb_wifi_net_event_invoke (wifi_reconn.h), is called
+// from bb_wifi.c's event_handler at the three STA lifecycle edges
+// (got_ip/disconnect/lost_ip). Null-safe no-op if unset.
+BB_CALLBACK_SLOT_VOID(net_event, bb_wifi_net_event_fn,
+                      bb_wifi_set_net_event_sink, bb_wifi_net_event_invoke,
+                      (bb_wifi_net_event_t evt), (evt))
 
 // Find the top standard (non-breadboard-injected) reason in a
 // BB_WIFI_DISC_COUNT-entry disconnect histogram. Pure; single implementation

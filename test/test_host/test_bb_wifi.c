@@ -14,6 +14,7 @@
 // platform/host/bb_wifi/bb_wifi_emit.c, host-compiled).
 bool bb_wifi_internal_ota_validated(void);
 void bb_wifi_on_disconnect_invoke(void);
+void bb_wifi_net_event_invoke(bb_wifi_net_event_t evt);
 
 void test_bb_wifi_set_hostname_null(void)
 {
@@ -607,6 +608,54 @@ void test_bb_wifi_on_disconnect_set_cb_is_invoked(void)
     bb_wifi_on_disconnect_invoke();
     TEST_ASSERT_EQUAL_INT(1, s_on_disconnect_calls);
     bb_wifi_register_on_disconnect(NULL);
+}
+
+// net_event (BB_CALLBACK_SLOT_VOID, with-args): null sink is a no-op; set
+// sink dispatches the invoked enum value through to the sink.
+static int s_net_event_calls = 0;
+static bb_wifi_net_event_t s_net_event_last_evt;
+static void net_event_fixture(bb_wifi_net_event_t evt)
+{
+    s_net_event_calls++;
+    s_net_event_last_evt = evt;
+}
+
+void test_bb_wifi_net_event_null_sink_is_noop(void)
+{
+    bb_wifi_set_net_event_sink(NULL);
+    s_net_event_calls = 0;
+    bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_GOT_IP);
+    TEST_ASSERT_EQUAL_INT(0, s_net_event_calls);
+}
+
+void test_bb_wifi_net_event_set_sink_dispatches_got_ip(void)
+{
+    bb_wifi_set_net_event_sink(net_event_fixture);
+    s_net_event_calls = 0;
+    bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_GOT_IP);
+    TEST_ASSERT_EQUAL_INT(1, s_net_event_calls);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_NET_EVT_GOT_IP, s_net_event_last_evt);
+    bb_wifi_set_net_event_sink(NULL);
+}
+
+void test_bb_wifi_net_event_set_sink_dispatches_disconnect(void)
+{
+    bb_wifi_set_net_event_sink(net_event_fixture);
+    s_net_event_calls = 0;
+    bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_DISCONNECT);
+    TEST_ASSERT_EQUAL_INT(1, s_net_event_calls);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_NET_EVT_DISCONNECT, s_net_event_last_evt);
+    bb_wifi_set_net_event_sink(NULL);
+}
+
+void test_bb_wifi_net_event_set_sink_dispatches_lost_ip(void)
+{
+    bb_wifi_set_net_event_sink(net_event_fixture);
+    s_net_event_calls = 0;
+    bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_LOST_IP);
+    TEST_ASSERT_EQUAL_INT(1, s_net_event_calls);
+    TEST_ASSERT_EQUAL_INT(BB_WIFI_NET_EVT_LOST_IP, s_net_event_last_evt);
+    bb_wifi_set_net_event_sink(NULL);
 }
 
 // ---------------------------------------------------------------------------
