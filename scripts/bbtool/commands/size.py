@@ -53,6 +53,33 @@ per-region map into `heap.regions`. With `--check`, it re-fetches and applies
 a HIGHER-BETTER regression gate (current < baseline = FAIL) against the
 committed baseline's `heap` block; if that block is null (no heap baseline
 yet), the heap check is inert (skipped, not failed).
+
+B1-726 — toolchain identity in the `config` block: the sdkconfig snapshot
+captures the full *resolved* config, but a default's value depends on the
+ESP-IDF version + target, which the resolved text alone doesn't record (a
+`sdkconfig_sha` delta can't tell "we flipped a knob" from "upstream default
+moved"). `--update-baseline` also best-effort captures `config.idf_target`
+(from `CONFIG_IDF_TARGET` in the sdkconfig itself, reliable),
+`config.idf_version` (probed from PlatformIO/ESP-IDF build metadata:
+`project_description.json`'s `idf_version`, then `config/sdkconfig.json`'s
+`IDF_VER`/`CONFIG_IDF_VER`, then `config/kconfig_menus.json`, then a bare
+`IDF_VER` line in the sdkconfig text itself -- this fourth source is fed
+the same raw sdkconfig text `--update-baseline` already reads for the
+config snapshot, so it's reachable from the real `run()` path, not just
+direct calls; `null` if none found), `config.platform_version` (the pinned
+`platform = ...#<ref>` from `examples/smoke/platformio.ini`'s matching
+`[env:<target>]` section -- falling back to a whole-file search only when
+the ini has zero or exactly one `[env:...]` section, so an unmatched
+target in a multi-env ini yields `null` rather than a neighbor env's ref
+-- else the installed pioarduino platform's `platform.json` version;
+`null` if undeterminable), and `config.overrides_sha` (SHA-256 of the
+project's normalized
+`sdkconfig.defaults` -- our explicit overrides, distinct from the full
+resolved config -- so a diff can separate our intent from IDF-resolved
+reality; `null` if no defaults file is found). All four are best-effort and
+degrade to `null` rather than erroring; `--check`/`_compare_flash` never
+reads them, so old-shape baselines (without these keys) load and compare
+fine.
 """
 from __future__ import annotations
 
@@ -385,10 +412,15 @@ def _find_sdkconfig(build_dir: Path) -> Optional[Path]:
     return None
 
 
-def _snapshot_config(build_dir: str, target: str, root: str) -> Tuple[str, str]:
+def _snapshot_config(build_dir: str, target: str, root: str) -> Tuple[str, str, Optional[str], str]:
     """Read + normalize the resolved sdkconfig for build_dir, write it to
     .baseline/bbtool/metrics/<target>.sdkconfig, and return (sha256_hex of
-    the normalized text, snapshot path relative to root, POSIX-style)."""
+    the normalized text, snapshot path relative to root, POSIX-style,
+    idf_target extracted from the raw sdkconfig -- None if either the
+    sdkconfig is missing or it has no CONFIG_IDF_TARGET line, raw sdkconfig
+    text -- "" if no sdkconfig was found -- so callers can also feed it to
+    _probe_idf_version's source-4 bare-IDF_VER-line fallback without a
+    second file read)."""
     sdkconfig_path = _find_sdkconfig(Path(build_dir))
     raw_text = (
         sdkconfig_path.read_text(encoding="utf-8", errors="replace")
@@ -396,12 +428,172 @@ def _snapshot_config(build_dir: str, target: str, root: str) -> Tuple[str, str]:
     )
     normalized = _normalize_sdkconfig(raw_text)
     sha = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    idf_target = _extract_idf_target(raw_text)
 
     snapshot_path = _baseline_dir(root) / f"{target}.sdkconfig"
     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write_text(snapshot_path, normalized)
 
-    return sha, f".baseline/bbtool/metrics/{target}.sdkconfig"
+    return sha, f".baseline/bbtool/metrics/{target}.sdkconfig", idf_target, raw_text
+
+
+# ---------------------------------------------------------------------------
+# B1-726 -- toolchain identity: idf_target/idf_version/platform_version/
+# overrides_sha. All best-effort, never raise; missing sources -> None so a
+# `config` block round-trips through --update-baseline/--check regardless of
+# what build metadata happens to exist locally.
+# ---------------------------------------------------------------------------
+
+_IDF_TARGET_RE = re.compile(r'^CONFIG_IDF_TARGET="([^"]*)"\s*$', re.MULTILINE)
+_IDF_VER_LINE_RE = re.compile(r'^#?\s*IDF_VER[:=]\s*"?(\S+?)"?\s*$', re.MULTILINE)
+
+
+def _extract_idf_target(sdkconfig_text: str) -> Optional[str]:
+    """Extract CONFIG_IDF_TARGET's quoted value from raw sdkconfig text,
+    e.g. `CONFIG_IDF_TARGET="esp32"` -> "esp32". None if absent."""
+    m = _IDF_TARGET_RE.search(sdkconfig_text)
+    return m.group(1) if m else None
+
+
+def _read_json_dict(path: Path) -> Optional[dict]:
+    """Best-effort JSON-object read: None on missing file, unreadable file,
+    invalid JSON, or a non-object top level -- never raises."""
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _probe_idf_version(build_dir: Path, sdkconfig_text: str = "") -> Optional[str]:
+    """Best-effort ESP-IDF version probe from PlatformIO/ESP-IDF build
+    metadata, in priority order (first present source wins):
+      1. <build_dir>/project_description.json -> "idf_version"
+      2. <build_dir>/config/sdkconfig.json -> "IDF_VER" / "CONFIG_IDF_VER"
+      3. <build_dir>/config/kconfig_menus.json -> "idf_version" / "version"
+      4. a raw `IDF_VER=...`/`# IDF_VER: ...` line in the sdkconfig text
+    None if no source yields a value -- a real build hasn't happened yet, or
+    this ESP-IDF/PlatformIO version doesn't emit any of these artifacts."""
+    build_dir = Path(build_dir)
+
+    project_desc = _read_json_dict(build_dir / "project_description.json")
+    if project_desc is not None:
+        version = project_desc.get("idf_version")
+        if version:
+            return str(version)
+
+    sdkconfig_json = _read_json_dict(build_dir / "config" / "sdkconfig.json")
+    if sdkconfig_json is not None:
+        for key in ("IDF_VER", "CONFIG_IDF_VER"):
+            version = sdkconfig_json.get(key)
+            if version:
+                return str(version)
+
+    kconfig_menus = _read_json_dict(build_dir / "config" / "kconfig_menus.json")
+    if kconfig_menus is not None:
+        version = kconfig_menus.get("idf_version") or kconfig_menus.get("version")
+        if version:
+            return str(version)
+
+    m = _IDF_VER_LINE_RE.search(sdkconfig_text)
+    if m:
+        return m.group(1)
+
+    return None
+
+
+_ENV_HEADER_RE = re.compile(r'^\[env:\S+\]', re.MULTILINE)
+
+
+def _extract_platform_ref_from_ini(ini_text: str, target: str) -> Optional[str]:
+    """Extract the pinned `#<ref>` suffix of a `platform = ...#<ref>` line
+    from the `[env:<target>]` section of a platformio.ini. If that section
+    isn't found, falls back to a whole-file search ONLY when the ini has
+    zero or exactly one `[env:...]` header (the genuine single-env /
+    header-less case) -- with 2+ env sections and no match for `target`,
+    returns None rather than attributing a neighbor env's platform ref to
+    the wrong target. An unpinned platform line (no `#<ref>`) or a missing
+    platform line both yield None -- a bare platform name isn't a
+    version."""
+    section_re = re.compile(
+        rf'^\[env:{re.escape(target)}\](.*?)(?=^\[|\Z)', re.MULTILINE | re.DOTALL,
+    )
+    m = section_re.search(ini_text)
+    if m:
+        section_text = m.group(1)
+    else:
+        if len(_ENV_HEADER_RE.findall(ini_text)) > 1:
+            return None
+        section_text = ini_text
+
+    platform_re = re.compile(r'^\s*platform\s*=\s*(\S+)\s*$', re.MULTILINE)
+    pm = platform_re.search(section_text)
+    if not pm:
+        return None
+
+    ref_m = re.search(r'#(\S+)$', pm.group(1))
+    return ref_m.group(1) if ref_m else None
+
+
+def _probe_platform_version(root: str, target: str) -> Optional[str]:
+    """Best-effort resolved pioarduino/platform-espressif32 version probe, in
+    priority order:
+      1. `examples/smoke/platformio.ini`'s `[env:<target>]` pinned
+         `platform = ...#<ref>` line
+      2. the installed platform's `~/.platformio/platforms/espressif32/
+         platform.json` "version"
+    None if neither yields a value."""
+    ini_path = Path(root) / "examples" / "smoke" / "platformio.ini"
+    if ini_path.is_file():
+        ref = _extract_platform_ref_from_ini(
+            ini_path.read_text(encoding="utf-8", errors="replace"), target,
+        )
+        if ref:
+            return ref
+
+    platform_json = _read_json_dict(
+        Path.home() / ".platformio" / "platforms" / "espressif32" / "platform.json",
+    )
+    if platform_json is not None:
+        version = platform_json.get("version")
+        if version:
+            return str(version)
+
+    return None
+
+
+def _find_sdkconfig_defaults(build_dir: Path) -> Optional[Path]:
+    """Locate the project's sdkconfig.defaults (our explicit overrides,
+    distinct from the full resolved sdkconfig) relative to build_dir --
+    mirrors _find_sdkconfig's project-root-is-3-levels-up convention.
+    Search order: <project_dir>/sdkconfig.defaults.<env>, then
+    <project_dir>/sdkconfig.defaults. None if neither exists."""
+    build_dir = Path(build_dir)
+    if len(build_dir.parts) < 3:
+        return None
+    project_dir = build_dir.parents[2]
+    env = build_dir.name
+    for candidate in (
+        project_dir / f"sdkconfig.defaults.{env}",
+        project_dir / "sdkconfig.defaults",
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _snapshot_overrides(build_dir: str) -> Optional[str]:
+    """SHA-256 of the normalized sdkconfig.defaults for build_dir (our
+    explicit overrides, distinct from the full IDF-resolved config) --
+    None if no sdkconfig.defaults is found."""
+    path = _find_sdkconfig_defaults(Path(build_dir))
+    if path is None:
+        return None
+    raw_text = path.read_text(encoding="utf-8", errors="replace")
+    normalized = _normalize_sdkconfig(raw_text)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -671,7 +863,10 @@ def run(args) -> int:
     heap_from_http = getattr(args, "heap_from_http", None)
 
     if do_update:
-        sha, snapshot_rel = _snapshot_config(build_dir, target, root)
+        sha, snapshot_rel, idf_target, sdkconfig_text = _snapshot_config(build_dir, target, root)
+        idf_version = _probe_idf_version(Path(build_dir), sdkconfig_text=sdkconfig_text)
+        platform_version = _probe_platform_version(root, target)
+        overrides_sha = _snapshot_overrides(build_dir)
         existing = _load_baseline(root, target) or {}
         heap = existing.get("heap") or dict(_HEAP_NULL)
         if heap_from_http:
@@ -686,8 +881,12 @@ def run(args) -> int:
             "config": {
                 "label": "default",
                 "toolchain": "esp-idf",
+                "idf_version": idf_version,
+                "idf_target": idf_target,
+                "platform_version": platform_version,
                 "sdkconfig_sha": sha,
                 "snapshot": snapshot_rel,
+                "overrides_sha": overrides_sha,
             },
             "flash": {
                 "text": result["text"],
