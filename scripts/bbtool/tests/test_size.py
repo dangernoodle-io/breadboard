@@ -288,7 +288,7 @@ class TestSnapshotConfig(unittest.TestCase):
             (build_dir / "sdkconfig").write_text(
                 "CONFIG_A=y\n# CONFIG_B is not set\n", encoding="utf-8",
             )
-            sha, rel = size_mod._snapshot_config(str(build_dir), "esp32", root)
+            sha, rel, idf_target, raw_text = size_mod._snapshot_config(str(build_dir), "esp32", root)
             self.assertEqual(rel, ".baseline/bbtool/metrics/esp32.sdkconfig")
             snapshot_path = Path(root, rel)
             self.assertTrue(snapshot_path.is_file())
@@ -297,6 +297,236 @@ class TestSnapshotConfig(unittest.TestCase):
             self.assertIn("CONFIG_B=n", content)
             expected_sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
             self.assertEqual(sha, expected_sha)
+            self.assertIsNone(idf_target)
+            self.assertEqual(raw_text, "CONFIG_A=y\n# CONFIG_B is not set\n")
+
+    def test_captures_idf_target_when_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tmp
+            build_dir = Path(tmp, "examples", "smoke", ".pio", "build", "esp32")
+            build_dir.mkdir(parents=True)
+            (build_dir / "sdkconfig").write_text(
+                'CONFIG_A=y\nCONFIG_IDF_TARGET="esp32"\n', encoding="utf-8",
+            )
+            _, _, idf_target, _ = size_mod._snapshot_config(str(build_dir), "esp32", root)
+            self.assertEqual(idf_target, "esp32")
+
+
+class TestExtractIdfTarget(unittest.TestCase):
+    def test_extracts_quoted_value(self):
+        self.assertEqual(
+            size_mod._extract_idf_target('CONFIG_A=y\nCONFIG_IDF_TARGET="esp32"\n'),
+            "esp32",
+        )
+
+    def test_absent_returns_none(self):
+        self.assertIsNone(size_mod._extract_idf_target("CONFIG_A=y\n"))
+
+
+class TestProbeIdfVersion(unittest.TestCase):
+    def test_from_project_description_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = Path(tmp)
+            (build_dir / "project_description.json").write_text(
+                json.dumps({"idf_version": "v5.1.2"}), encoding="utf-8",
+            )
+            self.assertEqual(size_mod._probe_idf_version(build_dir), "v5.1.2")
+
+    def test_from_sdkconfig_json_idf_ver_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = Path(tmp)
+            config_dir = build_dir / "config"
+            config_dir.mkdir()
+            (config_dir / "sdkconfig.json").write_text(
+                json.dumps({"IDF_VER": "v5.2.0"}), encoding="utf-8",
+            )
+            self.assertEqual(size_mod._probe_idf_version(build_dir), "v5.2.0")
+
+    def test_from_kconfig_menus_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = Path(tmp)
+            config_dir = build_dir / "config"
+            config_dir.mkdir()
+            (config_dir / "kconfig_menus.json").write_text(
+                json.dumps({"version": "v5.3.0"}), encoding="utf-8",
+            )
+            self.assertEqual(size_mod._probe_idf_version(build_dir), "v5.3.0")
+
+    def test_from_sdkconfig_text_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = Path(tmp)
+            self.assertEqual(
+                size_mod._probe_idf_version(build_dir, sdkconfig_text="# IDF_VER: v5.4.0\n"),
+                "v5.4.0",
+            )
+
+    def test_priority_project_description_over_sdkconfig_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = Path(tmp)
+            (build_dir / "project_description.json").write_text(
+                json.dumps({"idf_version": "v5.1.2"}), encoding="utf-8",
+            )
+            config_dir = build_dir / "config"
+            config_dir.mkdir()
+            (config_dir / "sdkconfig.json").write_text(
+                json.dumps({"IDF_VER": "v9.9.9"}), encoding="utf-8",
+            )
+            self.assertEqual(size_mod._probe_idf_version(build_dir), "v5.1.2")
+
+    def test_all_sources_absent_returns_none_no_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(size_mod._probe_idf_version(Path(tmp)))
+
+    def test_invalid_json_does_not_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = Path(tmp)
+            (build_dir / "project_description.json").write_text("not json", encoding="utf-8")
+            self.assertIsNone(size_mod._probe_idf_version(build_dir))
+
+    def test_non_object_json_does_not_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = Path(tmp)
+            (build_dir / "project_description.json").write_text("[1, 2]", encoding="utf-8")
+            self.assertIsNone(size_mod._probe_idf_version(build_dir))
+
+
+class TestProbePlatformVersion(unittest.TestCase):
+    def test_extracts_pinned_ref_for_matching_env(self):
+        ini_text = (
+            "[env:esp32]\n"
+            "platform = https://github.com/example-org/platform-espressif32.git#55.03.38-1\n"
+            "board = esp32dev\n"
+            "\n"
+            "[env:esp32s3]\n"
+            "platform = https://github.com/example-org/platform-espressif32.git#99.00.00-1\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            examples_dir = Path(tmp, "examples", "smoke")
+            examples_dir.mkdir(parents=True)
+            (examples_dir / "platformio.ini").write_text(ini_text, encoding="utf-8")
+            self.assertEqual(size_mod._probe_platform_version(tmp, "esp32"), "55.03.38-1")
+            self.assertEqual(size_mod._probe_platform_version(tmp, "esp32s3"), "99.00.00-1")
+
+    def test_unpinned_platform_line_returns_none(self):
+        ini_text = "[env:esp32]\nplatform = espressif32\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            examples_dir = Path(tmp, "examples", "smoke")
+            examples_dir.mkdir(parents=True)
+            (examples_dir / "platformio.ini").write_text(ini_text, encoding="utf-8")
+            with mock.patch("commands.size._read_json_dict", return_value=None):
+                self.assertIsNone(size_mod._probe_platform_version(tmp, "esp32"))
+
+    def test_absent_ini_and_absent_platform_json_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch("commands.size._read_json_dict", return_value=None):
+                self.assertIsNone(size_mod._probe_platform_version(tmp, "esp32"))
+
+    def test_falls_back_to_platform_json_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch(
+                "commands.size._read_json_dict", return_value={"version": "6.1.0"},
+            ):
+                self.assertEqual(size_mod._probe_platform_version(tmp, "esp32"), "6.1.0")
+
+
+class TestExtractPlatformRefFromIni(unittest.TestCase):
+    def test_missing_env_section_falls_back_to_whole_file(self):
+        # header-less ini (no [env:...] sections at all): genuine
+        # single-env case, whole-file fallback is correct.
+        ini_text = "platform = https://example.test/platform.git#1.2.3\n"
+        self.assertEqual(
+            size_mod._extract_platform_ref_from_ini(ini_text, "esp32"), "1.2.3",
+        )
+
+    def test_missing_platform_line_returns_none(self):
+        self.assertIsNone(size_mod._extract_platform_ref_from_ini("[env:esp32]\nboard = x\n", "esp32"))
+
+    def test_single_env_ini_unmatched_target_still_falls_back(self):
+        # exactly one [env:...] section present, but it doesn't match the
+        # requested target -- preserve the intended single-env behavior
+        # (the whole-file fallback still applies).
+        ini_text = "[env:esp32]\nplatform = https://example.test/platform.git#1.2.3\n"
+        self.assertEqual(
+            size_mod._extract_platform_ref_from_ini(ini_text, "esp32-typo"), "1.2.3",
+        )
+
+    def test_multi_env_ini_unmatched_target_returns_none(self):
+        # B1-726 MED-2: 2+ [env:...] sections and none matches target ->
+        # None, never a neighbor env's platform ref.
+        ini_text = (
+            "[env:esp32]\n"
+            "platform = https://example.test/platform.git#55.03.38-1\n"
+            "[env:esp32s3]\n"
+            "platform = https://example.test/platform.git#99.00.00-1\n"
+        )
+        self.assertIsNone(
+            size_mod._extract_platform_ref_from_ini(ini_text, "esp32-typo"),
+        )
+
+    def test_multi_env_ini_matched_target_returns_its_own_ref(self):
+        ini_text = (
+            "[env:esp32]\n"
+            "platform = https://example.test/platform.git#55.03.38-1\n"
+            "[env:esp32s3]\n"
+            "platform = https://example.test/platform.git#99.00.00-1\n"
+        )
+        self.assertEqual(
+            size_mod._extract_platform_ref_from_ini(ini_text, "esp32s3"), "99.00.00-1",
+        )
+
+
+class TestFindSdkconfigDefaults(unittest.TestCase):
+    def test_finds_env_specific_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp, "examples", "smoke")
+            build_dir = project_dir / ".pio" / "build" / "esp32"
+            build_dir.mkdir(parents=True)
+            (project_dir / "sdkconfig.defaults.esp32").write_text("CONFIG_A=y\n", encoding="utf-8")
+            found = size_mod._find_sdkconfig_defaults(build_dir)
+            self.assertEqual(found, project_dir / "sdkconfig.defaults.esp32")
+
+    def test_finds_bare_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp, "examples", "smoke")
+            build_dir = project_dir / ".pio" / "build" / "esp32"
+            build_dir.mkdir(parents=True)
+            (project_dir / "sdkconfig.defaults").write_text("CONFIG_A=y\n", encoding="utf-8")
+            found = size_mod._find_sdkconfig_defaults(build_dir)
+            self.assertEqual(found, project_dir / "sdkconfig.defaults")
+
+    def test_returns_none_when_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = Path(tmp, "examples", "smoke", ".pio", "build", "esp32")
+            build_dir.mkdir(parents=True)
+            self.assertIsNone(size_mod._find_sdkconfig_defaults(build_dir))
+
+    def test_returns_none_for_shallow_build_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shallow = Path(tmp, "esp32")
+            shallow.mkdir()
+            self.assertIsNone(size_mod._find_sdkconfig_defaults(shallow))
+
+
+class TestSnapshotOverrides(unittest.TestCase):
+    def test_stable_sha_for_present_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp, "examples", "smoke")
+            build_dir = project_dir / ".pio" / "build" / "esp32"
+            build_dir.mkdir(parents=True)
+            (project_dir / "sdkconfig.defaults").write_text(
+                "CONFIG_BB_FOO=y\n# CONFIG_BB_BAR is not set\n", encoding="utf-8",
+            )
+            sha = size_mod._snapshot_overrides(str(build_dir))
+            normalized = size_mod._normalize_sdkconfig(
+                "CONFIG_BB_FOO=y\n# CONFIG_BB_BAR is not set\n",
+            )
+            self.assertEqual(sha, hashlib.sha256(normalized.encode("utf-8")).hexdigest())
+
+    def test_none_when_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = Path(tmp, "examples", "smoke", ".pio", "build", "esp32")
+            build_dir.mkdir(parents=True)
+            self.assertIsNone(size_mod._snapshot_overrides(str(build_dir)))
 
 
 class TestUpdateBaseline(unittest.TestCase):
@@ -327,6 +557,41 @@ class TestUpdateBaseline(unittest.TestCase):
             self.assertEqual(baseline["heap"], size_mod._HEAP_NULL)
             self.assertIn("sdkconfig_sha", baseline["config"])
 
+    def test_config_block_includes_toolchain_identity_keys(self):
+        # B1-726: idf_target/idf_version/platform_version/overrides_sha all
+        # best-effort -- with no build metadata / platformio.ini / defaults
+        # present, they round-trip as null rather than erroring.
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = Path(tmp, "examples", "smoke", ".pio", "build", "esp32")
+            build_dir.mkdir(parents=True)
+            Path(build_dir, "firmware.elf").write_bytes(b"\x7fELF")
+            (build_dir / "sdkconfig").write_text(
+                'CONFIG_A=y\nCONFIG_IDF_TARGET="esp32"\n', encoding="utf-8",
+            )
+            result = {
+                "elf": str(build_dir / "firmware.elf"), "build_dir": str(build_dir),
+                "text": 100, "data": 20, "bss": 30, "flash_total": 120,
+                "components": {},
+            }
+            # isolate from whatever the host machine happens to have installed
+            # under ~/.platformio -- deterministic null regardless of env.
+            with self._fake_measure(result), \
+                 mock.patch("commands.size._read_json_dict", return_value=None):
+                rc = run(_args(str(build_dir), root=tmp, target="esp32", update_baseline=True))
+            self.assertEqual(rc, 0)
+            config = json.loads(baseline_path(tmp, "esp32").read_text(encoding="utf-8"))["config"]
+            self.assertEqual(
+                set(config),
+                {
+                    "label", "toolchain", "idf_version", "idf_target",
+                    "platform_version", "sdkconfig_sha", "snapshot", "overrides_sha",
+                },
+            )
+            self.assertEqual(config["idf_target"], "esp32")
+            self.assertIsNone(config["idf_version"])
+            self.assertIsNone(config["platform_version"])
+            self.assertIsNone(config["overrides_sha"])
+
     def test_preserves_existing_heap_block_on_rewrite(self):
         with tempfile.TemporaryDirectory() as tmp:
             build_dir = Path(tmp, "examples", "smoke", ".pio", "build", "esp32")
@@ -354,6 +619,31 @@ class TestUpdateBaseline(unittest.TestCase):
             baseline = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(baseline["heap"], existing_heap)
             self.assertEqual(baseline["flash"]["flash_total"], 120)
+
+    def test_bare_idf_ver_sdkconfig_line_reachable_via_run(self):
+        # B1-726 MED-1: source 4 of _probe_idf_version (a bare IDF_VER line
+        # in the sdkconfig text) must be reachable from the real run() CLI
+        # path, not just from a direct unit call that hand-passes
+        # sdkconfig_text. No project_description.json / config/*.json here
+        # -- only a sdkconfig with a bare IDF_VER line -- so a captured
+        # idf_version proves run() plumbed the text through.
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = Path(tmp, "examples", "smoke", ".pio", "build", "esp32")
+            build_dir.mkdir(parents=True)
+            Path(build_dir, "firmware.elf").write_bytes(b"\x7fELF")
+            (build_dir / "sdkconfig").write_text(
+                'CONFIG_A=y\n# IDF_VER: v5.4.0\n', encoding="utf-8",
+            )
+            result = {
+                "elf": str(build_dir / "firmware.elf"), "build_dir": str(build_dir),
+                "text": 100, "data": 20, "bss": 30, "flash_total": 120,
+                "components": {},
+            }
+            with self._fake_measure(result):
+                rc = run(_args(str(build_dir), root=tmp, target="esp32", update_baseline=True))
+            self.assertEqual(rc, 0)
+            config = json.loads(baseline_path(tmp, "esp32").read_text(encoding="utf-8"))["config"]
+            self.assertEqual(config["idf_version"], "v5.4.0")
 
     def test_roundtrip_via_load_baseline(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -470,6 +760,26 @@ class TestCheckFlashGate(unittest.TestCase):
             with self._fake_measure(result):
                 rc = run(_args(str(build_dir), root=tmp, target="esp32", check=True))
             self.assertEqual(rc, 0)
+
+    def test_check_tolerates_old_shape_config_missing_toolchain_identity_keys(self):
+        # B1-726: a baseline written before this feature has a `config` block
+        # without idf_version/idf_target/platform_version/overrides_sha --
+        # --check must not crash or fail on the missing keys.
+        with tempfile.TemporaryDirectory() as tmp:
+            build_dir = self._build_dir(tmp)
+            self._write_baseline(tmp, "esp32", text=1000, data=0, bss=30, flash_total=1000)
+            baseline = json.loads(baseline_path(tmp, "esp32").read_text(encoding="utf-8"))
+            self.assertNotIn("idf_version", baseline["config"])
+            result = {
+                "elf": str(build_dir / "firmware.elf"), "build_dir": str(build_dir),
+                "text": 1000, "data": 0, "bss": 30, "flash_total": 1000, "components": {},
+            }
+            with self._fake_measure(result):
+                out_buf = io.StringIO()
+                with contextlib.redirect_stdout(out_buf):
+                    rc = run(_args(str(build_dir), root=tmp, target="esp32", check=True))
+            self.assertEqual(rc, 0)
+            self.assertIn("PASS", out_buf.getvalue())
 
     def test_check_and_update_baseline_mutually_exclusive(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -792,8 +792,12 @@ sections) and are not additive against `flash_total`.
   "config": {
     "label": "default",
     "toolchain": "esp-idf",
+    "idf_version": "v5.1.2",
+    "idf_target": "esp32",
+    "platform_version": "55.03.38-1",
     "sdkconfig_sha": "<sha256 of the normalized sdkconfig>",
-    "snapshot": ".baseline/bbtool/metrics/esp32.sdkconfig"
+    "snapshot": ".baseline/bbtool/metrics/esp32.sdkconfig",
+    "overrides_sha": "<sha256 of the normalized sdkconfig.defaults, or null>"
   },
   "flash": {
     "text": 0, "data": 0, "bss": 0, "flash_total": 0,
@@ -812,6 +816,42 @@ sdkconfig_sha` is the SHA-256 of that normalized snapshot text — a config
 drift shows up as a `sdkconfig_sha` change even if flash/RAM happen not to
 move. Both files are written atomically (temp file + `os.replace`), so a
 kill mid-write can't corrupt a committed baseline.
+
+**Toolchain identity (B1-726).** `sdkconfig_sha` alone can't distinguish "we
+flipped a knob" from "an ESP-IDF/PlatformIO upgrade moved a default's
+value" — the snapshot only captures the fully-*resolved* config, not what
+version resolved it. `--update-baseline` also best-effort captures:
+
+- `config.idf_target` — from `CONFIG_IDF_TARGET` in the sdkconfig itself
+  (reliable whenever a sdkconfig was found).
+- `config.idf_version` — probed from build metadata, first present source
+  wins: `<build_dir>/project_description.json`'s `idf_version`, then
+  `<build_dir>/config/sdkconfig.json`'s `IDF_VER`/`CONFIG_IDF_VER`, then
+  `<build_dir>/config/kconfig_menus.json`, then a bare `IDF_VER` line in the
+  sdkconfig text itself (the same raw sdkconfig text `--update-baseline`
+  reads for the config snapshot is fed into this fourth source, so it's
+  reachable from the real CLI path). `null` if no build has produced any of
+  these yet.
+- `config.platform_version` — the pinned `platform = ...#<ref>` from
+  `examples/smoke/platformio.ini`'s matching `[env:<target>]` section, else
+  the installed pioarduino platform's `~/.platformio/platforms/
+  espressif32/platform.json` `version`. The whole-file fallback for the ini
+  search only applies when the ini has zero or exactly one `[env:...]`
+  section (the genuine single-env / header-less case); with 2+ `[env:...]`
+  sections and none matching `target`, the ini search yields `null` rather
+  than a neighboring env's platform ref. `null` if the platform line is
+  unpinned (no `#<ref>`) and no installed platform.json is found.
+- `config.overrides_sha` — SHA-256 of the project's normalized
+  `sdkconfig.defaults` (our explicit overrides, separate from the full
+  IDF-resolved config in `sdkconfig_sha`/`snapshot`) — lets a `sdkconfig_sha`
+  delta be attributed to "we changed a default" vs "upstream default moved"
+  without touching `sdkconfig.defaults`. `null` if no `sdkconfig.defaults`
+  (or env-specific `sdkconfig.defaults.<env>`) is found.
+
+All four are best-effort and degrade to `null` rather than erroring; a
+missing/old-shape `config` block (from a baseline written before B1-726)
+still loads and compares fine — `--check`/`_compare_flash` never reads these
+keys.
 
 ### Flash gate (`--check`)
 
