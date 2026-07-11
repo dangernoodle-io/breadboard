@@ -16,7 +16,7 @@
 // mapping is a no-op there.
 // ---------------------------------------------------------------------------
 
-static bb_storage_enc_t cfg_type_to_enc(bb_config_type_t t)
+bb_storage_enc_t bb_config_type_to_enc(bb_config_type_t t)
 {
     switch (t) {
     case BB_CONFIG_BOOL:
@@ -36,30 +36,39 @@ static bb_storage_enc_t cfg_type_to_enc(bb_config_type_t t)
     }
 }
 
-#ifdef BB_CONFIG_TESTING
-#include "bb_config_test.h"
-
-bb_storage_enc_t bb_config_cfg_type_to_enc_for_test(bb_config_type_t t)
+size_t bb_config_scalar_width(bb_config_type_t t)
 {
-    return cfg_type_to_enc(t);
+    switch (t) {
+    case BB_CONFIG_BOOL:
+    case BB_CONFIG_U8:
+        return 1;
+    case BB_CONFIG_U16:
+        return 2;
+    case BB_CONFIG_U32:
+    case BB_CONFIG_I32:
+        return 4;
+    case BB_CONFIG_STR:
+    case BB_CONFIG_BLOB:
+    default:
+        return 0;
+    }
 }
-#endif
 
 // ---------------------------------------------------------------------------
 // Scalar helpers
 // ---------------------------------------------------------------------------
 
-static bb_err_t scalar_get(const bb_config_field_t *f, bb_config_type_t want,
-                            uint8_t *buf, size_t width)
+static bb_err_t scalar_get(const bb_config_field_t *f, bb_config_type_t want, uint8_t *buf)
 {
     if (f == NULL || f->type != want) {
         return BB_ERR_INVALID_ARG;
     }
 
+    size_t width = bb_config_scalar_width(want);
     memset(buf, 0, width);
 
     size_t out_len = 0;
-    bb_err_t rc = bb_storage_get_typed(&f->addr, cfg_type_to_enc(f->type), buf, width, &out_len);
+    bb_err_t rc = bb_storage_get_typed(&f->addr, bb_config_type_to_enc(f->type), buf, width, &out_len);
     if (rc != BB_OK) {
         return rc;
     }
@@ -73,13 +82,12 @@ static bb_err_t scalar_get(const bb_config_field_t *f, bb_config_type_t want,
     return BB_OK;
 }
 
-static bb_err_t scalar_set(const bb_config_field_t *f, bb_config_type_t want,
-                            const uint8_t *buf, size_t width)
+static bb_err_t scalar_set(const bb_config_field_t *f, bb_config_type_t want, const uint8_t *buf)
 {
     if (f == NULL || f->type != want) {
         return BB_ERR_INVALID_ARG;
     }
-    return bb_storage_set_typed(&f->addr, cfg_type_to_enc(f->type), buf, width);
+    return bb_storage_set_typed(&f->addr, bb_config_type_to_enc(f->type), buf, bb_config_scalar_width(want));
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +100,7 @@ bb_err_t bb_config_get_bool(const bb_config_field_t *f, bool *out)
         return BB_ERR_INVALID_ARG;
     }
     uint8_t byte = 0;
-    bb_err_t rc = scalar_get(f, BB_CONFIG_BOOL, &byte, sizeof(byte));
+    bb_err_t rc = scalar_get(f, BB_CONFIG_BOOL, &byte);
     if (rc == BB_ERR_NOT_FOUND && f->has_default) {
         *out = f->def.b;
         return BB_OK;
@@ -107,7 +115,7 @@ bb_err_t bb_config_get_bool(const bb_config_field_t *f, bool *out)
 bb_err_t bb_config_set_bool(const bb_config_field_t *f, bool v)
 {
     uint8_t byte = v ? 1 : 0;
-    return scalar_set(f, BB_CONFIG_BOOL, &byte, sizeof(byte));
+    return scalar_set(f, BB_CONFIG_BOOL, &byte);
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +128,7 @@ bb_err_t bb_config_get_u8(const bb_config_field_t *f, uint8_t *out)
         return BB_ERR_INVALID_ARG;
     }
     uint8_t byte = 0;
-    bb_err_t rc = scalar_get(f, BB_CONFIG_U8, &byte, sizeof(byte));
+    bb_err_t rc = scalar_get(f, BB_CONFIG_U8, &byte);
     if (rc == BB_ERR_NOT_FOUND && f->has_default) {
         *out = f->def.u8;
         return BB_OK;
@@ -134,7 +142,7 @@ bb_err_t bb_config_get_u8(const bb_config_field_t *f, uint8_t *out)
 
 bb_err_t bb_config_set_u8(const bb_config_field_t *f, uint8_t v)
 {
-    return scalar_set(f, BB_CONFIG_U8, &v, sizeof(v));
+    return scalar_set(f, BB_CONFIG_U8, &v);
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +155,7 @@ bb_err_t bb_config_get_u16(const bb_config_field_t *f, uint16_t *out)
         return BB_ERR_INVALID_ARG;
     }
     uint8_t buf[2];
-    bb_err_t rc = scalar_get(f, BB_CONFIG_U16, buf, sizeof(buf));
+    bb_err_t rc = scalar_get(f, BB_CONFIG_U16, buf);
     if (rc == BB_ERR_NOT_FOUND && f->has_default) {
         *out = f->def.u16;
         return BB_OK;
@@ -163,7 +171,7 @@ bb_err_t bb_config_set_u16(const bb_config_field_t *f, uint16_t v)
 {
     uint8_t buf[2];
     bb_store_le16(buf, v);
-    return scalar_set(f, BB_CONFIG_U16, buf, sizeof(buf));
+    return scalar_set(f, BB_CONFIG_U16, buf);
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +184,7 @@ bb_err_t bb_config_get_u32(const bb_config_field_t *f, uint32_t *out)
         return BB_ERR_INVALID_ARG;
     }
     uint8_t buf[4];
-    bb_err_t rc = scalar_get(f, BB_CONFIG_U32, buf, sizeof(buf));
+    bb_err_t rc = scalar_get(f, BB_CONFIG_U32, buf);
     if (rc == BB_ERR_NOT_FOUND && f->has_default) {
         *out = f->def.u32;
         return BB_OK;
@@ -192,7 +200,7 @@ bb_err_t bb_config_set_u32(const bb_config_field_t *f, uint32_t v)
 {
     uint8_t buf[4];
     bb_store_le32(buf, v);
-    return scalar_set(f, BB_CONFIG_U32, buf, sizeof(buf));
+    return scalar_set(f, BB_CONFIG_U32, buf);
 }
 
 // ---------------------------------------------------------------------------
@@ -205,7 +213,7 @@ bb_err_t bb_config_get_i32(const bb_config_field_t *f, int32_t *out)
         return BB_ERR_INVALID_ARG;
     }
     uint8_t buf[4];
-    bb_err_t rc = scalar_get(f, BB_CONFIG_I32, buf, sizeof(buf));
+    bb_err_t rc = scalar_get(f, BB_CONFIG_I32, buf);
     if (rc == BB_ERR_NOT_FOUND && f->has_default) {
         *out = f->def.i32;
         return BB_OK;
@@ -224,7 +232,7 @@ bb_err_t bb_config_set_i32(const bb_config_field_t *f, int32_t v)
     memcpy(&bits, &v, sizeof(bits));
     uint8_t buf[4];
     bb_store_le32(buf, bits);
-    return scalar_set(f, BB_CONFIG_I32, buf, sizeof(buf));
+    return scalar_set(f, BB_CONFIG_I32, buf);
 }
 
 // ---------------------------------------------------------------------------

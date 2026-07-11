@@ -646,13 +646,8 @@ void test_bb_storage_nvs_classify_enc_i32(void);
 void test_bb_storage_nvs_classify_enc_unknown_defaults_to_blob(void);
 
 // Forward declarations from test_bb_config_typed.c
-void test_cfg_type_to_enc_bool_maps_to_u8(void);
-void test_cfg_type_to_enc_u8_maps_to_u8(void);
-void test_cfg_type_to_enc_u16_maps_to_u16(void);
-void test_cfg_type_to_enc_u32_maps_to_u32(void);
-void test_cfg_type_to_enc_i32_maps_to_i32(void);
-void test_cfg_type_to_enc_str_maps_to_str(void);
-void test_cfg_type_to_enc_blob_maps_to_blob(void);
+void test_bb_config_type_to_enc_matches_every_type(void);
+void test_bb_config_scalar_width_matches_every_type(void);
 
 // Forward declarations from test_bb_settings.c
 void test_bb_settings_wifi_ssid_get_pass_get_round_trip(void);
@@ -8244,14 +8239,9 @@ int main(void) {
     RUN_TEST(test_bb_storage_nvs_classify_enc_i32);
     RUN_TEST(test_bb_storage_nvs_classify_enc_unknown_defaults_to_blob);
 
-    // bb_config cfg_type_to_enc mapper tests
-    RUN_TEST(test_cfg_type_to_enc_bool_maps_to_u8);
-    RUN_TEST(test_cfg_type_to_enc_u8_maps_to_u8);
-    RUN_TEST(test_cfg_type_to_enc_u16_maps_to_u16);
-    RUN_TEST(test_cfg_type_to_enc_u32_maps_to_u32);
-    RUN_TEST(test_cfg_type_to_enc_i32_maps_to_i32);
-    RUN_TEST(test_cfg_type_to_enc_str_maps_to_str);
-    RUN_TEST(test_cfg_type_to_enc_blob_maps_to_blob);
+    // bb_config type-to-enc / scalar-width helper tests
+    RUN_TEST(test_bb_config_type_to_enc_matches_every_type);
+    RUN_TEST(test_bb_config_scalar_width_matches_every_type);
 
     // bb_wdt tests
     RUN_TEST(test_bb_wdt_park_wait_resume_unsubscribes_and_resubscribes);
