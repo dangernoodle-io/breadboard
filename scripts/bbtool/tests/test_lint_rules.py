@@ -30,6 +30,7 @@ from commands.lint import (
     _check_public_requires_unused,
     _check_kconfig_bridge_shadow,
     _check_raw_timestamp_divide,
+    _check_emit_seam_unwired_subscriber,
     _strip_noise,
     _parse_kconfig_int_defaults,
 )
@@ -1882,6 +1883,199 @@ class TestRawTimestampDivide(unittest.TestCase):
             violations = _check_raw_timestamp_divide(make_ctx(td))
             self.assertTrue(violations,
                 "a normal file in bb_core (not bb_clock.c) must fire")
+
+
+# Real breadboard repo root (scripts/bbtool/tests/../../.. ), mirrors
+# test_lint_integration.py's REPO_ROOT — used only by the integration case
+# below (never for the synthetic-fixture cases in this class).
+_REAL_REPO_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..")
+)
+
+
+class TestEmitSeamUnwiredSubscriber(unittest.TestCase):
+    """B1-740: an app links an emit-seam publisher (BB_CALLBACK_SLOT_VOID
+    over a bb_emit_fn slot) and a subscriber of its topic, but never wires
+    the seam's setter -- generic over the emit-seam pattern; wifi.net/
+    bb_wifi (real repo, tested here as the integration case) was the first
+    live instance."""
+
+    _SEAM_C = (
+        'void bb_seam_init(void) {}\n'
+        '\n'
+        'BB_CALLBACK_SLOT_VOID(emit, bb_emit_fn, bb_seam_set_emit, bb_seam_emit_invoke,\n'
+        '                      (const char *topic, int32_t id, const void *payload, size_t size),\n'
+        '                      (topic, id, payload, size))\n'
+        '\n'
+        'void bb_seam_fire(void)\n'
+        '{\n'
+        '    bb_seam_emit_invoke(BB_SEAM_TOPIC, 0, NULL, 0);\n'
+        '}\n'
+    )
+
+    _SUB_C = (
+        'void bb_sub_init(void)\n'
+        '{\n'
+        '    bb_event_subscribe(BB_SEAM_TOPIC, handler, NULL, &sub);\n'
+        '}\n'
+    )
+
+    def _make_file(self, tmpdir: str, relpath: str, content: str) -> str:
+        path = Path(tmpdir) / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return tmpdir
+
+    def _make_component(self, tmpdir: str, name: str, source: str, requires=None) -> None:
+        """Flat components/<name>/ layout (CMakeLists.txt + <name>.c
+        directly under the component dir) so boards.discover_components /
+        derive_component resolve it like a real flat component (e.g.
+        bb_mdns)."""
+        body = f'idf_component_register(\n    SRCS "{name}.c"\n'
+        if requires:
+            body += f"    REQUIRES {' '.join(requires)}\n"
+        body += ")\n"
+        self._make_file(tmpdir, f"components/{name}/CMakeLists.txt", body)
+        self._make_file(tmpdir, f"components/{name}/{name}.c", source)
+
+    def _make_app(self, tmpdir: str, app_name: str, requires: list) -> None:
+        self._make_file(
+            tmpdir, f"examples/{app_name}/main/CMakeLists.txt",
+            "idf_component_register(\n    SRCS \"main.c\"\n"
+            f"    REQUIRES {' '.join(requires)}\n)\n")
+        self._make_file(tmpdir, f"examples/{app_name}/main/main.c",
+                         'void app_main(void) {}\n')
+
+    def test_fires_when_seam_and_subscriber_in_closure_but_unwired(self):
+        """FIRES: fake seam + fake subscriber both in a fake app's closure,
+        no setter call anywhere under the app's main/ -> violation."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(td, "bb_seam", self._SEAM_C)
+            self._make_component(td, "bb_sub", self._SUB_C)
+            self._make_app(td, "fakeapp", requires=["bb_seam", "bb_sub"])
+            violations = _check_emit_seam_unwired_subscriber(make_ctx(td))
+            self.assertTrue(violations,
+                "unwired seam+subscriber co-present in an app's closure must fire")
+            self.assertIn("bb_seam_set_emit", violations[0]["detail"])
+
+    def test_no_fire_when_setter_is_wired(self):
+        """PASSES: same closure, but the app's main/ calls the setter."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(td, "bb_seam", self._SEAM_C)
+            self._make_component(td, "bb_sub", self._SUB_C)
+            self._make_app(td, "fakeapp", requires=["bb_seam", "bb_sub"])
+            self._make_file(td, "examples/fakeapp/main/main.c",
+                'void app_main(void) {\n'
+                '    bb_seam_set_emit(my_sink);\n'
+                '}\n')
+            violations = _check_emit_seam_unwired_subscriber(make_ctx(td))
+            self.assertFalse(violations, "a wired setter call must NOT fire")
+
+    def test_no_fire_when_app_omits_subscriber(self):
+        """PASSES: app links the seam but never the subscriber."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(td, "bb_seam", self._SEAM_C)
+            self._make_component(td, "bb_sub", self._SUB_C)
+            self._make_app(td, "fakeapp", requires=["bb_seam"])
+            violations = _check_emit_seam_unwired_subscriber(make_ctx(td))
+            self.assertFalse(violations,
+                "an app without the subscriber in its closure must NOT fire")
+
+    def test_no_fire_when_app_omits_seam(self):
+        """PASSES: app links the subscriber but never the seam owner."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(td, "bb_seam", self._SEAM_C)
+            self._make_component(td, "bb_sub", self._SUB_C)
+            self._make_app(td, "fakeapp", requires=["bb_sub"])
+            violations = _check_emit_seam_unwired_subscriber(make_ctx(td))
+            self.assertFalse(violations,
+                "an app without the seam owner in its closure must NOT fire")
+
+    def test_suppressed_via_allowlist(self):
+        """SUPPRESSED: an allowlisted app path must not fire even when
+        unwired."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(td, "bb_seam", self._SEAM_C)
+            self._make_component(td, "bb_sub", self._SUB_C)
+            self._make_app(td, "fakeapp", requires=["bb_seam", "bb_sub"])
+            config = {"lint": {"rules": {"emit-seam-unwired-subscriber": {
+                "allow": ["examples/fakeapp/main"]
+            }}}}
+            ctx = Context(root=td, config=config)
+            violations = _check_emit_seam_unwired_subscriber(ctx)
+            self.assertFalse(violations, "allowlisted app path must NOT fire")
+
+    def test_graceful_skip_on_conditional_set_error(self):
+        """A conditionally-set() REQUIRES var must be skipped (stderr note),
+        not crash the whole rule -- other apps still get checked."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(td, "bb_seam", self._SEAM_C)
+            self._make_component(td, "bb_sub", self._SUB_C)
+            self._make_file(
+                td, "examples/conditionalapp/main/CMakeLists.txt",
+                'if(SOME_FLAG)\n'
+                '    set(APP_REQUIRES bb_seam bb_sub)\n'
+                'endif()\n'
+                'idf_component_register(\n    SRCS "main.c"\n'
+                '    REQUIRES ${APP_REQUIRES}\n)\n')
+            self._make_file(td, "examples/conditionalapp/main/main.c",
+                             'void app_main(void) {}\n')
+            self._make_app(td, "fakeapp", requires=["bb_seam", "bb_sub"])
+            violations = _check_emit_seam_unwired_subscriber(make_ctx(td))
+            # conditionalapp is skipped (ConditionalSetError); fakeapp still
+            # gets checked and fires (it has no setter wire either).
+            self.assertTrue(violations, "the conditional-set app must be skipped, not crash")
+            paths = {v["path"] for v in violations}
+            self.assertTrue(
+                any("fakeapp" in p for p in paths),
+                "fakeapp must still be checked after conditionalapp is skipped")
+
+    def test_graceful_skip_on_dependency_conditional_set_error(self):
+        """A DEPENDENCY component's (not the app's own CMakeLists.txt)
+        conditionally-set() REQUIRES var raises ConditionalSetError deep
+        inside resolve_composition -> boards.derive_component ->
+        cmake_parse.parse_requires -- this must be caught the same way as
+        the app's own file, not propagate uncaught out of the rule (which
+        would abort the entire bbtool lint run, not just this rule)."""
+        with tempfile.TemporaryDirectory() as td:
+            self._make_component(td, "bb_seam", self._SEAM_C)
+            self._make_component(td, "bb_sub", self._SUB_C)
+            # bb_dep's OWN CMakeLists.txt conditionally set()s its REQUIRES
+            # -- the app requiring bb_dep parses fine at the top level; the
+            # ConditionalSetError only surfaces once resolve_composition
+            # walks into bb_dep's own derive_component() call.
+            self._make_file(
+                td, "components/bb_dep/CMakeLists.txt",
+                'if(SOME_FLAG)\n'
+                '    set(DEP_REQUIRES bb_seam bb_sub)\n'
+                'endif()\n'
+                'idf_component_register(\n    SRCS "bb_dep.c"\n'
+                '    REQUIRES ${DEP_REQUIRES}\n)\n')
+            self._make_file(td, "components/bb_dep/bb_dep.c",
+                             'void bb_dep_init(void) {}\n')
+            self._make_app(td, "depapp", requires=["bb_dep"])
+            self._make_app(td, "fakeapp", requires=["bb_seam", "bb_sub"])
+            # Must not raise ConditionalSetError out of the rule.
+            violations = _check_emit_seam_unwired_subscriber(make_ctx(td))
+            paths = {v["path"] for v in violations}
+            self.assertTrue(
+                any("fakeapp" in p for p in paths),
+                "fakeapp must still be checked after depapp is skipped")
+            self.assertFalse(
+                any("depapp" in p for p in paths),
+                "depapp must never appear as a violation -- it was skipped"
+                " (dependency-level conditional REQUIRES), not evaluated")
+
+    def test_real_repo_clean_smoke_and_floor(self):
+        """INTEGRATION: the real repo's wifi.net/bb_wifi instance -- floor's
+        closure never includes bb_wifi (out of scope), and smoke's closure
+        includes bb_wifi + bb_mdns/bb_mqtt_client but IS wired (see
+        examples/smoke/main/entry_espidf.c:69) -- so the real repo must be
+        clean under this rule."""
+        violations = _check_emit_seam_unwired_subscriber(make_ctx(_REAL_REPO_ROOT))
+        self.assertFalse(
+            violations,
+            f"real repo must be clean under emit-seam-unwired-subscriber: {violations}")
 
 
 if __name__ == "__main__":
