@@ -42,3 +42,8 @@
 // NOT cleared on read — accumulates across boots. One
 // bb_reboot_history_encode/_decode delimited string = one key.
 #define BB_REBOOT_KEY_HISTORY "history"
+
+// bb_system boot-health counter (components/bb_system, B1-753; same
+// namespace BB_REBOOT_NVS_NS). Single u8 counter, incremented on boot and
+// reset on successful WiFi connect.
+#define BB_REBOOT_KEY_BOOT_CNT "boot_cnt"

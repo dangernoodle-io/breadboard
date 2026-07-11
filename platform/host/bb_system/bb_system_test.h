@@ -10,3 +10,10 @@
  * Only available when BB_SYSTEM_TESTING is defined.
  */
 void bb_system_set_temp_for_test(float celsius, bb_err_t rc);
+
+/**
+ * Host-only test hook: reset the in-memory boot-fail counter (B1-753) to 0.
+ * s_boot_count is process-lifetime state; call from setUp() to prevent
+ * cross-test leakage. Only available when BB_SYSTEM_TESTING is defined.
+ */
+void bb_system_boot_count_reset_for_test(void);

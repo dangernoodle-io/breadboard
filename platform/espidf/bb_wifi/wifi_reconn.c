@@ -1,6 +1,5 @@
 #include "wifi_reconn.h"
 #include "wifi_reconn_policy.h"
-#include "bb_nv.h"
 #include "bb_timer.h"
 #include "bb_wifi.h"
 #include "bb_alert.h"
@@ -107,7 +106,7 @@ static void do_safeguard_reboot(const char *ctx)
     } else {
         bb_log_e(TAG, "%s (handshake=%d, generic=%d) for >5min, rebooting",
                  ctx, s_state.handshake_fail_count, s_state.generic_fail_count);
-        bb_nv_config_increment_boot_count();
+        bb_system_boot_count_increment();
         bb_system_restart_reason(BB_RESET_SRC_WIFI_SAFEGUARD, "persistent disconnect");
     }
 #else

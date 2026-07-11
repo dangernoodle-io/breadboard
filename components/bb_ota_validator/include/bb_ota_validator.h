@@ -7,7 +7,7 @@ extern "C" {
 
 // Push a mark-valid signal. No-op if not pending or already marked.
 // Returns BB_OK on success, BB_ERR_INVALID_STATE if not pending / already marked.
-// Side effects: esp_ota_mark_app_valid_cancel_rollback + bb_nv_config_reset_boot_count.
+// Side effects: esp_ota_mark_app_valid_cancel_rollback + bb_system_boot_count_reset.
 bb_err_t bb_ota_mark_valid(const char *reason);
 
 // True only between a pending-detection at init and a successful mark_valid.

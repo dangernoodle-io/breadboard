@@ -6,6 +6,7 @@
 #include "bb_sink_ws.h"
 #include "../../components/bb_log/src/bb_log_internal.h"
 #include "bb_nv.h"
+#include "bb_system_test.h"
 #include "bb_mdns_host_test_hooks.h"
 #include "bb_event_test.h"
 #include "../../components/bb_event_ring/bb_event_ring_internal.h"
@@ -1404,6 +1405,11 @@ void test_bb_system_boot_banner_format_all_null(void);
 void test_bb_system_boot_banner_format_null_out(void);
 void test_bb_system_boot_banner_format_zero_len(void);
 void test_bb_system_boot_banner_format_truncation(void);
+void test_bb_system_boot_count_get_default_zero(void);
+void test_bb_system_boot_count_increment_increases_by_one(void);
+void test_bb_system_boot_count_reset_zeroes(void);
+void test_bb_system_boot_count_increment_saturates_at_uint8_max(void);
+void test_bb_system_boot_count_reaches_fail_threshold(void);
 
 // Forward declarations from test_bb_mdns_cache.c
 void test_bb_mdns_cache_build_key_default_prefix(void);
@@ -4422,6 +4428,7 @@ void bb_cache_reset_for_test(void);
 
 void setUp(void) {
     _bb_log_registry_reset();
+    bb_system_boot_count_reset_for_test();
     bb_nv_host_str_store_reset();
     bb_mdns_host_reset();
     wifi_reconn_policy_test_reset();
@@ -6278,6 +6285,11 @@ int main(void) {
     RUN_TEST(test_bb_system_boot_banner_format_null_out);
     RUN_TEST(test_bb_system_boot_banner_format_zero_len);
     RUN_TEST(test_bb_system_boot_banner_format_truncation);
+    RUN_TEST(test_bb_system_boot_count_get_default_zero);
+    RUN_TEST(test_bb_system_boot_count_increment_increases_by_one);
+    RUN_TEST(test_bb_system_boot_count_reset_zeroes);
+    RUN_TEST(test_bb_system_boot_count_increment_saturates_at_uint8_max);
+    RUN_TEST(test_bb_system_boot_count_reaches_fail_threshold);
 
     // bb_str tests
     RUN_TEST(test_bb_strlcpy_table_driven);

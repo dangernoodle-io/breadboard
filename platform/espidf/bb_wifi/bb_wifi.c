@@ -482,7 +482,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             bb_nv_config_commit_wifi_pending();
         }
 #endif
-        bb_nv_config_reset_boot_count();
+        bb_system_boot_count_reset();
         if (s_wifi_event_group) {
             xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         }
@@ -700,7 +700,7 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
                 return ESP_ERR_TIMEOUT;
             }
             bb_log_e(TAG, "WiFi connection timeout after 60s, restarting");
-            bb_nv_config_increment_boot_count();
+            bb_system_boot_count_increment();
             bb_system_restart_reason(BB_RESET_SRC_WIFI_COLD_TIMEOUT, "cold connect timeout");
         } else {
             bb_log_e(TAG, "WiFi connection timeout after %us", (unsigned)(timeout_ms / 1000));

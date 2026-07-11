@@ -126,6 +126,35 @@ void bb_system_restart_reason(bb_reset_source_t src, const char *detail);
 /// bb_system_restart_reason is exactly this call with caller_epoch_s=0.
 void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint32_t caller_epoch_s);
 
+// ---------------------------------------------------------------------------
+// Boot-health counter (B1-753, part of the bb_nv dissolution epic B1-708) —
+// anti-brick safeguard for a device that never reaches a healthy WiFi
+// connection after an OTA update. Callers increment on a WiFi-timeout-driven
+// safeguard reboot and reset on a successful connect / OTA validation; a
+// count that reaches BB_SYSTEM_BOOT_FAIL_THRESHOLD signals the caller should
+// give up on the current config (e.g. fall back to AP provisioning mode).
+// Co-located with the reboot-reason record (same NVS namespace) since both
+// are boot-health bookkeeping. Not incremented on every boot — only on the
+// specific WiFi-timeout safeguard path — so a normal power-cycle never
+// drifts toward the threshold.
+// ---------------------------------------------------------------------------
+
+/// Boot-count threshold at/above which a caller should treat the device as
+/// stuck (e.g. fall back to AP provisioning). Callers compare with >=.
+#define BB_SYSTEM_BOOT_FAIL_THRESHOLD 3
+
+/// Returns the current boot-fail count (0 on host — no reboot-persistent
+/// storage — and on first ESP-IDF boot / read failure).
+uint8_t bb_system_boot_count_get(void);
+
+/// Increments the boot-fail count by 1, saturating at UINT8_MAX. Persisted
+/// to NVS on ESP-IDF; in-memory only (lost on process exit) on host.
+bb_err_t bb_system_boot_count_increment(void);
+
+/// Resets the boot-fail count to 0. Call on a successful WiFi connect or
+/// OTA validation to clear the anti-brick window.
+bb_err_t bb_system_boot_count_reset(void);
+
 /// Pure parse of POST /api/reboot's optional JSON body: {"ts": <epoch_s>,
 /// "detail": "<string, up to 48 chars>"} — both fields optional. body may be
 /// NULL/empty/non-JSON/oversized; on any parse failure out_ts=0 and
