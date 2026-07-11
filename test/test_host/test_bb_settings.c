@@ -2,106 +2,24 @@
 #include "bb_settings.h"
 #include "bb_storage.h"
 #include "bb_config.h"
+#include "fake_nvs_backend.h"
 
 #include <string.h>
 
 // bb_settings' direct WiFi-credential accessors forward to bb_config field
 // accessors targeting backend="nvs" (the same ns/keys bb_nv_config uses --
 // see bb_settings.c). The real "nvs" bb_storage backend is ESP-IDF-only, so
-// these host tests register a small fake in-memory vtable under the name
-// "nvs" -- exercising the SAME production field table/addr code path
-// bb_settings.c uses, with only the backend's storage swapped for a
-// host-safe stand-in (mirrors test_bb_storage_typed.c's fake_get/fake_set
-// pattern).
+// these host tests register the shared fake in-memory vtable (see
+// fake_nvs_backend.h) under the name "nvs" -- exercising the SAME production
+// field table/addr code path bb_settings.c uses, with only the backend's
+// storage swapped for a host-safe stand-in (mirrors test_bb_storage_typed.c's
+// fake_get/fake_set pattern).
 //
 // The wifi-creds accessors have no setter API -- seeding test creds goes
 // through a TEST-LOCAL bb_config_field_t pointing at the exact same addr
 // (backend/ns/key) as bb_settings.c's internal fields, so a seeded value is
 // visible through the real accessors. hostname (B1-754) DOES have a real
 // setter (bb_settings_hostname_set) -- its tests use that directly.
-
-#define FAKE_NVS_MAX_ENTRIES 4
-#define FAKE_NVS_MAX_VALUE   128
-#define FAKE_NVS_KEY_MAX     32
-
-typedef struct {
-    bool    used;
-    char    key[FAKE_NVS_KEY_MAX];
-    size_t  len;
-    uint8_t value[FAKE_NVS_MAX_VALUE];
-} fake_nvs_entry_t;
-
-static fake_nvs_entry_t s_fake_nvs[FAKE_NVS_MAX_ENTRIES];
-
-static void fake_nvs_reset(void)
-{
-    memset(s_fake_nvs, 0, sizeof(s_fake_nvs));
-}
-
-static fake_nvs_entry_t *fake_nvs_find(const char *key)
-{
-    if (key == NULL) return NULL;
-    for (int i = 0; i < FAKE_NVS_MAX_ENTRIES; i++) {
-        if (s_fake_nvs[i].used && strcmp(s_fake_nvs[i].key, key) == 0) {
-            return &s_fake_nvs[i];
-        }
-    }
-    return NULL;
-}
-
-static bb_err_t fake_nvs_get(void *impl, const bb_storage_addr_t *addr, void *buf, size_t cap, size_t *out_len)
-{
-    (void)impl;
-    fake_nvs_entry_t *e = fake_nvs_find(addr->key);
-    if (e == NULL) return BB_ERR_NOT_FOUND;
-    *out_len = e->len;
-    if (cap > 0) {
-        size_t copy_len = e->len < cap ? e->len : cap;
-        memcpy(buf, e->value, copy_len);
-    }
-    return BB_OK;
-}
-
-static bb_err_t fake_nvs_set(void *impl, const bb_storage_addr_t *addr, const void *buf, size_t len)
-{
-    (void)impl;
-    if (len > FAKE_NVS_MAX_VALUE) return BB_ERR_NO_SPACE;
-
-    fake_nvs_entry_t *e = fake_nvs_find(addr->key);
-    if (e == NULL) {
-        for (int i = 0; i < FAKE_NVS_MAX_ENTRIES; i++) {
-            if (!s_fake_nvs[i].used) { e = &s_fake_nvs[i]; break; }
-        }
-        if (e == NULL) return BB_ERR_NO_SPACE;
-        strncpy(e->key, addr->key, sizeof(e->key) - 1);
-        e->key[sizeof(e->key) - 1] = '\0';
-        e->used = true;
-    }
-    if (len > 0) memcpy(e->value, buf, len);
-    e->len = len;
-    return BB_OK;
-}
-
-static bb_err_t fake_nvs_erase(void *impl, const bb_storage_addr_t *addr)
-{
-    (void)impl;
-    fake_nvs_entry_t *e = fake_nvs_find(addr->key);
-    if (e != NULL) memset(e, 0, sizeof(*e));
-    return BB_OK;
-}
-
-static bool fake_nvs_exists(void *impl, const bb_storage_addr_t *addr)
-{
-    (void)impl;
-    return fake_nvs_find(addr->key) != NULL;
-}
-
-static const bb_storage_vtable_t s_fake_nvs_vtable = {
-    .get    = fake_nvs_get,
-    .set    = fake_nvs_set,
-    .erase  = fake_nvs_erase,
-    .exists = fake_nvs_exists,
-};
 
 // Test-local field descriptors targeting the exact same addr (backend/ns/
 // key) as bb_settings.c's internal s_wifi_ssid_field/s_wifi_pass_field, used
