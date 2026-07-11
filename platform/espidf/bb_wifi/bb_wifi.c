@@ -478,6 +478,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 
         bb_wifi_on_disconnect_invoke();
         bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_DISCONNECT, mapped_reason);
+        bb_wifi_publish_net_event(BB_WIFI_NET_EVT_DISCONNECT, mapped_reason);
 
         if (wifi_reconn_is_active()) {
             // Post-boot: manager task owns retry policy
@@ -523,6 +524,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             s_on_got_ip_cb();
         }
         bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN);
+        bb_wifi_publish_net_event(BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN);
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP) {
         esp_netif_ip_info_t ip_info;
         if (s_sta_netif && esp_netif_get_ip_info(s_sta_netif, &ip_info) == ESP_OK
@@ -536,6 +538,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             wifi_reconn_on_lost_ip();
         }
         bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_LOST_IP, BB_WIFI_DISC_BB_LOST_IP);
+        bb_wifi_publish_net_event(BB_WIFI_NET_EVT_LOST_IP, BB_WIFI_DISC_BB_LOST_IP);
     }
 }
 

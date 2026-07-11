@@ -669,6 +669,130 @@ void test_bb_wifi_net_event_set_sink_dispatches_lost_ip(void)
     bb_wifi_set_net_event_sink(NULL);
 }
 
+// ---------------------------------------------------------------------------
+// bb_wifi_publish_net_event / bb_wifi_set_emit / bb_wifi_emit_baseline (KB
+// 820 PR3 -- bus-shaped generic emit seam, independent of the typed
+// net_event seam above). bb_wifi_publish_net_event and bb_wifi_emit_invoke
+// are private accessors declared in platform/espidf/bb_wifi/wifi_reconn.h
+// (mirrored here, same rationale as bb_wifi_net_event_invoke above) -- real,
+// shipped functions defined via BB_CALLBACK_SLOT_VOID in
+// platform/host/bb_wifi/bb_wifi_emit.c (host-compiled).
+// ---------------------------------------------------------------------------
+void bb_wifi_publish_net_event(bb_wifi_net_event_t evt, bb_wifi_disc_reason_t reason);
+
+static int s_emit_calls = 0;
+static char s_emit_last_topic[32];
+static int32_t s_emit_last_id;
+static bb_wifi_event_payload_t s_emit_last_payload;
+static size_t s_emit_last_size;
+
+static void emit_fixture(const char *topic, int32_t id, const void *payload, size_t size)
+{
+    s_emit_calls++;
+    strncpy(s_emit_last_topic, topic ? topic : "", sizeof(s_emit_last_topic) - 1);
+    s_emit_last_topic[sizeof(s_emit_last_topic) - 1] = '\0';
+    s_emit_last_id = id;
+    s_emit_last_size = size;
+    if (payload && size == sizeof(s_emit_last_payload)) {
+        memcpy(&s_emit_last_payload, payload, size);
+    }
+}
+
+static void reset_emit_fixture(void)
+{
+    s_emit_calls = 0;
+    s_emit_last_topic[0] = '\0';
+    s_emit_last_id = 0;
+    s_emit_last_size = 0;
+    memset(&s_emit_last_payload, 0, sizeof(s_emit_last_payload));
+}
+
+void test_bb_wifi_emit_null_sink_is_noop(void)
+{
+    bb_wifi_set_emit(NULL);
+    reset_emit_fixture();
+    bb_wifi_publish_net_event(BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN);
+    TEST_ASSERT_EQUAL_INT(0, s_emit_calls);
+}
+
+void test_bb_wifi_publish_net_event_got_ip(void)
+{
+    bb_wifi_test_set_ip_str_fail(false);
+    bb_wifi_set_emit(emit_fixture);
+    reset_emit_fixture();
+    bb_wifi_publish_net_event(BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN);
+    TEST_ASSERT_EQUAL_INT(1, s_emit_calls);
+    TEST_ASSERT_EQUAL_STRING(BB_WIFI_EVENT_TOPIC, s_emit_last_topic);
+    TEST_ASSERT_EQUAL(BB_WIFI_NET_EVT_GOT_IP, s_emit_last_id);
+    TEST_ASSERT_EQUAL(sizeof(bb_wifi_event_payload_t), s_emit_last_size);
+    TEST_ASSERT_EQUAL_STRING("0.0.0.0", s_emit_last_payload.ip);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_UNKNOWN, s_emit_last_payload.disc_reason);
+    bb_wifi_set_emit(NULL);
+}
+
+void test_bb_wifi_publish_net_event_got_ip_blanks_ip_on_get_ip_str_error(void)
+{
+    bb_wifi_test_set_ip_str_fail(true);
+    bb_wifi_set_emit(emit_fixture);
+    reset_emit_fixture();
+    bb_wifi_publish_net_event(BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN);
+    TEST_ASSERT_EQUAL_INT(1, s_emit_calls);
+    // bb_wifi_get_ip_str failed -- payload.ip MUST be blank, never the
+    // "0.0.0.0" sentinel it writes on error.
+    TEST_ASSERT_EQUAL_STRING("", s_emit_last_payload.ip);
+    bb_wifi_test_set_ip_str_fail(false);
+    bb_wifi_set_emit(NULL);
+}
+
+void test_bb_wifi_publish_net_event_disconnect(void)
+{
+    bb_wifi_set_emit(emit_fixture);
+    reset_emit_fixture();
+    bb_wifi_publish_net_event(BB_WIFI_NET_EVT_DISCONNECT, BB_WIFI_DISC_AUTH_FAIL);
+    TEST_ASSERT_EQUAL_INT(1, s_emit_calls);
+    TEST_ASSERT_EQUAL(BB_WIFI_NET_EVT_DISCONNECT, s_emit_last_id);
+    TEST_ASSERT_EQUAL_STRING("", s_emit_last_payload.ip);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_AUTH_FAIL, s_emit_last_payload.disc_reason);
+    bb_wifi_set_emit(NULL);
+}
+
+void test_bb_wifi_publish_net_event_lost_ip(void)
+{
+    bb_wifi_set_emit(emit_fixture);
+    reset_emit_fixture();
+    bb_wifi_publish_net_event(BB_WIFI_NET_EVT_LOST_IP, BB_WIFI_DISC_BB_LOST_IP);
+    TEST_ASSERT_EQUAL_INT(1, s_emit_calls);
+    TEST_ASSERT_EQUAL(BB_WIFI_NET_EVT_LOST_IP, s_emit_last_id);
+    TEST_ASSERT_EQUAL_STRING("", s_emit_last_payload.ip);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_BB_LOST_IP, s_emit_last_payload.disc_reason);
+    bb_wifi_set_emit(NULL);
+}
+
+// bb_wifi_emit_baseline: no-op when the generic slot is unset.
+void test_bb_wifi_emit_baseline_null_sink_is_noop(void)
+{
+    bb_wifi_set_emit(NULL);
+    reset_emit_fixture();
+    bb_wifi_emit_baseline();
+    TEST_ASSERT_EQUAL_INT(0, s_emit_calls);
+}
+
+// bb_wifi_emit_baseline synthesizes the CURRENT state -- on host, no
+// connection is ever "up" (bb_wifi_get_info's connected field is only ever
+// true when derived from bb_wifi_has_ip(), which defaults false and has no
+// direct test hook), so the deterministic host-testable edge is the
+// disconnected/DISCONNECT synthesis path.
+void test_bb_wifi_emit_baseline_disconnected_synthesizes_disconnect(void)
+{
+    bb_wifi_set_emit(emit_fixture);
+    reset_emit_fixture();
+    bb_wifi_emit_baseline();
+    TEST_ASSERT_EQUAL_INT(1, s_emit_calls);
+    TEST_ASSERT_EQUAL_STRING(BB_WIFI_EVENT_TOPIC, s_emit_last_topic);
+    TEST_ASSERT_EQUAL(BB_WIFI_NET_EVT_DISCONNECT, s_emit_last_id);
+    bb_wifi_set_emit(NULL);
+}
+
 // bb_wifi_event_payload_build (KB 820 PR2) -- pure, host-testable builder.
 void test_bb_wifi_event_payload_build_null_out_is_noop(void)
 {

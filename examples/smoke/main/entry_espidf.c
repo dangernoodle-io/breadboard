@@ -30,12 +30,12 @@
 
 #include "bb_log.h"
 #include "bb_app_init.h"
+#include "bb_event.h"
 #include "bb_led_info.h"
 #include "bb_wifi.h"
 #include "bb_ota_validator.h"
 #include "smoke_app.h"
 #include "storage_typed_selftest.h"
-#include "wifi_event_bridge.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -53,11 +53,20 @@ void app_main(void)
     // bb_app_init_early() so it is set before the EARLY-tier bb_wifi_autoinit
     // runs (same ordering constraint as the creds provider above).
     bb_wifi_set_ota_validated_cb(bb_ota_is_validated);
-    // wifi_event_bridge_init() MUST run before bb_app_init_early() -- the
-    // EARLY-tier bb_wifi_autoinit connects STA and can fire the first
-    // GOT_IP edge before the sink is registered otherwise (the seam does
-    // not replay past edges).
-    wifi_event_bridge_init();
+    // Generic-seam handwire (KB 820 PR3, bus-shaped): wires bb_wifi's
+    // wifi.net publish edge directly to bb_event_emit -- no bridge
+    // component, bb_wifi stays bb_event-free (bb_wifi_set_emit takes a
+    // bb_emit_fn, and bb_event_emit matches that shape exactly). Runs
+    // before bb_app_init_early() so the EARLY-tier bb_wifi_autoinit's first
+    // GOT_IP edge isn't missed -- harmless this early, it just stores the
+    // fn ptr (bb_event doesn't need to be initialized yet to register a
+    // sink). The one-shot current-state baseline post (bb_wifi_emit_baseline)
+    // is NOT called here -- bb_event isn't initialized yet at this point
+    // (that happens inside bb_app_init_early()) and no wifi.net subscriber
+    // exists yet either, so a baseline posted here would silently no-op
+    // (bb_event has no retain -- see smoke_app.c's wifi.net subscribe site,
+    // which calls bb_wifi_emit_baseline() right after subscribing).
+    bb_wifi_set_emit(bb_event_emit);
     bb_app_init_early();
     bb_smoke_storage_typed_selftest();
     bb_led_register_info();

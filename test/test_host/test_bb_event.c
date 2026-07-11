@@ -974,3 +974,127 @@ void test_bb_event_autoinit_returns_ok(void)
     bb_err_t err = bb_event_autoinit();
     TEST_ASSERT_EQUAL(BB_OK, err);
 }
+
+/* bb_event_emit (KB 820 PR3) -- the string-keyed, bb_emit_fn-shaped
+   peer of bb_event_post: register-or-lookup by name, then post. A
+   subsequent bb_event_subscribe + bb_event_pump on that name must deliver
+   the forwarded (id, payload, size). */
+void test_bb_event_emit_delivers_to_subscriber(void)
+{
+    setup_sync_mode();
+    reset_log();
+
+    bb_err_t err = bb_event_init(&small_cfg);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_event_topic_t topic = NULL;
+    err = bb_event_topic_register("test.named", &topic);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_event_sub_t sub = NULL;
+    err = bb_event_subscribe(topic, record_handler, &g_log, &sub);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    const char *payload = "hello-named";
+    bb_event_emit("test.named", 7, payload, strlen(payload) + 1);
+
+    size_t dispatched = bb_event_pump(0);
+    TEST_ASSERT_EQUAL(1, dispatched);
+    TEST_ASSERT_EQUAL(1, g_log.call_count);
+    TEST_ASSERT_EQUAL(7, g_log.calls[0].id);
+    TEST_ASSERT_EQUAL(strlen(payload) + 1, g_log.calls[0].size);
+    TEST_ASSERT_EQUAL_MEMORY(payload, g_log.calls[0].payload, strlen(payload) + 1);
+
+    bb_event_unsubscribe(sub);
+}
+
+/* bb_event_emit is idempotent-per-call: repeated calls with the same
+   name reuse the same registered topic rather than erroring or duplicating
+   it (bb_event_topic_register "returns same handle for duplicate names").
+   A second post must still reach the subscriber registered after the
+   first. */
+void test_bb_event_emit_reuses_topic_on_repeat(void)
+{
+    setup_sync_mode();
+    reset_log();
+
+    bb_err_t err = bb_event_init(&small_cfg);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    // First call registers the topic with no subscriber yet -- dropped on
+    // dispatch (no subscribers), which is fine; this call only proves the
+    // topic gets registered.
+    bb_event_emit("test.named.repeat", 1, NULL, 0);
+    bb_event_pump(0);
+
+    bb_event_topic_t topic = NULL;
+    err = bb_event_topic_lookup("test.named.repeat", &topic);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    TEST_ASSERT_NOT_NULL(topic);
+
+    bb_event_sub_t sub = NULL;
+    err = bb_event_subscribe(topic, record_handler, &g_log, &sub);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_event_emit("test.named.repeat", 2, NULL, 0);
+    size_t dispatched = bb_event_pump(0);
+    TEST_ASSERT_EQUAL(1, dispatched);
+    TEST_ASSERT_EQUAL(1, g_log.call_count);
+    TEST_ASSERT_EQUAL(2, g_log.calls[0].id);
+
+    bb_event_unsubscribe(sub);
+}
+
+/* bb_event_emit is void-return by design (no caller can act on a
+   bb_err_t from a generic emit sink) -- calling it before bb_event_init has
+   run must log-and-return, not crash. */
+void test_bb_event_emit_before_init_no_crash(void)
+{
+    // No bb_event_init() call -- setUp's bb_event_reset_for_test() leaves
+    // the bus uninitialized.
+    bb_event_emit("test.named.uninit", 1, NULL, 0);
+    // Reaching here without a crash is the assertion.
+    TEST_ASSERT_TRUE(true);
+}
+
+/* bb_event_emit's topic-register-failure log guards name with a
+   name ? name : "(null)" ternary (name IS reachably NULL at this call site
+   -- bb_event_topic_register rejects NULL before the init-state check, so
+   this fires regardless of init state). Mirrors the repo convention for
+   this exact idiom (e.g. bb_log_config_apply's default_level_str ? ... :
+   "(null)", covered by test_bb_log_config_apply_null_default_is_non_fatal
+   -- see test_bb_log_config.c): test the NULL branch rather than exclude
+   it. */
+void test_bb_event_emit_null_name_logs_and_returns(void)
+{
+    bb_event_emit(NULL, 1, NULL, 0);
+    // Reaching here without a crash is the assertion.
+    TEST_ASSERT_TRUE(true);
+}
+
+/* bb_event_emit's second failure branch: topic register succeeds but the
+   subsequent bb_event_post fails (queue full) -- must log-and-return, not
+   crash or propagate. */
+void test_bb_event_emit_post_failure_logs_and_returns(void)
+{
+    setup_sync_mode();
+
+    bb_err_t err = bb_event_init(&small_cfg);  // queue_depth=4
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    // Fill the queue to capacity (4 entries) via plain bb_event_post.
+    bb_event_topic_t topic = NULL;
+    err = bb_event_topic_register("test.named.full", &topic);
+    TEST_ASSERT_EQUAL(BB_OK, err);
+    for (int i = 0; i < 4; i++) {
+        err = bb_event_post(topic, i, NULL, 0);
+        TEST_ASSERT_EQUAL(BB_OK, err);
+    }
+
+    // Queue is full -- bb_event_emit's internal bb_event_post must fail and
+    // return without crashing.
+    bb_event_emit("test.named.full", 4, NULL, 0);
+    TEST_ASSERT_TRUE(true);
+
+    bb_event_pump(0);  // drain so this doesn't pollute later tests
+}

@@ -61,7 +61,7 @@ endif()
 # a plain `pio run -d examples/smoke` now REQUIRES `make smoke-codegen`
 # (or an equivalent prior `bbtool codegen` invocation) to have run first.
 set(BB_SMOKE_GENERATED_APP_INIT "${CMAKE_CURRENT_SOURCE_DIR}/generated/bb_app_init.c")
-set(_smoke_srcs "entry_espidf.c" "smoke_app.c" "storage_typed_selftest.c" "wifi_event_bridge.c" ${_site_srcs})
+set(_smoke_srcs "entry_espidf.c" "smoke_app.c" "storage_typed_selftest.c" ${_site_srcs})
 if(EXISTS "${BB_SMOKE_GENERATED_APP_INIT}")
     list(APPEND _smoke_srcs "generated/bb_app_init.c")
 endif()

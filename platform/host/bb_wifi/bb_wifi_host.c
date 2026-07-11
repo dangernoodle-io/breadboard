@@ -90,6 +90,13 @@ void bb_wifi_test_set_reason_histogram(const uint16_t *hist, size_t len)
         s_test_reason_histogram[i] = hist[i];
     }
 }
+
+static bool s_test_ip_str_fail = false;
+
+void bb_wifi_test_set_ip_str_fail(bool fail)
+{
+    s_test_ip_str_fail = fail;
+}
 #endif /* BB_WIFI_TESTING */
 
 bb_err_t bb_wifi_set_hostname(const char *hostname)
@@ -147,6 +154,12 @@ bool bb_wifi_is_associated(void)
 bb_err_t bb_wifi_get_ip_str(char *out, size_t out_len)
 {
     if (!out || out_len == 0) return BB_ERR_INVALID_ARG;
+#ifdef BB_WIFI_TESTING
+    if (s_test_ip_str_fail) {
+        bb_strlcpy(out, "0.0.0.0", out_len);
+        return BB_ERR_INVALID_STATE;
+    }
+#endif
     bb_strlcpy(out, "0.0.0.0", out_len);
     return BB_OK;
 }
