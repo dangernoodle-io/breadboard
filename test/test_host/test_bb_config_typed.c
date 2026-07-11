@@ -1,43 +1,39 @@
 #include "unity.h"
 #include "bb_config.h"
-#include "bb_config_test.h"
 #include "bb_storage.h"
 
-// Pure bb_config_type_t -> bb_storage_enc_t mapping, host-tested directly via
-// the BB_CONFIG_TESTING hook (bb_config_test.h). See bb_config.c's
-// cfg_type_to_enc.
+// Pure bb_config_type_t -> bb_storage_enc_t / scalar-width metadata,
+// table-driven over every bb_config_type_t enumerator. See bb_config.c's
+// bb_config_type_to_enc / bb_config_scalar_width.
 
-void test_cfg_type_to_enc_bool_maps_to_u8(void)
+typedef struct {
+    bb_config_type_t type;
+    bb_storage_enc_t enc;
+    size_t           width;
+} type_case_t;
+
+static const type_case_t CASES[] = {
+    { BB_CONFIG_BOOL, BB_STORAGE_ENC_U8, 1 },
+    { BB_CONFIG_U8, BB_STORAGE_ENC_U8, 1 },
+    { BB_CONFIG_U16, BB_STORAGE_ENC_U16, 2 },
+    { BB_CONFIG_U32, BB_STORAGE_ENC_U32, 4 },
+    { BB_CONFIG_I32, BB_STORAGE_ENC_I32, 4 },
+    { BB_CONFIG_STR, BB_STORAGE_ENC_STR, 0 },
+    { BB_CONFIG_BLOB, BB_STORAGE_ENC_BLOB, 0 },
+};
+
+void test_bb_config_type_to_enc_matches_every_type(void)
 {
-    TEST_ASSERT_EQUAL(BB_STORAGE_ENC_U8, bb_config_cfg_type_to_enc_for_test(BB_CONFIG_BOOL));
+    for (size_t i = 0; i < sizeof(CASES) / sizeof(CASES[0]); i++) {
+        TEST_ASSERT_EQUAL_MESSAGE(CASES[i].enc, bb_config_type_to_enc(CASES[i].type),
+                                   "bb_config_type_to_enc mismatch");
+    }
 }
 
-void test_cfg_type_to_enc_u8_maps_to_u8(void)
+void test_bb_config_scalar_width_matches_every_type(void)
 {
-    TEST_ASSERT_EQUAL(BB_STORAGE_ENC_U8, bb_config_cfg_type_to_enc_for_test(BB_CONFIG_U8));
-}
-
-void test_cfg_type_to_enc_u16_maps_to_u16(void)
-{
-    TEST_ASSERT_EQUAL(BB_STORAGE_ENC_U16, bb_config_cfg_type_to_enc_for_test(BB_CONFIG_U16));
-}
-
-void test_cfg_type_to_enc_u32_maps_to_u32(void)
-{
-    TEST_ASSERT_EQUAL(BB_STORAGE_ENC_U32, bb_config_cfg_type_to_enc_for_test(BB_CONFIG_U32));
-}
-
-void test_cfg_type_to_enc_i32_maps_to_i32(void)
-{
-    TEST_ASSERT_EQUAL(BB_STORAGE_ENC_I32, bb_config_cfg_type_to_enc_for_test(BB_CONFIG_I32));
-}
-
-void test_cfg_type_to_enc_str_maps_to_str(void)
-{
-    TEST_ASSERT_EQUAL(BB_STORAGE_ENC_STR, bb_config_cfg_type_to_enc_for_test(BB_CONFIG_STR));
-}
-
-void test_cfg_type_to_enc_blob_maps_to_blob(void)
-{
-    TEST_ASSERT_EQUAL(BB_STORAGE_ENC_BLOB, bb_config_cfg_type_to_enc_for_test(BB_CONFIG_BLOB));
+    for (size_t i = 0; i < sizeof(CASES) / sizeof(CASES[0]); i++) {
+        TEST_ASSERT_EQUAL_MESSAGE(CASES[i].width, bb_config_scalar_width(CASES[i].type),
+                                   "bb_config_scalar_width mismatch");
+    }
 }

@@ -77,6 +77,18 @@ typedef struct {
     bool        reboot_required;
 } bb_config_field_t;
 
+// Pure, stateless type-metadata helpers -- no storage access, no atomicity
+// implications (see the "no multi-field atomicity" note above).
+
+// Maps a bb_config_type_t to the bb_storage_enc_t used to round-trip it
+// through a typed backend (e.g. native NVS entries). See bb_config.c for the
+// full mapping rationale.
+bb_storage_enc_t bb_config_type_to_enc(bb_config_type_t t);
+
+// Fixed encoded byte width for scalar types (BOOL/U8=1, U16=2, U32/I32=4).
+// Returns 0 for STR/BLOB, which are variable-length.
+size_t bb_config_scalar_width(bb_config_type_t t);
+
 // Typed accessors. Each validates f->type against the call — a mismatch
 // returns BB_ERR_INVALID_ARG without touching storage. On BB_ERR_NOT_FOUND
 // from the backend, a field with has_default=true resolves to f->def and
