@@ -34,6 +34,7 @@ from commands.wire import (
     DEFAULT_OUT_REL as WIRE_DEFAULT_OUT_REL,
     WireError,
     collect_entries,
+    collect_provides_entries,
     render_cmake_fragment as render_wire_cmake_fragment,
     render_source,
 )
@@ -82,8 +83,9 @@ def run(args: argparse.Namespace) -> int:
         components = resolve_composition(root, names, args.platform)
 
         entries = collect_entries(root, components, args.platform)
+        provides_entries = collect_provides_entries(root, components, args.platform)
         ordered = topo_sort(entries)
-        source = render_source(ordered)
+        source = render_source(ordered, provides_entries)
     except (ManifestError, ConditionalSetError, ParseError, CycleError, MissingProviderError, WireError) as e:
         print(f"bbtool codegen: error: {e}", file=sys.stderr)
         return 1
