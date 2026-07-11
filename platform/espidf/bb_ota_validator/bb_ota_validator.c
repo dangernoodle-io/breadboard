@@ -12,7 +12,7 @@
 #include "bb_http_server.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_nv.h"
+#include "bb_system.h"
 
 static const char *TAG = "bb_ota_val";
 
@@ -36,7 +36,7 @@ static void mark_valid_internal(const char *reason)
         return;  // already marked
     }
     esp_ota_mark_app_valid_cancel_rollback();
-    bb_nv_config_reset_boot_count();
+    bb_system_boot_count_reset();
     bb_log_w(TAG, "firmware validated via %s", reason ? reason : "unknown");
     void (*cb)(void) = s_on_validated_cb;
     if (cb) cb();

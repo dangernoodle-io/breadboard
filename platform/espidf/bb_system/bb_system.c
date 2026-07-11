@@ -2,6 +2,7 @@
 
 #include "bb_log.h"
 #include "bb_nv.h"
+#include "bb_nv_keys.h"
 #include "bb_ntp.h"
 #include "bb_clock.h"
 
@@ -146,6 +147,41 @@ void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint
 
     bb_log_i(TAG, "restart_reason: src=%s", bb_reset_source_str(src));
     esp_restart();
+}
+
+// Boot-health counter (B1-753) — co-located with the reboot-reason record
+// under the same NVS namespace via bb_nv's generic keyed accessors (same
+// pattern as bb_diag/bb_ota_boot: a domain-specific counter stored through
+// bb_nv's generic get/set, not a bb_nv-owned concept).
+//
+// This counter moved here from the old bb_cfg NVS namespace (bb_nv config
+// API) to bb_reboot (BB_REBOOT_NVS_NS/BB_REBOOT_KEY_BOOT_CNT). An OTA from a
+// pre-migration build therefore reads back 0 here, not the old bb_cfg
+// value — the migration is non-preserving. This is safe: the counter is
+// zeroed on every successful WiFi connect, and a device must have connected
+// recently to fetch the OTA in the first place, so the reset only discards
+// partial fail-progress on an already-healthy device. It never triggers a
+// premature rollback (starts at 0, same as a fresh device) nor suppresses a
+// needed one (a genuinely failing device keeps incrementing post-OTA). The
+// stranded bb_cfg/boot_cnt byte is left in place, retired wholesale when
+// bb_nv is deleted.
+uint8_t bb_system_boot_count_get(void)
+{
+    uint8_t val = 0;
+    bb_nv_get_u8(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_BOOT_CNT, &val, 0);
+    return val;
+}
+
+bb_err_t bb_system_boot_count_increment(void)
+{
+    uint8_t val = bb_system_boot_count_get();
+    if (val < UINT8_MAX) val++;
+    return bb_nv_set_u8(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_BOOT_CNT, val);
+}
+
+bb_err_t bb_system_boot_count_reset(void)
+{
+    return bb_nv_set_u8(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_BOOT_CNT, 0);
 }
 
 // Number of hex chars in the app SHA256 prefix.

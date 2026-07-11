@@ -71,11 +71,6 @@ bool bb_nv_config_was_erased(void);
 /// Always false when CONFIG_BB_NV_CREDS_RTC_BACKUP is disabled.
 bool bb_nv_config_creds_restored(void);
 
-#define BB_NV_CONFIG_BOOT_FAIL_THRESHOLD 3
-uint8_t   bb_nv_config_boot_count(void);
-bb_err_t bb_nv_config_increment_boot_count(void);
-bb_err_t bb_nv_config_reset_boot_count(void);
-
 bool      bb_nv_config_ota_skip_check(void);
 bb_err_t bb_nv_config_set_ota_skip_check(bool skip);
 

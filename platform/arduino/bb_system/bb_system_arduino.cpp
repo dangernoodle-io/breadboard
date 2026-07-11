@@ -85,3 +85,25 @@ void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint
             bb_reset_source_str(src), detail ? detail : "", caller_epoch_s);
     exit(0);
 }
+
+// Boot-health counter (B1-753) — no Arduino consumer today (bb_wifi/
+// bb_ota_validator's boot-count call sites are ESP-IDF only); in-memory
+// stand-in kept for link-surface completeness, matching the host stub.
+static uint8_t s_boot_count = 0;
+
+uint8_t bb_system_boot_count_get(void)
+{
+    return s_boot_count;
+}
+
+bb_err_t bb_system_boot_count_increment(void)
+{
+    if (s_boot_count < UINT8_MAX) s_boot_count++;
+    return BB_OK;
+}
+
+bb_err_t bb_system_boot_count_reset(void)
+{
+    s_boot_count = 0;
+    return BB_OK;
+}
