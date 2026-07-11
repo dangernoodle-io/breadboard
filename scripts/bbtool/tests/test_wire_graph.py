@@ -106,6 +106,26 @@ class TestConsumesNoSpecialOrdering(unittest.TestCase):
         self.assertEqual([e.fn for e in ordered], ["first", "second"])
 
 
+class TestConsumesOrderBeforeAutoinit(unittest.TestCase):
+    def test_ordered_setter_sorts_before_unordered_autoinit_same_tier(self):
+        """Regression (B1-741 review HIGH): a `consumes=`-shaped setter entry
+        with an explicit `order=` must sort BEFORE a plain autoinit-shaped
+        entry with no `order=` in the same tier, even when the autoinit entry
+        appears first in parse order -- mirrors bb_wifi_set_emit(order=0)
+        vs. bb_wifi_autoinit(no order) in the real wifi.net emit-seam wire:
+        the setter must register the emit sink before autoinit can fire the
+        first boot-window wifi.net edge into it, or that edge is silently
+        dropped (bb_wifi_emit_baseline only re-synthesizes CURRENT state
+        later, it doesn't replay missed transient edges)."""
+        entries = [
+            entry("early", "bb_wifi_autoinit"),
+            entry("early", "bb_wifi_set_emit", order=0, consumes="emit_sink"),
+        ]
+        ordered = topo_sort(entries)
+        self.assertEqual(
+            [e.fn for e in ordered], ["bb_wifi_set_emit", "bb_wifi_autoinit"])
+
+
 class TestCycle(unittest.TestCase):
     def test_direct_cycle_raises(self):
         entries = [

@@ -1670,7 +1670,10 @@ def _check_emit_seam_unwired_subscriber(ctx: Context) -> list:
                 f"{seam['owner']} emit-seam (topic {seam['topic']}) has "
                 f"subscriber(s) [{subs_str}] in {app_name}'s composition, but "
                 f"{seam['setter']}(...) is never called under {rel_app} -- "
-                "add a handwire (see examples/smoke/main/entry_espidf.c:69) "
+                "add a handwire, or a `// bbtool:init tier=... "
+                "consumes=<key>` marker paired with the provider's `// "
+                "bbtool:provides key=<key> symbol=<sym>` (see "
+                "bb_wifi.h/bb_event.h), "
                 f"or allowlist {rel_app} if intentional",
             ))
 
@@ -1848,7 +1851,9 @@ def _register_lint_rules() -> None:
             check=_check_emit_seam_unwired_subscriber,
             hint="an app links a bb_emit_fn seam publisher and a subscriber of"
                  " its topic but never calls the seam's setter -- add a"
-                 " handwire (see examples/smoke/main/entry_espidf.c:69) or"
+                 " handwire, a `// bbtool:init tier=... consumes=<key>`"
+                 " marker paired with the provider's `// bbtool:provides"
+                 " key=<key> symbol=<sym>` (see bb_wifi.h/bb_event.h), or"
                  " allowlist the app",
         ),
     ]
