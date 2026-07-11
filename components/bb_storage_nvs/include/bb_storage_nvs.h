@@ -111,6 +111,14 @@ bb_err_t bb_storage_nvs_txn_abort_for_test(bb_storage_txn_t *txn);
 // Composition-only — call explicitly from application composition code or
 // test setup. Idempotent-registration policy is bb_storage's (first
 // registration wins; a duplicate call returns BB_ERR_INVALID_STATE).
+//
+// provides=storage_nvs: wired onto the boot path via codegen (EARLY tier) so
+// this backend is registered before any EARLY-tier consumer that reads
+// backend="nvs" (e.g. bb_wifi_autoinit, which requires=storage_nvs — see
+// bb_wifi.h) runs. A composer that omits bb_storage_nvs while composing such
+// a consumer gets a hard MissingProviderError at codegen time instead of a
+// silent BB_ERR_NOT_FOUND on stored creds at boot.
+// bbtool:init tier=early fn=bb_storage_nvs_register provides=storage_nvs
 bb_err_t bb_storage_nvs_register(void);
 
 // Typed single-key accessors — same contract as the bb_nv_* functions of

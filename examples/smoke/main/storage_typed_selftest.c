@@ -55,20 +55,17 @@ void bb_smoke_storage_typed_selftest(void)
     // boot for the life of the device.
     (void)bb_nv_set_u8(SELFTEST_NS, SELFTEST_DONE_KEY, 1);
 
-    // bb_storage_nvs_register() is idempotent-by-policy (first-wins); a
-    // repeat call across warm boots is expected and harmless.
-    bb_err_t rc = bb_storage_nvs_register();
-    if (rc != BB_OK && rc != BB_ERR_INVALID_STATE) {
-        bb_log_e(TAG, "FAIL: bb_storage_nvs_register rc=%d", (int)rc);
-        return;
-    }
-
+    // bb_storage_nvs_register() is no longer called here -- it is codegen-
+    // wired into bb_app_init_early() (bb_storage_nvs.h's `provides=
+    // storage_nvs` marker), which entry_espidf.c calls before this selftest
+    // runs, so the "nvs" backend is already registered by the time we get
+    // here.
     (void)bb_storage_nvs_erase(SELFTEST_NS, SELFTEST_KEY);
 
     // (1) bb_nv_set_str (simulates a provisioned board) -> bb_config_get_str
     // at the same ns/key with enc=STR. No TYPE_MISMATCH, byte-identical.
     const char *seed = "MyNetwork";
-    rc = bb_nv_set_str(SELFTEST_NS, SELFTEST_KEY, seed);
+    bb_err_t rc = bb_nv_set_str(SELFTEST_NS, SELFTEST_KEY, seed);
     if (rc != BB_OK) {
         bb_log_e(TAG, "FAIL: bb_nv_set_str rc=%d", (int)rc);
         return;

@@ -104,6 +104,50 @@ class TestRunCli(unittest.TestCase):
             rc = run(args)
             self.assertEqual(rc, 1)
 
+    def test_run_orders_storage_backend_register_before_its_consumer(self):
+        """bb_storage_nvs/bb_wifi-alike fixture (fix for the latent bug where
+        the "nvs" bb_storage backend was registered only in a selftest, never
+        on the real boot path): a provides=storage_nvs entry must be ordered
+        before a requires=storage_nvs consumer in the same EARLY tier, even
+        though there is no CMake REQUIRES between the two components and
+        nothing else pins their relative order.
+
+        Fixture names are deliberately chosen so the CONSUMER
+        (bb_aaa_consumer) alphabetically PRECEDES the PROVIDER
+        (bb_zzz_provider) -- sorted/parse order alone would place the
+        consumer first, so only the requires=/provides= edge can force the
+        provider ahead of it. This makes the ordering assertion load-bearing
+        rather than a byproduct of alphabetical parse-order coincidence."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_component(
+                root, "bb_aaa_consumer",
+                "#pragma once\n"
+                "// bbtool:init tier=early fn=bb_aaa_consumer_init requires=zzz_backend\n"
+                "bb_err_t bb_aaa_consumer_init(void);\n",
+            )
+            _make_component(
+                root, "bb_zzz_provider",
+                "#pragma once\n"
+                "// bbtool:init tier=early fn=bb_zzz_provider_register provides=zzz_backend\n"
+                "bb_err_t bb_zzz_provider_register(void);\n",
+            )
+            components_out = str(root / "out" / "bb_autowire_components.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components="bb_aaa_consumer,bb_zzz_provider",
+                platform="espidf", components_out=components_out, wire_out=wire_out,
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+
+            source = Path(wire_out).read_text(encoding="utf-8")
+            register_pos = source.index("bb_zzz_provider_register()")
+            consumer_pos = source.index("bb_aaa_consumer_init()")
+            self.assertLess(register_pos, consumer_pos)
+
     def test_run_missing_provider_returns_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
