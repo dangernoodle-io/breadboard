@@ -2,6 +2,7 @@
 #include "bb_mdns_lifecycle.h"
 #include "bb_mdns_refresh_decision.h"
 #include "bb_wifi.h"
+#include "bb_event.h"
 #include "bb_http_server.h"
 #include "bb_timer.h"
 #include "bb_ring.h"
@@ -45,6 +46,13 @@ static SemaphoreHandle_t s_subs_mutex    = NULL;
 // portable bb_mdns_lifecycle started→stopped transition is not atomic.
 static SemaphoreHandle_t s_lifecycle_mutex = NULL;
 static uint32_t         s_evt_drop_count = 0;
+// wifi.net subscription (KB 820 PR3) — replaces the legacy single-slot
+// got-IP/disconnect hooks bb_wifi used to expose. Written exactly once from
+// the single-threaded early-init composition root (bb_mdns_init) and never
+// read or mutated from the wifi_net_handler dispatch context, so (unlike
+// s_pending_start in bb_mqtt_client_espidf.c) it needs no atomic/lock.
+// Outlives WiFi cycles.
+static bb_event_sub_t   s_wifi_net_sub = NULL;
 // B1-539: browse refresh cycles skipped because mdns_browse_delete's enqueue
 // failed (queue full / no memory) — recreate is deferred to the next tick to
 // avoid issuing mdns_browse_new against a not-yet-torn-down browse.
@@ -1028,6 +1036,24 @@ static void bb_mdns_shutdown(void)
     bb_mdns_deinit();
 }
 
+// wifi.net subscriber (KB 820 PR3). GOT_IP starts mDNS; DISCONNECT/LOST_IP
+// tear it down — bb_mdns_start/bb_mdns_on_disconnect are both idempotent, so
+// this collapses cleanly with LOST_IP's DISCONNECT cascade (bb_wifi.c).
+static void wifi_net_handler(bb_event_topic_t topic, int32_t id,
+                             const void *data, size_t size, void *user)
+{
+    (void)topic; (void)data; (void)size; (void)user;
+    switch ((bb_wifi_net_event_t)id) {
+    case BB_WIFI_NET_EVT_GOT_IP:
+        bb_mdns_start();
+        break;
+    case BB_WIFI_NET_EVT_DISCONNECT:
+    case BB_WIFI_NET_EVT_LOST_IP:
+        bb_mdns_on_disconnect();
+        break;
+    }
+}
+
 void bb_mdns_init(void)
 {
     // Create mutex and dispatch infrastructure once (outlives WiFi cycles)
@@ -1103,9 +1129,23 @@ void bb_mdns_init(void)
     // Create the coalescing flush timer (one-shot, 50 ms window).
     flush_timer_ensure_created();
 
-    // Register callback with bb_wifi
-    bb_wifi_register_on_got_ip(bb_mdns_start);
-    bb_wifi_register_on_disconnect(bb_mdns_on_disconnect);
+    // Subscribe to wifi.net (KB 820 PR3) — subscribe FIRST, then check
+    // has_ip and fire once: bb_event has no retain, so checking before
+    // subscribing would leak a missed got-IP edge in the narrow race window.
+    if (!s_wifi_net_sub) {
+        bb_event_topic_t topic = NULL;
+        if (bb_event_topic_register(BB_WIFI_EVENT_TOPIC, &topic) == BB_OK) {
+            if (bb_event_subscribe(topic, wifi_net_handler, NULL, &s_wifi_net_sub) == BB_OK) {
+                if (bb_wifi_has_ip()) bb_mdns_start();
+            } else {
+                bb_log_w(TAG, "bb_event_subscribe(%s) failed — mDNS will not "
+                              "auto start/stop on wifi.net edges", BB_WIFI_EVENT_TOPIC);
+            }
+        } else {
+            bb_log_w(TAG, "bb_event_topic_register(%s) failed — mDNS will not "
+                          "auto start/stop on wifi.net edges", BB_WIFI_EVENT_TOPIC);
+        }
+    }
     esp_register_shutdown_handler(bb_mdns_shutdown);
 }
 

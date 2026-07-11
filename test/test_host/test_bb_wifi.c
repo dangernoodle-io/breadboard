@@ -6,14 +6,12 @@
 #include "bb_wifi_test.h"
 #endif
 
-// bb_wifi_internal_ota_validated / bb_wifi_on_disconnect_invoke are the
-// private accessors declared in platform/espidf/bb_wifi/wifi_reconn.h
-// (bb_wifi.c / wifi_reconn.c's own copy) -- mirrored here since that
-// directory isn't on this file's include path in the host build. Real,
-// shipped functions (defined via BB_CALLBACK_SLOT_* in
-// platform/host/bb_wifi/bb_wifi_emit.c, host-compiled).
+// bb_wifi_internal_ota_validated is the private accessor declared in
+// platform/espidf/bb_wifi/wifi_reconn.h (bb_wifi.c / wifi_reconn.c's own
+// copy) -- mirrored here since that directory isn't on this file's include
+// path in the host build. Real, shipped functions (defined via
+// BB_CALLBACK_SLOT_* in platform/host/bb_wifi/bb_wifi_emit.c, host-compiled).
 bool bb_wifi_internal_ota_validated(void);
-void bb_wifi_on_disconnect_invoke(void);
 void bb_wifi_net_event_invoke(bb_wifi_net_event_t evt, bb_wifi_disc_reason_t reason);
 
 void test_bb_wifi_set_hostname_null(void)
@@ -586,28 +584,6 @@ void test_bb_wifi_ota_validated_set_cb_returns_value(void)
     TEST_ASSERT_TRUE(bb_wifi_internal_ota_validated());
 
     bb_wifi_set_ota_validated_cb(NULL);
-}
-
-// on_disconnect (BB_CALLBACK_SLOT_VOID0): null slot is a no-op; set slot
-// fires on invoke.
-static int s_on_disconnect_calls = 0;
-static void on_disconnect_fixture(void) { s_on_disconnect_calls++; }
-
-void test_bb_wifi_on_disconnect_null_is_noop(void)
-{
-    bb_wifi_register_on_disconnect(NULL);
-    s_on_disconnect_calls = 0;
-    bb_wifi_on_disconnect_invoke();
-    TEST_ASSERT_EQUAL_INT(0, s_on_disconnect_calls);
-}
-
-void test_bb_wifi_on_disconnect_set_cb_is_invoked(void)
-{
-    bb_wifi_register_on_disconnect(on_disconnect_fixture);
-    s_on_disconnect_calls = 0;
-    bb_wifi_on_disconnect_invoke();
-    TEST_ASSERT_EQUAL_INT(1, s_on_disconnect_calls);
-    bb_wifi_register_on_disconnect(NULL);
 }
 
 // net_event (BB_CALLBACK_SLOT_VOID, with-args): null sink is a no-op; set

@@ -11,9 +11,10 @@
 // bb_pub sink at PRE_HTTP time (register-on-enable, B1-289).
 //
 // Deferred start: esp_mqtt_client_start() is NOT called until the station
-// has an IP address.  bb_mqtt_client_init registers a bb_wifi_on_got_ip callback
-// (or starts immediately when bb_wifi_has_ip() is already true).  Only the
-// FIRST start is deferred; esp-mqtt's built-in reconnect handles later drops.
+// has an IP address.  bb_mqtt_client_init subscribes to the wifi.net bb_event
+// topic (KB 820 PR3) and starts on the first GOT_IP edge (or starts
+// immediately when bb_wifi_has_ip() is already true).  Only the FIRST start
+// is deferred; esp-mqtt's built-in reconnect handles later drops.
 //
 // Event-handler safety: esp-mqtt dispatches events via the ESP event loop,
 // which can hold a queued event after esp_mqtt_client_stop returns.  To
@@ -28,6 +29,7 @@
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
 #include "bb_wifi.h"
+#include "bb_event.h"
 #include "bb_mqtt_client_reassemble.h"  // PRIV_INCLUDE_DIRS "src" (bb_mqtt_client component)
 
 #include <stdlib.h>
@@ -129,12 +131,17 @@ bb_err_t bb_mqtt_client_on_message(bb_mqtt_client_t handle, bb_mqtt_client_msg_c
 //
 // Only one handle can be pending a deferred start at a time (the autoregistered
 // client).  When bb_mqtt_client_init runs at EARLY tier WiFi has not yet acquired an
-// IP, so we register a bb_wifi got-IP callback that fires the first start.
-// If WiFi already has an IP at init time (e.g. a later manual call), we start
-// immediately and skip the callback registration.
+// IP, so we subscribe to the wifi.net bb_event topic (KB 820 PR3) and start on
+// the first GOT_IP edge.  If WiFi already has an IP at init time (e.g. a later
+// manual call), we start immediately and skip the subscription.
 // ---------------------------------------------------------------------------
 
 static _Atomic(bb_mqtt_client_handle_t *) s_pending_start = NULL;  // handle waiting for got-IP
+// wifi.net subscription; outlives the pending handle. Written exactly once
+// from the single-threaded early-init composition root (bb_mqtt_client_init)
+// and never read/mutated from wifi_net_handler's dispatch context, so unlike
+// s_pending_start above (read + cleared inside the handler) it needs no atomic.
+static bb_event_sub_t s_wifi_net_sub = NULL;
 
 static void mqtt_start_once(bb_mqtt_client_handle_t *h)
 {
@@ -159,6 +166,18 @@ static void on_got_ip_cb(void)
     if (h) {
         atomic_store(&s_pending_start, NULL);  // clear before start; idempotent if called again
         mqtt_start_once(h);
+    }
+}
+
+// wifi.net subscriber (KB 820 PR3). Acts only on GOT_IP -- mqtt never used
+// the legacy on_disconnect hook, so DISCONNECT/LOST_IP are ignored here;
+// esp-mqtt's built-in reconnect owns later drops.
+static void wifi_net_handler(bb_event_topic_t topic, int32_t id,
+                             const void *data, size_t size, void *user)
+{
+    (void)topic; (void)data; (void)size; (void)user;
+    if ((bb_wifi_net_event_t)id == BB_WIFI_NET_EVT_GOT_IP) {
+        on_got_ip_cb();
     }
 }
 
@@ -442,13 +461,29 @@ bb_err_t bb_mqtt_client_init(const bb_mqtt_client_cfg_t *cfg, bb_mqtt_client_t *
         }
         h->started = true;
     } else {
-        // No IP yet — arm the got-IP hook, then start immediately if WiFi
-        // acquired an IP in the narrow window between the bb_wifi_has_ip()
-        // check above and now.  bb_wifi_register_on_got_ip fires the callback
-        // synchronously when s_has_ip is already true; mqtt_start_once is
-        // idempotent (h->started guard) so calling it from both paths is safe.
+        // No IP yet — subscribe to wifi.net (KB 820 PR3), then start
+        // immediately if WiFi acquired an IP in the narrow window between the
+        // bb_wifi_has_ip() check above and the subscription taking effect.
+        // Subscribe FIRST, then re-check has_ip — bb_event has no retain, so
+        // checking before subscribing would leak a missed got-IP edge.
+        // mqtt_start_once is idempotent (h->started guard) so calling it from
+        // both paths is safe.
         atomic_store(&s_pending_start, h);
-        bb_wifi_register_on_got_ip(on_got_ip_cb);
+        if (!s_wifi_net_sub) {
+            bb_event_topic_t topic = NULL;
+            if (bb_event_topic_register(BB_WIFI_EVENT_TOPIC, &topic) == BB_OK) {
+                if (bb_event_subscribe(topic, wifi_net_handler, NULL, &s_wifi_net_sub) != BB_OK) {
+                    bb_log_w(TAG, "bb_event_subscribe(%s) failed — mqtt start "
+                                  "will not fire on wifi.net got-ip", BB_WIFI_EVENT_TOPIC);
+                }
+            } else {
+                bb_log_w(TAG, "bb_event_topic_register(%s) failed — mqtt start "
+                              "will not fire on wifi.net got-ip", BB_WIFI_EVENT_TOPIC);
+            }
+        }
+        if (bb_wifi_has_ip()) {
+            on_got_ip_cb();
+        }
         // If the immediate-fire path ran, h->started is already true and
         // we skip the deferred log to avoid the misleading message.
         if (!h->started) {
