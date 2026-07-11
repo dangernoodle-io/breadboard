@@ -1,4 +1,4 @@
-#include "bb_nv_creds_mirror.h"
+#include "bb_storage_rtc_region.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -31,7 +31,7 @@ static uint32_t crc32_buf(const uint8_t *buf, size_t len)
  * always NUL-terminates. Safe when src is NULL (writes empty string).
  * Avoids relying on strlcpy which is not available on all host toolchains.
  * ---------------------------------------------------------------------------*/
-/* Precondition: dst_cap >= 1 (callers pass sizeof of fixed mirror buffers). */
+/* Precondition: dst_cap >= 1 (callers pass sizeof of fixed region buffers). */
 static void bounded_copy(char *dst, const char *src, size_t dst_cap)
 {
     if (src == NULL) {
@@ -50,36 +50,36 @@ static void bounded_copy(char *dst, const char *src, size_t dst_cap)
  * Public API
  * ---------------------------------------------------------------------------*/
 
-uint32_t bb_nv_creds_mirror_crc(const bb_nv_creds_mirror_t *m)
+uint32_t bb_storage_rtc_region_crc(const bb_storage_rtc_region_t *r)
 {
-    return crc32_buf((const uint8_t *)m, offsetof(bb_nv_creds_mirror_t, crc));
+    return crc32_buf((const uint8_t *)r, offsetof(bb_storage_rtc_region_t, crc));
 }
 
-void bb_nv_creds_mirror_pack(bb_nv_creds_mirror_t *out,
-                              const char *ssid,
-                              const char *pass,
-                              uint8_t provisioned)
+void bb_storage_rtc_region_pack(bb_storage_rtc_region_t *out,
+                                 const char *ssid,
+                                 const char *pass,
+                                 uint8_t provisioned)
 {
     memset(out, 0, sizeof(*out));
-    out->magic       = BB_NV_CREDS_MIRROR_MAGIC;
-    out->version     = BB_NV_CREDS_MIRROR_VERSION;
+    out->magic       = BB_STORAGE_RTC_REGION_MAGIC;
+    out->version     = BB_STORAGE_RTC_REGION_VERSION;
     out->provisioned = provisioned;
     /* _pad is already zero from memset */
     bounded_copy(out->ssid, ssid, sizeof(out->ssid));
     bounded_copy(out->pass, pass, sizeof(out->pass));
-    out->crc = bb_nv_creds_mirror_crc(out);
+    out->crc = bb_storage_rtc_region_crc(out);
 }
 
-bool bb_nv_creds_mirror_valid(const bb_nv_creds_mirror_t *m)
+bool bb_storage_rtc_region_valid(const bb_storage_rtc_region_t *r)
 {
-    if (m == NULL) {
+    if (r == NULL) {
         return false;
     }
-    if (m->magic != BB_NV_CREDS_MIRROR_MAGIC) {
+    if (r->magic != BB_STORAGE_RTC_REGION_MAGIC) {
         return false;
     }
-    if (m->version != BB_NV_CREDS_MIRROR_VERSION) {
+    if (r->version != BB_STORAGE_RTC_REGION_VERSION) {
         return false;
     }
-    return bb_nv_creds_mirror_crc(m) == m->crc;
+    return bb_storage_rtc_region_crc(r) == r->crc;
 }

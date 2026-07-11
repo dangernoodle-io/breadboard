@@ -36,7 +36,12 @@ bb_embed_site(
 # bb_prov) solely to prove the SoftAP + captive-DNS espidf backend compiles
 # and links under -Werror, mirroring the bb_task/bb_config "prove it links"
 # precedent above.
-set(SMOKE_REQUIRES bb_nv bb_log bb_log_event bb_log_http bb_wifi bb_wifi_ap bb_wifi_http bb_settings bb_http bb_http_server bb_mdns bb_mdns_cache bb_ota_pull bb_ota_push bb_ota_boot bb_info bb_board bb_manifest bb_ota_validator bb_system bb_openapi bb_led bb_led_info bb_ntp bb_ntp_info bb_led_gpio bb_led_pwm bb_led_apa102 bb_led_anim bb_button bb_button_gpio bb_button_events bb_event bb_event_ring bb_event_ring_espidf bb_event_routes bb_event_routes_espidf bb_ring_espidf bb_ring_diag bb_http_client bb_release_manifest bb_ota_check bb_temp bb_power bb_fan bb_sensors bb_tls_creds bb_mqtt_client bb_pub bb_sink_mqtt bb_pub_info bb_pub_rtos bb_ws_server bb_sink_ws bb_registry bb_partition bb_task_registry bb_task bb_net_health bb_mem_arena bb_pool bb_udp_frame bb_udp_client bb_sink_udp bb_dispatch_cmd bb_meminfo bb_timer bb_config bb_config_staged bb_storage_nvs)
+# bb_storage_rtc (PR3a, WiFi-creds cluster) is linked here (unused -- an
+# inert provides=storage_rtc; no consumer requires it yet, bb_nv keeps its
+# own separate RTC region until PR3b) solely to prove it links and
+# registers on the espidf boot path under -Werror, mirroring the
+# bb_task/bb_config "prove it links" precedent above.
+set(SMOKE_REQUIRES bb_nv bb_log bb_log_event bb_log_http bb_wifi bb_wifi_ap bb_wifi_http bb_settings bb_http bb_http_server bb_mdns bb_mdns_cache bb_ota_pull bb_ota_push bb_ota_boot bb_info bb_board bb_manifest bb_ota_validator bb_system bb_openapi bb_led bb_led_info bb_ntp bb_ntp_info bb_led_gpio bb_led_pwm bb_led_apa102 bb_led_anim bb_button bb_button_gpio bb_button_events bb_event bb_event_ring bb_event_ring_espidf bb_event_routes bb_event_routes_espidf bb_ring_espidf bb_ring_diag bb_http_client bb_release_manifest bb_ota_check bb_temp bb_power bb_fan bb_sensors bb_tls_creds bb_mqtt_client bb_pub bb_sink_mqtt bb_pub_info bb_pub_rtos bb_ws_server bb_sink_ws bb_registry bb_partition bb_task_registry bb_task bb_net_health bb_mem_arena bb_pool bb_udp_frame bb_udp_client bb_sink_udp bb_dispatch_cmd bb_meminfo bb_timer bb_config bb_config_staged bb_storage_nvs bb_storage_rtc)
 
 # bb_sink_display is linked here (unused -- no call site migrated yet) solely
 # to prove the espidf glue (platform/espidf/bb_sink_display/bb_sink_display.c)
