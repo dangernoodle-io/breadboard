@@ -110,7 +110,15 @@ bb_err_t bb_wifi_init_sta(void);
 
 // Registry hook — connects STA using stored creds (or skips if unconfigured),
 // applying the pending-creds-try / retry-forever-when-validated policies.
-// bbtool:init tier=early fn=bb_wifi_autoinit
+// requires=storage_nvs: bb_settings' wifi ssid/pass/hostname descriptors are
+// hardcoded to backend="nvs" (see bb_settings.h), so any app composing
+// bb_wifi_autoinit via codegen must also compose bb_storage_nvs (provides=
+// storage_nvs, bb_storage_nvs.h) -- this edge forces bb_storage_nvs_register()
+// to run first in the same EARLY tier, rather than leaving it to accidental
+// parse order. A composer that omits bb_storage_nvs hits a hard
+// MissingProviderError at codegen time instead of a silent BB_ERR_NOT_FOUND
+// on stored creds at boot.
+// bbtool:init tier=early fn=bb_wifi_autoinit requires=storage_nvs
 bb_err_t bb_wifi_autoinit(void);
 
 // Force WiFi reassociation — recover from a zombie-connected state.
