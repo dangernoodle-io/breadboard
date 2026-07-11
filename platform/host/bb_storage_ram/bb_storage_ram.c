@@ -9,6 +9,22 @@
 
 static const char *TAG = "bb_storage_ram";
 
+// Cross-Kconfig invariant: BB_STORAGE_RAM_MAX_VALUE_BYTES/KEY_BYTES
+// (bb_storage_ram.h) and BB_STORAGE_TXN_VALUE_MAX_BYTES/KEY_MAX_BYTES
+// (bb_storage.h) are independent Kconfig knobs. ram_txn_set bounds a staged
+// value/key by the TXN cap; ram_txn_commit then memcpy's it into
+// entry->value/key, sized by the RAM cap. If a deployment ever sets a RAM
+// cap below the matching TXN cap, a legal txn_set (accepted because it is
+// under the TXN cap) would overflow the static s_entries table on commit.
+// Fail the build instead of BSS — this makes the illegal config
+// uncompilable, zero runtime cost.
+_Static_assert(BB_STORAGE_RAM_MAX_VALUE_BYTES >= BB_STORAGE_TXN_VALUE_MAX_BYTES,
+               "BB_STORAGE_RAM_MAX_VALUE_BYTES must be >= BB_STORAGE_TXN_VALUE_MAX_BYTES "
+               "(ram_txn_commit copies a txn-capped value into a RAM-capped slot)");
+_Static_assert(BB_STORAGE_RAM_MAX_KEY_BYTES >= BB_STORAGE_TXN_KEY_MAX_BYTES,
+               "BB_STORAGE_RAM_MAX_KEY_BYTES must be >= BB_STORAGE_TXN_KEY_MAX_BYTES "
+               "(ram_txn_commit copies a txn-capped key into a RAM-capped slot)");
+
 /* ---------------------------------------------------------------------------
  * Internal entry — fixed-capacity, no heap
  * ---------------------------------------------------------------------------*/
@@ -147,11 +163,137 @@ static bool ram_exists(void *impl, const bb_storage_addr_t *addr)
     return found;
 }
 
+/* ---------------------------------------------------------------------------
+ * Multi-key transactions — buffering backend. Writes are staged in
+ * txn->_slots (txn-local, no lock needed) and applied atomically at commit:
+ * one held-lock pass verifies capacity for every staged key before any write
+ * lands, so a failing commit leaves the table completely untouched.
+ * ---------------------------------------------------------------------------*/
+static bb_err_t ram_txn_begin(void *impl, bb_storage_txn_t *txn, const char *ns_or_dir)
+{
+    (void)impl;
+    (void)ns_or_dir;  // ram ignores namespace, same as the plain get/set path
+
+    memset(txn->_slots, 0, sizeof(txn->_slots));
+    txn->_open = 1;
+    txn->_err  = BB_OK;
+    return BB_OK;
+}
+
+static bb_err_t ram_txn_set(void *impl, bb_storage_txn_t *txn, const char *key, bb_storage_enc_t enc,
+                             const void *buf, size_t len)
+{
+    (void)impl;
+    (void)enc;  // ram stores raw bytes regardless of encoding hint
+
+    if (len > BB_STORAGE_TXN_VALUE_MAX_BYTES) {
+        return BB_ERR_NO_SPACE;
+    }
+    if (strlen(key) >= BB_STORAGE_TXN_KEY_MAX_BYTES) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    // Last-write-wins within the txn: reuse an existing slot for this key.
+    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+        if (txn->_slots[i].used && strcmp(txn->_slots[i].key, key) == 0) {
+            if (len > 0) {
+                memcpy(txn->_slots[i].value, buf, len);
+            }
+            txn->_slots[i].len = len;
+            txn->_slots[i].enc = enc;
+            return BB_OK;
+        }
+    }
+
+    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+        if (!txn->_slots[i].used) {
+            bb_strlcpy(txn->_slots[i].key, key, sizeof(txn->_slots[i].key));
+            if (len > 0) {
+                memcpy(txn->_slots[i].value, buf, len);
+            }
+            txn->_slots[i].len  = len;
+            txn->_slots[i].enc  = enc;
+            txn->_slots[i].used = true;
+            return BB_OK;
+        }
+    }
+
+    return BB_ERR_NO_SPACE;
+}
+
+static bb_err_t ram_txn_commit(void *impl, bb_storage_txn_t *txn)
+{
+    (void)impl;
+
+    if (txn->_err != BB_OK) {
+        txn->_open = 0;
+        return txn->_err;
+    }
+
+    pthread_mutex_lock(&s_lock);
+
+    // Pre-check: verify capacity for every staged key before any write
+    // lands — a failing commit must leave s_entries completely untouched.
+    size_t new_keys_needed = 0;
+    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+        if (!txn->_slots[i].used) continue;
+        if (find_entry(txn->_slots[i].key) == NULL) {
+            new_keys_needed++;
+        }
+    }
+
+    size_t free_count = 0;
+    for (size_t i = 0; i < BB_STORAGE_RAM_MAX_ENTRIES; i++) {
+        if (!s_entries[i].used) free_count++;
+    }
+
+    if (new_keys_needed > free_count) {
+        pthread_mutex_unlock(&s_lock);
+        txn->_open = 0;
+        return BB_ERR_NO_SPACE;
+    }
+
+    // Apply — same find_entry/find_free_slot logic ram_set uses, inlined
+    // under the already-held lock (ram_set re-locks, so it cannot be called
+    // here).
+    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+        if (!txn->_slots[i].used) continue;
+
+        bb_storage_ram_entry_t *entry = find_entry(txn->_slots[i].key);
+        if (entry == NULL) {
+            entry = find_free_slot();
+            bb_strlcpy(entry->key, txn->_slots[i].key, sizeof(entry->key));
+            entry->used = true;
+        }
+        if (txn->_slots[i].len > 0) {
+            memcpy(entry->value, txn->_slots[i].value, txn->_slots[i].len);
+        }
+        entry->len = txn->_slots[i].len;
+    }
+
+    pthread_mutex_unlock(&s_lock);
+    txn->_open = 0;
+    return BB_OK;
+}
+
+static bb_err_t ram_txn_abort(void *impl, bb_storage_txn_t *txn)
+{
+    (void)impl;
+
+    // Slots are txn-local — nothing to unwind, no lock needed.
+    txn->_open = 0;
+    return BB_OK;
+}
+
 static const bb_storage_vtable_t s_ram_vtable = {
-    .get    = ram_get,
-    .set    = ram_set,
-    .erase  = ram_erase,
-    .exists = ram_exists,
+    .get        = ram_get,
+    .set        = ram_set,
+    .erase      = ram_erase,
+    .exists     = ram_exists,
+    .txn_begin  = ram_txn_begin,
+    .txn_set    = ram_txn_set,
+    .txn_commit = ram_txn_commit,
+    .txn_abort  = ram_txn_abort,
 };
 
 bb_err_t bb_storage_ram_register(void)

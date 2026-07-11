@@ -1,17 +1,336 @@
 #include "bb_storage_nvs.h"
 #include "bb_storage.h"
+#include "bb_storage_nvs_classify_enc.h"
+#include "bb_byte_order.h"
+#include "bb_str.h"
+#include "bb_log.h"
 
+#include <stdint.h>
 #include <string.h>
+
+static const char *TAG = "bb_storage_nvs";
 
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #include "nvs_flash.h"
 #include "nvs.h"
-#include "bb_log.h"
-#include "bb_str.h"
-#include "bb_byte_order.h"
+#endif
+
+/* ---------------------------------------------------------------------------
+ * Multi-key transactions — NVS-primitive seam.
+ *
+ * nvs_txn_begin/set/commit/abort below (and the small ops table they drive,
+ * bb_storage_nvs_txn_ops_t, declared in bb_storage_nvs.h) are portable —
+ * compiled on host and device alike — so the open->set*->commit->close
+ * orchestration can be host-tested against a fake without pulling in
+ * ESP-IDF's nvs.h. On-device, s_txn_ops defaults to s_real_txn_ops (thin
+ * wrappers around the real nvs_open, nvs_set_u8/u16/u32/i32/str/blob,
+ * nvs_commit, and nvs_close calls,
+ * including the existing type-mismatch-erase-and-retry policy for the
+ * integer setters — see txn_set_u8_real et al. below). On host there is no
+ * real backing store, so s_txn_ops starts NULL; a host test must call
+ * bb_storage_nvs_set_txn_ops_for_test() to inject a fake before driving
+ * nvs_txn_begin_for_test()/etc — an unset ops table fails closed
+ * (BB_ERR_UNSUPPORTED), never a crash.
+ *
+ * Generalizes bb_nv_batch_* (platform/espidf/bb_nv/bb_nv.c) into the generic
+ * bb_storage_vtable_t txn group: one NVS handle is opened at begin() and
+ * held open across every txn_set, so every staged write goes through the
+ * SAME NVS page-cache transaction; commit() at commit() makes the whole
+ * batch atomic + durable in a single flash write, exactly like
+ * bb_nv_batch_commit(). abort() closes the handle WITHOUT a commit —
+ * uncommitted nvs_set_* writes are discarded when the handle is closed
+ * without a commit, the same reliance bb_nv_batch_* already has via
+ * bb_nv_batch_commit's identical close-without-commit-on-error path, not a
+ * documented hard guarantee.
+ * ---------------------------------------------------------------------------*/
+
+// ESP-IDF's real NVS key-name limit is 15 chars + NUL (nvs.h's
+// NVS_KEY_NAME_MAX_SIZE=16) — independent of BB_STORAGE_TXN_KEY_MAX_BYTES
+// (bb_storage.h, 32), which is the generic facade/RAM ceiling, NOT the NVS
+// limit. Named here (rather than a bare 16) so nvs_txn_set's key-length
+// guard below is self-documenting; mirrors bb_nv.c's BB_NV_HOST_STR_KEY_MAX
+// pattern. Kept portable (no nvs.h include) so this seam still compiles on
+// host, where a fake ops table drives the same guard in tests.
+#define BB_STORAGE_NVS_TXN_KEY_MAX_BYTES 16
+
+#ifdef ESP_PLATFORM
+static bb_err_t txn_open_real(const char *ns, uint32_t *out_handle)
+{
+    nvs_handle_t h;
+    bb_err_t     err = nvs_open(ns, NVS_READWRITE, &h);
+    if (err == BB_OK) {
+        *out_handle = (uint32_t)h;
+    }
+    return err;
+}
+
+static bb_err_t txn_set_u8_real(uint32_t handle, const char *key, uint8_t value)
+{
+    nvs_handle_t h   = (nvs_handle_t)handle;
+    bb_err_t     err = nvs_set_u8(h, key, value);
+    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
+        bb_log_w(TAG, "type mismatch on txn set '%s', rewriting", key);
+        (void)nvs_erase_key(h, key);
+        err = nvs_set_u8(h, key, value);
+    }
+    return err;
+}
+
+static bb_err_t txn_set_u16_real(uint32_t handle, const char *key, uint16_t value)
+{
+    nvs_handle_t h   = (nvs_handle_t)handle;
+    bb_err_t     err = nvs_set_u16(h, key, value);
+    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
+        bb_log_w(TAG, "type mismatch on txn set '%s', rewriting", key);
+        (void)nvs_erase_key(h, key);
+        err = nvs_set_u16(h, key, value);
+    }
+    return err;
+}
+
+static bb_err_t txn_set_u32_real(uint32_t handle, const char *key, uint32_t value)
+{
+    nvs_handle_t h   = (nvs_handle_t)handle;
+    bb_err_t     err = nvs_set_u32(h, key, value);
+    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
+        bb_log_w(TAG, "type mismatch on txn set '%s', rewriting", key);
+        (void)nvs_erase_key(h, key);
+        err = nvs_set_u32(h, key, value);
+    }
+    return err;
+}
+
+static bb_err_t txn_set_i32_real(uint32_t handle, const char *key, int32_t value)
+{
+    nvs_handle_t h   = (nvs_handle_t)handle;
+    bb_err_t     err = nvs_set_i32(h, key, value);
+    if (err == ESP_ERR_NVS_TYPE_MISMATCH) {
+        bb_log_w(TAG, "type mismatch on txn set '%s', rewriting", key);
+        (void)nvs_erase_key(h, key);
+        err = nvs_set_i32(h, key, value);
+    }
+    return err;
+}
+
+static bb_err_t txn_set_str_real(uint32_t handle, const char *key, const char *value)
+{
+    return nvs_set_str((nvs_handle_t)handle, key, value);
+}
+
+static bb_err_t txn_set_blob_real(uint32_t handle, const char *key, const void *buf, size_t len)
+{
+    return nvs_set_blob((nvs_handle_t)handle, key, buf, len);
+}
+
+static bb_err_t txn_commit_real(uint32_t handle)
+{
+    return nvs_commit((nvs_handle_t)handle);
+}
+
+static void txn_close_real(uint32_t handle)
+{
+    nvs_close((nvs_handle_t)handle);
+}
+
+static const bb_storage_nvs_txn_ops_t s_real_txn_ops = {
+    .open     = txn_open_real,
+    .set_u8   = txn_set_u8_real,
+    .set_u16  = txn_set_u16_real,
+    .set_u32  = txn_set_u32_real,
+    .set_i32  = txn_set_i32_real,
+    .set_str  = txn_set_str_real,
+    .set_blob = txn_set_blob_real,
+    .commit   = txn_commit_real,
+    .close    = txn_close_real,
+};
+
+static const bb_storage_nvs_txn_ops_t *s_txn_ops = &s_real_txn_ops;
+#else
+// Host: no real NVS to back the txn ops — a test must inject a fake via
+// bb_storage_nvs_set_txn_ops_for_test() before driving the txn functions
+// below; an unset ops table fails every call closed (BB_ERR_UNSUPPORTED).
+static const bb_storage_nvs_txn_ops_t *s_txn_ops = NULL;
+#endif
+
+#ifdef BB_STORAGE_NVS_TESTING
+void bb_storage_nvs_set_txn_ops_for_test(const bb_storage_nvs_txn_ops_t *ops)
+{
+#ifdef ESP_PLATFORM
+    s_txn_ops = (ops != NULL) ? ops : &s_real_txn_ops;
+#else
+    s_txn_ops = ops;
+#endif
+}
+#endif
+
+static bb_err_t nvs_txn_begin(void *impl, bb_storage_txn_t *txn, const char *ns_or_dir)
+{
+    (void)impl;
+
+    if (s_txn_ops == NULL) {
+        txn->_err = BB_ERR_UNSUPPORTED;
+        return BB_ERR_UNSUPPORTED;
+    }
+
+    uint32_t h   = 0;
+    bb_err_t err = s_txn_ops->open(ns_or_dir, &h);
+    if (err != BB_OK) {
+        txn->_err = err;
+        return err;
+    }
+
+    txn->_handle = (uintptr_t)h;
+    txn->_open   = 1;
+    txn->_err    = BB_OK;
+    return BB_OK;
+}
+
+static bb_err_t nvs_txn_set(void *impl, bb_storage_txn_t *txn, const char *key, bb_storage_enc_t enc,
+                             const void *buf, size_t len)
+{
+    (void)impl;
+
+    if (!txn->_open) {
+        return BB_ERR_INVALID_STATE;
+    }
+    if (txn->_err != BB_OK) {
+        return txn->_err;
+    }
+
+    uint32_t h = (uint32_t)txn->_handle;
+    bb_err_t err;
+
+    // Fail fast on a key that exceeds NVS's real key-name limit (15 chars +
+    // NUL, ESP-IDF's NVS_KEY_NAME_MAX_SIZE=16) rather than deferring to a
+    // confusing deep-ESP-IDF rejection. BB_STORAGE_TXN_KEY_MAX_BYTES (32) is
+    // a generic-facade/RAM ceiling, not the NVS limit — see bb_storage.h.
+    if (key == NULL || strlen(key) >= BB_STORAGE_NVS_TXN_KEY_MAX_BYTES) {
+        err = BB_ERR_INVALID_ARG;
+        txn->_err = err;
+        return err;
+    }
+
+    // Uniform cap ahead of the encoding switch: every encoding (STR, BLOB,
+    // and the fixed-size scalars below) is bounded by the same value-size
+    // ceiling, so an oversize write is rejected BEFORE any write is
+    // dispatched to the backend — matches the RAM backend's contract
+    // (platform/host/bb_storage_ram/bb_storage_ram.c) and the header's
+    // documented BB_ERR_NO_SPACE-on-oversize-value contract.
+    if (len > BB_STORAGE_TXN_VALUE_MAX_BYTES) {
+        err = BB_ERR_NO_SPACE;
+        txn->_err = err;
+        return err;
+    }
+
+    switch (bb_storage_nvs_classify_enc(enc)) {
+    case BB_STORAGE_NVS_KIND_STR: {
+        char scratch[BB_STORAGE_TXN_VALUE_MAX_BYTES + 1];
+        if (len > 0) {
+            memcpy(scratch, buf, len);
+        }
+        scratch[len] = '\0';
+        err = s_txn_ops->set_str(h, key, scratch);
+        break;
+    }
+
+    case BB_STORAGE_NVS_KIND_U8:
+        if (len != sizeof(uint8_t)) { err = BB_ERR_INVALID_ARG; break; }
+        err = s_txn_ops->set_u8(h, key, ((const uint8_t *)buf)[0]);
+        break;
+
+    case BB_STORAGE_NVS_KIND_U16:
+        if (len != sizeof(uint16_t)) { err = BB_ERR_INVALID_ARG; break; }
+        err = s_txn_ops->set_u16(h, key, bb_load_le16(buf));
+        break;
+
+    case BB_STORAGE_NVS_KIND_U32:
+        if (len != sizeof(uint32_t)) { err = BB_ERR_INVALID_ARG; break; }
+        err = s_txn_ops->set_u32(h, key, bb_load_le32(buf));
+        break;
+
+    case BB_STORAGE_NVS_KIND_I32: {
+        if (len != sizeof(uint32_t)) { err = BB_ERR_INVALID_ARG; break; }
+        uint32_t bits = bb_load_le32(buf);
+        int32_t  value;
+        memcpy(&value, &bits, sizeof(value));
+        err = s_txn_ops->set_i32(h, key, value);
+        break;
+    }
+
+    case BB_STORAGE_NVS_KIND_BLOB:
+    default:
+        err = s_txn_ops->set_blob(h, key, buf, len);
+        break;
+    }
+
+    if (err != BB_OK) {
+        txn->_err = err;
+    }
+    return err;
+}
+
+static bb_err_t nvs_txn_commit(void *impl, bb_storage_txn_t *txn)
+{
+    (void)impl;
+
+    if (!txn->_open) {
+        return BB_ERR_INVALID_STATE;
+    }
+
+    uint32_t h   = (uint32_t)txn->_handle;
+    bb_err_t err = txn->_err;
+    if (err == BB_OK) {
+        err = s_txn_ops->commit(h);
+    }
+    s_txn_ops->close(h);
+    txn->_open = 0;
+
+    if (err != BB_OK && txn->_err == BB_OK) {
+        txn->_err = err;
+    }
+    return err;
+}
+
+static bb_err_t nvs_txn_abort(void *impl, bb_storage_txn_t *txn)
+{
+    (void)impl;
+
+    if (!txn->_open) {
+        return BB_OK;
+    }
+
+    uint32_t h = (uint32_t)txn->_handle;
+    s_txn_ops->close(h);
+    txn->_open = 0;
+    return BB_OK;
+}
+
+#ifdef BB_STORAGE_NVS_TESTING
+bb_err_t bb_storage_nvs_txn_begin_for_test(bb_storage_txn_t *txn, const char *ns_or_dir)
+{
+    return nvs_txn_begin(NULL, txn, ns_or_dir);
+}
+
+bb_err_t bb_storage_nvs_txn_set_for_test(bb_storage_txn_t *txn, const char *key, bb_storage_enc_t enc,
+                                          const void *buf, size_t len)
+{
+    return nvs_txn_set(NULL, txn, key, enc, buf, len);
+}
+
+bb_err_t bb_storage_nvs_txn_commit_for_test(bb_storage_txn_t *txn)
+{
+    return nvs_txn_commit(NULL, txn);
+}
+
+bb_err_t bb_storage_nvs_txn_abort_for_test(bb_storage_txn_t *txn)
+{
+    return nvs_txn_abort(NULL, txn);
+}
+#endif
+
+#ifdef ESP_PLATFORM
 #include "bb_storage_nvs_get_decision.h"
-#include "bb_storage_nvs_classify_enc.h"
 
 // ---------------------------------------------------------------------------
 // Capacity constants (Kconfig bridge — pattern from bb_clock.h)
@@ -22,8 +341,6 @@
 #ifndef BB_STORAGE_NVS_GET_SCRATCH_MAX
 #define BB_STORAGE_NVS_GET_SCRATCH_MAX 512
 #endif
-
-static const char *TAG = "bb_storage_nvs";
 
 /* ---------------------------------------------------------------------------
  * Typed single-key accessors — moved verbatim from platform/espidf/bb_nv/
@@ -782,13 +1099,21 @@ static bb_err_t nvs_vt_set_typed(void *impl, const bb_storage_addr_t *addr, bb_s
     }
 }
 
+// nvs_txn_begin/set/commit/abort (used by s_nvs_vtable below) and their
+// NVS-primitive seam are defined earlier in this file, before the
+// ESP_PLATFORM/host split — see the "Multi-key transactions" comment near
+// the top.
 static const bb_storage_vtable_t s_nvs_vtable = {
-    .get       = nvs_vt_get,
-    .set       = nvs_vt_set,
-    .erase     = nvs_vt_erase,
-    .exists    = nvs_vt_exists,
-    .get_typed = nvs_vt_get_typed,
-    .set_typed = nvs_vt_set_typed,
+    .get        = nvs_vt_get,
+    .set        = nvs_vt_set,
+    .erase      = nvs_vt_erase,
+    .exists     = nvs_vt_exists,
+    .get_typed  = nvs_vt_get_typed,
+    .set_typed  = nvs_vt_set_typed,
+    .txn_begin  = nvs_txn_begin,
+    .txn_set    = nvs_txn_set,
+    .txn_commit = nvs_txn_commit,
+    .txn_abort  = nvs_txn_abort,
 };
 
 bb_err_t bb_storage_nvs_register(void)
