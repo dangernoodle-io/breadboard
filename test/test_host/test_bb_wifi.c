@@ -12,7 +12,6 @@
 // path in the host build. Real, shipped functions (defined via
 // BB_CALLBACK_SLOT_* in platform/host/bb_wifi/bb_wifi_emit.c, host-compiled).
 bool bb_wifi_internal_ota_validated(void);
-void bb_wifi_net_event_invoke(bb_wifi_net_event_t evt, bb_wifi_disc_reason_t reason);
 
 void test_bb_wifi_set_hostname_null(void)
 {
@@ -586,72 +585,13 @@ void test_bb_wifi_ota_validated_set_cb_returns_value(void)
     bb_wifi_set_ota_validated_cb(NULL);
 }
 
-// net_event (BB_CALLBACK_SLOT_VOID, with-args): null sink is a no-op; set
-// sink dispatches the invoked enum value through to the sink.
-static int s_net_event_calls = 0;
-static bb_wifi_net_event_t s_net_event_last_evt;
-static bb_wifi_disc_reason_t s_net_event_last_reason;
-static void net_event_fixture(bb_wifi_net_event_t evt, bb_wifi_disc_reason_t reason)
-{
-    s_net_event_calls++;
-    s_net_event_last_evt = evt;
-    s_net_event_last_reason = reason;
-}
-
-void test_bb_wifi_net_event_null_sink_is_noop(void)
-{
-    bb_wifi_set_net_event_sink(NULL);
-    s_net_event_calls = 0;
-    bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN);
-    TEST_ASSERT_EQUAL_INT(0, s_net_event_calls);
-}
-
-// GOT_IP carries BB_WIFI_DISC_UNKNOWN (not a meaningful reason).
-void test_bb_wifi_net_event_set_sink_dispatches_got_ip(void)
-{
-    bb_wifi_set_net_event_sink(net_event_fixture);
-    s_net_event_calls = 0;
-    bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN);
-    TEST_ASSERT_EQUAL_INT(1, s_net_event_calls);
-    TEST_ASSERT_EQUAL_INT(BB_WIFI_NET_EVT_GOT_IP, s_net_event_last_evt);
-    TEST_ASSERT_EQUAL(BB_WIFI_DISC_UNKNOWN, s_net_event_last_reason);
-    bb_wifi_set_net_event_sink(NULL);
-}
-
-// DISCONNECT carries the mapped reason through as an explicit argument
-// (the staleness-race fix) -- production passes bb_wifi_map_esp_reason()'s
-// result; here a distinct reason from GOT_IP/LOST_IP's fixed values proves
-// it's a passthrough, not a hardcoded constant.
-void test_bb_wifi_net_event_set_sink_dispatches_disconnect(void)
-{
-    bb_wifi_set_net_event_sink(net_event_fixture);
-    s_net_event_calls = 0;
-    bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_DISCONNECT, BB_WIFI_DISC_AUTH_FAIL);
-    TEST_ASSERT_EQUAL_INT(1, s_net_event_calls);
-    TEST_ASSERT_EQUAL_INT(BB_WIFI_NET_EVT_DISCONNECT, s_net_event_last_evt);
-    TEST_ASSERT_EQUAL(BB_WIFI_DISC_AUTH_FAIL, s_net_event_last_reason);
-    bb_wifi_set_net_event_sink(NULL);
-}
-
-// LOST_IP always carries BB_WIFI_DISC_BB_LOST_IP.
-void test_bb_wifi_net_event_set_sink_dispatches_lost_ip(void)
-{
-    bb_wifi_set_net_event_sink(net_event_fixture);
-    s_net_event_calls = 0;
-    bb_wifi_net_event_invoke(BB_WIFI_NET_EVT_LOST_IP, BB_WIFI_DISC_BB_LOST_IP);
-    TEST_ASSERT_EQUAL_INT(1, s_net_event_calls);
-    TEST_ASSERT_EQUAL_INT(BB_WIFI_NET_EVT_LOST_IP, s_net_event_last_evt);
-    TEST_ASSERT_EQUAL(BB_WIFI_DISC_BB_LOST_IP, s_net_event_last_reason);
-    bb_wifi_set_net_event_sink(NULL);
-}
-
 // ---------------------------------------------------------------------------
 // bb_wifi_publish_net_event / bb_wifi_set_emit / bb_wifi_emit_baseline (KB
-// 820 PR3 -- bus-shaped generic emit seam, independent of the typed
-// net_event seam above). bb_wifi_publish_net_event and bb_wifi_emit_invoke
-// are private accessors declared in platform/espidf/bb_wifi/wifi_reconn.h
-// (mirrored here, same rationale as bb_wifi_net_event_invoke above) -- real,
-// shipped functions defined via BB_CALLBACK_SLOT_VOID in
+// 820 PR3 -- bus-shaped generic emit seam). bb_wifi_publish_net_event and
+// bb_wifi_emit_invoke are private accessors declared in
+// platform/espidf/bb_wifi/wifi_reconn.h (mirrored here since that directory
+// isn't on this file's include path in the host build) -- real, shipped
+// functions defined via BB_CALLBACK_SLOT_VOID in
 // platform/host/bb_wifi/bb_wifi_emit.c (host-compiled).
 // ---------------------------------------------------------------------------
 void bb_wifi_publish_net_event(bb_wifi_net_event_t evt, bb_wifi_disc_reason_t reason);
