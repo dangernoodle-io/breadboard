@@ -15,7 +15,7 @@
 #include "bb_log.h"
 #include "bb_mem.h"
 #include "bb_pub.h"
-#include "bb_nv.h"
+#include "bb_settings.h"
 #include "bb_clock.h"
 
 #include <stdbool.h>
@@ -247,7 +247,7 @@ static const bb_route_t s_telemetry_patch_route = {
 // GET /api/telemetry/metrics — Prometheus-style telemetry endpoint (B1-295)
 //
 // Folded into bb_telemetry per decision #402: it shares bb_telemetry's exact
-// dependency closure (bb_pub, bb_http, bb_json, bb_nv_config), so it is part
+// dependency closure (bb_pub, bb_http, bb_json, bb_settings), so it is part
 // of bb_telemetry rather than a separate component.
 //
 // Four combos driven by query params `format` and `schema`:
@@ -646,7 +646,9 @@ static bb_err_t metrics_handler(bb_http_request_t *req)
     bool schema_only = bb_http_req_query_has_key(req, "schema");
 
     const char *prefix = bb_pub_metrics_prefix();
-    const char *host   = bb_nv_config_hostname();
+    char hn[33] = {0};
+    bb_settings_hostname_get(hn, sizeof(hn), NULL);
+    const char *host   = hn;
 
     // -----------------------------------------------------------------------
     // SCHEMA / JSON

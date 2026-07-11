@@ -28,6 +28,7 @@
 #include "bb_mem.h"
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
+#include "bb_settings.h"
 #include "bb_wifi.h"
 #include "bb_event.h"
 #include "bb_mqtt_client_reassemble.h"  // PRIV_INCLUDE_DIRS "src" (bb_mqtt_client component)
@@ -373,7 +374,8 @@ bb_err_t bb_mqtt_client_init(const bb_mqtt_client_cfg_t *cfg, bb_mqtt_client_t *
     // NULL  → use hostname (let esp-mqtt use it via client_id string)
     // ""    → set_null_client_id (broker assigns)
     // other → use as-is
-    const char *hostname = bb_nv_config_hostname();
+    char hostname[33] = {0};
+    bb_settings_hostname_get(hostname, sizeof(hostname), NULL);
     bool set_null = (cfg->client_id != NULL && cfg->client_id[0] == '\0');
     const char *cid = set_null ? NULL
                     : (cfg->client_id ? cfg->client_id : hostname);

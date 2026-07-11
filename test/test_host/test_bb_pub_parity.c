@@ -2,7 +2,7 @@
 // produce the same publishing behavior when no tags / no subscribe filter.
 #include "unity.h"
 #include "bb_pub.h"
-#include "bb_nv.h"
+#include "test_hostname_seed.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -41,7 +41,7 @@ static void setup_test(void)
 {
     // Global setUp already calls bb_pub_test_reset().
     s_publish_count = 0;
-    bb_nv_config_set_hostname("parityhost");
+    bb_test_seed_hostname("parityhost");
 }
 
 // ---------------------------------------------------------------------------

@@ -58,7 +58,7 @@ typedef struct {
  * Configuration for bb_mqtt_client_init.
  *
  * uri        — MQTT broker URI: mqtt:// or mqtts://host:port
- * client_id  — NULL: default to bb_nv_config_hostname(); "" (empty string):
+ * client_id  — NULL: default to bb_settings_hostname_get(); "" (empty string):
  *              set_null_client_id (broker assigns ID)
  * username   — optional; NULL to omit
  * password   — optional; NULL to omit

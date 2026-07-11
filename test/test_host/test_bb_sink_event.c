@@ -5,7 +5,7 @@
 #include "bb_event.h"
 #include "bb_event_routes.h"
 #include "bb_event_test.h"
-#include "bb_nv.h"
+#include "test_hostname_seed.h"
 #include "bb_json.h"
 
 #include <stdio.h>
@@ -65,7 +65,7 @@ static void init_event_system(void)
     bb_sink_event_reset_for_test();
     s_received_count = 0;
     s_received_payload[0] = '\0';
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 }
 
 // ---------------------------------------------------------------------------

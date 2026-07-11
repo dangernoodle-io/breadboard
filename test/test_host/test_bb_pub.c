@@ -1,7 +1,7 @@
 // Tests for bb_pub core: source registry, tick cycle, sink routing.
 #include "unity.h"
 #include "bb_pub.h"
-#include "bb_nv.h"
+#include "test_hostname_seed.h"
 #include "bb_cache.h"
 #include "bb_json.h"
 #include "bb_json_test_hooks.h"
@@ -86,7 +86,7 @@ static void setup_with_sink(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
     bb_pub_sink_t sink = make_capture_sink();
     bb_pub_set_sink(&sink);
 }
@@ -187,7 +187,7 @@ void test_bb_pub_swap_sink_routes_to_new_sink(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     // First sink
     bb_pub_sink_t s1 = make_capture_sink();
@@ -237,7 +237,7 @@ void test_bb_pub_set_sink_null_clears_sink(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     bb_pub_sink_t s = make_capture_sink();
     bb_pub_set_sink(&s);
@@ -306,7 +306,7 @@ void test_bb_pub_add_sink_fanout_both_receive(void)
     capture_ctx_t ctx2 = { .count = 0 };
     memset(ctx2.entries, 0, sizeof(ctx2.entries));
 
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     // Add two distinct capturing sinks.
     bb_pub_sink_t s1 = make_capture_sink();  // uses global s_captured / s_capture_count
@@ -335,7 +335,7 @@ void test_bb_pub_set_sink_replaces_prior_sinks(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     capture_ctx_t ctx2 = { .count = 0 };
     memset(ctx2.entries, 0, sizeof(ctx2.entries));
@@ -362,7 +362,7 @@ void test_bb_pub_clear_sinks_makes_tick_noop(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     bb_pub_sink_t s = make_capture_sink();
     bb_pub_add_sink(&s);
@@ -389,7 +389,7 @@ void test_bb_pub_failing_sink_does_not_stop_other_sink(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     // Register a failing sink first, then a capturing sink.
     bb_pub_sink_t bad = { .publish = failing_publish, .ctx = NULL };
@@ -426,7 +426,7 @@ void test_bb_pub_status_counts_reflect_registered(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     bb_pub_sink_t s = make_capture_sink();
     bb_pub_add_sink(&s);
@@ -443,7 +443,7 @@ void test_bb_pub_status_after_tick_published_ever_true(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     bb_pub_sink_t s = make_capture_sink();
     bb_pub_add_sink(&s);
@@ -461,7 +461,7 @@ void test_bb_pub_status_after_tick_published_ever_true(void)
 void test_bb_pub_status_failing_sink_sets_last_publish_not_ok(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     bb_pub_sink_t bad = { .publish = failing_publish, .ctx = NULL };
     bb_pub_add_sink(&bad);
@@ -478,7 +478,7 @@ void test_bb_pub_status_failing_sink_sets_last_publish_not_ok(void)
 void test_bb_pub_status_no_sink_not_published(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     bb_pub_register_source("temp", sample_temperature, NULL);
 
@@ -693,7 +693,7 @@ void test_bb_pub_pause_blocks_until_in_flight_tick_completes(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     // Set up blocking sink.
     blocking_sink_ctx_t bsink = {
@@ -1156,7 +1156,7 @@ void test_bb_pub_sink_transport_mqtt_tls_stamped(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     bb_pub_sink_t s = { .publish = capture_publish, .ctx = NULL,
                         .transport = "mqtt", .tls = true };
@@ -1175,7 +1175,7 @@ void test_bb_pub_sink_transport_http_no_tls_stamped(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     bb_pub_sink_t s = { .publish = capture_publish, .ctx = NULL,
                         .transport = "http", .tls = false };
@@ -1193,7 +1193,7 @@ void test_bb_pub_sink_no_transport_fields_absent(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     bb_pub_sink_t s = { .publish = capture_publish, .ctx = NULL,
                         .transport = NULL, .tls = false };
@@ -1212,7 +1212,7 @@ void test_bb_pub_two_sinks_each_get_own_transport(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     capture_ctx_t ctx2 = { .count = 0 };
     memset(ctx2.entries, 0, sizeof(ctx2.entries));
@@ -1247,7 +1247,7 @@ void test_bb_pub_three_sinks_no_transport_bleed(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     capture_ctx_t ctx_event = { .count = 0 };
     memset(ctx_event.entries, 0, sizeof(ctx_event.entries));
@@ -1346,7 +1346,7 @@ void test_bb_pub_buffer_ring_size_guard_reset_clears_latch(void)
     // Reset clears internal latch; a second tick must also succeed.
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
     bb_pub_sink_t sink = make_capture_sink();
     bb_pub_set_sink(&sink);
     bb_pub_test_set_buffer_always(true);
@@ -1493,7 +1493,7 @@ static void *slow_tick_thread_fn(void *arg)
 void test_bb_pub_pause_bounded_wait_returns_before_slow_sink_finishes(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     slow_sink_ctx_t ssink;
     memset(&ssink, 0, sizeof(ssink));
@@ -1553,7 +1553,7 @@ void test_bb_pub_pause_bounded_wait_returns_before_slow_sink_finishes(void)
 void test_bb_pub_pause_bounded_wait_times_out_on_slow_sink(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
     bb_pub_test_set_pause_timeout_ms(SHORT_PAUSE_TIMEOUT_MS);
 
     slow_sink_ctx_t ssink;
@@ -1640,7 +1640,7 @@ static void *carry_tick_thread_fn(void *arg)
 void test_bb_pub_pause_bounded_wait_deadline_nsec_carry(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
     bb_pub_test_set_pause_timeout_ms(CARRY_PAUSE_TIMEOUT_MS);
 
     carry_sink_ctx_t csink;
@@ -1748,7 +1748,7 @@ static bb_err_t cadence_capture(void *ctx, const char *topic,
 static void cadence_setup(bb_pub_cadence_t cadence, bool retain)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("cadencehost");
+    bb_test_seed_hostname("cadencehost");
     s_cadence_val         = 42;
     s_cadence_count       = 0;
     s_cadence_last_retain = false;
@@ -1997,7 +1997,7 @@ static bb_err_t cadence_fail_publish(void *ctx, const char *topic,
 void test_bb_pub_cadence_on_change_failing_sink_leaves_state_uncommitted(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("cadencehost");
+    bb_test_seed_hostname("cadencehost");
     s_cadence_val   = 42;
     s_cadence_count = 0;
 
@@ -2036,7 +2036,7 @@ void test_bb_pub_cadence_on_change_failing_sink_leaves_state_uncommitted(void)
 void test_bb_pub_cadence_once_failing_sink_leaves_state_uncommitted(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("cadencehost");
+    bb_test_seed_hostname("cadencehost");
     s_cadence_val   = 42;
     s_cadence_count = 0;
 
@@ -2350,10 +2350,10 @@ void test_bb_pub_tick_hostname_fallback_to_device_when_empty(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    // bb_nv_config_set_hostname() rejects an empty string outright, and no
-    // hostname value survives a validated set — factory_reset is the only
-    // way to force the in-RAM hostname cache back to its zeroed ("") default.
-    bb_nv_config_factory_reset();
+    // bb_settings_hostname_set() rejects an empty string outright, so
+    // erasing the seeded key is the only way to get back to the unset
+    // ("") default bb_settings_hostname_get() resolves to via has_default.
+    bb_test_seed_hostname_clear();
     bb_pub_sink_t sink = make_capture_sink();
     bb_pub_set_sink(&sink);
     bb_pub_register_source("temp", sample_temperature, NULL);
@@ -2377,7 +2377,7 @@ void test_bb_pub_telemetry_sink_subscribe_false_is_skipped(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     bb_pub_sink_t rejecting = make_capture_sink();
     rejecting.subscribe = cov_reject_all;
@@ -2405,7 +2405,7 @@ void test_bb_pub_telemetry_cache_update_failure_marks_not_fired(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
     bb_pub_sink_t sink = make_capture_sink();
     bb_pub_set_sink(&sink);
 
@@ -2446,7 +2446,7 @@ void test_bb_pub_telemetry_get_serialized_failure_skips_gracefully(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
     bb_pub_sink_t sink = make_capture_sink();
     bb_pub_set_sink(&sink);
 
@@ -2613,7 +2613,7 @@ void test_bb_pub_failing_non_first_sink_marks_not_all_ok(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 #if CONFIG_BB_PUB_BUFFER_ENABLE
     // Force on-failure mode so last_publish_ok reflects tick_all_ok directly
     // rather than the always-on mode's ring-drained status.
@@ -2646,7 +2646,7 @@ void test_bb_pub_legacy_source_per_sink_subscribe_filter_skips_rejecting_sink(vo
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     bb_pub_sink_t rejecting = make_capture_sink();
     rejecting.subscribe = cov_reject_all;
@@ -2743,7 +2743,7 @@ static void *race_mutator_fn(void *arg)
 void test_bb_pub_sink_mutators_locked_against_concurrent_tick(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("racehost");
+    bb_test_seed_hostname("racehost");
     bb_pub_register_source("race", sample_temperature, NULL);
 
     s_race_corrupted = false;
@@ -2804,7 +2804,7 @@ static bool reentrant_sample_fn(bb_json_t obj, void *ctx)
 void test_bb_pub_add_sink_from_sample_fn_returns_invalid_state(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("reentranthost");
+    bb_test_seed_hostname("reentranthost");
 
     s_reentrant_probe_sink = make_capture_sink();
     bb_pub_sink_t outer_sink = make_capture_sink();
@@ -2848,7 +2848,7 @@ static void reentrant_payload_extender(bb_json_t obj, const char *source, void *
 void test_bb_pub_add_sink_from_payload_extender_returns_invalid_state(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("reentranthost2");
+    bb_test_seed_hostname("reentranthost2");
 
     s_reentrant_probe_sink = make_capture_sink();
     bb_pub_sink_t outer_sink = make_capture_sink();

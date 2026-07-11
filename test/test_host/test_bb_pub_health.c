@@ -3,7 +3,7 @@
 #include "bb_pub_health.h"
 #include "bb_pub.h"
 #include "bb_mqtt_client.h"
-#include "bb_nv.h"
+#include "test_hostname_seed.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -46,7 +46,7 @@ static void setup(void)
 {
     bb_pub_test_reset();
     capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
     bb_mqtt_client_default_set(NULL);
 
     bb_pub_sink_t sink = { .publish = capture_publish, .ctx = NULL };

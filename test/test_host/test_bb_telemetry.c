@@ -3,6 +3,7 @@
 #include "unity.h"
 #include "bb_telemetry.h"
 #include "bb_nv.h"
+#include "test_hostname_seed.h"
 #include "bb_pub.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
@@ -283,7 +284,7 @@ static bool m_src_skip(bb_json_t obj, void *ctx)
 static void m_reset_all(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
     bb_http_route_registry_clear();
 }
 

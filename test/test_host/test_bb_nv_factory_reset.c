@@ -7,7 +7,9 @@
 //   2. Route handler: 400 for missing confirm, 400 for wrong confirm, 202 for correct confirm.
 //
 // On host, the RTC mirror does not exist; we verify mirror-invalidation by
-// checking that config fields return to defaults (clears ssid/hostname). The
+// checking that config fields return to defaults (clears ssid/display_en).
+// Hostname moved to bb_settings (B1-754) and is no longer part of bb_nv's
+// factory-reset scope. The
 // mirror-invalidation logic path for the RTC region is covered by the ESP-IDF
 // impl at compile time; on host the #if CONFIG_BB_NV_CREDS_RTC_BACKUP path does
 // not execute, but the surrounding code is exercised.
@@ -31,20 +33,15 @@ void test_nv_factory_reset_clears_config(void)
 {
     // Seed some config state.
     bb_nv_config_init();
-    bb_nv_config_set_hostname("test-device");
     bb_nv_config_set_display_enabled(false);
 
     bb_err_t err = bb_nv_config_factory_reset();
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 
-    // After reset: ssid/hostname empty, display back to default (1).
+    // After reset: ssid empty, display back to default (1).
     const char *ssid = bb_nv_config_wifi_ssid();
     TEST_ASSERT_NOT_NULL(ssid);
     TEST_ASSERT_EQUAL_STRING("", ssid);
-
-    const char *hostname = bb_nv_config_hostname();
-    TEST_ASSERT_NOT_NULL(hostname);
-    TEST_ASSERT_EQUAL_STRING("", hostname);
 
     // display_en defaults to true after reset.
     TEST_ASSERT_TRUE(bb_nv_config_display_enabled());
@@ -153,7 +150,6 @@ void test_nv_factory_reset_route_invalid_json_returns_400(void)
 void test_nv_factory_reset_route_valid_confirm_returns_202(void)
 {
     bb_nv_config_init();
-    bb_nv_config_set_hostname("test-device");
 
     bb_http_host_capture_t cap = run_factory_reset("{\"confirm\":\"factory-reset\"}");
     TEST_ASSERT_EQUAL_INT(202, cap.status);
@@ -180,15 +176,15 @@ void test_nv_factory_reset_route_valid_confirm_clears_config(void)
 {
     // Verify the handler calls bb_nv_config_factory_reset() which clears state.
     bb_nv_config_init();
-    bb_nv_config_set_hostname("my-device");
-    TEST_ASSERT_EQUAL_STRING("my-device", bb_nv_config_hostname());
+    bb_nv_config_set_display_enabled(false);
+    TEST_ASSERT_FALSE(bb_nv_config_display_enabled());
 
     bb_http_host_capture_t cap = run_factory_reset("{\"confirm\":\"factory-reset\"}");
     TEST_ASSERT_EQUAL_INT(202, cap.status);
     bb_http_host_capture_free(&cap);
 
-    // Config must now be cleared.
-    TEST_ASSERT_EQUAL_STRING("", bb_nv_config_hostname());
+    // Config must now be cleared (display_en back to default true).
+    TEST_ASSERT_TRUE(bb_nv_config_display_enabled());
 }
 
 void test_nv_factory_reset_route_oversized_body_returns_400(void)

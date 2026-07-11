@@ -2,7 +2,7 @@
 #include "unity.h"
 #include "bb_pub_info.h"
 #include "bb_pub.h"
-#include "bb_nv.h"
+#include "test_hostname_seed.h"
 #include "../../platform/host/bb_board/bb_board_test.h"
 
 #include <string.h>
@@ -47,7 +47,7 @@ static void setup(void)
     bb_pub_test_reset();
     capture_reset();
     bb_board_test_set_ota_validated(false);   /* reset board hook to default */
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     bb_pub_sink_t sink = { .publish = capture_publish, .ctx = NULL };
     bb_pub_set_sink(&sink);

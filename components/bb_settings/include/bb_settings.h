@@ -45,6 +45,19 @@ bb_err_t bb_settings_wifi_pass_get(char *buf, size_t cap, size_t *out_len);
 // not mere key presence — a present-but-empty SSID reports false).
 bool bb_settings_wifi_has_creds(void);
 
+// Read the stored hostname. Same size-probe/truncation contract and
+// NULL-safe out_len guarantee as bb_settings_wifi_ssid_get. Returns BB_OK
+// with an empty string (out_len=0) when unset — NO MAC-derived default,
+// preserving bb_nv's prior empty-string-on-unset behavior exactly.
+bb_err_t bb_settings_hostname_get(char *buf, size_t cap, size_t *out_len);
+
+// Validate then persist a hostname (RFC 1123 / 952: letters, digits,
+// hyphens; first/last cannot be hyphen; length 1..32). Validation runs
+// BEFORE any persistence, fail-fast. Returns BB_ERR_INVALID_ARG for NULL,
+// empty, >32 chars, bad charset, or leading/trailing hyphen; BB_OK on
+// success.
+bb_err_t bb_settings_hostname_set(const char *hostname);
+
 #ifdef __cplusplus
 }
 #endif

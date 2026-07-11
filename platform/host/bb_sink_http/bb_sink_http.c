@@ -6,6 +6,7 @@
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
 #include "bb_log.h"
+#include "bb_settings.h"
 #include "bb_tls.h"
 #include "bb_transport_health.h"
 #include "bb_str.h"
@@ -463,7 +464,12 @@ static void apply_headers_to_session(void)
     if (!s_session) return;
 
     // X-Client-Id: use client_id if set, else hostname.
-    const char *cid = s_cfg.client_id[0] ? s_cfg.client_id : bb_nv_config_hostname();
+    char hn[33] = {0};
+    const char *cid = s_cfg.client_id[0] ? s_cfg.client_id : NULL;
+    if (!cid) {
+        bb_settings_hostname_get(hn, sizeof(hn), NULL);
+        cid = hn;
+    }
     if (cid && cid[0]) {
         bb_http_client_session_set_header(s_session, "X-Client-Id", cid);
     }
