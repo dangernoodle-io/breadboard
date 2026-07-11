@@ -115,12 +115,17 @@ paths = []
 
 # --- bbtool scaffold: capability/board manifest (Phase 1, B1-663 foundation) ---
 # See scripts/bbtool/boards.py + scripts/bbtool/commands/scaffold.py.
-# `core` is `required = true` — every board gets it automatically; it is not
-# listed in any board's `capabilities`. This dogfoods scaffold on breadboard's
-# own [env:native] host test env (custom_bb_board = native in platformio.ini),
-# replacing the old scripts/native_scaffold.py hand-maintained COMPONENT_MAP.
+# `core` is listed explicitly in [board.native]'s own `capabilities` (below)
+# rather than `required = true` -- `required` auto-applies a capability to
+# EVERY board in this file (boards.py: resolve_active_capabilities), which
+# would leak core's ~100-component host-scaffold list into the unrelated
+# examples/smoke + examples/floor manifest tables added by B1-747 below (a
+# real regression caught by that ticket's byte-identical bb_app_init.c
+# check). Net resolved set for `native` is unchanged either way. This
+# dogfoods scaffold on breadboard's own [env:native] host test env
+# (custom_bb_board = native in platformio.ini), replacing the old
+# scripts/native_scaffold.py hand-maintained COMPONENT_MAP.
 [capability.core]
-required = true
 components = [
     "bb_alert", "bb_attrs", "bb_board", "bb_button",
     "bb_button_events", "bb_button_gpio", "bb_cache", "bb_cache_reactive",
@@ -147,3 +152,98 @@ components = [
 
 [board.native]
 platform = "host"
+capabilities = ["core"]
+
+# --- examples/smoke + examples/floor composition manifest (B1-747) ---
+# Collapses the hand-synced component lists this ticket kills:
+#   1. examples/smoke/main/CMakeLists.txt's hand-written SMOKE_REQUIRES +
+#      board-conditional list(APPEND ...) groups.
+#   2. the Makefile's hand-typed --components strings for smoke-gen/floor-gen.
+# See scripts/bbtool/boards.py (resolve_component_names, unchanged/reused --
+# no new grammar) + scripts/bbtool/commands/codegen.py's `--board` flag.
+# Unrelated to [capability.core]/[board.native] above, which serve only
+# `bbtool scaffold`'s host env -- do not conflate the two concerns.
+#
+# `capability.smoke.components` is the REQUIRES-authoritative baseline:
+# today's SMOKE_REQUIRES set verbatim, including bb_wifi_ap (a link-proof-
+# only component with no `// bbtool:init` marker -- its previous omission
+# from the Makefile's separate wire-only list was drift, not intent; folding
+# it in here changes nothing functionally). Board-conditional REQUIRES
+# groups (display / power+fan) move to each board's own `add_components`.
+# bb_storage_rtc (PR3a, WiFi-creds cluster, #823) carries a real
+# `// bbtool:init tier=early` marker, unlike bb_wifi_ap/bb_config_staged
+# above -- it stays in both this REQUIRES closure AND the
+# `smoke_wire_baseline` wire set below (only reaches the latter by NOT
+# appearing in that board's `remove_components`).
+[capability.smoke]
+components = [
+    "bb_nv", "bb_log", "bb_log_event", "bb_log_http", "bb_wifi", "bb_wifi_ap",
+    "bb_wifi_http", "bb_settings", "bb_http", "bb_http_server", "bb_mdns",
+    "bb_mdns_cache", "bb_ota_pull", "bb_ota_push", "bb_ota_boot", "bb_info",
+    "bb_board", "bb_manifest", "bb_ota_validator", "bb_system", "bb_openapi",
+    "bb_led", "bb_led_info", "bb_ntp", "bb_ntp_info", "bb_led_gpio",
+    "bb_led_pwm", "bb_led_apa102", "bb_led_anim", "bb_button", "bb_button_gpio",
+    "bb_button_events", "bb_event", "bb_event_ring", "bb_event_ring_espidf",
+    "bb_event_routes", "bb_event_routes_espidf", "bb_ring_espidf", "bb_ring_diag",
+    "bb_http_client", "bb_release_manifest", "bb_ota_check", "bb_temp",
+    "bb_power", "bb_fan", "bb_sensors", "bb_tls_creds", "bb_mqtt_client",
+    "bb_pub", "bb_sink_mqtt", "bb_pub_info", "bb_pub_rtos", "bb_ws_server",
+    "bb_sink_ws", "bb_registry", "bb_partition", "bb_task_registry", "bb_task",
+    "bb_net_health", "bb_mem_arena", "bb_pool", "bb_udp_frame", "bb_udp_client",
+    "bb_sink_udp", "bb_dispatch_cmd", "bb_meminfo", "bb_timer", "bb_config",
+    "bb_config_staged", "bb_storage_nvs", "bb_storage_rtc",
+]
+
+# Real smoke espidf boards -- the board id IS the literal FIRMWARE_BOARD
+# value the espidf build defines (board_build.cmake_extra_args in
+# examples/smoke/platformio.ini), so `bbtool codegen --board <id>` can embed
+# it unchanged as `BB_AUTOWIRE_BOARD`, the stale-fragment guard
+# examples/smoke/main/CMakeLists.txt checks against `FIRMWARE_BOARD`.
+[board.esp32_wroom_32]
+# Covers every env sharing FIRMWARE_BOARD=esp32_wroom_32: esp32,
+# esp32-autofan, esp32-cache-sweep, esp32-boot-progress, esp32-boot-status.
+platform = "espidf"
+capabilities = ["smoke"]
+add_components = ["bb_power_tps546", "bb_fan_emc2101"]
+
+[board.esp32_c3_devkitm_1]
+platform = "espidf"
+capabilities = ["smoke"]
+
+[board.lilygo_t_dongle_s3]
+platform = "espidf"
+capabilities = ["smoke"]
+# tdongle appeared in BOTH the display group and the power/fan group in the
+# pre-manifest CMakeLists.txt -- add_components unions both.
+add_components = [
+    "bb_display", "bb_display_st77xx", "bb_display_info", "bb_sink_display",
+    "bb_power_tps546", "bb_fan_emc2101",
+]
+
+[board.elecrow_p4_hmi7]
+platform = "espidf"
+capabilities = ["smoke"]
+add_components = ["bb_display", "bb_display_ek79007", "bb_display_info", "bb_sink_display"]
+
+# NOT a real target -- resolves the fixed, board-invariant set `bbtool
+# codegen --wire-board smoke_wire_baseline` uses to regenerate
+# bb_app_init.c, matching exactly the set the Makefile's hand-typed
+# --components string used pre-manifest (capability.smoke.components minus
+# bb_wifi_ap/bb_config_staged, neither of which carries a `// bbtool:init`
+# marker, so their absence from wire resolution is a no-op). Wire generation
+# is DELIBERATELY kept board-invariant: bb_display_info carries a real
+# marker but is only reachable via a board's add_components above, and
+# board-parameterizing wire the same way REQUIRES now is would silently
+# start calling bb_display_info_register_init() on display boards -- an
+# unvalidated runtime behavior change (separate ticket, needs HW).
+[board.smoke_wire_baseline]
+platform = "espidf"
+capabilities = ["smoke"]
+remove_components = ["bb_wifi_ap", "bb_config_staged"]
+
+[capability.floor]
+components = ["bb_log", "bb_meminfo", "bb_timer"]
+
+[board.floor]
+platform = "espidf"
+capabilities = ["floor"]

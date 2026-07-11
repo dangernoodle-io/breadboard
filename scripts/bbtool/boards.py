@@ -74,8 +74,8 @@ def resolve_component_names(
     """Union each active capability's `components`/`add_components`, plus the
     board's own `add_components`, minus the board's `remove_components`.
     Sorted, de-duplicated."""
-    board = boards[board_name]
     active = resolve_active_capabilities(board_name, boards, capabilities)
+    board = boards[board_name]
 
     names: Set[str] = set()
     for cap in active:

@@ -22,13 +22,27 @@
 # conditional is a no-op for floor's normal handwired build; floor_app.c's
 # app_main() stays the sole entry point either way -- bb_app_init() is never
 # called, only compiled, by this proof.
-set(BB_FLOOR_GENERATED_APP_INIT "${CMAKE_CURRENT_SOURCE_DIR}/generated/bb_app_init.c")
+set(BB_FLOOR_GENERATED_APP_INIT "${CMAKE_CURRENT_LIST_DIR}/generated/bb_app_init.c")
 set(_floor_srcs "floor_app.c")
 if(EXISTS "${BB_FLOOR_GENERATED_APP_INIT}")
     list(APPEND _floor_srcs "generated/bb_app_init.c")
 endif()
 
+# B1-747: REQUIRES is now resolved by `bbtool codegen --board floor` from the
+# [capability.floor]/[board.floor] manifest in bbtool.toml (see
+# scripts/bbtool/boards.py) instead of the hand-literal list this replaces
+# (bb_log bb_meminfo bb_timer) -- floor has a single board/env, so unlike
+# smoke there's no board-guard comparison to make (no FIRMWARE_BOARD is
+# defined for this build); a missing fragment is still a hard error.
+set(BB_FLOOR_GENERATED_REQUIRES "${CMAKE_CURRENT_LIST_DIR}/generated/bb_autowire_components.cmake")
+if(NOT EXISTS "${BB_FLOOR_GENERATED_REQUIRES}")
+    message(FATAL_ERROR
+        "floor: ${BB_FLOOR_GENERATED_REQUIRES} is missing -- run "
+        "`make floor-gen` (see the Makefile) before building.")
+endif()
+include("${BB_FLOOR_GENERATED_REQUIRES}")
+
 idf_component_register(
     SRCS ${_floor_srcs}
     INCLUDE_DIRS "."
-    REQUIRES bb_log bb_meminfo bb_timer)
+    REQUIRES ${BB_AUTOWIRE_REQUIRES})
