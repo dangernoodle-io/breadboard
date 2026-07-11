@@ -9,7 +9,7 @@
 #include "bb_sink_udp.h"
 #include "bb_udp_client.h"
 #include "bb_udp_frame.h"
-#include "bb_nv.h"
+#include "test_hostname_seed.h"
 
 #include <string.h>
 
@@ -29,7 +29,7 @@ static void setup_sink(bb_pub_sink_t *s)
     bb_pub_test_reset();
     bb_sink_udp_test_reset();
     bb_udp_client_test_reset();
-    bb_nv_config_set_hostname("udphost");
+    bb_test_seed_hostname("udphost");
 
     bb_udp_client_cfg_t cfg = { .host = "127.0.0.1", .port = 9109, .broadcast = false };
     TEST_ASSERT_EQUAL(BB_OK, bb_udp_client_init(&cfg));

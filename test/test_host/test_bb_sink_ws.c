@@ -7,7 +7,7 @@
 #include "bb_ws_server_host.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
-#include "bb_nv.h"
+#include "test_hostname_seed.h"
 #include "bb_cache.h"
 #include "bb_cache_reactive.h"
 #include "test_alloc_inject.h"
@@ -88,7 +88,7 @@ static void ws_sink_setup(void)
     bb_pub_test_reset();
     bb_ws_server_host_reset_captures();
     bb_sink_ws_reset_for_test();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
     bb_cache_reset_for_test();
     bb_cache_reactive_reset_for_test();
     // The route registry is process-global and never reset by the shared

@@ -18,6 +18,7 @@
 #include "bb_nv.h"
 #include "bb_nv_keys.h"
 #include "bb_pool.h"
+#include "bb_settings.h"
 #include "bb_str.h"
 
 #include <inttypes.h>
@@ -148,6 +149,14 @@ typedef struct {
 static bb_pub_payload_entry_t s_payload_extenders[CONFIG_BB_PUB_MAX_PAYLOAD_EXTENDERS];
 static int                    s_payload_extender_count = 0;
 static bool                   s_payload_hwm_warned     = false;
+
+// Hostname is bb_settings' reboot_required=true field (see bb_settings.c) --
+// it cannot change without a reboot, so resolve it from the storage layer
+// ONCE and reuse the cached copy on every tick, restoring the O(1) per-tick
+// read the old bb_nv-cached-field code had (avoids re-hitting NVS/storage
+// every CONFIG_BB_PUB_INTERVAL_MS tick).
+static char s_hostname_cache[33]  = {0};
+static bool s_hostname_cached     = false;
 
 // ---------------------------------------------------------------------------
 // Runtime config (NVS-persisted)
@@ -1524,10 +1533,11 @@ bb_err_t bb_pub_tick_once(void)
     uint32_t snap_interval_ms = bb_pub_get_interval_ms();
 #endif
 
-    const char *hostname = bb_nv_config_hostname();
-    if (!hostname || hostname[0] == '\0') {
-        hostname = "device";
+    if (!s_hostname_cached) {
+        bb_settings_hostname_get(s_hostname_cache, sizeof(s_hostname_cache), NULL);
+        s_hostname_cached = true;
     }
+    const char *hostname = s_hostname_cache[0] ? s_hostname_cache : "device";
 
     // Build per-source payload snapshots under the lock.
     // stack-allocate the array; source count is bounded by CONFIG_BB_PUB_MAX_SOURCES.
@@ -2003,6 +2013,9 @@ void bb_pub_test_reset(void)
     s_paused                   = false;
     s_payload_extender_count   = 0;
     s_payload_hwm_warned       = false;
+    // Force a fresh hostname read next tick (tests may re-seed bb_settings).
+    s_hostname_cached          = false;
+    memset(s_hostname_cache, 0, sizeof(s_hostname_cache));
     // Revert any injected NVS-write failure hooks to the real implementation.
     s_nv_set_u32               = bb_nv_set_u32;
     s_nv_set_u8                = bb_nv_set_u8;

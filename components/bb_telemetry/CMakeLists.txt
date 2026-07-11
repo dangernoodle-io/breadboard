@@ -4,7 +4,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/espidf/bb_telemetry/bb_telemetry_routes.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core bb_json bb_http_server
-    PRIV_REQUIRES bb_response bb_http bb_log bb_pub bb_nv)
+    PRIV_REQUIRES bb_response bb_http bb_log bb_pub bb_nv bb_settings)
 
 # bb_telemetry_routes.c is portable (no ESP-IDF-specific includes) but filed
 # under platform/espidf/ only; the host build needs it alongside the existing

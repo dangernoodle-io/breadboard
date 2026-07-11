@@ -1,7 +1,7 @@
 // Tests for bb_pub subscription filter and per-source tags.
 #include "unity.h"
 #include "bb_pub.h"
-#include "bb_nv.h"
+#include "test_hostname_seed.h"
 
 #include <string.h>
 
@@ -50,7 +50,7 @@ static void setup_test(void)
 {
     // Global setUp already calls bb_pub_test_reset().
     reset_spy();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 }
 
 // ---------------------------------------------------------------------------

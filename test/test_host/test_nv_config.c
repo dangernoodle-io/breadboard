@@ -47,59 +47,6 @@ void test_nv_config_is_provisioned_stub_returns_false(void)
     TEST_ASSERT_FALSE(provisioned);
 }
 
-void test_hostname_default_empty(void)
-{
-    bb_nv_config_init();
-    const char *hostname = bb_nv_config_hostname();
-    TEST_ASSERT_NOT_NULL(hostname);
-    TEST_ASSERT_EQUAL_STRING("", hostname);
-}
-
-void test_hostname_set_get_roundtrip(void)
-{
-    bb_nv_config_init();
-    bb_err_t err = bb_nv_config_set_hostname("tdongle-s3-1");
-    TEST_ASSERT_EQUAL_INT(BB_OK, err);
-    const char *hostname = bb_nv_config_hostname();
-    TEST_ASSERT_EQUAL_STRING("tdongle-s3-1", hostname);
-}
-
-void test_hostname_validates_charset(void)
-{
-    bb_nv_config_init();
-    bb_err_t err = bb_nv_config_set_hostname("bad host!");
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
-}
-
-void test_hostname_validates_length(void)
-{
-    bb_nv_config_init();
-    // 33 character string exceeds max of 32
-    bb_err_t err = bb_nv_config_set_hostname("012345678901234567890123456789012");
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
-}
-
-void test_hostname_rejects_leading_hyphen(void)
-{
-    bb_nv_config_init();
-    bb_err_t err = bb_nv_config_set_hostname("-foo");
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
-}
-
-void test_hostname_rejects_trailing_hyphen(void)
-{
-    bb_nv_config_init();
-    bb_err_t err = bb_nv_config_set_hostname("foo-");
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
-}
-
-void test_hostname_rejects_null(void)
-{
-    bb_nv_config_init();
-    bb_err_t err = bb_nv_config_set_hostname(NULL);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_ARG, err);
-}
-
 void test_nv_config_init_registers_bb_cfg_keys(void)
 {
     bb_manifest_clear();
@@ -116,10 +63,10 @@ void test_nv_config_init_registers_bb_cfg_keys(void)
 
     // Namespace present
     TEST_ASSERT_NOT_NULL(strstr(json, "\"namespace\":\"bb_cfg\""));
-    // All 7 keys present
+    // Remaining keys present (hostname migrated to bb_settings, B1-754 --
+    // it no longer appears in bb_nv's manifest).
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"wifi_ssid\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"wifi_pass\""));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"hostname\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"mdns_en\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"update_check_en\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"display_en\""));

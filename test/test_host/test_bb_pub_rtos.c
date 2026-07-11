@@ -3,7 +3,7 @@
 #include "unity.h"
 #include "bb_pub_rtos.h"
 #include "bb_pub.h"
-#include "bb_nv.h"
+#include "test_hostname_seed.h"
 #include "bb_task_registry.h"
 
 #include <string.h>
@@ -50,7 +50,7 @@ static void setup(void)
     bb_pub_test_reset();
     bb_task_registry_test_reset();
     rtos_capture_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
 
     // Mirrors production: bb_pub's own worker task always self-registers
     // into bb_task_registry under "bb_pub" (see the s_named[] comment in

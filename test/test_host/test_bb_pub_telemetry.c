@@ -5,6 +5,7 @@
 #include "bb_pub.h"
 #include "bb_pub_telemetry.h"
 #include "bb_nv.h"
+#include "test_hostname_seed.h"
 #include "bb_json.h"
 #include "cJSON.h"
 
@@ -50,7 +51,7 @@ static void reset_all(void)
 {
     bb_pub_telemetry_reset_for_test();
     bb_nv_host_str_store_reset();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
     s_cap_count = 0;
 }
 

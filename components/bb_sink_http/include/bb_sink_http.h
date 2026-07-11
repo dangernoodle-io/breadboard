@@ -57,7 +57,7 @@ typedef struct {
     char path_tmpl[BB_SINK_HTTP_PATH_MAX];  // path template; default if empty
     int  qos;                              // QoS value substituted into {qos}
     bool enabled;                          // when false, publish is a no-op
-    // client_id: sent as X-Client-Id header; defaults to bb_nv_config_hostname() when empty.
+    // client_id: sent as X-Client-Id header; defaults to bb_settings_hostname_get() when empty.
     char client_id[BB_SINK_HTTP_CLIENT_ID_MAX];
     bb_sink_http_header_t headers[BB_SINK_HTTP_HEADERS_MAX];
     int  num_headers;

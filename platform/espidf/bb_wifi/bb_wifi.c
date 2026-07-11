@@ -608,8 +608,9 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
     // esp_wifi_start(), so the first DHCP DISCOVER carries the configured name.
     // esp_netif_set_hostname requires the netif to exist, so this cannot run
     // earlier (in autoinit) — DHCP/mDNS otherwise fall back to "espressif".
-    const char *hn = bb_nv_config_hostname();
-    if (hn && hn[0]) {
+    char hn[33] = {0};
+    bb_settings_hostname_get(hn, sizeof(hn), NULL);
+    if (hn[0]) {
         esp_err_t hn_err = esp_netif_set_hostname(s_sta_netif, hn);
         if (hn_err != ESP_OK) {
             bb_log_w(TAG, "esp_netif_set_hostname failed (%d); continuing", (int)hn_err);

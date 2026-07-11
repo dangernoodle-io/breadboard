@@ -388,13 +388,6 @@ void test_nv_config_wifi_ssid_empty_after_init(void);
 void test_nv_config_wifi_pass_empty_after_init(void);
 void test_nv_config_display_enabled_default_true(void);
 void test_nv_config_is_provisioned_stub_returns_false(void);
-void test_hostname_default_empty(void);
-void test_hostname_set_get_roundtrip(void);
-void test_hostname_validates_charset(void);
-void test_hostname_validates_length(void);
-void test_hostname_rejects_leading_hyphen(void);
-void test_hostname_rejects_trailing_hyphen(void);
-void test_hostname_rejects_null(void);
 void test_nv_config_init_registers_bb_cfg_keys(void);
 
 // Forward declarations from test_bb_nv_factory_reset.c
@@ -627,6 +620,15 @@ void test_bb_settings_wifi_ssid_get_cap_zero_probes_length(void);
 void test_bb_settings_wifi_pass_get_truncation_reports_full_len(void);
 void test_bb_settings_wifi_ssid_get_null_out_len_still_fills_buf(void);
 void test_bb_settings_wifi_pass_get_null_out_len_still_fills_buf(void);
+void test_hostname_default_empty(void);
+void test_hostname_set_get_roundtrip(void);
+void test_hostname_set_get_roundtrip_32_char_boundary(void);
+void test_hostname_set_rejects_null(void);
+void test_hostname_set_rejects_empty(void);
+void test_hostname_set_rejects_too_long(void);
+void test_hostname_set_rejects_leading_hyphen(void);
+void test_hostname_set_rejects_trailing_hyphen(void);
+void test_hostname_set_rejects_bad_charset(void);
 
 // Forward declarations from test_nv_creds_mirror.c
 void test_nv_creds_mirror_pack_valid_roundtrip(void);
@@ -5543,13 +5545,6 @@ int main(void) {
     RUN_TEST(test_nv_config_wifi_pass_empty_after_init);
     RUN_TEST(test_nv_config_display_enabled_default_true);
     RUN_TEST(test_nv_config_is_provisioned_stub_returns_false);
-    RUN_TEST(test_hostname_default_empty);
-    RUN_TEST(test_hostname_set_get_roundtrip);
-    RUN_TEST(test_hostname_validates_charset);
-    RUN_TEST(test_hostname_validates_length);
-    RUN_TEST(test_hostname_rejects_leading_hyphen);
-    RUN_TEST(test_hostname_rejects_trailing_hyphen);
-    RUN_TEST(test_hostname_rejects_null);
     RUN_TEST(test_nv_config_init_registers_bb_cfg_keys);
 
     // NV factory reset tests (B1-260)
@@ -8126,6 +8121,15 @@ int main(void) {
     RUN_TEST(test_bb_settings_wifi_pass_get_truncation_reports_full_len);
     RUN_TEST(test_bb_settings_wifi_ssid_get_null_out_len_still_fills_buf);
     RUN_TEST(test_bb_settings_wifi_pass_get_null_out_len_still_fills_buf);
+    RUN_TEST(test_hostname_default_empty);
+    RUN_TEST(test_hostname_set_get_roundtrip);
+    RUN_TEST(test_hostname_set_get_roundtrip_32_char_boundary);
+    RUN_TEST(test_hostname_set_rejects_null);
+    RUN_TEST(test_hostname_set_rejects_empty);
+    RUN_TEST(test_hostname_set_rejects_too_long);
+    RUN_TEST(test_hostname_set_rejects_leading_hyphen);
+    RUN_TEST(test_hostname_set_rejects_trailing_hyphen);
+    RUN_TEST(test_hostname_set_rejects_bad_charset);
 
     // bb_storage_typed (get_typed/set_typed facade) tests
     RUN_TEST(test_bb_storage_get_typed_falls_back_to_get_on_ram_backend);

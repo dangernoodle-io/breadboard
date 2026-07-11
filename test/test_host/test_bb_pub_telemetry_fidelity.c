@@ -19,7 +19,7 @@
 #include "bb_pub_info.h"
 #include "bb_cache.h"
 #include "bb_json.h"
-#include "bb_nv.h"
+#include "test_hostname_seed.h"
 #include "bb_fan_test.h"
 #include "bb_power_test.h"
 #include "bb_wifi.h"
@@ -99,7 +99,7 @@ static void fid_reset(void)
 {
     bb_pub_test_reset();
     bb_cache_reset_for_test();
-    bb_nv_config_set_hostname("testhost");
+    bb_test_seed_hostname("testhost");
     s_gather_count    = 0;
     s_serialize_count = 0;
     s_sink_count      = 0;

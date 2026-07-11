@@ -14,10 +14,11 @@
 // host-safe stand-in (mirrors test_bb_storage_typed.c's fake_get/fake_set
 // pattern).
 //
-// bb_settings has no setter API -- seeding test creds goes through a
-// TEST-LOCAL bb_config_field_t pointing at the exact same addr (backend/ns/
-// key) as bb_settings.c's internal fields, so a seeded value is visible
-// through the real accessors.
+// The wifi-creds accessors have no setter API -- seeding test creds goes
+// through a TEST-LOCAL bb_config_field_t pointing at the exact same addr
+// (backend/ns/key) as bb_settings.c's internal fields, so a seeded value is
+// visible through the real accessors. hostname (B1-754) DOES have a real
+// setter (bb_settings_hostname_set) -- its tests use that directly.
 
 #define FAKE_NVS_MAX_ENTRIES 4
 #define FAKE_NVS_MAX_VALUE   128
@@ -230,4 +231,88 @@ void test_bb_settings_wifi_pass_get_null_out_len_still_fills_buf(void)
     char pass[70] = {0};
     TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_pass_get(pass, sizeof(pass), NULL));
     TEST_ASSERT_EQUAL_STRING("hunter2", pass);
+}
+
+/* ---------------------------------------------------------------------------
+ * hostname (B1-754 -- migrated from bb_nv's bb_nv_config_hostname/
+ * bb_nv_config_set_hostname). Unlike the wifi-creds fields, hostname has a
+ * real setter (bb_settings_hostname_set) that validates before persisting.
+ * ---------------------------------------------------------------------------*/
+void test_hostname_default_empty(void)
+{
+    reset_all();
+
+    char hn[40] = {0};
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_settings_hostname_get(hn, sizeof(hn), &len));
+    TEST_ASSERT_EQUAL(0, len);
+    TEST_ASSERT_EQUAL_STRING("", hn);
+}
+
+void test_hostname_set_get_roundtrip(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_OK, bb_settings_hostname_set("tdongle-s3-1"));
+
+    char hn[40] = {0};
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_settings_hostname_get(hn, sizeof(hn), &len));
+    TEST_ASSERT_EQUAL(strlen("tdongle-s3-1"), len);
+    TEST_ASSERT_EQUAL_STRING("tdongle-s3-1", hn);
+}
+
+// Boundary: exactly 32 chars (the max valid length) must round-trip
+// successfully -- max_len is buffer CAPACITY (33: 32 usable + NUL), so a
+// full-length 32-char hostname must not be rejected (regression guard for
+// an off-by-one that previously set max_len=32, one byte short).
+void test_hostname_set_get_roundtrip_32_char_boundary(void)
+{
+    reset_all();
+    const char *hn32 = "01234567890123456789012345678901"; // 32 chars
+    TEST_ASSERT_EQUAL(32, strlen(hn32));
+    TEST_ASSERT_EQUAL(BB_OK, bb_settings_hostname_set(hn32));
+
+    char hn[40] = {0};
+    size_t len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_settings_hostname_get(hn, sizeof(hn), &len));
+    TEST_ASSERT_EQUAL(32, len);
+    TEST_ASSERT_EQUAL_STRING(hn32, hn);
+}
+
+void test_hostname_set_rejects_null(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_settings_hostname_set(NULL));
+}
+
+void test_hostname_set_rejects_empty(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_settings_hostname_set(""));
+}
+
+void test_hostname_set_rejects_too_long(void)
+{
+    reset_all();
+    // 33 characters exceeds the 32-char max.
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+        bb_settings_hostname_set("012345678901234567890123456789012"));
+}
+
+void test_hostname_set_rejects_leading_hyphen(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_settings_hostname_set("-foo"));
+}
+
+void test_hostname_set_rejects_trailing_hyphen(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_settings_hostname_set("foo-"));
+}
+
+void test_hostname_set_rejects_bad_charset(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_settings_hostname_set("bad host!"));
 }

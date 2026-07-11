@@ -3,7 +3,7 @@
 #include "bb_pub.h"
 #include "bb_sink_mqtt.h"
 #include "bb_mqtt_client.h"
-#include "bb_nv.h"
+#include "test_hostname_seed.h"
 #include "bb_transport_health.h"
 
 #include <string.h>
@@ -65,7 +65,7 @@ void test_bb_sink_mqtt_returns_ok(void)
 void test_bb_sink_mqtt_tick_forwards_to_mqtt_stub(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("mqtthost");
+    bb_test_seed_hostname("mqtthost");
 
     bb_mqtt_client_t h;
     bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
@@ -102,7 +102,7 @@ void test_bb_sink_mqtt_tick_forwards_to_mqtt_stub(void)
 void test_bb_sink_mqtt_skipped_source_not_forwarded(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("mqtthost");
+    bb_test_seed_hostname("mqtthost");
 
     bb_mqtt_client_t h;
     bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
@@ -124,7 +124,7 @@ void test_bb_sink_mqtt_skipped_source_not_forwarded(void)
 void test_bb_sink_mqtt_multiple_sources_each_forwarded(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("mqtthost");
+    bb_test_seed_hostname("mqtthost");
 
     bb_mqtt_client_t h;
     bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
@@ -164,7 +164,7 @@ void test_bb_sink_mqtt_default_routes_to_live_handle(void)
 {
     // Register dynamic sink with a valid default handle; publish must reach it.
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("mqtthost");
+    bb_test_seed_hostname("mqtthost");
 
     bb_mqtt_client_t h;
     bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
@@ -194,7 +194,7 @@ void test_bb_sink_mqtt_default_suspend_is_safe_noop(void)
     // Simulate OTA suspend: set default to NULL (handle destroyed/freed).
     // publish must return an error but must NOT crash or touch the old handle.
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("mqtthost");
+    bb_test_seed_hostname("mqtthost");
 
     bb_mqtt_client_t h;
     bb_mqtt_client_cfg_t cfg = { .uri = "mqtt://localhost:1883" };
@@ -223,7 +223,7 @@ void test_bb_sink_mqtt_default_suspend_is_safe_noop(void)
 void test_bb_sink_mqtt_publish_success_reports_transport_health(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("mqtthost");
+    bb_test_seed_hostname("mqtthost");
     bb_transport_health_reset_for_test();
     bb_sink_mqtt_reset_transport_health_for_test();
 
@@ -248,7 +248,7 @@ void test_bb_sink_mqtt_publish_success_reports_transport_health(void)
 void test_bb_sink_mqtt_default_publish_failure_reports_transport_health(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("mqtthost");
+    bb_test_seed_hostname("mqtthost");
     bb_transport_health_reset_for_test();
     bb_sink_mqtt_reset_transport_health_for_test();
 
@@ -271,7 +271,7 @@ void test_bb_sink_mqtt_default_resume_routes_to_new_handle(void)
 {
     // After resume, the dynamic sink must route to the NEW handle, never the old.
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("mqtthost");
+    bb_test_seed_hostname("mqtthost");
 
     // Boot: set old handle as default.
     bb_mqtt_client_t old_h;
@@ -313,7 +313,7 @@ void test_bb_sink_mqtt_default_resume_routes_to_new_handle(void)
 void test_bb_sink_mqtt_publish_registers_transport_health_once(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("mqtthost");
+    bb_test_seed_hostname("mqtthost");
     bb_transport_health_reset_for_test();
     bb_sink_mqtt_reset_transport_health_for_test();
 
@@ -349,7 +349,7 @@ void test_bb_sink_mqtt_publish_registers_transport_health_once(void)
 void test_bb_sink_mqtt_publish_survives_transport_health_slot_exhaustion(void)
 {
     bb_pub_test_reset();
-    bb_nv_config_set_hostname("mqtthost");
+    bb_test_seed_hostname("mqtthost");
     bb_transport_health_reset_for_test();
     bb_sink_mqtt_reset_transport_health_for_test();
 

@@ -16,7 +16,6 @@
 
 #define BB_NV_KEY_WIFI_SSID         "wifi_ssid"
 #define BB_NV_KEY_WIFI_PASS         "wifi_pass"
-#define BB_NV_KEY_HOSTNAME          "hostname"
 #define BB_NV_KEY_TIMEZONE          "timezone"
 #define BB_NV_KEY_MDNS_EN           "mdns_en"
 #define BB_NV_KEY_UPDATE_CHECK_EN   "update_check_en"
@@ -59,15 +58,6 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
         .desc             = "WiFi password",
         .reboot_required  = true,
         .provisioning_only = true,
-    },
-    {
-        .key              = BB_NV_KEY_HOSTNAME,
-        .type             = "str",
-        .default_         = NULL,
-        .max_len          = 32,
-        .desc             = "Network hostname (DHCP + mDNS)",
-        .reboot_required  = true,
-        .provisioning_only = false,
     },
     {
         .key              = BB_NV_KEY_TIMEZONE,
@@ -121,7 +111,6 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
 static struct {
     char wifi_ssid[32];
     char wifi_pass[64];
-    char hostname[33];
     char timezone[BB_NV_TIMEZONE_MAX_LEN];
     uint8_t display_en;
     uint8_t mdns_en;
@@ -137,24 +126,6 @@ static struct {
     char pass[64]; /* BB_WIFI_PENDING_PASS_MAX+1 */
 } s_pending;
 #endif
-
-// RFC 1123 / 952: letters, digits, hyphens; first/last cannot be hyphen;
-// length 1..32. Tolerant of mixed case (DHCP / mDNS treat case-insensitively).
-static bool nv_valid_hostname(const char *s)
-{
-    if (!s) return false;
-    size_t len = strlen(s);
-    if (len == 0 || len > 32) return false;
-    if (s[0] == '-' || s[len - 1] == '-') return false;
-    for (size_t i = 0; i < len; i++) {
-        char c = s[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-              (c >= '0' && c <= '9') || c == '-')) {
-            return false;
-        }
-    }
-    return true;
-}
 
 // Helper to load a string from NVS with fallback (ESP only)
 #ifdef ESP_PLATFORM
@@ -214,7 +185,6 @@ bb_err_t bb_nv_config_init(void)
 
     load_str(handle, BB_NV_KEY_WIFI_SSID, s_config.wifi_ssid, sizeof(s_config.wifi_ssid), "");
     load_str(handle, BB_NV_KEY_WIFI_PASS, s_config.wifi_pass, sizeof(s_config.wifi_pass), "");
-    load_str(handle, BB_NV_KEY_HOSTNAME, s_config.hostname, sizeof(s_config.hostname), "");
     load_str(handle, BB_NV_KEY_TIMEZONE, s_config.timezone, sizeof(s_config.timezone), "");
 
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
@@ -499,15 +469,6 @@ bb_err_t bb_nv_config_clear_wifi_pending(void)
     if (err == BB_OK) {
         memset(&s_pending, 0, sizeof(s_pending));
     }
-    return err;
-}
-
-bb_err_t bb_nv_config_set_hostname(const char *hostname)
-{
-    if (!hostname) return BB_ERR_INVALID_ARG;
-    if (!nv_valid_hostname(hostname)) return BB_ERR_INVALID_ARG;
-    bb_err_t err = nv_config_set_str(BB_NV_KEY_HOSTNAME, hostname);
-    if (err == BB_OK) bb_strlcpy(s_config.hostname, hostname, sizeof(s_config.hostname));
     return err;
 }
 
@@ -998,14 +959,6 @@ bb_err_t bb_nv_batch_commit(bb_nv_batch_t *batch)
 
 // Host implementations of ESP-only setters (non-ESP)
 #ifndef ESP_PLATFORM
-bb_err_t bb_nv_config_set_hostname(const char *hostname)
-{
-    if (!hostname) return BB_ERR_INVALID_ARG;
-    if (!nv_valid_hostname(hostname)) return BB_ERR_INVALID_ARG;
-    bb_strlcpy(s_config.hostname, hostname, sizeof(s_config.hostname));
-    return BB_OK;
-}
-
 static bool s_force_set_update_check_fail = false;
 void bb_nv_config_host_force_set_update_check_fail(bool fail)
 {
@@ -1037,7 +990,17 @@ bb_err_t bb_nv_config_factory_reset(void)
 {
     /* Host implementation: clear in-memory config to defaults. No NVS or RTC
      * mirror exists on host, so we just zero the cache. This lets host tests
-     * assert that factory reset clears credentials and resets flag state. */
+     * assert that factory reset clears credentials and resets flag state.
+     *
+     * hostname (and, longer-term, the wifi creds still read below) now live
+     * in bb_settings' storage layer, not s_config. On real hardware,
+     * bb_nv_config_factory_reset() (ESP_PLATFORM branch) erases the WHOLE
+     * "bb_cfg" NVS partition via nvs_flash_erase(), which correctly wipes
+     * bb_settings' hostname/wifi-cred keys too since they share that
+     * namespace -- device behavior is correct there. This host stub only
+     * zeroes bb_nv's own legacy s_config, so it does NOT clear a
+     * host-seeded bb_settings hostname; factory-reset ownership for
+     * bb_settings-owned fields is pending migration out of bb_nv. */
     memset(&s_config, 0, sizeof(s_config));
     s_config.display_en = 1;
     s_config.mdns_en = 1;
@@ -1048,7 +1011,6 @@ bb_err_t bb_nv_config_factory_reset(void)
 
 const char *bb_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }
 const char *bb_nv_config_wifi_pass(void) { return s_config.wifi_pass; }
-const char *bb_nv_config_hostname(void) { return s_config.hostname; }
 const char *bb_nv_config_timezone(void) { return s_config.timezone; }
 bool bb_nv_config_display_enabled(void) { return s_config.display_en != 0; }
 bool bb_nv_config_mdns_enabled(void) { return s_config.mdns_en != 0; }
