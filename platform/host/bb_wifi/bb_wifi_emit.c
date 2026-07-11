@@ -21,8 +21,8 @@
 
 #include <string.h>
 
-// bb_wifi_internal_ota_validated / bb_wifi_net_event_invoke are also
-// declared (as the private accessors wifi_reconn.c and bb_wifi.c use) in
+// bb_wifi_internal_ota_validated / bb_wifi_emit_invoke are also declared (as
+// the private accessors wifi_reconn.c and bb_wifi.c use) in
 // platform/espidf/bb_wifi/wifi_reconn.h
 // -- not #included here since that directory isn't on this file's include
 // path in the host (PlatformIO) build; the BB_CALLBACK_SLOT_* macro
@@ -47,19 +47,10 @@
 BB_CALLBACK_SLOT_RET(ota_validated, bb_wifi_ota_validated_fn, bool,
                      bb_wifi_set_ota_validated_cb, bb_wifi_internal_ota_validated, true)
 
-// Net-event sink (bb_wifi.h bb_wifi_set_net_event_sink, KB 781 PR4-core).
-// The generated invoke, bb_wifi_net_event_invoke (wifi_reconn.h), is called
-// from bb_wifi.c's event_handler at the three STA lifecycle edges
-// (got_ip/disconnect/lost_ip). Null-safe no-op if unset.
-BB_CALLBACK_SLOT_VOID(net_event, bb_wifi_net_event_fn,
-                      bb_wifi_set_net_event_sink, bb_wifi_net_event_invoke,
-                      (bb_wifi_net_event_t evt, bb_wifi_disc_reason_t reason),
-                      (evt, reason))
-
 // Generic emit sink (bb_wifi.h bb_wifi_set_emit, PR3 bus-shaping). Bus-
 // shaped (bb_emit_fn, bb_core/bb_emit.h): (topic, id, payload, size), no
-// bb_event types. Independent single slot from net_event above -- both fire
-// at the same three edges via bb_wifi_publish_net_event below. The
+// bb_event types. Fires at the three STA lifecycle edges
+// (got_ip/disconnect/lost_ip) via bb_wifi_publish_net_event below. The
 // generated invoke, bb_wifi_emit_invoke (wifi_reconn.h), is private to this
 // component. Null-safe no-op if unset.
 BB_CALLBACK_SLOT_VOID(emit, bb_emit_fn, bb_wifi_set_emit, bb_wifi_emit_invoke,
@@ -68,8 +59,8 @@ BB_CALLBACK_SLOT_VOID(emit, bb_emit_fn, bb_wifi_set_emit, bb_wifi_emit_invoke,
 
 // Build the wifi.net payload (bb_wifi_event_payload_build) and fire it on
 // the generic emit slot (bb_wifi_emit_invoke). `reason` is HANDED IN by the
-// caller -- never read back via bb_wifi_get_disconnect() -- same staleness
-// race the typed net_event seam documents (bb_wifi_net_event_fn, bb_wifi.h).
+// caller -- never read back via bb_wifi_get_disconnect() -- see the
+// staleness race documented on bb_wifi_net_event_t in bb_wifi.h.
 // ip is fetched here (not passed in) via bb_wifi_get_ip_str, whose return
 // MUST be checked -- on failure (netif down) it writes the literal
 // "0.0.0.0" sentinel AND returns an error, so a bare truthiness check on
