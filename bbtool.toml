@@ -87,6 +87,16 @@ severity = "warn"
 # conversions outside bb_clock.c/bb_clock.h and bb_timer/.
 allow = []
 
+[lint.rules.emit-seam-unwired-subscriber]
+severity = "error"
+# Allowlist: two granularities --
+#   "examples/<name>/main" app paths that intentionally link an emit-seam
+#   publisher and a subscriber of its topic without wiring them (e.g. the
+#   subscriber genuinely doesn't need this topic in that app), or the finer
+#   "examples/<name>/main:<setter>" key to suppress just one seam's setter
+#   for that app.
+allow = []
+
 [docs]
 repo_url = "https://github.com/dangernoodle-io/breadboard"
 wiki_base = "https://github.com/dangernoodle-io/breadboard/wiki"

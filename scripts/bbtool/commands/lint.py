@@ -10,6 +10,8 @@ from typing import List, Optional
 from core import Context
 from registry import Rule, RULES
 from cmake_parse import parse_requires, ConditionalSetError
+from boards import discover_components, ManifestError
+from composition import resolve_composition
 
 NAME = "lint"
 HELP = "Run source lint checks"
@@ -1462,6 +1464,220 @@ def _check_raw_timestamp_divide(ctx: Context) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Rule: emit-seam-unwired-subscriber (B1-740)
+# ---------------------------------------------------------------------------
+
+# Pass A: BB_CALLBACK_SLOT_VOID(slot, bb_emit_fn, setter, invoke, ...) --
+# matches on the bb_emit_fn callback TYPE specifically (not a *_set_emit
+# name heuristic), so it's generic over any emit-seam instantiation, not
+# just bb_wifi's.
+_EMIT_SEAM_SLOT_RE = re.compile(
+    r'\bBB_CALLBACK_SLOT_VOID\s*\(\s*\w+\s*,\s*bb_emit_fn\s*,\s*(\w+)\s*,\s*(\w+)\s*,'
+)
+
+_EVENT_SUBSCRIBE_RE = re.compile(r'\bbb_event_subscribe\s*\(')
+
+
+def _emit_seam_owner_from_path(root: Path, path: Path) -> Optional[str]:
+    """Derive the owning component name from a source path, mirroring
+    boards.discover_components: components/<name>/... -> name;
+    platform/<plat>/<name>/... -> name."""
+    parts = path.relative_to(root).parts
+    if parts[0] == "components" and len(parts) >= 2:
+        return parts[1]
+    if parts[0] == "platform" and len(parts) >= 3:
+        return parts[2]
+    return None
+
+
+def _emit_seam_invoke_topic(content: str, invoke: str) -> Optional[str]:
+    """Pass B: find the topic token passed as the invoke fn's first arg in
+    the same file (string literal or ALL_CAPS macro).
+
+    Assumption: one topic per seam per file -- `re.search` returns only the
+    FIRST invoke call-site's topic. A seam whose invoke fires with different
+    topics from multiple call sites in the same file would be under-checked
+    (no current seam does this; not handled)."""
+    m = re.search(
+        re.escape(invoke) + r'\s*\(\s*([A-Z_][A-Z0-9_]*|"[^"]*")', content
+    )
+    return m.group(1) if m else None
+
+
+def _discover_emit_seams(ctx: Context) -> list:
+    """Pass A+B, repo-wide: every emit-seam publisher (BB_CALLBACK_SLOT_VOID
+    over a bb_emit_fn slot) plus the topic token its invoke fn publishes.
+    Returns [{owner, setter, invoke, topic, path}, ...]."""
+    root = Path(ctx.root)
+    seams = []
+    for path in ctx.files(
+        ["components/**/*.c", "platform/**/*.c"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+        content = ctx.read(path)
+        for m in _EMIT_SEAM_SLOT_RE.finditer(content):
+            setter, invoke = m.group(1), m.group(2)
+            owner = _emit_seam_owner_from_path(root, path)
+            if owner is None:
+                continue
+            topic = _emit_seam_invoke_topic(content, invoke)
+            if topic is None:
+                continue
+            seams.append({
+                "owner": owner, "setter": setter, "invoke": invoke,
+                "topic": topic, "path": path,
+            })
+    return seams
+
+
+def _emit_seam_topic_re(topic: str) -> re.Pattern:
+    """Compile a co-occurrence pattern for one topic token. A bare ALL_CAPS
+    macro token is \\b-anchored (a raw substring check would false-match a
+    longer identifier containing it, e.g. FOO_TOPIC inside FOO_TOPIC_EXTRA);
+    a quoted string-literal token is already self-anchored by its quotes, so
+    it's matched as a literal substring."""
+    if topic.startswith('"'):
+        return re.compile(re.escape(topic))
+    return re.compile(r'\b' + re.escape(topic) + r'\b')
+
+
+def _discover_emit_seam_subscribers(ctx: Context, topics: set) -> dict:
+    """Pass C: same-file co-occurrence -- a file containing BOTH a target
+    topic token AND a bb_event_subscribe( call is a subscriber of that
+    topic (not a literal-arg match: real subscribers resolve the topic via
+    a local var, e.g. bb_mdns.c/bb_mqtt_client_espidf.c). Returns
+    {topic: {owner, ...}}."""
+    root = Path(ctx.root)
+    result: dict = {t: set() for t in topics}
+    topic_res = {t: _emit_seam_topic_re(t) for t in topics}
+    for path in ctx.files(
+        ["components/**/*.c", "platform/**/*.c"],
+        exclude_dirs=[".pio", ".claude"],
+    ):
+        parts = path.relative_to(root).parts
+        if "test" in parts:
+            continue
+        content = ctx.read(path)
+        if not _EVENT_SUBSCRIBE_RE.search(content):
+            continue
+        owner = _emit_seam_owner_from_path(root, path)
+        if owner is None:
+            continue
+        for topic, topic_re in topic_res.items():
+            if topic_re.search(content):
+                result[topic].add(owner)
+    return result
+
+
+def _check_emit_seam_unwired_subscriber(ctx: Context) -> list:
+    """Rule: emit-seam-unwired-subscriber -- for every emit-seam publisher
+    (a `BB_CALLBACK_SLOT_VOID(slot, bb_emit_fn, setter, invoke, ...)`
+    instantiation) whose published topic has a same-file co-occurring
+    `bb_event_subscribe(` consumer, flag any app composition root
+    (`examples/*/main/CMakeLists.txt`) whose transitive closure includes
+    BOTH the seam's owning component and the subscriber's owning component,
+    but never calls the seam's setter anywhere under that app's main/ tree
+    -- i.e. the app links a publisher and a subscriber of the same topic
+    but never actually wires them together (codegen and handwire are the
+    only sanctioned composition paths; this seam wiring is neither, it's a
+    third, easy-to-forget manual step).
+
+    Generic over the emit-seam pattern (any bb_emit_fn slot) -- wifi.net/
+    bb_wifi is just the first live instance (B1-740, under EPIC B1-742)."""
+    violations = []
+    root = Path(ctx.root)
+
+    rule_cfg = ctx.config.get("lint", {}).get("rules", {}).get(
+        "emit-seam-unwired-subscriber", {}
+    )
+    allowlist: set = set(rule_cfg.get("allow", []))
+
+    seams = _discover_emit_seams(ctx)
+    if not seams:
+        return violations
+
+    topics = {s["topic"] for s in seams}
+    subscribers_by_topic = _discover_emit_seam_subscribers(ctx, topics)
+
+    universe = discover_components(root)
+
+    for cmake_path in sorted(root.glob("examples/*/main/CMakeLists.txt")):
+        app_dir = cmake_path.parent  # examples/<name>/main
+        app_name = cmake_path.parts[-3]
+        rel_app = str(app_dir.relative_to(root))
+        if rel_app in allowlist:
+            continue
+
+        content = ctx.read(cmake_path)
+        try:
+            requires, priv_requires = parse_requires(content, component=app_name)
+        except ConditionalSetError as e:
+            print(
+                f"bbtool lint emit-seam-unwired-subscriber: skipping "
+                f"{rel_app}: {e}",
+                file=sys.stderr,
+            )
+            continue
+
+        names = sorted({n for n in (requires + priv_requires) if n in universe})
+        if not names:
+            continue
+
+        try:
+            closure = set(resolve_composition(str(root), names, platform="espidf"))
+        except ManifestError:
+            continue
+        except ConditionalSetError as e:
+            # A transitively-visited DEPENDENCY component's own CMakeLists.txt
+            # (not the app's, already guarded above) has a conditionally-set()
+            # REQUIRES/PRIV_REQUIRES var (boards.derive_component ->
+            # cmake_parse.parse_requires) -- skip this app the same way,
+            # rather than letting it propagate uncaught out of the rule and
+            # abort the whole lint run (lint.py's rule runner has no
+            # try/except around rule.check(ctx)).
+            print(
+                f"bbtool lint emit-seam-unwired-subscriber: skipping "
+                f"{rel_app}: {e}",
+                file=sys.stderr,
+            )
+            continue
+
+        app_src_parts = []
+        for suffix in ("*.c", "*.cpp", "*.h"):
+            for src_path in app_dir.rglob(suffix):
+                if src_path.is_file():
+                    app_src_parts.append(_strip_noise(ctx.read(src_path)))
+        app_src = "\n".join(app_src_parts)
+
+        for seam in seams:
+            if seam["owner"] not in closure:
+                continue
+            wired_subscribers = subscribers_by_topic.get(seam["topic"], set()) & closure
+            if not wired_subscribers:
+                continue
+            setter_re = re.compile(r'\b' + re.escape(seam["setter"]) + r'\s*\(')
+            if setter_re.search(app_src):
+                continue
+            key = f"{rel_app}:{seam['setter']}"
+            if key in allowlist:
+                continue
+            subs_str = ", ".join(sorted(wired_subscribers))
+            violations.append(ctx.violation(
+                cmake_path, 1,
+                f"{seam['owner']} emit-seam (topic {seam['topic']}) has "
+                f"subscriber(s) [{subs_str}] in {app_name}'s composition, but "
+                f"{seam['setter']}(...) is never called under {rel_app} -- "
+                "add a handwire (see examples/smoke/main/entry_espidf.c:69) "
+                f"or allowlist {rel_app} if intentional",
+            ))
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Rule registry
 # ---------------------------------------------------------------------------
 
@@ -1624,6 +1840,16 @@ def _register_lint_rules() -> None:
             hint="use bb_clock_now_ms64()/bb_clock_now_ms() instead of raw"
                  " esp_timer_get_time()/1000 or bb_timer_now_us()/1000"
                  " outside bb_clock/ and bb_timer/",
+        ),
+        Rule(
+            id="emit-seam-unwired-subscriber",
+            default_severity="error",
+            profiles={"all"},
+            check=_check_emit_seam_unwired_subscriber,
+            hint="an app links a bb_emit_fn seam publisher and a subscriber of"
+                 " its topic but never calls the seam's setter -- add a"
+                 " handwire (see examples/smoke/main/entry_espidf.c:69) or"
+                 " allowlist the app",
         ),
     ]
     for rule in rules:
