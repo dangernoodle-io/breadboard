@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from wire_parse import InitEntry, ParseError, parse_markers
+from wire_parse import InitEntry, ParseError, ProvidesEntry, parse_markers, parse_provides_markers
 
 
 class TestSingleMarker(unittest.TestCase):
@@ -111,6 +111,87 @@ class TestMalformed(unittest.TestCase):
             self.fail("expected ParseError")
         except ParseError as e:
             self.assertIn("bb_x.h:3", str(e))
+
+
+class TestConsumes(unittest.TestCase):
+    def test_consumes_parses_onto_init_entry(self):
+        text = "// bbtool:init tier=early fn=bb_example_set_emit consumes=demo_sink\n"
+        e = parse_markers(text)[0]
+        self.assertEqual(e.consumes, "demo_sink")
+
+    def test_no_consumes_defaults_to_none(self):
+        text = "// bbtool:init tier=early fn=bb_x_init\n"
+        e = parse_markers(text)[0]
+        self.assertIsNone(e.consumes)
+
+    def test_consumes_and_server_together_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_markers(
+                "// bbtool:init tier=regular fn=bb_x_set consumes=demo_sink server=true\n"
+            )
+
+    def test_consumes_with_comma_is_error(self):
+        """Grammar supports only a single consumes key — unlike provides=/
+        requires=, it is not a csv list. A comma is a likely typo and must
+        raise, not silently soft-skip as a literal 'a,b' key that never
+        matches."""
+        with self.assertRaises(ParseError):
+            parse_markers("// bbtool:init tier=early fn=bb_x_set consumes=a,b\n")
+
+
+class TestProvidesMarker(unittest.TestCase):
+    def test_minimal_provides_marker(self):
+        text = "// bbtool:provides key=demo_sink symbol=bb_example_emit\n"
+        entries = parse_provides_markers(text, src_file="bb_example.h")
+        self.assertEqual(len(entries), 1)
+        e = entries[0]
+        self.assertIsInstance(e, ProvidesEntry)
+        self.assertEqual(e.key, "demo_sink")
+        self.assertEqual(e.symbol, "bb_example_emit")
+        self.assertEqual(e.src_file, "bb_example.h")
+        self.assertEqual(e.src_line, 1)
+
+    def test_provides_marker_key_order_is_free(self):
+        text = "// bbtool:provides symbol=bb_example_emit key=demo_sink\n"
+        e = parse_provides_markers(text)[0]
+        self.assertEqual(e.key, "demo_sink")
+        self.assertEqual(e.symbol, "bb_example_emit")
+
+    def test_provides_marker_never_seen_by_init_parser(self):
+        text = "// bbtool:provides key=demo_sink symbol=bb_example_emit\n"
+        self.assertEqual(parse_markers(text), [])
+
+    def test_init_marker_never_seen_by_provides_parser(self):
+        text = "// bbtool:init tier=early fn=bb_x_init\n"
+        self.assertEqual(parse_provides_markers(text), [])
+
+    def test_missing_key_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_provides_markers("// bbtool:provides symbol=bb_example_emit\n")
+
+    def test_missing_symbol_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_provides_markers("// bbtool:provides key=demo_sink\n")
+
+    def test_unknown_token_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_provides_markers(
+                "// bbtool:provides key=demo_sink symbol=bb_example_emit bogus=1\n"
+            )
+
+    def test_malformed_token_without_equals_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_provides_markers("// bbtool:provides key=demo_sink garbage\n")
+
+    def test_duplicate_key_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_provides_markers(
+                "// bbtool:provides key=demo_sink key=other symbol=bb_example_emit\n"
+            )
+
+    def test_empty_marker_is_error(self):
+        with self.assertRaises(ParseError):
+            parse_provides_markers("// bbtool:provides\n")
 
 
 if __name__ == "__main__":

@@ -45,15 +45,27 @@ limitation of grep-time codegen (no type information, no runtime check
 inserted); a NULL http handle surfaces as a runtime crash/assert in the
 `server=true` consumer instead of a codegen-time error.
 
+Setter-injection (`consumes=`/`// bbtool:provides`) path — a SECOND, parallel
+emission mechanism, deliberately not folded into the http_server path above:
+an entry marked `consumes=<key>` is a void-returning setter; if a `//
+bbtool:provides key=<key> symbol=<symbol>` declaration for that key is also
+present in the resolved composition, `render_source` emits a plain
+`{fn}({symbol});` call (no `bb_err_t`/`bb_app_rc` wrapper — setters return
+void) in place of that entry's normal tier call. If no matching provider is
+in the resolved set, the entry is silently dropped — this conditionality
+(present iff both provider and consumer are composed) is the whole point,
+mirrors `requires=`'s edge concept but with soft- rather than hard-failure
+semantics, and adds no new tier/phase.
+
 DEFERRED (do not implement here): a PlatformIO pre-build hook wiring this in
 automatically; a lint rule that validates marker hygiene.
 """
 from __future__ import annotations
 import glob
 import os
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
-from wire_parse import InitEntry, parse_markers
+from wire_parse import InitEntry, ProvidesEntry, parse_markers, parse_provides_markers
 
 DEFAULT_OUT_REL = os.path.join("main", "generated", "bb_app_init.c")
 
@@ -112,6 +124,23 @@ def collect_entries(root: str, components: List[str], platform: str) -> List[Ini
     return entries
 
 
+def collect_provides_entries(root: str, components: List[str], platform: str) -> List[ProvidesEntry]:
+    """Grep every resolved component's public header(s) for `// bbtool:provides`
+    declaration markers, same walk order as `collect_entries` (irrelevant here
+    since these are unordered key->symbol declarations, never tier-sorted).
+    A SECOND, parallel collector alongside `collect_entries` — never merged
+    into its InitEntry return, since these records never enter the tier
+    loop."""
+    entries: List[ProvidesEntry] = []
+    for name in components:
+        for rel_header in _component_headers(root, name, platform):
+            abs_header = os.path.join(root, rel_header)
+            with open(abs_header, encoding="utf-8") as f:
+                text = f.read()
+            entries.extend(parse_provides_markers(text, src_file=rel_header))
+    return entries
+
+
 # ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
@@ -133,9 +162,69 @@ def _emit_call(entry: InitEntry, handle_var: str = None) -> str:
     )
 
 
-def render_source(ordered: List[InitEntry]) -> str:
+def _value_providers(provides_records: List[ProvidesEntry]) -> Dict[str, str]:
+    """key -> symbol map from `// bbtool:provides` declarations. No closure
+    filter is applied here: `provides_records` (from `collect_provides_entries`)
+    only ever contains records grepped from already-resolved-composition
+    headers, so every record is already guaranteed to be in the closure.
+
+    Raises WireError if two records in the resolved set declare the same
+    `key` — mirrors the http_server path's "at most one provider" check
+    above: silently last-wins would let a stale/duplicate marker wire the
+    wrong setter, surfacing only as a runtime mismatch. This holds even for
+    an identical key+identical symbol pair — a duplicate declaration is
+    still a hard error, not deduplicated, since the simplest correct
+    behavior is to always reject ambiguity rather than special-case an
+    accidental duplicate as harmless."""
+    value_providers: Dict[str, str] = {}
+    declared_by: Dict[str, ProvidesEntry] = {}
+    for rec in provides_records:
+        existing = declared_by.get(rec.key)
+        if existing is not None:
+            raise WireError(
+                f"more than one '// bbtool:provides' declares key '{rec.key}' "
+                f"({existing.src_file}:{existing.src_line} symbol={existing.symbol}, "
+                f"{rec.src_file}:{rec.src_line} symbol={rec.symbol}) — exactly one "
+                f"is required"
+            )
+        declared_by[rec.key] = rec
+        value_providers[rec.key] = rec.symbol
+    return value_providers
+
+
+def _emit_consumes_call(entry: InitEntry, value_providers: Dict[str, str]) -> str:
+    """Setter-injection emission for an entry with `consumes` set: a plain
+    void-shaped `{fn}({symbol});` call (never the `bb_err_t`/`bb_app_rc`
+    wrapper `_emit_call` uses — setters return void). Empty string (soft-skip,
+    never an error) if no matching `// bbtool:provides` declaration is in the
+    resolved composition."""
+    symbol = value_providers.get(entry.consumes)
+    if symbol is None:
+        return ""
+    return f"    {entry.fn}({symbol});\n"
+
+
+def _emit_entry(entry: InitEntry, value_providers: Dict[str, str], handle_var: str = None) -> str:
+    """Dispatch a single tier entry to its emission path: `consumes=` entries
+    go through the setter-injection path (never `_emit_call`'s bb_err_t
+    convention); every other entry is unaffected, byte-for-byte the same as
+    before this path existed."""
+    if entry.consumes:
+        return _emit_consumes_call(entry, value_providers)
+    return _emit_call(entry, handle_var)
+
+
+def render_source(ordered: List[InitEntry], provides_entries: List[ProvidesEntry] = ()) -> str:
     """Render bb_app_init.c from a fully tier-ordered entry list (as returned
-    by wire_graph.topo_sort).
+    by wire_graph.topo_sort). `provides_entries` (from
+    `collect_provides_entries`) feeds the SECOND, parallel setter-injection
+    emission path (see module docstring): any entry with `consumes` set is
+    dispatched through `_emit_entry` to `_emit_consumes_call` instead of the
+    normal `_emit_call` bb_err_t convention — present iff a matching `//
+    bbtool:provides` declaration is in `provides_entries`, silently dropped
+    otherwise. Defaults to `()` (no consumes entries resolve), so callers
+    that don't pass it get byte-identical output to before this path
+    existed.
 
     Raises WireError if:
       - more than one entry in the resolved set provides `http_server`
@@ -179,6 +268,8 @@ def render_source(ordered: List[InitEntry]) -> str:
             f"resolved set provides '{HTTP_SERVER_PROVIDES_KEY}'"
         )
 
+    value_providers = _value_providers(list(provides_entries))
+
     headers = _headers_for(ordered)
     include_lines = "\n".join(f'#include "{h.split("/")[-1]}"' for h in headers)
 
@@ -196,13 +287,17 @@ def render_source(ordered: List[InitEntry]) -> str:
         "",
     ]
     for e in early:
-        lines.append(_emit_call(e))
+        text = _emit_entry(e, value_providers)
+        if text:
+            lines.append(text)
     lines += ["    return bb_app_first_err;", "}", "", "bb_err_t bb_app_init_rest(void)", "{"]
     lines += ["    bb_err_t bb_app_first_err = BB_OK;", "    bb_err_t bb_app_rc;", ""]
 
     pre_http_no_server = [e for e in pre_http if e is not server_entry]
     for e in pre_http_no_server:
-        lines.append(_emit_call(e))
+        text = _emit_entry(e, value_providers)
+        if text:
+            lines.append(text)
 
     handle_var = None
     if has_server:
@@ -211,7 +306,9 @@ def render_source(ordered: List[InitEntry]) -> str:
         lines.append("")
 
     for e in regular:
-        lines.append(_emit_call(e, handle_var))
+        text = _emit_entry(e, value_providers, handle_var)
+        if text:
+            lines.append(text)
 
     lines += ["    return bb_app_first_err;", "}", ""]
     lines += [

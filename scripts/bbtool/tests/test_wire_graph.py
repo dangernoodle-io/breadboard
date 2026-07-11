@@ -11,11 +11,11 @@ from wire_parse import InitEntry
 
 
 def entry(tier, fn, order=None, server=False, provides=(), requires=(),
-          src_file="fake.h", src_line=1):
+          consumes=None, src_file="fake.h", src_line=1):
     return InitEntry(
         tier=tier, fn=fn, order=order, server=server,
         provides=tuple(provides), requires=tuple(requires),
-        src_file=src_file, src_line=src_line,
+        consumes=consumes, src_file=src_file, src_line=src_line,
     )
 
 
@@ -90,6 +90,20 @@ class TestTieBreak(unittest.TestCase):
         ]
         ordered = topo_sort(entries)
         self.assertEqual([e.fn for e in ordered], ["has_order", "no_order"])
+
+
+class TestConsumesNoSpecialOrdering(unittest.TestCase):
+    def test_consumes_entry_sorts_by_order_and_parse_order_like_any_entry(self):
+        """A `consumes=` entry carries no requires/provides edge — it sorts
+        purely by (order, parse-order), same as an ordinary entry. Locks the
+        design decision that setter-injection adds no new ordering/tier
+        mechanism."""
+        entries = [
+            entry("early", "second", order=2, consumes="demo_sink"),
+            entry("early", "first", order=1),
+        ]
+        ordered = topo_sort(entries)
+        self.assertEqual([e.fn for e in ordered], ["first", "second"])
 
 
 class TestCycle(unittest.TestCase):

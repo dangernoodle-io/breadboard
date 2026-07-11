@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "commands"))
 
-from commands.wire import WireError, collect_entries, render_source
+from commands.wire import WireError, collect_entries, collect_provides_entries, render_source
 from wire_graph import topo_sort
 
 
@@ -62,6 +62,29 @@ def _fixture_root_with_http(tmp: str) -> Path:
         "bb_err_t bb_routes_register(bb_http_handle_t server);\n",
         requires=["bb_http"],
     )
+    return root
+
+
+def _fixture_root_with_consumes(tmp: str, provider: bool, consumer: bool) -> Path:
+    """A fake provider (`// bbtool:provides key=demo_sink symbol=bb_example_emit`)
+    and/or a fake consumer (`// bbtool:init tier=early fn=bb_example_set_emit
+    consumes=demo_sink`), independent of the bb_log/bb_http fixtures above so
+    the two paths can never interact."""
+    root = Path(tmp)
+    if provider:
+        _make_component(
+            root, "bb_example_provider",
+            "#pragma once\n"
+            "// bbtool:provides key=demo_sink symbol=bb_example_emit\n"
+            "void bb_example_emit(int event);\n",
+        )
+    if consumer:
+        _make_component(
+            root, "bb_example_consumer",
+            "#pragma once\n"
+            "// bbtool:init tier=early fn=bb_example_set_emit consumes=demo_sink\n"
+            "void bb_example_set_emit(void (*emit)(int));\n",
+        )
     return root
 
 
@@ -147,6 +170,79 @@ class TestRenderSource(unittest.TestCase):
             ordered = topo_sort(entries)
             with self.assertRaises(WireError):
                 render_source(ordered)
+
+    def test_unchanged_http_fixtures_still_pass_with_default_provides(self):
+        """Zero-regression guard: the http_server fixture cases must produce
+        identical output whether or not `provides_entries` is passed at all
+        (the default `()` must be indistinguishable from omitting it)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            ordered = topo_sort(entries)
+            self.assertEqual(render_source(ordered), render_source(ordered, []))
+
+
+class TestConsumesSetterInjection(unittest.TestCase):
+    def test_provider_and_consumer_both_composed_emits_setter_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_consumes(tmp, provider=True, consumer=True)
+            components = ["bb_example_provider", "bb_example_consumer"]
+            entries = collect_entries(str(root), components, "espidf")
+            provides = collect_provides_entries(str(root), components, "espidf")
+            source = render_source(topo_sort(entries), provides)
+            self.assertIn("bb_example_set_emit(bb_example_emit);", source)
+            # never routed through the bb_err_t convention
+            self.assertNotIn("bb_app_rc = bb_example_set_emit", source)
+
+    def test_only_consumer_composed_drops_entry_silently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_consumes(tmp, provider=False, consumer=True)
+            components = ["bb_example_consumer"]
+            entries = collect_entries(str(root), components, "espidf")
+            provides = collect_provides_entries(str(root), components, "espidf")
+            source = render_source(topo_sort(entries), provides)
+            self.assertNotIn("bb_example_set_emit(", source)
+
+    def test_only_provider_composed_is_unused_without_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_consumes(tmp, provider=True, consumer=False)
+            components = ["bb_example_provider"]
+            entries = collect_entries(str(root), components, "espidf")
+            provides = collect_provides_entries(str(root), components, "espidf")
+            source = render_source(topo_sort(entries), provides)
+            self.assertNotIn("bb_example_emit(", source)
+
+    def test_duplicate_provides_key_raises(self):
+        """Two composed components both declaring `key=demo_sink` (with
+        different symbols) must be a hard WireError, mirroring the
+        http_server path's "at most one provider" check -- never a silent
+        last-wins that could wire the wrong setter."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_consumes(tmp, provider=True, consumer=True)
+            _make_component(
+                root, "bb_example_provider2",
+                "#pragma once\n"
+                "// bbtool:provides key=demo_sink symbol=bb_example2_emit\n"
+                "void bb_example2_emit(int event);\n",
+            )
+            components = ["bb_example_provider", "bb_example_provider2", "bb_example_consumer"]
+            entries = collect_entries(str(root), components, "espidf")
+            provides = collect_provides_entries(str(root), components, "espidf")
+            with self.assertRaises(WireError) as ctx:
+                render_source(topo_sort(entries), provides)
+            self.assertIn("demo_sink", str(ctx.exception))
+
+    def test_http_server_fixtures_unchanged_by_consumes_path(self):
+        """Re-run of the pre-existing http_server assertions, byte-for-byte,
+        to prove the setter-injection path adds nothing to that output."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root_with_http(tmp)
+            entries = collect_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            provides = collect_provides_entries(str(root), ["bb_log", "bb_http", "bb_routes"], "espidf")
+            self.assertEqual(provides, [])
+            source = render_source(topo_sort(entries), provides)
+            self.assertIn("__auto_type bb_app_http_handle = bb_http_start();", source)
+            self.assertIn("bb_routes_register(bb_app_http_handle);", source)
 
 
 if __name__ == "__main__":
