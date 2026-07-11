@@ -669,6 +669,59 @@ void test_bb_wifi_net_event_set_sink_dispatches_lost_ip(void)
     bb_wifi_set_net_event_sink(NULL);
 }
 
+// bb_wifi_event_payload_build (KB 820 PR2) -- pure, host-testable builder.
+void test_bb_wifi_event_payload_build_null_out_is_noop(void)
+{
+    bb_wifi_event_payload_build(NULL, BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN, "10.0.0.5");
+    TEST_PASS();
+}
+
+void test_bb_wifi_event_payload_build_got_ip_populates_ip(void)
+{
+    bb_wifi_event_payload_t payload;
+    memset(&payload, 0xAA, sizeof(payload));
+    bb_wifi_event_payload_build(&payload, BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN, "10.0.0.5");
+    TEST_ASSERT_EQUAL_STRING("10.0.0.5", payload.ip);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_UNKNOWN, payload.disc_reason);
+}
+
+void test_bb_wifi_event_payload_build_got_ip_null_ip_blanks(void)
+{
+    bb_wifi_event_payload_t payload;
+    memset(&payload, 0xAA, sizeof(payload));
+    bb_wifi_event_payload_build(&payload, BB_WIFI_NET_EVT_GOT_IP, BB_WIFI_DISC_UNKNOWN, NULL);
+    TEST_ASSERT_EQUAL_STRING("", payload.ip);
+}
+
+// Blanking enforcement: a non-GOT_IP evt never carries an ip through, even
+// if the caller passes a stray non-NULL ip string.
+void test_bb_wifi_event_payload_build_disconnect_blanks_ip(void)
+{
+    bb_wifi_event_payload_t payload;
+    memset(&payload, 0xAA, sizeof(payload));
+    bb_wifi_event_payload_build(&payload, BB_WIFI_NET_EVT_DISCONNECT, BB_WIFI_DISC_AUTH_FAIL, "9.9.9.9");
+    TEST_ASSERT_EQUAL_STRING("", payload.ip);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_AUTH_FAIL, payload.disc_reason);
+}
+
+void test_bb_wifi_event_payload_build_lost_ip_blanks_ip(void)
+{
+    bb_wifi_event_payload_t payload;
+    memset(&payload, 0xAA, sizeof(payload));
+    bb_wifi_event_payload_build(&payload, BB_WIFI_NET_EVT_LOST_IP, BB_WIFI_DISC_BB_LOST_IP, NULL);
+    TEST_ASSERT_EQUAL_STRING("", payload.ip);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_BB_LOST_IP, payload.disc_reason);
+}
+
+// reason passthrough: an arbitrary reason value survives verbatim.
+void test_bb_wifi_event_payload_build_reason_passthrough(void)
+{
+    bb_wifi_event_payload_t payload;
+    memset(&payload, 0xAA, sizeof(payload));
+    bb_wifi_event_payload_build(&payload, BB_WIFI_NET_EVT_DISCONNECT, BB_WIFI_DISC_BEACON_TIMEOUT, NULL);
+    TEST_ASSERT_EQUAL(BB_WIFI_DISC_BEACON_TIMEOUT, payload.disc_reason);
+}
+
 // ---------------------------------------------------------------------------
 // Host-stub NULL-arg branches (bb_wifi_host.c) -- coverage-filter finding
 // (PR1): platform/host/bb_wifi/ is now graded, surfacing these previously

@@ -35,6 +35,7 @@
 #include "bb_ota_validator.h"
 #include "smoke_app.h"
 #include "storage_typed_selftest.h"
+#include "wifi_event_bridge.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -52,6 +53,11 @@ void app_main(void)
     // bb_app_init_early() so it is set before the EARLY-tier bb_wifi_autoinit
     // runs (same ordering constraint as the creds provider above).
     bb_wifi_set_ota_validated_cb(bb_ota_is_validated);
+    // wifi_event_bridge_init() MUST run before bb_app_init_early() -- the
+    // EARLY-tier bb_wifi_autoinit connects STA and can fire the first
+    // GOT_IP edge before the sink is registered otherwise (the seam does
+    // not replay past edges).
+    wifi_event_bridge_init();
     bb_app_init_early();
     bb_smoke_storage_typed_selftest();
     bb_led_register_info();

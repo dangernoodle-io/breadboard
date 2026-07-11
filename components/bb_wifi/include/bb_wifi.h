@@ -278,6 +278,19 @@ typedef struct {
     bb_wifi_disc_reason_t disc_reason;
 } bb_wifi_event_payload_t;
 
+// Pure builder for bb_wifi_event_payload_t (KB 820, PR2 -- host-testable,
+// bb_event-free). NULL-safe: no-op if out==NULL. Zeroes *out first, then
+// sets disc_reason to a straight passthrough of `reason`. out->ip is
+// populated ONLY when evt==BB_WIFI_NET_EVT_GOT_IP and ip!=NULL -- every
+// other evt, or a NULL ip, leaves out->ip blank (this is the ip-blanking
+// enforcement point for the wire contract above). Lives in bb_wifi (not the
+// composition-level bridge) so it stays host-testable without pulling in
+// bb_event; the intended caller is that bridge.
+void bb_wifi_event_payload_build(bb_wifi_event_payload_t *out,
+                                 bb_wifi_net_event_t evt,
+                                 bb_wifi_disc_reason_t reason,
+                                 const char *ip);
+
 // ---------------------------------------------------------------------------
 // Diagnostics
 // ---------------------------------------------------------------------------
