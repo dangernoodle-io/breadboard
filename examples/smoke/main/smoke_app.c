@@ -71,11 +71,12 @@ static void heartbeat_handler(bb_event_topic_t topic, int32_t id,
     bb_log_i(TAG, "bb_event heartbeat: id=%ld", (long)id);
 }
 
-// wifi.net demo subscriber (KB 820 PR2) -- proves the wifi_event_bridge
-// publish path end to end on device. The bridge (wifi_event_bridge.c)
-// registers BB_WIFI_EVENT_TOPIC before this runs; bb_event_topic_register
-// is idempotent (returns the same handle for a duplicate name), so this
-// just registers again rather than requiring a lookup-only path.
+// wifi.net demo subscriber (KB 820 PR3) -- proves the generic emit seam's
+// publish path end to end on device. entry_espidf.c's
+// bb_wifi_set_emit(bb_event_emit) handwire feeds BB_WIFI_EVENT_TOPIC once
+// bb_event is up; bb_event_topic_register is idempotent (returns the same
+// handle for a duplicate name), so this just registers again rather than
+// requiring a lookup-only path.
 static void wifi_net_handler(bb_event_topic_t topic, int32_t id,
                              const void *data, size_t size, void *user)
 {
@@ -400,6 +401,10 @@ void smoke_app_setup(void) {
         bb_event_sub_t wifi_net_sub = NULL;
         if (bb_event_subscribe(wifi_net_topic, wifi_net_handler, NULL, &wifi_net_sub) == BB_OK) {
             bb_log_i(TAG, "bb_event: wifi.net demo ready");
+            // Baseline-post AFTER subscribe so the current-state event is
+            // actually delivered -- bb_event has no retain, so posting
+            // before a subscriber exists would silently no-op.
+            bb_wifi_emit_baseline();
         } else {
             bb_log_w(TAG, "bb_event: wifi.net subscribe failed");
         }

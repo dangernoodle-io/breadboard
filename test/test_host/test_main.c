@@ -1033,6 +1033,13 @@ void test_bb_wifi_net_event_null_sink_is_noop(void);
 void test_bb_wifi_net_event_set_sink_dispatches_got_ip(void);
 void test_bb_wifi_net_event_set_sink_dispatches_disconnect(void);
 void test_bb_wifi_net_event_set_sink_dispatches_lost_ip(void);
+void test_bb_wifi_emit_null_sink_is_noop(void);
+void test_bb_wifi_publish_net_event_got_ip(void);
+void test_bb_wifi_publish_net_event_got_ip_blanks_ip_on_get_ip_str_error(void);
+void test_bb_wifi_publish_net_event_disconnect(void);
+void test_bb_wifi_publish_net_event_lost_ip(void);
+void test_bb_wifi_emit_baseline_null_sink_is_noop(void);
+void test_bb_wifi_emit_baseline_disconnected_synthesizes_disconnect(void);
 void test_bb_wifi_event_payload_build_null_out_is_noop(void);
 void test_bb_wifi_event_payload_build_got_ip_populates_ip(void);
 void test_bb_wifi_event_payload_build_got_ip_null_ip_blanks(void);
@@ -2872,6 +2879,11 @@ void test_bb_event_topic_lookup_walks_past_non_matches(void);
 void test_bb_event_post_exceeds_max_payload_at_runtime_limit(void);
 void test_bb_event_topic_name_null_returns_empty(void);
 void test_bb_event_autoinit_returns_ok(void);
+void test_bb_event_emit_delivers_to_subscriber(void);
+void test_bb_event_emit_reuses_topic_on_repeat(void);
+void test_bb_event_emit_before_init_no_crash(void);
+void test_bb_event_emit_null_name_logs_and_returns(void);
+void test_bb_event_emit_post_failure_logs_and_returns(void);
 
 // Forward declarations from test_bb_event_ring.c
 void test_bb_event_ring_attach_and_post_replay_delivers_all_entries(void);
@@ -5910,6 +5922,13 @@ int main(void) {
     RUN_TEST(test_bb_wifi_net_event_set_sink_dispatches_got_ip);
     RUN_TEST(test_bb_wifi_net_event_set_sink_dispatches_disconnect);
     RUN_TEST(test_bb_wifi_net_event_set_sink_dispatches_lost_ip);
+    RUN_TEST(test_bb_wifi_emit_null_sink_is_noop);
+    RUN_TEST(test_bb_wifi_publish_net_event_got_ip);
+    RUN_TEST(test_bb_wifi_publish_net_event_got_ip_blanks_ip_on_get_ip_str_error);
+    RUN_TEST(test_bb_wifi_publish_net_event_disconnect);
+    RUN_TEST(test_bb_wifi_publish_net_event_lost_ip);
+    RUN_TEST(test_bb_wifi_emit_baseline_null_sink_is_noop);
+    RUN_TEST(test_bb_wifi_emit_baseline_disconnected_synthesizes_disconnect);
     RUN_TEST(test_bb_wifi_event_payload_build_null_out_is_noop);
     RUN_TEST(test_bb_wifi_event_payload_build_got_ip_populates_ip);
     RUN_TEST(test_bb_wifi_event_payload_build_got_ip_null_ip_blanks);
@@ -7400,6 +7419,11 @@ int main(void) {
     RUN_TEST(test_bb_event_post_exceeds_max_payload_at_runtime_limit);
     RUN_TEST(test_bb_event_topic_name_null_returns_empty);
     RUN_TEST(test_bb_event_autoinit_returns_ok);
+    RUN_TEST(test_bb_event_emit_delivers_to_subscriber);
+    RUN_TEST(test_bb_event_emit_reuses_topic_on_repeat);
+    RUN_TEST(test_bb_event_emit_before_init_no_crash);
+    RUN_TEST(test_bb_event_emit_null_name_logs_and_returns);
+    RUN_TEST(test_bb_event_emit_post_failure_logs_and_returns);
 
     // bb_event_ring tests
     RUN_TEST(test_bb_event_ring_attach_and_post_replay_delivers_all_entries);

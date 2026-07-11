@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 #include "bb_core.h"
+#include "bb_emit.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -247,13 +248,26 @@ typedef void (*bb_wifi_net_event_fn)(bb_wifi_net_event_t evt, bb_wifi_disc_reaso
 void bb_wifi_set_net_event_sink(bb_wifi_net_event_fn sink);
 
 // ---------------------------------------------------------------------------
-// wifi.net event contract (KB 820, PR1 -- declaration only, no publisher yet)
+// wifi.net event contract (KB 820, PR1) + generic emit seam (PR3)
 // ---------------------------------------------------------------------------
-// bb_wifi does NOT publish this itself and does NOT include bb_event -- the
-// publisher is a composition-level bridge (a later PR). This header gains no
-// new include and bb_wifi's CMakeLists gains no new dependency to declare
-// this contract; it exists so the future bridge and its consumers share one
-// definition instead of inventing their own.
+// bb_wifi stays bb_event-FREE (no bb_event include, no bb_event CMakeLists
+// dependency) -- but it now DOES publish this payload itself, via a second,
+// independent single-slot seam: bb_wifi_set_emit(bb_emit_fn) (bb_emit.h,
+// bb_core). That slot is bus-shaped ((topic, id, payload, size), no bb_event
+// types) so composition can wire it directly to bb_event_emit without
+// bb_wifi ever including bb_event -- the caller supplies the emit sink.
+// This is ADDITIVE to, and independent of, the typed bb_wifi_net_event_fn
+// seam above (bb_wifi_set_net_event_sink) -- that seam is unchanged and
+// keeps firing at the same three edges; it remains the zero-bb_event
+// hand-wire escape hatch for consumers that don't want the bus shape.
+// bb_wifi_emit_baseline() additionally lets a late-registering generic-seam
+// consumer request a one-shot synthesis of the CURRENT state onto the emit
+// slot (see its declaration below) -- the typed seam and the wifi.net
+// contract's NO RETAIN/REPLAY note (below) are otherwise unaffected: a late
+// bb_event subscriber still must call bb_wifi_has_ip()/bb_wifi_get_info()
+// itself before subscribing, since baseline-post only helps a generic-seam
+// consumer that registers before subscribing, not one that subscribes to
+// bb_event directly.
 //
 // Topic: "wifi.net" -- distinct from BB_TOPIC_WIFI ("wifi") above, which is
 // reserved for the bb_cache/HTTP snapshot (GET /api/wifi). Do not reuse
@@ -290,6 +304,25 @@ void bb_wifi_event_payload_build(bb_wifi_event_payload_t *out,
                                  bb_wifi_net_event_t evt,
                                  bb_wifi_disc_reason_t reason,
                                  const char *ip);
+
+// Register a generic emit sink (bb_emit_fn, bb_core/bb_emit.h) for the
+// wifi.net payload -- bus-shaped (topic, id, payload, size), independent of
+// the typed bb_wifi_net_event_fn seam above. NULL clears it. Fired on
+// BB_WIFI_EVENT_TOPIC at the same three STA lifecycle edges as the typed
+// seam, with the id/payload built the same way (bb_wifi_event_payload_build).
+// Single-slot, single-consumer, null-safe: register once at init, before
+// bb_wifi_init()/bb_wifi_init_sta(), from a single thread.
+void bb_wifi_set_emit(bb_emit_fn cb);
+
+// One-shot synthesis of the CURRENT STA state (bb_wifi_has_ip()/
+// bb_wifi_get_info()) onto the generic emit slot, as a wifi.net GOT_IP or
+// DISCONNECT payload. No-op if the slot is unset. Intended for a
+// generic-seam consumer that registers via bb_wifi_set_emit() after boot
+// and wants the current state without waiting for the next real edge -- it
+// does NOT change the wifi.net contract's NO RETAIN/REPLAY guarantee for a
+// bb_event subscriber (see above): that consumer still calls
+// bb_wifi_has_ip()/bb_wifi_get_info() itself before subscribing.
+void bb_wifi_emit_baseline(void);
 
 // ---------------------------------------------------------------------------
 // Diagnostics

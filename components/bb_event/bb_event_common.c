@@ -267,6 +267,31 @@ bb_err_t bb_event_post(bb_event_topic_t topic, int32_t id,
     return bb_event_port_enqueue(&entry, data);
 }
 
+// String-keyed peer of bb_event_post (bb_event.h). void-return, bb_emit_fn-
+// shaped: register-or-lookup the topic by name, then post; logs and returns
+// on either failure since a generic emit sink has nowhere to propagate a
+// bb_err_t. Idempotent-per-call -- no static handle is cached (topics are
+// capped low via CONFIG_BB_EVENT_MAX_TOPICS, so the register-or-lookup is
+// cheap).
+void bb_event_emit(const char *name, int32_t id,
+                   const void *data, size_t size)
+{
+    bb_event_topic_t topic = NULL;
+    bb_err_t err = bb_event_topic_register(name, &topic);
+    if (err != BB_OK) {
+        bb_log_w(TAG, "emit: topic register failed for '%s': %d", name ? name : "(null)", (int)err);
+        return;
+    }
+    err = bb_event_post(topic, id, data, size);
+    if (err != BB_OK) {
+        // name is provably non-NULL here -- bb_event_topic_register above
+        // rejects a NULL name (BB_ERR_INVALID_ARG, handled at the early
+        // return above), so reaching this line requires a name that already
+        // passed registration; the null side of this ternary is unreachable.
+        bb_log_w(TAG, "emit: post failed for '%s': %d", name ? name : "(null)", (int)err);  // LCOV_EXCL_BR_LINE — see comment above
+    }
+}
+
 size_t bb_event_pump(uint32_t budget)
 {
     return bb_event_port_drain(budget);

@@ -35,4 +35,11 @@ void bb_wifi_test_set_reason_histogram(const uint16_t *hist, size_t len);
 // Drive bb_wifi_get_gateway_status() on host (B1-518 PR2, observe-only
 // gateway probe). Pass NULL to clear back to the default zeroed status.
 void bb_wifi_host_set_gateway_status(const bb_wifi_gw_status_t *status);
+
+// Force bb_wifi_get_ip_str() to return BB_ERR_INVALID_STATE on host
+// (simulating netif-down) instead of its default "0.0.0.0"/BB_OK stub, so
+// bb_wifi_publish_net_event's ip-blanking-on-error branch (PR3, bus-shaped
+// generic emit seam) is host-testable. false restores the default success
+// stub.
+void bb_wifi_test_set_ip_str_fail(bool fail);
 #endif
