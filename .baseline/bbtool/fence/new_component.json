@@ -506,6 +506,11 @@
       "type": "component"
     },
     {
+      "id": "bb_storage_rtc",
+      "path": "components/bb_storage_rtc",
+      "type": "component"
+    },
+    {
       "id": "bb_str",
       "path": "components/bb_str",
       "type": "component"

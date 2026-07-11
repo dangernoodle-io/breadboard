@@ -11,7 +11,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_attr.h"
-#include "bb_nv_creds_mirror.h"
+#include "bb_storage_rtc_region.h"
 #endif
 
 #define BB_NV_KEY_WIFI_SSID         "wifi_ssid"
@@ -36,7 +36,7 @@ static const char *TAG_NV = "bb_nv";
 static bool s_nvs_was_erased;
 static bool s_creds_restored;
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
-static RTC_NOINIT_ATTR bb_nv_creds_mirror_t s_creds_mirror;
+static RTC_NOINIT_ATTR bb_storage_rtc_region_t s_creds_mirror;
 #endif
 #endif
 
@@ -196,7 +196,7 @@ bb_err_t bb_nv_config_init(void)
     {
         bool handle_open = true;
         if (s_config.wifi_ssid[0] == '\0' &&
-            bb_nv_creds_mirror_valid(&s_creds_mirror) &&
+            bb_storage_rtc_region_valid(&s_creds_mirror) &&
             s_creds_mirror.ssid[0] != '\0') {
             nvs_close(handle);
             handle_open = false;
@@ -334,7 +334,7 @@ bb_err_t bb_nv_config_set_provisioned(void)
 
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
     if (err == BB_OK) {
-        bb_nv_creds_mirror_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, 1);
+        bb_storage_rtc_region_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, 1);
     }
 #endif
 
@@ -350,7 +350,7 @@ bb_err_t bb_nv_config_set_wifi(const char *ssid, const char *pass)
         bb_strlcpy(s_config.wifi_pass, pass, sizeof(s_config.wifi_pass));
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
         uint8_t prov = bb_nv_config_is_provisioned() ? 1 : 0;
-        bb_nv_creds_mirror_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, prov);
+        bb_storage_rtc_region_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, prov);
 #endif
     }
     return err;
@@ -436,7 +436,7 @@ bb_err_t bb_nv_config_commit_wifi_pending(void)
         memset(&s_pending, 0, sizeof(s_pending));
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
         uint8_t prov = bb_nv_config_is_provisioned() ? 1 : 0;
-        bb_nv_creds_mirror_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, prov);
+        bb_storage_rtc_region_pack(&s_creds_mirror, s_config.wifi_ssid, s_config.wifi_pass, prov);
 #endif
     }
     return err;
@@ -714,7 +714,7 @@ bb_err_t bb_nv_config_factory_reset(void)
      * bb_nv_config_init to copy creds back into NVS, silently defeating the reset. */
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
     memset(&s_creds_mirror, 0, sizeof(s_creds_mirror));
-    /* magic is now 0 → bb_nv_creds_mirror_valid() returns false → no heal. */
+    /* magic is now 0 → bb_storage_rtc_region_valid() returns false → no heal. */
 #endif
     /* Clear in-RAM cache so callers see the wiped state immediately. */
     memset(&s_config, 0, sizeof(s_config));

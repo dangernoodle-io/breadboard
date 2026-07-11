@@ -1,8 +1,8 @@
 // Reboot-record persist helper (B1-532 PR1). Portable — bb_nv_set_str and
 // bb_reboot_record_encode are both already implemented identically on host
 // and ESP-IDF, so this file compiles unchanged on every platform (mirrors
-// bb_nv_creds_mirror.c's placement: a portable helper living directly in
-// components/bb_nv/, not split under platform/{espidf,host}/).
+// bb_storage_rtc_region.c's placement: a portable helper living directly in
+// components/bb_storage_rtc/, not split under platform/{espidf,host}/).
 #include "bb_nv.h"
 #include "bb_nv_namespaces.h"
 #include "bb_nv_keys.h"

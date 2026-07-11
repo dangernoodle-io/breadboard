@@ -495,6 +495,26 @@ void test_bb_storage_ram_set_value_too_large_returns_no_space(void);
 void test_bb_storage_ram_set_key_too_long_returns_invalid_arg(void);
 void test_bb_storage_ram_register_twice_returns_invalid_state(void);
 
+// Forward declarations from test_bb_storage_rtc.c
+void test_bb_storage_rtc_cold_boot_all_keys_not_found(void);
+void test_bb_storage_rtc_ssid_set_get_round_trip(void);
+void test_bb_storage_rtc_pass_set_get_round_trip(void);
+void test_bb_storage_rtc_provisioned_set_get_round_trip(void);
+void test_bb_storage_rtc_test_reset_simulates_cold_boot(void);
+void test_bb_storage_rtc_warm_survival_across_sequential_gets(void);
+void test_bb_storage_rtc_crc_bitflip_invalidates_region(void);
+void test_bb_storage_rtc_version_mismatch_invalidates_region(void);
+void test_bb_storage_rtc_ssid_overflow_set_returns_no_space(void);
+void test_bb_storage_rtc_pass_overflow_set_returns_no_space(void);
+void test_bb_storage_rtc_provisioned_wrong_length_returns_invalid_arg(void);
+void test_bb_storage_rtc_unknown_key_get_is_not_found(void);
+void test_bb_storage_rtc_unknown_key_set_is_invalid_arg(void);
+void test_bb_storage_rtc_unknown_key_erase_is_invalid_arg(void);
+void test_bb_storage_rtc_erase_invalidates_whole_region(void);
+void test_bb_storage_rtc_sequential_multi_key_sets_preserve_prior_keys(void);
+void test_bb_storage_rtc_set_on_invalid_region_zeroes_before_write(void);
+void test_bb_storage_rtc_null_key_sentinel_consistent(void);
+
 // Forward declarations from test_bb_storage_nvs_get_decision.c
 void test_bb_storage_nvs_get_decide_zero_cap_probes(void);
 void test_bb_storage_nvs_get_decide_cap_equal_required_is_full(void);
@@ -715,19 +735,19 @@ void test_bb_settings_wifi_pending_pass_get_truncation_reports_full_len(void);
 void test_bb_settings_wifi_pending_ssid_get_null_out_len_still_fills_buf(void);
 void test_bb_settings_wifi_pending_pass_get_null_out_len_still_fills_buf(void);
 
-// Forward declarations from test_nv_creds_mirror.c
-void test_nv_creds_mirror_pack_valid_roundtrip(void);
-void test_nv_creds_mirror_flip_ssid_invalidates(void);
-void test_nv_creds_mirror_flip_pass_invalidates(void);
-void test_nv_creds_mirror_flip_provisioned_invalidates(void);
-void test_nv_creds_mirror_magic_mismatch_invalid(void);
-void test_nv_creds_mirror_version_mismatch_invalid(void);
-void test_nv_creds_mirror_null_is_invalid(void);
-void test_nv_creds_mirror_ssid_truncated_nul_terminated(void);
-void test_nv_creds_mirror_pass_truncated_nul_terminated(void);
-void test_nv_creds_mirror_null_ssid_treated_as_empty(void);
-void test_nv_creds_mirror_null_pass_treated_as_empty(void);
-void test_nv_creds_mirror_empty_ssid_is_valid_but_not_restorable(void);
+// Forward declarations from test_bb_storage_rtc_region.c
+void test_bb_storage_rtc_region_pack_valid_roundtrip(void);
+void test_bb_storage_rtc_region_flip_ssid_invalidates(void);
+void test_bb_storage_rtc_region_flip_pass_invalidates(void);
+void test_bb_storage_rtc_region_flip_provisioned_invalidates(void);
+void test_bb_storage_rtc_region_magic_mismatch_invalid(void);
+void test_bb_storage_rtc_region_version_mismatch_invalid(void);
+void test_bb_storage_rtc_region_null_is_invalid(void);
+void test_bb_storage_rtc_region_ssid_truncated_nul_terminated(void);
+void test_bb_storage_rtc_region_pass_truncated_nul_terminated(void);
+void test_bb_storage_rtc_region_null_ssid_treated_as_empty(void);
+void test_bb_storage_rtc_region_null_pass_treated_as_empty(void);
+void test_bb_storage_rtc_region_empty_ssid_is_valid_but_not_restorable(void);
 
 // Forward declarations from test_nv_wifi_pending.c
 void test_wifi_pending_decide_try0_with_ssid_returns_none(void);
@@ -5667,18 +5687,18 @@ int main(void) {
     RUN_TEST(test_nvs_delete_key_with_array_ns_returns_400);
 
     // NV creds mirror tests
-    RUN_TEST(test_nv_creds_mirror_pack_valid_roundtrip);
-    RUN_TEST(test_nv_creds_mirror_flip_ssid_invalidates);
-    RUN_TEST(test_nv_creds_mirror_flip_pass_invalidates);
-    RUN_TEST(test_nv_creds_mirror_flip_provisioned_invalidates);
-    RUN_TEST(test_nv_creds_mirror_magic_mismatch_invalid);
-    RUN_TEST(test_nv_creds_mirror_version_mismatch_invalid);
-    RUN_TEST(test_nv_creds_mirror_null_is_invalid);
-    RUN_TEST(test_nv_creds_mirror_ssid_truncated_nul_terminated);
-    RUN_TEST(test_nv_creds_mirror_pass_truncated_nul_terminated);
-    RUN_TEST(test_nv_creds_mirror_null_ssid_treated_as_empty);
-    RUN_TEST(test_nv_creds_mirror_null_pass_treated_as_empty);
-    RUN_TEST(test_nv_creds_mirror_empty_ssid_is_valid_but_not_restorable);
+    RUN_TEST(test_bb_storage_rtc_region_pack_valid_roundtrip);
+    RUN_TEST(test_bb_storage_rtc_region_flip_ssid_invalidates);
+    RUN_TEST(test_bb_storage_rtc_region_flip_pass_invalidates);
+    RUN_TEST(test_bb_storage_rtc_region_flip_provisioned_invalidates);
+    RUN_TEST(test_bb_storage_rtc_region_magic_mismatch_invalid);
+    RUN_TEST(test_bb_storage_rtc_region_version_mismatch_invalid);
+    RUN_TEST(test_bb_storage_rtc_region_null_is_invalid);
+    RUN_TEST(test_bb_storage_rtc_region_ssid_truncated_nul_terminated);
+    RUN_TEST(test_bb_storage_rtc_region_pass_truncated_nul_terminated);
+    RUN_TEST(test_bb_storage_rtc_region_null_ssid_treated_as_empty);
+    RUN_TEST(test_bb_storage_rtc_region_null_pass_treated_as_empty);
+    RUN_TEST(test_bb_storage_rtc_region_empty_ssid_is_valid_but_not_restorable);
 
     // NV wifi-pending decide/validate tests
     RUN_TEST(test_wifi_pending_decide_try0_with_ssid_returns_none);
@@ -8116,6 +8136,26 @@ int main(void) {
     RUN_TEST(test_bb_storage_ram_set_value_too_large_returns_no_space);
     RUN_TEST(test_bb_storage_ram_set_key_too_long_returns_invalid_arg);
     RUN_TEST(test_bb_storage_ram_register_twice_returns_invalid_state);
+
+    // bb_storage_rtc tests
+    RUN_TEST(test_bb_storage_rtc_cold_boot_all_keys_not_found);
+    RUN_TEST(test_bb_storage_rtc_ssid_set_get_round_trip);
+    RUN_TEST(test_bb_storage_rtc_pass_set_get_round_trip);
+    RUN_TEST(test_bb_storage_rtc_provisioned_set_get_round_trip);
+    RUN_TEST(test_bb_storage_rtc_test_reset_simulates_cold_boot);
+    RUN_TEST(test_bb_storage_rtc_warm_survival_across_sequential_gets);
+    RUN_TEST(test_bb_storage_rtc_crc_bitflip_invalidates_region);
+    RUN_TEST(test_bb_storage_rtc_version_mismatch_invalidates_region);
+    RUN_TEST(test_bb_storage_rtc_ssid_overflow_set_returns_no_space);
+    RUN_TEST(test_bb_storage_rtc_pass_overflow_set_returns_no_space);
+    RUN_TEST(test_bb_storage_rtc_provisioned_wrong_length_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_rtc_unknown_key_get_is_not_found);
+    RUN_TEST(test_bb_storage_rtc_unknown_key_set_is_invalid_arg);
+    RUN_TEST(test_bb_storage_rtc_unknown_key_erase_is_invalid_arg);
+    RUN_TEST(test_bb_storage_rtc_erase_invalidates_whole_region);
+    RUN_TEST(test_bb_storage_rtc_sequential_multi_key_sets_preserve_prior_keys);
+    RUN_TEST(test_bb_storage_rtc_set_on_invalid_region_zeroes_before_write);
+    RUN_TEST(test_bb_storage_rtc_null_key_sentinel_consistent);
 
     // bb_storage_nvs_get_decision tests
     RUN_TEST(test_bb_storage_nvs_get_decide_zero_cap_probes);
