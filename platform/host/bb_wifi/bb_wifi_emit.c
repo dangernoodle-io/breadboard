@@ -17,6 +17,7 @@
 // duplicated here (net-health SSOT, wifi-netmode PR).
 #include "bb_wifi.h"
 #include "bb_callback_slot.h"
+#include "bb_str.h"
 
 #include <string.h>
 
@@ -148,6 +149,24 @@ bb_wifi_disc_reason_t bb_wifi_map_esp_reason(uint16_t esp_code)
     case 211: return BB_WIFI_DISC_NO_AP_FOUND;       // WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD
     case 212: return BB_WIFI_DISC_NO_AP_FOUND;       // WIFI_REASON_NO_AP_FOUND_IN_RSSI_THRESHOLD
     default:  return BB_WIFI_DISC_UNKNOWN;
+    }
+}
+
+// Pure payload builder for the wifi.net event contract (bb_wifi.h
+// bb_wifi_event_payload_build, KB 820 PR2). NULL-safe; zeroes *out; ip is
+// populated ONLY on GOT_IP with a non-NULL ip (blanking enforcement --
+// every other evt, or a NULL ip, leaves out->ip empty). disc_reason is a
+// straight passthrough of `reason` -- the caller (the composition-level
+// bridge) is responsible for supplying the right per-edge value per the
+// contract table on bb_wifi_event_payload_t.
+void bb_wifi_event_payload_build(bb_wifi_event_payload_t *out, bb_wifi_net_event_t evt,
+                                 bb_wifi_disc_reason_t reason, const char *ip)
+{
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    out->disc_reason = reason;
+    if (evt == BB_WIFI_NET_EVT_GOT_IP && ip) {
+        bb_strlcpy(out->ip, ip, sizeof(out->ip));
     }
 }
 

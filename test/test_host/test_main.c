@@ -1033,6 +1033,12 @@ void test_bb_wifi_net_event_null_sink_is_noop(void);
 void test_bb_wifi_net_event_set_sink_dispatches_got_ip(void);
 void test_bb_wifi_net_event_set_sink_dispatches_disconnect(void);
 void test_bb_wifi_net_event_set_sink_dispatches_lost_ip(void);
+void test_bb_wifi_event_payload_build_null_out_is_noop(void);
+void test_bb_wifi_event_payload_build_got_ip_populates_ip(void);
+void test_bb_wifi_event_payload_build_got_ip_null_ip_blanks(void);
+void test_bb_wifi_event_payload_build_disconnect_blanks_ip(void);
+void test_bb_wifi_event_payload_build_lost_ip_blanks_ip(void);
+void test_bb_wifi_event_payload_build_reason_passthrough(void);
 
 // Forward declarations from test_bb_wifi_ap.c
 void test_bb_wifi_ap_build_ssid_formats_prefix_and_mac(void);
@@ -5904,6 +5910,12 @@ int main(void) {
     RUN_TEST(test_bb_wifi_net_event_set_sink_dispatches_got_ip);
     RUN_TEST(test_bb_wifi_net_event_set_sink_dispatches_disconnect);
     RUN_TEST(test_bb_wifi_net_event_set_sink_dispatches_lost_ip);
+    RUN_TEST(test_bb_wifi_event_payload_build_null_out_is_noop);
+    RUN_TEST(test_bb_wifi_event_payload_build_got_ip_populates_ip);
+    RUN_TEST(test_bb_wifi_event_payload_build_got_ip_null_ip_blanks);
+    RUN_TEST(test_bb_wifi_event_payload_build_disconnect_blanks_ip);
+    RUN_TEST(test_bb_wifi_event_payload_build_lost_ip_blanks_ip);
+    RUN_TEST(test_bb_wifi_event_payload_build_reason_passthrough);
 
     // bb_wifi_ap tests
     RUN_TEST(test_bb_wifi_ap_build_ssid_formats_prefix_and_mac);

@@ -71,6 +71,22 @@ static void heartbeat_handler(bb_event_topic_t topic, int32_t id,
     bb_log_i(TAG, "bb_event heartbeat: id=%ld", (long)id);
 }
 
+// wifi.net demo subscriber (KB 820 PR2) -- proves the wifi_event_bridge
+// publish path end to end on device. The bridge (wifi_event_bridge.c)
+// registers BB_WIFI_EVENT_TOPIC before this runs; bb_event_topic_register
+// is idempotent (returns the same handle for a duplicate name), so this
+// just registers again rather than requiring a lookup-only path.
+static void wifi_net_handler(bb_event_topic_t topic, int32_t id,
+                             const void *data, size_t size, void *user)
+{
+    (void)topic;
+    (void)user;
+    if (!data || size < sizeof(bb_wifi_event_payload_t)) return;
+    const bb_wifi_event_payload_t *payload = (const bb_wifi_event_payload_t *)data;
+    bb_log_i(TAG, "bb_event wifi.net: evt=%ld ip=%s reason=%s", (long)id,
+            payload->ip, bb_wifi_disc_reason_str(payload->disc_reason));
+}
+
 #endif // CONFIG_BB_SMOKE_EVENT
 
 static bb_err_t ping_handler(bb_http_request_t *req) {
@@ -377,6 +393,18 @@ void smoke_app_setup(void) {
 #endif
     } else {
         bb_log_w(TAG, "bb_event: topic register failed");
+    }
+
+    bb_event_topic_t wifi_net_topic = NULL;
+    if (bb_event_topic_register(BB_WIFI_EVENT_TOPIC, &wifi_net_topic) == BB_OK) {
+        bb_event_sub_t wifi_net_sub = NULL;
+        if (bb_event_subscribe(wifi_net_topic, wifi_net_handler, NULL, &wifi_net_sub) == BB_OK) {
+            bb_log_i(TAG, "bb_event: wifi.net demo ready");
+        } else {
+            bb_log_w(TAG, "bb_event: wifi.net subscribe failed");
+        }
+    } else {
+        bb_log_w(TAG, "bb_event: wifi.net topic register failed");
     }
 #endif
 
