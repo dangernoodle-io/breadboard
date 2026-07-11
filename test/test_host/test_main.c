@@ -1027,8 +1027,6 @@ void test_bb_wifi_get_rssi_valid(void);
 void test_bb_wifi_request_recovery_blocked_noop(void);
 void test_bb_wifi_ota_validated_default_true_when_unset(void);
 void test_bb_wifi_ota_validated_set_cb_returns_value(void);
-void test_bb_wifi_on_disconnect_null_is_noop(void);
-void test_bb_wifi_on_disconnect_set_cb_is_invoked(void);
 void test_bb_wifi_net_event_null_sink_is_noop(void);
 void test_bb_wifi_net_event_set_sink_dispatches_got_ip(void);
 void test_bb_wifi_net_event_set_sink_dispatches_disconnect(void);
@@ -5916,8 +5914,6 @@ int main(void) {
     RUN_TEST(test_bb_wifi_request_recovery_blocked_noop);
     RUN_TEST(test_bb_wifi_ota_validated_default_true_when_unset);
     RUN_TEST(test_bb_wifi_ota_validated_set_cb_returns_value);
-    RUN_TEST(test_bb_wifi_on_disconnect_null_is_noop);
-    RUN_TEST(test_bb_wifi_on_disconnect_set_cb_is_invoked);
     RUN_TEST(test_bb_wifi_net_event_null_sink_is_noop);
     RUN_TEST(test_bb_wifi_net_event_set_sink_dispatches_got_ip);
     RUN_TEST(test_bb_wifi_net_event_set_sink_dispatches_disconnect);

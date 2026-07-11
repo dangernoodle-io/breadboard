@@ -36,9 +36,6 @@ static unsigned long g_disc_at_ms = 0;
 static int      g_retry_count  = 0;
 static bool     g_last_status  = false;
 
-static bb_wifi_on_got_ip_cb_t     g_on_got_ip    = NULL;
-static bb_wifi_on_disconnect_cb_t g_on_disconnect = NULL;
-
 // Transport state. Single concurrent connection slot — sufficient for
 // resource-constrained Arduino targets.
 struct bb_conn {
@@ -56,14 +53,12 @@ static void poll_status(void) {
         g_retry_count = 0;
         bb_log_i(TAG, "got ip %s rssi=%d",
                  WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
-        if (g_on_got_ip) g_on_got_ip();
     } else if (g_last_status && !now) {
         g_disc_reason = bb_wifi_map_wl_status(wl_status);
         g_disc_at_ms = millis();
         g_retry_count++;
         bb_log_w(TAG, "disconnected wl_status=%d reason=%s", wl_status,
                  bb_wifi_disc_reason_str(g_disc_reason));
-        if (g_on_disconnect) g_on_disconnect();
     }
     g_last_status = now;
 }
@@ -142,13 +137,6 @@ int bb_wifi_scan_get_cached(bb_wifi_ap_t *results, int max_results) {
     (void)max_results;
     return 0;
 }
-
-// ---------------------------------------------------------------------------
-// Callbacks
-// ---------------------------------------------------------------------------
-
-void bb_wifi_register_on_got_ip(bb_wifi_on_got_ip_cb_t cb)         { g_on_got_ip = cb; }
-void bb_wifi_register_on_disconnect(bb_wifi_on_disconnect_cb_t cb) { g_on_disconnect = cb; }
 
 // ---------------------------------------------------------------------------
 // Diagnostics

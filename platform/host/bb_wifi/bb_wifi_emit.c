@@ -21,9 +21,9 @@
 
 #include <string.h>
 
-// bb_wifi_internal_ota_validated / bb_wifi_on_disconnect_invoke /
-// bb_wifi_net_event_invoke are also declared (as the private accessors
-// wifi_reconn.c and bb_wifi.c use) in platform/espidf/bb_wifi/wifi_reconn.h
+// bb_wifi_internal_ota_validated / bb_wifi_net_event_invoke are also
+// declared (as the private accessors wifi_reconn.c and bb_wifi.c use) in
+// platform/espidf/bb_wifi/wifi_reconn.h
 // -- not #included here since that directory isn't on this file's include
 // path in the host (PlatformIO) build; the BB_CALLBACK_SLOT_* macro
 // invocations below are these functions' defining (and, for this TU, only)
@@ -46,13 +46,6 @@
 // (see bb_wifi.h for the "implicitly permanent" rationale).
 BB_CALLBACK_SLOT_RET(ota_validated, bb_wifi_ota_validated_fn, bool,
                      bb_wifi_set_ota_validated_cb, bb_wifi_internal_ota_validated, true)
-
-// Disconnect notify (bb_wifi.h bb_wifi_register_on_disconnect). The
-// generated invoke, bb_wifi_on_disconnect_invoke (wifi_reconn.h), is called
-// from bb_wifi.c's event_handler on WIFI_EVENT_STA_DISCONNECTED. Null-safe
-// no-op if unset.
-BB_CALLBACK_SLOT_VOID0(on_disconnect, bb_wifi_on_disconnect_cb_t,
-                       bb_wifi_register_on_disconnect, bb_wifi_on_disconnect_invoke)
 
 // Net-event sink (bb_wifi.h bb_wifi_set_net_event_sink, KB 781 PR4-core).
 // The generated invoke, bb_wifi_net_event_invoke (wifi_reconn.h), is called

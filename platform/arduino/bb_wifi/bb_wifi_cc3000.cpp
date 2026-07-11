@@ -59,9 +59,6 @@ static bb_wifi_disc_reason_t g_disc_reason = BB_WIFI_DISC_UNKNOWN;
 static unsigned long g_disc_at_ms = 0;
 static int           g_retry_count = 0;
 
-static bb_wifi_on_got_ip_cb_t     g_on_got_ip = NULL;
-static bb_wifi_on_disconnect_cb_t g_on_disconnect = NULL;
-
 // Transport — server is heap-allocated lazily inside bb_wifi_accept so its
 // constructor runs after cc3000.begin() (file-scope construction corrupts
 // CC3000 SPI state — verified empirically in earlier bb_http_arduino code).
@@ -123,7 +120,6 @@ static bb_err_t connect_internal(void) {
              (unsigned long)((g_ip >> 16) & 0xff),
              (unsigned long)((g_ip >>  8) & 0xff),
              (unsigned long)( g_ip        & 0xff));
-    if (g_on_got_ip) g_on_got_ip();
     return BB_OK;
 }
 
@@ -157,13 +153,6 @@ bb_err_t bb_wifi_set_hostname(const char *hostname) {
 int  bb_wifi_scan_networks(bb_wifi_ap_t *r, int n) { (void)r; (void)n; return 0; }
 void bb_wifi_scan_start_async(void) { }
 int  bb_wifi_scan_get_cached(bb_wifi_ap_t *r, int n) { (void)r; (void)n; return 0; }
-
-// ---------------------------------------------------------------------------
-// Callbacks
-// ---------------------------------------------------------------------------
-
-void bb_wifi_register_on_got_ip(bb_wifi_on_got_ip_cb_t cb)         { g_on_got_ip = cb; }
-void bb_wifi_register_on_disconnect(bb_wifi_on_disconnect_cb_t cb) { g_on_disconnect = cb; }
 
 // ---------------------------------------------------------------------------
 // Diagnostics
