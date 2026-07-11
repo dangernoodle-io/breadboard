@@ -254,6 +254,7 @@ void bb_wifi_event_payload_build(bb_wifi_event_payload_t *out,
 // bb_wifi_event_payload_build.
 // Single-slot, single-consumer, null-safe: register once at init, before
 // bb_wifi_init()/bb_wifi_init_sta(), from a single thread.
+// bbtool:init tier=early fn=bb_wifi_set_emit consumes=emit_sink order=0
 void bb_wifi_set_emit(bb_emit_fn cb);
 
 // One-shot synthesis of the CURRENT STA state (bb_wifi_has_ip()/

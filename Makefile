@@ -1,6 +1,6 @@
 PIO ?= pio
 
-.PHONY: help all check lint cppcheck docs docs-index-check docs-check fence di-fence size-check size-baseline test-py test coverage smoke smoke-codegen smoke-gen floor floor-codegen clean
+.PHONY: help all check lint cppcheck docs docs-index-check docs-check fence di-fence size-check size-baseline test-py test coverage smoke smoke-codegen smoke-gen floor floor-gen floor-codegen clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
@@ -10,7 +10,7 @@ all: cppcheck test-py test ## Fast subset: static analysis + py-tests + host tes
 
 check: lint cppcheck docs-index-check docs-check fence ## Forbidden-pattern lint + static analysis (cppcheck) + docs drift checks + ratchet-fence
 
-lint: ## Forbidden-pattern lint (also enforced on every firmware build via BB_LINT_ON_BUILD)
+lint: smoke-gen floor-gen ## Forbidden-pattern lint (also enforced on every firmware build via BB_LINT_ON_BUILD)
 	python3 scripts/bbtool.py lint --root . --profile library
 
 docs: ## Regenerate generated marker regions in component READMEs
@@ -41,7 +41,13 @@ cppcheck: ## Static analysis (cppcheck)
 		echo "cppcheck not found, skipping static analysis"; \
 	fi
 
-test-py: ## Python tooling tests (bbtool + bbdevice)
+# smoke-gen/floor-gen prerequisites (B1-741 §7): test_lint_rules.py's
+# test_real_repo_clean_smoke_and_floor calls the emit-seam-unwired-subscriber
+# rule directly against the real repo tree (examples/*/main/generated/), and
+# CI's py-tests job runs `make test-py` on a fresh checkout independent of
+# `check`/`smoke` -- without regenerating first, that integration test
+# false-fails on a fresh checkout the same way `lint` would.
+test-py: smoke-gen floor-gen ## Python tooling tests (bbtool + bbdevice)
 	python3 -m unittest discover -s scripts/bbtool/tests
 	python3 -m unittest discover -s scripts/bbdevice/tests -t scripts
 
@@ -83,6 +89,10 @@ smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32-cache-sweep smoke-esp32c3 s
 # SMOKE_REQUIRES. .PHONY (not a real file target) because
 # bbtool codegen's own inputs (component headers) aren't tracked here; every
 # smoke-<board> run regenerates fresh. Output stays gitignored (decision #725).
+# Also a `lint` prerequisite (B1-741 §7, alongside floor-gen): a fresh
+# checkout has no examples/*/main/generated/ (gitignored), so without this,
+# bbtool lint's emit-seam-unwired-subscriber rule (B1-740) can't see a
+# codegen-only-emitted setter wire (e.g. bb_wifi_set_emit) and false-positives.
 smoke-gen:
 	python3 scripts/bbtool.py codegen --root . \
 	    --components bb_nv,bb_log,bb_log_event,bb_log_http,bb_wifi,bb_wifi_http,bb_settings,bb_http,bb_http_server,bb_mdns,bb_mdns_cache,bb_ota_pull,bb_ota_push,bb_ota_boot,bb_info,bb_board,bb_manifest,bb_ota_validator,bb_system,bb_openapi,bb_led,bb_led_info,bb_ntp,bb_ntp_info,bb_led_gpio,bb_led_pwm,bb_led_apa102,bb_led_anim,bb_button,bb_button_gpio,bb_button_events,bb_event,bb_event_ring,bb_event_ring_espidf,bb_event_routes,bb_event_routes_espidf,bb_ring_espidf,bb_ring_diag,bb_http_client,bb_release_manifest,bb_ota_check,bb_temp,bb_power,bb_fan,bb_sensors,bb_tls_creds,bb_mqtt_client,bb_pub,bb_sink_mqtt,bb_pub_info,bb_pub_rtos,bb_ws_server,bb_sink_ws,bb_registry,bb_partition,bb_task_registry,bb_task,bb_net_health,bb_mem_arena,bb_pool,bb_udp_frame,bb_udp_client,bb_sink_udp,bb_dispatch_cmd,bb_meminfo,bb_timer,bb_config,bb_storage_nvs \
@@ -126,10 +136,17 @@ smoke-uno_cc3000: ## Build smoke example for Arduino UNO + CC3000 shield
 floor: ## Build the hand-wired floor example for esp32 (no codegen pre-step)
 	$(PIO) run -d examples/floor -e esp32
 
-floor-codegen: ## Regenerate bb_app_init.c from // bbtool:init markers over floor's exact component set, then rebuild floor so it compiles against real bb_log.h prototypes -- proves the codegen path end-to-end; floor's app_main stays hand-wired (bb_app_init() is compiled, never called)
+# Codegen-only half of floor-codegen (no PIO build) -- lint prerequisite
+# (B1-741 §7): `lint` depends on this (alongside smoke-gen) so
+# examples/floor/main/generated/ exists on a fresh checkout (gitignored,
+# decision #725) before bbtool lint's emit-seam-unwired-subscriber rule
+# (B1-740) scans examples/*/main/ for the codegen-emitted wire.
+floor-gen:
 	python3 scripts/bbtool.py codegen --root . --components bb_log,bb_meminfo,bb_timer \
 	    --components-out examples/floor/main/generated/bb_autowire_components.cmake \
 	    --wire-out examples/floor/main/generated/bb_app_init.c
+
+floor-codegen: floor-gen ## Regenerate bb_app_init.c from // bbtool:init markers over floor's exact component set, then rebuild floor so it compiles against real bb_log.h prototypes -- proves the codegen path end-to-end; floor's app_main stays hand-wired (bb_app_init() is compiled, never called)
 	$(PIO) run -d examples/floor -e esp32
 
 smoke-codegen: smoke-gen ## [alias] Regenerate smoke's composition root (bb_app_init.c) from // bbtool:init markers over SMOKE_REQUIRES, then rebuild smoke esp32 -- entry_espidf.c actually CALLS bb_app_init_early()/bb_app_init() (unlike floor's proof-only wiring), so this is smoke's normal build path now, not a proof -- see smoke-esp32

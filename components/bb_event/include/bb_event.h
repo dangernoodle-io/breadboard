@@ -56,6 +56,7 @@ bb_err_t bb_event_post(bb_event_topic_t topic, int32_t id,
 // register/post failure internally rather than propagating bb_err_t (an emit
 // sink has no caller able to act on the error anyway). Register-or-lookup is
 // idempotent-per-call (topics are capped low, cheap); no handle is cached.
+// bbtool:provides key=emit_sink symbol=bb_event_emit
 void bb_event_emit(const char *name, int32_t id,
                    const void *data, size_t size);
 
