@@ -58,6 +58,57 @@ bb_err_t bb_settings_hostname_get(char *buf, size_t cap, size_t *out_len);
 // success.
 bb_err_t bb_settings_hostname_set(const char *hostname);
 
+// ---------------------------------------------------------------------------
+// WiFi pending-creds writers (B1: bb_nv creds-cluster PR2).
+//
+// Mirrors bb_nv's pending-creds lifecycle (platform/espidf/bb_nv/bb_nv.c's
+// set_wifi_pending/commit_wifi_pending/clear_wifi_pending) over the SAME
+// "bb_cfg" NVS namespace and byte-compat key names (wifi_ssid_p/wifi_pass_p/
+// wifi_try), built on bb_config_staged's atomic multi-field commit. PURELY
+// ADDITIVE here: nothing on the live boot path calls these yet (that switch
+// is a later, HW-gated PR) — bb_nv's existing pending path is untouched.
+//
+// No WiFi validation lives here — callers pre-validate ssid/pass (mirrors
+// bb_wifi_pending_validate's job, owned upstream, not duplicated here).
+// ---------------------------------------------------------------------------
+
+// Stage a new pending WiFi reconfigure attempt: ssid, pass (NULL treated as
+// empty -- open network), and the try flag are written atomically in one
+// bb_config_staged session (3 keys, all-or-nothing). No validation --
+// callers pre-validate.
+bb_err_t bb_settings_wifi_pending_set(const char *ssid, const char *pass);
+
+// Read the staged pending SSID. Same size-probe/truncation contract and
+// NULL-safe out_len guarantee as bb_settings_wifi_ssid_get. Returns BB_OK
+// with an empty string (out_len=0) when unset.
+bb_err_t bb_settings_wifi_pending_ssid_get(char *buf, size_t cap, size_t *out_len);
+
+// Read the staged pending password. Same contract as
+// bb_settings_wifi_pending_ssid_get. SECRET -- callers must never log it.
+bb_err_t bb_settings_wifi_pending_pass_get(char *buf, size_t cap, size_t *out_len);
+
+// True iff a pending reconfigure attempt should be tried: the try flag is
+// set AND the pending SSID is non-empty. A pure storage read of the same
+// gate bb_nv's bb_wifi_pending_decide implements -- NOT wifi policy;
+// bb_wifi still owns the decide orchestration.
+bool bb_settings_wifi_pending_active(void);
+
+// Promote the staged pending creds to live: live ssid/pass are overwritten
+// with the pending values and the try flag is cleared, atomically (3 keys,
+// one bb_config_staged commit -- the live-creds swap and try-clear cannot
+// tear). Returns BB_ERR_INVALID_STATE if no pending SSID is staged (guard
+// checked before anything is touched). After a successful atomic commit,
+// the plaintext pending bytes are erased on a BEST-EFFORT basis (their
+// return is ignored) -- try=0 already committed is the crash-safe decision
+// bit, so a failed/incomplete erase just leaves harmless stale bytes.
+bb_err_t bb_settings_wifi_pending_promote(void);
+
+// Discard any pending reconfigure attempt: clears the try flag, then
+// best-effort erases the plaintext pending ssid/pass bytes (their return is
+// ignored, same rationale as bb_settings_wifi_pending_promote). Idempotent
+// -- returns BB_OK whether or not a pending attempt was active.
+bb_err_t bb_settings_wifi_pending_clear(void);
+
 #ifdef __cplusplus
 }
 #endif

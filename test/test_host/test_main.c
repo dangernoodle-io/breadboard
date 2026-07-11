@@ -693,6 +693,28 @@ void test_hostname_set_rejects_leading_hyphen(void);
 void test_hostname_set_rejects_trailing_hyphen(void);
 void test_hostname_set_rejects_bad_charset(void);
 
+// Forward declarations from test_bb_settings_wifi_pending.c
+void test_bb_settings_wifi_pending_set_stages_ssid_pass_try(void);
+void test_bb_settings_wifi_pending_set_null_pass_treated_as_empty(void);
+void test_bb_settings_wifi_pending_set_null_ssid_lands_nothing(void);
+void test_bb_settings_wifi_pending_active_false_when_unset(void);
+void test_bb_settings_wifi_pending_active_true_after_set(void);
+void test_bb_settings_wifi_pending_active_false_when_try_zero(void);
+void test_bb_settings_wifi_pending_active_false_when_ssid_empty(void);
+void test_bb_settings_wifi_pending_promote_no_pending_returns_invalid_state(void);
+void test_bb_settings_wifi_pending_promote_ssid_read_error_aborts(void);
+void test_bb_settings_wifi_pending_promote_pass_read_error_aborts(void);
+void test_bb_settings_wifi_pending_promote_moves_pending_to_live_and_clears_try(void);
+void test_bb_settings_wifi_pending_promote_erases_pending_bytes(void);
+void test_bb_settings_wifi_pending_promote_leaves_pending_active_false(void);
+void test_bb_settings_wifi_pending_clear_clears_try_and_erases_bytes(void);
+void test_bb_settings_wifi_pending_clear_idempotent_when_never_set(void);
+void test_bb_settings_wifi_pending_ssid_get_empty_when_unset(void);
+void test_bb_settings_wifi_pending_ssid_get_cap_zero_probes_length(void);
+void test_bb_settings_wifi_pending_pass_get_truncation_reports_full_len(void);
+void test_bb_settings_wifi_pending_ssid_get_null_out_len_still_fills_buf(void);
+void test_bb_settings_wifi_pending_pass_get_null_out_len_still_fills_buf(void);
+
 // Forward declarations from test_nv_creds_mirror.c
 void test_nv_creds_mirror_pack_valid_roundtrip(void);
 void test_nv_creds_mirror_flip_ssid_invalidates(void);
@@ -8193,6 +8215,26 @@ int main(void) {
     RUN_TEST(test_hostname_set_rejects_leading_hyphen);
     RUN_TEST(test_hostname_set_rejects_trailing_hyphen);
     RUN_TEST(test_hostname_set_rejects_bad_charset);
+    RUN_TEST(test_bb_settings_wifi_pending_set_stages_ssid_pass_try);
+    RUN_TEST(test_bb_settings_wifi_pending_set_null_pass_treated_as_empty);
+    RUN_TEST(test_bb_settings_wifi_pending_set_null_ssid_lands_nothing);
+    RUN_TEST(test_bb_settings_wifi_pending_active_false_when_unset);
+    RUN_TEST(test_bb_settings_wifi_pending_active_true_after_set);
+    RUN_TEST(test_bb_settings_wifi_pending_active_false_when_try_zero);
+    RUN_TEST(test_bb_settings_wifi_pending_active_false_when_ssid_empty);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_no_pending_returns_invalid_state);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_ssid_read_error_aborts);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_pass_read_error_aborts);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_moves_pending_to_live_and_clears_try);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_erases_pending_bytes);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_leaves_pending_active_false);
+    RUN_TEST(test_bb_settings_wifi_pending_clear_clears_try_and_erases_bytes);
+    RUN_TEST(test_bb_settings_wifi_pending_clear_idempotent_when_never_set);
+    RUN_TEST(test_bb_settings_wifi_pending_ssid_get_empty_when_unset);
+    RUN_TEST(test_bb_settings_wifi_pending_ssid_get_cap_zero_probes_length);
+    RUN_TEST(test_bb_settings_wifi_pending_pass_get_truncation_reports_full_len);
+    RUN_TEST(test_bb_settings_wifi_pending_ssid_get_null_out_len_still_fills_buf);
+    RUN_TEST(test_bb_settings_wifi_pending_pass_get_null_out_len_still_fills_buf);
 
     // bb_storage_typed (get_typed/set_typed facade) tests
     RUN_TEST(test_bb_storage_get_typed_falls_back_to_get_on_ram_backend);
