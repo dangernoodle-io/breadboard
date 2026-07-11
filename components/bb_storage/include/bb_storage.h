@@ -24,6 +24,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "bb_core.h"
 
@@ -39,10 +40,27 @@ extern "C" {
 #ifdef CONFIG_BB_STORAGE_MAX_BACKENDS
 #define BB_STORAGE_MAX_BACKENDS CONFIG_BB_STORAGE_MAX_BACKENDS
 #endif
+#ifdef CONFIG_BB_STORAGE_TXN_MAX_KEYS
+#define BB_STORAGE_TXN_MAX_KEYS CONFIG_BB_STORAGE_TXN_MAX_KEYS
+#endif
+#ifdef CONFIG_BB_STORAGE_TXN_VALUE_MAX_BYTES
+#define BB_STORAGE_TXN_VALUE_MAX_BYTES CONFIG_BB_STORAGE_TXN_VALUE_MAX_BYTES
+#endif
 #endif
 #ifndef BB_STORAGE_MAX_BACKENDS
 #define BB_STORAGE_MAX_BACKENDS 4
 #endif
+#ifndef BB_STORAGE_TXN_MAX_KEYS
+#define BB_STORAGE_TXN_MAX_KEYS 3
+#endif
+#ifndef BB_STORAGE_TXN_VALUE_MAX_BYTES
+#define BB_STORAGE_TXN_VALUE_MAX_BYTES 64
+#endif
+// Fixed — generic facade/RAM key ceiling, no Kconfig knob. NOT the NVS key
+// limit: ESP-IDF's real NVS key-name limit is 15 chars + NUL
+// (NVS_KEY_NAME_MAX_SIZE=16); the NVS backend enforces that stricter limit
+// itself (see bb_storage_nvs.c's nvs_txn_set key-length guard).
+#define BB_STORAGE_TXN_KEY_MAX_BYTES 32
 
 // Address of a stored value, resolved against a registered backend by
 // addr->backend. See the field-meaning table in the file header comment.
@@ -66,6 +84,56 @@ typedef enum {
     BB_STORAGE_ENC_I32,
 } bb_storage_enc_t;
 
+// Forward declaration so the dispatch fn-ptr fields below and the vtable's
+// txn_set/txn_commit/txn_abort members (declared further down, once this
+// struct is complete) share ONE bb_storage_txn_t * signature. Without this,
+// the fn-ptr fields would have to be typed `void *txn` (the struct's own
+// type is incomplete inside its own definition) while the vtable members
+// are typed `bb_storage_txn_t *txn`, bridged only by an explicit cast at
+// each call site — a function-pointer type-pun that is undefined behavior
+// per the C standard, even though every real call site happens to pass a
+// bb_storage_txn_t *.
+struct bb_storage_txn_s;
+typedef struct bb_storage_txn_s bb_storage_txn_t;
+
+// Opaque caller-allocated (stack/static, NO HEAP) multi-key transaction
+// handle. One struct shape is shared across all backends; the dispatch
+// fn-ptrs are captured at bb_storage_txn_begin() (reentrancy-safe — multiple
+// concurrent txns are fine, each with its own handle). _handle is used by
+// native-provisional backends (e.g. nvs, which stages writes in an
+// nvs_handle_t and relies on commit/close for atomicity); _slots is used by
+// buffering backends (e.g. ram, which stages key/value pairs and applies
+// them atomically at commit). Both fields are always present so one struct
+// serves all backends. Fields are backend-private — never inspect them
+// outside a backend implementation.
+//
+// The caller MUST zero-initialize this struct (e.g. `bb_storage_txn_t txn =
+// {0};`) before the first bb_storage_txn_begin() call on it — matching the
+// existing bb_nv_batch_t caller-init convention (see bb_nv.h). This is not
+// optional: bb_storage_txn_begin() reads txn->_open to reject a
+// begin-on-already-open txn BEFORE it has zeroed anything, so a
+// stack-garbage-initialized txn can spuriously fail its first begin() (or
+// worse, look "open" and be silently skipped) depending on what garbage
+// bits happen to be in that byte. Every helper in this file (begin/set/
+// commit/abort) assumes the caller honored this contract.
+typedef struct bb_storage_txn_s {
+    bb_err_t (*_txn_set)(void *impl, bb_storage_txn_t *txn, const char *key, bb_storage_enc_t enc,
+                          const void *buf, size_t len);
+    bb_err_t (*_txn_commit)(void *impl, bb_storage_txn_t *txn);
+    bb_err_t (*_txn_abort)(void *impl, bb_storage_txn_t *txn);
+    void     *_impl;
+    bb_err_t  _err;   // sticky first error, BB_OK initially
+    uint8_t   _open;  // nonzero between begin and commit|abort
+    uintptr_t _handle;      // backend-native handle (nvs_handle_t), 0 if unused
+    struct {
+        bool             used;
+        char             key[BB_STORAGE_TXN_KEY_MAX_BYTES];
+        uint8_t          value[BB_STORAGE_TXN_VALUE_MAX_BYTES];
+        size_t           len;
+        bb_storage_enc_t enc;
+    } _slots[BB_STORAGE_TXN_MAX_KEYS];
+} bb_storage_txn_t;
+
 // Backend implementation. The first four members must be non-NULL when
 // passed to bb_storage_register_backend() — a partial vtable is rejected
 // outright rather than crashing on a NULL call later. get_typed/set_typed
@@ -73,6 +141,12 @@ typedef enum {
 // blob semantics automatically via the facade's fallback to get/set (see
 // bb_storage_get_typed/set_typed below) — RAM/host/sdcard backends need no
 // code changes to keep their existing behavior.
+//
+// txn_begin/txn_set/txn_commit/txn_abort are an OPTIONAL group of four:
+// all NULL or all set (validated at registration). No sequential fallback
+// is provided (a NULL-group backend would silently violate atomicity) — a
+// backend that leaves the group NULL makes bb_storage_txn_begin() return
+// BB_ERR_UNSUPPORTED for that backend.
 typedef struct {
     bb_err_t (*get)(void *impl, const bb_storage_addr_t *addr, void *buf, size_t cap, size_t *out_len);
     bb_err_t (*set)(void *impl, const bb_storage_addr_t *addr, const void *buf, size_t len);
@@ -84,6 +158,13 @@ typedef struct {
                            void *buf, size_t cap, size_t *out_len);
     bb_err_t (*set_typed)(void *impl, const bb_storage_addr_t *addr, bb_storage_enc_t enc,
                            const void *buf, size_t len);
+
+    // Optional group of four — all NULL or all set (validated at registration).
+    bb_err_t (*txn_begin)(void *impl, bb_storage_txn_t *txn, const char *ns_or_dir);
+    bb_err_t (*txn_set)(void *impl, bb_storage_txn_t *txn, const char *key, bb_storage_enc_t enc,
+                         const void *buf, size_t len);
+    bb_err_t (*txn_commit)(void *impl, bb_storage_txn_t *txn);  // ATOMIC + DURABLE
+    bb_err_t (*txn_abort)(void *impl, bb_storage_txn_t *txn);
 } bb_storage_vtable_t;
 
 // Clear the backend registry (test/re-init use only).
@@ -157,6 +238,74 @@ bb_err_t bb_storage_get_typed(const bb_storage_addr_t *addr, bb_storage_enc_t en
 // Same error contract as bb_storage_set().
 bb_err_t bb_storage_set_typed(const bb_storage_addr_t *addr, bb_storage_enc_t enc,
                                const void *buf, size_t len);
+
+/* ---------------------------------------------------------------------------
+ * Multi-key transactions
+ *
+ * Stage several key/value writes against one backend/namespace and commit
+ * them as a single atomic + durable operation, or abort to discard them.
+ * txn is caller-allocated (stack/static, no heap) — zero-initialize it
+ * (e.g. `bb_storage_txn_t txn = {0};`) before the first bb_storage_txn_begin()
+ * call; begin() checks the open flag to reject a begin-on-already-open txn,
+ * so starting from garbage stack contents is unsafe. A txn is single-use:
+ * commit and abort both close it; calling set() after either returns
+ * BB_ERR_INVALID_STATE (abort is the one exception — idempotent/safe to call
+ * again on an already-closed or never-opened *zero-initialized* txn).
+ *
+ *   bb_storage_txn_t txn;
+ *   bb_err_t err = bb_storage_txn_begin("nvs", "wifi", &txn);
+ *   if (err != BB_OK) return err;
+ *   bb_storage_txn_set(&txn, "ssid", BB_STORAGE_ENC_STR, ssid, strlen(ssid));
+ *   bb_storage_txn_set(&txn, "pass", BB_STORAGE_ENC_STR, pass, strlen(pass));
+ *   err = bb_storage_txn_commit(&txn);   // atomic: both keys or neither
+ *
+ * Errors are sticky: the first txn_set failure poisons the txn and is
+ * returned by bb_storage_txn_commit (which still closes the txn).
+ * --------------------------------------------------------------------------- */
+
+// Begin a multi-key transaction against `backend`/`ns_or_dir`. `txn` is
+// zero-initialized and its dispatch fn-ptrs captured from the resolved
+// backend entry.
+// Returns:
+//   BB_OK                 transaction opened
+//   BB_ERR_INVALID_ARG    backend, ns_or_dir, or txn is NULL
+//   BB_ERR_NOT_FOUND       no backend registered under `backend`
+//   BB_ERR_UNSUPPORTED     the backend does not implement the txn group
+bb_err_t bb_storage_txn_begin(const char *backend, const char *ns_or_dir, bb_storage_txn_t *txn);
+
+// Stage a key/value write within an open transaction. Not applied until
+// bb_storage_txn_commit().
+// Returns:
+//   BB_OK                 staged
+//   BB_ERR_INVALID_ARG    txn or key is NULL, or key length is at/over
+//                         BB_STORAGE_TXN_KEY_MAX_BYTES (the NVS backend
+//                         additionally enforces its own stricter real NVS
+//                         key-name limit, 15 chars + NUL)
+//   BB_ERR_INVALID_STATE  txn is not open (never begun, or already
+//                         committed/aborted)
+//   BB_ERR_NO_SPACE        slot table full, or value exceeds
+//                         BB_STORAGE_TXN_VALUE_MAX_BYTES
+bb_err_t bb_storage_txn_set(bb_storage_txn_t *txn, const char *key, bb_storage_enc_t enc,
+                             const void *buf, size_t len);
+
+// Commit all staged writes atomically and durably, then close the
+// transaction (single-use).
+// Returns:
+//   BB_OK                 all staged writes committed
+//   BB_ERR_INVALID_ARG    txn is NULL
+//   BB_ERR_INVALID_STATE  txn is not open (never begun, or already
+//                         committed/aborted) — symmetric with
+//                         bb_storage_txn_set's guard; unlike
+//                         bb_storage_txn_abort below, a commit on a closed
+//                         txn is a caller bug, not a silent no-op
+//   (other)                the txn's sticky error (if a staged write already
+//                         failed) or the backend's own commit error
+bb_err_t bb_storage_txn_commit(bb_storage_txn_t *txn);
+
+// Discard all staged writes and close the transaction. Idempotent/safe to
+// call on a poisoned, already-closed, or never-begun txn.
+// Returns BB_ERR_INVALID_ARG for a NULL txn, BB_OK otherwise.
+bb_err_t bb_storage_txn_abort(bb_storage_txn_t *txn);
 
 #ifdef __cplusplus
 }

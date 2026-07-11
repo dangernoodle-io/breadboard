@@ -593,6 +593,49 @@ void test_bb_storage_register_backend_set_typed_without_get_typed_returns_invali
 void test_bb_storage_register_backend_both_typed_null_succeeds(void);
 void test_bb_storage_register_backend_both_typed_set_succeeds(void);
 
+// Forward declarations from test_bb_storage_txn.c
+void test_bb_storage_txn_begin_unsupported_backend_returns_unsupported(void);
+void test_bb_storage_txn_begin_unknown_backend_returns_not_found(void);
+void test_bb_storage_register_backend_partial_txn_group_returns_invalid_arg(void);
+void test_bb_storage_txn_commit_stages_both_keys_in_order(void);
+void test_bb_storage_txn_commit_returns_sticky_error_from_failed_set(void);
+void test_bb_storage_txn_set_on_never_begun_txn_returns_invalid_state(void);
+void test_bb_storage_txn_set_on_already_closed_txn_returns_invalid_state(void);
+void test_bb_storage_txn_abort_on_never_begun_txn_is_safe(void);
+void test_bb_storage_txn_abort_on_already_closed_txn_is_idempotent(void);
+void test_bb_storage_txn_begin_null_args_return_invalid_arg(void);
+void test_bb_storage_txn_set_null_args_return_invalid_arg(void);
+void test_bb_storage_txn_commit_null_returns_invalid_arg(void);
+void test_bb_storage_txn_abort_null_returns_invalid_arg(void);
+void test_bb_storage_txn_double_commit_returns_invalid_state(void);
+void test_bb_storage_txn_commit_never_begun_returns_invalid_state(void);
+
+// Forward declarations from test_bb_storage_ram_txn.c
+void test_bb_storage_ram_txn_commit_makes_both_keys_visible(void);
+void test_bb_storage_ram_txn_abort_leaves_neither_key_visible(void);
+void test_bb_storage_ram_txn_slot_overflow_poisons_txn_and_lands_nothing(void);
+void test_bb_storage_ram_txn_oversize_value_returns_no_space_and_lands_nothing(void);
+void test_bb_storage_ram_txn_commit_visibility_is_all_or_nothing(void);
+void test_bb_storage_ram_txn_begin_twice_without_close_returns_invalid_state(void);
+void test_bb_storage_ram_txn_commit_precheck_rejects_when_backend_table_full(void);
+
+// Forward declarations from test_bb_storage_nvs_txn.c (BB_STORAGE_NVS_TESTING)
+#ifdef BB_STORAGE_NVS_TESTING
+void test_bb_storage_nvs_txn_commit_calls_set_then_commit_then_close_in_order(void);
+void test_bb_storage_nvs_txn_abort_closes_without_commit(void);
+void test_bb_storage_nvs_txn_open_error_leaves_txn_closed(void);
+void test_bb_storage_nvs_txn_set_error_closes_handle_on_commit(void);
+void test_bb_storage_nvs_txn_sticky_error_short_circuits_set_and_commit(void);
+void test_bb_storage_nvs_txn_set_str_oversize_returns_no_space_and_does_not_dispatch(void);
+void test_bb_storage_nvs_txn_set_blob_oversize_returns_no_space_and_does_not_dispatch(void);
+void test_bb_storage_nvs_txn_set_u8_wrong_length_returns_invalid_arg_and_does_not_dispatch(void);
+void test_bb_storage_nvs_txn_set_u16_wrong_length_returns_invalid_arg_and_does_not_dispatch(void);
+void test_bb_storage_nvs_txn_set_u32_wrong_length_returns_invalid_arg_and_does_not_dispatch(void);
+void test_bb_storage_nvs_txn_set_i32_wrong_length_returns_invalid_arg_and_does_not_dispatch(void);
+void test_bb_storage_nvs_txn_set_key_over_nvs_limit_returns_invalid_arg_and_does_not_dispatch(void);
+void test_bb_storage_nvs_txn_set_key_at_nvs_limit_returns_ok_and_dispatches(void);
+#endif
+
 // Forward declarations from test_bb_storage_nvs_classify_enc.c
 void test_bb_storage_nvs_classify_enc_blob(void);
 void test_bb_storage_nvs_classify_enc_str(void);
@@ -8148,6 +8191,49 @@ int main(void) {
     RUN_TEST(test_bb_storage_register_backend_set_typed_without_get_typed_returns_invalid_arg);
     RUN_TEST(test_bb_storage_register_backend_both_typed_null_succeeds);
     RUN_TEST(test_bb_storage_register_backend_both_typed_set_succeeds);
+
+    // bb_storage_txn_* tests (facade contract, fake backend)
+    RUN_TEST(test_bb_storage_txn_begin_unsupported_backend_returns_unsupported);
+    RUN_TEST(test_bb_storage_txn_begin_unknown_backend_returns_not_found);
+    RUN_TEST(test_bb_storage_register_backend_partial_txn_group_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_txn_commit_stages_both_keys_in_order);
+    RUN_TEST(test_bb_storage_txn_commit_returns_sticky_error_from_failed_set);
+    RUN_TEST(test_bb_storage_txn_set_on_never_begun_txn_returns_invalid_state);
+    RUN_TEST(test_bb_storage_txn_set_on_already_closed_txn_returns_invalid_state);
+    RUN_TEST(test_bb_storage_txn_abort_on_never_begun_txn_is_safe);
+    RUN_TEST(test_bb_storage_txn_abort_on_already_closed_txn_is_idempotent);
+    RUN_TEST(test_bb_storage_txn_begin_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_storage_txn_set_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_storage_txn_commit_null_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_txn_abort_null_returns_invalid_arg);
+    RUN_TEST(test_bb_storage_txn_double_commit_returns_invalid_state);
+    RUN_TEST(test_bb_storage_txn_commit_never_begun_returns_invalid_state);
+
+    // bb_storage_txn_* tests against the real ram backend
+    RUN_TEST(test_bb_storage_ram_txn_commit_makes_both_keys_visible);
+    RUN_TEST(test_bb_storage_ram_txn_abort_leaves_neither_key_visible);
+    RUN_TEST(test_bb_storage_ram_txn_slot_overflow_poisons_txn_and_lands_nothing);
+    RUN_TEST(test_bb_storage_ram_txn_oversize_value_returns_no_space_and_lands_nothing);
+    RUN_TEST(test_bb_storage_ram_txn_commit_visibility_is_all_or_nothing);
+    RUN_TEST(test_bb_storage_ram_txn_begin_twice_without_close_returns_invalid_state);
+    RUN_TEST(test_bb_storage_ram_txn_commit_precheck_rejects_when_backend_table_full);
+
+#ifdef BB_STORAGE_NVS_TESTING
+    // bb_storage_nvs's txn-primitive seam — orchestration against a fake NVS
+    RUN_TEST(test_bb_storage_nvs_txn_commit_calls_set_then_commit_then_close_in_order);
+    RUN_TEST(test_bb_storage_nvs_txn_abort_closes_without_commit);
+    RUN_TEST(test_bb_storage_nvs_txn_open_error_leaves_txn_closed);
+    RUN_TEST(test_bb_storage_nvs_txn_set_error_closes_handle_on_commit);
+    RUN_TEST(test_bb_storage_nvs_txn_sticky_error_short_circuits_set_and_commit);
+    RUN_TEST(test_bb_storage_nvs_txn_set_str_oversize_returns_no_space_and_does_not_dispatch);
+    RUN_TEST(test_bb_storage_nvs_txn_set_blob_oversize_returns_no_space_and_does_not_dispatch);
+    RUN_TEST(test_bb_storage_nvs_txn_set_u8_wrong_length_returns_invalid_arg_and_does_not_dispatch);
+    RUN_TEST(test_bb_storage_nvs_txn_set_u16_wrong_length_returns_invalid_arg_and_does_not_dispatch);
+    RUN_TEST(test_bb_storage_nvs_txn_set_u32_wrong_length_returns_invalid_arg_and_does_not_dispatch);
+    RUN_TEST(test_bb_storage_nvs_txn_set_i32_wrong_length_returns_invalid_arg_and_does_not_dispatch);
+    RUN_TEST(test_bb_storage_nvs_txn_set_key_over_nvs_limit_returns_invalid_arg_and_does_not_dispatch);
+    RUN_TEST(test_bb_storage_nvs_txn_set_key_at_nvs_limit_returns_ok_and_dispatches);
+#endif
 
     // bb_storage_nvs_classify_enc tests
     RUN_TEST(test_bb_storage_nvs_classify_enc_blob);
