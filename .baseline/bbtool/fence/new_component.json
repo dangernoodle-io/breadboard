@@ -56,6 +56,11 @@
       "type": "component"
     },
     {
+      "id": "bb_config_staged",
+      "path": "components/bb_config_staged",
+      "type": "component"
+    },
+    {
       "id": "bb_core",
       "path": "components/bb_core",
       "type": "component"

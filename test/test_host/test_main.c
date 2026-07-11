@@ -619,6 +619,31 @@ void test_bb_storage_ram_txn_commit_visibility_is_all_or_nothing(void);
 void test_bb_storage_ram_txn_begin_twice_without_close_returns_invalid_state(void);
 void test_bb_storage_ram_txn_commit_precheck_rejects_when_backend_table_full(void);
 
+// Forward declarations from test_bb_config_staged.c
+void test_bb_config_staged_stage_and_commit_lands_all_fields(void);
+void test_bb_config_staged_scalar_round_trip_u16_u32_i32(void);
+void test_bb_config_staged_blob_round_trip(void);
+void test_bb_config_staged_discard_lands_nothing(void);
+void test_bb_config_staged_oversize_value_poisons_txn_commit_returns_sticky_lands_nothing(void);
+void test_bb_config_staged_local_precheck_poisons_independently_of_txn(void);
+void test_bb_config_staged_type_mismatch_returns_invalid_arg(void);
+void test_bb_config_staged_cross_namespace_field_returns_invalid_arg(void);
+void test_bb_config_staged_cross_backend_field_returns_invalid_arg(void);
+void test_bb_config_staged_str_over_max_len_returns_invalid_arg(void);
+void test_bb_config_staged_blob_over_max_len_returns_invalid_arg(void);
+void test_bb_config_staged_double_commit_returns_invalid_state(void);
+void test_bb_config_staged_discard_idempotent_never_begun(void);
+void test_bb_config_staged_discard_idempotent_after_commit(void);
+void test_bb_config_staged_discard_idempotent_after_discard(void);
+void test_bb_config_staged_null_handle_returns_invalid_arg_for_every_verb(void);
+void test_bb_config_staged_null_value_returns_invalid_arg(void);
+void test_bb_config_staged_null_field_scalar_returns_invalid_arg(void);
+void test_bb_config_staged_null_field_str_returns_invalid_arg(void);
+void test_bb_config_staged_double_commit_after_poisoned_commit_returns_invalid_state_on_second(void);
+void test_bb_config_staged_set_after_commit_returns_invalid_state(void);
+void test_bb_config_staged_begin_resets_reused_handle_after_commit(void);
+void test_bb_config_staged_begin_resets_reused_handle_after_poisoned_commit(void);
+
 // Forward declarations from test_bb_storage_nvs_txn.c (BB_STORAGE_NVS_TESTING)
 #ifdef BB_STORAGE_NVS_TESTING
 void test_bb_storage_nvs_txn_commit_calls_set_then_commit_then_close_in_order(void);
@@ -8212,6 +8237,32 @@ int main(void) {
     RUN_TEST(test_bb_storage_ram_txn_commit_visibility_is_all_or_nothing);
     RUN_TEST(test_bb_storage_ram_txn_begin_twice_without_close_returns_invalid_state);
     RUN_TEST(test_bb_storage_ram_txn_commit_precheck_rejects_when_backend_table_full);
+
+    // bb_config_staged — staged multi-field write over bb_config/bb_storage's
+    // txn group, against the real ram backend
+    RUN_TEST(test_bb_config_staged_stage_and_commit_lands_all_fields);
+    RUN_TEST(test_bb_config_staged_scalar_round_trip_u16_u32_i32);
+    RUN_TEST(test_bb_config_staged_blob_round_trip);
+    RUN_TEST(test_bb_config_staged_discard_lands_nothing);
+    RUN_TEST(test_bb_config_staged_oversize_value_poisons_txn_commit_returns_sticky_lands_nothing);
+    RUN_TEST(test_bb_config_staged_local_precheck_poisons_independently_of_txn);
+    RUN_TEST(test_bb_config_staged_type_mismatch_returns_invalid_arg);
+    RUN_TEST(test_bb_config_staged_cross_namespace_field_returns_invalid_arg);
+    RUN_TEST(test_bb_config_staged_cross_backend_field_returns_invalid_arg);
+    RUN_TEST(test_bb_config_staged_str_over_max_len_returns_invalid_arg);
+    RUN_TEST(test_bb_config_staged_blob_over_max_len_returns_invalid_arg);
+    RUN_TEST(test_bb_config_staged_double_commit_returns_invalid_state);
+    RUN_TEST(test_bb_config_staged_discard_idempotent_never_begun);
+    RUN_TEST(test_bb_config_staged_discard_idempotent_after_commit);
+    RUN_TEST(test_bb_config_staged_discard_idempotent_after_discard);
+    RUN_TEST(test_bb_config_staged_null_handle_returns_invalid_arg_for_every_verb);
+    RUN_TEST(test_bb_config_staged_null_value_returns_invalid_arg);
+    RUN_TEST(test_bb_config_staged_null_field_scalar_returns_invalid_arg);
+    RUN_TEST(test_bb_config_staged_null_field_str_returns_invalid_arg);
+    RUN_TEST(test_bb_config_staged_double_commit_after_poisoned_commit_returns_invalid_state_on_second);
+    RUN_TEST(test_bb_config_staged_set_after_commit_returns_invalid_state);
+    RUN_TEST(test_bb_config_staged_begin_resets_reused_handle_after_commit);
+    RUN_TEST(test_bb_config_staged_begin_resets_reused_handle_after_poisoned_commit);
 
 #ifdef BB_STORAGE_NVS_TESTING
     // bb_storage_nvs's txn-primitive seam — orchestration against a fake NVS
