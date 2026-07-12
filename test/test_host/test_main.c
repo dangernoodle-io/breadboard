@@ -5206,6 +5206,44 @@ void test_bb_transport_health_is_stale_now_before_last_rx(void);
 void test_bb_transport_health_is_stale_zero_threshold_same_ms(void);
 void test_bb_transport_health_is_stale_zero_threshold_one_ms_elapsed(void);
 
+// Forward declarations from test_bb_tcp_client.c
+void test_bb_tcp_client_init_null_loads_defaults(void);
+void test_bb_tcp_client_init_persists_and_reloads(void);
+void test_bb_tcp_client_init_null_out_returns_invalid_arg(void);
+void test_bb_tcp_client_init_host_too_long_returns_invalid_arg(void);
+void test_bb_tcp_client_init_pool_exhausted_returns_no_space(void);
+void test_bb_tcp_client_init_tls_cfg_captured(void);
+void test_bb_tcp_client_connect_happy_sets_connected_and_reports_health_ok(void);
+void test_bb_tcp_client_connect_is_idempotent_when_already_connected(void);
+void test_bb_tcp_client_connect_forced_fail_sets_disconnected_and_reports_health_fail(void);
+void test_bb_tcp_client_connect_null_handle_returns_invalid_arg(void);
+void test_bb_tcp_client_read_before_connect_returns_invalid_state(void);
+void test_bb_tcp_client_write_before_connect_returns_invalid_state(void);
+void test_bb_tcp_client_read_write_null_args_return_invalid_arg(void);
+void test_bb_tcp_client_read_returns_injected_bytes(void);
+void test_bb_tcp_client_read_partial_drains_across_multiple_calls(void);
+void test_bb_tcp_client_read_timeout_reports_no_health(void);
+void test_bb_tcp_client_write_is_captured(void);
+void test_bb_tcp_client_write_count_increments_across_writes(void);
+void test_bb_tcp_client_last_write_before_any_write_returns_negative(void);
+void test_bb_tcp_client_last_write_too_small_cap_returns_negative(void);
+void test_bb_tcp_client_read_hard_error_reports_health_fail(void);
+void test_bb_tcp_client_write_hard_error_reports_health_fail(void);
+void test_bb_tcp_client_forced_io_timeout_does_not_report_health(void);
+void test_bb_tcp_client_poll_readable_true_when_data_queued(void);
+void test_bb_tcp_client_poll_readable_false_when_no_data(void);
+void test_bb_tcp_client_poll_readable_before_connect_returns_invalid_state(void);
+void test_bb_tcp_client_poll_readable_null_args_return_invalid_arg(void);
+void test_bb_tcp_client_close_then_read_write_return_invalid_state(void);
+void test_bb_tcp_client_close_then_reconnect_succeeds(void);
+void test_bb_tcp_client_close_when_already_disconnected_is_safe(void);
+void test_bb_tcp_client_close_null_handle_returns_invalid_arg(void);
+void test_bb_tcp_client_get_state_null_handle_returns_disconnected(void);
+void test_bb_tcp_client_destroy_on_connected_handle_frees_pool_slot(void);
+void test_bb_tcp_client_destroy_null_is_noop(void);
+void test_bb_tcp_client_transport_health_registered_once_across_repeated_init(void);
+void test_bb_tcp_client_concurrent_first_connect_registers_health_exactly_once(void);
+
 // Forward declarations from test_bb_log_event.c
 void test_bb_log_event_parse_info(void);
 void test_bb_log_event_parse_warning(void);
@@ -10230,6 +10268,44 @@ int main(void) {
     RUN_TEST(test_bb_transport_health_is_stale_now_before_last_rx);
     RUN_TEST(test_bb_transport_health_is_stale_zero_threshold_same_ms);
     RUN_TEST(test_bb_transport_health_is_stale_zero_threshold_one_ms_elapsed);
+
+    // bb_tcp_client
+    RUN_TEST(test_bb_tcp_client_init_null_loads_defaults);
+    RUN_TEST(test_bb_tcp_client_init_persists_and_reloads);
+    RUN_TEST(test_bb_tcp_client_init_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_tcp_client_init_host_too_long_returns_invalid_arg);
+    RUN_TEST(test_bb_tcp_client_init_pool_exhausted_returns_no_space);
+    RUN_TEST(test_bb_tcp_client_init_tls_cfg_captured);
+    RUN_TEST(test_bb_tcp_client_connect_happy_sets_connected_and_reports_health_ok);
+    RUN_TEST(test_bb_tcp_client_connect_is_idempotent_when_already_connected);
+    RUN_TEST(test_bb_tcp_client_connect_forced_fail_sets_disconnected_and_reports_health_fail);
+    RUN_TEST(test_bb_tcp_client_connect_null_handle_returns_invalid_arg);
+    RUN_TEST(test_bb_tcp_client_read_before_connect_returns_invalid_state);
+    RUN_TEST(test_bb_tcp_client_write_before_connect_returns_invalid_state);
+    RUN_TEST(test_bb_tcp_client_read_write_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_tcp_client_read_returns_injected_bytes);
+    RUN_TEST(test_bb_tcp_client_read_partial_drains_across_multiple_calls);
+    RUN_TEST(test_bb_tcp_client_read_timeout_reports_no_health);
+    RUN_TEST(test_bb_tcp_client_write_is_captured);
+    RUN_TEST(test_bb_tcp_client_write_count_increments_across_writes);
+    RUN_TEST(test_bb_tcp_client_last_write_before_any_write_returns_negative);
+    RUN_TEST(test_bb_tcp_client_last_write_too_small_cap_returns_negative);
+    RUN_TEST(test_bb_tcp_client_read_hard_error_reports_health_fail);
+    RUN_TEST(test_bb_tcp_client_write_hard_error_reports_health_fail);
+    RUN_TEST(test_bb_tcp_client_forced_io_timeout_does_not_report_health);
+    RUN_TEST(test_bb_tcp_client_poll_readable_true_when_data_queued);
+    RUN_TEST(test_bb_tcp_client_poll_readable_false_when_no_data);
+    RUN_TEST(test_bb_tcp_client_poll_readable_before_connect_returns_invalid_state);
+    RUN_TEST(test_bb_tcp_client_poll_readable_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_tcp_client_close_then_read_write_return_invalid_state);
+    RUN_TEST(test_bb_tcp_client_close_then_reconnect_succeeds);
+    RUN_TEST(test_bb_tcp_client_close_when_already_disconnected_is_safe);
+    RUN_TEST(test_bb_tcp_client_close_null_handle_returns_invalid_arg);
+    RUN_TEST(test_bb_tcp_client_get_state_null_handle_returns_disconnected);
+    RUN_TEST(test_bb_tcp_client_destroy_on_connected_handle_frees_pool_slot);
+    RUN_TEST(test_bb_tcp_client_destroy_null_is_noop);
+    RUN_TEST(test_bb_tcp_client_transport_health_registered_once_across_repeated_init);
+    RUN_TEST(test_bb_tcp_client_concurrent_first_connect_registers_health_exactly_once);
 
     // bb_log_event parser
     RUN_TEST(test_bb_log_event_parse_info);

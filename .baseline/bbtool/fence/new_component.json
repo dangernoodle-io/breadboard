@@ -561,6 +561,11 @@
       "type": "component"
     },
     {
+      "id": "bb_tcp_client",
+      "path": "components/bb_tcp_client",
+      "type": "component"
+    },
+    {
       "id": "bb_telemetry",
       "path": "components/bb_telemetry",
       "type": "component"

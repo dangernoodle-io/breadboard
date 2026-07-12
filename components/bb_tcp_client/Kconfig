@@ -1,0 +1,32 @@
+menu "breadboard: bb_tcp_client"
+
+config BB_TCP_CLIENT_MAX_INSTANCES
+    int "Maximum concurrent bb_tcp_client instances"
+    default 1
+    help
+        Size of the static instance pool bb_tcp_client_init() allocates from.
+        Zero heap: every instance lives in this fixed-size pool.
+        bb_tcp_client_init() returns BB_ERR_NO_SPACE once it is exhausted.
+
+config BB_TCP_CONNECT_TIMEOUT_MS
+    int "Default connect timeout (ms)"
+    default 5000
+    help
+        Bound on bb_tcp_client_connect() when cfg.connect_timeout_ms is 0.
+
+config BB_TCP_IO_TIMEOUT_MS
+    int "Default read/write I/O timeout (ms)"
+    default 5000
+    help
+        Bound on bb_tcp_client_read() and the short-write retry loop in
+        bb_tcp_client_write() when cfg.io_timeout_ms is 0.
+
+config BB_TCP_TLS_DEFAULT
+    bool "Default to TLS when loading persisted/Kconfig config"
+    default n
+    help
+        Default value of cfg.tls when bb_tcp_client_init(NULL) loads config
+        with no persisted NVS "tls" key set yet. Persisted config in NVS
+        ("bb_tcp" namespace, key "tls") overrides this default once set.
+
+endmenu
