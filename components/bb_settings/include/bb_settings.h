@@ -59,6 +59,34 @@ bb_err_t bb_settings_hostname_get(char *buf, size_t cap, size_t *out_len);
 bb_err_t bb_settings_hostname_set(const char *hostname);
 
 // ---------------------------------------------------------------------------
+// WiFi live-creds writer (B1: bb_nv creds-cluster PR4).
+//
+// Writes the LIVE ssid/pass fields directly (the same fields
+// bb_settings_wifi_ssid_get/bb_settings_wifi_pass_get read, and bb_wifi
+// connects with) -- unlike bb_settings_wifi_pending_set below, there is no
+// staged/try-flag/promote step; this lands immediately. No WiFi validation
+// lives here -- callers pre-validate ssid/pass (same posture as the
+// pending-creds writers).
+// ---------------------------------------------------------------------------
+
+// Write the live WiFi ssid/pass: pass (NULL treated as empty -- open
+// network) and ssid are written atomically in one bb_config_staged session
+// (2 keys, all-or-nothing) against the same live fields
+// bb_settings_wifi_ssid_get/bb_settings_wifi_pass_get read. NOTE the ssid/
+// pass NULL asymmetry: a NULL pass is a valid "open network" request and is
+// substituted with "" before staging, but a NULL ssid is NOT substituted --
+// it is passed straight to the staged setter, which returns
+// BB_ERR_INVALID_ARG (via the commit) without touching storage. An oversize
+// ssid/pass (beyond the field's max_len) fails the same staged precheck
+// (BB_ERR_INVALID_ARG) WITHOUT touching storage. After a successful commit,
+// the RTC warm-reboot mirror is best-effort updated (see
+// bb_settings_wifi_pending_promote's doc for the mirror's crash/
+// availability contract) -- a failure there never affects this call's
+// BB_OK return, since the NVS commit already succeeded and is
+// authoritative.
+bb_err_t bb_settings_wifi_set(const char *ssid, const char *pass);
+
+// ---------------------------------------------------------------------------
 // WiFi pending-creds writers (B1: bb_nv creds-cluster PR2).
 //
 // Mirrors bb_nv's pending-creds lifecycle (platform/espidf/bb_nv/bb_nv.c's
@@ -100,7 +128,14 @@ bool bb_settings_wifi_pending_active(void);
 // checked before anything is touched). After a successful atomic commit,
 // the plaintext pending bytes are erased on a BEST-EFFORT basis (their
 // return is ignored) -- try=0 already committed is the crash-safe decision
-// bit, so a failed/incomplete erase just leaves harmless stale bytes.
+// bit, so a failed/incomplete erase just leaves harmless stale bytes. The
+// RTC warm-reboot mirror ("rtc" bb_storage backend, ssid/pass/provisioned
+// keys) is ALSO best-effort updated after the atomic commit succeeds --
+// same rationale as bb_settings_wifi_set: the NVS commit is authoritative,
+// the mirror write's own success/failure never changes this call's return.
+// A backend error or no "rtc" backend registered at all is silently
+// swallowed (fail-open) -- the mirror is a recovery cache, not required for
+// correctness.
 bb_err_t bb_settings_wifi_pending_promote(void);
 
 // Discard any pending reconfigure attempt: clears the try flag, then

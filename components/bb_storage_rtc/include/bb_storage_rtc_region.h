@@ -44,6 +44,14 @@ extern "C" {
  * device was provisioned with no network configured and is not restorable.
  * bb_storage_rtc_region_valid() does NOT enforce this — the struct is still
  * structurally valid with an empty SSID.
+ *
+ * Capacity coupling: ssid[32]/pass[64] below must stay byte-compatible with
+ * bb_settings' s_wifi_ssid_field.max_len/s_wifi_pass_field.max_len
+ * (platform/host/bb_settings/bb_settings.c) or bb_settings' RTC-mirror write
+ * silently BB_ERR_NO_SPACE-fails against this region. Not compiler-enforced
+ * on purpose (bb_settings must not gain a direct bb_storage_rtc include/
+ * dependency — see bb_settings.c's mirror-write comment) — editing either
+ * side, check the other.
  */
 typedef struct {
     uint32_t magic;        /**< BB_STORAGE_RTC_REGION_MAGIC */
