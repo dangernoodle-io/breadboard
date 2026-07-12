@@ -2,7 +2,7 @@ idf_component_register(
     SRCS "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_storage/bb_storage.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_core
-    PRIV_REQUIRES bb_log
+    PRIV_REQUIRES bb_log bb_str
 )
 
 # bb_storage is a portable facade (no ESP-IDF deps, guarded internally by
