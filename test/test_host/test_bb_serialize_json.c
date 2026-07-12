@@ -796,6 +796,31 @@ void test_bb_serialize_json_bound_unknown_type_defensive(void)
     TEST_ASSERT_EQUAL_UINT(2 + (6 * 3 + 3 + 0 + 1) + 1, b);
 }
 
+// 15b. BB_TYPE_REF field -> bound is unbounded/unknown (SIZE_MAX): the
+// rendered size of a REF depends on the resolver's sibling descriptor,
+// which bb_serialize_json_bound() can't see. Must fail if the REF case
+// were reverted to falling through to default (which returns 0, an
+// undersized bound).
+typedef struct {
+    int64_t marker;
+} bound_ref_snap_t;
+
+static const bb_serialize_field_t s_bound_ref_fields[] = {
+    { .key = "ref", .type = BB_TYPE_REF, .offset = 0, .ref_key = "some.sibling" },
+};
+
+static const bb_serialize_desc_t s_bound_ref_desc = {
+    .type_name = "bound_ref_snap_t",
+    .fields = s_bound_ref_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(bound_ref_snap_t),
+};
+
+void test_bb_serialize_json_bound_ref_is_size_max(void)
+{
+    TEST_ASSERT_EQUAL_UINT(SIZE_MAX, bb_serialize_json_bound(&s_bound_ref_desc));
+}
+
 // 16. ctx_init / manual emit-vtable drive (direct API, not via render()) --
 // covers bb_serialize_json_ctx_init()/bb_serialize_json_emit() used
 // standalone, and the key==NULL defensive branch inside pre_value(): the
@@ -999,4 +1024,105 @@ void test_bb_serialize_json_pop_level_underflow_guard(void)
     emit.end_obj(emit.ctx);
     TEST_ASSERT_EQUAL_UINT(0, ctx.depth);
     TEST_ASSERT_EQUAL(BB_OK, ctx.err);
+}
+
+// ---------------------------------------------------------------------------
+// 19. BB_TYPE_REF JSON golden -- bb_serialize_json_render_ref() over a
+// synthetic parent+sibling document (a "system" parent referencing a
+// "wifi" sibling section by ref_key), plus resolve==NULL /
+// unregistered-sibling omission via the same render path.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    int64_t rssi;
+} v2_wifi_snap_t;
+
+static const bb_serialize_field_t s_v2_wifi_fields[] = {
+    { .key = "rssi", .type = BB_TYPE_I64, .offset = offsetof(v2_wifi_snap_t, rssi) },
+};
+
+static const bb_serialize_desc_t s_v2_wifi_desc = {
+    .type_name = "v2_wifi_snap_t",
+    .fields = s_v2_wifi_fields,
+    .n_fields = 1,
+    .snap_size = sizeof(v2_wifi_snap_t),
+};
+
+static v2_wifi_snap_t s_v2_wifi_snap = { .rssi = -60 };
+
+typedef struct {
+    int64_t uptime;
+} v2_system_snap_t;
+
+static const bb_serialize_field_t s_v2_system_fields[] = {
+    { .key = "uptime", .type = BB_TYPE_I64, .offset = offsetof(v2_system_snap_t, uptime) },
+    { .key = "wifi", .type = BB_TYPE_REF, .ref_key = "net.wifi" },
+};
+
+static const bb_serialize_desc_t s_v2_system_desc = {
+    .type_name = "v2_system_snap_t",
+    .fields = s_v2_system_fields,
+    .n_fields = 2,
+    .snap_size = sizeof(v2_system_snap_t),
+};
+
+static bool v2_stub_resolve(const char *ref_key, void *ctx, bb_serialize_ref_t *out)
+{
+    (void)ctx;
+    if (strcmp(ref_key, "net.wifi") == 0) {
+        out->desc = &s_v2_wifi_desc;
+        out->snap = &s_v2_wifi_snap;
+        return true;
+    }
+    return false;
+}
+
+static bool stub_resolve_never_matches(const char *ref_key, void *ctx, bb_serialize_ref_t *out)
+{
+    (void)ref_key;
+    (void)ctx;
+    (void)out;
+    return false;
+}
+
+void test_v2_golden_ref_resolves_inline(void)
+{
+    v2_system_snap_t snap = { .uptime = 42 };
+    char buf[128];
+    size_t out_len = 0;
+
+    bb_err_t rc = bb_serialize_json_render_ref(&s_v2_system_desc, &snap, buf, sizeof(buf),
+                                                &out_len, v2_stub_resolve, NULL);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL_STRING("{\"uptime\":42,\"wifi\":{\"rssi\":-60}}", buf);
+    TEST_ASSERT_EQUAL_UINT(strlen(buf), out_len);
+}
+
+void test_v2_golden_ref_unregistered_sibling_omits_field(void)
+{
+    v2_system_snap_t snap = { .uptime = 42 };
+    char buf[128];
+    size_t out_len = 0;
+
+    // Resolver never matches -- same as an unregistered sibling.
+    bb_err_t rc = bb_serialize_json_render_ref(&s_v2_system_desc, &snap, buf, sizeof(buf),
+                                                &out_len, stub_resolve_never_matches, NULL);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL_STRING("{\"uptime\":42}", buf);
+}
+
+void test_v2_golden_ref_null_resolver_omits_field(void)
+{
+    v2_system_snap_t snap = { .uptime = 42 };
+    char buf[128];
+    size_t out_len = 0;
+
+    // Plain bb_serialize_json_render() drives resolve==NULL internally --
+    // proves the two entry points agree byte-for-byte on a REF-bearing desc.
+    bb_err_t rc = bb_serialize_json_render(&s_v2_system_desc, &snap, buf, sizeof(buf), &out_len);
+
+    TEST_ASSERT_EQUAL(BB_OK, rc);
+    TEST_ASSERT_EQUAL_STRING("{\"uptime\":42}", buf);
 }

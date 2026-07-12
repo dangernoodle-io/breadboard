@@ -7,7 +7,8 @@
 #include <string.h>
 
 static void walk_fields(const bb_serialize_field_t *fields, uint16_t n_fields,
-                         const void *snap, const bb_serialize_emit_t *emit, unsigned depth)
+                         const void *snap, const bb_serialize_emit_t *emit, unsigned depth,
+                         bb_serialize_ref_resolve_fn resolve, void *resolve_ctx)
 {
     for (uint16_t i = 0; i < n_fields; i++) {
         const bb_serialize_field_t *f = &fields[i];
@@ -71,7 +72,7 @@ static void walk_fields(const bb_serialize_field_t *fields, uint16_t n_fields,
             // bail rather than recurse past BB_SERIALIZE_MAX_DEPTH.
             if (depth >= BB_SERIALIZE_MAX_DEPTH) break;
             emit->begin_obj(emit->ctx, f->key);
-            walk_fields(f->children, f->n_children, p, emit, depth + 1);
+            walk_fields(f->children, f->n_children, p, emit, depth + 1, resolve, resolve_ctx);
             emit->end_obj(emit->ctx);
             break;
         }
@@ -88,7 +89,8 @@ static void walk_fields(const bb_serialize_field_t *fields, uint16_t n_fields,
                         for (size_t j = 0; j < arr.count; j++) {
                             const uint8_t *elem = base + j * f->elem_size;
                             emit->begin_obj(emit->ctx, NULL);
-                            walk_fields(f->children, f->n_children, elem, emit, depth + 1);
+                            walk_fields(f->children, f->n_children, elem, emit, depth + 1,
+                                        resolve, resolve_ctx);
                             emit->end_obj(emit->ctx);
                         }
                     }
@@ -113,6 +115,31 @@ static void walk_fields(const bb_serialize_field_t *fields, uint16_t n_fields,
             emit->end_arr(emit->ctx);
             break;
         }
+        case BB_TYPE_REF: {
+            // A REF hop costs one depth level, same accounting as OBJ --
+            // bounded defense against a resolver cycle (A -> B -> A ...)
+            // rather than a real-world limit: frames are bounded (<= 8),
+            // the composition data driving them is static-const/trusted
+            // (same precedent as the OBJ depth guard above), and a cycle
+            // truncates deterministically at the cap rather than
+            // stack-overflowing.
+            if (depth >= BB_SERIALIZE_MAX_DEPTH) break;
+
+            bb_serialize_ref_t ref = { .desc = NULL, .snap = NULL };
+            if (!resolve || !resolve(f->ref_key, resolve_ctx, &ref) || !ref.desc || !ref.snap) {
+                // No resolver, resolver reports no such sibling, or a
+                // resolver returns true but leaves desc/snap unset (buggy
+                // resolver / future cache-race): omit the field entirely --
+                // same convention as `present` == false, never a crash.
+                break;
+            }
+
+            emit->begin_obj(emit->ctx, f->key);
+            walk_fields(ref.desc->fields, ref.desc->n_fields, ref.snap, emit, depth + 1,
+                        resolve, resolve_ctx);
+            emit->end_obj(emit->ctx);
+            break;
+        }
         default:
             break;  // LCOV_EXCL_LINE -- exhaustive enum, defensive
         }
@@ -122,8 +149,15 @@ static void walk_fields(const bb_serialize_field_t *fields, uint16_t n_fields,
 void bb_serialize_walk(const bb_serialize_desc_t *desc, const void *snap,
                         const bb_serialize_emit_t *emit)
 {
+    bb_serialize_walk_ref(desc, snap, emit, NULL, NULL);
+}
+
+void bb_serialize_walk_ref(const bb_serialize_desc_t *desc, const void *snap,
+                            const bb_serialize_emit_t *emit,
+                            bb_serialize_ref_resolve_fn resolve, void *resolve_ctx)
+{
     if (!desc || !snap || !emit) return;  // LCOV_EXCL_BR_LINE -- defensive against NULL misuse
-    walk_fields(desc->fields, desc->n_fields, snap, emit, 0);
+    walk_fields(desc->fields, desc->n_fields, snap, emit, 0, resolve, resolve_ctx);
 }
 
 const bb_serialize_field_t *bb_serialize_desc_find(const bb_serialize_desc_t *desc,

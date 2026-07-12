@@ -91,6 +91,14 @@ static void bb_oa_write_type(bb_oa_ctx_t *ctx, bb_type_t type)
     case BB_TYPE_STR_N: bb_oa_puts(ctx, "\"string\""); break;
     case BB_TYPE_OBJ:  bb_oa_puts(ctx, "\"object\"");  break;
     case BB_TYPE_ARR:  bb_oa_puts(ctx, "\"array\"");   break;
+    case BB_TYPE_REF:
+        // A REF composes a sibling section inline at runtime (resolved by
+        // bb_serialize_walk_ref()'s resolve callback); the sibling's own
+        // descriptor isn't known statically here, so this composer can't
+        // expand its properties -- documented as an opaque object, same as
+        // the runtime shape (a REF always renders as a nested JSON object).
+        bb_oa_puts(ctx, "\"object\"");
+        break;
     default:            bb_oa_puts(ctx, "\"null\"");   break;  // LCOV_EXCL_LINE -- exhaustive enum, defensive
     }
 }

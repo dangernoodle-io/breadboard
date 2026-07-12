@@ -287,10 +287,11 @@ static const bb_serialize_field_t s_cov_oa_fields[] = {
       .children = s_cov_oa_obj_child_fields, .n_children = 3 },
     { .key = "arrf", .type = BB_TYPE_ARR, .elem_type = BB_TYPE_OBJ,
       .children = s_cov_oa_arr_child_fields, .n_children = 2 },
+    { .key = "reff", .type = BB_TYPE_REF, .ref_key = "some.sibling" },
 };
 
 static const bb_serialize_desc_t s_cov_oa_desc = {
-    .type_name = "cov_oa", .fields = s_cov_oa_fields, .n_fields = 5,
+    .type_name = "cov_oa", .fields = s_cov_oa_fields, .n_fields = 6,
 };
 
 static const char *const s_cov_oa_examples[] = { "\"a\"", "\"b\"", NULL };
@@ -337,4 +338,7 @@ void test_bb_serialize_meta_openapi_coverage_fixture(void)
     // arrf: real (non-NULL) meta row driving the ARR-of-OBJ items schema.
     TEST_ASSERT_TRUE(strstr(buf, "\"items\":{\"type\":\"object\",\"properties\":"
                                   "{\"p\":{\"type\":\"integer\"},\"q\":{\"type\":\"integer\"}}") != NULL);
+    // reff: BB_TYPE_REF documented as an opaque object (no static properties
+    // expansion -- the sibling descriptor isn't known here).
+    TEST_ASSERT_TRUE(strstr(buf, "\"reff\":{\"type\":\"object\"}") != NULL);
 }
