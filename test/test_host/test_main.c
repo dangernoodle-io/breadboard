@@ -96,6 +96,18 @@ void test_bb_serialize_json_render_deep_arr_of_obj(void);
 void test_bb_serialize_json_push_level_guard_manual_overdrive(void);
 void test_bb_serialize_json_pop_level_underflow_guard(void);
 
+// Forward declarations from test_v2_golden.c
+void test_v2_golden_info_root_slice_populated(void);
+void test_v2_golden_info_root_slice_null(void);
+void test_v2_golden_info_root_slice_capabilities_three_entries(void);
+void test_v2_golden_info_root_slice_mac_boundary_no_nul(void);
+void test_v2_golden_info_root_slice_hostname_longer_str_n(void);
+void test_v2_golden_health_root_slice_populated(void);
+void test_v2_golden_health_root_slice_disconnected(void);
+void test_v2_golden_info_telem_psram(void);
+void test_v2_golden_info_telem_no_psram(void);
+void test_v2_golden_info_telem_differential_matches_live_cache(void);
+
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
 void test_bb_log_warning(void);
@@ -10352,6 +10364,18 @@ int main(void) {
     RUN_TEST(test_bb_serialize_json_render_deep_arr_of_obj);
     RUN_TEST(test_bb_serialize_json_push_level_guard_manual_overdrive);
     RUN_TEST(test_bb_serialize_json_pop_level_underflow_guard);
+
+    // v2 wire golden byte-fidelity harness (B1-767 PR-6)
+    RUN_TEST(test_v2_golden_info_root_slice_populated);
+    RUN_TEST(test_v2_golden_info_root_slice_null);
+    RUN_TEST(test_v2_golden_info_root_slice_capabilities_three_entries);
+    RUN_TEST(test_v2_golden_info_root_slice_mac_boundary_no_nul);
+    RUN_TEST(test_v2_golden_info_root_slice_hostname_longer_str_n);
+    RUN_TEST(test_v2_golden_health_root_slice_populated);
+    RUN_TEST(test_v2_golden_health_root_slice_disconnected);
+    RUN_TEST(test_v2_golden_info_telem_psram);
+    RUN_TEST(test_v2_golden_info_telem_no_psram);
+    RUN_TEST(test_v2_golden_info_telem_differential_matches_live_cache);
 
     return UNITY_END();
 }
