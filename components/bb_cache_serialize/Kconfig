@@ -1,0 +1,28 @@
+menu "bb_cache_serialize"
+
+config BB_CACHE_SERIALIZE_MAX_ENTRIES
+    int "Maximum number of registered (format, key) render memo slots"
+    default 8
+    range 1 32
+    help
+        Fixed-size slot table capacity. Each slot holds one memoized
+        rendered payload for a single (format, key) pair -- increase if
+        more than 8 distinct wire endpoints are memoized via
+        bb_cache_serialize_get() at once.
+
+config BB_CACHE_SERIALIZE_BUF_BYTES
+    int "Render memo slot buffer size (bytes)"
+    default 512
+    range 64 4096
+    help
+        Dual-budget knob -- this single value sizes BOTH the per-slot
+        rendered wire bytes buffer (.bss, one per slot: standing cost is
+        BB_CACHE_SERIALIZE_BUF_BYTES * BB_CACHE_SERIALIZE_MAX_ENTRIES bytes)
+        AND the raw-struct snapshot scratch buffer (a stack array on the
+        CALLING task, sized fresh for each bb_cache_serialize_get() call).
+        Size it for the LARGER of the two requirements: the widest rendered
+        JSON payload, or the largest owned struct being snapshotted. A
+        render or snapshot whose size exceeds this fails with
+        BB_ERR_NO_SPACE.
+
+endmenu

@@ -4809,6 +4809,22 @@ void test_bb_cache_snapshot_delete_race_returns_not_found(void);
 void test_bb_cache_state_version_delete_race_returns_not_found(void);
 void test_bb_cache_snapshot_evicts_past_evict_age(void);
 
+// Forward declarations from test_bb_cache_serialize.c
+void test_bb_cache_serialize_get_hit_same_version_returns_identical_bytes_and_render_count_once(void);
+void test_bb_cache_serialize_get_recache_on_state_version_bump_bumps_render_count(void);
+void test_bb_cache_serialize_get_byte_identical_to_direct_json_render(void);
+void test_bb_cache_serialize_get_unsupported_format_returns_unsupported(void);
+void test_bb_cache_serialize_get_unsupported_format_with_existing_json_slot_for_same_key(void);
+void test_bb_cache_serialize_get_unsupported_format_absent_key_returns_unsupported(void);
+void test_bb_cache_serialize_get_absent_key_returns_not_found(void);
+void test_bb_cache_serialize_get_getter_mode_key_returns_invalid_state(void);
+void test_bb_cache_serialize_get_render_overflow_returns_no_space_slot_left_invalid(void);
+void test_bb_cache_serialize_get_snapshot_oversize_returns_no_space_slot_left_invalid(void);
+void test_bb_cache_serialize_get_slot_table_exhaustion_returns_no_space_last_key_previous_still_hits(void);
+void test_bb_cache_serialize_get_null_args_return_invalid_arg(void);
+void test_bb_cache_serialize_get_distinct_keys_independent_slots(void);
+void test_bb_cache_serialize_reset_for_test_clears_table_fresh_miss_after_reset(void);
+
 // Forward declarations from test_bb_cache_write_notify.c
 void test_bb_cache_write_notify_default_empty_is_safe_noop(void);
 void test_bb_cache_write_notify_fires_once_per_successful_write_with_correct_args(void);
@@ -9844,6 +9860,22 @@ int main(void) {
     RUN_TEST(test_bb_cache_snapshot_delete_race_returns_not_found);
     RUN_TEST(test_bb_cache_state_version_delete_race_returns_not_found);
     RUN_TEST(test_bb_cache_snapshot_evicts_past_evict_age);
+
+    // bb_cache_serialize render memo (B1-767 PR-4)
+    RUN_TEST(test_bb_cache_serialize_get_hit_same_version_returns_identical_bytes_and_render_count_once);
+    RUN_TEST(test_bb_cache_serialize_get_recache_on_state_version_bump_bumps_render_count);
+    RUN_TEST(test_bb_cache_serialize_get_byte_identical_to_direct_json_render);
+    RUN_TEST(test_bb_cache_serialize_get_unsupported_format_returns_unsupported);
+    RUN_TEST(test_bb_cache_serialize_get_unsupported_format_with_existing_json_slot_for_same_key);
+    RUN_TEST(test_bb_cache_serialize_get_unsupported_format_absent_key_returns_unsupported);
+    RUN_TEST(test_bb_cache_serialize_get_absent_key_returns_not_found);
+    RUN_TEST(test_bb_cache_serialize_get_getter_mode_key_returns_invalid_state);
+    RUN_TEST(test_bb_cache_serialize_get_render_overflow_returns_no_space_slot_left_invalid);
+    RUN_TEST(test_bb_cache_serialize_get_snapshot_oversize_returns_no_space_slot_left_invalid);
+    RUN_TEST(test_bb_cache_serialize_get_slot_table_exhaustion_returns_no_space_last_key_previous_still_hits);
+    RUN_TEST(test_bb_cache_serialize_get_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_cache_serialize_get_distinct_keys_independent_slots);
+    RUN_TEST(test_bb_cache_serialize_reset_for_test_clears_table_fresh_miss_after_reset);
 
     // bb_cache write-notify seam (B1-767 PR-3)
     RUN_TEST(test_bb_cache_write_notify_default_empty_is_safe_noop);
