@@ -1,6 +1,6 @@
 PIO ?= pio
 
-.PHONY: help all check lint cppcheck docs docs-index-check docs-check fence di-fence size-check size-baseline test-py test coverage smoke smoke-codegen smoke-gen floor floor-gen floor-codegen clean
+.PHONY: help all check lint cppcheck docs docs-index-check docs-check fence di-fence size-check size-baseline test-py test coverage smoke smoke-codegen smoke-gen smoke-gen-esp32 smoke-gen-esp32c3 smoke-gen-tdongle smoke-gen-elecrow-p4-hmi7 floor floor-gen floor-codegen clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
@@ -84,43 +84,62 @@ coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging
 # r4_wifis3 / uno_cc3000 excluded from aggregate + CI pending arm64 toolchain fix (see backlog); use their individual targets locally
 smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32-cache-sweep smoke-esp32c3 smoke-tdongle
 
-# Shared codegen prerequisite for every smoke-<board> target -- regenerates
-# smoke's composition root (bb_app_init.c) from // bbtool:init markers over
-# SMOKE_REQUIRES. .PHONY (not a real file target) because
-# bbtool codegen's own inputs (component headers) aren't tracked here; every
-# smoke-<board> run regenerates fresh. Output stays gitignored (decision #725).
-# Also a `lint` prerequisite (B1-741 §7, alongside floor-gen): a fresh
-# checkout has no examples/*/main/generated/ (gitignored), so without this,
-# bbtool lint's emit-seam-unwired-subscriber rule (B1-740) can't see a
-# codegen-only-emitted setter wire (e.g. bb_wifi_set_emit) and false-positives.
-smoke-gen:
-	python3 scripts/bbtool.py codegen --root . \
-	    --components bb_nv,bb_log,bb_log_event,bb_log_http,bb_wifi,bb_wifi_http,bb_settings,bb_http,bb_http_server,bb_mdns,bb_mdns_cache,bb_ota_pull,bb_ota_push,bb_ota_boot,bb_info,bb_board,bb_manifest,bb_ota_validator,bb_system,bb_openapi,bb_led,bb_led_info,bb_ntp,bb_ntp_info,bb_led_gpio,bb_led_pwm,bb_led_apa102,bb_led_anim,bb_button,bb_button_gpio,bb_button_events,bb_event,bb_event_ring,bb_event_ring_espidf,bb_event_routes,bb_event_routes_espidf,bb_ring_espidf,bb_ring_diag,bb_http_client,bb_release_manifest,bb_ota_check,bb_temp,bb_power,bb_fan,bb_sensors,bb_tls_creds,bb_mqtt_client,bb_pub,bb_sink_mqtt,bb_pub_info,bb_pub_rtos,bb_ws_server,bb_sink_ws,bb_registry,bb_partition,bb_task_registry,bb_task,bb_net_health,bb_mem_arena,bb_pool,bb_udp_frame,bb_udp_client,bb_sink_udp,bb_dispatch_cmd,bb_meminfo,bb_timer,bb_config,bb_storage_nvs,bb_storage_rtc \
+# Per-board codegen prerequisites for every smoke-<board> target -- regenerate
+# smoke's REQUIRES fragment (board-parameterized, B1-747) + composition root
+# (bb_app_init.c, deliberately board-invariant -- pinned to the
+# smoke_wire_baseline manifest board via --wire-board) from // bbtool:init
+# markers. .PHONY (not real file targets) because bbtool codegen's own inputs
+# (component headers, bbtool.toml) aren't tracked here; every smoke-<board>
+# run regenerates fresh. Output stays gitignored (decision #725).
+# `smoke-gen` (no suffix) is the `lint`/`test-py` prerequisite (B1-741 §7,
+# alongside floor-gen): a fresh checkout has no examples/*/main/generated/
+# (gitignored), so without this, bbtool lint's emit-seam-unwired-subscriber
+# rule (B1-740) can't see a codegen-only-emitted setter wire and
+# false-positives; esp32_wroom_32 is the canonical board for that purpose.
+smoke-gen: smoke-gen-esp32
+
+smoke-gen-esp32:
+	python3 scripts/bbtool.py codegen --root . --board esp32_wroom_32 --wire-board smoke_wire_baseline \
 	    --components-out examples/smoke/main/generated/bb_autowire_components.cmake \
 	    --wire-out examples/smoke/main/generated/bb_app_init.c
 
-smoke-elecrow-p4-hmi7: smoke-gen ## Build smoke example for Elecrow CrowPanel P4 HMI 7.0 (with display)
+smoke-gen-esp32c3:
+	python3 scripts/bbtool.py codegen --root . --board esp32_c3_devkitm_1 --wire-board smoke_wire_baseline \
+	    --components-out examples/smoke/main/generated/bb_autowire_components.cmake \
+	    --wire-out examples/smoke/main/generated/bb_app_init.c
+
+smoke-gen-tdongle:
+	python3 scripts/bbtool.py codegen --root . --board lilygo_t_dongle_s3 --wire-board smoke_wire_baseline \
+	    --components-out examples/smoke/main/generated/bb_autowire_components.cmake \
+	    --wire-out examples/smoke/main/generated/bb_app_init.c
+
+smoke-gen-elecrow-p4-hmi7:
+	python3 scripts/bbtool.py codegen --root . --board elecrow_p4_hmi7 --wire-board smoke_wire_baseline \
+	    --components-out examples/smoke/main/generated/bb_autowire_components.cmake \
+	    --wire-out examples/smoke/main/generated/bb_app_init.c
+
+smoke-elecrow-p4-hmi7: smoke-gen-elecrow-p4-hmi7 ## Build smoke example for Elecrow CrowPanel P4 HMI 7.0 (with display)
 	$(PIO) run -d examples/smoke -e elecrow-p4-hmi7
 
-smoke-esp32: smoke-gen ## Build smoke example for classic ESP32-D0 / WROOM-32
+smoke-esp32: smoke-gen-esp32 ## Build smoke example for classic ESP32-D0 / WROOM-32
 	$(PIO) run -d examples/smoke -e esp32
 
-smoke-esp32-cache-sweep: smoke-gen ## Build smoke with CONFIG_BB_CACHE_SWEEP_ENABLE=y (bb_cache age-out sweep compile gate)
+smoke-esp32-cache-sweep: smoke-gen-esp32 ## Build smoke with CONFIG_BB_CACHE_SWEEP_ENABLE=y (bb_cache age-out sweep compile gate)
 	$(PIO) run -d examples/smoke -e esp32-cache-sweep
 
-smoke-esp32-boot-progress: smoke-gen ## Build smoke with BB_OTA_BOOT_PROGRESS_HTTP=y (gated path compile gate)
+smoke-esp32-boot-progress: smoke-gen-esp32 ## Build smoke with BB_OTA_BOOT_PROGRESS_HTTP=y (gated path compile gate)
 	$(PIO) run -d examples/smoke -e esp32-boot-progress
 
-smoke-esp32-boot-status: smoke-gen ## Build smoke with BB_OTA_BOOT_STATUS_HTTP=y (on-demand status routes compile gate)
+smoke-esp32-boot-status: smoke-gen-esp32 ## Build smoke with BB_OTA_BOOT_STATUS_HTTP=y (on-demand status routes compile gate)
 	$(PIO) run -d examples/smoke -e esp32-boot-status
 
-smoke-esp32-autofan: smoke-gen ## Build smoke with BB_FAN_AUTOFAN=y (autofan compile gate)
+smoke-esp32-autofan: smoke-gen-esp32 ## Build smoke with BB_FAN_AUTOFAN=y (autofan compile gate)
 	$(PIO) run -d examples/smoke -e esp32-autofan
 
-smoke-esp32c3: smoke-gen ## Build smoke example for ESP32-C3-DevKitM-1
+smoke-esp32c3: smoke-gen-esp32c3 ## Build smoke example for ESP32-C3-DevKitM-1
 	$(PIO) run -d examples/smoke -e esp32c3
 
-smoke-tdongle: smoke-gen ## Build smoke example for LILYGO T-Dongle-S3
+smoke-tdongle: smoke-gen-tdongle ## Build smoke example for LILYGO T-Dongle-S3
 	$(PIO) run -d examples/smoke -e tdongle
 
 smoke-r4_wifis3: ## Build smoke example for Arduino UNO R4 WiFi
@@ -142,7 +161,7 @@ floor: ## Build the hand-wired floor example for esp32 (no codegen pre-step)
 # decision #725) before bbtool lint's emit-seam-unwired-subscriber rule
 # (B1-740) scans examples/*/main/ for the codegen-emitted wire.
 floor-gen:
-	python3 scripts/bbtool.py codegen --root . --components bb_log,bb_meminfo,bb_timer \
+	python3 scripts/bbtool.py codegen --root . --board floor \
 	    --components-out examples/floor/main/generated/bb_autowire_components.cmake \
 	    --wire-out examples/floor/main/generated/bb_app_init.c
 

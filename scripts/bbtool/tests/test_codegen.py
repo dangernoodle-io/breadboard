@@ -179,5 +179,134 @@ class TestRunCli(unittest.TestCase):
             self.assertTrue(os.path.isfile(root / "main" / "generated" / "bb_app_init.cmake"))
 
 
+def _write_toml(root: Path, text: str) -> None:
+    (root / "bbtool.toml").write_text(text, encoding="utf-8")
+
+
+class TestBoardFlag(unittest.TestCase):
+    """B1-747: `--board` resolves the requested set from the manifest
+    (`[capability.*]`/`[board.*]` in bbtool.toml) instead of `--components`
+    -- exactly one of the two is required."""
+
+    def test_components_and_board_together_rejected(self):
+        args = argparse.Namespace(
+            root=os.getcwd(), components="bb_log", board="native",
+            platform="espidf", components_out=None, wire_out=None,
+        )
+        rc = run(args)
+        self.assertEqual(rc, 1)
+
+    def test_neither_components_nor_board_rejected(self):
+        args = argparse.Namespace(
+            root=os.getcwd(), components=None, board=None,
+            platform="espidf", components_out=None, wire_out=None,
+        )
+        rc = run(args)
+        self.assertEqual(rc, 1)
+
+    def test_board_resolves_via_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            _write_toml(root, (
+                '[capability.demo]\n'
+                'components = ["bb_log", "bb_meminfo"]\n\n'
+                '[board.demo_board]\n'
+                'capabilities = ["demo"]\n'
+            ))
+            components_out = str(root / "out" / "bb_autowire_components.cmake")
+            wire_out = str(root / "out" / "bb_app_init.c")
+            args = argparse.Namespace(
+                root=str(root), components=None, board="demo_board",
+                wire_board=None, platform="espidf",
+                components_out=components_out, wire_out=wire_out,
+            )
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = run(args)
+            self.assertEqual(rc, 0)
+            content = Path(components_out).read_text(encoding="utf-8")
+            self.assertIn('set(BB_AUTOWIRE_BOARD "demo_board")', content)
+            self.assertIn("set(BB_AUTOWIRE_REQUIRES bb_log bb_meminfo)", content)
+
+    def test_board_unknown_returns_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            _write_toml(root, '[capability.demo]\ncomponents = ["bb_log"]\n')
+            args = argparse.Namespace(
+                root=str(root), components=None, board="ghost_board",
+                wire_board=None, platform="espidf",
+                components_out=None, wire_out=None,
+            )
+            rc = run(args)
+            self.assertEqual(rc, 1)
+
+
+class TestAuthoritativeClosure(unittest.TestCase):
+    """B1-747's core claim: the resolved closure is now AUTHORITATIVE, not
+    additive -- dropping a component from a board's manifest set actually
+    drops its transitive-only deps too, while deps shared with another
+    requested component survive.
+
+    This is a MANIFEST-layer claim (which capability.components a board
+    activates), not a CMake-REQUIRES-layer one (a component's own REQUIRES
+    is fixed regardless of who requests it, so it can't model "C is only
+    pulled in via A" -- that's exactly why smoke's board-conditional groups
+    had to move to the manifest, not stay expressed as CMake deps). Fixture
+    components carry no CMake REQUIRES; the graph lives entirely in two
+    capabilities:
+        capability "cap_a": comp_a, comp_b, comp_c  (A "brings" B and C)
+        capability "cap_d": comp_d, comp_b          (D brings B only)
+    board_ad activates both capabilities -> {a,b,c,d}. board_d activates
+    only cap_d -> {b,d}, NOT c -- comp_c is only reachable via cap_a, which
+    board_d never activates."""
+
+    def _fixture_root(self, tmp: str) -> Path:
+        root = Path(tmp)
+        _make_component(root, "comp_a", "#pragma once\n")
+        _make_component(root, "comp_b", "#pragma once\n")
+        _make_component(root, "comp_c", "#pragma once\n")
+        _make_component(root, "comp_d", "#pragma once\n")
+        _write_toml(root, (
+            '[capability.cap_a]\n'
+            'components = ["comp_a", "comp_b", "comp_c"]\n\n'
+            '[capability.cap_d]\n'
+            'components = ["comp_d", "comp_b"]\n\n'
+            '[board.board_ad]\n'
+            'capabilities = ["cap_a", "cap_d"]\n\n'
+            '[board.board_d]\n'
+            'capabilities = ["cap_d"]\n'
+        ))
+        return root
+
+    def _resolved_requires(self, root: Path, board: str) -> set:
+        components_out = str(root / f"out-{board}" / "bb_autowire_components.cmake")
+        wire_out = str(root / f"out-{board}" / "bb_app_init.c")
+        args = argparse.Namespace(
+            root=str(root), components=None, board=board, wire_board=None,
+            platform="espidf", components_out=components_out, wire_out=wire_out,
+        )
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = run(args)
+        self.assertEqual(rc, 0)
+        content = Path(components_out).read_text(encoding="utf-8")
+        line = next(l for l in content.splitlines() if l.startswith("set(BB_AUTOWIRE_REQUIRES "))
+        names = line[len("set(BB_AUTOWIRE_REQUIRES "):].rstrip(")").split()
+        return set(names)
+
+    def test_requesting_both_dependents_includes_shared_transitive_dep(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_root(tmp)
+            resolved = self._resolved_requires(root, "board_ad")
+            self.assertEqual(resolved, {"comp_a", "comp_b", "comp_c", "comp_d"})
+
+    def test_dropping_one_dependent_drops_its_transitive_only_dep(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture_root(tmp)
+            resolved = self._resolved_requires(root, "board_d")
+            self.assertEqual(resolved, {"comp_b", "comp_d"})
+            self.assertNotIn("comp_c", resolved)
+
+
 if __name__ == "__main__":
     unittest.main()

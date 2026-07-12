@@ -116,6 +116,36 @@ class TestResolveComponentNames(unittest.TestCase):
         names = resolve_component_names("native", boards, capabilities)
         self.assertEqual(names, ["bb_core", "bb_str"])
 
+    def test_two_boards_sharing_capability_diverge_via_add_components(self):
+        """B1-747: two boards both activating the SAME capability (mirroring
+        smoke's shared [capability.smoke]) resolve to DIFFERENT component
+        sets purely from one board's own `add_components` -- the mechanism
+        that replaces smoke's hand-written board-conditional
+        `list(APPEND SMOKE_REQUIRES ...)` groups."""
+        capabilities = {
+            "smoke": {"components": ["bb_nv", "bb_log", "bb_wifi"]},
+        }
+        boards = {
+            "smoke_plain": {"capabilities": ["smoke"]},
+            "smoke_display": {
+                "capabilities": ["smoke"],
+                "add_components": ["bb_display", "bb_display_info"],
+            },
+        }
+        plain = resolve_component_names("smoke_plain", boards, capabilities)
+        display = resolve_component_names("smoke_display", boards, capabilities)
+        self.assertEqual(plain, ["bb_log", "bb_nv", "bb_wifi"])
+        self.assertEqual(
+            display, ["bb_display", "bb_display_info", "bb_log", "bb_nv", "bb_wifi"]
+        )
+        self.assertNotEqual(plain, display)
+
+    def test_unknown_board_raises_manifest_error(self):
+        capabilities = {"core": {"required": True, "components": ["bb_core"]}}
+        boards = {"cyd": {}}
+        with self.assertRaises(ManifestError):
+            resolve_component_names("nope", boards, capabilities)
+
 
 class TestDiscoverComponents(unittest.TestCase):
     def test_discovers_components_and_platform_dirs(self):
@@ -309,6 +339,38 @@ class TestBuildGraph(unittest.TestCase):
             g1 = build_graph(str(root), "native", config)
             g2 = build_graph(str(root), "native", config)
             self.assertEqual(g1, g2)
+
+
+class TestRealTreeSmokeAndFloorBoards(unittest.TestCase):
+    """B1-747: every existing composition test above uses synthetic
+    fixtures only. Resolve every real smoke/floor manifest board id against
+    the REAL repo tree instead -- the net that catches a typo'd/renamed/
+    dropped component in bbtool.toml's [capability.smoke]/[board.*] tables,
+    exactly the drift class this ticket closes. A ManifestError here means
+    the manifest references a component that doesn't actually exist under
+    components/ or platform/{host,espidf,arduino}/."""
+
+    ROOT = str(Path(__file__).resolve().parents[3])
+
+    def _config(self) -> dict:
+        from core import load_config
+        return load_config(None, self.ROOT)
+
+    def test_every_smoke_and_floor_board_resolves_without_error(self):
+        config = self._config()
+        _, boards = load_manifest(config)
+        board_ids = [
+            name for name in boards
+            if name == "floor" or "smoke" in boards[name].get("capabilities", [])
+        ]
+        # Sanity: the manifest actually declares the boards this ticket adds
+        # (fails loudly if bbtool.toml's smoke/floor tables get renamed out
+        # from under this test rather than silently resolving zero boards).
+        self.assertGreaterEqual(len(board_ids), 5)
+        for board_id in sorted(board_ids):
+            with self.subTest(board=board_id):
+                graph = build_graph(self.ROOT, board_id, config)
+                self.assertTrue(graph["order"])
 
 
 if __name__ == "__main__":
