@@ -20,6 +20,7 @@
 #include "bb_health_test.h"
 #include "../../components/bb_health/bb_health_stack.h"
 #include "bb_lifecycle.h"
+#include "bb_fsm.h"
 // Forward declarations from test_bb_lifecycle.c
 void test_bb_lifecycle_autoinit_returns_ok(void);
 void test_bb_lifecycle_register_starts_stopped(void);
@@ -68,6 +69,39 @@ void test_bb_lifecycle_word_set_test_clear_multi_word_bits(void);
 void test_bb_lifecycle_word_ops_out_of_range_nwords_no_crash(void);
 void test_bb_lifecycle_compute_state_pure(void);
 void test_bb_lifecycle_reason_truncation_equal_prefix_maps_same_bit(void);
+// Forward declarations from test_bb_fsm.c
+void test_bb_fsm_init_sets_initial_and_runs_entry(void);
+void test_bb_fsm_step_transition_runs_exit_before_entry(void);
+void test_bb_fsm_step_no_match_returns_not_found_unchanged(void);
+void test_bb_fsm_step_guard_false_falls_through_to_next_row(void);
+void test_bb_fsm_step_guard_true_first_match_short_circuits(void);
+void test_bb_fsm_step_same_runs_action_no_hooks_timers_kept(void);
+void test_bb_fsm_step_terminal_latches_and_rejects_further_steps(void);
+void test_bb_fsm_arm_timer_entry_arms_and_timer_at_reports_then_fires(void);
+void test_bb_fsm_arm_timer_two_distinct_slots_ok(void);
+void test_bb_fsm_arm_timer_third_distinct_no_space(void);
+void test_bb_fsm_disarm_frees_slot_for_new_arm(void);
+void test_bb_fsm_disarm_timer_removes_armed_event(void);
+void test_bb_fsm_timers_cleared_on_real_transition(void);
+void test_bb_fsm_step_terminal_clears_armed_timer(void);
+void test_bb_fsm_step_action_arm_on_concrete_transition_dropped(void);
+void test_bb_fsm_any_wildcard_matches_from_multiple_states(void);
+void test_bb_fsm_evt_data_threaded_to_guard_and_action(void);
+void test_bb_fsm_null_and_malformed_args_invalid_arg(void);
+void test_bb_fsm_step_uninitialized_instance_invalid_state(void);
+void test_bb_fsm_arm_timer_uninitialized_instance_invalid_state(void);
+void test_bb_fsm_state_and_is_terminal_null_fsm_defaults(void);
+void test_bb_fsm_run_entry_exit_missing_hook_halves_no_crash(void);
+void test_bb_fsm_arm_timer_zero_ms_on_existing_slot_disarms(void);
+void test_bb_fsm_arm_timer_zero_ms_no_matching_slot_is_noop(void);
+void test_bb_fsm_disarm_timer_no_match_is_noop(void);
+void test_bb_fsm_timer_at_null_out_params_are_optional(void);
+void test_bb_fsm_wifi_replica_persistent_fail_terminal(void);
+void test_bb_fsm_wifi_replica_backoff_then_timeout_reconnects(void);
+void test_bb_fsm_wifi_replica_immediate_reconnect_and_got_ip(void);
+void test_bb_fsm_ota_pull_replica_self_loop_retry_then_deterministic_abort(void);
+void test_bb_fsm_ota_pull_replica_verifying_to_complete_terminal(void);
+void test_bb_fsm_button_replica_periodic_tick_rearmed_across_edges(void);
 // Forward declarations from test_bb_serialize.c
 void test_bb_serialize_flat_scalars(void);
 void test_bb_serialize_nested_obj(void);
@@ -10557,6 +10591,39 @@ int main(void) {
     RUN_TEST(test_bb_lifecycle_word_ops_out_of_range_nwords_no_crash);
     RUN_TEST(test_bb_lifecycle_compute_state_pure);
     RUN_TEST(test_bb_lifecycle_reason_truncation_equal_prefix_maps_same_bit);
+
+    RUN_TEST(test_bb_fsm_init_sets_initial_and_runs_entry);
+    RUN_TEST(test_bb_fsm_step_transition_runs_exit_before_entry);
+    RUN_TEST(test_bb_fsm_step_no_match_returns_not_found_unchanged);
+    RUN_TEST(test_bb_fsm_step_guard_false_falls_through_to_next_row);
+    RUN_TEST(test_bb_fsm_step_guard_true_first_match_short_circuits);
+    RUN_TEST(test_bb_fsm_step_same_runs_action_no_hooks_timers_kept);
+    RUN_TEST(test_bb_fsm_step_terminal_latches_and_rejects_further_steps);
+    RUN_TEST(test_bb_fsm_arm_timer_entry_arms_and_timer_at_reports_then_fires);
+    RUN_TEST(test_bb_fsm_arm_timer_two_distinct_slots_ok);
+    RUN_TEST(test_bb_fsm_arm_timer_third_distinct_no_space);
+    RUN_TEST(test_bb_fsm_disarm_frees_slot_for_new_arm);
+    RUN_TEST(test_bb_fsm_disarm_timer_removes_armed_event);
+    RUN_TEST(test_bb_fsm_timers_cleared_on_real_transition);
+    RUN_TEST(test_bb_fsm_step_terminal_clears_armed_timer);
+    RUN_TEST(test_bb_fsm_step_action_arm_on_concrete_transition_dropped);
+    RUN_TEST(test_bb_fsm_any_wildcard_matches_from_multiple_states);
+    RUN_TEST(test_bb_fsm_evt_data_threaded_to_guard_and_action);
+    RUN_TEST(test_bb_fsm_null_and_malformed_args_invalid_arg);
+    RUN_TEST(test_bb_fsm_step_uninitialized_instance_invalid_state);
+    RUN_TEST(test_bb_fsm_arm_timer_uninitialized_instance_invalid_state);
+    RUN_TEST(test_bb_fsm_state_and_is_terminal_null_fsm_defaults);
+    RUN_TEST(test_bb_fsm_run_entry_exit_missing_hook_halves_no_crash);
+    RUN_TEST(test_bb_fsm_arm_timer_zero_ms_on_existing_slot_disarms);
+    RUN_TEST(test_bb_fsm_arm_timer_zero_ms_no_matching_slot_is_noop);
+    RUN_TEST(test_bb_fsm_disarm_timer_no_match_is_noop);
+    RUN_TEST(test_bb_fsm_timer_at_null_out_params_are_optional);
+    RUN_TEST(test_bb_fsm_wifi_replica_persistent_fail_terminal);
+    RUN_TEST(test_bb_fsm_wifi_replica_backoff_then_timeout_reconnects);
+    RUN_TEST(test_bb_fsm_wifi_replica_immediate_reconnect_and_got_ip);
+    RUN_TEST(test_bb_fsm_ota_pull_replica_self_loop_retry_then_deterministic_abort);
+    RUN_TEST(test_bb_fsm_ota_pull_replica_verifying_to_complete_terminal);
+    RUN_TEST(test_bb_fsm_button_replica_periodic_tick_rearmed_across_edges);
 
     return UNITY_END();
 }

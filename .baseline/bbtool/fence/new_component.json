@@ -156,6 +156,11 @@
       "type": "component"
     },
     {
+      "id": "bb_fsm",
+      "path": "components/bb_fsm",
+      "type": "component"
+    },
+    {
       "id": "bb_health",
       "path": "components/bb_health",
       "type": "component"
