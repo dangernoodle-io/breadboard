@@ -10,7 +10,7 @@ Use it when a consumer wants bb's ready-made wifi-creds store without hand-rolli
 
 ## Public API
 
-See [`include/bb_settings.h`](include/bb_settings.h). Key symbols: `bb_settings_wifi_ssid_get()`, `bb_settings_wifi_pass_get()`, `bb_settings_wifi_has_creds()`.
+See [`include/bb_settings.h`](include/bb_settings.h). Key symbols: `bb_settings_wifi_ssid_get()`, `bb_settings_wifi_pass_get()`, `bb_settings_wifi_has_creds()`, `bb_settings_wifi_set()`, `bb_settings_wifi_pending_set()`/`_ssid_get()`/`_pass_get()`/`_active()`/`_promote()`/`_clear()`, `bb_settings_hostname_get()`/`_set()`.
 Public symbols in this component use the `bb_` prefix.
 
 ## Config knobs

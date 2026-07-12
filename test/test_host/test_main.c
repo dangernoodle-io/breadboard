@@ -713,6 +713,18 @@ void test_hostname_set_rejects_leading_hyphen(void);
 void test_hostname_set_rejects_trailing_hyphen(void);
 void test_hostname_set_rejects_bad_charset(void);
 
+// Forward declarations from test_bb_settings_creds_write.c
+void test_bb_settings_wifi_set_round_trip(void);
+void test_bb_settings_wifi_set_null_pass_treated_as_empty(void);
+void test_bb_settings_wifi_set_null_ssid_returns_invalid_arg(void);
+void test_bb_settings_wifi_set_mirrors_rtc_backend(void);
+void test_bb_settings_wifi_set_ok_when_rtc_backend_unregistered(void);
+void test_bb_settings_wifi_set_overflow_returns_invalid_arg_leaves_rtc_untouched(void);
+void test_bb_settings_wifi_pending_promote_mirrors_rtc_backend(void);
+void test_bb_settings_wifi_pending_promote_mirror_not_stale(void);
+void test_bb_settings_wifi_pending_promote_ok_when_rtc_backend_unregistered(void);
+void test_bb_settings_wifi_set_and_promote_converge_on_same_live_fields(void);
+
 // Forward declarations from test_bb_settings_wifi_pending.c
 void test_bb_settings_wifi_pending_set_stages_ssid_pass_try(void);
 void test_bb_settings_wifi_pending_set_null_pass_treated_as_empty(void);
@@ -8275,6 +8287,18 @@ int main(void) {
     RUN_TEST(test_bb_settings_wifi_pending_pass_get_truncation_reports_full_len);
     RUN_TEST(test_bb_settings_wifi_pending_ssid_get_null_out_len_still_fills_buf);
     RUN_TEST(test_bb_settings_wifi_pending_pass_get_null_out_len_still_fills_buf);
+
+    // bb_settings live-creds writer + RTC mirror (B1 PR4) tests
+    RUN_TEST(test_bb_settings_wifi_set_round_trip);
+    RUN_TEST(test_bb_settings_wifi_set_null_pass_treated_as_empty);
+    RUN_TEST(test_bb_settings_wifi_set_null_ssid_returns_invalid_arg);
+    RUN_TEST(test_bb_settings_wifi_set_mirrors_rtc_backend);
+    RUN_TEST(test_bb_settings_wifi_set_ok_when_rtc_backend_unregistered);
+    RUN_TEST(test_bb_settings_wifi_set_overflow_returns_invalid_arg_leaves_rtc_untouched);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_mirrors_rtc_backend);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_mirror_not_stale);
+    RUN_TEST(test_bb_settings_wifi_pending_promote_ok_when_rtc_backend_unregistered);
+    RUN_TEST(test_bb_settings_wifi_set_and_promote_converge_on_same_live_fields);
 
     // bb_storage_typed (get_typed/set_typed facade) tests
     RUN_TEST(test_bb_storage_get_typed_falls_back_to_get_on_ram_backend);
