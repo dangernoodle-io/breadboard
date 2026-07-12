@@ -78,6 +78,13 @@ typedef struct {
     // incarnation it looked up, or detect the mismatch and bail with
     // BB_ERR_NOT_FOUND -- see find_entry_locked_ref()'s doc comment.
     uint32_t             generation;
+    // Monotonic per-key write counter (B1-767 PR-3): bumped exactly once per
+    // successful OWNED-mode bb_cache_update() write, under e->lock. Resets
+    // to 0 on register/free (see free_entry_locked() and
+    // bb_cache_register_ex()). Deliberately distinct from `generation`
+    // above -- see the header-level doc comment on bb_cache.h's
+    // state_version section for the full contrast.
+    uint32_t             state_version;
 } bb_cache_entry_t;
 
 static bb_cache_entry_t s_entries[BB_CACHE_MAX_TOPICS];
@@ -105,6 +112,20 @@ static _Atomic(void (*)(const char *key)) s_evict_notify_fn = NULL;
 void bb_cache_set_evict_notify_fn(void (*fn)(const char *key))
 {
     atomic_store_explicit(&s_evict_notify_fn, fn, memory_order_relaxed);
+}
+
+// One-way write-notify hook (B1-767 PR-3): fired by bb_cache_update()'s
+// owned-write path, OUTSIDE e->lock, after every successful owned write --
+// same _Atomic-relaxed one-shot install-then-fire idiom as
+// s_evict_notify_fn above (see its doc comment for the full race
+// rationale). Deliberately NOT bb_callback_slot -- that slot type is
+// non-atomic and would reintroduce the exact cross-thread race this
+// idiom exists to avoid.
+static _Atomic(bb_cache_write_notify_fn) s_write_notify_fn = NULL;
+
+void bb_cache_set_write_notify_fn(bb_cache_write_notify_fn fn)
+{
+    atomic_store_explicit(&s_write_notify_fn, fn, memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +281,7 @@ static void free_entry_locked(bb_cache_entry_t *e)
     e->dirty = true;
     e->has_value = false;
     e->fallback_seeded = false;
+    e->state_version = 0;  // B1-767 PR-3: resets on free, matches register's reset
 }
 
 #ifdef BB_CACHE_TESTING
@@ -413,6 +435,48 @@ static bool evict_if_aged_out_locked(bb_cache_entry_t *e)
 
     bb_cache_delete_if_generation(key_copy, gen);  // return value ignored: mismatch/not-found is a silent no-op
     return true;
+}
+
+// Shared owned-copy body for bb_cache_get_raw and bb_cache_snapshot
+// (B1-767 PR-3 firmware-review consolidation fix): both need the identical
+// not-getter-mode check, cap check, seed-if-fallback, and a single memcpy of
+// the owned struct -- differing only in whether the caller also wants
+// size/state_version captured atomically with the copy (bb_cache_snapshot
+// does; bb_cache_get_raw doesn't). Caller holds e->lock (already
+// re-validated via entry_matches_locked + evict_if_aged_out_locked) on
+// entry; this function ALWAYS releases e->lock before returning, on every
+// path -- neither caller may touch e->lock again after calling this.
+//   op          -- "get_raw" or "snapshot", used ONLY in the BB_ERR_NO_SPACE
+//                  log line, so each caller's distinct log text (and log
+//                  behavior) is preserved exactly.
+//   out_size    -- nullable; captures e->size under the SAME lock as the
+//                  memcpy (bb_cache_snapshot's out->size). NULL for
+//                  bb_cache_get_raw, which has no size output.
+//   out_version -- nullable; captures e->state_version under the SAME lock
+//                  as the memcpy -- this atomicity is exactly why
+//                  bb_cache_snapshot can't just call bb_cache_get_raw and
+//                  then bb_cache_state_version separately (see
+//                  bb_cache_snapshot's doc comment). NULL for
+//                  bb_cache_get_raw.
+static bb_err_t copy_owned_and_capture_locked(bb_cache_entry_t *e, const char *op, const char *key,
+                                               void *buf, size_t cap,
+                                               size_t *out_size, uint32_t *out_version)
+{
+    if (!e->owned) {
+        pthread_mutex_unlock(&e->lock);
+        return BB_ERR_INVALID_STATE;
+    }
+    if (cap < e->size) {
+        pthread_mutex_unlock(&e->lock);
+        bb_log_w(TAG, "%s '%s': buf too small (%zu < %zu)", op, key, cap, e->size);
+        return BB_ERR_NO_SPACE;
+    }
+    maybe_seed_fallback(e);  // owned+fallback: seed if still unpopulated
+    memcpy(buf, e->owned, e->size);
+    if (out_size) *out_size = e->size;
+    if (out_version) *out_version = e->state_version;
+    pthread_mutex_unlock(&e->lock);
+    return BB_OK;
 }
 
 // Serialize entry contents into obj under the entry's lock.
@@ -587,6 +651,7 @@ bb_err_t bb_cache_register_ex(const bb_cache_config_t *cfg, bool *out_first_time
     slot->policy       = cfg->eviction.policy;
     slot->stale_age_ms = cfg->eviction.stale_age_ms;
     slot->evict_age_ms = cfg->eviction.evict_age_ms;
+    slot->state_version = 0;  // B1-767 PR-3: fresh incarnation starts at 0
 
     pthread_mutex_unlock(&s_reg_lock);
     if (out_first_time) *out_first_time = true;
@@ -636,9 +701,24 @@ bb_err_t bb_cache_update(const bb_cache_update_t *req)
     // source timestamp).
     e->ts_ms = req->ts_ms != 0 ? req->ts_ms : (int64_t)cache_now_ms64();
     e->dirty = true;   // invalidate memoized bytes; do NOT serialize here
+    // state_version (B1-767 PR-3): bumps on EVERY successful owned write,
+    // unconditionally -- even when `changed` is false (an identical
+    // rewrite still counts as a write). Captured under the same lock as
+    // the bump so the fired value always matches what a concurrent
+    // bb_cache_state_version()/bb_cache_snapshot() would observe.
+    e->state_version++;
+    uint32_t v = e->state_version;
     pthread_mutex_unlock(&e->lock);
 
     if (req->out_changed) *req->out_changed = changed;
+
+    // Write-notify (B1-767 PR-3): fired OUTSIDE the lock, on every
+    // successful owned write, mirroring the evict-notify hook's
+    // outside-locks contract so an installed hook may safely call back
+    // into bb_cache without deadlocking.
+    bb_cache_write_notify_fn nfy = atomic_load_explicit(&s_write_notify_fn, memory_order_relaxed);
+    if (nfy) nfy(req->key, v);
+
     return BB_OK;
 }
 
@@ -1047,17 +1127,58 @@ bb_err_t bb_cache_get_raw(const char *key, void *buf, size_t cap)
     if (evict_if_aged_out_locked(e)) {
         return BB_ERR_NOT_FOUND;
     }
-    if (!e->owned) {
+    return copy_owned_and_capture_locked(e, "get_raw", key, buf, cap, NULL, NULL);
+}
+
+// ---------------------------------------------------------------------------
+// state_version + walk-safe snapshot (B1-767 PR-3)
+// ---------------------------------------------------------------------------
+
+bb_err_t bb_cache_snapshot(const char *key, void *buf, size_t cap, bb_cache_snapshot_t *out)
+{
+    if (!key || !buf || !out) return BB_ERR_INVALID_ARG;
+
+    ensure_init();
+
+    entry_ref_t ref = find_entry_locked_ref(key);
+    if (!ref.entry) return BB_ERR_NOT_FOUND;
+    bb_cache_entry_t *e = ref.entry;
+
+    BB_CACHE_TEST_RACE_POINT(key);
+    pthread_mutex_lock(&e->lock);
+    if (!entry_matches_locked(e, key, ref.generation)) {
         pthread_mutex_unlock(&e->lock);
-        return BB_ERR_INVALID_STATE;
+        return BB_ERR_NOT_FOUND;
     }
-    if (cap < e->size) {
+    if (evict_if_aged_out_locked(e)) {
+        return BB_ERR_NOT_FOUND;
+    }
+    bb_err_t err = copy_owned_and_capture_locked(e, "snapshot", key, buf, cap,
+                                                  &out->size, &out->version);
+    if (err != BB_OK) return err;
+    out->state = buf;  // safe post-unlock: caller's own buffer pointer, not e-owned
+    return BB_OK;
+}
+
+bb_err_t bb_cache_state_version(const char *key, uint32_t *out_version)
+{
+    if (!key || !out_version) return BB_ERR_INVALID_ARG;
+
+    ensure_init();
+
+    entry_ref_t ref = find_entry_locked_ref(key);
+    if (!ref.entry) return BB_ERR_NOT_FOUND;
+    bb_cache_entry_t *e = ref.entry;
+
+    BB_CACHE_TEST_RACE_POINT(key);
+    pthread_mutex_lock(&e->lock);
+    if (!entry_matches_locked(e, key, ref.generation)) {
         pthread_mutex_unlock(&e->lock);
-        bb_log_w(TAG, "get_raw '%s': buf too small (%zu < %zu)", key, cap, e->size);
-        return BB_ERR_NO_SPACE;
+        return BB_ERR_NOT_FOUND;
     }
-    maybe_seed_fallback(e);  // owned+fallback: seed if still unpopulated
-    memcpy(buf, e->owned, e->size);
+    // Non-destructive -- no evict_if_aged_out_locked() here, matching
+    // bb_cache_is_stale()'s contract (a probe, not a read call site).
+    *out_version = e->state_version;
     pthread_mutex_unlock(&e->lock);
     return BB_OK;
 }
@@ -1287,9 +1408,10 @@ void bb_cache_reset_for_test(void)
         }
     }
     pthread_mutex_unlock(&s_reg_lock);
-    // Test isolation: a prior test's installed evict-notify hook or fake
-    // clock must never leak into the next test.
+    // Test isolation: a prior test's installed evict-notify hook, write-
+    // notify hook, or fake clock must never leak into the next test.
     atomic_store_explicit(&s_evict_notify_fn, NULL, memory_order_relaxed);
+    atomic_store_explicit(&s_write_notify_fn, NULL, memory_order_relaxed);
     s_test_clock_hook = NULL;
 }
 

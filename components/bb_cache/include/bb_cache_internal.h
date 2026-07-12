@@ -9,6 +9,8 @@
 // header on its include path). Application code must never include this
 // header directly -- use bb_cache.h.
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -21,6 +23,12 @@ extern "C" {
 // deletes and age-out evictions both fire on_remove through the same path).
 // Passing NULL uninstalls the hook.
 void bb_cache_set_evict_notify_fn(void (*fn)(const char *key));
+
+// One-way notify fired AFTER a successful owned write, OUTSIDE all locks.
+// Exactly one composer installs a hook (bb_cache_reactive, future). NULL
+// uninstalls. Composition-wired setter -- NOT self-register/AUTOREGISTER.
+typedef void (*bb_cache_write_notify_fn)(const char *key, uint32_t version);
+void bb_cache_set_write_notify_fn(bb_cache_write_notify_fn fn);
 
 #ifdef __cplusplus
 }

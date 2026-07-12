@@ -361,6 +361,63 @@ bb_err_t bb_cache_post_serialized(const char *key, const char *json, size_t json
 bb_err_t bb_cache_get_serialized(const char *key, char *buf, size_t cap, size_t *out_len);
 
 // ---------------------------------------------------------------------------
+// state_version (B1-767 PR-3) vs generation -- do not conflate
+// ---------------------------------------------------------------------------
+//
+// state_version is a per-key, monotonically increasing counter that bumps
+// exactly once per successful OWNED-mode bb_cache_update() write (see that
+// fn's doc comment) -- it counts VALUE WRITES. It resets to 0 on a fresh
+// slot occupancy (first register, or register after delete/age-out); an
+// idempotent re-register of a still-present (live) key returns early (see
+// bb_cache_register()'s idempotency note) and is a no-op -- it does NOT
+// reset state_version. Getter-mode keys (no owned buffer) and a
+// registered-but-never-written owned key both read 0.
+//
+// This is DELIBERATELY separate from the existing `generation` counter
+// (internal, see bb_cache_espidf.c), which tracks slot IDENTITY -- it bumps
+// on every free<->in-use transition of a REGISTRY SLOT (a fresh register or
+// a delete), regardless of how many or how few writes land while the slot
+// is occupied. Two entirely different axes: `generation` answers "is this
+// still the same incarnation of this key I looked up earlier?";
+// `state_version` answers "has this key's VALUE changed since I last looked
+// at it?". Neither can be derived from the other.
+//
+// Wrap-safe comparison: state_version is a uint32_t that wraps at 2^32.
+// Consumers diffing two captured versions (e.g. bb_cache_serialize's
+// "has this changed since I last read it?" check) must compare with
+// wrap-safe arithmetic (e.g. `(int32_t)(a - b) > 0`) or plain equality --
+// never a naive `>` -- so a wrap does not misreport a newer version as
+// older.
+
+// Immutable, walk-safe snapshot of a key's owned value + its state_version.
+// `state` points into the CALLER's buffer (copy-under-lock), so the caller
+// may walk/serialize it LOCK-FREE -- a torn read is impossible.
+typedef struct {
+    const void *state;    // -> caller's buf
+    size_t      size;     // bytes copied (== registered snap_size)
+    uint32_t    version;  // state_version captured atomically with the copy
+} bb_cache_snapshot_t;
+
+// Atomically copy the owned struct into buf + capture state_version.
+// Owned / owned+fallback only (seeds cold-start on first call, like
+// bb_cache_get_raw).
+//
+// Returns BB_ERR_NOT_FOUND if the key is not registered.
+// Returns BB_ERR_INVALID_STATE for getter-mode keys (no owned struct --
+// mirrors bb_cache_get_raw).
+// Returns BB_ERR_NO_SPACE if cap < the registered snap_size (buf untouched).
+// Returns BB_ERR_INVALID_ARG on null args.
+bb_err_t bb_cache_snapshot(const char *key, void *buf, size_t cap, bb_cache_snapshot_t *out);
+
+// Non-destructive read of a key's monotonic state_version (no evict, like
+// bb_cache_is_stale). 0 means registered-but-never-written, or getter-mode.
+//
+// Returns BB_ERR_NOT_FOUND if the key is not registered (out_version
+// untouched).
+// Returns BB_ERR_INVALID_ARG on a null key or out_version.
+bb_err_t bb_cache_state_version(const char *key, uint32_t *out_version);
+
+// ---------------------------------------------------------------------------
 // Keyed enumeration + compact struct-read accessor
 // ---------------------------------------------------------------------------
 
