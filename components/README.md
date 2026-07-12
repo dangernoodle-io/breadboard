@@ -104,6 +104,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_scalar](./bb_scalar/) | — |
 | [bb_sensors](./bb_sensors/) | — |
 | [bb_serialize](./bb_serialize/) | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. |
+| [bb_serialize_json](./bb_serialize_json/) | Hand-rolled, no-heap, bounded-buffer JSON bb_serialize_emit_t backend -- the default wire-format implementation for bb_serialize. |
 | [bb_settings](./bb_settings/) | bb's default WiFi-credentials store — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. `bb_settings` is bb's opinionated bb-config authority (KB 805/806); `bb_wifi` reads its accessors directly. |
 | [bb_sink_display](./bb_sink_display/) | The northstar display-egress sink: renders a board-appropriate subset of |
 | [bb_sink_event](./bb_sink_event/) | — |
