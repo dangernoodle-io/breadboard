@@ -19,6 +19,55 @@
 #include "bb_i2c_test.h"
 #include "bb_health_test.h"
 #include "../../components/bb_health/bb_health_stack.h"
+#include "bb_lifecycle.h"
+// Forward declarations from test_bb_lifecycle.c
+void test_bb_lifecycle_autoinit_returns_ok(void);
+void test_bb_lifecycle_register_starts_stopped(void);
+void test_bb_lifecycle_find_hits_registered_service(void);
+void test_bb_lifecycle_find_miss_returns_not_found(void);
+void test_bb_lifecycle_find_miss_against_existing_services(void);
+void test_bb_lifecycle_find_null_args_invalid_arg(void);
+void test_bb_lifecycle_name_returns_registered_name(void);
+void test_bb_lifecycle_name_bad_handle_returns_empty(void);
+void test_bb_lifecycle_start_transitions_to_running(void);
+void test_bb_lifecycle_stop_transitions_to_stopped(void);
+void test_bb_lifecycle_start_bad_handle_not_found(void);
+void test_bb_lifecycle_stop_bad_handle_not_found(void);
+void test_bb_lifecycle_is_paused_bad_handle_returns_false(void);
+void test_bb_lifecycle_state_bad_handle_returns_stopped(void);
+void test_bb_lifecycle_version_bad_handle_returns_zero(void);
+void test_bb_lifecycle_inhibit_words_bad_args_return_zero(void);
+void test_bb_lifecycle_pause_assert_transitions_to_paused(void);
+void test_bb_lifecycle_multi_inhibit_coexistence(void);
+void test_bb_lifecycle_intern_reuse_same_bit(void);
+void test_bb_lifecycle_stop_clears_inhibits(void);
+void test_bb_lifecycle_register_dup_name_conflict(void);
+void test_bb_lifecycle_register_capacity_overflow_no_space(void);
+void test_bb_lifecycle_pause_assert_null_reason_invalid_arg(void);
+void test_bb_lifecycle_pause_assert_bad_handle_not_found(void);
+void test_bb_lifecycle_register_null_args_invalid_arg(void);
+void test_bb_lifecycle_intern_overflow_33rd_reason_no_space(void);
+void test_bb_lifecycle_reason_name_reverse_lookup(void);
+void test_bb_lifecycle_reason_name_unused_bit_empty(void);
+void test_bb_lifecycle_stop_when_stopped_noop(void);
+void test_bb_lifecycle_start_when_started_noop(void);
+void test_bb_lifecycle_clear_never_interned_noop_no_bump(void);
+void test_bb_lifecycle_pause_clear_null_reason_invalid_arg(void);
+void test_bb_lifecycle_pause_clear_bad_handle_not_found(void);
+void test_bb_lifecycle_push_fires_observers_in_order_with_payload(void);
+void test_bb_lifecycle_push_reentrancy_no_deadlock(void);
+void test_bb_lifecycle_observer_capacity_overflow_no_space(void);
+void test_bb_lifecycle_observe_null_cb_invalid_arg(void);
+void test_bb_lifecycle_pull_null_sink_no_crash_still_bumps_and_fires(void);
+void test_bb_lifecycle_pull_stub_sink_receives_topic_id_payload(void);
+void test_bb_lifecycle_version_monotonic_on_real_transitions(void);
+void test_bb_lifecycle_version_unchanged_on_noop(void);
+void test_bb_lifecycle_count_reflects_registrations(void);
+void test_bb_lifecycle_inhibit_words_math(void);
+void test_bb_lifecycle_word_set_test_clear_multi_word_bits(void);
+void test_bb_lifecycle_word_ops_out_of_range_nwords_no_crash(void);
+void test_bb_lifecycle_compute_state_pure(void);
+void test_bb_lifecycle_reason_truncation_equal_prefix_maps_same_bit(void);
 // Forward declarations from test_bb_serialize.c
 void test_bb_serialize_flat_scalars(void);
 void test_bb_serialize_nested_obj(void);
@@ -10458,6 +10507,56 @@ int main(void) {
     RUN_TEST(test_bb_serialize_meta_openapi_overflow_null_out_len);
     RUN_TEST(test_bb_serialize_meta_openapi_success_null_out_len);
     RUN_TEST(test_bb_serialize_meta_openapi_coverage_fixture);
+
+
+    // test_bb_lifecycle.c
+    RUN_TEST(test_bb_lifecycle_autoinit_returns_ok);
+    RUN_TEST(test_bb_lifecycle_register_starts_stopped);
+    RUN_TEST(test_bb_lifecycle_find_hits_registered_service);
+    RUN_TEST(test_bb_lifecycle_find_miss_returns_not_found);
+    RUN_TEST(test_bb_lifecycle_find_miss_against_existing_services);
+    RUN_TEST(test_bb_lifecycle_find_null_args_invalid_arg);
+    RUN_TEST(test_bb_lifecycle_name_returns_registered_name);
+    RUN_TEST(test_bb_lifecycle_name_bad_handle_returns_empty);
+    RUN_TEST(test_bb_lifecycle_start_transitions_to_running);
+    RUN_TEST(test_bb_lifecycle_stop_transitions_to_stopped);
+    RUN_TEST(test_bb_lifecycle_start_bad_handle_not_found);
+    RUN_TEST(test_bb_lifecycle_stop_bad_handle_not_found);
+    RUN_TEST(test_bb_lifecycle_is_paused_bad_handle_returns_false);
+    RUN_TEST(test_bb_lifecycle_state_bad_handle_returns_stopped);
+    RUN_TEST(test_bb_lifecycle_version_bad_handle_returns_zero);
+    RUN_TEST(test_bb_lifecycle_inhibit_words_bad_args_return_zero);
+    RUN_TEST(test_bb_lifecycle_pause_assert_transitions_to_paused);
+    RUN_TEST(test_bb_lifecycle_multi_inhibit_coexistence);
+    RUN_TEST(test_bb_lifecycle_intern_reuse_same_bit);
+    RUN_TEST(test_bb_lifecycle_stop_clears_inhibits);
+    RUN_TEST(test_bb_lifecycle_register_dup_name_conflict);
+    RUN_TEST(test_bb_lifecycle_register_capacity_overflow_no_space);
+    RUN_TEST(test_bb_lifecycle_pause_assert_null_reason_invalid_arg);
+    RUN_TEST(test_bb_lifecycle_pause_assert_bad_handle_not_found);
+    RUN_TEST(test_bb_lifecycle_register_null_args_invalid_arg);
+    RUN_TEST(test_bb_lifecycle_intern_overflow_33rd_reason_no_space);
+    RUN_TEST(test_bb_lifecycle_reason_name_reverse_lookup);
+    RUN_TEST(test_bb_lifecycle_reason_name_unused_bit_empty);
+    RUN_TEST(test_bb_lifecycle_stop_when_stopped_noop);
+    RUN_TEST(test_bb_lifecycle_start_when_started_noop);
+    RUN_TEST(test_bb_lifecycle_clear_never_interned_noop_no_bump);
+    RUN_TEST(test_bb_lifecycle_pause_clear_null_reason_invalid_arg);
+    RUN_TEST(test_bb_lifecycle_pause_clear_bad_handle_not_found);
+    RUN_TEST(test_bb_lifecycle_push_fires_observers_in_order_with_payload);
+    RUN_TEST(test_bb_lifecycle_push_reentrancy_no_deadlock);
+    RUN_TEST(test_bb_lifecycle_observer_capacity_overflow_no_space);
+    RUN_TEST(test_bb_lifecycle_observe_null_cb_invalid_arg);
+    RUN_TEST(test_bb_lifecycle_pull_null_sink_no_crash_still_bumps_and_fires);
+    RUN_TEST(test_bb_lifecycle_pull_stub_sink_receives_topic_id_payload);
+    RUN_TEST(test_bb_lifecycle_version_monotonic_on_real_transitions);
+    RUN_TEST(test_bb_lifecycle_version_unchanged_on_noop);
+    RUN_TEST(test_bb_lifecycle_count_reflects_registrations);
+    RUN_TEST(test_bb_lifecycle_inhibit_words_math);
+    RUN_TEST(test_bb_lifecycle_word_set_test_clear_multi_word_bits);
+    RUN_TEST(test_bb_lifecycle_word_ops_out_of_range_nwords_no_crash);
+    RUN_TEST(test_bb_lifecycle_compute_state_pure);
+    RUN_TEST(test_bb_lifecycle_reason_truncation_equal_prefix_maps_same_bit);
 
     return UNITY_END();
 }
