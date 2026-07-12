@@ -13,11 +13,13 @@ Foundational, near-zero-dep primitives every bb_* component builds on: the porta
 - [`bb_clock.h`](include/bb_clock.h)
 - [`bb_core.h`](include/bb_core.h)
 - [`bb_emit.h`](include/bb_emit.h)
+- [`bb_format.h`](include/bb_format.h)
 - [`bb_lock.h`](include/bb_lock.h)
 - [`bb_mem.h`](include/bb_mem.h)
 - [`bb_mem_test.h`](include/bb_mem_test.h)
 - [`bb_once.h`](include/bb_once.h)
 - [`bb_reboot_reason.h`](include/bb_reboot_reason.h)
+- [`bb_type.h`](include/bb_type.h)
 
 Public symbols use the `bb_` prefix.
 <!-- END bbtool:api -->
