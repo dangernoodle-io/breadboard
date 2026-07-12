@@ -1,5 +1,6 @@
 #include "bb_storage.h"
 #include "bb_log.h"
+#include "bb_str.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -292,4 +293,54 @@ bb_err_t bb_storage_txn_abort(bb_storage_txn_t *txn)
     }
 
     return txn->_txn_abort(txn->_impl, txn);
+}
+
+/* ---------------------------------------------------------------------------
+ * bb_storage_txn_slot_stage — shared buffering-model slot staging idiom.
+ * See bb_storage.h for the full contract; used by ram_txn_set/rtc_txn_set
+ * (each after its own backend-specific key gate, if any).
+ * ---------------------------------------------------------------------------*/
+bb_err_t bb_storage_txn_slot_stage(bb_storage_txn_t *txn, const char *key, bb_storage_enc_t enc,
+                                    const void *buf, size_t len)
+{
+    if (txn == NULL || key == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+    if (len > BB_STORAGE_TXN_VALUE_MAX_BYTES) {
+        return BB_ERR_NO_SPACE;
+    }
+    if (strlen(key) >= BB_STORAGE_TXN_KEY_MAX_BYTES) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    // Reuse an already-staged slot for this key (last-write-wins within the
+    // txn, rather than consuming a second slot), else the first free slot.
+    int slot_idx = -1;
+    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+        if (txn->_slots[i].used && strcmp(txn->_slots[i].key, key) == 0) {
+            slot_idx = (int)i;
+            break;
+        }
+    }
+    if (slot_idx < 0) {
+        for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
+            if (!txn->_slots[i].used) {
+                slot_idx = (int)i;
+                break;
+            }
+        }
+    }
+    if (slot_idx < 0) {
+        return BB_ERR_NO_SPACE;
+    }
+
+    bb_strlcpy(txn->_slots[slot_idx].key, key, sizeof(txn->_slots[slot_idx].key));
+    if (len > 0) {
+        memcpy(txn->_slots[slot_idx].value, buf, len);
+    }
+    txn->_slots[slot_idx].len  = len;
+    txn->_slots[slot_idx].enc  = enc;
+    txn->_slots[slot_idx].used = true;
+
+    return BB_OK;
 }

@@ -191,58 +191,81 @@ bb_err_t bb_settings_hostname_set(const char *hostname)
 }
 
 // ---------------------------------------------------------------------------
-// RTC warm-reboot mirror (B1: bb_nv creds-cluster PR4). Shared by both live
-// writers below (bb_settings_wifi_set and bb_settings_wifi_pending_promote).
+// RTC warm-reboot mirror (B1-763: crash-atomic since bb_storage_rtc gained
+// the optional bb_storage txn vtable group). Shared by both live writers
+// below (bb_settings_wifi_set and bb_settings_wifi_pending_promote).
 // ---------------------------------------------------------------------------
+
+// Distinct field descriptors, addr.backend="rtc" -- deliberately NOT
+// s_wifi_ssid_field/s_wifi_pass_field above (those target backend="nvs";
+// bb_config_staged_begin(&h, "rtc", NULL) followed by a stage against an
+// "nvs"-addressed field would fail bb_config_staged's own cross-backend
+// precheck). Capacity coupling note from the removed comment still applies:
+// max_len here must stay byte-compatible with bb_storage_rtc_region_t's
+// ssid[32]/pass[64] (components/bb_storage_rtc/include/bb_storage_rtc_region.h)
+// -- not compiler-enforced on purpose, this component must gain NO direct
+// bb_storage_rtc include/dependency (facade only, via "rtc" as a plain
+// string). Editing either side, check the other.
+// ns_or_dir="" (NOT NULL): bb_storage_txn_begin() rejects a NULL ns_or_dir
+// outright (BB_ERR_INVALID_ARG, documented in bb_storage.h) even though
+// bb_storage_rtc's get/set path ignores ns_or_dir entirely (mirroring
+// "ram") -- an empty string satisfies the facade's non-NULL requirement
+// while remaining a no-op value for this backend. Must match
+// settings_wifi_rtc_mirror_write's bb_config_staged_begin() ns_or_dir arg
+// exactly (bb_config_staged's precheck compares the two by content).
+static const bb_config_field_t s_wifi_rtc_ssid_field = {
+    .id      = "wifi.ssid_rtc_mirror",
+    .type    = BB_CONFIG_STR,
+    .addr    = { .backend = "rtc", .ns_or_dir = "", .key = "ssid" },
+    .max_len = 32,
+    .label   = "WiFi SSID (RTC mirror)",
+    .group   = "network",
+};
+
+static const bb_config_field_t s_wifi_rtc_pass_field = {
+    .id      = "wifi.pass_rtc_mirror",
+    .type    = BB_CONFIG_STR,
+    .addr    = { .backend = "rtc", .ns_or_dir = "", .key = "pass" },
+    .max_len = 64,
+    .label   = "WiFi Password (RTC mirror)",
+    .group   = "network",
+    .secret  = true,
+};
+
+static const bb_config_field_t s_wifi_rtc_provisioned_field = {
+    .id    = "wifi.provisioned_rtc_mirror",
+    .type  = BB_CONFIG_U8,
+    .addr  = { .backend = "rtc", .ns_or_dir = "", .key = "provisioned" },
+    .label = "WiFi provisioned flag (RTC mirror)",
+    .group = "network",
+};
 
 // Best-effort mirror of the live ssid/pass into the "rtc" bb_storage backend
 // (bb_storage_rtc's keyed contract: string keys "ssid"/"pass", uint8_t key
 // "provisioned") -- a fast warm-reboot recovery cache, NOT the source of
 // truth. NVS (via the bb_config_staged commit both callers already ran) is
-// authoritative; every return here is ignored, including
-// BB_ERR_NOT_FOUND from bb_storage_set when no app has registered a "rtc"
-// backend at all (fail-open: bb_settings_wifi_set/_pending_promote must
-// still return BB_OK in that case).
+// authoritative; every return here is ignored, including BB_ERR_NOT_FOUND
+// from bb_config_staged_begin when no app has registered a "rtc" backend at
+// all (fail-open: bb_settings_wifi_set/_pending_promote must still return
+// BB_OK in that case).
 //
-// bb_storage_rtc does NOT implement the optional bb_storage txn group
-// (its vtable only wires get/set/erase/exists -- see
-// platform/*/bb_storage_rtc/bb_storage_rtc.c), so this is 3 SEQUENTIAL
-// bb_storage_set() calls rather than one atomic bb_config_staged/txn commit
-// like the NVS writes above. "provisioned" is written LAST, but that
-// ordering ONLY protects the FIRST, from-cold provisioning: when the region
-// starts all-zero/invalid, a crash before this call reaches "provisioned"
-// leaves it 0/absent, correctly "not provisioned". On any SUBSEQUENT
-// rotation (this mirror already has provisioned=1 from a prior write), the
-// three sequential single-key writes are NOT atomic and a crash between the
-// ssid write and the pass write leaves ssid=<new>, pass=<stale>,
-// provisioned=1 -- a mismatched-but-provisioned pair. bb_storage_rtc's own
-// whole-region magic/version/CRC re-stamp on EVERY single-key set() does NOT
-// catch this: each set() recomputes the CRC over the WHOLE region (not just
-// the field just written) and stamps it as part of that same call, so every
-// intermediate state along the way -- including the torn ssid=<new>/
-// pass=<stale>/provisioned=1 state after the ssid write -- is left
-// structurally valid. bb_storage_rtc_region_valid() reports this record
-// CRC-valid AND provisioned, with mismatched ssid/pass.
-//
-// Bottom line: this mirror is a best-effort recovery cache that a consumer
-// MUST NOT trust as a consistent ssid/pass pair merely because
-// provisioned==1 and the region is CRC-valid. Making it crash-atomic
-// requires bb_storage_rtc to implement the optional bb_storage txn vtable
-// group so this helper can stage all three keys through bb_config_staged
-// and commit once -- preserving the backend-agnostic facade here (this
-// component must gain NO direct bb_storage_rtc dependency). That is
-// REQUIRED before PR5/PR6 wires a live consumer that trusts provisioned==1
-// on this mirror; tracked in the backlog.
+// Single atomic bb_config_staged commit -- all 3 keys (ssid/pass/
+// provisioned) land or none do, exactly like the live NVS writes above,
+// since bb_storage_rtc now implements the optional bb_storage txn vtable
+// group (B1-763). A crash/reset between begin() and commit() leaves the
+// mirror at its PRIOR value, never a torn ssid/pass/provisioned mix -- a
+// consumer may now trust provisioned==1 as "ssid/pass are a consistent
+// pair" on this mirror.
 static void settings_wifi_rtc_mirror_write(const char *ssid, const char *pass)
 {
-    bb_storage_addr_t ssid_addr = { .backend = "rtc", .ns_or_dir = NULL, .key = "ssid" };
-    bb_storage_addr_t pass_addr = { .backend = "rtc", .ns_or_dir = NULL, .key = "pass" };
-    bb_storage_addr_t prov_addr = { .backend = "rtc", .ns_or_dir = NULL, .key = "provisioned" };
-
-    (void)bb_storage_set(&ssid_addr, ssid, strlen(ssid));
-    (void)bb_storage_set(&pass_addr, pass, strlen(pass));
-    uint8_t provisioned = 1;
-    (void)bb_storage_set(&prov_addr, &provisioned, sizeof(provisioned));
+    bb_config_staged_t h = {0};
+    if (bb_config_staged_begin(&h, "rtc", "") != BB_OK) {
+        return;  // fail-open -- no "rtc" backend registered, nothing to mirror.
+    }
+    bb_config_staged_set_str(&h, &s_wifi_rtc_ssid_field, ssid);
+    bb_config_staged_set_str(&h, &s_wifi_rtc_pass_field, pass);
+    bb_config_staged_set_u8(&h, &s_wifi_rtc_provisioned_field, 1);
+    (void)bb_config_staged_commit(&h);  // best-effort -- see comment above.
 }
 
 // ---------------------------------------------------------------------------

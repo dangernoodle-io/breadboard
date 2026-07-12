@@ -28,6 +28,7 @@ Public symbols in this component use the `bb_` prefix.
 |-----------|------|------|------|
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
+| `bb_str` | private | — | [bb_str](../README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support

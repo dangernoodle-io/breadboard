@@ -307,6 +307,31 @@ bb_err_t bb_storage_txn_commit(bb_storage_txn_t *txn);
 // Returns BB_ERR_INVALID_ARG for a NULL txn, BB_OK otherwise.
 bb_err_t bb_storage_txn_abort(bb_storage_txn_t *txn);
 
+/* ---------------------------------------------------------------------------
+ * Backend-internal helper — NOT part of the application-facing API above.
+ *
+ * bb_storage_txn_slot_stage() is the shared "buffer a (key, enc, value,
+ * len) into txn->_slots[]" idiom used by buffering-model backends (e.g.
+ * bb_storage_ram, bb_storage_rtc) inside their own txn_set vtable hook.
+ * Declared here (not a separate header) because bb_storage owns
+ * bb_storage_txn_t/_slots; a backend's own key validation/classification
+ * (e.g. bb_storage_rtc's fixed ssid/pass/provisioned gate) is that
+ * backend's concern and must run BEFORE calling this helper.
+ * --------------------------------------------------------------------------- */
+
+// Stage (key, enc, buf, len) into txn->_slots[]: reuses an already-staged
+// slot for `key` (last-write-wins within the txn), else the first free
+// slot. Bounds `len` against BB_STORAGE_TXN_VALUE_MAX_BYTES and `key`
+// against BB_STORAGE_TXN_KEY_MAX_BYTES.
+// Returns:
+//   BB_OK                staged
+//   BB_ERR_INVALID_ARG   txn or key is NULL, or key length is at/over
+//                        BB_STORAGE_TXN_KEY_MAX_BYTES
+//   BB_ERR_NO_SPACE       value exceeds BB_STORAGE_TXN_VALUE_MAX_BYTES, or
+//                        the slot table is full
+bb_err_t bb_storage_txn_slot_stage(bb_storage_txn_t *txn, const char *key, bb_storage_enc_t enc,
+                                    const void *buf, size_t len);
+
 #ifdef __cplusplus
 }
 #endif

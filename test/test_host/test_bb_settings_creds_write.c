@@ -280,3 +280,32 @@ void test_bb_settings_wifi_set_and_promote_converge_on_same_live_fields(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_ssid_get(ssid, sizeof(ssid), &len));
     TEST_ASSERT_EQUAL_STRING_LEN("PendingNet", ssid, len);
 }
+
+/* ---------------------------------------------------------------------------
+ * B1-763: the RTC mirror is now a SINGLE atomic bb_config_staged commit --
+ * all 3 keys (ssid/pass/provisioned) land together against the "rtc"
+ * backend, observable via the same facade a real consumer would use.
+ * ---------------------------------------------------------------------------*/
+void test_bb_settings_wifi_set_mirrors_all_3_rtc_keys_atomically(void)
+{
+    reset_all();
+    register_rtc();
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_set("AtomicNet", "atomicpass"));
+
+    char ssid[32] = {0};
+    size_t len = 0;
+    bb_storage_addr_t ssid_addr = rtc_addr("ssid");
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_get(&ssid_addr, ssid, sizeof(ssid), &len));
+    TEST_ASSERT_EQUAL_STRING_LEN("AtomicNet", ssid, len);
+
+    char pass[64] = {0};
+    bb_storage_addr_t pass_addr = rtc_addr("pass");
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_get(&pass_addr, pass, sizeof(pass), &len));
+    TEST_ASSERT_EQUAL_STRING_LEN("atomicpass", pass, len);
+
+    uint8_t provisioned = 0;
+    bb_storage_addr_t prov_addr = rtc_addr("provisioned");
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_get(&prov_addr, &provisioned, sizeof(provisioned), &len));
+    TEST_ASSERT_EQUAL_UINT8(1, provisioned);
+}

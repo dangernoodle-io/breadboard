@@ -49,12 +49,14 @@
 #include "bb_core.h"
 
 #ifdef BB_STORAGE_RTC_TESTING
-// bb_storage_rtc_region.h is only needed by the testing-only prototype
-// below -- kept out of the unconditional include list so a production
-// (non-TESTING) build of this header never pulls in the region layout for
-// every bb_storage_rtc.h consumer, mirroring bb_storage_nvs.h's
-// BB_STORAGE_NVS_TESTING-gated bb_storage.h include.
+// bb_storage_rtc_region.h and bb_storage.h (bb_storage_txn_t,
+// bb_storage_enc_t) are only needed by the testing-only prototypes below --
+// kept out of the unconditional include list so a production (non-TESTING)
+// build of this header never pulls in the region layout or bb_storage.h's
+// public REQUIRES for every bb_storage_rtc.h consumer, mirroring
+// bb_storage_nvs.h's BB_STORAGE_NVS_TESTING-gated bb_storage.h include.
 #include "bb_storage_rtc_region.h"
+#include "bb_storage.h"
 #endif
 
 #ifdef __cplusplus
@@ -74,6 +76,17 @@ void bb_storage_rtc_test_reset(void);
 // every subsequent get() fail closed (BB_ERR_NOT_FOUND) rather than crash.
 // Never call this from production code.
 bb_storage_rtc_region_t *bb_storage_rtc_region_for_test(void);
+
+// Thin wrappers around the backend's static txn_begin/set/commit/abort
+// (normally only reachable through the registered bb_storage_vtable_t) --
+// testing-only direct-drive seam, mirroring bb_storage_nvs's
+// _txn_*_for_test pattern. Never call these from production code; a real
+// consumer always goes through bb_storage_txn_begin("rtc", ...).
+bb_err_t bb_storage_rtc_txn_begin_for_test(bb_storage_txn_t *txn, const char *ns_or_dir);
+bb_err_t bb_storage_rtc_txn_set_for_test(bb_storage_txn_t *txn, const char *key, bb_storage_enc_t enc,
+                                          const void *buf, size_t len);
+bb_err_t bb_storage_rtc_txn_commit_for_test(bb_storage_txn_t *txn);
+bb_err_t bb_storage_rtc_txn_abort_for_test(bb_storage_txn_t *txn);
 #endif
 
 // Register this backend with bb_storage under the name "rtc". Idempotent

@@ -515,6 +515,16 @@ void test_bb_storage_rtc_sequential_multi_key_sets_preserve_prior_keys(void);
 void test_bb_storage_rtc_set_on_invalid_region_zeroes_before_write(void);
 void test_bb_storage_rtc_null_key_sentinel_consistent(void);
 
+// Forward declarations from test_bb_storage_rtc_txn.c (B1-763)
+void test_bb_storage_rtc_txn_begin_set_commit_round_trip(void);
+void test_bb_storage_rtc_txn_abort_leaves_region_untouched(void);
+void test_bb_storage_rtc_txn_abort_before_commit_never_leaves_torn_mix(void);
+void test_bb_storage_rtc_txn_overflow_set_poisons_and_commit_returns_sticky_error(void);
+void test_bb_storage_rtc_txn_on_cold_region_zeroes_unstaged_fields(void);
+void test_bb_storage_rtc_txn_partial_key_preserves_prior_provisioned(void);
+void test_bb_storage_rtc_txn_duplicate_key_last_wins(void);
+void test_bb_storage_rtc_txn_unknown_key_invalid_arg(void);
+
 // Forward declarations from test_bb_storage_nvs_get_decision.c
 void test_bb_storage_nvs_get_decide_zero_cap_probes(void);
 void test_bb_storage_nvs_get_decide_cap_equal_required_is_full(void);
@@ -724,6 +734,7 @@ void test_bb_settings_wifi_pending_promote_mirrors_rtc_backend(void);
 void test_bb_settings_wifi_pending_promote_mirror_not_stale(void);
 void test_bb_settings_wifi_pending_promote_ok_when_rtc_backend_unregistered(void);
 void test_bb_settings_wifi_set_and_promote_converge_on_same_live_fields(void);
+void test_bb_settings_wifi_set_mirrors_all_3_rtc_keys_atomically(void);
 
 // Forward declarations from test_bb_settings_wifi_pending.c
 void test_bb_settings_wifi_pending_set_stages_ssid_pass_try(void);
@@ -8169,6 +8180,16 @@ int main(void) {
     RUN_TEST(test_bb_storage_rtc_set_on_invalid_region_zeroes_before_write);
     RUN_TEST(test_bb_storage_rtc_null_key_sentinel_consistent);
 
+    // bb_storage_rtc txn vtable (B1-763) tests
+    RUN_TEST(test_bb_storage_rtc_txn_begin_set_commit_round_trip);
+    RUN_TEST(test_bb_storage_rtc_txn_abort_leaves_region_untouched);
+    RUN_TEST(test_bb_storage_rtc_txn_abort_before_commit_never_leaves_torn_mix);
+    RUN_TEST(test_bb_storage_rtc_txn_overflow_set_poisons_and_commit_returns_sticky_error);
+    RUN_TEST(test_bb_storage_rtc_txn_on_cold_region_zeroes_unstaged_fields);
+    RUN_TEST(test_bb_storage_rtc_txn_partial_key_preserves_prior_provisioned);
+    RUN_TEST(test_bb_storage_rtc_txn_duplicate_key_last_wins);
+    RUN_TEST(test_bb_storage_rtc_txn_unknown_key_invalid_arg);
+
     // bb_storage_nvs_get_decision tests
     RUN_TEST(test_bb_storage_nvs_get_decide_zero_cap_probes);
     RUN_TEST(test_bb_storage_nvs_get_decide_cap_equal_required_is_full);
@@ -8299,6 +8320,7 @@ int main(void) {
     RUN_TEST(test_bb_settings_wifi_pending_promote_mirror_not_stale);
     RUN_TEST(test_bb_settings_wifi_pending_promote_ok_when_rtc_backend_unregistered);
     RUN_TEST(test_bb_settings_wifi_set_and_promote_converge_on_same_live_fields);
+    RUN_TEST(test_bb_settings_wifi_set_mirrors_all_3_rtc_keys_atomically);
 
     // bb_storage_typed (get_typed/set_typed facade) tests
     RUN_TEST(test_bb_storage_get_typed_falls_back_to_get_on_ram_backend);

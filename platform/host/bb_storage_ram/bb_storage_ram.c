@@ -184,41 +184,10 @@ static bb_err_t ram_txn_set(void *impl, bb_storage_txn_t *txn, const char *key, 
                              const void *buf, size_t len)
 {
     (void)impl;
-    (void)enc;  // ram stores raw bytes regardless of encoding hint
 
-    if (len > BB_STORAGE_TXN_VALUE_MAX_BYTES) {
-        return BB_ERR_NO_SPACE;
-    }
-    if (strlen(key) >= BB_STORAGE_TXN_KEY_MAX_BYTES) {
-        return BB_ERR_INVALID_ARG;
-    }
-
-    // Last-write-wins within the txn: reuse an existing slot for this key.
-    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
-        if (txn->_slots[i].used && strcmp(txn->_slots[i].key, key) == 0) {
-            if (len > 0) {
-                memcpy(txn->_slots[i].value, buf, len);
-            }
-            txn->_slots[i].len = len;
-            txn->_slots[i].enc = enc;
-            return BB_OK;
-        }
-    }
-
-    for (size_t i = 0; i < BB_STORAGE_TXN_MAX_KEYS; i++) {
-        if (!txn->_slots[i].used) {
-            bb_strlcpy(txn->_slots[i].key, key, sizeof(txn->_slots[i].key));
-            if (len > 0) {
-                memcpy(txn->_slots[i].value, buf, len);
-            }
-            txn->_slots[i].len  = len;
-            txn->_slots[i].enc  = enc;
-            txn->_slots[i].used = true;
-            return BB_OK;
-        }
-    }
-
-    return BB_ERR_NO_SPACE;
+    // ram has no key gate of its own (arbitrary keys accepted) -- stage
+    // directly via the shared bb_storage helper.
+    return bb_storage_txn_slot_stage(txn, key, enc, buf, len);
 }
 
 static bb_err_t ram_txn_commit(void *impl, bb_storage_txn_t *txn)
