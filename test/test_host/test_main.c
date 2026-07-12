@@ -4788,6 +4788,37 @@ void test_bb_cache_get_raw_delete_race_returns_not_found(void);
 void test_bb_cache_post_serialized_delete_race_returns_not_found(void);
 void test_bb_cache_serialize_into_delete_only_race_returns_not_found(void);
 
+// Forward declarations from test_bb_cache_state_version.c
+void test_bb_cache_state_version_monotonic_across_writes(void);
+void test_bb_cache_state_version_unwritten_registered_key_is_zero(void);
+void test_bb_cache_state_version_unchanged_rewrite_still_bumps(void);
+void test_bb_cache_state_version_independent_across_keys(void);
+void test_bb_cache_state_version_distinct_from_generation_reset_on_reregister(void);
+void test_bb_cache_state_version_getter_mode_key_stays_zero(void);
+void test_bb_cache_state_version_absent_key_returns_not_found(void);
+void test_bb_cache_state_version_null_args_return_invalid_arg(void);
+void test_bb_cache_snapshot_returns_current_state_and_version(void);
+void test_bb_cache_snapshot_is_immutable_copy_not_pinned(void);
+void test_bb_cache_snapshot_getter_mode_returns_invalid_state(void);
+void test_bb_cache_snapshot_absent_key_returns_not_found(void);
+void test_bb_cache_snapshot_undersized_cap_returns_no_space_buf_untouched(void);
+void test_bb_cache_snapshot_null_args_return_invalid_arg(void);
+void test_bb_cache_snapshot_owned_fallback_seeds_on_first_call_version_stays_zero(void);
+void test_bb_cache_snapshot_plain_owned_unwritten_returns_zeroed_state(void);
+void test_bb_cache_snapshot_delete_race_returns_not_found(void);
+void test_bb_cache_state_version_delete_race_returns_not_found(void);
+void test_bb_cache_snapshot_evicts_past_evict_age(void);
+
+// Forward declarations from test_bb_cache_write_notify.c
+void test_bb_cache_write_notify_default_empty_is_safe_noop(void);
+void test_bb_cache_write_notify_fires_once_per_successful_write_with_correct_args(void);
+void test_bb_cache_write_notify_does_not_fire_on_getter_mode_noop_update(void);
+void test_bb_cache_write_notify_does_not_fire_on_unknown_key_failed_update(void);
+void test_bb_cache_write_notify_composed_hook_observes_multiple_keys(void);
+void test_bb_cache_write_notify_null_uninstall_stops_firing(void);
+void test_bb_cache_write_notify_hook_may_reenter_bb_cache_without_deadlock(void);
+void test_bb_cache_write_notify_reset_for_test_clears_hook(void);
+
 // Forward declarations from test_bb_cache_evaluate.c
 void test_bb_cache_evaluate_age_table(void);
 void test_bb_cache_evaluate_age_evict_takes_priority_over_stale(void);
@@ -9792,6 +9823,37 @@ int main(void) {
     RUN_TEST(test_bb_cache_get_raw_delete_race_returns_not_found);
     RUN_TEST(test_bb_cache_post_serialized_delete_race_returns_not_found);
     RUN_TEST(test_bb_cache_serialize_into_delete_only_race_returns_not_found);
+
+    // bb_cache state_version + snapshot (B1-767 PR-3)
+    RUN_TEST(test_bb_cache_state_version_monotonic_across_writes);
+    RUN_TEST(test_bb_cache_state_version_unwritten_registered_key_is_zero);
+    RUN_TEST(test_bb_cache_state_version_unchanged_rewrite_still_bumps);
+    RUN_TEST(test_bb_cache_state_version_independent_across_keys);
+    RUN_TEST(test_bb_cache_state_version_distinct_from_generation_reset_on_reregister);
+    RUN_TEST(test_bb_cache_state_version_getter_mode_key_stays_zero);
+    RUN_TEST(test_bb_cache_state_version_absent_key_returns_not_found);
+    RUN_TEST(test_bb_cache_state_version_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_cache_snapshot_returns_current_state_and_version);
+    RUN_TEST(test_bb_cache_snapshot_is_immutable_copy_not_pinned);
+    RUN_TEST(test_bb_cache_snapshot_getter_mode_returns_invalid_state);
+    RUN_TEST(test_bb_cache_snapshot_absent_key_returns_not_found);
+    RUN_TEST(test_bb_cache_snapshot_undersized_cap_returns_no_space_buf_untouched);
+    RUN_TEST(test_bb_cache_snapshot_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_cache_snapshot_owned_fallback_seeds_on_first_call_version_stays_zero);
+    RUN_TEST(test_bb_cache_snapshot_plain_owned_unwritten_returns_zeroed_state);
+    RUN_TEST(test_bb_cache_snapshot_delete_race_returns_not_found);
+    RUN_TEST(test_bb_cache_state_version_delete_race_returns_not_found);
+    RUN_TEST(test_bb_cache_snapshot_evicts_past_evict_age);
+
+    // bb_cache write-notify seam (B1-767 PR-3)
+    RUN_TEST(test_bb_cache_write_notify_default_empty_is_safe_noop);
+    RUN_TEST(test_bb_cache_write_notify_fires_once_per_successful_write_with_correct_args);
+    RUN_TEST(test_bb_cache_write_notify_does_not_fire_on_getter_mode_noop_update);
+    RUN_TEST(test_bb_cache_write_notify_does_not_fire_on_unknown_key_failed_update);
+    RUN_TEST(test_bb_cache_write_notify_composed_hook_observes_multiple_keys);
+    RUN_TEST(test_bb_cache_write_notify_null_uninstall_stops_firing);
+    RUN_TEST(test_bb_cache_write_notify_hook_may_reenter_bb_cache_without_deadlock);
+    RUN_TEST(test_bb_cache_write_notify_reset_for_test_clears_hook);
 
     // bb_cache_evaluate (pure age classifier)
     RUN_TEST(test_bb_cache_evaluate_age_table);
