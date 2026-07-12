@@ -1,0 +1,13 @@
+menu "breadboard: bb_serialize_json"
+
+config BB_SERIALIZE_JSON_F64_DECIMALS
+    int "Fixed fractional digits for f64 JSON output"
+    default 6
+    range 1 15
+    help
+        Number of fractional digits emitted for double values
+        (deterministic fixed-decimal, e.g. 3.5 -> "3.500000" at the
+        default of 6). No snprintf/locale involved -- purely a scale-
+        and-round hand-rolled formatter.
+
+endmenu

@@ -451,6 +451,11 @@
       "type": "component"
     },
     {
+      "id": "bb_serialize_json",
+      "path": "components/bb_serialize_json",
+      "type": "component"
+    },
+    {
       "id": "bb_settings",
       "path": "components/bb_settings",
       "type": "component"
