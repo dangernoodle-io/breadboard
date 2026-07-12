@@ -25,4 +25,14 @@ config BB_CACHE_SERIALIZE_BUF_BYTES
         render or snapshot whose size exceeds this fails with
         BB_ERR_NO_SPACE.
 
+config BB_CACHE_SERIALIZE_MAX_KEYS
+    int "Maximum number of registered (key -> descriptor) bindings"
+    default 8
+    range 1 32
+    help
+        Fixed-size descriptor registry capacity. Each entry binds one
+        bb_cache key to its {descriptor, gather, ctx} via
+        bb_cache_serialize_register() -- increase if more than 8 distinct
+        keys register a serialize binding at once.
+
 endmenu
