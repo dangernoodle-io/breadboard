@@ -19,6 +19,32 @@
 #include "bb_i2c_test.h"
 #include "bb_health_test.h"
 #include "../../components/bb_health/bb_health_stack.h"
+// Forward declarations from test_bb_serialize.c
+void test_bb_serialize_flat_scalars(void);
+void test_bb_serialize_nested_obj(void);
+void test_bb_serialize_present_gate_omits_field(void);
+void test_bb_serialize_present_gate_emits_when_true(void);
+void test_bb_serialize_str_bound_no_nul_terminator(void);
+void test_bb_serialize_str_bound_nul_terminated_short(void);
+void test_bb_serialize_str_n_empty_non_null_emits_empty_string(void);
+void test_bb_serialize_str_n_null_ptr_emits_null(void);
+void test_bb_serialize_arr_of_strings(void);
+void test_bb_serialize_arr_of_strings_empty(void);
+void test_bb_serialize_arr_of_obj_two_elements(void);
+void test_bb_serialize_arr_of_obj_empty(void);
+void test_bb_serialize_arr_of_obj_null_items_guarded(void);
+void test_bb_serialize_depth_guard_bails_on_self_reference(void);
+void test_bb_serialize_empty_obj(void);
+void test_bb_serialize_present_gated_container(void);
+void test_bb_serialize_desc_find_hit(void);
+void test_bb_serialize_desc_find_miss(void);
+void test_bb_serialize_desc_find_null_desc(void);
+void test_bb_serialize_desc_find_null_key(void);
+void test_bb_serialize_walk_null_args_is_noop(void);
+void test_bb_serialize_arr_of_obj_depth_guard_bails_on_self_reference(void);
+void test_bb_serialize_unknown_type_is_noop(void);
+void test_bb_serialize_desc_find_skips_null_key_field(void);
+
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
 void test_bb_log_warning(void);
@@ -10072,6 +10098,32 @@ int main(void) {
     RUN_TEST(test_bb_collection_foreach_equal_order_preserves_insertion_order);
     RUN_TEST(test_bb_collection_foreach_mixed_order_and_ties);
     RUN_TEST(test_bb_collection_foreach_reflects_snapshot_at_call_time);
+
+    // bb_serialize
+    RUN_TEST(test_bb_serialize_flat_scalars);
+    RUN_TEST(test_bb_serialize_nested_obj);
+    RUN_TEST(test_bb_serialize_present_gate_omits_field);
+    RUN_TEST(test_bb_serialize_present_gate_emits_when_true);
+    RUN_TEST(test_bb_serialize_str_bound_no_nul_terminator);
+    RUN_TEST(test_bb_serialize_str_bound_nul_terminated_short);
+    RUN_TEST(test_bb_serialize_str_n_empty_non_null_emits_empty_string);
+    RUN_TEST(test_bb_serialize_str_n_null_ptr_emits_null);
+    RUN_TEST(test_bb_serialize_arr_of_strings);
+    RUN_TEST(test_bb_serialize_arr_of_strings_empty);
+    RUN_TEST(test_bb_serialize_arr_of_obj_two_elements);
+    RUN_TEST(test_bb_serialize_arr_of_obj_empty);
+    RUN_TEST(test_bb_serialize_arr_of_obj_null_items_guarded);
+    RUN_TEST(test_bb_serialize_depth_guard_bails_on_self_reference);
+    RUN_TEST(test_bb_serialize_empty_obj);
+    RUN_TEST(test_bb_serialize_present_gated_container);
+    RUN_TEST(test_bb_serialize_desc_find_hit);
+    RUN_TEST(test_bb_serialize_desc_find_miss);
+    RUN_TEST(test_bb_serialize_desc_find_null_desc);
+    RUN_TEST(test_bb_serialize_desc_find_null_key);
+    RUN_TEST(test_bb_serialize_walk_null_args_is_noop);
+    RUN_TEST(test_bb_serialize_arr_of_obj_depth_guard_bails_on_self_reference);
+    RUN_TEST(test_bb_serialize_unknown_type_is_noop);
+    RUN_TEST(test_bb_serialize_desc_find_skips_null_key_field);
 
     return UNITY_END();
 }
