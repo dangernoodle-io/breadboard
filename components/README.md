@@ -23,6 +23,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_cache](./bb_cache/) | — |
 | [bb_cache_reactive](./bb_cache_reactive/) | — |
 | [bb_cache_routes](./bb_cache_routes/) | — |
+| [bb_cache_serialize](./bb_cache_serialize/) | Compositional serialized-render cache (render memo), keyed (format_id, key, state_version). |
 | [bb_collection](./bb_collection/) | A humble, fixed-capacity, thread-safe ordered collection of caller-owned opaque items. |
 | [bb_config](./bb_config/) | Typed configuration layer over `bb_storage` — gives its blob-only vtable scalar-typed meaning (bool/u8/u16/u32/i32/str/blob) via a caller-owned field descriptor table. |
 | [bb_config_staged](./bb_config_staged/) | bb_config_staged — generic staged multi-field write over bb_config, atomic commit via bb_storage's txn group. |
