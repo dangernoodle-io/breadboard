@@ -108,6 +108,35 @@ void test_v2_golden_info_telem_psram(void);
 void test_v2_golden_info_telem_no_psram(void);
 void test_v2_golden_info_telem_differential_matches_live_cache(void);
 
+// Forward declarations from test_bb_serialize_meta_validate.c
+void test_bb_serialize_meta_validate_info_happy_path(void);
+void test_bb_serialize_meta_validate_type_name_mismatch(void);
+void test_bb_serialize_meta_validate_missing_row(void);
+void test_bb_serialize_meta_validate_orphan_row(void);
+void test_bb_serialize_meta_validate_string_constraint_on_non_string_field(void);
+void test_bb_serialize_meta_validate_numeric_constraint_on_non_numeric_field(void);
+void test_bb_serialize_meta_validate_min_greater_than_max(void);
+void test_bb_serialize_meta_validate_min_len_exceeds_field_max_len(void);
+void test_bb_serialize_meta_validate_nested_obj_happy_path(void);
+void test_bb_serialize_meta_validate_nested_missing_row_propagates(void);
+void test_bb_serialize_meta_validate_depth_guard_bails_on_self_reference(void);
+void test_bb_serialize_meta_validate_coverage_fixture_happy_path(void);
+void test_bb_serialize_meta_validate_duplicate_row(void);
+void test_bb_serialize_meta_validate_null_key_row(void);
+
+// Forward declarations from test_bb_serialize_meta_openapi.c
+void test_bb_serialize_meta_openapi_info_golden(void);
+void test_bb_serialize_meta_openapi_no_meta_at_all(void);
+void test_bb_serialize_meta_openapi_no_matching_row(void);
+void test_bb_serialize_meta_openapi_nested_obj(void);
+void test_bb_serialize_meta_openapi_obj_depth_guard(void);
+void test_bb_serialize_meta_openapi_arr_of_obj_depth_guard(void);
+void test_bb_serialize_meta_openapi_render_cap_zero(void);
+void test_bb_serialize_meta_openapi_overflow_too_small_cap(void);
+void test_bb_serialize_meta_openapi_overflow_null_out_len(void);
+void test_bb_serialize_meta_openapi_success_null_out_len(void);
+void test_bb_serialize_meta_openapi_coverage_fixture(void);
+
 // Forward declarations from test_bb_log.c
 void test_bb_log_error(void);
 void test_bb_log_warning(void);
@@ -10376,6 +10405,33 @@ int main(void) {
     RUN_TEST(test_v2_golden_info_telem_psram);
     RUN_TEST(test_v2_golden_info_telem_no_psram);
     RUN_TEST(test_v2_golden_info_telem_differential_matches_live_cache);
+
+    RUN_TEST(test_bb_serialize_meta_validate_info_happy_path);
+    RUN_TEST(test_bb_serialize_meta_validate_type_name_mismatch);
+    RUN_TEST(test_bb_serialize_meta_validate_missing_row);
+    RUN_TEST(test_bb_serialize_meta_validate_orphan_row);
+    RUN_TEST(test_bb_serialize_meta_validate_string_constraint_on_non_string_field);
+    RUN_TEST(test_bb_serialize_meta_validate_numeric_constraint_on_non_numeric_field);
+    RUN_TEST(test_bb_serialize_meta_validate_min_greater_than_max);
+    RUN_TEST(test_bb_serialize_meta_validate_min_len_exceeds_field_max_len);
+    RUN_TEST(test_bb_serialize_meta_validate_nested_obj_happy_path);
+    RUN_TEST(test_bb_serialize_meta_validate_nested_missing_row_propagates);
+    RUN_TEST(test_bb_serialize_meta_validate_depth_guard_bails_on_self_reference);
+    RUN_TEST(test_bb_serialize_meta_validate_coverage_fixture_happy_path);
+    RUN_TEST(test_bb_serialize_meta_validate_duplicate_row);
+    RUN_TEST(test_bb_serialize_meta_validate_null_key_row);
+
+    RUN_TEST(test_bb_serialize_meta_openapi_info_golden);
+    RUN_TEST(test_bb_serialize_meta_openapi_no_meta_at_all);
+    RUN_TEST(test_bb_serialize_meta_openapi_no_matching_row);
+    RUN_TEST(test_bb_serialize_meta_openapi_nested_obj);
+    RUN_TEST(test_bb_serialize_meta_openapi_obj_depth_guard);
+    RUN_TEST(test_bb_serialize_meta_openapi_arr_of_obj_depth_guard);
+    RUN_TEST(test_bb_serialize_meta_openapi_render_cap_zero);
+    RUN_TEST(test_bb_serialize_meta_openapi_overflow_too_small_cap);
+    RUN_TEST(test_bb_serialize_meta_openapi_overflow_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_success_null_out_len);
+    RUN_TEST(test_bb_serialize_meta_openapi_coverage_fixture);
 
     return UNITY_END();
 }
