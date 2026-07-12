@@ -3,7 +3,7 @@ list(APPEND EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/../../components"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../platform/espidf/bb_event_ring_espidf"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../platform/espidf/bb_event_routes_espidf"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../platform/espidf/bb_ring_espidf"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../platform/espidf/bb_queue_espidf"
 )
 
 if(NOT DEFINED FIRMWARE_BOARD)

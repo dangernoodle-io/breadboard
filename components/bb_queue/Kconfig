@@ -1,12 +1,12 @@
-menu "breadboard: bb_ring"
+menu "breadboard: bb_queue"
 
-config BB_RING_REGISTRY_MAX
-    int "Ring registry capacity (max concurrently-tracked bb_ring_t handles)"
+config BB_QUEUE_REGISTRY_MAX
+    int "Ring registry capacity (max concurrently-tracked bb_queue_t handles)"
     default 16
     range 1 32
     help
         Capacity of the diagnostic ring registry consumed by
-        GET /api/diag/rings. Every bb_ring_create() self-registers here
+        GET /api/diag/rings. Every bb_queue_create() self-registers here
         (best-effort); a full registry logs a warning and does not fail
         ring creation. Must be <= BB_REGISTRY_SNAPSHOT_MAX (64).
 

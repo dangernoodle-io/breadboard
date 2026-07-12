@@ -55,8 +55,8 @@ typedef enum {
 } bb_pool_mode_t;
 
 // Controls what happens when bb_pool_push() is called on a full FIFO pool.
-// FIFO mode only; ignored for other modes. Mirrors bb_ring_full_policy_t's
-// shape (own type — bb_pool does not depend on bb_ring).
+// FIFO mode only; ignored for other modes. Mirrors bb_queue_full_policy_t's
+// shape (own type — bb_pool does not depend on bb_queue).
 typedef enum {
     BB_POOL_FULL_EVICT_OLDEST = 0,
     BB_POOL_FULL_REJECT_NEW   = 1,

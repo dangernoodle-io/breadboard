@@ -63,7 +63,7 @@ typedef struct {
 } bb_pool_retained_slot_t;
 
 // ---------------------------------------------------------------------------
-// FIFO path storage — internal arena-carved ring (no bb_ring dependency)
+// FIFO path storage — internal arena-carved ring (no bb_queue dependency)
 // ---------------------------------------------------------------------------
 
 typedef struct {

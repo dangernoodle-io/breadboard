@@ -123,8 +123,8 @@ uint32_t bb_task_registry_dropped(void);
 bool bb_task_registry_lookup_budget(const char *name, uint32_t *out_budget, bool *out_wdt);
 
 // Iterate all registered tasks. Holds the internal lock across the ENTIRE
-// call, including every invocation of cb — mirrors bb_ring_registry_foreach's
-// contract (see bb_ring_registry.h for the full rationale: this prevents a
+// call, including every invocation of cb — mirrors bb_queue_registry_foreach's
+// contract (see bb_queue_registry.h for the full rationale: this prevents a
 // concurrent deregister from invalidating an entry mid-read).
 //
 // Foreach contract — cb MUST be:

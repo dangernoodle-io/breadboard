@@ -1272,7 +1272,7 @@ void test_bb_net_health_emit_status_http_alloc_fail(void)
 //
 // On HW the serialized net.health snapshot (nested mqtt/http objects) came in
 // at ~341 B — above the bb_event_routes global default ring max_entry (256),
-// so the retained push was rejected (bb_ring: "push rejected: len=341 >
+// so the retained push was rejected (bb_queue: "push rejected: len=341 >
 // max_entry=256") and SSE clients connecting to ?topic=net.health saw empty
 // state until the next periodic re-publish. The fix attaches net.health with
 // an explicit max_entry (BB_NET_HEALTH_SSE_MAX_ENTRY, 512, defined in

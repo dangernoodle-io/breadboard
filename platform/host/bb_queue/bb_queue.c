@@ -1,11 +1,11 @@
-// bb_ring — generic variable-length circular buffer with per-entry metadata.
+// bb_queue — generic variable-length circular buffer with per-entry metadata.
 //
-// Compiled on both host (tests) and ESP-IDF (via bb_ring CMakeLists SRCS).
-// On ESP-IDF the bb_ring_espidf platform component overrides the allocator
+// Compiled on both host (tests) and ESP-IDF (via bb_queue CMakeLists SRCS).
+// On ESP-IDF the bb_queue_espidf platform component overrides the allocator
 // at EARLY tier to prefer SPIRAM with internal-heap fallback.
 //
 // Layout (mirrors bb_event_ring):
-//   metadata array : capacity × bb_ring_entry_t  (id, ts, payload length)
+//   metadata array : capacity × bb_queue_entry_t  (id, ts, payload length)
 //   payload buffer : capacity × max_entry_bytes   (flat; entry i at i*max_entry)
 //
 // head  : next write slot (mod capacity)
@@ -14,21 +14,21 @@
 //
 // Thread-safety: NONE. Caller serialises access.
 
-#include "bb_ring.h"
-#include "bb_ring_registry.h"
+#include "bb_queue.h"
+#include "bb_queue_registry.h"
 #include "bb_log.h"
 #include "bb_str.h"
 #include <stdlib.h>
 #include <string.h>
 
-static const char *TAG = "bb_ring";
+static const char *TAG = "bb_queue";
 
 // Subtracts `len` from `*bytes_used`, clamping at 0 instead of wrapping.
 // bytes_used is decremented on every pop/evict; push/pop accounting is kept
 // symmetric by construction, but this guards against any future accounting
 // drift (or a malformed entry) surfacing as a ~4.29e9 (u32-narrowed) value
 // on /api/diag/rings instead of a clean 0.
-static void bb_ring_bytes_used_sub(size_t *bytes_used, size_t len)
+static void bb_queue_bytes_used_sub(size_t *bytes_used, size_t len)
 {
     *bytes_used = (*bytes_used >= len) ? (*bytes_used - len) : 0;
 }
@@ -43,13 +43,13 @@ typedef void  (*free_fn)(void *p);
 static calloc_fn s_calloc = calloc;
 static free_fn   s_free   = free;
 
-void bb_ring_set_allocator(bb_ring_calloc_fn c, bb_ring_free_fn f)
+void bb_queue_set_allocator(bb_queue_calloc_fn c, bb_queue_free_fn f)
 {
     s_calloc = c ? c : calloc;
     s_free   = f ? f : free;
 }
 
-void bb_ring_reset_allocator(void)
+void bb_queue_reset_allocator(void)
 {
     s_calloc = calloc;
     s_free   = free;
@@ -63,17 +63,17 @@ typedef struct {
     uint32_t id;
     int64_t  ts;
     size_t   len;
-} bb_ring_entry_t;
+} bb_queue_entry_t;
 
 // ---------------------------------------------------------------------------
 // Ring struct
 // ---------------------------------------------------------------------------
 
-struct bb_ring {
+struct bb_queue {
     size_t capacity;      // max entries
     size_t max_entry;     // max payload bytes per entry
 
-    bb_ring_entry_t *entries;   // [capacity]
+    bb_queue_entry_t *entries;   // [capacity]
     uint8_t         *payload;   // [capacity * max_entry]
 
     size_t head;    // next write slot
@@ -84,32 +84,32 @@ struct bb_ring {
     size_t dropped;      // entries dropped due to ring-full (evicted or rejected)
     size_t truncated;    // push() calls rejected (len > max_entry)
 
-    bb_ring_full_policy_t policy;  // BB_RING_EVICT_OLDEST or BB_RING_REJECT_NEW
-    char name[BB_RING_NAME_MAX];   // diagnostic label (bounded copy, never borrowed)
+    bb_queue_full_policy_t policy;  // BB_QUEUE_EVICT_OLDEST or BB_QUEUE_REJECT_NEW
+    char name[BB_QUEUE_NAME_MAX];   // diagnostic label (bounded copy, never borrowed)
 };
 
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes,
-                        bb_ring_full_policy_t policy, const char *name,
-                        bb_ring_t *out)
+bb_err_t bb_queue_create(size_t capacity_entries, size_t max_entry_bytes,
+                        bb_queue_full_policy_t policy, const char *name,
+                        bb_queue_t *out)
 {
     if (!capacity_entries || !max_entry_bytes || !out) {
         return BB_ERR_INVALID_ARG;
     }
-    if (policy != BB_RING_EVICT_OLDEST && policy != BB_RING_REJECT_NEW) {
+    if (policy != BB_QUEUE_EVICT_OLDEST && policy != BB_QUEUE_REJECT_NEW) {
         return BB_ERR_INVALID_ARG;
     }
 
-    bb_ring_t r = (bb_ring_t)s_calloc(1, sizeof(*r));
+    bb_queue_t r = (bb_queue_t)s_calloc(1, sizeof(*r));
     if (!r) {
         bb_log_e(TAG, "failed to allocate ring struct");
         return BB_ERR_NO_SPACE;
     }
 
-    r->entries = (bb_ring_entry_t *)s_calloc(capacity_entries, sizeof(bb_ring_entry_t));
+    r->entries = (bb_queue_entry_t *)s_calloc(capacity_entries, sizeof(bb_queue_entry_t));
     if (!r->entries) {
         bb_log_e(TAG, "failed to allocate entries array");
         s_free(r);
@@ -144,25 +144,25 @@ bb_err_t bb_ring_create(size_t capacity_entries, size_t max_entry_bytes,
              r->name, capacity_entries, max_entry_bytes, (int)policy);
 
     // Best-effort self-registration for GET /api/diag/rings — a full
-    // registry or a duplicate name is logged (inside bb_ring_registry) and
+    // registry or a duplicate name is logged (inside bb_queue_registry) and
     // does NOT fail ring creation.
-    bb_ring_registry_register(r->name, r);
+    bb_queue_registry_register(r->name, r);
 
     *out = r;
     return BB_OK;
 }
 
-void bb_ring_destroy(bb_ring_t r)
+void bb_queue_destroy(bb_queue_t r)
 {
     if (!r) return;
-    bb_ring_registry_deregister(r);
+    bb_queue_registry_deregister(r);
     bb_log_i(TAG, "destroyed ring '%s'", r->name);
     s_free(r->payload);
     s_free(r->entries);
     s_free(r);
 }
 
-const char *bb_ring_name(bb_ring_t r)
+const char *bb_queue_name(bb_queue_t r)
 {
     return r ? r->name : "";
 }
@@ -171,7 +171,7 @@ const char *bb_ring_name(bb_ring_t r)
 // Write
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_ring_push(bb_ring_t r, const void *data, size_t len,
+bb_err_t bb_queue_push(bb_queue_t r, const void *data, size_t len,
                       int64_t ts, uint32_t id)
 {
     if (!r) return BB_ERR_INVALID_ARG;
@@ -188,13 +188,13 @@ bb_err_t bb_ring_push(bb_ring_t r, const void *data, size_t len,
 
     // Handle full ring according to policy
     if (r->count == r->capacity) {
-        if (r->policy == BB_RING_REJECT_NEW) {
+        if (r->policy == BB_QUEUE_REJECT_NEW) {
             r->dropped++;
             bb_log_d(TAG, "push rejected: ring full (reject-new policy)");
             return BB_ERR_NO_SPACE;
         }
-        // BB_RING_EVICT_OLDEST: evict oldest before writing
-        bb_ring_bytes_used_sub(&r->bytes_used, r->entries[r->tail].len);
+        // BB_QUEUE_EVICT_OLDEST: evict oldest before writing
+        bb_queue_bytes_used_sub(&r->bytes_used, r->entries[r->tail].len);
         r->tail = (r->tail + 1) % r->capacity;
         r->dropped++;
     } else {
@@ -220,7 +220,7 @@ bb_err_t bb_ring_push(bb_ring_t r, const void *data, size_t len,
 // FIFO read
 // ---------------------------------------------------------------------------
 
-bb_err_t bb_ring_peek_oldest(bb_ring_t r,
+bb_err_t bb_queue_peek_oldest(bb_queue_t r,
                              void *buf, size_t buf_cap,
                              size_t *out_len,
                              int64_t *out_ts,
@@ -229,7 +229,7 @@ bb_err_t bb_ring_peek_oldest(bb_ring_t r,
     if (!r || !out_len || !out_ts || !out_id) return BB_ERR_INVALID_ARG;
     if (r->count == 0) return BB_ERR_NOT_FOUND;
 
-    bb_ring_entry_t *e = &r->entries[r->tail];
+    bb_queue_entry_t *e = &r->entries[r->tail];
     *out_len = e->len;
     *out_ts  = e->ts;
     *out_id  = e->id;
@@ -242,18 +242,18 @@ bb_err_t bb_ring_peek_oldest(bb_ring_t r,
     return BB_OK;
 }
 
-bb_err_t bb_ring_pop_oldest(bb_ring_t r)
+bb_err_t bb_queue_pop_oldest(bb_queue_t r)
 {
     if (!r) return BB_ERR_INVALID_ARG;
     if (r->count == 0) return BB_ERR_NOT_FOUND;
 
-    bb_ring_bytes_used_sub(&r->bytes_used, r->entries[r->tail].len);
+    bb_queue_bytes_used_sub(&r->bytes_used, r->entries[r->tail].len);
     r->tail = (r->tail + 1) % r->capacity;
     r->count--;
     return BB_OK;
 }
 
-bb_err_t bb_ring_peek_at(bb_ring_t r, size_t index,
+bb_err_t bb_queue_peek_at(bb_queue_t r, size_t index,
                          void *buf, size_t buf_cap,
                          size_t *out_len,
                          int64_t *out_ts,
@@ -263,7 +263,7 @@ bb_err_t bb_ring_peek_at(bb_ring_t r, size_t index,
     if (r->count == 0 || index >= r->count) return BB_ERR_NOT_FOUND;
 
     size_t slot = (r->tail + index) % r->capacity;
-    bb_ring_entry_t *e = &r->entries[slot];
+    bb_queue_entry_t *e = &r->entries[slot];
     *out_len = e->len;
     *out_ts  = e->ts;
     *out_id  = e->id;
@@ -280,27 +280,27 @@ bb_err_t bb_ring_peek_at(bb_ring_t r, size_t index,
 // Introspection
 // ---------------------------------------------------------------------------
 
-size_t bb_ring_count(bb_ring_t r)
+size_t bb_queue_count(bb_queue_t r)
 {
     return r ? r->count : 0;
 }
 
-size_t bb_ring_capacity(bb_ring_t r)
+size_t bb_queue_capacity(bb_queue_t r)
 {
     return r ? r->capacity : 0;
 }
 
-size_t bb_ring_bytes_used(bb_ring_t r)
+size_t bb_queue_bytes_used(bb_queue_t r)
 {
     return r ? r->bytes_used : 0;
 }
 
-size_t bb_ring_dropped(bb_ring_t r)
+size_t bb_queue_dropped(bb_queue_t r)
 {
     return r ? r->dropped : 0;
 }
 
-size_t bb_ring_truncated(bb_ring_t r)
+size_t bb_queue_truncated(bb_queue_t r)
 {
     return r ? r->truncated : 0;
 }
@@ -309,7 +309,7 @@ size_t bb_ring_truncated(bb_ring_t r)
 // Maintenance
 // ---------------------------------------------------------------------------
 
-void bb_ring_clear(bb_ring_t r)
+void bb_queue_clear(bb_queue_t r)
 {
     if (!r) return;
     r->head      = 0;
@@ -321,13 +321,13 @@ void bb_ring_clear(bb_ring_t r)
 }
 
 // ---------------------------------------------------------------------------
-// Test hooks (BB_RING_TESTING)
+// Test hooks (BB_QUEUE_TESTING)
 // ---------------------------------------------------------------------------
 
-#ifdef BB_RING_TESTING
-#include "bb_ring_test.h"
+#ifdef BB_QUEUE_TESTING
+#include "bb_queue_test.h"
 
-void bb_ring_test_force_bytes_used(bb_ring_t r, size_t value)
+void bb_queue_test_force_bytes_used(bb_queue_t r, size_t value)
 {
     if (!r) return;
     r->bytes_used = value;

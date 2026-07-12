@@ -675,7 +675,7 @@ void test_bb_event_ring_capture_null_data_with_size(void) {
 }
 
 /* ring_capture oversized-payload path: posting a payload larger than the ring's
-   max_entry causes bb_ring_push to return BB_ERR_INVALID_ARG (and emit a
+   max_entry causes bb_queue_push to return BB_ERR_INVALID_ARG (and emit a
    bb_log_w).  The event is silently dropped from the ring; no crash, and the
    ring count stays 0.  This exercises the newly-added warn path in ring_capture
    and guards against the class of bug that caused TaipanMiner's net.health SSE

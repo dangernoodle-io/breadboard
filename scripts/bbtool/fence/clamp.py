@@ -131,7 +131,7 @@ def _opposite_direction(op1: str, op2: str) -> bool:
 # Three idiom variants are scanned, all requiring the SAME variable bounded
 # from BOTH directions (opposite comparison operators) — this is what
 # distinguishes a genuine two-sided clamp from a one-sided saturating op
-# (e.g. bb_ring's underflow-clamp-at-0 `(*bytes_used >= len) ? (*bytes_used
+# (e.g. bb_queue's underflow-clamp-at-0 `(*bytes_used >= len) ? (*bytes_used
 # - len) : 0`, or bb_task_resolve's single-bound unicore-affinity fallback),
 # which this scanner deliberately does NOT match — a one-sided saturate has
 # no second, opposite-direction bound to reimplement bb_clampi/bb_clampf's
