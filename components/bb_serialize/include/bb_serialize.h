@@ -124,6 +124,14 @@ typedef struct bb_serialize_field_s {
     // BB_TYPE_ARR + elem_type == BB_TYPE_OBJ only: the element stride, i.e.
     // sizeof(the element struct). Unused for all other types.
     uint16_t                           elem_size;
+
+    // BB_TYPE_REF only: the REGISTRY lookup key passed to a
+    // bb_serialize_ref_resolve_fn to find the referenced sibling's
+    // descriptor+snapshot. Deliberately distinct from `.key` -- `.key` is
+    // the WIRE key this field is emitted under; `.ref_key` is an internal
+    // cache/registry namespace key, which need not (and often won't) match
+    // the wire schema. Unused for all other types.
+    const char                        *ref_key;
 } bb_serialize_field_t;
 
 // Descriptor for one snapshot struct type -- the SSOT a walker/backend pair
@@ -178,6 +186,36 @@ typedef struct {
 } bb_serialize_emit_t;
 
 // ---------------------------------------------------------------------------
+// REF resolver seam -- BB_TYPE_REF fields
+// ---------------------------------------------------------------------------
+//
+// A BB_TYPE_REF field composes a sibling snapshot's fields inline at this
+// field's wire key, without the parent snapshot struct embedding the
+// sibling's data directly. `resolve` maps a field's `.ref_key` to the
+// sibling's own descriptor+snapshot; the walker then recurses into that
+// descriptor exactly as it would a BB_TYPE_OBJ child (same depth-cap
+// accounting, same one-shot per-field cost).
+
+// A resolved sibling: `desc`/`snap` describe and locate the referenced
+// section's own fields, structurally independent of the REF field's parent
+// snapshot.
+typedef struct {
+    const bb_serialize_desc_t *desc;  // sibling's descriptor
+    const void                *snap;  // sibling's live snapshot -- BORROWED pointer,
+                                       // valid only for the duration of the REF subtree's
+                                       // emit calls; same single-threaded-consumer contract
+                                       // as bb_cache_serialize_get's memo-slot pointers.
+} bb_serialize_ref_t;
+
+// Resolver callback: given a BB_TYPE_REF field's `.ref_key` and the
+// caller-supplied `ctx`, fills `*out` and returns true if the sibling
+// exists; returns false (leaving `*out` untouched) if it does not -- the
+// walker treats a false return identically to a NULL resolver, i.e. the REF
+// field is omitted entirely.
+typedef bool (*bb_serialize_ref_resolve_fn)(const char *ref_key, void *ctx,
+                                             bb_serialize_ref_t *out);
+
+// ---------------------------------------------------------------------------
 // The pure walker
 // ---------------------------------------------------------------------------
 
@@ -187,8 +225,27 @@ typedef struct {
 // wrap the walked fields in a begin_obj/end_obj pair itself; a backend's
 // one-shot entry point (e.g. bb_serialize_json()) does that around the
 // call if the wire format wants a root container.
+//
+// Thin wrapper over bb_serialize_walk_ref(desc, snap, emit, NULL, NULL) --
+// zero behavior/signature change for every existing caller. A descriptor
+// containing a BB_TYPE_REF field omits it (no resolver == unresolved
+// sibling; see bb_serialize_walk_ref()).
 void bb_serialize_walk(const bb_serialize_desc_t *desc, const void *snap,
                         const bb_serialize_emit_t *emit);
+
+// Same as bb_serialize_walk(), plus REF resolution: any BB_TYPE_REF field
+// encountered calls `resolve(field->ref_key, resolve_ctx, &ref)`; on true,
+// the sibling's fields (ref.desc/ref.snap) are walked inline at the REF
+// field's wire key (`.key`), exactly like a BB_TYPE_OBJ child -- same
+// begin_obj/end_obj bracketing, same depth-cap accounting (a REF hop costs
+// one depth level, same as OBJ). On false, or when `resolve` is NULL, the
+// field is OMITTED entirely (no begin_obj/end_obj, no emit_null) -- the
+// same convention as a `present`-false field. If the REF field also
+// carries a `.present` predicate, it is evaluated FIRST; present-false
+// short-circuits before resolution is ever attempted.
+void bb_serialize_walk_ref(const bb_serialize_desc_t *desc, const void *snap,
+                            const bb_serialize_emit_t *emit,
+                            bb_serialize_ref_resolve_fn resolve, void *resolve_ctx);
 
 // Top-level field lookup by key (not recursive into BB_TYPE_OBJ children)
 // -- e.g. for a future direct-read display path. Returns NULL if desc,

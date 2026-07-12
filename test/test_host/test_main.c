@@ -45,6 +45,16 @@ void test_bb_serialize_arr_of_obj_depth_guard_bails_on_self_reference(void);
 void test_bb_serialize_unknown_type_is_noop(void);
 void test_bb_serialize_desc_find_skips_null_key_field(void);
 
+// Forward declarations from test_bb_serialize_ref.c
+void test_bb_serialize_ref_happy_path_resolves_inline(void);
+void test_bb_serialize_ref_unregistered_sibling_omits_field(void);
+void test_bb_serialize_ref_plain_walk_no_resolver_omits_field(void);
+void test_bb_serialize_ref_present_false_short_circuits_before_resolve(void);
+void test_bb_serialize_ref_present_true_resolves(void);
+void test_bb_serialize_ref_resolver_true_null_desc_omits_field(void);
+void test_bb_serialize_ref_resolver_true_null_snap_omits_field(void);
+void test_bb_serialize_ref_cycle_truncates_at_max_depth(void);
+
 // Forward declarations from test_bb_serialize_json.c
 void test_bb_serialize_json_flat_scalars(void);
 void test_bb_serialize_json_nested_obj(void);
@@ -90,11 +100,15 @@ void test_bb_serialize_json_bound_unbounded_nested_obj_is_size_max(void);
 void test_bb_serialize_json_bound_depth_capped_self_reference(void);
 void test_bb_serialize_json_bound_depth_capped_arr_of_obj_self_reference(void);
 void test_bb_serialize_json_bound_unknown_type_defensive(void);
+void test_bb_serialize_json_bound_ref_is_size_max(void);
 void test_bb_serialize_json_ctx_init_manual_drive_key_null_defensive(void);
 void test_bb_serialize_json_render_deep_obj(void);
 void test_bb_serialize_json_render_deep_arr_of_obj(void);
 void test_bb_serialize_json_push_level_guard_manual_overdrive(void);
 void test_bb_serialize_json_pop_level_underflow_guard(void);
+void test_v2_golden_ref_resolves_inline(void);
+void test_v2_golden_ref_unregistered_sibling_omits_field(void);
+void test_v2_golden_ref_null_resolver_omits_field(void);
 
 // Forward declarations from test_v2_golden.c
 void test_v2_golden_info_root_slice_populated(void);
@@ -10344,6 +10358,14 @@ int main(void) {
     RUN_TEST(test_bb_serialize_arr_of_obj_depth_guard_bails_on_self_reference);
     RUN_TEST(test_bb_serialize_unknown_type_is_noop);
     RUN_TEST(test_bb_serialize_desc_find_skips_null_key_field);
+    RUN_TEST(test_bb_serialize_ref_happy_path_resolves_inline);
+    RUN_TEST(test_bb_serialize_ref_unregistered_sibling_omits_field);
+    RUN_TEST(test_bb_serialize_ref_plain_walk_no_resolver_omits_field);
+    RUN_TEST(test_bb_serialize_ref_present_false_short_circuits_before_resolve);
+    RUN_TEST(test_bb_serialize_ref_present_true_resolves);
+    RUN_TEST(test_bb_serialize_ref_resolver_true_null_desc_omits_field);
+    RUN_TEST(test_bb_serialize_ref_resolver_true_null_snap_omits_field);
+    RUN_TEST(test_bb_serialize_ref_cycle_truncates_at_max_depth);
     RUN_TEST(test_bb_serialize_json_flat_scalars);
     RUN_TEST(test_bb_serialize_json_nested_obj);
     RUN_TEST(test_bb_serialize_json_empty_obj);
@@ -10388,11 +10410,15 @@ int main(void) {
     RUN_TEST(test_bb_serialize_json_bound_depth_capped_self_reference);
     RUN_TEST(test_bb_serialize_json_bound_depth_capped_arr_of_obj_self_reference);
     RUN_TEST(test_bb_serialize_json_bound_unknown_type_defensive);
+    RUN_TEST(test_bb_serialize_json_bound_ref_is_size_max);
     RUN_TEST(test_bb_serialize_json_ctx_init_manual_drive_key_null_defensive);
     RUN_TEST(test_bb_serialize_json_render_deep_obj);
     RUN_TEST(test_bb_serialize_json_render_deep_arr_of_obj);
     RUN_TEST(test_bb_serialize_json_push_level_guard_manual_overdrive);
     RUN_TEST(test_bb_serialize_json_pop_level_underflow_guard);
+    RUN_TEST(test_v2_golden_ref_resolves_inline);
+    RUN_TEST(test_v2_golden_ref_unregistered_sibling_omits_field);
+    RUN_TEST(test_v2_golden_ref_null_resolver_omits_field);
 
     // v2 wire golden byte-fidelity harness (B1-767 PR-6)
     RUN_TEST(test_v2_golden_info_root_slice_populated);

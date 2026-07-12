@@ -334,8 +334,11 @@ bb_serialize_emit_t bb_serialize_json_emit(bb_serialize_json_ctx_t *ctx)
     return emit;
 }
 
-bb_err_t bb_serialize_json_render(const bb_serialize_desc_t *desc, const void *snap,
-                                   char *buf, size_t cap, size_t *out_len)
+// Shared implementation -- resolve == NULL drives the plain
+// bb_serialize_walk() path (via bb_serialize_walk_ref's own NULL handling).
+static bb_err_t bb_json_render_impl(const bb_serialize_desc_t *desc, const void *snap,
+                                     char *buf, size_t cap, size_t *out_len,
+                                     bb_serialize_ref_resolve_fn resolve, void *resolve_ctx)
 {
     if (cap == 0) return BB_ERR_NO_SPACE;
 
@@ -347,7 +350,7 @@ bb_err_t bb_serialize_json_render(const bb_serialize_desc_t *desc, const void *s
     bb_serialize_emit_t emit = bb_serialize_json_emit(&ctx);
 
     bb_json_putc(&ctx, '{');
-    bb_serialize_walk(desc, snap, &emit);
+    bb_serialize_walk_ref(desc, snap, &emit, resolve, resolve_ctx);
     bb_json_putc(&ctx, '}');
 
     if (ctx.err != BB_OK) {
@@ -359,6 +362,19 @@ bb_err_t bb_serialize_json_render(const bb_serialize_desc_t *desc, const void *s
     buf[ctx.len] = '\0';
     if (out_len) *out_len = ctx.len;
     return BB_OK;
+}
+
+bb_err_t bb_serialize_json_render(const bb_serialize_desc_t *desc, const void *snap,
+                                   char *buf, size_t cap, size_t *out_len)
+{
+    return bb_json_render_impl(desc, snap, buf, cap, out_len, NULL, NULL);
+}
+
+bb_err_t bb_serialize_json_render_ref(const bb_serialize_desc_t *desc, const void *snap,
+                                       char *buf, size_t cap, size_t *out_len,
+                                       bb_serialize_ref_resolve_fn resolve, void *resolve_ctx)
+{
+    return bb_json_render_impl(desc, snap, buf, cap, out_len, resolve, resolve_ctx);
 }
 
 // ---------------------------------------------------------------------------
@@ -412,6 +428,11 @@ static size_t bb_json_bound_value(const bb_serialize_field_t *f, unsigned depth)
         if (eb == SIZE_MAX) return SIZE_MAX;
         return 2 + (size_t)f->max_items * (eb + 1);
     }
+    case BB_TYPE_REF:
+        // A REF's rendered size depends on the resolver's sibling
+        // descriptor, which isn't known statically here -- same unbounded
+        // convention as max_len==0 / max_items==0 above.
+        return SIZE_MAX;
     default:
         return 0;  // LCOV_EXCL_LINE -- exhaustive enum, defensive
     }

@@ -14,4 +14,5 @@ typedef enum {
     BB_TYPE_STR_N,  // ptr+len pair
     BB_TYPE_OBJ,    // nested struct (children/n_children)
     BB_TYPE_ARR,    // generic array (element shape via elem_type)
+    BB_TYPE_REF,    // composed-section reference-child (sibling lookup by ref_key)
 } bb_type_t;

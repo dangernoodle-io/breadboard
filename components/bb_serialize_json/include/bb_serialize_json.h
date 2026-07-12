@@ -72,11 +72,23 @@ bb_serialize_emit_t bb_serialize_json_emit(bb_serialize_json_ctx_t *ctx);
 bb_err_t bb_serialize_json_render(const bb_serialize_desc_t *desc, const void *snap,
                                    char *buf, size_t cap, size_t *out_len);
 
+// Same as bb_serialize_json_render(), plus BB_TYPE_REF resolution: drives
+// bb_serialize_walk_ref() (rather than bb_serialize_walk()) with `resolve`/
+// `resolve_ctx`, so a REF field's sibling section renders inline at its
+// wire key. All-or-nothing semantics and the NUL-terminator/overflow
+// contract are identical to bb_serialize_json_render().
+bb_err_t bb_serialize_json_render_ref(const bb_serialize_desc_t *desc, const void *snap,
+                                       char *buf, size_t cap, size_t *out_len,
+                                       bb_serialize_ref_resolve_fn resolve, void *resolve_ctx);
+
 // Computes a worst-case (upper-bound) byte count for rendering `desc` as
 // JSON via bb_serialize_json_render() -- a sizing helper for callers that
 // need to allocate/reserve a buffer statically. Returns SIZE_MAX if any
 // subfield's width is unbounded (a BB_TYPE_STR_N or BB_TYPE_ARR field whose
-// max_len/max_items hint is left at 0).
+// max_len/max_items hint is left at 0), OR if any subfield is a BB_TYPE_REF
+// (a REF's rendered size depends on the resolver's sibling descriptor, which
+// isn't known statically here -- always contributes an unbounded/unknown
+// estimate).
 size_t bb_serialize_json_bound(const bb_serialize_desc_t *desc);
 
 #ifdef __cplusplus
