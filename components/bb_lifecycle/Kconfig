@@ -1,0 +1,43 @@
+menu "breadboard: bb_lifecycle"
+
+config BB_LIFECYCLE_MAX_SERVICES
+    int "Max registered services"
+    default 8
+    range 1 255
+    help
+        Fixed-capacity table size for bb_lifecycle_register(). Registration
+        beyond this cap fails with BB_ERR_NO_SPACE.
+
+config BB_LIFECYCLE_MAX_OBSERVERS
+    int "Max PUSH observers"
+    default 8
+    range 1 255
+    help
+        Fixed-capacity table size for bb_lifecycle_observe(). Registration
+        beyond this cap fails with BB_ERR_NO_SPACE.
+
+config BB_LIFECYCLE_MAX_REASONS
+    int "Max distinct interned pause reasons"
+    default 32
+    range 1 255
+    help
+        Fixed-capacity global reason-string intern table shared by every
+        service. A brand-new reason string once this table is full fails
+        with BB_ERR_NO_SPACE.
+
+config BB_LIFECYCLE_NAME_MAX
+    int "Max service name length (bytes, incl. NUL)"
+    default 24
+    range 1 255
+    help
+        Service names longer than this are truncated on registration.
+
+config BB_LIFECYCLE_REASON_MAX
+    int "Max pause reason string length (bytes, incl. NUL)"
+    default 24
+    range 1 255
+    help
+        Pause reason strings longer than this are truncated on intern; two
+        reasons sharing the same truncated prefix map to the same bit.
+
+endmenu

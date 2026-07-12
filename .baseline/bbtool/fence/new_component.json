@@ -231,6 +231,11 @@
       "type": "component"
     },
     {
+      "id": "bb_lifecycle",
+      "path": "components/bb_lifecycle",
+      "type": "component"
+    },
+    {
       "id": "bb_log",
       "path": "components/bb_log",
       "type": "component"
