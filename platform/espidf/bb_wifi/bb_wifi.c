@@ -928,15 +928,21 @@ bb_err_t bb_wifi_autoinit(void)
     // falls through to the existing boot-count / AP-fallback path that
     // bb_wifi already implements internally.
     //
-    // Sleep is broken into 1 s chunks so the task WDT (default 5 s in ESP-IDF
-    // v5.x, subscribed to app_main by default) is fed on every iteration and
-    // the 30 s backoff doesn't trip it.
+    // main is NOT auto-subscribed to the task WDT in this build (only the
+    // idle tasks are, via CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPUx). Self-
+    // subscribe main for the duration of THIS feed loop only: sleep is
+    // broken into 1 s chunks so the task WDT (default 5 s in ESP-IDF v5.x)
+    // is fed on every iteration and the 30 s backoff doesn't trip it. The
+    // subscription must not span bb_wifi_init_sta() below, which blocks up
+    // to 60 s with no feed and would panic-trip a subscribed task ~5 s in.
     while (err != BB_OK && bb_wifi_internal_ota_validated()) {
         bb_log_w(TAG, "wifi cold-boot timeout; retrying in 30s");
+        bb_wdt_task_subscribe();
         for (int i = 0; i < 30; i++) {
             vTaskDelay(pdMS_TO_TICKS(1000));
             bb_wdt_task_feed();
         }
+        bb_wdt_task_unsubscribe();
         err = bb_wifi_init_sta();
     }
 #endif
