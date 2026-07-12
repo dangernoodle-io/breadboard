@@ -1,0 +1,12 @@
+menu "breadboard: bb_fsm"
+
+config BB_FSM_MAX_TIMERS
+    int "Max distinct armed timers per instance"
+    default 1
+    range 1 32
+    help
+        Fixed-capacity table size for bb_fsm_arm_timer(), sizing the
+        embedded timers[] array in bb_fsm_t. Arming a new distinct
+        timeout_event beyond this cap fails with BB_ERR_NO_SPACE.
+
+endmenu

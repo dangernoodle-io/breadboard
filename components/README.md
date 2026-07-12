@@ -45,6 +45,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_fan_routes](./bb_fan_routes/) | — |
 | [bb_filter](./bb_filter/) | Pure projection over elements carrying `bb_attrs`: given an array of `{attrs, item}` pairs and a selector, returns the matching, priority-sorted subset. Reach for it whenever a consumer needs to pick "the top N by priority/kind/tag" out of a candidate set without building a registry. |
 | [bb_fmt](./bb_fmt/) | — |
+| [bb_fsm](./bb_fsm/) | Table-driven finite state machine primitive: consumer-owned rows (state, event, guard, action, next), entry/exit hooks, and a fixed-size timer-arm seam for the shell to reconstruct real OS timers from. Pure per-instance library -- no autoinit, no global state, no lock, embedded by value in the consumer's own struct. |
 | [bb_health](./bb_health/) | — |
 | [bb_http](./bb_http/) | — |
 | [bb_http_client](./bb_http_client/) | — |
