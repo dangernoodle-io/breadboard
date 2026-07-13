@@ -6,6 +6,7 @@
 
 #include "bb_lock.h"
 #include "bb_lock_stats.h"
+#include "bb_lock_impl.h"
 #include "bb_clock.h"
 #include <pthread.h>
 #include <string.h>
@@ -13,11 +14,6 @@
 
 _Static_assert(sizeof(pthread_mutex_t) <= BB_LOCK_IMPL_STORAGE_BYTES,
                "pthread_mutex_t exceeds bb_lock_t backend storage");
-
-static inline pthread_mutex_t *bb_lock_impl(bb_lock_t *lock)
-{
-    return (pthread_mutex_t *)(void *)lock->bb_lock_impl.bb_lock_bytes;
-}
 
 #if BB_LOCK_STATS_ENABLE
 static _Atomic bool s_stats_runtime_enabled = true;
