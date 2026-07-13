@@ -47,46 +47,17 @@ cppcheck: ## Static analysis (cppcheck)
 # CI's py-tests job runs `make test-py` on a fresh checkout independent of
 # `check`/`smoke` -- without regenerating first, that integration test
 # false-fails on a fresh checkout the same way `lint` would.
-test-py: smoke-gen floor-gen ## Python tooling tests (bbtool + bbdevice)
+test-py: smoke-gen floor-gen ## Python tooling tests (bbtool + bbdevice + coverage tooling)
 	python3 -m unittest discover -s scripts/bbtool/tests
 	python3 -m unittest discover -s scripts/bbdevice/tests -t scripts
+	python3 -m unittest discover -s scripts/tests -t scripts
 
-test: ## Run host unit tests (both compile-time BB_LOCK_STATS_ENABLE states)
-	$(PIO) test -e native
-	$(PIO) test -e native_lock_stats_off
+test: ## Run host unit tests (both compile-time BB_LOCK_STATS_ENABLE states) under a verified, matched, genuinely-GNU gcc/gcov toolchain -- any major version (B1-642 -- PlatformIO strips CC/CXX, so scripts/coverage_toolchain.sh PATH-shims instead)
+	./scripts/coverage_toolchain.sh $(PIO) test -e native
+	./scripts/coverage_toolchain.sh $(PIO) test -e native_lock_stats_off
 
-coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging when Coveralls flags drops
-	gcovr --root . --filter 'components/' \
-	    --filter 'platform/espidf/bb_cache/' \
-	    --filter 'platform/host/bb_cache/' \
-	    --filter 'platform/espidf/bb_cache_reactive/' \
-	    --filter 'platform/host/bb_cache_reactive/' \
-	    --filter 'platform/espidf/bb_cache_serialize/' \
-	    --filter 'platform/host/bb_cache_serialize/' \
-	    --filter 'platform/host/bb_sink_display/' \
-	    --filter 'platform/host/bb_cache_routes/' \
-	    --filter 'platform/host/bb_mdns_cache/' \
-	    --filter 'platform/host/bb_str/' \
-	    --filter 'platform/host/bb_scalar/' \
-	    --filter 'platform/host/bb_num/' \
-	    --filter 'platform/host/bb_fmt/' \
-	    --filter 'platform/host/bb_core/bb_clock\.c' \
-	    --filter 'platform/host/bb_core/bb_lock\.c' \
-	    --filter 'platform/host/bb_core/bb_lock_cond\.c' \
-	    --filter 'platform/host/bb_core/bb_lock_impl\.h' \
-	    --filter 'platform/host/bb_meminfo/' \
-	    --filter 'platform/host/bb_mem_arena/' \
-	    --filter 'platform/host/bb_bqueue/' \
-	    --filter 'test/test_host/bb_serialize_meta_validate\.c' \
-	    --filter 'test/test_host/bb_serialize_meta_openapi\.c' \
-	    --exclude-throw-branches \
-	    --exclude-unreachable-branches \
-	    --exclude-directories '\.claude' \
-	    --merge-mode-functions=merge-use-line-max \
-	    --txt-metric branch \
-	    --print-summary \
-	    --coveralls gcovr-coveralls.json \
-	    --txt
+coverage: test ## Coverage report (gcovr), verified-toolchain-gated on BOTH line and branch coverage (Coveralls gates on lines; B1-642 matched-major + B1-867 genuinely-GNU gcc/gcov enforced -- no specific major version required; aborts loudly instead of silently reporting 0%)
+	./scripts/coverage_toolchain.sh python3 scripts/coverage_gate.py --root .
 
 # r4_wifis3 / uno_cc3000 excluded from aggregate + CI pending arm64 toolchain fix (see backlog); use their individual targets locally
 smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32-cache-sweep smoke-esp32c3 smoke-tdongle
