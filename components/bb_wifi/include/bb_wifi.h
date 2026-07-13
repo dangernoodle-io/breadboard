@@ -101,11 +101,8 @@ bb_err_t bb_wifi_ensure_net_stack(void);
 typedef bool (*bb_wifi_ota_validated_fn)(void);
 void bb_wifi_set_ota_validated_cb(bb_wifi_ota_validated_fn cb);
 
-// STA mode connect. bb_wifi_init restarts the system on connect timeout
-// (intended for normal boot); bb_wifi_init_sta returns an error on timeout
-// instead (intended for provisioning retry loops). Both block until
-// connected or timeout.
-bb_err_t bb_wifi_init(void);
+// STA mode connect. Returns an error on connect timeout (intended for
+// provisioning retry loops); blocks until connected or timeout.
 bb_err_t bb_wifi_init_sta(void);
 
 // Registry hook — connects STA using stored creds (or skips if unconfigured),
@@ -120,11 +117,6 @@ bb_err_t bb_wifi_init_sta(void);
 // on stored creds at boot.
 // bbtool:init tier=early fn=bb_wifi_autoinit requires=storage_nvs
 bb_err_t bb_wifi_autoinit(void);
-
-// Force WiFi reassociation — recover from a zombie-connected state.
-// On backends without explicit reassociation control (Arduino), this is
-// a BB_OK no-op.
-void bb_wifi_force_reassociate(void);
 
 // Stop and restart the WiFi STA driver to clear wedged driver state.
 // Re-applies the saved STA config and inactive-time. Calls esp_wifi_connect()

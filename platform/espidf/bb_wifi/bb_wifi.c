@@ -549,16 +549,6 @@ bb_err_t bb_wifi_request_recovery(const char *reason)
     return BB_OK;
 }
 
-void bb_wifi_force_reassociate(void)
-{
-    bb_log_w(TAG, "forcing WiFi reassociation (zombie state recovery)");
-#if BB_WIFI_INACTIVE_TIME_ENABLE
-    bb_wifi_restart_sta();
-#else
-    esp_wifi_disconnect();
-#endif
-}
-
 bb_err_t bb_wifi_ensure_net_stack(void)
 {
     if (s_netif_initialized) return ESP_OK;
@@ -593,8 +583,7 @@ static bool wifi_has_creds(void)
     return bb_settings_wifi_has_creds();
 }
 
-static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
-                                     bool restart_on_timeout, bool is_pending_try)
+static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms)
 {
     s_wifi_event_group = xEventGroupCreate();
 
@@ -642,7 +631,6 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
     }
 #else
     (void)src;
-    (void)is_pending_try;
 #endif
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
@@ -695,18 +683,8 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
         s_wifi_handler = NULL;
         s_ip_handler = NULL;
 
-        if (restart_on_timeout) {
-            if (bb_wifi_internal_ota_validated()) {
-                bb_log_w(TAG, "wifi cold-boot timeout; firmware validated, returning ESP_ERR_TIMEOUT without reboot");
-                return ESP_ERR_TIMEOUT;
-            }
-            bb_log_e(TAG, "WiFi connection timeout after 60s, restarting");
-            bb_system_boot_count_increment();
-            bb_system_restart_reason(BB_RESET_SRC_WIFI_COLD_TIMEOUT, "cold connect timeout");
-        } else {
-            bb_log_e(TAG, "WiFi connection timeout after %us", (unsigned)(timeout_ms / 1000));
-            return ESP_ERR_TIMEOUT;
-        }
+        bb_log_e(TAG, "WiFi connection timeout after %us", (unsigned)(timeout_ms / 1000));
+        return ESP_ERR_TIMEOUT;
     }
 
     vEventGroupDelete(s_wifi_event_group);
@@ -717,14 +695,9 @@ static esp_err_t wifi_connect_sta_ex(wifi_creds_src_t src, uint32_t timeout_ms,
     return ESP_OK;
 }
 
-bb_err_t bb_wifi_init(void)
-{
-    return wifi_connect_sta_ex(CREDS_LIVE, 60000, true, false);
-}
-
 bb_err_t bb_wifi_init_sta(void)
 {
-    return wifi_connect_sta_ex(CREDS_LIVE, 60000, false, false);
+    return wifi_connect_sta_ex(CREDS_LIVE, 60000);
 }
 
 int bb_wifi_scan_networks(bb_wifi_ap_t *results, int max_results)
@@ -904,8 +877,7 @@ bb_err_t bb_wifi_autoinit(void)
     if (bb_nv_config_wifi_pending_active()) {
         s_pending_try = true;
         esp_err_t terr = wifi_connect_sta_ex(CREDS_PENDING,
-            (uint32_t)CONFIG_BB_WIFI_PENDING_TRY_TIMEOUT_S * 1000,
-            /*restart_on_timeout=*/false, /*is_pending_try=*/true);
+            (uint32_t)CONFIG_BB_WIFI_PENDING_TRY_TIMEOUT_S * 1000);
         if (terr == ESP_OK) {
             // Commit already happened in the got-IP handler.
             return BB_OK;

@@ -10,7 +10,6 @@
 
 #include "bb_wifi.h"
 #include "bb_log.h"
-#include "bb_system.h"
 #include "bb_str.h"
 #include <Arduino.h>
 #include <WiFiS3.h>
@@ -86,20 +85,6 @@ bb_err_t bb_wifi_init_sta(void) {
     }
     bb_log_e(TAG, "timeout, status=%d", WiFi.status());
     return BB_ERR_INVALID_STATE;
-}
-
-bb_err_t bb_wifi_init(void) {
-    if (bb_wifi_init_sta() != BB_OK) {
-        bb_log_e(TAG, "restarting");
-        bb_system_restart();
-    }
-    return BB_OK;
-}
-
-void bb_wifi_force_reassociate(void) {
-    WiFi.disconnect();
-    delay(100);
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
 }
 
 // ---------------------------------------------------------------------------

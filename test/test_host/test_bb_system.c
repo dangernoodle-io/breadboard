@@ -845,47 +845,31 @@ void test_bb_reboot_history_decode_leaves_out_untouched_on_failure(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_system_boot_count_get/_increment/_reset — boot-health counter (B1-753).
+// bb_system_boot_count_increment/_reset — boot-health counter (B1-753).
 // Host storage is in-memory (s_boot_count); setUp() calls
-// bb_system_boot_count_reset_for_test() so each test starts at 0.
+// bb_system_boot_count_reset_for_test() so each test starts at 0. The public
+// getter (bb_system_boot_count_get) and BB_SYSTEM_BOOT_FAIL_THRESHOLD were
+// removed as dead code (nothing read them in production), so these tests
+// only exercise the return-code contract of the two functions still in use.
 // ---------------------------------------------------------------------------
 
-void test_bb_system_boot_count_get_default_zero(void)
-{
-    TEST_ASSERT_EQUAL_UINT8(0, bb_system_boot_count_get());
-}
-
-void test_bb_system_boot_count_increment_increases_by_one(void)
+void test_bb_system_boot_count_increment_returns_ok(void)
 {
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_system_boot_count_increment());
-    TEST_ASSERT_EQUAL_UINT8(1, bb_system_boot_count_get());
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_system_boot_count_increment());
-    TEST_ASSERT_EQUAL_UINT8(2, bb_system_boot_count_get());
 }
 
-void test_bb_system_boot_count_reset_zeroes(void)
+void test_bb_system_boot_count_reset_returns_ok(void)
 {
     bb_system_boot_count_increment();
-    bb_system_boot_count_increment();
-    TEST_ASSERT_EQUAL_UINT8(2, bb_system_boot_count_get());
     TEST_ASSERT_EQUAL_INT(BB_OK, bb_system_boot_count_reset());
-    TEST_ASSERT_EQUAL_UINT8(0, bb_system_boot_count_get());
 }
 
-void test_bb_system_boot_count_increment_saturates_at_uint8_max(void)
+void test_bb_system_boot_count_increment_does_not_overflow(void)
 {
     for (int i = 0; i < 260; i++) {
-        bb_system_boot_count_increment();
+        TEST_ASSERT_EQUAL_INT(BB_OK, bb_system_boot_count_increment());
     }
-    TEST_ASSERT_EQUAL_UINT8(UINT8_MAX, bb_system_boot_count_get());
-}
-
-void test_bb_system_boot_count_reaches_fail_threshold(void)
-{
-    for (uint8_t i = 0; i < BB_SYSTEM_BOOT_FAIL_THRESHOLD; i++) {
-        bb_system_boot_count_increment();
-    }
-    TEST_ASSERT_TRUE(bb_system_boot_count_get() >= BB_SYSTEM_BOOT_FAIL_THRESHOLD);
 }
 
 // ---------------------------------------------------------------------------

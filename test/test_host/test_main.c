@@ -1756,11 +1756,9 @@ void test_bb_system_boot_banner_format_all_null(void);
 void test_bb_system_boot_banner_format_null_out(void);
 void test_bb_system_boot_banner_format_zero_len(void);
 void test_bb_system_boot_banner_format_truncation(void);
-void test_bb_system_boot_count_get_default_zero(void);
-void test_bb_system_boot_count_increment_increases_by_one(void);
-void test_bb_system_boot_count_reset_zeroes(void);
-void test_bb_system_boot_count_increment_saturates_at_uint8_max(void);
-void test_bb_system_boot_count_reaches_fail_threshold(void);
+void test_bb_system_boot_count_increment_returns_ok(void);
+void test_bb_system_boot_count_reset_returns_ok(void);
+void test_bb_system_boot_count_increment_does_not_overflow(void);
 
 // Forward declarations from test_bb_mdns_cache.c
 void test_bb_mdns_cache_build_key_default_prefix(void);
@@ -6858,11 +6856,9 @@ int main(void) {
     RUN_TEST(test_bb_system_boot_banner_format_null_out);
     RUN_TEST(test_bb_system_boot_banner_format_zero_len);
     RUN_TEST(test_bb_system_boot_banner_format_truncation);
-    RUN_TEST(test_bb_system_boot_count_get_default_zero);
-    RUN_TEST(test_bb_system_boot_count_increment_increases_by_one);
-    RUN_TEST(test_bb_system_boot_count_reset_zeroes);
-    RUN_TEST(test_bb_system_boot_count_increment_saturates_at_uint8_max);
-    RUN_TEST(test_bb_system_boot_count_reaches_fail_threshold);
+    RUN_TEST(test_bb_system_boot_count_increment_returns_ok);
+    RUN_TEST(test_bb_system_boot_count_reset_returns_ok);
+    RUN_TEST(test_bb_system_boot_count_increment_does_not_overflow);
 
     // bb_str tests
     RUN_TEST(test_bb_strlcpy_table_driven);

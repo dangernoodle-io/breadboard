@@ -12,7 +12,6 @@
 
 #include "bb_wifi.h"
 #include "bb_log.h"
-#include "bb_system.h"
 #include "bb_str.h"
 #include <Arduino.h>
 #include <Adafruit_CC3000.h>
@@ -130,16 +129,6 @@ static bb_err_t connect_internal(void) {
 bb_err_t bb_wifi_ensure_net_stack(void) { return BB_OK; }
 
 bb_err_t bb_wifi_init_sta(void) { return connect_internal(); }
-
-bb_err_t bb_wifi_init(void) {
-    if (connect_internal() != BB_OK) {
-        bb_log_e(TAG, "restarting");
-        bb_system_restart();
-    }
-    return BB_OK;
-}
-
-void bb_wifi_force_reassociate(void) { /* CC3000 lacks explicit control */ }
 
 // ---------------------------------------------------------------------------
 // Hostname / Scan — not supported by Adafruit_CC3000 driver
