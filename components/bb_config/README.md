@@ -8,8 +8,14 @@ Use it when a consumer wants named, typed config fields (e.g. `wifi.ssid`, `mqtt
 
 ## Public API
 
-See [`include/bb_config.h`](include/bb_config.h). Key symbols: `bb_config_type_t`, `bb_config_field_t`, `bb_config_get_{bool,u8,u16,u32,i32,str,blob}`, `bb_config_set_{bool,u8,u16,u32,i32,str,blob}`, `bb_config_erase()`, `bb_config_exists()`.
-Public symbols in this component use the `bb_` prefix.
+<!-- BEGIN bbtool:api -->
+- [`bb_config.h`](include/bb_config.h)
+- [`bb_config_staged.h`](include/bb_config_staged.h)
+
+Public symbols use the `bb_` prefix.
+<!-- END bbtool:api -->
+
+Key `bb_config.h` symbols: `bb_config_type_t`, `bb_config_field_t`, `bb_config_get_{bool,u8,u16,u32,i32,str,blob}`, `bb_config_set_{bool,u8,u16,u32,i32,str,blob}`, `bb_config_erase()`, `bb_config_exists()`. Key `bb_config_staged.h` symbols: `bb_config_staged_t`, `bb_config_staged_begin()`, `bb_config_staged_set_{bool,u8,u16,u32,i32,str,blob}()`, `bb_config_staged_commit()`, `bb_config_staged_discard()`.
 
 ## Composition-only, no registry
 
@@ -21,7 +27,7 @@ Scalars are byte-encoded via `bb_core`'s `bb_byte_order` helpers (fixed-width li
 
 ## Config knobs
 
-None — this component has no Kconfig options and no compile-time capacity knobs.
+None of its own — `bb_config` proper has no Kconfig options and no compile-time capacity knobs. The `bb_config_staged` sub-namespace (staged multi-field write session, see `include/bb_config_staged.h`) borrows its capacity entirely from `bb_storage`'s txn caps (`BB_STORAGE_TXN_MAX_KEYS`/`_VALUE_MAX_BYTES`/`_KEY_MAX_BYTES`) — no second buffer or capacity knob of its own.
 
 ## Dependencies
 

@@ -129,7 +129,7 @@ paths = []
 components = [
     "bb_alert", "bb_attrs", "bb_board", "bb_bqueue", "bb_button",
     "bb_button_events", "bb_button_gpio", "bb_cache", "bb_cache_reactive", "bb_cache_serialize",
-    "bb_cache_routes", "bb_collection", "bb_config", "bb_config_staged", "bb_core", "bb_diag", "bb_dispatch_cmd",
+    "bb_cache_routes", "bb_collection", "bb_config", "bb_core", "bb_diag", "bb_dispatch_cmd",
     "bb_display", "bb_display_info", "bb_event", "bb_event_ring", "bb_event_routes",
     "bb_fan", "bb_fan_routes", "bb_filter", "bb_fmt", "bb_fsm", "bb_health", "bb_http",
     "bb_http_client", "bb_http_server", "bb_i2c", "bb_info", "bb_json",
@@ -171,8 +171,8 @@ capabilities = ["core"]
 # it in here changes nothing functionally). Board-conditional REQUIRES
 # groups (display / power+fan) move to each board's own `add_components`.
 # bb_storage_rtc (PR3a, WiFi-creds cluster, #823) carries a real
-# `// bbtool:init tier=early` marker, unlike bb_wifi_ap/bb_config_staged
-# above -- it stays in both this REQUIRES closure AND the
+# `// bbtool:init tier=early` marker, unlike bb_wifi_ap above -- it stays
+# in both this REQUIRES closure AND the
 # `smoke_wire_baseline` wire set below (only reaches the latter by NOT
 # appearing in that board's `remove_components`).
 # bb_bqueue is the same link-proof-only shape as bb_wifi_ap above: no
@@ -208,7 +208,7 @@ components = [
     "bb_sink_ws", "bb_registry", "bb_partition", "bb_task_registry", "bb_task",
     "bb_net_health", "bb_mem_arena", "bb_pool", "bb_udp_frame", "bb_udp_client",
     "bb_sink_udp", "bb_dispatch_cmd", "bb_meminfo", "bb_timer", "bb_config",
-    "bb_config_staged", "bb_storage_nvs", "bb_storage_rtc", "bb_bqueue",
+    "bb_storage_nvs", "bb_storage_rtc", "bb_bqueue",
     "bb_fsm", "bb_lifecycle", "bb_tcp_client",
 ]
 
@@ -247,8 +247,8 @@ add_components = ["bb_display", "bb_display_ek79007", "bb_display_info", "bb_sin
 # codegen --wire-board smoke_wire_baseline` uses to regenerate
 # bb_app_init.c, matching exactly the set the Makefile's hand-typed
 # --components string used pre-manifest (capability.smoke.components minus
-# bb_wifi_ap/bb_config_staged, neither of which carries a `// bbtool:init`
-# marker, so their absence from wire resolution is a no-op). Wire generation
+# bb_wifi_ap, which carries no `// bbtool:init` marker, so its absence from
+# wire resolution is a no-op). Wire generation
 # is DELIBERATELY kept board-invariant: bb_display_info carries a real
 # marker but is only reachable via a board's add_components above, and
 # board-parameterizing wire the same way REQUIRES now is would silently
@@ -257,7 +257,7 @@ add_components = ["bb_display", "bb_display_ek79007", "bb_display_info", "bb_sin
 [board.smoke_wire_baseline]
 platform = "espidf"
 capabilities = ["smoke"]
-remove_components = ["bb_wifi_ap", "bb_config_staged"]
+remove_components = ["bb_wifi_ap"]
 
 [capability.floor]
 components = ["bb_log", "bb_meminfo", "bb_timer"]

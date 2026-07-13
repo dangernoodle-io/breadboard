@@ -27,7 +27,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_cache_serialize](./bb_cache_serialize/) | Compositional serialized-render cache (render memo), keyed (format_id, key, state_version). |
 | [bb_collection](./bb_collection/) | A humble, fixed-capacity, thread-safe ordered collection of caller-owned opaque items. |
 | [bb_config](./bb_config/) | Typed configuration layer over `bb_storage` — gives its blob-only vtable scalar-typed meaning (bool/u8/u16/u32/i32/str/blob) via a caller-owned field descriptor table. |
-| [bb_config_staged](./bb_config_staged/) | bb_config_staged — generic staged multi-field write over bb_config, atomic commit via bb_storage's txn group. |
 | [bb_core](./bb_core/) | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. |
 | [bb_diag](./bb_diag/) | — |
 | [bb_dispatch_cmd](./bb_dispatch_cmd/) | — |
