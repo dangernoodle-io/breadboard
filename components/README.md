@@ -126,6 +126,7 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_system](./bb_system/) | — |
 | [bb_task](./bb_task/) | — |
 | [bb_task_registry](./bb_task_registry/) | — |
+| [bb_tcp_client](./bb_tcp_client/) | Portable connected TCP/TLS stream client — the stream peer to bb_udp_client. Flat per-platform-TU dispatch (see wiki Backend-Dispatch). |
 | [bb_telemetry](./bb_telemetry/) | — |
 | [bb_temp](./bb_temp/) | — |
 | [bb_thermal](./bb_thermal/) | — |
