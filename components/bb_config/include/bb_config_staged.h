@@ -1,8 +1,9 @@
 #pragma once
 
 /**
- * @brief bb_config_staged — generic staged multi-field write over
- * bb_config, atomic commit via bb_storage's txn group.
+ * @brief bb_config_staged — part of bb_config: a generic staged multi-field
+ * write session over bb_config's typed layer, atomic commit via
+ * bb_storage's txn group.
  */
 
 // A consumer stages several bb_config_field_t writes (bool/u8/u16/u32/i32/
@@ -35,7 +36,7 @@
 // convention (h->txn is zeroed as part of h's zero-init). Capacity is
 // entirely bb_storage's txn caps (BB_STORAGE_TXN_MAX_KEYS/_VALUE_MAX_BYTES/
 // _KEY_MAX_BYTES) -- no second buffer here, so no capacity knobs of this
-// component's own.
+// sub-namespace's own.
 //
 // Composition-only: no global state, no init function, nothing self-
 // registers (see the DI legacy fence in breadboard/CLAUDE.md).
