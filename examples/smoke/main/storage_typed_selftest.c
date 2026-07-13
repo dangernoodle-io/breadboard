@@ -23,8 +23,12 @@
 
 static const char *TAG = "storage_typed_selftest";
 
-#define SELFTEST_NS       "bb_cfg"
-#define SELFTEST_KEY      "wifi_ssid"
+// Dedicated scratch namespace/key -- MUST NEVER be a production ns/key from
+// bb_nv_namespaces.h / bb_nv_keys.h (B1-882: this selftest used to erase +
+// overwrite the production "bb_cfg"/"wifi_ssid" WiFi-credential entry on
+// every boot, silently destroying a board's provisioning).
+#define SELFTEST_NS       "bb_selftest"
+#define SELFTEST_KEY      "ssid_probe"
 // One-shot guard: this selftest erases + rewrites NVS twice per run, which
 // is fine for a single flash-gate validation pass but would wear the flash
 // if it ran on every boot forever. Run it once (gated on a persisted marker)
@@ -32,8 +36,8 @@ static const char *TAG = "storage_typed_selftest";
 // unconditionally under -Werror so CI proves it builds.
 #define SELFTEST_DONE_KEY "typed_st_done"
 
-static const bb_config_field_t s_ssid_field = {
-    .id      = "wifi.ssid",
+static const bb_config_field_t s_probe_field = {
+    .id      = "selftest.ssid_probe",
     .type    = BB_CONFIG_STR,
     .addr    = { .backend = "nvs", .ns_or_dir = SELFTEST_NS, .key = SELFTEST_KEY },
     .max_len = 33,
@@ -73,7 +77,7 @@ void bb_smoke_storage_typed_selftest(void)
 
     char buf[40] = {0};
     size_t out_len = 0;
-    rc = bb_config_get_str(&s_ssid_field, buf, sizeof(buf), &out_len);
+    rc = bb_config_get_str(&s_probe_field, buf, sizeof(buf), &out_len);
     if (rc != BB_OK) {
         bb_log_e(TAG, "FAIL: bb_config_get_str rc=%d (expected BB_OK, no TYPE_MISMATCH)", (int)rc);
         return;
@@ -86,7 +90,7 @@ void bb_smoke_storage_typed_selftest(void)
 
     // (2) reverse: bb_config_set_str -> bb_nv_get_str at the same ns/key.
     const char *updated = "OtherNetwork";
-    rc = bb_config_set_str(&s_ssid_field, updated);
+    rc = bb_config_set_str(&s_probe_field, updated);
     if (rc != BB_OK) {
         bb_log_e(TAG, "FAIL: bb_config_set_str rc=%d", (int)rc);
         return;
@@ -109,7 +113,7 @@ void bb_smoke_storage_typed_selftest(void)
     // caller pattern this bug broke. Must succeed (BOUNCE, not a raw
     // ESP_ERR_NVS_INVALID_LENGTH leaking through bb_config_get_str).
     size_t probe_len = 0;
-    rc = bb_config_get_str(&s_ssid_field, NULL, 0, &probe_len);
+    rc = bb_config_get_str(&s_probe_field, NULL, 0, &probe_len);
     if (rc != BB_OK) {
         bb_log_e(TAG, "FAIL: bb_config_get_str probe rc=%d", (int)rc);
         return;
@@ -122,7 +126,7 @@ void bb_smoke_storage_typed_selftest(void)
 
     char exact_buf[64] = {0};
     size_t exact_len = 0;
-    rc = bb_config_get_str(&s_ssid_field, exact_buf, probe_len, &exact_len);
+    rc = bb_config_get_str(&s_probe_field, exact_buf, probe_len, &exact_len);
     if (rc != BB_OK) {
         bb_log_e(TAG, "FAIL: bb_config_get_str cap==str_len rc=%d (expected BB_OK, not NO_SPACE)",
                  (int)rc);
@@ -135,6 +139,12 @@ void bb_smoke_storage_typed_selftest(void)
     }
 
     bb_log_i(TAG, "PASS: bb_nv/bb_config STR byte-identity round trip (both directions)");
+    // Erase the probe key only (not the namespace) to avoid leaving test junk in
+    // NVS on the shipping device. The done-marker SELFTEST_DONE_KEY shares this
+    // namespace, so erasing the whole namespace would destroy the one-shot guard
+    // and cause re-run-on-every-boot. Order is safe: marker written at line 60,
+    // key erased here (after the marker and after all test assertions pass).
+    (void)bb_storage_nvs_erase(SELFTEST_NS, SELFTEST_KEY);
 }
 
 #else /* !ESP_PLATFORM */
