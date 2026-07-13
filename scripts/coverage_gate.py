@@ -1,11 +1,25 @@
 #!/usr/bin/env python3
-"""Coverage measurement + gate (B1-642, B1-867).
+"""Coverage measurement + gate (B1-642, B1-764, B1-867).
 
-Runs gcovr over the host-test .gcda/.gcno data and gates on BOTH line and
-branch coverage -- Coveralls (the actual merge gate) gates on LINES, but the
-local gate historically only checked branches (`--txt-metric branch`),
-letting a line-only gap (PR #845: 100% branches, 99.97% lines -- 3 uncovered
-lines) sail through locally and fail only in CI.
+Runs gcovr over the host-test .gcda/.gcno data and gates on the committed
+coverage baseline (scripts/coverage_baseline.py) -- Coveralls (the actual
+merge gate) gates on LINES, but the local gate historically only checked
+branches (`--txt-metric branch`), letting a line-only gap (PR #845: 100%
+branches, 99.97% lines -- 3 uncovered lines) sail through locally and fail
+only in CI; this gate checks both.
+
+B1-764: FILTERS used to be a hand-maintained per-component allowlist that
+only grew when someone happened to touch a component -- 90 of 111
+host-compiled files were never admitted at all and silently reported as
+100% (not "not measured", just absent from the report). FILTERS now admits
+every `components/` and `platform/host/` file unconditionally, so a file
+can never again land unmeasured by omission. The previously-unmeasured
+files are, honestly measured, not fully covered -- see
+scripts/coverage_baseline.py for how the gate handles that (shrink-only
+per-file/per-LINE baseline instead of a backfill epic; branch coverage is
+still measured and printed below but deliberately not per-marker
+ratcheted -- gcov's branch-edge ids are not stable across gcc majors, see
+scripts/coverage_baseline.py's module docstring).
 
 This script also treats an exactly-zero (or "no relevant lines found")
 result as a TOOLING FAILURE, not a real coverage number -- Apple's `gcov`
@@ -26,57 +40,14 @@ import shutil
 import subprocess
 import sys
 
+import coverage_baseline
+
 FILTERS = [
     "components/",
-    r"platform/espidf/bb_cache/",
-    r"platform/host/bb_cache/",
-    r"platform/espidf/bb_cache_reactive/",
-    r"platform/host/bb_cache_reactive/",
-    r"platform/espidf/bb_cache_serialize/",
-    r"platform/host/bb_cache_serialize/",
-    r"platform/host/bb_sink_display/",
-    r"platform/host/bb_cache_routes/",
-    r"platform/host/bb_mdns_cache/",
-    r"platform/host/bb_str/",
-    r"platform/host/bb_scalar/",
-    r"platform/host/bb_num/",
-    r"platform/host/bb_fmt/",
-    r"platform/host/bb_core/bb_clock\.c",
-    r"platform/host/bb_core/bb_lock\.c",
-    r"platform/host/bb_core/bb_lock_cond\.c",
-    r"platform/host/bb_core/bb_lock_impl\.h",
-    r"platform/host/bb_meminfo/",
-    r"platform/host/bb_mem_arena/",
-    r"platform/host/bb_bqueue/",
+    "platform/host/",
     r"test/test_host/bb_serialize_meta_validate\.c",
     r"test/test_host/bb_serialize_meta_openapi\.c",
 ]
-
-# DECISION: this repo's real merge gate is Coveralls, which gates on
-# NON-REGRESSION against the base branch, not a literal 100% -- but this
-# local gate deliberately checks a stricter, absolute 100%/100% floor
-# instead of trying to reproduce a non-regression diff locally (no stored
-# baseline to diff against here). This is a house rule, chosen ON PURPOSE,
-# not an accidental stand-in for Coveralls: the repo is at 100%/100% today,
-# and a hard floor is simpler to reason about locally and catches a
-# regression before it ever reaches CI. If base coverage is ever legitimately
-# below 100% (an approved exception, an intentionally-excluded component),
-# override via COVERAGE_MIN_LINE/COVERAGE_MIN_BRANCH for a deliberate,
-# reviewed exception -- never silently, and never by lowering these
-# defaults without updating this comment.
-DEFAULT_MIN_LINE = 100.0
-DEFAULT_MIN_BRANCH = 100.0
-
-
-def _env_float(name: str, default: float) -> float:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    try:
-        return float(raw)
-    except ValueError:
-        print(f"coverage_gate: invalid {name}={raw!r}, expected a number", file=sys.stderr)
-        sys.exit(2)
 
 
 def main() -> int:
@@ -84,6 +55,18 @@ def main() -> int:
     parser.add_argument("--root", default=".")
     parser.add_argument("--coveralls-out", default="gcovr-coveralls.json")
     parser.add_argument("--summary-out", default="gcovr-summary.json")
+    parser.add_argument("--detail-out", default="gcovr-detail.json",
+                         help="per-line/per-branch gcovr `--json` report, consumed by the"
+                              " coverage baseline ratchet (scripts/coverage_baseline.py)")
+    baseline_group = parser.add_mutually_exclusive_group()
+    baseline_group.add_argument(
+        "--update-baseline", action="store_true",
+        help="shrink-only: prune baseline entries no longer uncovered; never blesses"
+             " a net-new gap (use --seed-baseline for the one-time initial baseline)")
+    baseline_group.add_argument(
+        "--seed-baseline", action="store_true",
+        help="one-time: bless the current uncovered set wholesale as the starting"
+             " baseline (errors if a baseline already exists)")
     args = parser.parse_args()
 
     gcov_executable = os.environ.get("COVERAGE_RESOLVED_GCOV")
@@ -99,6 +82,7 @@ def main() -> int:
         "--print-summary",
         "--coveralls", args.coveralls_out,
         "--json-summary", args.summary_out,
+        "--json", args.detail_out,
         "--txt",
     ]
     if gcov_executable:
@@ -148,23 +132,35 @@ def main() -> int:
         )
         return 1
 
-    min_line = _env_float("COVERAGE_MIN_LINE", DEFAULT_MIN_LINE)
-    min_branch = _env_float("COVERAGE_MIN_BRANCH", DEFAULT_MIN_BRANCH)
+    print(f"coverage_gate: line={line_percent:.2f}%, branch={branch_percent:.2f}% "
+          "(aggregate, both measured/reported -- but only LINES are per-marker "
+          "ratcheted by coverage_baseline; branch coverage has no stable "
+          "per-marker identity across gcc majors, see scripts/coverage_baseline.py)")
 
-    print(f"coverage_gate: line={line_percent:.2f}% (min {min_line}%), "
-          f"branch={branch_percent:.2f}% (min {min_branch}%)")
+    with open(args.detail_out) as fh:
+        detail = json.load(fh)
+    current = coverage_baseline.build_markers(detail)
 
-    ok = True
-    if line_percent < min_line:
-        print(f"coverage_gate: FAIL -- line coverage {line_percent:.2f}% "
-              f"< required {min_line}% (Coveralls gates on lines)", file=sys.stderr)
-        ok = False
-    if branch_percent < min_branch:
-        print(f"coverage_gate: FAIL -- branch coverage {branch_percent:.2f}% "
-              f"< required {min_branch}%", file=sys.stderr)
-        ok = False
+    if args.seed_baseline:
+        existing = coverage_baseline.baseline_path(args.root)
+        if existing.is_file():
+            print(f"coverage_gate: baseline already exists at {existing} -- use"
+                  " --update-baseline to prune it, --seed-baseline is one-time only",
+                  file=sys.stderr)
+            return 1
+        written = coverage_baseline.seed(args.root, current)
+        print(f"coverage_gate: baseline seeded ({len(current)} entries) -> {written}")
+        return 0
 
-    return 0 if ok else 1
+    if args.update_baseline:
+        if not coverage_baseline.baseline_path(args.root).is_file():
+            print("coverage_gate: no baseline yet -- use --seed-baseline first",
+                  file=sys.stderr)
+            return 1
+        coverage_baseline.update_baseline(args.root, current)
+        return 0
+
+    return 0 if coverage_baseline.check(args.root, current) else 1
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ sdkconfig.*
 compile_commands.json
 gcovr-coveralls.json
 gcovr-summary.json
+gcovr-detail.json
 *.o
 *.d
 *.bin
