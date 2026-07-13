@@ -4,6 +4,7 @@
 #include "bb_byte_order.h"
 #include "bb_str.h"
 #include "bb_log.h"
+#include "bb_once.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -14,6 +15,86 @@ static const char *TAG = "bb_storage_nvs";
 #include "sdkconfig.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#endif
+
+/* ---------------------------------------------------------------------------
+ * NVS partition bring-up — bb_storage_nvs_flash_init()/_flash_was_erased()
+ *
+ * Moved verbatim (erase-and-retry logic byte-identical) from
+ * platform/espidf/bb_nv/bb_nv.c's bb_nv_flash_init() (B1-840, bb_nv
+ * dissolution epic B1-708) — bb_nv now forwards to this. See
+ * bb_storage_nvs.h for the tier=early / idempotency rationale.
+ * ---------------------------------------------------------------------------*/
+#ifdef ESP_PLATFORM
+static bb_err_t  s_flash_init_err;
+static bool      s_flash_was_erased;
+static bb_once_t s_flash_once = BB_ONCE_INIT;
+
+static void flash_init_once(void *ctx)
+{
+    (void)ctx;
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        bb_log_e(TAG, "NVS erased on corruption — creds may be lost");
+        s_flash_was_erased = true;
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    s_flash_init_err = err;
+}
+
+bb_err_t bb_storage_nvs_flash_init(void)
+{
+    bb_once_run(&s_flash_once, flash_init_once, NULL);
+    return s_flash_init_err;
+}
+
+bool bb_storage_nvs_flash_was_erased(void)
+{
+    return s_flash_was_erased;
+}
+#else
+#ifdef BB_STORAGE_NVS_TESTING
+// Host testing seam: bb_storage_nvs_flash_init()'s real body only exists
+// under ESP_PLATFORM (nvs_flash_init()/nvs_flash_erase() are device-only) --
+// this seam drives the exact same bb_once_run(&once, fn, NULL) call that
+// on-device flash_init_once() sits behind, against a fake counting body, to
+// prove the once-guard runs the body exactly once across repeated calls.
+static bb_once_t s_flash_once_test = BB_ONCE_INIT;
+static int       s_flash_body_run_count_test;
+
+static void flash_init_once_test(void *ctx)
+{
+    (void)ctx;
+    s_flash_body_run_count_test++;
+}
+
+int bb_storage_nvs_flash_init_run_count_for_test(void)
+{
+    return s_flash_body_run_count_test;
+}
+
+void bb_storage_nvs_flash_init_reset_for_test(void)
+{
+    s_flash_once_test = (bb_once_t)BB_ONCE_INIT;
+    s_flash_body_run_count_test = 0;
+}
+
+void bb_storage_nvs_flash_init_call_for_test(void)
+{
+    bb_once_run(&s_flash_once_test, flash_init_once_test, NULL);
+}
+#endif
+
+bb_err_t bb_storage_nvs_flash_init(void)
+{
+    return BB_ERR_UNSUPPORTED;
+}
+
+bool bb_storage_nvs_flash_was_erased(void)
+{
+    return false;
+}
 #endif
 
 /* ---------------------------------------------------------------------------
@@ -1118,6 +1199,10 @@ static const bb_storage_vtable_t s_nvs_vtable = {
 
 bb_err_t bb_storage_nvs_register(void)
 {
+    bb_err_t err = bb_storage_nvs_flash_init();
+    if (err != BB_OK) {
+        return err;
+    }
     return bb_storage_register_backend("nvs", &s_nvs_vtable, NULL);
 }
 

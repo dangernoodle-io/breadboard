@@ -25,10 +25,12 @@ bb_err_t bb_nv_config_factory_reset(void);
 // bbtool:init tier=pre_http fn=bb_nv_config_manifest_init
 bb_err_t bb_nv_config_manifest_init(void);
 
-/// Initialize the NV flash partition. Handles the
-/// ESP_ERR_NVS_NO_FREE_PAGES / NEW_VERSION_FOUND erase-and-retry case.
-/// Idempotent — safe to call multiple times.
-// bbtool:init tier=early fn=bb_nv_flash_init
+/// Thin forwarder to bb_storage_nvs_flash_init() on ESP-IDF (B1-840, bb_nv
+/// dissolution epic B1-708) — bb_nv no longer owns NVS partition bring-up.
+/// The Arduino backend keeps its own EEPROM-era no-op impl returning BB_OK.
+/// Kept for bb_nv's remaining dependents; not a composition-root entry point
+/// (the // bbtool:init tier=early marker lives on bb_storage_nvs_register(),
+/// which now brings up the partition internally — see bb_storage_nvs.h).
 bb_err_t bb_nv_flash_init(void);
 
 const char *bb_nv_config_wifi_ssid(void);

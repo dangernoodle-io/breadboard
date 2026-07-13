@@ -16,7 +16,7 @@
 //      Call this EXACTLY ONCE -- bb_app_init() below is early+rest combined
 //      (bb_app_init_early() + bb_app_init_rest()), so calling both
 //      bb_app_init_early() and bb_app_init() here would double-fire every
-//      EARLY-tier fn (bb_nv_flash_init, bb_nv_config_init,
+//      EARLY-tier fn (bb_storage_nvs_register, bb_nv_config_init,
 //      bb_wifi_autoinit, ...).
 //   2. bb_app_init_rest()  — PRE_HTTP tier, HTTP autostart (the
 //      provides=http_server marker on bb_http_autostart_init), then the

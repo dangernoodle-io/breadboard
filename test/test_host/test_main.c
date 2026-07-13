@@ -906,6 +906,12 @@ void test_bb_storage_nvs_txn_set_key_over_nvs_limit_returns_invalid_arg_and_does
 void test_bb_storage_nvs_txn_set_key_at_nvs_limit_returns_ok_and_dispatches(void);
 #endif
 
+// Forward declarations from test_bb_storage_nvs_flash_init.c (BB_STORAGE_NVS_TESTING, host-only)
+#if defined(BB_STORAGE_NVS_TESTING) && !defined(ESP_PLATFORM)
+void test_bb_storage_nvs_flash_init_body_runs_exactly_once_across_repeated_calls(void);
+void test_bb_storage_nvs_flash_init_reset_allows_body_to_run_again(void);
+#endif
+
 // Forward declarations from test_bb_storage_nvs_classify_enc.c
 void test_bb_storage_nvs_classify_enc_blob(void);
 void test_bb_storage_nvs_classify_enc_str(void);
@@ -8851,6 +8857,12 @@ int main(void) {
     RUN_TEST(test_bb_storage_nvs_txn_set_i32_wrong_length_returns_invalid_arg_and_does_not_dispatch);
     RUN_TEST(test_bb_storage_nvs_txn_set_key_over_nvs_limit_returns_invalid_arg_and_does_not_dispatch);
     RUN_TEST(test_bb_storage_nvs_txn_set_key_at_nvs_limit_returns_ok_and_dispatches);
+#endif
+
+#if defined(BB_STORAGE_NVS_TESTING) && !defined(ESP_PLATFORM)
+    // bb_storage_nvs_flash_init's bb_once idempotency contract
+    RUN_TEST(test_bb_storage_nvs_flash_init_body_runs_exactly_once_across_repeated_calls);
+    RUN_TEST(test_bb_storage_nvs_flash_init_reset_allows_body_to_run_again);
 #endif
 
     // bb_storage_nvs_classify_enc tests

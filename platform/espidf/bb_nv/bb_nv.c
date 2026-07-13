@@ -31,9 +31,10 @@ static const char *TAG_NV = "bb_nv";
 
 /* RTC creds backup — B1-242.
  * s_creds_mirror survives software reset/panic (RTC_NOINIT_ATTR).
- * s_nvs_was_erased and s_creds_restored are plain BSS (per-boot flags). */
+ * s_creds_restored is a plain BSS (per-boot) flag. The "was NVS erased this
+ * boot" flag now lives in bb_storage_nvs.c (bb_storage_nvs_flash_was_erased)
+ * alongside the erase-and-retry logic it tracks — see B1-840. */
 #ifdef ESP_PLATFORM
-static bool s_nvs_was_erased;
 static bool s_creds_restored;
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
 static RTC_NOINIT_ATTR bb_storage_rtc_region_t s_creds_mirror;
@@ -165,7 +166,7 @@ static bb_err_t nv_config_set_str(const char *key, const char *val)
 bb_err_t bb_nv_config_init(void)
 {
 #ifdef ESP_PLATFORM
-    bb_err_t flash_err = bb_nv_flash_init();
+    bb_err_t flash_err = bb_storage_nvs_flash_init();
     if (flash_err != BB_OK) return flash_err;
     nvs_handle_t handle;
     bb_err_t err = nvs_open(BB_NV_CONFIG_NVS_NS, NVS_READONLY, &handle);
@@ -285,16 +286,11 @@ bb_err_t bb_nv_config_manifest_init(void)
 }
 
 #ifdef ESP_PLATFORM
+/* Thin forwarder — see bb_nv.h. The erase-and-retry logic itself now lives
+ * in bb_storage_nvs_flash_init() (B1-840). */
 bb_err_t bb_nv_flash_init(void)
 {
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        bb_log_e(TAG, "NVS erased on corruption — creds may be lost");
-        s_nvs_was_erased = true;
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        err = nvs_flash_init();
-    }
-    return err;
+    return bb_storage_nvs_flash_init();
 }
 
 bool bb_nv_config_is_provisioned(void)
@@ -730,7 +726,7 @@ bb_err_t bb_nv_config_factory_reset(void)
  * link unconditionally regardless of CONFIG_BB_NV_CREDS_RTC_BACKUP. */
 bool bb_nv_config_was_erased(void)
 {
-    return s_nvs_was_erased;
+    return bb_storage_nvs_flash_was_erased();
 }
 
 bool bb_nv_config_creds_restored(void)
