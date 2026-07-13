@@ -10,4 +10,17 @@ config BB_SERIALIZE_JSON_F64_DECIMALS
         default of 6). No snprintf/locale involved -- purely a scale-
         and-round hand-rolled formatter.
 
+config BB_SERIALIZE_JSON_SCRATCH_MAX_BYTES
+    int "Shared key/number/literal reassembly scratch size (bytes) for the JSON scanner"
+    default 64
+    range 16 256
+    help
+        Size of the single internal scratch buffer the streaming/bounded
+        JSON scanner (bb_serialize_json_scan_*) uses to reassemble a
+        key string plus the number or literal that immediately follows
+        it -- the only token kinds ever fully buffered (string VALUES
+        stream as spans and never touch this buffer). A key or number
+        that would overflow this bound fails the scan with
+        BB_ERR_NO_SPACE rather than truncating silently.
+
 endmenu
