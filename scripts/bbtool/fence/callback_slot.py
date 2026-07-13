@@ -41,7 +41,7 @@ ACCEPTED LIMITATIONS:
    them as "must migrate" would be misleading given there is nowhere for
    them to migrate TO today. A future macro variant could close this gap;
    until then this fence doesn't track them.
-2. ctx-carrying two-parameter setters (bb_fan_routes' autofan persist hook,
+2. ctx-carrying two-parameter setters (bb_fan's autofan persist hook,
    bb_ws_server's connect/disconnect hooks, bb_ota_check's combined
    pause+resume setter) are a different, richer idiom (opaque userdata
    alongside the callback) that the current macro set also doesn't cover

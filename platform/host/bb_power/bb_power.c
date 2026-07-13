@@ -136,6 +136,21 @@ void bb_power_emit(bb_json_t obj, const bb_power_snapshot_t *snap)
     }
 }
 
+// ---------------------------------------------------------------------------
+// Shared emit helper — writes "present" plus power fields. SSOT for the
+// /api/sensors power section (bb_sensors); folded from the former
+// bb_power_routes glue component (its emit_section was a pure passthrough).
+// ---------------------------------------------------------------------------
+
+void bb_power_emit_section(bb_json_t obj)
+{
+    bb_power_handle_t h = bb_power_primary();
+    bb_power_snapshot_t snap;
+    bb_power_snapshot(h, &snap);
+    bb_json_obj_set_bool(obj, "present", h != NULL);
+    bb_power_emit(obj, &snap);
+}
+
 #ifdef BB_POWER_TESTING
 #include "bb_power_test.h"
 void bb_power_test_reset(void)

@@ -251,111 +251,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "156",
-      "path": "platform/host/bb_fan/bb_fan.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "269",
-      "path": "platform/host/bb_fan/bb_fan.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "271",
-      "path": "platform/host/bb_fan/bb_fan.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "272",
-      "path": "platform/host/bb_fan/bb_fan.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "273",
-      "path": "platform/host/bb_fan/bb_fan.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "275",
-      "path": "platform/host/bb_fan/bb_fan.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "276",
-      "path": "platform/host/bb_fan/bb_fan.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "278",
-      "path": "platform/host/bb_fan/bb_fan.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "15",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "18",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "19",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "20",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "22",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "24",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "25",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "27",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "52",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "54",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "56",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "57",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "59",
-      "path": "platform/host/bb_fan_routes/bb_fan_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "27",
       "path": "platform/host/bb_health/bb_health_emit.c",
       "type": "uncovered_line"
@@ -1108,21 +1003,6 @@
     {
       "id": "94",
       "path": "platform/host/bb_power/bb_power.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "26",
-      "path": "platform/host/bb_power_routes/bb_power_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "28",
-      "path": "platform/host/bb_power_routes/bb_power_routes_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "29",
-      "path": "platform/host/bb_power_routes/bb_power_routes_host.c",
       "type": "uncovered_line"
     },
     {

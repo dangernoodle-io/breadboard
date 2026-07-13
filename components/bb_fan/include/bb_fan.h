@@ -106,6 +106,13 @@ bb_err_t bb_fan_set_aux_temp(bb_fan_handle_t h, float aux_c);
 // Copy autofan telemetry snapshot. Thread-safe.
 void bb_fan_get_autofan_telemetry(bb_fan_handle_t h, bb_fan_autofan_telemetry_t *out);
 
+// Register a callback invoked AFTER an autofan config change (e.g. via the
+// HTTP PATCH path) so the consumer can persist it (e.g. to NVS).
+// Pass NULL for cb to clear the callback. Not thread-safe against concurrent
+// requests; call once at init.
+void bb_fan_set_autofan_persist_cb(
+    void (*cb)(void *ctx, const bb_fan_autofan_cfg_t *cfg), void *ctx);
+
 #endif /* CONFIG_BB_FAN_AUTOFAN */
 
 // ---------------------------------------------------------------------------
@@ -119,6 +126,10 @@ void bb_fan_emit(bb_json_t obj, const bb_fan_snapshot_t *snap);
 void bb_fan_emit(bb_json_t obj, const bb_fan_snapshot_t *snap,
                  const bb_fan_autofan_telemetry_t *tel);
 #endif
+
+// Shared emit helper — writes "present" plus fan fields into an existing
+// bb_json_t object. SSOT for the /api/sensors fan section (bb_sensors).
+void bb_fan_emit_section(bb_json_t obj);
 
 #ifdef __cplusplus
 }

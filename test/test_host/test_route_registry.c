@@ -746,9 +746,9 @@ void test_uri_is_registered_post_catchall_is_registered(void)
 // will catch the stale-pointer read here before it crashes on device.
 // ---------------------------------------------------------------------------
 
-// Static descriptors that mirror the pattern used by bb_power_routes,
-// bb_fan_routes, and bb_thermal (handler wired at registration time, not in
-// the initialiser — hence they cannot be const).
+// Static descriptors that mirror the pattern used by bb_thermal (handler
+// wired at registration time, not in the initialiser — hence they cannot
+// be const).
 static const bb_route_response_t s_persist_responses[] = {
     { .status = 200, .content_type = "application/json", .schema = NULL, .description = "ok" },
     { .status = 0 },
@@ -767,7 +767,7 @@ static const bb_route_t s_persist_template = {
     .handler              = NULL,
 };
 
-// Working copy with static storage: mirrors bb_power_routes/bb_fan_routes/bb_thermal fix.
+// Working copy with static storage: mirrors bb_thermal fix.
 static bb_route_t s_persist_working;
 
 void test_uri_is_registered_described_route_persists_in_registry(void)
