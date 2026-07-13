@@ -104,13 +104,64 @@ bb_err_t bb_storage_nvs_txn_set_for_test(bb_storage_txn_t *txn, const char *key,
                                           const void *buf, size_t len);
 bb_err_t bb_storage_nvs_txn_commit_for_test(bb_storage_txn_t *txn);
 bb_err_t bb_storage_nvs_txn_abort_for_test(bb_storage_txn_t *txn);
+
+#ifndef ESP_PLATFORM
+// Host-only: bb_storage_nvs_flash_init()'s real body only exists under
+// ESP_PLATFORM (nvs_flash_init()/nvs_flash_erase() are device-only), so
+// these drive the SAME bb_once_run() call against a fake counting body to
+// prove the once-guard runs it exactly once across repeated calls.
+int  bb_storage_nvs_flash_init_run_count_for_test(void);
+void bb_storage_nvs_flash_init_reset_for_test(void);
+void bb_storage_nvs_flash_init_call_for_test(void);
+#endif
 #endif
 
-// Register the "nvs" backend with bb_storage: generic blob get/set/erase/
-// exists via addr->ns_or_dir as NVS namespace, addr->key as NVS key.
-// Composition-only — call explicitly from application composition code or
-// test setup. Idempotent-registration policy is bb_storage's (first
-// registration wins; a duplicate call returns BB_ERR_INVALID_STATE).
+// Initialize the NVS partition (ESP-IDF nvs_flash_init()), erasing and
+// retrying on ESP_ERR_NVS_NO_FREE_PAGES / ESP_ERR_NVS_NEW_VERSION_FOUND.
+// Moved verbatim (erase-and-retry logic byte-identical) from
+// platform/espidf/bb_nv/bb_nv.c's bb_nv_flash_init() (B1-840, bb_nv
+// dissolution epic B1-708) — bb_nv_flash_init() now forwards here.
+//
+// Idempotent via bb_once: the first caller runs the real sequence; every
+// other (concurrent or later) caller blocks until that single run
+// completes, then returns the same result without re-running it. This
+// matters because nvs_flash_init() tolerates a repeat call but the
+// erase-and-retry branch does not, and there are multiple callers —
+// bb_storage_nvs_register() (which now calls this internally so its own
+// composition-root position structurally guarantees NVS is up before any
+// backend that depends on it) and bb_nv_config_init()'s internal call —
+// until bb_nv is deleted.
+//
+// NOT a composition-root entry point (no // bbtool:init marker) — this is
+// deliberately NOT graph-visible on its own. bb_storage_nvs_register() is
+// the ONE call wired into the composition root; it brings up the partition
+// before registering, so a backend cannot be registered without its medium
+// being up. See bb_storage_nvs_register()'s comment below.
+bb_err_t bb_storage_nvs_flash_init(void);
+
+// Returns true if bb_storage_nvs_flash_init() erased the NVS partition this
+// boot (corruption or version mismatch). Always available; false on host and
+// before bb_storage_nvs_flash_init() has run.
+bool bb_storage_nvs_flash_was_erased(void);
+
+// Bring up the NVS partition (bb_storage_nvs_flash_init(), propagating any
+// error) and THEN register the "nvs" backend with bb_storage: generic blob
+// get/set/erase/exists via addr->ns_or_dir as NVS namespace, addr->key as
+// NVS key. Composition-only — call explicitly from application composition
+// code or test setup. The partition bring-up (flash_init()) is bb_once-
+// guarded, so it is safely idempotent across repeated calls; backend
+// registration itself is not — bb_storage's policy is first-registration-
+// wins, so a second call to this function returns BB_ERR_INVALID_STATE from
+// bb_storage_register_backend() rather than re-registering.
+//
+// CALL ORDER, not runtime gating, is what's guaranteed here: a downstream
+// composer cannot wire a requires=storage_nvs consumer (e.g. WiFi bring-up)
+// ahead of this call — codegen's MissingProviderError catches that at build
+// time via the requires=storage_nvs -> provides=storage_nvs graph edge.
+// tier=early is still necessary (this must run before EARLY-tier WiFi
+// bring-up). This is NOT a runtime gate: the generated composition root
+// uses continue-on-error, so if this call fails, bb_app_first_err is
+// captured but bb_wifi_autoinit() still runs.
 //
 // provides=storage_nvs: wired onto the boot path via codegen (EARLY tier) so
 // this backend is registered before any EARLY-tier consumer that reads
