@@ -127,7 +127,7 @@ paths = []
 # scripts/native_scaffold.py hand-maintained COMPONENT_MAP.
 [capability.core]
 components = [
-    "bb_alert", "bb_attrs", "bb_board", "bb_button",
+    "bb_alert", "bb_attrs", "bb_board", "bb_bqueue", "bb_button",
     "bb_button_events", "bb_button_gpio", "bb_cache", "bb_cache_reactive", "bb_cache_serialize",
     "bb_cache_routes", "bb_collection", "bb_config", "bb_config_staged", "bb_core", "bb_diag", "bb_dispatch_cmd",
     "bb_display", "bb_display_info", "bb_event", "bb_event_ring", "bb_event_routes",
@@ -175,6 +175,11 @@ capabilities = ["core"]
 # above -- it stays in both this REQUIRES closure AND the
 # `smoke_wire_baseline` wire set below (only reaches the latter by NOT
 # appearing in that board's `remove_components`).
+# bb_bqueue is the same link-proof-only shape as bb_wifi_ap above: no
+# `// bbtool:init` marker (nothing wires a bb_bqueue instance at smoke
+# app-init time), included here solely so its espidf backend
+# (platform/espidf/bb_bqueue/bb_bqueue.c) actually compiles under CI's
+# smoke matrix instead of only ever building on the host env.
 [capability.smoke]
 components = [
     "bb_nv", "bb_log", "bb_log_event", "bb_log_http", "bb_wifi", "bb_wifi_ap",
@@ -191,7 +196,7 @@ components = [
     "bb_sink_ws", "bb_registry", "bb_partition", "bb_task_registry", "bb_task",
     "bb_net_health", "bb_mem_arena", "bb_pool", "bb_udp_frame", "bb_udp_client",
     "bb_sink_udp", "bb_dispatch_cmd", "bb_meminfo", "bb_timer", "bb_config",
-    "bb_config_staged", "bb_storage_nvs", "bb_storage_rtc",
+    "bb_config_staged", "bb_storage_nvs", "bb_storage_rtc", "bb_bqueue",
 ]
 
 # Real smoke espidf boards -- the board id IS the literal FIRMWARE_BOARD

@@ -11,6 +11,7 @@
 // silently no-ops on an already-signaled binary semaphore).
 #include "unity.h"
 #include "bb_lock_cond_waiterlist.h"
+#include "bb_lock.h" // bb_lock_cond_ms_to_ticks()'s one declaration (public bb_core surface)
 #include <stdint.h>
 #include <string.h>
 

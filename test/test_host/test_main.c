@@ -5287,6 +5287,48 @@ void test_bb_tcp_client_destroy_null_is_noop(void);
 void test_bb_tcp_client_transport_health_registered_once_across_repeated_init(void);
 void test_bb_tcp_client_concurrent_first_connect_registers_health_exactly_once(void);
 
+// Forward declarations from test_bb_bqueue.c
+void test_bb_bqueue_create_null_cfg_returns_invalid_arg(void);
+void test_bb_bqueue_create_null_out_returns_invalid_arg(void);
+void test_bb_bqueue_create_zero_capacity_returns_invalid_arg(void);
+void test_bb_bqueue_create_zero_item_bytes_returns_invalid_arg(void);
+void test_bb_bqueue_create_capacity_over_kconfig_max_returns_invalid_arg(void);
+void test_bb_bqueue_create_item_bytes_over_kconfig_max_returns_invalid_arg(void);
+void test_bb_bqueue_create_pool_exhausted_returns_no_space(void);
+void test_bb_bqueue_destroy_null_is_noop(void);
+void test_bb_bqueue_operations_on_destroyed_handle_return_invalid_arg_or_zero(void);
+void test_bb_bqueue_test_waiting_count_null_handle_returns_zero(void);
+void test_bb_bqueue_overwrite_on_mpsc_queue_returns_invalid_state(void);
+void test_bb_bqueue_reset_on_mpsc_queue_returns_invalid_state(void);
+void test_bb_bqueue_send_on_mailbox_queue_returns_invalid_state(void);
+void test_bb_bqueue_dropped_on_mailbox_queue_returns_invalid_state(void);
+void test_bb_bqueue_overwrite_null_args_return_invalid_arg(void);
+void test_bb_bqueue_reset_null_returns_invalid_arg(void);
+void test_bb_bqueue_send_null_args_return_invalid_arg(void);
+void test_bb_bqueue_dropped_null_args_return_invalid_arg(void);
+void test_bb_bqueue_peek_null_args_return_invalid_arg(void);
+void test_bb_bqueue_receive_null_args_return_invalid_arg(void);
+void test_bb_bqueue_count_capacity_null_handle_return_zero(void);
+void test_bb_bqueue_mailbox_overwrite_then_peek_returns_latest(void);
+void test_bb_bqueue_mailbox_reset_then_peek_zero_timeout_returns_not_found(void);
+void test_bb_bqueue_mailbox_receive_consumes_then_peek_returns_not_found(void);
+void test_bb_bqueue_peek_does_not_consume(void);
+void test_bb_bqueue_two_concurrent_peekers_both_woken_by_overwrite(void);
+void test_bb_bqueue_peek_timeout_elapses_on_empty_mailbox(void);
+void test_bb_bqueue_mpsc_send_blocks_until_receive_frees_slot(void);
+void test_bb_bqueue_mpsc_send_zero_timeout_at_capacity_drops(void);
+void test_bb_bqueue_mpsc_send_timeout_at_capacity_drops(void);
+void test_bb_bqueue_mpsc_receive_zero_timeout_empty_returns_not_found(void);
+void test_bb_bqueue_mpsc_receive_timeout_elapses_on_empty(void);
+void test_bb_bqueue_mpsc_fifo_order_preserved(void);
+void test_bb_bqueue_mpsc_two_producers_one_consumer_no_corruption(void);
+void test_bb_bqueue_deadline_compute_adds_timeout_in_microseconds(void);
+void test_bb_bqueue_deadline_remaining_ms_not_yet_expired(void);
+void test_bb_bqueue_deadline_remaining_ms_exactly_at_deadline_is_expired(void);
+void test_bb_bqueue_deadline_remaining_ms_past_deadline_is_expired(void);
+void test_bb_bqueue_validate_cfg_null_returns_invalid_arg(void);
+void test_bb_bqueue_validate_cfg_valid_returns_ok(void);
+
 // Forward declarations from test_bb_log_event.c
 void test_bb_log_event_parse_info(void);
 void test_bb_log_event_parse_warning(void);
@@ -10392,6 +10434,48 @@ int main(void) {
     RUN_TEST(test_bb_tcp_client_destroy_null_is_noop);
     RUN_TEST(test_bb_tcp_client_transport_health_registered_once_across_repeated_init);
     RUN_TEST(test_bb_tcp_client_concurrent_first_connect_registers_health_exactly_once);
+
+    // bb_bqueue
+    RUN_TEST(test_bb_bqueue_create_null_cfg_returns_invalid_arg);
+    RUN_TEST(test_bb_bqueue_create_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_bqueue_create_zero_capacity_returns_invalid_arg);
+    RUN_TEST(test_bb_bqueue_create_zero_item_bytes_returns_invalid_arg);
+    RUN_TEST(test_bb_bqueue_create_capacity_over_kconfig_max_returns_invalid_arg);
+    RUN_TEST(test_bb_bqueue_create_item_bytes_over_kconfig_max_returns_invalid_arg);
+    RUN_TEST(test_bb_bqueue_create_pool_exhausted_returns_no_space);
+    RUN_TEST(test_bb_bqueue_destroy_null_is_noop);
+    RUN_TEST(test_bb_bqueue_operations_on_destroyed_handle_return_invalid_arg_or_zero);
+    RUN_TEST(test_bb_bqueue_test_waiting_count_null_handle_returns_zero);
+    RUN_TEST(test_bb_bqueue_overwrite_on_mpsc_queue_returns_invalid_state);
+    RUN_TEST(test_bb_bqueue_reset_on_mpsc_queue_returns_invalid_state);
+    RUN_TEST(test_bb_bqueue_send_on_mailbox_queue_returns_invalid_state);
+    RUN_TEST(test_bb_bqueue_dropped_on_mailbox_queue_returns_invalid_state);
+    RUN_TEST(test_bb_bqueue_overwrite_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_bqueue_reset_null_returns_invalid_arg);
+    RUN_TEST(test_bb_bqueue_send_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_bqueue_dropped_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_bqueue_peek_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_bqueue_receive_null_args_return_invalid_arg);
+    RUN_TEST(test_bb_bqueue_count_capacity_null_handle_return_zero);
+    RUN_TEST(test_bb_bqueue_mailbox_overwrite_then_peek_returns_latest);
+    RUN_TEST(test_bb_bqueue_mailbox_reset_then_peek_zero_timeout_returns_not_found);
+    RUN_TEST(test_bb_bqueue_mailbox_receive_consumes_then_peek_returns_not_found);
+    RUN_TEST(test_bb_bqueue_peek_does_not_consume);
+    RUN_TEST(test_bb_bqueue_two_concurrent_peekers_both_woken_by_overwrite);
+    RUN_TEST(test_bb_bqueue_peek_timeout_elapses_on_empty_mailbox);
+    RUN_TEST(test_bb_bqueue_mpsc_send_blocks_until_receive_frees_slot);
+    RUN_TEST(test_bb_bqueue_mpsc_send_zero_timeout_at_capacity_drops);
+    RUN_TEST(test_bb_bqueue_mpsc_send_timeout_at_capacity_drops);
+    RUN_TEST(test_bb_bqueue_mpsc_receive_zero_timeout_empty_returns_not_found);
+    RUN_TEST(test_bb_bqueue_mpsc_receive_timeout_elapses_on_empty);
+    RUN_TEST(test_bb_bqueue_mpsc_fifo_order_preserved);
+    RUN_TEST(test_bb_bqueue_mpsc_two_producers_one_consumer_no_corruption);
+    RUN_TEST(test_bb_bqueue_deadline_compute_adds_timeout_in_microseconds);
+    RUN_TEST(test_bb_bqueue_deadline_remaining_ms_not_yet_expired);
+    RUN_TEST(test_bb_bqueue_deadline_remaining_ms_exactly_at_deadline_is_expired);
+    RUN_TEST(test_bb_bqueue_deadline_remaining_ms_past_deadline_is_expired);
+    RUN_TEST(test_bb_bqueue_validate_cfg_null_returns_invalid_arg);
+    RUN_TEST(test_bb_bqueue_validate_cfg_valid_returns_ok);
 
     // bb_log_event parser
     RUN_TEST(test_bb_log_event_parse_info);

@@ -1,0 +1,49 @@
+menu "breadboard: bb_bqueue"
+
+config BB_BQUEUE_MAX_INSTANCES
+    int "Maximum concurrent bb_bqueue instances"
+    default 2
+    help
+        Size of the static instance pool bb_bqueue_create() allocates from.
+        TaipanMiner needs exactly two: a work queue and a result queue.
+        Zero heap: every instance lives in this fixed-size pool.
+        bb_bqueue_create() returns BB_ERR_NO_SPACE once it is exhausted.
+
+        SRAM cost: every instance in the pool reserves
+        BB_BQUEUE_MAX_CAPACITY * BB_BQUEUE_MAX_ITEM_BYTES bytes of static
+        item storage regardless of that instance's actual cfg (see those
+        options' help text) -- raising this value multiplies that
+        per-instance cost by the new instance count, even for callers that
+        only ever create one small queue.
+
+config BB_BQUEUE_MAX_CAPACITY
+    int "Maximum queue capacity (items) per instance"
+    default 16
+    help
+        Upper bound on cfg->capacity accepted by bb_bqueue_create(); sizes
+        the static per-instance item storage array. bb_bqueue_create()
+        returns BB_ERR_INVALID_ARG if cfg->capacity exceeds this.
+
+        SRAM cost: worst-case static footprint across the whole pool is
+        BB_BQUEUE_MAX_INSTANCES * BB_BQUEUE_MAX_CAPACITY *
+        BB_BQUEUE_MAX_ITEM_BYTES bytes (default: 2 * 16 * 64 = 2048 bytes),
+        reserved regardless of any single instance's actual cfg. Raising
+        this to satisfy one caller's large queue costs that extra SRAM for
+        EVERY pooled instance, not just that caller's.
+
+config BB_BQUEUE_MAX_ITEM_BYTES
+    int "Maximum item size (bytes) per instance"
+    default 64
+    help
+        Upper bound on cfg->item_bytes accepted by bb_bqueue_create(); sizes
+        the static per-instance item storage array. bb_bqueue_create()
+        returns BB_ERR_INVALID_ARG if cfg->item_bytes exceeds this.
+
+        SRAM cost: worst-case static footprint across the whole pool is
+        BB_BQUEUE_MAX_INSTANCES * BB_BQUEUE_MAX_CAPACITY *
+        BB_BQUEUE_MAX_ITEM_BYTES bytes (default: 2 * 16 * 64 = 2048 bytes),
+        reserved regardless of any single instance's actual cfg. Raising
+        this to satisfy one caller's large item type costs that extra SRAM
+        for EVERY pooled instance, not just that caller's.
+
+endmenu

@@ -16,6 +16,11 @@
       "type": "component"
     },
     {
+      "id": "bb_bqueue",
+      "path": "components/bb_bqueue",
+      "type": "component"
+    },
+    {
       "id": "bb_button",
       "path": "components/bb_button",
       "type": "component"

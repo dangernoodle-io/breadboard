@@ -331,6 +331,19 @@ bb_err_t bb_lock_cond_signal(bb_lock_cond_t *cond);
 // than one concurrent waiter — see the header-level note above.
 bb_err_t bb_lock_cond_broadcast(bb_lock_cond_t *cond);
 
+// Pure, host-testable millisecond-to-ticks conversion for ANY consumer (not
+// just this file's own ESP-IDF backend) that must hand a finite timeout to a
+// tick-based blocking primitive — e.g. B1-821's bb_bqueue ESP-IDF backend,
+// which calls this directly rather than pdMS_TO_TICKS() (see the
+// timeout-erosion/overflow hazard documented above bb_lock_cond_wait()).
+// Declared here (bb_core's public surface) so components that only REQUIRES
+// bb_core, not bb_core's private src/ headers, can reuse it instead of
+// re-deriving the same 64-bit-saturating idiom. Full contract/rationale:
+// bb_lock_cond_waiterlist.h (bb_core/src — implementation lives there,
+// compiled into bb_core unconditionally, so linking already REQUIRES
+// bb_core is sufficient).
+uint32_t bb_lock_cond_ms_to_ticks(uint32_t timeout_ms, uint32_t tick_rate_hz, uint32_t max_ticks);
+
 #ifdef __cplusplus
 }
 #endif

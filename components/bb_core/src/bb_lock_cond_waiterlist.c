@@ -2,6 +2,7 @@
 // backend -- see bb_lock_cond_waiterlist.h for the contract. No platform
 // headers here -- compiled on host and ESP-IDF identically.
 #include "bb_lock_cond_waiterlist.h"
+#include "bb_lock.h" // bb_lock_cond_ms_to_ticks()'s one declaration (public bb_core surface)
 
 void bb_lock_cond_waiterlist_push(bb_lock_cond_waiter_node_t **head, bb_lock_cond_waiter_node_t *w)
 {
