@@ -6,7 +6,7 @@
 #endif
 
 #include "bb_event_ring.h"
-#include "bb_ring.h"
+#include "bb_queue.h"
 #include "bb_log.h"
 #include "bb_mem.h"
 #include <stdlib.h>
@@ -39,12 +39,12 @@ static const char *TAG = "bb_event_ring";
 // Local allocator pointers.
 //
 // bb_event_ring_set_allocator() sets BOTH:
-//   1. bb_ring's allocator (via bb_ring_set_allocator) — covers entry storage.
+//   1. bb_queue's allocator (via bb_queue_set_allocator) — covers entry storage.
 //   2. s_snap_calloc/free here — covers temporary snapshot buffers in
 //      subscribe_with_replay (pre-existing test contracts rely on this).
 //
-// On ESP-IDF, bb_ring_espidf installs the SPIRAM allocator at EARLY tier via
-// bb_ring_set_allocator directly.  bb_event_ring_spiram.c (now a no-op shim)
+// On ESP-IDF, bb_queue_espidf installs the SPIRAM allocator at EARLY tier via
+// bb_queue_set_allocator directly.  bb_event_ring_spiram.c (now a no-op shim)
 // no longer calls bb_event_ring_set_allocator, so s_snap_calloc stays at the
 // system default (calloc) and snapshot temp buffers land in internal heap —
 // fine because they are short-lived and small (capacity × max_entry × 2).
@@ -60,15 +60,15 @@ void bb_event_ring_set_allocator(bb_event_ring_calloc_fn c, bb_event_ring_free_f
 {
     s_snap_calloc = c ? c : calloc;
     s_snap_free   = f ? f : free;
-    // Forward to bb_ring for entry storage.
-    bb_ring_set_allocator((bb_ring_calloc_fn)c, (bb_ring_free_fn)f);
+    // Forward to bb_queue for entry storage.
+    bb_queue_set_allocator((bb_queue_calloc_fn)c, (bb_queue_free_fn)f);
 }
 
 void bb_event_ring_reset_allocator(void)
 {
     s_snap_calloc = bb_calloc_prefer_spiram;
     s_snap_free   = bb_mem_free;
-    bb_ring_reset_allocator();
+    bb_queue_reset_allocator();
 }
 
 // ---------------------------------------------------------------------------
@@ -81,11 +81,11 @@ struct bb_event_ring {
     size_t max_entry;
     bool   retained;  // Marks topic as state-not-events; see bb_event_ring_attach_ex docs.
 
-    bb_ring_t ring;   // Shared primitive: holds all entry storage.
+    bb_queue_t ring;   // Shared primitive: holds all entry storage.
 
     // Diagnostics: metadata of the most recent captured entry (0 if none).
     // last_post_us is tracked here because it's set at capture time from
-    // bb_event_ring_now_us() — the timestamp in bb_ring is also set from that
+    // bb_event_ring_now_us() — the timestamp in bb_queue is also set from that
     // value but we store it separately for fast retrieval in last_entry_info.
     int64_t last_post_us;
     size_t  last_size;
@@ -107,11 +107,11 @@ static void ring_capture(bb_event_topic_t topic,
 
     int64_t now = bb_event_ring_now_us();
 
-    // bb_ring uses uint32_t id; int32_t casts safely (bit-identical round-trip).
-    // Oversized payloads are rejected by bb_ring_push (returns INVALID_ARG) —
+    // bb_queue uses uint32_t id; int32_t casts safely (bit-identical round-trip).
+    // Oversized payloads are rejected by bb_queue_push (returns INVALID_ARG) —
     // the event bus enforces max_payload via bb_event_cfg_t so this should not
     // happen in practice, but the ring is still safe if it does.
-    bb_err_t push_err = bb_ring_push(ring->ring, data, size, now, (uint32_t)id);
+    bb_err_t push_err = bb_queue_push(ring->ring, data, size, now, (uint32_t)id);
     if (push_err != BB_OK) {
         bb_log_w(TAG, "ring_capture: payload dropped (size=%zu > max_entry=%zu); "
                  "check CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY",
@@ -144,14 +144,14 @@ bb_err_t bb_event_ring_attach_ex(bb_event_topic_t topic, size_t capacity,
     }
 
     // Create the shared ring primitive — allocates entries[] + payload[] via
-    // the active bb_ring allocator (SPIRAM-preferred on ESP-IDF).
+    // the active bb_queue allocator (SPIRAM-preferred on ESP-IDF).
     // This consumes alloc indices 1 and 2 when a test failing allocator is set.
-    // Name the ring after the topic so diagnostics (bb_ring_name, future
+    // Name the ring after the topic so diagnostics (bb_queue_name, future
     // telemetry registry B1-414) identify the owner without a separate map.
-    bb_err_t err = bb_ring_create(capacity, max_entry, BB_RING_EVICT_OLDEST,
+    bb_err_t err = bb_queue_create(capacity, max_entry, BB_QUEUE_EVICT_OLDEST,
                                   bb_event_topic_name(topic), &ring->ring);
     if (err != BB_OK) {
-        bb_log_e(TAG, "bb_ring_create failed: %d", (int)err);
+        bb_log_e(TAG, "bb_queue_create failed: %d", (int)err);
         s_snap_free(ring);
         return err;
     }
@@ -165,7 +165,7 @@ bb_err_t bb_event_ring_attach_ex(bb_event_topic_t topic, size_t capacity,
     err = bb_event_subscribe(topic, ring_capture, (void *)ring, &ring->port_sub);
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to subscribe to topic");
-        bb_ring_destroy(ring->ring);
+        bb_queue_destroy(ring->ring);
         s_snap_free(ring);
         return err;
     }
@@ -200,10 +200,10 @@ typedef struct {
 static void snapshot_prep(void *arg)
 {
     snapshot_ctx_t *ctx = (snapshot_ctx_t *)arg;
-    bb_ring_t r = ctx->ring->ring;
-    size_t count = bb_ring_count(r);
+    bb_queue_t r = ctx->ring->ring;
+    size_t count = bb_queue_count(r);
 
-    // Walk entries oldest→newest using bb_ring_peek_at (non-destructive).
+    // Walk entries oldest→newest using bb_queue_peek_at (non-destructive).
     // Other subscribers can independently replay the same entries because
     // peek_at does NOT consume (pop) anything from the ring.
     for (size_t i = 0; i < count; i++) {
@@ -212,7 +212,7 @@ static void snapshot_prep(void *arg)
         uint32_t out_id  = 0;
         uint8_t *payload_dst = ctx->payloads + (i * ctx->max_entry);
 
-        bb_err_t rc = bb_ring_peek_at(r, i,
+        bb_err_t rc = bb_queue_peek_at(r, i,
                                       payload_dst, ctx->max_entry,
                                       &out_len, &out_ts, &out_id);
         if (rc != BB_OK) break;  // LCOV_EXCL_LINE — ring shrank under us
@@ -262,7 +262,7 @@ bb_err_t bb_event_ring_subscribe_with_replay(bb_event_ring_t ring,
     }
 
     // Replay snapshot (outside lock, so new events post naturally).
-    // bb_ring_peek_at is non-destructive — ring is unmodified; concurrent
+    // bb_queue_peek_at is non-destructive — ring is unmodified; concurrent
     // subscribers can replay the same entries independently.
     for (size_t i = 0; i < ctx.snap_count; i++) {
         cb(ring->topic, headers[i].id, payloads + (i * ring->max_entry), headers[i].size, user);
@@ -286,7 +286,7 @@ size_t bb_event_ring_count(bb_event_ring_t ring)
 {
     if (!ring) return 0;
     bb_event_lock();
-    size_t n = bb_ring_count(ring->ring);
+    size_t n = bb_queue_count(ring->ring);
     bb_event_unlock();
     return n;
 }
@@ -299,7 +299,7 @@ bb_err_t bb_event_ring_last_entry_info(bb_event_ring_t ring,
     if (!ring) return BB_ERR_INVALID_ARG;
 
     bb_event_lock();
-    size_t count = bb_ring_count(ring->ring);
+    size_t count = bb_queue_count(ring->ring);
     if (count == 0) {
         bb_event_unlock();
         return BB_ERR_NOT_FOUND;
@@ -309,7 +309,7 @@ bb_err_t bb_event_ring_last_entry_info(bb_event_ring_t ring,
     size_t   out_len = 0;
     int64_t  out_ts  = 0;
     uint32_t out_id  = 0;
-    bb_ring_peek_at(ring->ring, count - 1, NULL, 0, &out_len, &out_ts, &out_id);
+    bb_queue_peek_at(ring->ring, count - 1, NULL, 0, &out_len, &out_ts, &out_id);
     int64_t lpu = ring->last_post_us;
     bb_event_unlock();
 
@@ -329,7 +329,7 @@ void bb_event_ring_detach(bb_event_ring_t ring)
     }
 
     // Free shared ring storage
-    bb_ring_destroy(ring->ring);
+    bb_queue_destroy(ring->ring);
 
     // Free the small event-ring wrapper struct (allocated via s_snap_calloc)
     s_snap_free(ring);

@@ -426,6 +426,11 @@
       "type": "component"
     },
     {
+      "id": "bb_queue",
+      "path": "components/bb_queue",
+      "type": "component"
+    },
+    {
       "id": "bb_registry",
       "path": "components/bb_registry",
       "type": "component"
@@ -438,11 +443,6 @@
     {
       "id": "bb_response",
       "path": "components/bb_response",
-      "type": "component"
-    },
-    {
-      "id": "bb_ring",
-      "path": "components/bb_ring",
       "type": "component"
     },
     {

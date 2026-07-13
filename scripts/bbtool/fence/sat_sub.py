@@ -153,7 +153,7 @@ def _is_noise_line(stripped: str) -> bool:
     stripped line starting with `*` as a `/* ... */` continuation (its
     generic doxygen-comment heuristic), which also matches an ordinary
     pointer-dereference STATEMENT such as `*bytes_used = (*bytes_used >=
-    len) ? (*bytes_used - len) : 0;` (bb_ring's site, this codebase's
+    len) ? (*bytes_used - len) : 0;` (bb_queue's site, this codebase's
     prevailing no-space `*name` deref style) — sat_sub's canonical
     saturating-subtract sites live disproportionately on exactly this
     shape (in/out pointer-parameter update), so the generic filter would

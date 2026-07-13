@@ -111,7 +111,7 @@ BB_REGISTRY_DEFINE_TAGGED(s_task_registry, BB_TASK_REGISTRY_MAX, "tasks");
 // Wrapper mutex — serialises the public ops as a single atomic unit over the
 // top of the primitive's own internal lock, and also protects the payload
 // pool (s_pool) which the primitive knows nothing about. Mirrors
-// bb_ring_registry's s_ring_reg_lock pattern (see that file for the full
+// bb_queue_registry's s_ring_reg_lock pattern (see that file for the full
 // TOCTOU/UAF rationale) — always taken OUTSIDE any bb_registry_* call, so
 // there is no lock-order inversion.
 static pthread_mutex_t s_task_reg_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -330,7 +330,7 @@ bb_err_t bb_task_registry_deregister(void *handle)
 
     // Whole find+deregister sequence runs under s_task_reg_lock so it is
     // atomic with respect to concurrent register()/deregister()/foreach()
-    // calls (same TOCTOU-closing rationale as bb_ring_registry).
+    // calls (same TOCTOU-closing rationale as bb_queue_registry).
     pthread_mutex_lock(&s_task_reg_lock);
 
     find_by_handle_t scan = { .target = handle, .found_name = NULL, .found_entry = NULL };
@@ -644,7 +644,7 @@ void bb_task_registry_foreach(bb_task_registry_cb_t cb, void *ctx)
         return;
     }
     // s_task_reg_lock is held across the ENTIRE call, including every
-    // invocation of the caller's cb — see bb_ring_registry.h's foreach
+    // invocation of the caller's cb — see bb_queue_registry.h's foreach
     // contract for the full rationale.
     pthread_mutex_lock(&s_task_reg_lock);
     foreach_bridge_t bridge = { .cb = cb, .ctx = ctx };

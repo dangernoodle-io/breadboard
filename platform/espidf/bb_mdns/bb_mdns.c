@@ -5,7 +5,7 @@
 #include "bb_event.h"
 #include "bb_http_server.h"
 #include "bb_timer.h"
-#include "bb_ring.h"
+#include "bb_queue.h"
 #include "mdns.h"
 #include "esp_app_desc.h"
 #include "esp_mac.h"
@@ -115,9 +115,9 @@ static SemaphoreHandle_t s_evt_pool_lock = NULL;
 #define BB_MDNS_BATCH_MAX 16
 #endif
 
-// BB_MDNS_BATCH_RING_DEPTH — capacity of the bb_ring dispatch queue.
+// BB_MDNS_BATCH_RING_DEPTH — capacity of the bb_queue dispatch queue.
 // Heap cost (SPIRAM-preferred on ESP-IDF):
-//   BB_MDNS_BATCH_RING_DEPTH × (bb_ring entry metadata (~24 B) + sizeof(bb_mdns_batch_item_t))
+//   BB_MDNS_BATCH_RING_DEPTH × (bb_queue entry metadata (~24 B) + sizeof(bb_mdns_batch_item_t))
 // At defaults (depth=4, BATCH_MAX=16): 4 × (24 + sizeof(bb_mdns_batch_item_t)) ≈ 33 KB on SPIRAM.
 // On no-PSRAM boards the same bytes come from internal heap.
 #ifdef CONFIG_BB_MDNS_BATCH_RING_DEPTH
@@ -140,7 +140,7 @@ typedef struct {
     int           count;
 } bb_mdns_batch_t;
 
-// Batched queue item stored by value in the bb_ring dispatch ring.
+// Batched queue item stored by value in the bb_queue dispatch ring.
 // Each flush serializes the pending coalescing batch into one of these
 // and pushes it into s_batch_ring; the dispatcher peek/pops from the ring.
 typedef struct {
@@ -151,16 +151,16 @@ typedef struct {
 static bb_mdns_batch_t   s_batch;
 static bb_oneshot_timer_t s_flush_timer = NULL;
 
-// bb_ring holding bb_mdns_batch_item_t values, created in bb_mdns_init.
-// BB_RING_REJECT_NEW policy: when the ring is full the flush timer re-arms
+// bb_queue holding bb_mdns_batch_item_t values, created in bb_mdns_init.
+// BB_QUEUE_REJECT_NEW policy: when the ring is full the flush timer re-arms
 // and retries on the next 50 ms tick; drop-new is correct here.
-static bb_ring_t s_batch_ring = NULL;
+static bb_queue_t s_batch_ring = NULL;
 
 // Heap-allocated scratch item used by batch_do_flush_locked and the dispatch
 // task.  Allocated once in bb_mdns_init; size is ~sizeof(bb_mdns_batch_item_t)
 // (~8260 B at BATCH_MAX=16).  Keeping it off any task's stack prevents stack
 // overflow on the dispatch task (4096 B budget) and on flush callers.
-// On no-PSRAM boards this lands in internal heap; on PSRAM boards bb_ring's
+// On no-PSRAM boards this lands in internal heap; on PSRAM boards bb_queue's
 // allocator path may redirect it to SPIRAM.
 static bb_mdns_batch_item_t *s_dispatch_item = NULL;
 
@@ -205,7 +205,7 @@ static bool batch_do_flush_locked(void)
 
     int64_t  ts  = (int64_t)bb_timer_now_us();
     uint32_t seq = ++s_push_seq;
-    bb_err_t err = bb_ring_push(s_batch_ring, s_dispatch_item,
+    bb_err_t err = bb_queue_push(s_batch_ring, s_dispatch_item,
                                 sizeof(*s_dispatch_item), ts, seq);
 
     xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY);
@@ -582,7 +582,7 @@ static void dispatch_one(const bb_mdns_evt_t *evt)
     }
 }
 
-// Dispatch task: drains the bb_ring dispatch ring and fires consumer callbacks.
+// Dispatch task: drains the bb_queue dispatch ring and fires consumer callbacks.
 // Woken by s_ring_sem; drains ALL items before blocking again so a coalesced
 // xSemaphoreGive is never lost.  dispatch_one (knot on_peer_discovered) runs
 // OUTSIDE s_evt_pool_lock to prevent lock inversion with the knot layer (B1-372).
@@ -597,20 +597,20 @@ static void bb_mdns_dispatch_task(void *arg)
         xSemaphoreTake(s_ring_sem, portMAX_DELAY);
 
         xSemaphoreTake(s_evt_pool_lock, portMAX_DELAY);
-        while (bb_ring_count(s_batch_ring) > 0) {
+        while (bb_queue_count(s_batch_ring) > 0) {
             size_t   out_len = 0;
             int64_t  out_ts  = 0;
             uint32_t out_id  = 0;
-            bb_err_t err = bb_ring_peek_oldest(s_batch_ring, s_dispatch_item,
+            bb_err_t err = bb_queue_peek_oldest(s_batch_ring, s_dispatch_item,
                                                sizeof(*s_dispatch_item),
                                                &out_len, &out_ts, &out_id);
             if (err != BB_OK) {
                 /* Unexpected — ring reported count > 0 but peek failed. */
                 bb_log_w(TAG, "dispatch: peek_oldest failed (%d), clearing", (int)err);
-                bb_ring_clear(s_batch_ring);
+                bb_queue_clear(s_batch_ring);
                 break;
             }
-            bb_ring_pop_oldest(s_batch_ring);
+            bb_queue_pop_oldest(s_batch_ring);
 
             /* Release lock while dispatching — dispatch_one may block (A-record
              * lookup) and the knot on_peer_discovered callback must not run
@@ -1074,13 +1074,13 @@ void bb_mdns_init(void)
         }
     }
     if (!s_batch_ring) {
-        bb_err_t err = bb_ring_create(BB_MDNS_BATCH_RING_DEPTH,
+        bb_err_t err = bb_queue_create(BB_MDNS_BATCH_RING_DEPTH,
                                       sizeof(bb_mdns_batch_item_t),
-                                      BB_RING_REJECT_NEW,
+                                      BB_QUEUE_REJECT_NEW,
                                       "mdns_batch",
                                       &s_batch_ring);
         if (err != BB_OK) {
-            bb_log_e(TAG, "bb_ring_create(mdns_batch) failed: %d — aborting init",
+            bb_log_e(TAG, "bb_queue_create(mdns_batch) failed: %d — aborting init",
                      (int)err);
             return;
         }

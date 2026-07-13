@@ -131,7 +131,7 @@ Freezes hand-rolled reimplementations of `bb_num`'s two-sided numeric clamp
 two-sided clamp: if-pair (`if (x < lo) x = lo; if (x > hi) x = hi;`, any
 `</<=`+`>/>=` combination), nested ternary (`x < lo ? lo : (x > hi ? hi :
 x)`), or MIN/MAX nesting (`MAX(lo, MIN(hi, x))` / `fmaxf`/`fminf` /
-`std::max`/`std::min`). A **one-sided** saturating op (e.g. bb_ring's
+`std::max`/`std::min`). A **one-sided** saturating op (e.g. bb_queue's
 underflow-clamp-at-0, or bb_task_resolve's single-bound unicore-affinity
 fallback) deliberately does **not** match — it has no second,
 opposite-direction bound to reimplement bb_clampi/bb_clampf's actual job

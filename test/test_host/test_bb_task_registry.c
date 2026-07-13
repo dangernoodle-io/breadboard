@@ -116,7 +116,7 @@ void test_bb_task_registry_deregister_unregistered_returns_not_found(void)
 }
 
 // ---------------------------------------------------------------------------
-// Duplicate-name → update-or-ok: best-effort, matches bb_ring_registry
+// Duplicate-name → update-or-ok: best-effort, matches bb_queue_registry
 // precedent (logged and does NOT fail the underlying task creation).
 // ---------------------------------------------------------------------------
 

@@ -40,7 +40,7 @@ class TestScanSatSubForward(unittest.TestCase):
     def test_finds_ge_ternary(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            _write(root, "platform/host/bb_ring/bb_ring.c", (
+            _write(root, "platform/host/bb_queue/bb_queue.c", (
                 "static void sub(size_t *bytes_used, size_t len)\n"
                 "{\n"
                 "    *bytes_used = (*bytes_used >= len) ? (*bytes_used - len) : 0;\n"
@@ -48,8 +48,8 @@ class TestScanSatSubForward(unittest.TestCase):
             ))
             found = scan_all(str(root))
             self.assertIn(
-                Marker("sat_sub", "platform/host/bb_ring/bb_ring.c",
-                       "bb_ring:sub:*bytes_used"),
+                Marker("sat_sub", "platform/host/bb_queue/bb_queue.c",
+                       "bb_queue:sub:*bytes_used"),
                 found,
             )
 

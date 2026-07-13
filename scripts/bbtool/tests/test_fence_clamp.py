@@ -96,11 +96,11 @@ class TestScanClampIfPair(unittest.TestCase):
             self.assertEqual(found, set())
 
     def test_one_sided_saturating_subtract_does_not_fire(self):
-        # bb_ring-style underflow-clamp-at-0: single bound, ternary, not a
+        # bb_queue-style underflow-clamp-at-0: single bound, ternary, not a
         # two-sided clamp.
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            _write(root, "platform/host/bb_ring/bb_ring.c", (
+            _write(root, "platform/host/bb_queue/bb_queue.c", (
                 "static void sub(size_t *bytes_used, size_t len)\n"
                 "{\n"
                 "    *bytes_used = (*bytes_used >= len) ? (*bytes_used - len) : 0;\n"

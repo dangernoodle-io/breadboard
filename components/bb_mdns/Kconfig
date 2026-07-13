@@ -80,17 +80,17 @@ config BB_MDNS_BATCH_MAX
         recovered on the next periodic browse refresh (~60 s).
 
 config BB_MDNS_BATCH_RING_DEPTH
-    int "mDNS dispatch ring capacity (bb_ring drop-new)"
+    int "mDNS dispatch ring capacity (bb_queue drop-new)"
     default 4 if SPIRAM
     default 3
     range 1 32
     help
-        Capacity of the bb_ring used to queue coalesced mDNS batch items for
+        Capacity of the bb_queue used to queue coalesced mDNS batch items for
         the dispatch task.  Each slot holds one bb_mdns_batch_item_t (one full
         flush worth of peers, sizeof ~= BB_MDNS_BATCH_MAX * ~516 B + 4 B).
 
         Heap cost (SPIRAM-preferred on ESP-IDF, internal heap on no-PSRAM
-        boards): capacity × (bb_ring entry metadata (~24 B) +
+        boards): capacity × (bb_queue entry metadata (~24 B) +
         sizeof(bb_mdns_batch_item_t)).  At default capacity=4 and
         BB_MDNS_BATCH_MAX=16: 4 × (24 + 4 + 16 * 516) ≈ 33 KB on SPIRAM;
         on no-PSRAM boards the same bytes come from internal heap.
@@ -98,7 +98,7 @@ config BB_MDNS_BATCH_RING_DEPTH
         Memory cost scales with BB_MDNS_BATCH_MAX — lower both together on
         no-PSRAM boards (e.g. BATCH_MAX=4, RING_DEPTH=3).
 
-        The ring uses BB_RING_REJECT_NEW: when full the 50 ms flush timer
+        The ring uses BB_QUEUE_REJECT_NEW: when full the 50 ms flush timer
         re-arms and retries the SAME batch on the next tick (the batch is
         not cleared on a failed push).  Raise if your network produces more
         than BB_MDNS_BATCH_RING_DEPTH burst-separated refresh cycles before

@@ -26,10 +26,10 @@ static const char *TAG = "bb_event_topic_registry";
 
 BB_REGISTRY_DEFINE_TAGGED(s_topic_registry, CONFIG_BB_EVENT_ROUTES_MAX_TOPICS, "event_topics");
 
-// Wrapper mutex — mirrors bb_ring_registry's s_ring_reg_lock: serialises the
+// Wrapper mutex — mirrors bb_queue_registry's s_ring_reg_lock: serialises the
 // public ops as a single atomic unit over the top of the primitive's own
 // internal lock. There is no deregister here (register-only), so none of
-// bb_ring_registry's TOCTOU/UAF concerns apply directly, but the wrapper
+// bb_queue_registry's TOCTOU/UAF concerns apply directly, but the wrapper
 // keeps this component's locking shape consistent with its sibling and
 // gives it its own lock to extend should a deregister path ever be added.
 static pthread_mutex_t s_topic_reg_lock = PTHREAD_MUTEX_INITIALIZER;

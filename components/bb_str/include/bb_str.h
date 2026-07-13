@@ -3,7 +3,7 @@
 // bb_str — portable string-safety helpers.
 //
 // Pure C, no ESP-IDF or platform dependencies. Compiled identically on host
-// and ESP-IDF (mirrors the bb_ring shape: single implementation under
+// and ESP-IDF (mirrors the bb_queue shape: single implementation under
 // platform/host/bb_str/, no espidf-specific variant needed).
 
 #include <stddef.h>

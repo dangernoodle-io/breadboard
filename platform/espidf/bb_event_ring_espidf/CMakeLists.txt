@@ -3,4 +3,4 @@ idf_component_register(
          "bb_event_ring_spiram.c"
     PRIV_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/../../../components/bb_event_ring"
     REQUIRES bb_event_ring
-    PRIV_REQUIRES esp_timer bb_ring_espidf)
+    PRIV_REQUIRES esp_timer bb_queue_espidf)
