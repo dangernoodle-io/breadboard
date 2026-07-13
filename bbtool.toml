@@ -180,6 +180,18 @@ capabilities = ["core"]
 # app-init time), included here solely so its espidf backend
 # (platform/espidf/bb_bqueue/bb_bqueue.c) actually compiles under CI's
 # smoke matrix instead of only ever building on the host env.
+# bb_fsm, bb_lifecycle, and bb_tcp_client (B1-849) are the same
+# link-proof-only shape: none carries a `// bbtool:init` marker (nothing
+# wires an instance of any of them at smoke app-init time). All three
+# previously lived only in [capability.core] (host scaffold), so they had
+# NEVER been compiled by the ESP-IDF toolchain -- a different compiler,
+# arch, and warning set than host gcc. bb_tcp_client has a real espidf
+# backend (platform/espidf/bb_tcp_client/bb_tcp_client.c); bb_fsm and
+# bb_lifecycle are portable single-TU components with no platform/espidf/
+# directory at all, but still benefit from proving the ESP-IDF toolchain
+# compiles them cleanly. TaipanMiner's rebuild sits on all three (stratum
+# FSM, stratum transport, mining run-state), so a latent compile break
+# here would land squarely on TM.
 [capability.smoke]
 components = [
     "bb_nv", "bb_log", "bb_log_event", "bb_log_http", "bb_wifi", "bb_wifi_ap",
@@ -197,6 +209,7 @@ components = [
     "bb_net_health", "bb_mem_arena", "bb_pool", "bb_udp_frame", "bb_udp_client",
     "bb_sink_udp", "bb_dispatch_cmd", "bb_meminfo", "bb_timer", "bb_config",
     "bb_config_staged", "bb_storage_nvs", "bb_storage_rtc", "bb_bqueue",
+    "bb_fsm", "bb_lifecycle", "bb_tcp_client",
 ]
 
 # Real smoke espidf boards -- the board id IS the literal FIRMWARE_BOARD
