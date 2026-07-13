@@ -17,6 +17,7 @@ sdkconfig.*
 .code-graph/
 compile_commands.json
 gcovr-coveralls.json
+gcovr-summary.json
 *.o
 *.d
 *.bin
