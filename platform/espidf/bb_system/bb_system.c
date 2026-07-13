@@ -178,6 +178,18 @@ bb_err_t bb_system_boot_count_reset(void)
     return bb_nv_set_u8(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_BOOT_CNT, 0);
 }
 
+// Reboot budget (B1-863) — real epoch resolution. See bb_system_reboot_
+// budget.c's file header for why this split is per-platform, not shared.
+bool bb_system_reboot_budget_allows(bb_reboot_cause_t cause)
+{
+    return bb_system_reboot_budget_allows_at(cause, bb_ntp_is_synced(), (uint32_t)time(NULL));
+}
+
+void bb_system_reboot_budget_record(bb_reboot_cause_t cause)
+{
+    bb_system_reboot_budget_record_at(cause, bb_ntp_is_synced(), (uint32_t)time(NULL));
+}
+
 // Number of hex chars in the app SHA256 prefix.
 // Bridge pattern (see CLAUDE.md "Kconfig knobs must bridge CONFIG_").
 #ifdef ESP_PLATFORM

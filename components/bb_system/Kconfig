@@ -9,6 +9,24 @@ config BB_SYSTEM_BOOT_BANNER
         date/time, and ESP-IDF version — via the existing bb_system
         accessors. Disable for consumers that build their own boot banner.
 
+config BB_SYSTEM_REBOOT_BUDGET_MIN_INTERVAL_S
+    int "Minimum seconds between rate-limited reboots (per cause)"
+    default 1800
+    range 300 86400
+    help
+        Shared reboot-budget cooldown consulted by bb_system_reboot_budget_
+        allows()/_record() (B1-863). Each bb_reboot_cause_t is rate-limited
+        independently (its own persisted ring) but shares this ONE knob —
+        at most one reboot per this many seconds, per cause.
+
+config BB_SYSTEM_REBOOT_BUDGET_DAILY_CAP
+    int "Maximum rate-limited reboots per rolling 24h (per cause)"
+    default 4
+    range 1 10
+    help
+        Hard cap on reboots per cause within a rolling 24h window,
+        persisted across reboots (ring buffer of reboot timestamps).
+
 config BB_SYSTEM_ROUTES_AUTOREGISTER
     bool "Build bb_system HTTP routes (/api/version, /api/reboot, /api/ping)"
     default y
