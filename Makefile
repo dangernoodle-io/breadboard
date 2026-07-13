@@ -1,6 +1,6 @@
 PIO ?= pio
 
-.PHONY: help all check lint cppcheck docs docs-index-check docs-check fence di-fence size-check size-baseline test-py test coverage smoke smoke-codegen smoke-gen smoke-gen-esp32 smoke-gen-esp32c3 smoke-gen-tdongle smoke-gen-elecrow-p4-hmi7 floor floor-gen floor-codegen clean
+.PHONY: help all check lint cppcheck docs docs-index-check docs-check fence di-fence size-check size-baseline test-py test coverage coverage-update-baseline smoke smoke-codegen smoke-gen smoke-gen-esp32 smoke-gen-esp32c3 smoke-gen-tdongle smoke-gen-elecrow-p4-hmi7 floor floor-gen floor-codegen clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
@@ -56,8 +56,11 @@ test: ## Run host unit tests (both compile-time BB_LOCK_STATS_ENABLE states) und
 	./scripts/coverage_toolchain.sh $(PIO) test -e native
 	./scripts/coverage_toolchain.sh $(PIO) test -e native_lock_stats_off
 
-coverage: test ## Coverage report (gcovr), verified-toolchain-gated on BOTH line and branch coverage (Coveralls gates on lines; B1-642 matched-major + B1-867 genuinely-GNU gcc/gcov enforced -- no specific major version required; aborts loudly instead of silently reporting 0%)
+coverage: test ## Coverage report (gcovr), gated on the committed coverage baseline (B1-764 shrink-only per-LINE-only ratchet, branch% measured/reported but not ratcheted -- see scripts/coverage_baseline.py); verified-toolchain-gated (B1-642 matched-major + B1-867 genuinely-GNU gcc/gcov enforced -- no specific major version required; aborts loudly instead of silently reporting 0%)
 	./scripts/coverage_toolchain.sh python3 scripts/coverage_gate.py --root .
+
+coverage-update-baseline: test ## Shrink-only: prune coverage baseline entries no longer uncovered (never blesses a net-new gap)
+	./scripts/coverage_toolchain.sh python3 scripts/coverage_gate.py --root . --update-baseline
 
 # r4_wifis3 / uno_cc3000 excluded from aggregate + CI pending arm64 toolchain fix (see backlog); use their individual targets locally
 smoke: smoke-elecrow-p4-hmi7 smoke-esp32 smoke-esp32-cache-sweep smoke-esp32c3 smoke-tdongle
