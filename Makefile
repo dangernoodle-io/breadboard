@@ -76,6 +76,7 @@ coverage: test ## Coverage report (gcovr); per-file branch detail aids debugging
 	    --filter 'platform/host/bb_core/bb_lock_impl\.h' \
 	    --filter 'platform/host/bb_meminfo/' \
 	    --filter 'platform/host/bb_mem_arena/' \
+	    --filter 'platform/host/bb_bqueue/' \
 	    --filter 'test/test_host/bb_serialize_meta_validate\.c' \
 	    --filter 'test/test_host/bb_serialize_meta_openapi\.c' \
 	    --exclude-throw-branches \

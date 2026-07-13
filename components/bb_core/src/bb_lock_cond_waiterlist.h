@@ -89,7 +89,11 @@ bb_err_t bb_lock_cond_waiterlist_decide_result(bool was_still_linked, bool sem_t
 // always a positive Kconfig value) but a latent footgun for any future
 // caller that passes a less-trusted tick_rate_hz -- callers MUST pass a real
 // positive tick rate.
-uint32_t bb_lock_cond_ms_to_ticks(uint32_t timeout_ms, uint32_t tick_rate_hz, uint32_t max_ticks);
+//
+// Declared in the public bb_lock.h (bb_core's public surface), NOT here --
+// one declaration, one home, avoiding a divergence risk between two
+// signatures. This comment block is the canonical contract/rationale;
+// bb_lock.h points back here for it.
 
 // Pure, host-testable absolute-deadline computation for backends (e.g. the
 // host bb_lock_cond_wait()'s Linux/glibc/musl CLOCK_MONOTONIC path, see
