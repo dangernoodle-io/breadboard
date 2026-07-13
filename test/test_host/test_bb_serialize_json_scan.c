@@ -380,6 +380,36 @@ void test_bb_serialize_json_scan_streaming_alternating_provenance(void)
     TEST_ASSERT_TRUE(s_rec[2].val_ptr >= doc && s_rec[2].val_ptr < doc + sizeof(doc));
 }
 
+// STREAMING mode CAN emit a zero-length is_final=true chunk for a NON-EMPTY
+// string: when a feed() boundary falls between the last content byte and
+// the closing quote, scan_string's inner run-scan breaks immediately with
+// run_len == 0 and still reports is_final=true (bb_serialize_json_scan.c,
+// the `chunk[*i] == '"'` branch). This is the case the value_str_chunk
+// CONTRACT in bb_serialize_json.h scopes to BOUNDED mode only -- pin the
+// real streaming shape here so a future change can't silently drop it.
+void test_bb_serialize_json_scan_streaming_split_before_closing_quote_emits_zero_length_final(void)
+{
+    rec_reset();
+    bb_serialize_json_scan_ctx_t ctx;
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_begin(&ctx, &s_mock_sink));
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_feed(&ctx, "{\"x\":\"ab", 8));
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_feed(&ctx, "\"}", 2));
+    TEST_ASSERT_EQUAL(BB_OK, bb_serialize_json_scan_end(&ctx));
+
+    TEST_ASSERT_EQUAL(4, s_rec_n);  // begin_obj, str chunk, str final, end_obj
+
+    TEST_ASSERT_EQUAL(OP_STR_CHUNK, s_rec[1].op);
+    TEST_ASSERT_EQUAL_STRING("ab", s_rec[1].val);
+    TEST_ASSERT_EQUAL(2, s_rec[1].val_len);
+    TEST_ASSERT_FALSE(s_rec[1].is_final);
+    TEST_ASSERT_EQUAL(BB_SERIALIZE_JSON_SPAN_CALLER_FEED_SCOPED, s_rec[1].provenance);
+
+    TEST_ASSERT_EQUAL(OP_STR_CHUNK, s_rec[2].op);
+    TEST_ASSERT_EQUAL(0, s_rec[2].val_len);
+    TEST_ASSERT_TRUE(s_rec[2].is_final);
+    TEST_ASSERT_EQUAL(BB_SERIALIZE_JSON_SPAN_CALLER_FEED_SCOPED, s_rec[2].provenance);
+}
+
 static void assert_single_escape(const char *doc, const char *expected)
 {
     rec_reset();

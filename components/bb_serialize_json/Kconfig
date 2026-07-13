@@ -23,4 +23,20 @@ config BB_SERIALIZE_JSON_SCRATCH_MAX_BYTES
         that would overflow this bound fails the scan with
         BB_ERR_NO_SPACE rather than truncating silently.
 
+config BB_SERIALIZE_JSON_TOK_POOL_DEFAULT_CAP
+    int "Suggested default token-recorder pool capacity (token count)"
+    default 48
+    range 8 512
+    help
+        Suggested default number of bb_serialize_json_tok_t slots for a
+        caller-owned static/stack pool passed to
+        bb_serialize_json_tok_recorder_init(). Sized to comfortably exceed
+        the worst-case Stratum mining.notify document (16 merkle branches,
+        clean_jobs present) at 29 tokens -- see
+        BB_SERIALIZE_JSON_TOK_POOL_DEFAULT_CAP's doc comment in
+        bb_serialize_json.h for the exact arithmetic. Purely a sizing
+        suggestion: the caller supplies its own pool array and pool_cap
+        explicitly to bb_serialize_json_tok_recorder_init(), so this default
+        only matters to callers that choose to size their array with it.
+
 endmenu
