@@ -2010,6 +2010,49 @@ void test_bb_lock_trylock_success_with_stats_runtime_disabled(void);
 void test_bb_lock_get_stats_null_out_is_noop(void);
 void test_bb_lock_get_stats_null_lock_zeroes_out(void);
 
+// Forward declarations from test_bb_lock_cond.c
+void test_bb_lock_cond_init_and_destroy_basic(void);
+void test_bb_lock_cond_init_null_out_returns_invalid_arg(void);
+void test_bb_lock_cond_destroy_never_initialized_is_noop_ok(void);
+void test_bb_lock_cond_destroy_twice_returns_invalid_state(void);
+void test_bb_lock_cond_destroy_null_returns_invalid_arg(void);
+void test_bb_lock_cond_wait_null_cond_returns_invalid_arg(void);
+void test_bb_lock_cond_wait_null_lock_returns_invalid_arg(void);
+void test_bb_lock_cond_signal_null_returns_invalid_arg(void);
+void test_bb_lock_cond_broadcast_null_returns_invalid_arg(void);
+void test_bb_lock_cond_wait_real_block_then_signal_wakes(void);
+void test_bb_lock_cond_broadcast_wakes_all_waiters(void);
+void test_bb_lock_cond_signal_wakes_exactly_one(void);
+void test_bb_lock_cond_two_back_to_back_signals_wake_two_distinct_waiters(void);
+void test_bb_lock_cond_wait_timeout_expiry_returns_timeout_and_reacquires_lock(void);
+void test_bb_lock_cond_wait_releases_lock_while_blocked(void);
+
+// Forward declarations from test_bb_lock_cond_waiterlist.c
+void test_bb_lock_cond_waiterlist_pop_empty_list_returns_null(void);
+void test_bb_lock_cond_waiterlist_push_sets_linked_true(void);
+void test_bb_lock_cond_waiterlist_pop_returns_most_recently_pushed(void);
+void test_bb_lock_cond_waiterlist_two_pops_after_two_pushes_return_distinct_nodes(void);
+void test_bb_lock_cond_waiterlist_one_pop_leaves_other_waiter_linked(void);
+void test_bb_lock_cond_waiterlist_remove_detaches_middle_node(void);
+void test_bb_lock_cond_waiterlist_remove_after_pop_is_idempotent_noop(void);
+void test_bb_lock_cond_waiterlist_remove_twice_is_idempotent_noop(void);
+void test_bb_lock_cond_waiterlist_remove_never_linked_is_noop(void);
+void test_bb_lock_cond_waiterlist_remove_linked_but_not_present_walks_to_end_safely(void);
+void test_bb_lock_cond_waiterlist_decide_result_still_linked_and_not_taken_is_timeout(void);
+void test_bb_lock_cond_waiterlist_decide_result_popped_but_take_lost_the_race_is_ok(void);
+void test_bb_lock_cond_waiterlist_decide_result_not_linked_and_taken_is_ok(void);
+void test_bb_lock_cond_waiterlist_decide_result_still_linked_and_taken_is_ok(void);
+void test_bb_lock_cond_ms_to_ticks_zero_is_zero(void);
+void test_bb_lock_cond_ms_to_ticks_small_value_below_max(void);
+void test_bb_lock_cond_ms_to_ticks_exact_boundary_equals_max_is_not_saturated(void);
+void test_bb_lock_cond_ms_to_ticks_large_value_that_would_overflow_32_bit_math_does_not_wrap(void);
+void test_bb_lock_cond_ms_to_ticks_saturates_at_max_ticks_ceiling(void);
+void test_bb_lock_cond_ms_to_ticks_sub_tick_nonzero_ms_rounds_down_to_zero(void);
+void test_bb_lock_cond_deadline_from_now_no_carry_adds_seconds_and_nanos(void);
+void test_bb_lock_cond_deadline_from_now_carry_rolls_into_next_second(void);
+void test_bb_lock_cond_deadline_from_now_carry_exact_boundary_is_not_carried(void);
+void test_bb_lock_cond_deadline_from_now_zero_timeout_returns_now(void);
+
 // Forward declarations from test_bb_once.c
 void test_bb_once_run_exactly_once_across_threads(void);
 void test_bb_once_run_second_call_is_noop(void);
@@ -5437,6 +5480,49 @@ int main(void) {
     RUN_TEST(test_bb_lock_trylock_success_with_stats_runtime_disabled);
     RUN_TEST(test_bb_lock_get_stats_null_out_is_noop);
     RUN_TEST(test_bb_lock_get_stats_null_lock_zeroes_out);
+
+    // bb_lock_cond condition-variable primitive (composed with bb_lock_t)
+    RUN_TEST(test_bb_lock_cond_init_and_destroy_basic);
+    RUN_TEST(test_bb_lock_cond_init_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_cond_destroy_never_initialized_is_noop_ok);
+    RUN_TEST(test_bb_lock_cond_destroy_twice_returns_invalid_state);
+    RUN_TEST(test_bb_lock_cond_destroy_null_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_cond_wait_null_cond_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_cond_wait_null_lock_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_cond_signal_null_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_cond_broadcast_null_returns_invalid_arg);
+    RUN_TEST(test_bb_lock_cond_wait_real_block_then_signal_wakes);
+    RUN_TEST(test_bb_lock_cond_broadcast_wakes_all_waiters);
+    RUN_TEST(test_bb_lock_cond_signal_wakes_exactly_one);
+    RUN_TEST(test_bb_lock_cond_two_back_to_back_signals_wake_two_distinct_waiters);
+    RUN_TEST(test_bb_lock_cond_wait_timeout_expiry_returns_timeout_and_reacquires_lock);
+    RUN_TEST(test_bb_lock_cond_wait_releases_lock_while_blocked);
+
+    // bb_lock_cond_waiterlist -- pure host-testable list-splice algorithm
+    RUN_TEST(test_bb_lock_cond_waiterlist_pop_empty_list_returns_null);
+    RUN_TEST(test_bb_lock_cond_waiterlist_push_sets_linked_true);
+    RUN_TEST(test_bb_lock_cond_waiterlist_pop_returns_most_recently_pushed);
+    RUN_TEST(test_bb_lock_cond_waiterlist_two_pops_after_two_pushes_return_distinct_nodes);
+    RUN_TEST(test_bb_lock_cond_waiterlist_one_pop_leaves_other_waiter_linked);
+    RUN_TEST(test_bb_lock_cond_waiterlist_remove_detaches_middle_node);
+    RUN_TEST(test_bb_lock_cond_waiterlist_remove_after_pop_is_idempotent_noop);
+    RUN_TEST(test_bb_lock_cond_waiterlist_remove_twice_is_idempotent_noop);
+    RUN_TEST(test_bb_lock_cond_waiterlist_remove_never_linked_is_noop);
+    RUN_TEST(test_bb_lock_cond_waiterlist_remove_linked_but_not_present_walks_to_end_safely);
+    RUN_TEST(test_bb_lock_cond_waiterlist_decide_result_still_linked_and_not_taken_is_timeout);
+    RUN_TEST(test_bb_lock_cond_waiterlist_decide_result_popped_but_take_lost_the_race_is_ok);
+    RUN_TEST(test_bb_lock_cond_waiterlist_decide_result_not_linked_and_taken_is_ok);
+    RUN_TEST(test_bb_lock_cond_waiterlist_decide_result_still_linked_and_taken_is_ok);
+    RUN_TEST(test_bb_lock_cond_ms_to_ticks_zero_is_zero);
+    RUN_TEST(test_bb_lock_cond_ms_to_ticks_small_value_below_max);
+    RUN_TEST(test_bb_lock_cond_ms_to_ticks_exact_boundary_equals_max_is_not_saturated);
+    RUN_TEST(test_bb_lock_cond_ms_to_ticks_large_value_that_would_overflow_32_bit_math_does_not_wrap);
+    RUN_TEST(test_bb_lock_cond_ms_to_ticks_saturates_at_max_ticks_ceiling);
+    RUN_TEST(test_bb_lock_cond_ms_to_ticks_sub_tick_nonzero_ms_rounds_down_to_zero);
+    RUN_TEST(test_bb_lock_cond_deadline_from_now_no_carry_adds_seconds_and_nanos);
+    RUN_TEST(test_bb_lock_cond_deadline_from_now_carry_rolls_into_next_second);
+    RUN_TEST(test_bb_lock_cond_deadline_from_now_carry_exact_boundary_is_not_carried);
+    RUN_TEST(test_bb_lock_cond_deadline_from_now_zero_timeout_returns_now);
 
     // bb_once run-exactly-once primitive
     RUN_TEST(test_bb_once_run_exactly_once_across_threads);
