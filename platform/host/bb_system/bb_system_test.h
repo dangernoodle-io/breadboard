@@ -17,3 +17,13 @@ void bb_system_set_temp_for_test(float celsius, bb_err_t rc);
  * cross-test leakage. Only available when BB_SYSTEM_TESTING is defined.
  */
 void bb_system_boot_count_reset_for_test(void);
+
+/**
+ * Host-only test hook (B1-863): clear the reboot budget's per-cause
+ * lazy-load cache (s_cache/s_loaded in bb_system_reboot_budget.c). That
+ * cache is process-lifetime state -- a value loaded (or recorded) by one
+ * test would otherwise leak into the next test for the same cause. Call
+ * from setUp() / a reset helper to prevent cross-test leakage. Only
+ * available when BB_SYSTEM_TESTING is defined.
+ */
+void bb_system_reboot_budget_reset_for_test(void);
