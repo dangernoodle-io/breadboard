@@ -820,3 +820,201 @@ void test_stream_skip_depth_multi_level_nesting(void)
     TEST_ASSERT_EQUAL_STRING("v1.0.0", tag);
     TEST_ASSERT_EQUAL_STRING("https://example.com/fw.bin", url);
 }
+
+// ---------------------------------------------------------------------------
+// bb_serialize_json scanner sink parity coverage (PR3: reimplemented on top
+// of bb_serialize_json_scan_begin/_feed/_end()). These target exactly the
+// property a streaming sink is most likely to get wrong: every possible
+// feed()-boundary split of a real payload (mid-key, mid-string,
+// mid-escape, immediately before a closing quote -- the zero-length
+// is_final chunk case -- and between array elements) must all yield the
+// identical extraction.
+// ---------------------------------------------------------------------------
+
+// Feeds `json` as exactly two chunks, split at every possible byte offset
+// 0..len, and asserts the extraction is identical every time. This is
+// exhaustive over "mid-key", "mid-string", "mid-escape", "immediately
+// before a closing quote" (a zero-length final value_str_chunk call), and
+// "between assets" splits all at once, since every one of those boundaries
+// occurs somewhere in `json` for some offset.
+static void assert_all_two_way_splits_match(const char *json, const char *board,
+                                             const char *expect_tag, const char *expect_url)
+{
+    size_t len = strlen(json);
+    for (size_t k = 0; k <= len; k++) {
+        bb_release_manifest_stream_ctx_t ctx;
+        char tag[32] = {0}, url[256] = {0};
+        bb_err_t err = bb_release_manifest_parse_github_stream_begin(
+            &ctx, board, tag, sizeof(tag), url, sizeof(url));
+        TEST_ASSERT_EQUAL(BB_OK, err);
+
+        if (k > 0) {
+            bb_err_t fe = bb_release_manifest_parse_github_stream_feed(&ctx, json, k);
+            TEST_ASSERT_EQUAL(BB_OK, fe);
+        }
+        if (k < len) {
+            bb_err_t fe = bb_release_manifest_parse_github_stream_feed(&ctx, json + k, len - k);
+            TEST_ASSERT_EQUAL(BB_OK, fe);
+        }
+
+        bb_err_t ret = bb_release_manifest_parse_github_stream_end(&ctx);
+        TEST_ASSERT_EQUAL_MESSAGE(BB_OK, ret, "split offset failed");
+        TEST_ASSERT_EQUAL_STRING(expect_tag, tag);
+        TEST_ASSERT_EQUAL_STRING(expect_url, url);
+    }
+}
+
+void test_stream_all_two_way_splits_match(void)
+{
+    assert_all_two_way_splits_match(PAYLOAD_VALID, "firmware",
+                                     "v1.2.3", "https://example.com/firmware.bin");
+}
+
+void test_stream_all_two_way_splits_with_escaped_url_match(void)
+{
+    // \/ is extremely common in real GitHub JSON responses.
+    const char *json =
+        "{\"tag_name\":\"v1.0.0\",\"assets\":["
+        "{\"name\":\"fw.bin\","
+        "\"browser_download_url\":\"https:\\/\\/example.com\\/fw.bin\"}"
+        "]}";
+    assert_all_two_way_splits_match(json, "fw", "v1.0.0", "https://example.com/fw.bin");
+}
+
+void test_stream_matching_asset_after_several(void)
+{
+    const char *json =
+        "{\"tag_name\":\"v3.0.0\",\"assets\":["
+        "{\"name\":\"a.bin\",\"browser_download_url\":\"https://x/a.bin\"},"
+        "{\"name\":\"b.bin\",\"browser_download_url\":\"https://x/b.bin\"},"
+        "{\"name\":\"c.bin\",\"browser_download_url\":\"https://x/c.bin\"},"
+        "{\"name\":\"target.bin\",\"browser_download_url\":\"https://x/target.bin\"}"
+        "]}";
+    char tag[32] = {0}, url[256] = {0};
+    bb_err_t ret = stream_parse(json, "target", tag, sizeof(tag), url, sizeof(url), 1);
+    TEST_ASSERT_EQUAL(BB_OK, ret);
+    TEST_ASSERT_EQUAL_STRING("v3.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("https://x/target.bin", url);
+}
+
+// Early-stop: once both fields are found, the scan must actually abort
+// rather than keep chewing bytes -- proven by feeding a huge, deliberately
+// malformed trailing tail after the matching asset and confirming it has
+// NO effect (if the scanner kept going, this tail would trip a grammar
+// error and _feed()/_end() would report it).
+void test_stream_early_stop_ignores_broken_tail(void)
+{
+    bb_release_manifest_stream_ctx_t ctx;
+    char tag[32] = {0}, url[256] = {0};
+    bb_err_t err = bb_release_manifest_parse_github_stream_begin(
+        &ctx, "fw", tag, sizeof(tag), url, sizeof(url));
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    const char *head =
+        "{\"tag_name\":\"v1.0.0\",\"assets\":["
+        "{\"name\":\"fw.bin\",\"browser_download_url\":\"https://x/fw.bin\"}"
+        "]";  // deliberately unclosed -- both fields are found before this
+              // point is ever reached, so it's never actually parsed
+    bb_err_t feed_err = bb_release_manifest_parse_github_stream_feed(&ctx, head, strlen(head));
+    TEST_ASSERT_EQUAL(BB_OK, feed_err);
+
+    char broken_tail[8192];
+    memset(broken_tail, '}', sizeof(broken_tail) - 1);  // way more closes than opens
+    broken_tail[sizeof(broken_tail) - 1] = '\0';
+    feed_err = bb_release_manifest_parse_github_stream_feed(&ctx, broken_tail, strlen(broken_tail));
+    TEST_ASSERT_EQUAL(BB_OK, feed_err);
+
+    bb_err_t ret = bb_release_manifest_parse_github_stream_end(&ctx);
+    TEST_ASSERT_EQUAL(BB_OK, ret);
+    TEST_ASSERT_EQUAL_STRING("v1.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("https://x/fw.bin", url);
+}
+
+// Malformed JSON reached mid-stream, before tag_name was ever found --
+// exercises the "grammar error -> BB_ERR_NOT_FOUND" fold when tag_found is
+// still false (as opposed to test_stream_bad_json_returns_not_found, which
+// is malformed from the very first byte).
+void test_stream_malformed_mid_stream_before_tag_found(void)
+{
+    const char *json = "{\"assets\": [}}}garbage";
+    char tag[32] = {0}, url[256] = {0};
+    bb_err_t ret = stream_parse(json, "fw", tag, sizeof(tag), url, sizeof(url), 1);
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, ret);
+}
+
+// Malformed JSON reached mid-stream, AFTER tag_name was already found --
+// exercises the "genuine scan error hard-fails, even after tag_found" path
+// in bb_release_manifest_sink_finalize(): a dropped/corrupt fetch must not
+// be indistinguishable from a well-formed manifest with no matching asset,
+// so this must NOT fold to the lenient BB_OK terminal just because
+// tag_name happened to parse before the malformed grammar was hit.
+void test_stream_malformed_mid_stream_after_tag_found(void)
+{
+    const char *json = "{\"tag_name\":\"v1.0.0\",\"assets\":[}}}not valid";
+    char tag[32] = {0}, url[256] = {0};
+    bb_err_t ret = stream_parse(json, "fw", tag, sizeof(tag), url, sizeof(url), 1);
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, ret);
+    TEST_ASSERT_EQUAL_STRING("", url);
+}
+
+// ---------------------------------------------------------------------------
+// Buffer overflow -> BB_ERR_NO_SPACE, propagated as a real _feed() abort
+// (the one non-sentinel, non-BB_OK code that legitimately aborts the
+// transport -- see bb_release_manifest_parse_github_stream_feed()'s
+// masking logic).
+// ---------------------------------------------------------------------------
+
+void test_stream_tag_buffer_too_small_returns_no_space(void)
+{
+    const char *json = "{\"tag_name\":\"v1.0.0\",\"assets\":[]}";
+    char tag[3] = {0}, url[256] = {0};
+    bb_release_manifest_stream_ctx_t ctx;
+    bb_err_t err = bb_release_manifest_parse_github_stream_begin(
+        &ctx, "fw", tag, sizeof(tag), url, sizeof(url));
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_err_t feed_err = bb_release_manifest_parse_github_stream_feed(&ctx, json, strlen(json));
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, feed_err);
+
+    bb_err_t ret = bb_release_manifest_parse_github_stream_end(&ctx);
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, ret);
+}
+
+// ---------------------------------------------------------------------------
+// Review finding (json-github PR): a connection that drops mid-URL must not
+// leave a partial value in url_out.
+// ---------------------------------------------------------------------------
+
+// A stream that stops mid-"browser_download_url" (e.g. a dropped HTTP
+// connection) -- _end() sees a genuine BB_ERR_INVALID_STATE grammar error
+// (unterminated string). url_out must be EMPTY, never the partial bytes
+// that had already been written before the drop, AND the result must
+// hard-fail (not fold to BB_OK) even though tag_name was already extracted
+// -- a dropped/corrupt fetch must not be indistinguishable from a
+// well-formed manifest with no matching asset. See
+// test_bb_release_manifest_parse_github_truncated_mid_url_leaves_no_partial_url
+// in test_bb_release_manifest.c for the buffered-mode equivalent and the
+// traced bb_ota_check_common.c consequence of getting this wrong.
+void test_stream_truncated_mid_url_leaves_no_partial_url(void)
+{
+    const char *full =
+        "{\"tag_name\":\"v1.0.0\",\"assets\":["
+        "{\"name\":\"fw.bin\",\"browser_download_url\":\"https://x/fw.bin\"}"
+        "]}";
+    const char *cut_marker = "https://x/fw";
+    size_t truncated_len = (size_t)(strstr(full, cut_marker) - full) + strlen(cut_marker);
+
+    bb_release_manifest_stream_ctx_t ctx;
+    char tag[32] = {0}, url[256] = {0};
+    bb_err_t err = bb_release_manifest_parse_github_stream_begin(
+        &ctx, "fw", tag, sizeof(tag), url, sizeof(url));
+    TEST_ASSERT_EQUAL(BB_OK, err);
+
+    bb_err_t feed_err = bb_release_manifest_parse_github_stream_feed(&ctx, full, truncated_len);
+    TEST_ASSERT_EQUAL(BB_OK, feed_err);
+
+    bb_err_t ret = bb_release_manifest_parse_github_stream_end(&ctx);
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, ret);
+    TEST_ASSERT_EQUAL_STRING("v1.0.0", tag);
+    TEST_ASSERT_EQUAL_STRING("", url);
+}

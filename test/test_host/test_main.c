@@ -1199,7 +1199,30 @@ void test_bb_release_manifest_parse_github_skips_non_matching_first_asset(void);
 void test_bb_release_manifest_parse_github_asset_missing_name_skipped(void);
 void test_bb_release_manifest_parse_github_matching_asset_no_url(void);
 void test_bb_release_manifest_parse_github_assets_not_array(void);
+void test_bb_release_manifest_parse_github_assets_is_object_not_array(void);
+void test_bb_release_manifest_parse_github_assets_is_number_not_array(void);
+void test_bb_release_manifest_parse_github_assets_is_null_not_array(void);
 void test_bb_release_manifest_parse_github_empty_assets_array(void);
+void test_bb_release_manifest_parse_github_slash_escape_in_url(void);
+void test_bb_release_manifest_parse_github_matching_asset_after_several(void);
+void test_bb_release_manifest_parse_github_early_stop_ignores_broken_tail(void);
+void test_bb_release_manifest_parse_github_malformed_after_tag_found(void);
+void test_bb_release_manifest_parse_github_tag_buffer_too_small(void);
+void test_bb_release_manifest_parse_github_url_buffer_too_small(void);
+void test_bb_release_manifest_parse_github_assets_element_is_array_no_match(void);
+void test_bb_release_manifest_parse_github_toplevel_six_char_key_not_assets(void);
+void test_bb_release_manifest_parse_github_duplicate_tag_name_second_ignored(void);
+void test_bb_release_manifest_parse_github_toplevel_eight_char_key_not_tag_name(void);
+void test_bb_release_manifest_parse_github_nested_name_key_wrong_depth_ignored(void);
+void test_bb_release_manifest_parse_github_duplicate_name_key_second_ignored(void);
+void test_bb_release_manifest_parse_github_asset_four_char_key_not_name(void);
+void test_bb_release_manifest_parse_github_asset_twenty_char_key_not_url(void);
+void test_bb_release_manifest_parse_github_nested_url_key_wrong_depth_ignored(void);
+void test_bb_release_manifest_parse_github_duplicate_url_key_second_ignored(void);
+void test_bb_release_manifest_parse_github_assets_before_tag_name_early_stop(void);
+void test_bb_release_manifest_parse_github_truncated_mid_url_leaves_no_partial_url(void);
+void test_bb_release_manifest_parse_github_toplevel_short_string_key_before_tag_found(void);
+void test_bb_release_manifest_parse_github_root_array_document(void);
 
 // Forward declarations from test_release_manifest_github_stream.c
 void test_stream_begin_null_ctx_returns_invalid_arg(void);
@@ -1246,6 +1269,14 @@ void test_stream_very_long_key_truncated_ignored(void);
 void test_stream_long_key_with_escape_at_capacity_ignored(void);
 void test_stream_skip_depth_nested_array_inside_object(void);
 void test_stream_skip_depth_multi_level_nesting(void);
+void test_stream_all_two_way_splits_match(void);
+void test_stream_all_two_way_splits_with_escaped_url_match(void);
+void test_stream_matching_asset_after_several(void);
+void test_stream_early_stop_ignores_broken_tail(void);
+void test_stream_malformed_mid_stream_before_tag_found(void);
+void test_stream_malformed_mid_stream_after_tag_found(void);
+void test_stream_tag_buffer_too_small_returns_no_space(void);
+void test_stream_truncated_mid_url_leaves_no_partial_url(void);
 
 // Forward declarations from test_nv_generic.c
 void test_nv_set_u8_null_ns(void);
@@ -6124,7 +6155,30 @@ int main(void) {
     RUN_TEST(test_bb_release_manifest_parse_github_asset_missing_name_skipped);
     RUN_TEST(test_bb_release_manifest_parse_github_matching_asset_no_url);
     RUN_TEST(test_bb_release_manifest_parse_github_assets_not_array);
+    RUN_TEST(test_bb_release_manifest_parse_github_assets_is_object_not_array);
+    RUN_TEST(test_bb_release_manifest_parse_github_assets_is_number_not_array);
+    RUN_TEST(test_bb_release_manifest_parse_github_assets_is_null_not_array);
     RUN_TEST(test_bb_release_manifest_parse_github_empty_assets_array);
+    RUN_TEST(test_bb_release_manifest_parse_github_slash_escape_in_url);
+    RUN_TEST(test_bb_release_manifest_parse_github_matching_asset_after_several);
+    RUN_TEST(test_bb_release_manifest_parse_github_early_stop_ignores_broken_tail);
+    RUN_TEST(test_bb_release_manifest_parse_github_malformed_after_tag_found);
+    RUN_TEST(test_bb_release_manifest_parse_github_tag_buffer_too_small);
+    RUN_TEST(test_bb_release_manifest_parse_github_url_buffer_too_small);
+    RUN_TEST(test_bb_release_manifest_parse_github_assets_element_is_array_no_match);
+    RUN_TEST(test_bb_release_manifest_parse_github_toplevel_six_char_key_not_assets);
+    RUN_TEST(test_bb_release_manifest_parse_github_duplicate_tag_name_second_ignored);
+    RUN_TEST(test_bb_release_manifest_parse_github_toplevel_eight_char_key_not_tag_name);
+    RUN_TEST(test_bb_release_manifest_parse_github_nested_name_key_wrong_depth_ignored);
+    RUN_TEST(test_bb_release_manifest_parse_github_duplicate_name_key_second_ignored);
+    RUN_TEST(test_bb_release_manifest_parse_github_asset_four_char_key_not_name);
+    RUN_TEST(test_bb_release_manifest_parse_github_asset_twenty_char_key_not_url);
+    RUN_TEST(test_bb_release_manifest_parse_github_nested_url_key_wrong_depth_ignored);
+    RUN_TEST(test_bb_release_manifest_parse_github_duplicate_url_key_second_ignored);
+    RUN_TEST(test_bb_release_manifest_parse_github_assets_before_tag_name_early_stop);
+    RUN_TEST(test_bb_release_manifest_parse_github_truncated_mid_url_leaves_no_partial_url);
+    RUN_TEST(test_bb_release_manifest_parse_github_toplevel_short_string_key_before_tag_found);
+    RUN_TEST(test_bb_release_manifest_parse_github_root_array_document);
 
     // Streaming release manifest parser tests
     RUN_TEST(test_stream_begin_null_ctx_returns_invalid_arg);
@@ -6171,6 +6225,14 @@ int main(void) {
     RUN_TEST(test_stream_long_key_with_escape_at_capacity_ignored);
     RUN_TEST(test_stream_skip_depth_nested_array_inside_object);
     RUN_TEST(test_stream_skip_depth_multi_level_nesting);
+    RUN_TEST(test_stream_all_two_way_splits_match);
+    RUN_TEST(test_stream_all_two_way_splits_with_escaped_url_match);
+    RUN_TEST(test_stream_matching_asset_after_several);
+    RUN_TEST(test_stream_early_stop_ignores_broken_tail);
+    RUN_TEST(test_stream_malformed_mid_stream_before_tag_found);
+    RUN_TEST(test_stream_malformed_mid_stream_after_tag_found);
+    RUN_TEST(test_stream_tag_buffer_too_small_returns_no_space);
+    RUN_TEST(test_stream_truncated_mid_url_leaves_no_partial_url);
 
     // HTTP utils tests
     RUN_TEST(test_url_decode_basic);
