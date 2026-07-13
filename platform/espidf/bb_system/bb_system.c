@@ -165,16 +165,10 @@ void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint
 // needed one (a genuinely failing device keeps incrementing post-OTA). The
 // stranded bb_cfg/boot_cnt byte is left in place, retired wholesale when
 // bb_nv is deleted.
-uint8_t bb_system_boot_count_get(void)
+bb_err_t bb_system_boot_count_increment(void)
 {
     uint8_t val = 0;
     bb_nv_get_u8(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_BOOT_CNT, &val, 0);
-    return val;
-}
-
-bb_err_t bb_system_boot_count_increment(void)
-{
-    uint8_t val = bb_system_boot_count_get();
     if (val < UINT8_MAX) val++;
     return bb_nv_set_u8(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_BOOT_CNT, val);
 }

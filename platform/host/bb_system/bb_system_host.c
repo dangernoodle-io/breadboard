@@ -102,11 +102,6 @@ void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint
 // get/increment/reset/saturate behavior independent of persistence.
 static uint8_t s_boot_count = 0;
 
-uint8_t bb_system_boot_count_get(void)
-{
-    return s_boot_count;
-}
-
 bb_err_t bb_system_boot_count_increment(void)
 {
     if (s_boot_count < UINT8_MAX) s_boot_count++;

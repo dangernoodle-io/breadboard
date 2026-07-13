@@ -137,7 +137,10 @@ static void handle_disconnect(uint8_t reason, reconn_state_t *state, uint32_t *b
             break;
 
         case WIFI_RECONN_ACTION_RECONNECT_NOW:
-            *state = ST_BACKOFF;
+            // No state write here: the caller (reconn_task) sees backoff_ms==0
+            // for this action and immediately drives the transition to
+            // ST_CONNECTING itself — an intermediate ST_BACKOFF write here
+            // would be overwritten before ever being observed.
             bb_log_w(TAG, "disconnect reason=%u(%s), immediate retry (handshake=%d, generic=%d)",
                      reason, bb_wifi_disc_reason_str(mapped), s_state.handshake_fail_count,
                      s_state.generic_fail_count);
