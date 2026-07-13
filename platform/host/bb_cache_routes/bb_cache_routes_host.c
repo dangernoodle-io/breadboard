@@ -11,7 +11,7 @@ void bb_cache_routes_reset_for_test(void)
 {
     // bb_cache_routes holds no persistent state to reset -- the mapper is a
     // pure function and the handler is not compiled on host. Kept for API
-    // symmetry with other _routes components' test-reset hooks (e.g.
-    // bb_power_routes_reset_for_test).
+    // symmetry with other components' test-reset hooks (e.g.
+    // bb_thermal_reset_for_test).
 }
 #endif

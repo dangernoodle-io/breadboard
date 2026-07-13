@@ -19,3 +19,11 @@ idf_component_register(
 
 # include/ exposes bb_fan_driver.h (semi-private driver vtable interface).
 # Fan driver components (e.g. bb_fan_emc2101) REQUIRES bb_fan to access it.
+
+# test/test_host/test_emc2101_decode.c exercises bb_fan_emc2101's pure decode
+# header directly; bb_fan_emc2101 itself is an ESP-IDF-only I2C driver (no
+# platform/host backend) so it's never a requested scaffold component, but
+# its decode header must still be on the host test include path. Hosted here
+# (not on bb_fan_emc2101 itself) because bb_fan is the component actually
+# reachable from [capability.core]'s native test graph.
+# bbtool-scaffold-hint: include=components/bb_fan_emc2101/include

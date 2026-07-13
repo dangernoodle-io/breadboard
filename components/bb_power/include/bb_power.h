@@ -54,6 +54,10 @@ bb_power_handle_t bb_power_primary(void);
  */
 void bb_power_emit(bb_json_t obj, const bb_power_snapshot_t *snap);
 
+// Shared emit helper — writes "present" plus power fields into an existing
+// bb_json_t object. SSOT for the /api/sensors power section (bb_sensors).
+void bb_power_emit_section(bb_json_t obj);
+
 #ifdef __cplusplus
 }
 #endif
