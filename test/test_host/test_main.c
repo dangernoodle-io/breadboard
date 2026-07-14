@@ -620,6 +620,7 @@ void test_ota_push_deadline_ms_realistic_case(void);
 // Forward declarations from test_ota_boot.c
 void test_ota_boot_pending_returns_bool(void);
 void test_ota_boot_arm_callable(void);
+void test_ota_boot_arm_then_pending_round_trips_through_storage(void);
 void test_ota_boot_phase_str_start_returns_downloading(void);
 void test_ota_boot_phase_str_progress_returns_downloading(void);
 void test_ota_boot_phase_str_success_returns_complete(void);
@@ -3730,6 +3731,7 @@ void test_bb_mqtt_suspend_default_no_client_is_safe(void);
 void test_bb_mqtt_resume_default_no_client_is_safe(void);
 void test_bb_mqtt_suspend_default_sets_suspended(void);
 void test_bb_mqtt_resume_default_clears_suspended(void);
+void test_bb_mqtt_resume_default_reloads_persisted_uri(void);
 void test_bb_mqtt_suspend_default_idempotent(void);
 void test_bb_mqtt_resume_default_idempotent(void);
 void test_bb_mqtt_suspend_resume_cycle(void);
@@ -5280,6 +5282,7 @@ int main(void) {
     RUN_TEST(test_ota_push_deadline_ms_realistic_case);
     RUN_TEST(test_ota_boot_pending_returns_bool);
     RUN_TEST(test_ota_boot_arm_callable);
+    RUN_TEST(test_ota_boot_arm_then_pending_round_trips_through_storage);
     RUN_TEST(test_ota_boot_phase_str_start_returns_downloading);
     RUN_TEST(test_ota_boot_phase_str_progress_returns_downloading);
     RUN_TEST(test_ota_boot_phase_str_success_returns_complete);
@@ -8335,6 +8338,7 @@ int main(void) {
     RUN_TEST(test_bb_mqtt_resume_default_no_client_is_safe);
     RUN_TEST(test_bb_mqtt_suspend_default_sets_suspended);
     RUN_TEST(test_bb_mqtt_resume_default_clears_suspended);
+    RUN_TEST(test_bb_mqtt_resume_default_reloads_persisted_uri);
     RUN_TEST(test_bb_mqtt_suspend_default_idempotent);
     RUN_TEST(test_bb_mqtt_resume_default_idempotent);
     RUN_TEST(test_bb_mqtt_suspend_resume_cycle);

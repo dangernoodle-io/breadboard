@@ -4,8 +4,11 @@
 // bb_mqtt_client_publish records the last (and all) publish calls in a ring.
 // bb_mqtt_client_is_connected returns a flag settable via bb_mqtt_client_host_set_connected.
 // All operations return BB_OK; no real network IO occurs.
+//
+// "uri" (resume_default's NVS reload) round-trips through bb_config rather
+// than bb_nv's generic KV forwarder (B1-756) — see s_mqtt_uri_field below.
 #include "bb_mqtt_client.h"
-#include "bb_nv.h"
+#include "bb_config.h"
 #include "bb_mqtt_client_reassemble.h"
 #include "bb_str.h"
 
@@ -14,6 +17,11 @@
 #include <string.h>
 
 #define BB_MQTT_CLIENT_HOST_PUB_CAP 32
+
+// NVS key constants (host: mirrored from espidf backend). BB_MQTT_NVS_NS is
+// the SSOT namespace constant from bb_mqtt_client.h. Declared early so the
+// handle struct below can size its uri[] test-observability field against it.
+#define BB_MQTT_CLIENT_URI_MAX 128
 
 // Host stub has no CONFIG_BB_MQTT_CLIENT_RX_BUFFER_BYTES bridge (espidf-only
 // Kconfig); mirror the Kconfig default so host-injected fragments behave
@@ -43,6 +51,7 @@ typedef struct {
     bb_mqtt_client_msg_cb        msg_cb;    // B1-487: per-handle receive callback
     void                 *msg_ctx;
     bb_mqtt_client_reasm_state_t reasm;     // per-handle reassembly state (mirrors espidf)
+    char               uri[BB_MQTT_CLIENT_URI_MAX];  // copy of cfg->uri, for host test observability
 #ifdef BB_MQTT_CLIENT_TESTING
     bool               test_subscribe_fail;  // forces bb_mqtt_client_subscribe to fail once set
 #endif
@@ -58,6 +67,9 @@ bb_err_t bb_mqtt_client_init(const bb_mqtt_client_cfg_t *cfg, bb_mqtt_client_t *
     // Simulate "connected" by default so publish tests don't need to set flag.
     h->connected = true;
     h->tls       = cfg->tls;
+    if (cfg->uri) {
+        bb_strlcpy(h->uri, cfg->uri, sizeof(h->uri));
+    }
 
     *out = h;
     return BB_OK;
@@ -208,9 +220,21 @@ bb_err_t bb_mqtt_client_stop_default(void)
 static bool s_suspended  = false;
 static bool s_stop_only  = false;   // controlled by bb_mqtt_client_host_set_stop_only
 
-// NVS key constants (host: mirrored from espidf backend). BB_MQTT_NVS_NS is
-// the SSOT namespace constant from bb_mqtt_client.h.
-#define BB_MQTT_CLIENT_URI_MAX 128
+// "uri" round-trips through bb_config (typed layer over bb_storage) rather
+// than bb_nv's generic KV forwarder (B1-756, bb_nv dissolution epic B1-708)
+// -- bb_config's STR encoding resolves to the SAME nvs_get_str call
+// bb_nv_get_str made (both are thin forwarders to bb_storage_nvs), so this
+// namespace/key/STR-typed on-flash format is byte-compatible with what this
+// component previously read via bb_nv. Address matches
+// bb_mqtt_client_espidf.c's s_mqtt_uri_field exactly.
+static const bb_config_field_t s_mqtt_uri_field = {
+    .id          = "mqtt.uri",
+    .type        = BB_CONFIG_STR,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = "uri" },
+    .max_len     = BB_MQTT_CLIENT_URI_MAX,
+    .def         = { .str = "" },
+    .has_default = true,
+};
 
 bb_err_t bb_mqtt_client_suspend_default(void)
 {
@@ -248,7 +272,8 @@ bb_err_t bb_mqtt_client_resume_default(void)
     } else {
         // Full release: recreate a fresh handle from NVS (or fallback uri).
         char uri[BB_MQTT_CLIENT_URI_MAX] = {0};
-        bb_nv_get_str(BB_MQTT_NVS_NS, "uri", uri, sizeof(uri), "");
+        size_t uri_len = 0;
+        bb_config_get_str(&s_mqtt_uri_field, uri, sizeof(uri), &uri_len);
 
         if (!uri[0]) {
             bb_strlcpy(uri, "mqtt://localhost:1883", sizeof(uri));
@@ -287,6 +312,12 @@ int bb_mqtt_client_host_pub_count(bb_mqtt_client_t handle)
 {
     if (!handle) return 0;
     return ((bb_mqtt_client_host_handle_t *)handle)->count;
+}
+
+const char *bb_mqtt_client_host_last_uri(bb_mqtt_client_t handle)
+{
+    if (!handle) return "";
+    return ((bb_mqtt_client_host_handle_t *)handle)->uri;
 }
 
 void bb_mqtt_client_host_set_connected(bb_mqtt_client_t handle, bool connected)

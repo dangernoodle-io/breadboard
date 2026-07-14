@@ -30,7 +30,14 @@
 #include <inttypes.h>
 
 #if CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
-#include "bb_nv.h"
+// Persisted reboot-rate-limit state round-trips through bb_config (typed
+// layer over bb_storage) rather than bb_nv's generic KV forwarder (B1-756,
+// bb_nv dissolution epic B1-708) -- bb_config's STR encoding resolves to the
+// SAME nvs_get_str/nvs_set_str calls bb_nv_get_str/set_str made (both are
+// thin forwarders to bb_storage_nvs, see bb_storage_nvs.h), so the
+// namespace/key/STR-typed on-flash format below is byte-compatible with what
+// this component previously read/wrote via bb_nv.
+#include "bb_config.h"
 #include "bb_nv_namespaces.h"
 #include "bb_nv_keys.h"
 #include "bb_ntp.h"
@@ -107,10 +114,25 @@ static uint32_t                     s_unhealthy_since_s   = 0;     // epoch-s; 0
 static bb_net_health_reboot_state_t s_reboot_state        = {0};   // zero-init valid
 static bool                         s_reboot_state_loaded = false;
 
+// Namespace/key byte-for-byte matched to bb_nv's prior
+// BB_NET_HEALTH_EGRESS_ACT_NVS_NS ("bb_egress_act") /
+// BB_NET_HEALTH_EGRESS_ACT_KEY_STATE ("state") — do not change without a
+// migration plan, this strands provisioned-board egress-recovery
+// reboot-rate-limit state otherwise.
+static const bb_config_field_t s_egress_act_state_field = {
+    .id          = "net_health.egress_act.state",
+    .type        = BB_CONFIG_STR,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_NET_HEALTH_EGRESS_ACT_NVS_NS,
+                      .key = BB_NET_HEALTH_EGRESS_ACT_KEY_STATE },
+    .max_len     = BB_NET_HEALTH_REBOOT_STATE_STR_MAX,
+    .def         = { .str = "" },
+    .has_default = true,
+};
+
 // Load persisted reboot-rate-limit state from NVS. Idempotent; called once
 // from bb_net_health_start() before the evaluator timer is armed, so
 // eval_work_fn never races the load. Single-key packed string (B1-518 PR4
-// finding MED) — one bb_nv_get_str call, decoded via
+// finding MED) — one bb_config_get_str call, decoded via
 // bb_net_health_reboot_state_decode. A missing key, first-boot empty
 // fallback, or malformed/corrupt value all decode-fail safely into the
 // existing zero-init s_reboot_state (no reboots recorded yet).
@@ -122,8 +144,17 @@ static void egress_act_load_state(void)
     memset(&s_reboot_state, 0, sizeof(s_reboot_state));
 
     char buf[BB_NET_HEALTH_REBOOT_STATE_STR_MAX];
-    bb_err_t err = bb_nv_get_str(BB_NET_HEALTH_EGRESS_ACT_NVS_NS, BB_NET_HEALTH_EGRESS_ACT_KEY_STATE,
-                                  buf, sizeof(buf), "");
+    size_t out_len = 0;
+    bb_err_t err = bb_config_get_str(&s_egress_act_state_field, buf, sizeof(buf), &out_len);
+    // buf is stack-local and NOT zero-initialized (unlike bb_nv_get_str's
+    // prior bb_strlcpy-based guarantee, bb_config_get_str's blob-fallback
+    // path does not itself NUL-terminate) -- terminate explicitly based on
+    // the reported length before treating buf as a C string, clamping to
+    // the last byte on a genuine truncation (out_len >= cap).
+    if (err == BB_OK) {
+        size_t term = (out_len < sizeof(buf)) ? out_len : sizeof(buf) - 1;
+        buf[term] = '\0';
+    }
     if (err == BB_OK && buf[0] != '\0') {
         if (!bb_net_health_reboot_state_decode(buf, &s_reboot_state)) {
             bb_log_w(TAG, "egress ACT: corrupt persisted reboot state, resetting");
@@ -145,7 +176,7 @@ static void egress_act_persist_state(void)
         bb_log_w(TAG, "egress ACT: reboot state encode failed, not persisted");
         return;
     }
-    bb_nv_set_str(BB_NET_HEALTH_EGRESS_ACT_NVS_NS, BB_NET_HEALTH_EGRESS_ACT_KEY_STATE, buf);
+    bb_config_set_str(&s_egress_act_state_field, buf);
 }
 #endif // CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
 
