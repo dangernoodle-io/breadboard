@@ -3120,15 +3120,16 @@ void test_bb_ntp_last_sync_unix_returns_zero_on_host(void);
 void test_bb_ntp_is_synced_returns_false_on_host(void);
 
 // Forward declarations from test_bb_ntp_timezone.c
-void test_nv_timezone_default_is_empty(void);
-void test_nv_set_timezone_stores_and_reads_back(void);
-void test_nv_set_timezone_null_clears(void);
-void test_nv_set_timezone_empty_string_clears(void);
-void test_nv_set_timezone_too_long_returns_invalid_arg(void);
-void test_nv_set_timezone_max_len_succeeds(void);
-void test_nv_factory_reset_clears_timezone(void);
+void test_settings_timezone_default_is_empty(void);
+void test_settings_timezone_set_stores_and_reads_back(void);
+void test_settings_timezone_set_null_clears(void);
+void test_settings_timezone_set_empty_string_clears(void);
+void test_settings_timezone_set_too_long_returns_invalid_arg(void);
+void test_settings_timezone_set_max_len_succeeds(void);
+void test_settings_timezone_byte_compat_legacy_address_readable_via_accessor(void);
+void test_settings_timezone_byte_compat_accessor_write_readable_via_legacy_address(void);
 void test_ntp_apply_saved_timezone_defaults_to_utc(void);
-void test_ntp_set_timezone_persists_to_nv(void);
+void test_ntp_set_timezone_persists_to_settings(void);
 void test_ntp_set_timezone_applies_immediately(void);
 void test_ntp_set_timezone_null_clears_to_utc(void);
 void test_ntp_set_timezone_empty_string_clears_to_utc(void);
@@ -7211,15 +7212,16 @@ int main(void) {
     RUN_TEST(test_bb_ntp_is_synced_returns_false_on_host);
 
     // bb_ntp_timezone satellite tests
-    RUN_TEST(test_nv_timezone_default_is_empty);
-    RUN_TEST(test_nv_set_timezone_stores_and_reads_back);
-    RUN_TEST(test_nv_set_timezone_null_clears);
-    RUN_TEST(test_nv_set_timezone_empty_string_clears);
-    RUN_TEST(test_nv_set_timezone_too_long_returns_invalid_arg);
-    RUN_TEST(test_nv_set_timezone_max_len_succeeds);
-    RUN_TEST(test_nv_factory_reset_clears_timezone);
+    RUN_TEST(test_settings_timezone_default_is_empty);
+    RUN_TEST(test_settings_timezone_set_stores_and_reads_back);
+    RUN_TEST(test_settings_timezone_set_null_clears);
+    RUN_TEST(test_settings_timezone_set_empty_string_clears);
+    RUN_TEST(test_settings_timezone_set_too_long_returns_invalid_arg);
+    RUN_TEST(test_settings_timezone_set_max_len_succeeds);
+    RUN_TEST(test_settings_timezone_byte_compat_legacy_address_readable_via_accessor);
+    RUN_TEST(test_settings_timezone_byte_compat_accessor_write_readable_via_legacy_address);
     RUN_TEST(test_ntp_apply_saved_timezone_defaults_to_utc);
-    RUN_TEST(test_ntp_set_timezone_persists_to_nv);
+    RUN_TEST(test_ntp_set_timezone_persists_to_settings);
     RUN_TEST(test_ntp_set_timezone_applies_immediately);
     RUN_TEST(test_ntp_set_timezone_null_clears_to_utc);
     RUN_TEST(test_ntp_set_timezone_empty_string_clears_to_utc);

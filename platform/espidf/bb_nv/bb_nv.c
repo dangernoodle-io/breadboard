@@ -16,7 +16,6 @@
 
 #define BB_NV_KEY_WIFI_SSID         "wifi_ssid"
 #define BB_NV_KEY_WIFI_PASS         "wifi_pass"
-#define BB_NV_KEY_TIMEZONE          "timezone"
 #define BB_NV_KEY_MDNS_EN           "mdns_en"
 #define BB_NV_KEY_UPDATE_CHECK_EN   "update_check_en"
 #define BB_NV_KEY_DISPLAY_EN        "display_en"
@@ -24,8 +23,6 @@
 #define BB_NV_KEY_WIFI_SSID_P       "wifi_ssid_p"
 #define BB_NV_KEY_WIFI_PASS_P       "wifi_pass_p"
 #define BB_NV_KEY_WIFI_TRY          "wifi_try"
-
-#define BB_NV_TIMEZONE_MAX_LEN 65  /* 64 chars + NUL */
 
 static const char *TAG_NV = "bb_nv";
 
@@ -59,15 +56,6 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
         .desc             = "WiFi password",
         .reboot_required  = true,
         .provisioning_only = true,
-    },
-    {
-        .key              = BB_NV_KEY_TIMEZONE,
-        .type             = "str",
-        .default_         = NULL,
-        .max_len          = 64,
-        .desc             = "POSIX timezone string (e.g. EST5EDT,M3.2.0,M11.1.0); empty = UTC",
-        .reboot_required  = false,
-        .provisioning_only = false,
     },
     {
         .key              = BB_NV_KEY_MDNS_EN,
@@ -112,7 +100,6 @@ static const bb_manifest_nv_t s_bb_cfg_keys[] = {
 static struct {
     char wifi_ssid[32];
     char wifi_pass[64];
-    char timezone[BB_NV_TIMEZONE_MAX_LEN];
     uint8_t display_en;
     uint8_t mdns_en;
     uint8_t update_check_en;
@@ -186,7 +173,6 @@ bb_err_t bb_nv_config_init(void)
 
     load_str(handle, BB_NV_KEY_WIFI_SSID, s_config.wifi_ssid, sizeof(s_config.wifi_ssid), "");
     load_str(handle, BB_NV_KEY_WIFI_PASS, s_config.wifi_pass, sizeof(s_config.wifi_pass), "");
-    load_str(handle, BB_NV_KEY_TIMEZONE, s_config.timezone, sizeof(s_config.timezone), "");
 
 #if defined(CONFIG_BB_NV_CREDS_RTC_BACKUP)
     /* Restore+heal: if NVS has no creds but the RTC mirror is valid, recover
@@ -465,15 +451,6 @@ bb_err_t bb_nv_config_clear_wifi_pending(void)
     if (err == BB_OK) {
         memset(&s_pending, 0, sizeof(s_pending));
     }
-    return err;
-}
-
-bb_err_t bb_nv_config_set_timezone(const char *tz)
-{
-    const char *t = (tz && tz[0] != '\0') ? tz : "";
-    if (strlen(t) >= BB_NV_TIMEZONE_MAX_LEN) return BB_ERR_INVALID_ARG;
-    bb_err_t err = nv_config_set_str(BB_NV_KEY_TIMEZONE, t);
-    if (err == BB_OK) bb_strlcpy(s_config.timezone, t, sizeof(s_config.timezone));
     return err;
 }
 
@@ -961,14 +938,6 @@ void bb_nv_config_host_force_set_update_check_fail(bool fail)
     s_force_set_update_check_fail = fail;
 }
 
-bb_err_t bb_nv_config_set_timezone(const char *tz)
-{
-    const char *t = (tz && tz[0] != '\0') ? tz : "";
-    if (strlen(t) >= BB_NV_TIMEZONE_MAX_LEN) return BB_ERR_INVALID_ARG;
-    bb_strlcpy(s_config.timezone, t, sizeof(s_config.timezone));
-    return BB_OK;
-}
-
 bb_err_t bb_nv_config_set_display_enabled(bool en)
 {
     s_config.display_en = en ? 1 : 0;
@@ -1007,7 +976,6 @@ bb_err_t bb_nv_config_factory_reset(void)
 
 const char *bb_nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }
 const char *bb_nv_config_wifi_pass(void) { return s_config.wifi_pass; }
-const char *bb_nv_config_timezone(void) { return s_config.timezone; }
 bool bb_nv_config_display_enabled(void) { return s_config.display_en != 0; }
 bool bb_nv_config_mdns_enabled(void) { return s_config.mdns_en != 0; }
 bool bb_nv_config_update_check_enabled(void) { return s_config.update_check_en != 0; }

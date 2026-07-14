@@ -40,14 +40,6 @@ bb_err_t bb_nv_config_set_display_enabled(bool en);
 bool     bb_nv_config_mdns_enabled(void);
 bool bb_nv_config_update_check_enabled(void);
 
-/// Returns the stored POSIX timezone string, or "" when unset (UTC applies).
-const char *bb_nv_config_timezone(void);
-
-/// Persist a POSIX timezone string to NVS (ESP-IDF) or in-memory (host).
-/// Pass NULL or "" to clear (reset to UTC default).
-/// Max length is 64 characters (including NUL); returns BB_ERR_INVALID_ARG for longer strings.
-bb_err_t bb_nv_config_set_timezone(const char *tz);
-
 #ifndef ESP_PLATFORM
 // Test hook: force the next bb_nv_config_set_update_check_enabled call to fail.
 // Reset to false after the test.

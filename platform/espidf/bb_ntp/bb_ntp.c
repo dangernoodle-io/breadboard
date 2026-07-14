@@ -1,6 +1,6 @@
 #include "bb_ntp.h"
 #include "bb_log.h"
-#include "bb_nv.h"
+#include "bb_settings.h"
 #include "esp_sntp.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -87,8 +87,9 @@ bool bb_ntp_wait_synced(uint32_t timeout_ms)
 
 void bb_ntp_apply_saved_timezone(void)
 {
-    const char *tz = bb_nv_config_timezone();
-    if (tz && tz[0] != '\0') {
+    char tz[65] = {0};
+    bb_err_t err = bb_settings_timezone_get(tz, sizeof(tz), NULL);
+    if (err == BB_OK && tz[0] != '\0') {
         setenv("TZ", tz, 1);
     } else {
         setenv("TZ", "UTC0", 1);
@@ -98,7 +99,7 @@ void bb_ntp_apply_saved_timezone(void)
 
 bb_err_t bb_ntp_set_timezone(const char *posix_tz)
 {
-    bb_err_t err = bb_nv_config_set_timezone(posix_tz);
+    bb_err_t err = bb_settings_timezone_set(posix_tz);
     if (err != BB_OK) return err;
     const char *t = (posix_tz && posix_tz[0] != '\0') ? posix_tz : "UTC0";
     setenv("TZ", t, 1);

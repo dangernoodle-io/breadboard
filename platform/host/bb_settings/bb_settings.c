@@ -26,6 +26,12 @@
 // otherwise (B1-754).
 #define BB_SETTINGS_HOSTNAME_KEY "hostname"
 
+// Byte-compat with bb_nv: matches platform/espidf/bb_nv/bb_nv.c's
+// BB_NV_KEY_TIMEZONE under the SAME BB_SETTINGS_WIFI_NS ("bb_cfg") -- do not
+// change without a migration plan, this strands provisioned-board timezones
+// otherwise (B1-750).
+#define BB_SETTINGS_TIMEZONE_KEY "timezone"
+
 // Buffer sizes mirror bb_nv's s_config.wifi_ssid[32]/wifi_pass[64] exactly.
 // Capacity coupling (not compiler-enforced, deliberately -- see
 // settings_wifi_rtc_mirror_write's comment on why bb_settings must NOT take
@@ -120,6 +126,23 @@ static const bb_config_field_t s_hostname_field = {
     .group       = "network",
 };
 
+// Buffer size mirrors bb_nv's s_config.timezone[65] (64 chars + NUL) exactly
+// (BB_NV_TIMEZONE_MAX_LEN in platform/espidf/bb_nv/bb_nv.c). max_len=65 is
+// BUFFER CAPACITY (usable chars = max_len-1), same convention as the
+// hostname/wifi-creds fields above.
+// has_default="" (empty-on-unset, UTC applies) -- preserves bb_nv's prior
+// behavior exactly (B1-750).
+static const bb_config_field_t s_timezone_field = {
+    .id          = "timezone",
+    .type        = BB_CONFIG_STR,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_SETTINGS_WIFI_NS, .key = BB_SETTINGS_TIMEZONE_KEY },
+    .max_len     = 65,
+    .def         = { .str = "" },
+    .has_default = true,
+    .label       = "Timezone",
+    .group       = "network",
+};
+
 // NULL-safe out_len (#776 CRITICAL): bb_config_get_str rejects a NULL
 // out_len outright (BB_ERR_INVALID_ARG), which would leave buf untouched --
 // a caller passing NULL because it doesn't need the length back would
@@ -188,6 +211,25 @@ bb_err_t bb_settings_hostname_set(const char *hostname)
 {
     if (!settings_valid_hostname(hostname)) return BB_ERR_INVALID_ARG;
     return bb_config_set_str(&s_hostname_field, hostname);
+}
+
+// Same NULL-safe out_len guarantee as bb_settings_wifi_ssid_get. Returns
+// BB_OK with an empty string (out_len=0) when unset -- UTC applies -- moved
+// from bb_nv's bb_nv_config_timezone() (B1-750).
+bb_err_t bb_settings_timezone_get(char *buf, size_t cap, size_t *out_len)
+{
+    size_t len = 0;
+    return bb_config_get_str(&s_timezone_field, buf, cap, out_len ? out_len : &len);
+}
+
+// No charset validation (unlike hostname) -- only a length check, mirroring
+// bb_nv_config_set_timezone's prior contract exactly (B1-750): NULL/empty
+// clears to "", >64 chars rejected with BB_ERR_INVALID_ARG.
+bb_err_t bb_settings_timezone_set(const char *tz)
+{
+    const char *t = (tz && tz[0] != '\0') ? tz : "";
+    if (strlen(t) > 64) return BB_ERR_INVALID_ARG;
+    return bb_config_set_str(&s_timezone_field, t);
 }
 
 // ---------------------------------------------------------------------------
