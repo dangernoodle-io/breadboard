@@ -171,21 +171,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "150",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "151",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "152",
-      "path": "platform/host/bb_event/bb_event_host.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "170",
       "path": "platform/host/bb_event/bb_event_host.c",
       "type": "uncovered_line"
@@ -196,37 +181,57 @@
       "type": "uncovered_line"
     },
     {
-      "id": "172",
+      "id": "242",
       "path": "platform/host/bb_event/bb_event_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "173",
+      "id": "243",
       "path": "platform/host/bb_event/bb_event_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "174",
+      "id": "244",
       "path": "platform/host/bb_event/bb_event_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "175",
+      "id": "263",
       "path": "platform/host/bb_event/bb_event_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "176",
+      "id": "264",
       "path": "platform/host/bb_event/bb_event_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "86",
+      "id": "265",
       "path": "platform/host/bb_event/bb_event_host.c",
       "type": "uncovered_line"
     },
     {
-      "id": "87",
+      "id": "266",
+      "path": "platform/host/bb_event/bb_event_host.c",
+      "type": "uncovered_line"
+    },
+    {
+      "id": "267",
+      "path": "platform/host/bb_event/bb_event_host.c",
+      "type": "uncovered_line"
+    },
+    {
+      "id": "268",
+      "path": "platform/host/bb_event/bb_event_host.c",
+      "type": "uncovered_line"
+    },
+    {
+      "id": "269",
+      "path": "platform/host/bb_event/bb_event_host.c",
+      "type": "uncovered_line"
+    },
+    {
+      "id": "270",
       "path": "platform/host/bb_event/bb_event_host.c",
       "type": "uncovered_line"
     },
