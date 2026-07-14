@@ -1,10 +1,34 @@
 #include "unity.h"
 #include "bb_system.h"
 #include "bb_system_test.h"
-#include "bb_nv.h"
 #include "bb_nv_keys.h"
 #include "bb_nv_namespaces.h"
+#include "bb_config.h"
+#include "bb_storage.h"
+#include "fake_nvs_backend.h"
 #include <string.h>
+
+// bb_system_reboot_record_save persists via bb_config (B1-756, bb_nv
+// dissolution epic B1-708) rather than bb_nv's generic KV forwarder -- the
+// real "nvs" bb_storage backend is ESP-IDF-only, so host tests exercise
+// this against fake_nvs_backend.h's fake "nvs" backend, mirroring
+// test_bb_tls_creds.c's reset_state()/seed pattern. Registered fresh per
+// test rather than relying on test_main.c's global setUp(), since
+// bb_storage's backend registry is a single global singleton shared by
+// every test file linked into this binary.
+static const bb_config_field_t s_test_reboot_last_field = {
+    .id      = "diag.reboot.last",
+    .type    = BB_CONFIG_STR,
+    .addr    = { .backend = "nvs", .ns_or_dir = BB_REBOOT_NVS_NS, .key = BB_REBOOT_KEY_LAST },
+    .max_len = BB_REBOOT_RECORD_STR_MAX,
+};
+
+static void reboot_record_reset_state(void)
+{
+    bb_storage_test_reset();
+    fake_nvs_reset();
+    bb_storage_register_backend("nvs", &s_fake_nvs_vtable, NULL);
+}
 
 void test_bb_system_get_version_returns_nonnull(void)
 {
@@ -635,21 +659,25 @@ void test_bb_reboot_record_decode_leaves_out_untouched_on_failure(void)
 
 // ---------------------------------------------------------------------------
 // bb_system_reboot_record_save (B1-532 PR1; relocated from bb_nv to
-// bb_system, B1-750) — persists via bb_reboot_record_encode + bb_nv_set_str;
-// round-trip through bb_nv_get_str + bb_reboot_record_decode confirms the
-// encode/persist path is wired correctly.
+// bb_system, B1-750; B1-756 relocated the persist call itself from bb_nv to
+// bb_config) — persists via bb_reboot_record_encode + bb_config_set_str;
+// round-trip through bb_config_get_str + bb_reboot_record_decode confirms
+// the encode/persist path is wired correctly, against the same fake "nvs"
+// backend address (BB_REBOOT_NVS_NS/BB_REBOOT_KEY_LAST) the production
+// field descriptor targets.
 // ---------------------------------------------------------------------------
 
 void test_bb_system_reboot_record_save_round_trips_via_get_str(void)
 {
-    bb_nv_host_str_store_reset();
+    reboot_record_reset_state();
 
     bb_err_t err = bb_system_reboot_record_save(BB_RESET_SRC_OTA_PULL_APPLIED, "v1.2.3",
                                                  1704067200U + 42U, 99U);
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 
     char buf[BB_REBOOT_RECORD_STR_MAX];
-    err = bb_nv_get_str(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_LAST, buf, sizeof(buf), NULL);
+    size_t out_len = 0;
+    err = bb_config_get_str(&s_test_reboot_last_field, buf, sizeof(buf), &out_len);
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 
     bb_reboot_record_t out;
@@ -663,13 +691,14 @@ void test_bb_system_reboot_record_save_round_trips_via_get_str(void)
 
 void test_bb_system_reboot_record_save_null_detail(void)
 {
-    bb_nv_host_str_store_reset();
+    reboot_record_reset_state();
 
     bb_err_t err = bb_system_reboot_record_save(BB_RESET_SRC_FACTORY_RESET, NULL, 0U, 5U);
     TEST_ASSERT_EQUAL_INT(BB_OK, err);
 
     char buf[BB_REBOOT_RECORD_STR_MAX];
-    TEST_ASSERT_EQUAL_INT(BB_OK, bb_nv_get_str(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_LAST, buf, sizeof(buf), NULL));
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_config_get_str(&s_test_reboot_last_field, buf, sizeof(buf), &out_len));
 
     bb_reboot_record_t out;
     memset(&out, 0, sizeof(out));
