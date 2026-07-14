@@ -3,14 +3,34 @@
 // - client_id default (hostname) / override / empty (null) resolution
 // - is_connected flag settable via bb_mqtt_client_host_set_connected
 // - B1-276: disable/teardown path classified separately from enable path
+//
+// B1-756 (bb_nv dissolution epic B1-708): resume_default's NVS "uri" reload
+// now round-trips through bb_config (backend="nvs") instead of bb_nv's
+// generic KV forwarder -- reset_world() registers fake_nvs_backend.h's fake
+// "nvs" backend so the reload test below exercises a real backend instead
+// of a no-op (the real "nvs" bb_storage backend is ESP-IDF-only).
 #include "unity.h"
 #include "bb_mqtt_client.h"
-#include "bb_nv.h"
+#include "bb_config.h"
+#include "bb_storage.h"
+#include "fake_nvs_backend.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
+
+// Test-local field descriptor targeting the EXACT SAME address (backend/ns/
+// key/type) as bb_mqtt_client_espidf.c's / bb_mqtt_client.c's (host)
+// s_mqtt_uri_field -- a literal-address BITE test proving
+// bb_mqtt_client_resume_default's NVS reload actually resolves the
+// persisted "uri" value, not merely that it falls back to the hardcoded
+// default.
+static const bb_config_field_t s_test_mqtt_uri_field = {
+    .id   = "test.mqtt.uri", .type = BB_CONFIG_STR,
+    .addr = { .backend = "nvs", .ns_or_dir = "bb_mqtt", .key = "uri" },
+    .max_len = 128,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -452,6 +472,35 @@ void test_bb_mqtt_resume_default_clears_suspended(void)
     TEST_ASSERT_TRUE(bb_mqtt_client_is_connected(bb_mqtt_client_default()));
 
     bb_mqtt_client_stop_default();
+}
+
+// B1-756: proves resume_default's bb_config_get_str reload actually resolves
+// a persisted "uri" -- the prior test above only ever exercised the
+// unconfigured-fallback branch (empty NVS -> "mqtt://localhost:1883"),
+// never asserting that a genuinely-persisted value round-trips.
+void test_bb_mqtt_resume_default_reloads_persisted_uri(void)
+{
+    bb_storage_test_reset();
+    fake_nvs_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_register_backend("nvs", &s_fake_nvs_vtable, NULL));
+
+    // Seed the literal "bb_mqtt"/"uri" address (the SAME one bb_nv used)
+    // directly, as if a prior boot had persisted a broker URI.
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_set_str(&s_test_mqtt_uri_field, "mqtt://broker.example.com:1883"));
+
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    bb_mqtt_client_default_set(h);
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_suspend_default());
+    TEST_ASSERT_NULL(bb_mqtt_client_default());
+    // h destroyed; full-release resume must recreate from the persisted uri.
+
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_resume_default());
+    bb_mqtt_client_t h2 = bb_mqtt_client_default();
+    TEST_ASSERT_NOT_NULL(h2);
+    TEST_ASSERT_EQUAL_STRING("mqtt://broker.example.com:1883", bb_mqtt_client_host_last_uri(h2));
+
+    bb_mqtt_client_stop_default();
+    bb_storage_test_reset();
 }
 
 void test_bb_mqtt_suspend_default_idempotent(void)

@@ -327,6 +327,15 @@ const bb_mqtt_client_host_pub_t *bb_mqtt_client_host_last_pub(bb_mqtt_client_t h
 /** Number of publish calls since init or last reset. */
 int bb_mqtt_client_host_pub_count(bb_mqtt_client_t h);
 
+/**
+ * Returns the URI this handle was created with (B1-756 byte-compat test
+ * hook: proves bb_mqtt_client_resume_default's NVS reload -- now via
+ * bb_config rather than bb_nv -- actually resolves the persisted "uri"
+ * value, not just that it falls back to the hardcoded default). Empty
+ * string for a NULL handle.
+ */
+const char *bb_mqtt_client_host_last_uri(bb_mqtt_client_t h);
+
 /** Force the connected flag (for testing is_connected). */
 void bb_mqtt_client_host_set_connected(bb_mqtt_client_t h, bool connected);
 

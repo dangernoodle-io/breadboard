@@ -1,11 +1,18 @@
 #include "unity.h"
 #include "bb_ota_boot.h"
+#include "bb_config.h"
+#include "bb_storage.h"
+#include "fake_nvs_backend.h"
 #include <string.h>
 
-// The flag is persisted via the generic bb_nv API, which is a no-op stub on the
-// host build (NVS is ESP-only) — so these exercise call-safety of the portable
-// surface, not the round-trip (that is covered on-device). Mirrors the
-// bb_ota_pull/push host-test pattern.
+// B1-756 (bb_nv dissolution epic B1-708): the one-shot boot-mode flag now
+// round-trips through bb_config (backend="nvs") instead of bb_nv's generic
+// KV forwarder. Previously bb_nv_get_u8/set_u8 were genuine no-op stubs on
+// host (integers never round-tripped there, only strings did) so these
+// call-safety tests never actually exercised persistence; the new test below
+// registers fake_nvs_backend.h's fake "nvs" backend and proves a real
+// round-trip, which the host build can now genuinely exercise. Mirrors the
+// bb_ota_pull/push host-test pattern for the remaining call-safety checks.
 
 void test_ota_boot_pending_returns_bool(void)
 {
@@ -18,6 +25,35 @@ void test_ota_boot_arm_callable(void)
 {
     bb_ota_boot_arm();
     TEST_ASSERT_TRUE(true);
+}
+
+// Test-local field descriptor targeting the EXACT SAME address (backend/ns/
+// key/type) as bb_ota_boot.c's internal s_ota_boot_flag_field -- a
+// literal-address BITE test proving bb_ota_boot_arm/bb_ota_boot_pending
+// actually land on/read from that address, not merely that they're callable.
+static const bb_config_field_t s_test_ota_boot_flag_field = {
+    .id   = "test.ota_boot.flag", .type = BB_CONFIG_U8,
+    .addr = { .backend = "nvs", .ns_or_dir = "bb_cfg", .key = "ota_boot_mode" },
+};
+
+void test_ota_boot_arm_then_pending_round_trips_through_storage(void)
+{
+    bb_storage_test_reset();
+    fake_nvs_reset();
+    TEST_ASSERT_EQUAL(BB_OK, bb_storage_register_backend("nvs", &s_fake_nvs_vtable, NULL));
+
+    TEST_ASSERT_FALSE(bb_ota_boot_pending());  // unset -> default 0 -> false
+
+    bb_ota_boot_arm();
+    TEST_ASSERT_TRUE(bb_ota_boot_pending());
+
+    // BITE: the literal "bb_cfg"/"ota_boot_mode" address (the SAME one
+    // bb_nv used) must hold the armed value.
+    uint8_t flag_out = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_u8(&s_test_ota_boot_flag_field, &flag_out));
+    TEST_ASSERT_EQUAL_UINT8(1, flag_out);
+
+    bb_storage_test_reset();
 }
 
 // ---------------------------------------------------------------------------

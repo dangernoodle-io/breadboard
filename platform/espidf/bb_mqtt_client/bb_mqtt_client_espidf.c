@@ -20,12 +20,19 @@
 // prevent a stale event firing into a freed handle we set h->destroyed =
 // true and NULL h->client BEFORE calling esp_mqtt_client_destroy; the
 // event handler checks h->destroyed under h->lock and returns immediately.
+// enabled/uri/client_id/username/password/tls round-trip through bb_config
+// (typed layer over bb_storage) rather than bb_nv's generic KV forwarder
+// (B1-756, bb_nv dissolution epic B1-708) — bb_config's STR encoding
+// resolves to the SAME nvs_get_str/nvs_set_str calls bb_nv_get_str/set_str
+// made (both are thin forwarders to bb_storage_nvs, see bb_storage_nvs.h),
+// so the on-flash namespace/key/STR-typed format below is byte-compatible
+// with what this component previously read/wrote via bb_nv.
 #include "bb_mqtt_client.h"
 #include "bb_tls.h"
 #include "bb_tls_creds.h"
 #include "bb_log.h"
 #include "bb_mem.h"
-#include "bb_nv.h"
+#include "bb_config.h"
 #include "bb_nv_keys.h"
 #include "bb_settings.h"
 #include "bb_wifi.h"
@@ -701,6 +708,66 @@ bb_err_t bb_mqtt_client_stop(bb_mqtt_client_t *handle_p)
 // live).  Callers that snapshot the return value must treat NULL as "suspended".
 static bb_mqtt_client_t s_auto_client = NULL;
 
+// Namespace/keys byte-for-byte matched to bb_nv's prior BB_MQTT_NVS_NS
+// ("bb_mqtt")/"enabled"/"uri"/BB_NV_KEY_CLIENT_ID("client_id")/"username"/
+// "password"/"tls" — all STR-typed decimal-flag or plain-string encodings,
+// unchanged — do not change without a migration plan, this strands
+// provisioned-board MQTT config otherwise.
+static const bb_config_field_t s_mqtt_enabled_field = {
+    .id          = "mqtt.enabled",
+    .type        = BB_CONFIG_STR,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = "enabled" },
+    .max_len     = 4,
+    .def         = { .str = "0" },
+    .has_default = true,
+};
+
+static const bb_config_field_t s_mqtt_uri_field = {
+    .id          = "mqtt.uri",
+    .type        = BB_CONFIG_STR,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = "uri" },
+    .max_len     = BB_MQTT_CLIENT_URI_MAX,
+    .def         = { .str = "" },
+    .has_default = true,
+};
+
+static const bb_config_field_t s_mqtt_client_id_field = {
+    .id          = "mqtt.client_id",
+    .type        = BB_CONFIG_STR,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = BB_NV_KEY_CLIENT_ID },
+    .max_len     = BB_MQTT_CLIENT_ID_MAX,
+    .def         = { .str = "" },
+    .has_default = true,
+};
+
+static const bb_config_field_t s_mqtt_username_field = {
+    .id          = "mqtt.username",
+    .type        = BB_CONFIG_STR,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = "username" },
+    .max_len     = BB_MQTT_CLIENT_USER_MAX,
+    .def         = { .str = "" },
+    .has_default = true,
+};
+
+static const bb_config_field_t s_mqtt_password_field = {
+    .id          = "mqtt.password",
+    .type        = BB_CONFIG_STR,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = "password" },
+    .max_len     = BB_MQTT_CLIENT_PASS_MAX,
+    .def         = { .str = "" },
+    .has_default = true,
+    .secret      = true,
+};
+
+static const bb_config_field_t s_mqtt_tls_field = {
+    .id          = "mqtt.tls",
+    .type        = BB_CONFIG_STR,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_MQTT_NVS_NS, .key = "tls" },
+    .max_len     = 4,
+    .def         = { .str = "0" },
+    .has_default = true,
+};
+
 // auto_client_create_from_nvs — read NVS config and create the auto-client.
 //
 // Shared by bb_mqtt_client_autoregister_init (boot) and bb_mqtt_client_resume_default (post-
@@ -713,8 +780,10 @@ static bb_mqtt_client_t s_auto_client = NULL;
 // Returns an error code only when bb_mqtt_client_init itself fails.
 static bb_err_t auto_client_create_from_nvs(void)
 {
+    size_t out_len = 0;
+
     char enabled_str[4] = "0";
-    bb_nv_get_str(BB_MQTT_NVS_NS, "enabled", enabled_str, sizeof(enabled_str), "0");
+    bb_config_get_str(&s_mqtt_enabled_field, enabled_str, sizeof(enabled_str), &out_len);
     if (enabled_str[0] != '1') {
         bb_log_d(TAG, "autoregister: disabled via NVS");
         return BB_OK;
@@ -726,11 +795,11 @@ static bb_err_t auto_client_create_from_nvs(void)
     char password[BB_MQTT_CLIENT_PASS_MAX]       = {0};
     char tls_str[4]                       = "0";
 
-    bb_nv_get_str(BB_MQTT_NVS_NS, "uri",       uri,       sizeof(uri),       "");
-    bb_nv_get_str(BB_MQTT_NVS_NS, BB_NV_KEY_CLIENT_ID, client_id, sizeof(client_id), "");
-    bb_nv_get_str(BB_MQTT_NVS_NS, "username",  username,  sizeof(username),  "");
-    bb_nv_get_str(BB_MQTT_NVS_NS, "password",  password,  sizeof(password),  "");
-    bb_nv_get_str(BB_MQTT_NVS_NS, "tls",       tls_str,   sizeof(tls_str),   "0");
+    bb_config_get_str(&s_mqtt_uri_field,       uri,       sizeof(uri),       &out_len);
+    bb_config_get_str(&s_mqtt_client_id_field, client_id, sizeof(client_id), &out_len);
+    bb_config_get_str(&s_mqtt_username_field,  username,  sizeof(username),  &out_len);
+    bb_config_get_str(&s_mqtt_password_field,  password,  sizeof(password),  &out_len);
+    bb_config_get_str(&s_mqtt_tls_field,       tls_str,   sizeof(tls_str),   &out_len);
 
     if (!uri[0]) {
         bb_log_w(TAG, "autoregister: uri not set");

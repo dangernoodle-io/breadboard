@@ -2,16 +2,31 @@
 #include "bb_tls.h"
 #include "bb_ota_hooks.h"
 #include "bb_log.h"
-#include "bb_nv.h"
+#include "bb_config.h"
+#include "bb_nv_namespaces.h"
 #include "bb_str.h"
 
 #include <string.h>
 
-// Flag lives in the bb_cfg namespace (generic bb_nv API). The flag is a
-// one-shot mechanism marker, NOT a user config key — deliberately not in
-// the bb_nv_config manifest table.
+// Flag lives in the bb_cfg namespace, round-tripped through bb_config
+// (typed layer over bb_storage) rather than bb_nv's generic KV forwarder
+// (B1-756, bb_nv dissolution epic B1-708) — bb_config's U8 encoding resolves
+// to the SAME nvs_get_u8/nvs_set_u8 calls bb_nv_get_u8/set_u8 made (both are
+// thin forwarders to bb_storage_nvs, see bb_storage_nvs.h), so the
+// namespace/key/U8-typed on-flash format below is byte-compatible with what
+// this component previously read/wrote via bb_nv. The flag is a one-shot
+// mechanism marker, NOT a user config key — deliberately not in the
+// bb_nv_config manifest table.
 #define OTA_BOOT_NS         BB_NV_CONFIG_NVS_NS
 #define OTA_BOOT_FLAG_KEY   "ota_boot_mode"
+
+static const bb_config_field_t s_ota_boot_flag_field = {
+    .id          = "ota_boot.flag",
+    .type        = BB_CONFIG_U8,
+    .addr        = { .backend = "nvs", .ns_or_dir = OTA_BOOT_NS, .key = OTA_BOOT_FLAG_KEY },
+    .def         = { .u8 = 0 },
+    .has_default = true,
+};
 
 // Maximum string lengths for set_mdns_service args (hostname/service/proto).
 #define OTA_BOOT_MDNS_STR_MAX  64
@@ -56,13 +71,13 @@ bb_err_t bb_ota_boot_set_mdns_service(const char *hostname,
 
 void bb_ota_boot_arm(void)
 {
-    bb_nv_set_u8(OTA_BOOT_NS, OTA_BOOT_FLAG_KEY, 1);
+    bb_config_set_u8(&s_ota_boot_flag_field, 1);
 }
 
 bool bb_ota_boot_pending(void)
 {
     uint8_t v = 0;
-    bb_nv_get_u8(OTA_BOOT_NS, OTA_BOOT_FLAG_KEY, &v, 0);
+    bb_config_get_u8(&s_ota_boot_flag_field, &v);
     return v != 0;
 }
 
@@ -357,7 +372,7 @@ void bb_ota_boot_run_if_pending(const char *releases_url, const char *board)
     }
     // Clear the one-shot flag FIRST so a failed pull falls back to a normal boot
     // on the next reset (no boot loop).
-    bb_nv_set_u8(OTA_BOOT_NS, OTA_BOOT_FLAG_KEY, 0);
+    bb_config_set_u8(&s_ota_boot_flag_field, 0);
     bb_ota_emit_progress("boot", BB_OTA_PHASE_START, 0);
     bb_log_w(TAG, "OTA boot-mode: pulling firmware at full heap");
 
