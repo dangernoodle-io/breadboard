@@ -1,5 +1,5 @@
-// Pure (host-testable) bb_cache serializer for the bb_display_info
-// health.display retained event topic. No FreeRTOS or ESP-IDF types here.
+// Pure (host-testable) bb_cache serializer for bb_display's health.display
+// retained event topic. No FreeRTOS or ESP-IDF types here.
 #include "bb_display_info_event_priv.h"
 
 void bb_display_serialize(bb_json_t obj, const void *snap)

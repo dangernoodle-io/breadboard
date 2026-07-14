@@ -161,16 +161,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "58",
-      "path": "platform/host/bb_display_info/bb_display_info.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "59",
-      "path": "platform/host/bb_display_info/bb_display_info.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "170",
       "path": "platform/host/bb_event/bb_event_host.c",
       "type": "uncovered_line"
@@ -1618,21 +1608,6 @@
     {
       "id": "152",
       "path": "platform/host/bb_tls_creds/bb_tls_creds.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "28",
-      "path": "platform/host/bb_tls_info/bb_tls_info.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "30",
-      "path": "platform/host/bb_tls_info/bb_tls_info.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "31",
-      "path": "platform/host/bb_tls_info/bb_tls_info.c",
       "type": "uncovered_line"
     },
     {

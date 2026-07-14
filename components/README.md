@@ -33,7 +33,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_display](./bb_display/) | — |
 | [bb_display_ek79007](./bb_display_ek79007/) | — |
 | [bb_display_ili9341](./bb_display_ili9341/) | — |
-| [bb_display_info](./bb_display_info/) | — |
 | [bb_display_spi_common](./bb_display_spi_common/) | — |
 | [bb_display_ssd1306](./bb_display_ssd1306/) | — |
 | [bb_display_st77xx](./bb_display_st77xx/) | — |
@@ -51,13 +50,11 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_http_server](./bb_http_server/) | — |
 | [bb_hw](./bb_hw/) | — |
 | [bb_i2c](./bb_i2c/) | — |
-| [bb_info](./bb_info/) | — |
 | [bb_json](./bb_json/) | — |
 | [bb_led](./bb_led/) | — |
 | [bb_led_anim](./bb_led_anim/) | — |
 | [bb_led_apa102](./bb_led_apa102/) | — |
 | [bb_led_gpio](./bb_led_gpio/) | — |
-| [bb_led_info](./bb_led_info/) | — |
 | [bb_led_pwm](./bb_led_pwm/) | — |
 | [bb_led_rgb_pwm](./bb_led_rgb_pwm/) | — |
 | [bb_lifecycle](./bb_lifecycle/) | Service run-state authority: register named services, track a computed STOPPED/PAUSED/RUNNING state per service, and let independent subsystems assert/clear open-vocabulary pause reasons without stepping on each other. PUSH (observer), PULL (generic emit sink), and POLL (lock-free version counter) delivery, all sourced from one lock-guarded commit. |
@@ -75,7 +72,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_mqtt_telemetry](./bb_mqtt_telemetry/) | — |
 | [bb_net_health](./bb_net_health/) | — |
 | [bb_ntp](./bb_ntp/) | — |
-| [bb_ntp_info](./bb_ntp_info/) | — |
 | [bb_num](./bb_num/) | — |
 | [bb_nv](./bb_nv/) | — |
 | [bb_openapi](./bb_openapi/) | — |
@@ -131,7 +127,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_timer](./bb_timer/) | — |
 | [bb_tls](./bb_tls/) | — |
 | [bb_tls_creds](./bb_tls_creds/) | — |
-| [bb_tls_info](./bb_tls_info/) | — |
 | [bb_transport_health](./bb_transport_health/) | — |
 | [bb_udp_client](./bb_udp_client/) | — |
 | [bb_udp_frame](./bb_udp_frame/) | — |

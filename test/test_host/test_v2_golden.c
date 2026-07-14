@@ -1,12 +1,15 @@
 // test_v2_golden — byte-fidelity harness for the v2 wire descriptors
-// (B1-767 PR-6): info root-identity slice, health root-identity slice,
-// info-telemetry envelope.
+// (B1-767 PR-6): a synthetic bb_serialize worked-example fixture, health
+// root-identity slice, info-telemetry envelope.
 //
-// info/health: each golden string is the SPEC for the ROOT-IDENTITY FIELD
-// SLICE ONLY -- the fields info_handler()/health_handler() emit INLINE,
-// BEFORE bb_response_build_get() appends the dynamically-registered
-// sections ("build" for info; "mqtt"/"temp" for health). It is NOT the full
-// /api/info or /api/health document -- see bb_info_wire_priv.h /
+// widget fixture: byte-fidelity coverage for a purely synthetic descriptor
+// (test_serialize_fixture.h) -- not a spec for any production payload, just
+// exercise of the string/bool/i64/str_n/arr_str field-type diversity.
+//
+// health: each golden string is the SPEC for the ROOT-IDENTITY FIELD SLICE
+// ONLY -- the fields health_handler() emits INLINE, BEFORE
+// bb_response_build_get() appends the dynamically-registered sections
+// ("mqtt"/"temp"). It is NOT the full /api/health document -- see
 // bb_health_wire_priv.h for the full slice-vs-document contract. A mismatch
 // means the DESCRIPTOR (order/type/max_len/present) is wrong for that
 // slice -- fix the descriptor, never the golden.
@@ -24,7 +27,7 @@
 
 #include "bb_serialize_json.h"
 
-#include "../../components/bb_info/bb_info_wire_priv.h"
+#include "test_serialize_fixture.h"
 #include "../../components/bb_health/bb_health_wire_priv.h"
 #include "../../components/bb_pub_info/bb_pub_info_wire_priv.h"
 
@@ -54,97 +57,99 @@ static void render_eq(const bb_serialize_desc_t *d, const void *snap, const char
 }
 
 // ---------------------------------------------------------------------------
-// info (root-identity slice)
+// widget fixture (synthetic -- see test_serialize_fixture.h)
 // ---------------------------------------------------------------------------
 
-void test_v2_golden_info_root_slice_populated(void)
+void test_v2_golden_widget_fixture_populated(void)
 {
-    bb_info_wire_t snap;
+    test_fixture_widget_t snap;
     memset(&snap, 0, sizeof(snap));
-    strncpy(snap.mac, "aa:bb:cc:dd:ee:ff", sizeof(snap.mac) - 1);
-    snap.ota_validated = true;
-    snap.time_valid    = true;
-    snap.boot_epoch_s  = 1704067200;
-    strncpy(snap.time_source, "sntp", sizeof(snap.time_source) - 1);
-    snap.hostname = (bb_serialize_str_n_t){ .ptr = "bb-test", .len = 7 };
+    strncpy(snap.serial, "widget-serial-001", sizeof(snap.serial) - 1);
+    snap.calibrated        = true;
+    snap.armed              = true;
+    snap.installed_epoch_s  = 1704067200;
+    strncpy(snap.region, "rg-a", sizeof(snap.region) - 1);
+    snap.label = (bb_serialize_str_n_t){ .ptr = "widget-01", .len = 9 };
 
-    const char *caps[] = { "display", "led" };
-    snap.capabilities = (bb_serialize_arr_str_t){ .items = caps, .count = 2 };
+    const char *tags[] = { "alpha", "beta" };
+    snap.tags = (bb_serialize_arr_str_t){ .items = tags, .count = 2 };
 
-    render_eq(&bb_info_wire_desc, &snap,
-              "{\"mac\":\"aa:bb:cc:dd:ee:ff\",\"ota_validated\":true,\"time_valid\":true,"
-              "\"boot_epoch_s\":1704067200,\"time_source\":\"sntp\",\"hostname\":\"bb-test\","
-              "\"capabilities\":[\"display\",\"led\"]}");
+    render_eq(&bb_fixture_widget_desc, &snap,
+              "{\"serial\":\"widget-serial-001\",\"calibrated\":true,\"armed\":true,"
+              "\"installed_epoch_s\":1704067200,\"region\":\"rg-a\",\"label\":\"widget-01\","
+              "\"tags\":[\"alpha\",\"beta\"]}");
 }
 
-void test_v2_golden_info_root_slice_null(void)
+void test_v2_golden_widget_fixture_null(void)
 {
-    bb_info_wire_t snap;
+    test_fixture_widget_t snap;
     memset(&snap, 0, sizeof(snap));
-    strncpy(snap.time_source, "none", sizeof(snap.time_source) - 1);
-    snap.hostname     = (bb_serialize_str_n_t){ .ptr = NULL, .len = 0 };
-    snap.capabilities = (bb_serialize_arr_str_t){ .items = NULL, .count = 0 };
+    strncpy(snap.region, "unset", sizeof(snap.region) - 1);
+    snap.label = (bb_serialize_str_n_t){ .ptr = NULL, .len = 0 };
+    snap.tags  = (bb_serialize_arr_str_t){ .items = NULL, .count = 0 };
 
-    render_eq(&bb_info_wire_desc, &snap,
-              "{\"mac\":\"\",\"ota_validated\":false,\"time_valid\":false,"
-              "\"boot_epoch_s\":0,\"time_source\":\"none\",\"hostname\":null,"
-              "\"capabilities\":[]}");
+    render_eq(&bb_fixture_widget_desc, &snap,
+              "{\"serial\":\"\",\"calibrated\":false,\"armed\":false,"
+              "\"installed_epoch_s\":0,\"region\":\"unset\",\"label\":null,"
+              "\"tags\":[]}");
 }
 
 // ---------------------------------------------------------------------------
-// info (root-identity slice) -- boundary / insurance goldens
+// widget fixture -- boundary / insurance goldens
 // ---------------------------------------------------------------------------
 
 // Additional insurance golden: array-walk loop coverage.
-void test_v2_golden_info_root_slice_capabilities_three_entries(void)
+void test_v2_golden_widget_fixture_tags_three_entries(void)
 {
-    bb_info_wire_t snap;
+    test_fixture_widget_t snap;
     memset(&snap, 0, sizeof(snap));
-    strncpy(snap.time_source, "none", sizeof(snap.time_source) - 1);
-    snap.hostname = (bb_serialize_str_n_t){ .ptr = NULL, .len = 0 };
+    strncpy(snap.region, "unset", sizeof(snap.region) - 1);
+    snap.label = (bb_serialize_str_n_t){ .ptr = NULL, .len = 0 };
 
-    const char *caps[] = { "display", "led", "mqtt" };
-    snap.capabilities = (bb_serialize_arr_str_t){ .items = caps, .count = 3 };
+    const char *tags[] = { "alpha", "beta", "gamma" };
+    snap.tags = (bb_serialize_arr_str_t){ .items = tags, .count = 3 };
 
-    render_eq(&bb_info_wire_desc, &snap,
-              "{\"mac\":\"\",\"ota_validated\":false,\"time_valid\":false,"
-              "\"boot_epoch_s\":0,\"time_source\":\"none\",\"hostname\":null,"
-              "\"capabilities\":[\"display\",\"led\",\"mqtt\"]}");
+    render_eq(&bb_fixture_widget_desc, &snap,
+              "{\"serial\":\"\",\"calibrated\":false,\"armed\":false,"
+              "\"installed_epoch_s\":0,\"region\":\"unset\",\"label\":null,"
+              "\"tags\":[\"alpha\",\"beta\",\"gamma\"]}");
 }
 
-// (b) mac[18] filled to its exact max_len with NO NUL terminator -- exercises
-// the BB_TYPE_STR strnlen(s, max_len) cap: the walker must yield exactly 18
-// bytes, never read past the array end looking for a NUL that isn't there.
-void test_v2_golden_info_root_slice_mac_boundary_no_nul(void)
+// (b) serial[18] filled to its exact max_len with NO NUL terminator --
+// exercises the BB_TYPE_STR strnlen(s, max_len) cap: the walker must yield
+// exactly 18 bytes, never read past the array end looking for a NUL that
+// isn't there.
+void test_v2_golden_widget_fixture_serial_boundary_no_nul(void)
 {
-    bb_info_wire_t snap;
+    test_fixture_widget_t snap;
     memset(&snap, 0, sizeof(snap));
-    // Exactly 18 bytes, no NUL -- fills bb_info_wire_t.mac (char[18]) to capacity.
-    memcpy(snap.mac, "112233445566778899", sizeof(snap.mac));
-    strncpy(snap.time_source, "none", sizeof(snap.time_source) - 1);
-    snap.hostname     = (bb_serialize_str_n_t){ .ptr = NULL, .len = 0 };
-    snap.capabilities = (bb_serialize_arr_str_t){ .items = NULL, .count = 0 };
+    // Exactly 18 bytes, no NUL -- fills test_fixture_widget_t.serial (char[18])
+    // to capacity.
+    memcpy(snap.serial, "112233445566778899", sizeof(snap.serial));
+    strncpy(snap.region, "unset", sizeof(snap.region) - 1);
+    snap.label = (bb_serialize_str_n_t){ .ptr = NULL, .len = 0 };
+    snap.tags  = (bb_serialize_arr_str_t){ .items = NULL, .count = 0 };
 
-    render_eq(&bb_info_wire_desc, &snap,
-              "{\"mac\":\"112233445566778899\",\"ota_validated\":false,\"time_valid\":false,"
-              "\"boot_epoch_s\":0,\"time_source\":\"none\",\"hostname\":null,"
-              "\"capabilities\":[]}");
+    render_eq(&bb_fixture_widget_desc, &snap,
+              "{\"serial\":\"112233445566778899\",\"calibrated\":false,\"armed\":false,"
+              "\"installed_epoch_s\":0,\"region\":\"unset\",\"label\":null,"
+              "\"tags\":[]}");
 }
 
 // Additional insurance golden: unbounded STR_N path coverage.
-void test_v2_golden_info_root_slice_hostname_longer_str_n(void)
+void test_v2_golden_widget_fixture_label_longer_str_n(void)
 {
-    bb_info_wire_t snap;
+    test_fixture_widget_t snap;
     memset(&snap, 0, sizeof(snap));
-    strncpy(snap.time_source, "none", sizeof(snap.time_source) - 1);
-    static const char hostname[] = "breadboard-device-host-01";
-    snap.hostname     = (bb_serialize_str_n_t){ .ptr = hostname, .len = sizeof(hostname) - 1 };
-    snap.capabilities = (bb_serialize_arr_str_t){ .items = NULL, .count = 0 };
+    strncpy(snap.region, "unset", sizeof(snap.region) - 1);
+    static const char label[] = "widget-fixture-long-label-01";
+    snap.label = (bb_serialize_str_n_t){ .ptr = label, .len = sizeof(label) - 1 };
+    snap.tags  = (bb_serialize_arr_str_t){ .items = NULL, .count = 0 };
 
-    render_eq(&bb_info_wire_desc, &snap,
-              "{\"mac\":\"\",\"ota_validated\":false,\"time_valid\":false,"
-              "\"boot_epoch_s\":0,\"time_source\":\"none\","
-              "\"hostname\":\"breadboard-device-host-01\",\"capabilities\":[]}");
+    render_eq(&bb_fixture_widget_desc, &snap,
+              "{\"serial\":\"\",\"calibrated\":false,\"armed\":false,"
+              "\"installed_epoch_s\":0,\"region\":\"unset\","
+              "\"label\":\"widget-fixture-long-label-01\",\"tags\":[]}");
 }
 
 // ---------------------------------------------------------------------------
@@ -313,22 +318,21 @@ void test_v2_golden_info_telem_differential_matches_live_cache(void)
 }
 
 // ---------------------------------------------------------------------------
-// info/health ROOT-SLICE differential -- documented as NOT tractable here
+// health ROOT-SLICE differential -- documented as NOT tractable here
 //
-// A true differential for the info/health root-identity slice (comparing
-// against info_handler()/health_handler() BEFORE bb_response_build_get()
-// appends sections) would need to invoke those handlers directly. Both live
-// in platform/espidf/bb_info/bb_info.c and platform/espidf/bb_health/bb_health.c
-// -- ESP-IDF httpd request handlers (esp_http_server, httpd_req_t) that are
-// not compiled into the native/host test target (platformio.ini's native env
-// builds platform/host/* only, per test_filter=test_host) and have no
-// host-callable "root fields only, empty section registry" entry point
-// exposed today. Isolating the root-field emit from the section registry
-// would require restructuring the production handler (e.g. splitting a
-// root-only helper out of info_handler()/health_handler()) purely to make it
-// host-testable -- out of scope for this additive PR, which must not
-// contort production code for testability. The reworded root-slice goldens
-// above (test_v2_golden_info_root_slice_* / test_v2_golden_health_root_slice_*)
-// remain the coverage for those two descriptors until the cutover PR, which
-// will wire the descriptor directly into the handler and can then assert
-// true differential/regression parity in place.
+// A true differential for the health root-identity slice (comparing against
+// health_handler() BEFORE bb_response_build_get() appends sections) would
+// need to invoke that handler directly. It lives in
+// platform/espidf/bb_health/bb_health.c -- an ESP-IDF httpd request handler
+// (esp_http_server, httpd_req_t) that is not compiled into the native/host
+// test target (platformio.ini's native env builds platform/host/* only, per
+// test_filter=test_host) and has no host-callable "root fields only, empty
+// section registry" entry point exposed today. Isolating the root-field
+// emit from the section registry would require restructuring the production
+// handler (e.g. splitting a root-only helper out of health_handler()) purely
+// to make it host-testable -- out of scope here, which must not contort
+// production code for testability. The health-slice goldens above
+// (test_v2_golden_health_root_slice_*) remain the coverage for that
+// descriptor until a future cutover PR, which will wire the descriptor
+// directly into the handler and can then assert true differential/
+// regression parity in place.

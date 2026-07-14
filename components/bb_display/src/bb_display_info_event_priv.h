@@ -1,11 +1,15 @@
 #pragma once
 // Private shared header: bb_cache snapshot struct and serializer for the
-// bb_display_info health.display retained event topic.
+// health.display retained event topic, owned by bb_display itself
+// (B1-893 -- re-homed from the deleted bb_display_info satellite; this
+// cache/SSE surface is independent of bb_info and stays live). Names kept
+// as "bb_display_info_*"/BB_DISPLAY_INFO_* on relocation deliberately, for
+// low churn -- not a residual bb_info dependency.
 // No ESP-IDF or FreeRTOS types here.
 // Included by:
-//   - platform/espidf/bb_display_info/bb_display_info.c
-//   - platform/host/bb_display_info/bb_display_info.c
-//   - components/bb_display_info/bb_display_info_event_common.c
+//   - platform/espidf/bb_display/bb_display_info.c
+//   - platform/host/bb_display/bb_display_info.c
+//   - components/bb_display/src/bb_display_info_event_common.c
 //   - test/test_host/test_bb_display_info_event.c
 //   - test/test_host/test_bb_cache_fidelity.c
 

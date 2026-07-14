@@ -15,8 +15,10 @@
 // cJSON prints as a bare integer -- bb_serialize_json's F64 backend would
 // instead emit a fixed 6-decimal float, which would NOT match today's bytes.
 //
-// ota_ready is intentionally OMITTED (see bb_info_wire_priv.h -- same
-// gate/rationale, BB_PUB_INFO_EMIT_OTA_READY).
+// ota_ready is intentionally OMITTED from this v2 descriptor: it is
+// conditionally emitted today (BB_PUB_INFO_EMIT_OTA_READY, gated on
+// CONFIG_BB_OTA_PULL_AUTOREGISTER / CONFIG_BB_OTA_BOOT_STATUS_HTTP), and is
+// out of scope for the canonical golden captured here.
 //
 // bb_info_telem_wire_t is a HAND-MAINTAINED PARALLEL of the live
 // bb_info_snap_t (platform/host/bb_pub_info/bb_pub_info.c) -- there is no

@@ -876,60 +876,6 @@ void test_sse_schema_update_available_payload_missing_required_fails(void)
     bb_json_free(obj);
 }
 
-// BuildInfo (sse_topic="build")
-static const char k_build_info_schema[] =
-    "{\"title\":\"BuildInfo\",\"x-sse-topic\":\"build\",\"type\":\"object\","
-    "\"properties\":{"
-    "\"version\":{\"type\":\"string\"},"
-    "\"idf_version\":{\"type\":\"string\"},"
-    "\"build_date\":{\"type\":\"string\"},"
-    "\"build_time\":{\"type\":\"string\"},"
-    "\"project_name\":{\"type\":\"string\"},"
-    "\"chip_model\":{\"type\":\"string\"},"
-    "\"chip_revision\":{\"type\":\"integer\"},"
-    "\"cores\":{\"type\":\"integer\"},"
-    "\"cpu_freq_mhz\":{\"type\":\"integer\"},"
-    "\"flash_size\":{\"type\":\"integer\"},"
-    "\"app_size\":{\"type\":\"integer\"},"
-    "\"board\":{\"type\":\"string\"},"
-    "\"app_sha256\":{\"type\":\"string\"}},"
-    "\"required\":[\"version\",\"idf_version\",\"build_date\",\"build_time\","
-    "\"project_name\",\"chip_model\",\"chip_revision\",\"cores\","
-    "\"cpu_freq_mhz\",\"flash_size\",\"app_size\",\"board\",\"app_sha256\"]}";
-
-void test_sse_schema_build_info_payload_valid(void)
-{
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "version",      "1.0.0");
-    bb_json_obj_set_string(obj, "idf_version",  "v5.3.1");
-    bb_json_obj_set_string(obj, "build_date",   "Jun 29 2026");
-    bb_json_obj_set_string(obj, "build_time",   "12:00:00");
-    bb_json_obj_set_string(obj, "project_name", "breadboard");
-    bb_json_obj_set_string(obj, "chip_model",   "ESP32");
-    bb_json_obj_set_int   (obj, "chip_revision", 3);
-    bb_json_obj_set_int   (obj, "cores",         2);
-    bb_json_obj_set_int   (obj, "cpu_freq_mhz",  240);
-    bb_json_obj_set_int   (obj, "flash_size",    4194304);
-    bb_json_obj_set_int   (obj, "app_size",      1200000);
-    bb_json_obj_set_string(obj, "board",         "wroom32");
-    bb_json_obj_set_string(obj, "app_sha256",    "deadbeef");
-    TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_build_info_schema, obj, NULL));
-    bb_json_free(obj);
-}
-
-void test_sse_schema_build_info_payload_missing_required_fails(void)
-{
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    bb_json_obj_set_string(obj, "version", "1.0.0");
-    // missing idf_version, build_date, build_time, etc.
-    bb_openapi_validate_err_t verr = {0};
-    TEST_ASSERT_EQUAL(BB_ERR_VALIDATION,
-                      bb_openapi_validate(k_build_info_schema, obj, &verr));
-    bb_json_free(obj);
-}
-
 // DiagBoot (sse_topic="diag.boot")
 static const char k_diag_boot_schema[] =
     "{\"title\":\"DiagBoot\",\"x-sse-topic\":\"diag.boot\",\"type\":\"object\","
@@ -1143,9 +1089,9 @@ void test_sse_schema_net_health_payload_missing_required_fails(void)
 }
 
 // ---------------------------------------------------------------------------
-// oneOf count: all SSE topics registered → 13 refs in /api/events 200 oneOf
+// oneOf count: all SSE topics registered → 12 refs in /api/events 200 oneOf
 // (log + wifi + fan + power + thermal + alert + update.available +
-//  build + diag.boot + health.display + health.stack + ota.progress +
+//  diag.boot + health.display + health.stack + ota.progress +
 //  net.health)
 // ---------------------------------------------------------------------------
 
@@ -1162,7 +1108,6 @@ void test_sse_schema_sse_oneof_count_and_topics(void)
     bb_openapi_register_schema("ThermalTelemetry",k_thermal_telemetry_schema,"thermal");
     bb_openapi_register_schema("Alert",           k_alert_schema,            "alert");
     bb_openapi_register_schema("UpdateAvailable", k_update_available_schema, "update.available");
-    bb_openapi_register_schema("BuildInfo",       k_build_info_schema,       "build");
     bb_openapi_register_schema("DiagBoot",        k_diag_boot_schema,        "diag.boot");
     bb_openapi_register_schema("DisplayInfo",     k_display_info_schema,     "health.display");
     bb_openapi_register_schema("HealthStack",     k_health_stack_schema,     "health.stack");
@@ -1173,7 +1118,7 @@ void test_sse_schema_sse_oneof_count_and_topics(void)
     bb_openapi_register_schema("RtosTelemetry",   k_rtos_telemetry_schema,   NULL);
     bb_openapi_register_schema("WifiInfo",        k_wifi_schema,             NULL);
 
-    TEST_ASSERT_EQUAL_size_t(16, bb_openapi_schema_count());
+    TEST_ASSERT_EQUAL_size_t(15, bb_openapi_schema_count());
 
     bb_openapi_meta_t meta = { .title = "T", .version = "1.0" };
     bb_json_t doc = bb_openapi_emit(&meta);
@@ -1183,7 +1128,7 @@ void test_sse_schema_sse_oneof_count_and_topics(void)
     bb_json_free(doc);
     TEST_ASSERT_NOT_NULL(s);
 
-    // All 13 SSE schemas must appear as $ref entries in oneOf.
+    // All 12 SSE schemas must appear as $ref entries in oneOf.
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/LogEvent\""));
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/WifiTelemetry\""));
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/FanTelemetry\""));
@@ -1191,7 +1136,6 @@ void test_sse_schema_sse_oneof_count_and_topics(void)
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/ThermalTelemetry\""));
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/Alert\""));
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/UpdateAvailable\""));
-    TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/BuildInfo\""));
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/DiagBoot\""));
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/DisplayInfo\""));
     TEST_ASSERT_NOT_NULL(strstr(s, "\"$ref\":\"#/components/schemas/HealthStack\""));

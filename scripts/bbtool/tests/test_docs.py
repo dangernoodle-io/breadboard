@@ -146,7 +146,8 @@ class TestParseRequires(unittest.TestCase):
         self.assertEqual(priv, [])
 
     def test_comments_do_not_pollute_requires(self):
-        # Mirrors bb_info's real CMakeLists.txt shape: an inline comment block
+        # Mirrors the deleted bb_info component's former CMakeLists.txt shape:
+        # an inline comment block
         # sits between REQUIRES and PRIV_REQUIRES, and must not leak words
         # like "provides" or "emission" into the parsed dependency lists.
         cmake = (

@@ -1,29 +1,30 @@
 // test_bb_serialize_meta_validate — Unity coverage for
-// bb_serialize_meta_validate(): happy path over the bb_info worked example
-// plus injected-mismatch cases. Mismatch fixtures are LOCAL static const
-// tables built inside this file -- the production bb_info_wire_meta table
-// is never mutated or exported for test-only use.
+// bb_serialize_meta_validate(): happy path over the synthetic widget
+// worked example (test_serialize_fixture.h) plus injected-mismatch cases.
+// Mismatch fixtures are LOCAL static const tables built inside this file
+// -- the production bb_fixture_widget_meta table is never mutated or
+// exported for test-only use.
 
 #include "unity.h"
 
 #include "bb_serialize_meta.h"
 
-#include "../../components/bb_info/bb_info_wire_priv.h"
+#include "test_serialize_fixture.h"
 
 #include <stddef.h>
 #include <string.h>
 
-extern const bb_serialize_desc_meta_t bb_info_wire_meta;
+extern const bb_serialize_desc_meta_t bb_fixture_widget_meta;
 
 // ---------------------------------------------------------------------------
 // 1. happy path
 // ---------------------------------------------------------------------------
 
-void test_bb_serialize_meta_validate_info_happy_path(void)
+void test_bb_serialize_meta_validate_widget_happy_path(void)
 {
     char err[128] = { 0 };
     TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_serialize_meta_validate(&bb_info_wire_desc, &bb_info_wire_meta, err, sizeof err));
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &bb_fixture_widget_meta, err, sizeof err));
 }
 
 // ---------------------------------------------------------------------------
@@ -32,12 +33,12 @@ void test_bb_serialize_meta_validate_info_happy_path(void)
 
 void test_bb_serialize_meta_validate_type_name_mismatch(void)
 {
-    bb_serialize_desc_meta_t bad_meta = bb_info_wire_meta;
-    bad_meta.type_name = "not_info";
+    bb_serialize_desc_meta_t bad_meta = bb_fixture_widget_meta;
+    bad_meta.type_name = "not_widget";
 
     char err[128] = { 0 };
     TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
-        bb_serialize_meta_validate(&bb_info_wire_desc, &bad_meta, err, sizeof err));
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &bad_meta, err, sizeof err));
     TEST_ASSERT_TRUE(strstr(err, "type_name mismatch") != NULL);
 }
 
@@ -46,25 +47,25 @@ void test_bb_serialize_meta_validate_type_name_mismatch(void)
 // ---------------------------------------------------------------------------
 
 static const bb_serialize_field_meta_t s_missing_row_rows[] = {
-    { .key = "mac" },
-    { .key = "ota_validated" },
-    { .key = "time_valid" },
-    { .key = "boot_epoch_s" },
-    { .key = "time_source" },
-    { .key = "hostname" },
-    // "capabilities" intentionally omitted.
+    { .key = "serial" },
+    { .key = "calibrated" },
+    { .key = "armed" },
+    { .key = "installed_epoch_s" },
+    { .key = "region" },
+    { .key = "label" },
+    // "tags" intentionally omitted.
 };
 
 void test_bb_serialize_meta_validate_missing_row(void)
 {
     static const bb_serialize_desc_meta_t meta = {
-        .type_name = "info", .rows = s_missing_row_rows, .n_rows = 6,
+        .type_name = "widget", .rows = s_missing_row_rows, .n_rows = 6,
     };
 
     char err[128] = { 0 };
     TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
-        bb_serialize_meta_validate(&bb_info_wire_desc, &meta, err, sizeof err));
-    TEST_ASSERT_TRUE(strstr(err, "capabilities: missing meta row") != NULL);
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "tags: missing meta row") != NULL);
 }
 
 // ---------------------------------------------------------------------------
@@ -72,25 +73,25 @@ void test_bb_serialize_meta_validate_missing_row(void)
 // ---------------------------------------------------------------------------
 
 static const bb_serialize_field_meta_t s_orphan_row_rows[] = {
-    { .key = "mac" },
-    { .key = "ota_validated" },
-    { .key = "time_valid" },
-    { .key = "boot_epoch_s" },
-    { .key = "time_source" },
-    { .key = "hostname" },
-    { .key = "capabilities" },
+    { .key = "serial" },
+    { .key = "calibrated" },
+    { .key = "armed" },
+    { .key = "installed_epoch_s" },
+    { .key = "region" },
+    { .key = "label" },
+    { .key = "tags" },
     { .key = "not_a_real_field" },
 };
 
 void test_bb_serialize_meta_validate_orphan_row(void)
 {
     static const bb_serialize_desc_meta_t meta = {
-        .type_name = "info", .rows = s_orphan_row_rows, .n_rows = 8,
+        .type_name = "widget", .rows = s_orphan_row_rows, .n_rows = 8,
     };
 
     char err[128] = { 0 };
     TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
-        bb_serialize_meta_validate(&bb_info_wire_desc, &meta, err, sizeof err));
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
     TEST_ASSERT_TRUE(strstr(err, "not_a_real_field: orphan meta row") != NULL);
 }
 
@@ -99,25 +100,25 @@ void test_bb_serialize_meta_validate_orphan_row(void)
 // ---------------------------------------------------------------------------
 
 static const bb_serialize_field_meta_t s_string_violation_rows[] = {
-    { .key = "mac" },
-    { .key = "ota_validated", .min_len = 5 },  // BOOL field -- invalid
-    { .key = "time_valid" },
-    { .key = "boot_epoch_s" },
-    { .key = "time_source" },
-    { .key = "hostname" },
-    { .key = "capabilities" },
+    { .key = "serial" },
+    { .key = "calibrated", .min_len = 5 },  // BOOL field -- invalid
+    { .key = "armed" },
+    { .key = "installed_epoch_s" },
+    { .key = "region" },
+    { .key = "label" },
+    { .key = "tags" },
 };
 
 void test_bb_serialize_meta_validate_string_constraint_on_non_string_field(void)
 {
     static const bb_serialize_desc_meta_t meta = {
-        .type_name = "info", .rows = s_string_violation_rows, .n_rows = 7,
+        .type_name = "widget", .rows = s_string_violation_rows, .n_rows = 7,
     };
 
     char err[128] = { 0 };
     TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
-        bb_serialize_meta_validate(&bb_info_wire_desc, &meta, err, sizeof err));
-    TEST_ASSERT_TRUE(strstr(err, "ota_validated") != NULL);
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "calibrated") != NULL);
     TEST_ASSERT_TRUE(strstr(err, "string-shaped") != NULL);
 }
 
@@ -126,25 +127,25 @@ void test_bb_serialize_meta_validate_string_constraint_on_non_string_field(void)
 // ---------------------------------------------------------------------------
 
 static const bb_serialize_field_meta_t s_numeric_violation_rows[] = {
-    { .key = "mac", .has_min = true, .min = 0 },  // STR field -- invalid
-    { .key = "ota_validated" },
-    { .key = "time_valid" },
-    { .key = "boot_epoch_s" },
-    { .key = "time_source" },
-    { .key = "hostname" },
-    { .key = "capabilities" },
+    { .key = "serial", .has_min = true, .min = 0 },  // STR field -- invalid
+    { .key = "calibrated" },
+    { .key = "armed" },
+    { .key = "installed_epoch_s" },
+    { .key = "region" },
+    { .key = "label" },
+    { .key = "tags" },
 };
 
 void test_bb_serialize_meta_validate_numeric_constraint_on_non_numeric_field(void)
 {
     static const bb_serialize_desc_meta_t meta = {
-        .type_name = "info", .rows = s_numeric_violation_rows, .n_rows = 7,
+        .type_name = "widget", .rows = s_numeric_violation_rows, .n_rows = 7,
     };
 
     char err[128] = { 0 };
     TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
-        bb_serialize_meta_validate(&bb_info_wire_desc, &meta, err, sizeof err));
-    TEST_ASSERT_TRUE(strstr(err, "mac") != NULL);
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "serial") != NULL);
     TEST_ASSERT_TRUE(strstr(err, "numeric") != NULL);
 }
 
@@ -153,24 +154,24 @@ void test_bb_serialize_meta_validate_numeric_constraint_on_non_numeric_field(voi
 // ---------------------------------------------------------------------------
 
 static const bb_serialize_field_meta_t s_bad_min_max_rows[] = {
-    { .key = "mac" },
-    { .key = "ota_validated" },
-    { .key = "time_valid" },
-    { .key = "boot_epoch_s", .has_min = true, .min = 100, .has_max = true, .max = 0 },
-    { .key = "time_source" },
-    { .key = "hostname" },
-    { .key = "capabilities" },
+    { .key = "serial" },
+    { .key = "calibrated" },
+    { .key = "armed" },
+    { .key = "installed_epoch_s", .has_min = true, .min = 100, .has_max = true, .max = 0 },
+    { .key = "region" },
+    { .key = "label" },
+    { .key = "tags" },
 };
 
 void test_bb_serialize_meta_validate_min_greater_than_max(void)
 {
     static const bb_serialize_desc_meta_t meta = {
-        .type_name = "info", .rows = s_bad_min_max_rows, .n_rows = 7,
+        .type_name = "widget", .rows = s_bad_min_max_rows, .n_rows = 7,
     };
 
     char err[128] = { 0 };
     TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
-        bb_serialize_meta_validate(&bb_info_wire_desc, &meta, err, sizeof err));
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
     TEST_ASSERT_TRUE(strstr(err, "min > max") != NULL);
 }
 
@@ -179,29 +180,29 @@ void test_bb_serialize_meta_validate_min_greater_than_max(void)
 // ---------------------------------------------------------------------------
 
 static const bb_serialize_field_meta_t s_bad_min_len_rows[] = {
-    { .key = "mac", .min_len = 100 },  // field max_len is 18
-    { .key = "ota_validated" },
-    { .key = "time_valid" },
-    { .key = "boot_epoch_s" },
-    { .key = "time_source" },
-    { .key = "hostname" },
-    { .key = "capabilities" },
+    { .key = "serial", .min_len = 100 },  // field max_len is 18
+    { .key = "calibrated" },
+    { .key = "armed" },
+    { .key = "installed_epoch_s" },
+    { .key = "region" },
+    { .key = "label" },
+    { .key = "tags" },
 };
 
 void test_bb_serialize_meta_validate_min_len_exceeds_field_max_len(void)
 {
     static const bb_serialize_desc_meta_t meta = {
-        .type_name = "info", .rows = s_bad_min_len_rows, .n_rows = 7,
+        .type_name = "widget", .rows = s_bad_min_len_rows, .n_rows = 7,
     };
 
     char err[128] = { 0 };
     TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
-        bb_serialize_meta_validate(&bb_info_wire_desc, &meta, err, sizeof err));
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
     TEST_ASSERT_TRUE(strstr(err, "min_len exceeds") != NULL);
 }
 
 // ---------------------------------------------------------------------------
-// 9/10. nested OBJ recursion -- synthetic fixture (bb_info is flat)
+// 9/10. nested OBJ recursion -- synthetic fixture (the widget fixture is flat)
 // ---------------------------------------------------------------------------
 
 typedef struct {
@@ -305,11 +306,12 @@ void test_bb_serialize_meta_validate_depth_guard_bails_on_self_reference(void)
 }
 
 // ---------------------------------------------------------------------------
-// 12. branch-coverage fixture -- combinations bb_info's flat fields never
-// exercise: U64/F64 numeric-type detection, has_min-only / has_max-only,
-// a STR_N field with min_len set but no field-level max_len, an enum-only
-// (min_len unset) string field, and an ARR-of-OBJ field (vs. bb_info's
-// ARR-of-STR capabilities). All agree with their meta -- expected BB_OK.
+// 12. branch-coverage fixture -- combinations the widget fixture's flat
+// fields never exercise: U64/F64 numeric-type detection, has_min-only /
+// has_max-only, a STR_N field with min_len set but no field-level max_len,
+// an enum-only (min_len unset) string field, and an ARR-of-OBJ field (vs.
+// the widget fixture's ARR-of-STR tags). All agree with their meta --
+// expected BB_OK.
 // ---------------------------------------------------------------------------
 
 static const bb_serialize_field_t s_cov_arrobj_child_fields[] = {
@@ -364,26 +366,26 @@ void test_bb_serialize_meta_validate_coverage_fixture_happy_path(void)
 // ---------------------------------------------------------------------------
 
 static const bb_serialize_field_meta_t s_duplicate_row_rows[] = {
-    { .key = "mac" },
-    { .key = "mac" },  // duplicate
-    { .key = "ota_validated" },
-    { .key = "time_valid" },
-    { .key = "boot_epoch_s" },
-    { .key = "time_source" },
-    { .key = "hostname" },
-    { .key = "capabilities" },
+    { .key = "serial" },
+    { .key = "serial" },  // duplicate
+    { .key = "calibrated" },
+    { .key = "armed" },
+    { .key = "installed_epoch_s" },
+    { .key = "region" },
+    { .key = "label" },
+    { .key = "tags" },
 };
 
 void test_bb_serialize_meta_validate_duplicate_row(void)
 {
     static const bb_serialize_desc_meta_t meta = {
-        .type_name = "info", .rows = s_duplicate_row_rows, .n_rows = 8,
+        .type_name = "widget", .rows = s_duplicate_row_rows, .n_rows = 8,
     };
 
     char err[128] = { 0 };
     TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
-        bb_serialize_meta_validate(&bb_info_wire_desc, &meta, err, sizeof err));
-    TEST_ASSERT_TRUE(strstr(err, "duplicate meta row for key 'mac'") != NULL);
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
+    TEST_ASSERT_TRUE(strstr(err, "duplicate meta row for key 'serial'") != NULL);
 }
 
 // ---------------------------------------------------------------------------
@@ -392,22 +394,22 @@ void test_bb_serialize_meta_validate_duplicate_row(void)
 
 static const bb_serialize_field_meta_t s_null_key_rows[] = {
     { .key = NULL },
-    { .key = "ota_validated" },
-    { .key = "time_valid" },
-    { .key = "boot_epoch_s" },
-    { .key = "time_source" },
-    { .key = "hostname" },
-    { .key = "capabilities" },
+    { .key = "calibrated" },
+    { .key = "armed" },
+    { .key = "installed_epoch_s" },
+    { .key = "region" },
+    { .key = "label" },
+    { .key = "tags" },
 };
 
 void test_bb_serialize_meta_validate_null_key_row(void)
 {
     static const bb_serialize_desc_meta_t meta = {
-        .type_name = "info", .rows = s_null_key_rows, .n_rows = 7,
+        .type_name = "widget", .rows = s_null_key_rows, .n_rows = 7,
     };
 
     char err[128] = { 0 };
     TEST_ASSERT_EQUAL_INT(BB_ERR_VALIDATION,
-        bb_serialize_meta_validate(&bb_info_wire_desc, &meta, err, sizeof err));
+        bb_serialize_meta_validate(&bb_fixture_widget_desc, &meta, err, sizeof err));
     TEST_ASSERT_TRUE(strstr(err, "missing key") != NULL);
 }

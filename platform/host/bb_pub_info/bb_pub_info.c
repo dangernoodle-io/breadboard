@@ -29,7 +29,7 @@
 // that run a heap-guarded OTA TLS path — the runtime pull worker
 // (BB_OTA_PULL_AUTOREGISTER) or the boot-mode on-demand check
 // (BB_OTA_BOOT_STATUS_HTTP). Gated so boot-only boards don't link bb_ota_pull
-// just for this field. Keep in sync with bb_info.c + both CMakeLists.
+// just for this field.
 #if defined(ESP_PLATFORM) && \
     ((defined(CONFIG_BB_OTA_PULL_AUTOREGISTER) && CONFIG_BB_OTA_PULL_AUTOREGISTER) || \
      (defined(CONFIG_BB_OTA_BOOT_STATUS_HTTP) && CONFIG_BB_OTA_BOOT_STATUS_HTTP))

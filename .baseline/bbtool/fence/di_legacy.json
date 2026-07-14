@@ -7,7 +7,7 @@
     },
     {
       "id": "BB_DISPLAY_INFO_AUTO_ATTACH",
-      "path": "components/bb_display_info/Kconfig",
+      "path": "components/bb_display/Kconfig",
       "type": "auto_attach_kconfig"
     },
     {
@@ -42,7 +42,7 @@
     },
     {
       "id": "BB_DISPLAY_INFO_AUTO_ATTACH",
-      "path": "platform/espidf/bb_display_info/bb_display_info.c",
+      "path": "platform/espidf/bb_display/bb_display_info.c",
       "type": "auto_attach_usage"
     },
     {
