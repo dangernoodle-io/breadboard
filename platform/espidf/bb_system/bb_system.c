@@ -1,7 +1,8 @@
 #include "bb_system.h"
 
 #include "bb_log.h"
-#include "bb_nv.h"
+#include "bb_config.h"
+#include "bb_nv_namespaces.h"
 #include "bb_nv_keys.h"
 #include "bb_ntp.h"
 #include "bb_clock.h"
@@ -150,9 +151,13 @@ void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint
 }
 
 // Boot-health counter (B1-753) — co-located with the reboot-reason record
-// under the same NVS namespace via bb_nv's generic keyed accessors (same
-// pattern as bb_diag/bb_ota_boot: a domain-specific counter stored through
-// bb_nv's generic get/set, not a bb_nv-owned concept).
+// under the same NVS namespace, round-tripped through bb_config (typed layer
+// over bb_storage) rather than bb_nv's generic KV forwarder (B1-756, bb_nv
+// dissolution epic B1-708) — bb_config's U8 encoding resolves to the SAME
+// nvs_get_u8/nvs_set_u8 calls bb_nv_get_u8/set_u8 made (both are thin
+// forwarders to bb_storage_nvs, see bb_storage_nvs.h), so the
+// namespace/key/U8-typed on-flash format below is byte-compatible with what
+// this counter previously read/wrote via bb_nv.
 //
 // This counter moved here from the old bb_cfg NVS namespace (bb_nv config
 // API) to bb_reboot (BB_REBOOT_NVS_NS/BB_REBOOT_KEY_BOOT_CNT). An OTA from a
@@ -165,17 +170,25 @@ void bb_system_restart_reason_at(bb_reset_source_t src, const char *detail, uint
 // needed one (a genuinely failing device keeps incrementing post-OTA). The
 // stranded bb_cfg/boot_cnt byte is left in place, retired wholesale when
 // bb_nv is deleted.
+static const bb_config_field_t s_boot_count_field = {
+    .id          = "system.boot_count",
+    .type        = BB_CONFIG_U8,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_REBOOT_NVS_NS, .key = BB_REBOOT_KEY_BOOT_CNT },
+    .def         = { .u8 = 0 },
+    .has_default = true,
+};
+
 bb_err_t bb_system_boot_count_increment(void)
 {
     uint8_t val = 0;
-    bb_nv_get_u8(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_BOOT_CNT, &val, 0);
+    bb_config_get_u8(&s_boot_count_field, &val);
     if (val < UINT8_MAX) val++;
-    return bb_nv_set_u8(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_BOOT_CNT, val);
+    return bb_config_set_u8(&s_boot_count_field, val);
 }
 
 bb_err_t bb_system_boot_count_reset(void)
 {
-    return bb_nv_set_u8(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_BOOT_CNT, 0);
+    return bb_config_set_u8(&s_boot_count_field, 0);
 }
 
 // Number of hex chars in the app SHA256 prefix.
