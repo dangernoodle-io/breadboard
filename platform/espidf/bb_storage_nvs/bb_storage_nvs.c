@@ -1060,7 +1060,13 @@ static bb_err_t nvs_vt_get_typed_str(const bb_storage_addr_t *addr, void *buf, s
         if (gerr != ESP_OK) {
             return gerr;
         }
-        memcpy(buf, scratch, cap < str_len ? cap : str_len);
+        /* scratch is NUL-terminated by nvs_get_str; bb_strlcpy guarantees
+         * buf is too (truncating safely) even though this is a truncating
+         * read -- restores the NUL guarantee the old bb_nv_get_str path had
+         * via bb_strlcpy before the B1-756 typed-vtable migration dropped it
+         * (B1-947). out_len (set by bb_storage_nvs_get_decide above) still
+         * reports the FULL stored length, unaffected by this truncation. */
+        bb_strlcpy((char *)buf, scratch, cap);
         return BB_OK;
     }
 

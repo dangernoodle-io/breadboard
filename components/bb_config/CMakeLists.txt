@@ -4,6 +4,7 @@ idf_component_register(
         "${CMAKE_CURRENT_LIST_DIR}/../../platform/host/bb_config/bb_config_staged.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_storage bb_core
+    PRIV_REQUIRES bb_str
 )
 
 # bb_config is a portable typed layer over bb_storage (no ESP-IDF deps) --
