@@ -335,11 +335,66 @@ void test_bb_config_str_truncation_reports_full_len(void)
 {
     reset_all();
     TEST_ASSERT_EQUAL(BB_OK, bb_config_set_str(&F_STR_NODEF, "0123456789"));
-    char buf[4] = {0};
+    /* Non-zero prefill (B1-947): a zeroed buffer masks a missing NUL --
+     * fill with 'A' so a missing terminator is unambiguous. */
+    char buf[4];
+    memset(buf, 'A', sizeof(buf));
     size_t out_len = 0;
     TEST_ASSERT_EQUAL(BB_OK, bb_config_get_str(&F_STR_NODEF, buf, sizeof(buf), &out_len));
     TEST_ASSERT_EQUAL(10, out_len);
-    TEST_ASSERT_EQUAL_STRING_LEN("0123", buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_STRING_LEN("012", buf, 3);
+    TEST_ASSERT_TRUE(strlen(buf) < sizeof(buf));
+}
+
+// B1-947 regression: a truncating read on a backend with no STR-aware
+// get_typed (ram, exercised via ADDR()) used to fill the ENTIRE cap with raw
+// bytes and never write a NUL -- the caller could not detect this (BB_OK
+// either way), and a subsequent strlen()/sscanf() would walk off the end of
+// buf. bb_config_get_str now guarantees termination itself for exactly this
+// case (bb_storage's generic blob fallback has no NUL contract of its own).
+void test_bb_config_str_truncated_read_is_nul_terminated_non_zero_prefill(void)
+{
+    reset_all();
+    /* max_len=16 on F_STR_NODEF -- 15 chars fits (strlen < max_len). */
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_set_str(&F_STR_NODEF, "0123456789abcde"));
+    char buf[4];
+    memset(buf, 'A', sizeof(buf));
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_str(&F_STR_NODEF, buf, sizeof(buf), &out_len));
+    /* out_len must still report the FULL stored length -- truncation
+     * detection must not regress. */
+    TEST_ASSERT_EQUAL(15, out_len);
+    /* buf must be a valid, in-bounds NUL-terminated C string. */
+    TEST_ASSERT_TRUE(strlen(buf) < sizeof(buf));
+    TEST_ASSERT_EQUAL('\0', buf[sizeof(buf) - 1]);
+}
+
+// Full (non-truncating) reads must also terminate -- ram's generic blob
+// .get() copies exactly out_len bytes and leaves the rest of buf untouched,
+// which is only safe by luck if the caller happened to zero-fill.
+void test_bb_config_str_full_read_is_nul_terminated_non_zero_prefill(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_set_str(&F_STR_NODEF, "hi"));
+    char buf[16];
+    memset(buf, 'A', sizeof(buf));
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_str(&F_STR_NODEF, buf, sizeof(buf), &out_len));
+    TEST_ASSERT_EQUAL(2, out_len);
+    TEST_ASSERT_EQUAL_STRING("hi", buf);
+}
+
+// Default-fallback path (bb_config's own memcpy, not a backend call) must
+// terminate the same way when the default itself is longer than cap.
+void test_bb_config_str_default_truncated_is_nul_terminated_non_zero_prefill(void)
+{
+    reset_all();
+    char buf[4];
+    memset(buf, 'A', sizeof(buf));
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_str(&F_STR_DEF, buf, sizeof(buf), &out_len));
+    TEST_ASSERT_EQUAL(6, out_len);  // strlen("defval")
+    TEST_ASSERT_TRUE(strlen(buf) < sizeof(buf));
 }
 
 /* ---------------------------------------------------------------------------

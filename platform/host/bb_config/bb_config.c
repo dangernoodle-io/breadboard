@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "bb_byte_order.h"
+#include "bb_str.h"
 
 // ---------------------------------------------------------------------------
 // bb_config_type_t -> bb_storage_enc_t — lets NVS-backed fields round-trip
@@ -246,6 +247,24 @@ bb_err_t bb_config_get_str(const bb_config_field_t *f, char *buf, size_t cap, si
     }
 
     bb_err_t rc = bb_storage_get_typed(&f->addr, BB_STORAGE_ENC_STR, buf, cap, out_len);
+    if (rc == BB_OK && cap > 0) {
+        // Guarantee buf is a NUL-terminated C string regardless of which
+        // backend serviced this read (B1-947). A backend with a real
+        // get_typed (e.g. nvs) already terminates on both the full and
+        // truncating paths -- this is then a harmless no-op re-write of the
+        // same byte. A backend with no get_typed (ram/host/sdcard) falls
+        // back to bb_storage's generic blob semantics, which has NO NUL
+        // contract at all (by design -- see bb_storage.h's vtable comment:
+        // "RAM/host/sdcard backends need no code changes"); bb_config is the
+        // only layer that knows this is a STR read for those backends, so
+        // the obligation lands here. *out_len/cap are already-validated
+        // lengths (not a memory scan), so a bounds-only write is safe even
+        // though buf itself may not yet be terminated -- unlike bb_strlcpy,
+        // which requires an already-NUL-terminated source and so cannot be
+        // used to fix up buf in place.
+        size_t written = (*out_len < cap) ? *out_len : cap - 1;
+        buf[written] = '\0';
+    }
     if (rc == BB_ERR_NOT_FOUND && f->has_default) {
         const char *def = f->def.str != NULL ? f->def.str : "";
         size_t len = strlen(def);
@@ -256,8 +275,12 @@ bb_err_t bb_config_get_str(const bb_config_field_t *f, char *buf, size_t cap, si
         }
         *out_len = len;
         if (cap > 0) {
-            size_t n = len < cap ? len : cap;
-            memcpy(buf, def, n);
+            // Same truncation-must-terminate rule as the backend STR getters
+            // (B1-947): a default this long relative to cap still needs a
+            // valid NUL-terminated C string in buf. bb_strlcpy truncates
+            // safely and always terminates; out_len above already carries
+            // the full (untruncated) length.
+            bb_strlcpy(buf, def, cap);
         }
         return BB_OK;
     }

@@ -116,12 +116,18 @@ void test_bb_settings_wifi_pass_get_truncation_reports_full_len(void)
     reset_all();
     TEST_ASSERT_EQUAL(BB_OK, bb_config_set_str(&s_test_pass_field, "hunter2222"));
 
-    char buf[4] = {0};
+    /* Non-zero prefill (B1-947): a zeroed buffer masks a missing NUL. */
+    char buf[4];
+    memset(buf, 'A', sizeof(buf));
     size_t out_len = 0;
     TEST_ASSERT_EQUAL(BB_OK, bb_settings_wifi_pass_get(buf, sizeof(buf), &out_len));
     TEST_ASSERT_EQUAL(strlen("hunter2222"), out_len);
     TEST_ASSERT_TRUE(out_len > sizeof(buf));
-    TEST_ASSERT_EQUAL_STRING_LEN("hunt", buf, sizeof(buf));
+    /* buf must still be a valid, in-bounds NUL-terminated C string --
+     * bb_config_get_str truncates safely (BSD strlcpy semantics: last byte
+     * of cap is sacrificed for the NUL), it does not fill the entire cap. */
+    TEST_ASSERT_EQUAL_STRING_LEN("hun", buf, 3);
+    TEST_ASSERT_EQUAL('\0', buf[3]);
 }
 
 /* ---------------------------------------------------------------------------

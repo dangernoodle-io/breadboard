@@ -36,6 +36,7 @@ None of its own — `bb_config` proper has no Kconfig options and no compile-tim
 |-----------|------|------|------|
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
 | `bb_storage` | public | Portable storage facade + backend registry: one `bb_storage_get/set/erase/exists` API dispatching by `bb_storage_addr_t.backend` to whichever backend has registered itself. | [bb_storage](../bb_storage/README.md) |
+| `bb_str` | private | — | [bb_str](../README.md) |
 <!-- END bbtool:deps -->
 
 ## Platform support
