@@ -1101,52 +1101,22 @@
       "type": "uncovered_line"
     },
     {
-      "id": "102",
+      "id": "135",
       "path": "platform/host/bb_tls_creds/bb_tls_creds.c",
       "type": "uncovered_line"
     },
     {
-      "id": "103",
+      "id": "136",
       "path": "platform/host/bb_tls_creds/bb_tls_creds.c",
       "type": "uncovered_line"
     },
     {
-      "id": "104",
+      "id": "137",
       "path": "platform/host/bb_tls_creds/bb_tls_creds.c",
       "type": "uncovered_line"
     },
     {
-      "id": "105",
-      "path": "platform/host/bb_tls_creds/bb_tls_creds.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "141",
-      "path": "platform/host/bb_tls_creds/bb_tls_creds.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "142",
-      "path": "platform/host/bb_tls_creds/bb_tls_creds.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "143",
-      "path": "platform/host/bb_tls_creds/bb_tls_creds.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "150",
-      "path": "platform/host/bb_tls_creds/bb_tls_creds.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "151",
-      "path": "platform/host/bb_tls_creds/bb_tls_creds.c",
-      "type": "uncovered_line"
-    },
-    {
-      "id": "152",
+      "id": "138",
       "path": "platform/host/bb_tls_creds/bb_tls_creds.c",
       "type": "uncovered_line"
     },
