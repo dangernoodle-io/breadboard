@@ -7,6 +7,7 @@
 
 #include "bb_log.h"
 #include "bb_nv.h"
+#include "bb_config.h"
 #include "bb_http.h"
 #include "bb_http_server.h"
 #include "bb_wifi.h"
@@ -42,6 +43,24 @@ extern const bb_http_asset_t *demo_site_get(size_t *n);
 #endif
 
 static const char *TAG = "smoke";
+
+// Boot counter, round-tripped through bb_config (typed layer over
+// bb_storage) rather than bb_nv's generic KV forwarder (B1-756, bb_nv
+// dissolution epic B1-708) -- BB_CONFIG_U32 resolves to the SAME
+// nvs_get_u32/nvs_set_u32 calls bb_nv_get_u32/set_u32 made (both are thin
+// forwarders to bb_storage_nvs), so the "app"/"boot" ns/key/U32-typed
+// on-flash format is byte-compatible with what this component previously
+// read/wrote via bb_nv. has_default/def.u32=0 mirrors bb_nv_get_u32's
+// fallback-on-not-found contract explicitly -- bb_config_get_u32 leaves
+// *out untouched on a non-BB_OK return unless has_default resolves a
+// NOT_FOUND, unlike bb_nv_get_u32 which always writes the fallback.
+static const bb_config_field_t s_boot_count_field = {
+    .id          = "smoke.app.boot",
+    .type        = BB_CONFIG_U32,
+    .addr        = { .backend = "nvs", .ns_or_dir = "app", .key = "boot" },
+    .def         = { .u32 = 0 },
+    .has_default = true,
+};
 
 static void btn_events_cb(const bb_button_events_event_t *e, void *user) {
     (void)user;
@@ -364,9 +383,18 @@ void smoke_app_setup(void) {
     }
 
     uint32_t boot_count = 0;
-    bb_nv_get_u32("app", "boot", &boot_count, 0);
+    bb_err_t boot_rc = bb_config_get_u32(&s_boot_count_field, &boot_count);
+    if (boot_rc != BB_OK) {
+        // NOT_FOUND is already resolved to BB_OK via has_default/def.u32
+        // above -- a non-BB_OK return here is a genuine backend error
+        // (e.g. width/type mismatch), which leaves boot_count untouched.
+        // Fall back to the field's own default explicitly rather than
+        // relying on the local zero-init to happen to match it.
+        bb_log_w(TAG, "boot_count: get failed (%d), using default", (int)boot_rc);
+        boot_count = s_boot_count_field.def.u32;
+    }
     boot_count++;
-    bb_nv_set_u32("app", "boot", boot_count);
+    bb_config_set_u32(&s_boot_count_field, boot_count);
     bb_log_i(TAG, "boot=%lu", (unsigned long)boot_count);
 
     bb_wifi_set_hostname("bb-smoke");

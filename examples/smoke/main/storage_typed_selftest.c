@@ -1,8 +1,17 @@
 // ESP-IDF target selftest for KB 791 Option A (type-aware bb_storage/
-// bb_config NVS entries). Proves byte-identity between bb_nv's direct typed
-// NVS accessors and bb_config's facade-backed typed accessors: a value
-// written via one is readable via the other with no TYPE_MISMATCH,
-// because both ultimately call the same native nvs_get/set_str.
+// bb_config NVS entries).
+//
+// Originally proved byte-identity between bb_nv's direct typed NVS
+// accessors and bb_config's facade-backed typed accessors (a value written
+// via one was readable via the other with no TYPE_MISMATCH). B1-756 (bb_nv
+// dissolution epic B1-708) removed bb_nv's generic KV API entirely, making
+// that cross-comparison impossible -- this selftest is narrowed to a
+// bb_config-only round trip (write via bb_config_set_str, read back via
+// bb_config_get_str). The probe-length / exact-buffer-length NUL-
+// termination regression check (part 3 below, guarding the
+// nvs_vt_get_typed_str HIGH-finding regression) is unrelated to bb_nv and
+// is kept unchanged -- it is still-valuable on-device proof of
+// bb_config_get_str's truncation contract.
 //
 // Runs automatically at boot (called from entry_espidf.c after
 // bb_app_init_early(), once NVS is ready) and logs PASS/FAIL — the smoke
@@ -16,7 +25,6 @@
 #include <string.h>
 
 #include "bb_log.h"
-#include "bb_nv.h"
 #include "bb_config.h"
 #include "bb_storage.h"
 #include "bb_storage_nvs.h"
@@ -43,13 +51,22 @@ static const bb_config_field_t s_probe_field = {
     .max_len = 33,
 };
 
+// One-shot done-marker, previously bb_nv_exists()/bb_nv_set_u8() (u8 value
+// 1) -- BB_CONFIG_U8 round-trips through the SAME nvs_get/set_u8 native
+// call, so the on-flash type tag is unchanged (B1-756).
+static const bb_config_field_t s_done_field = {
+    .id   = "selftest.typed_st_done",
+    .type = BB_CONFIG_U8,
+    .addr = { .backend = "nvs", .ns_or_dir = SELFTEST_NS, .key = SELFTEST_DONE_KEY },
+};
+
 void bb_smoke_storage_typed_selftest(void)
 {
     // Run once (persisted marker), never on every boot -- this test does an
     // erase + two NVS writes, which would wear the flash if it repeated on
     // every boot of a long-lived board. On-device byte-format validation is
     // a one-time flash-gate check, not a per-boot regression test.
-    if (bb_nv_exists(SELFTEST_NS, SELFTEST_DONE_KEY)) {
+    if (bb_config_exists(&s_done_field)) {
         bb_log_i(TAG, "SKIP: already ran (one-shot marker set)");
         return;
     }
@@ -57,7 +74,7 @@ void bb_smoke_storage_typed_selftest(void)
     // one-shot bound holds even on a failure path -- a persistently failing
     // selftest should be investigated at the flash gate, not retried every
     // boot for the life of the device.
-    (void)bb_nv_set_u8(SELFTEST_NS, SELFTEST_DONE_KEY, 1);
+    (void)bb_config_set_u8(&s_done_field, 1);
 
     // bb_storage_nvs_register() is no longer called here -- it is codegen-
     // wired into bb_app_init_early() (bb_storage_nvs.h's `provides=
@@ -66,12 +83,11 @@ void bb_smoke_storage_typed_selftest(void)
     // here.
     (void)bb_storage_nvs_erase(SELFTEST_NS, SELFTEST_KEY);
 
-    // (1) bb_nv_set_str (simulates a provisioned board) -> bb_config_get_str
-    // at the same ns/key with enc=STR. No TYPE_MISMATCH, byte-identical.
+    // (1) bb_config-only round trip: set_str -> get_str at the same ns/key.
     const char *seed = "MyNetwork";
-    bb_err_t rc = bb_nv_set_str(SELFTEST_NS, SELFTEST_KEY, seed);
+    bb_err_t rc = bb_config_set_str(&s_probe_field, seed);
     if (rc != BB_OK) {
-        bb_log_e(TAG, "FAIL: bb_nv_set_str rc=%d", (int)rc);
+        bb_log_e(TAG, "FAIL: bb_config_set_str rc=%d", (int)rc);
         return;
     }
 
@@ -79,7 +95,7 @@ void bb_smoke_storage_typed_selftest(void)
     size_t out_len = 0;
     rc = bb_config_get_str(&s_probe_field, buf, sizeof(buf), &out_len);
     if (rc != BB_OK) {
-        bb_log_e(TAG, "FAIL: bb_config_get_str rc=%d (expected BB_OK, no TYPE_MISMATCH)", (int)rc);
+        bb_log_e(TAG, "FAIL: bb_config_get_str rc=%d", (int)rc);
         return;
     }
     if (out_len != strlen(seed) || strncmp(buf, seed, out_len) != 0) {
@@ -88,22 +104,12 @@ void bb_smoke_storage_typed_selftest(void)
         return;
     }
 
-    // (2) reverse: bb_config_set_str -> bb_nv_get_str at the same ns/key.
+    // (2) overwrite with a second value -- seeds the probe-length regression
+    // check below (part 3), still bb_config-only.
     const char *updated = "OtherNetwork";
     rc = bb_config_set_str(&s_probe_field, updated);
     if (rc != BB_OK) {
         bb_log_e(TAG, "FAIL: bb_config_set_str rc=%d", (int)rc);
-        return;
-    }
-
-    char buf2[40] = {0};
-    rc = bb_nv_get_str(SELFTEST_NS, SELFTEST_KEY, buf2, sizeof(buf2), NULL);
-    if (rc != BB_OK) {
-        bb_log_e(TAG, "FAIL: bb_nv_get_str rc=%d", (int)rc);
-        return;
-    }
-    if (strcmp(buf2, updated) != 0) {
-        bb_log_e(TAG, "FAIL: bb_nv_get_str mismatch: got '%s' want '%s'", buf2, updated);
         return;
     }
 
@@ -138,7 +144,7 @@ void bb_smoke_storage_typed_selftest(void)
         return;
     }
 
-    bb_log_i(TAG, "PASS: bb_nv/bb_config STR byte-identity round trip (both directions)");
+    bb_log_i(TAG, "PASS: bb_config STR round trip (incl. cap==str_len NUL-termination check)");
     // Erase the probe key only (not the namespace) to avoid leaving test junk in
     // NVS on the shipping device. The done-marker SELFTEST_DONE_KEY shares this
     // namespace, so erasing the whole namespace would destroy the one-shot guard
