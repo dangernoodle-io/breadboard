@@ -3913,7 +3913,6 @@ void test_bb_ota_check_retained_snapshot_current_after_repeated_custom_parser_ch
 void test_bb_ota_check_ota_claim_acquire_free_returns_ok(void);
 void test_bb_ota_check_ota_claim_acquire_conflict_returns_err(void);
 void test_bb_ota_check_ota_claim_release_frees_slot(void);
-void test_bb_ota_check_alert_fill_update_version(void);
 void test_bb_ota_check_route_consts_match_legacy_literals(void);
 
 void test_bb_event_routes_init_idempotent(void);
@@ -4655,14 +4654,6 @@ void test_bb_registry_foreach_visits_ptr_keyed_entries(void);
 void test_bb_registry_foreach_ptr_visits_all(void);
 void test_bb_registry_foreach_ptr_null_cb_is_noop(void);
 void test_bb_registry_foreach_ptr_empty_registry(void);
-
-// Forward declarations from test_bb_alert.c
-void test_bb_alert_emit_no_topic_noop(void);
-void test_bb_alert_emit_below_threshold_dropped(void);
-void test_bb_alert_emit_at_threshold_emitted(void);
-void test_bb_alert_emit_envelope_format(void);
-void test_bb_alert_severity_filter_warning_threshold(void);
-void test_bb_alert_emit_serialize_oom(void);
 
 // Forward declarations from test_bb_transport_health.c
 void test_bb_transport_health_register_authoritative(void);
@@ -7829,7 +7820,6 @@ int main(void) {
     RUN_TEST(test_bb_ota_check_ota_claim_acquire_free_returns_ok);
     RUN_TEST(test_bb_ota_check_ota_claim_acquire_conflict_returns_err);
     RUN_TEST(test_bb_ota_check_ota_claim_release_frees_slot);
-    RUN_TEST(test_bb_ota_check_alert_fill_update_version);
     RUN_TEST(test_bb_ota_check_route_consts_match_legacy_literals);
 
     RUN_TEST(test_bb_event_routes_init_idempotent);
@@ -9025,14 +9015,6 @@ int main(void) {
     RUN_TEST(test_bb_udp_client_broadcast_cfg_accepted);
     RUN_TEST(test_bb_udp_client_send_null_buf_or_negative_len_returns_invalid_arg);
     RUN_TEST(test_bb_udp_client_host_last_capture_before_any_send_returns_negative);
-
-    // bb_alert
-    RUN_TEST(test_bb_alert_emit_no_topic_noop);
-    RUN_TEST(test_bb_alert_emit_below_threshold_dropped);
-    RUN_TEST(test_bb_alert_emit_at_threshold_emitted);
-    RUN_TEST(test_bb_alert_emit_envelope_format);
-    RUN_TEST(test_bb_alert_severity_filter_warning_threshold);
-    RUN_TEST(test_bb_alert_emit_serialize_oom);
 
     // bb_transport_health
     RUN_TEST(test_bb_transport_health_register_authoritative);

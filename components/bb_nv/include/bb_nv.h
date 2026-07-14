@@ -195,7 +195,7 @@ bb_err_t bb_nv_factory_reset_routes_init(bb_http_handle_t server);
 // No-op stub when the factory-reset route is compiled out (default) --
 // codegen's `// bbtool:init` marker scan has no preprocessor awareness
 // (grep-time, see wire_parse.py), so bb_app_init.c unconditionally calls
-// this fn; mirrors the bb_alert.h Kconfig-bridge stub pattern.
+// this fn; mirrors the bb_clock.h Kconfig-bridge stub pattern.
 static inline bb_err_t bb_nv_factory_reset_routes_init(bb_http_handle_t server)
 {
     (void)server;

@@ -9,7 +9,6 @@
 #include "bb_event_test.h"
 #include "bb_json.h"
 #include "bb_nv.h"
-#include "bb_alert.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -2047,51 +2046,6 @@ void test_bb_ota_check_ota_claim_release_frees_slot(void)
     // Slot free — second acquirer wins.
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_ota_claim_acquire("upd_check"));
     bb_ota_check_ota_claim_release("upd_check");
-}
-
-// ---------------------------------------------------------------------------
-// bb_alert fill_update_version coverage
-// ---------------------------------------------------------------------------
-
-// Drain callback — discards alert events to prevent ring overflow.
-static void drain_alert(bb_event_topic_t topic, int32_t id,
-                        const void *data, size_t size, void *user)
-{
-    (void)topic; (void)id; (void)data; (void)size; (void)user;
-}
-
-void test_bb_ota_check_alert_fill_update_version(void)
-{
-    // Drive the streaming "update available" path so that bb_alert_emit is
-    // called with fill_update_version (lines 32/34-37 of bb_ota_check_common.c).
-    setenv("BB_EVENT_HOST_SYNC", "1", 1);
-    reset_world();
-
-    // Set up alert subsystem (bb_event_reset_for_test was called inside reset_world).
-    bb_alert_reset_for_test();
-    bb_alert_register();
-    bb_alert_set_min_severity_for_test(BB_ALERT_INFO);
-
-    // Subscribe to the alert topic to drain events and avoid ring overflow.
-    bb_event_topic_t alert_topic = bb_alert_topic_for_test();
-    bb_event_sub_t alert_sub = NULL;
-    if (alert_topic) {
-        bb_event_subscribe(alert_topic, drain_alert, NULL, &alert_sub);
-    }
-
-    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_init(NULL));
-    bb_ota_check_set_releases_url("http://example.com/r.json");
-    bb_ota_check_set_firmware_board("firmware");
-
-    // Mock a newer version — triggers the available=false -> true transition,
-    // which calls bb_alert_emit("update_available", ..., fill_update_version, ...).
-    bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
-    TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_run_one());
-    bb_event_pump(0);
-
-    if (alert_sub) {
-        bb_event_unsubscribe(alert_sub);
-    }
 }
 
 // B1-461: guard the shared /api/update/* route-path constants against
