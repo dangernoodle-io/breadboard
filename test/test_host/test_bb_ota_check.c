@@ -8,7 +8,9 @@
 #include "bb_event_ring.h"
 #include "bb_event_test.h"
 #include "bb_json.h"
-#include "bb_nv.h"
+#include "bb_settings.h"
+#include "bb_storage.h"
+#include "fake_nvs_backend.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -78,6 +80,9 @@ static const char *UNKNOWN_BODY =
 
 static void reset_world(void)
 {
+    bb_storage_test_reset();
+    fake_nvs_reset();
+    bb_storage_register_backend("nvs", &s_fake_nvs_vtable, NULL);
     bb_ota_check_reset_for_test();
     bb_http_client_clear_mock();
     bb_event_reset_for_test();
@@ -1195,7 +1200,7 @@ void test_bb_ota_check_in_flight_resets_on_reset_world(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_nv_config_update_check_enabled runtime opt-out
+// bb_settings_update_check_enabled_get runtime opt-out
 // ---------------------------------------------------------------------------
 
 void test_bb_ota_check_status_enabled_is_true_by_default(void)
@@ -1216,7 +1221,7 @@ void test_bb_ota_check_run_one_disabled_returns_ok_without_fetch(void)
     reset_world();
     bb_ota_check_init(NULL);
     bb_ota_check_set_releases_url("http://example.com/r.json");
-    bb_nv_config_set_update_check_enabled(false);
+    bb_settings_update_check_enabled_set(false);
 
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_run_one());
 
@@ -1231,16 +1236,16 @@ void test_bb_ota_check_run_one_disabled_returns_ok_without_fetch(void)
 
 void test_bb_ota_check_status_enabled_reflects_nv_flag(void)
 {
-    // get_status.enabled tracks bb_nv_config_update_check_enabled() live.
+    // get_status.enabled tracks bb_settings_update_check_enabled_get() live.
     reset_world();
     bb_ota_check_init(NULL);
 
-    bb_nv_config_set_update_check_enabled(false);
+    bb_settings_update_check_enabled_set(false);
     bb_ota_check_status_t st;
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_get_status(&st));
     TEST_ASSERT_FALSE(st.enabled);
 
-    bb_nv_config_set_update_check_enabled(true);
+    bb_settings_update_check_enabled_set(true);
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_get_status(&st));
     TEST_ASSERT_TRUE(st.enabled);
 }
@@ -1254,14 +1259,14 @@ void test_bb_ota_check_reenabled_runs_check(void)
     bb_ota_check_set_firmware_board("firmware");
 
     // Disable: run_one must be a no-op.
-    bb_nv_config_set_update_check_enabled(false);
+    bb_settings_update_check_enabled_set(false);
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_run_one());
     bb_ota_check_status_t st;
     bb_ota_check_get_status(&st);
     TEST_ASSERT_FALSE(st.last_check_ok);
 
     // Re-enable: subsequent run_one must fetch and succeed.
-    bb_nv_config_set_update_check_enabled(true);
+    bb_settings_update_check_enabled_set(true);
     bb_http_client_set_mock_response(VALID_BODY, strlen(VALID_BODY), 200);
     TEST_ASSERT_EQUAL(BB_OK, bb_ota_check_run_one());
     bb_ota_check_get_status(&st);
@@ -1277,7 +1282,7 @@ void test_bb_ota_check_reenabled_runs_check(void)
 void test_update_check_config_get_returns_enabled_true_by_default(void)
 {
     reset_world();
-    bb_nv_config_set_update_check_enabled(true);
+    bb_settings_update_check_enabled_set(true);
 
     bb_http_request_t *req;
     bb_http_host_capture_begin(&req);
@@ -1295,7 +1300,7 @@ void test_update_check_config_get_returns_enabled_true_by_default(void)
 void test_update_check_config_get_returns_enabled_false_when_disabled(void)
 {
     reset_world();
-    bb_nv_config_set_update_check_enabled(false);
+    bb_settings_update_check_enabled_set(false);
 
     bb_http_request_t *req;
     bb_http_host_capture_begin(&req);
@@ -1317,7 +1322,7 @@ void test_update_check_config_get_returns_enabled_false_when_disabled(void)
 void test_update_check_config_post_toggles_to_false(void)
 {
     reset_world();
-    bb_nv_config_set_update_check_enabled(true);
+    bb_settings_update_check_enabled_set(true);
 
     const char *body = "{\"enabled\":false}";
     bb_http_request_t *req;
@@ -1331,14 +1336,14 @@ void test_update_check_config_post_toggles_to_false(void)
     TEST_ASSERT_EQUAL(200, cap.status);
     TEST_ASSERT_NOT_NULL(cap.body);
     TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"enabled\":false"));
-    TEST_ASSERT_FALSE(bb_nv_config_update_check_enabled());
+    TEST_ASSERT_FALSE(bb_settings_update_check_enabled_get());
     bb_http_host_capture_free(&cap);
 }
 
 void test_update_check_config_post_toggles_to_true(void)
 {
     reset_world();
-    bb_nv_config_set_update_check_enabled(false);
+    bb_settings_update_check_enabled_set(false);
 
     const char *body = "{\"enabled\":true}";
     bb_http_request_t *req;
@@ -1352,7 +1357,7 @@ void test_update_check_config_post_toggles_to_true(void)
     TEST_ASSERT_EQUAL(200, cap.status);
     TEST_ASSERT_NOT_NULL(cap.body);
     TEST_ASSERT_NOT_NULL(strstr(cap.body, "\"enabled\":true"));
-    TEST_ASSERT_TRUE(bb_nv_config_update_check_enabled());
+    TEST_ASSERT_TRUE(bb_settings_update_check_enabled_get());
     bb_http_host_capture_free(&cap);
 }
 
@@ -1484,17 +1489,16 @@ void test_update_check_config_post_recv_failure_returns_400(void)
 
 void test_update_check_config_post_nv_write_failure_returns_500(void)
 {
-    // bb_nv_config_set_update_check_enabled fails — exercises the err != BB_OK
+    // bb_settings_update_check_enabled_set fails — exercises the err != BB_OK
     // branch at line 511 and the 500 response path.
     reset_world();
+    fake_nvs_backend_fail_set_key("update_check_en");
 
     const char *body = "{\"enabled\":false}";
     bb_http_request_t *req;
     bb_http_host_capture_begin(&req);
     bb_http_host_capture_set_req_body(body, (int)strlen(body));
-    bb_nv_config_host_force_set_update_check_fail(true);
     bb_err_t rc = bb_ota_check_config_post_handler(req);
-    bb_nv_config_host_force_set_update_check_fail(false);
     bb_http_host_capture_t cap;
     bb_http_host_capture_end(req, &cap);
 

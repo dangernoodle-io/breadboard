@@ -77,7 +77,7 @@ typedef struct {
     int64_t last_check_us;     // epoch-us (gettimeofday), NOT monotonic; 0 if never
     bool    last_check_ok;     // false => sticky failure (FAILED outcome)
     bool    available;
-    bool    enabled;           // mirrors bb_nv_config_update_check_enabled()
+    bool    enabled;           // mirrors bb_settings_update_check_enabled_get()
     bb_ota_check_outcome_t outcome; // terminal outcome of the last check
 } bb_ota_check_status_t;
 

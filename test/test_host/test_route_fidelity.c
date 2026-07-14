@@ -46,7 +46,7 @@
 #include "bb_http_host.h"
 #include "bb_openapi.h"
 #include "bb_board.h"
-#include "bb_nv.h"
+#include "bb_settings.h"
 #include "bb_wifi.h"
 #include "bb_wifi_http.h"
 #include "bb_system.h"
@@ -516,7 +516,7 @@ static bb_err_t h_update_status(bb_http_request_t *req)
 // components/bb_ota_check/src/bb_ota_check_common.c.
 static bb_err_t h_update_config_get(bb_http_request_t *req)
 {
-    bool enabled = bb_nv_config_update_check_enabled();
+    bool enabled = bb_settings_update_check_enabled_get();
     bb_http_json_obj_stream_t obj;
     bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
     if (err != BB_OK) return err;
@@ -1057,7 +1057,7 @@ void test_fidelity_update_status(void)
     run_fidelity(&e);
 }
 
-// GET /api/update/config: requires bb_nv_config_update_check_enabled() (portable).
+// GET /api/update/config: requires bb_settings_update_check_enabled_get() (portable).
 void test_fidelity_update_config_get(void)
 {
     const fidelity_entry_t e = {

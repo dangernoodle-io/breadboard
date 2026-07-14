@@ -26,20 +26,6 @@ void test_nv_config_wifi_pass_empty_after_init(void)
     TEST_ASSERT_EQUAL_STRING("", pass);
 }
 
-void test_nv_config_display_enabled_default_true(void)
-{
-    bb_nv_config_init();
-    bool enabled = bb_nv_config_display_enabled();
-    TEST_ASSERT_TRUE(enabled);
-}
-
-void test_nv_config_mdns_enabled_default_true(void)
-{
-    bb_nv_config_init();
-    bool enabled = bb_nv_config_mdns_enabled();
-    TEST_ASSERT_TRUE(enabled);
-}
-
 void test_nv_config_is_provisioned_stub_returns_false(void)
 {
     bb_nv_config_init();
@@ -63,14 +49,16 @@ void test_nv_config_init_registers_bb_cfg_keys(void)
 
     // Namespace present
     TEST_ASSERT_NOT_NULL(strstr(json, "\"namespace\":\"bb_cfg\""));
-    // Remaining keys present (hostname migrated to bb_settings, B1-754 --
-    // it no longer appears in bb_nv's manifest).
+    // Remaining keys present (hostname/timezone migrated to bb_settings,
+    // B1-754/B1-750 -- they no longer appear in bb_nv's manifest; likewise
+    // mdns_en/update_check_en/display_en, B1-750 -- their /api/manifest
+    // registration is a known, accepted gap, B1-936).
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"wifi_ssid\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"wifi_pass\""));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"mdns_en\""));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"update_check_en\""));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"display_en\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"key\":\"provisioned\""));
+    TEST_ASSERT_NULL(strstr(json, "\"key\":\"mdns_en\""));
+    TEST_ASSERT_NULL(strstr(json, "\"key\":\"update_check_en\""));
+    TEST_ASSERT_NULL(strstr(json, "\"key\":\"display_en\""));
 
     bb_json_free_str(json);
     bb_json_free(doc);

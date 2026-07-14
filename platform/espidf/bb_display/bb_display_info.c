@@ -6,9 +6,9 @@
 #include "bb_event_routes.h"
 #include "bb_json.h"
 #include "bb_log.h"
-#include "bb_nv.h"
 #include "bb_openapi.h"
 #include "bb_http_server.h"
+#include "bb_settings.h"
 #include "bb_str.h"
 
 #include <stdbool.h>
@@ -37,7 +37,7 @@ static bb_display_snap_t make_snap(void)
         bb_strlcpy(snap.panel, panel, sizeof(snap.panel));
         snap.width   = bb_display_width();
         snap.height  = bb_display_height();
-        snap.enabled = bb_nv_config_display_enabled();
+        snap.enabled = bb_settings_display_enabled_get();
     }
     return snap;
 }

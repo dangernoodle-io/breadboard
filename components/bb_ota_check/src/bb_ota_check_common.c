@@ -9,7 +9,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_mdns.h"
-#include "bb_nv.h"
+#include "bb_settings.h"
 #include "bb_openapi.h"
 #include "bb_system.h"
 #include "bb_mem.h"
@@ -154,7 +154,7 @@ static void publish_state(const bb_ota_check_status_t *st, const char *txt_value
     snap.available     = st->available;
     snap.ts            = s_last_publish_ts;
     snap.last_check_ok = st->last_check_ok;
-    snap.enabled       = bb_nv_config_update_check_enabled();
+    snap.enabled       = bb_settings_update_check_enabled_get();
     bb_strlcpy(snap.outcome, outcome_str(st->outcome), sizeof(snap.outcome));
     snap.last_check_ts = (st->last_check_us != 0) ? (int64_t)(st->last_check_us / 1000000) : 0;
 
@@ -297,7 +297,7 @@ bb_err_t bb_ota_check_get_status(bb_ota_check_status_t *out)
     const char *board_eff = (s_firmware_board[0] != '\0') ? s_firmware_board : BOARD_NAME_FALLBACK;
     bb_strlcpy(out->board, board_eff, sizeof(out->board));
     pthread_mutex_unlock(&s_lock);
-    out->enabled = bb_nv_config_update_check_enabled();
+    out->enabled = bb_settings_update_check_enabled_get();
     return BB_OK;
 }
 
@@ -363,8 +363,8 @@ bb_err_t bb_ota_check_run_one(void)
 {
     if (!s_initialized) return BB_ERR_INVALID_ARG;
 
-    if (!bb_nv_config_update_check_enabled()) {
-        bb_log_i(TAG, "update check disabled via bb_nv; skipping");
+    if (!bb_settings_update_check_enabled_get()) {
+        bb_log_i(TAG, "update check disabled; skipping");
         return BB_OK;
     }
 
@@ -625,7 +625,7 @@ void bb_ota_check_set_task_priority(int priority)
 
 bb_err_t bb_ota_check_config_get_handler(bb_http_request_t *req)
 {
-    bool enabled = bb_nv_config_update_check_enabled();
+    bool enabled = bb_settings_update_check_enabled_get();
     bb_http_json_obj_stream_t obj;
     bb_err_t err = bb_http_resp_json_obj_begin(req, &obj);
     if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE — send_chunk never fails on host
@@ -679,7 +679,7 @@ bb_err_t bb_ota_check_config_post_handler(bb_http_request_t *req)
     }
     bb_json_free(doc);
 
-    bb_err_t err = bb_nv_config_set_update_check_enabled(enabled);
+    bb_err_t err = bb_settings_update_check_enabled_set(enabled);
     if (err != BB_OK) {  // LCOV_EXCL_BR_LINE — NV write failure; both branches covered but gcov misattributes inner begin() arc
         bb_http_resp_set_status(req, 500);
         bb_http_json_obj_stream_t obj;
@@ -692,7 +692,7 @@ bb_err_t bb_ota_check_config_post_handler(bb_http_request_t *req)
     bb_http_json_obj_stream_t obj;
     err = bb_http_resp_json_obj_begin(req, &obj);
     if (err != BB_OK) return err;  // LCOV_EXCL_BR_LINE — send_chunk never fails on host
-    bb_http_resp_json_obj_set_bool(&obj, "enabled", bb_nv_config_update_check_enabled());
+    bb_http_resp_json_obj_set_bool(&obj, "enabled", bb_settings_update_check_enabled_get());
     return bb_http_resp_json_obj_end(&obj);
 }
 
@@ -855,8 +855,8 @@ void bb_ota_check_reset_for_test(void)
     s_initialized = false;
     s_last_publish_ts = 0;
     pthread_mutex_unlock(&s_lock);
-    // Restore default: update check enabled (mirrors bb_nv_config_init default).
-    bb_nv_config_set_update_check_enabled(true);
+    // Restore default: update check enabled (mirrors the field's has_default=true).
+    bb_settings_update_check_enabled_set(true);
 #ifndef ESP_PLATFORM
     // Reset the in-flight guard so each test starts clean.
     atomic_store(&s_in_flight, false);

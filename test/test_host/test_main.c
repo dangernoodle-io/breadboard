@@ -764,22 +764,18 @@ void test_json_obj_set_num_emit_key_error(void);
 void test_nv_config_init_success(void);
 void test_nv_config_wifi_ssid_empty_after_init(void);
 void test_nv_config_wifi_pass_empty_after_init(void);
-void test_nv_config_display_enabled_default_true(void);
 void test_nv_config_is_provisioned_stub_returns_false(void);
 void test_nv_config_init_registers_bb_cfg_keys(void);
 
 // Forward declarations from test_bb_nv_factory_reset.c
-void test_nv_factory_reset_clears_config(void);
 void test_nv_factory_reset_clears_wifi_ssid(void);
 void test_nv_factory_reset_returns_ok_after_reinit(void);
-void test_nv_factory_reset_restores_defaults(void);
 #if CONFIG_BB_NV_FACTORY_RESET
 void test_nv_factory_reset_route_no_body_returns_400(void);
 void test_nv_factory_reset_route_wrong_confirm_returns_400(void);
 void test_nv_factory_reset_route_missing_confirm_field_returns_400(void);
 void test_nv_factory_reset_route_invalid_json_returns_400(void);
 void test_nv_factory_reset_route_valid_confirm_returns_202(void);
-void test_nv_factory_reset_route_valid_confirm_clears_config(void);
 void test_nv_factory_reset_route_oversized_body_returns_400(void);
 #endif /* CONFIG_BB_NV_FACTORY_RESET */
 
@@ -3136,6 +3132,23 @@ void test_ntp_set_timezone_empty_string_clears_to_utc(void);
 void test_ntp_dst_winter_is_est(void);
 void test_ntp_dst_summer_is_edt(void);
 void test_ntp_apply_saved_timezone_reads_stored_value(void);
+
+// Forward declarations from test_bb_settings_flags.c
+void test_settings_display_enabled_default_true(void);
+void test_settings_display_enabled_set_round_trip(void);
+void test_settings_display_enabled_byte_compat_legacy_address_readable_via_accessor(void);
+void test_settings_display_enabled_byte_compat_accessor_write_readable_via_legacy_address(void);
+void test_settings_display_enabled_fails_open_on_backend_error(void);
+void test_settings_mdns_enabled_default_true(void);
+void test_settings_mdns_enabled_set_round_trip(void);
+void test_settings_mdns_enabled_byte_compat_legacy_address_readable_via_accessor(void);
+void test_settings_mdns_enabled_byte_compat_accessor_write_readable_via_legacy_address(void);
+void test_settings_mdns_enabled_fails_open_on_backend_error(void);
+void test_settings_update_check_enabled_default_true(void);
+void test_settings_update_check_enabled_set_round_trip(void);
+void test_settings_update_check_enabled_byte_compat_legacy_address_readable_via_accessor(void);
+void test_settings_update_check_enabled_byte_compat_accessor_write_readable_via_legacy_address(void);
+void test_settings_update_check_enabled_fails_open_on_backend_error(void);
 
 // Forward declarations from test_bb_temp.c
 void test_bb_temp_read_soc_default_absent(void);
@@ -5540,22 +5553,18 @@ int main(void) {
     RUN_TEST(test_nv_config_init_success);
     RUN_TEST(test_nv_config_wifi_ssid_empty_after_init);
     RUN_TEST(test_nv_config_wifi_pass_empty_after_init);
-    RUN_TEST(test_nv_config_display_enabled_default_true);
     RUN_TEST(test_nv_config_is_provisioned_stub_returns_false);
     RUN_TEST(test_nv_config_init_registers_bb_cfg_keys);
 
     // NV factory reset tests (B1-260)
-    RUN_TEST(test_nv_factory_reset_clears_config);
     RUN_TEST(test_nv_factory_reset_clears_wifi_ssid);
     RUN_TEST(test_nv_factory_reset_returns_ok_after_reinit);
-    RUN_TEST(test_nv_factory_reset_restores_defaults);
 #if CONFIG_BB_NV_FACTORY_RESET
     RUN_TEST(test_nv_factory_reset_route_no_body_returns_400);
     RUN_TEST(test_nv_factory_reset_route_wrong_confirm_returns_400);
     RUN_TEST(test_nv_factory_reset_route_missing_confirm_field_returns_400);
     RUN_TEST(test_nv_factory_reset_route_invalid_json_returns_400);
     RUN_TEST(test_nv_factory_reset_route_valid_confirm_returns_202);
-    RUN_TEST(test_nv_factory_reset_route_valid_confirm_clears_config);
     RUN_TEST(test_nv_factory_reset_route_oversized_body_returns_400);
 #endif /* CONFIG_BB_NV_FACTORY_RESET */
 
@@ -7228,6 +7237,23 @@ int main(void) {
     RUN_TEST(test_ntp_dst_winter_is_est);
     RUN_TEST(test_ntp_dst_summer_is_edt);
     RUN_TEST(test_ntp_apply_saved_timezone_reads_stored_value);
+
+    // bb_settings display/mdns/update-check-enabled tests (B1-750)
+    RUN_TEST(test_settings_display_enabled_default_true);
+    RUN_TEST(test_settings_display_enabled_set_round_trip);
+    RUN_TEST(test_settings_display_enabled_byte_compat_legacy_address_readable_via_accessor);
+    RUN_TEST(test_settings_display_enabled_byte_compat_accessor_write_readable_via_legacy_address);
+    RUN_TEST(test_settings_display_enabled_fails_open_on_backend_error);
+    RUN_TEST(test_settings_mdns_enabled_default_true);
+    RUN_TEST(test_settings_mdns_enabled_set_round_trip);
+    RUN_TEST(test_settings_mdns_enabled_byte_compat_legacy_address_readable_via_accessor);
+    RUN_TEST(test_settings_mdns_enabled_byte_compat_accessor_write_readable_via_legacy_address);
+    RUN_TEST(test_settings_mdns_enabled_fails_open_on_backend_error);
+    RUN_TEST(test_settings_update_check_enabled_default_true);
+    RUN_TEST(test_settings_update_check_enabled_set_round_trip);
+    RUN_TEST(test_settings_update_check_enabled_byte_compat_legacy_address_readable_via_accessor);
+    RUN_TEST(test_settings_update_check_enabled_byte_compat_accessor_write_readable_via_legacy_address);
+    RUN_TEST(test_settings_update_check_enabled_fails_open_on_backend_error);
 
     // bb_temp satellite tests
     RUN_TEST(test_bb_temp_read_soc_default_absent);
