@@ -116,11 +116,6 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_SINK_EVENT_AUTOREGISTER",
-      "path": "components/bb_sink_event/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_SINK_WS_AUTOREGISTER",
       "path": "components/bb_sink_ws/Kconfig",
       "type": "autoregister_kconfig"
@@ -153,11 +148,6 @@
     {
       "id": "BB_DISPLAY_ST7789_AUTOREGISTER",
       "path": "platform/espidf/bb_display_st77xx/bb_display_st7789.c",
-      "type": "autoregister_usage"
-    },
-    {
-      "id": "BB_OTA_PULL_AUTOREGISTER",
-      "path": "platform/espidf/bb_info/bb_info.c",
       "type": "autoregister_usage"
     },
     {
@@ -247,11 +237,6 @@
     },
     {
       "id": "bb_pub_sink_t",
-      "path": "components/bb_sink_event/include/bb_sink_event.h",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
       "path": "components/bb_sink_http/include/bb_sink_http.h",
       "type": "pub_sink"
     },
@@ -303,11 +288,6 @@
     {
       "id": "bb_pub_sink_t",
       "path": "platform/host/bb_pub/bb_pub.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "platform/host/bb_sink_event/bb_sink_event.c",
       "type": "pub_sink"
     },
     {

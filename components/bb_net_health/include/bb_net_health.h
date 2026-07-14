@@ -512,7 +512,7 @@ const char *bb_net_state_str(bb_net_state_t state);
 
 // ---------------------------------------------------------------------------
 // Live snapshot accessor (ESP-IDF) — current net-health bucket without
-// re-running eval. For telemetry (bb_pub_health) / diagnostics consumers.
+// re-running eval. For telemetry / diagnostics consumers.
 // ---------------------------------------------------------------------------
 
 typedef struct {

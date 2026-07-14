@@ -376,11 +376,6 @@
       "type": "component"
     },
     {
-      "id": "bb_pub_health",
-      "path": "components/bb_pub_health",
-      "type": "component"
-    },
-    {
       "id": "bb_pub_info",
       "path": "components/bb_pub_info",
       "type": "component"
@@ -446,16 +441,6 @@
       "type": "component"
     },
     {
-      "id": "bb_sink_display",
-      "path": "components/bb_sink_display",
-      "type": "component"
-    },
-    {
-      "id": "bb_sink_event",
-      "path": "components/bb_sink_event",
-      "type": "component"
-    },
-    {
       "id": "bb_sink_http",
       "path": "components/bb_sink_http",
       "type": "component"
@@ -508,11 +493,6 @@
     {
       "id": "bb_str",
       "path": "components/bb_str",
-      "type": "component"
-    },
-    {
-      "id": "bb_sub",
-      "path": "components/bb_sub",
       "type": "component"
     },
     {

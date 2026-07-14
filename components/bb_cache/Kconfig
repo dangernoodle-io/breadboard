@@ -17,9 +17,9 @@ config BB_CACHE_KEY_MAX
         Fixed-size per-entry key buffer. bb_cache_register() copies the
         caller's key into this buffer (the caller no longer needs to keep
         the string alive) and rejects keys of length >= this value with
-        BB_ERR_INVALID_ARG. The default (96) matches bb_sub's own ingress
-        topic cap (BB_SUB_TOPIC_MAX) so every dynamically-routed MQTT topic
-        bb_sub registers fits; static breadboard keys (e.g.
+        BB_ERR_INVALID_ARG. The default (96) historically matched the
+        deleted bb_sub component's ingress topic cap, sized for
+        dynamically-routed MQTT topics; static breadboard keys (e.g.
         "update.available") are far shorter. Standing cost is
         BB_CACHE_KEY_MAX * BB_CACHE_MAX_TOPICS bytes.
 

@@ -287,7 +287,7 @@ bb_err_t bb_cache_update(const bb_cache_update_t *req);
 // leaked for the remaining process life (a subsequent bb_cache_register() of
 // the same key registers a NEW event topic and overwrites the field; the old
 // topic handle is simply abandoned, not freed). This is acceptable for the
-// current callers (e.g. an ingress router evicting a stale bb_sub key) but is
+// current callers (e.g. an ingress router evicting a stale routed-topic key) but is
 // a real leak for any consumer that deletes+re-registers SSE-flagged keys in
 // a hot loop. A bb_event topic-unregister primitive is tracked as a follow-up.
 bb_err_t bb_cache_delete(const char *key);

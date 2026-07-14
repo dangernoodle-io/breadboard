@@ -14,7 +14,7 @@
 #include "bb_core.h"   // bb_err_t
 
 // ---------------------------------------------------------------------------
-// Capacity constant (Kconfig bridge -- pattern from bb_sub.h / bb_cache.h /
+// Capacity constant (Kconfig bridge -- pattern from bb_cache.h /
 // bb_clock.h). BB_FSM_MAX_TIMERS MUST be uniform project-wide: it sizes the
 // embedded timers[] array below, so every translation unit must see the
 // same value or sizeof(bb_fsm_t) diverges across TUs -- undefined behavior.

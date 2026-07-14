@@ -38,4 +38,4 @@ directory presence, not language portability (it compiles unchanged everywhere).
 
 ## See also
 
-`bb_filter` — the pure projection component that reads `bb_attrs_t` off elements. `bb_collection` and `bb_sink_display` are the coming consumers (not yet built).
+`bb_filter` — the pure projection component that reads `bb_attrs_t` off elements. `bb_collection` is a coming consumer (not yet built).

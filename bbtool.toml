@@ -139,13 +139,13 @@ components = [
     "bb_ntp", "bb_num", "bb_nv", "bb_openapi", "bb_ota_boot",
     "bb_ota_check", "bb_ota_hooks", "bb_ota_pull", "bb_ota_push", "bb_ota_validator",
     "bb_partition", "bb_pool", "bb_power", "bb_power_health",
-    "bb_power_tps546", "bb_prov", "bb_pub", "bb_pub_health",
+    "bb_power_tps546", "bb_prov", "bb_pub",
     "bb_pub_info", "bb_pub_rtos", "bb_pub_telemetry", "bb_queue",
     "bb_registry", "bb_release_manifest", "bb_response",
-    "bb_scalar", "bb_sensors", "bb_serialize", "bb_serialize_json", "bb_settings", "bb_sink_display", "bb_sink_event", "bb_sink_http",
+    "bb_scalar", "bb_sensors", "bb_serialize", "bb_serialize_json", "bb_settings", "bb_sink_http",
     "bb_sink_http_telemetry", "bb_sink_mqtt", "bb_sink_udp", "bb_sink_ws", "bb_sse_writer",
     "bb_storage", "bb_storage_ram", "bb_storage_rtc",
-    "bb_str", "bb_sub", "bb_system", "bb_task", "bb_task_registry",
+    "bb_str", "bb_system", "bb_task", "bb_task_registry",
     "bb_tcp_client", "bb_telemetry", "bb_temp", "bb_thermal", "bb_timer", "bb_tls_creds",
     "bb_transport_health", "bb_udp_client", "bb_udp_frame", "bb_wdt", "bb_wifi", "bb_wifi_ap", "bb_wifi_http", "bb_ws_server",
 ]
@@ -234,14 +234,14 @@ capabilities = ["smoke"]
 # tdongle appeared in BOTH the display group and the power/fan group in the
 # pre-manifest CMakeLists.txt -- add_components unions both.
 add_components = [
-    "bb_display", "bb_display_st77xx", "bb_sink_display",
+    "bb_display", "bb_display_st77xx",
     "bb_power_tps546", "bb_fan_emc2101",
 ]
 
 [board.elecrow_p4_hmi7]
 platform = "espidf"
 capabilities = ["smoke"]
-add_components = ["bb_display", "bb_display_ek79007", "bb_sink_display"]
+add_components = ["bb_display", "bb_display_ek79007"]
 
 # NOT a real target -- resolves the fixed, board-invariant set `bbtool
 # codegen --wire-board smoke_wire_baseline` uses to regenerate
