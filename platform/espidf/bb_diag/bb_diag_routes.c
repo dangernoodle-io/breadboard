@@ -8,6 +8,7 @@
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_openapi.h"
+#include "bb_config.h"
 #include "bb_nv.h"
 #include "bb_nv_namespaces.h"
 #include "bb_nv_keys.h"
@@ -54,6 +55,31 @@ static uint32_t          s_reboot_uptime_s   = 0;
 // the fields above, by load_reboot_record(). NOT cleared-on-read.
 static bb_reboot_history_t s_reboot_history = {0};
 
+// Reboot-reason SSOT persisted fields, round-tripped through bb_config
+// (typed layer over bb_storage) rather than bb_nv's generic KV forwarder
+// (B1-756, bb_nv dissolution epic B1-708) — bb_config's STR encoding
+// resolves to the SAME nvs_get_str/nvs_set_str calls bb_nv_get_str/set_str/
+// erase made (both are thin forwarders to bb_storage_nvs, see
+// bb_storage_nvs.h), so the namespace/key/STR-typed on-flash format below is
+// byte-compatible with what this component previously read/wrote via bb_nv.
+static const bb_config_field_t s_reboot_last_field = {
+    .id          = "diag.reboot.last",
+    .type        = BB_CONFIG_STR,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_REBOOT_NVS_NS, .key = BB_REBOOT_KEY_LAST },
+    .max_len     = BB_REBOOT_RECORD_STR_MAX,
+    .def         = { .str = "" },
+    .has_default = true,
+};
+
+static const bb_config_field_t s_reboot_history_field = {
+    .id          = "diag.reboot.history",
+    .type        = BB_CONFIG_STR,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_REBOOT_NVS_NS, .key = BB_REBOOT_KEY_HISTORY },
+    .max_len     = BB_REBOOT_HISTORY_STR_MAX,
+    .def         = { .str = "" },
+    .has_default = true,
+};
+
 // Read+decode+erase the clear-on-read reboot record. Only trusted when this
 // boot's reset reason is software (BB_RESET_REASON_SW) — a record left over
 // from a stale/aborted write (e.g. a subsequent panic before the intended
@@ -61,10 +87,21 @@ static bb_reboot_history_t s_reboot_history = {0};
 static void load_reboot_record(void)
 {
     char buf[BB_REBOOT_RECORD_STR_MAX] = {0};
-    bb_err_t rc = bb_nv_get_str(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_LAST, buf, sizeof(buf), "");
+    size_t out_len = 0;
+    bb_err_t rc = bb_config_get_str(&s_reboot_last_field, buf, sizeof(buf), &out_len);
+    // bb_config_get_str's blob-fallback path does not itself NUL-terminate
+    // (B1-756 trap 1) -- a truncating read (stored value >= sizeof(buf))
+    // fills the ENTIRE buffer and still returns BB_OK, so the zero-init
+    // above is not a safety net for that case. Terminate explicitly based
+    // on the reported length before treating buf as a C string, clamping
+    // to the last byte on a genuine truncation (out_len >= cap).
+    if (rc == BB_OK) {
+        size_t term = (out_len < sizeof(buf)) ? out_len : sizeof(buf) - 1;
+        buf[term] = '\0';
+    }
 
     // Only decode when the NVS read actually succeeded — on a non-NOT_FOUND
-    // error (corruption/foreign entry), bb_nv_get_str may leave buf
+    // error (corruption/foreign entry), bb_config_get_str may leave buf
     // untouched, and buf is zero-initialized above so decode would just
     // fail cleanly on "" rather than reading anything meaningful anyway.
     bb_reboot_record_t rec;
@@ -73,7 +110,7 @@ static void load_reboot_record(void)
     // Clear-on-read regardless of decode outcome (including the NVS-error
     // path above) — a malformed/stale record must not linger and get
     // misread on a future boot.
-    bb_nv_erase(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_LAST);
+    bb_config_erase(&s_reboot_last_field);
 
     bool sw_reset = (bb_system_get_reset_reason() == BB_RESET_REASON_SW);
     if (have_rec && sw_reset) {
@@ -95,8 +132,15 @@ static void load_reboot_record(void)
     // above exactly).
     {
         char hist_buf[BB_REBOOT_HISTORY_STR_MAX] = {0};
-        bb_err_t hrc = bb_nv_get_str(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_HISTORY,
-                                      hist_buf, sizeof(hist_buf), "");
+        size_t hist_out_len = 0;
+        bb_err_t hrc = bb_config_get_str(&s_reboot_history_field, hist_buf, sizeof(hist_buf), &hist_out_len);
+        // Same rationale as buf above -- terminate explicitly based on the
+        // reported length before treating hist_buf as a C string (B1-756
+        // trap 1).
+        if (hrc == BB_OK) {
+            size_t hist_term = (hist_out_len < sizeof(hist_buf)) ? hist_out_len : sizeof(hist_buf) - 1;
+            hist_buf[hist_term] = '\0';
+        }
         bb_reboot_history_t hist;
         memset(&hist, 0, sizeof(hist));
         if (hrc == BB_OK) {
@@ -114,7 +158,7 @@ static void load_reboot_record(void)
         s_reboot_history = hist;
 
         if (bb_reboot_history_encode(&hist, hist_buf, sizeof(hist_buf))) {
-            bb_err_t werr = bb_nv_set_str(BB_REBOOT_NVS_NS, BB_REBOOT_KEY_HISTORY, hist_buf);
+            bb_err_t werr = bb_config_set_str(&s_reboot_history_field, hist_buf);
             if (werr != BB_OK) {
                 bb_log_w(TAG, "failed to persist reboot history: %d", (int)werr);
             }
