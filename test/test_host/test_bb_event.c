@@ -5,6 +5,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <pthread.h>
+#include <time.h>
 
 // Synchronous mode: events are dispatched via bb_event_pump(), not background thread
 static void setup_sync_mode(void)
@@ -1097,4 +1099,187 @@ void test_bb_event_emit_post_failure_logs_and_returns(void)
     TEST_ASSERT_TRUE(true);
 
     bb_event_pump(0);  // drain so this doesn't pollute later tests
+}
+
+// ---------------------------------------------------------------------------
+// Regression tests: bb_event_port_reset_for_test drain-wait determinism
+//
+// bb_event_host.c's async dispatcher runs on a background pthread. Every
+// test's global setUp() tears the port down via bb_event_port_reset_for_test
+// unconditionally (test_main.c). Previously, teardown just signalled the
+// dispatcher to stop and joined it -- if a test posted an event and the
+// dispatcher hadn't yet been scheduled to pop it, the stop signal made the
+// dispatcher exit WITHOUT dispatching, silently dropping the entry. Whether
+// this happened was pure OS-scheduling luck, which made dispatcher_loop's
+// pop/dispatch lines flaky under host coverage (uncovered on a loaded/slow
+// CI runner, covered on a fast idle machine). The fix makes teardown wait
+// (via a dedicated drained_cond, bounded so a genuinely stuck dispatcher
+// can't hang CI) for the queue to actually drain before signalling shutdown.
+//
+// Both tests below use bb_event_port_test_set_dispatcher_startup_delay_ms to
+// deterministically simulate "the dispatcher hasn't been scheduled by the OS
+// yet" (rather than racing real scheduling, which is what made the original
+// bug flaky in the first place). What each test actually validates differs:
+//
+//   - test_..._drains_before_teardown: asserts on ACTUAL DELIVERY via a
+//     counting subscriber, which DOES distinguish the fix from the pre-fix
+//     code -- without the drain-wait, this delivery would race and often
+//     be dropped.
+//   - test_..._drops_on_drain_timeout: the startup delay (900ms) exceeds the
+//     drain-wait bound (500ms) in BOTH the fixed and pre-fix code, so
+//     call_count==0 alone does NOT distinguish them (a test that only
+//     asserted that would be masked-by-construction). What this test
+//     actually validates is the TIMEOUT FALLBACK PATH and its logging: it
+//     additionally asserts bb_event_port_test_get_last_drain_wait_ms() is
+//     >= the drain-wait bound, proving the bounded wait itself genuinely
+//     ran for its full duration (rather than returning immediately, as the
+//     pre-fix code did) before falling through to the deliberate-drop/log
+//     path.
+// ---------------------------------------------------------------------------
+
+static void counting_handler(bb_event_topic_t topic, int32_t id,
+                             const void *data, size_t size, void *user)
+{
+    (void)topic; (void)id; (void)data; (void)size;
+    int *count = (int *)user;
+    (*count)++;
+}
+
+void test_bb_event_port_reset_for_test_drains_before_teardown(void)
+{
+    setenv("BB_EVENT_HOST_SYNC", "0", 1);  // force real async/threaded mode
+    bb_event_reset_for_test();
+    bb_event_port_reset_for_test();
+
+    // The dispatcher thread will still be asleep in its artificial startup
+    // delay (well under the 500ms drain-wait bound) when reset_for_test is
+    // called below -- so this deterministically forces the drain-wait loop
+    // to actually wait, rather than finding count==0 already and returning
+    // immediately.
+    bb_event_port_test_set_dispatcher_startup_delay_ms(50);
+
+    bb_event_cfg_t cfg = { .queue_depth = 4, .max_payload = 64 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_init(&cfg));
+
+    bb_event_topic_t topic = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_topic_register("reset.drain.wait", &topic));
+
+    int call_count = 0;
+    bb_event_sub_t sub = NULL;
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_event_subscribe(topic, counting_handler, &call_count, &sub));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_post(topic, 1, NULL, 0));
+
+    bb_event_port_reset_for_test();
+
+    // The only assertion that actually proves the entry was drained (not
+    // dropped): the subscriber registered by THIS test, before the post,
+    // must have fired exactly once. (setUp's bb_event_reset_for_test runs
+    // BEFORE bb_event_port_reset_for_test, so a drain triggered from setUp
+    // would dispatch to no one -- calling reset_for_test directly, mid-test,
+    // as done here, is what keeps this subscriber live for the drain to
+    // reach; see the NOTE in bb_event_port_reset_for_test.)
+    TEST_ASSERT_EQUAL_MESSAGE(1, call_count,
+        "entry posted just before teardown must be delivered exactly once");
+
+    bb_event_unsubscribe(sub);
+    setup_sync_mode();  // restore the ambient default for tests that follow
+}
+
+// Mirrors BB_EVENT_DRAIN_WAIT_TIMEOUT_MS in bb_event_host.c (not exposed to
+// tests -- see the test-only header rationale in bb_event_test.h). Keep in
+// sync if that constant ever changes.
+#define TEST_DRAIN_WAIT_TIMEOUT_MS 500
+
+/* Reviewer finding: without an elapsed-time assertion this test passed both
+   WITH and WITHOUT the drain-wait fix -- the 900ms startup delay exceeds
+   BOTH "no wait" (old code) and "bounded 500ms wait" (new code), so
+   pthread_join dominates either way and call_count==0 is identical in both
+   cases. The fix asserts on bb_event_port_test_get_last_drain_wait_ms(),
+   which times ONLY the pthread_cond_timedwait loop, not the surrounding
+   pthread_join -- an earlier draft of this assertion measured wall-clock
+   elapsed across the WHOLE bb_event_port_reset_for_test() call instead, and
+   that was itself masked-by-construction: since this dispatcher's startup
+   delay (900ms) exceeds the drain-wait bound (500ms), pthread_join alone
+   dominates the total regardless of whether the drain-wait code ran at all,
+   so a whole-function timer stayed >=500ms even with the fix reverted
+   (confirmed empirically -- see KB 1422 verification). Timing only the
+   drain-wait segment closes that gap: it reads -1 (never ran) when the
+   drain-wait code is absent, and >= the bound when present -- a genuine
+   LOWER bound either way, so a slow CI runner only makes it MORE true. */
+void test_bb_event_port_reset_for_test_drops_on_drain_timeout(void)
+{
+    setenv("BB_EVENT_HOST_SYNC", "0", 1);
+    bb_event_reset_for_test();
+    bb_event_port_reset_for_test();
+
+    // Startup delay outlives the 500ms drain-wait bound, so reset_for_test
+    // genuinely times out (exercising the timeout/log path) and the
+    // dispatcher is STILL asleep -- not merely running late -- when
+    // thread_running flips false. Its outer loop condition is false on its
+    // very first check, so it never pops the entry: a real, deliberate drop,
+    // characterizing the documented trade-off (bounded wait can still lose
+    // an entry) rather than assuming eventual delivery.
+    bb_event_port_test_set_dispatcher_startup_delay_ms(900);
+
+    bb_event_cfg_t cfg = { .queue_depth = 4, .max_payload = 64 };
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_init(&cfg));
+
+    bb_event_topic_t topic = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_topic_register("reset.drain.timeout", &topic));
+
+    int call_count = 0;
+    bb_event_sub_t sub = NULL;
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_event_subscribe(topic, counting_handler, &call_count, &sub));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_event_post(topic, 1, NULL, 0));
+
+    // Must return (not hang) once the bound expires; internally still blocks
+    // in pthread_join until the dispatcher's startup delay finishes and its
+    // thread function returns (~900ms total for this test).
+    bb_event_port_reset_for_test();
+
+    // Proves the bounded drain-wait itself actually ran for (at least) its
+    // full timeout -- rather than returning immediately, which is what the
+    // pre-fix code did -- without being masked by the unrelated pthread_join
+    // duration (see the block comment above this test). A lower bound only,
+    // so it cannot be made flaky by a slow/loaded CI runner.
+    long drain_wait_ms = bb_event_port_test_get_last_drain_wait_ms();
+    TEST_ASSERT_TRUE_MESSAGE(drain_wait_ms >= TEST_DRAIN_WAIT_TIMEOUT_MS,
+        "reset_for_test's drain-wait segment must block for at least the "
+        "drain-wait timeout before falling through to teardown");
+
+    TEST_ASSERT_EQUAL_MESSAGE(0, call_count,
+        "a dispatcher that never wakes within the bound must not silently "
+        "appear to have delivered");
+
+    bb_event_unsubscribe(sub);
+    setup_sync_mode();
+}
+
+// ---------------------------------------------------------------------------
+// bb_event_port_test_compute_drain_deadline: deterministic coverage of the
+// deadline-computation helper's tv_nsec-overflow-normalization branch.
+// Calling clock_gettime() from the test itself (instead of passing a crafted
+// `now`) would make hitting the overflow branch a wall-clock coin flip.
+// ---------------------------------------------------------------------------
+
+void test_bb_event_compute_drain_deadline_no_overflow(void)
+{
+    struct timespec now = { .tv_sec = 1000, .tv_nsec = 100 * 1000 * 1000 };  // .100s
+    struct timespec deadline = bb_event_port_test_compute_drain_deadline(now, 500);  // +.500s
+
+    TEST_ASSERT_EQUAL(1000, deadline.tv_sec);
+    TEST_ASSERT_EQUAL(600 * 1000 * 1000, deadline.tv_nsec);
+}
+
+void test_bb_event_compute_drain_deadline_overflows_into_next_second(void)
+{
+    struct timespec now = { .tv_sec = 1000, .tv_nsec = 900 * 1000 * 1000 };  // .900s
+    struct timespec deadline = bb_event_port_test_compute_drain_deadline(now, 500);  // +.500s = 1.400s
+
+    TEST_ASSERT_EQUAL(1001, deadline.tv_sec);
+    TEST_ASSERT_EQUAL(400 * 1000 * 1000, deadline.tv_nsec);
 }

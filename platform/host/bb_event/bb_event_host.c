@@ -15,8 +15,15 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <time.h>
+#include <errno.h>
 
 static const char *TAG = "bb_event_host";
+
+// Bound on how long bb_event_port_reset_for_test() will wait for the
+// dispatcher thread to drain a pending entry before giving up and tearing
+// the port down anyway (see bb_event_port_reset_for_test below).
+#define BB_EVENT_DRAIN_WAIT_TIMEOUT_MS 500
 
 // ---------------------------------------------------------------------------
 // Port state
@@ -33,7 +40,8 @@ struct bb_event_port {
     size_t count;                 // entries in queue
 
     pthread_mutex_t mutex;
-    pthread_cond_t cond;
+    pthread_cond_t cond;           // producer -> dispatcher: "queue has entries"
+    pthread_cond_t drained_cond;   // dispatcher -> teardown: "queue just hit 0"
     pthread_t dispatcher_thread;
     bool thread_running;
     bool sync_mode;               // BB_EVENT_HOST_SYNC=1: skip thread, use bb_event_port_drain synchronously
@@ -43,11 +51,77 @@ static bb_event_port_t *s_port = NULL;
 
 #ifdef BB_EVENT_TESTING
 static void *(*s_port_malloc)(size_t) = malloc;
+
+// Test-only: delays the dispatcher thread's very first iteration (before it
+// ever touches the mutex or the "has entries" condvar), so a test can
+// deterministically simulate a freshly-spawned dispatcher thread that the OS
+// hasn't scheduled yet -- the exact race bb_event_port_reset_for_test's
+// drain-wait guards against. Reset to 0 by bb_event_port_reset_for_test so
+// it never leaks into a later test.
+static uint32_t s_test_dispatcher_startup_delay_ms = 0;
+
+void bb_event_port_test_set_dispatcher_startup_delay_ms(uint32_t ms)
+{
+    s_test_dispatcher_startup_delay_ms = ms;
+}
+
+// Test-only: wall-clock duration (ms) of the most recent drain-wait segment
+// inside bb_event_port_reset_for_test (the pthread_cond_timedwait loop only
+// -- NOT the surrounding pthread_join, whose own duration is dominated by
+// the dispatcher's startup delay regardless of whether the drain-wait ran,
+// which would otherwise mask this measurement). -1 if reset_for_test hasn't
+// run a drain-wait since the last call (nothing was queued, or the port
+// wasn't running).
+static long s_test_last_drain_wait_ms = -1;
+
+long bb_event_port_test_get_last_drain_wait_ms(void)
+{
+    return s_test_last_drain_wait_ms;
+}
+
+// nanosleep() can return early on EINTR (this suite runs dense multithreaded
+// tests elsewhere that spawn/join their own timer threads; a stray signal
+// delivery is plausible), which would make the startup-delay hook above
+// unreliable for tests that need it to genuinely elapse in full. Loop on the
+// remaining time so the delay is honored even across interruptions.
+static void test_nanosleep_full(const struct timespec *req)
+{
+    struct timespec remaining = *req;
+    while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
+        // remaining now holds the time left; retry.
+    }
+}
 #endif
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// Pure (no clock/global access) so it can be exercised directly by tests
+// with crafted `now` values -- whether `now.tv_nsec + timeout_ms` overflows
+// a whole second depends on the wall-clock fraction of a second at the
+// instant bb_event_port_reset_for_test happens to call this, which is
+// effectively a coin flip; calling clock_gettime() directly from that
+// function would make the overflow-normalization branch below just as
+// scheduling-flaky under host coverage as the bug this file exists to fix.
+static struct timespec compute_drain_deadline(struct timespec now, uint32_t timeout_ms)
+{
+    struct timespec deadline = now;
+    deadline.tv_sec  += timeout_ms / 1000;
+    deadline.tv_nsec += (long)(timeout_ms % 1000) * 1000 * 1000;
+    if (deadline.tv_nsec >= 1000 * 1000 * 1000) {
+        deadline.tv_sec  += 1;
+        deadline.tv_nsec -= 1000 * 1000 * 1000;
+    }
+    return deadline;
+}
+
+#ifdef BB_EVENT_TESTING
+struct timespec bb_event_port_test_compute_drain_deadline(struct timespec now, uint32_t timeout_ms)
+{
+    return compute_drain_deadline(now, timeout_ms);
+}
+#endif
 
 static uint8_t *get_slot(size_t idx)
 {
@@ -67,6 +141,16 @@ static void *get_slot_payload(uint8_t *slot)
 static void *dispatcher_loop(void *arg)
 {
     (void)arg;
+
+#ifdef BB_EVENT_TESTING
+    if (s_test_dispatcher_startup_delay_ms > 0) {
+        struct timespec startup_ts = {
+            .tv_sec  = s_test_dispatcher_startup_delay_ms / 1000,
+            .tv_nsec = (s_test_dispatcher_startup_delay_ms % 1000) * 1000 * 1000,
+        };
+        test_nanosleep_full(&startup_ts);
+    }
+#endif
     bb_log_d(TAG, "dispatcher thread started");
 
     while (s_port && s_port->thread_running) {
@@ -99,6 +183,14 @@ static void *dispatcher_loop(void *arg)
 
         s_port->tail = (s_port->tail + 1) % s_port->queue_depth;
         s_port->count--;
+
+        // Wake anyone (bb_event_port_reset_for_test) waiting for the queue
+        // to fully drain, while still holding the mutex their predicate
+        // check needs -- signalling after unlock would risk the drained
+        // check racing this update.
+        if (s_port->count == 0) {
+            pthread_cond_broadcast(&s_port->drained_cond);
+        }
 
         pthread_mutex_unlock(&s_port->mutex);
 
@@ -159,14 +251,16 @@ bb_err_t bb_event_port_init(size_t queue_depth, size_t max_payload,
     pthread_mutex_init(&s_port->mutex, &attr);
     pthread_mutexattr_destroy(&attr);
 
-    // Initialize condition variable
+    // Initialize condition variables
     pthread_cond_init(&s_port->cond, NULL);
+    pthread_cond_init(&s_port->drained_cond, NULL);
 
     // Spawn dispatcher thread (unless in sync mode)
     if (!s_port->sync_mode) {
         s_port->thread_running = true;
         int ret = pthread_create(&s_port->dispatcher_thread, NULL, dispatcher_loop, NULL);
         if (ret != 0) {
+            pthread_cond_destroy(&s_port->drained_cond);
             pthread_cond_destroy(&s_port->cond);
             pthread_mutex_destroy(&s_port->mutex);
             free(s_port->queue_memory);
@@ -279,25 +373,100 @@ void bb_event_port_unlock(void)
 void bb_event_port_set_malloc(void *(*m)(size_t)) { s_port_malloc = m ? m : malloc; }
 
 void bb_event_port_reset_for_test(void) {
+    s_test_last_drain_wait_ms = -1;
     /* free port resources if allocated; null out s_port so init can rerun */
     if (s_port) {
         if (s_port->thread_running) {
+            /* NOTE: test_main.c's global setUp() calls bb_event_reset_for_test
+             * (which clears every topic's subscriber list) BEFORE this
+             * function, so a drain triggered here dispatches to whatever
+             * subscribers the CURRENTLY-RUNNING test itself registered (or,
+             * for the common case of a test that never subscribed, to no one
+             * at all) -- not to the previous test's subscribers. Don't assume
+             * a teardown-time drain proves delivery to a specific test's
+             * subscriber; assert on subscribers registered by the SAME test
+             * that posted the entry, before calling this function.
+             *
+             * Wait for the dispatcher thread to drain any entries a test
+             * posted just before tearing down, using drained_cond -- a
+             * dedicated condvar the dispatcher broadcasts on whenever count
+             * hits 0 (bb_event_host.c's dispatcher_loop), NOT s_port->cond
+             * (that one is producer -> dispatcher "queue has entries"; reusing
+             * it here would mean two logically-different waiters -- the
+             * dispatcher waiting for work and teardown waiting for drain --
+             * racing the same predicate).
+             *
+             * Without this wait, teardown races the dispatcher: if it hasn't
+             * yet been scheduled to pop the entry when thread_running flips
+             * false below, it sees the flag and exits without dispatching --
+             * silently dropping the entry and making dispatcher_loop's
+             * pop/dispatch path (bb_event_host.c lines ~85-106) execute or
+             * not purely on scheduling luck (this is what made its host
+             * coverage flaky). Bounded (BB_EVENT_DRAIN_WAIT_TIMEOUT_MS) so a
+             * genuinely stuck dispatcher can't hang CI -- if the deadline
+             * passes with entries still queued, we fall through and tear the
+             * port down anyway, which CAN still drop them (same class of
+             * loss as the original bug, just gated behind a stuck-dispatcher
+             * timeout instead of ordinary scheduling jitter); log it so that
+             * loss is observable rather than silent. */
+            pthread_mutex_lock(&s_port->mutex);
+            if (s_port->count > 0) {
+                struct timespec now;
+                clock_gettime(CLOCK_REALTIME, &now);
+                struct timespec deadline = compute_drain_deadline(now, BB_EVENT_DRAIN_WAIT_TIMEOUT_MS);
+#ifdef BB_EVENT_TESTING
+                struct timespec wait_start = now;
+#endif
+                while (s_port->count > 0) {
+                    int rc = pthread_cond_timedwait(&s_port->drained_cond, &s_port->mutex, &deadline);
+                    if (rc == ETIMEDOUT) break;
+                }
+#ifdef BB_EVENT_TESTING
+                struct timespec wait_end;
+                clock_gettime(CLOCK_REALTIME, &wait_end);
+                s_test_last_drain_wait_ms =
+                    (wait_end.tv_sec - wait_start.tv_sec) * 1000L
+                    + (wait_end.tv_nsec - wait_start.tv_nsec) / 1000000L;
+#endif
+                if (s_port->count > 0) {
+                    bb_log_w(TAG, "reset_for_test: dispatcher did not drain %zu pending "
+                                  "entr%s before %dms timeout",
+                             s_port->count, s_port->count == 1 ? "y" : "ies",
+                             BB_EVENT_DRAIN_WAIT_TIMEOUT_MS);
+                }
+            }
+
             /* Signal the dispatcher thread to wake and exit, then join it
              * before destroying the mutex/condvar.  Destroying a condvar
              * while a thread is blocked in pthread_cond_wait is UB on Linux
              * (POSIX); the thread can block indefinitely, preventing process
              * exit and causing CI timeouts. */
-            pthread_mutex_lock(&s_port->mutex);
             s_port->thread_running = false;
             pthread_cond_signal(&s_port->cond);
             pthread_mutex_unlock(&s_port->mutex);
+            // drained_cond only proves the pop/decrement happened, not that
+            // bb_event_common_dispatch() (which runs AFTER unlock, below)
+            // has returned -- this join, not drained_cond, is what
+            // guarantees dispatch has fully completed; do not remove it.
             pthread_join(s_port->dispatcher_thread, NULL);
         }
+        pthread_cond_destroy(&s_port->drained_cond);
         pthread_cond_destroy(&s_port->cond);
         pthread_mutex_destroy(&s_port->mutex);
         free(s_port->queue_memory);
         free(s_port);
         s_port = NULL;
     }
+
+    /* Never leak an armed startup delay into whatever test runs next.
+     * Deliberately done LAST (after the pthread_join above, not at function
+     * entry): a test can call bb_event_port_test_set_dispatcher_startup_delay_ms
+     * then bb_event_init (spawning a dispatcher that hasn't necessarily been
+     * scheduled by the OS yet) and immediately call this function to force
+     * the drain-wait race -- zeroing the flag before that join would race
+     * the not-yet-scheduled thread's own read of it, silently defeating the
+     * delay. By the time we get here the dispatcher (if any) has already
+     * exited and can no longer read this value. */
+    s_test_dispatcher_startup_delay_ms = 0;
 }
 #endif

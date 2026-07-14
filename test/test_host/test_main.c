@@ -3476,6 +3476,10 @@ void test_bb_event_emit_reuses_topic_on_repeat(void);
 void test_bb_event_emit_before_init_no_crash(void);
 void test_bb_event_emit_null_name_logs_and_returns(void);
 void test_bb_event_emit_post_failure_logs_and_returns(void);
+void test_bb_event_port_reset_for_test_drains_before_teardown(void);
+void test_bb_event_port_reset_for_test_drops_on_drain_timeout(void);
+void test_bb_event_compute_drain_deadline_no_overflow(void);
+void test_bb_event_compute_drain_deadline_overflows_into_next_second(void);
 
 // Forward declarations from test_bb_event_ring.c
 void test_bb_event_ring_attach_and_post_replay_delivers_all_entries(void);
@@ -8224,6 +8228,10 @@ int main(void) {
     RUN_TEST(test_bb_event_emit_before_init_no_crash);
     RUN_TEST(test_bb_event_emit_null_name_logs_and_returns);
     RUN_TEST(test_bb_event_emit_post_failure_logs_and_returns);
+    RUN_TEST(test_bb_event_port_reset_for_test_drains_before_teardown);
+    RUN_TEST(test_bb_event_port_reset_for_test_drops_on_drain_timeout);
+    RUN_TEST(test_bb_event_compute_drain_deadline_no_overflow);
+    RUN_TEST(test_bb_event_compute_drain_deadline_overflows_into_next_second);
 
     // bb_event_ring tests
     RUN_TEST(test_bb_event_ring_attach_and_post_replay_delivers_all_entries);
