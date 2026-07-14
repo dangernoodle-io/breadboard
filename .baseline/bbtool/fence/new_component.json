@@ -1,11 +1,6 @@
 {
   "entries": [
     {
-      "id": "bb_alert",
-      "path": "components/bb_alert",
-      "type": "component"
-    },
-    {
       "id": "bb_attrs",
       "path": "components/bb_attrs",
       "type": "component"

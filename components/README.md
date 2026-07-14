@@ -14,7 +14,6 @@ project-wide conventions, build instructions, and architecture notes.
 
 | Component | Purpose |
 |-----------|---------|
-| [bb_alert](./bb_alert/) | — |
 | [bb_attrs](./bb_attrs/) | Intrusive header carrying filter/collection metadata (`priority`, `kind`, `tag_mask`, `delivery_class`) that any element embeds as a member. Reach for it when a set of heterogeneous elements needs to be projected/selected by `bb_filter` without a shared base type or heap-allocated wrapper. |
 | [bb_board](./bb_board/) | — |
 | [bb_bqueue](./bb_bqueue/) | Blocking mailbox/MPSC queue — capacity==1 selects mailbox mode (overwrite/reset), capacity>1 selects bounded-MPSC mode (send/dropped); peek/receive/count/capacity work in both. Zero heap: a Kconfig-sized static instance pool. |

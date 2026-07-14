@@ -127,7 +127,7 @@ paths = []
 # scripts/native_scaffold.py hand-maintained COMPONENT_MAP.
 [capability.core]
 components = [
-    "bb_alert", "bb_attrs", "bb_board", "bb_bqueue", "bb_button",
+    "bb_attrs", "bb_board", "bb_bqueue", "bb_button",
     "bb_button_events", "bb_button_gpio", "bb_cache", "bb_cache_reactive", "bb_cache_serialize",
     "bb_cache_routes", "bb_collection", "bb_config", "bb_core", "bb_diag", "bb_dispatch_cmd",
     "bb_display", "bb_event", "bb_event_ring", "bb_event_routes",

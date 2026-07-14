@@ -12,7 +12,6 @@
 #include "bb_nv.h"
 #include "bb_openapi.h"
 #include "bb_system.h"
-#include "bb_alert.h"
 #include "bb_mem.h"
 #include "bb_str.h"
 
@@ -42,21 +41,6 @@ static const char k_update_available_schema[] =
     "\"required\":[\"current\",\"latest\",\"download_url\",\"available\","
     "\"ts\",\"last_check_ok\",\"enabled\",\"outcome\"]}";
 
-
-// ---------------------------------------------------------------------------
-// bb_alert fill helpers — compiled only when bb_alert is enabled
-// ---------------------------------------------------------------------------
-
-#if BB_ALERT_ENABLE
-typedef struct { const char *current; const char *latest; } update_ver_ctx_t;
-
-static void fill_update_version(bb_json_t obj, void *ctx)
-{
-    const update_ver_ctx_t *c = (const update_ver_ctx_t *)ctx;
-    bb_json_obj_set_string(obj, "current", c->current);
-    bb_json_obj_set_string(obj, "latest",  c->latest);
-}
-#endif
 
 #ifndef CONFIG_BB_OTA_CHECK_INTERVAL_S
 #define CONFIG_BB_OTA_CHECK_INTERVAL_S 21600
@@ -438,12 +422,6 @@ bb_err_t bb_ota_check_run_one(void)
             s_status.outcome = BB_OTA_CHECK_OUTCOME_FAILED;
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "fetch failed: err=%d status=%d", err, res.status_code);
-#if BB_ALERT_ENABLE
-            {
-                update_ver_ctx_t alert_ctx = { .current = s_status.current, .latest = "" };
-                bb_alert_emit(BB_ALERT_TYPE_UPDATE_FAILURE, BB_ALERT_WARNING, fill_update_version, &alert_ctx);
-            }
-#endif
             return err == BB_OK ? BB_ERR_INVALID_STATE : err;
         }
 
@@ -455,12 +433,6 @@ bb_err_t bb_ota_check_run_one(void)
             s_status.outcome = BB_OTA_CHECK_OUTCOME_FAILED;
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "parse failed: %d", perr);
-#if BB_ALERT_ENABLE
-            {
-                update_ver_ctx_t alert_ctx = { .current = s_status.current, .latest = "" };
-                bb_alert_emit(BB_ALERT_TYPE_UPDATE_FAILURE, BB_ALERT_WARNING, fill_update_version, &alert_ctx);
-            }
-#endif
             return perr;
         }
 
@@ -491,7 +463,6 @@ bb_err_t bb_ota_check_run_one(void)
 
         bb_ota_check_status_t snap;
         pthread_mutex_lock(&s_lock);
-        bool old_available = s_status.available;
         bb_strlcpy(s_status.latest, tag, sizeof(s_status.latest));
         bb_strlcpy(s_status.download_url, dl_url, sizeof(s_status.download_url));
         s_status.available = new_available;
@@ -503,12 +474,6 @@ bb_err_t bb_ota_check_run_one(void)
         pthread_mutex_unlock(&s_lock);
 
         publish_state(&snap, new_available ? snap.latest : "none");
-#if BB_ALERT_ENABLE
-        if (new_available && !old_available) {
-            update_ver_ctx_t alert_ctx = { .current = snap.current, .latest = snap.latest };
-            bb_alert_emit(BB_ALERT_TYPE_UPDATE_AVAILABLE, BB_ALERT_INFO, fill_update_version, &alert_ctx);
-        }
-#endif
         return BB_OK;
 
     } else {
@@ -543,12 +508,6 @@ bb_err_t bb_ota_check_run_one(void)
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "fetch failed: err=%d status=%d", err, res.status_code);
             bb_mem_free(bc.buf);
-#if BB_ALERT_ENABLE
-            {
-                update_ver_ctx_t alert_ctx = { .current = s_status.current, .latest = "" };
-                bb_alert_emit(BB_ALERT_TYPE_UPDATE_FAILURE, BB_ALERT_WARNING, fill_update_version, &alert_ctx);
-            }
-#endif
             return err == BB_OK ? BB_ERR_INVALID_STATE : err;
         }
 
@@ -562,12 +521,6 @@ bb_err_t bb_ota_check_run_one(void)
             s_status.outcome = BB_OTA_CHECK_OUTCOME_FAILED;
             pthread_mutex_unlock(&s_lock);
             bb_log_w(TAG, "parse failed: %d", perr);
-#if BB_ALERT_ENABLE
-            {
-                update_ver_ctx_t alert_ctx = { .current = s_status.current, .latest = "" };
-                bb_alert_emit(BB_ALERT_TYPE_UPDATE_FAILURE, BB_ALERT_WARNING, fill_update_version, &alert_ctx);
-            }
-#endif
             return perr;
         }
 
@@ -596,7 +549,6 @@ bb_err_t bb_ota_check_run_one(void)
 
         bb_ota_check_status_t snap;
         pthread_mutex_lock(&s_lock);
-        bool old_available2 = s_status.available;
         bb_strlcpy(s_status.latest, tag, sizeof(s_status.latest));
         bb_strlcpy(s_status.download_url, dl_url, sizeof(s_status.download_url));
         s_status.available = new_available;
@@ -608,12 +560,6 @@ bb_err_t bb_ota_check_run_one(void)
         pthread_mutex_unlock(&s_lock);
 
         publish_state(&snap, new_available ? snap.latest : "none");
-#if BB_ALERT_ENABLE
-        if (new_available && !old_available2) {
-            update_ver_ctx_t alert_ctx = { .current = snap.current, .latest = snap.latest };
-            bb_alert_emit(BB_ALERT_TYPE_UPDATE_AVAILABLE, BB_ALERT_INFO, fill_update_version, &alert_ctx);
-        }
-#endif
         return BB_OK;
     }
 }
@@ -822,14 +768,7 @@ bb_err_t bb_ota_check_mark_check_on_apply(void)
     s_status.outcome       = BB_OTA_CHECK_OUTCOME_CHECK_ON_APPLY;
     s_status.available     = false;
     s_status.last_check_ok = false;
-    bb_ota_check_status_t snap = s_status;
     pthread_mutex_unlock(&s_lock);
-#if BB_ALERT_ENABLE
-    {
-        update_ver_ctx_t alert_ctx = { .current = snap.current, .latest = snap.latest };
-        bb_alert_emit(BB_ALERT_TYPE_UPDATE_APPLIED, BB_ALERT_INFO, fill_update_version, &alert_ctx);
-    }
-#endif
     return BB_OK;
 }
 
