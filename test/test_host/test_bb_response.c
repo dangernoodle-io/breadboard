@@ -2,8 +2,6 @@
 #include "unity.h"
 #include "bb_response.h"
 #include "bb_json.h"
-#include "bb_info.h"
-#include "bb_info_test.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -397,63 +395,6 @@ void test_bb_response_assemble_schema_mixed_null_and_props(void)
 // ---------------------------------------------------------------------------
 // P0 regression: diag section registers AFTER info route init (B F1)
 // ---------------------------------------------------------------------------
-
-// Simulates the real registration order:
-//   order 2: bb_info_init (in the fixed code, does NOT freeze)
-//   order 7: bb_diag_routes_init registers "diag" section via bb_info_register_section
-//   order 20: bb_info_freeze_init (freeze + schema assembly)
-// Before the fix: order-2 froze the registry → diag silently dropped.
-// After the fix: order-20 freezes → diag present in /api/info output.
-
-static void diag_info_get(bb_json_t s, void *ctx)
-{
-    (void)ctx;
-    bb_json_obj_set_number(s, "wdt_resets", 0.0);
-}
-
-void test_bb_info_diag_registers_before_freeze_succeeds(void)
-{
-    // Registry not yet frozen (setUp called bb_info_reset_for_test).
-    // Simulate order-7 diag registration BEFORE order-20 freeze.
-    bb_err_t rc = bb_info_register_section("diag", diag_info_get, NULL,
-                                            "{\"type\":\"object\"}");
-    TEST_ASSERT_EQUAL_INT_MESSAGE(BB_OK, rc,
-        "diag section registration failed before freeze — P0 regression");
-
-    // Simulate order-20 freeze.
-    bb_info_freeze_for_test();
-
-    // Late registration after freeze must be rejected.
-    rc = bb_info_register_section("late", diag_info_get, NULL, NULL);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, rc);
-
-    // Invoke sections: "diag" must be present with wdt_resets field.
-    bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_sections_for_test(root);
-    bb_json_t diag = bb_json_obj_get_item(root, "diag");
-    TEST_ASSERT_NOT_NULL_MESSAGE(diag,
-        "diag section absent from /api/info output — P0 bug still present");
-    double wdt = -1.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(diag, "wdt_resets", &wdt));
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, (float)wdt);
-    bb_json_free(root);
-}
-
-void test_bb_info_diag_registers_after_freeze_fails(void)
-{
-    // Simulate the OLD broken ordering: freeze THEN try to register "diag".
-    bb_info_freeze_for_test();
-
-    bb_err_t rc = bb_info_register_section("diag", diag_info_get, NULL, NULL);
-    TEST_ASSERT_EQUAL_INT(BB_ERR_INVALID_STATE, rc);
-
-    // Verify diag is absent from output.
-    bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_sections_for_test(root);
-    TEST_ASSERT_NULL_MESSAGE(bb_json_obj_get_item(root, "diag"),
-        "diag present despite registering after freeze — unexpected");
-    bb_json_free(root);
-}
 
 // ---------------------------------------------------------------------------
 // Per-instance capacity (cap field)

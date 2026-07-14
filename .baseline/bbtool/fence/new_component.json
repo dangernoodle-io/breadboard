@@ -96,11 +96,6 @@
       "type": "component"
     },
     {
-      "id": "bb_display_info",
-      "path": "components/bb_display_info",
-      "type": "component"
-    },
-    {
       "id": "bb_display_spi_common",
       "path": "components/bb_display_spi_common",
       "type": "component"
@@ -186,11 +181,6 @@
       "type": "component"
     },
     {
-      "id": "bb_info",
-      "path": "components/bb_info",
-      "type": "component"
-    },
-    {
       "id": "bb_json",
       "path": "components/bb_json",
       "type": "component"
@@ -213,11 +203,6 @@
     {
       "id": "bb_led_gpio",
       "path": "components/bb_led_gpio",
-      "type": "component"
-    },
-    {
-      "id": "bb_led_info",
-      "path": "components/bb_led_info",
       "type": "component"
     },
     {
@@ -303,11 +288,6 @@
     {
       "id": "bb_ntp",
       "path": "components/bb_ntp",
-      "type": "component"
-    },
-    {
-      "id": "bb_ntp_info",
-      "path": "components/bb_ntp_info",
       "type": "component"
     },
     {
@@ -583,11 +563,6 @@
     {
       "id": "bb_tls_creds",
       "path": "components/bb_tls_creds",
-      "type": "component"
-    },
-    {
-      "id": "bb_tls_info",
-      "path": "components/bb_tls_info",
       "type": "component"
     },
     {

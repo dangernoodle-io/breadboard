@@ -363,11 +363,11 @@ void test_v2_golden_ref_unregistered_sibling_omits_field(void);
 void test_v2_golden_ref_null_resolver_omits_field(void);
 
 // Forward declarations from test_v2_golden.c
-void test_v2_golden_info_root_slice_populated(void);
-void test_v2_golden_info_root_slice_null(void);
-void test_v2_golden_info_root_slice_capabilities_three_entries(void);
-void test_v2_golden_info_root_slice_mac_boundary_no_nul(void);
-void test_v2_golden_info_root_slice_hostname_longer_str_n(void);
+void test_v2_golden_widget_fixture_populated(void);
+void test_v2_golden_widget_fixture_null(void);
+void test_v2_golden_widget_fixture_tags_three_entries(void);
+void test_v2_golden_widget_fixture_serial_boundary_no_nul(void);
+void test_v2_golden_widget_fixture_label_longer_str_n(void);
 void test_v2_golden_health_root_slice_populated(void);
 void test_v2_golden_health_root_slice_disconnected(void);
 void test_v2_golden_info_telem_psram(void);
@@ -375,7 +375,7 @@ void test_v2_golden_info_telem_no_psram(void);
 void test_v2_golden_info_telem_differential_matches_live_cache(void);
 
 // Forward declarations from test_bb_serialize_meta_validate.c
-void test_bb_serialize_meta_validate_info_happy_path(void);
+void test_bb_serialize_meta_validate_widget_happy_path(void);
 void test_bb_serialize_meta_validate_type_name_mismatch(void);
 void test_bb_serialize_meta_validate_missing_row(void);
 void test_bb_serialize_meta_validate_orphan_row(void);
@@ -391,7 +391,7 @@ void test_bb_serialize_meta_validate_duplicate_row(void);
 void test_bb_serialize_meta_validate_null_key_row(void);
 
 // Forward declarations from test_bb_serialize_meta_openapi.c
-void test_bb_serialize_meta_openapi_info_golden(void);
+void test_bb_serialize_meta_openapi_widget_golden(void);
 void test_bb_serialize_meta_openapi_no_meta_at_all(void);
 void test_bb_serialize_meta_openapi_no_matching_row(void);
 void test_bb_serialize_meta_openapi_nested_obj(void);
@@ -1416,7 +1416,6 @@ void test_desc_audit_request_schema_presence(void);
 void test_desc_audit_response_content_types(void);
 // Forward declarations from test_route_fidelity.c
 void test_fidelity_reboot(void);
-void test_fidelity_info(void);
 void test_fidelity_health(void);
 void test_fidelity_wifi_info(void);
 void test_fidelity_ota_status(void);
@@ -1447,13 +1446,6 @@ void test_capture_send_json_sets_content_type(void);
 void test_capture_multi_write_appends(void);
 void test_capture_end_null_args_returns_err(void);
 void test_capture_no_active_slot_ignored(void);
-void test_fidelity_info_with_extender(void);
-void test_fidelity_info_schema_matches_assembled(void);
-void test_fidelity_info_lacks_uptime_ms(void);
-void test_fidelity_info_has_hostname(void);
-void test_fidelity_info_has_time_valid_false_on_host(void);
-void test_fidelity_info_boot_epoch_zero_when_not_synced(void);
-void test_fidelity_info_flat_heap_fields_absent(void);
 void test_fidelity_health_no_raw_numbers(void);
 void test_register_described_route_rejects_null(void);
 void test_register_described_route_propagates_underlying_failure(void);
@@ -1769,8 +1761,6 @@ void test_sse_schema_alert_payload_valid(void);
 void test_sse_schema_alert_payload_missing_required_fails(void);
 void test_sse_schema_update_available_payload_valid(void);
 void test_sse_schema_update_available_payload_missing_required_fails(void);
-void test_sse_schema_build_info_payload_valid(void);
-void test_sse_schema_build_info_payload_missing_required_fails(void);
 void test_sse_schema_diag_boot_payload_valid(void);
 void test_sse_schema_diag_boot_payload_missing_required_fails(void);
 void test_sse_schema_display_info_payload_valid(void);
@@ -1880,6 +1870,9 @@ void test_bb_system_reset_reason_str_brownout(void);
 void test_bb_system_reset_reason_str_sdio(void);
 void test_bb_system_reset_reason_str_unknown(void);
 void test_bb_system_reset_reason_str_out_of_range(void);
+void test_bb_system_get_app_sha256_null_out_returns_invalid_arg(void);
+void test_bb_system_get_app_sha256_too_small_returns_no_space(void);
+void test_bb_system_get_app_sha256_writes_fixed_test_value(void);
 void test_bb_reset_source_str_api_reboot(void);
 void test_bb_reset_source_str_factory_reset(void);
 void test_bb_reset_source_str_wifi_safeguard(void);
@@ -2410,13 +2403,8 @@ void test_bb_display_show_splash_no_default_font_noop(void);
 void test_bb_display_set_rotation_zero(void);
 void test_bb_display_set_rotation_180(void);
 void test_bb_display_set_rotation_270(void);
-void test_bb_display_info_schema_in_assembled_schema(void);
-void test_bb_display_info_extender_no_backend_present_false(void);
-void test_bb_display_info_extender_with_backend_present_true(void);
-void test_bb_display_info_enabled_tracks_nv_config(void);
 void test_bb_display_backend_name_persists_after_off(void);
 void test_bb_display_dims_persist_after_off(void);
-void test_bb_display_info_extender_present_true_after_off(void);
 void test_bb_display_draw_text_after_off_is_noop(void);
 void test_bb_display_clear_after_off_is_noop(void);
 void test_bb_display_blit_after_off_is_noop(void);
@@ -2486,6 +2474,10 @@ void test_bb_board_rtc_total_callable(void);
 void test_bb_board_heap_internal_minimum_ever_callable(void);
 void test_bb_board_dram_static_bytes_callable(void);
 void test_bb_board_dram_static_bytes_returns_zero_on_host(void);
+void test_bb_board_get_cores_callable(void);
+void test_bb_board_get_chip_model_null_out_returns_invalid_arg(void);
+void test_bb_board_get_chip_model_zero_size_returns_invalid_arg(void);
+void test_bb_board_get_chip_model_writes_host_string(void);
 
 // Forward declarations from test_bb_meminfo.c
 void test_bb_meminfo_get_rejects_null(void);
@@ -2856,41 +2848,7 @@ void test_bb_display_serialize_present_false_only(void);
 void test_bb_display_serialize_panel_ssd1306(void);
 void test_bb_display_serialize_width_height(void);
 void test_bb_display_serialize_enabled_false(void);
-
-// Forward declarations from test_bb_info.c
-void test_bb_info_register_section_null_name_returns_err(void);
-void test_bb_info_register_section_null_get_returns_err(void);
-void test_bb_info_register_section_null_schema_succeeds(void);
-void test_bb_info_register_section_after_freeze_returns_invalid_state(void);
-void test_bb_info_section_appears_in_assembled_schema(void);
-void test_bb_info_no_sections_schema_is_base_plus_suffix(void);
-void test_bb_info_two_sections_both_in_schema(void);
-void test_bb_info_assembled_schema_is_valid_json(void);
-void test_bb_info_section_get_fn_invoked(void);
-void test_bb_info_capabilities_registered_appear_in_schema(void);
-void test_bb_info_capabilities_dedup(void);
-void test_bb_info_capabilities_empty_schema_present(void);
-void test_bb_info_capabilities_over_cap_drops_extra(void);
-void test_bb_info_capabilities_post_freeze_ignored(void);
-void test_bb_info_assembled_schema_contains_capabilities_array(void);
-void test_bb_info_schema_lacks_uptime_ms(void);
-void test_bb_info_schema_lacks_heap_internal(void);
-void test_bb_info_schema_lacks_network(void);
-void test_bb_info_schema_lacks_reset_reason(void);
-void test_bb_info_schema_contains_boot_epoch(void);
-void test_bb_info_schema_contains_time_valid(void);
-void test_bb_info_schema_contains_hostname(void);
-void bb_info_reset_for_test(void);
-
-// Forward declarations from test_bb_info_build.c
-void test_bb_info_build_emit_all_keys(void);
-void test_bb_info_build_capture_fills_snap(void);
-void test_bb_info_build_capture_null_returns_err(void);
-void test_bb_info_build_section_registered_in_schema(void);
-void test_bb_info_schema_base_lacks_static_fields(void);
-void test_bb_info_build_schema_has_all_fields(void);
-void test_bb_info_build_cache_fidelity(void);
-void test_bb_info_build_section_in_info_output(void);
+void test_bb_display_register_info_registers_cache_key(void);
 
 // Forward declarations from test_wifi_reconn_policy.c
 void wifi_reconn_policy_test_reset(void);
@@ -3250,23 +3208,14 @@ void test_bb_led_set_primary_stores_handle(void);
 void test_bb_led_set_primary_null_clears(void);
 void test_bb_led_name_returns_driver_name(void);
 void test_bb_led_name_null_handle_returns_null(void);
-void test_bb_led_info_schema_in_assembled_schema(void);
-void test_bb_led_info_extender_no_primary_present_false(void);
-void test_bb_led_info_extender_rgb_primary_present_true(void);
-void test_bb_led_info_extender_pwm_primary_rgb_false(void);
 void test_bb_led_enabled_default_true(void);
 void test_bb_led_set_enabled_false(void);
 void test_bb_led_set_enabled_roundtrip(void);
 void test_bb_led_set_enabled_null_returns_err(void);
 void test_bb_led_enabled_null_returns_false(void);
-void test_bb_led_info_schema_includes_enabled(void);
-void test_bb_led_info_extender_enabled_true_by_default(void);
-void test_bb_led_info_extender_enabled_false_after_set(void);
 
-// Forward declarations from test_bb_ntp_info.c
-void test_bb_ntp_info_schema_in_assembled_schema(void);
-void test_bb_ntp_info_extender_synced_false_last_sync_zero(void);
-void test_bb_ntp_info_extender_ntp_key_always_present(void);
+// Forward declarations from test_bb_ntp.c
+void test_bb_ntp_last_sync_unix_returns_zero_on_host(void);
 
 // Forward declarations from test_bb_ntp_timezone.c
 void test_nv_timezone_default_is_empty(void);
@@ -4431,8 +4380,6 @@ void test_bb_response_register_dup_name_different_case_allowed(void);
 void test_bb_response_dispatch_patch_multi_read_only_rejects_all(void);
 void test_bb_response_dispatch_patch_single_writable_applies(void);
 void test_bb_response_assemble_schema_mixed_null_and_props(void);
-void test_bb_info_diag_registers_before_freeze_succeeds(void);
-void test_bb_info_diag_registers_after_freeze_fails(void);
 void test_bb_response_register_per_instance_cap(void);
 void test_bb_response_register_cap_zero_uses_default(void);
 void test_bb_response_register_cap_exceeds_max_clamped(void);
@@ -4840,13 +4787,6 @@ void test_bb_tls_creds_override_len_includes_nul(void);
 void test_bb_tls_creds_nvs_len_includes_nul(void);
 void test_bb_tls_creds_nvs_buf_alloc_fails_returns_no_space(void);
 
-// Forward declarations from test_bb_tls_info.c
-void test_bb_tls_info_register_is_safe(void);
-void test_bb_tls_info_register_schema_remains_valid(void);
-void test_bb_tls_info_all_capabilities_registered(void);
-void test_bb_tls_info_dedup_via_direct_register(void);
-void test_bb_tls_info_leaves_room_for_more_capabilities(void);
-
 // Forward declarations from test_bb_mem_arena_tls.c
 void test_bb_mem_arena_tls_init_is_idempotent(void);
 void test_bb_mem_arena_tls_alloc_hit_returns_in_arena(void);
@@ -5056,7 +4996,6 @@ void setUp(void) {
     bb_display_reset_for_testing();
     bb_display_test_reset_mock();
     bb_cache_reset_for_test();
-    bb_info_reset_for_test();
     bb_health_reset_for_test();
     bb_wdt_test_reset();
     bb_pub_test_reset();
@@ -6527,7 +6466,6 @@ int main(void) {
 
     // Fidelity audit: handler output vs declared response schema
     RUN_TEST(test_fidelity_reboot);
-    RUN_TEST(test_fidelity_info);
     RUN_TEST(test_fidelity_health);
     RUN_TEST(test_fidelity_wifi_info);
     RUN_TEST(test_fidelity_ota_status);
@@ -6547,13 +6485,6 @@ int main(void) {
     RUN_TEST(test_fidelity_update_config_get);
     RUN_TEST(test_fidelity_diag_events);
     RUN_TEST(test_fidelity_diag_events_age_ms_branch);
-    RUN_TEST(test_fidelity_info_with_extender);
-    RUN_TEST(test_fidelity_info_schema_matches_assembled);
-    RUN_TEST(test_fidelity_info_lacks_uptime_ms);
-    RUN_TEST(test_fidelity_info_has_hostname);
-    RUN_TEST(test_fidelity_info_has_time_valid_false_on_host);
-    RUN_TEST(test_fidelity_info_boot_epoch_zero_when_not_synced);
-    RUN_TEST(test_fidelity_info_flat_heap_fields_absent);
     RUN_TEST(test_fidelity_health_no_raw_numbers);
     RUN_TEST(test_register_described_route_rejects_null);
     RUN_TEST(test_register_described_route_propagates_underlying_failure);
@@ -6918,8 +6849,6 @@ int main(void) {
     RUN_TEST(test_sse_schema_alert_payload_missing_required_fails);
     RUN_TEST(test_sse_schema_update_available_payload_valid);
     RUN_TEST(test_sse_schema_update_available_payload_missing_required_fails);
-    RUN_TEST(test_sse_schema_build_info_payload_valid);
-    RUN_TEST(test_sse_schema_build_info_payload_missing_required_fails);
     RUN_TEST(test_sse_schema_diag_boot_payload_valid);
     RUN_TEST(test_sse_schema_diag_boot_payload_missing_required_fails);
     RUN_TEST(test_sse_schema_display_info_payload_valid);
@@ -7020,6 +6949,9 @@ int main(void) {
     RUN_TEST(test_bb_system_reset_reason_str_sdio);
     RUN_TEST(test_bb_system_reset_reason_str_unknown);
     RUN_TEST(test_bb_system_reset_reason_str_out_of_range);
+    RUN_TEST(test_bb_system_get_app_sha256_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_system_get_app_sha256_too_small_returns_no_space);
+    RUN_TEST(test_bb_system_get_app_sha256_writes_fixed_test_value);
     RUN_TEST(test_bb_reset_source_str_api_reboot);
     RUN_TEST(test_bb_reset_source_str_factory_reset);
     RUN_TEST(test_bb_reset_source_str_wifi_safeguard);
@@ -7337,15 +7269,9 @@ int main(void) {
     RUN_TEST(test_bb_display_set_rotation_180);
     RUN_TEST(test_bb_display_set_rotation_270);
 
-    // bb_display_info satellite tests
-    RUN_TEST(test_bb_display_info_schema_in_assembled_schema);
-    RUN_TEST(test_bb_display_info_extender_no_backend_present_false);
-    RUN_TEST(test_bb_display_info_extender_with_backend_present_true);
-    RUN_TEST(test_bb_display_info_enabled_tracks_nv_config);
     // regression guard: persistent introspection after bb_display_off()
     RUN_TEST(test_bb_display_backend_name_persists_after_off);
     RUN_TEST(test_bb_display_dims_persist_after_off);
-    RUN_TEST(test_bb_display_info_extender_present_true_after_off);
     // regression guard: s_active race fix — draw/blit/clear/flush safe no-ops after off
     RUN_TEST(test_bb_display_draw_text_after_off_is_noop);
     RUN_TEST(test_bb_display_clear_after_off_is_noop);
@@ -7432,6 +7358,10 @@ int main(void) {
     RUN_TEST(test_bb_board_heap_internal_minimum_ever_callable);
     RUN_TEST(test_bb_board_dram_static_bytes_callable);
     RUN_TEST(test_bb_board_dram_static_bytes_returns_zero_on_host);
+    RUN_TEST(test_bb_board_get_cores_callable);
+    RUN_TEST(test_bb_board_get_chip_model_null_out_returns_invalid_arg);
+    RUN_TEST(test_bb_board_get_chip_model_zero_size_returns_invalid_arg);
+    RUN_TEST(test_bb_board_get_chip_model_writes_host_string);
 
     // bb_meminfo tests
     RUN_TEST(test_bb_meminfo_get_rejects_null);
@@ -7668,40 +7598,7 @@ int main(void) {
     RUN_TEST(test_bb_display_serialize_panel_ssd1306);
     RUN_TEST(test_bb_display_serialize_width_height);
     RUN_TEST(test_bb_display_serialize_enabled_false);
-
-    // bb_info tests
-    RUN_TEST(test_bb_info_register_section_null_name_returns_err);
-    RUN_TEST(test_bb_info_register_section_null_get_returns_err);
-    RUN_TEST(test_bb_info_register_section_null_schema_succeeds);
-    RUN_TEST(test_bb_info_register_section_after_freeze_returns_invalid_state);
-    RUN_TEST(test_bb_info_section_appears_in_assembled_schema);
-    RUN_TEST(test_bb_info_no_sections_schema_is_base_plus_suffix);
-    RUN_TEST(test_bb_info_two_sections_both_in_schema);
-    RUN_TEST(test_bb_info_assembled_schema_is_valid_json);
-    RUN_TEST(test_bb_info_section_get_fn_invoked);
-    RUN_TEST(test_bb_info_capabilities_registered_appear_in_schema);
-    RUN_TEST(test_bb_info_capabilities_dedup);
-    RUN_TEST(test_bb_info_capabilities_empty_schema_present);
-    RUN_TEST(test_bb_info_capabilities_over_cap_drops_extra);
-    RUN_TEST(test_bb_info_capabilities_post_freeze_ignored);
-    RUN_TEST(test_bb_info_assembled_schema_contains_capabilities_array);
-    RUN_TEST(test_bb_info_schema_lacks_uptime_ms);
-    RUN_TEST(test_bb_info_schema_lacks_heap_internal);
-    RUN_TEST(test_bb_info_schema_lacks_network);
-    RUN_TEST(test_bb_info_schema_lacks_reset_reason);
-    RUN_TEST(test_bb_info_schema_contains_boot_epoch);
-    RUN_TEST(test_bb_info_schema_contains_time_valid);
-    RUN_TEST(test_bb_info_schema_contains_hostname);
-
-    // bb_info_build tests
-    RUN_TEST(test_bb_info_build_emit_all_keys);
-    RUN_TEST(test_bb_info_build_capture_fills_snap);
-    RUN_TEST(test_bb_info_build_capture_null_returns_err);
-    RUN_TEST(test_bb_info_build_section_registered_in_schema);
-    RUN_TEST(test_bb_info_schema_base_lacks_static_fields);
-    RUN_TEST(test_bb_info_build_schema_has_all_fields);
-    RUN_TEST(test_bb_info_build_cache_fidelity);
-    RUN_TEST(test_bb_info_build_section_in_info_output);
+    RUN_TEST(test_bb_display_register_info_registers_cache_key);
 
     // wifi_reconn_policy tests
     RUN_TEST(test_wifi_reconn_tier1_handshake_fast_retry);
@@ -8055,25 +7952,15 @@ int main(void) {
     RUN_TEST(test_bb_led_name_returns_driver_name);
     RUN_TEST(test_bb_led_name_null_handle_returns_null);
 
-    // bb_led_info satellite tests
-    RUN_TEST(test_bb_led_info_schema_in_assembled_schema);
-    RUN_TEST(test_bb_led_info_extender_no_primary_present_false);
-    RUN_TEST(test_bb_led_info_extender_rgb_primary_present_true);
-    RUN_TEST(test_bb_led_info_extender_pwm_primary_rgb_false);
     // bb_led enabled flag tests
     RUN_TEST(test_bb_led_enabled_default_true);
     RUN_TEST(test_bb_led_set_enabled_false);
     RUN_TEST(test_bb_led_set_enabled_roundtrip);
     RUN_TEST(test_bb_led_set_enabled_null_returns_err);
     RUN_TEST(test_bb_led_enabled_null_returns_false);
-    RUN_TEST(test_bb_led_info_schema_includes_enabled);
-    RUN_TEST(test_bb_led_info_extender_enabled_true_by_default);
-    RUN_TEST(test_bb_led_info_extender_enabled_false_after_set);
 
-    // bb_ntp_info satellite tests
-    RUN_TEST(test_bb_ntp_info_schema_in_assembled_schema);
-    RUN_TEST(test_bb_ntp_info_extender_synced_false_last_sync_zero);
-    RUN_TEST(test_bb_ntp_info_extender_ntp_key_always_present);
+    // bb_ntp tests
+    RUN_TEST(test_bb_ntp_last_sync_unix_returns_zero_on_host);
 
     // bb_ntp_timezone satellite tests
     RUN_TEST(test_nv_timezone_default_is_empty);
@@ -9496,8 +9383,6 @@ int main(void) {
     RUN_TEST(test_bb_response_dispatch_patch_multi_read_only_rejects_all);
     RUN_TEST(test_bb_response_dispatch_patch_single_writable_applies);
     RUN_TEST(test_bb_response_assemble_schema_mixed_null_and_props);
-    RUN_TEST(test_bb_info_diag_registers_before_freeze_succeeds);
-    RUN_TEST(test_bb_info_diag_registers_after_freeze_fails);
     RUN_TEST(test_bb_response_register_per_instance_cap);
     RUN_TEST(test_bb_response_register_cap_zero_uses_default);
     RUN_TEST(test_bb_response_register_cap_exceeds_max_clamped);
@@ -9881,13 +9766,6 @@ int main(void) {
     RUN_TEST(test_bb_tls_creds_override_len_includes_nul);
     RUN_TEST(test_bb_tls_creds_nvs_len_includes_nul);
     RUN_TEST(test_bb_tls_creds_nvs_buf_alloc_fails_returns_no_space);
-
-    // bb_tls_info capability registration tests
-    RUN_TEST(test_bb_tls_info_register_is_safe);
-    RUN_TEST(test_bb_tls_info_register_schema_remains_valid);
-    RUN_TEST(test_bb_tls_info_all_capabilities_registered);
-    RUN_TEST(test_bb_tls_info_dedup_via_direct_register);
-    RUN_TEST(test_bb_tls_info_leaves_room_for_more_capabilities);
 
     // bb_mem_arena_tls arena routing tests
     RUN_TEST(test_bb_mem_arena_tls_init_is_idempotent);
@@ -11174,18 +11052,18 @@ int main(void) {
     RUN_TEST(test_v2_golden_ref_null_resolver_omits_field);
 
     // v2 wire golden byte-fidelity harness (B1-767 PR-6)
-    RUN_TEST(test_v2_golden_info_root_slice_populated);
-    RUN_TEST(test_v2_golden_info_root_slice_null);
-    RUN_TEST(test_v2_golden_info_root_slice_capabilities_three_entries);
-    RUN_TEST(test_v2_golden_info_root_slice_mac_boundary_no_nul);
-    RUN_TEST(test_v2_golden_info_root_slice_hostname_longer_str_n);
+    RUN_TEST(test_v2_golden_widget_fixture_populated);
+    RUN_TEST(test_v2_golden_widget_fixture_null);
+    RUN_TEST(test_v2_golden_widget_fixture_tags_three_entries);
+    RUN_TEST(test_v2_golden_widget_fixture_serial_boundary_no_nul);
+    RUN_TEST(test_v2_golden_widget_fixture_label_longer_str_n);
     RUN_TEST(test_v2_golden_health_root_slice_populated);
     RUN_TEST(test_v2_golden_health_root_slice_disconnected);
     RUN_TEST(test_v2_golden_info_telem_psram);
     RUN_TEST(test_v2_golden_info_telem_no_psram);
     RUN_TEST(test_v2_golden_info_telem_differential_matches_live_cache);
 
-    RUN_TEST(test_bb_serialize_meta_validate_info_happy_path);
+    RUN_TEST(test_bb_serialize_meta_validate_widget_happy_path);
     RUN_TEST(test_bb_serialize_meta_validate_type_name_mismatch);
     RUN_TEST(test_bb_serialize_meta_validate_missing_row);
     RUN_TEST(test_bb_serialize_meta_validate_orphan_row);
@@ -11200,7 +11078,7 @@ int main(void) {
     RUN_TEST(test_bb_serialize_meta_validate_duplicate_row);
     RUN_TEST(test_bb_serialize_meta_validate_null_key_row);
 
-    RUN_TEST(test_bb_serialize_meta_openapi_info_golden);
+    RUN_TEST(test_bb_serialize_meta_openapi_widget_golden);
     RUN_TEST(test_bb_serialize_meta_openapi_no_meta_at_all);
     RUN_TEST(test_bb_serialize_meta_openapi_no_matching_row);
     RUN_TEST(test_bb_serialize_meta_openapi_nested_obj);

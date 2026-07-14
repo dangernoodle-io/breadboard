@@ -148,6 +148,31 @@ void test_bb_system_reset_reason_str_out_of_range(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_system_get_app_sha256 (B1-893: lost its only production caller,
+// bb_info_build.c, when bb_info was deleted; direct tests keep this
+// still-public bb_system API surface covered).
+// ---------------------------------------------------------------------------
+
+void test_bb_system_get_app_sha256_null_out_returns_invalid_arg(void)
+{
+    char buf[16];
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_system_get_app_sha256(NULL, sizeof(buf)));
+}
+
+void test_bb_system_get_app_sha256_too_small_returns_no_space(void)
+{
+    char buf[9];
+    TEST_ASSERT_EQUAL(BB_ERR_NO_SPACE, bb_system_get_app_sha256(buf, sizeof(buf)));
+}
+
+void test_bb_system_get_app_sha256_writes_fixed_test_value(void)
+{
+    char buf[16] = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_system_get_app_sha256(buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_STRING("deadbeef0", buf);
+}
+
+// ---------------------------------------------------------------------------
 // bb_reset_source_str — byte-identical wire-string guard (mirrors the
 // reset_reason pinning above). BB_RESET_SRC_LIST drives the switch.
 // ---------------------------------------------------------------------------

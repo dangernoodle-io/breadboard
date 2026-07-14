@@ -216,8 +216,7 @@ bb_err_t bb_diag_panic_init(void);
 #include "bb_http_server.h"
 
 /**
- * Registry hook — registers GET/DELETE /api/diag/panic and the /api/info
- * "panic" extender.
+ * Registry hook — registers GET/DELETE /api/diag/panic.
  */
 // bbtool:init tier=regular fn=bb_diag_routes_init server=true
 bb_err_t bb_diag_routes_init(bb_http_handle_t server);

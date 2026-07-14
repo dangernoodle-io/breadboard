@@ -29,9 +29,11 @@
 // REMOVED ROUTES (no longer registered):
 //   /api/logs              - retired; use GET /api/events?topic=log (structured JSON)
 //   /api/logs/status       - retired with /api/logs
-//   /api/board             - dropped; superseded by /api/info
+//   /api/board             - dropped; was superseded by /api/info, itself since removed
 //   /api/ping              - dropped; superseded by /api/health
-//   /api/version           - dropped; use GET /api/info for .version field
+//   /api/version           - dropped; was covered by /api/info's .version field
+//   /api/info              - bb_info + its satellites deleted (B1-893); no consumer
+//                            of the surviving fields (dupes elsewhere or dead)
 //   /api/ota/check         - moved to POST /api/update/check
 //   /api/ota/update        - moved to POST /api/update/apply
 //   /api/ota/status        - moved to GET /api/update/progress
@@ -61,11 +63,7 @@
 #include "bb_log.h"
 #include "bb_clock.h"
 #include "bb_timer.h"
-#include "bb_info.h"
-#include "bb_info_test.h"
 #include "bb_health.h"
-#include "bb_ntp.h"
-#include "../../components/bb_info/bb_info_schema_priv.h"
 
 // bb_mdns_started and bb_mdns_get_hostname are declared in bb_mdns.h only
 // under #ifdef ESP_PLATFORM. The host stub implements them; forward-declare
@@ -91,24 +89,6 @@ static const char k_reboot_schema[] =
     "{\"type\":\"object\","
     "\"properties\":{\"status\":{\"type\":\"string\"}},"
     "\"required\":[\"status\"]}";
-
-// GET /api/info — bb_info.c (espidf)
-// IMPORTANT: must match bb_info_get_assembled_schema() with no extenders registered.
-// (test_fidelity_info_schema_matches_assembled enforces this.)
-// TA-505: identity/build/capability only; system numbers moved to /api/diag/net.
-static const char k_info_schema[] =
-    "{\"type\":\"object\","
-    "\"properties\":{"
-    "\"mac\":{\"type\":\"string\"},"
-    "\"ota_validated\":{\"type\":\"boolean\"},"
-    "\"ota_ready\":{\"type\":\"boolean\"},"
-    "\"boot_epoch_s\":{\"type\":\"integer\"},"
-    "\"time_valid\":{\"type\":\"boolean\"},"
-    "\"time_source\":{\"type\":\"string\"},"
-    "\"hostname\":{\"type\":[\"string\",\"null\"]},"
-    "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}"
-    "},"
-    "\"required\":[\"mac\",\"capabilities\"]}";
 
 // GET /api/health — bb_health.c (espidf)
 // TA-505: status bools/enums only. Numeric fields (rssi, disc_reason, etc.)
@@ -355,43 +335,6 @@ static bb_err_t h_reboot(bb_http_request_t *req)
     bb_err_t err = bb_http_resp_send_chunk(req, body, sizeof(body) - 1);
     if (err != BB_OK) return err;
     return bb_http_resp_send_chunk(req, NULL, 0);
-}
-
-static bb_err_t h_info(bb_http_request_t *req)
-{
-    // TA-505: identity/build/capability only — no heap, network, reset_reason,
-    // http_handler_count/cap, or uptime_ms at root level.
-    bb_board_info_t b;
-    bb_board_get_info(&b);
-
-    bb_http_json_obj_stream_t obj;
-    bb_http_resp_json_obj_begin(req, &obj);
-    bb_http_resp_json_obj_set_str(&obj, "mac", b.mac);
-    bb_http_resp_json_obj_set_bool(&obj, "ota_validated", b.ota_validated);
-    // boot_epoch_s and time_valid — identity fields kept (TA-505).
-    int64_t uptime_ms = bb_clock_now_ms();
-    bool   time_valid    = false;
-    int64_t boot_epoch_s = 0;
-    if (bb_ntp_is_synced()) {
-        time_t now = time(NULL);
-        if (now >= (time_t)1704067200LL) {
-            time_valid    = true;
-            boot_epoch_s  = (int64_t)now - (uptime_ms / 1000);
-        }
-    }
-    bb_http_resp_json_obj_set_bool(&obj, "time_valid",   time_valid);
-    bb_http_resp_json_obj_set_int (&obj, "boot_epoch_s", boot_epoch_s);
-    // hostname — same value as /api/health.network.mdns.
-    const char *hostname_val = bb_mdns_get_hostname();
-    if (hostname_val) {
-        bb_http_resp_json_obj_set_str(&obj, "hostname", hostname_val);
-    } else {
-        bb_http_resp_json_obj_set_null(&obj, "hostname");
-    }
-    // capabilities: always emit (empty array when none registered)
-    bb_http_resp_json_obj_set_arr_begin(&obj, "capabilities");
-    bb_http_resp_json_obj_set_arr_end(&obj);
-    return bb_http_resp_json_obj_end(&obj);
 }
 
 static bb_err_t h_health(bb_http_request_t *req)
@@ -951,7 +894,6 @@ typedef struct {
 // their own setup and call run_fidelity with a stack-allocated entry.
 static const fidelity_entry_t k_audit[] = {
     { "/api/reboot",            h_reboot,            200, "application/json", k_reboot_schema        },
-    { "/api/info",              h_info,              200, "application/json", k_info_schema          },
     { "/api/health",            h_health,            200, "application/json", k_health_schema        },
     { "/api/wifi",              h_wifi_info,         200, "application/json", k_wifi_schema          },
     { "/api/update/progress",   h_ota_status,        200, "application/json", k_ota_status_schema    },
@@ -1034,86 +976,81 @@ void test_fidelity_reboot(void)
     run_fidelity(&k_audit[0]);
 }
 
-void test_fidelity_info(void)
+void test_fidelity_health(void)
 {
     run_fidelity(&k_audit[1]);
 }
 
-void test_fidelity_health(void)
+void test_fidelity_wifi_info(void)
 {
     run_fidelity(&k_audit[2]);
 }
 
-void test_fidelity_wifi_info(void)
+void test_fidelity_ota_status(void)
 {
     run_fidelity(&k_audit[3]);
 }
 
-void test_fidelity_ota_status(void)
+void test_fidelity_ota_mark_valid_409(void)
 {
     run_fidelity(&k_audit[4]);
 }
 
-void test_fidelity_ota_mark_valid_409(void)
+void test_fidelity_boot_no_panic(void)
 {
     run_fidelity(&k_audit[5]);
 }
 
-void test_fidelity_boot_no_panic(void)
+void test_fidelity_boot_with_panic(void)
 {
     run_fidelity(&k_audit[6]);
 }
 
-void test_fidelity_boot_with_panic(void)
+void test_fidelity_diag_panic(void)
 {
     run_fidelity(&k_audit[7]);
 }
 
-void test_fidelity_diag_panic(void)
+void test_fidelity_update_check(void)
 {
     run_fidelity(&k_audit[8]);
 }
 
-void test_fidelity_update_check(void)
+void test_fidelity_log_level_get(void)
 {
     run_fidelity(&k_audit[9]);
 }
 
-void test_fidelity_log_level_get(void)
+void test_fidelity_wifi_patch_202(void)
 {
     run_fidelity(&k_audit[10]);
 }
 
-void test_fidelity_wifi_patch_202(void)
+void test_fidelity_wifi_patch_400(void)
 {
     run_fidelity(&k_audit[11]);
 }
 
-void test_fidelity_wifi_patch_400(void)
+void test_fidelity_diag_partitions(void)
 {
     run_fidelity(&k_audit[12]);
 }
 
-void test_fidelity_diag_partitions(void)
-{
-    run_fidelity(&k_audit[13]);
-}
-
 void test_fidelity_diag_net(void)
 {
-    run_fidelity(&k_audit[14]);
+    run_fidelity(&k_audit[13]);
 }
 
 // B1-518 PR3: gw_available=true — "gw" object present with correct fields.
 void test_fidelity_diag_net_gw(void)
 {
-    run_fidelity(&k_audit[15]);
+    run_fidelity(&k_audit[14]);
 }
 
 // B1-518 PR2: transports registered — populated "transports" array.
 void test_fidelity_diag_net_transports(void)
 {
-    run_fidelity(&k_audit[16]);
+    run_fidelity(&k_audit[15]);
 }
 
 // Routes that require subsystem state setup are tested individually below.
@@ -1432,155 +1369,6 @@ void test_capture_no_active_slot_ignored(void)
     bb_http_resp_send_chunk(fake, "hello", 5);
     bb_http_resp_sendstr(fake, "world");
     // No crash = pass
-}
-
-// ---------------------------------------------------------------------------
-// New fidelity tests for schema-carrying sections
-// ---------------------------------------------------------------------------
-
-static void section_add_xtest(bb_json_t section, void *ctx)
-{
-    // Section get: write a test field into the child section object.
-    (void)ctx;
-    bb_json_obj_set_string(section, "xfield", "testvalue");
-}
-
-// (a) Register section with schema_props; validate info body against assembled schema.
-void test_fidelity_info_with_extender(void)
-{
-    static const char schema_props[] =
-        "{\"type\":\"object\",\"properties\":{\"xfield\":{\"type\":\"string\"}}}";
-    static const char frag[] = "\"xtest\":";
-    TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_info_register_section("xtest", section_add_xtest, NULL, schema_props));
-
-    const char *schema = bb_info_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, frag),
-        "fragment not in assembled schema");
-
-    // Validate info body against the assembled schema.
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-    h_info(req);
-    bb_http_host_capture_t cap;
-    memset(&cap, 0, sizeof(cap));
-    bb_http_host_capture_end(req, &cap);
-
-    TEST_ASSERT_NOT_NULL(cap.body);
-    cJSON *parsed = cJSON_Parse(cap.body);
-    TEST_ASSERT_NOT_NULL_MESSAGE(parsed, "info body not valid JSON");
-
-    bb_openapi_validate_err_t verr;
-    memset(&verr, 0, sizeof(verr));
-    bb_err_t vrc = bb_openapi_validate(schema, parsed, &verr);
-    if (vrc != BB_OK) {
-        char msg[512];
-        snprintf(msg, sizeof(msg),
-                 "schema violation at '%s': %s", verr.path, verr.message);
-        TEST_FAIL_MESSAGE(msg);
-    }
-
-    cJSON_Delete(parsed);
-    bb_http_host_capture_free(&cap);
-}
-
-// (b) Assert k_info_schema == bb_info_get_assembled_schema() with no extenders.
-//     Kills double-maintenance drift between this file and bb_info_schema_priv.h.
-void test_fidelity_info_schema_matches_assembled(void)
-{
-    // setUp resets bb_info state, so no extenders are registered here.
-    const char *assembled = bb_info_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(assembled);
-    TEST_ASSERT_EQUAL_STRING_MESSAGE(k_info_schema, assembled,
-        "k_info_schema in test_route_fidelity.c differs from assembled schema; "
-        "update k_info_schema to match bb_info_schema_priv.h base+suffix");
-}
-
-// ---------------------------------------------------------------------------
-// /api/info body field-presence tests (uptime_ms, boot_epoch, time_valid, hostname)
-// ---------------------------------------------------------------------------
-
-static cJSON *invoke_h_info_and_parse(void)
-{
-    bb_http_request_t *req = NULL;
-    bb_http_host_capture_begin(&req);
-    h_info(req);
-    bb_http_host_capture_t cap;
-    memset(&cap, 0, sizeof(cap));
-    bb_http_host_capture_end(req, &cap);
-    cJSON *parsed = cJSON_Parse(cap.body);
-    bb_http_host_capture_free(&cap);
-    return parsed;
-}
-
-// (I1) uptime_ms must NOT be present in /api/info — moved to /api/diag/net (TA-505).
-void test_fidelity_info_lacks_uptime_ms(void)
-{
-    cJSON *doc = invoke_h_info_and_parse();
-    TEST_ASSERT_NOT_NULL_MESSAGE(doc, "info body not valid JSON");
-    TEST_ASSERT_FALSE_MESSAGE(
-        cJSON_HasObjectItem(doc, "uptime_ms"),
-        "uptime_ms must not be present in /api/info body (TA-505: moved to /api/diag/net)");
-    cJSON_Delete(doc);
-}
-
-// (I2) hostname field is present (null on host since bb_mdns_get_hostname returns NULL).
-void test_fidelity_info_has_hostname(void)
-{
-    cJSON *doc = invoke_h_info_and_parse();
-    TEST_ASSERT_NOT_NULL_MESSAGE(doc, "info body not valid JSON");
-    // hostname must exist as a key (null value is acceptable on host).
-    TEST_ASSERT_TRUE_MESSAGE(
-        cJSON_HasObjectItem(doc, "hostname"),
-        "hostname key missing from /api/info body");
-    cJSON_Delete(doc);
-}
-
-// (I3) time_valid is present and false on host (bb_ntp_is_synced returns false).
-void test_fidelity_info_has_time_valid_false_on_host(void)
-{
-    cJSON *doc = invoke_h_info_and_parse();
-    TEST_ASSERT_NOT_NULL_MESSAGE(doc, "info body not valid JSON");
-    cJSON *field = cJSON_GetObjectItemCaseSensitive(doc, "time_valid");
-    TEST_ASSERT_NOT_NULL_MESSAGE(field, "time_valid missing from /api/info body");
-    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsBool(field), "time_valid is not a boolean");
-    TEST_ASSERT_FALSE_MESSAGE(cJSON_IsTrue(field), "time_valid should be false on host");
-    cJSON_Delete(doc);
-}
-
-// (I4) boot_epoch_s is present and 0 when time is not valid (host: ntp not synced).
-void test_fidelity_info_boot_epoch_zero_when_not_synced(void)
-{
-    cJSON *doc = invoke_h_info_and_parse();
-    TEST_ASSERT_NOT_NULL_MESSAGE(doc, "info body not valid JSON");
-    cJSON *field = cJSON_GetObjectItemCaseSensitive(doc, "boot_epoch_s");
-    TEST_ASSERT_NOT_NULL_MESSAGE(field, "boot_epoch_s missing from /api/info body");
-    TEST_ASSERT_TRUE_MESSAGE(cJSON_IsNumber(field), "boot_epoch_s is not a number");
-    TEST_ASSERT_EQUAL_DOUBLE_MESSAGE(0.0, field->valuedouble,
-        "boot_epoch_s should be 0 when time is not valid");
-    cJSON_Delete(doc);
-}
-
-// (I5) Flat heap fields must NOT be present in /api/info (B1-310: removed).
-// Re-adding them to the emitter must cause these tests to fail.
-void test_fidelity_info_flat_heap_fields_absent(void)
-{
-    cJSON *doc = invoke_h_info_and_parse();
-    TEST_ASSERT_NOT_NULL_MESSAGE(doc, "info body not valid JSON");
-    TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "total_heap"),
-        "total_heap must not be present in /api/info (B1-310)");
-    TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "free_heap"),
-        "free_heap must not be present in /api/info (B1-310)");
-    TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "heap_free_total"),
-        "heap_free_total must not be present in /api/info (B1-310)");
-    TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "heap_free_internal"),
-        "heap_free_internal must not be present in /api/info (B1-310)");
-    TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "heap_minimum_ever"),
-        "heap_minimum_ever must not be present in /api/info (B1-310)");
-    TEST_ASSERT_FALSE_MESSAGE(cJSON_HasObjectItem(doc, "heap_largest_free_block"),
-        "heap_largest_free_block must not be present in /api/info (B1-310)");
-    cJSON_Delete(doc);
 }
 
 // ---------------------------------------------------------------------------

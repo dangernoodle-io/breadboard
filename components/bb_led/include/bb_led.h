@@ -34,9 +34,9 @@ bb_led_handle_t bb_led_primary(void);
 
 // Consumer-controlled logical enabled flag (default true = on).
 // Does NOT change LED hardware state — it is a reported state flag the consumer
-// sets (e.g. to reflect a heartbeat being disabled).  Sourced by bb_led_info
-// in the /api/info "led" object.  Existing consumers that never call
-// bb_led_set_enabled() see enabled:true by default, preserving back-compat.
+// sets (e.g. to reflect a heartbeat being disabled).  Existing consumers that
+// never call bb_led_set_enabled() see enabled:true by default, preserving
+// back-compat.
 // Returns BB_ERR_INVALID_STATE if h is NULL.
 bb_err_t bb_led_set_enabled(bb_led_handle_t h, bool enabled);
 bool     bb_led_enabled(bb_led_handle_t h);

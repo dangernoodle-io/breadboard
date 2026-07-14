@@ -1148,7 +1148,7 @@ void test_bb_pub_test_reset_clears_payload_extenders(void)
 // ---------------------------------------------------------------------------
 // B1-388: bb_pub serializes ONCE per source and delivers the same payload to
 // all sinks.  transport/tls fields are NOT injected into payloads; they stay
-// on bb_pub_sink_t for /meta and /api/info introspection only.
+// on bb_pub_sink_t for meta-topic introspection only.
 // ---------------------------------------------------------------------------
 
 // Sink with transport="mqtt", tls=true — B1-388: no transport/tls in payload.

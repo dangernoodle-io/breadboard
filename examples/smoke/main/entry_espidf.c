@@ -31,7 +31,6 @@
 #include "bb_log.h"
 #include "bb_app_init.h"
 #include "bb_event.h"
-#include "bb_led_info.h"
 #include "bb_wifi.h"
 #include "bb_ota_validator.h"
 #include "smoke_app.h"
@@ -60,7 +59,6 @@ void app_main(void)
     // no handwire needed here (B1-741).
     bb_app_init_early();
     bb_smoke_storage_typed_selftest();
-    bb_led_register_info();
 #ifdef BB_HAVE_DISPLAY_INFO
     bb_display_register_info();
 #endif

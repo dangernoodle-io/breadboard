@@ -1,57 +1,57 @@
 // test_bb_serialize_meta_openapi — Unity coverage for
 // bb_serialize_meta_openapi_schema(): a golden-string assertion for the
-// bb_info worked example, plus synthetic fixtures (nested OBJ, ARR-of-OBJ,
-// depth-cap, missing-meta, overflow) exercising every composer branch. The
-// synthetic fixtures are LOCAL to this file -- production tables are never
-// mutated.
+// synthetic widget worked example (test_serialize_fixture.h), plus
+// synthetic fixtures (nested OBJ, ARR-of-OBJ, depth-cap, missing-meta,
+// overflow) exercising every composer branch. The synthetic fixtures are
+// LOCAL to this file -- production tables are never mutated.
 
 #include "unity.h"
 
 #include "bb_serialize_meta.h"
 
-#include "../../components/bb_info/bb_info_wire_priv.h"
+#include "test_serialize_fixture.h"
 
 #include <stddef.h>
 #include <string.h>
 
-extern const bb_serialize_desc_meta_t bb_info_wire_meta;
+extern const bb_serialize_desc_meta_t bb_fixture_widget_meta;
 
 // ---------------------------------------------------------------------------
-// 1. golden -- bb_info worked example
+// 1. golden -- synthetic widget worked example
 // ---------------------------------------------------------------------------
 
-void test_bb_serialize_meta_openapi_info_golden(void)
+void test_bb_serialize_meta_openapi_widget_golden(void)
 {
     char   buf[1536];
     size_t n = 0;
 
     TEST_ASSERT_EQUAL_INT(BB_OK,
-        bb_serialize_meta_openapi_schema(&bb_info_wire_desc, &bb_info_wire_meta, buf, sizeof buf, &n));
+        bb_serialize_meta_openapi_schema(&bb_fixture_widget_desc, &bb_fixture_widget_meta, buf, sizeof buf, &n));
 
     const char *golden =
         "{\"type\":\"object\",\"properties\":{"
-        "\"mac\":{\"type\":\"string\",\"minLength\":17,\"title\":\"MAC address\","
-        "\"description\":\"Device station MAC, colon-separated hex\",\"format\":\"mac\","
-        "\"examples\":[\"aa:bb:cc:dd:ee:ff\"]},"
-        "\"ota_validated\":{\"type\":\"boolean\",\"title\":\"OTA validated\","
-        "\"description\":\"True once the running image passed its OTA validation check\"},"
-        "\"time_valid\":{\"type\":\"boolean\",\"title\":\"Time valid\","
-        "\"description\":\"True once the device clock has been synchronized\"},"
-        "\"boot_epoch_s\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":4.10244e+09,"
-        "\"title\":\"Boot epoch\","
-        "\"description\":\"Unix time (seconds) the device booted, or 0 if unknown\","
+        "\"serial\":{\"type\":\"string\",\"minLength\":17,\"title\":\"Serial number\","
+        "\"description\":\"Fixture widget serial number\",\"format\":\"serial\","
+        "\"examples\":[\"widget-serial-001\"]},"
+        "\"calibrated\":{\"type\":\"boolean\",\"title\":\"Calibrated\","
+        "\"description\":\"True once the fixture widget completed calibration\"},"
+        "\"armed\":{\"type\":\"boolean\",\"title\":\"Armed\","
+        "\"description\":\"True once the fixture widget was armed\"},"
+        "\"installed_epoch_s\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":4.10244e+09,"
+        "\"title\":\"Installed epoch\","
+        "\"description\":\"Unix time (seconds) the fixture widget was installed, or 0 if unknown\","
         "\"examples\":[1704067200]},"
-        "\"time_source\":{\"type\":\"string\",\"minLength\":4,\"title\":\"Time source\","
-        "\"description\":\"Clock synchronization source\",\"examples\":[\"sntp\"],"
-        "\"enum\":[\"sntp\",\"none\"]},"
-        "\"hostname\":{\"type\":\"string\",\"title\":\"Hostname\","
-        "\"description\":\"mDNS hostname, or null if not yet assigned\","
-        "\"examples\":[\"bb-test\"]},"
-        "\"capabilities\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},"
-        "\"title\":\"Capabilities\","
-        "\"description\":\"Composed-in optional-feature identifiers\"}"
-        "},\"required\":[\"mac\",\"ota_validated\",\"time_valid\",\"boot_epoch_s\","
-        "\"time_source\",\"capabilities\"],\"additionalProperties\":false}";
+        "\"region\":{\"type\":\"string\",\"minLength\":4,\"title\":\"Region\","
+        "\"description\":\"Fixture widget install region code\",\"examples\":[\"rg-a\"],"
+        "\"enum\":[\"rg-a\",\"unset\"]},"
+        "\"label\":{\"type\":\"string\",\"title\":\"Label\","
+        "\"description\":\"Fixture widget label, or null if not yet assigned\","
+        "\"examples\":[\"widget-01\"]},"
+        "\"tags\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},"
+        "\"title\":\"Tags\","
+        "\"description\":\"Fixture widget tag list\"}"
+        "},\"required\":[\"serial\",\"calibrated\",\"armed\",\"installed_epoch_s\","
+        "\"region\",\"tags\"],\"additionalProperties\":false}";
 
     TEST_ASSERT_EQUAL_STRING(golden, buf);
     TEST_ASSERT_EQUAL_UINT(strlen(golden), n);
@@ -231,7 +231,7 @@ void test_bb_serialize_meta_openapi_render_cap_zero(void)
 {
     char buf[4] = { 'x', 'x', 'x', 'x' };
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
-        bb_serialize_meta_openapi_schema(&bb_info_wire_desc, &bb_info_wire_meta, buf, 0, NULL));
+        bb_serialize_meta_openapi_schema(&bb_fixture_widget_desc, &bb_fixture_widget_meta, buf, 0, NULL));
 }
 
 void test_bb_serialize_meta_openapi_overflow_too_small_cap(void)
@@ -240,7 +240,7 @@ void test_bb_serialize_meta_openapi_overflow_too_small_cap(void)
     size_t n = 12345;
 
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
-        bb_serialize_meta_openapi_schema(&bb_info_wire_desc, &bb_info_wire_meta, buf, sizeof buf, &n));
+        bb_serialize_meta_openapi_schema(&bb_fixture_widget_desc, &bb_fixture_widget_meta, buf, sizeof buf, &n));
     TEST_ASSERT_EQUAL_STRING("", buf);
     TEST_ASSERT_EQUAL_UINT(0, n);
 }
@@ -249,7 +249,7 @@ void test_bb_serialize_meta_openapi_overflow_null_out_len(void)
 {
     char buf[8];
     TEST_ASSERT_EQUAL_INT(BB_ERR_NO_SPACE,
-        bb_serialize_meta_openapi_schema(&bb_info_wire_desc, &bb_info_wire_meta, buf, sizeof buf, NULL));
+        bb_serialize_meta_openapi_schema(&bb_fixture_widget_desc, &bb_fixture_widget_meta, buf, sizeof buf, NULL));
 }
 
 void test_bb_serialize_meta_openapi_success_null_out_len(void)

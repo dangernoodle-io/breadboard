@@ -1,7 +1,10 @@
-// Host unit tests for bb_display_info health.display serializer:
+// Host unit tests for bb_display's health.display cache/SSE surface:
 // - bb_display_serialize (bb_cache serializer, replaces old pure builder)
+// - bb_display_register_info (B1-893: re-homed from the deleted
+//   bb_display_info satellite; host stub, no event bus)
 #include "unity.h"
 #include "bb_cache.h"
+#include "bb_display_info.h"
 #include "bb_display_info_event_priv.h"
 #include "bb_event.h"
 #include "bb_json.h"
@@ -140,4 +143,34 @@ void test_bb_display_serialize_enabled_false(void)
     TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"enabled\":false"));
     bb_json_free_str(json);
+}
+
+// ---------------------------------------------------------------------------
+// bb_display_register_info (host stub): registers the health.display cache
+// key; a subsequent update+serialize round-trip proves registration
+// actually succeeded (bb_cache_serialize_into fails on an unregistered key).
+// ---------------------------------------------------------------------------
+
+void test_bb_display_register_info_registers_cache_key(void)
+{
+    reset();
+    bb_display_register_info();
+
+    bb_display_snap_t snap = {
+        .present = true,
+        .panel   = "mock",
+        .width   = 320,
+        .height  = 240,
+        .enabled = true,
+    };
+    TEST_ASSERT_EQUAL(BB_OK,
+        bb_cache_update(&(bb_cache_update_t){ .key = BB_DISPLAY_INFO_TOPIC, .snap = &snap }));
+
+    bb_json_t obj = bb_json_obj_new();
+    TEST_ASSERT_EQUAL(BB_OK, bb_cache_serialize_into(BB_DISPLAY_INFO_TOPIC, obj));
+    char *json = bb_json_serialize(obj);
+    TEST_ASSERT_NOT_NULL(json);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"panel\":\"mock\""));
+    bb_json_free_str(json);
+    bb_json_free(obj);
 }

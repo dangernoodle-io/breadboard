@@ -6,7 +6,7 @@ calls `heap_caps_*`.
 ## When to use / when not
 
 Use `bb_meminfo_get()` whenever you need a heap/PSRAM/RTC/DRAM snapshot
-(diagnostics, `/api/info`, telemetry sources). Do not call `heap_caps_*`
+(diagnostics, telemetry sources). Do not call `heap_caps_*`
 directly from another component — route through `bb_meminfo` instead so
 there is exactly one call site to audit. `bb_board`'s `bb_board_heap_*` /
 `bb_board_psram_*` / `bb_board_rtc_*` / `bb_board_dram_static_bytes`

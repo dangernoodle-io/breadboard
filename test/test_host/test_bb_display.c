@@ -1326,124 +1326,13 @@ void test_bb_display_set_rotation_270(void)
 }
 
 /* ---------------------------------------------------------------------------
- * Tests: /api/info display extender (CONFIG_BB_DISPLAY_INFO)
- * --------------------------------------------------------------------------- */
-
-#include "bb_display_info.h"
-#include "bb_info.h"
-#include "bb_info_test.h"
-#include "bb_json.h"
-#include "bb_nv.h"
-
-void test_bb_display_info_schema_in_assembled_schema(void)
-{
-    bb_display_register_info();
-    const char *schema = bb_info_get_assembled_schema();
-    TEST_ASSERT_NOT_NULL(schema);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(schema, "\"display\""),
-                                 "display key not in assembled schema");
-    TEST_ASSERT_NOT_NULL(strstr(schema, "\"present\""));
-    TEST_ASSERT_NOT_NULL(strstr(schema, "\"panel\""));
-    TEST_ASSERT_NOT_NULL(strstr(schema, "\"width\""));
-    TEST_ASSERT_NOT_NULL(strstr(schema, "\"height\""));
-    TEST_ASSERT_NOT_NULL(strstr(schema, "\"enabled\""));
-}
-
-void test_bb_display_info_extender_no_backend_present_false(void)
-{
-    /* No backend registered → bb_display_backend_name() == NULL → present:false */
-    bb_display_register_info();
-
-    bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_sections_for_test(root);
-
-    bb_json_t disp = bb_json_obj_get_item(root, "display");
-    TEST_ASSERT_NOT_NULL_MESSAGE(disp, "display key missing from extender output");
-
-    bool present = true;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(disp, "present", &present));
-    TEST_ASSERT_FALSE(present);
-
-    bb_json_free(root);
-}
-
-void test_bb_display_info_extender_with_backend_present_true(void)
-{
-    /* With a backend, backend_name() returns "mock". */
-    bb_display_backend_t b = make_mock(false);
-    bb_display_register_backend(&b);
-    bb_display_init();
-
-    bb_display_register_info();
-
-    bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_sections_for_test(root);
-
-    bb_json_t disp = bb_json_obj_get_item(root, "display");
-    TEST_ASSERT_NOT_NULL_MESSAGE(disp, "display key missing from extender output");
-
-    bool present = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(disp, "present", &present));
-    TEST_ASSERT_TRUE(present);
-
-    char panel[32] = {0};
-    TEST_ASSERT_TRUE(bb_json_obj_get_string(disp, "panel", panel, sizeof(panel)));
-    TEST_ASSERT_EQUAL_STRING("mock", panel);
-
-    double width = 0, height = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(disp, "width",  &width));
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(disp, "height", &height));
-    TEST_ASSERT_EQUAL_DOUBLE(320.0, width);
-    TEST_ASSERT_EQUAL_DOUBLE(240.0, height);
-
-    /* bb_nv_config_display_enabled() returns true on host by default. */
-    bool enabled = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(disp, "enabled", &enabled));
-    TEST_ASSERT_EQUAL(bb_nv_config_display_enabled(), enabled);
-
-    bb_json_free(root);
-}
-
-void test_bb_display_info_enabled_tracks_nv_config(void)
-{
-    /* Verify the extender reads bb_nv_config_display_enabled() at call time. */
-    bb_display_backend_t b = make_mock(false);
-    bb_display_register_backend(&b);
-    bb_display_init();
-    bb_display_register_info();
-
-    /* Default: enabled=true. */
-    bb_json_t root1 = bb_json_obj_new();
-    bb_info_invoke_sections_for_test(root1);
-    bb_json_t disp1 = bb_json_obj_get_item(root1, "display");
-    bool en1 = false;
-    bb_json_obj_get_bool(disp1, "enabled", &en1);
-    TEST_ASSERT_TRUE(en1);
-    bb_json_free(root1);
-
-    /* Set disabled, re-invoke. */
-    bb_nv_config_set_display_enabled(false);
-    bb_info_reset_for_test();
-    bb_display_register_info();
-
-    bb_json_t root2 = bb_json_obj_new();
-    bb_info_invoke_sections_for_test(root2);
-    bb_json_t disp2 = bb_json_obj_get_item(root2, "display");
-    bool en2 = true;
-    bb_json_obj_get_bool(disp2, "enabled", &en2);
-    TEST_ASSERT_FALSE(en2);
-    bb_json_free(root2);
-
-    /* Restore. */
-    bb_nv_config_set_display_enabled(true);
-}
-
-/* ---------------------------------------------------------------------------
  * Tests: persistent introspection survives bb_display_off()
  *
  * Regression guard for the bug where bb_display_off() cleared s_active,
- * causing bb_display_backend_name() to return NULL and the /api/info extender
- * to report present:false on boards with display_en=false.
+ * causing bb_display_backend_name() to return NULL (previously observable
+ * via the /api/info extender on boards with display_en=false; that
+ * extender died with bb_info, B1-893 -- the guard below now asserts
+ * directly on bb_display_backend_name()).
  * --------------------------------------------------------------------------- */
 
 void test_bb_display_backend_name_persists_after_off(void)
@@ -1473,48 +1362,4 @@ void test_bb_display_dims_persist_after_off(void)
     TEST_ASSERT_EQUAL_UINT16(240, bb_display_height());
 }
 
-void test_bb_display_info_extender_present_true_after_off(void)
-{
-    /* Regression: extender must report present:true even when display is off
-     * (display_en=false path).  The panel name is non-NULL (set at init time)
-     * even though bb_display_ready() is false. */
-    bb_display_backend_t b = make_mock(false);
-    bb_display_register_backend(&b);
-    bb_display_init();
-    bb_display_off();
-    TEST_ASSERT_FALSE(bb_display_ready());
-
-    /* Disable NV flag to simulate display_en=false. */
-    bb_nv_config_set_display_enabled(false);
-
-    bb_display_register_info();
-    bb_json_t root = bb_json_obj_new();
-    bb_info_invoke_sections_for_test(root);
-
-    bb_json_t disp = bb_json_obj_get_item(root, "display");
-    TEST_ASSERT_NOT_NULL_MESSAGE(disp, "display key missing");
-
-    bool present = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(disp, "present", &present));
-    TEST_ASSERT_TRUE_MESSAGE(present, "present must be true when panel was initialized, even after off");
-
-    char panel[32] = {0};
-    TEST_ASSERT_TRUE(bb_json_obj_get_string(disp, "panel", panel, sizeof(panel)));
-    TEST_ASSERT_EQUAL_STRING("mock", panel);
-
-    double width = 0, height = 0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(disp, "width",  &width));
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(disp, "height", &height));
-    TEST_ASSERT_EQUAL_DOUBLE(320.0, width);
-    TEST_ASSERT_EQUAL_DOUBLE(240.0, height);
-
-    bool enabled = true;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(disp, "enabled", &enabled));
-    TEST_ASSERT_FALSE_MESSAGE(enabled, "enabled must reflect NV config (false)");
-
-    bb_json_free(root);
-
-    /* Restore NV state. */
-    bb_nv_config_set_display_enabled(true);
-}
 
