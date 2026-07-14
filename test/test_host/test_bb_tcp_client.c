@@ -2,19 +2,49 @@
 // stub — hermetic fake, no real socket; per bb_http_client's host-stub
 // philosophy). Mirrors test_bb_udp_client.c's structure for the sibling
 // datagram transport.
+//
+// B1-756 (bb_nv dissolution epic B1-708): host/port/tls now round-trip
+// through bb_config (backend="nvs") instead of bb_nv's generic KV forwarder
+// -- reset_world() registers fake_nvs_backend.h's fake "nvs" backend so the
+// NVS load/persist tests below exercise a real backend instead of a no-op
+// (the real "nvs" bb_storage backend is ESP-IDF-only).
 #include "unity.h"
 #include "bb_tcp_client.h"
 #include "bb_transport_health.h"
+#include "bb_config.h"
+#include "bb_storage.h"
+#include "fake_nvs_backend.h"
 
 #include <pthread.h>
 #include <sched.h>
 #include <stdatomic.h>
 #include <string.h>
 
+// Test-local field descriptors targeting the EXACT SAME address (backend/ns/
+// key/type) as bb_tcp_client_common.c's internal s_tcp_host_field/
+// s_tcp_port_field/s_tcp_tls_field -- a literal-address BITE test proving
+// bb_tcp_client_priv_save_to_nvs/_load_from_nvs actually land on that
+// address, not merely that init() returns BB_OK.
+static const bb_config_field_t s_test_tcp_host_field = {
+    .id   = "test.tcp.host", .type = BB_CONFIG_STR,
+    .addr = { .backend = "nvs", .ns_or_dir = "bb_tcp", .key = "host" },
+};
+static const bb_config_field_t s_test_tcp_port_field = {
+    .id   = "test.tcp.port", .type = BB_CONFIG_U16,
+    .addr = { .backend = "nvs", .ns_or_dir = "bb_tcp", .key = "port" },
+};
+static const bb_config_field_t s_test_tcp_tls_field = {
+    .id   = "test.tcp.tls", .type = BB_CONFIG_U8,
+    .addr = { .backend = "nvs", .ns_or_dir = "bb_tcp", .key = "tls" },
+};
+
 static void reset_world(void)
 {
     bb_tcp_client_test_reset();
     bb_transport_health_reset_for_test();
+    bb_storage_test_reset();
+    fake_nvs_reset();
+    bb_storage_register_backend("nvs", &s_fake_nvs_vtable, NULL);
 }
 
 static bb_tcp_client_t make_instance(const bb_tcp_client_cfg_t *cfg)
@@ -45,6 +75,23 @@ void test_bb_tcp_client_init_persists_and_reloads(void)
     bb_tcp_client_cfg_t cfg = { .host = "stratum.example.com", .port = 3333, .tls = true };
     bb_tcp_client_t h1 = make_instance(&cfg);
     bb_tcp_client_destroy(h1);
+
+    // BITE: the literal "bb_tcp"/host,port,tls address (the SAME one bb_nv
+    // used) must hold the persisted values -- proves the storage write
+    // actually landed at the byte-compat address, not just that init()
+    // returned BB_OK.
+    char host_out[BB_TCP_CLIENT_HOST_MAX] = {0};
+    size_t host_len = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_str(&s_test_tcp_host_field, host_out, sizeof(host_out), &host_len));
+    TEST_ASSERT_EQUAL_STRING("stratum.example.com", host_out);
+
+    uint16_t port_out = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_u16(&s_test_tcp_port_field, &port_out));
+    TEST_ASSERT_EQUAL_UINT16(3333, port_out);
+
+    uint8_t tls_out = 0;
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_u8(&s_test_tcp_tls_field, &tls_out));
+    TEST_ASSERT_EQUAL_UINT8(1, tls_out);
 
     // Re-init with NULL must reload the persisted host/port/tls values.
     bb_tcp_client_t h2 = NULL;

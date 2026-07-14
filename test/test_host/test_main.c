@@ -4183,6 +4183,8 @@ void test_bb_tls_creds_override_buffer_is_copy(void);
 void test_bb_tls_creds_override_len_includes_nul(void);
 void test_bb_tls_creds_nvs_len_includes_nul(void);
 void test_bb_tls_creds_nvs_buf_alloc_fails_returns_no_space(void);
+void test_bb_tls_creds_cert_resolve_failure_propagates(void);
+void test_bb_tls_creds_key_resolve_failure_propagates(void);
 
 // Forward declarations from test_bb_mem_arena_tls.c
 void test_bb_mem_arena_tls_init_is_idempotent(void);
@@ -8519,6 +8521,8 @@ int main(void) {
     RUN_TEST(test_bb_tls_creds_override_len_includes_nul);
     RUN_TEST(test_bb_tls_creds_nvs_len_includes_nul);
     RUN_TEST(test_bb_tls_creds_nvs_buf_alloc_fails_returns_no_space);
+    RUN_TEST(test_bb_tls_creds_cert_resolve_failure_propagates);
+    RUN_TEST(test_bb_tls_creds_key_resolve_failure_propagates);
 
     // bb_mem_arena_tls arena routing tests
     RUN_TEST(test_bb_mem_arena_tls_init_is_idempotent);

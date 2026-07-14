@@ -1,4 +1,7 @@
-set(BB_UDP_CLIENT_PRIV_REQUIRES bb_nv bb_log)
+# bb_nv stays PRIV_REQUIRES for bb_nv_namespaces.h's BB_UDP_NVS_NS constant
+# only (B1-756) -- host/port/broadcast no longer round-trip through bb_nv's
+# generic-KV API, that logic now lives in bb_config below.
+set(BB_UDP_CLIENT_PRIV_REQUIRES bb_nv bb_config bb_log)
 
 if(IDF_TARGET)
     set(BB_UDP_CLIENT_BACKEND

@@ -1,10 +1,16 @@
 /* bb_tls_creds — portable TLS credential resolver.
  *
- * Compiled for both host (test) and ESP-IDF targets.  All NVS access goes
- * through the portable bb_nv_get_str API; no raw nvs_* calls here.
+ * Compiled for both host (test) and ESP-IDF targets.  NVS access goes
+ * through bb_config (typed layer over bb_storage) rather than bb_nv's
+ * generic KV forwarder (B1-756, bb_nv dissolution epic B1-708) --
+ * bb_config's STR encoding resolves to the SAME nvs_get_str call
+ * bb_nv_get_str made (both are thin forwarders to bb_storage_nvs, see
+ * bb_storage_nvs.h), so the namespace (caller-supplied `ns`) / key /
+ * STR-typed on-flash format are byte-compatible with what this component
+ * previously read via bb_nv. No raw nvs_* calls here.
  */
 #include "bb_tls_creds.h"
-#include "bb_nv.h"
+#include "bb_config.h"
 #include "bb_nv_keys.h"
 #include "bb_log.h"
 #include <stdlib.h>
@@ -83,7 +89,34 @@ static bb_err_t resolve_one(const char *override_pem,
     if (ns != NULL) {
         char *buf = (char *)TLS_MALLOC(BB_TLS_CREDS_NVS_MAX_LEN);
         if (!buf) return BB_ERR_NO_SPACE;
-        bb_err_t rc = bb_nv_get_str(ns, nv_key, buf, BB_TLS_CREDS_NVS_MAX_LEN, NULL);
+        /* ns is caller-supplied at runtime (bb_mqtt_client_espidf.c's
+         * cfg->creds_ns) so this field descriptor is built per-call rather
+         * than declared static const -- bb_config_field_t carries no state
+         * of its own, so a stack-local instance is safe to pass by pointer
+         * for the duration of this single accessor call. */
+        const bb_config_field_t nv_field = {
+            .id          = nv_key,
+            .type        = BB_CONFIG_STR,
+            .addr        = { .backend = "nvs", .ns_or_dir = ns, .key = nv_key },
+            .max_len     = BB_TLS_CREDS_NVS_MAX_LEN,
+            .def         = { .str = "" },
+            .has_default = true,
+        };
+        size_t nv_len = 0;
+        bb_err_t rc = bb_config_get_str(&nv_field, buf, BB_TLS_CREDS_NVS_MAX_LEN, &nv_len);
+        if (rc == BB_OK) {
+            /* bb_config_get_str's blob-fallback path (host / non-NVS-typed
+             * backends) does not itself NUL-terminate buf -- unlike
+             * bb_nv_get_str's prior bb_strlcpy-based guarantee -- so
+             * terminate here based on the reported length. Clamp to the
+             * last byte when a genuine truncation left nv_len >= cap
+             * (buf is heap-allocated, not pre-zeroed, so this is required
+             * for correctness, not just defensive). */
+            size_t term = (nv_len < (size_t)BB_TLS_CREDS_NVS_MAX_LEN)
+                              ? nv_len
+                              : (size_t)BB_TLS_CREDS_NVS_MAX_LEN - 1;
+            buf[term] = '\0';
+        }
         if (rc == BB_OK && buf[0] != '\0') {
             size_t len = strlen(buf);
             *out_ptr = dup_pem(buf, len);

@@ -17,6 +17,7 @@ Public symbols use the `bb_` prefix.
 <!-- BEGIN bbtool:deps -->
 | Component | Kind | Role | Docs |
 |-----------|------|------|------|
+| `bb_config` | private | Typed configuration layer over `bb_storage` — gives its blob-only vtable scalar-typed meaning (bool/u8/u16/u32/i32/str/blob) via a caller-owned field descriptor table. | [bb_config](../bb_config/README.md) |
 | `bb_core` | public | Foundational, near-zero-dep primitives every bb_* component builds on: the portable error type, the canonical clock, run-exactly-once, a contention-instrumented lock, byte-order helpers, memory accounting, and the reboot-reason codec. | [bb_core](../bb_core/README.md) |
 | `bb_log` | private | — | [bb_log](../README.md) |
 | `bb_nv` | private | — | [bb_nv](../README.md) |
