@@ -48,15 +48,16 @@ extern "C" {
 #endif
 
 /**
- * Load bb_tcp_client_cfg_t host/port/tls from NVS namespace "bb_tcp",
- * falling back to Kconfig defaults (host="", port=0, tls=BB_TCP_TLS_DEFAULT)
- * for any unset key. connect_timeout_ms/io_timeout_ms/cert fields are left
- * zeroed — cfg's caller-supplied-only fields never round-trip through NVS.
+ * Load bb_tcp_client_cfg_t host/port/tls from NVS namespace `ns`, falling
+ * back to Kconfig defaults (host="", port=0, tls=BB_TCP_TLS_DEFAULT) for any
+ * unset key. connect_timeout_ms/io_timeout_ms/cert fields are left zeroed —
+ * cfg's caller-supplied-only fields never round-trip through NVS. `ns` is
+ * borrowed — used only for the duration of this call.
  */
-void bb_tcp_client_priv_load_from_nvs(bb_tcp_client_cfg_t *out);
+void bb_tcp_client_priv_load_from_nvs(const char *ns, bb_tcp_client_cfg_t *out);
 
-/** Persist host/port/tls (only) to NVS namespace "bb_tcp". */
-void bb_tcp_client_priv_save_to_nvs(const bb_tcp_client_cfg_t *cfg);
+/** Persist host/port/tls (only) to NVS namespace `ns` (borrowed). */
+void bb_tcp_client_priv_save_to_nvs(const char *ns, const bb_tcp_client_cfg_t *cfg);
 
 /**
  * Report ok/fail to the shared bb_transport_health "tcp" AUTHORITATIVE slot,

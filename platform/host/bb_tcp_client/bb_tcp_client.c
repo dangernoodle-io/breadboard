@@ -43,8 +43,9 @@ static bb_tcp_client_inst_t *inst_from_handle(bb_tcp_client_t h)
     return inst;
 }
 
-bb_err_t bb_tcp_client_init(const bb_tcp_client_cfg_t *cfg_or_null, bb_tcp_client_t *out)
+bb_err_t bb_tcp_client_init(const char *ns, const bb_tcp_client_cfg_t *cfg_or_null, bb_tcp_client_t *out)
 {
+    if (!ns || ns[0] == '\0') return BB_ERR_INVALID_ARG;
     if (!out) return BB_ERR_INVALID_ARG;
     if (cfg_or_null &&
         strnlen(cfg_or_null->host, sizeof(cfg_or_null->host)) >= sizeof(cfg_or_null->host)) {
@@ -62,9 +63,9 @@ bb_err_t bb_tcp_client_init(const bb_tcp_client_cfg_t *cfg_or_null, bb_tcp_clien
 
     if (cfg_or_null) {
         inst->cfg = *cfg_or_null;
-        bb_tcp_client_priv_save_to_nvs(cfg_or_null);
+        bb_tcp_client_priv_save_to_nvs(ns, cfg_or_null);
     } else {
-        bb_tcp_client_priv_load_from_nvs(&inst->cfg);
+        bb_tcp_client_priv_load_from_nvs(ns, &inst->cfg);
     }
 
     inst->in_use = true;

@@ -1,7 +1,7 @@
-# bb_nv stays PRIV_REQUIRES for bb_nv_namespaces.h's BB_TCP_NVS_NS constant
-# only (B1-756) -- host/port/tls no longer round-trip through bb_nv's
-# generic-KV API, that logic now lives in bb_config below.
-set(BB_TCP_CLIENT_PRIV_REQUIRES bb_nv bb_config bb_log bb_transport_health)
+# bb_nv dropped (B1-951): ns is now caller-supplied, so this component no
+# longer references bb_nv_namespaces.h's BB_TCP_NVS_NS (or any other bb_nv
+# symbol) -- host/port/tls round-trip through bb_config below only.
+set(BB_TCP_CLIENT_PRIV_REQUIRES bb_config bb_log bb_transport_health)
 
 if(IDF_TARGET)
     set(BB_TCP_CLIENT_BACKEND
