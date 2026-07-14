@@ -18,8 +18,8 @@ static const char *TAG = "floor_app";
 // The floor's first telemetry SOURCE (heap): read via bb_meminfo, the
 // canonical heap_caps reader SSOT (KB #698/#699/#693), formatted via
 // bb_meminfo_format (the canonical HEAP-ONLY line). Measured, not
-// published -- serial only, not yet a bb_pub source. Runs as a bb_timer
-// MODE-A job on the shared bb_timer_disp task -- no dedicated task.
+// published -- serial only, not yet wired to a telemetry sink. Runs as a
+// bb_timer MODE-A job on the shared bb_timer_disp task -- no dedicated task.
 static void heap_log_tick(void *arg)
 {
     (void)arg;

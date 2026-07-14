@@ -2,8 +2,7 @@
 
 // bb_task_registry — thin consumer of the generic bb_registry primitive that
 // tracks every self-registered FreeRTOS task under a diagnostic name, for
-// surfacing at GET /api/diag/tasks (bb_diag) and the "rtos" bb_pub telemetry
-// source (bb_pub_rtos).
+// surfacing at GET /api/diag/tasks (bb_diag).
 //
 // PLUMBING (B1-458 PR-A). This component owns per-task hardware Task-WDT
 // subscribe/feed wiring via `bb_task_registry_opts_t` + a generation-checked
@@ -116,8 +115,7 @@ uint16_t bb_task_registry_capacity(void);
 uint32_t bb_task_registry_dropped(void);
 
 // Pure lookup — the host-testable seam consumed by the /api/diag/tasks
-// handler (bb_diag) and the "rtos" bb_pub telemetry source (bb_pub_rtos).
-// Returns true and fills *out_budget (if non-NULL) and *out_wdt (if
+// handler (bb_diag). Returns true and fills *out_budget (if non-NULL) and *out_wdt (if
 // non-NULL) when `name` is registered; returns false otherwise (out params
 // left untouched).
 bool bb_task_registry_lookup_budget(const char *name, uint32_t *out_budget, bool *out_wdt);

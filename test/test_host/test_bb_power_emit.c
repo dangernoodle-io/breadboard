@@ -1,4 +1,4 @@
-// Tests for bb_power_emit — single JSON builder shared by REST + bb_pub.
+// Tests for bb_power_emit — single JSON builder used by REST responses.
 // Verifies: all 5 fields emitted as numbers when >= 0, null when -1.
 #include "unity.h"
 #include "bb_power.h"

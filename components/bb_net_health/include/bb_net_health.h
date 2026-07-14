@@ -4,13 +4,11 @@
 // takes a snapshot of WiFi RSSI and MQTT state and produces a health bucket
 // with hysteresis.  It is host-testable with 100% branch coverage.
 //
-// The ESP-IDF glue (bb_net_health_register_health, bb_net_health_attach_sse)
-// lives in platform/espidf/bb_net_health/bb_net_health_espidf.c and wires the pure
-// classifier to /api/health and a retained "net.health" SSE topic.
+// The ESP-IDF glue (bb_net_health_attach_sse) lives in
+// platform/espidf/bb_net_health/bb_net_health_espidf.c and wires the pure
+// classifier to a retained "net.health" SSE topic.
 //
 // Call order (ESP-IDF side):
-//   bb_net_health_register_health() — before bb_http_server_start (before
-//     the health section table is frozen).
 //   bb_net_health_attach_sse()      — in the regular-tier init (after
 //     bb_event_routes is initialised).
 #pragma once
@@ -103,10 +101,10 @@ extern "C" {
 // max_entry via bb_event_routes_attach_ex2 (see bb_net_health_attach_sse in
 // platform/espidf/bb_net_health/bb_net_health_espidf.c), above the
 // bb_event_routes global default (CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY,
-// 256) — the serialized snapshot (nested mqtt/http objects) measures ~352 B
-// in the host test's synthetic worst-case (a real HW snapshot with narrower
-// field values measured ~341 B; the difference is digit-width in a few
-// integer fields, not a real discrepancy). Same shape as the
+// 256) — the serialized snapshot (nested mqtt object) measured ~352 B in the
+// host test's synthetic worst-case before the bb_pub/bb_sink_http cluster cut
+// (B1-905) dropped the "http" object; the figure is now an overestimate, kept
+// as the documented worst-case rather than re-tightened. Same shape as the
 // update.available / info.build precedent (#616, B1-434/435/439). Shared
 // here (not local to the espidf glue) so the host test's ring-size
 // assertions reference the same symbol the production call site uses.
@@ -472,7 +470,7 @@ typedef struct {
     uint32_t       last_reconnect_count; // reconnect_count seen last eval
     // Adaptive-backoff state (used by commit 4 throttle decision)
     int            sustained_poor_count; // consecutive POOR samples (not reset on GOOD)
-    bool           throttled;            // true while bb_pub is slowed down
+    bool           throttled;            // true while adaptive backoff is active
     // Cold-start seeding: first eval bypasses hysteresis to report reality immediately.
     bool           initialized;          // false until first bb_net_health_eval call
 } bb_net_health_state_t;
@@ -527,10 +525,6 @@ typedef struct {
     uint32_t       mqtt_disc_age_s;      // seconds since last MQTT disconnect (from evaluator)
     uint32_t       mqtt_disc_reason;     // classified MQTT disconnect reason (bb_mqtt_client_disc_t)
     uint32_t       mqtt_tls_fail;        // TLS handshake failure class (bb_tls_fail_t)
-    bool          http_connected;       // true when HTTP sink session is open
-    uint32_t      http_consec_failures; // consecutive HTTP transport failures
-    uint32_t      http_tls_fail;        // TLS handshake failure class (bb_tls_fail_t)
-    int           http_last_status;     // last HTTP status code (0 if none)
     uint32_t lost_ip_recoveries; // times lost-IP recovery was triggered (bb_wifi_get_lost_ip_count)
     uint32_t lost_ip_age_s;      // seconds since last lost-IP event (0 if never)
     uint32_t egress_dead_recoveries; // times egress-dead recovery was triggered (bb_wifi_get_egress_dead_count)
@@ -674,7 +668,6 @@ int bb_net_health_format_log(const bb_net_health_status_t *s, char *buf, int cap
  *   lost_ip_age_s, egress_dead_recoveries, last_session_s.
  * Nested object "mqtt": connected, reconnect_count, disc_age_s,
  *   disc_reason, tls_fail.
- * Nested object "http": connected, consec_failures, tls_fail, last_status.
  *
  * Signature matches bb_cache_serialize_fn — pass directly to bb_cache_register.
  * Pure, host-testable — no ESP-IDF dependencies.
@@ -685,10 +678,9 @@ void bb_net_health_emit(bb_json_t obj, const void *snap);
  * Emit status-only (bools/enums) fields from snap into obj.
  *
  * Emits: state (string), early_warning (bool), throttled (bool),
- *   mqtt.connected (bool), http.connected (bool).
+ *   mqtt.connected (bool).
  *
- * No numeric fields. Used by /api/health "net" section (TA-505); numeric
- * counters are served by /api/diag/net via bb_net_health_emit.
+ * No numeric fields. Served by /api/diag/net via bb_net_health_emit.
  * Pure, host-testable — no ESP-IDF dependencies.
  */
 void bb_net_health_emit_status(bb_json_t obj, const bb_net_health_status_t *snap);
@@ -698,8 +690,11 @@ void bb_net_health_emit_status(bb_json_t obj, const bb_net_health_status_t *snap
 // ---------------------------------------------------------------------------
 
 /**
- * Decide whether to throttle bb_pub based on the hysteresis state and the
- * BB_PUB_ADAPTIVE_BACKOFF Kconfig gate.
+ * Decide whether to throttle based on the hysteresis state and a
+ * caller-supplied poor-sample threshold. Pure, host-testable classifier;
+ * currently unconsumed on ESP-IDF (the adaptive-backoff call site was
+ * removed with the bb_pub/bb_sink_* cluster cut, B1-905) but retained as a
+ * public primitive for a future adaptive-rate consumer.
  *
  * - Returns true  (start throttle) when poor-count >= threshold and not already
  *   throttled.
@@ -710,7 +705,7 @@ void bb_net_health_emit_status(bb_json_t obj, const bb_net_health_status_t *snap
  * Updates st->throttled in place.
  *
  * @param st        Hysteresis state (must have been updated by bb_net_health_eval).
- * @param threshold Consecutive POOR samples before throttling (BB_PUB_ADAPTIVE_SAMPLES).
+ * @param threshold Consecutive POOR samples before throttling.
  * @return true = throttling active after this call; false = not throttling.
  */
 bool bb_net_health_throttle_decision(bb_net_health_state_t *st, int threshold);
@@ -720,18 +715,6 @@ bool bb_net_health_throttle_decision(bb_net_health_state_t *st, int threshold);
 // ---------------------------------------------------------------------------
 
 #ifdef ESP_PLATFORM
-
-/**
- * Register a /api/health section named "net" that emits:
- *   { "rssi": int, "state": string, "early_warning": bool, "throttled": bool,
- *     "last_disconnect_reason": uint (WiFi), "disc_age_s": uint,
- *     "mqtt": { "connected": bool, "reconnect_count": uint, "disc_age_s": uint,
- *               "disc_reason": uint, "tls_fail": uint } }
- *
- * Must be called before bb_http_server_start (before the health section
- * table is frozen).
- */
-void bb_net_health_register_health(void);
 
 /**
  * Attach the "net.health" retained SSE topic and publish an initial

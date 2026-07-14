@@ -291,10 +291,6 @@ static const char k_diag_net_schema[] =
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"disc_reason\":{\"type\":\"integer\"},"
     "\"tls_fail\":{\"type\":\"integer\"}}},"
-    "\"http\":{\"type\":\"object\",\"properties\":{"
-    "\"consec_failures\":{\"type\":\"integer\"},"
-    "\"tls_fail\":{\"type\":\"integer\"},"
-    "\"last_status\":{\"type\":\"integer\"}}},"
     "\"gw\":{\"type\":\"object\",\"properties\":{"
     "\"gw_reachable\":{\"type\":\"boolean\"},"
     "\"gw_fail_streak\":{\"type\":\"integer\"},"
@@ -753,9 +749,6 @@ static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool wi
     snap.mqtt_disc_age_s        = 5;
     snap.mqtt_disc_reason       = 0;
     snap.mqtt_tls_fail          = 0;
-    snap.http_consec_failures   = 0;
-    snap.http_tls_fail          = 0;
-    snap.http_last_status       = 200;
     snap.gw_available           = gw_available;
     snap.gw_reachable           = true;
     snap.gw_fail_streak         = 2;
@@ -786,12 +779,6 @@ static bb_err_t diag_net_emit(bb_http_request_t *req, bool gw_available, bool wi
     bb_http_resp_json_obj_set_int(&obj, "disc_age_s",      (int64_t)snap.mqtt_disc_age_s);
     bb_http_resp_json_obj_set_int(&obj, "disc_reason",     (int64_t)snap.mqtt_disc_reason);
     bb_http_resp_json_obj_set_int(&obj, "tls_fail",        (int64_t)snap.mqtt_tls_fail);
-    bb_http_resp_json_obj_set_obj_end(&obj);
-
-    bb_http_resp_json_obj_set_obj_begin(&obj, "http");
-    bb_http_resp_json_obj_set_int(&obj, "consec_failures", (int64_t)snap.http_consec_failures);
-    bb_http_resp_json_obj_set_int(&obj, "tls_fail",        (int64_t)snap.http_tls_fail);
-    bb_http_resp_json_obj_set_int(&obj, "last_status",     (int64_t)snap.http_last_status);
     bb_http_resp_json_obj_set_obj_end(&obj);
 
     // Gateway-probe status (B1-518 PR3, OBSERVE-ONLY): omitted entirely when

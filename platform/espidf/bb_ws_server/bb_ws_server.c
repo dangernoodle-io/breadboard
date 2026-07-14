@@ -299,8 +299,8 @@ static void async_send_worker(void *arg)
     async_send_ctx_t *a = (async_send_ctx_t *)arg;
 
     // TOCTOU re-check (B1-hardening): fds are snapshotted by the caller
-    // (e.g. bb_sink_ws's broadcast_filtered) under its own lock, then this
-    // work item is queued and runs later on httpd's async-send worker task.
+    // under its own lock, then this work item is queued and runs later on
+    // httpd's async-send worker task.
     // If the fd closed in the meantime, httpd_ws_send_frame_async would send
     // into a dead socket; re-validating here with httpd_ws_get_fd_info
     // (via bb_ws_server_is_client) closes that window. It does NOT close the

@@ -2,9 +2,8 @@
 //
 // Owns the socket lifecycle, destination config (unicast host:port or local
 // broadcast), and the actual send. Framing/encoding is NOT this component's
-// concern — callers hand it pre-encoded bytes (e.g. bb_sink_udp builds a
-// bb_udp_frame and calls bb_udp_client_send()). Extracted from bb_sink_udp,
-// which used to own both the transport and the pub-sink adapter/framing.
+// concern — callers hand it pre-encoded bytes (e.g. a bb_udp_frame) and call
+// bb_udp_client_send().
 //
 // Usage:
 //   bb_udp_client_cfg_t cfg = { .host = "192.168.1.50", .port = 9109 };

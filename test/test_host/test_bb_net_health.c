@@ -925,117 +925,6 @@ void test_bb_net_health_emit_mqtt_alloc_fail(void)
     bb_json_free(parsed);
 }
 
-// ---------------------------------------------------------------------------
-// bb_net_health_emit: nested http sub-object
-// ---------------------------------------------------------------------------
-
-void test_bb_net_health_emit_http_object_present(void)
-{
-    bb_net_health_status_t snap = {
-        .state                  = BB_NET_STATE_GOOD,
-        .early_warning          = false,
-        .throttled              = false,
-        .rssi                   = -55,
-        .mqtt_connected         = true,
-        .mqtt_reconnect_count   = 0,
-        .last_disconnect_reason = 0,
-        .disc_age_s             = 0,
-        .mqtt_disc_age_s        = 0,
-        .mqtt_disc_reason       = 0,
-        .mqtt_tls_fail          = 0,
-        .http_connected         = true,
-        .http_consec_failures   = 2,
-        .http_tls_fail          = 1,
-        .http_last_status       = 503,
-    };
-
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    bb_net_health_emit(obj, &snap);
-    char *json = bb_json_serialize(obj);
-    bb_json_free(obj);
-    TEST_ASSERT_NOT_NULL(json);
-
-    bb_json_t parsed = bb_json_parse(json, strlen(json));
-    bb_json_free_str(json);
-    TEST_ASSERT_NOT_NULL(parsed);
-
-    bb_json_t http_obj = bb_json_obj_get_item(parsed, "http");
-    TEST_ASSERT_NOT_NULL(http_obj);
-
-    bool conn = false;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(http_obj, "connected", &conn));
-    TEST_ASSERT_TRUE(conn);
-
-    double cf = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(http_obj, "consec_failures", &cf));
-    TEST_ASSERT_EQUAL_INT(2, (int)cf);
-
-    double tf = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(http_obj, "tls_fail", &tf));
-    TEST_ASSERT_EQUAL_INT(1, (int)tf);
-
-    double ls = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(http_obj, "last_status", &ls));
-    TEST_ASSERT_EQUAL_INT(503, (int)ls);
-
-    // mqtt sub-object must still be present.
-    TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(parsed, "mqtt"));
-
-    bb_json_free(parsed);
-}
-
-void test_bb_net_health_emit_http_alloc_fail(void)
-{
-    bb_net_health_status_t snap = {
-        .state                  = BB_NET_STATE_GOOD,
-        .early_warning          = false,
-        .throttled              = false,
-        .rssi                   = -60,
-        .mqtt_connected         = true,
-        .mqtt_reconnect_count   = 0,
-        .last_disconnect_reason = 0,
-        .disc_age_s             = 0,
-        .mqtt_disc_age_s        = 0,
-        .mqtt_disc_reason       = 0,
-        .mqtt_tls_fail          = 0,
-        .http_connected         = false,
-        .http_consec_failures   = 0,
-        .http_tls_fail          = 0,
-        .http_last_status       = 0,
-    };
-
-    // Call 0: outer bb_json_obj_new() — succeeds.
-    // Call 1: mqtt sub-object — succeeds.
-    // Call 2: http sub-object — fails.
-    // fail_after(2): 2 allocs succeed, then the next fails.
-    bb_json_host_force_alloc_fail_after(2);
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    bb_net_health_emit(obj, &snap);
-    bb_json_host_force_alloc_fail_after(-1);  // reset
-
-    char *json = bb_json_serialize(obj);
-    bb_json_free(obj);
-    TEST_ASSERT_NOT_NULL(json);
-
-    bb_json_t parsed = bb_json_parse(json, strlen(json));
-    bb_json_free_str(json);
-    TEST_ASSERT_NOT_NULL(parsed);
-
-    // Top-level fields must still be present.
-    double rssi_val = 0.0;
-    TEST_ASSERT_TRUE(bb_json_obj_get_number(parsed, "rssi", &rssi_val));
-
-    // mqtt must be present (its alloc succeeded).
-    TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(parsed, "mqtt"));
-
-    // http key must be absent (alloc failed).
-    TEST_ASSERT_NULL(bb_json_obj_get_item(parsed, "http"));
-
-    bb_json_free(parsed);
-}
-
 // --- lost-IP telemetry fields ---
 
 void test_bb_net_health_emit_lost_ip_fields(void)
@@ -1052,10 +941,6 @@ void test_bb_net_health_emit_lost_ip_fields(void)
         .mqtt_disc_age_s        = 0,
         .mqtt_disc_reason       = 0,
         .mqtt_tls_fail          = 0,
-        .http_connected         = false,
-        .http_consec_failures   = 0,
-        .http_tls_fail          = 0,
-        .http_last_status       = 0,
         .lost_ip_recoveries     = 3,
         .lost_ip_age_s          = 120,
         .egress_dead_recoveries = 5,
@@ -1127,7 +1012,7 @@ void test_bb_net_health_emit_lost_ip_zero(void)
 // bb_net_health_emit_status: status-only (bools/enums), no numeric counters
 // ---------------------------------------------------------------------------
 
-// emit_status emits state/early_warning/throttled + mqtt.connected + http.connected
+// emit_status emits state/early_warning/throttled + mqtt.connected
 // and must NOT emit any numeric fields (rssi, disc_age_s, reconnect_count, etc.).
 void test_bb_net_health_emit_status_status_only(void)
 {
@@ -1143,10 +1028,6 @@ void test_bb_net_health_emit_status_status_only(void)
         .mqtt_disc_age_s        = 15,
         .mqtt_disc_reason       = 1,
         .mqtt_tls_fail          = 0,
-        .http_connected         = false,
-        .http_consec_failures   = 2,
-        .http_tls_fail          = 0,
-        .http_last_status       = 503,
     };
 
     bb_json_t obj = bb_json_obj_new();
@@ -1180,13 +1061,6 @@ void test_bb_net_health_emit_status_status_only(void)
     TEST_ASSERT_TRUE(bb_json_obj_get_bool(mqtt_obj, "connected", &mc));
     TEST_ASSERT_TRUE(mc);
 
-    // http sub-object: only connected (bool), no counters.
-    bb_json_t http_obj = bb_json_obj_get_item(parsed, "http");
-    TEST_ASSERT_NOT_NULL_MESSAGE(http_obj, "http sub-object missing from emit_status");
-    bool hc = true;
-    TEST_ASSERT_TRUE(bb_json_obj_get_bool(http_obj, "connected", &hc));
-    TEST_ASSERT_FALSE(hc);
-
     // Numeric counters must NOT be present at root.
     double dummy = 0.0;
     TEST_ASSERT_FALSE_MESSAGE(bb_json_obj_get_number(parsed, "rssi", &dummy),
@@ -1207,7 +1081,6 @@ void test_bb_net_health_emit_status_mqtt_alloc_fail(void)
         .early_warning  = false,
         .throttled      = false,
         .mqtt_connected = true,
-        .http_connected = false,
     };
     // Call 0: outer bb_json_obj_new() — succeeds.
     // Call 1: mqtt sub-object bb_json_obj_new() inside emit_status — fails.
@@ -1233,44 +1106,10 @@ void test_bb_net_health_emit_status_mqtt_alloc_fail(void)
     bb_json_free(parsed);
 }
 
-// OOM branch: http sub-object alloc fails — mqtt is present, "http" absent.
-void test_bb_net_health_emit_status_http_alloc_fail(void)
-{
-    bb_net_health_status_t snap = {
-        .state          = BB_NET_STATE_GOOD,
-        .early_warning  = false,
-        .throttled      = false,
-        .mqtt_connected = true,
-        .http_connected = true,
-    };
-    // Call 0: outer obj — succeeds.
-    // Call 1: mqtt sub-object — succeeds.
-    // Call 2: http sub-object — fails.
-    bb_json_host_force_alloc_fail_after(2);
-    bb_json_t obj = bb_json_obj_new();
-    TEST_ASSERT_NOT_NULL(obj);
-    bb_net_health_emit_status(obj, &snap);
-    bb_json_host_force_alloc_fail_after(-1);  // reset
-
-    char *json = bb_json_serialize(obj);
-    bb_json_free(obj);
-    TEST_ASSERT_NOT_NULL(json);
-    bb_json_t parsed = bb_json_parse(json, strlen(json));
-    bb_json_free_str(json);
-    TEST_ASSERT_NOT_NULL(parsed);
-
-    // mqtt must be present (its alloc succeeded).
-    TEST_ASSERT_NOT_NULL(bb_json_obj_get_item(parsed, "mqtt"));
-    // http must be absent (alloc failed).
-    TEST_ASSERT_NULL(bb_json_obj_get_item(parsed, "http"));
-
-    bb_json_free(parsed);
-}
-
 // ---------------------------------------------------------------------------
 // B1-472: retained net.health ring must actually capture the full snapshot.
 //
-// On HW the serialized net.health snapshot (nested mqtt/http objects) came in
+// On HW the serialized net.health snapshot (nested mqtt object) came in
 // at ~341 B — above the bb_event_routes global default ring max_entry (256),
 // so the retained push was rejected (bb_queue: "push rejected: len=341 >
 // max_entry=256") and SSE clients connecting to ?topic=net.health saw empty
@@ -1285,7 +1124,7 @@ void test_bb_net_health_emit_status_http_alloc_fail(void)
 // BB_NET_HEALTH_SSE_MAX_ENTRY here (rather than a bare 512 literal) means a
 // future change to the production value is forced to touch this test too.
 // This test exercises the same bb_event_ring seam the ESP-IDF glue uses,
-// with a realistic full snapshot (nested mqtt + http, non-zero counters),
+// with a realistic full snapshot (nested mqtt, non-zero counters),
 // and asserts:
 //   1. the serialized payload size (measure, printed via TEST_MESSAGE)
 //   2. a ring sized at the old global default (256) DROPS the push (regression)
@@ -1308,7 +1147,7 @@ void test_bb_net_health_retained_ring_captures_full_snapshot(void)
     bb_event_cfg_t cfg = { .queue_depth = 8, .max_payload = 512 };
     bb_event_init(&cfg);
 
-    // Realistic full snapshot: nested mqtt + http objects, non-zero counters
+    // Realistic full snapshot: nested mqtt object, non-zero counters
     // (mirrors what bb_net_health_espidf.c's publish_snapshot builds on device).
     bb_net_health_status_t snap = {
         .state                  = BB_NET_STATE_MARGINAL,
@@ -1322,10 +1161,6 @@ void test_bb_net_health_retained_ring_captures_full_snapshot(void)
         .mqtt_disc_age_s        = 45,
         .mqtt_disc_reason       = 2,
         .mqtt_tls_fail          = 1,
-        .http_connected         = true,
-        .http_consec_failures   = 3,
-        .http_tls_fail          = 1,
-        .http_last_status       = 503,
         .lost_ip_recoveries     = 2,
         .lost_ip_age_s          = 600,
         .egress_dead_recoveries = 1,

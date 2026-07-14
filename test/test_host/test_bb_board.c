@@ -121,3 +121,64 @@ void test_bb_board_get_chip_model_writes_host_string(void)
     TEST_ASSERT_EQUAL(BB_OK, bb_board_get_chip_model(buf, sizeof(buf)));
     TEST_ASSERT_EQUAL_STRING("host", buf);
 }
+
+// B1-... : bb_pub/bb_sink_* cluster deletion left these still-public bb_board
+// primitives with no direct test — they were only ever covered transitively
+// through the deleted cluster's tests. Direct tests restore real coverage.
+
+void test_bb_board_get_flash_size_returns_zero_on_host(void)
+{
+    // Host stub has no real flash — must return 0 (matches get_app_size,
+    // get_free_heap: real values require an ESP-IDF partition table).
+    TEST_ASSERT_EQUAL_UINT32(0, bb_board_get_flash_size());
+}
+
+void test_bb_board_get_app_size_returns_zero_on_host(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0, bb_board_get_app_size());
+}
+
+void test_bb_board_get_mac_null_out_returns_invalid_arg(void)
+{
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_board_get_mac(NULL, 16));
+}
+
+void test_bb_board_get_mac_zero_size_returns_invalid_arg(void)
+{
+    char buf[16];
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_board_get_mac(buf, 0));
+}
+
+void test_bb_board_get_mac_writes_empty_string_on_host(void)
+{
+    // Host stub has no real MAC source — must return BB_OK with an empty
+    // string (distinct from an error: callers can format "" without special-casing).
+    char buf[16] = "not-empty";
+    TEST_ASSERT_EQUAL(BB_OK, bb_board_get_mac(buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_STRING("", buf);
+}
+
+void test_bb_board_get_reset_reason_null_out_returns_invalid_arg(void)
+{
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_board_get_reset_reason(NULL, 16));
+}
+
+void test_bb_board_get_reset_reason_zero_size_returns_invalid_arg(void)
+{
+    char buf[16];
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_board_get_reset_reason(buf, 0));
+}
+
+void test_bb_board_get_reset_reason_writes_power_on_string(void)
+{
+    char buf[16] = {0};
+    TEST_ASSERT_EQUAL(BB_OK, bb_board_get_reset_reason(buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_STRING("power-on", buf);
+}
+
+void test_bb_board_heap_internal_largest_free_block_callable(void)
+{
+    // Delegates to bb_meminfo (SSOT) — host stub zeros every field.
+    size_t sz = bb_board_heap_internal_largest_free_block();
+    TEST_ASSERT_EQUAL_size_t(0, sz);
+}

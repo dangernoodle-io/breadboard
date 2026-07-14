@@ -1,5 +1,0 @@
-menu "bb_sink_ws"
-config BB_SINK_WS_AUTOREGISTER
-    bool "Auto-register bb_sink_ws on startup"
-    default n
-endmenu

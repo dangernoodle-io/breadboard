@@ -239,3 +239,235 @@ void test_bb_http_client_session_post_tls_error_code_zero_default(void)
     bb_http_client_session_close(sess);
     bb_http_client_clear_mock();
 }
+
+// -------------------------------------------------------------------------
+// session_set_header / find_header / header_at / header_count
+//
+// B1-...: the header-capture API lost its only direct test when the
+// bb_pub/bb_sink_* cluster was deleted (it was only ever covered
+// transitively via bb_sink_http's session usage). Still has live ESP-IDF
+// callers (any session-based sink attaching auth/content headers) — direct
+// tests restore real coverage.
+// -------------------------------------------------------------------------
+
+void test_bb_http_client_session_set_header_null_session_returns_invalid_arg(void)
+{
+    reset();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+        bb_http_client_session_set_header(NULL, "X-A", "1"));
+}
+
+void test_bb_http_client_session_set_header_null_name_returns_invalid_arg(void)
+{
+    reset();
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+        bb_http_client_session_set_header(s, NULL, "1"));
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_set_header_null_value_returns_invalid_arg(void)
+{
+    reset();
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG,
+        bb_http_client_session_set_header(s, "X-A", NULL));
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_set_header_appends_new_entry(void)
+{
+    reset();
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+
+    TEST_ASSERT_EQUAL(0, bb_http_client_session_header_count());
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_set_header(s, "Authorization", "Bearer tok"));
+    TEST_ASSERT_EQUAL(1, bb_http_client_session_header_count());
+
+    bb_http_client_header_record_t rec = bb_http_client_session_header_at(0);
+    TEST_ASSERT_EQUAL_STRING("Authorization", rec.name);
+    TEST_ASSERT_EQUAL_STRING("Bearer tok", rec.value);
+
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_set_header_replaces_existing_entry(void)
+{
+    reset();
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_set_header(s, "X-A", "first"));
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_set_header(s, "X-A", "second"));
+    // Replacing must not append a second entry.
+    TEST_ASSERT_EQUAL(1, bb_http_client_session_header_count());
+
+    bb_http_client_header_record_t rec = bb_http_client_session_header_at(0);
+    TEST_ASSERT_EQUAL_STRING("second", rec.value);
+
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_header_at_out_of_range_returns_zeroed(void)
+{
+    reset();
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+    bb_http_client_header_record_t rec = bb_http_client_session_header_at(0);
+    TEST_ASSERT_EQUAL_STRING("", rec.name);
+    TEST_ASSERT_EQUAL_STRING("", rec.value);
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_find_header_found(void)
+{
+    reset();
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+    bb_http_client_session_set_header(s, "X-A", "1");
+    bb_http_client_session_set_header(s, "X-B", "2");
+
+    bb_http_client_header_record_t rec = bb_http_client_session_find_header("X-B");
+    TEST_ASSERT_EQUAL_STRING("X-B", rec.name);
+    TEST_ASSERT_EQUAL_STRING("2", rec.value);
+
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_find_header_not_found_returns_zeroed(void)
+{
+    reset();
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+    bb_http_client_session_set_header(s, "X-A", "1");
+
+    bb_http_client_header_record_t rec = bb_http_client_session_find_header("X-Missing");
+    TEST_ASSERT_EQUAL_STRING("", rec.name);
+
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_find_header_null_name_returns_zeroed(void)
+{
+    reset();
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+    bb_http_client_session_set_header(s, "X-A", "1");
+
+    bb_http_client_header_record_t rec = bb_http_client_session_find_header(NULL);
+    TEST_ASSERT_EQUAL_STRING("", rec.name);
+
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_open_resets_header_capture(void)
+{
+    reset();
+    bb_http_client_session_t s1 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s1));
+    bb_http_client_session_set_header(s1, "X-A", "1");
+    TEST_ASSERT_EQUAL(1, bb_http_client_session_header_count());
+    bb_http_client_session_close(s1);
+
+    // A fresh session_open must reset the header capture table.
+    bb_http_client_session_t s2 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s2));
+    TEST_ASSERT_EQUAL(0, bb_http_client_session_header_count());
+    bb_http_client_session_close(s2);
+}
+
+// -------------------------------------------------------------------------
+// session_open_count / session_last_keep_alive
+// -------------------------------------------------------------------------
+
+void test_bb_http_client_session_open_count_increments_per_open(void)
+{
+    reset();
+    TEST_ASSERT_EQUAL(0, bb_http_client_session_open_count());
+
+    bb_http_client_session_t s1 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s1));
+    TEST_ASSERT_EQUAL(1, bb_http_client_session_open_count());
+
+    bb_http_client_session_t s2 = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s2));
+    TEST_ASSERT_EQUAL(2, bb_http_client_session_open_count());
+
+    bb_http_client_session_close(s1);
+    bb_http_client_session_close(s2);
+}
+
+void test_bb_http_client_session_last_keep_alive_false_when_cfg_null(void)
+{
+    reset();
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+    TEST_ASSERT_FALSE(bb_http_client_session_last_keep_alive());
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_last_keep_alive_true_when_cfg_sets_it(void)
+{
+    reset();
+    bb_http_client_cfg_t cfg = {0};
+    cfg.keep_alive = true;
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(&cfg, "http://example.com", &s));
+    TEST_ASSERT_TRUE(bb_http_client_session_last_keep_alive());
+    bb_http_client_session_close(s);
+}
+
+void test_bb_http_client_session_last_keep_alive_false_when_cfg_clears_it(void)
+{
+    reset();
+    bb_http_client_cfg_t cfg = {0};
+    cfg.keep_alive = false;
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(&cfg, "http://example.com", &s));
+    TEST_ASSERT_FALSE(bb_http_client_session_last_keep_alive());
+    bb_http_client_session_close(s);
+}
+
+// -------------------------------------------------------------------------
+// bb_http_client_host_set_session_calloc
+// -------------------------------------------------------------------------
+
+static int  s_alloc_calls = 0;
+static void *counting_calloc(size_t n, size_t sz)
+{
+    s_alloc_calls++;
+    return calloc(n, sz);
+}
+
+void test_bb_http_client_host_set_session_calloc_overrides_allocator(void)
+{
+    reset();
+    s_alloc_calls = 0;
+    bb_http_client_host_set_session_calloc(counting_calloc);
+
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+    TEST_ASSERT_EQUAL(1, s_alloc_calls);
+
+    bb_http_client_session_close(s);
+    bb_http_client_host_set_session_calloc(NULL);  // revert
+}
+
+void test_bb_http_client_host_set_session_calloc_null_reverts_to_real_calloc(void)
+{
+    reset();
+    bb_http_client_host_set_session_calloc(counting_calloc);
+    bb_http_client_host_set_session_calloc(NULL);
+
+    s_alloc_calls = 0;
+    bb_http_client_session_t s = NULL;
+    TEST_ASSERT_EQUAL(BB_OK, bb_http_client_session_open(NULL, "http://example.com", &s));
+    // counting_calloc must NOT have been invoked — the override was reverted.
+    TEST_ASSERT_EQUAL(0, s_alloc_calls);
+    TEST_ASSERT_NOT_NULL(s);
+
+    bb_http_client_session_close(s);
+}

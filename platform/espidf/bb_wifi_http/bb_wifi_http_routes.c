@@ -30,8 +30,8 @@ static bb_err_t wifi_info_handler(bb_http_request_t *req)
     char   json[WIFI_INFO_BUF_BYTES];
     size_t len = 0;
     bb_err_t rc = bb_cache_get_serialized(BB_TOPIC_WIFI, json, sizeof(json), &len);
-    // NOTE: this cache-hit branch is intentionally dormant since bb_pub_wifi's
-    // removal — no producer currently populates the "wifi" bb_cache topic, so
+    // NOTE: this cache-hit branch is intentionally dormant since the wifi
+    // producer's removal — no producer currently populates the "wifi" bb_cache topic, so
     // every request falls through to the live-read path below. Kept in place
     // for B1-723, which will restore a producer (a bb_meminfo-style wifi
     // snapshot) rather than re-adding pub-captive-sink DI glue.

@@ -238,8 +238,8 @@ bb_err_t bb_mqtt_client_autoregister_init(void);
 /**
  * Stop and destroy the auto-registered (default) MQTT client.
  *
- * Called by bb_mqtt_telemetry_init when MQTT loses the exclusive-sink slot
- * at boot (B1-289 loser-teardown without reboot).  Cancels any pending
+ * Called when MQTT loses the exclusive-sink slot at boot (B1-289
+ * loser-teardown without reboot).  Cancels any pending
  * deferred start and calls bb_mqtt_client_stop on the internal auto-client pointer.
  *
  * Idempotent: safe to call when the client is already NULL or when
@@ -271,8 +271,10 @@ bb_err_t bb_mqtt_client_stop_default(void);
  * Contrast with bb_mqtt_client_stop_default() (permanent teardown, no resume).
  * This function is for a transient pause-and-resume bracket.
  *
- * CALLER CONTRACT: bracket with bb_pub_pause() / bb_pub_resume() to avoid
- * spurious publish attempts during the suspended window.
+ * CALLER CONTRACT: do not cache bb_mqtt_client_default() across suspend/resume —
+ * resolve it fresh on every publish call.  During the suspend window it
+ * returns NULL, so bb_mqtt_client_publish() cleanly no-ops; after resume, a
+ * fresh resolve automatically targets the new handle with no re-registration.
  *
  * Idempotent: no-op + BB_OK if already suspended, no auto-client exists,
  * or if autoregister is compiled out.

@@ -807,3 +807,90 @@ void test_bb_ws_server_disconnect_cb_cleared_by_reset_captures(void)
     bb_ws_server_host_simulate_disconnect(1);
     TEST_ASSERT_EQUAL(0, s_disc_call_count);
 }
+
+// ---------------------------------------------------------------------------
+// req_fd / inject_fd (B1-...: bb_pub/bb_sink_* cluster deletion left these
+// still-public primitives with no direct test — restore real coverage)
+// ---------------------------------------------------------------------------
+
+void test_bb_ws_server_req_fd_default_is_negative_one(void)
+{
+    ws_test_setup();
+    bb_http_request_t *req = NULL;
+    bb_ws_server_host_capture_begin(&req);
+    TEST_ASSERT_EQUAL(-1, bb_ws_server_req_fd(req));
+}
+
+void test_bb_ws_server_req_fd_reflects_injected_fd(void)
+{
+    ws_test_setup();
+    bb_http_request_t *req = NULL;
+    bb_ws_server_host_capture_begin(&req);
+    bb_ws_server_host_set_inject_fd(42);
+    TEST_ASSERT_EQUAL(42, bb_ws_server_req_fd(req));
+    // Clear back to default so later tests are unaffected.
+    bb_ws_server_host_set_inject_fd(-1);
+    TEST_ASSERT_EQUAL(-1, bb_ws_server_req_fd(req));
+}
+
+// ---------------------------------------------------------------------------
+// close_client (host — no-op, always BB_OK)
+// ---------------------------------------------------------------------------
+
+void test_bb_ws_server_close_client_returns_ok(void)
+{
+    ws_test_setup();
+    TEST_ASSERT_EQUAL(BB_OK, bb_ws_server_close_client(NULL, 5));
+}
+
+// ---------------------------------------------------------------------------
+// connect callback registration + simulate_connect
+// ---------------------------------------------------------------------------
+
+static bb_http_handle_t s_conn_server_seen = (bb_http_handle_t)1;
+static int               s_conn_fd_seen     = -1;
+static void             *s_conn_ctx_seen    = NULL;
+static int               s_conn_call_count  = 0;
+
+static void conn_cb(bb_http_handle_t server, int fd, void *ctx)
+{
+    s_conn_server_seen = server;
+    s_conn_fd_seen      = fd;
+    s_conn_ctx_seen     = ctx;
+    s_conn_call_count++;
+}
+
+void test_bb_ws_server_connect_cb_invoked_with_server_fd_ctx(void)
+{
+    ws_test_setup();
+    s_conn_server_seen = (bb_http_handle_t)1;  // sentinel, must be overwritten with NULL
+    s_conn_fd_seen      = -1;
+    s_conn_ctx_seen     = NULL;
+    s_conn_call_count   = 0;
+
+    int marker;
+    bb_ws_server_set_connect_cb(conn_cb, &marker);
+    bb_ws_server_host_simulate_connect(NULL, 9);
+
+    TEST_ASSERT_EQUAL(1, s_conn_call_count);
+    TEST_ASSERT_NULL(s_conn_server_seen);
+    TEST_ASSERT_EQUAL(9, s_conn_fd_seen);
+    TEST_ASSERT_EQUAL_PTR(&marker, s_conn_ctx_seen);
+}
+
+void test_bb_ws_server_connect_cb_null_is_noop(void)
+{
+    ws_test_setup();
+    // No callback registered — must not crash.
+    bb_ws_server_host_simulate_connect(NULL, 3);
+}
+
+void test_bb_ws_server_connect_cb_cleared_by_reset_captures(void)
+{
+    ws_test_setup();
+    s_conn_call_count = 0;
+    bb_ws_server_set_connect_cb(conn_cb, NULL);
+    bb_ws_server_host_reset_captures();
+    bb_ws_server_host_simulate_connect(NULL, 1);
+    TEST_ASSERT_EQUAL(0, s_conn_call_count);
+}

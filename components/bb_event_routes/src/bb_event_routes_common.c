@@ -164,7 +164,7 @@ static uint8_t s_sse_arena_buf[
 
 static bb_mem_arena_t    s_sse_arena;      // NULL until sse_pool_ensure() creates it
 static sse_bundle_t *s_sse_bundles;    // [MAX_CLIENTS], index == client slot; NULL until created
-static bool          s_sse_pool_is_static;  // backing actually used by s_sse_arena (mirrors bb_pub's *_is_static flag)
+static bool          s_sse_pool_is_static;  // backing actually used by s_sse_arena (static vs heap)
 
 // Dedicated leaf mutex guarding ONLY the sse_pool_ensure() first-alloc
 // critical section below (portable POSIX pthread, host + ESP-IDF — mirrors

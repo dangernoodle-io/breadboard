@@ -4,11 +4,6 @@
       "id": "bb_ota_validator:bb_ota_validator:s_on_validated_cb",
       "path": "platform/espidf/bb_ota_validator/bb_ota_validator.c",
       "type": "callback_slot"
-    },
-    {
-      "id": "bb_pub:bb_pub:s_interval_apply_hook",
-      "path": "platform/host/bb_pub/bb_pub.c",
-      "type": "callback_slot"
     }
   ]
 }

@@ -17,16 +17,6 @@ static const char *TAG = "bb_event";
 #ifndef CONFIG_BB_EVENT_MAX_TOPICS
 #define CONFIG_BB_EVENT_MAX_TOPICS 8
 #endif
-#ifndef CONFIG_BB_PUB_TELEM_SERIALIZE_MAX
-#define CONFIG_BB_PUB_TELEM_SERIALIZE_MAX 512
-#endif
-
-// Belt-and-suspenders: event queue must fit a full telemetry serialization
-// payload (TA-517).  Kconfig PSRAM-axis defaults keep this true automatically;
-// this assert catches an explicit misconfiguration at compile time.
-_Static_assert(CONFIG_BB_EVENT_MAX_PAYLOAD >= CONFIG_BB_PUB_TELEM_SERIALIZE_MAX,
-    "BB_EVENT_MAX_PAYLOAD must be >= BB_PUB_TELEM_SERIALIZE_MAX "
-    "(raise CONFIG_BB_EVENT_MAX_PAYLOAD or lower CONFIG_BB_PUB_TELEM_SERIALIZE_MAX)");
 
 #define BB_EVENT_MAX_SUBSCRIBERS (CONFIG_BB_EVENT_MAX_TOPICS * 8)
 #define BB_EVENT_TOPIC_NAME_MAX 32

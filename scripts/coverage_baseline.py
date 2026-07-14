@@ -9,8 +9,8 @@ class KB 1407 warns about). The fix admits every `components/` and
 but the previously-unmeasured files are, honestly measured, not fully
 covered. There is no backfill epic: tests written against a shape that is
 about to be refactored are throwaway and actively obstruct the refactor
-(several of these components, e.g. bb_pub/bb_sink_*, are mid-retirement --
-B1-836). Instead:
+(several of these components were mid-retirement at the time -- e.g. the
+bb_pub/bb_sink_* cluster, fully removed by B1-905). Instead:
 
   1. every file's CURRENT line gap is baselined (recorded as a floor), so
      the gate never again silently reports 100% over unmeasured code;

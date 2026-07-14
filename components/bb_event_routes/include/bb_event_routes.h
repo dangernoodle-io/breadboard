@@ -44,8 +44,8 @@ bb_err_t bb_event_routes_register_routes_init(bb_http_handle_t server);
 bb_err_t bb_event_routes_reserve_routes(void);
 
 // B1-492: start the SSE task-bundle pool's idle-reclaim tick. ESP-IDF-only
-// background work — self-registers at PRE_HTTP tier (mirrors bb_pub_start())
-// so route-attach init (bb_event_routes_register_routes_init, REGULAR tier)
+// background work — self-registers at PRE_HTTP tier (the house
+// worker-start pattern) so route-attach init (bb_event_routes_register_routes_init, REGULAR tier)
 // stays pure httpd with no timer/task creation. Does state-init +
 // timer-create + timer-arm only; the reclaim tick itself never gates SSE
 // reuse (bb_pool_acquire's own reap-gate owns that) — it only tears the pool
@@ -54,7 +54,7 @@ bb_err_t bb_event_routes_reserve_routes(void);
 // CONFIG_BB_EVENT_ROUTES_POOL_STATIC=y (eager-BSS pool, nothing to reclaim).
 // Declared here for documentation/API-surface visibility; ESP-IDF is the
 // only platform that defines it today — Arduino/host builds do not link
-// this symbol (mirrors bb_pub_start()'s platform-only shape).
+// this symbol (the house worker-start pattern's platform-only shape).
 #ifdef ESP_PLATFORM
 // bbtool:init tier=pre_http fn=bb_event_routes_start
 bb_err_t bb_event_routes_start(void);

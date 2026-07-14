@@ -5,15 +5,15 @@
 // This is the ONE place in breadboard that calls heap_caps_get_free_size /
 // heap_caps_get_minimum_free_size / heap_caps_get_largest_free_block /
 // heap_caps_get_total_size / esp_get_minimum_free_heap_size. Every other
-// consumer (bb_board's accessors, bb_diag, bb_ota_boot, bb_ota_pull,
-// bb_sink_http, ...) either delegates to bb_meminfo_get() or is a
-// SSOT-consolidation follow-up (see bb_meminfo's README / KB #699).
+// consumer (bb_board's accessors, bb_diag, bb_ota_boot, bb_ota_pull, ...)
+// either delegates to bb_meminfo_get() or is a SSOT-consolidation follow-up
+// (see bb_meminfo's README / KB #699).
 //
 // bb_meminfo is a pure READER — it does not allocate. The allocator facade
 // (bb_malloc_prefer_spiram / bb_mem_get_stats / ...) stays in bb_core
 // (bb_mem.h); this component only surfaces its stats snapshot alongside the
-// raw heap_caps regions. It owns no routes, no bb_pub source, and needs no
-// BB_INIT_REGISTER hook — call bb_meminfo_get() on demand.
+// raw heap_caps regions. It owns no routes, no telemetry source, and needs
+// no BB_INIT_REGISTER hook — call bb_meminfo_get() on demand.
 //
 // Platform coverage: ESP-IDF backs this with real heap_caps_* reads; host
 // zeros every field (no heap_caps equivalent on host).

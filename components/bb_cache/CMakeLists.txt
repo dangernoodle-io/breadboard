@@ -13,7 +13,7 @@
 # build: bb_cache's own use of the bb_timer API is entirely inside
 # `#if BB_CACHE_SWEEP_ENABLE`, which preprocesses to nothing when the
 # Kconfig is off, so --gc-sections drops any bb_timer symbols this component
-# would have pulled in (bb_timer is used elsewhere by bb_pub/bb_led_anim/
+# would have pulled in (bb_timer is used elsewhere by bb_led_anim/
 # bb_button_events/etc -- so it is already present in a typical firmware
 # image regardless of this line).
 idf_component_register(

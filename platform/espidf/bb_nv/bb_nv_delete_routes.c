@@ -299,7 +299,7 @@ static const bb_route_t s_nvs_delete_route = {
                         "{\"wipe_wifi\":true} (contains wifi credentials; RTC backup may restore "
                         "them on next boot if CONFIG_BB_NV_CREDS_RTC_BACKUP is enabled). "
                         "Use an array namespace to reset multiple namespaces in one call "
-                        "(e.g. the 'reset telemetry' case: [\"bb_mqtt\",\"bb_sink_http\",\"bb_pub\"]). "
+                        "(e.g. [\"bb_mqtt\",\"bb_udp\",\"bb_tcp\"]). "
                         "\"key\" is forbidden when namespace is an array.",
     .request_schema   = "{\"type\":\"object\","
                         "\"properties\":{"

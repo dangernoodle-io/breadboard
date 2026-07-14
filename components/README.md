@@ -69,7 +69,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_meminfo](./bb_meminfo/) | Canonical system-heap reader SSOT (KB #698/#699/#693) — the one component that |
 | [bb_mqtt_client](./bb_mqtt_client/) | — |
 | [bb_mqtt_info](./bb_mqtt_info/) | — |
-| [bb_mqtt_telemetry](./bb_mqtt_telemetry/) | — |
 | [bb_net_health](./bb_net_health/) | — |
 | [bb_ntp](./bb_ntp/) | — |
 | [bb_num](./bb_num/) | — |
@@ -88,10 +87,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_power_tps546](./bb_power_tps546/) | — |
 | [bb_prov](./bb_prov/) | — |
 | [bb_prov_default_form](./bb_prov_default_form/) | — |
-| [bb_pub](./bb_pub/) | — |
-| [bb_pub_info](./bb_pub_info/) | — |
-| [bb_pub_rtos](./bb_pub_rtos/) | — |
-| [bb_pub_telemetry](./bb_pub_telemetry/) | — |
 | [bb_queue](./bb_queue/) | — |
 | [bb_registry](./bb_registry/) | — |
 | [bb_release_manifest](./bb_release_manifest/) | — |
@@ -102,11 +97,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_serialize](./bb_serialize/) | Format-neutral snapshot serialization: a descriptor SSOT + a pure walker + the bb_serialize_emit_t emit-vtable seam. |
 | [bb_serialize_json](./bb_serialize_json/) | Hand-rolled, no-heap, bounded-buffer JSON bb_serialize_emit_t backend -- the default wire-format implementation for bb_serialize. |
 | [bb_settings](./bb_settings/) | bb's default WiFi-credentials store — a wifi-creds field table over `bb_config`, byte-compatible with the credentials `bb_nv_config` already persists. `bb_settings` is bb's opinionated bb-config authority (KB 805/806); `bb_wifi` reads its accessors directly. |
-| [bb_sink_http](./bb_sink_http/) | — |
-| [bb_sink_http_telemetry](./bb_sink_http_telemetry/) | — |
-| [bb_sink_mqtt](./bb_sink_mqtt/) | — |
-| [bb_sink_udp](./bb_sink_udp/) | — |
-| [bb_sink_ws](./bb_sink_ws/) | — |
 | [bb_sse_writer](./bb_sse_writer/) | — |
 | [bb_storage](./bb_storage/) | Portable storage facade + backend registry: one `bb_storage_get/set/erase/exists` API dispatching by `bb_storage_addr_t.backend` to whichever backend has registered itself. |
 | [bb_storage_nvs](./bb_storage_nvs/) | ESP-IDF NVS backend for `bb_storage`. |
@@ -117,7 +107,6 @@ project-wide conventions, build instructions, and architecture notes.
 | [bb_task](./bb_task/) | — |
 | [bb_task_registry](./bb_task_registry/) | — |
 | [bb_tcp_client](./bb_tcp_client/) | Portable connected TCP/TLS stream client — the stream peer to bb_udp_client. Flat per-platform-TU dispatch (see wiki Backend-Dispatch). |
-| [bb_telemetry](./bb_telemetry/) | — |
 | [bb_temp](./bb_temp/) | — |
 | [bb_thermal](./bb_thermal/) | — |
 | [bb_timer](./bb_timer/) | — |

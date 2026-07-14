@@ -1,6 +1,5 @@
 // Host tests for bb_task_registry — thin bb_registry consumer tracking
-// self-registered FreeRTOS task-creation sites for GET /api/diag/tasks and
-// the "rtos" bb_pub telemetry source.
+// self-registered FreeRTOS task-creation sites for GET /api/diag/tasks.
 //
 // Coverage targets: register/deregister roundtrip, duplicate-name handling,
 // overflow, foreach ordering, lookup_budget hit/miss, and test_reset.

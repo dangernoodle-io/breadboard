@@ -108,6 +108,41 @@ void test_bb_mqtt_host_reset_clears_pubs(void)
 }
 
 // ---------------------------------------------------------------------------
+// bb_mqtt_client_is_tls tests
+//
+// B1-...: is_tls lost its only direct test when the bb_pub/bb_sink_* cluster
+// was deleted (it was only ever covered transitively). It still has live
+// ESP-IDF callers (TLS-branch decisions in the reconfigure path) — direct
+// tests restore real coverage.
+// ---------------------------------------------------------------------------
+
+void test_bb_mqtt_is_tls_true_when_cfg_tls_true(void)
+{
+    bb_mqtt_client_cfg_t cfg = {
+        .uri       = "mqtts://localhost:8883",
+        .client_id = NULL,
+        .tls       = true,
+    };
+    bb_mqtt_client_t h = NULL;
+    TEST_ASSERT_EQUAL_INT(BB_OK, bb_mqtt_client_init(&cfg, &h));
+    TEST_ASSERT_TRUE(bb_mqtt_client_is_tls(h));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_is_tls_false_when_cfg_tls_false(void)
+{
+    // make_client() builds a cfg with .tls = false.
+    bb_mqtt_client_t h = make_client(NULL, NULL);
+    TEST_ASSERT_FALSE(bb_mqtt_client_is_tls(h));
+    bb_mqtt_client_destroy(h);
+}
+
+void test_bb_mqtt_is_tls_null_handle_returns_false(void)
+{
+    TEST_ASSERT_FALSE(bb_mqtt_client_is_tls(NULL));
+}
+
+// ---------------------------------------------------------------------------
 // client_id resolution tests (host stub does not enforce hostname lookup,
 // but init must succeed for all three modes)
 // ---------------------------------------------------------------------------

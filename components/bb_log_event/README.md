@@ -61,5 +61,4 @@ this component's forwarder task.
 ## See also
 
 `bb_log` (base component this was carved out of), `bb_log_http` (sibling
-sink, GET/POST `/api/log/level` routes), `bb_sink_ws` (subscribes to the
-"log" topic when both are composed).
+sink, GET/POST `/api/log/level` routes).

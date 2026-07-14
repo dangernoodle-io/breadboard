@@ -761,14 +761,17 @@ void test_sse_schema_info_telemetry_payload_missing_required_fails(void)
     bb_json_free(obj);
 }
 
-// RtosTelemetry (sse_topic=NULL — uses old bb_pub_register_source, not SSE)
+// RtosTelemetry: historical fixture — the "rtos" telemetry source
+// (bb_pub_rtos) was removed with the bb_pub/bb_sink_* cluster cut (B1-905);
+// this schema no longer has a production producer. Retained as generic
+// bb_openapi_validate schema-fidelity test data.
 static const char k_rtos_telemetry_schema[] =
     "{\"title\":\"RtosTelemetry\",\"type\":\"object\","
     "\"properties\":{"
     "\"min_free_stack\":{\"type\":\"number\"},"
     "\"min_free_stack_task\":{\"type\":\"string\"},"
     "\"task_count\":{\"type\":\"number\"},"
-    "\"stack_bb_pub\":{\"type\":\"number\"},"
+    "\"stack_worker\":{\"type\":\"number\"},"
     "\"stack_httpd\":{\"type\":\"number\"},"
     "\"stack_mqtt\":{\"type\":\"number\"},"
     "\"stack_ipc0\":{\"type\":\"number\"},"
@@ -781,7 +784,7 @@ void test_sse_schema_rtos_telemetry_payload_valid(void)
     bb_json_t obj = bb_json_obj_new();
     TEST_ASSERT_NOT_NULL(obj);
     bb_json_obj_set_number(obj, "min_free_stack",      2048.0);
-    bb_json_obj_set_string(obj, "min_free_stack_task", "bb_pub");
+    bb_json_obj_set_string(obj, "min_free_stack_task", "worker");
     bb_json_obj_set_number(obj, "task_count",          8.0);
     TEST_ASSERT_EQUAL(BB_OK, bb_openapi_validate(k_rtos_telemetry_schema, obj, NULL));
     bb_json_free(obj);

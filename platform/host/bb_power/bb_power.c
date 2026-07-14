@@ -98,7 +98,7 @@ void bb_power_set_primary(bb_power_handle_t h) { s_primary = h; }
 bb_power_handle_t bb_power_primary(void)        { return s_primary; }
 
 // ---------------------------------------------------------------------------
-// JSON serializer — single builder shared by REST + bb_pub emitters.
+// JSON serializer — single builder used by REST responses.
 // ---------------------------------------------------------------------------
 
 void bb_power_emit(bb_json_t obj, const bb_power_snapshot_t *snap)

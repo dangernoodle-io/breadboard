@@ -116,11 +116,6 @@
       "type": "autoregister_kconfig"
     },
     {
-      "id": "BB_SINK_WS_AUTOREGISTER",
-      "path": "components/bb_sink_ws/Kconfig",
-      "type": "autoregister_kconfig"
-    },
-    {
       "id": "BB_SYSTEM_ROUTES_AUTOREGISTER",
       "path": "components/bb_system/Kconfig",
       "type": "autoregister_kconfig"
@@ -224,101 +219,6 @@
       "id": "macro:st7789",
       "path": "platform/espidf/bb_display_st77xx/bb_display_st7789.c",
       "type": "display_force_keep"
-    },
-    {
-      "id": "bb_pub_add_sink",
-      "path": "components/bb_pub/include/bb_pub.h",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "components/bb_pub/include/bb_pub.h",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "components/bb_sink_http/include/bb_sink_http.h",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "components/bb_sink_mqtt/include/bb_sink_mqtt.h",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "components/bb_sink_udp/include/bb_sink_udp.h",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "components/bb_sink_ws/include/bb_sink_ws.h",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_add_sink",
-      "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "platform/espidf/bb_sink_udp/bb_sink_udp.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "platform/espidf/bb_sink_ws/bb_sink_ws.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_add_sink",
-      "path": "platform/host/bb_mqtt_telemetry/bb_mqtt_telemetry_host.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "platform/host/bb_mqtt_telemetry/bb_mqtt_telemetry_host.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_add_sink",
-      "path": "platform/host/bb_pub/bb_pub.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "platform/host/bb_pub/bb_pub.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "platform/host/bb_sink_http/bb_sink_http.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_add_sink",
-      "path": "platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "platform/host/bb_sink_mqtt/bb_sink_mqtt.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "platform/host/bb_sink_udp/bb_sink_udp.c",
-      "type": "pub_sink"
-    },
-    {
-      "id": "bb_pub_sink_t",
-      "path": "platform/host/bb_sink_ws/bb_sink_ws.c",
-      "type": "pub_sink"
     }
   ]
 }

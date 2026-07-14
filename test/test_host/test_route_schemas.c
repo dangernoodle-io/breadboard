@@ -105,8 +105,11 @@ static const bb_route_t s_wifi_patch_route = {
     .handler              = NULL,
 };
 
-// Mirrors platform/espidf/bb_telemetry/bb_telemetry_routes.c (s_telemetry_patch_route.request_schema).
-// Copy-pasted intentionally: edits to the production literal must update this too.
+// Historical fixture: used to mirror platform/espidf/bb_telemetry/bb_telemetry_routes.c
+// (s_telemetry_patch_route.request_schema), which was removed with the
+// bb_pub/bb_sink_* cluster cut (B1-905) -- PATCH /api/telemetry no longer
+// exists. Retained standalone as generic route-registration/schema-validity
+// test data (see bb_response tests below).
 static const char k_telemetry_patch_request_schema[] =
     "{\"type\":\"object\","
     "\"description\":\"Keys are section names (mqtt, http, publisher); "
@@ -181,9 +184,9 @@ static const bb_route_t s_sensors_patch_route_fixture = {
     .handler              = NULL,
 };
 
-// Mirrors platform/espidf/bb_telemetry/bb_telemetry_routes.c
-// (s_telemetry_patch_responses[0].schema). Copy-pasted intentionally so that
-// future edits to the production literal must also update this fixture.
+// Historical fixture: used to mirror platform/espidf/bb_telemetry/bb_telemetry_routes.c
+// (s_telemetry_patch_responses[0].schema), removed with the bb_pub/bb_sink_*
+// cluster cut (B1-905) -- see k_telemetry_patch_request_schema above.
 // Validates that the B1-398 publisher_unavailable addition is valid JSON.
 static const char k_telemetry_patch_200_schema[] =
     "{\"type\":\"object\","

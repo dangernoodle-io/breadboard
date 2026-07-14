@@ -21,8 +21,8 @@
 // restored from the RTC mirror on the next boot if the mirror is valid. Without
 // the RTC backup a headless board may enter provisioning mode after reboot.
 //
-// Use an array namespace to clear multiple namespaces in one call. This covers
-// the "reset telemetry" case: ["bb_mqtt","bb_sink_http","bb_pub"].
+// Use an array namespace to clear multiple namespaces in one call, e.g.
+// ["bb_mqtt","bb_udp","bb_tcp"].
 //
 // Called from bb_diag_routes_init. Portable: no ESP-IDF-specific includes.
 

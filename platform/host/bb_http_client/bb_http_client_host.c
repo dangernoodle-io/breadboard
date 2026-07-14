@@ -34,8 +34,8 @@ static pthread_mutex_t s_mock_lock = PTHREAD_MUTEX_INITIALIZER;
 static bb_http_client_post_record_t s_last_post = { .called = false };
 
 // Testing injection: allows host tests to simulate a session-struct
-// allocation failure inside bb_http_client_session_open (mirrors
-// bb_sink_http_set_malloc's fn-pointer-override pattern). No-ops (falls
+// allocation failure inside bb_http_client_session_open (the house
+// fn-pointer-override injection pattern). No-ops (falls
 // back to the real calloc) in normal operation and whenever the override
 // is NULL. Reset by bb_http_client_clear_mock().
 static void *(*s_session_calloc)(size_t, size_t) = calloc;

@@ -401,12 +401,6 @@ void bb_net_health_emit_status(bb_json_t obj, const bb_net_health_status_t *snap
         bb_json_obj_set_bool(mqtt, "connected", snap->mqtt_connected);
         bb_json_obj_set_obj(obj, "mqtt", mqtt);
     }
-
-    bb_json_t http = bb_json_obj_new();
-    if (http) {
-        bb_json_obj_set_bool(http, "connected", snap->http_connected);
-        bb_json_obj_set_obj(obj, "http", http);
-    }
 }
 
 void bb_net_health_emit(bb_json_t obj, const void *snap_v)
@@ -440,15 +434,6 @@ void bb_net_health_emit(bb_json_t obj, const void *snap_v)
         bb_json_obj_set_number(mqtt, "disc_reason",     (double)snap->mqtt_disc_reason);
         bb_json_obj_set_number(mqtt, "tls_fail",        (double)snap->mqtt_tls_fail);
         bb_json_obj_set_obj(obj, "mqtt", mqtt);
-    }
-
-    bb_json_t http = bb_json_obj_new();
-    if (http) {
-        bb_json_obj_set_bool  (http, "connected",       snap->http_connected);
-        bb_json_obj_set_number(http, "consec_failures", (double)snap->http_consec_failures);
-        bb_json_obj_set_number(http, "tls_fail",        (double)snap->http_tls_fail);
-        bb_json_obj_set_number(http, "last_status",     (double)snap->http_last_status);
-        bb_json_obj_set_obj(obj, "http", http);
     }
 }
 

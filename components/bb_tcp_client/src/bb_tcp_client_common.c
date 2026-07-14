@@ -34,8 +34,7 @@ void bb_tcp_client_priv_save_to_nvs(const bb_tcp_client_cfg_t *cfg)
 }
 
 // Single shared AUTHORITATIVE slot for the whole component (not one per
-// instance) — mirrors platform/host/bb_sink_mqtt.c's registration pattern.
-// Registered lazily on the first report call. With
+// instance). Registered lazily on the first report call. With
 // BB_TCP_CLIENT_MAX_INSTANCES > 1, connect/read/write for DIFFERENT pooled
 // instances can be driven concurrently from different tasks, so the lazy
 // check-then-register below is a genuine race: bb_once guards it so exactly

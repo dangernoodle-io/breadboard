@@ -572,9 +572,9 @@ void test_bb_json_arr_append_string_n_null_str_is_safe(void)
 }
 
 // ---------------------------------------------------------------------------
-// bb_json_envelope_split — pure byte-range envelope scan (shared by
-// platform/{espidf,host}/bb_sink_ws/bb_sink_ws.c; extracted here to kill the
-// prior verbatim duplication across those two backends).
+// bb_json_envelope_split — pure byte-range envelope scan for the
+// {"ts_ms":N,"data":{...}} wire envelope (consumed by
+// platform/espidf/bb_cache_reactive/bb_cache_reactive_espidf.c).
 // ---------------------------------------------------------------------------
 
 void test_bb_json_envelope_split_basic_shape(void)

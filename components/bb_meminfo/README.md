@@ -11,7 +11,7 @@ directly from another component — route through `bb_meminfo` instead so
 there is exactly one call site to audit. `bb_board`'s `bb_board_heap_*` /
 `bb_board_psram_*` / `bb_board_rtc_*` / `bb_board_dram_static_bytes`
 accessors already delegate here; existing callers of those functions need no
-changes. This is a pure on-demand reader — it owns no routes, no `bb_pub`
+changes. This is a pure on-demand reader — it owns no routes, no telemetry
 source, and needs no `BB_INIT_REGISTER` hook.
 
 ## Public API
