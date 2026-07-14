@@ -166,6 +166,83 @@ class TestDiff(unittest.TestCase):
         self.assertEqual(new, [])
         self.assertEqual(removed, [])
 
+    # -- B1-917: ratchet on occurrence COUNT per identity, not identity
+    # presence/absence -- a second occurrence that happens to reuse an
+    # already-baselined identity (path-insensitive by design) must still
+    # be reported as new; a pure 1-for-1 rename must not.
+
+    def test_second_occurrence_reusing_baselined_identity_is_reported_new(self):
+        # This is the exact hole B1-917 describes: `a.c` is already
+        # baselined under identity ("t", "x"). A SECOND, genuinely
+        # distinct marker at a different path reuses that same identity
+        # text. The old `set(cur_ids) - set(base_ids)` diff saw identity
+        # "x" already present in both sides and reported 0 new — the
+        # second instance was invisible.
+        baseline = {Marker("t", "a.c", "x")}
+        current = {Marker("t", "a.c", "x"), Marker("t", "b.c", "x")}
+        new, removed = fence_pkg.diff(current, baseline)
+        self.assertEqual(new, [Marker("t", "b.c", "x")])
+        self.assertEqual(removed, [])
+
+    def test_pure_rename_of_single_occurrence_still_stable(self):
+        # Count unchanged (1 -> 1) even though the path changed: still a
+        # no-op diff. This is the invariant the fix must NOT break.
+        baseline = {Marker("t", "a.c", "x")}
+        current = {Marker("t", "renamed.c", "x")}
+        new, removed = fence_pkg.diff(current, baseline)
+        self.assertEqual(new, [])
+        self.assertEqual(removed, [])
+
+    def test_rename_of_one_of_two_baselined_occurrences_still_stable(self):
+        # Two baselined occurrences of the same identity; one is renamed
+        # (path changes, identity/count unchanged) — must not fail.
+        baseline = {Marker("t", "a.c", "x"), Marker("t", "b.c", "x")}
+        current = {Marker("t", "a-renamed.c", "x"), Marker("t", "b.c", "x")}
+        new, removed = fence_pkg.diff(current, baseline)
+        self.assertEqual(new, [])
+        self.assertEqual(removed, [])
+
+    def test_partial_shrink_reports_only_the_deficit_as_removed(self):
+        # Baseline has 2 occurrences of the same identity; only 1 survives
+        # in current -> exactly 1 removed candidate, not both (a blanket
+        # per-identity removal would wrongly report both as prunable).
+        baseline = {Marker("t", "a.c", "x"), Marker("t", "b.c", "x")}
+        current = {Marker("t", "a.c", "x")}
+        new, removed = fence_pkg.diff(current, baseline)
+        self.assertEqual(new, [])
+        self.assertEqual(removed, [Marker("t", "b.c", "x")])
+
+    def test_full_shrink_of_multi_occurrence_identity_reports_all_removed(self):
+        baseline = {Marker("t", "a.c", "x"), Marker("t", "b.c", "x")}
+        current = set()
+        new, removed = fence_pkg.diff(current, baseline)
+        self.assertEqual(new, [])
+        self.assertEqual(sorted(removed), sorted(baseline))
+
+    # -- path-misattribution fix: a rename and a genuine add/remove
+    # coinciding under the SAME identity must not name the wrong file.
+    # Exact-path pairing removes the unchanged occurrence (b.c) first, so
+    # only the true rename (a.c -> a-renamed.c) and the true add/remove
+    # remain as leftovers.
+
+    def test_rename_and_genuine_add_coinciding_reports_the_add_not_the_rename(self):
+        baseline = {Marker("t", "a.c", "x"), Marker("t", "b.c", "x")}
+        current = {
+            Marker("t", "a-renamed.c", "x"),
+            Marker("t", "b.c", "x"),
+            Marker("t", "new.c", "x"),
+        }
+        new, removed = fence_pkg.diff(current, baseline)
+        self.assertEqual(new, [Marker("t", "new.c", "x")])
+        self.assertEqual(removed, [])
+
+    def test_rename_and_genuine_remove_coinciding_reports_the_remove_not_the_rename(self):
+        baseline = {Marker("t", "a.c", "x"), Marker("t", "b.c", "x")}
+        current = {Marker("t", "a-renamed.c", "x")}
+        new, removed = fence_pkg.diff(current, baseline)
+        self.assertEqual(new, [])
+        self.assertEqual(removed, [Marker("t", "b.c", "x")])
+
 
 def _run_fence_cli(root: str, family=None, update_baseline: bool = False, seed=None) -> tuple:
     args = argparse.Namespace(root=root, family=family, update_baseline=update_baseline, seed=seed)
@@ -287,6 +364,41 @@ class TestFenceCliDiLegacy(unittest.TestCase):
             rc2, _, err2 = _run_fence_cli(str(root), family=["di_legacy"])
             self.assertEqual(rc2, 1)
             self.assertIn("bb_fake_new_dup", err2)
+
+    def test_update_baseline_partial_shrink_prunes_only_the_deficit(self):
+        # B1-917 follow-on: two DIFFERENT files register the SAME symbol
+        # (the identity-collapse case di_legacy.identity() explicitly
+        # accepts, e.g. an #ifdef/#else pair) -> 2 baseline occurrences
+        # under one identity. Removing ONE of the two files must prune
+        # only that one baseline entry, never both (a blanket
+        # per-identity prune would wrongly drop the surviving occurrence
+        # too, silently re-opening the ratchet hole on the next run).
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write(root, "components/bb_fake/src/bb_fake_a.c", "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n")
+            _write(root, "components/bb_fake/src/bb_fake_b.c", "BB_INIT_REGISTER(bb_fake, bb_fake_init);\n")
+            _run_fence_cli(str(root), seed="di_legacy")
+
+            baseline_before = fence_pkg.load_baseline(str(root), "di_legacy")
+            self.assertEqual(len(baseline_before), 2, "sanity: both occurrences seeded")
+
+            os.remove(root / "components/bb_fake/src/bb_fake_b.c")
+
+            rc, out, _ = _run_fence_cli(str(root), family=["di_legacy"], update_baseline=True)
+            self.assertEqual(rc, 0)
+            self.assertIn("baseline pruned", out)
+
+            baseline_after = fence_pkg.load_baseline(str(root), "di_legacy")
+            self.assertEqual(
+                baseline_after,
+                {Marker("BB_INIT_REGISTER", "components/bb_fake/src/bb_fake_a.c", "bb_fake")},
+                "only the removed file's occurrence must be pruned",
+            )
+
+            # And the fence must still pass cleanly against the pruned baseline.
+            rc2, out2, _ = _run_fence_cli(str(root), family=["di_legacy"])
+            self.assertEqual(rc2, 0)
+            self.assertIn("PASS", out2)
 
     def test_update_baseline_without_seed_errors(self):
         with tempfile.TemporaryDirectory() as td:

@@ -155,7 +155,21 @@ def derive_component(root: str, name: str, platform: str) -> Dict[str, List[str]
     cmake_text = _read_text(comp_dir / "CMakeLists.txt")
 
     requires, priv_requires = parse_requires(cmake_text, component=name)
-    depends = sorted(set(requires) | set(priv_requires))
+    depends: Set[str] = set(requires) | set(priv_requires)
+
+    # A platform-only component (no components/<name>/ dir at all — e.g.
+    # bb_event_routes_espidf) declares its own idf_component_register(...)
+    # directly under platform/<platform>/<name>/CMakeLists.txt. Ignoring it
+    # dropped that component's REQUIRES/PRIV_REQUIRES from the closure
+    # entirely (B1-903): a component depended on ONLY via a platform-layer
+    # PRIV_REQUIRES (e.g. bb_sse_writer) never got visited by
+    # resolve_transitive and looked dead. Union both CMakeLists' depends —
+    # a component may legitimately declare REQUIRES at either or both
+    # layers.
+    plat_cmake_text = _read_text(root_p / "platform" / platform / name / "CMakeLists.txt")
+    plat_requires, plat_priv_requires = parse_requires(plat_cmake_text, component=name)
+    depends |= set(plat_requires) | set(plat_priv_requires)
+    depends = sorted(depends)
 
     includes: Set[str] = set()
     sources: Set[str] = set()

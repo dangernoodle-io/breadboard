@@ -472,6 +472,25 @@ class TestFenceCliClamp(unittest.TestCase):
             self.assertEqual(rc2, 1)
             self.assertIn("set_ms", err2)
 
+    def test_second_instance_reusing_baselined_function_name_fails(self):
+        # B1-917 repro: a NEW file, same component dir, whose enclosing
+        # function reuses an already-baselined name (and clamps the same
+        # variable) -> a genuinely distinct site collapsing onto the same
+        # identity ("bb_fake:set_pct:pct"). The old identity-set diff saw
+        # that identity already present in both current and baseline and
+        # reported "0 new — PASS"; it must now FAIL.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write(root, "platform/host/bb_fake/bb_fake.c", self._clamp_src())
+            _run_fence_cli(str(root), seed="clamp")
+
+            _write(root, "platform/host/bb_fake/bb_fake_other.c", self._clamp_src())
+
+            rc, out, err = _run_fence_cli(str(root), family=["clamp"])
+            self.assertEqual(rc, 1, "a second occurrence reusing a baselined identity must fail")
+            self.assertIn("new marker added", err)
+            self.assertIn("bb_fake_other.c", err)
+
     def test_migrated_site_prunes_cleanly(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
