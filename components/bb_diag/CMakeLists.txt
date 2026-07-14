@@ -17,11 +17,16 @@ endif()
 # The DELETE /api/nvs route (and the private-include boundary violation it
 # required to reach bb_nv's implementation dir) moved out to bb_storage_http
 # (B1-757) -- bb_diag no longer wires or depends on it.
+# bb_storage is now an explicit PRIV_REQUIRES: bb_diag_panic.c calls
+# bb_storage_txn_begin/set/commit directly (B1-756's last bb_nv migration,
+# PR-B) -- previously only transitively available via bb_config.h, which the
+# no-transitive-padding rule doesn't permit as the sole justification for a
+# direct-call dependency.
 idf_component_register(
     SRCS ${_diag_srcs}
     INCLUDE_DIRS "include" "."
     REQUIRES bb_core bb_http_server
-    PRIV_REQUIRES bb_log bb_http bb_json bb_cache bb_nv bb_config bb_ntp bb_openapi bb_system bb_ota_validator bb_event bb_event_routes bb_task_registry bb_task espcoredump lwip nvs_flash esp_partition esp_app_format bb_str
+    PRIV_REQUIRES bb_log bb_http bb_json bb_cache bb_nv bb_config bb_storage bb_ntp bb_openapi bb_system bb_ota_validator bb_event bb_event_routes bb_task_registry bb_task espcoredump lwip nvs_flash esp_partition esp_app_format bb_str
 )
 
 if(CONFIG_BB_DIAG_PANIC_COREDUMP)

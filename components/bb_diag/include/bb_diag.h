@@ -207,8 +207,19 @@ size_t bb_diag_panic_order_copy(const char *buf, size_t buf_size,
  * log-stream tap, and updates the boots-since / abnormal-reset counters.
  * Two mutually-exclusive definitions exist (CONFIG_BB_DIAG_PANIC_CAPTURE on
  * vs off); this single prototype covers both.
+ *
+ * requires=storage_nvs: the abnormal-reset counter round-trips through
+ * bb_storage_txn_begin("nvs", ...) (B1-756), which requires the "nvs"
+ * backend already registered -- unlike the bb_nv forwarders it replaced,
+ * which called nvs_open/nvs_set_* directly and had no such dependency. This
+ * edge forces bb_storage_nvs_register() (provides=storage_nvs) to run first
+ * in the same EARLY tier rather than leaving it to unspecified same-tier
+ * parse order; without it, bb_storage_txn_begin returns BB_ERR_NOT_FOUND,
+ * which the `== BB_OK` guard swallows silently -- the counter just stops
+ * recording, no crash, no log. See bb_wifi_autoinit (bb_wifi.h) for the
+ * same edge for the same reason.
  */
-// bbtool:init tier=early fn=bb_diag_panic_init
+// bbtool:init tier=early fn=bb_diag_panic_init requires=storage_nvs
 bb_err_t bb_diag_panic_init(void);
 
 #if CONFIG_BB_DIAG_ROUTES

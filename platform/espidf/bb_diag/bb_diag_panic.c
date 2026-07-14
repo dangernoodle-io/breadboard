@@ -1,7 +1,8 @@
 #include "bb_diag.h"
+#include "bb_config.h"
 #include "bb_core.h"
 #include "bb_log.h"
-#include "bb_nv.h"
+#include "bb_storage.h"
 #include "bb_str.h"
 #include "esp_system.h"
 #include "esp_app_desc.h"
@@ -12,6 +13,31 @@
 /* 4-byte fingerprint of the running app's ELF SHA256; used to detect firmware
  * changes and auto-reset the abnormal-reset counter on new deploys/OTA. */
 #define BB_DIAG_NV_KEY_APPFP "app_fp"
+
+// bb_config field descriptors for the two NVS-native-U32 entries this file
+// round-trips. On-flash ns/key/type are unchanged from the previous
+// bb_nv_get_u32/set_u32/batch_* calls (both bottomed out on the same
+// nvs_set_u32/nvs_get_u32 sequence via bb_storage_nvs) -- byte-compatible
+// with values already on flash. has_default/def.u32=0 mirrors
+// bb_nv_get_u32's fallback-on-not-found contract explicitly --
+// bb_config_get_u32 leaves *out untouched on a non-BB_OK return unless
+// has_default resolves a NOT_FOUND, unlike bb_nv_get_u32 which always wrote
+// the fallback (see the smoke_app.c precedent for this same fix, B1-756).
+static const bb_config_field_t s_rst_count_field = {
+    .id          = "bb_diag.panic.reset_count",
+    .type        = BB_CONFIG_U32,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_DIAG_NV_NS, .key = BB_DIAG_NV_KEY_RST },
+    .def         = { .u32 = 0 },
+    .has_default = true,
+};
+
+static const bb_config_field_t s_app_fp_field = {
+    .id          = "bb_diag.panic.app_fp",
+    .type        = BB_CONFIG_U32,
+    .addr        = { .backend = "nvs", .ns_or_dir = BB_DIAG_NV_NS, .key = BB_DIAG_NV_KEY_APPFP },
+    .def         = { .u32 = 0 },
+    .has_default = true,
+};
 
 /* Derive a stable 32-bit fingerprint from the running app's ELF SHA256.
  * Uses the first 4 bytes of the raw SHA256 (little-endian uint32). Collision
@@ -32,7 +58,7 @@ uint32_t bb_diag_abnormal_reset_count(void) { return s_abnormal_reset_count; }
 void bb_diag_abnormal_reset_count_clear(void)
 {
     s_abnormal_reset_count = 0;
-    bb_nv_set_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, 0);
+    bb_config_set_u32(&s_rst_count_field, 0);
 }
 
 #ifdef CONFIG_BB_DIAG_PANIC_CAPTURE
@@ -230,19 +256,29 @@ bb_err_t bb_diag_panic_init(void)
     {
         uint32_t stored_fp = 0;
         uint32_t stored_count = 0;
-        bb_nv_get_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_APPFP, &stored_fp, 0);
-        bb_nv_get_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, &stored_count, 0);
+        // bb_config_get_u32 leaves *out untouched on a non-BB_OK return
+        // unless has_default resolves a NOT_FOUND -- unlike bb_nv_get_u32,
+        // which always wrote the fallback. Resolve explicitly rather than
+        // relying on the locals' zero-init to happen to match the default.
+        if (bb_config_get_u32(&s_app_fp_field, &stored_fp) != BB_OK) {
+            stored_fp = s_app_fp_field.def.u32;
+        }
+        if (bb_config_get_u32(&s_rst_count_field, &stored_count) != BB_OK) {
+            stored_count = s_rst_count_field.def.u32;
+        }
         uint32_t running_fp = bb_diag_running_app_fp();
         bb_diag_reset_result_t r = bb_diag_reset_decision(stored_fp, running_fp,
                                                            stored_count, was_panic_boot);
         s_abnormal_reset_count = r.new_count;
-        bb_nv_batch_t batch;
-        if (bb_nv_batch_begin(&batch, BB_DIAG_NV_NS) == BB_OK) {
-            bb_nv_batch_set_u32(&batch, BB_DIAG_NV_KEY_RST, r.new_count);
+        bb_storage_txn_t txn = {0};
+        if (bb_storage_txn_begin("nvs", BB_DIAG_NV_NS, &txn) == BB_OK) {
+            bb_storage_txn_set(&txn, BB_DIAG_NV_KEY_RST, BB_STORAGE_ENC_U32,
+                                &r.new_count, sizeof(r.new_count));
             if (r.store_fp) {
-                bb_nv_batch_set_u32(&batch, BB_DIAG_NV_KEY_APPFP, running_fp);
+                bb_storage_txn_set(&txn, BB_DIAG_NV_KEY_APPFP, BB_STORAGE_ENC_U32,
+                                    &running_fp, sizeof(running_fp));
             }
-            bb_nv_batch_commit(&batch);
+            bb_storage_txn_commit(&txn);
         }
     }
 
@@ -437,19 +473,27 @@ bb_err_t bb_diag_panic_init(void)
                            reason == ESP_RST_BROWNOUT);
     uint32_t stored_fp = 0;
     uint32_t stored_count = 0;
-    bb_nv_get_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_APPFP, &stored_fp, 0);
-    bb_nv_get_u32(BB_DIAG_NV_NS, BB_DIAG_NV_KEY_RST, &stored_count, 0);
+    // See the CAPTURE-variant init() above for why this checks the return
+    // code explicitly instead of relying on the locals' zero-init.
+    if (bb_config_get_u32(&s_app_fp_field, &stored_fp) != BB_OK) {
+        stored_fp = s_app_fp_field.def.u32;
+    }
+    if (bb_config_get_u32(&s_rst_count_field, &stored_count) != BB_OK) {
+        stored_count = s_rst_count_field.def.u32;
+    }
     uint32_t running_fp = bb_diag_running_app_fp();
     bb_diag_reset_result_t r = bb_diag_reset_decision(stored_fp, running_fp,
                                                        stored_count, was_panic_boot);
     s_abnormal_reset_count = r.new_count;
-    bb_nv_batch_t batch;
-    if (bb_nv_batch_begin(&batch, BB_DIAG_NV_NS) == BB_OK) {
-        bb_nv_batch_set_u32(&batch, BB_DIAG_NV_KEY_RST, r.new_count);
+    bb_storage_txn_t txn = {0};
+    if (bb_storage_txn_begin("nvs", BB_DIAG_NV_NS, &txn) == BB_OK) {
+        bb_storage_txn_set(&txn, BB_DIAG_NV_KEY_RST, BB_STORAGE_ENC_U32,
+                            &r.new_count, sizeof(r.new_count));
         if (r.store_fp) {
-            bb_nv_batch_set_u32(&batch, BB_DIAG_NV_KEY_APPFP, running_fp);
+            bb_storage_txn_set(&txn, BB_DIAG_NV_KEY_APPFP, BB_STORAGE_ENC_U32,
+                                &running_fp, sizeof(running_fp));
         }
-        bb_nv_batch_commit(&batch);
+        bb_storage_txn_commit(&txn);
     }
     return BB_OK;
 }
