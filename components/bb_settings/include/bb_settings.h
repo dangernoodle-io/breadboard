@@ -58,6 +58,20 @@ bb_err_t bb_settings_hostname_get(char *buf, size_t cap, size_t *out_len);
 // success.
 bb_err_t bb_settings_hostname_set(const char *hostname);
 
+// Read the stored POSIX timezone string (e.g. "EST5EDT,M3.2.0,M11.1.0").
+// Same size-probe/truncation contract and NULL-safe out_len guarantee as
+// bb_settings_wifi_ssid_get. Returns BB_OK with an empty string (out_len=0)
+// when unset -- UTC applies -- preserving bb_nv's prior empty-string-on-unset
+// behavior exactly (B1-750).
+bb_err_t bb_settings_timezone_get(char *buf, size_t cap, size_t *out_len);
+
+// Persist a POSIX timezone string. NULL or empty clears to "" (UTC applies).
+// No charset validation (unlike hostname) -- only a length check (>64 chars
+// rejected), mirroring bb_nv_config_set_timezone's prior contract exactly
+// (B1-750). Returns BB_ERR_INVALID_ARG when tz is longer than 64 chars;
+// BB_OK on success.
+bb_err_t bb_settings_timezone_set(const char *tz);
+
 // ---------------------------------------------------------------------------
 // WiFi live-creds writer (B1: bb_nv creds-cluster PR4).
 //
