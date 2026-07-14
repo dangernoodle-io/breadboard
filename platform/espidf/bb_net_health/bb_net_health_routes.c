@@ -122,12 +122,6 @@ static bb_err_t diag_net_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_int(&obj, "tls_fail",        (int64_t)snap.mqtt_tls_fail);
         bb_http_resp_json_obj_set_obj_end(&obj);
 
-        bb_http_resp_json_obj_set_obj_begin(&obj, "http");
-        bb_http_resp_json_obj_set_int(&obj, "consec_failures", (int64_t)snap.http_consec_failures);
-        bb_http_resp_json_obj_set_int(&obj, "tls_fail",        (int64_t)snap.http_tls_fail);
-        bb_http_resp_json_obj_set_int(&obj, "last_status",     (int64_t)snap.http_last_status);
-        bb_http_resp_json_obj_set_obj_end(&obj);
-
         // Gateway-probe status (B1-518 PR3, OBSERVE-ONLY): omitted entirely
         // when the probe worker has never completed a probe (disabled via
         // CONFIG_BB_WIFI_GW_PROBE_ENABLE=n, or not yet started) so consumers
@@ -206,10 +200,6 @@ static const bb_route_response_t s_diag_net_responses[] = {
       "\"disc_age_s\":{\"type\":\"integer\"},"
       "\"disc_reason\":{\"type\":\"integer\"},"
       "\"tls_fail\":{\"type\":\"integer\"}}},"
-      "\"http\":{\"type\":\"object\",\"properties\":{"
-      "\"consec_failures\":{\"type\":\"integer\"},"
-      "\"tls_fail\":{\"type\":\"integer\"},"
-      "\"last_status\":{\"type\":\"integer\"}}},"
       "\"gw\":{\"type\":\"object\",\"properties\":{"
       "\"gw_reachable\":{\"type\":\"boolean\"},"
       "\"gw_fail_streak\":{\"type\":\"integer\"},"

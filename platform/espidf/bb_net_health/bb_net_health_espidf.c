@@ -1,7 +1,6 @@
-// bb_net_health ESP-IDF glue — /api/health "net" section + retained SSE topic.
+// bb_net_health ESP-IDF glue — retained SSE topic + /api/diag/net.
 //
 // Call order:
-//   bb_net_health_register_health() — before bb_http_server_start
 //   bb_net_health_start()           — at PRE_HTTP tier
 //   bb_net_health_attach_sse()      — in regular-tier init (after bb_event_routes)
 //
@@ -20,14 +19,12 @@
 #include "bb_wifi.h"
 #include "bb_mqtt_client.h"
 #include "bb_tls.h"
-#include "bb_sink_http.h"
 #include "bb_event.h"
 #include "bb_event_routes.h"
 #include "bb_json.h"
 #include "bb_log.h"
 #include "bb_timer.h"
 #include "bb_clock.h"
-#include "bb_pub.h"
 #include "bb_transport_health.h"
 #include "bb_str.h"
 #include <inttypes.h>
@@ -152,14 +149,10 @@ static void egress_act_persist_state(void)
 }
 #endif // CONFIG_BB_NET_HEALTH_EGRESS_ACT_ENABLE
 
-#if CONFIG_BB_PUB_ADAPTIVE_BACKOFF
-static uint32_t              s_baseline_interval_ms = 0;  // captured before first throttle
-#endif
-
 // Cached health snapshot — written only by eval_cb (and the initial snapshot in
-// attach_sse).  net_section_get reads this cache instead of calling
-// bb_net_health_eval, preventing /api/health polls from injecting extra samples
-// into the hysteresis state.
+// attach_sse). /api/diag/net (bb_net_health_routes.c) reads this cache via
+// bb_net_health_get_status instead of calling bb_net_health_eval, preventing
+// HTTP polls from injecting extra samples into the hysteresis state.
 typedef struct {
     int8_t   rssi;
     bool     mqtt_connected;
@@ -172,10 +165,6 @@ typedef struct {
     uint32_t mqtt_disc_age_s;
     uint32_t mqtt_disc_reason;
     uint32_t mqtt_tls_fail;
-    bool     http_connected;
-    int      http_consec_failures;
-    int      http_tls_fail;
-    int      http_last_status;
     uint32_t lost_ip_recoveries;
     uint32_t lost_ip_age_s;
     uint32_t egress_dead_recoveries;
@@ -200,22 +189,7 @@ typedef struct {
 static bb_net_health_cache_t s_cache;       // zero-init; valid once attach_sse writes it
 static SemaphoreHandle_t     s_cache_lock;  // protects s_cache against torn read/write
 
-// JSON-Schema for the "net" health section — status bools/enums only (TA-505).
-// Numeric counters moved to GET /api/diag/net.
-static const char k_net_schema[] =
-    "{\"type\":\"object\",\"properties\":{"
-    "\"state\":{\"type\":\"string\"},"
-    "\"early_warning\":{\"type\":\"boolean\"},"
-    "\"throttled\":{\"type\":\"boolean\"},"
-    "\"mqtt\":{\"type\":\"object\",\"properties\":{"
-    "\"connected\":{\"type\":\"boolean\"}"
-    "}},"
-    "\"http\":{\"type\":\"object\",\"properties\":{"
-    "\"connected\":{\"type\":\"boolean\"}"
-    "}}}}";
-
 // Full schema for the net.health SSE topic — matches bb_net_health_emit output.
-// (Status-only k_net_schema is used only for the /api/health "net" section.)
 static const char k_net_sse_schema[] =
     "{\"type\":\"object\",\"properties\":{"
     "\"rssi\":{\"type\":\"integer\"},"
@@ -233,11 +207,6 @@ static const char k_net_sse_schema[] =
     "\"disc_age_s\":{\"type\":\"integer\"},"
     "\"disc_reason\":{\"type\":\"integer\"},"
     "\"tls_fail\":{\"type\":\"integer\"}}},"
-    "\"http\":{\"type\":\"object\",\"properties\":{"
-    "\"connected\":{\"type\":\"boolean\"},"
-    "\"consec_failures\":{\"type\":\"integer\"},"
-    "\"tls_fail\":{\"type\":\"integer\"},"
-    "\"last_status\":{\"type\":\"integer\"}}},"
     "\"no_ip_recoveries\":{\"type\":\"integer\"},"
     "\"roam_count\":{\"type\":\"integer\"},"
     "\"roam_age_s\":{\"type\":\"integer\"},"
@@ -328,9 +297,9 @@ static void pull_tx_status(bool *out_available, int *out_enabled, int *out_faili
 // The SSE payload carries only the 4 essential fields (rssi, state,
 // early_warning, throttled) — worst case ~62 B — so it fits inside
 // CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY even on consumers that set a small
-// value like 128 (e.g. TaipanMiner).  The full 8-field detail is always
-// available via GET /api/health "net" section (net_section_get below), which
-// reads from the cache that is updated unconditionally here.
+// value like 128 (e.g. TaipanMiner).  The full detail is always available via
+// GET /api/diag/net (bb_net_health_routes.c), which reads from the cache
+// that is updated unconditionally here.
 bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
 {
     if (!out) return BB_ERR_INVALID_ARG;
@@ -347,10 +316,6 @@ bb_err_t bb_net_health_get_status(bb_net_health_status_t *out)
     out->mqtt_disc_age_s        = s_cache.mqtt_disc_age_s;
     out->mqtt_disc_reason       = s_cache.mqtt_disc_reason;
     out->mqtt_tls_fail          = s_cache.mqtt_tls_fail;
-    out->http_connected         = s_cache.http_connected;
-    out->http_consec_failures   = s_cache.http_consec_failures;
-    out->http_tls_fail          = s_cache.http_tls_fail;
-    out->http_last_status       = s_cache.http_last_status;
     out->lost_ip_recoveries         = s_cache.lost_ip_recoveries;
     out->lost_ip_age_s              = s_cache.lost_ip_age_s;
     out->egress_dead_recoveries     = s_cache.egress_dead_recoveries;
@@ -385,7 +350,6 @@ static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
                                              bool throttled,
                                              bb_mqtt_client_disc_t mqtt_disc_reason,
                                              bb_tls_fail_t  mqtt_tls_fail,
-                                             bb_sink_http_health_t http_h,
                                              bool gw_available,
                                              const bb_wifi_gw_status_t *gw,
                                              bool tx_available,
@@ -408,10 +372,6 @@ static bb_net_health_status_t build_snapshot(const bb_net_health_output_t *out,
         .mqtt_disc_age_s        = in->mqtt_disc_age_s,
         .mqtt_disc_reason       = (uint32_t)mqtt_disc_reason,
         .mqtt_tls_fail          = (uint32_t)mqtt_tls_fail,
-        .http_connected         = http_h.connected,
-        .http_consec_failures   = (uint32_t)http_h.consec_failures,
-        .http_tls_fail          = (uint32_t)http_h.tls_fail,
-        .http_last_status       = http_h.last_status,
         .lost_ip_recoveries     = bb_wifi_get_lost_ip_count(),
         .lost_ip_age_s          = bb_wifi_get_lost_ip_age_s(),
         .egress_dead_recoveries = bb_wifi_get_egress_dead_count(),
@@ -457,10 +417,6 @@ static void publish_snapshot(const bb_net_health_status_t *snap)
     s_cache.mqtt_disc_age_s         = snap->mqtt_disc_age_s;
     s_cache.mqtt_disc_reason        = snap->mqtt_disc_reason;
     s_cache.mqtt_tls_fail           = snap->mqtt_tls_fail;
-    s_cache.http_connected          = snap->http_connected;
-    s_cache.http_consec_failures    = snap->http_consec_failures;
-    s_cache.http_tls_fail           = snap->http_tls_fail;
-    s_cache.http_last_status        = snap->http_last_status;
     s_cache.lost_ip_recoveries      = snap->lost_ip_recoveries;
     s_cache.lost_ip_age_s           = snap->lost_ip_age_s;
     s_cache.egress_dead_recoveries  = snap->egress_dead_recoveries;
@@ -550,34 +506,7 @@ static void eval_work_fn(void *arg)
 #endif
     }
 
-#if CONFIG_BB_PUB_ADAPTIVE_BACKOFF
-    bool was_throttled = s_state.throttled;
-    bool now_throttled = bb_net_health_throttle_decision(
-        &s_state, CONFIG_BB_PUB_ADAPTIVE_SAMPLES);
-
-    if (now_throttled && !was_throttled) {
-        // Capture baseline (configured/persisted value) before first throttle.
-        s_baseline_interval_ms = bb_pub_get_interval_ms();
-        bb_pub_set_interval_volatile_ms((uint32_t)CONFIG_BB_PUB_ADAPTIVE_SLOW_MS);
-        bb_log_i(TAG, "throttle: slowing bb_pub to %u ms (was %u ms)",
-                 (unsigned)CONFIG_BB_PUB_ADAPTIVE_SLOW_MS,
-                 (unsigned)s_baseline_interval_ms);
-    } else if (!now_throttled && was_throttled) {
-        // Recovery: restore captured baseline via volatile path (no NVS write).
-        if (s_baseline_interval_ms > 0) {
-            bb_pub_set_interval_volatile_ms(s_baseline_interval_ms);
-            bb_log_i(TAG, "throttle: restoring bb_pub to %u ms",
-                     (unsigned)s_baseline_interval_ms);
-        }
-        s_baseline_interval_ms = 0;
-    }
-    bool currently_throttled = now_throttled;
-#else
     bool currently_throttled = false;
-#endif
-
-    bb_sink_http_health_t http_h = {0};
-    bb_sink_http_get_health(&http_h);
 
     bool gw_available;
     bb_wifi_gw_status_t gw;
@@ -602,7 +531,7 @@ static void eval_work_fn(void *arg)
     // below and the log-heartbeat decision (KB#556) observe the same
     // point-in-time snapshot.
     bb_net_health_status_t snap = build_snapshot(&out, &in, &wi, currently_throttled,
-                                                  mqtt_disc_reason, mqtt_tls_fail, http_h,
+                                                  mqtt_disc_reason, mqtt_tls_fail,
                                                   gw_available, &gw,
                                                   tx_available, tx_enabled, tx_failing,
                                                   egress_state);
@@ -730,87 +659,8 @@ static void eval_work_fn(void *arg)
 }
 
 // ---------------------------------------------------------------------------
-// /api/health "net" section callback
-// ---------------------------------------------------------------------------
-
-static void net_section_get(bb_json_t section, void *ctx)
-{
-    (void)ctx;
-    // Emit status-only (bools/enums) — numerics moved to /api/diag/net (TA-505).
-    // Read from the cached snapshot under lock; do NOT call bb_net_health_eval
-    // here — HTTP polls must not inject samples into the hysteresis state.
-    bb_net_health_status_t snap;
-    if (bb_net_health_get_status(&snap) == BB_OK) {
-        bb_net_health_emit_status(section, &snap);
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-
-// Telemetry source: publish the live net-health snapshot to bb_pub on the
-// "net_health" subtopic. Registered here (not pulled in by a separate
-// aggregator component) so it exists ONLY when net_health is set up —
-// bb_net_health already depends on bb_pub (adaptive backoff), so this adds
-// no new dependency anywhere.
-//
-// Migration (telemetry-ssot): uses bb_pub_register_telemetry so the snapshot
-// is gathered into bb_cache once per tick; SSE and sinks all read the SAME
-// memoized serialization.  bb_cache owns the envelope's ts_ms (B1-570 PR-3)
-// — this source no longer stamps or emits its own timestamp.
-//
-// Topic name: "net_health" (distinct from the state topic "net.health" /
-// BB_NET_HEALTH_TOPIC — no collision).  The existing net.health bb_cache +
-// SSE path (bb_net_health_attach_sse) is 100% intact and unchanged.
-//
-// SSE routing: bb_pub_register_telemetry with BB_PUB_TELEM_SSE registers the
-// bb_cache event topic automatically (via BB_CACHE_FLAG_SSE).  Phase-2b of
-// bb_pub_tick_once calls bb_cache_post_serialized to post to that topic.  No
-// explicit bb_event_routes_attach call is needed — the same pattern used by
-// the "wifi" telem topic.
-
-typedef struct {
-    bb_net_health_status_t status;
-} bb_net_health_snap_t;
-
-// Compile-time guard: net_health snap must fit in the scratch buffer (B1-434).
-// CONFIG_BB_PUB_TELEM_SNAP_MAX is always available here (ESP-IDF only file).
-typedef char _net_health_snap_size_check[
-    sizeof(bb_net_health_snap_t) <= CONFIG_BB_PUB_TELEM_SNAP_MAX ? 1 : -1];
-
-static bool net_health_gather(void *snap_buf, void *ctx)
-{
-    (void)ctx;
-    bb_net_health_snap_t *s = snap_buf;
-    memset(s, 0, sizeof(*s));
-    if (bb_net_health_get_status(&s->status) != BB_OK) return false;  // not evaluated yet
-    return true;
-}
-
-static void net_health_serialize(bb_json_t obj, const void *snap_raw)
-{
-    const bb_net_health_snap_t *s = snap_raw;
-    bb_net_health_emit(obj, &s->status);
-}
-
-void bb_net_health_register_health(void)
-{
-    bb_health_register_section("net", net_section_get, NULL, k_net_schema);
-
-    bb_pub_telemetry_cfg_t cfg = {
-        .topic     = "net_health",
-        .gather    = net_health_gather,
-        .serialize = net_health_serialize,
-        .snap_size = sizeof(bb_net_health_snap_t),
-        .flags     = BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS,
-        .ctx       = NULL,
-    };
-    bb_err_t perr = bb_pub_register_telemetry(&cfg);
-    if (perr != BB_OK && perr != BB_ERR_NO_SPACE) {
-        bb_log_w(TAG, "net_health register_telemetry failed: %d", (int)perr);
-    }
-}
 
 bb_err_t bb_net_health_attach_sse(void)
 {
@@ -892,9 +742,6 @@ bb_err_t bb_net_health_attach_sse(void)
             }
         }
 
-        bb_sink_http_health_t http_h = {0};
-        bb_sink_http_get_health(&http_h);
-
         bool gw_available;
         bb_wifi_gw_status_t gw;
         pull_gw_status(&gw_available, &gw);
@@ -917,7 +764,7 @@ bb_err_t bb_net_health_attach_sse(void)
                                            tx_enabled, tx_failing);
 
         bb_net_health_status_t snap = build_snapshot(&out, &in, &wi, false,
-                                                      mqtt_disc_reason, mqtt_tls_fail, http_h,
+                                                      mqtt_disc_reason, mqtt_tls_fail,
                                                       gw_available, &gw,
                                                       tx_available, tx_enabled, tx_failing,
                                                       egress_state);

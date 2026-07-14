@@ -8,8 +8,8 @@
 //
 // This is NOT derived from, and has no relationship to, any production wire
 // payload -- the "widget" shape and its field names/values are made up for
-// test coverage only. See bb_health_wire_priv.h / bb_pub_info_wire_priv.h
-// for the actual production descriptors these suites also cover.
+// test coverage only. See bb_health_wire_priv.h for the actual production
+// descriptor these suites also cover.
 
 #include "bb_serialize.h"
 

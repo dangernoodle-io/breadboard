@@ -98,9 +98,9 @@ static void fire_on_change(const char *key)
     // Heap/PSRAM-allocate the fetch buffer rather than stack -- this fires at
     // change cadence (bounded churn), and BB_CACHE_REACTIVE_PAYLOAD_MAX is
     // caller-tunable up to 4096 bytes via Kconfig, which would otherwise
-    // inflate every reactive_update caller's stack (mirrors the
-    // bb_malloc_prefer_spiram + bb_mem_free idiom already used by
-    // bb_sink_ws for its envelope buffers).
+    // inflate every reactive_update caller's stack (the canonical
+    // bb_malloc_prefer_spiram + bb_mem_free idiom for large transient
+    // buffers).
     char *buf = (char *)bb_malloc_prefer_spiram(BB_CACHE_REACTIVE_PAYLOAD_MAX);
     if (!buf) {
         bb_log_w(TAG, "fire_on_change: malloc failed for '%s'", key);

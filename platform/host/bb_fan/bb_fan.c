@@ -319,7 +319,7 @@ void bb_fan_get_autofan_telemetry(bb_fan_handle_t h, bb_fan_autofan_telemetry_t 
 #endif /* CONFIG_BB_FAN_AUTOFAN */
 
 // ---------------------------------------------------------------------------
-// JSON serializer — single builder shared by REST + bb_pub emitters.
+// JSON serializer — single builder used by REST responses.
 // ---------------------------------------------------------------------------
 
 #ifndef CONFIG_BB_FAN_AUTOFAN

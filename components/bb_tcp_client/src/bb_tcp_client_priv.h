@@ -60,9 +60,8 @@ void bb_tcp_client_priv_save_to_nvs(const bb_tcp_client_cfg_t *cfg);
 
 /**
  * Report ok/fail to the shared bb_transport_health "tcp" AUTHORITATIVE slot,
- * registering it lazily on first call (mirrors platform/host/bb_sink_mqtt.c's
- * registration pattern). Shared by both backends so the reporting policy
- * (see bb_tcp_client.h) lives in exactly one place.
+ * registering it lazily on first call. Shared by both backends so the
+ * reporting policy (see bb_tcp_client.h) lives in exactly one place.
  */
 void bb_tcp_client_priv_health_report(bool ok);
 

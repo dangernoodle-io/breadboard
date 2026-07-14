@@ -1,9 +1,7 @@
 // Tests for bb_udp_client: reusable IPv4 UDP datagram transport (host stub —
 // captures the raw bytes handed to bb_udp_client_send() instead of opening a
-// real socket). Extracted from test_bb_sink_udp.c per KB#702/#710 — these
-// cases exercise the transport directly (socket lifecycle / dest config /
-// capture buffer); framing + bb_pub adapter behavior stay in
-// test_bb_sink_udp.c, now driving through bb_udp_client.
+// real socket). These cases exercise the transport directly: socket
+// lifecycle, dest config, capture buffer.
 #include "unity.h"
 #include "bb_udp_client.h"
 
@@ -12,8 +10,7 @@
 // ---------------------------------------------------------------------------
 // bb_udp_client_send() before init -> BB_ERR_INVALID_STATE
 //
-// MUST run before any other test in this file (or in test_bb_sink_udp.c,
-// whose setup_sink() calls bb_udp_client_init()) — s_initialized is a
+// MUST run before any other test in this file — s_initialized is a
 // file-scope static in the host backend with no reset hook (by design: init
 // is a one-time boot action). Registered first in test_main.c's RUN_TEST
 // order for this module.

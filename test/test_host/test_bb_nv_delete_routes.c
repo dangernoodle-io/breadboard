@@ -215,15 +215,15 @@ void test_nvs_delete_ns_string_with_key_clears_key_returns_200(void)
 void test_nvs_delete_ns_array_clears_each_returns_200(void)
 {
     bb_nv_host_str_store_reset();
-    bb_nv_set_str("bb_mqtt",      "broker",  "mqtt://example.com");
-    bb_nv_set_str("bb_sink_http", "base",    "https://example.com");
-    bb_nv_set_str(BB_PUB_NVS_NS,  BB_PUB_NVS_KEY_ENABLED, "1");
+    bb_nv_set_str("bb_mqtt", "broker",  "mqtt://example.com");
+    bb_nv_set_str("bb_scratch_a", "base",    "https://example.com");
+    bb_nv_set_str("bb_scratch_b", "enabled", "1");
     TEST_ASSERT_TRUE(bb_nv_exists("bb_mqtt",      "broker"));
-    TEST_ASSERT_TRUE(bb_nv_exists("bb_sink_http", "base"));
-    TEST_ASSERT_TRUE(bb_nv_exists(BB_PUB_NVS_NS,   BB_PUB_NVS_KEY_ENABLED));
+    TEST_ASSERT_TRUE(bb_nv_exists("bb_scratch_a", "base"));
+    TEST_ASSERT_TRUE(bb_nv_exists("bb_scratch_b", "enabled"));
 
     bb_http_host_capture_t cap = run_handler_body(
-        "{\"namespace\":[\"bb_mqtt\",\"bb_sink_http\",\"bb_pub\"],\"confirm\":true}");
+        "{\"namespace\":[\"bb_mqtt\",\"bb_scratch_a\",\"bb_scratch_b\"],\"confirm\":true}");
     TEST_ASSERT_EQUAL_INT(200, cap.status);
     TEST_ASSERT_NOT_NULL(cap.body);
 
@@ -236,8 +236,8 @@ void test_nvs_delete_ns_array_clears_each_returns_200(void)
     cJSON_Delete(j);
 
     TEST_ASSERT_FALSE(bb_nv_exists("bb_mqtt",      "broker"));
-    TEST_ASSERT_FALSE(bb_nv_exists("bb_sink_http", "base"));
-    TEST_ASSERT_FALSE(bb_nv_exists(BB_PUB_NVS_NS,   BB_PUB_NVS_KEY_ENABLED));
+    TEST_ASSERT_FALSE(bb_nv_exists("bb_scratch_a", "base"));
+    TEST_ASSERT_FALSE(bb_nv_exists("bb_scratch_b", "enabled"));
     bb_http_host_capture_free(&cap);
 }
 
@@ -299,7 +299,7 @@ void test_nvs_delete_key_with_array_ns_returns_400(void)
 {
     bb_nv_host_str_store_reset();
     bb_http_host_capture_t cap = run_handler_body(
-        "{\"namespace\":[\"bb_mqtt\",\"bb_pub\"],\"key\":\"broker\",\"confirm\":true}");
+        "{\"namespace\":[\"bb_mqtt\",\"bb_scratch_a\"],\"key\":\"broker\",\"confirm\":true}");
     TEST_ASSERT_EQUAL_INT(400, cap.status);
     bb_http_host_capture_free(&cap);
 }

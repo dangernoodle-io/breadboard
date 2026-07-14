@@ -6,22 +6,14 @@
 // reading/writing under a new, empty key on next boot).
 // Companion to bb_nv_namespaces.h (namespace strings).
 
-// bb_sink_http (components/bb_sink_http, bb_sink_http_telemetry)
-#define BB_NV_KEY_HEADERS     "headers"
-#define BB_NV_KEY_PATH_TMPL   "path_tmpl"
-
-// bb_mqtt_client / bb_sink_http shared (client identifier sent to broker/endpoint)
+// bb_mqtt_client (client identifier sent to the broker)
 #define BB_NV_KEY_CLIENT_ID   "client_id"
 
-// bb_tls_creds (TLS credential PEM blobs; consumed by bb_mqtt_client and bb_sink_http
-// under their respective namespaces)
+// bb_tls_creds (TLS credential PEM blobs; consumed by bb_mqtt_client under
+// its namespace)
 #define BB_NV_KEY_TLS_CA      "tls_ca"
 #define BB_NV_KEY_TLS_CERT    "tls_cert"
 #define BB_NV_KEY_TLS_KEY     "tls_key"
-
-// bb_pub (components/bb_pub)
-#define BB_PUB_NVS_KEY_INTERVAL "interval_ms"
-#define BB_PUB_NVS_KEY_ENABLED  "enabled"
 
 // bb_net_health egress-recovery ACT gate (components/bb_net_health, B1-518
 // PR4; namespace BB_NET_HEALTH_EGRESS_ACT_NVS_NS). The reboot-rate-limit

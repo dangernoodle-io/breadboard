@@ -1,4 +1,4 @@
-// Tests for bb_fan_emit — single JSON builder shared by REST + bb_pub.
+// Tests for bb_fan_emit — single JSON builder used by REST responses.
 // Verifies: all 4 fields emitted as numbers when valid, null when unavailable.
 #include "unity.h"
 #include "bb_fan.h"

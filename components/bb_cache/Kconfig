@@ -59,8 +59,8 @@ config BB_CACHE_SWEEP_WORKER_STACK
         bb_cache_reactive is enabled) fire_on_remove -> an ARBITRARY
         consumer-supplied on_remove callback -- the depth of that last hop
         is not something bb_cache controls or can bound. 8192 matches
-        bb_pub's TLS-tier worker stack (the codebase's existing precedent
-        for a callback chain of unknown depth) rather than the ESP-IDF
+        the house precedent for a TLS-tier background worker stack (a
+        callback chain of unknown depth) rather than the ESP-IDF
         pthread default (~3072 bytes) the sweep used before this
         firmware-review fix, which was unsafe once the sweep became live.
 
@@ -71,9 +71,9 @@ config BB_CACHE_SWEEP_WORKER_PRIORITY
     depends on BB_CACHE_SWEEP_ENABLE
     help
         FreeRTOS task priority for the sweep worker. Default 1 (lowest
-        application priority) matches bb_pub's worker default -- background
-        housekeeping should not compete with time-sensitive application
-        tasks.
+        application priority) matches the house background-worker default --
+        background housekeeping should not compete with time-sensitive
+        application tasks.
 
 config BB_CACHE_SWEEP_WORKER_CORE
     int "bb_cache eviction sweep worker task core affinity"

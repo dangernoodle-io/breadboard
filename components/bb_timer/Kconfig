@@ -14,8 +14,8 @@ config BB_TIMER_DISP_PRIORITY
     range 1 20
     help
         FreeRTOS priority for the bb_timer_disp task. Default 5: above
-        bb_pub worker (1) and bb_event_disp (5, equal), below the
-        esp_timer service task (~22).
+        background worker tasks (1) and equal to bb_event_disp (5), below
+        the esp_timer service task (~22).
 
 config BB_TIMER_DISP_CORE
     int "Shared dispatcher task core affinity (-1 = no affinity)"

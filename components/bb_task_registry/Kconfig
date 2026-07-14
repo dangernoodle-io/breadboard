@@ -6,7 +6,7 @@ config BB_TASK_REGISTRY_MAX
     range 1 64
     help
         Capacity of the diagnostic task registry consumed by
-        GET /api/diag/tasks and the "rtos" bb_pub telemetry source. Every
+        GET /api/diag/tasks and the "rtos" telemetry source. Every
         self-registering task-creation site registers here (best-effort); a
         full registry logs a warning and does NOT fail task creation. Must be
         <= BB_REGISTRY_SNAPSHOT_MAX (64). Also sizes the sw-watchdog

@@ -1259,9 +1259,9 @@ static void sweep_cb(const char *key, void *ctx)
 #if BB_CACHE_SWEEP_ENABLE
 
 // Worker task stack in bytes. Tunable via CONFIG_BB_CACHE_SWEEP_WORKER_STACK
-// (Kconfig, default 8192). Sized generously (matches bb_pub's TLS-tier
-// worker stack -- see bb_pub_espidf.c) because sweep_cb()'s call chain is
-// consumer-controlled at its far end: sweep_cb -> evict_if_aged_out_locked
+// (Kconfig, default 8192). Sized generously for a TLS-capable worker stack,
+// because sweep_cb()'s call chain is consumer-controlled at its far end:
+// sweep_cb -> evict_if_aged_out_locked
 // -> bb_cache_delete_if_generation -> the evict-notify hook -> (when
 // bb_cache_reactive is enabled) fire_on_remove -> an ARBITRARY
 // consumer-supplied on_remove callback. bb_cache has no way to bound that
@@ -1276,7 +1276,7 @@ static void sweep_cb(const char *key, void *ctx)
 #endif
 
 // Worker task priority. Tunable via CONFIG_BB_CACHE_SWEEP_WORKER_PRIORITY
-// (Kconfig). Default 1 (lowest app priority), matching bb_pub's worker.
+// (Kconfig). Default 1 (lowest app priority).
 #ifndef BB_CACHE_SWEEP_WORKER_PRIORITY
 #  if defined(CONFIG_BB_CACHE_SWEEP_WORKER_PRIORITY)
 #    define BB_CACHE_SWEEP_WORKER_PRIORITY CONFIG_BB_CACHE_SWEEP_WORKER_PRIORITY
@@ -1305,8 +1305,7 @@ static void sweep_work_fn(void *arg)
 
 // pre_http registry hook (B1-592 lifecycle follow-up, firmware-review fix:
 // replaces a raw pthread_create() + manual usleep() loop with the house
-// bb_timer_worker pattern -- mirrors bb_pub_start()
-// (platform/espidf/bb_pub/bb_pub_espidf.c) exactly: a dedicated worker task
+// bb_timer_worker pattern: a dedicated worker task
 // created via bb_timer_worker_periodic_create, sized/named/prioritized
 // explicitly instead of inheriting the ESP-IDF pthread default. This file is
 // shared verbatim with the host build (see platform/host/bb_cache/

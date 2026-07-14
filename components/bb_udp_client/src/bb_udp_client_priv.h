@@ -11,8 +11,7 @@ extern "C" {
 #endif
 
 // ---------------------------------------------------------------------------
-// Kconfig bridge (canonical two-step pattern; see bb_clock.h / bb_net_health.h,
-// and the bb_sink_udp precedent this component was extracted from).
+// Kconfig bridge (canonical two-step pattern; see bb_clock.h / bb_net_health.h).
 // On ESP-IDF, Kconfig generates CONFIG_BB_UDP_* symbols. Bridge them to the
 // resolved BB_UDP_CLIENT_* macros here so both backends (host, espidf) read
 // one already-resolved definition instead of each re-deriving its own ad-hoc

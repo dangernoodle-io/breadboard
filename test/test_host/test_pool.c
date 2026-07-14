@@ -1222,7 +1222,7 @@ void test_pool_slots_on_destroy_null_is_safe_noop(void)
 {
     // No on_destroy configured: bb_pool_destroy must behave exactly as
     // before (backward-compat for every existing SLOTS consumer, e.g.
-    // bb_pub's ring pool).
+    // bb_event_routes' SSE ring pool).
     bb_pool_cfg_t cfg = {
         .mode           = BB_POOL_MODE_SLOTS,
         .capacity       = 2,

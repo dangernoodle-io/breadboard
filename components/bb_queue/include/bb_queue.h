@@ -24,8 +24,8 @@
 // caller can always pre-truncate and push a shorter entry.
 //
 // Thread-safety: bb_queue is NOT internally locked. The caller is responsible
-// for serialising access. (bb_pub holds its tick lock; FreeRTOS consumers
-// should wrap operations in a mutex.)
+// for serialising access (FreeRTOS consumers should wrap operations in a
+// mutex).
 //
 // SPIRAM allocation: on ESP-IDF, register the platform/espidf/bb_queue_espidf
 // component (via EXTRA_COMPONENT_DIRS) — it installs a SPIRAM-preferred

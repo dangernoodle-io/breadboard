@@ -276,11 +276,6 @@
       "type": "component"
     },
     {
-      "id": "bb_mqtt_telemetry",
-      "path": "components/bb_mqtt_telemetry",
-      "type": "component"
-    },
-    {
       "id": "bb_net_health",
       "path": "components/bb_net_health",
       "type": "component"
@@ -371,26 +366,6 @@
       "type": "component"
     },
     {
-      "id": "bb_pub",
-      "path": "components/bb_pub",
-      "type": "component"
-    },
-    {
-      "id": "bb_pub_info",
-      "path": "components/bb_pub_info",
-      "type": "component"
-    },
-    {
-      "id": "bb_pub_rtos",
-      "path": "components/bb_pub_rtos",
-      "type": "component"
-    },
-    {
-      "id": "bb_pub_telemetry",
-      "path": "components/bb_pub_telemetry",
-      "type": "component"
-    },
-    {
       "id": "bb_queue",
       "path": "components/bb_queue",
       "type": "component"
@@ -441,31 +416,6 @@
       "type": "component"
     },
     {
-      "id": "bb_sink_http",
-      "path": "components/bb_sink_http",
-      "type": "component"
-    },
-    {
-      "id": "bb_sink_http_telemetry",
-      "path": "components/bb_sink_http_telemetry",
-      "type": "component"
-    },
-    {
-      "id": "bb_sink_mqtt",
-      "path": "components/bb_sink_mqtt",
-      "type": "component"
-    },
-    {
-      "id": "bb_sink_udp",
-      "path": "components/bb_sink_udp",
-      "type": "component"
-    },
-    {
-      "id": "bb_sink_ws",
-      "path": "components/bb_sink_ws",
-      "type": "component"
-    },
-    {
       "id": "bb_sse_writer",
       "path": "components/bb_sse_writer",
       "type": "component"
@@ -513,11 +463,6 @@
     {
       "id": "bb_tcp_client",
       "path": "components/bb_tcp_client",
-      "type": "component"
-    },
-    {
-      "id": "bb_telemetry",
-      "path": "components/bb_telemetry",
       "type": "component"
     },
     {

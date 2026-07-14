@@ -15,7 +15,7 @@ config BB_HTTP_TLS_ENABLE
     bool "Enable TLS for the HTTP sink"
     default n
     help
-        Opt-in TLS for the HTTP telemetry sink (bb_sink_http).  Default
+        Opt-in TLS for the HTTP telemetry sink.  Default
         OFF for the smallest firmware footprint; the OTA/update-check
         HTTPS path (esp_http_client crt-bundle) is independent of this
         gate.  When OFF, the bb_tls_creds resolve and ca/cert/key

@@ -9,9 +9,9 @@
 //   - WiFi STA has obtained an IP address
 //   - The running OTA slot is validated (lenient: true unless PENDING_VERIFY)
 //
-// Uses bb_board_get_info().ota_validated (lenient != PENDING_VERIFY) — the
-// same source bb_pub_info reports its ota_validated field from — so health.ok
-// and the reported validated state can never disagree.  bb_ota_is_validated() is
+// Uses bb_board_get_info().ota_validated (lenient != PENDING_VERIFY) as the
+// single source of truth — so health.ok and the reported validated state can
+// never disagree.  bb_ota_is_validated() is
 // intentionally NOT used here: its strict (== ESP_OTA_IMG_VALID) semantics
 // serve the OTA rollback/retry logic (bb_wifi.c retry loop) and would
 // cause health.ok=false on non-rollback / direct-flash / UNDEFINED builds

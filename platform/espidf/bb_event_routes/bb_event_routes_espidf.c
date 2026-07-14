@@ -454,8 +454,8 @@ static void sse_pool_reclaim_work_fn(void *arg)
 
 #endif // !CONFIG_BB_EVENT_ROUTES_POOL_STATIC
 
-// B1-492: self-registers at PRE_HTTP tier (mirrors bb_pub_start()) so
-// bb_event_routes_register_routes_init (REGULAR tier, below) stays pure
+// B1-492: self-registers at PRE_HTTP tier (the house worker-start pattern)
+// so bb_event_routes_register_routes_init (REGULAR tier, below) stays pure
 // httpd route-attach with no timer/task creation. State-init + timer-create
 // + timer-arm only — see the file-header comment above for why the timer
 // itself must defer its work off the esp_timer service task.
@@ -466,8 +466,8 @@ bb_err_t bb_event_routes_start(void)
     // create a timer that would just spin doing nothing every tick.
     return BB_OK;
 #else
-    // Idempotent: unlike bb_pub_start()'s fully-static, single-caller
-    // pattern, this is a public function an external caller could invoke
+    // Idempotent: unlike the house worker-start pattern's fully-static,
+    // single-caller shape, this is a public function an external caller could invoke
     // more than once. A second call while the reclaim timer is already
     // armed must not create/arm a duplicate timer.
     if (s_sse_reclaim_timer != NULL) {

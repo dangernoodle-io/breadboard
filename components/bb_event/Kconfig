@@ -27,11 +27,8 @@ config BB_EVENT_MAX_PAYLOAD
         Maximum size of event payload data. Set to 0 if events
         contain only metadata.
 
-        PSRAM-axis DERIVE (TA-517): default 1024 on SPIRAM boards so the
-        event queue can carry a full BB_PUB_TELEM_SERIALIZE_MAX payload
-        (also 1024 on SPIRAM) without truncation.  On no-PSRAM boards the
-        default is 512, matching BB_PUB_TELEM_SERIALIZE_MAX on those boards.
-        A compile-time static_assert in bb_event_common.c enforces the
-        invariant: BB_EVENT_MAX_PAYLOAD >= BB_PUB_TELEM_SERIALIZE_MAX.
+        PSRAM-axis DERIVE (TA-517): default 1024 on SPIRAM boards, 512 on
+        no-PSRAM boards, sized to carry a full telemetry-scale serialized
+        payload without truncation.
 
 endmenu

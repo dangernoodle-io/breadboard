@@ -380,20 +380,14 @@ void test_nv_ssot_namespace_values_are_byte_identical(void)
 {
     TEST_ASSERT_EQUAL_STRING("bb_cfg",       BB_NV_CONFIG_NVS_NS);
     TEST_ASSERT_EQUAL_STRING("bb_mqtt",      BB_MQTT_NVS_NS);
-    TEST_ASSERT_EQUAL_STRING("bb_sink_http", BB_SINK_HTTP_NVS_NS);
-    TEST_ASSERT_EQUAL_STRING("bb_pub",       BB_PUB_NVS_NS);
 }
 
 void test_nv_ssot_key_values_are_byte_identical(void)
 {
-    TEST_ASSERT_EQUAL_STRING("headers",     BB_NV_KEY_HEADERS);
-    TEST_ASSERT_EQUAL_STRING("path_tmpl",   BB_NV_KEY_PATH_TMPL);
     TEST_ASSERT_EQUAL_STRING("client_id",   BB_NV_KEY_CLIENT_ID);
     TEST_ASSERT_EQUAL_STRING("tls_ca",      BB_NV_KEY_TLS_CA);
     TEST_ASSERT_EQUAL_STRING("tls_cert",    BB_NV_KEY_TLS_CERT);
     TEST_ASSERT_EQUAL_STRING("tls_key",     BB_NV_KEY_TLS_KEY);
-    TEST_ASSERT_EQUAL_STRING("interval_ms", BB_PUB_NVS_KEY_INTERVAL);
-    TEST_ASSERT_EQUAL_STRING("enabled",     BB_PUB_NVS_KEY_ENABLED);
 }
 
 // ---------------------------------------------------------------------------

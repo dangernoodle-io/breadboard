@@ -19,11 +19,6 @@
       "id": "bb_fan:bb_fan_poll:pct",
       "path": "platform/host/bb_fan/bb_fan.c",
       "type": "clamp"
-    },
-    {
-      "id": "bb_sink_http_telemetry:httppub_section_patch:qos",
-      "path": "platform/host/bb_sink_http_telemetry/bb_sink_http_telemetry_host.c",
-      "type": "clamp"
     }
   ]
 }

@@ -116,7 +116,7 @@ void bb_fan_set_autofan_persist_cb(
 #endif /* CONFIG_BB_FAN_AUTOFAN */
 
 // ---------------------------------------------------------------------------
-// JSON serializer — single builder shared by REST + bb_pub emitters.
+// JSON serializer — single builder used by REST responses.
 // Emits rpm/duty_pct/die_c/board_c (null when unavailable).
 // When CONFIG_BB_FAN_AUTOFAN: also emits die_ema_c/vr_ema_c/pid_input_c/pid_input_src.
 // ---------------------------------------------------------------------------

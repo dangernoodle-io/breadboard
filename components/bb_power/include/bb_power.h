@@ -41,7 +41,7 @@ void bb_power_set_primary(bb_power_handle_t h);
 bb_power_handle_t bb_power_primary(void);
 
 // ---------------------------------------------------------------------------
-// JSON serializer — single builder used by all emitters (REST + bb_pub).
+// JSON serializer — single builder used by REST responses.
 // ---------------------------------------------------------------------------
 
 /**

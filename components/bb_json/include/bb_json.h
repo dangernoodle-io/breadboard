@@ -126,8 +126,8 @@ void bb_json_walk_children(bb_json_t parent, void (*cb)(const char *key, bb_json
 // Envelope split — pure byte-range scan, no tree parse
 // ---------------------------------------------------------------------------
 
-// Split a {"ts_ms":<n>,"data":{...}} envelope (the bb_cache/bb_pub wire
-// shape — see bb_cache.h) into its two byte ranges, WITHOUT building a JSON
+// Split a {"ts_ms":<n>,"data":{...}} envelope (the bb_cache wire shape —
+// see bb_cache.h) into its two byte ranges, WITHOUT building a JSON
 // tree: locates the "ts_ms" numeric value and the "data" object (brace-depth
 // balanced) directly in the raw payload bytes. Callers that only need to
 // re-frame an already-serialized envelope (e.g. hoisting ts_ms/data to a

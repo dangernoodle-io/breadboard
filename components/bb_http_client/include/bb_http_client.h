@@ -133,9 +133,10 @@ bb_err_t bb_http_client_post(const char *url,
 // The connection is established lazily on the first bb_http_client_session_post
 // call and reused across subsequent posts — no new socket per call.
 //
-// Typical use: one session per telemetry sink (bb_sink_http), opened once and
-// kept alive for the module lifetime.  On transport error, the handle remains
-// valid; the next post attempt will reconnect automatically.
+// Typical use: one session per consumer (e.g. bb_ota_pull, bb_ota_check),
+// opened once and kept alive for the module lifetime.  On transport error,
+// the handle remains valid; the next post attempt will reconnect
+// automatically.
 //
 // cfg may be NULL to use defaults.  TLS fields in cfg (ca_cert_pem,
 // client_cert_pem, client_key_pem) are read once at session_open time and

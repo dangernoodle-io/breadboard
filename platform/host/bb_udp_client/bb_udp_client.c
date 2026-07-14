@@ -2,9 +2,8 @@
 // handed to bb_udp_client_send() into a small ring so host tests can assert
 // on what would have been sent, per ouroboros KB#551 (host-testable seam;
 // the real socket path lives in platform/espidf/bb_udp_client/bb_udp_client.c
-// and is exercised via smoke build). Extracted from bb_sink_udp's host
-// backend (KB#702/#710) — this capture buffer has no framing knowledge; it
-// just stores whatever bytes the caller sent.
+// and is exercised via smoke build). This capture buffer has no framing
+// knowledge; it just stores whatever bytes the caller sent.
 #include "bb_udp_client.h"
 #include "bb_udp_client_priv.h"
 

@@ -7,8 +7,7 @@
 //
 // EARLY-tier self-registration: reads NVS "bb_mqtt" namespace for
 // uri/client_id/username/password/enabled and connects when enabled=1.
-// The handle lives for the app lifetime; telemetry init wires it as a
-// bb_pub sink at PRE_HTTP time (register-on-enable, B1-289).
+// The handle lives for the app lifetime (register-on-enable, B1-289).
 //
 // Deferred start: esp_mqtt_client_start() is NOT called until the station
 // has an IP address.  bb_mqtt_client_init subscribes to the wifi.net bb_event
@@ -690,17 +689,13 @@ bb_err_t bb_mqtt_client_stop(bb_mqtt_client_t *handle_p)
 // address.  Any sink that captured the old pointer value holds a use-after-free
 // reference after suspend (B1-296).
 //
-// The telemetry autoregister uses bb_sink_mqtt_default() (NOT bb_sink_mqtt())
-// as the bb_pub sink.  bb_sink_mqtt_default() resolves bb_mqtt_client_default() on
-// every publish call rather than caching the pointer at boot.  This means:
+// Callers SHOULD resolve bb_mqtt_client_default() fresh on every publish
+// call rather than caching the pointer at boot.  This means:
 //
 //  - During the suspend window (s_auto_client == NULL), bb_mqtt_client_publish()
 //    receives NULL and returns BB_ERR_INVALID_ARG — a clean no-op.
-//  - After resume the sink automatically targets the new handle; no
-//    re-registration is needed.
-//  - Callers SHOULD still bracket suspend/resume with bb_pub_pause()/
-//    bb_pub_resume() to avoid unnecessary publish attempts during the window,
-//    but even without the pause the dynamic sink is safe (no crash).
+//  - After resume, a caller resolving the handle fresh each time
+//    automatically targets the new handle; no re-registration is needed.
 //
 // bb_mqtt_client_default() returns s_auto_client (NULL when destroyed, non-NULL when
 // live).  Callers that snapshot the return value must treat NULL as "suspended".
@@ -772,8 +767,8 @@ bb_err_t bb_mqtt_client_autoregister_init(void)
 }
 
 // bb_mqtt_client_stop_default — stop and destroy the auto-registered client.
-// Called by bb_mqtt_telemetry_init when MQTT loses the exclusive-sink slot
-// at boot (B1-289: loser teardown without reboot).
+// Called when MQTT loses the exclusive-sink slot at boot (B1-289: loser
+// teardown without reboot).
 // Idempotent: safe to call when s_auto_client is already NULL.
 bb_err_t bb_mqtt_client_stop_default(void)
 {
@@ -805,12 +800,11 @@ bb_err_t bb_mqtt_client_stop_default(void)
 // Contrast with bb_mqtt_client_stop_default() which is a permanent disable (never
 // resumed).  suspend/resume is a transient bracket.
 //
-// CALLER CONTRACT: the caller MUST pause publishing (bb_pub_pause) before
-// calling suspend and resume publishing (bb_pub_resume) after resume, so that
-// no bb_pub tick fires during the suspended window.  In full-release mode
-// s_auto_client is NULL so bb_sink_mqtt returns BB_ERR_INVALID_ARG cleanly;
-// in stop-only mode s_auto_client is non-NULL but the client is stopped so
-// publish attempts queue in esp-mqtt's outbox (may be dropped on queue-full).
+// CALLER CONTRACT: callers MUST NOT publish during the suspended window. In
+// full-release mode s_auto_client is NULL so bb_mqtt_client_publish() returns
+// BB_ERR_INVALID_ARG cleanly; in stop-only mode s_auto_client is non-NULL but
+// the client is stopped so publish attempts queue in esp-mqtt's outbox (may
+// be dropped on queue-full).
 //
 // Idempotent: no-op + BB_OK if already suspended.
 static bool s_suspended = false;   // tracks whether we are in a suspend window

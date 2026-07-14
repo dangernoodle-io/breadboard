@@ -1,8 +1,8 @@
 // bb_response — reusable named-section registry.
 //
-// Generalized from bb_telemetry's section pattern.  Each endpoint owns a
-// file-scope bb_response_registry_t instead of a global singleton, so multiple
-// endpoints can each have their own independent registry.
+// Each endpoint owns a file-scope bb_response_registry_t instead of a global
+// singleton, so multiple endpoints can each have their own independent
+// registry.
 //
 // Portable header — no esp_/cJSON/nvs_ includes.
 #pragma once

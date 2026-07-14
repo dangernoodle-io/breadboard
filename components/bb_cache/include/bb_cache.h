@@ -315,8 +315,7 @@ bb_err_t bb_cache_post(const char *key);
 bb_err_t bb_cache_serialize_into(const char *key, bb_json_t obj);
 
 // Post a pre-serialized payload to the key's SSE event channel.
-// Use this when the caller has ALREADY serialized the snapshot (e.g. the
-// bb_pub sampler serializes once for both SSE and sinks).  Avoids the
+// Use this when the caller has ALREADY serialized the snapshot. Avoids the
 // extra serialize call that bb_cache_post would perform.
 // Returns BB_ERR_INVALID_STATE when the key has no SSE event topic.
 // Returns BB_ERR_NOT_FOUND if the key is not registered.
@@ -337,9 +336,8 @@ bb_err_t bb_cache_post_serialized(const char *key, const char *json, size_t json
 // caller only ever touches its own buffer. A concurrent bb_cache_update() +
 // re-serialize (which frees the entry's internal buffer) can never corrupt an
 // in-flight reader, because no caller holds the cache-owned pointer past the
-// lock. Size the buffer to the cache's max payload (e.g. the bb_pub worker
-// uses CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES); REST handlers use a comparable
-// stack/heap buffer.
+// lock. Size the buffer to the cache's max payload; REST handlers use a
+// comparable stack/heap buffer.
 //
 // For getter-mode entries (registered with a non-NULL snapshot getter), the
 // cache has no dirty signal, so the serializer runs on every call (the data
@@ -483,7 +481,7 @@ bb_err_t bb_cache_is_stale(const char *key, bool *out_stale);
 // under the hood) that evicts entries past evict_age_ms even when nothing
 // reads them (LAZY eviction only fires on a read) is started via the
 // pre_http registry hook below when CONFIG_BB_CACHE_SWEEP_ENABLE=y (Kconfig,
-// default n) -- mirroring bb_pub_start(). There is no public start call:
+// default n) -- mirroring the house worker-start pattern. There is no public start call:
 // the Kconfig knob is the only control (registration-gated, container-
 // invoked). See platform/espidf/bb_cache/bb_cache_espidf.c.
 

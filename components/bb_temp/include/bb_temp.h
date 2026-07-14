@@ -40,7 +40,7 @@ bool bb_temp_read_soc(float *out_celsius);
  *   { "present": true,  "soc_c": <rounded-1dp> }  when sensor available
  *   { "present": false }                            when absent
  * SSOT formatter — called by bb_temp_register_info's get_fn and by any
- * future bb_pub source. Reads live; does NOT poll.
+ * future telemetry source. Reads live; does NOT poll.
  */
 void bb_temp_emit_section(bb_json_t obj);
 
