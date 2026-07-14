@@ -153,6 +153,15 @@ typedef struct {
     bb_err_t (*erase)(void *impl, const bb_storage_addr_t *addr);
     bool     (*exists)(void *impl, const bb_storage_addr_t *addr);
 
+    // Optional (single member, not a pair/group) — NULL means the backend
+    // does not support namespace-level erase. bb_storage_erase_namespace()
+    // returns BB_ERR_UNSUPPORTED for that backend rather than silently
+    // no-op'ing a destructive request: unlike get_typed/set_typed (which
+    // fall back to blob semantics) there is no safe generic way to
+    // enumerate and erase every key under ns_or_dir without a backend-native
+    // "erase all" op, so no fallback is offered here either.
+    bb_err_t (*erase_namespace)(void *impl, const char *ns_or_dir);
+
     // Optional pair — both NULL or both set (validated at registration).
     bb_err_t (*get_typed)(void *impl, const bb_storage_addr_t *addr, bb_storage_enc_t enc,
                            void *buf, size_t cap, size_t *out_len);
@@ -221,6 +230,17 @@ bb_err_t bb_storage_set(const bb_storage_addr_t *addr, const void *buf, size_t l
 //   BB_ERR_INVALID_ARG    addr or addr->backend is NULL
 //   BB_ERR_NOT_FOUND      no backend registered for addr->backend
 bb_err_t bb_storage_erase(const bb_storage_addr_t *addr);
+
+// Erase every key stored under `ns_or_dir` on `backend`. Idempotent — a
+// namespace with nothing stored is not an error.
+// Returns:
+//   BB_OK                 erased (or already empty)
+//   BB_ERR_INVALID_ARG    backend or ns_or_dir is NULL
+//   BB_ERR_NOT_FOUND      no backend registered under `backend`
+//   BB_ERR_UNSUPPORTED    the backend does not implement namespace-level
+//                         erase (vtable erase_namespace is NULL) — never a
+//                         silent no-op on a destructive request
+bb_err_t bb_storage_erase_namespace(const char *backend, const char *ns_or_dir);
 
 // Returns true iff a value is currently stored at addr. false for a NULL
 // addr, a NULL addr->backend, or an unknown backend name — never a crash.

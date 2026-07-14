@@ -901,17 +901,17 @@
       "type": "uncovered_line"
     },
     {
-      "id": "246",
+      "id": "264",
       "path": "platform/host/bb_storage/bb_storage.c",
       "type": "uncovered_line"
     },
     {
-      "id": "307",
+      "id": "325",
       "path": "platform/host/bb_storage/bb_storage.c",
       "type": "uncovered_line"
     },
     {
-      "id": "313",
+      "id": "331",
       "path": "platform/host/bb_storage/bb_storage.c",
       "type": "uncovered_line"
     },

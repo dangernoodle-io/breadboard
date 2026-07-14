@@ -12,7 +12,6 @@
 #include "bb_nv.h"
 #include "bb_nv_namespaces.h"
 #include "bb_nv_keys.h"
-#include "bb_nv_delete_routes.h"
 #include "bb_ntp.h"
 #include "bb_ota_validator.h"
 #include "bb_system.h"
@@ -968,10 +967,6 @@ bb_err_t bb_diag_routes_init(bb_http_handle_t server)
 #endif
 
     err = bb_http_register_described_route(server, &s_sockets_get_route);
-    if (err != BB_OK) return err;
-
-    /* B1-290: NVS delete route — single DELETE /api/nvs with JSON body. */
-    err = bb_nv_delete_routes_init(server);
     if (err != BB_OK) return err;
 
     // Latch the reboot-reason SSOT once, before the first diag_boot_publish().

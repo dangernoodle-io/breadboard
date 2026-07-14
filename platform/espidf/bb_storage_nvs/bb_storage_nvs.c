@@ -890,6 +890,27 @@ static bb_err_t nvs_vt_erase(void *impl, const bb_storage_addr_t *addr)
     return err;
 }
 
+// Generic blob-shaped erase_namespace hook — thin forward to the typed
+// bb_storage_nvs_erase_namespace() above (same "namespace doesn't exist yet
+// == already clean" contract). addr is unused: ns_or_dir is passed directly
+// by the facade (bb_storage.h's erase_namespace vtable member takes
+// ns_or_dir, not a full addr, since there is no per-namespace "key").
+//
+// INSPECTION-AND-SMOKE-ONLY, never executed by any test (B1-943 class): this
+// forwarder and the .erase_namespace vtable slot below sit inside
+// #ifdef ESP_PLATFORM; the host build of bb_storage_nvs_register() returns
+// BB_ERR_UNSUPPORTED, so the real "nvs" backend can never register on host,
+// and no test drives bb_storage_erase_namespace("nvs", ns) through this
+// vtable member. A "0 new" coverage report on this file does NOT mean this
+// dispatch path was tested. Do not add a host stub of a *different*
+// implementation to fake coverage here (B1-946) -- this path is only
+// validated on hardware/smoke.
+static bb_err_t nvs_vt_erase_namespace(void *impl, const char *ns_or_dir)
+{
+    (void)impl;
+    return bb_storage_nvs_erase_namespace(ns_or_dir);
+}
+
 static bool nvs_vt_exists(void *impl, const bb_storage_addr_t *addr)
 {
     (void)impl;
@@ -1191,16 +1212,17 @@ static bb_err_t nvs_vt_set_typed(void *impl, const bb_storage_addr_t *addr, bb_s
 // ESP_PLATFORM/host split — see the "Multi-key transactions" comment near
 // the top.
 static const bb_storage_vtable_t s_nvs_vtable = {
-    .get        = nvs_vt_get,
-    .set        = nvs_vt_set,
-    .erase      = nvs_vt_erase,
-    .exists     = nvs_vt_exists,
-    .get_typed  = nvs_vt_get_typed,
-    .set_typed  = nvs_vt_set_typed,
-    .txn_begin  = nvs_txn_begin,
-    .txn_set    = nvs_txn_set,
-    .txn_commit = nvs_txn_commit,
-    .txn_abort  = nvs_txn_abort,
+    .get             = nvs_vt_get,
+    .set             = nvs_vt_set,
+    .erase           = nvs_vt_erase,
+    .exists          = nvs_vt_exists,
+    .erase_namespace = nvs_vt_erase_namespace,  // inspection-and-smoke-only, see nvs_vt_erase_namespace() above
+    .get_typed       = nvs_vt_get_typed,
+    .set_typed       = nvs_vt_set_typed,
+    .txn_begin       = nvs_txn_begin,
+    .txn_set         = nvs_txn_set,
+    .txn_commit      = nvs_txn_commit,
+    .txn_abort       = nvs_txn_abort,
 };
 
 bb_err_t bb_storage_nvs_register(void)

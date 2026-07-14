@@ -135,6 +135,45 @@ void test_bb_storage_erase_unknown_backend_returns_not_found(void)
 }
 
 /* ---------------------------------------------------------------------------
+ * erase_namespace (B1-757): NULL args, unknown backend, and a backend whose
+ * vtable leaves erase_namespace NULL (bb_storage_ram deliberately does, per
+ * the facade's "NULL -> BB_ERR_UNSUPPORTED, never a silent no-op" contract).
+ * The success path (a backend that DOES implement it) is exercised by
+ * test_bb_storage_http_routes.c against its own fake "nvs"/"alt" backends.
+ * ---------------------------------------------------------------------------*/
+void test_bb_storage_erase_namespace_null_backend_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_erase_namespace(NULL, "ns"));
+}
+
+void test_bb_storage_erase_namespace_null_ns_returns_invalid_arg(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, bb_storage_erase_namespace("ram", NULL));
+}
+
+void test_bb_storage_erase_namespace_unknown_backend_returns_not_found(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_storage_erase_namespace("does_not_exist", "ns"));
+}
+
+void test_bb_storage_erase_namespace_ram_backend_returns_unsupported(void)
+{
+    reset_all();
+    bb_storage_ram_register();
+
+    TEST_ASSERT_EQUAL(BB_ERR_UNSUPPORTED, bb_storage_erase_namespace("ram", "ns"));
+}
+
+/* ---------------------------------------------------------------------------
  * missing-key get (backend known, key never set)
  * ---------------------------------------------------------------------------*/
 void test_bb_storage_get_missing_key_returns_not_found(void)

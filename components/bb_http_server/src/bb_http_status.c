@@ -18,6 +18,7 @@ const char *bb_http_status_reason(int status_code)
         case 412: return "412 Precondition Failed";
         case 422: return "422 Unprocessable Entity";
         case 500: return "500 Internal Server Error";
+        case 501: return "501 Not Implemented";
         case 503: return "503 Service Unavailable";
         default:  return NULL;
     }

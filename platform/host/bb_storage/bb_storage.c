@@ -134,6 +134,24 @@ bb_err_t bb_storage_erase(const bb_storage_addr_t *addr)
     return entry->vt.erase(entry->impl, addr);
 }
 
+bb_err_t bb_storage_erase_namespace(const char *backend, const char *ns_or_dir)
+{
+    if (backend == NULL || ns_or_dir == NULL) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    const bb_storage_backend_entry_t *entry = find_backend(backend);
+    if (entry == NULL) {
+        return BB_ERR_NOT_FOUND;
+    }
+
+    if (entry->vt.erase_namespace == NULL) {
+        return BB_ERR_UNSUPPORTED;
+    }
+
+    return entry->vt.erase_namespace(entry->impl, ns_or_dir);
+}
+
 bool bb_storage_exists(const bb_storage_addr_t *addr)
 {
     if (addr == NULL || addr->backend == NULL) {
