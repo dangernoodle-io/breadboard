@@ -251,11 +251,6 @@
       "type": "uncovered_line"
     },
     {
-      "id": "116",
-      "path": "platform/host/bb_http_server/bb_http_host.c",
-      "type": "uncovered_line"
-    },
-    {
       "id": "173",
       "path": "platform/host/bb_http_server/bb_http_host.c",
       "type": "uncovered_line"

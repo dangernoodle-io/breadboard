@@ -109,12 +109,12 @@ bb_err_t bb_http_register_route(bb_http_handle_t server,
 
 bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
 {
-    // Validate against the same SSOT table the espidf backend uses, so an
-    // unsupported code returns BB_ERR_INVALID_ARG on host too — matching device
-    // behaviour and surfacing a missing-code bug in CI instead of masking it.
-    if (!bb_http_status_reason(status_code)) {
-        return BB_ERR_INVALID_ARG;
-    }
+    // Resolve against the SSOT table (B1-954): an untabled code no longer
+    // leaves the status unset — bb_http_status_line falls back to a
+    // numerically-correct generic line (and logs), matching device behaviour.
+    char fallback_buf[24];
+    const char *status_str = bb_http_status_line(status_code, fallback_buf, sizeof(fallback_buf));
+    if (!status_str) return BB_ERR_INVALID_ARG;
 
     capture_slot_t *cap = capture_find(req);
     if (cap) {

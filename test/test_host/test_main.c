@@ -2166,6 +2166,16 @@ void test_coalesce_txt_pointers_survive_source_clobber(void);
 // Forward declarations from test_bb_http_status.c
 void test_bb_http_status_reason_known_codes(void);
 void test_bb_http_status_reason_unknown_returns_null(void);
+void test_bb_http_status_line_known_code_matches_reason(void);
+void test_bb_http_status_line_untabled_code_emits_correct_number(void);
+void test_bb_http_status_line_untabled_null_buf_returns_null(void);
+void test_bb_http_status_line_untabled_zero_len_buf_returns_null(void);
+void test_bb_http_status_line_out_of_range_code_returns_null(void);
+
+// Forward declarations from test_bb_http_resp_set_status.c
+void test_resp_set_status_413_emits_413(void);
+void test_resp_set_status_untabled_code_still_emits_that_code(void);
+void test_resp_set_status_501_still_tabled(void);
 
 // Forward declarations from test_bb_http_query.c
 void test_bb_http_query_token_present_bare(void);
@@ -4881,6 +4891,14 @@ int main(void) {
     // bb_http status-code SSOT table
     RUN_TEST(test_bb_http_status_reason_known_codes);
     RUN_TEST(test_bb_http_status_reason_unknown_returns_null);
+    RUN_TEST(test_bb_http_status_line_known_code_matches_reason);
+    RUN_TEST(test_bb_http_status_line_untabled_code_emits_correct_number);
+    RUN_TEST(test_bb_http_status_line_untabled_null_buf_returns_null);
+    RUN_TEST(test_bb_http_status_line_untabled_zero_len_buf_returns_null);
+    RUN_TEST(test_bb_http_status_line_out_of_range_code_returns_null);
+    RUN_TEST(test_resp_set_status_413_emits_413);
+    RUN_TEST(test_resp_set_status_untabled_code_still_emits_that_code);
+    RUN_TEST(test_resp_set_status_501_still_tabled);
 
     // bb_http query-token scan helper
     RUN_TEST(test_bb_http_query_token_present_bare);

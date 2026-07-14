@@ -540,8 +540,25 @@ bb_err_t bb_http_resp_set_status(bb_http_request_t *req, int status_code)
     if (!http_req) return BB_ERR_INVALID_ARG;
 
     // httpd_resp_set_status stores the pointer (no copy), so the string must
-    // outlive the request — bb_http_status_reason returns a static literal.
-    const char *status_str = bb_http_status_reason(status_code);
+    // outlive the request. bb_http_status_reason returns a static literal for
+    // a tabled code; an untabled code (B1-954) falls back through
+    // bb_http_status_line to a numerically-correct generic line, formatted
+    // into a task-local buffer. Every call site runs on exactly one FreeRTOS
+    // task at a time (the httpd control task pre-handoff, or a single async
+    // handler task post-handoff via bb_http_req_async_handler_begin — e.g.
+    // bb_event_routes SSE), and execution within a task is serial, so a
+    // __thread buffer needs no synchronization and has no wraparound hazard,
+    // unlike a shared pool sized to a guessed constant. __thread is C11 and
+    // supported by ESP-IDF's FreeRTOS port on both Xtensa and RISC-V
+    // (including esp32c3); storage is allocated on every task's own stack —
+    // measured via readelf on both ports: uxInitialiseStackTLS() rounds the
+    // 24-byte variable up to a 32-byte-per-task tax, paid by EVERY task in
+    // the system, including tasks that never touch HTTP. This is currently
+    // the only __thread variable in the tree; a second one anywhere adds to
+    // the same per-task total, so re-run this measurement if one is added.
+    static __thread char s_fallback_buf[24];
+    const char *status_str = bb_http_status_line(status_code, s_fallback_buf,
+                                                  sizeof(s_fallback_buf));
     if (!status_str) return BB_ERR_INVALID_ARG;
     esp_err_t err = httpd_resp_set_status(http_req, status_str);
     return err == ESP_OK ? BB_OK : BB_ERR_INVALID_ARG;
